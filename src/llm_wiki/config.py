@@ -19,14 +19,12 @@ import yaml
 
 DEFAULT_RAW_DIRS = ["03_Resources", "02_Wiki"]
 DEFAULT_WIKI_DIR = ".wiki/distilled"
-SCHEMA_DIR = "schema"
 INTERNAL_DIR = ".wiki"
 
 WIKI_SUBDIRS = ("Extracted", "Synthesized", "Metadata")
 
 INDEX_FILE = "index.md"
 LOG_FILE = "log.md"
-AGENTS_FILE = "AGENTS.md"
 CONFIG_FILE = "config.yml"
 STATE_DB = "state.sqlite"
 
@@ -55,10 +53,6 @@ class WikiPaths:
         return self.root / (self.wiki_dir_override or DEFAULT_WIKI_DIR)
 
     @property
-    def schema(self) -> Path:
-        return self.root / SCHEMA_DIR
-
-    @property
     def internal(self) -> Path:
         return self.root / INTERNAL_DIR
 
@@ -69,10 +63,6 @@ class WikiPaths:
     @property
     def log(self) -> Path:
         return self.wiki / LOG_FILE
-
-    @property
-    def agents(self) -> Path:
-        return self.schema / AGENTS_FILE
 
     @property
     def config_file(self) -> Path:

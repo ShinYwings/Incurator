@@ -23,7 +23,7 @@ You follow these conventions strictly:
 
 1. Wiki pages use YAML frontmatter with these fields:
    - title: "Page Title"
-   - type: source | extracted | synthesized
+   - type: extracted | synthesized | metadata
    - tags: [tag1, tag2]
    - created: YYYY-MM-DD
    - updated: YYYY-MM-DD
@@ -264,7 +264,7 @@ Extracted atomic concepts created/updated from this source:
 {extracted_links}
 
 Write a complete markdown page with:
-1. YAML frontmatter: title, type: source, tags, created: {today}, updated: {today}, file_path, file_type
+1. YAML frontmatter: title, type: metadata, tags, created: {today}, updated: {today}, file_path, file_type
 2. An H1 heading matching the title
 3. A 'Summary' section with the summary paragraph
 4. A 'Key Takeaways' section with the takeaways as bullets

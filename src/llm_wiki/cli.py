@@ -161,7 +161,6 @@ def init(
       .wiki/config.yml   — project configuration
       .wiki/state.sqlite — tracking database
       .wiki/distilled/   — Extracted/, Synthesized/, Metadata/ subdirs
-      schema/AGENTS.md   — LLM conventions document
     """
     import shutil
     import importlib.resources as pkg_resources
@@ -209,7 +208,6 @@ def init(
     paths.wiki.mkdir(parents=True, exist_ok=True)
     for subdir in cfg.WIKI_SUBDIRS:
         (paths.wiki / subdir).mkdir(parents=True, exist_ok=True)
-    paths.schema.mkdir(parents=True, exist_ok=True)
 
     # 3. Write config.yml
     cfg.save_config(paths, config)
@@ -221,12 +219,6 @@ def init(
 
     # 5. Copy template files
     templates_dir = Path(__file__).parent / "templates"
-
-    # AGENTS.md
-    agents_src = templates_dir / "AGENTS.md"
-    if agents_src.exists() and not paths.agents.exists():
-        shutil.copy2(agents_src, paths.agents)
-        _ok(f"Schema:    {paths.agents.relative_to(root)}")
 
     # index.md
     index_src = templates_dir / "index.md"
