@@ -1,14 +1,14 @@
-"""LLM ingest pipeline — the orchestrator for `wiki ingest`.
+"""LLM ingest pipeline — L2 Atoms → L3 Concepts → L4 Synthesis.
+
+Runs after `wiki sync` (which generates L1 Summaries).
 
 Three-pass flow per source:
-    1. EXTRACT — JSON: summary, extracted concepts/entities, takeaways
-    2. DRAFT  — one wiki page per extracted concept (or MERGE if exists)
-    3. SOURCE — the Metadata/<slug>.md summary page
+    Pass 1 (ATOMS)    — extract irreducible facts into 02_Atoms/ATM-*.md
+    Pass 2 (CONCEPTS) — cluster atoms into 03_Concepts/CON-*.md
+    Pass 3 (SYNTHESIS)— build terminal outputs in 04_Synthesis/SYN-*.md
 
-After all passes: index.md is rebuilt and log.md is appended.
-
-Transactional: pages are staged and only committed to wiki/ on success.
-The DB source status flips to 'ingested' only after a full successful run.
+All IDs are UUID-based (ATM-/CON-/SYN-). Pages are transactionally staged
+before commit. DB source status flips to 'ingested' only after full success.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,38 +29,54 @@ from . import db
 from . import page_writer
 from . import parsers
 from . import prompts
-from . import slugify
-from .llm import (
-    LLMError,
-    ModelNotFound,
-    OllamaClient,
-    OllamaNotRunning,
-)
+from .llm import LLMError, OllamaClient
 
 
-MAX_SOURCE_CHARS = 100_000  # ~25K tokens roughly
-EXCERPT_CHARS = 4000        # how much of the source we include in draft prompts
+MAX_SOURCE_CHARS = 100_000
+EXCERPT_CHARS = 4000
 
 
 # ---------------------------------------------------------------------------
-# Pydantic models for Pass 1 JSON validation
+# Data models
 # ---------------------------------------------------------------------------
 
 
-class ExtractedItem(BaseModel):
+class AtomCandidate(BaseModel):
     name: str
-    slug: str
-    type: str = "extracted"
+    type: str = "fact"
+    one_liner: str
+
+
+class SummaryData(BaseModel):
+    title: str
+    domain: str = ""
+    summary: str
+    key_claims: list[str] = Field(default_factory=list)
+    atom_candidates: list[AtomCandidate] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+
+
+class ConceptPlan(BaseModel):
+    name: str
+    domain: str = ""
+    atom_ids: list[str]
     description: str
 
 
-class Extraction(BaseModel):
-    title: str
-    source_slug: str
-    summary: str
-    key_takeaways: list[str] = Field(default_factory=list)
-    extracted: list[ExtractedItem] = Field(default_factory=list)
-    tags: list[str] = Field(default_factory=list)
+class ConceptClusterResult(BaseModel):
+    concepts: list[ConceptPlan] = Field(default_factory=list)
+
+
+class SynthesisPlan(BaseModel):
+    topic: str
+    concept_ids: list[str]
+    confidence: float = 0.7
+    requires_math_rigor: bool = False
+    rationale: str = ""
+
+
+class SynthesisPlanResult(BaseModel):
+    synthesis_plans: list[SynthesisPlan] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -69,19 +86,20 @@ class Extraction(BaseModel):
 
 @dataclass
 class PageChange:
-    slug: str
-    path: str       # relative to wiki root, e.g. 'Extracted/karpathy.md'
-    kind: str       # 'extracted' | 'source'
-    operation: str  # 'created' | 'updated'
+    id: str          # SUM-/ATM-/CON-/SYN- UUID
+    path: str        # relative to .curator/Collections/
+    layer: str       # '01_Summaries' | '02_Atoms' | '03_Concepts' | '04_Synthesis'
+    operation: str   # 'created' | 'updated'
 
 
 @dataclass
 class IngestResult:
     source_id: int
     source_title: str
-    source_slug: str
-    pages_created: int = 0
-    pages_updated: int = 0
+    atoms_created: int = 0
+    atoms_updated: int = 0
+    concepts_created: int = 0
+    synthesis_created: int = 0
     changes: list[PageChange] = field(default_factory=list)
     error: str | None = None
     skipped: bool = False
@@ -90,149 +108,101 @@ class IngestResult:
     def ok(self) -> bool:
         return self.error is None and not self.skipped
 
+    @property
+    def pages_created(self) -> int:
+        return self.atoms_created + self.concepts_created + self.synthesis_created
+
+    @property
+    def pages_updated(self) -> int:
+        return self.atoms_updated
+
 
 # ---------------------------------------------------------------------------
-# Progress callback interface
+# Callbacks
 # ---------------------------------------------------------------------------
 
 
 class IngestCallbacks:
-    """Hooks the CLI provides to render progress during ingest.
-
-    All methods have default no-ops. The CLI subclasses to add rich output.
-    """
-
-    def on_start(self, source_id: int, source_title: str, file_path: str) -> None: ...
-
-    def on_parsing(self) -> None: ...
-
-    def on_extracting(self) -> None: ...
-
-    def on_extracted(self, extraction: Extraction) -> None: ...
-
-    def on_extraction_failed(self, error: str) -> None: ...
-
-    def ask_confirm(self, extraction: Extraction) -> bool:
-        """Interactive confirmation before writing pages. Default: yes."""
+    def on_start(self, source_id: int, source_title: str, summary_id: str) -> None: ...
+    def on_pass1_start(self, atom_count: int) -> None: ...
+    def on_atom_drafting(self, atom_id: str, name: str, operation: str) -> None: ...
+    def on_stream_chunk(self, chunk: str) -> None: ...
+    def on_atom_written(self, change: PageChange) -> None: ...
+    def on_pass2_start(self, atom_count: int) -> None: ...
+    def on_concept_drafting(self, concept_id: str, name: str) -> None: ...
+    def on_concept_written(self, change: PageChange) -> None: ...
+    def on_pass3_start(self, concept_count: int) -> None: ...
+    def on_synthesis_drafting(self, syn_id: str, topic: str) -> None: ...
+    def on_synthesis_written(self, change: PageChange) -> None: ...
+    def on_finalizing(self) -> None: ...
+    def on_complete(self, result: IngestResult) -> None: ...
+    def on_error(self, error: str) -> None: ...
+    def ask_confirm(self, summary: SummaryData) -> bool:
         return True
 
-    def on_drafting_page(self, kind: str, slug: str, operation: str) -> None: ...
-
-    def on_stream_chunk(self, chunk: str) -> None: ...
-
-    def on_page_written(self, page: PageChange) -> None: ...
-
-    def on_finalizing(self) -> None: ...
-
-    def on_complete(self, result: IngestResult) -> None: ...
-
-    def on_error(self, error: str) -> None: ...
-
 
 # ---------------------------------------------------------------------------
-# The pipeline
+# Utilities
 # ---------------------------------------------------------------------------
 
 
-def _extract_json_object(text: str) -> str:
-    """Find the first top-level {...} block in text. Robust to extra prose."""
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _gen_id(prefix: str) -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
+
+
+def _extract_json(text: str) -> str:
     text = text.strip()
-    # Strip possible markdown fences
     if text.startswith("```"):
-        lines = text.split("\n", 1)
-        if len(lines) == 2:
-            text = lines[1]
+        parts = text.split("\n", 1)
+        text = parts[1] if len(parts) == 2 else text
         if text.rstrip().endswith("```"):
             text = text.rsplit("```", 1)[0]
-
     start = text.find("{")
     if start == -1:
         return text
-    # Find matching closing brace
-    depth = 0
-    in_string = False
-    escape = False
+    depth, in_str, escape = 0, False, False
     for i in range(start, len(text)):
         c = text[i]
         if escape:
-            escape = False
-            continue
+            escape = False; continue
         if c == "\\":
-            escape = True
-            continue
+            escape = True; continue
         if c == '"':
-            in_string = not in_string
-            continue
-        if in_string:
+            in_str = not in_str; continue
+        if in_str:
             continue
         if c == "{":
             depth += 1
         elif c == "}":
             depth -= 1
             if depth == 0:
-                return text[start : i + 1]
+                return text[start:i + 1]
     return text[start:]
 
 
-def _parse_extraction(raw: str) -> Extraction:
-    """Parse the JSON from Pass 1, raising ValueError on failure."""
-    json_str = _extract_json_object(raw)
+def _parse_json_model(raw: str, model_class):
+    json_str = _extract_json(raw)
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON from LLM: {e}") from e
+        raise ValueError(f"Invalid JSON: {e}") from e
     try:
-        return Extraction(**data)
+        return model_class(**data)
     except ValidationError as e:
-        raise ValueError(f"JSON didn't match expected schema: {e}") from e
+        raise ValueError(f"Schema mismatch: {e}") from e
 
 
 def _build_excerpt(text: str, max_chars: int = EXCERPT_CHARS) -> str:
-    """Return a trimmed snippet of the source text suitable for draft prompts."""
     if len(text) <= max_chars:
         return text
     return text[:max_chars] + "\n\n[... truncated ...]"
 
 
-def _resolve_slug(
-    name: str,
-    kind: str,
-    paths: cfg.WikiPaths,
-    llm_suggested_slug: str,
-) -> tuple[str, bool]:
-    """Resolve the canonical slug for an entity/concept.
-
-    Returns (slug, exists) where `exists` is True if we're updating an
-    existing page vs creating a new one.
-    """
-    if kind == "entity":
-        search_dirs = [paths.wiki / "Extracted"]
-    else:
-        search_dirs = [paths.wiki / "Synthesized"]
-
-    # Determine entity type for canonical_name (fuzzy match)
-    match_kind = "any"
-    # We don't know if it's person/org here without more signal, so use 'any'
-
-    existing = slugify.find_existing_slug(name, kind=match_kind, search_dirs=search_dirs)
-    if existing:
-        return existing, True
-
-    # No existing match — sanitize the LLM's suggestion
-    raw_slug = llm_suggested_slug or name
-    clean = slugify.slugify(raw_slug)
-    if not clean:
-        clean = slugify.slugify(name) or "untitled"
-    return clean, False
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def _mark_source_status(
-    paths: cfg.WikiPaths, source_id: int, status: str, last_ingested: str | None = None
-) -> None:
+def _mark_source_status(paths, source_id, status, last_ingested=None):
     with db.connect(paths.state_db) as conn:
         if last_ingested:
             conn.execute(
@@ -240,63 +210,502 @@ def _mark_source_status(
                 (status, last_ingested, source_id),
             )
         else:
-            conn.execute(
-                "UPDATE sources SET status = ? WHERE id = ?", (status, source_id)
-            )
+            conn.execute("UPDATE sources SET status = ? WHERE id = ?", (status, source_id))
 
 
-def _record_ingest_run(
-    paths: cfg.WikiPaths,
-    source_id: int,
-    started: str,
-    mode: str,
-    pages_created: int,
-    pages_updated: int,
-    error: str | None,
-) -> None:
-    finished = _now_iso()
+def _record_ingest_run(paths, source_id, started, mode, created, updated, error):
     with db.connect(paths.state_db) as conn:
         conn.execute(
-            """
-            INSERT INTO ingest_runs
-                (started_at, finished_at, source_id, mode, pages_created,
-                 pages_updated, error)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (started, finished, source_id, mode, pages_created, pages_updated, error),
+            """INSERT INTO ingest_runs
+               (started_at, finished_at, source_id, mode, pages_created, pages_updated, error)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (_now_iso(), _now_iso(), source_id, mode, created, updated, error),
         )
 
 
-def _record_source_pages(
-    paths: cfg.WikiPaths, source_id: int, changes: list[PageChange], at: str
-) -> None:
-    with db.connect(paths.state_db) as conn:
-        for change in changes:
-            conn.execute(
-                """
-                INSERT INTO source_pages (source_id, wiki_path, operation, at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (source_id, change.path, change.operation, at),
+def _stream_page(client, messages, callbacks: IngestCallbacks) -> str:
+    """Stream a page from LLM, collecting chunks via callbacks. Returns full text."""
+    full = ""
+    gen = client.chat_stream(messages, thinking=False, temperature=0.3)
+    try:
+        while True:
+            chunk = next(gen)
+            callbacks.on_stream_chunk(chunk)
+            full += chunk
+    except StopIteration as stop:
+        if stop.value:
+            full = stop.value
+    return page_writer.strip_llm_noise(full)
+
+
+# ---------------------------------------------------------------------------
+# Pass 1 — L2 Atoms
+# ---------------------------------------------------------------------------
+
+
+def _find_existing_atom(paths: cfg.WikiPaths, name: str) -> tuple[str, bool]:
+    """Check if an Atom page for this concept name already exists.
+    Returns (atom_id, exists).
+    """
+    if not paths.atoms.exists():
+        return _gen_id("ATM"), False
+    for md in paths.atoms.glob("*.md"):
+        parsed = page_writer.read_page(md)
+        if parsed and parsed.frontmatter.get("type") == "atom":
+            # Match by name in H1
+            for line in parsed.body.splitlines():
+                if line.startswith("# ") and name.lower() in line.lower():
+                    return md.stem, True
+    return _gen_id("ATM"), False
+
+
+def _run_pass1_atoms(
+    paths: cfg.WikiPaths,
+    client,
+    callbacks: IngestCallbacks,
+    summary_data: SummaryData,
+    summary_id: str,
+    relpath: str,
+    excerpt: str,
+    today: str,
+    staging: Path,
+) -> list[tuple[Path, Path, PageChange]]:
+    """Draft L2 Atom pages for all atom_candidates in summary_data."""
+    staged: list[tuple[Path, Path, PageChange]] = []
+
+    callbacks.on_pass1_start(len(summary_data.atom_candidates))
+
+    for candidate in summary_data.atom_candidates:
+        atom_id, exists = _find_existing_atom(paths, candidate.name)
+        operation = "updated" if exists else "created"
+        callbacks.on_atom_drafting(atom_id, candidate.name, operation)
+
+        final_path = paths.atoms / f"{atom_id}.md"
+        staged_path = staging / f"02_Atoms__{atom_id}.md"
+
+        if exists:
+            existing_content = page_writer.read_page(final_path)
+            existing_md = existing_content.to_markdown() if existing_content else ""
+            messages = prompts.build_merge_atom_messages(
+                existing_content=existing_md,
+                name=candidate.name,
+                new_summary_id=summary_id,
+                new_source_path=relpath,
+                new_description=candidate.one_liner,
+                excerpt=excerpt,
+                today=today,
+            )
+        else:
+            messages = prompts.build_atom_page_messages(
+                atom_id=atom_id,
+                name=candidate.name,
+                atom_type=candidate.type,
+                one_liner=candidate.one_liner,
+                summary_id=summary_id,
+                source_path=relpath,
+                excerpt=excerpt,
+                today=today,
             )
 
+        content = _stream_page(client, messages, callbacks)
+        if not content:
+            raise LLMError(f"Empty response for atom '{candidate.name}'")
 
-def _auto_discover_pending(paths: cfg.WikiPaths) -> int:
-    """Scan raw/ for files not yet tracked in the DB and register them.
+        staged_path.write_text(content, encoding="utf-8")
+        change = PageChange(
+            id=atom_id,
+            path=f"02_Atoms/{atom_id}.md",
+            layer="02_Atoms",
+            operation=operation,
+        )
+        staged.append((staged_path, final_path, change))
+        callbacks.on_atom_written(change)
 
-    Returns the number of newly discovered files.
+    return staged
+
+
+# ---------------------------------------------------------------------------
+# Pass 2 — L3 Concepts
+# ---------------------------------------------------------------------------
+
+
+def _run_pass2_concepts(
+    paths: cfg.WikiPaths,
+    client,
+    callbacks: IngestCallbacks,
+    atom_ids: list[str],
+    today: str,
+    staging: Path,
+) -> list[tuple[Path, Path, PageChange]]:
+    """Cluster atoms into L3 Concept pages."""
+    staged: list[tuple[Path, Path, PageChange]] = []
+
+    if len(atom_ids) < 2:
+        return staged  # Need at least 2 atoms to cluster
+
+    # Build atom summaries for clustering prompt
+    atom_summaries = []
+    for aid in atom_ids:
+        atom_path = paths.atoms / f"{aid}.md"
+        parsed = page_writer.read_page(atom_path)
+        if parsed:
+            one_liner = ""
+            for line in parsed.body.splitlines():
+                if line.startswith("**Definition"):
+                    one_liner = line.replace("**Definition / Claim**:", "").strip()
+                    break
+            atom_summaries.append({
+                "id": aid,
+                "name": parsed.frontmatter.get("name", aid),
+                "claim_type": parsed.frontmatter.get("claim_type", "fact"),
+                "one_liner": one_liner[:100],
+            })
+
+    callbacks.on_pass2_start(len(atom_summaries))
+
+    # Get clustering plan
+    cluster_messages = prompts.build_concept_clustering_messages(atom_summaries)
+    try:
+        raw = client.chat(cluster_messages, thinking=False, json_mode=True, temperature=0.2)
+        cluster_result: ConceptClusterResult = _parse_json_model(raw, ConceptClusterResult)
+    except (ValueError, LLMError):
+        return staged  # Non-fatal — skip concept layer for this run
+
+    for plan in cluster_result.concepts:
+        if len(plan.atom_ids) < 2:
+            continue
+        concept_id = _gen_id("CON")
+        callbacks.on_concept_drafting(concept_id, plan.name)
+
+        # Build atoms content for the concept page prompt
+        atoms_content = ""
+        for aid in plan.atom_ids:
+            ap = page_writer.read_page(paths.atoms / f"{aid}.md")
+            if ap:
+                atoms_content += f"\n### [[02_Atoms/{aid}]]\n{ap.body[:600]}\n"
+
+        messages = prompts.build_concept_page_messages(
+            concept_id=concept_id,
+            name=plan.name,
+            domain=plan.domain,
+            atom_ids=plan.atom_ids,
+            atoms_content=atoms_content,
+            today=today,
+        )
+        content = _stream_page(client, messages, callbacks)
+        if not content:
+            continue
+
+        final_path = paths.concepts / f"{concept_id}.md"
+        staged_path = staging / f"03_Concepts__{concept_id}.md"
+        staged_path.write_text(content, encoding="utf-8")
+        change = PageChange(
+            id=concept_id,
+            path=f"03_Concepts/{concept_id}.md",
+            layer="03_Concepts",
+            operation="created",
+        )
+        staged.append((staged_path, final_path, change))
+        callbacks.on_concept_written(change)
+
+    return staged
+
+
+# ---------------------------------------------------------------------------
+# Pass 3 — L4 Synthesis
+# ---------------------------------------------------------------------------
+
+
+def _run_pass3_synthesis(
+    paths: cfg.WikiPaths,
+    client,
+    callbacks: IngestCallbacks,
+    concept_ids: list[str],
+    today: str,
+    staging: Path,
+) -> list[tuple[Path, Path, PageChange]]:
+    """Build L4 Synthesis pages from concept clusters."""
+    staged: list[tuple[Path, Path, PageChange]] = []
+
+    if not concept_ids:
+        return staged
+
+    concept_summaries = []
+    for cid in concept_ids:
+        cp = page_writer.read_page(paths.concepts / f"{cid}.md")
+        if cp:
+            concept_summaries.append({
+                "id": cid,
+                "name": cp.frontmatter.get("name", cid),
+                "domain": cp.frontmatter.get("domain", ""),
+                "atom_count": len(cp.frontmatter.get("dependencies", [])),
+            })
+
+    callbacks.on_pass3_start(len(concept_summaries))
+
+    plan_messages = prompts.build_synthesis_planning_messages(concept_summaries)
+    try:
+        raw = client.chat(plan_messages, thinking=False, json_mode=True, temperature=0.2)
+        plan_result: SynthesisPlanResult = _parse_json_model(raw, SynthesisPlanResult)
+    except (ValueError, LLMError):
+        return staged
+
+    for plan in plan_result.synthesis_plans:
+        if not plan.concept_ids:
+            continue
+        syn_id = _gen_id("SYN")
+        callbacks.on_synthesis_drafting(syn_id, plan.topic)
+
+        concepts_content = ""
+        for cid in plan.concept_ids:
+            cp = page_writer.read_page(paths.concepts / f"{cid}.md")
+            if cp:
+                concepts_content += f"\n### [[03_Concepts/{cid}]]\n{cp.body[:800]}\n"
+
+        messages = prompts.build_synthesis_page_messages(
+            synthesis_id=syn_id,
+            topic=plan.topic,
+            concept_ids=plan.concept_ids,
+            concepts_content=concepts_content,
+            confidence=plan.confidence,
+            requires_math=plan.requires_math_rigor,
+            today=today,
+        )
+        content = _stream_page(client, messages, callbacks)
+        if not content:
+            continue
+
+        final_path = paths.synthesis / f"{syn_id}.md"
+        staged_path = staging / f"04_Synthesis__{syn_id}.md"
+        staged_path.write_text(content, encoding="utf-8")
+        change = PageChange(
+            id=syn_id,
+            path=f"04_Synthesis/{syn_id}.md",
+            layer="04_Synthesis",
+            operation="created",
+        )
+        staged.append((staged_path, final_path, change))
+        callbacks.on_synthesis_written(change)
+
+    return staged
+
+
+# ---------------------------------------------------------------------------
+# Main entry points
+# ---------------------------------------------------------------------------
+
+
+def ingest_source(
+    paths: cfg.WikiPaths,
+    source_id: int,
+    client,
+    callbacks: IngestCallbacks,
+    *,
+    mode: str = "interactive",
+    thinking_for_extraction: bool = True,
+) -> IngestResult:
+    """Run the full 3-pass ingest pipeline (L2→L3→L4) on a single source."""
+    started = _now_iso()
+
+    # Load source row
+    with db.connect(paths.state_db) as conn:
+        row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
+        if row is None:
+            result = IngestResult(source_id=source_id, source_title="?",
+                                  error=f"No source with id {source_id}")
+            callbacks.on_error(result.error)
+            return result
+        source_row = dict(row)
+
+    summary_id = source_row.get("summary_id") or ""
+    file_path = paths.root / source_row["relpath"]
+
+    # Parse source
+    try:
+        parsed = parsers.parse(file_path)
+    except parsers.ParserError as e:
+        result = IngestResult(source_id=source_id, source_title=source_row["relpath"],
+                              error=f"Parse failed: {e}")
+        _mark_source_status(paths, source_id, "error")
+        _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
+        callbacks.on_error(result.error)
+        return result
+
+    callbacks.on_start(source_id, parsed.title, summary_id)
+
+    # Load or regenerate L1 summary data
+    summary_data: SummaryData | None = None
+    if summary_id:
+        sum_path = paths.summaries / f"{summary_id}.md"
+        sum_page = page_writer.read_page(sum_path)
+        if sum_page:
+            # Extract atom_candidates from the summary page body
+            candidates = []
+            in_candidates = False
+            for line in sum_page.body.splitlines():
+                if "## Atom Candidates" in line:
+                    in_candidates = True
+                    continue
+                if in_candidates and line.startswith("## "):
+                    break
+                if in_candidates and line.startswith("- ["):
+                    # Format: - [type] Name: one_liner
+                    try:
+                        type_end = line.index("]")
+                        atype = line[3:type_end]
+                        rest = line[type_end + 2:]
+                        name, one_liner = rest.split(":", 1) if ":" in rest else (rest, "")
+                        candidates.append(AtomCandidate(
+                            name=name.strip(),
+                            type=atype.strip(),
+                            one_liner=one_liner.strip(),
+                        ))
+                    except (ValueError, IndexError):
+                        pass
+            summary_data = SummaryData(
+                title=parsed.title,
+                domain=sum_page.frontmatter.get("domain", ""),
+                summary="",
+                atom_candidates=candidates,
+                tags=sum_page.frontmatter.get("tags", []),
+            )
+
+    if summary_data is None or not summary_data.atom_candidates:
+        # Re-run Pass 0 inline (summary was missing or malformed)
+        source_text = parsed.text[:MAX_SOURCE_CHARS]
+        messages = prompts.build_summary_messages(parsed.title, source_text)
+        try:
+            raw = client.chat(messages, thinking=thinking_for_extraction, json_mode=True, temperature=0.2)
+            summary_data = _parse_json_model(_extract_json(raw), SummaryData)
+        except (ValueError, LLMError) as e:
+            result = IngestResult(source_id=source_id, source_title=parsed.title,
+                                  error=f"Summary extraction failed: {e}")
+            _mark_source_status(paths, source_id, "error")
+            _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
+            callbacks.on_error(result.error)
+            return result
+
+    # Interactive confirmation
+    if mode == "interactive" and not callbacks.ask_confirm(summary_data):
+        result = IngestResult(source_id=source_id, source_title=parsed.title, skipped=True)
+        callbacks.on_complete(result)
+        return result
+
+    today = _now_iso()
+    max_excerpt = getattr(client, "optimal_chunk_chars", 30000)
+    excerpt = _build_excerpt(parsed.text, max_chars=max_excerpt)
+    staging = Path(tempfile.mkdtemp(prefix="curator-ingest-"))
+
+    try:
+        all_staged: list[tuple[Path, Path, PageChange]] = []
+
+        # Pass 1 — L2 Atoms
+        try:
+            atom_staged = _run_pass1_atoms(
+                paths, client, callbacks, summary_data, summary_id,
+                source_row["relpath"], excerpt, today, staging,
+            )
+            all_staged.extend(atom_staged)
+        except LLMError as e:
+            result = IngestResult(source_id=source_id, source_title=parsed.title,
+                                  error=f"Atom pass failed: {e}")
+            _mark_source_status(paths, source_id, "error")
+            _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
+            callbacks.on_error(result.error)
+            return result
+
+        new_atom_ids = [c.id for _, _, c in atom_staged if c.layer == "02_Atoms"]
+
+        # Pass 2 — L3 Concepts
+        concept_staged = _run_pass2_concepts(
+            paths, client, callbacks, new_atom_ids, today, staging
+        )
+        all_staged.extend(concept_staged)
+        new_concept_ids = [c.id for _, _, c in concept_staged]
+
+        # Pass 3 — L4 Synthesis
+        synthesis_staged = _run_pass3_synthesis(
+            paths, client, callbacks, new_concept_ids, today, staging
+        )
+        all_staged.extend(synthesis_staged)
+
+        # Commit all staged files
+        callbacks.on_finalizing()
+        changes: list[PageChange] = []
+        atoms_created = atoms_updated = concepts_created = synthesis_created = 0
+
+        for staged_path, final_path, change in all_staged:
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(staged_path, final_path)
+            changes.append(change)
+            if change.layer == "02_Atoms":
+                if change.operation == "created":
+                    atoms_created += 1
+                else:
+                    atoms_updated += 1
+            elif change.layer == "03_Concepts":
+                concepts_created += 1
+            elif change.layer == "04_Synthesis":
+                synthesis_created += 1
+
+        # Update index and log
+        page_writer.rebuild_index(paths, today)
+        log_bullets = [f"{c.operation}: [[{c.path.replace('.md', '')}]]" for c in changes]
+        page_writer.append_log_entry(paths, today, "ingest", parsed.title, log_bullets)
+
+        # Update DB
+        _mark_source_status(paths, source_id, "ingested", last_ingested=_now_iso())
+        _record_ingest_run(paths, source_id, started, mode,
+                           atoms_created + concepts_created + synthesis_created,
+                           atoms_updated, error=None)
+
+        result = IngestResult(
+            source_id=source_id,
+            source_title=parsed.title,
+            atoms_created=atoms_created,
+            atoms_updated=atoms_updated,
+            concepts_created=concepts_created,
+            synthesis_created=synthesis_created,
+            changes=changes,
+        )
+        callbacks.on_complete(result)
+        return result
+
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def _auto_discover_pending(paths: cfg.WikiPaths) -> tuple[int, int]:
+    """Scan raw_dirs for files not yet tracked. 
+    Returns (discovered_count, removed_count).
     """
     from . import ingest_raw
-
     with db.connect(paths.state_db) as conn:
-        rows = conn.execute("SELECT relpath FROM sources").fetchall()
-        tracked = {row["relpath"] for row in rows}
+        rows = conn.execute("SELECT id, relpath FROM sources").fetchall()
+        tracked = {row["relpath"]: row["id"] for row in rows}
+
+    valid_prefixes = tuple(str(d.relative_to(paths.root)) for d in paths.raw_dirs)
+
+    orphans = []
+    for relpath, sid in tracked.items():
+        if not (paths.root / relpath).exists() or not relpath.startswith(valid_prefixes):
+            orphans.append(sid)
+
+    removed = 0
+    if orphans:
+        with db.connect(paths.state_db) as conn:
+            conn.execute(
+                f"DELETE FROM sources WHERE id IN ({','.join('?' * len(orphans))})",
+                orphans,
+            )
+        removed = len(orphans)
+        for relpath in [k for k, v in tracked.items() if v in orphans]:
+            del tracked[relpath]
 
     discovered = 0
     for raw_dir in paths.raw_dirs:
         if not raw_dir.exists():
             continue
-
         for file_path in raw_dir.rglob("*"):
             if not file_path.is_file() or file_path.name.startswith("."):
                 continue
@@ -311,399 +720,19 @@ def _auto_discover_pending(paths: cfg.WikiPaths) -> int:
             outcome = ingest_raw.add_file(paths, file_path)
             if outcome.result == ingest_raw.AddResult.ADDED:
                 discovered += 1
-    return discovered
-
-
-# ---------------------------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------------------------
-
-
-def ingest_source(
-    paths: cfg.WikiPaths,
-    source_id: int,
-    client: OllamaClient,
-    callbacks: IngestCallbacks,
-    *,
-    mode: str = "interactive",
-    thinking_for_extraction: bool = True,
-) -> IngestResult:
-    """Run the full 3-pass ingest pipeline on a single source."""
-    started = _now_iso()
-
-    # 1. Load the source row
-    with db.connect(paths.state_db) as conn:
-        row = conn.execute(
-            "SELECT * FROM sources WHERE id = ?", (source_id,)
-        ).fetchone()
-        if row is None:
-            result = IngestResult(
-                source_id=source_id,
-                source_title="?",
-                source_slug="?",
-                error=f"No source with id {source_id}",
-            )
-            callbacks.on_error(result.error)
-            return result
-        source_row = dict(row)
-
-    file_path = paths.root / source_row["relpath"]
-    callbacks.on_start(source_id, source_row["relpath"], str(file_path))
-
-    # 2. Parse the source
-    callbacks.on_parsing()
-    try:
-        parsed = parsers.parse(file_path)
-    except parsers.ParserError as e:
-        result = IngestResult(
-            source_id=source_id,
-            source_title=source_row["relpath"],
-            source_slug="?",
-            error=f"Parse failed: {e}",
-        )
-        _mark_source_status(paths, source_id, "error")
-        _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
-        callbacks.on_error(result.error)
-        return result
-
-    # Truncate very long sources
-    source_text = parsed.text
-    if len(source_text) > MAX_SOURCE_CHARS:
-        source_text = source_text[:MAX_SOURCE_CHARS] + "\n\n[... truncated ...]"
-
-    # 3. Pass 1 — extraction
-    callbacks.on_extracting()
-    extraction_messages = prompts.build_extraction_messages(parsed.title, source_text)
-    try:
-        raw_response = client.chat(
-            extraction_messages,
-            thinking=thinking_for_extraction,
-            json_mode=True,
-            temperature=0.3,
-        )
-    except (OllamaNotRunning, ModelNotFound) as e:
-        result = IngestResult(
-            source_id=source_id,
-            source_title=parsed.title,
-            source_slug="?",
-            error=str(e),
-        )
-        callbacks.on_error(result.error)
-        # Don't mark as error — user needs to fix Ollama, then retry
-        return result
-    except LLMError as e:
-        result = IngestResult(
-            source_id=source_id,
-            source_title=parsed.title,
-            source_slug="?",
-            error=f"LLM error: {e}",
-        )
-        _mark_source_status(paths, source_id, "error")
-        _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
-        callbacks.on_error(result.error)
-        return result
-
-    try:
-        extraction = _parse_extraction(raw_response)
-    except ValueError as e:
-        # Retry once with explicit correction
-        callbacks.on_extraction_failed(str(e))
-        try:
-            retry_messages = prompts.build_extraction_retry_messages(
-                parsed.title, source_text, raw_response
-            )
-            raw_response = client.chat(
-                retry_messages,
-                thinking=False,  # retry without thinking, faster
-                json_mode=True,
-                temperature=0.2,
-            )
-            extraction = _parse_extraction(raw_response)
-        except (ValueError, LLMError) as e2:
-            result = IngestResult(
-                source_id=source_id,
-                source_title=parsed.title,
-                source_slug="?",
-                error=f"Extraction failed after retry: {e2}",
-            )
-            _mark_source_status(paths, source_id, "error")
-            _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
-            callbacks.on_error(result.error)
-            return result
-
-    # Sanitize the source slug
-    source_slug = slugify.slugify(extraction.source_slug or extraction.title)
-    extraction.source_slug = source_slug
-
-    callbacks.on_extracted(extraction)
-
-    # 4. Interactive confirmation gate
-    if mode == "interactive":
-        if not callbacks.ask_confirm(extraction):
-            result = IngestResult(
-                source_id=source_id,
-                source_title=parsed.title,
-                source_slug=source_slug,
-                skipped=True,
-            )
-            callbacks.on_complete(result)
-            return result
-
-    # 5. Resolve slugs for all extracted items (dedupe against existing)
-    today = page_writer.today_iso()
-    extracted_plans: list[tuple[ExtractedItem, str, bool]] = []  # (item, slug, exists)
-    for item in extraction.extracted:
-        slug, exists = _resolve_slug(item.name, "extracted", paths, item.slug)
-        extracted_plans.append((item, slug, exists))
-
-    # 6. Staging directory for transactional writes
-    staging = Path(tempfile.mkdtemp(prefix="llm-wiki-ingest-"))
-    try:
-        staged_files: list[tuple[Path, Path, PageChange]] = []  # (staged, final, change)
-
-        # 6a. Build the "related" list for each page (used in draft prompts)
-        all_extracted_slugs = [s for _, s, _ in extracted_plans]
-
-        def _related_for(exclude_slug: str) -> list[str]:
-            rel: list[str] = []
-            for s in all_extracted_slugs:
-                if s != exclude_slug:
-                    rel.append(f"Extracted/{s}")
-            return rel
-
-        excerpt = _build_excerpt(parsed.text)
-
-        # 6b. Draft/merge each extracted page
-        for item, slug, exists in extracted_plans:
-            operation = "updated" if exists else "created"
-            callbacks.on_drafting_page("extracted", slug, operation)
-
-            final_path = paths.wiki / "Extracted" / f"{slug}.md"
-            staged_path = staging / f"Extracted__{slug}.md"
-
-            try:
-                if exists:
-                    existing_page = page_writer.read_page(final_path)
-                    existing_content = (
-                        existing_page.to_markdown() if existing_page else ""
-                    )
-                    messages = prompts.build_merge_page_messages(
-                        name=item.name,
-                        existing_content=existing_content,
-                        source_title=parsed.title,
-                        source_slug=source_slug,
-                        description=item.description,
-                        excerpts=excerpt,
-                        today=today,
-                    )
-                else:
-                    messages = prompts.build_draft_page_messages(
-                        kind="extracted",
-                        name=item.name,
-                        source_title=parsed.title,
-                        source_slug=source_slug,
-                        description=item.description,
-                        excerpts=excerpt,
-                        related=_related_for(slug),
-                        today=today,
-                    )
-
-                # Stream the response
-                full = ""
-                gen = client.chat_stream(messages, thinking=False, temperature=0.3)
-                try:
-                    while True:
-                        chunk = next(gen)
-                        callbacks.on_stream_chunk(chunk)
-                        full += chunk
-                except StopIteration as stop:
-                    if stop.value:
-                        full = stop.value
-
-                content = page_writer.strip_llm_noise(full)
-                if not content:
-                    raise LLMError(f"Empty response for extracted concept '{slug}'")
-
-                # Validate frontmatter presence; if missing, wrap it
-                parsed_page = page_writer.parse_page(content)
-                if not parsed_page.frontmatter:
-                    # LLM forgot frontmatter — synthesize minimal one
-                    parsed_page.frontmatter = {
-                        "title": item.name,
-                        "type": "extracted",
-                        "tags": extraction.tags[:3],
-                        "created": today,
-                        "updated": today,
-                        "sources": [f"Metadata/{source_slug}.md"],
-                        "confidence": "medium",
-                    }
-                    parsed_page.body = content
-                # Always ensure source is in sources list
-                page_writer.add_source_to_frontmatter(parsed_page, source_slug, today)
-                content = parsed_page.to_markdown()
-
-                staged_path.write_text(content, encoding="utf-8")
-                change = PageChange(
-                    slug=slug,
-                    path=f"Extracted/{slug}.md",
-                    kind="extracted",
-                    operation=operation,
-                )
-                staged_files.append((staged_path, final_path, change))
-                callbacks.on_page_written(change)
-
-            except LLMError as e:
-                result = IngestResult(
-                    source_id=source_id,
-                    source_title=parsed.title,
-                    source_slug=source_slug,
-                    error=f"Failed drafting extracted concept '{slug}': {e}",
-                )
-                _mark_source_status(paths, source_id, "error")
-                _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
-                callbacks.on_error(result.error)
-                return result
-
-        # 6d. Pass 3 — source summary page
-        callbacks.on_drafting_page("source", source_slug, "created")
-        source_final = paths.wiki / "Metadata" / f"{source_slug}.md"
-        source_staged = staging / f"Metadata__{source_slug}.md"
-
-        try:
-            messages = prompts.build_source_page_messages(
-                source_title=parsed.title,
-                source_slug=source_slug,
-                file_path=source_row["relpath"],
-                file_type=parsed.file_type,
-                summary=extraction.summary,
-                key_takeaways=extraction.key_takeaways,
-                tags=extraction.tags,
-                extracted_slugs=[s for _, s, _ in extracted_plans],
-                today=today,
-            )
-
-            full = ""
-            gen = client.chat_stream(messages, thinking=False, temperature=0.3)
-            try:
-                while True:
-                    chunk = next(gen)
-                    callbacks.on_stream_chunk(chunk)
-                    full += chunk
-            except StopIteration as stop:
-                if stop.value:
-                    full = stop.value
-
-            content = page_writer.strip_llm_noise(full)
-            parsed_page = page_writer.parse_page(content)
-            if not parsed_page.frontmatter:
-                parsed_page.frontmatter = {
-                    "title": parsed.title,
-                    "type": "source",
-                    "tags": extraction.tags,
-                    "created": today,
-                    "updated": today,
-                    "file_path": source_row["relpath"],
-                    "file_type": parsed.file_type,
-                }
-                parsed_page.body = content
-            content = parsed_page.to_markdown()
-
-            source_staged.write_text(content, encoding="utf-8")
-            source_operation = "updated" if source_final.exists() else "created"
-            change = PageChange(
-                slug=source_slug,
-                path=f"Metadata/{source_slug}.md",
-                kind="source",
-                operation=source_operation,
-            )
-            staged_files.append((source_staged, source_final, change))
-            callbacks.on_page_written(change)
-
-        except LLMError as e:
-            result = IngestResult(
-                source_id=source_id,
-                source_title=parsed.title,
-                source_slug=source_slug,
-                error=f"Failed drafting source page: {e}",
-            )
-            _mark_source_status(paths, source_id, "error")
-            _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
-            callbacks.on_error(result.error)
-            return result
-
-        # 7. Commit: move staged files to final locations
-        callbacks.on_finalizing()
-        pages_created = 0
-        pages_updated = 0
-        changes: list[PageChange] = []
-        for staged, final, change in staged_files:
-            final.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(staged, final)
-            changes.append(change)
-            if change.operation == "created":
-                pages_created += 1
-            else:
-                pages_updated += 1
-
-        # 8. Rebuild index.md and append to log.md
-        page_writer.rebuild_index(paths, today)
-        log_bullets = [
-            f"{c.operation}: [[{c.path.replace('.md', '')}]]" for c in changes
-        ]
-        page_writer.append_log_entry(
-            paths, today, "ingest", parsed.title, log_bullets
-        )
-
-        # 9. Record in DB
-        _record_source_pages(paths, source_id, changes, _now_iso())
-        _mark_source_status(paths, source_id, "ingested", last_ingested=_now_iso())
-        _record_ingest_run(
-            paths,
-            source_id,
-            started,
-            mode,
-            pages_created,
-            pages_updated,
-            error=None,
-        )
-
-        result = IngestResult(
-            source_id=source_id,
-            source_title=parsed.title,
-            source_slug=source_slug,
-            pages_created=pages_created,
-            pages_updated=pages_updated,
-            changes=changes,
-        )
-        callbacks.on_complete(result)
-        return result
-
-    finally:
-        shutil.rmtree(staging, ignore_errors=True)
+    return discovered, removed
 
 
 def ingest_pending(
     paths: cfg.WikiPaths,
-    client: OllamaClient,
+    client,
     callbacks_factory: Callable[[], IngestCallbacks],
     *,
     mode: str = "interactive",
     auto_discover: bool = True,
     thinking_for_extraction: bool = True,
 ) -> list[IngestResult]:
-    """Ingest all pending sources in the DB.
-
-    Args:
-        paths: Wiki project paths.
-        client: An active Ollama client.
-        callbacks_factory: Called once per source to get a fresh callback object.
-        mode: 'interactive' | 'batch'.
-        auto_discover: If True, scan raw/ for untracked files first.
-        thinking_for_extraction: Whether to use Qwen3's thinking mode in Pass 1.
-
-    Returns:
-        A list of IngestResult, one per source attempted.
-    """
+    """Ingest all pending sources."""
     if auto_discover:
         _auto_discover_pending(paths)
 
@@ -716,17 +745,10 @@ def ingest_pending(
     results: list[IngestResult] = []
     for sid in pending_ids:
         cb = callbacks_factory()
-        result = ingest_source(
-            paths,
-            sid,
-            client,
-            cb,
-            mode=mode,
-            thinking_for_extraction=thinking_for_extraction,
-        )
+        result = ingest_source(paths, sid, client, cb, mode=mode,
+                               thinking_for_extraction=thinking_for_extraction)
         results.append(result)
-        if result.error and "Ollama" in result.error:
-            # Stop the batch if Ollama is unreachable — no point continuing
+        if result.error and "Ollama" in (result.error or ""):
             break
 
     return results

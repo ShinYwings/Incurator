@@ -18,6 +18,37 @@ from .base import (
     normalize_text,
 )
 
+# Supported image extensions (lowercase, with dot)
+_IMG_EXT_PAT = r"\.(?:png|jpe?g|gif|webp|bmp|tiff?|svg)"
+
+# ![[path/to/image.png]] or ![[path.png|400]] (Obsidian embed syntax)
+_OBSIDIAN_IMG_RE = re.compile(
+    r"!\[\[([^\]]+?" + _IMG_EXT_PAT + r")(?:\|[^\]]*)?\]\]",
+    re.IGNORECASE,
+)
+# ![alt text](path/to/image.png) (standard Markdown)
+_MARKDOWN_IMG_RE = re.compile(
+    r"!\[.*?\]\(([^)]+?" + _IMG_EXT_PAT + r")\)",
+    re.IGNORECASE,
+)
+
+
+def _extract_image_links(text: str) -> list[str]:
+    """Extract raw image link strings from markdown (Obsidian + standard)."""
+    links: list[str] = []
+    seen: set[str] = set()
+    for m in _OBSIDIAN_IMG_RE.finditer(text):
+        raw = m.group(1).strip()
+        if raw not in seen:
+            seen.add(raw)
+            links.append(raw)
+    for m in _MARKDOWN_IMG_RE.finditer(text):
+        raw = m.group(1).strip()
+        if raw not in seen:
+            seen.add(raw)
+            links.append(raw)
+    return links
+
 
 def _extract_md_title(text: str) -> str | None:
     """Find the first level-1 heading in a markdown document."""
@@ -60,9 +91,11 @@ def parse(path: Path) -> ParsedDocument:
     if ext in {".md", ".markdown"}:
         file_type = "md"
         title = _extract_md_title(raw) or fallback_title_from_path(path)
+        linked_images = _extract_image_links(raw)
     else:
         file_type = "txt"
         title = _extract_txt_title(raw) or fallback_title_from_path(path)
+        linked_images = []
 
     text = normalize_text(raw)
     return ParsedDocument(
@@ -73,4 +106,5 @@ def parse(path: Path) -> ParsedDocument:
         content_hash=compute_hash(text),
         bytes=path.stat().st_size,
         metadata={},
+        linked_images=linked_images,
     )

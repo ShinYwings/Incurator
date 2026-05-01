@@ -19,12 +19,14 @@ class ParsedDocument:
     """Normalized representation of an ingested source file."""
 
     source_path: Path           # Absolute path to the file in raw/
-    file_type: str              # 'pdf' | 'md' | 'html' | 'docx' | 'txt'
+    file_type: str              # 'pdf' | 'md' | 'html' | 'docx' | 'txt' | 'image'
     title: str                  # Best-effort extracted title
     text: str                   # Full plain-text content (normalized whitespace)
     content_hash: str           # sha256 of normalized text
     bytes: int                  # File size on disk
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Raw image link strings extracted from document (resolved in ingest layer)
+    linked_images: list[str] = field(default_factory=list)
 
     @property
     def text_length(self) -> int:
@@ -37,6 +39,8 @@ class ParsedDocument:
     @property
     def is_empty(self) -> bool:
         """True if the parser extracted effectively no text (e.g. scanned PDF)."""
+        if self.file_type == "image":
+            return False  # images need vision inference; never skip them
         return self.word_count < 10
 
 
@@ -50,6 +54,8 @@ def normalize_text(text: str) -> str:
     """
     if not text:
         return ""
+    # Strip lone surrogates (invalid in UTF-8; arise from broken PDF encodings)
+    text = text.encode("utf-8", errors="ignore").decode("utf-8")
     # Normalize line endings
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     # Collapse runs of spaces/tabs within lines

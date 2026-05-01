@@ -15,6 +15,15 @@ _PARSERS = {
     ".docx": "docx",
     ".html": "html",
     ".htm": "html",
+    # Image formats — described by vision LLM during ingest
+    ".png": "image",
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".gif": "image",
+    ".webp": "image",
+    ".bmp": "image",
+    ".tiff": "image",
+    ".tif": "image",
 }
 
 SUPPORTED_EXTENSIONS = frozenset(_PARSERS.keys())
@@ -54,6 +63,8 @@ def parse(path: Path) -> ParsedDocument:
         from . import docx as parser_module
     elif module_name == "html":
         from . import html as parser_module
+    elif module_name == "image":
+        from . import image as parser_module
     else:
         raise ParserError(f"Internal error: unknown parser '{module_name}'")
 

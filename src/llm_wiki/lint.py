@@ -8,8 +8,8 @@ Checks are categorized by severity:
   INFO     — suggestions and observations
 
 Fast checks (the default) run entirely in Python and take a few seconds.
-Deep checks (--deep) use Qwen3 to detect contradictions across pairs of
-pages that share extracted/synthesized links — much slower, opt-in only.
+Deep checks (--deep) use the configured LLM to detect contradictions across
+pairs of L2 Atom pages that share outgoing links — much slower, opt-in only.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from typing import Any, Iterable
 
 from . import config as cfg
 from . import page_writer
-from . import slugify
 
 
 class Severity(str, Enum):
@@ -42,6 +41,7 @@ class CheckId(str, Enum):
     STALE_SOURCE_REF = "stale_source_ref"
     NOISE_IN_SYNTHESIS = "noise_in_synthesis"
     CONTRADICTION = "contradiction"
+    MISSING_CROSS_LAYER_LINK = "missing_cross_layer_link"  # ATM missing parent_source wikilink, etc.
 
 
 @dataclass
@@ -50,7 +50,7 @@ class LintIssue:
 
     check: CheckId
     severity: Severity
-    page: str               # Relative to wiki root, e.g. 'Extracted/qwen.md'
+    page: str               # Relpath inside .curator/Collections/, e.g. '02_Atoms/ATM-abc12345.md'
     message: str
     suggestion: str = ""
     fixable: bool = False   # True if --fix can auto-resolve it
@@ -113,23 +113,27 @@ class PageInventory:
     pages: dict[str, page_writer.ParsedPage] = field(default_factory=dict)  # relpath -> parsed
     outgoing_links: dict[str, list[str]] = field(default_factory=dict)      # relpath -> [targets]
     incoming_links: dict[str, list[str]] = field(default_factory=dict)      # relpath -> [sources]
-    all_slugs: set[str] = field(default_factory=set)                        # e.g. 'Extracted/qwen'
+    all_slugs: set[str] = field(default_factory=set)                        # e.g. '02_Atoms/ATM-abc12345'
     raw_paths: set[str] = field(default_factory=set)                        # files in raw/
 
 
-_NOISE_PAGES = {"index.md", "log.md"}
+_NOISE_PAGES = {"index.md", "log.md", "overview.md", "ledger.md"}
 
-# Directory prefix → page type
-_PAGE_TYPES = ("Metadata", "Extracted", "Synthesized")
+# Layer directory prefix → page type
+_PAGE_TYPES = ("01_Summaries", "02_Atoms", "03_Concepts", "04_Synthesis")
 
 
 def _build_inventory(paths: cfg.WikiPaths) -> PageInventory:
-    """Walk wiki/ and build a cached PageInventory for all downstream checks."""
+    """Walk .curator/Collections/ and build a cached PageInventory.
+
+    Also parses index.md and log.md as root nodes so that pages linked
+    from them are not flagged as orphans.
+    """
     inv = PageInventory()
 
-    # 1. Walk wiki/ subdirectories
+    # 1. Walk Collections/ subdirectories
     for subdir in _PAGE_TYPES:
-        d = paths.wiki / subdir
+        d = paths.collections / subdir
         if not d.exists():
             continue
         for md_path in sorted(d.glob("*.md")):
@@ -143,20 +147,43 @@ def _build_inventory(paths: cfg.WikiPaths) -> PageInventory:
             relpath = f"{subdir}/{md_path.name}"
             inv.pages[relpath] = parsed
 
-            # Also record the slug without .md, which is how wikilinks reference it
             slug_no_ext = f"{subdir}/{md_path.stem}"
             inv.all_slugs.add(slug_no_ext)
-            inv.all_slugs.add(f"{subdir}/{md_path.stem}.md")  # support both forms
+            inv.all_slugs.add(f"{subdir}/{md_path.stem}.md")
 
     # 2. Build forward + reverse link graphs
+    #    Include curator frontmatter wikilink fields, not just body [[links]]
+    _CURATOR_FM_LINK_FIELDS = (
+        # ATM: link to parent L1 Summary and raw source path
+        "parent_source",
+        # CON: links to L2 Atoms
+        "dependencies",
+        # SYN: links to L3 Concepts
+        "core_concepts",
+        # legacy / any extra sources field
+        "sources",
+    )
+
     for relpath, parsed in inv.pages.items():
         links = page_writer.extract_wikilinks(parsed.body)
-        # Also check frontmatter for wikilink-like fields
-        fm_sources = parsed.frontmatter.get("sources", []) or []
-        if isinstance(fm_sources, list):
-            for s in fm_sources:
-                if isinstance(s, str) and s:
-                    links.append(s)
+
+        # Extract wikilinks from curator-specific frontmatter fields
+        for field in _CURATOR_FM_LINK_FIELDS:
+            val = parsed.frontmatter.get(field)
+            if isinstance(val, str) and val:
+                links.append(val)
+            elif isinstance(val, list):
+                for item in val:
+                    if isinstance(item, str) and item:
+                        links.append(item)
+
+        # Also treat source_path as a raw-file reference (for DAG provenance)
+        source_path = parsed.frontmatter.get("source_path")
+        if isinstance(source_path, str) and source_path:
+            # Normalize to a plain relpath wikilink target for tracking
+            clean = source_path.strip('"').strip("'")
+            if clean:
+                links.append(clean)
 
         normalized = [_normalize_link(link) for link in links if link]
         inv.outgoing_links[relpath] = normalized
@@ -164,15 +191,33 @@ def _build_inventory(paths: cfg.WikiPaths) -> PageInventory:
         for target in normalized:
             inv.incoming_links.setdefault(target, []).append(relpath)
 
-    # 3. Scan raw/ for stale-ref checks
-    if paths.raw.exists():
-        for raw_path in paths.raw.rglob("*"):
-            if raw_path.is_file() and not raw_path.name.startswith("."):
-                try:
-                    rel = str(raw_path.relative_to(paths.root))
-                    inv.raw_paths.add(rel)
-                except ValueError:
-                    pass
+    # 3. Parse index.md as a root node — pages it links to are NOT orphans
+    #    This covers all L1 Summaries (which are the entry points) and
+    #    allows agents to navigate from index → L1 → L2 → L3 → L4.
+    for root_file in (paths.index, paths.log, paths.overview):
+        if root_file.exists():
+            try:
+                content = root_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            parsed = page_writer.parse_page(content)
+            root_relpath = f"_root/{root_file.name}"
+            links = page_writer.extract_wikilinks(parsed.body)
+            for link in links:
+                target = _normalize_link(link)
+                if target:
+                    inv.incoming_links.setdefault(target, []).append(root_relpath)
+
+    # 4. Scan raw_dirs for stale-ref checks
+    for raw_dir in paths.raw_dirs:
+        if raw_dir.exists():
+            for raw_path in raw_dir.rglob("*"):
+                if raw_path.is_file() and not raw_path.name.startswith("."):
+                    try:
+                        rel = str(raw_path.relative_to(paths.root))
+                        inv.raw_paths.add(rel)
+                    except ValueError:
+                        pass
 
     return inv
 
@@ -183,12 +228,12 @@ def _normalize_link(link: str) -> str:
     Strips .md suffix, qmd:// prefix, pipe-based aliases, and leading/trailing
     slashes. So all these become the same thing:
 
-        Extracted/qwen
-        Extracted/qwen.md
-        qmd://llm-wiki-pages/Extracted/qwen
-        /qmd://llm-wiki-pages/Extracted/qwen
-        Metadata/quick-notes-on-qwen.md
-        Metadata/quick-notes-on-qwen|Q Notes
+        02_Atoms/ATM-abc12345
+        02_Atoms/ATM-abc12345.md
+        qmd://curator/02_Atoms/ATM-abc12345
+        /qmd://curator/02_Atoms/ATM-abc12345
+        02_Atoms/ATM-abc12345.md
+        02_Atoms/ATM-abc12345|Atom alias
     """
     if not link:
         return ""
@@ -221,10 +266,9 @@ def check_broken_wikilinks(inv: PageInventory) -> list[LintIssue]:
     issues: list[LintIssue] = []
 
     # Build a reverse lookup: basename -> list of existing full slugs.
-    # So 'quick-notes-on-qwen' maps to ['Metadata/quick-notes-on-qwen'] if
-    # that file exists. We try to infer prefixes if they wrote
-    # [[Metadata/quick-notes-on-qwen]]. that should be
-    # [[sources/quick-notes-on-qwen]].
+    # So 'ATM-9f8e7d6c' maps to ['02_Atoms/ATM-9f8e7d6c'] if that page exists.
+    # Used to suggest a corrected path when a wikilink omits or mistypes the
+    # layer prefix (e.g. [[ATM-9f8e7d6c]] instead of [[02_Atoms/ATM-9f8e7d6c]]).
     basename_lookup: dict[str, list[str]] = {}
     for slug in inv.all_slugs:
         if "/" in slug and not slug.endswith(".md"):
@@ -297,15 +341,15 @@ def check_broken_wikilinks(inv: PageInventory) -> list[LintIssue]:
 def check_orphan_pages(inv: PageInventory) -> list[LintIssue]:
     """Find pages with no incoming wikilinks from any other page.
 
-    Source pages and index/log are exempt (they're entry points, not
-    navigation targets). Synthesis pages are also exempt since they're
-    often user-saved answers that don't need backlinks.
+    All four layers are checked. index.md and log.md serve as root nodes
+    and are parsed into the inventory, so pages linked from index.md
+    (typically all L1 Summaries) will NOT be flagged.
+
+    A page is an orphan if nothing links to it — neither another collection
+    page nor any control-plane file (index/log/overview).
     """
     issues: list[LintIssue] = []
     for relpath in inv.pages:
-        page_type = relpath.split("/", 1)[0] if "/" in relpath else ""
-        if page_type in {"sources", "synthesis"}:
-            continue
         slug_no_ext = relpath[:-3] if relpath.endswith(".md") else relpath
         incoming = inv.incoming_links.get(slug_no_ext, []) + inv.incoming_links.get(
             relpath, []
@@ -313,13 +357,20 @@ def check_orphan_pages(inv: PageInventory) -> list[LintIssue]:
         # Don't count self-references
         incoming = [i for i in incoming if i != relpath]
         if not incoming:
+            page_type = relpath.split("/", 1)[0] if "/" in relpath else ""
+            layer_hint = {
+                "01_Summaries": "Link from index.md or ensure wiki sync registered it.",
+                "02_Atoms": "Ensure the parent L1 Summary has an Atom Candidates entry linking here.",
+                "03_Concepts": "Ensure at least one L4 Synthesis links to this concept.",
+                "04_Synthesis": "Ensure index.md routing table includes this SYN entry.",
+            }.get(page_type, "Link to this page from a related page, or delete it.")
             issues.append(
                 LintIssue(
                     check=CheckId.ORPHAN_PAGE,
                     severity=Severity.WARNING,
                     page=relpath,
-                    message="No incoming wikilinks — page is an orphan in the graph.",
-                    suggestion="Link to this page from a related entity/concept, or delete it.",
+                    message=f"No incoming wikilinks — [{page_type}] page is an orphan in the DAG.",
+                    suggestion=layer_hint,
                     fixable=False,
                 )
             )
@@ -327,12 +378,15 @@ def check_orphan_pages(inv: PageInventory) -> list[LintIssue]:
 
 
 def check_frontmatter(inv: PageInventory) -> list[LintIssue]:
-    """Verify every page has required frontmatter fields."""
+    """Verify every page has required frontmatter fields per layer."""
     issues: list[LintIssue] = []
+    # Required fields per layer — README.md §3 schema + last_updated on all mutable layers
     required_by_type = {
-        "Extracted": {"title", "type", "created", "updated"},
-        "Synthesized": {"title", "type", "created", "updated"},
-        "Metadata": {"title", "type", "created"},
+        "01_Summaries": {"id", "type", "source_path", "source_hash", "last_updated"},
+        "02_Atoms":     {"id", "type", "parent_source", "claim_type", "last_updated"},
+        "03_Concepts":  {"id", "type", "dependencies", "domain", "last_updated"},
+        "04_Synthesis": {"id", "type", "core_concepts", "confidence_score",
+                         "requires_math_rigor", "last_updated"},
     }
 
     for relpath, parsed in inv.pages.items():
@@ -369,7 +423,7 @@ def check_malformed_wikilinks(inv: PageInventory, paths: cfg.WikiPaths) -> list[
     """Find wikilinks with fixable formatting problems:
 
     - [[foo.md]] instead of [[foo]]
-    - [[qmd://llm-wiki-pages/foo]] instead of [[foo]]
+    - [[qmd://curator/02_Atoms/ATM-abc12345]] instead of [[02_Atoms/ATM-abc12345]]
     - [[/foo]] with leading slash
     - frontmatter source entries with qmd:// URI prefixes
     """
@@ -404,11 +458,10 @@ def check_malformed_wikilinks(inv: PageInventory, paths: cfg.WikiPaths) -> list[
                     )
                 )
 
-        # Frontmatter `sources` and `sources_consulted` list entries
-        for key in ("sources", "sources_consulted"):
-            values = parsed.frontmatter.get(key, [])
-            if not isinstance(values, list):
-                continue
+        # Curator frontmatter wikilink list/scalar entries
+        for key in ("parent_source", "dependencies", "core_concepts"):
+            raw = parsed.frontmatter.get(key)
+            values = raw if isinstance(raw, list) else ([raw] if isinstance(raw, str) else [])
             for val in values:
                 if not isinstance(val, str) or not val:
                     continue
@@ -427,6 +480,7 @@ def check_malformed_wikilinks(inv: PageInventory, paths: cfg.WikiPaths) -> list[
                                 "new_target": normalized,
                                 "location": "frontmatter",
                                 "field": key,
+                                "scalar": not isinstance(raw, list),
                             },
                         )
                     )
@@ -477,51 +531,40 @@ def check_missing_extracted(inv: PageInventory, threshold: int = 3) -> list[Lint
 
 
 def check_stale_source_refs(inv: PageInventory, paths: cfg.WikiPaths) -> list[LintIssue]:
-    """Flag pages whose `sources:` frontmatter references files that no longer
-    exist in 03_Resources/ or 02_Wiki/ or .wiki/distilled/Metadata/ .
-    """
+    """Flag Atom pages whose parent_source references a Summary that no longer exists."""
     issues: list[LintIssue] = []
     for relpath, parsed in inv.pages.items():
-        sources = parsed.frontmatter.get("sources", []) or []
-        if not isinstance(sources, list):
+        if not relpath.startswith("02_Atoms/"):
             continue
-        for src in sources:
-            if not isinstance(src, str):
-                continue
-            normalized = _normalize_link(src)
-            if not normalized:
-                continue
-            # Should be Metadata/<slug>
-            if not normalized.startswith("Metadata/"):
-                continue
-            source_file = paths.wiki / (normalized + ".md")
-            if not source_file.exists():
-                issues.append(
-                    LintIssue(
-                        check=CheckId.STALE_SOURCE_REF,
-                        severity=Severity.WARNING,
-                        page=relpath,
-                        message=f"Source reference '{normalized}' doesn't exist.",
-                        suggestion=f"The source page was deleted or renamed. Remove or update the reference.",
-                        fixable=False,
-                        context={"target": normalized},
-                    )
+        parent = parsed.frontmatter.get("parent_source", "")
+        if not parent:
+            continue
+        normalized = _normalize_link(parent)
+        if not normalized.startswith("01_Summaries/"):
+            continue
+        source_file = paths.collections / (normalized + ".md")
+        if not source_file.exists():
+            issues.append(
+                LintIssue(
+                    check=CheckId.STALE_SOURCE_REF,
+                    severity=Severity.WARNING,
+                    page=relpath,
+                    message=f"parent_source '{normalized}' doesn't exist.",
+                    suggestion="The L1 Summary was deleted or renamed. Re-sync to regenerate.",
+                    fixable=False,
+                    context={"target": normalized},
                 )
+            )
     return issues
 
 
 def check_noise_in_synthesis_sources(inv: PageInventory) -> list[LintIssue]:
-    """Flag synthesis pages that cite `log.md` or `index.md` as sources.
-
-    These are auto-maintained navigation files, not content. QMD sometimes
-    returns them as search hits because their text matches the query, and
-    they end up in synthesis page frontmatter. That's noise, not signal.
-    """
+    """Flag L4 Synthesis pages that list routing files as core_concepts."""
     issues: list[LintIssue] = []
     for relpath, parsed in inv.pages.items():
-        if not relpath.startswith("Synthesized/"):
+        if not relpath.startswith("04_Synthesis/"):
             continue
-        for key in ("sources", "sources_consulted"):
+        for key in ("core_concepts",):
             values = parsed.frontmatter.get(key, []) or []
             if not isinstance(values, list):
                 continue
@@ -530,19 +573,77 @@ def check_noise_in_synthesis_sources(inv: PageInventory) -> list[LintIssue]:
                     continue
                 normalized = _normalize_link(val)
                 base = normalized.rsplit("/", 1)[-1]
-                if base in {"index", "log"} or normalized in {"index", "log"}:
+                if base in {"index", "log", "overview", "ledger"}:
                     issues.append(
                         LintIssue(
                             check=CheckId.NOISE_IN_SYNTHESIS,
                             severity=Severity.WARNING,
                             page=relpath,
-                            message=f"Synthesis cites navigation file '{val}' as a source.",
-                            suggestion="Run `wiki lint --fix` to remove noise from sources list.",
+                            message=f"Synthesis references routing file '{val}' as core concept.",
+                            suggestion="Run `wiki lint --fix` to remove noise.",
                             fixable=True,
+                            context={"location": "frontmatter", "field": key, "remove_value": val},
+                        )
+                    )
+    return issues
+
+
+def check_cross_layer_links(inv: PageInventory) -> list[LintIssue]:
+    """Verify DAG layer constraints — each layer's wikilink fields must only
+    point to the correct parent layer:
+
+      L2 ATM  → parent_source   must be in 01_Summaries/
+      L3 CON  → dependencies    must be in 02_Atoms/
+      L4 SYN  → core_concepts   must be in 03_Concepts/
+
+    A wrong-layer reference is caught as WARNING (not ERROR) because the page
+    may still render and be useful; it's a structural integrity issue, not a
+    crash.
+    """
+    issues: list[LintIssue] = []
+
+    _rules: list[tuple[str, str, str, str]] = [
+        # (layer_dir,     field,           expected_prefix,  expected_id_prefix)
+        ("02_Atoms",     "parent_source",  "01_Summaries/",  "SUM-"),
+        ("03_Concepts",  "dependencies",   "02_Atoms/",      "ATM-"),
+        ("04_Synthesis", "core_concepts",  "03_Concepts/",   "CON-"),
+    ]
+
+    for layer_dir, field, expected_prefix, expected_id_prefix in _rules:
+        for relpath, parsed in inv.pages.items():
+            if not relpath.startswith(f"{layer_dir}/"):
+                continue
+            raw = parsed.frontmatter.get(field)
+            if raw is None:
+                continue
+            values: list[str] = [raw] if isinstance(raw, str) else (
+                [v for v in raw if isinstance(v, str)] if isinstance(raw, list) else []
+            )
+            for val in values:
+                if not val:
+                    continue
+                normalized = _normalize_link(val)
+                if not normalized:
+                    continue
+                if not normalized.startswith(expected_prefix):
+                    issues.append(
+                        LintIssue(
+                            check=CheckId.MISSING_CROSS_LAYER_LINK,
+                            severity=Severity.WARNING,
+                            page=relpath,
+                            message=(
+                                f"`{field}` points to '{normalized}' which is not in "
+                                f"{expected_prefix} (expected {expected_id_prefix}* IDs)."
+                            ),
+                            suggestion=(
+                                f"Update `{field}` to reference a "
+                                f"{expected_prefix}{expected_id_prefix}*.md page."
+                            ),
+                            fixable=False,
                             context={
-                                "location": "frontmatter",
-                                "field": key,
-                                "remove_value": val,
+                                "field": field,
+                                "value": normalized,
+                                "expected_prefix": expected_prefix,
                             },
                         )
                     )
@@ -560,22 +661,24 @@ def check_contradictions_deep(
     client,  # OllamaClient
     max_pairs: int = 10,
 ) -> list[LintIssue]:
-    """Use Qwen3 to scan pairs of pages that share entities/concepts and
-    flag potentially contradictory claims.
+    """Use the configured LLM to scan pairs of L2 Atom pages that share
+    related concepts and flag potentially contradictory claims.
 
     This is slow — one LLM call per pair of pages. We limit to `max_pairs`
-    to keep the runtime bounded.
+    to keep the runtime bounded. Atoms are the right layer to check because
+    L2 holds the irreducible factual claims; L3 Concepts and L4 Synthesis
+    derive from L2, so contradictions originate there.
     """
     from .llm import ChatMessage, LLMError
     from .prompts import CONTRADICTION_DETECTION_PROMPT
 
     issues: list[LintIssue] = []
 
-    # 1. Identify pairs of pages that share outgoing wikilinks
+    # 1. Identify pairs of Atom pages that share outgoing wikilinks
+    #    (e.g. both reference the same parent_source or related atom).
     page_link_sets: dict[str, set[str]] = {}
     for relpath, targets in inv.outgoing_links.items():
-        page_type = relpath.split("/", 1)[0] if "/" in relpath else ""
-        if page_type == "Extracted":
+        if relpath.startswith("02_Atoms/"):
             page_link_sets[relpath] = set(t for t in targets if t)
 
     pairs: list[tuple[str, str, int]] = []
@@ -679,20 +782,24 @@ def _apply_fixes_to_page(parsed: page_writer.ParsedPage, fixes: list[LintIssue])
                 changed = True
 
             elif location == "frontmatter":
-                field = ctx.get("field", "sources")
-                values = parsed.frontmatter.get(field, []) or []
-                if isinstance(values, list):
-                    new_values = []
-                    for v in values:
-                        if isinstance(v, str) and v == old:
-                            new_values.append(new)
-                        else:
-                            new_values.append(v)
-                    parsed.frontmatter[field] = new_values
-                    changed = True
+                field = ctx.get("field", "parent_source")
+                if ctx.get("scalar"):
+                    if parsed.frontmatter.get(field) == old:
+                        parsed.frontmatter[field] = new
+                        changed = True
+                else:
+                    values = parsed.frontmatter.get(field, []) or []
+                    if isinstance(values, list):
+                        new_values = [
+                            new if (isinstance(v, str) and v == old) else v
+                            for v in values
+                        ]
+                        if new_values != values:
+                            parsed.frontmatter[field] = new_values
+                            changed = True
 
         elif issue.check == CheckId.NOISE_IN_SYNTHESIS:
-            field = ctx.get("field", "sources")
+            field = ctx.get("field", "core_concepts")
             remove_value = ctx.get("remove_value", "")
             values = parsed.frontmatter.get(field, []) or []
             if isinstance(values, list):
@@ -786,13 +893,14 @@ def run_lint(
 
     # Fast checks
     fast_check_fns: list[tuple[str, Any]] = [
-        ("broken_wikilinks", lambda: check_broken_wikilinks(inv)),
-        ("orphan_pages", lambda: check_orphan_pages(inv)),
-        ("frontmatter", lambda: check_frontmatter(inv)),
+        ("broken_wikilinks",    lambda: check_broken_wikilinks(inv)),
+        ("orphan_pages",        lambda: check_orphan_pages(inv)),
+        ("frontmatter",         lambda: check_frontmatter(inv)),
         ("malformed_wikilinks", lambda: check_malformed_wikilinks(inv, paths)),
-        ("missing_extracted", lambda: check_missing_extracted(inv)),
-        ("stale_source_refs", lambda: check_stale_source_refs(inv, paths)),
-        ("noise_in_synthesis", lambda: check_noise_in_synthesis_sources(inv)),
+        ("missing_extracted",   lambda: check_missing_extracted(inv)),
+        ("stale_source_refs",   lambda: check_stale_source_refs(inv, paths)),
+        ("noise_in_synthesis",  lambda: check_noise_in_synthesis_sources(inv)),
+        ("cross_layer_links",   lambda: check_cross_layer_links(inv)),
     ]
     for name, fn in fast_check_fns:
         report.issues.extend(fn())
@@ -826,10 +934,12 @@ def render_report_markdown(report: LintReport, paths: cfg.WikiPaths) -> str:
     lines: list[str] = []
     lines.append("---")
     lines.append(f"title: Lint Report {today}")
-    lines.append("type: synthesized")
+    lines.append("type: synthesis")
+    lines.append("core_concepts: []")
+    lines.append("confidence_score: 1.00")
+    lines.append("requires_math_rigor: false")
+    lines.append(f"last_updated: '{today}'")
     lines.append("tags: [lint, health-check]")
-    lines.append(f"created: '{today}'")
-    lines.append(f"updated: '{today}'")
     lines.append(f"health_score: {report.health_score}")
     lines.append("---")
     lines.append("")

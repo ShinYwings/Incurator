@@ -17,6 +17,47 @@ from .base import (
     normalize_text,
 )
 
+_MAX_PDF_IMAGES = 10  # cap per document to avoid memory blow-up
+
+
+def _extract_pdf_images(path: Path) -> list[dict]:
+    """Extract embedded images from a PDF using pymupdf (optional dep).
+
+    Returns list of {"page": int, "data": bytes, "ext": str}.
+    Returns [] silently if pymupdf is not installed or extraction fails.
+    """
+    try:
+        import fitz  # pymupdf
+    except ImportError:
+        return []
+
+    images: list[dict] = []
+    try:
+        doc = fitz.open(str(path))
+        for page_num in range(len(doc)):
+            if len(images) >= _MAX_PDF_IMAGES:
+                break
+            page = doc[page_num]
+            for img_info in page.get_images(full=True):
+                if len(images) >= _MAX_PDF_IMAGES:
+                    break
+                xref = img_info[0]
+                try:
+                    base_img = doc.extract_image(xref)
+                    data = base_img.get("image")
+                    if data and len(data) > 1024:  # skip tiny icons
+                        images.append({
+                            "page": page_num + 1,
+                            "data": data,
+                            "ext": base_img.get("ext", "png"),
+                        })
+                except Exception:
+                    continue
+        doc.close()
+    except Exception:
+        pass
+    return images
+
 
 def _first_nonempty_line(text: str) -> str | None:
     for line in text.splitlines():
@@ -39,6 +80,11 @@ def parse(path: Path) -> ParsedDocument:
         reader = PdfReader(str(path))
     except Exception as e:
         raise ParserError(f"Cannot open PDF {path.name}: {e}") from e
+
+    if reader.is_encrypted:
+        raise ParserError(
+            f"PDF is password-protected and cannot be read: {path.name}"
+        )
 
     # Extract text from all pages
     page_texts: list[str] = []
@@ -78,6 +124,8 @@ def parse(path: Path) -> ParsedDocument:
                 metadata["creation_date"] = str(meta.creation_date)
     except Exception:
         pass
+
+    metadata["pdf_images"] = _extract_pdf_images(path)
 
     return ParsedDocument(
         source_path=path,

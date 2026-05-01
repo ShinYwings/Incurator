@@ -148,38 +148,21 @@ def ensure_frontmatter_fields(page: ParsedPage, required: dict[str, Any]) -> Par
     return page
 
 
-def add_source_to_frontmatter(
-    page: ParsedPage, source_slug: str, today: str
-) -> ParsedPage:
-    """Add a source reference to the page's frontmatter `sources` list
-    and update the `updated` date. Idempotent.
-    """
-    sources = page.frontmatter.get("sources", [])
-    if not isinstance(sources, list):
-        sources = []
-    ref = f"Metadata/{source_slug}.md"
-    if ref not in sources:
-        sources.append(ref)
-    page.frontmatter["sources"] = sources
-    page.frontmatter["updated"] = today
-    return page
-
-
 # ---------------------------------------------------------------------------
 # index.md rebuild
 # ---------------------------------------------------------------------------
 
 
 INDEX_HEADER = """---
-title: "Wiki Index"
+title: "Curator Index"
 type: index
 updated: {today}
 ---
 
-# Wiki Index
+# .curator/index.md — DAG Routing Table
 
-> This file is auto-maintained by the LLM-Wiki agent. It lists every wiki
-> page organized by category. Rebuilt after every ingest.
+> Auto-maintained by the Curator engine. Lists all pages by layer.
+> Rebuilt after every ingest. DO NOT edit manually.
 
 """
 
@@ -203,33 +186,36 @@ def _list_pages_in(directory: Path) -> list[tuple[str, str]]:
 
 
 def rebuild_index(paths: cfg.WikiPaths, today: str) -> None:
-    """Rebuild wiki/index.md from the current wiki/ contents."""
-    sources = _list_pages_in(paths.wiki / "Metadata")
-    extracted = _list_pages_in(paths.wiki / "Extracted")
-    synthesis = _list_pages_in(paths.wiki / "Synthesized")
+    """Rebuild .curator/index.md from the current Collections/ contents."""
+    summaries  = _list_pages_in(paths.summaries)
+    atoms      = _list_pages_in(paths.atoms)
+    concepts   = _list_pages_in(paths.concepts)
+    synthesis  = _list_pages_in(paths.synthesis)
 
     lines = [INDEX_HEADER.format(today=today)]
 
-    def _section(title: str, pages: list[tuple[str, str]], subdir: str) -> None:
+    def _section(title: str, layer: str, pages: list[tuple[str, str]]) -> None:
         lines.append(f"## {title}\n")
         if not pages:
-            lines.append(f"*No {title.lower()} pages yet.*\n")
+            lines.append(f"*No pages yet.*\n")
         else:
             for slug, page_title in pages:
-                lines.append(f"- [[{subdir}/{slug}|{page_title}]]")
+                lines.append(f"- [[{layer}/{slug}|{page_title}]]")
             lines.append("")
         lines.append("")
 
-    _section("Metadata", sources, "Metadata")
-    _section("Extracted", extracted, "Extracted")
-    _section("Synthesized", synthesis, "Synthesized")
+    _section("L1 — Summaries",  "01_Summaries", summaries)
+    _section("L2 — Atoms",      "02_Atoms",     atoms)
+    _section("L3 — Concepts",   "03_Concepts",  concepts)
+    _section("L4 — Synthesis",  "04_Synthesis", synthesis)
 
     lines.append("---\n")
     lines.append(
-        f"**Stats:** {len(sources)} metadata · {len(extracted)} extracted · "
-        f"{len(synthesis)} synthesized pages\n"
+        f"**Stats:** {len(summaries)} summaries · {len(atoms)} atoms · "
+        f"{len(concepts)} concepts · {len(synthesis)} synthesis pages\n"
     )
 
+    paths.index.parent.mkdir(parents=True, exist_ok=True)
     paths.index.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -255,7 +241,7 @@ def append_log_entry(
     if not paths.log.exists():
         paths.log.parent.mkdir(parents=True, exist_ok=True)
         paths.log.write_text(
-            '---\ntitle: "Wiki Log"\ntype: log\n---\n\n# Wiki Log\n\n',
+            '---\ntitle: "Curator Log"\ntype: log\n---\n\n# .curator/log.md — Hash Registry\n\n',
             encoding="utf-8",
         )
 

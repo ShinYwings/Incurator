@@ -1,8 +1,11 @@
-"""Path constants and config loading for an LLM-Wiki project.
+"""Path constants and config loading for an LLM-Wiki Curator project.
 
-The key insight: RAW_DIRS and WIKI_DIR are stored *in the config* so each
-vault can customise them at init time.  The module-level constants are
-just defaults used when no config.yml exists.
+The Curator is a background abstraction engine that:
+  1. Monitors source dirs (02_Wiki, 03_Notes, 04_Resources) for changes
+  2. Generates L1 Summaries (1:1 hash-matched) during `wiki sync`
+  3. Builds L2 Atoms → L3 Concepts → L4 Synthesis via `wiki ingest`
+
+All Curator state lives exclusively in `.curator/`.
 """
 
 from __future__ import annotations
@@ -17,52 +20,132 @@ import yaml
 # Defaults (used when no config.yml has been written yet)
 # ---------------------------------------------------------------------------
 
-DEFAULT_RAW_DIRS = ["03_Resources", "02_Wiki"]
-DEFAULT_WIKI_DIR = ".wiki/distilled"
-INTERNAL_DIR = ".wiki"
+# Source directories the Curator monitors (READ-ONLY).
+# Ordered by epistemic authority: 03_Notes (human verified) > 02_Wiki > rest.
+DEFAULT_RAW_DIRS = ["02_Wiki", "03_Notes", "04_Resources"]
 
-WIKI_SUBDIRS = ("Extracted", "Synthesized", "Metadata")
+# Curator internal hidden directory
+INTERNAL_DIR = ".curator"
 
-INDEX_FILE = "index.md"
-LOG_FILE = "log.md"
+# Collections data-plane inside .curator/
+DEFAULT_COLLECTIONS_DIR = ".curator/Collections"
+
+# Obsidian vault top-level directories (README.md topology §2)
+VAULT_TOPOLOGY = (
+    "00_System",       # Scripts & Templates
+    "01_Workspaces",   # Active agent projects
+    "02_Wiki",         # Shared truth — agent-managed knowledge base
+    "03_Notes",        # Human-verified atomic knowledge
+    "04_Resources",    # External reference PDFs & Docs (read-only)
+    "05_Assets",       # System byproducts (Zotero assets, images)
+    "06_Archives",     # Terminated projects & legacy data (read-only)
+)
+
+# L1-L4 subdirectories under Collections/
+COLLECTION_LAYERS = (
+    "01_Summaries",   # L1: 1:1 hash-matched summaries of source files
+    "02_Atoms",       # L2: Irreducible facts / equations / constraints
+    "03_Concepts",    # L3: Clustered, coherent conceptual units
+    "04_Synthesis",   # L4: Terminal knowledge outputs, cross-domain
+)
+
+# Top-level routing / control-plane files inside .curator/
+OVERVIEW_FILE = "overview.md"
+INDEX_FILE    = "index.md"
+LOG_FILE      = "log.md"
+LEDGER_FILE   = "ledger.md"
+
 CONFIG_FILE = "config.yml"
-STATE_DB = "state.sqlite"
-
-OBSIDIAN_DIR = ".obsidian"
+STATE_DB    = "state.sqlite"
 
 
 @dataclass
 class WikiPaths:
-    """Resolved absolute paths for a wiki project.
+    """Resolved absolute paths for a Curator project.
 
-    raw_dirs_override and wiki_dir_override allow per-project customisation
-    (set via config.yml during ``wiki init``).
+    ``raw_dirs_override`` and ``collections_dir_override`` allow per-project
+    customisation via ``config.yml`` (written during ``wiki init``).
     """
 
     root: Path
     raw_dirs_override: Optional[list[str]] = field(default=None)
-    wiki_dir_override: Optional[str] = field(default=None)
+    collections_dir_override: Optional[str] = field(default=None)
+
+    # ------------------------------------------------------------------
+    # Source (read-only) directories
+    # ------------------------------------------------------------------
 
     @property
     def raw_dirs(self) -> list[Path]:
         dirs = self.raw_dirs_override or DEFAULT_RAW_DIRS
         return [self.root / d for d in dirs]
 
-    @property
-    def wiki(self) -> Path:
-        return self.root / (self.wiki_dir_override or DEFAULT_WIKI_DIR)
+    # ------------------------------------------------------------------
+    # Curator internal paths
+    # ------------------------------------------------------------------
 
     @property
     def internal(self) -> Path:
+        """The hidden `.curator/` directory."""
         return self.root / INTERNAL_DIR
 
     @property
+    def collections(self) -> Path:
+        """`.curator/Collections/` — the DAG knowledge lake."""
+        return self.root / (self.collections_dir_override or DEFAULT_COLLECTIONS_DIR)
+
+    # Backward-compatible alias so existing callers of `paths.wiki` still work
+    @property
+    def wiki(self) -> Path:
+        return self.collections
+
+    # ------------------------------------------------------------------
+    # Layer paths
+    # ------------------------------------------------------------------
+
+    @property
+    def summaries(self) -> Path:
+        """L1: `.curator/Collections/01_Summaries/`"""
+        return self.collections / "01_Summaries"
+
+    @property
+    def atoms(self) -> Path:
+        """L2: `.curator/Collections/02_Atoms/`"""
+        return self.collections / "02_Atoms"
+
+    @property
+    def concepts(self) -> Path:
+        """L3: `.curator/Collections/03_Concepts/`"""
+        return self.collections / "03_Concepts"
+
+    @property
+    def synthesis(self) -> Path:
+        """L4: `.curator/Collections/04_Synthesis/`"""
+        return self.collections / "04_Synthesis"
+
+    # ------------------------------------------------------------------
+    # Control-plane routing files
+    # ------------------------------------------------------------------
+
+    @property
+    def overview(self) -> Path:
+        return self.internal / OVERVIEW_FILE
+
+    @property
     def index(self) -> Path:
-        return self.wiki / INDEX_FILE
+        return self.internal / INDEX_FILE
 
     @property
     def log(self) -> Path:
-        return self.wiki / LOG_FILE
+        return self.internal / LOG_FILE
+
+    @property
+    def ledger(self) -> Path:
+        return self.internal / LEDGER_FILE
+
+    # ------------------------------------------------------------------
+    # Operational files
+    # ------------------------------------------------------------------
 
     @property
     def config_file(self) -> Path:
@@ -72,9 +155,27 @@ class WikiPaths:
     def state_db(self) -> Path:
         return self.internal / STATE_DB
 
+    # ------------------------------------------------------------------
+    # QMD search-engine state — kept inside the project so it travels with
+    # the vault and stays isolated from any global ~/.config/qmd index.
+    # ------------------------------------------------------------------
+
     @property
-    def obsidian(self) -> Path:
-        return self.wiki / OBSIDIAN_DIR
+    def qmd_dir(self) -> Path:
+        """`.curator/qmd/` — qmd config + sqlite index for this project."""
+        return self.internal / "qmd"
+
+    @property
+    def qmd_config_file(self) -> Path:
+        """qmd's per-project YAML config (collection definitions + contexts)."""
+        return self.qmd_dir / "index.yml"
+
+    @property
+    def qmd_db(self) -> Path:
+        """qmd's per-project sqlite index."""
+        return self.qmd_dir / "index.sqlite"
+
+    # ------------------------------------------------------------------
 
     def is_initialized(self) -> bool:
         """A folder counts as initialized if its config file exists."""
@@ -86,28 +187,51 @@ class WikiPaths:
 # ---------------------------------------------------------------------------
 
 DEFAULT_CONFIG: dict = {
-    "version": 1,
+    "version": 2,
     "paths": {
         "raw_dirs": DEFAULT_RAW_DIRS,
-        "wiki_dir": DEFAULT_WIKI_DIR,
+        "collections_dir": DEFAULT_COLLECTIONS_DIR,
     },
     "llm": {
-        # provider: 'auto' | 'ollama' | 'gemini'
-        # 'auto' selects based on system RAM at runtime:
-        #   < 16 GB  →  Gemini API
-        #   ≥ 16 GB  →  Ollama (deepseek-r1:14b)
-        "provider": "auto",
-        # --- Ollama settings (used when provider=ollama or RAM ≥ 16 GB) ---
+        # --- Ollama settings ---
         "model": "deepseek-r1:14b",
         "host": "http://localhost:11434",
-        # --- Gemini settings (used when provider=gemini or RAM < 16 GB) ---
+        # --- Gemini settings ---
         # API key can also be set via GEMINI_API_KEY environment variable
         "gemini_api_key": "",
         "gemini_flash_model": "gemini-3-flash-preview",
         "gemini_think_model": "gemini-3.1-pro-preview",
-        # thinking mode — used for Pass 1 extraction (slower but higher quality)
+        # thinking mode — used for L2 Atom extraction (slower, higher quality)
         "temperature": 0.3,
         "thinking": True,
+        # primary: 'ollama' | 'cloud' | 'claude-code' | 'gemini-cli' | ''
+        #   ''  → legacy auto/provider field takes effect
+        "primary": "",
+        # fallback: 'ollama' | 'cloud' | 'claude-code' | 'gemini-cli' | ''
+        #   explicit failover backend; '' = use legacy hardcoded fallback logic
+        "fallback": "",
+        # --- Cloud provider selection ---
+        # 'gemini' | 'claude' | 'openai'
+        "cloud_provider": "gemini",
+        # --- Claude settings ---
+        "anthropic_api_key": "",
+        "claude_model": "claude-sonnet-4-6",
+        "claude_think_model": "claude-opus-4-7",
+        # --- OpenAI settings ---
+        # API key can also be set via OPENAI_API_KEY environment variable
+        "openai_api_key": "",
+        "openai_model": "gpt-4.1",
+        "openai_think_model": "o3",
+        # --- Failover / multi-host settings ---
+        # Set to remote Ollama URL (e.g. linux server) when running on macOS.
+        # FailoverClient([OllamaClient(remote), cloud_client]) is used automatically.
+        "remote_ollama_host": "",
+        "probe_interval": 60,    # seconds between background probes; 0 = disable
+        # --- Vision / image inference ---
+        # Ollama model to use for image description. '' = use main model if it
+        # supports vision, else skip image inference.
+        # Examples: 'gemma4:31b-it', 'gemma3:12b', 'llava:latest', 'qwen2.5-vl:7b'
+        "vision_model": "",
     },
     "search": {
         "backend": "qmd",
@@ -121,19 +245,82 @@ DEFAULT_CONFIG: dict = {
 }
 
 
+def get_global_config_dir() -> Path:
+    """Get cross-platform global config directory for macOS and Linux."""
+    import sys
+    import os
+    # If XDG_CONFIG_HOME is set, respect it
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if xdg:
+        return Path(xdg) / "llm_wiki"
+
+    # macOS specific standard path fallback
+    if sys.platform == "darwin":
+        mac_path = Path.home() / "Library" / "Application Support" / "llm_wiki"
+        linux_fallback = Path.home() / ".config" / "llm_wiki"
+        # If macOS path exists, or Linux path doesn't exist, use macOS path
+        if mac_path.exists() or not linux_fallback.exists():
+            return mac_path
+        return linux_fallback
+
+    # Linux fallback
+    return Path.home() / ".config" / "llm_wiki"
+
+
+def get_last_root() -> Optional[Path]:
+    """Get the last active project root from the dedicated last_root file."""
+    last_root_file = get_global_config_dir() / "last_root"
+    if last_root_file.exists():
+        try:
+            val = last_root_file.read_text(encoding="utf-8").strip()
+            if val:
+                return Path(val).resolve()
+        except Exception:
+            pass
+    return None
+
+
+def set_last_root(root: Path) -> None:
+    """Save the last active project root in the dedicated last_root file."""
+    try:
+        cache_dir = get_global_config_dir()
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        (cache_dir / "last_root").write_text(str(root.resolve()), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def load_config(paths: WikiPaths) -> dict:
-    """Load the wiki's config.yml, falling back to defaults for missing keys."""
-    if not paths.config_file.exists():
-        return dict(DEFAULT_CONFIG)
-    with paths.config_file.open("r", encoding="utf-8") as f:
-        loaded = yaml.safe_load(f) or {}
+    """Load the Curator's config.yml, falling back to defaults for missing keys."""
     merged = dict(DEFAULT_CONFIG)
-    # Deep-merge top-level dicts
-    for key, val in loaded.items():
-        if isinstance(val, dict) and isinstance(merged.get(key), dict):
-            merged[key] = {**merged[key], **val}
-        else:
-            merged[key] = val
+
+    # 1. Load from global config file if it exists
+    global_cfg_file = get_global_config_dir() / "config.yml"
+    if global_cfg_file.exists():
+        try:
+            with global_cfg_file.open("r", encoding="utf-8") as f:
+                global_loaded = yaml.safe_load(f) or {}
+            for key, val in global_loaded.items():
+                if isinstance(val, dict) and isinstance(merged.get(key), dict):
+                    merged[key] = {**merged[key], **val}
+                else:
+                    merged[key] = val
+        except Exception:
+            pass
+
+    # 2. Merge with the local project's config file
+    if paths.config_file.exists():
+        try:
+            with paths.config_file.open("r", encoding="utf-8") as f:
+                loaded = yaml.safe_load(f) or {}
+            for key, val in loaded.items():
+                if isinstance(val, dict) and isinstance(merged.get(key), dict):
+                    merged[key] = {**merged[key], **val}
+                else:
+                    merged[key] = val
+        except Exception:
+            pass
+
     return merged
 
 
@@ -149,7 +336,7 @@ def paths_from_config(root: Path, config: dict | None = None) -> WikiPaths:
     return WikiPaths(
         root=root,
         raw_dirs_override=paths_cfg.get("raw_dirs"),
-        wiki_dir_override=paths_cfg.get("wiki_dir"),
+        collections_dir_override=paths_cfg.get("collections_dir"),
     )
 
 
@@ -161,7 +348,7 @@ def save_config(paths: WikiPaths, config: dict) -> None:
 
 
 def find_wiki_root(start: Path | None = None) -> Path | None:
-    """Walk upward from ``start`` looking for a ``.wiki/config.yml``.
+    """Walk upward from ``start`` looking for a ``.curator/config.yml``.
 
     Returns the project root if found, else None.
     """

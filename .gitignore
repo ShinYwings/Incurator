@@ -21,12 +21,3 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
-
-# Obsidian workspace state (keep config, ignore per-user workspace)
-wiki/.obsidian/workspace.json
-wiki/.obsidian/workspace-mobile.json
-
-# Runtime content — not shipped with the code
-raw/
-wiki/
-.wiki/

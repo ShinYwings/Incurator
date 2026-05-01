@@ -1,18 +1,20 @@
 """Query pipeline: search → synthesize → (optionally) save back as a page.
 
 Flow:
-  1. Call search.query() to get top-K matching wiki pages.
+  1. Call search.query() to get top-K matching Curator pages.
   2. Build a synthesis prompt with the matches as context.
-  3. Stream Qwen3's answer via OllamaClient.chat_stream.
+  3. Stream the LLM's answer via the active client.
   4. Provide a streaming answer using markdown citations.
-  5. Optionally save the answer as wiki/Synthesized/<slug>.md and update
-     the index. + log.
+  5. Optionally save the answer as
+     `.curator/Collections/04_Synthesis/SYN-<UUID8>.md` and update
+     index.md + log.md.
 
 Callbacks let the CLI render progress (search phase, synthesis streaming).
 """
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,7 +24,6 @@ from . import db
 from . import page_writer
 from . import prompts
 from . import search
-from . import slugify
 from .llm import (
     LLMError,
     ModelNotFound,
@@ -90,18 +91,22 @@ class QueryCallbacks:
 
 
 SYNTHESIS_SYSTEM_PROMPT = """You are answering questions by synthesizing content
-from an LLM-Wiki knowledge base.
+from the Curator's DAG knowledge base under `.curator/Collections/`.
 
 Rules:
-1. Base your answer STRICTLY on the provided wiki pages and excerpts below.
+1. Base your answer STRICTLY on the provided pages and excerpts below.
    Do not invent facts or speculate beyond what the sources say.
-2. Use `[[wikilinks]]` extensively to connect to other concepts or entities
-   shown in the source headers (e.g. [[Extracted/karpathy]], [[Synthesized/rag]]).
-3. If the sources don't contain enough information to answer confidently,
-   say so explicitly. Suggest what additional sources would help.
-4. Be concise but substantive. Write in clean markdown (headers, bullets,
-   paragraphs as appropriate).
-5. Do NOT include YAML frontmatter, preamble like "Based on the sources:",
+2. Use `[[wikilinks]]` to cite specific nodes in the DAG. Always include the
+   layer prefix exactly as shown in the source headers, e.g.
+   [[01_Summaries/SUM-a1b2c3d4]], [[02_Atoms/ATM-9f8e7d6c]],
+   [[03_Concepts/CON-12345678]], [[04_Synthesis/SYN-abcdef01]].
+3. Prefer citing L2 Atoms for factual claims, L3 Concepts for thematic groupings,
+   and L4 Synthesis for cross-domain conclusions. Trace back to L2 if a higher
+   layer's confidence_score is below 0.90.
+4. If the sources don't contain enough information to answer confidently,
+   say so explicitly and identify which layer is missing.
+5. Be concise but substantive. Write in clean markdown.
+6. Do NOT include YAML frontmatter, preamble like "Based on the sources:",
    or meta-commentary about your process.
 """
 
@@ -156,66 +161,61 @@ def _save_synthesis_page(
     paths: cfg.WikiPaths,
     question: str,
     answer: str,
-    save_slug: str,
+    title: str,
     hits: list[search.SearchHit],
 ) -> str:
-    """Write the answer to wiki/Synthesized/<slug>.md, rebuild index, append log.
+    """Write the answer to `.curator/Collections/04_Synthesis/SYN-<UUID8>.md`,
+    rebuild index, append log.
 
-    Returns the relative path to the saved page.
+    Returns the relative path (relative to `.curator/Collections/`) of the
+    saved page.
     """
-    slug = slugify.slugify(save_slug)
-    if not slug:
-        slug = slugify.slugify(question) or "synthesis"
-
+    syn_id = f"SYN-{uuid.uuid4().hex[:8]}"
     today = page_writer.today_iso()
 
-    # Derive the list of sources that contributed to this synthesis.
-    # Normalize each hit path so we store clean refs like 'Metadata/foo'
-    # instead of '/qmd://llm-wiki-pages/Metadata/foo'.
-    source_refs: list[str] = []
+    # L4 frontmatter expects `core_concepts` to be a list of [[03_Concepts/CON-…]]
+    # wikilinks. Filter hits to L3 Concepts only.
+    core_concepts: list[str] = []
     for hit in hits:
         raw = hit.full_path.removesuffix(".md")
-        # Strip qmd:// URI prefix and any collection name prefix
         import re as _re
         cleaned = _re.sub(r"^/?qmd://[^/]+/", "", raw).lstrip("/")
-        if cleaned and cleaned not in source_refs:
-            source_refs.append(cleaned)
+        if cleaned.startswith("03_Concepts/") and cleaned not in core_concepts:
+            core_concepts.append(f"[[{cleaned}]]")
 
-    # Build the final page with frontmatter
+    display_title = (title or question).strip()
+    if len(display_title) > 80:
+        display_title = display_title[:77] + "..."
+
     parsed = page_writer.parse_page(answer.strip())
     if not parsed.frontmatter:
         parsed.frontmatter = {
-            "title": question if len(question) <= 80 else question[:77] + "...",
+            "id": syn_id,
             "type": "synthesis",
-            "tags": ["synthesis"],
-            "created": today,
-            "updated": today,
+            "core_concepts": core_concepts,
+            "confidence_score": 0.70,
+            "requires_math_rigor": False,
+            "last_updated": today,
             "question": question,
-            "sources_consulted": source_refs,
-            "confidence": "medium",
         }
-        # Wrap body with a nice H1 and the answer
-        title_line = f"# {parsed.frontmatter['title']}"
-        parsed.body = f"{title_line}\n\n{answer.strip()}"
+        parsed.body = f"# {display_title}\n\n{answer.strip()}"
 
-    final_page = parsed.to_markdown()
-    final_path = paths.wiki / "Synthesized" / f"{slug}.md"
-    page_writer.write_page(final_path, final_page)
+    final_path = paths.synthesis / f"{syn_id}.md"
+    page_writer.write_page(final_path, parsed.to_markdown())
 
-    # Rebuild index & log
     page_writer.rebuild_index(paths, today)
     page_writer.append_log_entry(
         paths,
         today,
         "query",
-        question if len(question) <= 80 else question[:77] + "...",
+        display_title,
         [
-            f"saved: [[Synthesized/{slug}]]",
+            f"saved: [[04_Synthesis/{syn_id}]]",
             f"consulted: {len(hits)} page(s)",
         ],
     )
 
-    return f"Synthesized/{slug}.md"
+    return f"04_Synthesis/{syn_id}.md"
 
 
 # ---------------------------------------------------------------------------
@@ -235,15 +235,18 @@ def run_query(
     rerank: bool = True,
     save_as: str | None = None,
     temperature: float = 0.3,
-    scope: str = "wiki",  # 'wiki' | 'raw' | 'hybrid'
+    scope: str = "all",
     classify_intent_first: bool = True,
 ) -> QueryResult:
     """Run a full query → answer pipeline.
 
-    scope determines which QMD collection(s) to search:
-        - 'wiki'   → llm-wiki-pages only (LLM-summarized knowledge)
-        - 'raw'    → llm-wiki-raw only (original source documents)
-        - 'hybrid' → both, results merged
+    scope filters retrieval by Curator layer (path prefix inside
+    `.curator/Collections/`):
+        - 'all'        → no filter
+        - 'summaries'  → 01_Summaries/ only
+        - 'atoms'      → 02_Atoms/ only
+        - 'concepts'   → 03_Concepts/ only
+        - 'synthesis'  → 04_Synthesis/ only
 
     classify_intent_first runs intent classification before retrieval. If
     the user asked something like 'hi' or 'thanks', we skip retrieval and
@@ -266,17 +269,8 @@ def run_query(
             callbacks.on_complete(result)
             return result
 
-    # 1. Search — pick collections based on scope
+    # 1. Search the single Curator collection
     callbacks.on_searching()
-    if scope == "wiki":
-        collections_to_search: list[str] | None = ["llm-wiki-pages"]
-    elif scope == "raw":
-        collections_to_search = ["llm-wiki-raw"]
-    elif scope == "hybrid":
-        collections_to_search = ["llm-wiki-pages", "llm-wiki-raw"]
-    else:
-        collections_to_search = None  # use QMD default (all collections)
-
     try:
         results = search.query(
             paths,
@@ -284,10 +278,21 @@ def run_query(
             mode=mode,
             limit=limit,
             min_score=min_score,
-            collections=collections_to_search,
+            collections=None,
             hydrate=True,
             rerank=rerank,
         )
+        # Apply layer-prefix filter post-hoc — qmd has no native path filter,
+        # and over-fetching a few extra hits is cheaper than splitting into
+        # multiple collections.
+        layer_prefix = {
+            "summaries": "01_Summaries/",
+            "atoms":     "02_Atoms/",
+            "concepts":  "03_Concepts/",
+            "synthesis": "04_Synthesis/",
+        }.get(scope)
+        if layer_prefix:
+            results.hits = [h for h in results.hits if h.full_path.startswith(layer_prefix)]
     except search.QmdNotInstalled as e:
         result = QueryResult(question=question, error=str(e))
         callbacks.on_error(result.error)

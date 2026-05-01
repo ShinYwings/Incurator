@@ -1,84 +1,193 @@
----
-created: 2026-04-27T20:11
-updated: 2026-04-28T23:25
----
+# SYMBIOTIC_OS_ARCHITECTURE - LLM-Wiki Curator (v11.0)
 
-# 🧠 LLM Wiki 기반 Research Agent 파이프라인
-
-이 워크스페이스는 **LLM Wiki** 기반의 **Local Distiller LLM(Raw File Ingestion)**, **QMD(Query Markup Documents)**, **Obsidian**, 그리고 **Research Agent**를 유기적으로 통합하여 자율적이고 신뢰성 높은 연구 파이프라인을 구축하는 공간입니다. 
-
-에이전트(Agent)는 Zotero 등 외부 데이터베이스에 직접 접근하지 않고, 철저히 통제된 **Obsidian 내부 컨텍스트** 안에서만 탐색을 수행하여 환각(Hallucination)을 방지합니다. 외부 논문 등 새로운 정보가 필요할 때는 Zotero Integration을 통해 Obsidian 내부망(`02_Wiki` 또는 `03_Resources`)으로 안전하게 반입한 뒤 활용합니다.
+**LLM-Wiki Curator** is an autonomous, AI-maintained personal knowledge base designed for the **SYMBIOTIC_OS_ARCHITECTURE v11.0**. It establishes a 4-layer directed acyclic graph (DAG) knowledge pipeline to summarize, parse, cluster, and synthesize atomic facts and high-level concepts from raw user notes and reference materials.
 
 ---
 
-## 📂 핵심 디렉토리 구조 및 역할
+## 1. Entity Roles & Global Topology
 
-```text
-/
-├── 00_System/ (시스템 및 템플릿 관리)
-|   ├── Scripts/ 
-│   │   └── create_project.sh (표준 프로젝트 폴더 및 초기 템플릿 파일들을 자동 생성하는 스크립트)
-│   └── Templates/ (수식 유도, 논문 요약, Zotero 포맷 등 반복 작업을 위한 템플릿 모음)
-│
-├── 01_Projects/ (마감 기한이 있는 프로젝트 - 🤖 에이전트 메인 워크스페이스)
-│   └── {Project Name}/ (create_project.sh 로 자동 생성되는 표준 프로젝트 구조)
-│       ├── .agents/ (에이전트 스킬 및 워크플로우 설정 - 심볼릭 링크)
-│       ├── .antigravity/ (에이전트 제어 규칙 및 시스템 설정 - 심볼릭 링크)
-│       ├── Artifacts/ (에이전트가 실험 과정에서 생성한 코드, 이미지, 중간 결과물 보관 공간)
-│       ├── Concepts/ (사전 지식을 현재 프로젝트에 맞게 재구성한 개념 공간. 성숙되면 02_Wiki로 편입)
-│       ├── Papers/ (사전 지식망에서 추출해 현재 프로젝트에서 직접 리뷰/사용하는 전용 논문 공간)
-│       ├── Research Notes/ (프로젝트 진행 중 발생한 파편화된 데일리 리서치 기록)
-│       ├── qmd.yml (🌟 에이전트가 어떤 Wiki와 Resource 맥락을 사전 지식으로 로드할지 결정하는 로더)
-│       ├── methodology.md (엄밀한 기하학적/수학적 뼈대와 상호 동의된 파이프라인 설계가 기록되는 Ground Truth)
-│       ├── related_works.md (선행 연구들을 분류하고 비판적 해석(Interpretation)을 기록하는 문헌 고찰)
-│       ├── research_digest.md (Research Notes를 종합하여 기록하는 현재 시점의 연구 이해 상태 및 작업 가설)
-│       └── todo_list.md (프로젝트 마일스톤 및 세부 태스크 트래킹)
-│
-├── 02_Wiki/ (LLM Wiki - 🤖 에이전트 자율 생성 지식 보관소)
-|   └── Architecture/, Mathematics/ <-- 👤 사람 & 에이전트 공용 (도메인 디렉토리) 
-│
-├── 03_Resources/ (인간 중심 원천 지식 - 🛡️ Ground Truth / 🤖 Shallow 개입 허용)
-│   ├── CS/, Math/, Vision/ (비전, 수학, CS 등 인간이 100% 이해하고 검증한 원자적 지식)
-│   └── Papers/ (Zotero에서 가져온 원본 논문 및 요약)
-│
-├── .wiki/ (🤖 Distiller 전용 은닉 공간)
-│   └── distilled/ (추출-합성 디렉토리) 
-│       ├── Extracted/ (02_Wiki와 03_Resources에서 원자 단위로 쪼갠 파편 )
-│       │   ├── Math_Logic/ (공식, 정리 추출물) 
-│       │   └── Paper_Summaries/ (논문 핵심 요약) 
-│       ├── Synthesized/ # 에이전트 전용으로 재구성된 지식 (Agent-Ready) 
-│       │   └── Tech_Stacks/ (여러 파편을 결합한 기술 스택 정의서) 
-│       └── Metadata/ ([03_Resources ↔ .wiki/distilled ↔ 02_Wiki] 연결 맵)
-│
-├── 04_Meta/ (인프라 및 시스템 에셋 관리)
-│   └── Zotero Assets/ (Zotero와 연동하여 자동 추출된 이미지 및 스니펫 통합 보관소)
-│
-└── 05_Archives/ (종료된 프로젝트 및 레거시 데이터)
+### 1.1 Entities & Permissions
+- **Entity Curator**: Residence: `.curator/`. Read access to raw spaces, write access *strictly* to `.curator/`. Performs hash monitoring, DAG construction, and semantic indexing.
+- **Entity Agent**: Residence: `01_Workspaces/{Project_Name}/`. Context loader via `qmd.yml`. Reads and writes within active workspace; shallow write with HITL in `03_Notes`. Promotes concepts to `02_Wiki`.
+
+### 1.2 Topology Map
+```
+ROOT: /
+├── 00_System/          # [STATIC] Scripts & Templates
+├── 01_Workspaces/      # [AGENT_RESIDENCE] Active projects 
+│   └── {Project_Name}/
+│       ├── .agents/          # Agent skills & workflow rules
+│       ├── .antigravity/     # Agent control limits
+│       ├── Artifacts/        # Auto-generated code, images, temp outputs
+│       ├── Concepts/         # Draft concepts. Promoted to 02_Wiki upon maturity.
+│       ├── Papers/           # Project-specific sandbox
+│       ├── qmd.yml           # Defines which `.curator/Collections` to load
+│       ├── methodology.md    # [GROUND_TRUTH] Geometric/math pipelines
+│       └── todo_list.md      # Milestones & task tracking
+├── 02_Wiki/            # [SHARED_TRUTH] Agent Managed Knowledge Base
+├── 03_Notes/           # [HUMAN_TRUTH] 100% Human verified atomic knowledge
+├── 04_Resources/       # [READ_ONLY] External reference PDFs, Docs
+├── 05_Assets/          # [STATIC] System byproducts
+├── 06_Archives/        # [READ_ONLY] Terminated projects & legacy data
+└── .curator/           # [CURATOR_RESIDENCE] Hidden Abstraction Space
+    ├── overview.md     # [ROUTING] Domain manifest
+    ├── index.md        # [ROUTING] Synthesis ID -> Pointer mapping
+    ├── log.md          # [STATE] Hash registry for Foundation Sources
+    ├── ledger.md       # [OVERRIDE] High-priority user corrections
+    └── Collections/    # [DATA_PLANE] DAG Knowledge Lake
+        ├── 01_Summaries/   # L1: 1:1 Hash-matched summaries
+        ├── 02_Atoms/       # L2: Irreducible facts/equations
+        ├── 03_Concepts/    # L3: Clustered logic
+        └── 04_Synthesis/   # L4: Terminal knowledge outputs
 ```
 
 ---
 
-## ⚠️ 핵심 파이프라인 운영 규칙 (Agent Rules)
+## 2. Polymorphic Metadata Schema
 
-이 시스템의 무결성을 유지하기 위해 에이전트와 사용자가 반드시 준수해야 하는 운영 원칙입니다.
+The Curator structures all knowledge within `.curator/Collections/` into 4 layers:
 
-### 1. 01_Projects 내 폴더 및 에이전트 생성 규칙
-- **파라미터 필수:** 프로젝트 생성 시 **프로젝트 이름**과 **Agent 설정 경로**(심볼릭 링크로 연결할 설정 파일들이 위치한 경로)가 파라미터로 전달되어야 합니다.
-- **템플릿 활용:** 지정된 Template에 따라 프로젝트 폴더 구조 및 필요한 기본 `.md` 파일들이 자동 생성되어야 합니다.
-- **독립적 구동 및 제약:** 에이전트는 오직 `01_Projects` 내 특정 프로젝트 폴더 안에서만 상주하며, 해당 폴더 내의 룰셋과 스킬에 완벽히 종속됩니다.
-- **QMD 파이프라인 (qmd.yml):** 프로젝트 내의 `qmd.yml`은 에이전트가 워크플로우를 시작할 때 `02_Wiki`와 `03_Resources` 중 어떤 범위를 **사전 지식(Scope)**으로 삼을지 결정하는 핵심 설정 파일입니다.
+### Layer 1: Summary (`SUM-[UUID8]`)
 
-### 2. 02_Wiki vs 03_Resources: 사전 지식 보관소의 역할 분담
-- **`03_Resources` (Ground Truth):** 사람이 직접 검증한 핵심 원천 지식입니다. 에이전트는 이를 기반으로 RAG를 수행하여 환각을 차단합니다. 핵심 논리/수식 수정은 인간의 승인이 필수적이나, 오탈자 수정, 메타데이터 보강, 누락된 백링크 연결 등 지식망을 정비하는 **얕은 개입(Shallow Intervention)**은 에이전트 자율로 수행 가능합니다.
-- **`02_Wiki` (Agent Knowledge):** 에이전트가 리서치 파이프라인을 수행하며 자율적으로 생산/요약한 지식이 누적되는 공간입니다.
-	- **`.wiki/distilled/` (Data Ingestion)**
-		- **Extracted (Distillation):** 핵심 개념을 원자 단위로 쪼개 `.wiki/distilled/Extracted/`에 저장합니다.
-		- **Synthesized (Synthesis):** 파편들을 모아 에이전트가 이해하기 쉬운 구조로 합성해 `.wiki/distilled/Synthesized/`에 둡니다.
-		- **Metadata (Wiki-Resource Mapping):** 03_Resources ↔ .wiki/distilled ↔ 02_Wiki 연결 맵
+A 1:1 hash-matched recap of a single source document.
 
-### 3. Agent의 탐색 및 지식 생성 파이프라인
-사용자로부터 쿼리를 받으면, 에이전트는 먼저 **Distiller LLM**를 통해 사전 지식을 전처리하여 가져온 뒤 아래 상태에 따라 행동합니다:
-- **상태 1 (관련 사전 지식이 있는 경우):** `Wiki`나 `Resource`에 정보가 존재하면 해당 정보를 가져와 컨텍스트와 파일 위치를 Output으로 반환하고, 이를 활용해 사용자의 태스크를 수행합니다.
-- **상태 2 (새로운 사실을 알아내야 하는 경우):** 정보가 없다면 사용자의 검증 하에 다음 파이프라인을 수행합니다.
-  - **Wiki 업데이트:** 에이전트는 `02_Wiki` 내에 새로운 폴더와 `.md` 파일을 스스로 생성해 내용을 업데이트합니다. (가능한 경우 `03_Resources` 지식으로 백링크(`[[...]]`)를 연결하는 것이 베스트입니다.)
-  - **Zotero 연동 (외부 지식 획득):** 새로운 논문 등 외부 정보가 필요한 경우, 에이전트가 직접 외부망을 헤매는 대신 **Zotero Integration**을 호출해 필요한 자료를 Obsidian 내부망(`02_Wiki` 또는 `03_Resources`)으로 먼저 가져온 뒤 참조합니다.
+```yaml
+---
+id: SUM-[UUID8]
+type: summary
+source_path: "[[relative/path/to/source.md]]"
+source_hash: [SHA-256]
+domain: "knowledge-domain-string"
+last_updated: [YYYY-MM-DDThh:mm:ssZ]
+tags: [tag1, tag2]
+---
+```
+
+**Body sections**: `## Summary`, `## Key Claims`, `## Atom Candidates`, `## Source`
+
+### Layer 2: Atom (`ATM-[UUID8]`)
+
+Irreducible factual claims, distilled from one or more L1 summaries.
+
+```yaml
+---
+id: ATM-[UUID8]
+type: atom
+parent_source: "[[01_Summaries/SUM-UUID8]]"
+source_path: "[[relative/path/to/source.md]]"
+claim_type: fact | equation | theoretical_constraint
+contradicts: []
+is_verified_by_human: false
+is_flagged_for_agent: false
+last_updated: [YYYY-MM-DDThh:mm:ssZ]
+---
+```
+
+**Body sections**: `## Definition / Claim`, `## Context`, `## Constraints`, `## Relations`, `## Source`
+
+### Layer 3: Concept (`CON-[UUID8]`)
+
+Clusters of related L2 atoms forming a coherent conceptual unit.
+
+```yaml
+---
+id: CON-[UUID8]
+type: concept
+dependencies: ["[[02_Atoms/ATM-UUID8]]", "[[02_Atoms/ATM-UUID8]]"]
+domain: "knowledge-domain-string"
+last_updated: [YYYY-MM-DDThh:mm:ssZ]
+---
+```
+
+**Body sections**: `## 1. Core Architecture`, `## 2. Interaction of Atoms`, `## 3. Mathematical Framework`, `## 4. Open Questions`
+
+### Layer 4: Synthesis (`SYN-[UUID8]`)
+
+Terminal cross-domain knowledge outputs combining multiple L3 concepts.
+
+```yaml
+---
+id: SYN-[UUID8]
+type: synthesis
+core_concepts: ["[[03_Concepts/CON-UUID8]]"]
+confidence_score: 0.00 - 1.00
+requires_math_rigor: true | false
+last_updated: [YYYY-MM-DDThh:mm:ssZ]
+---
+```
+
+**Body sections**: `## 1. Executive Research Brief`, `## 2. Theoretical Foundation`, `## 3. State of the Art & Limitations`, `## 4. Actionable Directives for Agent`
+
+---
+
+## 3. Installation & Getting Started
+
+To install the project locally with all prerequisites (Ollama, Node.js, and the `qmd` search engine) in one command, run:
+
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+> [!NOTE]
+> Installing Ollama on Linux requires sudo privileges when prompted by the script. Alternatively, you can install Ollama manually from [Ollama.com](https://ollama.com/download) first.
+
+### 3.1 Initialising a Vault
+
+To scaffold a new wiki vault project with the full topological structure:
+
+```bash
+wiki init /path/to/your/vault
+```
+
+This sets up:
+* `.obsidian/` vault marker
+* Full folder topologies (`00_System/` ... `06_Archives/`)
+* `.curator/` configuration files, tracking database, and collections
+
+---
+
+## 4. Command-Line Interface (CLI)
+
+The `wiki` CLI automates everything from file scanning to querying the DAG.
+
+### 4.1. Core Operations
+* **`wiki status`**: Inspect tracking database metrics, active LLM config, and collection counts.
+* **`wiki version`**: View the current installed version.
+
+### 4.2. File Synchronization & Summaries
+* **`wiki sync`**: Discovers new or changed files in raw directories and generates L1 summaries in `.curator/Collections/01_Summaries/`.
+* **`wiki sources list`**: View all tracked raw sources.
+* **`wiki sources show <id>`**: Inspect file metadata and content preview.
+* **`wiki sources rm <id>`**: Remove a file from tracking and delete it optionally.
+
+### 4.3. Pipeline Ingestion
+* **`wiki ingest`**: Runs the 3-pass LLM pipeline to promote L1 summaries into L2 Atoms, L3 Concepts, and L4 Synthesis.
+  ```bash
+  wiki ingest [--batch] [--no-thinking]
+  ```
+
+### 4.4. Semantic Search & Querying
+* **`wiki query "<your question>"`**: Search and synthesize a referenced answer using the qmd indexing engine (hybrid, lex, or vec).
+  ```bash
+  wiki query "What is Unbalanced Schrödinger Bridge Initialization?" --mode hybrid --save-as SYN-usb-init
+  ```
+
+### 4.5. Search Index & Maintenance
+* **`wiki reindex`**: Rebuilds the qmd semantic/lexical search index manually.
+* **`wiki lint`**: Lints the wiki for broken links, missing parents, orphans, or contradictions.
+  ```bash
+  wiki lint [--deep] [--fix] [--save]
+  ```
+
+### 4.6. Agent Services
+* **`wiki mcp`**: Spawns an MCP stdio server to integrate directly with LLM workspaces and agents.
+* **`wiki mcp install`**: Outputs installation JSON snippets for your local IDE/Client.
+
+---
+
+## 5. Control Rules & Human-in-the-Loop (HITL)
+
+1. **Rule of Immutability**: All files in `04_Resources` and `06_Archives` are immutable constants.
+2. **Rule of Strong Negotiation**: If the Curator identifies math errors or contradictions within `03_Notes`, the Agent initiates strong negotiation via HITL.
+3. **Ledger Priority**: Rules/corrections in `.curator/ledger.md` silently override any underlying DAG context.

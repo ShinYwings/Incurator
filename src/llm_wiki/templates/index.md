@@ -1,27 +1,30 @@
 ---
-title: "Wiki Index"
+title: "Curator Index"
 type: index
-updated: 2026-04-08
+updated: 2026-05-01
 ---
 
-# Wiki Index
+# .curator/index.md — DAG Routing Table
 
-> This file is auto-maintained by the LLM agent. Every wiki page is listed
-> here, organized by category. After ingesting a new source, the agent
-> updates this index.
+> Auto-maintained by the Curator engine. DO NOT edit manually.
+> Lists all pages by layer. Rebuilt after every ingest.
 
-## Metadata
+## L1 — Summaries
 
-*No sources ingested yet. Drop files into `03_Resources/` or `02_Wiki/` and run `wiki ingest`.*
+*No sources synced yet. Run `wiki sync` to generate L1 Summaries.*
 
-## Extracted
+## L2 — Atoms
 
-*No extracted pages yet.*
+*No atoms yet. Run `wiki ingest` after sync.*
 
-## Synthesized
+## L3 — Concepts
 
-*No synthesis pages yet.*
+*No concepts yet.*
+
+## L4 — Synthesis
+
+*No synthesis yet.*
 
 ---
 
-**Stats:** 0 metadata · 0 extracted · 0 synthesized pages
+**Stats:** 0 summaries · 0 atoms · 0 concepts · 0 synthesis pages
