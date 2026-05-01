@@ -1,28 +1,5 @@
 # Internal state (regenerable)
 
-
-# QMD Build Files
-dist/
-node_modules/
-package-lock.json
-.npmrc
-*.sqlite
-.DS_Store
-archive/
-texts/
-.cursor/
-.github/copilot/
-*.md
-!README.md
-!CLAUDE.md
-!CHANGELOG.md
-!skills/**/*.md
-!finetune/*.md
-!docs/*.md
-finetune/outputs/
-finetune/data/train/
-.claude/
-
 # Python
 __pycache__/
 *.py[cod]
