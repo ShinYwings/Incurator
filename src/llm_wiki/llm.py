@@ -102,28 +102,27 @@ OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 # Model name substrings (lowercase, tag stripped) that guarantee vision support.
 # Used as a fast path before querying the Ollama API.
 VISION_CAPABLE_KEYWORDS: frozenset[str] = frozenset({
-    "llava",            # LLaVA family (llava, llava-llama3, llava-phi3…)
+    "llava",            # LLaVA base
+    "llava-llama3",     # LLaVA Llama 3
+    "llava-phi3",       # LLaVA Phi-3
     "bakllava",         # BakLLaVA
-    "moondream",        # Moondream
+    "moondream",        # Moondream 2
     "minicpm-v",        # MiniCPM-V
+    "llama3.2-vision",  # Llama 3.2 Vision
+    "llama-3.2-vision", # (Keyword variation)
+    "pixtral",          # Pixtral 12B
+    "mistral-pixtral",  # (Keyword variation)
+    
+    # (llama.cpp 등에서 커스텀 GGUF로 구동해야 하는 실존 모델들)
     "qwen2-vl",         # Qwen2-VL
     "qwen2.5-vl",       # Qwen2.5-VL
-    "llama3.2-vision",  # Llama 3.2 Vision
-    "llama-3.2-vision",
-    "gemma3",           # Gemma 3 (all sizes support vision)
-    "gemma4",           # Gemma 4
-    "gemma-4",          # Gemma 4 (alt naming)
     "cogvlm",           # CogVLM
     "internvl",         # InternVL
-    "phi3-vision",      # Phi-3 Vision
+    "phi3-vision",      # Phi-3 Vision (보통 llava-phi3로 대체됨)
     "phi-3-vision",
-    "phi4-vision",      # Phi-4 Vision
-    "phi-4-vision",
     "deepseek-vl",      # DeepSeek-VL
-    "pixtral",          # Pixtral
     "idefics",          # IDEFICS
     "fuyu",             # Fuyu
-    "mistral-pixtral",
 })
 
 

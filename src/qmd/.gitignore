@@ -1,9 +1,5 @@
-# Internal state (regenerable)
-
-
-# QMD Build Files
-dist/
 node_modules/
+dist/
 package-lock.json
 .npmrc
 *.sqlite
@@ -22,24 +18,3 @@ texts/
 finetune/outputs/
 finetune/data/train/
 .claude/
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-.venv/
-venv/
-build/
-dist/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Editor
-.vscode/
-.idea/
-*.swp
-
-
