@@ -1,7 +1,8 @@
 # Internal state (regenerable)
-.wiki/state.sqlite
-.wiki/state.sqlite-*
-.wiki/cache/
+
+
+# QMD Build Files
+dist/
 
 # Python
 __pycache__/
@@ -21,3 +22,5 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+
