@@ -121,6 +121,7 @@ _NOISE_PAGES = {"index.md", "log.md", "overview.md", "ledger.md"}
 
 # Layer directory prefix → page type
 _PAGE_TYPES = ("01_Summaries", "02_Atoms", "03_Concepts", "04_Synthesis")
+_CURATOR_PREFIXES = tuple(pt + "/" for pt in _PAGE_TYPES)
 
 
 def _build_inventory(paths: cfg.WikiPaths) -> PageInventory:
@@ -177,13 +178,9 @@ def _build_inventory(paths: cfg.WikiPaths) -> PageInventory:
                     if isinstance(item, str) and item:
                         links.append(item)
 
-        # Also treat source_path as a raw-file reference (for DAG provenance)
-        source_path = parsed.frontmatter.get("source_path")
-        if isinstance(source_path, str) and source_path:
-            # Normalize to a plain relpath wikilink target for tracking
-            clean = source_path.strip('"').strip("'")
-            if clean:
-                links.append(clean)
+        # source_path points to raw vault files (e.g. PDFs, notes outside Collections/).
+        # These are NOT wiki pages, so adding them to outgoing_links causes false
+        # broken-link errors. Provenance checks are handled by check_stale_source_refs.
 
         normalized = [_normalize_link(link) for link in links if link]
         inv.outgoing_links[relpath] = normalized
@@ -238,6 +235,8 @@ def _normalize_link(link: str) -> str:
     if not link:
         return ""
     link = link.strip()
+    if link.startswith("[[") and link.endswith("]]"):
+        link = link[2:-2].strip()
     # Pipe alias: [[foo|Foo Page]] — keep the target (left side)
     if "|" in link:
         link = link.split("|", 1)[0]
@@ -282,6 +281,10 @@ def check_broken_wikilinks(inv: PageInventory) -> list[LintIssue]:
             if target in inv.all_slugs or f"{target}.md" in inv.all_slugs:
                 continue
 
+            # Skip vault-path references outside the 4 curator layers
+            if not target.startswith(_CURATOR_PREFIXES):
+                continue
+
             # Try to recover: does the target's basename match an existing
             # page in some subdirectory?
             target_basename = target.rsplit("/", 1)[-1]
@@ -323,16 +326,16 @@ def check_broken_wikilinks(inv: PageInventory) -> list[LintIssue]:
                     )
                 )
             else:
-                # Genuinely missing — no existing page with that basename
+                # Genuinely missing within curator scope — mark fixable by removal
                 issues.append(
                     LintIssue(
                         check=CheckId.BROKEN_WIKILINK,
                         severity=Severity.ERROR,
                         page=relpath,
                         message=f"Broken wikilink: [[{target}]]",
-                        suggestion=f"Either create {target}.md or remove the link.",
-                        fixable=False,
-                        context={"target": target},
+                        suggestion="Run `wiki lint --fix` to remove this link automatically.",
+                        fixable=True,
+                        context={"old_target": target, "new_target": "", "location": "body"},
                     )
                 )
     return issues
@@ -503,6 +506,8 @@ def check_missing_extracted(inv: PageInventory, threshold: int = 3) -> list[Lint
         for target in targets:
             if not target:
                 continue
+            if not target.startswith(_CURATOR_PREFIXES):
+                continue  # vault / external ref — not curator's concern
             if target in inv.all_slugs or f"{target}.md" in inv.all_slugs:
                 continue
             # Only count each target once per source page
@@ -536,25 +541,40 @@ def check_stale_source_refs(inv: PageInventory, paths: cfg.WikiPaths) -> list[Li
     for relpath, parsed in inv.pages.items():
         if not relpath.startswith("02_Atoms/"):
             continue
-        parent = parsed.frontmatter.get("parent_source", "")
-        if not parent:
+        raw_parent = parsed.frontmatter.get("parent_source", "")
+        if not raw_parent:
             continue
-        normalized = _normalize_link(parent)
-        if not normalized.startswith("01_Summaries/"):
-            continue
-        source_file = paths.collections / (normalized + ".md")
-        if not source_file.exists():
-            issues.append(
-                LintIssue(
-                    check=CheckId.STALE_SOURCE_REF,
-                    severity=Severity.WARNING,
-                    page=relpath,
-                    message=f"parent_source '{normalized}' doesn't exist.",
-                    suggestion="The L1 Summary was deleted or renamed. Re-sync to regenerate.",
-                    fixable=False,
-                    context={"target": normalized},
+        if isinstance(raw_parent, list):
+            parents = []
+            for item in raw_parent:
+                if isinstance(item, list):
+                    for sub in item:
+                        if isinstance(sub, str):
+                            parents.append(sub)
+                elif isinstance(item, str):
+                    parents.append(item)
+        else:
+            parents = [raw_parent] if isinstance(raw_parent, str) else []
+
+        for parent in parents:
+            if not parent:
+                continue
+            normalized = _normalize_link(parent)
+            if not normalized.startswith("01_Summaries/"):
+                continue
+            source_file = paths.collections / (normalized + ".md")
+            if not source_file.exists():
+                issues.append(
+                    LintIssue(
+                        check=CheckId.STALE_SOURCE_REF,
+                        severity=Severity.WARNING,
+                        page=relpath,
+                        message=f"parent_source '{normalized}' doesn't exist.",
+                        suggestion="The L1 Summary was deleted or renamed. Re-sync to regenerate.",
+                        fixable=False,
+                        context={"target": normalized},
+                    )
                 )
-            )
     return issues
 
 
@@ -763,7 +783,19 @@ def _apply_fixes_to_page(parsed: page_writer.ParsedPage, fixes: list[LintIssue])
             old = ctx.get("old_target", "")
             new = ctx.get("new_target", "")
             location = ctx.get("location", "body")
-            if not old or not new or old == new:
+            if not old:
+                continue
+
+            if location == "body" and new == "":
+                # Removal case: erase [[old]] (and [[old|alias]]) from body,
+                # then drop any list bullet lines that became empty.
+                old_esc = re.escape(old)
+                body = re.sub(rf"\[\[{old_esc}(?:\|[^\]]*)?\]\]", "", body)
+                body = re.sub(r"(?m)^[ \t]*[-*][ \t]*\n", "", body)
+                changed = True
+                continue
+
+            if not new or old == new:
                 continue
 
             if location == "body":

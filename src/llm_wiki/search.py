@@ -49,6 +49,7 @@ class SearchResults:
     """Ranked list of hits returned from one query call."""
 
     hits: list[SearchHit] = field(default_factory=list)
+    fallback_mode: str = ""  # set when hybrid fell back (e.g. "lex" after GPU OOM)
 
     def __len__(self) -> int:
         return len(self.hits)
@@ -331,10 +332,25 @@ def query(
             f"{result.stderr.strip() or result.stdout.strip()}"
         )
 
+    stdout_str = result.stdout or ""
+    start_idx = stdout_str.find("[")
+    if start_idx == -1:
+        start_idx = stdout_str.find("{")
+
+    end_idx = stdout_str.rfind("]")
+    if end_idx == -1:
+        end_idx = stdout_str.rfind("}")
+
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        stdout_str = stdout_str[start_idx:end_idx + 1]
+
+    if not stdout_str.strip():
+        stdout_str = "[]"
+
     try:
-        payload: Any = json.loads(result.stdout or "[]")
+        payload: Any = json.loads(stdout_str)
     except json.JSONDecodeError as e:
-        raise SearchBackendError(f"qmd returned malformed JSON: {e}") from e
+        raise SearchBackendError(f"qmd returned malformed JSON: {e}\nRaw output:\n{result.stdout}") from e
 
     raw_hits = payload if isinstance(payload, list) else payload.get("results", [])
     hits: list[SearchHit] = []

@@ -52,7 +52,7 @@ IDs are generated once at page creation and never change. File names are `{ID}.m
 
 All timestamps: ISO 8601 (`YYYY-MM-DDThh:mm:ssZ`). Stored ONLY in `.curator/Collections/`.
 
-### 3.1 L1: SUMMARY
+### 3.1 L1: ACCESSION
 
 ```yaml
 ---
@@ -68,7 +68,7 @@ tags: [tag1, tag2]
 
 **Body sections**: `## Summary`, `## Key Claims`, `## Atom Candidates`, `## Source`
 
-### 3.2 L2: ATOM
+### 3.2 L2: FRAGMENT
 
 ```yaml
 ---

@@ -1711,7 +1711,9 @@ def ingest(
 
     try:
         if source_id is not None:
-            # Single source
+            # Single source: run Phase A (atoms), then global Phase B/C/D via ingest_pending
+            # We mark it pending temporarily so ingest_pending picks it up, but actually
+            # we call ingest_source directly then run the global phases manually.
             cb = CliIngestCallbacks(mode=mode)
             result = ingest_llm.ingest_source(
                 paths,
@@ -1722,8 +1724,40 @@ def ingest(
                 thinking_for_extraction=thinking,
             )
             results = [result]
+            if result.ok:
+                # Phase B + C + D globally
+                console.print()
+                console.print("[dim]  Phase B — clustering all Atoms into Concepts (global)...[/dim]")
+                console.print("[dim]  Phase C — synthesizing all Concepts (global)...[/dim]")
+                global_cb = CliIngestCallbacks(mode=mode)
+                today = ingest_llm._now_iso()
+                import tempfile, shutil
+                staging = __import__("pathlib").Path(tempfile.mkdtemp(prefix="curator-global-"))
+                try:
+                    con_staged = ingest_llm._run_global_pass2_concepts(paths, client, global_cb, today, staging)
+                    for sp, fp, _ in con_staged:
+                        fp.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(sp, fp)
+                    syn_staged = ingest_llm._run_global_pass3_synthesis(paths, client, global_cb, today, staging)
+                    for sp, fp, _ in syn_staged:
+                        fp.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(sp, fp)
+                    from . import page_writer as _pw
+                    _pw.rebuild_index(paths, today)
+                    all_ch = [c for _, _, c in con_staged + syn_staged]
+                    if all_ch:
+                        bullets = [f"{c.operation}: [[{c.path.replace('.md','')}]]" for c in all_ch]
+                        _pw.append_log_entry(paths, today, "ingest", result.source_title, bullets)
+                    ingest_llm._update_ledger(paths)
+                    ingest_llm._update_overview(paths)
+                    if con_staged:
+                        console.print(f"  [green]+{len(con_staged)} concept(s)[/green]")
+                    if syn_staged:
+                        console.print(f"  [magenta]+{len(syn_staged)} synthesis page(s)[/magenta]")
+                finally:
+                    shutil.rmtree(str(staging), ignore_errors=True)
         else:
-            # All pending (with auto-discovery)
+            # All pending (with auto-discovery) — full global pipeline inside ingest_pending
             results = ingest_llm.ingest_pending(
                 paths,
                 client,
@@ -1809,6 +1843,8 @@ class CliQueryCallbacks(query_module.QueryCallbacks):
         console.print("[dim]  searching wiki (BM25 + vector + rerank)…[/dim]")
 
     def on_search_done(self, results) -> None:
+        if getattr(results, "fallback_mode", ""):
+            _warn("GPU OOM — fell back to BM25 search (no vector/rerank).")
         if not len(results):
             return
         console.print(f"[dim]  found {len(results)} relevant page(s):[/dim]")
@@ -1844,6 +1880,16 @@ class CliQueryCallbacks(query_module.QueryCallbacks):
         console.print()
         _ok(f"Saved answer as [cyan]{saved_path}[/cyan]")
 
+    def on_wiki_saved(self, saved_path: str, category: str) -> None:
+        if self._stream_active:
+            console.print()
+            self._stream_active = False
+        console.print()
+        _ok(
+            f"Promoted to [cyan]{saved_path}[/cyan]  "
+            f"[dim](category: {category})[/dim]"
+        )
+
     def on_complete(self, result) -> None:
         if self._stream_active:
             console.print()
@@ -1861,7 +1907,10 @@ class CliQueryCallbacks(query_module.QueryCallbacks):
 
 @app.command()
 def query(
-    question: str = typer.Argument(..., help="The question to ask the wiki."),
+    question: Optional[str] = typer.Argument(
+        None,
+        help="The question to ask the wiki. If omitted, enters interactive chat mode (press Enter on empty line to exit).",
+    ),
     mode: str = typer.Option(
         "hybrid",
         "--mode",
@@ -1905,15 +1954,18 @@ def query(
 ) -> None:
     """Ask a question: search the wiki, synthesize an answer with citations.
 
-    The query pipeline runs:
-      1. QMD search (BM25 + vector + rerank by default)
-      2. Load the top N matching pages
-      3. Qwen3 synthesizes a cited answer, streamed to the terminal
-      4. Optionally save the answer as a synthesis page
+    Without an argument, enters interactive chat mode. Type an empty line to exit.
+    Within a session you can say '승격해줘' / 'save to wiki' etc. to promote the
+    last answer into 02_Wiki under an auto-determined category folder.
+
+    The query pipeline:
+      1. Translate question to English (for non-English input)
+      2. QMD search (BM25 + vector + rerank by default)
+      3. Synthesize a cited answer from Curator pages, streamed to the terminal
+      4. Optionally save as a Synthesis page (--save-as) or promote to 02_Wiki
     """
     paths = _resolve_root_or_die()
     config = cfg.load_config(paths)
-    llm_cfg = config.get("llm", {})
 
     # Resolve search mode shortcuts
     if lex:
@@ -1930,7 +1982,6 @@ def query(
         )
         raise typer.Exit(code=1)
 
-    # Sanity checks
     if not search.is_available():
         _err("qmd binary not available.")
         _hint(
@@ -1939,7 +1990,6 @@ def query(
         )
         raise typer.Exit(code=1)
 
-    # Warn if Curator collections are empty
     collection_pages = 0
     for layer_dir in (paths.summaries, paths.atoms, paths.concepts, paths.synthesis):
         if layer_dir.exists():
@@ -1956,26 +2006,102 @@ def query(
     client = _start_client(config)
     _ok(f"LLM ready · [bold]{type(client).__name__}[/bold]")
 
+    run_kwargs = dict(
+        mode=mode,
+        limit=limit,
+        min_score=min_score,
+        rerank=not no_rerank,
+        save_as=save_as,
+        scope=scope,
+        classify_intent_first=not no_intent_classify,
+    )
+
     callbacks = CliQueryCallbacks()
+
     try:
-        result = query_module.run_query(
-            paths,
-            client,
-            question,
-            callbacks,
-            mode=mode,
-            limit=limit,
-            min_score=min_score,
-            rerank=not no_rerank,
-            save_as=save_as,
-            scope=scope,
-            classify_intent_first=not no_intent_classify,
-        )
+        _run_query_repl(paths, client, callbacks, run_kwargs, initial_question=question)
     finally:
         client.close()
 
-    if result.error and not result.answer:
-        raise typer.Exit(code=1)
+
+def _run_query_repl(
+    paths, client, callbacks, run_kwargs, *, initial_question: str | None = None
+) -> None:
+    """Interactive REPL: ask questions until the user submits an empty line.
+
+    If initial_question is provided, it is answered first before prompting
+    for further input — so `wiki query "question"` enters the same REPL.
+    """
+    from rich.prompt import Prompt
+
+    last_question: str | None = None
+    last_answer: str | None = None
+
+    console.print()
+    console.rule("[bold cyan]Wiki Chat[/bold cyan]")
+    console.print(
+        "[dim]Ask questions about your wiki. "
+        "Press [bold]Enter[/bold] (empty line) or [bold]Ctrl+C[/bold] to exit.[/dim]"
+    )
+    console.print(
+        "[dim]Say '승격해줘' / 'save to wiki' to promote the last answer to 02_Wiki.[/dim]"
+    )
+
+    pending = initial_question  # consumed on the first iteration, no extra print needed
+
+    while True:
+        if pending:
+            user_input = pending
+            pending = None
+        else:
+            try:
+                user_input = Prompt.ask("\n[bold cyan]Q[/bold cyan]").strip()
+            except (EOFError, KeyboardInterrupt):
+                console.print()
+                break
+
+        if not user_input:
+            break
+
+        # Run intent classification to detect promote vs wiki vs chitchat
+        from . import intent as intent_module
+
+        intent_result = intent_module.classify_intent(client, user_input)
+
+        if intent_result.intent == "promote":
+            if last_answer and last_question:
+                confirmed = Prompt.ask(
+                    "  [yellow]02_Wiki에 저장할까요?[/yellow]",
+                    choices=["yes", "no"],
+                    default="yes",
+                )
+                if confirmed == "yes":
+                    console.print("[dim]  카테고리/슬러그 분류 중…[/dim]")
+                    try:
+                        category, slug = query_module.classify_wiki_topic(
+                            client, last_question, last_answer
+                        )
+                        saved = query_module.save_wiki_page(
+                            paths, last_question, last_answer, category, slug
+                        )
+                        callbacks.on_wiki_saved(saved, category)
+                    except OSError as e:
+                        _err(f"Failed to save wiki page: {e}")
+            else:
+                _warn("저장할 답변이 없습니다. 먼저 질문해 주세요.")
+            continue
+
+        # Normal wiki query (or chitchat — run_query handles it)
+        result = query_module.run_query(
+            paths,
+            client,
+            user_input,
+            callbacks,
+            **{**run_kwargs, "classify_intent_first": False},
+        )
+        if result.answer:
+            last_question = user_input
+            last_answer = result.answer
 
 
 @app.command()
@@ -2110,6 +2236,22 @@ def lint(
     Use --deep to also scan page pairs for contradictions using Qwen3.
     """
     paths = _resolve_root_or_die()
+
+    # Automatically refresh all manifest and log files during lint
+    from . import page_writer as _pw
+    from . import ingest_llm as _ingest
+    today = _pw.today_iso()
+    _pw.rebuild_index(paths, today)
+    _ingest._update_overview(paths)
+    _ingest._update_ledger(paths)
+    _pw.append_log_entry(
+        paths,
+        today,
+        "lint",
+        "system",
+        ["Ran wiki lint and updated all manifests"],
+    )
+
 
     # If --deep, verify LLM backend up front
     client = None

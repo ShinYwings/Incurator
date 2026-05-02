@@ -218,6 +218,106 @@ def _save_synthesis_page(
     return f"04_Synthesis/{syn_id}.md"
 
 
+def translate_to_english(client: OllamaClient, question: str) -> str:
+    """Translate the question to English for BM25/vector search.
+
+    Returns the original question unchanged if translation fails or if
+    the question is already predominantly ASCII.
+    """
+    ascii_ratio = sum(1 for c in question if ord(c) < 128) / max(len(question), 1)
+    if ascii_ratio > 0.85:
+        return question
+
+    try:
+        msg = prompts.ChatMessage(
+            role="user",
+            content=(
+                f"Translate the following question to English for a technical knowledge base search. "
+                f"Output only the translated question, nothing else.\n\nQuestion: {question}"
+            ),
+        )
+        translated = client.chat([msg], thinking=False, temperature=0.1).strip()
+        return translated or question
+    except Exception:
+        return question
+
+
+def classify_wiki_topic(
+    client: OllamaClient,
+    question: str,
+    answer: str,
+) -> tuple[str, str]:
+    """Use the LLM to determine (category_folder, article_slug) for 02_Wiki/.
+
+    Returns e.g. ("ComputerGraphics", "photometric-loss").
+    Falls back gracefully on failure.
+    """
+    import json as _json
+    import re as _re
+
+    prompt = (
+        "Based on the Q&A below, provide:\n"
+        "1. category: a short PascalCase folder name in English "
+        "(e.g. \"LLM\", \"ComputerGraphics\", \"MachineLearning\", \"Mathematics\").\n"
+        "2. slug: a lowercase, hyphenated article filename in English, max 60 chars "
+        "(e.g. \"photometric-loss\", \"gaussian-splatting\").\n\n"
+        f"Question: {question}\n\n"
+        f"Answer (first 600 chars):\n{answer[:600]}\n\n"
+        "Reply with JSON only: {\"category\": \"...\", \"slug\": \"...\"}"
+    )
+    try:
+        raw = client.chat(
+            [prompts.ChatMessage(role="user", content=prompt)],
+            json_mode=True,
+            temperature=0.1,
+        )
+        data = _json.loads(raw)
+        category = _re.sub(r"[^\w]", "", str(data.get("category", "General"))) or "General"
+        slug = _re.sub(r"[^\w-]", "", str(data.get("slug", ""))).strip("-")[:60]
+    except Exception:
+        category = "General"
+        slug = ""
+
+    if not slug:
+        import re as _re2
+        slug = _re2.sub(r"[^\w\s가-힣-]", "", question).strip()
+        slug = _re2.sub(r"\s+", "-", slug)[:60].strip("-") or "untitled"
+
+    return category, slug
+
+
+def save_wiki_page(
+    paths: cfg.WikiPaths,
+    question: str,
+    answer: str,
+    category: str,
+    slug: str,
+) -> str:
+    """Write answer to `<vault_root>/02_Wiki/<category>/<slug>.md`.
+
+    Creates the category directory if it doesn't exist.
+    Returns the path relative to the vault root.
+    """
+    from datetime import date
+
+    title = slug.replace("-", " ").replace("_", " ").title()
+    today = date.today().isoformat()
+
+    content = (
+        f"# {title}\n\n"
+        f"> Source: `wiki query \"{question}\"`  \n"
+        f"> Date: {today}\n\n"
+        f"{answer.strip()}\n"
+    )
+
+    wiki_dir = paths.root / "02_Wiki" / category
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+    target = wiki_dir / f"{slug}.md"
+    target.write_text(content, encoding="utf-8")
+
+    return str(target.relative_to(paths.root))
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -254,27 +354,39 @@ def run_query(
     """
     callbacks.on_start(question, mode)
 
-    # 0. Intent classification — skip retrieval for chitchat
+    # 0a. Translate to English first — intent classification is more accurate
+    #     on English text, and search backends (BM25/vector) expect English.
+    search_question = translate_to_english(client, question)
+
+    # 0b. Intent classification on the translated question
     if classify_intent_first:
         from . import intent as intent_module
 
         callbacks.on_classifying_intent()
-        intent_result = intent_module.classify_intent(client, question)
+        intent_result = intent_module.classify_intent(client, search_question)
         callbacks.on_intent_classified(intent_result.intent)
 
         if intent_result.intent == "chitchat":
+            # Reply in the user's original language
             reply = intent_module.generate_chitchat_reply(client, question)
             callbacks.on_chitchat_reply(reply)
             result = QueryResult(question=question, answer=reply, hits=[])
             callbacks.on_complete(result)
             return result
 
+    # 0c. Unload Ollama model from VRAM before qmd runs.
+    #     qmd's local llama-cpp model needs GPU memory for query expansion;
+    #     if Ollama is still loaded the two models compete for the same VRAM.
+    #     Ollama will auto-reload when synthesis begins in step 2.
+    if hasattr(client, "unload"):
+        client.unload()
+
     # 1. Search the single Curator collection
     callbacks.on_searching()
     try:
         results = search.query(
             paths,
-            question,
+            search_question,
             mode=mode,
             limit=limit,
             min_score=min_score,

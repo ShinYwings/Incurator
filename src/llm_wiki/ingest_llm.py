@@ -1,14 +1,15 @@
-"""LLM ingest pipeline — L2 Atoms → L3 Concepts → L4 Synthesis.
+"""LLM ingest pipeline — global sequential DAG build.
 
 Runs after `wiki sync` (which generates L1 Summaries).
 
-Three-pass flow per source:
-    Pass 1 (ATOMS)    — extract irreducible facts into 02_Atoms/ATM-*.md
-    Pass 2 (CONCEPTS) — cluster atoms into 03_Concepts/CON-*.md
-    Pass 3 (SYNTHESIS)— build terminal outputs in 04_Synthesis/SYN-*.md
+Global pipeline executed by ingest_pending():
+    Phase A — ALL pending sources  → L2 Atoms   (per-source, sequential)
+    Phase B — ALL Atom files       → L3 Concepts (global clustering)
+    Phase C — ALL Concept files    → L4 Synthesis (global synthesis)
+    Phase D — rebuild index, log, ledger, overview
 
-All IDs are UUID-based (ATM-/CON-/SYN-). Pages are transactionally staged
-before commit. DB source status flips to 'ingested' only after full success.
+This ensures cross-source concepts and synthesis emerge correctly.
+All IDs are UUID-based (ATM-/CON-/SYN-).
 """
 
 from __future__ import annotations
@@ -378,11 +379,12 @@ def _run_pass2_concepts(
         callbacks.on_concept_drafting(concept_id, plan.name)
 
         # Build atoms content for the concept page prompt
+        # Note: headings use plain ID (no wikilink) to prevent LLM double-wrapping in output
         atoms_content = ""
         for aid in plan.atom_ids:
             ap = page_writer.read_page(paths.atoms / f"{aid}.md")
             if ap:
-                atoms_content += f"\n### [[02_Atoms/{aid}]]\n{ap.body[:600]}\n"
+                atoms_content += f"\n### Atom {aid}\n{ap.body[:600]}\n"
 
         messages = prompts.build_concept_page_messages(
             concept_id=concept_id,
@@ -434,9 +436,18 @@ def _run_pass3_synthesis(
     for cid in concept_ids:
         cp = page_writer.read_page(paths.concepts / f"{cid}.md")
         if cp:
+            # Prefer frontmatter name, then H1 heading, then ID
+            name = cp.frontmatter.get("name", "")
+            if not name:
+                for line in cp.body.splitlines():
+                    if line.startswith("# "):
+                        name = line[2:].strip()
+                        break
+            if not name:
+                name = cid
             concept_summaries.append({
                 "id": cid,
-                "name": cp.frontmatter.get("name", cid),
+                "name": name,
                 "domain": cp.frontmatter.get("domain", ""),
                 "atom_count": len(cp.frontmatter.get("dependencies", [])),
             })
@@ -456,11 +467,12 @@ def _run_pass3_synthesis(
         syn_id = _gen_id("SYN")
         callbacks.on_synthesis_drafting(syn_id, plan.topic)
 
+        # Note: headings use plain ID (no wikilink) to prevent LLM double-wrapping in output
         concepts_content = ""
         for cid in plan.concept_ids:
             cp = page_writer.read_page(paths.concepts / f"{cid}.md")
             if cp:
-                concepts_content += f"\n### [[03_Concepts/{cid}]]\n{cp.body[:800]}\n"
+                concepts_content += f"\n### Concept {cid}\n{cp.body[:800]}\n"
 
         messages = prompts.build_synthesis_page_messages(
             synthesis_id=syn_id,
@@ -504,7 +516,11 @@ def ingest_source(
     mode: str = "interactive",
     thinking_for_extraction: bool = True,
 ) -> IngestResult:
-    """Run the full 3-pass ingest pipeline (L2→L3→L4) on a single source."""
+    """Phase A — extract L2 Atoms from a single source.
+
+    Concepts and Synthesis are built globally AFTER all sources are processed.
+    Call ingest_pending() to run the full pipeline.
+    """
     started = _now_iso()
 
     # Load source row
@@ -615,57 +631,30 @@ def ingest_source(
             return result
 
         new_atom_ids = [c.id for _, _, c in atom_staged if c.layer == "02_Atoms"]
-
-        # Pass 2 — L3 Concepts
-        concept_staged = _run_pass2_concepts(
-            paths, client, callbacks, new_atom_ids, today, staging
-        )
-        all_staged.extend(concept_staged)
-        new_concept_ids = [c.id for _, _, c in concept_staged]
-
-        # Pass 3 — L4 Synthesis
-        synthesis_staged = _run_pass3_synthesis(
-            paths, client, callbacks, new_concept_ids, today, staging
-        )
-        all_staged.extend(synthesis_staged)
-
-        # Commit all staged files
+        # Phase A: commit Atom files immediately
         callbacks.on_finalizing()
         changes: list[PageChange] = []
-        atoms_created = atoms_updated = concepts_created = synthesis_created = 0
+        atoms_created = atoms_updated = 0
 
-        for staged_path, final_path, change in all_staged:
+        for staged_path, final_path, change in atom_staged:
             final_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(staged_path, final_path)
             changes.append(change)
-            if change.layer == "02_Atoms":
-                if change.operation == "created":
-                    atoms_created += 1
-                else:
-                    atoms_updated += 1
-            elif change.layer == "03_Concepts":
-                concepts_created += 1
-            elif change.layer == "04_Synthesis":
-                synthesis_created += 1
+            if change.operation == "created":
+                atoms_created += 1
+            else:
+                atoms_updated += 1
 
-        # Update index and log
-        page_writer.rebuild_index(paths, today)
-        log_bullets = [f"{c.operation}: [[{c.path.replace('.md', '')}]]" for c in changes]
-        page_writer.append_log_entry(paths, today, "ingest", parsed.title, log_bullets)
-
-        # Update DB
+        # Mark source as ingested in DB (atoms written)
         _mark_source_status(paths, source_id, "ingested", last_ingested=_now_iso())
         _record_ingest_run(paths, source_id, started, mode,
-                           atoms_created + concepts_created + synthesis_created,
-                           atoms_updated, error=None)
+                           atoms_created, atoms_updated, error=None)
 
         result = IngestResult(
             source_id=source_id,
             source_title=parsed.title,
             atoms_created=atoms_created,
             atoms_updated=atoms_updated,
-            concepts_created=concepts_created,
-            synthesis_created=synthesis_created,
             changes=changes,
         )
         callbacks.on_complete(result)
@@ -723,6 +712,162 @@ def _auto_discover_pending(paths: cfg.WikiPaths) -> tuple[int, int]:
     return discovered, removed
 
 
+
+# ---------------------------------------------------------------------------
+# Phase B — Global L3 Concepts (all Atoms → Concepts)
+# ---------------------------------------------------------------------------
+
+
+def _run_global_pass2_concepts(
+    paths: cfg.WikiPaths,
+    client,
+    callbacks: IngestCallbacks,
+    today: str,
+    staging: Path,
+) -> list[tuple[Path, Path, PageChange]]:
+    """Phase B: cluster ALL existing Atom files into L3 Concepts."""
+    if not paths.atoms.exists():
+        return []
+    all_atom_ids = [
+        md.stem for md in sorted(paths.atoms.glob("*.md"))
+        if not md.name.startswith(".")
+    ]
+    if len(all_atom_ids) < 2:
+        return []
+    return _run_pass2_concepts(paths, client, callbacks, all_atom_ids, today, staging)
+
+
+# ---------------------------------------------------------------------------
+# Phase C — Global L4 Synthesis (all Concepts → Synthesis)
+# ---------------------------------------------------------------------------
+
+
+def _run_global_pass3_synthesis(
+    paths: cfg.WikiPaths,
+    client,
+    callbacks: IngestCallbacks,
+    today: str,
+    staging: Path,
+) -> list[tuple[Path, Path, PageChange]]:
+    """Phase C: synthesize ALL existing Concept files into L4 Synthesis pages."""
+    if not paths.concepts.exists():
+        return []
+    all_concept_ids = [
+        md.stem for md in sorted(paths.concepts.glob("*.md"))
+        if not md.name.startswith(".")
+    ]
+    if len(all_concept_ids) < 1:
+        return []
+    return _run_pass3_synthesis(paths, client, callbacks, all_concept_ids, today, staging)
+
+
+# ---------------------------------------------------------------------------
+# Phase D helpers — ledger + overview
+# ---------------------------------------------------------------------------
+
+
+def _update_ledger(paths: cfg.WikiPaths) -> None:
+    """Rebuild ledger.md with current collection stats."""
+    total_summaries = sum(1 for _ in paths.summaries.glob("*.md")) if paths.summaries.exists() else 0
+    total_atoms = sum(1 for _ in paths.atoms.glob("*.md")) if paths.atoms.exists() else 0
+    total_concepts = sum(1 for _ in paths.concepts.glob("*.md")) if paths.concepts.exists() else 0
+    total_synthesis = sum(1 for _ in paths.synthesis.glob("*.md")) if paths.synthesis.exists() else 0
+
+    with db.connect(paths.state_db) as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) as n, MAX(last_ingested) as last FROM sources WHERE status='ingested'"
+        ).fetchone()
+        ingested_sources = row["n"] if row else 0
+        last_ingested = row["last"] if row else ""
+
+    lines = [
+        "---",
+        "title: Ledger",
+        "type: ledger",
+        f"updated: {_now_iso()}",
+        "---",
+        "",
+        "# .curator/ledger.md \u2014 Knowledge Ledger",
+        "",
+        "> Auto-maintained by the Curator engine. Updated after every ingest. DO NOT edit manually.",
+        "",
+        "## Collection Stats",
+        "",
+        "| Layer | Count |",
+        "| --- | --- |",
+        f"| Sources ingested | {ingested_sources} |",
+        f"| L1 Summaries | {total_summaries} |",
+        f"| L2 Atoms | {total_atoms} |",
+        f"| L3 Concepts | {total_concepts} |",
+        f"| L4 Synthesis | {total_synthesis} |",
+        "",
+        f"*Last ingested: {last_ingested or 'never'}*",
+        "",
+    ]
+    paths.ledger.parent.mkdir(parents=True, exist_ok=True)
+    paths.ledger.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _update_overview(paths: cfg.WikiPaths) -> None:
+    """Refresh overview.md with a domain summary derived from all L1 Summaries."""
+    if not paths.summaries.exists():
+        return
+
+    domains: dict[str, int] = {}
+    for md in sorted(paths.summaries.glob("*.md")):
+        if md.name.startswith("."):
+            continue
+        parsed = page_writer.read_page(md)
+        if parsed:
+            d = parsed.frontmatter.get("domain", "").strip()
+            if d:
+                domains[d] = domains.get(d, 0) + 1
+
+    total_summaries = sum(domains.values()) if domains else 0
+    total_atoms = sum(1 for _ in paths.atoms.glob("*.md")) if paths.atoms.exists() else 0
+    total_concepts = sum(1 for _ in paths.concepts.glob("*.md")) if paths.concepts.exists() else 0
+    total_synthesis = sum(1 for _ in paths.synthesis.glob("*.md")) if paths.synthesis.exists() else 0
+
+    lines = [
+        "---",
+        "title: Domain Manifest",
+        "type: overview",
+        f"updated: {_now_iso()}",
+        "---",
+        "",
+        "# .curator/overview.md \u2014 Domain Manifest",
+        "",
+        "> Auto-maintained by the Curator engine. Updated after every ingest. DO NOT edit manually.",
+        "",
+        "## Knowledge Domains",
+        "",
+    ]
+    if domains:
+        for domain, count in sorted(domains.items(), key=lambda x: -x[1]):
+            lines.append(f"- **{domain}** \u2014 {count} source(s)")
+    else:
+        lines.append("*No domains indexed yet.*")
+    lines += [
+        "",
+        "## Stats",
+        "",
+        "| Layer | Count |",
+        "| --- | --- |",
+        f"| L1 Summaries | {total_summaries} |",
+        f"| L2 Atoms | {total_atoms} |",
+        f"| L3 Concepts | {total_concepts} |",
+        f"| L4 Synthesis | {total_synthesis} |",
+        "",
+    ]
+    paths.overview.parent.mkdir(parents=True, exist_ok=True)
+    paths.overview.write_text("\n".join(lines), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Main entry points
+# ---------------------------------------------------------------------------
+
+
 def ingest_pending(
     paths: cfg.WikiPaths,
     client,
@@ -732,7 +877,13 @@ def ingest_pending(
     auto_discover: bool = True,
     thinking_for_extraction: bool = True,
 ) -> list[IngestResult]:
-    """Ingest all pending sources."""
+    """Run the full global sequential pipeline over all pending sources.
+
+    Phase A: each pending source → L2 Atoms (sequential, per-source)
+    Phase B: ALL Atom files     → L3 Concepts (global clustering)
+    Phase C: ALL Concept files  → L4 Synthesis (global synthesis)
+    Phase D: rebuild index, append log, update ledger + overview
+    """
     if auto_discover:
         _auto_discover_pending(paths)
 
@@ -742,6 +893,7 @@ def ingest_pending(
         ).fetchall()
         pending_ids = [row["id"] for row in rows]
 
+    # Phase A — Atoms per source
     results: list[IngestResult] = []
     for sid in pending_ids:
         cb = callbacks_factory()
@@ -750,5 +902,38 @@ def ingest_pending(
         results.append(result)
         if result.error and "Ollama" in (result.error or ""):
             break
+
+    any_ok = any(r.ok for r in results)
+    if not any_ok:
+        return results
+
+    today = _now_iso()
+    staging = Path(tempfile.mkdtemp(prefix="curator-global-"))
+    try:
+        cb = callbacks_factory()
+
+        # Phase B — global Concepts
+        concept_staged = _run_global_pass2_concepts(paths, client, cb, today, staging)
+        for staged_path, final_path, _ in concept_staged:
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(staged_path, final_path)
+
+        # Phase C — global Synthesis (reads freshly-written concepts too)
+        syn_staged = _run_global_pass3_synthesis(paths, client, cb, today, staging)
+        for staged_path, final_path, _ in syn_staged:
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(staged_path, final_path)
+
+        # Phase D — rebuild index, log, ledger, overview
+        all_changes = [c for _, _, c in concept_staged + syn_staged]
+        page_writer.rebuild_index(paths, today)
+        if all_changes:
+            log_bullets = [f"{c.operation}: [[{c.path.replace('.md', '')}]]" for c in all_changes]
+            page_writer.append_log_entry(paths, today, "ingest", "global pipeline", log_bullets)
+        _update_ledger(paths)
+        _update_overview(paths)
+
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
     return results

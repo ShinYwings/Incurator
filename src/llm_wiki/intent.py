@@ -20,7 +20,7 @@ from .llm import ChatMessage, LLMError, OllamaClient
 
 
 INTENT_SYSTEM_PROMPT = """You are an intent classifier for a personal knowledge \
-base. The user can ask questions that fall into two categories:
+base. The user can ask questions that fall into three categories:
 
 1. WIKI — questions seeking factual or thematic information that would be \
 answered by searching documents. Examples: 'what is RAG', 'how does X relate \
@@ -32,10 +32,16 @@ question.
 itself, or casual conversation. Examples: 'hi', 'hello', 'how are you', \
 'thanks', 'good morning', 'what can you do', 'are you there', 'goodbye'.
 
-Bias toward WIKI when uncertain — wasting one search is better than missing \
-a real question.
+3. PROMOTE — the user wants to save/promote/publish the last answer to the \
+wiki knowledge base. Examples: '승격해줘', '위키에 저장해줘', '02_wiki로 저장', \
+'wiki에 올려줘', 'save this to wiki', 'promote to wiki', 'save the answer', \
+'can you save that', 'archive this'.
 
-Respond with a single word: WIKI or CHITCHAT. Nothing else.
+Bias toward WIKI when uncertain — wasting one search is better than missing \
+a real question. Only classify as PROMOTE when the user is clearly asking to \
+save or publish the previous answer.
+
+Respond with a single word: WIKI, CHITCHAT, or PROMOTE. Nothing else.
 """
 
 
@@ -82,6 +88,8 @@ def classify_intent(
     raw = response.strip().upper()
 
     # Look for the keywords. If neither appears clearly, default to wiki.
+    if "PROMOTE" in raw:
+        return IntentResult(intent="promote", raw_response=response)
     if "CHITCHAT" in raw and "WIKI" not in raw:
         return IntentResult(intent="chitchat", raw_response=response)
     if raw.startswith("CHITCHAT"):

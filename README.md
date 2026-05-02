@@ -1,193 +1,101 @@
-# SYMBIOTIC_OS_ARCHITECTURE - LLM-Wiki Curator (v11.0)
+---
+created: 2026-04-27T20:11
+updated: 2026-05-03T06:02
+---
 
-**LLM-Wiki Curator** is an autonomous, AI-maintained personal knowledge base designed for the **SYMBIOTIC_OS_ARCHITECTURE v11.0**. It establishes a 4-layer directed acyclic graph (DAG) knowledge pipeline to summarize, parse, cluster, and synthesize atomic facts and high-level concepts from raw user notes and reference materials.
+# 🧠 Agentic Zettelkasten: An Auto-Curating Workspace
+
+> **파편화된 지식 자산을 관리하고, 환각(Hallucination) 없이 안전하게 복합 프로젝트를 수행하기 위해 구축된 Multi-Agent DAG(Directed Acyclic Graph) RAG 시스템입니다.**
+
+제텔카스텐(Zettelkasten)의 철학을 데이터 큐레이션(Data Curation) 아키텍처로 재구성하여, 수집된 외부 정보가 큐레이터 엔진의 **4단계 정제 파이프라인(등록 $\rightarrow$ 단편화 $\rightarrow$ 주제화 $\rightarrow$ 컨텍스트 포장)**을 거치도록 설계되었습니다. 이 과정을 통해 정밀하게 조립된 컨텍스트는 에이전트에게 주입되거나 인간과의 대화 재료로 사용되며, 최종적으로 진정한 의미의 **종합(Synthesis)**과 **전시(Exhibition)**를 이루어 시스템의 공식 지식(Wiki)으로 순환합니다.
+
+우리 시스템은 **👤인간(Human)**, **⚙️큐레이터(Curator)**, **🤖실행 에이전트(Agent)** 세 개의 주체(Entity)로 나뉘어 유기적으로 상호작용합니다. 에이전트는 외부 데이터를 무분별하게 탐색하지 않고, 철저히 통제된 사전 지식망(`.curator/`)을 브릿지로 삼아 원천 지식을 검증하며 태스크를 수행합니다.
 
 ---
 
-## 1. Entity Roles & Global Topology
+## 👥 3대 핵심 주체와 역할 (Entities)
 
-### 1.1 Entities & Permissions
-- **Entity Curator**: Residence: `.curator/`. Read access to raw spaces, write access *strictly* to `.curator/`. Performs hash monitoring, DAG construction, and semantic indexing.
-- **Entity Agent**: Residence: `01_Workspaces/{Project_Name}/`. Context loader via `qmd.yml`. Reads and writes within active workspace; shallow write with HITL in `03_Notes`. Promotes concepts to `02_Wiki`.
-
-### 1.2 Topology Map
-```
-ROOT: /
-├── 00_System/          # [STATIC] Scripts & Templates
-├── 01_Workspaces/      # [AGENT_RESIDENCE] Active projects 
-│   └── {Project_Name}/
-│       ├── .agents/          # Agent skills & workflow rules
-│       ├── .antigravity/     # Agent control limits
-│       ├── Artifacts/        # Auto-generated code, images, temp outputs
-│       ├── Concepts/         # Draft concepts. Promoted to 02_Wiki upon maturity.
-│       ├── Papers/           # Project-specific sandbox
-│       ├── qmd.yml           # Defines which `.curator/Collections` to load
-│       ├── methodology.md    # [GROUND_TRUTH] Geometric/math pipelines
-│       └── todo_list.md      # Milestones & task tracking
-├── 02_Wiki/            # [SHARED_TRUTH] Agent Managed Knowledge Base
-├── 03_Notes/           # [HUMAN_TRUTH] 100% Human verified atomic knowledge
-├── 04_Resources/       # [READ_ONLY] External reference PDFs, Docs
-├── 05_Assets/          # [STATIC] System byproducts
-├── 06_Archives/        # [READ_ONLY] Terminated projects & legacy data
-└── .curator/           # [CURATOR_RESIDENCE] Hidden Abstraction Space
-    ├── overview.md     # [ROUTING] Domain manifest
-    ├── index.md        # [ROUTING] Synthesis ID -> Pointer mapping
-    ├── log.md          # [STATE] Hash registry for Foundation Sources
-    ├── ledger.md       # [OVERRIDE] High-priority user corrections
-    └── Collections/    # [DATA_PLANE] DAG Knowledge Lake
-        ├── 01_Summaries/   # L1: 1:1 Hash-matched summaries
-        ├── 02_Atoms/       # L2: Irreducible facts/equations
-        ├── 03_Concepts/    # L3: Clustered logic
-        └── 04_Synthesis/   # L4: Terminal knowledge outputs
-```
+| 주체 | 역할 | 주요 활동 |
+| :--- | :--- | :--- |
+| **👤 인간**<br>`Human` | • `03_Notes`의 원천 지식 생성 및 소유<br>• 최종 지식 융합의 의사결정권자 | • 에이전트/큐레이터 제안 지식 검토<br>• 대화를 통한 합의점 도출 및 승인 |
+| **⚙️ 큐레이터**<br>`Curator Engine` | • `.curator/` 은닉 공간 상주 백그라운드 엔진<br>• 지식 그래프(DAG) 유지보수 및 대화 파트너 | • L1 $\rightarrow$ L2 $\rightarrow$ L3 $\rightarrow$ L4 정제 파이프라인 수행<br>• 정보 조립과 지식 지원 집중 (스스로 새로운 지식 창출 금지) |
+| **🤖 실행 에이전트**<br>`Workspace Agent` | • `01_Workspaces/` 상주 태스크 수행자<br>• 인간 명령 및 큐레이터 컨텍스트 기반 행동 | • 코딩, 기획, 분석 등 프로젝트 태스크 수행<br>• 합의된 지식을 `02_Wiki`로 승격 및 전시(Exhibition) |
 
 ---
 
-## 2. Polymorphic Metadata Schema
+## 📂 핵심 디렉토리 구조 및 데이터 권한
 
-The Curator structures all knowledge within `.curator/Collections/` into 4 layers:
-
-### Layer 1: Summary (`SUM-[UUID8]`)
-
-A 1:1 hash-matched recap of a single source document.
-
-```yaml
----
-id: SUM-[UUID8]
-type: summary
-source_path: "[[relative/path/to/source.md]]"
-source_hash: [SHA-256]
-domain: "knowledge-domain-string"
-last_updated: [YYYY-MM-DDThh:mm:ssZ]
-tags: [tag1, tag2]
----
-```
-
-**Body sections**: `## Summary`, `## Key Claims`, `## Atom Candidates`, `## Source`
-
-### Layer 2: Atom (`ATM-[UUID8]`)
-
-Irreducible factual claims, distilled from one or more L1 summaries.
-
-```yaml
----
-id: ATM-[UUID8]
-type: atom
-parent_source: "[[01_Summaries/SUM-UUID8]]"
-source_path: "[[relative/path/to/source.md]]"
-claim_type: fact | equation | theoretical_constraint
-contradicts: []
-is_verified_by_human: false
-is_flagged_for_agent: false
-last_updated: [YYYY-MM-DDThh:mm:ssZ]
----
+```text
+/
+├── 00_System/               # 시스템 및 템플릿 관리
+│   ├── Scripts/             # 프로젝트 폴더 자동 생성 스크립트 등
+│   └── Templates/           # 반복 작업을 위한 템플릿 모음
+│
+├── 01_Workspaces/           # 🤖 에이전트 거주지 / 지식 융합 및 프로젝트 실행 공간
+│   └── {Project Name}/ 
+│       ├── .agents/ & .antigravity/  # 에이전트 제어 규칙 및 페르소나 설정
+│       ├── Artifacts/       # 실험 코드, 중간 산출물 등
+│       ├── Concepts/        # 임시 개념 (인간과의 합의 후 02_Wiki로 편입됨)
+│       ├── Papers/          # 글로벌 지식을 프로젝트 맥락에 맞춰 재해석하는 논문 리뷰 샌드박스
+│       ├── Research Notes/  # 프로젝트 데일리 리서치 기록
+│       ├── qmd.yml          # 🌟 큐레이터가 에이전트에게 전달할 사전 지식을 결정하는 컨텍스트 로더
+│       ├── research_digest.md & todo_list.md  # 연구 가설 및 태스크 트래킹
+│       └── methodology.md, related_works.md 등  # 프로젝트 문서
+│
+├── 02_Wiki/                 # 🤖 에이전트 & ⚙️ 큐레이터 주도 공식 전시관 [PERM: 공용 쓰기 권한]
+│   └── (최종 종합(Synthesis) 및 인간과 합의된 정제 지식이 전시(Exhibition)되는 트리)
+│
+├── 03_Notes/                # 👤 인간 중심 원천 지식 [PERM: Strict Read-Only]
+│   └── (비전, 수학, CS 등 인간의 1차 지식. 어떤 AI도 이 원본을 직접 수정 불가)
+│
+├── 04_Resources/            # 📚 불변 외부 지식 [PERM: Strict Read-Only]
+│   └── (PDF, Docs 등 증명된 외부 레퍼런스. 백그라운드 엔진이 참조용으로만 사용)
+│
+├── 05_Assets/               # 🗂️ 시스템 부산물
+│   └── (이미지 및 마크다운 의존성 파일들)
+│
+├── 06_Archives/             # 📦 레거시 지식 [PERM: Read-Only]
+│   └── (종료된 프로젝트 기록 등 과거의 컨텍스트 보존 공간)
+│
+└── .curator/                # ⚙️ 큐레이터 전용 은닉 공간 [PERM: Curator 및 Agent MCP Tool 접근]
+    ├── config.yml           # 프로젝트 환경 설정
+    ├── state.sqlite         # 해시 레지스트리 및 상태 추적의 핵심 DB
+    ├── overview.md & index.md # 에이전트가 가장 먼저 참조하는 라우팅 테이블
+    ├── log.md & ledger.md   # 이벤트 기록 및 인간 강제 교정(HITL) 불변 로그
+    └── Collections/         # 추출-합성 기반의 L1~L4 지식 정제 파이프라인
+        ├── 01_Accessions/   # L1: 원본 1:1 요약, 등록된 초기 요약본 및 출처 데이터 집합
+        ├── 02_Fragments/    # L2: 요약본을 최소 단위로 분해한 지식 단편 집합
+        ├── 03_Themes/       # L3: 주제별 단편들을 엮어 재해석한 주제 및 맥락 집합
+        └── 04_Curations/    # L4: 에이전트 주입 및 인간 대화용 컨텍스트 패키지
 ```
 
-**Body sections**: `## Definition / Claim`, `## Context`, `## Constraints`, `## Relations`, `## Source`
-
-### Layer 3: Concept (`CON-[UUID8]`)
-
-Clusters of related L2 atoms forming a coherent conceptual unit.
-
-```yaml
 ---
-id: CON-[UUID8]
-type: concept
-dependencies: ["[[02_Atoms/ATM-UUID8]]", "[[02_Atoms/ATM-UUID8]]"]
-domain: "knowledge-domain-string"
-last_updated: [YYYY-MM-DDThh:mm:ssZ]
----
-```
 
-**Body sections**: `## 1. Core Architecture`, `## 2. Interaction of Atoms`, `## 3. Mathematical Framework`, `## 4. Open Questions`
+## ⚠️ 워크플로우 및 운영 규칙 (Pipeline Rules)
 
-### Layer 4: Synthesis (`SYN-[UUID8]`)
+### 1. 큐레이터 지식 탐색 브릿지 (The Curator's Bridge)
+- 에이전트와 인간은 새로운 쿼리를 시작할 때 외부 정보나 기존 노트(`02_Wiki`, `03_Notes`)를 무작정 전수조사하지 않습니다.
+- 큐레이터가 관리하는 `.curator/` 디렉토리 전역(라우팅 인덱스 및 L1~L4 컬렉션 전체)을 우선 탐색하여 **검증된 사전 지식을 확보**한 뒤 추론 및 대화를 시작합니다.
 
-Terminal cross-domain knowledge outputs combining multiple L3 concepts.
+### 2. 강력한 인간-AI 협상 (HITL: Strong Negotiation)
+- 시스템이 지식(`03_Notes` 등 원본) 내부의 논리적 모순이나 수학적 오류를 발견할 경우, **절대로 원본을 임의 수정하지 않습니다.**
+- 즉시 작업을 멈추고 인간에게 이의를 제기하여 토론을 시작합니다.
+- **불변성의 원칙:** 인간의 승인이 떨어지더라도 원본 노트(`03_Notes`)를 덮어쓰지 않습니다. 대신, 에이전트는 `.curator/` 내부에 있는 추상화된 **DAG 노드(Fragment)를 업데이트**(`curator_update_node`)하여 시스템 전반의 논리 구조를 바로잡습니다.
 
-```yaml
----
-id: SYN-[UUID8]
-type: synthesis
-core_concepts: ["[[03_Concepts/CON-UUID8]]"]
-confidence_score: 0.00 - 1.00
-requires_math_rigor: true | false
-last_updated: [YYYY-MM-DDThh:mm:ssZ]
----
-```
+### 3. 지식의 전시(Exhibition)와 생태계 순환
+L4(Curations) 단계의 컨텍스트는 고정되어 있지 않으며, 큐레이터는 에이전트나 인간의 새로운 쿼리(Query)에 맞춰 실시간으로 새롭게 큐레이팅(Curating)될 수 있습니다. 준비된 컨텍스트는 성격에 따라 두 가지 경로를 통해 **최종 공식 지식(`02_Wiki`)으로 편입(Exhibition)**됩니다.
 
-**Body sections**: `## 1. Executive Research Brief`, `## 2. Theoretical Foundation`, `## 3. State of the Art & Limitations`, `## 4. Actionable Directives for Agent`
+#### 🔄 경로 A: 에이전트 주도 태스크 종합 (Agent-Led Task Synthesis)
+- **주체:** 🤖 에이전트 + 👤 인간
+- **과정:** `01_Workspaces` 내에서 에이전트가 L4 컨텍스트를 재료로 주어진 과제(코드 작성, 구조 설계, 데이터 분석 등)를 수행하고, 인간과의 협상(HITL)을 거쳐 통찰을 도출합니다.
+- **전시:** 태스크가 완료되고 합의된 지식을 에이전트가 `02_Wiki`에 기록합니다.
+
+#### 💬 경로 B: 큐레이터-인간 대화 기반 승격 (Conversational Promotion)
+- **주체:** ⚙️ 큐레이터 + 👤 인간
+- **과정:** 인간이 시스템에 쿼리나 질문을 던지면, 큐레이터는 자신이 구축해둔 L4 사전 지식 내에서 답변을 제공합니다. 이후 인간과 큐레이터가 충분한 대화(티키타카)를 나누며 개념을 발전시킵니다.
+- **전시:** 대화 중 도출된 내용이 훌륭한 개념이라고 합의/판단되면, 해당 내용을 `02_Wiki`로 공식 승격(Promote)시킵니다.
 
 ---
 
-## 3. Installation & Getting Started
-
-To install the project locally with all prerequisites (Ollama, Node.js, and the `qmd` search engine) in one command, run:
-
-```bash
-chmod +x install.sh
-./install.sh
-```
-
-> [!NOTE]
-> Installing Ollama on Linux requires sudo privileges when prompted by the script. Alternatively, you can install Ollama manually from [Ollama.com](https://ollama.com/download) first.
-
-### 3.1 Initialising a Vault
-
-To scaffold a new wiki vault project with the full topological structure:
-
-```bash
-wiki init /path/to/your/vault
-```
-
-This sets up:
-* `.obsidian/` vault marker
-* Full folder topologies (`00_System/` ... `06_Archives/`)
-* `.curator/` configuration files, tracking database, and collections
-
----
-
-## 4. Command-Line Interface (CLI)
-
-The `wiki` CLI automates everything from file scanning to querying the DAG.
-
-### 4.1. Core Operations
-* **`wiki status`**: Inspect tracking database metrics, active LLM config, and collection counts.
-* **`wiki version`**: View the current installed version.
-
-### 4.2. File Synchronization & Summaries
-* **`wiki sync`**: Discovers new or changed files in raw directories and generates L1 summaries in `.curator/Collections/01_Summaries/`.
-* **`wiki sources list`**: View all tracked raw sources.
-* **`wiki sources show <id>`**: Inspect file metadata and content preview.
-* **`wiki sources rm <id>`**: Remove a file from tracking and delete it optionally.
-
-### 4.3. Pipeline Ingestion
-* **`wiki ingest`**: Runs the 3-pass LLM pipeline to promote L1 summaries into L2 Atoms, L3 Concepts, and L4 Synthesis.
-  ```bash
-  wiki ingest [--batch] [--no-thinking]
-  ```
-
-### 4.4. Semantic Search & Querying
-* **`wiki query "<your question>"`**: Search and synthesize a referenced answer using the qmd indexing engine (hybrid, lex, or vec).
-  ```bash
-  wiki query "What is Unbalanced Schrödinger Bridge Initialization?" --mode hybrid --save-as SYN-usb-init
-  ```
-
-### 4.5. Search Index & Maintenance
-* **`wiki reindex`**: Rebuilds the qmd semantic/lexical search index manually.
-* **`wiki lint`**: Lints the wiki for broken links, missing parents, orphans, or contradictions.
-  ```bash
-  wiki lint [--deep] [--fix] [--save]
-  ```
-
-### 4.6. Agent Services
-* **`wiki mcp`**: Spawns an MCP stdio server to integrate directly with LLM workspaces and agents.
-* **`wiki mcp install`**: Outputs installation JSON snippets for your local IDE/Client.
-
----
-
-## 5. Control Rules & Human-in-the-Loop (HITL)
-
-1. **Rule of Immutability**: All files in `04_Resources` and `06_Archives` are immutable constants.
-2. **Rule of Strong Negotiation**: If the Curator identifies math errors or contradictions within `03_Notes`, the Agent initiates strong negotiation via HITL.
-3. **Ledger Priority**: Rules/corrections in `.curator/ledger.md` silently override any underlying DAG context.
+## 🔁 무한 순환 루프 (The Infinite Loop)
+어떤 경로를 통하든 `02_Wiki`에 새롭게 전시된 공식 지식은, 다시 큐레이터 엔진의 **L1(Accessions) 파이프라인으로 유입**되어 전체 지식 생태계를 끝없이 팽창시킵니다. 이 모든 변경 사항은 `state.sqlite`에 로깅되며 자동으로 `wiki sync`를 발생시켜 DAG의 무결성을 유지합니다.

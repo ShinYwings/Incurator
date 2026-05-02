@@ -239,7 +239,24 @@ class OllamaClient:
         self.timeout = timeout
         self._client = httpx.Client(timeout=timeout)
 
+    def unload(self) -> None:
+        """Ask Ollama to immediately evict this model from VRAM (keep_alive=0).
+
+        Called automatically by close() so any finally-block close() also
+        frees GPU memory for other consumers (e.g. qmd's llama-cpp model).
+        Best-effort: silently ignored if Ollama is unreachable.
+        """
+        try:
+            self._client.post(
+                f"{self.host}/api/generate",
+                json={"model": self.model, "prompt": "", "keep_alive": 0},
+                timeout=10.0,
+            )
+        except Exception:
+            pass
+
     def close(self) -> None:
+        self.unload()
         self._client.close()
 
     def __enter__(self) -> "OllamaClient":
@@ -1487,6 +1504,15 @@ class FailoverClient:
 
     def ping(self) -> bool:
         return any(p.ping() for p in self.providers)
+
+    def unload(self) -> None:
+        """Forward unload to any OllamaClient providers to free VRAM."""
+        for p in self.providers:
+            if hasattr(p, "unload"):
+                try:
+                    p.unload()
+                except Exception:
+                    pass
 
     def close(self) -> None:
         for p in self.providers:

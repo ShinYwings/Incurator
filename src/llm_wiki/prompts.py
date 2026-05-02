@@ -165,9 +165,9 @@ Write the complete markdown page with:
    - **Definition / Claim**: Precise statement. **CRITICAL: You MUST use LaTeX format ($ or $$) for ALL mathematical equations, formal definitions, and symbols.**
    - **Context**: When / where does this apply?
    - **Constraints**: Boundary conditions, assumptions, or edge cases.
-   - **Relations**: [[wikilinks]] to related atoms or concepts.
-
-4. A brief `## Source` section linking to [[01_Summaries/{summary_id}]].
+   - **Relations**: Use ONLY the wikilinks listed below. DO NOT invent, guess, or hallucinate any atom or page IDs that were not explicitly provided to you.
+     - [[01_Summaries/{summary_id}]]
+     - CRITICAL: Write each wikilink with EXACTLY ONE pair of brackets: [[path/id]]. NEVER write double brackets [[[[path/id]]]].
 
 Return ONLY the markdown. No preamble, no code fences.
 """
@@ -184,13 +184,15 @@ def build_atom_page_messages(
     today: str,
 ) -> list[ChatMessage]:
     """Pass 1 — draft a single L2 Atom page."""
+    # Wikilinks must not include file extensions (Obsidian convention)
+    source_path_link = source_path.removesuffix(".md")
     user_content = ATOM_PAGE_TEMPLATE.format(
         atom_id=atom_id,
         name=name,
         atom_type=atom_type,
         one_liner=one_liner,
         summary_id=summary_id,
-        source_path=source_path,
+        source_path=source_path_link,
         excerpt=excerpt,
         today=today,
     )
@@ -330,9 +332,11 @@ Write the complete markdown page:
 
 3. Body :
    - **1. Core Architecture**: What does this concept represent as a unified whole?
-   - **2. Interaction of Atoms**: How do the constituent Atoms mathematically or logically weave together to form this concept? You MUST explain the exact relationship between these atoms and cite them via [[02_Atoms/ATM-xxx]].
+   - **2. Interaction of Atoms**: How do the constituent Atoms mathematically or logically weave together to form this concept? Cite each atom using exactly [[02_Atoms/ATM-xxx]] with its real ID from the list above. NEVER write double brackets [[[[02_Atoms/ATM-xxx]]]].
    - **3. Mathematical Framework**: Detail the foundational equations and formulations supporting this concept. **CRITICAL: You MUST use LaTeX format ($ or $$) for ALL mathematical equations, formal definitions, and symbols.**
    - **4. Open Questions**: Unresolved tensions or contradictions within this concept (if any).
+
+WIKILINK RULE: Write every wikilink with EXACTLY ONE pair of brackets [[path/id]]. NEVER nest brackets. The atom IDs provided above are the ONLY valid IDs — do not invent others.
 
 Return ONLY the markdown. No preamble, no code fences.
 """
@@ -391,9 +395,11 @@ Write the complete markdown page:
 
 3. Body:
    - **1. Executive Research Brief**: What is the terminal conclusion or state of the art that emerges from combining these concepts?
-   - **2. Theoretical Foundation**: Trace the logical and mathematical path from Atoms → Concepts → this Synthesis. Use [[wikilinks]]: [[03_Concepts/CON-xxx]], [[02_Atoms/ATM-yyy]]. **CRITICAL: You MUST use LaTeX format ($ or $$) for ALL mathematical derivations, formulas, and symbols.**
+   - **2. Theoretical Foundation**: Trace the logical and mathematical path from Atoms → Concepts → this Synthesis. Cite concepts with [[03_Concepts/CON-xxx]] using real IDs from the list above. **CRITICAL: You MUST use LaTeX format ($ or $$) for ALL mathematical derivations, formulas, and symbols.**
    - **3. State of the Art & Limitations**: Discuss unresolved tensions, edge cases, and contradictions. Why is the confidence score {confidence}? What flagged atoms (`is_flagged_for_agent: true`) affect this?
    - **4. Actionable Directives for Agent**: Explicit instructions and hypotheses for the AI Agent. What specific code, pipeline, or research task should the Agent execute next based on this synthesis?
+
+WIKILINK RULE: Write every wikilink with EXACTLY ONE pair of brackets [[path/id]]. NEVER nest brackets like [[[[path/id]]]]. Only use IDs that were explicitly provided above.
 
 Return ONLY the markdown. No preamble, no code fences.
 """

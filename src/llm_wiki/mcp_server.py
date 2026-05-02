@@ -174,6 +174,16 @@ def build_server() -> FastMCP:
         Returns a dict with `hits` — each hit has `path`, `title`, `score`,
         `snippet`, and `body` (full markdown of the page).
         """
+        # Automatically generate / translate arguments if the query is in Korean (non-ASCII)
+        from .llm import build_client
+        from .query import translate_to_english
+        try:
+            config = cfg.load_config(paths)
+            with build_client(config) as client:
+                query = translate_to_english(client, query)
+        except Exception:
+            pass
+
         try:
             results = search.query(
                 paths,
