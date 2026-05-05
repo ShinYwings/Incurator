@@ -6,7 +6,7 @@ Flow:
   3. Stream the LLM's answer via the active client.
   4. Provide a streaming answer using markdown citations.
   5. Optionally save the answer as
-     `.curator/Collections/04_Synthesis/SYN-<UUID8>.md` and update
+     `.curator/Collections/04_Exhibitions/EXH-<UUID8>.md` and update
      index.md + log.md.
 
 Callbacks let the CLI render progress (search phase, synthesis streaming).
@@ -45,6 +45,7 @@ class QueryResult:
     answer: str = ""
     hits: list[search.SearchHit] = field(default_factory=list)
     saved_path: str | None = None   # if --save-as was used
+    session_id: str | None = None
     error: str | None = None
 
     @property
@@ -98,10 +99,10 @@ Rules:
    Do not invent facts or speculate beyond what the sources say.
 2. Use `[[wikilinks]]` to cite specific nodes in the DAG. Always include the
    layer prefix exactly as shown in the source headers, e.g.
-   [[01_Summaries/SUM-a1b2c3d4]], [[02_Atoms/ATM-9f8e7d6c]],
-   [[03_Concepts/CON-12345678]], [[04_Synthesis/SYN-abcdef01]].
+   [[01_Contexts/CTX-a1b2c3d4]], [[02_Atoms/ATM-9f8e7d6c]],
+   [[03_Concepts/CON-12345678]], [[04_Exhibitions/EXH-abcdef01]].
 3. Prefer citing L2 Atoms for factual claims, L3 Concepts for thematic groupings,
-   and L4 Synthesis for cross-domain conclusions. Trace back to L2 if a higher
+   and L4 Exhibitions for cross-domain conclusions. Trace back to L2 if a higher
    layer's confidence_score is below 0.90.
 4. If the sources don't contain enough information to answer confidently,
    say so explicitly and identify which layer is missing.
@@ -157,31 +158,106 @@ def _build_synthesis_user_prompt(
 # ---------------------------------------------------------------------------
 
 
-def _save_synthesis_page(
+def _node_path_from_target(target: str) -> str:
+    cleaned = target.removesuffix(".md")
+    if cleaned.startswith("[[") and cleaned.endswith("]]"):
+        cleaned = cleaned[2:-2]
+    cleaned = cleaned.split("|", 1)[0].strip()
+    import re as _re
+    return _re.sub(r"^/?qmd://[^/]+/", "", cleaned).lstrip("/")
+
+
+def _concept_paths_for_atom(paths: cfg.WikiPaths, atom_id: str) -> list[str]:
+    found: list[str] = []
+    if not paths.concepts.exists():
+        return found
+    for concept_path in sorted(paths.concepts.glob("CON-*.md")):
+        page = page_writer.read_page(concept_path)
+        if not page:
+            continue
+        targets = page_writer.extract_relation_targets(page.body, prefix="02_Atoms/")
+        if f"02_Atoms/{atom_id}" in targets:
+            found.append(f"03_Concepts/{concept_path.stem}")
+    return found
+
+
+def _atom_ids_for_context(paths: cfg.WikiPaths, context_id: str) -> list[str]:
+    found: list[str] = []
+    if not paths.atoms.exists():
+        return found
+    for atom_path in sorted(paths.atoms.glob("ATM-*.md")):
+        page = page_writer.read_page(atom_path)
+        if not page:
+            continue
+        raw_parent = page.frontmatter.get("parent_source", [])
+        parents = raw_parent if isinstance(raw_parent, list) else [raw_parent]
+        parent_ids = {
+            _node_path_from_target(str(parent)).rsplit("/", 1)[-1]
+            for parent in parents
+            if parent
+        }
+        if context_id in parent_ids:
+            found.append(atom_path.stem)
+    return found
+
+
+def _derive_core_concepts(paths: cfg.WikiPaths, answer: str, hits: list[search.SearchHit]) -> list[str]:
+    """Resolve query citations/hits to L3 Concept paths for valid L4 metadata."""
+    core_concepts: list[str] = []
+    atom_ids: list[str] = []
+    context_ids: list[str] = []
+
+    targets = [hit.full_path for hit in hits]
+    targets.extend(page_writer.extract_wikilink_targets(answer))
+
+    for target in targets:
+        cleaned = _node_path_from_target(target)
+        if cleaned.startswith("03_Concepts/") and cleaned not in core_concepts:
+            core_concepts.append(cleaned)
+        elif cleaned.startswith("02_Atoms/"):
+            atom_id = cleaned.rsplit("/", 1)[-1]
+            if atom_id not in atom_ids:
+                atom_ids.append(atom_id)
+        elif cleaned.startswith("01_Contexts/"):
+            context_id = cleaned.rsplit("/", 1)[-1]
+            if context_id not in context_ids:
+                context_ids.append(context_id)
+
+    for context_id in context_ids:
+        for atom_id in _atom_ids_for_context(paths, context_id):
+            if atom_id not in atom_ids:
+                atom_ids.append(atom_id)
+
+    for atom_id in atom_ids:
+        for concept_path in _concept_paths_for_atom(paths, atom_id):
+            if concept_path not in core_concepts:
+                core_concepts.append(concept_path)
+
+    return core_concepts
+
+
+def _save_curation_page(
     paths: cfg.WikiPaths,
     question: str,
     answer: str,
     title: str,
     hits: list[search.SearchHit],
+    session_id: str | None = None,
+    workspace_project: str | None = None,
+    ephemeral: bool = False,
 ) -> str:
-    """Write the answer to `.curator/Collections/04_Synthesis/SYN-<UUID8>.md`,
+    """Write the answer to `.curator/Collections/04_Exhibitions/EXH-<UUID8>.md`,
     rebuild index, append log.
 
     Returns the relative path (relative to `.curator/Collections/`) of the
     saved page.
     """
-    syn_id = f"SYN-{uuid.uuid4().hex[:8]}"
+    exh_id = f"EXH-{uuid.uuid4().hex[:8]}"
     today = page_writer.today_iso()
 
-    # L4 frontmatter expects `core_concepts` to be a list of [[03_Concepts/CON-…]]
-    # wikilinks. Filter hits to L3 Concepts only.
-    core_concepts: list[str] = []
-    for hit in hits:
-        raw = hit.full_path.removesuffix(".md")
-        import re as _re
-        cleaned = _re.sub(r"^/?qmd://[^/]+/", "", raw).lstrip("/")
-        if cleaned.startswith("03_Concepts/") and cleaned not in core_concepts:
-            core_concepts.append(f"[[{cleaned}]]")
+    core_concepts = _derive_core_concepts(paths, answer, hits)
+    if not core_concepts:
+        raise ValueError("Cannot save query Exhibition: no related L3 Concepts were found.")
 
     display_title = (title or question).strip()
     if len(display_title) > 80:
@@ -190,17 +266,32 @@ def _save_synthesis_page(
     parsed = page_writer.parse_page(answer.strip())
     if not parsed.frontmatter:
         parsed.frontmatter = {
-            "id": syn_id,
-            "type": "synthesis",
+            "id": exh_id,
+            "type": "exhibition",
             "core_concepts": core_concepts,
             "confidence_score": 0.70,
-            "requires_math_rigor": False,
             "last_updated": today,
             "question": question,
+            "ephemeral": ephemeral,
         }
+        if session_id:
+            parsed.frontmatter["query_session"] = session_id
+        if workspace_project:
+            parsed.frontmatter["workspace"] = workspace_project
         parsed.body = f"# {display_title}\n\n{answer.strip()}"
+    else:
+        parsed.frontmatter["id"] = exh_id
+        parsed.frontmatter["type"] = "exhibition"
+        parsed.frontmatter["core_concepts"] = core_concepts
+        parsed.frontmatter.setdefault("confidence_score", 0.70)
+        parsed.frontmatter["last_updated"] = today
+        parsed.frontmatter["ephemeral"] = ephemeral
+        if session_id:
+            parsed.frontmatter["query_session"] = session_id
+        if workspace_project:
+            parsed.frontmatter["workspace"] = workspace_project
 
-    final_path = paths.synthesis / f"{syn_id}.md"
+    final_path = paths.exhibitions / f"{exh_id}.md"
     page_writer.write_page(final_path, parsed.to_markdown())
 
     page_writer.rebuild_index(paths, today)
@@ -210,12 +301,13 @@ def _save_synthesis_page(
         "query",
         display_title,
         [
-            f"saved: [[04_Synthesis/{syn_id}]]",
+            f"saved: [[04_Exhibitions/{exh_id}]]",
+            f"query_session: {session_id}" if session_id else "query_session: none",
             f"consulted: {len(hits)} page(s)",
         ],
     )
 
-    return f"04_Synthesis/{syn_id}.md"
+    return f"04_Exhibitions/{exh_id}.md"
 
 
 def translate_to_english(client: OllamaClient, question: str) -> str:
@@ -337,16 +429,20 @@ def run_query(
     temperature: float = 0.3,
     scope: str = "all",
     classify_intent_first: bool = True,
+    session_id: str | None = None,
+    workspace_project: str | None = None,
+    query_boost_terms: list[str] | None = None,
+    ephemeral_exhibition: bool = False,
 ) -> QueryResult:
     """Run a full query → answer pipeline.
 
     scope filters retrieval by Curator layer (path prefix inside
     `.curator/Collections/`):
-        - 'all'        → no filter
-        - 'summaries'  → 01_Summaries/ only
-        - 'atoms'      → 02_Atoms/ only
-        - 'concepts'   → 03_Concepts/ only
-        - 'synthesis'  → 04_Synthesis/ only
+        - 'all'         → no filter
+        - 'contexts'    → 01_Contexts/ only
+        - 'atoms'       → 02_Atoms/ only
+        - 'concepts'    → 03_Concepts/ only
+        - 'exhibitions' → 04_Exhibitions/ only
 
     classify_intent_first runs intent classification before retrieval. If
     the user asked something like 'hi' or 'thanks', we skip retrieval and
@@ -357,6 +453,10 @@ def run_query(
     # 0a. Translate to English first — intent classification is more accurate
     #     on English text, and search backends (BM25/vector) expect English.
     search_question = translate_to_english(client, question)
+    if query_boost_terms:
+        extras = " ".join(str(term) for term in query_boost_terms if str(term).strip())
+        if extras:
+            search_question = f"{search_question} {extras}"
 
     # 0b. Intent classification on the translated question
     if classify_intent_first:
@@ -370,7 +470,7 @@ def run_query(
             # Reply in the user's original language
             reply = intent_module.generate_chitchat_reply(client, question)
             callbacks.on_chitchat_reply(reply)
-            result = QueryResult(question=question, answer=reply, hits=[])
+            result = QueryResult(question=question, answer=reply, hits=[], session_id=session_id)
             callbacks.on_complete(result)
             return result
 
@@ -398,19 +498,19 @@ def run_query(
         # and over-fetching a few extra hits is cheaper than splitting into
         # multiple collections.
         layer_prefix = {
-            "summaries": "01_Summaries/",
-            "atoms":     "02_Atoms/",
-            "concepts":  "03_Concepts/",
-            "synthesis": "04_Synthesis/",
+            "contexts":    "01_Contexts/",
+            "atoms":       "02_Atoms/",
+            "concepts":    "03_Concepts/",
+            "exhibitions": "04_Exhibitions/",
         }.get(scope)
         if layer_prefix:
             results.hits = [h for h in results.hits if h.full_path.startswith(layer_prefix)]
     except search.QmdNotInstalled as e:
-        result = QueryResult(question=question, error=str(e))
+        result = QueryResult(question=question, session_id=session_id, error=str(e))
         callbacks.on_error(result.error)
         return result
     except search.SearchBackendError as e:
-        result = QueryResult(question=question, error=f"Search failed: {e}")
+        result = QueryResult(question=question, session_id=session_id, error=f"Search failed: {e}")
         callbacks.on_error(result.error)
         return result
 
@@ -422,8 +522,9 @@ def run_query(
             question=question,
             answer="",
             hits=[],
+            session_id=session_id,
             error="No matching wiki pages found. Try a different query or "
-            "ingest more sources.",
+            "curate more sources.",
         )
         callbacks.on_error(result.error)
         return result
@@ -451,13 +552,13 @@ def run_query(
                     answer_parts.append(full)
     except (OllamaNotRunning, ModelNotFound) as e:
         result = QueryResult(
-            question=question, hits=results.hits, error=str(e)
+            question=question, hits=results.hits, session_id=session_id, error=str(e)
         )
         callbacks.on_error(result.error)
         return result
     except LLMError as e:
         result = QueryResult(
-            question=question, hits=results.hits, error=f"LLM error: {e}"
+            question=question, hits=results.hits, session_id=session_id, error=f"LLM error: {e}"
         )
         callbacks.on_error(result.error)
         return result
@@ -468,8 +569,15 @@ def run_query(
     saved_path: str | None = None
     if save_as:
         try:
-            saved_path = _save_synthesis_page(
-                paths, question, answer, save_as, results.hits
+            saved_path = _save_curation_page(
+                paths,
+                question,
+                answer,
+                save_as,
+                results.hits,
+                session_id=session_id,
+                workspace_project=workspace_project,
+                ephemeral=ephemeral_exhibition,
             )
             callbacks.on_saved(saved_path)
         except OSError as e:
@@ -477,6 +585,7 @@ def run_query(
                 question=question,
                 answer=answer,
                 hits=results.hits,
+                session_id=session_id,
                 error=f"Failed to save synthesis page: {e}",
             )
             callbacks.on_error(result.error)
@@ -487,6 +596,7 @@ def run_query(
         answer=answer,
         hits=results.hits,
         saved_path=saved_path,
+        session_id=session_id,
     )
     callbacks.on_complete(result)
     return result

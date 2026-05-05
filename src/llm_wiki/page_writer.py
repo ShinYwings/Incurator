@@ -32,6 +32,8 @@ class ParsedPage:
 
     frontmatter: dict[str, Any] = field(default_factory=dict)
     body: str = ""
+    is_invalid: bool = False
+    invalid_error: str = ""
 
     def to_markdown(self) -> str:
         """Serialize back to a markdown string with YAML frontmatter."""
@@ -57,8 +59,30 @@ def parse_page(content: str) -> ParsedPage:
         fm = yaml.safe_load(fm_text) or {}
         if not isinstance(fm, dict):
             fm = {}
-    except yaml.YAMLError:
-        fm = {}
+    except yaml.YAMLError as e:
+        # Generic fallback repair for any unquoted wikilinks or wikilink lists in frontmatter
+        lines = []
+        for line in fm_text.splitlines():
+            if ":" in line and "[[" in line and "]]" in line:
+                key, rest = line.split(":", 1)
+                links = re.findall(r"\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]", rest)
+                if links:
+                    if len(links) == 1 and rest.strip().startswith("[[") and rest.strip().endswith("]]"):
+                        # Single wikilink: e.g. parent_source: [[01_Contexts/CTX-abc]]
+                        line = f"{key}: '[[{links[0]}]]'"
+                    else:
+                        # Multiple wikilinks: e.g. dependencies: [[02_Atoms/ATM-abc]], [[02_Atoms/ATM-def]]
+                        quoted_links = ", ".join(f"'[[{link}]]'" for link in links)
+                        line = f"{key}: [{quoted_links}]"
+            lines.append(line)
+        fm_text_repaired = "\n".join(lines)
+        try:
+            fm = yaml.safe_load(fm_text_repaired) or {}
+            if not isinstance(fm, dict):
+                fm = {}
+        except yaml.YAMLError:
+            fm = {}
+            return ParsedPage(frontmatter=fm, body=body, is_invalid=True, invalid_error=str(e))
     return ParsedPage(frontmatter=fm, body=body)
 
 
@@ -71,6 +95,30 @@ def read_page(path: Path) -> ParsedPage | None:
     except OSError:
         return None
     return parse_page(content)
+
+
+def extract_wikilink_targets(text: str) -> list[str]:
+    """Return wikilink targets from markdown body text, without aliases."""
+    targets: list[str] = []
+    for raw in re.findall(r"\[\[([^\]]+?)\]\]", text or ""):
+        target = raw.split("|", 1)[0].strip()
+        if target:
+            targets.append(target)
+    return targets
+
+
+def extract_relation_targets(body: str, *, prefix: str = "") -> list[str]:
+    """Return wikilink targets listed in the terminal `## Relations` section."""
+    match = re.search(
+        r"(?ims)^##\s+Relations\s*$\n(?P<section>.*?)(?=^##\s+|\Z)",
+        body or "",
+    )
+    if not match:
+        return []
+    targets = extract_wikilink_targets(match.group("section"))
+    if prefix:
+        targets = [target for target in targets if target.startswith(prefix)]
+    return targets
 
 
 # ---------------------------------------------------------------------------
@@ -87,12 +135,36 @@ def strip_llm_noise(text: str) -> str:
     """
     text = text.strip()
 
+    # Some CLI adapters occasionally wrap the answer in a tool-call looking
+    # prefix before the markdown fence, e.g. `update_topic(...)```markdown`.
+    # If a fenced markdown page with frontmatter exists anywhere, trust that
+    # inner page and discard the wrapper.
+    embedded_fence = re.search(
+        r"```(?:markdown|md|ya?ml)?\s*\n(---\s*\n.*?\n---\s*\n?.*?)\n```",
+        text,
+        re.DOTALL,
+    )
+    if embedded_fence:
+        text = embedded_fence.group(1).strip()
+    else:
+        yamlish_fence = re.search(
+            r"```(?:markdown|md|ya?ml)?\s*\n((?:id|type):\s+.*?\n---\s*\n?.*?)\n```",
+            text,
+            re.DOTALL,
+        )
+        if yamlish_fence:
+            text = yamlish_fence.group(1).strip()
+
     # Remove outer code fences
     fence_match = re.match(
-        r"^```(?:markdown|md)?\s*\n(.*?)\n```\s*$", text, re.DOTALL
+        r"^```(?:markdown|md|ya?ml)?\s*\n(.*?)\n```\s*$", text, re.DOTALL
     )
     if fence_match:
         text = fence_match.group(1).strip()
+
+    # Some CLIs stream a page as ```yaml + markdown body, or emit two
+    # complete pages in one response. Keep the first frontmatter page.
+    text = re.sub(r"^```(?:markdown|md|ya?ml)?\s*\n(?=---\s*\n)", "", text, count=1)
 
     # Remove common preambles (only if they appear before the first ---)
     preamble_patterns = [
@@ -104,6 +176,21 @@ def strip_llm_noise(text: str) -> str:
     for pattern in preamble_patterns:
         text = re.sub(pattern, "", text, count=1, flags=re.IGNORECASE)
 
+    embedded_frontmatter = re.search(r"---\s*\n(?=id:\s+)", text)
+    if embedded_frontmatter and embedded_frontmatter.start() > 0:
+        text = text[embedded_frontmatter.start():].strip()
+
+    if re.match(r"^---\s*\n", text):
+        duplicate = re.search(r"\n```(?:markdown|md|ya?ml)?\s*\n---\s*\n", text)
+        if duplicate:
+            text = text[: duplicate.start()].rstrip()
+        text = re.sub(r"\n```\s*$", "", text).strip()
+    elif re.match(r"^(id|type):\s+", text):
+        # LLMs sometimes omit the opening YAML delimiter but include the
+        # closing one. Coerce this common near-miss into valid frontmatter so
+        # layer contract enforcement can overwrite trusted fields.
+        text = f"---\n{text}"
+
     return text.strip()
 
 
@@ -113,6 +200,39 @@ def strip_llm_noise(text: str) -> str:
 
 
 WIKILINK_RE = re.compile(r"\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]")
+
+_VALID_CURATOR_LAYERS = frozenset(
+    ["01_Contexts", "02_Atoms", "03_Concepts", "04_Exhibitions"]
+)
+_LAYER_DIR_RE = re.compile(r"^\d{2}_")
+
+
+def sanitize_wikilinks(content: str) -> str:
+    """Remove wikilinks with placeholder IDs or non-existent curator layer paths.
+
+    Strips links like [[03_Collections/...]], [[02_Atoms/ATM-...]],
+    [[04_Resources/...]], and empty layer links such as [[01_Contexts/]].
+    Leaves non-curator vault links untouched.
+    """
+    def _is_bad(inner: str) -> bool:
+        target = inner.split("|", 1)[0].strip().lstrip("/")
+        if "..." in target:
+            return True
+        if "/" in target:
+            layer, rest = target.split("/", 1)
+            if _LAYER_DIR_RE.match(layer) and layer not in _VALID_CURATOR_LAYERS:
+                return True
+            if layer in _VALID_CURATOR_LAYERS and not rest.strip().removesuffix(".md"):
+                return True
+        return False
+
+    result = re.sub(
+        r"\[\[([^\]]*)\]\]",
+        lambda m: "" if _is_bad(m.group(1)) else m.group(0),
+        content,
+    )
+    result = re.sub(r"(?m)^[ \t]*[-*+][ \t]*\n", "", result)
+    return result
 
 
 def extract_wikilinks(content: str) -> list[str]:
@@ -163,6 +283,9 @@ updated: {today}
 
 > Auto-maintained by the Curator engine. Lists all pages by layer.
 > Rebuilt after every ingest. DO NOT edit manually.
+>
+> Pipeline: L1 Collection & Summarization → L2 Selection & Atomization
+>           → L3 Structuring & Value Addition → L4 Placement & Staging
 
 """
 
@@ -187,32 +310,32 @@ def _list_pages_in(directory: Path) -> list[tuple[str, str]]:
 
 def rebuild_index(paths: cfg.WikiPaths, today: str) -> None:
     """Rebuild .curator/index.md from the current Collections/ contents."""
-    summaries  = _list_pages_in(paths.summaries)
-    atoms      = _list_pages_in(paths.atoms)
-    concepts   = _list_pages_in(paths.concepts)
-    synthesis  = _list_pages_in(paths.synthesis)
+    contexts    = _list_pages_in(paths.contexts)
+    atoms       = _list_pages_in(paths.atoms)
+    concepts    = _list_pages_in(paths.concepts)
+    exhibitions = _list_pages_in(paths.exhibitions)
 
     lines = [INDEX_HEADER.format(today=today)]
 
     def _section(title: str, layer: str, pages: list[tuple[str, str]]) -> None:
         lines.append(f"## {title}\n")
         if not pages:
-            lines.append(f"*No pages yet.*\n")
+            lines.append("*No pages yet.*\n")
         else:
             for slug, page_title in pages:
                 lines.append(f"- [[{layer}/{slug}|{page_title}]]")
             lines.append("")
         lines.append("")
 
-    _section("L1 — Summaries",  "01_Summaries", summaries)
-    _section("L2 — Atoms",      "02_Atoms",     atoms)
-    _section("L3 — Concepts",   "03_Concepts",  concepts)
-    _section("L4 — Synthesis",  "04_Synthesis", synthesis)
+    _section("L1 — Contexts (Collection & Summarization)",    "01_Contexts",    contexts)
+    _section("L2 — Atoms (Selection & Atomization)",          "02_Atoms",       atoms)
+    _section("L3 — Concepts (Structuring & Value Addition)",  "03_Concepts",    concepts)
+    _section("L4 — Exhibitions (Placement & Staging)",        "04_Exhibitions", exhibitions)
 
     lines.append("---\n")
     lines.append(
-        f"**Stats:** {len(summaries)} summaries · {len(atoms)} atoms · "
-        f"{len(concepts)} concepts · {len(synthesis)} synthesis pages\n"
+        f"**Stats:** {len(contexts)} contexts · {len(atoms)} atoms · "
+        f"{len(concepts)} concepts · {len(exhibitions)} exhibitions\n"
     )
 
     paths.index.parent.mkdir(parents=True, exist_ok=True)
@@ -238,6 +361,9 @@ def append_log_entry(
         - bullet 1
         - bullet 2
     """
+    import re
+    import datetime
+
     if not paths.log.exists():
         paths.log.parent.mkdir(parents=True, exist_ok=True)
         paths.log.write_text(
@@ -256,7 +382,43 @@ def append_log_entry(
         entry_lines.append(f"- {bullet}")
     entry_lines.append("")
 
-    paths.log.write_text(existing + "\n".join(entry_lines) + "\n", encoding="utf-8")
+    full_log = existing + "\n".join(entry_lines) + "\n"
+
+    try:
+        config = cfg.load_config(paths)
+        retention = config.get("curate", {}).get("log_retention_days", 30)
+    except Exception:
+        retention = 30
+
+    if retention:
+        first_match = re.search(r"^##\s*\[", full_log, re.M)
+        if first_match:
+            header = full_log[:first_match.start()]
+            body = full_log[first_match.start():]
+
+            entry_starts = list(re.finditer(r"^##\s*\[(\d{4}-\d{2}-\d{2})\]", body, re.M))
+            valid_entries = []
+            today_dt = datetime.date.today()
+            cutoff_dt = today_dt - datetime.timedelta(days=retention)
+
+            for i, match in enumerate(entry_starts):
+                date_str = match.group(1)
+                try:
+                    entry_dt = datetime.date.fromisoformat(date_str)
+                except ValueError:
+                    entry_dt = today_dt
+
+                if entry_dt >= cutoff_dt:
+                    start = match.start()
+                    end = entry_starts[i + 1].start() if i + 1 < len(entry_starts) else len(body)
+                    valid_entries.append(body[start:end].strip() + "\n")
+
+            full_log = header.rstrip() + "\n\n" + "\n".join(valid_entries)
+            if not full_log.endswith("\n"):
+                full_log += "\n"
+
+    paths.log.write_text(full_log, encoding="utf-8")
+
 
 
 # ---------------------------------------------------------------------------

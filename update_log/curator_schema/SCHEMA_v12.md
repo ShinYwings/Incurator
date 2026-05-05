@@ -16,8 +16,8 @@ ROOT/
 ├── 05_Assets/          # [STATIC] System byproducts (Images, Zotero assets)
 ├── 06_Archives/        # [READ_ONLY] Terminated projects & legacy data
 └── .curator/           # [CURATOR_RESIDENCE] Hidden Abstraction Space (WRITE ONLY for Curator)
-    ├── config.yml      # Project configuration
-    ├── state.sqlite    # Hash registry & ingest tracking DB
+    ├── config.yml      # Project configuration (LLM backend, model, raw_dirs, collections_dir)
+    ├── state.sqlite    # Hash registry & ingest tracking DB (source-of-truth for dedup/provenance)
     ├── overview.md     # [ROUTING] Domain manifest
     ├── index.md        # [ROUTING] Layer → ID pointer table (auto-rebuilt)
     ├── log.md          # [STATE] Ingest event log & hash tracking (auto-appended)
@@ -66,6 +66,7 @@ CUR-
 CUR-abcdef01
 
 IDs are generated once at page creation and never change. File names are {ID}.md.
+Human-readable titles live in frontmatter only — never embedded in the ID.
 
 3. Metadata Schemas
 
@@ -142,8 +143,6 @@ Body sections: ## 1. Executive Brief, ## 2. Theoretical Foundation, ## 3. Action
 
 Phase 0 — SOURCE INGESTION (wiki add)
 
-(Legacy: wiki sync)
-
 Trigger: New or changed files detected in source dirs.
 Action: For each new file:
 
@@ -155,29 +154,38 @@ Record accession_id in DB & log.md.
 
 Phase 1 — TOP-DOWN EXTRACTION (wiki curate)
 
-(Legacy: wiki ingest)
-
 Trigger: Sources with status=pending in DB.
-Action: Runs the downward extraction pipeline.
+Action: Runs the downward extraction pipeline via three LLM passes:
 
-Pass 1 (Fragments): Extract L2 Fragments from L1 Accession. Check contradictions.
+Pass 1 (Fragments, thinking mode): Extract L2 Fragments from L1 Accession. Check contradictions.
 
 Pass 2 (Themes): Cluster related L2 Fragments into L3 Themes.
 
 Pass 3 (Curations): Bundle L3 Themes into L4 Curations context for Agents.
 
+Note: Pass 2 (clustering) must complete after ALL Pass 1 outputs are done — Themes are
+cross-source constructs. The pipeline is sequential, not parallel.
+
 Optional: Use wiki curate --sync to automatically run deductive verification immediately after extraction.
 
 Phase 2 — DEDUCTIVE VERIFICATION & LOGIC ALIGNMENT (wiki sync)
 
-(NEW in v12.0)
+Trigger: Executed manually, via --sync flag, or triggered by curator_update_node via MCP.
+Action: Runs three independent modes. Modes A and B handle structural integrity; Mode C
+handles logical coherence via LLM.
 
-Trigger: Executed manually, via --sync flag, or automatically triggered by DB modifications via MCP.
-Action: Dynamically switches between two modes:
+Mode A — Global Structural Verification (No node_id given):
+Traces L4 → L1 to verify all wikilinks and dependencies are intact.
+Flags broken references and missing nodes.
 
-Global Reverse Verification (No DB mods): Traces L4 $\rightarrow$ L1 to ensure top-level conclusions are deducible from raw facts. Flags logical gaps.
+Mode B — Targeted Bidirectional Propagation (node_id given):
+Centers on the specified node. Traces both upstream (to L1) and downstream (to L4)
+to mend and re-align the affected conceptual branch.
 
-Targeted Bidirectional Propagation (DB mods detected): Traces upstream (to L1) and downstream (to L4) centering strictly on the modified node to mend and re-align the conceptual branch.
+Mode C — LLM Logical Deduction (always runs after A or B):
+LLM-based check that top-level conclusions are logically deducible from underlying facts.
+Flags logical gaps. Automatically regenerates broken Theme/Curation pages unless --no-fix.
+
 Finalization: Auto-rebuilds routing tables (index.md, ledger.md, log.md, overview.md).
 
 5. Control-Plane Files
@@ -236,6 +244,8 @@ If 03_Notes contradicts a FRG: flag the FRG (is_flagged_for_agent: true), initia
 
 ❌ Never invent citations — if a claim has no traceable FRG-UUID, mark confidence_score < 0.60.
 
+❌ Never bypass state.sqlite — it is the source of truth for deduplication and provenance.
+
 9. Mandatory HITL & Correction Protocol (Ledger)
 
 In v12.0, the Curator and Agents CANNOT silently override conflicting claims. If a misconception or logical contradiction is found:
@@ -248,13 +258,56 @@ APPLY: Upon explicit human approval, the Agent updates the node using the curato
 
 LOG: The resolution is automatically appended to .curator/ledger.md as an immutable audit trail.
 
-10. Agent Workflow & MCP Tooling
+10. CLI Commands
+
+```text
+wiki init PATH                     Scaffold a new Curator vault with full directory topology.
+wiki status                        Inspect tracking DB metrics, active LLM config, and collection counts.
+wiki version                       View current installed version.
+
+wiki add PATH [-r]                 Discover new/changed source files. Generates L1 Accession
+                                   summaries, registers hashes in state.sqlite, appends to log.md.
+
+wiki sources list                  List all tracked source files.
+wiki sources show ID               Show details for one source (with text preview).
+wiki sources rm ID                 Remove a source from tracking.
+wiki sources retry ID              Retry a previously failed source.
+
+wiki curate [SOURCE_ID]            Run downstream extraction pipeline (L1 → L2 → L3 → L4).
+  --force                          Re-curate already-curated sources.
+  --batch                          Skip interactive confirmation.
+  --no-thinking                    Disable thinking mode in Pass 1 (faster).
+  --sync                           Auto-run wiki sync after curating.
+
+wiki sync [NODE_ID]                Core Logic Alignment Engine.
+  --dry-run                        Report gaps without fixing or rebuilding routing tables.
+  --no-fix                         Detect gaps but skip LLM-based auto-repair.
+  Mode A (no NODE_ID): Global structural verification (L4 → L1).
+  Mode B (NODE_ID given): Targeted bidirectional propagation from specified node.
+  Mode C (always): LLM logical deduction verification.
+
+wiki query "QUESTION"              Semantic search via qmd + LLM synthesis with citations.
+  --mode hybrid|lex|vec            Search mode (default: hybrid = BM25 + vector + LLM rerank).
+  --scope all|accessions|...       Restrict search to a specific DAG layer.
+  --save-as TITLE                  Save answer as a new L4 Curation page.
+
+wiki reindex                       Force full rebuild of the QMD search index.
+wiki lint [--deep] [--fix]         Health checks (orphans, broken links, contradictions).
+wiki config provider               Switch and configure LLM backend interactively.
+wiki config models list            List available Ollama models.
+wiki config models use             Select an Ollama model interactively.
+wiki mcp                           Start the MCP stdio server for workspace agent integration.
+wiki mcp install                   Print config snippet for Claude / Gemini IDE integration.
+```
+
+Section 11. Agent Workflow & MCP Tooling
 
 All AI Workspace Agents MUST adhere to the following 3-Phase Workflow to interact with the DAG:
 
 Phase 1: Pre-requisite Discovery
 
 Agents MUST use search_curator MCP tool to pull prior knowledge via the qmd search index from .curator/.
+Use curator_layer_index() first to understand what is available in the vault.
 
 Phase 2: Validation & Strong Negotiation (HITL)
 
@@ -264,10 +317,46 @@ Phase 3: Automatic Re-curation & Propagation
 
 Upon human approval, Agent applies fixes using curator_update_node(node_id, new_content).
 
-For cascading L1 extraction errors, Agent can use curator_curate_accession() to force a top-down re-run.
-
-Modifying a node logs the change in state.sqlite, triggering wiki sync (Targeted Bidirectional Mode) to align the DAG.
+curator_update_node writes the file and automatically runs wiki sync (Mode B + Mode C)
+to propagate upstream and downstream changes, then rebuilds all routing tables.
 
 Agent finally calls curator_reindex() to cleanly update semantic/lexical search bases.
+
+12. MCP Tools Reference
+
+search_curator(query, scope, mode, limit, min_score)
+  Semantic and lexical search across the Curator DAG via qmd (BM25 + vector + LLM rerank).
+  scope: 'all' | 'accessions' | 'fragments' | 'themes' | 'curations'
+  mode: 'hybrid' | 'lex' | 'vec'
+
+curator_get_node(node_id)
+  Fetch a single DAG node (ACC-/FRG-/THM-/CUR-) by ID. Returns frontmatter + body.
+
+curator_traverse_evidence(cur_id)
+  Walk a Curation's full evidence chain: CUR → THM → FRG.
+  Returns confidence score, all theme pages, all fragment pages, and flagged fragment count.
+  Use before citing any CUR with confidence_score < 0.90.
+
+curator_find_contradictions(node_id=None)
+  List Fragments carrying contradicts entries or is_flagged_for_agent: true.
+  If node_id given, scopes to the subgraph reachable from that node.
+
+curator_layer_index()
+  Return per-layer page counts and recent IDs for all four layers.
+  Use as the agent's first call to get a vault overview.
+
+curator_status()
+  Return vault root, qmd binary readiness, and total page counts.
+
+curator_update_node(node_id, new_content)
+  Overwrite a DAG node's markdown file. Runs wiki sync (Mode B + C) automatically.
+  Returns: {updated, gaps, routing_tables_rebuilt}
+
+curator_reindex()
+  Rebuild the qmd search index over all Collections pages.
+  Call after any bulk edits or curator_update_node calls.
+
+curator_curate_accession(accession_id)
+  Re-run the L2→L4 extraction pipeline for a single L1 Accession (launches wiki curate --batch).
 
 This file evolves with the pipeline. Update when conventions change and commit.

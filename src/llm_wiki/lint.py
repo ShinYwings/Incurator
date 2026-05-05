@@ -9,7 +9,7 @@ Checks are categorized by severity:
 
 Fast checks (the default) run entirely in Python and take a few seconds.
 Deep checks (--deep) use the configured LLM to detect contradictions across
-pairs of L2 Atom pages that share outgoing links — much slower, opt-in only.
+pairs of L2 Fragment pages that share outgoing links — much slower, opt-in only.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from . import config as cfg
+from . import db
 from . import page_writer
 
 
@@ -39,6 +40,7 @@ class CheckId(str, Enum):
     MALFORMED_WIKILINK = "malformed_wikilink"
     MISSING_CONCEPT_PAGE = "missing_concept_page"
     STALE_SOURCE_REF = "stale_source_ref"
+    INVALID_SOURCE_PATH = "invalid_source_path"
     NOISE_IN_SYNTHESIS = "noise_in_synthesis"
     CONTRADICTION = "contradiction"
     MISSING_CROSS_LAYER_LINK = "missing_cross_layer_link"  # ATM missing parent_source wikilink, etc.
@@ -100,6 +102,14 @@ class LintReport:
         score = max(0, 100 - int(100 * penalty / max_penalty))
         return score
 
+    @property
+    def safe_fixable(self) -> list[LintIssue]:
+        return [i for i in self.issues if is_safe_fixable(i)]
+
+    @property
+    def needs_review(self) -> list[LintIssue]:
+        return [i for i in self.errors + self.warnings if not is_safe_fixable(i)]
+
 
 # ---------------------------------------------------------------------------
 # Page inventory (shared by many checks)
@@ -120,7 +130,7 @@ class PageInventory:
 _NOISE_PAGES = {"index.md", "log.md", "overview.md", "ledger.md"}
 
 # Layer directory prefix → page type
-_PAGE_TYPES = ("01_Summaries", "02_Atoms", "03_Concepts", "04_Synthesis")
+_PAGE_TYPES = ("01_Contexts", "02_Atoms", "03_Concepts", "04_Exhibitions")
 _CURATOR_PREFIXES = tuple(pt + "/" for pt in _PAGE_TYPES)
 
 
@@ -155,11 +165,9 @@ def _build_inventory(paths: cfg.WikiPaths) -> PageInventory:
     # 2. Build forward + reverse link graphs
     #    Include curator frontmatter wikilink fields, not just body [[links]]
     _CURATOR_FM_LINK_FIELDS = (
-        # ATM: link to parent L1 Summary and raw source path
+        # ATM: link to parent L1 Context
         "parent_source",
-        # CON: links to L2 Atoms
-        "dependencies",
-        # SYN: links to L3 Concepts
+        # EXH: links to L3 Concepts
         "core_concepts",
         # legacy / any extra sources field
         "sources",
@@ -285,6 +293,24 @@ def check_broken_wikilinks(inv: PageInventory) -> list[LintIssue]:
             if not target.startswith(_CURATOR_PREFIXES):
                 continue
 
+            if target.rstrip("/") in _PAGE_TYPES:
+                issues.append(
+                    LintIssue(
+                        check=CheckId.BROKEN_WIKILINK,
+                        severity=Severity.ERROR,
+                        page=relpath,
+                        message=f"Empty layer wikilink: [[{target}]]",
+                        suggestion="Run `wiki lint --fix` to remove the empty placeholder link.",
+                        fixable=True,
+                        context={
+                            "old_target": target,
+                            "new_target": "",
+                            "location": "body",
+                        },
+                    )
+                )
+                continue
+
             # Try to recover: does the target's basename match an existing
             # page in some subdirectory?
             target_basename = target.rsplit("/", 1)[-1]
@@ -312,33 +338,62 @@ def check_broken_wikilinks(inv: PageInventory) -> list[LintIssue]:
                     )
                 )
             elif len(candidates) > 1:
-                # Ambiguous — multiple pages share the basename, can't guess
+                # Ambiguous — multiple pages share the basename; LLM will pick best
                 options = ", ".join(f"[[{c}]]" for c in candidates)
                 issues.append(
                     LintIssue(
                         check=CheckId.BROKEN_WIKILINK,
                         severity=Severity.ERROR,
                         page=relpath,
-                        message=f"Broken wikilink: [[{target}]] (ambiguous)",
-                        suggestion=f"Did you mean one of: {options}?",
-                        fixable=False,
-                        context={"target": target},
+                        message=f"Broken wikilink: [[{target}]] (ambiguous — candidates: {options})",
+                        suggestion="Run `wiki lint --fix` to resolve via LLM.",
+                        fixable=True,
+                        context={
+                            "old_target": target,
+                            "location": "body",
+                            "llm_relink": True,
+                            "llm_candidates": candidates,
+                        },
                     )
                 )
+
             else:
-                # Genuinely missing within curator scope — mark fixable by removal
+                # Genuinely missing within curator scope — LLM will try to reconnect
                 issues.append(
                     LintIssue(
                         check=CheckId.BROKEN_WIKILINK,
                         severity=Severity.ERROR,
                         page=relpath,
                         message=f"Broken wikilink: [[{target}]]",
-                        suggestion="Run `wiki lint --fix` to remove this link automatically.",
+                        suggestion="Run `wiki lint --fix` to reconnect via LLM; unresolved links are left for review.",
                         fixable=True,
-                        context={"old_target": target, "new_target": "", "location": "body"},
+                        context={"old_target": target, "location": "body", "llm_relink": True},
                     )
                 )
     return issues
+
+
+def is_safe_fixable(issue: LintIssue) -> bool:
+    """Return True when --fix can repair an issue without deleting knowledge.
+
+    Broken links are safe only when they have an explicit replacement or when
+    they are known empty layer placeholders with ``new_target == ""``. A broken
+    link that merely asks the LLM for help must remain in place if no confident
+    replacement is found.
+    """
+    if not issue.fixable:
+        return False
+    if issue.check == CheckId.BROKEN_WIKILINK:
+        return "new_target" in issue.context
+    if issue.check == CheckId.STALE_SOURCE_REF:
+        return "new_target" in issue.context and bool(issue.context.get("new_target"))
+    if issue.check == CheckId.INVALID_SOURCE_PATH:
+        return bool(issue.context.get("new_target"))
+    return issue.check in {
+        CheckId.MALFORMED_WIKILINK,
+        CheckId.MISSING_FRONTMATTER,
+        CheckId.NOISE_IN_SYNTHESIS,
+    }
 
 
 def check_orphan_pages(inv: PageInventory) -> list[LintIssue]:
@@ -362,10 +417,10 @@ def check_orphan_pages(inv: PageInventory) -> list[LintIssue]:
         if not incoming:
             page_type = relpath.split("/", 1)[0] if "/" in relpath else ""
             layer_hint = {
-                "01_Summaries": "Link from index.md or ensure wiki sync registered it.",
-                "02_Atoms": "Ensure the parent L1 Summary has an Atom Candidates entry linking here.",
-                "03_Concepts": "Ensure at least one L4 Synthesis links to this concept.",
-                "04_Synthesis": "Ensure index.md routing table includes this SYN entry.",
+                "01_Contexts": "Link from index.md or ensure wiki add registered it.",
+                "02_Atoms": "Ensure the parent L1 Context has an Atom Candidates entry linking here.",
+                "03_Concepts": "Ensure at least one L4 Exhibition links to this concept.",
+                "04_Exhibitions": "Ensure index.md routing table includes this EXH entry.",
             }.get(page_type, "Link to this page from a related page, or delete it.")
             issues.append(
                 LintIssue(
@@ -383,27 +438,40 @@ def check_orphan_pages(inv: PageInventory) -> list[LintIssue]:
 def check_frontmatter(inv: PageInventory) -> list[LintIssue]:
     """Verify every page has required frontmatter fields per layer."""
     issues: list[LintIssue] = []
-    # Required fields per layer — README.md §3 schema + last_updated on all mutable layers
+    # Required fields per layer — SCHEMA_v13 §3
     required_by_type = {
-        "01_Summaries": {"id", "type", "source_path", "source_hash", "last_updated"},
-        "02_Atoms":     {"id", "type", "parent_source", "claim_type", "last_updated"},
-        "03_Concepts":  {"id", "type", "dependencies", "domain", "last_updated"},
-        "04_Synthesis": {"id", "type", "core_concepts", "confidence_score",
-                         "requires_math_rigor", "last_updated"},
+        "01_Contexts":   {"id", "type", "source_path", "source_hash", "last_updated"},
+        "02_Atoms":      {"id", "type", "parent_source", "source_path", "claim_type", "last_updated"},
+        "03_Concepts":   {"id", "type", "domain", "last_updated"},
+        "04_Exhibitions": {"id", "type", "core_concepts", "confidence_score", "last_updated"},
+    }
+    id_prefix_by_type = {
+        "01_Contexts": "CTX",
+        "02_Atoms": "ATM",
+        "03_Concepts": "CON",
+        "04_Exhibitions": "EXH",
     }
 
     for relpath, parsed in inv.pages.items():
         page_type = relpath.split("/", 1)[0]
         required = required_by_type.get(page_type, set())
         if not parsed.frontmatter:
+            cleaned = page_writer.strip_llm_noise(parsed.body)
+            repaired = page_writer.parse_page(cleaned)
+            can_repair = bool(repaired.frontmatter)
             issues.append(
                 LintIssue(
                     check=CheckId.MISSING_FRONTMATTER,
                     severity=Severity.ERROR,
                     page=relpath,
                     message="Page has no YAML frontmatter.",
-                    suggestion="Add frontmatter with title, type, created, updated.",
-                    fixable=False,
+                    suggestion=(
+                        "Run `wiki lint --fix` to unwrap LLM code fences."
+                        if can_repair
+                        else "Add frontmatter with title, type, created, updated."
+                    ),
+                    fixable=can_repair,
+                    context={"repair": "strip_llm_noise"} if can_repair else {},
                 )
             )
             continue
@@ -419,6 +487,74 @@ def check_frontmatter(inv: PageInventory) -> list[LintIssue]:
                     fixable=False,
                 )
             )
+        if page_type == "03_Concepts" and "dependencies" in parsed.frontmatter:
+            issues.append(
+                LintIssue(
+                    check=CheckId.INVALID_FRONTMATTER,
+                    severity=Severity.WARNING,
+                    page=relpath,
+                    message="Concept frontmatter duplicates Atom edges in `dependencies`; use `## Relations` only.",
+                    suggestion="Run `wiki lint --fix` to remove the legacy duplicated field.",
+                    fixable=True,
+                    context={"remove_field": "dependencies"},
+                )
+            )
+        for field in sorted(required & set(parsed.frontmatter.keys())):
+            value = parsed.frontmatter.get(field)
+            if value is None or value == "" or value == []:
+                issues.append(
+                    LintIssue(
+                        check=CheckId.INVALID_FRONTMATTER,
+                        severity=Severity.ERROR,
+                        page=relpath,
+                        message=f"Frontmatter field `{field}` is empty.",
+                        suggestion="Re-run ingest or repair the field from source metadata.",
+                        fixable=False,
+                    )
+                )
+        node_id = str(parsed.frontmatter.get("id", "") or "")
+        expected_prefix = id_prefix_by_type.get(page_type)
+        if expected_prefix and node_id:
+            expected_id_re = rf"^{expected_prefix}-[0-9a-f]{{8}}$"
+            if not re.match(expected_id_re, node_id):
+                issues.append(
+                    LintIssue(
+                        check=CheckId.INVALID_FRONTMATTER,
+                        severity=Severity.ERROR,
+                        page=relpath,
+                        message=(
+                            f"Frontmatter `id` must match {expected_prefix}-UUID8 "
+                            f"(8 lowercase hex chars), got {node_id!r}."
+                        ),
+                        suggestion="Regenerate this page through wiki add/curate instead of seeding fixed slugs.",
+                        fixable=False,
+                    )
+                )
+            file_id = relpath.rsplit("/", 1)[-1].removesuffix(".md")
+            if file_id != node_id:
+                issues.append(
+                    LintIssue(
+                        check=CheckId.INVALID_FRONTMATTER,
+                        severity=Severity.ERROR,
+                        page=relpath,
+                        message=f"Frontmatter `id` {node_id!r} does not match filename {file_id!r}.",
+                        suggestion="Regenerate this page or rename the file and references consistently.",
+                        fixable=False,
+                    )
+                )
+        source_hash = parsed.frontmatter.get("source_hash")
+        if page_type == "01_Contexts" and isinstance(source_hash, str):
+            if not re.match(r"^[0-9a-f]{64}$", source_hash):
+                issues.append(
+                    LintIssue(
+                        check=CheckId.INVALID_FRONTMATTER,
+                        severity=Severity.ERROR,
+                        page=relpath,
+                        message="Context `source_hash` must be a SHA-256 hex digest.",
+                        suggestion="Regenerate the Context with `wiki add`.",
+                        fixable=False,
+                    )
+                )
     return issues
 
 
@@ -462,7 +598,7 @@ def check_malformed_wikilinks(inv: PageInventory, paths: cfg.WikiPaths) -> list[
                 )
 
         # Curator frontmatter wikilink list/scalar entries
-        for key in ("parent_source", "dependencies", "core_concepts"):
+        for key in ("parent_source", "core_concepts"):
             raw = parsed.frontmatter.get(key)
             values = raw if isinstance(raw, list) else ([raw] if isinstance(raw, str) else [])
             for val in values:
@@ -536,7 +672,7 @@ def check_missing_extracted(inv: PageInventory, threshold: int = 3) -> list[Lint
 
 
 def check_stale_source_refs(inv: PageInventory, paths: cfg.WikiPaths) -> list[LintIssue]:
-    """Flag Atom pages whose parent_source references a Summary that no longer exists."""
+    """Flag Atom pages whose parent_source references a Context that no longer exists."""
     issues: list[LintIssue] = []
     for relpath, parsed in inv.pages.items():
         if not relpath.startswith("02_Atoms/"):
@@ -560,7 +696,7 @@ def check_stale_source_refs(inv: PageInventory, paths: cfg.WikiPaths) -> list[Li
             if not parent:
                 continue
             normalized = _normalize_link(parent)
-            if not normalized.startswith("01_Summaries/"):
+            if not normalized.startswith("01_Contexts/"):
                 continue
             source_file = paths.collections / (normalized + ".md")
             if not source_file.exists():
@@ -570,19 +706,107 @@ def check_stale_source_refs(inv: PageInventory, paths: cfg.WikiPaths) -> list[Li
                         severity=Severity.WARNING,
                         page=relpath,
                         message=f"parent_source '{normalized}' doesn't exist.",
-                        suggestion="The L1 Summary was deleted or renamed. Re-sync to regenerate.",
-                        fixable=False,
-                        context={"target": normalized},
+                        suggestion="Run `wiki lint --fix` to reconnect via LLM; unresolved links are left for review.",
+                        fixable=True,
+                        context={
+                            "old_target": normalized,
+                            "location": "frontmatter",
+                            "field": "parent_source",
+                            "llm_relink": True,
+                        },
                     )
                 )
     return issues
 
 
-def check_noise_in_synthesis_sources(inv: PageInventory) -> list[LintIssue]:
-    """Flag L4 Synthesis pages that list routing files as core_concepts."""
+def _source_path_targets(raw: str) -> list[str]:
+    target = raw.strip()
+    if target.startswith("[[") and target.endswith("]]"):
+        target = target[2:-2].strip()
+    if "|" in target:
+        target = target.split("|", 1)[0].strip()
+    target = target.lstrip("/")
+    if not target:
+        return []
+    targets = [target]
+    if not target.endswith(".md"):
+        targets.append(f"{target}.md")
+    return targets
+
+
+def _source_path_link(relpath: str) -> str:
+    return f"[[{relpath.removesuffix('.md')}]]"
+
+
+def _source_relpath_for_context(paths: cfg.WikiPaths, context_id: str) -> str:
+    if not context_id:
+        return ""
+    try:
+        with db.connect(paths.state_db) as conn:
+            row = conn.execute(
+                "SELECT relpath FROM sources WHERE context_id = ?", (context_id,)
+            ).fetchone()
+    except Exception:
+        return ""
+    return row["relpath"] if row else ""
+
+
+def check_atom_source_paths(inv: PageInventory, paths: cfg.WikiPaths) -> list[LintIssue]:
+    """Flag Atom source_path values that are empty or do not point to raw source files."""
     issues: list[LintIssue] = []
     for relpath, parsed in inv.pages.items():
-        if not relpath.startswith("04_Synthesis/"):
+        if not relpath.startswith("02_Atoms/"):
+            continue
+
+        raw_source_path = parsed.frontmatter.get("source_path", "")
+        parent_context = _normalize_link(str(parsed.frontmatter.get("parent_source", ""))).rsplit("/", 1)[-1]
+        source_relpath = _source_relpath_for_context(paths, parent_context)
+        repair_value = _source_path_link(source_relpath) if source_relpath else ""
+        fixable = bool(repair_value)
+
+        if not isinstance(raw_source_path, str) or not raw_source_path.strip():
+            issues.append(
+                LintIssue(
+                    check=CheckId.INVALID_SOURCE_PATH,
+                    severity=Severity.ERROR,
+                    page=relpath,
+                    message="Atom `source_path` is empty.",
+                    suggestion="Run `wiki lint --fix` to restore it from the parent Context source.",
+                    fixable=fixable,
+                    context={
+                        "location": "frontmatter",
+                        "field": "source_path",
+                        "new_target": repair_value,
+                    },
+                )
+            )
+            continue
+
+        candidates = _source_path_targets(raw_source_path)
+        if not any(candidate in inv.raw_paths for candidate in candidates):
+            issues.append(
+                LintIssue(
+                    check=CheckId.INVALID_SOURCE_PATH,
+                    severity=Severity.ERROR,
+                    page=relpath,
+                    message=f"Atom `source_path` does not exist in source dirs: {raw_source_path!r}",
+                    suggestion="Run `wiki lint --fix` to restore it from the parent Context source.",
+                    fixable=fixable,
+                    context={
+                        "location": "frontmatter",
+                        "field": "source_path",
+                        "new_target": repair_value,
+                    },
+                )
+            )
+    return issues
+
+
+def check_noise_in_curation_sources(inv: PageInventory) -> list[LintIssue]:
+    """Flag L4 Exhibition pages that list routing files as core_concepts."""
+    issues: list[LintIssue] = []
+    for relpath, parsed in inv.pages.items():
+        if not relpath.startswith("04_Exhibitions/"):
             continue
         for key in ("core_concepts",):
             values = parsed.frontmatter.get(key, []) or []
@@ -599,7 +823,7 @@ def check_noise_in_synthesis_sources(inv: PageInventory) -> list[LintIssue]:
                             check=CheckId.NOISE_IN_SYNTHESIS,
                             severity=Severity.WARNING,
                             page=relpath,
-                            message=f"Synthesis references routing file '{val}' as core concept.",
+                            message=f"Exhibition references routing file '{val}' as core concept.",
                             suggestion="Run `wiki lint --fix` to remove noise.",
                             fixable=True,
                             context={"location": "frontmatter", "field": key, "remove_value": val},
@@ -612,9 +836,9 @@ def check_cross_layer_links(inv: PageInventory) -> list[LintIssue]:
     """Verify DAG layer constraints — each layer's wikilink fields must only
     point to the correct parent layer:
 
-      L2 ATM  → parent_source   must be in 01_Summaries/
-      L3 CON  → dependencies    must be in 02_Atoms/
-      L4 SYN  → core_concepts   must be in 03_Concepts/
+      L2 ATM  → parent_source   must be in 01_Contexts/
+      L3 CON  → ## Relations    must link to 02_Atoms/
+      L4 EXH  → core_concepts   must be in 03_Concepts/
 
     A wrong-layer reference is caught as WARNING (not ERROR) because the page
     may still render and be useful; it's a structural integrity issue, not a
@@ -623,10 +847,9 @@ def check_cross_layer_links(inv: PageInventory) -> list[LintIssue]:
     issues: list[LintIssue] = []
 
     _rules: list[tuple[str, str, str, str]] = [
-        # (layer_dir,     field,           expected_prefix,  expected_id_prefix)
-        ("02_Atoms",     "parent_source",  "01_Summaries/",  "SUM-"),
-        ("03_Concepts",  "dependencies",   "02_Atoms/",      "ATM-"),
-        ("04_Synthesis", "core_concepts",  "03_Concepts/",   "CON-"),
+        # (layer_dir,      field,           expected_prefix,  expected_id_prefix)
+        ("02_Atoms",      "parent_source",  "01_Contexts/",   "CTX-"),
+        ("04_Exhibitions", "core_concepts", "03_Concepts/",   "CON-"),
     ]
 
     for layer_dir, field, expected_prefix, expected_id_prefix in _rules:
@@ -645,7 +868,8 @@ def check_cross_layer_links(inv: PageInventory) -> list[LintIssue]:
                 normalized = _normalize_link(val)
                 if not normalized:
                     continue
-                if not normalized.startswith(expected_prefix):
+                target_id = normalized.rsplit("/", 1)[-1]
+                if not normalized.startswith(expected_prefix) or not target_id.startswith(expected_id_prefix):
                     issues.append(
                         LintIssue(
                             check=CheckId.MISSING_CROSS_LAYER_LINK,
@@ -686,7 +910,7 @@ def check_contradictions_deep(
 
     This is slow — one LLM call per pair of pages. We limit to `max_pairs`
     to keep the runtime bounded. Atoms are the right layer to check because
-    L2 holds the irreducible factual claims; L3 Concepts and L4 Synthesis
+    L2 holds the irreducible factual claims; L3 Concepts and L4 Exhibitions
     derive from L2, so contradictions originate there.
     """
     from .llm import ChatMessage, LLMError
@@ -779,16 +1003,30 @@ def _apply_fixes_to_page(parsed: page_writer.ParsedPage, fixes: list[LintIssue])
             continue
         ctx = issue.context
 
-        if issue.check in (CheckId.MALFORMED_WIKILINK, CheckId.BROKEN_WIKILINK):
+        if issue.check == CheckId.MISSING_FRONTMATTER and ctx.get("repair") == "strip_llm_noise":
+            repaired = page_writer.parse_page(page_writer.strip_llm_noise(body))
+            if repaired.frontmatter:
+                parsed.frontmatter = repaired.frontmatter
+                body = repaired.body
+                changed = True
+
+        elif issue.check == CheckId.INVALID_FRONTMATTER and ctx.get("remove_field"):
+            field = ctx.get("remove_field", "")
+            if field in parsed.frontmatter:
+                parsed.frontmatter.pop(field, None)
+                changed = True
+
+        elif issue.check in (CheckId.MALFORMED_WIKILINK, CheckId.BROKEN_WIKILINK):
             old = ctx.get("old_target", "")
             new = ctx.get("new_target", "")
             location = ctx.get("location", "body")
             if not old:
                 continue
 
-            if location == "body" and new == "":
+            if location == "body" and "new_target" in ctx and new == "":
                 # Removal case: erase [[old]] (and [[old|alias]]) from body,
-                # then drop any list bullet lines that became empty.
+                # then drop any list bullet lines that became empty. This path
+                # is only for explicit empty placeholders such as [[01_Contexts/]].
                 old_esc = re.escape(old)
                 body = re.sub(rf"\[\[{old_esc}(?:\|[^\]]*)?\]\]", "", body)
                 body = re.sub(r"(?m)^[ \t]*[-*][ \t]*\n", "", body)
@@ -840,9 +1078,142 @@ def _apply_fixes_to_page(parsed: page_writer.ParsedPage, fixes: list[LintIssue])
                     parsed.frontmatter[field] = new_values
                     changed = True
 
+        elif issue.check == CheckId.INVALID_SOURCE_PATH:
+            field = ctx.get("field", "source_path")
+            new = ctx.get("new_target", "")
+            if field and new and parsed.frontmatter.get(field) != new:
+                parsed.frontmatter[field] = new
+                changed = True
+
     if changed:
         parsed.body = body
     return changed
+
+
+def apply_llm_fixes(paths: cfg.WikiPaths, issues: list[LintIssue], client) -> int:
+    """Use the LLM to reconnect broken wikilinks that couldn't be auto-resolved.
+
+    Handles issues with ``context["llm_relink"] == True``:
+      - BROKEN_WIKILINK with no candidate or ambiguous candidates
+      - STALE_SOURCE_REF where parent_source Context no longer exists
+
+    For each broken link the LLM picks the best matching existing page.
+    If the LLM returns NONE, the link is left in place for human review. The
+    subsequent ``apply_fixes`` pass is deliberately non-destructive.
+
+    Returns count of pages modified.
+    """
+    from . import prompts as _prompts
+    from .llm import LLMError
+
+    llm_issues = [i for i in issues if i.context.get("llm_relink")]
+    if not llm_issues:
+        return 0
+
+    inv = _build_inventory(paths)
+
+    # Build per-layer candidate list: (slug_no_ext, title)
+    layer_candidates: dict[str, list[tuple[str, str]]] = {}
+    for layer in ("01_Contexts", "02_Atoms", "03_Concepts", "04_Exhibitions"):
+        candidates: list[tuple[str, str]] = []
+        for relpath, parsed in inv.pages.items():
+            if not relpath.startswith(f"{layer}/"):
+                continue
+            slug = relpath[:-3] if relpath.endswith(".md") else relpath
+            title = slug.rsplit("/", 1)[-1]
+            for line in parsed.body.splitlines():
+                if line.startswith("# "):
+                    title = line[2:].strip()
+                    break
+            candidates.append((slug, title))
+        layer_candidates[layer] = candidates
+
+    by_page: dict[str, list[LintIssue]] = defaultdict(list)
+    for issue in llm_issues:
+        by_page[issue.page].append(issue)
+
+    total_modified = 0
+    for relpath, page_issues in by_page.items():
+        full_path = paths.wiki / relpath
+        if not full_path.exists():
+            continue
+        try:
+            content = full_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        parsed = page_writer.parse_page(content)
+        changed = False
+
+        for issue in page_issues:
+            old_target = issue.context.get("old_target", "")
+            location = issue.context.get("location", "body")
+            field = issue.context.get("field", "")
+            if not old_target:
+                continue
+
+            # Use pre-identified candidates (ambiguous case) or derive from layer prefix
+            explicit_candidates = issue.context.get("llm_candidates")
+            if explicit_candidates:
+                candidates_for_prompt = [
+                    (slug, slug.rsplit("/", 1)[-1]) for slug in explicit_candidates
+                ]
+            else:
+                expected_layer = old_target.split("/", 1)[0] if "/" in old_target else ""
+                candidates_for_prompt = layer_candidates.get(expected_layer, [])
+
+            if not candidates_for_prompt:
+                continue  # Nothing to suggest; leave in place for review
+
+            expected_layer = old_target.split("/", 1)[0] if "/" in old_target else "unknown"
+            candidates_text = "\n".join(
+                f"- {slug}: {title}" for slug, title in candidates_for_prompt
+            )
+            messages = _prompts.build_lint_relink_messages(
+                page_path=relpath,
+                page_content=_trim_for_prompt(parsed.to_markdown()),
+                broken_target=old_target,
+                expected_layer=expected_layer,
+                candidates_list=candidates_text,
+            )
+            try:
+                response = client.chat(messages, thinking=False, temperature=0.1).strip()
+            except LLMError:
+                continue  # Leave in place for review
+
+            if not response or response.upper() == "NONE":
+                continue  # LLM found no match; leave in place for review
+
+            new_target = _normalize_link(response)
+            if not new_target or new_target not in inv.all_slugs:
+                continue  # Hallucinated ID; ignore
+
+            if location == "body":
+                old_esc = re.escape(old_target)
+                parsed.body = re.sub(rf"\[\[{old_esc}\]\]", f"[[{new_target}]]", parsed.body)
+                parsed.body = re.sub(
+                    rf"\[\[{old_esc}\|([^\]]*)\]\]",
+                    rf"[[{new_target}|\1]]",
+                    parsed.body,
+                )
+                changed = True
+            elif location == "frontmatter" and field:
+                val = parsed.frontmatter.get(field)
+                old_norm = _normalize_link(old_target)
+                if isinstance(val, list):
+                    parsed.frontmatter[field] = [
+                        new_target if (isinstance(v, str) and _normalize_link(v) == old_norm) else v
+                        for v in val
+                    ]
+                    changed = True
+                elif isinstance(val, str) and _normalize_link(val) == old_norm:
+                    parsed.frontmatter[field] = new_target
+                    changed = True
+
+        if changed:
+            full_path.write_text(parsed.to_markdown(), encoding="utf-8")
+            total_modified += 1
+
+    return total_modified
 
 
 def apply_fixes(paths: cfg.WikiPaths, issues: list[LintIssue]) -> int:
@@ -931,7 +1302,8 @@ def run_lint(
         ("malformed_wikilinks", lambda: check_malformed_wikilinks(inv, paths)),
         ("missing_extracted",   lambda: check_missing_extracted(inv)),
         ("stale_source_refs",   lambda: check_stale_source_refs(inv, paths)),
-        ("noise_in_synthesis",  lambda: check_noise_in_synthesis_sources(inv)),
+        ("atom_source_paths",   lambda: check_atom_source_paths(inv, paths)),
+        ("noise_in_curation",   lambda: check_noise_in_curation_sources(inv)),
         ("cross_layer_links",   lambda: check_cross_layer_links(inv)),
     ]
     for name, fn in fast_check_fns:
@@ -966,10 +1338,9 @@ def render_report_markdown(report: LintReport, paths: cfg.WikiPaths) -> str:
     lines: list[str] = []
     lines.append("---")
     lines.append(f"title: Lint Report {today}")
-    lines.append("type: synthesis")
+    lines.append("type: exhibition")
     lines.append("core_concepts: []")
     lines.append("confidence_score: 1.00")
-    lines.append("requires_math_rigor: false")
     lines.append(f"last_updated: '{today}'")
     lines.append("tags: [lint, health-check]")
     lines.append(f"health_score: {report.health_score}")
@@ -1001,8 +1372,10 @@ def render_report_markdown(report: LintReport, paths: cfg.WikiPaths) -> str:
             lines.append(f"- **Message:** {issue.message}")
             if issue.suggestion:
                 lines.append(f"- **Suggestion:** {issue.suggestion}")
-            if issue.fixable:
-                lines.append("- **Auto-fixable:** yes (use `wiki lint --fix`)")
+            if is_safe_fixable(issue):
+                lines.append("- **Auto-fixable:** safe (use `wiki lint --fix`)")
+            elif issue.fixable:
+                lines.append("- **Auto-fixable:** needs review if no confident reconnect is found")
             lines.append("")
 
     _section("Errors", report.errors)

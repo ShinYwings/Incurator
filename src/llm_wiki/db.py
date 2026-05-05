@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 4
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -32,10 +32,16 @@ CREATE TABLE IF NOT EXISTS sources (
     bytes           INTEGER NOT NULL,
     added_at        TEXT NOT NULL,           -- ISO timestamp
     last_ingested   TEXT,                    -- NULL if not yet processed by LLM
-    status          TEXT NOT NULL DEFAULT 'pending',  -- pending|ingested|error|skipped
-    summary_id      TEXT,                    -- SUM-UUID of L1 summary page
+    status          TEXT NOT NULL DEFAULT 'pending',  -- pending|force_pending|curated|error|skipped
+    context_id      TEXT,                    -- CTX-UUID of L1 Context page
+    l1_status       TEXT NOT NULL DEFAULT 'pending',  -- pending|running|done|error|skipped
+    l2_status       TEXT NOT NULL DEFAULT 'pending',
+    l3_status       TEXT NOT NULL DEFAULT 'pending',
+    l4_status       TEXT NOT NULL DEFAULT 'pending',
+    layer_error     TEXT,                    -- latest layer-scoped error message/reason
     domain          TEXT,                    -- cached from L1 summary frontmatter
-    tags            TEXT                     -- JSON array, cached from L1 summary frontmatter
+    tags            TEXT,                    -- JSON array, cached from L1 summary frontmatter
+    error_reason    TEXT                     -- empty_file|parse_error|llm_error — set when status='error'
 );
 
 CREATE INDEX IF NOT EXISTS idx_sources_hash   ON sources(content_hash);
@@ -98,12 +104,12 @@ CREATE TABLE IF NOT EXISTS job_events (
 
 CREATE INDEX IF NOT EXISTS idx_events_job_seq ON job_events(job_id, seq);
 
--- L2 Atoms  (SYMBIOTIC_OS_ARCHITECTURE — OVERVIEW.md §3.2)
+-- L2 Atoms  (SYMBIOTIC_OS_ARCHITECTURE v13 — SCHEMA_v13.md §3.2)
 CREATE TABLE IF NOT EXISTS atoms (
     id                      TEXT PRIMARY KEY,        -- ATM-[UUID8]
     name                    TEXT NOT NULL DEFAULT '', -- canonical concept name
-    parent_source           TEXT NOT NULL,           -- [[01_Summaries/SUM-UUID8]]
-    source_path             TEXT NOT NULL DEFAULT '', -- [[relative/path/to/source.md]]
+    parent_source           TEXT NOT NULL,           -- 01_Contexts/CTX-UUID8 (plain string)
+    source_path             TEXT NOT NULL DEFAULT '', -- relative/path/to/source.md
     claim_type              TEXT NOT NULL,           -- fact|equation|theoretical_constraint
     one_liner               TEXT NOT NULL DEFAULT '', -- single-sentence description
     contradicts             TEXT,                    -- JSON array of ATM-UUIDs
@@ -115,7 +121,7 @@ CREATE TABLE IF NOT EXISTS atoms (
 CREATE INDEX IF NOT EXISTS idx_atoms_flagged    ON atoms(is_flagged_for_agent);
 CREATE INDEX IF NOT EXISTS idx_atoms_claim_type ON atoms(claim_type);
 
--- L3 Concepts  (SYMBIOTIC_OS_ARCHITECTURE — OVERVIEW.md §3.3)
+-- L3 Concepts  (SYMBIOTIC_OS_ARCHITECTURE v13 — SCHEMA_v13.md §3.3)
 CREATE TABLE IF NOT EXISTS concepts (
     id                      TEXT PRIMARY KEY,        -- CON-[UUID8]
     name                    TEXT NOT NULL DEFAULT '', -- concept name
@@ -126,11 +132,11 @@ CREATE TABLE IF NOT EXISTS concepts (
 
 CREATE INDEX IF NOT EXISTS idx_concepts_domain ON concepts(domain);
 
--- L4 Synthesis  (SYMBIOTIC_OS_ARCHITECTURE — OVERVIEW.md §3.4)
+-- L4 Exhibitions  (SYMBIOTIC_OS_ARCHITECTURE v13 — SCHEMA_v13.md §3.4)
 CREATE TABLE IF NOT EXISTS synthesis (
-    id                      TEXT PRIMARY KEY,        -- SYN-[UUID8]
-    topic                   TEXT NOT NULL DEFAULT '', -- synthesis topic name
-    core_concepts           TEXT NOT NULL,           -- JSON array of CON-UUIDs
+    id                      TEXT PRIMARY KEY,        -- EXH-[UUID8]
+    topic                   TEXT NOT NULL DEFAULT '', -- exhibition topic name
+    core_concepts           TEXT NOT NULL DEFAULT '', -- JSON array of CON-UUIDs
     confidence_score        REAL NOT NULL,           -- 0.00–1.00
     requires_math_rigor     INTEGER DEFAULT 0,       -- boolean 0|1
     last_updated            TEXT NOT NULL            -- ISO timestamp
@@ -141,54 +147,61 @@ CREATE INDEX IF NOT EXISTS idx_synthesis_confidence ON synthesis(confidence_scor
 
 
 def init_db(db_path: Path) -> None:
-    """Create the state database and apply the schema. Idempotent.
-
-    Also performs lightweight migrations for pre-Phase-2 databases.
-    """
+    """Create the state database and apply the schema. Idempotent."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
-        cur = conn.execute("SELECT version FROM schema_version LIMIT 1")
-        row = cur.fetchone()
+        row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
             conn.execute(
                 "INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,)
             )
-        else:
-            current = row[0]
-            # v2 → v3: add summary_id column to sources
-            if current < 3:
-                try:
-                    conn.execute("ALTER TABLE sources ADD COLUMN summary_id TEXT")
-                except Exception:
-                    pass  # Column may already exist
-            # v3 → v4 → v5: add last_updated column to atoms and concepts
-            if current < 5:
-                try:
-                    conn.execute("ALTER TABLE atoms ADD COLUMN last_updated TEXT")
-                except Exception:
-                    pass
-                try:
-                    conn.execute("ALTER TABLE concepts ADD COLUMN last_updated TEXT")
-                except Exception:
-                    pass
-            # v5 → v6: add name/source_path/one_liner to atoms, name to concepts,
-            #           topic to synthesis, domain/tags to sources
-            if current < 6:
-                for sql in [
-                    "ALTER TABLE sources ADD COLUMN domain TEXT",
-                    "ALTER TABLE sources ADD COLUMN tags TEXT",
-                    "ALTER TABLE atoms ADD COLUMN name TEXT NOT NULL DEFAULT ''",
-                    "ALTER TABLE atoms ADD COLUMN source_path TEXT NOT NULL DEFAULT ''",
-                    "ALTER TABLE atoms ADD COLUMN one_liner TEXT NOT NULL DEFAULT ''",
-                    "ALTER TABLE concepts ADD COLUMN name TEXT NOT NULL DEFAULT ''",
-                    "ALTER TABLE synthesis ADD COLUMN topic TEXT NOT NULL DEFAULT ''",
-                ]:
-                    try:
-                        conn.execute(sql)
-                    except Exception:
-                        pass
-                conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        # Incremental migrations: ADD COLUMN is safe to retry (ignored if already present)
+        existing_cols = {
+            r[1] for r in conn.execute("PRAGMA table_info(sources)").fetchall()
+        }
+        if "error_reason" not in existing_cols:
+            conn.execute(
+                "ALTER TABLE sources ADD COLUMN error_reason TEXT"
+            )
+        if "context_id" not in existing_cols:
+            conn.execute(
+                "ALTER TABLE sources ADD COLUMN context_id TEXT"
+            )
+        for col in ("l1_status", "l2_status", "l3_status", "l4_status"):
+            if col not in existing_cols:
+                conn.execute(
+                    f"ALTER TABLE sources ADD COLUMN {col} TEXT NOT NULL DEFAULT 'pending'"
+                )
+        if "layer_error" not in existing_cols:
+            conn.execute("ALTER TABLE sources ADD COLUMN layer_error TEXT")
+        conn.execute(
+            "UPDATE sources SET l1_status = 'done' WHERE context_id IS NOT NULL AND context_id != ''"
+        )
+        conn.execute(
+            "UPDATE sources SET l2_status = 'done' WHERE status = 'curated'"
+        )
+        conn.execute(
+            "UPDATE sources SET l1_status = 'error' "
+            "WHERE status = 'error' AND error_reason IN ('empty_file', 'missing_context')"
+        )
+        conn.execute(
+            "UPDATE sources SET l2_status = 'error' "
+            "WHERE status = 'error' AND error_reason IN ('parse_error', 'llm_error', 'invalid_atom_output')"
+        )
+        conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        # v13 migration: rename core_themes → core_concepts in synthesis table
+        synthesis_cols = {
+            r[1] for r in conn.execute("PRAGMA table_info(synthesis)").fetchall()
+        }
+        if "core_themes" in synthesis_cols and "core_concepts" not in synthesis_cols:
+            conn.execute(
+                "ALTER TABLE synthesis RENAME COLUMN core_themes TO core_concepts"
+            )
+        elif "core_concepts" not in synthesis_cols:
+            conn.execute(
+                "ALTER TABLE synthesis ADD COLUMN core_concepts TEXT NOT NULL DEFAULT ''"
+            )
         conn.commit()
 
 
@@ -209,16 +222,70 @@ def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
 def get_stats(db_path: Path) -> dict:
     """Quick stats for `wiki status`."""
     if not db_path.exists():
-        return {"sources_total": 0, "sources_ingested": 0, "ingest_runs": 0}
+        return {"sources_total": 0, "sources_curated": 0, "ingest_runs": 0}
     with connect(db_path) as conn:
         sources_total = conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
-        sources_ingested = conn.execute(
-            "SELECT COUNT(*) FROM sources WHERE status = 'ingested'"
+        sources_curated = conn.execute(
+            "SELECT COUNT(*) FROM sources WHERE status = 'curated'"
         ).fetchone()[0]
         ingest_runs = conn.execute("SELECT COUNT(*) FROM ingest_runs").fetchone()[0]
     return {
         "sources_total": sources_total,
-        "sources_ingested": sources_ingested,
+        "sources_curated": sources_curated,
         "ingest_runs": ingest_runs,
     }
 
+
+def get_pending_count(db_path: Path) -> int:
+    """Count sources with status 'pending' or 'force_pending'."""
+    if not db_path.exists():
+        return 0
+    with connect(db_path) as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM sources WHERE status IN ('pending', 'force_pending')"
+        ).fetchone()[0]
+
+
+def set_source_layer_status(
+    db_path: Path,
+    source_id: int,
+    layer: str,
+    status: str,
+    *,
+    error: str | None = None,
+) -> None:
+    """Update a source's per-layer pipeline status.
+
+    layer must be one of: l1, l2, l3, l4.
+    status should be: pending, running, done, error, or skipped.
+    """
+    if layer not in {"l1", "l2", "l3", "l4"}:
+        raise ValueError(f"Invalid layer status key: {layer}")
+    column = f"{layer}_status"
+    with connect(db_path) as conn:
+        conn.execute(
+            f"UPDATE sources SET {column} = ?, layer_error = ? WHERE id = ?",
+            (status, error, source_id),
+        )
+
+
+def set_sources_layer_status(
+    db_path: Path,
+    source_ids: list[int],
+    layer: str,
+    status: str,
+    *,
+    error: str | None = None,
+) -> None:
+    """Bulk update per-layer status for source rows."""
+    if not source_ids:
+        return
+    if layer not in {"l1", "l2", "l3", "l4"}:
+        raise ValueError(f"Invalid layer status key: {layer}")
+    column = f"{layer}_status"
+    with connect(db_path) as conn:
+        conn.execute(
+            f"UPDATE sources SET {column} = ?, layer_error = ? "
+            f"WHERE id IN ({','.join('?' * len(source_ids))})",
+            (status, error, *source_ids),
+        )

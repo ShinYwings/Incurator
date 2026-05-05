@@ -7,24 +7,24 @@ updated: 2026-05-01
 # .curator/index.md — DAG Routing Table
 
 > Auto-maintained by the Curator engine. DO NOT edit manually.
-> Lists all pages by layer. Rebuilt after every ingest.
+> Lists all pages by layer. Rebuilt after every curate run.
 
-## L1 — Summaries
+## L1 — Contexts (Collection & Summarization)
 
-*No sources synced yet. Run `wiki sync` to generate L1 Summaries.*
+*No sources added yet. Run `wiki add` to generate L1 Contexts.*
 
-## L2 — Atoms
+## L2 — Atoms (Selection & Atomization)
 
-*No atoms yet. Run `wiki ingest` after sync.*
+*No atoms yet. Run `wiki curate` after add.*
 
-## L3 — Concepts
+## L3 — Concepts (Structuring & Value Addition)
 
 *No concepts yet.*
 
-## L4 — Synthesis
+## L4 — Exhibitions (Placement & Staging)
 
-*No synthesis yet.*
+*No exhibitions yet.*
 
 ---
 
-**Stats:** 0 summaries · 0 atoms · 0 concepts · 0 synthesis pages
+**Stats:** 0 contexts · 0 atoms · 0 concepts · 0 exhibitions

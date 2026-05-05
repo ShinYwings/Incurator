@@ -11,9 +11,9 @@ The server combines two responsibility layers:
    caching keeps latency low.
 
 2. **Curator-specific traversal** — tools like `curator_traverse_evidence`,
-   `curator_get_atom`, `curator_find_contradictions` walk the DAG by ID
+   `curator_get_node`, `curator_find_contradictions` walk the DAG by ID
    using the on-disk markdown source-of-truth, so the agent can follow
-   SYN → CON → ATM chains, surface contradictions, and respect confidence
+   EXH → CON → ATM chains, surface contradictions, and respect confidence
    thresholds.
 
 Vault resolution:
@@ -72,10 +72,10 @@ def _resolve_paths() -> cfg.WikiPaths:
 
 
 _LAYERS = {
-    "summary":   ("01_Summaries", "SUM-"),
-    "atom":      ("02_Atoms",     "ATM-"),
-    "concept":   ("03_Concepts",  "CON-"),
-    "synthesis": ("04_Synthesis", "SYN-"),
+    "context":    ("01_Contexts",    "CTX-"),
+    "atom":       ("02_Atoms",       "ATM-"),
+    "concept":    ("03_Concepts",    "CON-"),
+    "exhibition": ("04_Exhibitions", "EXH-"),
 }
 
 
@@ -92,7 +92,7 @@ def _read_node(paths: cfg.WikiPaths, node_id: str) -> dict[str, Any]:
     """
     info = _layer_for_id(node_id)
     if info is None:
-        return {"error": f"Unknown ID prefix in '{node_id}' (expected SUM-/ATM-/CON-/SYN-)"}
+        return {"error": f"Unknown ID prefix in '{node_id}' (expected CTX-/ATM-/CON-/EXH-)"}
     layer, subdir = info
     page_path = paths.collections / subdir / f"{node_id}.md"
     if not page_path.exists():
@@ -124,9 +124,19 @@ def _normalize_link(link: str) -> str:
 
 
 def _id_from_link(link: str) -> str:
-    """'02_Atoms/ATM-abc12345' → 'ATM-abc12345'."""
+    """'02_Atoms/ATM-abc12345' -> 'ATM-abc12345'."""
     s = _normalize_link(link)
     return s.rsplit("/", 1)[-1]
+
+
+def _concept_atom_ids(con: dict[str, Any]) -> list[str]:
+    """Concept → Atom edges live in the terminal `## Relations` section."""
+    atom_ids: list[str] = []
+    for target in page_writer.extract_relation_targets(con.get("body", ""), prefix="02_Atoms/"):
+        atom_id = _id_from_link(target)
+        if atom_id.startswith("ATM-") and atom_id not in atom_ids:
+            atom_ids.append(atom_id)
+    return atom_ids
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +152,10 @@ def build_server() -> FastMCP:
         instructions=(
             "LLM-Wiki Curator MCP. Tools fall into two groups:\n"
             "  - `search`: BM25/vector/hybrid search across the Curator DAG via qmd.\n"
-            "  - `curator_*`: walk the DAG by ID (SYN→CON→ATM evidence chains, "
+            "  - `curator_*`: walk the DAG by ID (EXH→CON→ATM evidence chains, "
             "contradiction lookup, layer-aware retrieval).\n"
-            "Layer prefixes: 01_Summaries (SUM-), 02_Atoms (ATM-), "
-            "03_Concepts (CON-), 04_Synthesis (SYN-)."
+            "Layer prefixes: 01_Contexts (CTX-), 02_Atoms (ATM-), "
+            "03_Concepts (CON-), 04_Exhibitions (EXH-)."
         ),
     )
 
@@ -165,7 +175,7 @@ def build_server() -> FastMCP:
 
         Args:
             query: Natural-language query.
-            scope: 'all' | 'summaries' | 'atoms' | 'concepts' | 'synthesis'.
+            scope: 'all' | 'contexts' | 'atoms' | 'concepts' | 'exhibitions'.
             mode: 'hybrid' (BM25 + vector + LLM rerank, best quality), 'lex'
                   (BM25 only, fastest), 'vec' (vector only).
             limit: Max number of hits before min_score filtering.
@@ -174,6 +184,37 @@ def build_server() -> FastMCP:
         Returns a dict with `hits` — each hit has `path`, `title`, `score`,
         `snippet`, and `body` (full markdown of the page).
         """
+        # Auto-sync: if there are pending sources, curate them synchronously first
+        from . import db as _db
+        if _db.get_pending_count(paths.state_db) > 0:
+            import subprocess
+            subprocess.run(
+                ["wiki", "curate", "--batch"],
+                cwd=str(paths.root),
+                check=False,
+            )
+
+        # v13.1: Apply curate.yml filters from WORKSPACE_PATH env var if present
+        from . import curate_yml as _cym
+        from pathlib import Path as _Path
+        import os as _os
+        ws_path_str = _os.environ.get("WORKSPACE_PATH")
+        curate_spec = None
+        if ws_path_str:
+            try:
+                curate_spec = _cym.load_curate_spec(_Path(ws_path_str).expanduser().resolve())
+            except (ValueError, Exception):
+                curate_spec = None
+
+        if curate_spec is not None:
+            # Apply scope from curate.yml only if caller left scope at default "all"
+            if scope == "all" and curate_spec.scope != "all":
+                scope = curate_spec.scope
+            # Apply confidence floor
+            min_score = max(min_score, curate_spec.min_confidence)
+            # Boost query with domain/topic terms
+            query = curate_spec.boost_query(query)
+
         # Automatically generate / translate arguments if the query is in Korean (non-ASCII)
         from .llm import build_client
         from .query import translate_to_english
@@ -200,16 +241,20 @@ def build_server() -> FastMCP:
             return {"error": f"qmd error: {e}", "hits": []}
 
         layer_prefix = {
-            "summaries": "01_Summaries/",
-            "atoms":     "02_Atoms/",
-            "concepts":  "03_Concepts/",
-            "synthesis": "04_Synthesis/",
+            "contexts":    "01_Contexts/",
+            "atoms":       "02_Atoms/",
+            "concepts":    "03_Concepts/",
+            "exhibitions": "04_Exhibitions/",
         }.get(scope)
 
         hits = []
         for hit in results.hits:
             if layer_prefix and not hit.full_path.startswith(layer_prefix):
                 continue
+            # Apply curate.yml min_confidence filter on Exhibition pages
+            if curate_spec is not None and hit.full_path.startswith("04_Exhibitions/"):
+                if round(hit.score, 4) < curate_spec.min_confidence:
+                    continue
             hits.append({
                 "path": hit.full_path,
                 "title": hit.title,
@@ -218,7 +263,11 @@ def build_server() -> FastMCP:
                 "body": hit.full_content,
                 "docid": hit.docid,
             })
-        return {"hits": hits, "count": len(hits)}
+        return {
+            "hits": hits,
+            "count": len(hits),
+            "curate_spec_applied": curate_spec.project if curate_spec else None,
+        }
 
     # ------------------------------------------------------------------
     # curator_get_node — fetch any DAG node by ID
@@ -226,10 +275,10 @@ def build_server() -> FastMCP:
 
     @mcp.tool()
     def curator_get_node(node_id: str) -> dict[str, Any]:
-        """Fetch a single DAG node (Summary/Atom/Concept/Synthesis) by ID.
+        """Fetch a single DAG node (Context/Atom/Concept/Exhibition) by ID.
 
         Args:
-            node_id: e.g. 'SYN-abcdef01', 'ATM-9f8e7d6c'. Prefix determines
+            node_id: e.g. 'EXH-abcdef01', 'ATM-9f8e7d6c'. Prefix determines
                      the layer.
 
         Returns the node's frontmatter + body, or `{'error': ...}` if missing.
@@ -241,25 +290,25 @@ def build_server() -> FastMCP:
     # ------------------------------------------------------------------
 
     @mcp.tool()
-    def curator_traverse_evidence(syn_id: str) -> dict[str, Any]:
-        """Walk a Synthesis's evidence chain down to its constituent Atoms.
+    def curator_traverse_evidence(cur_id: str) -> dict[str, Any]:
+        """Walk an Exhibition's evidence chain down to its constituent Atoms.
 
-        Returns the full SYN page plus every CON it depends on and every ATM
+        Returns the full EXH page plus every CON it depends on and every ATM
         each CON depends on, including confidence/contradiction flags. Use
-        this to verify a Synthesis claim before citing it (especially when
+        this to verify an Exhibition claim before citing it (especially when
         confidence_score < 0.90).
         """
-        syn = _read_node(paths, syn_id)
-        if "error" in syn:
-            return syn
-        if syn["layer"] != "synthesis":
-            return {"error": f"{syn_id} is a {syn['layer']}, not a synthesis."}
+        cur = _read_node(paths, cur_id)
+        if "error" in cur:
+            return cur
+        if cur["layer"] != "exhibition":
+            return {"error": f"{cur_id} is a {cur['layer']}, not an exhibition."}
 
         concepts: list[dict[str, Any]] = []
         atoms: list[dict[str, Any]] = []
         seen_atoms: set[str] = set()
 
-        for raw_link in syn["frontmatter"].get("core_concepts", []) or []:
+        for raw_link in cur["frontmatter"].get("core_concepts", []) or []:
             if not isinstance(raw_link, str):
                 continue
             con_id = _id_from_link(raw_link)
@@ -269,18 +318,15 @@ def build_server() -> FastMCP:
                 continue
             concepts.append(con)
 
-            for atm_link in con["frontmatter"].get("dependencies", []) or []:
-                if not isinstance(atm_link, str):
-                    continue
-                atm_id = _id_from_link(atm_link)
+            for atm_id in _concept_atom_ids(con):
                 if atm_id in seen_atoms:
                     continue
                 seen_atoms.add(atm_id)
                 atoms.append(_read_node(paths, atm_id))
 
         return {
-            "synthesis": syn,
-            "confidence_score": syn["frontmatter"].get("confidence_score"),
+            "exhibition": cur,
+            "confidence_score": cur["frontmatter"].get("confidence_score"),
             "concepts": concepts,
             "atoms": atoms,
             "flagged_atom_count": sum(
@@ -301,7 +347,7 @@ def build_server() -> FastMCP:
 
         Args:
             node_id: Optional. If given, returns contradictions only for the
-                     subgraph reachable from this node (SYN/CON/ATM). Else
+                     subgraph reachable from this node (EXH/CON/ATM). Else
                      returns all flagged atoms in the vault.
         """
         flagged: list[dict[str, Any]] = []
@@ -345,28 +391,26 @@ def build_server() -> FastMCP:
                 })
             return {"flagged_atoms": flagged, "count": len(flagged)}
 
-        # SYN or CON: walk down to atoms via traversal logic
+        # EXH or CON: walk down to atoms via traversal logic
         atom_ids: set[str] = set()
-        if info[0] == "synthesis":
+        if info[0] == "exhibition":
             chain = curator_traverse_evidence(node_id)
-            for atom in chain.get("atoms", []):
-                if "id" in atom:
-                    atom_ids.add(atom["id"])
+            for atm in chain.get("atoms", []):
+                if "id" in atm:
+                    atom_ids.add(atm["id"])
         elif info[0] == "concept":
             con = _read_node(paths, node_id)
-            for atm_link in con.get("frontmatter", {}).get("dependencies", []) or []:
-                if isinstance(atm_link, str):
-                    atom_ids.add(_id_from_link(atm_link))
+            atom_ids.update(_concept_atom_ids(con))
 
         for aid in atom_ids:
-            atom = _read_node(paths, aid)
-            if "error" in atom:
+            atm = _read_node(paths, aid)
+            if "error" in atm:
                 continue
-            fm = atom["frontmatter"]
+            fm = atm["frontmatter"]
             if fm.get("is_flagged_for_agent") or fm.get("contradicts"):
                 flagged.append({
                     "id": aid,
-                    "path": atom["path"],
+                    "path": atm["path"],
                     "is_flagged_for_agent": bool(fm.get("is_flagged_for_agent")),
                     "contradicts": fm.get("contradicts") or [],
                 })
@@ -380,6 +424,7 @@ def build_server() -> FastMCP:
     def curator_layer_index() -> dict[str, Any]:
         """Return per-layer page counts and a sample of recent IDs.
 
+        Layers: context (CTX-), atom (ATM-), concept (CON-), exhibition (EXH-).
         Cheap overview suitable as the agent's first call when entering a
         fresh vault — tells it what's available before any search.
         """
@@ -421,6 +466,196 @@ def build_server() -> FastMCP:
             "qmd_ready": search.is_available(),
             "qmd_version": search.get_version(),
         }
+
+    # ------------------------------------------------------------------
+    # curator_update_node — overwrite a node and propagate
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def curator_update_node(node_id: str, new_content: str) -> dict[str, Any]:
+        """Overwrite a DAG node's markdown file and propagate changes through the DAG.
+
+        Args:
+            node_id: The node to update (CTX-/ATM-/CON-/EXH-).
+            new_content: Full replacement markdown (frontmatter + body).
+
+        For **EXH nodes** (Exhibitions): writes the file, then runs upstream backward
+        propagation (EXH → CON → ATM) via LLM so referenced Concepts and Atoms are
+        updated to reflect the correction. Finally rebuilds routing tables.
+
+        For **ATM/CON/CTX nodes**: writes the file and runs Mode B structural
+        verification (bidirectional), then rebuilds routing tables.
+
+        Returns a dict with `updated`, `propagation` (EXH only), `gaps`, and
+        `routing_tables_rebuilt`.
+        """
+        info = _layer_for_id(node_id)
+        if info is None:
+            return {"error": f"Unknown ID prefix in '{node_id}' (expected CTX-/ATM-/CON-/EXH-)"}
+        layer, subdir = info
+        page_path = paths.collections / subdir / f"{node_id}.md"
+        if not page_path.exists():
+            return {"error": f"Page not found: {subdir}/{node_id}.md"}
+
+        page_path.write_text(new_content, encoding="utf-8")
+
+        from . import sync as sync_module
+
+        # EXH correction: propagate upstream L4 → L3 → L2 via LLM
+        propagation_summary: dict[str, Any] = {}
+        if layer == "exhibition":
+            try:
+                from .llm import build_client
+                from . import config as _cfg
+                _config = _cfg.load_config(paths)
+                _client = build_client(_config)
+                try:
+                    prop_result = sync_module.propagate_upstream_from_exhibition(
+                        paths, _client, node_id
+                    )
+                    propagation_summary = {
+                        "concepts_updated": prop_result.concepts_updated,
+                        "atoms_updated": prop_result.atoms_updated,
+                        "errors": prop_result.errors,
+                    }
+                finally:
+                    try:
+                        _client.close()
+                    except Exception:
+                        pass
+            except Exception as exc:
+                propagation_summary = {"error": f"Upstream propagation failed: {exc}"}
+
+        # Structural verification (Mode B) for all node types
+        try:
+            gaps = sync_module.run_mode_b(paths, node_id)
+            sync_module.finalize_routing_tables(paths)
+            routing_rebuilt = True
+        except Exception as exc:
+            return {
+                "updated": True,
+                "propagation": propagation_summary,
+                "error": f"sync failed: {exc}",
+                "routing_tables_rebuilt": False,
+            }
+
+        result: dict[str, Any] = {
+            "updated": True,
+            "gaps": [{"layer": g.layer, "node_id": g.node_id, "message": g.message} for g in gaps],
+            "routing_tables_rebuilt": routing_rebuilt,
+        }
+        if propagation_summary:
+            result["propagation"] = propagation_summary
+        return result
+
+    # ------------------------------------------------------------------
+    # curator_reindex — rebuild the QMD search index
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def curator_reindex() -> dict[str, Any]:
+        """Rebuild the QMD search index over all Collections pages.
+
+        Call this after manually editing wiki pages or after a bulk import so
+        that `search_curator` picks up the new content.
+
+        Returns `{'ok': True}` or `{'error': ...}`.
+        """
+        try:
+            search.update_index(paths, embed=True)
+            return {"ok": True}
+        except search.SearchBackendError as exc:
+            return {"error": str(exc)}
+
+    # ------------------------------------------------------------------
+    # curator_curate_context — re-curate a single L1 Context
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def curator_curate_context(context_id: str) -> dict[str, Any]:
+        """Re-run the LLM curation pipeline for a single L1 Context.
+
+        Resets the source status to 'pending' in the DB, then invokes
+        `wiki curate --batch` as a subprocess so the full L2→L4 extraction
+        pipeline runs for that source.
+
+        Args:
+            context_id: The CTX- ID of the context to re-curate.
+
+        Returns `{'queued': True, 'source_id': <int>}` on success, or
+        `{'error': ...}` on failure.
+        """
+        import subprocess
+        from . import db
+
+        db_path = paths.root / ".curator" / "state.sqlite"
+        with db.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT id FROM sources WHERE context_id = ?", (context_id,)
+            ).fetchone()
+        if row is None:
+            return {"error": f"No source found with context_id '{context_id}'"}
+
+        source_id = row["id"]
+        with db.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE sources SET status = 'pending' WHERE id = ?", (source_id,)
+            )
+
+        try:
+            subprocess.Popen(
+                ["wiki", "curate", "--batch"],
+                cwd=str(paths.root),
+                start_new_session=True,
+            )
+        except Exception as exc:
+            return {"error": f"Failed to launch wiki curate: {exc}"}
+
+        return {"queued": True, "source_id": source_id}
+
+    # ------------------------------------------------------------------
+    # curator_add_knowledge — write a new L2 Atom from conversational insight
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def curator_add_knowledge(insight: str, context: str = "") -> dict[str, Any]:
+        """Create a new L2 Atom from a conversational insight or synthesized answer.
+
+        Feeds new knowledge discovered during an agent conversation back into
+        the L1-L3 pipeline so it is available for future Exhibition staging.
+
+        Args:
+            insight: The text of the insight or knowledge to preserve as an Atom.
+            context: Optional context about the source of this insight
+                     (e.g. 'derived from query about transformers').
+
+        Returns `{'atom_id': '...', 'ok': True}` or `{'error': ...}`.
+        """
+        try:
+            from .llm import build_client
+            from . import config as _cfg
+            _config = _cfg.load_config(paths)
+            _client = build_client(_config)
+        except Exception as exc:
+            return {"error": f"Could not start LLM client: {exc}"}
+
+        try:
+            from . import ingest_llm as _ingest
+            from datetime import datetime, timezone
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            source_hint = context or "mcp:curator_add_knowledge"
+            combined = f"{insight}\n\n{context}".strip() if context else insight
+            atom_id = _ingest.add_atom_from_insight(paths, _client, combined, today, source_hint)
+            if atom_id is None:
+                return {"error": "Atom generation failed — LLM returned no candidates"}
+            return {"atom_id": atom_id, "ok": True}
+        except Exception as exc:
+            return {"error": str(exc)}
+        finally:
+            try:
+                _client.close()
+            except Exception:
+                pass
 
     return mcp
 

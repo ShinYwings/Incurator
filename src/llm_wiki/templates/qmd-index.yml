@@ -9,8 +9,8 @@
 
 global_context: |
   Curator-generated DAG knowledge base. The path tells you which DAG layer the
-  document lives in: 01_Summaries (L1, 1:1 source recap), 02_Atoms (L2,
-  irreducible facts), 03_Concepts (L3, atom clusters), 04_Synthesis (L4,
+  document lives in: 01_Contexts (L1, source context recap), 02_Atoms (L2,
+  irreducible facts), 03_Concepts (L3, atom clusters), 04_Exhibitions (L4,
   terminal cross-domain conclusions). Cite via [[LAYER/ID]] wikilinks. Prefer
   L2 atoms for factual claims; backtrack from higher layers if confidence_score
   is below 0.90.
@@ -22,28 +22,26 @@ collections:
     ignore:
       - "lint-report-*.md"
     context:
-      "/01_Summaries": |
-        L1 SUMMARY layer. Each page is a 1:1 hash-matched recap of one source
+      "/01_Contexts": |
+        L1 CONTEXT layer. Each page is a 1:1 hash-matched recap of one source
         document under 02_Wiki / 03_Notes / 04_Resources / 06_Archives. Frontmatter
-        carries `id: SUM-…`, `source_path`, `source_hash`, `domain`. Body sections:
-        ## Summary, ## Key Claims, ## Atom Candidates, ## Source.
+        carries `id: CTX-...`, `source_path`, `source_hash`, `domain`. Body starts
+        with ## Summary.
       "/02_Atoms": |
         L2 ATOM layer. Irreducible factual claims, equations, or theoretical
-        constraints distilled from one or more L1 summaries. Frontmatter:
-        `id: ATM-…`, `parent_source: [[01_Summaries/SUM-…]]`, `claim_type`,
+        constraints distilled from one or more L1 contexts. Frontmatter:
+        `id: ATM-...`, `parent_source: [[01_Contexts/CTX-...]]`, `claim_type`,
         `contradicts`, `is_verified_by_human`, `is_flagged_for_agent`.
         Body: ## Definition / Claim, ## Context, ## Constraints, ## Relations.
       "/03_Concepts": |
         L3 CONCEPT layer. Clusters of related L2 atoms forming a coherent
-        conceptual unit. Frontmatter: `id: CON-…`, `dependencies: [[02_Atoms/…]]`,
-        `domain`. Body: ## Core Logic, ## Constituent Facts, ## Implications,
-        ## Open Questions. Minimum 2 atom dependencies; never singletons.
-      "/04_Synthesis": |
-        L4 SYNTHESIS layer. Terminal cross-domain knowledge outputs combining
-        multiple L3 concepts. Frontmatter: `id: SYN-…`, `core_concepts: [[03_Concepts/…]]`,
-        `confidence_score` (0.00-1.00), `requires_math_rigor`. Body:
-        ## Synthesis Statement, ## Evidence Chain, ## Confidence Justification,
-        ## Mathematical Formulation (when math), ## Contradictions / Open Issues.
+        conceptual unit. Frontmatter: `id: CON-...`, `domain`, `confidence_score`.
+        Concept-to-Atom edges live in the terminal `## Relations` section.
+        Body follows the v13.1 concept sections.
+      "/04_Exhibitions": |
+        L4 EXHIBITION layer. Terminal knowledge outputs combining multiple L3
+        concepts. Frontmatter: `id: EXH-...`, `core_concepts: [[03_Concepts/...]]`,
+        `confidence_score` (0.00-1.00). Body uses bold-bullet exhibit sections.
         Use confidence_score to decide retrieval strategy: >=0.90 direct cite,
         0.60-0.90 backtrack to L2, <0.60 halt for human verification.
       "/": "Curator DAG knowledge base."

@@ -11,11 +11,13 @@ Stage 2 commands:
     wiki sources show <id>   Show details for one source (with text preview).
     wiki sources rm <id>     Remove a source from tracking.
 
-Later stages add: ingest, query, lint, serve.
+Later stages add: ingest, query, sync, serve.
 """
 
 from __future__ import annotations
 
+import json
+import hashlib
 from pathlib import Path
 from typing import Optional
 
@@ -30,22 +32,33 @@ from . import db
 from . import ingest_llm
 from . import ingest_raw
 from . import lint as lint_module
+from . import page_writer
 from . import query as query_module
 from . import search
+from .workspace_rules import (
+    CurateTemplateData,
+    VALID_AGENTS,
+    default_project_name,
+    prepare_workspace,
+    render_mcp_snippet,
+)
 from .llm import (
     ClaudeClient,
-    ClaudeCodeClient,
     ClaudeCodeError,
     ClaudeError,
+    DEFAULT_CLAUDE_MODEL,
+    DEFAULT_CLAUDE_THINK_MODEL,
+    DEFAULT_GEMINI_FLASH_MODEL,
+    DEFAULT_GEMINI_THINK_MODEL,
     DEFAULT_OLLAMA_HOST,
+    DEFAULT_OPENAI_MODEL,
+    DEFAULT_OPENAI_THINK_MODEL,
     FailoverClient,
     GeminiClient,
-    GeminiCliClient,
     GeminiCliError,
     GeminiError,
     LLMError,
     ModelNotFound,
-    OllamaClient,
     OllamaNotRunning,
     OpenAIClient,
     OpenAIError,
@@ -73,6 +86,15 @@ sources_app = typer.Typer(
     rich_markup_mode="rich",
 )
 app.add_typer(sources_app, name="sources")
+
+workspace_app = typer.Typer(
+    name="workspace",
+    help="Manage workspace curate.yml Knowledge Requirement Specifications.",
+    no_args_is_help=True,
+    add_completion=False,
+    rich_markup_mode="rich",
+)
+app.add_typer(workspace_app, name="workspace")
 
 config_app = typer.Typer(
     name="config",
@@ -228,7 +250,7 @@ def _show_recommended_models(host: str) -> None:
     console.print(table)
     console.print(
         "[dim]설치: [bold]wiki config models use <tag>[/bold]  "
-        "·  모델 변경 후 [bold]wiki sync[/bold] 재실행 권장[/dim]"
+        "·  모델 변경 후 [bold]wiki add[/bold] 재실행 권장[/dim]"
     )
 
 
@@ -318,10 +340,394 @@ def _format_bytes(n: int) -> str:
 def _status_style(status: str) -> str:
     return {
         "pending": "yellow",
-        "ingested": "green",
+        "force_pending": "yellow",
+        "curated": "green",
         "error": "red",
         "skipped": "dim",
     }.get(status, "white")
+
+
+def _node_id_from_collection_page(relpath: str) -> str:
+    return Path(relpath).stem
+
+
+def _sync_blocked_node_ids(report: lint_module.LintReport) -> set[str]:
+    blocked: set[str] = set()
+    for issue in report.errors + report.warnings:
+        if not issue.page.startswith(("01_Contexts/", "02_Atoms/", "03_Concepts/", "04_Exhibitions/")):
+            continue
+        if lint_module.is_safe_fixable(issue):
+            continue
+        blocked.add(_node_id_from_collection_page(issue.page))
+    return blocked
+
+
+def _render_sync_preflight_summary(report: lint_module.LintReport) -> None:
+    needs_review = report.needs_review
+    blocked = _sync_blocked_node_ids(report)
+
+    table = Table(title="Sync Preflight", show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="dim", width=22)
+    table.add_column()
+    table.add_row("safe-fixable", str(len(report.safe_fixable)))
+    table.add_row("needs-review", str(len(needs_review)))
+    table.add_row("blocked logical checks", str(len(blocked)))
+    console.print(table)
+
+    if needs_review and console.is_interactive:
+        show = typer.confirm("Sync report has review items. Show details?", default=True)
+        if show:
+            for issue in needs_review[:20]:
+                console.print(
+                    f"  [yellow]•[/yellow] [{issue.severity.value}] "
+                    f"[cyan]{issue.page}[/cyan]: {issue.message}"
+                )
+            if len(needs_review) > 20:
+                console.print(f"  [dim]...and {len(needs_review) - 20} more[/dim]")
+
+
+def _latest_sync_report_path(paths: cfg.WikiPaths) -> Path:
+    return paths.internal / "sync-report.json"
+
+
+def _gap_to_dict(gap) -> dict:
+    return {
+        "layer": getattr(gap, "layer", ""),
+        "node_id": getattr(gap, "node_id", ""),
+        "message": getattr(gap, "message", ""),
+        "reasoning": getattr(gap, "reasoning", ""),
+    }
+
+
+def _write_latest_sync_report(
+    paths: cfg.WikiPaths,
+    *,
+    reason: str,
+    structural_report: lint_module.LintReport,
+    structural_gaps: list,
+    logic_gaps: list,
+    fixed: int = 0,
+    rebuilt: int = 0,
+    health: str | None = None,
+) -> None:
+    remaining = len(structural_gaps) + len(logic_gaps) + len(structural_report.needs_review)
+    if health is None:
+        health = "fixed" if fixed or rebuilt else ("review_needed" if remaining else "clean")
+    payload = {
+        "generated_at": ingest_llm._now_iso(),
+        "reason": reason,
+        "health": health,
+        "safe_fixed": fixed,
+        "rebuilt_downstream": rebuilt,
+        "safe_fixable": len(structural_report.safe_fixable),
+        "needs_review": len(structural_report.needs_review),
+        "blocked_logical_checks": len(_sync_blocked_node_ids(structural_report)),
+        "equivalence_candidates": [],
+        "structural_gaps": [_gap_to_dict(g) for g in structural_gaps],
+        "logical_gaps": [_gap_to_dict(g) for g in logic_gaps],
+        "structural_issues": [
+            {
+                "severity": issue.severity.value,
+                "check": issue.check.value,
+                "page": issue.page,
+                "message": issue.message,
+                "fixable": issue.fixable,
+            }
+            for issue in (structural_report.errors + structural_report.warnings)
+        ],
+    }
+    try:
+        paths.internal.mkdir(parents=True, exist_ok=True)
+        _latest_sync_report_path(paths).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def _load_latest_sync_report(paths: cfg.WikiPaths) -> dict | None:
+    report_path = _latest_sync_report_path(paths)
+    if not report_path.exists():
+        return None
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _invalidate_latest_sync_report(paths: cfg.WikiPaths, *, reason: str) -> None:
+    payload = {
+        "generated_at": ingest_llm._now_iso(),
+        "reason": reason,
+        "health": "stale",
+        "invalidated": True,
+        "safe_fixed": 0,
+        "safe_fixable": 0,
+        "needs_review": 0,
+        "blocked_logical_checks": 0,
+        "equivalence_candidates": [],
+        "structural_gaps": [],
+        "logical_gaps": [],
+        "structural_issues": [],
+    }
+    try:
+        paths.internal.mkdir(parents=True, exist_ok=True)
+        _latest_sync_report_path(paths).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def _render_latest_sync_report_summary(paths: cfg.WikiPaths) -> None:
+    payload = _load_latest_sync_report(paths)
+    if not payload:
+        return
+    logical = payload.get("logical_gaps") or []
+    structural = payload.get("structural_gaps") or []
+    structural_issues = payload.get("structural_issues") or []
+    total_review = int(payload.get("needs_review") or 0)
+    safe_fixed = int(payload.get("safe_fixed") or 0)
+    rebuilt = int(payload.get("rebuilt_downstream") or 0)
+    blocked = int(payload.get("blocked_logical_checks") or 0)
+    equivalence = payload.get("equivalence_candidates") or []
+
+    table = Table(title="Latest Sync Report", show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="dim", width=22)
+    table.add_column()
+    table.add_row("generated", str(payload.get("generated_at") or "?"))
+    table.add_row("health", str(payload.get("health") or "?"))
+    table.add_row("reason", str(payload.get("reason") or "sync"))
+    if payload.get("invalidated"):
+        table.add_row("state", "stale; rerun wiki sync for current logical report")
+    table.add_row("logical gaps", str(len(logical)))
+    table.add_row("structural gaps", str(len(structural)))
+    table.add_row("equivalence candidates", str(len(equivalence)))
+    table.add_row("needs-review", str(total_review))
+    table.add_row("safe-fixed", str(safe_fixed))
+    table.add_row("rebuilt downstream", str(rebuilt))
+    table.add_row("blocked logical checks", str(blocked))
+    console.print(table)
+
+    has_details = bool(logical or structural or structural_issues)
+    if has_details and console.is_interactive:
+        show = typer.confirm("Sync report has details. Show them now?", default=False)
+        if show:
+            for gap in (structural + logical)[:20]:
+                console.print(
+                    f"  [yellow]•[/yellow] [{gap.get('layer', '?')}] "
+                    f"[bold]{gap.get('node_id', '?')}[/bold]: {gap.get('message', '')}"
+                )
+                if gap.get("reasoning"):
+                    console.print(f"    [dim]{gap['reasoning']}[/dim]")
+            for issue in structural_issues[:20]:
+                console.print(
+                    f"  [yellow]•[/yellow] [{issue.get('severity', '?')}] "
+                    f"[cyan]{issue.get('page', '?')}[/cyan]: {issue.get('message', '')}"
+                )
+
+
+def _layer_status_counts(paths: cfg.WikiPaths) -> dict[str, dict[str, int]]:
+    counts = {layer: {} for layer in ("l1", "l2", "l3", "l4")}
+    if not paths.state_db.exists():
+        return counts
+    with db.connect(paths.state_db) as conn:
+        for layer in counts:
+            rows = conn.execute(
+                f"SELECT {layer}_status AS status, COUNT(*) AS n "
+                f"FROM sources GROUP BY {layer}_status"
+            ).fetchall()
+            counts[layer] = {str(row["status"] or "unknown"): int(row["n"]) for row in rows}
+    return counts
+
+
+def _render_pipeline_status(paths: cfg.WikiPaths) -> None:
+    counts = _layer_status_counts(paths)
+    if not any(counts[layer] for layer in counts):
+        return
+    table = Table(title="Pipeline Layer Status", show_header=True, header_style="bold")
+    table.add_column("Layer")
+    table.add_column("done", justify="right", style="green")
+    table.add_column("pending", justify="right", style="yellow")
+    table.add_column("error", justify="right", style="red")
+    table.add_column("skipped", justify="right", style="dim")
+    for label, layer in (("L1", "l1"), ("L2", "l2"), ("L3", "l3"), ("L4", "l4")):
+        row = counts[layer]
+        table.add_row(
+            label,
+            str(row.get("done", 0)),
+            str(row.get("pending", 0) + row.get("force_pending", 0) + row.get("running", 0)),
+            str(row.get("error", 0)),
+            str(row.get("skipped", 0)),
+        )
+    console.print(table)
+
+
+def _run_sync_report_only(paths: cfg.WikiPaths, config: dict, *, reason: str) -> None:
+    """Run the default sync repair loop after add/curate/query."""
+    from . import sync as sync_module
+
+    console.print()
+    console.print(f"[dim]Running sync repair after {reason}...[/dim]")
+
+    structural_gaps = sync_module.run_mode_a(paths)
+    structural_report = lint_module.run_lint(paths, deep=False, client=None)
+
+    client = None
+    logic_gaps = []
+    repaired = 0
+    rebuilt = 0
+    try:
+        client = _start_client(config)
+        llm_fixed = lint_module.apply_llm_fixes(paths, structural_report.issues, client)
+        if llm_fixed:
+            structural_report = lint_module.run_lint(paths, deep=False, client=None)
+        fixed_count = lint_module.apply_fixes(paths, structural_report.issues)
+        structural_gap_fixed = sync_module.repair_structural_gaps(paths, structural_gaps)
+        nested_fixed = sync_module.repair_nested_frontmatter(paths)
+        repaired += llm_fixed + fixed_count + structural_gap_fixed + nested_fixed
+        if repaired:
+            structural_report = lint_module.run_lint(paths, deep=False, client=None)
+            structural_report.auto_fixed = repaired
+            structural_gaps = sync_module.run_mode_a(paths)
+        deep_report = lint_module.run_lint(paths, deep=True, client=client)
+        structural_report.issues.extend(
+            issue for issue in deep_report.issues if issue not in structural_report.issues
+        )
+        blocked_node_ids = _sync_blocked_node_ids(structural_report)
+        logic_gaps, repair = sync_module.repair_logical_gaps(
+            paths, client, blocked_node_ids=blocked_node_ids, max_iterations=2
+        )
+        repaired += repair.fixed
+        rebuilt += repair.rebuilt_downstream
+    except Exception as e:
+        _warn(f"Sync logical verification unavailable: {e}")
+    finally:
+        if client is not None:
+            client.close()
+
+    structural_issues = structural_report.errors + structural_report.warnings
+    blocked_node_ids = _sync_blocked_node_ids(structural_report)
+    _write_latest_sync_report(
+        paths,
+        reason=reason,
+        structural_report=structural_report,
+        structural_gaps=structural_gaps,
+        logic_gaps=logic_gaps,
+        fixed=repaired,
+        rebuilt=rebuilt,
+    )
+
+    total_gaps = len(structural_gaps) + len(logic_gaps)
+    if structural_issues:
+        _warn(f"{len(structural_issues)} structural issue(s) found by sync preflight.")
+    if blocked_node_ids:
+        _warn(f"{len(blocked_node_ids)} node(s) blocked from logical checks by structural review items.")
+    if total_gaps:
+        _mark_layer_status_from_sync_gaps(paths, structural_gaps + logic_gaps)
+        _warn(f"{total_gaps} verification gap(s) remain after sync repair.")
+        for gap in (structural_gaps + logic_gaps)[:10]:
+            console.print(f"  [yellow]•[/yellow] [{gap.layer}] [bold]{gap.node_id}[/bold]: {gap.message}")
+            if gap.reasoning:
+                console.print(f"    [dim]{gap.reasoning}[/dim]")
+        if total_gaps > 10:
+            console.print(f"  [dim]...and {total_gaps - 10} more[/dim]")
+    elif not structural_issues:
+        _mark_clean_sync_status(paths)
+        if repaired or rebuilt:
+            _ok(f"Sync repaired {repaired} issue(s), rebuilt {rebuilt} downstream page(s), and is now clean.")
+        else:
+            _ok("Sync clean.")
+
+
+def _mark_layer_status_from_sync_gaps(paths: cfg.WikiPaths, gaps: list) -> None:
+    """Reflect logical sync gaps in per-source layer status for resumable runs."""
+    concept_gaps = [g for g in gaps if getattr(g, "layer", "") == "concept"]
+    exhibition_gaps = [g for g in gaps if getattr(g, "layer", "") == "exhibition"]
+    if not concept_gaps and not exhibition_gaps:
+        return
+
+    if concept_gaps:
+        with db.connect(paths.state_db) as conn:
+            rows = conn.execute(
+                "SELECT id FROM sources WHERE l2_status = 'done' ORDER BY id ASC"
+            ).fetchall()
+        source_ids = [int(row["id"]) for row in rows]
+        if source_ids:
+            reason = "sync_logical_gap:" + ",".join(g.node_id for g in concept_gaps[:5])
+            db.set_sources_layer_status(paths.state_db, source_ids, "l3", "error", error=reason)
+            db.set_sources_layer_status(paths.state_db, source_ids, "l4", "pending")
+    if exhibition_gaps:
+        with db.connect(paths.state_db) as conn:
+            rows = conn.execute(
+                "SELECT id FROM sources WHERE l3_status = 'done' ORDER BY id ASC"
+            ).fetchall()
+        source_ids = [int(row["id"]) for row in rows]
+        if source_ids:
+            reason = "sync_logical_gap:" + ",".join(g.node_id for g in exhibition_gaps[:5])
+            db.set_sources_layer_status(paths.state_db, source_ids, "l4", "error", error=reason)
+
+
+def _mark_clean_sync_status(paths: cfg.WikiPaths) -> None:
+    """Clear stale layer errors once sync has verified the current graph."""
+    with db.connect(paths.state_db) as conn:
+        l2_done = [
+            int(row["id"])
+            for row in conn.execute("SELECT id FROM sources WHERE l2_status = 'done'").fetchall()
+        ]
+        l3_done = [
+            int(row["id"])
+            for row in conn.execute("SELECT id FROM sources WHERE l3_status = 'done'").fetchall()
+        ]
+    if l2_done and paths.concepts.exists() and any(paths.concepts.glob("CON-*.md")):
+        db.set_sources_layer_status(paths.state_db, l2_done, "l3", "done")
+    if l3_done and paths.exhibitions.exists() and any(paths.exhibitions.glob("EXH-*.md")):
+        db.set_sources_layer_status(paths.state_db, l3_done, "l4", "done")
+
+
+def _resolve_curate_workspace(explicit: Path | None) -> Path | None:
+    if explicit is not None:
+        return explicit.expanduser().resolve()
+
+    import os
+
+    env_workspace = os.environ.get("WORKSPACE_PATH")
+    if env_workspace:
+        return Path(env_workspace).expanduser().resolve()
+
+    cwd = Path.cwd().resolve()
+    for candidate in (cwd, *cwd.parents):
+        if (candidate / "curate.yml").exists():
+            return candidate
+    return None
+
+
+def _curate_spec_hash(workspace: Path | None) -> str:
+    if workspace is None:
+        return ""
+    curate_file = workspace / "curate.yml"
+    if not curate_file.exists():
+        return ""
+    return hashlib.sha256(curate_file.read_bytes()).hexdigest()[:12]
+
+
+def _find_workspace_exhibition(paths: cfg.WikiPaths, project: str, spec_hash: str) -> Path | None:
+    if not paths.exhibitions.exists() or not project or not spec_hash:
+        return None
+    for md_path in sorted(paths.exhibitions.glob("EXH-*.md")):
+        parsed = page_writer.read_page(md_path)
+        if not parsed:
+            continue
+        if (
+            parsed.frontmatter.get("workspace") == project
+            and parsed.frontmatter.get("curate_spec_hash") == spec_hash
+            and not parsed.frontmatter.get("superseded_by")
+        ):
+            return md_path
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +749,233 @@ _CURATED_MODELS = [
 ]
 
 
+_CLOUD_MODELS: dict[str, list[dict]] = {
+    "gemini": [
+        {
+            "tag": "gemini-2.5-flash-lite",
+            "desc": "Lite · 최저 성능/최저 quota tier — testbed 1순위",
+            "think": False,
+            "cfg_key": "gemini_flash_model",
+        },
+        {
+            "tag": "gemini-3.1-flash-lite-preview",
+            "desc": "Lite preview · 현재 testbed 기본값",
+            "think": False,
+            "cfg_key": "gemini_flash_model",
+        },
+        {
+            "tag": "gemini-2.5-flash",
+            "desc": "Flash · 중간 성능/속도",
+            "think": False,
+            "cfg_key": "gemini_flash_model",
+        },
+        {
+            "tag": "gemini-3-flash-preview",
+            "desc": "Flash preview · 중간 성능/속도",
+            "think": False,
+            "cfg_key": "gemini_flash_model",
+        },
+        {
+            "tag": "gemini-2.5-pro",
+            "desc": "Pro · 고품질",
+            "think": True,
+            "cfg_key": "gemini_think_model",
+        },
+        {
+            "tag": "gemini-3.1-pro-preview",
+            "desc": "Pro preview · 최고품질 Thinking",
+            "think": True,
+            "cfg_key": "gemini_think_model",
+        },
+    ],
+    "claude": [
+        {
+            "tag": "claude-haiku-4-5",
+            "desc": "빠름 · 저비용 — 가벼운 작업",
+            "think": False,
+            "cfg_key": "claude_model",
+        },
+        {
+            "tag": "claude-sonnet-4-6",
+            "desc": "균형 (기본값) — 텍스트 합성·구조화",
+            "think": False,
+            "cfg_key": "claude_model",
+        },
+        {
+            "tag": "claude-opus-4-6",
+            "desc": "고품질 — 고난도 작업",
+            "think": False,
+            "cfg_key": "claude_model",
+        },
+        {
+            "tag": "claude-opus-4-7",
+            "desc": "최고품질 · Thinking — 깊은 분석",
+            "think": True,
+            "cfg_key": "claude_think_model",
+        },
+    ],
+    "openai": [
+        {
+            "tag": "gpt-4o-mini",
+            "desc": "빠름 · 저비용 — 경량 작업",
+            "think": False,
+            "cfg_key": "openai_model",
+        },
+        {
+            "tag": "gpt-4o",
+            "desc": "균형 — 범용",
+            "think": False,
+            "cfg_key": "openai_model",
+        },
+        {
+            "tag": "gpt-4.1",
+            "desc": "고품질 (기본값) — 표준 작업",
+            "think": False,
+            "cfg_key": "openai_model",
+        },
+        {
+            "tag": "o4-mini",
+            "desc": "빠른 Thinking — 경량 추론",
+            "think": True,
+            "cfg_key": "openai_think_model",
+        },
+        {
+            "tag": "o3",
+            "desc": "최고품질 · Thinking (기본값)",
+            "think": True,
+            "cfg_key": "openai_think_model",
+        },
+    ],
+}
+
+_PROVIDER_PRIMARY_CFG_KEY: dict[str, str] = {
+    "gemini": "gemini_flash_model",
+    "claude": "claude_model",
+    "openai": "openai_model",
+}
+_PROVIDER_THINK_CFG_KEY: dict[str, str] = {
+    "gemini": "gemini_think_model",
+    "claude": "claude_think_model",
+    "openai": "openai_think_model",
+}
+
+
+def _get_cloud_provider_from_primary(primary: str, llm_cfg: dict) -> str:
+    """Resolve the cloud provider string from the primary backend key."""
+    if primary == "claude-code":
+        return "claude"
+    if primary == "gemini-cli":
+        return "gemini"
+    if primary == "cloud":
+        return llm_cfg.get("cloud_provider", "gemini")
+    return ""
+
+
+def _show_cloud_models(cloud_provider: str, llm_cfg: dict) -> None:
+    """Print a Rich table of curated cloud models for the given provider."""
+    from rich.table import Table as RichTable
+
+    models = _CLOUD_MODELS.get(cloud_provider)
+    if not models:
+        _err(f"Unknown cloud provider '{cloud_provider}'. Use: gemini, claude, openai.")
+        return
+
+    # Determine currently active model tags
+    active_tags: set[str] = set()
+    primary_key = _PROVIDER_PRIMARY_CFG_KEY.get(cloud_provider, "")
+    think_key = _PROVIDER_THINK_CFG_KEY.get(cloud_provider, "")
+    defaults_regular = {
+        "gemini_flash_model": DEFAULT_GEMINI_FLASH_MODEL,
+        "claude_model": DEFAULT_CLAUDE_MODEL,
+        "openai_model": DEFAULT_OPENAI_MODEL,
+    }
+    defaults_think = {
+        "gemini_think_model": DEFAULT_GEMINI_THINK_MODEL,
+        "claude_think_model": DEFAULT_CLAUDE_THINK_MODEL,
+        "openai_think_model": DEFAULT_OPENAI_THINK_MODEL,
+    }
+    if primary_key:
+        active_tags.add(llm_cfg.get(primary_key, defaults_regular.get(primary_key, "")))
+    if think_key:
+        active_tags.add(llm_cfg.get(think_key, defaults_think.get(think_key, "")))
+    active_tags.discard("")
+
+    table = RichTable(
+        show_header=True,
+        box=None,
+        padding=(0, 1),
+        header_style="bold dim",
+        show_lines=False,
+    )
+    table.add_column("Model Tag", style="cyan",   min_width=26, no_wrap=True)
+    table.add_column("Type",      style="yellow", min_width=9,  no_wrap=True)
+    table.add_column("설명",                       min_width=30, max_width=44, no_wrap=True)
+    table.add_column("✓",         style="green",  min_width=2,  justify="center", no_wrap=True)
+
+    for m in models:
+        type_label = "[magenta]thinking[/magenta]" if m["think"] else "regular"
+        active_mark = "✓" if m["tag"] in active_tags else ""
+        table.add_row(m["tag"], type_label, m["desc"], active_mark)
+
+    console.print()
+    console.print(
+        f"[bold]{cloud_provider.capitalize()} 모델 목록[/bold]  "
+        "[dim](Active ✓ = 현재 config에 설정된 모델)[/dim]"
+    )
+    console.print(table)
+    console.print(
+        "[dim]변경: [bold]wiki config models use <tag>[/bold]  "
+        "·  모델 변경 후 [bold]wiki add[/bold] 재실행 권장[/dim]"
+    )
+
+
+def _pick_cloud_model(cloud_provider: str, llm_cfg: dict) -> tuple[str, str]:
+    """Interactive picker for cloud provider models. Returns (model_tag, cfg_key)."""
+    models = _CLOUD_MODELS.get(cloud_provider, [])
+    if not models:
+        _err(f"Unknown cloud provider '{cloud_provider}'.")
+        raise typer.Exit(code=1)
+
+    console.print()
+    for i, m in enumerate(models, 1):
+        type_badge = "  [magenta][thinking][/magenta]" if m["think"] else ""
+        console.print(f"  [cyan]{i}[/cyan]  {m['tag']}{type_badge}  [dim]— {m['desc']}[/dim]")
+    console.print("  [dim]0[/dim]  custom model name")
+    console.print()
+
+    # Default: first non-thinking model, or first overall
+    default_entry = next((m for m in models if not m["think"]), models[0])
+    default_idx = models.index(default_entry) + 1
+
+    while True:
+        raw = typer.prompt(
+            f"Select model (1–{len(models)}, or 0 for custom)",
+            default=str(default_idx),
+        ).strip()
+        if raw == "0":
+            tag = typer.prompt("Model tag", default=default_entry["tag"]).strip() or default_entry["tag"]
+            kind = typer.prompt("Type (regular/thinking)", default="regular").strip().lower()
+            if kind in ("thinking", "t", "think"):
+                cfg_key = _PROVIDER_THINK_CFG_KEY.get(cloud_provider, _PROVIDER_PRIMARY_CFG_KEY.get(cloud_provider, "model"))
+            else:
+                cfg_key = _PROVIDER_PRIMARY_CFG_KEY.get(cloud_provider, "model")
+            return tag, cfg_key
+        try:
+            idx = int(raw)
+            if 1 <= idx <= len(models):
+                entry = models[idx - 1]
+                return entry["tag"], entry["cfg_key"]
+        except ValueError:
+            if raw:
+                # Typed a model tag directly — look it up in catalog
+                tag_map = {m["tag"]: m for m in models}
+                if raw in tag_map:
+                    return raw, tag_map[raw]["cfg_key"]
+                # Unknown tag: default to primary key
+                return raw, _PROVIDER_PRIMARY_CFG_KEY.get(cloud_provider, "model")
+        console.print(f"[red]Enter a number between 0 and {len(models)}.[/red]")
+
+
 def _pick_ollama_model(host: str) -> str:
     """Show model picker. Tries live discovery first, falls back to curated list."""
     console.print()
@@ -357,18 +990,18 @@ def _pick_ollama_model(host: str) -> str:
 
     # Build a merged option list: curated first (with Installed badge for local ones),
     # then any locally-installed models not in the curated list.
-    curated_names = [m for m, _ in _CURATED_MODELS]
+    curated_names = [m["tag"] for m in _RECOMMENDED_MODELS]
     extra_live = [m for m in live_models if m not in curated_names]
     options = curated_names + extra_live
 
-    _curated_desc = dict(_CURATED_MODELS)
+    _curated_desc = {m["tag"]: f"{m['size']} · {m['tip']}" for m in _RECOMMENDED_MODELS}
     console.print()
     for i, m in enumerate(options, 1):
         desc = _curated_desc.get(m, "")
         badge = "  [bold green][Installed][/bold green]" if m in live_set else ""
         desc_str = f"  [dim]— {desc}[/dim]" if desc else ""
         console.print(f"  [cyan]{i}[/cyan]  {m}{desc_str}{badge}")
-    console.print(f"  [dim]0[/dim]  custom model name")
+    console.print("  [dim]0[/dim]  custom model name")
     console.print()
 
     default_model = "deepseek-r1:14b"
@@ -546,47 +1179,53 @@ def _ensure_ollama_running(host: str) -> bool:
 
 
 def _ensure_npm(install_cmd: str) -> bool:
-    """Ensure npm is available; auto-installs Node via nodeenv into the venv if needed."""
+    """Ensure npm is available; auto-installs Node via NVM into user space if needed."""
     import shutil
     import subprocess as _sp
-    import sys
     import os
+    from pathlib import Path
 
-    if shutil.which("npm"):
+    # 1. First check if any NVM Node bin already exists, and activate it
+    nvm_dir = Path.home() / ".nvm"
+    node_base = nvm_dir / "versions" / "node"
+    if node_base.exists():
+        for d in sorted(node_base.iterdir(), reverse=True):
+            if d.is_dir() and (d / "bin" / "npm").exists():
+                bin_dir = str(d / "bin")
+                if bin_dir not in os.environ.get("PATH", ""):
+                    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+                return True
+
+    # 2. Check if there is an existing user-space npm on PATH (e.g. from nvm/n/etc)
+    npm_path = shutil.which("npm")
+    if npm_path and str(Path(npm_path).resolve()).startswith(str(Path.home())):
         return True
 
-    # Check if already installed in venv node dir
-    node_dir = Path(sys.prefix) / "node"
-    npm_bin = node_dir / "bin" / "npm"
-    if npm_bin.exists():
-        bin_dir = str(node_dir / "bin")
-        if bin_dir not in os.environ.get("PATH", ""):
-            os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
-        return True
+    # 3. If NVM doesn't exist at all, download & install NVM
+    nvm_sh = nvm_dir / "nvm.sh"
+    if not nvm_sh.exists():
+        console.print("[dim]NVM not found. Installing NVM…[/dim]")
+        try:
+            _sp.run("curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash", shell=True, check=False)
+        except Exception:
+            pass
 
-    _warn("npm is not installed.")
-    try:
-        import nodeenv as _ne  # noqa: F401
-    except ImportError:
-        _hint("Install Node.js/npm:")
-        _hint("  [bold]https://nodejs.org[/bold]  or  [bold]brew install node[/bold]  or  [bold]apt install nodejs npm[/bold]")
-        _hint(f"Then run: [bold]{install_cmd}[/bold]")
-        return False
+    # 4. If NVM exists but no node installed, install Node via NVM
+    if nvm_sh.exists():
+        console.print("[dim]Installing Node LTS via NVM…[/dim]")
+        _sp.run(f"bash -c 'source {nvm_sh} && nvm install --lts'", shell=True, check=False)
 
-    console.print(f"[dim]Installing Node.js into venv ({node_dir})…[/dim]")
-    res = _sp.run([sys.executable, "-m", "nodeenv", "--prebuilt", str(node_dir)])
-    if res.returncode != 0:
-        _warn("nodeenv failed. Install Node.js manually and retry.")
-        return False
+        # Look for new bin path again
+        if node_base.exists():
+            for d in sorted(node_base.iterdir(), reverse=True):
+                if d.is_dir() and (d / "bin" / "npm").exists():
+                    bin_dir = str(d / "bin")
+                    if bin_dir not in os.environ.get("PATH", ""):
+                        os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+                    return True
 
-    bin_dir = str(node_dir / "bin")
-    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
-    if not shutil.which("npm"):
-        _warn("npm still not found after nodeenv install.")
-        return False
-
-    _ok("Node.js ready.")
-    return True
+    _warn("Could not set up NVM/Node. Install Node manually and retry.")
+    return False
 
 
 def _configure_backend(
@@ -628,20 +1267,39 @@ def _configure_backend(
 
     elif backend in ("claude-code", "gemini-cli"):
         cli_cmd = "claude" if backend == "claude-code" else "gemini"
-        install_cmd = (
-            "npm install -g @anthropic-ai/claude-code"
-            if backend == "claude-code"
-            else "npm install -g @google/gemini-cli"
-        )
+        pkg_name = "@anthropic-ai/claude-code" if backend == "claude-code" else "@google/gemini-cli"
+        install_cmd = f"npm install -g {pkg_name}"
         if not _cli_installed(cli_cmd):
             console.print()
             _warn(f"'{cli_cmd}' CLI is not installed.")
             if _ensure_npm(install_cmd):
                 if typer.confirm(f"Install now? ({install_cmd})", default=True):
-                    console.print(f"[dim]Running: {install_cmd}[/dim]")
-                    res = _sp.run(install_cmd, shell=True)
+                    import shutil
+                    from pathlib import Path
+                    npm_path = shutil.which("npm")
+                    if not npm_path:
+                        _nvm_dir = Path.home() / ".nvm" / "versions" / "node"
+                        if _nvm_dir.exists():
+                            for _d in sorted(_nvm_dir.iterdir(), reverse=True):
+                                if _d.is_dir() and (_d / "bin" / "npm").exists():
+                                    npm_path = str(_d / "bin" / "npm")
+                                    break
+
+                    if npm_path:
+                        console.print(f"[dim]Running: {npm_path} install -g {pkg_name}[/dim]")
+                        res = _sp.run([npm_path, "install", "-g", pkg_name])
+                    else:
+                        console.print(f"[dim]Running: {install_cmd}[/dim]")
+                        res = _sp.run(install_cmd, shell=True)
+
                     if res.returncode == 0:
                         _ok(f"'{cli_cmd}' installed.")
+                        console.print(f"[bold green]Launching '{cli_cmd}' to authenticate...[/bold green]")
+                        try:
+                            # Run the installed CLI command interactively so the user can directly log in/authenticate
+                            _sp.run([cli_cmd], check=False)
+                        except Exception:
+                            pass
                     else:
                         _warn(f"Install failed. Run manually: {install_cmd}")
         else:
@@ -674,29 +1332,7 @@ def _run_init_wizard(
 
     # Step 2: Configure the primary backend
     console.print(f"[dim]--- {primary} (primary) ---[/dim]")
-    if primary in ("claude-code", "gemini-cli"):
-        cli_cmd = "claude" if primary == "claude-code" else "gemini"
-        install_cmd = (
-            "npm install -g @anthropic-ai/claude-code"
-            if primary == "claude-code"
-            else "npm install -g @google/gemini-cli"
-        )
-        if not _cli_installed(cli_cmd):
-            console.print()
-            console.print(f"[yellow]'{cli_cmd}' CLI is not installed.[/yellow]")
-            console.print(f"[dim]Install:      {install_cmd}[/dim]")
-            console.print(f"[dim]Authenticate: {cli_cmd}[/dim]")
-            console.print()
-            if not typer.confirm("Save this setting anyway and install later?", default=True):
-                console.print("[dim]Switching back to Ollama primary.[/dim]")
-                primary = "ollama"
-                overrides["primary"] = primary
-                _configure_backend("ollama", overrides, prefill_keys, cloud_provider)
-                return overrides
-        else:
-            console.print(f"[dim green]'{cli_cmd}' CLI found.[/dim green]")
-    else:
-        _configure_backend(primary, overrides, prefill_keys, cloud_provider)
+    _configure_backend(primary, overrides, prefill_keys, cloud_provider)
 
     # Step 3: Fallback backend
     console.print()
@@ -721,24 +1357,37 @@ def _offer_install(overrides: dict, llm_cfg: dict) -> None:
     model   = overrides.get("model")   or llm_cfg.get("model", "deepseek-r1:14b")
     host    = overrides.get("host")    or llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
 
-    # CLI tool install
     if primary in ("claude-code", "gemini-cli"):
-        cli_cmd     = "claude" if primary == "claude-code" else "gemini"
-        install_cmd = (
-            "npm install -g @anthropic-ai/claude-code"
-            if primary == "claude-code"
-            else "npm install -g @google/gemini-cli"
-        )
+        cli_cmd = "claude" if primary == "claude-code" else "gemini"
+        pkg_name = "@anthropic-ai/claude-code" if primary == "claude-code" else "@google/gemini-cli"
+        install_cmd = f"npm install -g {pkg_name}"
         if not _cli_installed(cli_cmd):
             console.print()
             console.print(f"[yellow]'{cli_cmd}' is not installed.[/yellow]")
-            if typer.confirm(f"Install now? ({install_cmd})", default=True):
-                console.print(f"[dim]Running: {install_cmd}[/dim]")
-                res = subprocess.run(install_cmd, shell=True)
-                if res.returncode == 0:
-                    _ok(f"'{cli_cmd}' installed.")
-                else:
-                    _warn(f"Install failed. Run manually: {install_cmd}")
+            if _ensure_npm(install_cmd):
+                if typer.confirm(f"Install now? ({install_cmd})", default=True):
+                    import shutil
+                    from pathlib import Path
+                    npm_path = shutil.which("npm")
+                    if not npm_path:
+                        _nvm_dir = Path.home() / ".nvm" / "versions" / "node"
+                        if _nvm_dir.exists():
+                            for _d in sorted(_nvm_dir.iterdir(), reverse=True):
+                                if _d.is_dir() and (_d / "bin" / "npm").exists():
+                                    npm_path = str(_d / "bin" / "npm")
+                                    break
+
+                    if npm_path:
+                        console.print(f"[dim]Running: {npm_path} install -g {pkg_name}[/dim]")
+                        res = subprocess.run([npm_path, "install", "-g", pkg_name])
+                    else:
+                        console.print(f"[dim]Running: {install_cmd}[/dim]")
+                        res = subprocess.run(install_cmd, shell=True)
+
+                    if res.returncode == 0:
+                        _ok(f"'{cli_cmd}' installed.")
+                    else:
+                        _warn(f"Install failed. Run manually: {install_cmd}")
 
     # Ollama model pull (only when the wizard explicitly picked a model)
     if overrides.get("model") and model:
@@ -773,7 +1422,7 @@ _ALL_LLM_ERRORS = (
 )
 
 
-def _start_client(config: dict):
+def _start_client_inner(config: dict):
     """Build and verify the LLM client.
 
     - Tries the primary backend first.
@@ -845,6 +1494,31 @@ def _start_client(config: dict):
         raise typer.Exit(code=1)
 
 
+def _start_client(config: dict):
+    client = _start_client_inner(config)
+
+    # print model info
+    if isinstance(client, FailoverClient):
+        active = client.active_provider
+        chain = " → ".join(type(p).__name__ for p in client.providers)
+        provider_label = f"Failover (active: {type(active).__name__}) ({chain})"
+    elif isinstance(client, GeminiClient):
+        provider_label = "Gemini"
+    elif isinstance(client, ClaudeClient):
+        provider_label = "Claude"
+    elif isinstance(client, OpenAIClient):
+        provider_label = "OpenAI"
+    else:
+        provider_label = type(client).__name__
+
+    if provider_label.endswith("Client"):
+        provider_label = provider_label[:-6]
+
+    _ok(f"LLM ready · [bold]{provider_label}[/bold] (model: {client.model})")
+    return client
+
+
+
 @app.command()
 def version() -> None:
     """Show the LLM-Wiki version."""
@@ -902,7 +1576,7 @@ def init(
       00_System/ … 06_Archives/ — Vault topology (created if absent)
       .curator/config.yml        — project configuration
       .curator/state.sqlite      — tracking database
-      .curator/Collections/      — 01_Summaries/ 02_Atoms/ 03_Concepts/ 04_Synthesis/
+      .curator/Collections/      — 01_Contexts/ 02_Atoms/ 03_Concepts/ 04_Exhibitions/
       .curator/overview.md       — domain manifest
       .curator/index.md          — DAG routing table
       .curator/log.md            — ingest log
@@ -922,7 +1596,7 @@ def init(
     obsidian_dir = root / ".obsidian"
     if not obsidian_dir.exists():
         obsidian_dir.mkdir()
-        _ok(f"Created Obsidian vault marker: .obsidian/")
+        _ok("Created Obsidian vault marker: .obsidian/")
 
     paths = cfg.WikiPaths(
         root=root,
@@ -967,7 +1641,6 @@ def init(
         "raw_dirs": raw_dirs,
         "collections_dir": cfg.DEFAULT_COLLECTIONS_DIR,
     }
-
     # Cloud provider + API keys
     llm = dict(config.get("llm", {}))
 
@@ -1097,14 +1770,7 @@ def init(
     if not config.get("llm", {}).get("primary"):
         _hint("LLM provider not set. Run [bold]wiki config provider[/bold] to configure.")
     else:
-        _hint("Next: run [bold]wiki sync[/bold] to discover & summarize sources, then [bold]wiki ingest[/bold].")
-
-    llm_cfg = config.get("llm", {})
-    ollama_host = llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
-    _show_recommended_models(ollama_host)
-    console.print()
-
-
+        _hint("Next: run [bold]wiki add[/bold] to discover & summarize sources, then [bold]wiki curate[/bold].")
 
 @config_app.command("provider")
 def config_provider(
@@ -1165,8 +1831,13 @@ def config_provider(
 
         if model:
             llm["model"] = model
+            # If only model is specified (no explicit primary), infer ollama
+            if not primary:
+                llm["primary"] = "ollama"
         if host:
             llm["host"] = host
+            if not primary:
+                llm["primary"] = "ollama"
 
         import os
         for flag_val, env_var, cfg_key in [
@@ -1177,6 +1848,7 @@ def config_provider(
             resolved = flag_val or os.environ.get(env_var, "")
             if resolved:
                 llm[cfg_key] = resolved
+        _offer_install(llm, llm)
     else:
         # Interactive wizard
         overrides = _run_init_wizard(
@@ -1187,6 +1859,7 @@ def config_provider(
         )
         llm.update(overrides)
         _offer_install(overrides, llm)
+
 
     if "provider" in llm:
         del llm["provider"]
@@ -1203,6 +1876,7 @@ def config_provider(
 def status() -> None:
     """Show the current wiki's stats, paths, and config."""
     paths = _resolve_root_or_die()
+    ingest_llm._mark_existing_l3_done_if_present(paths)
     config = cfg.load_config(paths)
     stats = db.get_stats(paths.state_db)
 
@@ -1216,6 +1890,35 @@ def status() -> None:
         if raw_dir.exists():
             raw_files += sum(1 for p in raw_dir.rglob("*") if p.is_file() and not p.name.startswith("."))
 
+    def _get_backend_model(key: str, llm_cfg: dict) -> str:
+        if key == "ollama":
+            return llm_cfg.get("model", "deepseek-r1:14b")
+        elif key == "cloud":
+            cp = llm_cfg.get("cloud_provider", "gemini")
+            if cp == "gemini":
+                return llm_cfg.get("gemini_flash_model", DEFAULT_GEMINI_FLASH_MODEL)
+            elif cp == "claude":
+                return llm_cfg.get("claude_model", "claude-sonnet-4-6")
+            elif cp == "openai":
+                return llm_cfg.get("openai_model", "gpt-4.1")
+        elif key == "claude-code":
+            return llm_cfg.get("claude_model", "claude-sonnet-4-6")
+        elif key == "gemini-cli":
+            return llm_cfg.get("gemini_flash_model", DEFAULT_GEMINI_FLASH_MODEL)
+        return "?"
+
+    def _get_backend_label(key: str, llm_cfg: dict) -> str:
+        if key == "ollama":
+            return "Ollama"
+        elif key == "cloud":
+            cp = llm_cfg.get("cloud_provider", "gemini").capitalize()
+            return f"Cloud ({cp})"
+        elif key == "claude-code":
+            return "Claude Code"
+        elif key == "gemini-cli":
+            return "Gemini CLI"
+        return key.capitalize() if key else "?"
+
     console.print()
     console.print(
         Panel.fit(
@@ -1224,41 +1927,28 @@ def status() -> None:
         )
     )
 
-    table = Table(title="Sources", show_header=False, box=None, padding=(0, 2))
-    table.add_column(style="dim", width=22)
-    table.add_column()
-    table.add_row("Raw source files", str(raw_files))
-    table.add_row("Sources tracked (DB)", str(stats["sources_total"]))
-    table.add_row("Sources summarized (L1)", str(stats["sources_ingested"]))
-    table.add_row("Ingest runs", str(stats["ingest_runs"]))
-    console.print(table)
-
-    pages_table = Table(title="Collections", show_header=False, box=None, padding=(0, 2))
-    pages_table.add_column(style="dim", width=22)
-    pages_table.add_column()
-
-    l1 = _count_md(paths.summaries)
-    l2 = _count_md(paths.atoms)
-    l3 = _count_md(paths.concepts)
-    l4 = _count_md(paths.synthesis)
-    pages_table.add_row("L1 Summaries/",  str(l1))
-    pages_table.add_row("L2 Atoms/",      str(l2))
-    pages_table.add_row("L3 Concepts/",   str(l3))
-    pages_table.add_row("L4 Synthesis/",  str(l4))
-    pages_table.add_row("[bold]total[/bold]", f"[bold]{l1+l2+l3+l4}[/bold]")
-    console.print(pages_table)
-
     cfg_table = Table(title="Config", show_header=False, box=None, padding=(0, 2))
     cfg_table.add_column(style="dim", width=22)
     cfg_table.add_column()
     llm = config.get("llm", {})
     search_cfg = config.get("search", {})
-    cfg_table.add_row("LLM provider", llm.get("provider", "?"))
-    cfg_table.add_row("LLM model", llm.get("model", "?"))
-    cfg_table.add_row("LLM host", llm.get("host", "?"))
+
+    primary = llm.get("primary") or llm.get("provider") or "ollama"
+    cfg_table.add_row("Primary", _get_backend_label(primary, llm))
+    cfg_table.add_row("Primary model", _get_backend_model(primary, llm))
+
+    fallback = llm.get("fallback") or ""
+    if fallback and fallback != primary:
+        cfg_table.add_row("Fallback", _get_backend_label(fallback, llm))
+        cfg_table.add_row("Fallback model", _get_backend_model(fallback, llm))
+    else:
+        cfg_table.add_row("Fallback", "")
+
+    if primary == "ollama" or fallback == "ollama":
+        cfg_table.add_row("LLM host", llm.get("host", "?"))
+
     cfg_table.add_row("Search backend", search_cfg.get("backend", "?"))
     cfg_table.add_row("Reranking", "on" if search_cfg.get("rerank") else "off")
-    # Show QMD binary availability + resolved path
     qmd_bin = search.get_qmd_binary()
     if search.is_available():
         version = search.get_version() or "installed"
@@ -1269,13 +1959,46 @@ def status() -> None:
         cfg_table.add_row("QMD binary", "[red]not found[/red]")
     console.print(cfg_table)
 
+    table = Table(title="Sources", show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="dim", width=22)
+    table.add_column()
+    table.add_row("Raw source files", str(raw_files))
+    table.add_row("Sources tracked (DB)", str(stats["sources_total"]))
+    table.add_row("Sources summarized (L1)", str(stats["sources_curated"]))
+    table.add_row("Ingest runs", str(stats["ingest_runs"]))
+    console.print(table)
+
+    pages_table = Table(title="Collections", show_header=False, box=None, padding=(0, 2))
+    pages_table.add_column(style="dim", width=22)
+    pages_table.add_column()
+
+    l1 = _count_md(paths.contexts)
+    l2 = _count_md(paths.atoms)
+    l3 = _count_md(paths.concepts)
+    l4 = _count_md(paths.exhibitions)
+    pages_table.add_row("L1 Contexts/",     str(l1))
+    pages_table.add_row("L2 Atoms/",        str(l2))
+    pages_table.add_row("L3 Concepts/",     str(l3))
+    pages_table.add_row("L4 Exhibitions/",  str(l4))
+    pages_table.add_row("[bold]total[/bold]", f"[bold]{l1+l2+l3+l4}[/bold]")
+    console.print(pages_table)
+
+    _render_pipeline_status(paths)
+    _render_latest_sync_report_summary(paths)
+
+    try:
+        sync_preflight = lint_module.run_lint(paths, deep=False, client=None)
+        _render_sync_preflight_summary(sync_preflight)
+    except Exception as e:
+        _warn(f"Sync preflight summary unavailable: {e}")
+
     console.print()
     if stats["sources_total"] == 0:
-        _hint("No sources yet. Sync them with [bold]wiki sync[/bold]")
-    elif stats["sources_ingested"] == 0:
+        _hint("No sources yet. Add them with [bold]wiki add[/bold]")
+    elif stats["sources_curated"] == 0:
         _hint(
-            f"{stats['sources_total']} source(s) tracked but not ingested. "
-            f"Stage 3 will add [bold]wiki ingest[/bold] to process them with the LLM."
+            f"{stats['sources_total']} source(s) tracked but not curated. "
+            f"Stage 3 will add [bold]wiki curate[/bold] to process them with the LLM."
         )
 
 
@@ -1285,23 +2008,27 @@ def status() -> None:
 
 
 @app.command()
-def sync(
+def add(
     force: bool = typer.Option(
-        False, "--force", "-f", help="Force re-generation of L1 Summaries even if they exist"
+        False, "--force", "-f", help="Force re-generation of L1 Contexts even if they exist"
+    ),
+    no_sync: bool = typer.Option(
+        False,
+        "--no-sync",
+        help="Skip the default sync repair/verification after add.",
     ),
 ) -> None:
-    """Sync raw directories with the tracking DB and generate L1 Summaries.
+    """Add sources: sync raw directories with tracking DB and generate L1-L3 layers.
 
     Phase 1: Discover new/changed files in source dirs (02_Wiki, 03_Notes,
              04_Resources) and register them in the DB.
-    Phase 2: For each file with status='pending' and no L1 Summary yet,
-             generate an L1 Summary in `.curator/Collections/01_Summaries/`.
+    Phase 2: Generate L1 Contexts, L2 Atoms, and L3 Concepts for pending files.
     """
     paths = _resolve_root_or_die()
     config = cfg.load_config(paths)
 
     console.print()
-    console.print(f"[dim]Scanning source directories for changes...[/dim]")
+    console.print("[dim]Scanning source directories for changes...[/dim]")
     console.print()
 
     # Phase 1: discover and register new/changed files
@@ -1318,50 +2045,90 @@ def sync(
         console.print("[dim]No new or changed files found.[/dim]")
 
     # Phase 2: generate L1 Summaries
-    # --force: consider all sources (pending + ingested) so deleted summary files
+    # --force: consider all sources (pending + curated) so deleted summary files
     # are regenerated even when the source content hasn't changed.
     with db.connect(paths.state_db) as conn:
         if force:
             candidate_rows = conn.execute(
-                "SELECT id, relpath, content_hash, summary_id FROM sources "
-                "WHERE status IN ('pending', 'ingested') ORDER BY id ASC"
+                "SELECT id, relpath, content_hash, context_id FROM sources "
+                "WHERE status IN ('pending', 'force_pending', 'curated', 'error') ORDER BY id ASC"
             ).fetchall()
         else:
-            # Always include ingested sources too so we can detect missing summary files
+            # Always include curated sources too so we can detect missing summary files
             candidate_rows = conn.execute(
-                "SELECT id, relpath, content_hash, summary_id FROM sources "
-                "WHERE status IN ('pending', 'ingested') ORDER BY id ASC"
+                "SELECT id, relpath, content_hash, context_id FROM sources "
+                "WHERE status IN ('pending', 'force_pending', 'curated') ORDER BY id ASC"
             ).fetchall()
 
     pending_rows = []
     for row in candidate_rows:
         if force:
-            # Always re-generate under --force; reset ingested rows back to pending
+            # Always re-generate under --force; reset curated rows back to force_pending
             with db.connect(paths.state_db) as conn:
                 conn.execute(
-                    "UPDATE sources SET status = 'pending' WHERE id = ?",
+                    "UPDATE sources SET status = 'force_pending', error_reason = NULL, "
+                    "l1_status = 'pending', l2_status = 'pending', "
+                    "l3_status = 'pending', l4_status = 'pending', layer_error = NULL "
+                    "WHERE id = ?",
                     (row["id"],),
                 )
             pending_rows.append(row)
             continue
 
-        sid = row["summary_id"]
+        sid = row["context_id"]
         if not sid:
             pending_rows.append(row)
         else:
-            # Smart heal: DB says done but summary file was deleted — regenerate
-            summary_path = paths.summaries / f"{sid}.md"
-            if not summary_path.exists():
+            # Smart heal: DB says done but context file was deleted — regenerate
+            context_path = paths.contexts / f"{sid}.md"
+            if not context_path.exists():
                 pending_rows.append(row)
 
-    if not pending_rows:
-        if not discovered:
-            _hint("All sources are up to date. Run [bold]wiki ingest[/bold] to process any pending atoms.")
+    with db.connect(paths.state_db) as conn:
+        l2_pending_count = conn.execute(
+            "SELECT COUNT(*) FROM sources WHERE status IN ('pending', 'force_pending')"
+        ).fetchone()[0]
+        l3_dirty_count = conn.execute(
+            "SELECT COUNT(*) FROM sources "
+            "WHERE l2_status = 'done' AND l3_status IN ('pending', 'error')"
+        ).fetchone()[0]
+
+    has_concepts = any(paths.concepts.glob("*.md")) if paths.concepts.exists() else False
+    if not pending_rows and not force and l3_dirty_count > 0:
+        console.print()
+        console.print(
+            f"[dim]Regenerating L3 Concepts from existing L2 Atoms "
+            f"({l3_dirty_count} source status row(s) marked dirty)...[/dim]"
+        )
+        console.print()
+        client = _start_client(config)
+        try:
+            changes = ingest_llm.run_l3_from_existing_atoms(
+                paths,
+                client,
+                lambda: CliIngestCallbacks(mode="batch"),
+            )
+            _ok(f"L3 regeneration complete: {len(changes)} concept(s) written")
+            _refresh_qmd_index(paths, embed=False)
+            _invalidate_latest_sync_report(paths, reason="add changed L3; sync report stale")
+            if not no_sync:
+                _run_sync_report_only(paths, config, reason="add")
+        finally:
+            client.close()
         return
 
-    console.print()
-    console.print(f"[dim]Generating L1 Summaries for {len(pending_rows)} pending source(s)...[/dim]")
-    console.print()
+    if not pending_rows and not force and has_concepts and l2_pending_count == 0:
+        if not discovered:
+            _hint("All sources are up to date. Run [bold]wiki curate[/bold] to stage L4 Exhibitions.")
+        return
+
+    if pending_rows:
+        console.print()
+        source_label = "selected" if force else "pending"
+        console.print(
+            f"[dim]Generating L1 Contexts for {len(pending_rows)} {source_label} source(s)...[/dim]"
+        )
+        console.print()
 
     client = _start_client(config)
 
@@ -1369,30 +2136,62 @@ def sync(
         summarized = 0
         for row in pending_rows:
             console.print(f"  [dim]summarizing[/dim] {row['relpath']}")
-            summary_id = ingest_raw.generate_l1_summary(
+            db.set_source_layer_status(paths.state_db, row["id"], "l1", "running")
+            context_id = ingest_raw.generate_l1_summary(
                 paths,
                 source_id=row["id"],
                 relpath=row["relpath"],
                 content_hash=row["content_hash"],
                 client=client,
                 config=config,
-                existing_summary_id=row["summary_id"],
+                existing_context_id=row["context_id"],
                 thinking=False,
             )
-            if summary_id:
-                _ok(f"  L1 [{summary_id}] ← {row['relpath']}")
+            if context_id:
+                _ok(f"  L1 [{context_id}] ← {row['relpath']}")
                 summarized += 1
             else:
+                db.set_source_layer_status(
+                    paths.state_db, row["id"], "l1", "error", error="summary_failed"
+                )
                 _warn(f"  Summary failed for {row['relpath']}")
 
+        has_concepts = any(paths.concepts.glob("*.md")) if paths.concepts.exists() else False
+        if summarized == 0 and not force and has_concepts and l2_pending_count == 0:
+            console.print()
+            _ok(f"Sync complete: {discovered} discovered, 0 summarized")
+            return
+
         console.print()
-        _ok(f"Sync complete: {discovered} discovered, {summarized} summarized")
+        console.print("[dim]Building L2 Atoms + L3 Concepts...[/dim]")
+        console.print()
 
-        # Refresh qmd index so the new L1 summaries are searchable.
-        if summarized > 0:
+        l3_results = ingest_llm.run_l1_to_l3(
+            paths,
+            client,
+            lambda: CliIngestCallbacks(mode="batch"),
+            mode="batch",
+            auto_discover=False,
+            thinking_for_extraction=False,
+            force=force,
+        )
+
+        atoms_created = sum(r.fragments_created for r in l3_results if r.ok)
+        atoms_updated = sum(r.fragments_updated for r in l3_results if r.ok)
+        console.print()
+        _ok(
+            f"Sync complete: {discovered} discovered, {summarized} summarized, "
+            f"{atoms_created} atoms created, {atoms_updated} updated"
+        )
+
+        if summarized > 0 or atoms_created > 0:
             _refresh_qmd_index(paths, embed=True)
+            _invalidate_latest_sync_report(paths, reason="add changed L1-L3; sync report stale")
 
-        _hint("Run [bold]wiki ingest[/bold] to build L2 Atoms → L3 Concepts → L4 Synthesis.")
+        if not no_sync and (summarized > 0 or atoms_created > 0 or atoms_updated > 0):
+            _run_sync_report_only(paths, config, reason="add")
+
+        _hint("Run [bold]wiki curate[/bold] to stage L4 Exhibitions.")
     finally:
         client.close()
 
@@ -1404,11 +2203,12 @@ def sources_list_cmd(
         None,
         "--status",
         "-s",
-        help="Only show sources with this status (pending|ingested|error).",
+        help="Only show sources with this status (pending|force_pending|curated|error).",
     ),
 ) -> None:
     """List all tracked sources."""
     paths = _resolve_root_or_die()
+    ingest_llm._mark_existing_l3_done_if_present(paths)
     rows = ingest_raw.list_sources(paths, status_filter=status_filter)
 
     if not rows:
@@ -1417,8 +2217,16 @@ def sources_list_cmd(
             _warn(f"No sources with status '{status_filter}'")
         else:
             _warn("No sources tracked yet.")
-            _hint("Discover them with [bold]wiki sync[/bold]")
+            _hint("Discover them with [bold]wiki add[/bold]")
         return
+
+    _ERROR_REASON_LABEL = {
+        "empty_file":  ("empty/unreadable",  "wiki add error — file has no extractable text"),
+        "missing_context": ("missing L1",    "wiki add error — L1 Context is missing or invalid"),
+        "parse_error": ("parse failed",       "wiki curate error — file could not be parsed"),
+        "llm_error":   ("LLM error",          "wiki curate error — LLM call failed"),
+        "invalid_atom_output": ("bad atom",   "wiki add error — L2 Atom output was invalid"),
+    }
 
     table = Table(
         title=f"Sources ({len(rows)})",
@@ -1430,25 +2238,104 @@ def sources_list_cmd(
     table.add_column("Type", width=6)
     table.add_column("Size", justify="right", width=9)
     table.add_column("Added", width=10)
-    table.add_column("Status", width=9)
+    table.add_column("Status", width=18)
+    table.add_column("L1", justify="center", width=8)
+    table.add_column("L2", justify="center", width=8)
+    table.add_column("L3", justify="center", width=8)
+    table.add_column("L4", justify="center", width=8)
     table.add_column("Path", overflow="fold")
 
+    def _layer_status_cell(value: str | None) -> str:
+        value = value or "pending"
+        style = {
+            "done": "green",
+            "running": "cyan",
+            "error": "red",
+            "pending": "yellow",
+            "skipped": "dim",
+        }.get(value, "white")
+        label = {
+            "done": "done",
+            "running": "run",
+            "error": "err",
+            "pending": "pend",
+            "skipped": "skip",
+        }.get(value, value[:4])
+        return f"[{style}]{label}[/{style}]"
+
+    error_rows: list[dict] = []
+    layer_error_rows: list[dict] = []
     for row in rows:
         added_short = row["added_at"][:10] if row["added_at"] else ""
         status = row["status"]
-        status_styled = f"[{_status_style(status)}]{status}[/{_status_style(status)}]"
+        error_reason = row["error_reason"] if "error_reason" in row.keys() else None
+        layer_error = row["layer_error"] if "layer_error" in row.keys() else None
+        if status == "error" and error_reason:
+            label, _ = _ERROR_REASON_LABEL.get(error_reason, (error_reason, ""))
+            status_styled = f"[red]error: {label}[/red]"
+            error_rows.append(dict(row))
+        else:
+            status_styled = f"[{_status_style(status)}]{status}[/{_status_style(status)}]"
+        if layer_error and any(
+            (row[f"{layer}_status"] if f"{layer}_status" in row.keys() else "") == "error"
+            for layer in ("l1", "l2", "l3", "l4")
+        ):
+            layer_error_rows.append(dict(row))
         table.add_row(
             str(row["id"]),
             row["file_type"],
             _format_bytes(row["bytes"]),
             added_short,
             status_styled,
+            _layer_status_cell(row["l1_status"] if "l1_status" in row.keys() else None),
+            _layer_status_cell(row["l2_status"] if "l2_status" in row.keys() else None),
+            _layer_status_cell(row["l3_status"] if "l3_status" in row.keys() else None),
+            _layer_status_cell(row["l4_status"] if "l4_status" in row.keys() else None),
             row["relpath"],
         )
 
     console.print()
     console.print(table)
-    console.print()
+
+    # Per-error hints
+    if error_rows or layer_error_rows:
+        console.print()
+        console.rule("[red]Error details[/red]")
+        shown_reasons: set[str] = set()
+        for row in error_rows:
+            reason = row.get("error_reason") or ""
+            _, desc = _ERROR_REASON_LABEL.get(reason, (reason, "unknown error"))
+            console.print(f"  [cyan]#{row['id']}[/cyan]  {row['relpath']}")
+            console.print(f"       [red]{desc}[/red]")
+            if reason == "empty_file":
+                console.print(f"       [dim]→ The file has no extractable text (scanned PDF?). "
+                               f"Run [bold]wiki sources rm {row['id']}[/bold] to remove it.[/dim]")
+            elif reason == "missing_context":
+                console.print(f"       [dim]→ Re-run [bold]wiki add --force[/bold] to regenerate L1 Contexts.[/dim]")
+            elif reason in ("parse_error", "llm_error"):
+                console.print(f"       [dim]→ Re-try with [bold]wiki curate {row['id']} --force[/bold][/dim]")
+            shown_reasons.add(reason)
+        for row in layer_error_rows:
+            if row.get("status") == "error":
+                continue
+            layer_error = row.get("layer_error") or ""
+            failed_layers = [
+                layer.upper()
+                for layer in ("l1", "l2", "l3", "l4")
+                if row.get(f"{layer}_status") == "error"
+            ]
+            console.print(f"  [cyan]#{row['id']}[/cyan]  {row['relpath']}")
+            console.print(
+                f"       [red]{', '.join(failed_layers)} layer error — {layer_error}[/red]"
+            )
+            if layer_error == "concept_clustering_failed":
+                console.print(
+                    "       [dim]→ L2 Atoms were written, but L3 Concept clustering failed. "
+                    "Re-run [bold]wiki add --force[/bold] after fixing the LLM/JSON issue.[/dim]"
+                )
+        console.print()
+    else:
+        console.print()
 
 
 @sources_app.command("show")
@@ -1555,6 +2442,117 @@ def sources_rm_cmd(
         raise typer.Exit(code=1)
 
 
+@sources_app.command("retry")
+def sources_retry_cmd(
+    source_id: Optional[int] = typer.Argument(
+        None,
+        help="Specific source ID to retry. If omitted, retries all sources with status='error'.",
+    ),
+) -> None:
+    """Retry errored sources: re-runs wiki add depending on error type.
+
+    \b
+      empty_file/missing_context → re-runs L1 Context generation
+      parse_error → re-runs full L1→L3 pipeline (atoms + concepts)
+      llm_error   → re-runs full L1→L3 pipeline (atoms + concepts)
+    """
+    paths = _resolve_root_or_die()
+    config = cfg.load_config(paths)
+
+    with db.connect(paths.state_db) as conn:
+        if source_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM sources WHERE id = ? AND status = 'error'", (source_id,)
+            ).fetchall()
+            if not rows:
+                _err(f"Source #{source_id} is not in error state.")
+                raise typer.Exit(code=1)
+        else:
+            rows = conn.execute(
+                "SELECT * FROM sources WHERE status = 'error' ORDER BY id ASC"
+            ).fetchall()
+
+    if not rows:
+        _ok("No errored sources found.")
+        return
+
+    add_rows    = [r for r in rows if (r["error_reason"] or "") in ("empty_file", "missing_context")]
+    curate_rows = [r for r in rows if (r["error_reason"] or "") in ("parse_error", "llm_error")]
+    unknown_rows = [r for r in rows if (r["error_reason"] or "") not in ("empty_file", "missing_context", "parse_error", "llm_error")]
+
+    console.print()
+    console.print(f"[bold]Retrying {len(rows)} errored source(s)…[/bold]")
+
+    # ── Re-add (empty_file) ──────────────────────────────────────────────────
+    if add_rows:
+        console.print()
+        console.print(f"[dim]  Phase: re-generating L1 Contexts for {len(add_rows)} source(s)…[/dim]")
+        client = _start_client(config)
+        try:
+            for row in add_rows:
+                with db.connect(paths.state_db) as conn:
+                    conn.execute(
+                        "UPDATE sources SET status = 'pending', error_reason = NULL, "
+                        "l1_status = 'pending', l2_status = 'pending', "
+                        "l3_status = 'pending', l4_status = 'pending', layer_error = NULL "
+                        "WHERE id = ?",
+                        (row["id"],),
+                    )
+                console.print(f"  [dim]summarizing[/dim] {row['relpath']}")
+                context_id = ingest_raw.generate_l1_summary(
+                    paths,
+                    source_id=row["id"],
+                    relpath=row["relpath"],
+                    content_hash=row["content_hash"],
+                    client=client,
+                    config=config,
+                    existing_context_id=row["context_id"],
+                    thinking=False,
+                )
+                if context_id:
+                    _ok(f"  L1 [{context_id}] ← {row['relpath']}")
+                else:
+                    _warn(f"  Still failed: {row['relpath']}")
+        finally:
+            client.close()
+
+    # ── Re-add L1-L3 (parse_error / llm_error) ──────────────────────────────
+    if curate_rows:
+        console.print()
+        console.print(f"[dim]{describe_backend(config)}…[/dim]")
+        client = _start_client(config)
+        try:
+            for row in curate_rows:
+                with db.connect(paths.state_db) as conn:
+                    conn.execute(
+                        "UPDATE sources SET status = 'force_pending', error_reason = NULL, "
+                        "l2_status = 'pending', l3_status = 'pending', "
+                        "l4_status = 'pending', layer_error = NULL WHERE id = ?",
+                        (row["id"],),
+                    )
+            l3_results = ingest_llm.run_l1_to_l3(
+                paths, client,
+                lambda: CliIngestCallbacks(mode="batch"),
+                mode="batch",
+                auto_discover=False,
+                thinking_for_extraction=True,
+            )
+            for result in l3_results:
+                if result.ok:
+                    _ok(f"  Retried #{result.source_id}")
+                else:
+                    _warn(f"  Still failed #{result.source_id}: {result.error}")
+        finally:
+            client.close()
+
+    # ── Unknown error_reason ─────────────────────────────────────────────────
+    for row in unknown_rows:
+        _warn(f"  #{row['id']} has unknown error_reason '{row['error_reason']}' — skipping.")
+
+    console.print()
+    _hint("Run [bold]wiki sources list -s error[/bold] to check remaining errors.")
+
+
 # ---------------------------------------------------------------------------
 # Stage 3 — LLM ingest
 # ---------------------------------------------------------------------------
@@ -1568,21 +2566,21 @@ class CliIngestCallbacks(ingest_llm.IngestCallbacks):
         self._stream_active = False
         self._stream_char_count = 0
 
-    def on_start(self, source_id: int, source_title: str, summary_id: str) -> None:
+    def on_start(self, source_id: int, source_title: str, context_id: str) -> None:
         console.print()
         console.rule(f"[bold cyan]Source #{source_id}[/bold cyan]  {source_title}")
-        if summary_id:
-            console.print(f"[dim]L1 Summary: {summary_id}[/dim]")
+        if context_id:
+            console.print(f"[dim]L1 Context: {context_id}[/dim]")
 
-    def on_pass1_start(self, atom_count: int) -> None:
-        console.print(f"[dim]  Pass 1 — drafting {atom_count} Atom(s) (L2)...[/dim]")
+    def on_pass1_start(self, fragment_count: int) -> None:
+        console.print(f"[dim]  Pass 1 — drafting {fragment_count} Atom(s) (L2)...[/dim]")
 
-    def on_atom_drafting(self, atom_id: str, name: str, operation: str) -> None:
+    def on_fragment_drafting(self, fragment_id: str, name: str, operation: str) -> None:
         console.print()
         op_color = "green" if operation == "created" else "yellow"
         console.print(
             f"  [{op_color}]{operation}[/{op_color}] [dim]atom[/dim] "
-            f"[cyan]{atom_id}[/cyan]  {name}"
+            f"[cyan]{fragment_id}[/cyan]  {name}"
         )
         console.print("[dim]┄[/dim]" * 60)
         self._stream_active = True
@@ -1593,37 +2591,37 @@ class CliIngestCallbacks(ingest_llm.IngestCallbacks):
             console.print(chunk, end="", style="dim", highlight=False)
             self._stream_char_count += len(chunk)
 
-    def on_atom_written(self, page: ingest_llm.PageChange) -> None:
+    def on_fragment_written(self, page: ingest_llm.PageChange) -> None:
         if self._stream_active:
             console.print()
             console.print("[dim]┄[/dim]" * 60)
             self._stream_active = False
 
-    def on_pass2_start(self, atom_count: int) -> None:
+    def on_pass2_start(self, fragment_count: int) -> None:
         console.print()
-        console.print(f"[dim]  Pass 2 — clustering {atom_count} atom(s) into Concepts (L3)...[/dim]")
+        console.print(f"[dim]  Pass 2 — clustering {fragment_count} atom(s) into Concepts (L3)...[/dim]")
 
-    def on_concept_drafting(self, concept_id: str, name: str) -> None:
-        console.print(f"  [green]creating[/green] [dim]concept[/dim] [cyan]{concept_id}[/cyan]  {name}")
+    def on_theme_drafting(self, theme_id: str, name: str) -> None:
+        console.print(f"  [green]creating[/green] [dim]concept[/dim] [cyan]{theme_id}[/cyan]  {name}")
         console.print("[dim]┄[/dim]" * 60)
         self._stream_active = True
 
-    def on_concept_written(self, page: ingest_llm.PageChange) -> None:
+    def on_theme_written(self, page: ingest_llm.PageChange) -> None:
         if self._stream_active:
             console.print()
             console.print("[dim]┄[/dim]" * 60)
             self._stream_active = False
 
-    def on_pass3_start(self, concept_count: int) -> None:
+    def on_pass3_start(self, theme_count: int) -> None:
         console.print()
-        console.print(f"[dim]  Pass 3 — synthesizing {concept_count} concept(s) into L4...[/dim]")
+        console.print(f"[dim]  Pass 3 — synthesizing {theme_count} concept(s) into Exhibitions (L4)...[/dim]")
 
-    def on_synthesis_drafting(self, syn_id: str, topic: str) -> None:
-        console.print(f"  [magenta]creating[/magenta] [dim]synthesis[/dim] [cyan]{syn_id}[/cyan]  {topic}")
+    def on_curation_drafting(self, cur_id: str, topic: str) -> None:
+        console.print(f"  [magenta]creating[/magenta] [dim]exhibition[/dim] [cyan]{cur_id}[/cyan]  {topic}")
         console.print("[dim]┄[/dim]" * 60)
         self._stream_active = True
 
-    def on_synthesis_written(self, page: ingest_llm.PageChange) -> None:
+    def on_curation_written(self, page: ingest_llm.PageChange) -> None:
         if self._stream_active:
             console.print()
             console.print("[dim]┄[/dim]" * 60)
@@ -1642,9 +2640,8 @@ class CliIngestCallbacks(ingest_llm.IngestCallbacks):
             _warn(f"Skipped by user: {result.source_title}")
             return
         _ok(
-            f"Ingested [bold]{result.source_title}[/bold] — "
-            f"{result.atoms_created} atoms created, {result.atoms_updated} updated, "
-            f"{result.concepts_created} concepts, {result.synthesis_created} synthesis"
+            f"Curated [bold]{result.source_title}[/bold] — "
+            f"{result.fragments_created} atoms created, {result.fragments_updated} updated"
         )
 
     def on_error(self, error: str) -> None:
@@ -1653,156 +2650,327 @@ class CliIngestCallbacks(ingest_llm.IngestCallbacks):
 
 
 @app.command()
-def ingest(
-    source_id: Optional[int] = typer.Argument(
+def curate(
+    force: bool = typer.Option(
+        False,
+        "--force", "-f",
+        help="Delete existing Exhibitions and regenerate from all Concepts.",
+    ),
+    no_sync: bool = typer.Option(
+        False,
+        "--no-sync",
+        help="Skip the default sync repair/verification after curating.",
+    ),
+    workspace: Optional[Path] = typer.Option(
         None,
-        help="Specific source ID to ingest. If omitted, processes all pending sources.",
-    ),
-    batch: bool = typer.Option(
-        False,
-        "--batch",
-        help="Skip the interactive confirmation prompt for each source.",
-    ),
-    no_discover: bool = typer.Option(
-        False,
-        "--no-discover",
-        help="Don't auto-scan raw/ for untracked files before ingesting.",
-    ),
-    no_thinking: bool = typer.Option(
-        False,
-        "--no-thinking",
-        help="Disable Qwen3 thinking mode in Pass 1 (faster, slightly lower quality).",
+        "--workspace",
+        help="Path to a workspace directory containing curate.yml (source filter).",
     ),
 ) -> None:
-    """Build the L2-L4 knowledge layer from L1 Summaries in Collections/.
+    """Stage L4 Exhibitions from L3 Concepts.
 
-    Writes only to .curator/Collections/ — never to the source vault dirs.
+    Reads Concept pages from .curator/Collections/03_Concepts/ and synthesizes
+    Exhibition pages in 04_Exhibitions/.  Use [bold]wiki add[/bold] first to build
+    L1 Contexts → L2 Atoms → L3 Concepts.
 
-    The pipeline runs three LLM passes per source:
-      Pass 1 (thinking mode) — extract irreducible facts → L2 Atoms/
-      Pass 2 — cluster atoms into coherent units → L3 Concepts/
-      Pass 3 — cross-domain synthesis → L4 Synthesis/
-
-    Then rebuilds index.md and appends to log.md.
+    Use --workspace PATH to load a curate.yml and restrict which Concepts are
+    included based on their source provenance (sources.include/exclude patterns).
     """
     paths = _resolve_root_or_die()
-    config = cfg.load_config(paths)
-    llm_cfg = config.get("llm", {})
+    curate_spec = None
+    workspace = _resolve_curate_workspace(workspace)
+    if workspace is None:
+        if console.is_interactive:
+            workspace = paths.root / "01_Workspaces" / "Curator Workspace"
+            _warn(f"No workspace found; initializing default workspace at {workspace}.")
+            data = CurateTemplateData(
+                project=default_project_name(workspace),
+                description=f"Knowledge workspace for {default_project_name(workspace)}",
+            )
+            prepare_workspace(
+                wiki_root=paths.root,
+                workspace=workspace,
+                agent="none",
+                curate_data=data,
+                install_rules=False,
+            )
+        else:
+            _err("wiki curate requires a workspace with curate.yml. Pass --workspace or set WORKSPACE_PATH.")
+            raise typer.Exit(code=1)
+    if workspace is not None:
+        from .curate_yml import load_curate_spec
+        try:
+            curate_spec = load_curate_spec(workspace)
+            if curate_spec is None:
+                _err(f"No curate.yml found in {workspace}.")
+                raise typer.Exit(code=1)
+            else:
+                src_info = f", sources.include={curate_spec.sources.include}" if curate_spec.sources.include else ""
+                console.print(
+                    f"[dim]curate.yml loaded: project=[bold]{curate_spec.project}[/bold]"
+                    f"{src_info}[/dim]"
+                )
+        except ValueError as e:
+            _err(f"curate.yml invalid: {e}")
+            raise typer.Exit(code=1)
 
-    # Build the right client based on system RAM
+    config = cfg.load_config(paths)
+
+    if force:
+        import shutil as _shutil
+        if paths.exhibitions.exists():
+            _shutil.rmtree(str(paths.exhibitions))
+            console.print("[dim]Existing Exhibitions cleared (--force).[/dim]")
+
     console.print()
     console.print(f"[dim]{describe_backend(config)}…[/dim]")
     client = _start_client(config)
 
-    if isinstance(client, FailoverClient):
-        active = client.active_provider
-        chain = " → ".join(type(p).__name__ for p in client.providers)
-        provider_label = f"Failover [active: {type(active).__name__}] ({chain})"
-    elif isinstance(client, GeminiClient):
-        provider_label = "Gemini"
-    elif isinstance(client, ClaudeClient):
-        provider_label = f"Claude [{client.model}]"
-    else:
-        provider_label = f"Ollama [{llm_cfg.get('model', 'deepseek-r1:14b')}]"
-    _ok(f"LLM ready · [bold]{provider_label}[/bold]")
-
-    mode = "batch" if batch else "interactive"
-    thinking = not no_thinking
-
+    syn_staged: list = []
     try:
-        if source_id is not None:
-            # Single source: run Phase A (atoms), then global Phase B/C/D via ingest_pending
-            # We mark it pending temporarily so ingest_pending picks it up, but actually
-            # we call ingest_source directly then run the global phases manually.
-            cb = CliIngestCallbacks(mode=mode)
-            result = ingest_llm.ingest_source(
-                paths,
-                source_id,
-                client,
-                cb,
-                mode=mode,
-                thinking_for_extraction=thinking,
+        today = ingest_llm._now_iso()
+        import tempfile
+        import shutil
+        staging = Path(tempfile.mkdtemp(prefix="curator-l4-"))
+        try:
+            cb = CliIngestCallbacks(mode="batch")
+            syn_staged = ingest_llm.run_l4_scoped(paths, client, cb, curate_spec, today, staging)
+            spec_hash = _curate_spec_hash(workspace)
+            existing_workspace_exh = (
+                _find_workspace_exhibition(paths, curate_spec.project, spec_hash)
+                if curate_spec is not None else None
             )
-            results = [result]
-            if result.ok:
-                # Phase B + C + D globally
-                console.print()
-                console.print("[dim]  Phase B — clustering all Atoms into Concepts (global)...[/dim]")
-                console.print("[dim]  Phase C — synthesizing all Concepts (global)...[/dim]")
-                global_cb = CliIngestCallbacks(mode=mode)
-                today = ingest_llm._now_iso()
-                import tempfile, shutil
-                staging = __import__("pathlib").Path(tempfile.mkdtemp(prefix="curator-global-"))
-                try:
-                    con_staged = ingest_llm._run_global_pass2_concepts(paths, client, global_cb, today, staging)
-                    for sp, fp, _ in con_staged:
-                        fp.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(sp, fp)
-                    syn_staged = ingest_llm._run_global_pass3_synthesis(paths, client, global_cb, today, staging)
-                    for sp, fp, _ in syn_staged:
-                        fp.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(sp, fp)
-                    from . import page_writer as _pw
-                    _pw.rebuild_index(paths, today)
-                    all_ch = [c for _, _, c in con_staged + syn_staged]
-                    if all_ch:
-                        bullets = [f"{c.operation}: [[{c.path.replace('.md','')}]]" for c in all_ch]
-                        _pw.append_log_entry(paths, today, "ingest", result.source_title, bullets)
-                    ingest_llm._update_ledger(paths)
-                    ingest_llm._update_overview(paths)
-                    if con_staged:
-                        console.print(f"  [green]+{len(con_staged)} concept(s)[/green]")
-                    if syn_staged:
-                        console.print(f"  [magenta]+{len(syn_staged)} synthesis page(s)[/magenta]")
-                finally:
-                    shutil.rmtree(str(staging), ignore_errors=True)
-        else:
-            # All pending (with auto-discovery) — full global pipeline inside ingest_pending
-            results = ingest_llm.ingest_pending(
-                paths,
-                client,
-                lambda: CliIngestCallbacks(mode=mode),
-                mode=mode,
-                auto_discover=not no_discover,
-                thinking_for_extraction=thinking,
-            )
+            for idx, (sp, fp, _) in enumerate(syn_staged):
+                target = fp
+                content = sp.read_text(encoding="utf-8")
+                parsed = page_writer.parse_page(content)
+                if curate_spec is not None:
+                    parsed.frontmatter["workspace"] = curate_spec.project
+                    parsed.frontmatter["curate_spec_hash"] = spec_hash
+                    parsed.frontmatter["workspace_path"] = str(workspace)
+                if existing_workspace_exh is not None and idx == 0:
+                    target = existing_workspace_exh
+                    existing = page_writer.read_page(existing_workspace_exh)
+                    if existing:
+                        parsed.frontmatter["id"] = existing.frontmatter.get("id", existing_workspace_exh.stem)
+                    content = parsed.to_markdown()
+                else:
+                    content = parsed.to_markdown()
+                target.parent.mkdir(parents=True, exist_ok=True)
+                page_writer.write_page(target, content)
+
+            from . import page_writer as _pw
+            _pw.rebuild_index(paths, today)
+            all_ch = [c for _, _, c in syn_staged]
+            if all_ch:
+                scope_label = curate_spec.project if curate_spec else "global"
+                bullets = [f"{c.operation}: [[{c.path.replace('.md', '')}]]" for c in all_ch]
+                _pw.append_log_entry(paths, today, "curate", scope_label, bullets)
+                with db.connect(paths.state_db) as conn:
+                    rows = conn.execute(
+                        "SELECT id FROM sources WHERE l3_status = 'done'"
+                    ).fetchall()
+                    source_ids = [row["id"] for row in rows]
+                db.set_sources_layer_status(paths.state_db, source_ids, "l4", "done")
+            ingest_llm._update_ledger(paths)
+            ingest_llm._update_overview(paths)
+        finally:
+            shutil.rmtree(str(staging), ignore_errors=True)
     finally:
         client.close()
 
-    if not results:
-        console.print()
-        _warn("No pending sources to ingest.")
-        _hint("Sync sources with [bold]wiki sync[/bold] first.")
-        return
-
     console.print()
-    console.rule("[bold]Ingest summary[/bold]")
-    ok_count = sum(1 for r in results if r.ok)
-    skipped_count = sum(1 for r in results if r.skipped)
-    error_count = sum(1 for r in results if r.error)
-    total_created = sum(r.pages_created for r in results)
-    total_updated = sum(r.pages_updated for r in results)
-
-    parts = []
-    if ok_count:
-        parts.append(f"[green]{ok_count} ingested[/green]")
-    if skipped_count:
-        parts.append(f"[yellow]{skipped_count} skipped[/yellow]")
-    if error_count:
-        parts.append(f"[red]{error_count} errors[/red]")
-    console.print("  " + " · ".join(parts))
-    console.print(
-        f"  [dim]total pages: {total_created} created, {total_updated} updated[/dim]"
-    )
+    console.rule("[bold]Curate summary[/bold]")
+    if syn_staged:
+        console.print(f"  [magenta]{len(syn_staged)} exhibition(s) created[/magenta]")
+    else:
+        console.print("  [dim]No exhibitions generated — ensure L3 Concepts exist.[/dim]")
+        _hint("Run [bold]wiki add[/bold] first to build L1 Contexts → L2 Atoms → L3 Concepts.")
     console.print()
 
-    if ok_count > 0:
-        console.print()
+    if syn_staged:
         _refresh_qmd_index(paths, embed=True)
+
+        if not no_sync:
+            _run_sync_report_only(paths, config, reason="curate")
 
         console.print()
         _hint("Run [bold]wiki status[/bold] to see updated page counts.")
         _hint("Ask a question with [bold]wiki query \"<your question>\"[/bold]")
+
+
+# ---------------------------------------------------------------------------
+# Stage 3b — sync (deductive verification engine)
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def sync(
+    node_id: Optional[str] = typer.Argument(
+        None,
+        help="Target node (CTX-/ATM-/CON-/EXH-). Omit for global verification.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Report gaps without fixing or rebuilding routing tables.",
+    ),
+    no_fix: bool = typer.Option(
+        False,
+        "--no-fix",
+        help="Report-only mode: do not apply structural or logical repairs.",
+    ),
+) -> None:
+    """Run deductive verification and rebuild routing tables.
+
+    \b
+    Mode A (no node_id): global reverse verification — traces L4 Exhibitions back
+    to L1 Contexts and flags any logical discontinuities.
+
+    Mode B (node_id given): targeted bidirectional propagation — traces upstream
+    to L1 and downstream to L4 from the given node, flagging broken references.
+
+    By default sync applies safe structural repairs and logical backprop repairs,
+    then re-verifies the affected graph. Use --no-fix or --dry-run for report-only
+    behavior.
+
+    Finishes by rebuilding index.md, ledger.md, log.md, and overview.md unless
+    --dry-run is given.
+    """
+    from . import sync as sync_module
+
+    paths = _resolve_root_or_die()
+    config = cfg.load_config(paths)
+    console.print()
+    console.rule("[bold cyan]Sync — Deductive Verification[/bold cyan]")
+
+    # Mode A / B — structural link verification
+    if node_id:
+        console.print(f"[dim]Mode B: targeted structural verification for {node_id}...[/dim]")
+        gaps = sync_module.run_mode_b(paths, node_id)
+    else:
+        console.print("[dim]Mode A: global structural verification (L4 → L1)...[/dim]")
+        gaps = sync_module.run_mode_a(paths)
+
+    console.print("[dim]Fast structural lint verification...[/dim]")
+    structural_report = lint_module.run_lint(paths, deep=False, client=None)
+
+    should_fix = not no_fix and not dry_run
+
+    # Mode C — LLM logical deduction (always runs)
+    client = _start_client(config)
+    try:
+        structural_fixed = 0
+        rebuilt = 0
+        if should_fix:
+            console.print("[dim]Applying safe structural lint repairs...[/dim]")
+            llm_fixed = lint_module.apply_llm_fixes(paths, structural_report.issues, client)
+            if llm_fixed > 0:
+                structural_report = lint_module.run_lint(paths, deep=False, client=None)
+            fixed_count = lint_module.apply_fixes(paths, structural_report.issues)
+            gap_fixed = sync_module.repair_structural_gaps(paths, gaps)
+            nested_fixed = sync_module.repair_nested_frontmatter(paths)
+            structural_fixed = llm_fixed + fixed_count + gap_fixed + nested_fixed
+            if structural_fixed > 0:
+                structural_report = lint_module.run_lint(paths, deep=False, client=None)
+                structural_report.auto_fixed = structural_fixed
+                gaps = sync_module.run_mode_b(paths, node_id) if node_id else sync_module.run_mode_a(paths)
+                _ok(f"{structural_fixed} safe structural lint issue(s) fixed.")
+
+        structural_issues = structural_report.errors + structural_report.warnings
+        needs_review = structural_report.needs_review
+        blocked_node_ids = _sync_blocked_node_ids(structural_report)
+        try:
+            deep_report = lint_module.run_lint(paths, deep=True, client=client)
+            structural_report.issues.extend(
+                issue for issue in deep_report.issues if issue not in structural_report.issues
+            )
+            structural_issues = structural_report.errors + structural_report.warnings
+            needs_review = structural_report.needs_review
+            blocked_node_ids = _sync_blocked_node_ids(structural_report)
+        except Exception as e:
+            _warn(f"Contradiction/equivalence scan unavailable: {e}")
+        if structural_issues:
+            console.print()
+            _warn(
+                f"{len(structural_issues)} structural lint issue(s) detected "
+                "(safe repairs run by default; use [bold]wiki sync[/bold] again after review):"
+            )
+            for issue in structural_issues[:20]:
+                console.print(
+                    f"  [yellow]•[/yellow] [{issue.severity.value}] "
+                    f"[cyan]{issue.page}[/cyan]: {issue.message}"
+                )
+            if len(structural_issues) > 20:
+                console.print(f"  [dim]...and {len(structural_issues) - 20} more[/dim]")
+            if needs_review:
+                _warn(f"{len(needs_review)} issue(s) need review; unresolved links were not deleted.")
+            if blocked_node_ids:
+                _warn(
+                    f"{len(blocked_node_ids)} node(s) have structural review items; "
+                    "related logical checks will be skipped."
+                )
+
+        console.print("[dim]Mode C: LLM logical deduction verification...[/dim]")
+        structural_gaps = list(gaps)
+        if should_fix:
+            logic_gaps, repair_result = sync_module.repair_logical_gaps(
+                paths,
+                client,
+                blocked_node_ids=blocked_node_ids,
+                max_iterations=2,
+            )
+            rebuilt = repair_result.rebuilt_downstream
+            logical_fixed = repair_result.fixed
+            if logical_fixed or rebuilt:
+                _ok(
+                    f"Logical sync repaired {logical_fixed} node(s) and rebuilt "
+                    f"{rebuilt} downstream page(s)."
+                )
+        else:
+            logic_gaps = sync_module.run_mode_c(paths, client, blocked_node_ids=blocked_node_ids)
+            logical_fixed = 0
+        gaps = structural_gaps + logic_gaps
+        fixed_for_report = int(getattr(structural_report, "auto_fixed", 0) or 0) + logical_fixed
+        _write_latest_sync_report(
+            paths,
+            reason="sync" if should_fix else "sync --no-fix",
+            structural_report=structural_report,
+            structural_gaps=structural_gaps,
+            logic_gaps=logic_gaps,
+            fixed=fixed_for_report,
+            rebuilt=rebuilt,
+        )
+
+        if gaps:
+            console.print()
+            _warn(f"{len(gaps)} verification gap(s) remain:")
+            for gap in gaps:
+                console.print(f"  [yellow]•[/yellow] [{gap.layer}] [bold]{gap.node_id}[/bold]: {gap.message}")
+                if gap.reasoning:
+                    console.print(f"    [dim]{gap.reasoning}[/dim]")
+            if not dry_run:
+                _mark_layer_status_from_sync_gaps(paths, gaps)
+                _warn("Layer status updated from remaining sync gaps.")
+        else:
+            console.print()
+            if structural_issues:
+                _warn("No logical gaps detected, but structural lint issues remain.")
+            else:
+                if not dry_run:
+                    _mark_clean_sync_status(paths)
+                _ok("No logical or structural gaps detected.")
+
+        if gaps and not dry_run:
+            _hint("Review remaining gaps, then rerun [bold]wiki sync[/bold].")
+    finally:
+        client.close()
+
+    if not dry_run:
+        sync_module.finalize_routing_tables(paths)
+        _ok("Routing tables rebuilt (index.md, ledger.md, log.md, overview.md).")
+    else:
+        _hint("--dry-run: routing tables not modified.")
 
 
 # ---------------------------------------------------------------------------
@@ -1818,7 +2986,7 @@ class CliQueryCallbacks(query_module.QueryCallbacks):
 
     def on_start(self, question: str, mode: str) -> None:
         console.print()
-        console.rule(f"[bold cyan]Query[/bold cyan]")
+        console.rule("[bold cyan]Query[/bold cyan]")
         console.print(f"[bold]Q:[/bold] {question}")
         console.print(f"[dim]mode: {mode}[/dim]")
         console.print()
@@ -1938,18 +3106,28 @@ def query(
     save_as: Optional[str] = typer.Option(
         None,
         "--save-as",
-        help="Save the answer as a new L4 Synthesis page (filename SYN-UUID.md). "
+        help="Save the answer as a new L4 Exhibition page (EXH-UUID.md). "
              "The value is used as the page title hint.",
     ),
     scope: str = typer.Option(
         "all",
         "--scope",
-        help="Restrict to a single Curator layer: all | summaries | atoms | concepts | synthesis.",
+        help="Restrict to a single Curator layer: all | contexts | atoms | concepts | exhibitions.",
     ),
     no_intent_classify: bool = typer.Option(
         False,
         "--no-intent-classify",
         help="Skip intent classification step (saves ~3 sec per query).",
+    ),
+    update: bool = typer.Option(
+        False,
+        "--update",
+        help="After answering, create a new L2 Atom from the answer insight.",
+    ),
+    workspace: Optional[Path] = typer.Option(
+        None,
+        "--workspace",
+        help="Path to a workspace directory containing curate.yml. Defaults to WORKSPACE_PATH or current workspace.",
     ),
 ) -> None:
     """Ask a question: search the wiki, synthesize an answer with citations.
@@ -1958,14 +3136,37 @@ def query(
     Within a session you can say '승격해줘' / 'save to wiki' etc. to promote the
     last answer into 02_Wiki under an auto-determined category folder.
 
+    Use --update to automatically create a new L2 Atom from the synthesized answer,
+    feeding new knowledge back into the L1-L3 pipeline for future curation.
+
     The query pipeline:
       1. Translate question to English (for non-English input)
       2. QMD search (BM25 + vector + rerank by default)
       3. Synthesize a cited answer from Curator pages, streamed to the terminal
-      4. Optionally save as a Synthesis page (--save-as) or promote to 02_Wiki
+      4. Optionally save as an Exhibition page (--save-as) or promote to 02_Wiki
     """
     paths = _resolve_root_or_die()
     config = cfg.load_config(paths)
+    curate_spec = None
+    workspace = _resolve_curate_workspace(workspace)
+    if workspace is not None:
+        from .curate_yml import load_curate_spec
+        try:
+            curate_spec = load_curate_spec(workspace)
+            if curate_spec is not None:
+                console.print(
+                    f"[dim]curate.yml loaded for query: "
+                    f"project=[bold]{curate_spec.project}[/bold][/dim]"
+                )
+        except ValueError as e:
+            console.print(f"[yellow]Warning:[/yellow] curate.yml invalid: {e}. Proceeding without workspace scope.")
+
+    # Auto-sync: if there are pending sources, add them first (L1-L3)
+    pending = db.get_pending_count(paths.state_db)
+    if pending > 0:
+        import subprocess
+        console.print(f"[yellow]{pending} pending source(s) found — running wiki add before query…[/yellow]")
+        subprocess.run(["wiki", "add"], check=False)
 
     # Resolve search mode shortcuts
     if lex:
@@ -1976,11 +3177,14 @@ def query(
         _err(f"Invalid mode '{mode}'. Use hybrid, lex, or vec.")
         raise typer.Exit(code=1)
 
-    if scope not in ("all", "summaries", "atoms", "concepts", "synthesis"):
+    if scope not in ("all", "contexts", "atoms", "concepts", "exhibitions"):
         _err(
-            f"Invalid scope '{scope}'. Use all, summaries, atoms, concepts, or synthesis."
+            f"Invalid scope '{scope}'. Use all, contexts, atoms, concepts, or exhibitions."
         )
         raise typer.Exit(code=1)
+    if curate_spec is not None:
+        if scope == "all" and curate_spec.scope != "all":
+            scope = curate_spec.scope
 
     if not search.is_available():
         _err("qmd binary not available.")
@@ -1991,20 +3195,19 @@ def query(
         raise typer.Exit(code=1)
 
     collection_pages = 0
-    for layer_dir in (paths.summaries, paths.atoms, paths.concepts, paths.synthesis):
+    for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.exhibitions):
         if layer_dir.exists():
             collection_pages += sum(
                 1 for p in layer_dir.glob("*.md") if not p.name.startswith(".")
             )
     if collection_pages == 0:
         _err("Curator collections are empty.")
-        _hint("Run [bold]wiki sync[/bold] then [bold]wiki ingest[/bold] first.")
+        _hint("Run [bold]wiki add[/bold] then [bold]wiki curate[/bold] first.")
         raise typer.Exit(code=1)
 
     console.print()
     console.print(f"[dim]{describe_backend(config)}…[/dim]")
     client = _start_client(config)
-    _ok(f"LLM ready · [bold]{type(client).__name__}[/bold]")
 
     run_kwargs = dict(
         mode=mode,
@@ -2014,28 +3217,42 @@ def query(
         save_as=save_as,
         scope=scope,
         classify_intent_first=not no_intent_classify,
+        workspace_project=curate_spec.project if curate_spec else None,
+        query_boost_terms=(curate_spec.topics + curate_spec.domains) if curate_spec else None,
+        ephemeral_exhibition=False if save_as else True,
     )
 
     callbacks = CliQueryCallbacks()
 
     try:
-        _run_query_repl(paths, client, callbacks, run_kwargs, initial_question=question)
+        _run_query_repl(
+            paths, client, callbacks, run_kwargs,
+            initial_question=question,
+            update_knowledge=update,
+            curate_spec=curate_spec,
+        )
     finally:
         client.close()
 
 
 def _run_query_repl(
-    paths, client, callbacks, run_kwargs, *, initial_question: str | None = None
+    paths, client, callbacks, run_kwargs, *,
+    initial_question: str | None = None,
+    update_knowledge: bool = False,
+    curate_spec=None,
 ) -> None:
     """Interactive REPL: ask questions until the user submits an empty line.
 
     If initial_question is provided, it is answered first before prompting
     for further input — so `wiki query "question"` enters the same REPL.
+    update_knowledge=True creates a new L2 Atom from each synthesized answer.
     """
     from rich.prompt import Prompt
+    import uuid
 
     last_question: str | None = None
     last_answer: str | None = None
+    session_id = f"QRY-{uuid.uuid4().hex[:8]}"
 
     console.print()
     console.rule("[bold cyan]Wiki Chat[/bold cyan]")
@@ -2097,18 +3314,47 @@ def _run_query_repl(
             client,
             user_input,
             callbacks,
-            **{**run_kwargs, "classify_intent_first": False},
+            **{**run_kwargs, "classify_intent_first": False, "session_id": session_id},
         )
         if result.answer:
             last_question = user_input
             last_answer = result.answer
+            if result.saved_path:
+                config = cfg.load_config(paths)
+                _run_sync_report_only(paths, config, reason="query")
+
+            if update_knowledge:
+                today = ingest_llm._now_iso()
+                atom_id = ingest_llm.add_atom_from_insight(
+                    paths, client, result.answer, today, source_hint="query"
+                )
+                if atom_id:
+                    console.print(f"[dim]  → new atom created: [cyan]{atom_id}[/cyan][/dim]")
+
+    if last_answer and last_question and run_kwargs.get("save_as") is None and console.is_interactive:
+        confirmed = Prompt.ask(
+            "  [yellow]세션 답변을 02_Wiki에 저장할까요?[/yellow]",
+            choices=["yes", "no"],
+            default="no",
+        )
+        if confirmed == "yes":
+            try:
+                category, slug = query_module.classify_wiki_topic(
+                    client, last_question, last_answer
+                )
+                saved = query_module.save_wiki_page(
+                    paths, last_question, last_answer, category, slug
+                )
+                callbacks.on_wiki_saved(saved, category)
+            except OSError as e:
+                _err(f"Failed to save wiki page: {e}")
 
 
 @app.command()
 def reindex() -> None:
     """Force a full rebuild of the QMD search index.
 
-    Normally this runs automatically after `wiki ingest`, so you only need
+    Normally this runs automatically after `wiki curate`, so you only need
     this if the index gets out of sync (e.g. you edited wiki pages manually).
     """
     paths = _resolve_root_or_die()
@@ -2197,9 +3443,13 @@ def _render_lint_report_terminal(report: lint_module.LintReport) -> None:
                 )
                 if safe_suggestion:
                     console.print(f"      [dim]→ {safe_suggestion}[/dim]")
-                if issue.fixable:
+                if lint_module.is_safe_fixable(issue):
                     console.print(
-                        f"      [green dim]✓ auto-fixable[/green dim]"
+                        "      [green dim]✓ safe auto-fixable[/green dim]"
+                    )
+                elif issue.fixable:
+                    console.print(
+                        "      [yellow dim]! needs review if no confident reconnect is found[/yellow dim]"
                     )
 
     _render_group("Errors", report.errors, "red")
@@ -2207,7 +3457,6 @@ def _render_lint_report_terminal(report: lint_module.LintReport) -> None:
     _render_group("Info", report.infos, "cyan")
 
 
-@app.command()
 def lint(
     deep: bool = typer.Option(
         False,
@@ -2217,12 +3466,12 @@ def lint(
     fix: bool = typer.Option(
         False,
         "--fix",
-        help="Auto-fix trivial issues (malformed wikilinks, noise in sources).",
+        help="Auto-fix safe structural issues; unresolved broken links are kept for review.",
     ),
     save: bool = typer.Option(
         False,
         "--save",
-        help="Save the report as .curator/Collections/04_Synthesis/SYN-lint-YYYY-MM-DD.md",
+        help="Save the report as .curator/Collections/04_Exhibitions/EXH-lint-YYYY-MM-DD.md",
     ),
     max_pairs: int = typer.Option(
         10,
@@ -2253,13 +3502,17 @@ def lint(
     )
 
 
-    # If --deep, verify LLM backend up front
+    # Start LLM client for --deep and/or --fix
     client = None
-    if deep:
+    if deep or fix:
         config = cfg.load_config(paths)
         console.print(f"[dim]{describe_backend(config)}…[/dim]")
-        client = _start_client(config)
-        _ok(f"LLM ready · [bold]{type(client).__name__}[/bold]")
+        try:
+            client = _start_client(config)
+        except Exception as e:
+            if deep:
+                raise
+            console.print(f"[yellow]! LLM unavailable ({e}). --fix will use simple repairs only.[/yellow]")
 
     try:
         console.print()
@@ -2269,18 +3522,26 @@ def lint(
             console.print("[dim]Running fast checks…[/dim]")
 
         report = lint_module.run_lint(paths, deep=deep, client=client)
+
+        # Auto-fix: LLM relinking first, then deterministic non-destructive fixes.
+        if fix:
+            llm_fixed = 0
+            if client is not None:
+                console.print("[dim]Running LLM-based safe link reconnection…[/dim]")
+                llm_fixed = lint_module.apply_llm_fixes(paths, report.issues, client)
+                if llm_fixed > 0:
+                    report = lint_module.run_lint(paths, deep=False, client=None)
+
+            fixed_count = lint_module.apply_fixes(paths, report.issues)
+            total_fixed = llm_fixed + fixed_count
+            report.auto_fixed = total_fixed
+            if fixed_count > 0:
+                report = lint_module.run_lint(paths, deep=False, client=None)
+                report.auto_fixed = total_fixed
+
     finally:
         if client is not None:
             client.close()
-
-    # Auto-fix before displaying
-    if fix:
-        fixed_count = lint_module.apply_fixes(paths, report.issues)
-        report.auto_fixed = fixed_count
-        if fixed_count > 0:
-            # Rebuild inventory + re-run checks so the report reflects post-fix state
-            report = lint_module.run_lint(paths, deep=False, client=None)
-            report.auto_fixed = fixed_count
 
     _render_lint_report_terminal(report)
 
@@ -2288,13 +3549,13 @@ def lint(
     if save:
         import uuid as _uuid
         today = lint_module.page_writer.today_iso()
-        syn_id = f"SYN-lint-{today}-{_uuid.uuid4().hex[:4]}"
-        target_path = paths.synthesis / f"{syn_id}.md"
+        cur_id = f"EXH-lint-{today}-{_uuid.uuid4().hex[:4]}"
+        target_path = paths.exhibitions / f"{cur_id}.md"
         content = lint_module.render_report_markdown(report, paths)
         lint_module.page_writer.write_page(target_path, content)
         lint_module.page_writer.rebuild_index(paths, today)
         console.print()
-        _ok(f"Saved report to [cyan]04_Synthesis/{syn_id}.md[/cyan]")
+        _ok(f"Saved report to [cyan]04_Exhibitions/{cur_id}.md[/cyan]")
 
     # Exit code: 1 if there are errors, 0 otherwise (for CI use)
     if report.errors:
@@ -2317,13 +3578,14 @@ def models_list(
         "",
         "--host",
         "-H",
-        help="Ollama host URL to query (overrides config).",
+        help="Ollama host URL to query (overrides config). Only used when primary provider is ollama.",
     ),
 ) -> None:
-    """List models available on the configured Ollama host(s).
+    """List models for the configured LLM provider.
 
-    Checks local Ollama (llm.host) and, if configured, the remote host
-    (llm.remote_ollama_host). Use --host to query an arbitrary URL.
+    For Ollama: checks local (llm.host) and optional remote host (llm.remote_ollama_host).
+    For cloud providers (cloud/claude-code/gemini-cli): shows the curated model catalogue.
+    Use --host to query an arbitrary Ollama URL.
     """
     discovered = cfg.find_wiki_root()
     if discovered is not None:
@@ -2332,6 +3594,20 @@ def models_list(
     else:
         llm_cfg = {}
 
+    primary = llm_cfg.get("primary", "")
+
+    # --- Cloud providers ---
+    if primary not in ("", "ollama"):
+        if host:
+            console.print("[dim]--host는 Ollama 전용 옵션입니다. 무시합니다.[/dim]")
+        cp = _get_cloud_provider_from_primary(primary, llm_cfg)
+        if not cp:
+            _err(f"Unknown primary '{primary}'.")
+            raise typer.Exit(code=1)
+        _show_cloud_models(cp, llm_cfg)
+        return
+
+    # --- Ollama ---
     if host:
         targets = [("custom", host)]
     else:
@@ -2374,20 +3650,20 @@ def models_list(
 @config_models_app.command("use")
 def models_use(
     model: str = typer.Argument(
-        None, help="Model tag to activate (e.g. gemma4:31b). Omit to pick from the recommendation list."
+        None, help="Model tag to activate. Omit to pick interactively from the model list."
     ),
     host: str = typer.Option(
         "",
         "--host",
         "-H",
-        help="Ollama host to verify model availability (default: from config).",
+        help="Ollama host to verify model availability (default: from config). Ollama only.",
     ),
 ) -> None:
-    """Set the active Ollama model in project config.
+    """Set the active model in project config.
 
-    With no argument: shows the recommendation list and prompts for a choice.
-    If the chosen model is not yet pulled, automatically runs `ollama pull` first.
-    If Ollama is unreachable, saves the config without verification.
+    For Ollama: shows recommendation list; pulls the model if not yet downloaded.
+    For cloud providers (cloud/claude-code/gemini-cli): shows curated list and saves
+    the selection to the appropriate config key (e.g. claude_model, gemini_flash_model).
     """
     import subprocess
 
@@ -2395,6 +3671,40 @@ def models_use(
     config = cfg.load_config(paths)
     llm_cfg = config.get("llm", {})
 
+    primary = llm_cfg.get("primary", "")
+
+    # --- Cloud providers ---
+    if primary not in ("", "ollama"):
+        if host:
+            console.print("[dim]--host는 Ollama 전용 옵션입니다. 무시합니다.[/dim]")
+        cp = _get_cloud_provider_from_primary(primary, llm_cfg)
+        if not cp:
+            _err(f"Unknown primary '{primary}'.")
+            raise typer.Exit(code=1)
+
+        cfg_key: str
+        if not model:
+            # Interactive: show table then picker
+            _show_cloud_models(cp, llm_cfg)
+            model, cfg_key = _pick_cloud_model(cp, llm_cfg)
+            if not model:
+                console.print("[dim]취소됨.[/dim]")
+                raise typer.Exit()
+        else:
+            # Non-interactive: look up cfg_key from catalog; fall back to primary key
+            tag_to_cfg = {m["tag"]: m["cfg_key"] for m in _CLOUD_MODELS.get(cp, [])}
+            cfg_key = tag_to_cfg.get(model, _PROVIDER_PRIMARY_CFG_KEY.get(cp, "model"))
+
+        config.setdefault("llm", {})[cfg_key] = model
+        cfg.save_config(paths, config)
+        _ok(
+            f"Model set: [bold]{model}[/bold] "
+            f"[dim]({cfg_key})[/dim]  →  {paths.config_file.relative_to(paths.root)}"
+        )
+        _hint("Run [bold]wiki add[/bold] to start using the new model.")
+        return
+
+    # --- Ollama ---
     target_host = host or llm_cfg.get("remote_ollama_host", "").strip() or llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
 
     # No model given → show recommendation table and prompt interactively
@@ -2432,7 +3742,189 @@ def models_use(
     config.setdefault("llm", {})["model"] = model
     cfg.save_config(paths, config)
     _ok(f"Model set to [bold]{model}[/bold] in {paths.config_file.relative_to(paths.root)}")
-    _hint("Run [bold]wiki sync[/bold] to start using the new model.")
+    _hint("Run [bold]wiki add[/bold] to start using the new model.")
+
+
+# ---------------------------------------------------------------------------
+# Workspace commands — curate.yml Knowledge Requirement Specification
+# ---------------------------------------------------------------------------
+
+def _csv_items(items: Optional[list[str]]) -> list[str]:
+    result: list[str] = []
+    for item in items or []:
+        for part in item.split(","):
+            part = part.strip()
+            if part:
+                result.append(part)
+    return result
+
+
+def _interactive() -> bool:
+    import sys
+    return bool(sys.stdin.isatty())
+
+
+def _collect_curate_template_data(
+    *,
+    path: Path,
+    yes: bool,
+    project: Optional[str],
+    description: Optional[str],
+    domains: Optional[list[str]],
+    topics: Optional[list[str]],
+    min_confidence: float,
+    scope: str,
+) -> CurateTemplateData:
+    project_default = project or default_project_name(path)
+    description_default = description or f"Knowledge workspace for {project_default}"
+    domain_values = _csv_items(domains)
+    topic_values = _csv_items(topics)
+
+    if not yes and _interactive():
+        project_default = typer.prompt("Project id", default=project_default)
+        description_default = typer.prompt("Description", default=description_default)
+        if not domain_values:
+            domain_text = typer.prompt("Domains (comma-separated)", default="")
+            domain_values = _csv_items([domain_text])
+        if not topic_values:
+            topic_text = typer.prompt("Topics (comma-separated)", default="")
+            topic_values = _csv_items([topic_text])
+        min_confidence = float(typer.prompt("Minimum confidence", default=str(min_confidence)))
+        scope = typer.prompt("Scope", default=scope)
+
+    if scope not in ("all", "contexts", "atoms", "concepts", "exhibitions"):
+        _err(f"Invalid scope '{scope}'. Use all, contexts, atoms, concepts, or exhibitions.")
+        raise typer.Exit(code=1)
+    if not (0.0 <= float(min_confidence) <= 1.0):
+        _err("--min-confidence must be in [0.0, 1.0].")
+        raise typer.Exit(code=1)
+
+    return CurateTemplateData(
+        project=project_default,
+        description=description_default,
+        domains=domain_values,
+        topics=topic_values,
+        min_confidence=float(min_confidence),
+        scope=scope,
+    )
+
+
+def _print_workspace_prepare_result(result) -> None:
+    def _rel(path: Path) -> str:
+        try:
+            return str(path.relative_to(result.workspace))
+        except ValueError:
+            return str(path)
+
+    created = [_rel(p) for p in result.created]
+    updated = [_rel(p) for p in result.updated]
+    preserved = [_rel(p) for p in result.preserved]
+
+    console.print(f"[green]✓[/green] Workspace prepared at [bold]{result.workspace}[/bold]")
+    console.print(f"  Agent runtime: [bold]{result.agent}[/bold]")
+    if created:
+        console.print(f"  Created: {', '.join(created[:8])}{' …' if len(created) > 8 else ''}")
+    if updated:
+        console.print(f"  Updated: {', '.join(updated[:8])}{' …' if len(updated) > 8 else ''}")
+    if preserved:
+        console.print(f"  Preserved existing: {', '.join(preserved[:5])}{' …' if len(preserved) > 5 else ''}")
+
+
+@workspace_app.command("init")
+def workspace_init(
+    path: Path = typer.Argument(..., help="Path for the new workspace directory."),
+    agent: str = typer.Option(
+        "codex",
+        "--agent",
+        help="Agent runtime to install rules for: codex | claude-code | gemini-cli | antigravity | none.",
+    ),
+    no_rules: bool = typer.Option(
+        False,
+        "--no-rules",
+        help="Only create/sync curate.yml; do not install agent rules.",
+    ),
+    force_curate: bool = typer.Option(
+        False,
+        "--force-curate",
+        help="Overwrite curate.yml from template values.",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes", "-y",
+        help="Accept template defaults without prompting.",
+    ),
+    project: Optional[str] = typer.Option(None, "--project", help="curate.yml project id."),
+    description: Optional[str] = typer.Option(None, "--description", help="curate.yml description."),
+    domains: Optional[list[str]] = typer.Option(None, "--domain", help="Domain to add; repeat or comma-separate."),
+    topics: Optional[list[str]] = typer.Option(None, "--topic", help="Topic to add; repeat or comma-separate."),
+    min_confidence: float = typer.Option(0.60, "--min-confidence", help="curate.yml confidence floor."),
+    scope: str = typer.Option("all", "--scope", help="all | contexts | atoms | concepts | exhibitions."),
+) -> None:
+    """Scaffold or sync a workspace with curate.yml and agent rules."""
+    if agent not in VALID_AGENTS:
+        _err(f"Invalid --agent '{agent}'. Use: {' | '.join(sorted(VALID_AGENTS))}")
+        raise typer.Exit(code=1)
+
+    paths = _resolve_root_or_die()
+    path = path.expanduser().resolve()
+    data = _collect_curate_template_data(
+        path=path,
+        yes=yes,
+        project=project,
+        description=description,
+        domains=domains,
+        topics=topics,
+        min_confidence=min_confidence,
+        scope=scope,
+    )
+    result = prepare_workspace(
+        wiki_root=paths.root,
+        workspace=path,
+        agent=agent,
+        curate_data=data,
+        force_curate=force_curate,
+        install_rules=not no_rules,
+    )
+    _print_workspace_prepare_result(result)
+    console.print(f"  Set WORKSPACE_PATH={path} before running the MCP server to enable scoped search.")
+
+
+@workspace_app.command("list")
+def workspace_list() -> None:
+    """List all workspaces with curate.yml under the vault's 01_Workspaces/."""
+    from .curate_yml import find_workspaces
+    from rich.table import Table
+
+    paths = _resolve_root_or_die()
+    workspaces = find_workspaces(paths.root)
+
+    if not workspaces:
+        console.print("[dim]No workspaces with curate.yml found under 01_Workspaces/.[/dim]")
+        console.print("  Use [bold]wiki workspace init <path>[/bold] to create one.")
+        raise typer.Exit(0)
+
+    table = Table(title="Workspaces with curate.yml", show_header=True, header_style="bold")
+    table.add_column("Project", style="cyan")
+    table.add_column("Path", style="dim")
+    table.add_column("Domains")
+    table.add_column("min_confidence")
+    table.add_column("scope")
+
+    for ws_path, spec in workspaces:
+        try:
+            rel = ws_path.relative_to(paths.root)
+        except ValueError:
+            rel = ws_path
+        domains = ", ".join(spec.domains) if spec.domains else "[dim]—[/dim]"
+        table.add_row(
+            spec.project,
+            str(rel),
+            domains,
+            f"{spec.min_confidence:.2f}",
+            spec.scope,
+        )
+
+    console.print(table)
 
 
 # ---------------------------------------------------------------------------
@@ -2468,6 +3960,77 @@ def mcp_callback(ctx: typer.Context) -> None:
         _hint("Install with: [bold]uv pip install -e '.[mcp]'[/bold]")
         raise typer.Exit(code=1)
     mcp_server.serve_stdio()
+
+
+@mcp_app.command("connect")
+def mcp_connect_cmd(
+    agent: str = typer.Option(
+        ...,
+        "--agent",
+        help="Agent runtime: codex | claude-code | gemini-cli | antigravity.",
+    ),
+    workspace: Path = typer.Option(
+        ...,
+        "--workspace",
+        help="Workspace directory to connect to llm-wiki MCP.",
+    ),
+    force_curate: bool = typer.Option(
+        False,
+        "--force-curate",
+        help="Overwrite curate.yml from template values.",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes", "-y",
+        help="Accept template defaults without prompting.",
+    ),
+    project: Optional[str] = typer.Option(None, "--project", help="curate.yml project id."),
+    description: Optional[str] = typer.Option(None, "--description", help="curate.yml description."),
+    domains: Optional[list[str]] = typer.Option(None, "--domain", help="Domain to add; repeat or comma-separate."),
+    topics: Optional[list[str]] = typer.Option(None, "--topic", help="Topic to add; repeat or comma-separate."),
+    min_confidence: float = typer.Option(0.60, "--min-confidence", help="curate.yml confidence floor."),
+    scope: str = typer.Option("all", "--scope", help="all | contexts | atoms | concepts | exhibitions."),
+) -> None:
+    """Prepare workspace rules and print an MCP snippet for one agent runtime."""
+    if agent == "none" or agent not in VALID_AGENTS:
+        _err("Invalid --agent. Use: codex | claude-code | gemini-cli | antigravity")
+        raise typer.Exit(code=1)
+
+    paths = _resolve_root_or_die()
+    workspace = workspace.expanduser().resolve()
+    data = _collect_curate_template_data(
+        path=workspace,
+        yes=yes,
+        project=project,
+        description=description,
+        domains=domains,
+        topics=topics,
+        min_confidence=min_confidence,
+        scope=scope,
+    )
+    result = prepare_workspace(
+        wiki_root=paths.root,
+        workspace=workspace,
+        agent=agent,
+        curate_data=data,
+        force_curate=force_curate,
+        install_rules=True,
+    )
+
+    _print_workspace_prepare_result(result)
+    console.print()
+    console.print(
+        Panel.fit(
+            f"[bold]LLM-Wiki MCP connect[/bold]\n"
+            f"[dim]agent: {agent}\n"
+            f"vault: {paths.root}\n"
+            f"workspace: {workspace}[/dim]",
+            border_style="cyan",
+        )
+    )
+    console.print(render_mcp_snippet(wiki_root=paths.root, workspace=workspace))
+    console.print()
+    _hint("Paste this into the selected agent's MCP settings, then restart the agent.")
 
 
 @mcp_app.command("install")

@@ -58,6 +58,9 @@ def normalize_text(text: str) -> str:
     text = text.encode("utf-8", errors="ignore").decode("utf-8")
     # Normalize line endings
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Strip Obsidian/nunjucks template markers: %% ... %% (inline comments and
+    # section markers like %% begin notes %% / %% end notes %%)
+    text = re.sub(r"%%[^%]*%%", "", text)
     # Collapse runs of spaces/tabs within lines
     lines = []
     for line in text.split("\n"):

@@ -1,101 +1,147 @@
 ---
 created: 2026-04-27T20:11
-updated: 2026-05-03T06:02
+updated: 2026-05-06T00:00
 ---
 
-# 🧠 Agentic Zettelkasten: An Auto-Curating Workspace
+# 🧠 Agentic Zettelkasten: Auto-Curating Workspace
 
-> **파편화된 지식 자산을 관리하고, 환각(Hallucination) 없이 안전하게 복합 프로젝트를 수행하기 위해 구축된 Multi-Agent DAG(Directed Acyclic Graph) RAG 시스템입니다.**
+파편화된 지식 자산의 홍수 속에서 막대한 토큰 낭비와 환각 없이 복잡한 프로젝트를 안전하게 수행하기 위해 만든 비용 효율적인 Multi-Agent DAG(Directed Acyclic Graph) 시스템입니다.
 
-제텔카스텐(Zettelkasten)의 철학을 데이터 큐레이션(Data Curation) 아키텍처로 재구성하여, 수집된 외부 정보가 큐레이터 엔진의 **4단계 정제 파이프라인(등록 $\rightarrow$ 단편화 $\rightarrow$ 주제화 $\rightarrow$ 컨텍스트 포장)**을 거치도록 설계되었습니다. 이 과정을 통해 정밀하게 조립된 컨텍스트는 에이전트에게 주입되거나 인간과의 대화 재료로 사용되며, 최종적으로 진정한 의미의 **종합(Synthesis)**과 **전시(Exhibition)**를 이루어 시스템의 공식 지식(Wiki)으로 순환합니다.
+이 시스템은 지식을 연결하는 Zettelkasten 철학을 전문 큐레이션 아키텍처로 재구성했습니다. 수집된 외부 정보는 'Curator Engine'이 처리하며, 기계 친화적인 **4단계 전문 큐레이션 파이프라인(1단계: Context Summarization ➡️ 2단계: Atomization ➡️ 3단계: Concept Structuring ➡️ 4단계: Exhibition Staging)**을 거칩니다.
 
-우리 시스템은 **👤인간(Human)**, **⚙️큐레이터(Curator)**, **🤖실행 에이전트(Agent)** 세 개의 주체(Entity)로 나뉘어 유기적으로 상호작용합니다. 에이전트는 외부 데이터를 무분별하게 탐색하지 않고, 철저히 통제된 사전 지식망(`.curator/`)을 브릿지로 삼아 원천 지식을 검증하며 태스크를 수행합니다.
+이 과정을 통해 정밀하게 '컴파일'된 지식 패키지만 강력한 추론 능력을 가진 'Execution Agent(Artist)'에게 주입됩니다. 최종적으로 인간과 에이전트의 협업을 통해 진정한 **Synthesis**를 이루고, 이를 시스템의 공식 지식(Wiki)으로 순환시키는 무한 지식 창출 루프를 형성합니다.
 
----
+큐레이션 루프는 약간 훈련 과정처럼 동작합니다. `wiki add`와 `wiki curate`는 source knowledge를 DAG 위쪽으로 컴파일하는 forward pass이고, `wiki sync`는 backward verification pass입니다. 인간과 에이전트의 수정은 loss signal처럼 작동합니다. 생성된 노드가 근거에서 벗어나면 Curator는 그래프를 역추적하고, 생성된 구조를 안전하게 수리하며, 복구 가능한 L3/L4 노드를 다시 씁니다. 다만 이것은 실제 신경망 학습이 아니라 동작 비유입니다. 시스템은 불변 source truth를 덮어쓰지 않고, 애매한 수리는 인간 검토 대상으로 남깁니다.
 
-## 👥 3대 핵심 주체와 역할 (Entities)
+## 이 시스템의 핵심 특징
 
-| 주체 | 역할 | 주요 활동 |
+### DAG-Based Knowledge Compiler
+
+Curator는 노트를 평평한 검색 결과로만 저장하지 않습니다. Source material을 계층화된 evidence graph로 컴파일합니다.
+
+```text
+Source → L1 Context → L2 Atom → L3 Concept → L4 Exhibition
+```
+
+각 layer는 서로 다른 역할을 가집니다. L1은 source context를 보존하고, L2는 더 쪼개기 어려운 claims를 추출하며, L3는 관련 claims를 concepts로 엮고, L4는 agent가 바로 사용할 수 있는 task-ready knowledge package를 staging합니다.
+
+### Integrity-Aware Curation
+
+Curator는 한 번 생성하고 끝나는 generator가 아닙니다. 생성된 knowledge가 여전히 evidence로 역추적되는지 계속 확인합니다.
+
+- `wiki add`와 `wiki curate`는 knowledge를 DAG 위로 forward compile합니다.
+- `wiki sync`는 compiled graph를 source evidence 방향으로 backward trace합니다.
+- 안전한 structural issue는 자동으로 수리합니다.
+- 복구 가능한 generated-node gap은 L3/L4 page update로 이어질 수 있습니다.
+- 애매한 case는 조용히 삭제하지 않고 review item으로 남깁니다.
+
+### Workspace-Scoped Knowledge Staging
+
+각 agent workspace는 `curate.yml`에 자신에게 필요한 knowledge scope를 선언할 수 있습니다. Curator는 그 specification을 기준으로 해당 workspace의 실제 task에 맞는 Exhibitions를 surface/stage합니다.
+
+### Coverage-Preserving Concept Generation
+
+Curator는 source Atoms가 L3 Concepts에 실제로 표현되었는지 확인합니다. clustering model이 관련 Atoms를 누락하면, Curator는 source/topic group에 대한 fallback Concept을 만듭니다. Retriever, Generator, BM25, Parametric Memory, Retrieval-Augmented Generation Atoms로 구성된 RAG cluster처럼 작지만 중요한 topic도 Concept으로 승격되어야 합니다.
+
+## 👥 3 Core Entities (The Entities: Curator & Artist Metaphor)
+
+우리 시스템은 **Cost Efficiency(FinOps)**와 추론 성능을 동시에 얻기 위해 각 주체의 역할과 사용 모델(Model Routing)을 엄격히 분리합니다.
+
+| Entity | Metaphor (Role) | Architecture & Key Activities |
 | :--- | :--- | :--- |
-| **👤 인간**<br>`Human` | • `03_Notes`의 원천 지식 생성 및 소유<br>• 최종 지식 융합의 의사결정권자 | • 에이전트/큐레이터 제안 지식 검토<br>• 대화를 통한 합의점 도출 및 승인 |
-| **⚙️ 큐레이터**<br>`Curator Engine` | • `.curator/` 은닉 공간 상주 백그라운드 엔진<br>• 지식 그래프(DAG) 유지보수 및 대화 파트너 | • L1 $\rightarrow$ L2 $\rightarrow$ L3 $\rightarrow$ L4 정제 파이프라인 수행<br>• 정보 조립과 지식 지원 집중 (스스로 새로운 지식 창출 금지) |
-| **🤖 실행 에이전트**<br>`Workspace Agent` | • `01_Workspaces/` 상주 태스크 수행자<br>• 인간 명령 및 큐레이터 컨텍스트 기반 행동 | • 코딩, 기획, 분석 등 프로젝트 태스크 수행<br>• 합의된 지식을 `02_Wiki`로 승격 및 전시(Exhibition) |
+| **👤 Human** | Director | • `03_Notes` source knowledge의 생성자이자 소유자<br>• agent/curator가 제안한 지식을 검토하고 최종 의사결정(HITL)을 수행<br>• 대화를 통해 합의에 도달하고 최종 Wiki를 승인 |
+| **⚙️ Curator** | Compiler | • `.curator/` hidden space에 상주하는 background engine<br>• knowledge graph(DAG) 유지보수와 데이터 전처리를 전담하여 토큰 소비 최적화<br>• L1 ➡️ L4 refinement pipeline 수행. 스스로 source truth를 창조하지 않음 |
+| **🤖 Execution Agent (Agent)** | Artist | • `01_Workspaces/`에 상주하는 high-reasoning task executor<br>• 무거운 원본 검색 없이 curator가 staging한 exhibits를 기반으로 행동<br>• 코딩, 기획, 분석 등을 수행하고 합의된 지식을 `02_Wiki`로 승격 |
 
----
+## 📂 Core Directory Structure & Data Permissions (Two-Track Architecture)
 
-## 📂 핵심 디렉토리 구조 및 데이터 권한
+이 시스템은 machine-readable backend exhibition preparation space(`.curator`)와 human-readable domain knowledge space(`02_Wiki`)를 분리하는 two-track 디렉토리 구조를 가집니다.
 
 ```text
 /
-├── 00_System/               # 시스템 및 템플릿 관리
-│   ├── Scripts/             # 프로젝트 폴더 자동 생성 스크립트 등
-│   └── Templates/           # 반복 작업을 위한 템플릿 모음
+├── 00_System/               # 시스템 및 템플릿 관리(스크립트, prompt templates 등)
 │
-├── 01_Workspaces/           # 🤖 에이전트 거주지 / 지식 융합 및 프로젝트 실행 공간
-│   └── {Project Name}/ 
-│       ├── .agents/ & .antigravity/  # 에이전트 제어 규칙 및 페르소나 설정
-│       ├── Artifacts/       # 실험 코드, 중간 산출물 등
-│       ├── Concepts/        # 임시 개념 (인간과의 합의 후 02_Wiki로 편입됨)
-│       ├── Papers/          # 글로벌 지식을 프로젝트 맥락에 맞춰 재해석하는 논문 리뷰 샌드박스
-│       ├── Research Notes/  # 프로젝트 데일리 리서치 기록
-│       ├── qmd.yml          # 🌟 큐레이터가 에이전트에게 전달할 사전 지식을 결정하는 컨텍스트 로더
-│       ├── research_digest.md & todo_list.md  # 연구 가설 및 태스크 트래킹
-│       └── methodology.md, related_works.md 등  # 프로젝트 문서
+├── 01_Workspaces/           # 🎨 🤖 Artist(Agent) 거주지 / 지식 융합 및 프로젝트 실행 공간
+│   └── {Project Name}/
+│       ├── .agents/         # Agent control rules and persona settings
+│       ├── Artifacts/       # 실험 코드, deliverables 등
+│       ├── Concepts/        # 인간과 논의해 도출한 concepts. 합의 후 02_Wiki로 편입
+│       ├── Papers/          # 글로벌 지식을 프로젝트 맥락에 맞춰 재해석하는 paper review sandbox
+│       ├── curate.yml       # 🌟 [Knowledge Requirement Specification] Exhibition scope 결정
+│       └── research_digest.md, todo_list.md 등
 │
-├── 02_Wiki/                 # 🤖 에이전트 & ⚙️ 큐레이터 주도 공식 전시관 [PERM: 공용 쓰기 권한]
-│   └── (최종 종합(Synthesis) 및 인간과 합의된 정제 지식이 전시(Exhibition)되는 트리)
+├── 02_Wiki/                 # 🏛️ 🤖 Agent & ⚙️ Curator-led official exhibition hall
+│   └── 인간이 참조하기 편한 domain-based directory. 최종 Synthesis 결과 전시
 │
-├── 03_Notes/                # 👤 인간 중심 원천 지식 [PERM: Strict Read-Only]
-│   └── (비전, 수학, CS 등 인간의 1차 지식. 어떤 AI도 이 원본을 직접 수정 불가)
+├── 03_Notes/                # 👤 Human-centric source knowledge [PERM: Strict Read-Only]
+│   └── 인간의 primary knowledge. 어떤 AI도 직접 수정하지 않음
 │
-├── 04_Resources/            # 📚 불변 외부 지식 [PERM: Strict Read-Only]
-│   └── (PDF, Docs 등 증명된 외부 레퍼런스. 백그라운드 엔진이 참조용으로만 사용)
+├── 04_Resources/            # 📚 Immutable external knowledge [PERM: Strict Read-Only]
 │
-├── 05_Assets/               # 🗂️ 시스템 부산물
-│   └── (이미지 및 마크다운 의존성 파일들)
+├── 06_Archives/             # 📦 Legacy knowledge [PERM: Read-Only]
 │
-├── 06_Archives/             # 📦 레거시 지식 [PERM: Read-Only]
-│   └── (종료된 프로젝트 기록 등 과거의 컨텍스트 보존 공간)
-│
-└── .curator/                # ⚙️ 큐레이터 전용 은닉 공간 [PERM: Curator 및 Agent MCP Tool 접근]
+└── .curator/                # ⚙️ Curator 전용 hidden space [PERM: Curator/Agent MCP Tool]
     ├── config.yml           # 프로젝트 환경 설정
-    ├── state.sqlite         # 해시 레지스트리 및 상태 추적의 핵심 DB
-    ├── overview.md & index.md # 에이전트가 가장 먼저 참조하는 라우팅 테이블
-    ├── log.md & ledger.md   # 이벤트 기록 및 인간 강제 교정(HITL) 불변 로그
-    └── Collections/         # 추출-합성 기반의 L1~L4 지식 정제 파이프라인
-        ├── 01_Accessions/   # L1: 원본 1:1 요약, 등록된 초기 요약본 및 출처 데이터 집합
-        ├── 02_Fragments/    # L2: 요약본을 최소 단위로 분해한 지식 단편 집합
-        ├── 03_Themes/       # L3: 주제별 단편들을 엮어 재해석한 주제 및 맥락 집합
-        └── 04_Curations/    # L4: 에이전트 주입 및 인간 대화용 컨텍스트 패키지
+    ├── state.sqlite         # hash registry 및 state tracking DB
+    ├── overview.md & index.md # agent가 먼저 참조하는 routing tables
+    ├── sync-report.json     # wiki status에 표시되는 latest integrity report
+    └── Collections/         # 🧠 Curation 4-stage pipeline (L1~L4)
+        ├── 01_Contexts/     # [Stage 1: Collection & Summarization]
+        ├── 02_Atoms/        # [Stage 2: Selection & Atomization]
+        ├── 03_Concepts/     # [Stage 3: Structuring & Value Addition]
+        └── 04_Exhibitions/  # [Stage 4: Placement & Staging]
 ```
 
----
+## ⚠️ Workflow and Operational Rules (Pipeline Rules)
 
-## ⚠️ 워크플로우 및 운영 규칙 (Pipeline Rules)
+### 1. The Curator's Bridge for Knowledge Exploration
 
-### 1. 큐레이터 지식 탐색 브릿지 (The Curator's Bridge)
-- 에이전트와 인간은 새로운 쿼리를 시작할 때 외부 정보나 기존 노트(`02_Wiki`, `03_Notes`)를 무작정 전수조사하지 않습니다.
-- 큐레이터가 관리하는 `.curator/` 디렉토리 전역(라우팅 인덱스 및 L1~L4 컬렉션 전체)을 우선 탐색하여 **검증된 사전 지식을 확보**한 뒤 추론 및 대화를 시작합니다.
+- **목적:** 거대 모델(Agent)이 원문을 무의미하게 검색하면서 발생하는 토큰 낭비와 비용을 막습니다.
+- **동작:** agent와 human은 새 query를 시작할 때 `03_Notes` 원본을 직접 뒤지지 않습니다. 대신 curator가 `.curator/`에 미리 배치한 **Exhibitions**를 먼저 탐색해 검증된 prior knowledge를 확보한 뒤 본격적인 reasoning을 시작합니다.
+- **상세 메커니즘:** 각 workspace의 execution agent는 자신의 목표와 요구사항을 명시한 **Knowledge Requirement Specification(`curate.yml`)**을 가집니다. agent가 MCP server를 통해 curator에게 데이터를 요청하면, curator는 해당 spec에 맞는 지식을 선택해 Exhibition 형태로 제공합니다.
 
-### 2. 강력한 인간-AI 협상 (HITL: Strong Negotiation)
-- 시스템이 지식(`03_Notes` 등 원본) 내부의 논리적 모순이나 수학적 오류를 발견할 경우, **절대로 원본을 임의 수정하지 않습니다.**
-- 즉시 작업을 멈추고 인간에게 이의를 제기하여 토론을 시작합니다.
-- **불변성의 원칙:** 인간의 승인이 떨어지더라도 원본 노트(`03_Notes`)를 덮어쓰지 않습니다. 대신, 에이전트는 `.curator/` 내부에 있는 추상화된 **DAG 노드(Fragment)를 업데이트**(`curator_update_node`)하여 시스템 전반의 논리 구조를 바로잡습니다.
+### 1.1 Integrity-Aware Curation
 
-### 3. 지식의 전시(Exhibition)와 생태계 순환
-L4(Curations) 단계의 컨텍스트는 고정되어 있지 않으며, 큐레이터는 에이전트나 인간의 새로운 쿼리(Query)에 맞춰 실시간으로 새롭게 큐레이팅(Curating)될 수 있습니다. 준비된 컨텍스트는 성격에 따라 두 가지 경로를 통해 **최종 공식 지식(`02_Wiki`)으로 편입(Exhibition)**됩니다.
+- **Forward pass:** `wiki add`는 source truth에서 L1 Contexts, L2 Atoms, L3 Concepts를 만듭니다. `wiki curate`는 workspace를 위한 L4 Exhibitions를 staging합니다.
+- **Loss signal:** human 또는 agent의 수정, missing links, uncovered Atoms, logical gaps는 compiled DAG가 evidence와 어긋난 지점을 드러냅니다.
+- **Backward pass:** `wiki sync`는 safe structural repair, logical verification, bounded generated-node repair를 실행합니다. 복구 가능한 L3/L4 nodes를 업데이트하고 affected downstream pages를 rebuild할 수 있습니다.
+- **Boundary:** `wiki sync`는 `03_Notes`, `04_Resources`, `06_Archives`를 덮어쓰지 않습니다. 없는 Exhibition을 invent하지 않고, 애매한 knowledge를 fallback으로 삭제하지 않습니다.
 
-#### 🔄 경로 A: 에이전트 주도 태스크 종합 (Agent-Led Task Synthesis)
-- **주체:** 🤖 에이전트 + 👤 인간
-- **과정:** `01_Workspaces` 내에서 에이전트가 L4 컨텍스트를 재료로 주어진 과제(코드 작성, 구조 설계, 데이터 분석 등)를 수행하고, 인간과의 협상(HITL)을 거쳐 통찰을 도출합니다.
-- **전시:** 태스크가 완료되고 합의된 지식을 에이전트가 `02_Wiki`에 기록합니다.
+### 2. Strong Human-AI Negotiation (HITL: Strong Negotiation)
 
-#### 💬 경로 B: 큐레이터-인간 대화 기반 승격 (Conversational Promotion)
-- **주체:** ⚙️ 큐레이터 + 👤 인간
-- **과정:** 인간이 시스템에 쿼리나 질문을 던지면, 큐레이터는 자신이 구축해둔 L4 사전 지식 내에서 답변을 제공합니다. 이후 인간과 큐레이터가 충분한 대화(티키타카)를 나누며 개념을 발전시킵니다.
-- **전시:** 대화 중 도출된 내용이 훌륭한 개념이라고 합의/판단되면, 해당 내용을 `02_Wiki`로 공식 승격(Promote)시킵니다.
+- 시스템이 `03_Notes` 같은 source knowledge 내부의 logical contradictions 또는 errors를 발견하면, 원본을 임의 수정하지 않습니다. 즉시 작업을 멈추고 Director(Human)에게 이의를 제기해 논의를 시작합니다.
+- **Principle of Immutability:** 인간이 승인하더라도 original note(`03_Notes`) 자체는 덮어쓰지 않습니다. 대신 `.curator/` 내부의 generated knowledge nodes(Atoms/Concepts)를 업데이트해 전체 시스템의 logical structure를 안전하게 바로잡습니다.
 
----
+### 2.1 Sync Command
 
-## 🔁 무한 순환 루프 (The Infinite Loop)
-어떤 경로를 통하든 `02_Wiki`에 새롭게 전시된 공식 지식은, 다시 큐레이터 엔진의 **L1(Accessions) 파이프라인으로 유입**되어 전체 지식 생태계를 끝없이 팽창시킵니다. 이 모든 변경 사항은 `state.sqlite`에 로깅되며 자동으로 `wiki sync`를 발생시켜 DAG의 무결성을 유지합니다.
+```bash
+wiki sync          # default: safe repair + logical verification
+wiki sync --no-fix # report-only
+wiki sync --dry-run
+```
+
+`wiki status`는 Config, Sources, Collections, Pipeline Layer Status 다음에 latest sync health를 보여줍니다.
+
+### 2.2 Coverage-Preserving Concept Generation
+
+Concept generation은 source Atoms가 실제로 L3에 표현되었는지 확인합니다. clustering model이 관련 Atoms를 누락하면, Curator는 source/topic group에 대한 fallback Concept을 만들어 source를 조용히 complete 처리하지 않습니다. 예를 들어 Retriever, Generator, BM25, Parametric Memory, Retrieval-Augmented Generation 같은 RAG Atoms는 clustering model이 처음에 놓치더라도 RAG Concept으로 승격되어야 합니다.
+
+### 3. Fusion of Knowledge and Ecosystem Circulation (Synthesis)
+
+L4(Exhibitions) 단계의 exhibits는 query에 따라 실시간으로 새로 staging될 수 있습니다. 정제된 knowledge는 두 가지 경로를 통해 최종 official knowledge(`02_Wiki`)로 편입됩니다.
+
+#### 🔄 Path A: Agent-Led Task Synthesis
+
+- **Entity:** 🤖 Execution Agent(Artist) + 👤 Human(Director)
+- **Process:** `01_Workspaces` 안에서 agent가 curator가 준비한 Exhibitions를 재료로 프로젝트 tasks를 수행합니다.
+- **Result:** human과의 negotiation을 거쳐 완성된 insights와 deliverables를 agent가 `02_Wiki`에 기록합니다.
+
+#### 💬 Path B: Conversational Promotion
+
+- **Entity:** ⚙️ Curator + 👤 Human(Director)
+- **Process:** human이 질문하면 curator는 자신이 구축한 Concept network(L3) 안에서 답합니다. 이후 human과 충분히 대화하며 ideas를 발전시킵니다.
+- **Result:** 대화 중 도출된 내용이 좋은 concept이라고 판단되면 해당 내용을 `02_Wiki`로 official promotion합니다.
+
+#### 🔁 The Infinite Loop
+
+어떤 경로든 `02_Wiki`에 새로 staging된 official knowledge는 다시 background curator의 L1(Contexts) pipeline으로 유입되어 전체 knowledge ecosystem을 계속 확장합니다. 모든 변경은 `state.sqlite`에 기록되어 전체 DAG integrity를 유지합니다.

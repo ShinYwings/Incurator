@@ -84,7 +84,7 @@ def has_enough_ram_for_local() -> bool:
 
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "deepseek-r1:14b"
-DEFAULT_GEMINI_FLASH_MODEL = "gemini-3-flash-preview"
+DEFAULT_GEMINI_FLASH_MODEL = "gemini-3.1-flash-lite-preview"
 DEFAULT_GEMINI_THINK_MODEL = "gemini-3.1-pro-preview"
 DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
 DEFAULT_CLAUDE_THINK_MODEL = "claude-opus-4-7"
@@ -1154,14 +1154,15 @@ def _messages_to_prompt(messages: list[ChatMessage]) -> str:
 class ClaudeCodeClient:
     """LLM backend using the *claude* CLI (Claude Pro/Max subscription).
 
-    Requires: npm install -g @anthropic-ai/claude-code  then  claude login
+    Requires: npm install -g @anthropic-ai/claude-code
     """
 
     CLI = "claude"
     INSTALL_CMD = "npm install -g @anthropic-ai/claude-code"
 
-    def __init__(self, model: str = DEFAULT_CLAUDE_MODEL) -> None:
+    def __init__(self, model: str = DEFAULT_CLAUDE_MODEL, api_key: str = "") -> None:
         self.model = model
+        self.api_key = api_key
 
     def close(self) -> None:
         pass
@@ -1176,8 +1177,12 @@ class ClaudeCodeClient:
         cmd = [self.CLI, "-p", prompt]
         if self.model:
             cmd += ["--model", self.model]
+        import os
+        env = dict(os.environ)
+        if self.api_key:
+            env["ANTHROPIC_API_KEY"] = self.api_key
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
         except FileNotFoundError:
             raise ClaudeCodeError(
                 f"'{self.CLI}' CLI not found.\n"
@@ -1241,6 +1246,33 @@ class ClaudeCodeClient:
             return False
 
 
+def _get_gemini_fallback_chain(model_name: str) -> list[str]:
+    """Given a Gemini model name, return a list of models to try in order of fallback.
+    
+    If it's a lite model, fallback to flash, then pro.
+    If it's a flash model (not lite), fallback to pro.
+    If it's already a pro model, just return [pro].
+    """
+    name = model_name.lower()
+    chain = [model_name]
+    
+    if "3.1" in name or "3-" in name:
+        if "lite" in name:
+            chain.extend(["gemini-3-flash-preview", "gemini-3.1-pro-preview"])
+        elif "flash" in name and "lite" not in name:
+            chain.extend(["gemini-3.1-pro-preview"])
+    else:
+        if "lite" in name:
+            chain.extend(["gemini-2.5-flash", "gemini-2.5-pro"])
+        elif "flash" in name and "lite" not in name:
+            chain.extend(["gemini-2.5-pro"])
+            
+    result = []
+    for m in chain:
+        if m not in result:
+            result.append(m)
+    return result
+
 class GeminiCliClient:
     """LLM backend using the *gemini* CLI (Gemini Advanced subscription).
 
@@ -1250,8 +1282,9 @@ class GeminiCliClient:
     CLI = "gemini"
     INSTALL_CMD = "npm install -g @google/gemini-cli"
 
-    def __init__(self, model: str = DEFAULT_GEMINI_FLASH_MODEL) -> None:
+    def __init__(self, model: str = DEFAULT_GEMINI_FLASH_MODEL, api_key: str = "") -> None:
         self.model = model
+        self.api_key = api_key
 
     def close(self) -> None:
         pass
@@ -1263,24 +1296,61 @@ class GeminiCliClient:
         pass
 
     def _run(self, prompt: str) -> str:
-        cmd = [self.CLI, "-p", prompt]
-        if self.model:
-            cmd += ["--model", self.model]
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        except FileNotFoundError:
-            raise GeminiCliError(
-                f"'{self.CLI}' CLI not found.\n"
-                f"Install: {self.INSTALL_CMD}\n"
-                "Authenticate: gemini"
-            )
-        except subprocess.TimeoutExpired:
-            raise GeminiCliError("gemini CLI timed out after 300 s")
-        if result.returncode != 0:
-            raise GeminiCliError(
-                f"gemini CLI exited {result.returncode}: {result.stderr.strip()}"
-            )
-        return result.stdout.strip()
+        models_to_try = _get_gemini_fallback_chain(self.model)
+        
+        for i, current_model in enumerate(models_to_try):
+            cmd = [self.CLI, "-p", prompt]
+            if current_model:
+                cmd += ["--model", current_model]
+            import os
+            env = dict(os.environ)
+            if self.api_key:
+                env["GEMINI_API_KEY"] = self.api_key
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=900, env=env)
+            except FileNotFoundError:
+                raise GeminiCliError(
+                    f"'{self.CLI}' CLI not found.\n"
+                    f"Install: {self.INSTALL_CMD}\n"
+                    "Authenticate: gemini"
+                )
+            except subprocess.TimeoutExpired:
+                raise GeminiCliError("gemini CLI timed out after 900 s")
+                
+            if result.returncode != 0:
+                stderr = result.stderr.strip()
+                is_capacity_error = (
+                    "No capacity available" in stderr
+                    or "MODEL_CAPACITY_EXHAUSTED" in stderr
+                    or "QUOTA_EXHAUSTED" in stderr
+                    or "TerminalQuotaError" in stderr
+                    or "exhausted your capacity" in stderr
+                    or "429" in stderr
+                )
+                
+                if is_capacity_error and i < len(models_to_try) - 1:
+                    next_model = models_to_try[i+1]
+                    print(f"llm-wiki: Gemini CLI capacity exhausted for '{current_model}', falling back to '{next_model}'...", file=sys.stderr)
+                    continue
+                    
+                if is_capacity_error:
+                    raise GeminiCliError(
+                        f"Gemini API Capacity Exhausted (429) for all fallback models.\n"
+                        f"Last model tried: '{current_model}'.\n"
+                        f"Try switching to the Cloud API backend:\n"
+                        f"  wiki config provider --primary cloud --cloud-provider gemini"
+                    )
+                raise GeminiCliError(
+                    f"gemini CLI exited {result.returncode}: {stderr}"
+                )
+            return result.stdout.strip()
+        
+        raise GeminiCliError("No output returned from gemini CLI.")
+
+    @property
+    def optimal_chunk_chars(self) -> int:
+        """Keep CLI prompts modest; subprocess CLIs time out on very large chunks."""
+        return 18000
 
     def chat(
         self,
@@ -1575,12 +1645,14 @@ def _make_openai(llm_cfg: dict) -> OpenAIClient:
 def _make_claude_code(llm_cfg: dict) -> ClaudeCodeClient:
     return ClaudeCodeClient(
         model=llm_cfg.get("claude_model", DEFAULT_CLAUDE_MODEL),
+        api_key=llm_cfg.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY", ""),
     )
 
 
 def _make_gemini_cli(llm_cfg: dict) -> GeminiCliClient:
     return GeminiCliClient(
         model=llm_cfg.get("gemini_flash_model", DEFAULT_GEMINI_FLASH_MODEL),
+        api_key=llm_cfg.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY", ""),
     )
 
 
@@ -1756,16 +1828,27 @@ def describe_backend(config: dict, client: object = None) -> str:
         return base
 
     if primary == "cloud":
+        fallback = llm_cfg.get("fallback", "")
+        if not fallback:
+            return f"{cp} API"
         return (
-            f"Failover  primary={cp} → fallback=Ollama  "
+            f"Failover  primary={cp} → fallback={fallback}  "
             f"model={model}  host={host}  probe={probe}s"
         )
 
     if primary == "claude-code":
-        return f"Failover  primary=claude CLI → fallback=Ollama  model={model}  host={host}"
+        claude_m = llm_cfg.get("claude_model", DEFAULT_CLAUDE_MODEL)
+        fallback = llm_cfg.get("fallback", "")
+        if not fallback:
+            return f"claude CLI [{claude_m}]"
+        return f"Failover  primary=claude CLI [{claude_m}] → fallback={fallback}  model={model}  host={host}"
 
     if primary == "gemini-cli":
-        return f"Failover  primary=gemini CLI → fallback=Ollama  model={model}  host={host}"
+        gemini_m = llm_cfg.get("gemini_flash_model", DEFAULT_GEMINI_FLASH_MODEL)
+        fallback = llm_cfg.get("fallback", "")
+        if not fallback:
+            return f"gemini CLI [{gemini_m}]"
+        return f"Failover  primary=gemini CLI [{gemini_m}] → fallback={fallback}  model={model}  host={host}"
 
     # Legacy auto/explicit-provider path
     provider = llm_cfg.get("provider", "auto")

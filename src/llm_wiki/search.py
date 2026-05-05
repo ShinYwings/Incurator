@@ -146,18 +146,22 @@ def _qmd_env(paths: cfg.WikiPaths | None) -> dict[str, str]:
     pins the sqlite database. Both live under `.curator/qmd/` so the search
     state travels with the vault.
 
-    Also injects the nodeenv node/bin directory into PATH so that the `bin/qmd`
+    Also injects the NVM node/bin directory into PATH so that the `bin/qmd`
     launcher script can find `node` even when it is not on the system PATH.
     """
     import sys
     env = dict(os.environ)
 
-    # Ensure nodeenv-installed node is on PATH (takes priority if system node is absent)
-    nodeenv_bin = Path(sys.prefix) / "node" / "bin"
-    if nodeenv_bin.exists():
-        existing_path = env.get("PATH", "")
-        if str(nodeenv_bin) not in existing_path.split(os.pathsep):
-            env["PATH"] = str(nodeenv_bin) + os.pathsep + existing_path
+    # Ensure NVM-installed node is on PATH (takes priority if system node is absent)
+    nvm_dir = Path.home() / ".nvm" / "versions" / "node"
+    if nvm_dir.exists():
+        for d in sorted(nvm_dir.iterdir(), reverse=True):
+            if d.is_dir() and (d / "bin").exists():
+                bin_dir = str(d / "bin")
+                existing_path = env.get("PATH", "")
+                if bin_dir not in existing_path.split(os.pathsep):
+                    env["PATH"] = bin_dir + os.pathsep + existing_path
+                break
 
     if paths is not None:
         paths.qmd_dir.mkdir(parents=True, exist_ok=True)
@@ -276,7 +280,17 @@ _QMD_URI_RE = re.compile(r"^/?qmd://[^/]+/")
 def _normalize_qmd_path(raw: str) -> str:
     """Strip qmd://<collection>/ URI prefix and any leading slash."""
     cleaned = _QMD_URI_RE.sub("", raw)
-    return cleaned.lstrip("/")
+    cleaned = cleaned.lstrip("/")
+    layer_aliases = {
+        "01-Contexts/": "01_Contexts/",
+        "02-Atoms/": "02_Atoms/",
+        "03-Concepts/": "03_Concepts/",
+        "04-Exhibitions/": "04_Exhibitions/",
+    }
+    for old, new in layer_aliases.items():
+        if cleaned.startswith(old):
+            return new + cleaned[len(old):]
+    return cleaned
 
 
 def _mode_to_subcommand(mode: str) -> str:

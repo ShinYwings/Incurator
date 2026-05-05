@@ -1,9 +1,9 @@
 """Path constants and config loading for an LLM-Wiki Curator project.
 
-The Curator is a background abstraction engine that:
+The Curator (Compiler) is a background abstraction engine that:
   1. Monitors source dirs (02_Wiki, 03_Notes, 04_Resources) for changes
-  2. Generates L1 Summaries (1:1 hash-matched) during `wiki sync`
-  3. Builds L2 Atoms → L3 Concepts → L4 Synthesis via `wiki ingest`
+  2. Generates L1 Contexts (1:1 hash-matched) during `wiki add`
+  3. Builds L2 Atoms → L3 Concepts → L4 Exhibitions via `wiki curate`
 
 All Curator state lives exclusively in `.curator/`.
 """
@@ -43,10 +43,10 @@ VAULT_TOPOLOGY = (
 
 # L1-L4 subdirectories under Collections/
 COLLECTION_LAYERS = (
-    "01_Summaries",   # L1: 1:1 hash-matched summaries of source files
-    "02_Atoms",       # L2: Irreducible facts / equations / constraints
-    "03_Concepts",    # L3: Clustered, coherent conceptual units
-    "04_Synthesis",   # L4: Terminal knowledge outputs, cross-domain
+    "01_Contexts",    # L1: 1:1 hash-matched context summaries
+    "02_Atoms",       # L2: Irreducible atomic knowledge units
+    "03_Concepts",    # L3: High-level conceptual clusters of atoms
+    "04_Exhibitions", # L4: Terminal packaged contexts for agents (Artists)
 )
 
 # Top-level routing / control-plane files inside .curator/
@@ -104,9 +104,9 @@ class WikiPaths:
     # ------------------------------------------------------------------
 
     @property
-    def summaries(self) -> Path:
-        """L1: `.curator/Collections/01_Summaries/`"""
-        return self.collections / "01_Summaries"
+    def contexts(self) -> Path:
+        """L1: `.curator/Collections/01_Contexts/`"""
+        return self.collections / "01_Contexts"
 
     @property
     def atoms(self) -> Path:
@@ -119,9 +119,9 @@ class WikiPaths:
         return self.collections / "03_Concepts"
 
     @property
-    def synthesis(self) -> Path:
-        """L4: `.curator/Collections/04_Synthesis/`"""
-        return self.collections / "04_Synthesis"
+    def exhibitions(self) -> Path:
+        """L4: `.curator/Collections/04_Exhibitions/`"""
+        return self.collections / "04_Exhibitions"
 
     # ------------------------------------------------------------------
     # Control-plane routing files
@@ -199,9 +199,9 @@ DEFAULT_CONFIG: dict = {
         # --- Gemini settings ---
         # API key can also be set via GEMINI_API_KEY environment variable
         "gemini_api_key": "",
-        "gemini_flash_model": "gemini-3-flash-preview",
+        "gemini_flash_model": "gemini-3.1-flash-lite-preview",
         "gemini_think_model": "gemini-3.1-pro-preview",
-        # thinking mode — used for L2 Atom extraction (slower, higher quality)
+        # thinking mode — used for L2 Fragment extraction (slower, higher quality)
         "temperature": 0.3,
         "thinking": True,
         # primary: 'ollama' | 'cloud' | 'claude-code' | 'gemini-cli' | ''
@@ -237,10 +237,11 @@ DEFAULT_CONFIG: dict = {
         "backend": "qmd",
         "rerank": True,
     },
-    "ingest": {
+    "curate": {
         "interactive": True,
         "auto_update_index": True,
         "auto_update_log": True,
+        "log_retention_days": 30,
     },
 }
 
@@ -355,5 +356,21 @@ def find_wiki_root(start: Path | None = None) -> Path | None:
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
         if (candidate / INTERNAL_DIR / CONFIG_FILE).exists():
+            return candidate
+    return None
+
+
+def find_workspace_curate_yml(vault_root: Path) -> Optional[Path]:
+    """Return the curate.yml path from WORKSPACE_PATH env var or active workspace.
+
+    Resolution order:
+    1. WORKSPACE_PATH env var (if set and curate.yml exists there)
+    2. None — caller falls back to unscoped search
+    """
+    import os
+    env_ws = os.environ.get("WORKSPACE_PATH")
+    if env_ws:
+        candidate = Path(env_ws).expanduser().resolve() / "curate.yml"
+        if candidate.exists():
             return candidate
     return None

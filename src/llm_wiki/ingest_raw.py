@@ -1,17 +1,18 @@
-"""Raw ingest: parse source files, register in the state DB, generate L1 Summaries.
+"""Raw ingest: parse source files, register in the state DB, generate L1 Contexts.
 
-This module handles the `wiki sync` phase:
+This module handles the `wiki add` phase:
   1. Discover files in raw_dirs (02_Wiki, 03_Notes, 04_Resources, 06_Archives)
   2. Register each file in the `sources` table with a content hash
-  3. Generate an L1 Summary page in `.curator/Collections/01_Summaries/`
+  3. Generate an L1 Context page in `.curator/Collections/01_Contexts/`
      using a single LLM pass (Pass 0)
 
-No L2/L3/L4 processing happens here — that is `wiki ingest` (ingest_llm.py).
+No L2/L3/L4 processing happens here — that is `wiki curate` (ingest_llm.py).
 """
 
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import tempfile
 import uuid
@@ -24,6 +25,7 @@ from typing import Iterable
 from . import config as cfg
 from . import db
 from . import parsers
+from .llm import LLMError
 
 
 class AddResult(str, Enum):
@@ -47,7 +49,7 @@ class AddOutcome:
     word_count: int = 0
     content_hash: str | None = None
     source_id: int | None = None   # Row ID in sources table
-    summary_id: str | None = None  # SUM-UUID for L1 summary page
+    context_id: str | None = None  # CTX-UUID for L1 context page
     message: str = ""              # Human-friendly explanation
 
     @property
@@ -77,7 +79,7 @@ def _today_iso() -> str:
 
 
 def _generate_id(prefix: str) -> str:
-    """Generate a prefixed UUID4, e.g. 'SUM-a1b2c3d4'."""
+    """Generate a prefixed UUID4, e.g. 'CTX-a1b2c3d4'."""
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
@@ -180,6 +182,54 @@ def _extract_json_object(text: str) -> str:
     return text[start:]
 
 
+def _loads_json_relaxed(json_str: str) -> dict:
+    """Load LLM JSON, repairing common LaTeX backslashes inside strings."""
+    def _repair_string_escapes(match: re.Match[str]) -> str:
+        content = match.group(0)[1:-1]
+        repaired: list[str] = []
+        i = 0
+        while i < len(content):
+            char = content[i]
+            if char != "\\":
+                repaired.append(char)
+                i += 1
+                continue
+
+            if i + 1 >= len(content):
+                repaired.append("\\\\")
+                i += 1
+                continue
+
+            nxt = content[i + 1]
+            if nxt in '"\\/bfnrt':
+                repaired.append("\\" + nxt)
+                i += 2
+                continue
+
+            if (
+                nxt == "u"
+                and i + 5 < len(content)
+                and all(c in "0123456789abcdefABCDEF" for c in content[i + 2:i + 6])
+            ):
+                repaired.append("\\" + content[i + 1:i + 6])
+                i += 6
+                continue
+
+            repaired.append("\\\\")
+            i += 1
+
+        return '"' + "".join(repaired) + '"'
+
+    try:
+        return json.loads(json_str, strict=False)
+    except json.JSONDecodeError as original_error:
+        repaired = re.sub(r'"([^"\\]|\\.)*"', _repair_string_escapes, json_str)
+        try:
+            return json.loads(repaired, strict=False)
+        except json.JSONDecodeError:
+            raise original_error
+
+
 def _chunk_text(text: str, chunk_size: int = 30000, overlap: int = 2500) -> list[str]:
     chunks = []
     start = 0
@@ -190,6 +240,115 @@ def _chunk_text(text: str, chunk_size: int = 30000, overlap: int = 2500) -> list
             break
         start += chunk_size - overlap
     return chunks
+
+
+def _parse_summary_json(raw_response: str) -> dict:
+    return _loads_json_relaxed(_extract_json_object(raw_response))
+
+
+def _summarize_chunk_with_fallback(
+    client,
+    prompts_module,
+    *,
+    title: str,
+    chunk: str,
+    thinking: bool,
+    label: str,
+    depth: int = 0,
+) -> tuple[list[dict], Exception | None]:
+    messages = prompts_module.build_summary_messages(title, chunk)
+    last_error: Exception | None = None
+
+    try:
+        raw_response = client.chat(
+            messages,
+            thinking=thinking,
+            json_mode=True,
+            temperature=0.2,
+        )
+        try:
+            return [_parse_summary_json(raw_response)], None
+        except json.JSONDecodeError as e:
+            last_error = e
+            retry_messages = prompts_module.build_summary_retry_messages(
+                title, chunk, raw_response
+            )
+            raw_response = client.chat(
+                retry_messages,
+                thinking=False,
+                json_mode=True,
+                temperature=0.1,
+            )
+            return [_parse_summary_json(raw_response)], None
+    except (json.JSONDecodeError, LLMError) as e:
+        last_error = e
+
+    if depth < 2 and len(chunk) > 9000:
+        sub_size = max(6000, len(chunk) // 2)
+        overlap = min(1000, max(250, sub_size // 10))
+        subchunks = _chunk_text(chunk, chunk_size=sub_size, overlap=overlap)
+        if len(subchunks) > 1:
+            print(
+                f"    -> {label} failed ({last_error}); retrying as "
+                f"{len(subchunks)} smaller chunk(s)."
+            )
+            data: list[dict] = []
+            for sub_idx, subchunk in enumerate(subchunks, 1):
+                sub_label = f"{label}.{sub_idx}"
+                sub_data, sub_error = _summarize_chunk_with_fallback(
+                    client,
+                    prompts_module,
+                    title=title,
+                    chunk=subchunk,
+                    thinking=False,
+                    label=sub_label,
+                    depth=depth + 1,
+                )
+                if sub_error:
+                    return [], sub_error
+                data.extend(sub_data)
+            return data, None
+
+    return [], last_error
+
+
+def _normalize_atom_name(name: str) -> str:
+    clean = re.sub(r"\([^)]*\)", "", name.lower())
+    clean = re.sub(r"[^a-z0-9가-힣]+", " ", clean)
+    return re.sub(r"\s+", " ", clean).strip()
+
+
+def _dedupe_atom_candidates(candidates: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    unique: list[dict] = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        name = str(candidate.get("name", "")).strip()
+        if not name:
+            continue
+        key = _normalize_atom_name(name) or name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(
+            {
+                "name": name,
+                "type": str(candidate.get("type", "fact") or "fact").strip() or "fact",
+                "one_liner": str(candidate.get("one_liner", "") or "").strip(),
+            }
+        )
+    return unique
+
+
+def _prepare_atom_candidates(candidates: list[dict]) -> list[dict]:
+    """Keep L1 Atom Candidates granular; only remove exact duplicates.
+
+    Cross-source equivalence is discovered during sync at L3/L4, where the
+    system has enough context to decide whether different terms share logic.
+    L1 should preserve recall instead of compressing candidates early.
+    """
+    return _dedupe_atom_candidates(candidates)
 
 
 def _build_vision_client(config: dict, main_client):
@@ -222,13 +381,13 @@ def generate_l1_summary(
     client,  # LLM client (OllamaClient or GeminiClient)
     *,
     config: dict | None = None,
-    existing_summary_id: str | None = None,
+    existing_context_id: str | None = None,
     thinking: bool = False,
 ) -> str | None:
-    """Generate an L1 Summary page for a source file.
+    """Generate an L1 Context page for a source file.
 
-    Returns the SUM-UUID if successful, None on failure.
-    The page is written to `.curator/Collections/01_Summaries/<SUM-UUID>.md`.
+    Returns the CTX-UUID if successful, None on failure.
+    The page is written to `.curator/Collections/01_Contexts/<CTX-UUID>.md`.
     """
     from . import prompts
 
@@ -241,6 +400,7 @@ def generate_l1_summary(
         parsed = parsers.parse(file_path)
     except Exception as e:
         print(f"  [Error] Parsing file failed for {relpath}: {e}")
+        db.set_source_layer_status(paths.state_db, source_id, "l1", "error", error=str(e))
         return None
 
     vision_client = _build_vision_client(config or {}, client)
@@ -323,54 +483,42 @@ def generate_l1_summary(
     if len(chunks) > 1:
         print(f"  [Info] Text is long ({len(source_text)} chars). Processing in {len(chunks)} chunk(s).")
 
-    from .llm import LLMError
-
     for idx, chunk in enumerate(chunks, 1):
         if len(chunks) > 1:
             print(f"    -> Summarizing chunk {idx}/{len(chunks)}...")
-        messages = prompts.build_summary_messages(parsed.title, chunk)
-
-        try:
-            raw_response = client.chat(
-                messages,
-                thinking=thinking,
-                json_mode=True,
-                temperature=0.2,
+        chunk_data, chunk_error = _summarize_chunk_with_fallback(
+            client,
+            prompts,
+            title=parsed.title,
+            chunk=chunk,
+            thinking=thinking,
+            label=f"chunk {idx}",
+        )
+        if chunk_error:
+            print(f"  [Error] Failed to summarize chunk {idx}: {chunk_error}")
+            db.set_source_layer_status(
+                paths.state_db, source_id, "l1", "error", error=str(chunk_error)
             )
-        except LLMError as e:
-            print(f"  [Error] LLM chat failed for chunk {idx}: {e}")
             return None
 
-        # Parse JSON
-        json_str = _extract_json_object(raw_response)
-        try:
-            data = json.loads(json_str)
-        except json.JSONDecodeError:
-            # Retry without thinking
-            try:
-                retry_messages = prompts.build_summary_retry_messages(
-                    parsed.title, chunk, raw_response
-                )
-                raw_response = client.chat(retry_messages, thinking=False, json_mode=True, temperature=0.1)
-                json_str = _extract_json_object(raw_response)
-                data = json.loads(json_str)
-            except (json.JSONDecodeError, LLMError) as e:
-                print(f"  [Error] Failed to parse summary JSON after retry for chunk {idx}: {e}")
-                return None
-
-        summary_val = data.get("summary")
-        if summary_val:
-            if isinstance(summary_val, str):
-                all_summaries.append(summary_val)
-            else:
-                all_summaries.append(json.dumps(summary_val, indent=2, ensure_ascii=False))
-        all_key_claims.extend(data.get("key_claims", []))
-        all_atom_candidates.extend(data.get("atom_candidates", []))
-        all_tags.extend(data.get("tags", []))
-        if not domain and data.get("domain"):
-            domain = data["domain"]
-        if data.get("title") and len(data["title"]) > 5:
-            title = data["title"]
+        for data in chunk_data:
+            summary_val = data.get("summary")
+            if summary_val:
+                if isinstance(summary_val, str):
+                    # Some local LLMs emit \\n in JSON strings instead of the proper
+                    # \n JSON escape. After json.loads those become literal 2-char \n
+                    # sequences. Normalize them to real newlines before writing.
+                    summary_val = summary_val.replace("\\n", "\n").replace("\\t", "\t")
+                    all_summaries.append(summary_val)
+                else:
+                    all_summaries.append(json.dumps(summary_val, indent=2, ensure_ascii=False))
+            all_key_claims.extend(data.get("key_claims", []))
+            all_atom_candidates.extend(data.get("atom_candidates", []))
+            all_tags.extend(data.get("tags", []))
+            if not domain and data.get("domain"):
+                domain = data["domain"]
+            if data.get("title") and len(data["title"]) > 5:
+                title = data["title"]
 
     # Deduplicate claims and candidates
     seen_claims = set()
@@ -381,19 +529,13 @@ def generate_l1_summary(
             seen_claims.add(clean)
             unique_key_claims.append(clean)
 
-    seen_atoms = set()
-    unique_atom_candidates = []
-    for c in all_atom_candidates:
-        name = c.get("name", "").strip()
-        if name and name not in seen_atoms:
-            seen_atoms.add(name)
-            unique_atom_candidates.append(c)
+    unique_atom_candidates = _prepare_atom_candidates(all_atom_candidates)
 
     unique_tags = list(set(tag.strip() for tag in all_tags if tag.strip()))
 
     combined_summary = "\n\n".join(all_summaries) if all_summaries else ""
 
-    summary_id = existing_summary_id or _generate_id("SUM")
+    context_id = existing_context_id or _generate_id("CTX")
     today = _now_iso()
 
     candidates_text = "\n".join(
@@ -404,40 +546,39 @@ def generate_l1_summary(
 
     page_content = (
         f"---\n"
-        f"id: {summary_id}\n"
-        f"type: summary\n"
-        f"source_path: \"[[{relpath}]]\"\n"
+        f"id: {context_id}\n"
+        f"type: context\n"
+        f"source_path: \"[[{relpath.removesuffix('.md')}]]\"\n"
         f"source_hash: {content_hash}\n"
         f"domain: \"{domain or 'general'}\"\n"
         f"last_updated: {today}\n"
         f"tags: {json.dumps(unique_tags)}\n"
         f"---\n\n"
-        f"# {title}\n\n"
         f"## Summary\n\n"
         f"{combined_summary}\n\n"
-        f"## Key Claims\n\n"
+        f"## 1. Key Claims\n\n"
         f"{key_claims_text}\n\n"
-        f"## Atom Candidates\n\n"
-        f"{candidates_text}\n\n"
-        f"## Source\n\n"
-        f"- Path: `{relpath}`\n"
-        f"- Hash: `{content_hash[:16]}…`\n"
-        f"- Ingested: {today}\n"
+        f"## 2. Atom Candidates\n\n"
+        f"{candidates_text}\n"
     )
 
-    # Write the L1 summary page
-    paths.summaries.mkdir(parents=True, exist_ok=True)
-    summary_path = paths.summaries / f"{summary_id}.md"
-    summary_path.write_text(page_content, encoding="utf-8")
+    # Write the L1 context page
+    paths.contexts.mkdir(parents=True, exist_ok=True)
+    context_path = paths.contexts / f"{context_id}.md"
+    context_path.write_text(page_content, encoding="utf-8")
 
-    # Record summary_id in DB
+    # Record context_id in DB
     with db.connect(paths.state_db) as conn:
         conn.execute(
-            "UPDATE sources SET summary_id = ? WHERE id = ?",
-            (summary_id, source_id),
+            "UPDATE sources SET context_id = ? WHERE id = ?",
+            (context_id, source_id),
+        )
+        conn.execute(
+            "UPDATE sources SET l1_status = 'done', layer_error = NULL WHERE id = ?",
+            (source_id,),
         )
 
-    return summary_id
+    return context_id
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +652,7 @@ def add_file(
 
     with db.connect(paths.state_db) as conn:
         existing = conn.execute(
-            "SELECT id, relpath, content_hash, summary_id FROM sources WHERE relpath = ?",
+            "SELECT id, relpath, content_hash, context_id FROM sources WHERE relpath = ?",
             (relpath,),
         ).fetchone()
 
@@ -527,14 +668,17 @@ def add_file(
                     word_count=parsed.word_count,
                     content_hash=parsed.content_hash,
                     source_id=existing["id"],
-                    summary_id=existing["summary_id"],
+                    context_id=existing["context_id"],
                     message=f"Already tracked and unmodified: #{existing['id']}",
                 )
             else:
-                # Content changed — reset to pending, clear summary
+                # Content changed — reset to pending, clear L1 Context ID
                 conn.execute(
                     "UPDATE sources SET content_hash = ?, bytes = ?, status = 'pending', "
-                    "last_ingested = NULL, summary_id = NULL WHERE id = ?",
+                    "last_ingested = NULL, context_id = NULL, "
+                    "l1_status = 'pending', l2_status = 'pending', "
+                    "l3_status = 'pending', l4_status = 'pending', layer_error = NULL "
+                    "WHERE id = ?",
                     (parsed.content_hash, parsed.bytes, existing["id"]),
                 )
                 return AddOutcome(
@@ -563,10 +707,11 @@ def add_file(
             message = f"Added as #?: {parsed.title}"
             result_kind = AddResult.ADDED
 
+        error_reason = "empty_file" if parsed.is_empty else None
         cur = conn.execute(
             """
-            INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, status)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, status, error_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 relpath,
@@ -575,9 +720,15 @@ def add_file(
                 parsed.bytes,
                 _now_iso(),
                 status,
+                error_reason,
             ),
         )
         source_id = cur.lastrowid
+        if parsed.is_empty:
+            conn.execute(
+                "UPDATE sources SET l1_status = 'error', layer_error = ? WHERE id = ?",
+                (error_reason, source_id),
+            )
         message = message.replace("#?", f"#{source_id}")
 
     return AddOutcome(
@@ -655,7 +806,8 @@ def mark_source_pending(
     with db.connect(paths.state_db) as conn:
         conn.execute(
             "UPDATE sources SET status = 'pending', last_ingested = NULL, "
-            "summary_id = NULL WHERE id = ?",
+            "context_id = NULL, l1_status = 'pending', l2_status = 'pending', "
+            "l3_status = 'pending', l4_status = 'pending', layer_error = NULL WHERE id = ?",
             (source_id,),
         )
         conn.commit()

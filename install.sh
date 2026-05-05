@@ -10,7 +10,7 @@ fi
 
 echo ""
 echo "=== Running post-installation build hook ==="
-python hatch_build.py
+python scripts/hatch_build.py
 
 echo ""
 echo "=== Installation complete ==="

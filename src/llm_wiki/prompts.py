@@ -1,13 +1,13 @@
-"""Prompt templates for the LLM Curator pipeline.
+"""Prompt templates for the LLM Curator (Compiler) pipeline.
 
 The Curator runs four sequential passes per source, building a DAG:
 
-    sync   → Pass 0 (SUMMARY)  — L1: 1:1 hash-matched source summary
-    ingest → Pass 1 (ATOMS)    — L2: irreducible facts / equations
-    ingest → Pass 2 (CONCEPTS) — L3: clustered atoms into coherent concepts
-    ingest → Pass 3 (SYNTHESIS)— L4: cross-domain terminal knowledge outputs
+    add    → Pass 0 (CONTEXT)    — L1: 1:1 hash-matched source context summary
+    curate → Pass 1 (ATOMS)      — L2: irreducible atomic knowledge units
+    curate → Pass 2 (CONCEPTS)   — L3: clustered atoms into coherent concepts
+    curate → Pass 3 (EXHIBITIONS)— L4: cross-domain terminal packaged contexts
 
-All pages use UUID-based IDs (SUM-, ATM-, CON-, SYN-) so the Agent can
+All pages use UUID-based IDs (CTX-, ATM-, CON-, EXH-) so the Agent (Artist) can
 traverse the DAG by ID without relying on human-readable slugs.
 """
 
@@ -21,11 +21,11 @@ from .llm import ChatMessage
 # ---------------------------------------------------------------------------
 
 CURATOR_SYSTEM_PROMPT = """\
-You are the CURATOR — a background abstraction engine whose sole purpose is to \
+You are the CURATOR (Compiler) — a background abstraction engine whose sole purpose is to \
 transform raw human knowledge into a machine-readable DAG (Directed Acyclic Graph) \
 stored in `.curator/Collections/`.
 
-Your output is consumed ONLY by AI agents. DO NOT consider human readability at all.
+Your output is consumed ONLY by AI agents (Artists). DO NOT consider human readability at all.
 Optimize entirely for machine parsability, logical structure, and semantic density.
 Use dense bullet points, structured data formats, and explicit logical operators wherever possible instead of flowing human prose.
 
@@ -45,7 +45,7 @@ Rules you MUST follow:
 
 
 # ---------------------------------------------------------------------------
-# Pass 0 — SUMMARY  (L1: runs during `wiki sync`)
+# Pass 0 — CONTEXT  (L1: runs during `wiki add`)
 # ---------------------------------------------------------------------------
 
 SUMMARY_INSTRUCTIONS = """\
@@ -83,7 +83,7 @@ Rules:
 
 
 def build_summary_messages(source_title: str, source_text: str) -> list[ChatMessage]:
-    """Pass 0 — generate L1 Summary JSON during `wiki sync`."""
+    """Pass 0 — generate L1 Context JSON during `wiki add`."""
     user_content = (
         f"{SUMMARY_INSTRUCTIONS}\n\n"
         f"---SOURCE TITLE---\n{source_title}\n\n"
@@ -131,14 +131,14 @@ def build_image_description_messages(context: str = "") -> list[ChatMessage]:
 # Pass 1 — ATOMS  (L2: irreducible facts / equations / constraints)
 # ---------------------------------------------------------------------------
 
-ATOM_PAGE_TEMPLATE = """\
+FRAGMENT_PAGE_TEMPLATE = """\
 Write a single Atom page for the `.curator/Collections/02_Atoms/` layer.
 
-Atom ID (pre-assigned): {atom_id}
+Atom ID (pre-assigned): {fragment_id}
 Concept name: {name}
-Type: {atom_type}
+Type: {fragment_type}
 One-liner: {one_liner}
-Parent source summary ID: {summary_id}
+Parent context ID: {context_id}
 Parent source path: {source_path}
 Today (ISO 8601): {today}
 
@@ -146,39 +146,44 @@ Source excerpt relevant to this concept:
 {excerpt}
 
 Write the complete markdown page with:
-1. YAML frontmatter — use EXACTLY this structure:
+1. YAML frontmatter — copy this EXACTLY, character-for-character. Do NOT alter any field values:
    ---
-   id: {atom_id}
+   id: {fragment_id}
    type: atom
-   parent_source: "[[01_Summaries/{summary_id}]]"
+   parent_source: "01_Contexts/{context_id}"
    source_path: "[[{source_path}]]"
-   claim_type: {atom_type}
+   claim_type: {fragment_type}
+   confidence_score: 0.00
    contradicts: []
    is_verified_by_human: false
    is_flagged_for_agent: false
    last_updated: {today}
    ---
+   CRITICAL: `source_path` MUST be exactly `"[[{source_path}]]"` — never an empty string `""` or `''`.
+   CRITICAL: Set `confidence_score` to a float between 0.00 and 1.00 reflecting how well-supported this atom is by the source. Do NOT omit this field.
 
 2. An H1 heading: the canonical name of the concept.
 
-3. Body (machine-optimized):
-   - **Definition / Claim**: Precise statement. **CRITICAL: You MUST use LaTeX format ($ or $$) for ALL mathematical equations, formal definitions, and symbols.**
-   - **Context**: When / where does this apply?
-   - **Constraints**: Boundary conditions, assumptions, or edge cases.
-   - **Relations**: Use ONLY the wikilinks listed below. DO NOT invent, guess, or hallucinate any atom or page IDs that were not explicitly provided to you.
-     - [[01_Summaries/{summary_id}]]
-     - CRITICAL: Write each wikilink with EXACTLY ONE pair of brackets: [[path/id]]. NEVER write double brackets [[[[path/id]]]].
+3. Body sections, exactly these H2 headings:
+   ## Definition / Claim
+   Precise statement. **CRITICAL: You MUST use LaTeX format ($ or $$) for ALL mathematical equations, formal definitions, and symbols.**
+   ## Context
+   When / where does this apply?
+   ## Constraints
+   Boundary conditions, assumptions, or edge cases.
+   ## Relations
+   The ONLY valid wikilink for this page is [[01_Contexts/{context_id}]]. Write exactly this one link and no others. FORBIDDEN: do NOT invent wikilinks with unknown IDs. The only valid layer prefixes are 01_Contexts/, 02_Atoms/, 03_Concepts/, 04_Exhibitions/ — layers like 03_Collections/ or 04_Resources/ do NOT exist. NEVER write placeholder paths like [[02_Atoms/ATM-...]] or [[03_Collections/...]] — if you do not know an ID, omit the wikilink entirely.
 
 Return ONLY the markdown. No preamble, no code fences.
 """
 
 
-def build_atom_page_messages(
-    atom_id: str,
+def build_fragment_page_messages(
+    fragment_id: str,
     name: str,
-    atom_type: str,
+    fragment_type: str,
     one_liner: str,
-    summary_id: str,
+    context_id: str,
     source_path: str,
     excerpt: str,
     today: str,
@@ -186,12 +191,12 @@ def build_atom_page_messages(
     """Pass 1 — draft a single L2 Atom page."""
     # Wikilinks must not include file extensions (Obsidian convention)
     source_path_link = source_path.removesuffix(".md")
-    user_content = ATOM_PAGE_TEMPLATE.format(
-        atom_id=atom_id,
+    user_content = FRAGMENT_PAGE_TEMPLATE.format(
+        fragment_id=fragment_id,
         name=name,
-        atom_type=atom_type,
+        fragment_type=fragment_type,
         one_liner=one_liner,
-        summary_id=summary_id,
+        context_id=context_id,
         source_path=source_path_link,
         excerpt=excerpt,
         today=today,
@@ -202,14 +207,14 @@ def build_atom_page_messages(
     ]
 
 
-MERGE_ATOM_TEMPLATE = """\
+MERGE_FRAGMENT_TEMPLATE = """\
 Update this existing Atom page with new information from a new source.
 
 ---EXISTING ATOM PAGE---
 {existing_content}
 ---END EXISTING---
 
-New source summary ID: {new_summary_id}
+New source context ID: {new_context_id}
 New source path: {new_source_path}
 New information about '{name}':
 {new_description}
@@ -223,7 +228,7 @@ Update rules:
    - Corroborates existing facts
    - Expands/Adds new technical details or equations
    - Contradicts existing claims
-3. If the new info CONTRADICTS, you MUST set `is_flagged_for_agent: true` in the YAML frontmatter, add "[[01_Summaries/{new_summary_id}]]" to the `contradicts:` list, and thoroughly document the conflict under a `## Logical Conflict` heading.
+3. If the new info CONTRADICTS, you MUST set `is_flagged_for_agent: true` in the YAML frontmatter, add "[[01_Contexts/{new_context_id}]]" to the `contradicts:` list, and thoroughly document the conflict under a `## Logical Conflict` heading.
 4. If it Corroborates or Expands, weave the new facts logically under the appropriate existing headings, or create new headings if necessary.
 5. Update `last_updated: {today}` in frontmatter.
 6. Keep all existing [[wikilinks]] intact.
@@ -236,17 +241,17 @@ Return ONLY the complete updated markdown. No preamble, no code fences.
 def build_merge_atom_messages(
     existing_content: str,
     name: str,
-    new_summary_id: str,
+    new_context_id: str,
     new_source_path: str,
     new_description: str,
     excerpt: str,
     today: str,
 ) -> list[ChatMessage]:
     """Pass 1b — merge new source info into an existing Atom page."""
-    user_content = MERGE_ATOM_TEMPLATE.format(
+    user_content = MERGE_FRAGMENT_TEMPLATE.format(
         existing_content=existing_content,
         name=name,
-        new_summary_id=new_summary_id,
+        new_context_id=new_context_id,
         new_source_path=new_source_path,
         new_description=new_description,
         excerpt=excerpt,
@@ -278,9 +283,12 @@ Return ONLY a valid JSON object:
 }
 
 Rules:
-- A Concept groups multiple Atoms that share a coherent logical theme. Do not restrict the number of Atoms per Concept.
-- Do NOT create singleton concepts (1 atom = 1 concept) — that's redundant.
-- Prefer fewer, denser concepts over many sparse ones.
+- A Concept groups Atoms that share the SAME concrete mechanism, equation family, method, or directly interacting claim.
+- Boundary preservation is more important than density. Do NOT merge Atoms only because they share abstract words like "optimization", "representation", "retrieval", "projection", "information", or "geometry".
+- Cross-source merging is encouraged only when different sources describe the same underlying logic with different terminology.
+- Keep unrelated domains separate. For example, Retrieval-Augmented Generation/BM25/DPR Atoms must not be clustered with Gaussian splatting/rendering Atoms unless a source explicitly defines that bridge.
+- Prefer compact clusters of 2-8 tightly related Atoms. Larger clusters are allowed only when every Atom directly participates in the same mechanism.
+- Do NOT create singleton concepts unless an Atom truly has no related partner; a precise singleton is better than a false merge.
 - Return ONLY the JSON. No prose, no fences.
 """
 
@@ -307,57 +315,63 @@ def build_concept_clustering_messages(
     ]
 
 
-CONCEPT_PAGE_TEMPLATE = """\
+THEME_PAGE_TEMPLATE = """\
 Write a single Concept page for the `.curator/Collections/03_Concepts/` layer.
 
-Concept ID (pre-assigned): {concept_id}
+Concept ID (pre-assigned): {theme_id}
 Concept name: {name}
 Domain: {domain}
 Today (ISO 8601): {today}
 
 Constituent Atom IDs and their content:
-{atoms_content}
+{fragments_content}
 
 Write the complete markdown page:
 1. YAML frontmatter:
    ---
-   id: {concept_id}
+   id: {theme_id}
    type: concept
-   dependencies: [{atom_ids_yaml}]
    domain: "{domain}"
+   confidence_score: 0.00
    last_updated: {today}
    ---
+   CRITICAL: Set `confidence_score` to a float between 0.00 and 1.00 reflecting how coherent and well-supported this concept is by its constituent atoms. Do NOT omit this field.
 
 2. H1: concept name
 
-3. Body :
-   - **1. Core Architecture**: What does this concept represent as a unified whole?
-   - **2. Interaction of Atoms**: How do the constituent Atoms mathematically or logically weave together to form this concept? Cite each atom using exactly [[02_Atoms/ATM-xxx]] with its real ID from the list above. NEVER write double brackets [[[[02_Atoms/ATM-xxx]]]].
-   - **3. Mathematical Framework**: Detail the foundational equations and formulations supporting this concept. **CRITICAL: You MUST use LaTeX format ($ or $$) for ALL mathematical equations, formal definitions, and symbols.**
-   - **4. Open Questions**: Unresolved tensions or contradictions within this concept (if any).
+3. Body:
+   ## 1. Core Architecture
+   What does this concept represent as a unified whole?
+   ## 2. Interaction of Atoms
+   How do the constituent Atoms mathematically or logically weave together to form this concept? Cite each atom using exactly [[02_Atoms/ATM-xxx]] with its real ID from the list above. NEVER write double brackets [[[[02_Atoms/ATM-xxx]]]].
+   ## 3. Mathematical Framework
+   Detail the foundational equations and formulations supporting this concept. **CRITICAL: You MUST use LaTeX format ($ or $$) for ALL mathematical equations, formal definitions, and symbols.
+   ## 4. Open Questions
+   Unresolved tensions or contradictions within this concept (if any).
+   ## Relations
+   List every constituent atom as a wikilink, one per line. Use ONLY the real IDs from the list above — do NOT invent IDs.
 
-WIKILINK RULE: Write every wikilink with EXACTLY ONE pair of brackets [[path/id]]. NEVER nest brackets. The atom IDs provided above are the ONLY valid IDs — do not invent others.
+FRONTMATTER RULE: Do NOT include `dependencies`; the `## Relations` section is the single source of truth for Concept → Atom links.
+WIKILINK RULE: In BODY only, write every wikilink with EXACTLY ONE pair of brackets [[path/id]]. NEVER nest brackets. The atom IDs provided above are the ONLY valid IDs — do not invent others.
 
 Return ONLY the markdown. No preamble, no code fences.
 """
 
 
-def build_concept_page_messages(
-    concept_id: str,
+def build_theme_page_messages(
+    theme_id: str,
     name: str,
     domain: str,
-    atom_ids: list[str],
-    atoms_content: str,
+    fragment_ids: list[str],
+    fragments_content: str,
     today: str,
 ) -> list[ChatMessage]:
     """Pass 2 — draft a single L3 Concept page."""
-    atom_ids_yaml = ", ".join(f'"[[02_Atoms/{a}]]"' for a in atom_ids)
-    user_content = CONCEPT_PAGE_TEMPLATE.format(
-        concept_id=concept_id,
+    user_content = THEME_PAGE_TEMPLATE.format(
+        theme_id=theme_id,
         name=name,
         domain=domain,
-        atom_ids_yaml=atom_ids_yaml,
-        atoms_content=atoms_content,
+        fragments_content=fragments_content,
         today=today,
     )
     return [
@@ -367,63 +381,66 @@ def build_concept_page_messages(
 
 
 # ---------------------------------------------------------------------------
-# Pass 3 — SYNTHESIS  (L4: cross-domain terminal knowledge outputs)
+# Pass 3 — CURATIONS  (L4: cross-domain terminal packaged contexts)
 # ---------------------------------------------------------------------------
 
-SYNTHESIS_PAGE_TEMPLATE = """\
-Write a single Synthesis page for the `.curator/Collections/04_Synthesis/` layer.
+CURATION_PAGE_TEMPLATE = """\
+Write a single Exhibition page for the `.curator/Collections/04_Exhibitions/` layer.
 
-Synthesis ID (pre-assigned): {synthesis_id}
+Exhibition ID (pre-assigned): {curation_id}
 Topic: {topic}
 Today (ISO 8601): {today}
 
 Core concepts involved:
-{concepts_content}
+{themes_content}
 
 Write the complete markdown page:
 1. YAML frontmatter:
    ---
-   id: {synthesis_id}
-   type: synthesis
-   core_concepts: [{concept_ids_yaml}]
+   id: {curation_id}
+   type: exhibition
+   core_concepts: [{theme_ids_yaml}]
    confidence_score: {confidence}
-   requires_math_rigor: {requires_math}
    last_updated: {today}
    ---
 
-2. H1: synthesis topic name
+2. H1: exhibition topic name
 
-3. Body:
-   - **1. Executive Research Brief**: What is the terminal conclusion or state of the art that emerges from combining these concepts?
-   - **2. Theoretical Foundation**: Trace the logical and mathematical path from Atoms → Concepts → this Synthesis. Cite concepts with [[03_Concepts/CON-xxx]] using real IDs from the list above. **CRITICAL: You MUST use LaTeX format ($ or $$) for ALL mathematical derivations, formulas, and symbols.**
-   - **3. State of the Art & Limitations**: Discuss unresolved tensions, edge cases, and contradictions. Why is the confidence score {confidence}? What flagged atoms (`is_flagged_for_agent: true`) affect this?
-   - **4. Actionable Directives for Agent**: Explicit instructions and hypotheses for the AI Agent. What specific code, pipeline, or research task should the Agent execute next based on this synthesis?
+3. Body (use bold-bullet format — NOT ## section headers):
+   - **1. Executive Brief**: What is the terminal conclusion or actionable context that emerges from combining these concepts?
+   - **2. Theoretical Foundation**: Trace the logical and mathematical path from Atoms → Concepts → this Exhibition. Cite concepts with [[03_Concepts/CON-xxx]] using real IDs from the list above. **CRITICAL: You MUST use LaTeX format ($ or $$) for ALL mathematical derivations, formulas, and symbols.**
+   - **3. Actionable Directives for Agent**: Explicit instructions and hypotheses for the AI Agent (Artist). What specific code, pipeline, or research task should the Agent execute next based on this exhibition? Confidence score: {confidence}. Flagged atoms that require human review: {flagged_fragments}
 
-WIKILINK RULE: Write every wikilink with EXACTLY ONE pair of brackets [[path/id]]. NEVER nest brackets like [[[[path/id]]]]. Only use IDs that were explicitly provided above.
+FRONTMATTER RULE: `core_concepts` entries must be plain strings like '03_Concepts/CON-xxxx' (no [[ ]] wrappers).
+WIKILINK RULE: In BODY only, write every wikilink with EXACTLY ONE pair of brackets [[path/id]]. NEVER nest brackets like [[[[path/id]]]]. Only use IDs that were explicitly provided above.
 
 Return ONLY the markdown. No preamble, no code fences.
 """
 
 
-def build_synthesis_page_messages(
-    synthesis_id: str,
+def build_curation_page_messages(
+    curation_id: str,
     topic: str,
-    concept_ids: list[str],
-    concepts_content: str,
+    theme_ids: list[str],
+    themes_content: str,
     confidence: float,
-    requires_math: bool,
     today: str,
+    flagged_fragment_ids: list[str] | None = None,
 ) -> list[ChatMessage]:
-    """Pass 3 — draft a single L4 Synthesis page."""
-    concept_ids_yaml = ", ".join(f'"[[03_Concepts/{c}]]"' for c in concept_ids)
-    user_content = SYNTHESIS_PAGE_TEMPLATE.format(
-        synthesis_id=synthesis_id,
+    """Pass 3 — draft a single L4 Exhibition page."""
+    theme_ids_yaml = ", ".join(f"'03_Concepts/{t}'" for t in theme_ids)
+    if flagged_fragment_ids:
+        flagged_fragments = ", ".join(f"[[02_Atoms/{f}]]" for f in flagged_fragment_ids)
+    else:
+        flagged_fragments = "none"
+    user_content = CURATION_PAGE_TEMPLATE.format(
+        curation_id=curation_id,
         topic=topic,
-        concept_ids_yaml=concept_ids_yaml,
-        concepts_content=concepts_content,
+        theme_ids_yaml=theme_ids_yaml,
+        themes_content=themes_content,
         confidence=f"{confidence:.2f}",
-        requires_math=str(requires_math).lower(),
         today=today,
+        flagged_fragments=flagged_fragments,
     )
     return [
         ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
@@ -432,38 +449,36 @@ def build_synthesis_page_messages(
 
 
 # ---------------------------------------------------------------------------
-# Synthesis planning — decide which concepts merit a synthesis
+# Curation planning — decide which themes merit a curation
 # ---------------------------------------------------------------------------
 
-SYNTHESIS_PLANNING_INSTRUCTIONS = """\
-You are deciding which L3 Concepts should be synthesized into L4 outputs.
+CURATION_PLANNING_INSTRUCTIONS = """\
+You are deciding which L3 Concepts should be packaged into L4 Exhibitions.
 
 Return ONLY a valid JSON object:
 {
   "synthesis_plans": [
     {
-      "topic": "Synthesis topic name",
+      "topic": "Exhibition topic name",
       "concept_ids": ["CON-xxxx", "CON-yyyy"],
       "confidence": 0.85,
-      "requires_math_rigor": true,
-      "rationale": "1 sentence explaining what emergent insight this synthesis captures"
+      "rationale": "1 sentence explaining what emergent insight this exhibition captures"
     }
   ]
 }
 
 Rules:
-- Only propose a synthesis if 2+ concepts share a non-trivial logical connection.
+- Only propose an exhibition if 2+ concepts share a non-trivial logical connection.
 - confidence: 0.90+ = direct retrieval quality; 0.60-0.90 = needs backtracking; <0.60 = HITL required.
-- requires_math_rigor: true if the synthesis involves equations, proofs, or geometric arguments.
-- Propose 1–5 synthesis plans.
+- Propose 1–5 exhibition plans.
 - Return ONLY the JSON. No prose, no fences.
 """
 
 
-def build_synthesis_planning_messages(
+def build_curation_planning_messages(
     concept_summaries: list[dict],
 ) -> list[ChatMessage]:
-    """Decide which concept clusters merit L4 synthesis.
+    """Decide which concept clusters merit L4 exhibition.
 
     Args:
         concept_summaries: List of dicts with keys: id, name, domain, atom_count
@@ -473,8 +488,188 @@ def build_synthesis_planning_messages(
         for c in concept_summaries
     )
     user_content = (
-        f"{SYNTHESIS_PLANNING_INSTRUCTIONS}\n\n"
+        f"{CURATION_PLANNING_INSTRUCTIONS}\n\n"
         f"---CONCEPTS---\n{concepts_text}\n"
+    )
+    return [
+        ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
+        ChatMessage(role="user", content=user_content),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Logical deduction verification  (used by `wiki sync`)
+# ---------------------------------------------------------------------------
+
+THEME_LOGIC_VERIFY_PROMPT = """\
+You are a deductive logic auditor for a knowledge DAG.
+
+## L3 Concept under review
+{theme_content}
+
+## L2 Atoms this Concept synthesizes
+{fragments_content}
+
+## Task
+Determine whether the Concept's synthesis is logically derivable from the given Atoms.
+- Evaluate these fixed checks:
+  1) Claim coverage: every major claim maps to at least one Atom.
+  2) Math fidelity: equations/symbols are supported by Atom content.
+  3) Scope discipline: no external facts absent from all Atoms.
+  4) Relation fidelity: referenced ATM IDs are real and in-scope.
+  5) Contradiction check: no claim conflicts with supplied Atoms.
+- Do not mark INVALID merely because standard notation such as norms, summation
+  indices, transmittance, alpha weights, or query/document variables are not
+  re-defined, as long as the related equation or claim is present in an Atom.
+- Treat concise restatement, grouping, and naming as VALID when the Concept does
+  not add a new unsupported mechanism, empirical result, or cross-domain bridge.
+- VALID only if all checks pass.
+- INVALID if any check fails.
+
+If VALID: respond exactly with the single word: VALID
+If INVALID: respond as `INVALID: <failed check #> - <specific gap>`. No preamble.
+"""
+
+CURATION_LOGIC_VERIFY_PROMPT = """\
+You are a deductive logic auditor for a knowledge DAG.
+
+## L4 Exhibition under review
+{curation_content}
+
+## L3 Concepts this Exhibition synthesizes
+{themes_content}
+
+## Task
+Determine whether the Exhibition's synthesis is logically derivable from the given Concepts.
+- Evaluate these fixed checks:
+  1) Executive brief grounding in supplied Concepts.
+  2) Theoretical chain correctness (L2→L3→L4 narrative).
+  3) Directive validity (actions are justified by Concept evidence).
+  4) Scope discipline: no external facts absent from all Concepts.
+  5) Concept citation fidelity: referenced CON IDs are real and in-scope.
+- VALID only if all checks pass.
+- INVALID if any check fails.
+
+If VALID: respond exactly with the single word: VALID
+If INVALID: respond as `INVALID: <failed check #> - <specific gap>`. No preamble.
+"""
+
+
+def build_theme_logic_verify_messages(
+    theme_content: str,
+    fragments_content: str,
+) -> list[ChatMessage]:
+    """Logical deduction check: can CON be derived from its ATMs?"""
+    user_content = THEME_LOGIC_VERIFY_PROMPT.format(
+        theme_content=theme_content,
+        fragments_content=fragments_content,
+    )
+    return [
+        ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
+        ChatMessage(role="user", content=user_content),
+    ]
+
+
+def build_curation_logic_verify_messages(
+    curation_content: str,
+    themes_content: str,
+) -> list[ChatMessage]:
+    """Logical deduction check: can EXH be derived from its CONs?"""
+    user_content = CURATION_LOGIC_VERIFY_PROMPT.format(
+        curation_content=curation_content,
+        themes_content=themes_content,
+    )
+    return [
+        ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
+        ChatMessage(role="user", content=user_content),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Backward propagation prompts — agent-correction flows (L4 → L3 → L2)
+# ---------------------------------------------------------------------------
+
+CONCEPT_UPDATE_FROM_EXHIBITION_PROMPT = """\
+A human agent has corrected a L4 Exhibition page. You must update a dependent L3 Concept \
+page so it is logically consistent with the corrected Exhibition.
+
+## Corrected Exhibition ({exh_id})
+{exh_content}
+
+## Current Concept page ({con_id}) — to be updated
+{con_content}
+
+## Your task
+Rewrite the Concept page to reflect the Exhibition's corrections.
+
+Rules:
+- Preserve the existing CON- ID, YAML frontmatter structure, and all wikilinks.
+- Only change claims that are DIRECTLY contradicted or supplemented by the corrected Exhibition.
+- Add the field `corrected_by: [[04_Exhibitions/{exh_id}]]` to the frontmatter.
+- Update `updated: {today}` in frontmatter.
+- Do NOT change the `## Relations` Atom links unless absolutely required.
+- If no changes are needed, return the Concept page UNCHANGED (same content).
+- Output ONLY the full updated markdown. No preamble, no code fences.
+"""
+
+ATOM_UPDATE_FROM_CONCEPT_PROMPT = """\
+A L3 Concept page has been updated due to a human agent's correction. You must update a \
+dependent L2 Atom page if its core claim is directly contradicted by the updated Concept.
+
+## Updated Concept ({con_id})
+{con_content}
+
+## Current Atom page ({atm_id}) — to be checked and possibly updated
+{atm_content}
+
+## Your task
+Rewrite the Atom only if its claim is DIRECTLY contradicted by the Concept.
+
+Rules:
+- If the Atom is NOT contradicted: return it COMPLETELY UNCHANGED.
+- If the Atom IS contradicted: update ONLY the `one_liner` frontmatter field and the \
+  "Definition / Claim" section in the body. Keep everything else the same.
+- If updating, set `is_flagged_for_agent: true` and `updated: {today}` in frontmatter.
+- Preserve the ATM- ID and all wikilinks exactly.
+- Output ONLY the full updated markdown. No preamble, no code fences.
+"""
+
+
+def build_concept_update_from_exhibition_messages(
+    exh_id: str,
+    exh_content: str,
+    con_id: str,
+    con_content: str,
+    today: str,
+) -> list[ChatMessage]:
+    """Backward propagation: update a CON to be consistent with a corrected EXH."""
+    user_content = CONCEPT_UPDATE_FROM_EXHIBITION_PROMPT.format(
+        exh_id=exh_id,
+        exh_content=exh_content[:2000],
+        con_id=con_id,
+        con_content=con_content[:2000],
+        today=today,
+    )
+    return [
+        ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
+        ChatMessage(role="user", content=user_content),
+    ]
+
+
+def build_atom_update_from_concept_messages(
+    con_id: str,
+    con_content: str,
+    atm_id: str,
+    atm_content: str,
+    today: str,
+) -> list[ChatMessage]:
+    """Backward propagation: update an ATM if directly contradicted by an updated CON."""
+    user_content = ATOM_UPDATE_FROM_CONCEPT_PROMPT.format(
+        con_id=con_id,
+        con_content=con_content[:1500],
+        atm_id=atm_id,
+        atm_content=atm_content[:1200],
+        today=today,
     )
     return [
         ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
@@ -509,3 +704,54 @@ An elaboration is NOT a contradiction.
 If no contradiction: respond exactly with: NONE
 Otherwise: state the conflict directly, no preamble.
 """
+
+
+# ---------------------------------------------------------------------------
+# Lint --fix: LLM-powered broken wikilink reconnection
+# ---------------------------------------------------------------------------
+
+LINT_RELINK_PROMPT = """\
+You are repairing a broken wikilink in a Curator knowledge DAG page.
+
+## Page with the broken link
+Path: {page_path}
+
+{page_content}
+
+## Broken link
+[[{broken_target}]] — this target page no longer exists.
+
+## Candidate pages in {expected_layer}
+{candidates_list}
+
+## Task
+Identify the single best candidate that [[{broken_target}]] was INTENDED to reference,
+based on the broken link's name and the surrounding context in the page above.
+
+Reply with ONLY one of:
+- The exact slug from the candidates list (e.g. `02_Atoms/ATM-abc12345`)
+- The word `NONE` if no candidate is a plausible semantic match
+
+No explanation. No preamble. One line only.
+"""
+
+
+def build_lint_relink_messages(
+    page_path: str,
+    page_content: str,
+    broken_target: str,
+    expected_layer: str,
+    candidates_list: str,
+) -> list[ChatMessage]:
+    """Lint --fix: ask the LLM to find the best replacement for a broken wikilink."""
+    user_content = LINT_RELINK_PROMPT.format(
+        page_path=page_path,
+        page_content=page_content,
+        broken_target=broken_target,
+        expected_layer=expected_layer,
+        candidates_list=candidates_list,
+    )
+    return [
+        ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
+        ChatMessage(role="user", content=user_content),
+    ]

@@ -15,13 +15,24 @@ except ImportError:
         pass
 
 
+def _repo_root(root: str | Path | None = None) -> Path:
+    """Resolve the repository root for Hatch and direct script execution."""
+    if root is not None:
+        return Path(root).resolve()
+    return Path(__file__).resolve().parents[1]
+
+
+def _qmd_dir(root: str | Path | None = None) -> Path:
+    return _repo_root(root) / "src" / "qmd"
+
+
 class CustomBuildHook(BuildHookInterface):
     PLUGIN_NAME = "custom"
 
     def initialize(self, version: str, build_data: dict) -> None:
         _install_ollama()
         _install_node()
-        _build_qmd(Path(self.root) / "src" / "qmd")
+        _build_qmd(_qmd_dir(self.root))
 
 
 # ---------------------------------------------------------------------------
@@ -33,12 +44,13 @@ def _install_ollama() -> None:
         print("[llm-wiki] Ollama already available.", flush=True)
         return
 
-    print("[llm-wiki] Ollama not found — installing…", flush=True)
+    print("[llm-wiki] Ollama not found - installing...", flush=True)
 
     if sys.platform.startswith("linux"):
         result = subprocess.run(
             "curl -fsSL https://ollama.com/install.sh | sh",
             shell=True,
+            check=False,
         )
         if result.returncode == 0:
             print("[llm-wiki] Ollama installed.", flush=True)
@@ -60,65 +72,76 @@ def _install_ollama() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Node.js / npm  (via nodeenv, installed into the Python venv)
+# Node.js / npm  (via NVM, installed into the user's home directory)
 # ---------------------------------------------------------------------------
+
+def _get_nvm_npm() -> str | None:
+    nvm_dir = Path.home() / ".nvm"
+    node_base = nvm_dir / "versions" / "node"
+    if node_base.exists():
+        for d in sorted(node_base.iterdir(), reverse=True):
+            if d.is_dir() and (d / "bin" / "npm").exists():
+                return str(d / "bin" / "npm")
+
+    npm_on_path = shutil.which("npm")
+    if npm_on_path:
+        return npm_on_path
+
+    return None
+
 
 def _install_node() -> None:
-    if shutil.which("npm"):
-        print("[llm-wiki] npm already available.", flush=True)
-        return  # system npm already present
+    nvm_dir = Path.home() / ".nvm"
+    nvm_sh = nvm_dir / "nvm.sh"
 
-    node_dir = Path(sys.prefix) / "node"
-    npm_bin = node_dir / "bin" / "npm"
+    if not nvm_sh.exists():
+        print("[llm-wiki] NVM not found - installing...", flush=True)
+        try:
+            subprocess.run(
+                "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash",
+                shell=True, check=False,
+            )
+        except Exception:
+            pass
 
-    if npm_bin.exists():
-        _prepend_path(str(node_dir / "bin"))
-        print("[llm-wiki] npm already available (via nodeenv).", flush=True)
-        return  # already installed in venv
+    npm = _get_nvm_npm()
+    if not npm:
+        print("[llm-wiki] No Node installed via NVM - installing Node LTS...", flush=True)
+        if nvm_sh.exists():
+            subprocess.run(
+                f"bash -c 'source {nvm_sh} && nvm install --lts'",
+                shell=True, check=False,
+            )
+        npm = _get_nvm_npm()
 
-    try:
-        import nodeenv  # noqa: F401
-    except ImportError:
-        print("[llm-wiki] nodeenv not found — skipping Node.js setup.", flush=True)
-        return
-
-    print(f"[llm-wiki] Installing Node.js into venv ({node_dir})…", flush=True)
-    result = subprocess.run(
-        [sys.executable, "-m", "nodeenv", "--prebuilt", str(node_dir)],
-        check=False,
-    )
-    if result.returncode == 0:
-        _prepend_path(str(node_dir / "bin"))
-        print("[llm-wiki] Node.js ready.", flush=True)
+    if npm:
+        bin_dir = str(Path(npm).parent)
+        _prepend_path(bin_dir)
+        print(f"[llm-wiki] Node from NVM ready: {bin_dir}", flush=True)
     else:
-        print("[llm-wiki] nodeenv failed — install Node.js manually: https://nodejs.org", flush=True)
+        print("[llm-wiki] NVM setup failed. Install Node.js manually: https://nodejs.org", flush=True)
 
 
 # ---------------------------------------------------------------------------
-# qmd search engine  (bundled TypeScript — built with npm)
+# qmd search engine  (bundled TypeScript - built with npm)
 # ---------------------------------------------------------------------------
 
 def _build_qmd(qmd_dir: Path) -> None:
     dist_bin = qmd_dir / "dist" / "cli" / "qmd.js"
     if dist_bin.exists():
         print("[llm-wiki] qmd search engine already built.", flush=True)
-        return  # already built
+        return
 
     if not qmd_dir.exists():
-        print("[llm-wiki] src/qmd not found — skipping qmd build.", flush=True)
+        print("[llm-wiki] src/qmd not found - skipping qmd build.", flush=True)
         return
 
-    npm = shutil.which("npm")
+    npm = _get_nvm_npm()
     if not npm:
-        # Try the nodeenv-installed npm
-        node_bin = Path(sys.prefix) / "node" / "bin" / "npm"
-        npm = str(node_bin) if node_bin.exists() else None
-
-    if not npm:
-        print("[llm-wiki] npm not available — skipping qmd build.", flush=True)
+        print("[llm-wiki] npm not available - skipping qmd build.", flush=True)
         return
 
-    print(f"[llm-wiki] Building qmd ({qmd_dir})…", flush=True)
+    print(f"[llm-wiki] Building qmd ({qmd_dir})...", flush=True)
 
     res = subprocess.run([npm, "install"], cwd=str(qmd_dir), check=False)
     if res.returncode != 0:
@@ -141,4 +164,4 @@ def _prepend_path(bin_dir: str) -> None:
 if __name__ == "__main__":
     _install_ollama()
     _install_node()
-    _build_qmd(Path(__file__).resolve().parent / "src" / "qmd")
+    _build_qmd(_qmd_dir())
