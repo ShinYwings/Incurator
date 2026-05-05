@@ -1,8 +1,0 @@
-llm-wiki:
-  workspace: "{{workspace_path}}"
-  wiki_root: "{{wiki_root}}"
-  runtime: "antigravity"
-  rules:
-    - ".agents/llm_wiki/shared/rules.md"
-    - ".agents/llm_wiki/runtime/antigravity.md"
-    - ".agents/llm_wiki/workflows/research_pipeline.md"

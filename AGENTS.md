@@ -112,10 +112,10 @@ must be validated against the repo-local `testbed/` vault whenever practical.
 Recommended baseline:
 
 ```bash
-python scripts/create_testbed.py --force
+python scripts/dev/testbed_assets/create_testbed.py --force
 WIKI_ROOT=testbed wiki status
 WIKI_ROOT=testbed wiki add
-WIKI_ROOT=testbed wiki lint
+WIKI_ROOT=testbed wiki sync
 ```
 
 The generated `testbed/` vault is configured to use Gemini CLI as its primary
@@ -131,17 +131,17 @@ WIKI_ROOT=testbed wiki query "How should the Gaussian Splatting Geometry Lab con
 
 ## Architecture Source Of Truth
 
-When discussing or changing the system architecture, schema, or migration plan,
-use `update_log/` as the current source-of-truth area:
+When discussing or changing the system architecture, use these areas as the source-of-truth:
 
-- `update_log/curator_schema/` for Curator DAG schema contracts.
-- `update_log/llm_wiki_schema/` for llm-wiki system behavior.
-- `update_log/update_plan/` for migration and implementation plans.
+- **Static Specs**: `docs/spec/` for system contracts and schemas.
+    - `docs/spec/curator_schema/` for Curator DAG schema contracts.
+    - `docs/spec/system_behavior/` for Curator system behavior.
+- **Dynamic Planning**: `docs/plans/` for implementation context.
+    - `docs/plans/update_plan/` for migration and feature implementation plans.
 
-Treat older root-level specs as historical unless the user explicitly points to
-them for comparison.
+Treat older root-level specs as historical unless the user explicitly points to them for comparison.
 
-## v13.1 Invariants
+## v0.1.0 Invariants
 
 - The Curator DAG layers are `01_Contexts`, `02_Atoms`, `03_Concepts`, and
   `04_Exhibitions`.
@@ -152,7 +152,7 @@ them for comparison.
 - `04_Resources/` and `06_Archives/` are read-only source/reference spaces.
 - `.curator/` is machine-readable Curator state. Modify it only through the
   project code or explicit testbed setup scripts.
-- Exclude `src/qmd/**` from llm-wiki v13.1 legacy sweeps unless the task is
+- Exclude `src/qmd/**` from incurator v0.1.0 legacy sweeps unless the task is
   explicitly about qmd itself.
 
 ## Multi-Agent Development Roles
@@ -160,7 +160,7 @@ them for comparison.
 When a change is broad, split review or implementation thinking into these
 roles and then integrate the result in one coherent patch:
 
-- `schema_guardian`: checks v13.1 schema, layer names, prefixes, and
+- `schema_guardian`: checks v0.1.0 schema, layer names, prefixes, and
   frontmatter shape.
 - `source_pair_analyst`: checks that `03_Notes/Papers` notes and
   `04_Resources` references can merge into shared higher-level DAG concepts.

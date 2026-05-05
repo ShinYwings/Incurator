@@ -23,4 +23,5 @@ Thumbs.db
 .claude/
 
 testbed/
-src/llm_wiki/templates/testbed_scenario/
+# Dev/testbed stage fixture source corpus
+scripts/dev/

@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from llm_wiki import config as cfg
-from llm_wiki import db, ingest_llm, ingest_raw, lint, page_writer, prompts, sync
+from curator import config as cfg
+from curator import db, ingest_llm, ingest_raw, lint, page_writer, prompts, sync
 
 
 class IntegrityTests(unittest.TestCase):

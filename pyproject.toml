@@ -1,11 +1,11 @@
 [project]
-name = "llm-wiki"
-version = "0.8.1"
+name = "incurator"
+version = "0.1.0"
 description = "An LLM-maintained personal wiki, per Karpathy's pattern. Local-first, enterprise-grade."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    { name = "LLM-Wiki" }
+    { name = "InCurator" }
 ]
 license = { text = "MIT" }
 dependencies = [
@@ -38,17 +38,17 @@ mcp = [
 ]
 
 [project.scripts]
-wiki = "llm_wiki.cli:app"
+wiki = "curator.cli:app"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.hooks.custom]
-path = "scripts/hatch_build.py"
+path = "scripts/build/hatch_build.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/llm_wiki"]
+packages = ["src/curator"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/llm_wiki/templates" = "llm_wiki/templates"
+"src/curator/workspace/templates" = "curator/workspace/templates"

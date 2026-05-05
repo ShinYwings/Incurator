@@ -97,7 +97,7 @@ implementation rather than after mistakes.
 
 ## Project Overview
 
-LLM-Wiki is an LLM-maintained personal knowledge base (Zettelkasten) integrated with Obsidian. It ingests external sources through a 4-layer curation pipeline (L1 Contexts → L2 Atoms → L3 Concepts → L4 Exhibitions) using a multi-provider LLM backend, building a verifiable cross-linked knowledge graph accessible to both humans and AI agents.
+InCurator is an LLM-maintained personal knowledge base (Zettelkasten) integrated with Obsidian. It ingests external sources through a 4-layer curation pipeline (L1 Contexts → L2 Atoms → L3 Concepts → L4 Exhibitions) using a multi-provider LLM backend, building a verifiable cross-linked knowledge graph accessible to both humans and AI agents.
 
 ## Development Commands
 
@@ -122,7 +122,7 @@ pytest tests/test_db.py::test_source_deduplication -v
 hatch build
 
 # Recreate the ignored development validation vault
-python scripts/create_testbed.py --force
+python scripts/dev/testbed_assets/create_testbed.py --force
 ```
 
 **CLI entry point** (after install):
@@ -132,7 +132,6 @@ wiki add <file>         # Parse source and generate L1 Context
 wiki curate             # Run full L2→L3→L4 LLM pipeline
 wiki sync               # Verify DAG integrity, rebuild index/ledger
 wiki query "<question>" # Search and synthesize answer with citations
-wiki lint               # Health checks (orphans, broken links, contradictions)
 wiki reindex            # Rebuild QMD search index
 wiki status             # Show config and stats
 wiki config provider    # Switch LLM backend
@@ -204,7 +203,19 @@ wiki sources list|show|rm  # Manage tracked source files
         └── 04_Exhibitions/
 ```
 
-### Critical Invariants
+### Architecture Source Of Truth
+
+When discussing or changing the system architecture, use these areas as the source-of-truth:
+
+- **Static Specs**: `docs/spec/` for system contracts and schemas.
+    - `docs/spec/curator_schema/` for Curator DAG schema contracts.
+    - `docs/spec/system_behavior/` for Curator system behavior.
+- **Dynamic Planning**: `docs/plans/` for implementation context.
+    - `docs/plans/update_plan/` for migration and feature implementation plans.
+
+Treat older root-level specs as historical unless the user explicitly points to them for comparison.
+
+## Critical Invariants
 
 - **Node IDs are prefixed UUIDs** (`CTX-`, `ATM-`, `CON-`, `EXH-`), never human slugs. Human-readable titles live in frontmatter only.
 - **Pipeline is sequential, not parallel**: Phase B (clustering) must run after all Phase A (atom) outputs are complete, because concepts are cross-source constructs.
@@ -220,10 +231,10 @@ Use `/home/shin/Workspace/llm_wiki/testbed` for testbed-driven development again
 Baseline:
 
 ```bash
-python scripts/create_testbed.py --force
+python scripts/dev/testbed_assets/create_testbed.py --force
 WIKI_ROOT=testbed wiki status
 WIKI_ROOT=testbed wiki add
-WIKI_ROOT=testbed wiki lint
+WIKI_ROOT=testbed wiki sync
 ```
 
 When qmd and the configured LLM backend are available, also run `WIKI_ROOT=testbed wiki reindex` and a relevant `wiki query` smoke test.

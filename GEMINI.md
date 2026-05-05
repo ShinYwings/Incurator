@@ -98,7 +98,7 @@ implementation rather than after mistakes.
 
 ## Project Overview
 
-LLM-Wiki is an LLM-maintained personal knowledge base (Zettelkasten) integrated with Obsidian. It ingests external sources through a 4-layer curation pipeline (L1 Contexts → L2 Atoms → L3 Concepts → L4 Exhibitions) using a multi-provider LLM backend, building a verifiable cross-linked knowledge graph accessible to both humans and AI agents.
+InCurator is an LLM-maintained personal knowledge base (Zettelkasten) integrated with Obsidian. It ingests external sources through a 4-layer curation pipeline (L1 Contexts → L2 Atoms → L3 Concepts → L4 Exhibitions) using a multi-provider LLM backend, building a verifiable cross-linked knowledge graph accessible to both humans and AI agents.
 
 ## Core Rule: Testbed-Driven Development
 
@@ -112,10 +112,10 @@ All feature additions, bug fixes, removals, migrations, and system-rule changes 
 Recommended baseline:
 
 ```bash
-python scripts/create_testbed.py --force
+python scripts/dev/testbed_assets/create_testbed.py --force
 WIKI_ROOT=testbed wiki status
 WIKI_ROOT=testbed wiki add
-WIKI_ROOT=testbed wiki lint
+WIKI_ROOT=testbed wiki sync
 ```
 
 The generated `testbed/` vault is configured to use Gemini CLI as its primary LLM backend (`llm.primary: gemini-cli`). Before running LLM-sensitive testbed commands, make sure the `gemini` command is installed and authenticated.
@@ -194,11 +194,13 @@ WIKI_ROOT=testbed wiki query "How should the Gaussian Splatting Geometry Lab con
 
 ## Architecture Source Of Truth
 
-When discussing or changing the system architecture, schema, or migration plan, use `update_log/` as the current source-of-truth area:
+When discussing or changing the system architecture, use these areas as the source-of-truth:
 
-- `update_log/curator_schema/` for Curator DAG schema contracts.
-- `update_log/llm_wiki_schema/` for llm-wiki system behavior.
-- `update_log/update_plan/` for migration and implementation plans.
+- **Static Specs**: `docs/spec/` for system contracts and schemas.
+    - `docs/spec/curator_schema/` for Curator DAG schema contracts.
+    - `docs/spec/system_behavior/` for Curator system behavior.
+- **Dynamic Planning**: `docs/plans/` for implementation context.
+    - `docs/plans/update_plan/` for migration and feature implementation plans.
 
 Treat older root-level specs as historical unless the user explicitly points to them for comparison.
 
@@ -212,20 +214,20 @@ Treat older root-level specs as historical unless the user explicitly points to 
 - **QMD binary** (`src/qmd/bin/`) is a bundled native binary installed via `scripts/hatch_build.py`, not a Python package. `wiki reindex` must be run after bulk changes before `wiki query` will see new content.
 - **LLM backend selection** happens at CLI startup in `cli.py`; downstream code receives a pre-constructed `FailoverClient`. Do not call provider SDKs directly from pipeline modules.
 
-### v13.1 Schema Invariants
+### v0.1.0 Schema Invariants
 - The Curator DAG layers are `01_Contexts`, `02_Atoms`, `03_Concepts`, and `04_Exhibitions`.
 - Valid node prefixes are `CTX-`, `ATM-`, `CON-`, and `EXH-`.
 - `qmd.yml` or qmd `index.yml` is search-engine configuration. `curate.yml` is the workspace Knowledge Requirement Specification.
 - `03_Notes/` is human-verified source truth. Do not edit it autonomously.
 - `04_Resources/` and `06_Archives/` are read-only source/reference spaces.
 - `.curator/` is machine-readable Curator state. Modify it only through the project code or explicit testbed setup scripts.
-- Exclude `src/qmd/**` from llm-wiki v13.1 legacy sweeps unless the task is explicitly about qmd itself.
+- Exclude `src/qmd/**` from incurator v0.1.0 legacy sweeps unless the task is explicitly about qmd itself.
 
 ## Multi-Agent Development Roles
 
 When a change is broad, split review or implementation thinking into these roles and then integrate the result in one coherent patch:
 
-- `schema_guardian`: checks v13.1 schema, layer names, prefixes, and frontmatter shape.
+- `schema_guardian`: checks v0.1.0 schema, layer names, prefixes, and frontmatter shape.
 - `source_pair_analyst`: checks that `03_Notes/Papers` notes and `04_Resources` references can merge into shared higher-level DAG concepts.
 - `topic_boundary_checker`: checks that unrelated `02_Wiki` topics remain distinguishable from the paper/resource topic.
 - `cli_regression_runner`: checks `wiki init/status/add/curate/lint/reindex/query` smoke behavior in the testbed.
@@ -266,7 +268,7 @@ pytest tests/test_db.py::test_source_deduplication -v
 hatch build
 
 # Recreate the ignored development validation vault
-python scripts/create_testbed.py --force
+python scripts/dev/testbed_assets/create_testbed.py --force
 ```
 
 **CLI entry point** (after install):
@@ -276,7 +278,6 @@ wiki add <file>         # Parse source and generate L1 Context
 wiki curate             # Run full L2→L3→L4 LLM pipeline
 wiki sync               # Verify DAG integrity, rebuild index/ledger
 wiki query "<question>" # Search and synthesize answer with citations
-wiki lint               # Health checks (orphans, broken links, contradictions)
 wiki reindex            # Rebuild QMD search index
 wiki status             # Show config and stats
 wiki config provider    # Switch LLM backend

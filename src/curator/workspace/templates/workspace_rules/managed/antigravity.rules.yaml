@@ -1,0 +1,8 @@
+llm_wiki:
+  workspace: "{{workspace_path}}"
+  wiki_root: "{{wiki_root}}"
+  rules:
+    - ".agents/curator/shared/rules.md"
+    - ".agents/curator/runtime/{{agent_runtime}}.md"
+    - ".agents/curator/workflows/workspace_loop.md"
+
