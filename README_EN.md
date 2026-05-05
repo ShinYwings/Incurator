@@ -51,7 +51,7 @@ Knowledge only truly **Increments** when it is gathered in a **single, cohesive 
 
 ### 📋 Prerequisites
 - **Python 3.10+**, **Obsidian**, **Node.js**
-- (Optional) **Ollama** (for local curation), **LLM API Keys** (for subscription services)
+- (Optional) **Ollama & Subscription Account/ID**: Backends for the Curator Engine. You can easily connect via your **Subscription Service ID** or **Account Login**. Configuring both allows for automatic **Failover/Fallback** to local models if the cloud service encounters an issue.
 - See [User Guide: Prerequisites](docs/guides/USER_GUIDE_EN.md#prerequisites) for details.
 
 ### 🚀 Quick Start

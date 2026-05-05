@@ -11,8 +11,9 @@ Before installing the system, ensure the following tools are installed:
 1.  **Python 3.10+**: The core logic is written in Python.
 2.  **Obsidian (Essential)**: The primary tool for visualizing and editing your knowledge base.
 3.  **Node.js**: Required for building the search engine (QMD) and running the MCP server. (Automatic installation is attempted during `./install.sh`.)
-4.  **Ollama (Optional)**: Recommended if you intend to use local SLMs (e.g., DeepSeek) as background curators. (Automatic installation is attempted during `./install.sh`.)
-5.  **Subscription LLM Services (Optional)**: You can integrate services like Gemini, Claude, and OpenAI for more sophisticated knowledge synthesis and reasoning. An **API Key** or **Login ID** for the respective service is required for CLI usage.
+4.  **Curator Engine Backends (Ollama & Subscription LLMs)**: At least one model backend is required.
+    - **Subscription Account/ID**: Connect services like Gemini, Claude, and OpenAI. You can easily integrate via your **Subscription Service ID (Project ID)** or **Account Login**.
+    - **Failover/Fallback**: If both local (Ollama) and cloud services are configured, the system automatically switches to local if a cloud service error or quota limit is reached.
 
 > [!NOTE]
 > **Verified Development Environment**
