@@ -98,21 +98,25 @@ implementation rather than after mistakes.
 
 ## Core Rule: Testbed-Driven Development
 
-All feature additions, bug fixes, removals, migrations, and system-rule changes
-must be validated against the repo-local `testbed/` vault whenever practical.
+All feature additions, bug fixes, migrations, and system rule changes must be validated in the `testbed/` vault which simulates a real environment. 
 
-- Before changing behavior, reproduce or describe the failing scenario using
-  `testbed/` or a validation script.
-- After changing behavior, run the same scenario again and report the result.
-- If a dependency is unavailable, report the exact blocker and run every
-  lower-level validation that does not need that dependency.
-- Do not treat a query/search change as complete until it has been checked with
-  the testbed, or until the qmd/LLM blocker is documented.
+### Testbed Scenario Management
+The standard scenario template for development and validation is located at `scripts/dev/`. 
+Each scenario is contained in its own folder (e.g., `scripts/dev/testbed_template/`). 
+Agents should refer to the specific scenario's `MASTER_PLAN.md` to understand the domain and validation goals.
+
+- **Standard Template**: `scripts/dev/testbed_template/` is the blueprint for creating new scenarios.
+- **Initialization Requirement**: If the `testbed/` directory does not exist, the agent MUST ask the USER to create one using the setup script for the appropriate scenario. If the USER explicitly refuses, the agent may skip testbed validation but must report the risk of unverified changes.
+- **Before Action**: Before changing behavior, reproduce or describe the failing scenario using `testbed/` or the active scenario assets.
+- **After Action**: After changing behavior, run the same scenario again and report the result.
+- **Blockers**: If a dependency is unavailable, report the exact blocker and run every lower-level validation that does not need that dependency.
+- **Completion Criteria**: Do not treat a query/search change as complete until it has been checked with the testbed, or until the qmd/LLM blocker is documented.
 
 Recommended baseline:
 
 ```bash
-python scripts/dev/testbed_assets/create_testbed.py --force
+# Replace <scenario_name> with the folder name (e.g., testbed_template or GS_Testbed)
+wiki testbed init <scenario_name> --force
 WIKI_ROOT=testbed wiki status
 WIKI_ROOT=testbed wiki add
 WIKI_ROOT=testbed wiki sync
@@ -126,7 +130,7 @@ When qmd and the configured LLM backend are available, also run:
 
 ```bash
 WIKI_ROOT=testbed wiki reindex
-WIKI_ROOT=testbed wiki query "How should the Gaussian Splatting Geometry Lab connect paper notes and reference assets?"
+WIKI_ROOT=testbed wiki query "지식의 원자화와 합성이란 무엇인가?"
 ```
 
 ## Architecture Source Of Truth

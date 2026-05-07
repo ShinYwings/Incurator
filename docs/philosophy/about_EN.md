@@ -69,14 +69,23 @@ The Artist draws a new painting inspired by the Exhibition:
 
 The Curator isn't just an organizer; it's a **Compiler** that produces data in a form the agent can understand most efficiently.
 
-1.  **Token Optimization**: Drastically reduces the tokens consumed by agents for searching and context loading.
-2.  **Improved Knowledge Grounding**: Agent response quality improves because data is compiled in a machine-friendly way.
-3.  **Two-Track Directory Structure**:
-    *   **Curator-made (`.curator/`)**: High-density, machine-readable backend for agents.
-    *   **Synthesis-made (`02_Wiki/`)**: Domain-organized, beautiful Zettelkasten for humans.
+1.  **Self-Healing Knowledge Compiler:**
+    *   The system operates similarly to a deep learning model. `wiki add/curate` performs the **Forward Pass** to build the knowledge foundation and synthesize outputs.
+    *   Modifications by humans or agents act as **Loss Signals**, representing errors in the current state. `wiki sync` then performs the **Backward Pass**, tracing these signals through the graph to restore logical integrity.
+    *   Through this iterative cycle, fragmented information evolves into a robust "Concrete" of knowledge, fostering a **Self-Healing** ecosystem that grows more accurate and sophisticated through interaction.
 
-4.  **Ecosystem Diversity**: As workspaces grow, different agents (Artists) bring their own "style" to the knowledge base, creating a truly organic and rich Wiki ecosystem.
+2.  **High-Fidelity Knowledge Grounding (Quality):**
+    *   Agent response quality and contextual understanding improve significantly because data is compiled (Exhibition) in a way that is tailored to the current project and task context.
+    *   The agent doesn't get lost in massive datasets, providing hallucination-free answers by leveraging only the refined essence of curated knowledge.
 
-5.  **Learning Metaphor-based Knowledge Cycle (Forward & Backward Pass)**: The system operates similarly to the training process of a deep learning model. The process where `wiki add` builds the foundation (L1-L3) and `wiki curate` synthesizes the final output (L4) acts as the **Forward Pass**. Modifications by humans and agents serve as **Loss Signals**, representing errors in the system's current state. Finally, `wiki sync` performs the **Backward Pass**, tracing these signals back through the graph to repair structural flaws and maintain overall knowledge integrity.
+3.  **Token Optimization (AI FinOps):**
+    *   By offloading repetitive data preprocessing (summarization, atomization) to a **Local SLM (Curator)**, we drastically reduce the tokens consumed by high-performance commercial models (Artist).
+    *   Heavy models are shielded from "grunt work," allowing you to concentrate your budget only on tasks that require high-level reasoning.
 
-6.  **Self-Evolution & Concreting**: Knowledge is not static historical data. Every time an agent or human discovers and corrects an error during interaction, fragmented information evolves into a more robust and reliable "Concrete" of knowledge, solidifying its place within the system.
+4.  **Two-Track Directory Structure (UX):**
+    *   We have perfectly separated machine-readable, high-density data (`.curator/`) from human-readable, domain-organized wikis (`02_Wiki/`).
+    *   Users can comfortably browse and manage refined knowledge without being distracted by complex machine-generated intermediate artifacts.
+
+5.  **Ecosystem Diversity & Growth:**
+    *   Agents residing in the workspace become unique 'Artists' reflecting the user's style and project goals.
+    *   As different agents generate diverse insights from various perspectives, your knowledge base evolves from a flat list of information into a rich, organically growing ecosystem.

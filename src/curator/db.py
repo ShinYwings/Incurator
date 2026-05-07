@@ -143,6 +143,13 @@ CREATE TABLE IF NOT EXISTS synthesis (
 );
 
 CREATE INDEX IF NOT EXISTS idx_synthesis_confidence ON synthesis(confidence_score);
+
+-- Tracks the last known hash of generated wiki pages for fast sync
+CREATE TABLE IF NOT EXISTS page_hashes (
+    wiki_path       TEXT PRIMARY KEY,        -- path relative to project root
+    content_hash    TEXT NOT NULL,           -- sha256 of page content
+    last_synced     TEXT NOT NULL            -- ISO timestamp
+);
 """
 
 
@@ -251,3 +258,31 @@ def set_sources_layer_status(
             f"WHERE id IN ({','.join('?' * len(source_ids))})",
             (status, error, *source_ids),
         )
+def get_page_hashes(db_path: Path) -> dict[str, str]:
+    """Load all known page hashes: {wiki_path: content_hash}."""
+    if not db_path.exists():
+        return {}
+    with connect(db_path) as conn:
+        rows = conn.execute("SELECT wiki_path, content_hash FROM page_hashes").fetchall()
+        return {row["wiki_path"]: row["content_hash"] for row in rows}
+
+
+def update_page_hash(db_path: Path, wiki_path: str, content_hash: str) -> None:
+    """Upsert the hash for a specific wiki page."""
+    import datetime
+    now = datetime.datetime.now().isoformat()
+    with connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO page_hashes (wiki_path, content_hash, last_synced) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(wiki_path) DO UPDATE SET "
+            "content_hash = excluded.content_hash, "
+            "last_synced = excluded.last_synced",
+            (wiki_path, content_hash, now),
+        )
+
+
+def delete_page_hash(db_path: Path, wiki_path: str) -> None:
+    """Remove a page hash entry (e.g. if file deleted)."""
+    with connect(db_path) as conn:
+        conn.execute("DELETE FROM page_hashes WHERE wiki_path = ?", (wiki_path,))

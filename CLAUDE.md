@@ -186,10 +186,19 @@ wiki sources list|show|rm  # Manage tracked source files
 
 ```
 <vault>/
-├── 02_Wiki/           Human-curated knowledge (promoted from L4)
-├── 03_Notes/          Human notes — READ-ONLY to agents and curators
-├── 04_Resources/      External references — READ-ONLY
-└── .curator/          Hidden core (managed by wiki CLI)
+├── .obsidian/         Obsidian configuration and plugins
+├── 00_System/         User-defined folders (e.g., sandbox, inbox, daily, etc.)
+├── 01_Workspaces/     [Artist Space] Project-specific studios
+│   └── <project_name>/
+│       ├── curate.yml     Knowledge Requirement Spec (Required)
+│       ├── .agents/       Agent-specific workspace (Auto-generated)
+│       └── <notes/scripts>Human artifacts related to this project
+├── 02_Wiki/           [Human Space] Human-curated knowledge (promoted from L4)
+├── 03_Notes/          [Source] Human notes — READ-ONLY
+├── 04_Resources/      [Source] External references — READ-ONLY
+├── 05_Assets/         Media assets (images, PDF attachments, etc.)
+├── 06_Archives/       Archives for deprecated or old sources
+└── .curator/          [Machine Space] Hidden core (managed by wiki CLI)
     ├── config.yml     LLM backend, model, raw_dirs, collections_dir
     ├── state.sqlite   Dedup hashes, run history, provenance
     ├── index.md       DAG routing table (all L1-L4 node IDs)

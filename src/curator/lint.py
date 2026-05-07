@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable, Optional
 
 from . import config as cfg
 from . import db
@@ -134,7 +134,7 @@ _PAGE_TYPES = ("01_Contexts", "02_Atoms", "03_Concepts", "04_Exhibitions")
 _CURATOR_PREFIXES = tuple(pt + "/" for pt in _PAGE_TYPES)
 
 
-def _build_inventory(paths: cfg.WikiPaths) -> PageInventory:
+def _build_inventory(paths: cfg.WikiPaths, progress_callback: Optional[Callable[[str], None]] = None) -> PageInventory:
     """Walk .curator/Collections/ and build a cached PageInventory.
 
     Also parses index.md and log.md as root nodes so that pages linked
@@ -150,6 +150,8 @@ def _build_inventory(paths: cfg.WikiPaths) -> PageInventory:
         for md_path in sorted(d.glob("*.md")):
             if md_path.name.startswith(".") or md_path.name.startswith("lint-report-"):
                 continue
+            if progress_callback:
+                progress_callback(md_path.stem)
             try:
                 content = md_path.read_text(encoding="utf-8", errors="replace")
             except OSError:
@@ -904,6 +906,7 @@ def check_contradictions_deep(
     paths: cfg.WikiPaths,
     client,  # OllamaClient
     max_pairs: int = 10,
+    limit_to: Optional[list[str]] = None,
 ) -> list[LintIssue]:
     """Use the configured LLM to scan pairs of L2 Atom pages that share
     related concepts and flag potentially contradictory claims.
@@ -927,8 +930,14 @@ def check_contradictions_deep(
 
     pairs: list[tuple[str, str, int]] = []
     paths_list = list(page_link_sets.keys())
+    limit_set = set(limit_to) if limit_to else None
+
     for i, a in enumerate(paths_list):
         for b in paths_list[i + 1 :]:
+            # Optimization: only check pairs if at least one page was modified
+            if limit_set and (a not in limit_set and b not in limit_set):
+                continue
+                
             overlap = len(page_link_sets[a] & page_link_sets[b])
             if overlap >= 1:
                 pairs.append((a, b, overlap))
@@ -991,30 +1000,29 @@ def _trim_for_prompt(text: str, max_chars: int = 3000) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _apply_fixes_to_page(parsed: page_writer.ParsedPage, fixes: list[LintIssue]) -> bool:
-    """Apply all fixable issues to a single ParsedPage in place. Returns True
-    if anything was changed.
-    """
-    changed = False
+def _apply_fixes_to_page(parsed: page_writer.ParsedPage, fixes: list[LintIssue]) -> set[str]:
+    """Apply all fixable issues to a single ParsedPage in place. Returns list of fixed check names."""
+    fixed_checks: set[str] = set()
     body = parsed.body
 
     for issue in fixes:
         if not issue.fixable:
             continue
         ctx = issue.context
+        changed_this_issue = False
 
         if issue.check == CheckId.MISSING_FRONTMATTER and ctx.get("repair") == "strip_llm_noise":
             repaired = page_writer.parse_page(page_writer.strip_llm_noise(body))
             if repaired.frontmatter:
                 parsed.frontmatter = repaired.frontmatter
                 body = repaired.body
-                changed = True
+                changed_this_issue = True
 
         elif issue.check == CheckId.INVALID_FRONTMATTER and ctx.get("remove_field"):
             field = ctx.get("remove_field", "")
             if field in parsed.frontmatter:
                 parsed.frontmatter.pop(field, None)
-                changed = True
+                changed_this_issue = True
 
         elif issue.check in (CheckId.MALFORMED_WIKILINK, CheckId.BROKEN_WIKILINK):
             old = ctx.get("old_target", "")
@@ -1024,49 +1032,31 @@ def _apply_fixes_to_page(parsed: page_writer.ParsedPage, fixes: list[LintIssue])
                 continue
 
             if location == "body" and "new_target" in ctx and new == "":
-                # Removal case: erase [[old]] (and [[old|alias]]) from body,
-                # then drop any list bullet lines that became empty. This path
-                # is only for explicit empty placeholders such as [[01_Contexts/]].
+                # Removal case
                 old_esc = re.escape(old)
                 body = re.sub(rf"\[\[{old_esc}(?:\|[^\]]*)?\]\]", "", body)
                 body = re.sub(r"(?m)^[ \t]*[-*][ \t]*\n", "", body)
-                changed = True
-                continue
-
-            if not new or old == new:
-                continue
-
-            if location == "body":
-                # Replace [[old]] or [[old|alias]] with [[new]] (preserving alias)
-                old_esc = re.escape(old)
-                # Replace without alias
-                body = re.sub(
-                    rf"\[\[{old_esc}\]\]", f"[[{new}]]", body
-                )
-                # Replace with alias
-                body = re.sub(
-                    rf"\[\[{old_esc}\|([^\]]*)\]\]",
-                    rf"[[{new}|\1]]",
-                    body,
-                )
-                changed = True
-
-            elif location == "frontmatter":
-                field = ctx.get("field", "parent_source")
-                if ctx.get("scalar"):
-                    if parsed.frontmatter.get(field) == old:
-                        parsed.frontmatter[field] = new
-                        changed = True
-                else:
-                    values = parsed.frontmatter.get(field, []) or []
-                    if isinstance(values, list):
-                        new_values = [
-                            new if (isinstance(v, str) and v == old) else v
-                            for v in values
-                        ]
-                        if new_values != values:
-                            parsed.frontmatter[field] = new_values
-                            changed = True
+                changed_this_issue = True
+            
+            elif new and old != new:
+                if location == "body":
+                    old_esc = re.escape(old)
+                    body = re.sub(rf"\[\[{old_esc}\]\]", f"[[{new}]]", body)
+                    body = re.sub(rf"\[\[{old_esc}\|([^\]]*)\]\]", rf"[[{new}|\1]]", body)
+                    changed_this_issue = True
+                elif location == "frontmatter":
+                    field = ctx.get("field", "parent_source")
+                    if ctx.get("scalar"):
+                        if parsed.frontmatter.get(field) == old:
+                            parsed.frontmatter[field] = new
+                            changed_this_issue = True
+                    else:
+                        values = parsed.frontmatter.get(field, []) or []
+                        if isinstance(values, list):
+                            new_values = [new if (isinstance(v, str) and v == old) else v for v in values]
+                            if new_values != values:
+                                parsed.frontmatter[field] = new_values
+                                changed_this_issue = True
 
         elif issue.check == CheckId.NOISE_IN_SYNTHESIS:
             field = ctx.get("field", "core_concepts")
@@ -1076,25 +1066,35 @@ def _apply_fixes_to_page(parsed: page_writer.ParsedPage, fixes: list[LintIssue])
                 new_values = [v for v in values if v != remove_value]
                 if len(new_values) != len(values):
                     parsed.frontmatter[field] = new_values
-                    changed = True
+                    changed_this_issue = True
 
         elif issue.check == CheckId.INVALID_SOURCE_PATH:
             field = ctx.get("field", "source_path")
             new = ctx.get("new_target", "")
             if field and new and parsed.frontmatter.get(field) != new:
                 parsed.frontmatter[field] = new
-                changed = True
+                changed_this_issue = True
+        
+        if changed_this_issue:
+            fixed_checks.add(issue.check.value)
 
-    if changed:
+    if len(fixed_checks) > 0:
         parsed.body = body
-    return changed
+    return fixed_checks
 
 
-def apply_llm_fixes(paths: cfg.WikiPaths, issues: list[LintIssue], client) -> int:
+def apply_llm_fixes(
+    paths: cfg.WikiPaths,
+    issues: list[LintIssue],
+    client,
+    progress_callback: Optional[Callable[[str], None]] = None,
+    limit_to: Optional[list[str]] = None,
+    repair_callback: Optional[Callable[[str, str], None]] = None,
+) -> int:
     """Use the LLM to reconnect broken wikilinks that couldn't be auto-resolved.
 
     Handles issues with ``context["llm_relink"] == True``:
-      - BROKEN_WIKILINK with no candidate or ambiguous candidates
+      - BROKEN_WIKILINK (in body or frontmatter)
       - STALE_SOURCE_REF where parent_source Context no longer exists
 
     For each broken link the LLM picks the best matching existing page.
@@ -1106,7 +1106,11 @@ def apply_llm_fixes(paths: cfg.WikiPaths, issues: list[LintIssue], client) -> in
     from . import prompts as _prompts
     from .llm import LLMError
 
-    llm_issues = [i for i in issues if i.context.get("llm_relink")]
+    limit_set = set(limit_to) if limit_to else None
+    llm_issues = [
+        i for i in issues 
+        if i.context.get("llm_relink") and (not limit_set or i.page in limit_set)
+    ]
     if not llm_issues:
         return 0
 
@@ -1134,6 +1138,9 @@ def apply_llm_fixes(paths: cfg.WikiPaths, issues: list[LintIssue], client) -> in
 
     total_modified = 0
     for relpath, page_issues in by_page.items():
+        if progress_callback:
+            progress_callback(relpath)
+        
         full_path = paths.wiki / relpath
         if not full_path.exists():
             continue
@@ -1196,6 +1203,8 @@ def apply_llm_fixes(paths: cfg.WikiPaths, issues: list[LintIssue], client) -> in
                     parsed.body,
                 )
                 changed = True
+                if repair_callback:
+                    repair_callback(relpath, f"LLM relinked: {old_target} -> {new_target}")
             elif location == "frontmatter" and field:
                 val = parsed.frontmatter.get(field)
                 old_norm = _normalize_link(old_target)
@@ -1216,7 +1225,12 @@ def apply_llm_fixes(paths: cfg.WikiPaths, issues: list[LintIssue], client) -> in
     return total_modified
 
 
-def apply_fixes(paths: cfg.WikiPaths, issues: list[LintIssue]) -> int:
+def apply_fixes(
+    paths: cfg.WikiPaths,
+    issues: list[LintIssue],
+    progress_callback: Optional[Callable[[str], None]] = None,
+    repair_callback: Optional[Callable[[str, str], None]] = None,
+) -> int:
     """Apply all fixable issues. Returns the count of pages modified.
 
     Runs in a loop: apply → re-lint → apply → re-lint. This is because some
@@ -1239,6 +1253,9 @@ def apply_fixes(paths: cfg.WikiPaths, issues: list[LintIssue]) -> int:
 
         pages_modified_this_round = 0
         for relpath, page_issues in by_page.items():
+            if progress_callback:
+                progress_callback(relpath)
+                
             full_path = paths.wiki / relpath
             if not full_path.exists():
                 continue
@@ -1247,9 +1264,13 @@ def apply_fixes(paths: cfg.WikiPaths, issues: list[LintIssue]) -> int:
             except OSError:
                 continue
             parsed = page_writer.parse_page(content)
-            if _apply_fixes_to_page(parsed, page_issues):
+            fixed_checks = _apply_fixes_to_page(parsed, page_issues)
+            if fixed_checks:
                 full_path.write_text(parsed.to_markdown(), encoding="utf-8")
                 pages_modified_this_round += 1
+                if repair_callback:
+                    msg = ", ".join(fixed_checks)
+                    repair_callback(relpath, f"Fixed {msg}")
 
         if pages_modified_this_round == 0:
             break
@@ -1281,6 +1302,8 @@ def run_lint(
     *,
     deep: bool = False,
     client=None,  # OllamaClient, required if deep=True
+    progress_callback: Optional[Callable[[str], None]] = None,
+    limit_to: Optional[list[str]] = None,
 ) -> LintReport:
     """Run all fast checks, plus deep checks if requested.
 
@@ -1313,7 +1336,7 @@ def run_lint(
     # Deep check (LLM-powered)
     if deep and client is not None:
         report.deep_check_run = True
-        report.issues.extend(check_contradictions_deep(inv, paths, client))
+        report.issues.extend(check_contradictions_deep(inv, paths, client, limit_to=limit_to))
 
     # Sort: errors first, then warnings, then infos. Within each, by page.
     severity_order = {

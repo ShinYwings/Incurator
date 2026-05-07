@@ -114,6 +114,15 @@ config_models_app = typer.Typer(
 )
 config_app.add_typer(config_models_app, name="models")
 
+testbed_app = typer.Typer(
+    name="testbed",
+    help="[Dev Only] Manage development testbed environments and scenarios.",
+    no_args_is_help=True,
+    add_completion=False,
+    rich_markup_mode="rich",
+)
+app.add_typer(testbed_app, name="testbed")
+
 console = Console()
 
 
@@ -570,11 +579,28 @@ def _run_sync_report_only(paths: cfg.WikiPaths, config: dict, *, reason: str) ->
     """Run the default sync repair loop after add/curate/query."""
     from . import sync as sync_module
 
-    console.print()
-    console.print(f"[dim]Running sync repair after {reason}...[/dim]")
+    class CliSyncCallbacks(sync_module.SyncCallbacks):
+        def on_node_check(self, node_id: str):
+            console.print(f"  [dim]Verifying {node_id}...[/dim]", end="\r")
 
-    structural_gaps = sync_module.run_mode_a(paths)
-    structural_report = lint_module.run_lint(paths, deep=False, client=None)
+        def on_node_repair(self, node_id: str, rebuilt_count: int = 0):
+            # Clear the progress line and show repair
+            console.print(" " * 60, end="\r")
+            console.print(f"  [green]✓[/green] [bold]{node_id}[/bold] repaired.")
+
+    cb = CliSyncCallbacks()
+
+    console.print(f"[dim]Running sync repair after {reason}...[/dim]")
+    change_report = sync_module.scan_for_changes(paths)
+    dirty_pages = change_report.modified + change_report.new
+    dirty_node_ids = [Path(ref).stem for ref in dirty_pages]
+
+    console.print("[dim]Step 1: Structural verification...[/dim]")
+    structural_gaps = sync_module.run_mode_a(paths, callbacks=cb)
+    console.print(" " * 60, end="\r")
+
+    console.print("[dim]Step 2: Health checks (lint)...[/dim]")
+    structural_report = lint_module.run_lint(paths, deep=False, client=None, progress_callback=cb.on_node_check)
 
     client = None
     logic_gaps = []
@@ -582,25 +608,44 @@ def _run_sync_report_only(paths: cfg.WikiPaths, config: dict, *, reason: str) ->
     rebuilt = 0
     try:
         client = _start_client(config)
-        llm_fixed = lint_module.apply_llm_fixes(paths, structural_report.issues, client)
+        llm_fixed = lint_module.apply_llm_fixes(
+            paths,
+            structural_report.issues,
+            client,
+            progress_callback=cb.on_node_check,
+            limit_to=dirty_pages,
+        )
         if llm_fixed:
-            structural_report = lint_module.run_lint(paths, deep=False, client=None)
+            structural_report = lint_module.run_lint(paths, deep=False, client=None, progress_callback=cb.on_node_check)
         fixed_count = lint_module.apply_fixes(paths, structural_report.issues)
         structural_gap_fixed = sync_module.repair_structural_gaps(paths, structural_gaps)
         nested_fixed = sync_module.repair_nested_frontmatter(paths)
         repaired += llm_fixed + fixed_count + structural_gap_fixed + nested_fixed
         if repaired:
-            structural_report = lint_module.run_lint(paths, deep=False, client=None)
+            structural_report = lint_module.run_lint(paths, deep=False, client=None, progress_callback=cb.on_node_check)
             structural_report.auto_fixed = repaired
-            structural_gaps = sync_module.run_mode_a(paths)
-        deep_report = lint_module.run_lint(paths, deep=True, client=client)
+            structural_gaps = sync_module.run_mode_a(paths, callbacks=cb)
+        deep_report = lint_module.run_lint(
+            paths,
+            deep=True,
+            client=client,
+            progress_callback=cb.on_node_check,
+            limit_to=dirty_pages,
+        )
         structural_report.issues.extend(
             issue for issue in deep_report.issues if issue not in structural_report.issues
         )
         blocked_node_ids = _sync_blocked_node_ids(structural_report)
+        console.print("[dim]Step 3: Logical verification via LLM...[/dim]")
         logic_gaps, repair = sync_module.repair_logical_gaps(
-            paths, client, blocked_node_ids=blocked_node_ids, max_iterations=2
+            paths,
+            client,
+            blocked_node_ids=blocked_node_ids,
+            target_node_ids=dirty_node_ids,
+            max_iterations=2,
+            callbacks=cb,
         )
+        console.print(" " * 60, end="\r")
         repaired += repair.fixed
         rebuilt += repair.rebuilt_downstream
     except Exception as e:
@@ -734,7 +779,7 @@ def _find_workspace_exhibition(paths: cfg.WikiPaths, project: str, spec_hash: st
 # Stage 1 commands
 # ---------------------------------------------------------------------------
 
-_VALID_CLOUD = ("gemini", "claude", "openai")
+_VALID_CLOUD = ()
 
 # Curated Ollama model list: (model_name, description)
 _CURATED_MODELS = [
@@ -750,134 +795,92 @@ _CURATED_MODELS = [
 
 
 _CLOUD_MODELS: dict[str, list[dict]] = {
-    "gemini": [
+    "gemini-cli": [
+        {
+            "tag": "gemini-2.5-flash",
+            "desc": "Flash (기본값) — 고속·균형",
+            "think": False,
+            "cfg_key": "gemini_flash_model",
+        },
         {
             "tag": "gemini-2.5-flash-lite",
-            "desc": "Lite · 최저 성능/최저 quota tier — testbed 1순위",
+            "desc": "Lite — 최저 성능/최저 quota tier",
             "think": False,
             "cfg_key": "gemini_flash_model",
         },
         {
             "tag": "gemini-3.1-flash-lite-preview",
-            "desc": "Lite preview · 현재 testbed 기본값",
+            "desc": "Lite preview — 저비용 tier",
             "think": False,
             "cfg_key": "gemini_flash_model",
-        },
-        {
-            "tag": "gemini-2.5-flash",
-            "desc": "Flash · 중간 성능/속도",
-            "think": False,
-            "cfg_key": "gemini_flash_model",
-        },
-        {
-            "tag": "gemini-3-flash-preview",
-            "desc": "Flash preview · 중간 성능/속도",
-            "think": False,
-            "cfg_key": "gemini_flash_model",
-        },
-        {
-            "tag": "gemini-2.5-pro",
-            "desc": "Pro · 고품질",
-            "think": True,
-            "cfg_key": "gemini_think_model",
         },
         {
             "tag": "gemini-3.1-pro-preview",
-            "desc": "Pro preview · 최고품질 Thinking",
+            "desc": "Pro preview — 최고 성능",
             "think": True,
             "cfg_key": "gemini_think_model",
         },
-    ],
-    "claude": [
         {
-            "tag": "claude-haiku-4-5",
-            "desc": "빠름 · 저비용 — 가벼운 작업",
+            "tag": "gemini-3.1-flash-preview",
+            "desc": "Flash preview — 고속 차세대 Flash",
             "think": False,
-            "cfg_key": "claude_model",
+            "cfg_key": "gemini_flash_model",
         },
+    ],
+    "claude-code": [
         {
             "tag": "claude-sonnet-4-6",
-            "desc": "균형 (기본값) — 텍스트 합성·구조화",
+            "desc": "Sonnet (기본값) — 고성능 범용",
             "think": False,
             "cfg_key": "claude_model",
         },
         {
-            "tag": "claude-opus-4-6",
-            "desc": "고품질 — 고난도 작업",
+            "tag": "claude-haiku-4-5",
+            "desc": "Haiku — 고속 경량",
             "think": False,
             "cfg_key": "claude_model",
         },
         {
             "tag": "claude-opus-4-7",
-            "desc": "최고품질 · Thinking — 깊은 분석",
+            "desc": "Opus — 최고 성능 Thinking",
             "think": True,
             "cfg_key": "claude_think_model",
-        },
-    ],
-    "openai": [
-        {
-            "tag": "gpt-4o-mini",
-            "desc": "빠름 · 저비용 — 경량 작업",
-            "think": False,
-            "cfg_key": "openai_model",
-        },
-        {
-            "tag": "gpt-4o",
-            "desc": "균형 — 범용",
-            "think": False,
-            "cfg_key": "openai_model",
-        },
-        {
-            "tag": "gpt-4.1",
-            "desc": "고품질 (기본값) — 표준 작업",
-            "think": False,
-            "cfg_key": "openai_model",
-        },
-        {
-            "tag": "o4-mini",
-            "desc": "빠른 Thinking — 경량 추론",
-            "think": True,
-            "cfg_key": "openai_think_model",
-        },
-        {
-            "tag": "o3",
-            "desc": "최고품질 · Thinking (기본값)",
-            "think": True,
-            "cfg_key": "openai_think_model",
         },
     ],
 }
 
 _PROVIDER_PRIMARY_CFG_KEY: dict[str, str] = {
-    "gemini": "gemini_flash_model",
-    "claude": "claude_model",
-    "openai": "openai_model",
+    "gemini-cli": "gemini_flash_model",
+    "claude-code": "claude_model",
 }
 _PROVIDER_THINK_CFG_KEY: dict[str, str] = {
-    "gemini": "gemini_think_model",
-    "claude": "claude_think_model",
-    "openai": "openai_think_model",
+    "gemini-cli": "gemini_think_model",
+    "claude-code": "claude_think_model",
 }
 
 
 def _get_cloud_provider_from_primary(primary: str, llm_cfg: dict) -> str:
     """Resolve the cloud provider string from the primary backend key."""
-    if primary == "claude-code":
-        return "claude"
-    if primary == "gemini-cli":
-        return "gemini"
-    if primary == "cloud":
-        return llm_cfg.get("cloud_provider", "gemini")
+    p = primary.lower().replace(" ", "-")
+    if p in ("gemini", "gemini-cli"):
+        return "gemini-cli"
+    if p in ("claude", "claude-code"):
+        return "claude-code"
+    if p == "cloud":
+        _err("'cloud' provider (direct SDK) is disabled. Use gemini-cli or claude-code.")
+        return ""
     return ""
 
 
-def _show_cloud_models(cloud_provider: str, llm_cfg: dict) -> None:
-    """Print a Rich table of curated cloud models for the given provider."""
+def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = False) -> bool:
+    """Print a Rich table of curated cloud models for the given provider.
+    Returns True if any models were actually shown.
+    """
     from rich.table import Table as RichTable
 
     models = _CLOUD_MODELS.get(cloud_provider)
     if not models:
-        _err(f"Unknown cloud provider '{cloud_provider}'. Use: gemini, claude, openai.")
+        _err(f"Unknown cloud provider '{cloud_provider}'. Use: gemini-cli, claude-code.")
         return
 
     # Determine currently active model tags
@@ -894,10 +897,17 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict) -> None:
         "claude_think_model": DEFAULT_CLAUDE_THINK_MODEL,
         "openai_think_model": DEFAULT_OPENAI_THINK_MODEL,
     }
+    
     if primary_key:
-        active_tags.add(llm_cfg.get(primary_key, defaults_regular.get(primary_key, "")))
-    if think_key:
-        active_tags.add(llm_cfg.get(think_key, defaults_think.get(think_key, "")))
+        val = llm_cfg.get(primary_key, defaults_regular.get(primary_key, ""))
+        if val:
+            active_tags.add(val)
+    
+    if not active_only and think_key:
+        val = llm_cfg.get(think_key, defaults_think.get(think_key, ""))
+        if val:
+            active_tags.add(val)
+    
     active_tags.discard("")
 
     table = RichTable(
@@ -912,10 +922,35 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict) -> None:
     table.add_column("설명",                       min_width=30, max_width=44, no_wrap=True)
     table.add_column("✓",         style="green",  min_width=2,  justify="center", no_wrap=True)
 
+    shown_tags = set()
+    any_shown = False
     for m in models:
+        # Flexible match: exact or version-prefixed
+        active_mark = ""
+        for tag in active_tags:
+            if m["tag"] == tag or (tag and tag.startswith(m["tag"])):
+                active_mark = "✓"
+                break
+        
+        # In active_only mode, we used to 'continue' here, but the user wants to see 
+        # the full list for the primary provider. We now show ALL models for the 
+        # requested provider, but the caller will skip OTHER providers.
+        any_shown = True
+        if active_mark:
+            shown_tags.add(m["tag"])
+        
         type_label = "[magenta]thinking[/magenta]" if m["think"] else "regular"
-        active_mark = "✓" if m["tag"] in active_tags else ""
         table.add_row(m["tag"], type_label, m["desc"], active_mark)
+
+    # If active_only and some active tags weren't in our curated list, show them anyway
+    if active_only:
+        for tag in active_tags:
+            if tag and tag not in shown_tags:
+                table.add_row(tag, "[dim]custom[/dim]", "[dim]User-defined model[/dim]", "✓")
+                any_shown = True
+
+    if active_only and not any_shown:
+        return False
 
     console.print()
     console.print(
@@ -927,6 +962,7 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict) -> None:
         "[dim]변경: [bold]wiki config models use <tag>[/bold]  "
         "·  모델 변경 후 [bold]wiki add[/bold] 재실행 권장[/dim]"
     )
+    return True
 
 
 def _pick_cloud_model(cloud_provider: str, llm_cfg: dict) -> tuple[str, str]:
@@ -1263,7 +1299,8 @@ def _configure_backend(
             _hint(f"Once Ollama is running: [bold]ollama pull {model}[/bold]")
 
     elif backend == "cloud":
-        overrides.update(_prompt_cloud_setup(default_cp, prefill_keys))
+        _err("'cloud' provider (direct SDK) is disabled. Use gemini-cli or claude-code.")
+        raise typer.Exit(code=1)
 
     elif backend in ("claude-code", "gemini-cli"):
         cli_cmd = "claude" if backend == "claude-code" else "gemini"
@@ -1304,6 +1341,14 @@ def _configure_backend(
                         _warn(f"Install failed. Run manually: {install_cmd}")
         else:
             _ok(f"'{cli_cmd}' CLI found.")
+
+        # Offer model selection for CLI backends
+        console.print()
+        console.print(f"[bold]{backend} Model Selection[/bold]")
+        _show_cloud_models(backend, overrides)
+        sel_model, sel_key = _pick_cloud_model(backend, overrides)
+        if sel_model:
+            overrides[sel_key] = sel_model
 
 
 def _run_init_wizard(
@@ -1521,7 +1566,7 @@ def _start_client(config: dict):
 
 @app.command()
 def version() -> None:
-    """Show the LLM-Wiki version."""
+    """Show the InCurator version."""
     console.print(f"incurator [bold cyan]{__version__}[/bold cyan]")
 @app.command()
 def init(
@@ -1653,8 +1698,9 @@ def init(
 
     if explicit_provider_flags:
         # CLI flags were passed — apply directly, no wizard
-        if cloud_provider in _VALID_CLOUD:
-            llm["cloud_provider"] = cloud_provider
+        if cloud_provider:
+            _err("--cloud-provider is disabled. Use --primary gemini-cli or --primary claude-code.")
+            raise typer.Exit(code=1)
         for flag_val, env_var, cfg_key in [
             (gemini_api_key, "GEMINI_API_KEY", "gemini_api_key"),
             (anthropic_api_key, "ANTHROPIC_API_KEY", "anthropic_api_key"),
@@ -1823,10 +1869,8 @@ def config_provider(
             _warn(f"Unknown --primary '{primary}'. Use: {' | '.join(_valid_primary)}")
             raise typer.Exit(code=1)
 
-        if cloud_provider in _VALID_CLOUD:
-            llm["cloud_provider"] = cloud_provider
-        elif cloud_provider:
-            _warn(f"Unknown --cloud-provider '{cloud_provider}'. Use: {', '.join(_VALID_CLOUD)}")
+        if cloud_provider:
+            _warn("--cloud-provider is disabled. Use --primary gemini-cli or --primary claude-code.")
             raise typer.Exit(code=1)
 
         if model:
@@ -1987,7 +2031,8 @@ def status() -> None:
     _render_latest_sync_report_summary(paths)
 
     try:
-        sync_preflight = lint_module.run_lint(paths, deep=False, client=None)
+        def _silent_cb(node_id): pass
+        sync_preflight = lint_module.run_lint(paths, deep=False, client=None, progress_callback=_silent_cb)
         _render_sync_preflight_summary(sync_preflight)
     except Exception as e:
         _warn(f"Sync preflight summary unavailable: {e}")
@@ -2009,6 +2054,15 @@ def status() -> None:
 
 @app.command()
 def add(
+    path: Optional[Path] = typer.Argument(
+        None, help="Specific file or directory to register. If omitted, scans all raw directories."
+    ),
+    recursive: bool = typer.Option(
+        True,
+        "--recursive",
+        "-r",
+        help="Recursively discover files if path is a directory.",
+    ),
     force: bool = typer.Option(
         False, "--force", "-f", help="Force re-generation of L1 Contexts even if they exist"
     ),
@@ -2018,21 +2072,38 @@ def add(
         help="Skip the default sync repair/verification after add.",
     ),
 ) -> None:
-    """Add sources: sync raw directories with tracking DB and generate L1-L3 layers.
+    """Add sources: register files and generate L1-L3 layers.
 
-    Phase 1: Discover new/changed files in source dirs (02_Wiki, 03_Notes,
-             04_Resources) and register them in the DB.
-    Phase 2: Generate L1 Contexts, L2 Atoms, and L3 Concepts for pending files.
+    If a [path] is provided, only that file or directory is registered.
+    If no path is provided, the Curator scans all source directories (02_Wiki,
+    03_Notes, 04_Resources) for new or changed files.
     """
     paths = _resolve_root_or_die()
     config = cfg.load_config(paths)
 
     console.print()
-    console.print("[dim]Scanning source directories for changes...[/dim]")
+    if path:
+        console.print(f"[dim]Registering source(s) from {path}...[/dim]")
+    else:
+        console.print("[dim]Scanning source directories for changes...[/dim]")
     console.print()
 
     # Phase 1: discover and register new/changed files
-    discovered, removed = ingest_llm._auto_discover_pending(paths)
+    if path:
+        discovered = 0
+        for file_to_add in ingest_raw.iter_addable_files(path, recursive=recursive):
+            outcome = ingest_raw.add_file(paths, file_to_add)
+            if outcome.ok:
+                discovered += 1
+            if outcome.result == ingest_raw.AddResult.ERROR:
+                _err(outcome.message)
+        removed = 0
+        if discovered:
+            _ok(f"Registered {discovered} new/changed file(s) from path.")
+        else:
+            console.print("[dim]No new or changed files found in specified path.[/dim]")
+    else:
+        discovered, removed = ingest_llm._auto_discover_pending(paths)
 
     if discovered or removed:
         msg = []
@@ -2820,6 +2891,11 @@ def sync(
         "--no-fix",
         help="Report-only mode: do not apply structural or logical repairs.",
     ),
+    deep: bool = typer.Option(
+        False,
+        "--deep",
+        help="Run full LLM logical verification even when no manual changes are detected.",
+    ),
 ) -> None:
     """Run deductive verification and rebuild routing tables.
 
@@ -2839,57 +2915,124 @@ def sync(
     """
     from . import sync as sync_module
 
+    class CliSyncCallbacks(sync_module.SyncCallbacks):
+        def on_node_check(self, node_id: str):
+            console.print(f"  [dim]Verifying {node_id}...[/dim]", end="\r")
+
+        def on_node_repair(self, node_id: str, rebuilt_count: int = 0, message: Optional[str] = None):
+            console.print(" " * 60, end="\r")
+            detail = f" ({message})" if message else ""
+            console.print(f"  [green]✓[/green] [bold]{node_id}[/bold] repaired{detail}.")
+
+    cb = CliSyncCallbacks()
+
     paths = _resolve_root_or_die()
+    db.init_db(paths.state_db)
     config = cfg.load_config(paths)
     console.print()
     console.rule("[bold cyan]Sync — Deductive Verification[/bold cyan]")
+ 
+    # 0. Change detection (Manual changes)
+    change_report = sync_module.scan_for_changes(paths)
+    dirty_nodes = change_report.modified + change_report.new
+    dirty_node_ids = [Path(ref).stem for ref in dirty_nodes]
+    logical_target_ids = [node_id] if node_id else dirty_node_ids
+    if change_report.total_changes() > 0:
+        msg = f"[dim]Changes detected: {len(change_report.modified)} modified, {len(change_report.new)} new, {len(change_report.deleted)} deleted[/dim]"
+        console.print(msg)
+    else:
+        console.print(f"[dim]No manual changes detected (cached {change_report.unchanged_count} pages)[/dim]")
 
-    # Mode A / B — structural link verification
+    # 1. Full Static Verification (Always runs for everyone)
     if node_id:
         console.print(f"[dim]Mode B: targeted structural verification for {node_id}...[/dim]")
-        gaps = sync_module.run_mode_b(paths, node_id)
+        gaps = sync_module.run_mode_b(paths, node_id, callbacks=cb)
     else:
         console.print("[dim]Mode A: global structural verification (L4 → L1)...[/dim]")
-        gaps = sync_module.run_mode_a(paths)
-
+        gaps = sync_module.run_mode_a(paths, callbacks=cb)
+    
     console.print("[dim]Fast structural lint verification...[/dim]")
-    structural_report = lint_module.run_lint(paths, deep=False, client=None)
+    structural_report = lint_module.run_lint(paths, deep=False, client=None, progress_callback=cb.on_node_check)
+    console.print(" " * 60, end="\r")
 
     should_fix = not no_fix and not dry_run
-
-    # Mode C — LLM logical deduction (always runs)
     client = _start_client(config)
+    
     try:
         structural_fixed = 0
         rebuilt = 0
         if should_fix:
             console.print("[dim]Applying safe structural lint repairs...[/dim]")
-            llm_fixed = lint_module.apply_llm_fixes(paths, structural_report.issues, client)
-            if llm_fixed > 0:
-                structural_report = lint_module.run_lint(paths, deep=False, client=None)
-            fixed_count = lint_module.apply_fixes(paths, structural_report.issues)
-            gap_fixed = sync_module.repair_structural_gaps(paths, gaps)
-            nested_fixed = sync_module.repair_nested_frontmatter(paths)
-            structural_fixed = llm_fixed + fixed_count + gap_fixed + nested_fixed
+            # Static repairs (deterministic)
+            fixed_count = lint_module.apply_fixes(paths, structural_report.issues, progress_callback=cb.on_node_check)
+            gap_fixed = sync_module.repair_structural_gaps(paths, gaps, callbacks=cb)
+            nested_fixed = sync_module.repair_nested_frontmatter(paths, callbacks=cb)
+            
+            structural_fixed = fixed_count + gap_fixed + nested_fixed
             if structural_fixed > 0:
-                structural_report = lint_module.run_lint(paths, deep=False, client=None)
+                structural_report = lint_module.run_lint(paths, deep=False, client=None, progress_callback=cb.on_node_check)
+                # Any node that was fixed is now also 'dirty' for deep verification
+                # (Optional optimization: only if we think structural fix needs logical re-verify)
+
+            # 2. Targeted LLM-based repairs (only for dirty/requested nodes)
+            target_pages = []
+            if node_id:
+                subdir = sync_module._subdir_for_id(node_id)
+                if subdir:
+                    relpath = f"{subdir}/{node_id}.md"
+                    if relpath not in target_pages:
+                        target_pages.append(relpath)
+            else:
+                target_pages = list(dirty_nodes)
+                
+            llm_fixed = lint_module.apply_llm_fixes(
+                paths, structural_report.issues, client, 
+                progress_callback=cb.on_node_check,
+                limit_to=target_pages
+            )
+            structural_fixed += llm_fixed
+            
+            if structural_fixed > 0:
+                structural_report = lint_module.run_lint(paths, deep=False, client=None, progress_callback=cb.on_node_check)
                 structural_report.auto_fixed = structural_fixed
-                gaps = sync_module.run_mode_b(paths, node_id) if node_id else sync_module.run_mode_a(paths)
+                gaps = sync_module.run_mode_b(paths, node_id) if node_id else sync_module.run_mode_a(paths, callbacks=cb)
+                console.print(" " * 60, end="\r")
                 _ok(f"{structural_fixed} safe structural lint issue(s) fixed.")
 
         structural_issues = structural_report.errors + structural_report.warnings
         needs_review = structural_report.needs_review
         blocked_node_ids = _sync_blocked_node_ids(structural_report)
-        try:
-            deep_report = lint_module.run_lint(paths, deep=True, client=client)
-            structural_report.issues.extend(
-                issue for issue in deep_report.issues if issue not in structural_report.issues
-            )
-            structural_issues = structural_report.errors + structural_report.warnings
-            needs_review = structural_report.needs_review
-            blocked_node_ids = _sync_blocked_node_ids(structural_report)
-        except Exception as e:
-            _warn(f"Contradiction/equivalence scan unavailable: {e}")
+
+        # Gate both deep lint and Mode C on whether there are dirty nodes or --deep.
+        run_llm_verification = bool(logical_target_ids) or deep
+
+        # 3. Targeted Deep Lint Verification (LLM contradiction check)
+        if run_llm_verification:
+            try:
+                target_pages = []
+                if node_id:
+                    subdir = sync_module._subdir_for_id(node_id)
+                    if subdir:
+                        relpath = f"{subdir}/{node_id}.md"
+                        if relpath not in target_pages:
+                            target_pages.append(relpath)
+                else:
+                    target_pages = list(dirty_nodes)
+
+                deep_report = lint_module.run_lint(
+                    paths, deep=True, client=client,
+                    progress_callback=cb.on_node_check,
+                    limit_to=target_pages if not deep else None,
+                )
+                console.print(" " * 60, end="\r")
+                structural_report.issues.extend(
+                    issue for issue in deep_report.issues if issue not in structural_report.issues
+                )
+                structural_issues = structural_report.errors + structural_report.warnings
+                needs_review = structural_report.needs_review
+                blocked_node_ids = _sync_blocked_node_ids(structural_report)
+            except Exception as e:
+                _warn(f"Contradiction/equivalence scan unavailable: {e}")
         if structural_issues:
             console.print()
             _warn(
@@ -2911,36 +3054,56 @@ def sync(
                     "related logical checks will be skipped."
                 )
 
-        console.print("[dim]Mode C: LLM logical deduction verification...[/dim]")
         structural_gaps = list(gaps)
-        if should_fix:
-            logic_gaps, repair_result = sync_module.repair_logical_gaps(
-                paths,
-                client,
-                blocked_node_ids=blocked_node_ids,
-                max_iterations=2,
+        if not run_llm_verification:
+            console.print(
+                "[dim]Mode C: skipped — no manual changes detected. "
+                "Use [bold]--deep[/bold] to force full LLM verification.[/dim]"
             )
-            rebuilt = repair_result.rebuilt_downstream
-            logical_fixed = repair_result.fixed
-            if logical_fixed or rebuilt:
-                _ok(
-                    f"Logical sync repaired {logical_fixed} node(s) and rebuilt "
-                    f"{rebuilt} downstream page(s)."
-                )
-        else:
-            logic_gaps = sync_module.run_mode_c(paths, client, blocked_node_ids=blocked_node_ids)
+            logic_gaps: list = []
             logical_fixed = 0
+            rebuilt = 0
+        else:  # run_llm_verification
+            console.print("[dim]Mode C: LLM logical deduction verification...[/dim]")
+            if should_fix:
+                logic_gaps, repair_result = sync_module.repair_logical_gaps(
+                    paths,
+                    client,
+                    blocked_node_ids=blocked_node_ids,
+                    target_node_ids=logical_target_ids if not deep else None,
+                    max_iterations=2,
+                    callbacks=cb,
+                )
+                console.print(" " * 60, end="\r")
+                rebuilt = repair_result.rebuilt_downstream
+                logical_fixed = repair_result.fixed
+                if logical_fixed or rebuilt:
+                    _ok(
+                        f"Logical sync repaired {logical_fixed} node(s) and rebuilt "
+                        f"{rebuilt} downstream page(s)."
+                    )
+            else:
+                logic_gaps = sync_module.run_mode_c(
+                    paths,
+                    client,
+                    blocked_node_ids=blocked_node_ids,
+                    target_node_ids=logical_target_ids if not deep else None,
+                    callbacks=cb,
+                )
+                console.print(" " * 60, end="\r")
+                logical_fixed = 0
         gaps = structural_gaps + logic_gaps
         fixed_for_report = int(getattr(structural_report, "auto_fixed", 0) or 0) + logical_fixed
-        _write_latest_sync_report(
-            paths,
-            reason="sync" if should_fix else "sync --no-fix",
-            structural_report=structural_report,
-            structural_gaps=structural_gaps,
-            logic_gaps=logic_gaps,
-            fixed=fixed_for_report,
-            rebuilt=rebuilt,
-        )
+        if not dry_run:
+            _write_latest_sync_report(
+                paths,
+                reason="sync" if should_fix else "sync --no-fix",
+                structural_report=structural_report,
+                structural_gaps=structural_gaps,
+                logic_gaps=logic_gaps,
+                fixed=fixed_for_report,
+                rebuilt=rebuilt,
+            )
 
         if gaps:
             console.print()
@@ -2967,6 +3130,8 @@ def sync(
         client.close()
 
     if not dry_run:
+        # Update page hashes in DB for next fast sync
+        sync_module.update_all_page_hashes(paths)
         sync_module.finalize_routing_tables(paths)
         _ok("Routing tables rebuilt (index.md, ledger.md, log.md, overview.md).")
     else:
@@ -3501,7 +3666,6 @@ def lint(
         ["Ran wiki lint and updated all manifests"],
     )
 
-
     # Start LLM client for --deep and/or --fix
     client = None
     if deep or fix:
@@ -3521,7 +3685,11 @@ def lint(
         else:
             console.print("[dim]Running fast checks…[/dim]")
 
-        report = lint_module.run_lint(paths, deep=deep, client=client)
+        def _lint_cb(node_id: str):
+            console.print(f"  [dim]Linting {node_id}...[/dim]", end="\r")
+
+        report = lint_module.run_lint(paths, deep=deep, client=client, progress_callback=_lint_cb)
+        console.print(" " * 60, end="\r")
 
         # Auto-fix: LLM relinking first, then deterministic non-destructive fixes.
         if fix:
@@ -3530,13 +3698,15 @@ def lint(
                 console.print("[dim]Running LLM-based safe link reconnection…[/dim]")
                 llm_fixed = lint_module.apply_llm_fixes(paths, report.issues, client)
                 if llm_fixed > 0:
-                    report = lint_module.run_lint(paths, deep=False, client=None)
+                    report = lint_module.run_lint(paths, deep=False, client=None, progress_callback=_lint_cb)
+                    console.print(" " * 60, end="\r")
 
             fixed_count = lint_module.apply_fixes(paths, report.issues)
             total_fixed = llm_fixed + fixed_count
             report.auto_fixed = total_fixed
             if fixed_count > 0:
-                report = lint_module.run_lint(paths, deep=False, client=None)
+                report = lint_module.run_lint(paths, deep=False, client=None, progress_callback=_lint_cb)
+                console.print(" " * 60, end="\r")
                 report.auto_fixed = total_fixed
 
     finally:
@@ -3563,13 +3733,60 @@ def lint(
 
 
 # ---------------------------------------------------------------------------
-# Stage 6 — web UI removed (per user request)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # wiki config models — Discover and select Ollama models
 # ---------------------------------------------------------------------------
+
+def _show_ollama_installed(host: str, llm_cfg: dict, active_only: bool = False) -> bool:
+    """Check and display installed models on an Ollama host."""
+    targets = [("local", host)]
+    remote = (llm_cfg.get("remote_ollama_host") or "").strip()
+    if remote and remote != host:
+        targets.append(("remote", remote))
+
+    configured_model = llm_cfg.get("model", "")
+    any_found = False
+
+    for label, h in targets:
+        models_vision = list_ollama_models_with_vision(h, timeout=5.0)
+        if not models_vision:
+            if not active_only:
+                console.print(f"\n[bold]Ollama models — {label}[/bold]  [dim]{h}[/dim]")
+                _warn(f"  Ollama unreachable at {h}")
+            continue
+
+        table = Table(show_header=True, box=None, padding=(0, 2))
+        table.add_column("Model", style="cyan")
+        table.add_column("Vision", style="magenta")
+        table.add_column("Active", style="green")
+        
+        found_in_target = False
+        shown_active = False
+        for m, vision in sorted(models_vision, key=lambda x: x[0]):
+            # Strict match for active: must match configured_model exactly
+            is_active = configured_model and (m == configured_model or m.startswith(configured_model + ":"))
+            
+            active_mark = "✓" if is_active else ""
+            vision_mark = "✓" if vision else ""
+            table.add_row(m, vision_mark, active_mark)
+            found_in_target = True
+            if is_active:
+                shown_active = True
+        
+        # If we didn't find the configured model in Ollama's installed list, add it as a fallback row
+        if configured_model and not shown_active:
+            table.add_row(configured_model, "[dim]?[/dim]", "✓")
+            found_in_target = True
+        
+        if found_in_target:
+            console.print(f"\n[bold]Ollama models — {label}[/bold]  [dim]{h}[/dim]")
+            console.print(table)
+            any_found = True
+        elif not active_only:
+            console.print(f"\n[bold]Ollama models — {label}[/bold]  [dim]{h}[/dim]")
+            console.print(table)
+            any_found = True
+
+    return any_found
 
 
 @config_models_app.command("list")
@@ -3580,71 +3797,98 @@ def models_list(
         "-H",
         help="Ollama host URL to query (overrides config). Only used when primary provider is ollama.",
     ),
+    show_all: bool = typer.Option(
+        False,
+        "--all",
+        help="Show all recommended and available models (default: show only active).",
+    ),
 ) -> None:
     """List models for the configured LLM provider.
 
-    For Ollama: checks local (llm.host) and optional remote host (llm.remote_ollama_host).
-    For cloud providers (cloud/claude-code/gemini-cli): shows the curated model catalogue.
-    Use --host to query an arbitrary Ollama URL.
+    By default, only shows currently active/configured models.
+    Use --all to see the full catalogue and recommendations.
     """
-    discovered = cfg.find_wiki_root()
-    if discovered is not None:
+    import os
+    env_root = os.environ.get("WIKI_ROOT")
+    discovered = None
+    
+    if env_root:
+        discovered = Path(env_root).resolve()
+    else:
+        # Walk up from CWD
+        discovered = cfg.find_wiki_root()
+        # Fallback to last successful root (same as wiki status)
+        if not discovered:
+            last = cfg.get_last_root()
+            if last and (last / cfg.INTERNAL_DIR).exists():
+                discovered = last
+
+    if discovered is not None and (discovered / cfg.INTERNAL_DIR).exists():
         paths = cfg.paths_from_config(discovered)
         llm_cfg = cfg.load_config(paths).get("llm", {})
     else:
+        # If still not found, we will show all recommendations
         llm_cfg = {}
-
-    primary = llm_cfg.get("primary", "")
-
-    # --- Cloud providers ---
-    if primary not in ("", "ollama"):
-        if host:
-            console.print("[dim]--host는 Ollama 전용 옵션입니다. 무시합니다.[/dim]")
-        cp = _get_cloud_provider_from_primary(primary, llm_cfg)
-        if not cp:
-            _err(f"Unknown primary '{primary}'.")
-            raise typer.Exit(code=1)
-        _show_cloud_models(cp, llm_cfg)
-        return
-
-    # --- Ollama ---
-    if host:
-        targets = [("custom", host)]
-    else:
-        local_host = llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
-        targets = [("local", local_host)]
-        remote = (llm_cfg.get("remote_ollama_host") or "").strip()
-        if remote:
-            targets.append(("remote", remote))
-
-    configured_model = llm_cfg.get("model", "")
+        show_all = True
+    
+    primary_raw = llm_cfg.get("primary", "")
+    primary = primary_raw.lower().replace(" ", "-")
+    active_only = not show_all
     any_found = False
 
-    for label, h in targets:
-        console.print(f"\n[bold]Ollama models — {label}[/bold]  [dim]{h}[/dim]")
-        models_vision = list_ollama_models_with_vision(h, timeout=5.0)
-        if not models_vision:
-            _warn(f"  Ollama unreachable at {h}")
-            continue
-        any_found = True
-        table = Table(show_header=True, box=None, padding=(0, 2))
-        table.add_column("Model", style="cyan")
-        table.add_column("Vision", style="magenta")
-        table.add_column("Active", style="green")
-        for m, vision in sorted(models_vision, key=lambda x: x[0]):
-            active = "✓" if configured_model and (m == configured_model or m.startswith(configured_model)) else ""
-            vision_mark = "✓" if vision else ""
-            table.add_row(m, vision_mark, active)
-        console.print(table)
-        console.print("[dim]Vision ✓ = model supports image inference[/dim]")
+    # If no primary is set but we are in a wiki, default to showing what 'wiki status' would show
+    if not primary and discovered:
+        # Check if we can guess the primary from cloud_provider
+        cp = llm_cfg.get("cloud_provider", "gemini")
+        if cp == "gemini": primary = "gemini-cli"
+        elif cp == "claude": primary = "claude-code"
 
-    if not any_found:
-        console.print()
-        _hint("Start Ollama with [bold]ollama serve[/bold] or set [bold]llm.remote_ollama_host[/bold] in config.")
+    # 1. Show Primary Backend models
+    if primary in ("claude-code", "gemini-cli", "cloud", "gemini", "claude", "openai"):
+        cp = _get_cloud_provider_from_primary(primary, llm_cfg)
+        if cp:
+            any_found = _show_cloud_models(cp, llm_cfg, active_only=active_only)
+    elif primary == "ollama" or (not primary and host):
+        target_host = host or llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
+        any_found = _show_ollama_installed(target_host, llm_cfg, active_only=active_only)
+        if not any_found and primary == "ollama" and not active_only:
+            _hint("Start Ollama with [bold]ollama serve[/bold] or set [bold]llm.remote_ollama_host[/bold] in config.")
+    else:
+        # No primary or unknown — show a default or help
+        if not active_only:
+            if not primary:
+                console.print("[dim]Primary backend not set. Showing all curated recommendations:[/dim]")
+            else:
+                _warn(f"Unknown primary '{primary}'. Showing all curated recommendations:")
 
-    # Show the curated recommendation table below the installed-models list
-    primary_host = targets[0][1] if targets else DEFAULT_OLLAMA_HOST
-    _show_recommended_models(primary_host)
+    if active_only:
+        # Final fallback: if absolutely nothing was printed
+        if not any_found:
+            if not discovered:
+                console.print(f"\n[yellow]Not inside a wiki project.[/yellow] (cwd: {Path.cwd()})")
+                console.print("Use [bold]wiki config models list --all[/bold] to see all recommendations.")
+            else:
+                console.print(f"\n[bold]Current Active Configuration[/bold]")
+                console.print(f"  Primary Backend: [cyan]{primary_raw or '(not set)'}[/cyan]")
+                if primary == "ollama" or not primary:
+                    console.print(f"  Ollama Model:    [cyan]{llm_cfg.get('model', '(default: deepseek-r1:14b)')}[/cyan]")
+                if primary in ("claude-code", "gemini-cli") or not primary:
+                    key = _PROVIDER_PRIMARY_CFG_KEY.get(primary) or "gemini_flash_model"
+                    console.print(f"  Active Model:    [cyan]{llm_cfg.get(key, '(default)')}[/cyan]")
+        return
+
+    # 2. Show recommendations for OTHER providers below
+    console.print("\n[bold dim]--- Recommended Models (Global) ---[/bold dim]")
+
+    # Cloud recommendations (excluding the current primary if it was already shown)
+    for cp in ("gemini-cli", "claude-code"):
+        current_cp = _get_cloud_provider_from_primary(primary, llm_cfg) if primary else ""
+        if cp != current_cp:
+            _show_cloud_models(cp, llm_cfg)
+
+    # Ollama recommendations (at the very bottom)
+    ollama_host = host or llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
+    _show_recommended_models(ollama_host)
 
 
 @config_models_app.command("use")
@@ -3934,7 +4178,7 @@ def workspace_list() -> None:
 
 mcp_app = typer.Typer(
     name="mcp",
-    help="Run or install the LLM-Wiki MCP server for workspace agents.",
+    help="Run or install the InCurator MCP server for workspace agents.",
     no_args_is_help=False,
     add_completion=False,
     rich_markup_mode="rich",
@@ -4021,7 +4265,7 @@ def mcp_connect_cmd(
     console.print()
     console.print(
         Panel.fit(
-            f"[bold]LLM-Wiki MCP connect[/bold]\n"
+            f"[bold]InCurator MCP connect[/bold]\n"
             f"[dim]agent: {agent}\n"
             f"vault: {paths.root}\n"
             f"workspace: {workspace}[/dim]",
@@ -4063,7 +4307,7 @@ def mcp_install_cmd(
     console.print()
     console.print(
         Panel.fit(
-            f"[bold]LLM-Wiki MCP install[/bold]\n[dim]vault: {paths.root}[/dim]",
+            f"[bold]InCurator MCP install[/bold]\n[dim]vault: {paths.root}[/dim]",
             border_style="cyan",
         )
     )
@@ -4105,3 +4349,37 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# ---------------------------------------------------------------------------
+# Testbed Commands
+# ---------------------------------------------------------------------------
+
+@testbed_app.command(name="init")
+def testbed_init(
+    scenario: str = typer.Argument("testbed_template", help="Scenario name from scripts/dev/"),
+    force: bool = typer.Option(False, "--force", "-f", help="Recreate the testbed."),
+):
+    """Initialize a testbed vault using a specific scenario."""
+    from . import testbed_manager
+    try:
+        root = testbed_manager.init_testbed(scenario, force=force)
+        _ok(f"Testbed initialized at [bold]{root}[/bold] using scenario [cyan]{scenario}[/cyan].")
+        _hint("Run commands with [bold]WIKI_ROOT=testbed wiki ...[/bold]")
+    except Exception as e:
+        _err(str(e))
+        raise typer.Exit(1)
+
+@testbed_app.command(name="list")
+def testbed_list():
+    """List available testbed scenarios."""
+    from . import testbed_manager
+    scenarios = testbed_manager.list_scenarios()
+    if not scenarios:
+        _warn("No scenarios found in scripts/dev/.")
+        return
+    
+    table = Table(title="Available Testbed Scenarios", box=None)
+    table.add_column("Scenario Name", style="cyan")
+    for s in sorted(scenarios):
+        table.add_row(s)
+    console.print(table)

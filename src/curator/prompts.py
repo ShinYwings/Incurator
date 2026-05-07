@@ -518,21 +518,21 @@ Determine whether the Concept's synthesis is logically derivable from the given 
   3) Scope discipline: no external facts absent from all Atoms.
   4) Relation fidelity: referenced ATM IDs are real and in-scope.
   5) Contradiction check: no claim conflicts with supplied Atoms.
-- Do not mark INVALID merely because standard notation such as norms, summation
+- Do not mark invalid merely because standard notation such as norms, summation
   indices, transmittance, alpha weights, or query/document variables are not
   re-defined, as long as the related equation or claim is present in an Atom.
-- Treat concise restatement, grouping, and naming as VALID when the Concept does
+- Treat concise restatement, grouping, and naming as valid when the Concept does
   not add a new unsupported mechanism, empirical result, or cross-domain bridge.
-- VALID only if all checks pass.
-- INVALID if any check fails.
 
-If VALID: respond exactly with the single word: VALID
-If INVALID: respond as `INVALID: <failed check #> - <specific gap>`. No preamble.
+Respond ONLY with a JSON object — no prose, no markdown fences:
+{{"valid": true}}
+or
+{{"valid": false, "reasoning": "<failed check #> - <specific gap>"}}
 """
 
 CURATION_LOGIC_VERIFY_PROMPT = """\
 You are a deductive logic auditor for a knowledge DAG.
-
+{concept_verification_context}
 ## L4 Exhibition under review
 {curation_content}
 
@@ -547,11 +547,12 @@ Determine whether the Exhibition's synthesis is logically derivable from the giv
   3) Directive validity (actions are justified by Concept evidence).
   4) Scope discipline: no external facts absent from all Concepts.
   5) Concept citation fidelity: referenced CON IDs are real and in-scope.
-- VALID only if all checks pass.
-- INVALID if any check fails.
+- If a Concept was already verified invalid in Phase 1, treat its reasoning as a known gap.
 
-If VALID: respond exactly with the single word: VALID
-If INVALID: respond as `INVALID: <failed check #> - <specific gap>`. No preamble.
+Respond ONLY with a JSON object — no prose, no markdown fences:
+{{"valid": true}}
+or
+{{"valid": false, "reasoning": "<failed check #> - <specific gap>"}}
 """
 
 
@@ -573,11 +574,25 @@ def build_theme_logic_verify_messages(
 def build_curation_logic_verify_messages(
     curation_content: str,
     themes_content: str,
+    concept_verification_summary: list[dict] | None = None,
 ) -> list[ChatMessage]:
-    """Logical deduction check: can EXH be derived from its CONs?"""
+    """Logical deduction check: can EXH be derived from its CONs?
+
+    concept_verification_summary: Phase 1 JSON results for each referenced CON,
+    e.g. [{"id": "CON-xxx", "valid": true}, {"id": "CON-yyy", "valid": false, "reasoning": "..."}]
+    """
+    if concept_verification_summary:
+        lines = ["## Phase 1 Concept Verification Results"]
+        for r in concept_verification_summary:
+            status = "VALID" if r.get("valid", True) else f"INVALID — {r.get('reasoning', '')}"
+            lines.append(f"- {r['id']}: {status}")
+        concept_verification_context = "\n".join(lines) + "\n\n"
+    else:
+        concept_verification_context = ""
     user_content = CURATION_LOGIC_VERIFY_PROMPT.format(
         curation_content=curation_content,
         themes_content=themes_content,
+        concept_verification_context=concept_verification_context,
     )
     return [
         ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),

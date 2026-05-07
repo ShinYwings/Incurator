@@ -20,14 +20,34 @@ Finalization:
 
 from __future__ import annotations
 
+import json
 import re
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Set
 
 from . import config as cfg
+from . import db
 from . import page_writer
 from . import prompts
+
+
+# ---------------------------------------------------------------------------
+# Callbacks
+# ---------------------------------------------------------------------------
+
+
+class SyncCallbacks:
+    """Interface for progress reporting during sync operations."""
+
+    def on_node_check(self, node_id: str):
+        """Called before a node is verified."""
+        pass
+
+    def on_node_repair(self, node_id: str, rebuilt_count: int = 0, message: Optional[str] = None):
+        """Called after a node has been successfully repaired."""
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +74,68 @@ class SyncRepairResult:
     fixed_nodes: list[str] = field(default_factory=list)
     needs_review: list[VerificationGap] = field(default_factory=list)
 
+@dataclass
+class ChangeReport:
+    modified: list[str] = field(default_factory=list)  # wiki_path
+    new: list[str] = field(default_factory=list)
+    deleted: list[str] = field(default_factory=list)
+    unchanged_count: int = 0
+
+    def total_changes(self) -> int:
+        return len(self.modified) + len(self.new) + len(self.deleted)
+
+
+def calculate_hash(path: Path) -> str:
+    """Calculate SHA256 of file content."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def scan_for_changes(paths: cfg.WikiPaths) -> ChangeReport:
+    """Compare live filesystem against DB hashes to find changed pages."""
+    report = ChangeReport()
+    db_hashes = db.get_page_hashes(paths.state_db)
+    seen_in_fs: set[str] = set()
+
+    for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.exhibitions):
+        if not layer_dir.exists():
+            continue
+        
+        layer_name = layer_dir.name
+        for md_path in layer_dir.glob("*.md"):
+            rel_path = f"{layer_name}/{md_path.name}"
+            seen_in_fs.add(rel_path)
+            
+            current_hash = calculate_hash(md_path)
+            old_hash = db_hashes.get(rel_path)
+            
+            if old_hash is None:
+                report.new.append(rel_path)
+            elif old_hash != current_hash:
+                report.modified.append(rel_path)
+            else:
+                report.unchanged_count += 1
+    
+    # Any hashes in DB but NOT in FS are deleted
+    for rel_path in db_hashes:
+        if rel_path not in seen_in_fs:
+            report.deleted.append(rel_path)
+            
+    return report
+
+
+def update_all_page_hashes(paths: cfg.WikiPaths):
+    """Save current filesystem hashes to DB."""
+    for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.exhibitions):
+        if not layer_dir.exists():
+            continue
+        layer_name = layer_dir.name
+        for md_path in sorted(layer_dir.glob("*.md")):
+            rel_path = f"{layer_name}/{md_path.name}"
+            db.update_page_hash(paths.state_db, rel_path, calculate_hash(md_path))
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -146,7 +228,7 @@ def _concept_atom_ids(paths: cfg.WikiPaths, con_id: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def run_mode_a(paths: cfg.WikiPaths) -> list[VerificationGap]:
+def run_mode_a(paths: cfg.WikiPaths, callbacks: Optional[SyncCallbacks] = None) -> list[VerificationGap]:
     """Walk all EXH pages downward through CON → ATM → CTX, flag broken refs."""
     gaps: list[VerificationGap] = []
     exh_dir = paths.exhibitions
@@ -155,6 +237,8 @@ def run_mode_a(paths: cfg.WikiPaths) -> list[VerificationGap]:
 
     for md_path in sorted(exh_dir.glob("EXH-*.md")):
         exh_id = md_path.stem
+        if callbacks:
+            callbacks.on_node_check(exh_id)
         fm = _read_fm(paths, exh_id)
         if fm is None:
             gaps.append(VerificationGap("exhibition", exh_id, "Exhibition file unreadable."))
@@ -204,12 +288,15 @@ def run_mode_a(paths: cfg.WikiPaths) -> list[VerificationGap]:
 # ---------------------------------------------------------------------------
 
 
-def _trace_upstream(paths: cfg.WikiPaths, node_id: str) -> list[VerificationGap]:
+def _trace_upstream(paths: cfg.WikiPaths, node_id: str, callbacks: Optional[SyncCallbacks] = None) -> list[VerificationGap]:
     """Trace from node_id toward L1, verifying each upstream link."""
     gaps: list[VerificationGap] = []
     layer = _layer_for_id(node_id)
     if layer is None:
         return gaps
+    
+    if callbacks:
+        callbacks.on_node_check(node_id)
 
     fm = _read_fm(paths, node_id)
     if fm is None:
@@ -236,7 +323,7 @@ def _trace_upstream(paths: cfg.WikiPaths, node_id: str) -> list[VerificationGap]
                     f"Dependency of {node_id} does not exist."
                 ))
             else:
-                gaps.extend(_trace_upstream(paths, atm_id))
+                gaps.extend(_trace_upstream(paths, atm_id, callbacks=callbacks))
 
     elif layer == "exhibition":
         for con_id in _fm_links(fm, "core_concepts"):
@@ -248,17 +335,20 @@ def _trace_upstream(paths: cfg.WikiPaths, node_id: str) -> list[VerificationGap]
                     f"core_concepts entry in {node_id} does not exist."
                 ))
             else:
-                gaps.extend(_trace_upstream(paths, con_id))
+                gaps.extend(_trace_upstream(paths, con_id, callbacks=callbacks))
 
     return gaps
 
 
-def _trace_downstream(paths: cfg.WikiPaths, node_id: str) -> list[VerificationGap]:
+def _trace_downstream(paths: cfg.WikiPaths, node_id: str, callbacks: Optional[SyncCallbacks] = None) -> list[VerificationGap]:
     """Scan all collections for nodes that reference node_id, then go deeper."""
     gaps: list[VerificationGap] = []
     layer = _layer_for_id(node_id)
     if layer is None:
         return gaps
+    
+    if callbacks:
+        callbacks.on_node_check(node_id)
 
     # Determine which layer(s) might reference this node and what field they use
     if layer == "context":
@@ -284,7 +374,7 @@ def _trace_downstream(paths: cfg.WikiPaths, node_id: str) -> list[VerificationGa
             else:
                 refs = _fm_links(child_fm, field)
             if node_id in refs:
-                gaps.extend(_trace_downstream(paths, child_id))
+                gaps.extend(_trace_downstream(paths, child_id, callbacks=callbacks))
 
     return gaps
 
@@ -324,6 +414,61 @@ def downstream_atoms_for_context(paths: cfg.WikiPaths, context_id: str) -> list[
     return found
 
 
+def _node_id_from_ref(ref: str) -> str:
+    """Return a node ID from a node ID, page path, or wikilink-ish reference."""
+    stem = _id_from_link(ref)
+    if stem.endswith(".md"):
+        stem = stem[:-3]
+    return stem
+
+
+def _logical_scope_for_nodes(paths: cfg.WikiPaths, node_refs: list[str] | None) -> tuple[set[str], set[str]]:
+    """Return Concept/Exhibition IDs affected by the given changed nodes.
+
+    The scope is endpoint-aware:
+    - dirty EXH: verify only that EXH
+    - dirty CON: verify the CON and downstream EXHs, if any
+    - dirty ATM: verify downstream CONs and their downstream EXHs
+    - dirty CTX: verify downstream ATMs → CONs → EXHs
+
+    Empty/None means global Mode C verification.
+    """
+    concept_ids: set[str] = set()
+    exhibition_ids: set[str] = set()
+    if not node_refs:
+        return concept_ids, exhibition_ids
+
+    def add_concept(con_id: str) -> None:
+        if not con_id.startswith("CON-"):
+            return
+        if (paths.concepts / f"{con_id}.md").exists():
+            concept_ids.add(con_id)
+        for exh_id in downstream_exhibitions_for_concept(paths, con_id):
+            exhibition_ids.add(exh_id)
+
+    def add_atom(atom_id: str) -> None:
+        if not atom_id.startswith("ATM-"):
+            return
+        for con_id in downstream_concepts_for_atom(paths, atom_id):
+            add_concept(con_id)
+
+    for ref in node_refs:
+        node_id = _node_id_from_ref(ref)
+        layer = _layer_for_id(node_id)
+        if layer == "exhibition":
+            if (paths.exhibitions / f"{node_id}.md").exists():
+                exhibition_ids.add(node_id)
+        elif layer == "concept":
+            add_concept(node_id)
+        elif layer == "atom":
+            add_atom(node_id)
+        elif layer == "context":
+            for atom_id in downstream_atoms_for_context(paths, node_id):
+                add_atom(atom_id)
+
+    return concept_ids, exhibition_ids
+
+
 def _body_atom_ids(page: page_writer.ParsedPage) -> list[str]:
     atom_ids: list[str] = []
     for target in page_writer.extract_wikilink_targets(page.body):
@@ -357,10 +502,12 @@ def _body_concept_paths(page: page_writer.ParsedPage) -> list[str]:
     return concept_paths
 
 
-def repair_structural_gaps(paths: cfg.WikiPaths, gaps: list[VerificationGap]) -> int:
+def repair_structural_gaps(paths: cfg.WikiPaths, gaps: list[VerificationGap], callbacks: Optional[SyncCallbacks] = None) -> int:
     """Apply deterministic DAG repairs for gaps with unambiguous local evidence."""
     modified = 0
     for gap in gaps:
+        if callbacks:
+            callbacks.on_node_check(gap.node_id)
         if gap.layer == "concept" and "Relations is empty" in gap.message:
             con_path = paths.concepts / f"{gap.node_id}.md"
             page = page_writer.read_page(con_path)
@@ -377,6 +524,8 @@ def repair_structural_gaps(paths: cfg.WikiPaths, gaps: list[VerificationGap]) ->
             page.body = f"{page.body.rstrip()}\n\n## Relations\n{relations}\n"
             con_path.write_text(page.to_markdown(), encoding="utf-8")
             modified += 1
+            if callbacks:
+                callbacks.on_node_repair(gap.node_id, message="Restored missing ## Relations section")
 
         elif gap.layer == "exhibition" and "core_concepts is empty" in gap.message:
             exh_path = paths.exhibitions / f"{gap.node_id}.md"
@@ -408,7 +557,7 @@ def repair_structural_gaps(paths: cfg.WikiPaths, gaps: list[VerificationGap]) ->
     return modified
 
 
-def repair_nested_frontmatter(paths: cfg.WikiPaths) -> int:
+def repair_nested_frontmatter(paths: cfg.WikiPaths, callbacks: Optional[SyncCallbacks] = None) -> int:
     """Remove duplicate YAML frontmatter blocks accidentally embedded in bodies."""
     modified = 0
     for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.exhibitions):
@@ -418,19 +567,27 @@ def repair_nested_frontmatter(paths: cfg.WikiPaths) -> int:
             page = page_writer.read_page(md_path)
             if page is None:
                 continue
+            
+            if callbacks:
+                callbacks.on_node_check(md_path.stem)
+            
             before = page.body
             page = _drop_nested_frontmatter_body(page)
             if page.body != before:
                 md_path.write_text(page.to_markdown(), encoding="utf-8")
                 modified += 1
+                if callbacks:
+                    callbacks.on_node_repair(md_path.stem, message="Removed nested frontmatter from body")
     return modified
 
 
-def run_mode_b(paths: cfg.WikiPaths, node_id: str) -> list[VerificationGap]:
+def run_mode_b(
+    paths: cfg.WikiPaths, node_id: str, callbacks: Optional[SyncCallbacks] = None
+) -> list[VerificationGap]:
     """Bidirectional verification centred on node_id."""
     gaps: list[VerificationGap] = []
-    gaps.extend(_trace_upstream(paths, node_id))
-    gaps.extend(_trace_downstream(paths, node_id))
+    gaps.extend(_trace_upstream(paths, node_id, callbacks=callbacks))
+    gaps.extend(_trace_downstream(paths, node_id, callbacks=callbacks))
     # Deduplicate while preserving order
     seen: set[tuple[str, str, str]] = set()
     unique: list[VerificationGap] = []
@@ -449,6 +606,8 @@ def run_mode_b(paths: cfg.WikiPaths, node_id: str) -> list[VerificationGap]:
 _THEME_BODY_CHARS = 6000
 _FRAGMENT_BODY_CHARS = 2400
 _THEME_CONTENT_CHARS = 4000
+_CONCEPT_BATCH_SIZE = 3
+_EXHIBITION_BATCH_SIZE = 2
 
 
 def _body_for_logic_check(body: str, max_chars: int, *, relation_prefix: str = "") -> str:
@@ -493,13 +652,39 @@ def _drop_nested_frontmatter_body(page: page_writer.ParsedPage) -> page_writer.P
     return page
 
 
+def _parse_verify_response(raw: str, node_id: str) -> dict:
+    """Parse a JSON verify response. Returns {"id": node_id, "valid": bool, ...}.
+
+    Falls back to text heuristic if JSON is malformed (e.g. older model or local LLM).
+    """
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        text = "\n".join(lines[1:-1] if lines and lines[-1].strip() == "```" else lines[1:])
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict) and "valid" in data:
+            data["id"] = node_id
+            return data
+    except (json.JSONDecodeError, ValueError):
+        pass
+    # Fallback: plain-text "VALID"/"INVALID" heuristic
+    valid = text.upper().startswith("VALID")
+    result: dict = {"id": node_id, "valid": valid}
+    if not valid:
+        result["reasoning"] = text[:600]
+    return result
+
+
 def run_mode_c(
     paths: cfg.WikiPaths,
     client,
     *,
     blocked_node_ids: set[str] | None = None,
+    target_node_ids: list[str] | None = None,
     max_themes: int = 20,
     max_curations: int = 10,
+    callbacks: Optional[SyncCallbacks] = None,
 ) -> list[VerificationGap]:
     """LLM logical deduction verification — the core purpose of wiki sync.
 
@@ -512,13 +697,26 @@ def run_mode_c(
 
     gaps: list[VerificationGap] = []
     blocked_node_ids = blocked_node_ids or set()
+    target_concept_ids, target_exhibition_ids = _logical_scope_for_nodes(paths, target_node_ids)
+    targeted = bool(target_node_ids)
 
     # Phase 1 — CON ← ATMs
+    # con_results collects JSON verification outcomes to pass as context to Phase 2.
+    con_results: list[dict] = []
     if paths.concepts.exists():
-        concept_files = sorted(paths.concepts.glob("CON-*.md"))[:max_themes]
+        if targeted:
+            concept_files = [
+                paths.concepts / f"{con_id}.md"
+                for con_id in sorted(target_concept_ids)
+                if (paths.concepts / f"{con_id}.md").exists()
+            ]
+        else:
+            concept_files = sorted(paths.concepts.glob("CON-*.md"))[:max_themes]
         for con_md in concept_files:
             if con_md.stem in blocked_node_ids:
                 continue
+            if callbacks:
+                callbacks.on_node_check(con_md.stem)
             fm = _read_fm(paths, con_md.stem)
             if fm is None:
                 continue
@@ -553,22 +751,34 @@ def run_mode_c(
             except LLMError:
                 continue
 
-            if not response.strip().upper().startswith("VALID"):
+            result = _parse_verify_response(response, con_md.stem)
+            con_results.append(result)
+            if not result.get("valid", True):
                 gaps.append(VerificationGap(
                     layer="concept",
                     node_id=con_md.stem,
                     message="Concept logic not fully derivable from its Atoms.",
-                    reasoning=response.strip()[:600],
+                    reasoning=result.get("reasoning", response.strip()[:600]),
                 ))
 
     # Phase 2 — EXH ← CONs (if L4 exists)
+    # Phase 1 con_results are passed as context so the LLM can factor in CON validity.
     if paths.exhibitions.exists():
-        exhibition_files = sorted(paths.exhibitions.glob("EXH-*.md"))[:max_curations]
+        if targeted:
+            exhibition_files = [
+                paths.exhibitions / f"{exh_id}.md"
+                for exh_id in sorted(target_exhibition_ids)
+                if (paths.exhibitions / f"{exh_id}.md").exists()
+            ]
+        else:
+            exhibition_files = sorted(paths.exhibitions.glob("EXH-*.md"))[:max_curations]
         if not exhibition_files:
             return gaps
         for exh_md in exhibition_files:
             if exh_md.stem in blocked_node_ids:
                 continue
+            if callbacks:
+                callbacks.on_node_check(exh_md.stem)
             fm = _read_fm(paths, exh_md.stem)
             if fm is None:
                 continue
@@ -593,6 +803,8 @@ def run_mode_c(
             if not exh_page:
                 continue
 
+            # Pass only Phase 1 results relevant to this EXH's core_concepts
+            relevant_con_results = [r for r in con_results if r.get("id") in con_ids]
             messages = prompts.build_curation_logic_verify_messages(
                 curation_content=_body_for_logic_check(
                     exh_page.body,
@@ -600,18 +812,20 @@ def run_mode_c(
                     relation_prefix="03_Concepts/",
                 ),
                 themes_content=themes_content,
+                concept_verification_summary=relevant_con_results or None,
             )
             try:
                 response = client.chat(messages, thinking=False, temperature=0.1)
             except LLMError:
                 continue
 
-            if not response.strip().upper().startswith("VALID"):
+            result = _parse_verify_response(response, exh_md.stem)
+            if not result.get("valid", True):
                 gaps.append(VerificationGap(
                     layer="exhibition",
                     node_id=exh_md.stem,
                     message="Exhibition logic not fully derivable from its Concepts.",
-                    reasoning=response.strip()[:600],
+                    reasoning=result.get("reasoning", response.strip()[:600]),
                 ))
 
     return gaps
@@ -811,15 +1025,27 @@ def repair_logical_gaps(
     client,
     *,
     blocked_node_ids: set[str] | None = None,
+    target_node_ids: list[str] | None = None,
     max_iterations: int = 2,
+    callbacks: Optional[SyncCallbacks] = None,
 ) -> tuple[list[VerificationGap], SyncRepairResult]:
     """Verify, repair logical gaps, and re-verify up to max_iterations."""
     aggregate = SyncRepairResult()
-    remaining = run_mode_c(paths, client, blocked_node_ids=blocked_node_ids)
+    remaining = run_mode_c(
+        paths,
+        client,
+        blocked_node_ids=blocked_node_ids,
+        target_node_ids=target_node_ids,
+        callbacks=callbacks,
+    )
     for _ in range(max_iterations):
         if not remaining:
             break
         repair = fix_gaps(paths, client, remaining)
+        for node_id in repair.fixed_nodes:
+            if callbacks:
+                callbacks.on_node_repair(node_id, rebuilt_count=0) # rebuilt is handled in aggregate or fix_gaps but here we just mark the fixed one
+        
         aggregate.fixed += repair.fixed
         aggregate.unfixable += repair.unfixable
         aggregate.rebuilt_downstream += repair.rebuilt_downstream
@@ -827,7 +1053,13 @@ def repair_logical_gaps(
         aggregate.needs_review.extend(repair.needs_review)
         if repair.fixed == 0 and repair.rebuilt_downstream == 0:
             break
-        remaining = run_mode_c(paths, client, blocked_node_ids=blocked_node_ids)
+        remaining = run_mode_c(
+            paths,
+            client,
+            blocked_node_ids=blocked_node_ids,
+            target_node_ids=target_node_ids,
+            callbacks=callbacks,
+        )
     aggregate.needs_review = remaining
     return remaining, aggregate
 

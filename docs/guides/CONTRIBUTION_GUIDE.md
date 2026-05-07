@@ -26,8 +26,8 @@ InCurator는 개인 지식 베이스를 “검색 가능한 파일 묶음”이 
 
 다음은 프로젝트를 진행하며 도출된 주요 향후 과제(Future Work)들입니다.
 
-### 🔥 최우선 과제 (Top Priority)
 -   **`wiki add` 성능 최적화**: 현재 문서 등록 및 계층 생성(L1-L3) 속도가 매우 느립니다. 이 프로세스를 병렬화하거나 프롬프트를 최적화하여 문서 생성 속도를 혁신적으로 단축하는 것이 가장 시급한 과제입니다.
+-   **소스 코드 지원 (Source Code Ingestion)**: 현재는 문서 위주의 지식 추출만 지원합니다. 소스 코드(Python, TS, C++ 등)를 직접 파싱하여 코드의 논리 구조, 함수 의존성, 핵심 알고리즘 등을 L2/L3 지식으로 추출하는 기능을 구현해야 합니다. 이는 개발자용 지식 베이스로서의 핵심 경쟁력이 될 것입니다.
 
 ### 🧠 Intelligence & Pipeline Quality
 - **모델 벤치마크**: 작은 모델에서도 좋은 curation이 가능해야 하므로, layer별로 필요한 reasoning 수준과 fallback 전략을 측정해야 합니다.
@@ -53,11 +53,21 @@ InCurator는 개인 지식 베이스를 “검색 가능한 파일 묶음”이 
 
 Testbed는 실제 지식 베이스(Vault)에 영향을 주지 않고 InCurator의 동작, 에이전트 성능, 큐레이션 로직을 검증하기 위해 사용하는 독립적이고 재현 가능한 환경입니다.
 
-### 📂 Private Fixture 패턴
-Testbed 소스에는 개인 노트, 워크스페이스 지시문, 연구 파일, 공개되지 않은 에이전트 대화가 포함될 수 있습니다. 이런 자료는 공개 commit에 포함하지 마세요. 좋은 private testbed 구성은 다음 역할을 분리합니다:
+Testbed 소스에는 개인 노트, 워크스페이스 지시문, 연구 파일, 공개되지 않은 에이전트 대화가 포함될 수 있습니다. 이런 자료는 공개 commit에 포함하지 마세요. 
 
-- **생성 스크립트**: private fixture에서 로컬 testbed vault를 재생성합니다.
-- **Stage fixture**: notes, references, assets, workspace files처럼 testbed로 복사되는 source corpus입니다.
+재현 가능한 개발 환경 구축에 대한 상세한 가이드와 템플릿 사용법은 [DEV_SCRIPTS_SPEC.md](file:///home/shin/Workspace/llm_wiki/docs/guides/DEV_SCRIPTS_SPEC.md)를 참고하십시오.
+
+**테스트 베드 초기화 명령어:**
+```bash
+# 시나리오 목록 확인
+wiki testbed list
+
+# 특정 시나리오로 테스트 베드 구축 (기본: testbed_template)
+wiki testbed init <scenario_name> --force
+```
+
+- **생성 스크립트 (`create_testbed.py`)**: 시나리오 자산에서 로컬 testbed vault를 재생성합니다.
+- **Stage fixture**: notes, references, assets 등 testbed로 복사되는 원본 코퍼스입니다.
 - **Dialogue scripts**: MCP/query/curation 동작을 반복 검증하는 대사/행동 스크립트입니다.
 - **Fixture workspace rules**: private testbed workspace에 설치되는 dev 전용 agent rules입니다.
 - **Master plan**: testbed 목적, source corpus, acceptance check를 설명하는 짧은 private 문서입니다.

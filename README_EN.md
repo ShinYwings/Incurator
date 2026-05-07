@@ -26,11 +26,11 @@ The Artist lives in your **Workspace**. Instead of searching through massive raw
 
 ## 🌟 Why This System?
 
-### 1. Knowledge Compiler & Learning Metaphor
-Knowledge isn't just "found"; it's **compiled**. Our system treats your vault like a deep-learning model in training.
-- **Forward Pass**: `wiki add` registers sources and builds L1-L3 layers (Contexts, Atoms, Concepts). `wiki curate` then synthesizes the final L4 Exhibition.
-- **Loss Signal**: Human or agent edits and logical contradictions act as feedback, representing the "error" in the system's current state.
-- **Backward Repair (Sync)**: `wiki sync` uses these signals to trace the DAG backward, repairing structural flaws and rewriting affected upstream nodes to restore logical integrity.
+### 1. Self-Healing Knowledge Compiler
+Knowledge is not just "found"; it's a **compiled** and **evolving** ecosystem. InCurator treats your vault like a deep-learning model in training.
+- **Forward Pass**: `wiki add` registers sources and builds L1-L3 layers, while `wiki curate` synthesizes the final L4 Exhibition.
+- **Feedback & Loss Signals**: Corrections or doubts raised during interaction act as "loss signals," identifying errors in the system's current state.
+- **Backward Sync (Self-Healing)**: `wiki sync` uses these signals to trace the DAG backward (Backpropagation), resolving contradictions and rewriting affected upstream nodes to restore logical integrity across the entire graph.
 
 ### 2. Token Optimization (FinOps for AI)
 By offloading the "grunt work" of summarizing and atomizing to a **Local SLM**, we preserve the "heavy thinking" tokens for your high-reasoning models (Gemini, Claude) during the final synthesis phase.
@@ -39,10 +39,7 @@ By offloading the "grunt work" of summarizing and atomizing to a **Local SLM**, 
 - **`.curator/` (Machine Track)**: A high-density, machine-readable backend designed for Agent MCP tools.
 - **`02_Wiki/` (Human Track)**: A beautiful, domain-organized Zettelkasten designed for human browsing and long-term ownership.
 
-### 4. Dynamic Correction & Concreting
-Knowledge is not a static past; it lives and evolves through the dialogue between agents and humans. Every correction or doubt raised during a task becomes a **feedback signal**, and the system uses the `wiki sync` feature to immediately resolve contradictions and restore logical integrity across the entire graph. These refined insights then harden into a new baseline (Concreting), fostering a self-healing ecosystem that grows more sophisticated and accurate the more you interact with it.
-
-### 5. Knowledge Concentration & Growth
+### 4. Knowledge Concentration & Growth
 Knowledge only truly **Increments** when it is gathered in a **single, cohesive space** rather than being fragmented across decentralized silos. InCurator ensures that all insights are funneled into a single source of truth, allowing for higher-level synthesis and the organic growth of your intellectual capital.
 
 ---
@@ -57,10 +54,12 @@ Knowledge only truly **Increments** when it is gathered in a **single, cohesive 
 ### 🚀 Quick Start
 1.  **Install**: `./install.sh` (Attempts automatic installation of Ollama and Node.js)
 2.  **Initialize**: `wiki init <path/to/your/obsidian-vault>`
-    > [!IMPORTANT]
     > **Single Vault Principle**: Do not run `wiki init` in multiple scattered directories. InCurator achieves its most powerful **Increment** effect when all fragmented knowledge is gathered in one place. We strongly recommend designating **a single main vault** where all your personal knowledge is concentrated and running the system there.
 3.  **Register (Compile)**: `wiki add <file>` (Auto-generates L1-L3 layers)
 4.  **Use Knowledge (Query)**: `wiki query "question"` or MCP search (Includes auto-synthesis of L4)
+
+> [!NOTE]
+> **Developer Only**: The `wiki testbed` command is a tool for scenario validation and system development. Do not use it for standard knowledge management tasks.
 
 Check the [User Guide](docs/guides/USER_GUIDE_EN.md) for more details.
 

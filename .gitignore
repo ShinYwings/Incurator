@@ -22,6 +22,6 @@ Thumbs.db
 *.swp
 .claude/
 
-testbed/
 # Dev/testbed stage fixture source corpus
-scripts/dev/
+scripts/dev/GS_Testbed/
+testbed/
