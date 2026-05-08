@@ -1,6 +1,6 @@
-# incurator Shared Workspace Rules
+# Incurator Shared Workspace Rules
 
-These rules are the incurator contract for `{{project_name}}`.
+These rules are the Incurator contract for `{{project_name}}`.
 Runtime-specific files must point back here instead of forking behavior.
 
 ## Workspace Scope
@@ -14,7 +14,7 @@ Runtime-specific files must point back here instead of forking behavior.
 ## Curator Usage
 
 - Read `curate.yml` before searching.
-- Prefer incurator MCP with `WORKSPACE_PATH={{workspace_path}}` when available.
+- Prefer Incurator MCP with `WORKSPACE_PATH={{workspace_path}}` when available.
 - Start from L4 Exhibitions, then backtrack to Concepts, Atoms, and Contexts when provenance, confidence, or contradictions require it.
 - If MCP is unavailable, use local workspace files only when they exist and say clearly when no local fallback is available.
 

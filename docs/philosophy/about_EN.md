@@ -4,7 +4,7 @@ The ultimate goal of this system is to **"build upon (Increment) existing knowle
 
 ---
 
-## 1. Accumulation and Connection: From Zettelkasten to incurator
+## 1. Accumulation and Connection: From Zettelkasten to Incurator
 
 The **Zettelkasten** method is a representative learning methodology that embodies our core philosophy. It builds knowledge through four stages:
 
@@ -15,17 +15,17 @@ The **Zettelkasten** method is a representative learning methodology that embodi
 
 Note-taking apps like **Obsidian** were built on this philosophy. Features like `[[wikilink]]` and Graph View allow **humans** to visually confirm the network of knowledge and explore previously built ideas when creating something new.
 
-**incurator** is an evolution of this concept from a data and AI perspective. It automates the exploration and connection process using Large Language Models.
+**Incurator** is an evolution of this concept from a data and AI perspective. It automates the exploration and connection process using Large Language Models.
 
 - **The Process**: `Raw Data` ➡️ `Ingest (Summary -> Atoms -> Concepts -> Synthesis)` ➡️ `Wiki (Synthesis as new Raw)`
 
-The shared belief between Zettelkasten and incurator is that **"prior knowledge is developed through a summarization/refinement process of 'Summarization ➡️ Atomization ➡️ Concept Creation ➡️ Synthesis of Concepts'."**
+The shared belief between Zettelkasten and Incurator is that **"prior knowledge is developed through a summarization/refinement process of 'Summarization ➡️ Atomization ➡️ Concept Creation ➡️ Synthesis of Concepts'."**
 
 ---
 
 ## 2. Problems with Existing Systems
 
-Most current incurator implementations allow the LLM to handle everything (Ingest, Wiki generation) after the initial raw data is provided, without human intervention. This leads to two critical problems:
+Most current Incurator implementations allow the LLM to handle everything (Ingest, Wiki generation) after the initial raw data is provided, without human intervention. This leads to two critical problems:
 
 ### A. Limitations in Quality Synthesis (Lack of Reasoning)
 LLMs excel at decomposing and reassembling data according to rules. However, because many systems rely on scaling model size for "brute force" reasoning, they struggle to find truly valuable "Insights" between raw files to build new knowledge. **Human-in-the-loop (HITL) intervention is essential for high-quality Synthesis.**
@@ -39,7 +39,7 @@ Collaborating with commercial agents (GPT-4, Claude 3 Opus) for the entire pipel
 
 The process of decomposing and reassembling data (`Summary -> Atoms -> Concept`) requires very little high-level reasoning. It is an area where LLMs excel and human intervention can be minimized.
 
-**Therefore, we offload this stage to a light Local Model (e.g., Ollama/SLM) or a non-reasoning model.** This aligns with modern incurator approaches that use light embedding/search models (like QMD) to reduce search costs. We take it a step further by entrusting the "Structuring" of knowledge itself to the Local Model or a non-reasoning model.
+**Therefore, we offload this stage to a light Local Model (e.g., Ollama/SLM) or a non-reasoning model.** This aligns with modern Incurator approaches that use light embedding/search models (like QMD) to reduce search costs. We take it a step further by entrusting the "Structuring" of knowledge itself to the Local Model or a non-reasoning model.
 
 In the final **Insight Derivation (Synthesis)** stage, **Humans** must intervene to discuss the results with the agent, iteratively refining the output to create truly new and valuable knowledge.
 

@@ -1,5 +1,5 @@
 ---
-description: incurator workspace loop
+description: Incurator workspace loop
 ---
 
 # Workspace Loop
@@ -9,7 +9,7 @@ Use this workflow when working inside `{{project_name}}`.
 ## 1. Load Scope
 
 - Read `curate.yml`.
-- Prefer incurator MCP with `WORKSPACE_PATH={{workspace_path}}`.
+- Prefer Incurator MCP with `WORKSPACE_PATH={{workspace_path}}`.
 - Start from Exhibitions, then backtrack only as needed.
 
 ## 2. Work With Evidence

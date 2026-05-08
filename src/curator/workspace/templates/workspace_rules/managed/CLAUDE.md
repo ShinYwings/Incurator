@@ -1,6 +1,6 @@
-## incurator Workspace Rules
+## Incurator Workspace Rules
 
-This workspace is connected to incurator for `{{agent_runtime}}`.
+This workspace is connected to Incurator for `{{agent_runtime}}`.
 
 Read and follow:
 

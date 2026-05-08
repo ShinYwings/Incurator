@@ -1,7 +1,7 @@
 # 🔌 MCP User Guide: Connect Your Agents
 
 
-The **incurator MCP Server** is the interface through which the Artist (human + agent) interacts with the Curator directly. Agents in workspaces — Claude Desktop, Claude Code, Gemini CLI — use this server to browse the Curator's staged Exhibitions, and to push corrections or new insights back into the knowledge graph. This is how the Artist's feedback completes the loop: errors and discoveries during chat propagate to the underlying knowledge base, refining prior knowledge over time.
+The **Incurator MCP Server** is the interface through which the Artist (human + agent) interacts with the Curator directly. Agents in workspaces — Claude Desktop, Claude Code, Gemini CLI — use this server to browse the Curator's staged Exhibitions, and to push corrections or new insights back into the knowledge graph. This is how the Artist's feedback completes the loop: errors and discoveries during chat propagate to the underlying knowledge base, refining prior knowledge over time.
 
 [한국어 가이드](MCP_USER_GUIDE.md)
 
@@ -31,7 +31,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install ge
 ```json
 {
   "mcpServers": {
-    "incurator": {
+    "Incurator": {
       "command": "wiki",
       "args": ["mcp"],
       "env": {

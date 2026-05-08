@@ -23,7 +23,7 @@ __pycache__/
 *.pyc
 .env
 
-// SQLite temporary files (For incurator project)
+// SQLite temporary files (For Incurator project)
 *.sqlite-*
 *.db-*
 
@@ -40,7 +40,7 @@ Settings to exclude large files or local state when managing your knowledge base
 
 ```gitignore
 # ==========================================
-# 1. Database & incurator Data (Recommended for Syncthing)
+# 1. Database & Incurator Data (Recommended for Syncthing)
 # ==========================================
 # It is safer to leave DB files to real-time sync tools (like Syncthing) and exclude them from Git.
 *.sqlite*

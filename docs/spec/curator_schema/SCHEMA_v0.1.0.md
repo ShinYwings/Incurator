@@ -1,7 +1,7 @@
-# incurator - Schema & Operating Conventions (v0.1.0)
+# Incurator - Schema & Operating Conventions (v0.1.0)
 
-Audience: incurator engine (Compiler) & Workspace Agents (Artists).
-This file defines the contract for building and maintaining the .curator/ DAG knowledge lake under the incurator v0.1.0 architecture.
+Audience: Incurator engine (Compiler) & Workspace Agents (Artists).
+This file defines the contract for building and maintaining the .curator/ DAG knowledge lake under the Incurator v0.1.0 architecture.
 The Curator reads source dirs (02_Wiki, 03_Notes, 04_Resources, 06_Archives) and writes
 exclusively to .curator/. Human readability inside .curator/ is NOT a design goal.
 
@@ -163,7 +163,7 @@ Rules:
 
 Location: 01_Workspaces/{Project_Name}/curate.yml
 Owner: Agent (Artist) / Human (Director)
-Read by: incurator (Compiler) via MCP tool calls and `wiki curate --workspace`
+Read by: Incurator (Compiler) via MCP tool calls and `wiki curate --workspace`
 
 ```yaml
 # curate.yml — Knowledge Requirement Specification
@@ -342,10 +342,10 @@ Constraint: Agent MUST NOT write to 02_Wiki/ without explicit Director approval.
 **Path B — Conversational Promotion**
 Trigger: Human explicitly decides a conversation-derived insight deserves promotion.
 Process:
-  1. Human asks a question; incurator Engine answers from Concept network (L3).
+  1. Human asks a question; Incurator Engine answers from Concept network (L3).
   2. Extended Curator-Human dialog develops the idea further.
   3. Human issues promotion command (e.g., "promote this to wiki").
-  4. Human or incurator writes the distilled insight to 02_Wiki/.
+  4. Human or Incurator writes the distilled insight to 02_Wiki/.
 Constraint: Curator MUST NOT auto-promote without explicit Human instruction.
 
 **Infinite Knowledge Creation Loop**
@@ -467,4 +467,4 @@ persona:
 If `persona:` is absent from `curate.yml`, the Curator persona applies for this workspace.
 
 ---
-This file defines the operational contract for incurator v0.1.0.
+This file defines the operational contract for Incurator v0.1.0.

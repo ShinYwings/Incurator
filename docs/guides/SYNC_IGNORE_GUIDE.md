@@ -22,7 +22,7 @@ __pycache__/
 *.pyc
 .env
 
-// SQLite 임시 파일 (incurator 프로젝트용)
+// SQLite 임시 파일 (Incurator 프로젝트용)
 *.sqlite-*
 *.db-*
 
@@ -38,7 +38,7 @@ Git으로 지식 베이스를 관리할 때 대용량 파일이나 로컬 상태
 
 ```gitignore
 # ==========================================
-# 1. Database & incurator Data (Syncthing 담당 권장)
+# 1. Database & Incurator Data (Syncthing 담당 권장)
 # ==========================================
 # DB 파일은 실시간 동기화 툴(Syncthing 등)에 맡기고 Git에서는 제외하는 것이 안전합니다.
 *.sqlite*

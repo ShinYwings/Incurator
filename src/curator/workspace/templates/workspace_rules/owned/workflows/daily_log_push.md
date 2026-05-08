@@ -1,5 +1,5 @@
 ---
-description: incurator session closeout
+description: Incurator session closeout
 ---
 
 # Session Closeout

@@ -5,7 +5,7 @@ description = "An LLM-maintained personal wiki, per Karpathy's pattern. Local-fi
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    { name = "incurator" }
+    { name = "Incurator" }
 ]
 license = { text = "MIT" }
 dependencies = [

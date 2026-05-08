@@ -1,14 +1,14 @@
-# incurator - Agentic Zettelkasten Curator (v0.1.0)
+# Incurator - Agentic Zettelkasten Curator (v0.1.0)
 
-incurator is an autonomous, AI-maintained personal knowledge base designed for the incurator v0.1.0 architecture. It functions as a Multi-Agent DAG (Directed Acyclic Graph) RAG system built to manage fragmented knowledge assets and execute complex projects safely without hallucinations.
+Incurator is an autonomous, AI-maintained personal knowledge base designed for the Incurator v0.1.0 architecture. It functions as a Multi-Agent DAG (Directed Acyclic Graph) RAG system built to manage fragmented knowledge assets and execute complex projects safely without hallucinations.
 
-By restructuring the philosophy of the Zettelkasten into a Data Curation architecture, the incurator Engine ensures that all external information passes through a strict 4-layer refinement pipeline.
+By restructuring the philosophy of the Zettelkasten into a Data Curation architecture, the Incurator Engine ensures that all external information passes through a strict 4-layer refinement pipeline.
 
 To achieve both cost-efficiency (FinOps) and reasoning performance, this system enforces strict role separation and model routing: a lightweight local SLM drives the Curator's background compilation, while a high-reasoning LLM powers the Agent's execution. Only pre-compiled, verified knowledge packages are injected into the Agent, preventing token waste and hallucination.
 
 ## 1. Entity Roles & Global Topology
 
-The system operates through the organic interaction of three core entities: Human (Director), incurator Engine (Compiler), and Workspace Agent (Artist).
+The system operates through the organic interaction of three core entities: Human (Director), Incurator Engine (Compiler), and Workspace Agent (Artist).
 
 ### 1.1 Entities & Permissions
 
@@ -18,7 +18,7 @@ The system operates through the organic interaction of three core entities: Huma
 
 **Role**: The creator and owner of primary source knowledge. The Human is the ultimate decision-maker for knowledge synthesis, reviewing proposals from Agents/Curators and reaching consensus through Human-in-the-Loop (HITL) conversations.
 
-⚙️ **Entity incurator — "Compiler"**
+⚙️ **Entity Incurator — "Compiler"**
 
 **Domain**: .curator/ (Hidden space, exclusive read/write access)
 
@@ -302,7 +302,7 @@ Exhibits at the L4 (Exhibitions) stage flow into `02_Wiki/` via exactly two path
 
 **💬 Path B — Conversational Promotion**
 
-- Entity: ⚙️ Compiler (incurator Engine) + 👤 Director (Human)
+- Entity: ⚙️ Compiler (Incurator Engine) + 👤 Director (Human)
 - Process: The Human asks a question; the Curator answers within its Concept network (L3). An extended dialogue develops. If the Human judges that a derived insight is notable, they explicitly promote it to `02_Wiki/`.
 - Trigger: Human issues a promotion command after a productive Q&A session.
 
@@ -326,7 +326,7 @@ Source (03_Notes / 04_Resources / 02_Wiki)
 
 ### 6.5 Forward/Backward Integrity Loop
 
-The incurator Engine follows an operational loop similar to forward and backward passes in deep learning:
+The Incurator Engine follows an operational loop similar to forward and backward passes in deep learning:
 
 - **Forward pass**: `wiki add` compiles source truth upward into L1 Contexts, L2 Atoms, and L3 Concepts. `wiki curate` compiles selected Concepts into L4 Exhibitions. By default, these commands run a `wiki sync` pass after generation.
 - **Loss signal**: Human/agent edits to generated DAG nodes, missing links, uncovered Atoms, structural gaps, or logical verification failures reveal where the compiled graph no longer matches its evidence.
@@ -337,7 +337,7 @@ This analogy is intentionally bounded. The Curator does not modify immutable sou
 
 ### 6.6 Coverage-Preserving Concept Generation
 
-L3 generation must not silently strand a source's Atoms. The incurator Engine:
+L3 generation must not silently strand a source's Atoms. The Incurator Engine:
 
 - extracts real Atom summaries from `## Definition / Claim`
 - asks the model to cluster Atoms into Concepts
@@ -416,4 +416,4 @@ curator_curate_context(context_id)
 ```
 
 ---
-This specification defines the operational contract for incurator v0.1.0.
+This specification defines the operational contract for Incurator v0.1.0.

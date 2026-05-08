@@ -97,7 +97,7 @@ implementation rather than after mistakes.
 
 ## Project Overview
 
-incurator is an LLM-maintained personal knowledge base (Zettelkasten) integrated with Obsidian. It ingests external sources through a 4-layer curation pipeline (L1 Contexts → L2 Atoms → L3 Concepts → L4 Exhibitions) using a multi-provider LLM backend, building a verifiable cross-linked knowledge graph accessible to both humans and AI agents.
+Incurator is an LLM-maintained personal knowledge base (Zettelkasten) integrated with Obsidian. It ingests external sources through a 4-layer curation pipeline (L1 Contexts → L2 Atoms → L3 Concepts → L4 Exhibitions) using a multi-provider LLM backend, building a verifiable cross-linked knowledge graph accessible to both humans and AI agents.
 
 ## Development Commands
 
@@ -235,7 +235,7 @@ Treat older root-level specs as historical unless the user explicitly points to 
 - `03_Notes/` is human-verified source truth. Do not edit it autonomously.
 - `04_Resources/` and `06_Archives/` are read-only source/reference spaces.
 - `.curator/` is machine-readable Curator state. Modify it only through the project code or explicit testbed setup scripts.
-- Exclude `src/qmd/**` from incurator v0.1.0 legacy sweeps unless the task is explicitly about qmd itself.
+- Exclude `src/qmd/**` from Incurator v0.1.0 legacy sweeps unless the task is explicitly about qmd itself.
 
 ## Multi-Agent Development Roles
 

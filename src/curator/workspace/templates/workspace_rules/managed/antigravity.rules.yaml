@@ -1,4 +1,4 @@
-incurator:
+Incurator:
   workspace: "{{workspace_path}}"
   wiki_root: "{{wiki_root}}"
   rules:
