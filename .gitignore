@@ -26,4 +26,5 @@ Thumbs.db
 scripts/dev/GS_Testbed/
 testbed/
 
-*.lockuv.lock
+*.lock
+uv.lock
