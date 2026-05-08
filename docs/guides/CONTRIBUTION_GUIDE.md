@@ -1,12 +1,12 @@
-# 🛠 InCurator Contribution & Development Guide
+# 🛠 incurator Contribution & Development Guide
 
-이 가이드는 InCurator 프로젝트에 기여하려는 개발자들을 위한 문서입니다. 현재 프로젝트가 직면한 기술적 과제들과, 이를 안전하게 해결하기 위한 개발 환경(Testbed) 구축 방법을 설명합니다. 시스템의 설계 철학과 차별점은 [프로젝트 철학 (about.md)](../philosophy/about.md)에서 확인할 수 있습니다.
+이 가이드는 incurator 프로젝트에 기여하려는 개발자들을 위한 문서입니다. 현재 프로젝트가 직면한 기술적 과제들과, 이를 안전하게 해결하기 위한 개발 환경(Testbed) 구축 방법을 설명합니다. 시스템의 설계 철학과 차별점은 [프로젝트 철학 (about.md)](../philosophy/about.md)에서 확인할 수 있습니다.
 
 ---
 
 ## 1. 현재 아키텍처: 지식 정제 엔진 (Curator as Compiler)
 
-InCurator는 개인 지식 베이스를 “검색 가능한 파일 묶음”이 아니라 검증 가능한 지식 DAG로 다룹니다. 처음 설계부터 이 DAG는 사람이 읽기 좋은 문서보다 **LLM이 안정적으로 읽고 추론하기 좋은 중간 표현(IR)**에 가깝게 만들어졌습니다. 현재 Curator는 source truth와 agent 대화를 L1-L4 DAG로 쌓고, `wiki sync`로 구조/논리 정합성을 되짚는 **compiler-inspired pipeline**입니다.
+incurator는 개인 지식 베이스를 “검색 가능한 파일 묶음”이 아니라 검증 가능한 지식 DAG로 다룹니다. 처음 설계부터 이 DAG는 사람이 읽기 좋은 문서보다 **LLM이 안정적으로 읽고 추론하기 좋은 중간 표현(IR)**에 가깝게 만들어졌습니다. 현재 Curator는 source truth와 agent 대화를 L1-L4 DAG로 쌓고, `wiki sync`로 구조/논리 정합성을 되짚는 **compiler-inspired pipeline**입니다.
 
 - **LLM-readable IR**: Context, Atom, Concept, Exhibition은 LLM이 읽고 추론하기 좋은 계층형 IR입니다. 각 layer는 사람이 보기 좋은 prose보다 안정적인 frontmatter, relation, provenance를 우선합니다.
 - **Forward pass**: `wiki add`와 `wiki curate`는 source/workspace input을 L1-L4 DAG로 쌓아 올립니다.
@@ -54,11 +54,11 @@ InCurator는 개인 지식 베이스를 “검색 가능한 파일 묶음”이 
 
 ## 3. 개발 및 검증 환경: Testbed 패턴
 
-Testbed는 실제 지식 베이스(Vault)에 영향을 주지 않고 InCurator의 동작, 에이전트 성능, 큐레이션 로직을 검증하기 위해 사용하는 독립적이고 재현 가능한 환경입니다.
+Testbed는 실제 지식 베이스(Vault)에 영향을 주지 않고 incurator의 동작, 에이전트 성능, 큐레이션 로직을 검증하기 위해 사용하는 독립적이고 재현 가능한 환경입니다.
 
 Testbed 소스에는 개인 노트, 워크스페이스 지시문, 연구 파일, 공개되지 않은 에이전트 대화가 포함될 수 있습니다. 이런 자료는 공개 commit에 포함하지 마세요. 
 
-재현 가능한 개발 환경 구축에 대한 상세한 가이드와 템플릿 사용법은 [DEV_SCRIPTS_SPEC.md](file:///home/shin/Workspace/llm_wiki/docs/guides/DEV_SCRIPTS_SPEC.md)를 참고하십시오.
+재현 가능한 개발 환경 구축에 대한 상세한 가이드와 템플릿 사용법은 [DEV_SCRIPTS_SPEC.md](file:///home/shin/Workspace/incurator/docs/guides/DEV_SCRIPTS_SPEC.md)를 참고하십시오.
 
 **테스트 베드 초기화 명령어:**
 ```bash
@@ -86,13 +86,13 @@ Testbed는 빈 폴더에서 시작하는 대신, 특정 도메인이나 문제 �
 
 > [!TIP]
 > **실제 검증 사례 및 워크플로우**
-> 개발 중에는 다음과 같은 private validation case로 시스템의 실용성을 검증할 수 있습니다. 이러한 검증 사례를 직접 구축하는 방법은 **[DEV_SCRIPTS_SPEC.md](file:///home/shin/Workspace/llm_wiki/docs/guides/DEV_SCRIPTS_SPEC.md)의 시나리오 작성 가이드**를 참고하십시오.
+> 개발 중에는 다음과 같은 private validation case로 시스템의 실용성을 검증할 수 있습니다. 이러한 검증 사례를 직접 구축하는 방법은 **[DEV_SCRIPTS_SPEC.md](file:///home/shin/Workspace/incurator/docs/guides/DEV_SCRIPTS_SPEC.md)의 시나리오 작성 가이드**를 참고하십시오.
 > - **도메인 격리 및 병합 테스트**: 서로 연관된 개념 한 쌍(예: PDF 논문 + 해당 논문 분석 노트)과 전혀 다른 도메인의 지식 하나를 입력하여, 시스템이 연관 지식은 **Concept(L3)**으로 자연스럽게 묶고 무관한 지식은 명확히 격리하는지 확인합니다.
 > - **워크스페이스 기반 실전 검증**: 실제 진행 중인 프로젝트의 워크스페이스를 Testbed에 추가하여 실전 환경을 시뮬레이션합니다. 예를 들어, 원본 데이터(Raw data)에서 특정 핵심 인사이트를 의도적으로 누락시킨 뒤, MCP 서버를 통해 해당 내용에 대해 질문합니다. 이때 시스템이 부족한 정보를 인지하고 Curator 업데이트를 통해 지식을 보완하거나 수정하는지 확인하여 파이프라인의 완성도를 검증했습니다.
 >
 > [!IMPORTANT]
 > **초기 개발 환경 및 로직 관련 안내**
-> InCurator는 현재 개발 초기 단계이며, 개발자의 모든 실험과 검증은 **antigravity** 에이전트 환경에서 이루어졌습니다. 이로 인해 일부 내부 로직이 해당 환경에 최적화되어 있을 수 있습니다. **만약 다른 에이전트나 IDE에서 문제가 발생한다면, 특정 환경에 종속된 로직을 범용적으로 개선하는 기여를 언제든 환영합니다.**
+> incurator는 현재 개발 초기 단계이며, 개발자의 모든 실험과 검증은 **antigravity** 에이전트 환경에서 이루어졌습니다. 이로 인해 일부 내부 로직이 해당 환경에 최적화되어 있을 수 있습니다. **만약 다른 에이전트나 IDE에서 문제가 발생한다면, 특정 환경에 종속된 로직을 범용적으로 개선하는 기여를 언제든 환영합니다.**
 
 ---
 
@@ -122,7 +122,7 @@ testbed/
 
 ## 5. 시나리오 구현 및 검증 워크플로우
 
-새로운 검증 시나리오를 생성하고 실행할 때는 다음과 같은 4단계 표준 절차를 따릅니다. 상세한 단계별 지침은 [시나리오 작성 가이드](file:///home/shin/Workspace/llm_wiki/docs/guides/DEV_SCRIPTS_SPEC.md)를 확인하십시오.
+새로운 검증 시나리오를 생성하고 실행할 때는 다음과 같은 4단계 표준 절차를 따릅니다. 상세한 단계별 지침은 [시나리오 작성 가이드](file:///home/shin/Workspace/incurator/docs/guides/DEV_SCRIPTS_SPEC.md)를 확인하십시오.
 
 1. **시나리오 스캐폴딩**: `scripts/dev/` 아래에 새로운 시나리오 폴더를 생성하고 `MASTER_PLAN.md`를 작성합니다.
 2. **데이터 시딩 (Seeding)**: 익명화된 소스 파일들을 `stage/` 디렉토리에 배치합니다.

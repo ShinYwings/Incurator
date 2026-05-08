@@ -1,6 +1,6 @@
 """Workspace agent-rule template rendering.
 
-This module installs InCurator managed rule files into an arbitrary workspace
+This module installs incurator managed rule files into an arbitrary workspace
 without overwriting user-authored rules outside managed blocks.
 """
 
@@ -86,7 +86,7 @@ _CLIENT_INFO_MAP = {
 
 
 def detect_agent_from_client_info(client_name: str) -> str:
-    """Map an MCP clientInfo.name string to an InCurator agent runtime slug.
+    """Map an MCP clientInfo.name string to an incurator agent runtime slug.
 
     Falls back to 'codex' for unrecognised clients.
     """

@@ -1,4 +1,4 @@
-"""Deductive verification engine for the InCurator v0.1.0 DAG.
+"""Deductive verification engine for the incurator v0.1.0 DAG.
 
 Two entry points:
 

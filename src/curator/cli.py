@@ -1,4 +1,4 @@
-"""Command-line interface for InCurator.
+"""Command-line interface for incurator.
 
 Stage 1 commands:
     wiki init [PATH]         Scaffold a new wiki project.
@@ -72,7 +72,7 @@ from .llm import (
 
 app = typer.Typer(
     name="wiki",
-    help="InCurator — an AI-maintained personal knowledge base.",
+    help="incurator — an AI-maintained personal knowledge base.",
     no_args_is_help=True,
     add_completion=False,
     rich_markup_mode="rich",
@@ -331,7 +331,7 @@ def _resolve_root_or_die() -> cfg.WikiPaths:
         last_root = cfg.get_last_root()
         if last_root and (last_root / cfg.INTERNAL_DIR / cfg.CONFIG_FILE).exists():
             return cfg.paths_from_config(last_root)
-        _err("Not inside an InCurator project.")
+        _err("Not inside an incurator project.")
         _hint("Run [bold]wiki init[/bold] to create one, or set WIKI_ROOT env var.")
         raise typer.Exit(code=1)
     cfg.set_last_root(root)
@@ -1655,7 +1655,7 @@ def _start_client(config: dict):
 
 @app.command()
 def version() -> None:
-    """Show the InCurator version."""
+    """Show the incurator version."""
     console.print(f"incurator [bold cyan]{__version__}[/bold cyan]")
 @app.command()
 def init(
@@ -1763,7 +1763,7 @@ def init(
     console.print()
     console.print(
         Panel.fit(
-            f"[bold cyan]Initialising InCurator[/bold cyan]\n"
+            f"[bold cyan]Initialising incurator[/bold cyan]\n"
             f"[dim]{root}[/dim]",
             border_style="cyan",
         )
@@ -2055,7 +2055,7 @@ def status() -> None:
     console.print()
     console.print(
         Panel.fit(
-            f"[bold cyan]InCurator[/bold cyan]  [dim]@ {paths.root}[/dim]",
+            f"[bold cyan]incurator[/bold cyan]  [dim]@ {paths.root}[/dim]",
             border_style="cyan",
         )
     )
@@ -4587,7 +4587,7 @@ def persona_update(
 
 mcp_app = typer.Typer(
     name="mcp",
-    help="Run or install the InCurator MCP server for workspace agents.",
+    help="Run or install the incurator MCP server for workspace agents.",
     no_args_is_help=False,
     add_completion=False,
     rich_markup_mode="rich",
@@ -4673,7 +4673,7 @@ def mcp_connect_cmd(
     console.print()
     console.print(
         Panel.fit(
-            f"[bold]InCurator MCP connect[/bold]\n"
+            f"[bold]incurator MCP connect[/bold]\n"
             f"[dim]agent: {agent}\n"
             f"vault: {paths.root}\n"
             f"workspace: {workspace}[/dim]",
@@ -4715,7 +4715,7 @@ def mcp_install_cmd(
     console.print()
     console.print(
         Panel.fit(
-            f"[bold]InCurator MCP install[/bold]\n[dim]vault: {paths.root}[/dim]",
+            f"[bold]incurator MCP install[/bold]\n[dim]vault: {paths.root}[/dim]",
             border_style="cyan",
         )
     )

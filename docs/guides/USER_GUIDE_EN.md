@@ -1,4 +1,4 @@
-# 📖 User Guide: Master the InCurator
+# 📖 User Guide: Master the incurator
 
 This guide provides technical details on how to operate the **Curator Engine** and manage your knowledge DAG. For the design philosophy and motivation behind the system, see [Project Philosophy (about.md)](../philosophy/about_EN.md). For a feature overview, see the [README](../../README_EN.md).
 
@@ -21,7 +21,7 @@ Before installing the system, ensure the following tools are installed:
 > **Verified Development Environment**
 > This system has been fully tested and validated in the following environment:
 > - **Interface**: A **CLI-only** engine. You can operate it directly in the terminal or leverage it within your **IDE (antigravity)** agent environment.
-> - **Early Development Environment**: InCurator is in its early stages, and all experiments and validations were conducted by the developer using the **antigravity** agent environment. As a result, some internal logic may be unintentionally tailored to that specific environment. If you encounter issues in other agents or IDEs, we highly encourage contributions that generalize these environment-specific logic parts.
+> - **Early Development Environment**: incurator is in its early stages, and all experiments and validations were conducted by the developer using the **antigravity** agent environment. As a result, some internal logic may be unintentionally tailored to that specific environment. If you encounter issues in other agents or IDEs, we highly encourage contributions that generalize these environment-specific logic parts.
 > - **Hardware**:
 >   - **Linux**: NVIDIA GeForce RTX 4070 Ti 12GB, RAM 64GB
 >   - **macOS**: Apple Silicon (8GB RAM environment tested)
@@ -37,13 +37,13 @@ Before installing the system, ensure the following tools are installed:
 
 ---
 
-## 🧭 InCurator Operational Principles
+## 🧭 incurator Operational Principles
 
-To maintain the powerful performance of InCurator and manage your knowledge safely, we recommend following these principles:
+To maintain the powerful performance of incurator and manage your knowledge safely, we recommend following these principles:
 
 -   **Single Source of Truth**: Instead of running `wiki init` in multiple project directories to create small, fragmented knowledge bases, maintain **a single main vault** where all your knowledge is aggregated. Knowledge truly **Increments** and yields new insights only when it is concentrated and organically connected in one place.
 -   **Respect the AI Space (AI-only Space)**: The `.curator/` folder is an 'AI-only space' designed exclusively for agents and the system. It is a high-density data network intentionally structured to be difficult for humans to read or edit. Manually modifying files here can break the integrity of your knowledge graph, so avoid touching it directly.
--   **Self-Healing & Integrity**: If you feel your knowledge graph is contaminated or links are broken, run the `wiki sync` command. InCurator has self-healing capabilities to trace errors and restore logical integrity automatically. **Crucially, if you manually edit any node files yourself (rather than via an agent), you must run `wiki sync` to propagate those changes through the entire graph.**
+-   **Self-Healing & Integrity**: If you feel your knowledge graph is contaminated or links are broken, run the `wiki sync` command. incurator has self-healing capabilities to trace errors and restore logical integrity automatically. **Crucially, if you manually edit any node files yourself (rather than via an agent), you must run `wiki sync` to propagate those changes through the entire graph.**
 -   **Workspace Flexibility**: While your knowledge Library (Vault) should be centralized, your **Workspaces** (where you do the work) can be located anywhere. Connect any project folder or working directory to your central main Vault to consume its knowledge. You have one "Library" but can have unlimited "Studios."
 
 ---
@@ -63,7 +63,7 @@ wiki init <path/to/your/obsidian-vault>
 ```
 
 #### 📂 Vault Directory Structure
-Running the `wiki init` command initializes the following structure for knowledge management. Following the philosophy that knowledge is most effective when stored in different forms for machines and humans, InCurator strictly separates human-readable spaces (Root) from the AI-only spaces (`.curator/`) via physical directory separation.
+Running the `wiki init` command initializes the following structure for knowledge management. Following the philosophy that knowledge is most effective when stored in different forms for machines and humans, incurator strictly separates human-readable spaces (Root) from the AI-only spaces (`.curator/`) via physical directory separation.
 
 ```text
 <vault_root>/
@@ -123,7 +123,7 @@ wiki curate
 
 Once your vault's physical structure is ready, it's time to inject your fragmented knowledge into the system.
 
-InCurator's ingestion process consists of two stages: **Organizing files (Organize)** and **Summarizing and refining them into knowledge layers (L1–L3) (Ingest)**. The data collected here will later be processed into Exhibits (Exhibitions) within a workspace for actual use.
+incurator's ingestion process consists of two stages: **Organizing files (Organize)** and **Summarizing and refining them into knowledge layers (L1–L3) (Ingest)**. The data collected here will later be processed into Exhibits (Exhibitions) within a workspace for actual use.
 
 ### Step 1: Organize Files
 First, place your original files (PDF, Markdown, HTML, images, etc.) into the appropriate folders within the vault based on their nature.
@@ -204,7 +204,7 @@ Both the vault and workspaces are now ready. Let's see how the Curator answers y
 Now you can obtain answers or perform the final synthesis for agent consumption.
 
 ### Querying and Auto-updates (Intent-based Curation)
-This is the core operational mode of InCurator. You just need to ask or converse.
+This is the core operational mode of incurator. You just need to ask or converse.
 
 The system checks the `curate.yml` specification and **instantly activates the pipeline to synthesize the final answer** at the moment you run `wiki query` or interact with an agent (`search_curator`) in a workspace.
 
@@ -240,7 +240,7 @@ This circular flow ensures that your knowledge never stays stagnant but keeps ev
 
 ## 🧑‍🎨 Persona Setup
 
-The persona is how InCurator understands your knowledge model. The system is a general-purpose curation engine, but the persona steers its behavior toward your domain and goals.
+The persona is how incurator understands your knowledge model. The system is a general-purpose curation engine, but the persona steers its behavior toward your domain and goals.
 
 ### Curator Persona
 
@@ -308,10 +308,10 @@ Summary of major commands following the user workflow.
 
 ## 🧩 Configuration Management
 
-InCurator allows you to safely and conveniently manage all core settings via the `wiki config` command without having to manually edit the `.curator/config.yml` file.
+incurator allows you to safely and conveniently manage all core settings via the `wiki config` command without having to manually edit the `.curator/config.yml` file.
 
 ### 1. Provider Configuration (`wiki config provider`)
-Configure the LLM backends that power InCurator's intelligence. The system maintains two backend layers.
+Configure the LLM backends that power incurator's intelligence. The system maintains two backend layers.
 
 - **Primary Backend**: The main engine for all tasks. Choose the model that best fits your hardware specifications and budget.
 - **Fallback Backend (Failover)**: A secondary engine that takes over if the primary engine fails due to network issues or API limits. Designating a different type (e.g., Cloud ↔ Local) from the primary engine further increases system stability.

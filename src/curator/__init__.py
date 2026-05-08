@@ -1,4 +1,4 @@
-"""InCurator: An AI-maintained personal knowledge base."""
+"""incurator: An AI-maintained personal knowledge base."""
 
 __version__ = "0.1.0"
 

@@ -1,6 +1,6 @@
 # Guide: Creating Development Testbed Scenarios
 
-This guide explains how to create and manage development validation scenarios (testbeds) to verify InCurator's behavior in isolated environments.
+This guide explains how to create and manage development validation scenarios (testbeds) to verify incurator's behavior in isolated environments.
 
 ## 1. Scenario Structure
 Every scenario lives in `scripts/dev/<scenario_name>/`. Use the `testbed_template` as your starting point.

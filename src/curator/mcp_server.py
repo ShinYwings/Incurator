@@ -62,7 +62,7 @@ def _resolve_paths() -> cfg.WikiPaths:
     discovered = cfg.find_wiki_root()
     if discovered is None:
         raise RuntimeError(
-            "No InCurator vault found. Set WIKI_ROOT to your vault root, or "
+            "No incurator vault found. Set WIKI_ROOT to your vault root, or "
             "run `wiki mcp` from inside an initialised project."
         )
     return cfg.paths_from_config(discovered)
@@ -335,7 +335,7 @@ def build_server() -> FastMCP:
     mcp = FastMCP(
         name="incurator",
         instructions=(
-            "InCurator Curator MCP. Workflow for a workspace session:\n"
+            "incurator Curator MCP. Workflow for a workspace session:\n"
             "  1. Call `curator_check_workspace` first — validates curate.yml and returns "
             "workspace status, including whether an Exhibition exists.\n"
             "  2. If `needs_curation` is true, call `curator_curate_workspace` to generate "

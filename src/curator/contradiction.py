@@ -1,4 +1,4 @@
-"""Contradiction decision storage for InCurator.
+"""Contradiction decision storage for incurator.
 
 Tracks dismissed and resolved ATM-pair decisions so `wiki sync` can
 skip re-detecting them in future deep-check runs. Agents can also

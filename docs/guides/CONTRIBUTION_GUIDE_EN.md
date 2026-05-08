@@ -1,12 +1,12 @@
-# 🛠 InCurator Contribution & Development Guide
+# 🛠 incurator Contribution & Development Guide
 
-This guide is for developers who want to contribute to the InCurator project. It covers the current technical architecture, open challenges, and how to set up the development environment (Testbed) safely. For the system's design philosophy and differentiators, see [Project Philosophy (about.md)](../philosophy/about_EN.md).
+This guide is for developers who want to contribute to the incurator project. It covers the current technical architecture, open challenges, and how to set up the development environment (Testbed) safely. For the system's design philosophy and differentiators, see [Project Philosophy (about.md)](../philosophy/about_EN.md).
 
 ---
 
 ## 1. Current Architecture: Knowledge Refinement Engine (Curator as Compiler)
 
-InCurator treats a personal knowledge base not as a "searchable pile of files" but as a verifiable knowledge DAG. From the start, this DAG was designed to be closer to a **machine-readable intermediate representation (IR)** that LLMs can reliably parse and reason over, rather than human-readable prose.
+incurator treats a personal knowledge base not as a "searchable pile of files" but as a verifiable knowledge DAG. From the start, this DAG was designed to be closer to a **machine-readable intermediate representation (IR)** that LLMs can reliably parse and reason over, rather than human-readable prose.
 
 The Curator is a **compiler-inspired pipeline** that builds L1–L4 DAG nodes from source truth and agent interactions, then uses `wiki sync` to verify structural and logical consistency.
 
@@ -26,7 +26,7 @@ The core challenge is evolving the Curator toward a true compiler — treating t
 ### 🔑 Top Priority
 
 - **`wiki add` performance**: Document registration and layer generation (L1–L3) is currently slow. Parallelizing this step or optimizing prompts is the most urgent improvement.
-- **Source code ingestion**: Currently only document-based knowledge extraction is supported. Parsing source code (Python, TypeScript, C++, etc.) to extract logical structure, function dependencies, and algorithms as L2/L3 nodes would make InCurator a strong tool for developer knowledge bases.
+- **Source code ingestion**: Currently only document-based knowledge extraction is supported. Parsing source code (Python, TypeScript, C++, etc.) to extract logical structure, function dependencies, and algorithms as L2/L3 nodes would make incurator a strong tool for developer knowledge bases.
 
 ### 🧠 Intelligence & Pipeline Quality
 
@@ -55,7 +55,7 @@ The core challenge is evolving the Curator toward a true compiler — treating t
 
 ## 3. Development Environment: Testbed Pattern
 
-The Testbed is an independent, reproducible environment for verifying InCurator's behavior without affecting the actual vault.
+The Testbed is an independent, reproducible environment for verifying incurator's behavior without affecting the actual vault.
 
 Testbed sources may include personal notes, workspace directives, research files, and unpublished agent conversations. Do not include such material in public commits.
 
@@ -84,13 +84,13 @@ A testbed should start from a **private stage fixture** — a curated set of sou
 >
 > [!TIP]
 > **Practical Validation Cases & Workflows**
-> During development, you can use the following private validation cases to verify system utility. To build these validation cases yourself, follow the **scenario creation guide in [DEV_SCRIPTS_SPEC.md](file:///home/shin/Workspace/llm_wiki/docs/guides/DEV_SCRIPTS_SPEC.md)**.
+> During development, you can use the following private validation cases to verify system utility. To build these validation cases yourself, follow the **scenario creation guide in [DEV_SCRIPTS_SPEC.md](file:///home/shin/Workspace/incurator/docs/guides/DEV_SCRIPTS_SPEC.md)**.
 > - **Domain Isolation & Merge Testing**: Input a pair of related concepts (e.g., a PDF paper + an analysis note of that paper) along with one piece of knowledge from a completely different domain. Verify that the system naturally groups related knowledge into a **Concept (L3)** while clearly isolating unrelated knowledge.
 > - **Workspace-Based Real-World Verification**: Add an active project workspace to the Testbed to simulate a real-world environment. For example, intentionally omit a key insight from the raw data and then ask about it via the MCP server. Verify the pipeline's completeness by ensuring the system recognizes the missing information and prompts a Curator update to supplement or correct the knowledge base.
 >
 > [!IMPORTANT]
 > **Early Development Environment & Logic Warning**
-> InCurator is in its early stages, and all experiments and validations were conducted by the developer using the **antigravity** agent environment. As a result, some internal logic may be unintentionally tailored to that specific environment. **If you encounter issues in other agents or IDEs, we highly encourage contributions that generalize these environment-specific logic parts.**
+> incurator is in its early stages, and all experiments and validations were conducted by the developer using the **antigravity** agent environment. As a result, some internal logic may be unintentionally tailored to that specific environment. **If you encounter issues in other agents or IDEs, we highly encourage contributions that generalize these environment-specific logic parts.**
 
 ---
 
@@ -118,7 +118,7 @@ testbed/
 
 ## 5. Scenario Implementation & Validation Workflow
 
-When creating and executing a new validation scenario, follow these standard 4 steps. For detailed instructions, see the [Scenario Creation Guide](file:///home/shin/Workspace/llm_wiki/docs/guides/DEV_SCRIPTS_SPEC.md).
+When creating and executing a new validation scenario, follow these standard 4 steps. For detailed instructions, see the [Scenario Creation Guide](file:///home/shin/Workspace/incurator/docs/guides/DEV_SCRIPTS_SPEC.md).
 
 1. **Scenario Scaffolding**: Create a new scenario folder under `scripts/dev/` and write a `MASTER_PLAN.md`.
 2. **Data Seeding**: Place anonymized source files into the `stage/` directory.
