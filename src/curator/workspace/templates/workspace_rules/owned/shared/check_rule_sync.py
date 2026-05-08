@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check that runtime rule files point back to shared llm-wiki rules."""
+"""Check that runtime rule files point back to shared incurator rules."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def main() -> None:
     if missing:
         names = ", ".join(str(path.relative_to(ROOT)) for path in missing)
         raise SystemExit(f"Runtime rules missing shared-rule pointer: {names}")
-    print("llm-wiki workspace rules are synchronized")
+    print("incurator workspace rules are synchronized")
 
 
 if __name__ == "__main__":

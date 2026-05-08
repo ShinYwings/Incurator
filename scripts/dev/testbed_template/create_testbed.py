@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the repo-local initialized testbed vault for llm-wiki development validation."""
+"""Create the repo-local initialized testbed vault for incurator development validation."""
 
 from __future__ import annotations
 

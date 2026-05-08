@@ -121,6 +121,7 @@ wiki testbed init <scenario_name> --force
 WIKI_ROOT=testbed wiki status
 WIKI_ROOT=testbed wiki add
 WIKI_ROOT=testbed wiki sync
+WIKI_ROOT=testbed wiki lint
 ```
 
 The generated `testbed/` vault is configured to use a primary LLM backend (default: `gemini-cli`). Before running LLM-sensitive testbed commands, make sure the configured primary LLM tool is installed and authenticated.

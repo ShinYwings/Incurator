@@ -60,8 +60,8 @@ def prepare_workspace(
 ) -> WorkspacePrepareResult:
     """Ensure curate.yml and selected agent rules exist for a workspace.
 
-    Existing top-level rule files are preserved outside llm-wiki managed blocks.
-    Files under `.agents/curator/` are owned by llm-wiki and are overwritten on
+    Existing top-level rule files are preserved outside incurator managed blocks.
+    Files under `.agents/curator/` are owned by incurator and are overwritten on
     sync so template changes propagate.
     """
     agent = _normalize_agent(agent)

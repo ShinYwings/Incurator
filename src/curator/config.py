@@ -1,4 +1,4 @@
-"""Path constants and config loading for an LLM-Wiki Curator project.
+"""Path constants and config loading for an incurator Curator project.
 
 The Curator (Compiler) is a background abstraction engine that:
   1. Monitors source dirs (02_Wiki, 03_Notes, 04_Resources) for changes

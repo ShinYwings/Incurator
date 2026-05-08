@@ -124,6 +124,10 @@ hatch build
 # Recreate the ignored development validation vault
 # Optional: --llm <provider> --model <model_name>
 wiki testbed init <scenario_name> --force
+WIKI_ROOT=testbed wiki status
+WIKI_ROOT=testbed wiki add
+WIKI_ROOT=testbed wiki sync
+WIKI_ROOT=testbed wiki lint
 ```
 
 **CLI entry point** (after install):
@@ -132,6 +136,7 @@ wiki init <path>        # Initialize a Curator vault
 wiki add <file>         # Parse source and generate L1-L3 layers
 wiki curate             # Stage L4 Exhibitions for workspace
 wiki sync               # Verify DAG integrity, rebuild index/ledger
+wiki lint               # Health check: broken links, orphans, contradictions
 wiki query "<question>" # Search and synthesize answer with citations
 wiki reindex            # Rebuild QMD search index
 wiki status             # Show config and stats

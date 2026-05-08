@@ -222,7 +222,7 @@ class ChatMessage:
 
 
 class OllamaClient:
-    """Minimal, synchronous Ollama client tuned for the LLM-Wiki use case."""
+    """Minimal, synchronous Ollama client tuned for the incurator use case."""
 
     def __init__(
         self,
@@ -602,7 +602,7 @@ class GeminiClient:
         except ImportError as e:
             raise GeminiError(
                 "google-generativeai is not installed.\n"
-                "Install it with: pip install 'llm-wiki[gemini]'\n"
+                "Install it with: pip install 'incurator[gemini]'\n"
                 "or: pip install google-generativeai"
             ) from e
 
@@ -1330,7 +1330,7 @@ class GeminiCliClient:
                 
                 if is_capacity_error and i < len(models_to_try) - 1:
                     next_model = models_to_try[i+1]
-                    print(f"llm-wiki: Gemini CLI capacity exhausted for '{current_model}', falling back to '{next_model}'...", file=sys.stderr)
+                    print(f"incurator: Gemini CLI capacity exhausted for '{current_model}', falling back to '{next_model}'...", file=sys.stderr)
                     continue
                     
                 if is_capacity_error:
@@ -1477,7 +1477,7 @@ class FailoverClient:
                     if self._active_idx > 0:
                         self._active_idx = 0
                 self._console.print(
-                    "[dim cyan]llm-wiki:[/dim cyan] primary provider back online — "
+                    "[dim cyan]incurator:[/dim cyan] primary provider back online — "
                     f"switched to {type(self.providers[0]).__name__}"
                 )
 
@@ -1490,7 +1490,7 @@ class FailoverClient:
                     self._active_idx = idx
                 if idx > 0:
                     self._console.print(
-                        f"[dim yellow]llm-wiki:[/dim yellow] primary unavailable — "
+                        f"[dim yellow]incurator:[/dim yellow] primary unavailable — "
                         f"using {type(provider).__name__} (provider {idx})"
                     )
                 return
@@ -1522,7 +1522,7 @@ class FailoverClient:
                     with self._lock:
                         self._active_idx = idx
                     self._console.print(
-                        f"[dim yellow]llm-wiki:[/dim yellow] failed over to "
+                        f"[dim yellow]incurator:[/dim yellow] failed over to "
                         f"{type(self.providers[idx]).__name__}"
                     )
                 return result
@@ -1556,7 +1556,7 @@ class FailoverClient:
                     with self._lock:
                         self._active_idx = idx
                     self._console.print(
-                        f"[dim yellow]llm-wiki:[/dim yellow] failed over to "
+                        f"[dim yellow]incurator:[/dim yellow] failed over to "
                         f"{type(provider).__name__}"
                     )
                 yield first

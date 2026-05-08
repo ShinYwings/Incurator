@@ -1,5 +1,5 @@
 ---
-description: LLM-Wiki workspace loop
+description: incurator workspace loop
 ---
 
 # Workspace Loop
@@ -9,7 +9,7 @@ Use this workflow when working inside `{{project_name}}`.
 ## 1. Load Scope
 
 - Read `curate.yml`.
-- Prefer llm-wiki MCP with `WORKSPACE_PATH={{workspace_path}}`.
+- Prefer incurator MCP with `WORKSPACE_PATH={{workspace_path}}`.
 - Start from Exhibitions, then backtrack only as needed.
 
 ## 2. Work With Evidence

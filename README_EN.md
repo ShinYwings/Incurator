@@ -28,25 +28,25 @@ The Artist lives in your **Workspace**. They express their taste and project req
 
 ## 🌟 Why This System?
 
-LLM Wikis broadly aim for a closed loop — ingest, process, retrieve, feed back. InCurator is an LLM Wiki too, but differentiates itself from others in two key ways.
+InCurators broadly aim for a closed loop — ingest, process, retrieve, feed back. InCurator is an InCurator too, but differentiates itself from others in two key ways.
 
 ### 1. Specification-Driven Exhibition
 
-Generic LLM wikis retrieve knowledge as-is. InCurator's Curator does more. When a human defines their project goals and knowledge requirements in `curate.yml`, the Curator selects and synthesizes only the relevant material from the knowledge graph, staging a **tailored Exhibition** for that specific context. Agents and humans consult this curated output directly — no raw data spelunking required — allowing focus to stay on generating insight. And when a single vault holds knowledge across many different domains, spec-driven selection ensures that only relevant concepts surface, preventing contamination between unrelated fields.
+Generic InCurators retrieve knowledge as-is. InCurator's Curator does more. When a human defines their project goals and knowledge requirements in `curate.yml`, the Curator selects and synthesizes only the relevant material from the knowledge graph, staging a **tailored Exhibition** for that specific context. Agents and humans consult this curated output directly — no raw data spelunking required — allowing focus to stay on generating insight. And when a single vault holds knowledge across many different domains, spec-driven selection ensures that only relevant concepts surface, preventing contamination between unrelated fields.
 
 ### 2. Prior Knowledge Correction
 
 When humans or agents spot an error in prior knowledge — or derive a new insight from an Exhibition — the feedback doesn't just get appended as a new note. The correction signal propagates backward through the knowledge graph, updating the affected Atoms and Concepts and restoring logical coherence across the entire graph. This mirrors deep-learning backpropagation: **the system grows more precise with use, and knowledge evolves rather than just accumulates.**
 
-### 2. Token Optimization (FinOps for AI)
+### 3. Token Optimization (FinOps for AI)
 Offload **compilation** (summarizing and atomizing knowledge) to non-reasoning models and reserve **creative synthesis** (requiring complex calculation or sophisticated reasoning) for reasoning models. This strategic role separation minimizes costs while maximizing insight.
 
-### 3. Dual-Track Structure for AI and Humans
+### 4. Dual-Track Structure for AI and Humans
 Knowledge is most effective when managed in different forms for machines and humans. InCurator achieves this by maintaining a dual-track directory structure.
 - **AI Space (`.curator/`)**: A machine-friendly backend designed for agents to instantly search and leverage knowledge.
 - **Human Space (`02_Wiki/`)**: A beautiful knowledge library designed for users to read, manage, and own long-term.
 
-### 4. Knowledge Concentration & Growth
+### 5. Knowledge Concentration & Growth
 Knowledge only truly **Increments** when it is gathered in a **single, cohesive space** rather than being fragmented across decentralized silos. InCurator ensures that all insights are funneled into a single source of truth, allowing for higher-level synthesis and the organic growth of your intellectual capital.
 
 ---

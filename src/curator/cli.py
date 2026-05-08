@@ -3914,11 +3914,12 @@ def _render_lint_report_terminal(report: lint_module.LintReport) -> None:
     _render_group("Info", report.infos, "cyan")
 
 
+@app.command("lint")
 def lint(
     deep: bool = typer.Option(
         False,
         "--deep",
-        help="Run LLM-powered contradiction detection (slower, requires Ollama).",
+        help="Run LLM-powered contradiction detection (slower, requires LLM).",
     ),
     fix: bool = typer.Option(
         False,
@@ -3939,7 +3940,7 @@ def lint(
     """Lint the wiki for broken links, orphans, missing pages, and more.
 
     Fast checks (default) run entirely in Python and finish in seconds.
-    Use --deep to also scan page pairs for contradictions using Qwen3.
+    Use --deep to also scan page pairs for contradictions (requires LLM).
     """
     paths = _resolve_root_or_die()
 
@@ -4624,7 +4625,7 @@ def mcp_connect_cmd(
     workspace: Path = typer.Option(
         ...,
         "--workspace",
-        help="Workspace directory to connect to llm-wiki MCP.",
+        help="Workspace directory to connect to incurator MCP.",
     ),
     force_curate: bool = typer.Option(
         False,
@@ -4744,7 +4745,7 @@ def mcp_install_cmd(
     console.print()
     _hint(
         "If your client merges with existing `mcpServers`, add only the "
-        "[bold]llm-wiki[/bold] entry."
+        "[bold]incurator[/bold] entry."
     )
     _hint("After pasting, restart the agent so it reloads MCP config.")
 

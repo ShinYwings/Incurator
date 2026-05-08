@@ -1,6 +1,6 @@
-## LLM-Wiki Workspace Rules
+## incurator Workspace Rules
 
-This workspace is connected to llm-wiki for `{{agent_runtime}}`.
+This workspace is connected to incurator for `{{agent_runtime}}`.
 
 Read and follow:
 

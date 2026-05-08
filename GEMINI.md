@@ -284,6 +284,10 @@ hatch build
 
 # Recreate the ignored development validation vault
 wiki testbed init <scenario_name> --force
+WIKI_ROOT=testbed wiki status
+WIKI_ROOT=testbed wiki add
+WIKI_ROOT=testbed wiki sync
+WIKI_ROOT=testbed wiki lint
 ```
 
 **CLI entry point** (after install):
@@ -292,9 +296,51 @@ wiki init <path>        # Initialize a Curator vault
 wiki add <file>         # Parse source and generate L1-L3 layers
 wiki curate             # Stage L4 Exhibitions for workspace
 wiki sync               # Verify DAG integrity, rebuild index/ledger
+wiki lint               # Health check: broken links, orphans, contradictions
 wiki query "<question>" # Search and synthesize answer with citations
 wiki reindex            # Rebuild QMD search index
 wiki status             # Show config and stats
 wiki config provider    # Switch LLM backend
 wiki sources list|show|rm  # Manage tracked source files
 ```
+
+## Architecture
+
+### Data Flow
+
+```
+[Source File]
+     │  wiki add
+     ▼
+[ingest_raw.py] — parse via parsers/* → register in db.sources (content-hash dedup)
+     │  LLM pass → generate L1-L3
+     ▼
+[01_Contexts/CTX-<UUID>.md]
+[02_Atoms/ATM-<UUID>.md]       ← atomic facts extracted by LLM
+[03_Concepts/CON-<UUID>.md]    ← cross-source thematic groupings
+     │
+     │  wiki curate (workspace scoped)
+     ▼
+[04_Exhibitions/EXH-<UUID>.md] ← terminal context packages for agents
+     │
+     ├─ wiki query (search.py / QMD + LLM rerank)
+     └─ HITL promotion → 02_Wiki/ (becomes new L1 input next cycle)
+```
+
+### Key Modules
+
+| Module | Role |
+|--------|------|
+| `cli.py` | Typer CLI; auto-selects LLM backend by available RAM (<16 GB → Gemini cloud, ≥16 GB → Ollama local) |
+| `db.py` | SQLite state (`state.sqlite`): source deduplication (SHA256 hash), ingest run history, source→page provenance |
+| `ingest_raw.py` | File discovery, hash-based dedup, parser dispatch, L1 Context generation |
+| `ingest_llm.py` | Three-phase DAG construction: Phase A (atoms), Phase B (concepts), Phase C (exhibitions) |
+| `sync.py` | DAG integrity verification; Mode A (global reverse L4→L1) and Mode B (targeted bidirectional) |
+| `search.py` | Wraps `src/qmd/bin/qmd` binary (BM25 + vector + LLM rerank); builds Obsidian-compatible index |
+| `query.py` | Retrieval + LLM synthesis with citation management |
+| `llm.py` | Multi-provider clients: `OllamaClient`, `GeminiClient`, `ClaudeClient`, `OpenAIClient`, `FailoverClient` |
+| `config.py` | Vault topology, `.curator/config.yml` loading, path resolution |
+| `page_writer.py` | Frontmatter parse/write, wikilink extraction, index and log file updates |
+| `parsers/` | Normalize PDF, HTML, plain-text, image → `ParsedDocument` |
+| `lint.py` | Detects contradictions, orphan nodes, broken wikilinks, malformed frontmatter |
+| `mcp_server.py` | MCP server interface (in progress) |
