@@ -915,11 +915,17 @@ def check_contradictions_deep(
     to keep the runtime bounded. Atoms are the right layer to check because
     L2 holds the irreducible factual claims; L3 Concepts and L4 Exhibitions
     derive from L2, so contradictions originate there.
+
+    When a new contradiction is found, both Atom files are updated with
+    `is_flagged_for_agent: true` so the flag persists across runs.
+    Pairs listed in `.curator/contradiction_dismissed.json` are skipped.
     """
     from .llm import ChatMessage, LLMError
     from .prompts import CONTRADICTION_DETECTION_PROMPT
+    from . import contradiction as _cd
 
     issues: list[LintIssue] = []
+    dismissed = _cd.load_dismissed(paths)
 
     # 1. Identify pairs of Atom pages that share outgoing wikilinks
     #    (e.g. both reference the same parent_source or related atom).
@@ -937,7 +943,7 @@ def check_contradictions_deep(
             # Optimization: only check pairs if at least one page was modified
             if limit_set and (a not in limit_set and b not in limit_set):
                 continue
-                
+
             overlap = len(page_link_sets[a] & page_link_sets[b])
             if overlap >= 1:
                 pairs.append((a, b, overlap))
@@ -946,8 +952,14 @@ def check_contradictions_deep(
     pairs.sort(key=lambda t: -t[2])
     pairs = pairs[:max_pairs]
 
-    # 2. For each pair, ask Qwen3 to find contradictions
+    # 2. For each pair, ask LLM to find contradictions (skip dismissed pairs)
     for rel_a, rel_b, _overlap in pairs:
+        atom_a_id = Path(rel_a).stem
+        atom_b_id = Path(rel_b).stem
+
+        if _cd.is_dismissed(dismissed, atom_a_id, atom_b_id):
+            continue
+
         page_a = inv.pages[rel_a]
         page_b = inv.pages[rel_b]
 
@@ -974,6 +986,15 @@ def check_contradictions_deep(
         if not response or response.upper().startswith("NONE"):
             continue
 
+        # Write-back: persist is_flagged_for_agent to both atom files
+        for atom_id in [atom_a_id, atom_b_id]:
+            atom_path = paths.atoms / f"{atom_id}.md"
+            if atom_path.exists():
+                atom_page = page_writer.read_page(atom_path)
+                if atom_page and not atom_page.frontmatter.get("is_flagged_for_agent"):
+                    atom_page.frontmatter["is_flagged_for_agent"] = True
+                    page_writer.write_page(atom_path, atom_page.to_markdown())
+
         issues.append(
             LintIssue(
                 check=CheckId.CONTRADICTION,
@@ -982,7 +1003,7 @@ def check_contradictions_deep(
                 message=f"Potential contradiction with {rel_b}",
                 suggestion=response[:500],
                 fixable=False,
-                context={"other_page": rel_b},
+                context={"other_page": rel_b, "reasoning": response},
             )
         )
 

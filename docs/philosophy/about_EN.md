@@ -19,7 +19,7 @@ Note-taking apps like **Obsidian** were built on this philosophy. Features like 
 
 - **The Process**: `Raw Data` ➡️ `Ingest (Summary -> Atoms -> Concepts -> Synthesis)` ➡️ `Wiki (Synthesis as new Raw)`
 
-The shared belief between Zettelkasten and LLM Wiki is that **"prior knowledge is developed through an extraction/synthesis process of 'Summarization ➡️ Atomization ➡️ Concept Creation ➡️ Synthesis of Concepts'."**
+The shared belief between Zettelkasten and LLM Wiki is that **"prior knowledge is developed through a summarization/refinement process of 'Summarization ➡️ Atomization ➡️ Concept Creation ➡️ Synthesis of Concepts'."**
 
 ---
 
@@ -39,9 +39,13 @@ Collaborating with commercial agents (GPT-4, Claude 3 Opus) for the entire pipel
 
 The process of decomposing and reassembling data (`Summary -> Atoms -> Concept`) requires very little high-level reasoning. It is an area where LLMs excel and human intervention can be minimized.
 
-**Therefore, we offload this stage to a light Local Model (e.g., Ollama/SLM) running on your own hardware.** This aligns with modern LLM Wiki approaches that use light embedding/search models (like QMD) to reduce search costs. We take it a step further by entrusting the "Structuring" of knowledge itself to the Local Model.
+**Therefore, we offload this stage to a light Local Model (e.g., Ollama/SLM) or a non-reasoning model.** This aligns with modern LLM Wiki approaches that use light embedding/search models (like QMD) to reduce search costs. We take it a step further by entrusting the "Structuring" of knowledge itself to the Local Model or a non-reasoning model.
 
-In the final **Synthesis** stage, **Humans** must intervene to discuss the results with the agent, iteratively refining the output to create truly new and valuable knowledge.
+In the final **Insight Derivation (Synthesis)** stage, **Humans** must intervene to discuss the results with the agent, iteratively refining the output to create truly new and valuable knowledge.
+
+**This role separation naturally leads to a dual-track physical directory structure tailored to the needs of each participant:**
+- **AI Space (`.curator/`)**: A machine-friendly backend designed for agents to instantly search and leverage knowledge. (Database for search and reasoning)
+- **Human Space (`02_Wiki/`)**: A beautiful knowledge library designed for users to read, manage, and own long-term. (Obsidian Wiki)
 
 ---
 
@@ -49,7 +53,7 @@ In the final **Synthesis** stage, **Humans** must intervene to discuss the resul
 
 To implement this collaboration, we borrowed the metaphor of **Art Curation**.
 
-### 🏛️ The Curator (Local Model-based Data Preprocessing)
+### 🏛️ The Curator (Local/Non-reasoning Model-based Data Refinement)
 The Curator focuses on refining and displaying data rather than deep reasoning:
 1.  **Collection & Selection**: Gathering Raw Data.
 2.  **Analysis & Contextualization**: Summarizing data and decomposing it into Atoms.
@@ -60,14 +64,14 @@ The Curator focuses on refining and displaying data rather than deep reasoning:
 The Artist draws a new painting inspired by the Exhibition:
 1.  **Workspace**: The painter's studio where projects or research happen.
 2.  **The Agent**: A high-reasoning agent resides in the workspace as a human assistant.
-3.  **Prior Knowledge Utilization**: The agent retrieves "Exhibits" pre-compiled by the Curator instead of searching heavy raw data.
-4.  **Synthesis**: Human and Agent collaborate to create a new "Painting" (Synthesis = New Raw Data).
+3.  **Prior Knowledge Utilization**: The agent retrieves "Exhibits" pre-refined by the Curator instead of searching heavy raw data.
+4.  **Insight Derivation (Synthesis)**: Human and Agent collaborate to create a new "Painting" (Synthesis = New Raw Data).
 
 ---
 
 ## 5. The Core of the System: Knowledge Compiler
 
-The Curator isn't just an organizer; it's a **Compiler** that produces data in a form the agent can understand most efficiently.
+The Curator isn't just an organizer; it's a **Refinement Engine** that produces data in a form the agent can understand most efficiently.
 
 1.  **Self-Healing Knowledge Compiler:**
     *   The system operates similarly to a deep learning model. `wiki add/curate` performs the **Forward Pass** to build the knowledge foundation and synthesize outputs.

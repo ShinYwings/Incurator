@@ -15,18 +15,23 @@ from .workspace.provisioner import prepare_workspace
 
 def get_scenarios_dir() -> Path:
     """Find the scripts/dev directory relative to the package."""
-    # Assuming the package is at src/curator/
-    # REPO_ROOT is 3 levels up from src/curator/testbed_manager.py
-    return Path(__file__).resolve().parents[3] / "scripts" / "dev"
+    # REPO_ROOT is 2 levels up from src/curator/testbed_manager.py
+    return Path(__file__).resolve().parents[2] / "scripts" / "dev"
 
 def list_scenarios() -> List[str]:
     """List available testbed scenarios in scripts/dev/."""
     dev_dir = get_scenarios_dir()
     if not dev_dir.exists():
         return []
-    return [d.name for d in dev_dir.iterdir() if d.is_dir() and (d / "create_testbed.py").exists()]
+    # A directory is a scenario if it contains a MASTER_PLAN.md
+    return [d.name for d in dev_dir.iterdir() if d.is_dir() and (d / "MASTER_PLAN.md").exists()]
 
-def init_testbed(scenario_name: str = "testbed_template", force: bool = False) -> Path:
+def init_testbed(
+    scenario_name: str = "testbed_template", 
+    force: bool = False,
+    llm_provider: Optional[str] = None,
+    llm_model: Optional[str] = None,
+) -> Path:
     """Initialize a testbed vault using a specific scenario."""
     dev_dir = get_scenarios_dir()
     scenario_dir = dev_dir / scenario_name
@@ -64,8 +69,17 @@ def init_testbed(scenario_name: str = "testbed_template", force: bool = False) -
         (paths.collections / layer).mkdir(parents=True, exist_ok=True)
 
     config = dict(cfg.DEFAULT_CONFIG)
-    config["llm"]["primary"] = "gemini-cli"
-    config["llm"]["gemini_flash_model"] = "gemini-3.1-flash-lite-preview"
+    # Use specified provider or default to gemini-cli for testbeds
+    config["llm"]["primary"] = llm_provider or "gemini-cli"
+    if llm_model:
+        if config["llm"]["primary"] == "ollama":
+            config["llm"]["model"] = llm_model
+        elif config["llm"]["primary"] == "gemini-cli":
+            config["llm"]["gemini_flash_model"] = llm_model
+    elif not llm_provider:
+        # Default model for the default gemini-cli provider
+        config["llm"]["gemini_flash_model"] = "gemini-3.1-flash-lite-preview"
+    
     cfg.save_config(paths, config)
 
     db.init_db(paths.state_db)

@@ -116,21 +116,20 @@ Recommended baseline:
 
 ```bash
 # Replace <scenario_name> with the folder name (e.g., testbed_template or GS_Testbed)
+# Optional: --llm <provider> --model <model_name>
 wiki testbed init <scenario_name> --force
 WIKI_ROOT=testbed wiki status
 WIKI_ROOT=testbed wiki add
 WIKI_ROOT=testbed wiki sync
 ```
 
-The generated `testbed/` vault is configured to use Gemini CLI as its primary
-LLM backend (`llm.primary: gemini-cli`). Before running LLM-sensitive testbed
-commands, make sure the `gemini` command is installed and authenticated.
+The generated `testbed/` vault is configured to use a primary LLM backend (default: `gemini-cli`). Before running LLM-sensitive testbed commands, make sure the configured primary LLM tool is installed and authenticated.
 
 When qmd and the configured LLM backend are available, also run:
 
 ```bash
 WIKI_ROOT=testbed wiki reindex
-WIKI_ROOT=testbed wiki query "지식의 원자화와 합성이란 무엇인가?"
+WIKI_ROOT=testbed wiki query "Summarize the core concepts in this vault."
 ```
 
 ## Architecture Source Of Truth
@@ -172,7 +171,7 @@ roles and then integrate the result in one coherent patch:
   distinguishable from the paper/resource topic.
 - `cli_regression_runner`: checks `wiki init/status/add/curate/lint/reindex/query`
   smoke behavior in the testbed.
-- `deepseek_8b_simulator`: when local `deepseek-r1:8b` validation is too slow,
+- `local_slm_simulator`: when the primary cloud LLM validation is too slow or unavailable,
   quickly simulates the expected small-model judgment using the seeded testbed
   Collections and source files. It must stay conservative and mark uncertain
   claims as "needs real LLM validation".
@@ -181,10 +180,10 @@ roles and then integrate the result in one coherent patch:
 Codex orchestrates these roles: gather their findings, avoid conflicting edits,
 and report a concise verification result.
 
-## Simulated Gemini CLI Fallback
+## Simulated LLM Fallback
 
-Use the real Gemini CLI path first for LLM-sensitive changes. If it is too slow
-or blocked, run the `deepseek_8b_simulator` role as a fast approximation:
+Use the primary LLM backend first for LLM-sensitive changes. If it is too slow
+or blocked, run the `local_slm_simulator` role as a fast approximation:
 
 - Compare the seeded L1-L4 testbed pages against the raw scenario files.
 - Verify that paper/resource claims merge above L1 and that the RAG page remains

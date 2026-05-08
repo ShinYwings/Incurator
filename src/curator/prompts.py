@@ -56,7 +56,7 @@ Generate a highly detailed and comprehensive machine-readable summary of the sou
 Return ONLY a valid JSON object with this exact schema:
 {
   "title": "Precise, specific document title (max 100 chars)",
-  "domain": "Primary knowledge domain (e.g. 'computer-vision', 'mathematics', 'nlp')",
+  "domain": "Primary knowledge domain (e.g. 'history', 'machine-learning', 'cooking', 'philosophy')",
   "summary": "An EXTREMELY GRANULAR, highly detailed, section-by-section summary. Do not compress or skip details; extract meaning almost paragraph-by-paragraph. Thoroughly explain all core arguments, background context, mathematical formulations, and technical implications. CRITICAL: Preserve all mathematical equations and formulas precisely using LaTeX format ($ or $$).",
   "key_claims": [
     "Claim 1 — precise, falsifiable factual statement",
@@ -66,7 +66,7 @@ Return ONLY a valid JSON object with this exact schema:
   "atom_candidates": [
     {
       "name": "Canonical concept/entity name",
-      "type": "fact | equation | theoretical_constraint | entity | technique",
+      "type": "fact | claim | entity | procedure | relationship",
       "one_liner": "Single-sentence definition or description"
     }
   ],
@@ -283,10 +283,10 @@ Return ONLY a valid JSON object:
 }
 
 Rules:
-- A Concept groups Atoms that share the SAME concrete mechanism, equation family, method, or directly interacting claim.
-- Boundary preservation is more important than density. Do NOT merge Atoms only because they share abstract words like "optimization", "representation", "retrieval", "projection", "information", or "geometry".
+- A Concept groups Atoms that share the SAME underlying principle, pattern, method, or directly interacting claim.
+- Boundary preservation is more important than density. Do NOT merge Atoms only because they share abstract vocabulary.
 - Cross-source merging is encouraged only when different sources describe the same underlying logic with different terminology.
-- Keep unrelated domains separate. For example, Retrieval-Augmented Generation/BM25/DPR Atoms must not be clustered with Gaussian splatting/rendering Atoms unless a source explicitly defines that bridge.
+- Keep unrelated domains separate. Do not cluster Atoms from distinct fields unless a source explicitly defines that bridge.
 - Prefer compact clusters of 2-8 tightly related Atoms. Larger clusters are allowed only when every Atom directly participates in the same mechanism.
 - Do NOT create singleton concepts unless an Atom truly has no related partner; a precise singleton is better than a false merge.
 - Return ONLY the JSON. No prose, no fences.
@@ -340,12 +340,12 @@ Write the complete markdown page:
 2. H1: concept name
 
 3. Body:
-   ## 1. Core Architecture
+   ## 1. Core Idea
    What does this concept represent as a unified whole?
-   ## 2. Interaction of Atoms
-   How do the constituent Atoms mathematically or logically weave together to form this concept? Cite each atom using exactly [[02_Atoms/ATM-xxx]] with its real ID from the list above. NEVER write double brackets [[[[02_Atoms/ATM-xxx]]]].
-   ## 3. Mathematical Framework
-   Detail the foundational equations and formulations supporting this concept. **CRITICAL: You MUST use LaTeX format ($ or $$) for ALL mathematical equations, formal definitions, and symbols.
+   ## 2. How the Atoms Connect
+   How do the constituent Atoms logically or thematically connect to form this concept? Cite each atom using exactly [[02_Atoms/ATM-xxx]] with its real ID from the list above. NEVER write double brackets [[[[02_Atoms/ATM-xxx]]]].
+   ## 3. Key Patterns
+   Key recurring patterns, principles, or mechanisms. Use LaTeX ($ or $$) for equations where applicable.
    ## 4. Open Questions
    Unresolved tensions or contradictions within this concept (if any).
    ## Relations
@@ -365,6 +365,7 @@ def build_theme_page_messages(
     fragment_ids: list[str],
     fragments_content: str,
     today: str,
+    workspace_context: str = "",
 ) -> list[ChatMessage]:
     """Pass 2 — draft a single L3 Concept page."""
     user_content = THEME_PAGE_TEMPLATE.format(
@@ -374,6 +375,8 @@ def build_theme_page_messages(
         fragments_content=fragments_content,
         today=today,
     )
+    if workspace_context:
+        user_content = f"## Workspace Context\n{workspace_context}\n\n{user_content}"
     return [
         ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
         ChatMessage(role="user", content=user_content),
@@ -389,6 +392,7 @@ Write a single Exhibition page for the `.curator/Collections/04_Exhibitions/` la
 
 Exhibition ID (pre-assigned): {curation_id}
 Topic: {topic}
+Domain: {domain}
 Today (ISO 8601): {today}
 
 Core concepts involved:
@@ -399,6 +403,7 @@ Write the complete markdown page:
    ---
    id: {curation_id}
    type: exhibition
+   domain: {domain}
    core_concepts: [{theme_ids_yaml}]
    confidence_score: {confidence}
    last_updated: {today}
@@ -408,10 +413,12 @@ Write the complete markdown page:
 
 3. Body (use bold-bullet format — NOT ## section headers):
    - **1. Executive Brief**: What is the terminal conclusion or actionable context that emerges from combining these concepts?
-   - **2. Theoretical Foundation**: Trace the logical and mathematical path from Atoms → Concepts → this Exhibition. Cite concepts with [[03_Concepts/CON-xxx]] using real IDs from the list above. **CRITICAL: You MUST use LaTeX format ($ or $$) for ALL mathematical derivations, formulas, and symbols.**
+   - **2. Background & Evidence**: Trace the reasoning path from Atoms → Concepts → this Exhibition. Cite concepts with [[03_Concepts/CON-xxx]] using real IDs from the list above. **CRITICAL: You MUST use LaTeX format ($ or $$) for ALL mathematical derivations, formulas, and symbols.**
    - **3. Actionable Directives for Agent**: Explicit instructions and hypotheses for the AI Agent (Artist). What specific code, pipeline, or research task should the Agent execute next based on this exhibition? Confidence score: {confidence}. Flagged atoms that require human review: {flagged_fragments}
+   - **4. Key Facts**: Bullet list of the most critical atomic facts extracted from the cited Atoms (max 5 items). Each fact should be a single dense sentence.
+   - **5. Open Questions**: Knowledge gaps, unresolved contradictions, or claims flagged for human verification.
 
-FRONTMATTER RULE: `core_concepts` entries must be plain strings like '03_Concepts/CON-xxxx' (no [[ ]] wrappers).
+FRONTMATTER RULE: `core_concepts` entries must be plain strings like '03_Concepts/CON-xxxx' (no [[ ]] wrappers). Include `domain` only if non-empty.
 WIKILINK RULE: In BODY only, write every wikilink with EXACTLY ONE pair of brackets [[path/id]]. NEVER nest brackets like [[[[path/id]]]]. Only use IDs that were explicitly provided above.
 
 Return ONLY the markdown. No preamble, no code fences.
@@ -425,7 +432,9 @@ def build_curation_page_messages(
     themes_content: str,
     confidence: float,
     today: str,
+    domain: str = "",
     flagged_fragment_ids: list[str] | None = None,
+    agent_context: str = "",
 ) -> list[ChatMessage]:
     """Pass 3 — draft a single L4 Exhibition page."""
     theme_ids_yaml = ", ".join(f"'03_Concepts/{t}'" for t in theme_ids)
@@ -436,12 +445,15 @@ def build_curation_page_messages(
     user_content = CURATION_PAGE_TEMPLATE.format(
         curation_id=curation_id,
         topic=topic,
+        domain=domain or "general",
         theme_ids_yaml=theme_ids_yaml,
         themes_content=themes_content,
         confidence=f"{confidence:.2f}",
         today=today,
         flagged_fragments=flagged_fragments,
     )
+    if agent_context:
+        user_content = f"## Agent Context\n{agent_context}\n\n{user_content}"
     return [
         ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
         ChatMessage(role="user", content=user_content),
@@ -462,6 +474,7 @@ Return ONLY a valid JSON object:
       "topic": "Exhibition topic name",
       "concept_ids": ["CON-xxxx", "CON-yyyy"],
       "confidence": 0.85,
+      "domain": "knowledge-domain-slug",
       "rationale": "1 sentence explaining what emergent insight this exhibition captures"
     }
   ]
@@ -470,6 +483,7 @@ Return ONLY a valid JSON object:
 Rules:
 - Only propose an exhibition if 2+ concepts share a non-trivial logical connection.
 - confidence: 0.90+ = direct retrieval quality; 0.60-0.90 = needs backtracking; <0.60 = HITL required.
+- domain: a short slug derived from the concepts' shared domain (e.g. "cooking-techniques", "machine-learning").
 - Propose 1–5 exhibition plans.
 - Return ONLY the JSON. No prose, no fences.
 """
@@ -477,19 +491,85 @@ Rules:
 
 def build_curation_planning_messages(
     concept_summaries: list[dict],
+    high_threshold: float = 0.90,
+    low_threshold: float = 0.60,
 ) -> list[ChatMessage]:
     """Decide which concept clusters merit L4 exhibition.
 
     Args:
         concept_summaries: List of dicts with keys: id, name, domain, atom_count
+        high_threshold: Confidence floor for direct retrieval quality.
+        low_threshold: Confidence floor below which HITL is required.
     """
+    instructions = CURATION_PLANNING_INSTRUCTIONS.replace(
+        "0.90+", f"{high_threshold:.2f}+"
+    ).replace(
+        "0.60-0.90", f"{low_threshold:.2f}-{high_threshold:.2f}"
+    ).replace(
+        "<0.60", f"<{low_threshold:.2f}"
+    )
     concepts_text = "\n".join(
         f"- {c['id']}: [{c['domain']}] {c['name']} ({c['atom_count']} atoms)"
         for c in concept_summaries
     )
     user_content = (
-        f"{CURATION_PLANNING_INSTRUCTIONS}\n\n"
+        f"{instructions}\n\n"
         f"---CONCEPTS---\n{concepts_text}\n"
+    )
+    return [
+        ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
+        ChatMessage(role="user", content=user_content),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Exhibition refinement  (used by `wiki curate --workspace` re-run)
+# ---------------------------------------------------------------------------
+
+EXHIBITION_REFINEMENT_TEMPLATE = """\
+Refine an existing L4 Exhibition based on accumulated session questions.
+
+Exhibition ID: {exh_id}
+Today (ISO 8601): {today}
+
+---EXISTING EXHIBITION---
+{existing_body}
+
+---ACCUMULATED FOLLOW-UP QUESTIONS (integrate and discard)---
+{followup_questions}
+
+---SUPPORTING CONCEPTS---
+{concepts_content}
+
+Rewrite the Exhibition body. Preserve ALL existing sections but update:
+- **1. Executive Brief**: Update based on what the Follow-up questions revealed about the agent's real concerns.
+- **3. Actionable Directives for Agent**: Revise to reflect the agent's current task context.
+- **4. Key Facts**: Add any new facts surfaced by the Follow-up questions.
+- **5. Open Questions**: Update with remaining gaps revealed by the conversation.
+
+IMPORTANT:
+- Keep the YAML frontmatter EXACTLY as provided above — do NOT regenerate or modify it.
+- Remove ALL "## Follow-up:" sections — their insights must be integrated into the body sections instead.
+- Keep the bold-bullet body format. No ## headers in body.
+- Return ONLY the full markdown (frontmatter + body). No preamble, no code fences.
+"""
+
+
+def build_exhibition_refinement_messages(
+    exh_id: str,
+    today: str,
+    existing_content: str,
+    followup_questions: list[str],
+    concepts_content: str,
+) -> list[ChatMessage]:
+    """Build refinement prompt for an existing Exhibition with accumulated Follow-ups."""
+    followup_block = "\n".join(f"- {q}" for q in followup_questions) if followup_questions else "(none)"
+    user_content = EXHIBITION_REFINEMENT_TEMPLATE.format(
+        exh_id=exh_id,
+        today=today,
+        existing_body=existing_content,
+        followup_questions=followup_block,
+        concepts_content=concepts_content or "(no supporting concepts available)",
     )
     return [
         ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
@@ -514,15 +594,14 @@ You are a deductive logic auditor for a knowledge DAG.
 Determine whether the Concept's synthesis is logically derivable from the given Atoms.
 - Evaluate these fixed checks:
   1) Claim coverage: every major claim maps to at least one Atom.
-  2) Math fidelity: equations/symbols are supported by Atom content.
+  2) Precision fidelity: specific claims, formulas, or technical definitions are supported by Atom content.
   3) Scope discipline: no external facts absent from all Atoms.
   4) Relation fidelity: referenced ATM IDs are real and in-scope.
   5) Contradiction check: no claim conflicts with supplied Atoms.
-- Do not mark invalid merely because standard notation such as norms, summation
-  indices, transmittance, alpha weights, or query/document variables are not
-  re-defined, as long as the related equation or claim is present in an Atom.
+- Do not mark invalid merely because domain-standard notation or terminology is not
+  re-defined, as long as the related claim or principle is present in an Atom.
 - Treat concise restatement, grouping, and naming as valid when the Concept does
-  not add a new unsupported mechanism, empirical result, or cross-domain bridge.
+  not add a new unsupported claim, empirical result, or cross-domain bridge.
 
 Respond ONLY with a JSON object — no prose, no markdown fences:
 {{"valid": true}}
@@ -543,7 +622,7 @@ You are a deductive logic auditor for a knowledge DAG.
 Determine whether the Exhibition's synthesis is logically derivable from the given Concepts.
 - Evaluate these fixed checks:
   1) Executive brief grounding in supplied Concepts.
-  2) Theoretical chain correctness (L2→L3→L4 narrative).
+  2) Reasoning chain correctness (L2→L3→L4 narrative).
   3) Directive validity (actions are justified by Concept evidence).
   4) Scope discipline: no external facts absent from all Concepts.
   5) Concept citation fidelity: referenced CON IDs are real and in-scope.
@@ -559,12 +638,15 @@ or
 def build_theme_logic_verify_messages(
     theme_content: str,
     fragments_content: str,
+    domain_context: str = "",
 ) -> list[ChatMessage]:
     """Logical deduction check: can CON be derived from its ATMs?"""
     user_content = THEME_LOGIC_VERIFY_PROMPT.format(
         theme_content=theme_content,
         fragments_content=fragments_content,
     )
+    if domain_context:
+        user_content = f"## Domain Context\n{domain_context}\n\n{user_content}"
     return [
         ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
         ChatMessage(role="user", content=user_content),
@@ -575,6 +657,7 @@ def build_curation_logic_verify_messages(
     curation_content: str,
     themes_content: str,
     concept_verification_summary: list[dict] | None = None,
+    domain_context: str = "",
 ) -> list[ChatMessage]:
     """Logical deduction check: can EXH be derived from its CONs?
 
@@ -594,6 +677,8 @@ def build_curation_logic_verify_messages(
         themes_content=themes_content,
         concept_verification_context=concept_verification_context,
     )
+    if domain_context:
+        user_content = f"## Domain Context\n{domain_context}\n\n{user_content}"
     return [
         ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
         ChatMessage(role="user", content=user_content),
@@ -696,6 +781,57 @@ def build_atom_update_from_concept_messages(
 # Contradiction detection (used by `wiki lint --deep`)
 # ---------------------------------------------------------------------------
 
+CONTRADICTION_RESOLUTION_PROMPT = """\
+You are resolving a factual conflict between two L2 Atom pages.
+
+Atom A ({path_a}):
+---
+{content_a}
+---
+
+Atom B ({path_b}):
+---
+{content_b}
+---
+
+Identified conflict:
+{conflict_reasoning}
+
+Propose minimal body edits to make both Atoms factually consistent.
+Preserve the existing structure (sections, wikilinks) as much as possible.
+
+Return ONLY a valid JSON object:
+{{
+  "reasoning": "One or two sentences explaining how the conflict is resolved",
+  "atom_a_body_revised": "<revised body for Atom A — sections only, no frontmatter>",
+  "atom_b_body_revised": "<revised body for Atom B — sections only, no frontmatter>"
+}}
+
+Return ONLY the JSON. No prose, no code fences.
+"""
+
+
+def build_contradiction_resolution_messages(
+    path_a: str,
+    content_a: str,
+    path_b: str,
+    content_b: str,
+    conflict_reasoning: str,
+) -> list[ChatMessage]:
+    """Build messages for LLM-powered contradiction resolution."""
+    user_content = CONTRADICTION_RESOLUTION_PROMPT.format(
+        path_a=path_a,
+        content_a=content_a[:3000],
+        path_b=path_b,
+        content_b=content_b[:3000],
+        conflict_reasoning=conflict_reasoning[:500],
+    )
+    return [
+        ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
+        ChatMessage(role="user", content=user_content),
+    ]
+
+
 CONTRADICTION_DETECTION_PROMPT = """\
 You are the Curator reviewing two Atom or Concept pages for contradictions.
 
@@ -749,6 +885,55 @@ Reply with ONLY one of:
 
 No explanation. No preamble. One line only.
 """
+
+
+# ---------------------------------------------------------------------------
+# Persona interview — multi-turn LLM conversation for persona setup
+# ---------------------------------------------------------------------------
+
+PERSONA_INTERVIEW_SYSTEM = """\
+You are a thoughtful knowledge-base consultant interviewing a user to configure their personal knowledge vault.
+
+Your goal: extract enough information to produce a structured persona JSON. Ask focused follow-up questions when the user's answer is vague. When you have enough information, propose the JSON and ask for confirmation.
+
+Rules:
+- Ask one or two questions at a time — do not overwhelm.
+- If the user says something vague (e.g. "tech stuff"), probe: "Are you focusing more on software engineering, mathematics, data science, or something else?"
+- When ready, respond with ONLY a JSON object with the key "done": true and the persona fields. No prose.
+- If the user says "skip" at any point, respond immediately with {"done": true, "persona": null} and nothing else.
+"""
+
+PERSONA_INTERVIEW_CURATOR_OPENER = """\
+I'll ask a few short questions to configure the Curator persona for this vault.
+This helps the Curator tailor how it organizes and verifies knowledge across all sources.
+
+What kinds of knowledge do you plan to collect in this vault?
+(e.g. academic research, technical notes, business insights, creative writing, recipes…)
+"""
+
+PERSONA_INTERVIEW_ARTIST_OPENER = """\
+I'll ask a few short questions to configure the Artist persona for "{project}".
+This shapes how concepts and exhibitions are generated for this workspace.
+
+What is the main domain or topic of this workspace?
+(e.g. 3D rendering, machine learning, cooking techniques, historical analysis…)
+"""
+
+
+def build_persona_interview_messages(
+    history: list[dict],
+    is_workspace: bool = False,
+    project: str = "",
+) -> list[ChatMessage]:
+    """Build message list for a persona interview turn.
+
+    history: list of {"role": "user"|"assistant", "content": "..."} dicts.
+    The history should include the opener as the first assistant message.
+    """
+    messages = [ChatMessage(role="system", content=PERSONA_INTERVIEW_SYSTEM)]
+    for turn in history:
+        messages.append(ChatMessage(role=turn["role"], content=turn["content"]))
+    return messages
 
 
 def build_lint_relink_messages(

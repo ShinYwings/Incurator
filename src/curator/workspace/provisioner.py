@@ -27,7 +27,7 @@ class CurateTemplateData:
     domains: list[str] = field(default_factory=list)
     topics: list[str] = field(default_factory=list)
     min_confidence: float = 0.60
-    scope: str = "all"
+    include_patterns: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -76,6 +76,57 @@ def prepare_workspace(
         _install_rule_templates(wiki_root, workspace, agent, result, template_root)
 
     return result
+
+
+_CLIENT_INFO_MAP = {
+    "claude": "claude-code",
+    "gemini": "gemini-cli",
+    "codex": "codex",
+}
+
+
+def detect_agent_from_client_info(client_name: str) -> str:
+    """Map an MCP clientInfo.name string to an InCurator agent runtime slug.
+
+    Falls back to 'codex' for unrecognised clients.
+    """
+    name_lower = (client_name or "").lower()
+    for key, agent in _CLIENT_INFO_MAP.items():
+        if key in name_lower:
+            return agent
+    return "codex"
+
+
+def merge_mcp_settings(settings_path: Path, *, wiki_root: Path, workspace: Path) -> None:
+    """Merge WIKI_ROOT and WORKSPACE_PATH into a Claude Code settings.json.
+
+    Creates the file and parent dirs if needed. Existing unrelated fields
+    are preserved; only `mcpServers.incurator.env` is touched.
+    """
+    import json
+
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if settings_path.exists():
+        try:
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            data = {}
+    else:
+        data = {}
+
+    mcp_servers = data.setdefault("mcpServers", {})
+    incurator = mcp_servers.setdefault("incurator", {})
+    incurator.setdefault("command", "wiki")
+    incurator.setdefault("args", ["mcp"])
+    env = incurator.setdefault("env", {})
+    env["WIKI_ROOT"] = str(wiki_root.expanduser().resolve())
+    env["WORKSPACE_PATH"] = str(workspace.expanduser().resolve())
+
+    settings_path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
 
 
 def render_mcp_snippet(*, wiki_root: Path, workspace: Path) -> str:
@@ -154,7 +205,8 @@ def _ensure_curate_yml(
     content = _replace_yaml_list(content, "domains", data.domains)
     content = _replace_yaml_list(content, "topics", data.topics)
     content = re.sub(r"min_confidence: .+", f"min_confidence: {data.min_confidence:.2f}", content)
-    content = re.sub(r'scope: ".+"', f'scope: "{data.scope}"', content)
+    if data.include_patterns:
+        content = _replace_sources_include(content, data.include_patterns)
 
     _write_file(curate_path, content, result)
 
@@ -166,6 +218,14 @@ def _replace_yaml_list(content: str, key: str, values: list[str]) -> str:
     lines.extend(f'  - "{_escape_yaml_string(v)}"' for v in values)
     rendered = "\n".join(lines)
     return re.sub(rf"{key}: \[\]", rendered, content)
+
+
+def _replace_sources_include(content: str, patterns: list[str]) -> str:
+    """Replace 'include: []' inside the sources block with actual patterns."""
+    lines = ["include:"]
+    lines.extend(f'    - "{_escape_yaml_string(p)}"' for p in patterns)
+    rendered = "\n".join(lines)
+    return re.sub(r"include: \[\]", rendered, content, count=1)
 
 
 def _escape_yaml_string(value: str) -> str:

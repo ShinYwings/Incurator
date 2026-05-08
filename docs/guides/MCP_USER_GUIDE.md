@@ -1,7 +1,7 @@
 # 🔌 MCP 사용법 가이드: 에이전트 연결하기
 
 
-**InCurator MCP 서버**를 사용하면 Claude Desktop, Claude Code, Gemini CLI 등 워크스페이스 내의 에이전트가 지식 DAG 및 검색 인덱스와 직접 상호작용할 수 있습니다.
+**InCurator MCP 서버**는 아티스트(인간 + 에이전트)가 큐레이터와 직접 상호작용하는 인터페이스입니다. Claude Desktop, Claude Code, Gemini CLI 등 워크스페이스 내의 에이전트는 이 MCP 서버를 통해 큐레이터가 준비한 전시물(Exhibition)을 탐색하고, 대화 중 발견한 오류나 새로운 인사이트를 사전 지식에 즉시 반영할 수 있습니다. 이를 통해 아티스트의 피드백이 지식 그래프로 전파되어 사전 지식이 교정되는 순환 구조가 완성됩니다.
 
 [English Guide](MCP_USER_GUIDE_EN.md)
 
@@ -81,3 +81,17 @@ wiki mcp install
 
 #### `curator_reindex`
 - **역할**: QMD 검색 인덱스를 수동으로 다시 빌드합니다.
+
+### 3.4 페르소나 관리
+
+#### `curator_update_artist_persona`
+
+- **역할**: 워크스페이스의 `curate.yml` 내 Artist `persona:` 블록을 자연어 요청으로 업데이트합니다.
+- **파라미터**: `workspace_path` (워크스페이스 절대 경로), `request` (자연어 요청 문자열).
+- **예시 요청**: `"이 워크스페이스는 컴퓨터 비전 연구자를 위한 공간입니다. 신뢰도 임계값을 0.85로 설정하고 exhibition_intent를 researcher로 지정해주세요."`
+
+#### `curator_update_curator_persona`
+
+- **역할**: `.curator/config.yml` 내 Curator `persona:` 블록을 자연어 요청으로 업데이트합니다.
+- **파라미터**: `request` (자연어 요청 문자열).
+- **예시 요청**: `"나는 STEM 분야의 연구자로, 주로 머신러닝과 시스템 설계를 다룹니다. 지식의 엄밀성을 중시하며 고신뢰도(0.85 이상) 정보만 활용합니다."`

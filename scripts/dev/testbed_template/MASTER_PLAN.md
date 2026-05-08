@@ -7,7 +7,7 @@ This testbed simulates a clean knowledge integration environment. It is used to 
 
 ## Setup
 Run the following command to initialize the testbed:
-`python scripts/dev/testbed_template/create_testbed.py --force`
+`wiki testbed init testbed_template --force`
 
 ## Asset Roles
 - `stage/`: The source corpus and workspace files.

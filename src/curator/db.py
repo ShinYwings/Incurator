@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS atoms (
     name                    TEXT NOT NULL DEFAULT '', -- canonical concept name
     parent_source           TEXT NOT NULL,           -- 01_Contexts/CTX-UUID8 (plain string)
     source_path             TEXT NOT NULL DEFAULT '', -- relative/path/to/source.md
-    claim_type              TEXT NOT NULL,           -- fact|equation|theoretical_constraint
+    claim_type              TEXT NOT NULL,           -- fact|claim|entity|procedure|relationship
     one_liner               TEXT NOT NULL DEFAULT '', -- single-sentence description
     contradicts             TEXT,                    -- JSON array of ATM-UUIDs
     is_verified_by_human    INTEGER DEFAULT 0,       -- boolean 0|1
@@ -138,7 +138,6 @@ CREATE TABLE IF NOT EXISTS synthesis (
     topic                   TEXT NOT NULL DEFAULT '', -- exhibition topic name
     core_concepts           TEXT NOT NULL DEFAULT '', -- JSON array of CON-UUIDs
     confidence_score        REAL NOT NULL,           -- 0.00–1.00
-    requires_math_rigor     INTEGER DEFAULT 0,       -- boolean 0|1
     last_updated            TEXT NOT NULL            -- ISO timestamp
 );
 

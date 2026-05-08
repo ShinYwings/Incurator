@@ -136,16 +136,28 @@ workspace: "Workspace Project Name"
 workspace_path: "/absolute/path/to/01_Workspaces/Project"
 curate_spec_hash: "12-char-hash"
 
-# Present on query-session Exhibitions created by `wiki query --save-as`.
+# Present on persistent query Exhibitions created by `wiki query --save-as`.
 query_session: QRY-[UUID8]
 ephemeral: false
 question: "original user query"
+
+# Present on session Exhibitions created by `wiki query --curate` (ephemeral, per-session).
+query_session: QRY-[UUID8]
+ephemeral: true
+question: "initial user query"
 ```
+
+Session Exhibitions (`ephemeral: true`) use the same bold-bullet body format for the initial answer.
+Each follow-up turn appends a `## Follow-up: <question>` section after the initial body.
+The `## Follow-up` header (not bold-bullet) is intentional — it marks agent-appended turns vs. the
+LLM-synthesized initial body.
 
 Rules:
 - `core_concepts` MUST be non-empty for saved L4 pages.
 - `core_concepts` entries are plain strings like `03_Concepts/CON-UUID8`, not wikilink wrappers.
 - Query save-back MUST resolve cited Atoms/Contexts to related Concepts before writing an Exhibition.
+- Ephemeral Exhibitions (`ephemeral: true`) are exempt from the non-empty `core_concepts` rule if no
+  L3 Concepts were reachable; the field is merged in as follow-ups accumulate.
 
 ### 3.5 curate.yml — Knowledge Requirement Specification
 
@@ -209,10 +221,10 @@ Action: For each new file:
 
 Trigger: L3 Concepts exist and a workspace curate.yml scopes the task.
 Action:
-  Pass 4 (Exhibitions): Bundle L3 Concepts into L4 Exhibitions for Agent consumption.
+  Staging (L4 Exhibitions): Bundle L3 Concepts into L4 Exhibitions for Agent consumption.
   Run `wiki sync` by default unless explicitly skipped.
 
-If `--workspace PATH` is given, `curate.yml` is read to boost relevance scoring for declared `domains` and `topics` during Pass 3.
+If `--workspace PATH` is given, `curate.yml` is read to boost relevance scoring for declared `domains` and `topics`.
 
 `wiki curate` is workspace-scoped. With the same workspace and same `curate.yml` hash, it updates the existing workspace Exhibition instead of treating each run as unrelated. If the spec changes, a new revision may be staged while older Exhibitions remain preserved unless explicitly deleted.
 
@@ -406,6 +418,53 @@ search_curator(query, scope, mode, limit, min_score)
   Applies domain/topic boost and min_confidence filter from curate.yml automatically.
 
 [All other tools unchanged]
+
+---
+
+## 13. Persona Schema
+
+### 13.1 Curator Persona (`config.yml` — `persona:` key)
+
+```yaml
+persona:
+  area: "STEM"                          # STEM | Humanities | Arts | Business | Personal
+  text: |                               # Free-text vault description for LLM context injection
+    Scientific and technical research vault.
+  knowledge_artifacts:                  # Primary artifact types this vault contains
+    - research papers
+    - equations
+  verification_philosophy: "..."        # How strictly to verify claims
+  exhibition_intent: "knowledge-worker" # Fixed at global level
+  confidence:
+    high_threshold: 0.85                # Confidence floor for high-confidence Exhibitions
+    low_threshold: 0.55                 # Confidence floor for low-confidence Exhibitions
+  disambiguation_keywords:              # Domain-specific terms used in concept disambiguation
+    - Architecture
+    - Optimization
+  updated_at: ""                        # ISO 8601; empty if never set
+```
+
+If `persona:` is absent from `config.yml`, the DEFAULT STEM persona from the codebase applies.
+
+### 13.2 Artist Persona (`curate.yml` — `persona:` key)
+
+```yaml
+persona:
+  domain: "computer-vision"             # Primary domain slug
+  subdomain: "3d-gaussian-splatting"    # More specific focus area (optional)
+  text: |                               # Free-text for LLM injection into concept/exhibition prompts
+    Real-time 3D rendering research for production implementation.
+  exhibition_intent: "engineer"         # researcher | engineer | learner
+  disambiguation_keywords:              # Workspace-level terms for L3 concept disambiguation
+    - Rendering
+    - Optimization
+  confidence:
+    high_threshold: 0.85                # Overrides global threshold for this workspace
+    low_threshold: 0.55
+  updated_at: ""
+```
+
+If `persona:` is absent from `curate.yml`, the Curator persona applies for this workspace.
 
 ---
 This file defines the operational contract for InCurator v0.1.0.

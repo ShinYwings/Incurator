@@ -120,21 +120,20 @@ Recommended baseline:
 
 ```bash
 # Replace <scenario_name> with the folder name (e.g., testbed_template or GS_Testbed)
+# Optional: --llm <provider> --model <model_name>
 wiki testbed init <scenario_name> --force
 WIKI_ROOT=testbed wiki status
 WIKI_ROOT=testbed wiki add
 WIKI_ROOT=testbed wiki sync
 ```
 
-The generated `testbed/` vault is configured to use Gemini CLI as its primary
-LLM backend (`llm.primary: gemini-cli`). Before running LLM-sensitive testbed
-commands, make sure the `gemini` command is installed and authenticated.
+The generated `testbed/` vault is configured to use a primary LLM backend (default: `gemini-cli`). Before running LLM-sensitive testbed commands, make sure the configured primary LLM tool is installed and authenticated.
 
 When qmd and the configured LLM backend are available, also run:
 
 ```bash
 WIKI_ROOT=testbed wiki reindex
-WIKI_ROOT=testbed wiki query "지식의 원자화와 합성이란 무엇인가?"
+WIKI_ROOT=testbed wiki query "Summarize the core concepts in this vault."
 ```
 
 ## Architecture
@@ -146,16 +145,13 @@ WIKI_ROOT=testbed wiki query "지식의 원자화와 합성이란 무엇인가?"
      │  wiki add
      ▼
 [ingest_raw.py] — parse via parsers/* → register in db.sources (content-hash dedup)
-     │  LLM pass → generate L1
+     │  LLM pass → generate L1-L3
      ▼
 [01_Contexts/CTX-<UUID>.md]
-     │  wiki curate / Phase A (per-source)
-     ▼
 [02_Atoms/ATM-<UUID>.md]       ← atomic facts extracted by LLM
-     │  Phase B (global clustering)
-     ▼
 [03_Concepts/CON-<UUID>.md]    ← cross-source thematic groupings
-     │  Phase C (global synthesis)
+     │
+     │  wiki curate (workspace scoped)
      ▼
 [04_Exhibitions/EXH-<UUID>.md] ← terminal context packages for agents
      │
@@ -250,14 +246,14 @@ When a change is broad, split review or implementation thinking into these roles
 - `source_pair_analyst`: checks that `03_Notes/Papers` notes and `04_Resources` references can merge into shared higher-level DAG concepts.
 - `topic_boundary_checker`: checks that unrelated `02_Wiki` topics remain distinguishable from the paper/resource topic.
 - `cli_regression_runner`: checks `wiki init/status/add/curate/lint/reindex/query` smoke behavior in the testbed.
-- `deepseek_8b_simulator`: when local `deepseek-r1:8b` validation is too slow, quickly simulates the expected small-model judgment using the seeded testbed Collections and source files. It must stay conservative and mark uncertain claims as "needs real LLM validation".
+- `local_slm_simulator`: when the primary cloud LLM validation is too slow or unavailable, quickly simulates the expected small-model judgment using the seeded testbed Collections and source files. It must stay conservative and mark uncertain claims as "needs real LLM validation".
 - `legacy_sweeper`: searches for qmd-excluded legacy terms and stale docs.
 
 As the orchestrator, gather these findings, avoid conflicting edits, and report a concise verification result.
 
 ## Simulated LLM Fallback
 
-Use the real Gemini CLI path first for LLM-sensitive changes. If it is too slow or blocked, run the `deepseek_8b_simulator` role as a fast approximation:
+Use the primary LLM backend first for LLM-sensitive changes. If it is too slow or blocked, run the `local_slm_simulator` role as a fast approximation:
 
 - Compare the seeded L1-L4 testbed pages against the raw scenario files.
 - Verify that paper/resource claims merge above L1 and that the RAG page remains a separate topic.
@@ -293,8 +289,8 @@ wiki testbed init <scenario_name> --force
 **CLI entry point** (after install):
 ```bash
 wiki init <path>        # Initialize a Curator vault
-wiki add <file>         # Parse source and generate L1 Context
-wiki curate             # Run full L2→L3→L4 LLM pipeline
+wiki add <file>         # Parse source and generate L1-L3 layers
+wiki curate             # Stage L4 Exhibitions for workspace
 wiki sync               # Verify DAG integrity, rebuild index/ledger
 wiki query "<question>" # Search and synthesize answer with citations
 wiki reindex            # Rebuild QMD search index

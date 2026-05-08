@@ -3,9 +3,9 @@
 Each workspace in 01_Workspaces/{Project_Name}/ may carry a curate.yml
 that declares:
   - sources: which files from 02_Wiki, 03_Notes, 04_Resources to pull in
-  - domains/topics: relevance filters for Exhibition staging
+  - domains/topics: relevance boost terms for search
   - min_confidence: confidence floor for surfaced Exhibitions
-  - scope: DAG layer restriction for search
+  - exhibition: active workspace Exhibition ID (auto-set by wiki curate)
 
 Used by:
   - wiki curate --workspace  →  L4 Exhibition staging filtered by sources
@@ -22,9 +22,6 @@ from typing import Optional
 import yaml
 
 
-_VALID_SCOPES = frozenset(["all", "contexts", "atoms", "concepts", "exhibitions"])
-
-
 @dataclass
 class CurateSources:
     """Source selection: which vault files to pull knowledge from."""
@@ -38,6 +35,19 @@ class CurateSources:
 
 
 @dataclass
+class ArtistPersona:
+    """Artist persona — workspace-level context for domain-specific curation tuning."""
+
+    domain: str = ""
+    subdomain: str = ""
+    text: str = ""
+    exhibition_intent: str = "engineer"  # researcher | engineer | learner
+    disambiguation_keywords: list[str] = field(default_factory=list)
+    confidence: dict = field(default_factory=lambda: {"high_threshold": 0.85, "low_threshold": 0.55})
+    updated_at: str = ""
+
+
+@dataclass
 class CurateSpec:
     """Parsed contents of a workspace curate.yml file."""
 
@@ -47,7 +57,8 @@ class CurateSpec:
     domains: list[str] = field(default_factory=list)
     topics: list[str] = field(default_factory=list)
     min_confidence: float = 0.60
-    scope: str = "all"
+    exhibition: str = ""
+    persona: ArtistPersona = field(default_factory=ArtistPersona)
 
     def matches_sources(self, source_path: str) -> bool:
         """Check if source_path matches this spec's include/exclude patterns.
@@ -117,12 +128,6 @@ def load_curate_spec(workspace_path: Path) -> Optional[CurateSpec]:
             f"curate.yml in {workspace_path}: 'min_confidence' must be in [0.0, 1.0], got {min_confidence}"
         )
 
-    scope = raw.get("scope", "all")
-    if scope not in _VALID_SCOPES:
-        raise ValueError(
-            f"curate.yml in {workspace_path}: 'scope' must be one of {sorted(_VALID_SCOPES)}, got {scope!r}"
-        )
-
     def _str_list(key: str) -> list[str]:
         val = raw.get(key, []) or []
         if not isinstance(val, list):
@@ -139,6 +144,26 @@ def load_curate_spec(workspace_path: Path) -> Optional[CurateSpec]:
     else:
         sources = CurateSources()
 
+    # Parse persona block
+    persona_raw = raw.get("persona", {}) or {}
+    if isinstance(persona_raw, dict):
+        confidence_raw = persona_raw.get("confidence", {}) or {}
+        persona_confidence = {
+            "high_threshold": float(confidence_raw.get("high_threshold", 0.85)),
+            "low_threshold": float(confidence_raw.get("low_threshold", 0.55)),
+        }
+        artist_persona = ArtistPersona(
+            domain=str(persona_raw.get("domain", "") or ""),
+            subdomain=str(persona_raw.get("subdomain", "") or ""),
+            text=str(persona_raw.get("text", "") or ""),
+            exhibition_intent=str(persona_raw.get("exhibition_intent", "engineer") or "engineer"),
+            disambiguation_keywords=_str_list_from("disambiguation_keywords", persona_raw),
+            confidence=persona_confidence,
+            updated_at=str(persona_raw.get("updated_at", "") or ""),
+        )
+    else:
+        artist_persona = ArtistPersona()
+
     return CurateSpec(
         project=project.strip(),
         description=str(raw.get("description", "") or ""),
@@ -146,8 +171,29 @@ def load_curate_spec(workspace_path: Path) -> Optional[CurateSpec]:
         domains=_str_list("domains"),
         topics=_str_list("topics"),
         min_confidence=min_confidence,
-        scope=scope,
+        exhibition=str(raw.get("exhibition", "") or ""),
+        persona=artist_persona,
     )
+
+
+def write_exhibition_to_spec(workspace_path: Path, exh_id: str) -> None:
+    """Update the `exhibition` field in curate.yml with the given EXH-ID.
+
+    Reads the file as raw text and does a targeted replacement so that
+    comments and formatting are preserved.
+    """
+    curate_file = workspace_path / "curate.yml"
+    if not curate_file.exists():
+        return
+    text = curate_file.read_text(encoding="utf-8")
+    import re
+    # Replace existing exhibition: "..." line (with or without quotes)
+    new_line = f'exhibition: "{exh_id}"'
+    if re.search(r'^exhibition:', text, re.MULTILINE):
+        text = re.sub(r'^exhibition:.*$', new_line, text, flags=re.MULTILINE)
+    else:
+        text = text.rstrip() + f"\n{new_line}\n"
+    curate_file.write_text(text, encoding="utf-8")
 
 
 def _str_list_from(key: str, d: dict) -> list[str]:

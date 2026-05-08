@@ -308,7 +308,7 @@ def query(
     *,
     mode: str = "hybrid",
     limit: int = 8,
-    min_score: float = 0.0,
+    min_score: float = 0.6,
     collections: list[str] | None = None,
     hydrate: bool = True,
     rerank: bool = True,

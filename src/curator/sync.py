@@ -695,6 +695,10 @@ def run_mode_c(
     """
     from .llm import LLMError
 
+    # Load Curator persona for domain-context injection
+    curator_persona = cfg.get_curator_persona(cfg.load_config(paths))
+    domain_context = curator_persona.get("text", "")
+
     gaps: list[VerificationGap] = []
     blocked_node_ids = blocked_node_ids or set()
     target_concept_ids, target_exhibition_ids = _logical_scope_for_nodes(paths, target_node_ids)
@@ -745,6 +749,7 @@ def run_mode_c(
                     relation_prefix="02_Atoms/",
                 ),
                 fragments_content=fragments_content,
+                domain_context=domain_context,
             )
             try:
                 response = client.chat(messages, thinking=False, temperature=0.1)
@@ -813,6 +818,7 @@ def run_mode_c(
                 ),
                 themes_content=themes_content,
                 concept_verification_summary=relevant_con_results or None,
+                domain_context=domain_context,
             )
             try:
                 response = client.chat(messages, thinking=False, temperature=0.1)

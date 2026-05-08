@@ -1,6 +1,6 @@
 # 📖 User Guide: Master the InCurator
 
-This guide provides technical details on how to operate the **Curator Engine** and manage your knowledge DAG. For a high-level overview of the philosophy, see the [README](../../README_EN.md).
+This guide provides technical details on how to operate the **Curator Engine** and manage your knowledge DAG. For the design philosophy and motivation behind the system, see [Project Philosophy (about.md)](../philosophy/about_EN.md). For a feature overview, see the [README](../../README_EN.md).
 
 ---
 
@@ -9,23 +9,26 @@ This guide provides technical details on how to operate the **Curator Engine** a
 Before installing the system, ensure the following tools are installed:
 
 1.  **Python 3.10+**: The core logic is written in Python.
-2.  **Obsidian (Essential)**: The primary tool for visualizing and editing your knowledge base.
-3.  **Node.js**: Required for building the search engine (QMD) and running the MCP server. (Automatic installation is attempted during `./install.sh`.)
-4.  **Curator Engine Backends (Ollama & Subscription LLMs)**: At least one model backend is required.
-    - **Subscription Account/ID**: Connect services like Gemini, Claude, and OpenAI. You can easily integrate via your **Subscription Service ID (Project ID)** or **Account Login**.
-    - **Failover/Fallback**: If both local (Ollama) and cloud services are configured, the system automatically switches to local if a cloud service error or quota limit is reached.
+2.  **Terminal**: All commands are executed within a CLI environment.
+3.  **Note Editor (Obsidian Recommended)**: The primary tool for visualizing and editing your knowledge base. While any text editor that supports Markdown can be used, the system is optimized for Obsidian's link structure and plugin ecosystem.
+4.  **Node.js**: Required for building the search engine (QMD) and running the MCP server. (Note: `./install.sh` handles the installation of Node.js and Ollama automatically, so you don't need to prepare them separately.)
+5.  **Curator Engine Backends**: At least one model backend is required, supporting both local and cloud providers.
+    - **Local LLM (Ollama)**: Provides strong privacy and offline capabilities with no additional cost. (Requires VRAM)
+    - **Subscription Services (Providers)**: Leverages external engines like Gemini, Claude, and OpenAI. These do not consume local VRAM and offer high reasoning performance. (Note: Standard universal models are sufficient for the curation phase; high-cost reasoning-only models are not strictly required.)
+    - **Flexible Configuration**: You can configure either type as your **Primary** or **Fallback** engine. For example, you can use a local model as primary and a cloud model as failover, or vice versa.
 
 > [!NOTE]
 > **Verified Development Environment**
 > This system has been fully tested and validated in the following environment:
-> - **OS**: Linux (Ubuntu 24.04), macOS
+> - **Interface**: A **CLI-only** engine. You can operate it directly in the terminal or leverage it within your **IDE (antigravity)** agent environment.
+> - **Early Development Environment**: InCurator is in its early stages, and all experiments and validations were conducted by the developer using the **antigravity** agent environment. As a result, some internal logic may be unintentionally tailored to that specific environment. If you encounter issues in other agents or IDEs, we highly encourage contributions that generalize these environment-specific logic parts.
 > - **Hardware**:
 >   - **Linux**: NVIDIA GeForce RTX 4070 Ti 12GB, RAM 64GB
 >   - **macOS**: Apple Silicon (8GB RAM environment tested)
-> - **Agent**: Validated within the **antigravity** agent environment
-> - **Minimum Specs & Local Performance**: 
->   - A **minimum of 2.5GB VRAM** is required for the search engine (QMD), plus additional VRAM equivalent to the size of your chosen LLM model.
->   - When using an **8B parameter model** (e.g., DeepSeek-R1 8B), the system occupies **over 10GB of VRAM** in total (a 12GB VRAM environment is recommended).
+> - **Minimum Specs & Hardware Performance**: 
+>   - A **minimum of 2.5GB VRAM** is required to run the search engine (QMD).
+>   - **When using a Local Model (Ollama)**: Additional VRAM is required based on the model size (e.g., ~10GB total for an 8B model, a margin of at least 2GB over the model size is recommended).
+>   - **When using a Cloud Model (Gemini, Claude, etc.)**: No additional VRAM is consumed, making it possible to run the system with only the minimum VRAM required for QMD.
 >   - While CPU+GPU offloading via Ollama is possible, it is extremely slow and may make practical curation difficult. We strongly recommend an environment where the entire model can fit into VRAM.
 
 > [!TIP]
@@ -39,8 +42,8 @@ Before installing the system, ensure the following tools are installed:
 To maintain the powerful performance of InCurator and manage your knowledge safely, we recommend following these principles:
 
 -   **Single Source of Truth**: Instead of running `wiki init` in multiple project directories to create small, fragmented knowledge bases, maintain **a single main vault** where all your knowledge is aggregated. Knowledge truly **Increments** and yields new insights only when it is concentrated and organically connected in one place.
--   **Hands-off `.curator`**: The `.curator/` folder is a 'machine-only space' designed exclusively for agents and the system. It is intentionally structured to be difficult for humans to read or edit. Manually modifying files here can break the integrity of your knowledge graph, so avoid touching it directly.
--   **Self-Healing & Integrity**: If you feel your knowledge graph is contaminated or links are broken, don't try to fix it manually. Simply run the `wiki sync` command. InCurator has self-healing capabilities to trace errors and restore logical integrity automatically.
+-   **Respect the AI Space (AI-only Space)**: The `.curator/` folder is an 'AI-only space' designed exclusively for agents and the system. It is a high-density data network intentionally structured to be difficult for humans to read or edit. Manually modifying files here can break the integrity of your knowledge graph, so avoid touching it directly.
+-   **Self-Healing & Integrity**: If you feel your knowledge graph is contaminated or links are broken, run the `wiki sync` command. InCurator has self-healing capabilities to trace errors and restore logical integrity automatically. **Crucially, if you manually edit any node files yourself (rather than via an agent), you must run `wiki sync` to propagate those changes through the entire graph.**
 -   **Workspace Flexibility**: While your knowledge Library (Vault) should be centralized, your **Workspaces** (where you do the work) can be located anywhere. Connect any project folder or working directory to your central main Vault to consume its knowledge. You have one "Library" but can have unlimited "Studios."
 
 ---
@@ -60,7 +63,7 @@ wiki init <path/to/your/obsidian-vault>
 ```
 
 #### 📂 Vault Directory Structure
-Running the `wiki init` command initializes the following structure for knowledge management. InCurator strictly separates human-readable spaces (Root) from machine/agent-only spaces (`.curator/`).
+Running the `wiki init` command initializes the following structure for knowledge management. Following the philosophy that knowledge is most effective when stored in different forms for machines and humans, InCurator strictly separates human-readable spaces (Root) from the AI-only spaces (`.curator/`) via physical directory separation.
 
 ```text
 <vault_root>/
@@ -72,13 +75,13 @@ Running the `wiki init` command initializes the following structure for knowledg
 ├── 04_Resources/      # [Source] External references and literature (Immutable)
 ├── 05_Assets/         # Media assets (images, PDF attachments, etc.)
 ├── 06_Archives/       # Archives for deprecated or old sources
-├── .curator/          # [Machine Space] Core system data and SQLite DB
+├── .curator/          # [AI Space] Core system data and SQLite DB (AI-only Space)
 │   ├── config.yml     # LLM backends, models, and path configurations
 │   ├── state.sqlite   # Deduplication hashes, provenance, run history
 │   ├── index.md       # DAG routing table (Mapping of all node IDs)
 │   ├── ledger.md      # History of HITL corrections and promotions
 │   └── Collections/   # Knowledge Layer (DAG) Storage
-│       ├── 01_Contexts/    # [L1] Summaries and metadata
+│       ├── 01_Contexts/    # [L1] Summaries and refined metadata
 │       ├── 02_Atoms/       # [L2] Atomic facts (Permanent Notes)
 │       ├── 03_Concepts/    # [L3] Thematic groupings
 │       └── 04_Exhibitions/ # [L4] Task-optimized agent exhibits
@@ -97,7 +100,7 @@ Send your raw files (PDF, Markdown, HTML, Text) to the Curator for registration.
 ```bash
 wiki add <file>
 ```
-This command performs **Knowledge Registration and Compilation (L1-L3)**: it parses raw data to generate L1 Contexts, L2 Atoms, and L3 Concepts.
+This command performs **Knowledge Ingestion and Refinement (L1-L3)**: it parses raw data to generate L1 Contexts, L2 Atoms, and L3 Concepts.
 
 ### 4. Use Knowledge (Query) & L4 Curation
 When you search for knowledge, the system automatically runs the final L4 pipeline if needed to synthesize Concepts into Exhibitions.
@@ -120,7 +123,7 @@ wiki curate
 
 Once your vault's physical structure is ready, it's time to inject your fragmented knowledge into the system.
 
-InCurator's ingestion process consists of two stages: **Organizing files (Organize)** and **Compiling them into knowledge layers (L1–L3) (Ingest)**. The data collected here will later be processed into Exhibits (Exhibitions) within a workspace for actual use.
+InCurator's ingestion process consists of two stages: **Organizing files (Organize)** and **Summarizing and refining them into knowledge layers (L1–L3) (Ingest)**. The data collected here will later be processed into Exhibits (Exhibitions) within a workspace for actual use.
 
 ### Step 1: Organize Files
 First, place your original files (PDF, Markdown, HTML, images, etc.) into the appropriate folders within the vault based on their nature.
@@ -129,7 +132,7 @@ First, place your original files (PDF, Markdown, HTML, images, etc.) into the ap
 - `05_Assets/`: Attached images or data files.
 
 ### Step 2: Extract and Register Knowledge (Ingest)
-Once the files are organized, command the Curator to read them and compile them into the knowledge layers (L1–L3).
+Once the files are organized, command the Curator to read them and refine them into the knowledge layers (L1–L3).
 
 ```bash
 # Register a specific file within the vault
@@ -139,7 +142,7 @@ wiki add 03_Notes/my_note.md
 wiki add
 ```
 
-With this command, the Curator parses the raw data to automatically perform **L1 Summary, L2 Atomic Fact Extraction, and L3 Concept Linking**. The results are stored in a machine-friendly format inside `.curator/`.
+With this command, the Curator parses the raw data to automatically perform **L1 Summary, L2 Atomic Fact Extraction, and L3 Concept Linking**. The results are stored in the AI-only space inside `.curator/`.
 
 > [!TIP]
 > If no file or directory path is specified for `wiki add`, the Curator scans all configured source directories (e.g., `03_Notes`, `04_Resources`) to automatically find and batch-process new or changed files.
@@ -235,6 +238,33 @@ This circular flow ensures that your knowledge never stays stagnant but keeps ev
 
 ---
 
+## 🧑‍🎨 Persona Setup
+
+The persona is how InCurator understands your knowledge model. The system is a general-purpose curation engine, but the persona steers its behavior toward your domain and goals.
+
+### Curator Persona
+
+Configured automatically through a short interview during `wiki init`. The result is stored under the `persona:` key in `.curator/config.yml` and applied across `wiki sync` (verification context) and `wiki query` (synthesis context).
+
+```bash
+wiki persona              # Show the current Curator persona
+wiki persona update       # Re-run the interview to update the Curator persona
+```
+
+If you skip the interview or have not configured one, a default STEM persona is applied.
+
+### Artist Persona
+
+Stored under the `persona:` key in each workspace's `curate.yml`, overriding the Curator persona for that project. It is created automatically on the first run of `wiki curate --workspace <name>` and can be updated later:
+
+```bash
+wiki persona update --workspace <name>   # Update the Artist persona
+```
+
+The Artist persona lets you set a project-specific `exhibition_intent` (researcher / engineer / learner), confidence thresholds, and disambiguation keywords, giving you fine-grained control over how knowledge is staged for each workspace.
+
+---
+
 ## 🛠️ Core Commands (CLI Reference)
 
 Summary of major commands following the user workflow.
@@ -245,6 +275,7 @@ Summary of major commands following the user workflow.
 | `wiki init <path>` | Initializes a Curator vault. | First-time setup |
 | `wiki config <key>` | Modifies model and environment settings. | Changing providers or preferences |
 | `wiki status` | Checks vault health and statistics. | Checking overall system health |
+| `wiki persona` | Show and update the vault persona. | Adjusting curation direction |
 
 ### 2. Knowledge Ingestion & Management
 | Command | Description | When to use |
@@ -336,11 +367,12 @@ Checks the 'entrance of the pipeline' where raw data is turned into knowledge.
 -   **Ingest runs**: The total number of ingestion runs performed. A higher number indicates that the knowledge base has been updated frequently.
 
 #### 🧠 Knowledge Density (Collections)
-Represents the 'maturity of knowledge' refined through the pipeline.
--   **L1 Contexts**: The number of simple summaries of original sources. This should match the number of summarized sources.
--   **L2 Atoms**: The total amount of extracted 'atomic facts'. A larger number means higher information density in the knowledge base.
--   **L3 Concepts**: The number of 'concepts' formed by weaving facts together. It shows how densely interconnected your knowledge network is.
--   **L4 Exhibitions**: The number of 'exhibits' synthesized for answering actual questions. This serves as an indicator of how actively the user has utilized the system.
+Shows the processing status at each pipeline stage. L1, L2, and L3 are all generated together in a single `wiki add` run. L4 is generated separately.
+
+-   **L1 Contexts**: One summary per source. Should match the number of ingested sources.
+-   **L2 Atoms**: Atomic facts extracted from each source. Multiple atoms are generated per source, so this count will be larger than L1.
+-   **L3 Concepts**: Cross-source clusters formed from L2 atoms.
+-   **L4 Exhibitions**: Exhibits synthesized per workspace spec (`curate.yml`). Starts at 0 until a workspace is initialized and `wiki curate` has been run.
 
 > [!TIP]
-> **Maturity Diagnosis**: If the L2 and L3 counts are significantly lower compared to the L1 count, it might mean that sufficient curation (`wiki curate`) hasn't been performed yet. If you want deeper and more insightful answers, try running the curation pipeline more frequently.
+> **Pipeline Status Diagnosis**: If L4 is 0, no workspace Exhibition has been generated yet. Calling `search_curator` via MCP will automatically trigger `wiki curate` and create L4. To generate manually, run `wiki curate` directly.

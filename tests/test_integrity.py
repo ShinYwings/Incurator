@@ -193,7 +193,7 @@ last_updated: old
 ---
 # Schema Stable Concept
 
-## 2. Interaction of Atoms
+## 2. How the Atoms Connect
 
 Uses [[02_Atoms/ATM-a1b2c3d4]].
 """
@@ -208,7 +208,7 @@ Uses [[02_Atoms/ATM-a1b2c3d4]].
 
         self.assertEqual(parsed.frontmatter["id"], "CON-good1234")
         self.assertNotIn("dependencies", parsed.frontmatter)
-        self.assertIn("## 1. Core Architecture", parsed.body)
+        self.assertIn("## 1. Core Idea", parsed.body)
         self.assertIn("## Relations", parsed.body)
         self.assertIn("[[02_Atoms/ATM-a1b2c3d4]]", parsed.body)
         self.assertIn("[[02_Atoms/ATM-b2c3d4e5]]", parsed.body)
@@ -231,7 +231,7 @@ last_updated: old
 ---
 # Wrapped Concept
 
-## 1. Core Architecture
+## 1. Core Idea
 
 Wrapped body.
 
@@ -267,7 +267,7 @@ confidence_score: 0.7
 ---
 # Scoped Concept
 
-## 2. Interaction of Atoms
+## 2. How the Atoms Connect
 
 Uses [[02_Atoms/ATM-a1b2c3d4]] and typo [[02_Atoms/ATM-a1b2c3d5|Vector Embedding]].
 """
@@ -434,7 +434,7 @@ confidence_score: 0.11
 last_updated: 2000-01-01T00:00:00Z
 ---
 
-## 1. Core Architecture
+## 1. Core Idea
 
 Regenerated body.
 """
@@ -465,7 +465,7 @@ confidence_score: 0.88
 last_updated: 2026-05-04T00:00:00Z
 ---
 
-## 1. Core Architecture
+## 1. Core Idea
 
 Original body.
 

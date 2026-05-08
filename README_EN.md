@@ -6,38 +6,45 @@
 
 InCurator is a cost-effective, multi-agent knowledge system that transforms fragmented data into a structured **Directed Acyclic Graph (DAG)**. It serves as a bridge between raw information and high-reasoning agents, enabling you to organically incubate and increment your knowledge while executing complex projects without token waste or hallucinations.
 
+> For the problems this system addresses and the reasoning behind its design, see [Project Philosophy (about.md)](docs/philosophy/about_EN.md).
+
 ---
 
 ## 🏛️ The Core Metaphor: Curator & Artist
 
 Most AI knowledge bases fail because they treat LLMs as simple search engines. We separate the process into two distinct roles:
 
-### ⚙️ The Curator (Local SLM / Knowledge Compiler)
-The Curator is your background engine (Local SLM like Ollama). It doesn't "think" deep thoughts; it **compiles**. It takes raw data and builds a 4-layer evidence chain:
+### ⚙️ The Curator (Knowledge Refinement Engine)
+The Curator is the background engine that handles knowledge refinement. It focuses on **summarizing and refining knowledge** rather than high-level "reasoning." It has been verified that the Curator performs reliably using standard universal models from cloud providers, without requiring high-cost reasoning-only models. It builds a 4-layer evidence chain and stages a tailored Exhibition based on the Artist's preferences in `curate.yml`. It supports both Local models (via Ollama) and Cloud models (Gemini, Claude, OpenAI), allowing you to choose the best engine based on your hardware and requirements.
 1.  **L1 Contexts**: Metadata-rich summaries.
 2.  **L2 Atoms**: Irreducible, atomic facts.
 3.  **L3 Concepts**: Multi-source thematic structures.
-4.  **L4 Exhibitions**: Task-ready "exhibits" staged for other agents.
+4.  **L4 Exhibitions**: Tailored exhibits staged to the Artist's specification.
 
 ### 🎨 The Artist (Reasoning Agent + Human)
-The Artist lives in your **Workspace**. Instead of searching through massive raw texts (wasting tokens and losing focus), the Artist visits the **Exhibition** staged by the Curator. The Artist and Human collaborate to create new insights (**Synthesis**), which are then promoted to the official **Wiki**.
+The Artist lives in your **Workspace**. They express their taste and project requirements to the Curator via `curate.yml`, then visit the **Exhibition** the Curator has prepared. From these curated exhibits the Artist draws new insights (**Synthesis**). When they spot errors or uncover new ideas, they feed that back to the Curator — who corrects the underlying knowledge accordingly. The more this dialogue repeats, the more precise the exhibitions become.
 
 ---
 
 ## 🌟 Why This System?
 
-### 1. Self-Healing Knowledge Compiler
-Knowledge is not just "found"; it's a **compiled** and **evolving** ecosystem. InCurator treats your vault like a deep-learning model in training.
-- **Forward Pass**: `wiki add` registers sources and builds L1-L3 layers, while `wiki curate` synthesizes the final L4 Exhibition.
-- **Feedback & Loss Signals**: Corrections or doubts raised during interaction act as "loss signals," identifying errors in the system's current state.
-- **Backward Sync (Self-Healing)**: `wiki sync` uses these signals to trace the DAG backward (Backpropagation), resolving contradictions and rewriting affected upstream nodes to restore logical integrity across the entire graph.
+LLM Wikis broadly aim for a closed loop — ingest, process, retrieve, feed back. InCurator is an LLM Wiki too, but differentiates itself from others in two key ways.
+
+### 1. Specification-Driven Exhibition
+
+Generic LLM wikis retrieve knowledge as-is. InCurator's Curator does more. When a human defines their project goals and knowledge requirements in `curate.yml`, the Curator selects and synthesizes only the relevant material from the knowledge graph, staging a **tailored Exhibition** for that specific context. Agents and humans consult this curated output directly — no raw data spelunking required — allowing focus to stay on generating insight. And when a single vault holds knowledge across many different domains, spec-driven selection ensures that only relevant concepts surface, preventing contamination between unrelated fields.
+
+### 2. Prior Knowledge Correction
+
+When humans or agents spot an error in prior knowledge — or derive a new insight from an Exhibition — the feedback doesn't just get appended as a new note. The correction signal propagates backward through the knowledge graph, updating the affected Atoms and Concepts and restoring logical coherence across the entire graph. This mirrors deep-learning backpropagation: **the system grows more precise with use, and knowledge evolves rather than just accumulates.**
 
 ### 2. Token Optimization (FinOps for AI)
-By offloading the "grunt work" of summarizing and atomizing to a **Local SLM**, we preserve the "heavy thinking" tokens for your high-reasoning models (Gemini, Claude) during the final synthesis phase.
+Offload **compilation** (summarizing and atomizing knowledge) to non-reasoning models and reserve **creative synthesis** (requiring complex calculation or sophisticated reasoning) for reasoning models. This strategic role separation minimizes costs while maximizing insight.
 
-### 3. Two-Track Architecture
-- **`.curator/` (Machine Track)**: A high-density, machine-readable backend designed for Agent MCP tools.
-- **`02_Wiki/` (Human Track)**: A beautiful, domain-organized Zettelkasten designed for human browsing and long-term ownership.
+### 3. Dual-Track Structure for AI and Humans
+Knowledge is most effective when managed in different forms for machines and humans. InCurator achieves this by maintaining a dual-track directory structure.
+- **AI Space (`.curator/`)**: A machine-friendly backend designed for agents to instantly search and leverage knowledge.
+- **Human Space (`02_Wiki/`)**: A beautiful knowledge library designed for users to read, manage, and own long-term.
 
 ### 4. Knowledge Concentration & Growth
 Knowledge only truly **Increments** when it is gathered in a **single, cohesive space** rather than being fragmented across decentralized silos. InCurator ensures that all insights are funneled into a single source of truth, allowing for higher-level synthesis and the organic growth of your intellectual capital.
@@ -47,16 +54,18 @@ Knowledge only truly **Increments** when it is gathered in a **single, cohesive 
 ## 🛠️ Getting Started
 
 ### 📋 Prerequisites
-- **Python 3.10+**, **Obsidian**, **Node.js**
-- (Optional) **Ollama & Subscription Account/ID**: Backends for the Curator Engine. You can easily connect via your **Subscription Service ID** or **Account Login**. Configuring both allows for automatic **Failover/Fallback** to local models if the cloud service encounters an issue.
-- See [User Guide: Prerequisites](docs/guides/USER_GUIDE_EN.md#prerequisites) for details.
+- **Core Environment**: Python 3.10+, Terminal, Note Editor (Obsidian recommended)
+- **Backend Accounts**: An API Key or subscription account is required for cloud models (Gemini, Claude, etc.).
+- **Automation Note**: You don't need to install Ollama (local models) or Node.js (search engine) manually; `./install.sh` handles these automatically.
+- See the [User Guide](docs/guides/USER_GUIDE_EN.md) for more details.
 
 ### 🚀 Quick Start
-1.  **Install**: `./install.sh` (Attempts automatic installation of Ollama and Node.js)
+1.  **Install**: `./install.sh` (Automatically installs Ollama, Node.js, and the QMD search engine.)
 2.  **Initialize**: `wiki init <path/to/your/obsidian-vault>`
     > **Single Vault Principle**: Do not run `wiki init` in multiple scattered directories. InCurator achieves its most powerful **Increment** effect when all fragmented knowledge is gathered in one place. We strongly recommend designating **a single main vault** where all your personal knowledge is concentrated and running the system there.
-3.  **Register (Compile)**: `wiki add <file>` (Auto-generates L1-L3 layers)
-4.  **Use Knowledge (Query)**: `wiki query "question"` or MCP search (Includes auto-synthesis of L4)
+3.  **Set up Persona**: During `wiki init`, a short interview configures your knowledge domain. Run `wiki persona update` anytime to refine it.
+4.  **Register Knowledge (Refine)**: `wiki add <file>` (Auto-generates L1-L3 layers)
+5.  **Use Knowledge (Query)**: `wiki query "question"` or MCP search (Includes auto-synthesis of L4)
 
 > [!NOTE]
 > **Developer Only**: The `wiki testbed` command is a tool for scenario validation and system development. Do not use it for standard knowledge management tasks.
@@ -67,11 +76,9 @@ Check the [User Guide](docs/guides/USER_GUIDE_EN.md) for more details.
 
 ## 🤝 Contributing
 
-**"Better Tools, Smarter Agents."**
+If you encounter any issues or difficulties while using InCurator, please let us know. We especially welcome direct contributions—fixing a problem yourself helps ensure others don't face the same hurdle.
 
-We are building a better way to refine knowledge for both humans and machines. Currently, we are tackling exciting challenges such as advancing pipeline orchestration, reducing model dependency, ensuring sync stability, and enhancing UI/UX.
-
-From simple bug fixes to new feature proposals—your contributions increase the value of knowledge. Get started now with our [Contribution Guide](docs/guides/CONTRIBUTION_GUIDE.md)!
+Check out our [Contribution Guide](docs/guides/CONTRIBUTION_GUIDE_EN.md) to get started with bug fixes or feature improvements!
 
 ---
 

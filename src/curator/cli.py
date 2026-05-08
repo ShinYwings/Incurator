@@ -105,6 +105,9 @@ config_app = typer.Typer(
 )
 app.add_typer(config_app, name="config")
 
+persona_app = typer.Typer(help="Manage the Curator and Artist personas.")
+app.add_typer(persona_app, name="persona")
+
 config_models_app = typer.Typer(
     name="models",
     help="Discover and select Ollama models (local or remote).",
@@ -134,71 +137,71 @@ _RECOMMENDED_MODELS = [
     {
         "tag": "deepseek-r1:32b",
         "size": "32B",
-        "why": "[논리망 추출 및 조립] 복잡한 에피폴라 기하학이나 투영 행렬 유도 과정을 스스로 검증합니다. DAG 형태로 논리를 조립하는 데 현존 로컬 최강입니다.",
-        "tip": "일상적 논문 분석·요약 메인 모델로 가장 추천.",
+        "why": "[Logical Extraction & Assembly] Verifies complex logical structures and technical derivations. Currently the strongest local model for assembling knowledge into a DAG format.",
+        "tip": "Highly recommended as the primary model for daily information analysis and summarization.",
         "vision": False,
     },
     {
         "tag": "gemma4:31b",
         "size": "31B",
-        "why": "[시각 지식 추출 및 합성] 논문 속 3D 공간 투영 도식과 텍스트 수식을 완벽히 매칭합니다. 시각 정보가 포함된 PDF 문서를 그림의 맥락까지 메타데이터로 추출합니다.",
-        "tip": "3D Vision 논문에 최적화.",
+        "why": "[Visual Knowledge Extraction & Synthesis] Perfectly matches diagrams with text. Extracts metadata from documents containing visual information while preserving the context of images.",
+        "tip": "Optimized for analyzing sources with visual data.",
         "vision": True,
     },
     {
         "tag": "qwen3.6:35b",
         "size": "35B",
-        "why": "[구조화 및 디렉토리 조립 1위] 추출된 사전 지식을 QMD 포맷이나 JSON, 마크다운 표로 재조립하는 데 압도적입니다. 계층형 디렉토리 트리 구조를 만드는 데 오차가 없습니다.",
-        "tip": "대량 텍스트 합성 및 정형화 작업 시 유리.",
+        "why": "[#1 in Structuring & Directory Assembly] Outstanding at reassembling extracted knowledge into QMD, JSON, or Markdown tables. Flawless at creating hierarchical directory tree structures.",
+        "tip": "Ideal for large-scale text synthesis and formatting tasks.",
         "vision": False,
     },
     {
         "tag": "mistral-small3.1:24b",
         "size": "24B",
-        "why": "[핵심 정보 밀집 및 필터링] 방대한 RAG 청크에서 노이즈를 걸러내고 알고리즘의 핵심만 조립합니다. 파이프라인의 핵심 구조만 간결하고 명확하게 합성해 냅니다.",
-        "tip": "12GB VRAM에 거의 다 올라가며 텍스트 요약 효율이 매우 높음.",
+        "why": "[Information Densification & Filtering] Filters noise from massive source chunks and assembles only the core insights. Synthesizes the pipeline's key structure concisely and clearly.",
+        "tip": "Highly efficient for text summarization; fits in 12GB VRAM.",
         "vision": False,
     },
     {
         "tag": "gemma4:26b",
         "size": "26B",
-        "why": "[대규모 데이터 병렬 합성] 여러 논문에서 검색된 유사한 개념들을 빠르게 읽고 중복을 제거하여 단일 지식 베이스로 통합합니다. Unified Vault 정보를 단일 노트로 조립할 때 유리합니다.",
-        "tip": "여러 지식 소스를 동시에 합성하는 태스크에 효율적.",
+        "why": "[Large-Scale Parallel Synthesis] Quickly reads similar concepts from multiple sources, removes duplicates, and integrates them into a single knowledge base. Great for assembling Unified Vault info into a single note.",
+        "tip": "Efficient for tasks involving simultaneous synthesis of multiple knowledge sources.",
         "vision": True,
     },
     {
         "tag": "internlm2:20b",
         "size": "20B",
-        "why": "[장문 맥락의 수식 일관성 유지] 수십 페이지의 수학적 증명 과정을 한 번에 RAG로 검색할 때 진가를 발휘합니다. 좌표계 정의를 유지하며 에이전트에게 전달합니다.",
-        "tip": "전공 서적 한 권을 통째로 넣고 요약할 때 유리.",
+        "why": "[Long-Context Consistency] Excels when searching through complex narratives spanning dozens of pages. Maintains context definitions while passing information to agents.",
+        "tip": "Best for summarizing entire textbooks or long documents in one go.",
         "vision": False,
     },
     {
         "tag": "phi4:14b",
         "size": "14B",
-        "why": "[수식 전처리 및 교정 워커] 소형임에도 수학적 구조 파악 능력이 뛰어납니다. 깨지기 쉬운 LATEX 수식들을 교정하고 정리하여, 중간 필터 역할을 훌륭히 수행합니다.",
-        "tip": "간단한 문서들을 광속으로 전처리할 때 최적.",
+        "why": "[Structural Preprocessing & Correction] Exceptional at logical structure recognition despite its smaller size. Serves as a great intermediate filter by correcting and organizing fragile structured data and formulas.",
+        "tip": "Optimal for lightning-fast preprocessing of simple documents.",
         "vision": False,
     },
     {
-        "tag": "deepseek-r1:14b",
-        "size": "14B",
-        "why": "[빠른 논리 타당성 검증기] RAG로 검색된 개별 문단들의 로직이 서로 모순되지 않는지 빠르게 검증합니다. 에이전트가 잘못된 정보를 바탕으로 행동하지 않도록 방어하는 쾌속 워커입니다.",
-        "tip": "충돌 감지 및 모순 체크 작업에 적합.",
+        "tag": "qwen2.5:7b",
+        "size": "7B",
+        "why": "[Fast Logical Validation] Quickly verifies that individual paragraphs retrieved via RAG are not contradictory. Acts as a high-speed defensive worker to prevent agents from acting on incorrect information.",
+        "tip": "Best for conflict detection and consistency checks.",
         "vision": False,
     },
     {
         "tag": "llama3.2-vision:11b",
         "size": "11B",
-        "why": "[시각 데이터 전용 추출기] 논문 속 카메라 캘리브레이션 이미지나 그래프를 RAG 시스템이 검색할 수 있는 형태의 텍스트와 속성 값으로 분해해 주는 비전 전용 에이전트입니다.",
-        "tip": "시각 정보만 빠르게 텍스트로 요약할 때 유용.",
+        "why": "[Visual Data Specialist] A vision-focused agent that decomposes camera calibration images or graphs in papers into searchable text and attributes for the RAG system.",
+        "tip": "Useful for quickly summarizing purely visual information into text.",
         "vision": True,
     },
     {
         "tag": "deepseek-r1:8b",
         "size": "8B",
-        "why": "[단순 구조화 및 분류 보조] 에이전트가 RAG에서 가져온 단순 텍스트나 서지 정보들을 정해진 디렉토리 구조로 빠르게 이동시키고 자동화하는 가벼운 작업에 적합합니다.",
-        "tip": "경량 파일 분류 및 정렬 작업에 추천.",
+        "why": "[Simple Structuring & Classification] Best for lightweight tasks like automating the organization of simple text or bibliographic info from RAG into defined directory structures.",
+        "tip": "Recommended for lightweight file classification and sorting.",
         "vision": False,
     },
 ]
@@ -239,9 +242,9 @@ def _show_recommended_models(host: str) -> None:
         show_lines=False,
     )
     table.add_column("Model Tag",       style="cyan",    min_width=22, no_wrap=True)
-    table.add_column("체급",             style="yellow",  min_width=14, no_wrap=True)
-    table.add_column("설명",             min_width=60, max_width=85)
-    table.add_column("설치",             style="green",   min_width=4,  no_wrap=True, justify="center")
+    table.add_column("Size",            style="yellow",  min_width=14, no_wrap=True)
+    table.add_column("Description",     min_width=60, max_width=85)
+    table.add_column("Installed",       style="green",   min_width=4,  no_wrap=True, justify="center")
 
     for m in _RECOMMENDED_MODELS:
         vision_badge = " [magenta]👁[/magenta]" if m["vision"] else ""
@@ -255,11 +258,11 @@ def _show_recommended_models(host: str) -> None:
         )
 
     console.print()
-    console.print("[bold]추천 모델 목록[/bold]  [dim](👁 = 이미지 추론 지원 / 설치 ✓ = 현재 Ollama에 존재)[/dim]")
+    console.print("[bold]Recommended Models[/bold]  [dim](👁 = Vision support / ✓ = Installed in Ollama)[/dim]")
     console.print(table)
     console.print(
-        "[dim]설치: [bold]wiki config models use <tag>[/bold]  "
-        "·  모델 변경 후 [bold]wiki add[/bold] 재실행 권장[/dim]"
+        "[dim]Use: [bold]wiki config models use <tag>[/bold]  "
+        "·  Re-run [bold]wiki add[/bold] after changing models[/dim]"
     )
 
 
@@ -784,10 +787,10 @@ _VALID_CLOUD = ()
 # Curated Ollama model list: (model_name, description)
 _CURATED_MODELS = [
     ("qwen2.5:3b",      "3B  · ~2 GB VRAM  · very fast"),
-    ("qwen2.5:7b",      "7B  · ~5 GB VRAM  · fast, balanced"),
+    ("qwen2.5:7b",      "7B  · ~5 GB VRAM  · fast, balanced  [default]"),
     ("gemma3:12b",      "12B · ~8 GB VRAM  · Google Gemma 3"),
     ("qwen2.5:14b",     "14B · ~9 GB VRAM  · high quality"),
-    ("deepseek-r1:14b", "14B · ~9 GB VRAM  · reasoning/thinking  [default]"),
+    ("deepseek-r1:14b", "14B · ~9 GB VRAM  · reasoning/thinking"),
     ("qwen2.5:32b",     "32B · ~20 GB VRAM · very high quality"),
     ("gemma3:27b",      "27B · ~18 GB VRAM · Google Gemma 3, large"),
     ("gemma4:32b",      "32B · ~22 GB VRAM · Google Gemma 4, latest"),
@@ -798,31 +801,31 @@ _CLOUD_MODELS: dict[str, list[dict]] = {
     "gemini-cli": [
         {
             "tag": "gemini-2.5-flash",
-            "desc": "Flash (기본값) — 고속·균형",
+            "desc": "Flash (default) — High speed, balanced",
             "think": False,
             "cfg_key": "gemini_flash_model",
         },
         {
             "tag": "gemini-2.5-flash-lite",
-            "desc": "Lite — 최저 성능/최저 quota tier",
+            "desc": "Lite — Lowest performance/quota tier",
             "think": False,
             "cfg_key": "gemini_flash_model",
         },
         {
             "tag": "gemini-3.1-flash-lite-preview",
-            "desc": "Lite preview — 저비용 tier",
+            "desc": "Lite preview — Low-cost tier",
             "think": False,
             "cfg_key": "gemini_flash_model",
         },
         {
             "tag": "gemini-3.1-pro-preview",
-            "desc": "Pro preview — 최고 성능",
+            "desc": "Pro preview — Highest performance",
             "think": True,
             "cfg_key": "gemini_think_model",
         },
         {
             "tag": "gemini-3.1-flash-preview",
-            "desc": "Flash preview — 고속 차세대 Flash",
+            "desc": "Flash preview — High-speed next-gen Flash",
             "think": False,
             "cfg_key": "gemini_flash_model",
         },
@@ -830,19 +833,19 @@ _CLOUD_MODELS: dict[str, list[dict]] = {
     "claude-code": [
         {
             "tag": "claude-sonnet-4-6",
-            "desc": "Sonnet (기본값) — 고성능 범용",
+            "desc": "Sonnet (default) — High-performance general purpose",
             "think": False,
             "cfg_key": "claude_model",
         },
         {
             "tag": "claude-haiku-4-5",
-            "desc": "Haiku — 고속 경량",
+            "desc": "Haiku — Fast, lightweight",
             "think": False,
             "cfg_key": "claude_model",
         },
         {
             "tag": "claude-opus-4-7",
-            "desc": "Opus — 최고 성능 Thinking",
+            "desc": "Opus — Highest performance, Thinking",
             "think": True,
             "cfg_key": "claude_think_model",
         },
@@ -919,7 +922,7 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = F
     )
     table.add_column("Model Tag", style="cyan",   min_width=26, no_wrap=True)
     table.add_column("Type",      style="yellow", min_width=9,  no_wrap=True)
-    table.add_column("설명",                       min_width=30, max_width=44, no_wrap=True)
+    table.add_column("Description",                min_width=30, max_width=44, no_wrap=True)
     table.add_column("✓",         style="green",  min_width=2,  justify="center", no_wrap=True)
 
     shown_tags = set()
@@ -952,15 +955,14 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = F
     if active_only and not any_shown:
         return False
 
-    console.print()
     console.print(
-        f"[bold]{cloud_provider.capitalize()} 모델 목록[/bold]  "
-        "[dim](Active ✓ = 현재 config에 설정된 모델)[/dim]"
+        f"[bold]{cloud_provider.capitalize()} Models[/bold]  "
+        "[dim](Active ✓ = Currently configured model)[/dim]"
     )
     console.print(table)
     console.print(
-        "[dim]변경: [bold]wiki config models use <tag>[/bold]  "
-        "·  모델 변경 후 [bold]wiki add[/bold] 재실행 권장[/dim]"
+        "[dim]Update: [bold]wiki config models use <tag>[/bold]  "
+        "·  Re-run [bold]wiki add[/bold] after changing models[/dim]"
     )
     return True
 
@@ -1040,7 +1042,7 @@ def _pick_ollama_model(host: str) -> str:
     console.print("  [dim]0[/dim]  custom model name")
     console.print()
 
-    default_model = "deepseek-r1:14b"
+    default_model = "qwen2.5:7b"
     # Prefer the first installed model as default if deepseek is not installed
     if live_models and default_model not in live_set:
         default_model = live_models[0]
@@ -1394,12 +1396,99 @@ def _run_init_wizard(
     return overrides
 
 
+def _run_curator_persona_wizard(client) -> dict | None:
+    """Multi-turn LLM interview to build the Curator persona. Returns persona dict or None (skipped)."""
+    from .prompts import build_persona_interview_messages, PERSONA_INTERVIEW_CURATOR_OPENER
+
+    history: list[dict] = [{"role": "assistant", "content": PERSONA_INTERVIEW_CURATOR_OPENER}]
+    typer.echo("\n" + PERSONA_INTERVIEW_CURATOR_OPENER)
+
+    for _ in range(12):
+        user_input = typer.prompt("You").strip()
+        if not user_input:
+            continue
+        history.append({"role": "user", "content": user_input})
+        messages = build_persona_interview_messages(history, is_workspace=False)
+        try:
+            response = client.chat(messages)
+        except Exception as exc:
+            typer.echo(f"[LLM error] {exc}")
+            break
+
+        content = response.content if hasattr(response, "content") else str(response)
+        history.append({"role": "assistant", "content": content})
+
+        import json as _json
+        import re as _re
+        json_match = _re.search(r'\{.*\}', content, _re.DOTALL)
+        if json_match:
+            try:
+                parsed = _json.loads(json_match.group())
+                if parsed.get("done"):
+                    persona = parsed.get("persona")
+                    if persona is None:
+                        typer.echo("Skipping persona setup.")
+                        return None
+                    return persona
+            except _json.JSONDecodeError:
+                pass
+
+        typer.echo(f"\nCurator: {content}\n")
+
+    typer.echo("Persona interview ended. Using default STEM persona.")
+    return None
+
+
+def _run_artist_persona_wizard(client, project: str) -> dict | None:
+    """Multi-turn LLM interview to build an Artist persona. Returns persona dict or None (skipped)."""
+    from .prompts import build_persona_interview_messages, PERSONA_INTERVIEW_ARTIST_OPENER
+
+    opener = PERSONA_INTERVIEW_ARTIST_OPENER.format(project=project)
+    history: list[dict] = [{"role": "assistant", "content": opener}]
+    typer.echo("\n" + opener)
+
+    for _ in range(12):
+        user_input = typer.prompt("You").strip()
+        if not user_input:
+            continue
+        history.append({"role": "user", "content": user_input})
+        messages = build_persona_interview_messages(history, is_workspace=True, project=project)
+        try:
+            response = client.chat(messages)
+        except Exception as exc:
+            typer.echo(f"[LLM error] {exc}")
+            break
+
+        content = response.content if hasattr(response, "content") else str(response)
+        history.append({"role": "assistant", "content": content})
+
+        import json as _json
+        import re as _re
+        json_match = _re.search(r'\{.*\}', content, _re.DOTALL)
+        if json_match:
+            try:
+                parsed = _json.loads(json_match.group())
+                if parsed.get("done"):
+                    persona = parsed.get("persona")
+                    if persona is None:
+                        typer.echo("Skipping persona setup.")
+                        return None
+                    return persona
+            except _json.JSONDecodeError:
+                pass
+
+        typer.echo(f"\nCurator: {content}\n")
+
+    typer.echo("Persona interview ended. Artist persona not set.")
+    return None
+
+
 def _offer_install(overrides: dict, llm_cfg: dict) -> None:
     """After wizard, offer to install CLI tools and/or pull Ollama models."""
     import subprocess
 
     primary = overrides.get("primary") or llm_cfg.get("primary", "")
-    model   = overrides.get("model")   or llm_cfg.get("model", "deepseek-r1:14b")
+    model   = overrides.get("model")   or llm_cfg.get("model", "qwen2.5:7b")
     host    = overrides.get("host")    or llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
 
     if primary in ("claude-code", "gemini-cli"):
@@ -1501,7 +1590,7 @@ def _start_client_inner(config: dict):
         return p_client
     except ModelNotFound as e:
         _err(str(e))
-        model_name = llm_cfg.get("model", "deepseek-r1:14b")
+        model_name = llm_cfg.get("model", "qwen2.5:7b")
         if typer.confirm(f"Pull model now? (ollama pull {model_name})", default=True):
             console.print(f"[dim]Running: ollama pull {model_name}[/dim]")
             res = _sp.run(["ollama", "pull", model_name])
@@ -1833,7 +1922,7 @@ def config_provider(
     model: str = typer.Option(
         "",
         "--model", "-m",
-        help="Ollama model name (e.g. deepseek-r1:14b, gemma4:32b).",
+        help="Ollama model name (e.g. qwen2.5:7b, gemma4:32b).",
     ),
     host: str = typer.Option(
         "",
@@ -1936,7 +2025,7 @@ def status() -> None:
 
     def _get_backend_model(key: str, llm_cfg: dict) -> str:
         if key == "ollama":
-            return llm_cfg.get("model", "deepseek-r1:14b")
+            return llm_cfg.get("model", "qwen2.5:7b")
         elif key == "cloud":
             cp = llm_cfg.get("cloud_provider", "gemini")
             if cp == "gemini":
@@ -2808,9 +2897,10 @@ def curate(
             syn_staged = ingest_llm.run_l4_scoped(paths, client, cb, curate_spec, today, staging)
             spec_hash = _curate_spec_hash(workspace)
             existing_workspace_exh = (
-                _find_workspace_exhibition(paths, curate_spec.project, spec_hash)
+                ingest_llm.find_workspace_exhibition(paths, curate_spec.project)
                 if curate_spec is not None else None
             )
+            target = None
             for idx, (sp, fp, _) in enumerate(syn_staged):
                 target = fp
                 content = sp.read_text(encoding="utf-8")
@@ -2824,11 +2914,30 @@ def curate(
                     existing = page_writer.read_page(existing_workspace_exh)
                     if existing:
                         parsed.frontmatter["id"] = existing.frontmatter.get("id", existing_workspace_exh.stem)
-                    content = parsed.to_markdown()
-                else:
-                    content = parsed.to_markdown()
+                content = parsed.to_markdown()
                 target.parent.mkdir(parents=True, exist_ok=True)
                 page_writer.write_page(target, content)
+
+            # Write the active Exhibition ID back into curate.yml for MCP anchor tracking
+            if curate_spec is not None and target is not None and workspace is not None:
+                try:
+                    from .curate_yml import write_exhibition_to_spec
+                    write_exhibition_to_spec(workspace, target.stem)
+                except Exception:
+                    pass
+
+            # Clean up any stale duplicate workspace Exhibitions for this project.
+            if curate_spec is not None and target is not None and paths.exhibitions.exists():
+                for dup in sorted(paths.exhibitions.glob("EXH-*.md")):
+                    if dup == target:
+                        continue
+                    try:
+                        dup_page = page_writer.read_page(dup)
+                        if dup_page and dup_page.frontmatter.get("workspace") == curate_spec.project:
+                            dup.unlink()
+                            console.print(f"[dim]  removed duplicate workspace Exhibition: {dup.name}[/dim]")
+                    except Exception:
+                        pass
 
             from . import page_writer as _pw
             _pw.rebuild_index(paths, today)
@@ -2894,7 +3003,17 @@ def sync(
     deep: bool = typer.Option(
         False,
         "--deep",
-        help="Run full LLM logical verification even when no manual changes are detected.",
+        help="Force full LLM logical verification (Mode C) even without manual changes.",
+    ),
+    no_deep: bool = typer.Option(
+        False,
+        "--no-deep",
+        help="Skip LLM contradiction detection entirely (fast structural check only).",
+    ),
+    no_interactive: bool = typer.Option(
+        False,
+        "--no-interactive",
+        help="Run contradiction detection but only report — do not prompt for resolution.",
     ),
 ) -> None:
     """Run deductive verification and rebuild routing tables.
@@ -2905,6 +3024,10 @@ def sync(
 
     Mode B (node_id given): targeted bidirectional propagation — traces upstream
     to L1 and downstream to L4 from the given node, flagging broken references.
+
+    By default, wiki sync runs LLM contradiction detection and prompts for
+    interactive resolution when a TTY is present. Use --no-deep to skip the
+    LLM step entirely, or --no-interactive to report only without prompting.
 
     By default sync applies safe structural repairs and logical backprop repairs,
     then re-verifies the affected graph. Use --no-fix or --dry-run for report-only
@@ -3005,9 +3128,14 @@ def sync(
 
         # Gate both deep lint and Mode C on whether there are dirty nodes or --deep.
         run_llm_verification = bool(logical_target_ids) or deep
+        # Contradiction detection runs by default unless --no-deep
+        run_contradiction_check = not no_deep
+        # Interactive mode: prompt for resolution when TTY present and --no-interactive not set
+        run_interactive = run_contradiction_check and not no_interactive and _interactive()
 
         # 3. Targeted Deep Lint Verification (LLM contradiction check)
-        if run_llm_verification:
+        contradiction_issues: list = []
+        if run_contradiction_check:
             try:
                 target_pages = []
                 if node_id:
@@ -3022,17 +3150,25 @@ def sync(
                 deep_report = lint_module.run_lint(
                     paths, deep=True, client=client,
                     progress_callback=cb.on_node_check,
-                    limit_to=target_pages if not deep else None,
+                    # When run_llm_verification is active, scan all; else scope to dirty
+                    limit_to=target_pages if not (run_llm_verification or deep) else None,
                 )
                 console.print(" " * 60, end="\r")
-                structural_report.issues.extend(
-                    issue for issue in deep_report.issues if issue not in structural_report.issues
-                )
+                from .lint import CheckId as _CheckId
+                for issue in deep_report.issues:
+                    if issue not in structural_report.issues:
+                        structural_report.issues.append(issue)
+                    if issue.check == _CheckId.CONTRADICTION:
+                        contradiction_issues.append(issue)
                 structural_issues = structural_report.errors + structural_report.warnings
                 needs_review = structural_report.needs_review
                 blocked_node_ids = _sync_blocked_node_ids(structural_report)
             except Exception as e:
                 _warn(f"Contradiction/equivalence scan unavailable: {e}")
+
+        # 3b. Interactive contradiction resolution wizard
+        if run_interactive and contradiction_issues:
+            _contradiction_resolution_wizard(paths, client, contradiction_issues)
         if structural_issues:
             console.print()
             _warn(
@@ -3136,6 +3272,108 @@ def sync(
         _ok("Routing tables rebuilt (index.md, ledger.md, log.md, overview.md).")
     else:
         _hint("--dry-run: routing tables not modified.")
+
+
+# ---------------------------------------------------------------------------
+# Contradiction resolution wizard (used by wiki sync interactive mode)
+# ---------------------------------------------------------------------------
+
+
+def _atom_display_title(paths, atom_id: str) -> str:
+    """Return a short human-readable title for an Atom (H1 or ID fallback)."""
+    from . import page_writer as _pw
+    page = _pw.read_page(paths.atoms / f"{atom_id}.md")
+    if page:
+        for line in (page.body or "").splitlines():
+            if line.startswith("# "):
+                return line[2:].strip()
+        name = page.frontmatter.get("name", "")
+        if name:
+            return str(name)
+    return atom_id
+
+
+def _contradiction_resolution_wizard(paths, client, issues: list) -> None:
+    """Interactive wizard: step through contradiction issues, offer D/R/S."""
+    from . import contradiction as _cd
+    from . import page_writer as _pw
+    from .prompts import build_contradiction_resolution_messages
+    from .llm import LLMError
+    import json
+
+    console.print()
+    console.rule("[bold yellow]Contradiction Review[/bold yellow]")
+    console.print(
+        f"[dim]Found {len(issues)} potential contradiction(s). "
+        "Review each: [bold][D][/bold]ismiss  [bold][R][/bold]esolve  [bold][S][/bold]kip  [bold][Q][/bold]uit[/dim]"
+    )
+
+    for i, issue in enumerate(issues, 1):
+        atom_a_rel = issue.page                          # "02_Atoms/ATM-xxx.md"
+        atom_b_rel = issue.context.get("other_page", "") # "02_Atoms/ATM-yyy.md"
+        atom_a_id = Path(atom_a_rel).stem
+        atom_b_id = Path(atom_b_rel).stem
+        reasoning = issue.context.get("reasoning", issue.suggestion or "")
+
+        console.print()
+        console.print(f"[bold cyan][{i}/{len(issues)}][/bold cyan]  "
+                      f"[bold]{atom_a_id}[/bold]  {_atom_display_title(paths, atom_a_id)}")
+        console.print(f"       [bold]{atom_b_id}[/bold]  {_atom_display_title(paths, atom_b_id)}")
+        if reasoning:
+            console.print()
+            console.print("[dim]LLM reasoning:[/dim]")
+            for line in reasoning.splitlines()[:6]:
+                console.print(f"  [dim]{line}[/dim]")
+
+        console.print()
+        choice = typer.prompt("[D]ismiss / [R]esolve / [S]kip / [Q]uit", default="S").strip().upper()
+
+        if choice == "Q":
+            console.print("[dim]Stopped review.[/dim]")
+            break
+        elif choice == "D":
+            _cd.add_dismissed(paths, atom_a_id, atom_b_id, reason="dismissed via wiki sync")
+            _cd.clear_flagged(paths, atom_a_id, atom_b_id)
+            _ok(f"Dismissed: {atom_a_id} ↔ {atom_b_id}")
+        elif choice == "R":
+            console.print("[dim]Asking LLM to propose a resolution…[/dim]")
+            try:
+                page_a = _pw.read_page(paths.atoms / f"{atom_a_id}.md")
+                page_b = _pw.read_page(paths.atoms / f"{atom_b_id}.md")
+                if page_a is None or page_b is None:
+                    _warn("Could not read atom files for resolution.")
+                    continue
+                messages = build_contradiction_resolution_messages(
+                    path_a=atom_a_rel,
+                    content_a=page_a.to_markdown(),
+                    path_b=atom_b_rel,
+                    content_b=page_b.to_markdown(),
+                    conflict_reasoning=reasoning,
+                )
+                raw = client.chat(messages, thinking=False, json_mode=True, temperature=0.3)
+                proposal = json.loads(raw)
+            except (LLMError, json.JSONDecodeError, Exception) as e:
+                _warn(f"Resolution failed: {e}")
+                continue
+
+            console.print()
+            console.print("[bold]Proposed resolution:[/bold]")
+            console.print(f"  [dim]{proposal.get('reasoning', '')}[/dim]")
+            console.print()
+            console.print(f"  [cyan]Atom A ({atom_a_id}) revised body:[/cyan]")
+            for line in (proposal.get("atom_a_body_revised", "") or "").splitlines()[:4]:
+                console.print(f"    {line}")
+            console.print(f"  [cyan]Atom B ({atom_b_id}) revised body:[/cyan]")
+            for line in (proposal.get("atom_b_body_revised", "") or "").splitlines()[:4]:
+                console.print(f"    {line}")
+
+            apply = typer.confirm("Apply this resolution?", default=False)
+            if apply:
+                _cd.apply_resolution(paths, atom_a_id, atom_b_id, proposal)
+                _ok(f"Resolved: {atom_a_id} ↔ {atom_b_id} (is_verified_by_human set)")
+            else:
+                console.print("[dim]Resolution not applied.[/dim]")
+        # S or anything else: skip silently
 
 
 # ---------------------------------------------------------------------------
@@ -3263,7 +3501,7 @@ def query(
         8, "--limit", "-n", help="Max number of search hits to consider."
     ),
     min_score: float = typer.Option(
-        0.0, "--min-score", help="Drop hits below this score."
+        0.6, "--min-score", help="Drop hits below this score."
     ),
     no_rerank: bool = typer.Option(
         False, "--no-rerank", help="Skip LLM reranking in hybrid mode."
@@ -3294,15 +3532,24 @@ def query(
         "--workspace",
         help="Path to a workspace directory containing curate.yml. Defaults to WORKSPACE_PATH or current workspace.",
     ),
+    curate: bool = typer.Option(
+        False,
+        "--curate",
+        help="Create and maintain a session Exhibition: first answer creates an ephemeral L4 page; "
+             "each follow-up appends to it. Prompted at session end whether to keep or discard.",
+    ),
 ) -> None:
     """Ask a question: search the wiki, synthesize an answer with citations.
 
     Without an argument, enters interactive chat mode. Type an empty line to exit.
-    Within a session you can say '승격해줘' / 'save to wiki' etc. to promote the
+    Within a session you can say 'save to wiki' / 'save' etc. to promote the
     last answer into 02_Wiki under an auto-determined category folder.
 
     Use --update to automatically create a new L2 Atom from the synthesized answer,
     feeding new knowledge back into the L1-L3 pipeline for future curation.
+
+    Use --curate to build a session-scoped L4 Exhibition across all turns, then
+    decide at the end whether to keep it as a permanent knowledge record.
 
     The query pipeline:
       1. Translate question to English (for non-English input)
@@ -3347,10 +3594,6 @@ def query(
             f"Invalid scope '{scope}'. Use all, contexts, atoms, concepts, or exhibitions."
         )
         raise typer.Exit(code=1)
-    if curate_spec is not None:
-        if scope == "all" and curate_spec.scope != "all":
-            scope = curate_spec.scope
-
     if not search.is_available():
         _err("qmd binary not available.")
         _hint(
@@ -3395,6 +3638,7 @@ def query(
             initial_question=question,
             update_knowledge=update,
             curate_spec=curate_spec,
+            create_session_exhibition=curate,
         )
     finally:
         client.close()
@@ -3405,12 +3649,14 @@ def _run_query_repl(
     initial_question: str | None = None,
     update_knowledge: bool = False,
     curate_spec=None,
+    create_session_exhibition: bool = False,
 ) -> None:
     """Interactive REPL: ask questions until the user submits an empty line.
 
     If initial_question is provided, it is answered first before prompting
     for further input — so `wiki query "question"` enters the same REPL.
     update_knowledge=True creates a new L2 Atom from each synthesized answer.
+    create_session_exhibition=True builds a running L4 Exhibition across all turns.
     """
     from rich.prompt import Prompt
     import uuid
@@ -3418,6 +3664,7 @@ def _run_query_repl(
     last_question: str | None = None
     last_answer: str | None = None
     session_id = f"QRY-{uuid.uuid4().hex[:8]}"
+    session_exh_path: Path | None = None
 
     console.print()
     console.rule("[bold cyan]Wiki Chat[/bold cyan]")
@@ -3426,7 +3673,7 @@ def _run_query_repl(
         "Press [bold]Enter[/bold] (empty line) or [bold]Ctrl+C[/bold] to exit.[/dim]"
     )
     console.print(
-        "[dim]Say '승격해줘' / 'save to wiki' to promote the last answer to 02_Wiki.[/dim]"
+        "[dim]Say 'save to wiki' / 'save' to promote the last answer to 02_Wiki.[/dim]"
     )
 
     pending = initial_question  # consumed on the first iteration, no extra print needed
@@ -3453,12 +3700,12 @@ def _run_query_repl(
         if intent_result.intent == "promote":
             if last_answer and last_question:
                 confirmed = Prompt.ask(
-                    "  [yellow]02_Wiki에 저장할까요?[/yellow]",
+                    "  [yellow]Save to 02_Wiki?[/yellow]",
                     choices=["yes", "no"],
                     default="yes",
                 )
                 if confirmed == "yes":
-                    console.print("[dim]  카테고리/슬러그 분류 중…[/dim]")
+                    console.print("[dim]  Classifying category/slug...[/dim]")
                     try:
                         category, slug = query_module.classify_wiki_topic(
                             client, last_question, last_answer
@@ -3470,7 +3717,7 @@ def _run_query_repl(
                     except OSError as e:
                         _err(f"Failed to save wiki page: {e}")
             else:
-                _warn("저장할 답변이 없습니다. 먼저 질문해 주세요.")
+                _warn("No answer to save. Please ask a question first.")
             continue
 
         # Normal wiki query (or chitchat — run_query handles it)
@@ -3496,9 +3743,33 @@ def _run_query_repl(
                 if atom_id:
                     console.print(f"[dim]  → new atom created: [cyan]{atom_id}[/cyan][/dim]")
 
+            if create_session_exhibition:
+                if session_exh_path is None:
+                    try:
+                        rel = query_module._save_curation_page(
+                            paths,
+                            user_input,
+                            result.answer,
+                            title=user_input[:60],
+                            hits=result.hits,
+                            session_id=session_id,
+                            ephemeral=True,
+                        )
+                        session_exh_path = paths.exhibitions / Path(rel).name
+                        console.print(
+                            f"[dim]  → session Exhibition created: "
+                            f"[cyan]{session_exh_path.name}[/cyan][/dim]"
+                        )
+                    except ValueError:
+                        pass  # no L3 Concepts yet — skip silently
+                elif session_exh_path.exists():
+                    query_module.update_curation_page(
+                        paths, session_exh_path, user_input, result.answer, result.hits
+                    )
+
     if last_answer and last_question and run_kwargs.get("save_as") is None and console.is_interactive:
         confirmed = Prompt.ask(
-            "  [yellow]세션 답변을 02_Wiki에 저장할까요?[/yellow]",
+            "  [yellow]Save session answer to 02_Wiki?[/yellow]",
             choices=["yes", "no"],
             default="no",
         )
@@ -3513,6 +3784,27 @@ def _run_query_repl(
                 callbacks.on_wiki_saved(saved, category)
             except OSError as e:
                 _err(f"Failed to save wiki page: {e}")
+
+    if create_session_exhibition and session_exh_path and session_exh_path.exists():
+        if console.is_interactive:
+            keep = Prompt.ask(
+                f"  [yellow]Keep session Exhibition?[/yellow] "
+                f"([dim]{session_exh_path.name}[/dim])",
+                choices=["yes", "no"],
+                default="no",
+            )
+            if keep == "yes":
+                page = page_writer.read_page(session_exh_path)
+                if page:
+                    page.frontmatter["ephemeral"] = False
+                    page_writer.write_page(session_exh_path, page.to_markdown())
+                    _ok(f"Exhibition retained: [[04_Exhibitions/{session_exh_path.stem}]]")
+            else:
+                session_exh_path.unlink(missing_ok=True)
+                page_writer.rebuild_index(paths, page_writer.today_iso())
+        else:
+            session_exh_path.unlink(missing_ok=True)
+            page_writer.rebuild_index(paths, page_writer.today_iso())
 
 
 @app.command()
@@ -3871,7 +4163,7 @@ def models_list(
                 console.print(f"\n[bold]Current Active Configuration[/bold]")
                 console.print(f"  Primary Backend: [cyan]{primary_raw or '(not set)'}[/cyan]")
                 if primary == "ollama" or not primary:
-                    console.print(f"  Ollama Model:    [cyan]{llm_cfg.get('model', '(default: deepseek-r1:14b)')}[/cyan]")
+                    console.print(f"  Ollama Model:    [cyan]{llm_cfg.get('model', '(default: qwen2.5:7b)')}[/cyan]")
                 if primary in ("claude-code", "gemini-cli") or not primary:
                     key = _PROVIDER_PRIMARY_CFG_KEY.get(primary) or "gemini_flash_model"
                     console.print(f"  Active Model:    [cyan]{llm_cfg.get(key, '(default)')}[/cyan]")
@@ -3920,7 +4212,7 @@ def models_use(
     # --- Cloud providers ---
     if primary not in ("", "ollama"):
         if host:
-            console.print("[dim]--host는 Ollama 전용 옵션입니다. 무시합니다.[/dim]")
+            console.print("[dim]--host is an Ollama-only option. Ignoring.[/dim]")
         cp = _get_cloud_provider_from_primary(primary, llm_cfg)
         if not cp:
             _err(f"Unknown primary '{primary}'.")
@@ -3932,7 +4224,7 @@ def models_use(
             _show_cloud_models(cp, llm_cfg)
             model, cfg_key = _pick_cloud_model(cp, llm_cfg)
             if not model:
-                console.print("[dim]취소됨.[/dim]")
+                console.print("[dim]Cancelled.[/dim]")
                 raise typer.Exit()
         else:
             # Non-interactive: look up cfg_key from catalog; fall back to primary key
@@ -3956,12 +4248,12 @@ def models_use(
         _show_recommended_models(target_host)
         console.print()
         model = typer.prompt(
-            "  모델 태그 입력 (Enter = 취소)",
+            "  Enter model tag (Enter = Cancel)",
             default="",
             show_default=False,
         ).strip()
         if not model:
-            console.print("[dim]취소됨.[/dim]")
+            console.print("[dim]Cancelled.[/dim]")
             raise typer.Exit()
 
     available = list_models_on_host(target_host, timeout=5.0)
@@ -4011,18 +4303,19 @@ def _interactive() -> bool:
 def _collect_curate_template_data(
     *,
     path: Path,
+    wiki_root: Path,
     yes: bool,
     project: Optional[str],
     description: Optional[str],
     domains: Optional[list[str]],
     topics: Optional[list[str]],
     min_confidence: float,
-    scope: str,
 ) -> CurateTemplateData:
     project_default = project or default_project_name(path)
     description_default = description or f"Knowledge workspace for {project_default}"
     domain_values = _csv_items(domains)
     topic_values = _csv_items(topics)
+    include_patterns: list[str] = []
 
     if not yes and _interactive():
         project_default = typer.prompt("Project id", default=project_default)
@@ -4034,11 +4327,36 @@ def _collect_curate_template_data(
             topic_text = typer.prompt("Topics (comma-separated)", default="")
             topic_values = _csv_items([topic_text])
         min_confidence = float(typer.prompt("Minimum confidence", default=str(min_confidence)))
-        scope = typer.prompt("Scope", default=scope)
 
-    if scope not in ("all", "contexts", "atoms", "concepts", "exhibitions"):
-        _err(f"Invalid scope '{scope}'. Use all, contexts, atoms, concepts, or exhibitions.")
-        raise typer.Exit(code=1)
+        # Source directory discovery wizard
+        raw_dirs = ["03_Notes", "04_Resources", "02_Wiki"]
+        available: list[tuple[str, int]] = []
+        for d in raw_dirs:
+            dir_path = wiki_root / d
+            if dir_path.exists():
+                count = sum(1 for _ in dir_path.rglob("*.md"))
+                if count > 0:
+                    available.append((d, count))
+
+        if available:
+            console.print("\nAvailable source directories:")
+            for i, (d, count) in enumerate(available):
+                console.print(f"  [{i + 1}] {d}/ ({count} files)")
+            sel_text = typer.prompt(
+                "Include directories (comma-separated numbers, empty = all)", default=""
+            )
+            if sel_text.strip():
+                indices = [
+                    int(x.strip()) - 1
+                    for x in sel_text.split(",")
+                    if x.strip().isdigit()
+                ]
+                include_patterns = [
+                    f"{available[i][0]}/**"
+                    for i in indices
+                    if 0 <= i < len(available)
+                ]
+
     if not (0.0 <= float(min_confidence) <= 1.0):
         _err("--min-confidence must be in [0.0, 1.0].")
         raise typer.Exit(code=1)
@@ -4049,7 +4367,7 @@ def _collect_curate_template_data(
         domains=domain_values,
         topics=topic_values,
         min_confidence=float(min_confidence),
-        scope=scope,
+        include_patterns=include_patterns,
     )
 
 
@@ -4078,9 +4396,9 @@ def _print_workspace_prepare_result(result) -> None:
 def workspace_init(
     path: Path = typer.Argument(..., help="Path for the new workspace directory."),
     agent: str = typer.Option(
-        "codex",
+        "claude-code",
         "--agent",
-        help="Agent runtime to install rules for: codex | claude-code | gemini-cli | antigravity | none.",
+        help="Agent runtime: codex | claude-code | gemini-cli | antigravity | none.",
     ),
     no_rules: bool = typer.Option(
         False,
@@ -4102,24 +4420,34 @@ def workspace_init(
     domains: Optional[list[str]] = typer.Option(None, "--domain", help="Domain to add; repeat or comma-separate."),
     topics: Optional[list[str]] = typer.Option(None, "--topic", help="Topic to add; repeat or comma-separate."),
     min_confidence: float = typer.Option(0.60, "--min-confidence", help="curate.yml confidence floor."),
-    scope: str = typer.Option("all", "--scope", help="all | contexts | atoms | concepts | exhibitions."),
 ) -> None:
     """Scaffold or sync a workspace with curate.yml and agent rules."""
+    # Interactive agent selection if --agent was not explicitly set
+    _agent_explicit = agent != "claude-code"  # detect non-default to skip prompt
+    paths = _resolve_root_or_die()
+    path = path.expanduser().resolve()
+
+    if not yes and _interactive() and not _agent_explicit:
+        agent_choice = typer.prompt(
+            "Agent runtime",
+            default="claude-code",
+            prompt_suffix=" [claude-code/codex/gemini-cli/none]: ",
+        ).strip() or "claude-code"
+        agent = agent_choice
+
     if agent not in VALID_AGENTS:
         _err(f"Invalid --agent '{agent}'. Use: {' | '.join(sorted(VALID_AGENTS))}")
         raise typer.Exit(code=1)
 
-    paths = _resolve_root_or_die()
-    path = path.expanduser().resolve()
     data = _collect_curate_template_data(
         path=path,
+        wiki_root=paths.root,
         yes=yes,
         project=project,
         description=description,
         domains=domains,
         topics=topics,
         min_confidence=min_confidence,
-        scope=scope,
     )
     result = prepare_workspace(
         wiki_root=paths.root,
@@ -4130,7 +4458,18 @@ def workspace_init(
         install_rules=not no_rules,
     )
     _print_workspace_prepare_result(result)
-    console.print(f"  Set WORKSPACE_PATH={path} before running the MCP server to enable scoped search.")
+    # Auto-register WORKSPACE_PATH in .claude/settings.json for Claude Code agents
+    if agent == "claude-code":
+        try:
+            from .workspace.provisioner import merge_mcp_settings
+            settings_path = paths.root / ".claude" / "settings.json"
+            merge_mcp_settings(settings_path, wiki_root=paths.root, workspace=path)
+            console.print(f"  [green]✓[/green] MCP settings updated at [dim].claude/settings.json[/dim]")
+        except Exception as e:
+            console.print(f"  [yellow]Warning:[/yellow] Could not update .claude/settings.json: {e}")
+            console.print(f"  Set WORKSPACE_PATH={path} before running the MCP server to enable scoped search.")
+    else:
+        console.print(f"  Set WORKSPACE_PATH={path} before running the MCP server to enable scoped search.")
 
 
 @workspace_app.command("list")
@@ -4152,7 +4491,7 @@ def workspace_list() -> None:
     table.add_column("Path", style="dim")
     table.add_column("Domains")
     table.add_column("min_confidence")
-    table.add_column("scope")
+    table.add_column("Exhibition")
 
     for ws_path, spec in workspaces:
         try:
@@ -4165,10 +4504,79 @@ def workspace_list() -> None:
             str(rel),
             domains,
             f"{spec.min_confidence:.2f}",
-            spec.scope,
+            spec.exhibition or "[dim]—[/dim]",
         )
 
     console.print(table)
+
+
+# ---------------------------------------------------------------------------
+# wiki persona commands
+# ---------------------------------------------------------------------------
+
+
+@persona_app.callback(invoke_without_command=True)
+def persona_main(ctx: typer.Context) -> None:
+    """Show or manage the vault persona."""
+    if ctx.invoked_subcommand is None:
+        _show_curator_persona()
+
+
+def _show_curator_persona() -> None:
+    paths = _resolve_root_or_die()
+    config = cfg.load_config(paths)
+    persona = cfg.get_curator_persona(config)
+    typer.echo(f"Area:                  {persona.get('area', '')}")
+    typer.echo(f"Text:                  {persona.get('text', '').splitlines()[0] if persona.get('text') else ''}")
+    typer.echo(f"Verification:          {persona.get('verification_philosophy', '')}")
+    typer.echo(f"Exhibition intent:     {persona.get('exhibition_intent', '')}")
+    conf = persona.get("confidence", {})
+    typer.echo(f"Confidence thresholds: high={conf.get('high_threshold', 0.85)}, low={conf.get('low_threshold', 0.55)}")
+    typer.echo(f"Last updated:          {persona.get('updated_at') or '(never)'}")
+
+
+@persona_app.command("update")
+def persona_update(
+    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="Workspace name under 01_Workspaces/"),
+) -> None:
+    """Re-run the persona interview and update config.yml or curate.yml."""
+    paths = _resolve_root_or_die()
+    config = cfg.load_config(paths)
+    client = _start_client(config)
+
+    if workspace:
+        ws_path = paths.root / "01_Workspaces" / workspace
+        curate_file = ws_path / "curate.yml"
+        if not curate_file.exists():
+            typer.echo(f"No curate.yml found at {curate_file}", err=True)
+            raise typer.Exit(1)
+        import yaml as _yaml
+        raw = _yaml.safe_load(curate_file.read_text(encoding="utf-8")) or {}
+        project = raw.get("project", workspace)
+        typer.echo(f"Updating Artist persona for: {project}")
+        persona = _run_artist_persona_wizard(client, project)
+        if persona is not None:
+            import datetime as _dt
+            persona["updated_at"] = _dt.datetime.now().isoformat()
+            raw["persona"] = persona
+            curate_file.write_text(
+                _yaml.dump(raw, sort_keys=False, default_flow_style=False, allow_unicode=True),
+                encoding="utf-8",
+            )
+            typer.echo(f"Artist persona updated in {curate_file}")
+        else:
+            typer.echo("Persona update skipped.")
+    else:
+        typer.echo("Updating Curator persona...")
+        persona = _run_curator_persona_wizard(client)
+        if persona is not None:
+            import datetime as _dt
+            persona["updated_at"] = _dt.datetime.now().isoformat()
+            config["persona"] = persona
+            cfg.save_config(paths, config)
+            typer.echo("Curator persona updated in config.yml")
+        else:
+            typer.echo("Persona update skipped.")
 
 
 # ---------------------------------------------------------------------------
@@ -4233,7 +4641,6 @@ def mcp_connect_cmd(
     domains: Optional[list[str]] = typer.Option(None, "--domain", help="Domain to add; repeat or comma-separate."),
     topics: Optional[list[str]] = typer.Option(None, "--topic", help="Topic to add; repeat or comma-separate."),
     min_confidence: float = typer.Option(0.60, "--min-confidence", help="curate.yml confidence floor."),
-    scope: str = typer.Option("all", "--scope", help="all | contexts | atoms | concepts | exhibitions."),
 ) -> None:
     """Prepare workspace rules and print an MCP snippet for one agent runtime."""
     if agent == "none" or agent not in VALID_AGENTS:
@@ -4244,13 +4651,13 @@ def mcp_connect_cmd(
     workspace = workspace.expanduser().resolve()
     data = _collect_curate_template_data(
         path=workspace,
+        wiki_root=paths.root,
         yes=yes,
         project=project,
         description=description,
         domains=domains,
         topics=topics,
         min_confidence=min_confidence,
-        scope=scope,
     )
     result = prepare_workspace(
         wiki_root=paths.root,
@@ -4358,11 +4765,13 @@ if __name__ == "__main__":
 def testbed_init(
     scenario: str = typer.Argument("testbed_template", help="Scenario name from scripts/dev/"),
     force: bool = typer.Option(False, "--force", "-f", help="Recreate the testbed."),
+    llm: Optional[str] = typer.Option(None, "--llm", help="Primary LLM provider (ollama|gemini-cli|cloud|claude-code)"),
+    model: Optional[str] = typer.Option(None, "--model", help="Specific model name to use for the provider."),
 ):
     """Initialize a testbed vault using a specific scenario."""
     from . import testbed_manager
     try:
-        root = testbed_manager.init_testbed(scenario, force=force)
+        root = testbed_manager.init_testbed(scenario, force=force, llm_provider=llm, llm_model=model)
         _ok(f"Testbed initialized at [bold]{root}[/bold] using scenario [cyan]{scenario}[/cyan].")
         _hint("Run commands with [bold]WIKI_ROOT=testbed wiki ...[/bold]")
     except Exception as e:

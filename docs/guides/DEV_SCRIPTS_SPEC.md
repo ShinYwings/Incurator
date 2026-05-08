@@ -1,36 +1,66 @@
-# Specification: Development Testbed Framework
+# Guide: Creating Development Testbed Scenarios
 
-This document defines the standard for creating and managing development validation environments (testbeds) in the InCurator project.
+This guide explains how to create and manage development validation scenarios (testbeds) to verify InCurator's behavior in isolated environments.
 
-## 1. Directory Structure
-All testbed scenarios must be located under `scripts/dev/` and follow this structure:
+## 1. Scenario Structure
+Every scenario lives in `scripts/dev/<scenario_name>/`. Use the `testbed_template` as your starting point.
 
 ```text
 scripts/dev/<scenario_name>/
-├── create_testbed.py       # Setup script
-├── MASTER_PLAN.md          # Scenario documentation
-├── stage/                  # Source corpus (Notes, Resources, etc.)
-│   └── 01_Workspaces/      # Workspace files
-│   └── 03_Notes/           # Sample human notes
-│   └── 04_Resources/       # External reference files
-├── fixture_workspace_rules/ # Custom agent rules for the testbed
-└── dialogues/              # Action scripts for automated testing
+├── MASTER_PLAN.md          # [Required] Goals and setup instructions
+├── stage/                  # [Required] The raw source files (L0)
+│   ├── 01_Workspaces/      # Workspace definitions (curate.yml)
+│   ├── 03_Notes/           # Sample markdown notes
+│   └── 04_Resources/       # Sample reference PDFs/HTML
+├── dialogues/              # [Optional] Automation scripts (.sh or .py)
+├── fixture_workspace_rules/ # [Optional] Agent rules for this scenario
+└── create_testbed.py       # [Legacy] Optional custom setup script
 ```
 
-## 2. The Setup Script (`create_testbed.py`)
-The setup script is responsible for:
-1. **Root Preparation**: Cleaning the project-root `testbed/` directory.
-2. **Seeding**: Copying the `stage/` fixture into `testbed/`.
-3. **Initialization**: Running a non-interactive `wiki init` equivalent (creating `.curator/`, DB, config).
-4. **Provisioning**: Installing agent rules from `fixture_workspace_rules/` into the testbed workspaces.
+## 2. Step-by-Step Creation
 
-## 3. Workflow
-To develop or validate a feature:
-1. **Choose/Create Scenario**: Use an existing folder in `scripts/dev/` or copy `testbed_template/`.
-2. **Initialize**: Run `python scripts/dev/<scenario_name>/create_testbed.py --force`.
-3. **Verify**: Use `WIKI_ROOT=testbed wiki ...` commands to perform validation as described in the scenario's `MASTER_PLAN.md`.
+### Step 1: Initialize the Folder
+Copy `scripts/dev/testbed_template` to `scripts/dev/my_scenario`.
+
+### Step 2: Define the Master Plan (`MASTER_PLAN.md`)
+This document is the identity of your scenario. It must describe:
+- **Scenario Name**: Clear title.
+- **Problem Statement**: What bug or feature are you testing?
+- **Validation Goals**: What are the success criteria? (e.g., "Atom ATM-123 must contain the specific logic derivation").
+
+### Step 3: Seed the Stage (`stage/`)
+Place the minimum set of files required to reproduce the behavior in `stage/`.
+- Use **anonymized** data. Never commit private notes.
+- Ensure at least one workspace exists in `01_Workspaces/` if you are testing `wiki curate`.
+
+### Step 4: Write Automation Dialogues (`dialogues/`)
+Dialogues automate the verification. 
+- Create `dialogues/verify_fix.sh`.
+- Use `WIKI_ROOT=testbed` for all commands.
+- **Example**:
+  ```bash
+  # 1. Reset and Init
+  wiki testbed init my_scenario --force
+  
+  # 2. Run Pipeline
+  WIKI_ROOT=testbed wiki add "03_Notes/bug_report.md"
+  WIKI_ROOT=testbed wiki sync
+  
+  # 3. Assert
+  if grep -q "Expected Insight" testbed/.curator/Collections/02_Atoms/*.md; then
+    echo "✓ Success"
+  else
+    echo "✗ Failed"
+    exit 1
+  fi
+  ```
+
+## 3. Execution Workflow
+1. **Discovery**: Run `wiki testbed list` to see your new scenario.
+2. **Initialization**: Run `wiki testbed init <name> --force`.
+3. **Execution**: Run your dialogue script manually: `bash scripts/dev/<name>/dialogues/verify_fix.sh`.
 
 ## 4. Best Practices
-- **Isolation**: Never modify files in `03_Notes/` or `04_Resources/` within the testbed assets; they are immutable inputs.
-- **Reproducibility**: Ensure the `create_testbed.py` script makes the environment identical every time it runs with `--force`.
-- **Sanitization**: Remove all personal information (names, private paths, actual internal notes) from testbed assets before committing.
+- **Minimize State**: Only include the files strictly necessary for the test.
+- **Doc-First**: The `MASTER_PLAN.md` should be clear enough for another developer to understand the test without reading the code.
+- **Clean Up**: If your test creates temporary files outside of `testbed/`, clean them up in the dialogue script.

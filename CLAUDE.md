@@ -122,14 +122,15 @@ pytest tests/test_db.py::test_source_deduplication -v
 hatch build
 
 # Recreate the ignored development validation vault
-python scripts/dev/testbed_assets/create_testbed.py --force
+# Optional: --llm <provider> --model <model_name>
+wiki testbed init <scenario_name> --force
 ```
 
 **CLI entry point** (after install):
 ```bash
 wiki init <path>        # Initialize a Curator vault
-wiki add <file>         # Parse source and generate L1 Context
-wiki curate             # Run full L2→L3→L4 LLM pipeline
+wiki add <file>         # Parse source and generate L1-L3 layers
+wiki curate             # Stage L4 Exhibitions for workspace
 wiki sync               # Verify DAG integrity, rebuild index/ledger
 wiki query "<question>" # Search and synthesize answer with citations
 wiki reindex            # Rebuild QMD search index
@@ -147,16 +148,13 @@ wiki sources list|show|rm  # Manage tracked source files
      │  wiki add
      ▼
 [ingest_raw.py] — parse via parsers/* → register in db.sources (content-hash dedup)
-     │  LLM pass → generate L1
+     │  LLM pass → generate L1-L3
      ▼
 [01_Contexts/CTX-<UUID>.md]
-     │  wiki curate / Phase A (per-source)
-     ▼
 [02_Atoms/ATM-<UUID>.md]       ← atomic facts extracted by LLM
-     │  Phase B (global clustering)
-     ▼
 [03_Concepts/CON-<UUID>.md]    ← cross-source thematic groupings
-     │  Phase C (global synthesis)
+     │
+     │  wiki curate (workspace scoped)
      ▼
 [04_Exhibitions/EXH-<UUID>.md] ← terminal context packages for agents
      │
@@ -224,26 +222,34 @@ When discussing or changing the system architecture, use these areas as the sour
 
 Treat older root-level specs as historical unless the user explicitly points to them for comparison.
 
-## Critical Invariants
+## v0.1.0 Invariants
 
-- **Node IDs are prefixed UUIDs** (`CTX-`, `ATM-`, `CON-`, `EXH-`), never human slugs. Human-readable titles live in frontmatter only.
-- **Pipeline is sequential, not parallel**: Phase B (clustering) must run after all Phase A (atom) outputs are complete, because concepts are cross-source constructs.
-- **`03_Notes/` and `06_Archives/` are immutable** from the curator's perspective. Contradictions must be escalated to the human (HITL), never auto-resolved by modifying original notes.
-- **`state.sqlite` is the source of truth** for deduplication and provenance — do not bypass `db.py` functions to write pages directly.
-- **QMD binary** (`src/qmd/bin/`) is a bundled native binary installed via `scripts/hatch_build.py`, not a Python package. `wiki reindex` must be run after bulk changes before `wiki query` will see new content.
-- **LLM backend selection** happens at CLI startup in `cli.py`; downstream code receives a pre-constructed `FailoverClient`. Do not call provider SDKs directly from pipeline modules.
+- The Curator DAG layers are `01_Contexts`, `02_Atoms`, `03_Concepts`, and `04_Exhibitions`.
+- Valid node prefixes are `CTX-`, `ATM-`, `CON-`, and `EXH-`.
+- `qmd.yml` or qmd `index.yml` is search-engine configuration. `curate.yml` is the workspace Knowledge Requirement Specification.
+- `03_Notes/` is human-verified source truth. Do not edit it autonomously.
+- `04_Resources/` and `06_Archives/` are read-only source/reference spaces.
+- `.curator/` is machine-readable Curator state. Modify it only through the project code or explicit testbed setup scripts.
+- Exclude `src/qmd/**` from incurator v0.1.0 legacy sweeps unless the task is explicitly about qmd itself.
 
-## Testing
+## Multi-Agent Development Roles
 
-Use `/home/shin/Workspace/llm_wiki/testbed` for testbed-driven development against a live vault. For every feature addition, bug fix, removal, migration, or system-rule update, reproduce or validate the scenario in `testbed/` whenever practical, then rerun the same check after the change.
+When a change is broad, split review or implementation thinking into these roles and then integrate the result in one coherent patch:
 
-Baseline:
+- `schema_guardian`: checks v0.1.0 schema, layer names, prefixes, and frontmatter shape.
+- `source_pair_analyst`: checks that `03_Notes/Papers` notes and `04_Resources` references can merge into shared higher-level DAG concepts.
+- `topic_boundary_checker`: checks that unrelated `02_Wiki` topics remain distinguishable from the paper/resource topic.
+- `cli_regression_runner`: checks `wiki init/status/add/curate/lint/reindex/query` smoke behavior in the testbed.
+- `local_slm_simulator`: when the primary cloud LLM validation is too slow or unavailable, quickly simulates the expected small-model judgment using the seeded testbed Collections and source files. It must stay conservative and mark uncertain claims as "needs real LLM validation".
+- `legacy_sweeper`: searches for qmd-excluded legacy terms and stale docs.
 
-```bash
-python scripts/dev/testbed_assets/create_testbed.py --force
-WIKI_ROOT=testbed wiki status
-WIKI_ROOT=testbed wiki add
-WIKI_ROOT=testbed wiki sync
-```
+As the orchestrator, gather these findings, avoid conflicting edits, and report a concise verification result.
 
-When qmd and the configured LLM backend are available, also run `WIKI_ROOT=testbed wiki reindex` and a relevant `wiki query` smoke test.
+## Simulated LLM Fallback
+
+Use the primary LLM backend first for LLM-sensitive changes. If it is too slow or blocked, run the `local_slm_simulator` role as a fast approximation:
+
+- Compare the seeded L1-L4 testbed pages against the raw scenario files.
+- Verify that paper/resource claims merge above L1 and that the RAG page remains a separate topic.
+- Prefer short, explicit reasoning over exhaustive analysis.
+- Clearly label the result as simulated validation, not a replacement for a later real model run.

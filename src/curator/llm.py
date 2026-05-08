@@ -1,9 +1,5 @@
 """LLM client layer — supports Ollama (local) and Gemini (cloud) backends.
 
-RAM-based auto-selection at startup:
-  < 16 GB  →  Gemini API  (gemini-2.0-flash  /  gemini-2.0-flash-thinking-exp)
-  ≥ 16 GB  →  Ollama      (deepseek-r1:14b)
-
 Both clients expose the same interface:
   .chat()         — non-streaming, returns str
   .chat_stream()  — streaming generator, yields chunks
@@ -83,7 +79,7 @@ def has_enough_ram_for_local() -> bool:
 # ---------------------------------------------------------------------------
 
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
-DEFAULT_OLLAMA_MODEL = "deepseek-r1:14b"
+DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 DEFAULT_GEMINI_FLASH_MODEL = "gemini-3.1-flash-lite-preview"
 DEFAULT_GEMINI_THINK_MODEL = "gemini-3.1-pro-preview"
 DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
@@ -113,12 +109,12 @@ VISION_CAPABLE_KEYWORDS: frozenset[str] = frozenset({
     "pixtral",          # Pixtral 12B
     "mistral-pixtral",  # (Keyword variation)
     
-    # (llama.cpp 등에서 커스텀 GGUF로 구동해야 하는 실존 모델들)
+    # (Real-world models that require custom GGUF for llama.cpp, etc.)
     "qwen2-vl",         # Qwen2-VL
     "qwen2.5-vl",       # Qwen2.5-VL
     "cogvlm",           # CogVLM
     "internvl",         # InternVL
-    "phi3-vision",      # Phi-3 Vision (보통 llava-phi3로 대체됨)
+    "phi3-vision",      # Phi-3 Vision (usually replaced by llava-phi3)
     "phi-3-vision",
     "deepseek-vl",      # DeepSeek-VL
     "idefics",          # IDEFICS

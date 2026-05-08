@@ -194,7 +194,7 @@ DEFAULT_CONFIG: dict = {
     },
     "llm": {
         # --- Ollama settings ---
-        "model": "deepseek-r1:14b",
+        "model": "qwen2.5:7b",
         "host": "http://localhost:11434",
         # --- Gemini settings ---
         # API key can also be set via GEMINI_API_KEY environment variable
@@ -243,7 +243,29 @@ DEFAULT_CONFIG: dict = {
         "auto_update_log": True,
         "log_retention_days": 30,
     },
+    "persona": {
+        "area": "STEM",
+        "text": (
+            "Scientific and technical research vault.\n"
+            "Focus on formal derivability, mathematical rigor, and algorithmic correctness.\n"
+            "Primary artifacts: research papers, equations, algorithms, experimental results."
+        ),
+        "knowledge_artifacts": ["equations", "algorithms", "research papers", "experimental results"],
+        "verification_philosophy": "mathematical derivability and citation-based evidence",
+        "exhibition_intent": "knowledge-worker",
+        "confidence": {
+            "high_threshold": 0.85,
+            "low_threshold": 0.55,
+        },
+        "disambiguation_keywords": ["Architecture", "Optimization", "Algorithm", "Theory", "Implementation"],
+        "updated_at": "",
+    },
 }
+
+
+def get_curator_persona(config: dict) -> dict:
+    """Return the Curator (vault-level) persona dict, falling back to DEFAULT_CONFIG persona."""
+    return config.get("persona") or DEFAULT_CONFIG["persona"]
 
 
 def get_global_config_dir() -> Path:

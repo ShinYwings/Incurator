@@ -146,7 +146,66 @@ question: "original query"
 
 Saved L4 pages must always have non-empty `core_concepts`. Query save-back resolves cited Atoms/Contexts to related Concepts before writing an Exhibition.
 
-## 4. Installation & Getting Started
+## 4. Persona System
+
+The persona system bridges the general-purpose curation engine with domain-specific knowledge work. It has two tiers that compose at runtime.
+
+### 4.1 Two-Tier Architecture
+
+**Curator Persona** — stored in `.curator/config.yml` under the `persona:` key. Set during `wiki init` via a multi-turn LLM interview. Applies vault-wide.
+
+Fields:
+
+- `area`: broad knowledge area (e.g., STEM, Humanities, Law, Medicine)
+- `text`: free-text description of the user's knowledge focus and goals
+- `knowledge_artifacts`: list of primary artifact types produced (papers, code, reports, etc.)
+- `verification_philosophy`: how strictly claims should be verified
+- `exhibition_intent`: always `"knowledge-worker"` at Curator level
+- `confidence`: sub-object with `high_threshold` (float) and `low_threshold` (float)
+- `disambiguation_keywords`: list of domain-specific terms to disambiguate concepts
+- `updated_at`: ISO 8601 timestamp of last update
+
+**Artist Persona** — stored in `curate.yml` under the `persona:` key. Created during the first `wiki curate --workspace <name>` run or via `wiki persona update --workspace <name>`. Overrides Curator persona fields for that workspace.
+
+Fields:
+
+- `domain`: primary domain string (e.g., "computer-vision")
+- `subdomain`: more specific focus area (e.g., "neural-radiance-fields")
+- `text`: free-text description of the workspace's knowledge goal
+- `exhibition_intent`: `"researcher"` | `"engineer"` | `"learner"`
+- `disambiguation_keywords`: workspace-specific disambiguation terms
+- `confidence`: sub-object with `high_threshold` and `low_threshold` (overrides Curator)
+- `updated_at`: ISO 8601 timestamp of last update
+
+### 4.2 Injection Points
+
+| Pipeline Stage | Persona Used | How Applied |
+| --- | --- | --- |
+| `wiki sync` verification | Curator `text` | Prepended as domain context to verification prompts |
+| `wiki query` synthesis | Curator `text` | Prepended as agent context to synthesis prompt |
+| L3 Concept generation | Artist `text` + `domain` | Guides concept clustering and naming |
+| L4 Exhibition generation | Artist `exhibition_intent` + `text` | Shapes exhibit format and detail level |
+| Exhibition confidence pre-filter | Artist `confidence` thresholds | Overrides Curator thresholds for `min_confidence` |
+| Concept disambiguation | Artist `disambiguation_keywords` | Applied during L3 clustering to avoid false merges |
+
+When no `curate.yml` is present (e.g., `wiki query` without a workspace), the Curator persona is the sole context.
+
+### 4.3 Evolution Mechanism
+
+- `wiki add` accumulates source domains to signal vault knowledge drift.
+- `wiki persona update` refines the Curator persona using accumulated knowledge as context.
+- `wiki persona update --workspace <name>` refines the Artist persona for that workspace.
+- Default behavior when no persona is configured: STEM defaults (`confidence.high_threshold = 0.85`, `confidence.low_threshold = 0.55`).
+
+### 4.4 CLI Commands
+
+```text
+wiki persona                          Show the current Curator persona.
+wiki persona update                   Re-run the Curator persona interview.
+wiki persona update --workspace NAME  Update the Artist persona for NAME.
+```
+
+## 5. Installation & Getting Started
 
 ```bash
 chmod +x install.sh
@@ -200,7 +259,22 @@ The `wiki sync` command is the single public command for maintaining consistency
 
 ### 5.4 wiki query — Session Flow
 
-`wiki query` is for user-session Q&A without a workspace agent. By default, non-interactive query runs do not leave an Exhibition. If `--save-as` is provided, the answer is saved as an L4 query Exhibition with `QRY-*` session metadata and validated Concept links.
+`wiki query` is for user-session Q&A without a workspace agent.
+
+```text
+--save-as "title"   Save the answer as a persistent L4 Exhibition (ephemeral: false).
+                    Frontmatter includes query_session (QRY-UUID8), workspace (if set),
+                    and question. Requires at least one reachable L3 Concept.
+
+--curate            Create and accumulate a session-scoped Exhibition (ephemeral: true).
+                    First answer creates the Exhibition; each follow-up appends a
+                    ## Follow-up: <question> section and merges core_concepts.
+                    At session end the user is prompted to keep (sets ephemeral: false)
+                    or discard (deletes file, rebuilds index). Silently skipped if no
+                    L3 Concepts are reachable from the query hits.
+```
+
+By default (no flag), non-interactive query runs do not leave an Exhibition.
 
 ## 6. Workflow Rules
 
@@ -312,13 +386,34 @@ Additionally, `curate.yml`'s `min_confidence` provides a workspace-level pre-fil
 
 ## 9. MCP Tools Reference
 
+```text
 search_curator(query, scope, mode, limit, min_score)
   Auto-detects workspace curate.yml via WORKSPACE_PATH env var.
   Applies domain/topic/min_confidence filters from curate.yml when present.
   scope: 'all' | 'contexts' | 'atoms' | 'concepts' | 'exhibitions'
+  On first call for a workspace with no Exhibition, auto-triggers wiki curate --workspace.
+
+curator_status()
+  Returns vault_root, qmd_ready, total_pages.
+
+curator_layer_index()
+  Returns count and sample IDs for each layer (context, atom, concept, exhibition).
+
+curator_get_node(node_id)
+  Returns body and frontmatter for any CTX/ATM/CON/EXH node.
+
+curator_update_node(node_id, new_content)
+  Writes new_content to the node file, rebuilds routing tables, returns gaps list.
+
+curator_curate_workspace(workspace_path?)
+  Create or refresh the L4 Exhibition for a workspace by running wiki curate --workspace.
+  workspace_path defaults to the WORKSPACE_PATH env var.
+  Returns {ok: true, exhibition: "EXH-xxxx.md"} or {error: "..."}.
+  Call this after curator_update_node or when search_curator finds no Exhibition.
 
 curator_curate_context(context_id)
   Re-run the L1→L3 compilation pipeline for a single source.
+```
 
 ---
 This specification defines the operational contract for InCurator v0.1.0.

@@ -23,9 +23,9 @@ INTENT_SYSTEM_PROMPT = """You are an intent classifier for a personal knowledge 
 base. The user can ask questions that fall into three categories:
 
 1. WIKI — questions seeking factual or thematic information that would be \
-answered by searching documents. Examples: 'what is RAG', 'how does X relate \
-to Y', 'summarize the main themes', 'when is the deadline for X', 'who \
-mentioned X', 'compare A and B', any specific factual lookup or research \
+answered by searching documents. Examples: 'what is X', 'how does X relate \
+to Y', 'summarize the main themes', 'when is the deadline for project X', 'who \
+mentioned concept Y', 'compare A and B', any specific factual lookup or research \
 question.
 
 2. CHITCHAT — greetings, small talk, meta-questions about the assistant \
@@ -33,8 +33,8 @@ itself, or casual conversation. Examples: 'hi', 'hello', 'how are you', \
 'thanks', 'good morning', 'what can you do', 'are you there', 'goodbye'.
 
 3. PROMOTE — the user wants to save/promote/publish the last answer to the \
-wiki knowledge base. Examples: '승격해줘', '위키에 저장해줘', '02_wiki로 저장', \
-'wiki에 올려줘', 'save this to wiki', 'promote to wiki', 'save the answer', \
+wiki knowledge base. Examples: 'save this', 'add to wiki', 'store in 02_wiki', \
+'promote this answer', 'save this to wiki', 'promote to wiki', 'save the answer', \
 'can you save that', 'archive this'.
 
 Bias toward WIKI when uncertain — wasting one search is better than missing \

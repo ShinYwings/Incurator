@@ -310,6 +310,29 @@ def _save_curation_page(
     return f"04_Exhibitions/{exh_id}.md"
 
 
+def update_curation_page(
+    paths: cfg.WikiPaths,
+    exh_path: Path,
+    question: str,
+    answer: str,
+    hits: list[search.SearchHit],
+) -> None:
+    """Append a new Q&A turn to an existing session Exhibition and refresh metadata."""
+    today = page_writer.today_iso()
+    page = page_writer.read_page(exh_path)
+    if page is None:
+        return
+    new_concepts = _derive_core_concepts(paths, answer, hits)
+    existing = page.frontmatter.get("core_concepts") or []
+    merged = list(dict.fromkeys(existing + new_concepts))
+    page.frontmatter["core_concepts"] = merged
+    page.frontmatter["last_updated"] = today
+    if answer.strip():
+        page.body = page.body.rstrip() + f"\n\n## Follow-up: {question}\n\n{answer.strip()}"
+    page_writer.write_page(exh_path, page.to_markdown())
+    page_writer.rebuild_index(paths, today)
+
+
 def translate_to_english(client: OllamaClient, question: str) -> str:
     """Translate the question to English for BM25/vector search.
 
@@ -350,9 +373,9 @@ def classify_wiki_topic(
     prompt = (
         "Based on the Q&A below, provide:\n"
         "1. category: a short PascalCase folder name in English "
-        "(e.g. \"LLM\", \"ComputerGraphics\", \"MachineLearning\", \"Mathematics\").\n"
+        "(e.g. \"Domain\", \"Field\", \"SubTopic\").\n"
         "2. slug: a lowercase, hyphenated article filename in English, max 60 chars "
-        "(e.g. \"photometric-loss\", \"gaussian-splatting\").\n\n"
+        "(e.g. \"core-concept\", \"method-name\").\n\n"
         f"Question: {question}\n\n"
         f"Answer (first 600 chars):\n{answer[:600]}\n\n"
         "Reply with JSON only: {\"category\": \"...\", \"slug\": \"...\"}"
@@ -423,7 +446,7 @@ def run_query(
     *,
     mode: str = "hybrid",
     limit: int = 8,
-    min_score: float = 0.0,
+    min_score: float = 0.6,
     rerank: bool = True,
     save_as: str | None = None,
     temperature: float = 0.3,
@@ -531,10 +554,13 @@ def run_query(
 
     # 2. Synthesize
     callbacks.on_synthesizing()
+    curator_persona = cfg.get_curator_persona(cfg.load_config(paths))
+    agent_context = curator_persona.get("text", "")
+    synthesis_user_content = _build_synthesis_user_prompt(question, results)
+    if agent_context:
+        synthesis_user_content = f"## Agent Context\n{agent_context}\n\n{synthesis_user_content}"
     system_msg = prompts.ChatMessage(role="system", content=SYNTHESIS_SYSTEM_PROMPT)
-    user_msg = prompts.ChatMessage(
-        role="user", content=_build_synthesis_user_prompt(question, results)
-    )
+    user_msg = prompts.ChatMessage(role="user", content=synthesis_user_content)
     messages = [system_msg, user_msg]
 
     answer_parts: list[str] = []
