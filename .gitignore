@@ -25,3 +25,5 @@ Thumbs.db
 # Dev/testbed stage fixture source corpus
 scripts/dev/GS_Testbed/
 testbed/
+
+*.lockuv.lock
