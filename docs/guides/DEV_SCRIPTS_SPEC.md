@@ -36,15 +36,15 @@ Place the minimum set of files required to reproduce the behavior in `stage/`.
 ### Step 4: Write Automation Dialogues (`dialogues/`)
 Dialogues automate the verification. 
 - Create `dialogues/verify_fix.sh`.
-- Use `WIKI_ROOT=testbed` for all commands.
+- Use `VAULT_ROOT=testbed` for all commands.
 - **Example**:
   ```bash
   # 1. Reset and Init
   wiki testbed init my_scenario --force
   
   # 2. Run Pipeline
-  WIKI_ROOT=testbed wiki add "03_Notes/bug_report.md"
-  WIKI_ROOT=testbed wiki sync
+  VAULT_ROOT=testbed wiki add "03_Notes/bug_report.md"
+  VAULT_ROOT=testbed wiki sync
   
   # 3. Assert
   if grep -q "Expected Insight" testbed/.curator/Collections/02_Atoms/*.md; then

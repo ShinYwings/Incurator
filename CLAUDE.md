@@ -91,6 +91,14 @@ For multi-step tasks, state a brief plan:
 Strong success criteria let you loop independently. Weak criteria ("make it
 work") require constant clarification.
 
+### 5. Environment Integrity
+
+**Always revert testbed-specific changes. Production paths are sacred.**
+
+- If you temporarily point `VAULT_ROOT` or `vault_root` to `testbed/` for validation, you MUST revert it to the original production path (e.g., `second_brain`) before ending the turn.
+- Do not leave configuration files in a "test" state.
+- If you change a path for debugging, double-check that it is restored to the user's workspace context.
+
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer
 rewrites due to overcomplication, and clarifying questions come before
 implementation rather than after mistakes.
@@ -98,6 +106,23 @@ implementation rather than after mistakes.
 ## Project Overview
 
 Incurator is an LLM-maintained personal knowledge base (Zettelkasten) integrated with Obsidian. It ingests external sources through a 4-layer curation pipeline (L1 Contexts → L2 Atoms → L3 Concepts → L4 Exhibitions) using a multi-provider LLM backend, building a verifiable cross-linked knowledge graph accessible to both humans and AI agents.
+
+## Core Rule: Testbed-Driven Development
+
+All feature additions, bug fixes, migrations, and system rule changes must be validated in the `testbed/` vault which simulates a real environment. 
+
+### Testbed Scenario Management
+The standard scenario template for development and validation is located at `scripts/dev/`. 
+Each scenario is contained in its own folder (e.g., `scripts/dev/testbed_template/`). 
+Agents should refer to the specific scenario's `MASTER_PLAN.md` to understand the domain and validation goals.
+
+- **Standard Template**: `scripts/dev/testbed_template/` is the blueprint for creating new scenarios, but it is rarely the active one.
+- **Scenario Discovery**: Because developers often use custom, `.gitignore`d scenario folders (e.g., `GS_Testbed`), the agent MUST first identify or ask the USER which scenario folder under `scripts/dev/` is currently active. Do not blindly default to `testbed_template`.
+- **Initialization Requirement**: If the `testbed/` directory does not exist, the agent MUST initialize it using the active scenario's name (`wiki testbed init <scenario_name>`). If the USER explicitly refuses, the agent may skip testbed validation but must report the risk of unverified changes.
+- **Before Action**: Before changing behavior, reproduce or describe the failing scenario using `testbed/` or the active scenario assets.
+- **After Action**: After changing behavior, run the same scenario again and report the result.
+- **Blockers**: If a dependency is unavailable, report the exact blocker and run every lower-level validation that does not need that dependency.
+- **Completion Criteria**: Do not treat a query/search change as complete until it has been checked with the testbed, or until the qmd/LLM blocker is documented.
 
 ## Development Commands
 
@@ -124,10 +149,10 @@ hatch build
 # Recreate the ignored development validation vault
 # Optional: --llm <provider> --model <model_name>
 wiki testbed init <scenario_name> --force
-WIKI_ROOT=testbed wiki status
-WIKI_ROOT=testbed wiki add
-WIKI_ROOT=testbed wiki sync
-WIKI_ROOT=testbed wiki lint
+VAULT_ROOT=testbed wiki status
+VAULT_ROOT=testbed wiki add
+VAULT_ROOT=testbed wiki sync
+VAULT_ROOT=testbed wiki lint
 ```
 
 **CLI entry point** (after install):

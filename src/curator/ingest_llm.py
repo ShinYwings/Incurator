@@ -664,6 +664,7 @@ def _enforce_exhibition_contract(
     exh_id: str,
     plan: SynthesisPlan,
     today: str,
+    workspace: str | None = None,
 ) -> str:
     content = page_writer.strip_llm_noise(content)
     if _is_llm_refusal(content):
@@ -685,6 +686,8 @@ def _enforce_exhibition_contract(
     }
     if plan.domain:
         fm["domain"] = plan.domain
+    if workspace:
+        fm["workspace"] = workspace
     parsed.frontmatter = fm
     body = _strip_embedded_frontmatter(parsed.body or "")
     allowed_targets = {f"03_Concepts/{cid}" for cid in concept_ids}
@@ -704,7 +707,322 @@ def _enforce_exhibition_contract(
     return parsed.to_markdown()
 
 
-def _run_pass1_atoms(
+def _run_atom_coordinator(
+    paths: cfg.WikiPaths,
+    client,
+    new_atom_ids: list[str],
+) -> int:
+    """Detect and merge semantically duplicate atoms after L2 extraction.
+
+    Compares newly created atoms against each other and against existing atoms
+    in the same domain. Returns the count of merges performed.
+    """
+    if len(new_atom_ids) < 2:
+        return 0
+
+    today = _now_iso()
+
+    # --- Build summary strings for new atoms ---
+    def _atom_summary(atom_path: Path) -> str | None:
+        parsed = page_writer.read_page(atom_path)
+        if not parsed:
+            return None
+        fm = parsed.frontmatter
+        atom_id = atom_path.stem
+        name = fm.get("name") or fm.get("title") or atom_id
+        domain = fm.get("domain") or ""
+        one_liner = fm.get("one_liner") or ""
+        return f"- {atom_id}: [{domain}] {name} — {one_liner}"
+
+    # Group new atoms by domain
+    domain_to_new: dict[str, list[str]] = {}
+    for atom_id in new_atom_ids:
+        atom_path = paths.atoms / f"{atom_id}.md"
+        if not atom_path.exists():
+            continue
+        parsed = page_writer.read_page(atom_path)
+        if not parsed:
+            continue
+        domain = parsed.frontmatter.get("domain") or "general"
+        domain_to_new.setdefault(domain, []).append(atom_id)
+
+    total_merges = 0
+
+    for domain, new_ids in domain_to_new.items():
+        # New atoms summary
+        new_lines = [
+            s for aid in new_ids
+            if (s := _atom_summary(paths.atoms / f"{aid}.md")) is not None
+        ]
+        if len(new_lines) < 1:
+            continue
+
+        # Existing atoms in same domain (excluding new ones), capped at 50
+        existing_lines: list[str] = []
+        if paths.atoms.exists():
+            new_id_set = set(new_ids)
+            for md in paths.atoms.glob("*.md"):
+                if md.stem in new_id_set:
+                    continue
+                parsed = page_writer.read_page(md)
+                if not parsed:
+                    continue
+                if parsed.frontmatter.get("domain") != domain:
+                    continue
+                s = _atom_summary(md)
+                if s:
+                    existing_lines.append(s)
+                if len(existing_lines) >= 50:
+                    break
+
+        # Skip coordinator if nothing to compare against
+        all_ids = new_ids + [line.split(":")[0].strip("- ") for line in existing_lines]
+        if len(all_ids) < 2:
+            continue
+
+        messages = prompts.build_atom_coordinator_messages(
+            new_atoms_summary="\n".join(new_lines),
+            existing_atoms_summary="\n".join(existing_lines),
+            domain=domain,
+        )
+        try:
+            response = client.chat(messages, temperature=0.1)
+            content = response.content if hasattr(response, "content") else str(response)
+        except Exception:
+            continue
+
+        # Parse merge_pairs from response
+        import json as _json, re as _re
+        match = _re.search(r'\{.*\}', content, _re.DOTALL)
+        if not match:
+            continue
+        try:
+            result = _json.loads(match.group())
+        except Exception:
+            continue
+
+        for pair in result.get("merge_pairs", []):
+            keep_id = pair.get("keep_id", "")
+            absorb_id = pair.get("absorb_id", "")
+            if not keep_id or not absorb_id:
+                continue
+            keep_path = paths.atoms / f"{keep_id}.md"
+            absorb_path = paths.atoms / f"{absorb_id}.md"
+            if not keep_path.exists() or not absorb_path.exists():
+                continue
+
+            # Merge: incorporate absorb content into keep via LLM
+            absorb_parsed = page_writer.read_page(absorb_path)
+            keep_parsed = page_writer.read_page(keep_path)
+            if not absorb_parsed or not keep_parsed:
+                continue
+
+            absorb_fm = absorb_parsed.frontmatter
+            keep_content = keep_parsed.to_markdown()
+
+            # context_ids from absorbed atom
+            absorb_ctx = absorb_fm.get("context_ids") or []
+            if isinstance(absorb_ctx, str):
+                absorb_ctx = [absorb_ctx]
+            absorb_relpath = absorb_fm.get("source_path") or ""
+
+            try:
+                merge_messages = prompts.build_merge_atom_messages(
+                    existing_content=keep_content,
+                    name=absorb_fm.get("name") or absorb_fm.get("title") or absorb_id,
+                    new_context_id=absorb_ctx[0] if absorb_ctx else "",
+                    new_source_path=absorb_relpath,
+                    new_description=absorb_fm.get("one_liner") or "",
+                    excerpt="",
+                    today=today,
+                )
+                merged_content = client.chat(merge_messages, temperature=0.2)
+                merged_text = merged_content.content if hasattr(merged_content, "content") else str(merged_content)
+            except Exception:
+                continue
+
+            if merged_text:
+                keep_path.write_text(merged_text, encoding="utf-8")
+                absorb_path.unlink(missing_ok=True)
+                total_merges += 1
+
+    return total_merges
+
+
+def _process_one_atom(
+    paths: cfg.WikiPaths,
+    client,
+    candidate: "AtomCandidate",
+    context_id: str,
+    relpath: str,
+    excerpt: str,
+    today: str,
+    staging: Path,
+    context_hint: str = "",
+) -> tuple[Path, Path, "PageChange"]:
+    """Process a single AtomCandidate → (staged_path, final_path, PageChange).
+
+    Thread-safe: uses client.chat() (not streaming), writes to a unique staging file.
+    context_hint is an optional focus note from the Orchestrator.
+    """
+    atom_id, exists = _find_existing_atom(paths, candidate.name)
+    final_path = paths.atoms / f"{atom_id}.md"
+    staged_path = staging / f"02_Atoms__{atom_id}.md"
+
+    if exists:
+        existing_content = page_writer.read_page(final_path)
+        existing_md = existing_content.to_markdown() if existing_content else ""
+        messages = prompts.build_merge_atom_messages(
+            existing_content=existing_md,
+            name=candidate.name,
+            new_context_id=context_id,
+            new_source_path=relpath,
+            new_description=candidate.one_liner,
+            excerpt=excerpt,
+            today=today,
+        )
+    else:
+        # Prepend context_hint to the excerpt if provided
+        scoped_excerpt = (f"[Focus: {context_hint}]\n\n" + excerpt) if context_hint else excerpt
+        messages = prompts.build_fragment_page_messages(
+            fragment_id=atom_id,
+            name=candidate.name,
+            fragment_type=candidate.type,
+            one_liner=candidate.one_liner,
+            context_id=context_id,
+            source_path=relpath,
+            excerpt=scoped_excerpt,
+            today=today,
+        )
+
+    # Use non-streaming chat for thread safety
+    raw = client.chat(messages, thinking=False, temperature=0.3)
+    content = page_writer.strip_llm_noise(raw if isinstance(raw, str) else (raw.content if hasattr(raw, "content") else str(raw)))
+    content = page_writer.sanitize_wikilinks(content)
+    if not content:
+        raise LLMError(f"Empty response for atom '{candidate.name}'")
+    content = _enforce_atom_contract(
+        content,
+        atom_id=atom_id,
+        candidate=candidate,
+        context_id=context_id,
+        relpath=relpath,
+        today=today,
+    )
+    staged_path.write_text(content, encoding="utf-8")
+    operation = "updated" if exists else "created"
+    change = PageChange(
+        id=atom_id,
+        path=f"02_Atoms/{atom_id}.md",
+        layer="02_Atoms",
+        operation=operation,
+    )
+    return staged_path, final_path, change
+
+
+def _run_orchestrator_plan(
+    summary_data: "SummaryData",
+    client,
+    paths: cfg.WikiPaths,
+) -> list[dict] | None:
+    """Ask LLM to decompose atom_candidates into parallel extraction tasks.
+
+    Returns list of task dicts with keys: candidates (list[str]), context_hint (str).
+    Returns None on any failure (caller falls back to sequential processing).
+    """
+    candidates_summary = "\n".join(
+        f"- {c.name}: {c.one_liner}" for c in summary_data.atom_candidates
+    )
+    # Collect existing atoms in same domain (names + one_liners only, cap at 30)
+    existing_lines: list[str] = []
+    if paths.atoms.exists():
+        for md in paths.atoms.glob("*.md"):
+            parsed = page_writer.read_page(md)
+            if not parsed:
+                continue
+            if parsed.frontmatter.get("domain") != summary_data.domain:
+                continue
+            name = parsed.frontmatter.get("name") or parsed.frontmatter.get("title") or md.stem
+            one_liner = parsed.frontmatter.get("one_liner") or ""
+            existing_lines.append(f"- {name}: {one_liner}")
+            if len(existing_lines) >= 30:
+                break
+
+    messages = prompts.build_atom_orchestrator_messages(
+        source_title=summary_data.title,
+        domain=summary_data.domain,
+        candidates_summary=candidates_summary,
+        existing_atoms_summary="\n".join(existing_lines),
+    )
+    try:
+        raw = client.chat(messages, temperature=0.1, json_mode=True)
+        content = raw if isinstance(raw, str) else (raw.content if hasattr(raw, "content") else str(raw))
+    except Exception:
+        return None
+
+    import json as _json, re as _re
+    match = _re.search(r'\{.*\}', content, _re.DOTALL)
+    if not match:
+        return None
+    try:
+        parsed = _json.loads(match.group())
+    except Exception:
+        return None
+
+    tasks = parsed.get("tasks")
+    if not isinstance(tasks, list) or not tasks:
+        return None
+
+    # Validate: every candidate name must appear in exactly one task
+    candidate_names = {c.name for c in summary_data.atom_candidates}
+    covered: set[str] = set()
+    for task in tasks:
+        if not isinstance(task.get("candidates"), list):
+            return None
+        covered.update(task["candidates"])
+
+    # If coverage is incomplete, add uncovered candidates to a catch-all task
+    uncovered = candidate_names - covered
+    if uncovered:
+        tasks.append({"candidates": list(uncovered), "context_hint": ""})
+
+    return tasks
+
+
+def _extract_atoms_for_task(
+    task: dict,
+    paths: cfg.WikiPaths,
+    client,
+    summary_data: SummaryData,
+    context_id: str,
+    relpath: str,
+    excerpt: str,
+    today: str,
+    staging: Path,
+) -> list[tuple[Path, Path, PageChange]]:
+    """Process all candidates in one orchestrator task using scope + context_hint.
+
+    Thread-safe: called from ThreadPoolExecutor workers.
+    scope frames the topic domain; context_hint focuses extraction within that scope.
+    """
+    scope = task.get("scope", "")
+    hint = task.get("context_hint", "")
+    combined_hint = f"[Scope: {scope}] {hint}".strip() if scope else hint
+
+    name_to_candidate = {c.name: c for c in summary_data.atom_candidates}
+    results: list[tuple[Path, Path, PageChange]] = []
+    for cname in task.get("candidates", []):
+        candidate = name_to_candidate.get(cname)
+        if candidate is None:
+            continue
+        results.append(_process_one_atom(
+            paths, client, candidate, context_id, relpath, excerpt, today, staging,
+            context_hint=combined_hint,
+        ))
+    return results
+
+
+def _run_sequential_atoms(
     paths: cfg.WikiPaths,
     client,
     callbacks: IngestCallbacks,
@@ -715,19 +1033,12 @@ def _run_pass1_atoms(
     today: str,
     staging: Path,
 ) -> list[tuple[Path, Path, PageChange]]:
-    """Draft L2 Atom pages for all atom_candidates in summary_data."""
+    """Sequential fallback: one atom at a time with streaming output."""
     staged: list[tuple[Path, Path, PageChange]] = []
-
-    callbacks.on_pass1_start(len(summary_data.atom_candidates))
-
     for candidate in summary_data.atom_candidates:
         atom_id, exists = _find_existing_atom(paths, candidate.name)
-        operation = "updated" if exists else "created"
-        callbacks.on_fragment_drafting(atom_id, candidate.name, operation)
-
         final_path = paths.atoms / f"{atom_id}.md"
         staged_path = staging / f"02_Atoms__{atom_id}.md"
-
         if exists:
             existing_content = page_writer.read_page(final_path)
             existing_md = existing_content.to_markdown() if existing_content else ""
@@ -751,30 +1062,113 @@ def _run_pass1_atoms(
                 excerpt=excerpt,
                 today=today,
             )
-
         content = _stream_page(client, messages, callbacks)
         if not content:
             raise LLMError(f"Empty response for atom '{candidate.name}'")
         content = _enforce_atom_contract(
-            content,
-            atom_id=atom_id,
-            candidate=candidate,
-            context_id=context_id,
-            relpath=relpath,
-            today=today,
+            content, atom_id=atom_id, candidate=candidate,
+            context_id=context_id, relpath=relpath, today=today,
         )
-
         staged_path.write_text(content, encoding="utf-8")
+        operation = "updated" if exists else "created"
         change = PageChange(
-            id=atom_id,
-            path=f"02_Atoms/{atom_id}.md",
-            layer="02_Atoms",
-            operation=operation,
+            id=atom_id, path=f"02_Atoms/{atom_id}.md",
+            layer="02_Atoms", operation=operation,
         )
         staged.append((staged_path, final_path, change))
         callbacks.on_fragment_written(change)
-
     return staged
+
+
+def _run_parallel_workers(
+    tasks: list[dict],
+    paths: cfg.WikiPaths,
+    client,
+    callbacks: IngestCallbacks,
+    summary_data: SummaryData,
+    context_id: str,
+    relpath: str,
+    excerpt: str,
+    today: str,
+    staging: Path,
+) -> list[tuple[Path, Path, PageChange]]:
+    """Dispatch orchestrator tasks to ThreadPoolExecutor workers.
+
+    Each task → _extract_atoms_for_task(). on_fragment_written collected in main thread.
+    Falls back to _run_sequential_atoms() on any failure.
+    """
+    from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
+
+    staged: list[tuple[Path, Path, PageChange]] = []
+    max_workers = min(3, len(tasks))
+
+    try:
+        with _TPE(max_workers=max_workers) as executor:
+            future_to_task = {
+                executor.submit(
+                    _extract_atoms_for_task,
+                    task, paths, client, summary_data,
+                    context_id, relpath, excerpt, today, staging,
+                ): task
+                for task in tasks
+            }
+            for future in _ac(future_to_task):
+                for result in future.result():  # re-raises on LLMError
+                    staged.append(result)
+                    callbacks.on_fragment_written(result[2])
+    except Exception:
+        staged.clear()
+        staged = _run_sequential_atoms(
+            paths, client, callbacks, summary_data,
+            context_id, relpath, excerpt, today, staging,
+        )
+    return staged
+
+
+def _run_pass1_atoms(
+    paths: cfg.WikiPaths,
+    client,
+    callbacks: IngestCallbacks,
+    summary_data: SummaryData,
+    context_id: str,
+    relpath: str,
+    excerpt: str,
+    today: str,
+    staging: Path,
+) -> list[tuple[Path, Path, PageChange]]:
+    """Draft L2 Atom pages — orchestrated parallel execution with sequential fallback.
+
+    Flow:
+      1. Orchestrator LLM call → task decomposition (scope + candidates + context_hint)
+      2. _run_parallel_workers: ThreadPoolExecutor per task via _extract_atoms_for_task
+      3. Fallback: _run_sequential_atoms (streaming, single-threaded)
+    """
+    candidates = summary_data.atom_candidates
+    callbacks.on_pass1_start(len(candidates))
+
+    # Signal per-candidate start in main thread before dispatch (Rich-safe)
+    for candidate in candidates:
+        atom_id, exists = _find_existing_atom(paths, candidate.name)
+        operation = "updated" if exists else "created"
+        callbacks.on_fragment_drafting(atom_id, candidate.name, operation)
+
+    # Orchestrator: decompose candidates into scoped tasks (best-effort)
+    orch_tasks: list[dict] | None = None
+    if len(candidates) >= 2:
+        try:
+            orch_tasks = _run_orchestrator_plan(summary_data, client, paths)
+        except Exception:
+            pass
+
+    if orch_tasks:
+        return _run_parallel_workers(
+            orch_tasks, paths, client, callbacks, summary_data,
+            context_id, relpath, excerpt, today, staging,
+        )
+    return _run_sequential_atoms(
+        paths, client, callbacks, summary_data,
+        context_id, relpath, excerpt, today, staging,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -825,9 +1219,9 @@ def _run_pass2_concepts(
 
     # Build workspace_context string for concept page prompts
     workspace_context = ""
-    if artist_persona and artist_persona.text:
-        domain_label = artist_persona.domain or ""
-        workspace_context = f"{domain_label}: {artist_persona.text}" if domain_label else artist_persona.text
+    if artist_persona and artist_persona.goal:
+        domain_label = f"Domain: {artist_persona.domain}" if artist_persona.domain else ""
+        workspace_context = f"{domain_label}: {artist_persona.goal}" if domain_label else artist_persona.goal
 
     for plan in plans:
         if len(plan.atom_ids) < 2:
@@ -1059,8 +1453,8 @@ def _run_pass3_synthesis(
 
     # Build agent_context string for exhibition page prompts
     agent_context = ""
-    if artist_persona and artist_persona.text:
-        agent_context = f"exhibition_intent:{artist_persona.exhibition_intent} — {artist_persona.text}"
+    if artist_persona and artist_persona.goal:
+        agent_context = f"exhibition_intent:{artist_persona.exhibition_intent} — {artist_persona.goal}"
 
     for plan in plans:
         if not plan.concept_ids:
@@ -1092,6 +1486,7 @@ def _run_pass3_synthesis(
             domain=plan.domain,
             flagged_fragment_ids=flagged_ids,
             agent_context=agent_context,
+            exhibition_intent=artist_persona.exhibition_intent if artist_persona else "",
         )
         content = _stream_page(client, messages, callbacks)
         if not content:
@@ -1101,6 +1496,7 @@ def _run_pass3_synthesis(
             exh_id=exh_id,
             plan=plan,
             today=today,
+            workspace=workspace_project,
         )
 
         final_path = paths.exhibitions / f"{exh_id}.md"
@@ -1551,6 +1947,52 @@ def _update_overview(paths: cfg.WikiPaths) -> None:
     paths.overview.write_text("\n".join(lines), encoding="utf-8")
 
 # ---------------------------------------------------------------------------
+# Persona evolution helpers (D4)
+# ---------------------------------------------------------------------------
+
+def _collect_domains_from_contexts(paths: cfg.WikiPaths, ctx_ids: list[str]) -> list[str]:
+    """Return unique non-empty domain strings from the given CTX frontmatters."""
+    domains = []
+    for ctx_id in ctx_ids:
+        ctx_path = paths.contexts / f"{ctx_id}.md"
+        if not ctx_path.exists():
+            continue
+        page = page_writer.read_page(ctx_path)
+        if page:
+            domain = page.frontmatter.get("domain", "")
+            if domain and domain not in domains:
+                domains.append(domain)
+    return domains
+
+
+def _append_domain_log(paths: cfg.WikiPaths, today: str, domains: list[str]) -> None:
+    """Append a domain-seen line to .curator/log.md for persona evolution tracking."""
+    log_line = f"<!-- domains:{','.join(domains)} date:{today} -->\n"
+    try:
+        with paths.log.open("a", encoding="utf-8") as f:
+            f.write(log_line)
+    except Exception:
+        pass
+
+
+def read_recent_domains(paths: cfg.WikiPaths, max_entries: int = 20) -> list[str]:
+    """Read recently seen domains from log.md domain-log comments."""
+    if not paths.log.exists():
+        return []
+    import re as _re
+    text = paths.log.read_text(encoding="utf-8")
+    seen: list[str] = []
+    for m in _re.finditer(r"<!-- domains:([^>]+) date:[^>]+ -->", text):
+        for d in m.group(1).split(","):
+            d = d.strip()
+            if d and d not in seen:
+                seen.append(d)
+        if len(seen) >= max_entries:
+            break
+    return seen[:max_entries]
+
+
+# ---------------------------------------------------------------------------
 # Entry points — pipeline split (wiki add = L1-L3, wiki curate = L4)
 # ---------------------------------------------------------------------------
 
@@ -1605,6 +2047,20 @@ def run_l1_to_l3(
         _mark_existing_l3_done_if_present(paths)
         return results
 
+    # Phase A½: Atom Coordinator — semantic dedup across newly extracted atoms
+    new_atom_ids = [
+        c.id for r in results if r.ok
+        for c in r.changes if c.layer == "02_Atoms"
+    ]
+    if len(new_atom_ids) >= 2:
+        try:
+            merge_count = _run_atom_coordinator(paths, client, new_atom_ids)
+            if merge_count:
+                import logging as _log
+                _log.getLogger(__name__).info("Atom coordinator merged %d duplicate(s)", merge_count)
+        except Exception:
+            pass  # coordinator is best-effort; never block L3
+
     today = _now_iso()
     staging = Path(tempfile.mkdtemp(prefix="curator-l3-"))
     try:
@@ -1622,6 +2078,16 @@ def run_l1_to_l3(
         if all_changes:
             log_bullets = [f"{c.operation}: [[{c.path.replace('.md', '')}]]" for c in all_changes]
             page_writer.append_log_entry(paths, today, "add", "L1-L3 pipeline", log_bullets)
+
+        # D4: record unique domains seen in this run so persona update can suggest refinements
+        new_ctx_ids = [
+            ch.id for r in results if r.ok
+            for ch in r.changes if ch.layer == "01_Contexts"
+        ]
+        seen_domains = _collect_domains_from_contexts(paths, new_ctx_ids)
+        if seen_domains:
+            _append_domain_log(paths, today, seen_domains)
+
         _update_ledger(paths)
         _update_overview(paths)
     finally:

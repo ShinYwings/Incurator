@@ -185,16 +185,7 @@ class ModelNotFound(LLMError):
     """Requested model isn't pulled."""
 
 
-class GeminiError(LLMError):
-    """Gemini API call failed."""
 
-
-class ClaudeError(LLMError):
-    """Anthropic Claude API call failed."""
-
-
-class OpenAIError(LLMError):
-    """OpenAI API call failed."""
 
 
 class ClaudeCodeError(LLMError):
@@ -560,201 +551,6 @@ class OllamaClient:
         return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
 
 
-# ---------------------------------------------------------------------------
-# Gemini client (same interface as OllamaClient)
-# ---------------------------------------------------------------------------
-
-
-class GeminiClient:
-    """Google Gemini API client with the same interface as OllamaClient.
-
-    Uses google-generativeai SDK. Set GEMINI_API_KEY env var or pass api_key.
-
-    thinking=True → uses the flash-thinking model
-    thinking=False → uses the standard flash model
-    """
-
-    def __init__(
-        self,
-        api_key: str | None = None,
-        flash_model: str = DEFAULT_GEMINI_FLASH_MODEL,
-        think_model: str = DEFAULT_GEMINI_THINK_MODEL,
-        timeout: float = DEFAULT_TIMEOUT,
-    ):
-        self.api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
-        self.flash_model = flash_model
-        self.think_model = think_model
-        self.timeout = timeout
-        # model property for display (matches OllamaClient interface)
-        self.model = flash_model
-
-        if not self.api_key:
-            raise GeminiError(
-                "Gemini API key not set.\n"
-                "Set the GEMINI_API_KEY environment variable, or add it to "
-                "your wiki config.yml under llm.gemini_api_key."
-            )
-
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=self.api_key)
-            self._genai = genai
-        except ImportError as e:
-            raise GeminiError(
-                "google-generativeai is not installed.\n"
-                "Install it with: pip install 'incurator[gemini]'\n"
-                "or: pip install google-generativeai"
-            ) from e
-
-    def close(self) -> None:
-        pass  # SDK is stateless
-
-    def __enter__(self) -> "GeminiClient":
-        return self
-
-    def __exit__(self, *args) -> None:
-        self.close()
-
-    def ping(self) -> bool:
-        """Check that the Gemini API key is valid by listing models."""
-        try:
-            list(self._genai.list_models())
-            return True
-        except Exception:
-            return False
-
-    def ensure_ready(self) -> None:
-        """Verify the API key is valid and the SDK is installed."""
-        if not self.ping():
-            raise GeminiError(
-                "Gemini API is not reachable or the API key is invalid.\n"
-                "Check your GEMINI_API_KEY environment variable."
-            )
-
-    # ------------------------------------------------------------------
-    # Context & Chunking Optimization
-    # ------------------------------------------------------------------
-
-    @property
-    def optimal_chunk_chars(self) -> int:
-        """Gemini has a 1M+ token context window. We can safely pass huge chunks."""
-        return 1_000_000  # ~250k tokens
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _model_name(self, thinking: bool) -> str:
-        return self.think_model if thinking else self.flash_model
-
-    def _to_gemini_messages(
-        self, messages: list[ChatMessage]
-    ) -> tuple[str | None, list[dict]]:
-        """Split system prompt out and convert user/assistant turns."""
-        system_prompt: str | None = None
-        history: list[dict] = []
-        for msg in messages:
-            if msg.role == "system":
-                system_prompt = msg.content
-            elif msg.role == "user":
-                history.append({"role": "user", "parts": [msg.content]})
-            elif msg.role == "assistant":
-                history.append({"role": "model", "parts": [msg.content]})
-        return system_prompt, history
-
-    # ------------------------------------------------------------------
-    # Chat (non-streaming)
-    # ------------------------------------------------------------------
-
-    def chat(
-        self,
-        messages: list[ChatMessage],
-        *,
-        thinking: bool = False,
-        json_mode: bool = False,
-        temperature: float = 0.3,
-    ) -> str:
-        """Non-streaming Gemini chat. Returns full assistant response."""
-        system_prompt, history = self._to_gemini_messages(messages)
-        model_name = self._model_name(thinking)
-
-        generation_config: dict = {"temperature": temperature}
-        if json_mode:
-            generation_config["response_mime_type"] = "application/json"
-
-        try:
-            model = self._genai.GenerativeModel(
-                model_name=model_name,
-                system_instruction=system_prompt,
-            )
-            if len(history) > 1:
-                # Multi-turn: use chat session
-                chat_session = model.start_chat(history=history[:-1])
-                response = chat_session.send_message(
-                    history[-1]["parts"][0],
-                    generation_config=generation_config,
-                )
-            else:
-                user_text = history[0]["parts"][0] if history else ""
-                response = model.generate_content(
-                    user_text,
-                    generation_config=generation_config,
-                )
-            return response.text or ""
-        except Exception as e:
-            raise GeminiError(f"Gemini API error: {e}") from e
-
-    # ------------------------------------------------------------------
-    # Chat (streaming) — fake streaming via full response
-    # ------------------------------------------------------------------
-
-    def chat_stream(
-        self,
-        messages: list[ChatMessage],
-        *,
-        thinking: bool = False,
-        temperature: float = 0.3,
-    ) -> Generator[str, None, str]:
-        """Streaming-compatible Gemini chat.
-
-        Yields the full response as a single chunk (Gemini streaming works
-        differently but the caller interface is preserved).
-        """
-        system_prompt, history = self._to_gemini_messages(messages)
-        model_name = self._model_name(thinking)
-
-        try:
-            model = self._genai.GenerativeModel(
-                model_name=model_name,
-                system_instruction=system_prompt,
-            )
-            generation_config = {"temperature": temperature}
-            if len(history) > 1:
-                chat_session = model.start_chat(history=history[:-1])
-                response = chat_session.send_message(
-                    history[-1]["parts"][0],
-                    generation_config=generation_config,
-                    stream=True,
-                )
-            else:
-                user_text = history[0]["parts"][0] if history else ""
-                response = model.generate_content(
-                    user_text,
-                    generation_config=generation_config,
-                    stream=True,
-                )
-
-            full: list[str] = []
-            for chunk in response:
-                text = chunk.text or ""
-                if text:
-                    full.append(text)
-                    yield text
-
-        except Exception as e:
-            raise GeminiError(f"Gemini API streaming error: {e}") from e
-
-        return "".join(full)
 
 
 # ---------------------------------------------------------------------------
@@ -762,192 +558,7 @@ class GeminiClient:
 # ---------------------------------------------------------------------------
 
 
-class ClaudeClient:
-    """Anthropic Claude API client using httpx directly (no SDK required).
 
-    Set ANTHROPIC_API_KEY env var or pass api_key.
-    thinking=True  → uses think_model + extended thinking tokens
-    thinking=False → uses model
-    """
-
-    def __init__(
-        self,
-        api_key: str | None = None,
-        model: str = DEFAULT_CLAUDE_MODEL,
-        think_model: str = DEFAULT_CLAUDE_THINK_MODEL,
-        timeout: float = DEFAULT_TIMEOUT,
-    ):
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-        self.model = model
-        self.think_model = think_model
-        self.timeout = timeout
-        self._client = httpx.Client(timeout=timeout)
-
-        if not self.api_key:
-            raise ClaudeError(
-                "Anthropic API key not set.\n"
-                "Set the ANTHROPIC_API_KEY environment variable, or add it to "
-                "your wiki config.yml under llm.anthropic_api_key."
-            )
-
-    def close(self) -> None:
-        self._client.close()
-
-    # ------------------------------------------------------------------
-    # Context & Chunking Optimization
-    # ------------------------------------------------------------------
-
-    @property
-    def optimal_chunk_chars(self) -> int:
-        """Claude 3.5 has a 200k token context window."""
-        return 400_000  # ~100k tokens
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _headers(self) -> dict[str, str]:
-        return {
-            "x-api-key": self.api_key,
-            "anthropic-version": ANTHROPIC_API_VERSION,
-            "content-type": "application/json",
-        }
-
-    def _build_body(
-        self,
-        messages: list[ChatMessage],
-        *,
-        thinking: bool,
-        json_mode: bool,
-        temperature: float,
-        stream: bool = False,
-    ) -> dict:
-        system_content = ""
-        anthropic_messages = []
-        for m in messages:
-            if m.role == "system":
-                system_content = m.content
-            else:
-                anthropic_messages.append({"role": m.role, "content": m.content})
-
-        body: dict = {
-            "model": self.think_model if thinking else self.model,
-            "max_tokens": 16000 if thinking else 8192,
-            "messages": anthropic_messages,
-            "temperature": temperature,
-        }
-        if system_content:
-            body["system"] = system_content
-        if thinking:
-            body["thinking"] = {"type": "enabled", "budget_tokens": 10000}
-        if stream:
-            body["stream"] = True
-        return body
-
-    def _extract_text(self, content: list[dict]) -> str:
-        return "".join(
-            block["text"]
-            for block in content
-            if block.get("type") == "text"
-        )
-
-    def chat(
-        self,
-        messages: list[ChatMessage],
-        *,
-        thinking: bool = False,
-        json_mode: bool = False,
-        temperature: float = 0.3,
-    ) -> str:
-        body = self._build_body(
-            messages, thinking=thinking, json_mode=json_mode, temperature=temperature
-        )
-        try:
-            resp = self._client.post(
-                ANTHROPIC_API_URL, json=body, headers=self._headers()
-            )
-            resp.raise_for_status()
-            return self._extract_text(resp.json().get("content", []))
-        except httpx.HTTPStatusError as e:
-            raise ClaudeError(
-                f"Claude API error {e.response.status_code}: {e.response.text}"
-            ) from e
-        except ClaudeError:
-            raise
-        except Exception as e:
-            raise ClaudeError(f"Claude API call failed: {e}") from e
-
-    def chat_stream(
-        self,
-        messages: list[ChatMessage],
-        *,
-        thinking: bool = False,
-        temperature: float = 0.3,
-    ) -> Generator[str, None, str]:
-        body = self._build_body(
-            messages, thinking=thinking, json_mode=False, temperature=temperature, stream=True
-        )
-        full: list[str] = []
-        try:
-            with self._client.stream(
-                "POST", ANTHROPIC_API_URL, json=body, headers=self._headers()
-            ) as resp:
-                resp.raise_for_status()
-                for line in resp.iter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    payload = line[6:]
-                    if payload == "[DONE]":
-                        break
-                    try:
-                        event = json.loads(payload)
-                    except json.JSONDecodeError:
-                        continue
-                    if event.get("type") == "content_block_delta":
-                        delta = event.get("delta", {})
-                        if delta.get("type") == "text_delta":
-                            text = delta.get("text", "")
-                            full.append(text)
-                            yield text
-        except httpx.HTTPStatusError as e:
-            raise ClaudeError(
-                f"Claude streaming error {e.response.status_code}: {e.response.text}"
-            ) from e
-        except ClaudeError:
-            raise
-        except Exception as e:
-            raise ClaudeError(f"Claude streaming failed: {e}") from e
-        return "".join(full)
-
-    def ensure_ready(self) -> None:
-        try:
-            resp = self._client.post(
-                ANTHROPIC_API_URL,
-                json={
-                    "model": self.model,
-                    "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "hi"}],
-                },
-                headers=self._headers(),
-            )
-            if resp.status_code == 401:
-                raise ClaudeError("Invalid Anthropic API key.")
-            # 400 = bad request (max_tokens too small on some models) but auth OK
-            if resp.status_code not in (200, 400):
-                raise ClaudeError(
-                    f"Claude API returned {resp.status_code}: {resp.text}"
-                )
-        except ClaudeError:
-            raise
-        except Exception as e:
-            raise ClaudeError(f"Could not reach Anthropic API: {e}") from e
-
-    def ping(self) -> bool:
-        try:
-            self.ensure_ready()
-            return True
-        except ClaudeError:
-            return False
 
 
 # ---------------------------------------------------------------------------
@@ -955,167 +566,7 @@ class ClaudeClient:
 # ---------------------------------------------------------------------------
 
 
-class OpenAIClient:
-    """OpenAI API client using httpx directly (no SDK required).
 
-    Set OPENAI_API_KEY env var or pass api_key.
-    thinking=True uses think_model (o3, non-streaming, no temperature param).
-    thinking=False uses model (gpt-4.1, supports streaming and temperature).
-    """
-
-    def __init__(
-        self,
-        api_key: str | None = None,
-        model: str = DEFAULT_OPENAI_MODEL,
-        think_model: str = DEFAULT_OPENAI_THINK_MODEL,
-        timeout: float = DEFAULT_TIMEOUT,
-    ) -> None:
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
-        self.model = model
-        self.think_model = think_model
-        self.timeout = timeout
-        self._client = httpx.Client(timeout=timeout)
-        if not self.api_key:
-            raise OpenAIError(
-                "OpenAI API key not set.\n"
-                "Set the OPENAI_API_KEY environment variable, or add it to "
-                "your wiki config.yml under llm.openai_api_key."
-            )
-
-    def close(self) -> None:
-        self._client.close()
-
-    # ------------------------------------------------------------------
-    # Context & Chunking Optimization
-    # ------------------------------------------------------------------
-
-    @property
-    def optimal_chunk_chars(self) -> int:
-        """OpenAI (gpt-4) has a 128k token context window."""
-        return 250_000  # ~62k tokens
-
-    def __enter__(self) -> "OpenAIClient":
-        return self
-
-    def __exit__(self, *args) -> None:
-        self.close()
-
-    def _headers(self) -> dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-    def _build_messages(self, messages: list[ChatMessage]) -> list[dict]:
-        return [{"role": m.role, "content": m.content} for m in messages]
-
-    def chat(
-        self,
-        messages: list[ChatMessage],
-        *,
-        thinking: bool = False,
-        json_mode: bool = False,
-        temperature: float = 0.3,
-    ) -> str:
-        model = self.think_model if thinking else self.model
-        body: dict = {
-            "model": model,
-            "messages": self._build_messages(messages),
-        }
-        # o3 does not accept temperature or response_format
-        if not thinking:
-            body["temperature"] = temperature
-            if json_mode:
-                body["response_format"] = {"type": "json_object"}
-        try:
-            resp = self._client.post(OPENAI_API_URL, json=body, headers=self._headers())
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"] or ""
-        except httpx.HTTPStatusError as e:
-            raise OpenAIError(
-                f"OpenAI API error {e.response.status_code}: {e.response.text}"
-            ) from e
-        except OpenAIError:
-            raise
-        except Exception as e:
-            raise OpenAIError(f"OpenAI API call failed: {e}") from e
-
-    def chat_stream(
-        self,
-        messages: list[ChatMessage],
-        *,
-        thinking: bool = False,
-        temperature: float = 0.3,
-    ) -> Generator[str, None, str]:
-        # o3 does not support streaming — fall back to non-streaming and yield once
-        if thinking:
-            result = self.chat(messages, thinking=True)
-            yield result
-            return result
-
-        body: dict = {
-            "model": self.model,
-            "messages": self._build_messages(messages),
-            "temperature": temperature,
-            "stream": True,
-        }
-        full: list[str] = []
-        try:
-            with self._client.stream(
-                "POST", OPENAI_API_URL, json=body, headers=self._headers()
-            ) as resp:
-                resp.raise_for_status()
-                for line in resp.iter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    payload = line[6:]
-                    if payload == "[DONE]":
-                        break
-                    try:
-                        event = json.loads(payload)
-                    except json.JSONDecodeError:
-                        continue
-                    delta = event.get("choices", [{}])[0].get("delta", {})
-                    text = delta.get("content") or ""
-                    if text:
-                        full.append(text)
-                        yield text
-        except httpx.HTTPStatusError as e:
-            raise OpenAIError(
-                f"OpenAI streaming error {e.response.status_code}: {e.response.text}"
-            ) from e
-        except OpenAIError:
-            raise
-        except Exception as e:
-            raise OpenAIError(f"OpenAI streaming failed: {e}") from e
-        return "".join(full)
-
-    def ensure_ready(self) -> None:
-        try:
-            resp = self._client.post(
-                OPENAI_API_URL,
-                json={
-                    "model": self.model,
-                    "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "hi"}],
-                },
-                headers=self._headers(),
-            )
-            if resp.status_code == 401:
-                raise OpenAIError("Invalid OpenAI API key.")
-            if resp.status_code not in (200, 400):
-                raise OpenAIError(f"OpenAI API returned {resp.status_code}: {resp.text}")
-        except OpenAIError:
-            raise
-        except Exception as e:
-            raise OpenAIError(f"Could not reach OpenAI API: {e}") from e
-
-    def ping(self) -> bool:
-        try:
-            self.ensure_ready()
-            return True
-        except OpenAIError:
-            return False
 
 
 # ---------------------------------------------------------------------------
@@ -1132,18 +583,20 @@ def _cli_installed(cmd: str) -> bool:
 def _messages_to_prompt(messages: list[ChatMessage]) -> str:
     """Flatten ChatMessage list to a single text prompt for CLI backends."""
     system_parts: list[str] = []
-    body_parts: list[str] = []
+    turns: list[str] = []
     for m in messages:
         if m.role == "system":
             system_parts.append(m.content)
         elif m.role == "user":
-            body_parts.append(m.content)
+            turns.append(f"User: {m.content}")
         elif m.role == "assistant":
-            body_parts.append(f"[Previous assistant response: {m.content}]")
+            turns.append(f"Assistant: {m.content}")
     parts: list[str] = []
     if system_parts:
-        parts.append("[Instructions: " + "\n".join(system_parts) + "]")
-    parts.extend(body_parts)
+        parts.append("[System]\n" + "\n".join(system_parts))
+    if turns:
+        parts.append("[Conversation]\n" + "\n\n".join(turns))
+    parts.append("Assistant:")
     return "\n\n".join(parts)
 
 
@@ -1156,9 +609,8 @@ class ClaudeCodeClient:
     CLI = "claude"
     INSTALL_CMD = "npm install -g @anthropic-ai/claude-code"
 
-    def __init__(self, model: str = DEFAULT_CLAUDE_MODEL, api_key: str = "") -> None:
+    def __init__(self, model: str = DEFAULT_CLAUDE_MODEL) -> None:
         self.model = model
-        self.api_key = api_key
 
     def close(self) -> None:
         pass
@@ -1176,8 +628,6 @@ class ClaudeCodeClient:
             cmd += ["--model", self.model]
         env = dict(os.environ)
         env["CLAUDE_BYPASS_PERMISSIONS"] = "true"
-        if self.api_key:
-            env["ANTHROPIC_API_KEY"] = self.api_key
         try:
             result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=300, env=env)
         except FileNotFoundError:
@@ -1281,9 +731,8 @@ class GeminiCliClient:
     CLI = "gemini"
     INSTALL_CMD = "npm install -g @google/gemini-cli"
 
-    def __init__(self, model: str = DEFAULT_GEMINI_FLASH_MODEL, api_key: str = "") -> None:
+    def __init__(self, model: str = DEFAULT_GEMINI_FLASH_MODEL) -> None:
         self.model = model
-        self.api_key = api_key
 
     def close(self) -> None:
         pass
@@ -1304,8 +753,6 @@ class GeminiCliClient:
                 cmd += ["--model", current_model]
             env = dict(os.environ)
             env["GEMINI_CLI_TRUST_WORKSPACE"] = "true"
-            if self.api_key:
-                env["GEMINI_API_KEY"] = self.api_key
             try:
                 result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=900, env=env)
             except FileNotFoundError:
@@ -1340,6 +787,7 @@ class GeminiCliClient:
                         f"Try switching to the Cloud API backend:\n"
                         f"  wiki config provider --primary cloud --cloud-provider gemini"
                     )
+
                 raise GeminiCliError(
                     f"gemini CLI exited {result.returncode}: {stderr}"
                 )
@@ -1409,7 +857,6 @@ class GeminiCliClient:
 
 
 _FAILOVER_ERRORS = (OllamaNotRunning, ModelNotFound, OSError)
-_CLOUD_PRIMARY_FAILOVER_ERRORS = _FAILOVER_ERRORS + (ClaudeError, GeminiError, OpenAIError)
 _CLI_PRIMARY_FAILOVER_ERRORS = _FAILOVER_ERRORS + (ClaudeCodeError, GeminiCliError)
 
 
@@ -1451,6 +898,12 @@ class FailoverClient:
     def active_idx(self) -> int:
         with self._lock:
             return self._active_idx
+
+    def __enter__(self) -> "FailoverClient":
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.close()
 
     @property
     def active_provider(self):
@@ -1509,6 +962,7 @@ class FailoverClient:
         temperature: float = 0.3,
     ) -> str:
         start = self.active_idx
+        last_err: Exception | None = None
         for offset in range(len(self.providers)):
             idx = (start + offset) % len(self.providers)
             try:
@@ -1521,12 +975,14 @@ class FailoverClient:
                 if idx != self.active_idx:
                     with self._lock:
                         self._active_idx = idx
+                    err_hint = f" — {str(last_err)[:80]}" if last_err else ""
                     self._console.print(
                         f"[dim yellow]incurator:[/dim yellow] failed over to "
-                        f"{type(self.providers[idx]).__name__}"
+                        f"{type(self.providers[idx]).__name__}{err_hint}"
                     )
                 return result
             except self._failover_errors as e:
+                last_err = e
                 if offset == len(self.providers) - 1:
                     raise LLMError(f"All providers failed: {e}") from e
         raise LLMError("Unreachable")
@@ -1539,6 +995,7 @@ class FailoverClient:
         temperature: float = 0.3,
     ) -> Generator[str, None, str]:
         start = self.active_idx
+        last_err: Exception | None = None
         for offset in range(len(self.providers)):
             idx = (start + offset) % len(self.providers)
             provider = self.providers[idx]
@@ -1555,9 +1012,10 @@ class FailoverClient:
                 if idx != self.active_idx:
                     with self._lock:
                         self._active_idx = idx
+                    err_hint = f" — {str(last_err)[:80]}" if last_err else ""
                     self._console.print(
                         f"[dim yellow]incurator:[/dim yellow] failed over to "
-                        f"{type(provider).__name__}"
+                        f"{type(provider).__name__}{err_hint}"
                     )
                 yield first
                 parts = [first]
@@ -1570,6 +1028,7 @@ class FailoverClient:
                     return s.value if s.value else "".join(parts)
                 return
             except self._failover_errors as e:
+                last_err = e
                 if offset == len(self.providers) - 1:
                     raise LLMError(f"All providers failed during stream: {e}") from e
                 # mid-stream errors (after first chunk) propagate — partial output delivered
@@ -1620,52 +1079,19 @@ def list_models_on_host(host: str, timeout: float = 5.0) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _make_gemini(llm_cfg: dict) -> GeminiClient:
-    return GeminiClient(
-        api_key=llm_cfg.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY", ""),
-        flash_model=llm_cfg.get("gemini_flash_model", DEFAULT_GEMINI_FLASH_MODEL),
-        think_model=llm_cfg.get("gemini_think_model", DEFAULT_GEMINI_THINK_MODEL),
-    )
-
-
-def _make_claude(llm_cfg: dict) -> ClaudeClient:
-    return ClaudeClient(
-        api_key=llm_cfg.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY", ""),
-        model=llm_cfg.get("claude_model", DEFAULT_CLAUDE_MODEL),
-        think_model=llm_cfg.get("claude_think_model", DEFAULT_CLAUDE_THINK_MODEL),
-    )
-
-
-def _make_openai(llm_cfg: dict) -> OpenAIClient:
-    return OpenAIClient(
-        api_key=llm_cfg.get("openai_api_key") or os.environ.get("OPENAI_API_KEY", ""),
-        model=llm_cfg.get("openai_model", DEFAULT_OPENAI_MODEL),
-        think_model=llm_cfg.get("openai_think_model", DEFAULT_OPENAI_THINK_MODEL),
-    )
-
-
 def _make_claude_code(llm_cfg: dict) -> ClaudeCodeClient:
     return ClaudeCodeClient(
         model=llm_cfg.get("claude_model", DEFAULT_CLAUDE_MODEL),
-        api_key=llm_cfg.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY", ""),
     )
 
 
 def _make_gemini_cli(llm_cfg: dict) -> GeminiCliClient:
     return GeminiCliClient(
         model=llm_cfg.get("gemini_flash_model", DEFAULT_GEMINI_FLASH_MODEL),
-        api_key=llm_cfg.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY", ""),
     )
 
 
-def _make_cloud(llm_cfg: dict) -> "GeminiClient | ClaudeClient | OpenAIClient":
-    """Build the configured cloud client (gemini/claude/openai)."""
-    cp = llm_cfg.get("cloud_provider", "gemini")
-    if cp == "claude":
-        return _make_claude(llm_cfg)
-    if cp == "openai":
-        return _make_openai(llm_cfg)
-    return _make_gemini(llm_cfg)
+
 
 
 def _make_ollama(llm_cfg: dict) -> OllamaClient:
@@ -1679,11 +1105,9 @@ def _make_by_key(key: str, llm_cfg: dict):
     """Build any client by its backend key string."""
     if key == "ollama":
         return _make_ollama(llm_cfg)
-    if key == "cloud":
-        return _make_cloud(llm_cfg)
     if key == "claude-code":
         return _make_claude_code(llm_cfg)
-    if key == "gemini-cli":
+    if key in ("gemini-cli", "cloud"):
         return _make_gemini_cli(llm_cfg)
     return None
 
@@ -1695,18 +1119,16 @@ def make_client_by_key(key: str, config: dict):
 
 def build_client(
     config: dict,
-) -> "OllamaClient | GeminiClient | ClaudeClient | OpenAIClient | FailoverClient":
+) -> "OllamaClient | ClaudeCodeClient | GeminiCliClient | FailoverClient":
     """Return the appropriate LLM client based on config.
 
     Decision logic (in priority order):
-      primary='ollama'      → OllamaClient first; fallback from config or cloud_provider
-      primary='cloud'       → cloud client first; fallback from config or Ollama
+      primary='ollama'      → OllamaClient first; fallback from config
       primary='claude-code' → Claude CLI first; fallback from config or Ollama
       primary='gemini-cli'  → Gemini CLI first; fallback from config or Ollama
-      provider override 'ollama'|'gemini'|'claude'|'openai' → single explicit client
+      provider override 'ollama'|'gemini-cli'|'claude-code' → single explicit client
       auto + RAM ≥ 16 GB → OllamaClient (local)
-      auto + RAM < 16 GB → cloud client (gemini/claude/openai per cloud_provider)
-        + remote_ollama_host set → FailoverClient([OllamaClient(remote), cloud_client])
+      auto + RAM < 16 GB → gemini-cli client
     """
     llm_cfg = config.get("llm", {})
     primary = llm_cfg.get("primary", "")
@@ -1715,7 +1137,6 @@ def build_client(
 
     _PRIMARY_ERRORS = {
         "ollama":      _FAILOVER_ERRORS,
-        "cloud":       _CLOUD_PRIMARY_FAILOVER_ERRORS,
         "claude-code": _CLI_PRIMARY_FAILOVER_ERRORS,
         "gemini-cli":  _CLI_PRIMARY_FAILOVER_ERRORS,
     }
@@ -1740,23 +1161,7 @@ def build_client(
 
         # Legacy heuristics when no explicit fallback is set
         if primary == "ollama":
-            cp = llm_cfg.get("cloud_provider", "")
-            if cp:
-                cloud = _make_cloud(llm_cfg)
-                return FailoverClient(
-                    [p_client, cloud],
-                    probe_interval=probe_interval,
-                    failover_errors=_FAILOVER_ERRORS,
-                )
             return p_client
-
-        if primary == "cloud":
-            ollama = _make_ollama(llm_cfg)
-            return FailoverClient(
-                [p_client, ollama],
-                probe_interval=probe_interval,
-                failover_errors=_CLOUD_PRIMARY_FAILOVER_ERRORS,
-            )
 
         # claude-code / gemini-cli → default fallback to ollama
         ollama = _make_ollama(llm_cfg)
@@ -1771,29 +1176,25 @@ def build_client(
 
     if provider == "ollama":
         return _make_ollama(llm_cfg)
-    if provider == "gemini":
-        return _make_gemini(llm_cfg)
     if provider == "claude":
-        return _make_claude(llm_cfg)
-    if provider == "openai":
-        return _make_openai(llm_cfg)
+        return _make_claude_code(llm_cfg)
 
     # Auto mode: select based on RAM
     ram_gb = detect_ram_gb()
     if ram_gb >= RAM_THRESHOLD_GB:
         return _make_ollama(llm_cfg)
 
-    # Low-RAM machine: cloud with optional remote Ollama failover
-    cloud_client = _make_cloud(llm_cfg)
+    # Low-RAM machine: gemini-cli with optional remote Ollama failover
+    cli_client = _make_gemini_cli(llm_cfg)
     remote_host = (llm_cfg.get("remote_ollama_host") or "").strip()
     if not remote_host:
-        return cloud_client
+        return cli_client
 
     remote_client = OllamaClient(
         host=remote_host,
         model=llm_cfg.get("model", DEFAULT_OLLAMA_MODEL),
     )
-    return FailoverClient([remote_client, cloud_client], probe_interval=probe_interval)
+    return FailoverClient([remote_client, cli_client], probe_interval=probe_interval)
 
 
 def describe_backend(config: dict, client: object = None) -> str:
@@ -1815,7 +1216,6 @@ def describe_backend(config: dict, client: object = None) -> str:
     primary = llm_cfg.get("primary", "")
     host = llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
     model = llm_cfg.get("model", DEFAULT_OLLAMA_MODEL)
-    cp = llm_cfg.get("cloud_provider", "gemini")
     probe = llm_cfg.get("probe_interval", 60)
 
     if primary == "ollama":
@@ -1825,45 +1225,32 @@ def describe_backend(config: dict, client: object = None) -> str:
         fallback = llm_cfg.get("fallback", "")
         if fallback:
             return f"Failover  primary=Ollama → fallback={fallback}  probe={probe}s"
-        if "fallback" not in llm_cfg and cp:
-            return f"Failover  primary=Ollama → fallback={cp}  probe={probe}s"
         return base
-
-    if primary == "cloud":
-        return f"{cp} API [DISABLED]"
 
     if primary == "claude-code":
         claude_m = llm_cfg.get("claude_model", DEFAULT_CLAUDE_MODEL)
         fallback = llm_cfg.get("fallback", "")
         if not fallback:
-            return f"claude CLI [{claude_m}]"
-        return f"Failover  primary=claude CLI [{claude_m}] → fallback={fallback}  model={model}  host={host}"
+            return f"claude CLI ({claude_m})"
+        if fallback == "ollama":
+            return f"Failover  primary=claude CLI ({claude_m}) → fallback=Ollama  model={model}  host={host}"
+        return f"Failover  primary=claude CLI ({claude_m}) → fallback={fallback}"
 
     if primary == "gemini-cli":
         gemini_m = llm_cfg.get("gemini_flash_model", DEFAULT_GEMINI_FLASH_MODEL)
         fallback = llm_cfg.get("fallback", "")
         if not fallback:
-            return f"gemini CLI [{gemini_m}]"
-        return f"Failover  primary=gemini CLI [{gemini_m}] → fallback={fallback}  model={model}  host={host}"
+            return f"gemini CLI ({gemini_m})"
+        if fallback == "ollama":
+            return f"Failover  primary=gemini CLI ({gemini_m}) → fallback=Ollama  model={model}  host={host}"
+        return f"Failover  primary=gemini CLI ({gemini_m}) → fallback={fallback}"
 
     # Legacy auto/explicit-provider path
     provider = llm_cfg.get("provider", "auto")
     if provider == "auto":
-        provider = "ollama" if ram_gb >= RAM_THRESHOLD_GB else cp
-
-    if provider == "gemini":
-        flash = llm_cfg.get("gemini_flash_model", DEFAULT_GEMINI_FLASH_MODEL)
-        think = llm_cfg.get("gemini_think_model", DEFAULT_GEMINI_THINK_MODEL)
-        return f"Gemini API  [{ram_gb:.1f} GB RAM]  flash={flash}  think={think}"
-    if provider == "claude":
-        m = llm_cfg.get("claude_model", DEFAULT_CLAUDE_MODEL)
-        return f"Claude API  [{ram_gb:.1f} GB RAM]  model={m}"
-    if provider == "openai":
-        m = llm_cfg.get("openai_model", DEFAULT_OPENAI_MODEL)
-        think = llm_cfg.get("openai_think_model", DEFAULT_OPENAI_THINK_MODEL)
-        return f"OpenAI API  [{ram_gb:.1f} GB RAM]  model={m}  think={think}"
+        provider = "ollama" if ram_gb >= RAM_THRESHOLD_GB else "gemini-cli"
 
     remote = llm_cfg.get("remote_ollama_host", "").strip()
     if remote and ram_gb < RAM_THRESHOLD_GB:
-        return f"Failover (config)  remote={remote}  fallback={cp}  probe={probe}s"
+        return f"Failover (config)  remote={remote}  fallback=gemini-cli  probe={probe}s"
     return f"Ollama  [{ram_gb:.1f} GB RAM]  model={model}  host={host}"

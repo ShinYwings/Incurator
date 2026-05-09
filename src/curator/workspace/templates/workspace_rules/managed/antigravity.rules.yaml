@@ -1,8 +1,25 @@
-Incurator:
+# [CRITICAL PROHIBITION] NEVER add local workspace files, folders, or patterns (e.g., 01_Workspaces/**, Papers/, methodology.md) to sources.include in curate.yml.
+# Including local project data in the global Curator DAG is a severe architecture violation.
+# Local data must only be "promoted" to 02_Wiki/ before being curated.
+incurator:
   workspace: "{{workspace_path}}"
-  wiki_root: "{{wiki_root}}"
-  rules:
-    - ".agents/curator/shared/rules.md"
-    - ".agents/curator/runtime/{{agent_runtime}}.md"
-    - ".agents/curator/workflows/workspace_loop.md"
-
+  curator_rules:
+    - name: Curator — Session Start
+      description: >-
+        새 대화 세션 시작 시 curator_check_workspace() MCP 툴을 호출하여
+        활성 L4 Exhibition을 primary context로 로딩.
+        실패 시 curate.yml을 직접 읽고 진행.
+      severity: error
+    - name: Curator — Knowledge Search First
+      description: >-
+        도메인 지식이 필요한 모든 쿼리에서 로컬 파일/외부 검색/학습 지식 사용 전에
+        반드시 search_curator('<query>') MCP 툴을 우선 호출.
+        Curator 결과가 없을 때만 로컬 파일로 fallback하고 fallback 사실을 명시.
+      severity: error
+    - name: Curator — No Local Paths in Curation
+      description: >-
+        CRITICAL PROHIBITION: NEVER add local workspace files, folders, or patterns (e.g., 01_Workspaces/**, Papers/, methodology.md) to sources.include in curate.yml.
+        Including local project data in the global Curator DAG is a severe architecture violation.
+        Local data must only be "promoted" to 02_Wiki/ before being curated.
+        모든 패턴은 반드시 볼트 루트 ({{vault_root}})를 기준으로 작성되어야 합니다.
+      severity: error

@@ -39,13 +39,15 @@ from .workspace.provisioner import (
     CurateTemplateData,
     VALID_AGENTS,
     default_project_name,
+    detect_workspace_scenario,
+    make_integration_copy_prompt,
+    make_rule_integration_prompt,
     prepare_workspace,
     render_mcp_snippet,
+    top_level_target,
 )
 from .llm import (
-    ClaudeClient,
     ClaudeCodeError,
-    ClaudeError,
     DEFAULT_CLAUDE_MODEL,
     DEFAULT_CLAUDE_THINK_MODEL,
     DEFAULT_GEMINI_FLASH_MODEL,
@@ -54,14 +56,10 @@ from .llm import (
     DEFAULT_OPENAI_MODEL,
     DEFAULT_OPENAI_THINK_MODEL,
     FailoverClient,
-    GeminiClient,
     GeminiCliError,
-    GeminiError,
     LLMError,
     ModelNotFound,
     OllamaNotRunning,
-    OpenAIClient,
-    OpenAIError,
     _cli_installed,
     build_client,
     describe_backend,
@@ -125,6 +123,15 @@ testbed_app = typer.Typer(
     rich_markup_mode="rich",
 )
 app.add_typer(testbed_app, name="testbed")
+
+benchmark_app = typer.Typer(
+    name="benchmark",
+    help="[Dev Only] Cross-model quality and performance benchmarks.",
+    no_args_is_help=True,
+    add_completion=False,
+    rich_markup_mode="rich",
+)
+app.add_typer(benchmark_app, name="benchmark")
 
 console = Console()
 
@@ -317,25 +324,80 @@ def _refresh_qmd_index(paths: cfg.WikiPaths, *, embed: bool = True) -> None:
         _hint("Search is now stale; rerun later with `wiki reindex`.")
 
 
-def _resolve_root_or_die() -> cfg.WikiPaths:
-    """Find the wiki project root from cwd or WIKI_ROOT env var."""
+def _resolve_root_or_die(hint_path: Path | None = None) -> cfg.WikiPaths:
+    """Find the wiki project root from hint_path, cwd, or VAULT_ROOT env var."""
     import os
-    env_root = os.environ.get("WIKI_ROOT")
+    env_root = os.environ.get("VAULT_ROOT")
     if env_root:
         root_path = Path(env_root).resolve()
         if (root_path / cfg.INTERNAL_DIR / cfg.CONFIG_FILE).exists():
-            cfg.set_last_root(root_path)
+            # Don't persist testbed vaults to global last_root
+            try:
+                import yaml as _yaml
+                _d = _yaml.safe_load(
+                    (root_path / cfg.INTERNAL_DIR / cfg.CONFIG_FILE).read_text(encoding="utf-8")
+                ) or {}
+                if not _d.get("testbed", False):
+                    cfg.set_last_root(root_path)
+            except Exception:
+                cfg.set_last_root(root_path)
             return cfg.paths_from_config(root_path)
-    root = cfg.find_wiki_root()
-    if root is None:
+
+    # Discovery starts from hint_path if provided, else CWD
+    root = cfg.find_wiki_root(start=hint_path)
+    
+    # Fallback to last_root is ONLY allowed if NO hint_path was provided
+    # (e.g. running a global command from a neutral directory)
+    if root is None and hint_path is None:
         last_root = cfg.get_last_root()
         if last_root and (last_root / cfg.INTERNAL_DIR / cfg.CONFIG_FILE).exists():
-            return cfg.paths_from_config(last_root)
+            import yaml as _yaml
+            try:
+                _cfg_data = _yaml.safe_load(
+                    (last_root / cfg.INTERNAL_DIR / cfg.CONFIG_FILE).read_text(encoding="utf-8")
+                ) or {}
+            except Exception:
+                _cfg_data = {}
+            if not _cfg_data.get("testbed", False):
+                return cfg.paths_from_config(last_root)
+
+    if root is None:
         _err("Not inside an incurator project.")
-        _hint("Run [bold]wiki init[/bold] to create one, or set WIKI_ROOT env var.")
+        if hint_path:
+            _err(f"No vault root found upward from: [bold]{hint_path}[/bold]")
+        _hint("Run [bold]wiki init[/bold] to create one, or set VAULT_ROOT env var.")
         raise typer.Exit(code=1)
+
     cfg.set_last_root(root)
     return cfg.paths_from_config(root)
+
+
+def _sync_mcp_configs(vault_root: Path) -> list[str]:
+    """Upsert VAULT_ROOT into known MCP config files. Returns list of updated paths."""
+    import json
+    entry = {
+        "command": "wiki",
+        "args": ["mcp"],
+        "env": {"VAULT_ROOT": str(vault_root)},
+    }
+    targets = [
+        Path.home() / ".gemini" / "settings.json",
+        Path.home() / ".gemini" / "antigravity" / "mcp_config.json",
+        vault_root / ".claude" / "settings.json",
+    ]
+    updated = []
+    for config_path in targets:
+        try:
+            data: dict = {}
+            if config_path.exists():
+                data = json.loads(config_path.read_text(encoding="utf-8")) or {}
+            data.setdefault("mcpServers", {})["incurator"] = entry
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            updated.append(str(config_path))
+        except Exception:
+            pass
+    return updated
 
 
 def _format_bytes(n: int) -> str:
@@ -1069,45 +1131,6 @@ def _pick_ollama_model(host: str) -> str:
         console.print(f"[red]Enter a number between 0 and {len(options)}.[/red]")
 
 
-def _prompt_api_key(label: str, env_var: str, prefill: str = "") -> str:
-    """Prompt for an API key. Skips prompt if env var is already set (with confirm to override)."""
-    import os
-
-    env_val = os.environ.get(env_var, "")
-    if env_val:
-        console.print(f"[dim]{env_var} is already set in the environment.[/dim]")
-        if not typer.confirm("Override with a different key?", default=False):
-            return ""
-    key = (prefill or typer.prompt(f"{label} ({env_var})", default="", hide_input=True)).strip()
-    return key
-
-
-def _prompt_cloud_setup(
-    default_cp: str,
-    prefill_keys: dict[str, str],
-) -> dict:
-    """Prompt for cloud provider selection + API key. Returns partial llm overrides."""
-    overrides: dict = {}
-    while True:
-        raw = typer.prompt(
-            "Cloud provider (gemini/claude/openai)", default=default_cp
-        ).strip().lower()
-        if raw in _VALID_CLOUD:
-            cp = raw
-            break
-        console.print(f"[red]Choose: {', '.join(_VALID_CLOUD)}[/red]")
-    overrides["cloud_provider"] = cp
-
-    key_map = {
-        "gemini": ("Gemini API key", "GEMINI_API_KEY", "gemini_api_key"),
-        "claude": ("Anthropic API key", "ANTHROPIC_API_KEY", "anthropic_api_key"),
-        "openai": ("OpenAI API key", "OPENAI_API_KEY", "openai_api_key"),
-    }
-    label, env_var, cfg_key = key_map[cp]
-    key = _prompt_api_key(label, env_var, prefill_keys.get(cfg_key, ""))
-    if key:
-        overrides[cfg_key] = key
-    return overrides
 
 
 def _print_backend_menu(exclude: str | None = None) -> None:
@@ -1116,8 +1139,7 @@ def _print_backend_menu(exclude: str | None = None) -> None:
     _gemini_ok = _cli_installed("gemini")
     n = 1
     for key, label in [
-        ("ollama",      "Local Ollama      (GPU/CPU — local or remote server)"),
-        ("cloud",       "Cloud API         (Gemini / Claude / OpenAI — API key required)"),
+        ("ollama",      "Local Ollama      (GPU/CPU — local)"),
         ("claude-code", f"Claude Code CLI   (claude Pro/Max subscription — "
                         f"{'[green]installed[/green]' if _claude_ok else '[yellow]not installed[/yellow]'})"),
         ("gemini-cli",  f"Gemini CLI        (Gemini Advanced subscription — "
@@ -1133,7 +1155,7 @@ def _print_backend_menu(exclude: str | None = None) -> None:
 def _pick_backend_menu(exclude: str | None = None, prompt: str = "Choice") -> str:
     """Show 4-option backend menu and return the chosen backend key."""
     _print_backend_menu(exclude)
-    keys = [k for k in ("ollama", "cloud", "claude-code", "gemini-cli") if k != exclude]
+    keys = [k for k in ("ollama", "claude-code", "gemini-cli") if k != exclude]
     valid: dict[str, str] = {}
     for i, k in enumerate(keys, 1):
         valid[str(i)] = k
@@ -1269,9 +1291,8 @@ def _ensure_npm(install_cmd: str) -> bool:
 def _configure_backend(
     backend: str,
     overrides: dict,
-    prefill_keys: dict,
-    default_cp: str,
 ) -> None:
+    """Prompt for backend-specific settings, merge into overrides, and offer install."""
     """Prompt for backend-specific settings, merge into overrides, and offer install."""
     import subprocess as _sp
 
@@ -1300,9 +1321,6 @@ def _configure_backend(
         else:
             _hint(f"Once Ollama is running: [bold]ollama pull {model}[/bold]")
 
-    elif backend == "cloud":
-        _err("'cloud' provider (direct SDK) is disabled. Use gemini-cli or claude-code.")
-        raise typer.Exit(code=1)
 
     elif backend in ("claude-code", "gemini-cli"):
         cli_cmd = "claude" if backend == "claude-code" else "gemini"
@@ -1353,19 +1371,9 @@ def _configure_backend(
             overrides[sel_key] = sel_model
 
 
-def _run_init_wizard(
-    *,
-    cloud_provider: str,
-    gemini_api_key: str,
-    anthropic_api_key: str,
-    openai_api_key: str,
-) -> dict:
+def _run_init_wizard() -> dict:
     """Run interactive LLM setup wizard. Returns dict of llm config overrides."""
-    prefill_keys = {
-        "gemini_api_key": gemini_api_key,
-        "anthropic_api_key": anthropic_api_key,
-        "openai_api_key": openai_api_key,
-    }
+    overrides: dict = {}
 
     console.print()
     console.print("[bold cyan]LLM Setup Wizard[/bold cyan]")
@@ -1379,7 +1387,7 @@ def _run_init_wizard(
 
     # Step 2: Configure the primary backend
     console.print(f"[dim]--- {primary} (primary) ---[/dim]")
-    _configure_backend(primary, overrides, prefill_keys, cloud_provider)
+    _configure_backend(primary, overrides)
 
     # Step 3: Fallback backend
     console.print()
@@ -1389,19 +1397,31 @@ def _run_init_wizard(
         fallback = _pick_backend_menu(exclude=primary, prompt="Fallback")
         overrides["fallback"] = fallback
         console.print(f"[dim]--- {fallback} (fallback) ---[/dim]")
-        _configure_backend(fallback, overrides, prefill_keys, cloud_provider)
+        _configure_backend(fallback, overrides)
     else:
         overrides["fallback"] = ""
 
     return overrides
 
 
-def _run_curator_persona_wizard(client) -> dict | None:
-    """Multi-turn LLM interview to build the Curator persona. Returns persona dict or None (skipped)."""
+def _run_curator_persona_wizard(client, current_persona: dict | None = None, recent_domains: list[str] | None = None) -> dict | None:
+    """Multi-turn LLM interview to build/refine the Curator persona. Returns persona dict or None (skipped)."""
     from .prompts import build_persona_interview_messages, PERSONA_INTERVIEW_CURATOR_OPENER
+    import json as _json
+    import re as _re
 
-    history: list[dict] = [{"role": "assistant", "content": PERSONA_INTERVIEW_CURATOR_OPENER}]
-    typer.echo("\n" + PERSONA_INTERVIEW_CURATOR_OPENER)
+    opener = PERSONA_INTERVIEW_CURATOR_OPENER
+    # When refining an existing persona, show context to the LLM and user
+    context_prefix = ""
+    if current_persona:
+        context_prefix = f"Current persona: {_json.dumps(current_persona, ensure_ascii=False)}\n"
+        if recent_domains:
+            context_prefix += f"Recently ingested domains: {', '.join(recent_domains)}\n"
+        context_prefix += "Based on the above, I'll ask whether you'd like to refine anything.\n\n"
+
+    opener_with_context = context_prefix + opener
+    history: list[dict] = [{"role": "assistant", "content": opener_with_context}]
+    typer.echo("\n" + opener_with_context)
 
     for _ in range(12):
         user_input = typer.prompt("You").strip()
@@ -1410,16 +1430,13 @@ def _run_curator_persona_wizard(client) -> dict | None:
         history.append({"role": "user", "content": user_input})
         messages = build_persona_interview_messages(history, is_workspace=False)
         try:
-            response = client.chat(messages)
+            content: str = client.chat(messages)
         except Exception as exc:
             typer.echo(f"[LLM error] {exc}")
             break
 
-        content = response.content if hasattr(response, "content") else str(response)
         history.append({"role": "assistant", "content": content})
 
-        import json as _json
-        import re as _re
         json_match = _re.search(r'\{.*\}', content, _re.DOTALL)
         if json_match:
             try:
@@ -1439,13 +1456,80 @@ def _run_curator_persona_wizard(client) -> dict | None:
     return None
 
 
+def _maybe_auto_evolve_curator_persona(
+    paths: "cfg.WikiPaths",
+    config: dict,
+    client,
+    new_domains: list[str],
+) -> None:
+    """Silently update Curator persona if new_domains are outside its current scope.
+
+    Makes a single non-interactive LLM call. Updates config.yml in-place.
+    Failures are silently swallowed — never blocks wiki add.
+    """
+    if not new_domains:
+        return
+    current_persona = config.get("persona", {})
+    if not current_persona:
+        return
+
+    import json as _json
+    import re as _re
+
+    prompt = (
+        "You are a knowledge-base configuration assistant.\n\n"
+        "Below is a Curator persona (vault-wide knowledge profile) and domains "
+        "observed in a recent ingestion run.\n\n"
+        f"Current persona:\n{_json.dumps(current_persona, ensure_ascii=False)}\n\n"
+        f"Newly observed domains: {', '.join(new_domains)}\n\n"
+        "If these domains are already well-covered by the current persona, return exactly: null\n\n"
+        "If the persona should evolve to better reflect these domains (while staying true "
+        "to the vault's core identity), return ONLY an updated JSON object with the SAME "
+        "schema as the current persona. Update the area, text, knowledge_artifacts, "
+        "verification_philosophy, or disambiguation_keywords fields as appropriate. "
+        "Do not change confidence thresholds or exhibition_intent unless clearly needed.\n\n"
+        "Return only valid JSON — no prose, no code fences. Either null or the updated JSON."
+    )
+    try:
+        from .llm import ChatMessage
+        raw = client.chat([ChatMessage(role="user", content=prompt)], temperature=0.2)
+        raw_stripped = _re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
+        if raw_stripped.lower() in ("null", ""):
+            return
+        updated = _json.loads(raw_stripped)
+        if not isinstance(updated, dict):
+            return
+        import datetime
+        updated["updated_at"] = datetime.datetime.now().isoformat()
+        config["persona"] = updated
+        cfg.save_config(paths, config)
+        console.print("[dim]  · Curator persona quietly updated with new domain context.[/dim]")
+    except Exception:
+        pass
+
+
 def _run_artist_persona_wizard(client, project: str) -> dict | None:
     """Multi-turn LLM interview to build an Artist persona. Returns persona dict or None (skipped)."""
     from .prompts import build_persona_interview_messages, PERSONA_INTERVIEW_ARTIST_OPENER
+    import json as _json
+    import re as _re
 
     opener = PERSONA_INTERVIEW_ARTIST_OPENER.format(project=project)
-    history: list[dict] = [{"role": "assistant", "content": opener}]
     typer.echo("\n" + opener)
+
+    # Opener is display-only — not in history.  History starts with the first
+    # LLM-generated question so there are no consecutive assistant messages.
+    history: list[dict] = []
+
+    # Ask Q1 immediately without waiting for user acknowledgment
+    messages = build_persona_interview_messages(history, is_workspace=True, project=project)
+    try:
+        first_q: str = client.chat(messages)
+    except Exception as exc:
+        typer.echo(f"[LLM error] {exc}")
+        return None
+    history.append({"role": "assistant", "content": first_q})
+    typer.echo(f"\nCurator: {first_q}\n")
 
     for _ in range(12):
         user_input = typer.prompt("You").strip()
@@ -1454,16 +1538,13 @@ def _run_artist_persona_wizard(client, project: str) -> dict | None:
         history.append({"role": "user", "content": user_input})
         messages = build_persona_interview_messages(history, is_workspace=True, project=project)
         try:
-            response = client.chat(messages)
+            content: str = client.chat(messages)
         except Exception as exc:
             typer.echo(f"[LLM error] {exc}")
             break
 
-        content = response.content if hasattr(response, "content") else str(response)
         history.append({"role": "assistant", "content": content})
 
-        import json as _json
-        import re as _re
         json_match = _re.search(r'\{.*\}', content, _re.DOTALL)
         if json_match:
             try:
@@ -1550,7 +1631,6 @@ def _offer_install(overrides: dict, llm_cfg: dict) -> None:
 
 _ALL_LLM_ERRORS = (
     OllamaNotRunning, ModelNotFound,
-    GeminiError, ClaudeError, OpenAIError,
     ClaudeCodeError, GeminiCliError,
     LLMError,
 )
@@ -1631,22 +1711,12 @@ def _start_client_inner(config: dict):
 def _start_client(config: dict):
     client = _start_client_inner(config)
 
-    # print model info
     if isinstance(client, FailoverClient):
-        active = client.active_provider
-        chain = " → ".join(type(p).__name__ for p in client.providers)
-        provider_label = f"Failover (active: {type(active).__name__}) ({chain})"
-    elif isinstance(client, GeminiClient):
-        provider_label = "Gemini"
-    elif isinstance(client, ClaudeClient):
-        provider_label = "Claude"
-    elif isinstance(client, OpenAIClient):
-        provider_label = "OpenAI"
+        chain = " → ".join(type(p).__name__.replace("Client", "") for p in client.providers)
+        active = type(client.active_provider).__name__.replace("Client", "")
+        provider_label = f"{active} [dim]({chain})[/dim]"
     else:
-        provider_label = type(client).__name__
-
-    if provider_label.endswith("Client"):
-        provider_label = provider_label[:-6]
+        provider_label = type(client).__name__.replace("Client", "")
 
     _ok(f"LLM ready · [bold]{provider_label}[/bold] (model: {client.model})")
     return client
@@ -1668,30 +1738,6 @@ def init(
         "--raw",
         "-r",
         help="Source directories to monitor (relative to vault root). Repeatable.",
-    ),
-    cloud_provider: str = typer.Option(
-        "gemini",
-        "--cloud-provider",
-        "-c",
-        help="Cloud LLM provider for low-RAM machines: gemini | claude | openai.",
-    ),
-    gemini_api_key: str = typer.Option(
-        "",
-        "--gemini-api-key",
-        "-g",
-        help="Gemini API key (or set GEMINI_API_KEY env var).",
-    ),
-    anthropic_api_key: str = typer.Option(
-        "",
-        "--anthropic-api-key",
-        "-a",
-        help="Anthropic Claude API key (or set ANTHROPIC_API_KEY env var).",
-    ),
-    openai_api_key: str = typer.Option(
-        "",
-        "--openai-api-key",
-        "-o",
-        help="OpenAI API key (or set OPENAI_API_KEY env var).",
     ),
     interactive: bool = typer.Option(
         True,
@@ -1716,7 +1762,6 @@ def init(
       .curator/log.md            — ingest log
       .curator/ledger.md         — override ledger
     """
-    import os
     import shutil
 
     root = Path(vault_path).resolve()
@@ -1778,27 +1823,7 @@ def init(
     # Cloud provider + API keys
     llm = dict(config.get("llm", {}))
 
-    explicit_provider_flags = bool(
-        cloud_provider != "gemini"
-        or gemini_api_key
-        or anthropic_api_key
-        or openai_api_key
-    )
-
-    if explicit_provider_flags:
-        # CLI flags were passed — apply directly, no wizard
-        if cloud_provider:
-            _err("--cloud-provider is disabled. Use --primary gemini-cli or --primary claude-code.")
-            raise typer.Exit(code=1)
-        for flag_val, env_var, cfg_key in [
-            (gemini_api_key, "GEMINI_API_KEY", "gemini_api_key"),
-            (anthropic_api_key, "ANTHROPIC_API_KEY", "anthropic_api_key"),
-            (openai_api_key, "OPENAI_API_KEY", "openai_api_key"),
-        ]:
-            resolved = flag_val or os.environ.get(env_var, "")
-            if resolved:
-                llm[cfg_key] = resolved
-    elif not interactive:
+    if not interactive:
         # --no-interactive with no flags: skip provider setup entirely
         _hint("LLM provider not configured. Run [bold]wiki config provider[/bold] to set it up.")
     else:
@@ -1810,16 +1835,11 @@ def init(
         console.print()
         choice = typer.prompt("Choose setup method (1/2)", default="1").strip()
         if choice == "1":
-            wizard_overrides = _run_init_wizard(
-                cloud_provider=cloud_provider,
-                gemini_api_key=gemini_api_key,
-                anthropic_api_key=anthropic_api_key,
-                openai_api_key=openai_api_key,
-            )
+            wizard_overrides = _run_init_wizard()
             llm.update(wizard_overrides)
             _offer_install(wizard_overrides, llm)
         else:
-            _hint("Run [bold]wiki config provider --primary ollama|cloud ...[/bold] to configure.")
+            _hint("Run [bold]wiki config provider --primary ollama|gemini-cli|claude-code ...[/bold] to configure.")
 
     if "provider" in llm:
         del llm["provider"]
@@ -1885,8 +1905,27 @@ def init(
     except search.SearchBackendError as e:
         _warn(f"Could not write qmd config: {e}")
 
-    # 6. Summary
+    # 6. Curator persona interview (requires LLM to be configured)
+    if interactive and config.get("llm", {}).get("primary"):
+        console.print()
+        console.print("[bold]Curator Persona Setup[/bold]")
+        console.print("[dim]This shapes how knowledge is verified and synthesized vault-wide.[/dim]")
+        try:
+            _persona_client = _start_client(config)
+            _curator_persona = _run_curator_persona_wizard(_persona_client)
+            if _curator_persona is not None:
+                import datetime as _dt_persona
+                _curator_persona["updated_at"] = _dt_persona.datetime.now().isoformat()
+                config["persona"] = _curator_persona
+                cfg.save_config(paths, config)
+                _ok("Curator persona saved.")
+        except Exception as _persona_exc:
+            _warn(f"Persona setup skipped: {_persona_exc}")
+            _hint("Run [bold]wiki persona update[/bold] later to configure.")
+
+    # 7. Summary
     cfg.set_last_root(root)
+    _updated_mcp = _sync_mcp_configs(root)
 
     console.print()
     console.print("[bold green]Curator initialised![/bold green]")
@@ -1900,6 +1939,8 @@ def init(
     table.add_row("Collections", str(paths.collections.relative_to(root)))
     table.add_row("Config", str(paths.config_file.relative_to(root)))
     table.add_row("LLM backend", describe_backend(config))
+    if _updated_mcp:
+        table.add_row("MCP configs", f"{len(_updated_mcp)} updated")
     console.print(table)
     console.print()
     if not config.get("llm", {}).get("primary"):
@@ -1912,12 +1953,7 @@ def config_provider(
     primary: str = typer.Option(
         "",
         "--primary", "-p",
-        help="Primary backend: ollama | cloud | claude-code | gemini-cli",
-    ),
-    cloud_provider: str = typer.Option(
-        "",
-        "--cloud-provider", "-c",
-        help="Cloud provider: gemini | claude | openai",
+        help="Primary backend: ollama | claude-code | gemini-cli",
     ),
     model: str = typer.Option(
         "",
@@ -1929,9 +1965,6 @@ def config_provider(
         "--host",
         help="Ollama host URL (e.g. http://localhost:11434).",
     ),
-    gemini_api_key: str = typer.Option("", "--gemini-api-key", help="Gemini API key."),
-    anthropic_api_key: str = typer.Option("", "--anthropic-api-key", help="Anthropic API key."),
-    openai_api_key: str = typer.Option("", "--openai-api-key", help="OpenAI API key."),
 ) -> None:
     """Reconfigure the LLM provider for the current project.
 
@@ -1939,57 +1972,54 @@ def config_provider(
 
     \b
       wiki config provider --primary ollama --model gemma4:32b
-      wiki config provider --primary cloud --cloud-provider claude
-      wiki config provider --primary ollama --cloud-provider gemini  # ollama + cloud fallback
+      wiki config provider --primary gemini-cli
+      wiki config provider --primary claude-code
     """
     paths = _resolve_root_or_die()
     current_config = cfg.load_config(paths)
     llm = dict(current_config.get("llm", {}))
 
-    any_flag = bool(primary or cloud_provider or model or host
-                    or gemini_api_key or anthropic_api_key or openai_api_key)
+    any_flag = bool(primary or model or host)
 
     if any_flag:
+        overrides = {}
         # Non-interactive: apply only the flags that were explicitly passed
-        _valid_primary = ("ollama", "cloud", "claude-code", "gemini-cli")
+        _valid_primary = ("ollama", "claude-code", "gemini-cli")
         if primary in _valid_primary:
             llm["primary"] = primary
+            overrides["primary"] = primary
         elif primary:
             _warn(f"Unknown --primary '{primary}'. Use: {' | '.join(_valid_primary)}")
             raise typer.Exit(code=1)
 
-        if cloud_provider:
-            _warn("--cloud-provider is disabled. Use --primary gemini-cli or --primary claude-code.")
-            raise typer.Exit(code=1)
-
         if model:
             llm["model"] = model
+            overrides["model"] = model
             # If only model is specified (no explicit primary), infer ollama
             if not primary:
                 llm["primary"] = "ollama"
+                overrides["primary"] = "ollama"
         if host:
             llm["host"] = host
+            overrides["host"] = host
             if not primary:
                 llm["primary"] = "ollama"
+                overrides["primary"] = "ollama"
 
-        import os
-        for flag_val, env_var, cfg_key in [
-            (gemini_api_key, "GEMINI_API_KEY", "gemini_api_key"),
-            (anthropic_api_key, "ANTHROPIC_API_KEY", "anthropic_api_key"),
-            (openai_api_key, "OPENAI_API_KEY", "openai_api_key"),
-        ]:
-            resolved = flag_val or os.environ.get(env_var, "")
-            if resolved:
-                llm[cfg_key] = resolved
-        _offer_install(llm, llm)
+        # Offer model selection for CLI backends if primary was switched via flag
+        if primary in ("claude-code", "gemini-cli"):
+            console.print()
+            console.print(f"[bold]{primary} Model Selection[/bold]")
+            _show_cloud_models(primary, llm)
+            sel_model, sel_key = _pick_cloud_model(primary, llm)
+            if sel_model:
+                llm[sel_key] = sel_model
+                overrides[sel_key] = sel_model
+
+        _offer_install(overrides, llm)
     else:
         # Interactive wizard
-        overrides = _run_init_wizard(
-            cloud_provider=llm.get("cloud_provider", "gemini"),
-            gemini_api_key="",
-            anthropic_api_key="",
-            openai_api_key="",
-        )
+        overrides = _run_init_wizard()
         llm.update(overrides)
         _offer_install(overrides, llm)
 
@@ -2271,6 +2301,30 @@ def add(
             _ok(f"L3 regeneration complete: {len(changes)} concept(s) written")
             _refresh_qmd_index(paths, embed=False)
             _invalidate_latest_sync_report(paths, reason="add changed L3; sync report stale")
+
+            # Forward propagation (L3 -> L4): Evolve knowledge graph if L3 changed
+            dirty_exhs = sync_module.find_dirty_exhibitions(paths)
+            if dirty_exhs:
+                console.print()
+                console.print(f"[dim]New information affects {len(dirty_exhs)} existing Exhibition(s).[/dim]")
+                do_merge = False
+                if console.is_interactive:
+                    do_merge = typer.confirm("Merge these new facts into affected Exhibitions now?", default=True)
+                
+                if do_merge:
+                    updated_count = 0
+                    for exh_id in dirty_exhs:
+                        console.print(f"  [dim]Merging into {exh_id}...[/dim]", end="\r")
+                        if sync_module.propagate_downstream_to_exhibition(paths, client, exh_id):
+                            console.print(" " * 60, end="\r")
+                            _ok(f"[bold]{exh_id}[/bold] updated with latest data.")
+                            updated_count += 1
+                        else:
+                            console.print(" " * 60, end="\r")
+                    
+                    if updated_count > 0:
+                        _refresh_qmd_index(paths)
+
             if not no_sync:
                 _run_sync_report_only(paths, config, reason="add")
         finally:
@@ -2348,10 +2402,48 @@ def add(
             _refresh_qmd_index(paths, embed=True)
             _invalidate_latest_sync_report(paths, reason="add changed L1-L3; sync report stale")
 
+        # Progressively reinforce Curator persona from newly observed domains
+        if summarized > 0 or atoms_created > 0:
+            new_ctx_ids = [
+                ch.id for r in l3_results if r.ok
+                for ch in r.changes if ch.layer == "01_Contexts"
+            ]
+            if new_ctx_ids:
+                new_domains = ingest_llm._collect_domains_from_contexts(paths, new_ctx_ids)
+                _maybe_auto_evolve_curator_persona(paths, config, client, new_domains)
+
         if not no_sync and (summarized > 0 or atoms_created > 0 or atoms_updated > 0):
             _run_sync_report_only(paths, config, reason="add")
 
-        _hint("Run [bold]wiki curate[/bold] to stage L4 Exhibitions.")
+        # Forward propagation (L3 -> L4): Evolve knowledge graph if new data arrived
+        if summarized > 0 or atoms_created > 0 or atoms_updated > 0:
+            from . import sync as sync_module
+            dirty_exhs = sync_module.find_dirty_exhibitions(paths)
+            if dirty_exhs:
+                console.print()
+                console.print(f"[dim]New information affects {len(dirty_exhs)} existing Exhibition(s).[/dim]")
+                do_merge = False
+                if console.is_interactive:
+                    do_merge = typer.confirm("Merge these new facts into affected Exhibitions now?", default=True)
+                
+                if do_merge:
+                    updated_count = 0
+                    for exh_id in dirty_exhs:
+                        console.print(f"  [dim]Merging into {exh_id}...[/dim]", end="\r")
+                        if sync_module.propagate_downstream_to_exhibition(paths, client, exh_id):
+                            console.print(" " * 60, end="\r")
+                            _ok(f"[bold]{exh_id}[/bold] updated with latest data.")
+                            updated_count += 1
+                        else:
+                            console.print(" " * 60, end="\r")
+                    
+                    if updated_count > 0:
+                        _refresh_qmd_index(paths)
+                else:
+                    _hint("Run [bold]wiki update[/bold] later to merge these changes into Exhibitions.")
+
+        if not dirty_exhs or not do_merge:
+            _hint("Run [bold]wiki curate[/bold] to stage L4 Exhibitions.")
     finally:
         client.close()
 
@@ -2471,7 +2563,7 @@ def sources_list_cmd(
                 console.print(f"       [dim]→ The file has no extractable text (scanned PDF?). "
                                f"Run [bold]wiki sources rm {row['id']}[/bold] to remove it.[/dim]")
             elif reason == "missing_context":
-                console.print(f"       [dim]→ Re-run [bold]wiki add --force[/bold] to regenerate L1 Contexts.[/dim]")
+                console.print("       [dim]→ Re-run [bold]wiki add --force[/bold] to regenerate L1 Contexts.[/dim]")
             elif reason in ("parse_error", "llm_error"):
                 console.print(f"       [dim]→ Re-try with [bold]wiki curate {row['id']} --force[/bold][/dim]")
             shown_reasons.add(reason)
@@ -2848,7 +2940,7 @@ def curate(
                 description=f"Knowledge workspace for {default_project_name(workspace)}",
             )
             prepare_workspace(
-                wiki_root=paths.root,
+                vault_root=paths.root,
                 workspace=workspace,
                 agent="none",
                 curate_data=data,
@@ -2915,8 +3007,15 @@ def curate(
                     if existing:
                         parsed.frontmatter["id"] = existing.frontmatter.get("id", existing_workspace_exh.stem)
                 content = parsed.to_markdown()
-                target.parent.mkdir(parents=True, exist_ok=True)
-                page_writer.write_page(target, content)
+                # Intelligent Merge: If exhibition exists and not force, use Smart Update.
+                if not force and target.exists():
+                    from . import sync as sync_module
+                    console.print(f"  [dim]Merging updates into existing Exhibition: {target.name}...[/dim]")
+                    # Use the just-staged concept data via propagate_downstream_to_exhibition
+                    sync_module.propagate_downstream_to_exhibition(paths, client, target.stem)
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    page_writer.write_page(target, content)
 
             # Write the active Exhibition ID back into curate.yml for MCP anchor tracking
             if curate_spec is not None and target is not None and workspace is not None:
@@ -2980,7 +3079,62 @@ def curate(
 
 
 # ---------------------------------------------------------------------------
-# Stage 3b — sync (deductive verification engine)
+# Stage 3c — update (forward propagation)
+# ---------------------------------------------------------------------------
+
+@app.command()
+def update(
+    exh_id: Optional[str] = typer.Argument(
+        None,
+        help="Target Exhibition (EXH-). Omit to update all 'dirty' Exhibitions.",
+    ),
+) -> None:
+    """Forward propagation: reflect latest L3 changes into L4 Exhibitions.
+    
+    This command identifies Exhibitions that reference Concepts (L3) with newer
+    information and performs a 'Smart Update' (merging new facts without 
+    overwriting human/agent edits).
+    """
+    from . import sync as sync_module
+    
+    paths = _resolve_root_or_die()
+    config = cfg.load_config(paths)
+    client = _start_client(config)
+    
+    console.print()
+    console.rule("[bold cyan]Update — Forward Propagation[/bold cyan]")
+    
+    target_ids = []
+    if exh_id:
+        target_ids = [exh_id]
+    else:
+        console.print("[dim]Scanning for Exhibitions with updated concepts...[/dim]")
+        target_ids = sync_module.find_dirty_exhibitions(paths)
+        
+    if not target_ids:
+        _ok("All Exhibitions are already up-to-date with their referenced concepts.")
+        return
+
+    console.print(f"[dim]Found {len(target_ids)} exhibition(s) requiring update.[/dim]")
+    
+    updated_count = 0
+    for tid in target_ids:
+        console.print(f"  [dim]Merging updates into {tid}...[/dim]", end="\r")
+        if sync_module.propagate_downstream_to_exhibition(paths, client, tid):
+            console.print(" " * 60, end="\r")
+            _ok(f"[bold]{tid}[/bold] updated with latest concept data.")
+            updated_count += 1
+        else:
+            console.print(" " * 60, end="\r")
+            console.print(f"  [dim]• {tid} already consistent.[/dim]")
+            
+    if updated_count > 0:
+        _refresh_qmd_index(paths)
+        _ok(f"Forward propagation complete. {updated_count} exhibitions updated.")
+    else:
+        _ok("All exhibitions are consistent.")
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -3626,7 +3780,7 @@ def query(
         scope=scope,
         classify_intent_first=not no_intent_classify,
         workspace_project=curate_spec.project if curate_spec else None,
-        query_boost_terms=(curate_spec.topics + curate_spec.domains) if curate_spec else None,
+        query_boost_terms=[x for x in ([curate_spec.persona.domain, curate_spec.persona.subdomain] + curate_spec.persona.disambiguation_keywords) if x] if curate_spec else None,
         ephemeral_exhibition=False if save_as else True,
     )
 
@@ -4102,7 +4256,7 @@ def models_list(
     Use --all to see the full catalogue and recommendations.
     """
     import os
-    env_root = os.environ.get("WIKI_ROOT")
+    env_root = os.environ.get("VAULT_ROOT")
     discovered = None
     
     if env_root:
@@ -4133,8 +4287,10 @@ def models_list(
     if not primary and discovered:
         # Check if we can guess the primary from cloud_provider
         cp = llm_cfg.get("cloud_provider", "gemini")
-        if cp == "gemini": primary = "gemini-cli"
-        elif cp == "claude": primary = "claude-code"
+        if cp == "gemini":
+            primary = "gemini-cli"
+        elif cp == "claude":
+            primary = "claude-code"
 
     # 1. Show Primary Backend models
     if primary in ("claude-code", "gemini-cli", "cloud", "gemini", "claude", "openai"):
@@ -4161,7 +4317,7 @@ def models_list(
                 console.print(f"\n[yellow]Not inside a wiki project.[/yellow] (cwd: {Path.cwd()})")
                 console.print("Use [bold]wiki config models list --all[/bold] to see all recommendations.")
             else:
-                console.print(f"\n[bold]Current Active Configuration[/bold]")
+                console.print("\n[bold]Current Active Configuration[/bold]")
                 console.print(f"  Primary Backend: [cyan]{primary_raw or '(not set)'}[/cyan]")
                 if primary == "ollama" or not primary:
                     console.print(f"  Ollama Model:    [cyan]{llm_cfg.get('model', '(default: qwen2.5:7b)')}[/cyan]")
@@ -4301,62 +4457,58 @@ def _interactive() -> bool:
     return bool(sys.stdin.isatty())
 
 
+def _ask_source_dirs(vault_root: Path) -> list[str]:
+    """Interactively select which vault directories to include. Returns fnmatch patterns."""
+    raw_dirs = ["03_Notes", "04_Resources", "02_Wiki"]
+    available: list[tuple[str, int]] = []
+    for d in raw_dirs:
+        dir_path = vault_root / d
+        if dir_path.exists():
+            count = sum(1 for _ in dir_path.rglob("*.md"))
+            if count > 0:
+                available.append((d, count))
+
+    if not available:
+        return []
+
+    console.print("\nAvailable source directories:")
+    for i, (d, count) in enumerate(available):
+        console.print(f"  [{i + 1}] {d}/ ({count} files)")
+    sel_text = typer.prompt(
+        "Include directories (comma-separated numbers, empty = all)", default=""
+    )
+    if not sel_text.strip():
+        return []
+    indices = [
+        int(x.strip()) - 1
+        for x in sel_text.split(",")
+        if x.strip().isdigit()
+    ]
+    return [
+        f"{available[i][0]}/**"
+        for i in indices
+        if 0 <= i < len(available)
+    ]
+
+
 def _collect_curate_template_data(
     *,
     path: Path,
-    wiki_root: Path,
+    vault_root: Path,
     yes: bool,
     project: Optional[str],
     description: Optional[str],
-    domains: Optional[list[str]],
-    topics: Optional[list[str]],
     min_confidence: float,
 ) -> CurateTemplateData:
     project_default = project or default_project_name(path)
     description_default = description or f"Knowledge workspace for {project_default}"
-    domain_values = _csv_items(domains)
-    topic_values = _csv_items(topics)
     include_patterns: list[str] = []
 
     if not yes and _interactive():
         project_default = typer.prompt("Project id", default=project_default)
         description_default = typer.prompt("Description", default=description_default)
-        if not domain_values:
-            domain_text = typer.prompt("Domains (comma-separated)", default="")
-            domain_values = _csv_items([domain_text])
-        if not topic_values:
-            topic_text = typer.prompt("Topics (comma-separated)", default="")
-            topic_values = _csv_items([topic_text])
         min_confidence = float(typer.prompt("Minimum confidence", default=str(min_confidence)))
-
-        # Source directory discovery wizard
-        raw_dirs = ["03_Notes", "04_Resources", "02_Wiki"]
-        available: list[tuple[str, int]] = []
-        for d in raw_dirs:
-            dir_path = wiki_root / d
-            if dir_path.exists():
-                count = sum(1 for _ in dir_path.rglob("*.md"))
-                if count > 0:
-                    available.append((d, count))
-
-        if available:
-            console.print("\nAvailable source directories:")
-            for i, (d, count) in enumerate(available):
-                console.print(f"  [{i + 1}] {d}/ ({count} files)")
-            sel_text = typer.prompt(
-                "Include directories (comma-separated numbers, empty = all)", default=""
-            )
-            if sel_text.strip():
-                indices = [
-                    int(x.strip()) - 1
-                    for x in sel_text.split(",")
-                    if x.strip().isdigit()
-                ]
-                include_patterns = [
-                    f"{available[i][0]}/**"
-                    for i in indices
-                    if 0 <= i < len(available)
-                ]
+        include_patterns = _ask_source_dirs(vault_root)
 
     if not (0.0 <= float(min_confidence) <= 1.0):
         _err("--min-confidence must be in [0.0, 1.0].")
@@ -4365,8 +4517,6 @@ def _collect_curate_template_data(
     return CurateTemplateData(
         project=project_default,
         description=description_default,
-        domains=domain_values,
-        topics=topic_values,
         min_confidence=float(min_confidence),
         include_patterns=include_patterns,
     )
@@ -4391,6 +4541,101 @@ def _print_workspace_prepare_result(result) -> None:
         console.print(f"  Updated: {', '.join(updated[:8])}{' …' if len(updated) > 8 else ''}")
     if preserved:
         console.print(f"  Preserved existing: {', '.join(preserved[:5])}{' …' if len(preserved) > 5 else ''}")
+
+
+def _print_copy_paste_prompt(agent: str, rule_file: str) -> None:
+    prompt = make_integration_copy_prompt(agent, rule_file)
+    console.print()
+    console.print("[dim]Give this prompt to your agent to integrate Curator manually:[/dim]")
+    console.print()
+    for line in prompt.splitlines():
+        console.print(line)
+    console.print()
+
+
+def _try_llm_rule_integration(
+    path: Path,
+    agent: str,
+    paths: "cfg.WikiPaths",
+    yes: bool,
+) -> bool:
+    """Use LLM to integrate Curator hooks into the existing agent rule file.
+
+    Returns True if the file was successfully modified by the LLM.
+    Falls back to printing a copy-paste prompt on failure or user refusal.
+    """
+    import difflib
+
+    try:
+        rule_file, _ = top_level_target(agent)
+    except ValueError:
+        return False
+
+    rule_path = path / rule_file
+    if not rule_path.exists():
+        return False
+    existing = rule_path.read_text(encoding="utf-8")
+    if not existing.strip():
+        return False
+
+    prompt_text = make_rule_integration_prompt(existing, agent, str(path))
+    modified: str | None = None
+    try:
+        from .llm import build_client, ChatMessage
+        _config = cfg.load_config(paths)
+        with build_client(_config) as _client:
+            modified = _client.chat(
+                [ChatMessage(role="user", content=prompt_text)],
+                temperature=0.2,
+            )
+        modified = modified.strip()
+    except Exception as exc:
+        _warn(f"LLM rule integration unavailable: {exc}")
+        _print_copy_paste_prompt(agent, rule_file)
+        return False
+
+    if not modified or modified == existing.strip():
+        return False
+
+    diff = list(difflib.unified_diff(
+        existing.splitlines(keepends=True),
+        (modified + "\n").splitlines(keepends=True),
+        fromfile=f"{rule_file} (original)",
+        tofile=f"{rule_file} (with Curator)",
+        n=3,
+    ))
+    if not diff:
+        return False
+
+    console.print()
+    console.print(f"[bold]Proposed changes to {rule_file}:[/bold]")
+    for line in diff:
+        line_stripped = line.rstrip("\n")
+        if line.startswith("+") and not line.startswith("+++"):
+            console.print(f"[green]{line_stripped}[/green]")
+        elif line.startswith("-") and not line.startswith("---"):
+            console.print(f"[red]{line_stripped}[/red]")
+        else:
+            console.print(line_stripped)
+    console.print()
+
+    if yes:
+        do_write = True
+    else:
+        answer = typer.prompt(
+            f"Apply Curator integration to {rule_file}?",
+            default="y",
+            prompt_suffix=" [Y/n]: ",
+        ).strip().lower()
+        do_write = answer in ("", "y", "yes")
+
+    if do_write:
+        rule_path.write_text(modified + "\n", encoding="utf-8")
+        _ok(f"Integrated Curator hooks into {rule_file}.")
+        return True
+
+    _print_copy_paste_prompt(agent, rule_file)
+    return False
 
 
 @workspace_app.command("init")
@@ -4418,54 +4663,126 @@ def workspace_init(
     ),
     project: Optional[str] = typer.Option(None, "--project", help="curate.yml project id."),
     description: Optional[str] = typer.Option(None, "--description", help="curate.yml description."),
-    domains: Optional[list[str]] = typer.Option(None, "--domain", help="Domain to add; repeat or comma-separate."),
-    topics: Optional[list[str]] = typer.Option(None, "--topic", help="Topic to add; repeat or comma-separate."),
     min_confidence: float = typer.Option(0.60, "--min-confidence", help="curate.yml confidence floor."),
 ) -> None:
     """Scaffold or sync a workspace with curate.yml and agent rules."""
-    # Interactive agent selection if --agent was not explicitly set
-    _agent_explicit = agent != "claude-code"  # detect non-default to skip prompt
-    paths = _resolve_root_or_die()
     path = path.expanduser().resolve()
+    paths = _resolve_root_or_die(hint_path=path)
+    project_name = project or default_project_name(path)
 
+    # 1. Interactive agent selection (which agent rules to install)
+    _agent_explicit = agent != "claude-code"
     if not yes and _interactive() and not _agent_explicit:
-        agent_choice = typer.prompt(
+        agent = typer.prompt(
             "Agent runtime",
             default="claude-code",
-            prompt_suffix=" [claude-code/codex/gemini-cli/none]: ",
+            prompt_suffix=" [claude-code/codex/gemini-cli/antigravity/none]: ",
         ).strip() or "claude-code"
-        agent = agent_choice
 
     if agent not in VALID_AGENTS:
         _err(f"Invalid --agent '{agent}'. Use: {' | '.join(sorted(VALID_AGENTS))}")
         raise typer.Exit(code=1)
 
-    data = _collect_curate_template_data(
-        path=path,
-        wiki_root=paths.root,
-        yes=yes,
-        project=project,
-        description=description,
-        domains=domains,
-        topics=topics,
-        min_confidence=min_confidence,
-    )
+    # 1b. Show scenario-appropriate intro message
+    _scenario = detect_workspace_scenario(path, agent)
+    if _scenario == "agent-only":
+        console.print()
+        console.print(
+            f"[cyan]Found existing [bold]{agent}[/bold] setup.[/cyan] "
+            "Integrating Curator knowledge navigation..."
+        )
+    elif _scenario == "full":
+        console.print()
+        console.print("[dim]Curator is already integrated here. Updating rules to latest templates.[/dim]")
+
+    # 1c. Agent-only: try LLM-assisted integration of Curator into existing rule file
+    _llm_integrated = False
+    if _scenario == "agent-only" and not no_rules and agent != "none":
+        _llm_integrated = _try_llm_rule_integration(
+            path=path,
+            agent=agent,
+            paths=paths,
+            yes=yes,
+        )
+
+    # 2. Artist Persona wizard → collects domain, description, topics
+    #    Results populate curate.yml so manual prompts are not needed.
+    persona: dict | None = None
+    if not yes and _interactive():
+        console.print()
+        console.print("[bold]Artist Persona Setup[/bold]")
+        console.print("[dim]The wizard will configure both the persona and curate.yml for this workspace.[/dim]")
+        _ws_config = cfg.load_config(paths)
+        try:
+            _ws_client = _start_client(_ws_config)
+        except (Exception, SystemExit) as _llm_exc:
+            _warn(f"Could not start LLM for persona wizard: {_llm_exc}")
+            _hint("Falling back to manual prompts.")
+            _ws_client = None
+        if _ws_client is not None:
+            try:
+                persona = _run_artist_persona_wizard(_ws_client, project_name)
+            except (Exception, SystemExit) as _exc:
+                _warn(f"Persona wizard failed: {_exc}")
+                _hint("Falling back to manual prompts.")
+
+    # 3. Build curate.yml data — from persona output or manual prompts
+    if persona is not None:
+        data = CurateTemplateData(
+            project=project_name,
+            description=persona.get("goal", f"Knowledge workspace for {path.name}"),
+            min_confidence=persona.get("confidence", {}).get("low_threshold", min_confidence),
+        )
+        # Source selection is not part of the persona wizard — ask separately
+        if not yes and _interactive():
+            data.include_patterns = _ask_source_dirs(paths.root)
+    else:
+        # Fallback: manual prompts (--yes or LLM unavailable)
+        data = _collect_curate_template_data(
+            path=path,
+            vault_root=paths.root,
+            yes=yes,
+            project=project,
+            description=description,
+            min_confidence=min_confidence,
+        )
+
+    # 4. Scaffold workspace files
     result = prepare_workspace(
-        wiki_root=paths.root,
+        vault_root=paths.root,
         workspace=path,
         agent=agent,
         curate_data=data,
         force_curate=force_curate,
         install_rules=not no_rules,
+        install_managed_block=not _llm_integrated,
     )
     _print_workspace_prepare_result(result)
-    # Auto-register WORKSPACE_PATH in .claude/settings.json for Claude Code agents
+
+    # 5. Save persona into curate.yml
+    if persona is not None:
+        try:
+            import yaml as _yaml_ws
+            import datetime as _dt_ws
+            _curate_file = path / "curate.yml"
+            _raw_curate = _yaml_ws.safe_load(_curate_file.read_text(encoding="utf-8")) or {}
+            persona["updated_at"] = _dt_ws.datetime.now().isoformat()
+            _raw_curate["persona"] = persona
+            _curate_file.write_text(
+                _yaml_ws.dump(_raw_curate, sort_keys=False, default_flow_style=False, allow_unicode=True),
+                encoding="utf-8",
+            )
+            _ok("Artist persona saved to curate.yml")
+        except Exception as _save_exc:
+            _warn(f"Could not save persona: {_save_exc}")
+
+    # 6. Auto-register MCP settings for Claude Code agents
     if agent == "claude-code":
         try:
             from .workspace.provisioner import merge_mcp_settings
             settings_path = paths.root / ".claude" / "settings.json"
-            merge_mcp_settings(settings_path, wiki_root=paths.root, workspace=path)
-            console.print(f"  [green]✓[/green] MCP settings updated at [dim].claude/settings.json[/dim]")
+            merge_mcp_settings(settings_path, vault_root=paths.root, workspace=path)
+            console.print("  [green]✓[/green] MCP settings updated at [dim].claude/settings.json[/dim]")
         except Exception as e:
             console.print(f"  [yellow]Warning:[/yellow] Could not update .claude/settings.json: {e}")
             console.print(f"  Set WORKSPACE_PATH={path} before running the MCP server to enable scoped search.")
@@ -4499,7 +4816,8 @@ def workspace_list() -> None:
             rel = ws_path.relative_to(paths.root)
         except ValueError:
             rel = ws_path
-        domains = ", ".join(spec.domains) if spec.domains else "[dim]—[/dim]"
+        persona_domain = spec.persona.domain or spec.persona.subdomain or ""
+        domains = persona_domain if persona_domain else "[dim]—[/dim]"
         table.add_row(
             spec.project,
             str(rel),
@@ -4527,8 +4845,10 @@ def _show_curator_persona() -> None:
     paths = _resolve_root_or_die()
     config = cfg.load_config(paths)
     persona = cfg.get_curator_persona(config)
-    typer.echo(f"Area:                  {persona.get('area', '')}")
-    typer.echo(f"Text:                  {persona.get('text', '').splitlines()[0] if persona.get('text') else ''}")
+    area = persona.get("area", "")
+    text_first_line = (persona.get("text", "") or "").splitlines()[0] if persona.get("text") else ""
+    typer.echo(f"Area:                  {area}")
+    typer.echo(f"Description:           {text_first_line}")
     typer.echo(f"Verification:          {persona.get('verification_philosophy', '')}")
     typer.echo(f"Exhibition intent:     {persona.get('exhibition_intent', '')}")
     conf = persona.get("confidence", {})
@@ -4569,7 +4889,9 @@ def persona_update(
             typer.echo("Persona update skipped.")
     else:
         typer.echo("Updating Curator persona...")
-        persona = _run_curator_persona_wizard(client)
+        from . import ingest_llm as _il
+        recent_domains = _il.read_recent_domains(paths)
+        persona = _run_curator_persona_wizard(client, current_persona=config.get("persona", {}), recent_domains=recent_domains)
         if persona is not None:
             import datetime as _dt
             persona["updated_at"] = _dt.datetime.now().isoformat()
@@ -4601,11 +4923,29 @@ def mcp_callback(ctx: typer.Context) -> None:
     """Default `wiki mcp` (no subcommand) starts the stdio server."""
     if ctx.invoked_subcommand is not None:
         return
+
+    # Guard: running interactively from a terminal is almost certainly a mistake.
+    # Print usage instead of starting a raw JSON-RPC server into a TTY.
+    import sys as _sys
+    if _sys.stdin.isatty():
+        console.print("[bold]wiki mcp[/bold] — Incurator MCP server (stdio transport)")
+        console.print()
+        console.print("This command is meant to be started by an MCP client (Claude Code,")
+        console.print("Gemini CLI, etc.), not run directly in a terminal.")
+        console.print()
+        console.print("[bold]Setup:[/bold]")
+        console.print("  [dim]wiki mcp install[/dim]   — print config snippet to paste into your MCP client")
+        console.print("  [dim]wiki mcp connect --agent claude-code --workspace <path>[/dim]")
+        console.print()
+        console.print("[bold]Manual start (for debugging):[/bold]")
+        console.print("  [dim]VAULT_ROOT=<vault> wiki mcp 2>/dev/null[/dim]   — pipe output to an MCP client")
+        raise typer.Exit(0)
+
     paths = _resolve_root_or_die()
-    # Pin WIKI_ROOT so the server picks up the same vault even if MCP clients
+    # Pin VAULT_ROOT so the server picks up the same vault even if MCP clients
     # spawn it from an unrelated cwd.
     import os as _os
-    _os.environ["WIKI_ROOT"] = str(paths.root)
+    _os.environ["VAULT_ROOT"] = str(paths.root)
     try:
         from . import mcp_server
     except ImportError as e:
@@ -4652,7 +4992,7 @@ def mcp_connect_cmd(
     workspace = workspace.expanduser().resolve()
     data = _collect_curate_template_data(
         path=workspace,
-        wiki_root=paths.root,
+        vault_root=paths.root,
         yes=yes,
         project=project,
         description=description,
@@ -4661,7 +5001,7 @@ def mcp_connect_cmd(
         min_confidence=min_confidence,
     )
     result = prepare_workspace(
-        wiki_root=paths.root,
+        vault_root=paths.root,
         workspace=workspace,
         agent=agent,
         curate_data=data,
@@ -4680,7 +5020,7 @@ def mcp_connect_cmd(
             border_style="cyan",
         )
     )
-    console.print(render_mcp_snippet(wiki_root=paths.root, workspace=workspace))
+    console.print(render_mcp_snippet(vault_root=paths.root, workspace=workspace))
     console.print()
     _hint("Paste this into the selected agent's MCP settings, then restart the agent.")
 
@@ -4774,7 +5114,7 @@ def testbed_init(
     try:
         root = testbed_manager.init_testbed(scenario, force=force, llm_provider=llm, llm_model=model)
         _ok(f"Testbed initialized at [bold]{root}[/bold] using scenario [cyan]{scenario}[/cyan].")
-        _hint("Run commands with [bold]WIKI_ROOT=testbed wiki ...[/bold]")
+        _hint("Run commands with [bold]VAULT_ROOT=testbed wiki ...[/bold]")
     except Exception as e:
         _err(str(e))
         raise typer.Exit(1)
@@ -4787,9 +5127,75 @@ def testbed_list():
     if not scenarios:
         _warn("No scenarios found in scripts/dev/.")
         return
-    
+
     table = Table(title="Available Testbed Scenarios", box=None)
     table.add_column("Scenario Name", style="cyan")
     for s in sorted(scenarios):
         table.add_row(s)
     console.print(table)
+
+
+# ---------------------------------------------------------------------------
+# benchmark commands
+# ---------------------------------------------------------------------------
+
+@benchmark_app.command(name="run")
+def benchmark_run(
+    scenario: str = typer.Argument("GS_Testbed", help="Testbed scenario name."),
+    models: list[str] = typer.Option(
+        ["gemini-flash"], "--models", "-m",
+        help="Model keys to benchmark. Repeat for multiple: -m gemini-flash -m qwen2.5:7b",
+    ),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Results directory."),
+):
+    """Run a cross-model benchmark on a testbed scenario.
+
+    Example:
+        wiki benchmark run GS_Testbed --models gemini-flash --models qwen2.5:7b
+    """
+    import sys as _sys
+    _bench_dir = Path(__file__).resolve().parents[3] / "scripts" / "benchmark"
+    if str(_bench_dir) not in _sys.path:
+        _sys.path.insert(0, str(_bench_dir))
+
+    try:
+        import benchmark as _bm
+    except ImportError as e:
+        _err(f"Benchmark module not found: {e}")
+        raise typer.Exit(1)
+
+    results_dir = Path(output) if output else (Path(__file__).resolve().parents[3] / "scripts" / "benchmark" / "results")
+    runs: list[_bm.BenchmarkRun] = []
+    for model_key in models:
+        try:
+            run = _bm.run_benchmark(scenario, model_key, results_dir)
+            runs.append(run)
+        except Exception as e:
+            _err(f"Benchmark failed for {model_key}: {e}")
+
+    if len(runs) >= 2:
+        _bm._print_comparison_table(runs)
+
+
+@benchmark_app.command(name="compare")
+def benchmark_compare(
+    file_a: str = typer.Argument(..., help="Path to first result JSON."),
+    file_b: str = typer.Argument(..., help="Path to second result JSON."),
+):
+    """Compare two benchmark result JSON files side-by-side."""
+    import sys as _sys
+    _bench_dir = Path(__file__).resolve().parents[3] / "scripts" / "benchmark"
+    if str(_bench_dir) not in _sys.path:
+        _sys.path.insert(0, str(_bench_dir))
+
+    try:
+        import benchmark as _bm
+    except ImportError as e:
+        _err(f"Benchmark module not found: {e}")
+        raise typer.Exit(1)
+
+    try:
+        _bm.compare_runs(Path(file_a), Path(file_b))
+    except Exception as e:
+        _err(str(e))
+        raise typer.Exit(1)

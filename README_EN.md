@@ -14,15 +14,15 @@ Incurator is a cost-effective, multi-agent knowledge system that transforms frag
 
 Most AI knowledge bases fail because they treat LLMs as simple search engines. We separate the process into two distinct roles:
 
-### ⚙️ The Curator (Knowledge Refinement Engine)
-The Curator is the background engine that handles knowledge refinement. It focuses on **summarizing and refining knowledge** rather than high-level "reasoning." It has been verified that the Curator performs reliably using standard universal models from cloud providers, without requiring high-cost reasoning-only models. It builds a 4-layer evidence chain and stages a tailored Exhibition based on the Artist's preferences in `curate.yml`. It supports both Local models (via Ollama) and Cloud models (Gemini, Claude, OpenAI), allowing you to choose the best engine based on your hardware and requirements.
+### ⚙️ The Curator (Manager of the Vault)
+The Curator is the background engine that resides in the **Vault** to handle knowledge refinement. It focuses on **summarizing and refining knowledge** rather than high-level "reasoning." It has been verified that the Curator performs reliably using standard universal models from cloud providers, without requiring high-cost reasoning-only models. It builds a 4-layer evidence chain and stages a tailored Exhibition based on the Artist's preferences in `curate.yml`. It supports both Local models (via Ollama) and Cloud models (Gemini, Claude, OpenAI), allowing you to choose the best engine based on your hardware and requirements.
 1.  **L1 Contexts**: Metadata-rich summaries.
 2.  **L2 Atoms**: Irreducible, atomic facts.
 3.  **L3 Concepts**: Multi-source thematic structures.
-4.  **L4 Exhibitions**: Tailored exhibits staged to the Artist's specification.
+4.  **L4 Exhibitions**: **Special Exhibitions** tailored to the Artist's specific project context.
 
-### 🎨 The Artist (Reasoning Agent + Human)
-The Artist lives in your **Workspace**. They express their taste and project requirements to the Curator via `curate.yml`, then visit the **Exhibition** the Curator has prepared. From these curated exhibits the Artist draws new insights (**Synthesis**). When they spot errors or uncover new ideas, they feed that back to the Curator — who corrects the underlying knowledge accordingly. The more this dialogue repeats, the more precise the exhibitions become.
+### 🎨 The Artist (Owner of the Workspace)
+The Artist resides in the **Workspace**, their personal studio. They express their taste and project requirements to the Curator via `curate.yml`, then visit the **Exhibition** the Curator has prepared. From these curated exhibits the Artist draws new insights (**Synthesis**). When they spot errors or uncover new ideas, they feed that back to the Curator — who corrects the underlying knowledge accordingly. The more this dialogue repeats, the more precise the exhibitions become.
 
 ---
 
@@ -43,11 +43,13 @@ Offload **compilation** (summarizing and atomizing knowledge) to non-reasoning m
 
 ### 4. Dual-Track Structure for AI and Humans
 Knowledge is most effective when managed in different forms for machines and humans. Incurator achieves this by maintaining a dual-track directory structure.
-- **AI Space (`.curator/`)**: A machine-friendly backend designed for agents to instantly search and leverage knowledge.
-- **Human Space (`02_Wiki/`)**: A beautiful knowledge library designed for users to read, manage, and own long-term.
+- **AI Space (`.curator/`)**: The **Archive/Storage**. A machine-friendly backend designed for agents to instantly search and leverage knowledge.
+- **Human Space (`02_Wiki/`)**: The **Permanent Collection**. A beautiful knowledge library designed for users to read, manage, and own long-term.
 
 ### 5. Knowledge Concentration & Growth
-Knowledge only truly **Increments** when it is gathered in a **single, cohesive space** rather than being fragmented across decentralized silos. Incurator ensures that all insights are funneled into a single source of truth, allowing for higher-level synthesis and the organic growth of your intellectual capital.
+Knowledge only truly **Increments** when it is gathered in a **single, cohesive space** rather than being fragmented across decentralized silos. Incurator ensures that all insights are funneled into a single source of truth, providing an environment where information is organically connected and synthesized.
+
+As such, splitting your knowledge into multiple vaults solely for administrative organization is not recommended. However, if you require fundamentally different **Curator Personas** (e.g., a STEM specialist vs. a Cooking specialist) to maintain your knowledge, operating separate vaults allows each Curator to refine information through their own expert lens.
 
 ---
 
@@ -62,7 +64,9 @@ Knowledge only truly **Increments** when it is gathered in a **single, cohesive 
 ### 🚀 Quick Start
 1.  **Install**: `./install.sh` (Automatically installs Ollama, Node.js, and the QMD search engine.)
 2.  **Initialize**: `wiki init <path/to/your/obsidian-vault>`
-    > **Single Vault Principle**: Do not run `wiki init` in multiple scattered directories. Incurator achieves its most powerful **Increment** effect when all fragmented knowledge is gathered in one place. We strongly recommend designating **a single main vault** where all your personal knowledge is concentrated and running the system there.
+    > **Single Vault Principle**: Every folder initialized with `wiki init` has its own resident **Curator**. Since Incurator runs one Curator at a time, we strongly recommend maintaining **a single main vault** to maximize knowledge connectivity and growth.
+    >
+    > **Exception (Persona Segmentation)**: If you want to maintain knowledge through completely different "expert perspectives" (e.g., a STEM vault vs. a Cooking vault), create separate vaults. Each vault's Curator will refine knowledge according to their unique worldview.
 3.  **Set up Persona**: During `wiki init`, a short interview configures your knowledge domain. Run `wiki persona update` anytime to refine it.
 4.  **Register Knowledge (Refine)**: `wiki add <file>` (Auto-generates L1-L3 layers)
 5.  **Use Knowledge (Query)**: `wiki query "question"` or MCP search (Includes auto-synthesis of L4)

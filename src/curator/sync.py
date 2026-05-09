@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import re
 import hashlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, List, Dict, Set
@@ -716,37 +717,38 @@ def run_mode_c(
             ]
         else:
             concept_files = sorted(paths.concepts.glob("CON-*.md"))[:max_themes]
+
+        # Filter out blocked concepts upfront; fire callbacks before parallel dispatch
+        eligible: list[Path] = []
         for con_md in concept_files:
             if con_md.stem in blocked_node_ids:
                 continue
             if callbacks:
                 callbacks.on_node_check(con_md.stem)
+            eligible.append(con_md)
+
+        def _verify_one_concept(con_md: Path) -> tuple[dict, VerificationGap | None]:
             fm = _read_fm(paths, con_md.stem)
             if fm is None:
-                continue
+                return {}, None
             atm_ids = _concept_atom_ids(paths, con_md.stem)
             if not atm_ids:
-                continue
+                return {}, None
             if any(aid in blocked_node_ids for aid in atm_ids):
-                continue
-
+                return {}, None
             fragments_content = ""
             for aid in atm_ids:
                 ap = page_writer.read_page(paths.atoms / f"{aid}.md")
                 if ap:
                     fragments_content += f"\n### Atom {aid}\n{ap.body[:_FRAGMENT_BODY_CHARS]}\n"
             if not fragments_content:
-                continue
-
+                return {}, None
             con_page = page_writer.read_page(con_md)
             if not con_page:
-                continue
-
+                return {}, None
             messages = prompts.build_theme_logic_verify_messages(
                 theme_content=_body_for_logic_check(
-                    con_page.body,
-                    _THEME_BODY_CHARS,
-                    relation_prefix="02_Atoms/",
+                    con_page.body, _THEME_BODY_CHARS, relation_prefix="02_Atoms/",
                 ),
                 fragments_content=fragments_content,
                 domain_context=domain_context,
@@ -754,17 +756,43 @@ def run_mode_c(
             try:
                 response = client.chat(messages, thinking=False, temperature=0.1)
             except LLMError:
-                continue
-
+                return {}, None
             result = _parse_verify_response(response, con_md.stem)
-            con_results.append(result)
+            gap = None
             if not result.get("valid", True):
-                gaps.append(VerificationGap(
+                gap = VerificationGap(
                     layer="concept",
                     node_id=con_md.stem,
                     message="Concept logic not fully derivable from its Atoms.",
                     reasoning=result.get("reasoning", response.strip()[:600]),
-                ))
+                )
+            return result, gap
+
+        sync_cfg = cfg.load_config(paths).get("sync", {})
+        max_workers = int(sync_cfg.get("max_parallel_verifications", 4))
+        # Local models (Ollama) process one request at a time — parallelism only
+        # wastes threads. Detect via duck-typing to avoid a circular import.
+        primary = getattr(client, "providers", [client])[0]
+        if type(primary).__name__ == "OllamaClient":
+            max_workers = 1
+
+        if max_workers <= 1 or len(eligible) <= 1:
+            for con_md in eligible:
+                result, gap = _verify_one_concept(con_md)
+                if result:
+                    con_results.append(result)
+                if gap:
+                    gaps.append(gap)
+        else:
+            with ThreadPoolExecutor(max_workers=min(max_workers, len(eligible))) as executor:
+                future_to_md = {executor.submit(_verify_one_concept, con_md): con_md
+                                for con_md in eligible}
+                for future in as_completed(future_to_md):
+                    result, gap = future.result()
+                    if result:
+                        con_results.append(result)
+                    if gap:
+                        gaps.append(gap)
 
     # Phase 2 — EXH ← CONs (if L4 exists)
     # Phase 1 con_results are passed as context so the LLM can factor in CON validity.
@@ -843,144 +871,24 @@ def run_mode_c(
 
 
 def _regenerate_concept(paths: cfg.WikiPaths, client, con_id: str) -> bool:
-    """Mode C fix: rewrite a CON page using its existing Atom Relations."""
-    from .llm import LLMError
-
-    fm = _read_fm(paths, con_id)
-    if fm is None:
-        return False
-    atm_ids = _concept_atom_ids(paths, con_id)
-    if not atm_ids:
-        return False
-
-    atoms_content = ""
-    for aid in atm_ids:
-        ap = page_writer.read_page(paths.atoms / f"{aid}.md")
-        if ap:
-            atoms_content += f"\n### {aid}\n{ap.body}\n"
-    if not atoms_content:
-        return False
-
-    today = page_writer.today_iso()
-    messages = prompts.build_theme_page_messages(
-        theme_id=con_id,
-        name=fm.get("name", ""),
-        domain=fm.get("domain", ""),
-        fragment_ids=atm_ids,
-        fragments_content=atoms_content,
-        today=today,
-    )
-    try:
-        response = client.chat(messages, thinking=False, temperature=0.3)
-    except LLMError:
-        return False
-
-    response = page_writer.strip_llm_noise(response)
-    regenerated = _drop_nested_frontmatter_body(page_writer.parse_page(response))
-    regenerated.frontmatter = _merge_immutable_frontmatter(
-        fm,
-        regenerated.frontmatter,
-        {
-            "id",
-            "type",
-            "name",
-            "domain",
-            "confidence_score",
-        },
-    )
-    regenerated.frontmatter.pop("dependencies", None)
-    regenerated.frontmatter["last_updated"] = today
-    relations = "\n".join(f"[[02_Atoms/{aid}]]" for aid in atm_ids)
-    if "## Relations" in regenerated.body:
-        regenerated.body = re.sub(
-            r"(?is)(^##\s+Relations\s*$\n?).*?\Z",
-            rf"\1\n{relations}\n",
-            regenerated.body,
-            count=1,
-            flags=re.MULTILINE,
-        )
-    else:
-        regenerated.body = f"{regenerated.body.rstrip()}\n\n## Relations\n{relations}\n"
-
-    con_path = paths.concepts / f"{con_id}.md"
-    con_path.write_text(regenerated.to_markdown(), encoding="utf-8")
-    return True
+    """[DEPRECATED] Concept is updated from Exhibition via propagate_upstream_from_exhibition.
+    Bottom-up regeneration from Atoms is disabled to respect EXH as Source of Truth.
+    """
+    return False
 
 
 def _regenerate_exhibition(paths: cfg.WikiPaths, client, exh_id: str) -> bool:
-    """Mode C fix: rewrite an EXH page using its existing CON core_concepts."""
-    from .llm import LLMError
-
-    fm = _read_fm(paths, exh_id)
-    if fm is None:
-        return False
-    con_ids = _fm_links(fm, "core_concepts")
-    if not con_ids:
-        return False
-
-    concepts_content = ""
-    for cid in con_ids:
-        cp = page_writer.read_page(paths.concepts / f"{cid}.md")
-        if cp:
-            concepts_content += f"\n### {cid}\n{cp.body}\n"
-    if not concepts_content:
-        return False
-
-    today = page_writer.today_iso()
-    try:
-        confidence = float(fm.get("confidence_score", 0.5))
-    except (TypeError, ValueError):
-        confidence = 0.5
-
-    messages = prompts.build_curation_page_messages(
-        curation_id=exh_id,
-        topic=fm.get("topic", ""),
-        theme_ids=con_ids,
-        themes_content=concepts_content,
-        confidence=confidence,
-        today=today,
-    )
-    try:
-        response = client.chat(messages, thinking=False, temperature=0.3)
-    except LLMError:
-        return False
-
-    response = page_writer.strip_llm_noise(response)
-    regenerated = _drop_nested_frontmatter_body(page_writer.parse_page(response))
-    regenerated.frontmatter = _merge_immutable_frontmatter(
-        fm,
-        regenerated.frontmatter,
-        {"id", "type", "topic", "core_concepts", "confidence_score"},
-    )
-    regenerated.frontmatter["last_updated"] = today
-
-    exh_path = paths.exhibitions / f"{exh_id}.md"
-    exh_path.write_text(regenerated.to_markdown(), encoding="utf-8")
-    return True
+    """[DEPRECATED] Exhibition is the Source of Truth. 
+    Manual or Insight-driven updates are the only allowed paths for changing L4.
+    """
+    return False
 
 
 def _rebuild_downstream_from_fixed_node(paths: cfg.WikiPaths, client, layer: str, node_id: str) -> int:
-    """Forward-rebuild only downstream endpoints affected by a repaired node."""
-    rebuilt = 0
-    if layer == "exhibition":
-        return 0
-    if layer == "concept":
-        for exh_id in downstream_exhibitions_for_concept(paths, node_id):
-            if _regenerate_exhibition(paths, client, exh_id):
-                rebuilt += 1
-        return rebuilt
-    if layer == "atom":
-        for con_id in downstream_concepts_for_atom(paths, node_id):
-            if _regenerate_concept(paths, client, con_id):
-                rebuilt += 1
-            rebuilt += _rebuild_downstream_from_fixed_node(paths, client, "concept", con_id)
-        return rebuilt
-    if layer == "context":
-        for atm_id in downstream_atoms_for_context(paths, node_id):
-            # L2 regeneration from L1/source is handled by wiki add today; mark
-            # downstream rebuild through existing CON/EXH nodes when present.
-            rebuilt += _rebuild_downstream_from_fixed_node(paths, client, "atom", atm_id)
-        return rebuilt
+    """[DEPRECATED] Forward-rebuild is disabled. 
+    Changes now flow Top-Down from Exhibition to lower layers.
+    """
+    return 0
     return 0
 
 
@@ -1081,134 +989,174 @@ class PropagationResult:
     exh_id: str
     concepts_updated: list[str]
     atoms_updated: list[str]
-    errors: list[str]
+    contexts_updated: list[str] = field(default_factory=list)
+    feedback_required: list[dict[str, Any]] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
 
 def propagate_upstream_from_exhibition(
     paths: cfg.WikiPaths,
     client,
-    exh_id: str,
+    exh_id: str = "",
+    insight: str = "",
 ) -> PropagationResult:
-    """Propagate a human-corrected Exhibition upstream through CON → ATM.
+    """Unified backpropagation (hybrid static + dynamic) from EXH or Insight down to CTX.
 
-    Flow:
-      1. Read the corrected EXH page.
-      2. For each CON in core_concepts:
-         a. Call LLM to update the CON to be consistent with the corrected EXH.
-         b. Write the updated CON.
-         c. For each ATM in that CON's Relations:
-            i.  Call LLM to update the ATM if it contradicts the updated CON.
-            ii. Write the ATM only if the content actually changed.
-      3. Return PropagationResult with lists of updated IDs.
-
-    Non-fatal: individual LLM failures are captured in errors, not raised.
+    Workflow:
+      1. Source discovery: Read Exhibition (L4) OR use provided Insight string.
+      2. Reconcile Concepts (L3): Static links + Semantic Search.
+      3. Reconcile Atoms (L2): Static relations + Semantic Search.
+      4. Reconcile Contexts (L1): Parent source + Semantic Search or Feedback.
     """
+    from . import search
     from .llm import LLMError
+    from . import ingest_llm as _ingest
 
     result = PropagationResult(
-        exh_id=exh_id, concepts_updated=[], atoms_updated=[], errors=[]
+        exh_id=exh_id, concepts_updated=[], atoms_updated=[], contexts_updated=[], feedback_required=[], errors=[]
     )
     today = page_writer.today_iso()
 
-    exh_path = paths.exhibitions / f"{exh_id}.md"
-    exh_page = page_writer.read_page(exh_path)
-    if exh_page is None:
-        result.errors.append(f"Exhibition {exh_id} not found")
+    exh_page = None
+    if exh_id:
+        exh_path = paths.exhibitions / f"{exh_id}.md"
+        exh_page = page_writer.read_page(exh_path)
+    
+    if not exh_page and not insight:
+        result.errors.append(f"No source of truth (Exhibition {exh_id} not found and no insight provided)")
         return result
 
-    exh_content = exh_page.to_markdown()
-    con_ids = _fm_links(exh_page.frontmatter, "core_concepts")
+    # Determine source text for search and static links
+    source_text = insight
+    static_con_ids = []
+    
+    if exh_page:
+        source_text = exh_page.to_markdown()
+        static_con_ids = _fm_links(exh_page.frontmatter, "core_concepts")
+    
+    # --- Step 1: L3 (Concepts) ---
+    # Dynamic discovery for Concepts
+    dynamic_con_ids = []
+    try:
+        search_results = search.query(paths, source_text, mode="hybrid", limit=5, scope="concepts")
+        for hit in search_results.hits:
+            if hit.score > 0.8:
+                cid = hit.full_path.rsplit("/", 1)[-1].removesuffix(".md")
+                dynamic_con_ids.append(cid)
+    except Exception:
+        pass
 
-    for con_id in con_ids:
-        if not con_id.startswith("CON-"):
-            continue
+    all_con_ids = sorted(list(set(static_con_ids + dynamic_con_ids)))
+
+    for con_id in all_con_ids:
+        if not con_id.startswith("CON-"): continue
         con_path = paths.concepts / f"{con_id}.md"
         con_page = page_writer.read_page(con_path)
-        if con_page is None:
-            result.errors.append(f"Concept {con_id} not found")
-            continue
+        if con_page is None: continue # Could happen if search index is stale
 
         con_original = con_page.to_markdown()
-
-        # Step 2a: update CON to be consistent with corrected EXH
         messages = prompts.build_concept_update_from_exhibition_messages(
-            exh_id=exh_id,
-            exh_content=exh_content,
-            con_id=con_id,
-            con_content=con_original,
-            today=today,
+            exh_id=exh_id or "Insight", exh_content=source_text, con_id=con_id, con_content=con_original, today=today
         )
         try:
             updated_con = client.chat(messages, thinking=False, temperature=0.2)
+            updated_con = page_writer.strip_llm_noise(updated_con)
+            if updated_con and updated_con.strip() != con_original.strip():
+                updated_con_page = _drop_nested_frontmatter_body(page_writer.parse_page(updated_con))
+                updated_con_page.frontmatter = _merge_immutable_frontmatter(
+                    con_page.frontmatter, updated_con_page.frontmatter, {"id", "type", "name", "domain", "confidence_score"}
+                )
+                updated_con_page.frontmatter["last_updated"] = today
+                con_path.write_text(updated_con_page.to_markdown(), encoding="utf-8")
+                result.concepts_updated.append(con_id)
         except LLMError as e:
             result.errors.append(f"CON {con_id} update failed: {e}")
             continue
 
-        updated_con = page_writer.strip_llm_noise(updated_con)
-        if not updated_con or updated_con.strip() == con_original.strip():
-            continue  # LLM returned unchanged — skip
+        # --- Step 2: L2 (Atoms) ---
+        static_atm_ids = _concept_atom_ids(paths, con_id)
+        
+        # Dynamic discovery for Atoms within this Concept
+        dynamic_atm_ids = []
+        try:
+            con_text = updated_con if result.concepts_updated and con_id in result.concepts_updated else con_original
+            search_results = search.query(paths, con_text, mode="hybrid", limit=5, scope="atoms")
+            for hit in search_results.hits:
+                if hit.score > 0.8:
+                    aid = hit.full_path.rsplit("/", 1)[-1].removesuffix(".md")
+                    dynamic_atm_ids.append(aid)
+        except Exception:
+            pass
 
-        updated_con_page = _drop_nested_frontmatter_body(page_writer.parse_page(updated_con))
-        updated_con_page.frontmatter = _merge_immutable_frontmatter(
-            con_page.frontmatter,
-            updated_con_page.frontmatter,
-            {"id", "type", "name", "domain", "confidence_score"},
-        )
-        updated_con_page.frontmatter["last_updated"] = today
-        con_path.write_text(updated_con_page.to_markdown(), encoding="utf-8")
-        result.concepts_updated.append(con_id)
+        all_atm_ids = sorted(list(set(static_atm_ids + dynamic_atm_ids)))
+        updated_con_content = updated_con if con_id in result.concepts_updated else con_original
 
-        # Step 2c: update each ATM that this CON references
-        updated_con_page = page_writer.read_page(con_path)
-        atm_ids = _concept_atom_ids(paths, con_id)
-        updated_con_content = updated_con_page.to_markdown() if updated_con_page else updated_con
-
-        for atm_id in atm_ids:
-            if not atm_id.startswith("ATM-"):
-                continue
+        for atm_id in all_atm_ids:
+            if not atm_id.startswith("ATM-"): continue
             atm_path = paths.atoms / f"{atm_id}.md"
             atm_page = page_writer.read_page(atm_path)
-            if atm_page is None:
-                result.errors.append(f"Atom {atm_id} not found")
-                continue
+            if atm_page is None: continue
 
             atm_original = atm_page.to_markdown()
             messages = prompts.build_atom_update_from_concept_messages(
-                con_id=con_id,
-                con_content=updated_con_content,
-                atm_id=atm_id,
-                atm_content=atm_original,
-                today=today,
+                con_id=con_id, con_content=updated_con_content, atm_id=atm_id, atm_content=atm_original, today=today
             )
             try:
                 updated_atm = client.chat(messages, thinking=False, temperature=0.1)
+                updated_atm = page_writer.strip_llm_noise(updated_atm)
+                if updated_atm and updated_atm.strip() != atm_original.strip():
+                    updated_atm_page = page_writer.parse_page(updated_atm)
+                    updated_atm_page.frontmatter = _merge_immutable_frontmatter(
+                        atm_page.frontmatter, updated_atm_page.frontmatter,
+                        {"id", "type", "parent_source", "source_path", "claim_type", "confidence_score", "contradicts", "is_verified_by_human", "is_flagged_for_agent"}
+                    )
+                    updated_atm_page.frontmatter["last_updated"] = today
+                    atm_path.write_text(updated_atm_page.to_markdown(), encoding="utf-8")
+                    result.atoms_updated.append(atm_id)
             except LLMError as e:
                 result.errors.append(f"ATM {atm_id} update failed: {e}")
                 continue
 
-            updated_atm = page_writer.strip_llm_noise(updated_atm)
-            if not updated_atm or updated_atm.strip() == atm_original.strip():
-                continue  # unchanged — skip
+            # --- Step 3: L1 (Contexts) ---
+            # Reconcile L1 Context for this updated Atom
+            parent_source = atm_page.frontmatter.get("parent_source")
+            ctx_id = None
+            if parent_source:
+                from . import query as _q
+                try:
+                    ctx_id = _q._node_path_from_target(str(parent_source)).rsplit("/", 1)[-1]
+                except Exception: pass
+            
+            if not ctx_id:
+                # Search for L1
+                try:
+                    ctx_results = search.query(paths, atm_original, scope="contexts", limit=1)
+                    if ctx_results.hits and ctx_results.hits[0].score > 0.8:
+                        ctx_id = ctx_results.hits[0].full_path.rsplit("/", 1)[-1].removesuffix(".md")
+                except Exception: pass
 
-            updated_atm_page = page_writer.parse_page(updated_atm)
-            updated_atm_page.frontmatter = _merge_immutable_frontmatter(
-                atm_page.frontmatter,
-                updated_atm_page.frontmatter,
-                {
-                    "id",
-                    "type",
-                    "parent_source",
-                    "source_path",
-                    "claim_type",
-                    "confidence_score",
-                    "contradicts",
-                    "is_verified_by_human",
-                    "is_flagged_for_agent",
-                },
-            )
-            updated_atm_page.frontmatter["last_updated"] = today
-            atm_path.write_text(updated_atm_page.to_markdown(), encoding="utf-8")
-            result.atoms_updated.append(atm_id)
+            if ctx_id:
+                ctx_path = paths.contexts / f"{ctx_id}.md"
+                ctx_page = page_writer.read_page(ctx_path)
+                if ctx_page:
+                    ctx_original = ctx_page.to_markdown()
+                    # Use the new prompt added to prompts.py
+                    messages = prompts.build_context_update_from_atom_messages(
+                        atm_id=atm_id, atm_content=atm_original, ctx_id=ctx_id, ctx_content=ctx_original, today=today
+                    )
+                    try:
+                        updated_ctx = client.chat(messages, thinking=False, temperature=0.1)
+                        updated_ctx = page_writer.strip_llm_noise(updated_ctx)
+                        if updated_ctx and updated_ctx.strip() != ctx_original.strip():
+                            ctx_path.write_text(updated_ctx, encoding="utf-8")
+                            result.contexts_updated.append(ctx_id)
+                    except Exception: pass
+            else:
+                # No L1 found -> Feedback
+                result.feedback_required.append({
+                    "atom_id": atm_id,
+                    "insight": "Knowledge updated without verified source provenance."
+                })
 
     return result
 
@@ -1229,3 +1177,83 @@ def finalize_routing_tables(paths: cfg.WikiPaths) -> None:
         "Deductive verification pass",
         ["Routing tables rebuilt by wiki sync"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Forward propagation: CON (L3) -> EXH (L4)
+# ---------------------------------------------------------------------------
+
+def propagate_downstream_to_exhibition(paths: cfg.WikiPaths, client, exh_id: str) -> bool:
+    """Forward propagation: update an EXH to incorporate changes from its L3 Concepts.
+    Uses EXHIBITION_SMART_UPDATE_PROMPT to merge new info without overwriting human edits.
+    """
+    from .llm import LLMError
+    
+    exh_path = paths.exhibitions / f"{exh_id}.md"
+    exh_page = page_writer.read_page(exh_path)
+    if not exh_page:
+        return False
+    
+    con_ids = _fm_links(exh_page.frontmatter, "core_concepts")
+    if not con_ids:
+        return False
+    
+    # 1. Gather current content of all referenced concepts
+    concepts_content = ""
+    for cid in con_ids:
+        cp = page_writer.read_page(paths.concepts / f"{cid}.md")
+        if cp:
+            concepts_content += f"\n### {cid}\n{cp.body}\n"
+    
+    if not concepts_content:
+        return False
+        
+    # 2. Trigger Smart Update
+    today = page_writer.today_iso()
+    messages = prompts.build_exhibition_refinement_messages(
+        exh_id=exh_id,
+        existing_body=exh_page.body,
+        updates=f"Updated Supporting Concepts:\n{concepts_content}"
+    )
+    
+    try:
+        updated_body = client.chat(messages, thinking=False, temperature=0.2)
+        updated_body = page_writer.strip_llm_noise(updated_body)
+        
+        if updated_body and updated_body.strip() != exh_page.body.strip():
+            exh_page.body = updated_body
+            exh_page.frontmatter["last_updated"] = today
+            exh_path.write_text(exh_page.to_markdown(), encoding="utf-8")
+            return True
+    except LLMError:
+        pass
+        
+    return False
+
+
+def find_dirty_exhibitions(paths: cfg.WikiPaths) -> list[str]:
+    """Find EXH IDs where referenced CONs are newer than the EXH itself."""
+    dirty = []
+    exh_dir = paths.exhibitions
+    if not exh_dir.exists():
+        return dirty
+        
+    for exh_file in sorted(exh_dir.glob("EXH-*.md")):
+        exh_id = exh_file.stem
+        exh_fm = _read_fm(paths, exh_id)
+        if not exh_fm: continue
+        
+        exh_time = exh_fm.get("last_updated", "1970-01-01")
+        con_ids = _fm_links(exh_fm, "core_concepts")
+        
+        is_dirty = False
+        for cid in con_ids:
+            con_fm = _read_fm(paths, cid)
+            if con_fm and con_fm.get("last_updated", "1970-01-01") > exh_time:
+                is_dirty = True
+                break
+        
+        if is_dirty:
+            dirty.append(exh_id)
+            
+    return dirty

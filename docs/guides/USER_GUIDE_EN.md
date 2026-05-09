@@ -41,10 +41,11 @@ Before installing the system, ensure the following tools are installed:
 
 To maintain the powerful performance of Incurator and manage your knowledge safely, we recommend following these principles:
 
--   **Single Source of Truth**: Instead of running `wiki init` in multiple project directories to create small, fragmented knowledge bases, maintain **a single main vault** where all your knowledge is aggregated. Knowledge truly **Increments** and yields new insights only when it is concentrated and organically connected in one place.
+-   **Single Source of Truth**: Instead of running `wiki init` in multiple project directories to create small, fragmented knowledge bases, maintain **a single main vault** where all your knowledge is aggregated. A dedicated **Curator** resides in every folder initialized with `wiki init`, and knowledge truly **Increments** and yields new insights only when it is concentrated and organically connected in one place.
+-   **Persona-based Vault Segmentation**: Only operate separate vaults if the 'perspective' or 'expert persona' you want for your knowledge management is fundamentally different (e.g., a STEM expert vs. a Cooking expert). Since a single Incurator instance runs one Curator at a time, excessive fragmentation hinders knowledge connectivity.
 -   **Respect the AI Space (AI-only Space)**: The `.curator/` folder is an 'AI-only space' designed exclusively for agents and the system. It is a high-density data network intentionally structured to be difficult for humans to read or edit. Manually modifying files here can break the integrity of your knowledge graph, so avoid touching it directly.
 -   **Self-Healing & Integrity**: If you feel your knowledge graph is contaminated or links are broken, run the `wiki sync` command. Incurator has self-healing capabilities to trace errors and restore logical integrity automatically. **Crucially, if you manually edit any node files yourself (rather than via an agent), you must run `wiki sync` to propagate those changes through the entire graph.**
--   **Workspace Flexibility**: While your knowledge Library (Vault) should be centralized, your **Workspaces** (where you do the work) can be located anywhere. Connect any project folder or working directory to your central main Vault to consume its knowledge. You have one "Library" but can have unlimited "Studios."
+-   **Workspace Flexibility**: While your knowledge Library (Vault) should be centralized, your **Workspaces** (where you do the work) can be located anywhere. Connect any project folder or working directory to your central main Vault to consume its knowledge. The Curator lives in the "Library" (Vault), and the Artist lives in the "Studio" (Workspace). You have one Library but can have unlimited Studios.
 
 ---
 
@@ -61,6 +62,8 @@ Choose a directory to serve as your knowledge vault and initialize it:
 ```bash
 wiki init <path/to/your/obsidian-vault>
 ```
+
+During init, a short interview sets up the **Curator persona** — the vault-wide expert identity that governs how knowledge is synthesized and verified. The result is saved to `.curator/config.yml` and applied automatically on every `wiki sync` and `wiki query`.
 
 #### 📂 Vault Directory Structure
 Running the `wiki init` command initializes the following structure for knowledge management. Following the philosophy that knowledge is most effective when stored in different forms for machines and humans, Incurator strictly separates human-readable spaces (Root) from the AI-only spaces (`.curator/`) via physical directory separation.
@@ -161,39 +164,155 @@ Workspaces are the **Studios** where the **Artist** (Human + Agent) performs act
 > [!IMPORTANT]
 > **Location Freedom**: A workspace does not have to be located inside the vault (`01_Workspaces/`). Any **project directory** on your filesystem can be turned into a workspace connected to the Curator by running `wiki workspace init`.
 
-### 🏗️ Creating and Initializing a Workspace
-When starting a new project or connecting an existing one to your knowledge base, run the initialization command in that directory. This process prepares the configuration files and agent-specific rules all at once.
+### 🏗️ Connecting Your Agent to Curator
+
+Run the following command from any project directory to connect Curator to your agent:
+
+```bash
+wiki workspace init <path/to/workspace> --agent <agent>
+```
+
+Choose `--agent` based on your agent runtime:
+
+| Agent               | `--agent` value | Rule file                  |
+| ------------------- | --------------- | -------------------------- |
+| Claude Code         | `claude-code`   | `CLAUDE.md`                |
+| OpenAI Codex        | `codex`         | `AGENTS.md`                |
+| Gemini CLI          | `gemini-cli`    | `GEMINI.md`                |
+| Antigravity         | `antigravity`   | `.antigravity/rules.yaml`  |
+| No agent (CLI only) | `none`          | —                          |
+
+`--project` sets a unique project slug (defaults to the directory name).
 
 > [!TIP]
 > **How the System Detects the Workspace**:
-> The Curator identifies the "current" workspace by searching for a `curate.yml` file in your **Current Working Directory (CWD)** or its parent directories. This means that as long as you run commands from within a project folder, the system automatically recognizes which project context to use.
+> The Curator identifies the "current" workspace by searching for a `curate.yml` file in your **Current Working Directory (CWD)** or its parent directories. You do not need to specify the workspace on every command.
 
-#### 📁 Workspace Directory Structure
-Once a workspace is initialized, the following structure is created within the project directory:
+---
+
+### 🔄 What Happens at Init — Three Scenarios
+
+`wiki workspace init` detects the current state of the target directory and adapts:
+
+#### Scenario 1: Empty directory
+
+Everything is created from scratch — `curate.yml`, agent rule file, and Curator-managed files under `.agents/curator/`.
+
+#### Scenario 2: Existing agent setup (no Curator yet)
+The directory already has agent rules (`CLAUDE.md`, `AGENTS.md`, etc.) but Curator is not wired in.
+
+Incurator uses its own LLM to read your existing rule file and integrate the Curator hooks at the right places — session start, query loop, session end — while preserving all your existing rules.
+
+```text
+Found existing claude-code setup. Integrating Curator knowledge navigation...
+
+Proposed changes to CLAUDE.md:
+  ## My Existing Rules            ← preserved
++ ## Curator Knowledge Navigation  ← added by LLM
++
++ **Session start** — call curator_check_workspace() ...
+  ...
+
+Apply Curator integration to CLAUDE.md? [Y/n]:
+```
+
+- **Y**: file is rewritten with Curator hooks integrated.
+- **N**: a copy-paste prompt is printed instead, which you can give to your agent to do the integration manually.
+
+If the LLM is unavailable, the copy-paste prompt is printed automatically and a Curator block is prepended to the rule file as a fallback.
+
+#### Scenario 3: Curator already connected (restore / update)
+
+`curate.yml` and the Curator runtime files already exist. The owned files under `.agents/curator/` are overwritten with the latest templates (picking up any Incurator updates), and the managed block in the agent rule file is replaced in-place. Your content outside the managed block is never touched.
+
+---
+
+### 📁 Files Created by Init
 
 ```text
 <your_project_dir>/
-├── curate.yml         # Knowledge Requirement Specification (Required)
-├── .agents/           # Agent-specific workspace (Auto-generated)
-└── <notes/scripts>    # Human artifacts related to this project
+├── curate.yml                           # Knowledge Requirement Specification
+├── CLAUDE.md (or AGENTS.md / GEMINI.md) # Agent rule file — managed block injected
+└── .agents/curator/
+    ├── shared/rules.md                  # Full Curator behavioral rules
+    ├── shared/sync.md                   # Sync workflow guide
+    ├── runtime/<agent>.md               # Agent-specific runtime notes
+    └── workflows/
+        ├── workspace_loop.md            # Session workflow
+        └── session_closeout.md          # End-of-session checklist
 ```
 
-```bash
-# Initialize a workspace in a specific directory
-wiki workspace init <path/to/workspace> --agent antigravity
-```
-- `--agent`: Installs rules for your specific agent (e.g., antigravity, gemini-cli).
-- `--project`: Sets a unique ID for the project. (Default: directory name)
+Files under `.agents/curator/` are **owned by Incurator** and overwritten on every init/sync to propagate template updates. Your content outside the managed block in the top-level rule file is never modified.
 
-### `curate.yml` (Knowledge Requirement Specification)
-This file tells the Curator what knowledge to "stage" for the current project.
+---
+
+### Via MCP (no CLI required)
+
+If your agent already has the MCP server connected, you can initialize a workspace directly from within a chat session:
+
+```text
+curator_workspace_init(
+  workspace_path="/absolute/path/to/project",
+  project="my-project",
+  description="What this workspace is about"
+)
+```
+
+The MCP tool auto-detects the connecting agent runtime and applies the same three-scenario logic. If the workspace already has agent rules, it attempts LLM integration automatically and returns an `integration_prompt` if the LLM is unavailable for the agent to use.
+
+See the [MCP User Guide](./MCP_USER_GUIDE_EN.md) for the full tool reference.
+
+---
+
+### `curate.yml` — Workspace Configuration Reference
+
+`curate.yml` is the workspace-level configuration file. It tells the Curator what knowledge to stage and how to present it, and embeds the **Artist persona** that controls curation style for this project.
+
 ```yaml
-project: "Gaussian Splatting Research"
-scope: "concepts" # all | concepts | exhibitions
-min_confidence: 0.8
-boost_terms: ["depth distortion", "normal consistency"]
+project: "my-project"
+description: "Knowledge workspace for my-project"
+
+# Artist Persona — auto-generated by wiki workspace init wizard.
+# Controls how the Curator scopes and ranks Exhibitions for this project.
+persona:
+  domain: ""               # e.g. "computer-vision", "biochemistry"
+  subdomain: ""            # more specific focus area
+  goal: ""                 # 2-4 sentences describing the curation goal
+  exhibition_intent: "engineer"  # researcher | engineer | learner
+  disambiguation_keywords: []    # workspace-specific terms to boost
+  confidence:
+    high_threshold: 0.85   # Exhibitions above this → high confidence
+    low_threshold: 0.55    # Exhibitions below this → HITL review queue
+  updated_at: ""
+
+# Source selection — fnmatch globs relative to vault root.
+# Empty include list = draw from all vault sources.
+sources:
+  include: []
+  #  - "03_Notes/**"
+  #  - "02_Wiki/my-topic/**"
+  exclude: []
+
+# Minimum confidence floor for search_curator results.
+min_confidence: 0.60
+
+# Active Exhibition anchor — auto-set by wiki curate.
+# Leave empty for auto-detection; pin a specific ID to lock context.
+exhibition: ""
 ```
-When an agent searches via MCP, the Curator uses this spec to filter and prioritize the most relevant information.
+
+**Key fields:**
+
+| Field | Purpose |
+| ----- | ------- |
+| `persona.exhibition_intent` | `researcher` — next hypotheses to validate; `engineer` — implementation steps; `learner` — concepts to review |
+| `persona.confidence` | Per-workspace confidence thresholds, overriding vault-wide defaults |
+| `sources.include` | Limit which vault files feed this workspace (empty = all) |
+| `min_confidence` | Exhibitions below this score are excluded from `search_curator` results |
+| `exhibition` | Pinned Exhibition ID used as the primary context anchor in every session |
+
+> [!TIP]
+> The `persona:` block is generated automatically by the Artist persona wizard that runs during `wiki workspace init`. You can update it later with `wiki persona update --workspace <name>` or via the `curator_update_artist_persona` MCP tool.
 
 Both the vault and workspaces are now ready. Let's see how the Curator answers your questions and collaborates with agents.
 
@@ -240,28 +359,33 @@ This circular flow ensures that your knowledge never stays stagnant but keeps ev
 
 ## 🧑‍🎨 Persona Setup
 
-The persona is how Incurator understands your knowledge model. The system is a general-purpose curation engine, but the persona steers its behavior toward your domain and goals.
+Incurator has two persona layers, each operating at a different level of the system.
 
-### Curator Persona
+### Curator Persona — Vault Level
 
-Configured automatically through a short interview during `wiki init`. The result is stored under the `persona:` key in `.curator/config.yml` and applied across `wiki sync` (verification context) and `wiki query` (synthesis context).
+Set during `wiki init` through a short interview. Stored in `.curator/config.yml` and applied globally across `wiki sync` and `wiki query`.
 
 ```bash
 wiki persona              # Show the current Curator persona
-wiki persona update       # Re-run the interview to update the Curator persona
+wiki persona update       # Re-run the interview to update it
 ```
 
-If you skip the interview or have not configured one, a default STEM persona is applied.
+If you skip the interview, a default STEM persona is applied.
 
-### Artist Persona
+> [!IMPORTANT]
+> **The Curator persona defines the vault's expert identity.** If you want a fundamentally different expert perspective (e.g., STEM researcher vs. Chef), create a separate vault rather than changing the Curator persona.
 
-Stored under the `persona:` key in each workspace's `curate.yml`, overriding the Curator persona for that project. It is created automatically on the first run of `wiki curate --workspace <name>` and can be updated later:
+### Artist Persona — Workspace Level
+
+Set automatically by the `wiki workspace init` wizard and stored in the `persona:` block of `curate.yml`. It overrides the Curator persona for that specific project, letting you control `exhibition_intent`, confidence thresholds, and disambiguation keywords per workspace.
 
 ```bash
-wiki persona update --workspace <name>   # Update the Artist persona
+wiki persona update --workspace <name>   # Update the Artist persona via interview
 ```
 
-The Artist persona lets you set a project-specific `exhibition_intent` (researcher / engineer / learner), confidence thresholds, and disambiguation keywords, giving you fine-grained control over how knowledge is staged for each workspace.
+Or update it from within a chat session via the `curator_update_artist_persona` MCP tool.
+
+→ For the full `persona:` field reference, see the [`curate.yml` section above](#curateyml--workspace-configuration-reference).
 
 ---
 

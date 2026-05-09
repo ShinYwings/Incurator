@@ -79,7 +79,8 @@ def init_testbed(
     elif not llm_provider:
         # Default model for the default gemini-cli provider
         config["llm"]["gemini_flash_model"] = "gemini-3.1-flash-lite-preview"
-    
+    # Marks this vault so production code never auto-selects it via last_root fallback
+    config["testbed"] = True
     cfg.save_config(paths, config)
 
     db.init_db(paths.state_db)
@@ -95,7 +96,7 @@ def init_testbed(
             for ws_dir in ws_root.iterdir():
                 if ws_dir.is_dir():
                     prepare_workspace(
-                        wiki_root=testbed_root,
+                        vault_root=testbed_root,
                         workspace=ws_dir,
                         agent="antigravity",
                         install_rules=True,

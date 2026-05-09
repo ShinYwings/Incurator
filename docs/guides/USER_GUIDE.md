@@ -43,10 +43,11 @@
 
 Incurator의 강력한 성능을 유지하고 지식을 안전하게 관리하기 위해 다음 원칙을 준수하는 것을 권장합니다.
 
--   **단일 진실 공급원 (Single Source of Truth)**: 프로젝트마다 `wiki init`을 수행하여 여러 개의 작은 지식 베이스를 만드는 것보다, 당신의 모든 지식을 집약할 **단 하나의 메인 보관소(Vault)**를 운영하세요. 지식은 한곳에 모여 응집될 때 비로소 유기적으로 연결되고 새로운 통찰로 **Increment(증분)** 됩니다.
+-   **단일 진실 공급원 (Single Source of Truth)**: 프로젝트마다 `wiki init`을 수행하여 여러 개의 작은 지식 베이스를 만드는 것보다, 당신의 모든 지식을 집약할 **단 하나의 메인 보관소(Vault)**를 운영하세요. `wiki init`을 실행한 폴더에는 전용 **Curator**가 상주하며, 지식은 한곳에 모여 응집될 때 비로소 유기적으로 연결되고 새로운 통찰로 **Increment(증분)** 됩니다. 
+    -   **페르소나 기반의 저장소 분리**: 지식을 관리하는 '관점'이나 '전문 페르소나'가 근본적으로 달라야 하는 경우(예: STEM 전문가 vs 요리 전문가)에만 별도의 Vault를 운영하세요. 하나의 Incurator 인스턴스는 한 번에 하나의 Curator만 실행할 수 있으므로, 무분별한 Vault 분리는 지식의 연결성을 저해합니다.
 -   **기계의 영역 존중 (AI 전용 공간)**: `.curator/` 폴더는 오직 에이전트와 시스템만을 위한 'AI 전용 공간'입니다. 이곳은 사람이 읽고 편집하기 어렵게 설계된 고밀도 데이터망이며, 수동으로 파일을 수정할 경우 지식 그래프의 정합성이 깨질 수 있습니다. 웬만한 상황에서는 이곳을 직접 건드리지 마세요.
 -   **자가 치유와 무결성 (Self-Healing)**: 지식 그래프가 오염되었거나 링크가 깨졌다고 느껴진다면 `wiki sync` 명령을 실행하세요. Incurator는 오류를 추적하고 논리적 무결성을 회복하는 자가 치유 능력을 갖추고 있습니다. **특히 에이전트가 아닌 사용자가 직접 노드 파일을 수동으로 편집한 경우, 반드시 `wiki sync`를 실행하여 변경 사항을 전체 그래프에 전파해야 합니다.**
--   **워크스페이스의 유연성**: 지식의 저장소(Vault)는 하나여야 하지만, 작업을 수행하는 **워크스페이스(Workspace)**는 어디에 있어도 상관없습니다. 당신의 개발 프로젝트 폴더나 임의의 작업 디렉토리에서 중앙의 메인 Vault와 연결하여 사용하세요. '지식의 창고(Vault)'는 하나지만 '지식의 작업실(Workspace)'은 무한히 늘어날 수 있습니다.
+-   **워크스페이스의 유연성**: 지식의 저장소(Vault)는 하나여야 하지만, 작업을 수행하는 **워크스페이스(Workspace)**는 어디에 있어도 상관없습니다. 중앙의 메인 Vault와 연결하여 그곳의 지식을 소비하세요. '지식의 창고(Vault)'에는 큐레이터가 살고, '지식의 작업실(Workspace)'에는 아티스트가 삽니다. 창고는 하나지만 작업실은 무한히 늘어날 수 있습니다.
 
 ---
 
@@ -63,6 +64,8 @@ Incurator의 강력한 성능을 유지하고 지식을 안전하게 관리하�
 ```bash
 wiki init <path/to/your/obsidian-vault>
 ```
+
+초기화 중 짧은 인터뷰를 통해 **Curator 페르소나**(vault 전역 전문가 정체성)가 설정됩니다. 결과는 `.curator/config.yml`에 저장되며 `wiki sync`, `wiki query` 전반에 자동으로 적용됩니다.
 
 #### 📂 저장소(Vault) 디렉토리 구조
 `wiki init` 명령을 실행하면 Incurator는 지식 관리를 위해 다음과 같은 구조를 초기화합니다. 인큐레이터는 지식이 기계와 인간에게 각각 다른 형태로 존재할 때 가장 효율적이라는 철학에 따라, 인간을 위한 공간(Root)과 기계 및 에이전트를 위한 AI 전용 공간(`.curator/`)을 실제 디렉토리 구조로 분리하여 관리합니다.
@@ -141,39 +144,156 @@ wiki add
 > [!IMPORTANT]
 > **위치의 자유**: 워크스페이스는 반드시 Vault 내부(`01_Workspaces/`)에 있을 필요가 없습니다. 당신이 현재 작업 중인 시스템상의 **어떤 프로젝트 디렉토리**라도 `wiki workspace init`을 통해 Curator와 연결된 워크스페이스로 변신시킬 수 있습니다.
 
-### 🏗️ 워크스페이스 생성 및 초기화
-새로운 프로젝트를 시작하거나 기존 프로젝트를 지식 베이스와 연결하고 싶을 때, 해당 디렉토리에서 초기화 명령을 실행합니다. 이 과정에서 필요한 설정 파일과 에이전트 전용 규칙이 자동으로 준비됩니다.
+### 🏗️ 에이전트를 Curator에 연결하기
+
+프로젝트 디렉토리에서 아래 명령으로 에이전트와 Curator를 연결합니다:
+
+```bash
+wiki workspace init <path/to/workspace> --agent <agent>
+```
+
+사용 중인 에이전트에 맞는 `--agent` 값을 선택하세요:
+
+| 에이전트            | `--agent` 값    | 생성/수정되는 룰 파일          |
+| ------------------- | --------------- | ------------------------------ |
+| Claude Code         | `claude-code`   | `CLAUDE.md`                    |
+| OpenAI Codex        | `codex`         | `AGENTS.md`                    |
+| Gemini CLI          | `gemini-cli`    | `GEMINI.md`                    |
+| Antigravity         | `antigravity`   | `.antigravity/rules.yaml`      |
+| 에이전트 없음 (CLI) | `none`          | —                              |
+
+`--project`는 프로젝트 고유 슬러그를 지정합니다. (기본값: 디렉토리 이름)
 
 > [!TIP]
 > **현재 워크스페이스 판별 기준**:
-> Curator는 당신이 명령어를 실행한 **현재 디렉토리(CWD)**와 그 상위 디렉토리들을 탐색하며 `curate.yml` 파일을 찾습니다. 즉, 특정 프로젝트 폴더 안으로 들어가서 명령어를 실행하기만 하면 시스템이 자동으로 "아, 지금은 이 프로젝트 작업을 하고 있구나!"라고 인식하게 됩니다.
+> Curator는 **현재 디렉토리(CWD)**와 그 상위 디렉토리를 탐색하여 `curate.yml` 파일을 찾습니다. 프로젝트 폴더 안에 들어가 명령어를 실행하면 별도 지정 없이 자동으로 워크스페이스를 인식합니다.
 
-#### 📁 워크스페이스 디렉토리 구조
-워크스페이스가 초기화되면 해당 프로젝트 디렉토리 내부에 다음과 같은 구조가 생성됩니다:
+---
+
+### 🔄 초기화 시 세 가지 시나리오
+
+`wiki workspace init`은 대상 디렉토리의 현재 상태를 감지해 동작을 자동으로 조정합니다.
+
+#### 시나리오 1: 빈 디렉토리
+
+`curate.yml`, 에이전트 룰 파일, `.agents/curator/` 하위 파일이 모두 새로 생성됩니다.
+
+#### 시나리오 2: 기존 에이전트 룰 있음 (Curator 미연결)
+
+`CLAUDE.md`, `AGENTS.md` 등 에이전트 룰 파일은 있지만 Curator가 아직 연결되지 않은 상태입니다.
+
+Incurator는 자체 LLM을 사용하여 기존 룰 파일을 읽고, 세션 시작/쿼리 루프/세션 종료 등 적절한 위치에 Curator hooks를 자동으로 통합합니다. 기존 룰은 그대로 보존됩니다.
+
+```text
+Found existing claude-code setup. Integrating Curator knowledge navigation...
+
+Proposed changes to CLAUDE.md:
+  ## My Existing Rules            ← 기존 룰 보존
++ ## Curator Knowledge Navigation  ← LLM이 추가
++
++ **Session start** — call curator_check_workspace() ...
+  ...
+
+Apply Curator integration to CLAUDE.md? [Y/n]:
+```
+
+- **Y**: 파일이 Curator hooks가 통합된 버전으로 교체됩니다.
+- **N**: 에이전트에게 직접 붙여넣을 수 있는 프롬프트가 출력됩니다. 이 프롬프트를 에이전트에게 전달하면 에이전트가 직접 룰 파일을 수정합니다.
+
+LLM을 사용할 수 없는 경우, 프롬프트가 자동으로 출력되고 Curator 블록이 룰 파일 앞에 prepend됩니다.
+
+#### 시나리오 3: Curator 이미 연결됨 (복원 / 업데이트)
+
+`curate.yml`과 Curator 런타임 파일이 이미 존재하는 상태입니다. `.agents/curator/` 하위 소유 파일들은 최신 템플릿으로 덮어씌워지고, 에이전트 룰 파일의 managed block은 마커 사이 내용만 교체됩니다. managed block 외부의 기존 내용은 절대 수정되지 않습니다.
+
+---
+
+### 📁 초기화 후 생성되는 파일 구조
 
 ```text
 <your_project_dir>/
-├── curate.yml         # 지식 요구 명세서 (필수)
-├── .agents/           # 에이전트 전용 작업 공간 (자동 생성)
-└── <notes/scripts>    # 해당 프로젝트와 관련된 인간의 작업물
+├── curate.yml                           # 지식 요구 명세서
+├── CLAUDE.md (또는 AGENTS.md / GEMINI.md) # 에이전트 룰 파일 — managed block 삽입
+└── .agents/curator/
+    ├── shared/rules.md                  # Curator 전체 행동 규칙
+    ├── shared/sync.md                   # 동기화 워크플로우
+    ├── runtime/<agent>.md               # 에이전트별 런타임 가이드
+    └── workflows/
+        ├── workspace_loop.md            # 세션 워크플로우
+        └── session_closeout.md          # 세션 종료 체크리스트
 ```
 
-```bash
-# 특정 디렉토리에 워크스페이스 초기화
-wiki workspace init <path/to/workspace> --agent antigravity
-```
-- `--agent`: 사용하는 에이전트(antigravity, gemini-cli 등) 전용 규칙 파일을 설치합니다.
-- `--project`: 프로젝트의 고유 이름을 설정합니다. (기본값: 디렉토리 이름)
+`.agents/curator/` 하위 파일은 Incurator가 소유하며, 매 init/sync 시 최신 템플릿으로 덮어씌워집니다. 에이전트 룰 파일의 managed block 외부 내용은 절대 수정되지 않습니다.
 
-### `curate.yml` (지식 요구 명세서)
-이 파일은 Curator에게 현재 프로젝트를 위해 어떤 지식을 "전시"할지 알려주는 명세서입니다.
+---
+
+### MCP로 초기화 (CLI 없이)
+
+에이전트가 이미 MCP 서버에 연결되어 있다면, 채팅 세션에서 직접 워크스페이스를 초기화할 수 있습니다:
+
+```text
+curator_workspace_init(
+  workspace_path="/absolute/path/to/project",
+  project="my-project",
+  description="이 워크스페이스의 목적"
+)
+```
+
+MCP 툴은 연결된 에이전트 런타임을 자동 감지하고 동일한 세 가지 시나리오 로직을 적용합니다. 기존 룰 파일이 있으면 자동으로 LLM 통합을 시도하고, LLM을 사용할 수 없는 경우 `integration_prompt`를 반환합니다.
+
+전체 MCP 툴 레퍼런스는 [MCP 사용법 가이드](./MCP_USER_GUIDE.md)를 참고하세요.
+
+---
+
+### `curate.yml` — 워크스페이스 설정 레퍼런스
+
+`curate.yml`은 워크스페이스 수준의 설정 파일입니다. Curator에게 어떤 지식을 어떻게 전시할지 알려주고, 이 프로젝트의 큐레이션 스타일을 제어하는 **Artist 페르소나**를 내장합니다.
+
 ```yaml
-project: "Gaussian Splatting Research"
-scope: "concepts" # all | concepts | exhibitions
-min_confidence: 0.8
-boost_terms: ["depth distortion", "normal consistency"]
+project: "my-project"
+description: "my-project 지식 워크스페이스"
+
+# Artist 페르소나 — wiki workspace init 마법사가 자동 생성.
+# Curator가 이 프로젝트용 Exhibition을 준비하는 방식을 제어합니다.
+persona:
+  domain: ""               # 예: "computer-vision", "biochemistry"
+  subdomain: ""            # 더 구체적인 세부 분야
+  goal: ""                 # 이 워크스페이스의 큐레이션 목표 (2~4문장)
+  exhibition_intent: "engineer"  # researcher | engineer | learner
+  disambiguation_keywords: []    # 이 워크스페이스 특화 검색 키워드
+  confidence:
+    high_threshold: 0.85   # 이 이상 → 고신뢰도 Exhibition
+    low_threshold: 0.55    # 이 이하 → HITL 검토 큐
+  updated_at: ""
+
+# 소스 선택 — vault root 기준 fnmatch 글로브.
+# include 목록이 비어 있으면 전체 소스에서 지식을 가져옵니다.
+sources:
+  include: []
+  #  - "03_Notes/**"
+  #  - "02_Wiki/my-topic/**"
+  exclude: []
+
+# search_curator 결과의 최소 신뢰도 하한선.
+min_confidence: 0.60
+
+# 활성 Exhibition 앵커 — wiki curate가 자동으로 설정.
+# 비워 두면 자동 감지, 특정 ID를 입력하면 해당 Exhibition으로 고정.
+exhibition: ""
 ```
-에이전트가 MCP를 통해 지식을 찾을 때, Curator는 이 명세를 바탕으로 가장 관련성 높은 정보를 우선적으로 노출합니다.
+
+**주요 필드:**
+
+| 필드 | 설명 |
+| ---- | ---- |
+| `persona.exhibition_intent` | `researcher` — 검증할 가설; `engineer` — 구현 단계; `learner` — 복습할 개념 |
+| `persona.confidence` | 워크스페이스별 신뢰도 임계값 (vault 전역 설정을 덮어씀) |
+| `sources.include` | 이 워크스페이스에 공급할 vault 파일 범위 (비어 있으면 전체) |
+| `min_confidence` | 이 값 미만의 Exhibition은 `search_curator` 결과에서 제외 |
+| `exhibition` | 매 세션의 primary context로 사용할 Exhibition ID |
+
+> [!TIP]
+> `persona:` 블록은 `wiki workspace init` 시 Artist 페르소나 마법사가 자동으로 생성합니다. 이후 `wiki persona update --workspace <name>` 또는 `curator_update_artist_persona` MCP 툴로 업데이트할 수 있습니다.
 
 보관소와 워크스페이스가 모두 준비되었습니다. 이제 Curator가 당신의 질문에 어떻게 답변하고, 에이전트와 어떻게 협업하는지 확인해 보세요.
 
@@ -220,28 +340,33 @@ wiki curate
 
 ## 🧑‍🎨 페르소나 설정
 
-페르소나는 Incurator가 당신의 지식 모델을 이해하는 방법입니다. 시스템은 범용 큐레이션 엔진이지만, 페르소나를 통해 당신의 도메인과 목적에 맞게 동작을 조정합니다.
+Incurator에는 두 가지 페르소나 레이어가 있으며, 각각 다른 수준에서 동작합니다.
 
-### Curator 페르소나 (Curator Persona)
+### Curator 페르소나 — Vault 수준
 
-`wiki init` 실행 시 짧은 인터뷰를 통해 자동으로 설정됩니다. 설정된 내용은 `.curator/config.yml`의 `persona:` 키에 저장되며, `wiki sync`(검증 컨텍스트)와 `wiki query`(답변 합성 컨텍스트) 전반에 적용됩니다.
+`wiki init` 실행 시 짧은 인터뷰를 통해 설정됩니다. `.curator/config.yml`에 저장되며, `wiki sync`와 `wiki query` 전반에 전역으로 적용됩니다.
 
 ```bash
 wiki persona              # 현재 Curator 페르소나 확인
-wiki persona update       # 인터뷰를 다시 실행하여 Curator 페르소나 재설정
+wiki persona update       # 인터뷰를 다시 실행하여 재설정
 ```
 
-인터뷰를 건너뛰거나 설정하지 않은 경우, 기본 STEM 페르소나가 적용됩니다.
+인터뷰를 건너뛰면 기본 STEM 페르소나가 적용됩니다.
 
-### Artist 페르소나 (Artist Persona)
+> [!IMPORTANT]
+> **Curator 페르소나는 Vault의 전문가 정체성을 정의합니다.** 근본적으로 다른 전문가 관점(예: STEM 연구자 vs. 요리사)이 필요하다면, 페르소나를 바꾸는 것이 아니라 새로운 Vault를 만들어야 합니다.
 
-각 워크스페이스의 `curate.yml`에 `persona:` 키로 저장되며, Curator 페르소나보다 우선합니다. `wiki curate --workspace <name>`을 처음 실행할 때 자동으로 생성되며, 이후 다음 명령으로 업데이트할 수 있습니다.
+### Artist 페르소나 — 워크스페이스 수준
+
+`wiki workspace init` 마법사가 자동으로 생성하며, `curate.yml`의 `persona:` 블록에 저장됩니다. 이 프로젝트에서만 Curator 페르소나를 덮어써, `exhibition_intent`, 신뢰도 임계값, disambiguation 키워드를 워크스페이스별로 세밀하게 조정합니다.
 
 ```bash
-wiki persona update --workspace <name>   # Artist 페르소나 재설정
+wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재설정
 ```
 
-Artist 페르소나는 해당 프로젝트의 `exhibition_intent`(researcher / engineer / learner), 신뢰도 임계값, disambiguation 키워드 등을 개별적으로 지정하여 큐레이션 결과를 더욱 정밀하게 조정합니다.
+또는 채팅 세션에서 `curator_update_artist_persona` MCP 툴로 업데이트할 수 있습니다.
+
+→ 전체 `persona:` 필드 레퍼런스는 [위의 `curate.yml` 섹션](#curateyml--워크스페이스-설정-레퍼런스)을 참고하세요.
 
 ---
 

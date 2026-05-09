@@ -197,8 +197,6 @@ DEFAULT_CONFIG: dict = {
         "model": "qwen2.5:7b",
         "host": "http://localhost:11434",
         # --- Gemini settings ---
-        # API key can also be set via GEMINI_API_KEY environment variable
-        "gemini_api_key": "",
         "gemini_flash_model": "gemini-3.1-flash-lite-preview",
         "gemini_think_model": "gemini-3.1-pro-preview",
         # thinking mode — used for L2 Fragment extraction (slower, higher quality)
@@ -214,12 +212,9 @@ DEFAULT_CONFIG: dict = {
         # 'gemini' | 'claude' | 'openai'
         "cloud_provider": "gemini",
         # --- Claude settings ---
-        "anthropic_api_key": "",
         "claude_model": "claude-sonnet-4-6",
         "claude_think_model": "claude-opus-4-7",
         # --- OpenAI settings ---
-        # API key can also be set via OPENAI_API_KEY environment variable
-        "openai_api_key": "",
         "openai_model": "gpt-4.1",
         "openai_think_model": "o3",
         # --- Failover / multi-host settings ---
@@ -237,6 +232,9 @@ DEFAULT_CONFIG: dict = {
         "backend": "qmd",
         "rerank": True,
     },
+    "sync": {
+        "max_parallel_verifications": 4,  # threads for Mode C Phase 1; 0 = sequential
+    },
     "curate": {
         "interactive": True,
         "auto_update_index": True,
@@ -247,8 +245,7 @@ DEFAULT_CONFIG: dict = {
         "area": "STEM",
         "text": (
             "Scientific and technical research vault.\n"
-            "Focus on formal derivability, mathematical rigor, and algorithmic correctness.\n"
-            "Primary artifacts: research papers, equations, algorithms, experimental results."
+            "Focus on formal derivability, mathematical rigor, and algorithmic correctness."
         ),
         "knowledge_artifacts": ["equations", "algorithms", "research papers", "experimental results"],
         "verification_philosophy": "mathematical derivability and citation-based evidence",
@@ -373,11 +370,22 @@ def save_config(paths: WikiPaths, config: dict) -> None:
 def find_wiki_root(start: Path | None = None) -> Path | None:
     """Walk upward from ``start`` looking for a ``.curator/config.yml``.
 
+    Vaults marked with ``testbed: true`` in their config are skipped so that
+    development testbeds are never auto-selected for production commands.
+
     Returns the project root if found, else None.
     """
+    import yaml as _yaml
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
-        if (candidate / INTERNAL_DIR / CONFIG_FILE).exists():
+        cfg_file = candidate / INTERNAL_DIR / CONFIG_FILE
+        if cfg_file.exists():
+            try:
+                data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
+                if data.get("testbed"):
+                    continue
+            except Exception:
+                pass
             return candidate
     return None
 

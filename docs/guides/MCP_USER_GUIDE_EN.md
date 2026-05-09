@@ -15,7 +15,7 @@ uv pip install -e '.[mcp]'
 ```
 
 > [!NOTE]
-> The server uses the `WIKI_ROOT` environment variable to locate your vault. If not set, it will auto-discover the vault by walking up from the current directory.
+> The server uses the `VAULT_ROOT` environment variable to locate your vault. If not set, it will auto-discover the vault by walking up from the current directory.
 
 ---
 
@@ -35,7 +35,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install ge
       "command": "wiki",
       "args": ["mcp"],
       "env": {
-        "WIKI_ROOT": "/absolute/path/to/your/vault"
+        "VAULT_ROOT": "/absolute/path/to/your/vault"
       }
     }
   }
@@ -82,7 +82,27 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install ge
 #### `curator_reindex`
 - **Role**: Manually rebuild the QMD search index.
 
-### 3.4 Persona Management
+### 3.4 Workspace Management
+
+#### `curator_workspace_init`
+
+- **Role**: Initialize a new workspace with `curate.yml`, agent rules, and an auto-generated Artist persona. Use this when `curator_check_workspace` reports a missing `curate.yml`, or when the user asks to connect a workspace to their Curator.
+- **Parameters**: `workspace_path` (absolute path), `project` (slug), `description`, `domains` (list), `topics` (list), `min_confidence`.
+- **Agent detection**: The connecting client runtime (Claude, Gemini, Codex, etc.) is auto-detected and the matching rule file is installed.
+- **Scenario handling**:
+  - *Empty directory* — everything is created from scratch.
+  - *Agent-only* — existing rule file is modified by LLM to integrate Curator hooks; returns `integration_prompt` if LLM is unavailable.
+  - *Full/restore* — owned files are refreshed to latest templates; managed block is replaced in-place.
+- **Returns**: `ok`, `workspace`, `agent`, `scenario`, `created`, `updated`, `persona`, `rule_integration` (if LLM auto-modified), `integration_prompt` (if LLM unavailable), `recommended_next_steps`.
+
+#### `curator_check_workspace`
+
+- **Role**: Verify that a workspace is healthy and load the active Exhibition as primary context. **Call this at every session start before responding to any domain query.**
+- **Parameters**: `workspace_path` (absolute path to the workspace directory).
+- **Returns**: `ok`, `workspace`, `project`, `scenario`, `exhibition`, `exhibition_exists`, `issues`.
+  - `scenario` will be `"agent-only"` if Curator rules are not yet installed — call `curator_workspace_init` to fix.
+
+### 3.5 Persona Management
 
 #### `curator_update_artist_persona`
 

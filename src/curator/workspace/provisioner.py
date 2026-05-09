@@ -24,10 +24,9 @@ ANTIGRAVITY_END = "# incurator:end"
 class CurateTemplateData:
     project: str
     description: str
-    domains: list[str] = field(default_factory=list)
-    topics: list[str] = field(default_factory=list)
     min_confidence: float = 0.60
     include_patterns: list[str] = field(default_factory=list)
+    exclude_patterns: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -37,6 +36,8 @@ class WorkspacePrepareResult:
     created: list[Path] = field(default_factory=list)
     updated: list[Path] = field(default_factory=list)
     preserved: list[Path] = field(default_factory=list)
+    # "empty" | "agent-only" | "full"  (set by prepare_workspace before any writes)
+    scenario: str = "empty"
 
     def touched(self) -> list[Path]:
         return self.created + self.updated
@@ -48,14 +49,53 @@ def default_project_name(path: Path) -> str:
     return name or "workspace"
 
 
+def detect_workspace_scenario(workspace: Path, agent: str) -> str:
+    """Classify the current state of a workspace directory.
+
+    Returns one of three strings:
+      "empty"      — no curate.yml and no known agent-rule files present.
+      "agent-only" — some agent setup exists (top-level rule file or curate.yml)
+                     but the Curator runtime rules are not yet installed.
+      "full"       — curate.yml and .agents/curator/runtime/{agent}.md both exist;
+                     Curator is already integrated.
+    """
+    has_curate = (workspace / "curate.yml").exists()
+    try:
+        top_target, _ = top_level_target(_normalize_agent(agent))
+    except ValueError:
+        top_target = "CLAUDE.md"  # safe fallback for unknown agents
+
+    has_curator_rules = (workspace / ".agents" / "curator" / "runtime" / f"{_normalize_agent(agent)}.md").exists()
+
+    if has_curate and has_curator_rules:
+        return "full"
+
+    has_top_level = (workspace / top_target).exists()
+    has_curator_dir = (workspace / ".agents" / "curator").exists()
+
+    if has_curate or has_top_level or has_curator_dir or _has_any_agent_file(workspace):
+        return "agent-only"
+
+    return "empty"
+
+
+def _has_any_agent_file(workspace: Path) -> bool:
+    """Return True if any well-known top-level agent rule file exists."""
+    for candidate in ("CLAUDE.md", "GEMINI.md", "AGENTS.md", ".antigravity/rules.yaml"):
+        if (workspace / candidate).exists():
+            return True
+    return False
+
+
 def prepare_workspace(
     *,
-    wiki_root: Path,
+    vault_root: Path,
     workspace: Path,
     agent: str = "codex",
     curate_data: CurateTemplateData | None = None,
     force_curate: bool = False,
     install_rules: bool = True,
+    install_managed_block: bool = True,
     template_root: Path | None = None,
 ) -> WorkspacePrepareResult:
     """Ensure curate.yml and selected agent rules exist for a workspace.
@@ -65,15 +105,16 @@ def prepare_workspace(
     sync so template changes propagate.
     """
     agent = _normalize_agent(agent)
-    wiki_root = wiki_root.expanduser().resolve()
+    vault_root = vault_root.expanduser().resolve()
     workspace = workspace.expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
 
-    result = WorkspacePrepareResult(workspace=workspace, agent=agent)
-    _ensure_curate_yml(workspace, curate_data, force_curate, result)
+    scenario = detect_workspace_scenario(workspace, agent)
+    result = WorkspacePrepareResult(workspace=workspace, agent=agent, scenario=scenario)
+    _ensure_curate_yml(vault_root, workspace, curate_data, force_curate, result)
 
     if install_rules and agent != "none":
-        _install_rule_templates(wiki_root, workspace, agent, result, template_root)
+        _install_rule_templates(vault_root, workspace, agent, result, template_root, install_managed_block)
 
     return result
 
@@ -97,8 +138,8 @@ def detect_agent_from_client_info(client_name: str) -> str:
     return "codex"
 
 
-def merge_mcp_settings(settings_path: Path, *, wiki_root: Path, workspace: Path) -> None:
-    """Merge WIKI_ROOT and WORKSPACE_PATH into a Claude Code settings.json.
+def merge_mcp_settings(settings_path: Path, *, vault_root: Path, workspace: Path) -> None:
+    """Merge VAULT_ROOT and WORKSPACE_PATH into a Claude Code settings.json.
 
     Creates the file and parent dirs if needed. Existing unrelated fields
     are preserved; only `mcpServers.incurator.env` is touched.
@@ -120,7 +161,7 @@ def merge_mcp_settings(settings_path: Path, *, wiki_root: Path, workspace: Path)
     incurator.setdefault("command", "wiki")
     incurator.setdefault("args", ["mcp"])
     env = incurator.setdefault("env", {})
-    env["WIKI_ROOT"] = str(wiki_root.expanduser().resolve())
+    env["VAULT_ROOT"] = str(vault_root.expanduser().resolve())
     env["WORKSPACE_PATH"] = str(workspace.expanduser().resolve())
 
     settings_path.write_text(
@@ -129,9 +170,9 @@ def merge_mcp_settings(settings_path: Path, *, wiki_root: Path, workspace: Path)
     )
 
 
-def render_mcp_snippet(*, wiki_root: Path, workspace: Path) -> str:
-    """Return a generic MCP JSON snippet with WIKI_ROOT and WORKSPACE_PATH."""
-    wiki_root = wiki_root.expanduser().resolve()
+def render_mcp_snippet(*, vault_root: Path, workspace: Path) -> str:
+    """Return a generic MCP JSON snippet with VAULT_ROOT and WORKSPACE_PATH."""
+    vault_root = vault_root.expanduser().resolve()
     workspace = workspace.expanduser().resolve()
     return f'''{{
   "mcpServers": {{
@@ -139,7 +180,7 @@ def render_mcp_snippet(*, wiki_root: Path, workspace: Path) -> str:
       "command": "wiki",
       "args": ["mcp"],
       "env": {{
-        "WIKI_ROOT": "{wiki_root}",
+        "VAULT_ROOT": "{vault_root}",
         "WORKSPACE_PATH": "{workspace}"
       }}
     }}
@@ -173,17 +214,18 @@ def _render_template(rel_path: str, values: dict[str, str], template_root: Path 
     return text.rstrip() + "\n"
 
 
-def _values(wiki_root: Path, workspace: Path, agent: str) -> dict[str, str]:
+def _values(vault_root: Path, workspace: Path, agent: str) -> dict[str, str]:
     return {
         "project_name": default_project_name(workspace),
         "workspace_path": str(workspace),
-        "wiki_root": str(wiki_root),
+        "vault_root": str(vault_root),
         "agent_runtime": agent,
         "curate_yml_path": str(workspace / "curate.yml"),
     }
 
 
 def _ensure_curate_yml(
+    vault_root: Path,
     workspace: Path,
     data: CurateTemplateData | None,
     force: bool,
@@ -191,7 +233,19 @@ def _ensure_curate_yml(
 ) -> None:
     curate_path = workspace / "curate.yml"
     if curate_path.exists() and not force:
-        result.preserved.append(curate_path)
+        # Heal stale vault_root without touching any other fields
+        try:
+            content = curate_path.read_text(encoding="utf-8")
+            healed = re.sub(
+                r"^vault_root: .*$", f"vault_root: {vault_root}", content, flags=re.MULTILINE
+            )
+            if healed != content:
+                curate_path.write_text(healed, encoding="utf-8")
+                result.updated.append(curate_path)
+            else:
+                result.preserved.append(curate_path)
+        except Exception:
+            result.preserved.append(curate_path)
         return
 
     data = data or CurateTemplateData(
@@ -202,11 +256,12 @@ def _ensure_curate_yml(
     content = template.read_text(encoding="utf-8")
     content = content.replace("{{project_name}}", data.project)
     content = content.replace("{{description}}", data.description)
-    content = _replace_yaml_list(content, "domains", data.domains)
-    content = _replace_yaml_list(content, "topics", data.topics)
+    content = content.replace("{{vault_root}}", str(vault_root))
     content = re.sub(r"min_confidence: .+", f"min_confidence: {data.min_confidence:.2f}", content)
     if data.include_patterns:
         content = _replace_sources_include(content, data.include_patterns)
+    if data.exclude_patterns:
+        content = _replace_sources_exclude(content, data.exclude_patterns)
 
     _write_file(curate_path, content, result)
 
@@ -228,18 +283,27 @@ def _replace_sources_include(content: str, patterns: list[str]) -> str:
     return re.sub(r"include: \[\]", rendered, content, count=1)
 
 
+def _replace_sources_exclude(content: str, patterns: list[str]) -> str:
+    """Replace 'exclude: []' inside the sources block with actual patterns."""
+    lines = ["exclude:"]
+    lines.extend(f'    - "{_escape_yaml_string(p)}"' for p in patterns)
+    rendered = "\n".join(lines)
+    return re.sub(r"exclude: \[\]", rendered, content, count=1)
+
+
 def _escape_yaml_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _install_rule_templates(
-    wiki_root: Path,
+    vault_root: Path,
     workspace: Path,
     agent: str,
     result: WorkspacePrepareResult,
     template_root: Path | None = None,
+    install_managed_block: bool = True,
 ) -> None:
-    values = _values(wiki_root, workspace, agent)
+    values = _values(vault_root, workspace, agent)
 
     owned_templates = {
         "owned/shared/rules.md": ".agents/curator/shared/rules.md",
@@ -256,12 +320,24 @@ def _install_rule_templates(
     for src, dest in owned_templates.items():
         _write_file(workspace / dest, _render_template(src, values, template_root), result)
 
-    target_path, block_template = _top_level_target(agent)
-    block = _render_template(block_template, values, template_root)
-    _upsert_managed_block(workspace / target_path, block, agent, result)
+    if install_managed_block:
+        # Install managed blocks for ALL known agents — don't guess which one
+        # is connecting. Every agent session-start file gets the Curator block.
+        for _install_agent in ("codex", "claude-code", "gemini-cli", "antigravity"):
+            try:
+                _target_path, _block_tmpl = top_level_target(_install_agent)
+                _block = _render_template(
+                    _block_tmpl,
+                    {**values, "agent_runtime": _install_agent},
+                    template_root,
+                )
+                _upsert_managed_block(workspace / _target_path, _block, _install_agent, result)
+            except Exception:
+                pass
 
 
-def _top_level_target(agent: str) -> tuple[str, str]:
+def top_level_target(agent: str) -> tuple[str, str]:
+    """Return (rule_file_path, managed_block_template) for an agent."""
     if agent == "codex":
         return "AGENTS.md", "managed/AGENTS.md"
     if agent == "claude-code":
@@ -287,11 +363,53 @@ def _upsert_managed_block(path: Path, block: str, agent: str, result: WorkspaceP
         pattern = re.compile(re.escape(start) + r".*?" + re.escape(end) + r"\n?", re.S)
         new = pattern.sub(new_block, old)
     elif old.strip():
-        new = old.rstrip() + "\n\n" + new_block
+        new = new_block + "\n" + old.lstrip()
     else:
         new = new_block
 
     _write_file(path, new, result)
+
+
+def make_rule_integration_prompt(existing_content: str, agent: str, workspace_path: str) -> str:
+    """Build the LLM prompt that integrates Curator hooks into an existing rule file."""
+    fmt = "YAML" if agent == "antigravity" else "Markdown"
+    return (
+        "You are integrating Curator knowledge navigation into an existing agent rule file.\n\n"
+        "Curator requires three behavioral rules:\n"
+        "1. **Session start**: call `curator_check_workspace()` MCP tool before responding to any domain query\n"
+        "2. **Every domain query**: call `search_curator('<query>')` FIRST; "
+        "use Curator results as primary evidence; fall back to local files only if Curator returns nothing\n"
+        "3. **Session end**: follow `.agents/curator/workflows/session_closeout.md`\n\n"
+        f"Workspace: {workspace_path}\n"
+        f"File format: {fmt}\n\n"
+        "Existing rule file:\n"
+        "---\n"
+        f"{existing_content}\n"
+        "---\n\n"
+        "Rewrite the rule file to naturally integrate these Curator requirements.\n"
+        "Constraints:\n"
+        "- Preserve ALL existing rules and instructions verbatim\n"
+        "- Add Curator hooks at semantically appropriate steps (session start, query loop, session end)\n"
+        "- If no session start step exists, insert one at the beginning\n"
+        "- For YAML files, add Curator rules as new rule objects alongside existing ones\n"
+        "- Do NOT remove, shorten, or paraphrase any existing content\n"
+        "- Output ONLY the modified file content — no prose, no explanation, no fences"
+    )
+
+
+def make_integration_copy_prompt(agent: str, rule_file: str) -> str:
+    """Return a copy-paste prompt the user can give to their agent for manual integration."""
+    return (
+        f"Please update `{rule_file}` to integrate Curator knowledge navigation.\n\n"
+        "Add these three behavioral requirements at the appropriate places in the workflow:\n\n"
+        "1. **Session start**: call `curator_check_workspace()` MCP tool "
+        "before responding to any domain query\n"
+        "2. **Every domain query**: call `search_curator('<your query>')` FIRST — "
+        "use Curator results as primary evidence; fall back to local files only if "
+        "Curator returns nothing, and state clearly when you do\n"
+        "3. **Session end**: follow `.agents/curator/workflows/session_closeout.md`\n\n"
+        "Preserve all existing rules. Add these requirements at semantically appropriate steps."
+    )
 
 
 def _write_file(path: Path, content: str, result: WorkspacePrepareResult) -> None:

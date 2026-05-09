@@ -79,7 +79,7 @@ A testbed should start from a **private stage fixture** — a curated set of sou
 **Success criteria:**
 
 - **Reproducible**: Running the generation script produces exactly the same vault state every time.
-- **Isolated**: `WIKI_ROOT` env var prevents any interference with the main vault.
+- **Isolated**: `VAULT_ROOT` env var prevents any interference with the main vault.
 - **Verifiable**: Contains enough complexity to test L1→L3 transitions and cross-source concept merging.
 >
 > [!TIP]

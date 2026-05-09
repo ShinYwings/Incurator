@@ -40,7 +40,7 @@ class ArtistPersona:
 
     domain: str = ""
     subdomain: str = ""
-    text: str = ""
+    goal: str = ""
     exhibition_intent: str = "engineer"  # researcher | engineer | learner
     disambiguation_keywords: list[str] = field(default_factory=list)
     confidence: dict = field(default_factory=lambda: {"high_threshold": 0.85, "low_threshold": 0.55})
@@ -53,9 +53,8 @@ class CurateSpec:
 
     project: str
     description: str = ""
+    vault_root: str = ""
     sources: CurateSources = field(default_factory=CurateSources)
-    domains: list[str] = field(default_factory=list)
-    topics: list[str] = field(default_factory=list)
     min_confidence: float = 0.60
     exhibition: str = ""
     persona: ArtistPersona = field(default_factory=ArtistPersona)
@@ -90,7 +89,14 @@ class CurateSpec:
 
     def boost_query(self, base_query: str) -> str:
         """Append domain/topic terms to a search query for relevance boosting."""
-        extras = self.topics + self.domains
+        extras = []
+        if self.persona.domain:
+            extras.append(self.persona.domain)
+        if self.persona.subdomain:
+            extras.append(self.persona.subdomain)
+        if self.persona.disambiguation_keywords:
+            extras.extend(self.persona.disambiguation_keywords)
+        
         if not extras:
             return base_query
         return f"{base_query} {' '.join(extras)}"
@@ -147,18 +153,22 @@ def load_curate_spec(workspace_path: Path) -> Optional[CurateSpec]:
     # Parse persona block
     persona_raw = raw.get("persona", {}) or {}
     if isinstance(persona_raw, dict):
-        confidence_raw = persona_raw.get("confidence", {}) or {}
-        persona_confidence = {
-            "high_threshold": float(confidence_raw.get("high_threshold", 0.85)),
-            "low_threshold": float(confidence_raw.get("low_threshold", 0.55)),
-        }
+        conf_raw = persona_raw.get("confidence", {}) or {}
+        if isinstance(conf_raw, dict):
+            confidence = {
+                "high_threshold": float(conf_raw.get("high_threshold", 0.85)),
+                "low_threshold": float(conf_raw.get("low_threshold", 0.55)),
+            }
+        else:
+            confidence = {"high_threshold": 0.85, "low_threshold": 0.55}
         artist_persona = ArtistPersona(
             domain=str(persona_raw.get("domain", "") or ""),
             subdomain=str(persona_raw.get("subdomain", "") or ""),
-            text=str(persona_raw.get("text", "") or ""),
+            # "goal" is canonical; "text" is accepted as fallback for forward compat
+            goal=str(persona_raw.get("goal", persona_raw.get("text", "")) or ""),
             exhibition_intent=str(persona_raw.get("exhibition_intent", "engineer") or "engineer"),
             disambiguation_keywords=_str_list_from("disambiguation_keywords", persona_raw),
-            confidence=persona_confidence,
+            confidence=confidence,
             updated_at=str(persona_raw.get("updated_at", "") or ""),
         )
     else:
@@ -167,9 +177,8 @@ def load_curate_spec(workspace_path: Path) -> Optional[CurateSpec]:
     return CurateSpec(
         project=project.strip(),
         description=str(raw.get("description", "") or ""),
+        vault_root=str(raw.get("vault_root", "") or ""),
         sources=sources,
-        domains=_str_list("domains"),
-        topics=_str_list("topics"),
         min_confidence=min_confidence,
         exhibition=str(raw.get("exhibition", "") or ""),
         persona=artist_persona,
@@ -203,22 +212,28 @@ def _str_list_from(key: str, d: dict) -> list[str]:
     return [str(v) for v in val if v]
 
 
-def _pattern_variants(pattern: str) -> set[str]:
-    p = pattern.lstrip("/")
-    variants = {p}
-    if p.endswith("/*.md"):
-        variants.add(p.removesuffix("/*.md"))
-    if "/**/" in p:
-        variants.add(p.replace("/**/", "/"))
-    if p.endswith("/**/*.md"):
-        variants.add(p.removesuffix("/**/*.md"))
-        variants.add(p.removesuffix("/**/*.md") + "/*.md")
-    return variants
+
 
 
 def _matches_any(paths: set[str], pattern: str) -> bool:
-    variants = _pattern_variants(pattern)
-    return any(fnmatch.fnmatch(path, variant) for path in paths for variant in variants)
+    import re
+    # Convert glob pattern to regex
+    # Escaping special characters but keeping * and **
+    regex_pattern = re.escape(pattern.lstrip("/"))
+    # ** matches any characters including /
+    regex_pattern = regex_pattern.replace(r"\*\*", ".*")
+    # * matches any characters except /
+    regex_pattern = regex_pattern.replace(r"\*", "[^/]*")
+    # Add start/end anchors
+    regex_pattern = f"^{regex_pattern}$"
+    
+    try:
+        compiled = re.compile(regex_pattern)
+    except re.error:
+        # Fallback to literal match if regex is invalid
+        return any(p.lstrip("/") == pattern.lstrip("/") for p in paths)
+
+    return any(compiled.match(p.lstrip("/")) for p in paths)
 
 
 def find_workspaces(vault_root: Path) -> list[tuple[Path, CurateSpec]]:

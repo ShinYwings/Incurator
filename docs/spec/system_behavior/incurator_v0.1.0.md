@@ -181,10 +181,12 @@ Fields:
 
 | Pipeline Stage | Persona Used | How Applied |
 | --- | --- | --- |
-| `wiki sync` verification | Curator `text` | Prepended as domain context to verification prompts |
+| `wiki sync` verification | Curator `text` | Prepended as domain context to CON/EXH verification prompts |
+| `wiki sync` regeneration (fix) | Curator `text` | Injected into concept/exhibition regeneration prompts |
 | `wiki query` synthesis | Curator `text` | Prepended as agent context to synthesis prompt |
 | L3 Concept generation | Artist `text` + `domain` | Guides concept clustering and naming |
-| L4 Exhibition generation | Artist `exhibition_intent` + `text` | Shapes exhibit format and detail level |
+| L4 Exhibition generation | Artist `text` | Prepended as agent context |
+| L4 Exhibition section 3 | Artist `exhibition_intent` | Switches "Actionable Directives" tone: `researcher` → next papers/hypotheses; `engineer` → implementation steps; `learner` → review checklist + exercises |
 | Exhibition confidence pre-filter | Artist `confidence` thresholds | Overrides Curator thresholds for `min_confidence` |
 | Concept disambiguation | Artist `disambiguation_keywords` | Applied during L3 clustering to avoid false merges |
 

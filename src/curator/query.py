@@ -97,7 +97,8 @@ from the Curator's DAG knowledge base under `.curator/Collections/`.
 Rules:
 1. Base your answer STRICTLY on the provided pages and excerpts below.
    Do not invent facts or speculate beyond what the sources say.
-2. Use `[[wikilinks]]` to cite specific nodes in the DAG. Always include the
+3. **Exhibition Authority**: Nodes prefixed with `EXH-` (Exhibitions) represent human-verified or agent-refined "final truths." If information in an `EXH-` node conflicts with data in a `CTX-`, `ATM-`, or `CON-` node, **ALWAYS prioritize the Exhibition's content** as the most authoritative.
+4. **Link-Based Reasoning**: Use the `[[wikilinks]]` to trace provenance. If a Concept (`CON-`) is used, mention its supporting Exhibition if available.
    layer prefix exactly as shown in the source headers, e.g.
    [[01_Contexts/CTX-a1b2c3d4]], [[02_Atoms/ATM-9f8e7d6c]],
    [[03_Concepts/CON-12345678]], [[04_Exhibitions/EXH-abcdef01]].
@@ -528,6 +529,9 @@ def run_query(
         }.get(scope)
         if layer_prefix:
             results.hits = [h for h in results.hits if h.full_path.startswith(layer_prefix)]
+
+        # Prioritize Exhibitions (L4) as the primary source of truth in the synthesis context
+        results.hits.sort(key=lambda h: (not h.full_path.startswith("04_Exhibitions/"), -h.score))
     except search.QmdNotInstalled as e:
         result = QueryResult(question=question, session_id=session_id, error=str(e))
         callbacks.on_error(result.error)

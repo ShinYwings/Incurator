@@ -454,7 +454,7 @@ persona:
   subdomain: "3d-gaussian-splatting"    # More specific focus area (optional)
   text: |                               # Free-text for LLM injection into concept/exhibition prompts
     Real-time 3D rendering research for production implementation.
-  exhibition_intent: "engineer"         # researcher | engineer | learner
+  exhibition_intent: "engineer"         # researcher → next papers/hypotheses | engineer → implementation steps | learner → review + exercises
   disambiguation_keywords:              # Workspace-level terms for L3 concept disambiguation
     - Rendering
     - Optimization

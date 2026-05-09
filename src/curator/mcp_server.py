@@ -17,7 +17,7 @@ The server combines two responsibility layers:
    thresholds.
 
 Vault resolution:
-    1. `WIKI_ROOT` env var
+    1. `VAULT_ROOT` env var
     2. cfg.find_wiki_root() walking up from `cwd`
     Server raises a clear error early if neither resolves.
 """
@@ -26,7 +26,10 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -48,24 +51,56 @@ from . import search
 # ---------------------------------------------------------------------------
 
 
-def _resolve_paths() -> cfg.WikiPaths:
-    """Locate the vault and return WikiPaths or raise a clear error."""
-    env_root = os.environ.get("WIKI_ROOT")
+def _resolve_paths(hint_path: str = "") -> cfg.WikiPaths:
+    """Locate the vault. No fallback — ambiguous resolution raises immediately.
+
+    Priority (first match wins, no further fallback):
+    1. VAULT_ROOT env var — set at server start by mcp_callback; always authoritative.
+    2. curate.yml vault_root — explicit spec in the workspace; honoured only when
+       VAULT_ROOT is absent (e.g. standalone tool call without a running server).
+
+    No upward traversal, no CWD discovery. If neither source resolves to a valid
+    vault the call fails loudly so callers can supply the correct path rather than
+    silently landing in the wrong vault.
+    """
+    # 1. VAULT_ROOT — pinned by mcp_callback() before the server starts; must win.
+    env_root = os.environ.get("VAULT_ROOT")
     if env_root:
         candidate = Path(env_root).expanduser().resolve()
         if (candidate / cfg.INTERNAL_DIR / cfg.CONFIG_FILE).exists():
             return cfg.paths_from_config(candidate)
         raise RuntimeError(
-            f"WIKI_ROOT={candidate} does not contain {cfg.INTERNAL_DIR}/{cfg.CONFIG_FILE}. "
-            f"Run `wiki init` there or point WIKI_ROOT at an initialised vault."
+            f"VAULT_ROOT is set to '{env_root}' but no vault was found there "
+            f"(missing {cfg.INTERNAL_DIR}/{cfg.CONFIG_FILE}). "
+            "Re-run `wiki mcp` from inside an initialised vault."
         )
-    discovered = cfg.find_wiki_root()
-    if discovered is None:
-        raise RuntimeError(
-            "No incurator vault found. Set WIKI_ROOT to your vault root, or "
-            "run `wiki mcp` from inside an initialised project."
-        )
-    return cfg.paths_from_config(discovered)
+
+    # 2. curate.yml vault_root — only when VAULT_ROOT is absent.
+    if hint_path:
+        ws_path = Path(hint_path).expanduser().resolve()
+        if ws_path.is_file():
+            ws_path = ws_path.parent
+        try:
+            from . import curate_yml as _cym
+            spec = _cym.load_curate_spec(ws_path)
+            if spec and spec.vault_root:
+                vroot = Path(spec.vault_root).expanduser().resolve()
+                if (vroot / cfg.INTERNAL_DIR / cfg.CONFIG_FILE).exists():
+                    return cfg.paths_from_config(vroot)
+                raise RuntimeError(
+                    f"curate.yml vault_root='{spec.vault_root}' does not contain a valid vault. "
+                    "Update vault_root in curate.yml or set VAULT_ROOT."
+                )
+        except RuntimeError:
+            raise
+        except Exception:
+            pass
+
+    raise RuntimeError(
+        "Cannot resolve vault: VAULT_ROOT is not set and no curate.yml with vault_root was found. "
+        "Start the MCP server via `wiki mcp` (which sets VAULT_ROOT automatically), "
+        "or ensure your workspace curate.yml contains a valid vault_root."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -146,8 +181,8 @@ def _concept_atom_ids(con: dict[str, Any]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 _ARTIST_PERSONA_KEYS = [
-    "domain", "subdomain", "text", "exhibition_intent",
-    "disambiguation_keywords", "confidence", "updated_at",
+    "domain", "subdomain", "goal", "exhibition_intent",
+    "confidence", "disambiguation_keywords", "updated_at",
 ]
 
 _CURATOR_PERSONA_KEYS = [
@@ -180,7 +215,7 @@ def curator_update_artist_persona(workspace_path: str, request: str) -> dict:
     old_persona: dict = raw.get("persona", {}) or {}
 
     try:
-        paths = _resolve_paths()
+        paths = _resolve_paths(workspace_path)
         config = cfg.load_config(paths)
         client = build_client(config)
     except Exception as exc:
@@ -221,8 +256,7 @@ def curator_update_artist_persona(workspace_path: str, request: str) -> dict:
         if not isinstance(new_persona, dict):
             raise ValueError("LLM returned non-object JSON")
     except Exception:
-        import re as _re
-        match = _re.search(r"\{.*\}", response, _re.DOTALL)
+        match = re.search(r"\{.*\}", response, re.DOTALL)
         if match:
             try:
                 new_persona = json.loads(match.group())
@@ -246,17 +280,18 @@ def curator_update_artist_persona(workspace_path: str, request: str) -> dict:
     return {"updated_fields": updated_fields, "before": old_persona, "after": new_persona}
 
 
-def curator_update_curator_persona(request: str) -> dict:
+def curator_update_curator_persona(request: str, workspace_path: str = "") -> dict:
     """Update the vault-level Curator persona based on a natural-language request.
 
     request: natural language description of what to change
+    workspace_path: Optional workspace path to help resolve the vault.
 
     Returns: {"updated_fields": [...], "before": {...}, "after": {...}}
     """
     from .llm import build_client, ChatMessage
 
     try:
-        paths = _resolve_paths()
+        paths = _resolve_paths(workspace_path)
         config = cfg.load_config(paths)
     except Exception as exc:
         return {"error": f"Could not load vault config: {exc}"}
@@ -302,8 +337,7 @@ def curator_update_curator_persona(request: str) -> dict:
         if not isinstance(new_persona, dict):
             raise ValueError("LLM returned non-object JSON")
     except Exception:
-        import re as _re
-        match = _re.search(r"\{.*\}", response, _re.DOTALL)
+        match = re.search(r"\{.*\}", response, re.DOTALL)
         if match:
             try:
                 new_persona = json.loads(match.group())
@@ -325,28 +359,225 @@ def curator_update_curator_persona(request: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Wizard questions helper
+# ---------------------------------------------------------------------------
+
+
+
+def _get_workspace_files_summary(workspace_path: Path) -> str:
+    """Return a brief summary of files in the workspace to help the LLM."""
+    try:
+        files = []
+        for p in workspace_path.glob("*"):
+            if p.name.startswith(".") or p.name == "__pycache__": continue
+            if p.is_dir():
+                files.append(f"{p.name}/")
+                count = 0
+                for subp in p.glob("*"):
+                    if subp.name.startswith("."): continue
+                    if subp.is_file():
+                        files.append(f"  {p.name}/{subp.name}")
+                        count += 1
+                    if count > 5: break
+            else:
+                files.append(p.name)
+            if len(files) > 20: break
+        return "\n".join(files)
+    except Exception:
+        return "Could not list files."
+
+
+def _get_interview_suggestions(workspace_path: str, field_id: str, provided: dict) -> list[str]:
+    """Use LLM to suggest 5 options for a specific field based on workspace content."""
+    from . import llm, config as cfg
+    from .llm import ChatMessage
+    from pathlib import Path
+    import json, re
+    
+    try:
+        paths = _resolve_paths(workspace_path)
+        config = cfg.load_config(paths)
+        
+        ws = Path(workspace_path).expanduser().resolve()
+        file_summary = _get_workspace_files_summary(ws)
+        
+        context = f"Workspace folder: {ws.name}"
+        if provided:
+            ans = {k: v for k, v in provided.items() if v}
+            if ans:
+                context += "\n\nPreviously provided answers:\n" + json.dumps(ans, indent=2)
+
+        # Get global vault directories and their immediate subdirectories for better suggestions
+        global_dirs = []
+        for d in ["02_Wiki", "03_Notes", "04_Resources"]:
+            base_p = paths.root / d
+            if base_p.exists():
+                global_dirs.append(f"{d}/")
+                # Add one level of subdirectories to be more specific
+                try:
+                    for subp in base_p.glob("*/"):
+                        if subp.name.startswith("."): continue
+                        if subp.is_dir():
+                            global_dirs.append(f"{d}/{subp.name}/")
+                        if len(global_dirs) > 15: break # Don't overwhelm
+                except Exception:
+                    pass
+
+        if field_id == "exclude_patterns":
+            PROMPT = f"""You are a workspace configuration assistant.
+Based on the global vault structure, suggest 5 folders to EXCLUDE from this workspace.
+ONLY suggest folders that actually exist in the Vault list below.
+
+Vault global directories:
+{', '.join(global_dirs)}
+
+Project context:
+{context}
+
+Instructions:
+- Return ONLY a JSON list of 5 strings.
+- Prefix paths with '[Vault] ' for clarity.
+- Focus on folders irrelevant to the project context.
+"""
+        elif field_id in ["domains", "topics"]:
+            PROMPT = f"""You are a workspace configuration assistant.
+Based on the project context below, suggest 5 highly relevant technical/academic {field_id}.
+
+Project context:
+{context}
+
+Instructions:
+- Return ONLY a JSON list of 5 strings.
+- Suggest concise keywords or short phrases.
+- Do NOT include any prefixes.
+"""
+        else: # description or other
+            PROMPT = f"""You are a workspace configuration assistant.
+Based on the workspace folder name '{ws.name}', suggest 5 short variations for the project goal ('{field_id}').
+
+Project context:
+{context}
+
+Instructions:
+- Return ONLY a JSON list of 5 strings.
+- Infer the primary research or development goal from the folder name '{ws.name}'.
+- Suggest 1-sentence goals/descriptions.
+- Do NOT include any prefixes.
+"""
+
+        if field_id == "min_confidence":
+            return ["0.60", "0.70", "0.80", "0.85", "0.90"]
+        with llm.build_client(config) as client:
+            raw = client.chat([ChatMessage(role="user", content=PROMPT)], temperature=0.3)
+            raw_stripped = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
+            suggestions = json.loads(raw_stripped)
+            if isinstance(suggestions, list):
+                if field_id == "exclude_patterns":
+                    # Filter out hallucinations
+                    valid_global = {d.strip("/") for d in global_dirs}
+                    cleaned = []
+                    for s in suggestions:
+                        path = str(s).replace("[Vault] ", "").strip("/")
+                        if path in valid_global:
+                            cleaned.append(str(s))
+                    return cleaned[:5]
+                return [str(s) for s in suggestions[:5]]
+    except Exception:
+        pass
+    
+    # Fallbacks
+    fallbacks = {
+        "description": ["Knowledge base for research", "Technical documentation", "Learning notes"],
+        "domains": ["computer-vision", "rendering", "robotics", "optimization", "physics"],
+        "topics": ["algorithm", "pipeline", "benchmark", "theory", "application"],
+        "min_confidence": ["0.60", "0.70", "0.80", "0.85", "0.90"]
+    }
+    return fallbacks.get(field_id, ["Option 1", "Option 2", "Option 3", "Option 4", "Option 5"])[:5]
+def _build_wizard_questions(workspace_path: str, provided: dict = None) -> dict[str, Any]:
+    """Build a dynamic one-question-at-a-time interview for workspace init."""
+    provided = provided or {}
+    fields = [
+        ("description", "Project Description", "What is the primary goal of this workspace?"),
+        ("domains", "Main Domains", "Which academic or technical domains does this project belong to?"),
+        ("topics", "Specific Topics", "What specific keywords or technologies define this project?"),
+        ("exclude_patterns", "Sources to Exclude", "Which vault folders (e.g., 03_Notes/Other) should be excluded from this project's knowledge base?"),
+        ("min_confidence", "Confidence Threshold", "Minimum confidence for search results (0.5-0.95)?")
+    ]
+    
+    missing = None
+    for fid, label, q in fields:
+        val = provided.get(fid)
+        if val is None or (isinstance(val, list) and not val):
+            # Exception: include/exclude can be empty lists if provided explicitly
+            if fid in provided: continue 
+            missing = (fid, label, q)
+            break
+            
+    if missing is None:
+        return {"ok": True, "all_answered": True}
+
+    fid, label, q = missing
+    suggestions = _get_interview_suggestions(workspace_path, fid, provided)
+    
+    return {
+        "ok": True,
+        "needs_initialization": True,
+        "phase": "interview",
+        "workspace": workspace_path,
+        "current_step": {
+            "id": fid,
+            "label": label,
+            "question": q,
+            "suggestions": suggestions,
+        },
+        "provided_so_far": provided,
+        "instructions": (
+            "CRITICAL: WORKSPACE INITIALIZATION REQUIRED. YOU MUST HALT ALL OTHER ACTIVITIES.\n"
+            "1. DO NOT answer any previous user questions or provide any analysis.\n"
+            "2. Explain that the Curator workspace is not yet initialized and you need to perform a quick setup.\n"
+            f"3. IMMEDIATELY ask this question: '{q}'.\n"
+            f"4. You MUST provide these 5 options as a numbered list for the user to choose from: {', '.join(suggestions)}.\n"
+            "5. Also offer an 'Other' option for manual entry.\n"
+            "6. STOP your response immediately after asking. Do not provide any other prose."
+        )
+    }
+
+
+# ---------------------------------------------------------------------------
 # Server construction
 # ---------------------------------------------------------------------------
 
 
 def build_server() -> FastMCP:
     """Build and register all tools on a fresh FastMCP instance."""
-    paths = _resolve_paths()
+    import os
+    from . import search, query, ingest_llm, curate_yml, lint, db, llm, config as cfg
+
     mcp = FastMCP(
         name="incurator",
         instructions=(
-            "incurator Curator MCP. Workflow for a workspace session:\n"
-            "  1. Call `curator_check_workspace` first — validates curate.yml and returns "
-            "workspace status, including whether an Exhibition exists.\n"
-            "  2. If `needs_curation` is true, call `curator_curate_workspace` to generate "
-            "the L4 Exhibition from the knowledge graph, then retry `search_curator`.\n"
-            "  3. Use `search_curator` for BM25/vector/hybrid search. Results are Exhibition-first.\n"
-            "  4. Walk evidence with `curator_traverse_evidence` (EXH→CON→ATM).\n"
-            "  5. Correct knowledge by editing L4 Exhibitions only via `curator_update_node` "
-            "(EXH- IDs only — backward propagation updates L1-L3 automatically).\n"
-            "  6. Add new insights with `curator_add_knowledge`.\n"
-            "Layer prefixes: 01_Contexts (CTX-), 02_Atoms (ATM-), "
-            "03_Concepts (CON-), 04_Exhibitions (EXH-)."
+            "incurator Curator MCP — follow this protocol strictly for every session:\n\n"
+            "SESSION START PROTOCOL (run every time):\n"
+            "  Step 1: Call `curator_check_workspace` with the current workspace path.\n"
+            "  Step 2: If the response contains `needs_initialization: true`, you MUST "
+            "HALT all other tasks and follow its `instructions` immediately. DO NOT "
+            "answer any other user questions until initialization is complete. "
+            "Explain that Curator workspace initialization is required for knowledge "
+            "management, then present the question.\n"
+            "  Step 3: After `curator_workspace_init` completes, call `search_curator` with "
+            "`workspace_path` to retrieve prior knowledge. "
+            "Do NOT call `curator_curate_workspace` or `curator_reindex` separately — "
+            "`curator_workspace_init` already runs both inline.\n\n"
+            "SEARCH PROTOCOL:\n"
+            "  - Always pass `workspace_path` to `search_curator`.\n"
+            "  - If response has `needs_curation: true`, call `curator_curate_workspace` "
+            "then retry `search_curator`.\n"
+            "  - If response has `needs_initialization: true`, follow its `instructions` to start the interview.\n\n"
+            "KNOWLEDGE UPDATE PROTOCOL:\n"
+            "  - Edit only EXH- nodes via `curator_update_node` (reindex runs automatically).\n"
+            "  - Add new insights via `curator_add_knowledge` (reindex runs automatically).\n"
+            "  - Call `curator_reindex` only after manually editing vault files outside MCP.\n\n"
+            "Layer prefixes: CTX- (01_Contexts), ATM- (02_Atoms), CON- (03_Concepts), EXH- (04_Exhibitions)."
         ),
     )
 
@@ -360,6 +591,7 @@ def build_server() -> FastMCP:
         mode: str = "hybrid",
         limit: int = 8,
         min_score: float = 0.6,
+        workspace_path: str = "",
     ) -> dict[str, Any]:
         """Search the Curator DAG.
 
@@ -372,30 +604,31 @@ def build_server() -> FastMCP:
                   (BM25 only, fastest), 'vec' (vector only).
             limit: Max number of hits before min_score filtering.
             min_score: Drop hits below this score (0.6 = default threshold).
+            workspace_path: The workspace to scope the search to. Use if WORKSPACE_PATH env var is not set.
 
         Returns a dict with `hits` (each has `path`, `title`, `score`, `snippet`,
         `body`), `count`, and optionally `needs_curation` with guidance.
         """
+        ws_path_str = workspace_path or os.environ.get("WORKSPACE_PATH")
+        paths = _resolve_paths(ws_path_str)
+
         # Auto-sync: if there are pending sources, curate them synchronously first
         from . import db as _db
         if _db.get_pending_count(paths.state_db) > 0:
-            import subprocess
             subprocess.run(
                 ["wiki", "curate", "--no-sync"],
                 cwd=str(paths.root),
                 check=False,
                 capture_output=True,
+                env={**os.environ, "VAULT_ROOT": str(paths.root)},
             )
 
-        # Load curate.yml if WORKSPACE_PATH is set
+        # Load curate.yml if workspace_path or WORKSPACE_PATH is set
         from . import curate_yml as _cym
-        from pathlib import Path as _Path
-        import os as _os
-        ws_path_str = _os.environ.get("WORKSPACE_PATH")
         ws_exh = None  # resolved below if workspace is configured
         curate_spec = None
         if ws_path_str:
-            ws_path = _Path(ws_path_str).expanduser().resolve()
+            ws_path = Path(ws_path_str).expanduser().resolve()
             if not ws_path.exists():
                 return {
                     "error": f"WORKSPACE_PATH does not exist: {ws_path_str}",
@@ -403,6 +636,13 @@ def build_server() -> FastMCP:
                     "hits": [],
                     "count": 0,
                 }
+            # Check if curate.yml exists — if not, return wizard questions directly
+            _curate_file = ws_path / "curate.yml"
+            if not _curate_file.exists():
+                wiz = _build_wizard_questions(ws_path_str)
+                wiz["hits"] = []
+                wiz["count"] = 0
+                return wiz
             try:
                 curate_spec = _cym.load_curate_spec(ws_path)
             except Exception as e:
@@ -425,15 +665,36 @@ def build_server() -> FastMCP:
             if curate_spec.exhibition:
                 candidate = paths.exhibitions / f"{curate_spec.exhibition}.md"
                 ws_exh = candidate if candidate.exists() else None
+            
             if ws_exh is None:
                 ws_exh = _ingest_llm.find_workspace_exhibition(paths, curate_spec.project)
+            
+            # PROACTIVE CURATION: If still no exhibition, run it now instead of asking the user
+            if ws_exh is None:
+                try:
+                    subprocess.run(
+                        ["wiki", "curate", "--workspace", ws_path_str, "--no-sync"],
+                        cwd=str(paths.root),
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                        env={**os.environ, "VAULT_ROOT": str(paths.root)},
+                    )
+                    # Retry lookup
+                    ws_exh = _ingest_llm.find_workspace_exhibition(paths, curate_spec.project)
+                except Exception:
+                    pass
+
             if ws_exh is None:
                 return {
                     "needs_curation": True,
-                    "message": (
-                        "No workspace Exhibition found for this workspace. "
-                        "Call curator_curate_workspace() to generate it, then retry search_curator."
+                    "action_required": (
+                        "1. Ensure you have run `wiki add` on some sources. "
+                        "2. Call `curator_curate_workspace` manually to see detailed errors. "
+                        "3. Then retry `search_curator`."
                     ),
+                    "workspace_path": ws_path_str,
                     "hits": [],
                     "count": 0,
                 }
@@ -510,32 +771,33 @@ def build_server() -> FastMCP:
 
         Returns `{'ok': True, 'exhibition': 'EXH-xxxx.md'}` on success.
         """
-        import subprocess as _subprocess
-        import os as _os
-        ws = workspace_path or _os.environ.get("WORKSPACE_PATH", "")
+        ws = workspace_path or os.environ.get("WORKSPACE_PATH", "")
         if not ws:
             return {"error": "workspace_path required (or set WORKSPACE_PATH env var)"}
-        result = _subprocess.run(
+        
+        paths = _resolve_paths(ws)
+        result = subprocess.run(
             ["wiki", "curate", "--workspace", ws, "--no-sync"],
             cwd=str(paths.root),
             capture_output=True,
             text=True,
             check=False,
             timeout=300,
+            env={**os.environ, "VAULT_ROOT": str(paths.root)},
         )
         if result.returncode != 0:
             return {"error": result.stderr.strip() or "wiki curate failed"}
+
         from . import ingest_llm as _ingest_llm
         from . import curate_yml as _cym
-        from pathlib import Path as _Path
-        spec = _cym.load_curate_spec(_Path(ws).expanduser().resolve())
+        spec = _cym.load_curate_spec(Path(ws).expanduser().resolve())
         project = spec.project if spec else ws
+        
+        # find_workspace_exhibition is now usually sufficient since project name 
+        # is synchronized with curate.yml.
         ws_exh = _ingest_llm.find_workspace_exhibition(paths, project)
-        # Rebuild search index so the new Exhibition is immediately searchable
-        try:
-            search.update_index(paths, embed=True)
-        except Exception:
-            pass
+        
+        # No need to manually update_index here as 'wiki curate' already did it.
         return {"ok": True, "exhibition": ws_exh.name if ws_exh else None}
 
     # ------------------------------------------------------------------
@@ -561,12 +823,11 @@ def build_server() -> FastMCP:
         `exhibition_exists`, `agent_rules_installed` (if newly installed), and
         `issues` (list of actionable error messages).
         """
-        import os as _os
-        from pathlib import Path as _Path
         from . import curate_yml as _cym
         from . import ingest_llm as _ingest_llm
 
-        ws = workspace_path or _os.environ.get("WORKSPACE_PATH", "")
+        ws = workspace_path or os.environ.get("WORKSPACE_PATH", "")
+        paths = _resolve_paths(ws)
         issues: list[str] = []
 
         if not ws:
@@ -577,7 +838,7 @@ def build_server() -> FastMCP:
             )
             return {"ok": False, "issues": issues}
 
-        ws_path = _Path(ws).expanduser().resolve()
+        ws_path = Path(ws).expanduser().resolve()
         if not ws_path.exists():
             issues.append(
                 f"Workspace directory does not exist: {ws}. "
@@ -587,11 +848,9 @@ def build_server() -> FastMCP:
 
         curate_file = ws_path / "curate.yml"
         if not curate_file.exists():
-            issues.append(
-                f"curate.yml not found in {ws}. "
-                "Run: wiki workspace init /path/to/workspace"
-            )
-            return {"ok": False, "workspace": ws, "issues": issues}
+            wiz = _build_wizard_questions(ws)
+            wiz["ok"] = True
+            return wiz
 
         try:
             spec = _cym.load_curate_spec(ws_path)
@@ -627,8 +886,9 @@ def build_server() -> FastMCP:
 
         # Auto-install agent rules for the connecting client
         agent_rules_installed = None
+        detected_agent = "codex"
         try:
-            from .workspace.provisioner import detect_agent_from_client_info, prepare_workspace
+            from .workspace.provisioner import detect_agent_from_client_info, detect_workspace_scenario, prepare_workspace
             client_name = ""
             if ctx is not None:
                 try:
@@ -643,9 +903,20 @@ def build_server() -> FastMCP:
                     client_name = ""
             detected_agent = detect_agent_from_client_info(client_name)
             agent_marker = ws_path / ".agents" / "curator" / "runtime" / f"{detected_agent}.md"
-            if not agent_marker.exists():
+
+            # Reinstall if marker is missing OR if it contains a stale/wrong vault root.
+            # This auto-heals workspaces that were initialised against the wrong vault.
+            needs_install = not agent_marker.exists()
+            if not needs_install:
+                try:
+                    if str(paths.root) not in agent_marker.read_text(encoding="utf-8"):
+                        needs_install = True
+                except Exception:
+                    needs_install = True
+
+            if needs_install:
                 prepare_workspace(
-                    wiki_root=paths.root,
+                    vault_root=paths.root,
                     workspace=ws_path,
                     agent=detected_agent,
                     install_rules=True,
@@ -655,10 +926,16 @@ def build_server() -> FastMCP:
         except Exception:
             pass
 
+        try:
+            _scenario = detect_workspace_scenario(ws_path, detected_agent)
+        except Exception:
+            _scenario = "full"
+
         result: dict[str, Any] = {
             "ok": len(issues) == 0,
             "workspace": ws,
             "project": spec.project,
+            "scenario": _scenario,
             "exhibition": exh_path.stem if exh_path else None,
             "exhibition_exists": exh_path is not None,
             "issues": issues,
@@ -668,19 +945,331 @@ def build_server() -> FastMCP:
         return result
 
     # ------------------------------------------------------------------
+    # curator_workspace_init — initialize a new workspace
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def curator_workspace_init(
+        workspace_path: str,
+        project: Optional[str] = None,
+        description: Optional[str] = None,
+        domains: Optional[list[str]] = None,
+        topics: Optional[list[str]] = None,
+        include_patterns: Optional[list[str]] = None,
+        exclude_patterns: Optional[list[str]] = None,
+        min_confidence: Optional[float] = None,
+        ctx: Context = None,
+    ) -> dict[str, Any]:
+        """Initialize a new Curator workspace with curate.yml, agent rules, and an
+        auto-generated Artist persona.
+
+        TWO-PHASE USAGE:
+          Phase 1 — Discovery: Call with ONLY `workspace_path` (no other args).
+            Returns `wizard_questions` — a list of questions to ask the user.
+            Present these to the user and collect their answers.
+          Phase 2 — Initialization: Call again with all gathered data.
+            Writes curate.yml, installs agent rules, generates Artist persona.
+
+        Call this when `curator_check_workspace` or `search_curator` returns
+        `needs_initialization: true`.
+
+        Args:
+            workspace_path: Absolute path to the directory to initialize.
+            project: Short slug for the project (e.g. 'gaussian-splatting').
+                     Defaults to the directory name.
+            description: Human-readable description (collected from user in Phase 1).
+            domains: List of domain keywords (e.g. ['computer-vision', 'rendering']).
+            topics: List of specific topic keywords (e.g. ['3DGS', '2DGS', 'NeRF']).
+            include_patterns: List of glob patterns to include in the workspace.
+            exclude_patterns: List of glob patterns to exclude from the workspace.
+            min_confidence: Minimum confidence floor for search results (default 0.60).
+
+        Returns (Phase 1 — no description provided):
+            wizard_questions: List of questions to ask the user before Phase 2.
+
+        Returns (Phase 2 — description provided):
+            ok: True on success.
+            workspace: Resolved absolute path.
+            agent: Detected agent runtime.
+            created: List of newly created files.
+            updated: List of updated files.
+            persona: The generated Artist persona dict.
+            next_steps: List of actions to take after init.
+        """
+        from .workspace.provisioner import (
+            prepare_workspace,
+            CurateTemplateData,
+            detect_agent_from_client_info,
+            detect_workspace_scenario,
+            default_project_name,
+            make_rule_integration_prompt,
+            make_integration_copy_prompt,
+            top_level_target,
+        )
+
+        ws_path = Path(workspace_path).expanduser().resolve()
+
+        # ── Phase 1: Dynamic Interview Logic ───────────────────────────────
+        provided_answers = {
+            "description": description,
+            "domains": domains,
+            "topics": topics,
+            "include_patterns": include_patterns,
+            "exclude_patterns": exclude_patterns,
+            "min_confidence": min_confidence,
+        }
+        # Filter out None values to see what we have
+        provided_answers = {k: v for k, v in provided_answers.items() if v is not None}
+
+        # If we don't have enough to finish, keep interviewing
+        wiz = _build_wizard_questions(workspace_path, provided_answers)
+        if not wiz.get("all_answered"):
+            return wiz
+
+        # Phase 2: all interview answers collected — now resolve the vault
+        paths = _resolve_paths(workspace_path)
+
+        # ── 1. Detect connecting agent runtime ─────────────────────────────
+        client_name = ""
+        if ctx is not None:
+            try:
+                client_name = (
+                    ctx.session.client_params.clientInfo.name or ""
+                ) if (
+                    ctx.session
+                    and ctx.session.client_params
+                    and ctx.session.client_params.clientInfo
+                ) else ""
+            except Exception:
+                pass
+        agent = detect_agent_from_client_info(client_name)
+
+        # ── 1b. Agent-only: try LLM integration of Curator into existing rules ──
+        _scenario = detect_workspace_scenario(ws_path, agent)
+        _llm_integrated = False
+        _integration_prompt: str | None = None
+        if _scenario == "agent-only":
+            try:
+                rule_file, _ = top_level_target(agent)
+                rule_path = ws_path / rule_file
+                if rule_path.exists():
+                    existing = rule_path.read_text(encoding="utf-8")
+                    if existing.strip():
+                        prompt_text = make_rule_integration_prompt(existing, agent, str(ws_path))
+                        from .llm import build_client, ChatMessage
+                        _config = cfg.load_config(paths)
+                        with build_client(_config) as _client:
+                            modified = _client.chat(
+                                [ChatMessage(role="user", content=prompt_text)],
+                                temperature=0.2,
+                            )
+                        modified = modified.strip()
+                        if modified and modified != existing.strip():
+                            rule_path.write_text(modified + "\n", encoding="utf-8")
+                            _llm_integrated = True
+            except Exception:
+                pass
+            if not _llm_integrated:
+                try:
+                    rule_file, _ = top_level_target(agent)
+                    _integration_prompt = make_integration_copy_prompt(agent, rule_file)
+                except ValueError:
+                    pass
+
+        # ── 1c. Patterns are treated as vault-relative ───────────────────
+        def _process_patterns(patterns: list[str] | None) -> list[str]:
+            if not patterns:
+                return []
+            cleaned = []
+            for p in patterns:
+                # Strip wizard labels if any
+                p = p.replace("[Vault] ", "").strip()
+                if not p: continue
+                cleaned.append(p)
+            return cleaned
+
+        # ── 2. Scaffold curate.yml + agent rules ────────────────────────────
+        project_name = project or default_project_name(ws_path)
+        
+        # If no include_patterns provided, default to the standard knowledge directories
+        final_includes = _process_patterns(include_patterns)
+        if not final_includes:
+            final_includes = ["02_Wiki/**", "03_Notes/**", "04_Resources/**"]
+
+        data = CurateTemplateData(
+            project=project_name,
+            description=description or f"Knowledge workspace for {ws_path.name}",
+            min_confidence=min_confidence if min_confidence is not None else 0.60,
+            include_patterns=final_includes,
+            exclude_patterns=_process_patterns(exclude_patterns),
+        )
+        try:
+            prep = prepare_workspace(
+                vault_root=paths.root,
+                workspace=ws_path,
+                agent=agent,
+                curate_data=data,
+                install_rules=True,
+                install_managed_block=not _llm_integrated,
+            )
+        except Exception as e:
+            return {"error": f"Workspace scaffolding failed: {e}"}
+
+        created = [str(p.relative_to(ws_path)) for p in prep.created]
+        updated = [str(p.relative_to(ws_path)) for p in prep.updated]
+
+        # ── 3. Auto-generate Artist persona via LLM ─────────────────────────
+        # Build a concise project description for the LLM to work from.
+        meta_parts = [f"Project: {project_name}"]
+        if description:
+            meta_parts.append(f"Description: {description}")
+        if domains:
+            meta_parts.append(f"Domains: {', '.join(domains)}")
+        if topics:
+            meta_parts.append(f"Topics: {', '.join(topics)}")
+        project_context = "\n".join(meta_parts)
+
+        PERSONA_GEN_PROMPT = (
+            "You are a knowledge-base configuration assistant.\n\n"
+            "Given the following project metadata, generate an Artist persona JSON "
+            "for a Curator workspace. Return ONLY valid JSON — no prose, no fences.\n\n"
+            "Required JSON schema:\n"
+            "{\n"
+            '  "domain": "primary domain slug, e.g. computer-vision",\n'
+            '  "subdomain": "more specific focus (optional, can be empty string)",\n'
+            '  "goal": "2-4 sentences describing this workspace\'s knowledge goal",\n'
+            '  "exhibition_intent": "researcher | engineer | learner",\n'
+            '  "disambiguation_keywords": ["3-8 workspace-specific terms"],\n'
+            '  "confidence": {"high_threshold": 0.85, "low_threshold": 0.55}\n'
+            "}\n\n"
+            "exhibition_intent meanings:\n"
+            "  researcher — next papers/hypotheses to validate\n"
+            "  engineer   — specific code/system implementation steps\n"
+            "  learner    — concepts to review and practice exercises\n\n"
+            f"Project metadata:\n{project_context}\n\n"
+            "Return ONLY the JSON object."
+        )
+
+        persona: dict | None = None
+        persona_error: str | None = None
+        try:
+            from .llm import build_client, ChatMessage
+            _config = cfg.load_config(paths)
+            with build_client(_config) as _client:
+                raw = _client.chat(
+                    [ChatMessage(role="user", content=PERSONA_GEN_PROMPT)],
+                    temperature=0.3,
+                )
+            # Strip markdown fences if present
+            raw_stripped = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
+            persona = json.loads(raw_stripped)
+            if not isinstance(persona, dict):
+                raise ValueError("LLM returned non-object JSON")
+        except Exception as e:
+            persona_error = str(e)
+            persona = None
+
+        # ── 4. Write persona into curate.yml ────────────────────────────────
+        if persona is not None:
+            import yaml as _yaml
+            curate_file = ws_path / "curate.yml"
+            try:
+                raw_yml = _yaml.safe_load(curate_file.read_text(encoding="utf-8")) or {}
+                persona["updated_at"] = datetime.now(timezone.utc).isoformat()
+                raw_yml["persona"] = persona
+                curate_file.write_text(
+                    _yaml.safe_dump(raw_yml, sort_keys=False, default_flow_style=False),
+                    encoding="utf-8",
+                )
+                if "curate.yml" not in updated:
+                    updated.append("curate.yml")
+            except Exception as e:
+                persona_error = f"Persona generated but could not be saved: {e}"
+
+        # ── 5. Trigger initial curation (Automatic Curation) ───────────────
+        initial_exhibition: str | None = None
+        curation_error: str | None = None
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "curator.cli", "curate", "--workspace", str(ws_path), "--no-sync"],
+                cwd=str(paths.root),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=300,
+                env={**os.environ, "VAULT_ROOT": str(paths.root)},
+            )
+            if result.returncode != 0:
+                curation_error = result.stderr.strip() or result.stdout.strip() or f"Exit code {result.returncode}"
+            
+            # Re-load spec to get the newly written exhibition ID
+            from . import curate_yml as _cym
+            from . import ingest_llm as _ingest_llm
+            spec = _cym.load_curate_spec(ws_path)
+            if spec and spec.exhibition:
+                initial_exhibition = spec.exhibition
+            else:
+                # Fallback lookup
+                ws_exh = _ingest_llm.find_workspace_exhibition(paths, spec.project if spec else project_name)
+                if ws_exh:
+                    initial_exhibition = ws_exh.stem
+        except Exception as e:
+            curation_error = str(e)
+
+        # ── 6. Return result ────────────────────────────────────────────────
+        # Only surface steps that genuinely require another MCP call.
+        # Curation and reindex were already attempted inline above.
+        next_steps = [
+            f"search_curator('<query>', workspace_path='{ws_path}') — Search the knowledge base",
+            f"curator_update_artist_persona('{ws_path}', '<description>') — Refine workspace persona",
+        ]
+        if not initial_exhibition:
+            next_steps.insert(
+                0,
+                f"curator_curate_workspace('{ws_path}') — Generate L4 Exhibition (initial attempt failed or no concepts matched yet)",
+            )
+        if persona_error:
+            next_steps.insert(
+                0,
+                f"ERROR: Persona auto-generation failed ({persona_error}). Run curator_update_artist_persona to set it manually.",
+            )
+
+        result: dict[str, Any] = {
+            "ok": True,
+            "workspace": str(ws_path),
+            "agent": agent,
+            "scenario": prep.scenario,
+            "created": created,
+            "updated": updated,
+            "persona": persona,
+            "recommended_next_steps": next_steps,
+        }
+        if persona_error:
+            result["persona_error"] = persona_error
+        if curation_error:
+            result["curation_error"] = curation_error
+        if _llm_integrated:
+            result["rule_integration"] = "llm_auto"
+        if _integration_prompt:
+            result["integration_prompt"] = _integration_prompt
+        return result
+
+    # ------------------------------------------------------------------
     # curator_get_node — fetch any DAG node by ID
     # ------------------------------------------------------------------
 
     @mcp.tool()
-    def curator_get_node(node_id: str) -> dict[str, Any]:
+    def curator_get_node(node_id: str, workspace_path: str = "") -> dict[str, Any]:
         """Fetch a single DAG node (Context/Atom/Concept/Exhibition) by ID.
 
         Args:
             node_id: e.g. 'EXH-abcdef01', 'ATM-9f8e7d6c'. Prefix determines
                      the layer.
+            workspace_path: Optional workspace path to help resolve the vault.
 
         Returns the node's frontmatter + body, or `{'error': ...}` if missing.
         """
+        paths = _resolve_paths(workspace_path)
         return _read_node(paths, node_id)
 
     # ------------------------------------------------------------------
@@ -688,14 +1277,19 @@ def build_server() -> FastMCP:
     # ------------------------------------------------------------------
 
     @mcp.tool()
-    def curator_traverse_evidence(cur_id: str) -> dict[str, Any]:
+    def curator_traverse_evidence(cur_id: str, workspace_path: str = "") -> dict[str, Any]:
         """Walk an Exhibition's evidence chain down to its constituent Atoms.
 
         Returns the full EXH page plus every CON it depends on and every ATM
         each CON depends on, including confidence/contradiction flags. Use
         this to verify an Exhibition claim before citing it (especially when
         confidence_score < 0.90).
+        
+        Args:
+            cur_id: The ID of the Exhibition (EXH-) or Concept (CON-) to traverse.
+            workspace_path: Optional workspace path to help resolve the vault.
         """
+        paths = _resolve_paths(workspace_path)
         cur = _read_node(paths, cur_id)
         if "error" in cur:
             return cur
@@ -739,6 +1333,7 @@ def build_server() -> FastMCP:
     @mcp.tool()
     def curator_find_contradictions(
         node_id: Optional[str] = None,
+        workspace_path: str = "",
     ) -> dict[str, Any]:
         """List Atoms that are flagged for human review or carry `contradicts`
         entries.
@@ -750,7 +1345,9 @@ def build_server() -> FastMCP:
             node_id: Optional. If given, returns contradictions only for the
                      subgraph reachable from this node (EXH/CON/ATM). Else
                      returns all flagged atoms in the vault.
+            workspace_path: Optional workspace path to help resolve the vault.
         """
+        paths = _resolve_paths(workspace_path)
         from . import contradiction as _cd
         dismissed_list = _cd.load_dismissed(paths)
 
@@ -845,6 +1442,7 @@ def build_server() -> FastMCP:
         atom_a: str,
         atom_b: str,
         reason: str = "",
+        workspace_path: str = "",
     ) -> dict[str, Any]:
         """Dismiss a deep-check contradiction as a false positive.
 
@@ -855,9 +1453,11 @@ def build_server() -> FastMCP:
             atom_a: ATM-id or path like '02_Atoms/ATM-xxx.md'.
             atom_b: ATM-id or path like '02_Atoms/ATM-yyy.md'.
             reason: Optional explanation (logged to contradiction_dismissed.json).
+            workspace_path: Optional workspace path to help resolve the vault.
 
         Returns `{'ok': True, 'dismissed': [atom_a_id, atom_b_id]}`.
         """
+        paths = _resolve_paths(workspace_path)
         from . import contradiction as _cd
         try:
             a = _cd.normalize_id(atom_a)
@@ -877,6 +1477,7 @@ def build_server() -> FastMCP:
         atom_a: str,
         atom_b: str,
         apply: bool = False,
+        workspace_path: str = "",
     ) -> dict[str, Any]:
         """Analyze and optionally resolve a contradiction between two L2 Atoms.
 
@@ -888,6 +1489,7 @@ def build_server() -> FastMCP:
             atom_b: ATM-id or '02_Atoms/ATM-yyy.md'.
             apply:  False (default) — return the proposal for review.
                     True — apply the proposal and mark resolved.
+            workspace_path: Optional workspace path to help resolve the vault.
 
         Workflow:
             1. Call with apply=False to get the LLM proposal.
@@ -897,8 +1499,8 @@ def build_server() -> FastMCP:
         Returns a dict with `reasoning`, `atom_a_body_revised`,
         `atom_b_body_revised`, and `applied` (bool).
         """
+        paths = _resolve_paths(workspace_path)
         from . import contradiction as _cd
-        import json as _json
         from .prompts import build_contradiction_resolution_messages
         from .llm import build_client, LLMError
 
@@ -927,8 +1529,8 @@ def build_server() -> FastMCP:
                 conflict_reasoning="",
             )
             raw = _client.chat(messages, thinking=False, json_mode=True, temperature=0.3)
-            proposal = _json.loads(raw)
-        except (LLMError, _json.JSONDecodeError, Exception) as exc:
+            proposal = json.loads(raw)
+        except (LLMError, json.JSONDecodeError, Exception) as exc:
             return {"error": f"LLM resolution failed: {exc}"}
         finally:
             try:
@@ -957,13 +1559,17 @@ def build_server() -> FastMCP:
     # ------------------------------------------------------------------
 
     @mcp.tool()
-    def curator_layer_index() -> dict[str, Any]:
+    def curator_layer_index(workspace_path: str = "") -> dict[str, Any]:
         """Return per-layer page counts and a sample of recent IDs.
 
         Layers: context (CTX-), atom (ATM-), concept (CON-), exhibition (EXH-).
         Cheap overview suitable as the agent's first call when entering a
         fresh vault — tells it what's available before any search.
+        
+        Args:
+            workspace_path: Optional workspace path to help resolve the vault.
         """
+        paths = _resolve_paths(workspace_path)
         out: dict[str, Any] = {"vault_root": str(paths.root), "layers": {}}
         for layer, (subdir, _prefix) in _LAYERS.items():
             d = paths.collections / subdir
@@ -986,8 +1592,13 @@ def build_server() -> FastMCP:
     # ------------------------------------------------------------------
 
     @mcp.tool()
-    def curator_status() -> dict[str, Any]:
-        """Return vault root, qmd binary readiness, and total page counts."""
+    def curator_status(workspace_path: str = "") -> dict[str, Any]:
+        """Return vault root, qmd binary readiness, and total page counts.
+        
+        Args:
+            workspace_path: Optional workspace path to help resolve the vault.
+        """
+        paths = _resolve_paths(workspace_path)
         qmd_bin = search.get_qmd_binary()
         total = 0
         for subdir, _prefix in _LAYERS.values():
@@ -1008,7 +1619,11 @@ def build_server() -> FastMCP:
     # ------------------------------------------------------------------
 
     @mcp.tool()
-    def curator_update_node(node_id: str, new_content: str) -> dict[str, Any]:
+    def curator_update_node(
+        node_id: str, 
+        new_content: str, 
+        workspace_path: str = ""
+    ) -> dict[str, Any]:
         """Overwrite an L4 Exhibition and propagate changes backward through the DAG.
 
         Only EXH- (Exhibition) nodes may be edited directly by agents. L1/L2/L3 nodes
@@ -1017,6 +1632,7 @@ def build_server() -> FastMCP:
         Args:
             node_id: The Exhibition to update (must start with EXH-).
             new_content: Full replacement markdown (frontmatter + body).
+            workspace_path: Optional workspace path to help resolve the vault.
 
         Writes the Exhibition file, then runs upstream backward propagation
         (EXH → CON → ATM) via LLM so referenced Concepts and Atoms are updated
@@ -1025,6 +1641,7 @@ def build_server() -> FastMCP:
         Returns a dict with `updated`, `propagation`, `gaps`, and
         `routing_tables_rebuilt`.
         """
+        paths = _resolve_paths(workspace_path)
         info = _layer_for_id(node_id)
         if info is None:
             return {"error": f"Unknown ID prefix in '{node_id}' (expected EXH-)"}
@@ -1055,11 +1672,13 @@ def build_server() -> FastMCP:
             _client = build_client(_config)
             try:
                 prop_result = sync_module.propagate_upstream_from_exhibition(
-                    paths, _client, node_id
+                    paths, _client, exh_id=node_id
                 )
                 propagation_summary = {
                     "concepts_updated": prop_result.concepts_updated,
                     "atoms_updated": prop_result.atoms_updated,
+                    "contexts_updated": prop_result.contexts_updated,
+                    "feedback_required": prop_result.feedback_required,
                     "errors": prop_result.errors,
                 }
             finally:
@@ -1082,6 +1701,11 @@ def build_server() -> FastMCP:
                 "routing_tables_rebuilt": False,
             }
 
+        try:
+            search.update_index(paths, embed=True)
+        except Exception:
+            pass
+
         return {
             "updated": True,
             "propagation": propagation_summary,
@@ -1094,83 +1718,48 @@ def build_server() -> FastMCP:
     # ------------------------------------------------------------------
 
     @mcp.tool()
-    def curator_reindex() -> dict[str, Any]:
+    def curator_reindex(workspace_path: str = "") -> dict[str, Any]:
         """Rebuild the QMD search index over all Collections pages.
 
         Call this after manually editing wiki pages or after a bulk import so
         that `search_curator` picks up the new content.
+        
+        Args:
+            workspace_path: Optional workspace path to help resolve the vault.
 
         Returns `{'ok': True}` or `{'error': ...}`.
         """
+        paths = _resolve_paths(workspace_path)
         try:
             search.update_index(paths, embed=True)
             return {"ok": True}
         except search.SearchBackendError as exc:
             return {"error": str(exc)}
 
-    # ------------------------------------------------------------------
-    # curator_curate_context — re-curate a single L1 Context
-    # ------------------------------------------------------------------
-
-    @mcp.tool()
-    def curator_curate_context(context_id: str) -> dict[str, Any]:
-        """Re-run the LLM curation pipeline for a single L1 Context.
-
-        Resets the source status to 'pending' in the DB, then invokes
-        `wiki add` (which covers L1-L3 compilation) as a subprocess.
-
-        Args:
-            context_id: The CTX- ID of the context to re-curate.
-
-        Returns `{'queued': True, 'source_id': <int>}` on success, or
-        `{'error': ...}` on failure.
-        """
-        import subprocess
-        from . import db
-
-        db_path = paths.root / ".curator" / "state.sqlite"
-        with db.connect(db_path) as conn:
-            row = conn.execute(
-                "SELECT id FROM sources WHERE context_id = ?", (context_id,)
-            ).fetchone()
-        if row is None:
-            return {"error": f"No source found with context_id '{context_id}'"}
-
-        source_id = row["id"]
-        with db.connect(db_path) as conn:
-            conn.execute(
-                "UPDATE sources SET status = 'pending' WHERE id = ?", (source_id,)
-            )
-
-        try:
-            subprocess.Popen(
-                ["wiki", "add"],
-                cwd=str(paths.root),
-                start_new_session=True,
-            )
-        except Exception as exc:
-            return {"error": f"Failed to launch wiki curate: {exc}"}
-
-        return {"queued": True, "source_id": source_id}
 
     # ------------------------------------------------------------------
     # curator_add_knowledge — write a new L2 Atom from conversational insight
     # ------------------------------------------------------------------
 
     @mcp.tool()
-    def curator_add_knowledge(insight: str, context: str = "") -> dict[str, Any]:
-        """Create a new L2 Atom from a conversational insight or synthesized answer.
+    def curator_add_knowledge(
+        insight: str, 
+        context: str = "", 
+        workspace_path: str = ""
+    ) -> dict[str, Any]:
+        """Promote a conversational insight or discussion to the human-verified Wiki space.
 
-        Feeds new knowledge discovered during an agent conversation back into
-        the L1-L3 pipeline so it is available for future Exhibition staging.
+        This tool is used to 'capture' valuable information from a conversation 
+        and persist it in the project's permanent Wiki (02_Wiki/).
 
         Args:
-            insight: The text of the insight or knowledge to preserve as an Atom.
-            context: Optional context about the source of this insight
-                     (e.g. 'derived from a discussion about project X').
+            insight: The text of the knowledge to preserve.
+            context: Reasoning or source context (e.g. conversation transcript snippet).
+            workspace_path: Optional workspace path to help resolve the vault.
 
-        Returns `{'atom_id': '...', 'ok': True}` or `{'error': ...}`.
+        Returns `{'ok': True, 'wiki_path': '...'}`.
         """
+        paths = _resolve_paths(workspace_path)
         try:
             from .llm import build_client
             from . import config as _cfg
@@ -1180,15 +1769,19 @@ def build_server() -> FastMCP:
             return {"error": f"Could not start LLM client: {exc}"}
 
         try:
-            from . import ingest_llm as _ingest
-            from datetime import datetime, timezone
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            source_hint = context or "mcp:curator_add_knowledge"
-            combined = f"{insight}\n\n{context}".strip() if context else insight
-            atom_id = _ingest.add_atom_from_insight(paths, _client, combined, today, source_hint)
-            if atom_id is None:
-                return {"error": "Atom generation failed — LLM returned no candidates"}
-            return {"atom_id": atom_id, "ok": True}
+            from . import query as query_module
+            category, slug = query_module.classify_wiki_topic(_client, insight, context)
+            wiki_path = query_module.save_wiki_page(paths, insight, context, category, slug)
+            
+            try:
+                search.update_index(paths, embed=True)
+            except Exception:
+                pass
+                
+            return {
+                "ok": True, 
+                "wiki_path": wiki_path
+            }
         except Exception as exc:
             return {"error": str(exc)}
         finally:
@@ -1228,7 +1821,7 @@ CLAUDE_SNIPPET_TEMPLATE = '''{{
       "command": "wiki",
       "args": ["mcp"],
       "env": {{
-        "WIKI_ROOT": "{wiki_root}"
+        "VAULT_ROOT": "{vault_root}"
       }}
     }}
   }}
@@ -1240,7 +1833,7 @@ GEMINI_SNIPPET_TEMPLATE = '''{{
       "command": "wiki",
       "args": ["mcp"],
       "env": {{
-        "WIKI_ROOT": "{wiki_root}"
+        "VAULT_ROOT": "{vault_root}"
       }}
     }}
   }}
@@ -1256,8 +1849,8 @@ def render_install_snippets(paths: cfg.WikiPaths) -> dict[str, str]:
     client-specific fields later (timeout, autoApprove, etc.) doesn't
     couple them.
     """
-    wiki_root = str(paths.root.resolve())
+    vault_root = str(paths.root.resolve())
     return {
-        "claude": CLAUDE_SNIPPET_TEMPLATE.format(wiki_root=wiki_root),
-        "gemini": GEMINI_SNIPPET_TEMPLATE.format(wiki_root=wiki_root),
+        "claude": CLAUDE_SNIPPET_TEMPLATE.format(vault_root=vault_root),
+        "gemini": GEMINI_SNIPPET_TEMPLATE.format(vault_root=vault_root),
     }

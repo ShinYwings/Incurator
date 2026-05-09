@@ -15,7 +15,7 @@ uv pip install -e '.[mcp]'
 ```
 
 > [!NOTE]
-> 서버는 `WIKI_ROOT` 환경 변수를 참조하여 저장소 위치를 찾습니다. 설정되지 않은 경우 현재 디렉토리에서 상위로 이동하며 저장소를 자동 탐색합니다.
+> 서버는 `VAULT_ROOT` 환경 변수를 참조하여 저장소 위치를 찾습니다. 설정되지 않은 경우 현재 디렉토리에서 상위로 이동하며 저장소를 자동 탐색합니다.
 
 ---
 
@@ -35,7 +35,7 @@ wiki mcp install
       "command": "wiki",
       "args": ["mcp"],
       "env": {
-        "WIKI_ROOT": "/저장소/절대/경로"
+        "VAULT_ROOT": "/저장소/절대/경로"
       }
     }
   }
@@ -73,16 +73,36 @@ wiki mcp install
 ### 3.3 지식 관리 및 업데이트
 
 #### `curator_add_knowledge`
-- **역할**: 대화 중 얻은 통찰을 새로운 **L2 Atom**으로 저장합니다. 이 지식은 다음 큐레이션 주기에서 DAG에 합성됩니다.
+- **역할**: 대화 중 얻은 귀중한 통찰이나 정보를 **Wiki(02_Wiki/)** 페이지로 승격하여 영구 저장합니다. 카테고리 분류와 슬러그 생성이 자동으로 수행됩니다.
 
 #### `curator_update_node`
-- **역할**: 특정 노드의 내용을 업데이트합니다.
-- **자동 수리 (Backprop)**: **Exhibition (EXH)** 노드를 수정할 경우, 내부적으로 `wiki sync`가 작동하여 상위 Concept과 Atom으로 변경 사항을 자동 전파하고 재작성합니다. 이를 통해 대화 중 발견된 오류를 즉시 시스템에 반영하고 지식을 강화할 수 있습니다.
+- **역할**: 특정 노드(주로 Exhibition)의 내용을 업데이트합니다.
+- **스마트 백프로파게이션 (Smart Backprop)**: **Exhibition (EXH)** 노드를 수정할 경우, 시스템이 시만틱 검색을 통해 관련 Concept(L3), Atom(L2)을 찾아 병합/수정하고, 나아가 **소스(L1 Context)**까지 변경 사항을 전파합니다. 출처가 불분명한 경우 사용자에게 피드백을 요청합니다.
 
 #### `curator_reindex`
 - **역할**: QMD 검색 인덱스를 수동으로 다시 빌드합니다.
 
-### 3.4 페르소나 관리
+### 3.4 워크스페이스 관리
+
+#### `curator_workspace_init`
+
+- **역할**: `curate.yml`, 에이전트 룰, Artist 페르소나를 자동 생성하며 새 워크스페이스를 초기화합니다. `curator_check_workspace`가 `curate.yml` 누락을 보고할 때, 또는 사용자가 워크스페이스를 Curator에 연결하려 할 때 호출합니다.
+- **파라미터**: `workspace_path` (절대 경로), `project` (슬러그), `description`, `domains` (목록), `topics` (목록), `min_confidence`.
+- **에이전트 자동 감지**: 연결된 클라이언트 런타임(Claude, Gemini, Codex 등)을 자동 감지하여 해당 룰 파일을 설치합니다.
+- **시나리오 처리**:
+  - *빈 디렉토리* — 모든 파일을 새로 생성합니다.
+  - *에이전트 룰만 있음* — LLM이 기존 룰 파일을 읽고 Curator hooks를 통합합니다. LLM 사용 불가 시 `integration_prompt`를 반환합니다.
+  - *Curator 이미 연결됨* — 소유 파일을 최신 템플릿으로 갱신하고 managed block을 교체합니다.
+- **반환값**: `ok`, `workspace`, `agent`, `scenario`, `created`, `updated`, `persona`, `rule_integration` (LLM 자동 수정 시), `integration_prompt` (LLM 불가 시), `recommended_next_steps`.
+
+#### `curator_check_workspace`
+
+- **역할**: 워크스페이스 상태를 검증하고 활성 Exhibition을 primary context로 로딩합니다. **도메인 쿼리에 응답하기 전 매 세션 시작 시 반드시 호출해야 합니다.**
+- **파라미터**: `workspace_path` (워크스페이스 절대 경로).
+- **반환값**: `ok`, `workspace`, `project`, `scenario`, `exhibition`, `exhibition_exists`, `issues`.
+  - `scenario`가 `"agent-only"`이면 Curator 룰이 아직 미설치 상태입니다 — `curator_workspace_init`으로 해결하세요.
+
+### 3.5 페르소나 관리
 
 #### `curator_update_artist_persona`
 

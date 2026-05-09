@@ -4,7 +4,7 @@ Gemini CLI should follow:
 
 - `.agents/curator/shared/rules.md`
 - `.agents/curator/workflows/workspace_loop.md`
-- `.agents/curator/workflows/daily_log_push.md`
+- `.agents/curator/workflows/session_closeout.md`
 
 Keep responses grounded in workspace-scoped Curator evidence when available.
 

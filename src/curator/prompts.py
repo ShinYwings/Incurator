@@ -51,17 +51,17 @@ Rules you MUST follow:
 SUMMARY_INSTRUCTIONS = """\
 You are processing a source document for the Curator knowledge pipeline.
 
-Generate a highly detailed and comprehensive machine-readable summary of the source below.
+Your goal is MAXIMUM INFORMATION EXTRACTION — not compression, not a brief summary.
+Think of yourself as a meticulous archivist who must preserve every meaningful detail.
 
 Return ONLY a valid JSON object with this exact schema:
 {
   "title": "Precise, specific document title (max 100 chars)",
-  "domain": "Primary knowledge domain (e.g. 'history', 'machine-learning', 'cooking', 'philosophy')",
-  "summary": "An EXTREMELY GRANULAR, highly detailed, section-by-section summary. Do not compress or skip details; extract meaning almost paragraph-by-paragraph. Thoroughly explain all core arguments, background context, mathematical formulations, and technical implications. CRITICAL: Preserve all mathematical equations and formulas precisely using LaTeX format ($ or $$).",
+  "domain": "Primary knowledge domain (e.g. 'domain-name', 'broad-topic')",
+  "summary": "<see rules below>",
   "key_claims": [
     "Claim 1 — precise, falsifiable factual statement",
-    "Claim 2",
-    "Claim 3"
+    "Claim 2"
   ],
   "atom_candidates": [
     {
@@ -73,12 +73,27 @@ Return ONLY a valid JSON object with this exact schema:
   "tags": ["tag1", "tag2", "tag3"]
 }
 
-Rules:
-- summary: A single Markdown-formatted string containing a highly extensive, section-by-section breakdown. DO NOT write flowing prose for humans. Use extreme structural Markdown formatting (dense bullet points, nested lists, explicit logic blocks). Leave no detail behind. **CRITICAL: You MUST extract and preserve ALL important mathematical formulas, equations, and formal definitions in their entirety using LaTeX math blocks ($ or $$). Do NOT omit or simplify equations.**
-- key_claims: Extract ALL key claims. Each must be a precise, falsifiable statement. Do not limit the number of items.
-- atom_candidates: Extract ALL potential concepts substantive enough for their own Atom page. Do not limit the number of items.
-- tags: Provide comprehensive broad domain labels. Do not limit the number of tags.
-- Return ONLY the JSON. No prose, no markdown fences.
+SUMMARY RULES (read carefully — this is the most important field):
+- Write a DENSE, SECTION-BY-SECTION breakdown of the entire source.
+- For EVERY section or major paragraph of the source: write at least 3–5 bullet points capturing its specific content. Do NOT collapse multiple paragraphs into a single vague sentence.
+- Use nested bullet points for sub-arguments, steps, or sub-components.
+- FORBIDDEN: do NOT write "the paper discusses X" or "the author argues Y" — instead extract the ACTUAL content of X or Y with full specificity.
+- FORBIDDEN: do NOT skip or compress any section because it seems minor. Include ALL sections.
+- FORBIDDEN: do NOT write flowing prose. Use only dense Markdown bullet points and nested lists.
+- If the source contains equations, algorithms, procedures, or formal definitions: reproduce them ENTIRELY using LaTeX math blocks ($ or $$). Do NOT paraphrase or omit them.
+- Prefer to write TOO MUCH over too little. A 2000-word summary of a 10-page paper is appropriate.
+
+KEY_CLAIMS RULES:
+- Extract ALL falsifiable factual claims the source makes. Minimum 5; aim for 10–15 for a typical paper.
+- Each claim must be self-contained: a reader with no source access should understand exactly what is claimed.
+- Include quantitative results, comparisons, and thresholds when present.
+
+ATOM_CANDIDATES RULES:
+- Extract EVERY concept, entity, method, procedure, or relationship substantive enough for its own knowledge node.
+- Minimum 5 candidates; no upper limit. A 10-page technical paper may yield 20–40 candidates.
+- one_liner: a single precise sentence — not vague ("an important concept") but specific ("Concept X achieves Y by applying transformation Z to component W").
+
+Return ONLY the JSON. No prose, no markdown fences.
 """
 
 
@@ -264,6 +279,104 @@ def build_merge_atom_messages(
 
 
 # ---------------------------------------------------------------------------
+# Pass 1½ — ATOM COORDINATOR (cross-source semantic deduplication)
+# ---------------------------------------------------------------------------
+
+ATOM_COORDINATOR_INSTRUCTIONS = """\
+You are the Knowledge Coordinator. You receive a list of newly extracted Atoms \
+and existing Atoms from the same domain.
+
+Your task: identify pairs of Atoms that describe the SAME underlying concept \
+and should be merged into one.
+
+Merge criteria (ALL must hold):
+- Identical or near-identical core claim
+- Overlapping subject even if named differently
+- One is a subset of the other
+
+Return ONLY valid JSON:
+{
+  "merge_pairs": [
+    {"keep_id": "ATM-xxx", "absorb_id": "ATM-yyy", "reason": "one-line justification"}
+  ],
+  "no_action": ["ATM-zzz"]
+}
+
+Rules:
+- Only merge when clearly the SAME concept — different aspects = keep separate
+- keep_id must be the more complete or more recently updated atom
+- If uncertain, put both in no_action
+- If nothing to merge, return {"merge_pairs": [], "no_action": [...all ids...]}
+"""
+
+
+def build_atom_coordinator_messages(
+    new_atoms_summary: str,
+    existing_atoms_summary: str,
+    domain: str,
+) -> list[ChatMessage]:
+    """Coordinator: detect semantic duplicates across new and existing atoms."""
+    user_content = (
+        f"Domain: {domain}\n\n"
+        f"### Newly extracted Atoms\n{new_atoms_summary}\n\n"
+        f"### Existing Atoms in same domain\n{existing_atoms_summary or '(none yet)'}\n\n"
+        "Identify merge pairs following the instructions."
+    )
+    return [
+        ChatMessage(role="system", content=ATOM_COORDINATOR_INSTRUCTIONS),
+        ChatMessage(role="user", content=user_content),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Pass 1 Orchestrator — decompose extraction into parallel tasks
+# ---------------------------------------------------------------------------
+
+ATOM_ORCHESTRATOR_INSTRUCTIONS = """\
+You are the Extraction Orchestrator. Given a source document summary and the \
+list of atom candidates to extract, divide the work into independent tasks.
+
+Return ONLY valid JSON:
+{
+  "tasks": [
+    {
+      "task_id": "t1",
+      "candidates": ["candidate name 1", "candidate name 2"],
+      "context_hint": "one-sentence focus area for the extractor"
+    }
+  ]
+}
+
+Rules:
+- Each task: 2–5 candidates that share a coherent sub-topic
+- Tasks must be non-overlapping
+- If ≤ 3 total candidates: return a single task containing all of them
+- context_hint must be concrete: e.g. "mathematical foundations of the specific sub-topic" \
+not just "the sub-topic"
+"""
+
+
+def build_atom_orchestrator_messages(
+    source_title: str,
+    domain: str,
+    candidates_summary: str,
+    existing_atoms_summary: str,
+) -> list[ChatMessage]:
+    """Orchestrator: plan task decomposition for parallel atom extraction."""
+    user_content = (
+        f"Source: {source_title} (domain: {domain})\n\n"
+        f"### Candidates to extract\n{candidates_summary}\n\n"
+        f"### Existing Atoms in same domain (for context)\n"
+        f"{existing_atoms_summary or '(none yet)'}\n\n"
+        "Divide the candidates into parallel extraction tasks."
+    )
+    return [
+        ChatMessage(role="system", content=ATOM_ORCHESTRATOR_INSTRUCTIONS),
+        ChatMessage(role="user", content=user_content),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Pass 2 — CONCEPTS  (L3: clustered atoms → coherent conceptual units)
 # ---------------------------------------------------------------------------
 
@@ -388,7 +501,13 @@ def build_theme_page_messages(
 # ---------------------------------------------------------------------------
 
 CURATION_PAGE_TEMPLATE = """\
-Write a single Exhibition page for the `.curator/Collections/04_Exhibitions/` layer.
+You are an elite curator synthesizing a L4 Exhibition page. This is the ultimate "Fusion Point" where objective source knowledge (Concepts) meets the user's workspace context and agent instructions. 
+
+Your goal is NOT to summarize, but to build a **RICH, COMPREHENSIVE, and AUTHORITATIVE** knowledge document with high **KNOWLEDGE DENSITY**.
+
+Rules for Rich Synthesis:
+- DEEP INTEGRATION: Actively blend external facts (Concepts) with internal workspace context. Explain how prior knowledge applies to the current project/research situation.
+- BEYOND SUMMARY: Do not just list facts. Connect them, find emerging patterns, and provide deep reasoning. The prose must be dense, professional, and authoritative.
 
 Exhibition ID (pre-assigned): {curation_id}
 Topic: {topic}
@@ -425,6 +544,26 @@ Return ONLY the markdown. No preamble, no code fences.
 """
 
 
+_EXHIBITION_INTENT_DIRECTIVES: dict[str, str] = {
+    "researcher": (
+        "Suggest specific follow-up papers, open hypotheses, and experimental validations "
+        "the researcher should pursue next based on the evidence in this exhibition."
+    ),
+    "engineer": (
+        "Describe specific code, system, or pipeline implementation steps the engineer "
+        "should execute next. Include API calls, data structures, or algorithms where applicable."
+    ),
+    "learner": (
+        "List the core concepts the learner should review and provide concrete practice "
+        "exercises or worked examples to solidify understanding of this exhibition's content."
+    ),
+}
+_EXHIBITION_INTENT_DEFAULT = (
+    "Explicit instructions and hypotheses for the AI Agent (Artist). "
+    "What specific code, pipeline, or research task should the Agent execute next based on this exhibition?"
+)
+
+
 def build_curation_page_messages(
     curation_id: str,
     topic: str,
@@ -435,6 +574,7 @@ def build_curation_page_messages(
     domain: str = "",
     flagged_fragment_ids: list[str] | None = None,
     agent_context: str = "",
+    exhibition_intent: str = "",
 ) -> list[ChatMessage]:
     """Pass 3 — draft a single L4 Exhibition page."""
     theme_ids_yaml = ", ".join(f"'03_Concepts/{t}'" for t in theme_ids)
@@ -442,7 +582,14 @@ def build_curation_page_messages(
         flagged_fragments = ", ".join(f"[[02_Atoms/{f}]]" for f in flagged_fragment_ids)
     else:
         flagged_fragments = "none"
-    user_content = CURATION_PAGE_TEMPLATE.format(
+
+    directive = _EXHIBITION_INTENT_DIRECTIVES.get(exhibition_intent, _EXHIBITION_INTENT_DEFAULT)
+    template = CURATION_PAGE_TEMPLATE.replace(
+        "   - **3. Actionable Directives for Agent**: Explicit instructions and hypotheses for the AI Agent (Artist). What specific code, pipeline, or research task should the Agent execute next based on this exhibition? Confidence score: {confidence}. Flagged atoms that require human review: {flagged_fragments}",
+        f"   - **3. Actionable Directives for Agent**: {directive} Confidence score: {{confidence}}. Flagged atoms that require human review: {{flagged_fragments}}",
+    )
+
+    user_content = template.format(
         curation_id=curation_id,
         topic=topic,
         domain=domain or "general",
@@ -483,7 +630,7 @@ Return ONLY a valid JSON object:
 Rules:
 - Only propose an exhibition if 2+ concepts share a non-trivial logical connection.
 - confidence: 0.90+ = direct retrieval quality; 0.60-0.90 = needs backtracking; <0.60 = HITL required.
-- domain: a short slug derived from the concepts' shared domain (e.g. "cooking-techniques", "machine-learning").
+- domain: a short slug derived from the concepts' shared domain (e.g. "broad-topic", "sub-topic").
 - Propose 1–5 exhibition plans.
 - Return ONLY the JSON. No prose, no fences.
 """
@@ -526,50 +673,43 @@ def build_curation_planning_messages(
 # Exhibition refinement  (used by `wiki curate --workspace` re-run)
 # ---------------------------------------------------------------------------
 
-EXHIBITION_REFINEMENT_TEMPLATE = """\
-Refine an existing L4 Exhibition based on accumulated session questions.
+EXHIBITION_SMART_UPDATE_PROMPT = """\
+You are an expert curator updating a L4 Exhibition page. You must integrate new information \
+into the existing Exhibition body while maintaining its premium structure and formatting.
 
-Exhibition ID: {exh_id}
-Today (ISO 8601): {today}
+The new information may come from conversational insights (Follow-up questions) or \
+updated downstream Concepts (Supporting Concepts).
 
----EXISTING EXHIBITION---
+## Current Exhibition Body ({exh_id})
 {existing_body}
 
----ACCUMULATED FOLLOW-UP QUESTIONS (integrate and discard)---
-{followup_questions}
+## New Information to Integrate
+{updates}
 
----SUPPORTING CONCEPTS---
-{concepts_content}
+## Your task
+Rewrite the Exhibition body to incorporate the new information. This page is the "Final Synthesis" where objective source knowledge meets the user's workspace insights. Your goal is NOT to summarize, but to build a **RICH, COMPREHENSIVE, and AUTHORITATIVE** knowledge document with high **KNOWLEDGE DENSITY**.
 
-Rewrite the Exhibition body. Preserve ALL existing sections but update:
-- **1. Executive Brief**: Update based on what the Follow-up questions revealed about the agent's real concerns.
-- **3. Actionable Directives for Agent**: Revise to reflect the agent's current task context.
-- **4. Key Facts**: Add any new facts surfaced by the Follow-up questions.
-- **5. Open Questions**: Update with remaining gaps revealed by the conversation.
-
-IMPORTANT:
-- Keep the YAML frontmatter EXACTLY as provided above — do NOT regenerate or modify it.
-- Remove ALL "## Follow-up:" sections — their insights must be integrated into the body sections instead.
-- Keep the bold-bullet body format. No ## headers in body.
-- Return ONLY the full markdown (frontmatter + body). No preamble, no code fences.
+Rules:
+- DEEP SYNTHESIS: Actively blend external facts from Concepts with internal insights from the Workspace. Create a narrative that shows how these two worlds connect.
+- TOPIC-CENTRIC INTEGRATION: Seamlessly integrate updates into appropriate sections (Executive Brief, Background, Key Facts, Directives, etc.). The final output must read as a single, coherent knowledge document about the topic itself.
+- NO META-COMMENTARY: Do NOT include any meta-talk or changelog-style phrases. Never say "Updated section:", "This was modified to include...", or "The following information was added...".
+- PRIORITY TRUTH: If new information CONTRADICTS the current body, prioritize the new information as the latest truth.
+- FORMATTING: Maintain the bold-bullet format (- **Section**: Content). No ## headers in body.
+- PRESERVATION: Preserve ALL existing [[03_Concepts/CON-xxx]] wikilinks unless specifically deprecated.
+- OUTPUT ONLY: Output ONLY the updated markdown body. No frontmatter, no preamble, no commentary.
 """
 
 
 def build_exhibition_refinement_messages(
     exh_id: str,
-    today: str,
-    existing_content: str,
-    followup_questions: list[str],
-    concepts_content: str,
+    existing_body: str,
+    updates: str,
 ) -> list[ChatMessage]:
-    """Build refinement prompt for an existing Exhibition with accumulated Follow-ups."""
-    followup_block = "\n".join(f"- {q}" for q in followup_questions) if followup_questions else "(none)"
-    user_content = EXHIBITION_REFINEMENT_TEMPLATE.format(
+    """Build smart update prompt for an Exhibition using unified template."""
+    user_content = EXHIBITION_SMART_UPDATE_PROMPT.format(
         exh_id=exh_id,
-        today=today,
-        existing_body=existing_content,
-        followup_questions=followup_block,
-        concepts_content=concepts_content or "(no supporting concepts available)",
+        existing_body=existing_body,
+        updates=updates,
     )
     return [
         ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
@@ -690,48 +830,47 @@ def build_curation_logic_verify_messages(
 # ---------------------------------------------------------------------------
 
 CONCEPT_UPDATE_FROM_EXHIBITION_PROMPT = """\
-A human agent has corrected a L4 Exhibition page. You must update a dependent L3 Concept \
-page so it is logically consistent with the corrected Exhibition.
+You are updating a L3 Concept page based on corrections or new insights found in a L4 Exhibition. \
+This Concept may be an existing dependency or a related topic found via semantic search.
 
-## Corrected Exhibition ({exh_id})
+## Upstream Exhibition ({exh_id})
 {exh_content}
 
-## Current Concept page ({con_id}) — to be updated
+## Target Concept page ({con_id}) — to be updated
 {con_content}
 
 ## Your task
-Rewrite the Concept page to reflect the Exhibition's corrections.
+Rewrite the Concept page to incorporate the information from the Exhibition.
 
 Rules:
-- Preserve the existing CON- ID, YAML frontmatter structure, and all wikilinks.
-- Only change claims that are DIRECTLY contradicted or supplemented by the corrected Exhibition.
-- Add the field `corrected_by: [[04_Exhibitions/{exh_id}]]` to the frontmatter.
-- Update `updated: {today}` in frontmatter.
-- Do NOT change the `## Relations` Atom links unless absolutely required.
-- If no changes are needed, return the Concept page UNCHANGED (same content).
-- Output ONLY the full updated markdown. No preamble, no code fences.
+- TOPIC-CENTRIC INTEGRATION: Merge updates seamlessly into the flow of the topic. The resulting page must read as a pure, coherent knowledge document.
+- NO META-COMMENTARY: Do NOT include meta-talk in the body. Never say "Updated to match...", "This was corrected by...", or "Following the exhibition...".
+- PRIORITY TRUTH: If the Exhibition CORRECTS the Concept, update the claims to be consistent with the latest truth.
+- PRESERVATION: Preserve the CON- ID, YAML structure, and existing wikilinks.
+- METADATA: Add `corrected_by: [[04_Exhibitions/{exh_id}]]` and update `updated: {today}` in the frontmatter.
+- OUTPUT ONLY: Output ONLY the full updated markdown. No preamble, no code fences, no commentary.
 """
 
 ATOM_UPDATE_FROM_CONCEPT_PROMPT = """\
-A L3 Concept page has been updated due to a human agent's correction. You must update a \
-dependent L2 Atom page if its core claim is directly contradicted by the updated Concept.
+You are updating a L2 Atom page based on changes in a L3 Concept. This Atom's core claim \
+must be checked for consistency with the latest Concept description.
 
-## Updated Concept ({con_id})
+## Upstream Concept ({con_id})
 {con_content}
 
-## Current Atom page ({atm_id}) — to be checked and possibly updated
+## Target Atom page ({atm_id}) — to be checked and updated
 {atm_content}
 
 ## Your task
-Rewrite the Atom only if its claim is DIRECTLY contradicted by the Concept.
+Reconcile the Atom's claim with the Concept. 
 
 Rules:
-- If the Atom is NOT contradicted: return it COMPLETELY UNCHANGED.
-- If the Atom IS contradicted: update ONLY the `one_liner` frontmatter field and the \
-  "Definition / Claim" section in the body. Keep everything else the same.
-- If updating, set `is_flagged_for_agent: true` and `updated: {today}` in frontmatter.
-- Preserve the ATM- ID and all wikilinks exactly.
-- Output ONLY the full updated markdown. No preamble, no code fences.
+- ATOMIC RECONCILIATION: Reconcile the Atom's claim with the Concept seamlessly. The resulting page must read as a pure, atomic fact about the topic.
+- NO META-COMMENTARY: Do NOT include any meta-talk or changelog phrases in the body. Never say "Updated to match...", "This was corrected by...", etc.
+- PRIORITY TRUTH: If the Concept CONTRADICTS the Atom, update the `one_liner` and the "Definition / Claim" section to resolve the conflict.
+- METADATA: If updating, set `is_flagged_for_agent: true` and `updated: {today}` in frontmatter.
+- PRESERVATION: Preserve the ATM- ID and all wikilinks exactly.
+- OUTPUT ONLY: Output ONLY the full updated markdown. No preamble, no code fences, no commentary.
 """
 
 
@@ -775,6 +914,45 @@ def build_atom_update_from_concept_messages(
         ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
         ChatMessage(role="user", content=user_content),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Exhibition update from conversational insight
+# ---------------------------------------------------------------------------
+
+EXHIBITION_UPDATE_FROM_INSIGHT_PROMPT = """\
+You are updating a L4 Exhibition page to incorporate a new conversational insight or direct correction.
+
+## Current Exhibition Body ({exh_id})
+{exh_content}
+
+## New Insight or Correction
+{insight}
+
+## Context / Reasoning
+{context}
+
+## Your task
+Rewrite the Exhibition body to incorporate this update.
+
+Rules:
+- Seamlessly integrate the new information into the appropriate sections. 
+- If the new insight CONTRADICTS the current body, prioritize the new information (it represents the latest consensus).
+- Maintain the bold-bullet format (- **Section**: Content).
+- Do NOT delete existing [[03_Concepts/CON-xxx]] wikilinks unless the concept itself is being deprecated by this update.
+- Output ONLY the full updated markdown body.
+"""
+
+
+def build_exhibition_update_from_insight_messages(
+    exh_id: str,
+    exh_content: str,
+    insight: str,
+    context: str = "",
+) -> list[ChatMessage]:
+    """Build prompt for integrating a conversational insight into an Exhibition's body."""
+    updates = f"Conversational Insight: {insight}\nContext: {context}"
+    return build_exhibition_refinement_messages(exh_id, exh_content, updates)
 
 
 # ---------------------------------------------------------------------------
@@ -891,32 +1069,106 @@ No explanation. No preamble. One line only.
 # Persona interview — multi-turn LLM conversation for persona setup
 # ---------------------------------------------------------------------------
 
-PERSONA_INTERVIEW_SYSTEM = """\
-You are a thoughtful knowledge-base consultant interviewing a user to configure their personal knowledge vault.
+_CURATOR_PERSONA_FIELDS = """\
+Target JSON schema (curator persona):
+{
+  "area": "STEM | Humanities | Arts | Business | Personal",
+  "text": "2-4 sentence description of the vault's knowledge focus and goals",
+  "knowledge_artifacts": ["primary artifact types this vault contains, e.g. research papers, code, reports, recipes"],
+  "verification_philosophy": "citation-and-derivation | empirical-evidence | expert-consensus | logical-coherence | personal-experience",
+  "exhibition_intent": "knowledge-worker | researcher | engineer | learner",
+  "confidence": {"high_threshold": 0.85, "low_threshold": 0.55},
+  "disambiguation_keywords": ["3-8 domain-specific terms to disambiguate concepts"]
+}"""
 
-Your goal: extract enough information to produce a structured persona JSON. Ask focused follow-up questions when the user's answer is vague. When you have enough information, propose the JSON and ask for confirmation.
+_ARTIST_PERSONA_FIELDS = """\
+Target JSON schema (artist persona for workspace "{project}"):
+{
+  "domain": "primary domain slug, e.g. domain-name, broad-topic",
+  "subdomain": "more specific focus, e.g. specific-subtopic (optional)",
+  "goal": "2-4 sentence description of this workspace's knowledge goal",
+  "exhibition_intent": "researcher | engineer | learner",
+  "disambiguation_keywords": ["3-8 workspace-specific terms for concept disambiguation"],
+  "confidence": {"high_threshold": 0.85, "low_threshold": 0.55}
+}
+exhibition_intent meanings:
+- researcher: next papers/hypotheses to validate
+- engineer: specific code/system implementation steps
+- learner: concepts to review and practice exercises"""
+
+PERSONA_INTERVIEW_CURATOR_SYSTEM = """\
+You are a knowledge-base consultant interviewing a user to configure their Curator persona (the Vault's knowledge identity).
+
+{field_schema}
+
+The interview consists of 4 questions. You must ask them ONE AT A TIME in English.
+Q1: What is the broad area and main focus of this Vault? (area + text)
+Q2: What is your primary source of truth for verifying knowledge in this Vault? (verification_philosophy)
+Q3: What types of knowledge artifacts does this Vault primarily contain? (knowledge_artifacts)
+Q4: How should ambiguous or uncertain knowledge be handled? (confidence + disambiguation_keywords)
+
+For EACH question, infer the user's intent from previous answers and provide 5 tailored choices.
+
+Format your message EXACTLY like this:
+Q[X]/4: [Question Content]
+
+  1) [Recommended Choice 1]
+  2) [Recommended Choice 2]
+  3) [Recommended Choice 3]
+  4) [Recommended Choice 4]
+  5) [Recommended Choice 5]
+
+  Or type your own answer (s = skip)
 
 Rules:
-- Ask one or two questions at a time — do not overwhelm.
-- If the user says something vague (e.g. "tech stuff"), probe: "Are you focusing more on software engineering, mathematics, data science, or something else?"
-- When ready, respond with ONLY a JSON object with the key "done": true and the persona fields. No prose.
-- If the user says "skip" at any point, respond immediately with {"done": true, "persona": null} and nothing else.
+- Speak in English.
+- Ask ONLY ONE question per turn.
+- Wait for the user's reply (a number 1-5, or free text, or 's').
+- After receiving the answer to Q4, DO NOT ask another question. Instead, output ONLY a JSON object:
+  {{"done": true, "persona": {{...filled fields...}}}}
+- If the user types "s" or "skip" at any point, use default values for that question and move to the next. If they skip the whole interview at the start, return {{"done": true, "persona": null}}.
+"""
+
+PERSONA_INTERVIEW_ARTIST_SYSTEM = """\
+You are a knowledge-base consultant interviewing a user to configure their Artist persona for workspace "{project}".
+
+{field_schema}
+
+The interview consists of 5 questions. You must ask them ONE AT A TIME in English.
+Q1: What is the main topic or theme of this workspace? (domain & subdomain)
+Q2: What is the primary knowledge goal of this workspace? (goal)
+Q3: How do you intend to use the final output? (exhibition_intent)
+Q4: Are there any specific terms that need precise definition in this workspace? (disambiguation_keywords)
+Q5: What confidence thresholds should filter knowledge for this workspace? (confidence)
+
+For EACH question, infer the user's intent from previous answers and provide 5 tailored choices.
+
+Format your message EXACTLY like this:
+Q[X]/5: [Question Content]
+
+  1) [Recommended Choice 1]
+  2) [Recommended Choice 2]
+  3) [Recommended Choice 3]
+  4) [Recommended Choice 4]
+  5) [Recommended Choice 5]
+
+  Or type your own answer (s = skip)
+
+Rules:
+- Speak in English.
+- Ask ONLY ONE question per turn.
+- Wait for the user's reply (a number 1-5, or free text, or 's').
+- After receiving the answer to Q5, DO NOT ask another question. Instead, output ONLY a JSON object:
+  {{"done": true, "persona": {{...filled fields...}}}}
+- If the user types "s" or "skip", use default values for that question and move to the next. If they skip at the start, return {{"done": true, "persona": null}}.
 """
 
 PERSONA_INTERVIEW_CURATOR_OPENER = """\
-I'll ask a few short questions to configure the Curator persona for this vault.
-This helps the Curator tailor how it organizes and verifies knowledge across all sources.
-
-What kinds of knowledge do you plan to collect in this vault?
-(e.g. academic research, technical notes, business insights, creative writing, recipes…)
+I will ask you 4 questions to set up the knowledge identity (Curator Persona) for the entire Vault.
 """
 
 PERSONA_INTERVIEW_ARTIST_OPENER = """\
-I'll ask a few short questions to configure the Artist persona for "{project}".
-This shapes how concepts and exhibitions are generated for this workspace.
-
-What is the main domain or topic of this workspace?
-(e.g. 3D rendering, machine learning, cooking techniques, historical analysis…)
+I will ask you 5 questions to set up the knowledge goal (Artist Persona) for the "{project}" workspace.
 """
 
 
@@ -929,8 +1181,15 @@ def build_persona_interview_messages(
 
     history: list of {"role": "user"|"assistant", "content": "..."} dicts.
     The history should include the opener as the first assistant message.
+    is_workspace: True for artist persona (workspace-level), False for curator persona.
+    project: workspace name, used in artist persona field schema.
     """
-    messages = [ChatMessage(role="system", content=PERSONA_INTERVIEW_SYSTEM)]
+    if is_workspace:
+        field_schema = _ARTIST_PERSONA_FIELDS.replace("{project}", project or "this workspace")
+        system = PERSONA_INTERVIEW_ARTIST_SYSTEM.replace("{field_schema}", field_schema)
+    else:
+        system = PERSONA_INTERVIEW_CURATOR_SYSTEM.replace("{field_schema}", _CURATOR_PERSONA_FIELDS)
+    messages = [ChatMessage(role="system", content=system)]
     for turn in history:
         messages.append(ChatMessage(role=turn["role"], content=turn["content"]))
     return messages
@@ -955,3 +1214,57 @@ def build_lint_relink_messages(
         ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
         ChatMessage(role="user", content=user_content),
     ]
+
+# ---------------------------------------------------------------------------
+# L1 Context Update (Backward Propagation from L2)
+# ---------------------------------------------------------------------------
+
+CONTEXT_UPDATE_FROM_ATOM_PROMPT = """You are updating an L1 Context page to reflect a corrected or refined L2 Atom.
+
+L2 Atom (Corrected):
+{atm_content}
+
+L1 Context (Original):
+{ctx_content}
+
+Today's Date: {today}
+
+Rules:
+1. Update the L1 Context body to stay consistent with the corrected Atom. 
+2. If the Atom introduces new factual details that were missing from the source summary, incorporate them.
+3. Preserve the original source provenance and metadata.
+4. Output the full markdown (frontmatter + body).
+"""
+
+def build_context_update_from_atom_messages(
+    atm_id: str,
+    atm_content: str,
+    ctx_id: str,
+    ctx_content: str,
+    today: str,
+) -> list[ChatMessage]:
+    return [
+        ChatMessage(role="system", content="You are a meticulous knowledge curator."),
+        ChatMessage(
+            role="user",
+            content=CONTEXT_UPDATE_FROM_ATOM_PROMPT.format(
+                atm_id=atm_id,
+                atm_content=atm_content,
+                ctx_id=ctx_id,
+                ctx_content=ctx_content,
+                today=today,
+            ),
+        ),
+    ]
+
+# ---------------------------------------------------------------------------
+# Feedback Requests
+# ---------------------------------------------------------------------------
+
+MISSING_L1_CONTEXT_FEEDBACK_PROMPT = """The following L2 Atom has been updated or created, but no matching L1 Context (source) could be identified to justify this knowledge.
+
+L2 Atom:
+{atm_content}
+
+Please provide the source (URL, file path, or manual notes) that supports this claim, or confirm if this should be treated as an unverified agent assumption.
+"""

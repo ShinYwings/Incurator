@@ -6,8 +6,9 @@ Runtime-specific files must point back here instead of forking behavior.
 ## Workspace Scope
 
 - Active workspace: `{{workspace_path}}`
-- Wiki root: `{{wiki_root}}`
+- Vault root: `{{vault_root}}`
 - `curate.yml`: `{{curate_yml_path}}`
+- **Path Resolution**: Note that `sources.include/exclude` patterns in `curate.yml` are relative to the **Vault Root** (`{{vault_root}}`), NOT the local workspace. Do not attempt to "fix" these patterns to match local files; they are designed to draw knowledge from the global Vault.
 - Keep searches, edits, and citations scoped to this workspace unless the human explicitly asks for a broader context.
 - Do not mix evidence from unrelated workspaces or projects.
 

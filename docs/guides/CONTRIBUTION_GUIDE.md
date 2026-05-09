@@ -31,7 +31,11 @@ Incurator는 개인 지식 베이스를 “검색 가능한 파일 묶음”이 
 
 ### 🧠 Intelligence & Pipeline Quality
 
-- **계층 세분화 및 어텐션 라우팅 (Layer Deepening & Attention Routing)**: 현재 L1-L4 4층 구조를 더 세밀하게 세분화하고, 각 단계에서 "어느 노드에 집중할 것인가"를 결정하는 어텐션/라우팅 로직을 도입하면 정제 품질이 크게 향상될 것으로 예상됩니다. 예를 들어, L2 Atom 추출 시 고신뢰도 후보에 추가 패스를 집중하거나, L3 Concept 클러스터링에서 경계 모호 노드만 선별적으로 재처리하는 방식입니다. 단, 처리 단계가 늘어날수록 레이턴시와 LLM 비용이 선형 이상으로 증가할 수 있으므로, 속도-품질 트레이드오프를 측정하며 단계적으로 도입해야 합니다.
+- **Auto-Encoder & U-Net 기반 지식 압축 (Auto-Encoder & U-Net Inspired Refinement)**: 현재 L1-L4 구조를 딥러닝 아키텍처 관점에서 고도화합니다.
+    *   **Encoder Pass (L1 → L3)**: Raw Source에서 핵심 특징(Features)을 추출하고 정보의 병목(Bottleneck)인 L3 Concept으로 압축하는 과정입니다.
+    *   **Decoder Pass (L3 → L4)**: 압축된 추상 지식을 특정 작업 목적(Artist Context)에 맞게 다시 풍부하게 재구성(Reconstruction)합니다.
+    *   **Skip-Connections (Grounding)**: U-Net처럼 하위 계층(L1/L2)의 구체적인 맥락을 상위 계층(L4) 생성 시 직접 연결하여, 추상화 과정에서 발생할 수 있는 지식 손실을 방지하고 강력한 근거(Grounding)를 유지합니다.
+    *   **Attention Routing**: 각 단계에서 "어느 노드에 추가 LLM 패스를 할당할 것인가"를 결정하는 라우팅 로직을 도입하여 정제 품질과 비용의 균형을 맞춥니다.
 - **모델 벤치마크**: 작은 모델에서도 좋은 curation이 가능해야 하므로, layer별로 필요한 reasoning 수준과 fallback 전략을 측정해야 합니다.
 - **프롬프트와 검증 분리**: 생성 프롬프트는 좋은 후보를 많이 만들고, sync 프롬프트는 논리 동등성, 모순, 병합 후보, grounding을 엄격하게 검증해야 합니다.
 - **오케스트레이션 고도화**: L1-L4 생성, sync backprop, workspace curate, query session을 같은 정책 아래에서 조율하는 실행 모델이 필요합니다.
@@ -81,7 +85,7 @@ Testbed는 빈 폴더에서 시작하는 대신, 특정 도메인이나 문제 �
 
 #### 성공 기준
 - **재현성 (Reproducible)**: 생성 스크립트를 실행할 때마다 매번 정확히 동일한 Vault 상태가 생성되어야 합니다.
-- **격리성 (Isolated)**: `WIKI_ROOT` 환경 변수를 사용하여 메인 Vault와의 간섭을 완전히 차단합니다.
+- **격리성 (Isolated)**: `VAULT_ROOT` 환경 변수를 사용하여 메인 Vault와의 간섭을 완전히 차단합니다.
 - **검증 가능성 (Verifiable)**: L1→L3 전환 및 소스 간 개념 병합(Concept Merging)을 테스트할 수 있을 만큼 충분한 복잡성을 포함해야 합니다.
 
 > [!TIP]
@@ -133,16 +137,16 @@ testbed/
 
 ## 6. 사용 및 검증
 
-생성된 Testbed는 모든 명령 앞에 `WIKI_ROOT`를 붙여서 사용합니다.
+생성된 Testbed는 모든 명령 앞에 `VAULT_ROOT`를 붙여서 사용합니다.
 
 ```bash
 # Testbed 상태 확인
-WIKI_ROOT=testbed wiki status
+VAULT_ROOT=testbed wiki status
 
 # 시드된 노트를 기반으로 큐레이션 파이프라인 실행
-WIKI_ROOT=testbed wiki add "03_Notes/**/*.md"
-WIKI_ROOT=testbed wiki curate
+VAULT_ROOT=testbed wiki add "03_Notes/**/*.md"
+VAULT_ROOT=testbed wiki curate
 
 # 특정 클레임 검증
-WIKI_ROOT=testbed wiki query "fixture domain을 대표하는 질문을 입력하세요"
+VAULT_ROOT=testbed wiki query "fixture domain을 대표하는 질문을 입력하세요"
 ```

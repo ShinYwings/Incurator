@@ -23,7 +23,8 @@ Thumbs.db
 .claude/
 
 # Dev/testbed stage fixture source corpus
-scripts/dev/GS_Testbed/
+scripts/dev/*
+!scripts/dev/testbed_template/
 testbed/
 
 *.lock

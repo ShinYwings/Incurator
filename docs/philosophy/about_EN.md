@@ -44,8 +44,8 @@ The process of decomposing and reassembling data (`Summary -> Atoms -> Concept`)
 In the final **Insight Derivation (Synthesis)** stage, **Humans** must intervene to discuss the results with the agent, iteratively refining the output to create truly new and valuable knowledge.
 
 **This role separation naturally leads to a dual-track physical directory structure tailored to the needs of each participant:**
-- **AI Space (`.curator/`)**: A machine-friendly backend designed for agents to instantly search and leverage knowledge. (Database for search and reasoning)
-- **Human Space (`02_Wiki/`)**: A beautiful knowledge library designed for users to read, manage, and own long-term. (Obsidian Wiki)
+- **AI-Only Space (`.curator/`)**: The **Archive/Storage**. A machine-friendly backend designed for agents to instantly search and leverage knowledge. (Database for search and reasoning)
+- **Human-Only Space (`02_Wiki/`)**: The **Permanent Collection**. A beautiful knowledge library designed for users to read, manage, and own long-term. (Obsidian Wiki)
 
 ---
 
@@ -53,15 +53,15 @@ In the final **Insight Derivation (Synthesis)** stage, **Humans** must intervene
 
 To implement this collaboration, we borrowed the metaphor of **Art Curation**.
 
-### 🏛️ The Curator (Local/Non-reasoning Model-based Data Refinement)
-The Curator focuses on refining and displaying data rather than deep reasoning:
+### 🏛️ The Curator (Manager of the Vault)
+The Curator resides in the **Vault**, the home of your knowledge. It focuses on refining and displaying data rather than deep reasoning:
 1.  **Collection & Selection**: Gathering Raw Data.
 2.  **Analysis & Contextualization**: Summarizing data and decomposing it into Atoms.
 3.  **Spatial Planning & Structuring**: Weaving Atoms into Concepts to form a machine-readable context.
-4.  **Exhibition & Engagement**: Instead of a flat list, the Curator stages an **Exhibition** based on a "Knowledge Requirement Specification" (curate.yml). The agent focuses on creation without searching through massive original texts.
+4. **Exhibition & Engagement**: Instead of a flat list, the Curator stages a **Special Exhibition** based on a "Knowledge Requirement Specification" (curate.yml). The agent focuses on creation without searching through massive original texts. (The most distinctive part of the system)
 
-### 🎨 The Artist (Human + Agent in Workspace)
-The Artist draws a new painting inspired by the Exhibition:
+### 🎨 The Artist (Resident of the Workspace: Human + Agent)
+The Artist resides in the **Workspace**, the painter's studio where projects or research happen. Drawing a new painting (Synthesis) requires immense creativity and reasoning:
 1.  **Workspace**: The painter's studio where projects or research happen.
 2.  **The Agent**: A high-reasoning agent resides in the workspace as a human assistant.
 3.  **Prior Knowledge Utilization**: The agent retrieves "Exhibits" pre-refined by the Curator instead of searching heavy raw data.
@@ -93,3 +93,9 @@ The Curator isn't just an organizer; it's a **Refinement Engine** that produces 
 5.  **Ecosystem Diversity & Growth:**
     *   Agents residing in the workspace become unique 'Artists' reflecting the user's style and project goals.
     *   As different agents generate diverse insights from various perspectives, your knowledge base evolves from a flat list of information into a rich, organically growing ecosystem.
+
+6.  **Persona: Expressing Your Knowledge Model**
+    *   The Zettelkasten method doesn't impose structure — the way a user views knowledge *becomes* the structure. Incurator's **Persona System** implements this at the system level.
+    *   The **Global Persona** (set via an interview during `wiki init`) embeds your knowledge domain, intent, and verification style into the core of the Curator — it defines the *identity* of the Curator residing in each vault.
+    *   While knowledge is most powerful when concentrated, you may wish to separate fundamentally different expert domains (e.g., "Scientist" vs "Chef"). This is the one justified reason to run separate vaults — each Curator interprets and exhibits knowledge through a different expert lens.
+    *   The **Artist Persona** (set in `curate.yml`) overlays workspace-specific context on top, allowing the same curation engine to frame the same underlying facts in fundamentally different ways depending on the project's goal.
