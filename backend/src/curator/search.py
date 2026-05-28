@@ -1,4 +1,4 @@
-"""Search backend — wraps the bundled QMD binary at `src/qmd/bin/qmd`.
+"""Search backend — wraps the bundled QMD binary at `backend/src/qmd/bin/qmd`.
 
 QMD provides BM25 + vector + LLM-rerank search over markdown collections.
 We use it as the retrieval engine for the Curator's `.curator/Collections/`
@@ -7,7 +7,7 @@ TypeScript CLI (it ships compiled `dist/`) and parse `--json` output.
 
 The binary is resolved in this order:
   1. `WIKI_QMD_BIN` env var (explicit override)
-  2. The bundled copy at `<repo>/src/qmd/bin/qmd`
+  2. The bundled copy at `<repo>/backend/src/qmd/bin/qmd`
   3. `qmd` on PATH (system install)
 
 Search and indexing degrade gracefully when qmd is missing — ingest and
@@ -58,6 +58,19 @@ class SearchResults:
         return iter(self.hits)
 
 
+@dataclass
+class SourcePageHit:
+    """One lexical hit inside a tracked source file."""
+
+    source_id: int
+    relpath: str
+    file_type: str
+    page_number: int | None = None
+    score: float = 0.0
+    title: str = ""
+    snippet: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Errors
 # ---------------------------------------------------------------------------
@@ -77,8 +90,9 @@ class QmdNotInstalled(SearchBackendError):
 
 
 # Repo-relative path to the bundled qmd launcher. `__file__` lives at
-# `<repo>/src/curator/search.py`, so .parent.parent points at `<repo>/src`,
-# and the bundled binary is `<repo>/src/qmd/bin/qmd`.
+# `<repo>/backend/src/curator/search.py`, so .parent.parent points at
+# `<repo>/backend/src`, and the bundled binary is
+# `<repo>/backend/src/qmd/bin/qmd`.
 _BUNDLED_QMD = Path(__file__).resolve().parent.parent / "qmd" / "bin" / "qmd"
 
 
@@ -133,7 +147,7 @@ def _require_binary() -> Path:
     if bin_path is None:
         raise QmdNotInstalled(
             "qmd not found. Build the bundled copy with "
-            "`cd src/qmd && bun install && bun run build`, "
+            "`cd backend/src/qmd && bun install && bun run build`, "
             "or set WIKI_QMD_BIN to a qmd binary."
         )
     return bin_path
@@ -149,7 +163,6 @@ def _qmd_env(paths: cfg.WikiPaths | None) -> dict[str, str]:
     Also injects the NVM node/bin directory into PATH so that the `bin/qmd`
     launcher script can find `node` even when it is not on the system PATH.
     """
-    import sys
     env = dict(os.environ)
 
     # Ensure NVM-installed node is on PATH (takes priority if system node is absent)
@@ -407,3 +420,113 @@ def _hydrate_hits(paths: cfg.WikiPaths, hits: list[SearchHit]) -> None:
                 hit.full_content = on_disk.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 pass
+
+
+def _snippet(text: str, query: str, *, width: int = 320) -> str:
+    lowered = text.lower()
+    idx = lowered.find(query.lower())
+    if idx < 0:
+        for token in _query_tokens(query):
+            idx = lowered.find(token)
+            if idx >= 0:
+                break
+    if idx < 0:
+        idx = 0
+    start = max(0, idx - width // 3)
+    end = min(len(text), start + width)
+    snippet = text[start:end].strip()
+    if start > 0:
+        snippet = "..." + snippet
+    if end < len(text):
+        snippet += "..."
+    return snippet
+
+
+def _query_tokens(query: str) -> list[str]:
+    return [tok for tok in re.findall(r"[\w가-힣]+", query.lower()) if len(tok) > 1]
+
+
+def _lexical_score(text: str, query: str) -> float:
+    if not text:
+        return 0.0
+    lowered = text.lower()
+    exact = lowered.count(query.lower()) if query.strip() else 0
+    token_hits = sum(lowered.count(tok) for tok in _query_tokens(query))
+    return float(exact * 5 + token_hits)
+
+
+def search_source_pages(
+    paths: cfg.WikiPaths,
+    query: str,
+    *,
+    limit: int = 8,
+    source_id: int | None = None,
+) -> list[SourcePageHit]:
+    """Lexically search tracked raw sources, preserving PDF page numbers.
+
+    This is intentionally simple and local. Curator DAG search still goes
+    through qmd; this helper is for provenance lookups against original files.
+    """
+    from . import db, parsers
+
+    if not query.strip() or not paths.state_db.exists():
+        return []
+
+    sql = "SELECT id, relpath, file_type FROM sources"
+    params: tuple = ()
+    if source_id is not None:
+        sql += " WHERE id = ?"
+        params = (source_id,)
+    sql += " ORDER BY id ASC"
+
+    with db.connect(paths.state_db) as conn:
+        rows = conn.execute(sql, params).fetchall()
+
+    hits: list[SourcePageHit] = []
+    for row in rows:
+        sid = int(row["id"])
+        relpath = str(row["relpath"])
+        file_path = paths.root / relpath
+        if not file_path.exists() or not parsers.is_supported(file_path):
+            continue
+        try:
+            parsed = parsers.parse(file_path)
+        except Exception:
+            continue
+
+        if parsed.file_type == "pdf":
+            pages = parsed.metadata.get("pdf_pages") or []
+            for idx, page_meta in enumerate(pages):
+                page_number = int(page_meta.get("page") or idx + 1)
+                text = str(page_meta.get("text") or "")
+                score = _lexical_score(text, query)
+                if score <= 0:
+                    continue
+                hits.append(
+                    SourcePageHit(
+                        source_id=sid,
+                        relpath=relpath,
+                        file_type=parsed.file_type,
+                        page_number=page_number,
+                        score=score,
+                        title=parsed.title,
+                        snippet=_snippet(text, query),
+                    )
+                )
+        else:
+            score = _lexical_score(parsed.text, query)
+            if score <= 0:
+                continue
+            hits.append(
+                SourcePageHit(
+                    source_id=sid,
+                    relpath=relpath,
+                    file_type=parsed.file_type,
+                    score=score,
+                    title=parsed.title,
+                    snippet=_snippet(parsed.text, query),
+                )
+            )
+
+    hits.sort(key=lambda hit: hit.score, reverse=True)
+    return hits[:limit]

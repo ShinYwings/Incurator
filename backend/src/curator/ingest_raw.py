@@ -14,8 +14,8 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import tempfile
 import uuid
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -65,6 +65,27 @@ class AddOutcome:
         }
 
 
+@dataclass
+class ImportPlan:
+    """Resolved destination for a source import."""
+
+    source_path: Path
+    destination_path: Path
+    relpath: str
+    policy: str
+    copied: bool
+
+
+def _default_logical_source_id(source: Path) -> str:
+    """Create a deterministic logical id from the source path.
+
+    This is a v1 fallback. Dedicated integrations such as Zotero should replace
+    it with the external system's stable item key when available.
+    """
+    digest = hashlib.sha256(str(source.expanduser().resolve()).encode("utf-8")).hexdigest()
+    return f"ref-{digest[:16]}"
+
+
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
@@ -93,6 +114,172 @@ def _is_inside_raw(path: Path, raw_dirs: list[Path]) -> bool:
         except ValueError:
             pass
     return False
+
+
+def _is_inside(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _safe_relative_path(path: Path) -> Path:
+    if path.is_absolute():
+        raise ValueError("Destination must be vault-relative, not absolute.")
+    parts = []
+    for part in path.parts:
+        if part in ("", "."):
+            continue
+        if part == "..":
+            raise ValueError("Destination may not contain '..'.")
+        parts.append(part)
+    if not parts:
+        raise ValueError("Destination path is empty.")
+    return Path(*parts)
+
+
+def _unique_destination(path: Path) -> Path:
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    for idx in range(2, 10_000):
+        candidate = parent / f"{stem}-{idx}{suffix}"
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"Could not find a free destination near {path}")
+
+
+def safe_import_destination(
+    paths: cfg.WikiPaths,
+    source: Path,
+    *,
+    policy: str = "mirror_03_to_04",
+    destination: str | Path | None = None,
+) -> ImportPlan:
+    """Resolve a safe destination for importing a source into the vault.
+
+    `mirror_03_to_04` keeps direct imports out of human-authored 03_Notes by
+    mirroring those paths under 04_Resources. Other external files land under
+    04_Resources/Imports. Files already inside an allowed raw directory are
+    reused in place unless the mirror policy maps 03_Notes to 04_Resources.
+    """
+    if policy == "copy":
+        policy = "into_04_resources"
+    if policy not in {"mirror_03_to_04", "into_04_resources"}:
+        raise ValueError(f"Unsupported import policy: {policy}")
+
+    source = source.expanduser().resolve()
+    if not source.exists() or not source.is_file():
+        raise FileNotFoundError(f"File not found: {source}")
+    if not parsers.is_supported(source):
+        raise ValueError(f"Unsupported file type: {source.suffix or '(no extension)'}")
+
+    root = paths.root.resolve()
+    resources_dir = root / "04_Resources"
+    notes_dir = root / "03_Notes"
+    collections_dir = paths.collections.resolve()
+
+    if _is_inside(source, collections_dir):
+        raise ValueError("Refusing to import from .curator/Collections.")
+
+    if destination is not None:
+        rel_dest = _safe_relative_path(Path(destination))
+        dest = root / rel_dest
+        if dest.suffix == "":
+            dest = dest / source.name
+    elif policy == "mirror_03_to_04" and _is_inside(source, notes_dir):
+        dest = resources_dir / source.relative_to(notes_dir)
+    elif _is_inside_raw(source, paths.raw_dirs):
+        return ImportPlan(
+            source_path=source,
+            destination_path=source,
+            relpath=str(source.relative_to(root)) if _is_inside(source, root) else str(source),
+            policy=policy,
+            copied=False,
+        )
+    else:
+        dest = resources_dir / "Imports" / source.name
+
+    dest = dest.resolve()
+    if not _is_inside(dest, resources_dir):
+        raise ValueError("Import destination must stay inside 04_Resources.")
+    if _is_inside(dest, collections_dir):
+        raise ValueError("Import destination may not be inside .curator/Collections.")
+
+    try:
+        if source.samefile(dest):
+            return ImportPlan(
+                source_path=source,
+                destination_path=source,
+                relpath=str(source.relative_to(root)) if _is_inside(source, root) else str(source),
+                policy=policy,
+                copied=False,
+            )
+    except OSError:
+        pass
+
+    dest = _unique_destination(dest)
+    return ImportPlan(
+        source_path=source,
+        destination_path=dest,
+        relpath=str(dest.relative_to(root)),
+        policy=policy,
+        copied=True,
+    )
+
+
+def _record_pdf_pages_for_parsed(
+    paths: cfg.WikiPaths,
+    source_id: int | None,
+    relpath: str,
+    parsed,
+) -> None:
+    if source_id is None or parsed.file_type != "pdf":
+        return
+    pages = parsed.metadata.get("pdf_pages") or []
+    if isinstance(pages, list):
+        db.replace_source_pdf_pages(paths.state_db, source_id, relpath, pages)
+
+
+def _record_pdf_pages_conn(conn, source_id: int | None, relpath: str, parsed) -> None:
+    if source_id is None or parsed.file_type != "pdf":
+        return
+    pages = parsed.metadata.get("pdf_pages") or []
+    if not isinstance(pages, list):
+        return
+    now = _now_iso()
+    conn.execute("DELETE FROM source_pdf_pages WHERE source_id = ?", (source_id,))
+    for page in pages:
+        page_number = int(page.get("page") or page.get("page_number") or 0)
+        if page_number <= 0:
+            continue
+        metadata = {
+            k: v
+            for k, v in page.items()
+            if k
+            not in {"page", "page_number", "content_hash", "char_count", "word_count", "text"}
+        }
+        conn.execute(
+            """
+            INSERT INTO source_pdf_pages
+                (source_id, relpath, page_number, content_hash, char_count,
+                 word_count, metadata, extracted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                source_id,
+                relpath,
+                page_number,
+                str(page.get("content_hash") or ""),
+                int(page.get("char_count") or 0),
+                int(page.get("word_count") or 0),
+                json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                now,
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -478,7 +665,6 @@ def generate_l1_summary(
     all_atom_candidates = []
     all_tags = []
     domain = None
-    title = parsed.title
 
     if len(chunks) > 1:
         print(f"  [Info] Text is long ({len(source_text)} chars). Processing in {len(chunks)} chunk(s).")
@@ -517,8 +703,6 @@ def generate_l1_summary(
             all_tags.extend(data.get("tags", []))
             if not domain and data.get("domain"):
                 domain = data["domain"]
-            if data.get("title") and len(data["title"]) > 5:
-                title = data["title"]
 
     # Deduplicate claims and candidates
     seen_claims = set()
@@ -543,6 +727,33 @@ def generate_l1_summary(
         for c in unique_atom_candidates
     )
     key_claims_text = "\n".join(f"- {c}" for c in unique_key_claims)
+    pdf_pages = parsed.metadata.get("pdf_pages") or []
+    source_pages_fm = ""
+    source_pages_body = ""
+    if parsed.file_type == "pdf" and isinstance(pdf_pages, list):
+        compact_pages = [
+            {
+                "page": int(p.get("page") or 0),
+                "hash": str(p.get("content_hash") or "")[:16],
+                "chars": int(p.get("char_count") or 0),
+                "words": int(p.get("word_count") or 0),
+            }
+            for p in pdf_pages
+            if int(p.get("page") or 0) > 0
+        ]
+        source_pages_fm = (
+            f"source_page_count: {len(compact_pages)}\n"
+            f"source_pages: {json.dumps(compact_pages, ensure_ascii=False)}\n"
+        )
+        if compact_pages:
+            source_pages_body = (
+                "\n\n## Source Page Provenance\n\n"
+                + "\n".join(
+                    f"- p. {p['page']}: {p['words']} words, hash `{p['hash']}`"
+                    for p in compact_pages
+                )
+                + "\n"
+            )
 
     page_content = (
         f"---\n"
@@ -550,6 +761,7 @@ def generate_l1_summary(
         f"type: context\n"
         f"source_path: \"[[{relpath.removesuffix('.md')}]]\"\n"
         f"source_hash: {content_hash}\n"
+        f"{source_pages_fm}"
         f"domain: \"{domain or 'general'}\"\n"
         f"last_updated: {today}\n"
         f"tags: {json.dumps(unique_tags)}\n"
@@ -558,6 +770,7 @@ def generate_l1_summary(
         f"{combined_summary}\n\n"
         f"## 1. Key Claims\n\n"
         f"{key_claims_text}\n\n"
+        f"{source_pages_body}"
         f"## 2. Atom Candidates\n\n"
         f"{candidates_text}\n"
     )
@@ -565,6 +778,7 @@ def generate_l1_summary(
     # Write the L1 context page
     paths.contexts.mkdir(parents=True, exist_ok=True)
     context_path = paths.contexts / f"{context_id}.md"
+    operation = "updated" if context_path.exists() else "created"
     context_path.write_text(page_content, encoding="utf-8")
 
     # Record context_id in DB
@@ -577,6 +791,14 @@ def generate_l1_summary(
             "UPDATE sources SET l1_status = 'done', layer_error = NULL WHERE id = ?",
             (source_id,),
         )
+
+    _record_pdf_pages_for_parsed(paths, source_id, relpath, parsed)
+    db.record_source_page(
+        paths.state_db,
+        source_id,
+        f"01_Contexts/{context_id}.md",
+        operation,
+    )
 
     return context_id
 
@@ -658,6 +880,7 @@ def add_file(
 
         if existing is not None:
             if existing["content_hash"] == parsed.content_hash:
+                _record_pdf_pages_conn(conn, existing["id"], relpath, parsed)
                 return AddOutcome(
                     result=AddResult.DEDUPED,
                     source_path=source,
@@ -681,6 +904,7 @@ def add_file(
                     "WHERE id = ?",
                     (parsed.content_hash, parsed.bytes, existing["id"]),
                 )
+                _record_pdf_pages_conn(conn, existing["id"], relpath, parsed)
                 return AddOutcome(
                     result=AddResult.ADDED,
                     source_path=source,
@@ -724,6 +948,7 @@ def add_file(
             ),
         )
         source_id = cur.lastrowid
+        _record_pdf_pages_conn(conn, source_id, relpath, parsed)
         if parsed.is_empty:
             conn.execute(
                 "UPDATE sources SET l1_status = 'error', layer_error = ? WHERE id = ?",
@@ -743,6 +968,234 @@ def add_file(
         source_id=source_id,
         message=message,
     )
+
+
+def import_source_file(
+    paths: cfg.WikiPaths,
+    source: Path,
+    *,
+    policy: str = "mirror_03_to_04",
+    destination: str | Path | None = None,
+    dry_run: bool = False,
+    logical_source_id: str = "",
+) -> AddOutcome:
+    """Safely copy an arbitrary file into the vault, then register it.
+
+    The default policy mirrors files from 03_Notes into 04_Resources and puts
+    external files under 04_Resources/Imports. Files already in allowed raw
+    directories are registered in place unless the mirror policy remaps them.
+    """
+    if policy in {"reference", "ref"}:
+        source = source.expanduser().resolve()
+        if not source.exists() or not source.is_file():
+            return AddOutcome(
+                result=AddResult.ERROR,
+                source_path=source,
+                relpath=str(source),
+                message=f"File not found: {source}",
+            )
+        if not parsers.is_supported(source):
+            return AddOutcome(
+                result=AddResult.SKIPPED_UNSUPPORTED,
+                source_path=source,
+                relpath=str(source),
+                message=f"Unsupported file type: {source.suffix or '(no extension)'}",
+            )
+        try:
+            parsed = parsers.parse(source)
+        except parsers.ParserError as exc:
+            return AddOutcome(
+                result=AddResult.ERROR,
+                source_path=source,
+                relpath=str(source),
+                message=f"Parse failed: {exc}",
+            )
+
+        relpath = str(source)
+        logical_id = logical_source_id or _default_logical_source_id(source)
+        if dry_run:
+            return AddOutcome(
+                result=AddResult.DEDUPED,
+                source_path=source,
+                relpath=relpath,
+                title=parsed.title,
+                file_type=parsed.file_type,
+                bytes=parsed.bytes,
+                word_count=parsed.word_count,
+                content_hash=parsed.content_hash,
+                message=(
+                    "Dry run: would register external reference "
+                    f"{source} as {logical_id}"
+                ),
+            )
+
+        result_kind = AddResult.ADDED
+        status = "pending"
+        error_reason = None
+        message = f"Added external reference as #?: {parsed.title}"
+        if parsed.is_empty:
+            status = "error"
+            error_reason = "empty_file"
+            result_kind = AddResult.SKIPPED_EMPTY
+            message = (
+                f"Extracted only {parsed.word_count} words — likely a scanned "
+                f"PDF or empty file. OCR not yet supported."
+            )
+
+        with db.connect(paths.state_db) as conn:
+            existing = conn.execute(
+                "SELECT id, relpath, content_hash, context_id FROM sources "
+                "WHERE relpath = ? OR logical_source_id = ?",
+                (relpath, logical_id),
+            ).fetchone()
+            if existing is not None:
+                if existing["content_hash"] == parsed.content_hash:
+                    conn.execute(
+                        """
+                        UPDATE sources
+                        SET external_path = ?, is_reference = 1,
+                            logical_source_id = ?, import_origin = ?,
+                            import_policy = ?
+                        WHERE id = ?
+                        """,
+                        (str(source), logical_id, str(source), "reference", existing["id"]),
+                    )
+                    _record_pdf_pages_conn(conn, existing["id"], relpath, parsed)
+                    return AddOutcome(
+                        result=AddResult.DEDUPED,
+                        source_path=source,
+                        relpath=relpath,
+                        title=parsed.title,
+                        file_type=parsed.file_type,
+                        bytes=parsed.bytes,
+                        word_count=parsed.word_count,
+                        content_hash=parsed.content_hash,
+                        source_id=existing["id"],
+                        context_id=existing["context_id"],
+                        message=f"Already tracked external reference: #{existing['id']}",
+                    )
+                conn.execute(
+                    """
+                    UPDATE sources
+                    SET relpath = ?, content_hash = ?, file_type = ?, bytes = ?,
+                        status = ?, last_ingested = NULL, context_id = NULL,
+                        l1_status = 'pending', l2_status = 'pending',
+                        l3_status = 'pending', l4_status = 'pending',
+                        layer_error = NULL, error_reason = ?,
+                        external_path = ?, is_reference = 1,
+                        logical_source_id = ?, import_origin = ?,
+                        import_policy = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        relpath,
+                        parsed.content_hash,
+                        parsed.file_type,
+                        parsed.bytes,
+                        status,
+                        error_reason,
+                        str(source),
+                        logical_id,
+                        str(source),
+                        "reference",
+                        existing["id"],
+                    ),
+                )
+                source_id = int(existing["id"])
+                result_kind = AddResult.ADDED
+                message = f"Updated external reference #{source_id} (content changed)"
+            else:
+                cur = conn.execute(
+                    """
+                    INSERT INTO sources
+                        (relpath, content_hash, file_type, bytes, added_at,
+                         status, error_reason, external_path, is_reference,
+                         logical_source_id, import_origin, import_policy)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                    """,
+                    (
+                        relpath,
+                        parsed.content_hash,
+                        parsed.file_type,
+                        parsed.bytes,
+                        _now_iso(),
+                        status,
+                        error_reason,
+                        str(source),
+                        logical_id,
+                        str(source),
+                        "reference",
+                    ),
+                )
+                source_id = int(cur.lastrowid)
+
+            _record_pdf_pages_conn(conn, source_id, relpath, parsed)
+            if parsed.is_empty:
+                conn.execute(
+                    "UPDATE sources SET l1_status = 'error', layer_error = ? WHERE id = ?",
+                    (error_reason, source_id),
+                )
+            message = message.replace("#?", f"#{source_id}")
+
+        return AddOutcome(
+            result=result_kind,
+            source_path=source,
+            relpath=relpath,
+            title=parsed.title,
+            file_type=parsed.file_type,
+            bytes=parsed.bytes,
+            word_count=parsed.word_count,
+            content_hash=parsed.content_hash,
+            source_id=source_id,
+            message=message,
+        )
+
+    try:
+        plan = safe_import_destination(
+            paths,
+            source,
+            policy=policy,
+            destination=destination,
+        )
+    except Exception as exc:
+        return AddOutcome(
+            result=AddResult.ERROR,
+            source_path=source,
+            relpath=str(source),
+            message=str(exc),
+        )
+
+    if dry_run:
+        return AddOutcome(
+            result=AddResult.DEDUPED,
+            source_path=plan.source_path,
+            relpath=plan.relpath,
+            message=(
+                "Dry run: would "
+                + ("copy" if plan.copied else "register")
+                + f" {plan.source_path} -> {plan.destination_path}"
+            ),
+        )
+
+    if plan.copied:
+        plan.destination_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(plan.source_path, plan.destination_path)
+
+    outcome = add_file(paths, plan.destination_path)
+    if outcome.source_id is not None:
+        with db.connect(paths.state_db) as conn:
+            conn.execute(
+                """
+                UPDATE sources
+                SET import_origin = ?, import_policy = ?, is_reference = 0
+                WHERE id = ?
+                """,
+                (str(plan.source_path), plan.policy, outcome.source_id),
+            )
+
+    if plan.copied and outcome.result != AddResult.ERROR:
+        outcome.message = f"{outcome.message} (imported from {plan.source_path})"
+    return outcome
 
 
 def iter_addable_files(root: Path, recursive: bool) -> Iterable[Path]:

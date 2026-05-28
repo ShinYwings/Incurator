@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -41,12 +41,36 @@ CREATE TABLE IF NOT EXISTS sources (
     layer_error     TEXT,                    -- latest layer-scoped error message/reason
     domain          TEXT,                    -- cached from L1 summary frontmatter
     tags            TEXT,                    -- JSON array, cached from L1 summary frontmatter
+    import_origin   TEXT,                    -- original absolute path/URI when imported via helper
+    import_policy   TEXT,                    -- import policy used, e.g. mirror_03_to_04
+    external_path   TEXT,                    -- absolute external path hint for Reference Mode
+    is_reference    INTEGER NOT NULL DEFAULT 0, -- 1=external reference, 0=vault-local copy
+    logical_source_id TEXT,                  -- stable source identity across path/hash drift
     error_reason    TEXT                     -- empty_file|parse_error|llm_error — set when status='error'
 );
 
 CREATE INDEX IF NOT EXISTS idx_sources_hash   ON sources(content_hash);
 CREATE INDEX IF NOT EXISTS idx_sources_status ON sources(status);
 CREATE INDEX IF NOT EXISTS idx_sources_domain ON sources(domain);
+CREATE INDEX IF NOT EXISTS idx_sources_logical_source_id ON sources(logical_source_id);
+CREATE INDEX IF NOT EXISTS idx_sources_external_path ON sources(external_path);
+
+-- Page-level provenance for parsed PDFs. Text is intentionally not stored here;
+-- callers re-parse the local source file when they need page text.
+CREATE TABLE IF NOT EXISTS source_pdf_pages (
+    source_id       INTEGER NOT NULL,
+    relpath         TEXT NOT NULL,
+    page_number     INTEGER NOT NULL,
+    content_hash    TEXT NOT NULL,
+    char_count      INTEGER NOT NULL DEFAULT 0,
+    word_count      INTEGER NOT NULL DEFAULT 0,
+    metadata        TEXT,
+    extracted_at    TEXT NOT NULL,
+    PRIMARY KEY (source_id, page_number),
+    FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_pdf_pages_relpath ON source_pdf_pages(relpath);
 
 -- Tracks each ingest run (one row per `wiki ingest` invocation)
 CREATE TABLE IF NOT EXISTS ingest_runs (
@@ -152,11 +176,85 @@ CREATE TABLE IF NOT EXISTS page_hashes (
 """
 
 
+def _now_iso() -> str:
+    import datetime
+
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return {str(row[1]) for row in rows}
+
+
+def _add_column_if_missing(
+    conn: sqlite3.Connection,
+    table: str,
+    column: str,
+    ddl: str,
+) -> None:
+    if column not in _column_names(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Apply small idempotent migrations for existing vaults."""
+    tables = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    if "sources" not in tables:
+        return
+    _add_column_if_missing(conn, "sources", "import_origin", "import_origin TEXT")
+    _add_column_if_missing(conn, "sources", "import_policy", "import_policy TEXT")
+    _add_column_if_missing(conn, "sources", "external_path", "external_path TEXT")
+    _add_column_if_missing(
+        conn,
+        "sources",
+        "is_reference",
+        "is_reference INTEGER NOT NULL DEFAULT 0",
+    )
+    _add_column_if_missing(conn, "sources", "logical_source_id", "logical_source_id TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sources_logical_source_id "
+        "ON sources(logical_source_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sources_external_path "
+        "ON sources(external_path)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS source_pdf_pages (
+            source_id       INTEGER NOT NULL,
+            relpath         TEXT NOT NULL,
+            page_number     INTEGER NOT NULL,
+            content_hash    TEXT NOT NULL,
+            char_count      INTEGER NOT NULL DEFAULT 0,
+            word_count      INTEGER NOT NULL DEFAULT 0,
+            metadata        TEXT,
+            extracted_at    TEXT NOT NULL,
+            PRIMARY KEY (source_id, page_number),
+            FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_source_pdf_pages_relpath "
+        "ON source_pdf_pages(relpath)"
+    )
+
+
 def init_db(db_path: Path) -> None:
     """Create the state database and apply the schema. Idempotent."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys = ON")
         conn.executescript(SCHEMA_SQL)
+        _apply_migrations(conn)
         row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
             conn.execute(
@@ -179,7 +277,9 @@ def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
     """Context-managed connection with row factory and foreign keys enabled."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys = ON")
+    _apply_migrations(conn)
     try:
         yield conn
         conn.commit()
@@ -285,3 +385,115 @@ def delete_page_hash(db_path: Path, wiki_path: str) -> None:
     """Remove a page hash entry (e.g. if file deleted)."""
     with connect(db_path) as conn:
         conn.execute("DELETE FROM page_hashes WHERE wiki_path = ?", (wiki_path,))
+
+
+def replace_source_pdf_pages(
+    db_path: Path,
+    source_id: int,
+    relpath: str,
+    pages: list[dict],
+) -> None:
+    """Replace page-level PDF provenance rows for one source."""
+    now = _now_iso()
+    with connect(db_path) as conn:
+        conn.execute("DELETE FROM source_pdf_pages WHERE source_id = ?", (source_id,))
+        for page in pages:
+            page_number = int(page.get("page") or page.get("page_number") or 0)
+            if page_number <= 0:
+                continue
+            metadata = {
+                k: v
+                for k, v in page.items()
+                if k
+                not in {"page", "page_number", "content_hash", "char_count", "word_count", "text"}
+            }
+            conn.execute(
+                """
+                INSERT INTO source_pdf_pages
+                    (source_id, relpath, page_number, content_hash, char_count,
+                     word_count, metadata, extracted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source_id,
+                    relpath,
+                    page_number,
+                    str(page.get("content_hash") or ""),
+                    int(page.get("char_count") or 0),
+                    int(page.get("word_count") or 0),
+                    json_dumps(metadata),
+                    now,
+                ),
+            )
+
+
+def list_source_pdf_pages(db_path: Path, source_id: int) -> list[dict]:
+    """Return PDF page metadata rows for one source."""
+    if not db_path.exists():
+        return []
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT source_id, relpath, page_number, content_hash, char_count,
+                   word_count, metadata, extracted_at
+            FROM source_pdf_pages
+            WHERE source_id = ?
+            ORDER BY page_number ASC
+            """,
+            (source_id,),
+        ).fetchall()
+        out: list[dict] = []
+        for row in rows:
+            item = dict(row)
+            metadata_raw = item.get("metadata")
+            if metadata_raw:
+                try:
+                    import json
+
+                    item["metadata"] = json.loads(metadata_raw)
+                except Exception:
+                    item["metadata"] = {}
+            else:
+                item["metadata"] = {}
+            out.append(item)
+        return out
+
+
+def record_source_page(
+    db_path: Path,
+    source_id: int,
+    wiki_path: str,
+    operation: str,
+) -> None:
+    """Record that a wiki page was created or updated from a source."""
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO source_pages (source_id, wiki_path, operation, at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (source_id, wiki_path, operation, _now_iso()),
+        )
+
+
+def list_source_pages(db_path: Path, source_id: int) -> list[dict]:
+    """Return wiki pages recorded as generated from one source."""
+    if not db_path.exists():
+        return []
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT source_id, wiki_path, operation, at
+            FROM source_pages
+            WHERE source_id = ?
+            ORDER BY at DESC
+            """,
+            (source_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def json_dumps(value) -> str:
+    import json
+
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)

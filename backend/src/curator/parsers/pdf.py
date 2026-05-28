@@ -86,14 +86,27 @@ def parse(path: Path) -> ParsedDocument:
             f"PDF is password-protected and cannot be read: {path.name}"
         )
 
-    # Extract text from all pages
+    # Extract text from all pages. Keep page-level metadata alongside the
+    # document text so downstream tools can cite a source page precisely.
     page_texts: list[str] = []
+    pdf_pages: list[dict] = []
     for i, page in enumerate(reader.pages):
         try:
-            page_texts.append(page.extract_text() or "")
+            raw_page_text = page.extract_text() or ""
         except Exception:
             # Individual page extraction can fail on malformed PDFs; keep going
-            page_texts.append("")
+            raw_page_text = ""
+        page_text = normalize_text(raw_page_text)
+        page_texts.append(page_text)
+        pdf_pages.append(
+            {
+                "page": i + 1,
+                "char_count": len(page_text),
+                "word_count": len(page_text.split()) if page_text else 0,
+                "content_hash": compute_hash(page_text),
+                "text": page_text,
+            }
+        )
 
     full_text = "\n\n".join(p for p in page_texts if p.strip())
     text = normalize_text(full_text)
@@ -114,7 +127,7 @@ def parse(path: Path) -> ParsedDocument:
         title = fallback_title_from_path(path)
 
     # Collect useful metadata
-    metadata: dict = {"page_count": len(reader.pages)}
+    metadata: dict = {"page_count": len(reader.pages), "pdf_pages": pdf_pages}
     try:
         meta = reader.metadata
         if meta:

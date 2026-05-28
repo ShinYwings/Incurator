@@ -6,7 +6,7 @@ Install:    wiki mcp install   # prints a config snippet for Claude / Gemini
 The server combines two responsibility layers:
 
 1. **Search delegation** — the `search` tool shells out to the bundled
-   `src/qmd/bin/qmd` to leverage qmd's BM25 + vector + LLM-rerank pipeline.
+   `backend/src/qmd/bin/qmd` to leverage qmd's BM25 + vector + LLM-rerank pipeline.
    No HTTP daemon required; qmd is invoked per-call and qmd's own model
    caching keeps latency low.
 
@@ -38,12 +38,12 @@ try:
 except ImportError as e:  # pragma: no cover - import-time hint
     raise ImportError(
         "The `mcp` package is required. Install with: "
-        "uv pip install -e '.[mcp]'"
+        "cd backend && uv pip install -e '.[mcp]'"
     ) from e
 
 from . import config as cfg
 from . import page_writer
-from . import search
+from . import source_tools
 
 
 # ---------------------------------------------------------------------------
@@ -369,19 +369,23 @@ def _get_workspace_files_summary(workspace_path: Path) -> str:
     try:
         files = []
         for p in workspace_path.glob("*"):
-            if p.name.startswith(".") or p.name == "__pycache__": continue
+            if p.name.startswith(".") or p.name == "__pycache__":
+                continue
             if p.is_dir():
                 files.append(f"{p.name}/")
                 count = 0
                 for subp in p.glob("*"):
-                    if subp.name.startswith("."): continue
+                    if subp.name.startswith("."):
+                        continue
                     if subp.is_file():
                         files.append(f"  {p.name}/{subp.name}")
                         count += 1
-                    if count > 5: break
+                    if count > 5:
+                        break
             else:
                 files.append(p.name)
-            if len(files) > 20: break
+            if len(files) > 20:
+                break
         return "\n".join(files)
     except Exception:
         return "Could not list files."
@@ -390,17 +394,16 @@ def _get_workspace_files_summary(workspace_path: Path) -> str:
 def _get_interview_suggestions(workspace_path: str, field_id: str, provided: dict) -> list[str]:
     """Use LLM to suggest 5 options for a specific field based on workspace content."""
     from . import llm, config as cfg
-    from .llm import ChatMessage
+    import json
+    import re
     from pathlib import Path
-    import json, re
-    
+    from .llm import ChatMessage
+
     try:
         paths = _resolve_paths(workspace_path)
         config = cfg.load_config(paths)
-        
+
         ws = Path(workspace_path).expanduser().resolve()
-        file_summary = _get_workspace_files_summary(ws)
-        
         context = f"Workspace folder: {ws.name}"
         if provided:
             ans = {k: v for k, v in provided.items() if v}
@@ -416,10 +419,12 @@ def _get_interview_suggestions(workspace_path: str, field_id: str, provided: dic
                 # Add one level of subdirectories to be more specific
                 try:
                     for subp in base_p.glob("*/"):
-                        if subp.name.startswith("."): continue
+                        if subp.name.startswith("."):
+                            continue
                         if subp.is_dir():
                             global_dirs.append(f"{d}/{subp.name}/")
-                        if len(global_dirs) > 15: break # Don't overwhelm
+                        if len(global_dirs) > 15:
+                            break
                 except Exception:
                     pass
 
@@ -509,7 +514,8 @@ def _build_wizard_questions(workspace_path: str, provided: dict = None) -> dict[
         val = provided.get(fid)
         if val is None or (isinstance(val, list) and not val):
             # Exception: include/exclude can be empty lists if provided explicitly
-            if fid in provided: continue 
+            if fid in provided:
+                continue
             missing = (fid, label, q)
             break
             
@@ -551,7 +557,7 @@ def _build_wizard_questions(workspace_path: str, provided: dict = None) -> dict[
 def build_server() -> FastMCP:
     """Build and register all tools on a fresh FastMCP instance."""
     import os
-    from . import search, query, ingest_llm, curate_yml, lint, db, llm, config as cfg
+    from . import search, ingest_llm, ingest_raw, db, llm, config as cfg
 
     mcp = FastMCP(
         name="incurator",
@@ -580,6 +586,566 @@ def build_server() -> FastMCP:
             "Layer prefixes: CTX- (01_Contexts), ATM- (02_Atoms), CON- (03_Concepts), EXH- (04_Exhibitions)."
         ),
     )
+
+    def _source_dict(paths: cfg.WikiPaths, row: dict[str, Any]) -> dict[str, Any]:
+        source_id = int(row["id"])
+        pages = db.list_source_pdf_pages(paths.state_db, source_id)
+        generated = db.list_source_pages(paths.state_db, source_id)
+        out = source_tools.source_status(paths, row, cfg.load_config(paths))
+        out["pdf_page_count"] = len(pages)
+        out["page_count"] = len(pages)
+        out["generated_pages"] = generated
+        return out
+
+    def _get_source_row(
+        paths: cfg.WikiPaths,
+        source_id: int | None = None,
+        relpath: str = "",
+        source_path: str = "",
+    ) -> dict[str, Any] | None:
+        relpath = relpath or _source_path_to_relpath(paths, source_path)
+        with db.connect(paths.state_db) as conn:
+            if source_id is not None:
+                row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
+            elif relpath:
+                row = conn.execute(
+                    """
+                    SELECT * FROM sources
+                    WHERE relpath = ?
+                       OR external_path = ?
+                       OR import_origin = ?
+                       OR logical_source_id = ?
+                    """,
+                    (relpath, relpath, relpath, relpath),
+                ).fetchone()
+            else:
+                row = None
+        return dict(row) if row else None
+
+    def _source_path_to_relpath(paths: cfg.WikiPaths, source_path: str = "") -> str:
+        if not source_path:
+            return ""
+        raw = str(source_path)
+        path = Path(raw).expanduser()
+        if path.is_absolute():
+            try:
+                return str(path.resolve().relative_to(paths.root.resolve()))
+            except ValueError:
+                return raw
+        return raw
+
+    class _McpIngestCallbacks(ingest_llm.IngestCallbacks):
+        def __init__(self) -> None:
+            self.events: list[dict[str, Any]] = []
+
+        def on_start(self, source_id: int, source_title: str, context_id: str) -> None:
+            self.events.append({"kind": "start", "source_id": source_id, "title": source_title, "context_id": context_id})
+
+        def on_fragment_written(self, change) -> None:
+            self.events.append({"kind": "page", "path": change.path, "operation": change.operation})
+
+        def on_theme_written(self, change) -> None:
+            self.events.append({"kind": "page", "path": change.path, "operation": change.operation})
+
+        def on_error(self, error: str) -> None:
+            self.events.append({"kind": "error", "error": error})
+
+    # ------------------------------------------------------------------
+    # Source tools — raw-source status, import, ingest, page search/provenance
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def curator_source_status(
+        source_id: Optional[int] = None,
+        relpath: str = "",
+        source_path: str = "",
+        file_path: str = "",
+        path: str = "",
+        status_filter: str = "",
+        limit: int = 50,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """Return tracked source status and per-layer pipeline state.
+
+        Args:
+            source_id: Optional source row id for a single source.
+            relpath: Optional vault-relative source path for a single source.
+            status_filter: Optional status filter for list mode.
+            limit: Max rows in list mode.
+            workspace_path: Optional workspace path to help resolve the vault.
+        """
+        paths = _resolve_paths(workspace_path)
+        stats = db.get_stats(paths.state_db)
+
+        lookup_path = relpath or source_path or file_path or path
+        if source_id is not None or lookup_path:
+            row = _get_source_row(paths, source_id=source_id, relpath=relpath, source_path=lookup_path)
+            if row is None:
+                return {
+                    "state": "untracked",
+                    "error": "Source not found",
+                    "source_path": lookup_path,
+                    "stats": stats,
+                }
+            return {"stats": stats, "source": _source_dict(paths, row)}
+
+        query_sql = "SELECT * FROM sources"
+        params: tuple = ()
+        if status_filter:
+            query_sql += " WHERE status = ?"
+            params = (status_filter,)
+        query_sql += " ORDER BY id ASC LIMIT ?"
+        params = (*params, max(1, min(int(limit), 500)))
+
+        with db.connect(paths.state_db) as conn:
+            rows = conn.execute(query_sql, params).fetchall()
+        return {
+            "stats": stats,
+            "sources": [_source_dict(paths, dict(row)) for row in rows],
+            "count": len(rows),
+        }
+
+    @mcp.tool()
+    def curator_list_external_resources(workspace_path: str = "") -> dict[str, Any]:
+        """Return machine-local external roots used for reference sources.
+
+        These roots come from config, typically the global
+        ~/.config/curator/config.yml file. They are not written to the vault by
+        this tool.
+        """
+        paths = _resolve_paths(workspace_path)
+        config = cfg.load_config(paths)
+        resources = source_tools.external_resources(config)
+        return {"resources": resources, "count": len(resources)}
+
+    @mcp.tool()
+    def curator_rebind_source(
+        source_id: Optional[int] = None,
+        logical_source_id: str = "",
+        source_path: str = "",
+        file_path: str = "",
+        path: str = "",
+        new_path: str = "",
+        apply: bool = False,
+        update_hash: bool = True,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """Rebind a reference source to a new external path after approval.
+
+        Call with apply=false first to obtain a proposal. Mutating rebinding
+        requires apply=true and never edits the external file itself.
+        """
+        paths = _resolve_paths(workspace_path)
+        lookup_path = source_path or file_path or path or logical_source_id
+        row = _get_source_row(paths, source_id=source_id, source_path=lookup_path)
+        if row is None:
+            return {
+                "ok": False,
+                "state": "untracked",
+                "error": "Source not found",
+                "source_path": lookup_path,
+            }
+        if not new_path:
+            return {
+                "ok": False,
+                "state": "error",
+                "error": "new_path is required",
+                "source_id": row["id"],
+            }
+        try:
+            return source_tools.rebind_source(
+                paths,
+                row,
+                Path(new_path),
+                apply=apply,
+                update_hash=update_hash,
+            )
+        except Exception as exc:
+            return {
+                "ok": False,
+                "state": "error",
+                "error": str(exc),
+                "source_id": row["id"],
+            }
+
+    @mcp.tool()
+    def curator_import_source(
+        file_path: str,
+        workspace_path: str = "",
+        policy: str = "mirror_03_to_04",
+        destination: str = "",
+        dry_run: bool = False,
+        logical_source_id: str = "",
+    ) -> dict[str, Any]:
+        """Safely import a file into 04_Resources and register it as a source.
+
+        The default `mirror_03_to_04` policy mirrors 03_Notes paths into
+        04_Resources; other external files go to 04_Resources/Imports.
+        Use `policy="reference"` to register an external source in place.
+        """
+        paths = _resolve_paths(workspace_path)
+        from . import ingest_raw as _ingest_raw
+
+        outcome = _ingest_raw.import_source_file(
+            paths,
+            Path(file_path),
+            policy=policy,
+            destination=destination or None,
+            dry_run=dry_run,
+            logical_source_id=logical_source_id,
+        )
+        return {
+            "ok": outcome.result in {_ingest_raw.AddResult.ADDED, _ingest_raw.AddResult.DEDUPED},
+            "result": outcome.result.value,
+            "dry_run": dry_run,
+            "policy": policy,
+            "source_id": outcome.source_id,
+            "relpath": outcome.relpath,
+            "source_path": str(outcome.source_path),
+            "title": outcome.title,
+            "file_type": outcome.file_type,
+            "bytes": outcome.bytes,
+            "word_count": outcome.word_count,
+            "message": outcome.message,
+        }
+
+    @mcp.tool()
+    def curator_ingest_source(
+        source_id: Optional[int] = None,
+        relpath: str = "",
+        source_path: str = "",
+        file_path: str = "",
+        path: str = "",
+        force: bool = False,
+        run_l2_l3: bool = True,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """Run L1 summary generation and optionally L2/L3 ingest for a source.
+
+        L3 clustering is global, so `run_l2_l3=True` can refresh shared Concept
+        pages after ingesting this source.
+        """
+        paths = _resolve_paths(workspace_path)
+        lookup_path = relpath or source_path or file_path or path
+        row = _get_source_row(paths, source_id=source_id, relpath=relpath, source_path=lookup_path)
+        if row is None:
+            return {"state": "untracked", "error": "Source not found", "source_path": lookup_path}
+
+        source_id_int = int(row["id"])
+        config = cfg.load_config(paths)
+        callbacks = _McpIngestCallbacks()
+        try:
+            client = llm.build_client(config)
+        except Exception as exc:
+            return {"error": f"Could not start LLM client: {exc}"}
+
+        try:
+            if force:
+                with db.connect(paths.state_db) as conn:
+                    conn.execute(
+                        "UPDATE sources SET status = 'force_pending', error_reason = NULL, "
+                        "l1_status = 'pending', l2_status = 'pending', "
+                        "l3_status = 'pending', l4_status = 'pending', layer_error = NULL "
+                        "WHERE id = ?",
+                        (source_id_int,),
+                    )
+                    row["context_id"] = None
+
+            context_id = row.get("context_id")
+            if force or not context_id or not (paths.contexts / f"{context_id}.md").exists():
+                db.set_source_layer_status(paths.state_db, source_id_int, "l1", "running")
+                context_id = ingest_raw.generate_l1_summary(
+                    paths,
+                    source_id=source_id_int,
+                    relpath=str(row["relpath"]),
+                    content_hash=str(row["content_hash"]),
+                    client=client,
+                    config=config,
+                    existing_context_id=None if force else row.get("context_id"),
+                    thinking=False,
+                )
+                if not context_id:
+                    return {"ok": False, "source_id": source_id_int, "error": "L1 summary failed"}
+
+            ingest_result = None
+            l3_pages_written = 0
+            if run_l2_l3:
+                with db.connect(paths.state_db) as conn:
+                    conn.execute(
+                        "UPDATE sources SET status = 'pending', error_reason = NULL, "
+                        "l2_status = 'pending', l3_status = 'pending', layer_error = NULL "
+                        "WHERE id = ?",
+                        (source_id_int,),
+                    )
+                results = ingest_llm.run_l1_to_l3(
+                    paths,
+                    client,
+                    lambda: callbacks,
+                    mode="batch",
+                    auto_discover=False,
+                    thinking_for_extraction=False,
+                )
+                ingest_result = next(
+                    (result for result in results if result.source_id == source_id_int),
+                    None,
+                )
+                l3_pages_written = sum(
+                    1
+                    for event in callbacks.events
+                    if event.get("kind") == "page"
+                    and str(event.get("path") or "").startswith("03_Concepts/")
+                )
+                if ingest_result is not None and ingest_result.ok:
+                    try:
+                        search.update_index(paths, embed=True)
+                    except Exception:
+                        pass
+
+            return {
+                "ok": (not run_l2_l3) if ingest_result is None else ingest_result.ok,
+                "source_id": source_id_int,
+                "context_id": context_id,
+                "l2": None
+                if ingest_result is None
+                else {
+                    "created": ingest_result.fragments_created,
+                    "updated": ingest_result.fragments_updated,
+                    "error": ingest_result.error,
+                    "skipped": ingest_result.skipped,
+                },
+                "l3_pages_written": l3_pages_written,
+                "events": callbacks.events[-50:],
+            }
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    @mcp.tool()
+    def curator_search_sources(
+        query: str,
+        source_id: Optional[int] = None,
+        source_path: str = "",
+        file_path: str = "",
+        path: str = "",
+        relpath: str = "",
+        limit: int = 8,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """Lexically search tracked raw source files with PDF page numbers."""
+        paths = _resolve_paths(workspace_path)
+        lookup_path = relpath or source_path or file_path or path
+        if source_id is None and lookup_path:
+            row = _get_source_row(paths, source_path=lookup_path)
+            if row is None:
+                return {
+                    "hits": [],
+                    "count": 0,
+                    "state": "untracked",
+                    "error": "Source not found",
+                    "source_path": lookup_path,
+                }
+            source_id = int(row["id"])
+        hits = search.search_source_pages(
+            paths,
+            query,
+            source_id=source_id,
+            limit=max(1, min(int(limit), 50)),
+        )
+        return {
+            "hits": [
+                {
+                    "source_id": hit.source_id,
+                    "relpath": hit.relpath,
+                    "file_type": hit.file_type,
+                    "page": hit.page_number,
+                    "score": hit.score,
+                    "title": hit.title,
+                    "snippet": hit.snippet,
+                }
+                for hit in hits
+            ],
+            "count": len(hits),
+        }
+
+    @mcp.tool()
+    def curator_search_source(
+        query: str,
+        source_id: Optional[int] = None,
+        source_path: str = "",
+        file_path: str = "",
+        path: str = "",
+        relpath: str = "",
+        limit: int = 8,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """Alias for source-scoped raw search with page provenance."""
+        return curator_search_sources(
+            query=query,
+            source_id=source_id,
+            source_path=source_path,
+            file_path=file_path,
+            path=path,
+            relpath=relpath,
+            limit=limit,
+            workspace_path=workspace_path,
+        )
+
+    @mcp.tool()
+    def curator_get_source_page(
+        source_id: Optional[int] = None,
+        source_path: str = "",
+        file_path: str = "",
+        path: str = "",
+        relpath: str = "",
+        page: int = 1,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """Return parsed text and provenance metadata for one source page."""
+        paths = _resolve_paths(workspace_path)
+        lookup_path = relpath or source_path or file_path or path
+        row = _get_source_row(paths, source_id=source_id, relpath=relpath, source_path=lookup_path)
+        if row is None:
+            return {"error": f"Source not found: {source_id or lookup_path}"}
+        source_id_int = int(row["id"])
+        from . import parsers
+
+        source_file_path = paths.root / str(row["relpath"])
+        if not source_file_path.exists():
+            return {"error": f"Source file missing: {row['relpath']}"}
+        try:
+            parsed = parsers.parse(source_file_path)
+        except Exception as exc:
+            return {"error": f"Parse failed: {exc}"}
+
+        if parsed.file_type == "pdf":
+            pages = parsed.metadata.get("pdf_pages") or []
+            if page < 1 or page > len(pages):
+                return {"error": f"Page out of range: {page}", "page_count": len(pages)}
+            page_meta = dict(pages[page - 1])
+            text = str(page_meta.pop("text", "") or "")
+            return {
+                "source_id": source_id_int,
+                "relpath": row["relpath"],
+                "file_type": parsed.file_type,
+                "title": parsed.title,
+                "page": page,
+                "page_count": len(pages),
+                "metadata": page_meta,
+                "text": text,
+            }
+
+        return {
+            "source_id": source_id_int,
+            "relpath": row["relpath"],
+            "file_type": parsed.file_type,
+            "title": parsed.title,
+            "page": None,
+            "page_count": 1,
+            "metadata": parsed.metadata,
+            "text": parsed.text,
+        }
+
+    @mcp.tool()
+    def curator_get_pdf_page(
+        source_id: Optional[int] = None,
+        source_path: str = "",
+        file_path: str = "",
+        path: str = "",
+        relpath: str = "",
+        page: int = 1,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """Alias for retrieving one parsed PDF page from a tracked source."""
+        return curator_get_source_page(
+            source_id=source_id,
+            source_path=source_path,
+            file_path=file_path,
+            path=path,
+            relpath=relpath,
+            page=page,
+            workspace_path=workspace_path,
+        )
+
+    @mcp.tool()
+    def curator_get_provenance(
+        node_id: str = "",
+        wiki_path: str = "",
+        source_id: Optional[int] = None,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """Resolve source provenance for a DAG node, wiki path, or source id."""
+        paths = _resolve_paths(workspace_path)
+
+        if source_id is not None:
+            row = _get_source_row(paths, source_id=source_id)
+            if row is None:
+                return {"error": f"Source not found: {source_id}"}
+            return {
+                "source": _source_dict(paths, row),
+                "pdf_pages": db.list_source_pdf_pages(paths.state_db, source_id),
+            }
+
+        target_path = ""
+        if node_id:
+            node = _read_node(paths, node_id)
+            if "error" in node:
+                return node
+            target_path = node["path"]
+            page = node
+        elif wiki_path:
+            target_path = _normalize_link(wiki_path)
+            disk_path = paths.collections / target_path
+            parsed_page = page_writer.read_page(disk_path)
+            if parsed_page is None:
+                return {"error": f"Page not found: {target_path}"}
+            page = {
+                "id": disk_path.stem,
+                "path": target_path,
+                "frontmatter": parsed_page.frontmatter,
+                "body": parsed_page.body,
+            }
+        else:
+            return {"error": "Provide node_id, wiki_path, or source_id."}
+
+        fm = page.get("frontmatter", {}) or {}
+        source_link = str(fm.get("source_path") or "")
+        context_link = str(fm.get("parent_source") or "")
+        if not source_link and page.get("id", "").startswith("CTX-"):
+            source_link = str(fm.get("source_path") or "")
+            context_link = f"01_Contexts/{page['id']}"
+
+        source_relpath = _normalize_link(source_link).removesuffix(".md")
+        if source_relpath and not Path(source_relpath).suffix:
+            # Existing source_path links often omit .md only for markdown files.
+            with db.connect(paths.state_db) as conn:
+                row = conn.execute(
+                    "SELECT * FROM sources WHERE relpath = ? OR relpath = ?",
+                    (source_relpath, f"{source_relpath}.md"),
+                ).fetchone()
+        elif source_relpath:
+            with db.connect(paths.state_db) as conn:
+                row = conn.execute("SELECT * FROM sources WHERE relpath = ?", (source_relpath,)).fetchone()
+        else:
+            row = None
+
+        if row is None and context_link:
+            context_id = _id_from_link(context_link)
+            with db.connect(paths.state_db) as conn:
+                row = conn.execute("SELECT * FROM sources WHERE context_id = ?", (context_id,)).fetchone()
+
+        source = _source_dict(paths, dict(row)) if row else None
+        return {
+            "page": {
+                "id": page.get("id"),
+                "path": target_path,
+                "source_path": source_link,
+                "parent_source": context_link,
+            },
+            "source": source,
+            "pdf_pages": db.list_source_pdf_pages(paths.state_db, int(row["id"])) if row else [],
+        }
 
     # ------------------------------------------------------------------
     # search — qmd-backed retrieval, with optional layer filter
@@ -1084,7 +1650,8 @@ def build_server() -> FastMCP:
             for p in patterns:
                 # Strip wizard labels if any
                 p = p.replace("[Vault] ", "").strip()
-                if not p: continue
+                if not p:
+                    continue
                 cleaned.append(p)
             return cleaned
 
