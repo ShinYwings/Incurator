@@ -133,3 +133,32 @@ When creating and executing a new validation scenario, follow these standard 4 s
 - [ ] Run `pytest`.
 - [ ] Verify changes in the `testbed/` vault using `wiki testbed init <scenario> --force`.
 - [ ] Ensure `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md` are synchronized.
+
+---
+
+## 7. Monorepo Contribution Guidelines (v0.2.0)
+
+The v0.2.0 target layout manages the Python backend daemon (`backend/`) and Obsidian plugin client (`plugin/`) together in a monorepo. During transition, a checkout may still keep backend code at repository root (`src/`, `tests/`, `pyproject.toml`) or develop the active plugin inside an Obsidian vault path such as `.obsidian/plugins/incurator-obsidian-agent`. Contributors must distinguish the target layout from the active checkout layout.
+
+- **Pull Request Scope**: For features where backend and plugin changes are tightly coupled (e.g., adding Reference Mode and its UI), please submit them as a single PR to maintain review context.
+- **Build & Verification**: Before submitting a PR, run `./setup.sh` at the repository root to ensure both Python packages and the Node.js plugin build successfully.
+- **Linting & Types**: Python code in `backend/` must pass `ruff` and `mypy`. Plugin code in `plugin/` must pass TypeScript linting via `npm run lint`.
+
+### 7.1 Backend/Client Boundary
+
+- The Incurator backend owns `.curator/state.sqlite`, source registry, PDF page provenance, the L1-L4 DAG, QMD search, and MCP tools.
+- The Obsidian plugin is a client. It owns open-PDF context capture, chat UI, import/rebind approval modals, and provider prompt assembly.
+- The plugin must not write `.curator/state.sqlite` directly. Persistent source changes must go through MCP/CLI backend APIs.
+- MCP/backend must not silently edit `03_Notes/`. Human note edits require explicit approval and a diff/confirm flow.
+
+### 7.2 Evidence Gate
+
+Before making large structural changes, record the following in `docs/plans/INCURATOR_SYSTEM_BUILD_EVIDENCE.md`:
+
+- current active source path and target source path
+- whether each touched file/directory belongs to backend or client
+- verification commands run and their results
+- whether failures are pre-existing or introduced by the change
+- whether any migration is hard to roll back
+
+This file is not a summary report. It is a handoff ledger for the next developer or agent continuing the work.

@@ -11,7 +11,7 @@
 1.  **Python 3.10+**: 시스템의 핵심 로직이 Python으로 작성되었습니다.
 2.  **터미널 (Terminal)**: 모든 명령어는 CLI 환경에서 실행됩니다.
 3.  **노트 편집기 (Obsidian 권장)**: 지식 베이스의 시각화 및 편집을 위한 도구입니다. 옵시디언이 필수는 아니며 텍스트 파일을 볼 수 있는 에디터라면 무엇이든 가능하지만, 본 시스템은 옵시디언의 링크 구조와 플러그인 생태계에 최적화되어 개발되었습니다.
-4.  **Node.js**: 검색 엔진(QMD) 빌드 및 MCP 서버 구동을 위해 필요합니다. (Ollama와 함께 `./install.sh` 실행 시 자동으로 설치를 시도하므로 별도로 준비하실 필요가 없습니다.)
+4.  **Node.js**: 검색 엔진(QMD) 빌드 및 MCP 서버 구동을 위해 필요합니다. (Ollama와 함께 `./setup.sh` 실행 시 자동으로 설치를 시도하므로 별도로 준비하실 필요가 없습니다.)
 5.  **Curator Engine 백엔드**: 시스템 구동을 위해 하나 이상의 모델 백엔드가 필요하며, 로컬과 클라우드 방식을 모두 지원합니다.
     - **로컬 LLM (Ollama)**: 강력한 개인 정보 보호와 별도 비용 없는 사용이 가능합니다. (VRAM 필요)
     - **클라우드 LLM (Providers)**: Gemini, Claude, OpenAI 등의 외부 엔진을 활용합니다. 로컬 자원(VRAM) 소모가 거의 없으며 고성능 추론이 가능합니다. (큐레이션 단계에서는 고가의 추론 전용 모델이 아닌 일반 범용 모델로도 충분히 안정적인 성능을 발휘합니다.)
@@ -56,7 +56,7 @@ Incurator의 강력한 성능을 유지하고 지식을 안전하게 관리하�
 ### 1. 설치
 설치 스크립트를 실행하여 환경을 설정하고 필요한 구성 요소를 빌드합니다.
 ```bash
-./install.sh
+./setup.sh
 ```
 
 ### 2. 저장소(Vault) 초기화
@@ -134,6 +134,32 @@ wiki add
 - 특정 폴더 내의 파일들을 재귀적으로 모두 등록하려면 `-r` 옵션을 사용하세요.
 
 지식이 보관소에 안전하게 등록되었다면, 이제 이를 특정 프로젝트에서 실제로 활용하기 위해 당신만의 '작업 공간'을 준비할 차례입니다.
+
+---
+
+## 📄 외부 PDF와 Reference Mode
+
+논문 PDF처럼 외부 앱(Zotero, iCloud, Syncthing, 브라우저 다운로드 폴더 등)이 소유한 파일은 두 가지 방식으로 Incurator에 연결할 수 있습니다.
+
+### 1. Copy Import
+
+파일을 보관소의 `04_Resources/` 아래로 복사해 Incurator가 관리하는 자료로 만듭니다.
+
+- `03_Notes/`에는 PDF를 넣지 않습니다. `03_Notes/`는 사람이 직접 작성한 노트의 영역입니다.
+- 활성 노트가 `03_Notes/Vision/Foo.md`라면 기본 목적지는 `04_Resources/Vision/Foo/<pdf-file>.pdf`가 됩니다.
+- 연결된 노트가 없으면 기본 목적지는 `04_Resources/Inbox/<pdf-file>.pdf`입니다.
+- 같은 이름의 파일이 이미 있으면 덮어쓰지 않습니다. 같은 해시라면 기존 파일을 재사용하고, 다른 해시라면 suffix를 붙이거나 사용자가 다른 목적지를 선택해야 합니다.
+
+### 2. Reference Mode
+
+파일을 복사하지 않고 원래 위치에 둔 채 Incurator backend에 등록합니다. 이 방식은 Zotero 라이브러리처럼 외부 앱이 파일을 계속 관리해야 하는 경우에 적합합니다.
+
+- backend는 파일의 content hash를 계산하고 `state.sqlite`에 source record를 생성합니다.
+- `external_path`는 현재 파일 위치를 가리키는 hint입니다. 진짜 identity는 content hash와 logical source identity입니다.
+- iPad 필기나 외부 앱 수정으로 PDF hash가 바뀌면 backend는 이를 Hash Drift로 감지해야 합니다.
+- 파일 위치가 바뀌면 backend는 configured external roots 안에서 재발견을 시도할 수 있지만, 최종 rebind는 인간 승인 후에만 수행해야 합니다.
+
+Obsidian 플러그인은 PDF를 열었을 때 즉시 viewer context를 만들 수 있지만, 장기 지식화와 source provenance는 backend ingest가 담당합니다. 즉, 열린 PDF에 대해 바로 질문하는 것은 plugin의 PDF context engine이 처리하고, 이후 durable RAG/source tracking은 Incurator backend가 처리합니다.
 
 ---
 
@@ -481,3 +507,15 @@ wiki status
 
 > [!TIP]
 > **파이프라인 현황 진단**: L4가 0이라면 아직 워크스페이스에서 Exhibition이 생성되지 않은 것입니다. MCP를 통해 `search_curator`를 호출하면 `wiki curate`가 자동 실행되어 L4가 생성됩니다. 수동으로 생성하려면 `wiki curate`를 직접 실행하세요.
+
+### 4. 외부 리소스 연동 (Zotero & Reference Mode)
+Incurator는 Zotero 등의 외부 PDF 파일들을 보관소로 복사하지 않고 원본 그대로 참조(Reference Mode)할 수 있으며, 원할 경우 사용자가 승인한 `04_Resources/` 목적지로 안전하게 복사할 수도 있습니다.
+- **설정**: 옵시디언 플러그인 설정의 "Zotero Library Path"를 입력하거나 터미널에서 `wiki config set external.zotero.path ~/Documents/Zotero` 명령을 사용하여 Zotero 루트 경로를 지정합니다.
+- **Reference Mode**: 외부 리소스는 파일의 내용 해시(Content Hash), `external_path` hint, 고유한 `logical_source_id`로 추적됩니다. 구현에 따라 `04_Resources/`에는 proxy note 또는 backend source anchor가 생성될 수 있지만, durable state는 backend가 소유합니다.
+- **Copy Import**: 파일을 vault 내부로 가져오는 경우에도 목적지는 `03_Notes/`가 아니라 `04_Resources/`입니다. 같은 이름의 파일을 덮어쓰지 않고, 동일 해시는 재사용하며, 충돌 시 suffix 또는 사용자 선택 목적지를 사용합니다.
+- **Hash Drift와 자가 치유**: iPad 등에서 Apple Pencil로 PDF에 주석을 달면 내용 해시가 변경됩니다. 파일이 이동하거나 해시가 변경되어 연결이 끊어진 경우, 옵시디언 플러그인 UI를 통해 재연결(Re-bind)을 승인하면 backend가 고유 식별자(`logical_source_id`)를 기준으로 새로운 해시와 경로를 찾아 치유(Healing)합니다.
+
+### 5. OS 환경별 경로 분리 (Platform-aware Config)
+Linux와 macOS 환경을 번갈아 사용하는 경우, Syncthing 동기화로 인한 절대 경로 충돌을 방지하기 위해 플랫폼별 설정이 철저히 분리됩니다.
+- **플러그인 설정**: 옵시디언 플러그인 설정 메뉴에서 `Linux Binary Path`와 `macOS Binary Path`를 각각 별도로 입력합니다. 에이전트는 실행 중인 운영체제(`process.platform`)에 맞춰 올바른 백엔드 실행 파일을 자동 호출합니다.
+- **글로벌 설정 (`~/.config/curator/config.yml`)**: Zotero 라이브러리 경로 등 기기 종속적인 로컬 설정은 Vault 내부가 아닌 OS 사용자 홈 디렉토리의 전역 설정 파일에서 관리됩니다.

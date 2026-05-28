@@ -41,12 +41,16 @@ When humans or agents spot an error in prior knowledge — or derive a new insig
 ### 3. Token Optimization (FinOps for AI)
 Offload **compilation** (summarizing and atomizing knowledge) to non-reasoning models and reserve **creative synthesis** (requiring complex calculation or sophisticated reasoning) for reasoning models. This strategic role separation minimizes costs while maximizing insight.
 
-### 4. Dual-Track Structure for AI and Humans
-Knowledge is most effective when managed in different forms for machines and humans. Incurator achieves this by maintaining a dual-track directory structure.
+### 4. Monorepo and Dual-Track Structure for AI and Humans
+The Incurator v0.2.0 target layout provides the Python backend daemon (`backend/`) and Obsidian plugin client (`plugin/`) in a **single repository (monorepo)**. During transition, a checkout may still keep backend code under root `src/`, or develop the active plugin inside the vault at `.obsidian/plugins/incurator-obsidian-agent`. Knowledge is most effective when managed in different forms for machines and humans:
 - **AI Space (`.curator/`)**: The **Archive/Storage**. A machine-friendly backend designed for agents to instantly search and leverage knowledge.
 - **Human Space (`02_Wiki/`)**: The **Permanent Collection**. A beautiful knowledge library designed for users to read, manage, and own long-term.
+- **Client Space (`incurator-obsidian-agent`)**: The Obsidian client handles open-PDF context, split-view chips, chat UI, provider selection, and import/rebind approval. Durable source registry and RAG provenance belong to the backend.
 
-### 5. Knowledge Concentration & Growth
+### 5. Lossless External Resource Integration (Reference Mode & Hash Drift Defense)
+The system is designed to support **Reference Mode** for external reference PDFs such as Zotero files, avoiding forced duplication into the vault. If a user wants a vault-managed copy, the backend imports it into an approved `04_Resources/` destination. If the user wants the original location preserved, the backend tracks content hash and logical source identity. Even if the file hash drifts due to iPad Apple Pencil annotations or the physical path changes, the link can be healed through a human-in-the-loop confirmation process.
+
+### 6. Knowledge Concentration & Growth
 Knowledge only truly **Increments** when it is gathered in a **single, cohesive space** rather than being fragmented across decentralized silos. Incurator ensures that all insights are funneled into a single source of truth, providing an environment where information is organically connected and synthesized.
 
 As such, splitting your knowledge into multiple vaults solely for administrative organization is not recommended. However, if you require fundamentally different **Curator Personas** (e.g., a STEM specialist vs. a Cooking specialist) to maintain your knowledge, operating separate vaults allows each Curator to refine information through their own expert lens.
@@ -58,11 +62,11 @@ As such, splitting your knowledge into multiple vaults solely for administrative
 ### 📋 Prerequisites
 - **Core Environment**: Python 3.10+, Terminal, Note Editor (Obsidian recommended)
 - **Backend Accounts**: An API Key or subscription account is required for cloud models (Gemini, Claude, etc.).
-- **Automation Note**: You don't need to install Ollama (local models) or Node.js (search engine) manually; `./install.sh` handles these automatically.
+- **Automation Note**: Installing Ollama (local models) and Node.js (search engine), along with building the monorepo backend package and plugin, is automatically handled all at once by running `./setup.sh` in the root directory.
 - See the [User Guide](docs/guides/USER_GUIDE_EN.md) for more details.
 
 ### 🚀 Quick Start
-1.  **Install**: `./install.sh` (Automatically installs Ollama, Node.js, and the QMD search engine.)
+1.  **Install**: `./setup.sh` (Automatically installs the backend package, builds the plugin, and installs Ollama, Node.js, etc.)
 2.  **Initialize**: `wiki init <path/to/your/obsidian-vault>`
     > **Single Vault Principle**: Every folder initialized with `wiki init` has its own resident **Curator**. Since Incurator runs one Curator at a time, we strongly recommend maintaining **a single main vault** to maximize knowledge connectivity and growth.
     >
@@ -92,3 +96,5 @@ Check out our [Contribution Guide](docs/guides/CONTRIBUTION_GUIDE_EN.md) to get 
 - [MCP Integration Guide](docs/guides/MCP_USER_GUIDE_EN.md)
 - [Sync Ignore Guide](docs/guides/SYNC_IGNORE_GUIDE_EN.md)
 - [Project Philosophy](docs/philosophy/about_EN.md)
+- [v0.2.0 System Build Plan](docs/plans/INCURATOR_SYSTEM_BUILD.md)
+- [v0.2.0 Evidence Ledger](docs/plans/INCURATOR_SYSTEM_BUILD_EVIDENCE.md)

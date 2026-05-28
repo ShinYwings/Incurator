@@ -11,11 +11,12 @@ The **Incurator MCP Server** is the interface through which the Artist (human + 
 
 Ensure you have the MCP dependencies installed:
 ```bash
+cd backend
 uv pip install -e '.[mcp]'
 ```
 
 > [!NOTE]
-> The server uses the `VAULT_ROOT` environment variable to locate your vault. If not set, it will auto-discover the vault by walking up from the current directory.
+> The server uses the `VAULT_ROOT` environment variable to locate your vault. Agent/plugin integrations should set it explicitly whenever possible. The v0.2.0 contract prefers explicit failure over silently falling back to the current working directory when a vault cannot be resolved.
 
 ---
 
@@ -32,7 +33,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install ge
 {
   "mcpServers": {
     "Incurator": {
-      "command": "wiki",
+      "command": "/absolute/path/to/wiki",
       "args": ["mcp"],
       "env": {
         "VAULT_ROOT": "/absolute/path/to/your/vault"
@@ -41,6 +42,9 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install ge
   }
 }
 ```
+
+> [!TIP]
+> If you sync your configuration across multiple devices, the `command` absolute path might differ between Linux and macOS. Ensure you use the correct absolute path for the executable on each specific machine.
 
 ---
 
@@ -71,6 +75,35 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install ge
 - **Role**: List Atoms flagged for human review or carrying contradictory claims.
 
 ### 3.3 Knowledge Maintenance
+
+#### `curator_import_source`
+- **Role**: Register an external file with the Incurator backend. Depending on policy, the backend may connect it without copying through Reference Mode, or safely copy it into a user-approved `04_Resources/` destination.
+- **Parameters**: Depending on implementation stage, the input may be named `file_path` or `source_path`; both mean the absolute path to the external file. The policy must be explicit, such as `policy="reference"` or `destination_policy="mirror_03_to_04"`. Clients should call with `dry_run=true` first, show the proposal to the user, then call the mutating operation after approval.
+- **Destination rule**: External PDFs default to `04_Resources`, never `03_Notes`. If the active note is `03_Notes/Vision/Foo.md`, the default proposal is `04_Resources/Vision/Foo/<pdf-file>.pdf`. Without a linked note, the fallback proposal is `04_Resources/Inbox/<pdf-file>.pdf`.
+- **No overwrite**: Same-hash files reuse the existing source record. Same-name but different-hash collisions require a suffix or a human-selected destination.
+
+#### `curator_list_external_resources`
+- **Role**: Return the list of external libraries (e.g., Zotero) configured in the platform-aware global settings (`~/.config/curator/config.yml`) along with their active absolute paths.
+
+#### `curator_source_status`
+- **Role**: Check the processing status of a file and the status of the `external_path` fallback logic. Can be used to identify files that have been `MOVED`.
+- **Parameters**: Use whichever identifier the implementation supports: `source_id`, `logical_source_id`, `source_path`, or `file_path`.
+- **Obsidian plugin display**: The plugin can render this result as a PDF chip status badge, such as `untracked`, `queued`, `running L1`, `running L2`, `running L3`, `running L4`, `indexed`, `stale`, `moved`, or `error`.
+
+#### `curator_rebind_source`
+- **Role**: Heal broken links caused by Hash Drift (e.g., Apple Pencil annotations) or moved files. Re-establishes the connection for a `logical_source_id` with a new path and hash after human confirmation.
+- **Parameters**: `logical_source_id` (unique identifier), `new_path` (new absolute path).
+- **Important**: This tool must be called only after Human-in-the-Loop approval. The backend must separate proposal from mutation, and the client must show which file will be rebound to which logical source.
+
+#### `curator_search_source`
+- **Role**: Search within a specific source or PDF page range. The Obsidian plugin uses this to combine immediate viewer context with backend RAG results for the currently open PDF.
+- **Parameters**: `query`, `source_id` or `source_path`, optionally `page_start`, `page_end`, `limit`, and `mode`.
+- **Returns**: page number, score, snippet, and source provenance.
+
+#### `curator_get_pdf_page`
+- **Role**: Return backend-stored text/provenance for a specific PDF page.
+- **Parameters**: `source_id` or `source_path`, `page`.
+- **Use case**: Provides stable text context when the plugin viewer context is incomplete or when a provider strips image attachments.
 
 #### `curator_add_knowledge`
 - **Role**: Save a conversational insight as a new **L2 Atom**. This knowledge will be synthesized into the DAG in the next curation cycle.

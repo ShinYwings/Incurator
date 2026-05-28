@@ -41,12 +41,16 @@ Incurator는 대부분 지식의 닫힌 순환(수집 → 처리 → 활용 → 
 ### 3. 토큰 최적화 (AI를 위한 FinOps)
 사전 지식을 요약·원자화하는 **단순 컴파일**은 비추론 모델에, 복잡한 계산이나 정교한 추론이 필요한 **창의적 합성**은 추론 모델에 맡기세요. 역할 분리로 지식 관리 비용을 획기적으로 낮춥니다.
 
-### 4. AI와 인간을 위한 이원화 구조
-지식은 기계와 인간에게 각각 다른 형태로 존재할 때 가장 효율적입니다. Incurator는 이를 위해 실제 디렉토리 구조를 이원화하여 관리합니다.
+### 4. AI와 인간을 위한 이원화 및 모노레포(Monorepo) 구조
+Incurator v0.2.0의 목표 구조는 파이썬 백엔드 데몬(`backend/`)과 Obsidian 플러그인 클라이언트(`plugin/`)를 **단일 리포지토리(Monorepo)**로 통합하여 제공하는 것입니다. 전환 중인 checkout에서는 backend 코드가 아직 루트 `src/`에 있거나 활성 플러그인이 vault 내부 `.obsidian/plugins/incurator-obsidian-agent`에서 개발될 수 있습니다. 지식은 기계와 인간에게 각각 다른 형태로 존재할 때 가장 효율적입니다.
 -   **AI 공간 (`.curator/`)**: 지식의 **수장고(Archive/Storage)**. 에이전트가 지식을 즉각적으로 탐색하고 활용할 수 있도록 설계된 기계 친화적 백엔드입니다.
 -   **인간 공간 (`02_Wiki/`)**: 지식의 **상설전시실(Permanent Collection)**. 사용자가 직접 읽고 관리하며 장기적으로 소유할 수 있게 정리된 아름다운 지식 서재입니다.
+-   **클라이언트 공간 (`incurator-obsidian-agent`)**: 열린 PDF, split view, chat UI, provider 선택, import/rebind 승인 같은 사용자 상호작용을 담당합니다. 장기 source registry와 RAG provenance는 backend가 담당합니다.
 
-### 5. 지식의 집약과 성장 (Concentration & Growth)
+### 5. 외부 리소스 무손실 통합 (Reference Mode & Hash Drift 방어)
+Zotero와 같은 외부 레퍼런스 PDF 파일들을 보관소 내부로 강제 복사하여 대역폭을 낭비하지 않는 **Reference Mode**를 지원하는 방향으로 설계되어 있습니다. 사용자가 vault-managed copy를 원하면 `04_Resources/` 아래 목적지를 승인해 복사할 수 있고, 원본 위치를 유지하고 싶으면 외부 파일의 Content Hash와 logical source identity를 추적합니다. iPad의 Apple Pencil 필기로 인해 파일 해시가 변동(Hash Drift)되거나 물리적 파일 위치가 바뀌어도, 인간의 확인 절차를 거쳐 지식의 연결 고리를 안전하게 치유합니다.
+
+### 6. 지식의 집약과 성장 (Concentration & Growth)
 지식은 파편화되어 분산되어 있을 때가 아니라, **단일한 공간에 응집되어 있을 때** 비로소 진정으로 연결되고 성장(**Increment**)할 수 있습니다. Incurator는 흩어진 정보를 하나의 진실 공급원(Single Source of Truth)으로 모아, 지식이 서로 유기적으로 연결되고 더 높은 차원으로 합성될 수 있는 환경을 제공합니다. 
 
 따라서 지식을 관리의 편의를 위해 여러 Vault로 나누는 것은 권장하지 않습니다. 하지만 지식을 대하는 **큐레이터의 페르소나(전문성)**가 근본적으로 달라야 하는 경우(예: STEM 전문 큐레이터 vs 요리 전문 큐레이터)에는 별도의 Vault를 운영하여 독립적인 지식 체계를 구축하는 것이 효과적입니다.
@@ -58,11 +62,11 @@ Incurator는 대부분 지식의 닫힌 순환(수집 → 처리 → 활용 → 
 ### 📋 사전 준비 사항
 - **필수 환경**: Python 3.10+, 터미널, 노트 편집기 (Obsidian 권장)
 - **백엔드 계정**: 클라우드 모델(Gemini, Claude 등) 사용 시 API 키 또는 구독 계정이 필요합니다.
-- **자동화 안내**: Ollama(로컬 모델) 및 Node.js(검색 엔진)는 `./install.sh` 실행 시 자동으로 설치를 시도하므로 미리 준비하실 필요가 없습니다.
+- **자동화 안내**: Ollama(로컬 모델) 및 Node.js(검색 엔진) 설치, 그리고 모노레포 백엔드 패키지와 플러그인 빌드는 루트 디렉토리의 `./setup.sh` 실행 시 한 번에 자동으로 처리됩니다.
 - 상세 정보는 [사용자 가이드](docs/guides/USER_GUIDE.md)를 참조하세요.
 
 ### 🚀 빠른 시작
-1.  **설치**: `./install.sh` (Ollama, Node.js, QMD 검색 엔진 등을 한 번에 자동 설치합니다.)
+1.  **설치**: `./setup.sh` (백엔드 패키지, 플러그인 빌드, Ollama, Node.js 등을 한 번에 자동 통합 설치합니다.)
 2.  **초기화**: `wiki init <path/to/your/obsidian-vault>`
     > **단일 보관소 원칙**: `wiki init`을 실행한 모든 폴더에는 전용 **Curator**가 상주하게 됩니다. Incurator는 한 번에 하나의 Curator만 실행할 수 있으므로, 지식의 연결성을 극대화하기 위해 모든 지식을 집약할 **단 하나의 메인 보관소(Vault)**를 운영하는 것을 강력히 권장합니다.
     > 
@@ -92,3 +96,5 @@ Incurator는 대부분 지식의 닫힌 순환(수집 → 처리 → 활용 → 
 - [MCP 연동 가이드](docs/guides/MCP_USER_GUIDE.md)
 - [동기화 제외 가이드](docs/guides/SYNC_IGNORE_GUIDE.md)
 - [프로젝트 철학 (about.md)](docs/philosophy/about.md)
+- [v0.2.0 시스템 빌드 플랜](docs/plans/INCURATOR_SYSTEM_BUILD.md)
+- [v0.2.0 Evidence Ledger](docs/plans/INCURATOR_SYSTEM_BUILD_EVIDENCE.md)

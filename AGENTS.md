@@ -118,6 +118,7 @@ Agents should refer to the specific scenario's `MASTER_PLAN.md` to understand th
 - **Initialization Requirement**: If the `testbed/` directory does not exist, the agent MUST initialize it using the active scenario's name (`wiki testbed init <scenario_name>`). If the USER explicitly refuses, the agent may skip testbed validation but must report the risk of unverified changes.
 - **Before Action**: Before changing behavior, reproduce or describe the failing scenario using `testbed/` or the active scenario assets.
 - **After Action**: After changing behavior, run the same scenario again and report the result.
+- **External Reference Validation**: Any testbed validation must explicitly consider and verify the behavior of Zotero or other external resource directories imported via Reference Mode (without hard copying files into the vault).
 - **Blockers**: If a dependency is unavailable, report the exact blocker and run every lower-level validation that does not need that dependency.
 - **Completion Criteria**: Do not treat a query/search change as complete until it has been checked with the testbed, or until the qmd/LLM blocker is documented.
 
@@ -154,7 +155,7 @@ When discussing or changing the system architecture, use these areas as the sour
 
 Treat older root-level specs as historical unless the user explicitly points to them for comparison.
 
-## v0.1.0 Invariants
+## v0.2.0 Invariants
 
 - The Curator DAG layers are `01_Contexts`, `02_Atoms`, `03_Concepts`, and
   `04_Exhibitions`.
@@ -165,7 +166,7 @@ Treat older root-level specs as historical unless the user explicitly points to 
 - `04_Resources/` and `06_Archives/` are read-only source/reference spaces.
 - `.curator/` is machine-readable Curator state. Modify it only through the
   project code or explicit testbed setup scripts.
-- Exclude `src/qmd/**` from incurator v0.1.0 legacy sweeps unless the task is
+- Exclude `backend/src/qmd/**` from incurator v0.2.0 legacy sweeps unless the task is
   explicitly about qmd itself.
 
 ## Multi-Agent Development Roles
@@ -173,7 +174,7 @@ Treat older root-level specs as historical unless the user explicitly points to 
 When a change is broad, split review or implementation thinking into these
 roles and then integrate the result in one coherent patch:
 
-- `schema_guardian`: checks v0.1.0 schema, layer names, prefixes, and
+- `schema_guardian`: checks v0.2.0 schema, layer names, prefixes, and
   frontmatter shape.
 - `source_pair_analyst`: checks that `03_Notes/Papers` notes and
   `04_Resources` references can merge into shared higher-level DAG concepts.

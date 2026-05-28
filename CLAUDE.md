@@ -121,29 +121,32 @@ Agents should refer to the specific scenario's `MASTER_PLAN.md` to understand th
 - **Initialization Requirement**: If the `testbed/` directory does not exist, the agent MUST initialize it using the active scenario's name (`wiki testbed init <scenario_name>`). If the USER explicitly refuses, the agent may skip testbed validation but must report the risk of unverified changes.
 - **Before Action**: Before changing behavior, reproduce or describe the failing scenario using `testbed/` or the active scenario assets.
 - **After Action**: After changing behavior, run the same scenario again and report the result.
+- **External Reference Validation**: Any testbed validation must explicitly consider and verify the behavior of Zotero or other external resource directories imported via Reference Mode (without hard copying files into the vault).
 - **Blockers**: If a dependency is unavailable, report the exact blocker and run every lower-level validation that does not need that dependency.
 - **Completion Criteria**: Do not treat a query/search change as complete until it has been checked with the testbed, or until the qmd/LLM blocker is documented.
 
 ## Development Commands
 
 ```bash
-# Install (creates venv, installs deps, runs hatch build hook for Node.js)
-./install.sh
+# Install backend, qmd dependencies, and plugin dependencies
+./setup.sh
 
 # Or manually with uv
+cd backend
 uv pip install -e ".[dev]"
 
 # Lint / type-check
-ruff check src/
-mypy src/
+ruff check backend/src/
+mypy backend/src/
 
 # Run tests
 pytest
 
 # Run a single test
-pytest tests/test_db.py::test_source_deduplication -v
+pytest backend/tests/test_db.py::test_source_deduplication -v
 
 # Build package
+cd backend
 hatch build
 
 # Recreate the ignored development validation vault
@@ -201,7 +204,7 @@ wiki sources list|show|rm  # Manage tracked source files
 | `ingest_raw.py` | File discovery, hash-based dedup, parser dispatch, L1 Context generation |
 | `ingest_llm.py` | Three-phase DAG construction: Phase A (atoms), Phase B (concepts), Phase C (exhibitions) |
 | `sync.py` | DAG integrity verification; Mode A (global reverse L4→L1) and Mode B (targeted bidirectional) |
-| `search.py` | Wraps `src/qmd/bin/qmd` binary (BM25 + vector + LLM rerank); builds Obsidian-compatible index |
+| `search.py` | Wraps `backend/src/qmd/bin/qmd` binary (BM25 + vector + LLM rerank); builds Obsidian-compatible index |
 | `query.py` | Retrieval + LLM synthesis with citation management |
 | `llm.py` | Multi-provider clients: `OllamaClient`, `GeminiClient`, `ClaudeClient`, `OpenAIClient`, `FailoverClient` |
 | `config.py` | Vault topology, `.curator/config.yml` loading, path resolution |
@@ -252,7 +255,7 @@ When discussing or changing the system architecture, use these areas as the sour
 
 Treat older root-level specs as historical unless the user explicitly points to them for comparison.
 
-## v0.1.0 Invariants
+## v0.2.0 Invariants
 
 - The Curator DAG layers are `01_Contexts`, `02_Atoms`, `03_Concepts`, and `04_Exhibitions`.
 - Valid node prefixes are `CTX-`, `ATM-`, `CON-`, and `EXH-`.
@@ -260,13 +263,13 @@ Treat older root-level specs as historical unless the user explicitly points to 
 - `03_Notes/` is human-verified source truth. Do not edit it autonomously.
 - `04_Resources/` and `06_Archives/` are read-only source/reference spaces.
 - `.curator/` is machine-readable Curator state. Modify it only through the project code or explicit testbed setup scripts.
-- Exclude `src/qmd/**` from Incurator v0.1.0 legacy sweeps unless the task is explicitly about qmd itself.
+- Exclude `backend/src/qmd/**` from Incurator v0.2.0 legacy sweeps unless the task is explicitly about qmd itself.
 
 ## Multi-Agent Development Roles
 
 When a change is broad, split review or implementation thinking into these roles and then integrate the result in one coherent patch:
 
-- `schema_guardian`: checks v0.1.0 schema, layer names, prefixes, and frontmatter shape.
+- `schema_guardian`: checks v0.2.0 schema, layer names, prefixes, and frontmatter shape.
 - `source_pair_analyst`: checks that `03_Notes/Papers` notes and `04_Resources` references can merge into shared higher-level DAG concepts.
 - `topic_boundary_checker`: checks that unrelated `02_Wiki` topics remain distinguishable from the paper/resource topic.
 - `cli_regression_runner`: checks `wiki init/status/add/curate/lint/reindex/query` smoke behavior in the testbed.

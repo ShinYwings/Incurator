@@ -150,3 +150,32 @@ VAULT_ROOT=testbed wiki curate
 # 특정 클레임 검증
 VAULT_ROOT=testbed wiki query "fixture domain을 대표하는 질문을 입력하세요"
 ```
+
+---
+
+## 7. 단일 리포지토리(Monorepo) 기여 가이드라인 (v0.2.0)
+
+Incurator v0.2.0의 목표 구조는 파이썬 백엔드 데몬(`backend/`)과 Obsidian 플러그인 클라이언트(`plugin/`)가 단일 리포지토리(Monorepo)로 통합되어 관리되는 것입니다. 전환 중인 checkout에서는 아직 backend 코드가 루트의 `src/`, `tests/`, `pyproject.toml`에 남아 있거나, 활성 플러그인이 Obsidian vault 내부의 `.obsidian/plugins/incurator-obsidian-agent`에서 개발되고 있을 수 있습니다. 기여자는 목표 구조와 현재 checkout 구조를 혼동하지 않아야 합니다.
+
+- **PR(Pull Request) 단위**: 백엔드와 플러그인의 변경 사항이 강하게 결합되는 기능(예: Reference Mode 추가 및 UI 연동)의 경우, 분리하지 않고 하나의 PR로 묶어 리뷰 컨텍스트를 유지하는 것을 권장합니다.
+- **빌드 및 환경 검증**: PR 제출 전 리포지토리 루트의 `./setup.sh` 스크립트를 실행하여, 파이썬 패키지 설치와 Node.js 플러그인 빌드가 모두 정상적으로 완료되는지 반드시 확인하십시오.
+- **린팅 및 타입 체크**: 파이썬 코드는 `backend/`에서 `ruff`와 `mypy`를 통과해야 하며, 플러그인 코드는 `plugin/`에서 타입스크립트 린트를 통과해야 합니다.
+
+### 7.1 Backend/Client 경계
+
+- Incurator backend는 `.curator/state.sqlite`, source registry, PDF page provenance, L1-L4 DAG, QMD search, MCP tools를 소유합니다.
+- Obsidian 플러그인은 client입니다. 열린 PDF context 수집, 채팅 UI, import/rebind 승인 modal, provider prompt assembly를 담당합니다.
+- 플러그인은 `.curator/state.sqlite`를 직접 쓰면 안 됩니다. 필요한 상태 변경은 MCP/CLI backend API를 통해 요청해야 합니다.
+- MCP/backend는 `03_Notes/`를 조용히 수정하면 안 됩니다. 인간 노트 수정은 별도 승인과 diff/confirm 흐름이 필요합니다.
+
+### 7.2 Evidence Gate
+
+큰 구조 변경을 시작하기 전에는 `docs/plans/INCURATOR_SYSTEM_BUILD_EVIDENCE.md`에 다음을 기록하세요.
+
+- 현재 active source path와 target source path
+- 변경하려는 파일/디렉토리가 backend인지 client인지
+- 실행한 검증 명령과 결과
+- 실패가 pre-existing인지 새 변경으로 생긴 것인지
+- rollback할 수 없는 migration이 있는지
+
+이 문서는 요약 보고서가 아니라 다음 작업자가 이어받기 위한 인계 장부입니다.

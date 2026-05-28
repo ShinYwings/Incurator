@@ -11,7 +11,7 @@ Before installing the system, ensure the following tools are installed:
 1.  **Python 3.10+**: The core logic is written in Python.
 2.  **Terminal**: All commands are executed within a CLI environment.
 3.  **Note Editor (Obsidian Recommended)**: The primary tool for visualizing and editing your knowledge base. While any text editor that supports Markdown can be used, the system is optimized for Obsidian's link structure and plugin ecosystem.
-4.  **Node.js**: Required for building the search engine (QMD) and running the MCP server. (Note: `./install.sh` handles the installation of Node.js and Ollama automatically, so you don't need to prepare them separately.)
+4.  **Node.js**: Required for building the search engine (QMD) and running the MCP server. (Note: `./setup.sh` handles the installation of Node.js, Ollama, the backend package, and the plugin automatically, so you don't need to prepare them separately.)
 5.  **Curator Engine Backends**: At least one model backend is required, supporting both local and cloud providers.
     - **Local LLM (Ollama)**: Provides strong privacy and offline capabilities with no additional cost. (Requires VRAM)
     - **Subscription Services (Providers)**: Leverages external engines like Gemini, Claude, and OpenAI. These do not consume local VRAM and offer high reasoning performance. (Note: Standard universal models are sufficient for the curation phase; high-cost reasoning-only models are not strictly required.)
@@ -54,7 +54,7 @@ To maintain the powerful performance of Incurator and manage your knowledge safe
 ### 1. Installation
 Run the installation script to set up the environment and build the necessary components:
 ```bash
-./install.sh
+./setup.sh
 ```
 
 ### 2. Initialize a Vault
@@ -154,6 +154,32 @@ With this command, the Curator parses the raw data to automatically perform **L1
 - To recursively register all files within a specific folder, use the `-r` option.
 
 Once your knowledge is safely registered in the vault, it's time to set up your own "Studio" to actually use it for specific projects.
+
+---
+
+## 📄 External PDFs And Reference Mode
+
+External files such as research PDFs owned by Zotero, iCloud, Syncthing, or a browser download folder can be connected to Incurator in two ways.
+
+### 1. Copy Import
+
+The file is copied into `04_Resources/` and becomes a vault-managed resource.
+
+- PDFs do not belong in `03_Notes/`. `03_Notes/` is for human-authored notes.
+- If the active note is `03_Notes/Vision/Foo.md`, the default destination is `04_Resources/Vision/Foo/<pdf-file>.pdf`.
+- If no linked note exists, the fallback destination is `04_Resources/Inbox/<pdf-file>.pdf`.
+- Existing files are never overwritten. Same-hash files reuse the existing source; same-name but different-hash collisions require a suffix or a user-selected destination.
+
+### 2. Reference Mode
+
+The file stays in its original location while the Incurator backend registers it as a tracked source. This is best for libraries managed by external tools such as Zotero.
+
+- The backend calculates the content hash and records a source entry in `state.sqlite`.
+- `external_path` is only a recoverable location hint. The durable identity is the content hash plus logical source identity.
+- If iPad annotations or an external app change the PDF bytes, the backend should detect this as Hash Drift.
+- If the file moves, the backend may rediscover it inside configured external roots, but final rebind must happen only after human approval.
+
+The Obsidian plugin may answer immediate questions about an open PDF using viewer context, but durable source tracking, page provenance, and long-term RAG belong to the Incurator backend.
 
 ---
 
