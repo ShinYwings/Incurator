@@ -1,0 +1,35 @@
+# Dependency directories
+node_modules/
+
+# Built files
+main.js
+dist/
+build/
+
+# Local/Test data files
+data.json
+claude_test.json
+test-drag.js
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDEs and editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Local env files
+.env.local
+.env.*.local
+
+# Syncthing files
+.stversions/
+.stfolder/
+~syncthing~*
+.*.syncthing.*.tmp

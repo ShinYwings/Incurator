@@ -1,0 +1,3044 @@
+import {
+  ItemView,
+  WorkspaceLeaf,
+  MarkdownRenderer,
+  setIcon,
+  TFile,
+  Notice,
+  Menu,
+  Modal,
+  App,
+  MarkdownView,
+} from "obsidian";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import { join } from "path";
+import type ObsidianAIAgent from "../../main";
+import { IncuratorClient, type IncuratorHit } from "../agent/incuratorClient";
+import {
+  EXTERNAL_PDF_CONTEXT_EVENT,
+  EXTERNAL_PDF_VIEW_TYPE,
+  ExternalPdfView,
+  registerExternalPdf,
+} from "./externalPdfView";
+import { IngestDestinationModal } from "./ingestDestinationModal";
+import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
+import { normalizeLatexDelimiters, truncateToLength } from "../utils/textUtils";
+import { inferIngestDestination } from "../utils/pathUtils";
+import { DiffViewer } from "./diffViewer";
+import {
+  DEFAULT_MODELS,
+  MODEL_OPTIONS,
+  type ChatMessage,
+  type ChatMode,
+  type ChatSession,
+  type CodexReasoningEffort,
+  type ContextRef,
+  type IncuratorSourceStatus,
+  type LLMMessage,
+  type LLMContentPart,
+  type LLMProvider,
+  type PdfOutlineItem,
+  type PdfRagHit,
+  type PdfWindowPage,
+  type StreamChunk,
+  getModelOption,
+  modelSupportsVision,
+} from "../types";
+
+export interface MultiEditProposal {
+  filepath: string;
+  search: string;
+  replace: string;
+  originalBlock: string;
+}
+
+export const CHAT_VIEW_TYPE = "ai-agent-chat";
+
+function leafContainerEl(leaf: WorkspaceLeaf): HTMLElement {
+  return (leaf as unknown as { containerEl: HTMLElement }).containerEl;
+}
+
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
+const CUSTOM_MODEL_VALUE = "__custom__";
+const RULES_CONTEXT_LIMIT = 12000;
+const CONTINUITY_MESSAGE_LIMIT = 6;
+
+export class ChatSidebarView extends ItemView {
+  private plugin: ObsidianAIAgent;
+  private messages: ChatMessage[] = [];
+  private messagesContainer!: HTMLElement;
+  private inputEl!: HTMLTextAreaElement;
+  private sendBtn!: HTMLButtonElement;
+  private contextChipsContainer!: HTMLElement;
+  private providerSelectEl!: HTMLSelectElement;
+  private modelSelectEl!: HTMLSelectElement;
+  private sessionBtn!: HTMLButtonElement;
+  private modeSelectEl!: HTMLSelectElement;
+  private reasoningSelectEl!: HTMLSelectElement;
+  private customModelInputEl!: HTMLInputElement;
+  private inputAreaEl!: HTMLElement;
+  private dropOverlayEl!: HTMLElement;
+  private pendingContextRefs: ContextRef[] = [];
+  private cachedAutoContextRefs: ContextRef[] = [];
+  private activeContextExcludedKey: string | null = null;
+  private isGenerating = false;
+  private thinkingTimer: ReturnType<typeof setInterval> | null = null;
+  private thinkingStartTime = 0;
+  private splitDropOverlay: HTMLElement | null = null;
+  private splitDropSide: "left" | "right" | "top" | "bottom" | "center" = "center";
+  private splitDropTarget: WorkspaceLeaf | null = null;
+  private incuratorClient: IncuratorClient | null = null;
+  private incuratorStatusByPath = new Map<string, IncuratorSourceStatus>();
+  private incuratorStatusInFlight = new Set<string>();
+  private prepareStatusText = "";
+
+  constructor(leaf: WorkspaceLeaf, plugin: ObsidianAIAgent) {
+    super(leaf);
+    this.plugin = plugin;
+  }
+
+  getViewType(): string {
+    return CHAT_VIEW_TYPE;
+  }
+
+  getDisplayText(): string {
+    return "AI Agent";
+  }
+
+  getIcon(): string {
+    return "bot";
+  }
+
+  async onOpen(): Promise<void> {
+    const container = this.containerEl.children[1] as HTMLElement;
+    container.empty();
+    container.addClass("ai-agent-chat-container");
+
+    // ── Messages area ──
+    this.messagesContainer = container.createDiv("ai-agent-chat-messages");
+    await this.loadActiveSession();
+    this.renderMessages();
+
+    // ── Input area (bottom dock) ──
+    this.inputAreaEl = container.createDiv("ai-agent-chat-input-area");
+
+    // Refresh context chips whenever the active leaf changes.
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        setTimeout(() => {
+          this.activeContextExcludedKey = null;
+          this.renderContextChips();
+        }, 0);
+      })
+    );
+    this.registerDomEvent(
+      window,
+      EXTERNAL_PDF_CONTEXT_EVENT as keyof WindowEventMap,
+      () => {
+      this.renderContextChips();
+      }
+    );
+
+    // Drop overlay (hidden by default)
+    this.dropOverlayEl = this.inputAreaEl.createDiv("ai-agent-drop-overlay");
+    this.dropOverlayEl.createDiv({
+      cls: "ai-agent-drop-overlay-content",
+      text: "📎 Drop files here",
+    });
+
+    // Context chips
+    this.contextChipsContainer = this.inputAreaEl.createDiv(
+      "ai-agent-context-chips"
+    );
+    this.setupChipsDrop();
+    this.renderContextChips();
+
+    // Input row: attach + textarea + send
+    const inputRow = this.inputAreaEl.createDiv("ai-agent-chat-input-row");
+
+    // Attach button
+    const attachBtn = inputRow.createEl("button", {
+      cls: "ai-agent-icon-btn ai-agent-attach-btn",
+      attr: { "aria-label": "Attach file or image" },
+    });
+    setIcon(attachBtn, "paperclip");
+    attachBtn.addEventListener("click", () => this.openFilePicker());
+
+    this.inputEl = inputRow.createEl("textarea", {
+      cls: "ai-agent-chat-input",
+      attr: {
+        placeholder: "Ask anything... (Shift+Enter for newline)",
+        rows: "1",
+      },
+    });
+
+    this.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+
+        // Capture line-range from active Markdown editor before focus shifts
+        const pinnedSnapshot = this.pendingContextRefs.filter((ref) => ref.isPinned);
+        const activeLeaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
+        if (activeLeaf?.view instanceof MarkdownView) {
+          const mdView = activeLeaf.view as MarkdownView;
+          const editor = mdView.editor;
+          const file = mdView.file;
+          if (file && editor) {
+            const from = editor.getCursor("from");
+            const to = editor.getCursor("to");
+            const hasSelection = from.line !== to.line || from.ch !== to.ch;
+            const lineStart = from.line + 1;
+            const lineEnd = (hasSelection ? to : from).line + 1;
+            const selectedText = hasSelection ? editor.getSelection() : editor.getLine(from.line);
+            // Replace any prior line-range ref for the same file
+            this.pendingContextRefs = this.pendingContextRefs.filter(
+              (r) => !(r.type === "line-range" && r.filePath === file.path)
+            );
+            this.pendingContextRefs.push({
+              type: "line-range",
+              label: `${file.name} L${lineStart}${lineStart !== lineEnd ? `-${lineEnd}` : ""}`,
+              content: selectedText,
+              filePath: file.path,
+              lineStart,
+              lineEnd,
+            });
+          }
+        }
+
+        window.setTimeout(() => {
+          for (const ref of pinnedSnapshot) {
+            const exists = this.pendingContextRefs.some(
+              (current) =>
+                current.type === ref.type &&
+                current.label === ref.label &&
+                current.filePath === ref.filePath
+            );
+            if (!exists) {
+              this.pendingContextRefs.push(ref);
+            }
+          }
+          this.renderContextChips();
+        }, 0);
+        return;
+      }
+
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        this.handleSend();
+      }
+    });
+
+    this.inputEl.addEventListener("input", () => {
+      this.inputEl.style.height = "auto";
+      this.inputEl.style.height =
+        Math.min(this.inputEl.scrollHeight, 150) + "px";
+    });
+
+    this.sendBtn = inputRow.createEl("button", {
+      cls: "ai-agent-send-btn",
+      attr: { "aria-label": "Send message" },
+    });
+    setIcon(this.sendBtn, "send");
+    this.sendBtn.addEventListener("click", () => this.handleSend());
+
+    // ── Bottom toolbar: provider & model (Antigravity style) ──
+    const toolbar = this.inputAreaEl.createDiv("ai-agent-bottom-toolbar");
+
+    const newChatBtn = toolbar.createEl("button", {
+      cls: "ai-agent-icon-btn ai-agent-new-chat-btn",
+      attr: { "aria-label": "New conversation", title: "New chat" },
+    });
+    setIcon(newChatBtn, "square-pen");
+    newChatBtn.addEventListener("click", async () => {
+      await this.createNewChatSession();
+      this.restoreInputFocus();
+    });
+
+    this.sessionBtn = toolbar.createEl("button", {
+      cls: "ai-agent-session-btn",
+      attr: { "aria-label": "Chat history", title: "Chat history" },
+    });
+    this.sessionBtn.addEventListener("click", () => {
+      new ChatHistoryModal(
+        this.app,
+        this.plugin,
+        (id) => this.onSessionChange(id),
+        (id) => this.deleteChatSessionById(id)
+      ).open();
+    });
+
+    this.modeSelectEl = toolbar.createEl("select", {
+      cls: "ai-agent-mode-select",
+      attr: { "aria-label": "Chat mode", title: "Chat mode" },
+    });
+    [
+      { value: "chat", label: "Chat" },
+      { value: "plan", label: "Plan" },
+    ].forEach((mode) => {
+      this.modeSelectEl.createEl("option", {
+        value: mode.value,
+        text: mode.label,
+      });
+    });
+    this.modeSelectEl.value = this.plugin.settings.chatMode;
+    this.modeSelectEl.addEventListener("change", () => {
+      this.onModeChange(this.modeSelectEl.value as ChatMode);
+      this.restoreInputFocus();
+    });
+
+    // Provider selector
+    this.providerSelectEl = toolbar.createEl("select", {
+      cls: "ai-agent-provider-select",
+      attr: { "aria-label": "Provider", title: "Provider" },
+    });
+    const providers: { value: LLMProvider; label: string }[] = [
+      { value: "antigravity", label: "Antigravity" },
+      { value: "claude", label: "Claude" },
+      { value: "openai", label: "Codex" },
+    ];
+    for (const p of providers) {
+      const opt = this.providerSelectEl.createEl("option", {
+        value: p.value,
+        text: p.label,
+      });
+      if (p.value === this.plugin.settings.provider) {
+        opt.selected = true;
+      }
+    }
+    this.providerSelectEl.addEventListener("change", () => {
+      this.onProviderChange(this.providerSelectEl.value as LLMProvider);
+    });
+
+    // Model selector
+    this.modelSelectEl = toolbar.createEl("select", {
+      cls: "ai-agent-model-select",
+      attr: { "aria-label": "Model", title: "Model" },
+    });
+    this.modelSelectEl.addEventListener("change", () => {
+      this.onModelSelectChange(this.modelSelectEl.value);
+    });
+
+    this.customModelInputEl = toolbar.createEl("input", {
+      cls: "ai-agent-custom-model-input",
+      attr: {
+        type: "text",
+        placeholder: "custom model id",
+        spellcheck: "false",
+        "aria-label": "Custom model id",
+      },
+    });
+    this.customModelInputEl.addEventListener("change", () => {
+      this.onCustomModelChange(this.customModelInputEl.value.trim());
+    });
+
+    this.reasoningSelectEl = toolbar.createEl("select", {
+      cls: "ai-agent-reasoning-select",
+    });
+    this.reasoningSelectEl.addEventListener("change", () => {
+      this.onReasoningChange(this.reasoningSelectEl.value);
+      this.restoreInputFocus();
+    });
+
+    this.syncModelControls();
+    this.syncSessionControls();
+
+    // ── Drag & Drop ──
+    this.setupDragAndDrop(container);
+    this.setupGlobalPdfDrop();
+
+    // ── Paste handler (paste images) ──
+    this.inputEl.addEventListener("paste", (e: ClipboardEvent) => {
+      this.handlePaste(e);
+    });
+  }
+
+  async onClose(): Promise<void> {
+    this.stopThinkingTimer();
+    this.splitDropOverlay?.remove();
+    this.splitDropOverlay = null;
+  }
+
+  // ── Public API ──────────────────────────────────────────────
+
+  addContextRef(ref: ContextRef): void {
+    const existing = this.pendingContextRefs.find(
+      (r) => r.type === ref.type && r.label === ref.label
+    );
+    if (!existing) {
+      this.pendingContextRefs.push(ref);
+      this.renderContextChips();
+    }
+  }
+
+  focusInput(): void {
+    this.inputEl?.focus();
+  }
+
+  // ── File / Media attachment ─────────────────────────────────
+
+  private openFilePicker(): void {
+    // Use a native file input to pick any file (images, text, etc. - PDF included as fallback)
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.multiple = true;
+    fileInput.accept = "image/*,.md,.txt,.pdf,.json,.csv,.ts,.js,.py";
+    fileInput.style.display = "none";
+    fileInput.addEventListener("change", async () => {
+      if (fileInput.files) {
+        for (const file of Array.from(fileInput.files)) {
+          await this.attachNativeFile(file);
+        }
+      }
+      fileInput.remove();
+    });
+    document.body.appendChild(fileInput);
+    fileInput.click();
+  }
+
+  private async attachNativeFile(
+    file: File,
+    explicitPath?: string
+  ): Promise<void> {
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    const isImage = IMAGE_EXTENSIONS.includes(ext) || file.type.startsWith("image/");
+
+    if (ext === "pdf" || file.type === "application/pdf") {
+      await this.openExternalPdf(file, explicitPath);
+      return;
+    }
+
+    if (isImage) {
+      // Read as base64
+      const base64 = await this.fileToBase64(file);
+      const ref: ContextRef = {
+        type: "file",
+        label: `🖼️ ${file.name}`,
+        content: "",
+        imageBase64: base64,
+      };
+      this.addContextRef(ref);
+      new Notice(`Attached image: ${file.name}`);
+    } else {
+      // Read as text
+      try {
+        const text = await file.text();
+        const ref: ContextRef = {
+          type: "file",
+          label: `📄 ${file.name}`,
+          content: text.slice(0, 50000), // Cap at 50K chars
+        };
+        this.addContextRef(ref);
+        new Notice(`Attached file: ${file.name}`);
+      } catch {
+        new Notice(`Could not read file: ${file.name}`);
+      }
+    }
+  }
+
+  private async attachVaultFile(file: TFile): Promise<void> {
+    const ext = file.extension.toLowerCase();
+    const isImage = IMAGE_EXTENSIONS.includes(ext);
+
+    if (ext === "pdf") {
+      await this.openPdfFile(file);
+      return;
+    }
+
+    if (isImage) {
+      // Read binary from vault and convert to base64
+      const arrayBuf = await this.app.vault.readBinary(file);
+      const base64 = this.arrayBufferToBase64(arrayBuf);
+      const ref: ContextRef = {
+        type: "file",
+        label: `🖼️ ${file.name}`,
+        content: "",
+        imageBase64: base64,
+        filePath: file.path,
+      };
+      this.addContextRef(ref);
+      new Notice(`Attached image: ${file.name}`);
+    } else {
+      // Read text from vault
+      try {
+        const text = await this.app.vault.read(file);
+        const ref: ContextRef = {
+          type: "file",
+          label: `📄 ${file.name}`,
+          content: text.slice(0, 50000),
+          filePath: file.path,
+        };
+        this.addContextRef(ref);
+        new Notice(`Attached file: ${file.name}`);
+      } catch {
+        new Notice(`Could not read file: ${file.name}`);
+      }
+    }
+  }
+
+  private async openExternalPdf(
+    file: File,
+    explicitPath?: string
+  ): Promise<void> {
+    try {
+      const pdfState = registerExternalPdf(file, explicitPath);
+      const leaf = this.getMainWorkspaceLeaf();
+      await leaf.setViewState({
+        type: EXTERNAL_PDF_VIEW_TYPE,
+        active: true,
+        state: pdfState,
+      });
+      this.app.workspace.revealLeaf(leaf);
+      window.dispatchEvent(new CustomEvent(EXTERNAL_PDF_CONTEXT_EVENT));
+      setTimeout(() => this.renderContextChips(), 0);
+      setTimeout(() => this.renderContextChips(), 250);
+      new Notice(`Opened external PDF: ${file.name}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      new Notice(`Could not open external PDF: ${msg}`);
+    }
+  }
+
+  /** Returns a leaf in the main editor area (never the sidebar). */
+  private getMainWorkspaceLeaf(): WorkspaceLeaf {
+    // getMostRecentLeaf(rootSplit) finds the last-used leaf in the main content area
+    const rootSplit = this.app.workspace.rootSplit;
+    const recent = this.app.workspace.getMostRecentLeaf(rootSplit);
+    if (recent) {
+      this.app.workspace.setActiveLeaf(recent, { focus: false });
+    }
+    return this.app.workspace.getLeaf("tab");
+  }
+
+  private async openPdfFile(file: TFile): Promise<void> {
+    const leaf = this.app.workspace.getLeaf("tab");
+    await leaf.openFile(file, { active: true });
+    this.app.workspace.revealLeaf(leaf);
+  }
+
+  // ── Drag & Drop ─────────────────────────────────────────────
+
+  private setupDragAndDrop(el: HTMLElement): void {
+    let dragCounter = 0;
+
+    this.registerDomEvent(el, "dragenter", (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter++;
+      this.dropOverlayEl.addClass("ai-agent-drop-active");
+    });
+
+    this.registerDomEvent(el, "dragleave", (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter--;
+      if (dragCounter <= 0) {
+        dragCounter = 0;
+        this.dropOverlayEl.removeClass("ai-agent-drop-active");
+      }
+    });
+
+    this.registerDomEvent(el, "dragover", (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+    });
+
+    this.registerDomEvent(el, "drop", async (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter = 0;
+      this.dropOverlayEl.removeClass("ai-agent-drop-active");
+
+      await this.handleDataTransferDrop(e.dataTransfer, false);
+    });
+  }
+
+  private setupGlobalPdfDrop(): void {
+    this.registerDomEvent(
+      document,
+      "dragover",
+      (e: DragEvent) => {
+        if (!e.dataTransfer || !this.hasPdfDrag(e.dataTransfer)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "copy";
+        this.updateSplitDropGuideline(e);
+      },
+      { capture: true }
+    );
+
+    this.registerDomEvent(
+      document,
+      "dragleave",
+      (e: DragEvent) => {
+        if (!e.relatedTarget) this.hideSplitDropGuideline();
+      },
+      { capture: true }
+    );
+
+    this.registerDomEvent(
+      document,
+      "dragend",
+      () => this.hideSplitDropGuideline(),
+      { capture: true }
+    );
+
+    this.registerDomEvent(
+      document,
+      "drop",
+      async (e: DragEvent) => {
+        if (!e.dataTransfer || !this.hasPdfDrop(e.dataTransfer)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const side = this.splitDropSide;
+        const target = this.splitDropTarget;
+        this.hideSplitDropGuideline();
+        // Drop on the chat sidebar itself → attach to chat context
+        if (target === this.leaf) {
+          await this.handleDataTransferDrop(e.dataTransfer, true);
+        } else {
+          await this.handleSplitDrop(e.dataTransfer, target, side);
+        }
+      },
+      { capture: true }
+    );
+  }
+
+  private updateSplitDropGuideline(e: DragEvent): void {
+    // Lazy-create fixed overlay
+    if (!this.splitDropOverlay) {
+      this.splitDropOverlay = document.body.createDiv("ai-agent-split-drop-overlay");
+    }
+
+    const leaf = this.getLeafAtPoint(e.clientX, e.clientY);
+
+    // Over the chat sidebar — use the existing drop overlay instead
+    if (leaf === this.leaf) {
+      this.splitDropOverlay.style.display = "none";
+      this.dropOverlayEl?.addClass("ai-agent-drop-active");
+      this.splitDropTarget = this.leaf;
+      this.splitDropSide = "center";
+      return;
+    }
+    this.dropOverlayEl?.removeClass("ai-agent-drop-active");
+
+    if (!leaf) {
+      this.splitDropOverlay.style.display = "none";
+      this.splitDropTarget = null;
+      return;
+    }
+
+    this.splitDropTarget = leaf;
+    const rect = leafContainerEl(leaf).getBoundingClientRect();
+    const relX = (e.clientX - rect.left) / rect.width;
+    const relY = (e.clientY - rect.top) / rect.height;
+    const edge = 0.28;
+
+    let side: typeof this.splitDropSide;
+    let ox = rect.left, oy = rect.top, ow = rect.width, oh = rect.height;
+
+    if (relX < edge) {
+      side = "left"; ow = rect.width / 2;
+    } else if (relX > 1 - edge) {
+      side = "right"; ox = rect.left + rect.width / 2; ow = rect.width / 2;
+    } else if (relY < edge) {
+      side = "top"; oh = rect.height / 2;
+    } else if (relY > 1 - edge) {
+      side = "bottom"; oy = rect.top + rect.height / 2; oh = rect.height / 2;
+    } else {
+      side = "center";
+    }
+
+    this.splitDropSide = side;
+
+    const overlay = this.splitDropOverlay;
+    overlay.style.display = "flex";
+    overlay.style.left = `${ox}px`;
+    overlay.style.top = `${oy}px`;
+    overlay.style.width = `${ow}px`;
+    overlay.style.height = `${oh}px`;
+
+    overlay.empty();
+    const labels: Record<typeof side, string> = {
+      left: "⬛ Split left",
+      right: "Split right ⬛",
+      top: "Split top",
+      bottom: "Split bottom",
+      center: "Open in tab",
+    };
+    overlay.createDiv({ cls: "ai-agent-split-drop-label", text: labels[side] });
+  }
+
+  private hideSplitDropGuideline(): void {
+    if (this.splitDropOverlay) this.splitDropOverlay.style.display = "none";
+    this.dropOverlayEl?.removeClass("ai-agent-drop-active");
+    this.splitDropTarget = null;
+  }
+
+  private getLeafAtPoint(x: number, y: number): WorkspaceLeaf | null {
+    const el = document.elementFromPoint(x, y);
+    if (!el) return null;
+    let found: WorkspaceLeaf | null = null;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (found) return;
+      if (leafContainerEl(leaf).contains(el)) found = leaf;
+    });
+    return found;
+  }
+
+  private async handleSplitDrop(
+    dataTransfer: DataTransfer,
+    targetLeaf: WorkspaceLeaf | null,
+    side: typeof this.splitDropSide
+  ): Promise<void> {
+    // Vault PDF (Obsidian internal drag)
+    const obsidianPath = dataTransfer.getData("text/plain");
+    if (obsidianPath) {
+      const vaultFile = this.app.vault.getAbstractFileByPath(obsidianPath);
+      if (vaultFile instanceof TFile && vaultFile.extension === "pdf") {
+        const leaf = this.resolveDropLeaf(targetLeaf, side);
+        await leaf.openFile(vaultFile, { active: true });
+        this.app.workspace.revealLeaf(leaf);
+        return;
+      }
+    }
+
+    // OS file drag
+    const pathHints = this.getExternalFilePathHints(dataTransfer);
+    const files = dataTransfer.files?.length
+      ? Array.from(dataTransfer.files)
+      : Array.from(dataTransfer.items ?? [])
+          .filter((i) => i.kind === "file")
+          .map((i) => i.getAsFile())
+          .filter((f): f is File => f !== null);
+
+    for (const [idx, file] of files.entries()) {
+      if (!this.isPdfFile(file)) continue;
+      try {
+        const pdfState = registerExternalPdf(file, pathHints[idx]);
+        const leaf = this.resolveDropLeaf(targetLeaf, side);
+        await leaf.setViewState({
+          type: EXTERNAL_PDF_VIEW_TYPE,
+          active: true,
+          state: pdfState,
+        });
+        this.app.workspace.revealLeaf(leaf);
+        new Notice(`Opened PDF: ${file.name}`);
+      } catch (err: unknown) {
+        new Notice(`Could not open PDF: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      break; // one PDF per drop
+    }
+  }
+
+  private resolveDropLeaf(
+    targetLeaf: WorkspaceLeaf | null,
+    side: typeof this.splitDropSide
+  ): WorkspaceLeaf {
+    if (side === "center" || !targetLeaf) {
+      return this.getMainWorkspaceLeaf();
+    }
+    const direction: "vertical" | "horizontal" =
+      side === "left" || side === "right" ? "vertical" : "horizontal";
+    this.app.workspace.setActiveLeaf(targetLeaf, { focus: false });
+    return this.app.workspace.getLeaf("split", direction);
+  }
+
+  private async handleDataTransferDrop(
+    dataTransfer: DataTransfer | null,
+    pdfOnly: boolean
+  ): Promise<void> {
+    if (!dataTransfer) return;
+
+    // 1. Obsidian internal file drag: vault path in text/plain.
+    const obsidianPath = dataTransfer.getData("text/plain");
+    if (obsidianPath) {
+      const file = this.app.vault.getAbstractFileByPath(obsidianPath);
+      if (file instanceof TFile && (!pdfOnly || file.extension === "pdf")) {
+        await this.attachVaultFile(file);
+        return;
+      }
+    }
+
+    // 2. OS files.
+    if (dataTransfer.files && dataTransfer.files.length > 0) {
+      const pathHints = this.getExternalFilePathHints(dataTransfer);
+      for (const [index, file] of Array.from(dataTransfer.files).entries()) {
+        if (!pdfOnly || this.isPdfFile(file)) {
+          await this.attachNativeFile(file, pathHints[index]);
+        }
+      }
+      return;
+    }
+
+    // 3. DataTransfer items.
+    if (dataTransfer.items) {
+      for (const item of Array.from(dataTransfer.items)) {
+        if (item.kind === "file") {
+          const file = item.getAsFile();
+          if (file && (!pdfOnly || this.isPdfFile(file))) {
+            await this.attachNativeFile(file);
+          }
+        }
+      }
+    }
+  }
+
+  private hasPdfDrag(dataTransfer: DataTransfer): boolean {
+    if (dataTransfer.items && dataTransfer.items.length > 0) {
+      return Array.from(dataTransfer.items).some(
+        (item) => item.kind === "file" && item.type === "application/pdf"
+      );
+    }
+    return Array.from(dataTransfer.types).includes("Files");
+  }
+
+  private hasPdfDrop(dataTransfer: DataTransfer): boolean {
+    const obsidianPath = dataTransfer.getData("text/plain");
+    if (obsidianPath) {
+      const file = this.app.vault.getAbstractFileByPath(obsidianPath);
+      if (file instanceof TFile && file.extension === "pdf") return true;
+    }
+
+    if (dataTransfer.files && dataTransfer.files.length > 0) {
+      return Array.from(dataTransfer.files).some((file) => this.isPdfFile(file));
+    }
+
+    if (dataTransfer.items && dataTransfer.items.length > 0) {
+      return Array.from(dataTransfer.items).some(
+        (item) => item.kind === "file" && item.type === "application/pdf"
+      );
+    }
+
+    return false;
+  }
+
+  private isPdfFile(file: File): boolean {
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    return ext === "pdf" || file.type === "application/pdf";
+  }
+
+  private getExternalFilePathHints(dataTransfer: DataTransfer): string[] {
+    const raw =
+      dataTransfer.getData("text/uri-list") ||
+      dataTransfer.getData("text/plain") ||
+      "";
+
+    return raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("file://"))
+      .map((line) => {
+        try {
+          return decodeURIComponent(new URL(line).pathname);
+        } catch {
+          return "";
+        }
+      })
+      .filter(Boolean);
+  }
+
+  // ── Paste handler ───────────────────────────────────────────
+
+  private async handlePaste(e: ClipboardEvent): Promise<void> {
+    if (!e.clipboardData) return;
+
+    const items = Array.from(e.clipboardData.items);
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const blob = item.getAsFile();
+        if (blob) {
+          const base64 = await this.fileToBase64(blob);
+          const ref: ContextRef = {
+            type: "file",
+            label: "🖼️ Pasted image",
+            content: "",
+            imageBase64: base64,
+          };
+          this.addContextRef(ref);
+          new Notice("Pasted image attached");
+        }
+      }
+    }
+  }
+
+  // ── Message Handling ────────────────────────────────────────
+
+  private async handleSend(): Promise<void> {
+    if (this.isGenerating) {
+      this.stopThinkingTimer();
+      this.plugin.llmClient.abort();
+      return;
+    }
+    const content = this.inputEl.value.trim();
+    if (!content) return;
+
+    const capturedActiveCtx = this.plugin.refreshActiveContext();
+    const contextRefs = [
+      ...this.buildAutoContextRefs(capturedActiveCtx),
+      ...(await this.materializeContextRefs(this.pendingContextRefs)),
+    ];
+    const userMsg: ChatMessage = {
+      id: this.generateId(),
+      role: "user",
+      content,
+      timestamp: Date.now(),
+      contextRefs: contextRefs.length > 0 ? contextRefs : undefined,
+    };
+    this.messages.push(userMsg);
+    this.pendingContextRefs = this.pendingContextRefs.filter((ref) => ref.isPinned);
+    this.activeContextExcludedKey = null;
+    this.renderContextChips();
+    await this.persistCurrentSession();
+
+    this.inputEl.value = "";
+    this.inputEl.style.height = "auto";
+
+    const assistantMsg: ChatMessage = {
+      id: this.generateId(),
+      role: "assistant",
+      content: "",
+      timestamp: Date.now(),
+      isStreaming: true,
+    };
+    this.messages.push(assistantMsg);
+    this.renderMessages();
+    await this.persistCurrentSession();
+
+    this.setPrepareStatus("Preparing context...");
+    const llmMessages = await this.buildLLMMessages(capturedActiveCtx);
+    this.prepareStatusText = "";
+
+    this.isGenerating = true;
+    setIcon(this.sendBtn, "square");
+    this.sendBtn.setAttribute("aria-label", "Stop generating");
+
+    try {
+      await this.plugin.llmClient.streamChat(
+        llmMessages,
+        (chunk: StreamChunk) => {
+          assistantMsg.content += chunk.text;
+          if (chunk.done) {
+            assistantMsg.isStreaming = false;
+          }
+          this.renderAssistantMessage(assistantMsg);
+        }
+      );
+    } catch (err: unknown) {
+      assistantMsg.isStreaming = false;
+      assistantMsg.content +=
+        `\n\n❌ Error: ${err instanceof Error ? err.message : String(err)}`;
+      this.renderAssistantMessage(assistantMsg);
+    } finally {
+      this.stopThinkingTimer();
+      this.isGenerating = false;
+      setIcon(this.sendBtn, "send");
+      this.sendBtn.setAttribute("aria-label", "Send message");
+      await this.persistCurrentSession();
+    }
+
+  }
+
+  private async buildLLMMessages(
+    activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>
+  ): Promise<LLMMessage[]> {
+    const llmMessages: LLMMessage[] = [];
+    const lastUserMessage = [...this.messages]
+      .reverse()
+      .find((msg) => msg.role === "user");
+    let systemText =
+      "You are an AI assistant embedded in Obsidian, a markdown knowledge base app. " +
+      "Help the user with their notes, research, and writing tasks. " +
+      "Format your responses in Markdown. " +
+      "When writing math, use Obsidian-compatible LaTeX delimiters: inline math as $...$ and display math as $$...$$. " +
+      "Do not use \\(...\\) or \\[...\\] math delimiters. " +
+      "Wrap every mathematical expression containing ^, _, \\infty, matrices, homographies, or quadrics in math delimiters. " +
+      "When the user asks you to modify Markdown notes, do not directly edit files or use write/edit tools. " +
+      "Instead, explain the intended changes briefly and output one or more `ai-agent-edit` blocks. " +
+      "Each block MUST target a single file and use SEARCH/REPLACE blocks. The SEARCH text must EXACTLY match the existing lines in the file. Format:\n" +
+      "```ai-agent-edit filepath=\"path/to/file.md\"\n" +
+      "<<<< SEARCH\n" +
+      "Exact lines to replace\n" +
+      "==== REPLACE\n" +
+      "New lines to insert\n" +
+      ">>>>\n" +
+      "```\n" +
+      "You can output multiple `ai-agent-edit` blocks in a single response to edit multiple files or multiple locations in a file.";
+
+    // Strongly encourage proactive use of incurator (or similar search tools) like Cursor's @codebase
+    const hasSearchMcp = this.plugin.settings.mcpServers.some(s => s.enabled && s.name.toLowerCase().includes('incurator'));
+    if (hasSearchMcp) {
+      systemText += 
+        "\n\nCRITICAL: The user has the 'incurator' MCP server enabled, which acts as their vault/codebase search engine. " +
+        "You MUST proactively use its search tools to explore the vault and gather relevant context BEFORE answering, " +
+        "even if the user does not explicitly ask you to search. Treat it exactly like the @codebase feature in Cursor.";
+    }
+
+    if (this.plugin.settings.chatMode === "plan") {
+      systemText +=
+        "\n\nPlan mode is enabled. First reason about the user's goal, then respond with a concise implementation plan. " +
+        "Do not modify files or imply that changes were made. Ask one short clarifying question only if the next action is genuinely ambiguous.";
+    }
+
+    const rulesContext = this.loadCursorStyleRules();
+    if (rulesContext) {
+      systemText += `\n\n<cursor_style_rules>\n${rulesContext}\n</cursor_style_rules>`;
+    }
+
+    const continuity = this.buildProviderSharedContext(activeCtx);
+    if (continuity) {
+      systemText += `\n\n<provider_shared_context>\n${continuity}\n</provider_shared_context>`;
+    }
+
+    const incuratorContext = await this.buildIncuratorProviderContext(
+      activeCtx,
+      lastUserMessage?.content || ""
+    );
+    if (incuratorContext) {
+      systemText += `\n\n<obsidian_incurator_context>\n${incuratorContext}\n</obsidian_incurator_context>`;
+    }
+
+    if (activeCtx?.openTabs && activeCtx.openTabs.length > 0) {
+      const tabLines = activeCtx.openTabs
+        .map((tab) => {
+          const marker = tab.isActive ? "*" : "-";
+          const path = tab.filePath ? ` (${tab.filePath})` : "";
+          return `${marker} ${tab.label} [${tab.viewType}]${path}`;
+        })
+        .join("\n");
+      systemText += `\n\nOpen Obsidian tabs (* = active):\n${tabLines}`;
+
+      const nonActiveMdTabs = activeCtx.openTabs.filter(
+        (tab) => !tab.isActive && tab.viewType === "markdown" && tab.content
+      );
+      if (nonActiveMdTabs.length > 0) {
+        const TAB_CONTENT_LIMIT = 8000;
+        const tabContents = nonActiveMdTabs
+          .map((tab) => {
+            const truncated =
+              tab.content!.length > TAB_CONTENT_LIMIT
+                ? tab.content!.slice(0, TAB_CONTENT_LIMIT) +
+                  `\n[...truncated at ${TAB_CONTENT_LIMIT} chars]`
+                : tab.content!;
+            return `### ${tab.label} (${tab.filePath})\n${truncated}`;
+          })
+          .join("\n\n---\n\n");
+        systemText += `\n\n<open_tabs_content>\n${tabContents}\n</open_tabs_content>`;
+      }
+    }
+
+    if (activeCtx?.filePath) {
+      const displayPath = activeCtx.absolutePath || activeCtx.filePath;
+      systemText += `\n\nCurrently active file: ${displayPath}`;
+    }
+    if (activeCtx?.viewType === "pdf" && activeCtx.pdfPage) {
+      systemText += `\n\nThe user is viewing a PDF. Current page: ${activeCtx.pdfPage.pageNum}`;
+    }
+
+    llmMessages.push({ role: "system", content: this.truncateContext(systemText) });
+
+    const activeContextParts = this.buildActiveContextParts(activeCtx);
+
+    for (const msg of this.messages) {
+      if (msg.role === "system") continue;
+
+      const contentParts: LLMContentPart[] = [];
+      const canSendImages = modelSupportsVision(
+        this.plugin.settings.provider,
+        this.plugin.settings.model
+      );
+
+      if (msg.contextRefs && msg.contextRefs.length > 0) {
+        for (const ref of msg.contextRefs) {
+          if (ref.sourceViewType === "auto") continue;
+          if (ref.content) {
+            contentParts.push({
+              type: "text",
+              text: `[Context: ${ref.label}]\n${ref.content}`,
+            });
+          }
+          if (ref.imageBase64 && canSendImages) {
+            contentParts.push({
+              type: "image",
+              mimeType: "image/png",
+              data: ref.imageBase64,
+            });
+          }
+        }
+      }
+
+      if (msg === lastUserMessage) {
+        contentParts.push(...activeContextParts);
+      }
+
+      contentParts.push({ type: "text", text: msg.content });
+
+      llmMessages.push({
+        role: msg.role as "user" | "assistant",
+        content: contentParts.length === 1 ? msg.content : contentParts,
+      });
+    }
+
+    return llmMessages;
+  }
+
+  private buildActiveContextParts(
+    activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>
+  ): LLMContentPart[] {
+    const parts: LLMContentPart[] = [];
+    const canSendImages = modelSupportsVision(
+      this.plugin.settings.provider,
+      this.plugin.settings.model
+    );
+
+    for (const ref of this.buildAutoContextRefs(activeCtx)) {
+      if (ref.content) {
+        parts.push({
+          type: "text",
+          text: `[Current context: ${ref.label}]\n${ref.content}`,
+        });
+      }
+      if (ref.imageBase64 && canSendImages) {
+        parts.push({ type: "image", mimeType: "image/png", data: ref.imageBase64 });
+      }
+    }
+
+    return parts;
+  }
+
+  private buildProviderSharedContext(
+    activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>
+  ): string {
+    const lines: string[] = [
+      "This chat session is provider-independent. If the user switches between Antigravity, Claude, and Codex, preserve the same task state, conversation decisions, pinned context, open tabs, and edit-review workflow.",
+      `Current provider/model: ${this.plugin.settings.provider} / ${this.plugin.settings.model}`,
+    ];
+
+    const activeSession = this.plugin.settings.chatSessions.find(
+      (session) => session.id === this.plugin.settings.activeChatSessionId
+    );
+    if (activeSession) {
+      lines.push(`Active chat: ${activeSession.title}`);
+    }
+
+    const pinnedRefs = this.pendingContextRefs.filter((ref) => ref.isPinned);
+    if (pinnedRefs.length > 0) {
+      lines.push(`Pinned context: ${pinnedRefs.map((ref) => ref.label).join(", ")}`);
+    }
+
+    const autoRefs = this.buildAutoContextRefs(activeCtx);
+    if (autoRefs.length > 0) {
+      lines.push(`Visible context: ${autoRefs.map((ref) => ref.label).join(", ")}`);
+    } else if (this.cachedAutoContextRefs.length > 0) {
+      lines.push(
+        `Recently visible context: ${this.cachedAutoContextRefs
+          .map((ref) => ref.label)
+          .join(", ")}`
+      );
+    }
+
+    const recentMessages = this.messages
+      .filter((msg) => msg.role === "user" || msg.role === "assistant")
+      .slice(-CONTINUITY_MESSAGE_LIMIT);
+    if (recentMessages.length > 0) {
+      lines.push("Recent session flow:");
+      for (const msg of recentMessages) {
+        const text = this.stripThinkingBlocks(msg.content)
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 700);
+        if (text) {
+          lines.push(`- ${msg.role}: ${text}`);
+        }
+      }
+    }
+
+    return lines.join("\n");
+  }
+
+  private async buildIncuratorProviderContext(
+    activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>,
+    query: string
+  ): Promise<string> {
+    if (this.plugin.settings.incuratorEnabled === false) return "";
+
+    const sections: string[] = [];
+    const client = this.getIncuratorClient();
+    const pdfTabs = (activeCtx?.openTabs ?? []).filter(
+      (tab) =>
+        (tab.viewType === "pdf" || tab.viewType === EXTERNAL_PDF_VIEW_TYPE) &&
+        tab.pdfPage
+    );
+
+    for (const tab of pdfTabs.slice(0, 3)) {
+      const pdf = tab.pdfPage;
+      if (!pdf) continue;
+
+      const sourcePath =
+        this.toAbsolutePath(pdf.filePath) ||
+        this.toAbsolutePath(tab.filePath) ||
+        (tab.isActive ? activeCtx.absolutePath : undefined);
+
+      const docLabel = tab.label.replace(/ p\.\d+$/, "");
+
+      this.setPrepareStatus(`Assembling PDF context — ${docLabel}...`);
+      const windowPages =
+        pdf.windowPages ||
+        (client.available
+          ? await client.getPdfWindow({
+              sourcePath,
+              documentId: pdf.documentId,
+              pageNum: pdf.pageNum,
+              radius: this.plugin.settings.pdfWindowRadius,
+            })
+          : []);
+      if (windowPages.length > 0) {
+        sections.push(
+          `<pdf_window document="${this.escapeAttribute(tab.label)}" current_page="${pdf.pageNum}">\n${this.formatPdfWindow(windowPages)}\n</pdf_window>`
+        );
+      }
+
+      if (this.plugin.settings.pdfOutlineEnabled) {
+        const outline =
+          pdf.outline ||
+          (client.available
+            ? await client.getDocumentOutline({
+                sourcePath,
+                documentId: pdf.documentId,
+              })
+            : []);
+        if (outline.length > 0) {
+          sections.push(
+            `<document_outline document="${this.escapeAttribute(tab.label)}">\n${this.formatOutline(outline)}\n</document_outline>`
+          );
+        }
+      }
+
+      if (this.plugin.settings.pdfRagEnabled && query.trim()) {
+        this.setPrepareStatus(`Searching PDF pages — ${docLabel}...`);
+        const ragHits =
+          pdf.ragHits ||
+          (client.available
+            ? await client.getPdfRagHits({
+                query,
+                sourcePath,
+                documentId: pdf.documentId,
+                topK: this.plugin.settings.pdfRagTopK,
+              })
+            : []);
+        if (ragHits.length > 0) {
+          sections.push(
+            `<pdf_rag_hits document="${this.escapeAttribute(tab.label)}" query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatRagHits(ragHits)}\n</pdf_rag_hits>`
+          );
+        }
+      }
+
+      if (pdf.textQuality) {
+        sections.push(
+          `<pdf_text_quality document="${this.escapeAttribute(tab.label)}" page="${pdf.pageNum}">\nscore=${pdf.textQuality.score}; scanned_like=${pdf.textQuality.isScannedLike}; source=${pdf.textQuality.source}${pdf.textQuality.reason ? `; reason=${pdf.textQuality.reason}` : ""}\n</pdf_text_quality>`
+        );
+      }
+    }
+
+    if (client.available && query.trim()) {
+      this.setPrepareStatus("Searching Incurator...");
+      const incuratorHits = await client.search(query, 6);
+      if (incuratorHits.length > 0) {
+        sections.push(
+          `<incurator_hits query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatIncuratorHits(incuratorHits)}\n</incurator_hits>`
+        );
+      }
+    }
+
+    return sections.join("\n\n");
+  }
+
+  private formatPdfWindow(pages: PdfWindowPage[]): string {
+    return pages
+      .map((page) => {
+        const text = this.truncateForProviderContext(page.text, 3000);
+        return `### Page ${page.pageNum}\n${text}`;
+      })
+      .join("\n\n");
+  }
+
+  private formatOutline(outline: PdfOutlineItem[]): string {
+    return outline
+      .slice(0, 80)
+      .map((item) => {
+        const indent = "  ".repeat(Math.max(0, item.level));
+        const page = item.pageNum ? ` p.${item.pageNum}` : "";
+        return `${indent}- ${item.title}${page}`;
+      })
+      .join("\n");
+  }
+
+  private formatRagHits(hits: PdfRagHit[]): string {
+    return hits
+      .slice(0, this.plugin.settings.pdfRagTopK)
+      .map((hit) => {
+        const section = hit.sectionTitle ? ` (${hit.sectionTitle})` : "";
+        return `- p.${hit.pageNum}${section} score=${hit.score}: ${this.truncateForProviderContext(hit.snippet, 700)}`;
+      })
+      .join("\n");
+  }
+
+  private formatIncuratorHits(hits: IncuratorHit[]): string {
+    return hits
+      .map((hit) => {
+        const where = [hit.path, hit.pageNum ? `p.${hit.pageNum}` : ""]
+          .filter(Boolean)
+          .join(" ");
+        const label = hit.title || where || "hit";
+        const score = typeof hit.score === "number" ? ` score=${hit.score}` : "";
+        return `- ${label}${where && label !== where ? ` (${where})` : ""}${score}: ${this.truncateForProviderContext(hit.snippet, 700)}`;
+      })
+      .join("\n");
+  }
+
+  private truncateForProviderContext(text: string, maxLength: number): string {
+    if (text.length <= maxLength) return text;
+    return `${text.slice(0, maxLength)}\n[...truncated]`;
+  }
+
+  private escapeAttribute(value: string): string {
+    return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  }
+
+  private loadCursorStyleRules(): string {
+    const basePath = (this.app.vault.adapter as unknown as { getBasePath?: () => string })
+      .getBasePath?.();
+    if (!basePath) return "";
+
+    const ruleFiles: string[] = [];
+    const legacyRules = join(basePath, ".cursorrules");
+    if (existsSync(legacyRules)) {
+      ruleFiles.push(legacyRules);
+    }
+
+    const rulesDir = join(basePath, ".cursor", "rules");
+    if (existsSync(rulesDir)) {
+      for (const entry of readdirSync(rulesDir)) {
+        const fullPath = join(rulesDir, entry);
+        if (!statSync(fullPath).isFile()) continue;
+        if (!/\.(mdc|md|txt)$/i.test(entry)) continue;
+        ruleFiles.push(fullPath);
+      }
+    }
+
+    const sections: string[] = [];
+    let remaining = RULES_CONTEXT_LIMIT;
+    for (const filePath of ruleFiles) {
+      if (remaining <= 0) break;
+      try {
+        const content = readFileSync(filePath, "utf-8").trim();
+        if (!content) continue;
+        const relative = filePath.startsWith(basePath)
+          ? filePath.slice(basePath.length + 1)
+          : filePath;
+        const section = `### ${relative}\n${content.slice(0, remaining)}`;
+        sections.push(section);
+        remaining -= section.length;
+      } catch {
+        // Ignore unreadable rule files; chat should still work.
+      }
+    }
+
+    return sections.join("\n\n---\n\n");
+  }
+
+  private stripThinkingBlocks(content: string): string {
+    return content
+      .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+      .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
+      .replace(/<details class="ai-agent-thought-block"[\s\S]*?<\/details>/gi, "");
+  }
+
+  private truncateContext(content: string): string {
+    return truncateToLength(content, this.plugin.settings.maxContextLength);
+  }
+
+  private getAutoContextKey(ref: ContextRef): string {
+    return `${ref.type}:${ref.filePath || ref.label.replace(/ p\.\d+$/, "")}`;
+  }
+
+  private buildAutoContextRefs(
+    activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>
+  ): ContextRef[] {
+    if (!activeCtx?.openTabs) return [];
+
+    const refs: ContextRef[] = [];
+    const seen = new Set<string>();
+
+    for (const tab of activeCtx.openTabs) {
+      let ref: ContextRef | null = null;
+      if (tab.viewType === "markdown" && tab.filePath) {
+        ref = {
+          type: "file",
+          label: tab.filePath.split("/").pop() || tab.label,
+          content: this.truncateContext(tab.selectedText || tab.content || ""),
+          filePath: tab.filePath,
+          sourceViewType: "auto",
+        };
+      } else if ((tab.viewType === "pdf" || tab.viewType === EXTERNAL_PDF_VIEW_TYPE) && tab.pdfPage) {
+        ref = {
+          type: "pdf-page",
+          label: `${tab.label} p.${tab.pdfPage.pageNum}`,
+          content: tab.pdfPage.text
+            ? this.truncateContext(tab.pdfPage.text)
+            : "(No extractable text on this page. Use the attached page image if available.)",
+          imageBase64: tab.pdfPage.imageBase64,
+          filePath: tab.filePath,
+          pageNum: tab.pdfPage.pageNum,
+          windowPages: tab.pdfPage.windowPages,
+          outline: tab.pdfPage.outline,
+          ragHits: tab.pdfPage.ragHits,
+          textQuality: tab.pdfPage.textQuality,
+          isScannedLike: tab.pdfPage.isScannedLike,
+          sourceViewType: "auto",
+        };
+      }
+
+      if (!ref) continue;
+      const key = this.getAutoContextKey(ref);
+      if (seen.has(key) || this.activeContextExcludedKey === key) continue;
+      seen.add(key);
+      refs.push(ref);
+    }
+
+    return refs;
+  }
+
+  private async createPinnedFileRef(
+    file: TFile,
+    viewType: string
+  ): Promise<ContextRef> {
+    const content = await this.readCurrentVaultFileContent(file);
+    return {
+      type: "file",
+      label: file.name,
+      content: this.truncateContext(content),
+      filePath: file.path,
+      isPinned: true,
+      sourceViewType: viewType,
+    };
+  }
+
+  private createPinnedPdfRef(tab: {
+    label: string;
+    viewType: string;
+    filePath?: string;
+  }): ContextRef | null {
+    let pdfCtx: { pageNum: number; text: string; imageBase64?: string } | null = null;
+
+    if (tab.viewType === EXTERNAL_PDF_VIEW_TYPE) {
+      for (const leaf of this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE)) {
+        const view = leaf.view as ExternalPdfView;
+        if (view.getDisplayText() === tab.label) {
+          pdfCtx = withVisionFallback(
+            view.getActivePdfContext(this.plugin.settings.pdfCaptureMode),
+            this.plugin.settings.pdfCaptureMode,
+            this.plugin.settings.pdfVisionFallback,
+            () => view.getActivePdfContext("image")?.imageBase64
+          );
+          break;
+        }
+      }
+    } else if (tab.filePath) {
+      for (const leaf of this.app.workspace.getLeavesOfType("pdf")) {
+        const view = leaf.view as unknown as { file?: TFile };
+        if (view.file?.path === tab.filePath) {
+          pdfCtx = withVisionFallback(
+            getPdfContext(leaf, this.plugin.settings.pdfCaptureMode),
+            this.plugin.settings.pdfCaptureMode,
+            this.plugin.settings.pdfVisionFallback,
+            () => getPdfContext(leaf, "image")?.imageBase64
+          );
+          break;
+        }
+      }
+    }
+
+    if (!pdfCtx) return null;
+    return {
+      type: "pdf-page",
+      label: `${tab.label} p.${pdfCtx.pageNum}`,
+      content: pdfCtx.text,
+      imageBase64: pdfCtx.imageBase64,
+      filePath: tab.filePath,
+      pageNum: pdfCtx.pageNum,
+      isPinned: true,
+      sourceViewType: tab.viewType,
+    };
+  }
+
+  private async materializeContextRefs(refs: ContextRef[]): Promise<ContextRef[]> {
+    const materialized: ContextRef[] = [];
+    for (const ref of refs) {
+      materialized.push(ref.isPinned ? await this.refreshPinnedContextRef(ref) : { ...ref });
+    }
+    return materialized;
+  }
+
+  private async refreshPinnedContextRef(ref: ContextRef): Promise<ContextRef> {
+    if (ref.type === "file" && ref.filePath) {
+      const vaultFile = this.app.vault.getAbstractFileByPath(ref.filePath);
+      if (vaultFile instanceof TFile) {
+        return {
+          ...ref,
+          content: this.truncateContext(await this.readCurrentVaultFileContent(vaultFile)),
+        };
+      }
+    }
+
+    if (ref.type === "pdf-page") {
+      const pdfCtx = this.capturePinnedPdfContext(ref);
+      if (pdfCtx) {
+        return {
+          ...ref,
+          label: ref.label.replace(/ p\.\d+$/, ` p.${pdfCtx.pageNum}`),
+          content: pdfCtx.text,
+          imageBase64: pdfCtx.imageBase64,
+          pageNum: pdfCtx.pageNum,
+        };
+      }
+    }
+
+    return { ...ref };
+  }
+
+  private async readCurrentVaultFileContent(file: TFile): Promise<string> {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const view = leaf.view as unknown as {
+        file?: TFile;
+        editor?: { getValue(): string };
+      };
+      if (view.file?.path === file.path && view.editor) {
+        return view.editor.getValue();
+      }
+    }
+    return await this.app.vault.cachedRead(file);
+  }
+
+  private capturePinnedPdfContext(ref: ContextRef): {
+    pageNum: number;
+    text: string;
+    imageBase64?: string;
+  } | null {
+    const baseLabel = ref.label.replace(/ p\.\d+$/, "");
+
+    for (const leaf of this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE)) {
+      const view = leaf.view as ExternalPdfView;
+      if (view.getDisplayText() === baseLabel) {
+        return withVisionFallback(
+          view.getActivePdfContext(this.plugin.settings.pdfCaptureMode),
+          this.plugin.settings.pdfCaptureMode,
+          this.plugin.settings.pdfVisionFallback,
+          () => view.getActivePdfContext("image")?.imageBase64
+        );
+      }
+    }
+
+    if (ref.filePath) {
+      for (const leaf of this.app.workspace.getLeavesOfType("pdf")) {
+        const view = leaf.view as unknown as { file?: TFile };
+        if (view.file?.path === ref.filePath) {
+          return withVisionFallback(
+            getPdfContext(leaf, this.plugin.settings.pdfCaptureMode),
+            this.plugin.settings.pdfCaptureMode,
+            this.plugin.settings.pdfVisionFallback,
+            () => getPdfContext(leaf, "image")?.imageBase64
+          );
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private getIncuratorClient(): IncuratorClient {
+    if (!this.incuratorClient) {
+      this.incuratorClient = new IncuratorClient(
+        this.plugin.mcpManager,
+        this.plugin.settings
+      );
+    }
+    return this.incuratorClient;
+  }
+
+  private toAbsolutePath(vaultRelPath: string | undefined): string | undefined {
+    if (!vaultRelPath) return undefined;
+    if (vaultRelPath.startsWith("/")) return vaultRelPath;
+    const adapter = this.app.vault.adapter as unknown as {
+      getFullPath?: (p: string) => string;
+      basePath?: string;
+      getBasePath?: () => string;
+    };
+    if (typeof adapter.getFullPath === "function") {
+      return adapter.getFullPath(vaultRelPath);
+    }
+    const basePath = adapter.basePath || adapter.getBasePath?.();
+    if (basePath) return `${basePath}/${vaultRelPath}`;
+    return vaultRelPath;
+  }
+
+  private getPdfRefSourcePath(ref: ContextRef): string | undefined {
+    return ref.backendStatus?.sourcePath || this.toAbsolutePath(ref.filePath);
+  }
+
+  private renderIncuratorStatusBadge(
+    chip: HTMLElement,
+    ref: ContextRef
+  ): void {
+    if (ref.type !== "pdf-page" || this.plugin.settings.incuratorEnabled === false) return;
+
+    const sourcePath = this.getPdfRefSourcePath(ref);
+    const cached = sourcePath ? this.incuratorStatusByPath.get(sourcePath) : ref.backendStatus;
+    const badge = chip.createSpan("ai-agent-context-chip-status");
+    this.updateIncuratorStatusBadge(badge, cached || { state: sourcePath ? "unknown" : "untracked" });
+
+    badge.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const fallback: IncuratorSourceStatus = { state: "unknown", sourcePath };
+      const latest =
+        (sourcePath ? this.incuratorStatusByPath.get(sourcePath) : undefined) ||
+        ref.backendStatus ||
+        cached ||
+        fallback;
+      this.onIncuratorStatusClick(ref, latest);
+    });
+
+    if (sourcePath) {
+      this.refreshIncuratorStatus(ref, badge);
+    }
+  }
+
+  private updateIncuratorStatusBadge(
+    badge: HTMLElement,
+    status: IncuratorSourceStatus
+  ): void {
+    badge.empty();
+    badge.setText(this.getIncuratorStatusLabel(status));
+    badge.dataset.state = status.state;
+    badge.setAttribute("title", status.message || `Incurator: ${status.state}`);
+  }
+
+  private getIncuratorStatusLabel(status: IncuratorSourceStatus): string {
+    switch (status.state) {
+      case "curated":
+        return "curated";
+      case "indexed":
+        return "indexed";
+      case "queued":
+        return "queued";
+      case "running":
+        if (status.runningLayer) {
+          return `running ${status.runningLayer.toUpperCase()}`;
+        }
+        return "ingesting";
+      case "stale":
+        return "stale";
+      case "missing":
+        return "missing";
+      case "moved":
+        return "moved";
+      case "hash_drift":
+        return "changed";
+      case "moved_and_hash_drift":
+        return "moved+changed";
+      case "error":
+        return "error";
+      case "untracked":
+        return "ingest";
+      default:
+        return "...";
+    }
+  }
+
+  private async refreshIncuratorStatus(
+    ref: ContextRef,
+    badge?: HTMLElement
+  ): Promise<void> {
+    const sourcePath = this.getPdfRefSourcePath(ref);
+    if (!sourcePath || this.incuratorStatusInFlight.has(sourcePath)) return;
+
+    this.incuratorStatusInFlight.add(sourcePath);
+    try {
+      const status = await this.getIncuratorClient().getSourceStatus(sourcePath);
+      this.incuratorStatusByPath.set(sourcePath, status);
+      ref.backendStatus = status;
+      if (badge?.isConnected) {
+        this.updateIncuratorStatusBadge(badge, status);
+      }
+      if (
+        this.plugin.settings.incuratorStatusPolling &&
+        (status.state === "queued" || status.state === "running")
+      ) {
+        window.setTimeout(() => {
+          if (badge?.isConnected) this.refreshIncuratorStatus(ref, badge);
+        }, 5000);
+      }
+    } finally {
+      this.incuratorStatusInFlight.delete(sourcePath);
+    }
+  }
+
+  private async onIncuratorStatusClick(
+    ref: ContextRef,
+    status: IncuratorSourceStatus
+  ): Promise<void> {
+    const sourcePath = this.getPdfRefSourcePath(ref) || status.sourcePath;
+    if (!sourcePath) {
+      new Notice("This PDF does not expose a filesystem path for Incurator ingest.");
+      return;
+    }
+
+    if (status.state === "queued" || status.state === "running") {
+      new Notice("Incurator is already ingesting this PDF.");
+      return;
+    }
+
+    if (status.requiresRebind || status.state === "moved" || status.state === "missing") {
+      if (!status.candidatePath) {
+        new Notice("Source is missing. No candidate path was found in configured external roots.");
+        return;
+      }
+      const approved = window.confirm(
+        `Rebind this Incurator source?\n\nFrom:\n${status.currentPath || sourcePath}\n\nTo:\n${status.candidatePath}`
+      );
+      if (!approved) return;
+      new Notice("Rebinding moved Incurator source...");
+      const nextStatus = await this.getIncuratorClient().rebindSource({
+        sourceId: status.sourceId,
+        sourcePath,
+        newPath: status.candidatePath,
+        apply: true,
+      });
+      this.incuratorStatusByPath.set(sourcePath, nextStatus);
+      ref.backendStatus = nextStatus;
+      this.renderContextChips();
+      return;
+    }
+
+    new IngestDestinationModal(
+      this.app,
+      ref.label.replace(/ p\.\d+$/, ""),
+      status.destinationRelpath || this.inferPdfIngestDestination(),
+      this.plugin.settings.incuratorDefaultImportMode,
+      async ({ destinationRelpath, importMode }) => {
+        const nextStatus = await this.getIncuratorClient().ingestPdf({
+          sourcePath,
+          displayName: ref.label.replace(/ p\.\d+$/, ""),
+          destinationRelpath,
+          importMode,
+        });
+        this.incuratorStatusByPath.set(sourcePath, nextStatus);
+        ref.backendStatus = nextStatus;
+        this.renderContextChips();
+      }
+    ).open();
+  }
+
+  private inferPdfIngestDestination(): string {
+    const configured = this.plugin.settings.incuratorDefaultDestination || "04_Resources";
+    const activeCtx = this.plugin.getActiveContext();
+    const mdPath =
+      activeCtx.viewType === "markdown" && activeCtx.filePath
+        ? activeCtx.filePath
+        : activeCtx.openTabs?.find((tab) => tab.viewType === "markdown" && tab.filePath)
+            ?.filePath;
+    return inferIngestDestination(mdPath, configured);
+  }
+
+  // ── Rendering ───────────────────────────────────────────────
+
+  private renderMessages(): void {
+    this.messagesContainer.empty();
+
+    if (this.messages.length === 0) {
+      const empty = this.messagesContainer.createDiv("ai-agent-chat-empty");
+      const emptyIcon = empty.createEl("div", {
+        cls: "ai-agent-chat-empty-icon",
+      });
+      setIcon(emptyIcon, "sparkles");
+      empty.createEl("div", {
+        cls: "ai-agent-chat-empty-text",
+        text: "Ask from your notes",
+      });
+      empty.createEl("div", {
+        cls: "ai-agent-chat-empty-hint",
+        text: "Drop files, paste images, or type a question",
+      });
+      return;
+    }
+
+    for (const msg of this.messages) {
+      this.renderMessage(msg);
+    }
+    this.scrollToBottom();
+  }
+
+  private renderMessage(msg: ChatMessage): void {
+    const msgEl = this.messagesContainer.createDiv(
+      `ai-agent-chat-msg ai-agent-chat-msg-${msg.role}`
+    );
+
+    const roleEl = msgEl.createDiv("ai-agent-chat-msg-role");
+    roleEl.setText(msg.role === "user" ? "You" : "AI Agent");
+    this.renderAssistantMessageActions(roleEl, msg);
+
+    if (msg.contextRefs && msg.contextRefs.length > 0) {
+      const refsEl = msgEl.createDiv("ai-agent-chat-msg-refs");
+      for (const ref of msg.contextRefs) {
+        const chip = refsEl.createDiv("ai-agent-context-chip");
+        chip.setText(ref.label);
+
+        // Image thumbnail preview
+        if (ref.imageBase64) {
+          refsEl.createEl("img", {
+            cls: "ai-agent-attach-thumb",
+            attr: {
+              src: `data:image/png;base64,${ref.imageBase64}`,
+            },
+          });
+        }
+      }
+    }
+
+    const contentEl = msgEl.createDiv("ai-agent-chat-msg-content");
+    if (msg.role === "assistant" && msg.content) {
+      const multiProposals = !msg.isStreaming ? this.extractMultiEditProposals(msg.content) : [];
+      let remainingContent = msg.content;
+
+      if (multiProposals.length > 0) {
+        // Strip out the ai-agent-edit blocks from the markdown content
+        for (const prop of multiProposals) {
+          remainingContent = remainingContent.replace(prop.originalBlock, "");
+        }
+        remainingContent = remainingContent.trim();
+        
+        if (remainingContent) {
+          const processedContent = this.processMarkdownForThoughts(remainingContent, false);
+          MarkdownRenderer.render(this.app, processedContent, contentEl, "", this);
+        }
+        
+        for (const prop of multiProposals) {
+          this.renderInlineMultiDiff(contentEl, prop, msg);
+        }
+      } else {
+        // Fallback to legacy single edit proposal format
+        const editProposal = !msg.isStreaming ? this.extractEditProposal(msg.content) : null;
+        const editRef = editProposal ? this.getEditableContextForMessage(msg) : null;
+
+        if (editProposal && editRef) {
+          const beforeEdit = msg.content.replace(/```ai-agent-edit[\s\S]*?```/i, "").trim();
+          if (beforeEdit) {
+            const processedBefore = this.processMarkdownForThoughts(beforeEdit, false);
+            MarkdownRenderer.render(this.app, processedBefore, contentEl, "", this);
+          }
+          this.renderInlineDiff(contentEl, editRef, editProposal, msg);
+        } else {
+          const processedContent = this.processMarkdownForThoughts(msg.content, msg.isStreaming || false);
+          MarkdownRenderer.render(this.app, processedContent, contentEl, "", this);
+        }
+      }
+    } else {
+      contentEl.setText(msg.content);
+    }
+
+    if (msg.isStreaming && !msg.content) {
+      contentEl.createSpan({ cls: "ai-agent-thinking", text: "Thinking..." });
+    }
+  }
+
+  private renderInlineDiff(
+    container: HTMLElement,
+    ref: ContextRef,
+    modifiedText: string,
+    msg: ChatMessage
+  ): void {
+    // Compute original text from the file
+    const file = this.app.vault.getAbstractFileByPath(ref.filePath!);
+    if (!(file instanceof TFile)) return;
+
+    const lineStart = ref.lineStart!;
+    const lineEnd = ref.lineEnd!;
+
+    // Read original from open editor or vault
+    let originalText = ref.content || "";
+
+    const wrapper = container.createDiv("ai-agent-inline-diff");
+
+    // Header
+    const header = wrapper.createDiv("ai-agent-inline-diff-header");
+    header.createSpan({ cls: "ai-agent-inline-diff-filename", text: `${file.name}  L${lineStart}${lineStart !== lineEnd ? `–${lineEnd}` : ""}` });
+    const btnGroup = header.createDiv("ai-agent-inline-diff-actions");
+    const acceptBtn = btnGroup.createEl("button", {
+      cls: "ai-agent-inline-diff-accept",
+      text: "✓ Accept",
+      attr: { title: "Apply this edit (Enter)" },
+    });
+    const rejectBtn = btnGroup.createEl("button", {
+      cls: "ai-agent-inline-diff-reject",
+      text: "✗ Reject",
+      attr: { title: "Discard this edit (Escape)" },
+    });
+
+    // Diff lines
+    const diffLines = this.computeSimpleDiff(originalText, modifiedText);
+    const codeEl = wrapper.createEl("pre", { cls: "ai-agent-inline-diff-code" });
+    for (const line of diffLines) {
+      const lineEl = codeEl.createDiv({
+        cls: `ai-agent-inline-diff-line ai-agent-inline-diff-line-${line.type}`,
+      });
+      const prefix = line.type === "removed" ? "- " : line.type === "added" ? "+ " : "  ";
+      lineEl.createSpan({ cls: "ai-agent-inline-diff-gutter", text: prefix });
+      lineEl.createSpan({ cls: "ai-agent-inline-diff-text", text: line.text });
+    }
+
+    const applyEdit = async () => {
+      await this.applyInlineEdit(ref, modifiedText);
+      wrapper.addClass("ai-agent-inline-diff-accepted");
+      acceptBtn.disabled = true;
+      rejectBtn.disabled = true;
+      acceptBtn.setText("✓ Accepted");
+    };
+
+    const rejectEdit = () => {
+      wrapper.addClass("ai-agent-inline-diff-rejected");
+      acceptBtn.disabled = true;
+      rejectBtn.disabled = true;
+      rejectBtn.setText("✗ Rejected");
+    };
+
+    acceptBtn.addEventListener("click", (e) => { e.stopPropagation(); applyEdit(); });
+    rejectBtn.addEventListener("click", (e) => { e.stopPropagation(); rejectEdit(); });
+  }
+
+  private renderInlineMultiDiff(
+    container: HTMLElement,
+    prop: MultiEditProposal,
+    msg: ChatMessage
+  ): void {
+    const file = this.app.vault.getAbstractFileByPath(prop.filepath);
+    const wrapper = container.createDiv("ai-agent-inline-diff");
+
+    const header = wrapper.createDiv("ai-agent-inline-diff-header");
+    header.createSpan({ cls: "ai-agent-inline-diff-filename", text: prop.filepath });
+    const btnGroup = header.createDiv("ai-agent-inline-diff-actions");
+    
+    if (!(file instanceof TFile)) {
+      header.createSpan({ cls: "ai-agent-inline-diff-error", text: " (File not found)" });
+      return;
+    }
+
+    const acceptBtn = btnGroup.createEl("button", {
+      cls: "ai-agent-inline-diff-accept",
+      text: "✓ Accept",
+      attr: { title: "Apply this edit" },
+    });
+    const rejectBtn = btnGroup.createEl("button", {
+      cls: "ai-agent-inline-diff-reject",
+      text: "✗ Reject",
+      attr: { title: "Discard this edit" },
+    });
+
+    const diffLines = this.computeSimpleDiff(prop.search, prop.replace);
+    const codeEl = wrapper.createEl("pre", { cls: "ai-agent-inline-diff-code" });
+    for (const line of diffLines) {
+      const lineEl = codeEl.createDiv({
+        cls: `ai-agent-inline-diff-line ai-agent-inline-diff-line-${line.type}`,
+      });
+      const prefix = line.type === "removed" ? "- " : line.type === "added" ? "+ " : "  ";
+      lineEl.createSpan({ cls: "ai-agent-inline-diff-gutter", text: prefix });
+      lineEl.createSpan({ cls: "ai-agent-inline-diff-text", text: line.text });
+    }
+
+    const applyEdit = async () => {
+      await this.applyInlineMultiEdit(prop, file);
+      wrapper.addClass("ai-agent-inline-diff-accepted");
+      acceptBtn.disabled = true;
+      rejectBtn.disabled = true;
+      acceptBtn.setText("✓ Accepted");
+    };
+
+    const rejectEdit = () => {
+      wrapper.addClass("ai-agent-inline-diff-rejected");
+      acceptBtn.disabled = true;
+      rejectBtn.disabled = true;
+      rejectBtn.setText("✗ Rejected");
+    };
+
+    acceptBtn.addEventListener("click", (e) => { e.stopPropagation(); applyEdit(); });
+    rejectBtn.addEventListener("click", (e) => { e.stopPropagation(); rejectEdit(); });
+  }
+
+  private computeSimpleDiff(
+    original: string,
+    modified: string
+  ): { type: "unchanged" | "added" | "removed"; text: string }[] {
+    const origLines = original.split("\n");
+    const modLines = modified.split("\n");
+
+    // LCS-based diff
+    const m = origLines.length;
+    const n = modLines.length;
+    const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+    for (let i = 1; i <= m; i++)
+      for (let j = 1; j <= n; j++)
+        dp[i][j] = origLines[i-1] === modLines[j-1]
+          ? dp[i-1][j-1] + 1
+          : Math.max(dp[i-1][j], dp[i][j-1]);
+
+    const lcs: [number, number][] = [];
+    let i = m, j = n;
+    while (i > 0 && j > 0) {
+      if (origLines[i-1] === modLines[j-1]) { lcs.unshift([i-1, j-1]); i--; j--; }
+      else if (dp[i-1][j] > dp[i][j-1]) i--;
+      else j--;
+    }
+
+    const result: { type: "unchanged" | "added" | "removed"; text: string }[] = [];
+    let oi = 0, mi = 0;
+    for (const [origIdx, modIdx] of lcs) {
+      while (oi < origIdx) result.push({ type: "removed", text: origLines[oi++] });
+      while (mi < modIdx) result.push({ type: "added", text: modLines[mi++] });
+      result.push({ type: "unchanged", text: origLines[oi] });
+      oi++; mi++;
+    }
+    while (oi < origLines.length) result.push({ type: "removed", text: origLines[oi++] });
+    while (mi < modLines.length) result.push({ type: "added", text: modLines[mi++] });
+    return result;
+  }
+
+  private async applyInlineEdit(ref: ContextRef, modifiedText: string): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(ref.filePath!);
+    if (!(file instanceof TFile)) { new Notice(`Could not find ${ref.filePath}`); return; }
+
+    const lineStart = ref.lineStart!;
+    const lineEnd = ref.lineEnd!;
+
+    // Find open source-mode leaf for this file
+    let leaf: WorkspaceLeaf | null = null;
+    this.app.workspace.iterateAllLeaves((l) => {
+      if (leaf || l === this.leaf) return;
+      const v = l.view;
+      const vs = l.getViewState();
+      if (v instanceof MarkdownView && v.file?.path === ref.filePath && vs.state?.mode === "source") {
+        leaf = l;
+      }
+    });
+
+    if (!leaf) {
+      leaf = this.app.workspace.getLeaf("tab");
+      await (leaf as WorkspaceLeaf).openFile(file, { active: true });
+      const newVs = (leaf as WorkspaceLeaf).getViewState();
+      await (leaf as WorkspaceLeaf).setViewState({ ...newVs, state: { ...newVs.state, mode: "source" } });
+      await new Promise<void>((resolve) => requestAnimationFrame(() => { requestAnimationFrame(() => resolve()); }));
+    } else {
+      this.app.workspace.setActiveLeaf(leaf as WorkspaceLeaf, { focus: false });
+      this.app.workspace.revealLeaf(leaf as WorkspaceLeaf);
+    }
+
+    const targetLeaf = leaf as WorkspaceLeaf;
+    if (!(targetLeaf.view instanceof MarkdownView)) { new Notice("Cannot apply edit: file not open in Markdown view."); return; }
+
+    const editor = targetLeaf.view.editor;
+    const start = { line: Math.max(0, lineStart - 1), ch: 0 };
+    const endLine = Math.max(0, lineEnd - 1);
+    const lineText = editor.getLine(endLine);
+    const end = { line: endLine, ch: lineText?.length ?? 0 };
+    editor.replaceRange(modifiedText, start, end);
+    editor.setCursor({ line: start.line + modifiedText.split("\n").length - 1, ch: 0 });
+  }
+
+  private async applyInlineMultiEdit(prop: MultiEditProposal, file: TFile): Promise<void> {
+    // 1. Try modifying in an active editor if the file is open
+    let leaf: WorkspaceLeaf | null = null;
+    this.app.workspace.iterateAllLeaves((l) => {
+      if (leaf || l === this.leaf) return;
+      const v = l.view;
+      const vs = l.getViewState();
+      if (v instanceof MarkdownView && v.file?.path === file.path && vs.state?.mode === "source") {
+        leaf = l;
+      }
+    });
+
+    if (leaf) {
+      const view = (leaf as WorkspaceLeaf).view as MarkdownView;
+      const editor = view.editor;
+      const content = editor.getValue();
+      
+      const searchIndex = content.indexOf(prop.search);
+      if (searchIndex !== -1) {
+        const prefix = content.substring(0, searchIndex);
+        const prefixLines = prefix.split("\n");
+        const startLine = prefixLines.length - 1;
+        const startCh = prefixLines[prefixLines.length - 1].length;
+
+        const searchLines = prop.search.split("\n");
+        const endLine = startLine + searchLines.length - 1;
+        const endCh = searchLines.length === 1 
+          ? startCh + prop.search.length 
+          : searchLines[searchLines.length - 1].length;
+
+        editor.replaceRange(
+          prop.replace,
+          { line: startLine, ch: startCh },
+          { line: endLine, ch: endCh }
+        );
+        new Notice(`Applied edit to ${file.basename}`);
+      } else {
+        new Notice(`Could not find the exact SEARCH block in ${file.basename}`);
+      }
+    } else {
+      // 2. Modify via vault API if file is closed
+      const content = await this.app.vault.read(file);
+      if (content.includes(prop.search)) {
+        const newContent = content.replace(prop.search, prop.replace);
+        await this.app.vault.modify(file, newContent);
+        new Notice(`Applied edit to ${file.basename}`);
+      } else {
+        new Notice(`Could not find the exact SEARCH block in ${file.basename}`);
+      }
+    }
+  }
+
+  private processMarkdownForThoughts(content: string, isStreaming: boolean): string {
+    let processed = this.normalizeLatexDelimiters(content);
+    const openTag = isStreaming 
+        ? `<details class="ai-agent-thought-block" open><summary>🧠 Thinking Process...</summary>\n\n`
+        : `<details class="ai-agent-thought-block"><summary>🧠 Thinking Process</summary>\n\n`;
+    
+    processed = processed.replace(/<(thought|thinking)>/gi, openTag);
+    processed = processed.replace(/<\/(thought|thinking)>/gi, "\n\n</details>");
+
+    const openCount = (processed.match(/<details class="ai-agent-thought-block"/g) || []).length;
+    const closeCount = (processed.match(/<\/details>/g) || []).length;
+    if (openCount > closeCount) {
+      processed += "\n\n</details>";
+    }
+    return processed;
+  }
+
+  private renderAssistantMessageActions(roleEl: Element, msg: ChatMessage): void {
+    if (msg.role !== "assistant" || !msg.content) return;
+    roleEl.querySelectorAll(".ai-agent-message-action").forEach((el) => el.remove());
+
+    const copyBtn = (roleEl as HTMLElement).createEl("button", {
+      cls: "ai-agent-message-action ai-agent-message-copy-btn",
+      attr: {
+        "aria-label": "Copy assistant message as Markdown",
+        title: "Copy Markdown",
+      },
+    });
+    setIcon(copyBtn, "copy");
+    copyBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await this.copyAssistantMarkdown(msg.content);
+    });
+
+    if (
+      !msg.isStreaming &&
+      this.getEditableContextForMessage(msg) &&
+      this.extractEditProposal(msg.content)
+    ) {
+      const reviewBtn = (roleEl as HTMLElement).createEl("button", {
+        cls: "ai-agent-message-action ai-agent-message-review-btn",
+        text: "Review edit",
+        attr: {
+          "aria-label": "Review proposed edit",
+          title: "Review proposed edit",
+        },
+      });
+      reviewBtn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        await this.reviewAssistantEdit(msg);
+      });
+    }
+  }
+
+  private async copyAssistantMarkdown(content: string): Promise<void> {
+    const markdown = this.normalizeLatexDelimiters(content);
+    try {
+      await navigator.clipboard.writeText(markdown);
+      new Notice("Copied Markdown with LaTeX");
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = markdown;
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+      new Notice("Copied Markdown with LaTeX");
+    }
+  }
+
+  private getEditableContextForMessage(msg: ChatMessage): ContextRef | null {
+    const msgIndex = this.messages.findIndex((item) => item.id === msg.id);
+    if (msgIndex <= 0) return null;
+
+    for (let i = msgIndex - 1; i >= 0; i--) {
+      const candidate = this.messages[i];
+      if (candidate.role !== "user") continue;
+      const refs = candidate.contextRefs ?? [];
+      const editable = refs.find(
+        (ref) =>
+          ref.filePath &&
+          ref.type === "line-range" &&
+          typeof ref.lineStart === "number" &&
+          typeof ref.lineEnd === "number"
+      );
+      if (editable) return editable;
+    }
+
+    return null;
+  }
+
+  private async reviewAssistantEdit(msg: ChatMessage): Promise<void> {
+    const ref = this.getEditableContextForMessage(msg);
+    if (!ref?.filePath || typeof ref.lineStart !== "number" || typeof ref.lineEnd !== "number") {
+      new Notice("No referenced Markdown line range found for this edit.");
+      return;
+    }
+
+    const modifiedText = this.extractEditProposal(msg.content);
+    if (!modifiedText) {
+      new Notice("No ai-agent-edit proposal found in this answer.");
+      return;
+    }
+
+    const file = this.app.vault.getAbstractFileByPath(ref.filePath);
+    if (!(file instanceof TFile)) {
+      new Notice(`Could not find ${ref.filePath}`);
+      return;
+    }
+
+    // Look for an existing leaf that already has the file open IN SOURCE mode.
+    // Do NOT reuse reading-mode leaves — switching them to source mode destroys
+    // rendered figures and the user's view state.
+    let leaf: WorkspaceLeaf | null = null;
+    this.app.workspace.iterateAllLeaves((l) => {
+      if (leaf || l === this.leaf) return;
+      const v = l.view;
+      const vs = l.getViewState();
+      if (
+        v instanceof MarkdownView &&
+        v.file?.path === ref.filePath &&
+        vs.state?.mode === "source"
+      ) {
+        leaf = l;
+      }
+    });
+
+    if (!leaf) {
+      // Open a brand-new tab in source mode — existing reading-mode leaves are untouched.
+      leaf = this.app.workspace.getLeaf("tab");
+      await (leaf as WorkspaceLeaf).openFile(file, { active: true });
+      const newVs = (leaf as WorkspaceLeaf).getViewState();
+      await (leaf as WorkspaceLeaf).setViewState({
+        ...newVs,
+        state: { ...newVs.state, mode: "source" },
+      });
+      // Wait two frames for Obsidian to apply the view state and for CM6 to mount.
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => { requestAnimationFrame(() => resolve()); })
+      );
+    } else {
+      this.app.workspace.setActiveLeaf(leaf as WorkspaceLeaf, { focus: false });
+      this.app.workspace.revealLeaf(leaf as WorkspaceLeaf);
+    }
+
+    const targetLeaf = leaf as WorkspaceLeaf;
+
+    if (!(targetLeaf.view instanceof MarkdownView)) {
+      new Notice("Open the target file as Markdown to review this edit.");
+      return;
+    }
+
+    const editor = targetLeaf.view.editor;
+    const start = { line: Math.max(0, ref.lineStart - 1), ch: 0 };
+    const endLine = Math.max(0, ref.lineEnd - 1);
+    const lineText = editor.getLine(endLine);
+    const end = { line: endLine, ch: lineText?.length ?? 0 };
+    const originalText = editor.getRange(start, end);
+    const diffViewer = new DiffViewer(this.plugin);
+    diffViewer.show(targetLeaf.view, originalText, modifiedText, start, end);
+  }
+
+  private extractMultiEditProposals(content: string): MultiEditProposal[] {
+    const proposals: MultiEditProposal[] = [];
+    const blockRegex = /```ai-agent-edit\s+filepath=["']?([^"'\s]+)["']?\s*\n([\s\S]*?)```/gi;
+    let match;
+    while ((match = blockRegex.exec(content)) !== null) {
+      const originalBlock = match[0];
+      const filepath = match[1];
+      const innerContent = match[2];
+
+      const searchMatch = innerContent.match(/<<<<\s*SEARCH\n([\s\S]*?)====\s*REPLACE/i);
+      const replaceMatch = innerContent.match(/====\s*REPLACE\n([\s\S]*?)>>>>/i);
+
+      if (searchMatch && replaceMatch) {
+        let search = searchMatch[1];
+        if (search.endsWith("\n")) search = search.slice(0, -1);
+        
+        let replace = replaceMatch[1];
+        if (replace.endsWith("\n")) replace = replace.slice(0, -1);
+
+        proposals.push({
+          filepath,
+          search,
+          replace,
+          originalBlock
+        });
+      }
+    }
+    return proposals;
+  }
+
+  private extractEditProposal(content: string): string | null {
+    const editBlock = content.match(/```ai-agent-edit\s*\n([\s\S]*?)```/i);
+    if (editBlock) return editBlock[1].trim();
+
+    const codeBlock = content.match(/```(?:markdown|md)?\s*\n([\s\S]*?)```/i);
+    if (codeBlock) return codeBlock[1].trim();
+
+    return null;
+  }
+
+  private normalizeLatexDelimiters(content: string): string {
+    return normalizeLatexDelimiters(content);
+  }
+
+  private renderAssistantMessage(msg: ChatMessage): void {
+    const allMsgEls = this.messagesContainer.querySelectorAll(
+      ".ai-agent-chat-msg-assistant"
+    );
+    const lastEl = allMsgEls[allMsgEls.length - 1];
+
+    if (lastEl) {
+      const roleEl = lastEl.querySelector(".ai-agent-chat-msg-role");
+      if (roleEl) {
+        this.renderAssistantMessageActions(roleEl, msg);
+      }
+      const contentEl = lastEl.querySelector(".ai-agent-chat-msg-content");
+      if (contentEl) {
+        contentEl.empty();
+        if (msg.content) {
+          this.stopThinkingTimer();
+          const processedContent = this.processMarkdownForThoughts(msg.content, msg.isStreaming || false);
+          MarkdownRenderer.render(
+            this.app,
+            processedContent,
+            contentEl as HTMLElement,
+            "",
+            this
+          );
+        } else if (msg.isStreaming) {
+          const thinkingSpan = (contentEl as HTMLElement).createSpan({
+            cls: "ai-agent-thinking",
+          });
+          if (this.prepareStatusText) {
+            thinkingSpan.setText(this.prepareStatusText);
+          } else {
+            if (!this.thinkingTimer) {
+              this.thinkingStartTime = Date.now();
+            }
+            const updateThinkingText = () => {
+              const elapsed = Math.floor((Date.now() - this.thinkingStartTime) / 1000);
+              thinkingSpan.setText(`Thinking... (${elapsed}s)`);
+            };
+            updateThinkingText();
+            if (!this.thinkingTimer) {
+              this.thinkingTimer = setInterval(updateThinkingText, 1000);
+            }
+          }
+        }
+      }
+    }
+    this.scrollToBottom();
+  }
+
+  private stopThinkingTimer(): void {
+    if (this.thinkingTimer !== null) {
+      clearInterval(this.thinkingTimer);
+      this.thinkingTimer = null;
+    }
+  }
+
+  private setPrepareStatus(text: string): void {
+    this.prepareStatusText = text;
+    const allMsgEls = this.messagesContainer?.querySelectorAll(".ai-agent-chat-msg-assistant");
+    if (!allMsgEls || allMsgEls.length === 0) return;
+    const lastEl = allMsgEls[allMsgEls.length - 1];
+    const span = lastEl?.querySelector<HTMLElement>(".ai-agent-thinking");
+    if (span) span.setText(text);
+  }
+
+  private renderContextChips(): void {
+    if (!this.contextChipsContainer) return;
+    this.contextChipsContainer.empty();
+
+    const activeCtx = this.plugin.refreshActiveContext();
+    const freshAutoRefs = this.buildAutoContextRefs(activeCtx);
+    if (freshAutoRefs.length > 0) {
+      this.cachedAutoContextRefs = this.mergeAutoContextRefs(
+        this.cachedAutoContextRefs,
+        freshAutoRefs
+      );
+    }
+
+    // When fresh context lacks PDF data (pdfPage not yet captured), restore cached PDF refs
+    // for tabs that are still open so the chip doesn't flicker away on leaf-change.
+    const openPdfTabKeys = new Set(
+      (activeCtx?.openTabs ?? [])
+        .filter((t) => t.viewType === "pdf" || t.viewType === EXTERNAL_PDF_VIEW_TYPE)
+        .map((t) => t.filePath || t.label)
+    );
+    const cachedPdfsStillOpen = this.cachedAutoContextRefs.filter((r) => {
+      if (r.type !== "pdf-page") return false;
+      return openPdfTabKeys.has(r.filePath || r.label.replace(/ p\.\d+$/, ""));
+    });
+    let autoRefs: ContextRef[];
+    if (freshAutoRefs.length > 0) {
+      const freshHasPdf = freshAutoRefs.some((r) => r.type === "pdf-page");
+      autoRefs = (!freshHasPdf && cachedPdfsStillOpen.length > 0)
+        ? this.mergeAutoContextRefs(cachedPdfsStillOpen, freshAutoRefs)
+        : freshAutoRefs;
+    } else {
+      autoRefs = this.cachedAutoContextRefs;
+    }
+
+    // Auto context chips show every visible markdown/PDF split.
+    for (const ref of autoRefs) {
+      if (this.pendingContextRefs.some((pinned) => {
+        // line-range refs share only a slice of the file — they should NOT suppress
+        // the auto chip that represents the full open tab.
+        if (pinned.type === "line-range") return false;
+        if (ref.filePath && pinned.filePath === ref.filePath) return true;
+        return pinned.label.replace(/ p\.\d+$/, "") === ref.label.replace(/ p\.\d+$/, "");
+      })) {
+        continue;
+      }
+
+      const activeKey = this.getAutoContextKey(ref);
+      const chip = this.contextChipsContainer.createDiv(
+        "ai-agent-context-chip ai-agent-context-chip-auto"
+      );
+      const icon = ref.type === "pdf-page" ? "file-text" : "file";
+      const iconEl = chip.createSpan({ cls: "ai-agent-context-chip-icon" });
+      setIcon(iconEl, icon);
+      chip.createSpan({ cls: "ai-agent-context-chip-label", text: ref.label });
+      this.renderIncuratorStatusBadge(chip, ref);
+      const removeBtn = chip.createSpan({ cls: "ai-agent-context-chip-remove", text: "×" });
+      removeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.activeContextExcludedKey = activeKey;
+        this.renderContextChips();
+      });
+    }
+
+    // Pending refs
+    for (let i = 0; i < this.pendingContextRefs.length; i++) {
+      const ref = this.pendingContextRefs[i];
+      const chip = this.contextChipsContainer.createDiv("ai-agent-context-chip");
+
+      if (ref.imageBase64) {
+        chip.createEl("img", {
+          cls: "ai-agent-chip-thumb",
+          attr: { src: `data:image/png;base64,${ref.imageBase64}` },
+        });
+      } else if (ref.type === "line-range") {
+        const iconEl = chip.createSpan({ cls: "ai-agent-context-chip-icon" });
+        setIcon(iconEl, "brackets");
+      }
+
+      chip.createSpan({
+        cls: "ai-agent-context-chip-label",
+        text: `${ref.isPinned ? "📌 " : ""}${ref.label}`,
+      });
+      this.renderIncuratorStatusBadge(chip, ref);
+
+      const removeBtn = chip.createSpan({ cls: "ai-agent-context-chip-remove", text: "×" });
+      removeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.pendingContextRefs.splice(i, 1);
+        this.renderContextChips();
+      });
+    }
+
+    // "+" button — opens a menu to pick any open tab as context
+    const addBtn = this.contextChipsContainer.createEl("button", {
+      cls: "ai-agent-context-chip ai-agent-context-chip-add",
+      attr: { "aria-label": "Add context from open tabs" },
+    });
+    setIcon(addBtn, "plus");
+    addBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.showAddContextMenu(e);
+    });
+  }
+
+  private mergeAutoContextRefs(
+    cachedRefs: ContextRef[],
+    freshRefs: ContextRef[]
+  ): ContextRef[] {
+    const merged = new Map<string, ContextRef>();
+    for (const ref of cachedRefs) {
+      merged.set(this.getAutoContextKey(ref), ref);
+    }
+    for (const ref of freshRefs) {
+      merged.set(this.getAutoContextKey(ref), ref);
+    }
+    return Array.from(merged.values());
+  }
+
+  private showAddContextMenu(e: MouseEvent): void {
+    const openTabs = this.plugin.refreshActiveContext()?.openTabs ?? [];
+    const addableTabs = openTabs.filter((t) => {
+      if (t.viewType === EXTERNAL_PDF_VIEW_TYPE || t.viewType === "pdf") {
+        return !this.pendingContextRefs.some((r) => r.label.startsWith(t.label));
+      }
+      return (
+        t.filePath &&
+        !this.pendingContextRefs.some((r) => r.filePath === t.filePath)
+      );
+    });
+
+    const menu = new Menu();
+
+    if (addableTabs.length === 0) {
+      menu.addItem((item) => item.setTitle("No other open files").setDisabled(true));
+    } else {
+      for (const tab of addableTabs) {
+        menu.addItem((item) => {
+          const isPdf = tab.viewType === "pdf" || tab.viewType === EXTERNAL_PDF_VIEW_TYPE;
+          item.setIcon(isPdf ? "file-text" : "document");
+          item.setTitle(tab.label);
+          item.onClick(async () => {
+            if (isPdf) {
+              const ref = this.createPinnedPdfRef(tab);
+              if (ref) this.addContextRef(ref);
+            } else if (tab.filePath) {
+              const vaultFile = this.app.vault.getAbstractFileByPath(tab.filePath);
+              if (vaultFile instanceof TFile) {
+                const ref = await this.createPinnedFileRef(vaultFile, tab.viewType);
+                this.addContextRef(ref);
+              }
+            }
+          });
+        });
+      }
+    }
+
+    menu.showAtMouseEvent(e);
+  }
+
+  private setupChipsDrop(): void {
+    const el = this.contextChipsContainer;
+    let counter = 0;
+
+    // This is registered once in onOpen — not per renderContextChips call.
+    el.addEventListener("dragenter", (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      counter++;
+      el.addClass("drag-over");
+    });
+
+    el.addEventListener("dragleave", (e: DragEvent) => {
+      e.stopPropagation();
+      counter--;
+      if (counter <= 0) { counter = 0; el.removeClass("drag-over"); }
+    });
+
+    el.addEventListener("dragover", (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    });
+
+    el.addEventListener("drop", async (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      counter = 0;
+      el.removeClass("drag-over");
+      if (!e.dataTransfer) return;
+
+      const initialRefs = this.pendingContextRefs.length;
+
+      // Fallback 1: Obsidian internal dragManager for tabs (leaves)
+      // Obsidian stores the currently dragged leaf in the app's dragManager
+      const dragManager = (this.app as any).dragManager;
+      const dragLeaf = dragManager?.dragLeaf || dragManager?.draggable?.leaf;
+      if (dragLeaf && dragLeaf.view) {
+        const view = dragLeaf.view;
+        if (view.getViewType() === EXTERNAL_PDF_VIEW_TYPE) {
+          const pdfCtx = (view as ExternalPdfView).getActivePdfContext(this.plugin.settings.pdfCaptureMode);
+          if (pdfCtx) {
+            this.addContextRef({
+              type: "pdf-page",
+              label: `${view.getDisplayText()} p.${pdfCtx.pageNum}`,
+              content: pdfCtx.text,
+              imageBase64: pdfCtx.imageBase64,
+              pageNum: pdfCtx.pageNum,
+            });
+            return;
+          }
+        } else if (view.file instanceof TFile) {
+          await this.attachVaultFile(view.file);
+          return;
+        }
+      }
+
+      // Fallback 2: Obsidian internal file drag: vault-relative path in text/plain
+      const vaultPath = e.dataTransfer.getData("text/plain");
+      if (vaultPath) {
+        const vaultFile = this.app.vault.getAbstractFileByPath(vaultPath);
+        if (vaultFile instanceof TFile) {
+          await this.attachVaultFile(vaultFile);
+          return;
+        }
+      }
+
+      // Fallback 3: OS file drop (or external PDF uri-list)
+      await this.handleDataTransferDrop(e.dataTransfer, false);
+
+      // If nothing was added, show the + menu as a helpful fallback
+      if (this.pendingContextRefs.length === initialRefs) {
+        this.showAddContextMenu(e);
+      }
+    });
+  }
+
+  // ── Chat history / mode ─────────────────────────────────────
+
+  private async loadActiveSession(): Promise<void> {
+    const sessions = this.plugin.settings.chatSessions ?? [];
+    let session =
+      sessions.find((s) => s.id === this.plugin.settings.activeChatSessionId) ??
+      sessions[0];
+
+    if (!session) {
+      session = this.createSession();
+      this.plugin.settings.chatSessions = [session];
+      this.plugin.settings.activeChatSessionId = session.id;
+      await this.plugin.saveSettings();
+    }
+
+    this.plugin.settings.activeChatSessionId = session.id;
+    this.messages = this.cloneMessages(session.messages);
+  }
+
+  private async createNewChatSession(): Promise<void> {
+    await this.persistCurrentSession();
+
+    const session = this.createSession();
+    this.plugin.settings.chatSessions = [
+      session,
+      ...(this.plugin.settings.chatSessions ?? []),
+    ].slice(0, 30);
+    this.plugin.settings.activeChatSessionId = session.id;
+    this.messages = [];
+    this.pendingContextRefs = [];
+    this.plugin.llmClient.abort();
+    this.isGenerating = false;
+    await this.plugin.saveSettings();
+
+    this.renderMessages();
+    this.renderContextChips();
+    this.syncSessionControls();
+  }
+
+  private async onSessionChange(sessionId: string): Promise<void> {
+    if (!sessionId || sessionId === this.plugin.settings.activeChatSessionId) {
+      return;
+    }
+
+    await this.persistCurrentSession();
+    const session = this.plugin.settings.chatSessions.find(
+      (item) => item.id === sessionId
+    );
+    if (!session) return;
+
+    this.plugin.llmClient.abort();
+    this.isGenerating = false;
+    this.plugin.settings.activeChatSessionId = session.id;
+    this.messages = this.cloneMessages(session.messages);
+    this.pendingContextRefs = [];
+    await this.plugin.saveSettings();
+
+    this.renderMessages();
+    this.renderContextChips();
+    this.syncSessionControls();
+  }
+
+  private async onModeChange(mode: ChatMode): Promise<void> {
+    this.plugin.settings.chatMode = mode;
+    await this.plugin.saveSettings();
+  }
+
+  private async onReasoningChange(effort: string): Promise<void> {
+    if (this.plugin.settings.provider === "openai") {
+      this.plugin.settings.codexReasoningEffort = effort as CodexReasoningEffort;
+    } else if (this.plugin.settings.provider === "claude") {
+      this.plugin.settings.claudeEffort = effort as any;
+    }
+    await this.plugin.saveSettings();
+  }
+
+  private async persistCurrentSession(): Promise<void> {
+    const activeId = this.plugin.settings.activeChatSessionId;
+    if (!activeId) return;
+
+    const sessions = this.plugin.settings.chatSessions ?? [];
+    const session = sessions.find((item) => item.id === activeId);
+    if (!session) return;
+
+    session.messages = this.cloneMessages(this.messages);
+    session.updatedAt = Date.now();
+    session.title = this.getSessionTitle(session);
+    this.plugin.settings.chatSessions = [
+      session,
+      ...sessions.filter((item) => item.id !== activeId),
+    ].slice(0, 30);
+    await this.plugin.saveSettings();
+    this.syncSessionControls();
+  }
+
+  private syncSessionControls(): void {
+    if (!this.sessionBtn) return;
+    const sessions = this.plugin.settings.chatSessions ?? [];
+    const activeSession = sessions.find(s => s.id === this.plugin.settings.activeChatSessionId) || sessions[0];
+    this.sessionBtn.empty();
+    setIcon(this.sessionBtn, "history");
+    const labelEl = this.sessionBtn.createSpan({ cls: "ai-agent-session-label" });
+    if (activeSession) {
+      let title = activeSession.title;
+      if (title.length > 24) title = title.slice(0, 24) + "…";
+      labelEl.setText(title);
+    } else {
+      labelEl.setText("History");
+    }
+  }
+
+  public async deleteChatSessionById(sessionId: string): Promise<void> {
+    const sessions = this.plugin.settings.chatSessions ?? [];
+    const nextSessions = sessions.filter((s) => s.id !== sessionId);
+    this.plugin.settings.chatSessions = nextSessions;
+
+    if (sessionId === this.plugin.settings.activeChatSessionId) {
+      if (nextSessions.length > 0) {
+        this.plugin.settings.activeChatSessionId = nextSessions[0].id;
+        this.messages = this.cloneMessages(nextSessions[0].messages);
+      } else {
+        const newSession = this.createSession();
+        this.plugin.settings.chatSessions = [newSession];
+        this.plugin.settings.activeChatSessionId = newSession.id;
+        this.messages = [];
+      }
+      this.pendingContextRefs = [];
+      this.plugin.llmClient.abort();
+      this.isGenerating = false;
+      this.renderMessages();
+      this.renderContextChips();
+    }
+    await this.plugin.saveSettings();
+    this.syncSessionControls();
+  }
+
+  private async deleteCurrentChatSession(): Promise<void> {
+    const activeId = this.plugin.settings.activeChatSessionId;
+    if (!activeId) return;
+
+    const sessions = this.plugin.settings.chatSessions ?? [];
+    const session = sessions.find((s) => s.id === activeId);
+    if (!session) return;
+
+    if (!confirm(`"${session.title}" 채팅 내역을 삭제하시겠습니까?`)) {
+      return;
+    }
+
+    const nextSessions = sessions.filter((s) => s.id !== activeId);
+    this.plugin.settings.chatSessions = nextSessions;
+
+    if (nextSessions.length > 0) {
+      this.plugin.settings.activeChatSessionId = nextSessions[0].id;
+      this.messages = this.cloneMessages(nextSessions[0].messages);
+    } else {
+      const newSession = this.createSession();
+      this.plugin.settings.chatSessions = [newSession];
+      this.plugin.settings.activeChatSessionId = newSession.id;
+      this.messages = [];
+    }
+
+    this.pendingContextRefs = [];
+    this.plugin.llmClient.abort();
+    this.isGenerating = false;
+    await this.plugin.saveSettings();
+
+    new Notice("채팅 내역이 삭제되었습니다.");
+    this.renderMessages();
+    this.renderContextChips();
+    this.syncSessionControls();
+  }
+
+  private createSession(): ChatSession {
+    const now = Date.now();
+    return {
+      id: this.generateId(),
+      title: "New chat",
+      createdAt: now,
+      updatedAt: now,
+      messages: [],
+    };
+  }
+
+  private getSessionTitle(session: ChatSession): string {
+    const firstUser = session.messages.find((msg) => msg.role === "user");
+    if (!firstUser?.content.trim()) return session.title || "New chat";
+    const singleLine = firstUser.content.replace(/\s+/g, " ").trim();
+    return singleLine.length > 44 ? `${singleLine.slice(0, 44)}...` : singleLine;
+  }
+
+  private cloneMessages(messages: ChatMessage[]): ChatMessage[] {
+    return messages.map((message) => ({
+      ...message,
+      contextRefs: message.contextRefs
+        ? message.contextRefs.map((ref) => ({ ...ref }))
+        : undefined,
+      isStreaming: false,
+    }));
+  }
+
+  // ── Provider / Model switching ──────────────────────────────
+
+  private async onProviderChange(provider: LLMProvider): Promise<void> {
+    this.plugin.settings.provider = provider;
+    this.plugin.settings.model = DEFAULT_MODELS[provider];
+    await this.plugin.saveSettings();
+    this.syncModelControls();
+    this.syncReasoningControl();
+    this.restoreInputFocus();
+  }
+
+  private async onModelSelectChange(value: string): Promise<void> {
+    if (value === CUSTOM_MODEL_VALUE) {
+      this.customModelInputEl.show();
+      this.customModelInputEl.value = getModelOption(
+        this.plugin.settings.provider,
+        this.plugin.settings.model
+      )
+        ? ""
+        : this.plugin.settings.model;
+      this.customModelInputEl.focus();
+      return;
+    }
+
+    this.plugin.settings.model = value || DEFAULT_MODELS[this.plugin.settings.provider];
+    await this.plugin.saveSettings();
+    this.syncModelControls();
+    this.restoreInputFocus();
+  }
+
+  private async onCustomModelChange(model: string): Promise<void> {
+    this.plugin.settings.model =
+      model || DEFAULT_MODELS[this.plugin.settings.provider];
+    await this.plugin.saveSettings();
+    this.syncModelControls();
+    this.restoreInputFocus();
+  }
+
+  private syncModelControls(): void {
+    if (!this.modelSelectEl || !this.customModelInputEl) return;
+
+    const provider = this.plugin.settings.provider;
+    const currentModel = this.plugin.settings.model;
+    const knownModel = getModelOption(provider, currentModel);
+
+    this.modelSelectEl.empty();
+    for (const option of MODEL_OPTIONS[provider]) {
+      const suffix = option.tier === "stable" ? "" : ` (${option.tier})`;
+      this.modelSelectEl.createEl("option", {
+        value: option.id,
+        text: `${option.label}${suffix}`,
+      });
+    }
+    this.modelSelectEl.createEl("option", {
+      value: CUSTOM_MODEL_VALUE,
+      text: "Custom...",
+    });
+
+    this.modelSelectEl.value = knownModel ? currentModel : CUSTOM_MODEL_VALUE;
+    this.customModelInputEl.value = knownModel ? "" : currentModel;
+    if (knownModel) {
+      this.customModelInputEl.hide();
+    } else {
+      this.customModelInputEl.show();
+    }
+
+    this.syncReasoningControl();
+  }
+
+  private syncReasoningControl(): void {
+    if (!this.reasoningSelectEl) return;
+    
+    this.reasoningSelectEl.empty();
+    
+    if (this.plugin.settings.provider === "openai") {
+      this.reasoningSelectEl.setAttribute("aria-label", "Codex reasoning level");
+      this.reasoningSelectEl.setAttribute("title", "Codex thinking level");
+      [
+        { value: "low", label: "Think Low" },
+        { value: "medium", label: "Think Med" },
+        { value: "high", label: "Think High" },
+        { value: "xhigh", label: "Think XHigh" },
+      ].forEach((option) => {
+        this.reasoningSelectEl.createEl("option", { value: option.value, text: option.label });
+      });
+      this.reasoningSelectEl.value = this.plugin.settings.codexReasoningEffort;
+      this.reasoningSelectEl.show();
+    } else if (this.plugin.settings.provider === "claude") {
+      this.reasoningSelectEl.setAttribute("aria-label", "Claude effort level");
+      this.reasoningSelectEl.setAttribute("title", "Claude effort level");
+      [
+        { value: "low", label: "Effort Low" },
+        { value: "medium", label: "Effort Med" },
+        { value: "high", label: "Effort High" },
+        { value: "xhigh", label: "Effort XHigh" },
+        { value: "max", label: "Effort Max" },
+      ].forEach((option) => {
+        this.reasoningSelectEl.createEl("option", { value: option.value, text: option.label });
+      });
+      this.reasoningSelectEl.value = this.plugin.settings.claudeEffort;
+      this.reasoningSelectEl.show();
+    } else {
+      this.reasoningSelectEl.hide();
+    }
+  }
+
+  // ── Utils ───────────────────────────────────────────────────
+
+  private scrollToBottom(): void {
+    requestAnimationFrame(() => {
+      this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+    });
+  }
+
+  private restoreInputFocus(): void {
+    window.setTimeout(() => {
+      requestAnimationFrame(() => {
+        if (!this.inputEl || this.isGenerating) return;
+        this.inputEl.disabled = false;
+        this.inputEl.focus();
+      });
+    }, 0);
+  }
+
+  private generateId(): string {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  private fileToBase64(file: File | Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Strip data:...;base64, prefix
+        resolve(result.replace(/^data:[^;]+;base64,/, ""));
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+}
+
+class ChatHistoryModal extends Modal {
+  private sessions: ChatSession[];
+
+  constructor(
+    app: App,
+    private plugin: ObsidianAIAgent,
+    private onSelectSession: (id: string) => void,
+    private onDeleteSession: (id: string) => void
+  ) {
+    super(app);
+    this.sessions = this.plugin.settings.chatSessions ?? [];
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("ai-agent-history-modal");
+    
+    contentEl.createEl("h2", { text: "Chat History", cls: "ai-agent-history-title" });
+
+    const listEl = contentEl.createDiv("ai-agent-history-list");
+    listEl.style.maxHeight = "400px";
+    listEl.style.overflowY = "auto";
+    listEl.style.padding = "8px 0";
+
+    for (const session of this.sessions) {
+      const rowEl = listEl.createDiv("ai-agent-history-row");
+      rowEl.style.display = "flex";
+      rowEl.style.alignItems = "center";
+      rowEl.style.justifyContent = "space-between";
+      rowEl.style.padding = "8px 12px";
+      rowEl.style.borderBottom = "1px solid var(--background-modifier-border)";
+      
+      const titleEl = rowEl.createSpan({ text: session.title });
+      titleEl.style.flex = "1";
+      titleEl.style.cursor = "pointer";
+      titleEl.style.overflow = "hidden";
+      titleEl.style.textOverflow = "ellipsis";
+      titleEl.style.whiteSpace = "nowrap";
+      if (session.id === this.plugin.settings.activeChatSessionId) {
+        titleEl.style.fontWeight = "bold";
+        titleEl.style.color = "var(--text-accent)";
+      }
+
+      titleEl.addEventListener("click", () => {
+        this.onSelectSession(session.id);
+        this.close();
+      });
+
+      const delBtn = rowEl.createEl("button", {
+        cls: "clickable-icon",
+        attr: { "aria-label": "Delete" }
+      });
+      delBtn.style.background = "none";
+      delBtn.style.boxShadow = "none";
+      delBtn.style.padding = "4px";
+      delBtn.style.marginLeft = "8px";
+      setIcon(delBtn, "trash-2");
+
+      delBtn.addEventListener("click", () => {
+        if (confirm(`"${session.title}" 채팅 내역을 삭제하시겠습니까?`)) {
+          this.onDeleteSession(session.id);
+          rowEl.remove();
+        }
+      });
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}

@@ -1,0 +1,1472 @@
+/* ═══════════════════════════════════════════════════════════════
+   Obsidian AI Agent — Plugin Styles
+   Uses Obsidian CSS variables for theme compatibility.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Chat Sidebar ───────────────────────────────────────────── */
+
+.ai-agent-chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--background-primary);
+}
+
+.ai-agent-icon-btn {
+  background: none;
+  border: 1px solid transparent;
+  padding: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.ai-agent-icon-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-color: var(--background-modifier-border);
+}
+
+.ai-agent-bottom-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 0.75fr) auto auto minmax(150px, 1.3fr) auto;
+  gap: 7px;
+  padding: 0 12px 10px;
+  align-items: center;
+  background: var(--background-secondary);
+}
+
+.ai-agent-new-chat-btn {
+  color: var(--text-accent);
+  background: var(--background-primary);
+  border-color: var(--background-modifier-border);
+}
+
+.ai-agent-session-btn,
+.ai-agent-mode-select,
+.ai-agent-provider-select,
+.ai-agent-reasoning-select {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 22px;
+}
+
+.ai-agent-session-select {
+  flex: 1 1 130px;
+  min-width: 0;
+}
+
+.ai-agent-mode-select {
+  flex: 0 0 auto;
+  color: var(--text-accent);
+  background-color: color-mix(
+    in srgb,
+    var(--interactive-accent) 10%,
+    var(--background-primary)
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--interactive-accent) 35%,
+    var(--background-modifier-border)
+  );
+}
+
+.ai-agent-session-btn {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  justify-content: flex-start;
+  color: var(--text-muted);
+  background-image: none;
+  padding-right: 9px;
+}
+
+.ai-agent-session-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.ai-agent-session-btn svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.ai-agent-session-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-agent-reasoning-select {
+  color: var(--text-muted);
+}
+
+.ai-agent-session-btn:focus,
+.ai-agent-mode-select:focus,
+.ai-agent-provider-select:focus,
+.ai-agent-reasoning-select:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.ai-agent-model-select,
+.ai-agent-custom-model-input {
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--font-monospace);
+}
+
+.ai-agent-model-select {
+  cursor: pointer;
+}
+
+.ai-agent-model-select:focus,
+.ai-agent-custom-model-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.ai-agent-custom-model-input {
+  grid-column: span 2;
+}
+
+@media (max-width: 560px) {
+  .ai-agent-bottom-toolbar {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    gap: 5px;
+  }
+
+  .ai-agent-provider-select,
+  .ai-agent-model-select,
+  .ai-agent-custom-model-input,
+  .ai-agent-reasoning-select {
+    grid-column: 1 / -1;
+  }
+}
+
+.ai-agent-usage-summary {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.ai-agent-usage-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.ai-agent-usage-row:last-child {
+  border-bottom: 0;
+}
+
+.ai-agent-usage-provider {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.ai-agent-usage-detail {
+  color: var(--text-muted);
+}
+
+/* ── Messages ───────────────────────────────────────────────── */
+
+.ai-agent-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 14px 18px;
+  scroll-behavior: smooth;
+}
+
+.ai-agent-chat-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 10px;
+  color: var(--text-muted);
+  padding: 0 24px;
+  text-align: center;
+}
+
+.ai-agent-chat-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  color: var(--text-accent);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  opacity: 0.9;
+}
+
+.ai-agent-chat-empty-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.ai-agent-chat-empty-hint {
+  font-size: 12px;
+  opacity: 0.7;
+  text-align: center;
+  max-width: 200px;
+}
+
+.ai-agent-chat-msg {
+  margin-bottom: 18px;
+  animation: ai-agent-msg-in 0.2s ease-out;
+}
+
+.ai-agent-chat-msg-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+@keyframes ai-agent-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ai-agent-chat-msg-role {
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-agent-chat-msg-user .ai-agent-chat-msg-role {
+  color: var(--text-accent);
+}
+
+.ai-agent-message-copy-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.ai-agent-message-copy-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+  border-color: var(--background-modifier-border);
+}
+
+.ai-agent-message-copy-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ai-agent-message-review-btn {
+  height: 22px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 35%, transparent);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ai-agent-message-review-btn:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 16%, transparent);
+  border-color: var(--interactive-accent);
+}
+
+.ai-agent-chat-msg-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-normal);
+  max-width: 100%;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.ai-agent-chat-msg-assistant .ai-agent-chat-msg-content {
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--background-secondary) 82%, transparent);
+  border-radius: 8px;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.ai-agent-chat-msg-user .ai-agent-chat-msg-content {
+  max-width: 88%;
+  padding: 9px 12px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-radius: 8px;
+}
+
+.ai-agent-chat-msg-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.ai-agent-pdf-thumb,
+.ai-agent-attach-thumb {
+  width: 60px;
+  height: auto;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  object-fit: contain;
+}
+
+/* ── Thinking Indicator ─────────────────────────────────────── */
+
+.ai-agent-thinking {
+  display: inline-block;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.9em;
+  animation: ai-agent-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes ai-agent-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.ai-agent-thought-block {
+  margin: 8px 0;
+  padding: 8px 12px;
+  background-color: var(--background-secondary);
+  border-left: 3px solid var(--text-muted);
+  border-radius: 4px;
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+
+.ai-agent-thought-block summary {
+  cursor: pointer;
+  user-select: none;
+  font-weight: 500;
+  outline: none;
+}
+
+.ai-agent-thought-block[open] summary {
+  margin-bottom: 8px;
+}
+
+/* ── Context Chips ──────────────────────────────────────────── */
+
+.ai-agent-context-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 10px;
+  min-height: 0;
+  transition: background 0.15s;
+}
+
+.ai-agent-context-chips:has(.ai-agent-context-chip) {
+  padding: 8px 10px 0;
+}
+
+.ai-agent-context-chips.drag-over {
+  background: var(--background-modifier-hover);
+  outline: 1px dashed var(--interactive-accent);
+  outline-offset: -2px;
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.ai-agent-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+  max-width: 200px;
+  /* overflow is NOT on the chip — it clips the × button.
+     Text truncation is handled on .ai-agent-context-chip-label instead. */
+}
+
+.ai-agent-context-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.ai-agent-context-chip-status {
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 5px;
+  font-size: 9px;
+  line-height: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.ai-agent-context-chip-status[data-state="indexed"],
+.ai-agent-context-chip-status[data-state="curated"] {
+  color: var(--text-success);
+  border-color: color-mix(in srgb, var(--text-success) 35%, var(--background-modifier-border));
+}
+
+.ai-agent-context-chip-status[data-state="queued"],
+.ai-agent-context-chip-status[data-state="running"] {
+  color: var(--text-accent);
+  border-color: color-mix(in srgb, var(--interactive-accent) 35%, var(--background-modifier-border));
+}
+
+.ai-agent-context-chip-status[data-state="error"] {
+  color: var(--text-error);
+  border-color: color-mix(in srgb, var(--text-error) 35%, var(--background-modifier-border));
+}
+
+.ai-agent-context-chip-auto {
+  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+  border-color: color-mix(in srgb, var(--interactive-accent) 35%, var(--background-modifier-border));
+  color: var(--text-normal);
+}
+
+.ai-agent-context-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.ai-agent-context-chip-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ai-agent-context-chip-add {
+  padding: 3px 7px;
+  cursor: pointer;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.ai-agent-context-chip-add:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-active-hover);
+  border-color: var(--interactive-accent);
+}
+
+.ai-agent-context-chip-add svg {
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+}
+
+.ai-agent-context-chip-remove {
+  flex-shrink: 0;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.5;
+  margin-left: 2px;
+  user-select: none;
+}
+
+.ai-agent-context-chip-remove:hover {
+  opacity: 1;
+  color: var(--text-error);
+}
+
+.ai-agent-chip-thumb {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  object-fit: cover;
+}
+
+/* ── Chat Input ─────────────────────────────────────────────── */
+
+.ai-agent-chat-input-area {
+  position: relative;
+  border-top: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  box-shadow: 0 -8px 18px rgba(0, 0, 0, 0.04);
+}
+
+.ai-agent-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: rgba(var(--background-secondary-rgb), 0.9);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--interactive-accent);
+  border-radius: 8px;
+  margin: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.ai-agent-drop-active {
+  opacity: 1;
+}
+
+.ai-agent-drop-overlay-content {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--interactive-accent);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-agent-chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  align-items: flex-end;
+}
+
+.ai-agent-chat-input {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 13px;
+  line-height: 1.4;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: inherit;
+  min-height: 36px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.ai-agent-chat-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+}
+
+.ai-agent-send-btn,
+.ai-agent-attach-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, filter 0.15s ease;
+}
+
+.ai-agent-send-btn {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.ai-agent-send-btn:hover {
+  filter: brightness(1.1);
+}
+
+.ai-agent-attach-btn {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.ai-agent-attach-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+/* ── External PDF View ───────────────────────────────────────── */
+
+.ai-agent-external-pdf-view {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--background-primary);
+  overflow: auto;
+}
+
+.ai-agent-external-pdf-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.ai-agent-external-pdf-loading {
+  padding: 24px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.ai-agent-external-pdf-pages {
+  min-height: 100%;
+  padding: 16px;
+}
+
+.ai-agent-external-pdf-page {
+  position: relative;
+  width: fit-content;
+  margin: 0 auto 16px;
+  background: white;
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+}
+
+.ai-agent-external-pdf-page canvas {
+  display: block;
+}
+
+.ai-agent-external-pdf-dark {
+  background: #101010;
+}
+
+.ai-agent-external-pdf-dark .ai-agent-external-pdf-page {
+  background: #0f0f0f;
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 2px 18px rgba(0, 0, 0, 0.42);
+}
+
+.ai-agent-external-pdf-dark .ai-agent-external-pdf-page canvas {
+  filter: invert(0.92) hue-rotate(180deg) contrast(0.98) brightness(0.92);
+}
+
+/* Toolbar inside Obsidian View Header */
+.ai-agent-external-pdf-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  opacity: 1 !important;
+  transform: none !important;
+  pointer-events: auto !important;
+  height: 100%;
+}
+
+.view-header-title-container:has(.ai-agent-external-pdf-toolbar) {
+  justify-content: center;
+  align-items: center;
+  flex: 1;
+  overflow: visible;
+}
+
+.ai-agent-pdf-tool-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: transparent !important;
+  color: var(--icon-color) !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.ai-agent-pdf-tool-btn svg,
+.ai-agent-pdf-tool-btn .svg-icon {
+  width: 18px !important;
+  height: 18px !important;
+  display: block !important;
+  stroke: currentColor !important;
+  fill: none !important;
+  stroke-width: 2px !important;
+}
+
+.ai-agent-pdf-tool-btn:hover {
+  color: var(--icon-color-hover) !important;
+  background: var(--background-modifier-hover) !important;
+}
+
+.ai-agent-pdf-tool-btn.is-active {
+  color: var(--text-on-accent) !important;
+  background: var(--interactive-accent) !important;
+}
+
+.ai-agent-pdf-zoom-label,
+.ai-agent-pdf-page-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 34px;
+  text-align: center;
+}
+
+.ai-agent-pdf-zoom-input {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 4px;
+  cursor: text;
+  outline: none;
+  padding: 1px 3px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.ai-agent-pdf-zoom-input:hover {
+  border-color: var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+.ai-agent-pdf-zoom-input:focus {
+  border-color: var(--interactive-accent);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.ai-agent-pdf-page-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+  border-left: 1px solid var(--background-modifier-border);
+  border-right: 1px solid var(--background-modifier-border);
+}
+
+.ai-agent-pdf-page-input {
+  width: 48px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 12px;
+  text-align: center;
+}
+
+.ai-agent-external-pdf-toc-wrapper {
+  position: sticky;
+  top: 12px;
+  left: 12px;
+  width: 0;
+  height: 0;
+  z-index: 100;
+  overflow: visible;
+}
+
+.ai-agent-external-pdf-toc {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 100px);
+  margin: 0;
+  display: none;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+}
+
+.ai-agent-external-pdf-dark .ai-agent-external-pdf-toolbar,
+.ai-agent-external-pdf-dark .ai-agent-external-pdf-toc {
+  background: rgb(25, 25, 25);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.ai-agent-external-pdf-dark .ai-agent-pdf-page-input {
+  background: #202020;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.ai-agent-external-pdf-toc.is-open {
+  display: flex;
+  flex-direction: column;
+}
+
+/* TOC tree nodes */
+.ai-agent-pdf-toc-node {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-agent-pdf-toc-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  border-radius: 5px;
+  min-height: 28px;
+  cursor: pointer;
+}
+
+.ai-agent-pdf-toc-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ai-agent-pdf-toc-toggle {
+  flex-shrink: 0;
+  width: 18px;
+  min-width: 18px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-muted);
+  margin-top: 4px;
+  border-radius: 3px;
+  transition: transform 0.15s ease;
+}
+
+.ai-agent-pdf-toc-toggle:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-active-hover);
+}
+
+.ai-agent-pdf-toc-toggle .svg-icon {
+  width: 12px !important;
+  height: 12px !important;
+  display: block !important;
+  transition: transform 0.15s ease;
+}
+
+.ai-agent-pdf-toc-toggle.is-open .svg-icon {
+  transform: rotate(90deg);
+}
+
+.ai-agent-pdf-toc-toggle-spacer {
+  flex-shrink: 0;
+  width: 18px;
+  min-width: 18px;
+}
+
+.ai-agent-pdf-toc-label {
+  display: inline-block;
+  flex: 1;
+  border: none !important;
+  background: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  color: var(--text-normal);
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  padding: 4px 4px 4px 0;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.ai-agent-pdf-toc-label.is-active {
+  color: var(--interactive-accent);
+  font-weight: 500;
+}
+
+.ai-agent-pdf-toc-children {
+  display: none;
+}
+
+.ai-agent-pdf-toc-children.is-open {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-agent-pdf-toc-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 8px;
+  text-align: center;
+}
+
+.ai-agent-external-pdf-reopen-msg {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  max-width: 320px;
+  margin-bottom: 14px;
+}
+
+.ai-agent-pdf-reopen-btn {
+  padding: 7px 18px;
+  border-radius: 6px;
+  border: 1px solid var(--interactive-accent);
+  background: transparent;
+  color: var(--interactive-accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ai-agent-pdf-reopen-btn:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+/* ── Incurator Ingest Modal ─────────────────────────────────── */
+
+.ai-agent-ingest-modal .setting-item-description {
+  word-break: break-word;
+}
+
+.ai-agent-ingest-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+
+.ai-agent-external-text-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  color: transparent;
+  background: transparent;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+  pointer-events: auto;
+  overflow: hidden;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+.ai-agent-pdf-text-span {
+  position: absolute;
+  color: transparent !important;
+  background: transparent !important;
+  white-space: pre;
+  transform-origin: left top;
+  line-height: 1;
+  font-family: sans-serif;
+  overflow: hidden;
+}
+
+.ai-agent-external-text-layer::selection,
+.ai-agent-pdf-text-span::selection {
+  background: var(--text-selection, rgba(0, 120, 215, 0.35)) !important;
+}
+
+/* ── Inline Prompt ──────────────────────────────────────────── */
+
+.ai-agent-inline-prompt {
+  /* Sticky inside .cm-scroller — stays pinned at top while document scrolls */
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  margin: 0 0 2px;
+  padding: 12px;
+  background: var(--background-primary);
+  border-bottom: 2px solid var(--interactive-accent);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  animation: ai-agent-prompt-in 0.15s ease-out;
+}
+
+@keyframes ai-agent-prompt-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ai-agent-inline-prompt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.ai-agent-inline-prompt-context {
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 85%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-agent-inline-prompt-close {
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--text-muted);
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.ai-agent-inline-prompt-close:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ai-agent-inline-prompt-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.ai-agent-inline-prompt-input {
+  flex: 1;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: inherit;
+}
+
+.ai-agent-inline-prompt-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.ai-agent-inline-prompt-submit {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: none;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter 0.15s ease;
+}
+
+.ai-agent-inline-prompt-submit:hover {
+  filter: brightness(1.1);
+}
+
+.ai-agent-inline-prompt-status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  min-height: 0;
+}
+
+.ai-agent-inline-prompt-loading {
+  animation: ai-agent-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes ai-agent-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.ai-agent-inline-prompt-preview {
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  white-space: pre-wrap;
+  max-height: 60px;
+  overflow: hidden;
+  display: block;
+}
+
+.ai-agent-inline-prompt-error {
+  color: var(--text-error);
+}
+
+/* ── Diff Viewer — inline line decorations ───────────────────── */
+
+/* CM6 line decorations applied via StateField */
+.ai-agent-diff-inline-removed {
+  background: rgba(248, 81, 73, 0.18) !important;
+  border-left: 3px solid var(--color-red, #f85149);
+  text-decoration: line-through;
+  text-decoration-color: rgba(248, 81, 73, 0.6);
+}
+
+.ai-agent-diff-inline-added {
+  background: rgba(46, 160, 67, 0.18) !important;
+  border-left: 3px solid var(--color-green, #3fb950);
+}
+
+/* ── Diff Viewer — floating toolbar ─────────────────────────── */
+
+.ai-agent-diff-toolbar {
+  /* position: fixed set via inline JS */
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.24);
+  animation: ai-agent-prompt-in 0.12s ease-out;
+  user-select: none;
+}
+
+.ai-agent-diff-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ai-agent-diff-toolbar-group + .ai-agent-diff-toolbar-group {
+  margin-left: 4px;
+  padding-left: 6px;
+  border-left: 1px solid var(--background-modifier-border);
+}
+
+.ai-agent-diff-toolbar-btn {
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 11px;
+  cursor: pointer;
+  line-height: 1.5;
+  transition: background 0.1s ease;
+}
+
+.ai-agent-diff-toolbar-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ai-agent-diff-toolbar-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 28px;
+  text-align: center;
+}
+
+.ai-agent-diff-toolbar-accept {
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: none;
+  background: var(--color-green, #3fb950);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+
+.ai-agent-diff-toolbar-accept:hover {
+  filter: brightness(1.12);
+}
+
+.ai-agent-diff-toolbar-reject {
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.ai-agent-diff-toolbar-reject:hover {
+  background: var(--color-red, #f85149);
+  color: #fff;
+  border-color: transparent;
+}
+
+/* ── Settings ───────────────────────────────────────────────── */
+
+.ai-agent-auth-status {
+  padding: 8px 0;
+}
+
+.ai-agent-auth-status-item {
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  font-size: 13px;
+}
+
+.ai-agent-auth-ok {
+  color: var(--color-green);
+  font-weight: 600;
+}
+
+.ai-agent-auth-fail {
+  color: var(--color-red);
+  font-weight: 600;
+}
+
+.ai-agent-mcp-server {
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────── */
+
+.ai-agent-chat-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ai-agent-chat-messages::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+}
+
+.ai-agent-chat-messages::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* ── PDF Snipping Tool ──────────────────────────────────────── */
+
+.ai-agent-snipping-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1000;
+  cursor: crosshair;
+  background: rgba(0, 0, 0, 0.1);
+  touch-action: none; /* Prevent scrolling while dragging */
+}
+
+.ai-agent-external-pdf-dark .ai-agent-snipping-overlay {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ai-agent-snipping-box {
+  position: absolute;
+  border: 2px dashed var(--interactive-accent);
+  background: rgba(var(--interactive-accent-rgb), 0.1);
+  pointer-events: none; /* Let events pass through to overlay */
+  box-sizing: border-box;
+}
+
+/* ── Inline Diff Widget ─────────────────────────────────────── */
+
+.ai-agent-inline-diff {
+  margin-top: 10px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+  font-family: var(--font-monospace);
+  font-size: 12px;
+}
+
+.ai-agent-inline-diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  gap: 8px;
+}
+
+.ai-agent-inline-diff-filename {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.ai-agent-inline-diff-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ai-agent-inline-diff-accept,
+.ai-agent-inline-diff-reject {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+
+.ai-agent-inline-diff-accept {
+  background: color-mix(in srgb, #3fb950 18%, transparent);
+  color: #3fb950;
+  border-color: color-mix(in srgb, #3fb950 40%, transparent);
+}
+
+.ai-agent-inline-diff-accept:hover:not(:disabled) {
+  background: color-mix(in srgb, #3fb950 28%, transparent);
+  border-color: #3fb950;
+}
+
+.ai-agent-inline-diff-reject {
+  background: color-mix(in srgb, #f85149 14%, transparent);
+  color: #f85149;
+  border-color: color-mix(in srgb, #f85149 35%, transparent);
+}
+
+.ai-agent-inline-diff-reject:hover:not(:disabled) {
+  background: color-mix(in srgb, #f85149 24%, transparent);
+  border-color: #f85149;
+}
+
+.ai-agent-inline-diff-accept:disabled,
+.ai-agent-inline-diff-reject:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ai-agent-inline-diff-code {
+  margin: 0;
+  padding: 6px 0;
+  background: var(--background-primary);
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+.ai-agent-inline-diff-line {
+  display: flex;
+  align-items: baseline;
+  padding: 0 10px;
+  min-height: 20px;
+  white-space: pre;
+}
+
+.ai-agent-inline-diff-line-removed {
+  background: color-mix(in srgb, #f85149 12%, transparent);
+}
+
+.ai-agent-inline-diff-line-added {
+  background: color-mix(in srgb, #3fb950 12%, transparent);
+}
+
+.ai-agent-inline-diff-gutter {
+  flex-shrink: 0;
+  width: 18px;
+  user-select: none;
+  font-weight: 700;
+}
+
+.ai-agent-inline-diff-line-removed .ai-agent-inline-diff-gutter {
+  color: #f85149;
+}
+
+.ai-agent-inline-diff-line-added .ai-agent-inline-diff-gutter {
+  color: #3fb950;
+}
+
+.ai-agent-inline-diff-line-unchanged .ai-agent-inline-diff-gutter {
+  color: var(--text-faint);
+}
+
+.ai-agent-inline-diff-text {
+  color: var(--text-normal);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-agent-inline-diff-line-removed .ai-agent-inline-diff-text {
+  color: color-mix(in srgb, #f85149 80%, var(--text-normal));
+}
+
+.ai-agent-inline-diff-line-added .ai-agent-inline-diff-text {
+  color: color-mix(in srgb, #3fb950 80%, var(--text-normal));
+}
+
+.ai-agent-inline-diff-accepted .ai-agent-inline-diff-header {
+  background: color-mix(in srgb, #3fb950 10%, var(--background-secondary));
+}
+
+.ai-agent-inline-diff-rejected .ai-agent-inline-diff-header {
+  background: color-mix(in srgb, #f85149 8%, var(--background-secondary));
+}
+
+.ai-agent-inline-diff-accepted .ai-agent-inline-diff-code,
+.ai-agent-inline-diff-rejected .ai-agent-inline-diff-code {
+  opacity: 0.5;
+}

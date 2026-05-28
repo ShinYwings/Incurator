@@ -1,0 +1,21 @@
+{
+  "name": "incurator-obsidian-agent",
+  "version": "0.1.0",
+  "description": "Cursor/Antigravity style AI agent for Obsidian with inline edits, PDF context, and local MCP servers.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs --watch",
+    "build": "node esbuild.config.mjs --production",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Antigravity",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.19.0",
+    "obsidian": "^1.4.16",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.7"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "incurator-obsidian-agent",
+  "name": "Incurator Obsidian Agent",
+  "version": "0.1.0",
+  "minAppVersion": "1.0.0",
+  "description": "Cursor/Antigravity-like AI Agent with inline edit (Cmd+K), highlighted selection, line referencing, and MCP.",
+  "author": "Antigravity",
+  "authorUrl": "",
+  "fundingUrl": "",
+  "isDesktopOnly": true
+}
