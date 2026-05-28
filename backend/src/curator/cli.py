@@ -307,12 +307,12 @@ def _refresh_qmd_index(paths: cfg.WikiPaths, *, embed: bool = True) -> None:
         if bin_path and not bin_path.exists():
             _hint(
                 "qmd binary not found. Build the bundled copy: "
-                "[bold]cd src/qmd && bun install && bun run build[/bold]"
+                "[bold]cd backend/src/qmd && bun install && bun run build[/bold]"
             )
         else:
             _hint(
                 "qmd binary present but not responding. "
-                "Try `src/qmd/bin/qmd --version` to diagnose."
+                "Try `backend/src/qmd/bin/qmd --version` to diagnose."
             )
         return
     try:
@@ -1948,6 +1948,126 @@ def init(
     else:
         _hint("Next: run [bold]wiki add[/bold] to discover & summarize sources, then [bold]wiki curate[/bold].")
 
+@config_app.command("get")
+def config_get(
+    key: str = typer.Argument(..., help="Dot-separated config key, e.g. external.zotero.roots"),
+    global_only: bool = typer.Option(False, "--global", help="Read from global config only."),
+) -> None:
+    """Print a config key value from the merged (global + project) config.
+
+    \b
+      wiki config get external.zotero.roots
+      wiki config get llm.primary
+    """
+    import json as _json
+
+    if global_only:
+        raw: dict = {}
+        global_cfg_file = cfg.get_global_config_dir() / "config.yml"
+        if global_cfg_file.exists():
+            import yaml as _yaml
+            with global_cfg_file.open("r", encoding="utf-8") as f:
+                raw = _yaml.safe_load(f) or {}
+    else:
+        try:
+            paths = _resolve_root_or_die()
+            raw = cfg.load_config(paths)
+        except SystemExit:
+            raw = {}
+            global_cfg_file = cfg.get_global_config_dir() / "config.yml"
+            if global_cfg_file.exists():
+                import yaml as _yaml
+                with global_cfg_file.open("r", encoding="utf-8") as f:
+                    raw = _yaml.safe_load(f) or {}
+
+    parts = key.split(".")
+    val: object = raw
+    for part in parts:
+        if isinstance(val, dict):
+            val = val.get(part)
+        else:
+            val = None
+            break
+
+    if val is None:
+        console.print("[dim](not set)[/dim]")
+    elif isinstance(val, (dict, list)):
+        console.print(_json.dumps(val, indent=2, ensure_ascii=False))
+    else:
+        console.print(str(val))
+
+
+@config_app.command("set")
+def config_set(
+    key: str = typer.Argument(..., help="Dot-separated config key, e.g. external.zotero.roots"),
+    value: str = typer.Argument(..., help="Value to set. Lists use JSON: '[\"path1\",\"path2\"]'"),
+    append: bool = typer.Option(False, "--append", help="Append to an existing list instead of replacing."),
+    global_cfg: bool = typer.Option(True, "--global/--local", help="Write to global config (default) or project config."),
+) -> None:
+    """Set a config key in the global or project config file.
+
+    \b
+      wiki config set external.zotero.roots "$HOME/Zotero/storage"
+      wiki config set external.zotero.roots '["~/Zotero/storage","~/Documents/Zotero"]'
+      wiki config set external.zotero.roots ~/Documents/Zotero --append
+      wiki config set --local llm.primary ollama
+    """
+    import json as _json
+    import yaml as _yaml
+
+    # Determine target config file
+    if global_cfg:
+        config_dir = cfg.get_global_config_dir()
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_file = config_dir / "config.yml"
+    else:
+        paths = _resolve_root_or_die()
+        config_file = paths.config_file
+
+    existing: dict = {}
+    if config_file.exists():
+        with config_file.open("r", encoding="utf-8") as f:
+            existing = _yaml.safe_load(f) or {}
+
+    # Parse value: try JSON first, then treat as plain string
+    try:
+        parsed_value: object = _json.loads(value)
+    except (ValueError, TypeError):
+        parsed_value = str(value).replace("~", str(Path.home()))
+
+    # Navigate/create nested dict and apply
+    parts = key.split(".")
+    target = existing
+    for part in parts[:-1]:
+        if not isinstance(target.get(part), dict):
+            target[part] = {}
+        target = target[part]  # type: ignore[assignment]
+
+    leaf = parts[-1]
+    if append:
+        current = target.get(leaf)
+        if isinstance(current, list):
+            existing_list = current
+        elif current is not None:
+            existing_list = [current]
+        else:
+            existing_list = []
+        items = parsed_value if isinstance(parsed_value, list) else [parsed_value]
+        for item in items:
+            if item not in existing_list:
+                existing_list.append(item)
+        target[leaf] = existing_list
+    else:
+        target[leaf] = parsed_value
+
+    with config_file.open("w", encoding="utf-8") as f:
+        _yaml.safe_dump(existing, f, sort_keys=False, default_flow_style=False, allow_unicode=True)
+
+    scope = "global" if global_cfg else "project"
+    console.print(f"[green]✓[/green] {scope} config updated: [bold]{key}[/bold] = {_json.dumps(parsed_value, ensure_ascii=False)}")
+    console.print(f"[dim]  {config_file}[/dim]")
+
+
 @config_app.command("provider")
 def config_provider(
     primary: str = typer.Option(
@@ -2643,7 +2763,12 @@ def sources_show_cmd(
     if row["last_ingested"]:
         meta_table.add_row("Last ingested", row["last_ingested"])
     for k, v in parsed.metadata.items():
-        meta_table.add_row(k, str(v)[:80])
+        if k == "pdf_pages" and isinstance(v, list):
+            meta_table.add_row(k, f"{len(v)} page(s)")
+        elif k == "pdf_images" and isinstance(v, list):
+            meta_table.add_row(k, f"{len(v)} image(s)")
+        else:
+            meta_table.add_row(k, str(v)[:80])
     console.print(meta_table)
 
     console.print()
@@ -3752,7 +3877,7 @@ def query(
         _err("qmd binary not available.")
         _hint(
             "Build the bundled copy: "
-            "[bold]cd src/qmd && bun install && bun run build[/bold]"
+            "[bold]cd backend/src/qmd && bun install && bun run build[/bold]"
         )
         raise typer.Exit(code=1)
 
@@ -3973,7 +4098,7 @@ def reindex() -> None:
         _err("qmd binary not available.")
         _hint(
             "Build the bundled copy: "
-            "[bold]cd src/qmd && bun install && bun run build[/bold]"
+            "[bold]cd backend/src/qmd && bun install && bun run build[/bold]"
         )
         raise typer.Exit(code=1)
 
@@ -4950,7 +5075,7 @@ def mcp_callback(ctx: typer.Context) -> None:
         from . import mcp_server
     except ImportError as e:
         _err(str(e))
-        _hint("Install with: [bold]uv pip install -e '.[mcp]'[/bold]")
+        _hint("Install with: [bold]cd backend && uv pip install -e '.[mcp]'[/bold]")
         raise typer.Exit(code=1)
     mcp_server.serve_stdio()
 
@@ -5043,7 +5168,7 @@ def mcp_install_cmd(
         from . import mcp_server
     except ImportError as e:
         _err(str(e))
-        _hint("Install with: [bold]uv pip install -e '.[mcp]'[/bold]")
+        _hint("Install with: [bold]cd backend && uv pip install -e '.[mcp]'[/bold]")
         raise typer.Exit(code=1)
 
     snippets = mcp_server.render_install_snippets(paths)
@@ -5154,7 +5279,7 @@ def benchmark_run(
         wiki benchmark run GS_Testbed --models gemini-flash --models qwen2.5:7b
     """
     import sys as _sys
-    _bench_dir = Path(__file__).resolve().parents[3] / "scripts" / "benchmark"
+    _bench_dir = Path(__file__).resolve().parents[4] / "scripts" / "benchmark"
     if str(_bench_dir) not in _sys.path:
         _sys.path.insert(0, str(_bench_dir))
 
@@ -5164,7 +5289,7 @@ def benchmark_run(
         _err(f"Benchmark module not found: {e}")
         raise typer.Exit(1)
 
-    results_dir = Path(output) if output else (Path(__file__).resolve().parents[3] / "scripts" / "benchmark" / "results")
+    results_dir = Path(output) if output else (Path(__file__).resolve().parents[4] / "scripts" / "benchmark" / "results")
     runs: list[_bm.BenchmarkRun] = []
     for model_key in models:
         try:
@@ -5184,7 +5309,7 @@ def benchmark_compare(
 ):
     """Compare two benchmark result JSON files side-by-side."""
     import sys as _sys
-    _bench_dir = Path(__file__).resolve().parents[3] / "scripts" / "benchmark"
+    _bench_dir = Path(__file__).resolve().parents[4] / "scripts" / "benchmark"
     if str(_bench_dir) not in _sys.path:
         _sys.path.insert(0, str(_bench_dir))
 

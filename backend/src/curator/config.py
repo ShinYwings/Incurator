@@ -232,6 +232,16 @@ DEFAULT_CONFIG: dict = {
         "backend": "qmd",
         "rerank": True,
     },
+    "external": {
+        # Machine-local roots used to rediscover reference-mode files that move
+        # outside the vault. Store real Zotero/iCloud paths in the global
+        # config file, not in the synced vault config.
+        "roots": [],
+        "zotero": {
+            "enabled": True,
+            "roots": [],
+        },
+    },
     "sync": {
         "max_parallel_verifications": 4,  # threads for Mode C Phase 1; 0 = sequential
     },
