@@ -15,8 +15,8 @@ from .workspace.provisioner import prepare_workspace
 
 def get_scenarios_dir() -> Path:
     """Find the scripts/dev directory relative to the package."""
-    # REPO_ROOT is 2 levels up from src/curator/testbed_manager.py
-    return Path(__file__).resolve().parents[2] / "scripts" / "dev"
+    # REPO_ROOT is 3 levels up from backend/src/curator/testbed_manager.py
+    return Path(__file__).resolve().parents[3] / "scripts" / "dev"
 
 def list_scenarios() -> List[str]:
     """List available testbed scenarios in scripts/dev/."""
@@ -89,18 +89,18 @@ def init_testbed(
 
     # Install agent rules
     fixture_rules = scenario_dir / "fixture_workspace_rules"
-    if fixture_rules.exists():
-        # Find first workspace in stage
-        ws_root = testbed_root / "01_Workspaces"
-        if ws_root.exists():
-            for ws_dir in ws_root.iterdir():
-                if ws_dir.is_dir():
-                    prepare_workspace(
-                        vault_root=testbed_root,
-                        workspace=ws_dir,
-                        agent="antigravity",
-                        install_rules=True,
-                        template_root=fixture_rules,
-                    )
+    fixture_has_content = fixture_rules.exists() and any(fixture_rules.rglob("*"))
+    tmpl_root = fixture_rules if fixture_has_content else None
+    ws_root = testbed_root / "01_Workspaces"
+    if ws_root.exists():
+        for ws_dir in ws_root.iterdir():
+            if ws_dir.is_dir():
+                prepare_workspace(
+                    vault_root=testbed_root,
+                    workspace=ws_dir,
+                    agent="antigravity",
+                    install_rules=True,
+                    template_root=tmpl_root,
+                )
     
     return testbed_root

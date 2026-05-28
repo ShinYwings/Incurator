@@ -2,7 +2,7 @@
 name = "incurator"
 version = "0.1.0"
 description = "An LLM-maintained personal wiki, per Karpathy's pattern. Local-first, enterprise-grade."
-readme = "README.md"
+readme = "../README.md"
 requires-python = ">=3.10"
 authors = [
     { name = "Incurator" }
@@ -36,6 +36,11 @@ mcp = [
     "mcp>=1.0.0",
     "httpx>=0.27.0",
 ]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.11.0",
+    "mypy>=1.8.0",
+]
 
 [project.scripts]
 wiki = "curator.cli:app"
@@ -45,7 +50,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.hooks.custom]
-path = "scripts/build/hatch_build.py"
+path = "../scripts/build/hatch_build.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/curator"]

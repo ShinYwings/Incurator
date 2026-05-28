@@ -80,15 +80,15 @@ def _init_like_wiki_init(root: Path) -> cfg.WikiPaths:
 
 def _write_testbed_agent_rules(root: Path) -> None:
     ws_dir = root / "01_Workspaces" / WORKSPACE_NAME
-    if not FIXTURE_WORKSPACE_RULES.exists():
-        return
+    fixture_has_content = FIXTURE_WORKSPACE_RULES.exists() and any(FIXTURE_WORKSPACE_RULES.rglob("*"))
+    tmpl_root = FIXTURE_WORKSPACE_RULES if fixture_has_content else None
     for agent in ("antigravity", "gemini-cli"):
         prepare_workspace(
             wiki_root=root,
             workspace=ws_dir,
             agent=agent,
             install_rules=True,
-            template_root=FIXTURE_WORKSPACE_RULES,
+            template_root=tmpl_root,
         )
 
 def create_testbed(*, force: bool) -> None:

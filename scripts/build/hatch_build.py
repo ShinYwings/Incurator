@@ -18,12 +18,19 @@ except ImportError:
 def _repo_root(root: str | Path | None = None) -> Path:
     """Resolve the repository root for Hatch and direct script execution."""
     if root is not None:
-        return Path(root).resolve()
-    return Path(__file__).resolve().parents[1]
+        resolved = Path(root).resolve()
+        if resolved.name == "backend":
+            return resolved.parent
+        return resolved
+    return Path(__file__).resolve().parents[2]
 
 
 def _qmd_dir(root: str | Path | None = None) -> Path:
-    return _repo_root(root) / "src" / "qmd"
+    repo = _repo_root(root)
+    candidate = repo / "backend" / "src" / "qmd"
+    if candidate.exists():
+        return candidate
+    return repo / "src" / "qmd"
 
 
 class CustomBuildHook(BuildHookInterface):
@@ -133,7 +140,7 @@ def _build_qmd(qmd_dir: Path) -> None:
         return
 
     if not qmd_dir.exists():
-        print("[incurator] src/qmd not found - skipping qmd build.", flush=True)
+        print("[incurator] bundled qmd source not found - skipping qmd build.", flush=True)
         return
 
     npm = _get_nvm_npm()
