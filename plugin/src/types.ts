@@ -20,6 +20,17 @@ export interface ModelOption {
   supportsVision: boolean;
 }
 
+// ─── Session Data (device-local, stored in sessions.json) ───────
+export interface SessionData {
+  chatSessions: ChatSession[];
+  activeChatSessionId?: string;
+}
+
+export const DEFAULT_SESSION_DATA: SessionData = {
+  chatSessions: [],
+  activeChatSessionId: undefined,
+};
+
 // ─── Plugin Settings ────────────────────────────────────────────
 export interface MCPServerConfig {
   name: string;
@@ -37,8 +48,6 @@ export interface PluginSettings {
   claudeEffort: ClaudeEffort;
   antigravityPrintTimeoutSec: number;
   providerUsage: Record<LLMProvider, ProviderUsage>;
-  activeChatSessionId?: string;
-  chatSessions: ChatSession[];
   diffMode: "inline" | "side-by-side";
   streamingEnabled: boolean;
   mcpServers: MCPServerConfig[];
@@ -87,8 +96,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
       reasoningOutputTokens: 0,
     },
   },
-  activeChatSessionId: undefined,
-  chatSessions: [],
   diffMode: "inline",
   streamingEnabled: true,
   mcpServers: [],

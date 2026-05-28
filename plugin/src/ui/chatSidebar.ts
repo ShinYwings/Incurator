@@ -1117,8 +1117,8 @@ export class ChatSidebarView extends ItemView {
       `Current provider/model: ${this.plugin.settings.provider} / ${this.plugin.settings.model}`,
     ];
 
-    const activeSession = this.plugin.settings.chatSessions.find(
-      (session) => session.id === this.plugin.settings.activeChatSessionId
+    const activeSession = this.plugin.sessionData.chatSessions.find(
+      (session) => session.id === this.plugin.sessionData.activeChatSessionId
     );
     if (activeSession) {
       lines.push(`Active chat: ${activeSession.title}`);
@@ -2622,19 +2622,19 @@ export class ChatSidebarView extends ItemView {
   // ── Chat history / mode ─────────────────────────────────────
 
   private async loadActiveSession(): Promise<void> {
-    const sessions = this.plugin.settings.chatSessions ?? [];
+    const sessions = this.plugin.sessionData.chatSessions ?? [];
     let session =
-      sessions.find((s) => s.id === this.plugin.settings.activeChatSessionId) ??
+      sessions.find((s) => s.id === this.plugin.sessionData.activeChatSessionId) ??
       sessions[0];
 
     if (!session) {
       session = this.createSession();
-      this.plugin.settings.chatSessions = [session];
-      this.plugin.settings.activeChatSessionId = session.id;
-      await this.plugin.saveSettings();
+      this.plugin.sessionData.chatSessions = [session];
+      this.plugin.sessionData.activeChatSessionId = session.id;
+      await this.plugin.saveSessionData();
     }
 
-    this.plugin.settings.activeChatSessionId = session.id;
+    this.plugin.sessionData.activeChatSessionId = session.id;
     this.messages = this.cloneMessages(session.messages);
   }
 
@@ -2642,16 +2642,16 @@ export class ChatSidebarView extends ItemView {
     await this.persistCurrentSession();
 
     const session = this.createSession();
-    this.plugin.settings.chatSessions = [
+    this.plugin.sessionData.chatSessions = [
       session,
-      ...(this.plugin.settings.chatSessions ?? []),
+      ...(this.plugin.sessionData.chatSessions ?? []),
     ].slice(0, 30);
-    this.plugin.settings.activeChatSessionId = session.id;
+    this.plugin.sessionData.activeChatSessionId = session.id;
     this.messages = [];
     this.pendingContextRefs = [];
     this.plugin.llmClient.abort();
     this.isGenerating = false;
-    await this.plugin.saveSettings();
+    await this.plugin.saveSessionData();
 
     this.renderMessages();
     this.renderContextChips();
@@ -2659,22 +2659,22 @@ export class ChatSidebarView extends ItemView {
   }
 
   private async onSessionChange(sessionId: string): Promise<void> {
-    if (!sessionId || sessionId === this.plugin.settings.activeChatSessionId) {
+    if (!sessionId || sessionId === this.plugin.sessionData.activeChatSessionId) {
       return;
     }
 
     await this.persistCurrentSession();
-    const session = this.plugin.settings.chatSessions.find(
+    const session = this.plugin.sessionData.chatSessions.find(
       (item) => item.id === sessionId
     );
     if (!session) return;
 
     this.plugin.llmClient.abort();
     this.isGenerating = false;
-    this.plugin.settings.activeChatSessionId = session.id;
+    this.plugin.sessionData.activeChatSessionId = session.id;
     this.messages = this.cloneMessages(session.messages);
     this.pendingContextRefs = [];
-    await this.plugin.saveSettings();
+    await this.plugin.saveSessionData();
 
     this.renderMessages();
     this.renderContextChips();
@@ -2696,28 +2696,28 @@ export class ChatSidebarView extends ItemView {
   }
 
   private async persistCurrentSession(): Promise<void> {
-    const activeId = this.plugin.settings.activeChatSessionId;
+    const activeId = this.plugin.sessionData.activeChatSessionId;
     if (!activeId) return;
 
-    const sessions = this.plugin.settings.chatSessions ?? [];
+    const sessions = this.plugin.sessionData.chatSessions ?? [];
     const session = sessions.find((item) => item.id === activeId);
     if (!session) return;
 
     session.messages = this.cloneMessages(this.messages);
     session.updatedAt = Date.now();
     session.title = this.getSessionTitle(session);
-    this.plugin.settings.chatSessions = [
+    this.plugin.sessionData.chatSessions = [
       session,
       ...sessions.filter((item) => item.id !== activeId),
     ].slice(0, 30);
-    await this.plugin.saveSettings();
+    await this.plugin.saveSessionData();
     this.syncSessionControls();
   }
 
   private syncSessionControls(): void {
     if (!this.sessionBtn) return;
-    const sessions = this.plugin.settings.chatSessions ?? [];
-    const activeSession = sessions.find(s => s.id === this.plugin.settings.activeChatSessionId) || sessions[0];
+    const sessions = this.plugin.sessionData.chatSessions ?? [];
+    const activeSession = sessions.find(s => s.id === this.plugin.sessionData.activeChatSessionId) || sessions[0];
     this.sessionBtn.empty();
     setIcon(this.sessionBtn, "history");
     const labelEl = this.sessionBtn.createSpan({ cls: "ai-agent-session-label" });
@@ -2731,18 +2731,18 @@ export class ChatSidebarView extends ItemView {
   }
 
   public async deleteChatSessionById(sessionId: string): Promise<void> {
-    const sessions = this.plugin.settings.chatSessions ?? [];
+    const sessions = this.plugin.sessionData.chatSessions ?? [];
     const nextSessions = sessions.filter((s) => s.id !== sessionId);
-    this.plugin.settings.chatSessions = nextSessions;
+    this.plugin.sessionData.chatSessions = nextSessions;
 
-    if (sessionId === this.plugin.settings.activeChatSessionId) {
+    if (sessionId === this.plugin.sessionData.activeChatSessionId) {
       if (nextSessions.length > 0) {
-        this.plugin.settings.activeChatSessionId = nextSessions[0].id;
+        this.plugin.sessionData.activeChatSessionId = nextSessions[0].id;
         this.messages = this.cloneMessages(nextSessions[0].messages);
       } else {
         const newSession = this.createSession();
-        this.plugin.settings.chatSessions = [newSession];
-        this.plugin.settings.activeChatSessionId = newSession.id;
+        this.plugin.sessionData.chatSessions = [newSession];
+        this.plugin.sessionData.activeChatSessionId = newSession.id;
         this.messages = [];
       }
       this.pendingContextRefs = [];
@@ -2751,15 +2751,15 @@ export class ChatSidebarView extends ItemView {
       this.renderMessages();
       this.renderContextChips();
     }
-    await this.plugin.saveSettings();
+    await this.plugin.saveSessionData();
     this.syncSessionControls();
   }
 
   private async deleteCurrentChatSession(): Promise<void> {
-    const activeId = this.plugin.settings.activeChatSessionId;
+    const activeId = this.plugin.sessionData.activeChatSessionId;
     if (!activeId) return;
 
-    const sessions = this.plugin.settings.chatSessions ?? [];
+    const sessions = this.plugin.sessionData.chatSessions ?? [];
     const session = sessions.find((s) => s.id === activeId);
     if (!session) return;
 
@@ -2768,22 +2768,22 @@ export class ChatSidebarView extends ItemView {
     }
 
     const nextSessions = sessions.filter((s) => s.id !== activeId);
-    this.plugin.settings.chatSessions = nextSessions;
+    this.plugin.sessionData.chatSessions = nextSessions;
 
     if (nextSessions.length > 0) {
-      this.plugin.settings.activeChatSessionId = nextSessions[0].id;
+      this.plugin.sessionData.activeChatSessionId = nextSessions[0].id;
       this.messages = this.cloneMessages(nextSessions[0].messages);
     } else {
       const newSession = this.createSession();
-      this.plugin.settings.chatSessions = [newSession];
-      this.plugin.settings.activeChatSessionId = newSession.id;
+      this.plugin.sessionData.chatSessions = [newSession];
+      this.plugin.sessionData.activeChatSessionId = newSession.id;
       this.messages = [];
     }
 
     this.pendingContextRefs = [];
     this.plugin.llmClient.abort();
     this.isGenerating = false;
-    await this.plugin.saveSettings();
+    await this.plugin.saveSessionData();
 
     new Notice("채팅 내역이 삭제되었습니다.");
     this.renderMessages();
@@ -2980,7 +2980,7 @@ class ChatHistoryModal extends Modal {
     private onDeleteSession: (id: string) => void
   ) {
     super(app);
-    this.sessions = this.plugin.settings.chatSessions ?? [];
+    this.sessions = this.plugin.sessionData.chatSessions ?? [];
   }
 
   onOpen() {
@@ -3009,7 +3009,7 @@ class ChatHistoryModal extends Modal {
       titleEl.style.overflow = "hidden";
       titleEl.style.textOverflow = "ellipsis";
       titleEl.style.whiteSpace = "nowrap";
-      if (session.id === this.plugin.settings.activeChatSessionId) {
+      if (session.id === this.plugin.sessionData.activeChatSessionId) {
         titleEl.style.fontWeight = "bold";
         titleEl.style.color = "var(--text-accent)";
       }

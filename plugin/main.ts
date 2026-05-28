@@ -8,11 +8,13 @@ import {
 } from "obsidian";
 import {
   type PluginSettings,
+  type SessionData,
   type ActiveContext,
   type ContextRef,
   type LLMProvider,
   type OpenTabContext,
   DEFAULT_SETTINGS,
+  DEFAULT_SESSION_DATA,
   DEFAULT_MODELS,
   getModelOption,
 } from "./src/types";
@@ -34,6 +36,7 @@ import {
 
 export default class ObsidianAIAgent extends Plugin {
   settings: PluginSettings = DEFAULT_SETTINGS;
+  sessionData: SessionData = { ...DEFAULT_SESSION_DATA };
   authResolver: CLIAuthResolver = new CLIAuthResolver();
   llmClient!: LLMClient;
   mcpManager: MCPManager = new MCPManager();
@@ -46,8 +49,9 @@ export default class ObsidianAIAgent extends Plugin {
   async onload(): Promise<void> {
     console.log("Loading Obsidian AI Agent plugin");
 
-    // ── Load settings ──
+    // ── Load settings and session data ──
     await this.loadSettings();
+    await this.loadSessionData();
 
     // ── Initialize core services ──
     const vaultRoot = (this.app.vault.adapter as any).getBasePath?.() || "";
@@ -329,18 +333,16 @@ export default class ObsidianAIAgent extends Plugin {
     // Detach sidebar views
     this.app.workspace.detachLeavesOfType(CHAT_VIEW_TYPE);
 
-    // Save final settings (including scroll positions)
+    // Save final settings and session data
     await this.saveData(this.settings);
+    await this.saveSessionData();
   }
 
   // ── Settings ────────────────────────────────────────────────
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign(
-      {},
-      DEFAULT_SETTINGS,
-      await this.loadData()
-    );
+    const raw = (await this.loadData()) || {};
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, raw);
     this.settings.providerUsage = {
       ...DEFAULT_SETTINGS.providerUsage,
       ...(this.settings.providerUsage || {}),
@@ -354,6 +356,47 @@ export default class ObsidianAIAgent extends Plugin {
     await this.saveData(this.settings);
     // Update LLM client with new settings
     this.llmClient?.updateSettings(this.settings);
+  }
+
+  // ── Session data (device-local, stored in sessions.json) ────────
+
+  private get _sessionsPath(): string {
+    return `${this.manifest.dir}/sessions.json`;
+  }
+
+  async loadSessionData(): Promise<void> {
+    try {
+      const raw = await this.app.vault.adapter.read(this._sessionsPath);
+      const parsed = JSON.parse(raw) as Partial<SessionData>;
+      this.sessionData = {
+        chatSessions: parsed.chatSessions ?? [],
+        activeChatSessionId: parsed.activeChatSessionId,
+      };
+    } catch {
+      // File missing or unreadable — check legacy data.json for migration
+      const raw = (await this.loadData()) || {};
+      const legacy = raw as { chatSessions?: SessionData["chatSessions"]; activeChatSessionId?: string };
+      if (legacy.chatSessions?.length) {
+        this.sessionData = {
+          chatSessions: legacy.chatSessions,
+          activeChatSessionId: legacy.activeChatSessionId,
+        };
+        // Persist to new location and remove from settings
+        await this.saveSessionData();
+        delete (this.settings as unknown as Record<string, unknown>).chatSessions;
+        delete (this.settings as unknown as Record<string, unknown>).activeChatSessionId;
+        await this.saveData(this.settings);
+      } else {
+        this.sessionData = { ...DEFAULT_SESSION_DATA };
+      }
+    }
+  }
+
+  async saveSessionData(): Promise<void> {
+    await this.app.vault.adapter.write(
+      this._sessionsPath,
+      JSON.stringify(this.sessionData, null, 2)
+    );
   }
 
   private migrateUnavailableModelDefaults(): boolean {
