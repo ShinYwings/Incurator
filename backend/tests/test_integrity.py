@@ -421,7 +421,7 @@ last_updated: 2026-05-04T00:00:00Z
         self.assertIn("[[02_Atoms/ATM-target1234]]", content)
         self.assertNotIn("[[03_Concepts/ATM-target1234]]", content)
 
-    def test_mode_c_regeneration_preserves_concept_identity_fields(self) -> None:
+    def test_mode_c_bottom_up_concept_regeneration_is_disabled(self) -> None:
         class _StubClient:
             def chat(self, messages, thinking=False, temperature=0.3):  # noqa: ARG002
                 return """---
@@ -476,12 +476,12 @@ Original body.
         )
 
         ok = sync._regenerate_concept(self.paths, _StubClient(), con_id)
-        self.assertTrue(ok)
+        self.assertFalse(ok)
         rewritten = page_writer.read_page(self.paths.concepts / f"{con_id}.md")
         self.assertIsNotNone(rewritten)
         self.assertEqual(rewritten.frontmatter["id"], con_id)
         self.assertEqual(rewritten.frontmatter["name"], "stable-name")
-        self.assertNotIn("dependencies", rewritten.frontmatter)
+        self.assertEqual(rewritten.frontmatter["domain"], "stable-domain")
         self.assertEqual(
             page_writer.extract_relation_targets(rewritten.body, prefix="02_Atoms/"),
             ["02_Atoms/ATM-good1234"],
