@@ -47,6 +47,23 @@ from . import page_writer
 from . import source_tools
 
 
+def _zotero_db_candidates(custom_paths: str) -> list[str]:
+    """Expand a comma-separated custom_paths string into candidate zotero.sqlite paths.
+
+    Each entry is expanduser'd; a path already ending in `.sqlite` is used as-is,
+    otherwise `zotero.sqlite` is appended. Shared by the Zotero MCP tools so the
+    resolution rule lives in one place.
+    """
+    out: list[str] = []
+    for raw in str(custom_paths or "").split(","):
+        p = raw.strip()
+        if not p:
+            continue
+        base = os.path.expanduser(p)
+        out.append(base if base.endswith(".sqlite") else os.path.join(base, "zotero.sqlite"))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Vault resolution (run once at import / server-start)
 # ---------------------------------------------------------------------------
@@ -620,36 +637,14 @@ def build_server() -> FastMCP:
         relpath: str = "",
         source_path: str = "",
     ) -> dict[str, Any] | None:
-        relpath = relpath or _source_path_to_relpath(paths, source_path)
-        with db.connect(paths.state_db) as conn:
-            if source_id is not None:
-                row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
-            elif relpath:
-                row = conn.execute(
-                    """
-                    SELECT * FROM sources
-                    WHERE relpath = ?
-                       OR external_path = ?
-                       OR import_origin = ?
-                       OR logical_source_id = ?
-                    """,
-                    (relpath, relpath, relpath, relpath),
-                ).fetchone()
-            else:
-                row = None
-        return dict(row) if row else None
-
-    def _source_path_to_relpath(paths: cfg.WikiPaths, source_path: str = "") -> str:
-        if not source_path:
-            return ""
-        raw = str(source_path)
-        path = Path(raw).expanduser()
-        if path.is_absolute():
-            try:
-                return str(path.resolve().relative_to(paths.root.resolve()))
-            except ValueError:
-                return raw
-        return raw
+        """Thin wrapper — canonical logic is in db.get_source_row."""
+        return db.get_source_row(
+            paths.state_db,
+            paths.root,
+            source_id=source_id,
+            relpath=relpath,
+            source_path=source_path,
+        )
 
     class _McpIngestCallbacks(ingest_llm.IngestCallbacks):
         def __init__(self) -> None:
@@ -685,16 +680,8 @@ def build_server() -> FastMCP:
 
         try:
             from .zotero_integration import search_zotero_items
-            import os
-            candidates = [
-                p.strip()
-                for p in str(custom_paths).split(",")
-                if p.strip()
-            ]
             checked: list[str] = []
-            for candidate in candidates:
-                base = os.path.expanduser(candidate)
-                zotero_db = base if base.endswith(".sqlite") else os.path.join(base, "zotero.sqlite")
+            for zotero_db in _zotero_db_candidates(custom_paths):
                 checked.append(zotero_db)
                 items = search_zotero_items(zotero_db, query, limit=limit)
                 if items:
@@ -716,9 +703,10 @@ def build_server() -> FastMCP:
 
         try:
             from .zotero_integration import get_zotero_item_metadata
-            import os
-            zotero_db = os.path.join(os.path.expanduser(custom_paths), "zotero.sqlite")
-            metadata = get_zotero_item_metadata(zotero_db, item_key, citation_style=citation_style)
+            cands = _zotero_db_candidates(custom_paths)
+            if not cands:
+                return {"ok": False, "error": "custom_paths (zoteroBasePath) is required"}
+            metadata = get_zotero_item_metadata(cands[0], item_key, citation_style=citation_style)
             return {"ok": True, "metadata": metadata}
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -735,15 +723,11 @@ def build_server() -> FastMCP:
         config = cfg.load_config(paths)
         zotero_db = config.get("zotero", {}).get("db_path", os.path.expanduser("~/Zotero/zotero.sqlite"))
 
-        # If custom paths provided, check if we can find a sqlite db there
-        if custom_paths:
-            for p in custom_paths.split(","):
-                p = p.strip()
-                if not p: continue
-                db_cand = os.path.join(os.path.expanduser(p), "zotero.sqlite")
-                if os.path.exists(db_cand):
-                    zotero_db = db_cand
-                    break
+        # If custom paths provided, use the first candidate db that exists.
+        for db_cand in _zotero_db_candidates(custom_paths):
+            if os.path.exists(db_cand):
+                zotero_db = db_cand
+                break
 
         try:
             annotations = zotero.get_zotero_annotations(zotero_db, attachment_key)
@@ -765,7 +749,8 @@ def build_server() -> FastMCP:
         if custom_paths:
             for p in custom_paths.split(","):
                 p = p.strip()
-                if not p: continue
+                if not p:
+                    continue
                 p = os.path.expanduser(p)
                 candidates.append(p)
         if "external" in config and "zotero" in config["external"]:
@@ -909,7 +894,7 @@ def build_server() -> FastMCP:
         wanted = section_id or toc_id
         text = parsed.text
         if page and parsed.file_type == "pdf":
-            pages = parsed.metadata.get("pages") or []
+            pages = parsed.metadata.get("pdf_pages") or []
             for item in pages:
                 if int(item.get("page") or item.get("page_number") or 0) == int(page):
                     text = str(item.get("text") or "")
@@ -1097,20 +1082,25 @@ def build_server() -> FastMCP:
         }
 
     @mcp.tool()
-    def curator_ingest_source(
+    def curator_register_source(
         source_id: Optional[int] = None,
         relpath: str = "",
         source_path: str = "",
         file_path: str = "",
         path: str = "",
         force: bool = False,
-        run_l2_l3: bool = True,
+        build: bool = True,
         workspace_path: str = "",
     ) -> dict[str, Any]:
-        """Run L1 summary generation and optionally L2/L3 ingest for a source.
+        """Register a source and generate its L1 Context instantly (no LLM).
 
-        L3 clustering is global, so `run_l2_l3=True` can refresh shared Concept
-        pages after ingesting this source.
+        This is the fast ingest boundary: structural L1 only, **no LLM client
+        is started**, so it works even when no model backend is available.
+        If `build=True`, L2/L3 are enqueued to the background worker
+        (non-blocking) and surface later via curator_source_status.
+
+        The plugin calls this on PDF-open to make a document searchable in
+        seconds without waiting for atom/concept extraction.
         """
         paths = _resolve_paths(workspace_path)
         lookup_path = relpath or source_path or file_path or path
@@ -1119,77 +1109,128 @@ def build_server() -> FastMCP:
             return {"state": "untracked", "error": "Source not found", "source_path": lookup_path}
 
         source_id_int = int(row["id"])
+
+        if force:
+            with db.connect(paths.state_db) as conn:
+                conn.execute(
+                    "UPDATE sources SET status = 'force_pending', error_reason = NULL, "
+                    "l1_status = 'pending', l2_status = 'pending', "
+                    "l3_status = 'pending', l4_status = 'pending', layer_error = NULL "
+                    "WHERE id = ?",
+                    (source_id_int,),
+                )
+            row["context_id"] = None
+
+        context_id = row.get("context_id")
+        if force or not context_id or not (paths.contexts / f"{context_id}.md").exists():
+            db.set_source_layer_status(paths.state_db, source_id_int, "l1", "running")
+            context_id = ingest_raw.generate_l1_structural_context(
+                paths,
+                source_id=source_id_int,
+                relpath=str(row["relpath"]),
+                content_hash=str(row["content_hash"]),
+                existing_context_id=None if force else row.get("context_id"),
+            )
+            if not context_id:
+                return {"ok": False, "source_id": source_id_int, "error": "L1 generation failed"}
+
+        # Make the new L1 immediately searchable (BM25; skip slow embeddings).
+        try:
+            search.update_index(paths, embed=False)
+        except Exception:
+            pass
+
+        job_ids: list[int] = []
+        if build:
+            from .ingest_worker import enqueue_l2_l3_for_sources
+            job_ids = enqueue_l2_l3_for_sources(paths, [source_id_int])
+
+        return {
+            "ok": True,
+            "source_id": source_id_int,
+            "context_id": context_id,
+            "l2_l3_queued": bool(job_ids),
+            "job_ids": job_ids,
+        }
+
+    @mcp.tool()
+    def curator_build_source(
+        source_id: Optional[int] = None,
+        relpath: str = "",
+        source_path: str = "",
+        file_path: str = "",
+        path: str = "",
+        wait: bool = False,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """Build L2 Atoms + L3 Concepts for a source (the deep, LLM-heavy pass).
+
+        Requires L1 to exist (run curator_register_source first). With
+        `wait=False` (default) the work is enqueued to the background worker
+        and this returns immediately. With `wait=True` it runs synchronously
+        and may take minutes — the LLM client is built only in that case.
+        """
+        paths = _resolve_paths(workspace_path)
+        lookup_path = relpath or source_path or file_path or path
+        row = _get_source_row(paths, source_id=source_id, relpath=relpath, source_path=lookup_path)
+        if row is None:
+            return {"state": "untracked", "error": "Source not found", "source_path": lookup_path}
+
+        source_id_int = int(row["id"])
+        context_id = row.get("context_id")
+        if not context_id or not (paths.contexts / f"{context_id}.md").exists():
+            return {
+                "ok": False,
+                "source_id": source_id_int,
+                "error": "L1 Context missing — call curator_register_source first.",
+            }
+
+        db.set_source_layer_status(paths.state_db, source_id_int, "l2", "pending")
+        db.set_source_layer_status(paths.state_db, source_id_int, "l3", "pending")
+
+        if not wait:
+            from .ingest_worker import enqueue_l2_l3_for_sources
+            job_ids = enqueue_l2_l3_for_sources(paths, [source_id_int])
+            return {
+                "ok": True,
+                "source_id": source_id_int,
+                "queued": True,
+                "job_ids": job_ids,
+            }
+
+        # Synchronous build — the only path that needs an LLM client.
         config = cfg.load_config(paths)
         callbacks = _McpIngestCallbacks()
         try:
             client = llm.build_client(config)
         except Exception as exc:
             return {"error": f"Could not start LLM client: {exc}"}
-
         try:
-            if force:
-                with db.connect(paths.state_db) as conn:
-                    conn.execute(
-                        "UPDATE sources SET status = 'force_pending', error_reason = NULL, "
-                        "l1_status = 'pending', l2_status = 'pending', "
-                        "l3_status = 'pending', l4_status = 'pending', layer_error = NULL "
-                        "WHERE id = ?",
-                        (source_id_int,),
-                    )
-                    row["context_id"] = None
-
-            context_id = row.get("context_id")
-            if force or not context_id or not (paths.contexts / f"{context_id}.md").exists():
-                db.set_source_layer_status(paths.state_db, source_id_int, "l1", "running")
-                context_id = ingest_raw.generate_l1_summary(
-                    paths,
-                    source_id=source_id_int,
-                    relpath=str(row["relpath"]),
-                    content_hash=str(row["content_hash"]),
-                    client=client,
-                    config=config,
-                    existing_context_id=None if force else row.get("context_id"),
-                    thinking=False,
-                )
-                if not context_id:
-                    return {"ok": False, "source_id": source_id_int, "error": "L1 summary failed"}
-
-            ingest_result = None
-            l3_pages_written = 0
-            if run_l2_l3:
-                with db.connect(paths.state_db) as conn:
-                    conn.execute(
-                        "UPDATE sources SET status = 'pending', error_reason = NULL, "
-                        "l2_status = 'pending', l3_status = 'pending', layer_error = NULL "
-                        "WHERE id = ?",
-                        (source_id_int,),
-                    )
-                results = ingest_llm.run_l1_to_l3(
-                    paths,
-                    client,
-                    lambda: callbacks,
-                    mode="batch",
-                    auto_discover=False,
-                    thinking_for_extraction=False,
-                )
-                ingest_result = next(
-                    (result for result in results if result.source_id == source_id_int),
-                    None,
-                )
-                l3_pages_written = sum(
-                    1
-                    for event in callbacks.events
-                    if event.get("kind") == "page"
-                    and str(event.get("path") or "").startswith("03_Concepts/")
-                )
-                if ingest_result is not None and ingest_result.ok:
-                    try:
-                        search.update_index(paths, embed=True)
-                    except Exception:
-                        pass
-
+            results = ingest_llm.run_l1_to_l3(
+                paths,
+                client,
+                lambda: callbacks,
+                mode="batch",
+                auto_discover=False,
+                thinking_for_extraction=False,
+            )
+            ingest_result = next(
+                (result for result in results if result.source_id == source_id_int),
+                None,
+            )
+            l3_pages_written = sum(
+                1
+                for event in callbacks.events
+                if event.get("kind") == "page"
+                and str(event.get("path") or "").startswith("03_Concepts/")
+            )
+            if ingest_result is not None and ingest_result.ok:
+                try:
+                    search.update_index(paths, embed=True)
+                except Exception:
+                    pass
             return {
-                "ok": (not run_l2_l3) if ingest_result is None else ingest_result.ok,
+                "ok": True if ingest_result is None else ingest_result.ok,
                 "source_id": source_id_int,
                 "context_id": context_id,
                 "l2": None
@@ -1208,6 +1249,40 @@ def build_server() -> FastMCP:
                 client.close()
             except Exception:
                 pass
+
+    @mcp.tool()
+    def curator_ingest_source(
+        source_id: Optional[int] = None,
+        relpath: str = "",
+        source_path: str = "",
+        file_path: str = "",
+        path: str = "",
+        force: bool = False,
+        run_l2_l3: bool = True,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """DEPRECATED: use curator_register_source (L1) + curator_build_source (L2/L3).
+
+        Kept as a thin compatibility alias. Registers + instant L1, then builds
+        L2/L3 synchronously when run_l2_l3=True (legacy blocking behaviour).
+        """
+        reg = curator_register_source(
+            source_id=source_id,
+            relpath=relpath,
+            source_path=source_path,
+            file_path=file_path,
+            path=path,
+            force=force,
+            build=False,
+            workspace_path=workspace_path,
+        )
+        if not reg.get("ok") or not run_l2_l3:
+            return reg
+        return curator_build_source(
+            source_id=reg.get("source_id"),
+            wait=True,
+            workspace_path=workspace_path,
+        )
 
     @mcp.tool()
     def curator_search_sources(
@@ -1256,28 +1331,6 @@ def build_server() -> FastMCP:
             "count": len(hits),
         }
 
-    @mcp.tool()
-    def curator_search_source(
-        query: str,
-        source_id: Optional[int] = None,
-        source_path: str = "",
-        file_path: str = "",
-        path: str = "",
-        relpath: str = "",
-        limit: int = 8,
-        workspace_path: str = "",
-    ) -> dict[str, Any]:
-        """Alias for source-scoped raw search with page provenance."""
-        return curator_search_sources(
-            query=query,
-            source_id=source_id,
-            source_path=source_path,
-            file_path=file_path,
-            path=path,
-            relpath=relpath,
-            limit=limit,
-            workspace_path=workspace_path,
-        )
 
     @mcp.tool()
     def curator_get_source_page(
@@ -1335,25 +1388,166 @@ def build_server() -> FastMCP:
         }
 
     @mcp.tool()
-    def curator_get_pdf_page(
-        source_id: Optional[int] = None,
-        source_path: str = "",
-        file_path: str = "",
-        path: str = "",
-        relpath: str = "",
-        page: int = 1,
+    def curator_get_pdf_context(
+        file_path: str,
+        query: str = "",
+        page_num: int = 0,
+        radius: int = 2,
+        max_pages: int = 8,
         workspace_path: str = "",
     ) -> dict[str, Any]:
-        """Alias for retrieving one parsed PDF page from a tracked source."""
-        return curator_get_source_page(
-            source_id=source_id,
-            source_path=source_path,
-            file_path=file_path,
-            path=path,
-            relpath=relpath,
-            page=page,
-            workspace_path=workspace_path,
-        )
+        """Extract relevant PDF text for use as LLM context.
+
+        Unlike curator_ingest_source (which creates L1-L4 DAG nodes), this tool
+        performs lightweight on-demand text extraction for immediate chat context.
+        Works for both tracked and untracked PDFs — no ingestion required.
+
+        Args:
+            file_path: Absolute filesystem path to the PDF.
+            query: Optional query string to score pages by relevance.
+            page_num: Current page number (1-based). 0 = no current page.
+            radius: Pages around page_num to include in the window (default 2).
+            max_pages: Maximum pages to return (default 8).
+            workspace_path: Vault root override.
+
+        Returns dict with:
+            ok, source_tracked, source_id, total_pages, title,
+            pages ([{page_num, text, score}]), outline ([{title, page_num, level}]),
+            is_empty_pdf
+        """
+        from .search import lexical_score
+        from .parsers.pdf import get_page_count, parse_page_window, _extract_pdf_toc
+
+        paths = _resolve_paths(workspace_path)
+
+        # Resolve the file path
+        resolved = Path(file_path).expanduser().resolve()
+        if not resolved.exists():
+            return {"ok": False, "error": f"File not found: {file_path}"}
+        if resolved.suffix.lower() != ".pdf":
+            return {"ok": False, "error": f"Not a PDF file: {file_path}"}
+
+        # Check if source is tracked in DB
+        row = _get_source_row(paths, source_path=str(resolved))
+        source_tracked = row is not None
+        source_id_val: int | None = int(row["id"]) if row else None
+
+        try:
+            if source_tracked and row is not None:
+                # Use DB-cached page text — zero re-parsing
+                all_pages: list[dict[str, Any]] = db.list_source_pdf_pages(
+                    paths.state_db, source_id_val
+                )
+                total_pages = len(all_pages)
+
+                # Build window candidates
+                if page_num > 0:
+                    lo = max(1, page_num - radius)
+                    hi = min(total_pages, page_num + radius)
+                    window_set = set(range(lo, hi + 1))
+                else:
+                    window_set = set(range(1, min(max_pages * 3, total_pages) + 1))
+
+                candidates = [
+                    p for p in all_pages
+                    if int(p.get("page") or p.get("page_num") or 0) in window_set
+                ]
+
+                # Score by query if provided
+                if query.strip():
+                    scored = [
+                        {**p, "_score": lexical_score(str(p.get("text") or ""), query)}
+                        for p in candidates
+                    ]
+                    scored.sort(key=lambda x: x["_score"], reverse=True)
+                    candidates = scored[:max_pages]
+                else:
+                    candidates = candidates[:max_pages]
+
+                pages_out = [
+                    {
+                        "page_num": int(p.get("page") or p.get("page_num") or 0),
+                        "text": str(p.get("text") or ""),
+                        "score": float(p.get("_score", 0.0)),
+                    }
+                    for p in candidates
+                ]
+                pages_out.sort(key=lambda x: x["page_num"])
+
+                # TOC from DB if available; otherwise from file
+                source_file = paths.root / str(row["relpath"])
+                outline_raw = _extract_pdf_toc(source_file) if source_file.exists() else []
+
+            else:
+                # Untracked: parse only the needed window pages
+                total_pages = get_page_count(resolved)
+                if total_pages == 0:
+                    return {"ok": False, "error": "Could not read PDF (encrypted or corrupt)"}
+
+                if page_num > 0:
+                    lo = max(1, page_num - radius)
+                    hi = min(total_pages, page_num + radius)
+                    window_set = set(range(lo, hi + 1))
+                else:
+                    window_set = set(range(1, min(max_pages, total_pages) + 1))
+
+                # Expand candidates if query provided (score wider, return top N)
+                if query.strip():
+                    candidate_set = set(range(1, min(max_pages * 3, total_pages) + 1))
+                    candidate_set |= window_set
+                else:
+                    candidate_set = window_set
+
+                page_texts = parse_page_window(resolved, candidate_set)
+
+                if query.strip():
+                    scored_pages = [
+                        (pn, text, lexical_score(text, query))
+                        for pn, text in page_texts.items()
+                    ]
+                    scored_pages.sort(key=lambda x: x[2], reverse=True)
+                    top = scored_pages[:max_pages]
+                else:
+                    top = [(pn, text, 0.0) for pn, text in page_texts.items()]
+
+                pages_out = [
+                    {"page_num": pn, "text": text, "score": score}
+                    for pn, text, score in sorted(top, key=lambda x: x[0])
+                ]
+                outline_raw = _extract_pdf_toc(resolved)
+
+            # Build outline
+            outline = [
+                {
+                    "title": str(item.get("title") or ""),
+                    "page_num": int(item.get("page") or item.get("page_num") or 0),
+                    "level": int(item.get("level") or 1),
+                }
+                for item in (outline_raw or [])
+            ]
+
+            is_empty = all(not p["text"].strip() for p in pages_out)
+
+            # Title from DB row or filename
+            title = ""
+            if row:
+                title = str(row.get("title") or "")
+            if not title:
+                title = resolved.stem
+
+            return {
+                "ok": True,
+                "source_tracked": source_tracked,
+                "source_id": source_id_val,
+                "total_pages": total_pages,
+                "title": title,
+                "pages": pages_out,
+                "outline": outline,
+                "is_empty_pdf": is_empty,
+            }
+
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
 
     @mcp.tool()
     def curator_get_provenance(
@@ -2731,6 +2925,15 @@ def build_server() -> FastMCP:
     # ------------------------------------------------------------------
     # curator_status — vault info + qmd readiness
     # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def curator_get_version() -> str:
+        """Return the current version of the Incurator backend."""
+        try:
+            import importlib.metadata
+            return importlib.metadata.version("incurator")
+        except Exception:
+            return "0.2.1"
 
     @mcp.tool()
     def get_available_models() -> dict[str, Any]:

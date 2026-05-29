@@ -205,7 +205,7 @@ DEFAULT_CONFIG: dict = {
         "model": "qwen2.5:7b",
         "host": "http://localhost:11434",
         # --- Antigravity settings (Gemini-family cloud models via agy) ---
-        "antigravity_flash_model": "gemini-3.1-flash-lite-preview",
+        "antigravity_flash_model": "gemini-3.5-flash",
         "antigravity_think_model": "gemini-3.1-pro-preview",
         # thinking mode — used for L2 Fragment extraction (slower, higher quality)
         "temperature": 0.3,
@@ -215,7 +215,7 @@ DEFAULT_CONFIG: dict = {
         "instant_l1": True,
         # primary: 'ollama' | 'claude-code' | 'antigravity-cli' | ''
         #   ''  → legacy auto/provider field takes effect
-        "primary": "",
+        "primary": "antigravity-cli",
         # fallback: 'ollama' | 'claude-code' | 'antigravity-cli' | ''
         #   explicit failover backend; '' = use legacy hardcoded fallback logic
         "fallback": "",
@@ -287,14 +287,10 @@ def get_curator_persona(config: dict) -> dict:
 
 
 def _migrate_legacy_llm_keys(config: dict) -> dict:
-    """Map v0.2.0 Gemini CLI keys to v0.2.1 Antigravity keys in memory."""
+    """Map legacy Gemini model key names to Antigravity key names in memory."""
     llm_cfg = config.get("llm")
     if not isinstance(llm_cfg, dict):
         return config
-    if llm_cfg.get("primary") == "gemini-cli":
-        llm_cfg["primary"] = "antigravity-cli"
-    if llm_cfg.get("fallback") == "gemini-cli":
-        llm_cfg["fallback"] = "antigravity-cli"
     legacy_map = {
         "gemini_flash_model": "antigravity_flash_model",
         "gemini_think_model": "antigravity_think_model",

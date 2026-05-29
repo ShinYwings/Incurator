@@ -9,20 +9,22 @@
 
 ## 1. 설치
 
+플러그인 설치는 **Vault 생성 시 `wiki init` 마법사**를 통해 대화형으로 자동 진행됩니다.
+
 ```bash
-# 프로젝트 루트에서 전체 설치
+# 1. 백엔드 설치
 ./setup.sh
 
-# 또는 플러그인만 별도 빌드
-cd plugin
-npm install
-npm run build
+# 2. Vault 생성 및 플러그인 자동 설치
+wiki init /path/to/vault
 ```
 
-`setup.sh`는 빌드 결과물(`main.js`, `manifest.json`, `styles.css`)을  
-`<vault>/.obsidian/plugins/obsidian-ai-agent/`로 자동 복사합니다.
+`wiki init` 과정에서 플러그인 설치를 수락하면, 빌드 결과물(`main.js`, `manifest.json`, `styles.css`)이  
+`<vault>/.obsidian/plugins/incurator-obsidian-agent/`로 자동 복사됩니다.
 
 Obsidian → **설정 > 커뮤니티 플러그인 > 설치된 플러그인**에서 `AI Agent`를 활성화하세요.
+
+> **참고:** 수동으로 플러그인만 별도 빌드해야 하는 경우, `plugin/` 폴더에서 `npm install` 및 `npm run build`를 실행하세요.
 
 ---
 
@@ -221,9 +223,15 @@ LLM이 Exhibition 내용을 근거로 답변 생성
 | 설정 | 기본값 | 설명 |
 | --- | --- | --- |
 | `incuratorEnabled` | `true` | Curator 백엔드 연동 활성화 |
+| `incuratorRepoPath` | `""` | 백엔드 자동 업데이트를 위한 Incurator 저장소 절대 경로 |
 | `incuratorDefaultDestination` | `04_Resources` | PDF 임포트 기본 대상 폴더 |
 | `incuratorDefaultImportMode` | `reference` | 파일 임포트 방식 (`copy` / `reference`) |
 | `incuratorStatusPolling` | `true` | 소스 처리 상태 폴링 활성화 |
+
+### 백엔드 자동 업데이트 (1-Click Auto-Update)
+
+Incurator 백엔드와 Obsidian 플러그인은 각기 다른 주기로 업데이트될 수 있습니다. 플러그인은 시작 시 MCP를 통해 백엔드 버전을 확인(`curator_get_version`)하며, 버전 불일치(Mismatch)가 감지되면 채팅 창 상단에 **[Update Incurator Backend]** 배너를 표시합니다.
+설정에서 `incuratorRepoPath`에 로컬 저장소 경로를 지정해 두었다면, 버튼 클릭 한 번으로 백그라운드에서 백엔드를 최신 버전으로 자동 업데이트하고 MCP 서버를 재시작합니다.
 
 `Use Incurator backend`는 Incurator MCP 도구 사용 여부를 제어합니다. 켜면 플러그인이 현재 vault 경로를 `VAULT_ROOT`로 넣은 기본 `incurator` 서버(`wiki mcp`)를 자동 생성하고 즉시 연결을 시도합니다. 설정 화면의 이 항목 아래에는 현재 상태가 표시됩니다: disabled, connected, waiting, not configured. 범용 MCP Servers 섹션은 다른 MCP 서버를 관리하거나 자동 생성된 Incurator 서버를 고급 설정할 때 사용합니다.
 

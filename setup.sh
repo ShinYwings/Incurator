@@ -3,35 +3,22 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-BUILD_PLUGIN=0
-if [[ "${1:-}" == "--plugin" ]] || [[ "${1:-}" == "--all" ]] || [ -n "${OBSIDIAN_PLUGIN_DIR:-}" ]; then
-  BUILD_PLUGIN=1
-fi
-
 echo "=== Installing Incurator backend ==="
-bash "$ROOT_DIR/backend/install.sh"
+cd "$ROOT_DIR/backend"
 
-if [ "$BUILD_PLUGIN" -eq 1 ]; then
-  echo ""
-  echo "=== Installing Obsidian plugin dependencies ==="
-  cd "$ROOT_DIR/plugin"
-  npm install
-
-  echo ""
-  echo "=== Building Obsidian plugin ==="
-  npm run build
-
-  if [ -n "${OBSIDIAN_PLUGIN_DIR:-}" ]; then
-    echo ""
-    echo "=== Deploying to Obsidian vault ==="
-    OBSIDIAN_PLUGIN_DIR="$OBSIDIAN_PLUGIN_DIR" npm run build
-    echo "  → $OBSIDIAN_PLUGIN_DIR"
-  fi
+echo "=== Installing dependencies via uv or pip ==="
+if command -v uv &> /dev/null; then
+    uv pip install -e .
 else
-  echo ""
-  echo "ℹ️  Skipping Obsidian plugin build."
-  echo "   (Run with '--plugin' or set OBSIDIAN_PLUGIN_DIR to build and deploy the plugin)"
+    pip install -e .
 fi
+
+echo ""
+echo "=== Running post-installation build hook ==="
+python ../scripts/build/hatch_build.py
+
+echo ""
+echo "ℹ️  Note: Obsidian plugin installation is now handled interactively via 'wiki init'."
 
 echo ""
 echo "=== Setup complete ==="

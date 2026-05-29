@@ -9,20 +9,22 @@
 
 ## 1. Installation
 
+Plugin installation is now handled interactively via the **`wiki init` wizard** when creating a vault.
+
 ```bash
-# Full install from project root
+# 1. Install backend dependencies
 ./setup.sh
 
-# Or build the plugin only
-cd plugin
-npm install
-npm run build
+# 2. Initialize vault and auto-install plugin
+wiki init /path/to/vault
 ```
 
-`setup.sh` copies the build output (`main.js`, `manifest.json`, `styles.css`) to  
-`<vault>/.obsidian/plugins/obsidian-ai-agent/` automatically.
+During `wiki init`, if you choose to build the plugin, the output (`main.js`, `manifest.json`, `styles.css`) is copied to  
+`<vault>/.obsidian/plugins/incurator-obsidian-agent/` automatically.
 
 In Obsidian, go to **Settings → Community Plugins → Installed Plugins** and enable `AI Agent`.
+
+> **Note:** If you need to build the plugin manually, run `npm install` and `npm run build` inside the `plugin/` directory.
 
 ---
 
@@ -221,9 +223,15 @@ LLM generates answer grounded in Exhibition content
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `incuratorEnabled` | `true` | Enable Curator backend integration |
+| `incuratorRepoPath` | `""` | Absolute path to the Incurator repository for 1-Click Auto-Updates |
 | `incuratorDefaultDestination` | `04_Resources` | Default destination folder for PDF imports |
 | `incuratorDefaultImportMode` | `reference` | Import mode for files (`copy` / `reference`) |
 | `incuratorStatusPolling` | `true` | Poll for source processing status updates |
+
+### 1-Click Auto-Update
+
+The Incurator backend and the Obsidian plugin may be updated at different frequencies. When the plugin connects, it checks the backend version via MCP (`curator_get_version`). If a mismatch is detected, the plugin displays an **[Update Incurator Backend]** banner at the top of the chat window.
+If you have configured the `incuratorRepoPath` in the plugin settings, clicking this button will automatically execute a background update (`git pull && ./setup.sh`) and restart the MCP server.
 
 `Use Incurator backend` controls whether the plugin uses Incurator MCP tools. When enabled, the plugin automatically creates the default `incurator` server (`wiki mcp`) with the current vault path as `VAULT_ROOT` and immediately tries to connect. The setting shows a status bar directly underneath: disabled, connected, waiting, or not configured. The generic MCP Servers section remains available for other MCP servers or advanced edits to the generated Incurator server.
 

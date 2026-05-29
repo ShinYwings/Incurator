@@ -11,7 +11,7 @@
 1.  **Python 3.10+**: 시스템의 핵심 로직이 Python으로 작성되었습니다.
 2.  **터미널 (Terminal)**: 모든 명령어는 CLI 환경에서 실행됩니다.
 3.  **노트 편집기 (Obsidian 권장)**: 지식 베이스의 시각화 및 편집을 위한 도구입니다. 옵시디언이 필수는 아니며 텍스트 파일을 볼 수 있는 에디터라면 무엇이든 가능하지만, 본 시스템은 옵시디언의 링크 구조와 플러그인 생태계에 최적화되어 개발되었습니다.
-4.  **Node.js**: 검색 엔진(QMD) 빌드 및 MCP 서버 구동을 위해 필요합니다. (Ollama와 함께 `./setup.sh` 실행 시 자동으로 설치를 시도하므로 별도로 준비하실 필요가 없습니다.)
+4.  **Node.js**: 검색 엔진(QMD) 빌드 및 MCP 서버 구동을 위해 필요합니다. (Ollama와 함께 `./setup.sh` 실행 시 자동으로 설치를 시도하며, 플러그인은 `wiki init` 과정에서 설치되므로 별도로 준비하실 필요가 없습니다.)
 5.  **Curator Engine 백엔드**: 시스템 구동을 위해 하나 이상의 모델 백엔드가 필요하며, 로컬과 클라우드 방식을 모두 지원합니다.
     - **로컬 LLM (Ollama)**: 강력한 개인 정보 보호와 별도 비용 없는 사용이 가능합니다. (VRAM 필요)
     - **클라우드 LLM (Providers)**: Gemini, Claude, OpenAI 등의 외부 엔진을 활용합니다. 로컬 자원(VRAM) 소모가 거의 없으며 고성능 추론이 가능합니다. (큐레이션 단계에서는 고가의 추론 전용 모델이 아닌 일반 범용 모델로도 충분히 안정적인 성능을 발휘합니다.)
@@ -184,7 +184,7 @@ wiki workspace init <path/to/workspace> --agent <agent>
 | ------------------- | --------------- | ------------------------------ |
 | Claude Code         | `claude-code`   | `CLAUDE.md`                    |
 | OpenAI Codex        | `codex`         | `AGENTS.md`                    |
-| Gemini CLI          | `gemini-cli`    | `GEMINI.md`                    |
+| Antigravity CLI     | `antigravity-cli`| `GEMINI.md` (backward compat)  |
 | Antigravity         | `antigravity`   | `.antigravity/rules.yaml`      |
 | 에이전트 없음 (CLI) | `none`          | —                              |
 
@@ -411,7 +411,8 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 ### 2. 지식 수집 및 관리 (Ingestion)
 | 명령어 | 설명 | 사용 시점 |
 | :--- | :--- | :--- |
-| `wiki add <file>` | 소스를 등록하고 L1~L3를 빌드합니다. | 새로운 정보를 추가할 때 |
+| `wiki add <file>` | 소스를 등록하고 L1 Context를 즉시 생성합니다 (구조 기반, LLM 없음). | 새로운 정보를 추가할 때 |
+| `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 추출합니다 (LLM). 기본은 백그라운드 워커에 큐잉, `--wait`는 즉시 실행. | 지식 그래프 심층 구축 시 |
 | `wiki sources list` | 등록된 소스 목록을 확인합니다. | 수집된 데이터 현황 파악 시 |
 
 ### 3. 고도화 및 최적화 (Curation)
@@ -454,7 +455,7 @@ Incurator의 지능을 담당하는 LLM 백엔드를 설정합니다. 시스템�
 | 프로바이더 | 유형 | 특징 |
 | :--- | :--- | :--- |
 | `ollama` | 로컬 | DeepSeek, Llama 3 등 로컬 모델 사용 (비용 무료, 오프라인 가능) |
-| `gemini-cli` | CLI | Google 공식 `gemini` 명령어를 통한 추론 (가장 빠르고 안정적인 무료 옵션) |
+| `antigravity-cli` | CLI | Google Antigravity CLI (`agy`)를 통한 추론 (가장 빠르고 안정적인 무료 옵션) |
 | `claude-code` | CLI | Anthropic 공식 `claude` 명령어를 통한 추론 |
 
 ```bash
@@ -494,7 +495,7 @@ wiki status
 #### 📂 지식 원천 현황 (Sources)
 원본 데이터가 지식화되는 '파이프라인의 입구'를 점검합니다.
 -   **Raw source files**: 보관소 폴더 내에 물리적으로 존재하는 파일의 총개수입니다.
--   **Sources summarized (L1)**: `l1_status=done`인 소스 수입니다. v0.2.1에서는 `wiki add`가 LLM 없이 구조 기반 L1 Context를 즉시 만들고, L2/L3 추출은 백그라운드 job으로 이어집니다.
+-   **Sources summarized (L1)**: `l1_status=done`인 소스 수입니다. `wiki add`는 LLM 없이 구조 기반 L1 Context를 즉시 만듭니다. L2/L3 추출은 별도 단계로, `wiki build`로 실행합니다 (기본은 백그라운드 워커 큐잉, `--wait`는 동기 실행).
 -   **Ingest runs**: 지금까지 수행된 총 수집 횟수입니다. 이 수치가 높을수록 지식 베이스가 빈번하게 업데이트되었음을 의미합니다.
 
 #### 🧠 지식 밀도 (Collections)

@@ -11,7 +11,7 @@ Before installing the system, ensure the following tools are installed:
 1.  **Python 3.10+**: The core logic is written in Python.
 2.  **Terminal**: All commands are executed within a CLI environment.
 3.  **Note Editor (Obsidian Recommended)**: The primary tool for visualizing and editing your knowledge base. While any text editor that supports Markdown can be used, the system is optimized for Obsidian's link structure and plugin ecosystem.
-4.  **Node.js**: Required for building the search engine (QMD) and running the MCP server. (Note: `./setup.sh` handles the installation of Node.js, Ollama, the backend package, and the plugin automatically, so you don't need to prepare them separately.)
+4.  **Node.js**: Required for building the search engine (QMD) and running the MCP server. (Note: `./setup.sh` handles the installation of Node.js, Ollama, and the backend package automatically, while `wiki init` handles the plugin installation.)
 5.  **Curator Engine Backends**: At least one model backend is required, supporting both local and cloud providers.
     - **Local LLM (Ollama)**: Provides strong privacy and offline capabilities with no additional cost. (Requires VRAM)
     - **Subscription Services (Providers)**: Leverages external engines like Gemini, Claude, and OpenAI. These do not consume local VRAM and offer high reasoning performance. (Note: Standard universal models are sufficient for the curation phase; high-cost reasoning-only models are not strictly required.)
@@ -204,7 +204,7 @@ Choose `--agent` based on your agent runtime:
 | ------------------- | --------------- | -------------------------- |
 | Claude Code         | `claude-code`   | `CLAUDE.md`                |
 | OpenAI Codex        | `codex`         | `AGENTS.md`                |
-| Gemini CLI          | `gemini-cli`    | `GEMINI.md`                |
+| Antigravity CLI     | `antigravity-cli`| `GEMINI.md` (backward compat) |
 | Antigravity         | `antigravity`   | `.antigravity/rules.yaml`  |
 | No agent (CLI only) | `none`          | —                          |
 
@@ -430,7 +430,8 @@ Summary of major commands following the user workflow.
 ### 2. Knowledge Ingestion & Management
 | Command | Description | When to use |
 | :--- | :--- | :--- |
-| `wiki add <file>` | Registers sources and builds L1-L3 layers. | Adding new information |
+| `wiki add <file>` | Registers sources and generates instant L1 Contexts (structural, no LLM). | Adding new information |
+| `wiki build` | Extracts L2 Atoms + L3 Concepts from registered L1 Contexts (LLM). Queues to the background worker by default; `--wait` runs now. | Deep knowledge-graph construction |
 | `wiki sources list` | Lists all registered sources. | Checking collected data inventory |
 
 ### 3. Refinement & Optimization
@@ -473,7 +474,7 @@ Configure the LLM backends that power Incurator's intelligence. The system maint
 | Provider | Type | Key Features |
 | :--- | :--- | :--- |
 | `ollama` | Local | Use local models like DeepSeek or Llama 3 (Free, offline capable) |
-| `gemini-cli` | CLI | Inference via official Google `gemini` command (Fast, reliable free option) |
+| `antigravity-cli` | CLI | Inference via Google Antigravity CLI (`agy`) (Fast, reliable free option) |
 | `claude-code` | CLI | Inference via official Anthropic `claude` command |
 
 ```bash
@@ -513,7 +514,7 @@ Verifies if the system's 'brain' and 'eyes' are correctly set up.
 #### 📂 Knowledge Source Status (Sources)
 Checks the 'entrance of the pipeline' where raw data is turned into knowledge.
 -   **Raw source files**: The total number of files physically present in the vault folders.
--   **Sources summarized (L1)**: The number of sources with `l1_status=done`. In v0.2.1, `wiki add` creates a structural L1 Context immediately without an LLM call, then queues L2/L3 extraction as background work.
+-   **Sources summarized (L1)**: The number of sources with `l1_status=done`. `wiki add` creates a structural L1 Context immediately without an LLM call. L2/L3 extraction is a separate step — run `wiki build` (queues to the background worker by default, or `--wait` to run synchronously).
 -   **Ingest runs**: The total number of ingestion runs performed. A higher number indicates that the knowledge base has been updated frequently.
 
 #### 🧠 Knowledge Density (Collections)

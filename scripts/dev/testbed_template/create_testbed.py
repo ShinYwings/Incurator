@@ -69,8 +69,8 @@ def _init_like_wiki_init(root: Path) -> cfg.WikiPaths:
         (paths.collections / layer).mkdir(parents=True, exist_ok=True)
 
     config = dict(cfg.DEFAULT_CONFIG)
-    config["llm"]["primary"] = "gemini-cli"
-    config["llm"]["gemini_flash_model"] = "gemini-3.1-flash-lite-preview"
+    config["llm"]["primary"] = "antigravity-cli"
+    config["llm"]["antigravity_flash_model"] = "gemini-3.5-flash"
     cfg.save_config(paths, config)
 
     db.init_db(paths.state_db)
@@ -82,7 +82,7 @@ def _write_testbed_agent_rules(root: Path) -> None:
     ws_dir = root / "01_Workspaces" / WORKSPACE_NAME
     fixture_has_content = FIXTURE_WORKSPACE_RULES.exists() and any(FIXTURE_WORKSPACE_RULES.rglob("*"))
     tmpl_root = FIXTURE_WORKSPACE_RULES if fixture_has_content else None
-    for agent in ("antigravity", "gemini-cli"):
+    for agent in ("antigravity",):
         prepare_workspace(
             wiki_root=root,
             workspace=ws_dir,

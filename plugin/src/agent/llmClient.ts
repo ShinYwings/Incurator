@@ -34,18 +34,55 @@ interface ProviderAdapter {
   parseFullResponse(json: unknown): string;
 }
 
-// ─── Antigravity Adapter ────────────────────────────────────────
+// ─── Base Adapter (shared SSE envelope + default headers) ────────
 
-class AntigravityAdapter implements ProviderAdapter {
-  buildUrl(model: string): string {
-    return `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
-  }
+/**
+ * Common behaviour shared by all provider adapters:
+ *  - default Bearer + Content-Type headers (Claude adds anthropic-version)
+ *  - SSE envelope parsing (`data: ` prefix, `[DONE]`, JSON.parse + try/catch)
+ *
+ * Subclasses implement the genuinely provider-specific bits: buildUrl,
+ * buildBody, parseFullResponse, and extractDelta (pulling text/done out of a
+ * parsed SSE data object).
+ */
+abstract class BaseProviderAdapter implements ProviderAdapter {
+  abstract buildUrl(model: string): string;
+  abstract buildBody(
+    messages: LLMMessage[],
+    stream: boolean
+  ): Record<string, unknown>;
+  abstract parseFullResponse(json: unknown): string;
 
   buildHeaders(credential: CLICredential): Record<string, string> {
     return {
       Authorization: `Bearer ${credential.token}`,
       "Content-Type": "application/json",
     };
+  }
+
+  parseStreamChunk(raw: string): StreamChunk | null {
+    const line = raw.trim();
+    if (!line.startsWith("data: ")) return null;
+    const json = line.slice(6);
+    if (json === "[DONE]") return { text: "", done: true };
+    let parsed: any;
+    try {
+      parsed = JSON.parse(json);
+    } catch {
+      return null;
+    }
+    return this.extractDelta(parsed);
+  }
+
+  /** Extract {text, done} from one parsed SSE data object (provider-specific). */
+  protected abstract extractDelta(parsed: any): StreamChunk | null;
+}
+
+// ─── Antigravity Adapter ────────────────────────────────────────
+
+class AntigravityAdapter extends BaseProviderAdapter {
+  buildUrl(model: string): string {
+    return `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
   }
 
   buildBody(messages: LLMMessage[]): Record<string, unknown> {
@@ -90,22 +127,10 @@ class AntigravityAdapter implements ProviderAdapter {
     });
   }
 
-  parseStreamChunk(raw: string): StreamChunk | null {
-    // Antigravity SSE format: data: {...}
-    const line = raw.trim();
-    if (!line.startsWith("data: ")) return null;
-    const json = line.slice(6);
-    if (json === "[DONE]") return { text: "", done: true };
-    try {
-      const parsed = JSON.parse(json);
-      const text =
-        parsed?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      const done =
-        parsed?.candidates?.[0]?.finishReason === "STOP" || false;
-      return { text, done };
-    } catch {
-      return null;
-    }
+  protected extractDelta(parsed: any): StreamChunk | null {
+    const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const done = parsed?.candidates?.[0]?.finishReason === "STOP" || false;
+    return { text, done };
   }
 
   parseFullResponse(json: unknown): string {
@@ -120,7 +145,7 @@ class AntigravityAdapter implements ProviderAdapter {
 
 // ─── Claude Adapter ─────────────────────────────────────────────
 
-class ClaudeAdapter implements ProviderAdapter {
+class ClaudeAdapter extends BaseProviderAdapter {
   buildUrl(): string {
     return "https://api.anthropic.com/v1/messages";
   }
@@ -183,23 +208,14 @@ class ClaudeAdapter implements ProviderAdapter {
     });
   }
 
-  parseStreamChunk(raw: string): StreamChunk | null {
-    const line = raw.trim();
-    if (!line.startsWith("data: ")) return null;
-    const json = line.slice(6);
-    if (json === "[DONE]") return { text: "", done: true };
-    try {
-      const parsed = JSON.parse(json);
-      if (parsed.type === "content_block_delta") {
-        return { text: parsed.delta?.text || "", done: false };
-      }
-      if (parsed.type === "message_stop") {
-        return { text: "", done: true };
-      }
-      return null;
-    } catch {
-      return null;
+  protected extractDelta(parsed: any): StreamChunk | null {
+    if (parsed.type === "content_block_delta") {
+      return { text: parsed.delta?.text || "", done: false };
     }
+    if (parsed.type === "message_stop") {
+      return { text: "", done: true };
+    }
+    return null;
   }
 
   parseFullResponse(json: unknown): string {
@@ -217,16 +233,9 @@ class ClaudeAdapter implements ProviderAdapter {
 
 // ─── OpenAI Adapter ─────────────────────────────────────────────
 
-class OpenAIAdapter implements ProviderAdapter {
+class OpenAIAdapter extends BaseProviderAdapter {
   buildUrl(): string {
     return "https://api.openai.com/v1/chat/completions";
-  }
-
-  buildHeaders(credential: CLICredential): Record<string, string> {
-    return {
-      Authorization: `Bearer ${credential.token}`,
-      "Content-Type": "application/json",
-    };
   }
 
   buildBody(
@@ -258,19 +267,10 @@ class OpenAIAdapter implements ProviderAdapter {
     });
   }
 
-  parseStreamChunk(raw: string): StreamChunk | null {
-    const line = raw.trim();
-    if (!line.startsWith("data: ")) return null;
-    const json = line.slice(6);
-    if (json === "[DONE]") return { text: "", done: true };
-    try {
-      const parsed = JSON.parse(json);
-      const delta = parsed.choices?.[0]?.delta;
-      const done = parsed.choices?.[0]?.finish_reason === "stop";
-      return { text: delta?.content || "", done };
-    } catch {
-      return null;
-    }
+  protected extractDelta(parsed: any): StreamChunk | null {
+    const delta = parsed.choices?.[0]?.delta;
+    const done = parsed.choices?.[0]?.finish_reason === "stop";
+    return { text: delta?.content || "", done };
   }
 
   parseFullResponse(json: unknown): string {

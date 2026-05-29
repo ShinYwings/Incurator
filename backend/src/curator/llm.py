@@ -1,4 +1,4 @@
-"""LLM client layer — supports Ollama (local) and Gemini (cloud) backends.
+"""LLM client layer — supports Ollama (local) and Antigravity (cloud) backends.
 
 Both clients expose the same interface:
   .chat()         — non-streaming, returns str
@@ -84,7 +84,7 @@ DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 DEFAULT_ANTIGRAVITY_FLASH_MODEL = (
     model_catalogue.get_default_model("antigravity", "flash")
-    or "gemini-3.1-flash-lite-preview"
+    or "gemini-3.5-flash"
 )
 DEFAULT_ANTIGRAVITY_THINK_MODEL = (
     model_catalogue.get_default_model("antigravity", "think")
@@ -398,14 +398,32 @@ class OllamaClient:
 
     @property
     def optimal_context_window(self) -> int:
-        """Dynamically set the context window to avoid OOM while maximizing context length."""
+        """Dynamically set the context window to avoid OOM while maximizing context length.
+
+        Considers both model size AND available system RAM.  On Apple Silicon
+        Macs the GPU shares unified memory with the CPU, so large KV caches
+        can cause a kernel-panic OOM if the context window is too ambitious.
+        """
         name = self.model.lower()
+        ram_gb = detect_ram_gb()
+
         if "70b" in name or "72b" in name:
-            return 8192
+            return 4096 if ram_gb < 48 else 8192
         elif "14b" in name or "27b" in name or "32b" in name:
+            if ram_gb < 16:
+                return 4096
+            elif ram_gb < 32:
+                return 8192
             return 16384
         else:
-            return 32768  # For smaller models like 7b, 8b, 3b
+            # 7B / 8B / 3B class models
+            if ram_gb < 12:
+                return 4096
+            elif ram_gb < 24:
+                return 8192
+            elif ram_gb < 48:
+                return 16384
+            return 32768
 
     @property
     def optimal_chunk_chars(self) -> int:
@@ -1168,11 +1186,6 @@ def _make_antigravity_cli(llm_cfg: dict) -> AntigravityCliClient:
     )
 
 
-def _make_gemini_cli(llm_cfg: dict) -> AntigravityCliClient:
-    return _make_antigravity_cli(llm_cfg)
-
-
-
 
 
 def _make_ollama(llm_cfg: dict) -> OllamaClient:
@@ -1188,13 +1201,13 @@ def _make_by_key(key: str, llm_cfg: dict):
         return _make_ollama(llm_cfg)
     if key == "claude-code":
         return _make_claude_code(llm_cfg)
-    if key in ("antigravity-cli", "gemini-cli", "cloud"):
+    if key in ("antigravity-cli", "cloud"):
         return _make_antigravity_cli(llm_cfg)
     return None
 
 
 def make_client_by_key(key: str, config: dict):
-    """Public: build a single backend client by key ('ollama'|'cloud'|'claude-code'|'gemini-cli')."""
+    """Public: build a single backend client by key ('ollama'|'cloud'|'claude-code'|'antigravity-cli')."""
     return _make_by_key(key, config.get("llm", {}))
 
 
@@ -1220,7 +1233,6 @@ def build_client(
         "ollama":      _FAILOVER_ERRORS,
         "claude-code": _CLI_PRIMARY_FAILOVER_ERRORS,
         "antigravity-cli":  _CLI_PRIMARY_FAILOVER_ERRORS,
-        "gemini-cli":  _CLI_PRIMARY_FAILOVER_ERRORS,
     }
 
     if primary in _PRIMARY_ERRORS:
@@ -1318,10 +1330,9 @@ def describe_backend(config: dict, client: object = None) -> str:
             return f"Failover  primary=claude CLI ({claude_m}) → fallback=Ollama  model={model}  host={host}"
         return f"Failover  primary=claude CLI ({claude_m}) → fallback={fallback}"
 
-    if primary in ("antigravity-cli", "gemini-cli"):
+    if primary == "antigravity-cli":
         gemini_m = (
             llm_cfg.get("antigravity_flash_model")
-            or llm_cfg.get("gemini_flash_model")
             or DEFAULT_ANTIGRAVITY_FLASH_MODEL
         )
         fallback = llm_cfg.get("fallback", "")

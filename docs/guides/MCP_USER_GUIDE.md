@@ -82,6 +82,18 @@ wiki mcp install
 - **목적지 규칙**: 외부 PDF의 기본 복사 목적지는 `03_Notes`가 아니라 `04_Resources`입니다. 활성 노트가 `03_Notes/Vision/Foo.md`라면 기본 제안은 `04_Resources/Vision/Foo/<pdf-file>.pdf`입니다. 연결된 노트가 없으면 `04_Resources/Inbox/<pdf-file>.pdf`를 제안합니다.
 - **덮어쓰기 금지**: 동일 해시 파일은 기존 source를 재사용하고, 같은 이름이지만 다른 해시인 파일은 suffix 또는 사용자 선택 목적지를 사용해야 합니다.
 
+#### `curator_register_source`
+- **역할**: 깊은 LLM 처리 없이 구조 기반으로 소스를 빠르게 등록(L1 생성)합니다.
+- **파라미터**: `file_path` 또는 `source_path`.
+- **참고**: deprecated된 `curator_ingest_source`의 동기적 실행 부분을 대체합니다.
+
+#### `curator_build_source`
+- **역할**: 등록된 소스에 대해 깊이 있는 L2 (Atoms) 및 L3 (Concepts) 지식 추출 프로세스를 트리거합니다.
+- **파라미터**: `file_path` 또는 `source_id`.
+
+#### `curator_ingest_source` (Deprecated)
+- **역할**: 기존의 통합된 ingestion 도구입니다. 대신 `curator_register_source`와 `curator_build_source`를 사용하세요.
+
 #### `curator_list_external_resources`
 - **역할**: 플랫폼별 글로벌 설정(`~/.config/curator/config.yml`)에 정의된 외부 라이브러리(예: Zotero) 목록과 현재 활성화된 절대 경로를 반환합니다.
 
@@ -95,15 +107,37 @@ wiki mcp install
 - **파라미터**: `logical_source_id` (고유 식별자), `new_path` (새로운 절대 경로).
 - **주의**: 이 도구는 반드시 Human-in-the-Loop 승인 뒤에 호출되어야 합니다. backend는 제안과 실행을 구분해야 하며, client는 어떤 파일이 어떤 logical source로 묶이는지 사용자에게 보여줘야 합니다.
 
-#### `curator_search_source`
+#### `curator_search_sources`
 - **역할**: 특정 source 또는 PDF 페이지 범위 안에서만 검색합니다. Obsidian 플러그인이 현재 열린 PDF 질문을 backend RAG 결과와 결합할 때 사용합니다.
 - **파라미터**: `query`, `source_id` 또는 `source_path`, 선택적으로 `page_start`, `page_end`, `limit`, `mode`.
 - **반환값**: page number, score, snippet, source provenance를 포함해야 합니다.
+- **참고**: 이전의 단수형 alias `curator_search_source`는 v0.2.1에서 제거되었습니다.
 
-#### `curator_get_pdf_page`
-- **역할**: backend가 저장한 특정 PDF page text/provenance를 반환합니다.
+#### `curator_get_source_page`
+
+- **역할**: backend가 파싱한 특정 source page의 text/provenance를 반환합니다. PDF 페이지 및 비-PDF 소스 모두 지원합니다.
 - **파라미터**: `source_id` 또는 `source_path`, `page`.
 - **용도**: plugin viewer context가 일시적으로 부족하거나 provider가 이미지 첨부를 무시하는 경우에도 텍스트 기반 컨텍스트를 안정적으로 보강합니다.
+- **참고**: 이전의 alias `curator_get_pdf_page`는 v0.2.1에서 제거되었습니다.
+
+#### `curator_get_pdf_context`
+
+- **역할**: 채팅 컨텍스트용 경량 온디맨드 PDF 텍스트 추출. **인덱싱된 PDF와 인덱싱되지 않은 PDF 모두 지원** — 사전 ingestion 불필요. Obsidian 플러그인이 LLM 프롬프트의 `<pdf_window>`, `<document_outline>` 컨텍스트 블록을 조립할 때 사용하는 기본 툴.
+- **파라미터**:
+  - `file_path` (필수): PDF의 절대 경로.
+  - `query` (선택): 관련도 기반 페이지 스코어링에 사용할 쿼리 문자열.
+  - `page_num` (선택, 기본값 0): 현재 페이지 번호(1-based). 0 = 현재 페이지 없음.
+  - `radius` (선택, 기본값 2): `page_num` 주변에 포함할 페이지 수.
+  - `max_pages` (선택, 기본값 8): 최대 반환 페이지 수.
+- **반환값**:
+  - `ok`: 성공 시 `true`, 오류 시 `false`.
+  - `source_tracked`: PDF가 Incurator 지식 그래프에 등록되어 있는지 여부.
+  - `total_pages`: 전체 페이지 수.
+  - `pages`: `[{page_num, text, score}]` — 최대 `max_pages`개의 관련 페이지.
+  - `outline`: `[{title, page_num, level}]` — 문서 목차.
+  - `is_empty_pdf`: 텍스트 추출 불가(스캔/이미지 전용) 시 `true`.
+- **기존 문제 해결**: 이전에 플러그인은 `pdf_window`, `document_outline`, `pdf_rag_hits` 세 가지 MCP 호출을 했는데 모두 backend에 없어서 silent fail했음. 이 툴이 하나의 호출로 통합.
+- **성능**: `parse_page_window()`로 필요한 페이지만 읽어 600페이지 PDF도 전체 메모리 로드 없이 안전하게 처리.
 
 #### `curator_add_knowledge`
 - **역할**: 대화 중 얻은 귀중한 통찰이나 정보를 **Wiki(02_Wiki/)** 페이지로 승격하여 영구 저장합니다. 카테고리 분류와 슬러그 생성이 자동으로 수행됩니다.
@@ -170,6 +204,12 @@ wiki mcp install
 - **역할**: 백엔드에 번들된 `models.json`에서 provider별 사용 가능 모델 목록을 반환합니다. 플러그인 UI가 모델 선택 드롭다운을 동적으로 렌더링하는 데 사용합니다.
 - **파라미터**: 없음.
 - **반환값**: `{ "antigravity": [...], "claude": [...] }` 형태의 provider별 모델 목록.
+
+#### `curator_get_version`
+
+- **역할**: Incurator 백엔드의 현재 설치 버전을 문자열(예: `"0.2.1"`)로 반환합니다. 클라이언트(특히 Obsidian 플러그인)가 버전 불일치를 감지하고 1-Click 자동 업데이트를 트리거할 때 사용합니다.
+- **파라미터**: 없음.
+- **반환값**: 백엔드 버전 문자열.
 
 ### 3.5 워크스페이스 관리
 

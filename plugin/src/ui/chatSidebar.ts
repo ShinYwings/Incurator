@@ -12,7 +12,7 @@ import {
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import type ObsidianAIAgent from "../../main";
-import { IncuratorClient, type IncuratorHit } from "../agent/incuratorClient";
+import { IncuratorClient } from "../agent/incuratorClient";
 import {
   EXTERNAL_PDF_CONTEXT_EVENT,
   EXTERNAL_PDF_VIEW_TYPE,
@@ -27,6 +27,15 @@ import { hashFileSha256 } from "../utils/fileHash";
 import { DiffViewer } from "./diffViewer";
 import { renderCuratorQueryTrace } from "./incuratorQueryTrace";
 import {
+  escapeAttribute,
+  formatCuratorQueryResult,
+  formatIncuratorHits,
+  formatOutline,
+  formatPdfWindow,
+  formatRagHits,
+} from "../context/providerContextFormat";
+import { buildBaseSystemPrompt } from "../context/systemPrompt";
+import {
   type ChatMessage,
   type ChatMode,
   type ChatSession,
@@ -37,9 +46,6 @@ import {
   type LLMMessage,
   type LLMContentPart,
   type LLMProvider,
-  type PdfOutlineItem,
-  type PdfRagHit,
-  type PdfWindowPage,
   type StreamChunk,
   getDefaultModel,
   getModelOption,
@@ -956,39 +962,13 @@ export class ChatSidebarView extends ItemView {
     const lastUserMessage = [...this.messages]
       .reverse()
       .find((msg) => msg.role === "user");
-    let systemText =
-      "You are an AI assistant embedded in Obsidian, a markdown knowledge base app. " +
-      "Help the user with their notes, research, and writing tasks. " +
-      "Format your responses in Markdown. " +
-      "When writing math, use Obsidian-compatible LaTeX delimiters: inline math as $...$ and display math as $$...$$. " +
-      "Do not use \\(...\\) or \\[...\\] math delimiters. " +
-      "Wrap every mathematical expression containing ^, _, \\infty, matrices, homographies, or quadrics in math delimiters. " +
-      "When the user asks you to modify Markdown notes, do not directly edit files or use write/edit tools. " +
-      "Instead, explain the intended changes briefly and output one or more `ai-agent-edit` blocks. " +
-      "Each block MUST target a single file and use SEARCH/REPLACE blocks. The SEARCH text must EXACTLY match the existing lines in the file. Format:\n" +
-      "```ai-agent-edit filepath=\"path/to/file.md\"\n" +
-      "<<<< SEARCH\n" +
-      "Exact lines to replace\n" +
-      "==== REPLACE\n" +
-      "New lines to insert\n" +
-      ">>>>\n" +
-      "```\n" +
-      "You can output multiple `ai-agent-edit` blocks in a single response to edit multiple files or multiple locations in a file.";
-
-    // Strongly encourage proactive use of incurator (or similar search tools) like Cursor's @codebase
-    const hasSearchMcp = this.plugin.settings.mcpServers.some(s => s.enabled && s.name.toLowerCase().includes('incurator'));
-    if (hasSearchMcp) {
-      systemText += 
-        "\n\nCRITICAL: The user has the 'incurator' MCP server enabled, which acts as their vault/codebase search engine. " +
-        "You MUST proactively use its search tools to explore the vault and gather relevant context BEFORE answering, " +
-        "even if the user does not explicitly ask you to search. Treat it exactly like the @codebase feature in Cursor.";
-    }
-
-    if (this.plugin.settings.chatMode === "plan") {
-      systemText +=
-        "\n\nPlan mode is enabled. First reason about the user's goal, then respond with a concise implementation plan. " +
-        "Do not modify files or imply that changes were made. Ask one short clarifying question only if the next action is genuinely ambiguous.";
-    }
+    const hasSearchMcp = this.plugin.settings.mcpServers.some(
+      (s) => s.enabled && s.name.toLowerCase().includes("incurator")
+    );
+    let systemText = buildBaseSystemPrompt({
+      hasIncuratorMcp: hasSearchMcp,
+      planMode: this.plugin.settings.chatMode === "plan",
+    });
 
     const rulesContext = this.loadCursorStyleRules();
     if (rulesContext) {
@@ -1205,65 +1185,88 @@ export class ChatSidebarView extends ItemView {
         : undefined;
       if (sourceStatus) {
         sections.push(
-          `<incurator_source_status document="${this.escapeAttribute(tab.label)}" state="${sourceStatus.state}" l1="${sourceStatus.state === "l1_ready" || sourceStatus.state === "queued" || sourceStatus.state === "indexed" || sourceStatus.state === "curated"}">\n${this.escapeAttribute(sourceStatus.message || "")}\n</incurator_source_status>`
+          `<incurator_source_status document="${escapeAttribute(tab.label)}" state="${sourceStatus.state}" l1="${sourceStatus.state === "l1_ready" || sourceStatus.state === "queued" || sourceStatus.state === "indexed" || sourceStatus.state === "curated"}">\n${escapeAttribute(sourceStatus.message || "")}\n</incurator_source_status>`
         );
       }
 
       this.setPrepareStatus(`Assembling PDF context — ${docLabel}...`);
-      const windowPages =
-        pdf.windowPages ||
-        (client.available
-          ? await client.getPdfWindow({
-              sourcePath,
-              documentId: pdf.documentId,
-              pageNum: pdf.pageNum,
-              radius: this.plugin.settings.pdfWindowRadius,
-            })
-          : []);
+
+      // Single backend call: replaces getPdfWindow + getDocumentOutline (both of
+      // which silently returned [] because the tools never existed in the backend).
+      // Works for tracked and untracked PDFs. Falls back to PDF.js cached data
+      // when the backend is unavailable.
+      let backendCtx: Awaited<ReturnType<typeof client.getPdfContext>> = null;
+      if (client.available && sourcePath) {
+        backendCtx = await client.getPdfContext({
+          filePath: sourcePath,
+          query: query.trim() || undefined,
+          pageNum: pdf.pageNum,
+          radius: this.plugin.settings.pdfWindowRadius,
+          maxPages: this.plugin.settings.pdfRagTopK || 8,
+        });
+      }
+
+      // Ask Gemini-style auto-index: if this PDF isn't in the knowledge graph
+      // yet, register it (instant L1, no LLM) and queue L2/L3 in the background.
+      // Fire-and-forget — this turn still answers from the raw window above;
+      // the next turn gets curator_search_sources RAG once L1 lands (~seconds).
+      if (backendCtx && !backendCtx.sourceTracked && sourcePath && client.available) {
+        void client.registerSource(sourcePath);
+        if (sourcePath) this.incuratorStatusByPath.delete(sourcePath);
+      }
+
+      const windowPages = backendCtx?.pages ?? pdf.windowPages ?? [];
       if (windowPages.length > 0) {
         sections.push(
-          `<pdf_window document="${this.escapeAttribute(tab.label)}" current_page="${pdf.pageNum}">\n${this.formatPdfWindow(windowPages)}\n</pdf_window>`
+          `<pdf_window document="${escapeAttribute(tab.label)}" current_page="${pdf.pageNum}">\n${formatPdfWindow(windowPages)}\n</pdf_window>`
         );
       }
 
       if (this.plugin.settings.pdfOutlineEnabled) {
-        const outline =
-          pdf.outline ||
-          (client.available
-            ? await client.getDocumentOutline({
-                sourcePath,
-                documentId: pdf.documentId,
-              })
-            : []);
+        const outline = backendCtx?.outline ?? pdf.outline ?? [];
         if (outline.length > 0) {
           sections.push(
-            `<document_outline document="${this.escapeAttribute(tab.label)}">\n${this.formatOutline(outline)}\n</document_outline>`
+            `<document_outline document="${escapeAttribute(tab.label)}">\n${formatOutline(outline)}\n</document_outline>`
           );
         }
       }
 
+      // RAG hits use the semantic search index — only meaningful for tracked sources.
       if (this.plugin.settings.pdfRagEnabled && query.trim()) {
-        this.setPrepareStatus(`Searching PDF pages — ${docLabel}...`);
-        const ragHits =
-          pdf.ragHits ||
-          (client.available
-            ? await client.getPdfRagHits({
-                query,
-                sourcePath,
-                documentId: pdf.documentId,
-                topK: this.plugin.settings.pdfRagTopK,
-              })
-            : []);
-        if (ragHits.length > 0) {
+        const canRag = backendCtx?.sourceTracked ?? false;
+        if (canRag) {
+          this.setPrepareStatus(`Searching PDF pages — ${docLabel}...`);
+          const ragHits =
+            pdf.ragHits ||
+            (client.available
+              ? await client.getPdfRagHits({
+                  query,
+                  sourcePath,
+                  documentId: pdf.documentId,
+                  topK: this.plugin.settings.pdfRagTopK,
+                })
+              : []);
+          if (ragHits.length > 0) {
+            sections.push(
+              `<pdf_rag_hits document="${escapeAttribute(tab.label)}" query="${escapeAttribute(query.slice(0, 120))}">\n${formatRagHits(ragHits, this.plugin.settings.pdfRagTopK)}\n</pdf_rag_hits>`
+            );
+          }
+        } else if (!client.available && pdf.ragHits?.length) {
+          // Offline fallback: use pre-fetched hits if available
           sections.push(
-            `<pdf_rag_hits document="${this.escapeAttribute(tab.label)}" query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatRagHits(ragHits)}\n</pdf_rag_hits>`
+            `<pdf_rag_hits document="${escapeAttribute(tab.label)}" query="${escapeAttribute(query.slice(0, 120))}">\n${formatRagHits(pdf.ragHits, this.plugin.settings.pdfRagTopK)}\n</pdf_rag_hits>`
           );
         }
       }
 
-      if (pdf.textQuality) {
+      if (backendCtx?.isEmptyPdf) {
         sections.push(
-          `<pdf_text_quality document="${this.escapeAttribute(tab.label)}" page="${pdf.pageNum}">\nscore=${pdf.textQuality.score}; scanned_like=${pdf.textQuality.isScannedLike}; source=${pdf.textQuality.source}${pdf.textQuality.reason ? `; reason=${pdf.textQuality.reason}` : ""}\n</pdf_text_quality>`
+          `<pdf_text_quality document="${escapeAttribute(tab.label)}" page="${pdf.pageNum}">\nscore=0; scanned_like=true; source=backend; reason=image-only PDF, no text extracted\n</pdf_text_quality>`
+        );
+      } else if (pdf.textQuality) {
+        const qualitySource = backendCtx ? "backend" : pdf.textQuality.source;
+        sections.push(
+          `<pdf_text_quality document="${escapeAttribute(tab.label)}" page="${pdf.pageNum}">\nscore=${pdf.textQuality.score}; scanned_like=${pdf.textQuality.isScannedLike}; source=${qualitySource}${pdf.textQuality.reason ? `; reason=${pdf.textQuality.reason}` : ""}\n</pdf_text_quality>`
         );
       }
     }
@@ -1284,19 +1287,19 @@ export class ChatSidebarView extends ItemView {
         const qResult = await client.curatorQuery(query);
         if (qResult.ok && qResult.answer) {
           this.lastQueryTrace = qResult;
-          sections.push(this.formatCuratorQueryResult(qResult, query));
+          sections.push(formatCuratorQueryResult(qResult, query));
         } else {
           // curator_query failed or L3 incomplete — fall back to raw search
           this.setPrepareStatus("Searching Incurator...");
           const hits = await client.search(query, 6);
           if (hits.length > 0) {
             sections.push(
-              `<incurator_hits query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatIncuratorHits(hits)}\n</incurator_hits>`
+              `<incurator_hits query="${escapeAttribute(query.slice(0, 120))}">\n${formatIncuratorHits(hits)}\n</incurator_hits>`
             );
           }
           if (qResult.error) {
             sections.push(
-              `<incurator_status>L3 not yet complete: ${this.escapeAttribute(qResult.error)}</incurator_status>`
+              `<incurator_status>L3 not yet complete: ${escapeAttribute(qResult.error)}</incurator_status>`
             );
           }
         }
@@ -1306,83 +1309,13 @@ export class ChatSidebarView extends ItemView {
         const incuratorHits = await client.search(query, 6);
         if (incuratorHits.length > 0) {
           sections.push(
-            `<incurator_hits query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatIncuratorHits(incuratorHits)}\n</incurator_hits>`
+            `<incurator_hits query="${escapeAttribute(query.slice(0, 120))}">\n${formatIncuratorHits(incuratorHits)}\n</incurator_hits>`
           );
         }
       }
     }
 
     return sections.join("\n\n");
-  }
-
-  private formatPdfWindow(pages: PdfWindowPage[]): string {
-    return pages
-      .map((page) => {
-        const text = this.truncateForProviderContext(page.text, 3000);
-        return `### Page ${page.pageNum}\n${text}`;
-      })
-      .join("\n\n");
-  }
-
-  private formatOutline(outline: PdfOutlineItem[]): string {
-    return outline
-      .slice(0, 80)
-      .map((item) => {
-        const indent = "  ".repeat(Math.max(0, item.level));
-        const page = item.pageNum ? ` p.${item.pageNum}` : "";
-        return `${indent}- ${item.title}${page}`;
-      })
-      .join("\n");
-  }
-
-  private formatRagHits(hits: PdfRagHit[]): string {
-    return hits
-      .slice(0, this.plugin.settings.pdfRagTopK)
-      .map((hit) => {
-        const section = hit.sectionTitle ? ` (${hit.sectionTitle})` : "";
-        return `- p.${hit.pageNum}${section} score=${hit.score}: ${this.truncateForProviderContext(hit.snippet, 700)}`;
-      })
-      .join("\n");
-  }
-
-  private formatIncuratorHits(hits: IncuratorHit[]): string {
-    return hits
-      .map((hit) => {
-        const where = [hit.path, hit.pageNum ? `p.${hit.pageNum}` : ""]
-          .filter(Boolean)
-          .join(" ");
-        const label = hit.title || where || "hit";
-        const score = typeof hit.score === "number" ? ` score=${hit.score}` : "";
-        return `- ${label}${where && label !== where ? ` (${where})` : ""}${score}: ${this.truncateForProviderContext(hit.snippet, 700)}`;
-      })
-      .join("\n");
-  }
-
-  private formatCuratorQueryResult(result: CuratorQueryResult, query: string): string {
-    const trace = result.trace;
-    const attrs = [
-      `query="${this.escapeAttribute(query.slice(0, 120))}"`,
-      result.cache_hit ? `cache="hit"` : null,
-      result.exhibition_id ? `exhibition="${result.exhibition_id}"` : null,
-    ].filter(Boolean).join(" ");
-    let text = `<incurator_answer ${attrs}>\n`;
-    text += this.truncateForProviderContext(result.answer ?? "", 4000);
-    if (trace) {
-      const concepts = trace.matched_concepts.slice(0, 5).join(", ") || "none";
-      const sources = trace.source_paths.slice(0, 3).join(", ") || "none";
-      text += `\n\n<!-- concepts: ${concepts} | sources: ${sources} | latency: ${trace.latency_ms}ms | l3_complete: ${trace.l3_complete} -->`;
-    }
-    text += `\n</incurator_answer>`;
-    return text;
-  }
-
-  private truncateForProviderContext(text: string, maxLength: number): string {
-    if (text.length <= maxLength) return text;
-    return `${text.slice(0, maxLength)}\n[...truncated]`;
-  }
-
-  private escapeAttribute(value: string): string {
-    return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
   }
 
   private loadCursorStyleRules(): string {
@@ -1641,8 +1574,11 @@ export class ChatSidebarView extends ItemView {
     if (!this.incuratorClient) {
       this.incuratorClient = new IncuratorClient(
         this.plugin.mcpManager,
-        this.plugin.settings
+        this.plugin.settings,
+        this.plugin.manifest.version
       );
+      // Run version check asynchronously
+      this.incuratorClient.checkBackendVersion();
     }
     return this.incuratorClient;
   }
@@ -1741,10 +1677,7 @@ export class ChatSidebarView extends ItemView {
       case "queued":
         return "queued";
       case "running":
-        if (status.runningLayer) {
-          return `running ${status.runningLayer.toUpperCase()}`;
-        }
-        return "ingesting";
+        return "building...";
       case "stale":
         return "stale";
       case "missing":
@@ -1863,6 +1796,36 @@ export class ChatSidebarView extends ItemView {
 
   private renderMessages(): void {
     this.messagesContainer.empty();
+
+    if (this.plugin.settings.incuratorRepoPath && this.getIncuratorClient().needsUpdate) {
+      const banner = this.messagesContainer.createDiv("ai-agent-update-banner");
+      banner.style.padding = "10px";
+      banner.style.marginBottom = "10px";
+      banner.style.backgroundColor = "var(--interactive-accent)";
+      banner.style.color = "var(--text-on-accent)";
+      banner.style.borderRadius = "4px";
+      banner.style.display = "flex";
+      banner.style.justifyContent = "space-between";
+      banner.style.alignItems = "center";
+      
+      const text = banner.createSpan();
+      text.setText("A new version of Incurator is available.");
+      
+      const btn = banner.createEl("button", { text: "Update Now" });
+      btn.style.backgroundColor = "transparent";
+      btn.style.border = "1px solid var(--text-on-accent)";
+      btn.style.color = "var(--text-on-accent)";
+      btn.style.cursor = "pointer";
+      btn.style.padding = "4px 8px";
+      btn.style.borderRadius = "4px";
+      
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        btn.setText("Updating...");
+        await this.plugin.updateIncuratorBackend();
+        btn.setText("Restart Required");
+      });
+    }
 
     if (this.messages.length === 0) {
       const empty = this.messagesContainer.createDiv("ai-agent-chat-empty");

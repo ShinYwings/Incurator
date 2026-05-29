@@ -1,7 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-: "${OBSIDIAN_PLUGIN_DIR:=/home/shin/Workspace/second_brain/.obsidian/plugins/incurator-obsidian-agent}"
+if [ -z "${OBSIDIAN_PLUGIN_DIR:-}" ]; then
+  echo "Error: OBSIDIAN_PLUGIN_DIR environment variable is not set."
+  echo "Please set it to your target vault's plugin directory."
+  echo "Example: OBSIDIAN_PLUGIN_DIR=/path/to/vault/.obsidian/plugins/incurator-obsidian-agent ./deploy.sh"
+  exit 1
+fi
+
 export OBSIDIAN_PLUGIN_DIR
 
 echo "Deploying Incurator Obsidian plugin to: ${OBSIDIAN_PLUGIN_DIR}"

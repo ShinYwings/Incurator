@@ -1,5 +1,8 @@
 
 import { promises as fs } from "fs";
+import { exec } from "child_process";
+import { promisify } from "util";
+const execAsync = promisify(exec);
 import {
   Plugin,
   WorkspaceLeaf,
@@ -733,6 +736,35 @@ export default class ObsidianAIAgent extends Plugin {
     }
   }
 
+  async updateIncuratorBackend(): Promise<void> {
+    const repoPath = this.settings.incuratorRepoPath;
+    if (!repoPath) {
+      new Notice("Incurator repository path is not configured. Please set it in the plugin settings.");
+      return;
+    }
+
+    try {
+      // First verify it's a valid path and has setup.sh
+      const setupPath = `${repoPath}/setup.sh`;
+      await fs.access(setupPath);
+
+      // Run git pull and setup.sh
+      new Notice("Updating Incurator backend... Please wait.");
+      await execAsync("git pull && ./setup.sh", { cwd: repoPath });
+      
+      new Notice("Incurator backend updated successfully! Please reload the plugin or restart Obsidian.");
+    } catch (e: any) {
+      console.error("Failed to update Incurator backend:", e);
+      new Notice("Failed to update Incurator backend: " + (e.message || "Unknown error"));
+    }
+  }
+
+  async updateSettings(updates: Partial<PluginSettings>): Promise<void> {
+    await this.saveData(this.settings);
+    // Update LLM client with new settings
+    this.llmClient?.updateSettings(this.settings);
+  }
+
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
     // Update LLM client with new settings
@@ -742,7 +774,7 @@ export default class ObsidianAIAgent extends Plugin {
   // ── Session data (device-local, stored in sessions.json) ────────
 
   private get _sessionsPath(): string {
-    return `${this.manifest.dir}/sessions.json`;
+    return ".curator/sessions.json";
   }
 
   async loadSessionData(): Promise<void> {
@@ -751,7 +783,17 @@ export default class ObsidianAIAgent extends Plugin {
       const parsed = JSON.parse(raw) as Partial<SessionData>;
       this.sessionData = normalizeSessionData(parsed);
     } catch {
-      // File missing or unreadable — check legacy data.json for migration
+      // File missing or unreadable in .curator — check legacy locations for migration
+      try {
+        const oldRaw = await this.app.vault.adapter.read(`${this.manifest.dir}/sessions.json`);
+        this.sessionData = normalizeSessionData(JSON.parse(oldRaw) as Partial<SessionData>);
+        await this.saveSessionData();
+        await this.app.vault.adapter.remove(`${this.manifest.dir}/sessions.json`);
+        return;
+      } catch {
+        // Proceed to check data.json legacy migration if standalone sessions.json is also missing
+      }
+
       const raw = (await this.loadData()) || {};
       const legacy = raw as { chatSessions?: SessionData["chatSessions"]; activeChatSessionId?: string };
       if (legacy.chatSessions?.length) {
@@ -780,6 +822,11 @@ export default class ObsidianAIAgent extends Plugin {
     } catch {
       // Missing or unreadable sessions.json: write the current in-memory session state.
     }
+
+    if (!(await this.app.vault.adapter.exists(".curator"))) {
+      await this.app.vault.adapter.mkdir(".curator");
+    }
+
     await this.app.vault.adapter.write(
       this._sessionsPath,
       JSON.stringify(sessionData, null, 2)

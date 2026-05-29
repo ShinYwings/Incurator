@@ -92,6 +92,7 @@ export interface PluginSettings {
   incuratorEnabled: boolean;
   incuratorMcpCommand: string;
   incuratorMcpArgs: string[];
+  incuratorRepoPath: string;
   incuratorDefaultDestination: string;
   incuratorDefaultImportMode: "copy" | "reference";
   incuratorStatusPolling: boolean;
@@ -147,6 +148,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   incuratorEnabled: true,
   incuratorMcpCommand: "wiki",
   incuratorMcpArgs: ["mcp"],
+  incuratorRepoPath: "",
   incuratorDefaultDestination: "04_Resources",
   incuratorDefaultImportMode: "reference",
   incuratorStatusPolling: true,

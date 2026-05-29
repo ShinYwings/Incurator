@@ -141,7 +141,7 @@ When creating and executing a new validation scenario, follow these standard 4 s
 The v0.2.0 target layout manages the Python backend daemon (`backend/`) and Obsidian plugin client (`plugin/`) together in a monorepo. During transition, a checkout may still keep backend code at repository root (`src/`, `tests/`, `pyproject.toml`) or develop the active plugin inside an Obsidian vault path such as `.obsidian/plugins/incurator-obsidian-agent`. Contributors must distinguish the target layout from the active checkout layout.
 
 - **Pull Request Scope**: For features where backend and plugin changes are tightly coupled (e.g., adding Reference Mode and its UI), please submit them as a single PR to maintain review context.
-- **Build & Verification**: Before submitting a PR, run `./setup.sh` at the repository root to ensure both Python packages and the Node.js plugin build successfully.
+- **Build & Verification**: Before submitting a PR, run `./setup.sh` at the repository root to ensure Python packages build successfully, and then run `npm install && npm run build` in the `plugin/` directory to verify the Node.js plugin.
 - **Linting & Types**: Python code in `backend/` must pass `ruff` and `mypy`. Plugin code in `plugin/` must pass TypeScript linting via `npm run lint`.
 
 ### 7.1 Backend/Client Boundary

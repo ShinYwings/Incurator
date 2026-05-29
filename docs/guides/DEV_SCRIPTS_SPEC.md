@@ -72,7 +72,7 @@ Incurator v0.2.0 uses a Monorepo structure containing both the Python backend (`
 During transition, some checkouts may still keep the backend at repository root (`src/`, `tests/`, `pyproject.toml`) and the active plugin inside an Obsidian vault path such as `.obsidian/plugins/incurator-obsidian-agent`. Development scripts must not assume the target layout has already landed. When a script depends on a path depth, record the evidence in `docs/plans/INCURATOR_SYSTEM_BUILD_EVIDENCE.md` and update the master plan before changing code.
 
 ### Setup Script
-Run `./setup.sh` at the repository root to automatically install the Python backend dependencies (via `uv`), install Node.js dependencies, and build the Obsidian plugin.
+Run `./setup.sh` at the repository root to automatically install the Python backend dependencies (via `uv`), and install Node.js/Ollama. The Obsidian plugin is now installed interactively when running `wiki init`.
 
 ### OBSIDIAN_PLUGIN_DIR Override
 To develop the Obsidian plugin locally without manually copying files or creating brittle symlinks, you can use the `OBSIDIAN_PLUGIN_DIR` environment variable.

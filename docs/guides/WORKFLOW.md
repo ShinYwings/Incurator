@@ -99,22 +99,27 @@ Incurator는 소스 문서를 4단계 추상화 레이어로 처리합니다.
 # 1. Vault 초기화 (최초 1회)
 wiki init /path/to/vault
 
-# 2. 소스 추가 (wiki add)
+# 2. 소스 추가 (wiki add) — 등록 + 즉시 L1만 (LLM 없음)
 #    특정 파일 또는 디렉토리 전체
 wiki add 03_Notes/paper.pdf
 wiki add 04_Resources/
 
-# 내부 동작 (v0.2.1 — 비동기):
+# 내부 동작:
 #   - SHA-256 해시로 중복 감지
 #   - PyMuPDF(PDF) / 정규식(MD) / BeautifulSoup(HTML)로 파싱 + 이미지 추출
-#   - L1 Context 파일 즉시 생성 → 즉시 반환 ("L1 등록 완료. L2/L3 백그라운드 처리 중.")
-#   - IngestWorker 스레드가 백그라운드에서 L2(Atoms) → L3(Concepts) 처리
+#   - L1 Context 파일을 구조로부터 즉시 생성 → 즉시 반환
+#   - LLM 호출 없음; L1이 만들어지면 곧바로 검색(BM25) 가능
+
+# 3. L2/L3 빌드 (wiki build) — 깊은 LLM 추출 단계
+wiki build            # L2/L3를 백그라운드 워커에 큐잉 (논블로킹)
+wiki build --wait     # L2(Atoms) → L3(Concepts)를 지금 동기 실행
 #   - 진행 상황: .curator/dashboard.md 실시간 업데이트 (Obsidian에서 바로 확인)
 ```
 
-> **비동기 처리**: `wiki add`는 L1 등록 즉시 반환한다. L2/L3는 MCP 서버의 백그라운드
-> IngestWorker가 처리하며, `wiki status`나 `.curator/dashboard.md`로 진행률을 확인할 수 있다.
-> L4 Exhibition은 별도 `wiki curate` 명령으로 생성한다.
+> **2단계 수집**: `wiki add`는 소스를 등록하고 즉시 L1을 생성한다(구조 기반, LLM 없음) —
+> 빠르고 오프라인에서도 동작한다. `wiki build`는 깊은 L2/L3 추출을 수행하며, 기본은 MCP 서버의
+> 백그라운드 IngestWorker에 큐잉하고 `--wait`로 즉시 실행할 수 있다. 진행률은 `wiki status`나
+> `.curator/dashboard.md`로 확인한다. L4 Exhibition은 별도 `wiki curate` 명령으로 생성한다.
 
 ### 4-2. Workspace 큐레이션
 
@@ -159,10 +164,11 @@ wiki jobs run          # queued L2/L3 background jobs를 foreground로 처리
 > **백그라운드 워커 보강**: MCP 서버가 실행 중이면 IngestWorker가 queued job을 자동 처리한다.
 > 서버가 꺼져 있거나 테스트/디버깅 중에는 `wiki jobs run`으로 같은 큐를 foreground에서 처리한다.
 
-> **즉시 L1 기본값**: v0.2.1부터 `llm.instant_l1: true`가 기본값이다. `wiki add`는
-> LLM 호출 없이 parser 구조로 CTX, ToC, section marker, coarse Atom Candidates를
-> 즉시 생성하고 반환한다. 느린 L2/L3 추출만 background job으로 이동한다. 예전처럼
-> L1 요약부터 LLM으로 만들고 싶으면 `.curator/config.yml`에서 `llm.instant_l1: false`로 둔다.
+> **즉시 L1 / L2·L3 분리**: `wiki add`는 항상 LLM 호출 없이 parser 구조로 CTX, ToC,
+> section marker, coarse Atom Candidates를 즉시 생성하고 반환한다(구조 기반 L1). 깊은
+> L2/L3 추출은 `wiki add`에서 분리되어 별도 `wiki build` 명령으로 수행한다 —
+> 기본은 background job 큐잉, `--wait`는 동기 실행. MCP에서는
+> `curator_register_source`(L1) + `curator_build_source`(L2/L3)로 대응한다.
 
 > **v0.2.1 성능 경로**: L2는 section-aware batch가 여러 개로 나뉘고 LLM client clone이
 > 가능한 경우 batch 단위로 병렬 실행한다. L3는 embedding 기반 clustering을 먼저 시도하고,

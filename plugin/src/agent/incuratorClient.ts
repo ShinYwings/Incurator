@@ -37,13 +37,28 @@ export interface IncuratorStatusEvent {
 }
 
 export class IncuratorClient {
+  public needsUpdate = false;
+  public backendVersion = "unknown";
+
   constructor(
     private readonly mcpManager: MCPManager,
-    private readonly settings: PluginSettings
+    private readonly settings: PluginSettings,
+    public readonly pluginVersion: string = "0.2.1"
   ) {}
 
   get available(): boolean {
     return this.settings.incuratorEnabled !== false && this.getIncuratorTools().length > 0;
+  }
+
+  async checkBackendVersion(): Promise<void> {
+    if (!this.available) return;
+    const result = await this.tryTool(["curator_get_version"], {});
+    if (result && typeof result === "string") {
+      this.backendVersion = result;
+      // Compare backendVersion with pluginVersion
+      // Assuming semantic versioning string comparison works for simple equality
+      this.needsUpdate = this.backendVersion !== this.pluginVersion;
+    }
   }
 
   async getSourceStatus(
@@ -131,7 +146,7 @@ export class IncuratorClient {
       return { state: "unknown", message: "No PDF path available" };
     }
 
-    const imported = await this.tryTool(["curator_import_source", "import_source", "ingest_pdf", "import_pdf"], {
+    const imported = await this.tryTool(["curator_import_source"], {
       source_path: path,
       file_path: path,
       path,
@@ -156,12 +171,14 @@ export class IncuratorClient {
     const sourceId = this.readNumber(importedRecord, ["sourceId", "source_id", "id"]);
     const relpath = this.readString(importedRecord, ["relpath", "source_path", "path"]);
 
-    const ingested = await this.tryTool(["curator_ingest_source", "ingest_source", "source_ingest"], {
+    // Instant L1 (no LLM) + enqueue L2/L3 to the background worker (build=true).
+    const ingested = await this.tryTool(["curator_register_source"], {
       source_id: sourceId,
       relpath,
       source_path: relpath,
       file_path: relpath,
       path: relpath,
+      build: true,
     });
 
     const status = this.normalizeStatus(ingested || imported, path);
@@ -172,13 +189,33 @@ export class IncuratorClient {
     return status;
   }
 
+  /**
+   * Fire-and-forget auto-indexing for a PDF opened in the viewer.
+   * Registers the file as an in-place reference and generates instant L1
+   * (structural, no LLM) so curator_search_sources RAG becomes available
+   * within seconds; L2/L3 are queued to the background worker.
+   */
+  async registerSource(filePath: string): Promise<IncuratorSourceStatus | null> {
+    if (!filePath || this.settings.incuratorEnabled === false) return null;
+    try {
+      return await this.ingestPdf({
+        filePath,
+        sourcePath: filePath,
+        destinationRelpath: "04_Resources",
+        importMode: "reference",
+      });
+    } catch {
+      return null;
+    }
+  }
+
   async rebindSource(args: {
     sourceId?: number;
     sourcePath?: string;
     newPath: string;
     apply: boolean;
   }): Promise<IncuratorSourceStatus> {
-    const result = await this.tryTool(["curator_rebind_source", "rebind_source", "source_rebind"], {
+    const result = await this.tryTool(["curator_rebind_source"], {
       source_id: args.sourceId,
       source_path: args.sourcePath,
       file_path: args.sourcePath,
@@ -203,43 +240,43 @@ export class IncuratorClient {
   async search(query: string, topK = 6): Promise<IncuratorHit[]> {
     if (!query.trim() || this.settings.incuratorEnabled === false) return [];
     const result = await this.tryTool(
-      ["search_curator", "curator_search", "search", "vault_search", "semantic_search", "incurator_search"],
+      ["search_curator"],
       { query, text: query, top_k: topK, topK, limit: topK }
     );
     return this.normalizeHits(result);
   }
 
-  async getPdfWindow(args: {
-    sourcePath?: string;
-    documentId?: string;
+  async getPdfContext(args: {
+    filePath: string;
+    query?: string;
     pageNum?: number;
-    radius: number;
-  }): Promise<PdfWindowPage[]> {
-    if (!args.pageNum || this.settings.incuratorEnabled === false) return [];
-    const result = await this.tryTool(["pdf_window", "get_pdf_window", "document_window"], {
-      source_path: args.sourcePath,
-      file_path: args.sourcePath,
-      path: args.sourcePath,
-      document_id: args.documentId,
-      page: args.pageNum,
-      page_num: args.pageNum,
-      pageNum: args.pageNum,
-      radius: args.radius,
+    radius?: number;
+    maxPages?: number;
+  }): Promise<{
+    pages: PdfWindowPage[];
+    outline: PdfOutlineItem[];
+    totalPages: number;
+    sourceTracked: boolean;
+    isEmptyPdf: boolean;
+  } | null> {
+    if (!args.filePath || this.settings.incuratorEnabled === false) return null;
+    const result = await this.tryTool(["curator_get_pdf_context"], {
+      file_path: args.filePath,
+      query: args.query || "",
+      page_num: args.pageNum ?? 0,
+      radius: args.radius ?? 2,
+      max_pages: args.maxPages ?? 8,
     });
-    return this.normalizeWindowPages(result);
-  }
-
-  async getDocumentOutline(args: {
-    sourcePath?: string;
-    documentId?: string;
-  }): Promise<PdfOutlineItem[]> {
-    const result = await this.tryTool(["document_outline", "get_document_outline", "pdf_outline"], {
-      source_path: args.sourcePath,
-      file_path: args.sourcePath,
-      path: args.sourcePath,
-      document_id: args.documentId,
-    });
-    return this.normalizeOutline(result);
+    if (!result || typeof result !== "object") return null;
+    const r = result as Record<string, unknown>;
+    if (r["ok"] === false) return null;
+    return {
+      pages: this.normalizeWindowPages(r["pages"]),
+      outline: this.normalizeOutline(r["outline"]),
+      totalPages: typeof r["total_pages"] === "number" ? r["total_pages"] : 0,
+      sourceTracked: r["source_tracked"] === true,
+      isEmptyPdf: r["is_empty_pdf"] === true,
+    };
   }
 
   async getPdfRagHits(args: {
@@ -249,7 +286,7 @@ export class IncuratorClient {
     topK: number;
   }): Promise<PdfRagHit[]> {
     if (!args.query.trim() || this.settings.incuratorEnabled === false) return [];
-    const result = await this.tryTool(["curator_search_source", "curator_search_sources", "search_sources", "pdf_rag_hits", "pdf_search", "search_pdf", "rag"], {
+    const result = await this.tryTool(["curator_search_sources"], {
       query: args.query,
       source_path: args.sourcePath,
       file_path: args.sourcePath,
@@ -265,7 +302,7 @@ export class IncuratorClient {
 
   async getZoteroAnnotations(attachmentKey: string): Promise<any[]> {
     if (!attachmentKey || this.settings.incuratorEnabled === false) return [];
-    const result = await this.tryTool(["curator_get_zotero_annotations", "get_zotero_annotations"], {
+    const result = await this.tryTool(["curator_get_zotero_annotations"], {
       attachment_key: attachmentKey,
       attachmentKey: attachmentKey,
       custom_paths: this.settings.zoteroBasePath || ""
@@ -279,7 +316,7 @@ export class IncuratorClient {
 
   async resolveZoteroPdf(attachmentKey: string): Promise<string | null> {
     if (!attachmentKey || this.settings.incuratorEnabled === false) return null;
-    const result = await this.tryTool(["curator_resolve_zotero_pdf", "resolve_zotero_pdf"], {
+    const result = await this.tryTool(["curator_resolve_zotero_pdf"], {
       attachment_key: attachmentKey,
       attachmentKey: attachmentKey,
       custom_paths: this.settings.zoteroBasePath || ""

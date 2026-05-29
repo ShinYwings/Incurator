@@ -165,7 +165,13 @@ def _install_qmd() -> None:
         return
 
     print("[incurator] ⏳ Installing qmd globally via npm...", flush=True)
-    res = subprocess.run([npm, "install", "-g", "@tobilu/qmd"], check=False)
+    
+    # [OOM/Freeze Fix] Prevent node-llama-cpp from compiling/downloading heavy binaries on macOS
+    env = os.environ.copy()
+    env["NODE_LLAMA_CPP_SKIP_DOWNLOAD"] = "true"
+    env["LLAMA_CPP_SKIP_DOWNLOAD"] = "true"
+    
+    res = subprocess.run([npm, "install", "-g", "@tobilu/qmd"], env=env, check=False)
     if res.returncode == 0:
         print("[incurator] ✅ qmd installed.", flush=True)
     else:

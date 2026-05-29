@@ -436,7 +436,7 @@ def _query_tokens(query: str) -> list[str]:
     return [tok for tok in re.findall(r"[\w가-힣]+", query.lower()) if len(tok) > 1]
 
 
-def _lexical_score(text: str, query: str) -> float:
+def lexical_score(text: str, query: str) -> float:
     if not text:
         return 0.0
     lowered = text.lower()
@@ -489,7 +489,7 @@ def search_source_pages(
             for idx, page_meta in enumerate(pages):
                 page_number = int(page_meta.get("page") or idx + 1)
                 text = str(page_meta.get("text") or "")
-                score = _lexical_score(text, query)
+                score = lexical_score(text, query)
                 if score <= 0:
                     continue
                 hits.append(
@@ -504,7 +504,7 @@ def search_source_pages(
                     )
                 )
         else:
-            score = _lexical_score(parsed.text, query)
+            score = lexical_score(parsed.text, query)
             if score <= 0:
                 continue
             hits.append(
