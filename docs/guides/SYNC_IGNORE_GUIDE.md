@@ -33,7 +33,6 @@ node_modules/
 **/node_modules/
 
 // Incurator plugin: backend 실행 경로가 기기마다 다르면 설정은 로컬로 유지
-// sessions.json 은 v0.2.1부터 세션 단위 병합 저장을 지원하므로 동기화 가능
 .obsidian/plugins/incurator-obsidian-agent/data.json
 
 // Incurator backend: 기기별 인덱스 상태
@@ -47,8 +46,8 @@ testbed/
 ```
 
 > **참고**: `sessions.json`과 `data.json` 분리 구조
-> 채팅 히스토리(`sessions.json`)는 v0.2.1부터 세션 단위 병합 저장과 삭제 tombstone(`deletedSessionIds`)을 지원하므로 Syncthing 동기화가 가능합니다.
-> backend 실행 파일 경로, MCP command, Zotero 경로처럼 기기마다 달라지는 설정이 있다면 `data.json`을 로컬 파일로 두는 편이 안전합니다.
+> 채팅 히스토리(`.curator/sessions.json`)는 안전한 보존과 동기화를 위해 플러그인 폴더 외부(`.curator/`)에 저장되며 세션 단위 병합과 삭제 tombstone을 지원합니다.
+> backend 실행 파일 경로, MCP command, Zotero 경로처럼 기기마다 달라지는 UI 캐시/설정은 `.obsidian/plugins/.../data.json`에 저장되어 로컬로 유지됩니다.
 
 ### Obsidian Plugin 배포와 macOS/Linux 동기화
 

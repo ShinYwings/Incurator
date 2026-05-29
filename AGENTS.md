@@ -182,7 +182,7 @@ VAULT_ROOT=testbed wiki sync
 VAULT_ROOT=testbed wiki lint
 ```
 
-The generated `testbed/` vault is configured to use a primary LLM backend (default: `gemini-cli`). Before running LLM-sensitive testbed commands, make sure the configured primary LLM tool is installed and authenticated.
+The generated `testbed/` vault is configured to use a primary LLM backend (default: `antigravity-cli`). Before running LLM-sensitive testbed commands, make sure the configured primary LLM tool is installed and authenticated.
 
 When qmd and the configured LLM backend are available, also run:
 

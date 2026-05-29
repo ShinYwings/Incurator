@@ -931,16 +931,13 @@ _CLOUD_MODELS: dict[str, list[dict]] = {
         },
     ],
 }
-_CLOUD_MODELS["gemini-cli"] = _CLOUD_MODELS["antigravity-cli"]
 
 _PROVIDER_PRIMARY_CFG_KEY: dict[str, str] = {
     "antigravity-cli": "antigravity_flash_model",
-    "gemini-cli": "antigravity_flash_model",
     "claude-code": "claude_model",
 }
 _PROVIDER_THINK_CFG_KEY: dict[str, str] = {
     "antigravity-cli": "antigravity_think_model",
-    "gemini-cli": "antigravity_think_model",
     "claude-code": "claude_think_model",
 }
 
@@ -948,7 +945,7 @@ _PROVIDER_THINK_CFG_KEY: dict[str, str] = {
 def _get_cloud_provider_from_primary(primary: str, llm_cfg: dict) -> str:
     """Resolve the cloud provider string from the primary backend key."""
     p = primary.lower().replace(" ", "-")
-    if p in ("gemini", "gemini-cli", "antigravity", "antigravity-cli"):
+    if p in ("gemini", "antigravity", "antigravity-cli"):
         return "antigravity-cli"
     if p in ("claude", "claude-code"):
         return "claude-code"
@@ -1343,7 +1340,7 @@ def _configure_backend(
             _hint(f"Once Ollama is running: [bold]ollama pull {model}[/bold]")
 
 
-    elif backend in ("claude-code", "antigravity-cli", "gemini-cli"):
+    elif backend in ("claude-code", "antigravity-cli"):
         cli_cmd = "claude" if backend == "claude-code" else "agy"
         install_cmd = (
             "npm install -g @anthropic-ai/claude-code"
@@ -1596,7 +1593,7 @@ def _offer_install(overrides: dict, llm_cfg: dict) -> None:
     model   = overrides.get("model")   or llm_cfg.get("model", "qwen2.5:7b")
     host    = overrides.get("host")    or llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
 
-    if primary in ("claude-code", "antigravity-cli", "gemini-cli"):
+    if primary in ("claude-code", "antigravity-cli"):
         cli_cmd = "claude" if primary == "claude-code" else "agy"
         install_cmd = (
             "npm install -g @anthropic-ai/claude-code"
@@ -1813,6 +1810,26 @@ def init(
     if plugin_src.exists():
         plugin_dest = obsidian_dir / "plugins" / "incurator-obsidian-agent"
         plugin_dest.mkdir(parents=True, exist_ok=True)
+
+        build_plugin = False
+        if interactive:
+            build_plugin = typer.confirm("Build and install the Obsidian plugin for this vault?", default=True)
+        else:
+            build_plugin = True
+
+        if build_plugin:
+            import subprocess
+            console.print("[dim]Building Obsidian plugin via npm... (this may take a moment)[/dim]")
+            try:
+                subprocess.run(["npm", "install"], cwd=str(plugin_src), check=True, capture_output=True)
+                subprocess.run(["npm", "run", "build"], cwd=str(plugin_src), check=True, capture_output=True)
+                _ok("Obsidian plugin built successfully.")
+            except subprocess.CalledProcessError as e:
+                err_msg = e.stderr.decode("utf-8", errors="replace").strip() if e.stderr else ""
+                _warn(f"Failed to build Obsidian plugin. npm exit code {e.returncode}.\n[dim]{err_msg}[/dim]")
+            except FileNotFoundError:
+                _warn("npm command not found. Cannot build Obsidian plugin.")
+
         copied_any = False
         for fname in ["main.js", "manifest.json", "styles.css"]:
             src_file = plugin_src / fname
@@ -1884,7 +1901,7 @@ def init(
             llm.update(wizard_overrides)
             _offer_install(wizard_overrides, llm)
         else:
-            _hint("Run [bold]wiki config provider --primary ollama|gemini-cli|claude-code ...[/bold] to configure.")
+            _hint("Run [bold]wiki config provider --primary ollama|antigravity-cli|claude-code ...[/bold] to configure.")
 
     if "provider" in llm:
         del llm["provider"]
@@ -2149,8 +2166,6 @@ def config_provider(
     if any_flag:
         overrides = {}
         # Non-interactive: apply only the flags that were explicitly passed
-        if primary == "gemini-cli":
-            primary = "antigravity-cli"
         _valid_primary = ("ollama", "claude-code", "antigravity-cli")
         if primary in _valid_primary:
             llm["primary"] = primary
@@ -2233,7 +2248,7 @@ def status() -> None:
                 return llm_cfg.get("openai_model", "gpt-4.1")
         elif key == "claude-code":
             return llm_cfg.get("claude_model", "claude-sonnet-4-6")
-        elif key in ("antigravity-cli", "gemini-cli"):
+        elif key == "antigravity-cli":
             return llm_cfg.get("antigravity_flash_model") or DEFAULT_GEMINI_FLASH_MODEL
         return "?"
 
@@ -2245,7 +2260,7 @@ def status() -> None:
             return f"Cloud ({cp})"
         elif key == "claude-code":
             return "Claude Code"
-        elif key in ("antigravity-cli", "gemini-cli"):
+        elif key == "antigravity-cli":
             return "Antigravity CLI"
         return key.capitalize() if key else "?"
 
@@ -4683,7 +4698,7 @@ def models_list(
             primary = "claude-code"
 
     # 1. Show Primary Backend models
-    if primary in ("claude-code", "antigravity-cli", "gemini-cli", "cloud", "gemini", "claude", "openai"):
+    if primary in ("claude-code", "antigravity-cli", "cloud", "gemini", "claude", "openai"):
         cp = _get_cloud_provider_from_primary(primary, llm_cfg)
         if cp:
             any_found = _show_cloud_models(cp, llm_cfg, active_only=active_only)
@@ -4711,7 +4726,7 @@ def models_list(
                 console.print(f"  Primary Backend: [cyan]{primary_raw or '(not set)'}[/cyan]")
                 if primary == "ollama" or not primary:
                     console.print(f"  Ollama Model:    [cyan]{llm_cfg.get('model', '(default: qwen2.5:7b)')}[/cyan]")
-                if primary in ("claude-code", "antigravity-cli", "gemini-cli") or not primary:
+                if primary in ("claude-code", "antigravity-cli") or not primary:
                     key = _PROVIDER_PRIMARY_CFG_KEY.get(primary) or "antigravity_flash_model"
                     console.print(f"  Active Model:    [cyan]{llm_cfg.get(key, '(default)')}[/cyan]")
         return
@@ -4745,7 +4760,7 @@ def models_use(
     """Set the active model in project config.
 
     For Ollama: shows recommendation list; pulls the model if not yet downloaded.
-    For cloud providers (cloud/claude-code/gemini-cli): shows curated list and saves
+    For cloud providers (claude-code/antigravity-cli): shows curated list and saves
     the selection to the appropriate config key (e.g. claude_model, gemini_flash_model).
     """
     import subprocess
@@ -5034,7 +5049,7 @@ def workspace_init(
     agent: str = typer.Option(
         "claude-code",
         "--agent",
-        help="Agent runtime: codex | claude-code | gemini-cli | antigravity | none.",
+        help="Agent runtime: codex | claude-code | antigravity | none.",
     ),
     no_rules: bool = typer.Option(
         False,
@@ -5066,7 +5081,7 @@ def workspace_init(
         agent = typer.prompt(
             "Agent runtime",
             default="claude-code",
-            prompt_suffix=" [claude-code/codex/gemini-cli/antigravity/none]: ",
+            prompt_suffix=" [claude-code/codex/antigravity/none]: ",
         ).strip() or "claude-code"
 
     if agent not in VALID_AGENTS:
@@ -5350,7 +5365,7 @@ def mcp_connect_cmd(
     agent: str = typer.Option(
         ...,
         "--agent",
-        help="Agent runtime: codex | claude-code | gemini-cli | antigravity.",
+        help="Agent runtime: codex | claude-code | antigravity.",
     ),
     workspace: Path = typer.Option(
         ...,
@@ -5375,7 +5390,7 @@ def mcp_connect_cmd(
 ) -> None:
     """Prepare workspace rules and print an MCP snippet for one agent runtime."""
     if agent == "none" or agent not in VALID_AGENTS:
-        _err("Invalid --agent. Use: codex | claude-code | gemini-cli | antigravity")
+        _err("Invalid --agent. Use: codex | claude-code | antigravity")
         raise typer.Exit(code=1)
 
     paths = _resolve_root_or_die()
@@ -5496,7 +5511,7 @@ if __name__ == "__main__":
 def testbed_init(
     scenario: str = typer.Argument("testbed_template", help="Scenario name from scripts/dev/"),
     force: bool = typer.Option(False, "--force", "-f", help="Recreate the testbed."),
-    llm: Optional[str] = typer.Option(None, "--llm", help="Primary LLM provider (ollama|gemini-cli|cloud|claude-code)"),
+    llm: Optional[str] = typer.Option(None, "--llm", help="Primary LLM provider (ollama|antigravity-cli|cloud|claude-code)"),
     model: Optional[str] = typer.Option(None, "--model", help="Specific model name to use for the provider."),
 ):
     """Initialize a testbed vault using a specific scenario."""

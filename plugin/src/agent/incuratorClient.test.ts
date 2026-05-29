@@ -29,6 +29,7 @@ function settings(): PluginSettings {
     incuratorEnabled: true,
     incuratorMcpCommand: "wiki",
     incuratorMcpArgs: ["mcp"],
+    incuratorRepoPath: "",
     incuratorDefaultDestination: "04_Resources",
     incuratorDefaultImportMode: "reference",
     incuratorStatusPolling: true,
@@ -114,5 +115,24 @@ describe("IncuratorClient", () => {
       supportsVision: true,
       contextWindow: 1000000,
     });
+  });
+
+  it("checks backend version and sets needsUpdate flag", async () => {
+    const mcp = {
+      getAllTools: () => [
+        { serverName: "incurator", name: "curator_get_version", description: "", inputSchema: {} },
+      ],
+      callTool: async () => ({
+        content: [{ type: "text", text: '"0.2.2"' }],
+      }),
+    };
+    const client = new IncuratorClient(mcp as any, settings(), "0.2.1");
+    expect(client.needsUpdate).toBe(false);
+    expect(client.backendVersion).toBe("unknown");
+    
+    await client.checkBackendVersion();
+    
+    expect(client.backendVersion).toBe("0.2.2");
+    expect(client.needsUpdate).toBe(true);
   });
 });

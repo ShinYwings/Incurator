@@ -37,13 +37,28 @@ export interface IncuratorStatusEvent {
 }
 
 export class IncuratorClient {
+  public needsUpdate = false;
+  public backendVersion = "unknown";
+
   constructor(
     private readonly mcpManager: MCPManager,
-    private readonly settings: PluginSettings
+    private readonly settings: PluginSettings,
+    public readonly pluginVersion: string = "0.2.1"
   ) {}
 
   get available(): boolean {
     return this.settings.incuratorEnabled !== false && this.getIncuratorTools().length > 0;
+  }
+
+  async checkBackendVersion(): Promise<void> {
+    if (!this.available) return;
+    const result = await this.tryTool(["curator_get_version"], {});
+    if (result && typeof result === "string") {
+      this.backendVersion = result;
+      // Compare backendVersion with pluginVersion
+      // Assuming semantic versioning string comparison works for simple equality
+      this.needsUpdate = this.backendVersion !== this.pluginVersion;
+    }
   }
 
   async getSourceStatus(
@@ -240,6 +255,39 @@ export class IncuratorClient {
       document_id: args.documentId,
     });
     return this.normalizeOutline(result);
+  }
+
+  async getPdfContext(args: {
+    filePath: string;
+    query?: string;
+    pageNum?: number;
+    radius?: number;
+    maxPages?: number;
+  }): Promise<{
+    pages: PdfWindowPage[];
+    outline: PdfOutlineItem[];
+    totalPages: number;
+    sourceTracked: boolean;
+    isEmptyPdf: boolean;
+  } | null> {
+    if (!args.filePath || this.settings.incuratorEnabled === false) return null;
+    const result = await this.tryTool(["curator_get_pdf_context"], {
+      file_path: args.filePath,
+      query: args.query || "",
+      page_num: args.pageNum ?? 0,
+      radius: args.radius ?? 2,
+      max_pages: args.maxPages ?? 8,
+    });
+    if (!result || typeof result !== "object") return null;
+    const r = result as Record<string, unknown>;
+    if (r["ok"] === false) return null;
+    return {
+      pages: this.normalizeWindowPages(r["pages"]),
+      outline: this.normalizeOutline(r["outline"]),
+      totalPages: typeof r["total_pages"] === "number" ? r["total_pages"] : 0,
+      sourceTracked: r["source_tracked"] === true,
+      isEmptyPdf: r["is_empty_pdf"] === true,
+    };
   }
 
   async getPdfRagHits(args: {

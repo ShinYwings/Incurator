@@ -1,4 +1,4 @@
-"""v0.2.1 tests for shared cloud model catalogue and config migration."""
+"""v0.2.1 tests for shared cloud model catalogue and config."""
 
 import tempfile
 import unittest
@@ -22,11 +22,11 @@ class TestSharedModelsCatalogue(unittest.TestCase):
     def test_default_antigravity_model_from_catalogue(self) -> None:
         self.assertEqual(
             models.get_default_model("antigravity", "flash"),
-            "gemini-3.1-flash-lite-preview",
+            "gemini-3.5-flash",
         )
 
 
-class TestAntigravityConfigMigration(unittest.TestCase):
+class TestAntigravityConfig(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
@@ -36,13 +36,13 @@ class TestAntigravityConfigMigration(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def test_legacy_gemini_keys_migrate_in_memory(self) -> None:
+    def test_legacy_gemini_model_keys_rename(self) -> None:
+        """gemini_flash_model / gemini_think_model keys are renamed to antigravity_*."""
         self.paths.config_file.write_text(
             yaml.safe_dump(
                 {
                     "llm": {
-                        "primary": "gemini-cli",
-                        "fallback": "gemini-cli",
+                        "primary": "antigravity-cli",
                         "gemini_flash_model": "gemini-2.5-flash",
                         "gemini_think_model": "gemini-2.5-pro",
                     }
@@ -52,8 +52,6 @@ class TestAntigravityConfigMigration(unittest.TestCase):
         )
         loaded = cfg.load_config(self.paths)
         llm_cfg = loaded["llm"]
-        self.assertEqual(llm_cfg["primary"], "antigravity-cli")
-        self.assertEqual(llm_cfg["fallback"], "antigravity-cli")
         self.assertEqual(llm_cfg["antigravity_flash_model"], "gemini-2.5-flash")
         self.assertEqual(llm_cfg["antigravity_think_model"], "gemini-2.5-pro")
 

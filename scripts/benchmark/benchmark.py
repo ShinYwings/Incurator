@@ -118,8 +118,8 @@ class BenchmarkRun:
 
 MODEL_CONFIGS: dict[str, dict] = {
     "gemini-flash": {
-        "primary": "gemini-cli",
-        "gemini_flash_model": "gemini-3.1-flash-lite-preview",
+        "primary": "antigravity-cli",
+        "antigravity_flash_model": "gemini-3.5-flash",
     },
     "gemini-pro": {
         "primary": "cloud",

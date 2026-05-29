@@ -105,6 +105,24 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install ge
 - **Parameters**: `source_id` or `source_path`, `page`.
 - **Use case**: Provides stable text context when the plugin viewer context is incomplete or when a provider strips image attachments.
 
+#### `curator_get_pdf_context`
+- **Role**: Lightweight on-demand PDF text extraction for chat context. Works for **both tracked and untracked PDFs** — no prior ingestion required. This is the primary tool the Obsidian plugin uses to assemble the `<pdf_window>` and `<document_outline>` context blocks for LLM prompts.
+- **Parameters**:
+  - `file_path` (required): Absolute filesystem path to the PDF.
+  - `query` (optional): Query string to score pages by relevance. When provided, the most relevant pages are returned rather than a fixed window.
+  - `page_num` (optional, default 0): Current 1-based page number. 0 = no current page (returns query-scored or first N pages).
+  - `radius` (optional, default 2): Pages around `page_num` to include in the window.
+  - `max_pages` (optional, default 8): Maximum pages to return.
+- **Returns**:
+  - `ok`: `true` on success, `false` on error.
+  - `source_tracked`: Whether the PDF is registered in the Incurator knowledge graph.
+  - `total_pages`: Total page count.
+  - `pages`: `[{page_num, text, score}]` — up to `max_pages` most relevant pages.
+  - `outline`: `[{title, page_num, level}]` — document table of contents.
+  - `is_empty_pdf`: `true` if the PDF contains no extractable text (scanned/image-only).
+- **Why it replaces multiple calls**: Previously the plugin made three separate MCP calls (`pdf_window`, `document_outline`, `pdf_rag_hits`) that did not exist in the backend and silently returned empty results. This tool unifies them in a single call that actually works.
+- **Performance**: Uses `parse_page_window()` to read only the requested pages, making it safe for 600-page documents without loading the full file into memory.
+
 #### `curator_add_knowledge`
 - **Role**: Save a conversational insight as a new **L2 Atom**. This knowledge will be synthesized into the DAG in the next curation cycle.
 
@@ -165,6 +183,12 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install ge
 - **Role**: Return the list of models per provider from the `models.json` file bundled with the backend package. Used by the plugin UI to dynamically populate the model selection dropdown.
 - **Parameters**: none.
 - **Returns**: `{ "antigravity": [...], "claude": [...] }` — per-provider model list.
+
+#### `curator_get_version`
+
+- **Role**: Return the installed version of the Incurator backend as a string (e.g., `"0.2.1"`). Used by the client (specifically the Obsidian plugin) to detect version mismatches and trigger 1-Click Auto-Updates.
+- **Parameters**: none.
+- **Returns**: Backend version string.
 
 ### 3.5 Workspace Management
 

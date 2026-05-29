@@ -73,6 +73,7 @@ interface PluginSettings {
   incuratorEnabled: boolean;
   incuratorMcpCommand: string;          // per-device backend command, default "wiki"
   incuratorMcpArgs: string[];           // default ["mcp"]
+  incuratorRepoPath: string;            // per-device absolute path to backend repo for 1-click updates
   incuratorDefaultDestination: string;   // vault-relative folder, e.g. "04_Resources"
   incuratorDefaultImportMode: "copy" | "reference";
   incuratorStatusPolling: boolean;
@@ -96,9 +97,12 @@ Rules:
   Selecting a model from another provider must update both `provider` and `model`.
 - `incuratorDefaultDestination` defaults to `"04_Resources"` for new installs.
 - `incuratorDefaultImportMode` defaults to `"reference"` (no file copy).
-- `incuratorMcpCommand` and `incuratorMcpArgs` are per-device settings. They may
+- `incuratorMcpCommand`, `incuratorMcpArgs`, and `incuratorRepoPath` are per-device settings. They may
   point to `wiki mcp` when the backend is installed on PATH, or to a platform
   specific launcher such as `uv --directory /path/to/Incurator/backend run wiki mcp`.
+- **1-Click Auto-Update:** The plugin calls `curator_get_version` via MCP. If the backend version
+  does not match the plugin's `manifest.json` version, the plugin displays an update banner.
+  If `incuratorRepoPath` is set, clicking the banner executes `cd <incuratorRepoPath> && git pull && ./setup.sh`.
 - `mcpServers` entries are stored but managed via the backend MCP server registration
   flow; the plugin must not hard-code Incurator server config.
 - On desktop startup, the plugin may read local Syncthing config files and

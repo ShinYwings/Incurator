@@ -1,6 +1,8 @@
 import sqlite3
 import json
 import shutil
+import tempfile
+import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -45,7 +47,7 @@ def get_zotero_annotations(
         raise FileNotFoundError(f"Zotero database not found at {zotero_db_path}")
 
     # Copy to bypass lock
-    temp_db_path = Path("/tmp/zotero_temp.sqlite")
+    temp_db_path = Path(tempfile.gettempdir()) / f"zotero_temp_{os.getpid()}.sqlite"
     shutil.copy2(db_path, temp_db_path)
 
     try:
@@ -132,6 +134,8 @@ def get_zotero_annotations(
     finally:
         if conn:
             conn.close()
+        if temp_db_path.exists():
+            temp_db_path.unlink(missing_ok=True)
 
 def get_zotero_attachment_path_from_db(zotero_db_path: str, attachment_key: str) -> Optional[str]:
     """
@@ -142,7 +146,7 @@ def get_zotero_attachment_path_from_db(zotero_db_path: str, attachment_key: str)
     if not db_path.exists():
         return None
 
-    temp_db_path = Path("/tmp/zotero_temp.sqlite")
+    temp_db_path = Path(tempfile.gettempdir()) / f"zotero_temp_{os.getpid()}.sqlite"
     shutil.copy2(db_path, temp_db_path)
 
     conn = None
@@ -169,6 +173,8 @@ def get_zotero_attachment_path_from_db(zotero_db_path: str, attachment_key: str)
     finally:
         if conn:
             conn.close()
+        if temp_db_path.exists():
+            temp_db_path.unlink(missing_ok=True)
 
 def resolve_zotero_attachment_path(zotero_data_dir: str, attachment_key: str) -> Optional[str]:
     """

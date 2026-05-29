@@ -11,7 +11,7 @@ Before installing the system, ensure the following tools are installed:
 1.  **Python 3.10+**: The core logic is written in Python.
 2.  **Terminal**: All commands are executed within a CLI environment.
 3.  **Note Editor (Obsidian Recommended)**: The primary tool for visualizing and editing your knowledge base. While any text editor that supports Markdown can be used, the system is optimized for Obsidian's link structure and plugin ecosystem.
-4.  **Node.js**: Required for building the search engine (QMD) and running the MCP server. (Note: `./setup.sh` handles the installation of Node.js, Ollama, the backend package, and the plugin automatically, so you don't need to prepare them separately.)
+4.  **Node.js**: Required for building the search engine (QMD) and running the MCP server. (Note: `./setup.sh` handles the installation of Node.js, Ollama, and the backend package automatically, while `wiki init` handles the plugin installation.)
 5.  **Curator Engine Backends**: At least one model backend is required, supporting both local and cloud providers.
     - **Local LLM (Ollama)**: Provides strong privacy and offline capabilities with no additional cost. (Requires VRAM)
     - **Subscription Services (Providers)**: Leverages external engines like Gemini, Claude, and OpenAI. These do not consume local VRAM and offer high reasoning performance. (Note: Standard universal models are sufficient for the curation phase; high-cost reasoning-only models are not strictly required.)
@@ -204,7 +204,7 @@ Choose `--agent` based on your agent runtime:
 | ------------------- | --------------- | -------------------------- |
 | Claude Code         | `claude-code`   | `CLAUDE.md`                |
 | OpenAI Codex        | `codex`         | `AGENTS.md`                |
-| Gemini CLI          | `gemini-cli`    | `GEMINI.md`                |
+| Antigravity CLI     | `antigravity-cli`| `GEMINI.md` (backward compat) |
 | Antigravity         | `antigravity`   | `.antigravity/rules.yaml`  |
 | No agent (CLI only) | `none`          | —                          |
 
@@ -473,7 +473,7 @@ Configure the LLM backends that power Incurator's intelligence. The system maint
 | Provider | Type | Key Features |
 | :--- | :--- | :--- |
 | `ollama` | Local | Use local models like DeepSeek or Llama 3 (Free, offline capable) |
-| `gemini-cli` | CLI | Inference via official Google `gemini` command (Fast, reliable free option) |
+| `antigravity-cli` | CLI | Inference via Google Antigravity CLI (`agy`) (Fast, reliable free option) |
 | `claude-code` | CLI | Inference via official Anthropic `claude` command |
 
 ```bash

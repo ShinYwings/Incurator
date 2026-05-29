@@ -89,7 +89,6 @@ interface PdfPage {
 }
 
 const RENDER_RADIUS = 5;
-const CONTEXT_WINDOW_RADIUS = 1;
 const CONTEXT_RAG_TOP_K = 4;
 
 const STORAGE_KEY = "incurator-obsidian-agent-external-pdfs";
@@ -488,7 +487,11 @@ export class ExternalPdfView extends ItemView {
         textQuality = extracted.textQuality;
       }
 
-      windowPages = this.getContextWindowPages(this.currentPage, CONTEXT_WINDOW_RADIUS);
+      // Window expansion is done server-side via curator_get_pdf_context.
+      // Provide only the current page here as a lightweight fallback for when
+      // the backend is unavailable.
+      const currentCached = this.pageTextCache.get(this.currentPage);
+      windowPages = currentCached ? [currentCached] : [];
       const query = this.getSelectionTextWithinView() || text;
       ragHits = this.documentIndex.search(this.docId, query, {
         topK: CONTEXT_RAG_TOP_K,
@@ -801,7 +804,7 @@ export class ExternalPdfView extends ItemView {
       this.totalPages = pdf.numPages;
       this.updatePageCount();
       await this.renderToc(pdf);
-      this.startDocumentTextIndex(token, pdf);
+      // Removed startDocumentTextIndex: Frontend should not perform full-document indexing. L1 extraction is handled by backend.
       container.onwheel = (e: WheelEvent) => this.handleWheelZoom(e);
 
 
@@ -1221,31 +1224,6 @@ export class ExternalPdfView extends ItemView {
     return { pageContext, items };
   }
 
-  private startDocumentTextIndex(token: number, pdf: PdfDocument): void {
-    const buildToken = ++this.indexBuildToken;
-    const documentId = this.docId;
-
-    void (async () => {
-      const pages: PdfWindowPage[] = [];
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        if (token !== this.renderToken || buildToken !== this.indexBuildToken) return;
-
-        let pageContext = this.pageTextCache.get(pageNum);
-        if (!pageContext) {
-          const extracted = await this.getOrExtractPageText(pdf, pageNum);
-          pageContext = extracted || undefined;
-        }
-        if (pageContext) pages.push(pageContext);
-      }
-
-      if (token !== this.renderToken || buildToken !== this.indexBuildToken) return;
-      this.documentIndex.upsertDocument(documentId, pages, this.currentOutlineItems);
-      this.notifyContextChanged();
-    })().catch((err) => {
-      console.warn("[AI Agent] Failed to build PDF document text index:", err);
-    });
-  }
-
   private async getOrExtractPageText(
     pdf: PdfDocument,
     pageNum: number
@@ -1280,30 +1258,6 @@ export class ExternalPdfView extends ItemView {
     return promise;
   }
 
-  private getContextWindowPages(pageNum: number, radius: number): PdfWindowPage[] {
-    const indexedPages = this.documentIndex.getWindowPages(this.docId, pageNum, radius);
-    if (indexedPages.length > 0) return indexedPages;
-
-    const pages: PdfWindowPage[] = [];
-    for (let num = Math.max(1, pageNum - radius); num <= Math.min(this.totalPages, pageNum + radius); num++) {
-      const cached = this.pageTextCache.get(num);
-      if (cached) {
-        pages.push(cached);
-        continue;
-      }
-      const pageEl = this.pagesEl?.querySelector<HTMLElement>(
-        `.pdf-page[data-page-number="${num}"]`
-      );
-      if (!pageEl) continue;
-      const extracted = extractPdfPageTextFromDom(pageEl);
-      pages.push({
-        pageNum: num,
-        text: extracted.text,
-        textQuality: extracted.textQuality,
-      });
-    }
-    return pages;
-  }
 
   private getSelectionTextWithinView(): string | null {
     if (!this.pagesEl) return null;

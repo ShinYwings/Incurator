@@ -69,16 +69,16 @@ def init_testbed(
         (paths.collections / layer).mkdir(parents=True, exist_ok=True)
 
     config = dict(cfg.DEFAULT_CONFIG)
-    # Use specified provider or default to gemini-cli for testbeds
-    config["llm"]["primary"] = llm_provider or "gemini-cli"
+    # Use specified provider or default to antigravity-cli for testbeds
+    config["llm"]["primary"] = llm_provider or "antigravity-cli"
     if llm_model:
         if config["llm"]["primary"] == "ollama":
             config["llm"]["model"] = llm_model
-        elif config["llm"]["primary"] == "gemini-cli":
-            config["llm"]["gemini_flash_model"] = llm_model
+        elif config["llm"]["primary"] == "antigravity-cli":
+            config["llm"]["antigravity_flash_model"] = llm_model
     elif not llm_provider:
-        # Default model for the default gemini-cli provider
-        config["llm"]["gemini_flash_model"] = "gemini-3.1-flash-lite-preview"
+        # Default model for the default antigravity-cli provider
+        config["llm"]["antigravity_flash_model"] = "gemini-3.5-flash"
     # Marks this vault so production code never auto-selects it via last_root fallback
     config["testbed"] = True
     cfg.save_config(paths, config)

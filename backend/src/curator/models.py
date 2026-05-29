@@ -16,6 +16,13 @@ _FALLBACK_MODELS: dict[str, Any] = {
             "install_cmd": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
             "models": [
                 {
+                    "id": "gemini-3.5-flash",
+                    "label": "Gemini 3.5 Flash",
+                    "tier": "flash",
+                    "context_window": 1_000_000,
+                    "supports_vision": True,
+                },
+                {
                     "id": "gemini-3.1-flash-lite-preview",
                     "label": "Gemini 3.1 Flash Lite Preview",
                     "tier": "flash",

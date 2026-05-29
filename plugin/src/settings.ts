@@ -410,6 +410,19 @@ export class AIAgentSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Incurator repository path")
+      .setDesc("Absolute path to the Incurator git repository for 1-click auto-updates.")
+      .addText((text) =>
+        text
+          .setPlaceholder("/absolute/path/to/Incurator")
+          .setValue(this.plugin.settings.incuratorRepoPath)
+          .onChange(async (value) => {
+            this.plugin.settings.incuratorRepoPath = value.trim();
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
       .setName("Default PDF destination")
       .setDesc("Base vault folder for imported external PDFs.")
       .addText((text) =>

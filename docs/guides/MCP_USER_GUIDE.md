@@ -101,9 +101,29 @@ wiki mcp install
 - **반환값**: page number, score, snippet, source provenance를 포함해야 합니다.
 
 #### `curator_get_pdf_page`
+
 - **역할**: backend가 저장한 특정 PDF page text/provenance를 반환합니다.
 - **파라미터**: `source_id` 또는 `source_path`, `page`.
 - **용도**: plugin viewer context가 일시적으로 부족하거나 provider가 이미지 첨부를 무시하는 경우에도 텍스트 기반 컨텍스트를 안정적으로 보강합니다.
+
+#### `curator_get_pdf_context`
+
+- **역할**: 채팅 컨텍스트용 경량 온디맨드 PDF 텍스트 추출. **인덱싱된 PDF와 인덱싱되지 않은 PDF 모두 지원** — 사전 ingestion 불필요. Obsidian 플러그인이 LLM 프롬프트의 `<pdf_window>`, `<document_outline>` 컨텍스트 블록을 조립할 때 사용하는 기본 툴.
+- **파라미터**:
+  - `file_path` (필수): PDF의 절대 경로.
+  - `query` (선택): 관련도 기반 페이지 스코어링에 사용할 쿼리 문자열.
+  - `page_num` (선택, 기본값 0): 현재 페이지 번호(1-based). 0 = 현재 페이지 없음.
+  - `radius` (선택, 기본값 2): `page_num` 주변에 포함할 페이지 수.
+  - `max_pages` (선택, 기본값 8): 최대 반환 페이지 수.
+- **반환값**:
+  - `ok`: 성공 시 `true`, 오류 시 `false`.
+  - `source_tracked`: PDF가 Incurator 지식 그래프에 등록되어 있는지 여부.
+  - `total_pages`: 전체 페이지 수.
+  - `pages`: `[{page_num, text, score}]` — 최대 `max_pages`개의 관련 페이지.
+  - `outline`: `[{title, page_num, level}]` — 문서 목차.
+  - `is_empty_pdf`: 텍스트 추출 불가(스캔/이미지 전용) 시 `true`.
+- **기존 문제 해결**: 이전에 플러그인은 `pdf_window`, `document_outline`, `pdf_rag_hits` 세 가지 MCP 호출을 했는데 모두 backend에 없어서 silent fail했음. 이 툴이 하나의 호출로 통합.
+- **성능**: `parse_page_window()`로 필요한 페이지만 읽어 600페이지 PDF도 전체 메모리 로드 없이 안전하게 처리.
 
 #### `curator_add_knowledge`
 - **역할**: 대화 중 얻은 귀중한 통찰이나 정보를 **Wiki(02_Wiki/)** 페이지로 승격하여 영구 저장합니다. 카테고리 분류와 슬러그 생성이 자동으로 수행됩니다.
@@ -170,6 +190,12 @@ wiki mcp install
 - **역할**: 백엔드에 번들된 `models.json`에서 provider별 사용 가능 모델 목록을 반환합니다. 플러그인 UI가 모델 선택 드롭다운을 동적으로 렌더링하는 데 사용합니다.
 - **파라미터**: 없음.
 - **반환값**: `{ "antigravity": [...], "claude": [...] }` 형태의 provider별 모델 목록.
+
+#### `curator_get_version`
+
+- **역할**: Incurator 백엔드의 현재 설치 버전을 문자열(예: `"0.2.1"`)로 반환합니다. 클라이언트(특히 Obsidian 플러그인)가 버전 불일치를 감지하고 1-Click 자동 업데이트를 트리거할 때 사용합니다.
+- **파라미터**: 없음.
+- **반환값**: 백엔드 버전 문자열.
 
 ### 3.5 워크스페이스 관리
 

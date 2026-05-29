@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-VALID_AGENTS = frozenset({"codex", "claude-code", "gemini-cli", "antigravity", "none"})
+VALID_AGENTS = frozenset({"codex", "claude-code", "antigravity", "none"})
 
 MANAGED_START = "<!-- incurator:start -->"
 MANAGED_END = "<!-- incurator:end -->"
@@ -121,7 +121,8 @@ def prepare_workspace(
 
 _CLIENT_INFO_MAP = {
     "claude": "claude-code",
-    "gemini": "gemini-cli",
+    "gemini": "antigravity",
+    "antigravity": "antigravity",
     "codex": "codex",
 }
 
@@ -192,7 +193,7 @@ def _normalize_agent(agent: str) -> str:
     normalized = (agent or "codex").strip().lower()
     aliases = {
         "claude": "claude-code",
-        "gemini": "gemini-cli",
+        "gemini": "antigravity",
         "antigravity-gemini": "antigravity",
     }
     normalized = aliases.get(normalized, normalized)
@@ -323,7 +324,7 @@ def _install_rule_templates(
     if install_managed_block:
         # Install managed blocks for ALL known agents — don't guess which one
         # is connecting. Every agent session-start file gets the Curator block.
-        for _install_agent in ("codex", "claude-code", "gemini-cli", "antigravity"):
+        for _install_agent in ("codex", "claude-code", "antigravity"):
             try:
                 _target_path, _block_tmpl = top_level_target(_install_agent)
                 _block = _render_template(
@@ -342,8 +343,6 @@ def top_level_target(agent: str) -> tuple[str, str]:
         return "AGENTS.md", "managed/AGENTS.md"
     if agent == "claude-code":
         return "CLAUDE.md", "managed/CLAUDE.md"
-    if agent == "gemini-cli":
-        return "GEMINI.md", "managed/GEMINI.md"
     if agent == "antigravity":
         return ".antigravity/rules.yaml", "managed/antigravity.rules.yaml"
     raise ValueError(f"unsupported agent: {agent}")

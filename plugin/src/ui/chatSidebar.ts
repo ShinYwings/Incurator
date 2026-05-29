@@ -1210,16 +1210,23 @@ export class ChatSidebarView extends ItemView {
       }
 
       this.setPrepareStatus(`Assembling PDF context — ${docLabel}...`);
-      const windowPages =
-        pdf.windowPages ||
-        (client.available
-          ? await client.getPdfWindow({
-              sourcePath,
-              documentId: pdf.documentId,
-              pageNum: pdf.pageNum,
-              radius: this.plugin.settings.pdfWindowRadius,
-            })
-          : []);
+
+      // Single backend call: replaces getPdfWindow + getDocumentOutline (both of
+      // which silently returned [] because the tools never existed in the backend).
+      // Works for tracked and untracked PDFs. Falls back to PDF.js cached data
+      // when the backend is unavailable.
+      let backendCtx: Awaited<ReturnType<typeof client.getPdfContext>> = null;
+      if (client.available && sourcePath) {
+        backendCtx = await client.getPdfContext({
+          filePath: sourcePath,
+          query: query.trim() || undefined,
+          pageNum: pdf.pageNum,
+          radius: this.plugin.settings.pdfWindowRadius,
+          maxPages: this.plugin.settings.pdfRagTopK || 8,
+        });
+      }
+
+      const windowPages = backendCtx?.pages ?? pdf.windowPages ?? [];
       if (windowPages.length > 0) {
         sections.push(
           `<pdf_window document="${this.escapeAttribute(tab.label)}" current_page="${pdf.pageNum}">\n${this.formatPdfWindow(windowPages)}\n</pdf_window>`
@@ -1227,14 +1234,7 @@ export class ChatSidebarView extends ItemView {
       }
 
       if (this.plugin.settings.pdfOutlineEnabled) {
-        const outline =
-          pdf.outline ||
-          (client.available
-            ? await client.getDocumentOutline({
-                sourcePath,
-                documentId: pdf.documentId,
-              })
-            : []);
+        const outline = backendCtx?.outline ?? pdf.outline ?? [];
         if (outline.length > 0) {
           sections.push(
             `<document_outline document="${this.escapeAttribute(tab.label)}">\n${this.formatOutline(outline)}\n</document_outline>`
@@ -1242,28 +1242,42 @@ export class ChatSidebarView extends ItemView {
         }
       }
 
+      // RAG hits use the semantic search index — only meaningful for tracked sources.
       if (this.plugin.settings.pdfRagEnabled && query.trim()) {
-        this.setPrepareStatus(`Searching PDF pages — ${docLabel}...`);
-        const ragHits =
-          pdf.ragHits ||
-          (client.available
-            ? await client.getPdfRagHits({
-                query,
-                sourcePath,
-                documentId: pdf.documentId,
-                topK: this.plugin.settings.pdfRagTopK,
-              })
-            : []);
-        if (ragHits.length > 0) {
+        const canRag = backendCtx?.sourceTracked ?? false;
+        if (canRag) {
+          this.setPrepareStatus(`Searching PDF pages — ${docLabel}...`);
+          const ragHits =
+            pdf.ragHits ||
+            (client.available
+              ? await client.getPdfRagHits({
+                  query,
+                  sourcePath,
+                  documentId: pdf.documentId,
+                  topK: this.plugin.settings.pdfRagTopK,
+                })
+              : []);
+          if (ragHits.length > 0) {
+            sections.push(
+              `<pdf_rag_hits document="${this.escapeAttribute(tab.label)}" query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatRagHits(ragHits)}\n</pdf_rag_hits>`
+            );
+          }
+        } else if (!client.available && pdf.ragHits?.length) {
+          // Offline fallback: use pre-fetched hits if available
           sections.push(
-            `<pdf_rag_hits document="${this.escapeAttribute(tab.label)}" query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatRagHits(ragHits)}\n</pdf_rag_hits>`
+            `<pdf_rag_hits document="${this.escapeAttribute(tab.label)}" query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatRagHits(pdf.ragHits)}\n</pdf_rag_hits>`
           );
         }
       }
 
-      if (pdf.textQuality) {
+      if (backendCtx?.isEmptyPdf) {
         sections.push(
-          `<pdf_text_quality document="${this.escapeAttribute(tab.label)}" page="${pdf.pageNum}">\nscore=${pdf.textQuality.score}; scanned_like=${pdf.textQuality.isScannedLike}; source=${pdf.textQuality.source}${pdf.textQuality.reason ? `; reason=${pdf.textQuality.reason}` : ""}\n</pdf_text_quality>`
+          `<pdf_text_quality document="${this.escapeAttribute(tab.label)}" page="${pdf.pageNum}">\nscore=0; scanned_like=true; source=backend; reason=image-only PDF, no text extracted\n</pdf_text_quality>`
+        );
+      } else if (pdf.textQuality) {
+        const qualitySource = backendCtx ? "backend" : pdf.textQuality.source;
+        sections.push(
+          `<pdf_text_quality document="${this.escapeAttribute(tab.label)}" page="${pdf.pageNum}">\nscore=${pdf.textQuality.score}; scanned_like=${pdf.textQuality.isScannedLike}; source=${qualitySource}${pdf.textQuality.reason ? `; reason=${pdf.textQuality.reason}` : ""}\n</pdf_text_quality>`
         );
       }
     }
@@ -1641,8 +1655,11 @@ export class ChatSidebarView extends ItemView {
     if (!this.incuratorClient) {
       this.incuratorClient = new IncuratorClient(
         this.plugin.mcpManager,
-        this.plugin.settings
+        this.plugin.settings,
+        this.plugin.manifest.version
       );
+      // Run version check asynchronously
+      this.incuratorClient.checkBackendVersion();
     }
     return this.incuratorClient;
   }
@@ -1863,6 +1880,36 @@ export class ChatSidebarView extends ItemView {
 
   private renderMessages(): void {
     this.messagesContainer.empty();
+
+    if (this.plugin.settings.incuratorRepoPath && this.getIncuratorClient().needsUpdate) {
+      const banner = this.messagesContainer.createDiv("ai-agent-update-banner");
+      banner.style.padding = "10px";
+      banner.style.marginBottom = "10px";
+      banner.style.backgroundColor = "var(--interactive-accent)";
+      banner.style.color = "var(--text-on-accent)";
+      banner.style.borderRadius = "4px";
+      banner.style.display = "flex";
+      banner.style.justifyContent = "space-between";
+      banner.style.alignItems = "center";
+      
+      const text = banner.createSpan();
+      text.setText("A new version of Incurator is available.");
+      
+      const btn = banner.createEl("button", { text: "Update Now" });
+      btn.style.backgroundColor = "transparent";
+      btn.style.border = "1px solid var(--text-on-accent)";
+      btn.style.color = "var(--text-on-accent)";
+      btn.style.cursor = "pointer";
+      btn.style.padding = "4px 8px";
+      btn.style.borderRadius = "4px";
+      
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        btn.setText("Updating...");
+        await this.plugin.updateIncuratorBackend();
+        btn.setText("Restart Required");
+      });
+    }
 
     if (this.messages.length === 0) {
       const empty = this.messagesContainer.createDiv("ai-agent-chat-empty");

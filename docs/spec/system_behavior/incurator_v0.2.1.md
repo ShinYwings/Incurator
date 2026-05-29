@@ -280,6 +280,7 @@ v0.2.1 behavior requires these MCP tools:
 - `curator_query`
 - `promote_exhibition`
 - `get_available_models`
+- `curator_get_version` (Returns the backend version string to detect cross-platform mismatches)
 
 Implemented tools may be released incrementally, but docs and UI must not present
 an unimplemented mutating tool as fully available without a clear status note.

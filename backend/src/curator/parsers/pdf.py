@@ -172,3 +172,37 @@ def parse(path: Path) -> ParsedDocument:
         bytes=path.stat().st_size,
         metadata=metadata,
     )
+
+
+def get_page_count(path: Path) -> int:
+    """Return total page count without extracting text."""
+    from pypdf import PdfReader
+    try:
+        return len(PdfReader(str(path)).pages)
+    except Exception:
+        return 0
+
+
+def parse_page_window(path: Path, page_nums: set[int]) -> dict[int, str]:
+    """Extract text from specific pages only (1-based page numbers).
+
+    Returns {page_num: normalized_text}. Avoids loading all pages for a
+    window request — safe for 600-page PDFs.
+    """
+    from pypdf import PdfReader
+    try:
+        reader = PdfReader(str(path))
+    except Exception:
+        return {}
+    result: dict[int, str] = {}
+    for i, page in enumerate(reader.pages):
+        pn = i + 1
+        if pn in page_nums:
+            try:
+                result[pn] = normalize_text(page.extract_text() or "")
+            except Exception:
+                result[pn] = ""
+        # Early exit once all requested pages are found
+        if len(result) == len(page_nums):
+            break
+    return result
