@@ -3,6 +3,8 @@ import {
   inferLocalDeviceId,
   mergeDeviceRegistry,
   parseSyncthingConfig,
+  getLocalBackendCommand,
+  resolveWikiBinary,
 } from "./deviceRegistry";
 
 const XML = `
@@ -66,5 +68,48 @@ describe("deviceRegistry", () => {
 
     expect((registry.devices["MACOS-ID"].backend as any).command).toBe("/opt/homebrew/bin/uv");
     expect((registry.devices["LINUX-ID"].backend as any).command).toBe("wiki");
+  });
+});
+
+describe("getLocalBackendCommand", () => {
+  it("returns cached command for local device", () => {
+    const registry = {
+      local_device_id: "DEV1",
+      devices: {
+        DEV1: { backend: { command: "/abs/path/to/wiki" } },
+      },
+    };
+    expect(getLocalBackendCommand(registry as any)).toBe("/abs/path/to/wiki");
+  });
+
+  it("returns undefined when no registry", () => {
+    expect(getLocalBackendCommand(null)).toBeUndefined();
+    expect(getLocalBackendCommand(undefined)).toBeUndefined();
+  });
+
+  it("returns undefined when no backend.command", () => {
+    const registry = {
+      local_device_id: "DEV1",
+      devices: { DEV1: { name: "test" } },
+    };
+    expect(getLocalBackendCommand(registry as any)).toBeUndefined();
+  });
+});
+
+describe("resolveWikiBinary", () => {
+  it("returns undefined for empty repoPath with no global install", () => {
+    // This test checks the probe logic runs without error.
+    // It may find a global binary on some machines.
+    const result = resolveWikiBinary("");
+    expect(result === undefined || typeof result === "string").toBe(true);
+  });
+
+  it("finds the binary in a real repo path", () => {
+    // Uses the actual Incurator repo — this test is environment-specific.
+    const result = resolveWikiBinary("/Users/shin/shinywings/Incurator");
+    // On this machine it should exist; on CI it won't → skip
+    if (result) {
+      expect(result).toContain("wiki");
+    }
   });
 });

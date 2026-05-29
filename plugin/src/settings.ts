@@ -374,7 +374,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Incurator MCP command")
-      .setDesc("Per-device backend command. Use `wiki` when Incurator is installed on PATH.")
+      .setDesc("Leave as 'wiki' for auto-discovery from the repo path below. Set an absolute path to override.")
       .addText((text) =>
         text
           .setPlaceholder("wiki")

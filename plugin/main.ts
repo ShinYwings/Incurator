@@ -60,6 +60,8 @@ import { mergeSessionData, normalizeSessionData } from "./src/utils/sessionData"
 import {
   mergeDeviceRegistry,
   readSyncthingSnapshot,
+  getLocalBackendCommand,
+  resolveWikiBinary,
   type DeviceRegistry,
 } from "./src/utils/deviceRegistry";
 
@@ -708,10 +710,39 @@ export default class ObsidianAIAgent extends Plugin {
   }
 
   async ensureIncuratorBackend(): Promise<void> {
+    // Resolve the actual command to use:
+    //   1. If user set a non-default incuratorMcpCommand (manual override), use it as-is.
+    //   2. Otherwise, check devices.json for a cached per-device binary path.
+    //   3. Otherwise, auto-discover from incuratorRepoPath / common PATH dirs.
+    //   4. Fallback: bare "wiki" (works if wiki is on PATH).
+    let command = this.settings.incuratorMcpCommand;
+    const isDefault = !command || command === "wiki";
+
+    if (isDefault) {
+      // Try devices.json cache first
+      let registry: Partial<DeviceRegistry> | null = null;
+      try {
+        const raw = await this.app.vault.adapter.read(".curator/devices.json");
+        registry = JSON.parse(raw) as Partial<DeviceRegistry>;
+      } catch { /* no devices.json yet */ }
+
+      const cached = getLocalBackendCommand(registry);
+      if (cached && cached !== "wiki") {
+        command = cached;
+      } else {
+        // Auto-discover
+        const discovered = resolveWikiBinary(this.settings.incuratorRepoPath);
+        if (discovered) {
+          command = discovered;
+          console.log(`[Incurator] Auto-discovered wiki binary: ${command}`);
+        }
+      }
+    }
+
     const result = ensureIncuratorMcpServer(
       this.settings.mcpServers,
       this.vaultRoot,
-      this.settings.incuratorMcpCommand,
+      command,
       this.settings.incuratorMcpArgs
     );
     this.settings.mcpServers = result.servers;
@@ -720,6 +751,44 @@ export default class ObsidianAIAgent extends Plugin {
     }
     await this.mcpManager.start(result.server);
     await this.refreshAvailableModels();
+
+    // Cache resolved command in devices.json so next load reads from cache
+    if (isDefault && command !== "wiki") {
+      this.cacheBackendCommand(command);
+    }
+  }
+
+  /** Persist the resolved backend command into devices.json for this device. */
+  private async cacheBackendCommand(command: string): Promise<void> {
+    try {
+      let registry: Partial<DeviceRegistry> | null = null;
+      try {
+        const raw = await this.app.vault.adapter.read(".curator/devices.json");
+        registry = JSON.parse(raw) as Partial<DeviceRegistry>;
+      } catch { /* none yet */ }
+
+      // Update the local device's backend.command
+      if (registry?.local_device_id && registry.devices) {
+        const local = registry.devices[registry.local_device_id];
+        if (local) {
+          (local as Record<string, unknown>).backend = {
+            ...((local as Record<string, unknown>).backend as Record<string, unknown> || {}),
+            command,
+          };
+          registry.updated_at = Math.floor(Date.now() / 1000);
+          if (!(await this.app.vault.adapter.exists(".curator"))) {
+            await this.app.vault.adapter.mkdir(".curator");
+          }
+          await this.app.vault.adapter.write(
+            ".curator/devices.json",
+            `${JSON.stringify(registry, null, 2)}\n`
+          );
+          console.log(`[Incurator] Cached backend command in devices.json: ${command}`);
+        }
+      }
+    } catch (err) {
+      console.warn("[Incurator] Failed to cache backend command:", err);
+    }
   }
 
   // ── Settings ────────────────────────────────────────────────

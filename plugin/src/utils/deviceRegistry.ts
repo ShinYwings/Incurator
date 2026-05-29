@@ -176,3 +176,51 @@ export function mergeDeviceRegistry(
     devices,
   };
 }
+
+/**
+ * Read the cached backend command for the local device from a DeviceRegistry.
+ * Returns undefined if not found.
+ */
+export function getLocalBackendCommand(
+  registry: Partial<DeviceRegistry> | null | undefined
+): string | undefined {
+  if (!registry?.local_device_id || !registry.devices) return undefined;
+  const local = registry.devices[registry.local_device_id];
+  const backend = local?.backend as { command?: string } | undefined;
+  return backend?.command || undefined;
+}
+
+/**
+ * Auto-discover the absolute path to the `wiki` binary.
+ *
+ * Probe order:
+ *   1. `<repoPath>/backend/.venv/bin/wiki`  (venv inside repo)
+ *   2. `<repoPath>/.venv/bin/wiki`          (root-level venv)
+ *   3. Common global install dirs that Obsidian's minimal PATH might miss
+ *
+ * Returns the absolute path if found, otherwise undefined.
+ */
+export function resolveWikiBinary(repoPath: string): string | undefined {
+  const candidates: string[] = [];
+
+  if (repoPath) {
+    const expanded = expandPath(repoPath);
+    candidates.push(
+      resolve(expanded, "backend/.venv/bin/wiki"),
+      resolve(expanded, ".venv/bin/wiki"),
+    );
+  }
+
+  // Common global dirs (Apple Silicon homebrew, Intel homebrew, user-local)
+  const home = homedir();
+  candidates.push(
+    `${home}/.local/bin/wiki`,
+    "/opt/homebrew/bin/wiki",
+    "/usr/local/bin/wiki",
+  );
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
