@@ -988,6 +988,26 @@ def _build_vision_client(config: dict, main_client):
     return None
 
 
+def register_and_generate_l1(
+    paths: cfg.WikiPaths,
+    source_id: int,
+    relpath: str,
+    content_hash: str,
+    *,
+    existing_context_id: str | None = None,
+) -> str | None:
+    """Wrapper that explicitly prevents passing an LLM client.
+    Runs the fast structural L1 path only.
+    """
+    return generate_l1_structural_context(
+        paths,
+        source_id,
+        relpath,
+        content_hash,
+        existing_context_id=existing_context_id,
+    )
+
+
 def generate_l1_summary(
     paths: cfg.WikiPaths,
     source_id: int,
@@ -1007,7 +1027,7 @@ def generate_l1_summary(
     from . import prompts
 
     if (config or {}).get("llm", {}).get("instant_l1", True):
-        return generate_l1_structural_context(
+        return register_and_generate_l1(
             paths,
             source_id,
             relpath,
@@ -1319,7 +1339,7 @@ def add_file(
         )
 
     try:
-        relpath = str(source.relative_to(paths.root))
+        relpath = str(source.relative_to(paths.root.resolve()))
     except ValueError:
         relpath = str(source)
 

@@ -620,36 +620,14 @@ def build_server() -> FastMCP:
         relpath: str = "",
         source_path: str = "",
     ) -> dict[str, Any] | None:
-        relpath = relpath or _source_path_to_relpath(paths, source_path)
-        with db.connect(paths.state_db) as conn:
-            if source_id is not None:
-                row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
-            elif relpath:
-                row = conn.execute(
-                    """
-                    SELECT * FROM sources
-                    WHERE relpath = ?
-                       OR external_path = ?
-                       OR import_origin = ?
-                       OR logical_source_id = ?
-                    """,
-                    (relpath, relpath, relpath, relpath),
-                ).fetchone()
-            else:
-                row = None
-        return dict(row) if row else None
-
-    def _source_path_to_relpath(paths: cfg.WikiPaths, source_path: str = "") -> str:
-        if not source_path:
-            return ""
-        raw = str(source_path)
-        path = Path(raw).expanduser()
-        if path.is_absolute():
-            try:
-                return str(path.resolve().relative_to(paths.root.resolve()))
-            except ValueError:
-                return raw
-        return raw
+        """Thin wrapper — canonical logic is in db.get_source_row."""
+        return db.get_source_row(
+            paths.state_db,
+            paths.root,
+            source_id=source_id,
+            relpath=relpath,
+            source_path=source_path,
+        )
 
     class _McpIngestCallbacks(ingest_llm.IngestCallbacks):
         def __init__(self) -> None:
@@ -1097,20 +1075,25 @@ def build_server() -> FastMCP:
         }
 
     @mcp.tool()
-    def curator_ingest_source(
+    def curator_register_source(
         source_id: Optional[int] = None,
         relpath: str = "",
         source_path: str = "",
         file_path: str = "",
         path: str = "",
         force: bool = False,
-        run_l2_l3: bool = True,
+        build: bool = True,
         workspace_path: str = "",
     ) -> dict[str, Any]:
-        """Run L1 summary generation and optionally L2/L3 ingest for a source.
+        """Register a source and generate its L1 Context instantly (no LLM).
 
-        L3 clustering is global, so `run_l2_l3=True` can refresh shared Concept
-        pages after ingesting this source.
+        This is the fast ingest boundary: structural L1 only, **no LLM client
+        is started**, so it works even when no model backend is available.
+        If `build=True`, L2/L3 are enqueued to the background worker
+        (non-blocking) and surface later via curator_source_status.
+
+        The plugin calls this on PDF-open to make a document searchable in
+        seconds without waiting for atom/concept extraction.
         """
         paths = _resolve_paths(workspace_path)
         lookup_path = relpath or source_path or file_path or path
@@ -1119,77 +1102,128 @@ def build_server() -> FastMCP:
             return {"state": "untracked", "error": "Source not found", "source_path": lookup_path}
 
         source_id_int = int(row["id"])
+
+        if force:
+            with db.connect(paths.state_db) as conn:
+                conn.execute(
+                    "UPDATE sources SET status = 'force_pending', error_reason = NULL, "
+                    "l1_status = 'pending', l2_status = 'pending', "
+                    "l3_status = 'pending', l4_status = 'pending', layer_error = NULL "
+                    "WHERE id = ?",
+                    (source_id_int,),
+                )
+            row["context_id"] = None
+
+        context_id = row.get("context_id")
+        if force or not context_id or not (paths.contexts / f"{context_id}.md").exists():
+            db.set_source_layer_status(paths.state_db, source_id_int, "l1", "running")
+            context_id = ingest_raw.generate_l1_structural_context(
+                paths,
+                source_id=source_id_int,
+                relpath=str(row["relpath"]),
+                content_hash=str(row["content_hash"]),
+                existing_context_id=None if force else row.get("context_id"),
+            )
+            if not context_id:
+                return {"ok": False, "source_id": source_id_int, "error": "L1 generation failed"}
+
+        # Make the new L1 immediately searchable (BM25; skip slow embeddings).
+        try:
+            search.update_index(paths, embed=False)
+        except Exception:
+            pass
+
+        job_ids: list[int] = []
+        if build:
+            from .ingest_worker import enqueue_l2_l3_for_sources
+            job_ids = enqueue_l2_l3_for_sources(paths, [source_id_int])
+
+        return {
+            "ok": True,
+            "source_id": source_id_int,
+            "context_id": context_id,
+            "l2_l3_queued": bool(job_ids),
+            "job_ids": job_ids,
+        }
+
+    @mcp.tool()
+    def curator_build_source(
+        source_id: Optional[int] = None,
+        relpath: str = "",
+        source_path: str = "",
+        file_path: str = "",
+        path: str = "",
+        wait: bool = False,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """Build L2 Atoms + L3 Concepts for a source (the deep, LLM-heavy pass).
+
+        Requires L1 to exist (run curator_register_source first). With
+        `wait=False` (default) the work is enqueued to the background worker
+        and this returns immediately. With `wait=True` it runs synchronously
+        and may take minutes — the LLM client is built only in that case.
+        """
+        paths = _resolve_paths(workspace_path)
+        lookup_path = relpath or source_path or file_path or path
+        row = _get_source_row(paths, source_id=source_id, relpath=relpath, source_path=lookup_path)
+        if row is None:
+            return {"state": "untracked", "error": "Source not found", "source_path": lookup_path}
+
+        source_id_int = int(row["id"])
+        context_id = row.get("context_id")
+        if not context_id or not (paths.contexts / f"{context_id}.md").exists():
+            return {
+                "ok": False,
+                "source_id": source_id_int,
+                "error": "L1 Context missing — call curator_register_source first.",
+            }
+
+        db.set_source_layer_status(paths.state_db, source_id_int, "l2", "pending")
+        db.set_source_layer_status(paths.state_db, source_id_int, "l3", "pending")
+
+        if not wait:
+            from .ingest_worker import enqueue_l2_l3_for_sources
+            job_ids = enqueue_l2_l3_for_sources(paths, [source_id_int])
+            return {
+                "ok": True,
+                "source_id": source_id_int,
+                "queued": True,
+                "job_ids": job_ids,
+            }
+
+        # Synchronous build — the only path that needs an LLM client.
         config = cfg.load_config(paths)
         callbacks = _McpIngestCallbacks()
         try:
             client = llm.build_client(config)
         except Exception as exc:
             return {"error": f"Could not start LLM client: {exc}"}
-
         try:
-            if force:
-                with db.connect(paths.state_db) as conn:
-                    conn.execute(
-                        "UPDATE sources SET status = 'force_pending', error_reason = NULL, "
-                        "l1_status = 'pending', l2_status = 'pending', "
-                        "l3_status = 'pending', l4_status = 'pending', layer_error = NULL "
-                        "WHERE id = ?",
-                        (source_id_int,),
-                    )
-                    row["context_id"] = None
-
-            context_id = row.get("context_id")
-            if force or not context_id or not (paths.contexts / f"{context_id}.md").exists():
-                db.set_source_layer_status(paths.state_db, source_id_int, "l1", "running")
-                context_id = ingest_raw.generate_l1_summary(
-                    paths,
-                    source_id=source_id_int,
-                    relpath=str(row["relpath"]),
-                    content_hash=str(row["content_hash"]),
-                    client=client,
-                    config=config,
-                    existing_context_id=None if force else row.get("context_id"),
-                    thinking=False,
-                )
-                if not context_id:
-                    return {"ok": False, "source_id": source_id_int, "error": "L1 summary failed"}
-
-            ingest_result = None
-            l3_pages_written = 0
-            if run_l2_l3:
-                with db.connect(paths.state_db) as conn:
-                    conn.execute(
-                        "UPDATE sources SET status = 'pending', error_reason = NULL, "
-                        "l2_status = 'pending', l3_status = 'pending', layer_error = NULL "
-                        "WHERE id = ?",
-                        (source_id_int,),
-                    )
-                results = ingest_llm.run_l1_to_l3(
-                    paths,
-                    client,
-                    lambda: callbacks,
-                    mode="batch",
-                    auto_discover=False,
-                    thinking_for_extraction=False,
-                )
-                ingest_result = next(
-                    (result for result in results if result.source_id == source_id_int),
-                    None,
-                )
-                l3_pages_written = sum(
-                    1
-                    for event in callbacks.events
-                    if event.get("kind") == "page"
-                    and str(event.get("path") or "").startswith("03_Concepts/")
-                )
-                if ingest_result is not None and ingest_result.ok:
-                    try:
-                        search.update_index(paths, embed=True)
-                    except Exception:
-                        pass
-
+            results = ingest_llm.run_l1_to_l3(
+                paths,
+                client,
+                lambda: callbacks,
+                mode="batch",
+                auto_discover=False,
+                thinking_for_extraction=False,
+            )
+            ingest_result = next(
+                (result for result in results if result.source_id == source_id_int),
+                None,
+            )
+            l3_pages_written = sum(
+                1
+                for event in callbacks.events
+                if event.get("kind") == "page"
+                and str(event.get("path") or "").startswith("03_Concepts/")
+            )
+            if ingest_result is not None and ingest_result.ok:
+                try:
+                    search.update_index(paths, embed=True)
+                except Exception:
+                    pass
             return {
-                "ok": (not run_l2_l3) if ingest_result is None else ingest_result.ok,
+                "ok": True if ingest_result is None else ingest_result.ok,
                 "source_id": source_id_int,
                 "context_id": context_id,
                 "l2": None
@@ -1208,6 +1242,40 @@ def build_server() -> FastMCP:
                 client.close()
             except Exception:
                 pass
+
+    @mcp.tool()
+    def curator_ingest_source(
+        source_id: Optional[int] = None,
+        relpath: str = "",
+        source_path: str = "",
+        file_path: str = "",
+        path: str = "",
+        force: bool = False,
+        run_l2_l3: bool = True,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """DEPRECATED: use curator_register_source (L1) + curator_build_source (L2/L3).
+
+        Kept as a thin compatibility alias. Registers + instant L1, then builds
+        L2/L3 synchronously when run_l2_l3=True (legacy blocking behaviour).
+        """
+        reg = curator_register_source(
+            source_id=source_id,
+            relpath=relpath,
+            source_path=source_path,
+            file_path=file_path,
+            path=path,
+            force=force,
+            build=False,
+            workspace_path=workspace_path,
+        )
+        if not reg.get("ok") or not run_l2_l3:
+            return reg
+        return curator_build_source(
+            source_id=reg.get("source_id"),
+            wait=True,
+            workspace_path=workspace_path,
+        )
 
     @mcp.tool()
     def curator_search_sources(
@@ -1256,28 +1324,6 @@ def build_server() -> FastMCP:
             "count": len(hits),
         }
 
-    @mcp.tool()
-    def curator_search_source(
-        query: str,
-        source_id: Optional[int] = None,
-        source_path: str = "",
-        file_path: str = "",
-        path: str = "",
-        relpath: str = "",
-        limit: int = 8,
-        workspace_path: str = "",
-    ) -> dict[str, Any]:
-        """Alias for source-scoped raw search with page provenance."""
-        return curator_search_sources(
-            query=query,
-            source_id=source_id,
-            source_path=source_path,
-            file_path=file_path,
-            path=path,
-            relpath=relpath,
-            limit=limit,
-            workspace_path=workspace_path,
-        )
 
     @mcp.tool()
     def curator_get_source_page(
@@ -1335,27 +1381,6 @@ def build_server() -> FastMCP:
         }
 
     @mcp.tool()
-    def curator_get_pdf_page(
-        source_id: Optional[int] = None,
-        source_path: str = "",
-        file_path: str = "",
-        path: str = "",
-        relpath: str = "",
-        page: int = 1,
-        workspace_path: str = "",
-    ) -> dict[str, Any]:
-        """Alias for retrieving one parsed PDF page from a tracked source."""
-        return curator_get_source_page(
-            source_id=source_id,
-            source_path=source_path,
-            file_path=file_path,
-            path=path,
-            relpath=relpath,
-            page=page,
-            workspace_path=workspace_path,
-        )
-
-    @mcp.tool()
     def curator_get_pdf_context(
         file_path: str,
         query: str = "",
@@ -1384,7 +1409,7 @@ def build_server() -> FastMCP:
             is_empty_pdf
         """
         from . import parsers
-        from .search import _lexical_score
+        from .search import lexical_score
         from .parsers.pdf import get_page_count, parse_page_window, _extract_pdf_toc
 
         paths = _resolve_paths(workspace_path)
@@ -1425,7 +1450,7 @@ def build_server() -> FastMCP:
                 # Score by query if provided
                 if query.strip():
                     scored = [
-                        {**p, "_score": _lexical_score(str(p.get("text") or ""), query)}
+                        {**p, "_score": lexical_score(str(p.get("text") or ""), query)}
                         for p in candidates
                     ]
                     scored.sort(key=lambda x: x["_score"], reverse=True)
@@ -1471,7 +1496,7 @@ def build_server() -> FastMCP:
 
                 if query.strip():
                     scored_pages = [
-                        (pn, text, _lexical_score(text, query))
+                        (pn, text, lexical_score(text, query))
                         for pn, text in page_texts.items()
                     ]
                     scored_pages.sort(key=lambda x: x[2], reverse=True)

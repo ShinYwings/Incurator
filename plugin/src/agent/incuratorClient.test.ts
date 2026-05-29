@@ -135,4 +135,66 @@ describe("IncuratorClient", () => {
     expect(client.backendVersion).toBe("0.2.2");
     expect(client.needsUpdate).toBe(true);
   });
+
+  it("registerSource calls curator_import_source then curator_register_source with build=true", async () => {
+    const calls: { tool: string; args: Record<string, unknown> }[] = [];
+    const mcp = {
+      getAllTools: () => [
+        { serverName: "incurator", name: "curator_import_source", description: "", inputSchema: {} },
+        { serverName: "incurator", name: "curator_register_source", description: "", inputSchema: {} },
+      ],
+      callTool: async (_server: string, tool: string, args: Record<string, unknown>) => {
+        calls.push({ tool, args });
+        if (tool === "curator_import_source") {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  ok: true,
+                  source_id: 42,
+                  relpath: "04_Resources/paper.pdf",
+                }),
+              },
+            ],
+          };
+        }
+        // curator_register_source response
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                ok: true,
+                state: "l1_ready",
+                source_id: 42,
+                context_id: "CTX-abc",
+                l2_l3_queued: true,
+              }),
+            },
+          ],
+        };
+      },
+    };
+    const client = new IncuratorClient(mcp as any, settings());
+    const status = await client.registerSource("/tmp/paper.pdf");
+
+    expect(status).not.toBeNull();
+    expect(calls.length).toBe(2);
+    expect(calls[0].tool).toBe("curator_import_source");
+    expect(calls[1].tool).toBe("curator_register_source");
+    expect(calls[1].args.build).toBe(true);
+  });
+
+  it("registerSource returns null when incuratorEnabled is false", async () => {
+    const mcp = {
+      getAllTools: () => [],
+      callTool: async () => ({ content: [] }),
+    };
+    const s = settings();
+    s.incuratorEnabled = false;
+    const client = new IncuratorClient(mcp as any, s);
+    const result = await client.registerSource("/tmp/paper.pdf");
+    expect(result).toBeNull();
+  });
 });

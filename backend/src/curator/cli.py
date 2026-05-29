@@ -2404,17 +2404,15 @@ def add(
         "--no-sync",
         help="Skip the default sync repair/verification after add.",
     ),
-    wait: bool = typer.Option(
-        False,
-        "--wait",
-        help="Run queued L2/L3 jobs before returning (legacy foreground behavior).",
-    ),
 ) -> None:
-    """Add sources: register files and generate L1-L3 layers.
+    """Register sources and generate instant L1 Contexts (structural, no LLM).
 
     If a [path] is provided, only that file or directory is registered.
     If no path is provided, the Curator scans all source directories (02_Wiki,
     03_Notes, 04_Resources) for new or changed files.
+
+    L1 is generated immediately from document structure without an LLM call.
+    Run `wiki build` afterwards to extract L2 Atoms + L3 Concepts.
     """
     paths = _resolve_root_or_die()
     config = cfg.load_config(paths)
@@ -2493,66 +2491,13 @@ def add(
             if not context_path.exists():
                 pending_rows.append(row)
 
-    with db.connect(paths.state_db) as conn:
-        l2_pending_count = conn.execute(
-            "SELECT COUNT(*) FROM sources WHERE status IN ('pending', 'force_pending')"
-        ).fetchone()[0]
-        l3_dirty_count = conn.execute(
-            "SELECT COUNT(*) FROM sources "
-            "WHERE l2_status = 'done' AND l3_status IN ('pending', 'error')"
-        ).fetchone()[0]
-
     has_concepts = any(paths.concepts.glob("*.md")) if paths.concepts.exists() else False
-    if not pending_rows and not force and l3_dirty_count > 0:
-        console.print()
-        console.print(
-            f"[dim]Regenerating L3 Concepts from existing L2 Atoms "
-            f"({l3_dirty_count} source status row(s) marked dirty)...[/dim]"
-        )
-        console.print()
-        client = _start_client(config)
-        try:
-            changes = ingest_llm.run_l3_from_existing_atoms(
-                paths,
-                client,
-                lambda: CliIngestCallbacks(mode="batch"),
-            )
-            _ok(f"L3 regeneration complete: {len(changes)} concept(s) written")
-            _refresh_qmd_index(paths, embed=False)
-            _invalidate_latest_sync_report(paths, reason="add changed L3; sync report stale")
-
-            # Forward propagation (L3 -> L4): Evolve knowledge graph if L3 changed
-            dirty_exhs = sync_module.find_dirty_exhibitions(paths)
-            if dirty_exhs:
-                console.print()
-                console.print(f"[dim]New information affects {len(dirty_exhs)} existing Exhibition(s).[/dim]")
-                do_merge = False
-                if console.is_interactive:
-                    do_merge = typer.confirm("Merge these new facts into affected Exhibitions now?", default=True)
-                
-                if do_merge:
-                    updated_count = 0
-                    for exh_id in dirty_exhs:
-                        console.print(f"  [dim]Merging into {exh_id}...[/dim]", end="\r")
-                        if sync_module.propagate_downstream_to_exhibition(paths, client, exh_id):
-                            console.print(" " * 60, end="\r")
-                            _ok(f"[bold]{exh_id}[/bold] updated with latest data.")
-                            updated_count += 1
-                        else:
-                            console.print(" " * 60, end="\r")
-                    
-                    if updated_count > 0:
-                        _refresh_qmd_index(paths)
-
-            if not no_sync:
-                _run_sync_report_only(paths, config, reason="add")
-        finally:
-            client.close()
-        return
-
-    if not pending_rows and not force and has_concepts and l2_pending_count == 0:
+    if not pending_rows and not force:
         if not discovered:
-            _hint("All sources are up to date. Run [bold]wiki curate[/bold] to stage L4 Exhibitions.")
+            if has_concepts:
+                _hint("All sources have L1 Contexts. Run [bold]wiki build[/bold] for L2/L3, or [bold]wiki curate[/bold] for L4.")
+            else:
+                _hint("All sources have L1 Contexts. Run [bold]wiki build[/bold] to extract L2 Atoms + L3 Concepts.")
         return
 
     if pending_rows:
@@ -2563,65 +2508,111 @@ def add(
         )
         console.print()
 
-    client = None if (pending_rows and not wait and _instant_l1_enabled(config)) else _start_client(config)
+    # L1 is structural-only — no LLM client is started here. The deeper
+    # LLM-heavy L2/L3 extraction is a separate step (`wiki build`).
+    summarized = 0
+    for row in pending_rows:
+        console.print(f"  [dim]summarizing[/dim] {row['relpath']}")
+        db.set_source_layer_status(paths.state_db, row["id"], "l1", "running")
+        context_id = ingest_raw.generate_l1_structural_context(
+            paths,
+            source_id=row["id"],
+            relpath=row["relpath"],
+            content_hash=row["content_hash"],
+            existing_context_id=row["context_id"],
+        )
+        if context_id:
+            _ok(f"  L1 [{context_id}] ← {row['relpath']}")
+            summarized += 1
+        else:
+            db.set_source_layer_status(
+                paths.state_db, row["id"], "l1", "error", error="summary_failed"
+            )
+            _warn(f"  Summary failed for {row['relpath']}")
 
+    if summarized > 0:
+        _refresh_qmd_index(paths, embed=False)
+        _invalidate_latest_sync_report(paths, reason="add changed L1")
+        if not no_sync:
+            _run_sync_report_only(paths, config, reason="add")
+
+    console.print()
+    _ok(f"L1 registration complete: {discovered} discovered, {summarized} summarized")
+    _hint("Run [bold]wiki build[/bold] to extract L2 Atoms + L3 Concepts.")
+
+
+@app.command()
+def build(
+    wait: bool = typer.Option(
+        False,
+        "--wait",
+        help="Run L2/L3 synchronously now instead of queuing to the background worker.",
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Rebuild L2/L3 even if they already exist."
+    ),
+    no_sync: bool = typer.Option(
+        False, "--no-sync", help="Skip the default sync repair/verification after build."
+    ),
+) -> None:
+    """Build L2 Atoms + L3 Concepts from registered L1 Contexts.
+
+    `wiki add` registers sources and generates instant L1 (structural, no LLM).
+    This command runs the deeper, LLM-heavy extraction. By default the work is
+    queued to the background worker (processed when MCP is active, or run
+    `wiki jobs run` to drain the queue now); use --wait to run it synchronously.
+    """
+    paths = _resolve_root_or_die()
+    config = cfg.load_config(paths)
+
+    # Collect L1-ready sources that still need L2/L3.
+    with db.connect(paths.state_db) as conn:
+        if force:
+            rows = conn.execute(
+                "SELECT id, relpath FROM sources WHERE l1_status = 'done' ORDER BY id ASC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, relpath FROM sources "
+                "WHERE l1_status = 'done' "
+                "AND (l2_status IN ('pending', 'error') OR l3_status IN ('pending', 'error')) "
+                "ORDER BY id ASC"
+            ).fetchall()
+    source_ids = [int(r["id"]) for r in rows]
+
+    if force:
+        for sid in source_ids:
+            db.set_source_layer_status(paths.state_db, sid, "l2", "pending")
+            db.set_source_layer_status(paths.state_db, sid, "l3", "pending")
+
+    if not source_ids and not force:
+        _hint(
+            "Nothing to build — all L1 sources already have L2/L3. "
+            "Run [bold]wiki curate[/bold] to stage L4 Exhibitions."
+        )
+        return
+
+    # Default: enqueue to the background worker (non-blocking).
+    if not wait:
+        from . import ingest_worker
+
+        job_ids = ingest_worker.enqueue_l2_l3_for_sources(
+            paths, source_ids, trigger="wiki_build"
+        )
+        console.print()
+        _ok(f"Queued {len(job_ids)} L2/L3 job(s).")
+        _hint(
+            "The background worker processes these when MCP is active, or run "
+            "[bold]wiki jobs run[/bold] to process the queue now."
+        )
+        return
+
+    # Synchronous build — the only path that starts an LLM client.
+    console.print()
+    console.print("[dim]Building L2 Atoms + L3 Concepts...[/dim]")
+    console.print()
+    client = _start_client(config)
     try:
-        summarized = 0
-        summarized_source_ids: list[int] = []
-        for row in pending_rows:
-            console.print(f"  [dim]summarizing[/dim] {row['relpath']}")
-            db.set_source_layer_status(paths.state_db, row["id"], "l1", "running")
-            context_id = ingest_raw.generate_l1_summary(
-                paths,
-                source_id=row["id"],
-                relpath=row["relpath"],
-                content_hash=row["content_hash"],
-                client=client,
-                config=config,
-                existing_context_id=row["context_id"],
-                thinking=False,
-            )
-            if context_id:
-                _ok(f"  L1 [{context_id}] ← {row['relpath']}")
-                summarized += 1
-                summarized_source_ids.append(int(row["id"]))
-            else:
-                db.set_source_layer_status(
-                    paths.state_db, row["id"], "l1", "error", error="summary_failed"
-                )
-                _warn(f"  Summary failed for {row['relpath']}")
-
-        if summarized > 0 and not wait:
-            from . import ingest_worker
-
-            job_ids = ingest_worker.enqueue_l2_l3_for_sources(
-                paths,
-                summarized_source_ids,
-                trigger="wiki_add",
-            )
-            _refresh_qmd_index(paths, embed=False)
-            _invalidate_latest_sync_report(paths, reason="add changed L1; L2/L3 queued")
-            console.print()
-            _ok(
-                f"L1 registration complete: {summarized} summarized, "
-                f"{len(job_ids)} L2/L3 job(s) queued"
-            )
-            _hint(
-                "L2/L3 will run in the background when MCP is active, or run "
-                "[bold]wiki jobs run[/bold] to process the queue now."
-            )
-            return
-
-        has_concepts = any(paths.concepts.glob("*.md")) if paths.concepts.exists() else False
-        if summarized == 0 and not force and has_concepts and l2_pending_count == 0:
-            console.print()
-            _ok(f"Sync complete: {discovered} discovered, 0 summarized")
-            return
-
-        console.print()
-        console.print("[dim]Building L2 Atoms + L3 Concepts...[/dim]")
-        console.print()
-
         l3_results = ingest_llm.run_l1_to_l3(
             paths,
             client,
@@ -2631,21 +2622,16 @@ def add(
             thinking_for_extraction=False,
             force=force,
         )
-
         atoms_created = sum(r.fragments_created for r in l3_results if r.ok)
         atoms_updated = sum(r.fragments_updated for r in l3_results if r.ok)
         console.print()
-        _ok(
-            f"Sync complete: {discovered} discovered, {summarized} summarized, "
-            f"{atoms_created} atoms created, {atoms_updated} updated"
-        )
+        _ok(f"Build complete: {atoms_created} atoms created, {atoms_updated} updated")
 
-        if summarized > 0 or atoms_created > 0:
+        if atoms_created or atoms_updated:
             _refresh_qmd_index(paths, embed=True)
-            _invalidate_latest_sync_report(paths, reason="add changed L1-L3; sync report stale")
+            _invalidate_latest_sync_report(paths, reason="build changed L2-L3")
 
-        # Progressively reinforce Curator persona from newly observed domains
-        if summarized > 0 or atoms_created > 0:
+            # Progressively reinforce Curator persona from newly observed domains
             new_ctx_ids = [
                 ch.id for r in l3_results if r.ok
                 for ch in r.changes if ch.layer == "01_Contexts"
@@ -2654,42 +2640,39 @@ def add(
                 new_domains = ingest_llm._collect_domains_from_contexts(paths, new_ctx_ids)
                 _maybe_auto_evolve_curator_persona(paths, config, client, new_domains)
 
-        if not no_sync and (summarized > 0 or atoms_created > 0 or atoms_updated > 0):
-            _run_sync_report_only(paths, config, reason="add")
+            if not no_sync:
+                _run_sync_report_only(paths, config, reason="build")
 
-        # Forward propagation (L3 -> L4): Evolve knowledge graph if new data arrived
-        dirty_exhs: list[str] = []
-        do_merge = False
-        if summarized > 0 or atoms_created > 0 or atoms_updated > 0:
-            from . import sync as sync_module
-            dirty_exhs = sync_module.find_dirty_exhibitions(paths)
-            if dirty_exhs:
-                console.print()
-                console.print(f"[dim]New information affects {len(dirty_exhs)} existing Exhibition(s).[/dim]")
-                if console.is_interactive:
-                    do_merge = typer.confirm("Merge these new facts into affected Exhibitions now?", default=True)
-                
-                if do_merge:
-                    updated_count = 0
-                    for exh_id in dirty_exhs:
-                        console.print(f"  [dim]Merging into {exh_id}...[/dim]", end="\r")
-                        if sync_module.propagate_downstream_to_exhibition(paths, client, exh_id):
-                            console.print(" " * 60, end="\r")
-                            _ok(f"[bold]{exh_id}[/bold] updated with latest data.")
-                            updated_count += 1
-                        else:
-                            console.print(" " * 60, end="\r")
-                    
-                    if updated_count > 0:
-                        _refresh_qmd_index(paths)
-                else:
-                    _hint("Run [bold]wiki update[/bold] later to merge these changes into Exhibitions.")
+        # Forward propagation (L3 -> L4): merge new facts into existing Exhibitions.
+        from . import sync as sync_module
 
-        if not dirty_exhs or not do_merge:
+        dirty_exhs = sync_module.find_dirty_exhibitions(paths)
+        if dirty_exhs:
+            console.print()
+            console.print(
+                f"[dim]New information affects {len(dirty_exhs)} existing Exhibition(s).[/dim]"
+            )
+            do_merge = console.is_interactive and typer.confirm(
+                "Merge these new facts into affected Exhibitions now?", default=True
+            )
+            if do_merge:
+                updated_count = 0
+                for exh_id in dirty_exhs:
+                    console.print(f"  [dim]Merging into {exh_id}...[/dim]", end="\r")
+                    if sync_module.propagate_downstream_to_exhibition(paths, client, exh_id):
+                        console.print(" " * 60, end="\r")
+                        _ok(f"[bold]{exh_id}[/bold] updated with latest data.")
+                        updated_count += 1
+                    else:
+                        console.print(" " * 60, end="\r")
+                if updated_count > 0:
+                    _refresh_qmd_index(paths)
+            else:
+                _hint("Run [bold]wiki update[/bold] later to merge these into Exhibitions.")
+        else:
             _hint("Run [bold]wiki curate[/bold] to stage L4 Exhibitions.")
     finally:
-        if client is not None:
-            client.close()
+        client.close()
 
 
 @jobs_app.command("list")

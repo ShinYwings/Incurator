@@ -97,21 +97,27 @@ Incurator processes source documents through four levels of abstraction.
 # 1. Initialize Vault (once)
 wiki init /path/to/vault
 
-# 2. Add sources (wiki add)
+# 2. Add sources (wiki add) — register + instant L1 only (no LLM)
 #    A specific file or entire directory
 wiki add 03_Notes/paper.pdf
 wiki add 04_Resources/
 
-# Internally (v0.2.1 — asynchronous):
+# Internally:
 #   - SHA-256 hash for deduplication
 #   - PyMuPDF (PDF) / regex (MD) / BeautifulSoup (HTML) parsing + image extraction
-#   - L1 Context file created immediately → returns at once ("L1 registered. L2/L3 running in background.")
-#   - IngestWorker thread processes L2 (Atoms) → L3 (Concepts) asynchronously
+#   - L1 Context file created immediately from structure → returns at once
+#   - No LLM call; the source is searchable (BM25) as soon as L1 lands
+
+# 3. Build L2/L3 (wiki build) — the deep, LLM-heavy pass
+wiki build            # queue L2/L3 to the background worker (non-blocking)
+wiki build --wait     # run L2 (Atoms) → L3 (Concepts) synchronously now
 #   - Progress: .curator/dashboard.md updated in real-time (open in Obsidian to watch)
 ```
 
-> **Async processing**: `wiki add` returns as soon as L1 is registered. L2/L3 are handled
-> by the MCP server's background IngestWorker. Monitor progress via `wiki status` or
+> **Two-step ingest**: `wiki add` registers sources and generates instant L1
+> (structural, no LLM) — fast and offline-capable. `wiki build` runs the deeper
+> L2/L3 extraction; by default it queues to the MCP server's background
+> IngestWorker, or use `--wait` to run now. Monitor via `wiki status` or
 > `.curator/dashboard.md`. L4 Exhibitions require a separate `wiki curate` command.
 
 ### 4-2. Workspace Curation
@@ -158,11 +164,10 @@ wiki jobs run          # process queued L2/L3 background jobs now
 > queued jobs automatically. During tests or offline CLI use, `wiki jobs run` drains the
 > same queue in the foreground.
 
-> **Instant L1 default**: Starting in v0.2.1, `llm.instant_l1: true` is the default.
-> `wiki add` creates the CTX, ToC, section markers, and coarse Atom Candidates from
-> parser structure without an LLM call, then returns immediately. Only slower L2/L3
-> extraction is queued as background work. Set `llm.instant_l1: false` in
-> `.curator/config.yml` to restore the legacy LLM-generated L1 summary path.
+> **Instant L1 / L2·L3 Separation**: `wiki add` always creates the CTX, ToC,
+> section markers, and coarse Atom Candidates instantly from parser structure
+> without an LLM call (structural L1). The deep L2/L3 extraction is separated
+> from `wiki add` and performed by a distinct `wiki build` command.
 
 > **v0.2.1 performance path**: L2 runs multiple section-aware batches in parallel
 > when the LLM client can be safely cloned. L3 tries embedding-based clustering

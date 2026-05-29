@@ -118,20 +118,47 @@ Default v0.2.1 behavior:
 wiki add
   -> discover/register changed sources
   -> parse source structure
-  -> write instant L1 CTX without LLM
+  -> write instant L1 CTX without LLM (always structural)
   -> set sources.context_id and l1_status='done'
-  -> queue L2/L3 job
-  -> update qmd index without embeddings if possible
   -> return
+```
+
+`wiki add` is the **registration + instant L1** command. It never requires an LLM
+client and completes within seconds even when the LLM backend is offline.
+
+Rules:
+
+- `wiki add` must not require an LLM to complete.
+- `wiki add` does **not** queue or run L2/L3 extraction. Use `wiki build` for that.
+- L1 completion and full DAG compilation are different states. Status output must
+  show layer statuses separately.
+
+## 4.1 `wiki build` Behavior
+
+`wiki build` triggers L2 (Atoms) and L3 (Concepts) extraction for sources whose
+L1 is complete but L2/L3 are still pending.
+
+```text
+wiki build [path]
+  -> find sources with l1_status='done' and l2_status='pending'
+  -> enqueue L2/L3 jobs to the background worker
+  -> return immediately (default) or block until done (--wait)
 ```
 
 Rules:
 
-- `wiki add` must not require an LLM to complete L1 when `llm.instant_l1=true`.
-- `wiki add --wait` may run queued L2/L3 extraction before returning.
-- `llm.instant_l1=false` restores the legacy LLM-generated L1 path.
-- L1 completion and full DAG compilation are different states. Status output must
-  show layer statuses separately.
+- `wiki build` requires an LLM client.
+- `wiki build --wait` runs L2/L3 synchronously before returning.
+- Without `--wait`, jobs are queued to the persistent `ingest_jobs` table and
+  processed by the MCP server's IngestWorker or `wiki jobs run`.
+
+### MCP Tool Mapping
+
+| CLI command | MCP tool |
+|---|---|
+| `wiki add` | `curator_register_source` |
+| `wiki build` | `curator_build_source` |
+| (legacy) | `curator_ingest_source` (deprecated — calls register + build internally) |
 
 ## 5. Instant L1 Generation
 

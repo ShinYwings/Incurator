@@ -14,7 +14,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 SCHEMA_VERSION = 3
 
@@ -873,3 +873,56 @@ def json_dumps(value) -> str:
     import json
 
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def source_path_to_relpath(root: Path, source_path: str) -> str:
+    """Convert a source path (absolute or relative) to a vault-relative relpath.
+
+    Handles expanduser and resolve for absolute paths. Falls back to the raw
+    string when the path is not inside the vault root.
+    """
+    if not source_path:
+        return ""
+    path = Path(source_path).expanduser()
+    if path.is_absolute():
+        try:
+            return str(path.resolve().relative_to(root.resolve()))
+        except ValueError:
+            return str(source_path)
+    return str(source_path)
+
+
+def get_source_row(
+    db_path: Path,
+    root: Path,
+    *,
+    source_id: int | None = None,
+    relpath: str = "",
+    source_path: str = "",
+) -> dict[str, Any] | None:
+    """Unified source lookup by id, relpath, external_path, import_origin,
+    or logical_source_id.
+
+    When ``source_path`` is given and ``relpath`` is empty, the path is
+    resolved against ``root`` to produce a relpath first.
+    """
+    relpath = relpath or source_path_to_relpath(root, source_path)
+    with connect(db_path) as conn:
+        if source_id is not None:
+            row = conn.execute(
+                "SELECT * FROM sources WHERE id = ?", (source_id,)
+            ).fetchone()
+        elif relpath:
+            row = conn.execute(
+                """
+                SELECT * FROM sources
+                WHERE relpath = ?
+                   OR external_path = ?
+                   OR import_origin = ?
+                   OR logical_source_id = ?
+                """,
+                (relpath, relpath, relpath, relpath),
+            ).fetchone()
+        else:
+            row = None
+    return dict(row) if row else None

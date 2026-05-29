@@ -1226,6 +1226,15 @@ export class ChatSidebarView extends ItemView {
         });
       }
 
+      // Ask Gemini-style auto-index: if this PDF isn't in the knowledge graph
+      // yet, register it (instant L1, no LLM) and queue L2/L3 in the background.
+      // Fire-and-forget — this turn still answers from the raw window above;
+      // the next turn gets curator_search_sources RAG once L1 lands (~seconds).
+      if (backendCtx && !backendCtx.sourceTracked && sourcePath && client.available) {
+        void client.registerSource(sourcePath);
+        if (sourcePath) this.incuratorStatusByPath.delete(sourcePath);
+      }
+
       const windowPages = backendCtx?.pages ?? pdf.windowPages ?? [];
       if (windowPages.length > 0) {
         sections.push(
@@ -1758,10 +1767,7 @@ export class ChatSidebarView extends ItemView {
       case "queued":
         return "queued";
       case "running":
-        if (status.runningLayer) {
-          return `running ${status.runningLayer.toUpperCase()}`;
-        }
-        return "ingesting";
+        return "building...";
       case "stale":
         return "stale";
       case "missing":

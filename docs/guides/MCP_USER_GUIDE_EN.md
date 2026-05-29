@@ -82,6 +82,18 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install ge
 - **Destination rule**: External PDFs default to `04_Resources`, never `03_Notes`. If the active note is `03_Notes/Vision/Foo.md`, the default proposal is `04_Resources/Vision/Foo/<pdf-file>.pdf`. Without a linked note, the fallback proposal is `04_Resources/Inbox/<pdf-file>.pdf`.
 - **No overwrite**: Same-hash files reuse the existing source record. Same-name but different-hash collisions require a suffix or a human-selected destination.
 
+#### `curator_register_source`
+- **Role**: Fast structural registration of a source (L1 generation) without deep LLM processing.
+- **Parameters**: `file_path` or `source_path`.
+- **Note**: Replaces the synchronous part of the deprecated `curator_ingest_source`.
+
+#### `curator_build_source`
+- **Role**: Trigger the deep L2 (Atoms) and L3 (Concepts) knowledge extraction for a registered source.
+- **Parameters**: `file_path` or `source_id`.
+
+#### `curator_ingest_source` (Deprecated)
+- **Role**: Legacy combined ingestion. Use `curator_register_source` followed by `curator_build_source` instead.
+
 #### `curator_list_external_resources`
 - **Role**: Return the list of external libraries (e.g., Zotero) configured in the platform-aware global settings (`~/.config/curator/config.yml`) along with their active absolute paths.
 
@@ -95,15 +107,17 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install ge
 - **Parameters**: `logical_source_id` (unique identifier), `new_path` (new absolute path).
 - **Important**: This tool must be called only after Human-in-the-Loop approval. The backend must separate proposal from mutation, and the client must show which file will be rebound to which logical source.
 
-#### `curator_search_source`
+#### `curator_search_sources`
 - **Role**: Search within a specific source or PDF page range. The Obsidian plugin uses this to combine immediate viewer context with backend RAG results for the currently open PDF.
 - **Parameters**: `query`, `source_id` or `source_path`, optionally `page_start`, `page_end`, `limit`, and `mode`.
 - **Returns**: page number, score, snippet, and source provenance.
+- **Note**: The singular alias `curator_search_source` was removed in v0.2.1.
 
-#### `curator_get_pdf_page`
-- **Role**: Return backend-stored text/provenance for a specific PDF page.
+#### `curator_get_source_page`
+- **Role**: Return backend-parsed text and provenance for one source page. Supports both PDF pages and non-PDF sources.
 - **Parameters**: `source_id` or `source_path`, `page`.
 - **Use case**: Provides stable text context when the plugin viewer context is incomplete or when a provider strips image attachments.
+- **Note**: The alias `curator_get_pdf_page` was removed in v0.2.1.
 
 #### `curator_get_pdf_context`
 - **Role**: Lightweight on-demand PDF text extraction for chat context. Works for **both tracked and untracked PDFs** — no prior ingestion required. This is the primary tool the Obsidian plugin uses to assemble the `<pdf_window>` and `<document_outline>` context blocks for LLM prompts.

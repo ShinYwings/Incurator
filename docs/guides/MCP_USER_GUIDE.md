@@ -82,6 +82,18 @@ wiki mcp install
 - **목적지 규칙**: 외부 PDF의 기본 복사 목적지는 `03_Notes`가 아니라 `04_Resources`입니다. 활성 노트가 `03_Notes/Vision/Foo.md`라면 기본 제안은 `04_Resources/Vision/Foo/<pdf-file>.pdf`입니다. 연결된 노트가 없으면 `04_Resources/Inbox/<pdf-file>.pdf`를 제안합니다.
 - **덮어쓰기 금지**: 동일 해시 파일은 기존 source를 재사용하고, 같은 이름이지만 다른 해시인 파일은 suffix 또는 사용자 선택 목적지를 사용해야 합니다.
 
+#### `curator_register_source`
+- **역할**: 깊은 LLM 처리 없이 구조 기반으로 소스를 빠르게 등록(L1 생성)합니다.
+- **파라미터**: `file_path` 또는 `source_path`.
+- **참고**: deprecated된 `curator_ingest_source`의 동기적 실행 부분을 대체합니다.
+
+#### `curator_build_source`
+- **역할**: 등록된 소스에 대해 깊이 있는 L2 (Atoms) 및 L3 (Concepts) 지식 추출 프로세스를 트리거합니다.
+- **파라미터**: `file_path` 또는 `source_id`.
+
+#### `curator_ingest_source` (Deprecated)
+- **역할**: 기존의 통합된 ingestion 도구입니다. 대신 `curator_register_source`와 `curator_build_source`를 사용하세요.
+
 #### `curator_list_external_resources`
 - **역할**: 플랫폼별 글로벌 설정(`~/.config/curator/config.yml`)에 정의된 외부 라이브러리(예: Zotero) 목록과 현재 활성화된 절대 경로를 반환합니다.
 
@@ -95,16 +107,18 @@ wiki mcp install
 - **파라미터**: `logical_source_id` (고유 식별자), `new_path` (새로운 절대 경로).
 - **주의**: 이 도구는 반드시 Human-in-the-Loop 승인 뒤에 호출되어야 합니다. backend는 제안과 실행을 구분해야 하며, client는 어떤 파일이 어떤 logical source로 묶이는지 사용자에게 보여줘야 합니다.
 
-#### `curator_search_source`
+#### `curator_search_sources`
 - **역할**: 특정 source 또는 PDF 페이지 범위 안에서만 검색합니다. Obsidian 플러그인이 현재 열린 PDF 질문을 backend RAG 결과와 결합할 때 사용합니다.
 - **파라미터**: `query`, `source_id` 또는 `source_path`, 선택적으로 `page_start`, `page_end`, `limit`, `mode`.
 - **반환값**: page number, score, snippet, source provenance를 포함해야 합니다.
+- **참고**: 이전의 단수형 alias `curator_search_source`는 v0.2.1에서 제거되었습니다.
 
-#### `curator_get_pdf_page`
+#### `curator_get_source_page`
 
-- **역할**: backend가 저장한 특정 PDF page text/provenance를 반환합니다.
+- **역할**: backend가 파싱한 특정 source page의 text/provenance를 반환합니다. PDF 페이지 및 비-PDF 소스 모두 지원합니다.
 - **파라미터**: `source_id` 또는 `source_path`, `page`.
 - **용도**: plugin viewer context가 일시적으로 부족하거나 provider가 이미지 첨부를 무시하는 경우에도 텍스트 기반 컨텍스트를 안정적으로 보강합니다.
+- **참고**: 이전의 alias `curator_get_pdf_page`는 v0.2.1에서 제거되었습니다.
 
 #### `curator_get_pdf_context`
 

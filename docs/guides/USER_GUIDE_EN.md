@@ -430,7 +430,8 @@ Summary of major commands following the user workflow.
 ### 2. Knowledge Ingestion & Management
 | Command | Description | When to use |
 | :--- | :--- | :--- |
-| `wiki add <file>` | Registers sources and builds L1-L3 layers. | Adding new information |
+| `wiki add <file>` | Registers sources and generates instant L1 Contexts (structural, no LLM). | Adding new information |
+| `wiki build` | Extracts L2 Atoms + L3 Concepts from registered L1 Contexts (LLM). Queues to the background worker by default; `--wait` runs now. | Deep knowledge-graph construction |
 | `wiki sources list` | Lists all registered sources. | Checking collected data inventory |
 
 ### 3. Refinement & Optimization
@@ -513,7 +514,7 @@ Verifies if the system's 'brain' and 'eyes' are correctly set up.
 #### 📂 Knowledge Source Status (Sources)
 Checks the 'entrance of the pipeline' where raw data is turned into knowledge.
 -   **Raw source files**: The total number of files physically present in the vault folders.
--   **Sources summarized (L1)**: The number of sources with `l1_status=done`. In v0.2.1, `wiki add` creates a structural L1 Context immediately without an LLM call, then queues L2/L3 extraction as background work.
+-   **Sources summarized (L1)**: The number of sources with `l1_status=done`. `wiki add` creates a structural L1 Context immediately without an LLM call. L2/L3 extraction is a separate step — run `wiki build` (queues to the background worker by default, or `--wait` to run synchronously).
 -   **Ingest runs**: The total number of ingestion runs performed. A higher number indicates that the knowledge base has been updated frequently.
 
 #### 🧠 Knowledge Density (Collections)

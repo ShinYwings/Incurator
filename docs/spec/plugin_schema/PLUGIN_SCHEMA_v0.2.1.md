@@ -375,7 +375,7 @@ these methods for v0.2.1:
 |---|---|
 | `getSourceStatus(path)` | `curator_source_status` |
 | `checkSourceStatus(hash)` | `check_source_status` |
-| `ingestPdf(request)` | `curator_import_source` → `curator_ingest_source` |
+| `ingestPdf(request)` | `curator_import_source` → `curator_register_source` |
 | `rebindSource(args)` | `curator_rebind_source` |
 | `search(query)` | `search_curator` |
 | `getPdfWindow(args)` | `curator_get_source_page`, `curator_get_pdf_page` |

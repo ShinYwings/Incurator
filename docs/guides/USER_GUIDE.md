@@ -411,7 +411,8 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 ### 2. 지식 수집 및 관리 (Ingestion)
 | 명령어 | 설명 | 사용 시점 |
 | :--- | :--- | :--- |
-| `wiki add <file>` | 소스를 등록하고 L1~L3를 빌드합니다. | 새로운 정보를 추가할 때 |
+| `wiki add <file>` | 소스를 등록하고 L1 Context를 즉시 생성합니다 (구조 기반, LLM 없음). | 새로운 정보를 추가할 때 |
+| `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 추출합니다 (LLM). 기본은 백그라운드 워커에 큐잉, `--wait`는 즉시 실행. | 지식 그래프 심층 구축 시 |
 | `wiki sources list` | 등록된 소스 목록을 확인합니다. | 수집된 데이터 현황 파악 시 |
 
 ### 3. 고도화 및 최적화 (Curation)
@@ -494,7 +495,7 @@ wiki status
 #### 📂 지식 원천 현황 (Sources)
 원본 데이터가 지식화되는 '파이프라인의 입구'를 점검합니다.
 -   **Raw source files**: 보관소 폴더 내에 물리적으로 존재하는 파일의 총개수입니다.
--   **Sources summarized (L1)**: `l1_status=done`인 소스 수입니다. v0.2.1에서는 `wiki add`가 LLM 없이 구조 기반 L1 Context를 즉시 만들고, L2/L3 추출은 백그라운드 job으로 이어집니다.
+-   **Sources summarized (L1)**: `l1_status=done`인 소스 수입니다. `wiki add`는 LLM 없이 구조 기반 L1 Context를 즉시 만듭니다. L2/L3 추출은 별도 단계로, `wiki build`로 실행합니다 (기본은 백그라운드 워커 큐잉, `--wait`는 동기 실행).
 -   **Ingest runs**: 지금까지 수행된 총 수집 횟수입니다. 이 수치가 높을수록 지식 베이스가 빈번하게 업데이트되었음을 의미합니다.
 
 #### 🧠 지식 밀도 (Collections)
