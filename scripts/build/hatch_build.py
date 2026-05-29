@@ -54,6 +54,7 @@ def _install_ollama() -> None:
     print("[incurator] Ollama not found - installing...", flush=True)
 
     if sys.platform.startswith("linux"):
+        print("[incurator] Downloading and running Ollama Linux installer... (This may take a minute)", flush=True)
         result = subprocess.run(
             "curl -fsSL https://ollama.com/install.sh | sh",
             shell=True,
@@ -66,9 +67,11 @@ def _install_ollama() -> None:
 
     elif sys.platform == "darwin":
         if shutil.which("brew"):
+            print("[incurator] Running 'brew install ollama'...", flush=True)
+            print("[incurator] ⏳ Note: Homebrew might run 'brew update' first, which can take 5+ minutes and look frozen. Please wait...", flush=True)
             result = subprocess.run(["brew", "install", "ollama"], check=False)
             if result.returncode == 0:
-                print("[incurator] Ollama installed via Homebrew.", flush=True)
+                print("[incurator] ✅ Ollama installed via Homebrew.", flush=True)
             else:
                 print("[incurator] brew install failed. Download from: https://ollama.com/download", flush=True)
         else:
@@ -102,7 +105,7 @@ def _install_node() -> None:
     nvm_sh = nvm_dir / "nvm.sh"
 
     if not nvm_sh.exists():
-        print("[incurator] NVM not found - installing...", flush=True)
+        print("[incurator] NVM not found - downloading and installing NVM... (This may take a minute)", flush=True)
         try:
             subprocess.run(
                 "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash",
@@ -114,6 +117,7 @@ def _install_node() -> None:
     npm = _get_nvm_npm()
     if not npm:
         print("[incurator] No Node installed via NVM - installing Node LTS...", flush=True)
+        print("[incurator] ⏳ Note: Downloading Node.js binaries can take a few minutes depending on your connection.", flush=True)
         if nvm_sh.exists():
             subprocess.run(
                 f"bash -c 'source {nvm_sh} && nvm install --lts'",
@@ -149,15 +153,17 @@ def _build_qmd(qmd_dir: Path) -> None:
         return
 
     print(f"[incurator] Building qmd ({qmd_dir})...", flush=True)
+    print("[incurator] ⏳ Running 'npm install' for qmd (This may take 1-3 minutes)...", flush=True)
 
     res = subprocess.run([npm, "install"], cwd=str(qmd_dir), check=False)
     if res.returncode != 0:
-        print("[incurator] qmd: npm install failed.", flush=True)
+        print("[incurator] ❌ qmd: npm install failed.", flush=True)
         return
 
+    print("[incurator] ⏳ Running 'npm run build' for qmd...", flush=True)
     res = subprocess.run([npm, "run", "build"], cwd=str(qmd_dir), check=False)
     if res.returncode == 0:
-        print("[incurator] qmd built successfully.", flush=True)
+        print("[incurator] ✅ qmd built successfully.", flush=True)
     else:
         print("[incurator] qmd: npm run build failed.", flush=True)
 
