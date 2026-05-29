@@ -34,6 +34,7 @@ import {
   formatPdfWindow,
   formatRagHits,
 } from "../context/providerContextFormat";
+import { buildBaseSystemPrompt } from "../context/systemPrompt";
 import {
   type ChatMessage,
   type ChatMode,
@@ -961,39 +962,13 @@ export class ChatSidebarView extends ItemView {
     const lastUserMessage = [...this.messages]
       .reverse()
       .find((msg) => msg.role === "user");
-    let systemText =
-      "You are an AI assistant embedded in Obsidian, a markdown knowledge base app. " +
-      "Help the user with their notes, research, and writing tasks. " +
-      "Format your responses in Markdown. " +
-      "When writing math, use Obsidian-compatible LaTeX delimiters: inline math as $...$ and display math as $$...$$. " +
-      "Do not use \\(...\\) or \\[...\\] math delimiters. " +
-      "Wrap every mathematical expression containing ^, _, \\infty, matrices, homographies, or quadrics in math delimiters. " +
-      "When the user asks you to modify Markdown notes, do not directly edit files or use write/edit tools. " +
-      "Instead, explain the intended changes briefly and output one or more `ai-agent-edit` blocks. " +
-      "Each block MUST target a single file and use SEARCH/REPLACE blocks. The SEARCH text must EXACTLY match the existing lines in the file. Format:\n" +
-      "```ai-agent-edit filepath=\"path/to/file.md\"\n" +
-      "<<<< SEARCH\n" +
-      "Exact lines to replace\n" +
-      "==== REPLACE\n" +
-      "New lines to insert\n" +
-      ">>>>\n" +
-      "```\n" +
-      "You can output multiple `ai-agent-edit` blocks in a single response to edit multiple files or multiple locations in a file.";
-
-    // Strongly encourage proactive use of incurator (or similar search tools) like Cursor's @codebase
-    const hasSearchMcp = this.plugin.settings.mcpServers.some(s => s.enabled && s.name.toLowerCase().includes('incurator'));
-    if (hasSearchMcp) {
-      systemText += 
-        "\n\nCRITICAL: The user has the 'incurator' MCP server enabled, which acts as their vault/codebase search engine. " +
-        "You MUST proactively use its search tools to explore the vault and gather relevant context BEFORE answering, " +
-        "even if the user does not explicitly ask you to search. Treat it exactly like the @codebase feature in Cursor.";
-    }
-
-    if (this.plugin.settings.chatMode === "plan") {
-      systemText +=
-        "\n\nPlan mode is enabled. First reason about the user's goal, then respond with a concise implementation plan. " +
-        "Do not modify files or imply that changes were made. Ask one short clarifying question only if the next action is genuinely ambiguous.";
-    }
+    const hasSearchMcp = this.plugin.settings.mcpServers.some(
+      (s) => s.enabled && s.name.toLowerCase().includes("incurator")
+    );
+    let systemText = buildBaseSystemPrompt({
+      hasIncuratorMcp: hasSearchMcp,
+      planMode: this.plugin.settings.chatMode === "plan",
+    });
 
     const rulesContext = this.loadCursorStyleRules();
     if (rulesContext) {

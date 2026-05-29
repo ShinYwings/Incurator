@@ -47,6 +47,23 @@ from . import page_writer
 from . import source_tools
 
 
+def _zotero_db_candidates(custom_paths: str) -> list[str]:
+    """Expand a comma-separated custom_paths string into candidate zotero.sqlite paths.
+
+    Each entry is expanduser'd; a path already ending in `.sqlite` is used as-is,
+    otherwise `zotero.sqlite` is appended. Shared by the Zotero MCP tools so the
+    resolution rule lives in one place.
+    """
+    out: list[str] = []
+    for raw in str(custom_paths or "").split(","):
+        p = raw.strip()
+        if not p:
+            continue
+        base = os.path.expanduser(p)
+        out.append(base if base.endswith(".sqlite") else os.path.join(base, "zotero.sqlite"))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Vault resolution (run once at import / server-start)
 # ---------------------------------------------------------------------------
@@ -663,16 +680,8 @@ def build_server() -> FastMCP:
 
         try:
             from .zotero_integration import search_zotero_items
-            import os
-            candidates = [
-                p.strip()
-                for p in str(custom_paths).split(",")
-                if p.strip()
-            ]
             checked: list[str] = []
-            for candidate in candidates:
-                base = os.path.expanduser(candidate)
-                zotero_db = base if base.endswith(".sqlite") else os.path.join(base, "zotero.sqlite")
+            for zotero_db in _zotero_db_candidates(custom_paths):
                 checked.append(zotero_db)
                 items = search_zotero_items(zotero_db, query, limit=limit)
                 if items:
@@ -694,9 +703,10 @@ def build_server() -> FastMCP:
 
         try:
             from .zotero_integration import get_zotero_item_metadata
-            import os
-            zotero_db = os.path.join(os.path.expanduser(custom_paths), "zotero.sqlite")
-            metadata = get_zotero_item_metadata(zotero_db, item_key, citation_style=citation_style)
+            cands = _zotero_db_candidates(custom_paths)
+            if not cands:
+                return {"ok": False, "error": "custom_paths (zoteroBasePath) is required"}
+            metadata = get_zotero_item_metadata(cands[0], item_key, citation_style=citation_style)
             return {"ok": True, "metadata": metadata}
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -713,15 +723,11 @@ def build_server() -> FastMCP:
         config = cfg.load_config(paths)
         zotero_db = config.get("zotero", {}).get("db_path", os.path.expanduser("~/Zotero/zotero.sqlite"))
 
-        # If custom paths provided, check if we can find a sqlite db there
-        if custom_paths:
-            for p in custom_paths.split(","):
-                p = p.strip()
-                if not p: continue
-                db_cand = os.path.join(os.path.expanduser(p), "zotero.sqlite")
-                if os.path.exists(db_cand):
-                    zotero_db = db_cand
-                    break
+        # If custom paths provided, use the first candidate db that exists.
+        for db_cand in _zotero_db_candidates(custom_paths):
+            if os.path.exists(db_cand):
+                zotero_db = db_cand
+                break
 
         try:
             annotations = zotero.get_zotero_annotations(zotero_db, attachment_key)
@@ -743,7 +749,8 @@ def build_server() -> FastMCP:
         if custom_paths:
             for p in custom_paths.split(","):
                 p = p.strip()
-                if not p: continue
+                if not p:
+                    continue
                 p = os.path.expanduser(p)
                 candidates.append(p)
         if "external" in config and "zotero" in config["external"]:
@@ -1408,7 +1415,6 @@ def build_server() -> FastMCP:
             pages ([{page_num, text, score}]), outline ([{title, page_num, level}]),
             is_empty_pdf
         """
-        from . import parsers
         from .search import lexical_score
         from .parsers.pdf import get_page_count, parse_page_window, _extract_pdf_toc
 

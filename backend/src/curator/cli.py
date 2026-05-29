@@ -1363,7 +1363,12 @@ def _configure_backend(
                                     npm_path = str(_d / "bin" / "npm")
                                     break
 
-                    if npm_path:
+                    pkg_name = (
+                        install_cmd.rsplit(" ", 1)[-1]
+                        if install_cmd.startswith("npm install -g ")
+                        else ""
+                    )
+                    if npm_path and pkg_name:
                         console.print(f"[dim]Running: {npm_path} install -g {pkg_name}[/dim]")
                         res = _sp.run([npm_path, "install", "-g", pkg_name])
                     else:
@@ -1616,7 +1621,12 @@ def _offer_install(overrides: dict, llm_cfg: dict) -> None:
                                     npm_path = str(_d / "bin" / "npm")
                                     break
 
-                    if npm_path:
+                    pkg_name = (
+                        install_cmd.rsplit(" ", 1)[-1]
+                        if install_cmd.startswith("npm install -g ")
+                        else ""
+                    )
+                    if npm_path and pkg_name:
                         console.print(f"[dim]Running: {npm_path} install -g {pkg_name}[/dim]")
                         res = subprocess.run([npm_path, "install", "-g", pkg_name])
                     else:
