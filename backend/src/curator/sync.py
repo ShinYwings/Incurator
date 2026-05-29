@@ -95,6 +95,67 @@ def calculate_hash(path: Path) -> str:
     return h.hexdigest()
 
 
+def _body_without_frontmatter(text: str) -> str:
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        if len(parts) >= 3:
+            return parts[2].lstrip("\n")
+    return text
+
+
+def _hash_file_content(path: Path) -> str:
+    """Hash markdown body content, excluding YAML frontmatter."""
+    body = _body_without_frontmatter(path.read_text(encoding="utf-8"))
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+
+
+def _frontmatter_content_hash(path: Path) -> str | None:
+    page = page_writer.read_page(path)
+    if not page:
+        return None
+    value = page.frontmatter.get("content_hash")
+    return str(value).strip() if value else None
+
+
+def _find_changed_nodes(paths: cfg.WikiPaths) -> list[str]:
+    """Return DAG node IDs whose body hash differs from frontmatter content_hash."""
+    changed: list[str] = []
+    for layer_dir, prefix in (
+        (paths.contexts, "CTX-"),
+        (paths.atoms, "ATM-"),
+        (paths.concepts, "CON-"),
+        (paths.exhibitions, "EXH-"),
+    ):
+        if not layer_dir.exists():
+            continue
+        for md_path in sorted(layer_dir.glob(f"{prefix}*.md")):
+            expected = _frontmatter_content_hash(md_path)
+            if not expected or expected != _hash_file_content(md_path):
+                changed.append(md_path.stem)
+    return changed
+
+
+def run_incremental_sync(paths: cfg.WikiPaths, client, config: dict) -> dict:
+    """Fast v0.2.1 sync path: skip LLM verification when body hashes match."""
+    changed = _find_changed_nodes(paths)
+    affected = set(changed)
+    if changed:
+        try:
+            from .ingest_orchestrator import _expand_downstream_via_sql
+
+            affected = _expand_downstream_via_sql(paths, changed)
+        except Exception:
+            affected = set(changed)
+    update_all_page_hashes(paths)
+    finalize_routing_tables(paths)
+    return {
+        "mode": "incremental",
+        "changed_nodes": changed,
+        "affected_nodes": sorted(affected),
+        "llm_required": bool(changed),
+    }
+
+
 def scan_for_changes(paths: cfg.WikiPaths) -> ChangeReport:
     """Compare live filesystem against DB hashes to find changed pages."""
     report = ChangeReport()

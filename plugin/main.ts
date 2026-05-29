@@ -1,7 +1,10 @@
+
+import { promises as fs } from "fs";
 import {
   Plugin,
   WorkspaceLeaf,
   MarkdownView,
+  setIcon,
   MarkdownFileInfo,
   Notice,
   Editor,
@@ -12,27 +15,50 @@ import {
   type ActiveContext,
   type ContextRef,
   type LLMProvider,
+  type ModelCatalogue,
   type OpenTabContext,
   DEFAULT_SETTINGS,
   DEFAULT_SESSION_DATA,
-  DEFAULT_MODELS,
+  getDefaultModel,
   getModelOption,
 } from "./src/types";
 import { AIAgentSettingTab } from "./src/settings";
 import { CLIAuthResolver } from "./src/auth/cliAuth";
 import { LLMClient } from "./src/agent/llmClient";
 import { MCPManager } from "./src/agent/mcpClient";
+import { IncuratorClient } from "./src/agent/incuratorClient";
 import { ChatSidebarView, CHAT_VIEW_TYPE } from "./src/ui/chatSidebar";
 import {
   ExternalPdfView,
   EXTERNAL_PDF_VIEW_TYPE,
+  registerExternalPdfByPath
 } from "./src/ui/externalPdfView";
+import { parseZoteroLink } from "./src/utils/zoteroUtils";
+
+import { ZoteroSearchModal, ZoteroWizardModal } from "./src/ui/zoteroWizardModal";
+import { TemplateRenderer } from "./src/zotero/templateRenderer";
+
 import { InlinePromptWidget } from "./src/ui/inlinePrompt";
 import {
   getPdfContext,
   getPdfSelection,
   withVisionFallback,
 } from "./src/context/pdfCapture";
+import {
+  normalizeLastMarkdownScrollPosition,
+  normalizeFileScrollPosition,
+  upsertFileScrollPosition,
+} from "./src/utils/scrollPositions";
+import {
+  ensureIncuratorMcpServer,
+  isIncuratorMcpServer,
+} from "./src/utils/incuratorMcpServer";
+import { mergeSessionData, normalizeSessionData } from "./src/utils/sessionData";
+import {
+  mergeDeviceRegistry,
+  readSyncthingSnapshot,
+  type DeviceRegistry,
+} from "./src/utils/deviceRegistry";
 
 export default class ObsidianAIAgent extends Plugin {
   settings: PluginSettings = DEFAULT_SETTINGS;
@@ -40,26 +66,38 @@ export default class ObsidianAIAgent extends Plugin {
   authResolver: CLIAuthResolver = new CLIAuthResolver();
   llmClient!: LLMClient;
   mcpManager: MCPManager = new MCPManager();
+  incuratorClient!: IncuratorClient;
+  availableModels: ModelCatalogue = {};
   inlinePrompt!: InlinePromptWidget;
 
   private activeContext: ActiveContext = { viewType: "other" };
   // Last non-chat leaf — preserved so context survives sidebar focus changes
   private lastContentLeaf: WorkspaceLeaf | null = null;
+  private scrollPositionSaveTimer: number | null = null;
+  private startupRestoreUntilMs = 0;
+  private vaultRoot = "";
+  private ingestStatusBar: HTMLElement | null = null;
 
   async onload(): Promise<void> {
     console.log("Loading Obsidian AI Agent plugin");
+    this.startupRestoreUntilMs = Date.now() + 15000;
 
     // ── Load settings and session data ──
     await this.loadSettings();
     await this.loadSessionData();
 
     // ── Initialize core services ──
-    const vaultRoot = (this.app.vault.adapter as any).getBasePath?.() || "";
+    this.vaultRoot = (this.app.vault.adapter as any).getBasePath?.() || "";
+    await this.syncDeviceRegistryFromSyncthing();
     this.llmClient = new LLMClient(
       this.settings,
       this.authResolver,
-      vaultRoot,
+      this.vaultRoot,
       () => this.saveData(this.settings)
+    );
+    this.incuratorClient = new IncuratorClient(
+      this.mcpManager,
+      this.settings,
     );
     this.inlinePrompt = new InlinePromptWidget(this);
 
@@ -72,7 +110,7 @@ export default class ObsidianAIAgent extends Plugin {
     });
 
     this.registerView(EXTERNAL_PDF_VIEW_TYPE, (leaf: WorkspaceLeaf) => {
-      return new ExternalPdfView(leaf);
+      return new ExternalPdfView(leaf, this);
     });
 
     // ── Ribbon icon (left sidebar) ──
@@ -83,6 +121,102 @@ export default class ObsidianAIAgent extends Plugin {
     // ── Register commands ──
 
     // Cmd+K: Inline edit
+
+
+    this.addCommand({
+      id: "incurator-zotero-refresh",
+      name: "Refresh Zotero Item",
+      checkCallback: (checking: boolean) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file) return false;
+        const cache = this.app.metadataCache.getFileCache(file as any);
+        if (!cache?.frontmatter) return false;
+
+        const citekey = cache.frontmatter.citekey;
+        const zoteroUrl = cache.frontmatter.zotero_app_url;
+
+        if (!citekey && !zoteroUrl) return false;
+
+        if (checking) return true;
+
+        (async () => {
+          new Notice("Refreshing Zotero Item...");
+          try {
+            // Find the item key from frontmatter
+            let itemKey = "";
+            if (zoteroUrl) {
+                const match = zoteroUrl.match(/items\/([A-Z0-9]+)/i);
+                if (match) itemKey = match[1];
+            }
+            if (!itemKey && citekey) itemKey = citekey; // fallback to citekey if URL missing (backend will need to handle this)
+
+            const res: any = await this.incuratorClient.tryTool(["curator_get_zotero_item_metadata"], {
+                item_key: itemKey,
+                custom_paths: this.settings.zoteroBasePath || "~/Zotero"
+            });
+
+            if (!res || !res.ok || !res.metadata) throw new Error(res?.error || "Unknown error");
+
+            const renderer = new TemplateRenderer(this.app);
+            const profiles = this.settings.zoteroProfiles || [];
+            if (profiles.length === 0) throw new Error("No Zotero profile found. Please run the Import Wizard once first.");
+            const p = profiles[0]; // use first profile as default
+
+            // If imageFolder is specified, copy images first
+            if (p.imageFolder) {
+              const imgFolder = this.app.vault.getAbstractFileByPath(p.imageFolder);
+              if (!imgFolder) await this.app.vault.createFolder(p.imageFolder);
+
+              for (const ann of res.metadata.annotations || []) {
+                if (ann.imageRelativePath) {
+                  try {
+                    const imgBuffer = await fs.readFile(ann.imageRelativePath);
+                    const filename = `${ann.key || ann.id}.png`;
+                    let destPath = p.imageFolder;
+                    if (!destPath.endsWith("/")) destPath += "/";
+                    destPath += filename;
+
+                    const existing = this.app.vault.getAbstractFileByPath(destPath);
+                    if (!existing) {
+                      await this.app.vault.createBinary(destPath, imgBuffer);
+                    }
+                    ann.imageRelativePath = destPath;
+                  } catch (e) {
+                    console.error("Failed to copy image for annotation on refresh", ann.key, e);
+                  }
+                }
+              }
+            }
+
+            const existingContent = await this.app.vault.read(file);
+            const markdown = await renderer.renderTemplate(p.templatePath, res.metadata, existingContent);
+
+            await this.app.vault.modify(file, markdown);
+            new Notice("Zotero note refreshed successfully!");
+          } catch(e: any) {
+            new Notice("Failed to refresh: " + e.message);
+          }
+        })();
+        return true;
+      }
+    });
+
+    this.addCommand({
+      id: "incurator-zotero-import",
+      name: "Import Zotero Item (Wizard)",
+      callback: () => {
+        new ZoteroSearchModal(
+          this.app,
+          this.incuratorClient,
+          this.settings,
+          async (settings) => {
+            this.settings = settings;
+            await this.saveSettings();
+          }
+        ).open();
+      },
+    });
+
     this.addCommand({
       id: "inline-edit",
       name: "Inline Edit (Cmd+K)",
@@ -101,7 +235,7 @@ export default class ObsidianAIAgent extends Plugin {
       checkCallback: (checking: boolean) => {
         const leaf = this.app.workspace.getMostRecentLeaf();
         if (!leaf) return false;
-        
+
         const view = leaf.view;
         if (view instanceof MarkdownView) {
           if (!checking) {
@@ -155,7 +289,7 @@ export default class ObsidianAIAgent extends Plugin {
       checkCallback: (checking: boolean) => {
         const leaf = this.app.workspace.getMostRecentLeaf();
         if (!leaf) return false;
-        
+
         const view = leaf.view;
         if (view.getViewType() === EXTERNAL_PDF_VIEW_TYPE) {
           if (!checking) {
@@ -249,58 +383,95 @@ export default class ObsidianAIAgent extends Plugin {
     });
 
     // ── Track active tab ──
+
+
+    this.registerEvent(
+      this.app.workspace.on("file-open", (file) => {
+        if (!file || !("extension" in file) || (file as any).extension !== "md") return;
+        const cache = this.app.metadataCache.getFileCache(file as any);
+        const zoteroUrl = cache?.frontmatter?.zotero_app_url;
+        const citekey = cache?.frontmatter?.citekey;
+        if (!zoteroUrl && !citekey) return;
+
+        // Give it a tiny bit of time for the view to fully mount
+        setTimeout(() => {
+          const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+          if (view && view.file?.path === file.path) {
+            if (!view.containerEl.querySelector('.incurator-refresh-btn')) {
+              const btn = view.addAction('sync', 'Refresh Zotero Item (Incurator)', () => {
+                // @ts-ignore
+                this.app.commands.executeCommandById("incurator-obsidian-agent:incurator-zotero-refresh");
+              });
+              btn.classList.add('incurator-refresh-btn');
+              btn.style.color = 'var(--interactive-accent)';
+            }
+          }
+        }, 300);
+      })
+    );
+
+    this.registerEvent(
+      this.app.workspace.on("file-menu", (menu, file) => {
+        if (!file || !("extension" in file) || (file as any).extension !== "md") return;
+        const cache = this.app.metadataCache.getFileCache(file as any);
+        if (!cache?.frontmatter) return;
+
+        const zoteroUrl = cache.frontmatter.zotero_app_url;
+        if (!zoteroUrl) return;
+
+        menu.addItem((item) => {
+          item
+            .setTitle("Refresh Zotero Item")
+            .setIcon("sync")
+            .onClick(() => {
+              // @ts-ignore
+              this.app.commands.executeCommandById("incurator-obsidian-agent:incurator-zotero-refresh");
+            });
+        });
+      })
+    );
+
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
         // Don't overwrite PDF/markdown context when the chat sidebar gets focus
         if (leaf?.view.getViewType() === CHAT_VIEW_TYPE) return;
         this.lastContentLeaf = leaf;
         this.updateActiveContext(leaf);
+        if (Date.now() < this.startupRestoreUntilMs) {
+          this.restoreLastMarkdownScrollPosition();
+        }
       })
     );
 
     // ── Scroll & Cursor Restore ──
     this.registerEvent(
       this.app.workspace.on("file-open", (file) => {
-        if (!file || !this.settings.fileScrollPositions) return;
-        const pos = this.settings.fileScrollPositions[file.path];
-        if (pos) {
-          const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-          if (view && view.file?.path === file.path && view.getMode() === "source") {
-            // Slight delay ensures Obsidian has fully rendered the file content
-            setTimeout(() => {
-              view.editor.scrollTo(0, pos.scroll);
-              view.editor.setCursor({ line: pos.line, ch: pos.ch });
-            }, 50);
-          }
-        }
+        if (!file) return;
+        this.restoreLastMarkdownScrollPosition();
       })
     );
 
+    this.app.workspace.onLayoutReady(() => {
+      this.restoreLastMarkdownScrollPosition();
+    });
+
     this.registerInterval(
       window.setInterval(() => {
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (view && view.file && view.getMode() === "source") {
-          const scrollInfo = view.editor.getScrollInfo();
-          const cursor = view.editor.getCursor();
-          
-          if (!this.settings.fileScrollPositions) {
-            this.settings.fileScrollPositions = {};
-          }
-          
-          const path = view.file.path;
-          this.settings.fileScrollPositions[path] = {
-            scroll: scrollInfo.top,
-            line: cursor.line,
-            ch: cursor.ch
-          };
-          
-          // Cap at 100 entries
-          const keys = Object.keys(this.settings.fileScrollPositions);
-          if (keys.length > 100) {
-            delete this.settings.fileScrollPositions[keys[0]];
-          }
-        }
+        this.captureActiveMarkdownScrollPosition();
       }, 3000)
+    );
+
+    // ── Ingest status bar (right side) ──
+    this.ingestStatusBar = this.addStatusBarItem();
+    this.ingestStatusBar.setText("⚡ Incurator");
+    this.ingestStatusBar.style.cursor = "pointer";
+    this.ingestStatusBar.addEventListener("click", () => {
+      const dashboardPath = ".curator/dashboard.md";
+      const file = this.app.vault.getAbstractFileByPath(dashboardPath);
+      if (file) this.app.workspace.openLinkText(dashboardPath, "", false);
+    });
+    this.registerInterval(
+      window.setInterval(() => this.refreshIngestStatusBar(), 5000)
     );
 
     // ── Initialize active context for current leaf ──
@@ -310,11 +481,94 @@ export default class ObsidianAIAgent extends Plugin {
       this.updateActiveContext(currentLeaf);
     }
 
+    // ── Zotero link interceptor (Global Patch) ──
+    // Intercepts zotero://open-pdf and zotero://select clicks globally (including Live Preview).
+    // Opens the resolved PDF in the built-in ExternalPdfView instead of launching Zotero.
+
+    // Intercept clicks on Zotero links in reading mode and live preview
+    this.registerDomEvent(document, 'click', (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const link = target.closest('a[href]') as HTMLAnchorElement;
+
+      if (link && link.href && link.href.toLowerCase().startsWith("zotero://")) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Trigger our custom window.open which has the handler
+        window.open(link.href);
+      }
+    }, { capture: true });
+
+      const originalWindowOpen = window.open;
+    this.register(() => {
+      window.open = originalWindowOpen;
+    });
+
+    window.open = (url?: string | URL, target?: string, features?: string) => {
+      if (typeof url === "string") {
+        const zoteroInfo = parseZoteroLink(url);
+        if (zoteroInfo) {
+          // Handle it internally
+          (async () => {
+            const attachmentKey = zoteroInfo.attachmentKey;
+            let pdfPath: string | null = null;
+
+            if (this.incuratorClient && this.incuratorClient.available) {
+              pdfPath = await this.incuratorClient.resolveZoteroPdf(attachmentKey);
+            }
+
+            if (!pdfPath) {
+              // Fallback
+              originalWindowOpen.call(window, url, target, features);
+              return;
+            }
+
+            let leaf = this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE).find(l => {
+              return l.view.getState()?.path === pdfPath;
+            });
+
+            let pdfState: any;
+            if (leaf) {
+              pdfState = {
+                ...leaf.view.getState(),
+                zoteroAttachmentKey: attachmentKey,
+              };
+            } else {
+              pdfState = registerExternalPdfByPath(pdfPath, attachmentKey);
+              leaf = this.app.workspace.getLeaf("split");
+            }
+
+            if (zoteroInfo.pageNum) {
+              pdfState.currentPage = zoteroInfo.pageNum;
+            }
+            if (zoteroInfo.annotationKey) {
+              pdfState.targetAnnotationKey = zoteroInfo.annotationKey;
+            }
+
+            leaf.setViewState({ type: EXTERNAL_PDF_VIEW_TYPE, active: true, state: pdfState }).then(() => {
+              if (leaf) this.app.workspace.revealLeaf(leaf);
+            });
+          })();
+
+          // Return a dummy window object to satisfy the signature if needed
+          return null;
+        }
+      }
+      return originalWindowOpen.call(window, url, target, features);
+    };
+
+    if (this.settings.incuratorEnabled) {
+      await this.ensureIncuratorBackend();
+    }
+
     // ── Start MCP servers ──
-    if (this.settings.mcpServers.length > 0) {
+    const otherMcpServers = this.settings.mcpServers.filter(
+      (server) => !isIncuratorMcpServer(server)
+    );
+    if (otherMcpServers.length > 0) {
       // Delay MCP startup to not block plugin load
       setTimeout(() => {
-        this.mcpManager.startAll(this.settings.mcpServers);
+        this.mcpManager.startAll(otherMcpServers);
       }, 2000);
     }
 
@@ -323,6 +577,11 @@ export default class ObsidianAIAgent extends Plugin {
 
   async onunload(): Promise<void> {
     console.log("Unloading Obsidian AI Agent plugin");
+    this.captureActiveMarkdownScrollPosition();
+    if (this.scrollPositionSaveTimer !== null) {
+      window.clearTimeout(this.scrollPositionSaveTimer);
+      this.scrollPositionSaveTimer = null;
+    }
 
     // Close inline prompt
     this.inlinePrompt.close();
@@ -336,6 +595,128 @@ export default class ObsidianAIAgent extends Plugin {
     // Save final settings and session data
     await this.saveData(this.settings);
     await this.saveSessionData();
+  }
+
+  private async refreshIngestStatusBar(): Promise<void> {
+    if (!this.ingestStatusBar || !this.settings.incuratorEnabled) return;
+    try {
+      const result: any = await this.incuratorClient.tryTool(["check_ingest_status"], {});
+      if (!result) return;
+      if (result.idle) {
+        const done = result.done_today ?? 0;
+        this.ingestStatusBar.setText(done > 0 ? `✓ ${done} done today` : "✓ Incurator idle");
+      } else {
+        const r = result.running?.length ?? 0;
+        const q = result.queued?.length ?? 0;
+        this.ingestStatusBar.setText(`⚡ ${r} running / ${q} queued`);
+      }
+    } catch {
+      // MCP not connected — keep last text
+    }
+  }
+
+  private captureActiveMarkdownScrollPosition(): void {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view?.file || view.getMode() !== "source") return;
+
+    const scrollInfo = view.editor.getScrollInfo();
+    const cursor = view.editor.getCursor();
+    const now = Date.now();
+    const position = {
+      scroll: scrollInfo.top,
+      line: cursor.line,
+      ch: cursor.ch,
+    };
+    this.settings.fileScrollPositions = upsertFileScrollPosition(
+      this.settings.fileScrollPositions || {},
+      view.file.path,
+      position,
+      100,
+      now
+    );
+    this.settings.lastMarkdownScrollPosition = {
+      path: view.file.path,
+      ...position,
+      updatedAt: now,
+    };
+    this.scheduleScrollPositionSave();
+  }
+
+  private restoreLastMarkdownScrollPosition(): void {
+    const last = normalizeLastMarkdownScrollPosition(
+      this.settings.lastMarkdownScrollPosition
+    );
+    if (!last) return;
+    this.restoreMarkdownScrollPosition(last.path, last);
+  }
+
+  private restoreMarkdownScrollPosition(
+    path: string,
+    position?: ReturnType<typeof normalizeFileScrollPosition>
+  ): void {
+    const pos =
+      position ||
+      normalizeFileScrollPosition(this.settings.fileScrollPositions?.[path]);
+    if (!pos) return;
+
+    const delays = [50, 150, 350, 750, 1200];
+    for (const delay of delays) {
+      window.setTimeout(() => {
+        const view = this.findMarkdownView(path);
+        if (!view || view.getMode() !== "source") return;
+        view.editor.setCursor({ line: pos.line, ch: pos.ch });
+        view.editor.scrollTo(0, pos.scroll);
+      }, delay);
+    }
+  }
+
+  private findMarkdownView(path: string): MarkdownView | null {
+    const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (active?.file?.path === path) return active;
+
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      if (leaf.view instanceof MarkdownView && leaf.view.file?.path === path) {
+        return leaf.view;
+      }
+    }
+    return null;
+  }
+
+  private scheduleScrollPositionSave(): void {
+    if (this.scrollPositionSaveTimer !== null) return;
+    this.scrollPositionSaveTimer = window.setTimeout(async () => {
+      this.scrollPositionSaveTimer = null;
+      await this.saveData(this.settings);
+    }, 500);
+  }
+
+  async setIncuratorBackendEnabled(enabled: boolean): Promise<void> {
+    this.settings.incuratorEnabled = enabled;
+    if (enabled) {
+      await this.ensureIncuratorBackend();
+    } else {
+      const incuratorServers = this.settings.mcpServers.filter(isIncuratorMcpServer);
+      for (const server of incuratorServers) {
+        server.enabled = false;
+        await this.mcpManager.shutdown(server.name);
+      }
+      await this.saveSettings();
+    }
+  }
+
+  async ensureIncuratorBackend(): Promise<void> {
+    const result = ensureIncuratorMcpServer(
+      this.settings.mcpServers,
+      this.vaultRoot,
+      this.settings.incuratorMcpCommand,
+      this.settings.incuratorMcpArgs
+    );
+    this.settings.mcpServers = result.servers;
+    if (result.changed) {
+      await this.saveSettings();
+    }
+    await this.mcpManager.start(result.server);
+    await this.refreshAvailableModels();
   }
 
   // ── Settings ────────────────────────────────────────────────
@@ -368,10 +749,7 @@ export default class ObsidianAIAgent extends Plugin {
     try {
       const raw = await this.app.vault.adapter.read(this._sessionsPath);
       const parsed = JSON.parse(raw) as Partial<SessionData>;
-      this.sessionData = {
-        chatSessions: parsed.chatSessions ?? [],
-        activeChatSessionId: parsed.activeChatSessionId,
-      };
+      this.sessionData = normalizeSessionData(parsed);
     } catch {
       // File missing or unreadable — check legacy data.json for migration
       const raw = (await this.loadData()) || {};
@@ -393,10 +771,46 @@ export default class ObsidianAIAgent extends Plugin {
   }
 
   async saveSessionData(): Promise<void> {
+    let sessionData = this.sessionData;
+    try {
+      const raw = await this.app.vault.adapter.read(this._sessionsPath);
+      const remote = normalizeSessionData(JSON.parse(raw) as Partial<SessionData>);
+      sessionData = mergeSessionData(this.sessionData, remote);
+      this.sessionData = sessionData;
+    } catch {
+      // Missing or unreadable sessions.json: write the current in-memory session state.
+    }
     await this.app.vault.adapter.write(
       this._sessionsPath,
-      JSON.stringify(this.sessionData, null, 2)
+      JSON.stringify(sessionData, null, 2)
     );
+  }
+
+  private async syncDeviceRegistryFromSyncthing(): Promise<void> {
+    if (!this.vaultRoot) return;
+    try {
+      const snapshot = readSyncthingSnapshot(this.vaultRoot);
+      if (snapshot.devices.length === 0 && snapshot.folders.length === 0) return;
+
+      let existing: Partial<DeviceRegistry> | null = null;
+      try {
+        const raw = await this.app.vault.adapter.read(".curator/devices.json");
+        existing = JSON.parse(raw) as Partial<DeviceRegistry>;
+      } catch {
+        existing = null;
+      }
+
+      const registry = mergeDeviceRegistry(existing, snapshot, this.settings);
+      if (!(await this.app.vault.adapter.exists(".curator"))) {
+        await this.app.vault.adapter.mkdir(".curator");
+      }
+      await this.app.vault.adapter.write(
+        ".curator/devices.json",
+        `${JSON.stringify(registry, null, 2)}\n`
+      );
+    } catch (err) {
+      console.warn("[Incurator] Device registry auto-sync failed:", err);
+    }
   }
 
   private migrateUnavailableModelDefaults(): boolean {
@@ -418,14 +832,40 @@ export default class ObsidianAIAgent extends Plugin {
       "claude-haiku-4-5-20251001-old",
     ]);
 
-    if (
-      unavailableDefaults.has(this.settings.model) ||
-      !getModelOption(this.settings.provider, this.settings.model)
-    ) {
-      this.settings.model = DEFAULT_MODELS[this.settings.provider];
+    const knownModel = getModelOption(
+      this.availableModels,
+      this.settings.provider,
+      this.settings.model
+    );
+    if (unavailableDefaults.has(this.settings.model) || (!this.settings.model && !knownModel)) {
+      const backendDefault = getDefaultModel(this.availableModels, this.settings.provider);
+      this.settings.model = backendDefault || "";
       return true;
     }
     return false;
+  }
+
+  getAvailableModels(): ModelCatalogue {
+    return this.availableModels;
+  }
+
+  async refreshAvailableModels(): Promise<void> {
+    if (!this.incuratorClient?.available) return;
+    const catalogue = await this.incuratorClient.getAvailableModels();
+    if (Object.keys(catalogue).length === 0) return;
+    this.availableModels = catalogue;
+    if (!this.settings.model) {
+      this.settings.model = getDefaultModel(catalogue, this.settings.provider);
+      await this.saveSettings();
+      return;
+    }
+    if (!getModelOption(catalogue, this.settings.provider, this.settings.model)) {
+      const fallback = getDefaultModel(catalogue, this.settings.provider);
+      if (fallback) {
+        this.settings.model = fallback;
+        await this.saveSettings();
+      }
+    }
   }
 
   // ── Active Context ──────────────────────────────────────────
@@ -616,6 +1056,12 @@ export default class ObsidianAIAgent extends Plugin {
   }
 
   private getLeafFile(leaf: WorkspaceLeaf): { path: string; basename: string } | null {
+    if (leaf.view.getViewType() === EXTERNAL_PDF_VIEW_TYPE) {
+      const state = typeof (leaf.view as any).getState === "function" ? (leaf.view as any).getState() : null;
+      if (state && state.path) {
+        return { path: state.path, basename: state.name || "External PDF" };
+      }
+    }
     const view = leaf.view as unknown as {
       file?: { path: string; basename: string };
     };

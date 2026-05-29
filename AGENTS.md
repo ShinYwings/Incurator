@@ -40,7 +40,16 @@ Before implementing:
 - If a simpler approach exists, say so. Push back when warranted.
 - If something is unclear, stop. Name what's confusing. Ask.
 
-### 2. Simplicity First
+### 2. Investigate User Workspace Before Proposing Solutions
+
+**Never assume you know the user's workflow or project structure without checking.**
+
+- Always use `grep_search`, `find`, or examine configuration files (e.g., `data.json`, `.obsidian/plugins`, etc.) to understand the user's current setup.
+- If the user relies on a third-party plugin or specific templates, locate them in the filesystem and read how they are configured before proposing changes.
+- Avoid phrases like "you should" or making assumptions about their taxonomy (like "books vs papers"). Look at their actual folder structure first.
+- Tailor your architectural plans to exactly match what the user is already doing in their vault/workspace.
+
+### 3. Simplicity First
 
 **Minimum code that solves the problem. Nothing speculative.**
 
@@ -104,6 +113,45 @@ work") require constant clarification.
 rewrites due to overcomplication, and clarifying questions come before
 implementation rather than after mistakes.
 
+### 6. Anti-Compression & Detail Preservation (Gemini Specific)
+
+**Note: This rule specifically mitigates a Gemini length-matching bias, but serves as a general reminder for all agents.**
+
+**Never perform "lossy compression" on documentation. Do not artificially bound your output length.**
+
+When editing existing files (especially specs, plans, and research notes):
+- **Break the Length Limit**: If you add new concepts to a 100-line file, expand it to 150 or 200 lines. DO NOT summarize the original 100 lines into 50 lines to fit the new content.
+- **Additive Editing**: Treat existing architectural details as sacred. Add new sections at the bottom or expand existing ones. Never replace detailed paragraphs with bulleted summaries.
+- **Extreme Detail**: When explaining logic or architecture, write exhaustively. Do not use abstract buzzwords to compress complex mechanisms.
+
+## Core Rule: Documentation & Test Mandate
+
+**Every code change must have matching documentation and test coverage. Skipping either is incomplete work.**
+
+### Documentation Requirements
+
+- If you add or change behavior, find every doc file that describes that behavior and update it.
+- If no doc exists for the changed behavior, create one (or add a section to the closest guide in `docs/guides/`).
+- Implementation and docs must always be in sync. A PR that changes code without updating docs is not done.
+- This applies to: CLI commands, MCP tools, plugin features, config fields, env vars, and workflow behaviors.
+
+Concrete examples:
+
+- Adding a new MCP tool → add it to `docs/guides/MCP_USER_GUIDE.md` and `MCP_USER_GUIDE_EN.md`
+- Changing how `wiki init` works → update `docs/guides/USER_GUIDE.md` and `WORKFLOW.md`
+- Adding a plugin setting → add it to `docs/guides/PLUGIN_GUIDE.md` and `PLUGIN_GUIDE_EN.md`
+- Changing `.stignore` behavior → update `docs/guides/SYNC_IGNORE_GUIDE.md`
+
+### Test Requirements
+
+- Backend changes (Python): write or update a `pytest` test in `backend/tests/`.
+- Plugin changes (TypeScript): write or update a `.test.ts` test.
+- CLI and MCP changes must pass testbed smoke validation (`VAULT_ROOT=testbed wiki <command>`).
+- Do not mark a task complete until tests pass and docs are updated.
+- If a test is impossible due to a known blocker (LLM unavailable, external dependency), document the gap explicitly.
+
+---
+
 ## Core Rule: Testbed-Driven Development
 
 All feature additions, bug fixes, migrations, and system rule changes must be validated in the `testbed/` vault which simulates a real environment. 
@@ -145,15 +193,51 @@ VAULT_ROOT=testbed wiki query "Summarize the core concepts in this vault."
 
 ## Architecture Source Of Truth
 
-When discussing or changing the system architecture, use these areas as the source-of-truth:
+The **entire `docs/` tree is source of truth**. Agents must read the relevant
+docs before implementing or changing behavior, not just the spec files.
+
+When discussing or changing the system architecture, consult ALL of:
 
 - **Static Specs**: `docs/spec/` for system contracts and schemas.
     - `docs/spec/curator_schema/` for Curator DAG schema contracts.
     - `docs/spec/system_behavior/` for Curator system behavior.
-- **Dynamic Planning**: `docs/plans/` for implementation context.
+    - `docs/spec/plugin_schema/` for Obsidian plugin API contracts.
+- **User Guides**: `docs/guides/` for user-facing behavior and feature descriptions.
+    - Guides are authoritative for CLI commands, MCP tools, plugin features,
+      config fields, env vars, and workflow behaviors.
+    - If code behavior diverges from a guide, both are wrong until reconciled.
+      Do not treat guides as subordinate to specs — fix both together.
+- **Dynamic Planning**: `docs/plans/` for implementation sequencing and context.
     - `docs/plans/update_plan/` for migration and feature implementation plans.
+    - Plans describe *how* to implement; specs describe *what* to implement.
+      When they conflict, specs and guides win over plans.
 
 Treat older root-level specs as historical unless the user explicitly points to them for comparison.
+
+### Docs-First Development
+
+Before implementing any behavior change, the agent MUST:
+
+1. Read the relevant spec in `docs/spec/` to understand the schema and behavior contract.
+2. Read the relevant guide in `docs/guides/` to understand the expected user experience.
+3. Read any relevant plan in `docs/plans/` to understand implementation sequencing.
+4. After implementing, update ALL three areas that describe the changed behavior.
+
+### Spec-First Version Development
+
+Before implementing any new versioned architecture work (for example v0.2.1,
+v0.2.2, or a new DAG/schema/MCP behavior change), the agent MUST first create or
+update the matching `docs/spec/` contract:
+
+- Schema changes go in `docs/spec/curator_schema/SCHEMA_vX.Y.Z.md`.
+- Runtime behavior changes go in `docs/spec/system_behavior/incurator_vX.Y.Z.md`.
+- Plugin API changes go in `docs/spec/plugin_schema/PLUGIN_SCHEMA_vX.Y.Z.md`.
+- `docs/plans/update_plan/` may then reference those spec files as implementation
+  plans, but plans alone are not sufficient ground truth.
+- If code has already been written before the spec exists, stop and add the
+  missing spec and guide entries before continuing implementation.
+- Tests should include a lightweight guard when practical so version plans cannot
+  drift away from the required `docs/spec/` contract.
 
 ## v0.2.0 Invariants
 

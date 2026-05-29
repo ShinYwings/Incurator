@@ -259,23 +259,40 @@ export class MCPClient {
 export class MCPManager {
   private clients = new Map<string, MCPClient>();
 
+  async start(config: MCPServerConfig): Promise<void> {
+    if (!config.enabled || !config.command) return;
+    const existing = this.clients.get(config.name);
+    if (existing) {
+      await existing.shutdown();
+      this.clients.delete(config.name);
+    }
+
+    try {
+      const client = new MCPClient(config);
+      await client.start();
+      this.clients.set(config.name, client);
+      new Notice(`MCP server "${config.name}" started`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`Failed to start MCP server ${config.name}:`, msg);
+      new Notice(`MCP server "${config.name}" failed: ${msg}`);
+    }
+  }
+
   /**
    * Start all enabled MCP servers.
    */
   async startAll(configs: MCPServerConfig[]): Promise<void> {
     for (const config of configs) {
-      if (!config.enabled || !config.command) continue;
-      try {
-        const client = new MCPClient(config);
-        await client.start();
-        this.clients.set(config.name, client);
-        new Notice(`MCP server "${config.name}" started`);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`Failed to start MCP server ${config.name}:`, msg);
-        new Notice(`MCP server "${config.name}" failed: ${msg}`);
-      }
+      await this.start(config);
     }
+  }
+
+  async shutdown(serverName: string): Promise<void> {
+    const client = this.clients.get(serverName);
+    if (!client) return;
+    await client.shutdown();
+    this.clients.delete(serverName);
   }
 
   /**

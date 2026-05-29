@@ -30,6 +30,9 @@ INTERNAL_DIR = ".curator"
 # Collections data-plane inside .curator/
 DEFAULT_COLLECTIONS_DIR = ".curator/Collections"
 
+# Transient pipeline workspace for async/background v0.2.1 jobs.
+STAGING_DIR = ".curator/staging"
+
 # Obsidian vault top-level directories (README.md topology §2)
 VAULT_TOPOLOGY = (
     "00_System",       # Scripts & Templates
@@ -93,6 +96,11 @@ class WikiPaths:
     def collections(self) -> Path:
         """`.curator/Collections/` — the DAG knowledge lake."""
         return self.root / (self.collections_dir_override or DEFAULT_COLLECTIONS_DIR)
+
+    @property
+    def staging(self) -> Path:
+        """`.curator/staging/` — transient files for background ingest jobs."""
+        return self.root / STAGING_DIR
 
     # Backward-compatible alias so existing callers of `paths.wiki` still work
     @property
@@ -196,16 +204,19 @@ DEFAULT_CONFIG: dict = {
         # --- Ollama settings ---
         "model": "qwen2.5:7b",
         "host": "http://localhost:11434",
-        # --- Gemini settings ---
-        "gemini_flash_model": "gemini-3.1-flash-lite-preview",
-        "gemini_think_model": "gemini-3.1-pro-preview",
+        # --- Antigravity settings (Gemini-family cloud models via agy) ---
+        "antigravity_flash_model": "gemini-3.1-flash-lite-preview",
+        "antigravity_think_model": "gemini-3.1-pro-preview",
         # thinking mode — used for L2 Fragment extraction (slower, higher quality)
         "temperature": 0.3,
         "thinking": True,
-        # primary: 'ollama' | 'cloud' | 'claude-code' | 'gemini-cli' | ''
+        # v0.2.1: create L1 Contexts from parser structure immediately, then
+        # queue slower L2/L3 extraction in the background.
+        "instant_l1": True,
+        # primary: 'ollama' | 'claude-code' | 'antigravity-cli' | ''
         #   ''  → legacy auto/provider field takes effect
         "primary": "",
-        # fallback: 'ollama' | 'cloud' | 'claude-code' | 'gemini-cli' | ''
+        # fallback: 'ollama' | 'claude-code' | 'antigravity-cli' | ''
         #   explicit failover backend; '' = use legacy hardcoded fallback logic
         "fallback": "",
         # --- Cloud provider selection ---
@@ -275,6 +286,28 @@ def get_curator_persona(config: dict) -> dict:
     return config.get("persona") or DEFAULT_CONFIG["persona"]
 
 
+def _migrate_legacy_llm_keys(config: dict) -> dict:
+    """Map v0.2.0 Gemini CLI keys to v0.2.1 Antigravity keys in memory."""
+    llm_cfg = config.get("llm")
+    if not isinstance(llm_cfg, dict):
+        return config
+    if llm_cfg.get("primary") == "gemini-cli":
+        llm_cfg["primary"] = "antigravity-cli"
+    if llm_cfg.get("fallback") == "gemini-cli":
+        llm_cfg["fallback"] = "antigravity-cli"
+    legacy_map = {
+        "gemini_flash_model": "antigravity_flash_model",
+        "gemini_think_model": "antigravity_think_model",
+    }
+    for old_key, new_key in legacy_map.items():
+        default_value = DEFAULT_CONFIG.get("llm", {}).get(new_key)
+        if old_key in llm_cfg and (
+            new_key not in llm_cfg or llm_cfg.get(new_key) == default_value
+        ):
+            llm_cfg[new_key] = llm_cfg[old_key]
+    return config
+
+
 def get_global_config_dir() -> Path:
     """Get cross-platform global config directory for macOS and Linux."""
     import sys
@@ -322,7 +355,9 @@ def set_last_root(root: Path) -> None:
 
 def load_config(paths: WikiPaths) -> dict:
     """Load the Curator's config.yml, falling back to defaults for missing keys."""
-    merged = dict(DEFAULT_CONFIG)
+    import copy
+
+    merged = _migrate_legacy_llm_keys(copy.deepcopy(DEFAULT_CONFIG))
 
     # 1. Load from global config file if it exists
     global_cfg_file = get_global_config_dir() / "config.yml"
@@ -351,7 +386,7 @@ def load_config(paths: WikiPaths) -> dict:
         except Exception:
             pass
 
-    return merged
+    return _migrate_legacy_llm_keys(merged)
 
 
 def paths_from_config(root: Path, config: dict | None = None) -> WikiPaths:

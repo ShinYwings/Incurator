@@ -6,7 +6,8 @@ import {
   Notice,
   type ViewStateResult,
 } from "obsidian";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync } from "fs";
+import { basename, join } from "path";
 import type {
   PdfOutlineItem as ContextPdfOutlineItem,
   PdfPageContext,
@@ -24,6 +25,8 @@ import {
   layoutPdfJsTextItems,
   type RawPdfTextItem,
 } from "../context/pdfTextLayout";
+import { buildZoteroAnnotationBoxStyle } from "./externalPdfAnnotationStyle";
+import { buildSyncedExternalPdfState } from "./externalPdfState";
 
 export const EXTERNAL_PDF_VIEW_TYPE = "ai-agent-external-pdf";
 export const EXTERNAL_PDF_CONTEXT_EVENT = "ai-agent-external-pdf-context";
@@ -36,6 +39,8 @@ export interface ExternalPdfState extends Record<string, unknown> {
   darkMode?: boolean;
   tocOpen?: boolean;
   currentPage?: number;
+  zoteroAttachmentKey?: string;
+  targetAnnotationKey?: string;
 }
 
 interface ExternalPdfDoc {
@@ -155,6 +160,45 @@ export function registerExternalPdf(
   return { docId: id, name: doc.name, path };
 }
 
+/**
+ * Register an external PDF by filesystem path only (no File object required).
+ * Used for Zotero integration where the absolute path is known but no drag-drop occurred.
+ */
+export function registerExternalPdfByPath(filePath: string, attachmentKey?: string): ExternalPdfState {
+  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const name = basename(filePath);
+  const doc: ExternalPdfDoc = { id, name, path: filePath };
+  externalPdfDocs.set(id, doc);
+  persistDocs(externalPdfDocs);
+  return { docId: id, name, path: filePath, zoteroAttachmentKey: attachmentKey };
+}
+
+/**
+ * Resolve a Zotero attachment key to its PDF file path.
+ * Scans `<zoteroBasePath>/storage/<attachmentKey>/` for the first *.pdf file.
+ * Returns undefined if the key cannot be resolved.
+ */
+import { homedir } from "os";
+
+export function resolveZoteroAttachmentPath(
+  zoteroBasePath: string,
+  attachmentKey: string
+): string | undefined {
+  try {
+    let basePath = zoteroBasePath;
+    if (basePath.startsWith("~")) {
+      basePath = join(homedir(), basePath.slice(1));
+    }
+    const storageDir = join(basePath, "storage", attachmentKey);
+    if (!existsSync(storageDir)) return undefined;
+    const files = readdirSync(storageDir);
+    const pdf = files.find((f) => f.toLowerCase().endsWith(".pdf"));
+    return pdf ? join(storageDir, pdf) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class ExternalPdfView extends ItemView {
   private docId = "";
   private docState: ExternalPdfState | null = null;
@@ -211,7 +255,8 @@ export class ExternalPdfView extends ItemView {
   private zoomAnchorContentY?: number;
   private zoomAnchorOldZoom?: number;
 
-  constructor(leaf: WorkspaceLeaf) {
+  private zoteroAnnotations: any[] = [];
+  constructor(leaf: WorkspaceLeaf, private plugin: any) {
     super(leaf);
   }
 
@@ -246,6 +291,8 @@ export class ExternalPdfView extends ItemView {
             darkMode: state.darkMode === true,
             tocOpen: state.tocOpen === true,
             currentPage: this.readNumberState(state.currentPage, 1),
+            zoteroAttachmentKey: state.zoteroAttachmentKey,
+            targetAnnotationKey: state.targetAnnotationKey,
           }
         : null;
     this.zoom = this.docState?.zoom ?? 1;
@@ -519,7 +566,7 @@ export class ExternalPdfView extends ItemView {
       const rect = overlay.getBoundingClientRect();
       startX = e.clientX - rect.left;
       startY = e.clientY - rect.top;
-      
+
       box.style.display = "block";
       box.style.left = `${startX}px`;
       box.style.top = `${startY}px`;
@@ -573,7 +620,7 @@ export class ExternalPdfView extends ItemView {
   private extractCanvasRegion(pageEl: HTMLElement, left: number, top: number, width: number, height: number, onSnip: (base64: string) => void): void {
     const canvas = pageEl.querySelector("canvas");
     if (!canvas) return;
-    
+
     const scaleX = canvas.width / pageEl.clientWidth;
     const scaleY = canvas.height / pageEl.clientHeight;
 
@@ -642,7 +689,7 @@ export class ExternalPdfView extends ItemView {
         if (!file) return;
         const rawPath = (file as unknown as { path?: string }).path;
         const path = typeof rawPath === "string" && rawPath.length > 0 ? rawPath : undefined;
-        
+
         externalPdfDocs.set(this.docId, {
           id: this.docId,
           name: file.name,
@@ -735,7 +782,7 @@ export class ExternalPdfView extends ItemView {
       this.renderToolbar(container);
       const pagesEl = container.createDiv("ai-agent-external-pdf-pages");
       this.pagesEl = pagesEl;
-      
+
       // Determine a stable reference width by checking the first few pages and the current page,
       // because the cover page (Page 1) is often narrower than the rest of the document.
       let maxW = 0;
@@ -757,7 +804,28 @@ export class ExternalPdfView extends ItemView {
       this.startDocumentTextIndex(token, pdf);
       container.onwheel = (e: WheelEvent) => this.handleWheelZoom(e);
 
-      // 3. Create placeholder divs for ALL pages (dimensions only, no canvas yet).
+
+        // Fetch Zotero annotations if we have an attachment key
+        if (this.docState?.zoteroAttachmentKey && this.plugin?.incuratorClient) {
+          try {
+            this.zoteroAnnotations = await this.plugin.incuratorClient.getZoteroAnnotations(this.docState.zoteroAttachmentKey);
+          } catch (e) {
+            console.warn("Failed to fetch Zotero annotations", e);
+          }
+        }
+
+        let savedPage = this.currentPage;
+
+        // Overwrite savedPage with the exact pageIndex from the target annotation
+        if (this.docState?.targetAnnotationKey && this.zoteroAnnotations.length > 0) {
+          const targetAnn = this.zoteroAnnotations.find(a => a.key === this.docState!.targetAnnotationKey);
+          if (targetAnn && targetAnn.position && typeof targetAnn.position.pageIndex === 'number') {
+            savedPage = targetAnn.position.pageIndex + 1;
+            this.currentPage = savedPage;
+          }
+        }
+
+        // 3. Create placeholder divs for ALL pages (dimensions only, no canvas yet).
       //    This reserves correct scroll space without rendering every page.
       for (let i = 1; i <= pdf.numPages; i++) {
         if (token !== this.renderToken) return;
@@ -773,7 +841,7 @@ export class ExternalPdfView extends ItemView {
       }
 
       // 4. Render current page first for immediate display, then neighbors in background
-      const savedPage = this.currentPage;
+
       await this.renderPagesInRange(token, savedPage, savedPage);
       if (token !== this.renderToken) return;
       this.notifyContextChanged();
@@ -784,6 +852,36 @@ export class ExternalPdfView extends ItemView {
       setTimeout(() => {
         if (token !== this.renderToken) return;
         this.goToPage(savedPage, "auto");
+
+        // Scroll to specific annotation if requested
+        if (this.docState?.targetAnnotationKey && this.pagesEl) {
+          const annEl = this.pagesEl.querySelector<HTMLElement>(`[data-annotation-key="${this.docState.targetAnnotationKey}"]`);
+          const scrollContainer = this.containerEl.children[1] as HTMLElement;
+          if (annEl && scrollContainer) {
+            const scrollToAnnotation = () => {
+              if (scrollContainer.clientHeight === 0) {
+                setTimeout(scrollToAnnotation, 50);
+                return;
+              }
+              annEl.scrollIntoView({ block: "center", behavior: "instant" });
+
+              // Flash effect to highlight it
+              annEl.style.transition = "outline-color 0.5s ease, box-shadow 0.5s ease";
+              const originalOutline = annEl.style.outline;
+              const originalBoxShadow = annEl.style.boxShadow;
+              annEl.style.outline = "3px solid rgba(255, 100, 100, 0.95)";
+              annEl.style.boxShadow = "0 0 0 4px rgba(255, 100, 100, 0.25)";
+              setTimeout(() => {
+                annEl.style.outline = originalOutline;
+                annEl.style.boxShadow = originalBoxShadow;
+              }, 1000);
+            };
+            scrollToAnnotation();
+          }
+        }
+
+        // Start lazy rendering on scroll
+
         setTimeout(() => {
           if (token !== this.renderToken) return;
           container.onscroll = () => {
@@ -792,7 +890,7 @@ export class ExternalPdfView extends ItemView {
             this.onScrollLazyRender(token);
           };
         }, 200);
-      }, 50);
+      }, 300);
     } catch (err: unknown) {
       if (token !== this.renderToken) return;
       container.empty();
@@ -922,11 +1020,62 @@ export class ExternalPdfView extends ItemView {
         if (itemWidth > 0) {
           const targetWidth = itemWidth * scale;
           span.style.width = `${targetWidth}px`;
-          
+
           const measuredWidth = span.offsetWidth;
           if (measuredWidth > 0 && Math.abs(measuredWidth - targetWidth) > 0.5) {
             const scaleX = targetWidth / measuredWidth;
             span.style.transform = `scaleX(${scaleX})`;
+          }
+        }
+      }
+
+      // 3. Render Zotero Annotations for this page
+      const pageZoteroAnnotations = this.zoteroAnnotations.filter(
+        (a) => a.position && a.position.pageIndex === pageNum - 1
+      );
+      if (pageZoteroAnnotations.length > 0) {
+        let annotLayer = pageEl.querySelector<HTMLElement>(".zotero-annotation-layer");
+        if (!annotLayer) {
+          annotLayer = pageEl.createDiv("zotero-annotation-layer");
+          annotLayer.style.position = "absolute";
+          annotLayer.style.top = "0";
+          annotLayer.style.left = "0";
+          annotLayer.style.width = "100%";
+          annotLayer.style.height = "100%";
+          annotLayer.style.pointerEvents = "none";
+          annotLayer.style.zIndex = "1";
+        } else {
+          annotLayer.empty();
+        }
+
+        for (const ann of pageZoteroAnnotations) {
+          if (!ann.position.rects || !Array.isArray(ann.position.rects)) continue;
+
+          for (const rect of ann.position.rects) {
+            // Zotero rect format: [x1, y1, x2, y2]
+            const [x1, y1, x2, y2] = rect;
+            // Need to convert bottom-left PDF coordinates to viewport coordinates
+            const [vx1, vy1] = viewport.convertToViewportPoint(x1, y1);
+            const [vx2, vy2] = viewport.convertToViewportPoint(x2, y2);
+
+            const minX = Math.min(vx1, vx2);
+            const minY = Math.min(vy1, vy2);
+            const w = Math.abs(vx1 - vx2);
+            const h = Math.abs(vy1 - vy2);
+
+            const div = annotLayer.createDiv("zotero-highlight");
+            div.setAttribute("data-annotation-key", ann.key);
+            div.style.position = "absolute";
+            div.style.left = `${minX}px`;
+            div.style.top = `${minY}px`;
+            div.style.width = `${w}px`;
+            div.style.height = `${h}px`;
+
+            const boxStyle = buildZoteroAnnotationBoxStyle(ann.color);
+            div.style.border = boxStyle.border;
+            div.style.backgroundColor = boxStyle.backgroundColor;
+            div.style.boxShadow = boxStyle.boxShadow;
+            div.style.boxSizing = "border-box";
           }
         }
       }
@@ -1028,7 +1177,7 @@ export class ExternalPdfView extends ItemView {
     }
     this.isLazyRendering = true;
     this.lazyRenderDirty = false;
-    
+
     try {
       await this.renderPagesInRange(
         token,
@@ -1171,7 +1320,7 @@ export class ExternalPdfView extends ItemView {
     // 1. Find the view header elements
     const titleContainer = this.containerEl.querySelector(".view-header-title-container") as HTMLElement;
     const titleEl = this.containerEl.querySelector(".view-header-title") as HTMLElement;
-    
+
     if (titleEl) {
       titleEl.style.display = "none"; // Hide default title text ("External PDF")
     }
@@ -1179,10 +1328,10 @@ export class ExternalPdfView extends ItemView {
     if (titleContainer) {
       // Remove any existing toolbar we added before to avoid duplicates
       titleContainer.querySelector(".ai-agent-external-pdf-toolbar")?.remove();
-      
+
       const toolbar = titleContainer.createDiv("ai-agent-external-pdf-toolbar");
       toolbar.setAttribute("aria-label", "PDF controls");
-      
+
       const tocBtn = toolbar.createDiv({
         cls: "clickable-icon ai-agent-pdf-tool-btn",
         attr: { "aria-label": "Table of contents" },
@@ -1512,7 +1661,7 @@ export class ExternalPdfView extends ItemView {
     let anchorTopBefore = 0;
     let offsetWithinPage = 0;
     let anchorEl: HTMLElement | null = null;
-    
+
     if (scrollContainer && this.pagesEl) {
       anchorEl = this.pagesEl.querySelector<HTMLElement>(
         `.pdf-page[data-page-number="${this.currentPage}"]`
@@ -1542,7 +1691,7 @@ export class ExternalPdfView extends ItemView {
         const factor = this.zoom / this.zoomAnchorOldZoom;
         scrollContainer.scrollLeft = this.zoomAnchorContentX * factor - this.zoomAnchorMouseX;
         scrollContainer.scrollTop = this.zoomAnchorContentY * factor - this.zoomAnchorMouseY;
-        
+
         // Reset anchor info
         this.zoomAnchorOldZoom = undefined;
         this.zoomAnchorMouseX = undefined;
@@ -1638,7 +1787,21 @@ export class ExternalPdfView extends ItemView {
     const pageEl = this.pagesEl.querySelector<HTMLElement>(
       `.pdf-page[data-page-number="${bounded}"]`
     );
-    pageEl?.scrollIntoView({ block: "start", behavior });
+
+    if (pageEl) {
+      const scrollContainer = this.containerEl.children[1] as HTMLElement;
+      if (scrollContainer) {
+        // If container is not yet visible (e.g. tab is switching), retry shortly
+        if (scrollContainer.clientHeight === 0) {
+          setTimeout(() => this.goToPage(pageNum, behavior), 50);
+          return;
+        }
+        // Exactly snap to the page using offsetTop (most reliable)
+        scrollContainer.scrollTop = pageEl.offsetTop - 16;
+      } else {
+        pageEl.scrollIntoView({ block: "start", behavior: "instant" });
+      }
+    }
     if (this.pageInputEl) this.pageInputEl.value = String(bounded);
     this.currentPage = bounded;
     this.syncState();
@@ -1706,18 +1869,18 @@ export class ExternalPdfView extends ItemView {
   }
 
   private syncState(): void {
-    this.docState = {
+    this.docState = buildSyncedExternalPdfState({
       docId: this.docId,
-      name:
-        this.docState?.name ||
-        externalPdfDocs.get(this.docId)?.name ||
-        "External PDF",
+      name: this.docState?.name,
+      fallbackName: externalPdfDocs.get(this.docId)?.name || "External PDF",
       path: this.docState?.path,
       zoom: this.zoom,
       darkMode: this.darkMode,
       tocOpen: this.tocOpen,
       currentPage: this.currentPage,
-    };
+      zoteroAttachmentKey: this.docState?.zoteroAttachmentKey,
+      targetAnnotationKey: this.docState?.targetAnnotationKey,
+    });
     this.app.workspace.requestSaveLayout();
   }
 

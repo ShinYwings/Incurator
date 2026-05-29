@@ -6,7 +6,6 @@ import {
   TFile,
   Notice,
   Menu,
-  Modal,
   App,
   MarkdownView,
 } from "obsidian";
@@ -24,15 +23,16 @@ import { IngestDestinationModal } from "./ingestDestinationModal";
 import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
 import { normalizeLatexDelimiters, truncateToLength } from "../utils/textUtils";
 import { inferIngestDestination } from "../utils/pathUtils";
+import { hashFileSha256 } from "../utils/fileHash";
 import { DiffViewer } from "./diffViewer";
+import { renderCuratorQueryTrace } from "./incuratorQueryTrace";
 import {
-  DEFAULT_MODELS,
-  MODEL_OPTIONS,
   type ChatMessage,
   type ChatMode,
   type ChatSession,
   type CodexReasoningEffort,
   type ContextRef,
+  type CuratorQueryResult,
   type IncuratorSourceStatus,
   type LLMMessage,
   type LLMContentPart,
@@ -41,6 +41,7 @@ import {
   type PdfRagHit,
   type PdfWindowPage,
   type StreamChunk,
+  getDefaultModel,
   getModelOption,
   modelSupportsVision,
 } from "../types";
@@ -70,9 +71,11 @@ export class ChatSidebarView extends ItemView {
   private inputEl!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
   private contextChipsContainer!: HTMLElement;
-  private providerSelectEl!: HTMLSelectElement;
   private modelSelectEl!: HTMLSelectElement;
   private sessionBtn!: HTMLButtonElement;
+  private activeSessionTitleEl!: HTMLElement;
+  private sessionDrawerEl!: HTMLElement;
+  private sessionSearchEl!: HTMLInputElement;
   private modeSelectEl!: HTMLSelectElement;
   private reasoningSelectEl!: HTMLSelectElement;
   private customModelInputEl!: HTMLInputElement;
@@ -90,7 +93,11 @@ export class ChatSidebarView extends ItemView {
   private incuratorClient: IncuratorClient | null = null;
   private incuratorStatusByPath = new Map<string, IncuratorSourceStatus>();
   private incuratorStatusInFlight = new Set<string>();
+  private fileHashByPath = new Map<string, string>();
   private prepareStatusText = "";
+  private lastQueryTrace: CuratorQueryResult | null = null;
+  private sessionDrawerVisible = false;
+  private sessionQuery = "";
 
   constructor(leaf: WorkspaceLeaf, plugin: ObsidianAIAgent) {
     super(leaf);
@@ -113,6 +120,51 @@ export class ChatSidebarView extends ItemView {
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     container.addClass("ai-agent-chat-container");
+
+    // ── Codex-style sidebar header ──
+    const header = container.createDiv("ai-agent-chat-header");
+    const titleBlock = header.createDiv("ai-agent-chat-header-title");
+    titleBlock.createEl("div", { cls: "ai-agent-chat-header-kicker", text: "Incurator" });
+    this.activeSessionTitleEl = titleBlock.createEl("div", {
+      cls: "ai-agent-chat-header-session",
+      text: "New chat",
+    });
+
+    const headerActions = header.createDiv("ai-agent-chat-header-actions");
+    const newChatBtn = headerActions.createEl("button", {
+      cls: "ai-agent-icon-btn ai-agent-new-chat-btn",
+      attr: { "aria-label": "New conversation", title: "New chat" },
+    });
+    setIcon(newChatBtn, "square-pen");
+    newChatBtn.addEventListener("click", async () => {
+      await this.createNewChatSession();
+      this.hideSessionDrawer();
+      this.restoreInputFocus();
+    });
+
+    this.sessionBtn = headerActions.createEl("button", {
+      cls: "ai-agent-icon-btn ai-agent-session-toggle-btn",
+      attr: { "aria-label": "Conversations", title: "Conversations" },
+    });
+    setIcon(this.sessionBtn, "history");
+    this.sessionBtn.addEventListener("click", () => this.toggleSessionDrawer());
+
+    this.sessionDrawerEl = container.createDiv("ai-agent-session-drawer");
+    this.sessionDrawerEl.hide();
+    const sessionSearch = this.sessionDrawerEl.createDiv("ai-agent-session-drawer-search");
+    setIcon(sessionSearch.createSpan("ai-agent-session-drawer-search-icon"), "search");
+    this.sessionSearchEl = sessionSearch.createEl("input", {
+      attr: {
+        type: "search",
+        placeholder: "Search conversations",
+        "aria-label": "Search conversations",
+      },
+    });
+    this.sessionSearchEl.addEventListener("input", () => {
+      this.sessionQuery = this.sessionSearchEl.value.trim().toLowerCase();
+      this.renderSessionDrawer();
+    });
+    this.sessionDrawerEl.createDiv("ai-agent-session-drawer-list");
 
     // ── Messages area ──
     this.messagesContainer = container.createDiv("ai-agent-chat-messages");
@@ -146,24 +198,16 @@ export class ChatSidebarView extends ItemView {
       text: "📎 Drop files here",
     });
 
+    const composer = this.inputAreaEl.createDiv("ai-agent-composer");
+
     // Context chips
-    this.contextChipsContainer = this.inputAreaEl.createDiv(
+    this.contextChipsContainer = composer.createDiv(
       "ai-agent-context-chips"
     );
     this.setupChipsDrop();
     this.renderContextChips();
 
-    // Input row: attach + textarea + send
-    const inputRow = this.inputAreaEl.createDiv("ai-agent-chat-input-row");
-
-    // Attach button
-    const attachBtn = inputRow.createEl("button", {
-      cls: "ai-agent-icon-btn ai-agent-attach-btn",
-      attr: { "aria-label": "Attach file or image" },
-    });
-    setIcon(attachBtn, "paperclip");
-    attachBtn.addEventListener("click", () => this.openFilePicker());
-
+    const inputRow = composer.createDiv("ai-agent-chat-input-row");
     this.inputEl = inputRow.createEl("textarea", {
       cls: "ai-agent-chat-input",
       attr: {
@@ -234,40 +278,19 @@ export class ChatSidebarView extends ItemView {
         Math.min(this.inputEl.scrollHeight, 150) + "px";
     });
 
-    this.sendBtn = inputRow.createEl("button", {
-      cls: "ai-agent-send-btn",
-      attr: { "aria-label": "Send message" },
-    });
-    setIcon(this.sendBtn, "send");
-    this.sendBtn.addEventListener("click", () => this.handleSend());
+    // ── Composer footer: session, mode, model, send ──
+    const toolbar = composer.createDiv("ai-agent-bottom-toolbar");
+    const leftControls = toolbar.createDiv("ai-agent-toolbar-left");
+    const rightControls = toolbar.createDiv("ai-agent-toolbar-right");
 
-    // ── Bottom toolbar: provider & model (Antigravity style) ──
-    const toolbar = this.inputAreaEl.createDiv("ai-agent-bottom-toolbar");
+    const attachBtn = leftControls.createEl("button", {
+      cls: "ai-agent-icon-btn ai-agent-attach-btn",
+      attr: { "aria-label": "Attach file or image", title: "Attach file" },
+    });
+    setIcon(attachBtn, "paperclip");
+    attachBtn.addEventListener("click", () => this.openFilePicker());
 
-    const newChatBtn = toolbar.createEl("button", {
-      cls: "ai-agent-icon-btn ai-agent-new-chat-btn",
-      attr: { "aria-label": "New conversation", title: "New chat" },
-    });
-    setIcon(newChatBtn, "square-pen");
-    newChatBtn.addEventListener("click", async () => {
-      await this.createNewChatSession();
-      this.restoreInputFocus();
-    });
-
-    this.sessionBtn = toolbar.createEl("button", {
-      cls: "ai-agent-session-btn",
-      attr: { "aria-label": "Chat history", title: "Chat history" },
-    });
-    this.sessionBtn.addEventListener("click", () => {
-      new ChatHistoryModal(
-        this.app,
-        this.plugin,
-        (id) => this.onSessionChange(id),
-        (id) => this.deleteChatSessionById(id)
-      ).open();
-    });
-
-    this.modeSelectEl = toolbar.createEl("select", {
+    this.modeSelectEl = leftControls.createEl("select", {
       cls: "ai-agent-mode-select",
       attr: { "aria-label": "Chat mode", title: "Chat mode" },
     });
@@ -286,39 +309,15 @@ export class ChatSidebarView extends ItemView {
       this.restoreInputFocus();
     });
 
-    // Provider selector
-    this.providerSelectEl = toolbar.createEl("select", {
-      cls: "ai-agent-provider-select",
-      attr: { "aria-label": "Provider", title: "Provider" },
-    });
-    const providers: { value: LLMProvider; label: string }[] = [
-      { value: "antigravity", label: "Antigravity" },
-      { value: "claude", label: "Claude" },
-      { value: "openai", label: "Codex" },
-    ];
-    for (const p of providers) {
-      const opt = this.providerSelectEl.createEl("option", {
-        value: p.value,
-        text: p.label,
-      });
-      if (p.value === this.plugin.settings.provider) {
-        opt.selected = true;
-      }
-    }
-    this.providerSelectEl.addEventListener("change", () => {
-      this.onProviderChange(this.providerSelectEl.value as LLMProvider);
-    });
-
-    // Model selector
-    this.modelSelectEl = toolbar.createEl("select", {
+    this.modelSelectEl = rightControls.createEl("select", {
       cls: "ai-agent-model-select",
-      attr: { "aria-label": "Model", title: "Model" },
+      attr: { "aria-label": "Provider and model", title: "Provider and model" },
     });
     this.modelSelectEl.addEventListener("change", () => {
       this.onModelSelectChange(this.modelSelectEl.value);
     });
 
-    this.customModelInputEl = toolbar.createEl("input", {
+    this.customModelInputEl = rightControls.createEl("input", {
       cls: "ai-agent-custom-model-input",
       attr: {
         type: "text",
@@ -331,13 +330,20 @@ export class ChatSidebarView extends ItemView {
       this.onCustomModelChange(this.customModelInputEl.value.trim());
     });
 
-    this.reasoningSelectEl = toolbar.createEl("select", {
+    this.reasoningSelectEl = rightControls.createEl("select", {
       cls: "ai-agent-reasoning-select",
     });
     this.reasoningSelectEl.addEventListener("change", () => {
       this.onReasoningChange(this.reasoningSelectEl.value);
       this.restoreInputFocus();
     });
+
+    this.sendBtn = rightControls.createEl("button", {
+      cls: "ai-agent-send-btn",
+      attr: { "aria-label": "Send message", title: "Send" },
+    });
+    setIcon(this.sendBtn, "send");
+    this.sendBtn.addEventListener("click", () => this.handleSend());
 
     this.syncModelControls();
     this.syncSessionControls();
@@ -876,6 +882,7 @@ export class ChatSidebarView extends ItemView {
     const content = this.inputEl.value.trim();
     if (!content) return;
 
+    this.lastQueryTrace = null;
     const capturedActiveCtx = this.plugin.refreshActiveContext();
     const contextRefs = [
       ...this.buildAutoContextRefs(capturedActiveCtx),
@@ -1047,6 +1054,7 @@ export class ChatSidebarView extends ItemView {
 
       const contentParts: LLMContentPart[] = [];
       const canSendImages = modelSupportsVision(
+        this.plugin.getAvailableModels(),
         this.plugin.settings.provider,
         this.plugin.settings.model
       );
@@ -1090,6 +1098,7 @@ export class ChatSidebarView extends ItemView {
   ): LLMContentPart[] {
     const parts: LLMContentPart[] = [];
     const canSendImages = modelSupportsVision(
+      this.plugin.getAvailableModels(),
       this.plugin.settings.provider,
       this.plugin.settings.model
     );
@@ -1183,6 +1192,22 @@ export class ChatSidebarView extends ItemView {
         (tab.isActive ? activeCtx.absolutePath : undefined);
 
       const docLabel = tab.label.replace(/ p\.\d+$/, "");
+      const statusRef: ContextRef = {
+        type: "pdf-page",
+        label: tab.label,
+        content: pdf.text || "",
+        filePath: pdf.filePath || tab.filePath,
+        fileHash: pdf.fileHash,
+        pageNum: pdf.pageNum,
+      };
+      const sourceStatus = sourcePath
+        ? await this.ensureIncuratorStatusForRef(statusRef)
+        : undefined;
+      if (sourceStatus) {
+        sections.push(
+          `<incurator_source_status document="${this.escapeAttribute(tab.label)}" state="${sourceStatus.state}" l1="${sourceStatus.state === "l1_ready" || sourceStatus.state === "queued" || sourceStatus.state === "indexed" || sourceStatus.state === "curated"}">\n${this.escapeAttribute(sourceStatus.message || "")}\n</incurator_source_status>`
+        );
+      }
 
       this.setPrepareStatus(`Assembling PDF context — ${docLabel}...`);
       const windowPages =
@@ -1244,12 +1269,46 @@ export class ChatSidebarView extends ItemView {
     }
 
     if (client.available && query.trim()) {
-      this.setPrepareStatus("Searching Incurator...");
-      const incuratorHits = await client.search(query, 6);
-      if (incuratorHits.length > 0) {
-        sections.push(
-          `<incurator_hits query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatIncuratorHits(incuratorHits)}\n</incurator_hits>`
-        );
+      // Determine whether any open PDF source is L3-complete (curated).
+      // If so, use curator_query for concept-grounded synthesis.
+      // Otherwise fall back to raw DAG search hits.
+      const hasCuratedSource = pdfTabs.some((tab) => {
+        const sp =
+          this.toAbsolutePath(tab.pdfPage?.filePath) ||
+          this.toAbsolutePath(tab.filePath);
+        return sp && this.incuratorStatusByPath.get(sp)?.state === "curated";
+      });
+
+      if (hasCuratedSource) {
+        this.setPrepareStatus("Querying Incurator knowledge graph...");
+        const qResult = await client.curatorQuery(query);
+        if (qResult.ok && qResult.answer) {
+          this.lastQueryTrace = qResult;
+          sections.push(this.formatCuratorQueryResult(qResult, query));
+        } else {
+          // curator_query failed or L3 incomplete — fall back to raw search
+          this.setPrepareStatus("Searching Incurator...");
+          const hits = await client.search(query, 6);
+          if (hits.length > 0) {
+            sections.push(
+              `<incurator_hits query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatIncuratorHits(hits)}\n</incurator_hits>`
+            );
+          }
+          if (qResult.error) {
+            sections.push(
+              `<incurator_status>L3 not yet complete: ${this.escapeAttribute(qResult.error)}</incurator_status>`
+            );
+          }
+        }
+      } else {
+        // L1-only or unregistered: use raw DAG search hits
+        this.setPrepareStatus("Searching Incurator...");
+        const incuratorHits = await client.search(query, 6);
+        if (incuratorHits.length > 0) {
+          sections.push(
+            `<incurator_hits query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatIncuratorHits(incuratorHits)}\n</incurator_hits>`
+          );
+        }
       }
     }
 
@@ -1297,6 +1356,24 @@ export class ChatSidebarView extends ItemView {
         return `- ${label}${where && label !== where ? ` (${where})` : ""}${score}: ${this.truncateForProviderContext(hit.snippet, 700)}`;
       })
       .join("\n");
+  }
+
+  private formatCuratorQueryResult(result: CuratorQueryResult, query: string): string {
+    const trace = result.trace;
+    const attrs = [
+      `query="${this.escapeAttribute(query.slice(0, 120))}"`,
+      result.cache_hit ? `cache="hit"` : null,
+      result.exhibition_id ? `exhibition="${result.exhibition_id}"` : null,
+    ].filter(Boolean).join(" ");
+    let text = `<incurator_answer ${attrs}>\n`;
+    text += this.truncateForProviderContext(result.answer ?? "", 4000);
+    if (trace) {
+      const concepts = trace.matched_concepts.slice(0, 5).join(", ") || "none";
+      const sources = trace.source_paths.slice(0, 3).join(", ") || "none";
+      text += `\n\n<!-- concepts: ${concepts} | sources: ${sources} | latency: ${trace.latency_ms}ms | l3_complete: ${trace.l3_complete} -->`;
+    }
+    text += `\n</incurator_answer>`;
+    return text;
   }
 
   private truncateForProviderContext(text: string, maxLength: number): string {
@@ -1392,6 +1469,7 @@ export class ChatSidebarView extends ItemView {
             : "(No extractable text on this page. Use the attached page image if available.)",
           imageBase64: tab.pdfPage.imageBase64,
           filePath: tab.filePath,
+          fileHash: tab.pdfPage.fileHash,
           pageNum: tab.pdfPage.pageNum,
           windowPages: tab.pdfPage.windowPages,
           outline: tab.pdfPage.outline,
@@ -1589,6 +1667,31 @@ export class ChatSidebarView extends ItemView {
     return ref.backendStatus?.sourcePath || this.toAbsolutePath(ref.filePath);
   }
 
+  private async getPdfRefFileHash(ref: ContextRef): Promise<string | undefined> {
+    if (ref.fileHash) return ref.fileHash;
+    const sourcePath = this.getPdfRefSourcePath(ref);
+    if (!sourcePath) return undefined;
+    const cached = this.fileHashByPath.get(sourcePath);
+    if (cached) return cached;
+    try {
+      const hash = await hashFileSha256(sourcePath);
+      this.fileHashByPath.set(sourcePath, hash);
+      ref.fileHash = hash;
+      return hash;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async ensureIncuratorStatusForRef(ref: ContextRef): Promise<IncuratorSourceStatus> {
+    const sourcePath = this.getPdfRefSourcePath(ref);
+    const fileHash = await this.getPdfRefFileHash(ref);
+    const status = await this.getIncuratorClient().getSourceStatus({ sourcePath, fileHash });
+    if (sourcePath) this.incuratorStatusByPath.set(sourcePath, status);
+    ref.backendStatus = status;
+    return status;
+  }
+
   private renderIncuratorStatusBadge(
     chip: HTMLElement,
     ref: ContextRef
@@ -1633,6 +1736,8 @@ export class ChatSidebarView extends ItemView {
         return "curated";
       case "indexed":
         return "indexed";
+      case "l1_ready":
+        return "L1 ready";
       case "queued":
         return "queued";
       case "running":
@@ -1668,7 +1773,7 @@ export class ChatSidebarView extends ItemView {
 
     this.incuratorStatusInFlight.add(sourcePath);
     try {
-      const status = await this.getIncuratorClient().getSourceStatus(sourcePath);
+      const status = await this.ensureIncuratorStatusForRef(ref);
       this.incuratorStatusByPath.set(sourcePath, status);
       ref.backendStatus = status;
       if (badge?.isConnected) {
@@ -2342,6 +2447,9 @@ export class ChatSidebarView extends ItemView {
             "",
             this
           );
+          if (!msg.isStreaming && this.lastQueryTrace) {
+            renderCuratorQueryTrace(contentEl as HTMLElement, this.lastQueryTrace, this.app);
+          }
         } else if (msg.isStreaming) {
           const thinkingSpan = (contentEl as HTMLElement).createSpan({
             cls: "ai-agent-thinking",
@@ -2715,25 +2823,105 @@ export class ChatSidebarView extends ItemView {
   }
 
   private syncSessionControls(): void {
-    if (!this.sessionBtn) return;
     const sessions = this.plugin.sessionData.chatSessions ?? [];
     const activeSession = sessions.find(s => s.id === this.plugin.sessionData.activeChatSessionId) || sessions[0];
-    this.sessionBtn.empty();
-    setIcon(this.sessionBtn, "history");
-    const labelEl = this.sessionBtn.createSpan({ cls: "ai-agent-session-label" });
-    if (activeSession) {
-      let title = activeSession.title;
-      if (title.length > 24) title = title.slice(0, 24) + "…";
-      labelEl.setText(title);
-    } else {
-      labelEl.setText("History");
+    if (this.activeSessionTitleEl) {
+      const title = activeSession ? this.getSessionTitle(activeSession) : "New chat";
+      this.activeSessionTitleEl.setText(title);
+      this.activeSessionTitleEl.setAttribute("title", title);
     }
+    if (this.sessionBtn) {
+      this.sessionBtn.toggleClass("is-active", this.sessionDrawerVisible);
+    }
+    this.renderSessionDrawer();
+  }
+
+  private toggleSessionDrawer(): void {
+    this.sessionDrawerVisible = !this.sessionDrawerVisible;
+    if (this.sessionDrawerVisible) {
+      this.sessionDrawerEl.show();
+      this.renderSessionDrawer();
+      window.setTimeout(() => this.sessionSearchEl?.focus(), 0);
+    } else {
+      this.hideSessionDrawer();
+    }
+    this.syncSessionControls();
+  }
+
+  private hideSessionDrawer(): void {
+    this.sessionDrawerVisible = false;
+    this.sessionDrawerEl?.hide();
+    this.sessionBtn?.removeClass("is-active");
+  }
+
+  private renderSessionDrawer(): void {
+    if (!this.sessionDrawerEl) return;
+    const listEl = this.sessionDrawerEl.querySelector(".ai-agent-session-drawer-list") as HTMLElement | null;
+    if (!listEl) return;
+    listEl.empty();
+
+    const sessions = (this.plugin.sessionData.chatSessions ?? []).filter((session) => {
+      if (!this.sessionQuery) return true;
+      const haystack = [
+        this.getSessionTitle(session),
+        ...session.messages.slice(-8).map((msg) => msg.content),
+      ].join("\n").toLowerCase();
+      return haystack.includes(this.sessionQuery);
+    });
+
+    if (sessions.length === 0) {
+      listEl.createDiv({ cls: "ai-agent-session-drawer-empty", text: "No conversations found." });
+      return;
+    }
+
+    for (const session of sessions) {
+      const isActive = session.id === this.plugin.sessionData.activeChatSessionId;
+      const row = listEl.createDiv({
+        cls: `ai-agent-session-drawer-row${isActive ? " is-active" : ""}`,
+      });
+      const icon = row.createSpan("ai-agent-session-drawer-row-icon");
+      setIcon(icon, isActive ? "message-circle" : "message-square");
+      const body = row.createDiv("ai-agent-session-drawer-row-body");
+      body.createDiv({
+        cls: "ai-agent-session-drawer-row-title",
+        text: this.getSessionTitle(session),
+      });
+      body.createDiv({
+        cls: "ai-agent-session-drawer-row-preview",
+        text: this.sessionPreview(session),
+      });
+      const del = row.createEl("button", {
+        cls: "ai-agent-session-drawer-delete",
+        attr: { "aria-label": "Delete conversation", title: "Delete" },
+      });
+      setIcon(del, "trash-2");
+      del.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        if (confirm(`"${this.getSessionTitle(session)}" 채팅 내역을 삭제하시겠습니까?`)) {
+          await this.deleteChatSessionById(session.id);
+        }
+      });
+      row.addEventListener("click", () => {
+        this.onSessionChange(session.id);
+        this.hideSessionDrawer();
+      });
+    }
+  }
+
+  private sessionPreview(session: ChatSession): string {
+    const last = [...session.messages].reverse().find((msg) => msg.content.trim());
+    if (!last) return "No messages yet";
+    const text = last.content.replace(/\s+/g, " ").trim();
+    return text.length > 92 ? `${text.slice(0, 92)}...` : text;
   }
 
   public async deleteChatSessionById(sessionId: string): Promise<void> {
     const sessions = this.plugin.sessionData.chatSessions ?? [];
     const nextSessions = sessions.filter((s) => s.id !== sessionId);
     this.plugin.sessionData.chatSessions = nextSessions;
+    this.plugin.sessionData.deletedSessionIds = Array.from(
+      new Set([...(this.plugin.sessionData.deletedSessionIds || []), sessionId])
+    );
 
     if (sessionId === this.plugin.sessionData.activeChatSessionId) {
       if (nextSessions.length > 0) {
@@ -2769,6 +2957,9 @@ export class ChatSidebarView extends ItemView {
 
     const nextSessions = sessions.filter((s) => s.id !== activeId);
     this.plugin.sessionData.chatSessions = nextSessions;
+    this.plugin.sessionData.deletedSessionIds = Array.from(
+      new Set([...(this.plugin.sessionData.deletedSessionIds || []), activeId])
+    );
 
     if (nextSessions.length > 0) {
       this.plugin.sessionData.activeChatSessionId = nextSessions[0].id;
@@ -2821,19 +3012,11 @@ export class ChatSidebarView extends ItemView {
 
   // ── Provider / Model switching ──────────────────────────────
 
-  private async onProviderChange(provider: LLMProvider): Promise<void> {
-    this.plugin.settings.provider = provider;
-    this.plugin.settings.model = DEFAULT_MODELS[provider];
-    await this.plugin.saveSettings();
-    this.syncModelControls();
-    this.syncReasoningControl();
-    this.restoreInputFocus();
-  }
-
   private async onModelSelectChange(value: string): Promise<void> {
     if (value === CUSTOM_MODEL_VALUE) {
       this.customModelInputEl.show();
       this.customModelInputEl.value = getModelOption(
+        this.plugin.getAvailableModels(),
         this.plugin.settings.provider,
         this.plugin.settings.model
       )
@@ -2843,15 +3026,25 @@ export class ChatSidebarView extends ItemView {
       return;
     }
 
-    this.plugin.settings.model = value || DEFAULT_MODELS[this.plugin.settings.provider];
+    const [providerRaw, model] = value.split("::", 2);
+    const provider = providerRaw as LLMProvider;
+    const catalogue = this.plugin.getAvailableModels();
+    if (provider && catalogue[provider]) {
+      this.plugin.settings.provider = provider;
+      this.plugin.settings.model = model || getDefaultModel(catalogue, provider);
+    } else {
+      this.plugin.settings.model =
+        value || getDefaultModel(catalogue, this.plugin.settings.provider);
+    }
     await this.plugin.saveSettings();
     this.syncModelControls();
     this.restoreInputFocus();
   }
 
   private async onCustomModelChange(model: string): Promise<void> {
+    const catalogue = this.plugin.getAvailableModels();
     this.plugin.settings.model =
-      model || DEFAULT_MODELS[this.plugin.settings.provider];
+      model || getDefaultModel(catalogue, this.plugin.settings.provider);
     await this.plugin.saveSettings();
     this.syncModelControls();
     this.restoreInputFocus();
@@ -2862,22 +3055,33 @@ export class ChatSidebarView extends ItemView {
 
     const provider = this.plugin.settings.provider;
     const currentModel = this.plugin.settings.model;
-    const knownModel = getModelOption(provider, currentModel);
+    const catalogue = this.plugin.getAvailableModels();
+    const knownModel = getModelOption(catalogue, provider, currentModel);
 
     this.modelSelectEl.empty();
-    for (const option of MODEL_OPTIONS[provider]) {
-      const suffix = option.tier === "stable" ? "" : ` (${option.tier})`;
-      this.modelSelectEl.createEl("option", {
-        value: option.id,
-        text: `${option.label}${suffix}`,
+    const providerLabels: Record<LLMProvider, string> = {
+      antigravity: "Antigravity",
+      claude: "Claude",
+      openai: "Codex",
+    };
+    for (const providerKey of Object.keys(catalogue) as LLMProvider[]) {
+      const group = this.modelSelectEl.createEl("optgroup", {
+        attr: { label: providerLabels[providerKey] },
       });
+      for (const option of catalogue[providerKey] || []) {
+        const suffix = option.tier === "flash" || option.tier === "stable" ? "" : ` (${option.tier})`;
+        group.createEl("option", {
+          value: `${providerKey}::${option.id}`,
+          text: `${providerLabels[providerKey]} · ${option.label}${suffix}`,
+        });
+      }
     }
     this.modelSelectEl.createEl("option", {
       value: CUSTOM_MODEL_VALUE,
       text: "Custom...",
     });
 
-    this.modelSelectEl.value = knownModel ? currentModel : CUSTOM_MODEL_VALUE;
+    this.modelSelectEl.value = knownModel ? `${provider}::${currentModel}` : CUSTOM_MODEL_VALUE;
     this.customModelInputEl.value = knownModel ? "" : currentModel;
     if (knownModel) {
       this.customModelInputEl.hide();
@@ -2967,78 +3171,5 @@ export class ChatSidebarView extends ItemView {
       binary += String.fromCharCode(bytes[i]);
     }
     return btoa(binary);
-  }
-}
-
-class ChatHistoryModal extends Modal {
-  private sessions: ChatSession[];
-
-  constructor(
-    app: App,
-    private plugin: ObsidianAIAgent,
-    private onSelectSession: (id: string) => void,
-    private onDeleteSession: (id: string) => void
-  ) {
-    super(app);
-    this.sessions = this.plugin.sessionData.chatSessions ?? [];
-  }
-
-  onOpen() {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.addClass("ai-agent-history-modal");
-    
-    contentEl.createEl("h2", { text: "Chat History", cls: "ai-agent-history-title" });
-
-    const listEl = contentEl.createDiv("ai-agent-history-list");
-    listEl.style.maxHeight = "400px";
-    listEl.style.overflowY = "auto";
-    listEl.style.padding = "8px 0";
-
-    for (const session of this.sessions) {
-      const rowEl = listEl.createDiv("ai-agent-history-row");
-      rowEl.style.display = "flex";
-      rowEl.style.alignItems = "center";
-      rowEl.style.justifyContent = "space-between";
-      rowEl.style.padding = "8px 12px";
-      rowEl.style.borderBottom = "1px solid var(--background-modifier-border)";
-      
-      const titleEl = rowEl.createSpan({ text: session.title });
-      titleEl.style.flex = "1";
-      titleEl.style.cursor = "pointer";
-      titleEl.style.overflow = "hidden";
-      titleEl.style.textOverflow = "ellipsis";
-      titleEl.style.whiteSpace = "nowrap";
-      if (session.id === this.plugin.sessionData.activeChatSessionId) {
-        titleEl.style.fontWeight = "bold";
-        titleEl.style.color = "var(--text-accent)";
-      }
-
-      titleEl.addEventListener("click", () => {
-        this.onSelectSession(session.id);
-        this.close();
-      });
-
-      const delBtn = rowEl.createEl("button", {
-        cls: "clickable-icon",
-        attr: { "aria-label": "Delete" }
-      });
-      delBtn.style.background = "none";
-      delBtn.style.boxShadow = "none";
-      delBtn.style.padding = "4px";
-      delBtn.style.marginLeft = "8px";
-      setIcon(delBtn, "trash-2");
-
-      delBtn.addEventListener("click", () => {
-        if (confirm(`"${session.title}" 채팅 내역을 삭제하시겠습니까?`)) {
-          this.onDeleteSession(session.id);
-          rowEl.remove();
-        }
-      });
-    }
-  }
-
-  onClose() {
-    this.contentEl.empty();
   }
 }

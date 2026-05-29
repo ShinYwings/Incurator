@@ -99,9 +99,15 @@ CREATE TABLE IF NOT EXISTS source_pages (
 CREATE TABLE IF NOT EXISTS ingest_jobs (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     source_id       INTEGER NOT NULL,
+    job_type        TEXT NOT NULL DEFAULT 'l2_atoms',
+    trigger         TEXT NOT NULL DEFAULT 'wiki_add',
+    node_id         TEXT,
     state           TEXT NOT NULL DEFAULT 'queued',  -- queued|running|done|failed|interrupted
     phase           TEXT,                    -- latest phase label
     progress        REAL DEFAULT 0.0,        -- 0.0..1.0
+    progress_current INTEGER DEFAULT 0,
+    progress_total   INTEGER DEFAULT 0,
+    source_name      TEXT DEFAULT '',
     pages_created   INTEGER DEFAULT 0,
     pages_updated   INTEGER DEFAULT 0,
     error           TEXT,
@@ -173,6 +179,24 @@ CREATE TABLE IF NOT EXISTS page_hashes (
     content_hash    TEXT NOT NULL,           -- sha256 of page content
     last_synced     TEXT NOT NULL            -- ISO timestamp
 );
+
+-- DAG edge index for SQL-based traversal (spec 04/08/09)
+-- Enables incremental sync downstream expansion and Canvas generation
+-- without filesystem scanning.
+CREATE TABLE IF NOT EXISTS dag_edges (
+    id          TEXT PRIMARY KEY,   -- '{from_id}:{to_id}'
+    from_id     TEXT NOT NULL,      -- CTX-xxx | ATM-xxx | CON-xxx
+    to_id       TEXT NOT NULL,      -- ATM-xxx | CON-xxx | EXH-xxx
+    edge_type   TEXT NOT NULL,
+    -- 'extracted_from'  : CTX → ATM  (L1 → L2)
+    -- 'clustered_to'    : ATM → CON  (L2 → L3)
+    -- 'synthesized_to'  : CON → EXH  (L3 → L4)
+    source_id   INTEGER REFERENCES sources(id),
+    created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_dag_edges_from ON dag_edges(from_id);
+CREATE INDEX IF NOT EXISTS idx_dag_edges_to   ON dag_edges(to_id);
 """
 
 
@@ -217,6 +241,62 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
         "is_reference INTEGER NOT NULL DEFAULT 0",
     )
     _add_column_if_missing(conn, "sources", "logical_source_id", "logical_source_id TEXT")
+    if "ingest_jobs" in tables:
+        _add_column_if_missing(
+            conn,
+            "ingest_jobs",
+            "job_type",
+            "job_type TEXT NOT NULL DEFAULT 'l2_atoms'",
+        )
+        _add_column_if_missing(
+            conn,
+            "ingest_jobs",
+            "trigger",
+            "trigger TEXT NOT NULL DEFAULT 'wiki_add'",
+        )
+        _add_column_if_missing(conn, "ingest_jobs", "node_id", "node_id TEXT")
+        _add_column_if_missing(
+            conn,
+            "ingest_jobs",
+            "progress_current",
+            "progress_current INTEGER DEFAULT 0",
+        )
+        _add_column_if_missing(
+            conn,
+            "ingest_jobs",
+            "progress_total",
+            "progress_total INTEGER DEFAULT 0",
+        )
+        _add_column_if_missing(
+            conn,
+            "ingest_jobs",
+            "source_name",
+            "source_name TEXT DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn,
+            "ingest_jobs",
+            "retry_count",
+            "retry_count INTEGER NOT NULL DEFAULT 0",
+        )
+        _add_column_if_missing(
+            conn,
+            "ingest_jobs",
+            "input_tokens",
+            "input_tokens INTEGER DEFAULT 0",
+        )
+        _add_column_if_missing(
+            conn,
+            "ingest_jobs",
+            "output_tokens",
+            "output_tokens INTEGER DEFAULT 0",
+        )
+        _add_column_if_missing(
+            conn,
+            "ingest_jobs",
+            "estimated_cost_usd",
+            "estimated_cost_usd REAL DEFAULT 0.0",
+        )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_sources_logical_source_id "
         "ON sources(logical_source_id)"
@@ -290,18 +370,274 @@ def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
 def get_stats(db_path: Path) -> dict:
     """Quick stats for `wiki status`."""
     if not db_path.exists():
-        return {"sources_total": 0, "sources_curated": 0, "ingest_runs": 0}
+        return {
+            "sources_total": 0,
+            "sources_l1_done": 0,
+            "sources_curated": 0,
+            "ingest_runs": 0,
+        }
     with connect(db_path) as conn:
         sources_total = conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
+        sources_l1_done = conn.execute(
+            "SELECT COUNT(*) FROM sources WHERE l1_status = 'done'"
+        ).fetchone()[0]
         sources_curated = conn.execute(
             "SELECT COUNT(*) FROM sources WHERE status = 'curated'"
         ).fetchone()[0]
         ingest_runs = conn.execute("SELECT COUNT(*) FROM ingest_runs").fetchone()[0]
+        token_row = conn.execute(
+            "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), "
+            "COALESCE(SUM(estimated_cost_usd), 0.0) FROM ingest_jobs WHERE state = 'done'"
+        ).fetchone()
+        total_input_tokens = int(token_row[0])
+        total_output_tokens = int(token_row[1])
+        total_cost_usd = float(token_row[2])
     return {
         "sources_total": sources_total,
+        "sources_l1_done": sources_l1_done,
         "sources_curated": sources_curated,
         "ingest_runs": ingest_runs,
+        "total_input_tokens": total_input_tokens,
+        "total_output_tokens": total_output_tokens,
+        "total_cost_usd": total_cost_usd,
     }
+
+
+def enqueue_job(
+    db_path: Path,
+    source_id: int,
+    job_type: str,
+    *,
+    trigger: str = "wiki_add",
+    node_id: str | None = None,
+    source_name: str = "",
+) -> int:
+    """Create or reuse a queued/running ingest job for a source and job type."""
+    with connect(db_path) as conn:
+        existing = conn.execute(
+            """
+            SELECT id FROM ingest_jobs
+            WHERE source_id = ? AND job_type = ? AND state IN ('queued', 'running')
+            ORDER BY id DESC LIMIT 1
+            """,
+            (source_id, job_type),
+        ).fetchone()
+        if existing:
+            return int(existing["id"])
+        cur = conn.execute(
+            """
+            INSERT INTO ingest_jobs
+                (source_id, job_type, trigger, node_id, state, phase, progress,
+                 progress_current, progress_total, source_name, created_at)
+            VALUES (?, ?, ?, ?, 'queued', ?, 0.0, 0, 0, ?, ?)
+            """,
+            (
+                source_id,
+                job_type,
+                trigger,
+                node_id,
+                "queued",
+                source_name,
+                _now_iso(),
+            ),
+        )
+        return int(cur.lastrowid)
+
+
+def get_pending_jobs_for_source(db_path: Path, source_id: int) -> list[dict]:
+    """Return queued/running jobs for one source."""
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM ingest_jobs
+            WHERE source_id = ? AND state IN ('queued', 'running')
+            ORDER BY id ASC
+            """,
+            (source_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def list_ingest_jobs(
+    db_path: Path,
+    *,
+    states: tuple[str, ...] | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """List ingest jobs, newest first unless filtered to queued/running."""
+    params: list[object] = []
+    query = "SELECT * FROM ingest_jobs"
+    if states:
+        query += f" WHERE state IN ({','.join('?' for _ in states)})"
+        params.extend(states)
+    order = "ASC" if states and any(s in {"queued", "running"} for s in states) else "DESC"
+    query += f" ORDER BY id {order} LIMIT ?"
+    params.append(max(1, min(int(limit), 500)))
+    with connect(db_path) as conn:
+        rows = conn.execute(query, tuple(params)).fetchall()
+        return [dict(row) for row in rows]
+
+
+def claim_next_job(db_path: Path) -> dict | None:
+    """Atomically claim the oldest queued job."""
+    with connect(db_path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            """
+            SELECT * FROM ingest_jobs
+            WHERE state = 'queued'
+            ORDER BY id ASC LIMIT 1
+            """
+        ).fetchone()
+        if row is None:
+            return None
+        conn.execute(
+            """
+            UPDATE ingest_jobs
+            SET state = 'running', phase = 'running', started_at = ?, error = NULL
+            WHERE id = ?
+            """,
+            (_now_iso(), row["id"]),
+        )
+        updated = conn.execute(
+            "SELECT * FROM ingest_jobs WHERE id = ?",
+            (row["id"],),
+        ).fetchone()
+        return dict(updated) if updated else None
+
+
+def recover_stale_jobs(db_path: Path) -> int:
+    """Return interrupted running jobs to the queue after a process restart."""
+    with connect(db_path) as conn:
+        cur = conn.execute(
+            """
+            UPDATE ingest_jobs
+            SET state = 'queued', phase = 'recovered', error = NULL
+            WHERE state = 'running'
+            """
+        )
+        return int(cur.rowcount or 0)
+
+
+def update_job_progress(
+    db_path: Path,
+    job_id: int,
+    *,
+    phase: str,
+    progress: float | None = None,
+    progress_current: int | None = None,
+    progress_total: int | None = None,
+) -> None:
+    """Update progress fields for a running job."""
+    fields = ["phase = ?"]
+    values: list[object] = [phase]
+    if progress is not None:
+        fields.append("progress = ?")
+        values.append(max(0.0, min(1.0, float(progress))))
+    if progress_current is not None:
+        fields.append("progress_current = ?")
+        values.append(int(progress_current))
+    if progress_total is not None:
+        fields.append("progress_total = ?")
+        values.append(int(progress_total))
+    values.append(job_id)
+    with connect(db_path) as conn:
+        conn.execute(
+            f"UPDATE ingest_jobs SET {', '.join(fields)} WHERE id = ?",
+            tuple(values),
+        )
+
+
+def mark_job_done(
+    db_path: Path,
+    job_id: int,
+    *,
+    pages_created: int = 0,
+    pages_updated: int = 0,
+) -> None:
+    """Mark a job as completed."""
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE ingest_jobs
+            SET state = 'done', phase = 'done', progress = 1.0,
+                finished_at = ?, pages_created = ?, pages_updated = ?, error = NULL
+            WHERE id = ?
+            """,
+            (_now_iso(), pages_created, pages_updated, job_id),
+        )
+
+
+def mark_job_failed(db_path: Path, job_id: int, error: str) -> None:
+    """Mark a job as failed."""
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE ingest_jobs
+            SET state = 'failed', phase = 'failed', finished_at = ?, error = ?
+            WHERE id = ?
+            """,
+            (_now_iso(), error[:2000], job_id),
+        )
+
+
+def requeue_job_for_retry(db_path: Path, job_id: int, retry_count: int, error: str) -> None:
+    """Reset a failed job back to queued for retry, recording the attempt count."""
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE ingest_jobs
+            SET state = 'queued', phase = 'retry', progress = 0.0,
+                retry_count = ?, error = ?, started_at = NULL, finished_at = NULL
+            WHERE id = ?
+            """,
+            (retry_count, error[:2000], job_id),
+        )
+
+
+def accumulate_job_tokens(
+    db_path: Path,
+    job_id: int,
+    input_tokens: int,
+    output_tokens: int,
+    cost_usd: float = 0.0,
+) -> None:
+    """Add token counts to a job row (cumulative, safe to call multiple times)."""
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE ingest_jobs
+            SET input_tokens  = COALESCE(input_tokens, 0)  + ?,
+                output_tokens = COALESCE(output_tokens, 0) + ?,
+                estimated_cost_usd = COALESCE(estimated_cost_usd, 0.0) + ?
+            WHERE id = ?
+            """,
+            (int(input_tokens), int(output_tokens), float(cost_usd), job_id),
+        )
+
+
+def count_active_l2_jobs(db_path: Path) -> int:
+    """Return the number of queued or running l2_atoms jobs."""
+    if not db_path.exists():
+        return 0
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM ingest_jobs WHERE job_type = 'l2_atoms' AND state IN ('queued', 'running')"
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+
+def get_jobs_done_today(db_path: Path) -> list[dict]:
+    """Return jobs completed today (UTC date), newest first."""
+    if not db_path.exists():
+        return []
+    today_prefix = _now_iso()[:10]  # "YYYY-MM-DD"
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM ingest_jobs WHERE state = 'done' AND finished_at LIKE ? ORDER BY id DESC",
+            (f"{today_prefix}%",),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def get_pending_count(db_path: Path) -> int:
@@ -357,6 +693,46 @@ def set_sources_layer_status(
             f"WHERE id IN ({','.join('?' * len(source_ids))})",
             (status, error, *source_ids),
         )
+def insert_dag_edge(
+    db_path: str | Path,
+    from_id: str,
+    to_id: str,
+    edge_type: str,
+    source_id: int | str | None,
+) -> None:
+    """Record a directed edge in the DAG. Idempotent (INSERT OR IGNORE)."""
+    with connect(Path(db_path)) as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO dag_edges "
+            "(id, from_id, to_id, edge_type, source_id, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (f"{from_id}:{to_id}", from_id, to_id, edge_type, source_id, _now_iso()),
+        )
+
+
+def get_dag_edges_for_source(db_path: str | Path, source_id: str) -> list[dict]:
+    """Return all dag_edges recorded for a given source_id."""
+    with connect(Path(db_path)) as conn:
+        rows = conn.execute(
+            "SELECT from_id, to_id, edge_type FROM dag_edges WHERE source_id=?",
+            (source_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_dag_edges_for_atoms(db_path: str | Path, atom_ids: list[str]) -> list[dict]:
+    """Return dag_edges where from_id is one of the given ATM IDs (ATM→CON, source_id=NULL)."""
+    if not atom_ids:
+        return []
+    placeholders = ",".join("?" for _ in atom_ids)
+    with connect(Path(db_path)) as conn:
+        rows = conn.execute(
+            f"SELECT from_id, to_id, edge_type FROM dag_edges WHERE from_id IN ({placeholders})",
+            tuple(atom_ids),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_page_hashes(db_path: Path) -> dict[str, str]:
     """Load all known page hashes: {wiki_path: content_hash}."""
     if not db_path.exists():

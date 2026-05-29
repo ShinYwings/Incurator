@@ -5,12 +5,14 @@
 ---
 
 ## 1. .stignore (Syncthing 전용)
+
 Syncthing을 사용하여 실시간 동기화를 할 때, 데이터베이스 잠금 문제나 불필요한 충돌을 방지하기 위해 다음 항목들을 제외해야 합니다.
 
 ```text
-// Git 내부 저장소 무시 (가장 중요)
+// Git 내부 저장소 및 서브모듈 설정 무시
+.git
 .git/
-scripts/
+.gitmodules
 
 // OS 및 툴 관련 임시 파일
 .DS_Store
@@ -26,14 +28,70 @@ __pycache__/
 *.sqlite-*
 *.db-*
 
+// 의존성 폴더 무시 (Syncthing 부하 감소)
+node_modules/
+**/node_modules/
+
+// Incurator plugin: backend 실행 경로가 기기마다 다르면 설정은 로컬로 유지
+// sessions.json 은 v0.2.1부터 세션 단위 병합 저장을 지원하므로 동기화 가능
+.obsidian/plugins/incurator-obsidian-agent/data.json
+
+// Incurator backend: 기기별 인덱스 상태
+// 다른 기기 위에 덮어쓰면 재인덱싱 필요; vault 파일은 Syncthing이 동기화
+.curator/state.sqlite
+.curator/qmd/index.sqlite
+
 // 에이전트 및 테스트베드 (선택 사항)
 .claude/
 testbed/
 ```
 
+> **참고**: `sessions.json`과 `data.json` 분리 구조
+> 채팅 히스토리(`sessions.json`)는 v0.2.1부터 세션 단위 병합 저장과 삭제 tombstone(`deletedSessionIds`)을 지원하므로 Syncthing 동기화가 가능합니다.
+> backend 실행 파일 경로, MCP command, Zotero 경로처럼 기기마다 달라지는 설정이 있다면 `data.json`을 로컬 파일로 두는 편이 안전합니다.
+
+### Obsidian Plugin 배포와 macOS/Linux 동기화
+
+Incurator Obsidian plugin은 빌드 산출물인 `.obsidian/plugins/incurator-obsidian-agent/main.js`, `manifest.json`, `styles.css`가 active vault 안에 배포됩니다. Syncthing에서 `.obsidian/plugins/incurator-obsidian-agent/` 전체를 제외하지 않았다면 Linux에서 `plugin/deploy.sh`로 배포한 변경 사항은 macOS vault에도 동기화됩니다.
+
+기기별로 달라야 하는 파일은 `data.json`처럼 ignore에 둡니다. 특히 MCP command 절대 경로나 backend 설치 경로처럼 Linux와 macOS에서 다른 값이 들어갈 수 있으면 `data.json` 동기화를 피하고 각 기기에서 설정합니다.
+
+macOS에 Incurator가 전역 설치되어 있지 않다면 Obsidian plugin 설정에서 `Incurator MCP command`와 `Incurator MCP args`를 macOS 경로로 지정합니다. `uv`를 쓰는 예시는 `PLUGIN_GUIDE.md`의 세션 동기화 섹션을 참고하세요.
+
+### Syncthing 기기 Registry
+
+Obsidian plugin은 시작 시 로컬 Syncthing `config.xml`을 읽어서 현재 vault를 공유하는 기기 목록을 `.curator/devices.json`에 자동 기록합니다. Syncthing이 아는 정보는 device id, device name, folder id, folder label, 현재 기기의 folder path까지입니다.
+
+backend 실행 경로는 Syncthing이 알 수 없으므로 Incurator가 기기별 entry로 기록합니다. 각 기기에서 한 번씩 실행하면 서로 다른 backend launcher를 같은 registry에서 볼 수 있습니다.
+
+일반 사용에서는 명령어가 필요하지 않습니다. Syncthing이 플러그인 산출물을 동기화하고, 각 기기에서 Obsidian plugin이 로드되면 registry가 자동으로 갱신됩니다. 아래 CLI는 자동 갱신이 실패했거나 터미널에서 상태를 확인하고 싶을 때만 사용합니다.
+
+```bash
+wiki devices sync
+wiki devices status
+```
+
+macOS에 `wiki`가 설치되어 있지 않고 repo의 backend를 `uv`로 실행해야 한다면:
+
+```bash
+wiki devices sync \
+  --backend-command /opt/homebrew/bin/uv \
+  --backend-args '["--directory", "/Users/<you>/Workspace/Incurator/backend", "run", "wiki", "mcp"]'
+```
+
+macOS에서 직접 배포해야 하는 경우에는 같은 스크립트에 macOS vault 경로를 넘깁니다.
+
+```bash
+cd /path/to/Incurator/plugin
+OBSIDIAN_PLUGIN_DIR=/Users/<you>/path/to/second_brain/.obsidian/plugins/incurator-obsidian-agent ./deploy.sh
+```
+
+Syncthing으로 산출물이 도착했거나 macOS에서 직접 배포한 뒤에는 Obsidian에서 Incurator plugin을 reload하거나 Obsidian을 재시작합니다.
+
 ---
 
 ## 2. .gitignore (Git 전용)
+
 Git으로 지식 베이스를 관리할 때 대용량 파일이나 로컬 상태를 제외하기 위한 설정입니다.
 
 ```gitignore

@@ -1,0 +1,178 @@
+import { existsSync, readFileSync } from "fs";
+import { homedir, hostname, platform, release, arch } from "os";
+import { resolve } from "path";
+import type { PluginSettings } from "../types";
+
+export interface SyncthingDevice {
+  device_id: string;
+  name: string;
+  addresses: string[];
+}
+
+export interface SyncthingFolder {
+  id: string;
+  label: string;
+  path: string;
+  type: string;
+  device_ids: string[];
+}
+
+export interface SyncthingSnapshot {
+  config_path: string | null;
+  devices: SyncthingDevice[];
+  folders: SyncthingFolder[];
+}
+
+export interface DeviceRegistry {
+  version: number;
+  updated_at: number;
+  local_device_id?: string;
+  syncthing: SyncthingSnapshot;
+  devices: Record<string, Record<string, unknown>>;
+}
+
+const REGISTRY_VERSION = 1;
+
+export function defaultSyncthingConfigPaths(home = homedir()): string[] {
+  return [
+    `${home}/.local/state/syncthing/config.xml`,
+    `${home}/.config/syncthing/config.xml`,
+    `${home}/Library/Application Support/Syncthing/config.xml`,
+  ];
+}
+
+function attrs(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const re = /([A-Za-z0-9_-]+)="([^"]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) out[match[1]] = match[2];
+  return out;
+}
+
+function tagBlocks(xml: string, tag: string): string[] {
+  return Array.from(xml.matchAll(new RegExp(`<${tag}\\b[\\s\\S]*?<\\/${tag}>`, "g"))).map(
+    (match) => match[0]
+  );
+}
+
+function firstOpenTag(block: string): string {
+  return block.match(/^<[^>]+>/)?.[0] || "";
+}
+
+function tagTexts(block: string, tag: string): string[] {
+  return Array.from(block.matchAll(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "g")))
+    .map((match) => match[1].trim())
+    .filter(Boolean);
+}
+
+function expandPath(path: string, home = homedir()): string {
+  const expandedHome = path.startsWith("~/") ? `${home}/${path.slice(2)}` : path;
+  return expandedHome.replace(/\$HOME/g, home);
+}
+
+function samePath(a: string, b: string, home = homedir()): boolean {
+  return resolve(expandPath(a, home)) === resolve(expandPath(b, home));
+}
+
+export function parseSyncthingConfig(xml: string, vaultRoot: string, home = homedir()): SyncthingSnapshot {
+  const devicesById = new Map<string, SyncthingDevice>();
+  for (const block of tagBlocks(xml, "device")) {
+    const a = attrs(firstOpenTag(block));
+    if (!a.id) continue;
+    devicesById.set(a.id, {
+      device_id: a.id,
+      name: a.name || a.id.slice(0, 12),
+      addresses: tagTexts(block, "address"),
+    });
+  }
+
+  const folders: SyncthingFolder[] = [];
+  for (const block of tagBlocks(xml, "folder")) {
+    const a = attrs(firstOpenTag(block));
+    if (!a.path || !samePath(a.path, vaultRoot, home)) continue;
+    folders.push({
+      id: a.id || "",
+      label: a.label || "",
+      path: a.path,
+      type: a.type || "",
+      device_ids: Array.from(block.matchAll(/<device\b([^>]*)\/?>/g))
+        .map((match) => attrs(match[1]).id)
+        .filter(Boolean),
+    });
+  }
+
+  const folderDeviceIds = new Set(folders.flatMap((folder) => folder.device_ids));
+  return {
+    config_path: null,
+    devices: Array.from(folderDeviceIds)
+      .map((id) => devicesById.get(id))
+      .filter((device): device is SyncthingDevice => Boolean(device)),
+    folders,
+  };
+}
+
+export function findSyncthingConfigPath(paths = defaultSyncthingConfigPaths()): string | null {
+  return paths.find((path) => existsSync(path)) || null;
+}
+
+export function readSyncthingSnapshot(vaultRoot: string): SyncthingSnapshot {
+  const configPath = findSyncthingConfigPath();
+  if (!configPath) return { config_path: null, devices: [], folders: [] };
+  const snapshot = parseSyncthingConfig(readFileSync(configPath, "utf-8"), vaultRoot);
+  snapshot.config_path = configPath;
+  return snapshot;
+}
+
+export function inferLocalDeviceId(devices: SyncthingDevice[], host = hostname()): string {
+  const names = new Set([host.toLowerCase(), host.split(".")[0].toLowerCase()]);
+  const match = devices.find((device) => names.has(device.name.toLowerCase()));
+  return match?.device_id || "local";
+}
+
+export function mergeDeviceRegistry(
+  existing: Partial<DeviceRegistry> | null | undefined,
+  snapshot: SyncthingSnapshot,
+  settings: Pick<PluginSettings, "incuratorMcpCommand" | "incuratorMcpArgs">,
+  now = Math.floor(Date.now() / 1000),
+  localDeviceId = inferLocalDeviceId(snapshot.devices)
+): DeviceRegistry {
+  const devices: Record<string, Record<string, unknown>> = {
+    ...(existing?.devices || {}),
+  };
+
+  for (const device of snapshot.devices) {
+    devices[device.device_id] = {
+      ...(devices[device.device_id] || {}),
+      device_id: device.device_id,
+      name: device.name,
+      syncthing: device,
+    };
+  }
+
+  const localName =
+    snapshot.devices.find((device) => device.device_id === localDeviceId)?.name || hostname();
+  devices[localDeviceId] = {
+    ...(devices[localDeviceId] || {}),
+    device_id: localDeviceId,
+    name: localName,
+    platform: {
+      system: platform(),
+      release: release(),
+      machine: arch(),
+      source: "obsidian-plugin",
+    },
+    backend: {
+      command: settings.incuratorMcpCommand || "wiki",
+      args: settings.incuratorMcpArgs?.length ? settings.incuratorMcpArgs : ["mcp"],
+    },
+    updated_at: now,
+  };
+
+  return {
+    version: REGISTRY_VERSION,
+    updated_at: now,
+    local_device_id: localDeviceId,
+    syncthing: snapshot,
+    devices,
+  };
+}

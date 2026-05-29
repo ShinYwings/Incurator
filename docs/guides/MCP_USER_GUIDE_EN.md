@@ -115,7 +115,58 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install ge
 #### `curator_reindex`
 - **Role**: Manually rebuild the QMD search index.
 
-### 3.4 Workspace Management
+### 3.4 Document Status & On-demand Queries (v0.2.1)
+
+#### `check_source_status`
+
+- **Role**: Look up a file's registration state by its SHA-256 hash. Called automatically by the plugin when a PDF is opened to determine whether the agent should use ephemeral mode or `curator_query`.
+- **Parameters**: `file_hash` (SHA-256 hash string of the file).
+- **Returns**: `registered`, `source_id`, `l1_complete`, `l2_complete`, `l3_complete`, `jobs_pending`.
+- **Implementation status**: The backend looks up `sources.content_hash` and returns queued/running `ingest_jobs` with the source status.
+- **Note**: Works regardless of path differences (terminal absolute path vs. plugin relative path) — same hash means the same result. CLI and plugin ingestion paths are transparent to each other.
+
+#### `fetch_document_section`
+
+- **Role**: Return the text of a specific document section. If the document is unregistered, the plugin serves it from in-memory (PDF.js). After `wiki add`/`import_source` reaches `l1_complete=True`, the backend serves the CTX `Source Sections` immediately. `curator_query` remains available after L3 completes.
+- **Parameters**: `source_key` (logical_source_id or file_hash), `toc_id` (section id from the CTX frontmatter `toc` array), `page_start`/`page_end` (page-range fallback for PDFs without a ToC).
+- **Implementation status**: When `source_key` resolves to a tracked source or file path, the backend returns text by CTX section marker, source heading, or PDF page. With the v0.2.1 default (`llm.instant_l1: true`), the L1 CTX is generated without an LLM call, so section reads become available quickly.
+- **Agent usage**: The agent reads the ToC minimap in its system prompt, then calls this tool with the relevant `toc_id`.
+
+#### `curator_query`
+
+- **Role**: Search for relevant L3 Concepts by natural-language question and synthesize an LLM answer on demand. If an Exhibition for the same question was previously generated, returns it from cache without calling an LLM again.
+- **Parameters**: `question` (natural-language query string), `workspace_path` (absolute path to the workspace directory, defaults to `""`), `force_new` (bypass cache and regenerate, default `false`).
+- **Returns**: `ok`, `answer` (synthesized answer text), `exhibition_id` (EXH node ID of the generated or cached Exhibition), `cache_hit` (boolean), `question` (echoed back), `trace` object containing: `matched_concepts` (list of CON IDs), `source_ids`, `source_paths`, `latency_ms`, `l3_complete` (whether L3 DAG is fully built for related sources).
+- **Cache key**: `sha256(workspace_id + ":" + normalized_question)[:16]` stored as `cache_key` in the EXH frontmatter.
+- **Cache invalidation**: Backprop changes to a referenced CON automatically invalidate the EXH cache. EXHs with `is_verified_by_human=true` are protected from invalidation.
+- **Implementation status**: Implemented in v0.2.1. Requires `l3_complete=true` for full concept-graph answers. If L3 is incomplete, the tool returns `ok=true`, `fallback="l3_incomplete"`, `answer=""`, and `trace.l3_complete=false`; clients should fall back to source sections or local PDF context.
+
+#### `promote_exhibition`
+
+- **Role**: Promote an agent-generated query Exhibition to `02_Wiki/` after human review. The promoted EXH receives `is_verified_by_human=true` and `exhibition_origin="promoted"`, and is excluded from future backprop rebuilds.
+- **Parameters**: `exh_id` (EXH node ID to promote), `workspace_path` (absolute path to the workspace directory, optional).
+- **Returns**: `ok`, `exhibition_id` (the EXH that was promoted), `promoted_to` (absolute path of the new page inside `02_Wiki/`).
+- **Implementation status**: Implemented in v0.2.1. Calls `classify_wiki_topic` + `save_wiki_page` internally; updates the original EXH frontmatter with `promoted_to` so the link is bidirectional.
+
+#### `check_ingest_status`
+
+- **Role**: Return the current background ingest job queue status. The plugin polls this every 5 seconds after `wiki add` or `import_source` to detect when L2/L3 processing completes. Stop polling when `idle: true` and refresh the UI.
+- **Parameters**: `workspace_path` (absolute path, optional).
+- **Returns**:
+  - `ok` (always true)
+  - `running` — list of currently running jobs (each includes `source_name`, `phase`, `progress`, `progress_current`, `progress_total`)
+  - `queued` — list of queued jobs
+  - `done_today` — number of jobs completed today
+  - `idle` — `true` when both `running` and `queued` are empty
+- **Implementation status**: Implemented in v0.2.1. `.curator/dashboard.md` is also auto-updated by `IngestWorker` on every job state change (Obsidian live preview re-renders automatically on file change).
+
+#### `get_available_models`
+
+- **Role**: Return the list of models per provider from the `models.json` file bundled with the backend package. Used by the plugin UI to dynamically populate the model selection dropdown.
+- **Parameters**: none.
+- **Returns**: `{ "antigravity": [...], "claude": [...] }` — per-provider model list.
+
+### 3.5 Workspace Management
 
 #### `curator_workspace_init`
 

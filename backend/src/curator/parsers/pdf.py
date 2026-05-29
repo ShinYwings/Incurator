@@ -20,6 +20,25 @@ from .base import (
 _MAX_PDF_IMAGES = 10  # cap per document to avoid memory blow-up
 
 
+def _extract_pdf_toc(path: Path) -> list[dict]:
+    """Extract PDF outline using PyMuPDF when available."""
+    try:
+        import fitz  # pymupdf
+    except ImportError:
+        return []
+    try:
+        doc = fitz.open(str(path))
+        toc = [
+            {"level": int(level), "title": str(title).strip(), "page": int(page)}
+            for level, title, page in doc.get_toc(simple=True)
+            if str(title).strip() and int(page) > 0
+        ]
+        doc.close()
+        return toc
+    except Exception:
+        return []
+
+
 def _extract_pdf_images(path: Path) -> list[dict]:
     """Extract embedded images from a PDF using pymupdf (optional dep).
 
@@ -127,7 +146,11 @@ def parse(path: Path) -> ParsedDocument:
         title = fallback_title_from_path(path)
 
     # Collect useful metadata
-    metadata: dict = {"page_count": len(reader.pages), "pdf_pages": pdf_pages}
+    metadata: dict = {
+        "page_count": len(reader.pages),
+        "pdf_pages": pdf_pages,
+        "pdf_toc": _extract_pdf_toc(path),
+    }
     try:
         meta = reader.metadata
         if meta:

@@ -254,6 +254,7 @@ def source_status(
 
     status = str(row.get("status") or "pending")
     state = "indexed" if status in {"curated", "done"} else status
+    pending_jobs = db.get_pending_jobs_for_source(paths.state_db, int(row["id"]))
     out.update(
         SourceStatus(
             state=state,
@@ -262,6 +263,21 @@ def source_status(
             current_hash=current_hash,
         ).as_dict()
     )
+    out["registered"] = True
+    out["source_id"] = int(row["id"])
+    out["l1_complete"] = str(row.get("l1_status") or "") == "done"
+    out["l2_complete"] = str(row.get("l2_status") or "") == "done"
+    out["l3_complete"] = str(row.get("l3_status") or "") == "done"
+    out["jobs_pending"] = [
+        {
+            "id": job.get("id"),
+            "type": job.get("job_type"),
+            "state": job.get("state"),
+            "phase": job.get("phase"),
+            "progress": job.get("progress"),
+        }
+        for job in pending_jobs
+    ]
     return out
 
 

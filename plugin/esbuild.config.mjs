@@ -1,3 +1,5 @@
+import { config } from "dotenv";
+config();
 import esbuild from "esbuild";
 import { copyFileSync, existsSync, mkdirSync } from "fs";
 import path from "path";

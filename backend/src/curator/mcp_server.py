@@ -29,6 +29,7 @@ import os
 import re
 import subprocess
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -489,7 +490,7 @@ Instructions:
                 return [str(s) for s in suggestions[:5]]
     except Exception:
         pass
-    
+
     # Fallbacks
     fallbacks = {
         "description": ["Knowledge base for research", "Technical documentation", "Learning notes"],
@@ -508,7 +509,7 @@ def _build_wizard_questions(workspace_path: str, provided: dict = None) -> dict[
         ("exclude_patterns", "Sources to Exclude", "Which vault folders (e.g., 03_Notes/Other) should be excluded from this project's knowledge base?"),
         ("min_confidence", "Confidence Threshold", "Minimum confidence for search results (0.5-0.95)?")
     ]
-    
+
     missing = None
     for fid, label, q in fields:
         val = provided.get(fid)
@@ -518,13 +519,13 @@ def _build_wizard_questions(workspace_path: str, provided: dict = None) -> dict[
                 continue
             missing = (fid, label, q)
             break
-            
+
     if missing is None:
         return {"ok": True, "all_answered": True}
 
     fid, label, q = missing
     suggestions = _get_interview_suggestions(workspace_path, fid, provided)
-    
+
     return {
         "ok": True,
         "needs_initialization": True,
@@ -557,7 +558,7 @@ def _build_wizard_questions(workspace_path: str, provided: dict = None) -> dict[
 def build_server() -> FastMCP:
     """Build and register all tools on a fresh FastMCP instance."""
     import os
-    from . import search, ingest_llm, ingest_raw, db, llm, config as cfg
+    from . import search, ingest_llm, ingest_raw, db, llm, config as cfg, zotero
 
     mcp = FastMCP(
         name="incurator",
@@ -586,6 +587,22 @@ def build_server() -> FastMCP:
             "Layer prefixes: CTX- (01_Contexts), ATM- (02_Atoms), CON- (03_Concepts), EXH- (04_Exhibitions)."
         ),
     )
+
+    try:
+        if os.environ.get("CURATOR_DISABLE_INGEST_WORKER") != "1":
+            from .ingest_worker import IngestWorker
+
+            worker_paths = _resolve_paths()
+            db.init_db(worker_paths.state_db)
+            worker = IngestWorker(
+                worker_paths,
+                lambda: cfg.load_config(worker_paths),
+                poll_seconds=10.0,
+            )
+            worker.start()
+            mcp._incurator_ingest_worker = worker  # keep a strong reference
+    except Exception:
+        pass
 
     def _source_dict(paths: cfg.WikiPaths, row: dict[str, Any]) -> dict[str, Any]:
         source_id = int(row["id"])
@@ -653,6 +670,276 @@ def build_server() -> FastMCP:
     # ------------------------------------------------------------------
     # Source tools — raw-source status, import, ingest, page search/provenance
     # ------------------------------------------------------------------
+
+
+    @mcp.tool()
+    def curator_search_zotero_items(
+        query: str,
+        workspace_path: str = "",
+        custom_paths: str = "",
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Search Zotero items by title or author."""
+        if not custom_paths:
+            return {"ok": False, "error": "custom_paths (zoteroBasePath) is required"}
+
+        try:
+            from .zotero_integration import search_zotero_items
+            import os
+            candidates = [
+                p.strip()
+                for p in str(custom_paths).split(",")
+                if p.strip()
+            ]
+            checked: list[str] = []
+            for candidate in candidates:
+                base = os.path.expanduser(candidate)
+                zotero_db = base if base.endswith(".sqlite") else os.path.join(base, "zotero.sqlite")
+                checked.append(zotero_db)
+                items = search_zotero_items(zotero_db, query, limit=limit)
+                if items:
+                    return {"ok": True, "items": items, "db_path": zotero_db}
+            return {"ok": True, "items": [], "checked": checked}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    @mcp.tool()
+    def curator_get_zotero_item_metadata(
+        item_key: str,
+        workspace_path: str = "",
+        custom_paths: str = "",
+        citation_style: str = "",
+    ) -> dict[str, Any]:
+        """Fetch full metadata for a Zotero item."""
+        if not custom_paths:
+            return {"ok": False, "error": "custom_paths (zoteroBasePath) is required"}
+
+        try:
+            from .zotero_integration import get_zotero_item_metadata
+            import os
+            zotero_db = os.path.join(os.path.expanduser(custom_paths), "zotero.sqlite")
+            metadata = get_zotero_item_metadata(zotero_db, item_key, citation_style=citation_style)
+            return {"ok": True, "metadata": metadata}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    @mcp.tool()
+    def curator_get_zotero_annotations(
+
+        attachment_key: str,
+        workspace_path: str = "",
+        custom_paths: str = "",
+    ) -> dict[str, Any]:
+        """Fetch all PDF annotations for a given Zotero attachment key."""
+        paths = _resolve_paths(workspace_path)
+        config = cfg.load_config(paths)
+        zotero_db = config.get("zotero", {}).get("db_path", os.path.expanduser("~/Zotero/zotero.sqlite"))
+
+        # If custom paths provided, check if we can find a sqlite db there
+        if custom_paths:
+            for p in custom_paths.split(","):
+                p = p.strip()
+                if not p: continue
+                db_cand = os.path.join(os.path.expanduser(p), "zotero.sqlite")
+                if os.path.exists(db_cand):
+                    zotero_db = db_cand
+                    break
+
+        try:
+            annotations = zotero.get_zotero_annotations(zotero_db, attachment_key)
+            return {"ok": True, "annotations": annotations}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    @mcp.tool()
+    def curator_resolve_zotero_pdf(
+        attachment_key: str,
+        workspace_path: str = "",
+        custom_paths: str = "",
+    ) -> dict[str, Any]:
+        """Resolve the absolute path of a Zotero PDF attachment."""
+        paths = _resolve_paths(workspace_path)
+        config = cfg.load_config(paths)
+
+        candidates = [os.path.expanduser("~/Zotero")]
+        if custom_paths:
+            for p in custom_paths.split(","):
+                p = p.strip()
+                if not p: continue
+                p = os.path.expanduser(p)
+                candidates.append(p)
+        if "external" in config and "zotero" in config["external"]:
+            roots = config["external"]["zotero"].get("roots", [])
+            for r in roots:
+                candidates.append(os.path.expanduser(r))
+
+        zotero_db = config.get("zotero", {}).get("db_path", os.path.expanduser("~/Zotero/zotero.sqlite"))
+        if custom_paths:
+            for cand in candidates:
+                db_cand = os.path.join(cand, "zotero.sqlite")
+                if os.path.exists(db_cand):
+                    zotero_db = db_cand
+                    break
+
+        # 1. Check DB for path
+        db_path = zotero.get_zotero_attachment_path_from_db(zotero_db, attachment_key)
+
+        if db_path:
+            # Linked attachment
+            if db_path.startswith("attachments:"):
+                rel_path = db_path[len("attachments:"):]
+                for cand in candidates:
+                    # cand could be the base path itself, or we might need to check standard places
+                    # Usually linked attachments base path is in one of the roots or candidates
+                    check_path = os.path.join(cand, rel_path)
+                    if os.path.exists(check_path):
+                        return {"ok": True, "path": check_path}
+            # Absolute path
+            elif os.path.isabs(db_path) and os.path.exists(db_path):
+                return {"ok": True, "path": db_path}
+            # Storage path
+            elif db_path.startswith("storage:"):
+                rel_path = db_path[len("storage:"):]
+                for cand in candidates:
+                    check_path = os.path.join(cand, "storage", attachment_key, rel_path)
+                    if os.path.exists(check_path):
+                        return {"ok": True, "path": check_path}
+
+        # 2. Fallback: Check storage directories directly (legacy behavior)
+        for cand in candidates:
+            item_dir = os.path.join(cand, "storage", attachment_key)
+            if not os.path.isdir(item_dir):
+                continue
+            for f in os.listdir(item_dir):
+                if f.lower().endswith(".pdf"):
+                    return {"ok": True, "path": os.path.join(item_dir, f)}
+
+        return {"ok": False, "error": "PDF not found"}
+
+    @mcp.tool()
+    def check_source_status(file_hash: str, workspace_path: str = "") -> dict[str, Any]:
+        """Return source registration and pipeline status by SHA-256 content hash."""
+        paths = _resolve_paths(workspace_path)
+        with db.connect(paths.state_db) as conn:
+            row = conn.execute(
+                "SELECT * FROM sources WHERE content_hash = ? ORDER BY id DESC LIMIT 1",
+                (file_hash,),
+            ).fetchone()
+        if row is None:
+            return {
+                "registered": False,
+                "source_id": None,
+                "l1_complete": False,
+                "l2_complete": False,
+                "l3_complete": False,
+                "jobs_pending": [],
+            }
+        source = _source_dict(paths, dict(row))
+        return {
+            "registered": True,
+            "source_id": int(row["id"]),
+            "relpath": row["relpath"],
+            "l1_complete": source.get("l1_complete", False),
+            "l2_complete": source.get("l2_complete", False),
+            "l3_complete": source.get("l3_complete", False),
+            "jobs_pending": source.get("jobs_pending", []),
+            "source": source,
+        }
+
+    @mcp.tool()
+    def check_ingest_status(workspace_path: str = "") -> dict[str, Any]:
+        """Return current background job queue status for plugin polling.
+
+        Use this to update the status bar or progress panel after wiki add or
+        import_source. Poll every 5 seconds until running == 0.
+        Returns: ok, running (list), queued (list), done_today (count), idle (bool).
+        """
+        paths = _resolve_paths(workspace_path)
+        if not paths.state_db.exists():
+            return {"ok": True, "running": [], "queued": [], "done_today": 0, "idle": True}
+        running = db.list_ingest_jobs(paths.state_db, states=("running",), limit=10)
+        queued = db.list_ingest_jobs(paths.state_db, states=("queued",), limit=10)
+        done_today = db.get_jobs_done_today(paths.state_db)
+
+        def _job_summary(job: dict) -> dict:
+            return {
+                "job_id": job.get("id"),
+                "source_id": job.get("source_id"),
+                "source_name": job.get("source_name") or "",
+                "job_type": job.get("job_type") or "",
+                "phase": job.get("phase") or "",
+                "progress": job.get("progress") or 0.0,
+                "progress_current": job.get("progress_current") or 0,
+                "progress_total": job.get("progress_total") or 0,
+                "started_at": job.get("started_at") or "",
+                "retry_count": job.get("retry_count") or 0,
+            }
+
+        return {
+            "ok": True,
+            "running": [_job_summary(j) for j in running],
+            "queued": [_job_summary(j) for j in queued],
+            "done_today": len(done_today),
+            "idle": len(running) == 0 and len(queued) == 0,
+        }
+
+    @mcp.tool()
+    def fetch_document_section(
+        source_key: str,
+        toc_id: str = "",
+        section_id: str = "",
+        page: int = 0,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """Fetch a raw source section for instant L1/ephemeral RAG."""
+        paths = _resolve_paths(workspace_path)
+        row = _get_source_row(paths, source_path=source_key)
+        source_path = Path(source_key).expanduser()
+        if row is not None:
+            source_path = source_tools._row_path(paths, row)
+        elif not source_path.is_absolute():
+            source_path = paths.root / source_key
+        if not source_path.exists():
+            return {"ok": False, "error": f"Source not found: {source_key}"}
+        try:
+            parsed = source_tools.parse_source(source_path)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+        wanted = section_id or toc_id
+        text = parsed.text
+        if page and parsed.file_type == "pdf":
+            pages = parsed.metadata.get("pages") or []
+            for item in pages:
+                if int(item.get("page") or item.get("page_number") or 0) == int(page):
+                    text = str(item.get("text") or "")
+                    break
+        elif wanted:
+            pattern = re.compile(
+                rf"(?ms)^<!--\s*section:\s*{re.escape(wanted)}\b.*?-->\s*(.*?)(?=^<!--\s*section:|\Z)"
+            )
+            match = pattern.search(text)
+            if match:
+                text = match.group(1).strip()
+            else:
+                heading = re.compile(
+                    rf"(?ms)^#+\s+.*{re.escape(wanted)}.*$\n(.*?)(?=^#+\s+|\Z)"
+                )
+                match = heading.search(text)
+                if match:
+                    text = match.group(1).strip()
+
+        return {
+            "ok": True,
+            "source_id": int(row["id"]) if row else None,
+            "source_key": source_key,
+            "toc_id": wanted,
+            "page": page or None,
+            "title": parsed.title,
+            "file_type": parsed.file_type,
+            "text": text,
+            "char_count": len(text),
+        }
 
     @mcp.tool()
     def curator_source_status(
@@ -1231,10 +1518,10 @@ def build_server() -> FastMCP:
             if curate_spec.exhibition:
                 candidate = paths.exhibitions / f"{curate_spec.exhibition}.md"
                 ws_exh = candidate if candidate.exists() else None
-            
+
             if ws_exh is None:
                 ws_exh = _ingest_llm.find_workspace_exhibition(paths, curate_spec.project)
-            
+
             # PROACTIVE CURATION: If still no exhibition, run it now instead of asking the user
             if ws_exh is None:
                 try:
@@ -1320,6 +1607,293 @@ def build_server() -> FastMCP:
         }
 
     # ------------------------------------------------------------------
+    # curator_query — concept-grounded Q&A with trace (v0.2.1)
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def curator_query(
+        question: str,
+        workspace_path: str = "",
+        force_new: bool = False,
+    ) -> dict[str, Any]:
+        """Answer a question using the Curator knowledge graph (L3 concepts + L4 Exhibitions).
+
+        This is the v0.2.1 primary query entry point for sidebar-style answers.
+        It retrieves relevant L3 Concepts, synthesizes an answer with the LLM,
+        creates an ephemeral query-generated Exhibition, and returns provenance
+        trace data for the "Sources & Trace" plugin panel.
+
+        Use `search_curator` for raw DAG hit retrieval without LLM synthesis.
+
+        Args:
+            question: Natural-language question to answer.
+            workspace_path: Active workspace path to scope retrieval. Falls back
+                to the WORKSPACE_PATH env var when not provided.
+            force_new: When true, skip cache lookup and always create a fresh
+                Exhibition even if a cached answer exists.
+
+        Returns:
+            ok: Whether synthesis succeeded.
+            answer: Synthesized markdown answer.
+            exhibition_id: EXH-<UUID8> of the generated/reused Exhibition.
+            cache_hit: True if a cached Exhibition was returned.
+            question: Original question echoed back.
+            trace: Provenance — matched concept IDs, source paths, latency.
+            error: Error message when ok=false.
+        """
+        import time as _time
+
+        start = _time.monotonic()
+        ws_path_str = workspace_path or os.environ.get("WORKSPACE_PATH", "")
+        paths = _resolve_paths(ws_path_str)
+
+        workspace_id = Path(ws_path_str).name if ws_path_str else "default"
+
+        # Resolve workspace project name (for Exhibition scoping)
+        workspace_project: str | None = None
+        if ws_path_str:
+            ws_p = Path(ws_path_str).expanduser().resolve()
+            from . import curate_yml as _cym
+            try:
+                spec = _cym.load_curate_spec(ws_p)
+                workspace_project = spec.project
+            except Exception:
+                workspace_project = ws_p.name
+
+        # Check whether a cached Exhibition already answers this question.
+        # Cache key = sha256 prefix of (workspace_id + normalized question).
+        import hashlib as _hashlib
+        _norm_q = question.strip().lower()
+        cache_key = _hashlib.sha256(f"{workspace_id}:{_norm_q}".encode()).hexdigest()[:16]
+
+        if not force_new:
+            for _exh_file in sorted(paths.exhibitions.glob("EXH-*.md"), reverse=True):
+                _page = page_writer.read_page(_exh_file)
+                if _page and _page.frontmatter.get("cache_key") == cache_key:
+                    _latency = int((_time.monotonic() - start) * 1000)
+                    _exh_id = _page.frontmatter.get("id", _exh_file.stem)
+                    _concepts = _page.frontmatter.get("core_concepts") or []
+                    return {
+                        "ok": True,
+                        "answer": _page.body.strip(),
+                        "exhibition_id": _exh_id,
+                        "cache_hit": True,
+                        "question": question,
+                        "trace": {
+                            "matched_concepts": _concepts,
+                            "source_ids": [],
+                            "source_paths": [],
+                            "latency_ms": _latency,
+                            "l3_complete": True,
+                        },
+                    }
+
+        # Build LLM client and run query pipeline
+        from . import llm as _llm
+        from . import query as _query
+
+        try:
+            config = cfg.load_config(paths)
+        except Exception as e:
+            return {"ok": False, "question": question, "error": f"Config error: {e}"}
+
+        _con_dir = paths.concepts if hasattr(paths, "concepts") else paths.collections / "03_Concepts"
+        l3_complete = any(_con_dir.glob("CON-*.md")) if _con_dir.exists() else False
+        if not l3_complete:
+            fallback_hits: list[dict[str, Any]] = []
+            try:
+                raw_results = search.query(
+                    paths,
+                    question,
+                    mode="lex",
+                    limit=8,
+                    min_score=0.0,
+                    hydrate=False,
+                    rerank=False,
+                )
+                fallback_hits = [
+                    {
+                        "path": hit.full_path,
+                        "title": hit.title,
+                        "score": hit.score,
+                        "snippet": hit.snippet,
+                    }
+                    for hit in raw_results.hits
+                ]
+            except Exception:
+                fallback_hits = []
+            return {
+                "ok": True,
+                "answer": "",
+                "exhibition_id": "",
+                "cache_hit": False,
+                "question": question,
+                "fallback": "l3_incomplete",
+                "fallback_hits": fallback_hits,
+                "trace": {
+                    "matched_concepts": [],
+                    "source_ids": [],
+                    "source_paths": [hit.get("path", "") for hit in fallback_hits],
+                    "latency_ms": int((_time.monotonic() - start) * 1000),
+                    "l3_complete": False,
+                },
+            }
+
+        session_id = f"QRY-{uuid.uuid4().hex[:8]}"
+
+        class _SilentCallbacks(_query.QueryCallbacks):
+            pass
+
+        try:
+            with _llm.build_client(config) as client:
+                result = _query.run_query(
+                    paths,
+                    client,
+                    question,
+                    _SilentCallbacks(),
+                    mode="hybrid",
+                    limit=8,
+                    min_score=0.5,
+                    rerank=True,
+                    save_as=question[:60],
+                    temperature=0.3,
+                    scope="all",
+                    session_id=session_id,
+                    workspace_project=workspace_project,
+                    ephemeral_exhibition=True,
+                )
+        except Exception as e:
+            return {"ok": False, "question": question, "error": f"Query pipeline error: {e}"}
+
+        latency_ms = int((_time.monotonic() - start) * 1000)
+
+        if not result.ok:
+            return {
+                "ok": False,
+                "question": question,
+                "error": result.error or "Query returned no answer",
+            }
+
+        # Extract provenance from hits
+        matched_concepts: list[str] = []
+        source_paths: list[str] = []
+        source_ids: list[int] = []
+        for hit in result.hits:
+            if hit.full_path.startswith("03_Concepts/"):
+                con_id = Path(hit.full_path).stem
+                if con_id not in matched_concepts:
+                    matched_concepts.append(con_id)
+            sp = hit.full_path
+            if sp not in source_paths:
+                source_paths.append(sp)
+
+        exh_id = Path(result.saved_path).stem if result.saved_path else ""
+
+        # Update cache_key on the saved Exhibition so future cache lookups work
+        if exh_id and result.saved_path:
+            _exh_path = paths.collections / result.saved_path
+            if _exh_path.exists():
+                _page = page_writer.read_page(_exh_path)
+                if _page:
+                    _page.frontmatter["cache_key"] = cache_key
+                    _page.frontmatter["workspace_id"] = workspace_id
+                    if ws_path_str:
+                        _page.frontmatter["workspace_path"] = ws_path_str
+                    page_writer.write_page(_exh_path, _page.to_markdown())
+
+        return {
+            "ok": True,
+            "answer": result.answer,
+            "exhibition_id": exh_id,
+            "cache_hit": False,
+            "question": question,
+            "trace": {
+                "matched_concepts": matched_concepts,
+                "source_ids": source_ids,
+                "source_paths": source_paths,
+                "latency_ms": latency_ms,
+                "l3_complete": l3_complete,
+            },
+        }
+
+    # ------------------------------------------------------------------
+    # promote_exhibition — promote query-gen EXH to 02_Wiki/ (v0.2.1)
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def promote_exhibition(
+        exh_id: str,
+        workspace_path: str = "",
+    ) -> dict[str, Any]:
+        """Promote a query-generated Exhibition to 02_Wiki/ as a human-verified artifact.
+
+        This must only be called after explicit user approval. Promotion sets
+        `is_verified_by_human=true` on the Exhibition and writes a permanent
+        copy to `02_Wiki/<category>/<slug>.md`.
+
+        The plugin must not call this automatically; it always requires a human action.
+
+        Args:
+            exh_id: Exhibition ID to promote, e.g. "EXH-12345678".
+            workspace_path: Optional workspace path to resolve the vault.
+
+        Returns:
+            ok: Whether promotion succeeded.
+            exhibition_id: Echoed EXH ID.
+            promoted_to: Vault-relative path of the promoted wiki page.
+            error: Error message when ok=false.
+        """
+        paths = _resolve_paths(workspace_path)
+
+        exh_file = paths.exhibitions / f"{exh_id}.md"
+        if not exh_file.exists():
+            return {"ok": False, "exhibition_id": exh_id, "error": f"Exhibition {exh_id} not found"}
+
+        page = page_writer.read_page(exh_file)
+        if page is None:
+            return {"ok": False, "exhibition_id": exh_id, "error": f"Cannot read {exh_id}"}
+
+        question = page.frontmatter.get("question") or ""
+        answer = page.body.strip()
+
+        # Use LLM to classify category/slug for the wiki page path
+        from . import query as _query
+        from . import llm as _llm
+        category = "General"
+        slug = ""
+        try:
+            config = cfg.load_config(paths)
+            with _llm.build_client(config) as client:
+                category, slug = _query.classify_wiki_topic(client, question, answer)
+        except Exception:
+            pass
+
+        if not slug:
+            import re as _re
+            slug = _re.sub(r"[^\w\s-]", "", question).strip()
+            slug = _re.sub(r"\s+", "-", slug)[:60].strip("-") or exh_id.lower()
+
+        # Write to 02_Wiki/
+        try:
+            wiki_path = _query.save_wiki_page(paths, question, answer, category, slug)
+        except Exception as e:
+            return {"ok": False, "exhibition_id": exh_id, "error": f"Failed to write wiki page: {e}"}
+
+        # Update Exhibition frontmatter to reflect promotion
+        page.frontmatter["exhibition_origin"] = "promoted"
+        page.frontmatter["ephemeral"] = False
+        page.frontmatter["is_verified_by_human"] = True
+        page.frontmatter["promoted_to"] = wiki_path
+        page.frontmatter["last_updated"] = page_writer.today_iso()
+        page_writer.write_page(exh_file, page.to_markdown())
+
+        return {
+            "ok": True,
+            "exhibition_id": exh_id,
+            "promoted_to": wiki_path,
+        }
+
+    # ------------------------------------------------------------------
     # curator_curate_workspace — create or refresh the workspace Exhibition
     # ------------------------------------------------------------------
 
@@ -1340,7 +1914,7 @@ def build_server() -> FastMCP:
         ws = workspace_path or os.environ.get("WORKSPACE_PATH", "")
         if not ws:
             return {"error": "workspace_path required (or set WORKSPACE_PATH env var)"}
-        
+
         paths = _resolve_paths(ws)
         result = subprocess.run(
             ["wiki", "curate", "--workspace", ws, "--no-sync"],
@@ -1358,11 +1932,11 @@ def build_server() -> FastMCP:
         from . import curate_yml as _cym
         spec = _cym.load_curate_spec(Path(ws).expanduser().resolve())
         project = spec.project if spec else ws
-        
-        # find_workspace_exhibition is now usually sufficient since project name 
+
+        # find_workspace_exhibition is now usually sufficient since project name
         # is synchronized with curate.yml.
         ws_exh = _ingest_llm.find_workspace_exhibition(paths, project)
-        
+
         # No need to manually update_index here as 'wiki curate' already did it.
         return {"ok": True, "exhibition": ws_exh.name if ws_exh else None}
 
@@ -1657,7 +2231,7 @@ def build_server() -> FastMCP:
 
         # ── 2. Scaffold curate.yml + agent rules ────────────────────────────
         project_name = project or default_project_name(ws_path)
-        
+
         # If no include_patterns provided, default to the standard knowledge directories
         final_includes = _process_patterns(include_patterns)
         if not final_includes:
@@ -1768,7 +2342,7 @@ def build_server() -> FastMCP:
             )
             if result.returncode != 0:
                 curation_error = result.stderr.strip() or result.stdout.strip() or f"Exit code {result.returncode}"
-            
+
             # Re-load spec to get the newly written exhibition ID
             from . import curate_yml as _cym
             from . import ingest_llm as _ingest_llm
@@ -1851,7 +2425,7 @@ def build_server() -> FastMCP:
         each CON depends on, including confidence/contradiction flags. Use
         this to verify an Exhibition claim before citing it (especially when
         confidence_score < 0.90).
-        
+
         Args:
             cur_id: The ID of the Exhibition (EXH-) or Concept (CON-) to traverse.
             workspace_path: Optional workspace path to help resolve the vault.
@@ -2132,7 +2706,7 @@ def build_server() -> FastMCP:
         Layers: context (CTX-), atom (ATM-), concept (CON-), exhibition (EXH-).
         Cheap overview suitable as the agent's first call when entering a
         fresh vault — tells it what's available before any search.
-        
+
         Args:
             workspace_path: Optional workspace path to help resolve the vault.
         """
@@ -2159,9 +2733,19 @@ def build_server() -> FastMCP:
     # ------------------------------------------------------------------
 
     @mcp.tool()
+    def get_available_models() -> dict[str, Any]:
+        """Return the shared cloud model catalogue for client settings UI."""
+        from . import models as model_catalogue
+
+        return {
+            "ok": True,
+            "providers": model_catalogue.get_available_models(),
+        }
+
+    @mcp.tool()
     def curator_status(workspace_path: str = "") -> dict[str, Any]:
         """Return vault root, qmd binary readiness, and total page counts.
-        
+
         Args:
             workspace_path: Optional workspace path to help resolve the vault.
         """
@@ -2187,8 +2771,8 @@ def build_server() -> FastMCP:
 
     @mcp.tool()
     def curator_update_node(
-        node_id: str, 
-        new_content: str, 
+        node_id: str,
+        new_content: str,
         workspace_path: str = ""
     ) -> dict[str, Any]:
         """Overwrite an L4 Exhibition and propagate changes backward through the DAG.
@@ -2290,7 +2874,7 @@ def build_server() -> FastMCP:
 
         Call this after manually editing wiki pages or after a bulk import so
         that `search_curator` picks up the new content.
-        
+
         Args:
             workspace_path: Optional workspace path to help resolve the vault.
 
@@ -2310,13 +2894,13 @@ def build_server() -> FastMCP:
 
     @mcp.tool()
     def curator_add_knowledge(
-        insight: str, 
-        context: str = "", 
+        insight: str,
+        context: str = "",
         workspace_path: str = ""
     ) -> dict[str, Any]:
         """Promote a conversational insight or discussion to the human-verified Wiki space.
 
-        This tool is used to 'capture' valuable information from a conversation 
+        This tool is used to 'capture' valuable information from a conversation
         and persist it in the project's permanent Wiki (02_Wiki/).
 
         Args:
@@ -2339,14 +2923,14 @@ def build_server() -> FastMCP:
             from . import query as query_module
             category, slug = query_module.classify_wiki_topic(_client, insight, context)
             wiki_path = query_module.save_wiki_page(paths, insight, context, category, slug)
-            
+
             try:
                 search.update_index(paths, embed=True)
             except Exception:
                 pass
-                
+
             return {
-                "ok": True, 
+                "ok": True,
                 "wiki_path": wiki_path
             }
         except Exception as exc:

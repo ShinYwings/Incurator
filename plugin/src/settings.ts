@@ -6,13 +6,26 @@ import {
   type MCPServerConfig,
   type ClaudeEffort,
   type CodexReasoningEffort,
-  DEFAULT_MODELS,
   DEFAULT_SETTINGS,
-  MODEL_OPTIONS,
+  getDefaultModel,
   getModelOption,
 } from "./types";
+import { getIncuratorBackendStatus } from "./utils/incuratorBackendStatus";
+import { isIncuratorMcpServer } from "./utils/incuratorMcpServer";
 
 const CUSTOM_MODEL_VALUE = "__custom__";
+
+function parseCommandArgs(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed.map((item) => String(item));
+  } catch {
+    // Fall back to a simple shell-like split for the common case.
+  }
+  return trimmed.split(/\s+/).filter(Boolean);
+}
 
 export class AIAgentSettingTab extends PluginSettingTab {
   plugin: ObsidianAIAgent;
@@ -44,8 +57,8 @@ export class AIAgentSettingTab extends PluginSettingTab {
           .onChange(async (value: string) => {
             const provider = value as LLMProvider;
             this.plugin.settings.provider = provider;
-            // Auto-update model to default for the provider
-            this.plugin.settings.model = DEFAULT_MODELS[provider];
+            this.plugin.settings.model =
+              getDefaultModel(this.plugin.getAvailableModels(), provider) || "";
             await this.plugin.saveSettings();
             this.display(); // Re-render to update model field
           })
@@ -56,20 +69,22 @@ export class AIAgentSettingTab extends PluginSettingTab {
       .setDesc("Model to use for the selected provider.")
       .addDropdown((dropdown) => {
         const provider = this.plugin.settings.provider;
-        for (const option of MODEL_OPTIONS[provider]) {
-          const suffix = option.tier === "stable" ? "" : ` (${option.tier})`;
+        const catalogue = this.plugin.getAvailableModels();
+        const options = catalogue[provider] || [];
+        for (const option of options) {
+          const suffix = option.tier === "flash" || option.tier === "stable" ? "" : ` (${option.tier})`;
           dropdown.addOption(option.id, `${option.label}${suffix}`);
         }
         dropdown.addOption(CUSTOM_MODEL_VALUE, "Custom...");
         dropdown
           .setValue(
-            getModelOption(provider, this.plugin.settings.model)
+            getModelOption(catalogue, provider, this.plugin.settings.model)
               ? this.plugin.settings.model
               : CUSTOM_MODEL_VALUE
           )
           .onChange(async (value) => {
             if (value === CUSTOM_MODEL_VALUE) {
-              if (getModelOption(provider, this.plugin.settings.model)) {
+              if (getModelOption(catalogue, provider, this.plugin.settings.model)) {
                 this.plugin.settings.model = "";
               }
             } else {
@@ -80,17 +95,32 @@ export class AIAgentSettingTab extends PluginSettingTab {
           });
       });
 
-    if (!getModelOption(this.plugin.settings.provider, this.plugin.settings.model)) {
+    if (
+      !getModelOption(
+        this.plugin.getAvailableModels(),
+        this.plugin.settings.provider,
+        this.plugin.settings.model
+      )
+    ) {
       new Setting(containerEl)
         .setName("Custom model")
         .setDesc("Use an exact provider model id.")
         .addText((text) =>
           text
-            .setPlaceholder(DEFAULT_MODELS[this.plugin.settings.provider])
+            .setPlaceholder(
+              getDefaultModel(
+                this.plugin.getAvailableModels(),
+                this.plugin.settings.provider
+              ) || "exact-model-id"
+            )
             .setValue(this.plugin.settings.model)
             .onChange(async (value) => {
               this.plugin.settings.model =
-                value.trim() || DEFAULT_MODELS[this.plugin.settings.provider];
+                value.trim() ||
+                getDefaultModel(
+                  this.plugin.getAvailableModels(),
+                  this.plugin.settings.provider
+                );
               await this.plugin.saveSettings();
             })
       );
@@ -328,15 +358,54 @@ export class AIAgentSettingTab extends PluginSettingTab {
 
     containerEl.createEl("h2", { text: "PDF & Incurator" });
 
-    new Setting(containerEl)
+    const incuratorSetting = new Setting(containerEl)
       .setName("Use Incurator backend")
       .setDesc("Use Incurator MCP for source status, ingest, and vault search.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.incuratorEnabled)
           .onChange(async (value) => {
-            this.plugin.settings.incuratorEnabled = value;
+            await this.plugin.setIncuratorBackendEnabled(value);
+            this.renderIncuratorBackendStatus(incuratorStatusEl);
+          })
+      );
+    const incuratorStatusEl = incuratorSetting.settingEl.createDiv("ai-agent-incurator-status");
+    this.renderIncuratorBackendStatus(incuratorStatusEl);
+
+    new Setting(containerEl)
+      .setName("Incurator MCP command")
+      .setDesc("Per-device backend command. Use `wiki` when Incurator is installed on PATH.")
+      .addText((text) =>
+        text
+          .setPlaceholder("wiki")
+          .setValue(this.plugin.settings.incuratorMcpCommand)
+          .onChange(async (value) => {
+            this.plugin.settings.incuratorMcpCommand =
+              value.trim() || DEFAULT_SETTINGS.incuratorMcpCommand;
             await this.plugin.saveSettings();
+            if (this.plugin.settings.incuratorEnabled) {
+              await this.plugin.setIncuratorBackendEnabled(true);
+              this.renderIncuratorBackendStatus(incuratorStatusEl);
+            }
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Incurator MCP args")
+      .setDesc("Arguments for the backend command. Accepts JSON array or space-separated args.")
+      .addText((text) =>
+        text
+          .setPlaceholder("mcp")
+          .setValue(this.plugin.settings.incuratorMcpArgs.join(" "))
+          .onChange(async (value) => {
+            const args = parseCommandArgs(value);
+            this.plugin.settings.incuratorMcpArgs =
+              args.length ? args : [...DEFAULT_SETTINGS.incuratorMcpArgs];
+            await this.plugin.saveSettings();
+            if (this.plugin.settings.incuratorEnabled) {
+              await this.plugin.setIncuratorBackendEnabled(true);
+              this.renderIncuratorBackendStatus(incuratorStatusEl);
+            }
           })
       );
 
@@ -381,6 +450,43 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
+    containerEl.createEl("h2", { text: "Zotero Integration" });
+
+    new Setting(containerEl)
+      .setName("Zotero custom directories (Optional)")
+      .setDesc(
+        "Comma-separated list of Zotero data paths (e.g. ~/Zotero, D:\\Zotero). " +
+          "The plugin automatically checks standard paths, so you only need to add custom ones here."
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("~/MyZotero, D:\\Zotero")
+          .setValue(this.plugin.settings.zoteroBasePath)
+          .onChange(async (value) => {
+            this.plugin.settings.zoteroBasePath = value.trim();
+            await this.plugin.saveSettings();
+          })
+      );
+
+    containerEl.createEl("h3", { text: "Import Profiles" });
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Profiles are created in the Import Zotero Item wizard. Edit or delete them here.",
+    });
+
+    const profiles = this.plugin.settings.zoteroProfiles || [];
+    if (profiles.length === 0) {
+      containerEl.createEl("p", {
+        cls: "setting-item-description",
+        text: "No profiles saved yet.",
+        attr: { style: "color: var(--text-muted); font-style: italic;" },
+      });
+    } else {
+      for (let i = 0; i < profiles.length; i++) {
+        this.renderZoteroProfile(containerEl, i);
+      }
+    }
+
     // ── MCP Servers ──
     containerEl.createEl("h2", { text: "MCP Servers" });
 
@@ -392,6 +498,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
     );
 
     for (let i = 0; i < this.plugin.settings.mcpServers.length; i++) {
+      if (isIncuratorMcpServer(this.plugin.settings.mcpServers[i])) continue;
       this.renderMCPServer(containerEl, i);
     }
 
@@ -410,6 +517,60 @@ export class AIAgentSettingTab extends PluginSettingTab {
           this.display();
         })
     );
+  }
+
+  private renderZoteroProfile(containerEl: HTMLElement, index: number): void {
+    const profile = this.plugin.settings.zoteroProfiles[index];
+
+    const details = containerEl.createEl("details", {
+      attr: { style: "border: 1px solid var(--background-modifier-border); border-radius: 6px; margin-bottom: 8px; padding: 0;" }
+    });
+
+    // ── Summary row (always visible) ──────────────────────────────
+    const summary = details.createEl("summary", {
+      attr: { style: "display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; cursor: pointer; list-style: none; user-select: none;" }
+    });
+    const summaryLeft = summary.createSpan({ attr: { style: "font-weight: 600; font-size: var(--font-ui-medium);" } });
+    summaryLeft.setText(profile.name || `Profile ${index + 1}`);
+
+    const deleteBtn = summary.createEl("button", {
+      attr: { style: "background: none; border: none; cursor: pointer; color: var(--text-error); padding: 2px 6px; font-size: 16px;", title: "Delete profile" }
+    });
+    deleteBtn.setText("✕");
+    deleteBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      this.plugin.settings.zoteroProfiles.splice(index, 1);
+      await this.plugin.saveSettings();
+      this.display();
+    });
+
+    // ── Expanded fields ───────────────────────────────────────────
+    const body = details.createDiv({ attr: { style: "padding: 0 14px 10px;" } });
+
+    const field = (name: string, desc: string, get: () => string, set: (v: string) => void, wide = false) => {
+      const s = new Setting(body).setName(name);
+      if (desc) s.setDesc(desc);
+      s.addText(text => {
+        if (wide) text.inputEl.style.width = "100%";
+        text.setValue(get()).onChange(async val => {
+          set(val);
+          await this.plugin.saveSettings();
+        });
+      });
+    };
+
+    field("Profile Name", "", () => profile.name, v => { profile.name = v; summaryLeft.setText(v || `Profile ${index + 1}`); }, true);
+    field("Template Path", "e.g. 00_System/Templates/Zotero/paper_template.md", () => profile.templatePath, v => profile.templatePath = v, true);
+    field("Bibliography Style", "CSL style name installed in Zotero", () => profile.bibliographyStyle || "", v => profile.bibliographyStyle = v, true);
+
+    body.createEl("p", { text: "Output (Note)", attr: { style: "margin: 12px 0 2px; font-size: var(--font-ui-small); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;" } });
+    field("Base Folder", "e.g. 03_Notes/Papers", () => profile.outputFolder, v => profile.outputFolder = v, true);
+    field("Subfolder", "Supports {{citekey}}, {{title}}, etc.", () => profile.outputSubfolder || "", v => profile.outputSubfolder = v, true);
+    field("Filename", "Without .md. e.g. {{title}}", () => profile.outputFilename || "{{title}}", v => profile.outputFilename = v, true);
+
+    body.createEl("p", { text: "Assets (PDF Images)", attr: { style: "margin: 12px 0 2px; font-size: var(--font-ui-small); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;" } });
+    field("Base Folder", "e.g. 05_Assets", () => profile.assetFolder || "", v => profile.assetFolder = v, true);
+    field("Subfolder", "Supports {{citekey}}, {{title}}, etc.", () => profile.assetSubfolder || "", v => profile.assetSubfolder = v, true);
   }
 
   private renderMCPServer(containerEl: HTMLElement, index: number): void {
@@ -529,6 +690,39 @@ export class AIAgentSettingTab extends PluginSettingTab {
           }
         });
       });
+  }
+
+  private renderIncuratorBackendStatus(containerEl: HTMLElement): void {
+    containerEl.empty();
+    const status = getIncuratorBackendStatus({
+      enabled: this.plugin.settings.incuratorEnabled,
+      servers: this.plugin.settings.mcpServers,
+      tools: this.plugin.mcpManager.getAllTools(),
+    });
+
+    containerEl.toggleClass("is-disabled", status.state === "disabled");
+    containerEl.toggleClass("is-connected", status.state === "connected");
+    containerEl.toggleClass("is-connecting", status.state === "connecting");
+    containerEl.toggleClass("is-missing", status.state === "missing");
+
+    const dot = containerEl.createSpan("ai-agent-incurator-status-dot");
+    dot.setAttr("aria-hidden", "true");
+
+    const text = containerEl.createDiv("ai-agent-incurator-status-text");
+    text.createDiv({
+      cls: "ai-agent-incurator-status-label",
+      text: `Status: ${status.label}`,
+    });
+    text.createDiv({
+      cls: "ai-agent-incurator-status-detail",
+      text: status.detail,
+    });
+
+    const refresh = containerEl.createEl("button", {
+      cls: "ai-agent-incurator-status-refresh",
+      text: "Refresh",
+    });
+    refresh.addEventListener("click", () => this.renderIncuratorBackendStatus(containerEl));
   }
 
   private async renderAuthStatus(container: HTMLElement): Promise<void> {

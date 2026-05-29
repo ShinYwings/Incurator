@@ -513,11 +513,11 @@ Verifies if the system's 'brain' and 'eyes' are correctly set up.
 #### 📂 Knowledge Source Status (Sources)
 Checks the 'entrance of the pipeline' where raw data is turned into knowledge.
 -   **Raw source files**: The total number of files physically present in the vault folders.
--   **Sources summarized (L1)**: If this number is lower than the number of raw source files, it means there is new knowledge that the system hasn't read yet via `wiki add`.
+-   **Sources summarized (L1)**: The number of sources with `l1_status=done`. In v0.2.1, `wiki add` creates a structural L1 Context immediately without an LLM call, then queues L2/L3 extraction as background work.
 -   **Ingest runs**: The total number of ingestion runs performed. A higher number indicates that the knowledge base has been updated frequently.
 
 #### 🧠 Knowledge Density (Collections)
-Shows the processing status at each pipeline stage. L1, L2, and L3 are all generated together in a single `wiki add` run. L4 is generated separately.
+Shows the processing status at each pipeline stage. In the v0.2.1 default flow, L1 is created immediately, L2/L3 are processed by the MCP background worker or `wiki jobs run`, and L4 is generated separately by `wiki curate`.
 
 -   **L1 Contexts**: One summary per source. Should match the number of ingested sources.
 -   **L2 Atoms**: Atomic facts extracted from each source. Multiple atoms are generated per source, so this count will be larger than L1.

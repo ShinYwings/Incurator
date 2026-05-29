@@ -1,12 +1,15 @@
 import type { MCPManager } from "./mcpClient";
 import type {
+  CuratorQueryResult,
   IncuratorSourceStatus,
   IncuratorSourceState,
   MCPTool,
+  ModelCatalogue,
   PdfOutlineItem,
   PdfRagHit,
   PdfWindowPage,
   PluginSettings,
+  PromoteExhibitionResult,
 } from "../types";
 
 type ToolWithServer = MCPTool & { serverName: string };
@@ -43,9 +46,31 @@ export class IncuratorClient {
     return this.settings.incuratorEnabled !== false && this.getIncuratorTools().length > 0;
   }
 
-  async getSourceStatus(sourcePath?: string): Promise<IncuratorSourceStatus> {
-    if (!sourcePath || this.settings.incuratorEnabled === false) {
+  async getSourceStatus(
+    input?: string | { sourcePath?: string; fileHash?: string }
+  ): Promise<IncuratorSourceStatus> {
+    const sourcePath = typeof input === "string" ? input : input?.sourcePath;
+    const fileHash = typeof input === "string" ? undefined : input?.fileHash;
+    if ((!sourcePath && !fileHash) || this.settings.incuratorEnabled === false) {
       return { state: "unknown", message: "No source path available" };
+    }
+
+    if (fileHash) {
+      const byHash = await this.tryTool(["check_source_status"], {
+        file_hash: fileHash,
+      });
+      if (byHash && typeof byHash === "object") {
+        const record = byHash as Record<string, unknown>;
+        if (record.registered === false) {
+          return {
+            state: "untracked",
+            sourcePath,
+            message: "Source is not registered in Incurator.",
+            updatedAt: Date.now(),
+          };
+        }
+        return this.normalizeStatus(byHash, sourcePath);
+      }
     }
 
     const result = await this.tryTool(
@@ -61,6 +86,43 @@ export class IncuratorClient {
       };
     }
     return this.normalizeStatus(result, sourcePath);
+  }
+
+  async getAvailableModels(): Promise<ModelCatalogue> {
+    if (this.settings.incuratorEnabled === false) return {};
+    const result = await this.tryTool(["get_available_models"], {});
+    const record = this.pickRecord(result);
+    const providers = record.providers;
+    if (!providers || typeof providers !== "object" || Array.isArray(providers)) {
+      return {};
+    }
+    const catalogue: ModelCatalogue = {};
+    for (const [provider, rawModels] of Object.entries(providers as Record<string, unknown>)) {
+      if (!["antigravity", "claude", "openai"].includes(provider) || !Array.isArray(rawModels)) {
+        continue;
+      }
+      catalogue[provider as keyof ModelCatalogue] = rawModels
+        .map((item) => {
+          const model = this.pickRecord(item);
+          const id = this.readString(model, ["id"]);
+          if (!id) return null;
+          return {
+            id,
+            label: this.readString(model, ["label"]) || id,
+            tier:
+              (this.readString(model, ["tier"]) as
+                | "flash"
+                | "think"
+                | "stable"
+                | "preview"
+                | "legacy") || "stable",
+            supportsVision: this.readBoolean(model, ["supports_vision", "supportsVision"]) !== false,
+            contextWindow: this.readNumber(model, ["context_window", "contextWindow"]),
+          };
+        })
+        .filter((model): model is NonNullable<typeof model> => Boolean(model));
+    }
+    return catalogue;
   }
 
   async ingestPdf(request: IncuratorIngestRequest): Promise<IncuratorSourceStatus> {
@@ -201,6 +263,84 @@ export class IncuratorClient {
     return this.normalizeRagHits(result);
   }
 
+  async getZoteroAnnotations(attachmentKey: string): Promise<any[]> {
+    if (!attachmentKey || this.settings.incuratorEnabled === false) return [];
+    const result = await this.tryTool(["curator_get_zotero_annotations", "get_zotero_annotations"], {
+      attachment_key: attachmentKey,
+      attachmentKey: attachmentKey,
+      custom_paths: this.settings.zoteroBasePath || ""
+    });
+
+    if (result && typeof result === "object" && (result as any).ok) {
+      return (result as any).annotations || [];
+    }
+    return [];
+  }
+
+  async resolveZoteroPdf(attachmentKey: string): Promise<string | null> {
+    if (!attachmentKey || this.settings.incuratorEnabled === false) return null;
+    const result = await this.tryTool(["curator_resolve_zotero_pdf", "resolve_zotero_pdf"], {
+      attachment_key: attachmentKey,
+      attachmentKey: attachmentKey,
+      custom_paths: this.settings.zoteroBasePath || ""
+    });
+
+    if (result && typeof result === "object" && (result as any).ok) {
+      return (result as any).path || null;
+    }
+    return null;
+  }
+
+  async curatorQuery(
+    question: string,
+    opts: { workspacePath?: string; forceNew?: boolean } = {}
+  ): Promise<CuratorQueryResult> {
+    const empty: CuratorQueryResult = { ok: false, question, error: "curator_query not available" };
+    if (!question.trim() || this.settings.incuratorEnabled === false) return empty;
+
+    const result = await this.tryTool(["curator_query"], {
+      question,
+      workspace_path: opts.workspacePath ?? "",
+      force_new: opts.forceNew ?? false,
+    });
+    if (!result || typeof result !== "object") return empty;
+    const r = result as Record<string, unknown>;
+    return {
+      ok: r.ok === true,
+      answer: typeof r.answer === "string" ? r.answer : undefined,
+      exhibition_id: typeof r.exhibition_id === "string" ? r.exhibition_id : undefined,
+      cache_hit: typeof r.cache_hit === "boolean" ? r.cache_hit : undefined,
+      fallback: typeof r.fallback === "string" ? r.fallback : undefined,
+      fallback_hits: Array.isArray(r.fallback_hits)
+        ? (r.fallback_hits as CuratorQueryResult["fallback_hits"])
+        : undefined,
+      question: typeof r.question === "string" ? r.question : question,
+      trace: r.trace as CuratorQueryResult["trace"],
+      error: typeof r.error === "string" ? r.error : undefined,
+    };
+  }
+
+  async promoteExhibition(
+    exhId: string,
+    workspacePath?: string
+  ): Promise<PromoteExhibitionResult> {
+    const empty: PromoteExhibitionResult = { ok: false, exhibition_id: exhId, error: "promote_exhibition not available" };
+    if (!exhId || this.settings.incuratorEnabled === false) return empty;
+
+    const result = await this.tryTool(["promote_exhibition"], {
+      exh_id: exhId,
+      workspace_path: workspacePath ?? "",
+    });
+    if (!result || typeof result !== "object") return empty;
+    const r = result as Record<string, unknown>;
+    return {
+      ok: r.ok === true,
+      exhibition_id: typeof r.exhibition_id === "string" ? r.exhibition_id : exhId,
+      promoted_to: typeof r.promoted_to === "string" ? r.promoted_to : undefined,
+      error: typeof r.error === "string" ? r.error : undefined,
+    };
+  }
+
   private getIncuratorTools(): ToolWithServer[] {
     return this.mcpManager
       .getAllTools()
@@ -211,7 +351,7 @@ export class IncuratorClient {
       });
   }
 
-  private async tryTool(
+  public async tryTool(
     preferredNames: string[],
     args: Record<string, unknown>
   ): Promise<unknown | null> {
@@ -277,6 +417,17 @@ export class IncuratorClient {
     let state = this.normalizeState(
       this.readString(record, ["state", "status", "ingest_state", "result"]) || "unknown"
     );
+    const l1 = this.readBoolean(record, ["l1_complete"]) || this.readString(record, ["l1_status"]) === "done";
+    const l2 = this.readBoolean(record, ["l2_complete"]) || this.readString(record, ["l2_status"]) === "done";
+    const l3 = this.readBoolean(record, ["l3_complete"]) || this.readString(record, ["l3_status"]) === "done";
+    const l4 = this.readString(record, ["l4_status"]) === "done";
+    const pendingJobs = this.readArray(record.jobs_pending);
+    if (state === "unknown" || state === "queued" || state === "indexed") {
+      if (l4 || state === "curated") state = "curated";
+      else if (l3) state = "indexed";
+      else if (l1 && pendingJobs.length > 0) state = "queued";
+      else if (l1 && !l2 && !l3) state = "l1_ready";
+    }
     if (state === "unknown" && record.ok === true) {
       state = record.context_id || record.contextId ? "indexed" : "queued";
     }

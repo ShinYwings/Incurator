@@ -28,7 +28,7 @@ from . import db
 from . import page_writer
 from . import parsers
 from . import prompts
-from .llm import LLMError, OllamaClient
+from .llm import LLMError
 
 
 MAX_SOURCE_CHARS = 100_000
@@ -259,6 +259,36 @@ def _record_ingest_run(paths, source_id, started, mode, created, updated, error)
         )
 
 
+def invalidate_exh_cache_for_concept(concept_id: str, db_path: str) -> list[str]:
+    """Mark unverified Exhibitions that depend on concept_id as cache-invalid."""
+    state_db = Path(db_path)
+    paths = cfg.WikiPaths(state_db.parent.parent)
+    if not paths.exhibitions.exists():
+        return []
+    invalidated: list[str] = []
+    for exh_path in sorted(paths.exhibitions.glob("EXH-*.md")):
+        page = page_writer.read_page(exh_path)
+        if not page:
+            continue
+        fm = page.frontmatter
+        if bool(fm.get("is_verified_by_human", False)):
+            continue
+        core = fm.get("core_concepts", [])
+        if isinstance(core, str):
+            core_values = [core]
+        elif isinstance(core, list):
+            core_values = [str(v) for v in core]
+        else:
+            core_values = []
+        if not any(str(v).rstrip("/").rsplit("/", 1)[-1] == concept_id for v in core_values):
+            continue
+        fm["is_cache_invalidated"] = True
+        page.frontmatter = fm
+        exh_path.write_text(page.to_markdown(), encoding="utf-8")
+        invalidated.append(exh_path.stem)
+    return invalidated
+
+
 def _stream_page(client, messages, callbacks: IngestCallbacks) -> str:
     """Stream a page from LLM, collecting chunks via callbacks. Returns full text."""
     full = ""
@@ -471,6 +501,195 @@ def _atom_summary(paths: cfg.WikiPaths, atom_id: str) -> dict | None:
         "claim_type": parsed.frontmatter.get("claim_type", "fact"),
         "one_liner": one_liner[:260],
     }
+
+
+def _atom_embedding_text(paths: cfg.WikiPaths, atom_id: str) -> str:
+    summary = _atom_summary(paths, atom_id)
+    if not summary:
+        return ""
+    parts = [
+        str(summary.get("name") or ""),
+        str(summary.get("claim_type") or ""),
+        str(summary.get("one_liner") or ""),
+    ]
+    return " | ".join(part for part in parts if part).strip()
+
+
+def _get_embeddings(texts: list[str], client) -> list[list[float]] | None:
+    """Return embeddings using provider-specific local paths, or None to fall back."""
+    if not texts:
+        return []
+
+    embed_texts = getattr(client, "embed_texts", None)
+    if callable(embed_texts):
+        try:
+            vectors = embed_texts(texts)
+            if vectors and len(vectors) == len(texts):
+                return [list(map(float, vec)) for vec in vectors]
+        except Exception:
+            pass
+
+    active = getattr(client, "active_provider", client)
+    host = getattr(active, "host", "")
+    if host:
+        vectors = _embed_via_ollama(texts, active)
+        if vectors is not None:
+            return vectors
+
+    try:
+        from sentence_transformers import SentenceTransformer
+    except Exception:
+        return None
+
+    try:
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+        vectors = model.encode(texts, convert_to_numpy=False)
+        return [list(map(float, vec)) for vec in vectors]
+    except Exception:
+        return None
+
+
+def _embed_via_ollama(texts: list[str], client) -> list[list[float]] | None:
+    """Use Ollama's local embeddings endpoint when an Ollama host is available."""
+    import httpx
+
+    host = getattr(client, "host", "")
+    if not host:
+        return None
+    embed_model = "nomic-embed-text"
+    vectors: list[list[float]] = []
+    try:
+        with httpx.Client(timeout=30.0) as http:
+            for text in texts:
+                response = http.post(
+                    f"{host}/api/embeddings",
+                    json={"model": embed_model, "prompt": text},
+                )
+                response.raise_for_status()
+                vector = response.json().get("embedding")
+                if not isinstance(vector, list):
+                    return None
+                vectors.append([float(value) for value in vector])
+    except Exception:
+        return None
+    return vectors
+
+
+def _cosine_distance(a: list[float], b: list[float]) -> float:
+    import math
+
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    if norm_a == 0 or norm_b == 0:
+        return 1.0
+    return 1.0 - (dot / (norm_a * norm_b))
+
+
+def _cluster_embeddings_threshold(
+    ids: list[str],
+    embeddings: list[list[float]],
+    eps: float,
+) -> list[list[str]]:
+    """Small dependency-free fallback for test/dev environments without sklearn."""
+    clusters: list[list[str]] = []
+    centroids: list[list[float]] = []
+    for atom_id, vector in zip(ids, embeddings):
+        best_idx = -1
+        best_dist = 2.0
+        for idx, centroid in enumerate(centroids):
+            dist = _cosine_distance(vector, centroid)
+            if dist < best_dist:
+                best_idx = idx
+                best_dist = dist
+        if best_idx >= 0 and best_dist <= eps:
+            clusters[best_idx].append(atom_id)
+            size = len(clusters[best_idx])
+            centroids[best_idx] = [
+                (old * (size - 1) + new) / size
+                for old, new in zip(centroids[best_idx], vector)
+            ]
+        else:
+            clusters.append([atom_id])
+            centroids.append(vector)
+    return clusters
+
+
+def cluster_atoms_by_embedding(
+    paths: cfg.WikiPaths,
+    atom_ids: list[str],
+    client,
+    eps: float = 0.35,
+) -> list[list[str]] | None:
+    """Cluster L2 Atoms by embeddings, avoiding the LLM clustering-plan call.
+
+    Returns None when no embedding path is available so callers can fall back to
+    the legacy LLM planner.
+    """
+    valid_ids: list[str] = []
+    texts: list[str] = []
+    for atom_id in atom_ids:
+        text = _atom_embedding_text(paths, atom_id)
+        if text:
+            valid_ids.append(atom_id)
+            texts.append(text)
+
+    if not valid_ids:
+        return []
+    if len(valid_ids) == 1:
+        return [valid_ids]
+
+    embeddings = _get_embeddings(texts, client)
+    if embeddings is None or len(embeddings) != len(valid_ids):
+        return None
+
+    try:
+        import numpy as np
+        from sklearn.cluster import DBSCAN
+
+        labels = DBSCAN(eps=eps, min_samples=2, metric="cosine").fit_predict(
+            np.array(embeddings)
+        )
+        clusters: dict[int, list[str]] = {}
+        next_noise_label = max([int(label) for label in labels], default=-1) + 1
+        for atom_id, label in zip(valid_ids, labels):
+            effective_label = int(label)
+            if effective_label == -1:
+                effective_label = next_noise_label
+                next_noise_label += 1
+            clusters.setdefault(effective_label, []).append(atom_id)
+        return list(clusters.values())
+    except Exception:
+        return _cluster_embeddings_threshold(valid_ids, embeddings, eps)
+
+
+def _concept_plans_from_embedding_clusters(
+    paths: cfg.WikiPaths,
+    clusters: list[list[str]],
+) -> list[ConceptPlan]:
+    plans: list[ConceptPlan] = []
+    for cluster in clusters:
+        if len(cluster) < 2:
+            continue
+        name, domain = _fallback_concept_name(paths, cluster)
+        summaries = [_atom_summary(paths, atom_id) for atom_id in cluster]
+        snippets = [
+            str(summary.get("one_liner") or summary.get("name") or "")
+            for summary in summaries
+            if summary
+        ]
+        description = "Embedding cluster from related Atoms."
+        if snippets:
+            description = " ".join(snippets)[:500]
+        plans.append(
+            ConceptPlan(
+                name=name,
+                domain=domain,
+                atom_ids=cluster,
+                description=description,
+            )
+        )
+    return plans
 
 
 def _atom_context_id(paths: cfg.WikiPaths, atom_id: str) -> str:
@@ -1102,13 +1321,15 @@ def _run_parallel_workers(
     staged: list[tuple[Path, Path, PageChange]] = []
     max_workers = min(3, len(tasks))
 
+    _clone = getattr(client, "clone", None)
+
     try:
         with _TPE(max_workers=max_workers) as executor:
             future_to_task = {
                 executor.submit(
                     _extract_atoms_for_task,
-                    task, paths, client, summary_data,
-                    context_id, relpath, excerpt, today, staging,
+                    task, paths, _clone() if callable(_clone) else client,
+                    summary_data, context_id, relpath, excerpt, today, staging,
                 ): task
                 for task in tasks
             }
@@ -1176,6 +1397,69 @@ def _run_pass1_atoms(
 # ---------------------------------------------------------------------------
 
 
+def _write_one_concept_plan(
+    plan: ConceptPlan,
+    client,
+    paths: cfg.WikiPaths,
+    staging: Path,
+    today: str,
+    workspace_context: str,
+) -> tuple[Path, Path, PageChange, list[str]] | None:
+    """Write one L3 Concept page using non-streaming chat. Thread-safe."""
+    if len(plan.atom_ids) < 2:
+        return None
+
+    concept_id = _gen_id("CON")
+    atoms_content = ""
+    for aid in plan.atom_ids:
+        ap = page_writer.read_page(paths.atoms / f"{aid}.md")
+        if ap:
+            atoms_content += f"\n### Atom {aid}\n{ap.body[:600]}\n"
+
+    messages = prompts.build_theme_page_messages(
+        theme_id=concept_id,
+        name=plan.name,
+        domain=plan.domain,
+        fragment_ids=plan.atom_ids,
+        fragments_content=atoms_content,
+        today=today,
+        workspace_context=workspace_context,
+    )
+    try:
+        content = client.chat(messages, thinking=False, temperature=0.3)
+    except LLMError:
+        return None
+
+    content = page_writer.strip_llm_noise(content)
+    content = page_writer.sanitize_wikilinks(content)
+    if not content:
+        return None
+
+    try:
+        content = _enforce_concept_contract(content, concept_id=concept_id, plan=plan, today=today)
+    except LLMError:
+        return None
+
+    parsed_content = page_writer.parse_page(content)
+    try:
+        confidence = float(parsed_content.frontmatter.get("confidence_score", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    if confidence < 0.5:
+        return None
+
+    final_path = paths.concepts / f"{concept_id}.md"
+    staged_path = staging / f"03_Concepts__{concept_id}.md"
+    staged_path.write_text(content, encoding="utf-8")
+    change = PageChange(
+        id=concept_id,
+        path=f"03_Concepts/{concept_id}.md",
+        layer="03_Concepts",
+        operation="created",
+    )
+    return staged_path, final_path, change, list(plan.atom_ids)
+
+
 def _run_pass2_concepts(
     paths: cfg.WikiPaths,
     client,
@@ -1199,16 +1483,22 @@ def _run_pass2_concepts(
 
     callbacks.on_pass2_start(len(atom_summaries))
 
-    # Get clustering plan
-    cluster_messages = prompts.build_concept_clustering_messages(atom_summaries)
-    try:
-        raw = client.chat(cluster_messages, thinking=False, json_mode=True, temperature=0.2)
-        cluster_result: ConceptClusterResult = _parse_json_model(raw, ConceptClusterResult)
-    except (ValueError, LLMError) as e:
-        print(f"Warning: Concept clustering failed: {e}", file=sys.stderr)
-        return staged  # Non-fatal — skip concept layer for this run
+    plans: list[ConceptPlan] = []
+    embedding_clusters = cluster_atoms_by_embedding(paths, atom_ids, client)
+    if embedding_clusters is not None:
+        plans = _concept_plans_from_embedding_clusters(paths, embedding_clusters)
+    else:
+        # Fallback: ask the LLM for a clustering plan only when local embeddings
+        # are unavailable.
+        cluster_messages = prompts.build_concept_clustering_messages(atom_summaries)
+        try:
+            raw = client.chat(cluster_messages, thinking=False, json_mode=True, temperature=0.2)
+            cluster_result: ConceptClusterResult = _parse_json_model(raw, ConceptClusterResult)
+            plans = list(cluster_result.concepts)
+        except (ValueError, LLMError) as e:
+            print(f"Warning: Concept clustering failed: {e}", file=sys.stderr)
+            return staged  # Non-fatal — skip concept layer for this run
 
-    plans: list[ConceptPlan] = list(cluster_result.concepts)
     plans = _add_unassigned_atom_fallback_plans(paths, plans, atom_ids)
     workspace_keywords = (
         list(artist_persona.disambiguation_keywords)
@@ -1223,57 +1513,36 @@ def _run_pass2_concepts(
         domain_label = f"Domain: {artist_persona.domain}" if artist_persona.domain else ""
         workspace_context = f"{domain_label}: {artist_persona.goal}" if domain_label else artist_persona.goal
 
-    for plan in plans:
-        if len(plan.atom_ids) < 2:
-            continue
-        concept_id = _gen_id("CON")
-        callbacks.on_theme_drafting(concept_id, plan.name)
+    eligible_plans = [p for p in plans if len(p.atom_ids) >= 2]
+    _clone = getattr(client, "clone", None)
+    max_workers = min(3, len(eligible_plans)) if eligible_plans else 1
 
-        # Build atoms content for the concept page prompt
-        # Note: headings use plain ID (no wikilink) to prevent LLM double-wrapping in output
-        atoms_content = ""
-        for aid in plan.atom_ids:
-            ap = page_writer.read_page(paths.atoms / f"{aid}.md")
-            if ap:
-                atoms_content += f"\n### Atom {aid}\n{ap.body[:600]}\n"
-
-        messages = prompts.build_theme_page_messages(
-            theme_id=concept_id,
-            name=plan.name,
-            domain=plan.domain,
-            fragment_ids=plan.atom_ids,
-            fragments_content=atoms_content,
-            today=today,
-            workspace_context=workspace_context,
-        )
-        content = _stream_page(client, messages, callbacks)
-        if not content:
-            continue
-        content = _enforce_concept_contract(
-            content,
-            concept_id=concept_id,
-            plan=plan,
-            today=today,
-        )
-        parsed_content = page_writer.parse_page(content)
-        try:
-            confidence = float(parsed_content.frontmatter.get("confidence_score", 0.0))
-        except (TypeError, ValueError):
-            confidence = 0.0
-        if confidence < 0.5:
-            continue
-
-        final_path = paths.concepts / f"{concept_id}.md"
-        staged_path = staging / f"03_Concepts__{concept_id}.md"
-        staged_path.write_text(content, encoding="utf-8")
-        change = PageChange(
-            id=concept_id,
-            path=f"03_Concepts/{concept_id}.md",
-            layer="03_Concepts",
-            operation="created",
-        )
-        staged.append((staged_path, final_path, change))
-        callbacks.on_theme_written(change)
+    from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
+    with _TPE(max_workers=max_workers) as executor:
+        future_to_plan = {
+            executor.submit(
+                _write_one_concept_plan,
+                plan,
+                _clone() if callable(_clone) else client,
+                paths, staging, today, workspace_context,
+            ): plan
+            for plan in eligible_plans
+        }
+        for future in _ac(future_to_plan):
+            result = future.result()
+            if result is None:
+                continue
+            staged_path, final_path, change, atom_ids = result
+            staged.append((staged_path, final_path, change))
+            callbacks.on_theme_written(change)
+            for aid in atom_ids:
+                db.insert_dag_edge(
+                    paths.state_db,
+                    from_id=aid,
+                    to_id=change.id,
+                    edge_type="clustered_to",
+                    source_id=None,
+                )
 
     return staged
 
@@ -1380,6 +1649,75 @@ def _mark_existing_l3_done_if_present(paths: cfg.WikiPaths) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _write_one_exhibition_plan(
+    plan: SynthesisPlan,
+    client,
+    paths: cfg.WikiPaths,
+    staging: Path,
+    today: str,
+    agent_context: str,
+    exhibition_intent: str,
+    workspace_project: str | None,
+) -> tuple[Path, Path, PageChange] | None:
+    """Write one L4 Exhibition page using non-streaming chat. Thread-safe."""
+    if not plan.concept_ids:
+        return None
+
+    exh_id = _gen_id("EXH")
+    concepts_content = ""
+    flagged_ids: list[str] = []
+    for cid in plan.concept_ids:
+        cp = page_writer.read_page(paths.concepts / f"{cid}.md")
+        if cp:
+            concepts_content += f"\n### Concept {cid}\n{cp.body[:4000]}\n"
+            for atm_id in _concept_atom_ids(cp):
+                atm_path = paths.atoms / f"{atm_id}.md"
+                atm_page = page_writer.read_page(atm_path)
+                if atm_page and atm_page.frontmatter.get("is_flagged_for_agent") is True:
+                    if atm_id not in flagged_ids:
+                        flagged_ids.append(atm_id)
+
+    messages = prompts.build_curation_page_messages(
+        curation_id=exh_id,
+        topic=plan.topic,
+        theme_ids=plan.concept_ids,
+        themes_content=concepts_content,
+        confidence=plan.confidence,
+        today=today,
+        domain=plan.domain,
+        flagged_fragment_ids=flagged_ids,
+        agent_context=agent_context,
+        exhibition_intent=exhibition_intent,
+    )
+    try:
+        content = client.chat(messages, thinking=False, temperature=0.3)
+    except LLMError:
+        return None
+
+    content = page_writer.strip_llm_noise(content)
+    content = page_writer.sanitize_wikilinks(content)
+    if not content:
+        return None
+
+    try:
+        content = _enforce_exhibition_contract(
+            content, exh_id=exh_id, plan=plan, today=today, workspace=workspace_project
+        )
+    except LLMError:
+        return None
+
+    final_path = paths.exhibitions / f"{exh_id}.md"
+    staged_path = staging / f"04_Exhibitions__{exh_id}.md"
+    staged_path.write_text(content, encoding="utf-8")
+    change = PageChange(
+        id=exh_id,
+        path=f"04_Exhibitions/{exh_id}.md",
+        layer="04_Exhibitions",
+        operation="created",
+    )
+    return staged_path, final_path, change
+
+
 def _run_pass3_synthesis(
     paths: cfg.WikiPaths,
     client,
@@ -1456,60 +1794,30 @@ def _run_pass3_synthesis(
     if artist_persona and artist_persona.goal:
         agent_context = f"exhibition_intent:{artist_persona.exhibition_intent} — {artist_persona.goal}"
 
-    for plan in plans:
-        if not plan.concept_ids:
-            continue
-        exh_id = _gen_id("EXH")
-        callbacks.on_curation_drafting(exh_id, plan.topic)
+    exhibition_intent = artist_persona.exhibition_intent if artist_persona else ""
+    eligible_plans = [p for p in plans if p.concept_ids]
+    _clone = getattr(client, "clone", None)
+    max_workers = min(2, len(eligible_plans)) if eligible_plans else 1
 
-        # Note: headings use plain ID (no wikilink) to prevent LLM double-wrapping in output
-        concepts_content = ""
-        flagged_ids: list[str] = []
-        for cid in plan.concept_ids:
-            cp = page_writer.read_page(paths.concepts / f"{cid}.md")
-            if cp:
-                concepts_content += f"\n### Concept {cid}\n{cp.body[:4000]}\n"
-                for atm_id in _concept_atom_ids(cp):
-                    atm_path = paths.atoms / f"{atm_id}.md"
-                    atm_page = page_writer.read_page(atm_path)
-                    if atm_page and atm_page.frontmatter.get("is_flagged_for_agent") is True:
-                        if atm_id not in flagged_ids:
-                            flagged_ids.append(atm_id)
-
-        messages = prompts.build_curation_page_messages(
-            curation_id=exh_id,
-            topic=plan.topic,
-            theme_ids=plan.concept_ids,
-            themes_content=concepts_content,
-            confidence=plan.confidence,
-            today=today,
-            domain=plan.domain,
-            flagged_fragment_ids=flagged_ids,
-            agent_context=agent_context,
-            exhibition_intent=artist_persona.exhibition_intent if artist_persona else "",
-        )
-        content = _stream_page(client, messages, callbacks)
-        if not content:
-            continue
-        content = _enforce_exhibition_contract(
-            content,
-            exh_id=exh_id,
-            plan=plan,
-            today=today,
-            workspace=workspace_project,
-        )
-
-        final_path = paths.exhibitions / f"{exh_id}.md"
-        staged_path = staging / f"04_Exhibitions__{exh_id}.md"
-        staged_path.write_text(content, encoding="utf-8")
-        change = PageChange(
-            id=exh_id,
-            path=f"04_Exhibitions/{exh_id}.md",
-            layer="04_Exhibitions",
-            operation="created",
-        )
-        staged.append((staged_path, final_path, change))
-        callbacks.on_curation_written(change)
+    from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
+    with _TPE(max_workers=max_workers) as executor:
+        future_to_plan = {
+            executor.submit(
+                _write_one_exhibition_plan,
+                plan,
+                _clone() if callable(_clone) else client,
+                paths, staging, today,
+                agent_context, exhibition_intent, workspace_project,
+            ): plan
+            for plan in eligible_plans
+        }
+        for future in _ac(future_to_plan):
+            result = future.result()
+            if result is None:
+                continue
+            staged_path, final_path, change = result
+            staged.append((staged_path, final_path, change))
+            callbacks.on_curation_written(change)
 
     return staged
 
@@ -1650,27 +1958,49 @@ def ingest_source(
     max_excerpt = getattr(client, "optimal_chunk_chars", 30000)
     excerpt = _build_excerpt(parsed.text, max_chars=max_excerpt)
     staging = Path(tempfile.mkdtemp(prefix="curator-ingest-"))
+    relpath = source_row["relpath"]
 
     try:
-        all_staged: list[tuple[Path, Path, PageChange]] = []
+        # Pass 1 — L2 Atoms (batch extraction primary, legacy orchestrator fallback)
+        ctx_path = paths.contexts / f"{context_id}.md"
+        batch_results = None
+        if ctx_path.exists():
+            from . import ingest_orchestrator as _orch
+            try:
+                batch_results = _orch.run_l2_batch_extraction(
+                    paths, client, ctx_path, context_id, relpath, today, staging
+                )
+            except Exception:
+                batch_results = None  # fall through to legacy path
 
-        # Pass 1 — L2 Fragments
-        try:
-            atom_staged = _run_pass1_atoms(
-                paths, client, callbacks, summary_data, context_id,
-                source_row["relpath"], excerpt, today, staging,
-            )
-            all_staged.extend(atom_staged)
-        except LLMError as e:
-            result = IngestResult(source_id=source_id, source_title=parsed.title,
-                                  error=f"Fragment pass failed: {e}")
-            _mark_source_status(paths, source_id, "error", error_reason="llm_error")
-            db.set_source_layer_status(paths.state_db, source_id, "l2", "error", error=result.error)
-            _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
-            callbacks.on_error(result.error)
-            return result
+        if batch_results is not None:
+            # Convert BatchAtomResult → (staged, final, PageChange)
+            atom_staged: list[tuple[Path, Path, PageChange]] = []
+            for br in batch_results:
+                change = PageChange(
+                    id=br.atom_id,
+                    path=f"02_Atoms/{br.atom_id}.md",
+                    layer="02_Atoms",
+                    operation=br.operation,
+                )
+                atom_staged.append((br.staged_path, br.final_path, change))
+                callbacks.on_fragment_written(change)
+        else:
+            # Legacy: per-atom orchestrated parallel extraction
+            try:
+                atom_staged = _run_pass1_atoms(
+                    paths, client, callbacks, summary_data, context_id,
+                    relpath, excerpt, today, staging,
+                )
+            except LLMError as e:
+                result = IngestResult(source_id=source_id, source_title=parsed.title,
+                                      error=f"Fragment pass failed: {e}")
+                _mark_source_status(paths, source_id, "error", error_reason="llm_error")
+                db.set_source_layer_status(paths.state_db, source_id, "l2", "error", error=result.error)
+                _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
+                callbacks.on_error(result.error)
+                return result
 
-        new_fragment_ids = [c.id for _, _, c in atom_staged if c.layer == "02_Atoms"]
         # Phase A: commit Atom files immediately
         callbacks.on_finalizing()
         changes: list[PageChange] = []
@@ -1682,6 +2012,13 @@ def ingest_source(
             changes.append(change)
             if change.operation == "created":
                 fragments_created += 1
+                db.insert_dag_edge(
+                    paths.state_db,
+                    from_id=context_id,
+                    to_id=change.id,
+                    edge_type="extracted_from",
+                    source_id=str(source_id),
+                )
             else:
                 fragments_updated += 1
 

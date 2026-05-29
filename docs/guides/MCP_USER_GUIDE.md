@@ -115,7 +115,63 @@ wiki mcp install
 #### `curator_reindex`
 - **역할**: QMD 검색 인덱스를 수동으로 다시 빌드합니다.
 
-### 3.4 워크스페이스 관리
+### 3.4 문서 상태 및 On-demand 쿼리 (v0.2.1)
+
+#### `check_source_status`
+
+- **역할**: 파일의 SHA-256 해시로 Incurator 등록 상태를 조회합니다. 플러그인이 PDF를 열 때 자동 호출하여 에이전트가 어느 모드(ephemeral / curator_query)로 작동해야 할지 결정합니다.
+- **파라미터**: `file_hash` (파일 SHA-256 해시 문자열).
+- **반환값**: `registered`, `source_id`, `l1_complete`, `l2_complete`, `l3_complete`, `jobs_pending`.
+- **구현 상태**: 백엔드는 `sources.content_hash`를 조회하고 queued/running `ingest_jobs`를 함께 반환합니다.
+- **참고**: 경로가 달라도(터미널 절대경로 vs 플러그인 상대경로) 동일 해시면 같은 결과를 반환합니다. `wiki add` CLI 경로와 플러그인 경로가 투명하게 통합됩니다.
+
+#### `fetch_document_section`
+
+- **역할**: 문서의 특정 섹션 텍스트를 반환합니다. 문서가 미등록이면 플러그인 in-memory(PDF.js)에서 서빙하고, `wiki add`/`import_source` 이후 `l1_complete=True`가 되면 백엔드 CTX의 `Source Sections`에서 즉시 서빙합니다. `curator_query` 기반 검색은 L3 완료 후 사용합니다.
+- **파라미터**: `source_key` (logical_source_id 또는 file_hash), `toc_id` (CTX frontmatter의 toc 배열 id), `page_start`/`page_end` (ToC 없는 PDF fallback).
+- **구현 상태**: `source_key`가 등록 source 또는 파일 경로일 때 CTX section marker, 원문 heading, PDF page 단위 텍스트를 반환합니다. v0.2.1 기본 설정(`llm.instant_l1: true`)에서는 L1 CTX가 LLM 없이 생성되므로 섹션 조회가 빠르게 가능해집니다.
+- **에이전트 활용 패턴**: 시스템 프롬프트에 주입된 ToC 미니맵을 보고 필요한 `toc_id`를 직접 호출.
+
+#### `curator_query`
+
+- **역할**: 자연어 질문으로 L3 Concept 지식 그래프를 검색하고, LLM이 답변을 합성하여 반환합니다. 동일한 질문+워크스페이스 조합의 Exhibition이 캐시되어 있으면 LLM 재호출 없이 즉시 반환합니다. L3가 아직 없는 소스에는 `search_curator`(raw 검색)로 자동 fallback됩니다.
+- **파라미터**:
+  - `question` (자연어 질문, 필수)
+  - `workspace_path` (워크스페이스 절대 경로, 없으면 `WORKSPACE_PATH` 환경변수 또는 `"default"`)
+  - `force_new` (캐시 무시하고 새 Exhibition 생성, 기본값 `false`)
+- **반환값**: `ok`, `answer` (마크다운 답변), `exhibition_id` (생성·재사용된 EXH UUID), `cache_hit`, `question`, `trace`.
+  - `trace`: `matched_concepts` (CON-ID 목록), `source_paths`, `latency_ms`, `l3_complete`.
+- **캐시 키**: `sha256(workspace_id + ":"+ normalized_question)[:16]`. backprop이 참조 CON을 수정하면 해당 캐시가 자동 무효화됩니다. `is_verified_by_human=true`인 EXH는 보호됩니다.
+- **구현 상태**: v0.2.1에서 구현 완료. L3 미완성 소스의 경우 `ok=true`, `fallback="l3_incomplete"`, `answer=""`, `trace.l3_complete=false`를 반환하고 플러그인은 `fetch_document_section` 또는 로컬 PDF context fallback으로 전환합니다.
+
+#### `promote_exhibition`
+
+- **역할**: 에이전트가 생성한 Query-gen Exhibition을 사용자가 검토한 후 `02_Wiki/<category>/<slug>.md`로 영구 승격합니다. 승격된 EXH는 `exhibition_origin: promoted`, `is_verified_by_human: true`로 설정되어 backprop 재빌드에서 보호됩니다. **반드시 사용자의 명시적 승인 후에만 호출해야 합니다.**
+- **파라미터**:
+  - `exh_id` (EXH 노드 ID, 예: `"EXH-12345678"`)
+  - `workspace_path` (워크스페이스 절대 경로, 선택)
+- **반환값**: `ok`, `exhibition_id`, `promoted_to` (02_Wiki/ 상대 경로).
+- **구현 상태**: v0.2.1에서 구현 완료. LLM이 카테고리/슬러그를 자동 분류하여 경로를 결정합니다.
+
+#### `check_ingest_status`
+
+- **역할**: 백그라운드 ingest job 큐의 현재 상태를 반환합니다. 플러그인이 `wiki add` 또는 `import_source` 이후 L2/L3 처리 완료를 감지하기 위해 5초 간격으로 폴링합니다. `idle: true`가 되면 폴링을 멈추고 UI를 갱신합니다.
+- **파라미터**: `workspace_path` (절대 경로, 선택).
+- **반환값**:
+  - `ok` (항상 true)
+  - `running` — 현재 실행 중인 job 목록 (`source_name`, `phase`, `progress`, `progress_current`, `progress_total` 포함)
+  - `queued` — 대기 중인 job 목록
+  - `done_today` — 오늘 완료된 job 수
+  - `idle` — `running`과 `queued`가 모두 비어있으면 `true`
+- **구현 상태**: v0.2.1에서 구현 완료. `.curator/dashboard.md`도 IngestWorker가 job 상태 변경마다 자동 갱신합니다(Obsidian live preview가 파일 변경 감지 후 자동 재렌더링).
+
+#### `get_available_models`
+
+- **역할**: 백엔드에 번들된 `models.json`에서 provider별 사용 가능 모델 목록을 반환합니다. 플러그인 UI가 모델 선택 드롭다운을 동적으로 렌더링하는 데 사용합니다.
+- **파라미터**: 없음.
+- **반환값**: `{ "antigravity": [...], "claude": [...] }` 형태의 provider별 모델 목록.
+
+### 3.5 워크스페이스 관리
 
 #### `curator_workspace_init`
 

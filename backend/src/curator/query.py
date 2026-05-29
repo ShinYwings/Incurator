@@ -245,6 +245,9 @@ def _save_curation_page(
     hits: list[search.SearchHit],
     session_id: str | None = None,
     workspace_project: str | None = None,
+    workspace_path: str | None = None,
+    workspace_id: str = "default",
+    cache_key: str | None = None,
     ephemeral: bool = False,
 ) -> str:
     """Write the answer to `.curator/Collections/04_Exhibitions/EXH-<UUID8>.md`,
@@ -253,44 +256,48 @@ def _save_curation_page(
     Returns the relative path (relative to `.curator/Collections/`) of the
     saved page.
     """
+    import hashlib as _hashlib
+
     exh_id = f"EXH-{uuid.uuid4().hex[:8]}"
+    qry_id = session_id if session_id else f"QRY-{uuid.uuid4().hex[:8]}"
     today = page_writer.today_iso()
 
     core_concepts = _derive_core_concepts(paths, answer, hits)
     if not core_concepts:
         raise ValueError("Cannot save query Exhibition: no related L3 Concepts were found.")
 
+    if cache_key is None:
+        cache_key = _hashlib.sha256(question.encode()).hexdigest()[:16]
+
     display_title = (title or question).strip()
     if len(display_title) > 80:
         display_title = display_title[:77] + "..."
 
     parsed = page_writer.parse_page(answer.strip())
+    base_frontmatter: dict = {
+        "id": exh_id,
+        "type": "exhibition",
+        "core_concepts": core_concepts,
+        "confidence_score": 0.70,
+        "last_updated": today,
+        "workspace_id": workspace_id,
+        "query_session": qry_id,
+        "exhibition_origin": "query_gen",
+        "ephemeral": ephemeral,
+        "question": question,
+        "cache_key": cache_key,
+        "is_verified_by_human": False,
+    }
+    if workspace_path:
+        base_frontmatter["workspace_path"] = workspace_path
+    if workspace_project:
+        base_frontmatter["workspace"] = workspace_project
+
     if not parsed.frontmatter:
-        parsed.frontmatter = {
-            "id": exh_id,
-            "type": "exhibition",
-            "core_concepts": core_concepts,
-            "confidence_score": 0.70,
-            "last_updated": today,
-            "question": question,
-            "ephemeral": ephemeral,
-        }
-        if session_id:
-            parsed.frontmatter["query_session"] = session_id
-        if workspace_project:
-            parsed.frontmatter["workspace"] = workspace_project
+        parsed.frontmatter = base_frontmatter
         parsed.body = f"# {display_title}\n\n{answer.strip()}"
     else:
-        parsed.frontmatter["id"] = exh_id
-        parsed.frontmatter["type"] = "exhibition"
-        parsed.frontmatter["core_concepts"] = core_concepts
-        parsed.frontmatter.setdefault("confidence_score", 0.70)
-        parsed.frontmatter["last_updated"] = today
-        parsed.frontmatter["ephemeral"] = ephemeral
-        if session_id:
-            parsed.frontmatter["query_session"] = session_id
-        if workspace_project:
-            parsed.frontmatter["workspace"] = workspace_project
+        parsed.frontmatter.update(base_frontmatter)
 
     final_path = paths.exhibitions / f"{exh_id}.md"
     page_writer.write_page(final_path, parsed.to_markdown())

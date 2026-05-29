@@ -24,6 +24,8 @@ from typing import Generator
 
 import httpx
 
+from . import models as model_catalogue
+
 # ---------------------------------------------------------------------------
 # RAM detection
 # ---------------------------------------------------------------------------
@@ -80,8 +82,17 @@ def has_enough_ram_for_local() -> bool:
 
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
-DEFAULT_GEMINI_FLASH_MODEL = "gemini-3.1-flash-lite-preview"
-DEFAULT_GEMINI_THINK_MODEL = "gemini-3.1-pro-preview"
+DEFAULT_ANTIGRAVITY_FLASH_MODEL = (
+    model_catalogue.get_default_model("antigravity", "flash")
+    or "gemini-3.1-flash-lite-preview"
+)
+DEFAULT_ANTIGRAVITY_THINK_MODEL = (
+    model_catalogue.get_default_model("antigravity", "think")
+    or "gemini-3.1-pro-preview"
+)
+# Backward-compatible names for older callers/config migrations.
+DEFAULT_GEMINI_FLASH_MODEL = DEFAULT_ANTIGRAVITY_FLASH_MODEL
+DEFAULT_GEMINI_THINK_MODEL = DEFAULT_ANTIGRAVITY_THINK_MODEL
 DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
 DEFAULT_CLAUDE_THINK_MODEL = "claude-opus-4-7"
 DEFAULT_OPENAI_MODEL = "gpt-4.1"
@@ -196,6 +207,10 @@ class GeminiCliError(LLMError):
     """Gemini CLI call failed."""
 
 
+class AntigravityCliError(GeminiCliError):
+    """Antigravity CLI call failed."""
+
+
 # ---------------------------------------------------------------------------
 # Message type (provider-agnostic)
 # ---------------------------------------------------------------------------
@@ -225,6 +240,8 @@ class OllamaClient:
         self.model = model
         self.timeout = timeout
         self._client = httpx.Client(timeout=timeout)
+        self._job_input_tokens: int = 0
+        self._job_output_tokens: int = 0
 
     def unload(self) -> None:
         """Ask Ollama to immediately evict this model from VRAM (keep_alive=0).
@@ -241,6 +258,14 @@ class OllamaClient:
             )
         except Exception:
             pass
+
+    def clone(self) -> "OllamaClient":
+        """Return a new independent OllamaClient with the same config.
+
+        Each clone owns its own httpx.Client, making it safe to run in a
+        separate thread without sharing the underlying connection pool.
+        """
+        return OllamaClient(host=self.host, model=self.model, timeout=self.timeout)
 
     def close(self) -> None:
         self.unload()
@@ -434,6 +459,8 @@ class OllamaClient:
             raise LLMError(f"Ollama request failed: {e}") from e
 
         data = r.json()
+        self._job_input_tokens += int(data.get("prompt_eval_count") or 0)
+        self._job_output_tokens += int(data.get("eval_count") or 0)
         content = data.get("message", {}).get("content", "")
         return self._strip_thinking(content)
 
@@ -486,6 +513,8 @@ class OllamaClient:
                     chunk = msg.get("content", "")
                     if not chunk:
                         if data.get("done"):
+                            self._job_input_tokens += int(data.get("prompt_eval_count") or 0)
+                            self._job_output_tokens += int(data.get("eval_count") or 0)
                             break
                         continue
 
@@ -513,6 +542,8 @@ class OllamaClient:
                         yield visible
 
                     if data.get("done"):
+                        self._job_input_tokens += int(data.get("prompt_eval_count") or 0)
+                        self._job_output_tokens += int(data.get("eval_count") or 0)
                         break
         except httpx.ConnectError as e:
             raise OllamaNotRunning(
@@ -549,6 +580,13 @@ class OllamaClient:
         if "<think>" not in text:
             return text
         return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
+
+    def get_and_reset_token_usage(self) -> tuple[int, int]:
+        """Return (input_tokens, output_tokens) since last reset and reset counters."""
+        result = (self._job_input_tokens, self._job_output_tokens)
+        self._job_input_tokens = 0
+        self._job_output_tokens = 0
+        return result
 
 
 
@@ -694,6 +732,9 @@ class ClaudeCodeClient:
         except ClaudeCodeError:
             return False
 
+    def get_and_reset_token_usage(self) -> tuple[int, int]:
+        return (0, 0)
+
 
 def _get_gemini_fallback_chain(model_name: str) -> list[str]:
     """Given a Gemini model name, return a list of models to try in order of fallback.
@@ -722,22 +763,23 @@ def _get_gemini_fallback_chain(model_name: str) -> list[str]:
             result.append(m)
     return result
 
-class GeminiCliClient:
-    """LLM backend using the *gemini* CLI (Gemini Advanced subscription).
+class AntigravityCliClient:
+    """LLM backend using the *agy* CLI (Google Antigravity subscription).
 
-    Requires: npm install -g @google/gemini-cli  then  gemini (login flow)
+    Requires Antigravity CLI, then its login flow. The legacy GeminiCliClient
+    name remains as an alias below so older imports keep working.
     """
 
-    CLI = "gemini"
-    INSTALL_CMD = "npm install -g @google/gemini-cli"
+    CLI = "agy"
+    INSTALL_CMD = "curl -fsSL https://antigravity.google/cli/install.sh | bash"
 
-    def __init__(self, model: str = DEFAULT_GEMINI_FLASH_MODEL) -> None:
+    def __init__(self, model: str = DEFAULT_ANTIGRAVITY_FLASH_MODEL) -> None:
         self.model = model
 
     def close(self) -> None:
         pass
 
-    def __enter__(self) -> "GeminiCliClient":
+    def __enter__(self) -> "AntigravityCliClient":
         return self
 
     def __exit__(self, *args) -> None:
@@ -747,22 +789,35 @@ class GeminiCliClient:
         models_to_try = _get_gemini_fallback_chain(self.model)
         
         for i, current_model in enumerate(models_to_try):
-            # Pass the prompt via stdin to avoid "Argument list too long" errors
-            cmd = [self.CLI]
-            if current_model:
-                cmd += ["--model", current_model]
+            # Antigravity CLI currently exposes model choice through its own
+            # settings, not a stable --model flag. Keep the selected model in
+            # the prompt for traceability and pass the large payload via stdin.
+            cmd = [self.CLI, "--print", "--print-timeout", "15m"]
+            prompt_with_model = (
+                f"[Preferred model: {current_model}]\n\n{prompt}"
+                if current_model else prompt
+            )
             env = dict(os.environ)
             env["GEMINI_CLI_TRUST_WORKSPACE"] = "true"
+            env["ANTIGRAVITY_TRUST_WORKSPACE"] = "true"
+            env["AGY_TRUST_WORKSPACE"] = "true"
             try:
-                result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=900, env=env)
+                result = subprocess.run(
+                    cmd,
+                    input=prompt_with_model,
+                    capture_output=True,
+                    text=True,
+                    timeout=900,
+                    env=env,
+                )
             except FileNotFoundError:
-                raise GeminiCliError(
+                raise AntigravityCliError(
                     f"'{self.CLI}' CLI not found.\n"
                     f"Install: {self.INSTALL_CMD}\n"
-                    "Authenticate: gemini"
+                    "Authenticate: agy"
                 )
             except subprocess.TimeoutExpired:
-                raise GeminiCliError("gemini CLI timed out after 900 s")
+                raise AntigravityCliError("Antigravity CLI timed out after 900 s")
                 
             if result.returncode != 0:
                 stderr = result.stderr.strip()
@@ -777,23 +832,22 @@ class GeminiCliClient:
                 
                 if is_capacity_error and i < len(models_to_try) - 1:
                     next_model = models_to_try[i+1]
-                    print(f"incurator: Gemini CLI capacity exhausted for '{current_model}', falling back to '{next_model}'...", file=sys.stderr)
+                    print(f"incurator: Antigravity CLI capacity exhausted for '{current_model}', falling back to '{next_model}'...", file=sys.stderr)
                     continue
                     
                 if is_capacity_error:
-                    raise GeminiCliError(
-                        f"Gemini API Capacity Exhausted (429) for all fallback models.\n"
+                    raise AntigravityCliError(
+                        f"Antigravity/Gemini capacity exhausted (429) for all fallback models.\n"
                         f"Last model tried: '{current_model}'.\n"
-                        f"Try switching to the Cloud API backend:\n"
-                        f"  wiki config provider --primary cloud --cloud-provider gemini"
+                        f"Try a local fallback or a lighter model."
                     )
 
-                raise GeminiCliError(
-                    f"gemini CLI exited {result.returncode}: {stderr}"
+                raise AntigravityCliError(
+                    f"Antigravity CLI exited {result.returncode}: {stderr}"
                 )
             return result.stdout.strip()
         
-        raise GeminiCliError("No output returned from gemini CLI.")
+        raise AntigravityCliError("No output returned from Antigravity CLI.")
 
     @property
     def optimal_chunk_chars(self) -> int:
@@ -823,25 +877,27 @@ class GeminiCliClient:
 
     def ensure_ready(self) -> None:
         if not _cli_installed(self.CLI):
-            raise GeminiCliError(
+            raise AntigravityCliError(
                 f"'{self.CLI}' CLI not installed.\n"
                 f"Install: {self.INSTALL_CMD}\n"
-                "Authenticate: gemini"
+                "Authenticate: agy"
             )
         try:
             env = dict(os.environ)
             env["GEMINI_CLI_TRUST_WORKSPACE"] = "true"
+            env["ANTIGRAVITY_TRUST_WORKSPACE"] = "true"
+            env["AGY_TRUST_WORKSPACE"] = "true"
             r = subprocess.run(
                 [self.CLI, "--version"], capture_output=True, text=True, timeout=5, env=env
             )
             if r.returncode != 0:
-                raise GeminiCliError(
+                raise AntigravityCliError(
                     f"'{self.CLI}' not functional: {r.stderr.strip()}"
                 )
         except FileNotFoundError:
-            raise GeminiCliError(f"'{self.CLI}' not found in PATH.")
+            raise AntigravityCliError(f"'{self.CLI}' not found in PATH.")
         except subprocess.TimeoutExpired:
-            raise GeminiCliError(f"'{self.CLI}' --version timed out.")
+            raise AntigravityCliError(f"'{self.CLI}' --version timed out.")
 
     def ping(self) -> bool:
         try:
@@ -850,6 +906,13 @@ class GeminiCliClient:
         except GeminiCliError:
             return False
 
+    def get_and_reset_token_usage(self) -> tuple[int, int]:
+        return (0, 0)
+
+
+# Compatibility alias. New code should use AntigravityCliClient.
+GeminiCliClient = AntigravityCliClient
+
 
 # ---------------------------------------------------------------------------
 # FailoverClient — ordered provider chain with background probe
@@ -857,7 +920,7 @@ class GeminiCliClient:
 
 
 _FAILOVER_ERRORS = (OllamaNotRunning, ModelNotFound, OSError)
-_CLI_PRIMARY_FAILOVER_ERRORS = _FAILOVER_ERRORS + (ClaudeCodeError, GeminiCliError)
+_CLI_PRIMARY_FAILOVER_ERRORS = _FAILOVER_ERRORS + (ClaudeCodeError, GeminiCliError, AntigravityCliError)
 
 
 class FailoverClient:
@@ -1036,6 +1099,16 @@ class FailoverClient:
     def ping(self) -> bool:
         return any(p.ping() for p in self.providers)
 
+    def get_and_reset_token_usage(self) -> tuple[int, int]:
+        """Sum and reset token usage across all providers."""
+        total_in = total_out = 0
+        for p in self.providers:
+            if hasattr(p, "get_and_reset_token_usage"):
+                pin, pout = p.get_and_reset_token_usage()
+                total_in += pin
+                total_out += pout
+        return (total_in, total_out)
+
     def unload(self) -> None:
         """Forward unload to any OllamaClient providers to free VRAM."""
         for p in self.providers:
@@ -1085,10 +1158,18 @@ def _make_claude_code(llm_cfg: dict) -> ClaudeCodeClient:
     )
 
 
-def _make_gemini_cli(llm_cfg: dict) -> GeminiCliClient:
-    return GeminiCliClient(
-        model=llm_cfg.get("gemini_flash_model", DEFAULT_GEMINI_FLASH_MODEL),
+def _make_antigravity_cli(llm_cfg: dict) -> AntigravityCliClient:
+    return AntigravityCliClient(
+        model=(
+            llm_cfg.get("antigravity_flash_model")
+            or llm_cfg.get("gemini_flash_model")
+            or DEFAULT_ANTIGRAVITY_FLASH_MODEL
+        ),
     )
+
+
+def _make_gemini_cli(llm_cfg: dict) -> AntigravityCliClient:
+    return _make_antigravity_cli(llm_cfg)
 
 
 
@@ -1107,8 +1188,8 @@ def _make_by_key(key: str, llm_cfg: dict):
         return _make_ollama(llm_cfg)
     if key == "claude-code":
         return _make_claude_code(llm_cfg)
-    if key in ("gemini-cli", "cloud"):
-        return _make_gemini_cli(llm_cfg)
+    if key in ("antigravity-cli", "gemini-cli", "cloud"):
+        return _make_antigravity_cli(llm_cfg)
     return None
 
 
@@ -1119,16 +1200,16 @@ def make_client_by_key(key: str, config: dict):
 
 def build_client(
     config: dict,
-) -> "OllamaClient | ClaudeCodeClient | GeminiCliClient | FailoverClient":
+) -> "OllamaClient | ClaudeCodeClient | AntigravityCliClient | FailoverClient":
     """Return the appropriate LLM client based on config.
 
     Decision logic (in priority order):
       primary='ollama'      → OllamaClient first; fallback from config
       primary='claude-code' → Claude CLI first; fallback from config or Ollama
-      primary='gemini-cli'  → Gemini CLI first; fallback from config or Ollama
-      provider override 'ollama'|'gemini-cli'|'claude-code' → single explicit client
+      primary='antigravity-cli' → Antigravity CLI first; fallback from config or Ollama
+      provider override 'ollama'|'antigravity-cli'|'claude-code' → single explicit client
       auto + RAM ≥ 16 GB → OllamaClient (local)
-      auto + RAM < 16 GB → gemini-cli client
+      auto + RAM < 16 GB → antigravity-cli client
     """
     llm_cfg = config.get("llm", {})
     primary = llm_cfg.get("primary", "")
@@ -1138,6 +1219,7 @@ def build_client(
     _PRIMARY_ERRORS = {
         "ollama":      _FAILOVER_ERRORS,
         "claude-code": _CLI_PRIMARY_FAILOVER_ERRORS,
+        "antigravity-cli":  _CLI_PRIMARY_FAILOVER_ERRORS,
         "gemini-cli":  _CLI_PRIMARY_FAILOVER_ERRORS,
     }
 
@@ -1163,7 +1245,7 @@ def build_client(
         if primary == "ollama":
             return p_client
 
-        # claude-code / gemini-cli → default fallback to ollama
+        # claude-code / antigravity-cli → default fallback to ollama
         ollama = _make_ollama(llm_cfg)
         return FailoverClient(
             [p_client, ollama],
@@ -1184,8 +1266,8 @@ def build_client(
     if ram_gb >= RAM_THRESHOLD_GB:
         return _make_ollama(llm_cfg)
 
-    # Low-RAM machine: gemini-cli with optional remote Ollama failover
-    cli_client = _make_gemini_cli(llm_cfg)
+    # Low-RAM machine: Antigravity CLI with optional remote Ollama failover
+    cli_client = _make_antigravity_cli(llm_cfg)
     remote_host = (llm_cfg.get("remote_ollama_host") or "").strip()
     if not remote_host:
         return cli_client
@@ -1236,21 +1318,25 @@ def describe_backend(config: dict, client: object = None) -> str:
             return f"Failover  primary=claude CLI ({claude_m}) → fallback=Ollama  model={model}  host={host}"
         return f"Failover  primary=claude CLI ({claude_m}) → fallback={fallback}"
 
-    if primary == "gemini-cli":
-        gemini_m = llm_cfg.get("gemini_flash_model", DEFAULT_GEMINI_FLASH_MODEL)
+    if primary in ("antigravity-cli", "gemini-cli"):
+        gemini_m = (
+            llm_cfg.get("antigravity_flash_model")
+            or llm_cfg.get("gemini_flash_model")
+            or DEFAULT_ANTIGRAVITY_FLASH_MODEL
+        )
         fallback = llm_cfg.get("fallback", "")
         if not fallback:
-            return f"gemini CLI ({gemini_m})"
+            return f"Antigravity CLI ({gemini_m})"
         if fallback == "ollama":
-            return f"Failover  primary=gemini CLI ({gemini_m}) → fallback=Ollama  model={model}  host={host}"
-        return f"Failover  primary=gemini CLI ({gemini_m}) → fallback={fallback}"
+            return f"Failover  primary=Antigravity CLI ({gemini_m}) → fallback=Ollama  model={model}  host={host}"
+        return f"Failover  primary=Antigravity CLI ({gemini_m}) → fallback={fallback}"
 
     # Legacy auto/explicit-provider path
     provider = llm_cfg.get("provider", "auto")
     if provider == "auto":
-        provider = "ollama" if ram_gb >= RAM_THRESHOLD_GB else "gemini-cli"
+        provider = "ollama" if ram_gb >= RAM_THRESHOLD_GB else "antigravity-cli"
 
     remote = llm_cfg.get("remote_ollama_host", "").strip()
     if remote and ram_gb < RAM_THRESHOLD_GB:
-        return f"Failover (config)  remote={remote}  fallback=gemini-cli  probe={probe}s"
+        return f"Failover (config)  remote={remote}  fallback=antigravity-cli  probe={probe}s"
     return f"Ollama  [{ram_gb:.1f} GB RAM]  model={model}  host={host}"

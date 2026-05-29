@@ -133,6 +133,24 @@ benchmark_app = typer.Typer(
 )
 app.add_typer(benchmark_app, name="benchmark")
 
+jobs_app = typer.Typer(
+    name="jobs",
+    help="Inspect and run queued background ingest jobs.",
+    no_args_is_help=True,
+    add_completion=False,
+    rich_markup_mode="rich",
+)
+app.add_typer(jobs_app, name="jobs")
+
+devices_app = typer.Typer(
+    name="devices",
+    help="Inspect synced device profiles and per-device backend launchers.",
+    no_args_is_help=True,
+    add_completion=False,
+    rich_markup_mode="rich",
+)
+app.add_typer(devices_app, name="devices")
+
 console = Console()
 
 
@@ -860,36 +878,36 @@ _CURATED_MODELS = [
 
 
 _CLOUD_MODELS: dict[str, list[dict]] = {
-    "gemini-cli": [
+    "antigravity-cli": [
         {
             "tag": "gemini-2.5-flash",
             "desc": "Flash (default) — High speed, balanced",
             "think": False,
-            "cfg_key": "gemini_flash_model",
+            "cfg_key": "antigravity_flash_model",
         },
         {
             "tag": "gemini-2.5-flash-lite",
             "desc": "Lite — Lowest performance/quota tier",
             "think": False,
-            "cfg_key": "gemini_flash_model",
+            "cfg_key": "antigravity_flash_model",
         },
         {
             "tag": "gemini-3.1-flash-lite-preview",
             "desc": "Lite preview — Low-cost tier",
             "think": False,
-            "cfg_key": "gemini_flash_model",
+            "cfg_key": "antigravity_flash_model",
         },
         {
             "tag": "gemini-3.1-pro-preview",
             "desc": "Pro preview — Highest performance",
             "think": True,
-            "cfg_key": "gemini_think_model",
+            "cfg_key": "antigravity_think_model",
         },
         {
             "tag": "gemini-3.1-flash-preview",
             "desc": "Flash preview — High-speed next-gen Flash",
             "think": False,
-            "cfg_key": "gemini_flash_model",
+            "cfg_key": "antigravity_flash_model",
         },
     ],
     "claude-code": [
@@ -913,13 +931,16 @@ _CLOUD_MODELS: dict[str, list[dict]] = {
         },
     ],
 }
+_CLOUD_MODELS["gemini-cli"] = _CLOUD_MODELS["antigravity-cli"]
 
 _PROVIDER_PRIMARY_CFG_KEY: dict[str, str] = {
-    "gemini-cli": "gemini_flash_model",
+    "antigravity-cli": "antigravity_flash_model",
+    "gemini-cli": "antigravity_flash_model",
     "claude-code": "claude_model",
 }
 _PROVIDER_THINK_CFG_KEY: dict[str, str] = {
-    "gemini-cli": "gemini_think_model",
+    "antigravity-cli": "antigravity_think_model",
+    "gemini-cli": "antigravity_think_model",
     "claude-code": "claude_think_model",
 }
 
@@ -927,12 +948,12 @@ _PROVIDER_THINK_CFG_KEY: dict[str, str] = {
 def _get_cloud_provider_from_primary(primary: str, llm_cfg: dict) -> str:
     """Resolve the cloud provider string from the primary backend key."""
     p = primary.lower().replace(" ", "-")
-    if p in ("gemini", "gemini-cli"):
-        return "gemini-cli"
+    if p in ("gemini", "gemini-cli", "antigravity", "antigravity-cli"):
+        return "antigravity-cli"
     if p in ("claude", "claude-code"):
         return "claude-code"
     if p == "cloud":
-        _err("'cloud' provider (direct SDK) is disabled. Use gemini-cli or claude-code.")
+        _err("'cloud' provider (direct SDK) is disabled. Use antigravity-cli or claude-code.")
         return ""
     return ""
 
@@ -945,7 +966,7 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = F
 
     models = _CLOUD_MODELS.get(cloud_provider)
     if not models:
-        _err(f"Unknown cloud provider '{cloud_provider}'. Use: gemini-cli, claude-code.")
+        _err(f"Unknown cloud provider '{cloud_provider}'. Use: antigravity-cli, claude-code.")
         return
 
     # Determine currently active model tags
@@ -953,12 +974,12 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = F
     primary_key = _PROVIDER_PRIMARY_CFG_KEY.get(cloud_provider, "")
     think_key = _PROVIDER_THINK_CFG_KEY.get(cloud_provider, "")
     defaults_regular = {
-        "gemini_flash_model": DEFAULT_GEMINI_FLASH_MODEL,
+        "antigravity_flash_model": DEFAULT_GEMINI_FLASH_MODEL,
         "claude_model": DEFAULT_CLAUDE_MODEL,
         "openai_model": DEFAULT_OPENAI_MODEL,
     }
     defaults_think = {
-        "gemini_think_model": DEFAULT_GEMINI_THINK_MODEL,
+        "antigravity_think_model": DEFAULT_GEMINI_THINK_MODEL,
         "claude_think_model": DEFAULT_CLAUDE_THINK_MODEL,
         "openai_think_model": DEFAULT_OPENAI_THINK_MODEL,
     }
@@ -1136,14 +1157,14 @@ def _pick_ollama_model(host: str) -> str:
 def _print_backend_menu(exclude: str | None = None) -> None:
     """Print the 4-option backend menu, optionally skipping one entry."""
     _claude_ok = _cli_installed("claude")
-    _gemini_ok = _cli_installed("gemini")
+    _agy_ok = _cli_installed("agy")
     n = 1
     for key, label in [
         ("ollama",      "Local Ollama      (GPU/CPU — local)"),
         ("claude-code", f"Claude Code CLI   (claude Pro/Max subscription — "
                         f"{'[green]installed[/green]' if _claude_ok else '[yellow]not installed[/yellow]'})"),
-        ("gemini-cli",  f"Gemini CLI        (Gemini Advanced subscription — "
-                        f"{'[green]installed[/green]' if _gemini_ok else '[yellow]not installed[/yellow]'})"),
+        ("antigravity-cli",  f"Antigravity CLI   (Google subscription — "
+                             f"{'[green]installed[/green]' if _agy_ok else '[yellow]not installed[/yellow]'})"),
     ]:
         if key == exclude:
             continue
@@ -1155,7 +1176,7 @@ def _print_backend_menu(exclude: str | None = None) -> None:
 def _pick_backend_menu(exclude: str | None = None, prompt: str = "Choice") -> str:
     """Show 4-option backend menu and return the chosen backend key."""
     _print_backend_menu(exclude)
-    keys = [k for k in ("ollama", "claude-code", "gemini-cli") if k != exclude]
+    keys = [k for k in ("ollama", "claude-code", "antigravity-cli") if k != exclude]
     valid: dict[str, str] = {}
     for i, k in enumerate(keys, 1):
         valid[str(i)] = k
@@ -1322,10 +1343,13 @@ def _configure_backend(
             _hint(f"Once Ollama is running: [bold]ollama pull {model}[/bold]")
 
 
-    elif backend in ("claude-code", "gemini-cli"):
-        cli_cmd = "claude" if backend == "claude-code" else "gemini"
-        pkg_name = "@anthropic-ai/claude-code" if backend == "claude-code" else "@google/gemini-cli"
-        install_cmd = f"npm install -g {pkg_name}"
+    elif backend in ("claude-code", "antigravity-cli", "gemini-cli"):
+        cli_cmd = "claude" if backend == "claude-code" else "agy"
+        install_cmd = (
+            "npm install -g @anthropic-ai/claude-code"
+            if backend == "claude-code"
+            else "curl -fsSL https://antigravity.google/cli/install.sh | bash"
+        )
         if not _cli_installed(cli_cmd):
             console.print()
             _warn(f"'{cli_cmd}' CLI is not installed.")
@@ -1572,10 +1596,13 @@ def _offer_install(overrides: dict, llm_cfg: dict) -> None:
     model   = overrides.get("model")   or llm_cfg.get("model", "qwen2.5:7b")
     host    = overrides.get("host")    or llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
 
-    if primary in ("claude-code", "gemini-cli"):
-        cli_cmd = "claude" if primary == "claude-code" else "gemini"
-        pkg_name = "@anthropic-ai/claude-code" if primary == "claude-code" else "@google/gemini-cli"
-        install_cmd = f"npm install -g {pkg_name}"
+    if primary in ("claude-code", "antigravity-cli", "gemini-cli"):
+        cli_cmd = "claude" if primary == "claude-code" else "agy"
+        install_cmd = (
+            "npm install -g @anthropic-ai/claude-code"
+            if primary == "claude-code"
+            else "curl -fsSL https://antigravity.google/cli/install.sh | bash"
+        )
         if not _cli_installed(cli_cmd):
             console.print()
             console.print(f"[yellow]'{cli_cmd}' is not installed.[/yellow]")
@@ -1720,6 +1747,10 @@ def _start_client(config: dict):
 
     _ok(f"LLM ready · [bold]{provider_label}[/bold] (model: {client.model})")
     return client
+
+
+def _instant_l1_enabled(config: dict) -> bool:
+    return bool((config or {}).get("llm", {}).get("instant_l1", True))
 
 
 
@@ -2073,7 +2104,7 @@ def config_provider(
     primary: str = typer.Option(
         "",
         "--primary", "-p",
-        help="Primary backend: ollama | claude-code | gemini-cli",
+        help="Primary backend: ollama | claude-code | antigravity-cli",
     ),
     model: str = typer.Option(
         "",
@@ -2092,7 +2123,7 @@ def config_provider(
 
     \b
       wiki config provider --primary ollama --model gemma4:32b
-      wiki config provider --primary gemini-cli
+      wiki config provider --primary antigravity-cli
       wiki config provider --primary claude-code
     """
     paths = _resolve_root_or_die()
@@ -2104,7 +2135,9 @@ def config_provider(
     if any_flag:
         overrides = {}
         # Non-interactive: apply only the flags that were explicitly passed
-        _valid_primary = ("ollama", "claude-code", "gemini-cli")
+        if primary == "gemini-cli":
+            primary = "antigravity-cli"
+        _valid_primary = ("ollama", "claude-code", "antigravity-cli")
         if primary in _valid_primary:
             llm["primary"] = primary
             overrides["primary"] = primary
@@ -2127,7 +2160,7 @@ def config_provider(
                 overrides["primary"] = "ollama"
 
         # Offer model selection for CLI backends if primary was switched via flag
-        if primary in ("claude-code", "gemini-cli"):
+        if primary in ("claude-code", "antigravity-cli"):
             console.print()
             console.print(f"[bold]{primary} Model Selection[/bold]")
             _show_cloud_models(primary, llm)
@@ -2179,15 +2212,15 @@ def status() -> None:
         elif key == "cloud":
             cp = llm_cfg.get("cloud_provider", "gemini")
             if cp == "gemini":
-                return llm_cfg.get("gemini_flash_model", DEFAULT_GEMINI_FLASH_MODEL)
+                return llm_cfg.get("antigravity_flash_model", DEFAULT_GEMINI_FLASH_MODEL)
             elif cp == "claude":
                 return llm_cfg.get("claude_model", "claude-sonnet-4-6")
             elif cp == "openai":
                 return llm_cfg.get("openai_model", "gpt-4.1")
         elif key == "claude-code":
             return llm_cfg.get("claude_model", "claude-sonnet-4-6")
-        elif key == "gemini-cli":
-            return llm_cfg.get("gemini_flash_model", DEFAULT_GEMINI_FLASH_MODEL)
+        elif key in ("antigravity-cli", "gemini-cli"):
+            return llm_cfg.get("antigravity_flash_model") or DEFAULT_GEMINI_FLASH_MODEL
         return "?"
 
     def _get_backend_label(key: str, llm_cfg: dict) -> str:
@@ -2198,8 +2231,8 @@ def status() -> None:
             return f"Cloud ({cp})"
         elif key == "claude-code":
             return "Claude Code"
-        elif key == "gemini-cli":
-            return "Gemini CLI"
+        elif key in ("antigravity-cli", "gemini-cli"):
+            return "Antigravity CLI"
         return key.capitalize() if key else "?"
 
     console.print()
@@ -2247,8 +2280,23 @@ def status() -> None:
     table.add_column()
     table.add_row("Raw source files", str(raw_files))
     table.add_row("Sources tracked (DB)", str(stats["sources_total"]))
-    table.add_row("Sources summarized (L1)", str(stats["sources_curated"]))
+    table.add_row("Sources summarized (L1)", str(stats.get("sources_l1_done", 0)))
     table.add_row("Ingest runs", str(stats["ingest_runs"]))
+    total_in = stats.get("total_input_tokens", 0)
+    total_out = stats.get("total_output_tokens", 0)
+    total_cost = stats.get("total_cost_usd", 0.0)
+    if total_in or total_out:
+        def _fmt_tokens(n: int) -> str:
+            if n >= 1_000_000:
+                return f"{n / 1_000_000:.1f}M"
+            if n >= 1_000:
+                return f"{n / 1_000:.1f}K"
+            return str(n)
+        cost_str = f"  [dim](${total_cost:.4f})[/dim]" if total_cost > 0 else ""
+        table.add_row(
+            "Total LLM tokens",
+            f"in {_fmt_tokens(total_in)} / out {_fmt_tokens(total_out)}{cost_str}",
+        )
     console.print(table)
 
     pages_table = Table(title="Collections", show_header=False, box=None, padding=(0, 2))
@@ -2267,6 +2315,23 @@ def status() -> None:
     console.print(pages_table)
 
     _render_pipeline_status(paths)
+    active_jobs = db.list_ingest_jobs(paths.state_db, states=("queued", "running"), limit=8)
+    if active_jobs:
+        jobs_table = Table(title="Background Jobs", show_header=True, box=None, padding=(0, 1))
+        jobs_table.add_column("id", justify="right", style="dim")
+        jobs_table.add_column("type", style="cyan")
+        jobs_table.add_column("state")
+        jobs_table.add_column("phase", style="dim")
+        jobs_table.add_column("source")
+        for job in active_jobs:
+            jobs_table.add_row(
+                str(job.get("id", "")),
+                str(job.get("job_type", "")),
+                str(job.get("state", "")),
+                str(job.get("phase", "") or ""),
+                str(job.get("source_name", "") or job.get("source_id", "")),
+            )
+        console.print(jobs_table)
     _render_latest_sync_report_summary(paths)
 
     try:
@@ -2279,10 +2344,10 @@ def status() -> None:
     console.print()
     if stats["sources_total"] == 0:
         _hint("No sources yet. Add them with [bold]wiki add[/bold]")
-    elif stats["sources_curated"] == 0:
+    elif stats.get("sources_l1_done", 0) == 0:
         _hint(
-            f"{stats['sources_total']} source(s) tracked but not curated. "
-            f"Stage 3 will add [bold]wiki curate[/bold] to process them with the LLM."
+            f"{stats['sources_total']} source(s) tracked but not summarized. "
+            f"Run [bold]wiki add[/bold] to create L1 Contexts."
         )
 
 
@@ -2309,6 +2374,11 @@ def add(
         False,
         "--no-sync",
         help="Skip the default sync repair/verification after add.",
+    ),
+    wait: bool = typer.Option(
+        False,
+        "--wait",
+        help="Run queued L2/L3 jobs before returning (legacy foreground behavior).",
     ),
 ) -> None:
     """Add sources: register files and generate L1-L3 layers.
@@ -2464,10 +2534,11 @@ def add(
         )
         console.print()
 
-    client = _start_client(config)
+    client = None if (pending_rows and not wait and _instant_l1_enabled(config)) else _start_client(config)
 
     try:
         summarized = 0
+        summarized_source_ids: list[int] = []
         for row in pending_rows:
             console.print(f"  [dim]summarizing[/dim] {row['relpath']}")
             db.set_source_layer_status(paths.state_db, row["id"], "l1", "running")
@@ -2484,11 +2555,33 @@ def add(
             if context_id:
                 _ok(f"  L1 [{context_id}] ← {row['relpath']}")
                 summarized += 1
+                summarized_source_ids.append(int(row["id"]))
             else:
                 db.set_source_layer_status(
                     paths.state_db, row["id"], "l1", "error", error="summary_failed"
                 )
                 _warn(f"  Summary failed for {row['relpath']}")
+
+        if summarized > 0 and not wait:
+            from . import ingest_worker
+
+            job_ids = ingest_worker.enqueue_l2_l3_for_sources(
+                paths,
+                summarized_source_ids,
+                trigger="wiki_add",
+            )
+            _refresh_qmd_index(paths, embed=False)
+            _invalidate_latest_sync_report(paths, reason="add changed L1; L2/L3 queued")
+            console.print()
+            _ok(
+                f"L1 registration complete: {summarized} summarized, "
+                f"{len(job_ids)} L2/L3 job(s) queued"
+            )
+            _hint(
+                "L2/L3 will run in the background when MCP is active, or run "
+                "[bold]wiki jobs run[/bold] to process the queue now."
+            )
+            return
 
         has_concepts = any(paths.concepts.glob("*.md")) if paths.concepts.exists() else False
         if summarized == 0 and not force and has_concepts and l2_pending_count == 0:
@@ -2536,13 +2629,14 @@ def add(
             _run_sync_report_only(paths, config, reason="add")
 
         # Forward propagation (L3 -> L4): Evolve knowledge graph if new data arrived
+        dirty_exhs: list[str] = []
+        do_merge = False
         if summarized > 0 or atoms_created > 0 or atoms_updated > 0:
             from . import sync as sync_module
             dirty_exhs = sync_module.find_dirty_exhibitions(paths)
             if dirty_exhs:
                 console.print()
                 console.print(f"[dim]New information affects {len(dirty_exhs)} existing Exhibition(s).[/dim]")
-                do_merge = False
                 if console.is_interactive:
                     do_merge = typer.confirm("Merge these new facts into affected Exhibitions now?", default=True)
                 
@@ -2565,7 +2659,138 @@ def add(
         if not dirty_exhs or not do_merge:
             _hint("Run [bold]wiki curate[/bold] to stage L4 Exhibitions.")
     finally:
-        client.close()
+        if client is not None:
+            client.close()
+
+
+@jobs_app.command("list")
+def jobs_list(
+    all: bool = typer.Option(False, "--all", help="Show completed and failed jobs too."),
+    limit: int = typer.Option(50, "--limit", "-n", help="Maximum jobs to show."),
+) -> None:
+    """List background ingest jobs."""
+    paths = _resolve_root_or_die()
+    states = None if all else ("queued", "running")
+    jobs = db.list_ingest_jobs(paths.state_db, states=states, limit=limit)
+    if not jobs:
+        console.print("[dim]No background jobs.[/dim]")
+        return
+    table = Table(title="Background Jobs", show_header=True, box=None, padding=(0, 1))
+    table.add_column("id", justify="right", style="dim")
+    table.add_column("source", justify="right")
+    table.add_column("type", style="cyan")
+    table.add_column("state")
+    table.add_column("phase", style="dim")
+    table.add_column("progress", justify="right")
+    table.add_column("name")
+    for job in jobs:
+        progress = job.get("progress")
+        progress_text = f"{float(progress or 0.0) * 100:.0f}%"
+        table.add_row(
+            str(job.get("id", "")),
+            str(job.get("source_id", "")),
+            str(job.get("job_type", "")),
+            str(job.get("state", "")),
+            str(job.get("phase", "") or ""),
+            progress_text,
+            str(job.get("source_name", "") or ""),
+        )
+    console.print(table)
+
+
+@jobs_app.command("run")
+def jobs_run(
+    limit: Optional[int] = typer.Option(None, "--limit", "-n", help="Maximum jobs to run."),
+) -> None:
+    """Run queued L2/L3 jobs in the foreground."""
+    from . import ingest_worker
+
+    paths = _resolve_root_or_die()
+    config = cfg.load_config(paths)
+    results = ingest_worker.run_queued_jobs(paths, config, limit=limit)
+    if not results:
+        _ok("No queued jobs.")
+        return
+    ok_count = sum(1 for result in results if result.get("ok"))
+    failed = [result for result in results if not result.get("ok")]
+    _ok(f"Processed {ok_count} job(s).")
+    for result in failed:
+        job = result.get("job") or {}
+        _err(f"Job #{job.get('id')} failed: {result.get('error')}")
+    _refresh_qmd_index(paths, embed=True)
+
+
+@devices_app.command("sync")
+def devices_sync(
+    syncthing_config: Optional[Path] = typer.Option(
+        None,
+        "--syncthing-config",
+        help="Path to Syncthing config.xml. Defaults to standard platform locations.",
+    ),
+    backend_command: Optional[str] = typer.Option(
+        None,
+        "--backend-command",
+        help="Per-device command used by Obsidian/MCP to start Incurator.",
+    ),
+    backend_args: Optional[str] = typer.Option(
+        None,
+        "--backend-args",
+        help="Per-device backend args as JSON array or shell-like text.",
+    ),
+) -> None:
+    """Refresh `.curator/devices.json` from Syncthing and local backend info."""
+    from . import device_registry
+
+    paths = _resolve_root_or_die()
+    registry = device_registry.sync_device_registry(
+        paths.root,
+        syncthing_config=syncthing_config,
+        backend_command=backend_command,
+        backend_args=device_registry.parse_args_text(backend_args),
+    )
+    path = device_registry.registry_path(paths.root)
+    _ok(f"Device registry updated: [bold]{path}[/bold]")
+    local_id = registry.get("local_device_id", "local")
+    local = registry.get("devices", {}).get(local_id, {})
+    backend = local.get("backend", {})
+    console.print(f"Local device: [bold]{local.get('name', local_id)}[/bold]")
+    console.print(f"Backend: [cyan]{backend.get('command', 'wiki')} {' '.join(backend.get('args', []))}[/cyan]")
+
+
+@devices_app.command("status")
+def devices_status() -> None:
+    """Show synced devices and known per-device backend launchers."""
+    from . import device_registry
+
+    paths = _resolve_root_or_die()
+    registry = device_registry.load_registry(paths.root)
+    devices = registry.get("devices", {})
+    if not devices:
+        _warn("No device registry yet.")
+        _hint("Run [bold]wiki devices sync[/bold] inside the synced vault.")
+        return
+
+    local_id = registry.get("local_device_id")
+    table = Table(title="Synced Devices", show_header=True, box=None, padding=(0, 1))
+    table.add_column("local")
+    table.add_column("name")
+    table.add_column("system")
+    table.add_column("backend command")
+    table.add_column("backend args")
+    table.add_column("updated", justify="right")
+    for device_id, device in sorted(devices.items(), key=lambda item: str(item[1].get("name", item[0]))):
+        backend = device.get("backend") or {}
+        platform_info = device.get("platform") or {}
+        args = backend.get("args") or []
+        table.add_row(
+            "yes" if device_id == local_id else "",
+            str(device.get("name") or device_id[:12]),
+            str(platform_info.get("system") or ""),
+            str(backend.get("command") or ""),
+            " ".join(str(arg) for arg in args),
+            str(device.get("updated_at") or ""),
+        )
+    console.print(table)
 
 
 
@@ -2864,7 +3089,7 @@ def sources_retry_cmd(
     if add_rows:
         console.print()
         console.print(f"[dim]  Phase: re-generating L1 Contexts for {len(add_rows)} source(s)…[/dim]")
-        client = _start_client(config)
+        client = None if _instant_l1_enabled(config) else _start_client(config)
         try:
             for row in add_rows:
                 with db.connect(paths.state_db) as conn:
@@ -2891,7 +3116,8 @@ def sources_retry_cmd(
                 else:
                     _warn(f"  Still failed: {row['relpath']}")
         finally:
-            client.close()
+            if client is not None:
+                client.close()
 
     # ── Re-add L1-L3 (parse_error / llm_error) ──────────────────────────────
     if curate_rows:
@@ -3294,6 +3520,16 @@ def sync(
         "--no-interactive",
         help="Run contradiction detection but only report — do not prompt for resolution.",
     ),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Run the full structural + LLM verification path instead of the v0.2.1 incremental fast path.",
+    ),
+    backward: bool = typer.Option(
+        False,
+        "--backward",
+        help="Run the legacy backward verification/repair path explicitly.",
+    ),
 ) -> None:
     """Run deductive verification and rebuild routing tables.
 
@@ -3333,6 +3569,21 @@ def sync(
     config = cfg.load_config(paths)
     console.print()
     console.rule("[bold cyan]Sync — Deductive Verification[/bold cyan]")
+
+    if not any([node_id, dry_run, no_fix, deep, no_deep, no_interactive, full, backward]):
+        result = sync_module.run_incremental_sync(paths, client=None, config=config)
+        changed_count = len(result.get("changed_nodes", []))
+        affected_count = len(result.get("affected_nodes", []))
+        if changed_count:
+            console.print(
+                f"[dim]Incremental sync: {changed_count} changed node(s), "
+                f"{affected_count} downstream node(s) affected.[/dim]"
+            )
+            _hint("Run [bold]wiki sync --full[/bold] for LLM logical verification.")
+        else:
+            console.print("[dim]Incremental sync: no body-hash changes detected.[/dim]")
+        _ok("Routing tables rebuilt (incremental).")
+        return
  
     # 0. Change detection (Manual changes)
     change_report = sync_module.scan_for_changes(paths)
@@ -4413,12 +4664,12 @@ def models_list(
         # Check if we can guess the primary from cloud_provider
         cp = llm_cfg.get("cloud_provider", "gemini")
         if cp == "gemini":
-            primary = "gemini-cli"
+            primary = "antigravity-cli"
         elif cp == "claude":
             primary = "claude-code"
 
     # 1. Show Primary Backend models
-    if primary in ("claude-code", "gemini-cli", "cloud", "gemini", "claude", "openai"):
+    if primary in ("claude-code", "antigravity-cli", "gemini-cli", "cloud", "gemini", "claude", "openai"):
         cp = _get_cloud_provider_from_primary(primary, llm_cfg)
         if cp:
             any_found = _show_cloud_models(cp, llm_cfg, active_only=active_only)
@@ -4446,8 +4697,8 @@ def models_list(
                 console.print(f"  Primary Backend: [cyan]{primary_raw or '(not set)'}[/cyan]")
                 if primary == "ollama" or not primary:
                     console.print(f"  Ollama Model:    [cyan]{llm_cfg.get('model', '(default: qwen2.5:7b)')}[/cyan]")
-                if primary in ("claude-code", "gemini-cli") or not primary:
-                    key = _PROVIDER_PRIMARY_CFG_KEY.get(primary) or "gemini_flash_model"
+                if primary in ("claude-code", "antigravity-cli", "gemini-cli") or not primary:
+                    key = _PROVIDER_PRIMARY_CFG_KEY.get(primary) or "antigravity_flash_model"
                     console.print(f"  Active Model:    [cyan]{llm_cfg.get(key, '(default)')}[/cyan]")
         return
 
@@ -4455,7 +4706,7 @@ def models_list(
     console.print("\n[bold dim]--- Recommended Models (Global) ---[/bold dim]")
 
     # Cloud recommendations (excluding the current primary if it was already shown)
-    for cp in ("gemini-cli", "claude-code"):
+    for cp in ("antigravity-cli", "claude-code"):
         current_cp = _get_cloud_provider_from_primary(primary, llm_cfg) if primary else ""
         if cp != current_cp:
             _show_cloud_models(cp, llm_cfg)

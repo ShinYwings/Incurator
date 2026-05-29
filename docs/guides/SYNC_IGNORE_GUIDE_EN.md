@@ -10,8 +10,9 @@ When using Syncthing for real-time synchronization, you must exclude the followi
 
 ```text
 // Ignore internal Git repository (Most Important)
+.git
 .git/
-scripts/
+.gitmodules
 
 // OS and Tool-related temporary files
 .DS_Store
@@ -27,10 +28,73 @@ __pycache__/
 *.sqlite-*
 *.db-*
 
+// Ignore dependency folders to reduce Syncthing load
+node_modules/
+**/node_modules/
+
+// Incurator plugin: keep settings local when backend executable paths differ
+// sessions.json supports session-level merge-on-save in v0.2.1 and may sync
+.obsidian/plugins/incurator-obsidian-agent/data.json
+
+// Incurator backend: per-device index state
+// Vault files synchronize through Syncthing; indexes should be rebuilt per device
+.curator/state.sqlite
+.curator/qmd/index.sqlite
+
 // Agent & Testbed (Optional)
 .claude/
 testbed/
 ```
+
+> **Note**: `sessions.json` may be synchronized in v0.2.1 because the plugin merges by session id before saving and records delete tombstones in `deletedSessionIds`. Keep `data.json` local if settings contain per-device paths such as MCP commands, backend executable paths, or Zotero paths.
+
+### Obsidian Plugin Deployment Across macOS/Linux
+
+The Incurator Obsidian plugin is deployed into the active vault as `.obsidian/plugins/incurator-obsidian-agent/main.js`, `manifest.json`, and `styles.css`. If Syncthing does not ignore the whole `.obsidian/plugins/incurator-obsidian-agent/` folder, deploying from Linux with `plugin/deploy.sh` will synchronize those built files to macOS.
+
+Keep per-device files such as `data.json` ignored when backend paths differ. Settings that contain absolute paths, such as MCP command paths, may differ between Linux and macOS and should be configured on each device.
+
+If Incurator is not installed globally on macOS, set `Incurator MCP command` and
+`Incurator MCP args` in the Obsidian plugin settings to a macOS-specific
+launcher. See the session sync section in `PLUGIN_GUIDE_EN.md` for a `uv`
+example.
+
+### Syncthing Device Registry
+
+On startup, the Obsidian plugin reads the local Syncthing `config.xml` and
+records the devices that share the current vault in `.curator/devices.json`.
+Syncthing knows device ids, device names, folder ids, folder labels, and the
+current machine's folder path.
+
+Backend executable paths are not Syncthing data, so Incurator records them as
+per-device entries.
+
+Normal use does not require a command. Syncthing synchronizes the plugin build
+outputs, and each device refreshes the registry when the Obsidian plugin loads.
+The CLI commands below are only for repair or terminal inspection.
+
+```bash
+wiki devices sync
+wiki devices status
+```
+
+If macOS does not have `wiki` installed globally and must launch the repository
+backend through `uv`:
+
+```bash
+wiki devices sync \
+  --backend-command /opt/homebrew/bin/uv \
+  --backend-args '["--directory", "/Users/<you>/Workspace/Incurator/backend", "run", "wiki", "mcp"]'
+```
+
+To deploy directly on macOS, pass the macOS vault plugin path to the same script.
+
+```bash
+cd /path/to/Incurator/plugin
+OBSIDIAN_PLUGIN_DIR=/Users/<you>/path/to/second_brain/.obsidian/plugins/incurator-obsidian-agent ./deploy.sh
+```
+
+After Syncthing receives the built files, or after deploying directly on macOS, reload the Incurator plugin in Obsidian or restart Obsidian.
 
 ---
 

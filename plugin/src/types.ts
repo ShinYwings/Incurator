@@ -1,3 +1,28 @@
+
+export interface ZoteroImportProfile {
+  name: string;
+  templatePath: string;
+  outputFolder: string;
+  outputSubfolder: string;
+  outputFilename: string;
+  assetFolder: string;
+  assetSubfolder: string;
+  bibliographyStyle: string;
+  /** @deprecated use assetFolder + assetSubfolder */
+  imageFolder?: string;
+}
+
+export interface FileScrollPosition {
+  scroll: number;
+  line: number;
+  ch: number;
+  updatedAt?: number;
+}
+
+export interface LastMarkdownScrollPosition extends FileScrollPosition {
+  path: string;
+}
+
 // ─── LLM Provider ───────────────────────────────────────────────
 export type LLMProvider = "antigravity" | "claude" | "openai";
 export type ChatMode = "chat" | "plan";
@@ -16,19 +41,24 @@ export interface ProviderUsage {
 export interface ModelOption {
   id: string;
   label: string;
-  tier: "stable" | "preview" | "legacy";
+  tier: "flash" | "think" | "stable" | "preview" | "legacy";
   supportsVision: boolean;
+  contextWindow?: number;
 }
+
+export type ModelCatalogue = Partial<Record<LLMProvider, ModelOption[]>>;
 
 // ─── Session Data (device-local, stored in sessions.json) ───────
 export interface SessionData {
   chatSessions: ChatSession[];
   activeChatSessionId?: string;
+  deletedSessionIds?: string[];
 }
 
 export const DEFAULT_SESSION_DATA: SessionData = {
   chatSessions: [],
   activeChatSessionId: undefined,
+  deletedSessionIds: [],
 };
 
 // ─── Plugin Settings ────────────────────────────────────────────
@@ -60,15 +90,22 @@ export interface PluginSettings {
   pdfVisionFallback: boolean;
   pdfFullDocumentIndex: boolean;
   incuratorEnabled: boolean;
+  incuratorMcpCommand: string;
+  incuratorMcpArgs: string[];
   incuratorDefaultDestination: string;
   incuratorDefaultImportMode: "copy" | "reference";
   incuratorStatusPolling: boolean;
-  fileScrollPositions?: Record<string, { scroll: number; line: number; ch: number }>;
+  zoteroBasePath: string;
+  zoteroProfiles: ZoteroImportProfile[];
+  lastMarkdownScrollPosition?: LastMarkdownScrollPosition;
+  fileScrollPositions?: Record<string, FileScrollPosition>;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
+  zoteroBasePath: "~/Zotero",
+  zoteroProfiles: [],
   provider: "antigravity",
-  model: "gemini-3.5-flash",
+  model: "",
   chatMode: "chat",
   codexReasoningEffort: "medium",
   claudeEffort: "medium",
@@ -108,156 +145,42 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   pdfVisionFallback: true,
   pdfFullDocumentIndex: true,
   incuratorEnabled: true,
+  incuratorMcpCommand: "wiki",
+  incuratorMcpArgs: ["mcp"],
   incuratorDefaultDestination: "04_Resources",
   incuratorDefaultImportMode: "reference",
   incuratorStatusPolling: true,
   fileScrollPositions: {},
 };
 
-export const DEFAULT_MODELS: Record<LLMProvider, string> = {
-  antigravity: "gemini-3.5-flash",
-  claude: "claude-sonnet-4-5-20250929",
-  openai: "gpt-5.5",
-};
-
-export const MODEL_OPTIONS: Record<LLMProvider, ModelOption[]> = {
-  antigravity: [
-    // ── Stable (Antigravity 3.x GA) ───────────────────────────────
-    {
-      id: "gemini-3.5-flash",
-      label: "Antigravity 3.5 Flash",
-      tier: "stable",
-      supportsVision: true,
-    },
-    {
-      id: "gemini-3.1-pro",
-      label: "Antigravity 3.1 Pro",
-      tier: "stable",
-      supportsVision: true,
-    },
-    {
-      id: "gemini-3-flash",
-      label: "Antigravity 3 Flash",
-      tier: "stable",
-      supportsVision: true,
-    },
-    // ── Preview ─────────────────────────────────────────────────
-    {
-      id: "gemini-3.1-pro-preview",
-      label: "Antigravity 3.1 Pro Preview",
-      tier: "preview",
-      supportsVision: true,
-    },
-    {
-      id: "gemini-3.1-flash-lite-preview",
-      label: "Antigravity 3.1 Flash Lite Preview",
-      tier: "preview",
-      supportsVision: true,
-    },
-    // ── Legacy ───────────────────────────────────────────────────
-    {
-      id: "gemini-2.5-pro",
-      label: "Antigravity 2.5 Pro (Legacy)",
-      tier: "legacy",
-      supportsVision: true,
-    },
-    {
-      id: "gemini-2.5-flash",
-      label: "Antigravity 2.5 Flash (Legacy)",
-      tier: "legacy",
-      supportsVision: true,
-    },
-    {
-      id: "gemma-4-31b-it",
-      label: "Gemma 4 31B IT",
-      tier: "stable",
-      supportsVision: false,
-    },
-    {
-      id: "gemma-4-26b-a4b-it",
-      label: "Gemma 4 26B A4B IT",
-      tier: "stable",
-      supportsVision: false,
-    },
-  ],
-  claude: [
-    {
-      id: "claude-sonnet-4-5-20250929",
-      label: "Claude Sonnet 4.5",
-      tier: "stable",
-      supportsVision: true,
-    },
-    {
-      id: "claude-opus-4-1-20250805",
-      label: "Claude Opus 4.1",
-      tier: "stable",
-      supportsVision: true,
-    },
-    {
-      id: "claude-haiku-4-5-20251001",
-      label: "Claude Haiku 4.5",
-      tier: "stable",
-      supportsVision: true,
-    },
-    {
-      id: "claude-sonnet-4-20250514",
-      label: "Claude Sonnet 4",
-      tier: "legacy",
-      supportsVision: true,
-    },
-    {
-      id: "claude-3-7-sonnet-20250219",
-      label: "Claude Sonnet 3.7",
-      tier: "legacy",
-      supportsVision: true,
-    },
-  ],
-  openai: [
-    {
-      id: "gpt-5.5",
-      label: "GPT-5.5",
-      tier: "stable",
-      supportsVision: true,
-    },
-    {
-      id: "gpt-5.4",
-      label: "GPT-5.4",
-      tier: "stable",
-      supportsVision: true,
-    },
-    {
-      id: "gpt-5.4-mini",
-      label: "GPT-5.4 Mini",
-      tier: "stable",
-      supportsVision: true,
-    },
-    {
-      id: "gpt-5.3-codex",
-      label: "GPT-5.3 Codex",
-      tier: "stable",
-      supportsVision: true,
-    },
-    {
-      id: "gpt-5.2",
-      label: "GPT-5.2",
-      tier: "stable",
-      supportsVision: true,
-    },
-  ],
-};
-
 export function getModelOption(
+  catalogue: ModelCatalogue,
   provider: LLMProvider,
   model: string
 ): ModelOption | undefined {
-  return MODEL_OPTIONS[provider].find((option) => option.id === model);
+  return catalogue[provider]?.find((option) => option.id === model);
+}
+
+export function getDefaultModel(
+  catalogue: ModelCatalogue,
+  provider: LLMProvider
+): string {
+  const options = catalogue[provider] || [];
+  return (
+    options.find((option) => option.tier === "flash")?.id ||
+    options.find((option) => option.tier === "stable")?.id ||
+    options[0]?.id ||
+    ""
+  );
 }
 
 export function modelSupportsVision(
+  catalogue: ModelCatalogue,
   provider: LLMProvider,
   model: string
 ): boolean {
-  return getModelOption(provider, model)?.supportsVision === true;
+  const option = getModelOption(catalogue, provider, model);
+  return option ? option.supportsVision === true : true;
 }
 
 // ─── Chat Messages ──────────────────────────────────────────────
@@ -271,6 +194,7 @@ export interface ContextRef {
   sourceViewType?: string;
   /** Base64-encoded image for PDF page captures */
   imageBase64?: string;
+  fileHash?: string;
   backendStatus?: IncuratorSourceStatus;
   windowPages?: PdfWindowPage[];
   outline?: PdfOutlineItem[];
@@ -348,11 +272,13 @@ export interface PdfPageContext {
   documentId?: string;
   documentName?: string;
   filePath?: string;
+  fileHash?: string;
 }
 
 export type IncuratorSourceState =
   | "unknown"
   | "untracked"
+  | "l1_ready"
   | "queued"
   | "running"
   | "indexed"
@@ -403,6 +329,18 @@ export interface ActiveContext {
   openTabs?: OpenTabContext[];
 }
 
+export interface ExternalPdfState {
+  docId: string;
+  name: string;
+  path?: string;
+  zoom: number;
+  darkMode: boolean;
+  tocOpen: boolean;
+  currentPage: number;
+  zoteroAttachmentKey?: string;
+  targetAnnotationKey?: string;
+}
+
 export interface OpenTabContext {
   label: string;
   viewType: string;
@@ -411,6 +349,35 @@ export interface OpenTabContext {
   content?: string;
   selectedText?: string;
   pdfPage?: PdfPageContext;
+}
+
+// ─── Curator Query (v0.2.1) ─────────────────────────────────────
+export interface CuratorQueryTrace {
+  matched_concepts: string[];
+  source_ids: number[];
+  source_paths: string[];
+  section_ids?: string[];
+  latency_ms: number;
+  l3_complete: boolean;
+}
+
+export interface CuratorQueryResult {
+  ok: boolean;
+  answer?: string;
+  exhibition_id?: string;
+  cache_hit?: boolean;
+  fallback?: string;
+  fallback_hits?: Array<{ path?: string; title?: string; score?: number; snippet?: string }>;
+  question: string;
+  trace?: CuratorQueryTrace;
+  error?: string;
+}
+
+export interface PromoteExhibitionResult {
+  ok: boolean;
+  exhibition_id?: string;
+  promoted_to?: string;
+  error?: string;
 }
 
 // ─── MCP Protocol Types ─────────────────────────────────────────

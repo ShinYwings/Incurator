@@ -538,6 +538,434 @@ def _prepare_atom_candidates(candidates: list[dict]) -> list[dict]:
     return _dedupe_atom_candidates(candidates)
 
 
+def _section_id(index: int) -> str:
+    return f"s{index}"
+
+
+def _clean_section_title(title: str, fallback: str) -> str:
+    title = re.sub(r"\s+", " ", title or "").strip()
+    return title[:120] or fallback
+
+
+def _extract_markdown_sections(text: str, *, default_title: str) -> list[dict]:
+    """Split text into structural sections without using an LLM."""
+    matches = list(re.finditer(r"(?m)^(#{1,6})\s+(.+?)\s*$", text or ""))
+    if not matches:
+        return [
+            {
+                "id": _section_id(1),
+                "level": 2,
+                "title": _clean_section_title(default_title, "Document"),
+                "page": 1,
+                "text": (text or "").strip(),
+            }
+        ]
+
+    sections: list[dict] = []
+    for idx, match in enumerate(matches, 1):
+        next_start = matches[idx].start() if idx < len(matches) else len(text)
+        heading = _clean_section_title(match.group(2), f"Section {idx}")
+        body = text[match.end() : next_start].strip()
+        sections.append(
+            {
+                "id": _section_id(idx),
+                "level": min(len(match.group(1)), 6),
+                "title": heading,
+                "page": 1,
+                "text": body,
+            }
+        )
+    return sections
+
+
+# Patterns that identify heading-like lines in raw PDF text
+_NUMBERED_HEADING = re.compile(
+    r"^(\d+\.)+\s+[A-Z]",          # "1. Introduction", "2.1 Methods"
+)
+_ALLCAPS_HEADING = re.compile(
+    r"^[A-Z][A-Z\s\-/]{2,49}$",    # "INTRODUCTION", "METHODS AND RESULTS"
+)
+_KNOWN_SECTION_NAMES = frozenset({
+    "abstract", "introduction", "background", "related work",
+    "motivation", "methodology", "methods", "method", "approach",
+    "experiment", "experiments", "evaluation", "results",
+    "discussion", "conclusion", "conclusions", "future work",
+    "acknowledgment", "acknowledgments", "acknowledgements",
+    "references", "bibliography", "appendix",
+})
+
+
+def _looks_like_heading(line: str) -> tuple[bool, int]:
+    """Return (is_heading, level). Level 1 for top-level, 2 for sub."""
+    stripped = line.strip()
+    if not stripped or len(stripped) > 80:
+        return False, 0
+    if _NUMBERED_HEADING.match(stripped):
+        depth = stripped.split()[0].count(".")
+        return True, max(1, depth)
+    if _ALLCAPS_HEADING.match(stripped) and not stripped[0].isdigit():
+        return True, 1
+    lower = stripped.lower().rstrip(".:")
+    if lower in _KNOWN_SECTION_NAMES and len(stripped) <= 40:
+        return True, 1
+    return False, 0
+
+
+def _infer_sections_from_layout(pages: list[dict]) -> list[dict]:
+    """Detect heading-like lines across page text and group content into sections.
+
+    Returns [] if fewer than 2 headings are found (caller falls back to page-by-page).
+    """
+    # Collect (page_no, line_idx, heading_text, level) for each detected heading
+    heading_anchors: list[tuple[int, int, str, int]] = []
+    for page in pages:
+        page_no = int(page.get("page") or page.get("page_number") or 0)
+        if not page_no:
+            continue
+        text = str(page.get("text") or "")
+        lines = text.splitlines()
+        for li, line in enumerate(lines):
+            is_h, level = _looks_like_heading(line)
+            if is_h:
+                heading_anchors.append((page_no, li, line.strip(), level))
+
+    if len(heading_anchors) < 2:
+        return []
+
+    # Build sections: each heading spans from its page to the next heading's page
+    page_text_by_no = {
+        int(p.get("page") or p.get("page_number") or 0): str(p.get("text") or "").strip()
+        for p in pages
+        if int(p.get("page") or p.get("page_number") or 0) > 0
+    }
+    sorted_page_nos = sorted(page_text_by_no)
+
+    sections: list[dict] = []
+    for anchor_idx, (start_page, _li, heading, level) in enumerate(heading_anchors):
+        next_start = heading_anchors[anchor_idx + 1][0] if anchor_idx + 1 < len(heading_anchors) else None
+        section_pages = [
+            pn for pn in sorted_page_nos
+            if pn >= start_page and (next_start is None or pn < next_start)
+        ]
+        text = "\n\n".join(page_text_by_no[pn] for pn in section_pages).strip()
+        sections.append({
+            "id": _section_id(len(sections) + 1),
+            "level": level,
+            "title": _clean_section_title(heading, f"Section {len(sections) + 1}"),
+            "page": start_page,
+            "text": text,
+        })
+
+    return sections
+
+
+def _extract_pdf_sections(parsed) -> list[dict]:
+    pages = parsed.metadata.get("pdf_pages") or []
+    toc = parsed.metadata.get("pdf_toc") or []
+    if isinstance(pages, list) and isinstance(toc, list) and toc:
+        page_text_by_number = {
+            int(p.get("page") or p.get("page_number") or 0): str(p.get("text") or "").strip()
+            for p in pages
+            if int(p.get("page") or p.get("page_number") or 0) > 0
+        }
+        sorted_pages = sorted(page_text_by_number)
+        sections: list[dict] = []
+        for idx, item in enumerate(toc, 1):
+            try:
+                level = int(item.get("level") or 1)
+                start_page = int(item.get("page") or 1)
+            except (AttributeError, TypeError, ValueError):
+                continue
+            next_page = None
+            for next_item in toc[idx:]:
+                try:
+                    candidate_page = int(next_item.get("page") or 0)
+                except (AttributeError, TypeError, ValueError):
+                    continue
+                if candidate_page > start_page:
+                    next_page = candidate_page
+                    break
+            section_pages = [
+                page_no
+                for page_no in sorted_pages
+                if page_no >= start_page and (next_page is None or page_no < next_page)
+            ]
+            text = "\n\n".join(page_text_by_number[p] for p in section_pages).strip()
+            sections.append(
+                {
+                    "id": _section_id(len(sections) + 1),
+                    "level": max(1, min(level, 6)),
+                    "title": _clean_section_title(str(item.get("title") or ""), f"Section {idx}"),
+                    "page": start_page,
+                    "text": text,
+                }
+            )
+        if sections:
+            return sections
+
+    if isinstance(pages, list) and pages:
+        # Try to infer logical sections from text layout before falling back to page-by-page.
+        inferred = _infer_sections_from_layout(pages)
+        if inferred:
+            return inferred
+
+        # Page-by-page fallback when no layout headings detected
+        sections = []
+        for page in pages:
+            page_no = int(page.get("page") or page.get("page_number") or len(sections) + 1)
+            text = str(page.get("text") or "").strip()
+            if not text:
+                continue
+            sections.append(
+                {
+                    "id": _section_id(len(sections) + 1),
+                    "level": 2,
+                    "title": f"Page {page_no}",
+                    "page": page_no,
+                    "text": text,
+                }
+            )
+        if sections:
+            return sections
+
+    return _extract_markdown_sections(parsed.text, default_title=parsed.title)
+
+
+def _extract_structural_sections(parsed) -> list[dict]:
+    if parsed.file_type == "pdf":
+        return _extract_pdf_sections(parsed)
+    return _extract_markdown_sections(parsed.text, default_title=parsed.title)
+
+
+def _structural_atom_candidates(sections: list[dict], title: str) -> list[dict]:
+    candidates: list[dict] = []
+    for section in sections[:24]:
+        section_title = _clean_section_title(str(section.get("title") or ""), title)
+        page = int(section.get("page") or 1)
+        candidates.append(
+            {
+                "name": section_title,
+                "type": "fact",
+                "one_liner": (
+                    "Extract the atomic claims, methods, entities, and constraints "
+                    f"from section '{section_title}' starting on page {page}."
+                ),
+            }
+        )
+    if candidates:
+        return candidates
+    return [
+        {
+            "name": _clean_section_title(title, "Document"),
+            "type": "fact",
+            "one_liner": "Extract the atomic claims, methods, entities, and constraints from this source.",
+        }
+    ]
+
+
+def _save_pdf_images(parsed, relpath: str, paths: cfg.WikiPaths) -> list[dict]:
+    """Save embedded PDF images to 05_Assets/<slug>/ and return obsidian metadata.
+
+    Images smaller than 1 KB are skipped (icons, decorators).
+    Returns [] when parsed is not a PDF or has no images. Silently ignores errors.
+    """
+    if parsed.file_type != "pdf":
+        return []
+    pdf_images: list[dict] = parsed.metadata.get("pdf_images", [])
+    if not pdf_images:
+        return []
+
+    slug = re.sub(r"[^\w\-]", "_", Path(relpath).stem)[:40].strip("_") or "source"
+    assets_dir = paths.root / "05_Assets" / slug
+    saved: list[dict] = []
+    try:
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        idx_per_page: dict[int, int] = {}
+        for img in pdf_images:
+            page = int(img.get("page", 1))
+            idx_per_page[page] = idx_per_page.get(page, 0) + 1
+            idx = idx_per_page[page]
+            ext = str(img.get("ext", "png"))
+            filename = f"p{page:02d}_img{idx:02d}.{ext}"
+            dest = assets_dir / filename
+            dest.write_bytes(img["data"])
+            saved.append({"obsidian_path": f"05_Assets/{slug}/{filename}", "page": page})
+    except Exception:
+        pass
+    return saved
+
+
+def _build_structural_context_page(
+    *,
+    context_id: str,
+    parsed,
+    relpath: str,
+    content_hash: str,
+    today: str,
+    saved_images: list[dict] | None = None,
+) -> str:
+    import yaml
+
+    sections = _extract_structural_sections(parsed)
+    candidates = _structural_atom_candidates(sections, parsed.title)
+    compact_pages: list[dict] = []
+    pdf_pages = parsed.metadata.get("pdf_pages") or []
+    if parsed.file_type == "pdf" and isinstance(pdf_pages, list):
+        compact_pages = [
+            {
+                "page": int(p.get("page") or 0),
+                "hash": str(p.get("content_hash") or "")[:16],
+                "chars": int(p.get("char_count") or 0),
+                "words": int(p.get("word_count") or 0),
+            }
+            for p in pdf_pages
+            if int(p.get("page") or 0) > 0
+        ]
+
+    frontmatter: dict = {
+        "id": context_id,
+        "type": "context",
+        "source_path": f"[[{relpath.removesuffix('.md')}]]",
+        "source_hash": content_hash,
+        "content_hash": hashlib.sha256((parsed.text or "").encode("utf-8")).hexdigest()[:16],
+        "domain": "general",
+        "last_updated": today,
+        "tags": [parsed.file_type, "instant-l1"],
+        "toc": [
+            {
+                "id": str(section.get("id") or _section_id(idx)),
+                "level": int(section.get("level") or 2),
+                "title": str(section.get("title") or f"Section {idx}"),
+                "page": int(section.get("page") or 1),
+            }
+            for idx, section in enumerate(sections, 1)
+        ],
+    }
+    if compact_pages:
+        frontmatter["source_page_count"] = len(compact_pages)
+        frontmatter["source_pages"] = compact_pages
+    if saved_images:
+        frontmatter["embedded_images"] = [
+            {"obsidian_path": img["obsidian_path"], "page": img["page"]}
+            for img in saved_images
+        ]
+
+    key_claims_text = "- Pending L2 extraction from structural source sections."
+    candidates_text = "\n".join(
+        f"- [{candidate['type']}] {candidate['name']}: {candidate['one_liner']}"
+        for candidate in candidates
+    )
+    page_provenance = ""
+    if compact_pages:
+        page_provenance = (
+            "\n\n## Source Page Provenance\n\n"
+            + "\n".join(
+                f"- p. {p['page']}: {p['words']} words, hash `{p['hash']}`"
+                for p in compact_pages
+            )
+            + "\n"
+        )
+
+    source_sections = []
+    for idx, section in enumerate(sections, 1):
+        level = max(2, min(int(section.get("level") or 2), 6))
+        source_sections.append(
+            "\n".join(
+                [
+                    f"<!-- section:{section.get('id') or _section_id(idx)} page:{int(section.get('page') or 1)} -->",
+                    f"{'#' * level} {section.get('title') or f'Section {idx}'}",
+                    "",
+                    str(section.get("text") or "").strip(),
+                ]
+            ).strip()
+        )
+
+    fm = yaml.safe_dump(
+        frontmatter,
+        sort_keys=False,
+        default_flow_style=False,
+        allow_unicode=True,
+    ).strip()
+    source_sections_text = "\n\n".join(source_sections)
+    figures_section = ""
+    if saved_images:
+        figures_section = "\n\n## Embedded Figures\n\n" + "\n\n".join(
+            f"![[{img['obsidian_path']}]]\n*Figure (p.{img['page']})*"
+            for img in saved_images
+        )
+    return (
+        f"---\n{fm}\n---\n\n"
+        "## Summary\n\n"
+        f"Instant structural L1 for **{parsed.title}**. The full source text is preserved "
+        "below with stable section markers; L2/L3 extraction runs asynchronously.\n\n"
+        "## 1. Key Claims\n\n"
+        f"{key_claims_text}\n"
+        f"{page_provenance}"
+        "\n## 2. Atom Candidates\n\n"
+        f"{candidates_text}\n\n"
+        "## Source Sections\n\n"
+        f"{source_sections_text}"
+        f"{figures_section}\n"
+    )
+
+
+def generate_l1_structural_context(
+    paths: cfg.WikiPaths,
+    source_id: int,
+    relpath: str,
+    content_hash: str,
+    *,
+    existing_context_id: str | None = None,
+) -> str | None:
+    """Create an L1 Context from parser structure only."""
+    file_path = paths.root / relpath
+    if not file_path.exists():
+        print(f"  [Error] File does not exist at: {file_path}")
+        return None
+
+    try:
+        parsed = parsers.parse(file_path)
+    except Exception as e:
+        print(f"  [Error] Parsing file failed for {relpath}: {e}")
+        db.set_source_layer_status(paths.state_db, source_id, "l1", "error", error=str(e))
+        return None
+
+    context_id = existing_context_id or _generate_id("CTX")
+    saved_images = _save_pdf_images(parsed, relpath, paths)
+    page_content = _build_structural_context_page(
+        context_id=context_id,
+        parsed=parsed,
+        relpath=relpath,
+        content_hash=content_hash,
+        today=_now_iso(),
+        saved_images=saved_images or None,
+    )
+
+    paths.contexts.mkdir(parents=True, exist_ok=True)
+    context_path = paths.contexts / f"{context_id}.md"
+    operation = "updated" if context_path.exists() else "created"
+    context_path.write_text(page_content, encoding="utf-8")
+
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE sources SET context_id = ? WHERE id = ?",
+            (context_id, source_id),
+        )
+        conn.execute(
+            "UPDATE sources SET l1_status = 'done', layer_error = NULL WHERE id = ?",
+            (source_id,),
+        )
+
+    _record_pdf_pages_for_parsed(paths, source_id, relpath, parsed)
+    db.record_source_page(
+        paths.state_db,
+        source_id,
+        f"01_Contexts/{context_id}.md",
+        operation,
+    )
+    return context_id
+
+
 def _build_vision_client(config: dict, main_client):
     """Return a vision-capable OllamaClient for image inference.
 
@@ -577,6 +1005,15 @@ def generate_l1_summary(
     The page is written to `.curator/Collections/01_Contexts/<CTX-UUID>.md`.
     """
     from . import prompts
+
+    if (config or {}).get("llm", {}).get("instant_l1", True):
+        return generate_l1_structural_context(
+            paths,
+            source_id,
+            relpath,
+            content_hash,
+            existing_context_id=existing_context_id,
+        )
 
     file_path = paths.root / relpath
     if not file_path.exists():
@@ -755,6 +1192,18 @@ def generate_l1_summary(
                 + "\n"
             )
 
+    saved_images = _save_pdf_images(parsed, relpath, paths)
+    embedded_images_fm = ""
+    figures_body = ""
+    if saved_images:
+        embedded_images_fm = (
+            f"embedded_images: {json.dumps([{'obsidian_path': i['obsidian_path'], 'page': i['page']} for i in saved_images], ensure_ascii=False)}\n"
+        )
+        figures_body = "\n\n## Embedded Figures\n\n" + "\n\n".join(
+            f"![[{img['obsidian_path']}]]\n*Figure (p.{img['page']})*"
+            for img in saved_images
+        )
+
     page_content = (
         f"---\n"
         f"id: {context_id}\n"
@@ -762,6 +1211,7 @@ def generate_l1_summary(
         f"source_path: \"[[{relpath.removesuffix('.md')}]]\"\n"
         f"source_hash: {content_hash}\n"
         f"{source_pages_fm}"
+        f"{embedded_images_fm}"
         f"domain: \"{domain or 'general'}\"\n"
         f"last_updated: {today}\n"
         f"tags: {json.dumps(unique_tags)}\n"
@@ -772,7 +1222,8 @@ def generate_l1_summary(
         f"{key_claims_text}\n\n"
         f"{source_pages_body}"
         f"## 2. Atom Candidates\n\n"
-        f"{candidates_text}\n"
+        f"{candidates_text}"
+        f"{figures_body}\n"
     )
 
     # Write the L1 context page
