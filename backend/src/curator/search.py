@@ -94,6 +94,7 @@ class QmdNotInstalled(SearchBackendError):
 # `<repo>/backend/src`, and the bundled binary is
 # `<repo>/backend/src/qmd/bin/qmd`.
 _BUNDLED_QMD = Path(__file__).resolve().parent.parent / "qmd" / "bin" / "qmd"
+_BUNDLED_QMD_DIST = Path(__file__).resolve().parent.parent / "qmd" / "dist" / "cli" / "qmd.js"
 
 
 def get_qmd_binary() -> Path | None:
@@ -103,7 +104,10 @@ def get_qmd_binary() -> Path | None:
         p = Path(override).expanduser()
         if p.exists() and os.access(p, os.X_OK):
             return p
-    if _BUNDLED_QMD.exists() and os.access(_BUNDLED_QMD, os.X_OK):
+    # Only use the bundled binary if dist/ has been built; otherwise fall
+    # through to the globally-installed qmd (npm install -g @tobilu/qmd).
+    if (_BUNDLED_QMD.exists() and os.access(_BUNDLED_QMD, os.X_OK)
+            and _BUNDLED_QMD_DIST.exists()):
         return _BUNDLED_QMD
     import shutil
     on_path = shutil.which("qmd")
@@ -146,8 +150,7 @@ def _require_binary() -> Path:
     bin_path = get_qmd_binary()
     if bin_path is None:
         raise QmdNotInstalled(
-            "qmd not found. Build the bundled copy with "
-            "`cd backend/src/qmd && bun install && bun run build`, "
+            "qmd not found. Install with `npm install -g @tobilu/qmd`, "
             "or set WIKI_QMD_BIN to a qmd binary."
         )
     return bin_path

@@ -1,4 +1,4 @@
-"""Hatchling build hook: auto-install Ollama and Node.js after pip install."""
+"""Hatchling build hook: auto-install Ollama and qmd after pip install."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ except ImportError:
 
 
 def _repo_root(root: str | Path | None = None) -> Path:
-    """Resolve the repository root for Hatch and direct script execution."""
     if root is not None:
         resolved = Path(root).resolve()
         if resolved.name == "backend":
@@ -25,21 +24,14 @@ def _repo_root(root: str | Path | None = None) -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def _qmd_dir(root: str | Path | None = None) -> Path:
-    repo = _repo_root(root)
-    candidate = repo / "backend" / "src" / "qmd"
-    if candidate.exists():
-        return candidate
-    return repo / "src" / "qmd"
-
-
 class CustomBuildHook(BuildHookInterface):
     PLUGIN_NAME = "custom"
 
     def initialize(self, version: str, build_data: dict) -> None:
         _install_ollama()
+        _install_sqlite_macos()
         _install_node()
-        _build_qmd(_qmd_dir(self.root))
+        _install_qmd()
 
 
 # ---------------------------------------------------------------------------
@@ -54,11 +46,9 @@ def _install_ollama() -> None:
     print("[incurator] Ollama not found - installing...", flush=True)
 
     if sys.platform.startswith("linux"):
-        print("[incurator] Downloading and running Ollama Linux installer... (This may take a minute)", flush=True)
         result = subprocess.run(
             "curl -fsSL https://ollama.com/install.sh | sh",
-            shell=True,
-            check=False,
+            shell=True, check=False,
         )
         if result.returncode == 0:
             print("[incurator] Ollama installed.", flush=True)
@@ -67,11 +57,9 @@ def _install_ollama() -> None:
 
     elif sys.platform == "darwin":
         if shutil.which("brew"):
-            print("[incurator] Running 'brew install ollama'...", flush=True)
-            print("[incurator] ⏳ Note: Homebrew might run 'brew update' first, which can take 5+ minutes and look frozen. Please wait...", flush=True)
             result = subprocess.run(["brew", "install", "ollama"], check=False)
             if result.returncode == 0:
-                print("[incurator] ✅ Ollama installed via Homebrew.", flush=True)
+                print("[incurator] Ollama installed via Homebrew.", flush=True)
             else:
                 print("[incurator] brew install failed. Download from: https://ollama.com/download", flush=True)
         else:
@@ -82,90 +70,110 @@ def _install_ollama() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Node.js / npm  (via NVM, installed into the user's home directory)
+# SQLite with extension support (macOS only — required by qmd for sqlite-vec)
 # ---------------------------------------------------------------------------
 
-def _get_nvm_npm() -> str | None:
-    nvm_dir = Path.home() / ".nvm"
-    node_base = nvm_dir / "versions" / "node"
+def _install_sqlite_macos() -> None:
+    if sys.platform != "darwin":
+        return
+    if not shutil.which("brew"):
+        print("[incurator] Homebrew not found - skipping sqlite install.", flush=True)
+        return
+    print("[incurator] Installing Homebrew SQLite (required for qmd on macOS)...", flush=True)
+    subprocess.run(["brew", "install", "sqlite"], check=False)
+
+
+# ---------------------------------------------------------------------------
+# Node.js >= 22 (required to run qmd)
+# ---------------------------------------------------------------------------
+
+def _node_version() -> tuple[int, int] | None:
+    """Return (major, minor) of the current node, or None if not found."""
+    node = shutil.which("node")
+    if not node:
+        node_bin = _get_nvm_node_bin()
+        if node_bin:
+            node = str(Path(node_bin) / "node")
+    if not node:
+        return None
+    try:
+        out = subprocess.run(
+            [node, "--version"], capture_output=True, text=True, timeout=5
+        ).stdout.strip().lstrip("v")
+        parts = out.split(".")
+        return int(parts[0]), int(parts[1])
+    except Exception:
+        return None
+
+
+def _get_nvm_node_bin() -> str | None:
+    node_base = Path.home() / ".nvm" / "versions" / "node"
     if node_base.exists():
         for d in sorted(node_base.iterdir(), reverse=True):
-            if d.is_dir() and (d / "bin" / "npm").exists():
-                return str(d / "bin" / "npm")
-
-    npm_on_path = shutil.which("npm")
-    if npm_on_path:
-        return npm_on_path
-
+            if d.is_dir() and (d / "bin" / "node").exists():
+                return str(d / "bin")
     return None
 
 
 def _install_node() -> None:
-    nvm_dir = Path.home() / ".nvm"
-    nvm_sh = nvm_dir / "nvm.sh"
+    ver = _node_version()
+    if ver and ver[0] >= 22:
+        bin_dir = _get_nvm_node_bin() or str(Path(shutil.which("node")).parent)
+        _prepend_path(bin_dir)
+        print(f"[incurator] Node.js v{ver[0]}.{ver[1]} already available.", flush=True)
+        return
 
+    nvm_sh = Path.home() / ".nvm" / "nvm.sh"
     if not nvm_sh.exists():
-        print("[incurator] NVM not found - downloading and installing NVM... (This may take a minute)", flush=True)
-        try:
-            subprocess.run(
-                "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash",
-                shell=True, check=False,
-            )
-        except Exception:
-            pass
+        print("[incurator] NVM not found - installing...", flush=True)
+        subprocess.run(
+            "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash",
+            shell=True, check=False,
+        )
 
-    npm = _get_nvm_npm()
-    if not npm:
-        print("[incurator] No Node installed via NVM - installing Node LTS...", flush=True)
-        print("[incurator] ⏳ Note: Downloading Node.js binaries can take a few minutes depending on your connection.", flush=True)
+    bin_dir = _get_nvm_node_bin()
+    if not bin_dir:
+        print("[incurator] Installing Node.js LTS via NVM...", flush=True)
         if nvm_sh.exists():
             subprocess.run(
                 f"bash -c 'source {nvm_sh} && nvm install --lts'",
                 shell=True, check=False,
             )
-        npm = _get_nvm_npm()
+        bin_dir = _get_nvm_node_bin()
 
-    if npm:
-        bin_dir = str(Path(npm).parent)
+    if bin_dir:
         _prepend_path(bin_dir)
-        print(f"[incurator] Node from NVM ready: {bin_dir}", flush=True)
+        print(f"[incurator] Node.js ready: {bin_dir}", flush=True)
     else:
-        print("[incurator] NVM setup failed. Install Node.js manually: https://nodejs.org", flush=True)
+        print("[incurator] Node.js setup failed. Install manually: https://nodejs.org", flush=True)
 
 
 # ---------------------------------------------------------------------------
-# qmd search engine  (bundled TypeScript - built with npm)
+# qmd — installed globally via npm (pre-built, no local source compilation)
+# The bundled source in backend/src/qmd/ is a snapshot kept for reference;
+# search.py falls back to the global PATH binary when dist/ is not built.
 # ---------------------------------------------------------------------------
 
-def _build_qmd(qmd_dir: Path) -> None:
-    dist_bin = qmd_dir / "dist" / "cli" / "qmd.js"
-    if dist_bin.exists():
-        print("[incurator] qmd search engine already built.", flush=True)
+def _install_qmd() -> None:
+    if shutil.which("qmd"):
+        print(f"[incurator] qmd already available: {shutil.which('qmd')}", flush=True)
         return
 
-    if not qmd_dir.exists():
-        print("[incurator] bundled qmd source not found - skipping qmd build.", flush=True)
-        return
-
-    npm = _get_nvm_npm()
+    npm = shutil.which("npm")
     if not npm:
-        print("[incurator] npm not available - skipping qmd build.", flush=True)
+        print("[incurator] npm not found - skipping qmd install.", flush=True)
         return
 
-    print(f"[incurator] Building qmd ({qmd_dir})...", flush=True)
-    print("[incurator] ⏳ Running 'npm install' for qmd (This may take 1-3 minutes)...", flush=True)
-
-    res = subprocess.run([npm, "install"], cwd=str(qmd_dir), check=False)
-    if res.returncode != 0:
-        print("[incurator] ❌ qmd: npm install failed.", flush=True)
-        return
-
-    print("[incurator] ⏳ Running 'npm run build' for qmd...", flush=True)
-    res = subprocess.run([npm, "run", "build"], cwd=str(qmd_dir), check=False)
+    print("[incurator] ⏳ Installing qmd globally via npm...", flush=True)
+    res = subprocess.run([npm, "install", "-g", "@tobilu/qmd"], check=False)
     if res.returncode == 0:
-        print("[incurator] ✅ qmd built successfully.", flush=True)
+        print("[incurator] ✅ qmd installed.", flush=True)
     else:
-        print("[incurator] qmd: npm run build failed.", flush=True)
+        print(
+            "[incurator] ❌ qmd install failed. "
+            "Try manually: npm install -g @tobilu/qmd",
+            flush=True,
+        )
 
 
 def _prepend_path(bin_dir: str) -> None:
@@ -176,5 +184,6 @@ def _prepend_path(bin_dir: str) -> None:
 
 if __name__ == "__main__":
     _install_ollama()
+    _install_sqlite_macos()
     _install_node()
-    _build_qmd(_qmd_dir())
+    _install_qmd()
