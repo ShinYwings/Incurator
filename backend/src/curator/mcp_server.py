@@ -5,8 +5,8 @@ Install:    wiki mcp install   # prints a config snippet for Claude / Gemini
 
 The server combines two responsibility layers:
 
-1. **Search delegation** — the `search` tool shells out to the bundled
-   `backend/src/qmd/bin/qmd` to leverage qmd's BM25 + vector + LLM-rerank pipeline.
+1. **Search delegation** — the `search` tool shells out to the globally installed
+   `qmd` binary to leverage qmd's BM25 + vector + LLM-rerank pipeline.
    No HTTP daemon required; qmd is invoked per-call and qmd's own model
    caching keeps latency low.
 

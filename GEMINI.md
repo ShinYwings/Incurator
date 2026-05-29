@@ -226,7 +226,7 @@ VAULT_ROOT=testbed wiki query "Summarize the core concepts in this vault."
 | `ingest_raw.py` | File discovery, hash-based dedup, parser dispatch, L1 Context generation |
 | `ingest_llm.py` | Three-phase DAG construction: Phase A (atoms), Phase B (concepts), Phase C (exhibitions) |
 | `sync.py` | DAG integrity verification; Mode A (global reverse L4→L1) and Mode B (targeted bidirectional) |
-| `search.py` | Wraps `backend/src/qmd/bin/qmd` binary (BM25 + vector + LLM rerank); builds Obsidian-compatible index |
+| `search.py` | Wraps the globally installed `qmd` binary (BM25 + vector + LLM rerank); builds Obsidian-compatible index |
 | `query.py` | Retrieval + LLM synthesis with citation management |
 | `llm.py` | Multi-provider clients: `OllamaClient`, `GeminiClient`, `ClaudeClient`, `OpenAIClient`, `FailoverClient` |
 | `config.py` | Vault topology, `.curator/config.yml` loading, path resolution |
@@ -320,7 +320,7 @@ update the matching `docs/spec/` contract:
 - **Pipeline is sequential, not parallel**: Phase B (clustering) must run after all Phase A (atom) outputs are complete, because concepts are cross-source constructs.
 - **`03_Notes/` and `06_Archives/` are immutable** from the curator's perspective. Contradictions must be escalated to the human (HITL), never auto-resolved by modifying original notes.
 - **`state.sqlite` is the source of truth** for deduplication and provenance — do not bypass `db.py` functions to write pages directly.
-- **QMD binary** (`backend/src/qmd/bin/`) is a bundled native binary installed via `scripts/hatch_build.py`, not a Python package. `wiki reindex` must be run after bulk changes before `wiki query` will see new content.
+- **QMD binary** is a globally installed NPM package (via `scripts/hatch_build.py` running `npm install -g @tobilu/qmd`), not a Python package. `wiki reindex` must be run after bulk changes before `wiki query` will see new content.
 - **LLM backend selection** happens at CLI startup in `cli.py`; downstream code receives a pre-constructed `FailoverClient`. Do not call provider SDKs directly from pipeline modules.
 
 ### v0.2.0 Schema Invariants
@@ -330,7 +330,7 @@ update the matching `docs/spec/` contract:
 - `03_Notes/` is human-verified source truth. Do not edit it autonomously.
 - `04_Resources/` and `06_Archives/` are read-only source/reference spaces.
 - `.curator/` is machine-readable Curator state. Modify it only through the project code or explicit testbed setup scripts.
-- Exclude `backend/src/qmd/**` from Incurator v0.2.0 legacy sweeps unless the task is explicitly about qmd itself.
+
 
 ## Multi-Agent Development Roles
 
@@ -432,7 +432,7 @@ wiki sources list|show|rm  # Manage tracked source files
 | `ingest_raw.py` | File discovery, hash-based dedup, parser dispatch, L1 Context generation |
 | `ingest_llm.py` | Three-phase DAG construction: Phase A (atoms), Phase B (concepts), Phase C (exhibitions) |
 | `sync.py` | DAG integrity verification; Mode A (global reverse L4→L1) and Mode B (targeted bidirectional) |
-| `search.py` | Wraps `backend/src/qmd/bin/qmd` binary (BM25 + vector + LLM rerank); builds Obsidian-compatible index |
+| `search.py` | Wraps the globally installed `qmd` binary (BM25 + vector + LLM rerank); builds Obsidian-compatible index |
 | `query.py` | Retrieval + LLM synthesis with citation management |
 | `llm.py` | Multi-provider clients: `OllamaClient`, `GeminiClient`, `ClaudeClient`, `OpenAIClient`, `FailoverClient` |
 | `config.py` | Vault topology, `.curator/config.yml` loading, path resolution |

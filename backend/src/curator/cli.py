@@ -324,13 +324,13 @@ def _refresh_qmd_index(paths: cfg.WikiPaths, *, embed: bool = True) -> None:
         bin_path = search.get_qmd_binary()
         if bin_path and not bin_path.exists():
             _hint(
-                "qmd binary not found. Build the bundled copy: "
-                "[bold]cd backend/src/qmd && bun install && bun run build[/bold]"
+                "qmd binary not found. Install it globally via npm: "
+                "[bold]npm install -g @tobilu/qmd[/bold]"
             )
         else:
             _hint(
                 "qmd binary present but not responding. "
-                "Try `backend/src/qmd/bin/qmd --version` to diagnose."
+                "Try `qmd --version` to diagnose."
             )
         return
     try:
@@ -4141,8 +4141,8 @@ def query(
     if not search.is_available():
         _err("qmd binary not available.")
         _hint(
-            "Build the bundled copy: "
-            "[bold]cd backend/src/qmd && bun install && bun run build[/bold]"
+            "Install it globally via npm: "
+            "[bold]npm install -g @tobilu/qmd[/bold]"
         )
         raise typer.Exit(code=1)
 
@@ -4362,8 +4362,8 @@ def reindex() -> None:
     if not search.is_available():
         _err("qmd binary not available.")
         _hint(
-            "Build the bundled copy: "
-            "[bold]cd backend/src/qmd && bun install && bun run build[/bold]"
+            "Install it globally via npm: "
+            "[bold]npm install -g @tobilu/qmd[/bold]"
         )
         raise typer.Exit(code=1)
 

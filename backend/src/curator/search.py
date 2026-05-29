@@ -1,17 +1,16 @@
-"""Search backend — wraps the bundled QMD binary at `backend/src/qmd/bin/qmd`.
+"""Search backend — wraps the QMD binary.
 
 QMD provides BM25 + vector + LLM-rerank search over markdown collections.
 We use it as the retrieval engine for the Curator's `.curator/Collections/`
 DAG. The Python side never embeds qmd as a library — we shell out to the
-TypeScript CLI (it ships compiled `dist/`) and parse `--json` output.
+TypeScript CLI and parse `--json` output.
 
 The binary is resolved in this order:
   1. `WIKI_QMD_BIN` env var (explicit override)
-  2. The bundled copy at `<repo>/backend/src/qmd/bin/qmd`
-  3. `qmd` on PATH (system install)
+  2. `qmd` on PATH (system install, e.g. via npm)
 
 Search and indexing degrade gracefully when qmd is missing — ingest and
-lint still work; only `wiki ask` / `wiki reindex` require it.
+lint still work; only `wiki query` / `wiki reindex` require it.
 """
 
 from __future__ import annotations
@@ -89,14 +88,6 @@ class QmdNotInstalled(SearchBackendError):
 # ---------------------------------------------------------------------------
 
 
-# Repo-relative path to the bundled qmd launcher. `__file__` lives at
-# `<repo>/backend/src/curator/search.py`, so .parent.parent points at
-# `<repo>/backend/src`, and the bundled binary is
-# `<repo>/backend/src/qmd/bin/qmd`.
-_BUNDLED_QMD = Path(__file__).resolve().parent.parent / "qmd" / "bin" / "qmd"
-_BUNDLED_QMD_DIST = Path(__file__).resolve().parent.parent / "qmd" / "dist" / "cli" / "qmd.js"
-
-
 def get_qmd_binary() -> Path | None:
     """Resolve the qmd binary. Returns None if no source can be found."""
     override = os.environ.get("WIKI_QMD_BIN")
@@ -104,11 +95,7 @@ def get_qmd_binary() -> Path | None:
         p = Path(override).expanduser()
         if p.exists() and os.access(p, os.X_OK):
             return p
-    # Only use the bundled binary if dist/ has been built; otherwise fall
-    # through to the globally-installed qmd (npm install -g @tobilu/qmd).
-    if (_BUNDLED_QMD.exists() and os.access(_BUNDLED_QMD, os.X_OK)
-            and _BUNDLED_QMD_DIST.exists()):
-        return _BUNDLED_QMD
+
     import shutil
     on_path = shutil.which("qmd")
     return Path(on_path) if on_path else None

@@ -250,8 +250,7 @@ update the matching `docs/spec/` contract:
 - `04_Resources/` and `06_Archives/` are read-only source/reference spaces.
 - `.curator/` is machine-readable Curator state. Modify it only through the
   project code or explicit testbed setup scripts.
-- Exclude `backend/src/qmd/**` from incurator v0.2.0 legacy sweeps unless the task is
-  explicitly about qmd itself.
+
 
 ## Multi-Agent Development Roles
 

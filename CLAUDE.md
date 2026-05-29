@@ -252,7 +252,7 @@ wiki sources list|show|rm  # Manage tracked source files
 | `ingest_raw.py` | File discovery, hash-based dedup, parser dispatch, L1 Context generation |
 | `ingest_llm.py` | Three-phase DAG construction: Phase A (atoms), Phase B (concepts), Phase C (exhibitions) |
 | `sync.py` | DAG integrity verification; Mode A (global reverse L4→L1) and Mode B (targeted bidirectional) |
-| `search.py` | Wraps `backend/src/qmd/bin/qmd` binary (BM25 + vector + LLM rerank); builds Obsidian-compatible index |
+| `search.py` | Wraps the globally installed `qmd` binary (BM25 + vector + LLM rerank); builds Obsidian-compatible index |
 | `query.py` | Retrieval + LLM synthesis with citation management |
 | `llm.py` | Multi-provider clients: `OllamaClient`, `GeminiClient`, `ClaudeClient`, `OpenAIClient`, `FailoverClient` |
 | `config.py` | Vault topology, `.curator/config.yml` loading, path resolution |
@@ -347,7 +347,7 @@ update the matching `docs/spec/` contract:
 - `03_Notes/` is human-verified source truth. Do not edit it autonomously.
 - `04_Resources/` and `06_Archives/` are read-only source/reference spaces.
 - `.curator/` is machine-readable Curator state. Modify it only through the project code or explicit testbed setup scripts.
-- Exclude `backend/src/qmd/**` from Incurator v0.2.0 legacy sweeps unless the task is explicitly about qmd itself.
+
 
 ## Multi-Agent Development Roles
 
