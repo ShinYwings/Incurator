@@ -12,7 +12,7 @@ import {
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import type ObsidianAIAgent from "../../main";
-import { IncuratorClient, type IncuratorHit } from "../agent/incuratorClient";
+import { IncuratorClient } from "../agent/incuratorClient";
 import {
   EXTERNAL_PDF_CONTEXT_EVENT,
   EXTERNAL_PDF_VIEW_TYPE,
@@ -27,6 +27,14 @@ import { hashFileSha256 } from "../utils/fileHash";
 import { DiffViewer } from "./diffViewer";
 import { renderCuratorQueryTrace } from "./incuratorQueryTrace";
 import {
+  escapeAttribute,
+  formatCuratorQueryResult,
+  formatIncuratorHits,
+  formatOutline,
+  formatPdfWindow,
+  formatRagHits,
+} from "../context/providerContextFormat";
+import {
   type ChatMessage,
   type ChatMode,
   type ChatSession,
@@ -37,9 +45,6 @@ import {
   type LLMMessage,
   type LLMContentPart,
   type LLMProvider,
-  type PdfOutlineItem,
-  type PdfRagHit,
-  type PdfWindowPage,
   type StreamChunk,
   getDefaultModel,
   getModelOption,
@@ -1205,7 +1210,7 @@ export class ChatSidebarView extends ItemView {
         : undefined;
       if (sourceStatus) {
         sections.push(
-          `<incurator_source_status document="${this.escapeAttribute(tab.label)}" state="${sourceStatus.state}" l1="${sourceStatus.state === "l1_ready" || sourceStatus.state === "queued" || sourceStatus.state === "indexed" || sourceStatus.state === "curated"}">\n${this.escapeAttribute(sourceStatus.message || "")}\n</incurator_source_status>`
+          `<incurator_source_status document="${escapeAttribute(tab.label)}" state="${sourceStatus.state}" l1="${sourceStatus.state === "l1_ready" || sourceStatus.state === "queued" || sourceStatus.state === "indexed" || sourceStatus.state === "curated"}">\n${escapeAttribute(sourceStatus.message || "")}\n</incurator_source_status>`
         );
       }
 
@@ -1238,7 +1243,7 @@ export class ChatSidebarView extends ItemView {
       const windowPages = backendCtx?.pages ?? pdf.windowPages ?? [];
       if (windowPages.length > 0) {
         sections.push(
-          `<pdf_window document="${this.escapeAttribute(tab.label)}" current_page="${pdf.pageNum}">\n${this.formatPdfWindow(windowPages)}\n</pdf_window>`
+          `<pdf_window document="${escapeAttribute(tab.label)}" current_page="${pdf.pageNum}">\n${formatPdfWindow(windowPages)}\n</pdf_window>`
         );
       }
 
@@ -1246,7 +1251,7 @@ export class ChatSidebarView extends ItemView {
         const outline = backendCtx?.outline ?? pdf.outline ?? [];
         if (outline.length > 0) {
           sections.push(
-            `<document_outline document="${this.escapeAttribute(tab.label)}">\n${this.formatOutline(outline)}\n</document_outline>`
+            `<document_outline document="${escapeAttribute(tab.label)}">\n${formatOutline(outline)}\n</document_outline>`
           );
         }
       }
@@ -1268,25 +1273,25 @@ export class ChatSidebarView extends ItemView {
               : []);
           if (ragHits.length > 0) {
             sections.push(
-              `<pdf_rag_hits document="${this.escapeAttribute(tab.label)}" query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatRagHits(ragHits)}\n</pdf_rag_hits>`
+              `<pdf_rag_hits document="${escapeAttribute(tab.label)}" query="${escapeAttribute(query.slice(0, 120))}">\n${formatRagHits(ragHits, this.plugin.settings.pdfRagTopK)}\n</pdf_rag_hits>`
             );
           }
         } else if (!client.available && pdf.ragHits?.length) {
           // Offline fallback: use pre-fetched hits if available
           sections.push(
-            `<pdf_rag_hits document="${this.escapeAttribute(tab.label)}" query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatRagHits(pdf.ragHits)}\n</pdf_rag_hits>`
+            `<pdf_rag_hits document="${escapeAttribute(tab.label)}" query="${escapeAttribute(query.slice(0, 120))}">\n${formatRagHits(pdf.ragHits, this.plugin.settings.pdfRagTopK)}\n</pdf_rag_hits>`
           );
         }
       }
 
       if (backendCtx?.isEmptyPdf) {
         sections.push(
-          `<pdf_text_quality document="${this.escapeAttribute(tab.label)}" page="${pdf.pageNum}">\nscore=0; scanned_like=true; source=backend; reason=image-only PDF, no text extracted\n</pdf_text_quality>`
+          `<pdf_text_quality document="${escapeAttribute(tab.label)}" page="${pdf.pageNum}">\nscore=0; scanned_like=true; source=backend; reason=image-only PDF, no text extracted\n</pdf_text_quality>`
         );
       } else if (pdf.textQuality) {
         const qualitySource = backendCtx ? "backend" : pdf.textQuality.source;
         sections.push(
-          `<pdf_text_quality document="${this.escapeAttribute(tab.label)}" page="${pdf.pageNum}">\nscore=${pdf.textQuality.score}; scanned_like=${pdf.textQuality.isScannedLike}; source=${qualitySource}${pdf.textQuality.reason ? `; reason=${pdf.textQuality.reason}` : ""}\n</pdf_text_quality>`
+          `<pdf_text_quality document="${escapeAttribute(tab.label)}" page="${pdf.pageNum}">\nscore=${pdf.textQuality.score}; scanned_like=${pdf.textQuality.isScannedLike}; source=${qualitySource}${pdf.textQuality.reason ? `; reason=${pdf.textQuality.reason}` : ""}\n</pdf_text_quality>`
         );
       }
     }
@@ -1307,19 +1312,19 @@ export class ChatSidebarView extends ItemView {
         const qResult = await client.curatorQuery(query);
         if (qResult.ok && qResult.answer) {
           this.lastQueryTrace = qResult;
-          sections.push(this.formatCuratorQueryResult(qResult, query));
+          sections.push(formatCuratorQueryResult(qResult, query));
         } else {
           // curator_query failed or L3 incomplete — fall back to raw search
           this.setPrepareStatus("Searching Incurator...");
           const hits = await client.search(query, 6);
           if (hits.length > 0) {
             sections.push(
-              `<incurator_hits query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatIncuratorHits(hits)}\n</incurator_hits>`
+              `<incurator_hits query="${escapeAttribute(query.slice(0, 120))}">\n${formatIncuratorHits(hits)}\n</incurator_hits>`
             );
           }
           if (qResult.error) {
             sections.push(
-              `<incurator_status>L3 not yet complete: ${this.escapeAttribute(qResult.error)}</incurator_status>`
+              `<incurator_status>L3 not yet complete: ${escapeAttribute(qResult.error)}</incurator_status>`
             );
           }
         }
@@ -1329,83 +1334,13 @@ export class ChatSidebarView extends ItemView {
         const incuratorHits = await client.search(query, 6);
         if (incuratorHits.length > 0) {
           sections.push(
-            `<incurator_hits query="${this.escapeAttribute(query.slice(0, 120))}">\n${this.formatIncuratorHits(incuratorHits)}\n</incurator_hits>`
+            `<incurator_hits query="${escapeAttribute(query.slice(0, 120))}">\n${formatIncuratorHits(incuratorHits)}\n</incurator_hits>`
           );
         }
       }
     }
 
     return sections.join("\n\n");
-  }
-
-  private formatPdfWindow(pages: PdfWindowPage[]): string {
-    return pages
-      .map((page) => {
-        const text = this.truncateForProviderContext(page.text, 3000);
-        return `### Page ${page.pageNum}\n${text}`;
-      })
-      .join("\n\n");
-  }
-
-  private formatOutline(outline: PdfOutlineItem[]): string {
-    return outline
-      .slice(0, 80)
-      .map((item) => {
-        const indent = "  ".repeat(Math.max(0, item.level));
-        const page = item.pageNum ? ` p.${item.pageNum}` : "";
-        return `${indent}- ${item.title}${page}`;
-      })
-      .join("\n");
-  }
-
-  private formatRagHits(hits: PdfRagHit[]): string {
-    return hits
-      .slice(0, this.plugin.settings.pdfRagTopK)
-      .map((hit) => {
-        const section = hit.sectionTitle ? ` (${hit.sectionTitle})` : "";
-        return `- p.${hit.pageNum}${section} score=${hit.score}: ${this.truncateForProviderContext(hit.snippet, 700)}`;
-      })
-      .join("\n");
-  }
-
-  private formatIncuratorHits(hits: IncuratorHit[]): string {
-    return hits
-      .map((hit) => {
-        const where = [hit.path, hit.pageNum ? `p.${hit.pageNum}` : ""]
-          .filter(Boolean)
-          .join(" ");
-        const label = hit.title || where || "hit";
-        const score = typeof hit.score === "number" ? ` score=${hit.score}` : "";
-        return `- ${label}${where && label !== where ? ` (${where})` : ""}${score}: ${this.truncateForProviderContext(hit.snippet, 700)}`;
-      })
-      .join("\n");
-  }
-
-  private formatCuratorQueryResult(result: CuratorQueryResult, query: string): string {
-    const trace = result.trace;
-    const attrs = [
-      `query="${this.escapeAttribute(query.slice(0, 120))}"`,
-      result.cache_hit ? `cache="hit"` : null,
-      result.exhibition_id ? `exhibition="${result.exhibition_id}"` : null,
-    ].filter(Boolean).join(" ");
-    let text = `<incurator_answer ${attrs}>\n`;
-    text += this.truncateForProviderContext(result.answer ?? "", 4000);
-    if (trace) {
-      const concepts = trace.matched_concepts.slice(0, 5).join(", ") || "none";
-      const sources = trace.source_paths.slice(0, 3).join(", ") || "none";
-      text += `\n\n<!-- concepts: ${concepts} | sources: ${sources} | latency: ${trace.latency_ms}ms | l3_complete: ${trace.l3_complete} -->`;
-    }
-    text += `\n</incurator_answer>`;
-    return text;
-  }
-
-  private truncateForProviderContext(text: string, maxLength: number): string {
-    if (text.length <= maxLength) return text;
-    return `${text.slice(0, maxLength)}\n[...truncated]`;
-  }
-
-  private escapeAttribute(value: string): string {
-    return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
   }
 
   private loadCursorStyleRules(): string {
