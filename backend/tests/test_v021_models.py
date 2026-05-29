@@ -25,6 +25,35 @@ class TestSharedModelsCatalogue(unittest.TestCase):
             "gemini-3.5-flash",
         )
 
+    def test_models_json_is_single_source_and_well_formed(self) -> None:
+        """data/models.json is the single source of truth — guard its shape.
+
+        Every provider must expose at least one flash and one think model with
+        a non-empty id, so get_default_model resolves for both tiers (llm.py
+        only carries last-resort fallbacks, not the full catalogue).
+        """
+        catalogue = models.load_models_catalogue()
+        providers = catalogue.get("providers", {})
+        self.assertTrue(providers, "models.json must define providers")
+        for name in ("antigravity", "claude", "openai"):
+            self.assertIn(name, providers)
+            tiers = {m.get("tier") for m in providers[name].get("models", [])}
+            self.assertIn("flash", tiers, f"{name} missing a flash model")
+            self.assertIn("think", tiers, f"{name} missing a think model")
+            for tier in ("flash", "think"):
+                self.assertNotEqual(
+                    models.get_default_model(name, tier), "",
+                    f"{name}/{tier} default did not resolve from models.json",
+                )
+
+    def test_empty_catalogue_degrades_gracefully(self) -> None:
+        """If the data file is unavailable, callers must not crash."""
+        from unittest.mock import patch
+
+        with patch.object(models, "load_models_catalogue", return_value=models._EMPTY_CATALOGUE):
+            self.assertEqual(models.get_available_models(), {})
+            self.assertEqual(models.get_default_model("antigravity", "flash"), "")
+
 
 class TestAntigravityConfig(unittest.TestCase):
     def setUp(self) -> None:
