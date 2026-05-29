@@ -1808,6 +1808,20 @@ def init(
         obsidian_dir.mkdir()
         _ok("Created Obsidian vault marker: .obsidian/")
 
+    # Auto-install Obsidian plugin if available in the source tree
+    plugin_src = Path(__file__).resolve().parents[3] / "plugin"
+    if plugin_src.exists():
+        plugin_dest = obsidian_dir / "plugins" / "incurator-obsidian-agent"
+        plugin_dest.mkdir(parents=True, exist_ok=True)
+        copied_any = False
+        for fname in ["main.js", "manifest.json", "styles.css"]:
+            src_file = plugin_src / fname
+            if src_file.exists():
+                shutil.copy2(src_file, plugin_dest / fname)
+                copied_any = True
+        if copied_any:
+            _ok(f"Installed Obsidian plugin to {plugin_dest.relative_to(root)}")
+
     paths = cfg.WikiPaths(
         root=root,
         raw_dirs_override=raw_dirs,
