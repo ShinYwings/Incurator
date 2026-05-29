@@ -132,3 +132,88 @@ The concept should be updated.
         assert "Updated Concept" in (paths.concepts / "CON-test0001.md").read_text(encoding="utf-8")
         assert "Updated Atom" in (paths.atoms / "ATM-test0001.md").read_text(encoding="utf-8")
         assert "Updated Context" in (paths.contexts / "CTX-test0001.md").read_text(encoding="utf-8")
+
+
+class FakeBackpropClientNoSource:
+    """Returns atom update without parent_source, triggering feedback_required."""
+
+    def chat(self, *_args, **_kwargs) -> str:
+        return """---
+id: CON-test0002
+type: concept
+name: Orphan Concept
+domain: Test
+confidence_score: 0.9
+---
+
+# Orphan Concept
+
+## Relations
+
+- Supports: [[02_Atoms/ATM-test0002]]
+"""
+
+
+def test_backprop_feedback_required_when_atom_has_no_source() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = cfg.WikiPaths(Path(tmp))
+        for folder in (paths.contexts, paths.atoms, paths.concepts, paths.exhibitions):
+            folder.mkdir(parents=True, exist_ok=True)
+
+        (paths.atoms / "ATM-test0002.md").write_text(
+            """---
+id: ATM-test0002
+type: atom
+claim_type: fact
+confidence_score: 0.8
+is_verified_by_human: false
+is_flagged_for_agent: false
+---
+
+# Orphan Atom — no parent_source
+""",
+            encoding="utf-8",
+        )
+        (paths.concepts / "CON-test0002.md").write_text(
+            """---
+id: CON-test0002
+type: concept
+name: Orphan Concept
+domain: Test
+confidence_score: 0.8
+---
+
+# Orphan Concept
+
+## Relations
+
+- Supports: [[02_Atoms/ATM-test0002]]
+""",
+            encoding="utf-8",
+        )
+        (paths.exhibitions / "EXH-test0002.md").write_text(
+            """---
+id: EXH-test0002
+type: exhibition
+core_concepts:
+  - "[[03_Concepts/CON-test0002]]"
+---
+
+# Exhibition referencing orphan atom
+""",
+            encoding="utf-8",
+        )
+
+        result = sync.propagate_upstream_from_exhibition(
+            paths, FakeBackpropClientNoSource(), exh_id="EXH-test0002"
+        )
+
+        assert result.errors == []
+        assert result.concepts_updated == ["CON-test0002"]
+        assert result.atoms_updated == ["ATM-test0002"]
+        # No CTX updated — atom had no parent_source
+        assert result.contexts_updated == []
+        # feedback_required must contain at least one entry for the orphan atom
+        assert len(result.feedback_required) >= 1
+        fb = result.feedback_required[0]
+        assert fb.get("atom_id") == "ATM-test0002"
