@@ -187,7 +187,14 @@ export function getLocalBackendCommand(
   if (!registry?.local_device_id || !registry.devices) return undefined;
   const local = registry.devices[registry.local_device_id];
   const backend = local?.backend as { command?: string } | undefined;
-  return backend?.command || undefined;
+  const command = backend?.command;
+  
+  if (command && command.startsWith("/") && !existsSync(command)) {
+    console.warn(`[Incurator] Cached backend command not found: ${command}. Falling back to auto-discovery.`);
+    return undefined;
+  }
+  
+  return command || undefined;
 }
 
 /**
