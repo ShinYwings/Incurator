@@ -433,6 +433,19 @@ Summary of major commands following the user workflow.
 | `wiki add <file>` | Registers sources and generates instant L1 Contexts (structural, no LLM). | Adding new information |
 | `wiki build` | Extracts L2 Atoms + L3 Concepts from registered L1 Contexts (LLM). Queues to the background worker by default; `--wait` runs now. | Deep knowledge-graph construction |
 | `wiki sources list` | Lists all registered sources. | Checking collected data inventory |
+| `wiki sources show <id>` | Shows details and processing status for a specific source. | Diagnosing source errors |
+| `wiki sources rm <id>` | Removes a source registration and its generated L1 nodes. | Removing an incorrect source |
+| `wiki sources retry <id>` | Reprocesses a failed source. | Retrying after a processing failure |
+
+### 2-1. Settings & LLM Backend Management
+
+| Command | Description |
+| :--- | :--- |
+| `wiki config provider` | Interactively configure the LLM backend (Ollama / Claude Code / Antigravity / Codex) and model. |
+| `wiki config models list` | Show available models for the current backend. |
+| `wiki config models use <tag>` | Directly set the model to use. |
+| `wiki config get <key>` | Read a specific config value. (e.g. `wiki config get llm.primary`) |
+| `wiki config set <key> <value>` | Update a specific config value. (e.g. `wiki config set llm.model gemini-3.5-flash`) |
 
 ### 3. Refinement & Optimization
 | Command | Description | When to use |

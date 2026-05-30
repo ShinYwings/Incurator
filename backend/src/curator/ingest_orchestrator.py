@@ -6,6 +6,7 @@ worker is fully wired in.
 """
 
 from __future__ import annotations
+from . import constants as consts
 
 import hashlib
 import json
@@ -17,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config as cfg
+from . import constants as consts
 from . import db
 
 MAX_BATCH_CHARS = 50_000
@@ -132,7 +134,7 @@ def _build_atom_page_from_data(
     """Build an Atom page from trusted structured extraction data."""
     name = str(data.get("name") or atom_id).strip()
     one_liner = str(data.get("one_liner") or data.get("claim") or "").strip()
-    claim_type = str(data.get("claim_type") or data.get("type") or "fact").strip() or "fact"
+    claim_type = str(data.get("claim_type") or data.get("type") or consts.CLAIM_TYPE_FACT).strip() or consts.CLAIM_TYPE_FACT
     section_id = str(data.get("source_section_id") or "").strip()
     section_title = str(data.get("source_section_title") or "").strip()
     source_page = data.get("source_page") or data.get("page") or ""
@@ -148,13 +150,13 @@ def _build_atom_page_from_data(
         "## Constraints\n\n"
         "- Needs human verification if used for high-stakes claims.\n\n"
         "## Relations\n\n"
-        f"[[01_Contexts/{context_id}]]\n"
+        f"[[{consts.LAYER_L1}/{context_id}]]\n"
     )
     frontmatter = [
         "---",
         f"id: {atom_id}",
-        "type: atom",
-        f"parent_source: 01_Contexts/{context_id}",
+        f"type: {consts.TYPE_L2}",
+        f"parent_source: {consts.LAYER_L1}/{context_id}",
         f"source_path: {_yaml_scalar(relpath)}",
         f"claim_type: {_yaml_scalar(claim_type)}",
         f"confidence_score: {confidence:.1f}",
@@ -175,7 +177,7 @@ def _build_atom_page_from_data(
 
 
 def _gen_atom_id() -> str:
-    return "ATM-" + uuid.uuid4().hex[:8]
+    return f"{consts.PREFIX_L2}-" + uuid.uuid4().hex[:8]
 
 
 def _ctx_body_only(ctx_content: str) -> str:
@@ -221,7 +223,7 @@ def _extract_atoms_from_chunk(
             today=today,
         )
         final_path = paths.atoms / f"{atom_id}.md"
-        staged_path = staging / f"02_Atoms__{atom_id}.md"
+        staged_path = staging / f"{consts.LAYER_L2}__{atom_id}.md"
         staged_path.write_text(page_content, encoding="utf-8")
         results.append(BatchAtomResult(
             atom_id=atom_id,

@@ -40,6 +40,7 @@ import { parseZoteroLink } from "./src/utils/zoteroUtils";
 
 import { ZoteroSearchModal, ZoteroWizardModal } from "./src/ui/zoteroWizardModal";
 import { TemplateRenderer } from "./src/zotero/templateRenderer";
+import { IncuratorDashboardModal } from "./src/ui/incuratorDashboardModal";
 
 import { InlinePromptWidget } from "./src/ui/inlinePrompt";
 import {
@@ -82,6 +83,7 @@ export default class ObsidianAIAgent extends Plugin {
   private startupRestoreUntilMs = 0;
   private vaultRoot = "";
   private ingestStatusBar: HTMLElement | null = null;
+  private incuratorStatusBar: HTMLElement | null = null;
 
   async onload(): Promise<void> {
     console.log("Loading Obsidian AI Agent plugin");
@@ -122,6 +124,14 @@ export default class ObsidianAIAgent extends Plugin {
     this.addRibbonIcon("bot", "Open AI Agent Chat", () => {
       this.toggleChatSidebar();
     });
+
+    // ── Dashboard Ribbon Icon ──
+    this.addRibbonIcon("database", "Open Incurator Dashboard", () => {
+      new IncuratorDashboardModal(this.app, this).open();
+    });
+
+    // ── Status Bar ──
+    this.setupIncuratorStatusBar();
 
     // ── Register commands ──
 
@@ -322,6 +332,22 @@ export default class ObsidianAIAgent extends Plugin {
 
     // Cmd+Shift+;: Toggle chat sidebar
     this.addCommand({
+      id: "open-ai-agent-chat",
+      name: "Open Chat",
+      callback: () => {
+        this.toggleChatSidebar();
+      },
+    });
+
+    this.addCommand({
+      id: "open-incurator-dashboard",
+      name: "Open Incurator Dashboard",
+      callback: () => {
+        new IncuratorDashboardModal(this.app, this).open();
+      },
+    });
+
+    this.addCommand({
       id: "toggle-chat",
       name: "Toggle AI Chat Sidebar",
       callback: () => {
@@ -490,77 +516,96 @@ export default class ObsidianAIAgent extends Plugin {
     // Intercepts zotero://open-pdf and zotero://select clicks globally (including Live Preview).
     // Opens the resolved PDF in the built-in ExternalPdfView instead of launching Zotero.
 
-    // Intercept clicks on Zotero links in reading mode and live preview
-    this.registerDomEvent(document, 'click', (e: MouseEvent) => {
+    // Shared handler: resolve a zotero:// URL and open in ExternalPdfView
+    const handleZoteroUrl = async (url: string): Promise<boolean> => {
+      const zoteroInfo = parseZoteroLink(url);
+      if (!zoteroInfo) return false;
+
+      const attachmentKey = zoteroInfo.attachmentKey;
+      let pdfPath: string | null = null;
+
+      if (this.incuratorClient && this.incuratorClient.available) {
+        pdfPath = await this.incuratorClient.resolveZoteroPdf(attachmentKey);
+      }
+
+      if (!pdfPath) return false; // Let OS handle it
+
+      let leaf = this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE).find(l => {
+        return l.view.getState()?.path === pdfPath;
+      });
+
+      let pdfState: any;
+      if (leaf) {
+        pdfState = {
+          ...leaf.view.getState(),
+          zoteroAttachmentKey: attachmentKey,
+        };
+      } else {
+        pdfState = registerExternalPdfByPath(pdfPath, attachmentKey);
+        leaf = this.app.workspace.getLeaf("split");
+      }
+
+      if (zoteroInfo.pageNum) {
+        pdfState.currentPage = zoteroInfo.pageNum;
+      }
+      if (zoteroInfo.annotationKey) {
+        pdfState.targetAnnotationKey = zoteroInfo.annotationKey;
+      }
+
+      await leaf.setViewState({ type: EXTERNAL_PDF_VIEW_TYPE, active: true, state: pdfState });
+      if (leaf) this.app.workspace.revealLeaf(leaf);
+      return true;
+    };
+
+    // DOM interceptor for click and auxclick on <a href="zotero://...">
+    const interceptZoteroClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      const link = target.closest('a[href]') as HTMLAnchorElement;
+      const link = target.closest('a[href]') as HTMLAnchorElement | null;
 
       if (link && link.href && link.href.toLowerCase().startsWith("zotero://")) {
         e.preventDefault();
         e.stopPropagation();
-
-        // Trigger our custom window.open which has the handler
-        window.open(link.href);
+        e.stopImmediatePropagation();
+        handleZoteroUrl(link.href);
       }
-    }, { capture: true });
+    };
+    this.registerDomEvent(document, 'click', interceptZoteroClick, { capture: true });
+    this.registerDomEvent(document, 'auxclick', interceptZoteroClick, { capture: true });
 
-      const originalWindowOpen = window.open;
+    // On macOS, Obsidian/Electron may send zotero:// directly to the OS via
+    // electron.shell.openExternal instead of window.open. Patch both.
+    const originalWindowOpen = window.open;
     this.register(() => {
       window.open = originalWindowOpen;
     });
 
     window.open = (url?: string | URL, target?: string, features?: string) => {
-      if (typeof url === "string") {
-        const zoteroInfo = parseZoteroLink(url);
-        if (zoteroInfo) {
-          // Handle it internally
-          (async () => {
-            const attachmentKey = zoteroInfo.attachmentKey;
-            let pdfPath: string | null = null;
-
-            if (this.incuratorClient && this.incuratorClient.available) {
-              pdfPath = await this.incuratorClient.resolveZoteroPdf(attachmentKey);
-            }
-
-            if (!pdfPath) {
-              // Fallback
-              originalWindowOpen.call(window, url, target, features);
-              return;
-            }
-
-            let leaf = this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE).find(l => {
-              return l.view.getState()?.path === pdfPath;
-            });
-
-            let pdfState: any;
-            if (leaf) {
-              pdfState = {
-                ...leaf.view.getState(),
-                zoteroAttachmentKey: attachmentKey,
-              };
-            } else {
-              pdfState = registerExternalPdfByPath(pdfPath, attachmentKey);
-              leaf = this.app.workspace.getLeaf("split");
-            }
-
-            if (zoteroInfo.pageNum) {
-              pdfState.currentPage = zoteroInfo.pageNum;
-            }
-            if (zoteroInfo.annotationKey) {
-              pdfState.targetAnnotationKey = zoteroInfo.annotationKey;
-            }
-
-            leaf.setViewState({ type: EXTERNAL_PDF_VIEW_TYPE, active: true, state: pdfState }).then(() => {
-              if (leaf) this.app.workspace.revealLeaf(leaf);
-            });
-          })();
-
-          // Return a dummy window object to satisfy the signature if needed
-          return null;
-        }
+      if (typeof url === "string" && parseZoteroLink(url)) {
+        handleZoteroUrl(url);
+        return null;
       }
       return originalWindowOpen.call(window, url, target, features);
     };
+
+    // Patch electron.shell.openExternal — Obsidian uses @electron/remote on desktop
+    const patchShellModule = (mod: any, label: string) => {
+      if (!mod?.shell?.openExternal) return;
+      const orig = mod.shell.openExternal.bind(mod.shell);
+      const patched = async (url: string, options?: any): Promise<void> => {
+        if (typeof url === "string" && url.toLowerCase().startsWith("zotero://")) {
+          const handled = await handleZoteroUrl(url);
+          if (handled) return;
+        }
+        return orig(url, options);
+      };
+      mod.shell.openExternal = patched;
+      this.register(() => {
+        mod.shell.openExternal = orig;
+      });
+    };
+
+    try { patchShellModule(require("electron"), "electron"); } catch { /* noop */ }
+    try { patchShellModule(require("@electron/remote"), "@electron/remote"); } catch { /* noop */ }
 
     if (this.settings.incuratorEnabled) {
       await this.ensureIncuratorBackend();
@@ -582,14 +627,11 @@ export default class ObsidianAIAgent extends Plugin {
 
   async onunload(): Promise<void> {
     console.log("Unloading Obsidian AI Agent plugin");
-    this.captureActiveMarkdownScrollPosition();
     if (this.scrollPositionSaveTimer !== null) {
       window.clearTimeout(this.scrollPositionSaveTimer);
-      this.scrollPositionSaveTimer = null;
     }
-
-    // Close inline prompt
-    this.inlinePrompt.close();
+    // ensure inline prompt is unmounted
+    this.inlinePrompt.unload();
 
     // Shut down MCP servers
     await this.mcpManager.shutdownAll();
@@ -1347,4 +1389,50 @@ export default class ObsidianAIAgent extends Plugin {
     }
     return null;
   }
+
+  private setupIncuratorStatusBar() {
+    this.incuratorStatusBar = this.addStatusBarItem();
+    this.incuratorStatusBar.addClass("ai-agent-incurator-status-bar");
+    this.incuratorStatusBar.setText("⚪️ Incurator");
+    
+    // Style cursor as pointer
+    this.incuratorStatusBar.style.cursor = "pointer";
+    this.incuratorStatusBar.style.padding = "0 8px";
+    this.incuratorStatusBar.style.fontWeight = "600";
+
+    this.incuratorStatusBar.onClickEvent(() => {
+      new IncuratorDashboardModal(this.app, this).open();
+    });
+
+    // Simple polling to update status bar
+    this.registerInterval(
+      window.setInterval(async () => {
+        if (!this.settings.incuratorEnabled) {
+          if (this.incuratorStatusBar) this.incuratorStatusBar.setText("⚪️ Incurator: Disabled");
+          return;
+        }
+        
+        try {
+          const status = await this.incuratorClient.getBackendStatus();
+          if (status && status.qmd_ready) {
+            this.incuratorStatusBar?.setText("🟢 Incurator");
+          } else if (status && !status.error) {
+            this.incuratorStatusBar?.setText("🟡 Incurator: Starting...");
+          } else {
+            this.incuratorStatusBar?.setText("🔴 Incurator: Error");
+          }
+        } catch {
+          this.incuratorStatusBar?.setText("🔴 Incurator: Disconnected");
+        }
+      }, 10000)
+    );
+    
+    // Initial check
+    setTimeout(() => {
+      if (this.settings.incuratorEnabled) {
+        this.incuratorStatusBar?.setText("🟡 Incurator");
+      }
+    }, 1000);
+  }
 }
+

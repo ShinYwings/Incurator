@@ -24,7 +24,7 @@ export interface LastMarkdownScrollPosition extends FileScrollPosition {
 }
 
 // ─── LLM Provider ───────────────────────────────────────────────
-export type LLMProvider = "antigravity" | "claude" | "openai";
+export type LLMProvider = "antigravity" | "claude" | "openai" | "ollama";
 export type ChatMode = "chat" | "plan";
 export type CodexReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type ClaudeEffort = "low" | "medium" | "high" | "xhigh" | "max";
@@ -41,8 +41,8 @@ export interface ProviderUsage {
 export interface ModelOption {
   id: string;
   label: string;
-  tier: "flash" | "think" | "stable" | "preview" | "legacy";
   supportsVision: boolean;
+
   contextWindow?: number;
 }
 
@@ -82,6 +82,7 @@ export interface PluginSettings {
   streamingEnabled: boolean;
   mcpServers: MCPServerConfig[];
   maxContextLength: number;
+  ollamaHost: string;
   pdfCaptureMode: "text" | "image" | "both";
   pdfWindowRadius: number;
   pdfOutlineEnabled: boolean;
@@ -133,7 +134,15 @@ export const DEFAULT_SETTINGS: PluginSettings = {
       outputTokens: 0,
       reasoningOutputTokens: 0,
     },
+    ollama: {
+      requests: 0,
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      reasoningOutputTokens: 0,
+    },
   },
+  ollamaHost: "http://localhost:11434",
   diffMode: "inline",
   streamingEnabled: true,
   mcpServers: [],
@@ -150,7 +159,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   incuratorMcpArgs: ["mcp"],
   incuratorRepoPath: "",
   incuratorDefaultDestination: "04_Resources",
-  incuratorDefaultImportMode: "reference",
+  incuratorDefaultImportMode: "copy",
   incuratorStatusPolling: true,
   fileScrollPositions: {},
 };
@@ -168,12 +177,7 @@ export function getDefaultModel(
   provider: LLMProvider
 ): string {
   const options = catalogue[provider] || [];
-  return (
-    options.find((option) => option.tier === "flash")?.id ||
-    options.find((option) => option.tier === "stable")?.id ||
-    options[0]?.id ||
-    ""
-  );
+  return options[0]?.id || "";
 }
 
 export function modelSupportsVision(
@@ -182,7 +186,10 @@ export function modelSupportsVision(
   model: string
 ): boolean {
   const option = getModelOption(catalogue, provider, model);
-  return option ? option.supportsVision === true : true;
+  if (option) return option.supportsVision === true;
+  // Unknown Ollama models default to no vision to avoid sending images to text-only models
+  if (provider === "ollama") return false;
+  return true;
 }
 
 // ─── Chat Messages ──────────────────────────────────────────────

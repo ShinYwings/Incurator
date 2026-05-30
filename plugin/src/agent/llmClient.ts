@@ -1,7 +1,6 @@
 import { requestUrl, Notice } from "obsidian";
 import { execFile, spawn } from "child_process";
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -281,18 +280,90 @@ class OpenAIAdapter extends BaseProviderAdapter {
   }
 }
 
+// ─── Ollama Adapter (OpenAI-compatible /v1/chat/completions) ────
+
+class OllamaAdapter extends BaseProviderAdapter {
+  constructor(private host: string) {
+    super();
+  }
+
+  buildUrl(): string {
+    return `${this.host.replace(/\/$/, "")}/v1/chat/completions`;
+  }
+
+  buildHeaders(): Record<string, string> {
+    return { "Content-Type": "application/json" };
+  }
+
+  buildBody(messages: LLMMessage[], stream: boolean): Record<string, unknown> {
+    return {
+      model: "", // overridden by caller
+      stream,
+      messages: messages.map((m) => ({
+        role: m.role,
+        content: this.toContent(m.content),
+      })),
+    };
+  }
+
+  private toContent(content: string | LLMContentPart[]): string | Array<Record<string, unknown>> {
+    if (typeof content === "string") return content;
+    return content.map((part) => {
+      if (part.type === "text") return { type: "text", text: part.text };
+      return { type: "image_url", image_url: { url: `data:${part.mimeType};base64,${part.data}` } };
+    });
+  }
+
+  protected extractDelta(parsed: any): StreamChunk | null {
+    const delta = parsed.choices?.[0]?.delta;
+    const done = parsed.choices?.[0]?.finish_reason === "stop";
+    return { text: delta?.content || "", done };
+  }
+
+  parseFullResponse(json: unknown): string {
+    const data = json as { choices?: Array<{ message?: { content?: string } }> };
+    return data?.choices?.[0]?.message?.content || "";
+  }
+}
+
 // ─── Main LLM Client ────────────────────────────────────────────
 
 const ADAPTERS: Record<LLMProvider, ProviderAdapter> = {
   antigravity: new AntigravityAdapter(),
   claude: new ClaudeAdapter(),
   openai: new OpenAIAdapter(),
+  ollama: new OllamaAdapter("http://localhost:11434"), // host updated at runtime
 };
 
 const execFileAsync = promisify(execFile);
 const CLI_TIMEOUT_MS = 5 * 60 * 1000;
 
 export class LLMClient {
+  private getAugmentedEnv(extraEnv?: Record<string, string | undefined>): NodeJS.ProcessEnv {
+    const home = process.env.HOME || process.env.USERPROFILE || "";
+    const customPaths = [
+      "/usr/local/bin",
+      "/opt/homebrew/bin",
+      "/bin",
+      "/usr/bin",
+      "/usr/sbin",
+      "/sbin",
+      home ? `${home}/.gemini/bin` : "",
+      home ? `${home}/.cargo/bin` : "",
+      home ? `${home}/.npm-global/bin` : "",
+      home ? `${home}/.local/bin` : "",
+      home ? `${home}/.nvm/versions/node/current/bin` : ""
+    ].filter(Boolean).join(":");
+
+    const currentPath = process.env.PATH || "";
+    const newPath = currentPath ? `${customPaths}:${currentPath}` : customPaths;
+
+    return {
+      ...process.env,
+      ...extraEnv,
+      PATH: newPath,
+    };
+  }
   private settings: PluginSettings;
   private auth: CLIAuthResolver;
   private abortController: AbortController | null = null;
@@ -334,7 +405,7 @@ export class LLMClient {
       }
 
       const serverConfig = this.processMcpServer(rawServer);
-      const env = { ...process.env, ...serverConfig.env };
+      const env = this.getAugmentedEnv(serverConfig.env);
 
       const child = spawn(serverConfig.command, serverConfig.args, { env });
 
@@ -428,42 +499,56 @@ export class LLMClient {
       return this.streamChatViaCli(messages, onChunk);
     }
 
+    // For Ollama, refresh the adapter host from current settings
+    if (provider === "ollama") {
+      ADAPTERS.ollama = new OllamaAdapter(this.settings.ollamaHost || "http://localhost:11434");
+    }
+
     const adapter = ADAPTERS[provider];
-    const credential = await this.auth.resolveCredential(provider);
+    const credential = provider === "ollama"
+      ? { type: "bearer" as const, token: "" }
+      : await this.auth.resolveCredential(provider);
 
     const url = adapter.buildUrl(this.settings.model);
     const headers = adapter.buildHeaders(credential);
     const body = adapter.buildBody(messages, true);
 
-    // Override model in body
-    if (provider === "claude" || provider === "openai") {
-      (body as Record<string, unknown>).model = this.settings.model;
-    }
+    // Always inject the model into the body for HTTP providers
+    (body as Record<string, unknown>).model = this.settings.model;
 
     // Use fetch for streaming (Obsidian's requestUrl doesn't support streaming)
     let fullText = "";
 
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-        signal: this.abortController.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: this.abortController.signal,
+        });
+      } catch (fetchErr) {
+        if (provider === "ollama") {
+          throw new Error(
+            `Ollama is not reachable at ${this.settings.ollamaHost || "http://localhost:11434"}.\n` +
+            `Start it with: ollama serve`
+          );
+        }
+        throw fetchErr;
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
-        // If auth error, invalidate cache and throw
         if (response.status === 401 || response.status === 403) {
+          if (provider === "ollama") {
+            throw new Error(`Ollama returned auth error ${response.status} — check your Ollama server config.`);
+          }
           this.auth.invalidate(provider);
-          new Notice(
-            `${provider} HTTP auth failed. Retrying through the provider CLI login session.`
-          );
+          new Notice(`${provider} HTTP auth failed. Retrying through the provider CLI login session.`);
           return this.streamChatViaCli(messages, onChunk);
         }
-        throw new Error(
-          `LLM API error ${response.status}: ${errorText.slice(0, 200)}`
-        );
+        throw new Error(`LLM API error ${response.status}: ${errorText.slice(0, 200)}`);
       }
 
       const reader = response.body?.getReader();
@@ -529,6 +614,29 @@ export class LLMClient {
       return this.completeViaCli(messages);
     }
 
+    // Ollama uses fetch for non-streaming too (requestUrl may not reach localhost in all envs)
+    if (provider === "ollama") {
+      ADAPTERS.ollama = new OllamaAdapter(this.settings.ollamaHost || "http://localhost:11434");
+      const adapter = ADAPTERS.ollama;
+      const body = adapter.buildBody(messages, false);
+      (body as Record<string, unknown>).model = this.settings.model;
+      try {
+        const res = await fetch(adapter.buildUrl(this.settings.model), {
+          method: "POST",
+          headers: adapter.buildHeaders({ type: "bearer", token: "" }),
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error(`Ollama error ${res.status}: ${await res.text()}`);
+        return adapter.parseFullResponse(await res.json());
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("Failed to fetch") || msg.includes("ECONNREFUSED")) {
+          throw new Error(`Ollama not reachable at ${this.settings.ollamaHost || "http://localhost:11434"}. Run: ollama serve`);
+        }
+        throw new Error(`Ollama request failed: ${msg}`);
+      }
+    }
+
     const adapter = ADAPTERS[provider];
     const credential = await this.auth.resolveCredential(provider);
 
@@ -541,9 +649,7 @@ export class LLMClient {
       url = `https://generativelanguage.googleapis.com/v1beta/models/${this.settings.model}:generateContent`;
     }
 
-    if (provider === "claude" || provider === "openai") {
-      (body as Record<string, unknown>).model = this.settings.model;
-    }
+    (body as Record<string, unknown>).model = this.settings.model;
 
     try {
       const response = await requestUrl({
@@ -558,9 +664,7 @@ export class LLMClient {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("401") || msg.includes("403")) {
         this.auth.invalidate(provider);
-        new Notice(
-          `${provider} HTTP auth failed. Retrying through the provider CLI login session.`
-        );
+        new Notice(`${provider} HTTP auth failed. Retrying through the provider CLI login session.`);
         return this.completeViaCli(messages);
       }
       throw new Error(`LLM request failed: ${msg}`);
@@ -568,8 +672,9 @@ export class LLMClient {
   }
 
   private shouldUseCli(_messages: LLMMessage[]): boolean {
-    // Always route through CLI — Obsidian's renderer blocks direct fetch() to
-    // external APIs. Images are stripped with a note (see contentToCliText).
+    // Ollama is localhost HTTP — use the fetch streaming path directly.
+    if (this.settings.provider === "ollama") return false;
+    // All other providers route through their respective CLIs.
     return true;
   }
 
@@ -596,6 +701,7 @@ export class LLMClient {
       );
 
       let fullOutput = "";
+      let fullStdout = "";
       let fullStderr = "";
 
       // State for CLI JSON/event parsing
@@ -736,12 +842,14 @@ export class LLMClient {
       if (provider === "openai") {
         emitCodexStatus(`Preparing context for ${this.settings.model}`);
         emitCodexStatus("Starting Codex CLI");
+      } else if (provider === "antigravity") {
+        emitCodexStatus("Thinking... (Antigravity is generating the full response)");
       }
       emitMcpAvailability();
 
       const child = spawn(command, args, {
         cwd,
-        env: { ...process.env, ...env },
+        env: this.getAugmentedEnv(env),
         stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
         windowsHide: true,
       });
@@ -795,11 +903,54 @@ export class LLMClient {
       };
 
       child.stdout?.on("data", (data) => {
-        processStdoutText(stdoutDecoder.decode(data, { stream: true }));
+        const text = stdoutDecoder.decode(data, { stream: true });
+        
+        fullStdout += text;
+        const authKeywords = [
+          "Authentication required",
+          "paste the authorization code",
+          "You must login",
+          "claude login",
+          "codex login",
+          "Session expired"
+        ];
+        if (authKeywords.some(kw => fullStdout.includes(kw))) {
+          child.kill();
+          reject(new Error(`CLI authentication required. Please go to Settings -> Incurator -> ${provider} and click 'Login' to authenticate interactively.`));
+          return;
+        }
+
+        processStdoutText(text);
       });
 
       child.stderr?.on("data", (data) => {
-        fullStderr += stderrDecoder.decode(data, { stream: true });
+        const text = stderrDecoder.decode(data, { stream: true });
+        
+        fullStderr += text;
+        const authKeywords = [
+          "Authentication required",
+          "paste the authorization code",
+          "You must login",
+          "claude login",
+          "codex login",
+          "Session expired"
+        ];
+        if (authKeywords.some(kw => fullStderr.includes(kw))) {
+          child.kill();
+          reject(new Error(`CLI authentication required. Please go to Settings -> Incurator -> ${provider} and click 'Login' to authenticate interactively.`));
+          return;
+        }
+        
+        // For non-JSON stdout providers, intercept stderr as thinking updates
+        if (provider !== "claude" && provider !== "openai") {
+          const lines = text.split("\n");
+          for (const line of lines) {
+            const cleanLine = line.trim();
+            if (cleanLine) {
+              emitCodexStatus(cleanLine);
+            }
+          }
+        }
       });
 
       child.on("close", (code) => {
@@ -854,6 +1005,9 @@ export class LLMClient {
           if (!codexAnswerText) {
             onChunk({ text: fullOutput, done: false });
           }
+        } else {
+          // antigravity: ensure thinking block is closed before done
+          closeStatusBlock();
         }
 
         onChunk({ text: "", done: true });
@@ -869,11 +1023,19 @@ export class LLMClient {
 
       child.on("error", (err) => {
         const msg = err instanceof Error ? err.message : String(err);
-        reject(
-          new Error(
-            `${provider} CLI request failed: ${msg}\n\nRun the provider CLI login again, then retry.`
-          )
-        );
+        if (msg.includes("ENOENT")) {
+          reject(
+            new Error(
+              `${provider} CLI "${command}" is not installed or not found on PATH.\n\nInstall the CLI first, then retry.`
+            )
+          );
+        } else {
+          reject(
+            new Error(
+              `${provider} CLI request failed: ${msg}\n\nRun the provider CLI login again, then retry.`
+            )
+          );
+        }
       });
     });
   }
@@ -1068,6 +1230,11 @@ export class LLMClient {
       throw new Error(`${provider} CLI returned an empty response.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("ENOENT")) {
+        throw new Error(
+          `${provider} CLI is not installed or not found on PATH.\n\nInstall the CLI first, then retry.`
+        );
+      }
       throw new Error(
         `${provider} CLI request failed: ${msg}\n\nRun the provider CLI login again, then retry.`
       );
@@ -1225,7 +1392,8 @@ export class LLMClient {
   } {
     const model = this.settings.model;
     switch (provider ?? this.settings.provider) {
-      case "antigravity":
+      case "antigravity": {
+        this.syncAgyMcpConfig();
         return {
           command: "agy",
           args: [
@@ -1236,9 +1404,9 @@ export class LLMClient {
           env: {
             GEMINI_CLI_TRUST_WORKSPACE: "true",
             ANTIGRAVITY_TRUST_WORKSPACE: "true",
-            HOME: this.getAgyCliHome(),
           },
         };
+      }
       case "claude": {
         const claudeMcpPath = this.syncClaudeMcpConfig();
         return {
@@ -1275,6 +1443,8 @@ export class LLMClient {
           stdin: preferStdin ? prompt : undefined,
         };
       }
+      default:
+        throw new Error(`Provider "${provider ?? this.settings.provider}" does not support CLI mode.`);
     }
   }
 
@@ -1341,27 +1511,10 @@ export class LLMClient {
     writeFileSync(tomlPath, tomlContent);
   }
 
-  private getAgyCliHome(): string {
-    const isolatedHome = join(this.getCliCwd(), "agy-home");
-    const geminiDir = join(isolatedHome, ".gemini");
+  private syncAgyMcpConfig(): void {
+    const geminiDir = join(homedir(), ".gemini");
     mkdirSync(geminiDir, { recursive: true });
 
-    const filesToCopy = [
-      "oauth_creds.json",
-      "google_accounts.json",
-      "installation_id",
-      "trustedFolders.json",
-      "state.json",
-      "projects.json",
-    ];
-    for (const file of filesToCopy) {
-      const src = join(homedir(), ".gemini", file);
-      if (existsSync(src)) {
-        copyFileSync(src, join(geminiDir, file));
-      }
-    }
-
-    // Build mcpServers for agy
     const mcpServers: Record<string, unknown> = {};
     for (const server of this.settings.mcpServers) {
       if (server.enabled) {
@@ -1369,24 +1522,22 @@ export class LLMClient {
       }
     }
 
-    writeFileSync(
-      join(geminiDir, "settings.json"),
-      `${JSON.stringify(
-        {
-          security: { auth: { selectedType: "oauth-personal" } },
-          admin: {
-            mcp: { enabled: true },
-            extensions: { enabled: false },
-            skills: { enabled: false },
-          },
-          mcpServers,
-        },
-        null,
-        2
-      )}\n`
-    );
+    const settingsPath = join(geminiDir, "settings.json");
+    let existing: Record<string, unknown> = {};
+    try {
+      existing = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    } catch { /* file missing or malformed — start fresh */ }
 
-    return isolatedHome;
+    const merged = {
+      ...existing,
+      admin: {
+        ...(existing.admin as Record<string, unknown> | undefined ?? {}),
+        mcp: { enabled: true },
+      },
+      mcpServers,
+    };
+
+    writeFileSync(settingsPath, `${JSON.stringify(merged, null, 2)}\n`);
   }
 
   private messagesToCliPrompt(messages: LLMMessage[]): string {

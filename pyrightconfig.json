@@ -1,0 +1,7 @@
+{
+  "include": ["backend/src"],
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "basic",
+  "reportUnusedParameter": "none",
+  "reportUnusedVariable": "none"
+}

@@ -19,6 +19,7 @@ from typing import Any
 import yaml
 
 from . import config as cfg
+from . import constants as consts
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +203,7 @@ def strip_llm_noise(text: str) -> str:
 WIKILINK_RE = re.compile(r"\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]")
 
 _VALID_CURATOR_LAYERS = frozenset(
-    ["01_Contexts", "02_Atoms", "03_Concepts", "04_Exhibitions"]
+    [consts.LAYER_L1, consts.LAYER_L2, consts.LAYER_L3, consts.LAYER_L4]
 )
 _LAYER_DIR_RE = re.compile(r"^\d{2}_")
 
@@ -327,10 +328,10 @@ def rebuild_index(paths: cfg.WikiPaths, today: str) -> None:
             lines.append("")
         lines.append("")
 
-    _section("L1 — Contexts (Collection & Summarization)",    "01_Contexts",    contexts)
-    _section("L2 — Atoms (Selection & Atomization)",          "02_Atoms",       atoms)
-    _section("L3 — Concepts (Structuring & Value Addition)",  "03_Concepts",    concepts)
-    _section("L4 — Exhibitions (Placement & Staging)",        "04_Exhibitions", exhibitions)
+    _section("L1 — Contexts (Collection & Summarization)",    consts.LAYER_L1,    contexts)
+    _section("L2 — Atoms (Selection & Atomization)",          consts.LAYER_L2,       atoms)
+    _section("L3 — Concepts (Structuring & Value Addition)",  consts.LAYER_L3,    concepts)
+    _section("L4 — Exhibitions (Placement & Staging)",        consts.LAYER_L4, exhibitions)
 
     lines.append("---\n")
     lines.append(

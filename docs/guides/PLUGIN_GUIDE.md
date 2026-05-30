@@ -173,6 +173,31 @@ codex login
 
 `codexReasoningEffort`: `low` / `medium` / `high` / `xhigh` 중 선택
 
+| 모델 | 설명 |
+| --- | --- |
+| `gpt-5.5` | 기본값. 강력한 추론 |
+| `gpt-5.4` | 일상 코딩 작업 |
+| `gpt-5.4-mini` | 빠른 경량 작업 |
+| `gpt-5.3-codex` | 코딩 특화 모델 |
+
+### 7.4 Ollama (로컬)
+
+로컬 Ollama 서버에 직접 HTTP로 연결합니다. 인증 없음, 완전 오프라인.
+
+```bash
+# Ollama 서버 시작
+ollama serve
+
+# 모델 설치
+ollama pull qwen2.5:7b
+```
+
+설정:
+
+- **Ollama host**: Ollama 서버 주소 (기본값: `http://localhost:11434`)
+- **Model**: 설치된 모델 이름 직접 입력 또는 **Fetch models** 버튼으로 목록 조회
+- Vision 지원 여부는 모델에 따라 다름 (예: `gemma3:12b` 지원, `qwen2.5:7b` 미지원)
+
 ---
 
 ## 8. MCP 서버 설정

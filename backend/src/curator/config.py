@@ -16,50 +16,35 @@ from typing import Optional
 
 import yaml
 
+from . import constants as consts
+
 # ---------------------------------------------------------------------------
 # Defaults (used when no config.yml has been written yet)
 # ---------------------------------------------------------------------------
 
 # Source directories the Curator monitors (READ-ONLY).
 # Ordered by epistemic authority: 03_Notes (human verified) > 02_Wiki > rest.
-DEFAULT_RAW_DIRS = ["02_Wiki", "03_Notes", "04_Resources"]
-
-# Curator internal hidden directory
-INTERNAL_DIR = ".curator"
-
-# Collections data-plane inside .curator/
-DEFAULT_COLLECTIONS_DIR = ".curator/Collections"
-
-# Transient pipeline workspace for async/background v0.2.1 jobs.
-STAGING_DIR = ".curator/staging"
+DEFAULT_RAW_DIRS = [consts.DIR_WIKI, consts.DIR_NOTES, consts.DIR_RESOURCES]
 
 # Obsidian vault top-level directories (README.md topology §2)
 VAULT_TOPOLOGY = (
-    "00_System",       # Scripts & Templates
-    "01_Workspaces",   # Active agent projects
-    "02_Wiki",         # Shared truth — agent-managed knowledge base
-    "03_Notes",        # Human-verified atomic knowledge
-    "04_Resources",    # External reference PDFs & Docs (read-only)
-    "05_Assets",       # System byproducts (Zotero assets, images)
-    "06_Archives",     # Terminated projects & legacy data (read-only)
+    consts.DIR_SYSTEM,
+    consts.DIR_WORKSPACES,
+    consts.DIR_WIKI,
+    consts.DIR_NOTES,
+    consts.DIR_RESOURCES,
+    consts.DIR_ASSETS,
+    consts.DIR_ARCHIVES,
 )
 
 # L1-L4 subdirectories under Collections/
 COLLECTION_LAYERS = (
-    "01_Contexts",    # L1: 1:1 hash-matched context summaries
-    "02_Atoms",       # L2: Irreducible atomic knowledge units
-    "03_Concepts",    # L3: High-level conceptual clusters of atoms
-    "04_Exhibitions", # L4: Terminal packaged contexts for agents (Artists)
+    consts.LAYER_L1,
+    consts.LAYER_L2,
+    consts.LAYER_L3,
+    consts.LAYER_L4,
 )
 
-# Top-level routing / control-plane files inside .curator/
-OVERVIEW_FILE = "overview.md"
-INDEX_FILE    = "index.md"
-LOG_FILE      = "log.md"
-LEDGER_FILE   = "ledger.md"
-
-CONFIG_FILE = "config.yml"
-STATE_DB    = "state.sqlite"
 
 
 @dataclass
@@ -90,17 +75,17 @@ class WikiPaths:
     @property
     def internal(self) -> Path:
         """The hidden `.curator/` directory."""
-        return self.root / INTERNAL_DIR
+        return self.root / consts.INTERNAL_DIR
 
     @property
     def collections(self) -> Path:
         """`.curator/Collections/` — the DAG knowledge lake."""
-        return self.root / (self.collections_dir_override or DEFAULT_COLLECTIONS_DIR)
+        return self.root / (self.collections_dir_override or consts.DEFAULT_COLLECTIONS_DIR)
 
     @property
     def staging(self) -> Path:
         """`.curator/staging/` — transient files for background ingest jobs."""
-        return self.root / STAGING_DIR
+        return self.root / consts.STAGING_DIR
 
     # Backward-compatible alias so existing callers of `paths.wiki` still work
     @property
@@ -114,22 +99,22 @@ class WikiPaths:
     @property
     def contexts(self) -> Path:
         """L1: `.curator/Collections/01_Contexts/`"""
-        return self.collections / "01_Contexts"
+        return self.collections / consts.LAYER_L1
 
     @property
     def atoms(self) -> Path:
         """L2: `.curator/Collections/02_Atoms/`"""
-        return self.collections / "02_Atoms"
+        return self.collections / consts.LAYER_L2
 
     @property
     def concepts(self) -> Path:
         """L3: `.curator/Collections/03_Concepts/`"""
-        return self.collections / "03_Concepts"
+        return self.collections / consts.LAYER_L3
 
     @property
     def exhibitions(self) -> Path:
         """L4: `.curator/Collections/04_Exhibitions/`"""
-        return self.collections / "04_Exhibitions"
+        return self.collections / consts.LAYER_L4
 
     # ------------------------------------------------------------------
     # Control-plane routing files
@@ -137,31 +122,35 @@ class WikiPaths:
 
     @property
     def overview(self) -> Path:
-        return self.internal / OVERVIEW_FILE
+        """Top-level domain manifest."""
+        return self.internal / consts.OVERVIEW_FILE
 
     @property
     def index(self) -> Path:
-        return self.internal / INDEX_FILE
+        """DAG routing table."""
+        return self.internal / consts.INDEX_FILE
 
     @property
     def log(self) -> Path:
-        return self.internal / LOG_FILE
+        """Append-only system event log."""
+        return self.internal / consts.LOG_FILE
 
     @property
     def ledger(self) -> Path:
-        return self.internal / LEDGER_FILE
-
-    # ------------------------------------------------------------------
-    # Operational files
-    # ------------------------------------------------------------------
+        """HITL correction record."""
+        return self.internal / consts.LEDGER_FILE
 
     @property
     def config_file(self) -> Path:
-        return self.internal / CONFIG_FILE
+        """`.curator/config.yml`"""
+        return self.internal / consts.CONFIG_FILE
 
     @property
     def state_db(self) -> Path:
-        return self.internal / STATE_DB
+        """SQLite metadata & provenance DB."""
+        return self.internal / consts.STATE_DB
+
+
 
     # ------------------------------------------------------------------
     # QMD search-engine state — kept inside the project so it travels with
@@ -176,7 +165,7 @@ class WikiPaths:
     @property
     def qmd_config_file(self) -> Path:
         """qmd's per-project YAML config (collection definitions + contexts)."""
-        return self.qmd_dir / "index.yml"
+        return self.qmd_dir / consts.FILE_INDEX_YML
 
     @property
     def qmd_db(self) -> Path:
@@ -198,46 +187,20 @@ DEFAULT_CONFIG: dict = {
     "version": 2,
     "paths": {
         "raw_dirs": DEFAULT_RAW_DIRS,
-        "collections_dir": DEFAULT_COLLECTIONS_DIR,
+        "collections_dir": consts.DEFAULT_COLLECTIONS_DIR,
     },
     "llm": {
-        # --- Ollama settings ---
-        "model": "qwen2.5:7b",
-        "host": "http://localhost:11434",
-        # --- Antigravity settings (Gemini-family cloud models via agy) ---
-        "antigravity_flash_model": "gemini-3.5-flash",
-        "antigravity_think_model": "gemini-3.1-pro-preview",
-        # thinking mode — used for L2 Fragment extraction (slower, higher quality)
-        "temperature": 0.3,
-        "thinking": True,
-        # v0.2.1: create L1 Contexts from parser structure immediately, then
-        # queue slower L2/L3 extraction in the background.
-        "instant_l1": True,
-        # primary: 'ollama' | 'claude-code' | 'antigravity-cli' | ''
-        #   ''  → legacy auto/provider field takes effect
-        "primary": "antigravity-cli",
-        # fallback: 'ollama' | 'claude-code' | 'antigravity-cli' | ''
-        #   explicit failover backend; '' = use legacy hardcoded fallback logic
+        # 'provider::model' format — both primary and fallback encode provider + model together
+        "primary":  f"{consts.BACKEND_ANTIGRAVITY_CLI}::{consts.DEFAULT_ANTIGRAVITY_MODEL}",
         "fallback": "",
-        # --- Cloud provider selection ---
-        # 'gemini' | 'claude' | 'openai'
-        "cloud_provider": "gemini",
-        # --- Claude settings ---
-        "claude_model": "claude-sonnet-4-6",
-        "claude_think_model": "claude-opus-4-7",
-        # --- OpenAI settings ---
-        "openai_model": "gpt-4.1",
-        "openai_think_model": "o3",
-        # --- Failover / multi-host settings ---
-        # Set to remote Ollama URL (e.g. linux server) when running on macOS.
-        # FailoverClient([OllamaClient(remote), cloud_client]) is used automatically.
-        "remote_ollama_host": "",
-        "probe_interval": 60,    # seconds between background probes; 0 = disable
-        # --- Vision / image inference ---
-        # Ollama model to use for image description. '' = use main model if it
-        # supports vision, else skip image inference.
-        # Examples: 'gemma4:31b-it', 'gemma3:12b', 'llava:latest', 'qwen2.5-vl:7b'
-        "vision_model": "",
+        "temperature": 0.3,
+        "instant_l1": True,
+        "probe_interval": 60,
+        # ollama only needs connection settings (model lives in primary/fallback value)
+        consts.BACKEND_OLLAMA: {
+            "host":    consts.DEFAULT_OLLAMA_HOST,
+            "timeout": consts.DEFAULT_TIMEOUT,
+        },
     },
     "search": {
         "backend": "qmd",
@@ -281,27 +244,20 @@ DEFAULT_CONFIG: dict = {
 }
 
 
+def split_provider_model(value: str) -> tuple[str, str]:
+    """Split 'provider::model' → (provider, model). Model may be empty."""
+    provider, _, model = value.partition("::")
+    return provider.strip(), model.strip()
+
+
+def join_provider_model(provider: str, model: str) -> str:
+    """Build 'provider::model'. Returns just provider when model is empty."""
+    return f"{provider}::{model}" if model else provider
+
+
 def get_curator_persona(config: dict) -> dict:
     """Return the Curator (vault-level) persona dict, falling back to DEFAULT_CONFIG persona."""
     return config.get("persona") or DEFAULT_CONFIG["persona"]
-
-
-def _migrate_legacy_llm_keys(config: dict) -> dict:
-    """Map legacy Gemini model key names to Antigravity key names in memory."""
-    llm_cfg = config.get("llm")
-    if not isinstance(llm_cfg, dict):
-        return config
-    legacy_map = {
-        "gemini_flash_model": "antigravity_flash_model",
-        "gemini_think_model": "antigravity_think_model",
-    }
-    for old_key, new_key in legacy_map.items():
-        default_value = DEFAULT_CONFIG.get("llm", {}).get(new_key)
-        if old_key in llm_cfg and (
-            new_key not in llm_cfg or llm_cfg.get(new_key) == default_value
-        ):
-            llm_cfg[new_key] = llm_cfg[old_key]
-    return config
 
 
 def get_global_config_dir() -> Path:
@@ -353,10 +309,10 @@ def load_config(paths: WikiPaths) -> dict:
     """Load the Curator's config.yml, falling back to defaults for missing keys."""
     import copy
 
-    merged = _migrate_legacy_llm_keys(copy.deepcopy(DEFAULT_CONFIG))
+    merged = copy.deepcopy(DEFAULT_CONFIG)
 
     # 1. Load from global config file if it exists
-    global_cfg_file = get_global_config_dir() / "config.yml"
+    global_cfg_file = get_global_config_dir() / consts.FILE_CONFIG_YML
     if global_cfg_file.exists():
         try:
             with global_cfg_file.open("r", encoding="utf-8") as f:
@@ -366,6 +322,12 @@ def load_config(paths: WikiPaths) -> dict:
                     merged[key] = {**merged[key], **val}
                 else:
                     merged[key] = val
+        except yaml.YAMLError as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Global config '%s' has invalid YAML — using defaults. Error: %s",
+                global_cfg_file, e,
+            )
         except Exception:
             pass
 
@@ -379,10 +341,33 @@ def load_config(paths: WikiPaths) -> dict:
                     merged[key] = {**merged[key], **val}
                 else:
                     merged[key] = val
+        except yaml.YAMLError as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Vault config '%s' has invalid YAML — using defaults. Error: %s",
+                paths.config_file, e,
+            )
         except Exception:
             pass
 
-    return _migrate_legacy_llm_keys(merged)
+    _migrate_llm_config(merged)
+    return merged
+
+
+def _migrate_llm_config(config: dict) -> None:
+    """Strip obsolete fields from llm config. No backward compat for old formats."""
+    if "llm" not in config or not isinstance(config["llm"], dict):
+        return
+    llm = config["llm"]
+    ollama = llm.setdefault(consts.BACKEND_OLLAMA, {})
+    # Remove obsolete keys
+    for key in ("vision_model", "remote_ollama_host", "model",
+                "antigravity_model", "claude_model", "codex_model",
+                consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CLAUDE_CODE, consts.BACKEND_CODEX_CLI,
+                "host", "timeout", "provider", "cloud_provider"):
+        llm.pop(key, None)
+    for key in ("model", "remote_ollama_host", "vision_model"):
+        ollama.pop(key, None)
 
 
 def paths_from_config(root: Path, config: dict | None = None) -> WikiPaths:
@@ -419,7 +404,7 @@ def find_wiki_root(start: Path | None = None) -> Path | None:
     import yaml as _yaml
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
-        cfg_file = candidate / INTERNAL_DIR / CONFIG_FILE
+        cfg_file = candidate / consts.INTERNAL_DIR / consts.CONFIG_FILE
         if cfg_file.exists():
             try:
                 data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
@@ -432,16 +417,25 @@ def find_wiki_root(start: Path | None = None) -> Path | None:
 
 
 def find_workspace_curate_yml(vault_root: Path) -> Optional[Path]:
-    """Return the curate.yml path from WORKSPACE_PATH env var or active workspace.
+    """Return the curate.yml path from WORKSPACE_PATH env var or vault workspace scan.
 
     Resolution order:
     1. WORKSPACE_PATH env var (if set and curate.yml exists there)
-    2. None — caller falls back to unscoped search
+    2. Single curate.yml found under vault_root/01_Workspaces/ (unambiguous match)
+    3. None — caller falls back to unscoped search
     """
     import os
     env_ws = os.environ.get("WORKSPACE_PATH")
     if env_ws:
-        candidate = Path(env_ws).expanduser().resolve() / "curate.yml"
+        candidate = Path(env_ws).expanduser().resolve() / consts.FILE_CURATE_YML
         if candidate.exists():
             return candidate
+
+    # Fallback: scan vault workspaces directory for a single curate.yml
+    workspaces_dir = vault_root / consts.DIR_WORKSPACES
+    if workspaces_dir.is_dir():
+        found = list(workspaces_dir.rglob(consts.FILE_CURATE_YML))
+        if len(found) == 1:
+            return found[0]
+
     return None

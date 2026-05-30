@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import config as cfg
+from . import constants as consts
 from . import db
 from . import ingest_llm
 from .llm import build_client
@@ -48,7 +49,7 @@ class WorkerCallbacks(ingest_llm.IngestCallbacks):
         db.update_job_progress(
             self.paths.state_db,
             self.job_id,
-            phase="l2_atoms",
+            phase=consts.PHASE_L2,
             progress=0.25,
             progress_current=0,
             progress_total=fragment_count,
@@ -60,7 +61,7 @@ class WorkerCallbacks(ingest_llm.IngestCallbacks):
         db.update_job_progress(
             self.paths.state_db,
             self.job_id,
-            phase="l2_atoms",
+            phase=consts.PHASE_L2,
             progress=0.5,
             progress_current=self.pages_seen,
         )
@@ -69,7 +70,7 @@ class WorkerCallbacks(ingest_llm.IngestCallbacks):
         db.update_job_progress(
             self.paths.state_db,
             self.job_id,
-            phase="l3_concepts",
+            phase=consts.PHASE_L3,
             progress=0.75,
             progress_current=0,
             progress_total=fragment_count,
@@ -80,7 +81,7 @@ class WorkerCallbacks(ingest_llm.IngestCallbacks):
         db.update_job_progress(
             self.paths.state_db,
             self.job_id,
-            phase="l3_concepts",
+            phase=consts.PHASE_L3,
             progress=0.9,
             progress_current=self.pages_seen,
         )
@@ -109,7 +110,7 @@ def enqueue_l2_l3_for_sources(
             db.enqueue_job(
                 paths.state_db,
                 int(row["id"]),
-                "l2_atoms",
+                consts.PHASE_L2,
                 trigger=trigger,
                 source_name=Path(str(row["relpath"])).name,
             )
@@ -129,14 +130,14 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
         return {"ok": True, "job": None, "message": "No queued jobs."}
 
     job_id = int(job["id"])
-    job_type = str(job.get("job_type") or "l2_atoms")
+    job_type = str(job.get("job_type") or consts.PHASE_L2)
     source_id = int(job["source_id"])
     retry_count = int(job.get("retry_count") or 0)
     config = config or cfg.load_config(paths)
     client = build_client(config)
 
     try:
-        if job_type != "l2_atoms":
+        if job_type != consts.PHASE_L2:
             raise ValueError(f"Unsupported job_type: {job_type}")
 
         db.update_job_progress(paths.state_db, job_id, phase="starting", progress=0.05)
@@ -149,7 +150,6 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
             client,
             callbacks,
             mode="batch",
-            thinking_for_extraction=False,
         )
 
         if result.error:
@@ -164,7 +164,7 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
         # subtract 1 because this job is still marked 'running' in the count
         if remaining_l2 <= 1:
             _log.info("No pending L2 jobs after source %d; triggering L3 clustering.", source_id)
-            db.update_job_progress(paths.state_db, job_id, phase="l3_concepts", progress=0.75)
+            db.update_job_progress(paths.state_db, job_id, phase=consts.PHASE_L3, progress=0.75)
             try:
                 l3_changes = ingest_llm.run_l3_from_existing_atoms(
                     paths, client, lambda: WorkerCallbacks(paths, job_id, source_id)
@@ -329,13 +329,13 @@ class IngestWorker(threading.Thread):
             exh_ids: set[str] = set()
 
             def _classify(nid: str) -> None:
-                if nid.startswith("CTX-"):
+                if nid.startswith(f"{consts.PREFIX_L1}-"):
                     ctx_ids.add(nid)
-                elif nid.startswith("ATM-"):
+                elif nid.startswith(f"{consts.PREFIX_L2}-"):
                     atm_ids.add(nid)
-                elif nid.startswith("CON-"):
+                elif nid.startswith(f"{consts.PREFIX_L3}-"):
                     con_ids.add(nid)
-                elif nid.startswith("EXH-"):
+                elif nid.startswith(f"{consts.PREFIX_L4}-"):
                     exh_ids.add(nid)
 
             for edge in edges:
@@ -350,13 +350,13 @@ class IngestWorker(threading.Thread):
                     _classify(str(edge["to_id"]))
                 edges.extend(downstream)
 
-            LAYER_X = {"CTX": 0, "ATM": 320, "CON": 640, "EXH": 960}
-            COLORS = {"CTX": "1", "ATM": "3", "CON": "4", "EXH": "6"}
+            LAYER_X = {consts.PREFIX_L1: 0, consts.PREFIX_L2: 320, consts.PREFIX_L3: 640, consts.PREFIX_L4: 960}
+            COLORS = {consts.PREFIX_L1: "1", consts.PREFIX_L2: "3", consts.PREFIX_L3: "4", consts.PREFIX_L4: "6"}
             SUBDIRS = {
-                "CTX": "01_Contexts",
-                "ATM": "02_Atoms",
-                "CON": "03_Concepts",
-                "EXH": "04_Exhibitions",
+                consts.PREFIX_L1: consts.LAYER_L1,
+                consts.PREFIX_L2: consts.LAYER_L2,
+                consts.PREFIX_L3: consts.LAYER_L3,
+                consts.PREFIX_L4: consts.LAYER_L4,
             }
 
             def _node(nid: str, prefix: str, x: int, y: int) -> dict:
@@ -373,13 +373,13 @@ class IngestWorker(threading.Thread):
 
             nodes = []
             for i, nid in enumerate(sorted(ctx_ids)):
-                nodes.append(_node(nid, "CTX", LAYER_X["CTX"], i * 90))
+                nodes.append(_node(nid, consts.PREFIX_L1, LAYER_X[consts.PREFIX_L1], i * 90))
             for i, nid in enumerate(sorted(atm_ids)):
-                nodes.append(_node(nid, "ATM", LAYER_X["ATM"], i * 90))
+                nodes.append(_node(nid, consts.PREFIX_L2, LAYER_X[consts.PREFIX_L2], i * 90))
             for i, nid in enumerate(sorted(con_ids)):
-                nodes.append(_node(nid, "CON", LAYER_X["CON"], i * 150))
+                nodes.append(_node(nid, consts.PREFIX_L3, LAYER_X[consts.PREFIX_L3], i * 150))
             for i, nid in enumerate(sorted(exh_ids)):
-                nodes.append(_node(nid, "EXH", LAYER_X["EXH"], i * 150))
+                nodes.append(_node(nid, consts.PREFIX_L4, LAYER_X[consts.PREFIX_L4], i * 150))
 
             canvas_edges = [
                 {

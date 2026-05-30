@@ -13,6 +13,7 @@ Used by:
 """
 
 from __future__ import annotations
+from . import constants as consts
 
 import fnmatch
 from dataclasses import dataclass, field
@@ -108,7 +109,7 @@ def load_curate_spec(workspace_path: Path) -> Optional[CurateSpec]:
     Returns None if the file does not exist. Raises ValueError if the
     file exists but contains invalid values.
     """
-    curate_file = workspace_path / "curate.yml"
+    curate_file = workspace_path / consts.FILE_CURATE_YML
     if not curate_file.exists():
         return None
 
@@ -191,7 +192,7 @@ def write_exhibition_to_spec(workspace_path: Path, exh_id: str) -> None:
     Reads the file as raw text and does a targeted replacement so that
     comments and formatting are preserved.
     """
-    curate_file = workspace_path / "curate.yml"
+    curate_file = workspace_path / consts.FILE_CURATE_YML
     if not curate_file.exists():
         return
     text = curate_file.read_text(encoding="utf-8")
@@ -241,7 +242,7 @@ def find_workspaces(vault_root: Path) -> list[tuple[Path, CurateSpec]]:
 
     Silently skips directories where curate.yml is absent or malformed.
     """
-    workspaces_dir = vault_root / "01_Workspaces"
+    workspaces_dir = vault_root / consts.DIR_WORKSPACES
     if not workspaces_dir.exists():
         return []
 

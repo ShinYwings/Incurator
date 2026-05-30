@@ -10,6 +10,7 @@ def _hex_to_color_category(hex_color: str) -> str:
     """Map Zotero hex color to a human-readable color category name."""
     color_map = {
         "#ffd400": "yellow",
+        "#fee832": "yellow",  # Alternate/iOS yellow
         "#ff6666": "red",
         "#5fb236": "green",
         "#2ea8e5": "blue",

@@ -5,6 +5,7 @@ without overwriting user-authored rules outside managed blocks.
 """
 
 from __future__ import annotations
+from .. import constants as consts
 
 import re
 from dataclasses import dataclass, field
@@ -59,7 +60,7 @@ def detect_workspace_scenario(workspace: Path, agent: str) -> str:
       "full"       — curate.yml and .agents/curator/runtime/{agent}.md both exist;
                      Curator is already integrated.
     """
-    has_curate = (workspace / "curate.yml").exists()
+    has_curate = (workspace / consts.FILE_CURATE_YML).exists()
     try:
         top_target, _ = top_level_target(_normalize_agent(agent))
     except ValueError:
@@ -120,10 +121,10 @@ def prepare_workspace(
 
 
 _CLIENT_INFO_MAP = {
-    "claude": "claude-code",
-    "gemini": "antigravity",
-    "antigravity": "antigravity",
-    "codex": "codex",
+    consts.CLOUD_CLAUDE: consts.BACKEND_CLAUDE_CODE,
+    consts.CLOUD_GEMINI: consts.BACKEND_ANTIGRAVITY_CLI,
+    consts.CLOUD_ANTIGRAVITY: consts.BACKEND_ANTIGRAVITY_CLI,
+    "codex": consts.BACKEND_CODEX_CLI,
 }
 
 
@@ -192,9 +193,9 @@ def render_mcp_snippet(*, vault_root: Path, workspace: Path) -> str:
 def _normalize_agent(agent: str) -> str:
     normalized = (agent or "codex").strip().lower()
     aliases = {
-        "claude": "claude-code",
-        "gemini": "antigravity",
-        "antigravity-gemini": "antigravity",
+        consts.CLOUD_CLAUDE: consts.BACKEND_CLAUDE_CODE,
+        consts.CLOUD_GEMINI: consts.BACKEND_ANTIGRAVITY_CLI,
+        "antigravity-gemini": consts.BACKEND_ANTIGRAVITY_CLI,
     }
     normalized = aliases.get(normalized, normalized)
     if normalized not in VALID_AGENTS:
@@ -221,7 +222,7 @@ def _values(vault_root: Path, workspace: Path, agent: str) -> dict[str, str]:
         "workspace_path": str(workspace),
         "vault_root": str(vault_root),
         "agent_runtime": agent,
-        "curate_yml_path": str(workspace / "curate.yml"),
+        "curate_yml_path": str(workspace / consts.FILE_CURATE_YML),
     }
 
 
@@ -232,7 +233,7 @@ def _ensure_curate_yml(
     force: bool,
     result: WorkspacePrepareResult,
 ) -> None:
-    curate_path = workspace / "curate.yml"
+    curate_path = workspace / consts.FILE_CURATE_YML
     if curate_path.exists() and not force:
         # Heal stale vault_root without touching any other fields
         try:
@@ -324,7 +325,7 @@ def _install_rule_templates(
     if install_managed_block:
         # Install managed blocks for ALL known agents — don't guess which one
         # is connecting. Every agent session-start file gets the Curator block.
-        for _install_agent in ("codex", "claude-code", "antigravity"):
+        for _install_agent in (consts.BACKEND_CODEX_CLI, consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI):
             try:
                 _target_path, _block_tmpl = top_level_target(_install_agent)
                 _block = _render_template(
@@ -339,17 +340,17 @@ def _install_rule_templates(
 
 def top_level_target(agent: str) -> tuple[str, str]:
     """Return (rule_file_path, managed_block_template) for an agent."""
-    if agent == "codex":
+    if agent == consts.BACKEND_CODEX_CLI:
         return "AGENTS.md", "managed/AGENTS.md"
     if agent == "claude-code":
         return "CLAUDE.md", "managed/CLAUDE.md"
-    if agent == "antigravity":
+    if agent == consts.BACKEND_ANTIGRAVITY_CLI:
         return ".antigravity/rules.yaml", "managed/antigravity.rules.yaml"
     raise ValueError(f"unsupported agent: {agent}")
 
 
 def _upsert_managed_block(path: Path, block: str, agent: str, result: WorkspacePrepareResult) -> None:
-    if agent == "antigravity":
+    if agent == consts.BACKEND_ANTIGRAVITY_CLI:
         start, end = ANTIGRAVITY_START, ANTIGRAVITY_END
     else:
         start, end = MANAGED_START, MANAGED_END
@@ -371,7 +372,7 @@ def _upsert_managed_block(path: Path, block: str, agent: str, result: WorkspaceP
 
 def make_rule_integration_prompt(existing_content: str, agent: str, workspace_path: str) -> str:
     """Build the LLM prompt that integrates Curator hooks into an existing rule file."""
-    fmt = "YAML" if agent == "antigravity" else "Markdown"
+    fmt = "YAML" if agent == consts.BACKEND_ANTIGRAVITY_CLI else "Markdown"
     return (
         "You are integrating Curator knowledge navigation into an existing agent rule file.\n\n"
         "Curator requires three behavioral rules:\n"

@@ -81,7 +81,7 @@ def classify_intent(
     ]
 
     try:
-        response = client.chat(messages, thinking=False, temperature=0.0)
+        response = client.chat(messages, temperature=0.0)
     except LLMError:
         return IntentResult(intent="wiki", raw_response="<classification failed>")
 
@@ -109,6 +109,6 @@ def generate_chitchat_reply(
     ]
 
     try:
-        return client.chat(messages, thinking=False, temperature=0.7).strip()
+        return client.chat(messages, temperature=0.7).strip()
     except LLMError:
         return "Hi! Ask me a question about your wiki and I'll search for an answer."

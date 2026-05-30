@@ -38,21 +38,23 @@ export class AIAgentSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
+    containerEl.addClass("ai-agent-settings-root");
 
-    // ── Header ──
-    containerEl.createEl("h1", { text: "AI Agent Settings" });
+    // ═══════════════════════════════════════════════════════════════
+    // 1. AI Provider
+    // ═══════════════════════════════════════════════════════════════
+    const providerSection = containerEl.createDiv("ai-agent-settings-section");
+    this.renderSectionHeader(providerSection, "AI Provider", "bot");
 
-    // ── Provider Selection ──
-    containerEl.createEl("h2", { text: "LLM Provider" });
-
-    new Setting(containerEl)
+    new Setting(providerSection)
       .setName("Provider")
-      .setDesc("Select the LLM provider for AI operations.")
+      .setDesc("LLM backend for chat and inline editing.")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("antigravity", "Google Antigravity (agy login)")
-          .addOption("claude", "Anthropic Claude (Claude Code login)")
-          .addOption("openai", "Codex (ChatGPT login)")
+          .addOption("antigravity", "Google Antigravity")
+          .addOption("claude", "Anthropic Claude")
+          .addOption("openai", "OpenAI Codex")
+          .addOption("ollama", "Ollama (local)")
           .setValue(this.plugin.settings.provider)
           .onChange(async (value: string) => {
             const provider = value as LLMProvider;
@@ -60,157 +62,262 @@ export class AIAgentSettingTab extends PluginSettingTab {
             this.plugin.settings.model =
               getDefaultModel(this.plugin.getAvailableModels(), provider) || "";
             await this.plugin.saveSettings();
-            this.display(); // Re-render to update model field
+            this.display();
           })
       );
 
-    new Setting(containerEl)
-      .setName("Model")
-      .setDesc("Model to use for the selected provider.")
-      .addDropdown((dropdown) => {
-        const provider = this.plugin.settings.provider;
-        const catalogue = this.plugin.getAvailableModels();
-        const options = catalogue[provider] || [];
-        for (const option of options) {
-          const suffix = option.tier === "flash" || option.tier === "stable" ? "" : ` (${option.tier})`;
-          dropdown.addOption(option.id, `${option.label}${suffix}`);
-        }
-        dropdown.addOption(CUSTOM_MODEL_VALUE, "Custom...");
-        dropdown
-          .setValue(
-            getModelOption(catalogue, provider, this.plugin.settings.model)
-              ? this.plugin.settings.model
-              : CUSTOM_MODEL_VALUE
-          )
-          .onChange(async (value) => {
-            if (value === CUSTOM_MODEL_VALUE) {
-              if (getModelOption(catalogue, provider, this.plugin.settings.model)) {
-                this.plugin.settings.model = "";
-              }
-            } else {
-              this.plugin.settings.model = value;
-            }
-            await this.plugin.saveSettings();
-            this.display();
-          });
-      });
-
-    if (
-      !getModelOption(
-        this.plugin.getAvailableModels(),
-        this.plugin.settings.provider,
-        this.plugin.settings.model
-      )
-    ) {
-      new Setting(containerEl)
-        .setName("Custom model")
-        .setDesc("Use an exact provider model id.")
+    if (this.plugin.settings.provider === "ollama") {
+      // Ollama: host URL + model text field with fetch button
+      new Setting(providerSection)
+        .setName("Ollama host")
+        .setDesc("URL of the running Ollama server.")
         .addText((text) =>
           text
-            .setPlaceholder(
-              getDefaultModel(
-                this.plugin.getAvailableModels(),
-                this.plugin.settings.provider
-              ) || "exact-model-id"
-            )
+            .setPlaceholder("http://localhost:11434")
+            .setValue(this.plugin.settings.ollamaHost || "http://localhost:11434")
+            .onChange(async (value) => {
+              this.plugin.settings.ollamaHost = value.trim() || "http://localhost:11434";
+              await this.plugin.saveSettings();
+            })
+        );
+
+      const modelSetting = new Setting(providerSection)
+        .setName("Model")
+        .setDesc("Type a model name or fetch from server.")
+        .addText((text) =>
+          text
+            .setPlaceholder("qwen2.5:7b")
             .setValue(this.plugin.settings.model)
             .onChange(async (value) => {
-              this.plugin.settings.model =
-                value.trim() ||
+              this.plugin.settings.model = value.trim();
+              await this.plugin.saveSettings();
+            })
+        );
+
+      modelSetting.addButton((btn) =>
+        btn.setButtonText("Fetch models").onClick(async () => {
+          btn.setDisabled(true);
+          btn.setButtonText("Fetching…");
+          try {
+            const host = (this.plugin.settings.ollamaHost || "http://localhost:11434").replace(/\/$/, "");
+            const res = await fetch(`${host}/api/tags`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json() as { models?: Array<{ name: string }> };
+            const names = (data.models || []).map((m) => m.name).filter(Boolean);
+            if (names.length === 0) {
+              new Notice("No models found. Run: ollama pull <model>");
+            } else {
+              new Notice(`Available: ${names.join(", ")}`);
+              if (!this.plugin.settings.model) {
+                this.plugin.settings.model = names[0];
+                await this.plugin.saveSettings();
+                this.display();
+              }
+            }
+          } catch (e) {
+            new Notice(`Could not reach Ollama: ${e}`);
+          } finally {
+            btn.setDisabled(false);
+            btn.setButtonText("Fetch models");
+          }
+        })
+      );
+    } else {
+      new Setting(providerSection)
+        .setName("Model")
+        .addDropdown((dropdown) => {
+          const provider = this.plugin.settings.provider;
+          const catalogue = this.plugin.getAvailableModels();
+          const options = catalogue[provider] || [];
+          for (const option of options) {
+            dropdown.addOption(option.id, option.label);
+          }
+          dropdown.addOption(CUSTOM_MODEL_VALUE, "Custom...");
+          dropdown
+            .setValue(
+              getModelOption(catalogue, provider, this.plugin.settings.model)
+                ? this.plugin.settings.model
+                : CUSTOM_MODEL_VALUE
+            )
+            .onChange(async (value) => {
+              if (value === CUSTOM_MODEL_VALUE) {
+                if (getModelOption(catalogue, provider, this.plugin.settings.model)) {
+                  this.plugin.settings.model = "";
+                }
+              } else {
+                this.plugin.settings.model = value;
+              }
+              await this.plugin.saveSettings();
+              this.display();
+            });
+        });
+
+      if (
+        !getModelOption(
+          this.plugin.getAvailableModels(),
+          this.plugin.settings.provider,
+          this.plugin.settings.model
+        )
+      ) {
+        new Setting(providerSection)
+          .setName("Custom model ID")
+          .addText((text) =>
+            text
+              .setPlaceholder(
                 getDefaultModel(
                   this.plugin.getAvailableModels(),
                   this.plugin.settings.provider
-                );
-              await this.plugin.saveSettings();
-            })
-      );
+                ) || "exact-model-id"
+              )
+              .setValue(this.plugin.settings.model)
+              .onChange(async (value) => {
+                this.plugin.settings.model =
+                  value.trim() ||
+                  getDefaultModel(
+                    this.plugin.getAvailableModels(),
+                    this.plugin.settings.provider
+                  );
+                await this.plugin.saveSettings();
+              })
+          );
+      }
     }
 
-    // ── Provider Parameters ──
-    containerEl.createEl("h2", { text: "Provider Parameters" });
+    // Show only the parameter for the CURRENT provider + model
+    const currentProvider = this.plugin.settings.provider;
+    const currentModelOption = getModelOption(
+      this.plugin.getAvailableModels(),
+      currentProvider,
+      this.plugin.settings.model
+    );
+    const modelThinks = currentProvider === "claude" || currentProvider === "openai";
 
-    new Setting(containerEl)
-      .setName("Codex thinking level")
-      .setDesc("Passed to Codex as model_reasoning_effort.")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("low", "Low")
-          .addOption("medium", "Medium")
-          .addOption("high", "High")
-          .addOption("xhigh", "XHigh")
-          .setValue(this.plugin.settings.codexReasoningEffort)
-          .onChange(async (value) => {
-            this.plugin.settings.codexReasoningEffort =
-              value as CodexReasoningEffort;
-            await this.plugin.saveSettings();
-          })
-      );
+    // Model info line: context window
+    if (currentModelOption?.contextWindow) {
+      const ctxK = Math.round(currentModelOption.contextWindow / 1000);
+      new Setting(providerSection)
+        .setName("Context window")
+        .setDesc(`This model supports up to ${ctxK}K tokens of context.`);
+    }
 
-    new Setting(containerEl)
-      .setName("Claude effort")
-      .setDesc("Passed to Claude Code as --effort.")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("low", "Low")
-          .addOption("medium", "Medium")
-          .addOption("high", "High")
-          .addOption("xhigh", "XHigh")
-          .addOption("max", "Max")
-          .setValue(this.plugin.settings.claudeEffort)
-          .onChange(async (value) => {
-            this.plugin.settings.claudeEffort = value as ClaudeEffort;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Antigravity print timeout")
-      .setDesc("Antigravity CLI does not expose a thinking level; this controls --print-timeout.")
-      .addText((text) =>
-        text
-          .setPlaceholder("300")
-          .setValue(String(this.plugin.settings.antigravityPrintTimeoutSec))
-          .onChange(async (value) => {
-            const seconds = Number.parseInt(value, 10);
-            if (Number.isFinite(seconds)) {
-              this.plugin.settings.antigravityPrintTimeoutSec = Math.max(30, seconds);
+    if (currentProvider === "openai" && modelThinks) {
+      new Setting(providerSection)
+        .setName("Thinking level")
+        .setDesc("Controls reasoning depth.")
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption("low", "Low")
+            .addOption("medium", "Medium")
+            .addOption("high", "High")
+            .addOption("xhigh", "XHigh")
+            .setValue(this.plugin.settings.codexReasoningEffort)
+            .onChange(async (value) => {
+              this.plugin.settings.codexReasoningEffort =
+                value as CodexReasoningEffort;
               await this.plugin.saveSettings();
-            }
-          })
-      );
+            })
+        );
+    } else if (currentProvider === "claude" && modelThinks) {
+      new Setting(providerSection)
+        .setName("Thinking level")
+        .setDesc("Controls reasoning depth.")
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption("low", "Low")
+            .addOption("medium", "Medium")
+            .addOption("high", "High")
+            .addOption("xhigh", "XHigh")
+            .addOption("max", "Max")
+            .setValue(this.plugin.settings.claudeEffort)
+            .onChange(async (value) => {
+              this.plugin.settings.claudeEffort = value as ClaudeEffort;
+              await this.plugin.saveSettings();
+            })
+        );
+    } else if (currentProvider === "antigravity") {
+      new Setting(providerSection)
+        .setName("Response timeout (seconds)")
+        .setDesc("Max wait for agy to finish generating a response.")
+        .addText((text) =>
+          text
+            .setPlaceholder("300")
+            .setValue(String(this.plugin.settings.antigravityPrintTimeoutSec))
+            .onChange(async (value) => {
+              const seconds = Number.parseInt(value, 10);
+              if (Number.isFinite(seconds)) {
+                this.plugin.settings.antigravityPrintTimeoutSec = Math.max(30, seconds);
+                await this.plugin.saveSettings();
+              }
+            })
+        );
+    }
 
-    containerEl.createEl("h2", { text: "Usage" });
-    this.renderUsageSummary(containerEl);
+    // Auth status inline — Ollama shows a server status check instead
+    if (currentProvider === "ollama") {
+      const ollamaRow = new Setting(providerSection).setName("Server status");
+      const ollamaBadge = ollamaRow.settingEl.createSpan("ai-agent-auth-inline-badge");
+      const checkOllama = async () => {
+        ollamaBadge.empty();
+        ollamaBadge.createSpan({ text: "Checking…" });
+        try {
+          const host = (this.plugin.settings.ollamaHost || "http://localhost:11434").replace(/\/$/, "");
+          const res = await fetch(`${host}/api/tags`);
+          if (res.ok) {
+            const data = await res.json() as { models?: Array<{ name: string }> };
+            const count = data.models?.length ?? 0;
+            ollamaBadge.empty();
+            ollamaBadge.createSpan({ cls: "ai-agent-auth-ok", text: `✓ Running — ${count} model${count !== 1 ? "s" : ""} installed` });
+          } else {
+            throw new Error(`HTTP ${res.status}`);
+          }
+        } catch {
+          ollamaBadge.empty();
+          ollamaBadge.createSpan({ cls: "ai-agent-auth-fail", text: "✗ Not reachable — run: ollama serve" });
+        }
+      };
+      ollamaRow.addButton((btn) => btn.setButtonText("Check").onClick(checkOllama));
+      checkOllama();
+    } else {
+      const authRow = new Setting(providerSection).setName("Authentication");
+      const authBadge = authRow.settingEl.createSpan("ai-agent-auth-inline-badge");
 
-    // ── Auth Status ──
-    containerEl.createEl("h2", { text: "Authentication Status" });
-    const authStatusEl = containerEl.createDiv("ai-agent-auth-status");
-    this.renderAuthStatus(authStatusEl);
+      let loginBtn: HTMLButtonElement;
+      let authPollTimer: ReturnType<typeof setInterval> | null = null;
 
-    new Setting(containerEl)
-      .setName("CLI browser login")
-      .setDesc("Open a terminal and start the selected provider's browser login flow.")
-      .addButton((button) =>
-        button
-          .setButtonText(`Login to ${this.providerLabel(this.plugin.settings.provider)}`)
-          .setCta()
-          .onClick(() => {
-            this.startProviderLogin(this.plugin.settings.provider);
-          })
-      )
-      .addButton((button) =>
-        button.setButtonText("Refresh status").onClick(() => {
-          this.plugin.authResolver.invalidate(this.plugin.settings.provider);
-          this.display();
-        })
-      );
+      const stopAuthPoll = () => {
+        if (authPollTimer !== null) { clearInterval(authPollTimer); authPollTimer = null; }
+      };
 
-    // ── Chat & Context ──
-    containerEl.createEl("h2", { text: "Chat & Context" });
+      authRow.addButton((button) => {
+        loginBtn = button.buttonEl;
+        button.setButtonText("Login").setCta().onClick(() => {
+          stopAuthPoll();
+          try {
+            this.plugin.authResolver.startLogin(this.plugin.settings.provider);
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            authBadge.empty();
+            authBadge.createSpan({ cls: "ai-agent-auth-fail", text: `✗ ${message}` });
+            return;
+          }
+          authBadge.empty();
+          authBadge.createSpan({ text: "⏳ Waiting for login..." });
+          let tries = 0;
+          authPollTimer = setInterval(() => {
+            tries++;
+            this.plugin.authResolver.invalidate(this.plugin.settings.provider);
+            this.renderAuthStatusInline(authBadge, loginBtn).then((ok) => {
+              if (ok || tries >= 22) stopAuthPoll();
+            });
+          }, 4000);
+        });
+      });
 
-    new Setting(containerEl)
+      this.renderAuthStatusInline(authBadge, loginBtn!);
+    }
+
+    new Setting(providerSection)
       .setName("Streaming responses")
-      .setDesc("Stream LLM responses token-by-token.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.streamingEnabled)
@@ -220,28 +327,9 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
-      .setName("Max context length")
-      .setDesc("Maximum token budget for the system prompt context (default 128000).")
-      .addText((text) =>
-        text
-          .setPlaceholder("128000")
-          .setValue(String(this.plugin.settings.maxContextLength))
-          .onChange(async (value) => {
-            const parsed = Number.parseInt(value, 10);
-            if (Number.isFinite(parsed) && parsed >= 4000) {
-              this.plugin.settings.maxContextLength = parsed;
-              await this.plugin.saveSettings();
-            }
-          })
-      );
-
-    // ── Editing Behavior ──
-    containerEl.createEl("h2", { text: "Editing & Rendering" });
-
-    new Setting(containerEl)
+    new Setting(providerSection)
       .setName("Diff mode")
-      .setDesc("How to display inline edit results.")
+      .setDesc("How inline edits are displayed.")
       .addDropdown((dropdown) =>
         dropdown
           .addOption("inline", "Inline highlights")
@@ -253,32 +341,46 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
-    // ── PDF Context ──
-    containerEl.createEl("h2", { text: "PDF Context" });
+    // ═══════════════════════════════════════════════════════════════
+    // 2. PDF Viewer
+    // ═══════════════════════════════════════════════════════════════
+    const pdfSection = containerEl.createDiv("ai-agent-settings-section");
+    this.renderSectionHeader(pdfSection, "PDF Viewer", "file-text");
 
-    new Setting(containerEl)
-      .setName("PDF capture mode")
-      .setDesc(
-        "How to capture the active PDF page for context. 'Both' sends text + screenshot."
-      )
+    new Setting(pdfSection)
+      .setName("Capture mode")
+      .setDesc("Text only: fast. Image only: for scanned PDFs (vision model required). Text + Image: most accurate.")
       .addDropdown((dropdown) =>
         dropdown
           .addOption("text", "Text only")
-          .addOption("image", "Image only (Vision API)")
+          .addOption("image", "Image only (Vision)")
           .addOption("both", "Text + Image")
           .setValue(this.plugin.settings.pdfCaptureMode)
           .onChange(async (value: string) => {
-            this.plugin.settings.pdfCaptureMode = value as
-              | "text"
-              | "image"
-              | "both";
+            this.plugin.settings.pdfCaptureMode = value as "text" | "image" | "both";
             await this.plugin.saveSettings();
           })
       );
 
-    new Setting(containerEl)
-      .setName("PDF window radius")
-      .setDesc("Neighboring pages to include around the current PDF page.")
+    new Setting(pdfSection)
+      .setName("Auto-search PDF for relevant pages")
+      .setDesc("Before each question, search the whole PDF for pages most relevant to your query.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.pdfRagEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.pdfRagEnabled = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // Advanced PDF settings (collapsed)
+    const pdfAdvanced = pdfSection.createEl("details", { cls: "ai-agent-settings-details" });
+    pdfAdvanced.createEl("summary", { text: "Advanced" });
+
+    new Setting(pdfAdvanced)
+      .setName("Page window radius")
+      .setDesc("Include this many pages before/after the current page (0–5).")
       .addText((text) =>
         text
           .setPlaceholder("1")
@@ -292,9 +394,8 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
-      .setName("Include PDF outline")
-      .setDesc("Send available PDF table-of-contents information to the agent.")
+    new Setting(pdfAdvanced)
+      .setName("Include table of contents")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.pdfOutlineEnabled)
@@ -304,21 +405,9 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
-      .setName("PDF local RAG")
-      .setDesc("Search open PDFs for relevant pages before each question.")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.pdfRagEnabled)
-          .onChange(async (value) => {
-            this.plugin.settings.pdfRagEnabled = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("PDF RAG top K")
-      .setDesc("Maximum matching PDF page chunks to include.")
+    new Setting(pdfAdvanced)
+      .setName("RAG top K")
+      .setDesc("Max page chunks to include from auto-search.")
       .addText((text) =>
         text
           .setPlaceholder("5")
@@ -332,9 +421,9 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(pdfAdvanced)
       .setName("Vision fallback for scanned PDFs")
-      .setDesc("Attach the current PDF page image when text extraction looks poor.")
+      .setDesc("Auto-attach page image when no text is extractable.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.pdfVisionFallback)
@@ -344,9 +433,9 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
-      .setName("Background PDF indexing")
-      .setDesc("Index open PDFs in the background for immediate page search.")
+    new Setting(pdfAdvanced)
+      .setName("Background page indexing")
+      .setDesc("Index all pages of open PDFs in the background for faster search.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.pdfFullDocumentIndex)
@@ -356,11 +445,15 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h2", { text: "PDF & Incurator" });
+    // ═══════════════════════════════════════════════════════════════
+    // 3. Incurator Backend
+    // ═══════════════════════════════════════════════════════════════
+    const backendSection = containerEl.createDiv("ai-agent-settings-section");
+    this.renderSectionHeader(backendSection, "Incurator Backend", "cpu");
 
-    const incuratorSetting = new Setting(containerEl)
-      .setName("Use Incurator backend")
-      .setDesc("Use Incurator MCP for source status, ingest, and vault search.")
+    const incuratorSetting = new Setting(backendSection)
+      .setName("Enable")
+      .setDesc("Connect to the Incurator MCP backend for source tracking, ingest, and vault search.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.incuratorEnabled)
@@ -372,9 +465,56 @@ export class AIAgentSettingTab extends PluginSettingTab {
     const incuratorStatusEl = incuratorSetting.settingEl.createDiv("ai-agent-incurator-status");
     this.renderIncuratorBackendStatus(incuratorStatusEl);
 
-    new Setting(containerEl)
-      .setName("Incurator MCP command")
-      .setDesc("Leave as 'wiki' for auto-discovery from the repo path below. Set an absolute path to override.")
+    new Setting(backendSection)
+      .setName("Default import mode")
+      .setDesc("How non-Zotero PDFs are ingested. Zotero PDFs always use Reference.")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("copy", "Copy into vault")
+          .addOption("reference", "Reference in place")
+          .setValue(this.plugin.settings.incuratorDefaultImportMode)
+          .onChange(async (value) => {
+            this.plugin.settings.incuratorDefaultImportMode =
+              value === "copy" ? "copy" : "reference";
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(backendSection)
+      .setName("Copy destination folder")
+      .setDesc("Vault folder for imported PDFs (Copy mode).")
+      .addText((text) =>
+        text
+          .setPlaceholder("04_Resources")
+          .setValue(this.plugin.settings.incuratorDefaultDestination)
+          .onChange(async (value) => {
+            this.plugin.settings.incuratorDefaultDestination =
+              value.trim() || DEFAULT_SETTINGS.incuratorDefaultDestination;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(backendSection)
+      .setName("Auto-poll ingest status")
+      .setDesc("Refresh status badges while ingest jobs are running.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.incuratorStatusPolling)
+          .onChange(async (value) => {
+            this.plugin.settings.incuratorStatusPolling = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // Advanced Incurator settings (collapsed)
+    const incuratorAdvanced = backendSection.createEl("details", {
+      cls: "ai-agent-settings-details",
+    });
+    incuratorAdvanced.createEl("summary", { text: "Advanced" });
+
+    new Setting(incuratorAdvanced)
+      .setName("Backend command")
+      .setDesc("Leave as 'wiki' for auto-discovery. Set an absolute path to override.")
       .addText((text) =>
         text
           .setPlaceholder("wiki")
@@ -390,9 +530,9 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
-      .setName("Incurator MCP args")
-      .setDesc("Arguments for the backend command. Accepts JSON array or space-separated args.")
+    new Setting(incuratorAdvanced)
+      .setName("Backend arguments")
+      .setDesc("Space-separated or JSON array.")
       .addText((text) =>
         text
           .setPlaceholder("mcp")
@@ -409,12 +549,12 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
-      .setName("Incurator repository path")
-      .setDesc("Absolute path to the Incurator git repository for 1-click auto-updates.")
+    new Setting(incuratorAdvanced)
+      .setName("Repository path")
+      .setDesc("Absolute path to the Incurator repo (for 1-click updates).")
       .addText((text) =>
         text
-          .setPlaceholder("/absolute/path/to/Incurator")
+          .setPlaceholder("/path/to/Incurator")
           .setValue(this.plugin.settings.incuratorRepoPath)
           .onChange(async (value) => {
             this.plugin.settings.incuratorRepoPath = value.trim();
@@ -422,58 +562,21 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
-      .setName("Default PDF destination")
-      .setDesc("Base vault folder for imported external PDFs.")
-      .addText((text) =>
-        text
-          .setPlaceholder("04_Resources")
-          .setValue(this.plugin.settings.incuratorDefaultDestination)
-          .onChange(async (value) => {
-            this.plugin.settings.incuratorDefaultDestination =
-              value.trim() || DEFAULT_SETTINGS.incuratorDefaultDestination;
-            await this.plugin.saveSettings();
-          })
-      );
+    // ═══════════════════════════════════════════════════════════════
+    // 4. Zotero Integration
+    // ═══════════════════════════════════════════════════════════════
+    const zoteroSection = containerEl.createDiv("ai-agent-settings-section");
+    this.renderSectionHeader(zoteroSection, "Zotero Integration", "book-open");
 
-    new Setting(containerEl)
-      .setName("Default PDF import mode")
-      .setDesc("Reference keeps Zotero or external PDFs in place; copy imports them into 04_Resources.")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("reference", "Reference external file")
-          .addOption("copy", "Copy into vault")
-          .setValue(this.plugin.settings.incuratorDefaultImportMode)
-          .onChange(async (value) => {
-            this.plugin.settings.incuratorDefaultImportMode =
-              value === "copy" ? "copy" : "reference";
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Poll Incurator ingest status")
-      .setDesc("Refresh PDF chip backend status while ingest jobs are running.")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.incuratorStatusPolling)
-          .onChange(async (value) => {
-            this.plugin.settings.incuratorStatusPolling = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    containerEl.createEl("h2", { text: "Zotero Integration" });
-
-    new Setting(containerEl)
-      .setName("Zotero custom directories (Optional)")
+    new Setting(zoteroSection)
+      .setName("Zotero Data Directory (External Linking)")
       .setDesc(
-        "Comma-separated list of Zotero data paths (e.g. ~/Zotero, D:\\Zotero). " +
-          "The plugin automatically checks standard paths, so you only need to add custom ones here."
+        "Path to the folder containing zotero.sqlite. " +
+          "Zotero PDFs will use this path to create external links (instead of copying) when ingested."
       )
       .addText((text) =>
         text
-          .setPlaceholder("~/MyZotero, D:\\Zotero")
+          .setPlaceholder("~/Zotero")
           .setValue(this.plugin.settings.zoteroBasePath)
           .onChange(async (value) => {
             this.plugin.settings.zoteroBasePath = value.trim();
@@ -481,41 +584,47 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: "Import Profiles" });
-    containerEl.createEl("p", {
-      cls: "setting-item-description",
-      text: "Profiles are created in the Import Zotero Item wizard. Edit or delete them here.",
-    });
-
+    // Zotero Import Profiles
     const profiles = this.plugin.settings.zoteroProfiles || [];
-    if (profiles.length === 0) {
-      containerEl.createEl("p", {
-        cls: "setting-item-description",
-        text: "No profiles saved yet.",
-        attr: { style: "color: var(--text-muted); font-style: italic;" },
+    if (profiles.length > 0) {
+      const profilesDetails = zoteroSection.createEl("details", {
+        cls: "ai-agent-settings-details",
       });
-    } else {
+      profilesDetails.createEl("summary", {
+        text: `Import Profiles (${profiles.length})`,
+      });
+      profilesDetails.createEl("p", {
+        cls: "setting-item-description",
+        text: "Profiles are created in the Import Zotero Item wizard. Edit or delete them here.",
+      });
       for (let i = 0; i < profiles.length; i++) {
-        this.renderZoteroProfile(containerEl, i);
+        this.renderZoteroProfile(profilesDetails, i);
       }
     }
 
-    // ── MCP Servers ──
-    containerEl.createEl("h2", { text: "MCP Servers" });
+    // ═══════════════════════════════════════════════════════════════
+    // 5. MCP Servers
+    // ═══════════════════════════════════════════════════════════════
+    const mcpSection = containerEl.createDiv("ai-agent-settings-section");
+    this.renderSectionHeader(mcpSection, "MCP Servers", "plug");
 
-    const mcpDesc = containerEl.createEl("p", {
-      cls: "setting-item-description",
-    });
-    mcpDesc.setText(
-      "Configure local MCP (Model Context Protocol) servers for tool use."
-    );
+    const userMcpServers = this.plugin.settings.mcpServers
+      .map((s, i) => ({ server: s, index: i }))
+      .filter(({ server }) => !isIncuratorMcpServer(server));
 
-    for (let i = 0; i < this.plugin.settings.mcpServers.length; i++) {
-      if (isIncuratorMcpServer(this.plugin.settings.mcpServers[i])) continue;
-      this.renderMCPServer(containerEl, i);
+    if (userMcpServers.length === 0) {
+      mcpSection.createEl("p", {
+        cls: "setting-item-description",
+        text: "No custom MCP servers configured.",
+        attr: { style: "color: var(--text-muted); font-style: italic;" },
+      });
+    } else {
+      for (const { index } of userMcpServers) {
+        this.renderMCPServer(mcpSection, index);
+      }
     }
 
-    new Setting(containerEl).addButton((button) =>
+    new Setting(mcpSection).addButton((button) =>
       button
         .setButtonText("Add MCP Server")
         .setCta()
@@ -530,6 +639,19 @@ export class AIAgentSettingTab extends PluginSettingTab {
           this.display();
         })
     );
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────
+
+  private renderSectionHeader(
+    containerEl: HTMLElement,
+    title: string,
+    _icon?: string,
+  ): void {
+    containerEl.createEl("h2", {
+      text: title,
+      cls: "ai-agent-settings-section-header",
+    });
   }
 
   private renderZoteroProfile(containerEl: HTMLElement, index: number): void {
@@ -738,63 +860,31 @@ export class AIAgentSettingTab extends PluginSettingTab {
     refresh.addEventListener("click", () => this.renderIncuratorBackendStatus(containerEl));
   }
 
-  private async renderAuthStatus(container: HTMLElement): Promise<void> {
+  private async renderAuthStatusInline(container: HTMLElement, loginBtn?: HTMLButtonElement): Promise<boolean> {
     const provider = this.plugin.settings.provider;
-    const statusEl = container.createDiv("ai-agent-auth-status-item");
-
     try {
       const token = await this.plugin.authResolver.resolveToken(provider);
       if (token) {
-        statusEl.createSpan({ cls: "ai-agent-auth-ok", text: "✓ " });
-        statusEl.createSpan({
-          text: `${provider} — authenticated`,
-        });
+        container.empty();
+        container.createSpan({ cls: "ai-agent-auth-ok", text: "✓ Authenticated" });
+        if (loginBtn) {
+          loginBtn.textContent = "Re-authenticate";
+          loginBtn.classList.remove("mod-cta");
+        }
+        return true;
       }
     } catch (e: unknown) {
-      statusEl.createSpan({ cls: "ai-agent-auth-fail", text: "✗ " });
+      container.empty();
       const message = e instanceof Error ? e.message : String(e);
-      statusEl.createSpan({
-        text: `${provider} — ${message}`,
-      });
+      container.createSpan({ cls: "ai-agent-auth-fail", text: `✗ ${message}` });
+      if (loginBtn) {
+        loginBtn.textContent = "Login";
+        loginBtn.classList.add("mod-cta");
+      }
     }
+    return false;
   }
 
-  private renderUsageSummary(containerEl: HTMLElement): void {
-    const wrapper = containerEl.createDiv("ai-agent-usage-summary");
-    for (const provider of ["antigravity", "claude", "openai"] as LLMProvider[]) {
-      const usage =
-        this.plugin.settings.providerUsage[provider] ||
-        DEFAULT_SETTINGS.providerUsage[provider];
-      const label = this.providerLabel(provider);
-      const lastUsed = usage.lastUsedAt
-        ? new Date(usage.lastUsedAt).toLocaleString()
-        : "Never";
-      const totalTokens =
-        usage.inputTokens +
-        usage.cachedInputTokens +
-        usage.outputTokens +
-        usage.reasoningOutputTokens;
-      const row = wrapper.createDiv("ai-agent-usage-row");
-      row.createSpan({ cls: "ai-agent-usage-provider", text: label });
-      row.createSpan({
-        cls: "ai-agent-usage-detail",
-        text: `${usage.requests} requests · ${totalTokens.toLocaleString()} tokens · last ${lastUsed}`,
-      });
-    }
-
-    new Setting(containerEl).addButton((button) =>
-      button
-        .setButtonText("Reset usage")
-        .setWarning()
-        .onClick(async () => {
-          this.plugin.settings.providerUsage = JSON.parse(
-            JSON.stringify(DEFAULT_SETTINGS.providerUsage)
-          );
-          await this.plugin.saveSettings();
-          this.display();
-        })
-    );
-  }
 
   private startProviderLogin(provider: LLMProvider): void {
     try {

@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
 from . import config as cfg
+from . import constants as consts
 from . import db
 from . import page_writer
 
@@ -127,10 +128,10 @@ class PageInventory:
     raw_paths: set[str] = field(default_factory=set)                        # files in raw/
 
 
-_NOISE_PAGES = {"index.md", "log.md", "overview.md", "ledger.md"}
+_NOISE_PAGES = {consts.FILE_INDEX_MD, consts.FILE_LOG_MD, consts.FILE_OVERVIEW_MD, consts.FILE_LEDGER_MD}
 
 # Layer directory prefix → page type
-_PAGE_TYPES = ("01_Contexts", "02_Atoms", "03_Concepts", "04_Exhibitions")
+_PAGE_TYPES = (consts.LAYER_L1, consts.LAYER_L2, consts.LAYER_L3, consts.LAYER_L4)
 _CURATOR_PREFIXES = tuple(pt + "/" for pt in _PAGE_TYPES)
 
 
@@ -419,10 +420,10 @@ def check_orphan_pages(inv: PageInventory) -> list[LintIssue]:
         if not incoming:
             page_type = relpath.split("/", 1)[0] if "/" in relpath else ""
             layer_hint = {
-                "01_Contexts": "Link from index.md or ensure wiki add registered it.",
-                "02_Atoms": "Ensure the parent L1 Context has an Atom Candidates entry linking here.",
-                "03_Concepts": "Ensure at least one L4 Exhibition links to this concept.",
-                "04_Exhibitions": "Ensure index.md routing table includes this EXH entry.",
+                consts.LAYER_L1: "Link from index.md or ensure wiki add registered it.",
+                consts.LAYER_L2: "Ensure the parent L1 Context has an Atom Candidates entry linking here.",
+                consts.LAYER_L3: "Ensure at least one L4 Exhibition links to this concept.",
+                consts.LAYER_L4: "Ensure index.md routing table includes this EXH entry.",
             }.get(page_type, "Link to this page from a related page, or delete it.")
             issues.append(
                 LintIssue(
@@ -442,16 +443,16 @@ def check_frontmatter(inv: PageInventory) -> list[LintIssue]:
     issues: list[LintIssue] = []
     # Required fields per layer — SCHEMA_v0.1.0 §3
     required_by_type = {
-        "01_Contexts":   {"id", "type", "source_path", "source_hash", "last_updated"},
-        "02_Atoms":      {"id", "type", "parent_source", "source_path", "claim_type", "last_updated"},
-        "03_Concepts":   {"id", "type", "domain", "last_updated"},
-        "04_Exhibitions": {"id", "type", "core_concepts", "confidence_score", "last_updated"},
+        consts.LAYER_L1:   {"id", "type", "source_path", "source_hash", "last_updated"},
+        consts.LAYER_L2:      {"id", "type", "parent_source", "source_path", "claim_type", "last_updated"},
+        consts.LAYER_L3:   {"id", "type", "domain", "last_updated"},
+        consts.LAYER_L4: {"id", "type", "core_concepts", "confidence_score", "last_updated"},
     }
     id_prefix_by_type = {
-        "01_Contexts": "CTX",
-        "02_Atoms": "ATM",
-        "03_Concepts": "CON",
-        "04_Exhibitions": "EXH",
+        consts.LAYER_L1: consts.PREFIX_L1,
+        consts.LAYER_L2: consts.PREFIX_L2,
+        consts.LAYER_L3: consts.PREFIX_L3,
+        consts.LAYER_L4: consts.PREFIX_L4,
     }
 
     for relpath, parsed in inv.pages.items():
@@ -489,7 +490,7 @@ def check_frontmatter(inv: PageInventory) -> list[LintIssue]:
                     fixable=False,
                 )
             )
-        if page_type == "03_Concepts" and "dependencies" in parsed.frontmatter:
+        if page_type == consts.LAYER_L3 and "dependencies" in parsed.frontmatter:
             issues.append(
                 LintIssue(
                     check=CheckId.INVALID_FRONTMATTER,
@@ -545,7 +546,7 @@ def check_frontmatter(inv: PageInventory) -> list[LintIssue]:
                     )
                 )
         source_hash = parsed.frontmatter.get("source_hash")
-        if page_type == "01_Contexts" and isinstance(source_hash, str):
+        if page_type == consts.LAYER_L1 and isinstance(source_hash, str):
             if not re.match(r"^[0-9a-f]{64}$", source_hash):
                 issues.append(
                     LintIssue(
@@ -677,7 +678,7 @@ def check_stale_source_refs(inv: PageInventory, paths: cfg.WikiPaths) -> list[Li
     """Flag Atom pages whose parent_source references a Context that no longer exists."""
     issues: list[LintIssue] = []
     for relpath, parsed in inv.pages.items():
-        if not relpath.startswith("02_Atoms/"):
+        if not relpath.startswith(f"{consts.LAYER_L2}/"):
             continue
         raw_parent = parsed.frontmatter.get("parent_source", "")
         if not raw_parent:
@@ -698,7 +699,7 @@ def check_stale_source_refs(inv: PageInventory, paths: cfg.WikiPaths) -> list[Li
             if not parent:
                 continue
             normalized = _normalize_link(parent)
-            if not normalized.startswith("01_Contexts/"):
+            if not normalized.startswith(f"{consts.LAYER_L1}/"):
                 continue
             source_file = paths.collections / (normalized + ".md")
             if not source_file.exists():
@@ -757,7 +758,7 @@ def check_atom_source_paths(inv: PageInventory, paths: cfg.WikiPaths) -> list[Li
     """Flag Atom source_path values that are empty or do not point to raw source files."""
     issues: list[LintIssue] = []
     for relpath, parsed in inv.pages.items():
-        if not relpath.startswith("02_Atoms/"):
+        if not relpath.startswith(f"{consts.LAYER_L2}/"):
             continue
 
         raw_source_path = parsed.frontmatter.get("source_path", "")
@@ -808,7 +809,7 @@ def check_noise_in_curation_sources(inv: PageInventory) -> list[LintIssue]:
     """Flag L4 Exhibition pages that list routing files as core_concepts."""
     issues: list[LintIssue] = []
     for relpath, parsed in inv.pages.items():
-        if not relpath.startswith("04_Exhibitions/"):
+        if not relpath.startswith(f"{consts.LAYER_L4}/"):
             continue
         for key in ("core_concepts",):
             values = parsed.frontmatter.get(key, []) or []
@@ -850,8 +851,8 @@ def check_cross_layer_links(inv: PageInventory) -> list[LintIssue]:
 
     _rules: list[tuple[str, str, str, str]] = [
         # (layer_dir,      field,           expected_prefix,  expected_id_prefix)
-        ("02_Atoms",      "parent_source",  "01_Contexts/",   "CTX-"),
-        ("04_Exhibitions", "core_concepts", "03_Concepts/",   "CON-"),
+        (consts.LAYER_L2,      "parent_source",  f"{consts.LAYER_L1}/",   f"{consts.PREFIX_L1}-"),
+        (consts.LAYER_L4, "core_concepts", f"{consts.LAYER_L3}/",   f"{consts.PREFIX_L3}-"),
     ]
 
     for layer_dir, field, expected_prefix, expected_id_prefix in _rules:
@@ -931,7 +932,7 @@ def check_contradictions_deep(
     #    (e.g. both reference the same parent_source or related atom).
     page_link_sets: dict[str, set[str]] = {}
     for relpath, targets in inv.outgoing_links.items():
-        if relpath.startswith("02_Atoms/"):
+        if relpath.startswith(f"{consts.LAYER_L2}/"):
             page_link_sets[relpath] = set(t for t in targets if t)
 
     pairs: list[tuple[str, str, int]] = []
@@ -978,7 +979,7 @@ def check_contradictions_deep(
         ]
 
         try:
-            response = client.chat(messages, thinking=False, temperature=0.2)
+            response = client.chat(messages, temperature=0.2)
         except LLMError:
             continue
 
@@ -1139,7 +1140,7 @@ def apply_llm_fixes(
 
     # Build per-layer candidate list: (slug_no_ext, title)
     layer_candidates: dict[str, list[tuple[str, str]]] = {}
-    for layer in ("01_Contexts", "02_Atoms", "03_Concepts", "04_Exhibitions"):
+    for layer in (consts.LAYER_L1, consts.LAYER_L2, consts.LAYER_L3, consts.LAYER_L4):
         candidates: list[tuple[str, str]] = []
         for relpath, parsed in inv.pages.items():
             if not relpath.startswith(f"{layer}/"):
@@ -1204,7 +1205,7 @@ def apply_llm_fixes(
                 candidates_list=candidates_text,
             )
             try:
-                response = client.chat(messages, thinking=False, temperature=0.1).strip()
+                response = client.chat(messages, temperature=0.1).strip()
             except LLMError:
                 continue  # Leave in place for review
 

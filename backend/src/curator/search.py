@@ -14,10 +14,12 @@ lint still work; only `wiki query` / `wiki reindex` require it.
 """
 
 from __future__ import annotations
+from . import constants as consts
 
 import json
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -96,10 +98,33 @@ def get_qmd_binary() -> Path | None:
         if p.exists() and os.access(p, os.X_OK):
             return p
 
-    import shutil
+    # 1. Check current PATH
     on_path = shutil.which("qmd")
-    return Path(on_path) if on_path else None
+    if on_path:
+        return Path(on_path)
+        
+    # 2. Check NVM directories (highest version first)
+    nvm_base = Path.home() / ".nvm" / "versions" / "node"
+    if nvm_base.exists():
+        # Sort versions backwards so we hit the latest Node version first
+        for d in sorted(nvm_base.iterdir(), reverse=True):
+            if d.is_dir():
+                qmd_cand = d / "bin" / "qmd"
+                if qmd_cand.exists() and os.access(qmd_cand, os.X_OK):
+                    return qmd_cand
+                    
+    # 3. Check common global dirs (Homebrew, user-local)
+    common_dirs = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        str(Path.home() / ".local" / "bin")
+    ]
+    for cdir in common_dirs:
+        qmd_cand = Path(cdir) / "qmd"
+        if qmd_cand.exists() and os.access(qmd_cand, os.X_OK):
+            return qmd_cand
 
+    return None
 
 def is_available() -> bool:
     """True if a qmd binary can be found AND responds to --version."""
@@ -285,10 +310,10 @@ def _normalize_qmd_path(raw: str) -> str:
     cleaned = _QMD_URI_RE.sub("", raw)
     cleaned = cleaned.lstrip("/")
     layer_aliases = {
-        "01-Contexts/": "01_Contexts/",
-        "02-Atoms/": "02_Atoms/",
-        "03-Concepts/": "03_Concepts/",
-        "04-Exhibitions/": "04_Exhibitions/",
+        "01-Contexts/": f"{consts.LAYER_L1}/",
+        "02-Atoms/": f"{consts.LAYER_L2}/",
+        "03-Concepts/": f"{consts.LAYER_L3}/",
+        "04-Exhibitions/": f"{consts.LAYER_L4}/",
     }
     for old, new in layer_aliases.items():
         if cleaned.startswith(old):

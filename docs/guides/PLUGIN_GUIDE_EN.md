@@ -173,6 +173,31 @@ codex login
 
 `codexReasoningEffort`: Choose from `low` / `medium` / `high` / `xhigh`
 
+| Model | Description |
+| --- | --- |
+| `gpt-5.5` | Default. Powerful reasoning |
+| `gpt-5.4` | Everyday coding tasks |
+| `gpt-5.4-mini` | Fast, lightweight tasks |
+| `gpt-5.3-codex` | Coding-specialized model |
+
+### 7.4 Ollama (Local)
+
+Connects directly to a local Ollama server via HTTP. No authentication required, fully offline.
+
+```bash
+# Start the Ollama server
+ollama serve
+
+# Pull a model
+ollama pull qwen2.5:7b
+```
+
+Settings:
+
+- **Ollama host**: Server address (default: `http://localhost:11434`)
+- **Model**: Type a model name directly or click **Fetch models** to list installed models
+- Vision support varies by model (e.g. `gemma3:12b` supports vision, `qwen2.5:7b` does not)
+
 ---
 
 ## 8. MCP Server Configuration

@@ -3,6 +3,17 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+echo "=== Building Incurator Obsidian Plugin (Frontend) ==="
+cd "$ROOT_DIR/plugin"
+if command -v npm &> /dev/null; then
+    npm install
+    npm run build
+    echo "✓ Plugin build complete."
+else
+    echo "⚠️  npm not found. Skipping plugin build."
+fi
+echo ""
+
 echo "=== Installing Incurator backend ==="
 cd "$ROOT_DIR/backend"
 

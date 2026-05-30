@@ -15,6 +15,7 @@ Later stages add: ingest, query, sync, serve.
 """
 
 from __future__ import annotations
+from . import constants as consts
 
 import json
 import hashlib
@@ -28,6 +29,7 @@ from rich.table import Table
 
 from . import __version__
 from . import config as cfg
+from . import constants as consts
 from . import db
 from . import ingest_llm
 from . import ingest_raw
@@ -47,17 +49,12 @@ from .workspace.provisioner import (
     top_level_target,
 )
 from .llm import (
+    LLMError,
     ClaudeCodeError,
-    DEFAULT_CLAUDE_MODEL,
-    DEFAULT_CLAUDE_THINK_MODEL,
-    DEFAULT_GEMINI_FLASH_MODEL,
-    DEFAULT_GEMINI_THINK_MODEL,
-    DEFAULT_OLLAMA_HOST,
-    DEFAULT_OPENAI_MODEL,
-    DEFAULT_OPENAI_THINK_MODEL,
+    detect_ram_gb,
+    has_enough_ram_for_local,
     FailoverClient,
     GeminiCliError,
-    LLMError,
     ModelNotFound,
     OllamaNotRunning,
     _cli_installed,
@@ -209,7 +206,7 @@ _RECOMMENDED_MODELS = [
         "vision": False,
     },
     {
-        "tag": "qwen2.5:7b",
+        "tag": consts.DEFAULT_OLLAMA_MODEL,
         "size": "7B",
         "why": "[Fast Logical Validation] Quickly verifies that individual paragraphs retrieved via RAG are not contradictory. Acts as a high-speed defensive worker to prevent agents from acting on incorrect information.",
         "tip": "Best for conflict detection and consistency checks.",
@@ -348,12 +345,12 @@ def _resolve_root_or_die(hint_path: Path | None = None) -> cfg.WikiPaths:
     env_root = os.environ.get("VAULT_ROOT")
     if env_root:
         root_path = Path(env_root).resolve()
-        if (root_path / cfg.INTERNAL_DIR / cfg.CONFIG_FILE).exists():
+        if (root_path / consts.INTERNAL_DIR / consts.CONFIG_FILE).exists():
             # Don't persist testbed vaults to global last_root
             try:
                 import yaml as _yaml
                 _d = _yaml.safe_load(
-                    (root_path / cfg.INTERNAL_DIR / cfg.CONFIG_FILE).read_text(encoding="utf-8")
+                    (root_path / consts.INTERNAL_DIR / consts.CONFIG_FILE).read_text(encoding="utf-8")
                 ) or {}
                 if not _d.get("testbed", False):
                     cfg.set_last_root(root_path)
@@ -368,11 +365,11 @@ def _resolve_root_or_die(hint_path: Path | None = None) -> cfg.WikiPaths:
     # (e.g. running a global command from a neutral directory)
     if root is None and hint_path is None:
         last_root = cfg.get_last_root()
-        if last_root and (last_root / cfg.INTERNAL_DIR / cfg.CONFIG_FILE).exists():
+        if last_root and (last_root / consts.INTERNAL_DIR / consts.CONFIG_FILE).exists():
             import yaml as _yaml
             try:
                 _cfg_data = _yaml.safe_load(
-                    (last_root / cfg.INTERNAL_DIR / cfg.CONFIG_FILE).read_text(encoding="utf-8")
+                    (last_root / consts.INTERNAL_DIR / consts.CONFIG_FILE).read_text(encoding="utf-8")
                 ) or {}
             except Exception:
                 _cfg_data = {}
@@ -400,7 +397,7 @@ def _sync_mcp_configs(vault_root: Path) -> list[str]:
     }
     targets = [
         Path.home() / ".gemini" / "settings.json",
-        Path.home() / ".gemini" / "antigravity" / "mcp_config.json",
+        Path.home() / ".gemini" / consts.CLOUD_ANTIGRAVITY / "mcp_config.json",
         vault_root / ".claude" / "settings.json",
     ]
     updated = []
@@ -446,7 +443,7 @@ def _node_id_from_collection_page(relpath: str) -> str:
 def _sync_blocked_node_ids(report: lint_module.LintReport) -> set[str]:
     blocked: set[str] = set()
     for issue in report.errors + report.warnings:
-        if not issue.page.startswith(("01_Contexts/", "02_Atoms/", "03_Concepts/", "04_Exhibitions/")):
+        if not issue.page.startswith((f"{consts.LAYER_L1}/", f"{consts.LAYER_L2}/", f"{consts.LAYER_L3}/", f"{consts.LAYER_L4}/")):
             continue
         if lint_module.is_safe_fixable(issue):
             continue
@@ -773,8 +770,8 @@ def _run_sync_report_only(paths: cfg.WikiPaths, config: dict, *, reason: str) ->
 
 def _mark_layer_status_from_sync_gaps(paths: cfg.WikiPaths, gaps: list) -> None:
     """Reflect logical sync gaps in per-source layer status for resumable runs."""
-    concept_gaps = [g for g in gaps if getattr(g, "layer", "") == "concept"]
-    exhibition_gaps = [g for g in gaps if getattr(g, "layer", "") == "exhibition"]
+    concept_gaps = [g for g in gaps if getattr(g, "layer", "") == consts.TYPE_L3]
+    exhibition_gaps = [g for g in gaps if getattr(g, "layer", "") == consts.TYPE_L4]
     if not concept_gaps and not exhibition_gaps:
         return
 
@@ -810,9 +807,9 @@ def _mark_clean_sync_status(paths: cfg.WikiPaths) -> None:
             int(row["id"])
             for row in conn.execute("SELECT id FROM sources WHERE l3_status = 'done'").fetchall()
         ]
-    if l2_done and paths.concepts.exists() and any(paths.concepts.glob("CON-*.md")):
+    if l2_done and paths.concepts.exists() and any(paths.concepts.glob(f"{consts.PREFIX_L3}-*.md")):
         db.set_sources_layer_status(paths.state_db, l2_done, "l3", "done")
-    if l3_done and paths.exhibitions.exists() and any(paths.exhibitions.glob("EXH-*.md")):
+    if l3_done and paths.exhibitions.exists() and any(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md")):
         db.set_sources_layer_status(paths.state_db, l3_done, "l4", "done")
 
 
@@ -828,7 +825,7 @@ def _resolve_curate_workspace(explicit: Path | None) -> Path | None:
 
     cwd = Path.cwd().resolve()
     for candidate in (cwd, *cwd.parents):
-        if (candidate / "curate.yml").exists():
+        if (candidate / consts.FILE_CURATE_YML).exists():
             return candidate
     return None
 
@@ -836,7 +833,7 @@ def _resolve_curate_workspace(explicit: Path | None) -> Path | None:
 def _curate_spec_hash(workspace: Path | None) -> str:
     if workspace is None:
         return ""
-    curate_file = workspace / "curate.yml"
+    curate_file = workspace / consts.FILE_CURATE_YML
     if not curate_file.exists():
         return ""
     return hashlib.sha256(curate_file.read_bytes()).hexdigest()[:12]
@@ -845,7 +842,7 @@ def _curate_spec_hash(workspace: Path | None) -> str:
 def _find_workspace_exhibition(paths: cfg.WikiPaths, project: str, spec_hash: str) -> Path | None:
     if not paths.exhibitions.exists() or not project or not spec_hash:
         return None
-    for md_path in sorted(paths.exhibitions.glob("EXH-*.md")):
+    for md_path in sorted(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md")):
         parsed = page_writer.read_page(md_path)
         if not parsed:
             continue
@@ -864,95 +861,72 @@ def _find_workspace_exhibition(paths: cfg.WikiPaths, project: str, spec_hash: st
 
 _VALID_CLOUD = ()
 
-# Curated Ollama model list: (model_name, description)
-_CURATED_MODELS = [
-    ("qwen2.5:3b",      "3B  · ~2 GB VRAM  · very fast"),
-    ("qwen2.5:7b",      "7B  · ~5 GB VRAM  · fast, balanced  [default]"),
-    ("gemma3:12b",      "12B · ~8 GB VRAM  · Google Gemma 3"),
-    ("qwen2.5:14b",     "14B · ~9 GB VRAM  · high quality"),
-    ("deepseek-r1:14b", "14B · ~9 GB VRAM  · reasoning/thinking"),
-    ("qwen2.5:32b",     "32B · ~20 GB VRAM · very high quality"),
-    ("gemma3:27b",      "27B · ~18 GB VRAM · Google Gemma 3, large"),
-    ("gemma4:32b",      "32B · ~22 GB VRAM · Google Gemma 4, latest"),
-]
+def _build_curated_ollama() -> list[tuple[str, str]]:
+    """Load Ollama recommended models from models.json."""
+    from curator.models import load_models_catalogue
+    data = load_models_catalogue()
+    result = []
+    for model in data.get("providers", {}).get(consts.BACKEND_OLLAMA, {}).get("models", []):
+        mid = model.get("id", "")
+        label = model.get("label", mid)
+        vram = model.get("vram_gb")
+        vision = " · vision" if model.get("supports_vision") else ""
+        think = " · thinking" if model.get("supports_thinking") else ""
+        vram_str = f" · ~{vram} GB VRAM" if vram else ""
+        desc = f"{label}{vram_str}{vision}{think}"
+        result.append((mid, desc))
+    return result
 
 
-_CLOUD_MODELS: dict[str, list[dict]] = {
-    "antigravity-cli": [
-        {
-            "tag": "gemini-2.5-flash",
-            "desc": "Flash (default) — High speed, balanced",
-            "think": False,
-            "cfg_key": "antigravity_flash_model",
-        },
-        {
-            "tag": "gemini-2.5-flash-lite",
-            "desc": "Lite — Lowest performance/quota tier",
-            "think": False,
-            "cfg_key": "antigravity_flash_model",
-        },
-        {
-            "tag": "gemini-3.1-flash-lite-preview",
-            "desc": "Lite preview — Low-cost tier",
-            "think": False,
-            "cfg_key": "antigravity_flash_model",
-        },
-        {
-            "tag": "gemini-3.1-pro-preview",
-            "desc": "Pro preview — Highest performance",
-            "think": True,
-            "cfg_key": "antigravity_think_model",
-        },
-        {
-            "tag": "gemini-3.1-flash-preview",
-            "desc": "Flash preview — High-speed next-gen Flash",
-            "think": False,
-            "cfg_key": "antigravity_flash_model",
-        },
-    ],
-    "claude-code": [
-        {
-            "tag": "claude-sonnet-4-6",
-            "desc": "Sonnet (default) — High-performance general purpose",
-            "think": False,
-            "cfg_key": "claude_model",
-        },
-        {
-            "tag": "claude-haiku-4-5",
-            "desc": "Haiku — Fast, lightweight",
-            "think": False,
-            "cfg_key": "claude_model",
-        },
-        {
-            "tag": "claude-opus-4-7",
-            "desc": "Opus — Highest performance, Thinking",
-            "think": True,
-            "cfg_key": "claude_think_model",
-        },
-    ],
-}
-
-_PROVIDER_PRIMARY_CFG_KEY: dict[str, str] = {
-    "antigravity-cli": "antigravity_flash_model",
-    "claude-code": "claude_model",
-}
-_PROVIDER_THINK_CFG_KEY: dict[str, str] = {
-    "antigravity-cli": "antigravity_think_model",
-    "claude-code": "claude_think_model",
-}
+# Curated Ollama model list: (model_name, description) — sourced from models.json
+_CURATED_MODELS = _build_curated_ollama()
 
 
-def _get_cloud_provider_from_primary(primary: str, llm_cfg: dict) -> str:
-    """Resolve the cloud provider string from the primary backend key."""
-    p = primary.lower().replace(" ", "-")
-    if p in ("gemini", "antigravity", "antigravity-cli"):
-        return "antigravity-cli"
-    if p in ("claude", "claude-code"):
-        return "claude-code"
-    if p == "cloud":
-        _err("'cloud' provider (direct SDK) is disabled. Use antigravity-cli or claude-code.")
-        return ""
-    return ""
+def _build_cloud_models() -> dict[str, list[dict]]:
+    """Build the cloud model table from models.json (single source of truth)."""
+    from curator.models import load_models_catalogue
+
+    _PROVIDER_CFG_KEYS = {
+        consts.CLOUD_ANTIGRAVITY: {
+            "cfg_key": "model",
+            "backend": consts.BACKEND_ANTIGRAVITY_CLI,
+        },
+        consts.CLOUD_CLAUDE: {
+            "cfg_key": "model",
+            "backend": consts.BACKEND_CLAUDE_CODE,
+        },
+        consts.CLOUD_OPENAI: {
+            "cfg_key": "model",
+            "backend": consts.BACKEND_CODEX_CLI,
+        },
+    }
+
+    data = load_models_catalogue()
+    result: dict[str, list[dict]] = {}
+
+    for provider, info in data.get("providers", {}).items():
+        cfg = _PROVIDER_CFG_KEYS.get(provider)
+        if not cfg:
+            continue
+        backend = cfg["backend"]
+        entries = []
+        for model in info.get("models", []):
+            mid = model.get("id", "")
+            if not mid:
+                continue
+            entries.append({
+                "tag": mid,
+                "desc": model.get("label", mid),
+                "cfg_key": cfg["cfg_key"],
+            })
+        if entries:
+            result[backend] = entries
+
+    return result
+
+
+_CLOUD_MODELS: dict[str, list[dict]] = _build_cloud_models()
+
 
 
 def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = False) -> bool:
@@ -963,35 +937,15 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = F
 
     models = _CLOUD_MODELS.get(cloud_provider)
     if not models:
-        _err(f"Unknown cloud provider '{cloud_provider}'. Use: antigravity-cli, claude-code.")
+        _err(f"Unknown cloud provider '{cloud_provider}'. Use: antigravity-cli, claude-code, codex-cli.")
         return
 
-    # Determine currently active model tags
+    # Determine currently active model tags from primary/fallback values
     active_tags: set[str] = set()
-    primary_key = _PROVIDER_PRIMARY_CFG_KEY.get(cloud_provider, "")
-    think_key = _PROVIDER_THINK_CFG_KEY.get(cloud_provider, "")
-    defaults_regular = {
-        "antigravity_flash_model": DEFAULT_GEMINI_FLASH_MODEL,
-        "claude_model": DEFAULT_CLAUDE_MODEL,
-        "openai_model": DEFAULT_OPENAI_MODEL,
-    }
-    defaults_think = {
-        "antigravity_think_model": DEFAULT_GEMINI_THINK_MODEL,
-        "claude_think_model": DEFAULT_CLAUDE_THINK_MODEL,
-        "openai_think_model": DEFAULT_OPENAI_THINK_MODEL,
-    }
-    
-    if primary_key:
-        val = llm_cfg.get(primary_key, defaults_regular.get(primary_key, ""))
-        if val:
-            active_tags.add(val)
-    
-    if not active_only and think_key:
-        val = llm_cfg.get(think_key, defaults_think.get(think_key, ""))
-        if val:
-            active_tags.add(val)
-    
-    active_tags.discard("")
+    for slot in ("primary", "fallback"):
+        p, m = cfg.split_provider_model(llm_cfg.get(slot, ""))
+        if p == cloud_provider and m:
+            active_tags.add(m)
 
     table = RichTable(
         show_header=True,
@@ -1001,7 +955,6 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = F
         show_lines=False,
     )
     table.add_column("Model Tag", style="cyan",   min_width=26, no_wrap=True)
-    table.add_column("Type",      style="yellow", min_width=9,  no_wrap=True)
     table.add_column("Description",                min_width=30, max_width=44, no_wrap=True)
     table.add_column("✓",         style="green",  min_width=2,  justify="center", no_wrap=True)
 
@@ -1022,8 +975,7 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = F
         if active_mark:
             shown_tags.add(m["tag"])
         
-        type_label = "[magenta]thinking[/magenta]" if m["think"] else "regular"
-        table.add_row(m["tag"], type_label, m["desc"], active_mark)
+        table.add_row(m["tag"], m["desc"], active_mark)
 
     # If active_only and some active tags weren't in our curated list, show them anyway
     if active_only:
@@ -1048,7 +1000,7 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = F
 
 
 def _pick_cloud_model(cloud_provider: str, llm_cfg: dict) -> tuple[str, str]:
-    """Interactive picker for cloud provider models. Returns (model_tag, cfg_key)."""
+    """Interactive picker for cloud provider models. Returns (model_tag, '') — cfg_key unused."""
     models = _CLOUD_MODELS.get(cloud_provider, [])
     if not models:
         _err(f"Unknown cloud provider '{cloud_provider}'.")
@@ -1056,13 +1008,12 @@ def _pick_cloud_model(cloud_provider: str, llm_cfg: dict) -> tuple[str, str]:
 
     console.print()
     for i, m in enumerate(models, 1):
-        type_badge = "  [magenta][thinking][/magenta]" if m["think"] else ""
-        console.print(f"  [cyan]{i}[/cyan]  {m['tag']}{type_badge}  [dim]— {m['desc']}[/dim]")
+        console.print(f"  [cyan]{i}[/cyan]  {m['tag']}  [dim]— {m['desc']}[/dim]")
     console.print("  [dim]0[/dim]  custom model name")
     console.print()
 
     # Default: first non-thinking model, or first overall
-    default_entry = next((m for m in models if not m["think"]), models[0])
+    default_entry = models[0]
     default_idx = models.index(default_entry) + 1
 
     while True:
@@ -1072,25 +1023,15 @@ def _pick_cloud_model(cloud_provider: str, llm_cfg: dict) -> tuple[str, str]:
         ).strip()
         if raw == "0":
             tag = typer.prompt("Model tag", default=default_entry["tag"]).strip() or default_entry["tag"]
-            kind = typer.prompt("Type (regular/thinking)", default="regular").strip().lower()
-            if kind in ("thinking", "t", "think"):
-                cfg_key = _PROVIDER_THINK_CFG_KEY.get(cloud_provider, _PROVIDER_PRIMARY_CFG_KEY.get(cloud_provider, "model"))
-            else:
-                cfg_key = _PROVIDER_PRIMARY_CFG_KEY.get(cloud_provider, "model")
-            return tag, cfg_key
+            return tag, ""
         try:
             idx = int(raw)
             if 1 <= idx <= len(models):
-                entry = models[idx - 1]
-                return entry["tag"], entry["cfg_key"]
+                return models[idx - 1]["tag"], ""
         except ValueError:
             if raw:
-                # Typed a model tag directly — look it up in catalog
                 tag_map = {m["tag"]: m for m in models}
-                if raw in tag_map:
-                    return raw, tag_map[raw]["cfg_key"]
-                # Unknown tag: default to primary key
-                return raw, _PROVIDER_PRIMARY_CFG_KEY.get(cloud_provider, "model")
+                return (raw if raw in tag_map else raw), ""
         console.print(f"[red]Enter a number between 0 and {len(models)}.[/red]")
 
 
@@ -1122,7 +1063,7 @@ def _pick_ollama_model(host: str) -> str:
     console.print("  [dim]0[/dim]  custom model name")
     console.print()
 
-    default_model = "qwen2.5:7b"
+    default_model = consts.DEFAULT_OLLAMA_MODEL
     # Prefer the first installed model as default if deepseek is not installed
     if live_models and default_model not in live_set:
         default_model = live_models[0]
@@ -1152,16 +1093,19 @@ def _pick_ollama_model(host: str) -> str:
 
 
 def _print_backend_menu(exclude: str | None = None) -> None:
-    """Print the 4-option backend menu, optionally skipping one entry."""
-    _claude_ok = _cli_installed("claude")
+    """Print the backend menu, optionally skipping one entry."""
+    _claude_ok = _cli_installed(consts.CLOUD_CLAUDE)
     _agy_ok = _cli_installed("agy")
+    _codex_ok = _cli_installed("codex")
     n = 1
     for key, label in [
-        ("ollama",      "Local Ollama      (GPU/CPU — local)"),
-        ("claude-code", f"Claude Code CLI   (claude Pro/Max subscription — "
-                        f"{'[green]installed[/green]' if _claude_ok else '[yellow]not installed[/yellow]'})"),
-        ("antigravity-cli",  f"Antigravity CLI   (Google subscription — "
-                             f"{'[green]installed[/green]' if _agy_ok else '[yellow]not installed[/yellow]'})"),
+        (consts.BACKEND_OLLAMA,        "Local Ollama      (GPU/CPU — local)"),
+        (consts.BACKEND_CLAUDE_CODE,   f"Claude Code CLI   (claude Pro/Max — "
+                          f"{'[green]installed[/green]' if _claude_ok else '[yellow]not installed[/yellow]'})"),
+        (consts.BACKEND_ANTIGRAVITY_CLI, f"Antigravity CLI   (Google — "
+                            f"{'[green]installed[/green]' if _agy_ok else '[yellow]not installed[/yellow]'})"),
+        (consts.BACKEND_CODEX_CLI,     f"Codex CLI         (OpenAI — "
+                          f"{'[green]installed[/green]' if _codex_ok else '[yellow]not installed[/yellow]'})"),
     ]:
         if key == exclude:
             continue
@@ -1171,9 +1115,9 @@ def _print_backend_menu(exclude: str | None = None) -> None:
 
 
 def _pick_backend_menu(exclude: str | None = None, prompt: str = "Choice") -> str:
-    """Show 4-option backend menu and return the chosen backend key."""
+    """Show backend menu and return the chosen backend key."""
     _print_backend_menu(exclude)
-    keys = [k for k in ("ollama", "claude-code", "antigravity-cli") if k != exclude]
+    keys = [k for k in (consts.BACKEND_OLLAMA, consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI) if k != exclude]
     valid: dict[str, str] = {}
     for i, k in enumerate(keys, 1):
         valid[str(i)] = k
@@ -1191,7 +1135,7 @@ def _install_ollama_binary() -> bool:
     import subprocess as _sp
     import sys
 
-    if _cli_installed("ollama"):
+    if _cli_installed(consts.BACKEND_OLLAMA):
         return True
 
     _warn("Ollama is not installed.")
@@ -1205,7 +1149,7 @@ def _install_ollama_binary() -> bool:
     elif sys.platform == "darwin":
         if _cli_installed("brew"):
             console.print("[dim]Running: brew install ollama[/dim]")
-            res = _sp.run(["brew", "install", "ollama"])
+            res = _sp.run(["brew", "install", consts.BACKEND_OLLAMA])
         else:
             _hint("Install Homebrew first (https://brew.sh) or download Ollama from https://ollama.com/download")
             return False
@@ -1213,7 +1157,7 @@ def _install_ollama_binary() -> bool:
         _hint("Download Ollama from: [bold]https://ollama.com/download[/bold]")
         return False
 
-    if res.returncode == 0 and _cli_installed("ollama"):
+    if res.returncode == 0 and _cli_installed(consts.BACKEND_OLLAMA):
         _ok("Ollama installed.")
         return True
 
@@ -1229,7 +1173,7 @@ def _ensure_ollama_running(host: str) -> bool:
     if list_models_on_host(host, timeout=2.0) is not None:
         return True  # already up
 
-    if not _cli_installed("ollama"):
+    if not _cli_installed(consts.BACKEND_OLLAMA):
         if not _install_ollama_binary():
             return False
 
@@ -1239,7 +1183,7 @@ def _ensure_ollama_running(host: str) -> bool:
 
     console.print("[dim]Starting Ollama in background…[/dim]")
     _sp.Popen(
-        ["ollama", "serve"],
+        [consts.BACKEND_OLLAMA, "serve"],
         stdout=_sp.DEVNULL,
         stderr=_sp.DEVNULL,
         start_new_session=True,
@@ -1314,12 +1258,12 @@ def _configure_backend(
     """Prompt for backend-specific settings, merge into overrides, and offer install."""
     import subprocess as _sp
 
-    if backend == "ollama":
+    if backend == consts.BACKEND_OLLAMA:
         host = typer.prompt("Ollama host", default="http://localhost:11434").strip()
-        overrides["host"] = host
+        overrides.setdefault(consts.BACKEND_OLLAMA, {})["host"] = host
         _ensure_ollama_running(host)
         model = _pick_ollama_model(host)
-        overrides["model"] = model
+        overrides["_pending_model"] = model
         # Offer to pull if model is missing
         live = list_models_on_host(host, timeout=3.0)
         if live:
@@ -1329,7 +1273,7 @@ def _configure_backend(
                 _warn(f"Model '{model}' is not pulled yet.")
                 if typer.confirm(f"Pull it now? (ollama pull {model})", default=True):
                     console.print(f"[dim]Running: ollama pull {model}[/dim]")
-                    res = _sp.run(["ollama", "pull", model])
+                    res = _sp.run([consts.BACKEND_OLLAMA, "pull", model])
                     if res.returncode == 0:
                         _ok(f"Model '{model}' pulled.")
                     else:
@@ -1340,13 +1284,13 @@ def _configure_backend(
             _hint(f"Once Ollama is running: [bold]ollama pull {model}[/bold]")
 
 
-    elif backend in ("claude-code", "antigravity-cli"):
-        cli_cmd = "claude" if backend == "claude-code" else "agy"
-        install_cmd = (
-            "npm install -g @anthropic-ai/claude-code"
-            if backend == "claude-code"
-            else "curl -fsSL https://antigravity.google/cli/install.sh | bash"
-        )
+    elif backend in (consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI):
+        _CLI_INFO = {
+            consts.BACKEND_CLAUDE_CODE:     ("claude",  "npm install -g @anthropic-ai/claude-code"),
+            consts.BACKEND_ANTIGRAVITY_CLI: ("agy",     "curl -fsSL https://antigravity.google/cli/install.sh | bash"),
+            consts.BACKEND_CODEX_CLI:       ("codex",   "npm install -g @openai/codex"),
+        }
+        cli_cmd, install_cmd = _CLI_INFO[backend]
         if not _cli_installed(cli_cmd):
             console.print()
             _warn(f"'{cli_cmd}' CLI is not installed.")
@@ -1388,13 +1332,12 @@ def _configure_backend(
         else:
             _ok(f"'{cli_cmd}' CLI found.")
 
-        # Offer model selection for CLI backends
+        # Offer model selection
         console.print()
         console.print(f"[bold]{backend} Model Selection[/bold]")
-        _show_cloud_models(backend, overrides)
-        sel_model, sel_key = _pick_cloud_model(backend, overrides)
+        sel_model, _ = _pick_cloud_model(backend, overrides)
         if sel_model:
-            overrides[sel_key] = sel_model
+            overrides["_pending_model"] = sel_model
 
 
 def _run_init_wizard() -> dict:
@@ -1409,11 +1352,13 @@ def _run_init_wizard() -> dict:
     # Step 1: Primary backend
     console.print("Which do you [bold]primarily[/bold] use for LLM inference?")
     primary = _pick_backend_menu(prompt="Primary backend")
-    overrides: dict = {"primary": primary}
+    overrides: dict = {}
 
-    # Step 2: Configure the primary backend
+    # Step 2: Configure the primary backend (model selected inside)
     console.print(f"[dim]--- {primary} (primary) ---[/dim]")
     _configure_backend(primary, overrides)
+    model = overrides.pop("_pending_model", "")
+    overrides["primary"] = cfg.join_provider_model(primary, model)
 
     # Step 3: Fallback backend
     console.print()
@@ -1421,9 +1366,10 @@ def _run_init_wizard() -> dict:
         console.print()
         console.print("Fallback backend:")
         fallback = _pick_backend_menu(exclude=primary, prompt="Fallback")
-        overrides["fallback"] = fallback
         console.print(f"[dim]--- {fallback} (fallback) ---[/dim]")
         _configure_backend(fallback, overrides)
+        fb_model = overrides.pop("_pending_model", "")
+        overrides["fallback"] = cfg.join_provider_model(fallback, fb_model)
     else:
         overrides["fallback"] = ""
 
@@ -1595,14 +1541,14 @@ def _offer_install(overrides: dict, llm_cfg: dict) -> None:
     import subprocess
 
     primary = overrides.get("primary") or llm_cfg.get("primary", "")
-    model   = overrides.get("model")   or llm_cfg.get("model", "qwen2.5:7b")
-    host    = overrides.get("host")    or llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
+    model   = overrides.get("model")   or llm_cfg.get("model", consts.DEFAULT_OLLAMA_MODEL)
+    host    = overrides.get("host")    or llm_cfg.get("host", consts.DEFAULT_OLLAMA_HOST)
 
-    if primary in ("claude-code", "antigravity-cli"):
-        cli_cmd = "claude" if primary == "claude-code" else "agy"
+    if primary in (consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI):
+        cli_cmd = consts.CLOUD_CLAUDE if primary == consts.BACKEND_CLAUDE_CODE else "agy"
         install_cmd = (
             "npm install -g @anthropic-ai/claude-code"
-            if primary == "claude-code"
+            if primary == consts.BACKEND_CLAUDE_CODE
             else "curl -fsSL https://antigravity.google/cli/install.sh | bash"
         )
         if not _cli_installed(cli_cmd):
@@ -1648,7 +1594,7 @@ def _offer_install(overrides: dict, llm_cfg: dict) -> None:
                 console.print(f"[yellow]Model '{model}' not found locally on {host}.[/yellow]")
                 if typer.confirm(f"Pull it now? (ollama pull {model})", default=True):
                     console.print(f"[dim]Running: ollama pull {model}[/dim]")
-                    res = subprocess.run(["ollama", "pull", model])
+                    res = subprocess.run([consts.BACKEND_OLLAMA, "pull", model])
                     if res.returncode == 0:
                         _ok(f"Model '{model}' pulled.")
                     else:
@@ -1704,10 +1650,10 @@ def _start_client_inner(config: dict):
         return p_client
     except ModelNotFound as e:
         _err(str(e))
-        model_name = llm_cfg.get("model", "qwen2.5:7b")
+        model_name = llm_cfg.get("model", consts.DEFAULT_OLLAMA_MODEL)
         if typer.confirm(f"Pull model now? (ollama pull {model_name})", default=True):
             console.print(f"[dim]Running: ollama pull {model_name}[/dim]")
-            res = _sp.run(["ollama", "pull", model_name])
+            res = _sp.run([consts.BACKEND_OLLAMA, "pull", model_name])
             if res.returncode == 0:
                 _ok(f"Model '{model_name}' pulled. Retrying…")
                 try:
@@ -1772,7 +1718,7 @@ def init(
         help="Path to the vault root (where 02_Wiki, 03_Notes, etc. live).",
     ),
     raw_dirs: list[str] = typer.Option(
-        ["02_Wiki", "03_Notes", "04_Resources", "06_Archives"],
+        [consts.DIR_WIKI, consts.DIR_NOTES, consts.DIR_RESOURCES, consts.DIR_ARCHIVES],
         "--raw",
         "-r",
         help="Source directories to monitor (relative to vault root). Repeatable.",
@@ -1802,12 +1748,23 @@ def init(
     """
     import shutil
 
+    import os
     root = Path(vault_path).resolve()
 
     # Create vault root if it doesn't exist yet
     if not root.exists():
-        root.mkdir(parents=True)
+        try:
+            root.mkdir(parents=True)
+        except (OSError, PermissionError) as e:
+            _err(f"Cannot create vault root '{root}': {e}")
+            raise typer.Exit(code=1) from e
         _ok(f"Created vault root: {root}")
+    elif root.is_file():
+        _err(f"Path '{root}' is a file, not a directory.")
+        raise typer.Exit(code=1)
+    elif not os.access(root, os.W_OK):
+        _err(f"No write permission on '{root}'. Check directory permissions.")
+        raise typer.Exit(code=1)
 
     # Guarantee this is an Obsidian vault (.obsidian/ is the vault marker)
     obsidian_dir = root / ".obsidian"
@@ -1829,10 +1786,16 @@ def init(
 
         if build_plugin:
             import subprocess
+            import os
             console.print("[dim]Building Obsidian plugin via npm... (this may take a moment)[/dim]")
             try:
-                subprocess.run(["npm", "install"], cwd=str(plugin_src), check=True, capture_output=True)
-                subprocess.run(["npm", "run", "build"], cwd=str(plugin_src), check=True, capture_output=True)
+                # Force OBSIDIAN_PLUGIN_DIR to empty so esbuild.config.mjs outputs to
+                # plugin_src/main.js instead of the vault. dotenv reads from .env directly
+                # (bypassing subprocess env), so we must set it to "" rather than just pop it.
+                build_env = dict(os.environ)
+                build_env["OBSIDIAN_PLUGIN_DIR"] = ""
+                subprocess.run(["npm", "install"], cwd=str(plugin_src), check=True, capture_output=True, env=build_env)
+                subprocess.run(["npm", "run", "build"], cwd=str(plugin_src), check=True, capture_output=True, env=build_env)
                 _ok("Obsidian plugin built successfully.")
             except subprocess.CalledProcessError as e:
                 err_msg = e.stderr.decode("utf-8", errors="replace").strip() if e.stderr else ""
@@ -1935,7 +1898,7 @@ def init(
     templates_dir = Path(__file__).parent / "workspace" / "templates"
 
     # index.md (in .curator/ root, not Collections/)
-    index_src = templates_dir / "index.md"
+    index_src = templates_dir / consts.FILE_INDEX_MD
     if index_src.exists() and not paths.index.exists():
         shutil.copy2(index_src, paths.index)
         _ok(f"Index:     {paths.index.relative_to(root)}")
@@ -2035,7 +1998,7 @@ def config_get(
 
     if global_only:
         raw: dict = {}
-        global_cfg_file = cfg.get_global_config_dir() / "config.yml"
+        global_cfg_file = cfg.get_global_config_dir() / consts.FILE_CONFIG_YML
         if global_cfg_file.exists():
             import yaml as _yaml
             with global_cfg_file.open("r", encoding="utf-8") as f:
@@ -2046,7 +2009,7 @@ def config_get(
             raw = cfg.load_config(paths)
         except SystemExit:
             raw = {}
-            global_cfg_file = cfg.get_global_config_dir() / "config.yml"
+            global_cfg_file = cfg.get_global_config_dir() / consts.FILE_CONFIG_YML
             if global_cfg_file.exists():
                 import yaml as _yaml
                 with global_cfg_file.open("r", encoding="utf-8") as f:
@@ -2091,7 +2054,7 @@ def config_set(
     if global_cfg:
         config_dir = cfg.get_global_config_dir()
         config_dir.mkdir(parents=True, exist_ok=True)
-        config_file = config_dir / "config.yml"
+        config_file = config_dir / consts.FILE_CONFIG_YML
     else:
         paths = _resolve_root_or_die()
         config_file = paths.config_file
@@ -2175,39 +2138,37 @@ def config_provider(
 
     if any_flag:
         overrides = {}
-        # Non-interactive: apply only the flags that were explicitly passed
-        _valid_primary = ("ollama", "claude-code", "antigravity-cli")
-        if primary in _valid_primary:
-            llm["primary"] = primary
-            overrides["primary"] = primary
-        elif primary:
-            _warn(f"Unknown --primary '{primary}'. Use: {' | '.join(_valid_primary)}")
+        _valid_primary = (consts.BACKEND_OLLAMA, consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI)
+
+        # Resolve provider
+        provider = primary or consts.BACKEND_OLLAMA
+        if provider not in _valid_primary:
+            _warn(f"Unknown --primary '{provider}'. Use: {' | '.join(_valid_primary)}")
             raise typer.Exit(code=1)
 
-        if model:
-            llm["model"] = model
-            overrides["model"] = model
-            # If only model is specified (no explicit primary), infer ollama
-            if not primary:
-                llm["primary"] = "ollama"
-                overrides["primary"] = "ollama"
         if host:
-            llm["host"] = host
-            overrides["host"] = host
-            if not primary:
-                llm["primary"] = "ollama"
-                overrides["primary"] = "ollama"
+            llm.setdefault(consts.BACKEND_OLLAMA, {})["host"] = host
 
-        # Offer model selection for CLI backends if primary was switched via flag
-        if primary in ("claude-code", "antigravity-cli"):
-            console.print()
-            console.print(f"[bold]{primary} Model Selection[/bold]")
-            _show_cloud_models(primary, llm)
-            sel_model, sel_key = _pick_cloud_model(primary, llm)
-            if sel_model:
-                llm[sel_key] = sel_model
-                overrides[sel_key] = sel_model
+        if model:
+            # Model provided directly via flag
+            llm["primary"] = cfg.join_provider_model(provider, model)
+        else:
+            # Offer interactive model selection for cloud backends
+            if provider in (consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI):
+                console.print()
+                console.print(f"[bold]{provider} Model Selection[/bold]")
+                sel_model, _ = _pick_cloud_model(provider, llm)
+                llm["primary"] = cfg.join_provider_model(provider, sel_model or "")
+            elif provider == consts.BACKEND_OLLAMA:
+                if not model:
+                    sel_model = _pick_ollama_model(llm.get(consts.BACKEND_OLLAMA, {}).get("host", consts.DEFAULT_OLLAMA_HOST))
+                    llm["primary"] = cfg.join_provider_model(provider, sel_model)
+                else:
+                    llm["primary"] = cfg.join_provider_model(provider, model)
+            else:
+                llm["primary"] = provider
 
+        overrides["primary"] = llm["primary"]
         _offer_install(overrides, llm)
     else:
         # Interactive wizard
@@ -2215,9 +2176,7 @@ def config_provider(
         llm.update(overrides)
         _offer_install(overrides, llm)
 
-
-    if "provider" in llm:
-        del llm["provider"]
+    llm.pop("provider", None)
     current_config["llm"] = llm
     cfg.save_config(paths, current_config)
 
@@ -2245,34 +2204,30 @@ def status() -> None:
         if raw_dir.exists():
             raw_files += sum(1 for p in raw_dir.rglob("*") if p.is_file() and not p.name.startswith("."))
 
+    _DEFAULT_MODELS = {
+        consts.BACKEND_ANTIGRAVITY_CLI: consts.DEFAULT_ANTIGRAVITY_MODEL,
+        consts.BACKEND_CLAUDE_CODE:     consts.DEFAULT_CLAUDE_MODEL,
+        consts.BACKEND_CODEX_CLI:       consts.DEFAULT_CODEX_MODEL,
+        consts.BACKEND_OLLAMA:          consts.DEFAULT_OLLAMA_MODEL,
+    }
+
     def _get_backend_model(key: str, llm_cfg: dict) -> str:
-        if key == "ollama":
-            return llm_cfg.get("model", "qwen2.5:7b")
-        elif key == "cloud":
-            cp = llm_cfg.get("cloud_provider", "gemini")
-            if cp == "gemini":
-                return llm_cfg.get("antigravity_flash_model", DEFAULT_GEMINI_FLASH_MODEL)
-            elif cp == "claude":
-                return llm_cfg.get("claude_model", "claude-sonnet-4-6")
-            elif cp == "openai":
-                return llm_cfg.get("openai_model", "gpt-4.1")
-        elif key == "claude-code":
-            return llm_cfg.get("claude_model", "claude-sonnet-4-6")
-        elif key == "antigravity-cli":
-            return llm_cfg.get("antigravity_flash_model") or DEFAULT_GEMINI_FLASH_MODEL
+        for slot in ("primary", "fallback"):
+            p, m = cfg.split_provider_model(llm_cfg.get(slot, ""))
+            if p == key:
+                return m or _DEFAULT_MODELS.get(key, "?")
         return "?"
 
-    def _get_backend_label(key: str, llm_cfg: dict) -> str:
-        if key == "ollama":
+    def _get_backend_label(key: str, _llm_cfg: dict = {}) -> str:
+        if key == consts.BACKEND_OLLAMA:
             return "Ollama"
-        elif key == "cloud":
-            cp = llm_cfg.get("cloud_provider", "gemini").capitalize()
-            return f"Cloud ({cp})"
-        elif key == "claude-code":
+        elif key == consts.BACKEND_CLAUDE_CODE:
             return "Claude Code"
-        elif key == "antigravity-cli":
+        elif key == consts.BACKEND_ANTIGRAVITY_CLI:
             return "Antigravity CLI"
-        return key.capitalize() if key else "?"
+        elif key == consts.BACKEND_CODEX_CLI:
+            return "Codex CLI"
+        return key if key else "?"
 
     console.print()
     console.print(
@@ -2288,19 +2243,18 @@ def status() -> None:
     llm = config.get("llm", {})
     search_cfg = config.get("search", {})
 
-    primary = llm.get("primary") or llm.get("provider") or "ollama"
-    cfg_table.add_row("Primary", _get_backend_label(primary, llm))
-    cfg_table.add_row("Primary model", _get_backend_model(primary, llm))
+    primary_prov, primary_model = cfg.split_provider_model(llm.get("primary", ""))
+    cfg_table.add_row("Primary", f"{_get_backend_label(primary_prov, llm)}  ({primary_model or '?'})")
 
-    fallback = llm.get("fallback") or ""
-    if fallback and fallback != primary:
-        cfg_table.add_row("Fallback", _get_backend_label(fallback, llm))
-        cfg_table.add_row("Fallback model", _get_backend_model(fallback, llm))
+    fb_prov, fb_model = cfg.split_provider_model(llm.get("fallback", ""))
+    if fb_prov:
+        cfg_table.add_row("Fallback", f"{_get_backend_label(fb_prov, llm)}  ({fb_model or '?'})")
     else:
-        cfg_table.add_row("Fallback", "")
+        cfg_table.add_row("Fallback", "none")
 
-    if primary == "ollama" or fallback == "ollama":
-        cfg_table.add_row("LLM host", llm.get("host", "?"))
+    ollama_cfg = llm.get(consts.BACKEND_OLLAMA, {})
+    if primary_prov == consts.BACKEND_OLLAMA or fb_prov == consts.BACKEND_OLLAMA:
+        cfg_table.add_row("Ollama host", ollama_cfg.get("host", "?"))
 
     cfg_table.add_row("Search backend", search_cfg.get("backend", "?"))
     cfg_table.add_row("Reranking", "on" if search_cfg.get("rerank") else "off")
@@ -2425,6 +2379,9 @@ def add(
     Run `wiki build` afterwards to extract L2 Atoms + L3 Concepts.
     """
     paths = _resolve_root_or_die()
+    if not paths.state_db.exists():
+        _err("Vault not fully initialized. Run `wiki init <path>` first.")
+        raise typer.Exit(code=1)
     config = cfg.load_config(paths)
 
     console.print()
@@ -2629,7 +2586,6 @@ def build(
             lambda: CliIngestCallbacks(mode="batch"),
             mode="batch",
             auto_discover=False,
-            thinking_for_extraction=False,
             force=force,
         )
         atoms_created = sum(r.fragments_created for r in l3_results if r.ok)
@@ -2644,7 +2600,7 @@ def build(
             # Progressively reinforce Curator persona from newly observed domains
             new_ctx_ids = [
                 ch.id for r in l3_results if r.ok
-                for ch in r.changes if ch.layer == "01_Contexts"
+                for ch in r.changes if ch.layer == consts.LAYER_L1
             ]
             if new_ctx_ids:
                 new_domains = ingest_llm._collect_domains_from_contexts(paths, new_ctx_ids)
@@ -3131,7 +3087,6 @@ def sources_retry_cmd(
                     client=client,
                     config=config,
                     existing_context_id=row["context_id"],
-                    thinking=False,
                 )
                 if context_id:
                     _ok(f"  L1 [{context_id}] ← {row['relpath']}")
@@ -3160,7 +3115,6 @@ def sources_retry_cmd(
                 lambda: CliIngestCallbacks(mode="batch"),
                 mode="batch",
                 auto_discover=False,
-                thinking_for_extraction=True,
             )
             for result in l3_results:
                 if result.ok:
@@ -3306,7 +3260,7 @@ def curate(
     workspace = _resolve_curate_workspace(workspace)
     if workspace is None:
         if console.is_interactive:
-            workspace = paths.root / "01_Workspaces" / "Curator Workspace"
+            workspace = paths.root / consts.DIR_WORKSPACES / "Curator Workspace"
             _warn(f"No workspace found; initializing default workspace at {workspace}.")
             data = CurateTemplateData(
                 project=default_project_name(workspace),
@@ -3400,7 +3354,7 @@ def curate(
 
             # Clean up any stale duplicate workspace Exhibitions for this project.
             if curate_spec is not None and target is not None and paths.exhibitions.exists():
-                for dup in sorted(paths.exhibitions.glob("EXH-*.md")):
+                for dup in sorted(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md")):
                     if dup == target:
                         continue
                     try:
@@ -3861,8 +3815,8 @@ def _contradiction_resolution_wizard(paths, client, issues: list) -> None:
     )
 
     for i, issue in enumerate(issues, 1):
-        atom_a_rel = issue.page                          # "02_Atoms/ATM-xxx.md"
-        atom_b_rel = issue.context.get("other_page", "") # "02_Atoms/ATM-yyy.md"
+        atom_a_rel = issue.page                          # f"{consts.LAYER_L2}/ATM-xxx.md"
+        atom_b_rel = issue.context.get("other_page", "") # f"{consts.LAYER_L2}/ATM-yyy.md"
         atom_a_id = Path(atom_a_rel).stem
         atom_b_id = Path(atom_b_rel).stem
         reasoning = issue.context.get("reasoning", issue.suggestion or "")
@@ -3902,7 +3856,7 @@ def _contradiction_resolution_wizard(paths, client, issues: list) -> None:
                     content_b=page_b.to_markdown(),
                     conflict_reasoning=reasoning,
                 )
-                raw = client.chat(messages, thinking=False, json_mode=True, temperature=0.3)
+                raw = client.chat(messages, json_mode=True, temperature=0.3)
                 proposal = json.loads(raw)
             except (LLMError, json.JSONDecodeError, Exception) as e:
                 _warn(f"Resolution failed: {e}")
@@ -4350,7 +4304,7 @@ def _run_query_repl(
                 if page:
                     page.frontmatter["ephemeral"] = False
                     page_writer.write_page(session_exh_path, page.to_markdown())
-                    _ok(f"Exhibition retained: [[04_Exhibitions/{session_exh_path.stem}]]")
+                    _ok(f"Exhibition retained: [[{consts.LAYER_L4}/{session_exh_path.stem}]]")
             else:
                 session_exh_path.unlink(missing_ok=True)
                 page_writer.rebuild_index(paths, page_writer.today_iso())
@@ -4570,7 +4524,7 @@ def lint(
         lint_module.page_writer.write_page(target_path, content)
         lint_module.page_writer.rebuild_index(paths, today)
         console.print()
-        _ok(f"Saved report to [cyan]04_Exhibitions/{cur_id}.md[/cyan]")
+        _ok(f"Saved report to [cyan]{consts.LAYER_L4}/{cur_id}.md[/cyan]")
 
     # Exit code: 1 if there are errors, 0 otherwise (for CI use)
     if report.errors:
@@ -4584,11 +4538,11 @@ def lint(
 def _show_ollama_installed(host: str, llm_cfg: dict, active_only: bool = False) -> bool:
     """Check and display installed models on an Ollama host."""
     targets = [("local", host)]
-    remote = (llm_cfg.get("remote_ollama_host") or "").strip()
-    if remote and remote != host:
-        targets.append(("remote", remote))
 
-    configured_model = llm_cfg.get("model", "")
+    _, configured_model = cfg.split_provider_model(
+        llm_cfg.get("primary", "") if consts.BACKEND_OLLAMA in llm_cfg.get("primary", "")
+        else llm_cfg.get("fallback", "")
+    )
     any_found = False
 
     for label, h in targets:
@@ -4665,10 +4619,10 @@ def models_list(
         # Fallback to last successful root (same as wiki status)
         if not discovered:
             last = cfg.get_last_root()
-            if last and (last / cfg.INTERNAL_DIR).exists():
+            if last and (last / consts.INTERNAL_DIR).exists():
                 discovered = last
 
-    if discovered is not None and (discovered / cfg.INTERNAL_DIR).exists():
+    if discovered is not None and (discovered / consts.INTERNAL_DIR).exists():
         paths = cfg.paths_from_config(discovered)
         llm_cfg = cfg.load_config(paths).get("llm", {})
     else:
@@ -4677,64 +4631,41 @@ def models_list(
         show_all = True
     
     primary_raw = llm_cfg.get("primary", "")
-    primary = primary_raw.lower().replace(" ", "-")
+    primary, _ = cfg.split_provider_model(primary_raw)
     active_only = not show_all
     any_found = False
 
-    # If no primary is set but we are in a wiki, default to showing what 'wiki status' would show
-    if not primary and discovered:
-        # Check if we can guess the primary from cloud_provider
-        cp = llm_cfg.get("cloud_provider", "gemini")
-        if cp == "gemini":
-            primary = "antigravity-cli"
-        elif cp == "claude":
-            primary = "claude-code"
+    _CLOUD_BACKENDS = (consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI)
 
     # 1. Show Primary Backend models
-    if primary in ("claude-code", "antigravity-cli", "cloud", "gemini", "claude", "openai"):
-        cp = _get_cloud_provider_from_primary(primary, llm_cfg)
-        if cp:
-            any_found = _show_cloud_models(cp, llm_cfg, active_only=active_only)
-    elif primary == "ollama" or (not primary and host):
-        target_host = host or llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
+    if primary in _CLOUD_BACKENDS:
+        any_found = _show_cloud_models(primary, llm_cfg, active_only=active_only)
+    elif primary == consts.BACKEND_OLLAMA or (not primary and host):
+        target_host = host or llm_cfg.get(consts.BACKEND_OLLAMA, {}).get("host", consts.DEFAULT_OLLAMA_HOST)
         any_found = _show_ollama_installed(target_host, llm_cfg, active_only=active_only)
-        if not any_found and primary == "ollama" and not active_only:
-            _hint("Start Ollama with [bold]ollama serve[/bold] or set [bold]llm.remote_ollama_host[/bold] in config.")
+        if not any_found and primary == consts.BACKEND_OLLAMA and not active_only:
+            _hint("Start Ollama with [bold]ollama serve[/bold] or set [bold]llm.ollama.host[/bold] in config.")
     else:
-        # No primary or unknown — show a default or help
         if not active_only:
-            if not primary:
-                console.print("[dim]Primary backend not set. Showing all curated recommendations:[/dim]")
-            else:
-                _warn(f"Unknown primary '{primary}'. Showing all curated recommendations:")
+            console.print("[dim]Primary backend not set. Showing all curated recommendations:[/dim]" if not primary
+                          else f"[yellow]Unknown primary '{primary}'. Showing all curated recommendations.[/yellow]")
 
     if active_only:
-        # Final fallback: if absolutely nothing was printed
         if not any_found:
             if not discovered:
                 console.print(f"\n[yellow]Not inside a wiki project.[/yellow] (cwd: {Path.cwd()})")
                 console.print("Use [bold]wiki config models list --all[/bold] to see all recommendations.")
             else:
                 console.print("\n[bold]Current Active Configuration[/bold]")
-                console.print(f"  Primary Backend: [cyan]{primary_raw or '(not set)'}[/cyan]")
-                if primary == "ollama" or not primary:
-                    console.print(f"  Ollama Model:    [cyan]{llm_cfg.get('model', '(default: qwen2.5:7b)')}[/cyan]")
-                if primary in ("claude-code", "antigravity-cli") or not primary:
-                    key = _PROVIDER_PRIMARY_CFG_KEY.get(primary) or "antigravity_flash_model"
-                    console.print(f"  Active Model:    [cyan]{llm_cfg.get(key, '(default)')}[/cyan]")
+                console.print(f"  Primary: [cyan]{primary_raw or '(not set)'}[/cyan]")
         return
 
-    # 2. Show recommendations for OTHER providers below
+    # 2. Show recommendations for other providers
     console.print("\n[bold dim]--- Recommended Models (Global) ---[/bold dim]")
-
-    # Cloud recommendations (excluding the current primary if it was already shown)
-    for cp in ("antigravity-cli", "claude-code"):
-        current_cp = _get_cloud_provider_from_primary(primary, llm_cfg) if primary else ""
-        if cp != current_cp:
+    for cp in _CLOUD_BACKENDS:
+        if cp != primary:
             _show_cloud_models(cp, llm_cfg)
-
-    # Ollama recommendations (at the very bottom)
-    ollama_host = host or llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
+    ollama_host = host or llm_cfg.get(consts.BACKEND_OLLAMA, {}).get("host", consts.DEFAULT_OLLAMA_HOST)
     _show_recommended_models(ollama_host)
 
 
@@ -4754,7 +4685,7 @@ def models_use(
 
     For Ollama: shows recommendation list; pulls the model if not yet downloaded.
     For cloud providers (claude-code/antigravity-cli): shows curated list and saves
-    the selection to the appropriate config key (e.g. claude_model, gemini_flash_model).
+    the selection to the appropriate config key (e.g. claude_model, gemini_model).
     """
     import subprocess
 
@@ -4762,41 +4693,34 @@ def models_use(
     config = cfg.load_config(paths)
     llm_cfg = config.get("llm", {})
 
-    primary = llm_cfg.get("primary", "")
+    primary_raw = llm_cfg.get("primary", "")
+    primary, _ = cfg.split_provider_model(primary_raw)
 
     # --- Cloud providers ---
-    if primary not in ("", "ollama"):
+    if primary and primary != consts.BACKEND_OLLAMA:
         if host:
             console.print("[dim]--host is an Ollama-only option. Ignoring.[/dim]")
-        cp = _get_cloud_provider_from_primary(primary, llm_cfg)
-        if not cp:
+        if primary not in (consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI):
             _err(f"Unknown primary '{primary}'.")
             raise typer.Exit(code=1)
 
-        cfg_key: str
         if not model:
-            # Interactive: show table then picker
-            _show_cloud_models(cp, llm_cfg)
-            model, cfg_key = _pick_cloud_model(cp, llm_cfg)
+            model, _ = _pick_cloud_model(primary, llm_cfg)
             if not model:
                 console.print("[dim]Cancelled.[/dim]")
                 raise typer.Exit()
-        else:
-            # Non-interactive: look up cfg_key from catalog; fall back to primary key
-            tag_to_cfg = {m["tag"]: m["cfg_key"] for m in _CLOUD_MODELS.get(cp, [])}
-            cfg_key = tag_to_cfg.get(model, _PROVIDER_PRIMARY_CFG_KEY.get(cp, "model"))
-
-        config.setdefault("llm", {})[cfg_key] = model
+        # Write in new 'provider::model' format
+        config.setdefault("llm", {})["primary"] = cfg.join_provider_model(primary, model)
         cfg.save_config(paths, config)
         _ok(
             f"Model set: [bold]{model}[/bold] "
-            f"[dim]({cfg_key})[/dim]  →  {paths.config_file.relative_to(paths.root)}"
+            f"→  {paths.config_file.relative_to(paths.root)}"
         )
         _hint("Run [bold]wiki add[/bold] to start using the new model.")
         return
 
     # --- Ollama ---
-    target_host = host or llm_cfg.get("remote_ollama_host", "").strip() or llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
+    target_host = host or llm_cfg.get(consts.BACKEND_OLLAMA, {}).get("host", consts.DEFAULT_OLLAMA_HOST)
 
     # No model given → show recommendation table and prompt interactively
     if not model:
@@ -4817,7 +4741,7 @@ def models_use(
         if not any(m == model or m.startswith(model) for m in available):
             console.print(f"[dim]Model '{model}' not found locally — pulling…[/dim]")
             try:
-                subprocess.run(["ollama", "pull", model], check=True)
+                subprocess.run([consts.BACKEND_OLLAMA, "pull", model], check=True)
             except FileNotFoundError:
                 _warn("'ollama' CLI not found in PATH. Is Ollama installed?")
                 raise typer.Exit(code=1)
@@ -4830,7 +4754,7 @@ def models_use(
     else:
         _warn(f"Ollama unreachable at {target_host} — saving model without verification.")
 
-    config.setdefault("llm", {})["model"] = model
+    config.setdefault("llm", {}).setdefault(consts.BACKEND_OLLAMA, {})["model"] = model
     cfg.save_config(paths, config)
     _ok(f"Model set to [bold]{model}[/bold] in {paths.config_file.relative_to(paths.root)}")
     _hint("Run [bold]wiki add[/bold] to start using the new model.")
@@ -4857,7 +4781,7 @@ def _interactive() -> bool:
 
 def _ask_source_dirs(vault_root: Path) -> list[str]:
     """Interactively select which vault directories to include. Returns fnmatch patterns."""
-    raw_dirs = ["03_Notes", "04_Resources", "02_Wiki"]
+    raw_dirs = [consts.DIR_NOTES, consts.DIR_RESOURCES, consts.DIR_WIKI]
     available: list[tuple[str, int]] = []
     for d in raw_dirs:
         dir_path = vault_root / d
@@ -5040,7 +4964,7 @@ def _try_llm_rule_integration(
 def workspace_init(
     path: Path = typer.Argument(..., help="Path for the new workspace directory."),
     agent: str = typer.Option(
-        "claude-code",
+        consts.BACKEND_CLAUDE_CODE,
         "--agent",
         help="Agent runtime: codex | claude-code | antigravity | none.",
     ),
@@ -5069,13 +4993,13 @@ def workspace_init(
     project_name = project or default_project_name(path)
 
     # 1. Interactive agent selection (which agent rules to install)
-    _agent_explicit = agent != "claude-code"
+    _agent_explicit = agent != consts.BACKEND_CLAUDE_CODE
     if not yes and _interactive() and not _agent_explicit:
         agent = typer.prompt(
             "Agent runtime",
-            default="claude-code",
+            default=consts.BACKEND_CLAUDE_CODE,
             prompt_suffix=" [claude-code/codex/antigravity/none]: ",
-        ).strip() or "claude-code"
+        ).strip() or consts.BACKEND_CLAUDE_CODE
 
     if agent not in VALID_AGENTS:
         _err(f"Invalid --agent '{agent}'. Use: {' | '.join(sorted(VALID_AGENTS))}")
@@ -5162,7 +5086,7 @@ def workspace_init(
         try:
             import yaml as _yaml_ws
             import datetime as _dt_ws
-            _curate_file = path / "curate.yml"
+            _curate_file = path / consts.FILE_CURATE_YML
             _raw_curate = _yaml_ws.safe_load(_curate_file.read_text(encoding="utf-8")) or {}
             persona["updated_at"] = _dt_ws.datetime.now().isoformat()
             _raw_curate["persona"] = persona
@@ -5175,7 +5099,7 @@ def workspace_init(
             _warn(f"Could not save persona: {_save_exc}")
 
     # 6. Auto-register MCP settings for Claude Code agents
-    if agent == "claude-code":
+    if agent == consts.BACKEND_CLAUDE_CODE:
         try:
             from .workspace.provisioner import merge_mcp_settings
             settings_path = paths.root / ".claude" / "settings.json"
@@ -5264,8 +5188,8 @@ def persona_update(
     client = _start_client(config)
 
     if workspace:
-        ws_path = paths.root / "01_Workspaces" / workspace
-        curate_file = ws_path / "curate.yml"
+        ws_path = paths.root / consts.DIR_WORKSPACES / workspace
+        curate_file = ws_path / consts.FILE_CURATE_YML
         if not curate_file.exists():
             typer.echo(f"No curate.yml found at {curate_file}", err=True)
             raise typer.Exit(1)
@@ -5329,7 +5253,7 @@ def mcp_callback(ctx: typer.Context) -> None:
         console.print("[bold]wiki mcp[/bold] — Incurator MCP server (stdio transport)")
         console.print()
         console.print("This command is meant to be started by an MCP client (Claude Code,")
-        console.print("Gemini CLI, etc.), not run directly in a terminal.")
+        console.print("Antigravity CLI, etc.), not run directly in a terminal.")
         console.print()
         console.print("[bold]Setup:[/bold]")
         console.print("  [dim]wiki mcp install[/dim]   — print config snippet to paste into your MCP client")
@@ -5377,8 +5301,6 @@ def mcp_connect_cmd(
     ),
     project: Optional[str] = typer.Option(None, "--project", help="curate.yml project id."),
     description: Optional[str] = typer.Option(None, "--description", help="curate.yml description."),
-    domains: Optional[list[str]] = typer.Option(None, "--domain", help="Domain to add; repeat or comma-separate."),
-    topics: Optional[list[str]] = typer.Option(None, "--topic", help="Topic to add; repeat or comma-separate."),
     min_confidence: float = typer.Option(0.60, "--min-confidence", help="curate.yml confidence floor."),
 ) -> None:
     """Prepare workspace rules and print an MCP snippet for one agent runtime."""
@@ -5394,8 +5316,6 @@ def mcp_connect_cmd(
         yes=yes,
         project=project,
         description=description,
-        domains=domains,
-        topics=topics,
         min_confidence=min_confidence,
     )
     result = prepare_workspace(
@@ -5446,7 +5366,7 @@ def mcp_install_cmd(
 
     snippets = mcp_server.render_install_snippets(paths)
     target = target.lower()
-    if target not in ("claude", "gemini", "all"):
+    if target not in (consts.CLOUD_CLAUDE, consts.CLOUD_GEMINI, "all"):
         _err(f"Unknown target '{target}'. Use claude | gemini | all.")
         raise typer.Exit(code=1)
 
@@ -5458,7 +5378,7 @@ def mcp_install_cmd(
         )
     )
 
-    if target in ("claude", "all"):
+    if target in (consts.CLOUD_CLAUDE, "all"):
         console.print()
         console.rule("[bold]Claude Code / Desktop[/bold]")
         console.print(
@@ -5468,9 +5388,9 @@ def mcp_install_cmd(
             "                    [cyan]%APPDATA%\\Claude\\claude_desktop_config.json[/cyan] (Windows)"
         )
         console.print()
-        console.print(snippets["claude"])
+        console.print(snippets[consts.CLOUD_CLAUDE])
 
-    if target in ("gemini", "all"):
+    if target in (consts.CLOUD_GEMINI, "all"):
         console.print()
         console.rule("[bold]Gemini CLI[/bold]")
         console.print(
@@ -5478,7 +5398,7 @@ def mcp_install_cmd(
             "  • [cyan]~/.gemini/settings.json[/cyan]"
         )
         console.print()
-        console.print(snippets["gemini"])
+        console.print(snippets[consts.CLOUD_GEMINI])
 
     console.print()
     _hint(
@@ -5557,7 +5477,7 @@ def benchmark_run(
         _sys.path.insert(0, str(_bench_dir))
 
     try:
-        import benchmark as _bm
+        import benchmark as _bm  # type: ignore[import]
     except ImportError as e:
         _err(f"Benchmark module not found: {e}")
         raise typer.Exit(1)
@@ -5587,7 +5507,7 @@ def benchmark_compare(
         _sys.path.insert(0, str(_bench_dir))
 
     try:
-        import benchmark as _bm
+        import benchmark as _bm  # type: ignore[import]
     except ImportError as e:
         _err(f"Benchmark module not found: {e}")
         raise typer.Exit(1)

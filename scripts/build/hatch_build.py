@@ -32,6 +32,8 @@ class CustomBuildHook(BuildHookInterface):
         _install_sqlite_macos()
         _install_node()
         _install_qmd()
+        _install_agy()
+        _install_codex()
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +184,56 @@ def _install_qmd() -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# Antigravity CLI (agy) - Official Google CLI
+# ---------------------------------------------------------------------------
+
+def _install_agy() -> None:
+    home_local_bin = Path.home() / ".local" / "bin"
+    if shutil.which("agy") or (home_local_bin / "agy").exists() or (home_local_bin / "agy.exe").exists():
+        print("[incurator] ✅ Antigravity CLI (agy) already available.", flush=True)
+        return
+
+    print("[incurator] ⏳ Installing Antigravity CLI (agy)...", flush=True)
+    if sys.platform == "win32":
+        res = subprocess.run(
+            'powershell -c "irm https://antigravity.google/cli/install.ps1 | iex"',
+            shell=True, check=False
+        )
+    else:
+        res = subprocess.run(
+            "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+            shell=True, check=False
+        )
+
+    if res.returncode == 0:
+        print("[incurator] ✅ Antigravity CLI installed.", flush=True)
+    else:
+        print("[incurator] ❌ Antigravity CLI install failed. Try manually from https://antigravity.google/product/antigravity-cli", flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Codex CLI - OpenAI CLI
+# ---------------------------------------------------------------------------
+
+def _install_codex() -> None:
+    if shutil.which("codex"):
+        print("[incurator] ✅ Codex CLI already available.", flush=True)
+        return
+
+    npm = shutil.which("npm")
+    if not npm:
+        print("[incurator] npm not found - skipping Codex CLI install.", flush=True)
+        return
+
+    print("[incurator] ⏳ Installing Codex CLI via npm...", flush=True)
+    res = subprocess.run([npm, "install", "-g", "@openai/codex"], check=False)
+    if res.returncode == 0:
+        print("[incurator] ✅ Codex CLI installed.", flush=True)
+    else:
+        print("[incurator] ❌ Codex CLI install failed. Try manually: npm install -g @openai/codex", flush=True)
+
+
 def _prepend_path(bin_dir: str) -> None:
     existing = os.environ.get("PATH", "")
     if bin_dir not in existing.split(os.pathsep):
@@ -193,3 +245,5 @@ if __name__ == "__main__":
     _install_sqlite_macos()
     _install_node()
     _install_qmd()
+    _install_agy()
+    _install_codex()

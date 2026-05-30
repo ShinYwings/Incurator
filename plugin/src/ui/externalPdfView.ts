@@ -1074,10 +1074,13 @@ export class ExternalPdfView extends ItemView {
             div.style.width = `${w}px`;
             div.style.height = `${h}px`;
 
-            const boxStyle = buildZoteroAnnotationBoxStyle(ann.color);
+            const boxStyle = buildZoteroAnnotationBoxStyle(ann.type, ann.color);
             div.style.border = boxStyle.border;
+            if (boxStyle.borderBottom) div.style.borderBottom = boxStyle.borderBottom;
             div.style.backgroundColor = boxStyle.backgroundColor;
-            div.style.boxShadow = boxStyle.boxShadow;
+            if (boxStyle.boxShadow) div.style.boxShadow = boxStyle.boxShadow;
+            if (boxStyle.opacity) div.style.opacity = boxStyle.opacity;
+            if (boxStyle.mixBlendMode) div.style.mixBlendMode = boxStyle.mixBlendMode;
             div.style.boxSizing = "border-box";
           }
         }

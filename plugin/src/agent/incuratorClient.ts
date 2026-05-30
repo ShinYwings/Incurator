@@ -61,6 +61,31 @@ export class IncuratorClient {
     }
   }
 
+  async getBackendStatus(): Promise<any> {
+    if (this.settings.incuratorEnabled === false) return null;
+    return await this.tryTool(["curator_status"], {});
+  }
+
+  async runSync(): Promise<any> {
+    if (this.settings.incuratorEnabled === false) return null;
+    return await this.tryTool(["curator_sync"], {});
+  }
+
+  async runLint(): Promise<any> {
+    if (this.settings.incuratorEnabled === false) return null;
+    return await this.tryTool(["curator_lint"], {});
+  }
+
+  async runReindex(): Promise<any> {
+    if (this.settings.incuratorEnabled === false) return null;
+    return await this.tryTool(["curator_reindex"], {});
+  }
+
+  async runCurate(workspacePath?: string): Promise<any> {
+    if (this.settings.incuratorEnabled === false) return null;
+    return await this.tryTool(["curator_curate_workspace"], { workspace_path: workspacePath ?? "" });
+  }
+
   async getSourceStatus(
     input?: string | { sourcePath?: string; fileHash?: string }
   ): Promise<IncuratorSourceStatus> {
@@ -113,7 +138,7 @@ export class IncuratorClient {
     }
     const catalogue: ModelCatalogue = {};
     for (const [provider, rawModels] of Object.entries(providers as Record<string, unknown>)) {
-      if (!["antigravity", "claude", "openai"].includes(provider) || !Array.isArray(rawModels)) {
+      if (!["antigravity", "claude", "openai", "ollama"].includes(provider) || !Array.isArray(rawModels)) {
         continue;
       }
       catalogue[provider as keyof ModelCatalogue] = rawModels
@@ -122,16 +147,10 @@ export class IncuratorClient {
           const id = this.readString(model, ["id"]);
           if (!id) return null;
           return {
-            id,
-            label: this.readString(model, ["label"]) || id,
-            tier:
-              (this.readString(model, ["tier"]) as
-                | "flash"
-                | "think"
-                | "stable"
-                | "preview"
-                | "legacy") || "stable",
+            id: this.readString(model, ["id"]),
+            label: this.readString(model, ["label"]),
             supportsVision: this.readBoolean(model, ["supports_vision", "supportsVision"]) !== false,
+
             contextWindow: this.readNumber(model, ["context_window", "contextWindow"]),
           };
         })
@@ -305,7 +324,7 @@ export class IncuratorClient {
     const result = await this.tryTool(["curator_get_zotero_annotations"], {
       attachment_key: attachmentKey,
       attachmentKey: attachmentKey,
-      custom_paths: this.settings.zoteroBasePath || ""
+      custom_paths: this.buildZoteroCustomPaths(),
     });
 
     if (result && typeof result === "object" && (result as any).ok) {
@@ -319,13 +338,17 @@ export class IncuratorClient {
     const result = await this.tryTool(["curator_resolve_zotero_pdf"], {
       attachment_key: attachmentKey,
       attachmentKey: attachmentKey,
-      custom_paths: this.settings.zoteroBasePath || ""
+      custom_paths: this.buildZoteroCustomPaths(),
     });
 
     if (result && typeof result === "object" && (result as any).ok) {
       return (result as any).path || null;
     }
     return null;
+  }
+
+  private buildZoteroCustomPaths(): string {
+    return this.settings.zoteroBasePath || "";
   }
 
   async curatorQuery(
@@ -462,8 +485,9 @@ export class IncuratorClient {
     if (state === "unknown" || state === "queued" || state === "indexed") {
       if (l4 || state === "curated") state = "curated";
       else if (l3) state = "indexed";
+      else if (l2) state = "l2_ready";
       else if (l1 && pendingJobs.length > 0) state = "queued";
-      else if (l1 && !l2 && !l3) state = "l1_ready";
+      else if (l1) state = "l1_ready";
     }
     if (state === "unknown" && record.ok === true) {
       state = record.context_id || record.contextId ? "indexed" : "queued";

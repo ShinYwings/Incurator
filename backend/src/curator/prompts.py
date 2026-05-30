@@ -12,6 +12,7 @@ traverse the DAG by ID without relying on human-readable slugs.
 """
 
 from __future__ import annotations
+from . import constants as consts
 
 from .llm import ChatMessage
 
@@ -165,7 +166,7 @@ Write the complete markdown page with:
    ---
    id: {fragment_id}
    type: atom
-   parent_source: "01_Contexts/{context_id}"
+   parent_source: {layer_l1}/{context_id}
    source_path: "[[{source_path}]]"
    claim_type: {fragment_type}
    confidence_score: 0.00
@@ -215,6 +216,7 @@ def build_fragment_page_messages(
         source_path=source_path_link,
         excerpt=excerpt,
         today=today,
+        layer_l1=consts.LAYER_L1,
     )
     return [
         ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
@@ -592,7 +594,7 @@ def build_curation_page_messages(
     user_content = template.format(
         curation_id=curation_id,
         topic=topic,
-        domain=domain or "general",
+        domain=domain or consts.DOMAIN_GENERAL,
         theme_ids_yaml=theme_ids_yaml,
         themes_content=themes_content,
         confidence=f"{confidence:.2f}",

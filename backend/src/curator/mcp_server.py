@@ -23,6 +23,7 @@ Vault resolution:
 """
 
 from __future__ import annotations
+from . import constants as consts
 
 import json
 import os
@@ -43,6 +44,7 @@ except ImportError as e:  # pragma: no cover - import-time hint
     ) from e
 
 from . import config as cfg
+from . import constants as consts
 from . import page_writer
 from . import source_tools
 
@@ -62,6 +64,67 @@ def _zotero_db_candidates(custom_paths: str) -> list[str]:
         base = os.path.expanduser(p)
         out.append(base if base.endswith(".sqlite") else os.path.join(base, "zotero.sqlite"))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Zotero baseAttachmentPath auto-discovery (ZotMoov / linked attachments)
+# ---------------------------------------------------------------------------
+
+
+def _discover_zotero_base_attachment_path(candidates: list[str]) -> None:
+    """Read Zotero prefs.js to discover baseAttachmentPath and ZotMoov dst_dir.
+
+    ZotMoov users store linked PDFs at a custom location that varies per OS:
+      - macOS: ~/Library/Mobile Documents/com~apple~CloudDocs/Zotero
+      - Linux: ~/Zotero (or another local directory)
+
+    Zotero's prefs.js contains:
+      user_pref("extensions.zotero.baseAttachmentPath", "/path/to/...");
+      user_pref("extensions.zotmoov.dst_dir", "/path/to/...");
+
+    This function finds the active Zotero profile, extracts these paths,
+    and appends them to the candidates list if not already present.
+    """
+    import re
+    import platform
+
+    # Locate Zotero profile directories
+    profile_roots: list[str] = []
+    if platform.system() == "Darwin":
+        profile_roots.append(os.path.expanduser(
+            "~/Library/Application Support/Zotero/Profiles"
+        ))
+    else:  # Linux
+        profile_roots.append(os.path.expanduser("~/.zotero/zotero"))
+
+    prefs_files: list[str] = []
+    for root in profile_roots:
+        if not os.path.isdir(root):
+            continue
+        for entry in os.listdir(root):
+            prefs = os.path.join(root, entry, "prefs.js")
+            if os.path.isfile(prefs):
+                prefs_files.append(prefs)
+
+    # Parse prefs.js for baseAttachmentPath and zotmoov.dst_dir
+    pref_pattern = re.compile(
+        r'user_pref\(\s*"(extensions\.zotero\.baseAttachmentPath'
+        r'|extensions\.zotmoov\.dst_dir)"\s*,\s*"([^"]+)"\s*\)'
+    )
+    seen = set(os.path.normpath(c) for c in candidates)
+    for prefs_path in prefs_files:
+        try:
+            with open(prefs_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    m = pref_pattern.search(line)
+                    if m:
+                        discovered = m.group(2)
+                        norm = os.path.normpath(discovered)
+                        if norm not in seen and os.path.isdir(discovered):
+                            candidates.append(discovered)
+                            seen.add(norm)
+        except OSError:
+            continue
 
 
 # ---------------------------------------------------------------------------
@@ -85,11 +148,11 @@ def _resolve_paths(hint_path: str = "") -> cfg.WikiPaths:
     env_root = os.environ.get("VAULT_ROOT")
     if env_root:
         candidate = Path(env_root).expanduser().resolve()
-        if (candidate / cfg.INTERNAL_DIR / cfg.CONFIG_FILE).exists():
+        if (candidate / consts.INTERNAL_DIR / consts.CONFIG_FILE).exists():
             return cfg.paths_from_config(candidate)
         raise RuntimeError(
             f"VAULT_ROOT is set to '{env_root}' but no vault was found there "
-            f"(missing {cfg.INTERNAL_DIR}/{cfg.CONFIG_FILE}). "
+            f"(missing {consts.INTERNAL_DIR}/{consts.CONFIG_FILE}). "
             "Re-run `wiki mcp` from inside an initialised vault."
         )
 
@@ -103,7 +166,7 @@ def _resolve_paths(hint_path: str = "") -> cfg.WikiPaths:
             spec = _cym.load_curate_spec(ws_path)
             if spec and spec.vault_root:
                 vroot = Path(spec.vault_root).expanduser().resolve()
-                if (vroot / cfg.INTERNAL_DIR / cfg.CONFIG_FILE).exists():
+                if (vroot / consts.INTERNAL_DIR / consts.CONFIG_FILE).exists():
                     return cfg.paths_from_config(vroot)
                 raise RuntimeError(
                     f"curate.yml vault_root='{spec.vault_root}' does not contain a valid vault. "
@@ -127,10 +190,10 @@ def _resolve_paths(hint_path: str = "") -> cfg.WikiPaths:
 
 
 _LAYERS = {
-    "context":    ("01_Contexts",    "CTX-"),
-    "atom":       ("02_Atoms",       "ATM-"),
-    "concept":    ("03_Concepts",    "CON-"),
-    "exhibition": ("04_Exhibitions", "EXH-"),
+    consts.TYPE_L1:    (consts.LAYER_L1,    f"{consts.PREFIX_L1}-"),
+    consts.TYPE_L2:       (consts.LAYER_L2,       f"{consts.PREFIX_L2}-"),
+    consts.TYPE_L3:    (consts.LAYER_L3,    f"{consts.PREFIX_L3}-"),
+    consts.TYPE_L4: (consts.LAYER_L4, f"{consts.PREFIX_L4}-"),
 }
 
 
@@ -187,9 +250,9 @@ def _id_from_link(link: str) -> str:
 def _concept_atom_ids(con: dict[str, Any]) -> list[str]:
     """Concept → Atom edges live in the terminal `## Relations` section."""
     atom_ids: list[str] = []
-    for target in page_writer.extract_relation_targets(con.get("body", ""), prefix="02_Atoms/"):
+    for target in page_writer.extract_relation_targets(con.get("body", ""), prefix=f"{consts.LAYER_L2}/"):
         atom_id = _id_from_link(target)
-        if atom_id.startswith("ATM-") and atom_id not in atom_ids:
+        if atom_id.startswith(f"{consts.PREFIX_L2}-") and atom_id not in atom_ids:
             atom_ids.append(atom_id)
     return atom_ids
 
@@ -221,7 +284,7 @@ def curator_update_artist_persona(workspace_path: str, request: str) -> dict:
     from .llm import build_client, ChatMessage
 
     ws = Path(workspace_path).expanduser().resolve()
-    curate_file = ws / "curate.yml"
+    curate_file = ws / consts.FILE_CURATE_YML
     if not curate_file.exists():
         return {"error": f"curate.yml not found in {ws}"}
 
@@ -430,7 +493,7 @@ def _get_interview_suggestions(workspace_path: str, field_id: str, provided: dic
 
         # Get global vault directories and their immediate subdirectories for better suggestions
         global_dirs = []
-        for d in ["02_Wiki", "03_Notes", "04_Resources"]:
+        for d in [consts.DIR_WIKI, consts.DIR_NOTES, consts.DIR_RESOURCES]:
             base_p = paths.root / d
             if base_p.exists():
                 global_dirs.append(f"{d}/")
@@ -621,11 +684,38 @@ def build_server() -> FastMCP:
     except Exception:
         pass
 
-    def _source_dict(paths: cfg.WikiPaths, row: dict[str, Any]) -> dict[str, Any]:
+    def _source_dict(
+        paths: cfg.WikiPaths,
+        row: dict[str, Any],
+        config: dict,
+        light: bool = False,
+    ) -> dict[str, Any]:
         source_id = int(row["id"])
         pages = db.list_source_pdf_pages(paths.state_db, source_id)
         generated = db.list_source_pages(paths.state_db, source_id)
-        out = source_tools.source_status(paths, row, cfg.load_config(paths))
+        
+        if light:
+            out = dict(row)
+            expected_hash = str(row.get("content_hash") or "")
+            path = source_tools._row_path(paths, row)
+            status = str(row.get("status") or "pending")
+            state = "indexed" if status in {"curated", "done"} else status
+            out.update({
+                "state": state,
+                "message": "Cached status from database.",
+                "current_path": str(path),
+                "current_hash": expected_hash,
+                "requires_rebind": False,
+                "registered": True,
+                "source_id": source_id,
+                "l1_complete": str(row.get("l1_status") or "") == "done",
+                "l2_complete": str(row.get("l2_status") or "") == "done",
+                "l3_complete": str(row.get("l3_status") or "") == "done",
+                "jobs_pending": [],
+            })
+        else:
+            out = source_tools.source_status(paths, row, config)
+            
         out["pdf_page_count"] = len(pages)
         out["page_count"] = len(pages)
         out["generated_pages"] = generated
@@ -758,6 +848,10 @@ def build_server() -> FastMCP:
             for r in roots:
                 candidates.append(os.path.expanduser(r))
 
+        # Auto-discover Zotero's baseAttachmentPath from prefs.js
+        # This is critical for ZotMoov users: macOS uses iCloud, Linux uses local paths
+        _discover_zotero_base_attachment_path(candidates)
+
         zotero_db = config.get("zotero", {}).get("db_path", os.path.expanduser("~/Zotero/zotero.sqlite"))
         if custom_paths:
             for cand in candidates:
@@ -774,8 +868,6 @@ def build_server() -> FastMCP:
             if db_path.startswith("attachments:"):
                 rel_path = db_path[len("attachments:"):]
                 for cand in candidates:
-                    # cand could be the base path itself, or we might need to check standard places
-                    # Usually linked attachments base path is in one of the roots or candidates
                     check_path = os.path.join(cand, rel_path)
                     if os.path.exists(check_path):
                         return {"ok": True, "path": check_path}
@@ -801,10 +893,52 @@ def build_server() -> FastMCP:
 
         return {"ok": False, "error": "PDF not found"}
 
+
+    @mcp.tool()
+    def curator_get_provider_config(workspace_path: str = "") -> dict[str, Any]:
+        """Get the current LLM provider configuration and available models."""
+        paths = _resolve_paths(workspace_path)
+        config = cfg.load_config(paths)
+        
+        models_data = {}
+        try:
+            models_path = Path(__file__).parent / "data" / "models.json"
+            if models_path.exists():
+                with open(models_path, "r", encoding="utf-8") as f:
+                    models_data = json.load(f)
+        except Exception:
+            pass
+            
+        return {"ok": True, "llm": config.get("llm", {}), "models_json": models_data}
+
+    @mcp.tool()
+    def curator_set_provider_config(
+        primary: str,
+        model: str = "",
+        host: str = "",
+        workspace_path: str = ""
+    ) -> dict[str, Any]:
+        """Set the LLM provider configuration."""
+        paths = _resolve_paths(workspace_path)
+        config = cfg.load_config(paths)
+        llm_cfg = config.get("llm", {})
+        llm_cfg["primary"] = cfg.join_provider_model(primary, model)
+
+        if primary == consts.BACKEND_OLLAMA and host:
+            llm_cfg.setdefault(consts.BACKEND_OLLAMA, {})["host"] = host
+            
+        config["llm"] = llm_cfg
+        
+        # Save to global config to match CLI behavior, or vault config if preferred
+        # Since MCP server might be used across vaults, modifying vault config is safest:
+        cfg.save_config(paths, config)
+        return {"ok": True, "llm": config["llm"]}
+
     @mcp.tool()
     def check_source_status(file_hash: str, workspace_path: str = "") -> dict[str, Any]:
         """Return source registration and pipeline status by SHA-256 content hash."""
         paths = _resolve_paths(workspace_path)
+        config = cfg.load_config(paths)
         with db.connect(paths.state_db) as conn:
             row = conn.execute(
                 "SELECT * FROM sources WHERE content_hash = ? ORDER BY id DESC LIMIT 1",
@@ -819,7 +953,7 @@ def build_server() -> FastMCP:
                 "l3_complete": False,
                 "jobs_pending": [],
             }
-        source = _source_dict(paths, dict(row))
+        source = _source_dict(paths, dict(row), config)
         return {
             "registered": True,
             "source_id": int(row["id"]),
@@ -848,24 +982,32 @@ def build_server() -> FastMCP:
 
         def _job_summary(job: dict) -> dict:
             return {
-                "job_id": job.get("id"),
-                "source_id": job.get("source_id"),
-                "source_name": job.get("source_name") or "",
-                "job_type": job.get("job_type") or "",
-                "phase": job.get("phase") or "",
-                "progress": job.get("progress") or 0.0,
+                "job_id":           job.get("id"),
+                "source_id":        job.get("source_id"),
+                "source_name":      job.get("source_name") or "",
+                "job_type":         job.get("job_type") or "",
+                "phase":            job.get("phase") or "",
+                "progress":         job.get("progress") or 0.0,
                 "progress_current": job.get("progress_current") or 0,
-                "progress_total": job.get("progress_total") or 0,
-                "started_at": job.get("started_at") or "",
-                "retry_count": job.get("retry_count") or 0,
+                "progress_total":   job.get("progress_total") or 0,
+                "started_at":       job.get("started_at") or "",
+                "retry_count":      job.get("retry_count") or 0,
+            }
+
+        def _done_summary(job: dict) -> dict:
+            return {
+                "source_name": job.get("source_name") or "",
+                "job_type":    job.get("job_type") or "",
+                "finished_at": job.get("finished_at") or "",
             }
 
         return {
-            "ok": True,
-            "running": [_job_summary(j) for j in running],
-            "queued": [_job_summary(j) for j in queued],
+            "ok":       True,
+            "running":  [_job_summary(j) for j in running],
+            "queued":   [_job_summary(j) for j in queued],
+            "done":     [_done_summary(j) for j in done_today[:20]],
             "done_today": len(done_today),
-            "idle": len(running) == 0 and len(queued) == 0,
+            "idle":     len(running) == 0 and len(queued) == 0,
         }
 
     @mcp.tool()
@@ -947,6 +1089,7 @@ def build_server() -> FastMCP:
             workspace_path: Optional workspace path to help resolve the vault.
         """
         paths = _resolve_paths(workspace_path)
+        config = cfg.load_config(paths)
         stats = db.get_stats(paths.state_db)
 
         lookup_path = relpath or source_path or file_path or path
@@ -959,7 +1102,7 @@ def build_server() -> FastMCP:
                     "source_path": lookup_path,
                     "stats": stats,
                 }
-            return {"stats": stats, "source": _source_dict(paths, row)}
+            return {"stats": stats, "source": _source_dict(paths, row, config)}
 
         query_sql = "SELECT * FROM sources"
         params: tuple = ()
@@ -973,7 +1116,7 @@ def build_server() -> FastMCP:
             rows = conn.execute(query_sql, params).fetchall()
         return {
             "stats": stats,
-            "sources": [_source_dict(paths, dict(row)) for row in rows],
+            "sources": [_source_dict(paths, dict(row), config, light=True) for row in rows],
             "count": len(rows),
         }
 
@@ -1212,7 +1355,6 @@ def build_server() -> FastMCP:
                 lambda: callbacks,
                 mode="batch",
                 auto_discover=False,
-                thinking_for_extraction=False,
             )
             ingest_result = next(
                 (result for result in results if result.source_id == source_id_int),
@@ -1222,7 +1364,7 @@ def build_server() -> FastMCP:
                 1
                 for event in callbacks.events
                 if event.get("kind") == "page"
-                and str(event.get("path") or "").startswith("03_Concepts/")
+                and str(event.get("path") or "").startswith(f"{consts.LAYER_L3}/")
             )
             if ingest_result is not None and ingest_result.ok:
                 try:
@@ -1558,13 +1700,14 @@ def build_server() -> FastMCP:
     ) -> dict[str, Any]:
         """Resolve source provenance for a DAG node, wiki path, or source id."""
         paths = _resolve_paths(workspace_path)
+        config = cfg.load_config(paths)
 
         if source_id is not None:
             row = _get_source_row(paths, source_id=source_id)
             if row is None:
                 return {"error": f"Source not found: {source_id}"}
             return {
-                "source": _source_dict(paths, row),
+                "source": _source_dict(paths, row, config),
                 "pdf_pages": db.list_source_pdf_pages(paths.state_db, source_id),
             }
 
@@ -1593,9 +1736,9 @@ def build_server() -> FastMCP:
         fm = page.get("frontmatter", {}) or {}
         source_link = str(fm.get("source_path") or "")
         context_link = str(fm.get("parent_source") or "")
-        if not source_link and page.get("id", "").startswith("CTX-"):
+        if not source_link and page.get("id", "").startswith(f"{consts.PREFIX_L1}-"):
             source_link = str(fm.get("source_path") or "")
-            context_link = f"01_Contexts/{page['id']}"
+            context_link = f"{consts.LAYER_L1}/{page['id']}"
 
         source_relpath = _normalize_link(source_link).removesuffix(".md")
         if source_relpath and not Path(source_relpath).suffix:
@@ -1616,7 +1759,7 @@ def build_server() -> FastMCP:
             with db.connect(paths.state_db) as conn:
                 row = conn.execute("SELECT * FROM sources WHERE context_id = ?", (context_id,)).fetchone()
 
-        source = _source_dict(paths, dict(row)) if row else None
+        source = _source_dict(paths, dict(row), config) if row else None
         return {
             "page": {
                 "id": page.get("id"),
@@ -1684,7 +1827,7 @@ def build_server() -> FastMCP:
                     "count": 0,
                 }
             # Check if curate.yml exists — if not, return wizard questions directly
-            _curate_file = ws_path / "curate.yml"
+            _curate_file = ws_path / consts.FILE_CURATE_YML
             if not _curate_file.exists():
                 wiz = _build_wizard_questions(ws_path_str)
                 wiz["hits"] = []
@@ -1774,7 +1917,7 @@ def build_server() -> FastMCP:
         hits = []
         for hit in results.hits:
             # Apply curate.yml min_confidence filter on Exhibition pages
-            if curate_spec is not None and hit.full_path.startswith("04_Exhibitions/"):
+            if curate_spec is not None and hit.full_path.startswith(f"{consts.LAYER_L4}/"):
                 if round(hit.score, 4) < curate_spec.min_confidence:
                     continue
             hits.append({
@@ -1861,7 +2004,7 @@ def build_server() -> FastMCP:
         cache_key = _hashlib.sha256(f"{workspace_id}:{_norm_q}".encode()).hexdigest()[:16]
 
         if not force_new:
-            for _exh_file in sorted(paths.exhibitions.glob("EXH-*.md"), reverse=True):
+            for _exh_file in sorted(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md"), reverse=True):
                 _page = page_writer.read_page(_exh_file)
                 if _page and _page.frontmatter.get("cache_key") == cache_key:
                     _latency = int((_time.monotonic() - start) * 1000)
@@ -1891,8 +2034,8 @@ def build_server() -> FastMCP:
         except Exception as e:
             return {"ok": False, "question": question, "error": f"Config error: {e}"}
 
-        _con_dir = paths.concepts if hasattr(paths, "concepts") else paths.collections / "03_Concepts"
-        l3_complete = any(_con_dir.glob("CON-*.md")) if _con_dir.exists() else False
+        _con_dir = paths.concepts if hasattr(paths, "concepts") else paths.collections / consts.LAYER_L3
+        l3_complete = any(_con_dir.glob(f"{consts.PREFIX_L3}-*.md")) if _con_dir.exists() else False
         if not l3_complete:
             fallback_hits: list[dict[str, Any]] = []
             try:
@@ -1973,7 +2116,7 @@ def build_server() -> FastMCP:
         source_paths: list[str] = []
         source_ids: list[int] = []
         for hit in result.hits:
-            if hit.full_path.startswith("03_Concepts/"):
+            if hit.full_path.startswith(f"{consts.LAYER_L3}/"):
                 con_id = Path(hit.full_path).stem
                 if con_id not in matched_concepts:
                     matched_concepts.append(con_id)
@@ -2180,7 +2323,7 @@ def build_server() -> FastMCP:
             )
             return {"ok": False, "issues": issues}
 
-        curate_file = ws_path / "curate.yml"
+        curate_file = ws_path / consts.FILE_CURATE_YML
         if not curate_file.exists():
             wiz = _build_wizard_questions(ws)
             wiz["ok"] = True
@@ -2220,7 +2363,7 @@ def build_server() -> FastMCP:
 
         # Auto-install agent rules for the connecting client
         agent_rules_installed = None
-        detected_agent = "codex"
+        detected_agent = consts.BACKEND_CODEX_CLI
         try:
             from .workspace.provisioner import detect_agent_from_client_info, detect_workspace_scenario, prepare_workspace
             client_name = ""
@@ -2429,7 +2572,7 @@ def build_server() -> FastMCP:
         # If no include_patterns provided, default to the standard knowledge directories
         final_includes = _process_patterns(include_patterns)
         if not final_includes:
-            final_includes = ["02_Wiki/**", "03_Notes/**", "04_Resources/**"]
+            final_includes = [f"{consts.DIR_WIKI}/**", f"{consts.DIR_NOTES}/**", f"{consts.DIR_RESOURCES}/**"]
 
         data = CurateTemplateData(
             project=project_name,
@@ -2507,7 +2650,7 @@ def build_server() -> FastMCP:
         # ── 4. Write persona into curate.yml ────────────────────────────────
         if persona is not None:
             import yaml as _yaml
-            curate_file = ws_path / "curate.yml"
+            curate_file = ws_path / consts.FILE_CURATE_YML
             try:
                 raw_yml = _yaml.safe_load(curate_file.read_text(encoding="utf-8")) or {}
                 persona["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -2516,8 +2659,8 @@ def build_server() -> FastMCP:
                     _yaml.safe_dump(raw_yml, sort_keys=False, default_flow_style=False),
                     encoding="utf-8",
                 )
-                if "curate.yml" not in updated:
-                    updated.append("curate.yml")
+                if consts.FILE_CURATE_YML not in updated:
+                    updated.append(consts.FILE_CURATE_YML)
             except Exception as e:
                 persona_error = f"Persona generated but could not be saved: {e}"
 
@@ -2703,7 +2846,7 @@ def build_server() -> FastMCP:
             atoms_dir = paths.atoms
             if not atoms_dir.exists():
                 return {"flagged_atoms": [], "count": 0, "dismissed_count": 0}
-            for md in sorted(atoms_dir.glob("ATM-*.md")):
+            for md in sorted(atoms_dir.glob(f"{consts.PREFIX_L2}-*.md")):
                 parsed = page_writer.read_page(md)
                 if parsed is None:
                     continue
@@ -2711,7 +2854,7 @@ def build_server() -> FastMCP:
                 if fm.get("is_flagged_for_agent") or fm.get("contradicts"):
                     entry = {
                         "id": fm.get("id") or md.stem,
-                        "path": f"02_Atoms/{md.name}",
+                        "path": f"{consts.LAYER_L2}/{md.name}",
                         "is_flagged_for_agent": bool(fm.get("is_flagged_for_agent")),
                         "contradicts": fm.get("contradicts") or [],
                         "claim_type": fm.get("claim_type"),
@@ -2726,7 +2869,7 @@ def build_server() -> FastMCP:
         if info is None:
             return {"error": f"Unknown ID prefix in '{node_id}'"}
 
-        if info[0] == "atom":
+        if info[0] == consts.TYPE_L2:
             atom = _read_node(paths, node_id)
             if "error" in atom:
                 return atom
@@ -2743,12 +2886,12 @@ def build_server() -> FastMCP:
 
         # EXH or CON: walk down to atoms via traversal logic
         atom_ids: set[str] = set()
-        if info[0] == "exhibition":
+        if info[0] == consts.TYPE_L4:
             chain = curator_traverse_evidence(node_id)
             for atm in chain.get("atoms", []):
                 if "id" in atm:
                     atom_ids.add(atm["id"])
-        elif info[0] == "concept":
+        elif info[0] == consts.TYPE_L3:
             con = _read_node(paths, node_id)
             atom_ids.update(_concept_atom_ids(con))
 
@@ -2857,13 +3000,13 @@ def build_server() -> FastMCP:
 
         try:
             messages = build_contradiction_resolution_messages(
-                path_a=f"02_Atoms/{a_id}.md",
+                path_a=f"{consts.LAYER_L2}/{a_id}.md",
                 content_a=page_a.to_markdown(),
-                path_b=f"02_Atoms/{b_id}.md",
+                path_b=f"{consts.LAYER_L2}/{b_id}.md",
                 content_b=page_b.to_markdown(),
                 conflict_reasoning="",
             )
-            raw = _client.chat(messages, thinking=False, json_mode=True, temperature=0.3)
+            raw = _client.chat(messages, json_mode=True, temperature=0.3)
             proposal = json.loads(raw)
         except (LLMError, json.JSONDecodeError, Exception) as exc:
             return {"error": f"LLM resolution failed: {exc}"}
@@ -2952,21 +3095,97 @@ def build_server() -> FastMCP:
         Args:
             workspace_path: Optional workspace path to help resolve the vault.
         """
+        import shutil as _shutil, sys as _sys
         paths = _resolve_paths(workspace_path)
         qmd_bin = search.get_qmd_binary()
-        total = 0
-        for subdir, _prefix in _LAYERS.values():
+
+        # Locate wiki binary: which → alongside Python → argv[0]
+        wiki_bin = _shutil.which("wiki")
+        if not wiki_bin:
+            _py_dir = Path(_sys.executable).parent
+            for _name in ("wiki", "wiki.exe"):
+                _p = _py_dir / _name
+                if _p.exists():
+                    wiki_bin = str(_p)
+                    break
+        if not wiki_bin and _sys.argv and _sys.argv[0]:
+            _a = Path(_sys.argv[0])
+            if _a.name.startswith("wiki"):
+                wiki_bin = str(_a)
+
+        layer_counts = {
+            "contexts": 0,
+            "atoms": 0,
+            "concepts": 0,
+            "exhibitions": 0,
+        }
+
+        for layer_key, (subdir, _prefix) in _LAYERS.items():
             d = paths.collections / subdir
             if d.exists():
-                total += sum(1 for p in d.glob("*.md") if not p.name.startswith("."))
+                try:
+                    count = sum(
+                        1 for e in os.scandir(d)
+                        if e.is_file() and e.name.endswith(".md") and not e.name.startswith(".")
+                    )
+                except Exception:
+                    count = 0
+                if consts.LAYER_L1 in subdir:
+                    layer_counts["contexts"] = count
+                elif consts.LAYER_L2 in subdir:
+                    layer_counts["atoms"] = count
+                elif consts.LAYER_L3 in subdir:
+                    layer_counts["concepts"] = count
+                elif consts.LAYER_L4 in subdir:
+                    layer_counts["exhibitions"] = count
+
         return {
-            "vault_root": str(paths.root),
-            "collections": str(paths.collections),
-            "total_pages": total,
-            "qmd_binary": str(qmd_bin) if qmd_bin else None,
-            "qmd_ready": search.is_available(),
-            "qmd_version": search.get_version(),
+            "vault_root":   str(paths.root),
+            "collections":  str(paths.collections),
+            "total_pages":  sum(layer_counts.values()),
+            "layer_counts": layer_counts,
+            "wiki_binary":  wiki_bin,
+            "qmd_binary":   str(qmd_bin) if qmd_bin else None,
+            "qmd_ready":    bool(qmd_bin),
         }
+
+    @mcp.tool()
+    def curator_sync(workspace_path: str = "") -> dict[str, Any]:
+        """Run a bidirectional synchronization to repair the DAG integrity."""
+        from . import sync as sync_mod
+        from . import config as cfg
+        
+        paths = _resolve_paths(workspace_path)
+        config_dict = cfg.load_config(paths)
+        client = build_client(config_dict, "Primary")
+        
+        try:
+            res = sync_mod.run_incremental_sync(paths, client, config_dict)
+            return {
+                "ok": True,
+                "repaired": res.get("repaired", 0),
+                "messages": res.get("messages", []),
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    @mcp.tool()
+    def curator_lint(workspace_path: str = "") -> dict[str, Any]:
+        """Run vault linting to find broken links and contradictions."""
+        from . import lint as lint_mod
+        
+        paths = _resolve_paths(workspace_path)
+        try:
+            report = lint_mod.run_lint(paths, progress_callback=None)
+            return {
+                "ok": True,
+                "health_score": report.health_score(),
+                "errors": len(report.errors()),
+                "warnings": len(report.warnings()),
+                "infos": len(report.infos()),
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
 
     # ------------------------------------------------------------------
     # curator_update_node — overwrite a node and propagate
@@ -3000,7 +3219,7 @@ def build_server() -> FastMCP:
         if info is None:
             return {"error": f"Unknown ID prefix in '{node_id}' (expected EXH-)"}
         layer, subdir = info
-        if layer != "exhibition":
+        if layer != consts.TYPE_L4:
             return {
                 "error": (
                     f"Direct edits to {layer} nodes are not allowed. "
@@ -3205,6 +3424,6 @@ def render_install_snippets(paths: cfg.WikiPaths) -> dict[str, str]:
     """
     vault_root = str(paths.root.resolve())
     return {
-        "claude": CLAUDE_SNIPPET_TEMPLATE.format(vault_root=vault_root),
-        "gemini": GEMINI_SNIPPET_TEMPLATE.format(vault_root=vault_root),
+        consts.CLOUD_CLAUDE: CLAUDE_SNIPPET_TEMPLATE.format(vault_root=vault_root),
+        consts.CLOUD_GEMINI: GEMINI_SNIPPET_TEMPLATE.format(vault_root=vault_root),
     }

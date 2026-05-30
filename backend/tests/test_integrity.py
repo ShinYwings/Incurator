@@ -423,7 +423,7 @@ last_updated: 2026-05-04T00:00:00Z
 
     def test_mode_c_bottom_up_concept_regeneration_is_disabled(self) -> None:
         class _StubClient:
-            def chat(self, messages, thinking=False, temperature=0.3):  # noqa: ARG002
+            def chat(self, messages, temperature=0.3):  # noqa: ARG002
                 return """---
 id: CON-hijacked
 type: concept
@@ -757,7 +757,7 @@ last_updated: 2026-05-04T00:00:00Z
         class _StubClient:
             optimal_chunk_chars = 12000
 
-            def chat_stream(self, messages, thinking=False, temperature=0.0):  # noqa: ARG002
+            def chat_stream(self, messages, temperature=0.0):  # noqa: ARG002
                 page = """---
 id: ATM-temp0000
 type: atom
@@ -871,7 +871,7 @@ Summary.
             def __init__(self) -> None:
                 self.calls = 0
 
-            def chat(self, messages, thinking=False, json_mode=False, temperature=0.0):  # noqa: ARG002
+            def chat(self, messages, json_mode=False, temperature=0.0):  # noqa: ARG002
                 self.calls += 1
                 prompt = messages[-1].content
                 if len(prompt) > 12000:
@@ -890,7 +890,6 @@ Summary.
             prompts,
             title="Chunked Source",
             chunk="A" * 22000,
-            thinking=False,
             label="chunk 1",
         )
 
@@ -902,7 +901,7 @@ Summary.
         class _StubClient:
             optimal_chunk_chars = 30000
 
-            def chat(self, messages, thinking=False, json_mode=False, temperature=0.0):  # noqa: ARG002
+            def chat(self, messages, json_mode=False, temperature=0.0):  # noqa: ARG002
                 return """{
   "title": "Schema Test Source",
   "domain": "test-domain",
@@ -936,7 +935,6 @@ Summary.
             content_hash=content_hash,
             client=_StubClient(),
             config={},
-            thinking=False,
         )
 
         self.assertIsNotNone(context_id)

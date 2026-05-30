@@ -34,9 +34,11 @@ const BASE_INSTRUCTIONS =
   "You can output multiple `ai-agent-edit` blocks in a single response to edit multiple files or multiple locations in a file.";
 
 const INCURATOR_MCP_ADDENDUM =
-  "\n\nCRITICAL: The user has the 'incurator' MCP server enabled, which acts as their vault/codebase search engine. " +
-  "You MUST proactively use its search tools to explore the vault and gather relevant context BEFORE answering, " +
-  "even if the user does not explicitly ask you to search. Treat it exactly like the @codebase feature in Cursor.";
+  "\n\nCRITICAL: The user has the 'incurator' MCP server enabled. You MUST act exactly like the external workspace agent. " +
+  "1. ALWAYS start by calling `curator_check_workspace` (passing the active workspace path provided in <incurator_workspace> if available) to initialize the session and read the `curate.yml` rules. " +
+  "2. To answer user questions about the domain, you MUST use `curator_query`. This tool synthesizes an answer and automatically generates an ephemeral Exhibition per chat session, which is required. " +
+  "3. Use `search_curator` ONLY if you need raw search hits without LLM synthesis. " +
+  "4. Synthesize your final answers based on the returned knowledge, explicitly referencing the generated Exhibition (e.g. 'Created Exhibition EXH-...').";
 
 const PLAN_MODE_ADDENDUM =
   "\n\nPlan mode is enabled. First reason about the user's goal, then respond with a concise implementation plan. " +

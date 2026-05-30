@@ -24,7 +24,6 @@ from typing import Generator
 
 import httpx
 
-from . import models as model_catalogue
 
 # ---------------------------------------------------------------------------
 # RAM detection
@@ -35,40 +34,20 @@ RAM_THRESHOLD_GB = 16
 
 def detect_ram_gb() -> float:
     """Return total system RAM in gigabytes (best-effort, never raises)."""
+    platform = sys.platform
     try:
-        if sys.platform == "darwin":
-            # macOS: sysctl -n hw.memsize  → bytes
+        if platform == "darwin":
             out = subprocess.check_output(
                 ["sysctl", "-n", "hw.memsize"], timeout=3
             ).decode().strip()
             return int(out) / (1024 ** 3)
-        elif sys.platform.startswith("linux"):
-            with open("/proc/meminfo", "r") as f:
+        if platform.startswith("linux"):
+            with open("/proc/meminfo") as f:
                 for line in f:
                     if line.startswith("MemTotal:"):
-                        kb = int(line.split()[1])
-                        return kb / (1024 ** 2)
-        elif sys.platform == "win32":
-            import ctypes
-            class MEMORYSTATUSEX(ctypes.Structure):
-                _fields_ = [
-                    ("dwLength", ctypes.c_ulong),
-                    ("dwMemoryLoad", ctypes.c_ulong),
-                    ("ullTotalPhys", ctypes.c_ulonglong),
-                    ("ullAvailPhys", ctypes.c_ulonglong),
-                    ("ullTotalPageFile", ctypes.c_ulonglong),
-                    ("ullAvailPageFile", ctypes.c_ulonglong),
-                    ("ullTotalVirtual", ctypes.c_ulonglong),
-                    ("ullAvailVirtual", ctypes.c_ulonglong),
-                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
-                ]
-            stat = MEMORYSTATUSEX()
-            stat.dwLength = ctypes.sizeof(stat)
-            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
-            return stat.ullTotalPhys / (1024 ** 3)
+                        return int(line.split()[1]) / (1024 ** 2)
     except Exception:
         pass
-    # Fallback: assume high-RAM machine (use local Ollama)
     return 32.0
 
 
@@ -80,63 +59,20 @@ def has_enough_ram_for_local() -> bool:
 # Constants & defaults
 # ---------------------------------------------------------------------------
 
-DEFAULT_OLLAMA_HOST = "http://localhost:11434"
-DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
-DEFAULT_ANTIGRAVITY_FLASH_MODEL = (
-    model_catalogue.get_default_model("antigravity", "flash")
-    or "gemini-3.5-flash"
-)
-DEFAULT_ANTIGRAVITY_THINK_MODEL = (
-    model_catalogue.get_default_model("antigravity", "think")
-    or "gemini-3.1-pro-preview"
-)
-# Backward-compatible names for older callers/config migrations.
-DEFAULT_GEMINI_FLASH_MODEL = DEFAULT_ANTIGRAVITY_FLASH_MODEL
-DEFAULT_GEMINI_THINK_MODEL = DEFAULT_ANTIGRAVITY_THINK_MODEL
-DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
-DEFAULT_CLAUDE_THINK_MODEL = "claude-opus-4-7"
-DEFAULT_OPENAI_MODEL = "gpt-4.1"
-DEFAULT_OPENAI_THINK_MODEL = "o3"
-DEFAULT_TIMEOUT = 1800.0  # 30 minutes — thinking-mode extraction can be slow
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_API_VERSION = "2023-06-01"
-OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+from . import constants as consts
+
 
 # ---------------------------------------------------------------------------
 # Vision / multimodal support
 # ---------------------------------------------------------------------------
 
-# Model name substrings (lowercase, tag stripped) that guarantee vision support.
-# Used as a fast path before querying the Ollama API.
-VISION_CAPABLE_KEYWORDS: frozenset[str] = frozenset({
-    "llava",            # LLaVA base
-    "llava-llama3",     # LLaVA Llama 3
-    "llava-phi3",       # LLaVA Phi-3
-    "bakllava",         # BakLLaVA
-    "moondream",        # Moondream 2
-    "minicpm-v",        # MiniCPM-V
-    "llama3.2-vision",  # Llama 3.2 Vision
-    "llama-3.2-vision", # (Keyword variation)
-    "pixtral",          # Pixtral 12B
-    "mistral-pixtral",  # (Keyword variation)
-    
-    # (Real-world models that require custom GGUF for llama.cpp, etc.)
-    "qwen2-vl",         # Qwen2-VL
-    "qwen2.5-vl",       # Qwen2.5-VL
-    "cogvlm",           # CogVLM
-    "internvl",         # InternVL
-    "phi3-vision",      # Phi-3 Vision (usually replaced by llava-phi3)
-    "phi-3-vision",
-    "deepseek-vl",      # DeepSeek-VL
-    "idefics",          # IDEFICS
-    "fuyu",             # Fuyu
-})
+
 
 
 def is_vision_capable_model(model_name: str) -> bool:
     """Return True if the model name indicates vision/image support."""
     name = model_name.lower().split(":")[0]  # strip tag: "llava:13b" → "llava"
-    return any(kw in name for kw in VISION_CAPABLE_KEYWORDS)
+    return any(kw in name for kw in consts.VISION_CAPABLE_KEYWORDS)
 
 
 def get_ollama_model_capabilities(
@@ -160,12 +96,12 @@ def get_ollama_model_capabilities(
 
 
 def list_ollama_models_with_vision(
-    host: str = DEFAULT_OLLAMA_HOST, timeout: float = 5.0
+    host: str = consts.DEFAULT_OLLAMA_HOST, timeout: float = 5.0
 ) -> list[tuple[str, bool]]:
     """Return all Ollama models with their vision support status.
 
     Each entry is (model_name, supports_vision).
-    Models matching VISION_CAPABLE_KEYWORDS are marked True immediately;
+    Models matching consts.VISION_CAPABLE_KEYWORDS are marked True immediately;
     others fall back to a /api/show capabilities query.
     """
     models = list_models_on_host(host, timeout=timeout)
@@ -232,9 +168,9 @@ class OllamaClient:
 
     def __init__(
         self,
-        host: str = DEFAULT_OLLAMA_HOST,
-        model: str = DEFAULT_OLLAMA_MODEL,
-        timeout: float = DEFAULT_TIMEOUT,
+        host: str = consts.DEFAULT_OLLAMA_HOST,
+        model: str = consts.DEFAULT_OLLAMA_MODEL,
+        timeout: float = consts.DEFAULT_TIMEOUT,
     ):
         self.host = host.rstrip("/")
         self.model = model
@@ -440,12 +376,11 @@ class OllamaClient:
         self,
         messages: list[ChatMessage],
         *,
-        thinking: bool = False,
         json_mode: bool = False,
         temperature: float = 0.3,
     ) -> str:
         """Non-streaming chat. Returns the full assistant message content."""
-        payload_messages = self._prepare_messages(messages, thinking=thinking)
+        payload_messages = self._prepare_messages(messages)
         payload = {
             "model": self.model,
             "messages": payload_messages,
@@ -490,7 +425,6 @@ class OllamaClient:
         self,
         messages: list[ChatMessage],
         *,
-        thinking: bool = False,
         json_mode: bool = False,
         temperature: float = 0.3,
     ) -> Generator[str, None, str]:
@@ -499,7 +433,7 @@ class OllamaClient:
         Prefer this over chat() for long-running generations — each received
         token resets the httpx read timeout, preventing spurious timeouts.
         """
-        payload_messages = self._prepare_messages(messages, thinking=thinking)
+        payload_messages = self._prepare_messages(messages)
         payload = {
             "model": self.model,
             "messages": payload_messages,
@@ -580,16 +514,10 @@ class OllamaClient:
     # ------------------------------------------------------------------
 
     def _prepare_messages(
-        self, messages: list[ChatMessage], *, thinking: bool
+        self, messages: list[ChatMessage]
     ) -> list[dict]:
-        """Convert to Ollama wire format and append the DeepSeek thinking tag."""
+        """Convert to Ollama wire format."""
         result = [{"role": m.role, "content": m.content} for m in messages]
-        if result:
-            tag = "\n\n/think" if thinking else "\n\n/no_think"
-            for i in range(len(result) - 1, -1, -1):
-                if result[i]["role"] == "user":
-                    result[i]["content"] += tag
-                    break
         return result
 
     @staticmethod
@@ -662,10 +590,10 @@ class ClaudeCodeClient:
     Requires: npm install -g @anthropic-ai/claude-code
     """
 
-    CLI = "claude"
+    CLI = consts.CLOUD_CLAUDE
     INSTALL_CMD = "npm install -g @anthropic-ai/claude-code"
 
-    def __init__(self, model: str = DEFAULT_CLAUDE_MODEL) -> None:
+    def __init__(self, model: str = consts.DEFAULT_CLAUDE_MODEL) -> None:
         self.model = model
 
     def close(self) -> None:
@@ -704,9 +632,9 @@ class ClaudeCodeClient:
         self,
         messages: list[ChatMessage],
         *,
-        thinking: bool = False,
-        json_mode: bool = False,
-        temperature: float = 0.3,
+        # noqa: ARG002
+        json_mode: bool = False,  # noqa: ARG002
+        temperature: float = 0.3,  # noqa: ARG002
     ) -> str:
         return self._run(_messages_to_prompt(messages))
 
@@ -714,8 +642,8 @@ class ClaudeCodeClient:
         self,
         messages: list[ChatMessage],
         *,
-        thinking: bool = False,
-        temperature: float = 0.3,
+        # noqa: ARG002
+        temperature: float = 0.3,  # noqa: ARG002
     ) -> Generator[str, None, str]:
         result = self._run(_messages_to_prompt(messages))
         yield result
@@ -738,6 +666,15 @@ class ClaudeCodeClient:
                 raise ClaudeCodeError(
                     f"'{self.CLI}' not functional: {r.stderr.strip()}"
                 )
+            # Fast authentication liveness check
+            r_auth = subprocess.run(
+                [self.CLI, "-p", "ping"],
+                capture_output=True, text=True, timeout=15, env=env
+            )
+            stderr = r_auth.stderr.strip()
+            stdout = r_auth.stdout.strip()
+            if "You must login" in stderr or "claude login" in stdout or "You must login" in stdout or "claude login" in stderr:
+                raise ClaudeCodeError("Authentication required. Run 'claude login' to authenticate.")
         except FileNotFoundError:
             raise ClaudeCodeError(f"'{self.CLI}' not found in PATH.")
         except subprocess.TimeoutExpired:
@@ -756,19 +693,23 @@ class ClaudeCodeClient:
 
 def _get_gemini_fallback_chain(model_name: str) -> list[str]:
     """Given a Gemini model name, return a list of models to try in order of fallback.
-    
+
     If it's a lite model, fallback to flash, then pro.
     If it's a flash model (not lite), fallback to pro.
     If it's already a pro model, just return [pro].
     """
+    if not model_name or not model_name.strip():
+        raise AntigravityCliError(
+            "No Gemini model configured. Run `wiki config provider` to select a model."
+        )
     name = model_name.lower()
     chain = [model_name]
     
     if "3.1" in name or "3-" in name:
         if "lite" in name:
-            chain.extend(["gemini-3-flash-preview", "gemini-3.1-pro-preview"])
+            chain.extend(["gemini-3-flash-preview", "gemini-3.1-pro"])
         elif "flash" in name and "lite" not in name:
-            chain.extend(["gemini-3.1-pro-preview"])
+            chain.extend(["gemini-3.1-pro"])
     else:
         if "lite" in name:
             chain.extend(["gemini-2.5-flash", "gemini-2.5-pro"])
@@ -791,7 +732,7 @@ class AntigravityCliClient:
     CLI = "agy"
     INSTALL_CMD = "curl -fsSL https://antigravity.google/cli/install.sh | bash"
 
-    def __init__(self, model: str = DEFAULT_ANTIGRAVITY_FLASH_MODEL) -> None:
+    def __init__(self, model: str = consts.DEFAULT_ANTIGRAVITY_MODEL) -> None:
         self.model = model
 
     def close(self) -> None:
@@ -876,9 +817,9 @@ class AntigravityCliClient:
         self,
         messages: list[ChatMessage],
         *,
-        thinking: bool = False,
-        json_mode: bool = False,
-        temperature: float = 0.3,
+        # noqa: ARG002
+        json_mode: bool = False,  # noqa: ARG002
+        temperature: float = 0.3,  # noqa: ARG002
     ) -> str:
         return self._run(_messages_to_prompt(messages))
 
@@ -886,8 +827,8 @@ class AntigravityCliClient:
         self,
         messages: list[ChatMessage],
         *,
-        thinking: bool = False,
-        temperature: float = 0.3,
+        # noqa: ARG002
+        temperature: float = 0.3,  # noqa: ARG002
     ) -> Generator[str, None, str]:
         result = self._run(_messages_to_prompt(messages))
         yield result
@@ -912,6 +853,15 @@ class AntigravityCliClient:
                 raise AntigravityCliError(
                     f"'{self.CLI}' not functional: {r.stderr.strip()}"
                 )
+            # Fast authentication liveness check
+            r_auth = subprocess.run(
+                [self.CLI, "--print", "ping", "--print-timeout", "10s", "--dangerously-skip-permissions"],
+                capture_output=True, text=True, timeout=15, env=env
+            )
+            stderr = r_auth.stderr.strip()
+            stdout = r_auth.stdout.strip()
+            if "Authentication required" in stderr or "Authentication required" in stdout or "paste the authorization code" in stdout or "paste the authorization code" in stderr:
+                raise AntigravityCliError("Authentication required. Run 'agy' to authenticate.")
         except FileNotFoundError:
             raise AntigravityCliError(f"'{self.CLI}' not found in PATH.")
         except subprocess.TimeoutExpired:
@@ -930,6 +880,138 @@ class AntigravityCliClient:
 
 # Compatibility alias. New code should use AntigravityCliClient.
 GeminiCliClient = AntigravityCliClient
+
+
+# ---------------------------------------------------------------------------
+# CodexCliClient — OpenAI Codex CLI backend
+# ---------------------------------------------------------------------------
+
+
+class CodexCliError(LLMError):
+    pass
+
+
+class CodexCliClient:
+    """LLM client backed by the OpenAI Codex CLI (`codex exec`)."""
+
+    CLI = "codex"
+    INSTALL_CMD = "npm install -g @openai/codex"
+
+    def __init__(self, model: str = "gpt-5.5") -> None:
+        self.model = model
+
+    def close(self) -> None:
+        pass
+
+    def __enter__(self) -> "CodexCliClient":
+        return self
+
+    def __exit__(self, *args) -> None:
+        pass
+
+    def _run(self, prompt: str) -> str:
+        import tempfile, os as _os
+        out_file = tempfile.mktemp(suffix=".txt")
+        cmd = [
+            self.CLI, "--profile", "incurator",
+            "exec",
+            "-m", self.model,
+            "--sandbox", "read-only",
+            "--skip-git-repo-check",
+            "--output-last-message", out_file,
+            "-",
+        ]
+        try:
+            result = subprocess.run(
+                cmd,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=900,
+            )
+        except FileNotFoundError:
+            raise CodexCliError(
+                f"'{self.CLI}' not found.\n"
+                f"Install: {self.INSTALL_CMD}\n"
+                "Authenticate: codex login"
+            )
+        except subprocess.TimeoutExpired:
+            raise CodexCliError("Codex CLI timed out after 900 s")
+
+        if _os.path.exists(out_file):
+            try:
+                text = open(out_file).read().strip()
+                _os.unlink(out_file)
+                if text:
+                    return text
+            except OSError:
+                pass
+
+        if result.returncode != 0:
+            raise CodexCliError(
+                f"Codex CLI exited {result.returncode}: {result.stderr.strip()[:400]}"
+            )
+        return result.stdout.strip()
+
+    @property
+    def optimal_chunk_chars(self) -> int:
+        return 24000
+
+    def chat(
+        self,
+        messages: list[ChatMessage],
+        *,
+        # noqa: ARG002
+        json_mode: bool = False,  # noqa: ARG002
+        temperature: float = 0.3,  # noqa: ARG002
+    ) -> str:
+        return self._run(_messages_to_prompt(messages))
+
+    def chat_stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        # noqa: ARG002
+        temperature: float = 0.3,  # noqa: ARG002
+    ) -> Generator[str, None, str]:
+        result = self._run(_messages_to_prompt(messages))
+        yield result
+        return result
+
+    def ensure_ready(self) -> None:
+        if not _cli_installed(self.CLI):
+            raise CodexCliError(
+                f"'{self.CLI}' not installed.\n"
+                f"Install: {self.INSTALL_CMD}"
+            )
+        # Check login credentials
+        auth_paths = [
+            os.path.join(os.path.expanduser("~"), ".codex", "auth.json"),
+            os.path.join(os.path.expanduser("~"), ".config", "codex", "auth.json"),
+        ]
+        for auth_path in auth_paths:
+            if os.path.exists(auth_path):
+                try:
+                    import json as _json
+                    with open(auth_path) as f:
+                        data = _json.load(f)
+                    if data.get("tokens", {}).get("access_token"):
+                        return
+                except Exception:
+                    pass
+        raise CodexCliError(
+            "Codex CLI is not authenticated. Run: codex login"
+        )
+
+    def ping(self) -> bool:
+        try:
+            self.ensure_ready()
+            return True
+        except CodexCliError:
+            return False
+
+    def get_and_reset_token_usage(self) -> tuple[int, int]:
+        return (0, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -969,11 +1051,17 @@ class FailoverClient:
         from rich.console import Console
         self._console = Console(stderr=True)
         self._probe_thread: threading.Thread | None = None
-        if len(providers) > 1 and probe_interval > 0:
-            self._probe_thread = threading.Thread(
-                target=self._probe_loop, daemon=True, name="llm-probe"
-            )
-            self._probe_thread.start()
+        if len(providers) > 1:
+            if probe_interval == 0:
+                self._console.print(
+                    "[dim yellow]incurator:[/dim yellow] FailoverClient probe_interval=0 — "
+                    "primary provider will not be auto-recovered after failover."
+                )
+            else:
+                self._probe_thread = threading.Thread(
+                    target=self._probe_loop, daemon=True, name="llm-probe"
+                )
+                self._probe_thread.start()
 
     @property
     def active_idx(self) -> int:
@@ -1038,7 +1126,6 @@ class FailoverClient:
         self,
         messages: list[ChatMessage],
         *,
-        thinking: bool = False,
         json_mode: bool = False,
         temperature: float = 0.3,
     ) -> str:
@@ -1049,7 +1136,6 @@ class FailoverClient:
             try:
                 result = self.providers[idx].chat(
                     messages,
-                    thinking=thinking,
                     json_mode=json_mode,
                     temperature=temperature,
                 )
@@ -1065,14 +1151,13 @@ class FailoverClient:
             except self._failover_errors as e:
                 last_err = e
                 if offset == len(self.providers) - 1:
-                    raise LLMError(f"All providers failed: {e}") from e
+                    raise LLMError(f"All providers failed: {str(e)[:200]}") from e
         raise LLMError("Unreachable")
 
     def chat_stream(
         self,
         messages: list[ChatMessage],
         *,
-        thinking: bool = False,
         temperature: float = 0.3,
     ) -> Generator[str, None, str]:
         start = self.active_idx
@@ -1082,7 +1167,7 @@ class FailoverClient:
             provider = self.providers[idx]
             try:
                 gen = provider.chat_stream(
-                    messages, thinking=thinking, temperature=temperature
+                    messages, temperature=temperature
                 )
                 # Peek at first chunk to catch connection failures before yielding
                 try:
@@ -1111,7 +1196,7 @@ class FailoverClient:
             except self._failover_errors as e:
                 last_err = e
                 if offset == len(self.providers) - 1:
-                    raise LLMError(f"All providers failed during stream: {e}") from e
+                    raise LLMError(f"All providers failed during stream: {str(e)[:200]}") from e
                 # mid-stream errors (after first chunk) propagate — partial output delivered
 
     def ping(self) -> bool:
@@ -1170,77 +1255,101 @@ def list_models_on_host(host: str, timeout: float = 5.0) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _make_claude_code(llm_cfg: dict) -> ClaudeCodeClient:
-    return ClaudeCodeClient(
-        model=llm_cfg.get("claude_model", DEFAULT_CLAUDE_MODEL),
-    )
+def _make_claude_code(cfg: dict) -> ClaudeCodeClient:
+    model = cfg.get("model") or consts.DEFAULT_CLAUDE_MODEL
+    return ClaudeCodeClient(model=model)
 
 
-def _make_antigravity_cli(llm_cfg: dict) -> AntigravityCliClient:
-    return AntigravityCliClient(
-        model=(
-            llm_cfg.get("antigravity_flash_model")
-            or llm_cfg.get("gemini_flash_model")
-            or DEFAULT_ANTIGRAVITY_FLASH_MODEL
-        ),
-    )
+def _make_antigravity_cli(cfg: dict) -> AntigravityCliClient:
+    model = cfg.get("model") or consts.DEFAULT_ANTIGRAVITY_MODEL
+    return AntigravityCliClient(model=model)
 
 
+def _make_codex_cli(cfg: dict) -> CodexCliClient:
+    model = cfg.get("model") or consts.DEFAULT_CODEX_MODEL
+    return CodexCliClient(model=model)
 
 
-def _make_ollama(llm_cfg: dict) -> OllamaClient:
+def _make_ollama(cfg: dict) -> OllamaClient:
     return OllamaClient(
-        host=llm_cfg.get("host", DEFAULT_OLLAMA_HOST),
-        model=llm_cfg.get("model", DEFAULT_OLLAMA_MODEL),
+        host=cfg.get("host", consts.DEFAULT_OLLAMA_HOST),
+        model=cfg.get("model", consts.DEFAULT_OLLAMA_MODEL),
     )
 
 
-def _make_by_key(key: str, llm_cfg: dict):
+def _make_by_key(key: str, backend_cfg: dict):
     """Build any client by its backend key string."""
-    if key == "ollama":
-        return _make_ollama(llm_cfg)
-    if key == "claude-code":
-        return _make_claude_code(llm_cfg)
-    if key in ("antigravity-cli", "cloud"):
-        return _make_antigravity_cli(llm_cfg)
+    if key == consts.BACKEND_OLLAMA:
+        return _make_ollama(backend_cfg)
+    if key == consts.BACKEND_CLAUDE_CODE:
+        return _make_claude_code(backend_cfg)
+    if key == consts.BACKEND_ANTIGRAVITY_CLI:
+        return _make_antigravity_cli(backend_cfg)
+    if key == consts.BACKEND_CODEX_CLI:
+        return _make_codex_cli(backend_cfg)
     return None
 
 
 def make_client_by_key(key: str, config: dict):
-    """Public: build a single backend client by key ('ollama'|'cloud'|'claude-code'|'antigravity-cli')."""
-    return _make_by_key(key, config.get("llm", {}))
+    """Public: build a single backend client by key."""
+    from .config import split_provider_model
+    llm_cfg = config.get("llm", {})
+    # Find model for this key from primary or fallback
+    for slot in ("primary", "fallback"):
+        p, m = split_provider_model(llm_cfg.get(slot, ""))
+        if p == key:
+            if key == consts.BACKEND_OLLAMA:
+                return _make_by_key(key, {**llm_cfg.get(consts.BACKEND_OLLAMA, {}), "model": m})
+            return _make_by_key(key, {"model": m})
+    if key == consts.BACKEND_OLLAMA:
+        return _make_by_key(key, llm_cfg.get(consts.BACKEND_OLLAMA, {}))
+    return _make_by_key(key, {})
 
 
 def build_client(
     config: dict,
-) -> "OllamaClient | ClaudeCodeClient | AntigravityCliClient | FailoverClient":
+) -> "OllamaClient | ClaudeCodeClient | AntigravityCliClient | CodexCliClient | FailoverClient":
     """Return the appropriate LLM client based on config.
 
     Decision logic (in priority order):
-      primary='ollama'      → OllamaClient first; fallback from config
-      primary='claude-code' → Claude CLI first; fallback from config or Ollama
-      primary='antigravity-cli' → Antigravity CLI first; fallback from config or Ollama
-      provider override 'ollama'|'antigravity-cli'|'claude-code' → single explicit client
+      primary='ollama'          → OllamaClient; fallback from config
+      primary='claude-code'     → Claude CLI; fallback from config or Ollama
+      primary='antigravity-cli' → Antigravity CLI; fallback from config or Ollama
+      primary='codex-cli'       → Codex CLI; fallback from config or Ollama
       auto + RAM ≥ 16 GB → OllamaClient (local)
       auto + RAM < 16 GB → antigravity-cli client
+
     """
+    from .config import split_provider_model
     llm_cfg = config.get("llm", {})
-    primary = llm_cfg.get("primary", "")
-    fallback = llm_cfg.get("fallback", "")
     probe_interval = int(llm_cfg.get("probe_interval", 60))
 
+    primary,  primary_model  = split_provider_model(llm_cfg.get("primary",  ""))
+    fallback, fallback_model = split_provider_model(llm_cfg.get("fallback", ""))
+    ollama_base = llm_cfg.get(consts.BACKEND_OLLAMA, {})
+
+    if primary == consts.BACKEND_OLLAMA:
+        primary_cfg = {**ollama_base, "model": primary_model}
+    else:
+        primary_cfg = {"model": primary_model}
+
     _PRIMARY_ERRORS = {
-        "ollama":      _FAILOVER_ERRORS,
-        "claude-code": _CLI_PRIMARY_FAILOVER_ERRORS,
-        "antigravity-cli":  _CLI_PRIMARY_FAILOVER_ERRORS,
+        consts.BACKEND_OLLAMA:          _FAILOVER_ERRORS,
+        consts.BACKEND_CLAUDE_CODE:     _CLI_PRIMARY_FAILOVER_ERRORS,
+        consts.BACKEND_ANTIGRAVITY_CLI: _CLI_PRIMARY_FAILOVER_ERRORS,
+        consts.BACKEND_CODEX_CLI:       _CLI_PRIMARY_FAILOVER_ERRORS,
     }
 
     if primary in _PRIMARY_ERRORS:
-        p_client = _make_by_key(primary, llm_cfg)
+        p_client = _make_by_key(primary, primary_cfg)
 
         # Explicit fallback takes precedence over legacy heuristics
         if fallback and fallback != primary:
-            f_client = _make_by_key(fallback, llm_cfg)
+            if fallback == consts.BACKEND_OLLAMA:
+                fallback_cfg = {**ollama_base, "model": fallback_model}
+            else:
+                fallback_cfg = {"model": fallback_model}
+            f_client = _make_by_key(fallback, fallback_cfg)
             if f_client:
                 return FailoverClient(
                     [p_client, f_client],
@@ -1254,41 +1363,22 @@ def build_client(
             return p_client
 
         # Legacy heuristics when no explicit fallback is set
-        if primary == "ollama":
+        if primary == consts.BACKEND_OLLAMA:
             return p_client
 
         # claude-code / antigravity-cli → default fallback to ollama
-        ollama = _make_ollama(llm_cfg)
+        ollama_cfg = llm_cfg.get(consts.BACKEND_OLLAMA)
+        if not isinstance(ollama_cfg, dict):
+            ollama_cfg = {}
+        ollama = _make_ollama(ollama_cfg)
         return FailoverClient(
             [p_client, ollama],
             probe_interval=probe_interval,
             failover_errors=_CLI_PRIMARY_FAILOVER_ERRORS,
         )
 
-    # Legacy: explicit provider or auto/RAM-based selection
-    provider = llm_cfg.get("provider", "auto")
-
-    if provider == "ollama":
-        return _make_ollama(llm_cfg)
-    if provider == "claude":
-        return _make_claude_code(llm_cfg)
-
-    # Auto mode: select based on RAM
-    ram_gb = detect_ram_gb()
-    if ram_gb >= RAM_THRESHOLD_GB:
-        return _make_ollama(llm_cfg)
-
-    # Low-RAM machine: Antigravity CLI with optional remote Ollama failover
-    cli_client = _make_antigravity_cli(llm_cfg)
-    remote_host = (llm_cfg.get("remote_ollama_host") or "").strip()
-    if not remote_host:
-        return cli_client
-
-    remote_client = OllamaClient(
-        host=remote_host,
-        model=llm_cfg.get("model", DEFAULT_OLLAMA_MODEL),
-    )
-    return FailoverClient([remote_client, cli_client], probe_interval=probe_interval)
+    # No recognized primary — fall back to Antigravity CLI default
+    return _make_antigravity_cli({"model": primary_model})
 
 
 def describe_backend(config: dict, client: object = None) -> str:
@@ -1305,49 +1395,44 @@ def describe_backend(config: dict, client: object = None) -> str:
             f"chain: {chain}  probe={client.probe_interval}s"
         )
 
+    from .config import split_provider_model
     ram_gb = detect_ram_gb()
-    llm_cfg = config.get("llm", {})
-    primary = llm_cfg.get("primary", "")
-    host = llm_cfg.get("host", DEFAULT_OLLAMA_HOST)
-    model = llm_cfg.get("model", DEFAULT_OLLAMA_MODEL)
-    probe = llm_cfg.get("probe_interval", 60)
+    llm_cfg  = config.get("llm", {})
+    ollama_b = llm_cfg.get(consts.BACKEND_OLLAMA, {})
+    host     = ollama_b.get("host", consts.DEFAULT_OLLAMA_HOST)
+    probe    = llm_cfg.get("probe_interval", 60)
 
-    if primary == "ollama":
-        base = f"Ollama  model={model}  host={host}"
-        if "fallback" in llm_cfg and not llm_cfg["fallback"]:
-            return base
-        fallback = llm_cfg.get("fallback", "")
-        if fallback:
-            return f"Failover  primary=Ollama → fallback={fallback}  probe={probe}s"
-        return base
+    primary,  primary_model  = split_provider_model(llm_cfg.get("primary",  ""))
+    fallback, fallback_model = split_provider_model(llm_cfg.get("fallback", ""))
 
-    if primary == "claude-code":
-        claude_m = llm_cfg.get("claude_model", DEFAULT_CLAUDE_MODEL)
-        fallback = llm_cfg.get("fallback", "")
-        if not fallback:
-            return f"claude CLI ({claude_m})"
-        if fallback == "ollama":
-            return f"Failover  primary=claude CLI ({claude_m}) → fallback=Ollama  model={model}  host={host}"
-        return f"Failover  primary=claude CLI ({claude_m}) → fallback={fallback}"
+    _LABELS = {
+        consts.BACKEND_ANTIGRAVITY_CLI: "Antigravity CLI",
+        consts.BACKEND_CLAUDE_CODE:     "Claude CLI",
+        consts.BACKEND_CODEX_CLI:       "Codex CLI",
+        consts.BACKEND_OLLAMA:          "Ollama",
+    }
 
-    if primary == "antigravity-cli":
-        gemini_m = (
-            llm_cfg.get("antigravity_flash_model")
-            or DEFAULT_ANTIGRAVITY_FLASH_MODEL
-        )
-        fallback = llm_cfg.get("fallback", "")
-        if not fallback:
-            return f"Antigravity CLI ({gemini_m})"
-        if fallback == "ollama":
-            return f"Failover  primary=Antigravity CLI ({gemini_m}) → fallback=Ollama  model={model}  host={host}"
-        return f"Failover  primary=Antigravity CLI ({gemini_m}) → fallback={fallback}"
+    _DEFAULT_MODELS = {
+        consts.BACKEND_ANTIGRAVITY_CLI: consts.DEFAULT_ANTIGRAVITY_MODEL,
+        consts.BACKEND_CLAUDE_CODE:     consts.DEFAULT_CLAUDE_MODEL,
+        consts.BACKEND_CODEX_CLI:       consts.DEFAULT_CODEX_MODEL,
+        consts.BACKEND_OLLAMA:          consts.DEFAULT_OLLAMA_MODEL,
+    }
 
-    # Legacy auto/explicit-provider path
-    provider = llm_cfg.get("provider", "auto")
-    if provider == "auto":
-        provider = "ollama" if ram_gb >= RAM_THRESHOLD_GB else "antigravity-cli"
+    def _fmt(provider: str, model: str) -> str:
+        label = _LABELS.get(provider, provider)
+        effective = model or _DEFAULT_MODELS.get(provider, "?")
+        if provider == consts.BACKEND_OLLAMA:
+            return f"{label}  model={effective}  host={host}"
+        return f"{label} ({effective})"
 
-    remote = llm_cfg.get("remote_ollama_host", "").strip()
-    if remote and ram_gb < RAM_THRESHOLD_GB:
-        return f"Failover (config)  remote={remote}  fallback=antigravity-cli  probe={probe}s"
-    return f"Ollama  [{ram_gb:.1f} GB RAM]  model={model}  host={host}"
+    if not primary:
+        # Legacy auto-mode
+        if ram_gb >= RAM_THRESHOLD_GB:
+            return f"Ollama  [{ram_gb:.1f} GB RAM]  host={host}"
+        return f"Antigravity CLI  [{ram_gb:.1f} GB RAM]"
+
+    primary_str = _fmt(primary, primary_model)
+    if not fallback:
+        return primary_str
+    return f"Failover  {primary_str} → {_fmt(fallback, fallback_model)}  probe={probe}s"

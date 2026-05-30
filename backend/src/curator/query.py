@@ -13,6 +13,7 @@ Callbacks let the CLI render progress (search phase, synthesis streaming).
 """
 
 from __future__ import annotations
+from . import constants as consts
 
 import uuid
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import config as cfg
+from . import constants as consts
 from . import db
 from . import page_writer
 from . import prompts
@@ -172,13 +174,13 @@ def _concept_paths_for_atom(paths: cfg.WikiPaths, atom_id: str) -> list[str]:
     found: list[str] = []
     if not paths.concepts.exists():
         return found
-    for concept_path in sorted(paths.concepts.glob("CON-*.md")):
+    for concept_path in sorted(paths.concepts.glob(f"{consts.PREFIX_L3}-*.md")):
         page = page_writer.read_page(concept_path)
         if not page:
             continue
-        targets = page_writer.extract_relation_targets(page.body, prefix="02_Atoms/")
-        if f"02_Atoms/{atom_id}" in targets:
-            found.append(f"03_Concepts/{concept_path.stem}")
+        targets = page_writer.extract_relation_targets(page.body, prefix=f"{consts.LAYER_L2}/")
+        if f"{consts.LAYER_L2}/{atom_id}" in targets:
+            found.append(f"{consts.LAYER_L3}/{concept_path.stem}")
     return found
 
 
@@ -186,7 +188,7 @@ def _atom_ids_for_context(paths: cfg.WikiPaths, context_id: str) -> list[str]:
     found: list[str] = []
     if not paths.atoms.exists():
         return found
-    for atom_path in sorted(paths.atoms.glob("ATM-*.md")):
+    for atom_path in sorted(paths.atoms.glob(f"{consts.PREFIX_L2}-*.md")):
         page = page_writer.read_page(atom_path)
         if not page:
             continue
@@ -213,13 +215,13 @@ def _derive_core_concepts(paths: cfg.WikiPaths, answer: str, hits: list[search.S
 
     for target in targets:
         cleaned = _node_path_from_target(target)
-        if cleaned.startswith("03_Concepts/") and cleaned not in core_concepts:
+        if cleaned.startswith(f"{consts.LAYER_L3}/") and cleaned not in core_concepts:
             core_concepts.append(cleaned)
-        elif cleaned.startswith("02_Atoms/"):
+        elif cleaned.startswith(f"{consts.LAYER_L2}/"):
             atom_id = cleaned.rsplit("/", 1)[-1]
             if atom_id not in atom_ids:
                 atom_ids.append(atom_id)
-        elif cleaned.startswith("01_Contexts/"):
+        elif cleaned.startswith(f"{consts.LAYER_L1}/"):
             context_id = cleaned.rsplit("/", 1)[-1]
             if context_id not in context_ids:
                 context_ids.append(context_id)
@@ -258,7 +260,7 @@ def _save_curation_page(
     """
     import hashlib as _hashlib
 
-    exh_id = f"EXH-{uuid.uuid4().hex[:8]}"
+    exh_id = f"{consts.PREFIX_L4}-{uuid.uuid4().hex[:8]}"
     qry_id = session_id if session_id else f"QRY-{uuid.uuid4().hex[:8]}"
     today = page_writer.today_iso()
 
@@ -276,7 +278,7 @@ def _save_curation_page(
     parsed = page_writer.parse_page(answer.strip())
     base_frontmatter: dict = {
         "id": exh_id,
-        "type": "exhibition",
+        "type": consts.TYPE_L4,
         "core_concepts": core_concepts,
         "confidence_score": 0.70,
         "last_updated": today,
@@ -309,13 +311,13 @@ def _save_curation_page(
         "query",
         display_title,
         [
-            f"saved: [[04_Exhibitions/{exh_id}]]",
+            f"saved: [[{consts.LAYER_L4}/{exh_id}]]",
             f"query_session: {session_id}" if session_id else "query_session: none",
             f"consulted: {len(hits)} page(s)",
         ],
     )
 
-    return f"04_Exhibitions/{exh_id}.md"
+    return f"{consts.LAYER_L4}/{exh_id}.md"
 
 
 def update_curation_page(
@@ -359,7 +361,7 @@ def translate_to_english(client: OllamaClient, question: str) -> str:
                 f"Output only the translated question, nothing else.\n\nQuestion: {question}"
             ),
         )
-        translated = client.chat([msg], thinking=False, temperature=0.1).strip()
+        translated = client.chat([msg], temperature=0.1).strip()
         return translated or question
     except Exception:
         return question
@@ -433,7 +435,7 @@ def save_wiki_page(
         f"{answer.strip()}\n"
     )
 
-    wiki_dir = paths.root / "02_Wiki" / category
+    wiki_dir = paths.root / consts.DIR_WIKI / category
     wiki_dir.mkdir(parents=True, exist_ok=True)
     target = wiki_dir / f"{slug}.md"
     target.write_text(content, encoding="utf-8")
@@ -529,16 +531,16 @@ def run_query(
         # and over-fetching a few extra hits is cheaper than splitting into
         # multiple collections.
         layer_prefix = {
-            "contexts":    "01_Contexts/",
-            "atoms":       "02_Atoms/",
-            "concepts":    "03_Concepts/",
-            "exhibitions": "04_Exhibitions/",
+            "contexts":    f"{consts.LAYER_L1}/",
+            "atoms":       f"{consts.LAYER_L2}/",
+            "concepts":    f"{consts.LAYER_L3}/",
+            "exhibitions": f"{consts.LAYER_L4}/",
         }.get(scope)
         if layer_prefix:
             results.hits = [h for h in results.hits if h.full_path.startswith(layer_prefix)]
 
         # Prioritize Exhibitions (L4) as the primary source of truth in the synthesis context
-        results.hits.sort(key=lambda h: (not h.full_path.startswith("04_Exhibitions/"), -h.score))
+        results.hits.sort(key=lambda h: (not h.full_path.startswith(f"{consts.LAYER_L4}/"), -h.score))
     except search.QmdNotInstalled as e:
         result = QueryResult(question=question, session_id=session_id, error=str(e))
         callbacks.on_error(result.error)
@@ -576,7 +578,7 @@ def run_query(
 
     answer_parts: list[str] = []
     try:
-        gen = client.chat_stream(messages, thinking=False, temperature=temperature)
+        gen = client.chat_stream(messages, temperature=temperature)
         try:
             while True:
                 chunk = next(gen)

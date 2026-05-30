@@ -273,6 +273,7 @@ export class ChatSidebarView extends ItemView {
       }
 
       if (e.key === "Enter" && !e.shiftKey) {
+        if (e.isComposing) return;
         e.preventDefault();
         this.handleSend();
       }
@@ -888,6 +889,12 @@ export class ChatSidebarView extends ItemView {
     const content = this.inputEl.value.trim();
     if (!content) return;
 
+    // Guard: Ollama requires a model name before sending
+    if (this.plugin.settings.provider === "ollama" && !this.plugin.settings.model.trim()) {
+      new Notice("Ollama: no model selected. Go to Settings → AI Provider and enter a model name (e.g. qwen2.5:7b).");
+      return;
+    }
+
     this.lastQueryTrace = null;
     const capturedActiveCtx = this.plugin.refreshActiveContext();
     const contextRefs = [
@@ -942,8 +949,13 @@ export class ChatSidebarView extends ItemView {
       );
     } catch (err: unknown) {
       assistantMsg.isStreaming = false;
-      assistantMsg.content +=
-        `\n\n❌ Error: ${err instanceof Error ? err.message : String(err)}`;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes("CLI authentication required")) {
+        // Overwrite to remove confusing CLI stdout links/prompts that streamed before rejection
+        assistantMsg.content = `\n\n❌ **Authentication Required**\n\n${errMsg}`;
+      } else {
+        assistantMsg.content += `\n\n❌ Error: ${errMsg}`;
+      }
       this.renderAssistantMessage(assistantMsg);
     } finally {
       this.stopThinkingTimer();
@@ -1102,7 +1114,7 @@ export class ChatSidebarView extends ItemView {
     activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>
   ): string {
     const lines: string[] = [
-      "This chat session is provider-independent. If the user switches between Antigravity, Claude, and Codex, preserve the same task state, conversation decisions, pinned context, open tabs, and edit-review workflow.",
+      "This chat session is provider-independent. If the user switches between Antigravity, Claude, Codex, and Ollama, preserve the same task state, conversation decisions, pinned context, open tabs, and edit-review workflow.",
       `Current provider/model: ${this.plugin.settings.provider} / ${this.plugin.settings.model}`,
     ];
 
@@ -1272,46 +1284,30 @@ export class ChatSidebarView extends ItemView {
     }
 
     if (client.available && query.trim()) {
-      // Determine whether any open PDF source is L3-complete (curated).
-      // If so, use curator_query for concept-grounded synthesis.
-      // Otherwise fall back to raw DAG search hits.
-      const hasCuratedSource = pdfTabs.some((tab) => {
-        const sp =
-          this.toAbsolutePath(tab.pdfPage?.filePath) ||
-          this.toAbsolutePath(tab.filePath);
-        return sp && this.incuratorStatusByPath.get(sp)?.state === "curated";
-      });
+      // 1. DO NOT pre-fetch via `client.curatorQuery` or `client.search` here!
+      // The LLM CLI model handles tool use autonomously. We just need to give it the workspace context.
+      const curateFiles = this.app.vault.getFiles().filter(f => f.name === "curate.yml");
+      let targetCurate = curateFiles[0];
+      const activeFile = this.app.workspace.getActiveFile();
+      if (activeFile && curateFiles.length > 0) {
+        const matching = curateFiles.find(f => activeFile.path.startsWith(f.parent?.path || ""));
+        if (matching) targetCurate = matching;
+      }
+      
+      let wsPath = "";
+      if (targetCurate) {
+        const parentPath = targetCurate.parent?.path;
+        wsPath = parentPath && parentPath !== "/" 
+          ? `${(this.app.vault.adapter as any).getBasePath()}/${parentPath}` 
+          : (this.app.vault.adapter as any).getBasePath();
+      }
 
-      if (hasCuratedSource) {
-        this.setPrepareStatus("Querying Incurator knowledge graph...");
-        const qResult = await client.curatorQuery(query);
-        if (qResult.ok && qResult.answer) {
-          this.lastQueryTrace = qResult;
-          sections.push(formatCuratorQueryResult(qResult, query));
-        } else {
-          // curator_query failed or L3 incomplete — fall back to raw search
-          this.setPrepareStatus("Searching Incurator...");
-          const hits = await client.search(query, 6);
-          if (hits.length > 0) {
-            sections.push(
-              `<incurator_hits query="${escapeAttribute(query.slice(0, 120))}">\n${formatIncuratorHits(hits)}\n</incurator_hits>`
-            );
-          }
-          if (qResult.error) {
-            sections.push(
-              `<incurator_status>L3 not yet complete: ${escapeAttribute(qResult.error)}</incurator_status>`
-            );
-          }
-        }
-      } else {
-        // L1-only or unregistered: use raw DAG search hits
-        this.setPrepareStatus("Searching Incurator...");
-        const incuratorHits = await client.search(query, 6);
-        if (incuratorHits.length > 0) {
-          sections.push(
-            `<incurator_hits query="${escapeAttribute(query.slice(0, 120))}">\n${formatIncuratorHits(incuratorHits)}\n</incurator_hits>`
-          );
-        }
+      if (wsPath) {
+        sections.push(
+          `<incurator_workspace path="${escapeAttribute(wsPath)}">\n` +
+          `This is the active workspace path. Use this path when calling \`curator_check_workspace\` and \`search_curator\`.\n` +
+          `</incurator_workspace>`
+        );
       }
     }
 
@@ -1368,7 +1364,13 @@ export class ChatSidebarView extends ItemView {
   }
 
   private truncateContext(content: string): string {
-    return truncateToLength(content, this.plugin.settings.maxContextLength);
+    const modelOption = getModelOption(
+      this.plugin.getAvailableModels(),
+      this.plugin.settings.provider,
+      this.plugin.settings.model
+    );
+    const limit = modelOption?.contextWindow ?? this.plugin.settings.maxContextLength;
+    return truncateToLength(content, limit);
   }
 
   private getAutoContextKey(ref: ContextRef): string {
@@ -1399,8 +1401,7 @@ export class ChatSidebarView extends ItemView {
           label: `${tab.label} p.${tab.pdfPage.pageNum}`,
           content: tab.pdfPage.text
             ? this.truncateContext(tab.pdfPage.text)
-            : "(No extractable text on this page. Use the attached page image if available.)",
-          imageBase64: tab.pdfPage.imageBase64,
+            : "(No extractable text on this page. If you need visual information, please attach the image manually.)",
           filePath: tab.filePath,
           fileHash: tab.pdfPage.fileHash,
           pageNum: tab.pdfPage.pageNum,
@@ -1762,6 +1763,26 @@ export class ChatSidebarView extends ItemView {
       return;
     }
 
+    // Zotero-managed PDFs: skip modal, auto-register as reference
+    const isZoteroPdf = ref.zoteroAttachmentKey ||
+      this.app.workspace.getLeavesOfType("ai-agent-external-pdf")
+        .some(leaf => (leaf.view.getState() as any)?.zoteroAttachmentKey &&
+                      (leaf.view.getState() as any)?.path === sourcePath);
+    if (isZoteroPdf) {
+      new Notice("Registering Zotero PDF as external reference...");
+      const nextStatus = await this.getIncuratorClient().ingestPdf({
+        sourcePath,
+        displayName: ref.label.replace(/ p\.\d+$/, ""),
+        destinationRelpath: "",
+        importMode: "reference",
+      });
+      this.incuratorStatusByPath.set(sourcePath, nextStatus);
+      ref.backendStatus = nextStatus;
+      this.renderContextChips();
+      return;
+    }
+
+    // Non-Zotero PDFs: show modal with Copy as default
     new IngestDestinationModal(
       this.app,
       ref.label.replace(/ p\.\d+$/, ""),
@@ -1863,17 +1884,14 @@ export class ChatSidebarView extends ItemView {
       const refsEl = msgEl.createDiv("ai-agent-chat-msg-refs");
       for (const ref of msg.contextRefs) {
         const chip = refsEl.createDiv("ai-agent-context-chip");
-        chip.setText(ref.label);
-
-        // Image thumbnail preview
+        const label = ref.label.length > 24 ? ref.label.slice(0, 22) + "…" : ref.label;
         if (ref.imageBase64) {
-          refsEl.createEl("img", {
-            cls: "ai-agent-attach-thumb",
-            attr: {
-              src: `data:image/png;base64,${ref.imageBase64}`,
-            },
+          chip.createEl("img", {
+            cls: "ai-agent-chip-inline-thumb",
+            attr: { src: `data:image/png;base64,${ref.imageBase64}` },
           });
         }
+        chip.createSpan({ text: label });
       }
     }
 
@@ -2410,8 +2428,24 @@ export class ChatSidebarView extends ItemView {
             "",
             this
           );
-          if (!msg.isStreaming && this.lastQueryTrace) {
-            renderCuratorQueryTrace(contentEl as HTMLElement, this.lastQueryTrace, this.app);
+          if (!msg.isStreaming) {
+            const exhMatch = msg.content.match(/(EXH-[0-9a-fA-F]{8})/);
+            
+            // Try to extract full trace from tool result if available
+            const toolMatch = msg.content.match(/✅ \*\*mcp_curator_query\*\* result:\n```(?:json)?\n([\s\S]*?)\n```/);
+            if (toolMatch && !this.lastQueryTrace) {
+              try {
+                const parsed = JSON.parse(toolMatch[1]);
+                if (parsed.trace || parsed.exhibition_id) {
+                  this.lastQueryTrace = parsed;
+                }
+              } catch { }
+            }
+            
+            const traceToRender = this.lastQueryTrace || (exhMatch ? { exhibition_id: exhMatch[1] } : null);
+            if (traceToRender) {
+              renderCuratorQueryTrace(contentEl as HTMLElement, traceToRender as any, this.app);
+            }
           }
         } else if (msg.isStreaming) {
           const thinkingSpan = (contentEl as HTMLElement).createSpan({
@@ -3026,16 +3060,16 @@ export class ChatSidebarView extends ItemView {
       antigravity: "Antigravity",
       claude: "Claude",
       openai: "Codex",
+      ollama: "Ollama",
     };
     for (const providerKey of Object.keys(catalogue) as LLMProvider[]) {
       const group = this.modelSelectEl.createEl("optgroup", {
         attr: { label: providerLabels[providerKey] },
       });
       for (const option of catalogue[providerKey] || []) {
-        const suffix = option.tier === "flash" || option.tier === "stable" ? "" : ` (${option.tier})`;
         group.createEl("option", {
           value: `${providerKey}::${option.id}`,
-          text: `${providerLabels[providerKey]} · ${option.label}${suffix}`,
+          text: `${providerLabels[providerKey]} · ${option.label}`,
         });
       }
     }

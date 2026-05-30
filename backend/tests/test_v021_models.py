@@ -17,19 +17,19 @@ class TestSharedModelsCatalogue(unittest.TestCase):
         self.assertIn("antigravity", available)
         self.assertIn("claude", available)
         self.assertIn("openai", available)
-        self.assertTrue(any(m["tier"] == "flash" for m in available["antigravity"]))
+        self.assertTrue(len(available["antigravity"]) > 0)
 
     def test_default_antigravity_model_from_catalogue(self) -> None:
         self.assertEqual(
-            models.get_default_model("antigravity", "flash"),
+            models.get_default_model("antigravity"),
             "gemini-3.5-flash",
         )
 
     def test_models_json_is_single_source_and_well_formed(self) -> None:
         """data/models.json is the single source of truth — guard its shape.
 
-        Every provider must expose at least one flash and one think model with
-        a non-empty id, so get_default_model resolves for both tiers (llm.py
+        Every provider must expose at least one model with
+        a non-empty id, so get_default_model resolves (llm.py
         only carries last-resort fallbacks, not the full catalogue).
         """
         catalogue = models.load_models_catalogue()
@@ -37,14 +37,11 @@ class TestSharedModelsCatalogue(unittest.TestCase):
         self.assertTrue(providers, "models.json must define providers")
         for name in ("antigravity", "claude", "openai"):
             self.assertIn(name, providers)
-            tiers = {m.get("tier") for m in providers[name].get("models", [])}
-            self.assertIn("flash", tiers, f"{name} missing a flash model")
-            self.assertIn("think", tiers, f"{name} missing a think model")
-            for tier in ("flash", "think"):
-                self.assertNotEqual(
-                    models.get_default_model(name, tier), "",
-                    f"{name}/{tier} default did not resolve from models.json",
-                )
+            self.assertTrue(providers[name].get("models", []), f"{name} missing models")
+            self.assertNotEqual(
+                models.get_default_model(name), "",
+                f"{name} default did not resolve from models.json",
+            )
 
     def test_empty_catalogue_degrades_gracefully(self) -> None:
         """If the data file is unavailable, callers must not crash."""
@@ -52,7 +49,7 @@ class TestSharedModelsCatalogue(unittest.TestCase):
 
         with patch.object(models, "load_models_catalogue", return_value=models._EMPTY_CATALOGUE):
             self.assertEqual(models.get_available_models(), {})
-            self.assertEqual(models.get_default_model("antigravity", "flash"), "")
+            self.assertEqual(models.get_default_model("antigravity"), "")
 
 
 class TestAntigravityConfig(unittest.TestCase):
@@ -65,29 +62,10 @@ class TestAntigravityConfig(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def test_legacy_gemini_model_keys_rename(self) -> None:
-        """gemini_flash_model / gemini_think_model keys are renamed to antigravity_*."""
-        self.paths.config_file.write_text(
-            yaml.safe_dump(
-                {
-                    "llm": {
-                        "primary": "antigravity-cli",
-                        "gemini_flash_model": "gemini-2.5-flash",
-                        "gemini_think_model": "gemini-2.5-pro",
-                    }
-                }
-            ),
-            encoding="utf-8",
-        )
-        loaded = cfg.load_config(self.paths)
-        llm_cfg = loaded["llm"]
-        self.assertEqual(llm_cfg["antigravity_flash_model"], "gemini-2.5-flash")
-        self.assertEqual(llm_cfg["antigravity_think_model"], "gemini-2.5-pro")
-
     def test_antigravity_client_factory_keeps_selected_model(self) -> None:
         client = make_client_by_key(
             "antigravity-cli",
-            {"llm": {"antigravity_flash_model": "gemini-2.5-flash"}},
+            {"llm": {"primary": "antigravity-cli::gemini-2.5-flash"}},
         )
         self.assertIsInstance(client, AntigravityCliClient)
         self.assertEqual(client.model, "gemini-2.5-flash")

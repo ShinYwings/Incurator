@@ -19,6 +19,7 @@ Finalization:
 """
 
 from __future__ import annotations
+from . import constants as consts
 
 import json
 import re
@@ -29,6 +30,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Set
 
 from . import config as cfg
+from . import constants as consts
 from . import db
 from . import page_writer
 from . import prompts
@@ -121,10 +123,10 @@ def _find_changed_nodes(paths: cfg.WikiPaths) -> list[str]:
     """Return DAG node IDs whose body hash differs from frontmatter content_hash."""
     changed: list[str] = []
     for layer_dir, prefix in (
-        (paths.contexts, "CTX-"),
-        (paths.atoms, "ATM-"),
-        (paths.concepts, "CON-"),
-        (paths.exhibitions, "EXH-"),
+        (paths.contexts, f"{consts.PREFIX_L1}-"),
+        (paths.atoms, f"{consts.PREFIX_L2}-"),
+        (paths.concepts, f"{consts.PREFIX_L3}-"),
+        (paths.exhibitions, f"{consts.PREFIX_L4}-"),
     ):
         if not layer_dir.exists():
             continue
@@ -219,10 +221,10 @@ def _id_from_link(link: str) -> str:
 def _subdir_for_id(node_id: str) -> Optional[str]:
     """Map an ID prefix to its Collections subdirectory."""
     for prefix, subdir in (
-        ("CTX-", "01_Contexts"),
-        ("ATM-", "02_Atoms"),
-        ("CON-", "03_Concepts"),
-        ("EXH-", "04_Exhibitions"),
+        (f"{consts.PREFIX_L1}-", consts.LAYER_L1),
+        (f"{consts.PREFIX_L2}-", consts.LAYER_L2),
+        (f"{consts.PREFIX_L3}-", consts.LAYER_L3),
+        (f"{consts.PREFIX_L4}-", consts.LAYER_L4),
     ):
         if node_id.startswith(prefix):
             return subdir
@@ -232,10 +234,10 @@ def _subdir_for_id(node_id: str) -> Optional[str]:
 def _layer_for_id(node_id: str) -> Optional[str]:
     """Map an ID prefix to its layer name."""
     for prefix, layer in (
-        ("CTX-", "context"),
-        ("ATM-", "atom"),
-        ("CON-", "concept"),
-        ("EXH-", "exhibition"),
+        (f"{consts.PREFIX_L1}-", consts.TYPE_L1),
+        (f"{consts.PREFIX_L2}-", consts.TYPE_L2),
+        (f"{consts.PREFIX_L3}-", consts.TYPE_L3),
+        (f"{consts.PREFIX_L4}-", consts.TYPE_L4),
     ):
         if node_id.startswith(prefix):
             return layer
@@ -278,9 +280,9 @@ def _concept_atom_ids(paths: cfg.WikiPaths, con_id: str) -> list[str]:
     if page is None:
         return []
     atom_ids: list[str] = []
-    for target in page_writer.extract_relation_targets(page.body, prefix="02_Atoms/"):
+    for target in page_writer.extract_relation_targets(page.body, prefix=f"{consts.LAYER_L2}/"):
         atom_id = target.rsplit("/", 1)[-1]
-        if atom_id.startswith("ATM-") and atom_id not in atom_ids:
+        if atom_id.startswith(f"{consts.PREFIX_L2}-") and atom_id not in atom_ids:
             atom_ids.append(atom_id)
     return atom_ids
 
@@ -297,48 +299,48 @@ def run_mode_a(paths: cfg.WikiPaths, callbacks: Optional[SyncCallbacks] = None) 
     if not exh_dir.exists():
         return gaps
 
-    for md_path in sorted(exh_dir.glob("EXH-*.md")):
+    for md_path in sorted(exh_dir.glob(f"{consts.PREFIX_L4}-*.md")):
         exh_id = md_path.stem
         if callbacks:
             callbacks.on_node_check(exh_id)
         fm = _read_fm(paths, exh_id)
         if fm is None:
-            gaps.append(VerificationGap("exhibition", exh_id, "Exhibition file unreadable."))
+            gaps.append(VerificationGap(consts.TYPE_L4, exh_id, "Exhibition file unreadable."))
             continue
 
         con_ids = _fm_links(fm, "core_concepts")
         if not con_ids:
-            gaps.append(VerificationGap("exhibition", exh_id, "core_concepts is empty or missing."))
+            gaps.append(VerificationGap(consts.TYPE_L4, exh_id, "core_concepts is empty or missing."))
 
         for con_id in con_ids:
             con_page = _read_node_page(paths, con_id)
             if con_page is None:
                 gaps.append(VerificationGap(
-                    "concept", con_id,
+                    consts.TYPE_L3, con_id,
                     f"Referenced by {exh_id} but page does not exist."
                 ))
                 continue
 
             atm_ids = _concept_atom_ids(paths, con_id)
             if not atm_ids:
-                gaps.append(VerificationGap("concept", con_id, "Relations is empty or missing Atom links."))
+                gaps.append(VerificationGap(consts.TYPE_L3, con_id, "Relations is empty or missing Atom links."))
 
             for atm_id in atm_ids:
                 atm_fm = _read_fm(paths, atm_id)
                 if atm_fm is None:
                     gaps.append(VerificationGap(
-                        "atom", atm_id,
+                        consts.TYPE_L2, atm_id,
                         f"Referenced by {con_id} but page does not exist."
                     ))
                     continue
 
                 parent_links = _fm_links(atm_fm, "parent_source")
                 for ctx_id in parent_links:
-                    if not ctx_id.startswith("CTX-"):
+                    if not ctx_id.startswith(f"{consts.PREFIX_L1}-"):
                         continue
                     if _read_fm(paths, ctx_id) is None:
                         gaps.append(VerificationGap(
-                            "context", ctx_id,
+                            consts.TYPE_L1, ctx_id,
                             f"Referenced by {atm_id} as parent_source but page does not exist."
                         ))
 
@@ -365,35 +367,35 @@ def _trace_upstream(paths: cfg.WikiPaths, node_id: str, callbacks: Optional[Sync
         gaps.append(VerificationGap(layer, node_id, "Node page does not exist."))
         return gaps
 
-    if layer == "atom":
+    if layer == consts.TYPE_L2:
         for ctx_id in _fm_links(fm, "parent_source"):
-            if not ctx_id.startswith("CTX-"):
+            if not ctx_id.startswith(f"{consts.PREFIX_L1}-"):
                 continue
             if _read_fm(paths, ctx_id) is None:
                 gaps.append(VerificationGap(
-                    "context", ctx_id,
+                    consts.TYPE_L1, ctx_id,
                     f"parent_source of {node_id} does not exist."
                 ))
 
-    elif layer == "concept":
+    elif layer == consts.TYPE_L3:
         for atm_id in _concept_atom_ids(paths, node_id):
-            if not atm_id.startswith("ATM-"):
+            if not atm_id.startswith(f"{consts.PREFIX_L2}-"):
                 continue
             if _read_fm(paths, atm_id) is None:
                 gaps.append(VerificationGap(
-                    "atom", atm_id,
+                    consts.TYPE_L2, atm_id,
                     f"Dependency of {node_id} does not exist."
                 ))
             else:
                 gaps.extend(_trace_upstream(paths, atm_id, callbacks=callbacks))
 
-    elif layer == "exhibition":
+    elif layer == consts.TYPE_L4:
         for con_id in _fm_links(fm, "core_concepts"):
-            if not con_id.startswith("CON-"):
+            if not con_id.startswith(f"{consts.PREFIX_L3}-"):
                 continue
             if _read_fm(paths, con_id) is None:
                 gaps.append(VerificationGap(
-                    "concept", con_id,
+                    consts.TYPE_L3, con_id,
                     f"core_concepts entry in {node_id} does not exist."
                 ))
             else:
@@ -413,12 +415,12 @@ def _trace_downstream(paths: cfg.WikiPaths, node_id: str, callbacks: Optional[Sy
         callbacks.on_node_check(node_id)
 
     # Determine which layer(s) might reference this node and what field they use
-    if layer == "context":
-        search_dirs = [("02_Atoms", "ATM-", "parent_source")]
-    elif layer == "atom":
-        search_dirs = [("03_Concepts", "CON-", "relations")]
-    elif layer == "concept":
-        search_dirs = [("04_Exhibitions", "EXH-", "core_concepts")]
+    if layer == consts.TYPE_L1:
+        search_dirs = [(consts.LAYER_L2, f"{consts.PREFIX_L2}-", "parent_source")]
+    elif layer == consts.TYPE_L2:
+        search_dirs = [(consts.LAYER_L3, f"{consts.PREFIX_L3}-", "relations")]
+    elif layer == consts.TYPE_L3:
+        search_dirs = [(consts.LAYER_L4, f"{consts.PREFIX_L4}-", "core_concepts")]
     else:
         return gaps  # exhibitions have no downstream within the DAG
 
@@ -446,7 +448,7 @@ def downstream_concepts_for_atom(paths: cfg.WikiPaths, atom_id: str) -> list[str
     if not paths.concepts.exists():
         return []
     found: list[str] = []
-    for md_path in sorted(paths.concepts.glob("CON-*.md")):
+    for md_path in sorted(paths.concepts.glob(f"{consts.PREFIX_L3}-*.md")):
         if atom_id in _concept_atom_ids(paths, md_path.stem):
             found.append(md_path.stem)
     return found
@@ -457,7 +459,7 @@ def downstream_exhibitions_for_concept(paths: cfg.WikiPaths, concept_id: str) ->
     if not paths.exhibitions.exists():
         return []
     found: list[str] = []
-    for md_path in sorted(paths.exhibitions.glob("EXH-*.md")):
+    for md_path in sorted(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md")):
         fm = _read_fm(paths, md_path.stem)
         if fm and concept_id in _fm_links(fm, "core_concepts"):
             found.append(md_path.stem)
@@ -469,7 +471,7 @@ def downstream_atoms_for_context(paths: cfg.WikiPaths, context_id: str) -> list[
     if not paths.atoms.exists():
         return []
     found: list[str] = []
-    for md_path in sorted(paths.atoms.glob("ATM-*.md")):
+    for md_path in sorted(paths.atoms.glob(f"{consts.PREFIX_L2}-*.md")):
         fm = _read_fm(paths, md_path.stem)
         if fm and context_id in _fm_links(fm, "parent_source"):
             found.append(md_path.stem)
@@ -501,7 +503,7 @@ def _logical_scope_for_nodes(paths: cfg.WikiPaths, node_refs: list[str] | None) 
         return concept_ids, exhibition_ids
 
     def add_concept(con_id: str) -> None:
-        if not con_id.startswith("CON-"):
+        if not con_id.startswith(f"{consts.PREFIX_L3}-"):
             return
         if (paths.concepts / f"{con_id}.md").exists():
             concept_ids.add(con_id)
@@ -509,7 +511,7 @@ def _logical_scope_for_nodes(paths: cfg.WikiPaths, node_refs: list[str] | None) 
             exhibition_ids.add(exh_id)
 
     def add_atom(atom_id: str) -> None:
-        if not atom_id.startswith("ATM-"):
+        if not atom_id.startswith(f"{consts.PREFIX_L2}-"):
             return
         for con_id in downstream_concepts_for_atom(paths, atom_id):
             add_concept(con_id)
@@ -517,14 +519,14 @@ def _logical_scope_for_nodes(paths: cfg.WikiPaths, node_refs: list[str] | None) 
     for ref in node_refs:
         node_id = _node_id_from_ref(ref)
         layer = _layer_for_id(node_id)
-        if layer == "exhibition":
+        if layer == consts.TYPE_L4:
             if (paths.exhibitions / f"{node_id}.md").exists():
                 exhibition_ids.add(node_id)
-        elif layer == "concept":
+        elif layer == consts.TYPE_L3:
             add_concept(node_id)
-        elif layer == "atom":
+        elif layer == consts.TYPE_L2:
             add_atom(node_id)
-        elif layer == "context":
+        elif layer == consts.TYPE_L1:
             for atom_id in downstream_atoms_for_context(paths, node_id):
                 add_atom(atom_id)
 
@@ -535,9 +537,9 @@ def _body_atom_ids(page: page_writer.ParsedPage) -> list[str]:
     atom_ids: list[str] = []
     for target in page_writer.extract_wikilink_targets(page.body):
         target = target.removesuffix(".md")
-        if target.startswith("02_Atoms/"):
+        if target.startswith(f"{consts.LAYER_L2}/"):
             atom_id = target.rsplit("/", 1)[-1]
-            if atom_id.startswith("ATM-") and atom_id not in atom_ids:
+            if atom_id.startswith(f"{consts.PREFIX_L2}-") and atom_id not in atom_ids:
                 atom_ids.append(atom_id)
     return atom_ids
 
@@ -546,9 +548,9 @@ def _body_context_ids(page: page_writer.ParsedPage) -> list[str]:
     context_ids: list[str] = []
     for target in page_writer.extract_wikilink_targets(page.body):
         target = target.removesuffix(".md")
-        if target.startswith("01_Contexts/"):
+        if target.startswith(f"{consts.LAYER_L1}/"):
             context_id = target.rsplit("/", 1)[-1]
-            if context_id.startswith("CTX-") and context_id not in context_ids:
+            if context_id.startswith(f"{consts.PREFIX_L1}-") and context_id not in context_ids:
                 context_ids.append(context_id)
     return context_ids
 
@@ -557,9 +559,9 @@ def _body_concept_paths(page: page_writer.ParsedPage) -> list[str]:
     concept_paths: list[str] = []
     for target in page_writer.extract_wikilink_targets(page.body):
         target = target.removesuffix(".md")
-        if target.startswith("03_Concepts/"):
+        if target.startswith(f"{consts.LAYER_L3}/"):
             concept_id = target.rsplit("/", 1)[-1]
-            if concept_id.startswith("CON-") and target not in concept_paths:
+            if concept_id.startswith(f"{consts.PREFIX_L3}-") and target not in concept_paths:
                 concept_paths.append(target)
     return concept_paths
 
@@ -570,7 +572,7 @@ def repair_structural_gaps(paths: cfg.WikiPaths, gaps: list[VerificationGap], ca
     for gap in gaps:
         if callbacks:
             callbacks.on_node_check(gap.node_id)
-        if gap.layer == "concept" and "Relations is empty" in gap.message:
+        if gap.layer == consts.TYPE_L3 and "Relations is empty" in gap.message:
             con_path = paths.concepts / f"{gap.node_id}.md"
             page = page_writer.read_page(con_path)
             if page is None:
@@ -582,14 +584,14 @@ def repair_structural_gaps(paths: cfg.WikiPaths, gaps: list[VerificationGap], ca
             ]
             if not atom_ids:
                 continue
-            relations = "\n".join(f"[[02_Atoms/{atom_id}]]" for atom_id in atom_ids)
+            relations = "\n".join(f"[[{consts.LAYER_L2}/{atom_id}]]" for atom_id in atom_ids)
             page.body = f"{page.body.rstrip()}\n\n## Relations\n{relations}\n"
             con_path.write_text(page.to_markdown(), encoding="utf-8")
             modified += 1
             if callbacks:
                 callbacks.on_node_repair(gap.node_id, message="Restored missing ## Relations section")
 
-        elif gap.layer == "exhibition" and "core_concepts is empty" in gap.message:
+        elif gap.layer == consts.TYPE_L4 and "core_concepts is empty" in gap.message:
             exh_path = paths.exhibitions / f"{gap.node_id}.md"
             page = page_writer.read_page(exh_path)
             if page is None:
@@ -603,7 +605,7 @@ def repair_structural_gaps(paths: cfg.WikiPaths, gaps: list[VerificationGap], ca
                         atom_ids.append(atom_id)
             for atom_id in atom_ids:
                 for con_id in downstream_concepts_for_atom(paths, atom_id):
-                    concept_path = f"03_Concepts/{con_id}"
+                    concept_path = f"{consts.LAYER_L3}/{con_id}"
                     if concept_path not in concept_paths:
                         concept_paths.append(concept_path)
             concept_paths = [
@@ -809,20 +811,20 @@ def run_mode_c(
                 return {}, None
             messages = prompts.build_theme_logic_verify_messages(
                 theme_content=_body_for_logic_check(
-                    con_page.body, _THEME_BODY_CHARS, relation_prefix="02_Atoms/",
+                    con_page.body, _THEME_BODY_CHARS, relation_prefix=f"{consts.LAYER_L2}/",
                 ),
                 fragments_content=fragments_content,
                 domain_context=domain_context,
             )
             try:
-                response = client.chat(messages, thinking=False, temperature=0.1)
+                response = client.chat(messages, temperature=0.1)
             except LLMError:
                 return {}, None
             result = _parse_verify_response(response, con_md.stem)
             gap = None
             if not result.get("valid", True):
                 gap = VerificationGap(
-                    layer="concept",
+                    layer=consts.TYPE_L3,
                     node_id=con_md.stem,
                     message="Concept logic not fully derivable from its Atoms.",
                     reasoning=result.get("reasoning", response.strip()[:600]),
@@ -888,7 +890,7 @@ def run_mode_c(
                 if cp:
                     themes_content += (
                         f"\n### Concept {cid}\n"
-                        f"{_body_for_logic_check(cp.body, _THEME_CONTENT_CHARS, relation_prefix='02_Atoms/')}\n"
+                        f"{_body_for_logic_check(cp.body, _THEME_CONTENT_CHARS, relation_prefix=f'{consts.LAYER_L2}/')}\n"
                     )
             if not themes_content:
                 continue
@@ -903,21 +905,21 @@ def run_mode_c(
                 curation_content=_body_for_logic_check(
                     exh_page.body,
                     _THEME_BODY_CHARS,
-                    relation_prefix="03_Concepts/",
+                    relation_prefix=f"{consts.LAYER_L3}/",
                 ),
                 themes_content=themes_content,
                 concept_verification_summary=relevant_con_results or None,
                 domain_context=domain_context,
             )
             try:
-                response = client.chat(messages, thinking=False, temperature=0.1)
+                response = client.chat(messages, temperature=0.1)
             except LLMError:
                 continue
 
             result = _parse_verify_response(response, exh_md.stem)
             if not result.get("valid", True):
                 gaps.append(VerificationGap(
-                    layer="exhibition",
+                    layer=consts.TYPE_L4,
                     node_id=exh_md.stem,
                     message="Exhibition logic not fully derivable from its Concepts.",
                     reasoning=result.get("reasoning", response.strip()[:600]),
@@ -973,9 +975,9 @@ def fix_gaps(
         seen.add(key)
 
         if gap.reasoning:  # Mode C — logical deduction gap
-            if gap.layer == "concept":
+            if gap.layer == consts.TYPE_L3:
                 ok = _regenerate_concept(paths, client, gap.node_id)
-            elif gap.layer == "exhibition":
+            elif gap.layer == consts.TYPE_L4:
                 ok = _regenerate_exhibition(paths, client, gap.node_id)
             else:
                 ok = False
@@ -1110,7 +1112,7 @@ def propagate_upstream_from_exhibition(
     all_con_ids = sorted(list(set(static_con_ids + dynamic_con_ids)))
 
     for con_id in all_con_ids:
-        if not con_id.startswith("CON-"): continue
+        if not con_id.startswith(f"{consts.PREFIX_L3}-"): continue
         con_path = paths.concepts / f"{con_id}.md"
         con_page = page_writer.read_page(con_path)
         if con_page is None: continue # Could happen if search index is stale
@@ -1120,7 +1122,7 @@ def propagate_upstream_from_exhibition(
             exh_id=exh_id or "Insight", exh_content=source_text, con_id=con_id, con_content=con_original, today=today
         )
         try:
-            updated_con = client.chat(messages, thinking=False, temperature=0.2)
+            updated_con = client.chat(messages, temperature=0.2)
             updated_con = page_writer.strip_llm_noise(updated_con)
             if updated_con and updated_con.strip() != con_original.strip():
                 updated_con_page = _drop_nested_frontmatter_body(page_writer.parse_page(updated_con))
@@ -1153,7 +1155,7 @@ def propagate_upstream_from_exhibition(
         updated_con_content = updated_con if con_id in result.concepts_updated else con_original
 
         for atm_id in all_atm_ids:
-            if not atm_id.startswith("ATM-"): continue
+            if not atm_id.startswith(f"{consts.PREFIX_L2}-"): continue
             atm_path = paths.atoms / f"{atm_id}.md"
             atm_page = page_writer.read_page(atm_path)
             if atm_page is None: continue
@@ -1163,7 +1165,7 @@ def propagate_upstream_from_exhibition(
                 con_id=con_id, con_content=updated_con_content, atm_id=atm_id, atm_content=atm_original, today=today
             )
             try:
-                updated_atm = client.chat(messages, thinking=False, temperature=0.1)
+                updated_atm = client.chat(messages, temperature=0.1)
                 updated_atm = page_writer.strip_llm_noise(updated_atm)
                 if updated_atm and updated_atm.strip() != atm_original.strip():
                     updated_atm_page = page_writer.parse_page(updated_atm)
@@ -1206,7 +1208,7 @@ def propagate_upstream_from_exhibition(
                         atm_id=atm_id, atm_content=atm_original, ctx_id=ctx_id, ctx_content=ctx_original, today=today
                     )
                     try:
-                        updated_ctx = client.chat(messages, thinking=False, temperature=0.1)
+                        updated_ctx = client.chat(messages, temperature=0.1)
                         updated_ctx = page_writer.strip_llm_noise(updated_ctx)
                         if updated_ctx and updated_ctx.strip() != ctx_original.strip():
                             ctx_path.write_text(updated_ctx, encoding="utf-8")
@@ -1278,7 +1280,7 @@ def propagate_downstream_to_exhibition(paths: cfg.WikiPaths, client, exh_id: str
     )
     
     try:
-        updated_body = client.chat(messages, thinking=False, temperature=0.2)
+        updated_body = client.chat(messages, temperature=0.2)
         updated_body = page_writer.strip_llm_noise(updated_body)
         
         if updated_body and updated_body.strip() != exh_page.body.strip():

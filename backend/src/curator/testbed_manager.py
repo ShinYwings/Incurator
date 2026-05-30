@@ -61,24 +61,18 @@ def init_testbed(
     for dirname in cfg.VAULT_TOPOLOGY:
         (testbed_root / dirname).mkdir(parents=True, exist_ok=True)
 
-    raw_dirs = ["02_Wiki", "03_Notes", "04_Resources", "06_Archives"]
+    raw_dirs = [consts.DIR_WIKI, consts.DIR_NOTES, consts.DIR_RESOURCES, consts.DIR_ARCHIVES]
     paths = cfg.WikiPaths(root=testbed_root, raw_dirs_override=raw_dirs)
     paths.internal.mkdir(parents=True, exist_ok=True)
     paths.collections.mkdir(parents=True, exist_ok=True)
     for layer in cfg.COLLECTION_LAYERS:
         (paths.collections / layer).mkdir(parents=True, exist_ok=True)
 
+    from . import constants as consts  # noqa: PLC0415 – local import avoids circular ref
     config = dict(cfg.DEFAULT_CONFIG)
-    # Use specified provider or default to antigravity-cli for testbeds
-    config["llm"]["primary"] = llm_provider or "antigravity-cli"
-    if llm_model:
-        if config["llm"]["primary"] == "ollama":
-            config["llm"]["model"] = llm_model
-        elif config["llm"]["primary"] == "antigravity-cli":
-            config["llm"]["antigravity_flash_model"] = llm_model
-    elif not llm_provider:
-        # Default model for the default antigravity-cli provider
-        config["llm"]["antigravity_flash_model"] = "gemini-3.5-flash"
+    primary_provider = llm_provider or consts.BACKEND_ANTIGRAVITY_CLI
+    model = llm_model or cfg.split_provider_model(cfg.DEFAULT_CONFIG["llm"]["primary"])[1]
+    config["llm"]["primary"] = cfg.join_provider_model(primary_provider, model)
     # Marks this vault so production code never auto-selects it via last_root fallback
     config["testbed"] = True
     cfg.save_config(paths, config)
@@ -91,14 +85,14 @@ def init_testbed(
     fixture_rules = scenario_dir / "fixture_workspace_rules"
     fixture_has_content = fixture_rules.exists() and any(fixture_rules.rglob("*"))
     tmpl_root = fixture_rules if fixture_has_content else None
-    ws_root = testbed_root / "01_Workspaces"
+    ws_root = testbed_root / consts.DIR_WORKSPACES
     if ws_root.exists():
         for ws_dir in ws_root.iterdir():
             if ws_dir.is_dir():
                 prepare_workspace(
                     vault_root=testbed_root,
                     workspace=ws_dir,
-                    agent="antigravity",
+                    agent=consts.CLOUD_ANTIGRAVITY,
                     install_rules=True,
                     template_root=tmpl_root,
                 )

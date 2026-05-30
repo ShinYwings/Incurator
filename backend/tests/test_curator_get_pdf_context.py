@@ -178,9 +178,10 @@ class CuratorGetPdfContextTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         # Create minimal vault structure required by _resolve_paths
         from curator import config as cfg, db
-        curator_dir = self.root / cfg.INTERNAL_DIR
+        from curator import constants as consts
+        curator_dir = self.root / consts.INTERNAL_DIR
         curator_dir.mkdir(parents=True, exist_ok=True)
-        (curator_dir / cfg.CONFIG_FILE).write_text("llm:\n  provider: ollama\n", encoding="utf-8")
+        (curator_dir / consts.CONFIG_FILE).write_text("llm:\n  provider: ollama\n", encoding="utf-8")
         paths = cfg.WikiPaths(self.root)
         for d in paths.raw_dirs:
             d.mkdir(parents=True, exist_ok=True)

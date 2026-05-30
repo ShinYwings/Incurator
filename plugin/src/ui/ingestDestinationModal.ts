@@ -26,15 +26,22 @@ export class IngestDestinationModal extends Modal {
     contentEl.empty();
     contentEl.addClass("ai-agent-ingest-modal");
 
-    contentEl.createEl("h2", { text: "Ingest PDF" });
+    contentEl.createEl("h2", { text: "Ingest Non-Zotero PDF" });
     contentEl.createEl("p", {
       cls: "setting-item-description",
-      text: this.sourceName,
+      text: "This file was not recognized as a Zotero attachment. It will be copied to your vault by default so the Incurator AI can access and track it.",
     });
+    contentEl.createEl("p", {
+      cls: "setting-item-name",
+      text: this.sourceName,
+      attr: { style: "font-weight: 600; margin-top: 12px; margin-bottom: 8px;" }
+    });
+
+    let destinationSetting: Setting;
 
     new Setting(contentEl)
       .setName("Mode")
-      .setDesc("Reference keeps the external PDF in place. Copy stores a vault-local copy under 04_Resources.")
+      .setDesc("Copy creates a vault-local copy (recommended for non-Zotero). Reference tries to link the external path.")
       .addDropdown((dropdown) =>
         dropdown
           .addOption("reference", "Reference external file")
@@ -42,12 +49,13 @@ export class IngestDestinationModal extends Modal {
           .setValue(this.importMode)
           .onChange((value) => {
             this.importMode = value === "copy" ? "copy" : "reference";
+            destinationSetting.settingEl.toggle(this.importMode === "copy");
           })
       );
 
-    new Setting(contentEl)
+    destinationSetting = new Setting(contentEl)
       .setName("Destination")
-      .setDesc("Vault folder for copy mode. Reference mode stores only the backend source record.")
+      .setDesc("Vault folder to copy the PDF into.")
       .addText((text) => {
         text
           .setPlaceholder("04_Resources")
@@ -56,6 +64,8 @@ export class IngestDestinationModal extends Modal {
             this.destinationRelpath = value.trim();
           });
       });
+    // Hide destination when in reference mode (no copy needed)
+    destinationSetting.settingEl.toggle(this.importMode === "copy");
 
     const actions = contentEl.createDiv("ai-agent-ingest-modal-actions");
     const cancelBtn = actions.createEl("button", { text: "Cancel" });

@@ -36,12 +36,12 @@ def load_models_catalogue() -> dict[str, Any]:
     return _EMPTY_CATALOGUE
 
 
-def get_default_model(provider: str, tier: str = "flash") -> str:
-    """Return the first model id for provider/tier from the shared catalogue."""
+def get_default_model(provider: str) -> str:
+    """Return the first model id for provider from the shared catalogue."""
     data = load_models_catalogue()
     provider_data = data.get("providers", {}).get(provider, {})
     for model in provider_data.get("models", []):
-        if model.get("tier") == tier and model.get("id"):
+        if model.get("id"):
             return str(model["id"])
     return ""
 
@@ -57,9 +57,9 @@ def get_available_models() -> dict[str, list[dict[str, Any]]]:
                 {
                     "id": model.get("id", ""),
                     "label": model.get("label", model.get("id", "")),
-                    "tier": model.get("tier", "flash"),
                     "context_window": model.get("context_window"),
                     "supports_vision": bool(model.get("supports_vision", False)),
+                    "supports_thinking": bool(model.get("supports_thinking", False)),
                 }
             )
         out[provider] = models

@@ -9,6 +9,7 @@ emerge correctly. All IDs are UUID-based (ATM-/CON-/EXH-).
 """
 
 from __future__ import annotations
+from . import constants as consts
 
 import json
 import re
@@ -21,9 +22,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
+from collections import Counter, defaultdict
+
 from pydantic import BaseModel, Field, ValidationError
 
 from . import config as cfg
+from . import constants as consts
 from . import db
 from . import page_writer
 from . import parsers
@@ -42,7 +46,7 @@ EXCERPT_CHARS = 4000
 
 class AtomCandidate(BaseModel):
     name: str
-    type: str = "fact"
+    type: str = consts.CLAIM_TYPE_FACT
     one_liner: str
 
 
@@ -266,7 +270,7 @@ def invalidate_exh_cache_for_concept(concept_id: str, db_path: str) -> list[str]
     if not paths.exhibitions.exists():
         return []
     invalidated: list[str] = []
-    for exh_path in sorted(paths.exhibitions.glob("EXH-*.md")):
+    for exh_path in sorted(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md")):
         page = page_writer.read_page(exh_path)
         if not page:
             continue
@@ -292,7 +296,7 @@ def invalidate_exh_cache_for_concept(concept_id: str, db_path: str) -> list[str]
 def _stream_page(client, messages, callbacks: IngestCallbacks) -> str:
     """Stream a page from LLM, collecting chunks via callbacks. Returns full text."""
     full = ""
-    gen = client.chat_stream(messages, thinking=False, temperature=0.3)
+    gen = client.chat_stream(messages, temperature=0.3)
     try:
         while True:
             chunk = next(gen)
@@ -315,19 +319,19 @@ def _find_existing_atom(paths: cfg.WikiPaths, name: str) -> tuple[str, bool]:
     Returns (atom_id, exists).
     """
     if not paths.atoms.exists():
-        return _gen_id("ATM"), False
+        return _gen_id(consts.PREFIX_L2), False
     for md in paths.atoms.glob("*.md"):
         parsed = page_writer.read_page(md)
-        if parsed and parsed.frontmatter.get("type") == "atom":
+        if parsed and parsed.frontmatter.get("type") == consts.TYPE_L2:
             # Match by name in H1
             for line in parsed.body.splitlines():
                 if line.startswith("# ") and name.lower() in line.lower():
                     return md.stem, True
-    return _gen_id("ATM"), False
+    return _gen_id(consts.PREFIX_L2), False
 
 
 def _is_valid_context_id(context_id: str) -> bool:
-    return bool(context_id) and context_id.startswith("CTX-") and len(context_id) > 4
+    return bool(context_id) and context_id.startswith(f"{consts.PREFIX_L1}-") and len(context_id) > 4
 
 
 def _strip_embedded_frontmatter(body: str) -> str:
@@ -377,7 +381,7 @@ def _body_to_required_sections(body: str, headings: list[str], fallback_title: s
 
 def _strip_out_of_scope_curator_links(body: str, allowed_targets: set[str]) -> str:
     """Unlink curator DAG targets that are not part of the trusted write plan."""
-    curator_prefixes = ("01_Contexts/", "02_Atoms/", "03_Concepts/", "04_Exhibitions/")
+    curator_prefixes = (f"{consts.LAYER_L1}/", f"{consts.LAYER_L2}/", f"{consts.LAYER_L3}/", f"{consts.LAYER_L4}/")
 
     def repl(match: re.Match[str]) -> str:
         inner = match.group(1)
@@ -498,7 +502,7 @@ def _atom_summary(paths: cfg.WikiPaths, atom_id: str) -> dict | None:
     return {
         "id": atom_id,
         "name": _page_title(parsed, atom_id),
-        "claim_type": parsed.frontmatter.get("claim_type", "fact"),
+        "claim_type": parsed.frontmatter.get("claim_type", consts.CLAIM_TYPE_FACT),
         "one_liner": one_liner[:260],
     }
 
@@ -785,10 +789,10 @@ def _enforce_atom_contract(
 
     parsed.frontmatter = {
         "id": atom_id,
-        "type": "atom",
-        "parent_source": f"01_Contexts/{context_id}",
+        "type": consts.TYPE_L2,
+        "parent_source": f"{consts.LAYER_L1}/{context_id}",
         "source_path": _source_path_link(relpath),
-        "claim_type": candidate.type or "fact",
+        "claim_type": candidate.type or consts.CLAIM_TYPE_FACT,
         "confidence_score": confidence,
         "contradicts": contradicts,
         "is_verified_by_human": bool(fm.get("is_verified_by_human", False)),
@@ -801,9 +805,9 @@ def _enforce_atom_contract(
         ["Definition / Claim", "Context", "Constraints", "Relations"],
         fallback_title=candidate.name,
     )
-    parent_link = f"[[01_Contexts/{context_id}]]"
+    parent_link = f"[[{consts.LAYER_L1}/{context_id}]]"
     body = re.sub(
-        rf"\[\[01_Contexts/(?!{re.escape(context_id)}(?:\]\]|[#|]))[^\]]*\]\]",
+        rf"\[\[{consts.LAYER_L1}/(?!{re.escape(context_id)}(?:\]\]|[#|]))[^\]]*\]\]",
         "",
         body,
     )
@@ -837,10 +841,10 @@ def _enforce_concept_contract(
     except (TypeError, ValueError):
         confidence = 0.0
     confidence = min(1.0, max(0.0, confidence))
-    atom_ids = [aid for aid in plan.atom_ids if isinstance(aid, str) and aid.startswith("ATM-")]
+    atom_ids = [aid for aid in plan.atom_ids if isinstance(aid, str) and aid.startswith(f"{consts.PREFIX_L2}-")]
     parsed.frontmatter = {
         "id": concept_id,
-        "type": "concept",
+        "type": consts.TYPE_L3,
         "domain": plan.domain or "",
         "confidence_score": confidence,
         "last_updated": today,
@@ -850,9 +854,9 @@ def _enforce_concept_contract(
         ["1. Core Idea", "2. How the Atoms Connect", "3. Key Patterns", "4. Open Questions", "Relations"],
         fallback_title=plan.name,
     )
-    allowed_targets = {f"02_Atoms/{aid}" for aid in atom_ids}
+    allowed_targets = {f"{consts.LAYER_L2}/{aid}" for aid in atom_ids}
     body = _strip_out_of_scope_curator_links(body, allowed_targets)
-    relations = "\n".join(f"[[02_Atoms/{aid}]]" for aid in atom_ids)
+    relations = "\n".join(f"[[{consts.LAYER_L2}/{aid}]]" for aid in atom_ids)
     if relations:
         body = re.sub(
             r"(?is)(^##\s+Relations\s*$\n?).*?\Z",
@@ -870,9 +874,9 @@ def _concept_atom_ids(page: page_writer.ParsedPage | None) -> list[str]:
     if not page:
         return []
     ids: list[str] = []
-    for target in page_writer.extract_relation_targets(page.body, prefix="02_Atoms/"):
+    for target in page_writer.extract_relation_targets(page.body, prefix=f"{consts.LAYER_L2}/"):
         atom_id = target.rsplit("/", 1)[-1]
-        if atom_id.startswith("ATM-") and atom_id not in ids:
+        if atom_id.startswith(f"{consts.PREFIX_L2}-") and atom_id not in ids:
             ids.append(atom_id)
     return ids
 
@@ -895,11 +899,11 @@ def _enforce_exhibition_contract(
     except (TypeError, ValueError):
         confidence = plan.confidence
     confidence = min(1.0, max(0.0, confidence))
-    concept_ids = [cid for cid in plan.concept_ids if isinstance(cid, str) and cid.startswith("CON-")]
+    concept_ids = [cid for cid in plan.concept_ids if isinstance(cid, str) and cid.startswith(f"{consts.PREFIX_L3}-")]
     fm: dict = {
         "id": exh_id,
-        "type": "exhibition",
-        "core_concepts": [f"03_Concepts/{cid}" for cid in concept_ids],
+        "type": consts.TYPE_L4,
+        "core_concepts": [f"{consts.LAYER_L3}/{cid}" for cid in concept_ids],
         "confidence_score": confidence,
         "last_updated": today,
     }
@@ -909,7 +913,7 @@ def _enforce_exhibition_contract(
         fm["workspace"] = workspace
     parsed.frontmatter = fm
     body = _strip_embedded_frontmatter(parsed.body or "")
-    allowed_targets = {f"03_Concepts/{cid}" for cid in concept_ids}
+    allowed_targets = {f"{consts.LAYER_L3}/{cid}" for cid in concept_ids}
     body = _strip_out_of_scope_curator_links(body, allowed_targets)
     body = re.sub(r"(?im)^##\s+", r"### ", body)
     required = [
@@ -962,7 +966,7 @@ def _run_atom_coordinator(
         parsed = page_writer.read_page(atom_path)
         if not parsed:
             continue
-        domain = parsed.frontmatter.get("domain") or "general"
+        domain = parsed.frontmatter.get("domain") or consts.DOMAIN_GENERAL
         domain_to_new.setdefault(domain, []).append(atom_id)
 
     total_merges = 0
@@ -1086,7 +1090,7 @@ def _process_one_atom(
     """
     atom_id, exists = _find_existing_atom(paths, candidate.name)
     final_path = paths.atoms / f"{atom_id}.md"
-    staged_path = staging / f"02_Atoms__{atom_id}.md"
+    staged_path = staging / f"{consts.LAYER_L2}__{atom_id}.md"
 
     if exists:
         existing_content = page_writer.read_page(final_path)
@@ -1115,7 +1119,7 @@ def _process_one_atom(
         )
 
     # Use non-streaming chat for thread safety
-    raw = client.chat(messages, thinking=False, temperature=0.3)
+    raw = client.chat(messages, temperature=0.3)
     content = page_writer.strip_llm_noise(raw if isinstance(raw, str) else (raw.content if hasattr(raw, "content") else str(raw)))
     content = page_writer.sanitize_wikilinks(content)
     if not content:
@@ -1132,8 +1136,8 @@ def _process_one_atom(
     operation = "updated" if exists else "created"
     change = PageChange(
         id=atom_id,
-        path=f"02_Atoms/{atom_id}.md",
-        layer="02_Atoms",
+        path=f"{consts.LAYER_L2}/{atom_id}.md",
+        layer=consts.LAYER_L2,
         operation=operation,
     )
     return staged_path, final_path, change
@@ -1257,7 +1261,7 @@ def _run_sequential_atoms(
     for candidate in summary_data.atom_candidates:
         atom_id, exists = _find_existing_atom(paths, candidate.name)
         final_path = paths.atoms / f"{atom_id}.md"
-        staged_path = staging / f"02_Atoms__{atom_id}.md"
+        staged_path = staging / f"{consts.LAYER_L2}__{atom_id}.md"
         if exists:
             existing_content = page_writer.read_page(final_path)
             existing_md = existing_content.to_markdown() if existing_content else ""
@@ -1291,8 +1295,8 @@ def _run_sequential_atoms(
         staged_path.write_text(content, encoding="utf-8")
         operation = "updated" if exists else "created"
         change = PageChange(
-            id=atom_id, path=f"02_Atoms/{atom_id}.md",
-            layer="02_Atoms", operation=operation,
+            id=atom_id, path=f"{consts.LAYER_L2}/{atom_id}.md",
+            layer=consts.LAYER_L2, operation=operation,
         )
         staged.append((staged_path, final_path, change))
         callbacks.on_fragment_written(change)
@@ -1409,7 +1413,7 @@ def _write_one_concept_plan(
     if len(plan.atom_ids) < 2:
         return None
 
-    concept_id = _gen_id("CON")
+    concept_id = _gen_id(consts.PREFIX_L3)
     atoms_content = ""
     for aid in plan.atom_ids:
         ap = page_writer.read_page(paths.atoms / f"{aid}.md")
@@ -1426,7 +1430,7 @@ def _write_one_concept_plan(
         workspace_context=workspace_context,
     )
     try:
-        content = client.chat(messages, thinking=False, temperature=0.3)
+        content = client.chat(messages, temperature=0.3)
     except LLMError:
         return None
 
@@ -1449,12 +1453,12 @@ def _write_one_concept_plan(
         return None
 
     final_path = paths.concepts / f"{concept_id}.md"
-    staged_path = staging / f"03_Concepts__{concept_id}.md"
+    staged_path = staging / f"{consts.LAYER_L3}__{concept_id}.md"
     staged_path.write_text(content, encoding="utf-8")
     change = PageChange(
         id=concept_id,
-        path=f"03_Concepts/{concept_id}.md",
-        layer="03_Concepts",
+        path=f"{consts.LAYER_L3}/{concept_id}.md",
+        layer=consts.LAYER_L3,
         operation="created",
     )
     return staged_path, final_path, change, list(plan.atom_ids)
@@ -1492,7 +1496,7 @@ def _run_pass2_concepts(
         # are unavailable.
         cluster_messages = prompts.build_concept_clustering_messages(atom_summaries)
         try:
-            raw = client.chat(cluster_messages, thinking=False, json_mode=True, temperature=0.2)
+            raw = client.chat(cluster_messages, json_mode=True, temperature=0.2)
             cluster_result: ConceptClusterResult = _parse_json_model(raw, ConceptClusterResult)
             plans = list(cluster_result.concepts)
         except (ValueError, LLMError) as e:
@@ -1555,7 +1559,7 @@ def _set_l3_result_status(
     """Reflect global L3 clustering outcome without changing Curator schema."""
     if not source_ids:
         return
-    has_atoms = paths.atoms.exists() and any(paths.atoms.glob("ATM-*.md"))
+    has_atoms = paths.atoms.exists() and any(paths.atoms.glob(f"{consts.PREFIX_L2}-*.md"))
     if concept_staged:
         covered_source_ids = _source_ids_with_l3_coverage(paths, source_ids)
         missing_source_ids = [sid for sid in source_ids if sid not in covered_source_ids]
@@ -1601,19 +1605,19 @@ def _source_ids_with_l3_coverage(paths: cfg.WikiPaths, source_ids: list[int]) ->
         ).fetchall()
     for row in rows:
         context_id = str(row["context_id"] or "")
-        if context_id.startswith("CTX-"):
+        if context_id.startswith(f"{consts.PREFIX_L1}-"):
             context_by_source[int(row["id"])] = context_id
 
     atom_context: dict[str, str] = {}
     if paths.atoms.exists():
-        for atom_path in paths.atoms.glob("ATM-*.md"):
+        for atom_path in paths.atoms.glob(f"{consts.PREFIX_L2}-*.md"):
             context_id = _atom_context_id(paths, atom_path.stem)
             if context_id:
                 atom_context[atom_path.stem] = context_id
 
     covered_contexts: set[str] = set()
     if paths.concepts.exists():
-        for concept_path in paths.concepts.glob("CON-*.md"):
+        for concept_path in paths.concepts.glob(f"{consts.PREFIX_L3}-*.md"):
             concept = page_writer.read_page(concept_path)
             for atom_id in _concept_atom_ids(concept):
                 context_id = atom_context.get(atom_id)
@@ -1638,7 +1642,7 @@ def _source_ids_with_l2_done_and_l3_unset(paths: cfg.WikiPaths) -> list[int]:
 
 
 def _mark_existing_l3_done_if_present(paths: cfg.WikiPaths) -> None:
-    if paths.concepts.exists() and any(paths.concepts.glob("CON-*.md")):
+    if paths.concepts.exists() and any(paths.concepts.glob(f"{consts.PREFIX_L3}-*.md")):
         source_ids = _source_ids_with_l2_done_and_l3_unset(paths)
         if source_ids:
             db.set_sources_layer_status(paths.state_db, source_ids, "l3", "done")
@@ -1663,7 +1667,7 @@ def _write_one_exhibition_plan(
     if not plan.concept_ids:
         return None
 
-    exh_id = _gen_id("EXH")
+    exh_id = _gen_id(consts.PREFIX_L4)
     concepts_content = ""
     flagged_ids: list[str] = []
     for cid in plan.concept_ids:
@@ -1690,7 +1694,7 @@ def _write_one_exhibition_plan(
         exhibition_intent=exhibition_intent,
     )
     try:
-        content = client.chat(messages, thinking=False, temperature=0.3)
+        content = client.chat(messages, temperature=0.3)
     except LLMError:
         return None
 
@@ -1707,12 +1711,12 @@ def _write_one_exhibition_plan(
         return None
 
     final_path = paths.exhibitions / f"{exh_id}.md"
-    staged_path = staging / f"04_Exhibitions__{exh_id}.md"
+    staged_path = staging / f"{consts.LAYER_L4}__{exh_id}.md"
     staged_path.write_text(content, encoding="utf-8")
     change = PageChange(
         id=exh_id,
-        path=f"04_Exhibitions/{exh_id}.md",
-        layer="04_Exhibitions",
+        path=f"{consts.LAYER_L4}/{exh_id}.md",
+        layer=consts.LAYER_L4,
         operation="created",
     )
     return staged_path, final_path, change
@@ -1769,7 +1773,7 @@ def _run_pass3_synthesis(
         low_threshold=low_threshold,
     )
     try:
-        raw = client.chat(plan_messages, thinking=False, json_mode=True, temperature=0.2)
+        raw = client.chat(plan_messages, json_mode=True, temperature=0.2)
         plan_result: SynthesisPlanResult = _parse_json_model(raw, SynthesisPlanResult)
     except (ValueError, LLMError) as e:
         print(f"Warning: Synthesis planning failed: {e}", file=sys.stderr)
@@ -1834,8 +1838,7 @@ def ingest_source(
     callbacks: IngestCallbacks,
     *,
     mode: str = "interactive",
-    thinking_for_extraction: bool = True,
-) -> IngestResult:
+    ) -> IngestResult:
     """Phase A — extract L2 Atoms from a single source.
 
     Concepts and Synthesis are built globally AFTER all sources are processed.
@@ -1892,7 +1895,7 @@ def ingest_source(
         result = IngestResult(
             source_id=source_id,
             source_title=parsed.title,
-            error=f"L1 Context page does not exist: 01_Contexts/{context_id}.md",
+            error=f"L1 Context page does not exist: {consts.LAYER_L1}/{context_id}.md",
         )
         _mark_source_status(paths, source_id, "error", error_reason="missing_context")
         db.set_source_layer_status(paths.state_db, source_id, "l1", "error", error=result.error)
@@ -1937,7 +1940,7 @@ def ingest_source(
         source_text = parsed.text[:MAX_SOURCE_CHARS]
         messages = prompts.build_summary_messages(parsed.title, source_text)
         try:
-            raw = client.chat(messages, thinking=thinking_for_extraction, json_mode=True, temperature=0.2)
+            raw = client.chat(messages_for_extraction, json_mode=True, temperature=0.2)
             summary_data = _parse_json_model(_extract_json(raw), SummaryData)
         except (ValueError, LLMError) as e:
             result = IngestResult(source_id=source_id, source_title=parsed.title,
@@ -1979,8 +1982,8 @@ def ingest_source(
             for br in batch_results:
                 change = PageChange(
                     id=br.atom_id,
-                    path=f"02_Atoms/{br.atom_id}.md",
-                    layer="02_Atoms",
+                    path=f"{consts.LAYER_L2}/{br.atom_id}.md",
+                    layer=consts.LAYER_L2,
                     operation=br.operation,
                 )
                 atom_staged.append((br.staged_path, br.final_path, change))
@@ -2275,10 +2278,10 @@ def _update_overview(paths: cfg.WikiPaths) -> None:
                 lines.append(f"- {link}")
         lines.append("")
 
-    _layer_section("L1 — Contexts",    "01_Contexts",    contexts)
-    _layer_section("L2 — Atoms",       "02_Atoms",       atoms)
-    _layer_section("L3 — Concepts",    "03_Concepts",    concepts)
-    _layer_section("L4 — Exhibitions", "04_Exhibitions", exhibitions)
+    _layer_section("L1 — Contexts",    consts.LAYER_L1,    contexts)
+    _layer_section("L2 — Atoms",       consts.LAYER_L2,       atoms)
+    _layer_section("L3 — Concepts",    consts.LAYER_L3,    concepts)
+    _layer_section("L4 — Exhibitions", consts.LAYER_L4, exhibitions)
 
     paths.overview.parent.mkdir(parents=True, exist_ok=True)
     paths.overview.write_text("\n".join(lines), encoding="utf-8")
@@ -2341,7 +2344,6 @@ def run_l1_to_l3(
     *,
     mode: str = "interactive",
     auto_discover: bool = True,
-    thinking_for_extraction: bool = True,
     force: bool = False,
 ) -> list[IngestResult]:
     """Run L1→L3 pipeline (Atoms + Concepts) for all pending sources.
@@ -2372,8 +2374,7 @@ def run_l1_to_l3(
     results: list[IngestResult] = []
     for sid in pending_ids:
         cb = callbacks_factory()
-        result = ingest_source(paths, sid, client, cb, mode=mode,
-                               thinking_for_extraction=thinking_for_extraction)
+        result = ingest_source(paths, sid, client, cb, mode=mode)
         results.append(result)
         if result.error and "Ollama" in (result.error or ""):
             break
@@ -2387,7 +2388,7 @@ def run_l1_to_l3(
     # Phase A½: Atom Coordinator — semantic dedup across newly extracted atoms
     new_atom_ids = [
         c.id for r in results if r.ok
-        for c in r.changes if c.layer == "02_Atoms"
+        for c in r.changes if c.layer == consts.LAYER_L2
     ]
     if len(new_atom_ids) >= 2:
         try:
@@ -2419,7 +2420,7 @@ def run_l1_to_l3(
         # D4: record unique domains seen in this run so persona update can suggest refinements
         new_ctx_ids = [
             ch.id for r in results if r.ok
-            for ch in r.changes if ch.layer == "01_Contexts"
+            for ch in r.changes if ch.layer == consts.LAYER_L1
         ]
         seen_domains = _collect_domains_from_contexts(paths, new_ctx_ids)
         if seen_domains:
@@ -2450,10 +2451,10 @@ def run_l3_from_existing_atoms(
         cb = callbacks_factory()
         concept_staged = _run_global_pass2_concepts(paths, client, cb, today, staging)
         if paths.concepts.exists():
-            for md_path in paths.concepts.glob("CON-*.md"):
+            for md_path in paths.concepts.glob(f"{consts.PREFIX_L3}-*.md"):
                 md_path.unlink()
         if paths.exhibitions.exists():
-            for md_path in paths.exhibitions.glob("EXH-*.md"):
+            for md_path in paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md"):
                 md_path.unlink()
         for staged_path, final_path, _ in concept_staged:
             final_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2502,7 +2503,7 @@ def _get_scoped_concept_ids(
         if "|" in target:
             target = target.split("|", 1)[0].strip()
         context_id = target.rsplit("/", 1)[-1].removesuffix(".md")
-        if not context_id.startswith("CTX-"):
+        if not context_id.startswith(f"{consts.PREFIX_L1}-"):
             return ""
         ctx_page = page_writer.read_page(paths.contexts / f"{context_id}.md")
         if not ctx_page:
@@ -2567,7 +2568,7 @@ def _run_exhibition_refinement(
     concepts_content = ""
     for ref in existing.frontmatter.get("core_concepts") or []:
         cid = str(ref).rsplit("/", 1)[-1]
-        if not cid.startswith("CON-"):
+        if not cid.startswith(f"{consts.PREFIX_L3}-"):
             continue
         cp = page_writer.read_page(paths.concepts / f"{cid}.md")
         if cp:
@@ -2601,12 +2602,12 @@ def _run_exhibition_refinement(
         today=today,
     )
 
-    staged_path = staging / f"04_Exhibitions__{exh_path.stem}.md"
+    staged_path = staging / f"{consts.LAYER_L4}__{exh_path.stem}.md"
     staged_path.write_text(content, encoding="utf-8")
     change = PageChange(
         id=exh_path.stem,
-        path=f"04_Exhibitions/{exh_path.name}",
-        layer="04_Exhibitions",
+        path=f"{consts.LAYER_L4}/{exh_path.name}",
+        layer=consts.LAYER_L4,
         operation="updated",
     )
     callbacks.on_curation_written(change)
@@ -2671,7 +2672,7 @@ def add_atom_from_insight(
     """
     messages = prompts.build_summary_messages("Conversational Insight", insight_text[:4000])
     try:
-        raw = client.chat(messages, thinking=False, json_mode=True, temperature=0.2)
+        raw = client.chat(messages, json_mode=True, temperature=0.2)
         summary_data = _parse_json_model(_extract_json(raw), SummaryData)
     except (ValueError, LLMError):
         return None
@@ -2680,7 +2681,7 @@ def add_atom_from_insight(
         return None
 
     candidate = summary_data.atom_candidates[0]
-    atom_id = _gen_id("ATM")
+    atom_id = _gen_id(consts.PREFIX_L2)
 
     messages = prompts.build_fragment_page_messages(
         fragment_id=atom_id,
@@ -2696,7 +2697,7 @@ def add_atom_from_insight(
     tmp_staging = Path(tempfile.mkdtemp(prefix="curator-insight-"))
     try:
         full = ""
-        gen = client.chat_stream(messages, thinking=False, temperature=0.3)
+        gen = client.chat_stream(messages, temperature=0.3)
         try:
             while True:
                 chunk = next(gen)
@@ -2728,7 +2729,7 @@ def find_workspace_exhibition(paths: cfg.WikiPaths, project: str) -> Optional[Pa
     """
     if not paths.exhibitions.exists() or not project:
         return None
-    for md_path in sorted(paths.exhibitions.glob("EXH-*.md")):
+    for md_path in sorted(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md")):
         try:
             parsed = page_writer.read_page(md_path)
             if parsed and parsed.frontmatter.get("workspace") == project:

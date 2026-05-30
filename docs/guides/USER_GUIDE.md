@@ -414,6 +414,19 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 | `wiki add <file>` | 소스를 등록하고 L1 Context를 즉시 생성합니다 (구조 기반, LLM 없음). | 새로운 정보를 추가할 때 |
 | `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 추출합니다 (LLM). 기본은 백그라운드 워커에 큐잉, `--wait`는 즉시 실행. | 지식 그래프 심층 구축 시 |
 | `wiki sources list` | 등록된 소스 목록을 확인합니다. | 수집된 데이터 현황 파악 시 |
+| `wiki sources show <id>` | 특정 소스의 상세 정보와 처리 상태를 확인합니다. | 소스 오류 진단 시 |
+| `wiki sources rm <id>` | 소스 등록을 해제하고 생성된 L1 노드를 삭제합니다. | 잘못된 소스를 제거할 때 |
+| `wiki sources retry <id>` | 오류 상태 소스를 재처리합니다. | 소스 처리 실패 후 재시도 시 |
+
+### 2-1. 설정 및 LLM 백엔드 관리
+
+| 명령어 | 설명 |
+| :--- | :--- |
+| `wiki config provider` | LLM 백엔드 (Ollama / Claude Code / Antigravity / Codex) 와 모델을 대화형으로 설정합니다. |
+| `wiki config models list` | 현재 백엔드에서 사용 가능한 모델 목록을 표시합니다. |
+| `wiki config models use <tag>` | 사용할 모델을 직접 지정합니다. |
+| `wiki config get <key>` | 특정 설정 값을 조회합니다. (예: `wiki config get llm.primary`) |
+| `wiki config set <key> <value>` | 특정 설정 값을 변경합니다. (예: `wiki config set llm.model gemini-3.5-flash`) |
 
 ### 3. 고도화 및 최적화 (Curation)
 | 명령어 | 설명 | 사용 시점 |
