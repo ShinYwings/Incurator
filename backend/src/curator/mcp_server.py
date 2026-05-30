@@ -3158,6 +3158,36 @@ def build_server() -> FastMCP:
         }
 
     @mcp.tool()
+    def curator_add_all(workspace_path: str = "") -> dict[str, Any]:
+        """Run a global discovery of raw sources, generating L1 Contexts."""
+        from . import ingest_raw
+        paths = _resolve_paths(workspace_path)
+        try:
+            discovered = 0
+            # iter_addable_files takes path (None for all)
+            for file_to_add in ingest_raw.iter_addable_files(None, recursive=True):
+                outcome = ingest_raw.add_file(paths, file_to_add)
+                if outcome.ok:
+                    discovered += 1
+            return {"ok": True, "discovered": discovered, "removed": 0}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    @mcp.tool()
+    def curator_build_all(workspace_path: str = "") -> dict[str, Any]:
+        """Run a global extraction of L2 Atoms and L3 Concepts from registered L1 Contexts."""
+        from . import ingest_llm, config as cfg
+        paths = _resolve_paths(workspace_path)
+        config_dict = cfg.load_config(paths)
+        client = build_client(config_dict, "Primary")
+        try:
+            ingest_llm.build_atoms(paths, client)
+            ingest_llm.build_concepts(paths, client)
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    @mcp.tool()
     def curator_sync(workspace_path: str = "") -> dict[str, Any]:
         """Run a bidirectional synchronization to repair the DAG integrity."""
         from . import sync as sync_mod

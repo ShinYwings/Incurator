@@ -81,6 +81,16 @@ export class IncuratorClient {
     return await this.tryTool(["curator_reindex"], {});
   }
 
+  async runAdd(): Promise<any> {
+    if (this.settings.incuratorEnabled === false) return null;
+    return await this.tryTool(["curator_add_all", "curator_add"], {});
+  }
+
+  async runBuild(): Promise<any> {
+    if (this.settings.incuratorEnabled === false) return null;
+    return await this.tryTool(["curator_build_all", "curator_build"], {});
+  }
+
   async runCurate(workspacePath?: string): Promise<any> {
     if (this.settings.incuratorEnabled === false) return null;
     return await this.tryTool(["curator_curate_workspace"], { workspace_path: workspacePath ?? "" });

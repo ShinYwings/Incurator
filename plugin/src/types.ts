@@ -80,6 +80,7 @@ export interface PluginSettings {
   chatMode: ChatMode;
   codexReasoningEffort: CodexReasoningEffort;
   claudeEffort: ClaudeEffort;
+  agentEffort: string;
   antigravityPrintTimeoutSec: number;
   providerUsage: Record<LLMProvider, ProviderUsage>;
   diffMode: "inline" | "side-by-side";
@@ -115,6 +116,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   chatMode: "chat",
   codexReasoningEffort: "medium",
   claudeEffort: "medium",
+  agentEffort: "",
   antigravityPrintTimeoutSec: 300,
   providerUsage: {
     antigravity: {

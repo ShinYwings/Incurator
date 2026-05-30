@@ -2796,6 +2796,8 @@ export class ChatSidebarView extends ItemView {
       this.plugin.settings.codexReasoningEffort = effort as CodexReasoningEffort;
     } else if (this.plugin.settings.provider === "claude") {
       this.plugin.settings.claudeEffort = effort as any;
+    } else {
+      this.plugin.settings.agentEffort = effort;
     }
     await this.plugin.saveSettings();
   }
@@ -3094,32 +3096,30 @@ export class ChatSidebarView extends ItemView {
     
     this.reasoningSelectEl.empty();
     
-    if (this.plugin.settings.provider === "openai") {
-      this.reasoningSelectEl.setAttribute("aria-label", "Codex reasoning level");
-      this.reasoningSelectEl.setAttribute("title", "Codex thinking level");
-      [
-        { value: "low", label: "Think Low" },
-        { value: "medium", label: "Think Med" },
-        { value: "high", label: "Think High" },
-        { value: "xhigh", label: "Think XHigh" },
-      ].forEach((option) => {
-        this.reasoningSelectEl.createEl("option", { value: option.value, text: option.label });
+    const provider = this.plugin.settings.provider;
+    const catalogue = this.plugin.getAvailableModels();
+    const currentModelOption = getModelOption(catalogue, provider, this.plugin.settings.model);
+
+    if (currentModelOption?.efforts && currentModelOption.efforts.length > 0) {
+      this.reasoningSelectEl.setAttribute("aria-label", "Reasoning effort");
+      this.reasoningSelectEl.setAttribute("title", "Reasoning effort level");
+      
+      currentModelOption.efforts.forEach((e) => {
+        this.reasoningSelectEl.createEl("option", { 
+          value: e, 
+          text: e.charAt(0).toUpperCase() + e.slice(1) 
+        });
       });
-      this.reasoningSelectEl.value = this.plugin.settings.codexReasoningEffort;
-      this.reasoningSelectEl.show();
-    } else if (this.plugin.settings.provider === "claude") {
-      this.reasoningSelectEl.setAttribute("aria-label", "Claude effort level");
-      this.reasoningSelectEl.setAttribute("title", "Claude effort level");
-      [
-        { value: "low", label: "Effort Low" },
-        { value: "medium", label: "Effort Med" },
-        { value: "high", label: "Effort High" },
-        { value: "xhigh", label: "Effort XHigh" },
-        { value: "max", label: "Effort Max" },
-      ].forEach((option) => {
-        this.reasoningSelectEl.createEl("option", { value: option.value, text: option.label });
-      });
-      this.reasoningSelectEl.value = this.plugin.settings.claudeEffort;
+      
+      const getOldVal = () => {
+         if (provider === "openai") return this.plugin.settings.codexReasoningEffort;
+         if (provider === "claude") return this.plugin.settings.claudeEffort;
+         return this.plugin.settings.agentEffort;
+      };
+      const rawVal = getOldVal();
+      const val = currentModelOption.efforts.includes(rawVal) ? rawVal : (currentModelOption.defaultEffort || currentModelOption.efforts[0]);
+      
+      this.reasoningSelectEl.value = val;
       this.reasoningSelectEl.show();
     } else {
       this.reasoningSelectEl.hide();

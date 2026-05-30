@@ -2064,10 +2064,14 @@ def _auto_discover_pending(paths: cfg.WikiPaths) -> tuple[int, int]:
     removed = 0
     if orphans:
         with db.connect(paths.state_db) as conn:
-            conn.execute(
-                f"DELETE FROM sources WHERE id IN ({','.join('?' * len(orphans))})",
-                orphans,
-            )
+            ph = ','.join('?' * len(orphans))
+            conn.execute(f"DELETE FROM job_events WHERE job_id IN (SELECT id FROM ingest_jobs WHERE source_id IN ({ph}))", orphans)
+            conn.execute(f"DELETE FROM ingest_jobs WHERE source_id IN ({ph})", orphans)
+            conn.execute(f"DELETE FROM ingest_runs WHERE source_id IN ({ph})", orphans)
+            conn.execute(f"DELETE FROM source_pages WHERE source_id IN ({ph})", orphans)
+            conn.execute(f"DELETE FROM dag_edges WHERE source_id IN ({ph})", orphans)
+            conn.execute(f"DELETE FROM source_pdf_pages WHERE source_id IN ({ph})", orphans)
+            conn.execute(f"DELETE FROM sources WHERE id IN ({ph})", orphans)
         removed = len(orphans)
         for relpath in [k for k, v in tracked.items() if v in orphans]:
             del tracked[relpath]

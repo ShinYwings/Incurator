@@ -858,7 +858,7 @@ class AntigravityCliClient:
             env["ANTIGRAVITY_TRUST_WORKSPACE"] = "true"
             env["AGY_TRUST_WORKSPACE"] = "true"
             r = subprocess.run(
-                [self.CLI, "--version"], capture_output=True, text=True, timeout=5, env=env
+                [self.CLI, "--version"], capture_output=True, text=True, timeout=15, env=env
             )
             if r.returncode != 0:
                 raise AntigravityCliError(

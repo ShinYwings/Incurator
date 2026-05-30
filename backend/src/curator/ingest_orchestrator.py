@@ -204,10 +204,7 @@ def _extract_atoms_from_chunk(
 
     prompt = _BATCH_EXTRACT_PROMPT.format(chunk=chunk)
     messages = [ChatMessage(role="user", content=prompt)]
-    try:
-        raw = client.chat(messages, json_mode=True, temperature=0.1)
-    except LLMError:
-        return []
+    raw = client.chat(messages, json_mode=True, temperature=0.1)
 
     atoms_data = _parse_batch_atoms_json(raw)
     results: list[BatchAtomResult] = []

@@ -204,15 +204,41 @@ export class IncuratorDashboardModal extends Modal {
 
   private addActionBtn(parent: HTMLElement, label: string, icon: string, fn: () => Promise<void>) {
     const b = parent.createEl("button", { cls: "ai-agent-dashboard-btn" });
+    b.style.padding = "4px 10px";
+    b.style.fontSize = "12px";
     setIcon(b.createSpan(), icon);
-    b.appendText(` ${label}`);
+    const textSpan = b.createSpan({ text: ` ${label}` });
     b.onclick = async () => {
       b.disabled = true;
-      const orig = b.innerText;
-      b.innerText = "Running…";
+      const orig = textSpan.innerText;
+      textSpan.innerText = " Running…";
       try { await fn(); } catch (e) { new Notice(`Error: ${e}`); }
-      finally { b.innerText = orig; b.disabled = false; }
+      finally { textSpan.innerText = orig; b.disabled = false; }
     };
+  }
+
+  private async runWikiCommand(cmdArgs: string[]): Promise<{ ok: boolean, output?: string, error?: string }> {
+    const cwd = this.vaultBase();
+    if (!cwd) return { ok: false, error: "Not a local vault" };
+    
+    let wikiBin = "wiki";
+    try {
+      const st = await this.plugin.incuratorClient.getBackendStatus();
+      if (st?.wiki_binary) wikiBin = st.wiki_binary;
+    } catch (e) {}
+
+    return new Promise((resolve) => {
+      const cp = require("child_process").spawn(wikiBin, cmdArgs, { cwd, env: process.env });
+      let out = "";
+      let err = "";
+      cp.stdout?.on("data", (d: any) => out += d.toString());
+      cp.stderr?.on("data", (d: any) => err += d.toString());
+      cp.on("error", (e: any) => resolve({ ok: false, error: e.message }));
+      cp.on("close", (code: number) => {
+        if (code === 0) resolve({ ok: true, output: out });
+        else resolve({ ok: false, error: err || out || `Exit code ${code}` });
+      });
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -221,6 +247,51 @@ export class IncuratorDashboardModal extends Modal {
 
   private async renderOverview(el: HTMLElement, cfgP: Promise<any>) {
     const cfg = await cfgP;
+    
+    // ── Actions row ──────────────────────────────────────────────────────────
+    const acts = el.createDiv("ai-agent-dashboard-actions");
+    acts.style.borderTop = "none";
+    acts.style.paddingTop = "0";
+    acts.style.paddingBottom = "16px";
+    acts.style.borderBottom = "1px solid var(--background-modifier-border)";
+    acts.style.marginBottom = "16px";
+    acts.style.flexWrap = "nowrap";
+    acts.style.overflowX = "auto";
+    acts.style.justifyContent = "flex-start";
+    acts.style.gap = "6px";
+
+    this.addActionBtn(acts, "Add",     "file-plus",    async () => {
+      new Notice("Running wiki add...");
+      const r = await this.runWikiCommand(["add"]);
+      new Notice(r.ok ? `Add done: ${r.output?.slice(-100)}` : `Add failed: ${r.error}`);
+    });
+    this.addActionBtn(acts, "Build",   "hammer",       async () => {
+      new Notice("Running wiki build...");
+      const r = await this.runWikiCommand(["build"]);
+      new Notice(r.ok ? `Build complete: ${r.output?.slice(-100)}` : `Build failed: ${r.error}`);
+    });
+    this.addActionBtn(acts, "Sync",    "refresh-cw",   async () => {
+      new Notice("Running wiki sync...");
+      const r = await this.runWikiCommand(["sync"]);
+      new Notice(r.ok ? `Sync done: ${r.output?.slice(-100)}` : `Sync failed: ${r.error}`);
+    });
+    this.addActionBtn(acts, "Lint",    "check-circle", async () => {
+      new Notice("Running wiki lint...");
+      const r = await this.runWikiCommand(["lint"]);
+      new Notice(r.ok ? `Lint done: ${r.output?.slice(-100)}` : `Lint failed: ${r.error}`);
+    });
+    this.addActionBtn(acts, "Reindex", "search",       async () => {
+      new Notice("Running wiki reindex...");
+      const r = await this.runWikiCommand(["reindex"]);
+      new Notice(r.ok ? `Reindex complete: ${r.output?.slice(-100)}` : `Reindex failed: ${r.error}`);
+    });
+    this.addActionBtn(acts, "Reset",   "trash-2",      async () => {
+      if (!confirm("This will clear your local DB and L1-L4 content (keeping notes and configs). Proceed?")) return;
+      new Notice("Running wiki reset...");
+      const r = await this.runWikiCommand(["reset", "--force"]);
+      new Notice(r.ok ? `Reset complete: ${r.output?.slice(-100)}` : `Reset failed: ${r.error}`);
+    });
+
     const grid = el.createDiv("ai-agent-ov-grid");
 
     // ── LLM (hero card, spans full width) ────────────────────────────────────
@@ -285,13 +356,8 @@ export class IncuratorDashboardModal extends Modal {
       text: `rerank ${s.rerank !== false ? "on" : "off"}`,
     });
 
-    // ── Zotero card ──────────────────────────────────────────────────────────
-    const z = cfg?.external?.zotero ?? {};
-    const zoteroCard = this.ovCard(grid, "span-1", null);
-    zoteroCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Zotero" });
-    const zEnabled = z.enabled !== false;
-    zoteroCard.createDiv({ cls: `ai-agent-ov-card-value ${zEnabled ? "is-ok" : ""}`, text: zEnabled ? "On" : "Off" });
     // Determine Zotero initial fallback path for System card
+    const z = cfg?.external?.zotero ?? {};
     const zRoots = z.roots ?? [];
     let rootsText = "no roots";
     if (zRoots.length > 0) {
@@ -301,6 +367,14 @@ export class IncuratorDashboardModal extends Modal {
     } else {
       rootsText = "~/Zotero (default)";
     }
+
+    // ── Persona card ─────────────────────────────────────────────────────────
+    const personaCard = this.ovCard(grid, "span-1", "persona");
+    personaCard.createDiv({ cls: "ai-agent-ov-card-title", text: "PERSONA" });
+    const pArea = cfg?.persona?.area || "General";
+    personaCard.createDiv({ cls: "ai-agent-ov-card-value is-ok", text: pArea, attr: { title: pArea } }).style.fontSize = "18px";
+    const pText = cfg?.persona?.text || "No description";
+    personaCard.createDiv({ cls: "ai-agent-ov-card-sub", text: pText.length > 50 ? pText.slice(0, 50) + "…" : pText, attr: { title: pText } });
 
     // ── System card (full paths, spans full width) ───────────────────────────
     const sysCard = this.ovCard(grid, "span-full ai-agent-ov-sys-card", null);
@@ -316,6 +390,7 @@ export class IncuratorDashboardModal extends Modal {
     const wikiEl  = pathRow("Wiki CLI");
     const qmdEl   = pathRow("QMD");
     const zoteroSysEl = pathRow("Zotero", rootsText);
+    zoteroSysEl.addClass("is-ok");
 
     this.plugin.app.vault.adapter.read(".curator/devices.json").then((raw: string) => {
       try {
@@ -358,54 +433,75 @@ export class IncuratorDashboardModal extends Modal {
     syncTable("Sync workers",  String(cfg?.sync?.max_parallel_verifications ?? 4));
     syncTable("Log retention", `${cfg?.curate?.log_retention_days ?? 30} days`);
 
-    // ── Persona card ─────────────────────────────────────────────────────────
-    const personaCard = this.ovCard(grid, "span-1", "persona");
-    personaCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Persona" });
-    const pArea = cfg?.persona?.area || "General";
-    personaCard.createDiv({ cls: "ai-agent-ov-card-value is-ok", text: pArea, attr: { title: pArea } }).style.fontSize = "18px";
-    const pText = cfg?.persona?.text || "No description";
-    personaCard.createDiv({ cls: "ai-agent-ov-card-sub", text: pText.length > 50 ? pText.slice(0, 50) + "…" : pText, attr: { title: pText } });
+    // ── Devices card ─────────────────────────────────────────────────────────
+    const deviceCard = this.ovCard(grid, "span-2", "devices");
+    deviceCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Devices" });
+    const devListContainer = deviceCard.createDiv({ cls: "ai-agent-ov-device-list" });
+    devListContainer.style.marginTop = "12px";
+    devListContainer.style.display = "flex";
+    devListContainer.style.flexDirection = "column";
+    devListContainer.style.gap = "8px";
 
-    // ── Active Device card ───────────────────────────────────────────────────
-    const deviceCard = this.ovCard(grid, "span-1", "devices");
-    deviceCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Active Device" });
-    const activeDevValueEl = deviceCard.createDiv({ cls: "ai-agent-ov-card-value", text: "…" });
-    activeDevValueEl.style.fontSize = "18px";
-    const activeDevSubEl = deviceCard.createDiv({ cls: "ai-agent-ov-card-sub", text: "loading" });
-    
     this.plugin.app.vault.adapter.read(".curator/devices.json").then((raw: string) => {
       try {
         const reg = JSON.parse(raw);
-        if (reg?.local_device_id && reg.devices?.[reg.local_device_id]) {
-          const d = reg.devices[reg.local_device_id];
-          activeDevValueEl.setText(d.name || reg.local_device_id);
-          activeDevValueEl.addClass("is-ok");
-          activeDevSubEl.setText(d.platform ? `Platform: ${d.platform}` : "Current Local Device");
+        if (reg?.devices) {
+          const localId = reg.local_device_id;
+          let devices = Object.entries(reg.devices).filter(([id, d]: [string, any]) => {
+            if (id === localId) return true;
+            if (id === "local") return false; // Ignore redundant local placeholder
+            if (!d.platform && !d.backend) return false; // Filter empty shells
+            return true;
+          });
+
+          if (devices.length === 0) {
+            devListContainer.createDiv({ text: "No devices", cls: "ai-agent-ov-card-sub" });
+          } else {
+            // Sort to put the local device first
+            devices.sort(([idA], [idB]) => {
+              if (idA === localId) return -1;
+              if (idB === localId) return 1;
+              return 0;
+            });
+            for (const [id, d] of devices) {
+              const isLocal = id === localId;
+              const row = devListContainer.createDiv();
+              row.style.fontSize = "14px";
+              row.style.display = "flex";
+              row.style.alignItems = "center";
+              row.style.gap = "8px";
+              row.style.minWidth = "0"; // ensure truncation works
+              
+              const applyTruncation = (el: HTMLElement) => {
+                el.style.whiteSpace = "nowrap";
+                el.style.overflow = "hidden";
+                el.style.textOverflow = "ellipsis";
+              };
+
+              if (isLocal) {
+                row.createSpan({ text: "●", cls: "is-ok" });
+                const nameEl = row.createSpan({ text: (d as any).name || id, cls: "is-ok", attr: { title: (d as any).platform || "Current Device" } });
+                nameEl.style.fontWeight = "600";
+                nameEl.style.lineHeight = "1.2";
+                applyTruncation(nameEl);
+              } else {
+                row.createSpan({ text: "○", style: "opacity: 0.5" });
+                const nameEl = row.createSpan({ text: (d as any).name || "Unknown", style: "opacity: 0.8", attr: { title: (d as any).platform || "" } });
+                nameEl.style.lineHeight = "1.2";
+                applyTruncation(nameEl);
+              }
+            }
+          }
         } else {
-          activeDevValueEl.setText("Unknown");
-          activeDevSubEl.setText("Unregistered");
+          devListContainer.createDiv({ text: "No sync data", cls: "ai-agent-ov-card-sub" });
         }
       } catch {
-        activeDevValueEl.setText("Unknown");
+        devListContainer.createDiv({ text: "Error loading", cls: "ai-agent-ov-card-sub" });
       }
     }).catch(() => {
-      activeDevValueEl.setText("Unknown");
+      devListContainer.createDiv({ text: "devices.json not found", cls: "ai-agent-ov-card-sub" });
     });
 
-    // ── Actions row ──────────────────────────────────────────────────────────
-    const acts = el.createDiv("ai-agent-dashboard-actions");
-    this.addActionBtn(acts, "Sync",    "refresh-cw",   async () => {
-      const r = await this.plugin.incuratorClient.runSync();
-      new Notice(r?.ok ? `Sync done · repaired ${r.repaired}` : `Sync failed: ${r?.error}`);
-    });
-    this.addActionBtn(acts, "Lint",    "check-circle", async () => {
-      const r = await this.plugin.incuratorClient.runLint();
-      new Notice(r?.ok ? `Lint done · health ${r.health_score}%  errors ${r.errors}` : `Lint failed: ${r?.error}`);
-    });
-    this.addActionBtn(acts, "Reindex", "search",       async () => {
-      const r = await this.plugin.incuratorClient.runReindex();
-      new Notice(r && !r.error ? "Reindex complete." : `Reindex failed: ${r?.error}`);
-    });
   }
 
   /** Create one grid card; clicking navigates to targetTab if given. */

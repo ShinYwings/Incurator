@@ -1667,18 +1667,19 @@ def _start_client_inner(config: dict):
     """
     import subprocess as _sp
 
+    from .config import split_provider_model
     llm_cfg = config.get("llm", {})
-    primary = llm_cfg.get("primary", "")
-    fallback = llm_cfg.get("fallback", "")
+    primary_key, _ = split_provider_model(llm_cfg.get("primary", ""))
+    fallback_key, _ = split_provider_model(llm_cfg.get("fallback", ""))
 
     # If no explicit primary, fall back to full auto build (legacy mode).
-    if not primary:
+    if not primary_key:
         client = build_client(config)
         client.ensure_ready()
         return client
 
     # --- Try primary ---
-    p_client = make_client_by_key(primary, config)
+    p_client = make_client_by_key(primary_key, config)
     try:
         p_client.ensure_ready()
         # Primary OK.
@@ -1707,21 +1708,21 @@ def _start_client_inner(config: dict):
         _err(str(e))
 
     # --- Primary failed, try fallback ---
-    if not fallback:
+    if not fallback_key:
         raise typer.Exit(code=1)
 
     console.print()
     if not typer.confirm(
-        f"Primary ([bold]{primary}[/bold]) is not available. "
-        f"Use fallback ([bold]{fallback}[/bold])?",
+        f"Primary ([bold]{primary_key}[/bold]) is not available. "
+        f"Use fallback ([bold]{fallback_key}[/bold])?",
         default=True,
     ):
         raise typer.Exit(code=1)
 
-    f_client = make_client_by_key(fallback, config)
+    f_client = make_client_by_key(fallback_key, config)
     try:
         f_client.ensure_ready()
-        _ok(f"Using fallback: [bold]{fallback}[/bold]")
+        _ok(f"Using fallback: [bold]{fallback_key}[/bold]")
         return f_client
     except _ALL_LLM_ERRORS as e:
         _err(f"Fallback also failed: {e}")
@@ -1745,6 +1746,64 @@ def _start_client(config: dict):
 def _instant_l1_enabled(config: dict) -> bool:
     return bool((config or {}).get("llm", {}).get("instant_l1", True))
 
+
+
+@app.command("reset")
+def reset(
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Do not prompt for confirmation.",
+    )
+) -> None:
+    """Reset the Curator vault state while preserving config.yml.
+    
+    This deletes the tracking database (state.sqlite), the ingest log, 
+    overview/index/ledger files, and clears the Collections directory. 
+    It does not delete the 01_Workspaces..06_Archives topology.
+    """
+    import shutil
+    import os
+    
+    if not force:
+        confirm = typer.confirm("This will permanently delete all Curator state and generated collections. Are you sure?")
+        if not confirm:
+            console.print("Reset cancelled.")
+            return
+
+    paths = _resolve_root_or_die()
+    if not paths:
+        _err("Not inside a Curator vault.")
+        raise typer.Exit(code=1)
+        
+    items_to_remove = [
+        paths.state_db,
+        paths.index,
+        paths.overview,
+        paths.ledger,
+        paths.log,
+        paths.collections_dir if hasattr(paths, 'collections_dir') else paths.collections,
+    ]
+    
+    removed = []
+    for item in items_to_remove:
+        if item.exists():
+            try:
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+                removed.append(str(item.relative_to(paths.root)))
+            except Exception as e:
+                _err(f"Failed to remove {item.name}: {e}")
+                
+    if removed:
+        console.print(f"[green]✓ Reset complete.[/green] Removed:")
+        for r in removed:
+            console.print(f"  - {r}")
+    else:
+        console.print("[dim]Vault is already empty.[/dim]")
 
 
 @app.command()

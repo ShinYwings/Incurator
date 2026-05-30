@@ -200,41 +200,33 @@ export class AIAgentSettingTab extends PluginSettingTab {
         .setDesc(`This model supports up to ${ctxK}K tokens of context.`);
     }
 
-    if (currentProvider === "openai" && modelThinks) {
+    if (currentModelOption?.efforts && currentModelOption.efforts.length > 0) {
       new Setting(providerSection)
-        .setName("Thinking level")
-        .setDesc("Controls reasoning depth.")
-        .addDropdown((dropdown) =>
-          dropdown
-            .addOption("low", "Low")
-            .addOption("medium", "Medium")
-            .addOption("high", "High")
-            .addOption("xhigh", "XHigh")
-            .setValue(this.plugin.settings.codexReasoningEffort)
+        .setName("Reasoning effort")
+        .setDesc("Controls reasoning depth for this model.")
+        .addDropdown((dropdown) => {
+          currentModelOption.efforts!.forEach((e) => {
+            dropdown.addOption(e, e.charAt(0).toUpperCase() + e.slice(1));
+          });
+          const getOldVal = () => {
+             if (currentProvider === "openai") return this.plugin.settings.codexReasoningEffort;
+             if (currentProvider === "claude") return this.plugin.settings.claudeEffort;
+             return this.plugin.settings.agentEffort;
+          };
+          const rawVal = getOldVal();
+          const val = currentModelOption.efforts!.includes(rawVal) ? rawVal : (currentModelOption.defaultEffort || currentModelOption.efforts![0]);
+
+          dropdown.setValue(val)
             .onChange(async (value) => {
-              this.plugin.settings.codexReasoningEffort =
-                value as CodexReasoningEffort;
+              if (currentProvider === "openai") this.plugin.settings.codexReasoningEffort = value as any;
+              else if (currentProvider === "claude") this.plugin.settings.claudeEffort = value as any;
+              else this.plugin.settings.agentEffort = value;
               await this.plugin.saveSettings();
-            })
-        );
-    } else if (currentProvider === "claude" && modelThinks) {
-      new Setting(providerSection)
-        .setName("Thinking level")
-        .setDesc("Controls reasoning depth.")
-        .addDropdown((dropdown) =>
-          dropdown
-            .addOption("low", "Low")
-            .addOption("medium", "Medium")
-            .addOption("high", "High")
-            .addOption("xhigh", "XHigh")
-            .addOption("max", "Max")
-            .setValue(this.plugin.settings.claudeEffort)
-            .onChange(async (value) => {
-              this.plugin.settings.claudeEffort = value as ClaudeEffort;
-              await this.plugin.saveSettings();
-            })
-        );
-    } else if (currentProvider === "antigravity") {
+            });
+        });
+    }
+
+    if (currentProvider === "antigravity") {
       new Setting(providerSection)
         .setName("Response timeout (seconds)")
         .setDesc("Max wait for agy to finish generating a response.")
