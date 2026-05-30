@@ -325,6 +325,34 @@ Rules:
 - Plugin UI must request backend model metadata instead of duplicating cloud model
   lists, except for local runtime discovery.
 
+### 11.1 Model Catalogue and Reasoning Effort
+
+The shared catalogue (`backend/src/curator/data/models.json`, the single source of
+truth) is `schema_version: 2`. It must only list models the corresponding CLI
+actually exposes — phantom entries (models the installed `agy`/`claude`/`codex`
+do not offer) are a defect. Each cloud model may declare a reasoning/effort
+dimension:
+
+- `efforts`: ordered list of effort levels the CLI accepts for that model
+  (empty/absent = no effort dimension).
+- `default_effort`: the level used when none is explicitly selected.
+
+`get_available_models` (MCP + `curator.models`) must surface `efforts` and
+`default_effort` so clients render an effort picker without hardcoding levels.
+
+Effort is stored per failover slot in `llm.primary_effort` / `llm.fallback_effort`
+(empty = the CLI's own default). The clients map a non-empty effort to the
+provider-native control:
+
+- `claude-code` → `claude --effort <level>` (`low|medium|high|xhigh|max`).
+- `codex-cli` → `codex -c model_reasoning_effort=<level>` (`low|medium|high|xhigh`).
+- `antigravity-cli` → `agy` has no effort flag, so the level is embedded as a
+  prompt hint (best-effort only).
+
+The interactive `wiki config provider` wizard and the plugin dashboard LLM card
+must offer only the efforts a chosen model declares, and changing the model must
+reset its effort to that model's `default_effort`.
+
 ## 12. Observability
 
 Status surfaces:

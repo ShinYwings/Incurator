@@ -593,8 +593,9 @@ class ClaudeCodeClient:
     CLI = consts.CLOUD_CLAUDE
     INSTALL_CMD = "npm install -g @anthropic-ai/claude-code"
 
-    def __init__(self, model: str = consts.DEFAULT_CLAUDE_MODEL) -> None:
+    def __init__(self, model: str = consts.DEFAULT_CLAUDE_MODEL, effort: str = "") -> None:
         self.model = model
+        self.effort = effort
 
     def close(self) -> None:
         pass
@@ -610,6 +611,9 @@ class ClaudeCodeClient:
         cmd = [self.CLI, "-p", "Follow the instructions in the provided input."]
         if self.model:
             cmd += ["--model", self.model]
+        # claude CLI exposes reasoning depth via --effort (low|medium|high|xhigh|max).
+        if self.effort:
+            cmd += ["--effort", self.effort]
         env = dict(os.environ)
         env["CLAUDE_BYPASS_PERMISSIONS"] = "true"
         try:
@@ -732,8 +736,9 @@ class AntigravityCliClient:
     CLI = "agy"
     INSTALL_CMD = "curl -fsSL https://antigravity.google/cli/install.sh | bash"
 
-    def __init__(self, model: str = consts.DEFAULT_ANTIGRAVITY_MODEL) -> None:
+    def __init__(self, model: str = consts.DEFAULT_ANTIGRAVITY_MODEL, effort: str = "") -> None:
         self.model = model
+        self.effort = effort
 
     def close(self) -> None:
         pass
@@ -752,9 +757,15 @@ class AntigravityCliClient:
             # settings, not a stable --model flag. Keep the selected model in
             # the prompt for traceability and pass the large payload via stdin.
             cmd = [self.CLI, "--print", "--print-timeout", "15m"]
+            # agy has no --model/--effort flag, so the preference is embedded as a
+            # prompt hint for traceability (best-effort; the active model is chosen
+            # in the agy UI/session).
+            hint = current_model
+            if hint and self.effort:
+                hint = f"{current_model} | effort: {self.effort}"
             prompt_with_model = (
-                f"[Preferred model: {current_model}]\n\n{prompt}"
-                if current_model else prompt
+                f"[Preferred model: {hint}]\n\n{prompt}"
+                if hint else prompt
             )
             env = dict(os.environ)
             env["GEMINI_CLI_TRUST_WORKSPACE"] = "true"
@@ -897,8 +908,9 @@ class CodexCliClient:
     CLI = "codex"
     INSTALL_CMD = "npm install -g @openai/codex"
 
-    def __init__(self, model: str = "gpt-5.5") -> None:
+    def __init__(self, model: str = consts.DEFAULT_CODEX_MODEL, effort: str = "") -> None:
         self.model = model
+        self.effort = effort
 
     def close(self) -> None:
         pass
@@ -912,8 +924,12 @@ class CodexCliClient:
     def _run(self, prompt: str) -> str:
         import tempfile, os as _os
         out_file = tempfile.mktemp(suffix=".txt")
-        cmd = [
-            self.CLI, "--profile", "incurator",
+        cmd = [self.CLI, "--profile", "incurator"]
+        # codex exposes reasoning depth through the config override
+        # `model_reasoning_effort` (low|medium|high|xhigh).
+        if self.effort:
+            cmd += ["-c", f"model_reasoning_effort={self.effort}"]
+        cmd += [
             "exec",
             "-m", self.model,
             "--sandbox", "read-only",
@@ -1257,17 +1273,17 @@ def list_models_on_host(host: str, timeout: float = 5.0) -> list[str]:
 
 def _make_claude_code(cfg: dict) -> ClaudeCodeClient:
     model = cfg.get("model") or consts.DEFAULT_CLAUDE_MODEL
-    return ClaudeCodeClient(model=model)
+    return ClaudeCodeClient(model=model, effort=cfg.get("effort", ""))
 
 
 def _make_antigravity_cli(cfg: dict) -> AntigravityCliClient:
     model = cfg.get("model") or consts.DEFAULT_ANTIGRAVITY_MODEL
-    return AntigravityCliClient(model=model)
+    return AntigravityCliClient(model=model, effort=cfg.get("effort", ""))
 
 
 def _make_codex_cli(cfg: dict) -> CodexCliClient:
     model = cfg.get("model") or consts.DEFAULT_CODEX_MODEL
-    return CodexCliClient(model=model)
+    return CodexCliClient(model=model, effort=cfg.get("effort", ""))
 
 
 def _make_ollama(cfg: dict) -> OllamaClient:
@@ -1300,7 +1316,7 @@ def make_client_by_key(key: str, config: dict):
         if p == key:
             if key == consts.BACKEND_OLLAMA:
                 return _make_by_key(key, {**llm_cfg.get(consts.BACKEND_OLLAMA, {}), "model": m})
-            return _make_by_key(key, {"model": m})
+            return _make_by_key(key, {"model": m, "effort": llm_cfg.get(f"{slot}_effort", "")})
     if key == consts.BACKEND_OLLAMA:
         return _make_by_key(key, llm_cfg.get(consts.BACKEND_OLLAMA, {}))
     return _make_by_key(key, {})
@@ -1326,12 +1342,14 @@ def build_client(
 
     primary,  primary_model  = split_provider_model(llm_cfg.get("primary",  ""))
     fallback, fallback_model = split_provider_model(llm_cfg.get("fallback", ""))
+    primary_effort  = llm_cfg.get("primary_effort", "")
+    fallback_effort = llm_cfg.get("fallback_effort", "")
     ollama_base = llm_cfg.get(consts.BACKEND_OLLAMA, {})
 
     if primary == consts.BACKEND_OLLAMA:
         primary_cfg = {**ollama_base, "model": primary_model}
     else:
-        primary_cfg = {"model": primary_model}
+        primary_cfg = {"model": primary_model, "effort": primary_effort}
 
     _PRIMARY_ERRORS = {
         consts.BACKEND_OLLAMA:          _FAILOVER_ERRORS,
@@ -1348,7 +1366,7 @@ def build_client(
             if fallback == consts.BACKEND_OLLAMA:
                 fallback_cfg = {**ollama_base, "model": fallback_model}
             else:
-                fallback_cfg = {"model": fallback_model}
+                fallback_cfg = {"model": fallback_model, "effort": fallback_effort}
             f_client = _make_by_key(fallback, fallback_cfg)
             if f_client:
                 return FailoverClient(

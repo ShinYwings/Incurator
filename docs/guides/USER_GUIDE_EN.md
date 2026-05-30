@@ -487,13 +487,31 @@ Configure the LLM backends that power Incurator's intelligence. The system maint
 | Provider | Type | Key Features |
 | :--- | :--- | :--- |
 | `ollama` | Local | Use local models like DeepSeek or Llama 3 (Free, offline capable) |
-| `antigravity-cli` | CLI | Inference via Google Antigravity CLI (`agy`) (Fast, reliable free option) |
-| `claude-code` | CLI | Inference via official Anthropic `claude` command |
+| `antigravity-cli` | CLI | Inference via Google Antigravity CLI (`agy`) (Fast, reliable free option). Also exposes Claude / GPT-OSS models alongside Gemini 3.5 Flash / 3.1 Pro |
+| `claude-code` | CLI | Inference via official Anthropic `claude` command (Sonnet 4.6 / Opus 4.7 / Haiku 4.5) |
+| `codex-cli` | CLI | Inference via official OpenAI `codex` command (GPT-5.5 / 5.4 / 5.4-mini / 5.3-codex / 5.2) |
 
 ```bash
 # Set up both Primary and Fallback at once via the wizard
 wiki config provider
 ```
+
+#### Reasoning Effort
+
+After choosing a model you can also pick a **reasoning effort**, which maps 1:1 to each CLI's thinking-depth option:
+
+- `claude-code` → `claude --effort <low|medium|high|xhigh|max>`
+- `codex-cli` → `codex -c model_reasoning_effort=<low|medium|high|xhigh>`
+- `antigravity-cli` → `agy` has no flag, so the chosen effort is passed as a prompt hint (best-effort).
+
+The wizard only shows the efforts a model actually supports (e.g. Gemini 3.1 Pro offers `low`/`high`); models with a single effort are auto-selected. You can also set it directly:
+
+```bash
+# Set Primary to GPT-5.5 with high effort
+wiki config provider --primary codex-cli --model gpt-5.5 --effort high
+```
+
+The choice is stored as `llm.primary_effort` / `llm.fallback_effort` in `.curator/config.yml`; leaving it empty uses each CLI's default effort.
 
 ### 2. Model Management (`wiki config models`)
 View and change the specific models to be used by the current provider.

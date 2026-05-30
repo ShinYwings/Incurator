@@ -6,9 +6,17 @@ from pathlib import Path
 
 import yaml
 
+from unittest.mock import patch
+
 from curator import config as cfg
 from curator import models
-from curator.llm import AntigravityCliClient, make_client_by_key
+from curator.llm import (
+    AntigravityCliClient,
+    ClaudeCodeClient,
+    CodexCliClient,
+    build_client,
+    make_client_by_key,
+)
 
 
 class TestSharedModelsCatalogue(unittest.TestCase):
@@ -65,10 +73,90 @@ class TestAntigravityConfig(unittest.TestCase):
     def test_antigravity_client_factory_keeps_selected_model(self) -> None:
         client = make_client_by_key(
             "antigravity-cli",
-            {"llm": {"primary": "antigravity-cli::gemini-2.5-flash"}},
+            {"llm": {"primary": "antigravity-cli::gemini-3.5-flash"}},
         )
         self.assertIsInstance(client, AntigravityCliClient)
-        self.assertEqual(client.model, "gemini-2.5-flash")
+        self.assertEqual(client.model, "gemini-3.5-flash")
+
+
+class TestModelEfforts(unittest.TestCase):
+    """Reasoning/effort dimension added to the catalogue and CLI clients."""
+
+    def test_catalogue_exposes_efforts(self) -> None:
+        available = models.get_available_models()
+        sonnet = next(m for m in available["claude"] if m["id"] == "claude-sonnet-4-6")
+        self.assertEqual(sonnet["efforts"], ["low", "medium", "high", "xhigh", "max"])
+        self.assertEqual(sonnet["default_effort"], "medium")
+        gpt = next(m for m in available["openai"] if m["id"] == "gpt-5.5")
+        self.assertIn("xhigh", gpt["efforts"])
+
+    def test_effort_helpers(self) -> None:
+        self.assertEqual(
+            models.get_model_efforts("openai", "gpt-5.5"),
+            ["low", "medium", "high", "xhigh"],
+        )
+        self.assertEqual(models.get_default_effort("claude", "claude-sonnet-4-6"), "medium")
+        # Ollama models have no effort dimension.
+        self.assertEqual(models.get_model_efforts("ollama", "qwen2.5:7b"), [])
+
+    def test_no_phantom_models(self) -> None:
+        """Models that the live CLIs do not expose must not be in the catalogue."""
+        catalogue = models.load_models_catalogue()
+        agy_ids = {m["id"] for m in catalogue["providers"]["antigravity"]["models"]}
+        self.assertNotIn("gemini-3.5-pro", agy_ids)
+        self.assertIn("gemini-3.5-flash", agy_ids)
+        self.assertIn("gpt-oss-120b", agy_ids)
+
+    def test_codex_client_injects_reasoning_effort(self) -> None:
+        client = CodexCliClient(model="gpt-5.5", effort="high")
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            out_idx = cmd.index("--output-last-message") + 1
+            Path(cmd[out_idx]).write_text("ok", encoding="utf-8")
+
+            class _R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return _R()
+
+        with patch("curator.llm.subprocess.run", fake_run):
+            client._run("hi")
+        self.assertIn("-c", captured["cmd"])
+        self.assertIn("model_reasoning_effort=high", captured["cmd"])
+
+    def test_claude_client_passes_effort_flag(self) -> None:
+        client = ClaudeCodeClient(model="claude-sonnet-4-6", effort="max")
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+
+            class _R:
+                returncode = 0
+                stdout = "ok"
+                stderr = ""
+
+            return _R()
+
+        with patch("curator.llm.subprocess.run", fake_run):
+            client._run("hi")
+        self.assertIn("--effort", captured["cmd"])
+        self.assertIn("max", captured["cmd"])
+
+    def test_build_client_threads_per_slot_effort(self) -> None:
+        config = {"llm": {"primary": "codex-cli::gpt-5.5", "primary_effort": "xhigh", "fallback": ""}}
+        client = build_client(config)
+        inner = client.providers[0] if hasattr(client, "providers") else client
+        self.assertIsInstance(inner, CodexCliClient)
+        self.assertEqual(inner.effort, "xhigh")
+
+    def test_default_config_has_effort_keys(self) -> None:
+        self.assertIn("primary_effort", cfg.DEFAULT_CONFIG["llm"])
+        self.assertIn("fallback_effort", cfg.DEFAULT_CONFIG["llm"])
 
 
 if __name__ == "__main__":

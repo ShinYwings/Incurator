@@ -918,6 +918,8 @@ def _build_cloud_models() -> dict[str, list[dict]]:
                 "tag": mid,
                 "desc": model.get("label", mid),
                 "cfg_key": cfg["cfg_key"],
+                "efforts": list(model.get("efforts", []) or []),
+                "default_effort": str(model.get("default_effort", "") or ""),
             })
         if entries:
             result[backend] = entries
@@ -999,8 +1001,39 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = F
     return True
 
 
+def _pick_effort(entry: dict | None) -> str:
+    """Prompt for a reasoning/effort level from the model entry. Returns '' when
+    the model has no effort dimension (e.g. custom or Ollama models)."""
+    efforts = list((entry or {}).get("efforts", []) or [])
+    if not efforts:
+        return ""
+    if len(efforts) == 1:
+        return efforts[0]
+
+    default_effort = (entry or {}).get("default_effort", "") or efforts[0]
+    default_idx = (efforts.index(default_effort) + 1) if default_effort in efforts else 1
+
+    console.print()
+    console.print("  [dim]Reasoning effort:[/dim]")
+    for i, e in enumerate(efforts, 1):
+        console.print(f"  [cyan]{i}[/cyan]  {e}")
+    while True:
+        raw = typer.prompt(
+            f"Select effort (1–{len(efforts)})",
+            default=str(default_idx),
+        ).strip()
+        try:
+            idx = int(raw)
+            if 1 <= idx <= len(efforts):
+                return efforts[idx - 1]
+        except ValueError:
+            if raw in efforts:
+                return raw
+        console.print(f"[red]Enter a number between 1 and {len(efforts)}.[/red]")
+
+
 def _pick_cloud_model(cloud_provider: str, llm_cfg: dict) -> tuple[str, str]:
-    """Interactive picker for cloud provider models. Returns (model_tag, '') — cfg_key unused."""
+    """Interactive picker for cloud provider models. Returns (model_tag, effort)."""
     models = _CLOUD_MODELS.get(cloud_provider, [])
     if not models:
         _err(f"Unknown cloud provider '{cloud_provider}'.")
@@ -1008,7 +1041,9 @@ def _pick_cloud_model(cloud_provider: str, llm_cfg: dict) -> tuple[str, str]:
 
     console.print()
     for i, m in enumerate(models, 1):
-        console.print(f"  [cyan]{i}[/cyan]  {m['tag']}  [dim]— {m['desc']}[/dim]")
+        efforts = m.get("efforts") or []
+        effort_hint = f"  [dim]({'/'.join(efforts)})[/dim]" if efforts else ""
+        console.print(f"  [cyan]{i}[/cyan]  {m['tag']}  [dim]— {m['desc']}[/dim]{effort_hint}")
     console.print("  [dim]0[/dim]  custom model name")
     console.print()
 
@@ -1027,11 +1062,12 @@ def _pick_cloud_model(cloud_provider: str, llm_cfg: dict) -> tuple[str, str]:
         try:
             idx = int(raw)
             if 1 <= idx <= len(models):
-                return models[idx - 1]["tag"], ""
+                entry = models[idx - 1]
+                return entry["tag"], _pick_effort(entry)
         except ValueError:
             if raw:
                 tag_map = {m["tag"]: m for m in models}
-                return (raw if raw in tag_map else raw), ""
+                return (raw if raw in tag_map else raw), _pick_effort(tag_map.get(raw))
         console.print(f"[red]Enter a number between 0 and {len(models)}.[/red]")
 
 
@@ -1335,9 +1371,10 @@ def _configure_backend(
         # Offer model selection
         console.print()
         console.print(f"[bold]{backend} Model Selection[/bold]")
-        sel_model, _ = _pick_cloud_model(backend, overrides)
+        sel_model, sel_effort = _pick_cloud_model(backend, overrides)
         if sel_model:
             overrides["_pending_model"] = sel_model
+            overrides["_pending_effort"] = sel_effort
 
 
 def _run_init_wizard() -> dict:
@@ -1359,6 +1396,7 @@ def _run_init_wizard() -> dict:
     _configure_backend(primary, overrides)
     model = overrides.pop("_pending_model", "")
     overrides["primary"] = cfg.join_provider_model(primary, model)
+    overrides["primary_effort"] = overrides.pop("_pending_effort", "")
 
     # Step 3: Fallback backend
     console.print()
@@ -1370,8 +1408,10 @@ def _run_init_wizard() -> dict:
         _configure_backend(fallback, overrides)
         fb_model = overrides.pop("_pending_model", "")
         overrides["fallback"] = cfg.join_provider_model(fallback, fb_model)
+        overrides["fallback_effort"] = overrides.pop("_pending_effort", "")
     else:
         overrides["fallback"] = ""
+        overrides["fallback_effort"] = ""
 
     return overrides
 
@@ -2108,12 +2148,17 @@ def config_provider(
     primary: str = typer.Option(
         "",
         "--primary", "-p",
-        help="Primary backend: ollama | claude-code | antigravity-cli",
+        help="Primary backend: ollama | claude-code | antigravity-cli | codex-cli",
     ),
     model: str = typer.Option(
         "",
         "--model", "-m",
-        help="Ollama model name (e.g. qwen2.5:7b, gemma4:32b).",
+        help="Model name (e.g. qwen2.5:7b, gpt-5.5, claude-sonnet-4-6).",
+    ),
+    effort: str = typer.Option(
+        "",
+        "--effort", "-e",
+        help="Reasoning effort for the primary model (low|medium|high|xhigh|max), CLI-dependent.",
     ),
     host: str = typer.Option(
         "",
@@ -2126,7 +2171,8 @@ def config_provider(
     Run without flags for the interactive wizard, or pass flags to set directly:
 
     \b
-      wiki config provider --primary ollama --model gemma4:32b
+      wiki config provider --primary ollama --model qwen2.5:7b
+      wiki config provider --primary codex-cli --model gpt-5.5 --effort high
       wiki config provider --primary antigravity-cli
       wiki config provider --primary claude-code
     """
@@ -2134,11 +2180,11 @@ def config_provider(
     current_config = cfg.load_config(paths)
     llm = dict(current_config.get("llm", {}))
 
-    any_flag = bool(primary or model or host)
+    any_flag = bool(primary or model or host or effort)
 
     if any_flag:
         overrides = {}
-        _valid_primary = (consts.BACKEND_OLLAMA, consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI)
+        _valid_primary = (consts.BACKEND_OLLAMA, consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI)
 
         # Resolve provider
         provider = primary or consts.BACKEND_OLLAMA
@@ -2149,6 +2195,9 @@ def config_provider(
         if host:
             llm.setdefault(consts.BACKEND_OLLAMA, {})["host"] = host
 
+        # Effort is set by the --effort flag, or chosen interactively below.
+        primary_effort = effort
+
         if model:
             # Model provided directly via flag
             llm["primary"] = cfg.join_provider_model(provider, model)
@@ -2157,8 +2206,10 @@ def config_provider(
             if provider in (consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI):
                 console.print()
                 console.print(f"[bold]{provider} Model Selection[/bold]")
-                sel_model, _ = _pick_cloud_model(provider, llm)
+                sel_model, sel_effort = _pick_cloud_model(provider, llm)
                 llm["primary"] = cfg.join_provider_model(provider, sel_model or "")
+                if not primary_effort:
+                    primary_effort = sel_effort
             elif provider == consts.BACKEND_OLLAMA:
                 if not model:
                     sel_model = _pick_ollama_model(llm.get(consts.BACKEND_OLLAMA, {}).get("host", consts.DEFAULT_OLLAMA_HOST))
@@ -2168,6 +2219,7 @@ def config_provider(
             else:
                 llm["primary"] = provider
 
+        llm["primary_effort"] = primary_effort
         overrides["primary"] = llm["primary"]
         _offer_install(overrides, llm)
     else:
@@ -2243,12 +2295,23 @@ def status() -> None:
     llm = config.get("llm", {})
     search_cfg = config.get("search", {})
 
+    def _effort_suffix(eff: str) -> str:
+        return f"  [dim]· {eff} effort[/dim]" if eff else ""
+
     primary_prov, primary_model = cfg.split_provider_model(llm.get("primary", ""))
-    cfg_table.add_row("Primary", f"{_get_backend_label(primary_prov, llm)}  ({primary_model or '?'})")
+    cfg_table.add_row(
+        "Primary",
+        f"{_get_backend_label(primary_prov, llm)}  ({primary_model or '?'})"
+        f"{_effort_suffix(llm.get('primary_effort', ''))}",
+    )
 
     fb_prov, fb_model = cfg.split_provider_model(llm.get("fallback", ""))
     if fb_prov:
-        cfg_table.add_row("Fallback", f"{_get_backend_label(fb_prov, llm)}  ({fb_model or '?'})")
+        cfg_table.add_row(
+            "Fallback",
+            f"{_get_backend_label(fb_prov, llm)}  ({fb_model or '?'})"
+            f"{_effort_suffix(llm.get('fallback_effort', ''))}",
+        )
     else:
         cfg_table.add_row("Fallback", "none")
 
@@ -2759,6 +2822,10 @@ def devices_status() -> None:
     for device_id, device in sorted(devices.items(), key=lambda item: str(item[1].get("name", item[0]))):
         backend = device.get("backend") or {}
         platform_info = device.get("platform") or {}
+        
+        if not backend and not platform_info and device_id != local_id:
+            continue
+            
         args = backend.get("args") or []
         table.add_row(
             "yes" if device_id == local_id else "",
@@ -4704,13 +4771,24 @@ def models_use(
             _err(f"Unknown primary '{primary}'.")
             raise typer.Exit(code=1)
 
+        sel_effort = ""
         if not model:
-            model, _ = _pick_cloud_model(primary, llm_cfg)
+            model, sel_effort = _pick_cloud_model(primary, llm_cfg)
             if not model:
                 console.print("[dim]Cancelled.[/dim]")
                 raise typer.Exit()
+        else:
+            # Model passed directly via flag — default the effort for it.
+            from curator.models import get_default_effort
+            _prov_name = {
+                consts.BACKEND_ANTIGRAVITY_CLI: consts.CLOUD_ANTIGRAVITY,
+                consts.BACKEND_CLAUDE_CODE:     consts.CLOUD_CLAUDE,
+                consts.BACKEND_CODEX_CLI:        consts.CLOUD_OPENAI,
+            }.get(primary, "")
+            sel_effort = get_default_effort(_prov_name, model)
         # Write in new 'provider::model' format
         config.setdefault("llm", {})["primary"] = cfg.join_provider_model(primary, model)
+        config["llm"]["primary_effort"] = sel_effort
         cfg.save_config(paths, config)
         _ok(
             f"Model set: [bold]{model}[/bold] "

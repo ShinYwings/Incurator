@@ -468,13 +468,31 @@ Incurator의 지능을 담당하는 LLM 백엔드를 설정합니다. 시스템�
 | 프로바이더 | 유형 | 특징 |
 | :--- | :--- | :--- |
 | `ollama` | 로컬 | DeepSeek, Llama 3 등 로컬 모델 사용 (비용 무료, 오프라인 가능) |
-| `antigravity-cli` | CLI | Google Antigravity CLI (`agy`)를 통한 추론 (가장 빠르고 안정적인 무료 옵션) |
-| `claude-code` | CLI | Anthropic 공식 `claude` 명령어를 통한 추론 |
+| `antigravity-cli` | CLI | Google Antigravity CLI (`agy`)를 통한 추론 (가장 빠르고 안정적인 무료 옵션). Gemini 3.5 Flash / 3.1 Pro 외에 Claude·GPT-OSS 모델도 노출됩니다 |
+| `claude-code` | CLI | Anthropic 공식 `claude` 명령어를 통한 추론 (Sonnet 4.6 / Opus 4.7 / Haiku 4.5) |
+| `codex-cli` | CLI | OpenAI 공식 `codex` 명령어를 통한 추론 (GPT-5.5 / 5.4 / 5.4-mini / 5.3-codex / 5.2) |
 
 ```bash
 # 위자드를 따라 Primary와 Fallback을 한 번에 설정
 wiki config provider
 ```
+
+#### 추론 강도 (Reasoning Effort)
+
+모델을 고른 뒤에는 **추론 강도(effort)** 를 함께 선택할 수 있습니다. 이는 각 CLI가 노출하는 사고 깊이 옵션과 1:1로 매핑됩니다.
+
+- `claude-code` → `claude --effort <low|medium|high|xhigh|max>`
+- `codex-cli` → `codex -c model_reasoning_effort=<low|medium|high|xhigh>`
+- `antigravity-cli` → `agy`는 별도 플래그가 없어, 선택한 강도가 프롬프트 힌트로 전달됩니다 (best-effort).
+
+위자드는 모델별로 사용 가능한 강도만 보여주며 (예: Gemini 3.1 Pro 는 `low`/`high`), 강도가 하나뿐인 모델은 자동 선택됩니다. 플래그로 직접 지정할 수도 있습니다:
+
+```bash
+# Primary 를 GPT-5.5 + high effort 로 즉시 설정
+wiki config provider --primary codex-cli --model gpt-5.5 --effort high
+```
+
+선택한 강도는 `.curator/config.yml` 의 `llm.primary_effort` / `llm.fallback_effort` 에 저장되며, 비워 두면 각 CLI의 기본 강도를 사용합니다.
 
 ### 2. 모델 관리 (`wiki config models`)
 현재 프로바이더에서 사용할 세부 모델을 확인하고 변경합니다.

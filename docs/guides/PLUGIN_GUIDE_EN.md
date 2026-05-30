@@ -131,6 +131,9 @@ The plugin offers three capture modes when using a PDF as context.
 
 The plugin supports three AI providers. In settings, provider and model can be adjusted separately. In the chat sidebar footer, a single model menu switches both at once using `Provider · Model` labels. Reasoning/effort appears only for Codex and Claude.
 
+> [!NOTE]
+> The **Incurator Dashboard → Overview → LLM Provider** card also edits the vault's (`​.curator/config.yml`) Primary/Fallback models. Each model dropdown is paired with an **effort dropdown** that shows only the levels the selected model exposes (models with no effort show `—`). Applying saves to `llm.primary_effort` / `llm.fallback_effort`. The model list is populated automatically from the backend's single-source `data/models.json` catalogue.
+
 ### 7.1 Antigravity (default)
 
 Accesses Google Gemini models via the Gemini CLI (`agy`).

@@ -146,12 +146,18 @@ export class IncuratorClient {
           const model = this.pickRecord(item);
           const id = this.readString(model, ["id"]);
           if (!id) return null;
+          const rawEfforts = model["efforts"];
+          const efforts = Array.isArray(rawEfforts)
+            ? rawEfforts.filter((e): e is string => typeof e === "string")
+            : [];
           return {
             id: this.readString(model, ["id"]),
             label: this.readString(model, ["label"]),
             supportsVision: this.readBoolean(model, ["supports_vision", "supportsVision"]) !== false,
 
             contextWindow: this.readNumber(model, ["context_window", "contextWindow"]),
+            efforts,
+            defaultEffort: this.readString(model, ["default_effort", "defaultEffort"]),
           };
         })
         .filter((model): model is NonNullable<typeof model> => Boolean(model));

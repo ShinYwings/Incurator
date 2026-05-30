@@ -60,7 +60,34 @@ def get_available_models() -> dict[str, list[dict[str, Any]]]:
                     "context_window": model.get("context_window"),
                     "supports_vision": bool(model.get("supports_vision", False)),
                     "supports_thinking": bool(model.get("supports_thinking", False)),
+                    # Reasoning/effort levels the underlying CLI accepts for this
+                    # model (e.g. claude --effort, codex -c model_reasoning_effort).
+                    # Empty list means the model has no selectable effort dimension.
+                    "efforts": list(model.get("efforts", []) or []),
+                    "default_effort": str(model.get("default_effort", "") or ""),
                 }
             )
         out[provider] = models
     return out
+
+
+def get_model_efforts(provider: str, model_id: str) -> list[str]:
+    """Return the allowed effort levels for a provider/model, or [] if none."""
+    data = load_models_catalogue()
+    for model in data.get("providers", {}).get(provider, {}).get("models", []):
+        if model.get("id") == model_id:
+            return list(model.get("efforts", []) or [])
+    return []
+
+
+def get_default_effort(provider: str, model_id: str) -> str:
+    """Return the default effort for a provider/model, or '' if none."""
+    data = load_models_catalogue()
+    for model in data.get("providers", {}).get(provider, {}).get("models", []):
+        if model.get("id") == model_id:
+            default = str(model.get("default_effort", "") or "")
+            if default:
+                return default
+            efforts = list(model.get("efforts", []) or [])
+            return efforts[0] if efforts else ""
+    return ""

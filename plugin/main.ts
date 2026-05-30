@@ -493,17 +493,7 @@ export default class ObsidianAIAgent extends Plugin {
     );
 
     // ── Ingest status bar (right side) ──
-    this.ingestStatusBar = this.addStatusBarItem();
-    this.ingestStatusBar.setText("⚡ Incurator");
-    this.ingestStatusBar.style.cursor = "pointer";
-    this.ingestStatusBar.addEventListener("click", () => {
-      const dashboardPath = ".curator/dashboard.md";
-      const file = this.app.vault.getAbstractFileByPath(dashboardPath);
-      if (file) this.app.workspace.openLinkText(dashboardPath, "", false);
-    });
-    this.registerInterval(
-      window.setInterval(() => this.refreshIngestStatusBar(), 5000)
-    );
+    // Removed per user request to avoid redundant status bars.
 
     // ── Initialize active context for current leaf ──
     const currentLeaf = this.app.workspace.getMostRecentLeaf();

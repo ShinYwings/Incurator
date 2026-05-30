@@ -131,6 +131,9 @@ PDF 뷰어에서 특정 영역을 마우스로 드래그해 캡처합니다.
 
 플러그인은 세 가지 AI 제공자를 지원합니다. 설정 탭에서는 제공자와 모델을 따로 조정할 수 있고, 채팅 사이드바 하단에서는 하나의 모델 선택 메뉴에서 `Provider · Model` 형식으로 함께 전환합니다. reasoning/effort 메뉴는 Codex와 Claude에서만 표시됩니다.
 
+> [!NOTE]
+> **Incurator Dashboard → Overview → LLM Provider** 카드에서도 보관소(`.curator/config.yml`)의 Primary/Fallback 모델을 바꿀 수 있습니다. 각 모델 드롭다운 옆에는 **effort 드롭다운**이 함께 표시되며, 선택한 모델이 노출하는 강도만 보여줍니다 (강도가 없는 모델은 `—`). Apply 시 `llm.primary_effort` / `llm.fallback_effort` 로 저장됩니다. 모델 목록은 백엔드의 `data/models.json` 카탈로그(단일 소스)에서 자동으로 채워집니다.
+
 ### 7.1 Antigravity (기본값)
 
 Gemini CLI (`agy`)를 통해 Google Gemini 모델에 접근합니다.

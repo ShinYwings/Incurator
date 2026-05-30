@@ -2523,35 +2523,74 @@
 
 .ai-agent-ov-card-sub.is-ok { color: var(--text-success); }
 
-/* Stat cards — big gradient numbers like the A14 keynote slide */
-.ai-agent-ov-stat-card {
-  align-items: flex-start;
-  justify-content: space-between;
-  min-height: 110px;
+/* Knowledge-graph counts — compact secondary strip (L1–L4) */
+.ai-agent-ov-kg-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  align-items: baseline;
+  margin-top: 4px;
 }
 
-.ai-agent-ov-stat-tag {
-  font-size: 11px;
+.ai-agent-ov-kg-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.ai-agent-ov-kg-tag {
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: var(--text-accent);
-  opacity: 0.8;
+  opacity: 0.7;
 }
 
-.ai-agent-ov-stat-num {
-  font-size: 40px;
-  font-weight: 800;
+.ai-agent-ov-kg-num {
+  font-size: 18px;
+  font-weight: 700;
   line-height: 1;
-  background: linear-gradient(120deg, var(--color-cyan, #4ec9d4), var(--interactive-accent));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--text-normal);
 }
 
-.ai-agent-ov-stat-label {
+.ai-agent-ov-kg-label {
   font-size: 12px;
   color: var(--text-muted);
 }
+
+/* System card — full, untruncated paths */
+.ai-agent-ov-path-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.ai-agent-ov-path-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.ai-agent-ov-path-label {
+  flex: 0 0 72px;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.ai-agent-ov-path-value {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  color: var(--text-normal);
+  word-break: break-all;
+  text-align: left;
+}
+
+.ai-agent-ov-path-value.is-ok   { color: var(--text-success); }
+.ai-agent-ov-path-value.is-warn { color: var(--text-warning); }
 
 /* Jobs card body */
 .ai-agent-ov-jobs-body { display: flex; flex-direction: column; gap: 8px; }
@@ -2748,6 +2787,16 @@
 
 .ai-agent-llm-select {
   flex-shrink: 0;
+}
+
+/* Reasoning/effort dropdown beside each model select */
+.ai-agent-effort-select {
+  flex: 0 0 auto;
+  min-width: 90px;
+  max-width: 120px;
+}
+.ai-agent-effort-select:disabled {
+  opacity: 0.5;
 }
 
 .ai-agent-llm-input {

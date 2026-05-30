@@ -193,6 +193,10 @@ DEFAULT_CONFIG: dict = {
         # 'provider::model' format — both primary and fallback encode provider + model together
         "primary":  f"{consts.BACKEND_ANTIGRAVITY_CLI}::{consts.DEFAULT_ANTIGRAVITY_MODEL}",
         "fallback": "",
+        # Reasoning/effort level per slot (claude --effort, codex
+        # model_reasoning_effort, agy prompt hint). Empty = CLI default.
+        "primary_effort":  "",
+        "fallback_effort": "",
         "temperature": 0.3,
         "instant_l1": True,
         "probe_interval": 60,

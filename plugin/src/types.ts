@@ -44,6 +44,10 @@ export interface ModelOption {
   supportsVision: boolean;
 
   contextWindow?: number;
+  // Reasoning/effort levels the underlying CLI accepts for this model.
+  // Empty/undefined means the model has no selectable effort dimension.
+  efforts?: string[];
+  defaultEffort?: string;
 }
 
 export type ModelCatalogue = Partial<Record<LLMProvider, ModelOption[]>>;

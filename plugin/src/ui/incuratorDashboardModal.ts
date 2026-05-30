@@ -67,10 +67,12 @@ export class IncuratorDashboardModal extends Modal {
     const titleEl = header.createEl("h2");
     setIcon(titleEl.createSpan(), "database");
     titleEl.appendText(" Incurator");
-    header.createDiv({
-      cls: "ai-agent-sidebar-version",
-      text: `v${this.plugin.manifest.version}  ·  backend ${this.plugin.incuratorClient.backendVersion}`,
-    });
+    const versionEl = header.createDiv({ cls: "ai-agent-sidebar-version" });
+    const renderVersion = () =>
+      versionEl.setText(`backend ${this.plugin.incuratorClient.backendVersion}`);
+    renderVersion();
+    // backendVersion is lazily populated; refresh it so the modal doesn't show a stale "unknown".
+    this.plugin.incuratorClient.checkBackendVersion().then(renderVersion).catch(() => {});
 
     header.style.cursor = "grab";
     header.addEventListener("mousedown", (e) => {
@@ -226,19 +228,22 @@ export class IncuratorDashboardModal extends Modal {
     llmCard.createDiv({ cls: "ai-agent-ov-card-title", text: "LLM Provider" });
     if (cfg) this.renderLLMSelector(llmCard, cfg);
 
-    // ── Knowledge-graph stat cards (one big number each) ─────────────────────
+    // ── Knowledge-graph counts (one compact strip — secondary info) ──────────
     const statDefs: [string, string, string][] = [
       ["L1", "contexts",    "Contexts"],
       ["L2", "atoms",       "Atoms"],
       ["L3", "concepts",    "Concepts"],
       ["L4", "exhibitions", "Exhibitions"],
     ];
+    const kgCard = this.ovCard(grid, "span-full ai-agent-ov-kg-card", "sources");
+    kgCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Knowledge Graph" });
+    const kgStrip = kgCard.createDiv("ai-agent-ov-kg-strip");
     const statValEls: Record<string, HTMLElement> = {};
     for (const [tag, key, label] of statDefs) {
-      const card = this.ovCard(grid, "span-1 ai-agent-ov-stat-card", "sources");
-      card.createDiv({ cls: "ai-agent-ov-stat-tag", text: tag });
-      statValEls[key] = card.createDiv({ cls: "ai-agent-ov-stat-num", text: "…" });
-      card.createDiv({ cls: "ai-agent-ov-stat-label", text: label });
+      const item = kgStrip.createDiv("ai-agent-ov-kg-item");
+      item.createSpan({ cls: "ai-agent-ov-kg-tag", text: tag });
+      statValEls[key] = item.createSpan({ cls: "ai-agent-ov-kg-num", text: "…" });
+      item.createSpan({ cls: "ai-agent-ov-kg-label", text: label });
     }
     this.getLayerCounts().then((c) => {
       for (const [k, e] of Object.entries(statValEls)) e.setText(String(c[k] ?? 0));
@@ -286,24 +291,62 @@ export class IncuratorDashboardModal extends Modal {
     zoteroCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Zotero" });
     const zEnabled = z.enabled !== false;
     zoteroCard.createDiv({ cls: `ai-agent-ov-card-value ${zEnabled ? "is-ok" : ""}`, text: zEnabled ? "On" : "Off" });
-    zoteroCard.createDiv({ cls: "ai-agent-ov-card-sub", text: (z.roots ?? []).length ? `${(z.roots ?? []).length} root(s)` : "no roots" });
+    const zRoots = z.roots ?? [];
+    let rootsText = "no roots";
+    if (zRoots.length > 0) {
+      rootsText = `${zRoots.length} root(s)`;
+    } else if (this.plugin.settings.zoteroBasePath) {
+      // Show the plugin's default fallback path
+      rootsText = this.plugin.settings.zoteroBasePath;
+    } else {
+      rootsText = "~/Zotero (default)";
+    }
+    const zoteroRootEl = zoteroCard.createDiv({ cls: "ai-agent-ov-card-sub", text: rootsText, attr: { title: rootsText } });
 
-    // ── System card (wiki + qmd binary, spans 2) ─────────────────────────────
-    const sysCard = this.ovCard(grid, "span-2", "devices");
+    // ── System card (full paths, spans full width) ───────────────────────────
+    const sysCard = this.ovCard(grid, "span-full ai-agent-ov-sys-card", null);
     sysCard.createDiv({ cls: "ai-agent-ov-card-title", text: "System" });
-    const sysTable = this.makeInfoTable(sysCard);
-    sysTable("Vault", this.vaultBase().split("/").pop() || this.vaultBase());
-    const wikiEl = sysTable("Wiki CLI");
-    const qmdEl  = sysTable("QMD");
+    const sysTable = sysCard.createDiv("ai-agent-ov-path-table");
+    const pathRow = (label: string, val?: string) => {
+      const row = sysTable.createDiv("ai-agent-ov-path-row");
+      row.createDiv({ cls: "ai-agent-ov-path-label", text: label });
+      return row.createDiv({ cls: "ai-agent-ov-path-value", text: val ?? "…" });
+    };
+    const vaultEl = pathRow("Vault");
+    const deviceEl = pathRow("Device");
+    const wikiEl  = pathRow("Wiki CLI");
+    const qmdEl   = pathRow("QMD");
+
+    this.plugin.app.vault.adapter.read(".curator/devices.json").then((raw: string) => {
+      try {
+        const reg = JSON.parse(raw);
+        if (reg?.local_device_id && reg.devices?.[reg.local_device_id]) {
+          deviceEl.setText(reg.devices[reg.local_device_id].name || reg.local_device_id);
+        } else {
+          deviceEl.setText("Unknown");
+        }
+      } catch {
+        deviceEl.setText("Unknown");
+      }
+    }).catch(() => {
+      deviceEl.setText("Unknown");
+    });
     this.plugin.incuratorClient.getBackendStatus().then((st: any) => {
-      const wikiName = st?.wiki_binary ? (st.wiki_binary.split("/").pop() || st.wiki_binary) : "Not found";
-      wikiEl.setText(wikiName);
+      vaultEl.setText(st?.vault_root || this.vaultBase() || "Unknown");
+      wikiEl.setText(st?.wiki_binary || "Not found");
       wikiEl.toggleClass("is-ok", !!st?.wiki_binary);
       wikiEl.toggleClass("is-warn", !st?.wiki_binary);
-      qmdEl.setText(st?.qmd_binary ? "Ready" : "Not found");
+      qmdEl.setText(st?.qmd_binary || "Not found");
       qmdEl.toggleClass("is-ok", !!st?.qmd_binary);
       qmdEl.toggleClass("is-warn", !st?.qmd_binary);
+      
+      if (st?.zotero_roots && Array.isArray(st.zotero_roots) && st.zotero_roots.length > 0) {
+        const discovered = st.zotero_roots.join(", ");
+        zoteroRootEl.setText(discovered);
+        zoteroRootEl.setAttr("title", discovered);
+      }
     }).catch(() => {
+      vaultEl.setText(this.vaultBase() || "offline");
       wikiEl.setText("offline"); wikiEl.addClass("is-warn");
       qmdEl.setText("offline");  qmdEl.addClass("is-warn");
     });
@@ -369,10 +412,21 @@ export class IncuratorDashboardModal extends Modal {
     return `${backend}::${model}`;
   }
 
+  /** Resolve a catalogue value 'catProv::model' to its ModelOption (for effort options). */
+  private getModelOption(catValue: string): ModelOption | undefined {
+    const sep = catValue.indexOf("::");
+    if (sep < 0) return undefined;
+    const prov = catValue.slice(0, sep) as LLMProvider;
+    const model = catValue.slice(sep + 2);
+    return (this.plugin.availableModels[prov] || []).find((m) => m.id === model);
+  }
+
   private renderLLMSelector(container: HTMLElement, cfg: any) {
     const llm = cfg?.llm ?? {};
     const primaryCur  = this.toCatalogueValue((llm.primary  as string) || "");
     const fallbackCur = this.toCatalogueValue((llm.fallback as string) || "");
+    const primaryEffCur  = (llm.primary_effort  as string) || "";
+    const fallbackEffCur = (llm.fallback_effort as string) || "";
 
     let primarySel: HTMLSelectElement;
     let fallbackSel: HTMLSelectElement;
@@ -381,18 +435,41 @@ export class IncuratorDashboardModal extends Modal {
     const pRow = container.createDiv("ai-agent-llm-row");
     pRow.createSpan({ cls: "ai-agent-llm-label", text: "Primary" });
     primarySel = pRow.createEl("select", { cls: "ai-agent-model-select-full dropdown" });
+    const primaryEffortSel = pRow.createEl("select", { cls: "ai-agent-effort-select dropdown" });
 
     // ── Fallback row ──
     const fRow = container.createDiv("ai-agent-llm-row");
     fRow.createSpan({ cls: "ai-agent-llm-label", text: "Fallback" });
     fallbackSel = fRow.createEl("select", { cls: "ai-agent-model-select-full dropdown" });
+    const fallbackEffortSel = fRow.createEl("select", { cls: "ai-agent-effort-select dropdown" });
+
+    // Repopulate an effort dropdown from the model currently chosen in its select.
+    const refreshEffort = (modelSel: HTMLSelectElement, effortSel: HTMLSelectElement, preferred: string) => {
+      const opt = this.getModelOption(modelSel.value);
+      const efforts = opt?.efforts ?? [];
+      effortSel.empty();
+      if (!efforts.length) {
+        effortSel.createEl("option", { value: "", text: "—" });
+        effortSel.disabled = true;
+        return;
+      }
+      effortSel.disabled = false;
+      for (const e of efforts) effortSel.createEl("option", { value: e, text: e });
+      const want = efforts.includes(preferred) ? preferred : (opt?.defaultEffort || efforts[0]);
+      effortSel.value = want;
+    };
 
     const populate = (cat: any) => {
       primarySel.empty();
       fallbackSel.empty();
       this.populateModelSelect(primarySel, cat, primaryCur, false);
       this.populateModelSelect(fallbackSel, cat, fallbackCur, true);
+      refreshEffort(primarySel, primaryEffortSel, primaryEffCur);
+      refreshEffort(fallbackSel, fallbackEffortSel, fallbackEffCur);
     };
+    // Changing a model resets its effort to that model's default.
+    primarySel.onchange  = () => refreshEffort(primarySel, primaryEffortSel, "");
+    fallbackSel.onchange = () => refreshEffort(fallbackSel, fallbackEffortSel, "");
 
     const cat = this.plugin.availableModels;
     if (Object.keys(cat).length === 0) {
@@ -414,11 +491,14 @@ export class IncuratorDashboardModal extends Modal {
       const llmCfg = this.vaultConfig.llm ?? {};
       llmCfg.primary  = this.toStoredValue(primarySel.value);
       llmCfg.fallback = fallbackSel.value ? this.toStoredValue(fallbackSel.value) : "";
+      llmCfg.primary_effort  = primaryEffortSel.disabled  ? "" : primaryEffortSel.value;
+      llmCfg.fallback_effort = (fallbackSel.value && !fallbackEffortSel.disabled) ? fallbackEffortSel.value : "";
       this.vaultConfig.llm = llmCfg;
       applyBtn.disabled = true; applyBtn.setText("Saving…");
       try {
         await this.saveVaultConfig();
-        new Notice(`LLM saved · primary ${llmCfg.primary}${llmCfg.fallback ? `  fallback ${llmCfg.fallback}` : ""}`);
+        const eff = llmCfg.primary_effort ? ` (${llmCfg.primary_effort})` : "";
+        new Notice(`LLM saved · primary ${llmCfg.primary}${eff}${llmCfg.fallback ? `  fallback ${llmCfg.fallback}` : ""}`);
       } finally { applyBtn.disabled = false; applyBtn.setText("Apply"); }
     };
 
@@ -669,6 +749,10 @@ export class IncuratorDashboardModal extends Modal {
       const backendCmd: string = backend.command || "";
       const updatedAt: string = dev.updated_at || "";
       const isLocal = id === localId;
+
+      if (!isLocal && !dev.platform && !dev.backend) {
+        continue;
+      }
 
       const card = list.createDiv("ai-agent-device-card");
       if (isLocal) card.addClass("is-local");

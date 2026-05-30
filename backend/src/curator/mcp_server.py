@@ -3139,6 +3139,13 @@ def build_server() -> FastMCP:
                 elif consts.LAYER_L4 in subdir:
                     layer_counts["exhibitions"] = count
 
+        # Discover Zotero roots (attachment paths)
+        zotero_roots = []
+        try:
+            _discover_zotero_base_attachment_path(zotero_roots)
+        except Exception:
+            pass
+
         return {
             "vault_root":   str(paths.root),
             "collections":  str(paths.collections),
@@ -3147,6 +3154,7 @@ def build_server() -> FastMCP:
             "wiki_binary":  wiki_bin,
             "qmd_binary":   str(qmd_bin) if qmd_bin else None,
             "qmd_ready":    bool(qmd_bin),
+            "zotero_roots": zotero_roots,
         }
 
     @mcp.tool()

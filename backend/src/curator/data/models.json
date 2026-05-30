@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "providers": {
     "antigravity": {
       "backend_key": "antigravity-cli",
@@ -10,85 +10,41 @@
           "id": "gemini-3.5-flash",
           "label": "Gemini 3.5 Flash",
           "context_window": 1000000,
-          "supports_vision": true
-        },
-        {
-          "id": "gemini-3.5-pro",
-          "label": "Gemini 3.5 Pro",
-          "context_window": 1000000,
-          "supports_vision": true
-        },
-        {
-          "id": "gemini-3.5-flash-lite",
-          "label": "Gemini 3.5 Flash Lite",
-          "context_window": 1000000,
-          "supports_vision": true
+          "supports_vision": true,
+          "efforts": ["low", "medium", "high"],
+          "default_effort": "medium"
         },
         {
           "id": "gemini-3.1-pro",
           "label": "Gemini 3.1 Pro",
           "context_window": 1000000,
-          "supports_vision": true
+          "supports_vision": true,
+          "efforts": ["low", "high"],
+          "default_effort": "high"
         },
         {
-          "id": "gemini-3.1-flash",
-          "label": "Gemini 3.1 Flash",
-          "context_window": 1000000,
-          "supports_vision": true
+          "id": "claude-sonnet-4-6",
+          "label": "Claude Sonnet 4.6 (Thinking)",
+          "context_window": 200000,
+          "supports_vision": true,
+          "efforts": ["thinking"],
+          "default_effort": "thinking"
         },
         {
-          "id": "gemini-3.1-flash-lite",
-          "label": "Gemini 3.1 Flash Lite",
-          "context_window": 1000000,
-          "supports_vision": true
+          "id": "claude-opus-4-6",
+          "label": "Claude Opus 4.6 (Thinking)",
+          "context_window": 200000,
+          "supports_vision": true,
+          "efforts": ["thinking"],
+          "default_effort": "thinking"
         },
         {
-          "id": "gemini-3.0-pro",
-          "label": "Gemini 3.0 Pro",
-          "context_window": 1000000,
-          "supports_vision": true
-        },
-        {
-          "id": "gemini-3.0-flash",
-          "label": "Gemini 3.0 Flash",
-          "context_window": 1000000,
-          "supports_vision": true
-        },
-        {
-          "id": "gemini-3.0-flash-lite",
-          "label": "Gemini 3.0 Flash Lite",
-          "context_window": 1000000,
-          "supports_vision": true
-        },
-        {
-          "id": "gemini-2.5-pro",
-          "label": "Gemini 2.5 Pro",
-          "context_window": 1000000,
-          "supports_vision": true
-        },
-        {
-          "id": "gemini-2.5-flash",
-          "label": "Gemini 2.5 Flash",
-          "context_window": 1000000,
-          "supports_vision": true
-        },
-        {
-          "id": "gemini-2.5-flash-lite",
-          "label": "Gemini 2.5 Flash Lite",
-          "context_window": 1000000,
-          "supports_vision": true
-        },
-        {
-          "id": "gemini-2.0-flash",
-          "label": "Gemini 2.0 Flash",
-          "context_window": 1000000,
-          "supports_vision": true
-        },
-        {
-          "id": "gemini-2.0-flash-thinking-exp",
-          "label": "Gemini 2.0 Flash (Thinking)",
-          "context_window": 1000000,
-          "supports_vision": true
+          "id": "gpt-oss-120b",
+          "label": "GPT-OSS 120B",
+          "context_window": 128000,
+          "supports_vision": false,
+          "efforts": ["medium"],
+          "default_effort": "medium"
         }
       ]
     },
@@ -98,40 +54,28 @@
       "install_cmd": "npm install -g @anthropic-ai/claude-code",
       "models": [
         {
-          "id": "claude-opus-4-8",
-          "label": "Claude Opus 4.8",
+          "id": "claude-sonnet-4-6",
+          "label": "Claude Sonnet 4.6",
           "context_window": 200000,
-          "supports_vision": true
+          "supports_vision": true,
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "default_effort": "medium"
         },
         {
           "id": "claude-opus-4-7",
           "label": "Claude Opus 4.7",
           "context_window": 200000,
-          "supports_vision": true
-        },
-        {
-          "id": "claude-sonnet-4-6",
-          "label": "Claude Sonnet 4.6",
-          "context_window": 200000,
-          "supports_vision": true
-        },
-        {
-          "id": "claude-sonnet-4-5",
-          "label": "Claude Sonnet 4.5",
-          "context_window": 200000,
-          "supports_vision": true
+          "supports_vision": true,
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "default_effort": "medium"
         },
         {
           "id": "claude-haiku-4-5",
           "label": "Claude Haiku 4.5",
           "context_window": 200000,
-          "supports_vision": true
-        },
-        {
-          "id": "claude-haiku-4-5-20251001",
-          "label": "Claude Haiku 4.5 (Oct 2025)",
-          "context_window": 200000,
-          "supports_vision": true
+          "supports_vision": true,
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "default_effort": "medium"
         }
       ]
     },
@@ -144,61 +88,41 @@
           "id": "gpt-5.5",
           "label": "GPT-5.5",
           "context_window": 272000,
-          "supports_vision": true
-        },
-        {
-          "id": "gpt-5.5-thinking",
-          "label": "GPT-5.5 (Thinking)",
-          "context_window": 272000,
-          "supports_vision": true
+          "supports_vision": true,
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "default_effort": "medium"
         },
         {
           "id": "gpt-5.4",
           "label": "GPT-5.4",
           "context_window": 272000,
-          "supports_vision": true
-        },
-        {
-          "id": "gpt-5.4-thinking",
-          "label": "GPT-5.4 (Thinking)",
-          "context_window": 272000,
-          "supports_vision": true
+          "supports_vision": true,
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "default_effort": "medium"
         },
         {
           "id": "gpt-5.4-mini",
           "label": "GPT-5.4 Mini",
           "context_window": 272000,
-          "supports_vision": true
-        },
-        {
-          "id": "gpt-5.4-mini-thinking",
-          "label": "GPT-5.4 Mini (Thinking)",
-          "context_window": 272000,
-          "supports_vision": true
+          "supports_vision": true,
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "default_effort": "medium"
         },
         {
           "id": "gpt-5.3-codex",
           "label": "GPT-5.3 Codex",
           "context_window": 272000,
-          "supports_vision": true
-        },
-        {
-          "id": "gpt-5.3-codex-thinking",
-          "label": "GPT-5.3 Codex (Thinking)",
-          "context_window": 272000,
-          "supports_vision": true
+          "supports_vision": true,
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "default_effort": "medium"
         },
         {
           "id": "gpt-5.2",
           "label": "GPT-5.2",
           "context_window": 272000,
-          "supports_vision": true
-        },
-        {
-          "id": "gpt-5.2-thinking",
-          "label": "GPT-5.2 (Thinking)",
-          "context_window": 272000,
-          "supports_vision": true
+          "supports_vision": true,
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "default_effort": "medium"
         }
       ]
     },
@@ -254,13 +178,6 @@
           "label": "Gemma 3 27B",
           "context_window": 32768,
           "vram_gb": 18,
-          "supports_vision": true
-        },
-        {
-          "id": "gemma4:32b",
-          "label": "Gemma 4 32B",
-          "context_window": 32768,
-          "vram_gb": 22,
           "supports_vision": true
         }
       ]

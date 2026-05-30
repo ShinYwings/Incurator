@@ -94,11 +94,12 @@ describe("IncuratorClient", () => {
               providers: {
                 antigravity: [
                   {
-                    id: "gemini",
-                    label: "Gemini",
-                    tier: "flash",
+                    id: "gemini-3.5-flash",
+                    label: "Gemini 3.5 Flash",
                     supports_vision: true,
                     context_window: 1000000,
+                    efforts: ["low", "medium", "high"],
+                    default_effort: "medium",
                   },
                 ],
               },
@@ -110,10 +111,11 @@ describe("IncuratorClient", () => {
     const client = new IncuratorClient(mcp as any, settings());
     const catalogue = await client.getAvailableModels();
     expect(catalogue.antigravity?.[0]).toMatchObject({
-      id: "gemini",
-      tier: "flash",
+      id: "gemini-3.5-flash",
       supportsVision: true,
       contextWindow: 1000000,
+      efforts: ["low", "medium", "high"],
+      defaultEffort: "medium",
     });
   });
 

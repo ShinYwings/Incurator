@@ -67,6 +67,13 @@ DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
 DEFAULT_CODEX_MODEL = "gpt-5.5"
 DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.5-flash"
 
+# Default reasoning/effort levels per CLI backend. Empty = let the CLI use its
+# own default. These map to: claude `--effort`, codex `-c model_reasoning_effort`,
+# and an embedded prompt hint for the agy (Antigravity) CLI.
+DEFAULT_CLAUDE_EFFORT = "medium"
+DEFAULT_CODEX_EFFORT = "medium"
+DEFAULT_ANTIGRAVITY_EFFORT = "medium"
+
 # LLM Provider Backends
 BACKEND_OLLAMA = "ollama"
 BACKEND_CLAUDE_CODE = "claude-code"
