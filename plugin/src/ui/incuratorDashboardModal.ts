@@ -291,17 +291,16 @@ export class IncuratorDashboardModal extends Modal {
     zoteroCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Zotero" });
     const zEnabled = z.enabled !== false;
     zoteroCard.createDiv({ cls: `ai-agent-ov-card-value ${zEnabled ? "is-ok" : ""}`, text: zEnabled ? "On" : "Off" });
+    // Determine Zotero initial fallback path for System card
     const zRoots = z.roots ?? [];
     let rootsText = "no roots";
     if (zRoots.length > 0) {
       rootsText = `${zRoots.length} root(s)`;
     } else if (this.plugin.settings.zoteroBasePath) {
-      // Show the plugin's default fallback path
       rootsText = this.plugin.settings.zoteroBasePath;
     } else {
       rootsText = "~/Zotero (default)";
     }
-    const zoteroRootEl = zoteroCard.createDiv({ cls: "ai-agent-ov-card-sub", text: rootsText, attr: { title: rootsText } });
 
     // ── System card (full paths, spans full width) ───────────────────────────
     const sysCard = this.ovCard(grid, "span-full ai-agent-ov-sys-card", null);
@@ -316,6 +315,7 @@ export class IncuratorDashboardModal extends Modal {
     const deviceEl = pathRow("Device");
     const wikiEl  = pathRow("Wiki CLI");
     const qmdEl   = pathRow("QMD");
+    const zoteroSysEl = pathRow("Zotero", rootsText);
 
     this.plugin.app.vault.adapter.read(".curator/devices.json").then((raw: string) => {
       try {
@@ -342,8 +342,8 @@ export class IncuratorDashboardModal extends Modal {
       
       if (st?.zotero_roots && Array.isArray(st.zotero_roots) && st.zotero_roots.length > 0) {
         const discovered = st.zotero_roots.join(", ");
-        zoteroRootEl.setText(discovered);
-        zoteroRootEl.setAttr("title", discovered);
+        zoteroSysEl.setText(discovered);
+        zoteroSysEl.setAttr("title", discovered);
       }
     }).catch(() => {
       vaultEl.setText(this.vaultBase() || "offline");
