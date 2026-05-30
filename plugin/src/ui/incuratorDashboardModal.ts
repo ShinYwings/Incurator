@@ -358,6 +358,40 @@ export class IncuratorDashboardModal extends Modal {
     syncTable("Sync workers",  String(cfg?.sync?.max_parallel_verifications ?? 4));
     syncTable("Log retention", `${cfg?.curate?.log_retention_days ?? 30} days`);
 
+    // ── Persona card ─────────────────────────────────────────────────────────
+    const personaCard = this.ovCard(grid, "span-1", "persona");
+    personaCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Persona" });
+    const pArea = cfg?.persona?.area || "General";
+    personaCard.createDiv({ cls: "ai-agent-ov-card-value is-ok", text: pArea, attr: { title: pArea } }).style.fontSize = "18px";
+    const pText = cfg?.persona?.text || "No description";
+    personaCard.createDiv({ cls: "ai-agent-ov-card-sub", text: pText.length > 50 ? pText.slice(0, 50) + "…" : pText, attr: { title: pText } });
+
+    // ── Active Device card ───────────────────────────────────────────────────
+    const deviceCard = this.ovCard(grid, "span-1", "devices");
+    deviceCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Active Device" });
+    const activeDevValueEl = deviceCard.createDiv({ cls: "ai-agent-ov-card-value", text: "…" });
+    activeDevValueEl.style.fontSize = "18px";
+    const activeDevSubEl = deviceCard.createDiv({ cls: "ai-agent-ov-card-sub", text: "loading" });
+    
+    this.plugin.app.vault.adapter.read(".curator/devices.json").then((raw: string) => {
+      try {
+        const reg = JSON.parse(raw);
+        if (reg?.local_device_id && reg.devices?.[reg.local_device_id]) {
+          const d = reg.devices[reg.local_device_id];
+          activeDevValueEl.setText(d.name || reg.local_device_id);
+          activeDevValueEl.addClass("is-ok");
+          activeDevSubEl.setText(d.platform ? `Platform: ${d.platform}` : "Current Local Device");
+        } else {
+          activeDevValueEl.setText("Unknown");
+          activeDevSubEl.setText("Unregistered");
+        }
+      } catch {
+        activeDevValueEl.setText("Unknown");
+      }
+    }).catch(() => {
+      activeDevValueEl.setText("Unknown");
+    });
+
     // ── Actions row ──────────────────────────────────────────────────────────
     const acts = el.createDiv("ai-agent-dashboard-actions");
     this.addActionBtn(acts, "Sync",    "refresh-cw",   async () => {
