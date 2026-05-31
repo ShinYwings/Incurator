@@ -53,7 +53,7 @@ def search_zotero_items(zotero_db_path: str, query: str, limit: int = 20) -> Lis
             JOIN itemDataValues idV ON iD.valueID = idV.valueID
             JOIN fields f ON iD.fieldID = f.fieldID
             WHERE f.fieldName = 'title'
-              AND i.itemTypeID NOT IN (1, 14) -- Exclude note and attachment
+              AND i.itemTypeID NOT IN (1, 3, 28) -- Exclude annotation, attachment, note
               {item_filter}
             ORDER BY i.dateModified DESC
             LIMIT ?

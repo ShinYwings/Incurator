@@ -8,6 +8,7 @@ DIR_NOTES = "03_Notes"
 DIR_RESOURCES = "04_Resources"
 DIR_ASSETS = "05_Assets"
 DIR_ARCHIVES = "06_Archives"
+DIR_QMD = "qmd"
 
 # System Files
 FILE_CURATE_YML = "curate.yml"
@@ -18,6 +19,14 @@ FILE_OVERVIEW_MD = "overview.md"
 FILE_LEDGER_MD = "ledger.md"
 FILE_LOG_MD = "log.md"
 FILE_INDEX_MD = "index.md"
+FILE_DASHBOARD_MD = "dashboard.md"
+FILE_DISMISSED_CONTRADICTIONS = "contradiction_dismissed.json"
+FILE_LAST_ROOT = "last_root"
+FILE_QMD_INDEX_SQLITE = "index.sqlite"
+FILE_AGENTS_MD = "AGENTS.md"
+FILE_CLAUDE_MD = "CLAUDE.md"
+FILE_ZOTERO_SQLITE = "zotero.sqlite"
+FILE_ZOTERO_PREFS = "prefs.js"
 
 # Layer directories
 LAYER_L1 = "01_Contexts"
@@ -52,6 +61,23 @@ CONFIG_FILE = "config.yml"
 STAGING_DIR = ".curator/staging"
 DEFAULT_COLLECTIONS_DIR = ".curator/Collections"
 
+# Job & Source Statuses
+STATUS_QUEUED = "queued"
+STATUS_RUNNING = "running"
+STATUS_DONE = "done"
+STATUS_FAILED = "failed"
+STATUS_ERROR = "error"
+STATUS_PENDING = "pending"
+STATUS_SKIPPED = "skipped"
+
+# Zotero Configs
+ZOTERO_PREF_ATTACHMENT = "extensions.zotero.baseAttachmentPath"
+ZOTERO_PREF_ZOTMOOV = "extensions.zotmoov.dst_dir"
+
+# Managed Templates
+MANAGED_START = "<!-- incurator:start -->"
+MANAGED_END = "<!-- incurator:end -->"
+
 # Job Phases
 PHASE_L1 = "l1_contexts"
 PHASE_L2 = "l2_atoms"
@@ -82,10 +108,19 @@ BACKEND_CODEX_CLI = "codex-cli"
 BACKEND_CLOUD = "cloud"
 
 # Cloud Providers
-CLOUD_GEMINI = "gemini"
+
 CLOUD_CLAUDE = "claude"
 CLOUD_OPENAI = "openai"
 CLOUD_ANTIGRAVITY = "antigravity"
+
+# Workspace Scenarios
+SCENARIO_EMPTY = "empty"
+SCENARIO_AGENT_ONLY = "agent-only"
+SCENARIO_FULL = "full"
+
+# Workspace Agents
+AGENT_CODEX = "codex"
+AGENT_NONE = "none"
 
 # Model name substrings (lowercase, tag stripped) that guarantee vision support.
 VISION_CAPABLE_KEYWORDS: frozenset[str] = frozenset({

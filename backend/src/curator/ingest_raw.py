@@ -89,6 +89,64 @@ def _default_logical_source_id(source: Path) -> str:
     return f"ref-{digest[:16]}"
 
 
+import os
+
+def _resolve_reference_source(paths: cfg.WikiPaths, source: Path) -> Path:
+    """Resolve Reference Mode Markdown Stubs to their actual external target.
+    
+    If the file is a markdown stub with `type: reference` frontmatter, returns the
+    resolved absolute path of the external file (e.g. from Zotero). Otherwise returns
+    the original source unmodified.
+    """
+    if source.suffix.lower() != ".md":
+        return source
+    
+    try:
+        content = source.read_text(encoding="utf-8")
+        if not content.startswith("---"):
+            return source
+            
+        end_idx = content.find("---", 3)
+        if end_idx == -1:
+            return source
+            
+        import yaml
+        fm = yaml.safe_load(content[3:end_idx])
+        if not isinstance(fm, dict) or fm.get("type") != "reference":
+            return source
+            
+        target_path = None
+        if fm.get("zotero_key"):
+            from . import zotero
+            # Check config or env for zotero roots
+            zotero_roots = []
+            config = cfg.load_config(paths)
+            if "external" in config and "zotero" in config["external"]:
+                zotero_roots = config["external"]["zotero"].get("roots", [])
+            
+            env_zotero = os.environ.get("ZOTERO_BASE_PATH")
+            if env_zotero:
+                zotero_roots.insert(0, env_zotero)
+                
+            for z_root in zotero_roots:
+                resolved = zotero.resolve_zotero_attachment_path(z_root, fm["zotero_key"])
+                if resolved:
+                    target_path = resolved
+                    break
+        
+        if not target_path and fm.get("target_path"):
+            target_path = fm["target_path"]
+            
+        if target_path:
+            target_p = Path(target_path)
+            if target_p.exists():
+                return target_p
+    except Exception:
+        pass
+        
+    return source
+
+
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
@@ -923,7 +981,8 @@ def generate_l1_structural_context(
         return None
 
     try:
-        parsed = parsers.parse(file_path)
+        resolved_source = _resolve_reference_source(paths, file_path)
+        parsed = parsers.parse(resolved_source)
     except Exception as e:
         print(f"  [Error] Parsing file failed for {relpath}: {e}")
         db.set_source_layer_status(paths.state_db, source_id, "l1", "error", error=str(e))
@@ -1003,7 +1062,7 @@ def generate_l1_summary(
     source_id: int,
     relpath: str,
     content_hash: str,
-    client,  # LLM client (OllamaClient or GeminiClient)
+    client,  # LLM client (OllamaClient or AntigravityCliClient)
     *,
     config: dict | None = None,
     existing_context_id: str | None = None,
@@ -1317,7 +1376,8 @@ def add_file(
 
     # Parse
     try:
-        parsed = parsers.parse(source)
+        resolved_source = _resolve_reference_source(paths, source)
+        parsed = parsers.parse(resolved_source)
     except parsers.ParserError as e:
         return AddOutcome(
             result=AddResult.ERROR,

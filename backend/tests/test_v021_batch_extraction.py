@@ -193,13 +193,21 @@ class TestParseBatchAtomsJson(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["name"], "A")
 
-    def test_invalid_json_returns_empty_list(self) -> None:
-        result = self._parse("not valid json at all {{{")
-        self.assertEqual(result, [])
+    def test_invalid_json_raises_error(self) -> None:
+        if not ORCHESTRATOR_AVAILABLE:
+            self.assertEqual(self._parse("not valid json at all {{{"), [])
+            return
+        from curator.llm import LLMError
+        with self.assertRaises(LLMError):
+            self._parse("not valid json at all {{{")
 
-    def test_json_object_not_array_returns_empty_list(self) -> None:
-        result = self._parse('{"name": "X"}')
-        self.assertEqual(result, [])
+    def test_json_object_not_array_raises_error(self) -> None:
+        if not ORCHESTRATOR_AVAILABLE:
+            self.assertEqual(self._parse('{"name": "X"}'), [])
+            return
+        from curator.llm import LLMError
+        with self.assertRaises(LLMError):
+            self._parse('{"name": "X"}')
 
     def test_empty_array_parses(self) -> None:
         result = self._parse("[]")

@@ -1560,9 +1560,23 @@ export class LLMClient {
     return content
       .map((part) => {
         if (part.type === "text") return part.text;
-        return `[Attached image ${part.mimeType} omitted from CLI fallback]`;
+        
+        try {
+          const tmpDir = join(homedir(), ".incurator", "tmp_images");
+          if (!existsSync(tmpDir)) {
+            mkdirSync(tmpDir, { recursive: true });
+          }
+          let ext = part.mimeType.split("/")[1] || "png";
+          if (ext === "jpeg") ext = "jpg";
+          const filepath = join(tmpDir, `img_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`);
+          writeFileSync(filepath, Buffer.from(part.data, "base64"));
+          // Provide an explicit instruction to the agent so it knows it should look at this file
+          return `[Attached image saved to: ${filepath} - Please read/view this file to see the image]`;
+        } catch (e) {
+          return `[Attached image ${part.mimeType} omitted from CLI fallback (save failed: ${e instanceof Error ? e.message : String(e)})]`;
+        }
       })
-      .join("\n\n");
+      .join("\n");
   }
 
   private cleanCliOutput(provider: LLMProvider, stdout: string): string {

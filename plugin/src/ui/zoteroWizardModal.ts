@@ -80,6 +80,15 @@ export class ZoteroSearchModal extends SuggestModal<ZoteroSearchResult> {
     this.setPlaceholder("Search Zotero items by title or author... (leave blank for recent)");
   }
 
+  onOpen() {
+    super.onOpen();
+    // Force the modal to fetch and display the empty-query (recent) suggestions immediately
+    setTimeout(() => {
+      this.inputEl.value = "";
+      this.inputEl.dispatchEvent(new Event("input"));
+    }, 100);
+  }
+
   async getSuggestions(query: string): Promise<ZoteroSearchResult[]> {
     if (!query || query.length < 2) {
       if (!this.recentFetched) {
@@ -136,7 +145,7 @@ export class ZoteroWizardModal extends Modal {
   private templatePath: string = "";
   private bibliographyStyle: string = "";
   private outputFolder: string = "";
-  private outputSubfolder: string = "{{citekey}}";
+  private outputSubfolder: string = "";
   private outputFilename: string = "{{title}}";
   private assetFolder: string = "05_Assets";
   private assetSubfolder: string = "{{citekey}}";
@@ -216,7 +225,7 @@ export class ZoteroWizardModal extends Modal {
     this.templatePath = p.templatePath;
     this.bibliographyStyle = p.bibliographyStyle || "";
     this.outputFolder = p.outputFolder;
-    this.outputSubfolder = p.outputSubfolder || "{{citekey}}";
+    this.outputSubfolder = p.outputSubfolder ?? "";
     this.outputFilename = p.outputFilename || "{{title}}";
     // Migrate legacy imageFolder → assetFolder/assetSubfolder
     if (p.assetFolder !== undefined) {
@@ -331,7 +340,7 @@ export class ZoteroWizardModal extends Modal {
     try {
       if (this.selectedProfile === "new" && this.saveAsProfile && this.profileName) {
         if (!this.settings.zoteroProfiles) this.settings.zoteroProfiles = [];
-        this.settings.zoteroProfiles.push({
+        this.settings.zoteroProfiles.unshift({
           name: this.profileName,
           templatePath: this.templatePath,
           bibliographyStyle: this.bibliographyStyle,
@@ -341,6 +350,9 @@ export class ZoteroWizardModal extends Modal {
           assetFolder: this.assetFolder,
           assetSubfolder: this.assetSubfolder,
         });
+        if (this.settings.zoteroProfiles.length > 20) {
+          this.settings.zoteroProfiles = this.settings.zoteroProfiles.slice(0, 20);
+        }
         await this.saveSettings(this.settings);
       }
 

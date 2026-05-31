@@ -158,11 +158,7 @@ class ClaudeCodeError(LLMError):
     """Claude Code CLI call failed."""
 
 
-class GeminiCliError(LLMError):
-    """Gemini CLI call failed."""
-
-
-class AntigravityCliError(GeminiCliError):
+class AntigravityCliError(LLMError):
     """Antigravity CLI call failed."""
 
 
@@ -557,7 +553,7 @@ class OllamaClient:
 
 
 # ---------------------------------------------------------------------------
-# Claude client (same interface as OllamaClient / GeminiClient)
+# Claude client (same interface as OllamaClient / AntigravityCliClient)
 # ---------------------------------------------------------------------------
 
 
@@ -573,7 +569,7 @@ class OllamaClient:
 
 
 # ---------------------------------------------------------------------------
-# CLI-subprocess clients (Claude Code / Gemini CLI)
+# CLI-subprocess clients (Claude Code / Antigravity)
 # ---------------------------------------------------------------------------
 
 
@@ -679,29 +675,6 @@ class ClaudeCodeClient:
                 f"Install: {self.INSTALL_CMD}\n"
                 "Authenticate: claude"
             )
-        try:
-            env = dict(os.environ)
-            env["CLAUDE_BYPASS_PERMISSIONS"] = "true"
-            r = subprocess.run(
-                [self.CLI, "--version"], capture_output=True, text=True, timeout=5, env=env
-            )
-            if r.returncode != 0:
-                raise ClaudeCodeError(
-                    f"'{self.CLI}' not functional: {r.stderr.strip()}"
-                )
-            # Fast authentication liveness check
-            r_auth = subprocess.run(
-                [self.CLI, "-p", "ping"],
-                capture_output=True, text=True, timeout=15, env=env
-            )
-            stderr = r_auth.stderr.strip()
-            stdout = r_auth.stdout.strip()
-            if "You must login" in stderr or "claude login" in stdout or "You must login" in stdout or "claude login" in stderr:
-                raise ClaudeCodeError("Authentication required. Run 'claude login' to authenticate.")
-        except FileNotFoundError:
-            raise ClaudeCodeError(f"'{self.CLI}' not found in PATH.")
-        except subprocess.TimeoutExpired:
-            raise ClaudeCodeError(f"'{self.CLI}' --version timed out.")
 
     def ping(self) -> bool:
         try:
@@ -714,8 +687,8 @@ class ClaudeCodeClient:
         return (0, 0)
 
 
-def _get_gemini_fallback_chain(model_name: str) -> list[str]:
-    """Given a Gemini model name, return a list of models to try in order of fallback.
+def _get_antigravity_fallback_chain(model_name: str) -> list[str]:
+    """Given an Antigravity model name, return a list of models to try in order of fallback.
 
     If it's a lite model, fallback to flash, then pro.
     If it's a flash model (not lite), fallback to pro.
@@ -723,7 +696,7 @@ def _get_gemini_fallback_chain(model_name: str) -> list[str]:
     """
     if not model_name or not model_name.strip():
         raise AntigravityCliError(
-            "No Gemini model configured. Run `wiki config provider` to select a model."
+            "No Antigravity model configured. Run `wiki config provider` to select a model."
         )
     name = model_name.lower()
     chain = [model_name]
@@ -748,8 +721,7 @@ def _get_gemini_fallback_chain(model_name: str) -> list[str]:
 class AntigravityCliClient:
     """LLM backend using the *agy* CLI (Google Antigravity subscription).
 
-    Requires Antigravity CLI, then its login flow. The legacy GeminiCliClient
-    name remains as an alias below so older imports keep working.
+    Requires Antigravity CLI, then its login flow.
     """
 
     CLI = "agy"
@@ -769,7 +741,7 @@ class AntigravityCliClient:
         pass
 
     def _run(self, prompt: str) -> str:
-        models_to_try = _get_gemini_fallback_chain(self.model)
+        models_to_try = _get_antigravity_fallback_chain(self.model)
         
         for i, current_model in enumerate(models_to_try):
             # Antigravity CLI currently exposes model choice through its own
@@ -787,7 +759,6 @@ class AntigravityCliClient:
                 if hint else prompt
             )
             env = dict(os.environ)
-            env["GEMINI_CLI_TRUST_WORKSPACE"] = "true"
             env["ANTIGRAVITY_TRUST_WORKSPACE"] = "true"
             env["AGY_TRUST_WORKSPACE"] = "true"
             try:
@@ -826,7 +797,7 @@ class AntigravityCliClient:
                     
                 if is_capacity_error:
                     raise AntigravityCliError(
-                        f"Antigravity/Gemini capacity exhausted (429) for all fallback models.\n"
+                        f"Antigravity capacity exhausted (429) for all fallback models.\n"
                         f"Last model tried: '{current_model}'.\n"
                         f"Try a local fallback or a lighter model."
                     )
@@ -871,45 +842,19 @@ class AntigravityCliClient:
                 f"Install: {self.INSTALL_CMD}\n"
                 "Authenticate: agy"
             )
-        try:
-            env = dict(os.environ)
-            env["GEMINI_CLI_TRUST_WORKSPACE"] = "true"
-            env["ANTIGRAVITY_TRUST_WORKSPACE"] = "true"
-            env["AGY_TRUST_WORKSPACE"] = "true"
-            r = subprocess.run(
-                [self.CLI, "--version"], capture_output=True, text=True, timeout=15, env=env
-            )
-            if r.returncode != 0:
-                raise AntigravityCliError(
-                    f"'{self.CLI}' not functional: {r.stderr.strip()}"
-                )
-            # Fast authentication liveness check
-            r_auth = subprocess.run(
-                [self.CLI, "--print", "ping", "--print-timeout", "10s", "--dangerously-skip-permissions"],
-                capture_output=True, text=True, timeout=15, env=env
-            )
-            stderr = r_auth.stderr.strip()
-            stdout = r_auth.stdout.strip()
-            if "Authentication required" in stderr or "Authentication required" in stdout or "paste the authorization code" in stdout or "paste the authorization code" in stderr:
-                raise AntigravityCliError("Authentication required. Run 'agy' to authenticate.")
-        except FileNotFoundError:
-            raise AntigravityCliError(f"'{self.CLI}' not found in PATH.")
-        except subprocess.TimeoutExpired:
-            raise AntigravityCliError(f"'{self.CLI}' --version timed out.")
 
     def ping(self) -> bool:
         try:
             self.ensure_ready()
             return True
-        except GeminiCliError:
+        except AntigravityCliError:
             return False
 
     def get_and_reset_token_usage(self) -> tuple[int, int]:
         return (0, 0)
 
 
-# Compatibility alias. New code should use AntigravityCliClient.
-GeminiCliClient = AntigravityCliClient
+
 
 
 # ---------------------------------------------------------------------------
@@ -1055,7 +1000,7 @@ class CodexCliClient:
 
 
 _FAILOVER_ERRORS = (OllamaNotRunning, ModelNotFound, OSError)
-_CLI_PRIMARY_FAILOVER_ERRORS = _FAILOVER_ERRORS + (ClaudeCodeError, GeminiCliError, AntigravityCliError)
+_CLI_PRIMARY_FAILOVER_ERRORS = _FAILOVER_ERRORS + (ClaudeCodeError, AntigravityCliError)
 
 
 class FailoverClient:
@@ -1067,7 +1012,7 @@ class FailoverClient:
     A daemon thread probes providers[0] every probe_interval seconds. If it comes
     back while active_idx > 0, promotes back to primary automatically.
 
-    Interface identical to OllamaClient / GeminiClient / ClaudeClient.
+    Interface identical to OllamaClient / AntigravityCliClient / ClaudeClient.
     """
 
     def __init__(

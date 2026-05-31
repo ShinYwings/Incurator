@@ -16,6 +16,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from . import constants as consts
+
 SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
@@ -379,7 +381,7 @@ def get_stats(db_path: Path) -> dict:
     with connect(db_path) as conn:
         sources_total = conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
         sources_l1_done = conn.execute(
-            "SELECT COUNT(*) FROM sources WHERE l1_status = 'done'"
+            f"SELECT COUNT(*) FROM sources WHERE l1_status = '{consts.STATUS_DONE}'"
         ).fetchone()[0]
         sources_curated = conn.execute(
             "SELECT COUNT(*) FROM sources WHERE status = 'curated'"
@@ -415,9 +417,9 @@ def enqueue_job(
     """Create or reuse a queued/running ingest job for a source and job type."""
     with connect(db_path) as conn:
         existing = conn.execute(
-            """
+            f"""
             SELECT id FROM ingest_jobs
-            WHERE source_id = ? AND job_type = ? AND state IN ('queued', 'running')
+            WHERE source_id = ? AND job_type = ? AND state IN ('{consts.STATUS_QUEUED}', '{consts.STATUS_RUNNING}')
             ORDER BY id DESC LIMIT 1
             """,
             (source_id, job_type),
@@ -425,11 +427,11 @@ def enqueue_job(
         if existing:
             return int(existing["id"])
         cur = conn.execute(
-            """
+            f"""
             INSERT INTO ingest_jobs
                 (source_id, job_type, trigger, node_id, state, phase, progress,
                  progress_current, progress_total, source_name, created_at)
-            VALUES (?, ?, ?, ?, 'queued', ?, 0.0, 0, 0, ?, ?)
+            VALUES (?, ?, ?, ?, '{consts.STATUS_QUEUED}', ?, 0.0, 0, 0, ?, ?)
             """,
             (
                 source_id,
@@ -448,9 +450,9 @@ def get_pending_jobs_for_source(db_path: Path, source_id: int) -> list[dict]:
     """Return queued/running jobs for one source."""
     with connect(db_path) as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT * FROM ingest_jobs
-            WHERE source_id = ? AND state IN ('queued', 'running')
+            WHERE source_id = ? AND state IN ('{consts.STATUS_QUEUED}', '{consts.STATUS_RUNNING}')
             ORDER BY id ASC
             """,
             (source_id,),
@@ -470,7 +472,7 @@ def list_ingest_jobs(
     if states:
         query += f" WHERE state IN ({','.join('?' for _ in states)})"
         params.extend(states)
-    order = "ASC" if states and any(s in {"queued", "running"} for s in states) else "DESC"
+    order = "ASC" if states and any(s in {consts.STATUS_QUEUED, consts.STATUS_RUNNING} for s in states) else "DESC"
     query += f" ORDER BY id {order} LIMIT ?"
     params.append(max(1, min(int(limit), 500)))
     with connect(db_path) as conn:
@@ -483,18 +485,18 @@ def claim_next_job(db_path: Path) -> dict | None:
     with connect(db_path) as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
-            """
+            f"""
             SELECT * FROM ingest_jobs
-            WHERE state = 'queued'
+            WHERE state = '{consts.STATUS_QUEUED}'
             ORDER BY id ASC LIMIT 1
             """
         ).fetchone()
         if row is None:
             return None
         conn.execute(
-            """
+            f"""
             UPDATE ingest_jobs
-            SET state = 'running', phase = 'running', started_at = ?, error = NULL
+            SET state = '{consts.STATUS_RUNNING}', phase = '{consts.STATUS_RUNNING}', started_at = ?, error = NULL
             WHERE id = ?
             """,
             (_now_iso(), row["id"]),
@@ -510,10 +512,10 @@ def recover_stale_jobs(db_path: Path) -> int:
     """Return interrupted running jobs to the queue after a process restart."""
     with connect(db_path) as conn:
         cur = conn.execute(
-            """
+            f"""
             UPDATE ingest_jobs
-            SET state = 'queued', phase = 'recovered', error = NULL
-            WHERE state = 'running'
+            SET state = '{consts.STATUS_QUEUED}', phase = 'recovered', error = NULL
+            WHERE state = '{consts.STATUS_RUNNING}'
             """
         )
         return int(cur.rowcount or 0)
@@ -558,9 +560,9 @@ def mark_job_done(
     """Mark a job as completed."""
     with connect(db_path) as conn:
         conn.execute(
-            """
+            f"""
             UPDATE ingest_jobs
-            SET state = 'done', phase = 'done', progress = 1.0,
+            SET state = '{consts.STATUS_DONE}', phase = '{consts.STATUS_DONE}', progress = 1.0,
                 finished_at = ?, pages_created = ?, pages_updated = ?, error = NULL
             WHERE id = ?
             """,
@@ -572,9 +574,9 @@ def mark_job_failed(db_path: Path, job_id: int, error: str) -> None:
     """Mark a job as failed."""
     with connect(db_path) as conn:
         conn.execute(
-            """
+            f"""
             UPDATE ingest_jobs
-            SET state = 'failed', phase = 'failed', finished_at = ?, error = ?
+            SET state = '{consts.STATUS_FAILED}', phase = '{consts.STATUS_FAILED}', finished_at = ?, error = ?
             WHERE id = ?
             """,
             (_now_iso(), error[:2000], job_id),
@@ -585,9 +587,9 @@ def requeue_job_for_retry(db_path: Path, job_id: int, retry_count: int, error: s
     """Reset a failed job back to queued for retry, recording the attempt count."""
     with connect(db_path) as conn:
         conn.execute(
-            """
+            f"""
             UPDATE ingest_jobs
-            SET state = 'queued', phase = 'retry', progress = 0.0,
+            SET state = '{consts.STATUS_QUEUED}', phase = 'retry', progress = 0.0,
                 retry_count = ?, error = ?, started_at = NULL, finished_at = NULL
             WHERE id = ?
             """,
@@ -622,7 +624,7 @@ def count_active_l2_jobs(db_path: Path) -> int:
         return 0
     with connect(db_path) as conn:
         row = conn.execute(
-            "SELECT COUNT(*) FROM ingest_jobs WHERE job_type = 'l2_atoms' AND state IN ('queued', 'running')"
+            f"SELECT COUNT(*) FROM ingest_jobs WHERE job_type = 'l2_atoms' AND state IN ('{consts.STATUS_QUEUED}', '{consts.STATUS_RUNNING}')"
         ).fetchone()
         return int(row[0]) if row else 0
 
@@ -634,7 +636,7 @@ def get_jobs_done_today(db_path: Path) -> list[dict]:
     today_prefix = _now_iso()[:10]  # "YYYY-MM-DD"
     with connect(db_path) as conn:
         rows = conn.execute(
-            "SELECT * FROM ingest_jobs WHERE state = 'done' AND finished_at LIKE ? ORDER BY id DESC",
+            f"SELECT * FROM ingest_jobs WHERE state = '{consts.STATUS_DONE}' AND finished_at LIKE ? ORDER BY id DESC",
             (f"{today_prefix}%",),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -646,7 +648,7 @@ def get_pending_count(db_path: Path) -> int:
         return 0
     with connect(db_path) as conn:
         return conn.execute(
-            "SELECT COUNT(*) FROM sources WHERE status IN ('pending', 'force_pending')"
+            f"SELECT COUNT(*) FROM sources WHERE status IN ('{consts.STATUS_PENDING}', 'force_pending')"
         ).fetchone()[0]
 
 

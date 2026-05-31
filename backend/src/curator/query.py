@@ -112,6 +112,7 @@ Rules:
 5. Be concise but substantive. Write in clean markdown.
 6. Do NOT include YAML frontmatter, preamble like "Based on the sources:",
    or meta-commentary about your process.
+7. LANGUAGE: You MUST answer the question in the SAME language that the user used to ask the question. If the user asks in Korean, answer in Korean.
 """
 
 

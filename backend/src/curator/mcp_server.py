@@ -1,7 +1,7 @@
 """MCP server — exposes the Curator DAG to workspace agents.
 
 Run via:    wiki mcp           # stdio transport (default)
-Install:    wiki mcp install   # prints a config snippet for Claude / Gemini
+Install:    wiki mcp install   # prints a config snippet for Claude / Antigravity
 
 The server combines two responsibility layers:
 
@@ -62,7 +62,7 @@ def _zotero_db_candidates(custom_paths: str) -> list[str]:
         if not p:
             continue
         base = os.path.expanduser(p)
-        out.append(base if base.endswith(".sqlite") else os.path.join(base, "zotero.sqlite"))
+        out.append(base if base.endswith(".sqlite") else os.path.join(base, consts.FILE_ZOTERO_SQLITE))
     return out
 
 
@@ -102,14 +102,14 @@ def _discover_zotero_base_attachment_path(candidates: list[str]) -> None:
         if not os.path.isdir(root):
             continue
         for entry in os.listdir(root):
-            prefs = os.path.join(root, entry, "prefs.js")
+            prefs = os.path.join(root, entry, consts.FILE_ZOTERO_PREFS)
             if os.path.isfile(prefs):
                 prefs_files.append(prefs)
 
     # Parse prefs.js for baseAttachmentPath and zotmoov.dst_dir
     pref_pattern = re.compile(
-        r'user_pref\(\s*"(extensions\.zotero\.baseAttachmentPath'
-        r'|extensions\.zotmoov\.dst_dir)"\s*,\s*"([^"]+)"\s*\)'
+        rf'user_pref\(\s*"({re.escape(consts.ZOTERO_PREF_ATTACHMENT)}'
+        rf'|{re.escape(consts.ZOTERO_PREF_ZOTMOOV)})"\s*,\s*"([^"]+)"\s*\)'
     )
     seen = set(os.path.normpath(c) for c in candidates)
     for prefs_path in prefs_files:
@@ -575,7 +575,7 @@ Instructions:
     fallbacks = {
         "description": ["Knowledge base for research", "Technical documentation", "Learning notes"],
         "domains": ["computer-vision", "rendering", "robotics", "optimization", "physics"],
-        "topics": ["algorithm", "pipeline", "benchmark", "theory", "application"],
+        "topics": ["algorithm", "pipeline", "evaluation", "theory", "application"],
         "min_confidence": ["0.60", "0.70", "0.80", "0.85", "0.90"]
     }
     return fallbacks.get(field_id, ["Option 1", "Option 2", "Option 3", "Option 4", "Option 5"])[:5]
@@ -1029,7 +1029,9 @@ def build_server() -> FastMCP:
         if not source_path.exists():
             return {"ok": False, "error": f"Source not found: {source_key}"}
         try:
-            parsed = source_tools.parse_source(source_path)
+            from .ingest_raw import _resolve_reference_source
+            resolved_path = _resolve_reference_source(paths, source_path)
+            parsed = source_tools.parse_source(resolved_path)
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -1069,7 +1071,7 @@ def build_server() -> FastMCP:
         }
 
     @mcp.tool()
-    def curator_source_status(
+    def check_source_status(
         source_id: Optional[int] = None,
         relpath: str = "",
         source_path: str = "",
@@ -1475,7 +1477,7 @@ def build_server() -> FastMCP:
 
 
     @mcp.tool()
-    def curator_get_source_page(
+    def fetch_document_section(
         source_id: Optional[int] = None,
         source_path: str = "",
         file_path: str = "",
@@ -2291,7 +2293,7 @@ def build_server() -> FastMCP:
         Call this at the start of each session when WORKSPACE_PATH is set.
         Validates that curate.yml exists and is valid, checks whether a workspace
         Exhibition has been generated, and auto-installs agent rules for the
-        connecting client (Claude Code, Gemini CLI, etc.) if not yet present.
+        connecting client (Claude Code, Antigravity, etc.) if not yet present.
 
         Args:
             workspace_path: Absolute path to workspace. Defaults to WORKSPACE_PATH env var.
@@ -3423,7 +3425,7 @@ def serve_stdio() -> None:
 
 
 # Snippets emitted by `wiki mcp install` so the user can paste into
-# Claude Desktop / Claude Code / Gemini CLI configs without us touching
+# Claude Desktop / Claude Code / Antigravity configs without us touching
 # their global settings files directly.
 
 CLAUDE_SNIPPET_TEMPLATE = '''{{
@@ -3438,7 +3440,7 @@ CLAUDE_SNIPPET_TEMPLATE = '''{{
   }}
 }}'''
 
-GEMINI_SNIPPET_TEMPLATE = '''{{
+ANTIGRAVITY_SNIPPET_TEMPLATE = '''{{
   "mcpServers": {{
     "incurator": {{
       "command": "wiki",
@@ -3454,7 +3456,7 @@ GEMINI_SNIPPET_TEMPLATE = '''{{
 def render_install_snippets(paths: cfg.WikiPaths) -> dict[str, str]:
     """Return ready-to-paste config snippets for supported MCP clients.
 
-    Both Claude Code/Desktop and Gemini CLI use the same MCP-spec
+    Both Claude Code/Desktop and Antigravity use the same MCP-spec
     `mcpServers` shape, so the snippets are identical apart from where
     the user pastes them. Kept as separate template strings so adding
     client-specific fields later (timeout, autoApprove, etc.) doesn't
@@ -3463,5 +3465,5 @@ def render_install_snippets(paths: cfg.WikiPaths) -> dict[str, str]:
     vault_root = str(paths.root.resolve())
     return {
         consts.CLOUD_CLAUDE: CLAUDE_SNIPPET_TEMPLATE.format(vault_root=vault_root),
-        consts.CLOUD_GEMINI: GEMINI_SNIPPET_TEMPLATE.format(vault_root=vault_root),
+        consts.CLOUD_ANTIGRAVITY: ANTIGRAVITY_SNIPPET_TEMPLATE.format(vault_root=vault_root),
     }

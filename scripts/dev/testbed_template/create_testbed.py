@@ -22,14 +22,15 @@ FIXTURE_WORKSPACE_RULES = SCENARIO_ROOT / "fixture_workspace_rules"
 
 # Domain-neutral defaults
 WORKSPACE_NAME = "Validation Lab"
-RAW_DIRS = ["02_Wiki", "03_Notes", "04_Resources", "06_Archives"]
 
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from curator import config as cfg  # noqa: E402
+from curator import config as cfg, constants as consts  # noqa: E402
 from curator import db, page_writer, search  # noqa: E402
 from curator.workspace.provisioner import prepare_workspace  # noqa: E402
+
+RAW_DIRS = [consts.DIR_WIKI, consts.DIR_NOTES, consts.DIR_RESOURCES, consts.DIR_ARCHIVES]
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -69,7 +70,7 @@ def _init_like_wiki_init(root: Path) -> cfg.WikiPaths:
         (paths.collections / layer).mkdir(parents=True, exist_ok=True)
 
     config = dict(cfg.DEFAULT_CONFIG)
-    config["llm"]["primary"] = "antigravity-cli"
+    config["llm"]["primary"] = consts.BACKEND_ANTIGRAVITY_CLI
     config["llm"]["antigravity_flash_model"] = "gemini-3.5-flash"
     cfg.save_config(paths, config)
 
@@ -79,7 +80,7 @@ def _init_like_wiki_init(root: Path) -> cfg.WikiPaths:
     return paths
 
 def _write_testbed_agent_rules(root: Path) -> None:
-    ws_dir = root / "01_Workspaces" / WORKSPACE_NAME
+    ws_dir = root / consts.DIR_WORKSPACES / WORKSPACE_NAME
     fixture_has_content = FIXTURE_WORKSPACE_RULES.exists() and any(FIXTURE_WORKSPACE_RULES.rglob("*"))
     tmpl_root = FIXTURE_WORKSPACE_RULES if fixture_has_content else None
     for agent in ("antigravity",):

@@ -12,13 +12,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-VALID_AGENTS = frozenset({"codex", "claude-code", "antigravity", "none"})
+VALID_AGENTS = frozenset({consts.AGENT_CODEX, consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.AGENT_NONE})
 
-MANAGED_START = "<!-- incurator:start -->"
-MANAGED_END = "<!-- incurator:end -->"
+MANAGED_START = consts.MANAGED_START
+MANAGED_END = consts.MANAGED_END
 
-ANTIGRAVITY_START = "# incurator:start"
-ANTIGRAVITY_END = "# incurator:end"
+
 
 
 @dataclass
@@ -38,7 +37,7 @@ class WorkspacePrepareResult:
     updated: list[Path] = field(default_factory=list)
     preserved: list[Path] = field(default_factory=list)
     # "empty" | "agent-only" | "full"  (set by prepare_workspace before any writes)
-    scenario: str = "empty"
+    scenario: str = consts.SCENARIO_EMPTY
 
     def touched(self) -> list[Path]:
         return self.created + self.updated
@@ -64,25 +63,25 @@ def detect_workspace_scenario(workspace: Path, agent: str) -> str:
     try:
         top_target, _ = top_level_target(_normalize_agent(agent))
     except ValueError:
-        top_target = "CLAUDE.md"  # safe fallback for unknown agents
+        top_target = consts.FILE_CLAUDE_MD  # safe fallback for unknown agents
 
     has_curator_rules = (workspace / ".agents" / "curator" / "runtime" / f"{_normalize_agent(agent)}.md").exists()
 
     if has_curate and has_curator_rules:
-        return "full"
+        return consts.SCENARIO_FULL
 
     has_top_level = (workspace / top_target).exists()
     has_curator_dir = (workspace / ".agents" / "curator").exists()
 
     if has_curate or has_top_level or has_curator_dir or _has_any_agent_file(workspace):
-        return "agent-only"
+        return consts.SCENARIO_AGENT_ONLY
 
-    return "empty"
+    return consts.SCENARIO_EMPTY
 
 
 def _has_any_agent_file(workspace: Path) -> bool:
     """Return True if any well-known top-level agent rule file exists."""
-    for candidate in ("CLAUDE.md", "GEMINI.md", "AGENTS.md", ".antigravity/rules.yaml"):
+    for candidate in (consts.FILE_CLAUDE_MD, consts.FILE_AGENTS_MD):
         if (workspace / candidate).exists():
             return True
     return False
@@ -92,7 +91,7 @@ def prepare_workspace(
     *,
     vault_root: Path,
     workspace: Path,
-    agent: str = "codex",
+    agent: str = consts.AGENT_CODEX,
     curate_data: CurateTemplateData | None = None,
     force_curate: bool = False,
     install_rules: bool = True,
@@ -114,7 +113,7 @@ def prepare_workspace(
     result = WorkspacePrepareResult(workspace=workspace, agent=agent, scenario=scenario)
     _ensure_curate_yml(vault_root, workspace, curate_data, force_curate, result)
 
-    if install_rules and agent != "none":
+    if install_rules and agent != consts.AGENT_NONE:
         _install_rule_templates(vault_root, workspace, agent, result, template_root, install_managed_block)
 
     return result
@@ -122,9 +121,8 @@ def prepare_workspace(
 
 _CLIENT_INFO_MAP = {
     consts.CLOUD_CLAUDE: consts.BACKEND_CLAUDE_CODE,
-    consts.CLOUD_GEMINI: consts.BACKEND_ANTIGRAVITY_CLI,
     consts.CLOUD_ANTIGRAVITY: consts.BACKEND_ANTIGRAVITY_CLI,
-    "codex": consts.BACKEND_CODEX_CLI,
+    consts.AGENT_CODEX: consts.BACKEND_CODEX_CLI,
 }
 
 
@@ -137,7 +135,7 @@ def detect_agent_from_client_info(client_name: str) -> str:
     for key, agent in _CLIENT_INFO_MAP.items():
         if key in name_lower:
             return agent
-    return "codex"
+    return consts.AGENT_CODEX
 
 
 def merge_mcp_settings(settings_path: Path, *, vault_root: Path, workspace: Path) -> None:
@@ -191,11 +189,12 @@ def render_mcp_snippet(*, vault_root: Path, workspace: Path) -> str:
 
 
 def _normalize_agent(agent: str) -> str:
-    normalized = (agent or "codex").strip().lower()
+    normalized = (agent or consts.AGENT_CODEX).strip().lower()
     aliases = {
         consts.CLOUD_CLAUDE: consts.BACKEND_CLAUDE_CODE,
-        consts.CLOUD_GEMINI: consts.BACKEND_ANTIGRAVITY_CLI,
-        "antigravity-gemini": consts.BACKEND_ANTIGRAVITY_CLI,
+
+
+        consts.CLOUD_ANTIGRAVITY: consts.BACKEND_ANTIGRAVITY_CLI,
     }
     normalized = aliases.get(normalized, normalized)
     if normalized not in VALID_AGENTS:
@@ -340,20 +339,15 @@ def _install_rule_templates(
 
 def top_level_target(agent: str) -> tuple[str, str]:
     """Return (rule_file_path, managed_block_template) for an agent."""
-    if agent == consts.BACKEND_CODEX_CLI:
-        return "AGENTS.md", "managed/AGENTS.md"
-    if agent == "claude-code":
-        return "CLAUDE.md", "managed/CLAUDE.md"
-    if agent == consts.BACKEND_ANTIGRAVITY_CLI:
-        return ".antigravity/rules.yaml", "managed/antigravity.rules.yaml"
+    if agent == consts.BACKEND_CODEX_CLI or agent == consts.BACKEND_ANTIGRAVITY_CLI:
+        return consts.FILE_AGENTS_MD, f"managed/{consts.FILE_AGENTS_MD}"
+    if agent == consts.BACKEND_CLAUDE_CODE:
+        return consts.FILE_CLAUDE_MD, f"managed/{consts.FILE_CLAUDE_MD}"
     raise ValueError(f"unsupported agent: {agent}")
 
 
 def _upsert_managed_block(path: Path, block: str, agent: str, result: WorkspacePrepareResult) -> None:
-    if agent == consts.BACKEND_ANTIGRAVITY_CLI:
-        start, end = ANTIGRAVITY_START, ANTIGRAVITY_END
-    else:
-        start, end = MANAGED_START, MANAGED_END
+    start, end = MANAGED_START, MANAGED_END
 
     block = block.strip()
     new_block = f"{start}\n{block}\n{end}\n"
@@ -372,7 +366,6 @@ def _upsert_managed_block(path: Path, block: str, agent: str, result: WorkspaceP
 
 def make_rule_integration_prompt(existing_content: str, agent: str, workspace_path: str) -> str:
     """Build the LLM prompt that integrates Curator hooks into an existing rule file."""
-    fmt = "YAML" if agent == consts.BACKEND_ANTIGRAVITY_CLI else "Markdown"
     return (
         "You are integrating Curator knowledge navigation into an existing agent rule file.\n\n"
         "Curator requires three behavioral rules:\n"
@@ -381,7 +374,7 @@ def make_rule_integration_prompt(existing_content: str, agent: str, workspace_pa
         "use Curator results as primary evidence; fall back to local files only if Curator returns nothing\n"
         "3. **Session end**: follow `.agents/curator/workflows/session_closeout.md`\n\n"
         f"Workspace: {workspace_path}\n"
-        f"File format: {fmt}\n\n"
+        f"File format: Markdown\n\n"
         "Existing rule file:\n"
         "---\n"
         f"{existing_content}\n"
@@ -391,7 +384,6 @@ def make_rule_integration_prompt(existing_content: str, agent: str, workspace_pa
         "- Preserve ALL existing rules and instructions verbatim\n"
         "- Add Curator hooks at semantically appropriate steps (session start, query loop, session end)\n"
         "- If no session start step exists, insert one at the beginning\n"
-        "- For YAML files, add Curator rules as new rule objects alongside existing ones\n"
         "- Do NOT remove, shorten, or paraphrase any existing content\n"
         "- Output ONLY the modified file content — no prose, no explanation, no fences"
     )

@@ -27,6 +27,7 @@
           "label": "Claude Sonnet 4.6 (Thinking)",
           "context_window": 200000,
           "supports_vision": true,
+          "supports_thinking": true,
           "efforts": ["thinking"],
           "default_effort": "thinking"
         },
@@ -35,6 +36,7 @@
           "label": "Claude Opus 4.6 (Thinking)",
           "context_window": 200000,
           "supports_vision": true,
+          "supports_thinking": true,
           "efforts": ["thinking"],
           "default_effort": "thinking"
         },

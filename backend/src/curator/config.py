@@ -160,7 +160,7 @@ class WikiPaths:
     @property
     def qmd_dir(self) -> Path:
         """`.curator/qmd/` — qmd config + sqlite index for this project."""
-        return self.internal / "qmd"
+        return self.internal / consts.DIR_QMD
 
     @property
     def qmd_config_file(self) -> Path:
@@ -170,7 +170,7 @@ class WikiPaths:
     @property
     def qmd_db(self) -> Path:
         """qmd's per-project sqlite index."""
-        return self.qmd_dir / "index.sqlite"
+        return self.qmd_dir / consts.FILE_QMD_INDEX_SQLITE
 
     # ------------------------------------------------------------------
 
@@ -288,7 +288,7 @@ def get_global_config_dir() -> Path:
 
 def get_last_root() -> Optional[Path]:
     """Get the last active project root from the dedicated last_root file."""
-    last_root_file = get_global_config_dir() / "last_root"
+    last_root_file = get_global_config_dir() / consts.FILE_LAST_ROOT
     if last_root_file.exists():
         try:
             val = last_root_file.read_text(encoding="utf-8").strip()
@@ -304,7 +304,7 @@ def set_last_root(root: Path) -> None:
     try:
         cache_dir = get_global_config_dir()
         cache_dir.mkdir(parents=True, exist_ok=True)
-        (cache_dir / "last_root").write_text(str(root.resolve()), encoding="utf-8")
+        (cache_dir / consts.FILE_LAST_ROOT).write_text(str(root.resolve()), encoding="utf-8")
     except Exception:
         pass
 

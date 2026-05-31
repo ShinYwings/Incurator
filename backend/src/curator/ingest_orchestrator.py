@@ -20,31 +20,33 @@ from typing import Any
 from . import config as cfg
 from . import constants as consts
 from . import db
+from . import prompts
 
 MAX_BATCH_CHARS = 50_000
 
 _BATCH_EXTRACT_PROMPT = """\
-아래 문서에서 독립적인 지식 단위(Atom)를 **모두** 추출하라.
+Extract **ALL** independent knowledge units (Atoms) from the document below.
 
-규칙:
-- 각 Atom은 단 하나의 사실 / 주장 / 방정식 / 기법이어야 한다.
-- 문서에 <!-- section:id page:N --> 마커가 있다면, 해당 atom이 속한 section id와 제목을 기록하라.
-- **반드시 JSON 배열만 반환하라. 다른 텍스트 없이.**
+Rules:
+- Each Atom MUST represent exactly one fact, claim, equation, or technique.
+- If the document contains <!-- section:id page:N --> markers, record the closest section id and title for each atom.
+- **You MUST return ONLY a valid JSON array. No other text.**
+- LANGUAGE RULE: You MUST translate and write all extracted knowledge strictly in English, regardless of the source language.
 
-출력 형식:
+Output format:
 [
   {{
-    "name": "항목 이름 (간결하게)",
-    "claim_type": "fact | claim | entity | procedure | relationship 중 하나",
-    "one_liner": "한 문장으로 핵심 요약",
-    "source_section_id": "가장 가까운 section id (없으면 빈 문자열)",
-    "source_section_title": "해당 섹션 제목 (없으면 빈 문자열)",
-    "source_page": 페이지_번호_정수_또는_null,
-    "confidence": 0.0에서_1.0_사이_숫자
+    "name": "Item name (concise, in English)",
+    "claim_type": "one of: fact | claim | entity | procedure | relationship",
+    "one_liner": "One-sentence core summary (in English)",
+    "source_section_id": "Closest section id (or empty string)",
+    "source_section_title": "Closest section title (or empty string)",
+    "source_page": integer_page_number_or_null,
+    "confidence": float_between_0.0_and_1.0
   }}
 ]
 
-문서:
+Document:
 {chunk}
 """
 
@@ -205,7 +207,10 @@ def _extract_atoms_from_chunk(
     from .llm import ChatMessage, LLMError
 
     prompt = _BATCH_EXTRACT_PROMPT.format(chunk=chunk)
-    messages = [ChatMessage(role="user", content=prompt)]
+    messages = [
+        ChatMessage(role="system", content=prompts.CURATOR_SYSTEM_PROMPT),
+        ChatMessage(role="user", content=prompt)
+    ]
     
     max_retries = 2
     atoms_data = None

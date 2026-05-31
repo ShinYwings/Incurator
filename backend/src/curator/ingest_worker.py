@@ -54,7 +54,7 @@ class WorkerCallbacks(ingest_llm.IngestCallbacks):
             progress_current=0,
             progress_total=fragment_count,
         )
-        db.set_source_layer_status(self.paths.state_db, self.source_id, "l2", "running")
+        db.set_source_layer_status(self.paths.state_db, self.source_id, "l2", consts.STATUS_RUNNING)
 
     def on_fragment_written(self, _change) -> None:
         self.pages_seen += 1
@@ -87,7 +87,7 @@ class WorkerCallbacks(ingest_llm.IngestCallbacks):
         )
 
     def on_error(self, _error: str) -> None:
-        db.update_job_progress(self.paths.state_db, self.job_id, phase="error")
+        db.update_job_progress(self.paths.state_db, self.job_id, phase=consts.STATUS_ERROR)
 
 
 def enqueue_l2_l3_for_sources(
@@ -175,7 +175,7 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
                 # L3 failure is non-fatal for the job: L2 already committed
                 _log.warning("L3 clustering failed (non-fatal): %s", l3_err)
                 db.set_source_layer_status(
-                    paths.state_db, source_id, "l3", "error", error=str(l3_err)
+                    paths.state_db, source_id, "l3", consts.STATUS_ERROR, error=str(l3_err)
                 )
 
         in_tok, out_tok = 0, 0
@@ -214,7 +214,7 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
         else:
             db.mark_job_failed(paths.state_db, job_id, error_str)
             db.set_source_layer_status(
-                paths.state_db, source_id, "l2", "error", error=error_str
+                paths.state_db, source_id, "l2", consts.STATUS_ERROR, error=error_str
             )
         return {"ok": False, "job": job, "error": error_str}
     finally:
@@ -268,8 +268,8 @@ class IngestWorker(threading.Thread):
         auto-rerenders on file change — no extra plugin polling needed.
         """
         try:
-            running = db.list_ingest_jobs(self.paths.state_db, states=("running",), limit=20)
-            queued = db.list_ingest_jobs(self.paths.state_db, states=("queued",), limit=20)
+            running = db.list_ingest_jobs(self.paths.state_db, states=(consts.STATUS_RUNNING,), limit=20)
+            queued = db.list_ingest_jobs(self.paths.state_db, states=(consts.STATUS_QUEUED,), limit=20)
             done_today = db.get_jobs_done_today(self.paths.state_db)
 
             from datetime import datetime, timezone
@@ -303,7 +303,7 @@ class IngestWorker(threading.Thread):
                     f"{len(done_today)} jobs · {total_created} pages created · {total_updated} updated",
                 ]
 
-            dashboard = self.paths.root / ".curator" / "dashboard.md"
+            dashboard = self.paths.internal / consts.FILE_DASHBOARD_MD
             dashboard.parent.mkdir(parents=True, exist_ok=True)
             tmp = dashboard.with_suffix(".tmp")
             tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -392,7 +392,7 @@ class IngestWorker(threading.Thread):
             ]
 
             slug = re.sub(r"[^\w\-]", "_", source_slug)[:40]
-            out_path = self.paths.root / ".curator" / f"build_trace_{slug}.canvas"
+            out_path = self.paths.internal / f"build_trace_{slug}.canvas"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = out_path.with_suffix(".tmp")
             tmp.write_text(

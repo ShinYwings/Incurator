@@ -6,15 +6,15 @@ the tool-neutral development contract.
 
 ## Agent Rule Synchronization
 
-`AGENTS.md` is the canonical tool-neutral rule source. `CLAUDE.md`,
-`GEMINI.md`, and any future agent/provider-specific instruction files must stay
+`AGENTS.md` is the canonical tool-neutral rule source. `CLAUDE.md`
+and any future agent/provider-specific instruction files must stay
 synchronized with the behavioral and development rules in this file so every
 agent follows the same project contract, regardless of whether it is driven by
-Claude Code, Gemini CLI, Codex, Ollama, or another provider/runtime.
+Claude Code, Antigravity, Codex, Ollama, or another provider/runtime.
 
 When editing agent rules:
 
-- Update `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md` in the same change.
+- Update `AGENTS.md` and `CLAUDE.md` in the same change.
 - Keep shared rules semantically identical across all agent instruction files.
 - If a rule is tool-specific, label it clearly and keep the general contract in
   `AGENTS.md`.
@@ -113,9 +113,9 @@ work") require constant clarification.
 rewrites due to overcomplication, and clarifying questions come before
 implementation rather than after mistakes.
 
-### 6. Anti-Compression & Detail Preservation (Gemini Specific)
+### 6. Anti-Compression & Detail Preservation (Antigravity Specific)
 
-**Note: This rule specifically mitigates a Gemini length-matching bias, but serves as a general reminder for all agents.**
+**Note: This rule specifically mitigates an Antigravity length-matching bias, but serves as a general reminder for all agents.**
 
 **Never perform "lossy compression" on documentation. Do not artificially bound your output length.**
 
@@ -137,10 +137,10 @@ When editing existing files (especially specs, plans, and research notes):
 
 Concrete examples:
 
-- Adding a new MCP tool → add it to `docs/guides/MCP_USER_GUIDE.md` and `MCP_USER_GUIDE_EN.md`
-- Changing how `wiki init` works → update `docs/guides/USER_GUIDE.md` and `WORKFLOW.md`
-- Adding a plugin setting → add it to `docs/guides/PLUGIN_GUIDE.md` and `PLUGIN_GUIDE_EN.md`
-- Changing `.stignore` behavior → update `docs/guides/SYNC_IGNORE_GUIDE.md`
+- Adding a new MCP tool → add it to `docs/guides/MCP_USER_GUIDE_KR.md` and `MCP_USER_GUIDE.md`
+- Changing how `wiki init` works → update `docs/guides/USER_GUIDE_KR.md` and `WORKFLOW_KR.md`
+- Adding a plugin setting → add it to `docs/guides/PLUGIN_GUIDE_KR.md` and `PLUGIN_GUIDE.md`
+- Changing `.stignore` behavior → update `docs/guides/SYNC_IGNORE_GUIDE_KR.md`
 
 ### Test Requirements
 
@@ -149,6 +149,31 @@ Concrete examples:
 - CLI and MCP changes must pass testbed smoke validation (`VAULT_ROOT=testbed wiki <command>`).
 - Do not mark a task complete until tests pass and docs are updated.
 - If a test is impossible due to a known blocker (LLM unavailable, external dependency), document the gap explicitly.
+
+---
+
+## Core Rule: Automatic /goal Workflow Mandate
+
+Whenever a user requests a new feature, major change, or uses the `/goal` command, the agent MUST automatically follow this strict 4-step workflow without being explicitly prompted:
+
+1. **Plan First (Research & Design)**: Read the existing `docs/` to understand the current architecture. Then, write a detailed implementation plan in `.agents/plans/`. If there are design decisions or ambiguities, you MUST recommend the `/grill-me` slash command to align with the user through an interactive interview. **STOP** and wait for user approval before coding or changing docs.
+2. **Docs Update**: Once the plan is approved, update or create the relevant specifications in `docs/specs/` and user guides in `docs/guides/` to define the target behavior.
+3. **Test-Driven Development (TDD)**: Write failing tests (e.g., `pytest` or `testbed` scenarios) before writing the application logic.
+4. **Implementation**: Write the code to make the tests pass, referencing the updated docs and plan, keeping changes surgical and minimal.
+
+Do not skip straight to implementation. This workflow is non-negotiable for architectural changes or `/goal` requests.
+
+---
+
+## Core Rule: Cross-Agent Relay Protocol
+
+To prevent context fragmentation and hallucinations when switching between AI coding agents (Antigravity, Claude Code, Cursor/Codex), all agents MUST adhere to the following protocol:
+
+- **On Wakeup**: **CRITICAL INSTRUCTION FOR ALL AGENTS (CODEX, CLAUDE, ANTIGRAVITY)**. At the start of EVERY new conversation or session, the VERY FIRST ACTION you must take is to check if `.agents/relay.md` exists. If it does, you MUST read it in its entirety before taking ANY other action. Do NOT wait for the user to explicitly ask you to "resume work" or "read relay.md". If you fail to do this, you will cause severe context loss and code corruption.
+- **Update Frequency**: 
+  - Agents MUST update `.agents/relay.md` at the **end of every session** (before stopping execution).
+  - Agents MUST always keep `.agents/relay.md` updated during a `/goal` or when an implementation plan is active.
+- **Format**: Overwrite `.agents/relay.md` entirely using the standard template (Goal, Plan Reference, Analysis & Reasoning, Progress Status, Critical Context/Blockers, Immediate Next Action). Do not archive old states; maintain a single active state.
 
 ---
 
@@ -193,24 +218,23 @@ VAULT_ROOT=testbed wiki query "Summarize the core concepts in this vault."
 
 ## Architecture Source Of Truth
 
-The **entire `docs/` tree is source of truth**. Agents must read the relevant
-docs before implementing or changing behavior, not just the spec files.
+The **entire `docs/` tree is source of truth**. The system design becomes increasingly concrete across three distinct levels of documentation. Agents must read the relevant docs before implementing or changing behavior, and respect this hierarchy:
 
-When discussing or changing the system architecture, consult ALL of:
+1. **Philosophy (`docs/philosophy/`)**: The abstract intent and high-level principles of the system.
+2. **User Guides (`docs/guides/`)**: The concrete user-facing behavior and operational workflows.
+    - Guides are authoritative for CLI commands, MCP tools, plugin features, config fields, env vars, and workflow behaviors.
+3. **Static Specs (`docs/specs/`)**: The absolute concrete implementation details, system contracts, and schemas.
+    - `docs/specs/curator_schema/` for Curator DAG schema contracts.
+    - `docs/specs/system_behavior/` for Curator system behavior.
+    - `docs/specs/plugin_schema/` for Obsidian plugin API contracts.
 
-- **Static Specs**: `docs/spec/` for system contracts and schemas.
-    - `docs/spec/curator_schema/` for Curator DAG schema contracts.
-    - `docs/spec/system_behavior/` for Curator system behavior.
-    - `docs/spec/plugin_schema/` for Obsidian plugin API contracts.
-- **User Guides**: `docs/guides/` for user-facing behavior and feature descriptions.
-    - Guides are authoritative for CLI commands, MCP tools, plugin features,
-      config fields, env vars, and workflow behaviors.
-    - If code behavior diverges from a guide, both are wrong until reconciled.
-      Do not treat guides as subordinate to specs — fix both together.
-- **Dynamic Planning**: `docs/plans/` for implementation sequencing and context.
-    - `docs/plans/update_plan/` for migration and feature implementation plans.
-    - Plans describe *how* to implement; specs describe *what* to implement.
-      When they conflict, specs and guides win over plans.
+When they conflict, the more concrete layer (spec) dictates the implementation reality, but any divergence means both are wrong until reconciled. Do not treat guides as subordinate to specs — fix both together.
+
+**Dynamic Planning**: `.agents/plans/` for implementation sequencing and context.
+- `.agents/plans/2024-05_v0.2.1_update/` for migration and feature implementation plans.
+- **CRITICAL**: When creating architectural or feature implementation plans, all agents (Codex, Claude, Antigravity) MUST write their plan artifacts into `.agents/plans/` (instead of default temporary directories). You MUST read `.agents/plans/` for historical context before modifying existing systems.
+- Plans describe *how* to implement; specs describe *what* to implement.
+  When they conflict, specs and guides win over plans.
 
 Treat older root-level specs as historical unless the user explicitly points to them for comparison.
 
@@ -218,26 +242,26 @@ Treat older root-level specs as historical unless the user explicitly points to 
 
 Before implementing any behavior change, the agent MUST:
 
-1. Read the relevant spec in `docs/spec/` to understand the schema and behavior contract.
+1. Read the relevant spec in `docs/specs/` to understand the schema and behavior contract.
 2. Read the relevant guide in `docs/guides/` to understand the expected user experience.
-3. Read any relevant plan in `docs/plans/` to understand implementation sequencing.
+3. Read any relevant plan in `.agents/plans/` to understand implementation sequencing.
 4. After implementing, update ALL three areas that describe the changed behavior.
 
 ### Spec-First Version Development
 
 Before implementing any new versioned architecture work (for example v0.2.1,
 v0.2.2, or a new DAG/schema/MCP behavior change), the agent MUST first create or
-update the matching `docs/spec/` contract:
+update the matching `docs/specs/` contract:
 
-- Schema changes go in `docs/spec/curator_schema/SCHEMA_vX.Y.Z.md`.
-- Runtime behavior changes go in `docs/spec/system_behavior/incurator_vX.Y.Z.md`.
-- Plugin API changes go in `docs/spec/plugin_schema/PLUGIN_SCHEMA_vX.Y.Z.md`.
-- `docs/plans/update_plan/` may then reference those spec files as implementation
+- Schema changes go in `docs/specs/curator_schema/SCHEMA_vX.Y.Z.md`.
+- Runtime behavior changes go in `docs/specs/system_behavior/incurator_vX.Y.Z.md`.
+- Plugin API changes go in `docs/specs/plugin_schema/PLUGIN_SCHEMA_vX.Y.Z.md`.
+- `.agents/plans/2024-05_v0.2.1_update/` may then reference those spec files as implementation
   plans, but plans alone are not sufficient ground truth.
 - If code has already been written before the spec exists, stop and add the
   missing spec and guide entries before continuing implementation.
 - Tests should include a lightweight guard when practical so version plans cannot
-  drift away from the required `docs/spec/` contract.
+  drift away from the required `docs/specs/` contract.
 
 ## v0.2.0 Invariants
 

@@ -13,11 +13,13 @@ import json
 from pathlib import Path
 
 
-_DISMISSED_FILE = "contradiction_dismissed.json"
+from . import constants as consts
+
+_DISMISSED_FILE = consts.FILE_DISMISSED_CONTRADICTIONS
 
 
 def _storage_path(paths) -> Path:
-    return paths.root / ".curator" / _DISMISSED_FILE
+    return paths.internal / _DISMISSED_FILE
 
 
 def load_dismissed(paths) -> list[dict]:

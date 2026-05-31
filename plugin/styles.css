@@ -2399,12 +2399,26 @@
 
 .ai-agent-job-title-row {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
 }
 
-.ai-agent-job-name { font-weight: 600; }
-.ai-agent-job-phase { color: var(--text-muted); }
+.ai-agent-job-name { 
+  font-weight: 600; 
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-agent-job-phase { 
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.ai-agent-job-time {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
 
 .ai-agent-progress-row {
   display: flex;

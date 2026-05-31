@@ -30,7 +30,7 @@ dependencies = [
 gemini = [
     "google-generativeai>=0.7.0",
 ]
-# MCP server: lets workspace agents (Claude Code, Gemini CLI, etc.) query the
+# MCP server: lets workspace agents (Claude Code, Antigravity, etc.) query the
 # Curator DAG and proxy to the local qmd MCP. Install with:
 #   uv pip install -e '.[mcp]'
 mcp = [

@@ -1,213 +1,213 @@
-# Obsidian 플러그인 가이드 (incurator-agent)
+# Obsidian Plugin Guide (incurator-agent)
 
-> Incurator Obsidian 플러그인은 Obsidian Vault 안에서 AI 어시스턴트를 제공합니다.  
-> 단독으로 사용하거나, Curator 백엔드(wiki CLI)와 연동해 지식 그래프 기반 답변을 생성할 수 있습니다.
+> The Incurator Obsidian plugin brings an AI assistant directly into your Obsidian Vault.  
+> Use it standalone or connect it to the Curator backend (wiki CLI) for knowledge-graph-backed answers.
 
-[English Guide](PLUGIN_GUIDE_EN.md)
+[한국어 가이드](PLUGIN_GUIDE_KR.md)
 
 ---
 
-## 1. 설치
+## 1. Installation
 
-플러그인 설치는 **Vault 생성 시 `wiki init` 마법사**를 통해 대화형으로 자동 진행됩니다.
+Plugin installation is now handled interactively via the **`wiki init` wizard** when creating a vault.
 
 ```bash
-# 1. 백엔드 설치
+# 1. Install backend dependencies
 ./setup.sh
 
-# 2. Vault 생성 및 플러그인 자동 설치
+# 2. Initialize vault and auto-install plugin
 wiki init /path/to/vault
 ```
 
-`wiki init` 과정에서 플러그인 설치를 수락하면, 빌드 결과물(`main.js`, `manifest.json`, `styles.css`)이  
-`<vault>/.obsidian/plugins/incurator-obsidian-agent/`로 자동 복사됩니다.
+During `wiki init`, if you choose to build the plugin, the output (`main.js`, `manifest.json`, `styles.css`) is copied to  
+`<vault>/.obsidian/plugins/incurator-obsidian-agent/` automatically.
 
-Obsidian → **설정 > 커뮤니티 플러그인 > 설치된 플러그인**에서 `AI Agent`를 활성화하세요.
+In Obsidian, go to **Settings → Community Plugins → Installed Plugins** and enable `AI Agent`.
 
-> **참고:** 수동으로 플러그인만 별도 빌드해야 하는 경우, `plugin/` 폴더에서 `npm install` 및 `npm run build`를 실행하세요.
+> **Note:** If you need to build the plugin manually, run `npm install` and `npm run build` inside the `plugin/` directory.
 
 ---
 
-## 2. 채팅 사이드바
+## 2. Chat Sidebar
 
-### 열기
+### Opening
 
-| 방법 | 동작 |
+| Method | Action |
 | --- | --- |
-| 왼쪽 사이드바 리본 아이콘(bot) 클릭 | 채팅 사이드바 열기/닫기 |
-| `Cmd+Shift+;` | 채팅 사이드바 토글 |
+| Click the bot ribbon icon in the left sidebar | Toggle chat sidebar |
+| `Cmd+Shift+;` | Toggle chat sidebar |
 
-### 기능
+### Features
 
-- **멀티턴 대화**: 세션 히스토리가 유지됩니다. 여러 세션을 생성·전환할 수 있습니다.
-- **Codex 스타일 사이드바**: 상단 thread header에서 새 대화와 대화 목록을 열고, 대화 목록은 사이드바 안에서 검색·전환·삭제합니다.
-- **스트리밍 응답**: 기본값으로 활성화되어 있으며, 설정에서 끌 수 있습니다.
-- **컨텍스트 참조**: 텍스트, PDF 페이지, 이미지 스니펫을 메시지에 첨부해 질문합니다.
-- **Plan 모드**: `chatMode: plan`으로 전환 시 AI가 단계별 계획을 먼저 제시합니다.
-- **Incurator 연동**: Curator 백엔드가 연결된 경우 Exhibition 기반 검색 결과를 컨텍스트로 주입합니다.
+- **Multi-turn conversation**: Session history is preserved. Create and switch between multiple sessions.
+- **Codex-style sidebar**: New chat and conversation history live in the top thread header; history opens as an in-sidebar searchable drawer.
+- **Streaming responses**: Enabled by default; can be turned off in settings.
+- **Context references**: Attach text, PDF pages, or image snippets to your messages.
+- **Plan mode**: With `chatMode: plan`, the AI presents a step-by-step plan before acting.
+- **Incurator integration**: When connected to a Curator backend, Exhibition search results are injected as context.
 
 ---
 
-## 3. 인라인 편집 (`Cmd+K`)
+## 3. Inline Edit (`Cmd+K`)
 
-마크다운 편집기에서 텍스트를 선택한 뒤 `Cmd+K`를 누르면 인라인 프롬프트 위젯이 열립니다.
+Select text in a Markdown editor then press `Cmd+K` to open the inline prompt widget.
 
-- **선택 없음**: 전체 문서 맥락으로 편집 명령을 입력합니다.
-- **텍스트 선택 후**: 선택 영역만 대상으로 편집됩니다.
-- **결과 표시**: 변경 전후를 인라인 Diff로 보여주며, 적용(Accept) 또는 거부(Reject) 선택 가능합니다.
-- **Diff 모드**: 설정에서 `inline` 또는 `side-by-side` 중 선택합니다.
+- **No selection**: The whole document is used as context for the edit command.
+- **With selection**: Only the selected region is targeted.
+- **Result display**: Changes are shown as an inline diff; choose Accept or Reject.
+- **Diff mode**: Choose `inline` or `side-by-side` in settings.
 
 ```text
-편집기에서 텍스트 선택
+Select text in editor
        │
        │ Cmd+K
        ▼
-인라인 프롬프트 위젯 (명령 입력)
+Inline prompt widget (enter command)
        │
        ▼
-LLM이 제안 생성 → Diff 표시 → Accept / Reject
+LLM generates suggestion → Diff shown → Accept / Reject
 ```
 
 ---
 
-## 4. 라인 참조 (`Cmd+Shift+L`)
+## 4. Line Reference (`Cmd+Shift+L`)
 
-현재 보고 있는 내용을 채팅 컨텍스트로 추가합니다.
+Adds the currently viewed content to the chat as a context reference.
 
-| 뷰 타입 | 동작 |
-| --- | --- |
-| **마크다운 파일** | 현재 커서 근처 텍스트를 컨텍스트 참조로 추가 |
-| **PDF 뷰어** (선택 있음) | 선택한 텍스트를 컨텍스트에 추가 |
-| **PDF 뷰어** (선택 없음) | 현재 페이지 전체를 컨텍스트로 추가 (`pdfCaptureMode`에 따라 텍스트·이미지·양쪽) |
+| View type | Behavior |
+|-----------|----------|
+| **Markdown file** | Adds text near the cursor as a context reference |
+| **PDF viewer** (with selection) | Adds selected text to context |
+| **PDF viewer** (no selection) | Adds the full current page as context (text/image/both per `pdfCaptureMode`) |
 
-Incurator PDF 뷰어의 텍스트 선택은 실제 텍스트 span 위에서만 시작됩니다. PDF의 빈 여백을 드래그해도 선택 영역이 생기지 않도록 처리합니다.
+Text selection in the Incurator PDF viewer starts only on actual text spans. Dragging over empty PDF margins does not create a selection region.
 
-### Markdown 작업 위치 복원
+### Markdown Position Restore
 
-플러그인은 Obsidian을 끌 때 활성 편집 모드 Markdown 파일의 커서와 스크롤 위치를 마지막 작업 위치로 저장합니다. Obsidian을 다시 켜면 workspace layout이 준비된 뒤 그 파일과 위치를 여러 번 재시도해 복원합니다.
+When Obsidian shuts down, the plugin saves the active editing-mode Markdown file's cursor and scroll position as the last workspace position. After restarting Obsidian, the plugin waits for the workspace layout and retries restoring that file and position.
 
-마지막 작업 위치는 별도 snapshot으로 저장되며, 파일별 위치 캐시는 보조 기록으로 최대 100개까지 보관됩니다.
-
----
-
-## 5. PDF 스니핑 (`Cmd+Shift+X`)
-
-PDF 뷰어에서 특정 영역을 마우스로 드래그해 캡처합니다.
-
-1. PDF 파일을 Incurator 뷰어에서 열기 (`.pdf` 파일을 우클릭 → Open with Incurator)
-2. `Cmd+Shift+X` → 스니핑 모드 진입
-3. 원하는 영역을 드래그 → 이미지로 캡처됨
-4. 캡처된 이미지가 채팅 사이드바 컨텍스트에 자동 첨부
-
-> **참고**: 스니핑은 Incurator 전용 PDF 뷰어(`EXTERNAL_PDF_VIEW_TYPE`)에서만 동작합니다.  
-> Obsidian 기본 PDF 뷰어에서는 `Cmd+Shift+L`로 페이지 전체를 참조하세요.
+The last workspace position is stored as a separate snapshot; per-file positions are kept only as a secondary cache for up to 100 file paths.
 
 ---
 
-## 6. PDF 처리 설정
+## 5. PDF Snipping (`Cmd+Shift+X`)
 
-플러그인은 PDF 파일을 컨텍스트로 사용할 때 세 가지 캡처 모드를 제공합니다.
+Drag-select a region of a PDF to capture it as an image.
 
-| `pdfCaptureMode` | 설명 |
-| --- | --- |
-| `text` | PDF 텍스트 레이어만 추출 (빠름, 토큰 효율적) |
-| `image` | 페이지를 이미지로 캡처 (비전 모델 필요) |
-| `both` | 텍스트 + 이미지 동시 전송 (기본값, 가장 정확함) |
+1. Open a PDF in the Incurator viewer (right-click `.pdf` → Open with Incurator)
+2. Press `Cmd+Shift+X` to enter snipping mode
+3. Drag over the desired area — it is captured as an image
+4. The captured image is automatically attached to the chat sidebar context
 
-### 추가 PDF 옵션
-
-| 설정 | 기본값 | 설명 |
-| --- | --- | --- |
-| `pdfWindowRadius` | `1` | 현재 페이지 앞뒤로 포함할 페이지 수 |
-| `pdfOutlineEnabled` | `true` | PDF 목차(아웃라인) 컨텍스트 포함 여부 |
-| `pdfRagEnabled` | `true` | 전체 PDF 내 RAG 검색 활성화 |
-| `pdfRagTopK` | `5` | RAG 검색 상위 결과 수 |
-| `pdfVisionFallback` | `true` | 텍스트 레이어 없을 시 자동 이미지 모드 전환 |
-| `pdfFullDocumentIndex` | `true` | PDF 전체 색인 생성 (RAG 정확도 향상) |
+> **Note**: Snipping only works in the Incurator PDF viewer (`EXTERNAL_PDF_VIEW_TYPE`).  
+> For Obsidian's built-in PDF viewer, use `Cmd+Shift+L` to reference the whole page.
 
 ---
 
-## 7. AI 제공자 설정
+## 6. PDF Processing Settings
 
-플러그인은 세 가지 AI 제공자를 지원합니다. 설정 탭에서는 제공자와 모델을 따로 조정할 수 있고, 채팅 사이드바 하단에서는 하나의 모델 선택 메뉴에서 `Provider · Model` 형식으로 함께 전환합니다. reasoning/effort 메뉴는 Codex와 Claude에서만 표시됩니다.
+The plugin offers three capture modes when using a PDF as context.
+
+| `pdfCaptureMode` | Description |
+|------------------|-------------|
+| `text` | Extract text layer only (fast, token-efficient) |
+| `image` | Capture page as image (requires vision-capable model) |
+| `both` | Send text + image together (default, most accurate) |
+
+### Additional PDF options
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `pdfWindowRadius` | `1` | Pages before/after current page to include |
+| `pdfOutlineEnabled` | `true` | Include PDF table of contents in context |
+| `pdfRagEnabled` | `true` | Enable RAG search across the full PDF |
+| `pdfRagTopK` | `5` | Number of top RAG results to retrieve |
+| `pdfVisionFallback` | `true` | Auto-switch to image mode when text layer is absent |
+| `pdfFullDocumentIndex` | `true` | Index the entire PDF for better RAG accuracy |
+
+---
+
+## 7. AI Provider Settings
+
+The plugin supports three AI providers. In settings, provider and model can be adjusted separately. In the chat sidebar footer, a single model menu switches both at once using `Provider · Model` labels. Reasoning/effort appears only for Codex and Claude.
 
 > [!NOTE]
-> **Incurator Dashboard → Overview → LLM Provider** 카드에서도 보관소(`.curator/config.yml`)의 Primary/Fallback 모델을 바꿀 수 있습니다. 각 모델 드롭다운 옆에는 **effort 드롭다운**이 함께 표시되며, 선택한 모델이 노출하는 강도만 보여줍니다 (강도가 없는 모델은 `—`). Apply 시 `llm.primary_effort` / `llm.fallback_effort` 로 저장됩니다. 모델 목록은 백엔드의 `data/models.json` 카탈로그(단일 소스)에서 자동으로 채워집니다.
+> The **Incurator Dashboard → Overview → LLM Provider** card also edits the vault's (`​.curator/config.yml`) Primary/Fallback models. Each model dropdown is paired with an **effort dropdown** that shows only the levels the selected model exposes (models with no effort show `—`). Applying saves to `llm.primary_effort` / `llm.fallback_effort`. The model list is populated automatically from the backend's single-source `data/models.json` catalogue.
 
-### 7.1 Antigravity (기본값)
+### 7.1 Antigravity (default)
 
-Gemini CLI (`agy`)를 통해 Google Gemini 모델에 접근합니다.
+Accesses Google Gemini models via the Antigravity CLI (`agy`).
 
 ```bash
-# 로그인
+# Login
 agy login
-# 또는 플러그인 내 명령: Login to Antigravity CLI
+# Or use the plugin command: Login to Antigravity CLI
 ```
 
-| 모델 | 설명 |
-| --- | --- |
-| `gemini-3.5-flash` | 기본값. 빠르고 효율적 |
-| `gemini-3.1-pro` | 고품질 추론 |
-| `gemini-3-flash` | 이전 세대 Flash |
+| Model | Description |
+|-------|-------------|
+| `gemini-3.5-flash` | Default. Fast and efficient |
+| `gemini-3.1-pro` | High-quality reasoning |
+| `gemini-3-flash` | Previous-generation Flash |
 
-`antigravityPrintTimeoutSec`: CLI 응답 최대 대기 시간 (기본 300초)
+`antigravityPrintTimeoutSec`: Maximum wait time for CLI response (default 300 seconds)
 
 ### 7.2 Claude
 
-Claude Code CLI (`claude`)를 통해 Anthropic 모델에 접근합니다.
+Accesses Anthropic models via Claude Code CLI (`claude`).
 
 ```bash
-# 로그인
+# Login
 claude login
-# 또는 플러그인 내 명령: Login to Claude CLI
+# Or use the plugin command: Login to Claude CLI
 ```
 
-`claudeEffort`: `low` / `medium` / `high` / `xhigh` / `max` 중 선택
+`claudeEffort`: Choose from `low` / `medium` / `high` / `xhigh` / `max`
 
 ### 7.3 OpenAI Codex
 
-OpenAI Codex CLI (`codex`)를 통해 GPT 모델에 접근합니다.
+Accesses GPT models via OpenAI Codex CLI (`codex`).
 
 ```bash
-# 로그인
+# Login
 codex login
-# 또는 플러그인 내 명령: Login to OpenAI Codex CLI
+# Or use the plugin command: Login to OpenAI Codex CLI
 ```
 
-`codexReasoningEffort`: `low` / `medium` / `high` / `xhigh` 중 선택
+`codexReasoningEffort`: Choose from `low` / `medium` / `high` / `xhigh`
 
-| 모델 | 설명 |
+| Model | Description |
 | --- | --- |
-| `gpt-5.5` | 기본값. 강력한 추론 |
-| `gpt-5.4` | 일상 코딩 작업 |
-| `gpt-5.4-mini` | 빠른 경량 작업 |
-| `gpt-5.3-codex` | 코딩 특화 모델 |
+| `gpt-5.5` | Default. Powerful reasoning |
+| `gpt-5.4` | Everyday coding tasks |
+| `gpt-5.4-mini` | Fast, lightweight tasks |
+| `gpt-5.3-codex` | Coding-specialized model |
 
-### 7.4 Ollama (로컬)
+### 7.4 Ollama (Local)
 
-로컬 Ollama 서버에 직접 HTTP로 연결합니다. 인증 없음, 완전 오프라인.
+Connects directly to a local Ollama server via HTTP. No authentication required, fully offline.
 
 ```bash
-# Ollama 서버 시작
+# Start the Ollama server
 ollama serve
 
-# 모델 설치
+# Pull a model
 ollama pull qwen2.5:7b
 ```
 
-설정:
+Settings:
 
-- **Ollama host**: Ollama 서버 주소 (기본값: `http://localhost:11434`)
-- **Model**: 설치된 모델 이름 직접 입력 또는 **Fetch models** 버튼으로 목록 조회
-- Vision 지원 여부는 모델에 따라 다름 (예: `gemma3:12b` 지원, `qwen2.5:7b` 미지원)
+- **Ollama host**: Server address (default: `http://localhost:11434`)
+- **Model**: Type a model name directly or click **Fetch models** to list installed models
+- Vision support varies by model (e.g. `gemma3:12b` supports vision, `qwen2.5:7b` does not)
 
 ---
 
-## 8. MCP 서버 설정
+## 8. MCP Server Configuration
 
-플러그인이 외부 MCP 도구를 사용하도록 설정할 수 있습니다.
+Configure the plugin to use external MCP tools.
 
-**설정 > AI Agent > MCP Servers**에서 서버를 추가합니다.
+Go to **Settings → AI Agent → MCP Servers** and add a server:
 
 ```json
 {
@@ -221,169 +221,169 @@ ollama pull qwen2.5:7b
 }
 ```
 
-> **주의**: `VAULT_ROOT`는 반드시 Vault 경로(`.curator/`가 있는 곳)를 가리켜야 합니다.  
-> Wiki 시스템(Incurator 코드) 경로나 testbed 경로를 설정하지 마세요.
+> **Important**: `VAULT_ROOT` must point to your Vault directory (where `.curator/` lives).  
+> Do not set it to the wiki system (Incurator code) path or a testbed path.
 
 ---
 
-## 9. Incurator 연동
+## 9. Incurator Integration
 
-`incuratorEnabled: true`로 설정하면 플러그인이 Curator 백엔드와 연동됩니다.
+With `incuratorEnabled: true`, the plugin connects to the Curator backend.
 
-### 동작 방식
+### How it works
 
 ```text
-채팅 메시지 입력
+User types a chat message
       │
-      │ (Incurator 연동 활성화 시)
+      │ (Incurator integration active)
       ▼
-IncuratorClient가 MCP를 통해 search_curator 호출
-      │
-      ▼
-Exhibition 검색 결과를 시스템 컨텍스트로 주입
+IncuratorClient calls search_curator via MCP
       │
       ▼
-LLM이 Exhibition 내용을 근거로 답변 생성
+Exhibition search results injected as system context
+      │
+      ▼
+LLM generates answer grounded in Exhibition content
 ```
 
-### Incurator 연동 설정
+### Incurator settings
 
-| 설정 | 기본값 | 설명 |
-| --- | --- | --- |
-| `incuratorEnabled` | `true` | Curator 백엔드 연동 활성화 |
-| `incuratorRepoPath` | `""` | 백엔드 자동 업데이트를 위한 Incurator 저장소 절대 경로 |
-| `incuratorDefaultDestination` | `04_Resources` | PDF 임포트 기본 대상 폴더 |
-| `incuratorDefaultImportMode` | `reference` | 파일 임포트 방식 (`copy` / `reference`) |
-| `incuratorStatusPolling` | `true` | 소스 처리 상태 폴링 활성화 |
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `incuratorEnabled` | `true` | Enable Curator backend integration |
+| `incuratorRepoPath` | `""` | Absolute path to the Incurator repository for 1-Click Auto-Updates |
+| `incuratorDefaultDestination` | `04_Resources` | Default destination folder for PDF imports |
+| `incuratorDefaultImportMode` | `reference` | Import mode for files (`copy` / `reference`) |
+| `incuratorStatusPolling` | `true` | Poll for source processing status updates |
 
-### 백엔드 자동 업데이트 (1-Click Auto-Update)
+### 1-Click Auto-Update
 
-Incurator 백엔드와 Obsidian 플러그인은 각기 다른 주기로 업데이트될 수 있습니다. 플러그인은 시작 시 MCP를 통해 백엔드 버전을 확인(`curator_get_version`)하며, 버전 불일치(Mismatch)가 감지되면 채팅 창 상단에 **[Update Incurator Backend]** 배너를 표시합니다.
-설정에서 `incuratorRepoPath`에 로컬 저장소 경로를 지정해 두었다면, 버튼 클릭 한 번으로 백그라운드에서 백엔드를 최신 버전으로 자동 업데이트하고 MCP 서버를 재시작합니다.
+The Incurator backend and the Obsidian plugin may be updated at different frequencies. When the plugin connects, it checks the backend version via MCP (`curator_get_version`). If a mismatch is detected, the plugin displays an **[Update Incurator Backend]** banner at the top of the chat window.
+If you have configured the `incuratorRepoPath` in the plugin settings, clicking this button will automatically execute a background update (`git pull && ./setup.sh`) and restart the MCP server.
 
-`Use Incurator backend`는 Incurator MCP 도구 사용 여부를 제어합니다. 켜면 플러그인이 현재 vault 경로를 `VAULT_ROOT`로 넣은 기본 `incurator` 서버(`wiki mcp`)를 자동 생성하고 즉시 연결을 시도합니다. 설정 화면의 이 항목 아래에는 현재 상태가 표시됩니다: disabled, connected, waiting, not configured. 범용 MCP Servers 섹션은 다른 MCP 서버를 관리하거나 자동 생성된 Incurator 서버를 고급 설정할 때 사용합니다.
+`Use Incurator backend` controls whether the plugin uses Incurator MCP tools. When enabled, the plugin automatically creates the default `incurator` server (`wiki mcp`) with the current vault path as `VAULT_ROOT` and immediately tries to connect. The setting shows a status bar directly underneath: disabled, connected, waiting, or not configured. The generic MCP Servers section remains available for other MCP servers or advanced edits to the generated Incurator server.
 
-### PDF → Curator 등록 흐름
+### PDF → Curator registration flow
 
-Incurator 연동이 켜진 상태에서 PDF를 참조하면:
+When Incurator integration is on and you reference a PDF:
 
 ```text
-Cmd+Shift+L (또는 Cmd+Shift+X)으로 PDF 캡처
+Cmd+Shift+L (or Cmd+Shift+X) captures PDF content
       │
-      │ MCP: curator_import_source 호출
+      │ MCP: curator_import_source
       ▼
-Curator 백엔드에 소스 등록
+Source registered in Curator backend
       │
-      │ L1 → L2 → L3 처리 (백그라운드)
+      │ L1 → L2 → L3 processing (background)
       ▼
-wiki curate 실행 → L4 Exhibition 갱신
+wiki curate → L4 Exhibition updated
       │
       ▼
-이후 search_curator로 검색 가능
+Searchable via search_curator
 ```
 
 ---
 
-## 10. 동기화 주의사항
+## 10. Sync Notes
 
-### 세션 히스토리 (sessions.json)
+### Session history (`sessions.json`)
 
-플러그인 데이터는 두 파일로 분리 저장됩니다.
+Plugin data is split into two files.
 
-| 파일 | 내용 | 기기 간 동기화 |
+| File | Contents | Cross-device sync |
 | --- | --- | --- |
-| `data.json` | 설정(provider, model, MCP 서버 등) | 경로가 같을 때만 권장 |
-| `sessions.json` | 채팅 대화 히스토리 | 가능 |
+| `data.json` | Settings such as provider, model, and MCP servers | Recommended only when paths match |
+| `sessions.json` | Chat conversation history | Supported |
 
-v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 읽고 세션 id 단위로 병합합니다. 따라서 Linux와 macOS에서 서로 다른 채팅 세션을 만들면 두 세션이 함께 보존됩니다. 삭제된 세션은 `deletedSessionIds` tombstone에 남아 Syncthing 지연으로 오래된 파일이 도착해도 되살아나지 않습니다. 단, 같은 세션을 양쪽에서 동시에 편집한 경우에는 더 최신 `updatedAt`을 가진 세션이 이깁니다.
+In v0.2.1, the plugin re-reads the latest on-disk `sessions.json` before saving and merges by session id. This preserves distinct sessions created on Linux and macOS. Deleted sessions are recorded in `deletedSessionIds` tombstones so an older synced file does not resurrect them later. If the same session is edited on both devices concurrently, the copy with the newer `updatedAt` timestamp wins.
 
-backend 실행 경로가 기기마다 다르거나 한쪽 기기에 Incurator가 설치되어 있지 않다면 `data.json`은 동기화하지 않는 편이 안전합니다. 이 경우 `.stignore`에는 `sessions.json` 대신 `data.json`을 추가합니다.
+If the backend executable path differs per device, or one device does not have Incurator installed, keep `data.json` local instead of synchronizing it. In that setup, add `data.json` to `.stignore`, not `sessions.json`.
 
 ```text
 .obsidian/plugins/incurator-obsidian-agent/data.json
 ```
 
-macOS에 `wiki` 실행 파일이 PATH에 없다면 **Settings > AI Agent > PDF & Incurator**에서 `Incurator MCP command`와 `Incurator MCP args`를 해당 기기 기준으로 설정합니다. 예를 들어 repo는 있지만 backend가 전역 설치되어 있지 않은 경우:
+If `wiki` is not available on PATH on macOS, configure **Settings > AI Agent > PDF & Incurator** with a per-device launcher:
 
-| 설정 | 값 |
+| Setting | Value |
 | --- | --- |
 | `Incurator MCP command` | `/opt/homebrew/bin/uv` |
 | `Incurator MCP args` | `["--directory", "/Users/<you>/Workspace/Incurator/backend", "run", "wiki", "mcp"]` |
 
-Obsidian plugin은 시작 시 Syncthing이 공유 중인 device 목록과 현재 기기의 backend launcher hint를 `.curator/devices.json`에 자동 기록합니다. 이 registry는 `data.json`을 동기화하지 않아도 Linux/macOS 설정 차이를 서로 확인하는 용도로 사용할 수 있습니다. `wiki devices sync`는 자동 갱신이 실패했을 때 쓰는 수동 복구 명령입니다.
+On startup, the Obsidian plugin automatically records Syncthing device names and
+the current device's backend launcher hint in `.curator/devices.json`. This
+registry lets Linux/macOS path differences be visible without synchronizing
+plugin `data.json`. `wiki devices sync` is a manual repair command when the
+automatic refresh is unavailable.
 
-자세한 동기화 설정은 [SYNC_IGNORE_GUIDE.md](SYNC_IGNORE_GUIDE.md)를 참조하세요.
-
-### 외부 PDF 재시작 제한
-
-ExternalPdfView에 드래그한 PDF는 Obsidian이 실행 중인 동안만 파일 객체(File)가 메모리에 유지됩니다. Obsidian 재시작 후에는 캡처된 절대 경로(`doc.path`)로만 접근하므로, 파일이 이동·삭제된 경우 PDF를 다시 드래그해야 합니다.
+See [SYNC_IGNORE_GUIDE.md](SYNC_IGNORE_GUIDE.md) for the full synchronization setup.
 
 ---
 
-## 11. Zotero 연동
+## 11. Zotero Integration
 
-Zotero 데이터 디렉토리를 설정하면, 마크다운 노트에서 Zotero 링크(`zotero://open-pdf/library/items/<KEY>?page=X`)를 클릭할 때 Zotero를 실행하지 않고도 해당 PDF를 플러그인 내장 뷰어로 직접 열 수 있습니다.
-- 링크에 `?page=X` 파라미터가 포함되어 있으면 해당 페이지로 자동 스크롤됩니다.
-- 링크에 `annotation=<KEY>&viewer=obsidian` 파라미터가 포함되어 있으면 같은 PDF 뷰를 재사용해 해당 페이지와 주석 위치로 이동하며, 주석 영역은 내용을 가리지 않는 빈 테두리 박스로 표시됩니다.
-- 링크에 `viewer=zotero` 파라미터가 포함되어 있으면 플러그인이 가로채지 않고 Zotero 앱으로 넘깁니다.
-- 동일한 PDF에 대한 링크를 여러 번 클릭하더라도 새 창을 열지 않고 기존 스플릿 뷰를 재사용하여 페이지를 이동합니다.
+When a Zotero data directory is configured, clicking a `zotero://open-pdf/library/items/<KEY>?page=X` link in a Markdown note opens the PDF directly in the built-in viewer — no Zotero app required.
+- If the link contains a `?page=X` parameter, the viewer will automatically scroll to that page.
+- If the link contains `annotation=<KEY>&viewer=obsidian`, the existing PDF view is reused and navigated to that page and annotation location; the annotation area is shown as an empty outline box so the PDF content remains visible.
+- If the link contains `viewer=zotero`, the plugin lets the link open in Zotero instead.
+- Clicking multiple Zotero links for the same PDF will re-use the existing split view rather than opening new ones.
 
-### 설정
+### Setup
 
-**설정 > AI Agent > Zotero 연동 > Zotero 데이터 디렉토리**에 Zotero 데이터 폴더 경로를 입력합니다.
+Go to **Settings > AI Agent > Zotero Integration > Zotero data directory** and enter the path to your Zotero data folder.
 
-| 운영체제 | 기본 경로 |
+| OS | Default path |
 | --- | --- |
 | macOS | `~/Zotero` |
 | Linux | `~/Zotero` |
 | Windows | `C:\Users\<username>\Zotero` |
 
-이 디렉토리 안에 `storage/` 폴더가 있어야 합니다.
+The directory must contain a `storage/` subfolder.
 
 ### Import Zotero Item
 
-`Import Zotero Item` 검색창을 비워두면 최근 수정된 Zotero 항목을 `dateModified` 최신순으로 표시합니다. 설정값에는 여러 Zotero 데이터 디렉토리를 쉼표로 입력할 수 있으며, 플러그인은 각 경로의 `zotero.sqlite`를 순서대로 확인합니다.
+Leaving the `Import Zotero Item` search box blank shows recently modified Zotero items ordered by `dateModified`. The Zotero directory setting may contain multiple comma-separated data directories; the plugin checks each path's `zotero.sqlite` in order.
 
-### Zotero 링크 처리 흐름
+### Zotero link flow
 
 ```text
-마크다운 노트에서 zotero:// 링크 클릭
+Click zotero:// link in a Markdown note
       │
-      │ (Zotero 데이터 디렉토리가 설정된 경우)
+      │ (Zotero data directory is configured)
       ▼
-플러그인이 클릭 이벤트 가로채기 (Zotero 앱 실행 방지)
+Plugin intercepts click (prevents Zotero app from opening)
       │
-      │ storage/<ATTACHMENTKEY>/*.pdf 탐색
+      │ Scans storage/<ATTACHMENTKEY>/*.pdf
       ▼
-PDF 파일 경로 확인 → Split 뷰로 내장 뷰어 오픈
+Resolves PDF path → opens in built-in viewer (split view)
       │
       ▼
-Cmd+Shift+L로 채팅 컨텍스트 참조, Incurator 인제스트 가능
+Use Cmd+Shift+L to add to chat context or trigger Incurator ingest
 ```
 
-### Zotero 링크 생성 방법
+### Generating Zotero links
 
-Zotero에서 논문 항목을 우클릭 → **항목 링크 복사**하거나, [Zotero Integration](https://github.com/mgmeyers/obsidian-zotero-integration) 플러그인을 사용해 `zotero://` 링크가 포함된 노트를 자동 생성합니다.
+Right-click an item in Zotero → **Copy Item Link**, or use the [Zotero Integration](https://github.com/mgmeyers/obsidian-zotero-integration) plugin to auto-generate notes that include `zotero://` links.
 
-> **참고**: Zotero 데이터 디렉토리가 설정되지 않은 경우 링크 클릭은 기본 동작(브라우저/Zotero 앱 열기)을 유지합니다.
-
----
-
-## 12. 단축키 요약
-
-| 단축키 | 기능 |
-| --- | --- |
-| `Cmd+K` | 인라인 편집 (마크다운 에디터에서) |
-| `Cmd+Shift+L` | 현재 내용을 채팅 컨텍스트로 추가 (마크다운·PDF) |
-| `Cmd+Shift+X` | PDF 영역 스니핑 → 채팅 첨부 (Incurator PDF 뷰어 전용) |
-| `Cmd+Shift+;` | 채팅 사이드바 열기/닫기 |
-
-> macOS에서 `Cmd`는 `⌘`, Linux/Windows에서는 `Ctrl`에 해당합니다.
+> **Note**: If no Zotero data directory is set, the click falls through to default behavior (browser or Zotero app).
 
 ---
 
-## 관련 문서
+## 11. Keyboard Shortcuts Summary
 
-- [전체 워크플로우](WORKFLOW.md) — 시스템 전체 동작 흐름
-- [MCP 사용 가이드](MCP_USER_GUIDE.md) — AI 에이전트 MCP 연결 설정
-- [사용자 가이드](USER_GUIDE.md) — wiki CLI 명령어 레퍼런스
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+K` | Inline edit (in Markdown editor) |
+| `Cmd+Shift+L` | Add current content to chat context (Markdown or PDF) |
+| `Cmd+Shift+X` | Snip PDF region → attach to chat (Incurator PDF viewer only) |
+| `Cmd+Shift+;` | Toggle chat sidebar |
+
+> On macOS, `Cmd` = `⌘`. On Linux/Windows, use `Ctrl`.
+
+---
+
+## Related Docs
+
+- [Full Workflow](WORKFLOW_GUIDE.md) — How the entire system fits together
+- [MCP User Guide](MCP_USER_GUIDE.md) — Connecting AI agents via MCP
+- [User Guide](USER_GUIDE.md) — wiki CLI command reference

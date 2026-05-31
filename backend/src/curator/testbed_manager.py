@@ -61,20 +61,28 @@ def init_testbed(
     for dirname in cfg.VAULT_TOPOLOGY:
         (testbed_root / dirname).mkdir(parents=True, exist_ok=True)
 
+    from . import constants as consts  # noqa: PLC0415 – local import avoids circular ref
     raw_dirs = [consts.DIR_WIKI, consts.DIR_NOTES, consts.DIR_RESOURCES, consts.DIR_ARCHIVES]
     paths = cfg.WikiPaths(root=testbed_root, raw_dirs_override=raw_dirs)
     paths.internal.mkdir(parents=True, exist_ok=True)
     paths.collections.mkdir(parents=True, exist_ok=True)
     for layer in cfg.COLLECTION_LAYERS:
         (paths.collections / layer).mkdir(parents=True, exist_ok=True)
-
-    from . import constants as consts  # noqa: PLC0415 – local import avoids circular ref
     config = dict(cfg.DEFAULT_CONFIG)
     primary_provider = llm_provider or consts.BACKEND_ANTIGRAVITY_CLI
     model = llm_model or cfg.split_provider_model(cfg.DEFAULT_CONFIG["llm"]["primary"])[1]
     config["llm"]["primary"] = cfg.join_provider_model(primary_provider, model)
     # Marks this vault so production code never auto-selects it via last_root fallback
     config["testbed"] = True
+    
+    mock_zotero_env = dev_dir / scenario_name / "mock_zotero_env"
+    if mock_zotero_env.exists():
+        if "external" not in config:
+            config["external"] = {"zotero": {"roots": []}}
+        if "zotero" not in config["external"]:
+            config["external"]["zotero"] = {"roots": []}
+        config["external"]["zotero"]["roots"].append(str(mock_zotero_env.resolve()))
+        
     cfg.save_config(paths, config)
 
     db.init_db(paths.state_db)

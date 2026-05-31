@@ -1,100 +1,100 @@
-# 🧠 Incurator (인큐레이터): 멀티 에이전트 워크스페이스를 위한 지식 컴파일러
+# 🧠 Incurator: Knowledge Compiler for Multi-Agent Workspaces
 
-[English](README_EN.md) | **한국어**
+**English** | [한국어](README_KR.md)
 
-**"지식을 단순히 검색하는 것이 아니라, 점진적으로(Increment) 쌓아 올리세요."**
+**"Increment your knowledge, don't just search it."**
 
-Incurator는 파편화된 데이터를 구조화된 **방향성 비순환 그래프(DAG)**로 변환하는 비용 효율적인 멀티 에이전트 지식 시스템입니다. 이 시스템은 원시 정보와 고도화된 추론 에이전트 사이의 가교 역할을 하며, 지식을 유기적으로 배양(Incubate)하고 확장(Increment)하여 토큰 낭비나 환각 현상 없이 복잡한 프로젝트를 수행할 수 있게 돕습니다.
+Incurator is a cost-effective, multi-agent knowledge system that transforms fragmented data into a structured **Directed Acyclic Graph (DAG)**. It serves as a bridge between raw information and high-reasoning agents, enabling you to organically incubate and increment your knowledge while executing complex projects without token waste or hallucinations.
 
-> 이 시스템이 어떤 문제를 해결하려 하는지, 그리고 왜 이런 구조로 설계되었는지는 [프로젝트 철학 (about.md)](docs/philosophy/about.md)에서 다룹니다.
-
----
-
-## 🏛️ 핵심 메타포: 큐레이터(Curator)와 아티스트(Artist)
-
-대부분의 AI 지식 베이스는 LLM을 단순한 검색 엔진으로 취급하기 때문에 실패합니다. 우리는 이 과정을 두 가지 뚜렷한 역할로 분리했습니다.
-
-### ⚙️ 큐레이터 (보관소의 관리자 / 지식 정제 엔진)
-큐레이터는 **보관소(Vault)**에 상주하며 지식의 정제를 담당하는 백그라운드 엔진입니다. 고도의 "추론"보다는 **지식을 요약하고 원자화하는 작업**에 집중합니다. 큐레이터는 클라우드 공급업체의 표준 범용 모델을 통해서도 충분히 안정적으로 작동하며, 별도의 고비용 추론 전용 모델을 필요로 하지 않는다는 점이 검증되었습니다. 큐레이터는 4계층의 근거 사슬(Evidence Chain)을 구축하고, 아티스트가 `curate.yml`에 정의한 취향에 맞춰 맞춤형 전시회(Exhibition)를 준비합니다. 로컬 모델(Ollama)과 클라우드 모델(Gemini, Claude, OpenAI)을 모두 지원하여 사용자의 하드웨어 사양과 필요에 맞는 최적의 엔진을 선택할 수 있습니다.
-1.  **L1 Contexts**: 풍부한 메타데이터를 포함한 요약본.
-2.  **L2 Atoms**: 더 이상 쪼개지지 않는 원자적 사실.
-3.  **L3 Concepts**: 여러 소스를 가로지르는 테마별 구조체.
-4.  **L4 Exhibitions**: 아티스트의 작업 맥락에 맞춰 기획된 **맞춤형 특별 전시(Special Exhibition)**.
-
-### 🎨 아티스트 (워크스페이스의 주인 / 추론 에이전트 + 인간)
-아티스트는 실제 작업실인 **워크스페이스(Workspace)**에 상주합니다. 아티스트는 `curate.yml`을 통해 자신의 취향과 프로젝트의 요구사항을 큐레이터에게 전달하고, 큐레이터가 준비해 둔 **전시회(Exhibition)**를 관람하며 새로운 통찰을 이끌어냅니다(**Synthesis**). 작업 중 오류를 발견하거나 새로운 아이디어가 떠오르면 이를 큐레이터에게 피드백하고, 큐레이터는 그에 맞춰 기반 지식을 수정합니다. 이 대화가 반복될수록 전시회는 더욱 정교해집니다.
+> For the problems this system addresses and the reasoning behind its design, see [Project Philosophy (ABOUT_KR.md)](docs/philosophy/ABOUT.md).
 
 ---
 
-## 🌟 왜 이 시스템인가요?
+## 🏛️ The Core Metaphor: Curator & Artist
 
-Incurator는 대부분 지식의 닫힌 순환(수집 → 처리 → 활용 → 재입력)을 지향합니다. Incurator도 이 흐름을 따르는 Incurator지만, 두 가지 측면에서 다른 Incurator들과 차별화됩니다.
+Most AI knowledge bases fail because they treat LLMs as simple search engines. We separate the process into two distinct roles:
 
-### 1. 맞춤형 지식 전달 (Specification-Driven Exhibition)
+### ⚙️ The Curator (Manager of the Vault)
+The Curator is the background engine that resides in the **Vault** to handle knowledge refinement. It focuses on **summarizing and refining knowledge** rather than high-level "reasoning." It has been verified that the Curator performs reliably using standard universal models from cloud providers, without requiring high-cost reasoning-only models. It builds a 4-layer evidence chain and stages a tailored Exhibition based on the Artist's preferences in `curate.yml`. It supports both Local models (via Ollama) and Cloud models (Antigravity, Claude, OpenAI), allowing you to choose the best engine based on your hardware and requirements.
+1.  **L1 Contexts**: Metadata-rich summaries.
+2.  **L2 Atoms**: Irreducible, atomic facts.
+3.  **L3 Concepts**: Multi-source thematic structures.
+4.  **L4 Exhibitions**: **Special Exhibitions** tailored to the Artist's specific project context.
 
-일반적인 LLM 위키는 수집된 지식을 있는 그대로 검색·제공합니다. Incurator는 다릅니다. 인간이 `curate.yml`로 프로젝트 목적과 필요 지식을 명시하면, Curator는 방대한 지식 그래프에서 그 맥락에 맞는 정보만을 선별·합성하여 **맞춤형 전시물(Exhibition)**을 준비합니다. 에이전트와 인간은 원본 데이터를 탐색할 필요 없이 이미 정제된 전시물을 참조하여 통찰을 도출합니다. 또한 단일 보관소에 다양한 분야의 지식이 혼재하더라도, 명세 기반으로 관련 개념만을 선별하기 때문에 서로 다른 도메인의 개념이 섞이는 현상을 방지합니다.
-
-### 2. 사전 지식 교정 (Prior Knowledge Correction)
-
-인간과 에이전트가 전시물을 활용하는 과정에서 사전 지식의 오류를 발견하거나 새로운 인사이트를 얻는 경우, 이 피드백은 단순 메모로 끝나지 않습니다. 수정 신호가 지식 그래프를 역방향으로 타고 올라가 관련 Atom과 Concept을 교정하고, 전체 그래프의 일관성을 복원합니다. 이는 딥러닝의 역전파(Backpropagation)와 유사한 구조로, **시스템은 사용할수록 정교해지며 지식은 진화합니다.**
-
-### 3. 토큰 최적화 (AI를 위한 FinOps)
-사전 지식을 요약·원자화하는 **단순 컴파일**은 비추론 모델에, 복잡한 계산이나 정교한 추론이 필요한 **창의적 합성**은 추론 모델에 맡기세요. 역할 분리로 지식 관리 비용을 획기적으로 낮춥니다.
-
-### 4. AI와 인간을 위한 이원화 및 모노레포(Monorepo) 구조
-Incurator v0.2.0의 목표 구조는 파이썬 백엔드 데몬(`backend/`)과 Obsidian 플러그인 클라이언트(`plugin/`)를 **단일 리포지토리(Monorepo)**로 통합하여 제공하는 것입니다. 전환 중인 checkout에서는 backend 코드가 아직 루트 `src/`에 있거나 활성 플러그인이 vault 내부 `.obsidian/plugins/incurator-obsidian-agent`에서 개발될 수 있습니다. 지식은 기계와 인간에게 각각 다른 형태로 존재할 때 가장 효율적입니다.
--   **AI 공간 (`.curator/`)**: 지식의 **수장고(Archive/Storage)**. 에이전트가 지식을 즉각적으로 탐색하고 활용할 수 있도록 설계된 기계 친화적 백엔드입니다.
--   **인간 공간 (`02_Wiki/`)**: 지식의 **상설전시실(Permanent Collection)**. 사용자가 직접 읽고 관리하며 장기적으로 소유할 수 있게 정리된 아름다운 지식 서재입니다.
--   **클라이언트 공간 (`incurator-obsidian-agent`)**: 열린 PDF, split view, chat UI, provider 선택, import/rebind 승인 같은 사용자 상호작용을 담당합니다. 장기 source registry와 RAG provenance는 backend가 담당합니다.
-
-### 5. 외부 리소스 무손실 통합 (Reference Mode & Hash Drift 방어)
-Zotero와 같은 외부 레퍼런스 PDF 파일들을 보관소 내부로 강제 복사하여 대역폭을 낭비하지 않는 **Reference Mode**를 지원하는 방향으로 설계되어 있습니다. 사용자가 vault-managed copy를 원하면 `04_Resources/` 아래 목적지를 승인해 복사할 수 있고, 원본 위치를 유지하고 싶으면 외부 파일의 Content Hash와 logical source identity를 추적합니다. iPad의 Apple Pencil 필기로 인해 파일 해시가 변동(Hash Drift)되거나 물리적 파일 위치가 바뀌어도, 인간의 확인 절차를 거쳐 지식의 연결 고리를 안전하게 치유합니다.
-
-### 6. 지식의 집약과 성장 (Concentration & Growth)
-지식은 파편화되어 분산되어 있을 때가 아니라, **단일한 공간에 응집되어 있을 때** 비로소 진정으로 연결되고 성장(**Increment**)할 수 있습니다. Incurator는 흩어진 정보를 하나의 진실 공급원(Single Source of Truth)으로 모아, 지식이 서로 유기적으로 연결되고 더 높은 차원으로 합성될 수 있는 환경을 제공합니다. 
-
-따라서 지식을 관리의 편의를 위해 여러 Vault로 나누는 것은 권장하지 않습니다. 하지만 지식을 대하는 **큐레이터의 페르소나(전문성)**가 근본적으로 달라야 하는 경우(예: STEM 전문 큐레이터 vs 요리 전문 큐레이터)에는 별도의 Vault를 운영하여 독립적인 지식 체계를 구축하는 것이 효과적입니다.
+### 🎨 The Artist (Owner of the Workspace)
+The Artist resides in the **Workspace**, their personal studio. They express their taste and project requirements to the Curator via `curate.yml`, then visit the **Exhibition** the Curator has prepared. From these curated exhibits the Artist draws new insights (**Synthesis**). When they spot errors or uncover new ideas, they feed that back to the Curator — who corrects the underlying knowledge accordingly. The more this dialogue repeats, the more precise the exhibitions become.
 
 ---
 
-## 🛠️ 시작하기 (Getting Started)
+## 🌟 Why This System?
 
-### 📋 사전 준비 사항
-- **필수 환경**: Python 3.10+, 터미널, 노트 편집기 (Obsidian 권장)
-- **백엔드 계정**: 클라우드 모델(Gemini, Claude 등) 사용 시 API 키 또는 구독 계정이 필요합니다.
-- **자동화 안내**: Ollama(로컬 모델) 및 Node.js(검색 엔진) 설치, 그리고 모노레포 백엔드 패키지와 플러그인 빌드는 루트 디렉토리의 `./setup.sh` 실행 시 한 번에 자동으로 처리됩니다.
-- 상세 정보는 [사용자 가이드](docs/guides/USER_GUIDE.md)를 참조하세요.
+Incurators broadly aim for a closed loop — ingest, process, retrieve, feed back. Incurator is an Incurator too, but differentiates itself from others in two key ways.
 
-### 🚀 빠른 시작
-1.  **설치**: `./setup.sh` (백엔드 패키지, 플러그인 빌드, Ollama, Node.js 등을 한 번에 자동 통합 설치합니다.)
-2.  **초기화**: `wiki init <path/to/your/obsidian-vault>`
-    > **단일 보관소 원칙**: `wiki init`을 실행한 모든 폴더에는 전용 **Curator**가 상주하게 됩니다. Incurator는 한 번에 하나의 Curator만 실행할 수 있으므로, 지식의 연결성을 극대화하기 위해 모든 지식을 집약할 **단 하나의 메인 보관소(Vault)**를 운영하는 것을 강력히 권장합니다.
-    > 
-    > **예외 (페르소나 분리)**: 만약 지식을 관리하는 '관점'이나 '전문 페르소나'를 완전히 다르게 가져가고 싶다면(예: STEM 보관소 vs 요리 보관소) 별도의 Vault를 생성하세요. 각 Vault의 Curator는 자신만의 고유한 세계관으로 지식을 정제합니다.
-3.  **페르소나 설정**: `wiki init` 중 인터뷰를 통해 지식 도메인을 설정합니다. 이후 `wiki persona update`로 언제든 재설정 가능합니다.
-4.  **지식 등록 (요약 및 정제)**: `wiki add <file>` (L1~L3 계층 자동 생성)
-5.  **지식 활용 (검색)**: `wiki query "질문"` 또는 MCP 검색 (L4 Exhibition 자동 합성 포함)
+### 1. Specification-Driven Exhibition
+
+Generic Incurators retrieve knowledge as-is. Incurator's Curator does more. When a human defines their project goals and knowledge requirements in `curate.yml`, the Curator selects and synthesizes only the relevant material from the knowledge graph, staging a **tailored Exhibition** for that specific context. Agents and humans consult this curated output directly — no raw data spelunking required — allowing focus to stay on generating insight. And when a single vault holds knowledge across many different domains, spec-driven selection ensures that only relevant concepts surface, preventing contamination between unrelated fields.
+
+### 2. Prior Knowledge Correction
+
+When humans or agents spot an error in prior knowledge — or derive a new insight from an Exhibition — the feedback doesn't just get appended as a new note. The correction signal propagates backward through the knowledge graph, updating the affected Atoms and Concepts and restoring logical coherence across the entire graph. This mirrors deep-learning backpropagation: **the system grows more precise with use, and knowledge evolves rather than just accumulates.**
+
+### 3. Token Optimization (FinOps for AI)
+Offload **compilation** (summarizing and atomizing knowledge) to non-reasoning models and reserve **creative synthesis** (requiring complex calculation or sophisticated reasoning) for reasoning models. This strategic role separation minimizes costs while maximizing insight.
+
+### 4. Monorepo and Dual-Track Structure for AI and Humans
+The Incurator v0.2.0 target layout provides the Python backend daemon (`backend/`) and Obsidian plugin client (`plugin/`) in a **single repository (monorepo)**. During transition, a checkout may still keep backend code under root `src/`, or develop the active plugin inside the vault at `.obsidian/plugins/incurator-obsidian-agent`. Knowledge is most effective when managed in different forms for machines and humans:
+- **AI Space (`.curator/`)**: The **Archive/Storage**. A machine-friendly backend designed for agents to instantly search and leverage knowledge.
+- **Human Space (`02_Wiki/`)**: The **Permanent Collection**. A beautiful knowledge library designed for users to read, manage, and own long-term.
+- **Client Space (`incurator-obsidian-agent`)**: The Obsidian client handles open-PDF context, split-view chips, chat UI, provider selection, and import/rebind approval. Durable source registry and RAG provenance belong to the backend.
+
+### 5. Lossless External Resource Integration (Reference Mode & Hash Drift Defense)
+The system is designed to support **Reference Mode** for external reference PDFs such as Zotero files, avoiding forced duplication into the vault. If a user wants a vault-managed copy, the backend imports it into an approved `04_Resources/` destination. If the user wants the original location preserved, the backend tracks content hash and logical source identity. Even if the file hash drifts due to iPad Apple Pencil annotations or the physical path changes, the link can be healed through a human-in-the-loop confirmation process.
+
+### 6. Knowledge Concentration & Growth
+Knowledge only truly **Increments** when it is gathered in a **single, cohesive space** rather than being fragmented across decentralized silos. Incurator ensures that all insights are funneled into a single source of truth, providing an environment where information is organically connected and synthesized.
+
+As such, splitting your knowledge into multiple vaults solely for administrative organization is not recommended. However, if you require fundamentally different **Curator Personas** (e.g., a STEM specialist vs. a Cooking specialist) to maintain your knowledge, operating separate vaults allows each Curator to refine information through their own expert lens.
+
+---
+
+## 🛠️ Getting Started
+
+### 📋 Prerequisites
+- **Core Environment**: Python 3.10+, Terminal, Note Editor (Obsidian recommended)
+- **Backend Accounts**: An API Key or subscription account is required for cloud models (Antigravity, Claude, etc.).
+- **Automation Note**: Installing Ollama (local models) and Node.js (search engine), along with building the monorepo backend package and plugin, is automatically handled all at once by running `./setup.sh` in the root directory.
+- See the [User Guide](docs/guides/USER_GUIDE.md) for more details.
+
+### 🚀 Quick Start
+1.  **Install**: `./setup.sh` (Automatically installs the backend package, builds the plugin, and installs Ollama, Node.js, etc.)
+2.  **Initialize**: `wiki init <path/to/your/obsidian-vault>`
+    > **Single Vault Principle**: Every folder initialized with `wiki init` has its own resident **Curator**. Since Incurator runs one Curator at a time, we strongly recommend maintaining **a single main vault** to maximize knowledge connectivity and growth.
+    >
+    > **Exception (Persona Segmentation)**: If you want to maintain knowledge through completely different "expert perspectives" (e.g., a STEM vault vs. a Cooking vault), create separate vaults. Each vault's Curator will refine knowledge according to their unique worldview.
+3.  **Set up Persona**: During `wiki init`, a short interview configures your knowledge domain. Run `wiki persona update` anytime to refine it.
+4.  **Register Knowledge (Refine)**: `wiki add <file>` (Auto-generates L1-L3 layers)
+5.  **Use Knowledge (Query)**: `wiki query "question"` or MCP search (Includes auto-synthesis of L4)
 
 > [!NOTE]
-> **개발자 전용 기능**: `wiki testbed` 명령어는 새로운 시나리오 검증 및 개발을 위한 도구입니다. 일반적인 지식 관리 상황에서는 사용하지 마십시오.
+> **Developer Only**: The `wiki testbed` command is a tool for scenario validation and system development. Do not use it for standard knowledge management tasks.
 
-더 자세한 사용법은 [사용자 가이드](docs/guides/USER_GUIDE.md)를 확인해주세요.
-
----
-
-## 🤝 함께 만들어가기 (Contribution)
-
-사용해 보시다가 불편한 점이나 어려운 부분이 있다면 언제든 말씀해 주세요. 특히, 문제를 직접 해결하여 다른 사용자들이 같은 어려움을 겪지 않도록 도와주시면 프로젝트 성장에 큰 힘이 됩니다. 
-
-버그 수정이나 기능 개선에 참여하고 싶으시다면 [컨트리뷰션 가이드](docs/guides/CONTRIBUTION_GUIDE.md)를 확인해 주세요!
+Check the [User Guide](docs/guides/USER_GUIDE.md) for more details.
 
 ---
 
-## 🔗 연결 링크
-- [사용자 가이드](docs/guides/USER_GUIDE.md)
-- [컨트리뷰션 가이드](docs/guides/CONTRIBUTION_GUIDE.md)
-- [MCP 연동 가이드](docs/guides/MCP_USER_GUIDE.md)
-- [동기화 제외 가이드](docs/guides/SYNC_IGNORE_GUIDE.md)
-- [프로젝트 철학 (about.md)](docs/philosophy/about.md)
-- [v0.2.0 시스템 빌드 플랜](docs/plans/INCURATOR_SYSTEM_BUILD.md)
-- [v0.2.0 Evidence Ledger](docs/plans/INCURATOR_SYSTEM_BUILD_EVIDENCE.md)
+## 🤝 Contributing
+
+If you encounter any issues or difficulties while using Incurator, please let us know. We especially welcome direct contributions—fixing a problem yourself helps ensure others don't face the same hurdle.
+
+Check out our [Contribution Guide](docs/guides/CONTRIBUTION_GUIDE.md) to get started with bug fixes or feature improvements!
+
+---
+
+## 🔗 Connections
+- [User Guide](docs/guides/USER_GUIDE.md)
+- [Contribution Guide](docs/guides/CONTRIBUTION_GUIDE.md)
+- [MCP Integration Guide](docs/guides/MCP_USER_GUIDE.md)
+- [Sync Ignore Guide](docs/guides/SYNC_IGNORE_GUIDE.md)
+- [Project Philosophy](docs/philosophy/ABOUT.md)
+- [v0.2.0 System Build Plan](.agents/plans/2024-05_v0.2.0_system_build/INCURATOR_SYSTEM_BUILD.md)
+- [v0.2.0 Evidence Ledger](.agents/plans/2024-05_v0.2.0_system_build/INCURATOR_SYSTEM_BUILD_EVIDENCE.md)

@@ -1,105 +1,101 @@
-# 📐 Incurator 프로젝트 철학
+# 💡 Core Philosophy: "Increment Your Knowledge"
 
-이 문서는 Incurator가 왜 만들어졌는지, 어떤 문제를 해결하려 했는지를 다룹니다. 기술적인 사용법은 [사용자 가이드](../guides/USER_GUIDE.md)를, 시스템 기능 개요는 [README](../../README.md)를 참조하세요.
+The ultimate goal of this system is to **"build upon (Increment) existing knowledge to create something new."** It is designed to automate and optimize the process of organically connecting and synthesizing fragmented information into higher-dimensional insights.
 
 ---
 
-## 💡 핵심 철학: "내가 가진 지식을 Increment 하자"
+## 1. Accumulation and Connection: From Zettelkasten to Incurator
 
-이 시스템과 관련된 궁극적인 목표는 **"기존의 지식을 재활용하여 새로운 지식을 쌓아 올리는(Increment) 것"**입니다. 파편화된 정보들을 유기적으로 연결하고 합성하여 더 높은 차원의 인사이트를 만들어내는 과정을 자동화하고 최적화하기 위해 설계되었습니다.
+The **Zettelkasten** method is a representative learning methodology that embodies our core philosophy. It builds knowledge through four stages:
 
-## 1. 지식의 축적과 연결: Zettelkasten에서 Incurator까지
+1.  **Fleeting Notes**: Capturing ideas immediately as they occur.
+2.  **Literature Notes**: Summarizing learned content in one's own words.
+3.  **Permanent Notes**: Establishing a single idea as an independent "Atom."
+4.  **Linking & Synthesis**: Connecting Permanent Notes to generate new ideas.
 
-우리의 핵심 철학을 잘 나타내는 대표적인 학습 방법론이 바로 **제텔카스텐(Zettelkasten)**입니다. 제텔카스텐은 다음 4단계를 거쳐 지식을 구축합니다.
+Note-taking apps like **Obsidian** were built on this philosophy. Features like `[[wikilink]]` and Graph View allow **humans** to visually confirm the network of knowledge and explore previously built ideas when creating something new.
 
-1. **임시 메모 (Fleeting Notes):** 떠오르는 아이디어를 즉각적으로 기록
-    
-2. **문헌 메모 (Literature Notes):** 학습한 내용을 자신의 언어로 요약
-    
-3. **영구 메모 (Permanent Notes):** 하나의 아이디어를 독립된 원자(Atom) 형태로 정립
-    
-4. **연결 및 결합 (Linking & Synthesis):** 영구 메모들을 서로 연결하여 새로운 아이디어 창출
-    
+**Incurator** is an evolution of this concept from a data and AI perspective. It automates the exploration and connection process using Large Language Models.
 
-옵시디언(Obsidian)과 같은 노트 앱은 이 철학을 바탕으로 만들어졌습니다. 옵시디언의 가장 큰 특징인 `[[wikilink]]`나 Graph View는 **사람이 직접** 지식의 연결망을 시각적으로 확인하고, 이전에 쌓아올린 지식을 탐색하여 새로운 지식을 만들 때 활용하자는 목표를 가집니다.
+- **The Process**: `Raw Data` ➡️ `Ingest (Summary -> Atoms -> Concepts -> Synthesis)` ➡️ `Wiki (Synthesis as new Raw)`
 
-이를 데이터 및 AI 관점에서 해석하여, LLM이 지식 탐색과 연결 과정을 자동화한 시스템이 바로 **Incurator**입니다.
+The shared belief between Zettelkasten and Incurator is that **"prior knowledge is developed through a summarization/refinement process of 'Summarization ➡️ Atomization ➡️ Concept Creation ➡️ Synthesis of Concepts'."**
 
-- **프로세스:** `Raw Data` ➡️ `Ingest (Summary -> Atoms -> Concepts -> Synthesis)` ➡️ `Wiki (Synthesis as new Raw)`
-    
+---
 
-제텔카스텐과 Incurator의 공통된 아이디어는 결국 **"사전 지식을 '요약 ➡️ 원자화 ➡️ 개념(Concept) 생성 ➡️ 개념들의 합성'이라는 요약·정제 프로세스를 통해 발전시킨다"**는 것입니다.
+## 2. Problems with Existing Systems
 
-## 2. Incurator의 한계
+Most current Incurator implementations allow the LLM to handle everything (Ingest, Wiki generation) after the initial raw data is provided, without human intervention. This leads to two critical problems:
 
-대부분의 Incurator는 초기 Raw 데이터를 넣은 이후의 과정(Ingest, Wiki 생성)을 인간의 개입 없이 LLM이 전담하는 구조를 가집니다. 여기서 심각한 문제점 두 가지가 발생합니다.
+### A. Limitations in Quality Synthesis (Lack of Reasoning)
+LLMs excel at decomposing and reassembling data according to rules. However, because many systems rely on scaling model size for "brute force" reasoning, they struggle to find truly valuable "Insights" between raw files to build new knowledge. **Human-in-the-loop (HITL) intervention is essential for high-quality Synthesis.**
 
-### A. 질 좋은 Synthesis 창출의 한계 (Reasoning 부족)
+### B. Massive Token Consumption and Cost
+Collaborating with commercial agents (GPT-4, Claude 3 Opus) for the entire pipeline—from extraction to conceptualization—is prohibitively expensive. Thinking models are optimized for **high-level reasoning**, and using them for simple data decomposition/assembly is an extreme waste of resources. We must avoid "The Bank Account Exhaustion Tragedy" while pursuing the creation of great knowledge 💸.
 
-LLM은 데이터를 정해진 규칙에 따라 분해하고 재조립하는 데는 탁월합니다. 그러나 단순히 주먹구구식으로 모델 크기만 키워 추론 성능을 높이려 했기 때문에, Raw File들 사이에서 진정으로 가치 있는 'Insight'를 찾아내어 새로운 지식을 쌓아 올리는 데는 한계가 있습니다. 즉, **질 좋은 Synthesis(새로운 지식)를 만들기 위해서는 반드시 사람의 개입(Human-in-the-loop)이 필요**합니다.
+---
 
-### B. 막대한 토큰 소모와 비용 문제
+## 3. The Solution: Role Separation and Local Models
 
-위 과정을 사람이 직접 개입하며 GPT나 Claude 같은 구독형/상용 Agent 서비스와 협업하여 진행한다고 가정해 보겠습니다. 사전 지식을 '추출'하고 '컨셉을 잡는' 초기 단계에서부터 상용 Agent를 사용하면 토큰이 순식간에 소모되어 엄청난 비용이 발생합니다. 상용 Agent의 Thinking 모델은 데이터의 단순 분해/조립보다는 **'고도의 추론 능력 향상'**에 초점이 맞춰져 있으므로, 단순 작업에 이런 무거운 모델을 사용하는 것은 극도의 낭비입니다. 위대한 지식의 창출도 좋지만, 그 과정에서 우리의 통장 잔고가 먼저 0에 수렴하는 비극은 막아야 하니까요 💸.
+The process of decomposing and reassembling data (`Summary -> Atoms -> Concept`) requires very little high-level reasoning. It is an area where LLMs excel and human intervention can be minimized.
 
-## 3. Incurator의 접근: 역할 분리와 Local Model의 도입
+**Therefore, we offload this stage to a light Local Model (e.g., Ollama/SLM) or a non-reasoning model.** This aligns with modern Incurator approaches that use light embedding/search models (like QMD) to reduce search costs. We take it a step further by entrusting the "Structuring" of knowledge itself to the Local Model or a non-reasoning model.
 
-**Incurator 역시 Incurator입니다.** 다만, 위의 한계를 해결하기 위해 파이프라인의 역할을 명확히 분리합니다.
+In the final **Insight Derivation (Synthesis)** stage, **Humans** must intervene to discuss the results with the agent, iteratively refining the output to create truly new and valuable knowledge.
 
-데이터를 분해하고 재조립하는 과정(`Summary -> Atoms -> Concept`)은 고도의 추론 능력이 거의 필요하지 않습니다. LLM이 매우 잘 해낼 수 있으면서도 인간의 개입 역시 최소화해도 되는 영역입니다.
+**This role separation naturally leads to a dual-track physical directory structure tailored to the needs of each participant:**
+- **AI-Only Space (`.curator/`)**: The **Archive/Storage**. A machine-friendly backend designed for agents to instantly search and leverage knowledge. (Database for search and reasoning)
+- **Human-Only Space (`02_Wiki/`)**: The **Permanent Collection**. A beautiful knowledge library designed for users to read, manage, and own long-term. (Obsidian Wiki)
 
-**따라서, 이 데이터 분해 및 재조립 단계는 집 컴퓨터에서 돌아가는 가벼운 Local Model(예: Ollama 등) 또는 비추론 모델이 전담하도록 분리합니다.** 가벼운 검색 모델(QMD 등)로 토큰 소모를 줄이는 다른 Incurator들의 접근과 같은 맥락이지만, Incurator는 여기서 한발 더 나아가 지식의 '구조화' 자체를 Local Model이나 비추론 모델에게 맡깁니다.
+---
 
-최종 목표인 **'새로운 인사이트 도출(Synthesis)'** 단계에서는 반드시 **인간**이 개입하여, 데이터가 분해/조립된 결과를 바탕으로 에이전트와 끝없이 토론하며 새로운 지식을 창출해 내야 합니다.
+## 4. Architecture: The Curator and The Artist
 
-**이러한 역할 분리는 지식의 형태에 따라 저장소의 물리적 구조를 이원화하는 결과로 이어집니다.**
-- **AI 전용 공간 (`.curator/`)**: 지식의 **수장고(Archive/Storage)**. 에이전트가 지식을 즉각적으로 탐색하고 활용할 수 있도록 설계된 기계 친화적 백엔드입니다. (검색 및 추론용 데이터베이스)
-- **인간 전용 공간 (`02_Wiki/`)**: 지식의 **상설전시실(Permanent Collection)**. 사용자가 직접 읽고 소유하며 장기적으로 관리할 수 있게 정리된 아름다운 지식 서재입니다. (옵시디언 위키)
-
-## 4. 시스템 아키텍처: 미술관 큐레이터(Curator)와 아티스트(Artist)
-
-이러한 협업 구조를 시스템으로 구현하기 위해, 우리는 **미술사에서의 큐레이션(Curation) 과정**을 메타포로 차용했습니다.
+To implement this collaboration, we borrowed the metaphor of **Art Curation**.
 
 ### 🏛️ The Curator (Manager of the Vault)
 The Curator resides in the **Vault**, the home of your knowledge. It focuses on refining and displaying data rather than deep reasoning:
-
-1. **수집 및 선별 (Collection & Selection):** Raw Data를 수집.
-    
-2. **분석 및 맥락화 (Analysis & Contextualization):** 데이터를 Summary하고 Atom으로 분해.
-    
-3. **공간 기획 및 구조화 (Spatial Planning & Structuring):** 분해된 원자들을 Concept 단위로 엮어 기계와 Agent가 읽기 쉽게 맥락을 형성.
-    
-4. **전시 및 소통 (Exhibition & Engagement):** 단순한 정보의 나열이 아닌, 에이전트의 작업 목표와 요구사항이 명시된 지식 요구 명세서를 기반으로 맞춤형 큐레이션을 수행하여 **특별 전시(Special Exhibition)**를 개최합니다. 즉, 에이전트가 거대한 원본 데이터를 탐색할 필요 없이 지식 창출에만 집중할 수 있도록 고도화된 전처리(Preprocessing)를 수행합니다. (기존 방법론에서 가장 차별화된 부분)
-    
+1.  **Collection & Selection**: Gathering Raw Data.
+2.  **Analysis & Contextualization**: Summarizing data and decomposing it into Atoms.
+3.  **Spatial Planning & Structuring**: Weaving Atoms into Concepts to form a machine-readable context.
+4. **Exhibition & Engagement**: Instead of a flat list, the Curator stages a **Special Exhibition** based on a "Knowledge Requirement Specification" (curate.yml). The agent focuses on creation without searching through massive original texts. (The most distinctive part of the system)
 
 ### 🎨 The Artist (Resident of the Workspace: Human + Agent)
 The Artist resides in the **Workspace**, the painter's studio where projects or research happen. Drawing a new painting (Synthesis) requires immense creativity and reasoning:
+1.  **Workspace**: The painter's studio where projects or research happen.
+2.  **The Agent**: A high-reasoning agent resides in the workspace as a human assistant.
+3.  **Prior Knowledge Utilization**: The agent retrieves "Exhibits" pre-refined by the Curator instead of searching heavy raw data.
+4.  **Insight Derivation (Synthesis)**: Human and Agent collaborate to create a new "Painting" (Synthesis = New Raw Data).
 
-1. **Workspace:** 화가의 작업실. 인간(사용자)이 어떤 프로젝트나 연구를 진행하는 공간입니다.
-    
-2. **Agent의 상주:** 강력한 추론 능력을 가진 Agent는 이 Workspace에 상주하며 인간의 보조자 역할을 합니다.
-    
-3. **사전 지식의 활용:** 사용자가 질문을 던질 때, Agent는 무거운 원본 데이터를 뒤지는 대신 **Curator가 미리 깔끔하게 요약하고 정제(전시)해둔 큐레이션 정보**를 가볍게 가져옵니다.
-    
-4. **인사이트 도출 (Synthesis):** 최종적으로 인간과 Agent가 협업하고 토론하여 새로운 그림(Synthesis = New Raw Data)을 창조해 냅니다.
+---
 
-    
+## 5. The Core of the System: Knowledge Compiler
 
-    
+The Curator isn't just an organizer; it's a **Refinement Engine** that produces data in a form the agent can understand most efficiently.
 
-## 5. 시스템의 핵심: 세 가지 차별점
+1.  **Self-Healing Knowledge Compiler:**
+    *   The system operates similarly to a deep learning model. `wiki add/curate` performs the **Forward Pass** to build the knowledge foundation and synthesize outputs.
+    *   Modifications by humans or agents act as **Loss Signals**, representing errors in the current state. `wiki sync` then performs the **Backward Pass**, tracing these signals through the graph to restore logical integrity.
+    *   Through this iterative cycle, fragmented information evolves into a robust "Concrete" of knowledge, fostering a **Self-Healing** ecosystem that grows more accurate and sophisticated through interaction.
 
-Incurator는 대부분 지식의 닫힌 순환(수집 → 처리 → 활용 → 재입력)을 지향합니다. Incurator도 이 흐름을 따르는 Incurator지만, 세 가지 측면에서 다른 Incurator들과 차별화됩니다.
+2.  **High-Fidelity Knowledge Grounding (Quality):**
+    *   Agent response quality and contextual understanding improve significantly because data is compiled (Exhibition) in a way that is tailored to the current project and task context.
+    *   The agent doesn't get lost in massive datasets, providing hallucination-free answers by leveraging only the refined essence of curated knowledge.
 
-첫째, **맞춤형 지식 전달**입니다. 일반적인 LLM 위키는 수집된 지식을 그대로 검색·제공합니다. Incurator의 Curator는 인간이 `curate.yml`로 명시한 프로젝트 목적과 필요 지식을 기준으로, 방대한 지식 그래프에서 맥락에 맞는 정보만을 선별·합성하여 맞춤형 전시물(Exhibition)을 준비합니다. 에이전트와 인간은 원본 데이터를 직접 탐색할 필요 없이 이미 정제된 전시물을 참조하여 통찰을 도출합니다. 또한 단일 보관소에 다양한 분야의 지식이 혼재하더라도, 명세 기반으로 관련 개념만을 선별하기 때문에 서로 다른 도메인의 개념이 섞이는 현상을 방지합니다.
+3.  **Token Optimization (AI FinOps):**
+    *   By offloading repetitive data preprocessing (summarization, atomization) to a **Local SLM (Curator)**, we drastically reduce the tokens consumed by high-performance commercial models (Artist).
+    *   Heavy models are shielded from "grunt work," allowing you to concentrate your budget only on tasks that require high-level reasoning.
 
-둘째, **사전 지식 교정**입니다. 전시물을 활용하는 과정에서 사전 지식의 오류를 발견하거나 새로운 인사이트를 얻었을 때, 이 피드백은 단순 메모로 끝나지 않습니다. 수정 신호가 지식 그래프를 역방향으로 타고 올라가 관련 Atom과 Concept을 교정하고, 전체 그래프의 일관성을 복원합니다.
+4.  **Two-Track Directory Structure (UX):**
+    *   We have perfectly separated machine-readable, high-density data (`.curator/`) from human-readable, domain-organized wikis (`02_Wiki/`).
+    *   Users can comfortably browse and manage refined knowledge without being distracted by complex machine-generated intermediate artifacts.
 
-이 두 메커니즘은 딥러닝의 학습 과정과 유사한 구조를 형성합니다. `wiki add/curate`가 **순방향 빌드(Forward Pass)**라면, 인간과 에이전트의 수정 요청은 **손실 신호(Loss Signal)**이고, `wiki sync`가 **역전파(Backward Pass)**입니다. 시스템은 사용할수록 정교해지며, 지식은 단순히 쌓이는 것이 아니라 **진화**합니다.
+5.  **Ecosystem Diversity & Growth:**
+    *   Agents residing in the workspace become unique 'Artists' reflecting the user's style and project goals.
+    *   As different agents generate diverse insights from various perspectives, your knowledge base evolves from a flat list of information into a rich, organically growing ecosystem.
 
-셋째, **페르소나: 당신의 지식 모델을 표현하다.** 제텔카스텐은 구조를 강요하지 않습니다 — 사용자가 지식을 바라보는 방식 자체가 구조가 됩니다. Incurator의 **페르소나 시스템**은 이 철학을 시스템 수준에서 구현합니다. `wiki init` 시 인터뷰를 통해 설정되는 **전역 페르소나**는 당신이 어떤 분야에서 어떤 목적으로 지식을 쌓는지를 시스템에 각인시킵니다. 
-
-이 페르소나는 각 Vault마다 상주하는 **Curator의 정체성**입니다. 지식은 단일한 공간에 응집되어 있을 때 가장 강력한 연결성(**Increment**)을 가지지만, 만약 당신이 "과학자"로서의 지식 체계와 "요리사"로서의 지식 체계를 완전히 분리하여 각기 다른 전문가(Curator)에게 맡기고 싶다면, 그때가 바로 Vault를 나눌 때입니다. 큐레이터는 구조를 부과하는 것이 아니라, 당신이 선택한 **전문가적 시선**으로 지식을 해석하고 전시할 뿐입니다. 
-
-워크스페이스별 **로컬 페르소나**는 그 위에서 프로젝트의 맥락을 덧씌워, 동일한 큐레이션 엔진이 도메인마다 전혀 다른 방식으로 지식을 해석하고 전시하게 만듭니다.
-
+6.  **Persona: Expressing Your Knowledge Model**
+    *   The Zettelkasten method doesn't impose structure — the way a user views knowledge *becomes* the structure. Incurator's **Persona System** implements this at the system level.
+    *   The **Global Persona** (set via an interview during `wiki init`) embeds your knowledge domain, intent, and verification style into the core of the Curator — it defines the *identity* of the Curator residing in each vault.
+    *   While knowledge is most powerful when concentrated, you may wish to separate fundamentally different expert domains (e.g., "Scientist" vs "Chef"). This is the one justified reason to run separate vaults — each Curator interprets and exhibits knowledge through a different expert lens.
+    *   The **Artist Persona** (set in `curate.yml`) overlays workspace-specific context on top, allowing the same curation engine to frame the same underlying facts in fundamentally different ways depending on the project's goal.

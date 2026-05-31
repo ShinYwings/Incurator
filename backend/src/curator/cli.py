@@ -54,7 +54,6 @@ from .llm import (
     detect_ram_gb,
     has_enough_ram_for_local,
     FailoverClient,
-    GeminiCliError,
     ModelNotFound,
     OllamaNotRunning,
     _cli_installed,
@@ -121,14 +120,7 @@ testbed_app = typer.Typer(
 )
 app.add_typer(testbed_app, name="testbed")
 
-benchmark_app = typer.Typer(
-    name="benchmark",
-    help="[Dev Only] Cross-model quality and performance benchmarks.",
-    no_args_is_help=True,
-    add_completion=False,
-    rich_markup_mode="rich",
-)
-app.add_typer(benchmark_app, name="benchmark")
+
 
 jobs_app = typer.Typer(
     name="jobs",
@@ -1643,7 +1635,7 @@ def _offer_install(overrides: dict, llm_cfg: dict) -> None:
 
 _ALL_LLM_ERRORS = (
     OllamaNotRunning, ModelNotFound,
-    ClaudeCodeError, GeminiCliError,
+    ClaudeCodeError,
     LLMError,
 )
 
@@ -4803,7 +4795,7 @@ def models_use(
 
     For Ollama: shows recommendation list; pulls the model if not yet downloaded.
     For cloud providers (claude-code/antigravity-cli): shows curated list and saves
-    the selection to the appropriate config key (e.g. claude_model, gemini_model).
+    the selection to the appropriate config key (e.g. claude_model, antigravity_model).
     """
     import subprocess
 
@@ -5476,14 +5468,14 @@ def mcp_connect_cmd(
 def mcp_install_cmd(
     target: str = typer.Argument(
         "all",
-        help="Which client to print a snippet for: claude | gemini | all.",
+        help="Which client to print a snippet for: claude | antigravity | all.",
     ),
 ) -> None:
     """Print MCP config snippets to paste into your agent's settings.
 
     Does NOT modify any settings files — copy/paste the printed JSON into
     your client's configuration manually. Both Claude (Code / Desktop) and
-    Gemini CLI use the same MCP `mcpServers` format.
+    Antigravity use the same MCP `mcpServers` format.
     """
     paths = _resolve_root_or_die()
     try:
@@ -5495,8 +5487,8 @@ def mcp_install_cmd(
 
     snippets = mcp_server.render_install_snippets(paths)
     target = target.lower()
-    if target not in (consts.CLOUD_CLAUDE, consts.CLOUD_GEMINI, "all"):
-        _err(f"Unknown target '{target}'. Use claude | gemini | all.")
+    if target not in (consts.CLOUD_CLAUDE, consts.CLOUD_ANTIGRAVITY, "all"):
+        _err(f"Unknown target '{target}'. Use claude | antigravity | all.")
         raise typer.Exit(code=1)
 
     console.print()
@@ -5519,15 +5511,15 @@ def mcp_install_cmd(
         console.print()
         console.print(snippets[consts.CLOUD_CLAUDE])
 
-    if target in (consts.CLOUD_GEMINI, "all"):
+    if target in (consts.CLOUD_ANTIGRAVITY, "all"):
         console.print()
-        console.rule("[bold]Gemini CLI[/bold]")
+        console.rule("[bold]Antigravity[/bold]")
         console.print(
             "Paste into:\n"
-            "  • [cyan]~/.gemini/settings.json[/cyan]"
+            "  • [cyan]~/.antigravity/settings.json[/cyan]"
         )
         console.print()
-        console.print(snippets[consts.CLOUD_GEMINI])
+        console.print(snippets[consts.CLOUD_ANTIGRAVITY])
 
     console.print()
     _hint(
@@ -5582,67 +5574,4 @@ def testbed_list():
     console.print(table)
 
 
-# ---------------------------------------------------------------------------
-# benchmark commands
-# ---------------------------------------------------------------------------
 
-@benchmark_app.command(name="run")
-def benchmark_run(
-    scenario: str = typer.Argument("GS_Testbed", help="Testbed scenario name."),
-    models: list[str] = typer.Option(
-        ["gemini-flash"], "--models", "-m",
-        help="Model keys to benchmark. Repeat for multiple: -m gemini-flash -m qwen2.5:7b",
-    ),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Results directory."),
-):
-    """Run a cross-model benchmark on a testbed scenario.
-
-    Example:
-        wiki benchmark run GS_Testbed --models gemini-flash --models qwen2.5:7b
-    """
-    import sys as _sys
-    _bench_dir = Path(__file__).resolve().parents[4] / "scripts" / "benchmark"
-    if str(_bench_dir) not in _sys.path:
-        _sys.path.insert(0, str(_bench_dir))
-
-    try:
-        import benchmark as _bm  # type: ignore[import]
-    except ImportError as e:
-        _err(f"Benchmark module not found: {e}")
-        raise typer.Exit(1)
-
-    results_dir = Path(output) if output else (Path(__file__).resolve().parents[4] / "scripts" / "benchmark" / "results")
-    runs: list[_bm.BenchmarkRun] = []
-    for model_key in models:
-        try:
-            run = _bm.run_benchmark(scenario, model_key, results_dir)
-            runs.append(run)
-        except Exception as e:
-            _err(f"Benchmark failed for {model_key}: {e}")
-
-    if len(runs) >= 2:
-        _bm._print_comparison_table(runs)
-
-
-@benchmark_app.command(name="compare")
-def benchmark_compare(
-    file_a: str = typer.Argument(..., help="Path to first result JSON."),
-    file_b: str = typer.Argument(..., help="Path to second result JSON."),
-):
-    """Compare two benchmark result JSON files side-by-side."""
-    import sys as _sys
-    _bench_dir = Path(__file__).resolve().parents[4] / "scripts" / "benchmark"
-    if str(_bench_dir) not in _sys.path:
-        _sys.path.insert(0, str(_bench_dir))
-
-    try:
-        import benchmark as _bm  # type: ignore[import]
-    except ImportError as e:
-        _err(f"Benchmark module not found: {e}")
-        raise typer.Exit(1)
-
-    try:
-        _bm.compare_runs(Path(file_a), Path(file_b))
-    except Exception as e:
-        _err(str(e))
-        raise typer.Exit(1)
