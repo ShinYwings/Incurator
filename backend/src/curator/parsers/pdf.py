@@ -87,39 +87,49 @@ def _first_nonempty_line(text: str) -> str | None:
 
 
 def parse(path: Path) -> ParsedDocument:
-    """Parse a .pdf file."""
+    """Parse a .pdf file using Math-Aware hybrid pipeline (pymupdf4llm default)."""
     try:
-        from pypdf import PdfReader
+        import pymupdf4llm
+        import fitz
     except ImportError as e:
         raise ParserError(
-            "pypdf is not installed. Run `uv pip install -e .` to install dependencies."
+            "pymupdf4llm is not installed. Run `uv pip install -e .` to install dependencies."
         ) from e
 
     try:
-        reader = PdfReader(str(path))
+        # Hybrid Pipeline placeholder: if config enables VLM for this file, we would route here.
+        # For now, default to fast pymupdf4llm which preserves tables and some math layout.
+        page_chunks = pymupdf4llm.to_markdown(str(path), page_chunks=True)
+        doc = fitz.open(str(path))
     except Exception as e:
-        raise ParserError(f"Cannot open PDF {path.name}: {e}") from e
+        raise ParserError(f"Cannot parse PDF {path.name}: {e}") from e
 
-    if reader.is_encrypted:
+    if doc.is_encrypted:
+        doc.close()
         raise ParserError(
             f"PDF is password-protected and cannot be read: {path.name}"
         )
 
-    # Extract text from all pages. Keep page-level metadata alongside the
-    # document text so downstream tools can cite a source page precisely.
+    # Extract Markdown from all pages
+    page_texts_dict: dict[int, list[str]] = {}
+    
+    for chunk in page_chunks:
+        page_num = chunk.get("metadata", {}).get("page", 1)
+        text_chunk = chunk.get("text", "")
+        if page_num not in page_texts_dict:
+            page_texts_dict[page_num] = []
+        page_texts_dict[page_num].append(text_chunk)
+        
     page_texts: list[str] = []
     pdf_pages: list[dict] = []
-    for i, page in enumerate(reader.pages):
-        try:
-            raw_page_text = page.extract_text() or ""
-        except Exception:
-            # Individual page extraction can fail on malformed PDFs; keep going
-            raw_page_text = ""
-        page_text = normalize_text(raw_page_text)
+    
+    for page_num in range(1, doc.page_count + 1):
+        page_chunks_text = page_texts_dict.get(page_num, [])
+        page_text = normalize_text("\n\n".join(page_chunks_text))
         page_texts.append(page_text)
         pdf_pages.append(
             {
-                "page": i + 1,
+                "page": page_num,
                 "char_count": len(page_text),
                 "word_count": len(page_text.split()) if page_text else 0,
                 "content_hash": compute_hash(page_text),
@@ -133,9 +143,9 @@ def parse(path: Path) -> ParsedDocument:
     # Title extraction: metadata first, then first non-empty line, then filename
     title: str | None = None
     try:
-        meta = reader.metadata
-        if meta and getattr(meta, "title", None):
-            meta_title = str(meta.title).strip()
+        meta = doc.metadata
+        if meta and meta.get("title"):
+            meta_title = str(meta.get("title")).strip()
             if meta_title:
                 title = meta_title
     except Exception:
@@ -147,21 +157,23 @@ def parse(path: Path) -> ParsedDocument:
 
     # Collect useful metadata
     metadata: dict = {
-        "page_count": len(reader.pages),
+        "page_count": doc.page_count,
         "pdf_pages": pdf_pages,
         "pdf_toc": _extract_pdf_toc(path),
+        "parser_used": "pymupdf4llm",
     }
     try:
-        meta = reader.metadata
+        meta = doc.metadata
         if meta:
-            if getattr(meta, "author", None):
-                metadata["author"] = str(meta.author)
-            if getattr(meta, "creation_date", None):
-                metadata["creation_date"] = str(meta.creation_date)
+            if meta.get("author"):
+                metadata["author"] = str(meta.get("author"))
+            if meta.get("creationDate"):
+                metadata["creation_date"] = str(meta.get("creationDate"))
     except Exception:
         pass
 
     metadata["pdf_images"] = _extract_pdf_images(path)
+    doc.close()
 
     return ParsedDocument(
         source_path=path,
@@ -176,33 +188,30 @@ def parse(path: Path) -> ParsedDocument:
 
 def get_page_count(path: Path) -> int:
     """Return total page count without extracting text."""
-    from pypdf import PdfReader
     try:
-        return len(PdfReader(str(path)).pages)
+        import fitz
+        with fitz.open(str(path)) as doc:
+            return doc.page_count
     except Exception:
         return 0
 
 
 def parse_page_window(path: Path, page_nums: set[int]) -> dict[int, str]:
-    """Extract text from specific pages only (1-based page numbers).
-
-    Returns {page_num: normalized_text}. Avoids loading all pages for a
-    window request — safe for 600-page PDFs.
-    """
-    from pypdf import PdfReader
+    """Extract Markdown text from specific pages only (1-based page numbers)."""
     try:
-        reader = PdfReader(str(path))
-    except Exception:
+        import pymupdf4llm
+    except ImportError:
         return {}
+    
     result: dict[int, str] = {}
-    for i, page in enumerate(reader.pages):
-        pn = i + 1
-        if pn in page_nums:
-            try:
-                result[pn] = normalize_text(page.extract_text() or "")
-            except Exception:
-                result[pn] = ""
-        # Early exit once all requested pages are found
-        if len(result) == len(page_nums):
-            break
+    try:
+        page_chunks = pymupdf4llm.to_markdown(str(path), page_chunks=True)
+        for chunk in page_chunks:
+            pn = chunk.get("metadata", {}).get("page", 1)
+            if pn in page_nums:
+                result[pn] = normalize_text(chunk.get("text", ""))
+            if len(result) == len(page_nums):
+                break
+    except Exception:
+        pass
     return result

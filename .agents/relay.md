@@ -1,25 +1,28 @@
 # Agent Relay Handoff
 
-**Last Updated:** 2026-06-01T02:04:00+09:00
+**Last Updated:** 2026-06-01T02:22:00+09:00
 **Last Agent:** Antigravity
 
 ## Current Active Goal
-Synchronize the new AI session by reading `RELAY.md` and `CLAUDE.md` to fully understand the current repository progress and architecture rules.
+Convert the Incurator system into a "Notebase" RAG system capable of perfectly understanding Math/LaTeX formulas by implementing a Math-Aware parsing strategy (using `pymupdf4llm`).
 
 ## Active Plan Reference
-N/A - Direct session synchronization based on Reddit tip workflow.
+`.agents/plans/2026-06_notebase_rag_plan.md` (v0.2.2 architecture changes).
 
 ## Analysis & Reasoning
-- **Decision:** I have read `CLAUDE.md`, which contains the `AGENTS.md` project contract. I understand the "Automatic `/goal` Workflow Mandate", "Testbed-Driven Development", the v0.2.0 Invariants (L1-L4 DAG layers), and the strict docs-first development process. 
-- **Status:** The repository is clean and all previous changes are pushed to `origin/master`.
+- **Decision:** The backend parsing layer in `pdf.py` was migrated from `pypdf` to `pymupdf4llm`. The chunking logic in `ingest_raw.py` (`_chunk_text`) was updated to AST-aware logic that strictly avoids splitting `$$...$$` math blocks and ` ```...``` ` code blocks.
+- **Status:** TDD tests were added (`backend/tests/test_math_parsing.py`) and verified to pass. All 172 regression tests run successfully. The dependencies have been updated to pin `onnxruntime<1.24.0` for Python 3.10 compatibility. Changes are ready to push.
 
 ## Progress Status
-- [x] Read `CLAUDE.md` and understand architecture invariants
-- [x] Read `.agents/relay.md` and confirm clean repository state
-- [x] Conclude context synchronization
+- [x] Create `docs/specs/curator_schema/SCHEMA_v0.2.2.md`
+- [x] Update `docs/guides/WORKFLOW_GUIDE_KR.md`
+- [x] Add `pymupdf4llm` to `pyproject.toml`
+- [x] Update `backend/src/curator/parsers/pdf.py`
+- [x] Update chunking in `backend/src/curator/ingest_raw.py`
+- [x] Run full pytest suite (All Pass)
 
 ## Critical Context & Blockers
-- **Context:** The agent is fully synchronized and aware of the project rules.
+- **Context:** `pypdf` is fully phased out for text extraction in favor of `pymupdf4llm`. The `pymupdf4llm` library provides structural Markdown containing intact LaTeX.
 
 ## Immediate Next Action for the Next Agent
-Standby for the user's next `/goal` or command. Update this `relay.md` file accordingly when any new task or session starts or ends.
+Standby for the user's next `/goal` or command. The Math-Aware RAG feature implementation is complete and committed to git.

@@ -50,6 +50,7 @@ class SourceProvenanceTests(unittest.TestCase):
 
         outcome = ingest_raw.add_file(self.paths, pdf_path)
 
+        print("OUTCOME ERROR:", outcome.message)
         self.assertEqual(outcome.result, ingest_raw.AddResult.SKIPPED_EMPTY)
         self.assertIsNotNone(outcome.source_id)
         pages = db.list_source_pdf_pages(self.paths.state_db, outcome.source_id or -1)

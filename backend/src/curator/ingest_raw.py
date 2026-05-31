@@ -479,14 +479,83 @@ def _loads_json_relaxed(json_str: str) -> dict:
 
 
 def _chunk_text(text: str, chunk_size: int = 30000, overlap: int = 2500) -> list[str]:
+    """Split text into chunks, ensuring LaTeX math ($$..$$) and code blocks (```..```) are not split."""
+    length = len(text)
+    if length <= chunk_size:
+        return [text]
+
+    # Pre-compute block boundaries
+    blocks = []
+    
+    # Find $$ blocks
+    pos = 0
+    while True:
+        start_idx = text.find("$$", pos)
+        if start_idx == -1:
+            break
+        end_idx = text.find("$$", start_idx + 2)
+        if end_idx == -1:
+            break
+        blocks.append((start_idx, end_idx + 2))
+        pos = end_idx + 2
+        
+    # Find ``` blocks
+    pos = 0
+    while True:
+        start_idx = text.find("```", pos)
+        if start_idx == -1:
+            break
+        end_idx = text.find("```", start_idx + 3)
+        if end_idx == -1:
+            break
+        blocks.append((start_idx, end_idx + 3))
+        pos = end_idx + 3
+
+    blocks.sort()
+
+    def get_enclosing_block(idx: int) -> tuple[int, int] | None:
+        for (b_start, b_end) in blocks:
+            if b_start < idx < b_end:
+                return (b_start, b_end)
+        return None
+
     chunks = []
     start = 0
-    while start < len(text):
+    while start < length:
         end = start + chunk_size
-        chunks.append(text[start:end])
-        if end >= len(text):
+        if end >= length:
+            chunks.append(text[start:length])
             break
-        start += chunk_size - overlap
+            
+        # Avoid splitting blocks at the end
+        enc_end = get_enclosing_block(end)
+        if enc_end:
+            # Expand chunk to include the whole block
+            end = enc_end[1]
+            
+        chunks.append(text[start:end])
+        
+        # Calculate next start
+        next_start = end - overlap
+        if next_start <= start:
+            next_start = start + 1
+            
+        # Avoid starting a chunk in the middle of a block
+        enc_start = get_enclosing_block(next_start)
+        if enc_start:
+            if enc_start[0] > start:
+                # Move back to start of block if it's forward progress
+                next_start = enc_start[0]
+            else:
+                # Otherwise, skip past the block entirely to avoid getting stuck
+                next_start = enc_start[1]
+            
+        # Ensure forward progress
+        if next_start <= start:
+            next_start = start + 1
+            
+        start = next_start
+        
     return chunks
 
 

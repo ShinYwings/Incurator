@@ -104,9 +104,10 @@ wiki init /path/to/vault
 wiki add 03_Notes/paper.pdf
 wiki add 04_Resources/
 
-# 내부 동작:
+# 내부 동작 (Math-Aware v0.2.2):
 #   - SHA-256 해시로 중복 감지
-#   - PyMuPDF(PDF) / 정규식(MD) / BeautifulSoup(HTML)로 파싱 + 이미지 추출
+#   - 하이브리드 파이프라인: 기본은 pymupdf4llm(Markdown)으로 변환, 필요 시 VLM 파서 연동
+#   - AST 기반 청킹: 수학 수식 블록($$...$$)을 보호하여 텍스트 분할
 #   - L1 Context 파일을 구조로부터 즉시 생성 → 즉시 반환
 #   - LLM 호출 없음; L1이 만들어지면 곧바로 검색(BM25) 가능
 
@@ -164,8 +165,9 @@ wiki jobs run          # queued L2/L3 background jobs를 foreground로 처리
 > **백그라운드 워커 보강**: MCP 서버가 실행 중이면 IngestWorker가 queued job을 자동 처리한다.
 > 서버가 꺼져 있거나 테스트/디버깅 중에는 `wiki jobs run`으로 같은 큐를 foreground에서 처리한다.
 
-> **즉시 L1 / L2·L3 분리**: `wiki add`는 항상 LLM 호출 없이 parser 구조로 CTX, ToC,
-> section marker, coarse Atom Candidates를 즉시 생성하고 반환한다(구조 기반 L1). 깊은
+> **즉시 L1 / L2·L3 분리**: `wiki add`는 항상 LLM 호출 없이 파서 구조로 CTX, ToC,
+> section marker, coarse Atom Candidates를 즉시 생성하고 반환한다(구조 기반 L1). 
+> v0.2.2부터는 이 단계에서 **AST 기반 청킹**을 통해 수학 수식 블록을 보존한다. 깊은
 > L2/L3 추출은 `wiki add`에서 분리되어 별도 `wiki build` 명령으로 수행한다 —
 > 기본은 background job 큐잉, `--wait`는 동기 실행. MCP에서는
 > `curator_register_source`(L1) + `curator_build_source`(L2/L3)로 대응한다.
