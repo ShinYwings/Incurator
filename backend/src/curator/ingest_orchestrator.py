@@ -99,10 +99,12 @@ def _parse_batch_atoms_json(raw: str) -> list[dict[str, Any]]:
         text = text[start : end + 1]
     try:
         parsed = json.loads(text)
-    except json.JSONDecodeError:
-        return []
+    except json.JSONDecodeError as e:
+        from .llm import LLMError
+        raise LLMError(f"Failed to parse batch atoms JSON: {e}")
     if not isinstance(parsed, list):
-        return []
+        from .llm import LLMError
+        raise LLMError(f"Expected JSON array, got {type(parsed).__name__}")
     return [item for item in parsed if isinstance(item, dict)]
 
 
@@ -204,9 +206,25 @@ def _extract_atoms_from_chunk(
 
     prompt = _BATCH_EXTRACT_PROMPT.format(chunk=chunk)
     messages = [ChatMessage(role="user", content=prompt)]
-    raw = client.chat(messages, json_mode=True, temperature=0.1)
+    
+    max_retries = 2
+    atoms_data = None
+    
+    for attempt in range(max_retries + 1):
+        try:
+            raw = client.chat(messages, json_mode=True, temperature=0.1 + (attempt * 0.1))
+            atoms_data = _parse_batch_atoms_json(raw)
+            break
+        except LLMError as e:
+            if attempt == max_retries:
+                raise
+            feedback = f"Your previous response was invalid JSON. Error: {e}\nPlease try again and return ONLY a valid JSON array."
+            # Append failed response and feedback for self-correction
+            messages.append(ChatMessage(role="assistant", content=raw))
+            messages.append(ChatMessage(role="user", content=feedback))
 
-    atoms_data = _parse_batch_atoms_json(raw)
+    if not atoms_data:
+        return []
     results: list[BatchAtomResult] = []
     for atom_data in atoms_data:
         if not atom_data.get("name"):

@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -23,6 +24,24 @@ from dataclasses import dataclass
 from typing import Generator
 
 import httpx
+
+# ---------------------------------------------------------------------------
+# Global PATH Augmentation for GUI Environments
+# Obsidian plugins inherit a restricted PATH. We must add common local bin paths
+# so that shutil.which() and subprocess.run() can find 'agy', 'claude', etc.
+# ---------------------------------------------------------------------------
+_common_bins = [
+    os.path.expanduser("~/.local/bin"),
+    os.path.expanduser("~/bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin"
+]
+_current_path = os.environ.get("PATH", "")
+for _p in _common_bins:
+    if _p not in _current_path and os.path.isdir(_p):
+        _current_path = f"{_p}:{_current_path}"
+os.environ["PATH"] = _current_path
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------

@@ -463,16 +463,8 @@ def _render_sync_preflight_summary(report: lint_module.LintReport) -> None:
     table.add_row("blocked logical checks", str(len(blocked)))
     console.print(table)
 
-    if needs_review and console.is_interactive:
-        show = typer.confirm("Sync report has review items. Show details?", default=True)
-        if show:
-            for issue in needs_review[:20]:
-                console.print(
-                    f"  [yellow]•[/yellow] [{issue.severity.value}] "
-                    f"[cyan]{issue.page}[/cyan]: {issue.message}"
-                )
-            if len(needs_review) > 20:
-                console.print(f"  [dim]...and {len(needs_review) - 20} more[/dim]")
+    if needs_review and not console.is_interactive:
+        pass # The user can run wiki lint to see details
 
 
 def _latest_sync_report_path(paths: cfg.WikiPaths) -> Path:

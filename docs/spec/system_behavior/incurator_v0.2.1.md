@@ -212,6 +212,13 @@ Sub-agent model:
   available) and use the LLM clustering-plan call only as a fallback.
 - The orchestrator owns ordering, retries, progress, and downstream invalidation.
 
+### 6.1 LLM Resiliency and Extraction Fallbacks
+
+Batch Atom extraction (`_extract_atoms_from_chunk`) relies on the LLM adhering to a strict JSON array schema. To prevent silent failures when using lightweight or unreliable models:
+
+1. **Self-Correction Loop**: If the LLM generates malformed JSON, the orchestrator catches the `JSONDecodeError` (via `LLMError`) and automatically resubmits the request to the LLM up to 2 times, appending the exact error message to prompt self-correction.
+2. **Sequential Legacy Fallback**: If batch extraction ultimately fails (throws `LLMError` after max retries) or returns an empty list `[]` while there are known candidates, the orchestrator abandons batch processing and falls back to a legacy sequential mode. This mode safely attempts to extract each candidate one-by-one, bypassing the brittle batch JSON constraints entirely.
+
 ## 7. Section-Aware Extraction
 
 L2 extraction should split CTX body by `<!-- section:... -->` markers.

@@ -750,8 +750,8 @@ export class IncuratorDashboardModal extends Modal {
       const header = container.createDiv("ai-agent-dashboard-table-header");
       for (const c of ["Source", "L1", "L2", "L3", "L4"]) header.createDiv({ text: c });
 
-      const badge = (s: string, err: boolean) => {
-        if (err || s === "error") return { str: "Error", cls: "badge-error" };
+      const badge = (s: string) => {
+        if (s === "error") return { str: "Error", cls: "badge-error" };
         if (["done","complete"].includes(s)) return { str: "Done", cls: "badge-curated" };
         if (s === "running") return { str: "Run", cls: "badge-indexed" };
         return { str: "—", cls: "badge-ready" };
@@ -762,10 +762,12 @@ export class IncuratorDashboardModal extends Modal {
         let path = src.relpath || src.source_path || `#${src.id}`;
         if (path.length > 50) path = "…" + path.slice(-47);
         row.createDiv({ cls: "ai-agent-dashboard-source-path", text: path });
-        const err = src.status === "error";
+        
         for (const b of [
-          badge(src.l1_status || (src.l1_complete ? "done" : ""), err),
-          badge(src.l2_status, err), badge(src.l3_status, err), badge(src.l4_status, err),
+          badge(src.l1_status || (src.l1_complete ? "done" : "")),
+          badge(src.l2_status || ""),
+          badge(src.l3_status || ""),
+          badge(src.l4_status || ""),
         ]) row.createDiv().createSpan({ cls: `ai-agent-dashboard-badge ${b.cls}`, text: b.str });
       }
     } catch (e) { loading.remove(); el.createDiv({ cls: "ai-agent-dashboard-error", text: `Error: ${e}` }); }

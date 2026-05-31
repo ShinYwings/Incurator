@@ -1976,7 +1976,7 @@ def ingest_source(
             except Exception:
                 batch_results = None  # fall through to legacy path
 
-        if batch_results is not None:
+        if batch_results:
             # Convert BatchAtomResult → (staged, final, PageChange)
             atom_staged: list[tuple[Path, Path, PageChange]] = []
             for br in batch_results:
