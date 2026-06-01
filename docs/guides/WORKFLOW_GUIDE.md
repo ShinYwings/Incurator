@@ -66,14 +66,14 @@ Incurator processes source documents through four levels of abstraction.
   - One context summary per source
   - Preserves original content, metadata, hash linkage
      │
-     │  wiki add (Phase A)
+     │  wiki build (L2 pass)
      ▼
 [L2: Atoms]  .curator/Collections/02_Atoms/ATM-UUID.md
   - Atomic knowledge units extracted from L1
   - One fact / claim / conclusion each
   - Includes verification evidence (citations)
      │
-     │  wiki add (Phase B)
+     │  wiki build (L3 pass)
      ▼
 [L3: Concepts]  .curator/Collections/03_Concepts/CON-UUID.md
   - Thematic clusters grouping Atoms from multiple sources
@@ -102,9 +102,10 @@ wiki init /path/to/vault
 wiki add 03_Notes/paper.pdf
 wiki add 04_Resources/
 
-# Internally:
+# Internally (Math-Aware v0.2.2):
 #   - SHA-256 hash for deduplication
-#   - PyMuPDF (PDF) / regex (MD) / BeautifulSoup (HTML) parsing + image extraction
+#   - Hybrid pipeline: defaults to pymupdf4llm (Markdown) parsing, integrates with VLM parsers when needed
+#   - AST-based chunking: protects math formula blocks ($$...$$) during text splitting
 #   - L1 Context file created immediately from structure → returns at once
 #   - No LLM call; the source is searchable (BM25) as soon as L1 lands
 
@@ -136,8 +137,11 @@ wiki curate --workspace 01_Workspaces/MyProject
 ### 4-3. Search and Query
 
 ```bash
-# Natural language query (BM25 + vector + LLM rerank)
+# Natural language query (BM25 + vector + LLM rerank + Dynamic 2-Step RAG)
 wiki query "How to estimate camera poses without COLMAP in Gaussian Splatting?"
+
+# Query with an explicit workspace (Pinned Exhibition mode)
+wiki query --workspace 01_Workspaces/MyProject "Summarize our goals."
 
 # Rebuild search index
 wiki reindex
@@ -160,14 +164,25 @@ wiki jobs run          # process queued L2/L3 background jobs now
 > content_hash scan (~0.6 seconds). Only changed nodes and their downstream are LLM-revalidated.
 > Use `--full` for a complete revalidation.
 
+> **Dual Architecture Queries & Ephemeral Garbage Collection**:
+> - **Workspace Agent**: When a workspace is specified, queries use the **Pinned Exhibition** and persona defined in `curate.yml` without generating temporary chat files.
+> - **Vault Agent**: General vault queries dynamically generate an **Ephemeral L4 Exhibition** per chat session and use the global fallback persona.
+> - **L3 Constraints**: L4 Exhibitions are **only created** if there are matching L3 Concepts. Without L3 hits, the query gracefully answers without writing an L4.
+> - **GC**: `wiki lint` now includes an **Ephemeral Garbage Collector** that automatically deletes ephemeral chat Exhibitions older than 24 hours to prevent vault pollution.
+
 > **Background worker fallback**: When the MCP server is running, IngestWorker processes
 > queued jobs automatically. During tests or offline CLI use, `wiki jobs run` drains the
 > same queue in the foreground.
 
 > **Instant L1 / L2·L3 Separation**: `wiki add` always creates the CTX, ToC,
 > section markers, and coarse Atom Candidates instantly from parser structure
-> without an LLM call (structural L1). The deep L2/L3 extraction is separated
-> from `wiki add` and performed by a distinct `wiki build` command.
+> without an LLM call (structural L1). Starting in v0.2.2, this step uses
+> **AST-based chunking** to preserve math formula blocks such as `$$...$$`
+> during text splitting. Deep L2/L3 extraction is separated from `wiki add`
+> and performed by the distinct `wiki build` command. By default this queues
+> background work; `--wait` requests synchronous execution. In MCP flows,
+> `curator_register_source` maps to L1 registration and `curator_build_source`
+> maps to L2/L3 building.
 
 > **v0.2.1 performance path**: L2 runs multiple section-aware batches in parallel
 > when the LLM client can be safely cloned. L3 tries embedding-based clustering

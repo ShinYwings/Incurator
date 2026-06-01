@@ -16,6 +16,7 @@ from __future__ import annotations
 from . import constants as consts
 
 import uuid
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +33,8 @@ from .llm import (
     OllamaClient,
     OllamaNotRunning,
 )
+
+MAX_SYNTHESIS_SOURCE_CHARS = 24_000
 
 
 # ---------------------------------------------------------------------------
@@ -139,10 +142,14 @@ def _build_synthesis_user_prompt(
             lines.append(f"Title: {hit.title}")
         lines.append(f"Relevance score: {hit.score:.2f}")
         lines.append("")
-        if hit.full_content:
-            lines.append(hit.full_content)
-        elif hit.snippet:
-            lines.append(hit.snippet)
+        content = hit.full_content or hit.snippet
+        if content:
+            if len(content) > MAX_SYNTHESIS_SOURCE_CHARS:
+                content = (
+                    content[:MAX_SYNTHESIS_SOURCE_CHARS].rstrip()
+                    + "\n\n[... source truncated for synthesis prompt ...]"
+                )
+            lines.append(content)
         else:
             lines.append("(no content available)")
         lines.append("")
@@ -354,6 +361,11 @@ def translate_to_english(client: OllamaClient, question: str) -> str:
     if ascii_ratio > 0.85:
         return question
 
+    def _ascii_fallback(text: str) -> str:
+        ascii_terms = re.sub(r"[^A-Za-z0-9_./+-]+", " ", text).strip()
+        ascii_terms = re.sub(r"\s+", " ", ascii_terms)
+        return ascii_terms if len(ascii_terms) >= 8 else text
+
     try:
         msg = prompts.ChatMessage(
             role="user",
@@ -365,7 +377,7 @@ def translate_to_english(client: OllamaClient, question: str) -> str:
         translated = client.chat([msg], temperature=0.1).strip()
         return translated or question
     except Exception:
-        return question
+        return _ascii_fallback(question)
 
 
 def classify_wiki_topic(
@@ -466,6 +478,7 @@ def run_query(
     session_id: str | None = None,
     workspace_project: str | None = None,
     query_boost_terms: list[str] | None = None,
+    pinned_exhibition_id: str | None = None,
     ephemeral_exhibition: bool = False,
 ) -> QueryResult:
     """Run a full query → answer pipeline.
@@ -484,9 +497,20 @@ def run_query(
     """
     callbacks.on_start(question, mode)
 
+    curator_persona = cfg.get_curator_persona(cfg.load_config(paths))
+
     # 0a. Translate to English first — intent classification is more accurate
     #     on English text, and search backends (BM25/vector) expect English.
     search_question = translate_to_english(client, question)
+    base_search_question = search_question
+
+    if not query_boost_terms:
+        global_domain = curator_persona.get("domain")
+        if global_domain:
+            query_boost_terms = [global_domain]
+            if curator_persona.get("topics"):
+                query_boost_terms.extend(curator_persona["topics"])
+
     if query_boost_terms:
         extras = " ".join(str(term) for term in query_boost_terms if str(term).strip())
         if extras:
@@ -517,10 +541,17 @@ def run_query(
 
     # 1. Search the single Curator collection
     callbacks.on_searching()
-    try:
-        results = search.query(
+    layer_prefix = {
+        "contexts":    f"{consts.LAYER_L1}/",
+        "atoms":       f"{consts.LAYER_L2}/",
+        "concepts":    f"{consts.LAYER_L3}/",
+        "exhibitions": f"{consts.LAYER_L4}/",
+    }.get(scope)
+
+    def _search_for(query_text: str) -> search.SearchResults:
+        found = search.query(
             paths,
-            search_question,
+            query_text,
             mode=mode,
             limit=limit,
             min_score=min_score,
@@ -531,14 +562,14 @@ def run_query(
         # Apply layer-prefix filter post-hoc — qmd has no native path filter,
         # and over-fetching a few extra hits is cheaper than splitting into
         # multiple collections.
-        layer_prefix = {
-            "contexts":    f"{consts.LAYER_L1}/",
-            "atoms":       f"{consts.LAYER_L2}/",
-            "concepts":    f"{consts.LAYER_L3}/",
-            "exhibitions": f"{consts.LAYER_L4}/",
-        }.get(scope)
         if layer_prefix:
-            results.hits = [h for h in results.hits if h.full_path.startswith(layer_prefix)]
+            found.hits = [h for h in found.hits if h.full_path.startswith(layer_prefix)]
+        return found
+
+    try:
+        results = _search_for(search_question)
+        if len(results) == 0 and search_question != base_search_question:
+            results = _search_for(base_search_question)
 
         # Prioritize Exhibitions (L4) as the primary source of truth in the synthesis context
         results.hits.sort(key=lambda h: (not h.full_path.startswith(f"{consts.LAYER_L4}/"), -h.score))
@@ -568,9 +599,20 @@ def run_query(
 
     # 2. Synthesize
     callbacks.on_synthesizing()
-    curator_persona = cfg.get_curator_persona(cfg.load_config(paths))
     agent_context = curator_persona.get("text", "")
+
+    pinned_content = ""
+    if pinned_exhibition_id:
+        pinned_path = paths.exhibitions / f"{pinned_exhibition_id}.md"
+        if pinned_path.exists():
+            page = page_writer.read_page(pinned_path)
+            if page:
+                pinned_content = f"## Pinned Workspace Exhibition ({pinned_exhibition_id})\n{page.body}\n\n"
+
     synthesis_user_content = _build_synthesis_user_prompt(question, results)
+    if pinned_content:
+        synthesis_user_content = f"{pinned_content}{synthesis_user_content}"
+
     if agent_context:
         synthesis_user_content = f"## Agent Context\n{agent_context}\n\n{synthesis_user_content}"
     system_msg = prompts.ChatMessage(role="system", content=SYNTHESIS_SYSTEM_PROMPT)
@@ -630,6 +672,9 @@ def run_query(
             )
             callbacks.on_error(result.error)
             return result
+        except ValueError:
+            # Skip saving silently if no L3 Concepts were found, preserving the query answer.
+            pass
 
     result = QueryResult(
         question=question,

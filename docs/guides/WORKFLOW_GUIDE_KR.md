@@ -68,14 +68,14 @@ Incurator는 소스 문서를 4단계 추상화 레이어로 처리합니다.
   - 소스 1개당 1개의 컨텍스트 요약
   - 원본 내용, 메타데이터, 해시 연결
      │
-     │  wiki add (Phase A)
+     │  wiki build (L2 pass)
      ▼
 [L2: Atoms]  .curator/Collections/02_Atoms/ATM-UUID.md
   - L1에서 추출한 원자적 지식 단위
   - 하나의 사실·주장·결론
   - 검증 근거(인용) 포함
      │
-     │  wiki add (Phase B)
+     │  wiki build (L3 pass)
      ▼
 [L3: Concepts]  .curator/Collections/03_Concepts/CON-UUID.md
   - 여러 소스의 Atom을 묶은 주제 클러스터
@@ -138,8 +138,11 @@ wiki curate --workspace 01_Workspaces/MyProject
 ### 4-3. 검색 및 질의
 
 ```bash
-# 자연어 질의 (BM25 + vector + LLM rerank)
+# 자연어 질의 (BM25 + vector + LLM rerank + 동적 2-Step RAG)
 wiki query "Gaussian Splatting에서 COLMAP 없이 카메라 포즈를 추정하는 방법은?"
+
+# 명시적 Workspace를 지정한 질의 (Pinned Exhibition 모드)
+wiki query --workspace 01_Workspaces/MyProject "우리의 목표를 요약해줘."
 
 # 검색 인덱스 재구축
 wiki reindex
@@ -158,24 +161,27 @@ wiki jobs list
 wiki jobs run          # queued L2/L3 background jobs를 foreground로 처리
 ```
 
-> **wiki sync 기본 동작 변경 (v0.2.1)**: 변경 없는 DAG에서 `wiki sync` 실행 시
-> content_hash 스캔만 수행 (~0.6초). 변경된 노드와 다운스트림만 LLM 재검증.
-> 전체 재검증이 필요한 경우 `--full` 플래그를 사용한다.
+> **wiki sync 기본 동작 변경 (v0.2.1)**: 변경되지 않은 DAG에서 `wiki sync`는 content_hash 검사만 수행합니다(~0.6초).
+> 변경된 노드와 그 하위 노드만 LLM으로 재검증됩니다. 전체 재검증을 원하면 `--full`을 사용하세요.
 
-> **백그라운드 워커 보강**: MCP 서버가 실행 중이면 IngestWorker가 queued job을 자동 처리한다.
-> 서버가 꺼져 있거나 테스트/디버깅 중에는 `wiki jobs run`으로 같은 큐를 foreground에서 처리한다.
+> **이원화된 질의 아키텍처 및 임시 가비지 컬렉션(GC)**:
+> - **Workspace Agent**: 워크스페이스가 지정되면, `curate.yml`에 정의된 **Pinned Exhibition**과 페르소나를 사용하며, 채팅용 임시 파일을 생성하지 않습니다.
+> - **Vault Agent**: 일반 Vault 질의 시에는 세션별로 **임시 L4 Exhibition**을 동적으로 생성하고, 글로벌 폴백 페르소나를 사용합니다.
+> - **L3 제약 조건**: L4 Exhibition은 검색된 **L3 Concept이 있을 때만 생성**됩니다. 일치하는 L3가 없으면 L4를 저장하지 않고 즉시 답변합니다.
+> - **GC**: `wiki lint`는 이제 **임시 가비지 컬렉터(GC)**를 포함하여 24시간이 지난 오래된 임시 채팅 Exhibition을 자동으로 삭제하여 Vault 오염을 방지합니다.
 
-> **즉시 L1 / L2·L3 분리**: `wiki add`는 항상 LLM 호출 없이 파서 구조로 CTX, ToC,
-> section marker, coarse Atom Candidates를 즉시 생성하고 반환한다(구조 기반 L1). 
-> v0.2.2부터는 이 단계에서 **AST 기반 청킹**을 통해 수학 수식 블록을 보존한다. 깊은
-> L2/L3 추출은 `wiki add`에서 분리되어 별도 `wiki build` 명령으로 수행한다 —
-> 기본은 background job 큐잉, `--wait`는 동기 실행. MCP에서는
-> `curator_register_source`(L1) + `curator_build_source`(L2/L3)로 대응한다.
+> **백그라운드 워커 폴백**: MCP 서버가 실행 중일 때 IngestWorker가 대기 중인 작업을 자동으로 처리합니다.
+> 테스트나 오프라인 CLI 사용 시에는 `wiki jobs run` 명령으로 큐를 전경(foreground)에서 처리할 수 있습니다.
 
-> **v0.2.1 성능 경로**: L2는 section-aware batch가 여러 개로 나뉘고 LLM client clone이
-> 가능한 경우 batch 단위로 병렬 실행한다. L3는 embedding 기반 clustering을 먼저 시도하고,
-> embedding 경로가 없을 때만 legacy LLM clustering plan으로 폴백한다.
+> **즉각적인 L1 / L2·L3 분리**: `wiki add`는 LLM 호출 없이 파서 구조로부터 즉시 CTX, ToC, 섹션 마커 및
+> 대략적인 Atom 후보를 생성합니다(구조적 L1). v0.2.2부터 이 단계는 **AST 기반 청킹**을 사용해
+> `$$...$$` 같은 수학 수식 블록을 텍스트 분할 중에도 보존합니다. 깊은 L2/L3 추출은 `wiki add`와
+> 분리되어 별도의 `wiki build` 명령으로 수행됩니다. 기본 동작은 백그라운드 작업 큐에 넣는 것이고,
+> `--wait`는 동기 실행을 요청합니다. MCP에서는 `curator_register_source`가 L1 등록을 담당하고
+> `curator_build_source`가 L2/L3 빌드에 대응합니다.
 
+> **v0.2.1 성능 경로**: LLM 클라이언트를 안전하게 복제할 수 있는 경우 L2는 다중 섹션 인식 배치를 병렬로 실행합니다.
+> L3는 임베딩 기반 클러스터링을 먼저 시도하고, 임베딩 경로가 없을 때만 기존 LLM 클러스터링 계획으로 폴백합니다.
 ---
 
 ## 5. Obsidian 플러그인 워크플로우

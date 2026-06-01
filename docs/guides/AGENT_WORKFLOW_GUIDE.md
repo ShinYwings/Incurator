@@ -22,8 +22,11 @@ This document defines the official operational scenarios and tool interaction pa
 
 ## 2. Query & Knowledge Retrieval Scenarios
 
-### 2.1 Persona-Driven Search (`search_curator`)
-*   **Logic Flow**:
+### 2.1 Persona-Driven Query & Search (`curator_query` & `search_curator`)
+*   **Logic Flow (`curator_query`)**:
+    1.  Implements **Dual Architecture**: If a Workspace is specified, uses the Pinned L4 Exhibition and persona from `curate.yml` (no ephemeral files). If Vault mode (no workspace), dynamically generates an Ephemeral L4 Exhibition per chat session.
+    2.  Enforces **L3 Constraints**: L4 Exhibitions are only generated if L3 Concepts are present. Otherwise, skips L4 generation and returns a direct answer or falls back to raw search.
+*   **Logic Flow (`search_curator`)**:
     1.  Automatically applies `domains`, `topics`, and `min_confidence` filters from the local `curate.yml`.
     2.  If the targeted Exhibition is missing, it **auto-triggers a curation pass** before performing the search.
     3.  Returns results scoped to the project's knowledge requirements, preventing "knowledge noise" from unrelated parts of the vault.

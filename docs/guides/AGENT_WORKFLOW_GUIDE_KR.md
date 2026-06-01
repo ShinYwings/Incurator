@@ -24,8 +24,11 @@
 
 ## 2. 질의 및 지식 검색 시나리오
 
-### 2.1 페르소나 기반 검색 (`search_curator`)
-*   **논리 흐름**:
+### 2.1 페르소나 기반 질의 및 검색 (`curator_query` & `search_curator`)
+*   **논리 흐름 (`curator_query`)**:
+    1.  **이원화된 아키텍처(Dual Architecture) 적용**: 워크스페이스가 지정되면 `curate.yml`의 Pinned L4 Exhibition과 페르소나를 사용합니다(임시 파일 생성 안 함). 워크스페이스가 없는 일반 Vault 모드인 경우, 세션별로 임시(Ephemeral) L4 Exhibition을 동적으로 생성합니다.
+    2.  **L3 제약 조건**: 질의와 관련된 L3 Concept이 존재할 때만 L4 Exhibition을 생성합니다. 없으면 L4 생성을 건너뛰고 직접 답변하거나 일반 검색으로 폴백합니다.
+*   **논리 흐름 (`search_curator`)**:
     1.  로컬 `curate.yml`에서 `domains`, `topics`, `min_confidence` 필터를 자동으로 적용합니다.
     2.  대상 Exhibition이 없으면 검색을 수행하기 전에 **큐레이션 패스를 자동으로 트리거**합니다.
     3.  프로젝트의 지식 요구사항으로 범위가 지정된 결과를 반환하여 Vault의 관련 없는 부분에서 발생하는 "지식 노이즈"를 방지합니다.

@@ -45,11 +45,16 @@ Rules:
 
 ```yaml
 llm:
-  primary: ""              # "" | ollama | claude-code | antigravity-cli
-  fallback: ""             # "" | ollama | claude-code | antigravity-cli
+  primary: ""              # "" | ollama | claude-code | antigravity-cli | codex-cli
+  fallback: ""             # "" | ollama | claude-code | antigravity-cli | codex-cli
 ```
 
-
+If a CLI provider fails due to network, quota, or capacity errors and
+`llm.fallback` is configured, the FailoverClient retries the same request on the
+fallback provider. Antigravity CLI print-mode calls are special-cased: when `agy`
+returns exit code 0 with empty stdout but records `RESOURCE_EXHAUSTED`, `429`, or
+equivalent capacity text in its CLI log, Incurator must treat the call as a
+recoverable `AntigravityCliError` rather than as an empty model answer.
 
 ### 2.2 Antigravity Model Fields
 
@@ -254,6 +259,8 @@ Rules:
 - Promoted Exhibitions are protected from automatic destructive rewrite.
 - Backprop may invalidate caches that cite changed Concepts, but must preserve
   human-verified promoted artifacts unless explicitly requested.
+- **L4 Constraints**: Query-generated Exhibitions are ONLY created if the query hits at least one L3 Concept. If no L3 Concepts are relevant, the system responds without generating an L4.
+- **Ephemeral GC**: Exhibitions with `ephemeral: true` are subject to garbage collection. `wiki lint` automatically deletes these files if they are older than 24 hours to prevent vault pollution.
 
 ## 6. SQLite State Schema Additions
 

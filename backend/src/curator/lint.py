@@ -45,6 +45,7 @@ class CheckId(str, Enum):
     NOISE_IN_SYNTHESIS = "noise_in_synthesis"
     CONTRADICTION = "contradiction"
     MISSING_CROSS_LAYER_LINK = "missing_cross_layer_link"  # ATM missing parent_source wikilink, etc.
+    EPHEMERAL_GC = "ephemeral_gc"
 
 
 @dataclass
@@ -1059,7 +1060,7 @@ def _apply_fixes_to_page(parsed: page_writer.ParsedPage, fixes: list[LintIssue])
                 body = re.sub(rf"\[\[{old_esc}(?:\|[^\]]*)?\]\]", "", body)
                 body = re.sub(r"(?m)^[ \t]*[-*][ \t]*\n", "", body)
                 changed_this_issue = True
-            
+
             elif new and old != new:
                 if location == "body":
                     old_esc = re.escape(old)
@@ -1096,7 +1097,7 @@ def _apply_fixes_to_page(parsed: page_writer.ParsedPage, fixes: list[LintIssue])
             if field and new and parsed.frontmatter.get(field) != new:
                 parsed.frontmatter[field] = new
                 changed_this_issue = True
-        
+
         if changed_this_issue:
             fixed_checks.add(issue.check.value)
 
@@ -1130,7 +1131,7 @@ def apply_llm_fixes(
 
     limit_set = set(limit_to) if limit_to else None
     llm_issues = [
-        i for i in issues 
+        i for i in issues
         if i.context.get("llm_relink") and (not limit_set or i.page in limit_set)
     ]
     if not llm_issues:
@@ -1162,7 +1163,7 @@ def apply_llm_fixes(
     for relpath, page_issues in by_page.items():
         if progress_callback:
             progress_callback(relpath)
-        
+
         full_path = paths.wiki / relpath
         if not full_path.exists():
             continue
@@ -1277,7 +1278,7 @@ def apply_fixes(
         for relpath, page_issues in by_page.items():
             if progress_callback:
                 progress_callback(relpath)
-                
+
             full_path = paths.wiki / relpath
             if not full_path.exists():
                 continue
@@ -1317,6 +1318,34 @@ def apply_fixes(
 # ---------------------------------------------------------------------------
 # Top-level: run_lint
 # ---------------------------------------------------------------------------
+
+
+def gc_ephemeral_exhibitions(paths: cfg.WikiPaths, max_age_hours: int = 24) -> list[str]:
+    """Delete ephemeral Exhibitions older than max_age_hours.
+
+    Returns a list of deleted file paths.
+    """
+    import time
+    deleted = []
+    now = time.time()
+    max_age_sec = max_age_hours * 3600
+
+    if not paths.exhibitions.exists():
+        return deleted
+
+    for md_path in paths.exhibitions.glob("*.md"):
+        if md_path.name.startswith("."):
+            continue
+        page = page_writer.read_page(md_path)
+        if page and page.frontmatter.get("ephemeral") is True:
+            # Check file modification time
+            try:
+                if now - md_path.stat().st_mtime > max_age_sec:
+                    md_path.unlink()
+                    deleted.append(str(md_path))
+            except OSError:
+                pass
+    return deleted
 
 
 def run_lint(
@@ -1359,6 +1388,22 @@ def run_lint(
     if deep and client is not None:
         report.deep_check_run = True
         report.issues.extend(check_contradictions_deep(inv, paths, client, limit_to=limit_to))
+
+    # Run Garbage Collection for Ephemeral Exhibitions
+    try:
+        deleted = gc_ephemeral_exhibitions(paths, max_age_hours=24)
+        if deleted:
+            report.issues.append(
+                LintIssue(
+                    check=CheckId.EPHEMERAL_GC,
+                    severity=Severity.INFO,
+                    page="system",
+                    message=f"Garbage collected {len(deleted)} stale ephemeral chat exhibition(s).",
+                    suggestion="These were older than 24 hours.",
+                )
+            )
+    except Exception:
+        pass
 
     # Sort: errors first, then warnings, then infos. Within each, by page.
     severity_order = {

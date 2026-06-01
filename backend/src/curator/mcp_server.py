@@ -935,37 +935,6 @@ def build_server() -> FastMCP:
         return {"ok": True, "llm": config["llm"]}
 
     @mcp.tool()
-    def check_source_status(file_hash: str, workspace_path: str = "") -> dict[str, Any]:
-        """Return source registration and pipeline status by SHA-256 content hash."""
-        paths = _resolve_paths(workspace_path)
-        config = cfg.load_config(paths)
-        with db.connect(paths.state_db) as conn:
-            row = conn.execute(
-                "SELECT * FROM sources WHERE content_hash = ? ORDER BY id DESC LIMIT 1",
-                (file_hash,),
-            ).fetchone()
-        if row is None:
-            return {
-                "registered": False,
-                "source_id": None,
-                "l1_complete": False,
-                "l2_complete": False,
-                "l3_complete": False,
-                "jobs_pending": [],
-            }
-        source = _source_dict(paths, dict(row), config)
-        return {
-            "registered": True,
-            "source_id": int(row["id"]),
-            "relpath": row["relpath"],
-            "l1_complete": source.get("l1_complete", False),
-            "l2_complete": source.get("l2_complete", False),
-            "l3_complete": source.get("l3_complete", False),
-            "jobs_pending": source.get("jobs_pending", []),
-            "source": source,
-        }
-
-    @mcp.tool()
     def check_ingest_status(workspace_path: str = "") -> dict[str, Any]:
         """Return current background job queue status for plugin polling.
 
@@ -1012,37 +981,65 @@ def build_server() -> FastMCP:
 
     @mcp.tool()
     def fetch_document_section(
-        source_key: str,
+        source_key: str = "",
         toc_id: str = "",
         section_id: str = "",
         page: int = 0,
+        page_start: int = 0,
+        page_end: int = 0,
+        source_id: Optional[int] = None,
+        source_path: str = "",
+        file_path: str = "",
+        path: str = "",
+        relpath: str = "",
         workspace_path: str = "",
     ) -> dict[str, Any]:
         """Fetch a raw source section for instant L1/ephemeral RAG."""
         paths = _resolve_paths(workspace_path)
-        row = _get_source_row(paths, source_path=source_key)
-        source_path = Path(source_key).expanduser()
+        lookup_path = relpath or source_path or file_path or path
+        lookup_key = source_key or lookup_path
+        row = _get_source_row(paths, source_id=source_id, relpath=relpath, source_path=lookup_key)
+        source_path_obj = Path(lookup_key).expanduser() if lookup_key else Path()
         if row is not None:
-            source_path = source_tools._row_path(paths, row)
-        elif not source_path.is_absolute():
-            source_path = paths.root / source_key
-        if not source_path.exists():
-            return {"ok": False, "error": f"Source not found: {source_key}"}
+            source_path_obj = source_tools._row_path(paths, row)
+        elif lookup_key and not source_path_obj.is_absolute():
+            source_path_obj = paths.root / lookup_key
+        if not lookup_key and row is None:
+            return {"ok": False, "error": "Source not found: missing source_key, source_id, or path"}
+        if not source_path_obj.exists():
+            return {"ok": False, "error": f"Source not found: {lookup_key}"}
         try:
             from .ingest_raw import _resolve_reference_source
-            resolved_path = _resolve_reference_source(paths, source_path)
+            resolved_path = _resolve_reference_source(paths, source_path_obj)
             parsed = source_tools.parse_source(resolved_path)
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
         wanted = section_id or toc_id
         text = parsed.text
-        if page and parsed.file_type == "pdf":
+        page_count = 1
+        metadata: dict[str, Any] = dict(parsed.metadata or {})
+        legacy_page_lookup = not source_key and not wanted and bool(source_id is not None or lookup_path)
+        requested_page = int(page or page_start or (1 if legacy_page_lookup else 0))
+        if parsed.file_type == "pdf":
             pages = parsed.metadata.get("pdf_pages") or []
-            for item in pages:
-                if int(item.get("page") or item.get("page_number") or 0) == int(page):
-                    text = str(item.get("text") or "")
-                    break
+            page_count = len(pages)
+            if requested_page or page_end:
+                start_page = requested_page or 1
+                end_page = int(page_end or start_page)
+                if start_page < 1 or (page_count and start_page > page_count):
+                    return {"ok": False, "error": f"Page out of range: {start_page}", "page_count": page_count}
+                selected: list[str] = []
+                selected_meta: dict[str, Any] = {}
+                for item in pages:
+                    item_page = int(item.get("page") or item.get("page_number") or 0)
+                    if start_page <= item_page <= end_page:
+                        page_meta = dict(item)
+                        selected.append(str(page_meta.pop("text", "") or ""))
+                        if item_page == start_page:
+                            selected_meta = page_meta
+                text = "\n\n".join(part for part in selected if part)
+                metadata = selected_meta
         elif wanted:
             pattern = re.compile(
                 rf"(?ms)^<!--\s*section:\s*{re.escape(wanted)}\b.*?-->\s*(.*?)(?=^<!--\s*section:|\Z)"
@@ -1061,17 +1058,23 @@ def build_server() -> FastMCP:
         return {
             "ok": True,
             "source_id": int(row["id"]) if row else None,
-            "source_key": source_key,
+            "source_key": lookup_key,
+            "relpath": row.get("relpath") if row else None,
             "toc_id": wanted,
-            "page": page or None,
+            "page": requested_page or None,
+            "page_start": int(page_start or requested_page or 0) or None,
+            "page_end": int(page_end or requested_page or 0) or None,
+            "page_count": page_count,
             "title": parsed.title,
             "file_type": parsed.file_type,
+            "metadata": metadata,
             "text": text,
             "char_count": len(text),
         }
 
     @mcp.tool()
     def check_source_status(
+        file_hash: str = "",
         source_id: Optional[int] = None,
         relpath: str = "",
         source_path: str = "",
@@ -1093,6 +1096,34 @@ def build_server() -> FastMCP:
         paths = _resolve_paths(workspace_path)
         config = cfg.load_config(paths)
         stats = db.get_stats(paths.state_db)
+
+        if file_hash:
+            with db.connect(paths.state_db) as conn:
+                row = conn.execute(
+                    "SELECT * FROM sources WHERE content_hash = ? ORDER BY id DESC LIMIT 1",
+                    (file_hash,),
+                ).fetchone()
+            if row is None:
+                return {
+                    "registered": False,
+                    "source_id": None,
+                    "l1_complete": False,
+                    "l2_complete": False,
+                    "l3_complete": False,
+                    "jobs_pending": [],
+                }
+            source = _source_dict(paths, dict(row), config)
+            return {
+                "registered": True,
+                "source_id": int(row["id"]),
+                "relpath": row["relpath"],
+                "source_path": row["relpath"],
+                "l1_complete": source.get("l1_complete", False),
+                "l2_complete": source.get("l2_complete", False),
+                "l3_complete": source.get("l3_complete", False),
+                "jobs_pending": source.get("jobs_pending", []),
+                "source": source,
+            }
 
         lookup_path = relpath or source_path or file_path or path
         if source_id is not None or lookup_path:
@@ -1477,61 +1508,6 @@ def build_server() -> FastMCP:
 
 
     @mcp.tool()
-    def fetch_document_section(
-        source_id: Optional[int] = None,
-        source_path: str = "",
-        file_path: str = "",
-        path: str = "",
-        relpath: str = "",
-        page: int = 1,
-        workspace_path: str = "",
-    ) -> dict[str, Any]:
-        """Return parsed text and provenance metadata for one source page."""
-        paths = _resolve_paths(workspace_path)
-        lookup_path = relpath or source_path or file_path or path
-        row = _get_source_row(paths, source_id=source_id, relpath=relpath, source_path=lookup_path)
-        if row is None:
-            return {"error": f"Source not found: {source_id or lookup_path}"}
-        source_id_int = int(row["id"])
-        from . import parsers
-
-        source_file_path = paths.root / str(row["relpath"])
-        if not source_file_path.exists():
-            return {"error": f"Source file missing: {row['relpath']}"}
-        try:
-            parsed = parsers.parse(source_file_path)
-        except Exception as exc:
-            return {"error": f"Parse failed: {exc}"}
-
-        if parsed.file_type == "pdf":
-            pages = parsed.metadata.get("pdf_pages") or []
-            if page < 1 or page > len(pages):
-                return {"error": f"Page out of range: {page}", "page_count": len(pages)}
-            page_meta = dict(pages[page - 1])
-            text = str(page_meta.pop("text", "") or "")
-            return {
-                "source_id": source_id_int,
-                "relpath": row["relpath"],
-                "file_type": parsed.file_type,
-                "title": parsed.title,
-                "page": page,
-                "page_count": len(pages),
-                "metadata": page_meta,
-                "text": text,
-            }
-
-        return {
-            "source_id": source_id_int,
-            "relpath": row["relpath"],
-            "file_type": parsed.file_type,
-            "title": parsed.title,
-            "page": None,
-            "page_count": 1,
-            "metadata": parsed.metadata,
-            "text": parsed.text,
-        }
-
-    @mcp.tool()
     def curator_get_pdf_context(
         file_path: str,
         query: str = "",
@@ -1845,6 +1821,7 @@ def build_server() -> FastMCP:
                     "count": 0,
                 }
 
+        base_query = query
         if curate_spec is not None:
             # Apply confidence floor
             min_score = max(min_score, curate_spec.min_confidence)
@@ -1911,6 +1888,16 @@ def build_server() -> FastMCP:
                 hydrate=True,
                 rerank=True,
             )
+            if len(results) == 0 and query != base_query:
+                results = search.query(
+                    paths,
+                    base_query,
+                    mode=mode,
+                    limit=limit,
+                    min_score=min_score,
+                    hydrate=True,
+                    rerank=True,
+                )
         except search.QmdNotInstalled as e:
             return {"error": str(e), "hits": []}
         except search.SearchBackendError as e:
@@ -1990,12 +1977,22 @@ def build_server() -> FastMCP:
 
         # Resolve workspace project name (for Exhibition scoping)
         workspace_project: str | None = None
+        query_boost_terms: list[str] | None = None
+        pinned_exhibition_id: str | None = None
         if ws_path_str:
             ws_p = Path(ws_path_str).expanduser().resolve()
             from . import curate_yml as _cym
             try:
                 spec = _cym.load_curate_spec(ws_p)
                 workspace_project = spec.project
+                if spec.persona:
+                    persona_terms = [
+                        spec.persona.domain,
+                        spec.persona.subdomain,
+                        *spec.persona.disambiguation_keywords,
+                    ]
+                    query_boost_terms = [term for term in persona_terms if term]
+                pinned_exhibition_id = spec.exhibition
             except Exception:
                 workspace_project = ws_p.name
 
@@ -2091,15 +2088,17 @@ def build_server() -> FastMCP:
                     question,
                     _SilentCallbacks(),
                     mode="hybrid",
-                    limit=8,
-                    min_score=0.5,
+                    limit=12,
+                    min_score=0.35,
                     rerank=True,
-                    save_as=question[:60],
+                    save_as=question[:60] if not ws_path_str else None,
                     temperature=0.3,
-                    scope="all",
+                    scope="concepts",
                     session_id=session_id,
                     workspace_project=workspace_project,
-                    ephemeral_exhibition=True,
+                    query_boost_terms=query_boost_terms,
+                    pinned_exhibition_id=pinned_exhibition_id,
+                    ephemeral_exhibition=False if ws_path_str else True,
                 )
         except Exception as e:
             return {"ok": False, "question": question, "error": f"Query pipeline error: {e}"}
@@ -2255,15 +2254,23 @@ def build_server() -> FastMCP:
             return {"error": "workspace_path required (or set WORKSPACE_PATH env var)"}
 
         paths = _resolve_paths(ws)
-        result = subprocess.run(
-            ["wiki", "curate", "--workspace", ws, "--no-sync"],
-            cwd=str(paths.root),
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=300,
-            env={**os.environ, "VAULT_ROOT": str(paths.root)},
-        )
+        try:
+            result = subprocess.run(
+                ["wiki", "curate", "--workspace", ws, "--no-sync"],
+                cwd=str(paths.root),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=300,
+                env={**os.environ, "VAULT_ROOT": str(paths.root)},
+            )
+        except subprocess.TimeoutExpired as exc:
+            return {
+                "ok": False,
+                "error": "wiki curate timed out after 300 seconds",
+                "stdout": (exc.stdout or "")[-4000:] if isinstance(exc.stdout, str) else "",
+                "stderr": (exc.stderr or "")[-4000:] if isinstance(exc.stderr, str) else "",
+            }
         if result.returncode != 0:
             return {"error": result.stderr.strip() or "wiki curate failed"}
 

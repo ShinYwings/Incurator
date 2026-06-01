@@ -187,6 +187,7 @@ wiki mcp install
   - `force_new` (캐시 무시하고 새 Exhibition 생성, 기본값 `false`)
 - **반환값**: `ok`, `answer` (마크다운 답변), `exhibition_id` (생성·재사용된 EXH UUID), `cache_hit`, `question`, `trace`.
   - `trace`: `matched_concepts` (CON-ID 목록), `source_paths`, `latency_ms`, `l3_complete`.
+- **컨텍스트 상한**: 합성 단계는 scope가 제한된 L3 Concept context를 사용하고, oversized source body는 LLM 호출 전에 잘라냅니다. 큰 L1 source recap이나 raw PDF text는 `curator_query`에 통째로 넣지 않고 source/PDF tool로 명시적으로 가져와야 합니다.
 - **캐시 키**: `sha256(workspace_id + ":"+ normalized_question)[:16]`. backprop이 참조 CON을 수정하면 해당 캐시가 자동 무효화됩니다. `is_verified_by_human=true`인 EXH는 보호됩니다.
 - **구현 상태**: v0.2.1에서 구현 완료. L3 미완성 소스의 경우 `ok=true`, `fallback="l3_incomplete"`, `answer=""`, `trace.l3_complete=false`를 반환하고 플러그인은 `fetch_document_section` 또는 로컬 PDF context fallback으로 전환합니다.
 
