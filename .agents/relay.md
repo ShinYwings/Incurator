@@ -1,12 +1,13 @@
 # Agent Relay Handoff
 
-**Last Updated:** 2026-06-01T22:14:00+09:00
+**Last Updated:** 2026-06-01T22:16:00+09:00
 **Last Agent:** Codex
 
 ## Current Active Goal
 
-Push the completed frontend/backend provider UX work after committing all
-intended source, docs, plan, relay, and test changes.
+Completed frontend/backend provider UX work has been committed and pushed,
+including temporary-file cleanup and all intended source, docs, plan, relay,
+and test changes.
 
 ## Active Plan Reference
 
@@ -55,8 +56,8 @@ intended source, docs, plan, relay, and test changes.
 - [x] Updated English and Korean guides plus active v0.2.2 specs.
 - [x] Added backend and frontend tests.
 - [x] Ran validation.
-- [x] Commit created: `6c9c449 feat: add DeepSeek provider and improve Obsidian provider UX`.
-- [ ] Pushed to `origin/master`.
+- [x] Commit created and pushed:
+      `609f8a9 feat: add DeepSeek provider and improve Obsidian provider UX`.
 
 ## Validation Evidence
 
@@ -97,4 +98,5 @@ Observed results:
 
 ## Immediate Next Action
 
-Push `master` to `origin/master`.
+No immediate coding action is required. Manual Obsidian runtime confirmation
+remains useful for actual macOS Zotero app opening and dashboard click behavior.
