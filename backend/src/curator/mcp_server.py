@@ -250,7 +250,15 @@ def _id_from_link(link: str) -> str:
 def _concept_atom_ids(con: dict[str, Any]) -> list[str]:
     """Concept → Atom edges live in the terminal `## Relations` section."""
     atom_ids: list[str] = []
-    for target in page_writer.extract_relation_targets(con.get("body", ""), prefix=f"{consts.LAYER_L2}/"):
+    body = con.get("body", "")
+    targets = page_writer.extract_relation_targets(body, prefix=f"{consts.LAYER_L2}/")
+    if not targets:
+        targets = [
+            target
+            for target in page_writer.extract_wikilink_targets(body)
+            if target.startswith(f"{consts.LAYER_L2}/")
+        ]
+    for target in targets:
         atom_id = _id_from_link(target)
         if atom_id.startswith(f"{consts.PREFIX_L2}-") and atom_id not in atom_ids:
             atom_ids.append(atom_id)
@@ -2090,15 +2098,18 @@ def build_server() -> FastMCP:
                     mode="hybrid",
                     limit=12,
                     min_score=0.35,
-                    rerank=True,
-                    save_as=question[:60] if not ws_path_str else None,
+                    rerank=False,
+                    save_as=question[:60],
                     temperature=0.3,
-                    scope="concepts",
+                    scope="all",
+                    classify_intent_first=False,
                     session_id=session_id,
                     workspace_project=workspace_project,
+                    workspace_path=ws_path_str or None,
+                    cache_key=cache_key,
                     query_boost_terms=query_boost_terms,
                     pinned_exhibition_id=pinned_exhibition_id,
-                    ephemeral_exhibition=False if ws_path_str else True,
+                    ephemeral_exhibition=True,
                 )
         except Exception as e:
             return {"ok": False, "question": question, "error": f"Query pipeline error: {e}"}
@@ -2121,6 +2132,16 @@ def build_server() -> FastMCP:
                 con_id = Path(hit.full_path).stem
                 if con_id not in matched_concepts:
                     matched_concepts.append(con_id)
+            elif hit.full_path.startswith(f"{consts.LAYER_L4}/"):
+                hit_path = paths.collections / hit.full_path
+                hit_page = page_writer.read_page(hit_path)
+                if hit_page:
+                    for raw_con in hit_page.frontmatter.get("core_concepts") or []:
+                        if not isinstance(raw_con, str):
+                            continue
+                        con_id = Path(_normalize_link(raw_con)).stem
+                        if con_id.startswith(consts.PREFIX_L3) and con_id not in matched_concepts:
+                            matched_concepts.append(con_id)
             sp = hit.full_path
             if sp not in source_paths:
                 source_paths.append(sp)
@@ -2785,6 +2806,7 @@ def build_server() -> FastMCP:
 
         concepts: list[dict[str, Any]] = []
         atoms: list[dict[str, Any]] = []
+        broken_atom_refs: list[dict[str, str]] = []
         seen_atoms: set[str] = set()
 
         for raw_link in cur["frontmatter"].get("core_concepts", []) or []:
@@ -2801,13 +2823,18 @@ def build_server() -> FastMCP:
                 if atm_id in seen_atoms:
                     continue
                 seen_atoms.add(atm_id)
-                atoms.append(_read_node(paths, atm_id))
+                atom = _read_node(paths, atm_id)
+                if "error" in atom:
+                    broken_atom_refs.append({"concept_id": con_id, "atom_id": atm_id, "error": atom["error"]})
+                    continue
+                atoms.append(atom)
 
         return {
             "exhibition": cur,
             "confidence_score": cur["frontmatter"].get("confidence_score"),
             "concepts": concepts,
             "atoms": atoms,
+            "broken_atom_refs": broken_atom_refs,
             "flagged_atom_count": sum(
                 1 for a in atoms if a.get("frontmatter", {}).get("is_flagged_for_agent")
             ),
@@ -3242,7 +3269,8 @@ def build_server() -> FastMCP:
     def curator_update_node(
         node_id: str,
         new_content: str,
-        workspace_path: str = ""
+        workspace_path: str = "",
+        propagate_sources: bool = True,
     ) -> dict[str, Any]:
         """Overwrite an L4 Exhibition and propagate changes backward through the DAG.
 
@@ -3253,6 +3281,11 @@ def build_server() -> FastMCP:
             node_id: The Exhibition to update (must start with EXH-).
             new_content: Full replacement markdown (frontmatter + body).
             workspace_path: Optional workspace path to help resolve the vault.
+            propagate_sources: When true, continue propagation into L2 Atoms
+                and L1 Contexts. Defaults to true because insight backprop is a
+                rare correction path where graph consistency is more important
+                than single-call latency. L1 source text must preserve original
+                evidence while recording derived corrections separately.
 
         Writes the Exhibition file, then runs upstream backward propagation
         (EXH → CON → ATM) via LLM so referenced Concepts and Atoms are updated
@@ -3279,6 +3312,25 @@ def build_server() -> FastMCP:
         if not page_path.exists():
             return {"error": f"Page not found: {subdir}/{node_id}.md"}
 
+        previous_content = page_path.read_text(encoding="utf-8", errors="replace")
+        if previous_content.strip() == new_content.strip():
+            return {
+                "updated": False,
+                "noop": True,
+                "propagation": {
+                    "concepts_updated": [],
+                    "atoms_updated": [],
+                    "contexts_updated": [],
+                    "feedback_required": [],
+                    "errors": [],
+                    "llm_calls": 0,
+                    "timings_ms": {"total": 0},
+                    "source_propagation_skipped": False,
+                    "target_concepts": [],
+                },
+                "gaps": [],
+                "routing_tables_rebuilt": False,
+            }
         page_path.write_text(new_content, encoding="utf-8")
 
         from . import sync as sync_module
@@ -3292,7 +3344,11 @@ def build_server() -> FastMCP:
             _client = build_client(_config)
             try:
                 prop_result = sync_module.propagate_upstream_from_exhibition(
-                    paths, _client, exh_id=node_id
+                    paths,
+                    _client,
+                    exh_id=node_id,
+                    propagate_sources=propagate_sources,
+                    previous_exh_content=previous_content,
                 )
                 propagation_summary = {
                     "concepts_updated": prop_result.concepts_updated,
@@ -3300,6 +3356,10 @@ def build_server() -> FastMCP:
                     "contexts_updated": prop_result.contexts_updated,
                     "feedback_required": prop_result.feedback_required,
                     "errors": prop_result.errors,
+                    "llm_calls": prop_result.llm_calls,
+                    "timings_ms": prop_result.timings_ms,
+                    "source_propagation_skipped": prop_result.source_propagation_skipped,
+                    "target_concepts": prop_result.target_concepts,
                 }
             finally:
                 try:

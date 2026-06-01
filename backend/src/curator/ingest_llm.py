@@ -441,6 +441,35 @@ def _disambiguate_concept_plan_titles(
     return updated
 
 
+def _filter_concept_plan_atoms(paths: cfg.WikiPaths, plans: list[ConceptPlan], atom_ids: list[str]) -> list[ConceptPlan]:
+    """Keep Concept plans tied only to real L2 Atom pages from this build."""
+    valid_ids = {
+        atom_id
+        for atom_id in atom_ids
+        if isinstance(atom_id, str)
+        and atom_id.startswith(f"{consts.PREFIX_L2}-")
+        and (paths.atoms / f"{atom_id}.md").exists()
+    }
+    filtered: list[ConceptPlan] = []
+    for plan in plans:
+        seen: set[str] = set()
+        kept: list[str] = []
+        for atom_id in plan.atom_ids:
+            if atom_id in valid_ids and atom_id not in seen:
+                kept.append(atom_id)
+                seen.add(atom_id)
+        if kept:
+            filtered.append(
+                ConceptPlan(
+                    name=plan.name,
+                    domain=plan.domain,
+                    atom_ids=kept,
+                    description=plan.description,
+                )
+            )
+    return filtered
+
+
 def _concept_plan_suffix(
     paths: cfg.WikiPaths,
     plan: ConceptPlan,
@@ -1503,7 +1532,9 @@ def _run_pass2_concepts(
             print(f"Warning: Concept clustering failed: {e}", file=sys.stderr)
             return staged  # Non-fatal — skip concept layer for this run
 
+    plans = _filter_concept_plan_atoms(paths, plans, atom_ids)
     plans = _add_unassigned_atom_fallback_plans(paths, plans, atom_ids)
+    plans = _filter_concept_plan_atoms(paths, plans, atom_ids)
     workspace_keywords = (
         list(artist_persona.disambiguation_keywords)
         if artist_persona and artist_persona.disambiguation_keywords

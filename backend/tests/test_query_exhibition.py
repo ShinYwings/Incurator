@@ -183,6 +183,57 @@ class QueryExhibitionTests(unittest.TestCase):
         self.assertEqual(search_mock.call_count, 2)
         self.assertEqual(result.hits[0].full_path, f"{consts.LAYER_L3}/CON-good1234.md")
 
+    def test_run_query_saves_workspace_ephemeral_exhibition_for_cache(self) -> None:
+        callbacks = DummyCallbacks()
+        concept_path = self.paths.concepts / "CON-work1234.md"
+        concept_path.write_text(
+            """---
+id: CON-work1234
+type: concept
+name: Workspace Concept
+domain: Test
+confidence_score: 0.8
+---
+
+# Workspace Concept
+""",
+            encoding="utf-8",
+        )
+        hit = search.SearchHit(
+            full_path=f"{consts.LAYER_L3}/CON-work1234.md",
+            title="Workspace Concept",
+            score=0.9,
+            full_content=concept_path.read_text(encoding="utf-8"),
+        )
+
+        with (
+            patch.object(query, "translate_to_english", return_value="What is this?"),
+            patch.object(query.search, "query", return_value=search.SearchResults(hits=[hit])),
+        ):
+            result = query.run_query(
+                paths=self.paths,
+                client=DummyClient(),
+                question="What is this?",
+                callbacks=callbacks,
+                save_as="What is this?",
+                classify_intent_first=False,
+                workspace_project="Workspace Project",
+                workspace_path="/tmp/Workspace",
+                cache_key="workspace-cache-key",
+                ephemeral_exhibition=True,
+            )
+
+        self.assertTrue(result.ok)
+        self.assertIsNotNone(result.saved_path)
+        self.assertEqual(callbacks.saved_paths, [result.saved_path])
+        saved = next(self.paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md"))
+        saved_text = saved.read_text(encoding="utf-8")
+        self.assertIn("workspace_path: /tmp/Workspace", saved_text)
+        self.assertIn("cache_key: workspace-cache-key", saved_text)
+        self.assertIn("ephemeral: true", saved_text)
+        self.assertIn("exhibition_origin: query_gen", saved_text)
+        self.assertIn(f"- {consts.LAYER_L3}/CON-work1234", saved_text)
+
     def test_translate_to_english_uses_ascii_terms_when_translation_fails(self) -> None:
         translated = query.translate_to_english(
             FailingTranslateClient(),

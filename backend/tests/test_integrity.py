@@ -284,6 +284,27 @@ Uses [[02_Atoms/ATM-a1b2c3d4]] and typo [[02_Atoms/ATM-a1b2c3d5|Vector Embedding
         self.assertIn("Vector Embedding", parsed.body)
         self.assertNotIn("ATM-a1b2c3d5", parsed.body)
 
+    def test_concept_plan_filter_drops_nonexistent_atom_ids(self) -> None:
+        (self.paths.atoms / "ATM-real0001.md").write_text(
+            "---\nid: ATM-real0001\ntype: atom\n---\n\n# Real\n",
+            encoding="utf-8",
+        )
+        plan = ingest_llm.ConceptPlan(
+            name="Filtered Concept",
+            domain="test",
+            atom_ids=["ATM-real0001", "ATM-missing1"],
+            description="Has one missing Atom.",
+        )
+
+        filtered = ingest_llm._filter_concept_plan_atoms(
+            self.paths,
+            [plan],
+            ["ATM-real0001", "ATM-missing1"],
+        )
+
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0].atom_ids, ["ATM-real0001"])
+
     def test_lint_reports_and_fixes_empty_layer_link_and_atom_source_path(self) -> None:
         source = self.root / "03_Notes" / "source.md"
         source.write_text("# Source\n\nBody\n", encoding="utf-8")

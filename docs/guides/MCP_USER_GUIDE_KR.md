@@ -156,7 +156,8 @@ wiki mcp install
 
 #### `curator_update_node`
 - **역할**: **Exhibition (EXH)** 노드의 내용을 덮어씁니다. L1/L2/L3 노드에 대한 직접 수정은 백엔드의 DAG 파이프라인 무결성 유지를 위해 거부됩니다.
-- **자동 수정 (Backprop)**: **Exhibition (EXH)** 노드를 수정할 경우, 백엔드 내부에서 `wiki sync`가 트리거되어 Concept(L3) 및 Atom(L2)으로 변경 사항이 전파되고 일관성을 유지하도록 내용이 재작성됩니다. 이를 통해 대화 중 발견된 이전 지식의 오류를 즉시 바로잡을 수 있습니다.
+- **자동 수정 (Backprop)**: **Exhibition (EXH)** 노드를 수정할 경우, 백엔드 내부에서 `wiki sync`가 트리거되어 Concept, Atom, Context까지 변경 사항을 전파합니다. insight backprop은 드물게 발생하는 정정 경로이므로 단일 호출 latency보다 그래프 정합성을 우선합니다. 백엔드는 이전 Exhibition과 수정된 Exhibition의 텍스트 차이를 비교해 새 insight와 가장 관련 있는 Concept을 먼저 고르고, 가능한 경우 실제 변경이 필요한 Concept만 하나의 structured batch LLM 호출로 조정한 뒤, 실제로 상위 노드가 바뀐 경우에만 L2/L1로 내려갑니다. 변경이 없는 Concept은 batch 응답에서 생략할 수 있어 모델 출력 latency를 줄입니다. L1 업데이트는 원본 source truth를 보존하면서 derived correction을 별도로 기록해야 합니다. 명시적인 Concept-only dry run이나 진단 경로에서만 `propagate_sources=false`를 전달하세요.
+- **No-op 보호**: 동일한 EXH 내용을 다시 제출하면 `noop=true`, `updated=false`, `propagation.llm_calls=0`을 반환하고, 백엔드는 routing table rebuild나 LLM 호출을 수행하지 않습니다.
 
 #### `curator_reindex`
 - **역할**: QMD 검색 인덱스를 수동으로 다시 빌드합니다.
@@ -189,7 +190,7 @@ wiki mcp install
   - `trace`: `matched_concepts` (CON-ID 목록), `source_paths`, `latency_ms`, `l3_complete`.
 - **컨텍스트 상한**: 합성 단계는 scope가 제한된 L3 Concept context를 사용하고, oversized source body는 LLM 호출 전에 잘라냅니다. 큰 L1 source recap이나 raw PDF text는 `curator_query`에 통째로 넣지 않고 source/PDF tool로 명시적으로 가져와야 합니다.
 - **캐시 키**: `sha256(workspace_id + ":"+ normalized_question)[:16]`. backprop이 참조 CON을 수정하면 해당 캐시가 자동 무효화됩니다. `is_verified_by_human=true`인 EXH는 보호됩니다.
-- **구현 상태**: v0.2.1에서 구현 완료. L3 미완성 소스의 경우 `ok=true`, `fallback="l3_incomplete"`, `answer=""`, `trace.l3_complete=false`를 반환하고 플러그인은 `fetch_document_section` 또는 로컬 PDF context fallback으로 전환합니다.
+- **구현 상태**: v0.2.1에서 구현 완료. 워크스페이스 query도 ephemeral query-generated EXH를 저장하므로 같은 질문을 반복하면 LLM 재합성 없이 캐시에서 반환합니다. L3 미완성 소스의 경우 `ok=true`, `fallback="l3_incomplete"`, `answer=""`, `trace.l3_complete=false`를 반환하고 플러그인은 `fetch_document_section` 또는 로컬 PDF context fallback으로 전환합니다.
 
 #### `promote_exhibition`
 

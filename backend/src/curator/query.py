@@ -225,6 +225,17 @@ def _derive_core_concepts(paths: cfg.WikiPaths, answer: str, hits: list[search.S
         cleaned = _node_path_from_target(target)
         if cleaned.startswith(f"{consts.LAYER_L3}/") and cleaned not in core_concepts:
             core_concepts.append(cleaned)
+        elif cleaned.startswith(f"{consts.LAYER_L4}/"):
+            exh_id = cleaned.rsplit("/", 1)[-1]
+            exh_page = page_writer.read_page(paths.exhibitions / f"{exh_id}.md")
+            if exh_page:
+                raw_concepts = exh_page.frontmatter.get("core_concepts") or []
+                for raw_concept in raw_concepts:
+                    if not isinstance(raw_concept, str):
+                        continue
+                    concept_path = _node_path_from_target(raw_concept)
+                    if concept_path.startswith(f"{consts.LAYER_L3}/") and concept_path not in core_concepts:
+                        core_concepts.append(concept_path)
         elif cleaned.startswith(f"{consts.LAYER_L2}/"):
             atom_id = cleaned.rsplit("/", 1)[-1]
             if atom_id not in atom_ids:
@@ -477,6 +488,8 @@ def run_query(
     classify_intent_first: bool = True,
     session_id: str | None = None,
     workspace_project: str | None = None,
+    workspace_path: str | None = None,
+    cache_key: str | None = None,
     query_boost_terms: list[str] | None = None,
     pinned_exhibition_id: str | None = None,
     ephemeral_exhibition: bool = False,
@@ -515,6 +528,27 @@ def run_query(
         extras = " ".join(str(term) for term in query_boost_terms if str(term).strip())
         if extras:
             search_question = f"{search_question} {extras}"
+    else:
+        extras = ""
+
+    def _keyword_fallback(text: str) -> str:
+        stopwords = {
+            "according", "after", "avoid", "checking", "does", "from", "have",
+            "into", "later", "original", "paper", "refine", "refines",
+            "should", "that", "the", "this", "what", "when", "where",
+            "which", "with", "would",
+        }
+        tokens = re.findall(r"[A-Za-z][A-Za-z0-9+-]*", text)
+        kept: list[str] = []
+        for token in tokens:
+            lower = token.lower()
+            if lower in stopwords:
+                continue
+            if len(token) <= 3 and not token.isupper():
+                continue
+            if token not in kept:
+                kept.append(token)
+        return " ".join(kept[:12])
 
     # 0b. Intent classification on the translated question
     if classify_intent_first:
@@ -570,6 +604,22 @@ def run_query(
         results = _search_for(search_question)
         if len(results) == 0 and search_question != base_search_question:
             results = _search_for(base_search_question)
+        if len(results) == 0 and extras:
+            results = _search_for(extras)
+        if len(results) == 0:
+            keyword_query = _keyword_fallback(base_search_question)
+            if keyword_query and keyword_query != base_search_question:
+                results = _search_for(keyword_query)
+        if len(results) == 0 and query_boost_terms:
+            semantic_terms = [
+                str(term)
+                for term in query_boost_terms
+                if " " in str(term)
+                and "source" not in str(term).lower()
+                and "provenance" not in str(term).lower()
+            ]
+            if semantic_terms:
+                results = _search_for(" ".join(semantic_terms))
 
         # Prioritize Exhibitions (L4) as the primary source of truth in the synthesis context
         results.hits.sort(key=lambda h: (not h.full_path.startswith(f"{consts.LAYER_L4}/"), -h.score))
@@ -659,6 +709,8 @@ def run_query(
                 results.hits,
                 session_id=session_id,
                 workspace_project=workspace_project,
+                workspace_path=workspace_path,
+                cache_key=cache_key,
                 ephemeral=ephemeral_exhibition,
             )
             callbacks.on_saved(saved_path)

@@ -890,6 +890,9 @@ class CodexCliClient:
     def __exit__(self, *args) -> None:
         pass
 
+    def clone(self) -> "CodexCliClient":
+        return CodexCliClient(model=self.model, effort=self.effort)
+
     def _run(self, prompt: str) -> str:
         import tempfile, os as _os
         out_file = tempfile.mktemp(suffix=".txt")
@@ -940,7 +943,7 @@ class CodexCliClient:
 
     @property
     def optimal_chunk_chars(self) -> int:
-        return 24000
+        return 12000
 
     def chat(
         self,

@@ -118,7 +118,9 @@ wiki build --wait     # run L2 (Atoms) → L3 (Concepts) synchronously now
 > **Two-step ingest**: `wiki add` registers sources and generates instant L1
 > (structural, no LLM) — fast and offline-capable. `wiki build` runs the deeper
 > L2/L3 extraction; by default it queues to the MCP server's background
-> IngestWorker, or use `--wait` to run now. Monitor via `wiki status` or
+> IngestWorker, or use `--wait` to run now. L2 extraction sizes its section
+> batches according to the active LLM client's prompt budget, so CLI-backed
+> providers receive smaller prompts than local high-context models. Monitor via `wiki status` or
 > `.curator/dashboard.md`. L4 Exhibitions require a separate `wiki curate` command.
 
 ### 4-2. Workspace Curation

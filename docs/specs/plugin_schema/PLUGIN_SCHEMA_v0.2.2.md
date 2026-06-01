@@ -302,6 +302,10 @@ Rules:
 
 - The plugin must not call `curator_query` for unregistered sources. Use
   plugin-served ephemeral sections via `fetch_document_section` for unregistered PDFs.
+- The backend saves workspace-scoped successful answers as ephemeral
+  query-generated Exhibitions. Repeating the same normalized question in the
+  same workspace should return the cached EXH without another LLM synthesis call
+  unless `force_new=true`.
 - If `fallback="l3_incomplete"` and `trace.l3_complete=false`, do not present
   the response as concept-grounded. Show that the document is still being
   processed and fall back to `fetch_document_section` or local PDF context.

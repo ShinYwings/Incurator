@@ -271,7 +271,13 @@ def run_l2_batch_extraction(
     """
     ctx_content = ctx_path.read_text(encoding="utf-8")
     body = _ctx_body_only(ctx_content)
-    batches = _split_into_batches(body, MAX_BATCH_CHARS)
+    client_chunk_chars = getattr(client, "optimal_chunk_chars", MAX_BATCH_CHARS)
+    try:
+        max_batch_chars = int(client_chunk_chars)
+    except (TypeError, ValueError):
+        max_batch_chars = MAX_BATCH_CHARS
+    max_batch_chars = max(100, min(MAX_BATCH_CHARS, max_batch_chars))
+    batches = _split_into_batches(body, max_batch_chars)
 
     if len(batches) <= 1:
         return _extract_atoms_from_chunk(

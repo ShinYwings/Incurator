@@ -119,7 +119,9 @@ wiki build --wait     # L2(Atoms) → L3(Concepts)를 지금 동기 실행
 
 > **2단계 수집**: `wiki add`는 소스를 등록하고 즉시 L1을 생성한다(구조 기반, LLM 없음) —
 > 빠르고 오프라인에서도 동작한다. `wiki build`는 깊은 L2/L3 추출을 수행하며, 기본은 MCP 서버의
-> 백그라운드 IngestWorker에 큐잉하고 `--wait`로 즉시 실행할 수 있다. 진행률은 `wiki status`나
+> 백그라운드 IngestWorker에 큐잉하고 `--wait`로 즉시 실행할 수 있다. L2 추출은 활성 LLM
+> 클라이언트의 prompt budget에 맞춰 section batch 크기를 정하므로, CLI 기반 provider에는
+> local high-context 모델보다 작은 prompt가 전달된다. 진행률은 `wiki status`나
 > `.curator/dashboard.md`로 확인한다. L4 Exhibition은 별도 `wiki curate` 명령으로 생성한다.
 
 ### 4-2. Workspace 큐레이션

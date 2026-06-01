@@ -2744,7 +2744,8 @@ def build(
         else:
             _hint("Run [bold]wiki curate[/bold] to stage L4 Exhibitions.")
     finally:
-        client.close()
+        if client is not None:
+            client.close()
 
 
 @jobs_app.command("list")
@@ -3493,7 +3494,8 @@ def curate(
         finally:
             shutil.rmtree(str(staging), ignore_errors=True)
     finally:
-        client.close()
+        if client is not None:
+            client.close()
 
     console.print()
     console.rule("[bold]Curate summary[/bold]")
@@ -3695,7 +3697,7 @@ def sync(
     console.print(" " * 60, end="\r")
 
     should_fix = not no_fix and not dry_run
-    client = _start_client(config)
+    client = None if no_deep else _start_client(config)
     
     try:
         structural_fixed = 0
@@ -3724,12 +3726,13 @@ def sync(
             else:
                 target_pages = list(dirty_nodes)
                 
-            llm_fixed = lint_module.apply_llm_fixes(
-                paths, structural_report.issues, client, 
-                progress_callback=cb.on_node_check,
-                limit_to=target_pages
-            )
-            structural_fixed += llm_fixed
+            if client is not None:
+                llm_fixed = lint_module.apply_llm_fixes(
+                    paths, structural_report.issues, client,
+                    progress_callback=cb.on_node_check,
+                    limit_to=target_pages
+                )
+                structural_fixed += llm_fixed
             
             if structural_fixed > 0:
                 structural_report = lint_module.run_lint(paths, deep=False, client=None, progress_callback=cb.on_node_check)
@@ -3743,7 +3746,7 @@ def sync(
         blocked_node_ids = _sync_blocked_node_ids(structural_report)
 
         # Gate both deep lint and Mode C on whether there are dirty nodes or --deep.
-        run_llm_verification = bool(logical_target_ids) or deep
+        run_llm_verification = (not no_deep) and (bool(logical_target_ids) or deep)
         # Contradiction detection runs by default unless --no-deep
         run_contradiction_check = not no_deep
         # Interactive mode: prompt for resolution when TTY present and --no-interactive not set
@@ -3817,6 +3820,23 @@ def sync(
             rebuilt = 0
         else:  # run_llm_verification
             console.print("[dim]Mode C: LLM logical deduction verification...[/dim]")
+
+            # --- GENERATIVE BACKPROP INTERCEPT ---
+            if backward and should_fix:
+                # To do backprop, we first need to know what the gaps are.
+                # Mode C normally runs inside repair_logical_gaps, but we can run a quick pass first
+                # or just run it, collect gaps, do backprop, and then run repair.
+                console.print("[bold cyan]⮌ Executing Multi-Agent Generative Backpropagation...[/bold cyan]")
+                initial_gaps = sync_module.run_mode_c(
+                    paths, client, blocked_node_ids=blocked_node_ids, target_node_ids=logical_target_ids if not deep else None, callbacks=cb
+                )
+                if initial_gaps:
+                    new_atoms = sync_module.apply_generative_backprop(paths, client, initial_gaps, callbacks=cb)
+                    if new_atoms:
+                        console.print(f"[dim]  → synthesized {len(new_atoms)} new L2 Atom(s).[/dim]")
+                        # We must re-verify because the DAG changed
+                        console.print("[dim]Re-verifying logical gaps after Generative Backprop...[/dim]")
+
             if should_fix:
                 logic_gaps, repair_result = sync_module.repair_logical_gaps(
                     paths,
@@ -3879,7 +3899,8 @@ def sync(
         if gaps and not dry_run:
             _hint("Review remaining gaps, then rerun [bold]wiki sync[/bold].")
     finally:
-        client.close()
+        if client is not None:
+            client.close()
 
     if not dry_run:
         # Update page hashes in DB for next fast sync
@@ -5573,5 +5594,3 @@ def testbed_list():
     for s in sorted(scenarios):
         table.add_row(s)
     console.print(table)
-
-

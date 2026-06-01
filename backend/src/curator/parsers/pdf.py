@@ -86,6 +86,40 @@ def _first_nonempty_line(text: str) -> str | None:
     return None
 
 
+def _chunk_page_number(chunk: dict) -> int:
+    """Return the 1-based page number from pymupdf4llm chunk metadata."""
+    metadata = chunk.get("metadata") or {}
+    raw = metadata.get("page_number", metadata.get("page", 1))
+    try:
+        page_num = int(raw)
+    except (TypeError, ValueError):
+        return 1
+    return max(page_num, 1)
+
+
+def _merge_raw_text_fallback(markdown_text: str, raw_text: str) -> str:
+    """Append PDF text-layer lines that pymupdf4llm omitted."""
+    if not raw_text.strip():
+        return markdown_text
+
+    normalized_markdown = normalize_text(markdown_text).lower()
+    missing: list[str] = []
+    mathish = set("=+{}()[]\\")
+    for line in raw_text.splitlines():
+        candidate = line.strip()
+        if len(candidate) < 20 and not any(ch in candidate for ch in mathish):
+            continue
+        if normalize_text(candidate).lower() not in normalized_markdown:
+            missing.append(candidate)
+
+    if not missing:
+        return markdown_text
+    fallback = "\n".join(missing)
+    if markdown_text.strip():
+        return f"{markdown_text.rstrip()}\n\n### Raw PDF Text Fallback\n\n{fallback}"
+    return fallback
+
+
 def parse(path: Path) -> ParsedDocument:
     """Parse a .pdf file using Math-Aware hybrid pipeline (pymupdf4llm default)."""
     try:
@@ -114,7 +148,7 @@ def parse(path: Path) -> ParsedDocument:
     page_texts_dict: dict[int, list[str]] = {}
     
     for chunk in page_chunks:
-        page_num = chunk.get("metadata", {}).get("page", 1)
+        page_num = _chunk_page_number(chunk)
         text_chunk = chunk.get("text", "")
         if page_num not in page_texts_dict:
             page_texts_dict[page_num] = []
@@ -125,7 +159,9 @@ def parse(path: Path) -> ParsedDocument:
     
     for page_num in range(1, doc.page_count + 1):
         page_chunks_text = page_texts_dict.get(page_num, [])
-        page_text = normalize_text("\n\n".join(page_chunks_text))
+        markdown_text = "\n\n".join(page_chunks_text)
+        raw_text = doc[page_num - 1].get_text("text")
+        page_text = normalize_text(_merge_raw_text_fallback(markdown_text, raw_text))
         page_texts.append(page_text)
         pdf_pages.append(
             {
@@ -207,7 +243,7 @@ def parse_page_window(path: Path, page_nums: set[int]) -> dict[int, str]:
     try:
         page_chunks = pymupdf4llm.to_markdown(str(path), page_chunks=True)
         for chunk in page_chunks:
-            pn = chunk.get("metadata", {}).get("page", 1)
+            pn = _chunk_page_number(chunk)
             if pn in page_nums:
                 result[pn] = normalize_text(chunk.get("text", ""))
             if len(result) == len(page_nums):

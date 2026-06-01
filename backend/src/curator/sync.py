@@ -997,6 +997,78 @@ def fix_gaps(
     return result
 
 
+
+def apply_generative_backprop(paths, client, gaps, callbacks=None) -> list[str]:
+    """Run generative backprop using the Multi-Agent architecture to extract insights and generate Atoms."""
+    import backend.src.curator.backprop_agents as b_agents
+
+    evaluator = b_agents.TimePerformanceEvaluator()
+    extractor = b_agents.InsightExtractor()
+    synthesizer = b_agents.AtomSynthesizer()
+    clustering = b_agents.ConceptClusteringAgent()
+    workspace = b_agents.WorkspaceController()
+
+    t_total = evaluator.start_timer("Total Generative Backprop")
+
+    new_atoms = []
+
+    for gap in gaps:
+        if gap.layer not in [consts.TYPE_L3, consts.TYPE_L4] or not gap.reasoning:
+            print(f"Skipping gap {gap.node_id}: layer={gap.layer}, reasoning={bool(gap.reasoning)}")
+            continue
+
+        print(f"Checking gap {gap.node_id} reasoning: {gap.reasoning}")
+
+        # Removed external/absent filter to capture any logical gap from manual edits
+
+        if gap.layer == consts.TYPE_L3:
+            md_path = paths.concepts / f"{gap.node_id}.md"
+        else:
+            md_path = paths.exhibitions / f"{gap.node_id}.md"
+
+        if not md_path.exists():
+            continue
+
+        page = page_writer.read_page(md_path)
+        if not page:
+            continue
+
+        t_extract = evaluator.start_timer(f"Extract Insight ({gap.node_id})")
+        insight = extractor.extract(client, page.body, gap.reasoning)
+        evaluator.record_time(f"Extract Insight ({gap.node_id})", t_extract)
+
+        if not insight:
+            continue
+
+        t_synth = evaluator.start_timer(f"Synthesize Atom ({gap.node_id})")
+        new_atom_id = synthesizer.synthesize(paths, client, insight, gap.node_id)
+        evaluator.record_time(f"Synthesize Atom ({gap.node_id})", t_synth)
+
+        if new_atom_id:
+            # Quality check
+            t_eval = evaluator.start_timer(f"Critic Eval ({new_atom_id})")
+            is_valid = evaluator.evaluate_atom_quality(new_atom_id, insight)
+            evaluator.record_time(f"Critic Eval ({new_atom_id})", t_eval)
+
+            if is_valid:
+                new_atoms.append(new_atom_id)
+                workspace.commit_and_update_routing(paths, new_atom_id)
+
+    if new_atoms:
+        t_cluster = evaluator.start_timer("L3 Concept Clustering")
+        clustering.recluster(paths, client, new_atoms)
+        evaluator.record_time("L3 Concept Clustering", t_cluster)
+
+    evaluator.record_time("Total Generative Backprop", t_total)
+
+    # Let's print the performance report if anything was processed
+    if new_atoms:
+        from rich.console import Console
+        console = Console()
+        evaluator.report(console)
+
+    return new_atoms
+
 def repair_logical_gaps(
     paths: cfg.WikiPaths,
     client,
@@ -1055,6 +1127,10 @@ class PropagationResult:
     contexts_updated: list[str] = field(default_factory=list)
     feedback_required: list[dict[str, Any]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    llm_calls: int = 0
+    timings_ms: dict[str, int] = field(default_factory=dict)
+    source_propagation_skipped: bool = False
+    target_concepts: list[str] = field(default_factory=list)
 
 
 def propagate_upstream_from_exhibition(
@@ -1062,18 +1138,24 @@ def propagate_upstream_from_exhibition(
     client,
     exh_id: str = "",
     insight: str = "",
+    propagate_sources: bool = True,
+    previous_exh_content: str = "",
 ) -> PropagationResult:
     """Unified backpropagation (hybrid static + dynamic) from EXH or Insight down to CTX.
 
     Workflow:
       1. Source discovery: Read Exhibition (L4) OR use provided Insight string.
       2. Reconcile Concepts (L3): Static links + Semantic Search.
-      3. Reconcile Atoms (L2): Static relations + Semantic Search.
-      4. Reconcile Contexts (L1): Parent source + Semantic Search or Feedback.
+      3. Reconcile Atoms (L2) and Contexts (L1) by default. Insight backprop
+         should be rare, so consistency is favored over latency. L1 updates
+         must preserve source truth and record derived corrections separately.
     """
     from . import search
     from .llm import LLMError
     from . import ingest_llm as _ingest
+    import time as _time
+
+    started_total = _time.monotonic()
 
     result = PropagationResult(
         exh_id=exh_id, concepts_updated=[], atoms_updated=[], contexts_updated=[], feedback_required=[], errors=[]
@@ -1096,44 +1178,164 @@ def propagate_upstream_from_exhibition(
     if exh_page:
         source_text = exh_page.to_markdown()
         static_con_ids = _fm_links(exh_page.frontmatter, "core_concepts")
+
+    def _added_text(before: str, after: str) -> str:
+        if not before:
+            return after
+        parsed_before = page_writer.parse_page(before)
+        if parsed_before.frontmatter:
+            before = parsed_before.to_markdown()
+        before_lines = set(line.strip() for line in before.splitlines() if line.strip())
+        added = [
+            line.strip()
+            for line in after.splitlines()
+            if line.strip() and line.strip() not in before_lines
+        ]
+        return "\n".join(added)
+
+    target_text = _added_text(previous_exh_content, source_text)
+    if len(target_text.strip()) < 80:
+        target_text = insight or source_text
+
+    def _tokens(text: str) -> set[str]:
+        stop = {
+            "about", "after", "also", "and", "are", "because", "been", "but",
+            "can", "from", "have", "into", "not", "original", "paper",
+            "source", "that", "the", "this", "with",
+        }
+        return {
+            token.lower()
+            for token in re.findall(r"[A-Za-z][A-Za-z0-9+-]*", text)
+            if len(token) > 2 and token.lower() not in stop
+        }
+
+    target_tokens = _tokens(target_text)
     
     # --- Step 1: L3 (Concepts) ---
+    started_concepts = _time.monotonic()
     # Dynamic discovery for Concepts
     dynamic_con_ids = []
     try:
-        search_results = search.query(paths, source_text, mode="hybrid", limit=5, scope="concepts")
+        search_results = search.query(
+            paths,
+            target_text,
+            mode="hybrid",
+            limit=5,
+            rerank=False,
+        )
         for hit in search_results.hits:
-            if hit.score > 0.8:
+            if hit.score > 0.8 and hit.full_path.startswith(f"{consts.LAYER_L3}/"):
                 cid = hit.full_path.rsplit("/", 1)[-1].removesuffix(".md")
                 dynamic_con_ids.append(cid)
     except Exception:
         pass
 
     all_con_ids = sorted(list(set(static_con_ids + dynamic_con_ids)))
+    if previous_exh_content and all_con_ids:
+        ranked_con_ids: list[tuple[int, str]] = []
+        dynamic_set = set(dynamic_con_ids)
+        for con_id in all_con_ids:
+            if not con_id.startswith(f"{consts.PREFIX_L3}-"):
+                continue
+            con_page = page_writer.read_page(paths.concepts / f"{con_id}.md")
+            if con_page is None:
+                continue
+            con_tokens = _tokens(con_page.to_markdown())
+            overlap = len(target_tokens & con_tokens)
+            if con_id in dynamic_set:
+                overlap += 5
+            if overlap > 0:
+                ranked_con_ids.append((overlap, con_id))
+        ranked_con_ids.sort(key=lambda item: (-item[0], item[1]))
+        selected = [con_id for _score, con_id in ranked_con_ids[:5]]
+        if selected:
+            all_con_ids = selected
+    result.target_concepts = list(all_con_ids)
 
+    concept_originals: dict[str, str] = {}
+    concept_pages: dict[str, page_writer.ParsedPage] = {}
+    valid_con_ids: list[str] = []
     for con_id in all_con_ids:
         if not con_id.startswith(f"{consts.PREFIX_L3}-"): continue
         con_path = paths.concepts / f"{con_id}.md"
         con_page = page_writer.read_page(con_path)
         if con_page is None: continue # Could happen if search index is stale
+        concept_pages[con_id] = con_page
+        concept_originals[con_id] = con_page.to_markdown()
+        valid_con_ids.append(con_id)
 
-        con_original = con_page.to_markdown()
-        messages = prompts.build_concept_update_from_exhibition_messages(
-            exh_id=exh_id or "Insight", exh_content=source_text, con_id=con_id, con_content=con_original, today=today
+    def _apply_updated_concept(con_id: str, updated_con: str) -> bool:
+        con_page = concept_pages.get(con_id)
+        con_original = concept_originals.get(con_id, "")
+        if con_page is None or not con_original:
+            return False
+        updated_con = page_writer.strip_llm_noise(updated_con)
+        if not updated_con or updated_con.strip() == con_original.strip():
+            return False
+        updated_con_page = _drop_nested_frontmatter_body(page_writer.parse_page(updated_con))
+        updated_con_page.frontmatter = _merge_immutable_frontmatter(
+            con_page.frontmatter, updated_con_page.frontmatter, {"id", "type", "name", "domain", "confidence_score"}
+        )
+        updated_con_page.frontmatter["last_updated"] = today
+        (paths.concepts / f"{con_id}.md").write_text(updated_con_page.to_markdown(), encoding="utf-8")
+        if con_id not in result.concepts_updated:
+            result.concepts_updated.append(con_id)
+        return True
+
+    batch_outputs: dict[str, str] = {}
+    batch_succeeded = False
+    batch_attempted = len(valid_con_ids) > 1
+    if batch_attempted:
+        messages = prompts.build_batch_concept_update_from_exhibition_messages(
+            exh_id=exh_id or "Insight",
+            exh_content=source_text,
+            concept_pages=[(con_id, concept_originals[con_id]) for con_id in valid_con_ids],
+            today=today,
         )
         try:
-            updated_con = client.chat(messages, temperature=0.2)
-            updated_con = page_writer.strip_llm_noise(updated_con)
-            if updated_con and updated_con.strip() != con_original.strip():
-                updated_con_page = _drop_nested_frontmatter_body(page_writer.parse_page(updated_con))
-                updated_con_page.frontmatter = _merge_immutable_frontmatter(
-                    con_page.frontmatter, updated_con_page.frontmatter, {"id", "type", "name", "domain", "confidence_score"}
-                )
-                updated_con_page.frontmatter["last_updated"] = today
-                con_path.write_text(updated_con_page.to_markdown(), encoding="utf-8")
-                result.concepts_updated.append(con_id)
-        except LLMError as e:
-            result.errors.append(f"CON {con_id} update failed: {e}")
+            result.llm_calls += 1
+            raw_batch = client.chat(messages, json_mode=True, temperature=0.2)
+            batch_data = json.loads(raw_batch)
+            raw_items = batch_data.get("concepts", []) if isinstance(batch_data, dict) else []
+            if not isinstance(raw_items, list):
+                raise ValueError("batch response field `concepts` is not a list")
+            for item in raw_items:
+                if not isinstance(item, dict):
+                    continue
+                con_id = str(item.get("id", ""))
+                changed = bool(item.get("changed"))
+                markdown = str(item.get("markdown", ""))
+                if con_id in concept_originals and changed and markdown.strip():
+                    batch_outputs[con_id] = markdown
+            batch_succeeded = True
+            for con_id, updated_con in batch_outputs.items():
+                _apply_updated_concept(con_id, updated_con)
+        except Exception as exc:
+            result.errors.append(f"Batch CON update failed; falling back to individual updates: {exc}")
+            batch_outputs = {}
+            batch_succeeded = False
+
+    for con_id in valid_con_ids:
+        con_original = concept_originals[con_id]
+        if batch_succeeded:
+            updated_con = batch_outputs.get(con_id, con_original)
+        else:
+            messages = prompts.build_concept_update_from_exhibition_messages(
+                exh_id=exh_id or "Insight", exh_content=source_text, con_id=con_id, con_content=con_original, today=today
+            )
+            try:
+                result.llm_calls += 1
+                updated_con = client.chat(messages, temperature=0.2)
+                _apply_updated_concept(con_id, updated_con)
+            except LLMError as e:
+                result.errors.append(f"CON {con_id} update failed: {e}")
+                continue
+
+        if con_id not in result.concepts_updated:
+            continue
+
+        if not propagate_sources:
+            result.source_propagation_skipped = True
             continue
 
         # --- Step 2: L2 (Atoms) ---
@@ -1143,9 +1345,15 @@ def propagate_upstream_from_exhibition(
         dynamic_atm_ids = []
         try:
             con_text = updated_con if result.concepts_updated and con_id in result.concepts_updated else con_original
-            search_results = search.query(paths, con_text, mode="hybrid", limit=5, scope="atoms")
+            search_results = search.query(
+                paths,
+                con_text,
+                mode="hybrid",
+                limit=5,
+                rerank=False,
+            )
             for hit in search_results.hits:
-                if hit.score > 0.8:
+                if hit.score > 0.8 and hit.full_path.startswith(f"{consts.LAYER_L2}/"):
                     aid = hit.full_path.rsplit("/", 1)[-1].removesuffix(".md")
                     dynamic_atm_ids.append(aid)
         except Exception:
@@ -1161,10 +1369,12 @@ def propagate_upstream_from_exhibition(
             if atm_page is None: continue
 
             atm_original = atm_page.to_markdown()
+            atom_changed = False
             messages = prompts.build_atom_update_from_concept_messages(
                 con_id=con_id, con_content=updated_con_content, atm_id=atm_id, atm_content=atm_original, today=today
             )
             try:
+                result.llm_calls += 1
                 updated_atm = client.chat(messages, temperature=0.1)
                 updated_atm = page_writer.strip_llm_noise(updated_atm)
                 if updated_atm and updated_atm.strip() != atm_original.strip():
@@ -1176,12 +1386,15 @@ def propagate_upstream_from_exhibition(
                     updated_atm_page.frontmatter["last_updated"] = today
                     atm_path.write_text(updated_atm_page.to_markdown(), encoding="utf-8")
                     result.atoms_updated.append(atm_id)
+                    atom_changed = True
             except LLMError as e:
                 result.errors.append(f"ATM {atm_id} update failed: {e}")
                 continue
 
             # --- Step 3: L1 (Contexts) ---
             # Reconcile L1 Context for this updated Atom
+            if not atom_changed:
+                continue
             parent_source = atm_page.frontmatter.get("parent_source")
             ctx_id = None
             if parent_source:
@@ -1208,6 +1421,7 @@ def propagate_upstream_from_exhibition(
                         atm_id=atm_id, atm_content=atm_original, ctx_id=ctx_id, ctx_content=ctx_original, today=today
                     )
                     try:
+                        result.llm_calls += 1
                         updated_ctx = client.chat(messages, temperature=0.1)
                         updated_ctx = page_writer.strip_llm_noise(updated_ctx)
                         if updated_ctx and updated_ctx.strip() != ctx_original.strip():
@@ -1221,6 +1435,8 @@ def propagate_upstream_from_exhibition(
                     "insight": "Knowledge updated without verified source provenance."
                 })
 
+    result.timings_ms["concepts"] = int((_time.monotonic() - started_concepts) * 1000)
+    result.timings_ms["total"] = int((_time.monotonic() - started_total) * 1000)
     return result
 
 

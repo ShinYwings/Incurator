@@ -897,6 +897,65 @@ def build_concept_update_from_exhibition_messages(
     ]
 
 
+BATCH_CONCEPT_UPDATE_FROM_EXHIBITION_PROMPT = """\
+You are updating multiple L3 Concept pages based on corrections or new insights found in a L4 Exhibition.
+
+## Upstream Exhibition ({exh_id})
+{exh_content}
+
+## Target Concept pages
+{concept_blocks}
+
+## Your task
+For each target Concept, decide whether it needs to change. Return JSON only:
+
+{{
+  "concepts": [
+    {{
+      "id": "CON-...",
+      "changed": true,
+      "markdown": "full updated markdown page"
+    }}
+  ]
+}}
+
+Rules:
+- Include changed Concept IDs only. Omit Concepts that do not need changes.
+- If you include an unchanged Concept, set `changed` to false and omit `markdown`.
+- TOPIC-CENTRIC INTEGRATION: Merge updates seamlessly into the topic. The resulting page must read as a pure, coherent knowledge document.
+- NO META-COMMENTARY: Do NOT include meta-talk in the body. Never say "Updated to match...", "This was corrected by...", or "Following the exhibition...".
+- PRIORITY TRUTH: If the Exhibition CORRECTS the Concept, update the claims to be consistent with the latest truth.
+- PRESERVATION: Preserve each CON- ID, YAML structure, and existing wikilinks.
+- METADATA: For changed Concepts, add `corrected_by: [[04_Exhibitions/{exh_id}]]` and update `updated: {today}` in frontmatter.
+- OUTPUT ONLY: valid JSON. No preamble, no code fences, no markdown outside JSON.
+"""
+
+
+def build_batch_concept_update_from_exhibition_messages(
+    exh_id: str,
+    exh_content: str,
+    concept_pages: list[tuple[str, str]],
+    today: str,
+) -> list[ChatMessage]:
+    """Backward propagation: update several CON pages in one structured call."""
+    blocks: list[str] = []
+    for con_id, con_content in concept_pages:
+        blocks.append(
+            f"### Concept {con_id}\n"
+            f"{con_content[:2200]}"
+        )
+    user_content = BATCH_CONCEPT_UPDATE_FROM_EXHIBITION_PROMPT.format(
+        exh_id=exh_id,
+        exh_content=exh_content[:3000],
+        concept_blocks="\n\n".join(blocks),
+        today=today,
+    )
+    return [
+        ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
+        ChatMessage(role="user", content=user_content),
+    ]
+
+
 def build_atom_update_from_concept_messages(
     con_id: str,
     con_content: str,
@@ -1270,3 +1329,20 @@ L2 Atom:
 
 Please provide the source (URL, file path, or manual notes) that supports this claim, or confirm if this should be treated as an unverified agent assumption.
 """
+
+def build_backprop_insight_extraction_messages(page_body: str, gap_reasoning: str) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are an expert insight extractor. You will be provided with the body of a knowledge node, "
+                "and a logical verification gap describing 'external facts' that this node introduces. "
+                "Your job is to extract ONLY those new external facts and claims into a cohesive, standalone paragraph. "
+                "Do not include meta-commentary, just the facts themselves."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Node Body:\n{page_body}\n\nGap Reasoning:\n{gap_reasoning}\n\nPlease extract the specific new insights or claims.",
+        },
+    ]

@@ -154,7 +154,8 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 #### `curator_update_node`
 - **Role**: Overwrite an **Exhibition (EXH)** node's content. Direct edits to L1/L2/L3 nodes are rejected by the backend to enforce the DAG's pipeline integrity.
-- **Automatic Repair (Backprop)**: When an **Exhibition (EXH)** is updated, `wiki sync` is triggered internally to propagate changes upstream to Concepts and Atoms, rewriting them to maintain consistency. This allows for immediate correction of prior knowledge discovered during chat.
+- **Automatic Repair (Backprop)**: When an **Exhibition (EXH)** is updated, `wiki sync` is triggered internally to propagate changes upstream to Concepts, Atoms, and Contexts. Insight backprop is expected to be rare, so graph consistency is prioritized over single-call latency. The backend first compares the previous and updated Exhibition text, targets the Concepts most related to the added insight, reconciles changed Concepts in one structured batch LLM call when possible, then propagates to L2/L1 only when upstream pages actually change. Unchanged Concepts can be omitted from the batch response to reduce model output latency. L1 updates must preserve original source truth while recording derived corrections separately. Pass `propagate_sources=false` only for an explicitly Concept-only dry run or diagnostic path.
+- **No-op protection**: Submitting identical EXH content returns `noop=true`, `updated=false`, and `propagation.llm_calls=0`; the backend does not rebuild routing tables or call the LLM for unchanged content.
 
 #### `curator_reindex`
 - **Role**: Manually rebuild the QMD search index.
@@ -184,7 +185,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 - **Context bounds**: Synthesis uses scoped L3 Concept context and caps oversized source bodies before invoking the LLM. Large L1 source recaps and raw PDF text should be fetched explicitly with source/PDF tools instead of being pushed wholesale through `curator_query`.
 - **Cache key**: `sha256(workspace_id + ":" + normalized_question)[:16]` stored as `cache_key` in the EXH frontmatter.
 - **Cache invalidation**: Backprop changes to a referenced CON automatically invalidate the EXH cache. EXHs with `is_verified_by_human=true` are protected from invalidation.
-- **Implementation status**: Implemented in v0.2.1. Requires `l3_complete=true` for full concept-graph answers. If L3 is incomplete, the tool returns `ok=true`, `fallback="l3_incomplete"`, `answer=""`, and `trace.l3_complete=false`; clients should fall back to source sections or local PDF context.
+- **Implementation status**: Implemented in v0.2.1. Workspace queries save an ephemeral query-generated EXH so repeated identical questions can return from cache without another LLM synthesis call. Requires `l3_complete=true` for full concept-graph answers. If L3 is incomplete, the tool returns `ok=true`, `fallback="l3_incomplete"`, `answer=""`, and `trace.l3_complete=false`; clients should fall back to source sections or local PDF context.
 
 #### `promote_exhibition`
 

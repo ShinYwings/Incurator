@@ -202,10 +202,17 @@ Sub-agent model:
 - L1 sub-agent is structural and parser-first.
 - L2 sub-agent extracts Atoms section-by-section or batch-by-batch. When a CTX
   exceeds one section-aware batch and the client can be cloned safely, batches may
-  run in parallel with independent client instances.
+  run in parallel with independent client instances. Batch size must respect the
+  active LLM client's `optimal_chunk_chars` cap, bounded by the system maximum,
+  so CLI-backed models are not given oversized extraction prompts. Codex CLI is
+  clone-safe for independent batch calls and uses a conservative chunk budget so
+  large PDFs do not enter one long `codex exec` request.
 - L3 sub-agent clusters Atoms into Concepts. It should prefer local embedding
   clustering (Ollama embeddings first, sentence-transformers/sklearn when
-  available) and use the LLM clustering-plan call only as a fallback.
+  available) and use the LLM clustering-plan call only as a fallback. Concept
+  plans must be filtered to real L2 Atom files from the active build before
+  Concept pages and `dag_edges` are written, preventing hallucinated or stale
+  Atom IDs from entering evidence traversal.
 - The orchestrator owns ordering, retries, progress, and downstream invalidation.
 
 ### 6.1 LLM Resiliency and Extraction Fallbacks
@@ -263,6 +270,25 @@ Rules:
 - Hash-only incremental sync must be fast on unchanged DAGs.
 - Human-verified promoted Exhibitions are protected from automatic destructive rewrite.
 - `dag_edges` is the preferred downstream expansion index.
+- MCP `curator_update_node` defaults to L4 -> L3 -> L2 -> L1 propagation.
+  Insight backprop is expected to be rare, so graph consistency is prioritized
+  over single-call latency. L1 updates must preserve original source truth while
+  recording derived corrections separately. `propagate_sources=false` is reserved
+  for explicit Concept-only diagnostic paths.
+- For MCP updates where the previous Exhibition content is available, upstream
+  propagation must target the Concepts most related to newly added/changed
+  Exhibition text before invoking the LLM. Concept reconciliation should batch
+  multiple targeted Concepts into one structured LLM call when the provider
+  supports JSON output, and unchanged Concepts may be omitted from that response
+  so model output is proportional to actual edits. Invalid batch output must use
+  a safe fallback to per-Concept calls. Reconciled
+  Concepts may then propagate to L2 and L1, but only when the upstream node
+  actually changed. Propagation responses should expose `target_concepts`,
+  `llm_calls`, and `timings_ms` so clients can diagnose latency without
+  weakening backprop depth.
+- Identical EXH submissions are no-ops. `curator_update_node` must return
+  `noop=true`, `updated=false`, and `propagation.llm_calls=0` without invoking
+  the LLM or rebuilding routing tables.
 
 ## 9. Query-Time Exhibition Behavior
 
@@ -279,7 +305,9 @@ Expected behavior:
    The client must then use L1/source-section or local PDF context rather than
    pretending concept-grounded retrieval succeeded.
 3. Retrieve relevant L3 Concepts and source provenance.
-4. Synthesize or reuse a query-generated Exhibition.
+4. Synthesize or reuse a query-generated Exhibition. Workspace-scoped queries
+   must still save an ephemeral query-generated EXH so repeated identical
+   questions can return from cache without another LLM synthesis call.
 5. Return answer content plus trace.
 
 Trace must include:

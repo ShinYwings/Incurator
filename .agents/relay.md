@@ -1,72 +1,80 @@
 # Agent Relay Handoff
 
-**Last Updated:** 2026-06-01T10:16:00+09:00
+**Last Updated:** 2026-06-01T21:30:39+09:00
 **Last Agent:** Codex
 
 ## Current Active Goal
-Implement the approved Obsidian Agent UX & Performance Improvements plan for
-Zotero import UX, PDF resize performance, dashboard reset confirmation, and chat
-session deletion behavior.
+
+Finish and commit the `complex_math_backprop` latency/backprop work, including
+temporary-file cleanup, documentation, tests, and git push.
 
 ## Active Plan Reference
-- Repo-local active plan: `.agents/plans/2026-06_obsidian_agent_ux_performance_plan.md`
-- Original external plan imported from:
-  `/Users/shin/.gemini/antigravity-ide/brain/b0e5cb7d-9600-4b66-9c89-42b417037c71/implementation_plan.md`
+
+- `.agents/plans/2026-06-01_Math_RAG_Backprop_Plan.md`
+- `.agents/plans/2026-06-01_Generative_Backprop_Plan.md`
+- Scenario path: `scripts/dev/complex_math_backprop/`
 
 ## Analysis & Reasoning
-- The previous relay referenced completed query/MCP and cleanup commits, not the
-  current Antigravity brain plan.
-- The external plan was copied into `.agents/plans/` so future agents can find
-  it from the repository without depending on Antigravity IDE brain storage.
-- `plugin/src/ui/zoteroWizardModal.ts` already had an uncommitted change that
-  auto-loads the first saved Zotero profile. This was preserved and integrated
-  with the remaining plan work.
-- The implementation is intentionally limited to the requested plugin UX
-  changes and matching plugin docs/spec/test coverage.
+
+- Default insight backprop remains L4 Exhibition -> L3 Concepts -> L2 Atoms ->
+  L1 Contexts when the user intentionally discovers a new insight.
+- Latency was handled by finding root causes instead of relying on progress
+  events:
+  - MCP query now avoids slow rerank behavior and uses workspace-aware caching
+    plus fallback query shaping.
+  - Changed-path backprop narrows target Concepts from the previous L4 delta,
+    reconciles Concepts in one structured batch call, omits unchanged Concepts,
+    and skips L2/L1 propagation when nothing upstream changed.
+  - Identical L4 submissions now short-circuit with `noop=true` and
+    `llm_calls=0`.
+  - Initial PDF ingestion now respects client-aware chunk sizing; Codex CLI
+    clients can be cloned so large chunk batches run in parallel.
+- Evidence traversal was hardened to skip stale/missing Atom refs while
+  reporting them under `broken_atom_refs`.
+- `wiki sync --no-deep` now avoids LLM startup and deep verification paths.
 
 ## Progress Status
-- [x] Created repo-local plan artifact in `.agents/plans/`.
-- [x] Added `recentZoteroItems` to plugin settings and schema docs.
-- [x] Added Zotero suggestion re-ranking and LRU update after successful import.
-- [x] Replaced Zotero filename/path `{{key}}` regex expansion with Nunjucks
-      `TemplateRenderer` rendering plus path segment sanitization.
-- [x] Added Zotero template filters: `pathSafe`, `firstAuthorLast`,
-      `authorLast`, and `joinTags`.
-- [x] Added PDF viewer resize width guard to avoid unnecessary rerenders.
-- [x] Added second dashboard reset confirmation.
-- [x] Removed native confirmation prompts from chat session deletion actions.
-- [x] Updated `docs/specs/plugin_schema/PLUGIN_SCHEMA_v0.2.1.md`,
-      `docs/guides/PLUGIN_GUIDE.md`, and `docs/guides/PLUGIN_GUIDE_KR.md`.
-- [x] Added focused Vitest coverage for Zotero LRU ranking and template filters.
-- [x] Re-applied the Zotero search empty-query trigger and first-profile wizard
-      loading after the user reported an undo, and added direct tests for both
-      behaviors.
 
-## Critical Context/Blockers
-- Worktree had pre-existing modified files before this task:
-  `backend/pyproject.toml`, `backend/src/curator/parsers/pdf.py`,
-  `docs/guides/USER_GUIDE.md`, `docs/guides/USER_GUIDE_KR.md`,
-  `docs/philosophy/about.md`, `docs/philosophy/ABOUT_KR.md`, and
-  `plugin/src/ui/zoteroWizardModal.ts`.
-- Validation run:
-  - `cd plugin && npm run build` -> passed.
-  - `cd plugin && npx vitest run src/zotero/templateRenderer.test.ts src/ui/zoteroWizardModal.test.ts` -> 2 files / 5 tests passed.
-  - `VAULT_ROOT=testbed wiki status` -> passed, with existing pipeline statuses showing some pending/error layers.
-  - `VAULT_ROOT=testbed wiki lint` -> passed, 100/100.
-  - `git diff --check` -> clean.
-- Follow-up validation after undo repair:
-  - `cd plugin && npx vitest run src/ui/zoteroWizardModal.test.ts` -> 1 file / 4 tests passed.
-  - `cd plugin && npm run build` -> passed.
-- Whole-suite validation still has existing unrelated failures:
-  - `cd plugin && npm test` -> 106 passed, 2 failed:
-    `src/context/systemPrompt.test.ts` expects old `@codebase feature in Cursor`
-    wording, and `src/utils/deviceRegistry.test.ts` expects a fake
-    `/abs/path/to/wiki` command to exist.
-  - `cd plugin && npx tsc --noEmit` -> fails on existing type issues in
-    `main.ts`, `incuratorClient`, `settings.ts`, `chatSidebar.ts`,
-    `incuratorDashboardModal.ts`, and older tests. The new `moment` typing issue
-    introduced during this task was fixed.
+- [x] Read `.agents/relay.md` before acting.
+- [x] Deleted temporary patch helper files:
+      `patch_cli.py`, `patch_sync.py`, `patch_sync_debug.py`,
+      `patch_sync_filter.py`, `patch_testbed.py`, `patch_testbed2.py`.
+- [x] Included plan files and `backend/src/curator/backprop_agents.py`.
+- [x] Cleaned trailing whitespace in plan docs and new Python file.
+- [x] Staged all intended changes with `git add -A`.
+- [x] Ran `git diff --cached --check`; it passed.
+- [x] Ran focused backend tests; they passed.
+
+## Validation Evidence
+
+Successful commands:
+
+```bash
+git diff --cached --check
+backend/.venv/bin/python -m py_compile backend/src/curator/backprop_agents.py
+backend/.venv/bin/pytest backend/tests/test_integrity.py backend/tests/test_v021_models.py backend/tests/test_v021_batch_extraction.py backend/tests/test_v021_backprop_evidence.py backend/tests/test_query_exhibition.py backend/tests/test_curator_get_pdf_context.py
+```
+
+Observed results:
+
+- Focused tests: 84 passed, 5 skipped.
+- `py_compile` passed for `backend/src/curator/backprop_agents.py`.
+- `git diff --cached --check` passed.
+- Previous scenario validation remains complete:
+  - Phase 1 build: 1001s, 417 Atoms, 15 Concepts.
+  - Phase 3 query latencies: 21.897s, 7.542s, 22.008s.
+  - Phase 4 changed-path backprop: `llm_calls=1`,
+    `timings_ms.total=47720`, updated `CON-036a80df` and `CON-87cd1595`.
+  - Final `wiki status`: L1/L2/L3/L4 done and sync health clean.
+
+## Critical Context / Blockers
+
+- No known blocker remains.
+- The next action is to create the commit and push `master` to `origin`.
+- If push is rejected due remote divergence, inspect and integrate normally;
+  do not force-push unless explicitly requested.
 
 ## Immediate Next Action
-Review the final diff and, if desired, fix the unrelated existing plugin test
-and typecheck debt in a separate follow-up.
+
+Commit the staged changes with a concise latency/backprop message, then run
+`git push origin master`.

@@ -74,6 +74,27 @@ class ParsePageWindowTests(unittest.TestCase):
         result = parse_page_window(self.root / "nonexistent.pdf", {1, 2})
         self.assertEqual(result, {})
 
+    def test_chunk_page_number_accepts_page_number_metadata(self) -> None:
+        from curator.parsers.pdf import _chunk_page_number
+
+        self.assertEqual(_chunk_page_number({"metadata": {"page_number": 4}}), 4)
+        self.assertEqual(_chunk_page_number({"metadata": {"page": 3}}), 3)
+        self.assertEqual(_chunk_page_number({"metadata": {"page_number": "2"}}), 2)
+        self.assertEqual(_chunk_page_number({"metadata": {"page_number": 0}}), 1)
+
+    def test_merge_raw_text_fallback_preserves_omitted_math_lines(self) -> None:
+        from curator.parsers.pdf import _merge_raw_text_fallback
+
+        merged = _merge_raw_text_fallback(
+            "Formally, a building block is shown in Fig. 2.",
+            "Formally, a building block is shown in Fig. 2.\n"
+            "y = F(x, {Wi}) + x.\n"
+            "Here x and y are the input and output vectors.",
+        )
+
+        self.assertIn("Raw PDF Text Fallback", merged)
+        self.assertIn("y = F(x, {Wi}) + x.", merged)
+
 
 # ---------------------------------------------------------------------------
 # Tests for curator_get_pdf_context MCP tool

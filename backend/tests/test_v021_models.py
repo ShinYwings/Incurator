@@ -178,6 +178,16 @@ class TestModelEfforts(unittest.TestCase):
         self.assertIn("-c", captured["cmd"])
         self.assertIn("model_reasoning_effort=high", captured["cmd"])
 
+    def test_codex_client_clone_preserves_model_and_effort(self) -> None:
+        client = CodexCliClient(model="gpt-5.2", effort="medium")
+        clone = client.clone()
+
+        self.assertIsInstance(clone, CodexCliClient)
+        self.assertIsNot(clone, client)
+        self.assertEqual(clone.model, "gpt-5.2")
+        self.assertEqual(clone.effort, "medium")
+        self.assertLessEqual(clone.optimal_chunk_chars, 12000)
+
     def test_claude_client_passes_effort_flag(self) -> None:
         client = ClaudeCodeClient(model="claude-sonnet-4-6", effort="max")
         captured: dict = {}

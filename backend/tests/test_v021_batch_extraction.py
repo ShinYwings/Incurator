@@ -461,6 +461,39 @@ class TestRunL2BatchExtraction(unittest.TestCase):
         self.assertGreater(client.state["clones"], 1)
         self.assertEqual(client.state["calls"], len(results))
 
+    def test_batch_size_respects_client_optimal_chunk_chars(self) -> None:
+        class SmallChunkClient:
+            optimal_chunk_chars = 180
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def chat(self, messages, **kwargs):  # noqa: ARG002
+                self.calls += 1
+                return json.dumps([
+                    {
+                        "name": f"Small Chunk Atom {self.calls}",
+                        "claim_type": "fact",
+                        "one_liner": f"Claim {self.calls}.",
+                        "source_section_id": f"s{self.calls}",
+                    }
+                ])
+
+        body = "\n\n".join(
+            f"<!-- section:s{i} page:1 -->\n## Section {i}\n\n" + ("X" * 140)
+            for i in range(1, 4)
+        )
+        ctx = self._write_ctx("CTX-test0007", body)
+        client = SmallChunkClient()
+
+        results = self.run_l2(
+            self.paths, client, ctx, "CTX-test0007",
+            "04_Resources/small-chunks.pdf", "2026-05-29", self.staging,
+        )
+
+        self.assertGreater(client.calls, 1)
+        self.assertEqual(len(results), client.calls)
+
 
 if __name__ == "__main__":
     unittest.main()
