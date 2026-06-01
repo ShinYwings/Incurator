@@ -12,6 +12,7 @@ from curator import config as cfg
 from curator import models
 from curator.llm import (
     AntigravityCliClient,
+    AntigravityCliError,
     ClaudeCodeClient,
     CodexCliClient,
     build_client,
@@ -77,6 +78,55 @@ class TestAntigravityConfig(unittest.TestCase):
         )
         self.assertIsInstance(client, AntigravityCliClient)
         self.assertEqual(client.model, "gemini-3.5-flash")
+
+    def test_antigravity_empty_stdout_with_quota_log_raises_capacity_error(self) -> None:
+        client = AntigravityCliClient(model="gemini-3.5-flash")
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):  # noqa: ARG001
+            captured["cmd"] = cmd
+            log_path = Path(cmd[cmd.index("--log-file") + 1])
+            log_path.write_text(
+                "agent executor error: RESOURCE_EXHAUSTED (code 429): Individual quota reached.",
+                encoding="utf-8",
+            )
+
+            class _R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return _R()
+
+        with patch("curator.llm.subprocess.run", fake_run):
+            with self.assertRaises(AntigravityCliError) as ctx:
+                client._run("hi")
+
+        self.assertIn("capacity exhausted", str(ctx.exception))
+        self.assertIn("--log-file", captured["cmd"])
+        self.assertFalse(client.ping())
+
+    def test_start_client_primary_without_fallback_returns_primary(self) -> None:
+        from curator import cli
+
+        class ReadyClient:
+            def __init__(self) -> None:
+                self.ready = False
+
+            def ensure_ready(self) -> None:
+                self.ready = True
+
+        ready_client = ReadyClient()
+        config = {"llm": {"primary": "antigravity-cli::gemini-3.5-flash", "fallback": ""}}
+
+        with patch("curator.cli.make_client_by_key", return_value=ready_client), patch(
+            "curator.cli.build_client"
+        ) as build_client_mock:
+            result = cli._start_client_inner(config)
+
+        self.assertIs(result, ready_client)
+        self.assertTrue(ready_client.ready)
+        build_client_mock.assert_not_called()
 
 
 class TestModelEfforts(unittest.TestCase):

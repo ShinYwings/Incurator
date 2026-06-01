@@ -36,17 +36,12 @@ class SourceProvenanceTests(unittest.TestCase):
         self.assertEqual(row["import_policy"], "mirror_03_to_04")
 
     def test_pdf_page_metadata_is_recorded_even_for_empty_pdf(self) -> None:
-        try:
-            from pypdf import PdfWriter
-        except ImportError:
-            self.skipTest("pypdf not installed")
-
+        import shutil
         pdf_path = self.root / "04_Resources" / "blank.pdf"
-        writer = PdfWriter()
-        writer.add_blank_page(width=72, height=72)
-        writer.add_blank_page(width=72, height=72)
-        with pdf_path.open("wb") as fh:
-            writer.write(fh)
+        fixture_path = Path("tests/fixtures/blank.pdf")
+        if not fixture_path.exists():
+            self.skipTest("PDF fixture not available")
+        shutil.copy2(fixture_path, pdf_path)
 
         outcome = ingest_raw.add_file(self.paths, pdf_path)
 

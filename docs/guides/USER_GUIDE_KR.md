@@ -463,6 +463,9 @@ Incurator의 지능을 담당하는 LLM 백엔드를 설정합니다. 시스템�
 > [!NOTE]
 > `Primary`와 `Fallback`은 설정 방식이 동일하며, 아래의 모든 프로바이더를 자유롭게 교차 선택할 수 있습니다.
 
+> [!TIP]
+> Antigravity CLI가 할당량/용량 초과를 로그에만 기록하고 print 모드에는 빈 응답을 반환하는 경우, Incurator는 이를 명시적인 `Antigravity capacity exhausted (429)` 오류로 처리합니다. 따라서 빈 LLM 답변을 정상 결과로 받아들이지 않고 설정된 Fallback 백엔드로 전환합니다.
+
 #### 지원 프로바이더 목록
 | 프로바이더 | 유형 | 특징 |
 | :--- | :--- | :--- |

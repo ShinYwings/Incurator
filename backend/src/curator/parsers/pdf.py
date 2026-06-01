@@ -1,4 +1,4 @@
-"""Parser for PDF files using pypdf.
+"""Parser for PDF files using the project PDF extraction stack.
 
 Handles text-based PDFs. Scanned/image PDFs will extract to near-empty text
 and be flagged via ParsedDocument.is_empty — the caller decides whether to

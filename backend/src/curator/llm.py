@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -160,6 +161,19 @@ class ClaudeCodeError(LLMError):
 
 class AntigravityCliError(LLMError):
     """Antigravity CLI call failed."""
+
+
+def _is_capacity_error(text: str) -> bool:
+    return (
+        "No capacity available" in text
+        or "MODEL_CAPACITY_EXHAUSTED" in text
+        or "QUOTA_EXHAUSTED" in text
+        or "RESOURCE_EXHAUSTED" in text
+        or "TerminalQuotaError" in text
+        or "exhausted your capacity" in text
+        or "Individual quota reached" in text
+        or "429" in text
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -687,36 +701,7 @@ class ClaudeCodeClient:
         return (0, 0)
 
 
-def _get_antigravity_fallback_chain(model_name: str) -> list[str]:
-    """Given an Antigravity model name, return a list of models to try in order of fallback.
 
-    If it's a lite model, fallback to flash, then pro.
-    If it's a flash model (not lite), fallback to pro.
-    If it's already a pro model, just return [pro].
-    """
-    if not model_name or not model_name.strip():
-        raise AntigravityCliError(
-            "No Antigravity model configured. Run `wiki config provider` to select a model."
-        )
-    name = model_name.lower()
-    chain = [model_name]
-    
-    if "3.1" in name or "3-" in name:
-        if "lite" in name:
-            chain.extend(["gemini-3-flash-preview", "gemini-3.1-pro"])
-        elif "flash" in name and "lite" not in name:
-            chain.extend(["gemini-3.1-pro"])
-    else:
-        if "lite" in name:
-            chain.extend(["gemini-2.5-flash", "gemini-2.5-pro"])
-        elif "flash" in name and "lite" not in name:
-            chain.extend(["gemini-2.5-pro"])
-            
-    result = []
-    for m in chain:
-        if m not in result:
-            result.append(m)
-    return result
 
 class AntigravityCliClient:
     """LLM backend using the *agy* CLI (Google Antigravity subscription).
@@ -730,6 +715,15 @@ class AntigravityCliClient:
     def __init__(self, model: str = consts.DEFAULT_ANTIGRAVITY_MODEL, effort: str = "") -> None:
         self.model = model
         self.effort = effort
+        self._capacity_blocked_until = 0.0
+
+    def _raise_capacity_error(self) -> None:
+        self._capacity_blocked_until = time.time() + 300
+        raise AntigravityCliError(
+            f"Antigravity capacity exhausted (429).\n"
+            f"Model tried: '{self.model}'.\n"
+            f"Try a local fallback or a lighter model."
+        )
 
     def close(self) -> None:
         pass
@@ -741,73 +735,82 @@ class AntigravityCliClient:
         pass
 
     def _run(self, prompt: str) -> str:
-        models_to_try = _get_antigravity_fallback_chain(self.model)
-        
-        for i, current_model in enumerate(models_to_try):
-            # Antigravity CLI currently exposes model choice through its own
-            # settings, not a stable --model flag. Keep the selected model in
-            # the prompt for traceability and pass the large payload via stdin.
-            cmd = [self.CLI, "--print", "--print-timeout", "15m"]
-            # agy has no --model/--effort flag, so the preference is embedded as a
-            # prompt hint for traceability (best-effort; the active model is chosen
-            # in the agy UI/session).
-            hint = current_model
-            if hint and self.effort:
-                hint = f"{current_model} | effort: {self.effort}"
-            prompt_with_model = (
-                f"[Preferred model: {hint}]\n\n{prompt}"
-                if hint else prompt
+        # Antigravity CLI currently exposes model choice through its own
+        # settings, not a stable --model flag. Keep the selected model in
+        # the prompt for traceability and pass the large payload via stdin.
+        log_path = ""
+        try:
+            log_file = tempfile.NamedTemporaryFile(
+                prefix="incurator-agy-", suffix=".log", delete=False
             )
-            env = dict(os.environ)
-            env["ANTIGRAVITY_TRUST_WORKSPACE"] = "true"
-            env["AGY_TRUST_WORKSPACE"] = "true"
-            try:
-                result = subprocess.run(
-                    cmd,
-                    input=prompt_with_model,
-                    capture_output=True,
-                    text=True,
-                    timeout=900,
-                    env=env,
-                )
-            except FileNotFoundError:
-                raise AntigravityCliError(
-                    f"'{self.CLI}' CLI not found.\n"
-                    f"Install: {self.INSTALL_CMD}\n"
-                    "Authenticate: agy"
-                )
-            except subprocess.TimeoutExpired:
-                raise AntigravityCliError("Antigravity CLI timed out after 900 s")
-                
-            if result.returncode != 0:
-                stderr = result.stderr.strip()
-                is_capacity_error = (
-                    "No capacity available" in stderr
-                    or "MODEL_CAPACITY_EXHAUSTED" in stderr
-                    or "QUOTA_EXHAUSTED" in stderr
-                    or "TerminalQuotaError" in stderr
-                    or "exhausted your capacity" in stderr
-                    or "429" in stderr
-                )
-                
-                if is_capacity_error and i < len(models_to_try) - 1:
-                    next_model = models_to_try[i+1]
-                    print(f"incurator: Antigravity CLI capacity exhausted for '{current_model}', falling back to '{next_model}'...", file=sys.stderr)
-                    continue
-                    
-                if is_capacity_error:
-                    raise AntigravityCliError(
-                        f"Antigravity capacity exhausted (429) for all fallback models.\n"
-                        f"Last model tried: '{current_model}'.\n"
-                        f"Try a local fallback or a lighter model."
-                    )
+            log_path = log_file.name
+            log_file.close()
+        except OSError:
+            log_path = ""
 
-                raise AntigravityCliError(
-                    f"Antigravity CLI exited {result.returncode}: {stderr}"
-                )
-            return result.stdout.strip()
-        
-        raise AntigravityCliError("No output returned from Antigravity CLI.")
+        cmd = [self.CLI]
+        if log_path:
+            cmd.extend(["--log-file", log_path])
+        cmd.extend(["--print", "--print-timeout", "15m"])
+        # agy has no --model/--effort flag, so the preference is embedded as a
+        # prompt hint for traceability (best-effort; the active model is chosen
+        # in the agy UI/session).
+        hint = self.model
+        if hint and self.effort:
+            hint = f"{self.model} | effort: {self.effort}"
+        prompt_with_model = (
+            f"[Preferred model: {hint}]\n\n{prompt}"
+            if hint else prompt
+        )
+        env = dict(os.environ)
+        env["ANTIGRAVITY_TRUST_WORKSPACE"] = "true"
+        env["AGY_TRUST_WORKSPACE"] = "true"
+        try:
+            result = subprocess.run(
+                cmd,
+                input=prompt_with_model,
+                capture_output=True,
+                text=True,
+                timeout=900,
+                env=env,
+            )
+        except FileNotFoundError:
+            raise AntigravityCliError(
+                f"'{self.CLI}' CLI not found.\n"
+                f"Install: {self.INSTALL_CMD}\n"
+                "Authenticate: agy"
+            )
+        except subprocess.TimeoutExpired:
+            raise AntigravityCliError("Antigravity CLI timed out after 900 s")
+
+        stderr = result.stderr.strip()
+        log_text = ""
+        if log_path:
+            try:
+                with open(log_path, encoding="utf-8", errors="replace") as f:
+                    log_text = f.read()
+            except OSError:
+                log_text = ""
+            try:
+                os.unlink(log_path)
+            except OSError:
+                pass
+
+        if result.returncode != 0:
+            is_capacity_error = _is_capacity_error(stderr) or _is_capacity_error(log_text)
+
+            if is_capacity_error:
+                self._raise_capacity_error()
+
+            raise AntigravityCliError(
+                f"Antigravity CLI exited {result.returncode}: {stderr}"
+            )
+        output = result.stdout.strip()
+        if not output:
+            if _is_capacity_error(stderr) or _is_capacity_error(log_text):
+                self._raise_capacity_error()
+            raise AntigravityCliError("Antigravity CLI returned no output.")
+        return output
 
     @property
     def optimal_chunk_chars(self) -> int:
@@ -844,6 +847,8 @@ class AntigravityCliClient:
             )
 
     def ping(self) -> bool:
+        if time.time() < self._capacity_blocked_until:
+            return False
         try:
             self.ensure_ready()
             return True
@@ -1296,8 +1301,6 @@ def build_client(
       primary='claude-code'     → Claude CLI; fallback from config or Ollama
       primary='antigravity-cli' → Antigravity CLI; fallback from config or Ollama
       primary='codex-cli'       → Codex CLI; fallback from config or Ollama
-      auto + RAM ≥ 16 GB → OllamaClient (local)
-      auto + RAM < 16 GB → antigravity-cli client
 
     """
     from .config import split_provider_model

@@ -1670,7 +1670,7 @@ def _start_client_inner(config: dict):
         # If an explicit fallback is configured, build the full FailoverClient;
         # otherwise return p_client directly to avoid eagerly constructing cloud
         # clients that may require API keys the user hasn't set.
-        if fallback:
+        if fallback_key:
             return build_client(config)
         return p_client
     except ModelNotFound as e:
@@ -1683,7 +1683,7 @@ def _start_client_inner(config: dict):
                 _ok(f"Model '{model_name}' pulled. Retrying…")
                 try:
                     p_client.ensure_ready()
-                    return p_client if not fallback else build_client(config)
+                    return p_client if not fallback_key else build_client(config)
                 except Exception:
                     pass  # fall through to fallback logic
             else:
@@ -4243,7 +4243,8 @@ def query(
         classify_intent_first=not no_intent_classify,
         workspace_project=curate_spec.project if curate_spec else None,
         query_boost_terms=[x for x in ([curate_spec.persona.domain, curate_spec.persona.subdomain] + curate_spec.persona.disambiguation_keywords) if x] if curate_spec else None,
-        ephemeral_exhibition=False if save_as else True,
+        pinned_exhibition_id=curate_spec.exhibition if curate_spec else None,
+        ephemeral_exhibition=False if (save_as or curate_spec) else True,
     )
 
     callbacks = CliQueryCallbacks()
@@ -5572,6 +5573,5 @@ def testbed_list():
     for s in sorted(scenarios):
         table.add_row(s)
     console.print(table)
-
 
 

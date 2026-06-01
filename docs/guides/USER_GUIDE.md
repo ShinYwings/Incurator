@@ -482,6 +482,9 @@ Configure the LLM backends that power Incurator's intelligence. The system maint
 > [!NOTE]
 > `Primary` and `Fallback` share the same configuration options, and you can freely cross-select any of the providers listed below for either role.
 
+> [!TIP]
+> When the Antigravity CLI reports quota or capacity exhaustion only in its log while returning an empty print-mode response, Incurator treats it as an explicit `Antigravity capacity exhausted (429)` error and fails over to the configured Fallback backend instead of accepting an empty LLM answer.
+
 #### Supported Provider List
 | Provider | Type | Key Features |
 | :--- | :--- | :--- |

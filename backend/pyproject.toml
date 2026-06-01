@@ -16,7 +16,6 @@ dependencies = [
     # Stage 2 — parsers
     "onnxruntime<1.24.0",
     "pymupdf4llm>=0.0.17",
-    "pypdf>=4.0.0",
     "python-docx>=1.1.0",
     "beautifulsoup4>=4.12.0",
     "lxml>=5.0.0",
@@ -28,10 +27,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Cloud LLM backend (auto-selected on machines with < 16 GB RAM)
-gemini = [
-    "google-generativeai>=0.7.0",
-]
 # MCP server: lets workspace agents (Claude Code, Antigravity, etc.) query the
 # Curator DAG and proxy to the local qmd MCP. Install with:
 #   uv pip install -e '.[mcp]'
