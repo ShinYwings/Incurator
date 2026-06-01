@@ -1,28 +1,41 @@
 # Agent Relay Handoff
 
-**Last Updated:** 2026-06-01T02:22:00+09:00
-**Last Agent:** Antigravity
+**Last Updated:** 2026-06-01T05:31:00+09:00
+**Last Agent:** Codex
 
 ## Current Active Goal
-Convert the Incurator system into a "Notebase" RAG system capable of perfectly understanding Math/LaTeX formulas by implementing a Math-Aware parsing strategy (using `pymupdf4llm`).
+Commit the completed MCP/query, Antigravity/PDF cleanup, and English-first documentation synchronization work.
 
 ## Active Plan Reference
-`.agents/plans/2026-06_notebase_rag_plan.md` (v0.2.2 architecture changes).
+Relevant committed plan artifacts:
+- `.agents/plans/2026-06_query_exhibition_plan.md`
+- `.agents/plans/2026-06_legacy_cleanup_plan.md`
 
 ## Analysis & Reasoning
-- **Decision:** The backend parsing layer in `pdf.py` was migrated from `pypdf` to `pymupdf4llm`. The chunking logic in `ingest_raw.py` (`_chunk_text`) was updated to AST-aware logic that strictly avoids splitting `$$...$$` math blocks and ` ```...``` ` code blocks.
-- **Status:** TDD tests were added (`backend/tests/test_math_parsing.py`) and verified to pass. All 172 regression tests run successfully. The dependencies have been updated to pin `onnxruntime<1.24.0` for Python 3.10 compatibility. Changes are ready to push.
+- The user approved proceeding with the remaining work.
+- Work was split into focused commits rather than one broad commit:
+  - `f5a00d9 docs: require english-first paired guide updates`
+  - `e56b10a fix: harden antigravity and pdf cleanup`
+  - `347defa fix: stabilize curator query and mcp retrieval`
+- `f5a00d9` adds the paired-doc rule to both `AGENTS.md` and `CLAUDE.md`: English guide first, matching `_KR.md` guide as faithful translation.
+- `e56b10a` hardens Antigravity capacity handling, removes legacy Gemini/PDF dependency remnants, replaces generated PDF tests with fixtures, and documents fallback behavior.
+- `347defa` stabilizes Curator query/MCP behavior: bounded synthesis context, L3-scoped MCP query, pinned workspace Exhibition context, unboosted retry, duplicate MCP tool cleanup, curate timeout handling, and stale ephemeral Exhibition GC.
+- Production `second_brain` remains intentionally configured as Antigravity CLI `gemini-3.5-flash` with medium effort.
 
 ## Progress Status
-- [x] Create `docs/specs/curator_schema/SCHEMA_v0.2.2.md`
-- [x] Update `docs/guides/WORKFLOW_GUIDE_KR.md`
-- [x] Add `pymupdf4llm` to `pyproject.toml`
-- [x] Update `backend/src/curator/parsers/pdf.py`
-- [x] Update chunking in `backend/src/curator/ingest_raw.py`
-- [x] Run full pytest suite (All Pass)
+- [x] Committed English-first paired guide rule.
+- [x] Committed Antigravity capacity and PDF cleanup work.
+- [x] Committed query/MCP retrieval and ephemeral Exhibition cleanup work.
+- [x] Confirmed only `.agents/relay.md` remained modified after feature commits.
+- [x] Updated relay to include the created commit SHAs.
 
-## Critical Context & Blockers
-- **Context:** `pypdf` is fully phased out for text extraction in favor of `pymupdf4llm`. The `pymupdf4llm` library provides structural Markdown containing intact LaTeX.
+## Critical Context/Blockers
+- Previous validation before commits:
+  - `cd backend && uv run python -m pytest tests -q` -> `183 passed, 1 skipped`
+  - `cd backend && uv run python -m compileall -q src tests` -> passed
+  - `git diff --check` -> clean
+  - testbed `status`, `lint`, `reindex`, and query smoke passed.
+- Git warned that committer identity was auto-derived as `GyeongIk Shin <shin@GyeongIks-MacBook-Pro-7.local>`. Commits succeeded, but the user may want to set global git identity later if desired.
 
-## Immediate Next Action for the Next Agent
-Standby for the user's next `/goal` or command. The Math-Aware RAG feature implementation is complete and committed to git.
+## Immediate Next Action
+Commit this relay update, then report the final commit list and current worktree status to the user.
