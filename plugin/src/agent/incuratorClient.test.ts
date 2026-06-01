@@ -205,4 +205,52 @@ describe("IncuratorClient", () => {
     const result = await client.registerSource("/tmp/paper.pdf");
     expect(result).toBeNull();
   });
+
+  it("runs dashboard Add and Build through backend MCP tools", async () => {
+    const calls: string[] = [];
+    const mcp = {
+      getAllTools: () => [
+        { serverName: "incurator", name: "curator_add_all", description: "", inputSchema: {} },
+        { serverName: "incurator", name: "curator_build_all", description: "", inputSchema: {} },
+      ],
+      callTool: async (_server: string, tool: string) => {
+        calls.push(tool);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, tool }) }] };
+      },
+    };
+    const client = new IncuratorClient(mcp as any, settings());
+
+    await client.runAdd();
+    await client.runBuild();
+
+    expect(calls).toEqual(["curator_add_all", "curator_build_all"]);
+  });
+
+  it("resolves Zotero PDFs through backend and returns null when unresolved", async () => {
+    const calls: { tool: string; args: Record<string, unknown> }[] = [];
+    const mcp = {
+      getAllTools: () => [
+        { serverName: "incurator", name: "curator_resolve_zotero_pdf", description: "", inputSchema: {} },
+      ],
+      callTool: async (_server: string, tool: string, args: Record<string, unknown>) => {
+        calls.push({ tool, args });
+        return { content: [{ type: "text", text: JSON.stringify({ ok: false }) }] };
+      },
+    };
+    const client = new IncuratorClient(mcp as any, settings());
+
+    const path = await client.resolveZoteroPdf("PZBCB9LJ");
+
+    expect(path).toBeNull();
+    expect(calls).toEqual([
+      {
+        tool: "curator_resolve_zotero_pdf",
+        args: {
+          attachment_key: "PZBCB9LJ",
+          attachmentKey: "PZBCB9LJ",
+          custom_paths: "~/Zotero",
+        },
+      },
+    ]);
+  });
 });

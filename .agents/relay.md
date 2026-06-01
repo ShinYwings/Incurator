@@ -1,6 +1,6 @@
 # Agent Relay Handoff
 
-**Last Updated:** 2026-06-01T22:16:00+09:00
+**Last Updated:** 2026-06-01T22:16:34+09:00
 **Last Agent:** Codex
 
 ## Current Active Goal
@@ -44,6 +44,9 @@ and test changes.
   `.pytest_cache`, `backend/.pytest_cache`, backend/script `__pycache__`
   directories. `plugin/node_modules/**/dist` was intentionally left alone
   because those are dependency package files, not generated temp files.
+- A continuation audit added focused plugin tests for dashboard Add/Build MCP
+  dispatch and Zotero PDF resolve failure returning `null`, strengthening the
+  two UI-runtime issue contracts that cannot be clicked directly in this shell.
 
 ## Progress Status
 
@@ -55,9 +58,12 @@ and test changes.
       Zotero fallback, prompt behavior, and GUI CLI path detection.
 - [x] Updated English and Korean guides plus active v0.2.2 specs.
 - [x] Added backend and frontend tests.
+- [x] Added continuation tests for dashboard MCP actions and Zotero unresolved
+      fallback contract.
 - [x] Ran validation.
 - [x] Commit created and pushed:
       `609f8a9 feat: add DeepSeek provider and improve Obsidian provider UX`.
+      Relay follow-up: `451391f chore: update agent relay after provider UX push`.
 
 ## Validation Evidence
 
@@ -73,6 +79,7 @@ git diff --check
 backend/.venv/bin/wiki config provider --help
 backend/.venv/bin/wiki config models list --all | rg -n "deepseek|DeepSeek"
 tmp=$(mktemp -d); backend/.venv/bin/wiki init "$tmp" --no-interactive; VAULT_ROOT="$tmp" backend/.venv/bin/wiki config provider --primary deepseek-api --model deepseek-v4-pro --api-key-env DEEPSEEK_TEST_KEY --base-url https://api.deepseek.com; rm -rf "$tmp"
+npm test -- --run src/agent/incuratorClient.test.ts src/auth/cliAuth.test.ts src/agent/llmClient.test.ts src/context/systemPrompt.test.ts src/utils/zoteroUtils.test.ts
 ```
 
 Observed results:
@@ -86,17 +93,18 @@ Observed results:
   `--base-url`.
 - Model catalogue exposes `deepseek-v4-flash` and `deepseek-v4-pro`.
 - Temporary `wiki init` plus `wiki config provider` smoke succeeded.
+- Continuation focused plugin tests: 5 files passed, 19 tests passed.
 
 ## Critical Context / Blockers
 
 - No blocker is known.
-- Runtime behavior in Obsidian itself still needs human/manual confirmation for
-  actual macOS Zotero app opening and dashboard click behavior, but code-level
-  routing, tests, typecheck, build, and CLI smoke validation pass.
+- Runtime behavior in Obsidian itself is still best confirmed manually, but the
+  code-level routes, fallback contracts, MCP dispatch contracts, tests,
+  typecheck, build, and CLI smoke validation all pass.
 - If push is rejected due to remote divergence, inspect and integrate normally;
   do not force-push unless explicitly requested.
 
 ## Immediate Next Action
 
-No immediate coding action is required. Manual Obsidian runtime confirmation
-remains useful for actual macOS Zotero app opening and dashboard click behavior.
+Commit and push the continuation test/relay update, then mark the active goal
+complete if the final git state is clean and synced.
