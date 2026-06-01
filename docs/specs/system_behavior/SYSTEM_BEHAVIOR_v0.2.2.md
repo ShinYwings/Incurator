@@ -363,7 +363,7 @@ Rules:
 The shared catalogue (`backend/src/curator/data/models.json`, the single source of
 truth) is `schema_version: 2`. It must only list models the corresponding CLI
 actually exposes — phantom entries (models the installed `agy`/`claude`/`codex`
-do not offer) are a defect. Each cloud model may declare a reasoning/effort
+or the configured API provider does not offer) are a defect. Each cloud/API model may declare a reasoning/effort
 dimension:
 
 - `efforts`: ordered list of effort levels the CLI accepts for that model
@@ -381,10 +381,25 @@ provider-native control:
 - `codex-cli` → `codex -c model_reasoning_effort=<level>` (`low|medium|high|xhigh`).
 - `antigravity-cli` → `agy` has no effort flag, so the level is embedded as a
   prompt hint (best-effort only).
+- `deepseek-api` → OpenAI-compatible `https://api.deepseek.com/chat/completions`
+  with `DEEPSEEK_API_KEY` or `llm.deepseek-api.api_key`. Current catalogue
+  entries are `deepseek-v4-flash` and `deepseek-v4-pro`; legacy aliases
+  `deepseek-chat` and `deepseek-reasoner` are not preferred because DeepSeek
+  schedules them for deprecation on 2026-07-24.
 
 The interactive `wiki config provider` wizard and the plugin dashboard LLM card
 must offer only the efforts a chosen model declares, and changing the model must
 reset its effort to that model's `default_effort`.
+
+Provider account ownership:
+
+- CLI-backed providers (`antigravity-cli`, `claude-code`, `codex-cli`) use the
+  account currently logged into the provider CLI on the backend machine. In a
+  multi-account setup, users switch accounts through the CLI itself.
+- API-key providers (`deepseek-api`) use the configured key. Account selection
+  follows the key, not a browser-login CLI session.
+- Quota/capacity/rate-limit errors must be surfaced as provider errors, not
+  swallowed as empty LLM output; frontend sidechat should render them directly.
 
 ## 12. Observability
 

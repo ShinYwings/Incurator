@@ -129,7 +129,7 @@ PDF 뷰어에서 특정 영역을 마우스로 드래그해 캡처합니다.
 
 ## 7. AI 제공자 설정
 
-플러그인은 세 가지 AI 제공자를 지원합니다. 설정 탭에서는 제공자와 모델을 따로 조정할 수 있고, 채팅 사이드바 하단에서는 하나의 모델 선택 메뉴에서 `Provider · Model` 형식으로 함께 전환합니다. reasoning/effort 메뉴는 Codex와 Claude에서만 표시됩니다.
+플러그인은 Antigravity, Claude, OpenAI Codex, Ollama, DeepSeek를 지원합니다. 설정 탭에서는 제공자와 모델을 따로 조정할 수 있고, 채팅 사이드바 하단에서는 하나의 모델 선택 메뉴에서 `Provider · Model` 형식으로 함께 전환합니다. reasoning/effort 메뉴는 백엔드 카탈로그에서 effort 단계가 선언된 모델에만 표시됩니다.
 
 > [!NOTE]
 > **Incurator Dashboard → Overview → LLM Provider** 카드에서도 보관소(`.curator/config.yml`)의 Primary/Fallback 모델을 바꿀 수 있습니다. 각 모델 드롭다운 옆에는 **effort 드롭다운**이 함께 표시되며, 선택한 모델이 노출하는 강도만 보여줍니다 (강도가 없는 모델은 `—`). Apply 시 `llm.primary_effort` / `llm.fallback_effort` 로 저장됩니다. 모델 목록은 백엔드의 `data/models.json` 카탈로그(단일 소스)에서 자동으로 채워집니다.
@@ -200,6 +200,18 @@ ollama pull qwen2.5:7b
 - **Ollama host**: Ollama 서버 주소 (기본값: `http://localhost:11434`)
 - **Model**: 설치된 모델 이름 직접 입력 또는 **Fetch models** 버튼으로 목록 조회
 - Vision 지원 여부는 모델에 따라 다름 (예: `gemma3:12b` 지원, `qwen2.5:7b` 미지원)
+
+### 7.5 DeepSeek API
+
+DeepSeek의 OpenAI 호환 API에 API 키로 연결합니다. OAuth 또는 브라우저 CLI 로그인은 사용하지 않습니다.
+
+설정:
+
+- **API key**: 플러그인 설정에 기기 로컬 키를 저장하거나, 비워둔 뒤 Obsidian 프로세스 환경의 `DEEPSEEK_API_KEY`를 사용합니다.
+- **Model**: 백엔드 카탈로그에서 선택합니다. 2026-06-01 기준 현재 DeepSeek API 모델 ID는 `deepseek-v4-flash`, `deepseek-v4-pro`입니다.
+- `deepseek-chat`, `deepseek-reasoner`는 DeepSeek가 2026-07-24 폐기 예정으로 안내한 legacy alias이므로 기본 선택지로 권장하지 않습니다.
+
+어떤 provider에서든 quota 또는 capacity 오류가 발생하면 sidechat에 명확히 표시되어 사용자가 provider/model을 바꾸거나 fallback을 설정할 수 있습니다.
 
 ---
 
@@ -367,11 +379,15 @@ Zotero 데이터 디렉토리를 설정하면, 마크다운 노트에서 Zotero 
       │
       │ (Zotero 데이터 디렉토리가 설정된 경우)
       ▼
-플러그인이 클릭 이벤트 가로채기 (Zotero 앱 실행 방지)
+플러그인이 클릭 이벤트를 가로채고 내장 뷰어를 먼저 시도
       │
       │ storage/<ATTACHMENTKEY>/*.pdf 탐색
       ▼
 PDF 파일 경로 확인 → Split 뷰로 내장 뷰어 오픈
+      │
+      │ 로컬 PDF 경로를 확인할 수 없는 경우
+      ▼
+Zotero 앱으로 넘김
       │
       ▼
 Cmd+Shift+L로 채팅 컨텍스트 참조, Incurator 인제스트 가능

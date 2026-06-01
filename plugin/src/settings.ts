@@ -55,6 +55,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
           .addOption("claude", "Anthropic Claude")
           .addOption("openai", "OpenAI Codex")
           .addOption("ollama", "Ollama (local)")
+          .addOption("deepseek", "DeepSeek API")
           .setValue(this.plugin.settings.provider)
           .onChange(async (value: string) => {
             const provider = value as LLMProvider;
@@ -244,6 +245,22 @@ export class AIAgentSettingTab extends PluginSettingTab {
         );
     }
 
+    if (currentProvider === "deepseek") {
+      new Setting(providerSection)
+        .setName("API key")
+        .setDesc("DeepSeek uses an API key, not OAuth. Leave blank to use DEEPSEEK_API_KEY from the environment.")
+        .addText((text) => {
+          text.inputEl.type = "password";
+          text
+            .setPlaceholder("sk-...")
+            .setValue(this.plugin.settings.deepseekApiKey || "")
+            .onChange(async (value) => {
+              this.plugin.settings.deepseekApiKey = value.trim();
+              await this.plugin.saveSettings();
+            });
+        });
+    }
+
     // Auth status inline — Ollama shows a server status check instead
     if (currentProvider === "ollama") {
       const ollamaRow = new Setting(providerSection).setName("Server status");
@@ -269,6 +286,16 @@ export class AIAgentSettingTab extends PluginSettingTab {
       };
       ollamaRow.addButton((btn) => btn.setButtonText("Check").onClick(checkOllama));
       checkOllama();
+    } else if (currentProvider === "deepseek") {
+      const authRow = new Setting(providerSection).setName("Authentication");
+      const authBadge = authRow.settingEl.createSpan("ai-agent-auth-inline-badge");
+      authRow.addButton((button) =>
+        button.setButtonText("Check API key").onClick(() => {
+          this.plugin.authResolver.invalidate("deepseek");
+          this.renderAuthStatusInline(authBadge, button.buttonEl);
+        })
+      );
+      this.renderAuthStatusInline(authBadge);
     } else {
       const authRow = new Setting(providerSection).setName("Authentication");
       const authBadge = authRow.settingEl.createSpan("ai-agent-auth-inline-badge");
@@ -854,6 +881,23 @@ export class AIAgentSettingTab extends PluginSettingTab {
 
   private async renderAuthStatusInline(container: HTMLElement, loginBtn?: HTMLButtonElement): Promise<boolean> {
     const provider = this.plugin.settings.provider;
+    if (provider === "deepseek") {
+      container.empty();
+      if (this.plugin.settings.deepseekApiKey || process.env.DEEPSEEK_API_KEY) {
+        container.createSpan({ cls: "ai-agent-auth-ok", text: "✓ API key configured" });
+        if (loginBtn) {
+          loginBtn.textContent = "Check API key";
+          loginBtn.classList.remove("mod-cta");
+        }
+        return true;
+      }
+      container.createSpan({ cls: "ai-agent-auth-fail", text: "✗ Set DeepSeek API key or DEEPSEEK_API_KEY" });
+      if (loginBtn) {
+        loginBtn.textContent = "Check API key";
+        loginBtn.classList.add("mod-cta");
+      }
+      return false;
+    }
     try {
       const token = await this.plugin.authResolver.resolveToken(provider);
       if (token) {
@@ -898,6 +942,10 @@ export class AIAgentSettingTab extends PluginSettingTab {
         return "Claude";
       case "openai":
         return "Codex";
+      case "ollama":
+        return "Ollama";
+      case "deepseek":
+        return "DeepSeek";
     }
   }
 }

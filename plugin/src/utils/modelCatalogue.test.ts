@@ -11,13 +11,11 @@ const catalogue: ModelCatalogue = {
     {
       id: "gemini-fast",
       label: "Gemini Fast",
-      tier: "flash",
       supportsVision: true,
     },
     {
       id: "gemini-think",
       label: "Gemini Think",
-      tier: "think",
       supportsVision: true,
     },
   ],

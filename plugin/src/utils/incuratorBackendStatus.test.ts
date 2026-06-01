@@ -10,7 +10,7 @@ describe("getIncuratorBackendStatus", () => {
     const status = getIncuratorBackendStatus({
       enabled: true,
       servers: [],
-      tools: [{ serverName: "incurator", name: "curator_source_status", description: "" }],
+      tools: [{ serverName: "incurator", name: "curator_source_status", description: "", inputSchema: {} }],
     });
 
     expect(status.state).toBe("connected");

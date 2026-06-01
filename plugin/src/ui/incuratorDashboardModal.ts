@@ -7,18 +7,21 @@ const PROVIDER_TO_PRIMARY: Record<LLMProvider, string> = {
   claude:      "claude-code",
   openai:      "codex-cli",
   ollama:      "ollama",
+  deepseek:    "deepseek-api",
 };
 const PRIMARY_TO_PROVIDER: Record<string, LLMProvider> = {
   "antigravity-cli": "antigravity",
   "claude-code":     "claude",
   "codex-cli":       "openai",
   "ollama":          "ollama",
+  "deepseek-api":    "deepseek",
 };
 const PROVIDER_LABELS: Record<LLMProvider, string> = {
   antigravity: "Antigravity",
   claude:      "Claude",
   openai:      "Codex",
   ollama:      "Ollama",
+  deepseek:    "DeepSeek",
 };
 
 type TabId = "overview" | "jobs" | "sources" | "persona" | "devices";
@@ -261,29 +264,32 @@ export class IncuratorDashboardModal extends Modal {
     acts.style.gap = "6px";
 
     this.addActionBtn(acts, "Add",     "file-plus",    async () => {
-      new Notice("Running wiki add...");
-      const r = await this.runWikiCommand(["add"]);
-      new Notice(r.ok ? `Add done: ${r.output?.slice(-100)}` : `Add failed: ${r.error}`);
+      new Notice("Running Incurator add...");
+      const r = await this.plugin.incuratorClient.runAdd();
+      new Notice(r?.ok === false ? `Add failed: ${r.error || "unknown error"}` : "Add complete.");
+      this.switchTab(this.activeTab);
     });
     this.addActionBtn(acts, "Build",   "hammer",       async () => {
-      new Notice("Running wiki build...");
-      const r = await this.runWikiCommand(["build"]);
-      new Notice(r.ok ? `Build complete: ${r.output?.slice(-100)}` : `Build failed: ${r.error}`);
+      new Notice("Running Incurator build...");
+      const r = await this.plugin.incuratorClient.runBuild();
+      new Notice(r?.ok === false ? `Build failed: ${r.error || "unknown error"}` : "Build complete.");
+      this.switchTab(this.activeTab);
     });
     this.addActionBtn(acts, "Sync",    "refresh-cw",   async () => {
-      new Notice("Running wiki sync...");
-      const r = await this.runWikiCommand(["sync"]);
-      new Notice(r.ok ? `Sync done: ${r.output?.slice(-100)}` : `Sync failed: ${r.error}`);
+      new Notice("Running Incurator sync...");
+      const r = await this.plugin.incuratorClient.runSync();
+      new Notice(r?.ok === false ? `Sync failed: ${r.error || "unknown error"}` : "Sync complete.");
+      this.switchTab(this.activeTab);
     });
     this.addActionBtn(acts, "Lint",    "check-circle", async () => {
-      new Notice("Running wiki lint...");
-      const r = await this.runWikiCommand(["lint"]);
-      new Notice(r.ok ? `Lint done: ${r.output?.slice(-100)}` : `Lint failed: ${r.error}`);
+      new Notice("Running Incurator lint...");
+      const r = await this.plugin.incuratorClient.runLint();
+      new Notice(r?.ok === false ? `Lint failed: ${r.error || "unknown error"}` : "Lint complete.");
     });
     this.addActionBtn(acts, "Reindex", "search",       async () => {
-      new Notice("Running wiki reindex...");
-      const r = await this.runWikiCommand(["reindex"]);
-      new Notice(r.ok ? `Reindex complete: ${r.output?.slice(-100)}` : `Reindex failed: ${r.error}`);
+      new Notice("Running Incurator reindex...");
+      const r = await this.plugin.incuratorClient.runReindex();
+      new Notice(r?.ok === false ? `Reindex failed: ${r.error || "unknown error"}` : "Reindex complete.");
     });
     this.addActionBtn(acts, "Reset",   "trash-2",      async () => {
       if (!confirm("This will clear your local DB and L1-L4 content (keeping notes and configs). Proceed?")) return;
@@ -486,8 +492,8 @@ export class IncuratorDashboardModal extends Modal {
                 nameEl.style.lineHeight = "1.2";
                 applyTruncation(nameEl);
               } else {
-                row.createSpan({ text: "○", style: "opacity: 0.5" });
-                const nameEl = row.createSpan({ text: (d as any).name || "Unknown", style: "opacity: 0.8", attr: { title: (d as any).platform || "" } });
+                row.createSpan({ text: "○", attr: { style: "opacity: 0.5" } });
+                const nameEl = row.createSpan({ text: (d as any).name || "Unknown", attr: { title: (d as any).platform || "", style: "opacity: 0.8" } });
                 nameEl.style.lineHeight = "1.2";
                 applyTruncation(nameEl);
               }
@@ -743,7 +749,7 @@ export class IncuratorDashboardModal extends Modal {
     el.createEl("h3", { text: "Recent Sources", cls: "ai-agent-dashboard-section-title" });
     const loading = el.createDiv({ cls: "ai-agent-dashboard-loading", text: "Loading…" });
     try {
-      const result = await this.plugin.incuratorClient.tryTool(["curator_source_status"], { limit: 20 }) as any;
+      const result = await this.plugin.incuratorClient.tryTool(["check_source_status", "curator_source_status"], { limit: 20 }) as any;
       loading.remove();
       if (!result?.sources?.length) { el.createDiv({ cls: "ai-agent-dashboard-empty", text: "No sources tracked yet." }); return; }
 

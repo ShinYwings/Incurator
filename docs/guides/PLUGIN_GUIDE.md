@@ -129,7 +129,7 @@ The plugin offers three capture modes when using a PDF as context.
 
 ## 7. AI Provider Settings
 
-The plugin supports three AI providers. In settings, provider and model can be adjusted separately. In the chat sidebar footer, a single model menu switches both at once using `Provider · Model` labels. Reasoning/effort appears only for Codex and Claude.
+The plugin supports Antigravity, Claude, OpenAI Codex, Ollama, and DeepSeek. In settings, provider and model can be adjusted separately. In the chat sidebar footer, a single model menu switches both at once using `Provider · Model` labels. Reasoning/effort appears only for models whose backend catalogue entry declares effort levels.
 
 > [!NOTE]
 > The **Incurator Dashboard → Overview → LLM Provider** card also edits the vault's (`​.curator/config.yml`) Primary/Fallback models. Each model dropdown is paired with an **effort dropdown** that shows only the levels the selected model exposes (models with no effort show `—`). Applying saves to `llm.primary_effort` / `llm.fallback_effort`. The model list is populated automatically from the backend's single-source `data/models.json` catalogue.
@@ -200,6 +200,24 @@ Settings:
 - **Ollama host**: Server address (default: `http://localhost:11434`)
 - **Model**: Type a model name directly or click **Fetch models** to list installed models
 - Vision support varies by model (e.g. `gemma3:12b` supports vision, `qwen2.5:7b` does not)
+
+### 7.5 DeepSeek API
+
+Connects to DeepSeek's OpenAI-compatible API with an API key. It does not use
+OAuth or a browser CLI login.
+
+Settings:
+
+- **API key**: Store a device-local key in plugin settings, or leave it blank and
+  set `DEEPSEEK_API_KEY` in the Obsidian process environment.
+- **Model**: Choose from the backend catalogue. As of 2026-06-01 the current
+  DeepSeek API model ids are `deepseek-v4-flash` and `deepseek-v4-pro`.
+- Legacy aliases `deepseek-chat` and `deepseek-reasoner` are not preferred
+  because DeepSeek schedules them for deprecation on 2026-07-24.
+
+Quota or capacity errors from any provider are rendered directly in sidechat so
+the user can switch provider/model or configure a fallback instead of seeing an
+empty answer.
 
 ---
 
@@ -374,11 +392,15 @@ Click zotero:// link in a Markdown note
       │
       │ (Zotero data directory is configured)
       ▼
-Plugin intercepts click (prevents Zotero app from opening)
+Plugin intercepts click and tries the built-in viewer first
       │
       │ Scans storage/<ATTACHMENTKEY>/*.pdf
       ▼
 Resolves PDF path → opens in built-in viewer (split view)
+      │
+      │ If the PDF cannot be resolved locally
+      ▼
+Falls through to the Zotero app
       │
       ▼
 Use Cmd+Shift+L to add to chat context or trigger Incurator ingest

@@ -9,16 +9,21 @@ function settings(): PluginSettings {
     chatMode: "chat",
     codexReasoningEffort: "medium",
     claudeEffort: "medium",
+    agentEffort: "",
     antigravityPrintTimeoutSec: 300,
     providerUsage: {
       antigravity: { requests: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
       claude: { requests: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
       openai: { requests: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
+      ollama: { requests: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
+      deepseek: { requests: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
     },
+    deepseekApiKey: "",
     diffMode: "inline",
     streamingEnabled: true,
     mcpServers: [],
     maxContextLength: 128000,
+    ollamaHost: "http://localhost:11434",
     pdfCaptureMode: "both",
     pdfWindowRadius: 1,
     pdfOutlineEnabled: true,
@@ -35,6 +40,7 @@ function settings(): PluginSettings {
     incuratorStatusPolling: true,
     zoteroBasePath: "~/Zotero",
     zoteroProfiles: [],
+    recentZoteroItems: [],
   };
 }
 

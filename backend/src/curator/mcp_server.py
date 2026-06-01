@@ -924,6 +924,9 @@ def build_server() -> FastMCP:
         primary: str,
         model: str = "",
         host: str = "",
+        api_key_env: str = "",
+        api_key: str = "",
+        base_url: str = "",
         workspace_path: str = ""
     ) -> dict[str, Any]:
         """Set the LLM provider configuration."""
@@ -934,6 +937,14 @@ def build_server() -> FastMCP:
 
         if primary == consts.BACKEND_OLLAMA and host:
             llm_cfg.setdefault(consts.BACKEND_OLLAMA, {})["host"] = host
+        if primary == consts.BACKEND_DEEPSEEK_API:
+            deepseek_cfg = llm_cfg.setdefault(consts.BACKEND_DEEPSEEK_API, {})
+            if api_key_env:
+                deepseek_cfg["api_key_env"] = api_key_env
+            if api_key:
+                deepseek_cfg["api_key"] = api_key
+            if base_url:
+                deepseek_cfg["base_url"] = base_url
             
         config["llm"] = llm_cfg
         

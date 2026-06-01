@@ -65,6 +65,10 @@ export class InlinePromptWidget {
     this.plugin.llmClient.abort();
   }
 
+  unload(): void {
+    this.close();
+  }
+
   get isOpen(): boolean {
     return this.containerEl !== null;
   }

@@ -429,7 +429,7 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 
 | 명령어 | 설명 |
 | :--- | :--- |
-| `wiki config provider` | LLM 백엔드 (Ollama / Claude Code / Antigravity / Codex) 와 모델을 대화형으로 설정합니다. |
+| `wiki config provider` | LLM 백엔드 (Ollama / Claude Code / Antigravity / Codex / DeepSeek) 와 모델을 대화형으로 설정합니다. |
 | `wiki config models list` | 현재 백엔드에서 사용 가능한 모델 목록을 표시합니다. |
 | `wiki config models use <tag>` | 사용할 모델을 직접 지정합니다. |
 | `wiki config get <key>` | 특정 설정 값을 조회합니다. (예: `wiki config get llm.primary`) |
@@ -472,7 +472,7 @@ Incurator의 지능을 담당하는 LLM 백엔드를 설정합니다. 시스템�
 > `Primary`와 `Fallback`은 설정 방식이 동일하며, 아래의 모든 프로바이더를 자유롭게 교차 선택할 수 있습니다.
 
 > [!TIP]
-> Antigravity CLI가 할당량/용량 초과를 로그에만 기록하고 print 모드에는 빈 응답을 반환하는 경우, Incurator는 이를 명시적인 `Antigravity capacity exhausted (429)` 오류로 처리합니다. 따라서 빈 LLM 답변을 정상 결과로 받아들이지 않고 설정된 Fallback 백엔드로 전환합니다.
+> provider가 quota, rate-limit, capacity 초과를 보고하면 Incurator는 이를 명시적인 오류로 표시하고 빈 LLM 답변을 정상 결과로 받아들이지 않으며 설정된 Fallback 백엔드로 전환합니다. Obsidian sidechat도 이 오류를 quota/capacity 메시지로 표시하므로 provider/model을 바꾸거나 reset 시점까지 기다릴 수 있습니다.
 
 #### 지원 프로바이더 목록
 | 프로바이더 | 유형 | 특징 |
@@ -481,6 +481,7 @@ Incurator의 지능을 담당하는 LLM 백엔드를 설정합니다. 시스템�
 | `antigravity-cli` | CLI | Google Antigravity CLI (`agy`)를 통한 추론 (가장 빠르고 안정적인 무료 옵션). Gemini 3.5 Flash / 3.1 Pro 외에 Claude·GPT-OSS 모델도 노출됩니다 |
 | `claude-code` | CLI | Anthropic 공식 `claude` 명령어를 통한 추론 (Sonnet 4.6 / Opus 4.7 / Haiku 4.5) |
 | `codex-cli` | CLI | OpenAI 공식 `codex` 명령어를 통한 추론 (GPT-5.5 / 5.4 / 5.4-mini / 5.3-codex / 5.2) |
+| `deepseek-api` | API key | DeepSeek의 OpenAI 호환 API를 통한 추론 (`DEEPSEEK_API_KEY`; 현재 모델 `deepseek-v4-flash` / `deepseek-v4-pro`) |
 
 ```bash
 # 위자드를 따라 Primary와 Fallback을 한 번에 설정
@@ -500,9 +501,13 @@ wiki config provider
 ```bash
 # Primary 를 GPT-5.5 + high effort 로 즉시 설정
 wiki config provider --primary codex-cli --model gpt-5.5 --effort high
+wiki config provider --primary deepseek-api --model deepseek-v4-flash
+wiki config provider --primary deepseek-api --model deepseek-v4-pro --api-key-env DEEPSEEK_API_KEY
 ```
 
 선택한 강도는 `.curator/config.yml` 의 `llm.primary_effort` / `llm.fallback_effort` 에 저장되며, 비워 두면 각 CLI의 기본 강도를 사용합니다.
+
+CLI 기반 provider(`antigravity-cli`, `claude-code`, `codex-cli`)는 backend가 실행되는 머신에서 해당 CLI에 현재 로그인된 계정을 사용합니다. 다른 계정을 쓰려면 provider CLI 자체(`agy`, `claude`, `codex login`)에서 계정을 전환하세요. DeepSeek는 다릅니다. `DEEPSEEK_API_KEY` 또는 `llm.deepseek-api.api_key`의 API 키를 사용하므로 계정 선택은 브라우저 로그인 세션이 아니라 키로 결정됩니다.
 
 ### 2. 모델 관리 (`wiki config models`)
 현재 프로바이더에서 사용할 세부 모델을 확인하고 변경합니다.

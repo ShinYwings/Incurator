@@ -1,5 +1,5 @@
 import { execSync, spawn } from "child_process";
-import { readFileSync, existsSync, writeFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import type { LLMProvider } from "../types";
@@ -23,6 +23,8 @@ const AUTH_HELP: Record<LLMProvider, string> = {
   openai:
     'Run "codex" and complete the ChatGPT browser login flow.',
   ollama: 'Start Ollama with "ollama serve" and pull a model with "ollama pull <model>".',
+  deepseek:
+    'Set DEEPSEEK_API_KEY in the Obsidian environment, shell profile, or backend config.',
 };
 
 const LOGIN_COMMANDS: Record<LLMProvider, string[]> = {
@@ -30,7 +32,38 @@ const LOGIN_COMMANDS: Record<LLMProvider, string[]> = {
   claude: ["claude", "auth", "login"],
   openai: ["codex", "login"],
   ollama: ["ollama"],
+  deepseek: [],
 };
+
+export function buildGuiCliSearchPaths(home: string): string[] {
+  const paths = [
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+    "/bin",
+    "/usr/bin",
+    "/usr/sbin",
+    "/sbin",
+    home ? `${home}/.local/bin` : "",
+    home ? `${home}/bin` : "",
+    home ? `${home}/.gemini/bin` : "",
+    home ? `${home}/.cargo/bin` : "",
+    home ? `${home}/.npm-global/bin` : "",
+    home ? `${home}/.bun/bin` : "",
+    home ? `${home}/.volta/bin` : "",
+  ].filter(Boolean);
+
+  const nvmVersions = home ? `${home}/.nvm/versions/node` : "";
+  try {
+    for (const version of readdirSync(nvmVersions)) {
+      const bin = join(nvmVersions, version, "bin");
+      if (statSync(bin).isDirectory()) paths.push(bin);
+    }
+  } catch {
+    // nvm is optional.
+  }
+
+  return Array.from(new Set(paths));
+}
 
 
 export class CLIAuthResolver {
@@ -44,6 +77,11 @@ export class CLIAuthResolver {
     // Ollama is local and needs no authentication
     if (provider === "ollama") {
       return { type: "bearer", token: "" };
+    }
+    if (provider === "deepseek") {
+      const token = process.env.DEEPSEEK_API_KEY || "";
+      if (token.trim()) return { type: "bearer", token: token.trim() };
+      throw new Error(`DeepSeek auth failed: DEEPSEEK_API_KEY is not set.\n\n${AUTH_HELP.deepseek}`);
     }
 
     // 1. Verify the CLI tool actually exists on the system before claiming we're authenticated
@@ -96,6 +134,9 @@ export class CLIAuthResolver {
       this.assertCommandAvailable("ollama", provider);
       this.launchInTerminal(["ollama", "serve"], "Ollama server");
       return;
+    }
+    if (provider === "deepseek") {
+      throw new Error(AUTH_HELP.deepseek);
     }
     this.invalidate(provider);
     const command = LOGIN_COMMANDS[provider];
@@ -257,18 +298,7 @@ export class CLIAuthResolver {
 
   private getAugmentedEnv(): NodeJS.ProcessEnv {
     const home = process.env.HOME || process.env.USERPROFILE || "";
-    const customPaths = [
-      "/usr/local/bin",
-      "/opt/homebrew/bin",
-      "/bin",
-      "/usr/bin",
-      "/usr/sbin",
-      "/sbin",
-      home ? `${home}/.local/bin` : "",
-      home ? `${home}/.gemini/bin` : "",
-      home ? `${home}/.cargo/bin` : "",
-      home ? `${home}/.npm-global/bin` : "",
-    ].filter(Boolean);
+    const customPaths = buildGuiCliSearchPaths(home);
 
     const currentPath = process.env.PATH || "";
     const combinedPath = [...customPaths, currentPath].join(

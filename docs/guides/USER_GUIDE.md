@@ -448,7 +448,7 @@ Summary of major commands following the user workflow.
 
 | Command | Description |
 | :--- | :--- |
-| `wiki config provider` | Interactively configure the LLM backend (Ollama / Claude Code / Antigravity / Codex) and model. |
+| `wiki config provider` | Interactively configure the LLM backend (Ollama / Claude Code / Antigravity / Codex / DeepSeek) and model. |
 | `wiki config models list` | Show available models for the current backend. |
 | `wiki config models use <tag>` | Directly set the model to use. |
 | `wiki config get <key>` | Read a specific config value. (e.g. `wiki config get llm.primary`) |
@@ -491,7 +491,7 @@ Configure the LLM backends that power Incurator's intelligence. The system maint
 > `Primary` and `Fallback` share the same configuration options, and you can freely cross-select any of the providers listed below for either role.
 
 > [!TIP]
-> When the Antigravity CLI reports quota or capacity exhaustion only in its log while returning an empty print-mode response, Incurator treats it as an explicit `Antigravity capacity exhausted (429)` error and fails over to the configured Fallback backend instead of accepting an empty LLM answer.
+> When a provider reports quota, rate-limit, or capacity exhaustion, Incurator surfaces the error explicitly and fails over to the configured Fallback backend instead of accepting an empty LLM answer. The Obsidian sidechat also renders these failures as quota/capacity messages so you can switch provider/model or wait for reset.
 
 #### Supported Provider List
 | Provider | Type | Key Features |
@@ -500,6 +500,7 @@ Configure the LLM backends that power Incurator's intelligence. The system maint
 | `antigravity-cli` | CLI | Inference via Google Antigravity CLI (`agy`) (Fast, reliable free option). Also exposes Claude / GPT-OSS models alongside Gemini 3.5 Flash / 3.1 Pro |
 | `claude-code` | CLI | Inference via official Anthropic `claude` command (Sonnet 4.6 / Opus 4.7 / Haiku 4.5) |
 | `codex-cli` | CLI | Inference via official OpenAI `codex` command (GPT-5.5 / 5.4 / 5.4-mini / 5.3-codex / 5.2) |
+| `deepseek-api` | API key | Inference via DeepSeek's OpenAI-compatible API (`DEEPSEEK_API_KEY`; current models `deepseek-v4-flash` / `deepseek-v4-pro`) |
 
 ```bash
 # Set up both Primary and Fallback at once via the wizard
@@ -519,9 +520,18 @@ The wizard only shows the efforts a model actually supports (e.g. Gemini 3.1 Pro
 ```bash
 # Set Primary to GPT-5.5 with high effort
 wiki config provider --primary codex-cli --model gpt-5.5 --effort high
+wiki config provider --primary deepseek-api --model deepseek-v4-flash
+wiki config provider --primary deepseek-api --model deepseek-v4-pro --api-key-env DEEPSEEK_API_KEY
 ```
 
 The choice is stored as `llm.primary_effort` / `llm.fallback_effort` in `.curator/config.yml`; leaving it empty uses each CLI's default effort.
+
+CLI-backed providers (`antigravity-cli`, `claude-code`, `codex-cli`) use the
+account currently logged into that CLI on the machine running the backend.
+If you need a different account, switch it in the provider CLI itself
+(`agy`, `claude`, or `codex login`). DeepSeek is different: it uses an API key
+from `DEEPSEEK_API_KEY` or `llm.deepseek-api.api_key`, so account selection is
+controlled by the key rather than a browser-login CLI session.
 
 ### 2. Model Management (`wiki config models`)
 View and change the specific models to be used by the current provider.

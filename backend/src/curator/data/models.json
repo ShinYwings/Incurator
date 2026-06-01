@@ -128,6 +128,30 @@
         }
       ]
     },
+    "deepseek": {
+      "backend_key": "deepseek-api",
+      "cli_cmd": "",
+      "install_cmd": "Set DEEPSEEK_API_KEY in your environment or Curator config.",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "label": "DeepSeek V4 Flash",
+          "context_window": 128000,
+          "supports_vision": false,
+          "efforts": ["low", "medium", "high"],
+          "default_effort": "medium"
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "label": "DeepSeek V4 Pro",
+          "context_window": 128000,
+          "supports_vision": false,
+          "supports_thinking": true,
+          "efforts": ["low", "medium", "high"],
+          "default_effort": "medium"
+        }
+      ]
+    },
     "ollama": {
       "backend_key": "ollama",
       "cli_cmd": "ollama",

@@ -1114,7 +1114,7 @@ export class ChatSidebarView extends ItemView {
     activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>
   ): string {
     const lines: string[] = [
-      "This chat session is provider-independent. If the user switches between Antigravity, Claude, Codex, and Ollama, preserve the same task state, conversation decisions, pinned context, open tabs, and edit-review workflow.",
+      "This chat session is provider-independent. If the user switches between Antigravity, Claude, Codex, Ollama, and DeepSeek, preserve the same task state, conversation decisions, pinned context, open tabs, and edit-review workflow.",
       `Current provider/model: ${this.plugin.settings.provider} / ${this.plugin.settings.model}`,
     ];
 
@@ -3057,6 +3057,7 @@ export class ChatSidebarView extends ItemView {
       claude: "Claude",
       openai: "Codex",
       ollama: "Ollama",
+      deepseek: "DeepSeek",
     };
     for (const providerKey of Object.keys(catalogue) as LLMProvider[]) {
       const group = this.modelSelectEl.createEl("optgroup", {

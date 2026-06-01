@@ -148,7 +148,7 @@ export class IncuratorClient {
     }
     const catalogue: ModelCatalogue = {};
     for (const [provider, rawModels] of Object.entries(providers as Record<string, unknown>)) {
-      if (!["antigravity", "claude", "openai", "ollama"].includes(provider) || !Array.isArray(rawModels)) {
+      if (!["antigravity", "claude", "openai", "ollama", "deepseek"].includes(provider) || !Array.isArray(rawModels)) {
         continue;
       }
       catalogue[provider as keyof ModelCatalogue] = rawModels
@@ -161,8 +161,8 @@ export class IncuratorClient {
             ? rawEfforts.filter((e): e is string => typeof e === "string")
             : [];
           return {
-            id: this.readString(model, ["id"]),
-            label: this.readString(model, ["label"]),
+            id,
+            label: this.readString(model, ["label"]) || id,
             supportsVision: this.readBoolean(model, ["supports_vision", "supportsVision"]) !== false,
 
             contextWindow: this.readNumber(model, ["context_window", "contextWindow"]),
@@ -499,7 +499,7 @@ export class IncuratorClient {
     const l4 = this.readString(record, ["l4_status"]) === "done";
     const pendingJobs = this.readArray(record.jobs_pending);
     if (state === "unknown" || state === "queued" || state === "indexed") {
-      if (l4 || state === "curated") state = "curated";
+      if (l4) state = "curated";
       else if (l3) state = "indexed";
       else if (l2) state = "l2_ready";
       else if (l1 && pendingJobs.length > 0) state = "queued";

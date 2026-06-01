@@ -10,7 +10,7 @@ import {
 import { homedir } from "os";
 import { join } from "path";
 import { promisify, TextDecoder } from "util";
-import type { CLICredential, CLIAuthResolver } from "../auth/cliAuth";
+import { buildGuiCliSearchPaths, type CLICredential, type CLIAuthResolver } from "../auth/cliAuth";
 import type {
   LLMProvider,
   PluginSettings,
@@ -280,6 +280,12 @@ class OpenAIAdapter extends BaseProviderAdapter {
   }
 }
 
+class DeepSeekAdapter extends OpenAIAdapter {
+  buildUrl(): string {
+    return "https://api.deepseek.com/chat/completions";
+  }
+}
+
 // ─── Ollama Adapter (OpenAI-compatible /v1/chat/completions) ────
 
 class OllamaAdapter extends BaseProviderAdapter {
@@ -333,7 +339,31 @@ const ADAPTERS: Record<LLMProvider, ProviderAdapter> = {
   claude: new ClaudeAdapter(),
   openai: new OpenAIAdapter(),
   ollama: new OllamaAdapter("http://localhost:11434"), // host updated at runtime
+  deepseek: new DeepSeekAdapter(),
 };
+
+export function isQuotaErrorMessage(message: string): boolean {
+  const value = message.toLowerCase();
+  return (
+    value.includes("429") ||
+    value.includes("quota") ||
+    value.includes("capacity") ||
+    value.includes("resource_exhausted") ||
+    value.includes("rate limit") ||
+    value.includes("rate_limit") ||
+    value.includes("insufficient balance") ||
+    value.includes("insufficient_quota")
+  );
+}
+
+export function formatQuotaErrorMessage(provider: LLMProvider, message: string): string {
+  const label = provider === "openai" ? "Codex/OpenAI" : provider;
+  return (
+    `${label} quota or capacity is currently unavailable.\n\n` +
+    `${message.slice(0, 700)}\n\n` +
+    "Switch provider/model, configure a fallback, or retry after quota resets."
+  );
+}
 
 const execFileAsync = promisify(execFile);
 const CLI_TIMEOUT_MS = 5 * 60 * 1000;
@@ -341,19 +371,7 @@ const CLI_TIMEOUT_MS = 5 * 60 * 1000;
 export class LLMClient {
   private getAugmentedEnv(extraEnv?: Record<string, string | undefined>): NodeJS.ProcessEnv {
     const home = process.env.HOME || process.env.USERPROFILE || "";
-    const customPaths = [
-      "/usr/local/bin",
-      "/opt/homebrew/bin",
-      "/bin",
-      "/usr/bin",
-      "/usr/sbin",
-      "/sbin",
-      home ? `${home}/.gemini/bin` : "",
-      home ? `${home}/.cargo/bin` : "",
-      home ? `${home}/.npm-global/bin` : "",
-      home ? `${home}/.local/bin` : "",
-      home ? `${home}/.nvm/versions/node/current/bin` : ""
-    ].filter(Boolean).join(":");
+    const customPaths = buildGuiCliSearchPaths(home).join(":");
 
     const currentPath = process.env.PATH || "";
     const newPath = currentPath ? `${customPaths}:${currentPath}` : customPaths;
@@ -507,6 +525,8 @@ export class LLMClient {
     const adapter = ADAPTERS[provider];
     const credential = provider === "ollama"
       ? { type: "bearer" as const, token: "" }
+      : provider === "deepseek"
+        ? { type: "bearer" as const, token: this.settings.deepseekApiKey || process.env.DEEPSEEK_API_KEY || "" }
       : await this.auth.resolveCredential(provider);
 
     const url = adapter.buildUrl(this.settings.model);
@@ -543,6 +563,10 @@ export class LLMClient {
         if (response.status === 401 || response.status === 403) {
           if (provider === "ollama") {
             throw new Error(`Ollama returned auth error ${response.status} — check your Ollama server config.`);
+          }
+          if (provider === "deepseek") {
+            this.auth.invalidate(provider);
+            throw new Error(`DeepSeek API authentication failed (${response.status}). Check DEEPSEEK_API_KEY.`);
           }
           this.auth.invalidate(provider);
           new Notice(`${provider} HTTP auth failed. Retrying through the provider CLI login session.`);
@@ -596,6 +620,10 @@ export class LLMClient {
         onChunk({ text: "", done: true });
         return fullText;
       }
+      const msg = err instanceof Error ? err.message : String(err);
+      if (isQuotaErrorMessage(msg)) {
+        throw new Error(formatQuotaErrorMessage(provider, msg));
+      }
       throw err;
     } finally {
       this.abortController = null;
@@ -638,7 +666,9 @@ export class LLMClient {
     }
 
     const adapter = ADAPTERS[provider];
-    const credential = await this.auth.resolveCredential(provider);
+    const credential = provider === "deepseek"
+      ? { type: "bearer" as const, token: this.settings.deepseekApiKey || process.env.DEEPSEEK_API_KEY || "" }
+      : await this.auth.resolveCredential(provider);
 
     let url = adapter.buildUrl(this.settings.model);
     const headers = adapter.buildHeaders(credential);
@@ -663,17 +693,24 @@ export class LLMClient {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("401") || msg.includes("403")) {
+        if (provider === "deepseek") {
+          this.auth.invalidate(provider);
+          throw new Error("DeepSeek API authentication failed. Check DEEPSEEK_API_KEY.");
+        }
         this.auth.invalidate(provider);
         new Notice(`${provider} HTTP auth failed. Retrying through the provider CLI login session.`);
         return this.completeViaCli(messages);
+      }
+      if (isQuotaErrorMessage(msg)) {
+        throw new Error(formatQuotaErrorMessage(provider, msg));
       }
       throw new Error(`LLM request failed: ${msg}`);
     }
   }
 
   private shouldUseCli(_messages: LLMMessage[]): boolean {
-    // Ollama is localhost HTTP — use the fetch streaming path directly.
-    if (this.settings.provider === "ollama") return false;
+    // Ollama and DeepSeek are direct HTTP providers.
+    if (this.settings.provider === "ollama" || this.settings.provider === "deepseek") return false;
     // All other providers route through their respective CLIs.
     return true;
   }

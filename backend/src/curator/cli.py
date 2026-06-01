@@ -19,6 +19,7 @@ from . import constants as consts
 
 import json
 import hashlib
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -883,6 +884,10 @@ def _build_cloud_models() -> dict[str, list[dict]]:
             "cfg_key": "model",
             "backend": consts.BACKEND_CODEX_CLI,
         },
+        consts.CLOUD_DEEPSEEK: {
+            "cfg_key": "model",
+            "backend": consts.BACKEND_DEEPSEEK_API,
+        },
     }
 
     data = load_models_catalogue()
@@ -923,7 +928,7 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = F
 
     models = _CLOUD_MODELS.get(cloud_provider)
     if not models:
-        _err(f"Unknown cloud provider '{cloud_provider}'. Use: antigravity-cli, claude-code, codex-cli.")
+        _err(f"Unknown cloud provider '{cloud_provider}'. Use: antigravity-cli, claude-code, codex-cli, deepseek-api.")
         return
 
     # Determine currently active model tags from primary/fallback values
@@ -1126,6 +1131,7 @@ def _print_backend_menu(exclude: str | None = None) -> None:
                             f"{'[green]installed[/green]' if _agy_ok else '[yellow]not installed[/yellow]'})"),
         (consts.BACKEND_CODEX_CLI,     f"Codex CLI         (OpenAI — "
                           f"{'[green]installed[/green]' if _codex_ok else '[yellow]not installed[/yellow]'})"),
+        (consts.BACKEND_DEEPSEEK_API,  "DeepSeek API      (API key — DEEPSEEK_API_KEY)"),
     ]:
         if key == exclude:
             continue
@@ -1137,7 +1143,17 @@ def _print_backend_menu(exclude: str | None = None) -> None:
 def _pick_backend_menu(exclude: str | None = None, prompt: str = "Choice") -> str:
     """Show backend menu and return the chosen backend key."""
     _print_backend_menu(exclude)
-    keys = [k for k in (consts.BACKEND_OLLAMA, consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI) if k != exclude]
+    keys = [
+        k
+        for k in (
+            consts.BACKEND_OLLAMA,
+            consts.BACKEND_CLAUDE_CODE,
+            consts.BACKEND_ANTIGRAVITY_CLI,
+            consts.BACKEND_CODEX_CLI,
+            consts.BACKEND_DEEPSEEK_API,
+        )
+        if k != exclude
+    ]
     valid: dict[str, str] = {}
     for i, k in enumerate(keys, 1):
         valid[str(i)] = k
@@ -1303,6 +1319,24 @@ def _configure_backend(
         else:
             _hint(f"Once Ollama is running: [bold]ollama pull {model}[/bold]")
 
+
+    elif backend == consts.BACKEND_DEEPSEEK_API:
+        deepseek_cfg = overrides.setdefault(consts.BACKEND_DEEPSEEK_API, {})
+        base_url = typer.prompt("DeepSeek base URL", default="https://api.deepseek.com").strip()
+        api_key_env = typer.prompt("DeepSeek API key env var", default="DEEPSEEK_API_KEY").strip()
+        deepseek_cfg["base_url"] = base_url or "https://api.deepseek.com"
+        deepseek_cfg["api_key_env"] = api_key_env or "DEEPSEEK_API_KEY"
+        if not os.environ.get(deepseek_cfg["api_key_env"]):
+            _hint(
+                f"Set [bold]{deepseek_cfg['api_key_env']}[/bold] before running LLM tasks, "
+                "or store a key with `wiki config set llm.deepseek-api.api_key <key>`."
+            )
+        console.print()
+        console.print("[bold]deepseek-api Model Selection[/bold]")
+        sel_model, sel_effort = _pick_cloud_model(backend, overrides)
+        if sel_model:
+            overrides["_pending_model"] = sel_model
+            overrides["_pending_effort"] = sel_effort
 
     elif backend in (consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI):
         _CLI_INFO = {
@@ -1936,7 +1970,7 @@ def init(
     config = dict(cfg.DEFAULT_CONFIG)
     config["paths"] = {
         "raw_dirs": raw_dirs,
-        "collections_dir": cfg.DEFAULT_COLLECTIONS_DIR,
+        "collections_dir": consts.DEFAULT_COLLECTIONS_DIR,
     }
     # Cloud provider + API keys
     llm = dict(config.get("llm", {}))
@@ -1957,7 +1991,7 @@ def init(
             llm.update(wizard_overrides)
             _offer_install(wizard_overrides, llm)
         else:
-            _hint("Run [bold]wiki config provider --primary ollama|antigravity-cli|claude-code ...[/bold] to configure.")
+            _hint("Run [bold]wiki config provider --primary ollama|antigravity-cli|claude-code|codex-cli|deepseek-api ...[/bold] to configure.")
 
     if "provider" in llm:
         del llm["provider"]
@@ -2191,7 +2225,7 @@ def config_provider(
     primary: str = typer.Option(
         "",
         "--primary", "-p",
-        help="Primary backend: ollama | claude-code | antigravity-cli | codex-cli",
+        help="Primary backend: ollama | claude-code | antigravity-cli | codex-cli | deepseek-api",
     ),
     model: str = typer.Option(
         "",
@@ -2208,6 +2242,21 @@ def config_provider(
         "--host",
         help="Ollama host URL (e.g. http://localhost:11434).",
     ),
+    api_key_env: str = typer.Option(
+        "",
+        "--api-key-env",
+        help="Environment variable that holds the API key for API-key providers (DeepSeek default: DEEPSEEK_API_KEY).",
+    ),
+    api_key: str = typer.Option(
+        "",
+        "--api-key",
+        help="API key for API-key providers. Prefer --api-key-env for shared machines.",
+    ),
+    base_url: str = typer.Option(
+        "",
+        "--base-url",
+        help="Base URL for API-key providers (DeepSeek default: https://api.deepseek.com).",
+    ),
 ) -> None:
     """Reconfigure the LLM provider for the current project.
 
@@ -2216,6 +2265,8 @@ def config_provider(
     \b
       wiki config provider --primary ollama --model qwen2.5:7b
       wiki config provider --primary codex-cli --model gpt-5.5 --effort high
+      wiki config provider --primary deepseek-api --model deepseek-v4-flash
+      wiki config provider --primary deepseek-api --model deepseek-v4-pro --api-key-env DEEPSEEK_API_KEY
       wiki config provider --primary antigravity-cli
       wiki config provider --primary claude-code
     """
@@ -2223,20 +2274,42 @@ def config_provider(
     current_config = cfg.load_config(paths)
     llm = dict(current_config.get("llm", {}))
 
-    any_flag = bool(primary or model or host or effort)
+    any_flag = bool(primary or model or host or effort or api_key_env or api_key or base_url)
 
     if any_flag:
         overrides = {}
-        _valid_primary = (consts.BACKEND_OLLAMA, consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI)
+        _valid_primary = (
+            consts.BACKEND_OLLAMA,
+            consts.BACKEND_CLAUDE_CODE,
+            consts.BACKEND_ANTIGRAVITY_CLI,
+            consts.BACKEND_CODEX_CLI,
+            consts.BACKEND_DEEPSEEK_API,
+        )
 
         # Resolve provider
-        provider = primary or consts.BACKEND_OLLAMA
+        provider = primary or (
+            consts.BACKEND_DEEPSEEK_API
+            if (api_key_env or api_key or base_url)
+            else consts.BACKEND_OLLAMA
+        )
         if provider not in _valid_primary:
             _warn(f"Unknown --primary '{provider}'. Use: {' | '.join(_valid_primary)}")
             raise typer.Exit(code=1)
 
         if host:
             llm.setdefault(consts.BACKEND_OLLAMA, {})["host"] = host
+        if provider == consts.BACKEND_DEEPSEEK_API:
+            deepseek_cfg = llm.setdefault(consts.BACKEND_DEEPSEEK_API, {})
+            if api_key_env:
+                deepseek_cfg["api_key_env"] = api_key_env
+            elif "api_key_env" not in deepseek_cfg:
+                deepseek_cfg["api_key_env"] = "DEEPSEEK_API_KEY"
+            if api_key:
+                deepseek_cfg["api_key"] = api_key
+            if base_url:
+                deepseek_cfg["base_url"] = base_url
+            elif "base_url" not in deepseek_cfg:
+                deepseek_cfg["base_url"] = "https://api.deepseek.com"
 
         # Effort is set by the --effort flag, or chosen interactively below.
         primary_effort = effort
@@ -2246,7 +2319,7 @@ def config_provider(
             llm["primary"] = cfg.join_provider_model(provider, model)
         else:
             # Offer interactive model selection for cloud backends
-            if provider in (consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI):
+            if provider in (consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI, consts.BACKEND_DEEPSEEK_API):
                 console.print()
                 console.print(f"[bold]{provider} Model Selection[/bold]")
                 sel_model, sel_effort = _pick_cloud_model(provider, llm)
@@ -4767,7 +4840,12 @@ def models_list(
     active_only = not show_all
     any_found = False
 
-    _CLOUD_BACKENDS = (consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI)
+    _CLOUD_BACKENDS = (
+        consts.BACKEND_CLAUDE_CODE,
+        consts.BACKEND_ANTIGRAVITY_CLI,
+        consts.BACKEND_CODEX_CLI,
+        consts.BACKEND_DEEPSEEK_API,
+    )
 
     # 1. Show Primary Backend models
     if primary in _CLOUD_BACKENDS:
@@ -4832,7 +4910,12 @@ def models_use(
     if primary and primary != consts.BACKEND_OLLAMA:
         if host:
             console.print("[dim]--host is an Ollama-only option. Ignoring.[/dim]")
-        if primary not in (consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CODEX_CLI):
+        if primary not in (
+            consts.BACKEND_CLAUDE_CODE,
+            consts.BACKEND_ANTIGRAVITY_CLI,
+            consts.BACKEND_CODEX_CLI,
+            consts.BACKEND_DEEPSEEK_API,
+        ):
             _err(f"Unknown primary '{primary}'.")
             raise typer.Exit(code=1)
 

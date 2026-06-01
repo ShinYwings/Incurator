@@ -40,12 +40,13 @@ Stored in `data.json` (Obsidian plugin storage). All fields required unless mark
 ```typescript
 interface PluginSettings {
   // LLM provider selection
-  provider: LLMProvider;           // "antigravity" | "claude" | "openai"
+  provider: LLMProvider;           // "antigravity" | "claude" | "openai" | "ollama" | "deepseek"
   model: string;                   // model ID, validated against backend catalogue
   chatMode: ChatMode;              // "chat" | "plan"
   codexReasoningEffort: CodexReasoningEffort;  // "low"|"medium"|"high"|"xhigh"
   claudeEffort: ClaudeEffort;      // "low"|"medium"|"high"|"xhigh"|"max"
   antigravityPrintTimeoutSec: number;
+  deepseekApiKey: string;          // device-local optional key; empty = use DEEPSEEK_API_KEY
 
   // Usage tracking (device-local)
   providerUsage: Record<LLMProvider, ProviderUsage>;
@@ -91,6 +92,9 @@ Rules:
 
 - `provider` and `model` must be consistent. If the backend catalogue changes a model ID,
   the plugin should fall back to the provider default rather than breaking settings.
+- `deepseekApiKey` is device-local secret material. It must not be written into
+  shared vault config; backend config may instead reference `DEEPSEEK_API_KEY`
+  through `llm.deepseek-api.api_key_env`.
 - `providerUsage` is device-local and must not sync across Obsidian Sync.
 - The chat sidebar footer may expose provider/model as one compact selector.
   Selecting a model from another provider must update both `provider` and `model`.
@@ -213,6 +217,11 @@ interface ModelOption {
 ```
 
 The plugin UI must use `supportsThinking` and the backend's `efforts` array to render appropriate configuration controls (e.g., hiding reasoning sliders for standard models). There are no fictional "tiers" transmitted from the backend.
+
+DeepSeek appears in the catalogue under plugin provider key `deepseek` and maps
+to backend key `deepseek-api`. The plugin must call the API directly with a
+Bearer key from `deepseekApiKey` or `DEEPSEEK_API_KEY`; it must not attempt a
+CLI/OAuth login flow for DeepSeek.
 
 ## 4. Source Status Schema
 

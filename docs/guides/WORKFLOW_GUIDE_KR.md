@@ -192,7 +192,7 @@ wiki jobs run          # queued L2/L3 background jobs를 foreground로 처리
 
 ```text
 Obsidian 플러그인 단독 사용:
-  사용자 채팅 → LLM 직접 호출 (Antigravity/Claude/OpenAI)
+  사용자 채팅 → LLM 직접 호출 (Antigravity/Claude/OpenAI/DeepSeek/Ollama)
 
 Curator 백엔드 연동 사용:
   사용자 채팅 → 플러그인이 MCP 도구 호출 → Curator가 Exhibition 검색

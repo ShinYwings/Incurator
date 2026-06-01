@@ -193,7 +193,11 @@ export default class ObsidianAIAgent extends Plugin {
 
                     const existing = this.app.vault.getAbstractFileByPath(destPath);
                     if (!existing) {
-                      await this.app.vault.createBinary(destPath, imgBuffer);
+                      const data = imgBuffer.buffer.slice(
+                        imgBuffer.byteOffset,
+                        imgBuffer.byteOffset + imgBuffer.byteLength
+                      ) as ArrayBuffer;
+                      await this.app.vault.createBinary(destPath, data);
                     }
                     ann.imageRelativePath = destPath;
                   } catch (e) {
@@ -388,6 +392,14 @@ export default class ObsidianAIAgent extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: "login-deepseek",
+      name: "Check DeepSeek API Key",
+      callback: () => {
+        this.startProviderLogin("deepseek");
+      },
+    });
+
     // Send selection to chat
     this.addCommand({
       id: "send-selection-to-chat",
@@ -506,6 +518,27 @@ export default class ObsidianAIAgent extends Plugin {
     // Intercepts zotero://open-pdf and zotero://select clicks globally (including Live Preview).
     // Opens the resolved PDF in the built-in ExternalPdfView instead of launching Zotero.
 
+    const originalWindowOpen = window.open;
+    const externalOpeners: Array<(url: string) => Promise<void>> = [];
+    try {
+      const electron = require("electron");
+      if (electron?.shell?.openExternal) {
+        externalOpeners.push(electron.shell.openExternal.bind(electron.shell));
+      }
+    } catch { /* noop */ }
+    try {
+      const remote = require("@electron/remote");
+      if (remote?.shell?.openExternal) {
+        externalOpeners.push(remote.shell.openExternal.bind(remote.shell));
+      }
+    } catch { /* noop */ }
+
+    const openZoteroExternally = async (url: string): Promise<void> => {
+      const opener = externalOpeners[0];
+      if (opener) return opener(url);
+      originalWindowOpen.call(window, url, "_blank");
+    };
+
     // Shared handler: resolve a zotero:// URL and open in ExternalPdfView
     const handleZoteroUrl = async (url: string): Promise<boolean> => {
       const zoteroInfo = parseZoteroLink(url);
@@ -556,7 +589,9 @@ export default class ObsidianAIAgent extends Plugin {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        handleZoteroUrl(link.href);
+        void handleZoteroUrl(link.href).then((handled) => {
+          if (!handled) void openZoteroExternally(link.href);
+        });
       }
     };
     this.registerDomEvent(document, 'click', interceptZoteroClick, { capture: true });
@@ -564,14 +599,15 @@ export default class ObsidianAIAgent extends Plugin {
 
     // On macOS, Obsidian/Electron may send zotero:// directly to the OS via
     // electron.shell.openExternal instead of window.open. Patch both.
-    const originalWindowOpen = window.open;
     this.register(() => {
       window.open = originalWindowOpen;
     });
 
     window.open = (url?: string | URL, target?: string, features?: string) => {
       if (typeof url === "string" && parseZoteroLink(url)) {
-        handleZoteroUrl(url);
+        void handleZoteroUrl(url).then((handled) => {
+          if (!handled) void openZoteroExternally(url);
+        });
         return null;
       }
       return originalWindowOpen.call(window, url, target, features);
@@ -1425,4 +1461,3 @@ export default class ObsidianAIAgent extends Plugin {
     }, 1000);
   }
 }
-

@@ -21,6 +21,7 @@ const BASE_INSTRUCTIONS =
   "When writing math, use Obsidian-compatible LaTeX delimiters: inline math as $...$ and display math as $$...$$. " +
   "Do not use \\(...\\) or \\[...\\] math delimiters. " +
   "Wrap every mathematical expression containing ^, _, \\infty, matrices, homographies, or quadrics in math delimiters. " +
+  "Do not suggest note edits, Obsidian Agent settings, or workspace configuration changes unless the user asks for edits/configuration or the current task cannot be answered without them. " +
   "When the user asks you to modify Markdown notes, do not directly edit files or use write/edit tools. " +
   "Instead, explain the intended changes briefly and output one or more `ai-agent-edit` blocks. " +
   "Each block MUST target a single file and use SEARCH/REPLACE blocks. The SEARCH text must EXACTLY match the existing lines in the file. Format:\n" +
@@ -34,11 +35,11 @@ const BASE_INSTRUCTIONS =
   "You can output multiple `ai-agent-edit` blocks in a single response to edit multiple files or multiple locations in a file.";
 
 const INCURATOR_MCP_ADDENDUM =
-  "\n\nCRITICAL: The user has the 'incurator' MCP server enabled. You MUST act exactly like the external workspace agent. " +
-  "1. ALWAYS start by calling `curator_check_workspace` (passing the active workspace path provided in <incurator_workspace> if available) to initialize the session and read the `curate.yml` rules. " +
-  "2. To answer user questions about the domain, you MUST use `curator_query`. This tool synthesizes an answer and automatically generates an ephemeral Exhibition per chat session, which is required. " +
+  "\n\nThe user has the 'incurator' MCP server enabled. Use it when the user asks about the knowledge base, workspace, source provenance, build/sync state, or a domain question that needs vault RAG. " +
+  "1. For Incurator/workspace tasks, start by calling `curator_check_workspace` (passing the active workspace path provided in <incurator_workspace> if available) to initialize the session and read the `curate.yml` rules. " +
+  "2. For knowledge-base/domain questions that need synthesis, use `curator_query`. This tool synthesizes an answer and may generate an ephemeral Exhibition per chat session. " +
   "3. Use `search_curator` ONLY if you need raw search hits without LLM synthesis. " +
-  "4. Synthesize your final answers based on the returned knowledge, explicitly referencing the generated Exhibition (e.g. 'Created Exhibition EXH-...').";
+  "4. For ordinary requests such as explaining selected text, answer directly from the visible/pinned context and do not mention Incurator setup or note-edit suggestions unless the user asks.";
 
 const PLAN_MODE_ADDENDUM =
   "\n\nPlan mode is enabled. First reason about the user's goal, then respond with a concise implementation plan. " +

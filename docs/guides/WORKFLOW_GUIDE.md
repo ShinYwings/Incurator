@@ -199,7 +199,7 @@ The plugin acts as an AI assistant inside Obsidian, optionally integrating with 
 
 ```text
 Plugin standalone:
-  User chat → Direct LLM call (Antigravity/Claude/OpenAI)
+  User chat → Direct LLM call (Antigravity/Claude/OpenAI/DeepSeek/Ollama)
 
 With Curator backend:
   User chat → Plugin calls MCP tools → Curator searches Exhibitions

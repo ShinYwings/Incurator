@@ -72,14 +72,14 @@ describe("deviceRegistry", () => {
 });
 
 describe("getLocalBackendCommand", () => {
-  it("returns cached command for local device", () => {
+  it("ignores a missing absolute cached command for local device", () => {
     const registry = {
       local_device_id: "DEV1",
       devices: {
         DEV1: { backend: { command: "/abs/path/to/wiki" } },
       },
     };
-    expect(getLocalBackendCommand(registry as any)).toBe("/abs/path/to/wiki");
+    expect(getLocalBackendCommand(registry as any)).toBeUndefined();
   });
 
   it("returns undefined when no registry", () => {

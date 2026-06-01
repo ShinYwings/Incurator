@@ -6,6 +6,7 @@ describe("buildBaseSystemPrompt", () => {
     const text = buildBaseSystemPrompt({ hasIncuratorMcp: false, planMode: false });
     expect(text).toContain("AI assistant embedded in Obsidian");
     expect(text).toContain("ai-agent-edit");
+    expect(text).toContain("Do not suggest note edits");
     expect(text).not.toContain("incurator' MCP server enabled");
     expect(text).not.toContain("Plan mode is enabled");
   });
@@ -13,7 +14,8 @@ describe("buildBaseSystemPrompt", () => {
   it("adds the incurator-MCP addendum only when enabled", () => {
     const on = buildBaseSystemPrompt({ hasIncuratorMcp: true, planMode: false });
     expect(on).toContain("incurator' MCP server enabled");
-    expect(on).toContain("@codebase feature in Cursor");
+    expect(on).toContain("ordinary requests such as explaining selected text");
+    expect(on).not.toContain("ALWAYS start");
   });
 
   it("adds the plan-mode addendum only when in plan mode", () => {

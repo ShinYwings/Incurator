@@ -871,6 +871,10 @@ class CodexCliError(LLMError):
     pass
 
 
+class DeepSeekApiError(LLMError):
+    pass
+
+
 class CodexCliClient:
     """LLM client backed by the OpenAI Codex CLI (`codex exec`)."""
 
@@ -1002,13 +1006,158 @@ class CodexCliClient:
         return (0, 0)
 
 
+class DeepSeekApiClient:
+    """OpenAI-compatible DeepSeek API client using DEEPSEEK_API_KEY."""
+
+    def __init__(
+        self,
+        model: str = consts.DEFAULT_DEEPSEEK_MODEL,
+        *,
+        base_url: str = "https://api.deepseek.com",
+        api_key: str = "",
+        api_key_env: str = "DEEPSEEK_API_KEY",
+        timeout: float = consts.DEFAULT_TIMEOUT,
+        effort: str = "",
+    ) -> None:
+        self.model = model or consts.DEFAULT_DEEPSEEK_MODEL
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key or os.environ.get(api_key_env, "")
+        self.api_key_env = api_key_env
+        self.timeout = timeout
+        self.effort = effort
+        self._client = httpx.Client(timeout=timeout)
+        self._job_input_tokens = 0
+        self._job_output_tokens = 0
+
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self) -> "DeepSeekApiClient":
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.close()
+
+    def clone(self) -> "DeepSeekApiClient":
+        return DeepSeekApiClient(
+            model=self.model,
+            base_url=self.base_url,
+            api_key=self.api_key,
+            api_key_env=self.api_key_env,
+            timeout=self.timeout,
+            effort=self.effort,
+        )
+
+    @property
+    def optimal_chunk_chars(self) -> int:
+        return 50000
+
+    def _headers(self) -> dict[str, str]:
+        if not self.api_key:
+            raise DeepSeekApiError(
+                f"DeepSeek API key is not configured. Set {self.api_key_env} or llm.deepseek-api.api_key."
+            )
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def _body(
+        self,
+        messages: list[ChatMessage],
+        *,
+        json_mode: bool,
+        temperature: float,
+        stream: bool,
+    ) -> dict:
+        body: dict[str, object] = {
+            "model": self.model,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "temperature": temperature,
+            "stream": stream,
+        }
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+        if self.effort:
+            body["reasoning_effort"] = self.effort
+            body["thinking"] = {"type": "enabled"}
+        return body
+
+    def chat(
+        self,
+        messages: list[ChatMessage],
+        *,
+        json_mode: bool = False,
+        temperature: float = 0.3,
+    ) -> str:
+        try:
+            response = self._client.post(
+                f"{self.base_url}/chat/completions",
+                headers=self._headers(),
+                json=self._body(messages, json_mode=json_mode, temperature=temperature, stream=False),
+            )
+        except httpx.HTTPError as exc:
+            raise DeepSeekApiError(f"DeepSeek API request failed: {exc}") from exc
+
+        text = response.text
+        if response.status_code >= 400:
+            if response.status_code == 429 or _is_capacity_error(text):
+                raise DeepSeekApiError(
+                    f"DeepSeek quota or capacity exhausted ({response.status_code}): {text[:400]}"
+                )
+            raise DeepSeekApiError(f"DeepSeek API error {response.status_code}: {text[:400]}")
+
+        try:
+            data = response.json()
+        except json.JSONDecodeError as exc:
+            raise DeepSeekApiError(f"DeepSeek API returned malformed JSON: {text[:400]}") from exc
+
+        usage = data.get("usage") if isinstance(data, dict) else None
+        if isinstance(usage, dict):
+            self._job_input_tokens += int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+            self._job_output_tokens += int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "") if isinstance(data, dict) else ""
+        if not isinstance(content, str) or not content.strip():
+            raise DeepSeekApiError("DeepSeek API returned an empty response.")
+        return content.strip()
+
+    def chat_stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        temperature: float = 0.3,
+    ) -> Generator[str, None, str]:
+        result = self.chat(messages, temperature=temperature)
+        yield result
+        return result
+
+    def ensure_ready(self) -> None:
+        if not self.api_key:
+            raise DeepSeekApiError(
+                f"DeepSeek API key is not configured. Set {self.api_key_env} or llm.deepseek-api.api_key."
+            )
+
+    def ping(self) -> bool:
+        try:
+            self.ensure_ready()
+            return True
+        except DeepSeekApiError:
+            return False
+
+    def get_and_reset_token_usage(self) -> tuple[int, int]:
+        usage = (self._job_input_tokens, self._job_output_tokens)
+        self._job_input_tokens = 0
+        self._job_output_tokens = 0
+        return usage
+
+
 # ---------------------------------------------------------------------------
 # FailoverClient — ordered provider chain with background probe
 # ---------------------------------------------------------------------------
 
 
 _FAILOVER_ERRORS = (OllamaNotRunning, ModelNotFound, OSError)
-_CLI_PRIMARY_FAILOVER_ERRORS = _FAILOVER_ERRORS + (ClaudeCodeError, AntigravityCliError)
+_CLI_PRIMARY_FAILOVER_ERRORS = _FAILOVER_ERRORS + (ClaudeCodeError, AntigravityCliError, DeepSeekApiError)
 
 
 class FailoverClient:
@@ -1258,6 +1407,18 @@ def _make_codex_cli(cfg: dict) -> CodexCliClient:
     return CodexCliClient(model=model, effort=cfg.get("effort", ""))
 
 
+def _make_deepseek_api(cfg: dict) -> DeepSeekApiClient:
+    model = cfg.get("model") or consts.DEFAULT_DEEPSEEK_MODEL
+    return DeepSeekApiClient(
+        model=model,
+        base_url=cfg.get("base_url", "https://api.deepseek.com"),
+        api_key=cfg.get("api_key", ""),
+        api_key_env=cfg.get("api_key_env", "DEEPSEEK_API_KEY"),
+        timeout=float(cfg.get("timeout", consts.DEFAULT_TIMEOUT)),
+        effort=cfg.get("effort", ""),
+    )
+
+
 def _make_ollama(cfg: dict) -> OllamaClient:
     return OllamaClient(
         host=cfg.get("host", consts.DEFAULT_OLLAMA_HOST),
@@ -1275,6 +1436,8 @@ def _make_by_key(key: str, backend_cfg: dict):
         return _make_antigravity_cli(backend_cfg)
     if key == consts.BACKEND_CODEX_CLI:
         return _make_codex_cli(backend_cfg)
+    if key == consts.BACKEND_DEEPSEEK_API:
+        return _make_deepseek_api(backend_cfg)
     return None
 
 
@@ -1288,15 +1451,26 @@ def make_client_by_key(key: str, config: dict):
         if p == key:
             if key == consts.BACKEND_OLLAMA:
                 return _make_by_key(key, {**llm_cfg.get(consts.BACKEND_OLLAMA, {}), "model": m})
+            if key == consts.BACKEND_DEEPSEEK_API:
+                return _make_by_key(
+                    key,
+                    {
+                        **llm_cfg.get(consts.BACKEND_DEEPSEEK_API, {}),
+                        "model": m,
+                        "effort": llm_cfg.get(f"{slot}_effort", ""),
+                    },
+                )
             return _make_by_key(key, {"model": m, "effort": llm_cfg.get(f"{slot}_effort", "")})
     if key == consts.BACKEND_OLLAMA:
         return _make_by_key(key, llm_cfg.get(consts.BACKEND_OLLAMA, {}))
+    if key == consts.BACKEND_DEEPSEEK_API:
+        return _make_by_key(key, llm_cfg.get(consts.BACKEND_DEEPSEEK_API, {}))
     return _make_by_key(key, {})
 
 
 def build_client(
     config: dict,
-) -> "OllamaClient | ClaudeCodeClient | AntigravityCliClient | CodexCliClient | FailoverClient":
+) -> "OllamaClient | ClaudeCodeClient | AntigravityCliClient | CodexCliClient | DeepSeekApiClient | FailoverClient":
     """Return the appropriate LLM client based on config.
 
     Decision logic (in priority order):
@@ -1304,6 +1478,7 @@ def build_client(
       primary='claude-code'     → Claude CLI; fallback from config or Ollama
       primary='antigravity-cli' → Antigravity CLI; fallback from config or Ollama
       primary='codex-cli'       → Codex CLI; fallback from config or Ollama
+      primary='deepseek-api'    → DeepSeek API; fallback from config or Ollama
 
     """
     from .config import split_provider_model
@@ -1318,6 +1493,12 @@ def build_client(
 
     if primary == consts.BACKEND_OLLAMA:
         primary_cfg = {**ollama_base, "model": primary_model}
+    elif primary == consts.BACKEND_DEEPSEEK_API:
+        primary_cfg = {
+            **llm_cfg.get(consts.BACKEND_DEEPSEEK_API, {}),
+            "model": primary_model,
+            "effort": primary_effort,
+        }
     else:
         primary_cfg = {"model": primary_model, "effort": primary_effort}
 
@@ -1326,6 +1507,7 @@ def build_client(
         consts.BACKEND_CLAUDE_CODE:     _CLI_PRIMARY_FAILOVER_ERRORS,
         consts.BACKEND_ANTIGRAVITY_CLI: _CLI_PRIMARY_FAILOVER_ERRORS,
         consts.BACKEND_CODEX_CLI:       _CLI_PRIMARY_FAILOVER_ERRORS,
+        consts.BACKEND_DEEPSEEK_API:    _CLI_PRIMARY_FAILOVER_ERRORS,
     }
 
     if primary in _PRIMARY_ERRORS:
@@ -1335,6 +1517,12 @@ def build_client(
         if fallback and fallback != primary:
             if fallback == consts.BACKEND_OLLAMA:
                 fallback_cfg = {**ollama_base, "model": fallback_model}
+            elif fallback == consts.BACKEND_DEEPSEEK_API:
+                fallback_cfg = {
+                    **llm_cfg.get(consts.BACKEND_DEEPSEEK_API, {}),
+                    "model": fallback_model,
+                    "effort": fallback_effort,
+                }
             else:
                 fallback_cfg = {"model": fallback_model, "effort": fallback_effort}
             f_client = _make_by_key(fallback, fallback_cfg)

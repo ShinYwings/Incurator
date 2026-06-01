@@ -205,6 +205,11 @@ DEFAULT_CONFIG: dict = {
             "host":    consts.DEFAULT_OLLAMA_HOST,
             "timeout": consts.DEFAULT_TIMEOUT,
         },
+        consts.BACKEND_DEEPSEEK_API: {
+            "base_url": "https://api.deepseek.com",
+            "api_key_env": "DEEPSEEK_API_KEY",
+            "timeout": consts.DEFAULT_TIMEOUT,
+        },
     },
     "search": {
         "backend": "qmd",

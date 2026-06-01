@@ -24,7 +24,7 @@ export interface LastMarkdownScrollPosition extends FileScrollPosition {
 }
 
 // ─── LLM Provider ───────────────────────────────────────────────
-export type LLMProvider = "antigravity" | "claude" | "openai" | "ollama";
+export type LLMProvider = "antigravity" | "claude" | "openai" | "ollama" | "deepseek";
 export type ChatMode = "chat" | "plan";
 export type CodexReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type ClaudeEffort = "low" | "medium" | "high" | "xhigh" | "max";
@@ -87,6 +87,7 @@ export interface PluginSettings {
   streamingEnabled: boolean;
   mcpServers: MCPServerConfig[];
   maxContextLength: number;
+  deepseekApiKey: string;
   ollamaHost: string;
   pdfCaptureMode: "text" | "image" | "both";
   pdfWindowRadius: number;
@@ -149,7 +150,15 @@ export const DEFAULT_SETTINGS: PluginSettings = {
       outputTokens: 0,
       reasoningOutputTokens: 0,
     },
+    deepseek: {
+      requests: 0,
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      reasoningOutputTokens: 0,
+    },
   },
+  deepseekApiKey: "",
   ollamaHost: "http://localhost:11434",
   diffMode: "inline",
   streamingEnabled: true,
@@ -222,6 +231,7 @@ export interface ContextRef {
   lineStart?: number;
   lineEnd?: number;
   pageNum?: number;
+  zoteroAttachmentKey?: string;
 }
 
 export interface ChatMessage {
@@ -296,6 +306,7 @@ export type IncuratorSourceState =
   | "unknown"
   | "untracked"
   | "l1_ready"
+  | "l2_ready"
   | "queued"
   | "running"
   | "indexed"

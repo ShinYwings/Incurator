@@ -92,6 +92,7 @@ DEFAULT_TIMEOUT = 120.0
 DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
 DEFAULT_CODEX_MODEL = "gpt-5.5"
 DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.5-flash"
+DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 
 # Default reasoning/effort levels per CLI backend. Empty = let the CLI use its
 # own default. These map to: claude `--effort`, codex `-c model_reasoning_effort`,
@@ -105,6 +106,7 @@ BACKEND_OLLAMA = "ollama"
 BACKEND_CLAUDE_CODE = "claude-code"
 BACKEND_ANTIGRAVITY_CLI = "antigravity-cli"
 BACKEND_CODEX_CLI = "codex-cli"
+BACKEND_DEEPSEEK_API = "deepseek-api"
 BACKEND_CLOUD = "cloud"
 
 # Cloud Providers
@@ -112,6 +114,7 @@ BACKEND_CLOUD = "cloud"
 CLOUD_CLAUDE = "claude"
 CLOUD_OPENAI = "openai"
 CLOUD_ANTIGRAVITY = "antigravity"
+CLOUD_DEEPSEEK = "deepseek"
 
 # Workspace Scenarios
 SCENARIO_EMPTY = "empty"
