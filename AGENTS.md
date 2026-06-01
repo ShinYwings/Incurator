@@ -134,13 +134,15 @@ When editing existing files (especially specs, plans, and research notes):
 - If no doc exists for the changed behavior, create one (or add a section to the closest guide in `docs/guides/`).
 - Implementation and docs must always be in sync. A PR that changes code without updating docs is not done.
 - This applies to: CLI commands, MCP tools, plugin features, config fields, env vars, and workflow behaviors.
+- For paired English/Korean guides, edit the English guide first as the source text, then update the matching `_KR.md` guide as a faithful translation. Do not use the Korean guide as the canonical source for new behavior.
+- If a `_KR.md` guide changes, the matching English guide must change in the same commit unless the edit is Korean-only wording with no behavioral meaning.
 
 Concrete examples:
 
-- Adding a new MCP tool → add it to `docs/guides/MCP_USER_GUIDE_KR.md` and `MCP_USER_GUIDE.md`
-- Changing how `wiki init` works → update `docs/guides/USER_GUIDE_KR.md` and `WORKFLOW_KR.md`
-- Adding a plugin setting → add it to `docs/guides/PLUGIN_GUIDE_KR.md` and `PLUGIN_GUIDE.md`
-- Changing `.stignore` behavior → update `docs/guides/SYNC_IGNORE_GUIDE_KR.md`
+- Adding a new MCP tool → update `docs/guides/MCP_USER_GUIDE.md` first, then `docs/guides/MCP_USER_GUIDE_KR.md`
+- Changing how `wiki init` works → update `docs/guides/USER_GUIDE.md` / `docs/guides/WORKFLOW_GUIDE.md` first, then their `_KR.md` counterparts
+- Adding a plugin setting → update `docs/guides/PLUGIN_GUIDE.md` first, then `docs/guides/PLUGIN_GUIDE_KR.md`
+- Changing `.stignore` behavior → update `docs/guides/SYNC_IGNORE_GUIDE.md` first, then `docs/guides/SYNC_IGNORE_GUIDE_KR.md`
 
 ### Test Requirements
 
