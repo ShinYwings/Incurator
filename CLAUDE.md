@@ -356,10 +356,16 @@ v0.2.2, or a new DAG/schema/MCP behavior change), the agent MUST first create or
 update the matching `docs/specs/` contract:
 
 - Schema changes go in `docs/specs/curator_schema/SCHEMA_vX.Y.Z.md`.
-- Runtime behavior changes go in `docs/specs/system_behavior/incurator_vX.Y.Z.md`.
+- Runtime behavior changes go in `docs/specs/system_behavior/SYSTEM_BEHAVIOR_vX.Y.Z.md`.
 - Plugin API changes go in `docs/specs/plugin_schema/PLUGIN_SCHEMA_vX.Y.Z.md`.
-- `.agents/plans/2024-05_v0.2.1_update/` may then reference those spec files as implementation
-  plans, but plans alone are not sufficient ground truth.
+
+**CRITICAL RULE - SPEC SYNCHRONIZATION:** 
+The three core spec domains (`curator_schema`, `plugin_schema`, `system_behavior`) **MUST ALWAYS** be strictly version-synchronized. 
+1. When planning or starting a task, the agent MUST first check the root of the `docs/specs/` directories to discover the *latest* active version in use across all three folders.
+2. **Archives Rule**: Old versions of specs MUST be moved to the `archives/` folder within their respective domain directory. The root of each domain directory must only contain the single, currently active version of the spec. Do NOT use files in `archives/` as current contracts; they are for historical migration context only.
+3. If one domain (e.g., `curator_schema`) has been bumped to a new version (e.g., `v0.2.2`), you MUST immediately ensure the other two domains also have matching `v0.2.2` files (by copying the previous versions, renaming them, and moving the old versions to `archives/`). Do not leave one domain at `v0.2.1` while others are at `v0.2.2`.
+4. `.agents/plans/` artifacts must explicitly reference these synchronized `vX.Y.Z` spec files.
+
 - If code has already been written before the spec exists, stop and add the
   missing spec and guide entries before continuing implementation.
 - Tests should include a lightweight guard when practical so version plans cannot
