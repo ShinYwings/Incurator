@@ -1,12 +1,12 @@
-# Incurator Plugin Schema & API Contract (v0.2.1)
+# Incurator Plugin Schema & API Contract (v0.2.2)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
-This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute schema source of truth for the plugin in the v0.2.1 line. Backend contracts live in `docs/specs/curator_schema/SCHEMA_v0.2.1.md` and `docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.2.1.md`. When there is a conflict, the system behavior spec takes precedence.
+This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute schema source of truth for the plugin in the v0.2.2 line. Backend contracts live in `docs/specs/curator_schema/SCHEMA_v0.2.2.md` and `docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.2.2.md`. When there is a conflict, the system behavior spec takes precedence.
 
-Implementation plans under `.agents/plans/2024-05_v0.2.1_update/` are transient and strictly subordinate to this spec.
+Implementation plans under `.agents/plans/` are transient and strictly subordinate to this spec.
 
-v0.2.1 extends v0.2.0. Any v0.2.0 plugin field not contradicted here remains valid.
+v0.2.2 extends v0.2.1. Any v0.2.1 plugin field not contradicted here remains valid.
 
 ## 1. Plugin Authority Boundary
 
@@ -79,6 +79,7 @@ interface PluginSettings {
   // Zotero integration
   zoteroBasePath: string;          // default "~/Zotero"
   zoteroProfiles: ZoteroImportProfile[];
+  recentZoteroItems: string[];     // LRU item keys, newest first, max 50
 
   // Scroll position persistence (optional)
   lastMarkdownScrollPosition?: LastMarkdownScrollPosition;
@@ -106,6 +107,28 @@ Rules:
 - On desktop startup, the plugin may read local Syncthing config files and
   refresh `.curator/devices.json` with the current device's launcher settings.
   This removes the need to run `wiki devices sync` for normal Obsidian use.
+- `recentZoteroItems` stores Zotero item keys only. The plugin updates it after
+  successful Zotero imports and may use it to rank search suggestions, but it
+  must not duplicate Zotero metadata in settings.
+
+### 2.1.1 Zotero Import Profiles
+
+Saved Zotero import profiles define the note template, output folder,
+subfolder, filename, asset folder, and bibliography style used by the import
+wizard. When one or more profiles exist, the wizard opens with the first saved
+profile loaded so edits made in settings are reflected without manually
+re-selecting the profile.
+
+The Zotero item search modal must request empty-query suggestions when it opens.
+Empty-query suggestions come from the backend's recent Zotero results; returned
+results may then be re-ranked by `recentZoteroItems` so recently imported items
+float to the top.
+
+Output subfolders, filenames, and asset subfolders are rendered through the
+plugin's Nunjucks `TemplateRenderer`. The renderer supports the same base item
+metadata used by note templates plus path-oriented filters such as `pathSafe`,
+`firstAuthorLast`, `authorLast`, and `joinTags`. Rendered path segments must be
+sanitized before writing files into the vault.
 
 ### 2.2 `SessionData`
 
@@ -361,7 +384,7 @@ Rules:
 ## 7. IncuratorClient API Contract
 
 `IncuratorClient` wraps MCP tool calls through `MCPManager`. It must implement
-these methods for v0.2.1:
+these methods for v0.2.2:
 
 | Method | MCP tools tried (priority order) |
 |---|---|
@@ -384,7 +407,7 @@ Rules:
 
 ## 8. Compatibility Rules
 
-- v0.2.1 plugin must accept `check_source_status` responses that lack `l2_complete`/`l3_complete`
+- v0.2.2 plugin must accept `check_source_status` responses that lack `l2_complete`/`l3_complete`
   (older backend). Treat missing fields as `false`.
 - The plugin must not maintain `MODEL_OPTIONS` as a cloud-model fallback. Use
   `get_available_models`; show current/custom model only while unavailable.
