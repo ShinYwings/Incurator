@@ -287,6 +287,7 @@ export class IncuratorDashboardModal extends Modal {
     });
     this.addActionBtn(acts, "Reset",   "trash-2",      async () => {
       if (!confirm("This will clear your local DB and L1-L4 content (keeping notes and configs). Proceed?")) return;
+      if (!confirm("WARNING: Are you absolutely sure you want to RESET the backend? This action cannot be undone.")) return;
       new Notice("Running wiki reset...");
       const r = await this.runWikiCommand(["reset", "--force"]);
       new Notice(r.ok ? `Reset complete: ${r.output?.slice(-100)}` : `Reset failed: ${r.error}`);

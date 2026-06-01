@@ -2,14 +2,44 @@ import { App, Modal, Setting, Notice, SuggestModal, AbstractInputSuggest, TFolde
 import { promises as fs } from "fs";
 import { IncuratorClient } from "../agent/incuratorClient";
 import { PluginSettings, ZoteroImportProfile } from "../types";
-import { TemplateRenderer } from "../zotero/templateRenderer";
+import { sanitizePathSegment, TemplateRenderer } from "../zotero/templateRenderer";
 
-interface ZoteroSearchResult {
+export interface ZoteroSearchResult {
   key: string;
   title: string;
   itemType: string;
   creators: { firstName: string; lastName: string }[];
   date: string;
+}
+
+export function prioritizeZoteroItems(
+  items: ZoteroSearchResult[],
+  recentKeys: string[] | undefined
+): ZoteroSearchResult[] {
+  const rank = new Map((recentKeys || []).map((key, index) => [key, index]));
+  return [...items].sort((a, b) => {
+    const aRank = rank.get(a.key);
+    const bRank = rank.get(b.key);
+    if (aRank === undefined && bRank === undefined) return 0;
+    if (aRank === undefined) return 1;
+    if (bRank === undefined) return -1;
+    return aRank - bRank;
+  });
+}
+
+export function rememberRecentZoteroItem(
+  settings: Pick<PluginSettings, "recentZoteroItems">,
+  itemKey: string,
+  limit = 50
+): void {
+  if (!itemKey) return;
+  const existing = Array.isArray(settings.recentZoteroItems)
+    ? settings.recentZoteroItems
+    : [];
+  settings.recentZoteroItems = [
+    itemKey,
+    ...existing.filter((key) => key !== itemKey),
+  ].slice(0, limit);
 }
 
 // ─── Vault path autocomplete ──────────────────────────────────────────
@@ -103,14 +133,16 @@ export class ZoteroSearchModal extends SuggestModal<ZoteroSearchResult> {
           console.error("Failed to load recent Zotero items:", e);
         }
       }
-      return this.recentCache;
+      return prioritizeZoteroItems(this.recentCache, this.settings.recentZoteroItems);
     }
     try {
       const res: any = await this.client.tryTool(["curator_search_zotero_items"], {
         query,
         custom_paths: this.settings.zoteroBasePath || "~/Zotero"
       });
-      if (res?.ok && Array.isArray(res.items)) return res.items;
+      if (res?.ok && Array.isArray(res.items)) {
+        return prioritizeZoteroItems(res.items, this.settings.recentZoteroItems);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -164,6 +196,12 @@ export class ZoteroWizardModal extends Modal {
     this.client = client;
     this.settings = settings;
     this.saveSettings = saveSettings;
+
+    const firstProfile = this.settings.zoteroProfiles?.[0];
+    if (firstProfile) {
+      this.selectedProfile = firstProfile.name;
+      this.loadProfile(firstProfile);
+    }
   }
 
   onOpen() { this.display(); }
@@ -326,14 +364,22 @@ export class ZoteroWizardModal extends Modal {
     }
   }
 
-  private expandVars(template: string, metadata: any): string {
-    return template.replace(/\{\{(\w+)\}\}/g, (_, key) =>
-      String(metadata[key] || "").replace(/[:\\/]/g, "-")
-    );
-  }
-
   private joinPath(...parts: string[]): string {
     return parts.filter(Boolean).join("/").replace(/\/+/g, "/");
+  }
+
+  private async renderPathTemplate(renderer: TemplateRenderer, template: string, metadata: any): Promise<string> {
+    const rendered = await renderer.renderString(template || "", metadata);
+    return rendered
+      .split("/")
+      .map((part) => sanitizePathSegment(part))
+      .filter(Boolean)
+      .join("/");
+  }
+
+  private async renderFilenameTemplate(renderer: TemplateRenderer, template: string, metadata: any): Promise<string> {
+    const rendered = await renderer.renderString(template || "", metadata);
+    return sanitizePathSegment(rendered);
   }
 
   async doImport() {
@@ -367,11 +413,13 @@ export class ZoteroWizardModal extends Modal {
       }
 
       const metadata = res.metadata;
+      const renderer = new TemplateRenderer(this.app);
 
-      // ── Resolve all template-variable paths ──────────────────────
-      const resolvedSubfolder = this.expandVars(this.outputSubfolder, metadata);
-      const resolvedFilename = this.expandVars(this.outputFilename || "{{title}}", metadata) || "Untitled";
-      const resolvedAssetSubfolder = this.expandVars(this.assetSubfolder, metadata);
+      // ── Resolve all Nunjucks path templates ─────────────────────
+      const resolvedSubfolder = await this.renderPathTemplate(renderer, this.outputSubfolder, metadata);
+      const resolvedFilename =
+        await this.renderFilenameTemplate(renderer, this.outputFilename || "{{title}}", metadata) || "Untitled";
+      const resolvedAssetSubfolder = await this.renderPathTemplate(renderer, this.assetSubfolder, metadata);
 
       const outputFolderFull = this.joinPath(this.outputFolder, resolvedSubfolder);
       const resolvedAssetFolder = this.joinPath(this.assetFolder, resolvedAssetSubfolder);
@@ -405,7 +453,6 @@ export class ZoteroWizardModal extends Modal {
       }
 
       // ── Render template and write note ──────────────────────────
-      const renderer = new TemplateRenderer(this.app);
       const outputPath = this.joinPath(outputFolderFull, `${resolvedFilename}.md`);
 
       let existingContent = "";
@@ -428,6 +475,9 @@ export class ZoteroWizardModal extends Modal {
       if (newFile && "stat" in newFile) {
         this.app.workspace.getLeaf(false).openFile(newFile as any);
       }
+
+      rememberRecentZoteroItem(this.settings, this.item.key);
+      await this.saveSettings(this.settings);
 
     } catch (e) {
       console.error(e);

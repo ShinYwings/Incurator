@@ -331,7 +331,15 @@ exhibition: ""
 ### 지식 검색 및 자동 업데이트 (Intent-based Curation)
 Incurator의 가장 핵심적인 작동 방식입니다. 당신은 그저 질문하거나 대화하기만 하면 됩니다.
 
-`wiki query`를 실행하거나 워크스페이스에서 에이전트와 대화(`search_curator`)하는 **그 시점**에, 시스템은 `curate.yml` 명세를 확인하고 필요한 지식이 최신이 아니라면 **즉시 파이프라인을 가동하여 최종 답변을 합성**합니다.
+시스템은 워크스페이스 또는 일반 Vault 환경에 따라 **이원화된 아키텍처(Dual Architecture)**를 사용합니다:
+- **Workspace Agent**: 워크스페이스가 지정된 경우, `curate.yml`에 정의된 **Pinned Exhibition**과 페르소나를 사용하며 임시 파일을 생성하지 않습니다.
+- **Vault Agent**: 일반 Vault 환경에서 질의하는 경우, 세션별로 **임시(Ephemeral) L4 Exhibition**을 동적으로 생성하고 글로벌 폴백 페르소나를 사용합니다.
+
+**L3 제약 조건 및 가비지 컬렉션(GC)**:
+- L4 Exhibition은 일치하는 **L3 Concept이 있을 때만 생성**됩니다. 관련 L3가 없으면 L4 생성을 건너뛰고 즉시 답변을 반환합니다.
+- Vault 세션 중에 생성된 임시 L4 Exhibition은 `ephemeral: true`로 마킹되며, 지식 베이스 오염을 방지하기 위해 24시간 후 `wiki lint`에 의해 자동 삭제(Garbage Collected)됩니다.
+
+`wiki query`를 실행하거나 에이전트와 대화(`curator_query` / `search_curator`)하는 **그 시점**에, 시스템은 필요한 지식이 최신이 아니라면 **즉시 파이프라인을 가동하여 최종 답변을 합성**합니다.
 
 > [!TIP]
 > **"그냥 쓰세요. 나머지는 시스템이 알아서 합니다."**

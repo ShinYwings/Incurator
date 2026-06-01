@@ -282,6 +282,8 @@ wiki curate 실행 → L4 Exhibition 갱신
 이후 search_curator로 검색 가능
 ```
 
+대시보드의 **Reset** 작업은 로컬 DB와 생성된 L1-L4 콘텐츠를 지우기 전에 두 번 확인합니다.
+
 ---
 
 ## 10. 동기화 주의사항
@@ -296,6 +298,8 @@ wiki curate 실행 → L4 Exhibition 갱신
 | `sessions.json` | 채팅 대화 히스토리 | 가능 |
 
 v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 읽고 세션 id 단위로 병합합니다. 따라서 Linux와 macOS에서 서로 다른 채팅 세션을 만들면 두 세션이 함께 보존됩니다. 삭제된 세션은 `deletedSessionIds` tombstone에 남아 Syncthing 지연으로 오래된 파일이 도착해도 되살아나지 않습니다. 단, 같은 세션을 양쪽에서 동시에 편집한 경우에는 더 최신 `updatedAt`을 가진 세션이 이깁니다.
+
+사이드바의 휴지통 버튼으로 채팅 세션을 삭제하면 별도 확인 없이 즉시 삭제됩니다. 삭제 기록은 `deletedSessionIds` tombstone으로 남아 동기화된 다른 기기에서 해당 세션이 되살아나지 않게 합니다.
 
 backend 실행 경로가 기기마다 다르거나 한쪽 기기에 Incurator가 설치되어 있지 않다면 `data.json`은 동기화하지 않는 편이 안전합니다. 이 경우 `.stignore`에는 `sessions.json` 대신 `data.json`을 추가합니다.
 
@@ -343,6 +347,18 @@ Zotero 데이터 디렉토리를 설정하면, 마크다운 노트에서 Zotero 
 ### Import Zotero Item
 
 `Import Zotero Item` 검색창을 비워두면 최근 수정된 Zotero 항목을 `dateModified` 최신순으로 표시합니다. 설정값에는 여러 Zotero 데이터 디렉토리를 쉼표로 입력할 수 있으며, 플러그인은 각 경로의 `zotero.sqlite`를 순서대로 확인합니다.
+
+저장된 import profile이 있으면 wizard가 열릴 때 첫 번째 profile이 자동으로 로드됩니다. 성공적으로 가져온 Zotero 항목은 로컬 `recentZoteroItems` LRU 목록에 기록되어 이후 Zotero 검색 결과에서 다른 항목보다 먼저 표시됩니다.
+
+출력 subfolder, filename, asset subfolder는 Zotero note template과 같은 Nunjucks 템플릿 엔진을 사용합니다. 예:
+
+```text
+{{ date | format("YYYY") }}/{{ creators | firstAuthorLast | pathSafe }}
+{{ creators | firstAuthorLast }}_{{ title | pathSafe }}
+{{ tags | joinTags("; ") }}
+```
+
+렌더링된 경로 segment는 Vault에 파일을 만들기 전에 안전한 파일명 형태로 정리됩니다.
 
 ### Zotero 링크 처리 흐름
 

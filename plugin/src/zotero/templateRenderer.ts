@@ -2,6 +2,13 @@ import * as nunjucks from 'nunjucks';
 import { App } from 'obsidian';
 import { moment } from 'obsidian';
 
+export function sanitizePathSegment(value: unknown): string {
+  return String(value ?? "")
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 class PersistExtension implements nunjucks.Extension {
   tags = ['persist'];
 
@@ -53,7 +60,7 @@ export class TemplateRenderer {
     // Add custom filters
     this.env.addFilter('format', function(dateStr, formatStr) {
       if (!dateStr) return '';
-      return window.moment(dateStr).format(formatStr);
+      return (moment as any)(dateStr).format(formatStr);
     });
     
     this.env.addFilter('replace', function(str: string, search: string|RegExp, replace: string) {
@@ -64,7 +71,27 @@ export class TemplateRenderer {
       return str.split(search as string).join(replace);
     });
     
-    // We can add more filters if needed
+    this.env.addFilter('firstAuthorLast', function(creators: any[]) {
+      if (!Array.isArray(creators)) return '';
+      return creators.find((creator) => creator?.lastName)?.lastName || '';
+    });
+
+    this.env.addFilter('authorLast', function(creators: any[], index = 0) {
+      if (!Array.isArray(creators)) return '';
+      return creators[index]?.lastName || '';
+    });
+
+    this.env.addFilter('joinTags', function(tags: any[], separator = ', ') {
+      if (!Array.isArray(tags)) return '';
+      return tags
+        .map((tag) => typeof tag === 'string' ? tag : tag?.tag)
+        .filter(Boolean)
+        .join(separator);
+    });
+
+    this.env.addFilter('pathSafe', function(value: unknown) {
+      return sanitizePathSegment(value);
+    });
   }
   
   public async renderTemplate(templatePath: string, data: any, existingContent?: string): Promise<string> {

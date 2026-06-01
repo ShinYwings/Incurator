@@ -2896,9 +2896,7 @@ export class ChatSidebarView extends ItemView {
       setIcon(del, "trash-2");
       del.addEventListener("click", async (event) => {
         event.stopPropagation();
-        if (confirm(`"${this.getSessionTitle(session)}" 채팅 내역을 삭제하시겠습니까?`)) {
-          await this.deleteChatSessionById(session.id);
-        }
+        await this.deleteChatSessionById(session.id);
       });
       row.addEventListener("click", () => {
         this.onSessionChange(session.id);
@@ -2949,10 +2947,6 @@ export class ChatSidebarView extends ItemView {
     const sessions = this.plugin.sessionData.chatSessions ?? [];
     const session = sessions.find((s) => s.id === activeId);
     if (!session) return;
-
-    if (!confirm(`"${session.title}" 채팅 내역을 삭제하시겠습니까?`)) {
-      return;
-    }
 
     const nextSessions = sessions.filter((s) => s.id !== activeId);
     this.plugin.sessionData.chatSessions = nextSessions;

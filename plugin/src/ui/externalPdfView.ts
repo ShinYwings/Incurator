@@ -205,6 +205,7 @@ export class ExternalPdfView extends ItemView {
   private zoom = 1;
   private renderedZoom = 1;
   private referenceBaseWidth = 800;
+  private lastClientWidth = 0;
 
   private get baseFitScale(): number {
     const clientW = this.pagesEl?.clientWidth || this.containerEl?.clientWidth || 800;
@@ -325,6 +326,9 @@ export class ExternalPdfView extends ItemView {
   onResize(): void {
     super.onResize();
     if (!this.pagesEl || !this.cachedPdf || this.totalPages === 0) return;
+    const currentWidth = this.containerEl.clientWidth;
+    if (currentWidth === this.lastClientWidth) return;
+    this.lastClientWidth = currentWidth;
     this.setZoom(this.zoom);
   }
 

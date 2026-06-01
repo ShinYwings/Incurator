@@ -350,7 +350,15 @@ Now you can obtain answers or perform the final synthesis for agent consumption.
 ### Querying and Auto-updates (Intent-based Curation)
 This is the core operational mode of Incurator. You just need to ask or converse.
 
-The system checks the `curate.yml` specification and **instantly activates the pipeline to synthesize the final answer** at the moment you run `wiki query` or interact with an agent (`search_curator`) in a workspace.
+The system uses a **Dual Architecture** for querying, depending on whether you are in a Workspace or Vault:
+- **Workspace Agent**: If a workspace is specified, it uses the **Pinned Exhibition** and persona defined in `curate.yml` without generating ephemeral files.
+- **Vault Agent**: When querying from a general Vault session, it dynamically generates an **Ephemeral L4 Exhibition** per chat session, using a global fallback persona.
+
+**L3 Constraints & Garbage Collection (GC)**:
+- An L4 Exhibition is **only generated** if there are matching **L3 Concepts**. If no L3 Concepts match the query, the system skips L4 generation and returns an immediate answer.
+- Ephemeral L4 Exhibitions generated during Vault sessions are marked with `ephemeral: true` and are automatically deleted (Garbage Collected) by `wiki lint` after 24 hours to prevent vault pollution.
+
+The system **instantly activates the pipeline to synthesize the final answer** at the moment you run `wiki query` or interact with an agent (`curator_query` / `search_curator`).
 
 > [!TIP]
 > **"Just use it. the system handles the rest."**

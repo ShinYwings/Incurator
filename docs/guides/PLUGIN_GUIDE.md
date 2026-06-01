@@ -282,6 +282,9 @@ wiki curate → L4 Exhibition updated
 Searchable via search_curator
 ```
 
+The dashboard **Reset** action asks for two confirmations before clearing the
+local database and generated L1-L4 content.
+
 ---
 
 ## 10. Sync Notes
@@ -296,6 +299,10 @@ Plugin data is split into two files.
 | `sessions.json` | Chat conversation history | Supported |
 
 In v0.2.1, the plugin re-reads the latest on-disk `sessions.json` before saving and merges by session id. This preserves distinct sessions created on Linux and macOS. Deleted sessions are recorded in `deletedSessionIds` tombstones so an older synced file does not resurrect them later. If the same session is edited on both devices concurrently, the copy with the newer `updatedAt` timestamp wins.
+
+Deleting a chat session from the sidebar trash action is immediate. The delete
+is still recorded as a tombstone in `deletedSessionIds` so synced devices do not
+restore the removed session.
 
 If the backend executable path differs per device, or one device does not have Incurator installed, keep `data.json` local instead of synchronizing it. In that setup, add `data.json` to `.stignore`, not `sessions.json`.
 
@@ -343,6 +350,22 @@ The directory must contain a `storage/` subfolder.
 ### Import Zotero Item
 
 Leaving the `Import Zotero Item` search box blank shows recently modified Zotero items ordered by `dateModified`. The Zotero directory setting may contain multiple comma-separated data directories; the plugin checks each path's `zotero.sqlite` in order.
+
+When the import wizard opens and saved profiles exist, the first saved profile
+is loaded automatically. Successfully imported items are remembered locally in a
+`recentZoteroItems` LRU list so they appear before other matches in later Zotero
+searches.
+
+Output subfolders, filenames, and asset subfolders use the same Nunjucks
+templating engine as Zotero note templates. Examples:
+
+```text
+{{ date | format("YYYY") }}/{{ creators | firstAuthorLast | pathSafe }}
+{{ creators | firstAuthorLast }}_{{ title | pathSafe }}
+{{ tags | joinTags("; ") }}
+```
+
+Rendered path segments are sanitized before files are created in the vault.
 
 ### Zotero link flow
 

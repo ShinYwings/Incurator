@@ -104,6 +104,7 @@ export interface PluginSettings {
   incuratorStatusPolling: boolean;
   zoteroBasePath: string;
   zoteroProfiles: ZoteroImportProfile[];
+  recentZoteroItems: string[];
   lastMarkdownScrollPosition?: LastMarkdownScrollPosition;
   fileScrollPositions?: Record<string, FileScrollPosition>;
 }
@@ -111,6 +112,7 @@ export interface PluginSettings {
 export const DEFAULT_SETTINGS: PluginSettings = {
   zoteroBasePath: "~/Zotero",
   zoteroProfiles: [],
+  recentZoteroItems: [],
   provider: "antigravity",
   model: "",
   chatMode: "chat",

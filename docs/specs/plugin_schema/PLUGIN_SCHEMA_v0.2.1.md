@@ -79,6 +79,7 @@ interface PluginSettings {
   // Zotero integration
   zoteroBasePath: string;          // default "~/Zotero"
   zoteroProfiles: ZoteroImportProfile[];
+  recentZoteroItems: string[];     // LRU item keys, newest first, max 50
 
   // Scroll position persistence (optional)
   lastMarkdownScrollPosition?: LastMarkdownScrollPosition;
@@ -106,6 +107,28 @@ Rules:
 - On desktop startup, the plugin may read local Syncthing config files and
   refresh `.curator/devices.json` with the current device's launcher settings.
   This removes the need to run `wiki devices sync` for normal Obsidian use.
+- `recentZoteroItems` stores Zotero item keys only. The plugin updates it after
+  successful Zotero imports and may use it to rank search suggestions, but it
+  must not duplicate Zotero metadata in settings.
+
+### 2.1.1 Zotero Import Profiles
+
+Saved Zotero import profiles define the note template, output folder,
+subfolder, filename, asset folder, and bibliography style used by the import
+wizard. When one or more profiles exist, the wizard opens with the first saved
+profile loaded so edits made in settings are reflected without manually
+re-selecting the profile.
+
+The Zotero item search modal must request empty-query suggestions when it opens.
+Empty-query suggestions come from the backend's recent Zotero results; returned
+results may then be re-ranked by `recentZoteroItems` so recently imported items
+float to the top.
+
+Output subfolders, filenames, and asset subfolders are rendered through the
+plugin's Nunjucks `TemplateRenderer`. The renderer supports the same base item
+metadata used by note templates plus path-oriented filters such as `pathSafe`,
+`firstAuthorLast`, `authorLast`, and `joinTags`. Rendered path segments must be
+sanitized before writing files into the vault.
 
 ### 2.2 `SessionData`
 

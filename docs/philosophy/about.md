@@ -74,7 +74,7 @@ The Artist resides in the **Workspace**, the painter's studio where projects or 
 The Curator isn't just an organizer; it's a **Refinement Engine** that produces data in a form the agent can understand most efficiently.
 
 1.  **Self-Healing Knowledge Compiler:**
-    *   The system operates similarly to a deep learning model. `wiki add/curate` performs the **Forward Pass** to build the knowledge foundation and synthesize outputs.
+    *   The system operates similarly to a deep learning model. `wiki add/build/curate` performs the **Forward Pass** to build the knowledge foundation and synthesize outputs.
     *   Modifications by humans or agents act as **Loss Signals**, representing errors in the current state. `wiki sync` then performs the **Backward Pass**, tracing these signals through the graph to restore logical integrity.
     *   Through this iterative cycle, fragmented information evolves into a robust "Concrete" of knowledge, fostering a **Self-Healing** ecosystem that grows more accurate and sophisticated through interaction.
 
