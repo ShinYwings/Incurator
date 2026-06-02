@@ -34,7 +34,23 @@ import {
   formatPdfWindow,
   formatRagHits,
 } from "../context/providerContextFormat";
-import { buildBaseSystemPrompt } from "../context/systemPrompt";
+import { buildBaseSystemPrompt, editableSelectionInstruction, wrapLatestUserMessageForLanguageBridge } from "../context/systemPrompt";
+import { inferQueryLanguageMetadata } from "../context/languageBridge";
+import {
+  deriveChatSessionTitle,
+  formatRelativeSessionTime,
+} from "../context/chatSessionSummary";
+import {
+  contextPriorityInstruction,
+  contextPromptLabel,
+  hasPrimaryUserContext,
+  includedContextRefs,
+  shouldIncludeContext,
+} from "../context/chatContextPriority";
+import {
+  shouldRunCuratorDomainQuery,
+  shouldUseBackendPdfContext,
+} from "../context/providerContextPolicy";
 import {
   type ChatMessage,
   type ChatMode,
@@ -900,7 +916,7 @@ export class ChatSidebarView extends ItemView {
     const contextRefs = [
       ...this.buildAutoContextRefs(capturedActiveCtx),
       ...(await this.materializeContextRefs(this.pendingContextRefs)),
-    ];
+    ].filter(shouldIncludeContext);
     const userMsg: ChatMessage = {
       id: this.generateId(),
       role: "user",
@@ -962,6 +978,7 @@ export class ChatSidebarView extends ItemView {
       this.isGenerating = false;
       setIcon(this.sendBtn, "send");
       this.sendBtn.setAttribute("aria-label", "Send message");
+      this.renderMessages();
       await this.persistCurrentSession();
     }
 
@@ -974,11 +991,11 @@ export class ChatSidebarView extends ItemView {
     const lastUserMessage = [...this.messages]
       .reverse()
       .find((msg) => msg.role === "user");
-    const hasSearchMcp = this.plugin.settings.mcpServers.some(
+    const hasExternalIncuratorMcp = this.plugin.settings.mcpServers.some(
       (s) => s.enabled && s.name.toLowerCase().includes("incurator")
     );
     let systemText = buildBaseSystemPrompt({
-      hasIncuratorMcp: hasSearchMcp,
+      hasExternalIncuratorMcp,
       planMode: this.plugin.settings.chatMode === "plan",
     });
 
@@ -992,9 +1009,34 @@ export class ChatSidebarView extends ItemView {
       systemText += `\n\n<provider_shared_context>\n${continuity}\n</provider_shared_context>`;
     }
 
+    const lastUserHasPrimaryContext = hasPrimaryUserContext(lastUserMessage?.contextRefs);
+    systemText += `\n\n<context_priority>\n${contextPriorityInstruction(lastUserHasPrimaryContext)}\n</context_priority>`;
+    const editableRefs = includedContextRefs(lastUserMessage?.contextRefs).filter(
+      (ref) =>
+        ref.type === "line-range" &&
+        Boolean(ref.filePath) &&
+        typeof ref.lineStart === "number" &&
+        typeof ref.lineEnd === "number"
+    );
+    const latestIsMarkdownEditRequest = this.isMarkdownEditRequest(lastUserMessage?.content || "");
+    const openMarkdownEditTargets = latestIsMarkdownEditRequest
+      ? this.buildOpenMarkdownEditTargetContext(activeCtx)
+      : "";
+    const editInstruction = editableSelectionInstruction(
+      editableRefs.length > 0,
+      Boolean(openMarkdownEditTargets)
+    );
+    if (editInstruction) {
+      systemText += `\n\n<editable_selection>\n${editInstruction}\n</editable_selection>`;
+    }
+    if (openMarkdownEditTargets) {
+      systemText += `\n\n<open_markdown_edit_targets>\n${openMarkdownEditTargets}\n</open_markdown_edit_targets>`;
+    }
+
     const incuratorContext = await this.buildIncuratorProviderContext(
       activeCtx,
-      lastUserMessage?.content || ""
+      lastUserMessage?.content || "",
+      lastUserMessage?.contextRefs
     );
     if (incuratorContext) {
       systemText += `\n\n<obsidian_incurator_context>\n${incuratorContext}\n</obsidian_incurator_context>`;
@@ -1052,12 +1094,12 @@ export class ChatSidebarView extends ItemView {
       );
 
       if (msg.contextRefs && msg.contextRefs.length > 0) {
-        for (const ref of msg.contextRefs) {
+        for (const ref of includedContextRefs(msg.contextRefs)) {
           if (ref.sourceViewType === "auto") continue;
-          if (ref.content) {
+          if (ref.content || ref.imageBase64) {
             contentParts.push({
               type: "text",
-              text: `[Context: ${ref.label}]\n${ref.content}`,
+              text: `[${contextPromptLabel(ref)}]\n${ref.content || "(Image context attached below.)"}`,
             });
           }
           if (ref.imageBase64 && canSendImages) {
@@ -1065,6 +1107,11 @@ export class ChatSidebarView extends ItemView {
               type: "image",
               mimeType: "image/png",
               data: ref.imageBase64,
+            });
+          } else if (ref.imageBase64 && !canSendImages) {
+            contentParts.push({
+              type: "text",
+              text: `[Image context unavailable]\n${ref.label} is an attached image/crop, but the selected model does not support vision. Tell the user to switch to a vision-capable model or attach textual context if image details are required.`,
             });
           }
         }
@@ -1074,11 +1121,13 @@ export class ChatSidebarView extends ItemView {
         contentParts.push(...activeContextParts);
       }
 
-      contentParts.push({ type: "text", text: msg.content });
+      const textContent =
+        msg === lastUserMessage ? wrapLatestUserMessageForLanguageBridge(msg.content) : msg.content;
+      contentParts.push({ type: "text", text: textContent });
 
       llmMessages.push({
         role: msg.role as "user" | "assistant",
-        content: contentParts.length === 1 ? msg.content : contentParts,
+        content: contentParts.length === 1 ? textContent : contentParts,
       });
     }
 
@@ -1096,10 +1145,11 @@ export class ChatSidebarView extends ItemView {
     );
 
     for (const ref of this.buildAutoContextRefs(activeCtx)) {
+      if (!shouldIncludeContext(ref)) continue;
       if (ref.content) {
         parts.push({
           type: "text",
-          text: `[Current context: ${ref.label}]\n${ref.content}`,
+          text: `[${contextPromptLabel(ref)}]\n${ref.content}`,
         });
       }
       if (ref.imageBase64 && canSendImages) {
@@ -1108,6 +1158,48 @@ export class ChatSidebarView extends ItemView {
     }
 
     return parts;
+  }
+
+  private isMarkdownEditRequest(content: string): boolean {
+    const text = content.toLowerCase();
+    const editIntent =
+      /바꿔|고쳐|수정|변경|치환|교체|통일|링크|경로|유사|비슷|전체|모든|replace|change|edit|fix|rewrite|rename|relink|path|link|all|similar|every/.test(text);
+    const markdownTarget =
+      /md|markdown|마크다운|파일|note|노트|html|img|image|이미지|링크|경로|path|link/.test(text);
+    return editIntent && markdownTarget;
+  }
+
+  private buildOpenMarkdownEditTargetContext(
+    activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>
+  ): string {
+    const tabs = activeCtx?.openTabs ?? [];
+    const markdownTabs = tabs.filter((tab) => tab.viewType === "markdown" && tab.filePath && tab.content);
+    if (markdownTabs.length === 0) return "";
+
+    const TARGET_LIMIT = 50000;
+    let remaining = TARGET_LIMIT;
+    const sections: string[] = [];
+    for (const tab of markdownTabs) {
+      if (remaining <= 0) break;
+      const content = tab.content || "";
+      const selected = tab.selectedText?.trim()
+        ? `\nSelected clue in this file:\n${tab.selectedText.trim()}\n`
+        : "";
+      const header =
+        `### ${tab.label} (${tab.filePath})${tab.isActive ? " [active]" : ""}\n` +
+        "Use this full file content to find every similar occurrence before proposing ai-agent-edit blocks.\n" +
+        selected +
+        "Full Markdown file content:\n";
+      const sliceLimit = Math.max(0, remaining - header.length - 32);
+      const body =
+        content.length > sliceLimit
+          ? content.slice(0, sliceLimit) + `\n[...truncated at ${sliceLimit} chars]`
+          : content;
+      const section = `${header}${body}`;
+      sections.push(section);
+      remaining -= section.length;
+    }
+    return sections.join("\n\n---\n\n");
   }
 
   private buildProviderSharedContext(
@@ -1125,17 +1217,17 @@ export class ChatSidebarView extends ItemView {
       lines.push(`Active chat: ${activeSession.title}`);
     }
 
-    const pinnedRefs = this.pendingContextRefs.filter((ref) => ref.isPinned);
+    const pinnedRefs = this.pendingContextRefs.filter((ref) => ref.isPinned && shouldIncludeContext(ref));
     if (pinnedRefs.length > 0) {
       lines.push(`Pinned context: ${pinnedRefs.map((ref) => ref.label).join(", ")}`);
     }
 
-    const autoRefs = this.buildAutoContextRefs(activeCtx);
+    const autoRefs = includedContextRefs(this.buildAutoContextRefs(activeCtx));
     if (autoRefs.length > 0) {
       lines.push(`Visible context: ${autoRefs.map((ref) => ref.label).join(", ")}`);
     } else if (this.cachedAutoContextRefs.length > 0) {
       lines.push(
-        `Recently visible context: ${this.cachedAutoContextRefs
+        `Recently visible context: ${includedContextRefs(this.cachedAutoContextRefs)
           .map((ref) => ref.label)
           .join(", ")}`
       );
@@ -1162,7 +1254,8 @@ export class ChatSidebarView extends ItemView {
 
   private async buildIncuratorProviderContext(
     activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>,
-    query: string
+    query: string,
+    userContextRefs: ContextRef[] | undefined = undefined
   ): Promise<string> {
     if (this.plugin.settings.incuratorEnabled === false) return "";
 
@@ -1177,6 +1270,15 @@ export class ChatSidebarView extends ItemView {
     for (const tab of pdfTabs.slice(0, 3)) {
       const pdf = tab.pdfPage;
       if (!pdf) continue;
+      const hasLocalViewerContext =
+        Boolean(pdf.text?.trim()) ||
+        Boolean(pdf.windowPages?.some((page) => page.text.trim())) ||
+        Boolean(pdf.imageBase64);
+      const useBackendPdfContext = shouldUseBackendPdfContext({
+        query,
+        userContextRefs,
+        hasLocalViewerContext,
+      });
 
       const sourcePath =
         this.toAbsolutePath(pdf.filePath) ||
@@ -1191,37 +1293,46 @@ export class ChatSidebarView extends ItemView {
         filePath: pdf.filePath || tab.filePath,
         fileHash: pdf.fileHash,
         pageNum: pdf.pageNum,
+        zoteroAttachmentKey: pdf.zoteroAttachmentKey,
       };
-      const sourceStatus = sourcePath
+      const sourceStatus = useBackendPdfContext && (sourcePath || pdf.fileHash || pdf.zoteroAttachmentKey)
         ? await this.ensureIncuratorStatusForRef(statusRef)
         : undefined;
       if (sourceStatus) {
         sections.push(
-          `<incurator_source_status document="${escapeAttribute(tab.label)}" state="${sourceStatus.state}" l1="${sourceStatus.state === "l1_ready" || sourceStatus.state === "queued" || sourceStatus.state === "indexed" || sourceStatus.state === "curated"}">\n${escapeAttribute(sourceStatus.message || "")}\n</incurator_source_status>`
+          `<incurator_source_status document="${escapeAttribute(tab.label)}" state="${sourceStatus.state}" l1="${sourceStatus.state === "l1_ready" || sourceStatus.state === "queued" || sourceStatus.state === "l2_ready" || sourceStatus.state === "l3_ready" || sourceStatus.state === "l4_ready"}">\n${escapeAttribute(sourceStatus.message || "")}\n</incurator_source_status>`
         );
       }
 
-      this.setPrepareStatus(`Assembling PDF context — ${docLabel}...`);
+      this.setPrepareStatus(
+        useBackendPdfContext
+          ? `Assembling PDF context — ${docLabel}...`
+          : `Using local PDF viewer context — ${docLabel}...`
+      );
 
       // Single backend call: replaces getPdfWindow + getDocumentOutline (both of
       // which silently returned [] because the tools never existed in the backend).
       // Works for tracked and untracked PDFs. Falls back to PDF.js cached data
       // when the backend is unavailable.
       let backendCtx: Awaited<ReturnType<typeof client.getPdfContext>> = null;
-      if (client.available && sourcePath) {
+      if (useBackendPdfContext && client.available && (sourcePath || pdf.fileHash || pdf.zoteroAttachmentKey)) {
+        const startedAt = performance.now();
         backendCtx = await client.getPdfContext({
           filePath: sourcePath,
+          fileHash: pdf.fileHash,
+          zoteroAttachmentKey: pdf.zoteroAttachmentKey,
           query: query.trim() || undefined,
           pageNum: pdf.pageNum,
           radius: this.plugin.settings.pdfWindowRadius,
           maxPages: this.plugin.settings.pdfRagTopK || 8,
         });
+        this.logContextTiming("backend_pdf_context", startedAt, docLabel);
       }
 
       // Ask Gemini-style auto-index: if this PDF isn't in the knowledge graph
       // yet, register it (instant L1, no LLM) and queue L2/L3 in the background.
       // Fire-and-forget — this turn still answers from the raw window above;
-      // the next turn gets curator_search_sources RAG once L1 lands (~seconds).
+      // the next turn gets backend PDF RAG once L1 lands (~seconds).
       if (backendCtx && !backendCtx.sourceTracked && sourcePath && client.available) {
         void client.registerSource(sourcePath);
         if (sourcePath) this.incuratorStatusByPath.delete(sourcePath);
@@ -1244,19 +1355,23 @@ export class ChatSidebarView extends ItemView {
       }
 
       // RAG hits use the semantic search index — only meaningful for tracked sources.
-      if (this.plugin.settings.pdfRagEnabled && query.trim()) {
+      if (useBackendPdfContext && this.plugin.settings.pdfRagEnabled && query.trim()) {
         const canRag = backendCtx?.sourceTracked ?? false;
         if (canRag) {
           this.setPrepareStatus(`Searching PDF pages — ${docLabel}...`);
           const ragHits =
             pdf.ragHits ||
             (client.available
-              ? await client.getPdfRagHits({
-                  query,
-                  sourcePath,
-                  documentId: pdf.documentId,
-                  topK: this.plugin.settings.pdfRagTopK,
-                })
+              ? await this.timedContextCall(
+                  "backend_pdf_rag",
+                  docLabel,
+                  () => client.getPdfRagHits({
+                    query,
+                    sourcePath,
+                    documentId: pdf.documentId,
+                    topK: this.plugin.settings.pdfRagTopK,
+                  })
+                )
               : []);
           if (ragHits.length > 0) {
             sections.push(
@@ -1284,8 +1399,6 @@ export class ChatSidebarView extends ItemView {
     }
 
     if (client.available && query.trim()) {
-      // 1. DO NOT pre-fetch via `client.curatorQuery` or `client.search` here!
-      // The LLM CLI model handles tool use autonomously. We just need to give it the workspace context.
       const curateFiles = this.app.vault.getFiles().filter(f => f.name === "curate.yml");
       let targetCurate = curateFiles[0];
       const activeFile = this.app.workspace.getActiveFile();
@@ -1305,13 +1418,51 @@ export class ChatSidebarView extends ItemView {
       if (wsPath) {
         sections.push(
           `<incurator_workspace path="${escapeAttribute(wsPath)}">\n` +
-          `This is the active workspace path. Use this path when calling \`curator_check_workspace\` and \`search_curator\`.\n` +
+          `This is the active workspace path for Incurator backend commands and external-agent MCP tools.\n` +
           `</incurator_workspace>`
         );
+
+        if (shouldRunCuratorDomainQuery({ query, userContextRefs })) {
+          this.setPrepareStatus("Querying Incurator knowledge graph...");
+          const language = inferQueryLanguageMetadata(query);
+          const queryResult = await this.timedContextCall(
+            "curator_query",
+            wsPath,
+            () => client.curatorQuery(query, {
+              workspacePath: wsPath,
+              inputLanguage: language.inputLanguage,
+              englishQuery: language.englishQuery,
+              finalOutputLanguage: language.finalOutputLanguage,
+            })
+          );
+          if (queryResult.ok) {
+            sections.push(formatCuratorQueryResult(queryResult, query));
+            if (queryResult.trace || queryResult.exhibition_id) {
+              this.lastQueryTrace = queryResult;
+            }
+          }
+        }
       }
     }
 
     return sections.join("\n\n");
+  }
+
+  private async timedContextCall<T>(
+    label: string,
+    subject: string,
+    fn: () => Promise<T>
+  ): Promise<T> {
+    const startedAt = performance.now();
+    const result = await fn();
+    this.logContextTiming(label, startedAt, subject);
+    return result;
+  }
+
+  private logContextTiming(label: string, startedAt: number, subject: string): void {
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    // eslint-disable-next-line no-console
+    console.debug(`[Incurator] ${label} ${elapsedMs}ms`, subject);
   }
 
   private loadCursorStyleRules(): string {
@@ -1405,6 +1556,7 @@ export class ChatSidebarView extends ItemView {
           filePath: tab.filePath,
           fileHash: tab.pdfPage.fileHash,
           pageNum: tab.pdfPage.pageNum,
+          zoteroAttachmentKey: tab.pdfPage.zoteroAttachmentKey,
           windowPages: tab.pdfPage.windowPages,
           outline: tab.pdfPage.outline,
           ragHits: tab.pdfPage.ragHits,
@@ -1416,7 +1568,8 @@ export class ChatSidebarView extends ItemView {
 
       if (!ref) continue;
       const key = this.getAutoContextKey(ref);
-      if (seen.has(key) || this.activeContextExcludedKey === key) continue;
+      if (seen.has(key)) continue;
+      if (this.activeContextExcludedKey === key) ref.includeInPrompt = false;
       seen.add(key);
       refs.push(ref);
     }
@@ -1574,9 +1727,9 @@ export class ChatSidebarView extends ItemView {
   private getIncuratorClient(): IncuratorClient {
     if (!this.incuratorClient) {
       this.incuratorClient = new IncuratorClient(
-        this.plugin.mcpManager,
         this.plugin.settings,
-        this.plugin.manifest.version
+        this.plugin.manifest.version,
+        this.plugin.runBackendJsonCommand.bind(this.plugin)
       );
       // Run version check asynchronously
       this.incuratorClient.checkBackendVersion();
@@ -1604,6 +1757,17 @@ export class ChatSidebarView extends ItemView {
     return ref.backendStatus?.sourcePath || this.toAbsolutePath(ref.filePath);
   }
 
+  private async resolvePdfRefSourcePath(ref: ContextRef, status?: IncuratorSourceStatus): Promise<string | undefined> {
+    const direct = this.getPdfRefSourcePath(ref) || status?.sourcePath || status?.currentPath;
+    if (direct) return direct;
+    if (!ref.zoteroAttachmentKey) return undefined;
+    const resolved = await this.getIncuratorClient().resolveZoteroPdf(ref.zoteroAttachmentKey);
+    if (resolved.ok && resolved.path) return resolved.path;
+    this.plugin.openZoteroRepairModal({ attachmentKey: ref.zoteroAttachmentKey, resolution: resolved });
+    new Notice(`Zotero PDF unavailable: ${resolved.error || resolved.state || "backend could not resolve attachment"}`);
+    return undefined;
+  }
+
   private async getPdfRefFileHash(ref: ContextRef): Promise<string | undefined> {
     if (ref.fileHash) return ref.fileHash;
     const sourcePath = this.getPdfRefSourcePath(ref);
@@ -1623,6 +1787,15 @@ export class ChatSidebarView extends ItemView {
   private async ensureIncuratorStatusForRef(ref: ContextRef): Promise<IncuratorSourceStatus> {
     const sourcePath = this.getPdfRefSourcePath(ref);
     const fileHash = await this.getPdfRefFileHash(ref);
+    if (!sourcePath && !fileHash && ref.zoteroAttachmentKey) {
+      const status: IncuratorSourceStatus = {
+        state: "untracked",
+        message: "Zotero PDF is available by attachment key; add it to Incurator to register this device's resolved path.",
+        updatedAt: Date.now(),
+      };
+      ref.backendStatus = status;
+      return status;
+    }
     const status = await this.getIncuratorClient().getSourceStatus({ sourcePath, fileHash });
     if (sourcePath) this.incuratorStatusByPath.set(sourcePath, status);
     ref.backendStatus = status;
@@ -1669,16 +1842,18 @@ export class ChatSidebarView extends ItemView {
 
   private getIncuratorStatusLabel(status: IncuratorSourceStatus): string {
     switch (status.state) {
-      case "curated":
-        return "curated";
-      case "indexed":
-        return "indexed";
+      case "l4_ready":
+        return "L4 ready";
+      case "l3_ready":
+        return "L3 ready";
+      case "l2_ready":
+        return "L2 ready";
       case "l1_ready":
         return "L1 ready";
       case "queued":
-        return "queued";
+        return "Queued";
       case "running":
-        return "building...";
+        return "Building...";
       case "stale":
         return "stale";
       case "missing":
@@ -1690,11 +1865,11 @@ export class ChatSidebarView extends ItemView {
       case "moved_and_hash_drift":
         return "moved+changed";
       case "error":
-        return "error";
+        return "Error";
       case "untracked":
-        return "ingest";
+        return "Add source";
       default:
-        return "...";
+        return "Check source";
     }
   }
 
@@ -1730,36 +1905,44 @@ export class ChatSidebarView extends ItemView {
     ref: ContextRef,
     status: IncuratorSourceStatus
   ): Promise<void> {
-    const sourcePath = this.getPdfRefSourcePath(ref) || status.sourcePath;
-    if (!sourcePath) {
-      new Notice("This PDF does not expose a filesystem path for Incurator ingest.");
+    const sourcePath = this.getPdfRefSourcePath(ref) || status.sourcePath || status.currentPath;
+    const statusKey = sourcePath || (ref.zoteroAttachmentKey ? `zotero:${ref.zoteroAttachmentKey}` : "");
+    if (!sourcePath && !ref.zoteroAttachmentKey) {
+      new Notice("This PDF does not expose a filesystem path and backend resolution did not find one.");
       return;
     }
 
     if (status.state === "queued" || status.state === "running") {
-      new Notice("Incurator is already ingesting this PDF.");
+      new Notice("Incurator build is queued or running. Open Dashboard > Jobs to run or monitor it.");
       return;
     }
 
     if (status.requiresRebind || status.state === "moved" || status.state === "missing") {
+      const rebindSourcePath = sourcePath || await this.resolvePdfRefSourcePath(ref, status);
+      if (!rebindSourcePath) return;
       if (!status.candidatePath) {
         new Notice("Source is missing. No candidate path was found in configured external roots.");
         return;
       }
       const approved = window.confirm(
-        `Rebind this Incurator source?\n\nFrom:\n${status.currentPath || sourcePath}\n\nTo:\n${status.candidatePath}`
+        `Rebind this Incurator source?\n\nFrom:\n${status.currentPath || rebindSourcePath}\n\nTo:\n${status.candidatePath}`
       );
       if (!approved) return;
       new Notice("Rebinding moved Incurator source...");
       const nextStatus = await this.getIncuratorClient().rebindSource({
         sourceId: status.sourceId,
-        sourcePath,
+        sourcePath: rebindSourcePath,
         newPath: status.candidatePath,
         apply: true,
       });
-      this.incuratorStatusByPath.set(sourcePath, nextStatus);
+      this.incuratorStatusByPath.set(statusKey || rebindSourcePath, nextStatus);
       ref.backendStatus = nextStatus;
       this.renderContextChips();
+      if (nextStatus.state === "error" || nextStatus.state === "unknown") {
+        new Notice(`Zotero reference registration failed: ${nextStatus.message || "backend did not return a usable source status"}`);
+      } else {
+        new Notice("Zotero PDF registered as an external reference.");
+      }
       return;
     }
 
@@ -1769,35 +1952,63 @@ export class ChatSidebarView extends ItemView {
         .some(leaf => (leaf.view.getState() as any)?.zoteroAttachmentKey &&
                       (leaf.view.getState() as any)?.path === sourcePath);
     if (isZoteroPdf) {
-      new Notice("Registering Zotero PDF as external reference...");
+      const pendingStatus: IncuratorSourceStatus = {
+        state: "running",
+        sourcePath,
+        message: "Adding Zotero PDF as an Incurator reference source...",
+      };
+      if (statusKey) this.incuratorStatusByPath.set(statusKey, pendingStatus);
+      ref.backendStatus = pendingStatus;
+      this.renderContextChips();
+      new Notice("Adding Zotero PDF as an Incurator reference source...");
       const nextStatus = await this.getIncuratorClient().ingestPdf({
         sourcePath,
+        zoteroAttachmentKey: ref.zoteroAttachmentKey,
         displayName: ref.label.replace(/ p\.\d+$/, ""),
         destinationRelpath: "",
         importMode: "reference",
       });
-      this.incuratorStatusByPath.set(sourcePath, nextStatus);
+      if (statusKey) this.incuratorStatusByPath.set(statusKey, nextStatus);
       ref.backendStatus = nextStatus;
       this.renderContextChips();
+      if (nextStatus.state === "error" || nextStatus.state === "unknown") {
+        new Notice(`Could not add source: ${nextStatus.message || "backend did not return a usable source status"}`);
+      }
       return;
     }
 
     // Non-Zotero PDFs: show modal with Copy as default
+    const nonZoteroSourcePath = sourcePath;
+    if (!nonZoteroSourcePath) {
+      new Notice("This PDF does not expose a filesystem path.");
+      return;
+    }
     new IngestDestinationModal(
       this.app,
       ref.label.replace(/ p\.\d+$/, ""),
       status.destinationRelpath || this.inferPdfIngestDestination(),
       this.plugin.settings.incuratorDefaultImportMode,
       async ({ destinationRelpath, importMode }) => {
+        const pendingStatus: IncuratorSourceStatus = {
+          state: "running",
+          sourcePath: nonZoteroSourcePath,
+          message: importMode === "copy" ? "Copying and adding PDF source..." : "Adding PDF as a reference source...",
+        };
+        this.incuratorStatusByPath.set(nonZoteroSourcePath, pendingStatus);
+        ref.backendStatus = pendingStatus;
+        this.renderContextChips();
         const nextStatus = await this.getIncuratorClient().ingestPdf({
-          sourcePath,
+          sourcePath: nonZoteroSourcePath,
           displayName: ref.label.replace(/ p\.\d+$/, ""),
           destinationRelpath,
           importMode,
         });
-        this.incuratorStatusByPath.set(sourcePath, nextStatus);
+        this.incuratorStatusByPath.set(nonZoteroSourcePath, nextStatus);
         ref.backendStatus = nextStatus;
         this.renderContextChips();
+        if (nextStatus.state === "error" || nextStatus.state === "unknown") {
+          throw new Error(nextStatus.message || "Backend did not return a usable source status");
+        }
       }
     ).open();
   }
@@ -1897,7 +2108,8 @@ export class ChatSidebarView extends ItemView {
 
     const contentEl = msgEl.createDiv("ai-agent-chat-msg-content");
     if (msg.role === "assistant" && msg.content) {
-      const multiProposals = !msg.isStreaming ? this.extractMultiEditProposals(msg.content) : [];
+      const editRef = !msg.isStreaming ? this.getEditTargetContextForMessage(msg) : null;
+      const multiProposals = !msg.isStreaming ? this.extractMultiEditProposals(msg.content, editRef?.filePath) : [];
       let remainingContent = msg.content;
 
       if (multiProposals.length > 0) {
@@ -2022,10 +2234,10 @@ export class ChatSidebarView extends ItemView {
       return;
     }
 
-    const acceptBtn = btnGroup.createEl("button", {
-      cls: "ai-agent-inline-diff-accept",
-      text: "✓ Accept",
-      attr: { title: "Apply this edit" },
+    const reviewBtn = btnGroup.createEl("button", {
+      cls: "ai-agent-inline-diff-review ai-agent-inline-diff-accept",
+      text: "Review in file",
+      attr: { title: "Open this edit as an inline diff in the Markdown editor" },
     });
     const rejectBtn = btnGroup.createEl("button", {
       cls: "ai-agent-inline-diff-reject",
@@ -2044,22 +2256,17 @@ export class ChatSidebarView extends ItemView {
       lineEl.createSpan({ cls: "ai-agent-inline-diff-text", text: line.text });
     }
 
-    const applyEdit = async () => {
-      await this.applyInlineMultiEdit(prop, file);
-      wrapper.addClass("ai-agent-inline-diff-accepted");
-      acceptBtn.disabled = true;
-      rejectBtn.disabled = true;
-      acceptBtn.setText("✓ Accepted");
-    };
-
     const rejectEdit = () => {
       wrapper.addClass("ai-agent-inline-diff-rejected");
-      acceptBtn.disabled = true;
       rejectBtn.disabled = true;
       rejectBtn.setText("✗ Rejected");
     };
 
-    acceptBtn.addEventListener("click", (e) => { e.stopPropagation(); applyEdit(); });
+    reviewBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await this.reviewAssistantEdit(msg);
+      wrapper.addClass("ai-agent-inline-diff-reviewing");
+    });
     rejectBtn.addEventListener("click", (e) => { e.stopPropagation(); rejectEdit(); });
   }
 
@@ -2231,8 +2438,14 @@ export class ChatSidebarView extends ItemView {
 
     if (
       !msg.isStreaming &&
-      this.getEditableContextForMessage(msg) &&
-      this.extractEditProposal(msg.content)
+      this.getEditTargetContextForMessage(msg) &&
+      (
+        (this.getEditableContextForMessage(msg) && this.extractEditProposal(msg.content)) ||
+        this.extractMultiEditProposals(
+          msg.content,
+          this.getEditTargetContextForMessage(msg)?.filePath
+        ).length > 0
+      )
     ) {
       const reviewBtn = (roleEl as HTMLElement).createEl("button", {
         cls: "ai-agent-message-action ai-agent-message-review-btn",
@@ -2289,15 +2502,54 @@ export class ChatSidebarView extends ItemView {
     return null;
   }
 
+  private getEditTargetContextForMessage(msg: ChatMessage): ContextRef | null {
+    const msgIndex = this.messages.findIndex((item) => item.id === msg.id);
+    if (msgIndex <= 0) return null;
+
+    for (let i = msgIndex - 1; i >= 0; i--) {
+      const candidate = this.messages[i];
+      if (candidate.role !== "user") continue;
+      const refs = candidate.contextRefs ?? [];
+      const editable = refs.find(
+        (ref) =>
+          ref.filePath &&
+          ref.type === "line-range" &&
+          typeof ref.lineStart === "number" &&
+          typeof ref.lineEnd === "number"
+      );
+      if (editable) return editable;
+      const fileTarget = refs.find(
+        (ref) =>
+          ref.filePath &&
+          ref.type === "file" &&
+          ref.filePath.toLowerCase().endsWith(".md")
+      );
+      if (fileTarget) return fileTarget;
+    }
+
+    return null;
+  }
+
   private async reviewAssistantEdit(msg: ChatMessage): Promise<void> {
-    const ref = this.getEditableContextForMessage(msg);
-    if (!ref?.filePath || typeof ref.lineStart !== "number" || typeof ref.lineEnd !== "number") {
-      new Notice("No referenced Markdown line range found for this edit.");
+    const ref = this.getEditTargetContextForMessage(msg);
+    if (!ref?.filePath) {
+      new Notice("No referenced Markdown file found for this edit.");
       return;
     }
 
     const modifiedText = this.extractEditProposal(msg.content);
-    if (!modifiedText) {
+    const multiProposals = this.extractMultiEditProposals(msg.content, ref.filePath)
+      .filter((prop) => prop.filepath === ref.filePath);
+    if (
+      modifiedText &&
+      multiProposals.length === 0 &&
+      (typeof ref.lineStart !== "number" || typeof ref.lineEnd !== "number")
+    ) {
+      new Notice("A full replacement edit needs a selected Markdown line range.");
+      return;
+    }
+
+    if (!modifiedText && multiProposals.length === 0) {
       new Notice("No ai-agent-edit proposal found in this answer.");
       return;
     }
@@ -2351,28 +2603,71 @@ export class ChatSidebarView extends ItemView {
     }
 
     const editor = targetLeaf.view.editor;
-    const start = { line: Math.max(0, ref.lineStart - 1), ch: 0 };
-    const endLine = Math.max(0, ref.lineEnd - 1);
-    const lineText = editor.getLine(endLine);
-    const end = { line: endLine, ch: lineText?.length ?? 0 };
-    const originalText = editor.getRange(start, end);
+    let start = { line: Math.max(0, (ref.lineStart ?? 1) - 1), ch: 0 };
+    let endLine = Math.max(0, (ref.lineEnd ?? ref.lineStart ?? 1) - 1);
+    let lineText = editor.getLine(endLine);
+    let end = { line: endLine, ch: lineText?.length ?? 0 };
+    let originalText = editor.getRange(start, end);
+    let replacementText = modifiedText || "";
+
+    if (multiProposals.length > 0) {
+      const originalFullText = editor.getValue();
+      let modifiedFullText = originalFullText;
+      let replacementCount = 0;
+
+      for (const proposal of multiProposals) {
+        if (!proposal.search) continue;
+        const parts = modifiedFullText.split(proposal.search);
+        if (parts.length <= 1) continue;
+        replacementCount += parts.length - 1;
+        modifiedFullText = parts.join(proposal.replace);
+      }
+
+      if (replacementCount === 0 || modifiedFullText === originalFullText) {
+        new Notice("Could not find SEARCH text in the target Markdown file.");
+        return;
+      }
+
+      const lastLine = Math.max(0, editor.lineCount() - 1);
+      const lastLineText = editor.getLine(lastLine);
+      const diffViewer = new DiffViewer(this.plugin);
+      diffViewer.show(
+        targetLeaf.view,
+        originalFullText,
+        modifiedFullText,
+        { line: 0, ch: 0 },
+        { line: lastLine, ch: lastLineText?.length ?? 0 }
+      );
+      new Notice(`Reviewing ${replacementCount} proposed change${replacementCount === 1 ? "" : "s"} in ${file.basename}`);
+      return;
+    }
+
     const diffViewer = new DiffViewer(this.plugin);
-    diffViewer.show(targetLeaf.view, originalText, modifiedText, start, end);
+    diffViewer.show(targetLeaf.view, originalText, replacementText, start, end);
   }
 
-  private extractMultiEditProposals(content: string): MultiEditProposal[] {
+  private readEditBlockFilepath(infoText: string, fallbackFilepath = ""): string {
+    const doubleQuoted = infoText.match(/filepath="([^"]+)"/i);
+    if (doubleQuoted) return doubleQuoted[1].trim();
+    const singleQuoted = infoText.match(/filepath='([^']+)'/i);
+    if (singleQuoted) return singleQuoted[1].trim();
+    const bare = infoText.match(/filepath=([^\s]+)/i);
+    return bare ? bare[1].trim() : fallbackFilepath;
+  }
+
+  private extractMultiEditProposals(content: string, fallbackFilepath = ""): MultiEditProposal[] {
     const proposals: MultiEditProposal[] = [];
-    const blockRegex = /```ai-agent-edit\s+filepath=["']?([^"'\s]+)["']?\s*\n([\s\S]*?)```/gi;
+    const blockRegex = /```ai-agent-edit([^\n]*)\n([\s\S]*?)```/gi;
     let match;
     while ((match = blockRegex.exec(content)) !== null) {
       const originalBlock = match[0];
-      const filepath = match[1];
+      const filepath = this.readEditBlockFilepath(match[1], fallbackFilepath);
       const innerContent = match[2];
 
       const searchMatch = innerContent.match(/<<<<\s*SEARCH\n([\s\S]*?)====\s*REPLACE/i);
       const replaceMatch = innerContent.match(/====\s*REPLACE\n([\s\S]*?)>>>>/i);
 
-      if (searchMatch && replaceMatch) {
+      if (filepath && searchMatch && replaceMatch) {
         let search = searchMatch[1];
         if (search.endsWith("\n")) search = search.slice(0, -1);
         
@@ -2386,6 +2681,22 @@ export class ChatSidebarView extends ItemView {
           originalBlock
         });
       }
+    }
+    if (proposals.length > 0) return proposals;
+
+    const bareBlockRegex = /<<<<\s*SEARCH\n([\s\S]*?)====\s*REPLACE\n([\s\S]*?)>>>>/gi;
+    while ((match = bareBlockRegex.exec(content)) !== null) {
+      if (!fallbackFilepath) continue;
+      let search = match[1];
+      if (search.endsWith("\n")) search = search.slice(0, -1);
+      let replace = match[2];
+      if (replace.endsWith("\n")) replace = replace.slice(0, -1);
+      proposals.push({
+        filepath: fallbackFilepath,
+        search,
+        replace,
+        originalBlock: match[0],
+      });
     }
     return proposals;
   }
@@ -2432,7 +2743,7 @@ export class ChatSidebarView extends ItemView {
             const exhMatch = msg.content.match(/(EXH-[0-9a-fA-F]{8})/);
             
             // Try to extract full trace from tool result if available
-            const toolMatch = msg.content.match(/✅ \*\*mcp_curator_query\*\* result:\n```(?:json)?\n([\s\S]*?)\n```/);
+            const toolMatch = msg.content.match(/✅ \*\*mcp_[^*]*curator_query\*\* result:\n```(?:json)?\n([\s\S]*?)\n```/);
             if (toolMatch && !this.lastQueryTrace) {
               try {
                 const parsed = JSON.parse(toolMatch[1]);
@@ -2538,11 +2849,25 @@ export class ChatSidebarView extends ItemView {
       const chip = this.contextChipsContainer.createDiv(
         "ai-agent-context-chip ai-agent-context-chip-auto"
       );
+      if (!shouldIncludeContext(ref)) chip.addClass("is-excluded");
       const icon = ref.type === "pdf-page" ? "file-text" : "file";
       const iconEl = chip.createSpan({ cls: "ai-agent-context-chip-icon" });
       setIcon(iconEl, icon);
       chip.createSpan({ cls: "ai-agent-context-chip-label", text: ref.label });
       this.renderIncuratorStatusBadge(chip, ref);
+      const visibilityBtn = chip.createSpan({
+        cls: "ai-agent-context-chip-visibility",
+        attr: {
+          "aria-label": shouldIncludeContext(ref) ? "Exclude context from prompt" : "Include context in prompt",
+          title: shouldIncludeContext(ref) ? "Exclude from prompt" : "Include in prompt",
+        },
+      });
+      setIcon(visibilityBtn, shouldIncludeContext(ref) ? "eye" : "eye-off");
+      visibilityBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.activeContextExcludedKey = shouldIncludeContext(ref) ? activeKey : null;
+        this.renderContextChips();
+      });
       const removeBtn = chip.createSpan({ cls: "ai-agent-context-chip-remove", text: "×" });
       removeBtn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -2555,6 +2880,7 @@ export class ChatSidebarView extends ItemView {
     for (let i = 0; i < this.pendingContextRefs.length; i++) {
       const ref = this.pendingContextRefs[i];
       const chip = this.contextChipsContainer.createDiv("ai-agent-context-chip");
+      if (!shouldIncludeContext(ref)) chip.addClass("is-excluded");
 
       if (ref.imageBase64) {
         chip.createEl("img", {
@@ -2571,6 +2897,20 @@ export class ChatSidebarView extends ItemView {
         text: `${ref.isPinned ? "📌 " : ""}${ref.label}`,
       });
       this.renderIncuratorStatusBadge(chip, ref);
+
+      const visibilityBtn = chip.createSpan({
+        cls: "ai-agent-context-chip-visibility",
+        attr: {
+          "aria-label": shouldIncludeContext(ref) ? "Exclude context from prompt" : "Include context in prompt",
+          title: shouldIncludeContext(ref) ? "Exclude from prompt" : "Include in prompt",
+        },
+      });
+      setIcon(visibilityBtn, shouldIncludeContext(ref) ? "eye" : "eye-off");
+      visibilityBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        ref.includeInPrompt = shouldIncludeContext(ref) ? false : true;
+        this.renderContextChips();
+      });
 
       const removeBtn = chip.createSpan({ cls: "ai-agent-context-chip-remove", text: "×" });
       removeBtn.addEventListener("click", (e) => {
@@ -2881,9 +3221,20 @@ export class ChatSidebarView extends ItemView {
       const icon = row.createSpan("ai-agent-session-drawer-row-icon");
       setIcon(icon, isActive ? "message-circle" : "message-square");
       const body = row.createDiv("ai-agent-session-drawer-row-body");
-      body.createDiv({
+      const header = body.createDiv("ai-agent-session-drawer-row-meta");
+      header.createDiv({
         cls: "ai-agent-session-drawer-row-title",
         text: this.getSessionTitle(session),
+      });
+      const timestamp = session.updatedAt || session.createdAt;
+      header.createDiv({
+        cls: "ai-agent-session-drawer-row-time",
+        text: formatRelativeSessionTime(timestamp),
+        attr: {
+          title: Number.isFinite(timestamp)
+            ? new Date(timestamp).toLocaleString()
+            : "Unknown time",
+        },
       });
       body.createDiv({
         cls: "ai-agent-session-drawer-row-preview",
@@ -2987,10 +3338,7 @@ export class ChatSidebarView extends ItemView {
   }
 
   private getSessionTitle(session: ChatSession): string {
-    const firstUser = session.messages.find((msg) => msg.role === "user");
-    if (!firstUser?.content.trim()) return session.title || "New chat";
-    const singleLine = firstUser.content.replace(/\s+/g, " ").trim();
-    return singleLine.length > 44 ? `${singleLine.slice(0, 44)}...` : singleLine;
+    return deriveChatSessionTitle(session);
   }
 
   private cloneMessages(messages: ChatMessage[]): ChatMessage[] {
