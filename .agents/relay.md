@@ -272,7 +272,8 @@ Antigravity has committed the following changes (commits `daae083`, `2f42c10`, `
 - Fixed streaming diff rendering race condition/bug by isolating markdown render targets in `diffViewer.ts` and `chatSidebar.ts`.
 - Fixed sidebar text selection CSS bug so user chat messages can be copied.
 - Changed sidebar AI edit workflow: edits/new files are now **auto-applied** directly to the vault when generation finishes. Diff blocks are hidden from the sidebar, replaced by a simple "✓ Applied / ✓ Created" status with a "✗ Revert" button to undo the change if rejected.
-- Fixed chat session default path: the plugin now correctly passes the `vault` root path instead of locking onto the first `curate.yml` workspace it finds.
+- **WARNING FOR BACKEND REBUILD (Workspace Path)**: The frontend plugin (`chatSidebar.ts`) was modified to always pass the global `vault` root path for chat sessions, removing the logic that locked the chat to the nearest `curate.yml` workspace.
+  - **Opus Validation Request**: The documentation strictly states that `wiki query` and agent MCP tools expect a `curate.yml` workspace boundary. Since the frontend now defaults to the vault root, Opus MUST validate how the backend handles these vault-wide queries during the ongoing prompt/backend rebuild. Please check if this causes "curate.yml not found" errors on the backend, and reconcile the backend logic/docs with this new vault-wide UI behavior to prevent conflicts.
 - Created architectural review plan `.agents/plans/2026-06_exhibitions_persistence_review.md` evaluating alternative models for user-memory consolidation. Opus needs to review this plan and decide on the persistence model (Option A vs B/C).
 
 ## Critical Context / Blockers
