@@ -4075,7 +4075,41 @@ def sync(
             console.print("[dim]Incremental sync: no body-hash changes detected.[/dim]")
         _ok("Routing tables rebuilt (incremental).")
         return
- 
+
+    # v0.3.1 curation-native backprop: `wiki sync <EXH-ID> --backward [--dry-run]`
+    # Reverse-parse an edited Exhibition → classify → safe action (never touches
+    # source truth). See SYSTEM_BEHAVIOR_v0.3.1 §18/§22.2.
+    if backward and node_id and node_id.startswith(f"{consts.PREFIX_L4}-"):
+        from . import backprop_sync
+        from .llm import build_client as _bc
+
+        bclient = _bc(config)
+        try:
+            res = backprop_sync.backprop_from_exhibition(
+                paths, bclient, node_id, dry_run=dry_run
+            )
+        finally:
+            try:
+                bclient.close()
+            except Exception:
+                pass
+        if not res.ok:
+            console.print(f"[red]{res.error}[/red]")
+            raise typer.Exit(1)
+        console.print(
+            f"[bold]Backprop:[/bold] {res.classification.classification} "
+            f"→ action: {res.plan.action}"
+        )
+        if res.classification.reason:
+            console.print(f"[dim]{res.classification.reason}[/dim]")
+        if res.insight_candidate_id:
+            console.print(f"  → insight candidate: [cyan]{res.insight_candidate_id}[/cyan]")
+        if res.patch_plan:
+            console.print(f"  → patch plan nodes: {res.patch_plan.get('nodes_to_patch', [])}")
+        if res.dry_run:
+            _hint("--dry-run: no changes written.")
+        return
+
     # 0. Change detection (Manual changes)
     change_report = sync_module.scan_for_changes(paths)
     dirty_nodes = change_report.modified + change_report.new

@@ -380,6 +380,63 @@ wiki query "First question"
 
 ---
 
+## 9. v0.3.1 Curation-Native Compile Model
+
+v0.3.1 makes the Curator a **compiler** whose intermediate representation is the
+DB, with the markdown collection as a derived, disposable search corpus.
+
+- **`state.sqlite` is the single source of truth** for curation knowledge:
+  `source_spans`, `knowledge_units`, `graph_entities`/`graph_relations`,
+  `community_reports`, `memory_paths`, dependencies, prompt runs, insight
+  candidates.
+- **`.curator/Collections/` L1–L3 markdown (CTX/ATM/CON) is emitted FROM the DB**
+  so `qmd` can index it for hybrid search. It is not authoritative and can be
+  re-emitted at any time — no DB↔file drift.
+- **Only the L4 Exhibition is human/agent-facing** (emitted to `02_Wiki/`);
+  editing it is reverse-parsed back into the DB.
+
+Forward compile flow:
+
+```text
+wiki add   → parse (no LLM) → DB source_spans            → emit CTX projection
+wiki build → LLM            → DB knowledge_units          → emit ATM projection
+           → LLM+embeddings → DB entities/relations/reports→ emit CON projection
+           → qmd update/embed indexes .curator/Collections/
+wiki query → route → qmd search (derived corpus) + DB graph traversal → L4 EXH
+```
+
+### 9.1 Query Routes
+
+`wiki query "..." --route <route>` answers through the v0.3.1 `QueryOrchestrator`:
+`local` (entity/fact), `global` (community reports), `explore` (memory paths +
+insight candidates), `exhibition` (active staged context), `source-section`
+(one source). Without `--route`, the legacy qmd path runs (qmd is the fallback
+engine). The same routing is available to agents via MCP `curator_query` /
+`curator_explore`.
+
+### 9.2 Backprop & Insight Lifecycle (Backward Pass)
+
+Human/agent feedback is a **loss signal**. The backward pass classifies a change
+before any patch and protects source truth:
+
+- `wiki sync <EXH-ID> --backward [--dry-run]` reverse-parses an edited Exhibition,
+  classifies it (correction / contradiction / derived_insight / style_only /
+  promotion_request / ambiguous), and produces a safe action — derived insights
+  become provisional **insight candidates**; corrections yield an explicit patch
+  plan over GENERATED nodes only. `03_Notes/`/`04_Resources/` are never edited.
+- Agents can do the same via MCP `curator_propose_correction`.
+- `wiki insight list|show|promote` (or MCP `curator_list_insight_candidates` /
+  `curator_promote_insight`) review candidates; promotion writes only `02_Wiki/`.
+
+### 9.3 Prompt Traceability
+
+Every LLM call is a registered, versioned prompt contract that records a
+`prompt_runs` (`PTR-`) trace (model, validator status, input/output hashes).
+Inspect with `wiki prompt list|show|trace|eval` or MCP `curator_get_prompt_trace`.
+Every query records a `QTR-` trace linking its route, evidence, and prompt runs.
+
+---
+
 ## Related Docs
 
 - [Plugin Guide](PLUGIN_GUIDE.md) — Obsidian plugin features in detail

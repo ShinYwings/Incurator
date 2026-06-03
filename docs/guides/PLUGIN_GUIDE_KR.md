@@ -537,6 +537,34 @@ Zotero에서 논문 항목을 우클릭 → **항목 링크 복사**하거나, [
 
 ---
 
+## 13. v0.3.1 큐레이션-네이티브 인터페이스
+
+플러그인은 백엔드의 v0.3.1 큐레이션-네이티브 기능을 숨김 로컬 JSON 명령으로
+호출합니다(동일 기기 흐름에서는 MCP를 거치지 않음). 클라이언트
+(`IncuratorClient`)가 노출하는 메서드:
+
+| 클라이언트 메서드 | 백엔드 명령 | 반환 |
+|---|---|---|
+| `getCuratePlan(workspacePath)` | `wiki plugin curate plan` | `IncuratorCuratePlan` (route, 선택/제외 소스, 허용 모드, 검증 오류) |
+| `getPromptTrace(traceId)` | `wiki plugin prompt trace` | `IncuratorPromptTrace` (프롬프트 id/버전, 검증자 상태, 모델) |
+| `listInsightCandidates(workspacePath)` | `wiki plugin insight list` | `IncuratorInsightCandidate[]` |
+| `promoteInsight(insightId, workspacePath)` | `wiki plugin insight promote` | `{ promotedTo }` (`02_Wiki/`에만 기록) |
+
+쿼리 결과(`CuratorQueryResult`)와 Sources & Trace 패널은 v0.3.1 필드를 추가로
+담습니다: `route`, `trace_id`(`QTR-`), `prompt_trace_ids`(`PTR-`),
+`source_span_ids`(`SPAN-`), `community_report_ids`(`REP-`),
+`memory_path_ids`(`MPATH-`), `insight_candidate_ids`(`INS-`). 구버전/부분 응답은
+이 필드를 생략하므로 패널은 우아하게 축소 렌더링됩니다.
+
+규칙:
+- 인사이트 후보 승격은 명시적 사용자 동작입니다. 플러그인은 `promoteInsight`
+  호출 전 확인을 받아야 하며, 이는 `02_Wiki/`에만 기록합니다.
+- 이 로컬 명령들은 JSON을 반환하며 Incurator MCP 도구로 라우팅하면 안 됩니다(MCP는
+  외부 에이전트용). [플러그인 스키마 스펙](../specs/plugin_schema/PLUGIN_SCHEMA_v0.3.1.md)
+  §9–11 참고.
+
+---
+
 ## 관련 문서
 
 - [전체 워크플로우](WORKFLOW_GUIDE_KR.md) — 시스템 전체 동작 흐름

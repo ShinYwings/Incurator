@@ -4,6 +4,19 @@
  * inline code, existing math spans, markdown links, and HTML tags untouched.
  */
 export function normalizeLatexDelimiters(content: string): string {
+  // Fix LLMs that output $$...$$ for inline math.
+  // If $$...$$ does not contain newlines and has non-whitespace characters on the same line, convert it to $...$.
+  content = content.replace(/\$\$([^\n]+?)\$\$/g, (match, math, offset, string) => {
+    const before = string.substring(0, offset);
+    const after = string.substring(offset + match.length);
+    const isLineStart = /(^|\n)[ \t]*$/.test(before);
+    const isLineEnd = /^[ \t]*(\n|$)/.test(after);
+    if (isLineStart && isLineEnd) {
+      return match; // It's on its own line, keep as block math
+    }
+    return `$${math}$`; // It's inline
+  });
+
   const protectedBlocks: string[] = [];
   // Protect: fenced code blocks, display math, inline math, inline code, markdown links, HTML tags
   let processed = content.replace(

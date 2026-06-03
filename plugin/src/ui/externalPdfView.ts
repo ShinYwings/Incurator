@@ -206,6 +206,7 @@ export class ExternalPdfView extends ItemView {
   private renderedZoom = 1;
   private referenceBaseWidth = 800;
   private lastClientWidth = 0;
+  private lastDpr = 1;
 
   private get baseFitScale(): number {
     const clientW = this.pagesEl?.clientWidth || this.containerEl?.clientWidth || 800;
@@ -256,6 +257,8 @@ export class ExternalPdfView extends ItemView {
   private zoomAnchorOldZoom?: number;
 
   private zoteroAnnotations: any[] = [];
+  private styleObserver: MutationObserver | null = null;
+  
   constructor(leaf: WorkspaceLeaf, private plugin: any) {
     super(leaf);
   }
@@ -319,16 +322,53 @@ export class ExternalPdfView extends ItemView {
 
   async onOpen(): Promise<void> {
     this.setupDropHandler();
+    this.setupPdfJsStyleSync();
     this.render();
     this.notifyContextChanged();
   }
 
+  private setupPdfJsStyleSync(): void {
+    // When moved to a new window (popout), pdfjs font styles injected into main document.head 
+    // must be synced to the popout window's document.head, otherwise text will render corrupted.
+    if (typeof window.MutationObserver !== "undefined") {
+      this.styleObserver = new MutationObserver(() => this.syncPdfJsStyles());
+      this.styleObserver.observe(document.head, { childList: true });
+    }
+    this.syncPdfJsStyles();
+  }
+
+  private syncPdfJsStyles(): void {
+    const mainDoc = document;
+    const childDoc = this.containerEl.doc;
+    if (mainDoc === childDoc) return;
+
+    const childStyles = Array.from(childDoc.head.querySelectorAll("style"));
+    const childStyleContents = new Set(childStyles.map((s) => s.textContent));
+
+    const mainStyles = Array.from(mainDoc.head.querySelectorAll("style"));
+    for (const style of mainStyles) {
+      const text = style.textContent || "";
+      if (text.includes("@font-face")) {
+        if (!childStyleContents.has(text)) {
+          const clone = childDoc.createElement("style");
+          clone.textContent = text;
+          clone.dataset.pdfjsSynced = "true";
+          childDoc.head.appendChild(clone);
+          childStyleContents.add(text);
+        }
+      }
+    }
+  }
+
   onResize(): void {
     super.onResize();
+    this.syncPdfJsStyles();
     if (!this.pagesEl || !this.cachedPdf || this.totalPages === 0) return;
     const currentWidth = this.containerEl.clientWidth;
-    if (currentWidth === this.lastClientWidth) return;
+    const currentDpr = (this.containerEl.win || window).devicePixelRatio || 1;
+    if (currentWidth === this.lastClientWidth && currentDpr === this.lastDpr) return;
     this.lastClientWidth = currentWidth;
+    this.lastDpr = currentDpr;
     this.setZoom(this.zoom);
   }
 
@@ -454,6 +494,10 @@ export class ExternalPdfView extends ItemView {
 
   async onClose(): Promise<void> {
     this.clearTimers();
+    if (this.styleObserver) {
+      this.styleObserver.disconnect();
+      this.styleObserver = null;
+    }
     this.cachedPdf = null;
     this.indexBuildToken++;
     this.documentIndex.removeDocument(this.docId);
@@ -779,7 +823,7 @@ export class ExternalPdfView extends ItemView {
         const data = await this.loadPdfData(doc);
         if (token !== this.renderToken) return;
         const pdfjsLib = await loadPdfJs();
-        pdf = (await pdfjsLib.getDocument({ data }).promise) as PdfDocument;
+        pdf = (await pdfjsLib.getDocument({ data, disableFontFace: true }).promise) as PdfDocument;
         if (token !== this.renderToken) return;
         this.cachedPdf = pdf;
         this.cachedPdfDocId = this.docId;
@@ -951,7 +995,7 @@ export class ExternalPdfView extends ItemView {
     if (!this.pagesEl) return;
     const scale = this.baseFitScale * this.zoom;
     // Use a hi-res viewport scaled by DPR so canvas is crisp on retina displays
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = (this.containerEl.win || window).devicePixelRatio || 1;
     const viewport = page.getViewport({ scale });
     const hiResViewport = page.getViewport({ scale: scale * dpr });
     const w = Math.floor(viewport.width);

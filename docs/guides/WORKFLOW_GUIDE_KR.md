@@ -412,6 +412,61 @@ wiki query "첫 번째 질문"
 
 ---
 
+## 9. v0.3.1 큐레이션-네이티브 컴파일 모델
+
+v0.3.1은 Curator를 **컴파일러**로 만듭니다. 중간 표현(IR)은 DB이고, 마크다운
+컬렉션은 거기서 파생된 일회용 검색 코퍼스입니다.
+
+- **`state.sqlite`가 큐레이션 지식의 유일한 진실원**입니다: `source_spans`,
+  `knowledge_units`, `graph_entities`/`graph_relations`, `community_reports`,
+  `memory_paths`, 의존성, 프롬프트 실행, 인사이트 후보.
+- **`.curator/Collections/`의 L1–L3 마크다운(CTX/ATM/CON)은 DB에서 emit**되어
+  `qmd`가 하이브리드 검색용으로 인덱싱합니다. 권위가 없고 언제든 재생성 가능 →
+  DB↔파일 드리프트 없음.
+- **사람/에이전트에 노출되는 건 L4 Exhibition뿐**(`02_Wiki/`로 출력)이며, 편집 시
+  DB로 역파싱됩니다.
+
+전방 컴파일 흐름:
+
+```text
+wiki add   → 파싱(LLM 없음) → DB source_spans              → CTX projection emit
+wiki build → LLM            → DB knowledge_units            → ATM projection emit
+           → LLM+임베딩      → DB entities/relations/reports → CON projection emit
+           → qmd update/embed가 .curator/Collections/ 인덱싱
+wiki query → 라우트 → qmd 검색(파생 코퍼스) + DB 그래프 탐색 → L4 EXH
+```
+
+### 9.1 쿼리 라우트
+
+`wiki query "..." --route <route>` 는 v0.3.1 `QueryOrchestrator`로 답합니다:
+`local`(엔티티/사실), `global`(커뮤니티 리포트), `explore`(메모리 경로 + 인사이트
+후보), `exhibition`(활성 staged 컨텍스트), `source-section`(특정 원본). `--route`
+없으면 레거시 qmd 경로(qmd는 폴백 엔진). 동일 라우팅이 MCP `curator_query` /
+`curator_explore`로 에이전트에도 제공됩니다.
+
+### 9.2 백프롭 & 인사이트 라이프사이클 (역방향 패스)
+
+사람/에이전트 피드백은 **loss signal**입니다. 역방향 패스는 패치 전에 변경을
+분류하고 원본 진실을 보호합니다:
+
+- `wiki sync <EXH-ID> --backward [--dry-run]` 는 편집된 Exhibition을 역파싱하고
+  분류(correction / contradiction / derived_insight / style_only /
+  promotion_request / ambiguous)한 뒤 안전한 액션을 산출 — 파생 인사이트는 잠정
+  **인사이트 후보**가 되고, 정정은 **생성된 노드에만** 대한 명시적 패치 플랜을
+  만듭니다. `03_Notes/`/`04_Resources/`는 절대 수정하지 않습니다.
+- 에이전트는 MCP `curator_propose_correction`으로 동일하게 수행합니다.
+- `wiki insight list|show|promote`(또는 MCP `curator_list_insight_candidates` /
+  `curator_promote_insight`)로 후보를 검토하며, 승격은 `02_Wiki/`에만 기록합니다.
+
+### 9.3 프롬프트 추적성
+
+모든 LLM 호출은 등록된 버전 있는 프롬프트 계약이며 `prompt_runs`(`PTR-`) 트레이스
+(모델, 검증자 상태, 입출력 해시)를 남깁니다. `wiki prompt list|show|trace|eval`
+또는 MCP `curator_get_prompt_trace`로 검사합니다. 모든 쿼리는 라우트·증거·프롬프트
+실행을 잇는 `QTR-` 트레이스를 기록합니다.
+
+---
+
 ## 관련 문서
 
 - [플러그인 가이드](PLUGIN_GUIDE_KR.md) — Obsidian 플러그인 기능 상세

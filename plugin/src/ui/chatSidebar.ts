@@ -431,7 +431,15 @@ export class ChatSidebarView extends ItemView {
         const raw = readFileSync(statusPath, "utf8");
         const data = JSON.parse(raw);
         if (data.llm && data.llm.primary) {
-          llmText = `Backend: ${data.llm.primary.split("::")[0]} (Synced)`;
+          const parts = data.llm.primary.split("::");
+          const provider = parts[0];
+          const modelName = parts[1] || parts[0];
+          
+          if (provider === "ollama") {
+            llmText = `Backend: ${modelName} (Synced)`;
+          } else {
+            llmText = `Backend: ${modelName}`;
+          }
         }
       }
 

@@ -445,7 +445,7 @@ def check_frontmatter(inv: PageInventory) -> list[LintIssue]:
     # Required fields per layer — SCHEMA_v0.1.0 §3
     required_by_type = {
         consts.LAYER_L1:   {"id", "type", "source_path", "source_hash", "last_updated"},
-        consts.LAYER_L2:      {"id", "type", "parent_source", "source_path", "claim_type", "last_updated"},
+        consts.LAYER_L2:   {"id", "type", "source_path", "unit_type", "knowledge_unit_ids", "source_span_ids"},
         consts.LAYER_L3:   {"id", "type", "domain", "last_updated"},
         consts.LAYER_L4: {"id", "type", "core_concepts", "confidence_score", "last_updated"},
     }

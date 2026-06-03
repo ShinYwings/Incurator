@@ -30,7 +30,7 @@ collections:
       "/02_Atoms": |
         L2 ATOM layer. Irreducible factual claims, equations, or theoretical
         constraints distilled from one or more L1 contexts. Frontmatter:
-        `id: ATM-...`, `parent_source: [[01_Contexts/CTX-...]]`, `claim_type`,
+        `id: ATM-...`, `source_path`, `unit_type`, `knowledge_unit_ids`, `source_span_ids`,
         `contradicts`, `is_verified_by_human`, `is_flagged_for_agent`.
         Body: ## Definition / Claim, ## Context, ## Constraints, ## Relations.
       "/03_Concepts": |

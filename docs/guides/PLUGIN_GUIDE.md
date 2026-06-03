@@ -630,6 +630,34 @@ Right-click an item in Zotero → **Copy Item Link**, or use the [Zotero Integra
 
 ---
 
+## 12. v0.3.1 Curation-Native Interfaces
+
+The plugin talks to the backend's v0.3.1 curation-native features through hidden
+local JSON commands (never via MCP for same-device flows). The client
+(`IncuratorClient`) exposes:
+
+| Client method | Backend command | Returns |
+|---|---|---|
+| `getCuratePlan(workspacePath)` | `wiki plugin curate plan` | `IncuratorCuratePlan` (route, selected/excluded sources, allowed modes, validation errors) |
+| `getPromptTrace(traceId)` | `wiki plugin prompt trace` | `IncuratorPromptTrace` (prompt id/version, validator status, model) |
+| `listInsightCandidates(workspacePath)` | `wiki plugin insight list` | `IncuratorInsightCandidate[]` |
+| `promoteInsight(insightId, workspacePath)` | `wiki plugin insight promote` | `{ promotedTo }` (writes only `02_Wiki/`) |
+
+Query results (`CuratorQueryResult`) and the Sources & Trace panel carry the
+v0.3.1 fields additively: `route`, `trace_id` (`QTR-`), `prompt_trace_ids`
+(`PTR-`), `source_span_ids` (`SPAN-`), `community_report_ids` (`REP-`),
+`memory_path_ids` (`MPATH-`), and `insight_candidate_ids` (`INS-`). Older/partial
+backend responses simply omit them, so the panel degrades gracefully.
+
+Rules:
+- Insight-candidate promotion is an explicit user action; the plugin must confirm
+  before calling `promoteInsight`, which writes only to `02_Wiki/`.
+- These local commands return JSON and must not be routed through Incurator MCP
+  tools (MCP is for external agents). See
+  [Plugin Schema spec](../specs/plugin_schema/PLUGIN_SCHEMA_v0.3.1.md) §9–11.
+
+---
+
 ## Related Docs
 
 - [Full Workflow](WORKFLOW_GUIDE.md) — How the entire system fits together

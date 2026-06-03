@@ -19,6 +19,7 @@ const BASE_INSTRUCTIONS =
   "Help the user with their notes, research, and writing tasks. " +
   "Format your responses in Markdown. " +
   "When writing math, use Obsidian-compatible LaTeX delimiters: inline math as $...$ and display math as $$...$$. " +
+  "CRITICAL: For inline math within a sentence, you MUST use single dollar signs (e.g., `$x = 2$`). Do NOT use `$$` for inline math. " +
   "Do not use \\(...\\) or \\[...\\] math delimiters. " +
   "Wrap every mathematical expression containing ^, _, \\infty, matrices, homographies, or quadrics in math delimiters. " +
   "Do not suggest note edits, Obsidian Agent settings, or workspace configuration changes unless the user asks for edits/configuration or the current task cannot be answered without them. " +
