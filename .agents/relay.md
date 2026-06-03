@@ -204,6 +204,37 @@ ALL NEW PIPELINE STAGE MODULES NOW EXIST + TESTED (additive, suite green):
   source_spans, knowledge_units, graph_index, community_reports, memory_paths,
   projection(atom/concept). They are NOT yet wired into `wiki build`.
 
+DONE (Cutover step 1 — integrating orchestration built + tested, additive/green):
+- `pipeline/compile.py`:
+  - `compile_source_l2(paths, client, source_id)` — re-parses source → spans
+    (stable ids) → knowledge_units (LLM) → emit ATM pages → graph entities/
+    relations (LLM); writes CTX→ATM dag_edges + artifact_dependencies; sets
+    l2_status done/error. Failed extraction sets l2 error + persists nothing.
+  - `compile_global_l3(paths, client)` — detect_communities → generate reports →
+    emit CON pages; sets l3_status done for L2-done sources.
+  - Returns CompileResult (atom_ids, concept_ids, unit/entity ids, trace ids).
+- Test test_v031_compile_pipeline.py (3, end-to-end with a DynamicFakeClient that
+  cites runtime span ids from the prompt). Full suite 348 passed, ruff clean.
+
+NEXT — Cutover step 2 (THE DESTRUCTIVE SWAP, do as its own focused pass):
+1. Rewrite `ingest_llm.run_l1_to_l3` to drive the new pipeline: for each pending
+   source call `pipeline.compile.compile_source_l2`, then once
+   `pipeline.compile.compile_global_l3`; keep finalize (index rebuild, ledger,
+   domain log). Remove its legacy per-source `ingest_source` L2 + global concept
+   pass + atom-coordinator calls.
+2. Point the worker (`ingest_worker.run_queued_jobs` / job processing) and any
+   `--wait` path / MCP `curator_build_*` at the same compile flow.
+3. DELETE now-dead legacy: ingest_llm L2/L3 internals (ingest_source atom path,
+   _run_pass1_atoms, batch extraction in ingest_orchestrator, clustering,
+   concept plans, atom coordinator, SummaryData/AtomCandidate if unused) and the
+   `atoms`/`concepts` SQLite tables if nothing else uses them. Move any remaining
+   prompt text from prompts.py into prompting/families and delete superseded funcs.
+4. DELETE/REWRITE dependent legacy tests to the new model (test_v021_batch_
+   extraction, test_v021_background_jobs, integrity, mcp tools reading atoms/
+   concepts). Do NOT shim to keep old tests green (user-confirmed).
+5. testbed smoke: `wiki add` / `wiki build` / `wiki status` / `wiki lint`.
+This will turn the suite red transiently; budget a focused pass to land it green.
+
 NEXT — THE CUTOVER (big integrating step, do as its own focused pass):
 Rewrite `wiki build` (ingest_orchestrator.py 474L / ingest_worker.py 419L) to
 drive the new pipeline end-to-end:
