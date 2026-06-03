@@ -156,9 +156,14 @@ wiki mcp install
 - **역할**: 대화 중 얻은 귀중한 통찰이나 정보를 **Wiki(02_Wiki/)** 페이지로 승격하여 영구 저장합니다. 카테고리 분류와 슬러그 생성이 자동으로 수행됩니다.
 
 #### `curator_update_node`
-- **역할**: **Exhibition (EXH)** 노드의 내용을 덮어씁니다. L1/L2/L3 노드에 대한 직접 수정은 백엔드의 DAG 파이프라인 무결성 유지를 위해 거부됩니다.
+- **역할**: **Exhibition (EXH)** 노드의 마크다운 내용을 덮어씁니다. L4가 유일하게 마크다운 파일로 생성되는 계층이므로 L1/L2/L3 노드에 대한 직접 수정은 여기서 불가능하며, 대신 `curator_propose_correction`을 사용해야 합니다.
 - **자동 수정 (Backprop)**: **Exhibition (EXH)** 노드를 수정할 경우, 백엔드 내부에서 `wiki sync`가 트리거되어 Concept, Atom, Context까지 변경 사항을 전파합니다. insight backprop은 드물게 발생하는 정정 경로이므로 단일 호출 latency보다 그래프 정합성을 우선합니다. 백엔드는 이전 Exhibition과 수정된 Exhibition의 텍스트 차이를 비교해 새 insight와 가장 관련 있는 Concept을 먼저 고르고, 가능한 경우 실제 변경이 필요한 Concept만 하나의 structured batch LLM 호출로 조정한 뒤, 실제로 상위 노드가 바뀐 경우에만 L2/L1로 내려갑니다. 변경이 없는 Concept은 batch 응답에서 생략할 수 있어 모델 출력 latency를 줄입니다. L1 업데이트는 원본 source truth를 보존하면서 derived correction을 별도로 기록해야 합니다. 명시적인 Concept-only dry run이나 진단 경로에서만 `propagate_sources=false`를 전달하세요.
 - **No-op 보호**: 동일한 EXH 내용을 다시 제출하면 `noop=true`, `updated=false`, `propagation.llm_calls=0`을 반환하고, 백엔드는 routing table rebuild나 LLM 호출을 수행하지 않습니다.
+
+#### `curator_propose_correction`
+- **역할**: L1 Context, L2 Atom, L3 Concept의 기반 데이터베이스(`state.sqlite`) 레코드에 대한 정정을 직접 제안합니다. L1-L3 계층이 더 이상 마크다운 파일로 존재하지 않으므로, 이 도구는 에이전트가 추출된 지식 그래프의 오류를 수정하는 핵심 메커니즘이 됩니다.
+- **파라미터**: `node_id` (CTX, ATM, 또는 CON 레코드의 ID), `correction_text`, `reasoning`.
+- **백엔드 처리**: 백엔드는 정정 사항을 DB에 기록하고, 영향을 받는 하위 노드들의 최소 재빌드를 트리거합니다.
 
 #### `curator_reindex`
 - **역할**: QMD 검색 인덱스를 수동으로 다시 빌드합니다.

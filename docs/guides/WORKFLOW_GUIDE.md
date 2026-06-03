@@ -62,20 +62,20 @@ Incurator processes source documents through four levels of abstraction.
      │
      │  wiki add
      ▼
-[L1: Contexts]  .curator/Collections/01_Contexts/CTX-UUID.md
+[L1: Contexts]  (DB Record: source_spans)
   - One context summary per source
   - Preserves original content, metadata, hash linkage
      │
      │  wiki build (L2 pass)
      ▼
-[L2: Atoms]  .curator/Collections/02_Atoms/ATM-UUID.md
+[L2: Atoms]  (DB Record: knowledge_units)
   - Atomic knowledge units extracted from L1
   - One fact / claim / conclusion each
   - Includes verification evidence (citations)
      │
      │  wiki build (L3 pass)
      ▼
-[L3: Concepts]  .curator/Collections/03_Concepts/CON-UUID.md
+[L3: Concepts]  (DB Record: graph_entities/relations)
   - Thematic clusters grouping Atoms from multiple sources
   - Cross-source comparison and synthesis
      │
@@ -369,7 +369,7 @@ wiki query "First question"
   04_Resources/ ──┤── wiki add ──► L1 CTX ──► L2 ATM ──► L3 CON
   02_Wiki/ ───┘                                              │
                                                              │ wiki curate
-[Machine Layer]                                              ▼
+[Machine Layer (state.sqlite DB)]                            │ wiki curate
   .curator/Collections/04_Exhibitions/ ◄─────── L4 EXH (workspace-scoped)
                     │
          ┌──────────┼──────────┐

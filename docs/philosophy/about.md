@@ -43,9 +43,8 @@ The process of decomposing and reassembling data (`Summary -> Atoms -> Concept`)
 
 In the final **Insight Derivation (Synthesis)** stage, **Humans** must intervene to discuss the results with the agent, iteratively refining the output to create truly new and valuable knowledge.
 
-**This role separation naturally leads to a dual-track physical directory structure tailored to the needs of each participant:**
-- **AI-Only Space (`.curator/`)**: The **Archive/Storage**. A machine-friendly backend designed for agents to instantly search and leverage knowledge. (Database for search and reasoning)
-- **Human-Only Space (`02_Wiki/`)**: The **Permanent Collection**. A beautiful knowledge library designed for users to read, manage, and own long-term. (Obsidian Wiki)
+- **AI-Only Space (`.curator/`)**: The **Archive/Storage**. A machine-friendly backend designed for agents to instantly search and leverage knowledge. It compiles knowledge directly into a high-speed database (`state.sqlite`) instead of generating intermediate markdown files.
+- **Human-Only Space (`02_Wiki/`)**: The **Permanent Collection**. A beautiful knowledge library designed for users to read, manage, and own long-term. Only the final synthesized L4 Exhibitions are output as Markdown for direct interaction.
 
 ---
 
@@ -87,8 +86,8 @@ The Curator isn't just an organizer; it's a **Refinement Engine** that produces 
     *   Heavy models are shielded from "grunt work," allowing you to concentrate your budget only on tasks that require high-level reasoning.
 
 4.  **Two-Track Directory Structure (UX):**
-    *   We have perfectly separated machine-readable, high-density data (`.curator/`) from human-readable, domain-organized wikis (`02_Wiki/`).
-    *   Users can comfortably browse and manage refined knowledge without being distracted by complex machine-generated intermediate artifacts.
+    *   We perfectly separate machine-readable, high-density data (managed via `.curator/state.sqlite` database records) from human-readable, domain-organized wikis (`02_Wiki/`).
+    *   By completely eliminating intermediate L1-L3 Markdown files, users can comfortably browse and manage refined knowledge without being distracted by or accidentally polluting the vault with machine-generated artifacts.
 
 5.  **Ecosystem Diversity & Growth:**
     *   Agents residing in the workspace become unique 'Artists' reflecting the user's style and project goals.

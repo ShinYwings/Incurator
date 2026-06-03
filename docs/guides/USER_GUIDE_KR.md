@@ -85,11 +85,8 @@ wiki init <path/to/your/obsidian-vault>
 │   ├── state.sqlite   # 중복 방지 해시, 소스Provenance, 인계 기록
 │   ├── index.md       # DAG 라우팅 테이블 (L1~L4 노드 ID 목록)
 │   ├── ledger.md      # HITL(인간 개입) 수정 및 승격 이력
-│   └── Collections/   # 지식 계층(Layers) 저장소
-│       ├── 01_Contexts/    # [L1] 소스 요약 및 정제된 메타데이터
-│       ├── 02_Atoms/       # [L2] 원자적 사실 추출물 (영구 메모)
-│       ├── 03_Concepts/    # [L3] 주제별 개념 구조
-│       └── 04_Exhibitions/ # [L4] 에이전트용 맞춤형 전시물
+│   └── Collections/   # 지식 계층(Layers) 마크다운 저장소
+│       └── 04_Exhibitions/ # [L4] 에이전트용 맞춤형 전시물 (유일하게 생성되는 마크다운 계층)
 ├── .gitignore         # Git 제외 설정
 └── .stignore          # Syncthing 동기화 제외 설정
 ```
@@ -125,7 +122,7 @@ wiki add 03_Notes/my_note.md
 wiki add
 ```
 
-이 명령을 통해 Curator는 원본 데이터를 파싱하고 L1 Context를 즉시 작성합니다. L1은 빠른 검색과 회수를 위해 영어 `Source Guide`에 section/page preview를 추가합니다. 작은/중간 문서는 원문을 `Source Sections`에 inline으로 보존하고, 책이나 긴 PDF 같은 대형 문서는 CTX에 원문 전체를 중복 저장하지 않고 원본 파일에서 필요한 구간만 on-demand로 읽습니다. L2 원자적 사실 추출과 L3 개념 연결은 build worker에 큐잉합니다. 결과는 `.curator/` 내부의 기계 친화적인 AI 전용 공간에 저장됩니다.
+이 명령을 통해 Curator는 원본 데이터를 파싱하고 L1 Context를 즉시 데이터베이스(`state.sqlite`)의 레코드로 작성합니다. 마크다운 파일을 생성하여 저장소를 오염시키지 않고, 고속의 DB 레코드로 관리됩니다. 작은/중간 문서는 원문을 DB에 inline으로 보존하고, 책이나 긴 PDF 같은 대형 문서는 원본 파일에서 필요한 구간만 on-demand로 읽습니다. L2 원자적 사실 추출과 L3 개념 연결 역시 DB 레코드로 기록되며 build worker에 큐잉합니다. 결과는 `.curator/state.sqlite` 내부에 저장됩니다.
 
 > [!TIP]
 > `wiki add`에 파일이나 폴더 경로를 지정하지 않으면, Curator는 설정된 모든 소스 디렉토리(`03_Notes`, `04_Resources` 등)를 훑어 새로 추가되거나 변경된 파일을 자동으로 찾아내어 일괄 처리합니다.
@@ -426,8 +423,8 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 ### 2. 지식 수집 및 관리 (Ingestion)
 | 명령어 | 설명 | 사용 시점 |
 | :--- | :--- | :--- |
-| `wiki add <file>` | 소스를 등록하고 영어 source guide와 크기 인식 source sections를 포함한 L1 Context를 즉시 생성합니다 (구조 기반, LLM 없음). | 새로운 정보를 추가할 때 |
-| `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 추출합니다. 고품질 추출에는 설정된 LLM을 사용하고, provider 실패 시 낮은 신뢰도의 L1 candidate 또는 deterministic L3 Concept fallback을 만들 수 있습니다. 기본은 백그라운드 워커에 큐잉, `--wait`는 즉시 실행. | 지식 그래프 심층 구축 시 |
+| `wiki add <file>` | 소스를 등록하고 L1 Context 레코드를 데이터베이스에 즉시 생성합니다 (구조 기반, LLM 없음). | 새로운 정보를 추가할 때 |
+| `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 데이터베이스 레코드로 추출/컴파일합니다. 기본은 백그라운드 워커에 큐잉, `--wait`는 즉시 실행. | 지식 그래프 심층 구축 시 |
 | `wiki source ls` | 등록된 소스 목록을 확인합니다. | 수집된 데이터 현황 파악 시 |
 | `wiki source show <id>` | 특정 소스의 상세 정보와 처리 상태를 확인합니다. | 소스 오류 진단 시 |
 | `wiki source rm <id>` | 소스 등록을 해제하고 생성된 L1 노드를 삭제합니다. | 잘못된 소스를 제거할 때 |
@@ -579,11 +576,11 @@ generated state, device metadata, chat context 때문에 backend와 plugin 상�
 #### 🧠 지식 밀도 (Collections)
 파이프라인의 각 단계별 처리 현황을 나타냅니다. v0.2.1 기본 흐름에서는 L1이 즉시 생성되고, L2·L3는 MCP background worker 또는 `wiki jobs run`으로 처리되며, L4는 workspace-agent 흐름 또는 숨겨진 고급 `wiki curate` 명령에서 생성됩니다. worker가 claim하기 전의 queued job은 `wiki jobs cancel <id>`로 취소하고, 완료/실패/취소된 job은 `wiki jobs rerun <id>`로 다시 queue에 넣을 수 있습니다.
 
--   **L1 Contexts**: 소스당 하나씩 생성된 source context 개수입니다. 각 Context는 영어 retrieval scaffold와 크기 인식 source sections를 포함하며, 등록된 소스 수와 일치해야 합니다.
--   **L2 Atoms**: 각 소스에서 추출된 원자적 사실의 총량입니다. 소스당 여러 개가 생성되므로 L1보다 많습니다.
--   **Fallback Atoms**: 설정된 provider가 L2 추출 중 실패하면, Incurator는 소스가 검색 가능하고 section/page provenance를 유지하도록 L1 source guide에서 낮은 신뢰도의 Atom을 만들 수 있습니다. provider가 정상화된 뒤 해당 소스를 retry하면 더 풍부한 추출로 보강할 수 있습니다.
--   **L3 Concepts**: L2 원자들을 교차 소스로 클러스터링한 개념의 개수입니다. L3 clustering이나 drafting이 실패하면, 나중에 LLM-backed rebuild로 보강할 수 있도록 낮은 신뢰도의 deterministic fallback Concept를 만들어 provenance를 계속 추적 가능하게 유지할 수 있습니다.
--   **L4 Exhibitions**: 워크스페이스 명세(`curate.yml`)에 따라 합성된 전시물입니다. 워크스페이스가 초기화되고 `wiki curate`가 실행되기 전까지는 0입니다.
+-   **L1 Contexts**: DB에 저장된 소스 요약 레코드 개수입니다.
+-   **L2 Atoms**: DB에 저장된 원자적 사실 레코드 개수입니다.
+-   **Fallback Atoms**: DB에 임시로 저장된 낮은 신뢰도의 Atom 레코드 개수입니다.
+-   **L3 Concepts**: DB에 저장된 교차 소스 클러스터링(개념) 레코드 개수입니다.
+-   **L4 Exhibitions**: 워크스페이스 명세(`curate.yml`)에 따라 마크다운 파일로 합성된 전시물입니다.
 
 > [!TIP]
 > **파이프라인 현황 진단**: L4가 0이라면 아직 워크스페이스에서 Exhibition이 생성되지 않은 것입니다. MCP를 통해 `search_curator`를 호출하면 workspace curation이 실행되어 L4가 생성될 수 있습니다. 수동 `wiki curate`는 고급/디버깅용으로 계속 사용할 수 있지만 기본 help 표면에서는 숨겨집니다.

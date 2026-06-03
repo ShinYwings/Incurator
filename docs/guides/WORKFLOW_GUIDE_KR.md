@@ -64,20 +64,20 @@ Incurator는 소스 문서를 4단계 추상화 레이어로 처리합니다.
      │
      │  wiki add
      ▼
-[L1: Contexts]  .curator/Collections/01_Contexts/CTX-UUID.md
+[L1: Contexts]  (DB 레코드: source_spans)
   - 소스 1개당 1개의 컨텍스트 요약
   - 원본 내용, 메타데이터, 해시 연결
      │
      │  wiki build (L2 pass)
      ▼
-[L2: Atoms]  .curator/Collections/02_Atoms/ATM-UUID.md
+[L2: Atoms]  (DB 레코드: knowledge_units)
   - L1에서 추출한 원자적 지식 단위
   - 하나의 사실·주장·결론
   - 검증 근거(인용) 포함
      │
      │  wiki build (L3 pass)
      ▼
-[L3: Concepts]  .curator/Collections/03_Concepts/CON-UUID.md
+[L3: Concepts]  (DB 레코드: graph_entities/relations)
   - 여러 소스의 Atom을 묶은 주제 클러스터
   - 크로스-소스 비교·통합
      │
@@ -401,7 +401,7 @@ wiki query "첫 번째 질문"
   04_Resources/ ──┤── wiki add ──► L1 CTX ──► L2 ATM ──► L3 CON
   02_Wiki/ ───┘                                              │
                                                              │ wiki curate
-[Machine Layer]                                              ▼
+[Machine Layer (state.sqlite DB)]                            ▼
   .curator/Collections/04_Exhibitions/ ◄─────── L4 EXH (workspace-scoped)
                     │
          ┌──────────┼──────────┐

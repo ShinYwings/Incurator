@@ -154,9 +154,14 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 - **Role**: Promote a conversational insight or discussion to the human-verified Wiki space (`02_Wiki/`). This permanently captures valuable information from the chat into the project's durable Wiki.
 
 #### `curator_update_node`
-- **Role**: Overwrite an **Exhibition (EXH)** node's content. Direct edits to L1/L2/L3 nodes are rejected by the backend to enforce the DAG's pipeline integrity.
+- **Role**: Overwrite an **Exhibition (EXH)** node's markdown content. Since L4 is the only layer output as Markdown files, direct edits to L1/L2/L3 are not permitted here; use `curator_propose_correction` instead.
 - **Automatic Repair (Backprop)**: When an **Exhibition (EXH)** is updated, `wiki sync` is triggered internally to propagate changes upstream to Concepts, Atoms, and Contexts. Insight backprop is expected to be rare, so graph consistency is prioritized over single-call latency. The backend first compares the previous and updated Exhibition text, targets the Concepts most related to the added insight, reconciles changed Concepts in one structured batch LLM call when possible, then propagates to L2/L1 only when upstream pages actually change. Unchanged Concepts can be omitted from the batch response to reduce model output latency. L1 updates must preserve original source truth while recording derived corrections separately. Pass `propagate_sources=false` only for an explicitly Concept-only dry run or diagnostic path.
 - **No-op protection**: Submitting identical EXH content returns `noop=true`, `updated=false`, and `propagation.llm_calls=0`; the backend does not rebuild routing tables or call the LLM for unchanged content.
+
+#### `curator_propose_correction`
+- **Role**: Propose a correction directly to the underlying `state.sqlite` database records for L1 Contexts, L2 Atoms, or L3 Concepts. Since L1-L3 layers are no longer represented as Markdown files, this tool is the primary mechanism for an agent to fix errors in the extracted knowledge graph.
+- **Parameters**: `node_id` (the ID of the CTX, ATM, or CON record), `correction_text`, `reasoning`.
+- **Backend handling**: The backend records the correction in the DB and triggers a minimal rebuild of dependent downstream nodes.
 
 #### `curator_reindex`
 - **Role**: Manually rebuild the QMD search index.
