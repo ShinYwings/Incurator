@@ -1,7 +1,7 @@
 # Agent Relay Handoff
 
 **Last Updated:** 2026-06-03
-**Last Agent:** Antigravity
+**Last Agent:** Claude Code (Opus 4.8) -> Antigravity
 
 ## Goal
 
@@ -161,6 +161,28 @@ DONE (Phase 4 foundation — built + tested + green):
   test_v031_knowledge_unit_extraction, test_v031_atom_frontmatter_source_spans.
   Full backend suite 333 passed. New code ruff-clean.
 
+PENDING — Phase 4/5 LEGACY CUTOVER (next focused pass, do together):
+The legacy L2/L3 generation lives in `ingest_llm.py` + `ingest_orchestrator.py`
+(writes `atoms`/`concepts` tables, ATM/CON pages, dag_edges) and powers many
+existing tests (test_v021_*, integrity, etc.). The clean cutover = make
+`wiki build` drive the new pipeline (knowledge_units + graph/communities +
+emit ATM/CON projections), remove legacy atom/concept generation, move L1/L2/L3
+prompt text from prompts.py into families and delete superseded funcs, then
+update the dependent tests deliberately. This is a large, risky rewrite best done
+as one focused pass spanning Phase 4 (units) + Phase 5 (graph/communities), since
+both come from the same ingest_llm module. The new pipeline modules are ready and
+tested to plug in.
+
+PLAN SYNC (2026-06-03): Added AMENDMENT blocks to `00_MASTER_PLAN.md` and
+`11_CODE_LEVEL_IMPLEMENTATION_BLUEPRINT.md` recording the two locked decisions
+(no-backward-compat; derived-projection compile model) that override the original
+plan text. Specs remain the authoritative source; plans are subordinate.
+
+LEGACY-TEST POLICY (user-clarified): keeping the suite green is for regression
+safety of UNTOUCHED code + tests-as-spec, NOT backward compat. For replaced
+legacy L2/L3 behavior, DELETE or REWRITE its tests to the new model — do not add
+shims to keep old tests passing.
+
 DONE (Phase 5 modules — built + tested + green, additive):
 - `pipeline/graph_index.py` — extract_entities_and_relations(): entity_relation_
   extract contract → db.upsert_graph_entity/relation (entities first so endpoints
@@ -179,6 +201,10 @@ DONE (Phase 5 modules — built + tested + green, additive):
   test_v031_memory_paths, test_v031_concept_projection. Full suite 345 passed,
   ruff clean.
 
+ALL NEW PIPELINE STAGE MODULES NOW EXIST + TESTED (additive, suite green):
+  source_spans, knowledge_units, graph_index, community_reports, memory_paths,
+  projection(atom/concept). They are NOT yet wired into `wiki build`.
+
 DONE (Cutover step 1 — integrating orchestration built + tested, additive/green):
 - `pipeline/compile.py`:
   - `compile_source_l2(paths, client, source_id)` — re-parses source → spans
@@ -190,6 +216,52 @@ DONE (Cutover step 1 — integrating orchestration built + tested, additive/gree
   - Returns CompileResult (atom_ids, concept_ids, unit/entity ids, trace ids).
 - Test test_v031_compile_pipeline.py (3, end-to-end with a DynamicFakeClient that
   cites runtime span ids from the prompt). Full suite 348 passed, ruff clean.
+
+NEXT — Cutover step 2 (THE DESTRUCTIVE SWAP, do as its own focused pass):
+1. Rewrite `ingest_llm.run_l1_to_l3` to drive the new pipeline: for each pending
+   source call `pipeline.compile.compile_source_l2`, then once
+   `pipeline.compile.compile_global_l3`; keep finalize (index rebuild, ledger,
+   domain log). Remove its legacy per-source `ingest_source` L2 + global concept
+   pass + atom-coordinator calls.
+2. Point the worker (`ingest_worker.run_queued_jobs` / job processing) and any
+   `--wait` path / MCP `curator_build_*` at the same compile flow.
+3. DELETE now-dead legacy: ingest_llm L2/L3 internals (ingest_source atom path,
+   _run_pass1_atoms, batch extraction in ingest_orchestrator, clustering,
+   concept plans, atom coordinator, SummaryData/AtomCandidate if unused) and the
+   `atoms`/`concepts` SQLite tables if nothing else uses them. Move any remaining
+   prompt text from prompts.py into prompting/families and delete superseded funcs.
+4. DELETE/REWRITE dependent legacy tests to the new model (test_v021_batch_
+   extraction, test_v021_background_jobs, integrity, mcp tools reading atoms/
+   concepts). Do NOT shim to keep old tests green (user-confirmed).
+5. testbed smoke: `wiki add` / `wiki build` / `wiki status` / `wiki lint`.
+This will turn the suite red transiently; budget a focused pass to land it green.
+
+NEXT — THE CUTOVER (big integrating step, do as its own focused pass):
+Rewrite `wiki build` (ingest_orchestrator.py 474L / ingest_worker.py 419L) to
+drive the new pipeline end-to-end:
+  add: parse → source_spans (already wired in instant L1)
+  build: load spans → knowledge_units → graph_index → community_reports →
+         emit CTX/ATM/CON projections from DB → qmd update/embed
+Then DELETE legacy L2/L3 generation in ingest_llm.py (~2868L: atom coordinator,
+clustering, concept plans, fallbacks) + the `atoms`/`concepts` SQLite tables if
+unused, move remaining L1/L2/L3 prompt text from prompts.py into families and
+delete superseded funcs, and DELETE/REWRITE the dependent legacy tests to assert
+the new model (per user: do NOT shim to keep old tests green). Expect many
+test_v021_*/integrity tests to be rewritten. Check: `wiki add/build/status/lint`
+testbed smoke after cutover. This is destructive + large; confirmed acceptable by
+user (no backward compat). The new modules are ready to plug in.
+- Rewrite ingest to the compile model: parse source → write DB source_spans
+  (deterministic, no LLM) → emit CTX projection md. Then LLM knowledge_unit_
+  extract (use prompting.run_prompt + the registered contract) → DB
+  knowledge_units → emit ATM projection md. Likely a new `pipeline/` package
+  (source_map/knowledge_units stages) replacing the L1/L2 parts of ingest_raw.py
+  /ingest_llm.py. Add deterministic markdown source-span extraction (headings/
+  paragraphs/equations/code for md; pages for pdf). Move L1/L2 prompt text out of
+  prompts.py into families (already have contracts) and delete superseded funcs.
+  Tests: test_v031_markdown_source_spans, test_v031_pdf_source_spans,
+  test_v031_knowledge_unit_extraction, test_v031_atom_frontmatter_source_spans.
+  CAUTION: ingest_raw.py/ingest_llm.py are large & power many existing tests; plan
+  the rewrite carefully to keep the suite green (or update tests deliberately).
 
 DONE (Exhibitions & UI/Streaming Improvements - 2026-06-03):
 - Deprecated ephemeral Garbage Collection for Exhibitions (L4) in `lint.py` (now returns `[]`) to treat them as persistent living documents/memories.
@@ -207,4 +279,8 @@ DONE (Exhibitions & UI/Streaming Improvements - 2026-06-03):
 
 ## Immediate Next Action
 
-Await user review and approval on the exhibitions persistence plan (`2026-06_exhibitions_persistence_review.md`) to decide between direct perpetual storage (Option A) vs. a consolidated memory profile (Option B/C).
+Begin Phase 1 prompt subsystem (TDD): scaffold `prompting/` package, write
+failing tests for registry/contracts/trace/validators, then implement and move
+existing prompt families out of `prompts.py`/`query.py`. Coordinate with Phase 2
+DB schema for `prompt_runs` persistence.
+(Note: Opus will also resume and perform the architectural validation of the exhibitions persistence plan `2026-06_exhibitions_persistence_review.md`).
