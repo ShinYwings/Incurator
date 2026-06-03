@@ -1459,30 +1459,12 @@ export class ChatSidebarView extends ItemView {
     }
 
     if (client.available && query.trim()) {
-      const curateFiles = this.app.vault.getFiles().filter(f => f.name === "curate.yml");
-      // Only bind a workspace when the active note is inside one. A plain chat
-      // outside any workspace must resolve to workspace_id=default on the backend
-      // rather than getting bound to an arbitrary first curate.yml in the vault.
-      let targetCurate: TFile | undefined;
-      const activeFile = this.app.workspace.getActiveFile();
-      if (activeFile) {
-        targetCurate = curateFiles.find(
-          f => f.parent && activeFile.path.startsWith(`${f.parent.path}/`)
-        );
-      }
-
-      let wsPath = "";
-      if (targetCurate) {
-        const parentPath = targetCurate.parent?.path;
-        wsPath = parentPath && parentPath !== "/" 
-          ? `${(this.app.vault.adapter as any).getBasePath()}/${parentPath}` 
-          : (this.app.vault.adapter as any).getBasePath();
-      }
+      const wsPath = (this.app.vault.adapter as any).getBasePath();
 
       if (wsPath) {
         sections.push(
           `<incurator_workspace path="${escapeAttribute(wsPath)}">\n` +
-          `This is the active workspace path for Incurator backend commands and external-agent MCP tools.\n` +
+          `This is the active vault path for Incurator backend commands and external-agent MCP tools.\n` +
           `</incurator_workspace>`
         );
       }
@@ -2203,6 +2185,10 @@ export class ChatSidebarView extends ItemView {
     let remainingContent = msg.content;
 
     if (multiProposals.length > 0) {
+      if (!msg.isStreaming && !msg.appliedEdits) {
+        this.autoApplyProposals(msg, multiProposals);
+      }
+      
       for (const prop of multiProposals) {
         remainingContent = remainingContent.replace(prop.originalBlock, "");
       }
@@ -2324,8 +2310,7 @@ export class ChatSidebarView extends ItemView {
     msg: ChatMessage
   ): void {
     const file = this.app.vault.getAbstractFileByPath(prop.filepath);
-    const wrapper = container.createDiv("ai-agent-inline-diff");
-
+    const wrapper = container.createDiv("ai-agent-inline-diff ai-agent-inline-diff-applied");
     const header = wrapper.createDiv("ai-agent-inline-diff-header");
     header.createSpan({ cls: "ai-agent-inline-diff-filename", text: prop.filepath });
     const btnGroup = header.createDiv("ai-agent-inline-diff-actions");
@@ -2342,46 +2327,67 @@ export class ChatSidebarView extends ItemView {
 
     const reviewBtn = btnGroup.createEl("button", {
       cls: "ai-agent-inline-diff-review ai-agent-inline-diff-accept",
-      text: isNewFile ? "Create File" : "Review in file",
-      attr: { title: isNewFile ? "Create this new file" : "Open this edit as an inline diff in the Markdown editor" },
+      text: isNewFile ? "✓ Created" : "✓ Applied",
+      attr: { title: "This edit was automatically applied." },
     });
+    reviewBtn.disabled = true;
+
     const rejectBtn = btnGroup.createEl("button", {
       cls: "ai-agent-inline-diff-reject",
-      text: "✗ Reject",
-      attr: { title: "Discard this edit" },
+      text: "✗ Revert",
+      attr: { title: "Undo this edit" },
     });
 
-    const diffLines = this.computeSimpleDiff(prop.search, prop.replace);
-    const codeEl = wrapper.createEl("pre", { cls: "ai-agent-inline-diff-code" });
-    for (const line of diffLines) {
-      const lineEl = codeEl.createDiv({
-        cls: `ai-agent-inline-diff-line ai-agent-inline-diff-line-${line.type}`,
-      });
-      const prefix = line.type === "removed" ? "- " : line.type === "added" ? "+ " : "  ";
-      lineEl.createSpan({ cls: "ai-agent-inline-diff-gutter", text: prefix });
-      lineEl.createSpan({ cls: "ai-agent-inline-diff-text", text: line.text });
-    }
-
-    const rejectEdit = () => {
+    const rejectEdit = async () => {
       wrapper.addClass("ai-agent-inline-diff-rejected");
       rejectBtn.disabled = true;
-      rejectBtn.setText("✗ Rejected");
+      rejectBtn.setText("✗ Reverted");
+      
+      const revertData = msg.revertData?.find(d => d.filepath === prop.filepath);
+      if (revertData) {
+        const targetFile = this.app.vault.getAbstractFileByPath(prop.filepath);
+        if (revertData.originalContent === null) {
+          if (targetFile instanceof TFile) {
+            await this.app.vault.trash(targetFile, false);
+            new Notice(`Reverted (Deleted): ${prop.filepath}`);
+          }
+        } else {
+          if (targetFile instanceof TFile) {
+            await this.app.vault.modify(targetFile, revertData.originalContent);
+            new Notice(`Reverted: ${prop.filepath}`);
+          }
+        }
+      }
     };
 
-    reviewBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (isNewFile) {
-        await this.createNewFile(prop.filepath, prop.replace);
-        wrapper.addClass("ai-agent-inline-diff-accepted");
-        reviewBtn.disabled = true;
-        rejectBtn.disabled = true;
-        reviewBtn.setText("✓ Created");
-      } else {
-        await this.reviewAssistantEdit(msg);
-        wrapper.addClass("ai-agent-inline-diff-reviewing");
-      }
-    });
     rejectBtn.addEventListener("click", (e) => { e.stopPropagation(); rejectEdit(); });
+  }
+
+  private async autoApplyProposals(msg: ChatMessage, proposals: MultiEditProposal[]): Promise<void> {
+    if (msg.appliedEdits) return;
+    msg.appliedEdits = true;
+    msg.revertData = [];
+
+    for (const prop of proposals) {
+      const file = this.app.vault.getAbstractFileByPath(prop.filepath);
+      let isNewFile = false;
+      if (!(file instanceof TFile)) {
+        if (prop.search.includes("<<< NEW FILE >>>") || prop.search.trim() === "") {
+          isNewFile = true;
+        } else {
+          continue;
+        }
+      }
+
+      if (isNewFile) {
+        msg.revertData.push({ filepath: prop.filepath, originalContent: null });
+        await this.createNewFile(prop.filepath, prop.replace);
+      } else if (file instanceof TFile) {
+        const originalContent = await this.app.vault.read(file);
+        msg.revertData.push({ filepath: prop.filepath, originalContent });
+        await this.applyInlineMultiEdit(prop, file);
+      }
+    }
   }
 
   private computeSimpleDiff(

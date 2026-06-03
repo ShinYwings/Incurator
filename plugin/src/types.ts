@@ -244,6 +244,8 @@ export interface ChatMessage {
   contextRefs?: ContextRef[];
   /** For streaming: is the message still being received? */
   isStreaming?: boolean;
+  appliedEdits?: boolean;
+  revertData?: { filepath: string; originalContent: string | null }[];
 }
 
 export interface ChatSession {
