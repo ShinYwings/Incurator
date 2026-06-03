@@ -97,8 +97,8 @@ export interface PluginSettings {
   pdfVisionFallback: boolean;
   pdfFullDocumentIndex: boolean;
   incuratorEnabled: boolean;
-  incuratorMcpCommand: string;
-  incuratorMcpArgs: string[];
+  incuratorBackendCommand: string;
+  incuratorBackendArgs: string[];
   incuratorRepoPath: string;
   incuratorDefaultDestination: string;
   incuratorDefaultImportMode: "copy" | "reference";
@@ -172,11 +172,11 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   pdfVisionFallback: true,
   pdfFullDocumentIndex: true,
   incuratorEnabled: true,
-  incuratorMcpCommand: "wiki",
-  incuratorMcpArgs: ["mcp"],
+  incuratorBackendCommand: "wiki",
+  incuratorBackendArgs: [],
   incuratorRepoPath: "",
   incuratorDefaultDestination: "04_Resources",
-  incuratorDefaultImportMode: "copy",
+  incuratorDefaultImportMode: "reference",
   incuratorStatusPolling: true,
   fileScrollPositions: {},
 };
@@ -216,6 +216,8 @@ export interface ContextRef {
   content: string;
   /** Keep this context chip after sending and refresh it from the source tab/file. */
   isPinned?: boolean;
+  /** When false, keep the chip visible but exclude it from model prompts. */
+  includeInPrompt?: boolean;
   /** Original view type for pinned open-tab context. */
   sourceViewType?: string;
   /** Base64-encoded image for PDF page captures */
@@ -300,6 +302,7 @@ export interface PdfPageContext {
   documentName?: string;
   filePath?: string;
   fileHash?: string;
+  zoteroAttachmentKey?: string;
 }
 
 export type IncuratorSourceState =
@@ -307,10 +310,10 @@ export type IncuratorSourceState =
   | "untracked"
   | "l1_ready"
   | "l2_ready"
+  | "l3_ready"
+  | "l4_ready"
   | "queued"
   | "running"
-  | "indexed"
-  | "curated"
   | "stale"
   | "missing"
   | "moved"
@@ -397,6 +400,9 @@ export interface CuratorQueryResult {
   fallback?: string;
   fallback_hits?: Array<{ path?: string; title?: string; score?: number; snippet?: string }>;
   question: string;
+  input_language?: string;
+  english_query?: string;
+  final_output_language?: string;
   trace?: CuratorQueryTrace;
   error?: string;
 }

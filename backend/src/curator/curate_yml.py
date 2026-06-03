@@ -49,16 +49,113 @@ class ArtistPersona:
 
 
 @dataclass
+class CurateReferenceMode:
+    """Reference Mode policy for external sources (Zotero/linked PDFs)."""
+
+    allow_external: bool = True
+    require_rebind_approval: bool = True
+
+
+@dataclass
+class CurateGoal:
+    """Why the workspace exists and what a successful Exhibition enables."""
+
+    primary: str = ""
+    audience: str = "generalist"  # researcher | engineer | learner | writer | generalist
+    deliverables: list[str] = field(default_factory=list)
+    success_criteria: list[str] = field(default_factory=list)
+
+
+@dataclass
+class CurateKnowledge:
+    """Knowledge scope: domains, topics, disambiguation, false-merge guards."""
+
+    domains: list[str] = field(default_factory=list)
+    topics: list[str] = field(default_factory=list)
+    disambiguation_keywords: list[str] = field(default_factory=list)
+    avoid_merges: list[str] = field(default_factory=list)
+
+
+@dataclass
+class CurateOutput:
+    """Output contract for staged Exhibitions."""
+
+    format: str = "exhibition"
+    style: str = "dense-technical"
+    citation_style: str = "curator-source-spans"
+    include_sections: list[str] = field(default_factory=list)
+
+
+@dataclass
+class CurateReasoning:
+    """Allowed retrieval/reasoning modes and exploration policy."""
+
+    default_mode: str = "auto"
+    allowed_modes: list[str] = field(
+        default_factory=lambda: ["local", "global", "explore", "exhibition"]
+    )
+    exploration_enabled: bool = True
+    max_followups: int = 5
+    require_insight_candidates: bool = False
+
+
+@dataclass
+class CurateVerification:
+    """Evidence verification policy."""
+
+    min_confidence: float = 0.60
+    high_threshold: float = 0.85
+    require_source_spans: bool = True
+    allow_general_knowledge: bool = False
+    contradiction_policy: str = "surface-and-flag"  # surface-and-flag | merge-allowed | needs-review
+
+
+@dataclass
+class CurateBackprop:
+    """Backprop / feedback policy."""
+
+    enabled: bool = True
+    source_truth_policy: str = "never_rewrite_original_source"
+    derived_insight_policy: str = "record_then_promote_or_patch_generated"
+    ambiguous_merge_policy: str = "needs_review"
+
+
+@dataclass
+class CuratePrompts:
+    """Prompt profile and per-prompt overrides."""
+
+    profile: str = "default"
+    output_language: str = "same_as_latest_request"
+    prompt_overrides: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class CurateSpec:
-    """Parsed contents of a workspace curate.yml file."""
+    """Parsed contents of a workspace curate.yml file.
+
+    v0.3.1 adds the structured Knowledge Requirement Specification sections
+    (goal, knowledge, output, reasoning, verification, backprop, prompts). The
+    legacy ``persona``/``min_confidence`` fields remain for the current pipeline
+    until it is rebuilt; the v0.3.1 ``CurationPolicy`` is compiled from the new
+    sections, not from persona.
+    """
 
     project: str
     description: str = ""
     vault_root: str = ""
     sources: CurateSources = field(default_factory=CurateSources)
+    reference_mode: CurateReferenceMode = field(default_factory=CurateReferenceMode)
     min_confidence: float = 0.60
     exhibition: str = ""
     persona: ArtistPersona = field(default_factory=ArtistPersona)
+    # v0.3.1 KRS sections
+    goal: CurateGoal = field(default_factory=CurateGoal)
+    knowledge: CurateKnowledge = field(default_factory=CurateKnowledge)
+    output: CurateOutput = field(default_factory=CurateOutput)
+    reasoning: CurateReasoning = field(default_factory=CurateReasoning)
+    verification: CurateVerification = field(default_factory=CurateVerification)
+    backprop: CurateBackprop = field(default_factory=CurateBackprop)
+    prompts: CuratePrompts = field(default_factory=CuratePrompts)
 
     def matches_sources(self, source_path: str) -> bool:
         """Check if source_path matches this spec's include/exclude patterns.
@@ -175,14 +272,110 @@ def load_curate_spec(workspace_path: Path) -> Optional[CurateSpec]:
     else:
         artist_persona = ArtistPersona()
 
+    # Reference Mode (nested under sources)
+    ref_raw = sources_raw.get("reference_mode", {}) if isinstance(sources_raw, dict) else {}
+    if isinstance(ref_raw, dict):
+        reference_mode = CurateReferenceMode(
+            allow_external=bool(ref_raw.get("allow_external", True)),
+            require_rebind_approval=bool(ref_raw.get("require_rebind_approval", True)),
+        )
+    else:
+        reference_mode = CurateReferenceMode()
+
     return CurateSpec(
         project=project.strip(),
         description=str(raw.get("description", "") or ""),
         vault_root=str(raw.get("vault_root", "") or ""),
         sources=sources,
+        reference_mode=reference_mode,
         min_confidence=min_confidence,
         exhibition=str(raw.get("exhibition", "") or ""),
         persona=artist_persona,
+        goal=_parse_goal(raw.get("goal", {})),
+        knowledge=_parse_knowledge(raw.get("knowledge", {})),
+        output=_parse_output(raw.get("output", {})),
+        reasoning=_parse_reasoning(raw.get("reasoning", {})),
+        verification=_parse_verification(raw.get("verification", {}), min_confidence),
+        backprop=_parse_backprop(raw.get("backprop", {})),
+        prompts=_parse_prompts(raw.get("prompts", {})),
+    )
+
+
+def _as_dict(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _parse_goal(raw: object) -> "CurateGoal":
+    d = _as_dict(raw)
+    return CurateGoal(
+        primary=str(d.get("primary", "") or ""),
+        audience=str(d.get("audience", "generalist") or "generalist"),
+        deliverables=_str_list_from("deliverables", d),
+        success_criteria=_str_list_from("success_criteria", d),
+    )
+
+
+def _parse_knowledge(raw: object) -> "CurateKnowledge":
+    d = _as_dict(raw)
+    return CurateKnowledge(
+        domains=_str_list_from("domains", d),
+        topics=_str_list_from("topics", d),
+        disambiguation_keywords=_str_list_from("disambiguation_keywords", d),
+        avoid_merges=_str_list_from("avoid_merges", d),
+    )
+
+
+def _parse_output(raw: object) -> "CurateOutput":
+    d = _as_dict(raw)
+    return CurateOutput(
+        format=str(d.get("format", "exhibition") or "exhibition"),
+        style=str(d.get("style", "dense-technical") or "dense-technical"),
+        citation_style=str(d.get("citation_style", "curator-source-spans") or "curator-source-spans"),
+        include_sections=_str_list_from("include_sections", d),
+    )
+
+
+def _parse_reasoning(raw: object) -> "CurateReasoning":
+    d = _as_dict(raw)
+    allowed = _str_list_from("allowed_modes", d)
+    return CurateReasoning(
+        default_mode=str(d.get("default_mode", "auto") or "auto"),
+        allowed_modes=allowed or ["local", "global", "explore", "exhibition"],
+        exploration_enabled=bool(d.get("exploration_enabled", True)),
+        max_followups=int(d.get("max_followups", 5) or 5),
+        require_insight_candidates=bool(d.get("require_insight_candidates", False)),
+    )
+
+
+def _parse_verification(raw: object, fallback_min_conf: float) -> "CurateVerification":
+    d = _as_dict(raw)
+    return CurateVerification(
+        min_confidence=float(d.get("min_confidence", fallback_min_conf)),
+        high_threshold=float(d.get("high_threshold", 0.85)),
+        require_source_spans=bool(d.get("require_source_spans", True)),
+        allow_general_knowledge=bool(d.get("allow_general_knowledge", False)),
+        contradiction_policy=str(d.get("contradiction_policy", "surface-and-flag") or "surface-and-flag"),
+    )
+
+
+def _parse_backprop(raw: object) -> "CurateBackprop":
+    d = _as_dict(raw)
+    return CurateBackprop(
+        enabled=bool(d.get("enabled", True)),
+        source_truth_policy=str(d.get("source_truth_policy", "never_rewrite_original_source") or "never_rewrite_original_source"),
+        derived_insight_policy=str(d.get("derived_insight_policy", "record_then_promote_or_patch_generated") or "record_then_promote_or_patch_generated"),
+        ambiguous_merge_policy=str(d.get("ambiguous_merge_policy", "needs_review") or "needs_review"),
+    )
+
+
+def _parse_prompts(raw: object) -> "CuratePrompts":
+    d = _as_dict(raw)
+    overrides_raw = d.get("prompt_overrides", {})
+    overrides = {str(k): str(v) for k, v in overrides_raw.items()} if isinstance(overrides_raw, dict) else {}
+    return CuratePrompts(
+        profile=str(d.get("profile", "default") or "default"),
+        output_language=str(d.get("output_language", "same_as_latest_request") or "same_as_latest_request"),
+        prompt_overrides=overrides,
     )
 
 
@@ -257,3 +450,135 @@ def find_workspaces(vault_root: Path) -> list[tuple[Path, CurateSpec]]:
         if spec is not None:
             results.append((candidate, spec))
     return results
+
+
+# ---------------------------------------------------------------------------
+# v0.3.1 compiled curation policy
+# ---------------------------------------------------------------------------
+
+VALID_ROUTES: frozenset[str] = frozenset(
+    {"local", "global", "explore", "exhibition", "source-section"}
+)
+VALID_AUDIENCES: frozenset[str] = frozenset(
+    {"researcher", "engineer", "learner", "writer", "generalist"}
+)
+VALID_CONTRADICTION_POLICIES: frozenset[str] = frozenset(
+    {"surface-and-flag", "merge-allowed", "needs-review"}
+)
+
+
+@dataclass(frozen=True)
+class CurationPolicy:
+    """Runtime policy compiled from a workspace's curate.yml.
+
+    This is the executable form of the Knowledge Requirement Specification that
+    drives source selection, query routing, verification, and backprop.
+    """
+
+    workspace_id: str
+    project: str
+    source_include: tuple[str, ...]
+    source_exclude: tuple[str, ...]
+    allowed_routes: frozenset[str]
+    default_route: str
+    prompt_profile: str
+    output_language: str
+    require_source_spans: bool
+    allow_general_knowledge: bool
+    contradiction_policy: str
+    backprop_enabled: bool
+    exploration_enabled: bool
+    max_explore_followups: int
+    min_confidence: float
+    high_threshold: float
+    avoid_merges: tuple[str, ...]
+
+
+def _slug(name: str) -> str:
+    return name.strip().replace(" ", "-").lower()
+
+
+def workspace_id_for(workspace_path: Path | None, spec: CurateSpec) -> str:
+    if workspace_path is not None:
+        return workspace_path.name
+    return _slug(spec.project) or "default"
+
+
+def compile_curate_policy(
+    spec: CurateSpec, workspace_path: Path | None = None
+) -> CurationPolicy:
+    """Compile a CurateSpec into an executable CurationPolicy."""
+    allowed = frozenset(r for r in spec.reasoning.allowed_modes if r in VALID_ROUTES)
+    if not allowed:
+        allowed = VALID_ROUTES
+    default_route = spec.reasoning.default_mode
+    if default_route != "auto" and default_route not in allowed:
+        default_route = "auto"
+    return CurationPolicy(
+        workspace_id=workspace_id_for(workspace_path, spec),
+        project=spec.project,
+        source_include=tuple(spec.sources.include),
+        source_exclude=tuple(spec.sources.exclude),
+        allowed_routes=allowed,
+        default_route=default_route,
+        prompt_profile=spec.prompts.profile,
+        output_language=spec.prompts.output_language,
+        require_source_spans=spec.verification.require_source_spans,
+        allow_general_knowledge=spec.verification.allow_general_knowledge,
+        contradiction_policy=spec.verification.contradiction_policy,
+        backprop_enabled=spec.backprop.enabled,
+        exploration_enabled=spec.reasoning.exploration_enabled,
+        max_explore_followups=spec.reasoning.max_followups,
+        min_confidence=spec.verification.min_confidence,
+        high_threshold=spec.verification.high_threshold,
+        avoid_merges=tuple(spec.knowledge.avoid_merges),
+    )
+
+
+def validate_curate_spec(spec: CurateSpec) -> list[str]:
+    """Return a list of human-readable validation errors (empty = valid)."""
+    errors: list[str] = []
+    if not spec.project:
+        errors.append("project must be a non-empty string")
+    if spec.goal.audience and spec.goal.audience not in VALID_AUDIENCES:
+        errors.append(
+            f"goal.audience '{spec.goal.audience}' must be one of {sorted(VALID_AUDIENCES)}"
+        )
+    for mode in spec.reasoning.allowed_modes:
+        if mode not in VALID_ROUTES:
+            errors.append(f"reasoning.allowed_modes has unknown route '{mode}'")
+    if spec.reasoning.default_mode not in VALID_ROUTES | {"auto"}:
+        errors.append(
+            f"reasoning.default_mode '{spec.reasoning.default_mode}' is not a valid route"
+        )
+    if (
+        spec.reasoning.default_mode not in ("auto",)
+        and spec.reasoning.default_mode not in spec.reasoning.allowed_modes
+    ):
+        errors.append(
+            f"reasoning.default_mode '{spec.reasoning.default_mode}' is not in allowed_modes"
+        )
+    if spec.verification.contradiction_policy not in VALID_CONTRADICTION_POLICIES:
+        errors.append(
+            f"verification.contradiction_policy '{spec.verification.contradiction_policy}' is invalid"
+        )
+    for label, value in (
+        ("verification.min_confidence", spec.verification.min_confidence),
+        ("verification.high_threshold", spec.verification.high_threshold),
+    ):
+        if not 0.0 <= value <= 1.0:
+            errors.append(f"{label} must be in [0.0, 1.0], got {value}")
+    if spec.reasoning.max_followups < 0:
+        errors.append("reasoning.max_followups must be >= 0")
+    return errors
+
+
+def curate_spec_hash(workspace_path: Path) -> str:
+    """Stable hash of a workspace's curate.yml content (empty string if absent)."""
+    import hashlib
+
+    curate_file = workspace_path / consts.FILE_CURATE_YML
+    if not curate_file.exists():
+        return ""
+    data = curate_file.read_bytes()
+    return hashlib.sha256(data).hexdigest()[:16]

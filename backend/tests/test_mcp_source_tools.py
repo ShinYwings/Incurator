@@ -52,13 +52,37 @@ class ImportSourceTests(unittest.TestCase):
         outcome = ingest_raw.import_source_file(self.paths, external, policy="reference")
 
         self.assertEqual(outcome.result, ingest_raw.AddResult.ADDED)
-        self.assertEqual(outcome.relpath, str(external.resolve()))
+        self.assertEqual(outcome.relpath, "04_Resources/References/paper.md")
+        stub = self.root / outcome.relpath
+        self.assertTrue(stub.exists())
+        stub_text = stub.read_text(encoding="utf-8")
+        self.assertIn("type: reference", stub_text)
+        self.assertIn("logical_source_id:", stub_text)
+        self.assertNotIn(str(external.resolve()), stub_text)
         self.assertFalse((self.root / "04_Resources" / "Imports" / external.name).exists())
         row = ingest_raw.get_source(self.paths, outcome.source_id or -1)
         self.assertIsNotNone(row)
+        self.assertEqual(row["relpath"], "04_Resources/References/paper.md")
         self.assertEqual(row["is_reference"], 1)
         self.assertEqual(row["external_path"], str(external.resolve()))
         self.assertTrue(str(row["logical_source_id"]).startswith("ref-"))
+
+    def test_reference_import_reuses_existing_stub_for_same_external_path(self) -> None:
+        external_root = self.root.parent / f"{self.root.name}_zotero_library"
+        external_root.mkdir(parents=True, exist_ok=True)
+        external = external_root / "paper.md"
+        external.write_text(
+            "# External Reference\n\nThis source remains outside the vault but is searchable.",
+            encoding="utf-8",
+        )
+
+        first = ingest_raw.import_source_file(self.paths, external, policy="reference")
+        second = ingest_raw.import_source_file(self.paths, external, policy="reference")
+
+        self.assertEqual(first.relpath, "04_Resources/References/paper.md")
+        self.assertEqual(second.relpath, first.relpath)
+        self.assertEqual(second.result, ingest_raw.AddResult.DEDUPED)
+        self.assertFalse((self.root / "04_Resources" / "References" / "paper-2.md").exists())
 
     def test_reference_status_detects_hash_drift_without_mutation(self) -> None:
         external_root = self.root.parent / f"{self.root.name}_zotero_library"

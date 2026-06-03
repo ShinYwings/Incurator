@@ -11,14 +11,16 @@ QMD manages itself in Stage 4). This DB tracks:
 
 from __future__ import annotations
 
+import json
 import sqlite3
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
 from . import constants as consts
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -199,6 +201,188 @@ CREATE TABLE IF NOT EXISTS dag_edges (
 
 CREATE INDEX IF NOT EXISTS idx_dag_edges_from ON dag_edges(from_id);
 CREATE INDEX IF NOT EXISTS idx_dag_edges_to   ON dag_edges(to_id);
+
+-- =====================================================================
+-- v0.3.1 curation-native records (SCHEMA_v0.3.1.md §11)
+-- =====================================================================
+
+-- Precise, hashed regions of a source. The atomic citation unit.
+CREATE TABLE IF NOT EXISTS source_spans (
+    id              TEXT PRIMARY KEY,        -- SPAN-[UUID8]
+    source_id       INTEGER NOT NULL,
+    relpath         TEXT NOT NULL,
+    span_type       TEXT NOT NULL,           -- heading_section|paragraph|page|equation|code|table|figure_caption
+    page_number     INTEGER,
+    section_title   TEXT,
+    toc_id          TEXT,                    -- matches CTX toc[].id (sN) when available
+    start_char      INTEGER,
+    end_char        INTEGER,
+    content_hash    TEXT NOT NULL,           -- hash of the exact span text
+    text_preview    TEXT NOT NULL DEFAULT '',
+    metadata        TEXT,                    -- JSON
+    created_at      TEXT NOT NULL,
+    FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_source_spans_source ON source_spans(source_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_source_spans_source_hash
+    ON source_spans(source_id, content_hash);
+
+-- Typed L2 knowledge units, each citing >=1 source span.
+CREATE TABLE IF NOT EXISTS knowledge_units (
+    id              TEXT PRIMARY KEY,        -- KNU-[UUID8]
+    unit_type       TEXT NOT NULL,           -- claim|definition|equation|procedure|method|result|observation|constraint|entity|relationship
+    canonical_name  TEXT NOT NULL,
+    statement       TEXT NOT NULL,
+    source_span_ids TEXT NOT NULL,           -- JSON array of SPAN- ids (non-empty for source_supported)
+    source_id       INTEGER,
+    confidence      REAL NOT NULL DEFAULT 0.0,
+    truth_status    TEXT NOT NULL DEFAULT 'source_supported',
+                                             -- source_supported|derived_insight|contradiction|promoted_human_truth
+    atom_node_id    TEXT,                    -- linked ATM- page when written
+    prompt_run_id   TEXT,                    -- PTR- of extraction run
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_units_source ON knowledge_units(source_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_units_type   ON knowledge_units(unit_type);
+
+-- Named graph nodes (entry points for local/explore retrieval).
+CREATE TABLE IF NOT EXISTS graph_entities (
+    id                 TEXT PRIMARY KEY,     -- ENT-[UUID8]
+    canonical_name     TEXT NOT NULL,
+    entity_type        TEXT NOT NULL,        -- concept|method|dataset|metric|system|person|organization|other
+    description        TEXT NOT NULL DEFAULT '',
+    source_span_ids    TEXT NOT NULL DEFAULT '[]',
+    knowledge_unit_ids TEXT NOT NULL DEFAULT '[]',
+    prompt_run_id      TEXT,
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_entities_name
+    ON graph_entities(canonical_name, entity_type);
+
+-- Typed, directed, confidence-scored edges between entities.
+CREATE TABLE IF NOT EXISTS graph_relations (
+    id                TEXT PRIMARY KEY,      -- REL-[UUID8]
+    source_entity_id  TEXT NOT NULL,         -- ENT-
+    target_entity_id  TEXT NOT NULL,         -- ENT-
+    relation_type     TEXT NOT NULL,
+    description       TEXT NOT NULL DEFAULT '',
+    assertion_source  TEXT NOT NULL DEFAULT 'source_states',
+                                             -- source_states|system_infers|workspace_derives
+    source_span_ids   TEXT NOT NULL DEFAULT '[]',
+    confidence        REAL NOT NULL DEFAULT 0.0,
+    prompt_run_id     TEXT,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_graph_relations_src ON graph_relations(source_entity_id);
+CREATE INDEX IF NOT EXISTS idx_graph_relations_tgt ON graph_relations(target_entity_id);
+
+-- GraphRAG-style summaries of graph communities, for global reasoning.
+CREATE TABLE IF NOT EXISTS community_reports (
+    id              TEXT PRIMARY KEY,        -- REP-[UUID8]
+    community_key   TEXT NOT NULL,
+    level           INTEGER NOT NULL DEFAULT 0,
+    title           TEXT NOT NULL,
+    summary         TEXT NOT NULL,
+    full_content    TEXT NOT NULL,
+    finding_json    TEXT NOT NULL DEFAULT '[]',
+    entity_ids      TEXT NOT NULL DEFAULT '[]',
+    relation_ids    TEXT NOT NULL DEFAULT '[]',
+    source_span_ids TEXT NOT NULL DEFAULT '[]',
+    rank            REAL NOT NULL DEFAULT 0.0,
+    prompt_run_id   TEXT,
+    dependency_hash TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_community_reports_key ON community_reports(community_key);
+
+-- HippoRAG-style associative walks over the graph, for explore retrieval.
+CREATE TABLE IF NOT EXISTS memory_paths (
+    id              TEXT PRIMARY KEY,        -- MPATH-[UUID8]
+    query_hash      TEXT NOT NULL,
+    route           TEXT NOT NULL,
+    start_node_id   TEXT NOT NULL DEFAULT '',
+    path_json       TEXT NOT NULL,           -- ordered JSON list of {entity_id, relation_id} hops
+    score           REAL NOT NULL DEFAULT 0.0,
+    source_span_ids TEXT NOT NULL DEFAULT '[]',
+    created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_paths_query ON memory_paths(query_hash);
+
+-- One LLM prompt invocation: provenance, hashes, validator status.
+CREATE TABLE IF NOT EXISTS prompt_runs (
+    trace_id         TEXT PRIMARY KEY,       -- PTR-[UUID8]
+    prompt_id        TEXT NOT NULL,
+    prompt_version   TEXT NOT NULL,
+    family           TEXT NOT NULL,
+    role             TEXT NOT NULL DEFAULT '',
+    model_provider   TEXT NOT NULL DEFAULT '',
+    model_name       TEXT NOT NULL DEFAULT '',
+    input_hash       TEXT NOT NULL,
+    output_hash      TEXT NOT NULL DEFAULT '',
+    validator_status TEXT NOT NULL DEFAULT 'pending',  -- pending|ok|repaired|failed
+    validator_errors TEXT NOT NULL DEFAULT '[]',
+    retry_count      INTEGER NOT NULL DEFAULT 0,
+    source_ids       TEXT NOT NULL DEFAULT '[]',
+    source_span_ids  TEXT NOT NULL DEFAULT '[]',
+    curate_spec_hash TEXT NOT NULL DEFAULT '',
+    query_trace_id   TEXT,
+    latency_ms       INTEGER,
+    created_at       TEXT NOT NULL,
+    finished_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_prompt_runs_prompt ON prompt_runs(prompt_id, prompt_version);
+CREATE INDEX IF NOT EXISTS idx_prompt_runs_query  ON prompt_runs(query_trace_id);
+
+-- Compiled per-workspace curation plan (curate.yml -> runtime policy).
+CREATE TABLE IF NOT EXISTS curation_plans (
+    id                   TEXT PRIMARY KEY,   -- PLAN-[UUID8]
+    workspace_id         TEXT NOT NULL,
+    workspace_path       TEXT NOT NULL DEFAULT '',
+    project              TEXT NOT NULL DEFAULT '',
+    curate_spec_hash     TEXT NOT NULL,
+    route                TEXT NOT NULL,
+    source_policy_json   TEXT NOT NULL,
+    retrieval_policy_json TEXT NOT NULL,
+    prompt_profile       TEXT NOT NULL DEFAULT '',
+    evidence_plan_json   TEXT NOT NULL DEFAULT '{}',
+    prompt_run_id        TEXT,
+    created_at           TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_curation_plans_ws ON curation_plans(workspace_id);
+
+-- Provisional derived insights / corrections / promotions awaiting review.
+CREATE TABLE IF NOT EXISTS insight_candidates (
+    id               TEXT PRIMARY KEY,       -- INS-[UUID8]
+    workspace_id     TEXT NOT NULL DEFAULT '',
+    source_event_id  TEXT NOT NULL DEFAULT '',
+    classification   TEXT NOT NULL,          -- correction|contradiction|derived_insight|style_only|promotion_request|ambiguous
+    statement        TEXT NOT NULL,
+    evidence_json    TEXT NOT NULL DEFAULT '[]',
+    affected_node_ids TEXT NOT NULL DEFAULT '[]',
+    confidence       REAL NOT NULL DEFAULT 0.0,
+    status           TEXT NOT NULL DEFAULT 'pending',  -- pending|accepted|rejected|promoted|needs_review
+    prompt_run_id    TEXT,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_insight_candidates_ws     ON insight_candidates(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_insight_candidates_status ON insight_candidates(status);
+
+-- Staleness/invalidation index at source-span/knowledge-unit granularity.
+CREATE TABLE IF NOT EXISTS artifact_dependencies (
+    artifact_id     TEXT NOT NULL,
+    artifact_type   TEXT NOT NULL,           -- knowledge_unit|entity|relation|community_report|exhibition|curation_plan
+    depends_on_id   TEXT NOT NULL,
+    depends_on_type TEXT NOT NULL,           -- source_span|knowledge_unit|entity|relation|community_report
+    dependency_hash TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    PRIMARY KEY (artifact_id, depends_on_id, depends_on_type)
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_deps_dependson ON artifact_dependencies(depends_on_id);
 """
 
 
@@ -357,10 +541,13 @@ def init_db(db_path: Path) -> None:
 @contextmanager
 def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
     """Context-managed connection with row factory and foreign keys enabled."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys = ON")
+    # Self-heal for existing empty/corrupted state DB files missing base tables.
+    conn.executescript(SCHEMA_SQL)
     _apply_migrations(conn)
     try:
         yield conn
@@ -581,6 +768,37 @@ def mark_job_failed(db_path: Path, job_id: int, error: str) -> None:
             """,
             (_now_iso(), error[:2000], job_id),
         )
+
+
+def cancel_job(db_path: Path, job_id: int) -> bool:
+    """Cancel a queued job. Running jobs are left untouched by design."""
+    with connect(db_path) as conn:
+        cur = conn.execute(
+            f"""
+            UPDATE ingest_jobs
+            SET state = '{consts.STATUS_CANCELLED}', phase = '{consts.STATUS_CANCELLED}',
+                finished_at = ?, error = 'Cancelled by user'
+            WHERE id = ? AND state = '{consts.STATUS_QUEUED}'
+            """,
+            (_now_iso(), job_id),
+        )
+        return bool(cur.rowcount)
+
+
+def rerun_job(db_path: Path, job_id: int) -> bool:
+    """Return a completed, failed, or cancelled job to the queued state."""
+    with connect(db_path) as conn:
+        cur = conn.execute(
+            f"""
+            UPDATE ingest_jobs
+            SET state = '{consts.STATUS_QUEUED}', phase = 'rerun', progress = 0.0,
+                progress_current = 0, progress_total = 0, retry_count = 0,
+                error = NULL, started_at = NULL, finished_at = NULL
+            WHERE id = ? AND state IN (?, ?, ?)
+            """,
+            (job_id, consts.STATUS_DONE, consts.STATUS_FAILED, consts.STATUS_CANCELLED),
+        )
+        return bool(cur.rowcount)
 
 
 def requeue_job_for_retry(db_path: Path, job_id: int, retry_count: int, error: str) -> None:
@@ -908,7 +1126,13 @@ def get_source_row(
     When ``source_path`` is given and ``relpath`` is empty, the path is
     resolved against ``root`` to produce a relpath first.
     """
+    lookup = relpath or source_path
     relpath = relpath or source_path_to_relpath(root, source_path)
+    resolved_lookup = ""
+    if lookup:
+        path = Path(lookup).expanduser()
+        if path.is_absolute():
+            resolved_lookup = str(path.resolve(strict=False))
     with connect(db_path) as conn:
         if source_id is not None:
             row = conn.execute(
@@ -920,11 +1144,765 @@ def get_source_row(
                 SELECT * FROM sources
                 WHERE relpath = ?
                    OR external_path = ?
+                   OR external_path = ?
+                   OR import_origin = ?
                    OR import_origin = ?
                    OR logical_source_id = ?
                 """,
-                (relpath, relpath, relpath, relpath),
+                (relpath, relpath, resolved_lookup, relpath, resolved_lookup, relpath),
             ).fetchone()
         else:
             row = None
     return dict(row) if row else None
+
+
+# =====================================================================
+# v0.3.1 curation-native accessors (SCHEMA_v0.3.1.md §11)
+# =====================================================================
+
+
+def _new_id(prefix: str) -> str:
+    """Generate a typed `<PREFIX>-<UUID8>` id."""
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
+
+
+def _loads_list(raw: Any) -> list:
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return value if isinstance(value, list) else []
+
+
+def _loads_obj(raw: Any) -> Any:
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+
+
+def _decode_span_row(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["metadata"] = _loads_obj(data.get("metadata"))
+    return data
+
+
+# --- source_spans ----------------------------------------------------
+
+
+def upsert_source_span(
+    db_path: Path,
+    *,
+    source_id: int,
+    relpath: str,
+    span_type: str,
+    content_hash: str,
+    page_number: int | None = None,
+    section_title: str | None = None,
+    toc_id: str | None = None,
+    start_char: int | None = None,
+    end_char: int | None = None,
+    text_preview: str = "",
+    metadata: dict | None = None,
+) -> str:
+    """Insert a source span, or return the existing id for the same
+    (source_id, content_hash). Span ids are stable across re-parses when the
+    exact span text is unchanged."""
+    with connect(db_path) as conn:
+        existing = conn.execute(
+            "SELECT id FROM source_spans WHERE source_id = ? AND content_hash = ?",
+            (source_id, content_hash),
+        ).fetchone()
+        if existing:
+            return str(existing["id"])
+        span_id = _new_id("SPAN")
+        conn.execute(
+            """
+            INSERT INTO source_spans
+                (id, source_id, relpath, span_type, page_number, section_title,
+                 toc_id, start_char, end_char, content_hash, text_preview,
+                 metadata, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                span_id,
+                source_id,
+                relpath,
+                span_type,
+                page_number,
+                section_title,
+                toc_id,
+                start_char,
+                end_char,
+                content_hash,
+                text_preview,
+                json.dumps(metadata) if metadata else None,
+                _now_iso(),
+            ),
+        )
+        return span_id
+
+
+def list_source_spans(db_path: Path, source_id: int) -> list[dict]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM source_spans WHERE source_id = ? ORDER BY "
+            "page_number IS NULL, page_number, start_char IS NULL, start_char",
+            (source_id,),
+        ).fetchall()
+        return [_decode_span_row(row) for row in rows]
+
+
+def get_source_spans_by_ids(db_path: Path, span_ids: list[str]) -> list[dict]:
+    if not span_ids:
+        return []
+    with connect(db_path) as conn:
+        placeholders = ",".join("?" for _ in span_ids)
+        rows = conn.execute(
+            f"SELECT * FROM source_spans WHERE id IN ({placeholders})",
+            tuple(span_ids),
+        ).fetchall()
+        return [_decode_span_row(row) for row in rows]
+
+
+# --- knowledge_units -------------------------------------------------
+
+
+def upsert_knowledge_unit(
+    db_path: Path,
+    *,
+    unit_type: str,
+    canonical_name: str,
+    statement: str,
+    source_span_ids: list[str],
+    source_id: int | None = None,
+    confidence: float = 0.0,
+    truth_status: str = "source_supported",
+    atom_node_id: str | None = None,
+    prompt_run_id: str | None = None,
+    unit_id: str | None = None,
+) -> str:
+    """Insert a typed knowledge unit, or update it in place when `unit_id` is
+    given and already exists."""
+    now = _now_iso()
+    spans_json = json.dumps(source_span_ids)
+    with connect(db_path) as conn:
+        if unit_id:
+            existing = conn.execute(
+                "SELECT id FROM knowledge_units WHERE id = ?", (unit_id,)
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE knowledge_units
+                       SET unit_type = ?, canonical_name = ?, statement = ?,
+                           source_span_ids = ?, source_id = ?, confidence = ?,
+                           truth_status = ?, atom_node_id = ?, prompt_run_id = ?,
+                           updated_at = ?
+                     WHERE id = ?
+                    """,
+                    (
+                        unit_type, canonical_name, statement, spans_json,
+                        source_id, confidence, truth_status, atom_node_id,
+                        prompt_run_id, now, unit_id,
+                    ),
+                )
+                return unit_id
+        new_unit_id = unit_id or _new_id("KNU")
+        conn.execute(
+            """
+            INSERT INTO knowledge_units
+                (id, unit_type, canonical_name, statement, source_span_ids,
+                 source_id, confidence, truth_status, atom_node_id,
+                 prompt_run_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                new_unit_id, unit_type, canonical_name, statement, spans_json,
+                source_id, confidence, truth_status, atom_node_id,
+                prompt_run_id, now, now,
+            ),
+        )
+        return new_unit_id
+
+
+def _decode_unit_row(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["source_span_ids"] = _loads_list(data.get("source_span_ids"))
+    return data
+
+
+def list_knowledge_units_for_source(db_path: Path, source_id: int) -> list[dict]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM knowledge_units WHERE source_id = ? ORDER BY created_at",
+            (source_id,),
+        ).fetchall()
+        return [_decode_unit_row(row) for row in rows]
+
+
+# --- graph_entities / graph_relations --------------------------------
+
+
+def upsert_graph_entity(
+    db_path: Path,
+    *,
+    canonical_name: str,
+    entity_type: str,
+    description: str = "",
+    source_span_ids: list[str] | None = None,
+    knowledge_unit_ids: list[str] | None = None,
+    prompt_run_id: str | None = None,
+) -> str:
+    """Insert or merge an entity, deduplicated by (canonical_name, entity_type).
+    On merge, span/knowledge-unit references are unioned and a non-empty
+    description replaces an empty one."""
+    now = _now_iso()
+    with connect(db_path) as conn:
+        existing = conn.execute(
+            "SELECT * FROM graph_entities WHERE canonical_name = ? AND entity_type = ?",
+            (canonical_name, entity_type),
+        ).fetchone()
+        if existing:
+            merged_spans = sorted(
+                set(_loads_list(existing["source_span_ids"]))
+                | set(source_span_ids or [])
+            )
+            merged_units = sorted(
+                set(_loads_list(existing["knowledge_unit_ids"]))
+                | set(knowledge_unit_ids or [])
+            )
+            new_desc = description or str(existing["description"])
+            conn.execute(
+                """
+                UPDATE graph_entities
+                   SET description = ?, source_span_ids = ?,
+                       knowledge_unit_ids = ?, updated_at = ?
+                 WHERE id = ?
+                """,
+                (
+                    new_desc, json.dumps(merged_spans), json.dumps(merged_units),
+                    now, existing["id"],
+                ),
+            )
+            return str(existing["id"])
+        entity_id = _new_id("ENT")
+        conn.execute(
+            """
+            INSERT INTO graph_entities
+                (id, canonical_name, entity_type, description, source_span_ids,
+                 knowledge_unit_ids, prompt_run_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entity_id, canonical_name, entity_type, description,
+                json.dumps(source_span_ids or []),
+                json.dumps(knowledge_unit_ids or []),
+                prompt_run_id, now, now,
+            ),
+        )
+        return entity_id
+
+
+def upsert_graph_relation(
+    db_path: Path,
+    *,
+    source_entity_id: str,
+    target_entity_id: str,
+    relation_type: str,
+    description: str = "",
+    assertion_source: str = "source_states",
+    source_span_ids: list[str] | None = None,
+    confidence: float = 0.0,
+    prompt_run_id: str | None = None,
+) -> str:
+    """Insert a relation. Both endpoints must be declared entities."""
+    if not 0.0 <= confidence <= 1.0:
+        raise ValueError(f"relation confidence out of range: {confidence}")
+    with connect(db_path) as conn:
+        for endpoint in (source_entity_id, target_entity_id):
+            found = conn.execute(
+                "SELECT 1 FROM graph_entities WHERE id = ?", (endpoint,)
+            ).fetchone()
+            if not found:
+                raise ValueError(f"relation endpoint is not a declared entity: {endpoint}")
+        existing = conn.execute(
+            """
+            SELECT id FROM graph_relations
+            WHERE source_entity_id = ? AND target_entity_id = ? AND relation_type = ?
+            """,
+            (source_entity_id, target_entity_id, relation_type),
+        ).fetchone()
+        now = _now_iso()
+        if existing:
+            conn.execute(
+                """
+                UPDATE graph_relations
+                   SET description = ?, assertion_source = ?, source_span_ids = ?,
+                       confidence = ?, updated_at = ?
+                 WHERE id = ?
+                """,
+                (
+                    description, assertion_source,
+                    json.dumps(source_span_ids or []), confidence, now,
+                    existing["id"],
+                ),
+            )
+            return str(existing["id"])
+        relation_id = _new_id("REL")
+        conn.execute(
+            """
+            INSERT INTO graph_relations
+                (id, source_entity_id, target_entity_id, relation_type, description,
+                 assertion_source, source_span_ids, confidence, prompt_run_id,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                relation_id, source_entity_id, target_entity_id, relation_type,
+                description, assertion_source, json.dumps(source_span_ids or []),
+                confidence, prompt_run_id, now, now,
+            ),
+        )
+        return relation_id
+
+
+def _decode_entity_row(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["source_span_ids"] = _loads_list(data.get("source_span_ids"))
+    data["knowledge_unit_ids"] = _loads_list(data.get("knowledge_unit_ids"))
+    return data
+
+
+def _decode_relation_row(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["source_span_ids"] = _loads_list(data.get("source_span_ids"))
+    return data
+
+
+def get_graph_entity(db_path: Path, entity_id: str) -> dict | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM graph_entities WHERE id = ?", (entity_id,)
+        ).fetchone()
+        return _decode_entity_row(row) if row else None
+
+
+def find_graph_entities(db_path: Path, name_like: str, limit: int = 12) -> list[dict]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM graph_entities WHERE canonical_name LIKE ? "
+            "ORDER BY canonical_name LIMIT ?",
+            (f"%{name_like}%", limit),
+        ).fetchall()
+        return [_decode_entity_row(row) for row in rows]
+
+
+def relation_neighborhood(db_path: Path, entity_ids: list[str]) -> list[dict]:
+    """Return relations touching any of the given entities (one hop)."""
+    if not entity_ids:
+        return []
+    with connect(db_path) as conn:
+        placeholders = ",".join("?" for _ in entity_ids)
+        rows = conn.execute(
+            f"""
+            SELECT * FROM graph_relations
+            WHERE source_entity_id IN ({placeholders})
+               OR target_entity_id IN ({placeholders})
+            """,
+            tuple(entity_ids) + tuple(entity_ids),
+        ).fetchall()
+        return [_decode_relation_row(row) for row in rows]
+
+
+# --- community_reports -----------------------------------------------
+
+
+def upsert_community_report(
+    db_path: Path,
+    *,
+    community_key: str,
+    title: str,
+    summary: str,
+    full_content: str,
+    dependency_hash: str,
+    level: int = 0,
+    findings: list | None = None,
+    entity_ids: list[str] | None = None,
+    relation_ids: list[str] | None = None,
+    source_span_ids: list[str] | None = None,
+    rank: float = 0.0,
+    prompt_run_id: str | None = None,
+) -> str:
+    """Insert or replace the report for a community key."""
+    now = _now_iso()
+    with connect(db_path) as conn:
+        existing = conn.execute(
+            "SELECT id, created_at FROM community_reports WHERE community_key = ?",
+            (community_key,),
+        ).fetchone()
+        report_id = str(existing["id"]) if existing else _new_id("REP")
+        created_at = str(existing["created_at"]) if existing else now
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO community_reports
+                (id, community_key, level, title, summary, full_content,
+                 finding_json, entity_ids, relation_ids, source_span_ids, rank,
+                 prompt_run_id, dependency_hash, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                report_id, community_key, level, title, summary, full_content,
+                json.dumps(findings or []), json.dumps(entity_ids or []),
+                json.dumps(relation_ids or []), json.dumps(source_span_ids or []),
+                rank, prompt_run_id, dependency_hash, created_at, now,
+            ),
+        )
+        return report_id
+
+
+def _decode_report_row(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["findings"] = _loads_list(data.pop("finding_json", "[]"))
+    data["entity_ids"] = _loads_list(data.get("entity_ids"))
+    data["relation_ids"] = _loads_list(data.get("relation_ids"))
+    data["source_span_ids"] = _loads_list(data.get("source_span_ids"))
+    return data
+
+
+def list_community_reports(db_path: Path, *, level: int | None = None) -> list[dict]:
+    with connect(db_path) as conn:
+        if level is None:
+            rows = conn.execute(
+                "SELECT * FROM community_reports ORDER BY rank DESC, level"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM community_reports WHERE level = ? ORDER BY rank DESC",
+                (level,),
+            ).fetchall()
+        return [_decode_report_row(row) for row in rows]
+
+
+def get_community_report(db_path: Path, report_id: str) -> dict | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM community_reports WHERE id = ?", (report_id,)
+        ).fetchone()
+        return _decode_report_row(row) if row else None
+
+
+# --- memory_paths ----------------------------------------------------
+
+
+def record_memory_path(
+    db_path: Path,
+    *,
+    query_hash: str,
+    route: str,
+    path: list[dict],
+    start_node_id: str = "",
+    score: float = 0.0,
+    source_span_ids: list[str] | None = None,
+) -> str:
+    with connect(db_path) as conn:
+        path_id = _new_id("MPATH")
+        conn.execute(
+            """
+            INSERT INTO memory_paths
+                (id, query_hash, route, start_node_id, path_json, score,
+                 source_span_ids, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                path_id, query_hash, route, start_node_id, json.dumps(path),
+                score, json.dumps(source_span_ids or []), _now_iso(),
+            ),
+        )
+        return path_id
+
+
+def list_memory_paths(db_path: Path, query_hash: str) -> list[dict]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM memory_paths WHERE query_hash = ? ORDER BY score DESC",
+            (query_hash,),
+        ).fetchall()
+        out = []
+        for row in rows:
+            data = dict(row)
+            data["path"] = _loads_list(data.pop("path_json", "[]"))
+            data["source_span_ids"] = _loads_list(data.get("source_span_ids"))
+            out.append(data)
+        return out
+
+
+# --- prompt_runs -----------------------------------------------------
+
+
+def record_prompt_run(
+    db_path: Path,
+    *,
+    prompt_id: str,
+    prompt_version: str,
+    family: str,
+    role: str = "",
+    model_provider: str = "",
+    model_name: str = "",
+    input_hash: str,
+    source_ids: list[int] | None = None,
+    source_span_ids: list[str] | None = None,
+    curate_spec_hash: str = "",
+    query_trace_id: str | None = None,
+) -> str:
+    """Start a prompt run. Returns the PTR- trace id; status begins 'pending'."""
+    with connect(db_path) as conn:
+        trace_id = _new_id("PTR")
+        conn.execute(
+            """
+            INSERT INTO prompt_runs
+                (trace_id, prompt_id, prompt_version, family, role,
+                 model_provider, model_name, input_hash, source_ids,
+                 source_span_ids, curate_spec_hash, query_trace_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                trace_id, prompt_id, prompt_version, family, role,
+                model_provider, model_name, input_hash,
+                json.dumps(source_ids or []), json.dumps(source_span_ids or []),
+                curate_spec_hash, query_trace_id, _now_iso(),
+            ),
+        )
+        return trace_id
+
+
+def finish_prompt_run(
+    db_path: Path,
+    trace_id: str,
+    *,
+    output_hash: str = "",
+    validator_status: str = "ok",
+    validator_errors: list[str] | None = None,
+    retry_count: int = 0,
+    latency_ms: int | None = None,
+) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE prompt_runs
+               SET output_hash = ?, validator_status = ?, validator_errors = ?,
+                   retry_count = ?, latency_ms = ?, finished_at = ?
+             WHERE trace_id = ?
+            """,
+            (
+                output_hash, validator_status,
+                json.dumps(validator_errors or []), retry_count, latency_ms,
+                _now_iso(), trace_id,
+            ),
+        )
+
+
+def _decode_prompt_run_row(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["validator_errors"] = _loads_list(data.get("validator_errors"))
+    data["source_ids"] = _loads_list(data.get("source_ids"))
+    data["source_span_ids"] = _loads_list(data.get("source_span_ids"))
+    return data
+
+
+def get_prompt_run(db_path: Path, trace_id: str) -> dict | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM prompt_runs WHERE trace_id = ?", (trace_id,)
+        ).fetchone()
+        return _decode_prompt_run_row(row) if row else None
+
+
+def list_prompt_runs_for_query(db_path: Path, query_trace_id: str) -> list[dict]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM prompt_runs WHERE query_trace_id = ? ORDER BY created_at",
+            (query_trace_id,),
+        ).fetchall()
+        return [_decode_prompt_run_row(row) for row in rows]
+
+
+# --- curation_plans --------------------------------------------------
+
+
+def record_curation_plan(
+    db_path: Path,
+    *,
+    workspace_id: str,
+    curate_spec_hash: str,
+    route: str,
+    source_policy: dict,
+    retrieval_policy: dict,
+    workspace_path: str = "",
+    project: str = "",
+    prompt_profile: str = "",
+    evidence_plan: dict | None = None,
+    prompt_run_id: str | None = None,
+) -> str:
+    with connect(db_path) as conn:
+        plan_id = _new_id("PLAN")
+        conn.execute(
+            """
+            INSERT INTO curation_plans
+                (id, workspace_id, workspace_path, project, curate_spec_hash,
+                 route, source_policy_json, retrieval_policy_json, prompt_profile,
+                 evidence_plan_json, prompt_run_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                plan_id, workspace_id, workspace_path, project, curate_spec_hash,
+                route, json.dumps(source_policy), json.dumps(retrieval_policy),
+                prompt_profile, json.dumps(evidence_plan or {}), prompt_run_id,
+                _now_iso(),
+            ),
+        )
+        return plan_id
+
+
+def _decode_plan_row(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["source_policy"] = _loads_obj(data.pop("source_policy_json", "{}"))
+    data["retrieval_policy"] = _loads_obj(data.pop("retrieval_policy_json", "{}"))
+    data["evidence_plan"] = _loads_obj(data.pop("evidence_plan_json", "{}"))
+    return data
+
+
+def get_curation_plan(db_path: Path, workspace_id: str) -> dict | None:
+    """Return the most recent curation plan for a workspace."""
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM curation_plans WHERE workspace_id = ? "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            (workspace_id,),
+        ).fetchone()
+        return _decode_plan_row(row) if row else None
+
+
+# --- insight_candidates ----------------------------------------------
+
+
+def create_insight_candidate(
+    db_path: Path,
+    *,
+    classification: str,
+    statement: str,
+    workspace_id: str = "",
+    source_event_id: str = "",
+    evidence: list | None = None,
+    affected_node_ids: list[str] | None = None,
+    confidence: float = 0.0,
+    status: str = "pending",
+    prompt_run_id: str | None = None,
+) -> str:
+    now = _now_iso()
+    with connect(db_path) as conn:
+        ins_id = _new_id("INS")
+        conn.execute(
+            """
+            INSERT INTO insight_candidates
+                (id, workspace_id, source_event_id, classification, statement,
+                 evidence_json, affected_node_ids, confidence, status,
+                 prompt_run_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                ins_id, workspace_id, source_event_id, classification, statement,
+                json.dumps(evidence or []), json.dumps(affected_node_ids or []),
+                confidence, status, prompt_run_id, now, now,
+            ),
+        )
+        return ins_id
+
+
+def _decode_insight_row(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["evidence"] = _loads_list(data.pop("evidence_json", "[]"))
+    data["affected_node_ids"] = _loads_list(data.get("affected_node_ids"))
+    return data
+
+
+def list_insight_candidates(
+    db_path: Path,
+    *,
+    workspace_id: str | None = None,
+    status: str = "pending",
+) -> list[dict]:
+    clauses = []
+    params: list[object] = []
+    if workspace_id is not None:
+        clauses.append("workspace_id = ?")
+        params.append(workspace_id)
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT * FROM insight_candidates{where} ORDER BY created_at DESC",
+            tuple(params),
+        ).fetchall()
+        return [_decode_insight_row(row) for row in rows]
+
+
+def get_insight_candidate(db_path: Path, insight_id: str) -> dict | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM insight_candidates WHERE id = ?", (insight_id,)
+        ).fetchone()
+        return _decode_insight_row(row) if row else None
+
+
+def update_insight_candidate_status(
+    db_path: Path, insight_id: str, *, status: str
+) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            "UPDATE insight_candidates SET status = ?, updated_at = ? WHERE id = ?",
+            (status, _now_iso(), insight_id),
+        )
+
+
+# --- artifact_dependencies -------------------------------------------
+
+
+def record_artifact_dependency(
+    db_path: Path,
+    *,
+    artifact_id: str,
+    artifact_type: str,
+    depends_on_id: str,
+    depends_on_type: str,
+    dependency_hash: str,
+) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO artifact_dependencies
+                (artifact_id, artifact_type, depends_on_id, depends_on_type,
+                 dependency_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                artifact_id, artifact_type, depends_on_id, depends_on_type,
+                dependency_hash, _now_iso(),
+            ),
+        )
+
+
+def dependents_of(db_path: Path, depends_on_id: str) -> list[dict]:
+    """Return artifacts that depend on the given record (for invalidation)."""
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM artifact_dependencies WHERE depends_on_id = ?",
+            (depends_on_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]

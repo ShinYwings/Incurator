@@ -528,6 +528,7 @@ export class ExternalPdfView extends ItemView {
       documentId: this.docId,
       documentName: this.getDisplayText(),
       filePath: this.docState?.path || externalPdfDocs.get(this.docId)?.path,
+      zoteroAttachmentKey: this.docState?.zoteroAttachmentKey,
     };
   }
 
@@ -813,9 +814,9 @@ export class ExternalPdfView extends ItemView {
 
 
         // Fetch Zotero annotations if we have an attachment key
-        if (this.docState?.zoteroAttachmentKey && this.plugin?.incuratorClient) {
+        if (this.docState?.zoteroAttachmentKey && this.plugin?.getZoteroAnnotations) {
           try {
-            this.zoteroAnnotations = await this.plugin.incuratorClient.getZoteroAnnotations(this.docState.zoteroAttachmentKey);
+            this.zoteroAnnotations = await this.plugin.getZoteroAnnotations(this.docState.zoteroAttachmentKey);
           } catch (e) {
             console.warn("Failed to fetch Zotero annotations", e);
           }

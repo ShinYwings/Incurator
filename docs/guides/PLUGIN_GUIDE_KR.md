@@ -55,6 +55,9 @@ Obsidian → **설정 > 커뮤니티 플러그인 > 설치된 플러그인**에�
 - **선택 없음**: 전체 문서 맥락으로 편집 명령을 입력합니다.
 - **텍스트 선택 후**: 선택 영역만 대상으로 편집됩니다.
 - **결과 표시**: 변경 전후를 인라인 Diff로 보여주며, 적용(Accept) 또는 거부(Reject) 선택 가능합니다.
+- **채팅 편집 검토**: 사이드챗이 Markdown SEARCH/REPLACE 수정을 제안하면
+  **Review in file**로 대상 노트를 source mode에서 열고, Markdown 편집기
+  안에서 제안된 hunk를 확인한 뒤 Accept 또는 Reject합니다.
 - **Diff 모드**: 설정에서 `inline` 또는 `side-by-side` 중 선택합니다.
 
 ```text
@@ -82,6 +85,12 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
 
 Incurator PDF 뷰어의 텍스트 선택은 실제 텍스트 span 위에서만 시작됩니다. PDF의 빈 여백을 드래그해도 선택 영역이 생기지 않도록 처리합니다.
 
+사이드챗에서 메시지를 보낼 때 선택 영역, 라인 참조, PDF 스니핑으로 명시적으로 추가한 컨텍스트가 현재 턴의 중심 맥락으로 취급됩니다. 보라색 pin 컨텍스트와 자동으로 보이는 탭은 질문에서 직접 요구하지 않는 한 배경 맥락으로만 사용됩니다. pin 또는 첨부 context chip은 invisible/excluded 상태로 전환할 수 있으며, 이 상태에서는 chip row에는 남아 있지만 다시 visible로 바꾸기 전까지 모델 prompt에는 포함되지 않습니다.
+
+선택한 Markdown line range가 첨부된 상태에서 사용자가 해당 텍스트를 고치거나, 다시 쓰거나, 다듬거나, 번역하라고 요청하면 assistant는 `ai-agent-edit` SEARCH/REPLACE 제안을 반환해야 합니다. 선택 영역에 대한 단순 질문이면 파일 수정 제안 없이 답변만 합니다.
+
+최신 요청이 선택한 PDF/text 영역을 예시로 삼아 Markdown 파일 안의 모든 비슷한 부분을 바꾸라고 요청하면, 선택 영역은 유일한 수정 대상이 아니라 pattern을 이해하기 위한 단서로 취급합니다. 플러그인은 열린 Markdown 탭의 전체 내용을 edit-target context로 보내므로 assistant가 파일 전체에서 같은 HTML/Markdown line 형태를 찾고, 기존 문법 형식을 보존한 SEARCH/REPLACE hunk를 Markdown 편집기 안에서 review할 수 있게 제안해야 합니다.
+
 ### Markdown 작업 위치 복원
 
 플러그인은 Obsidian을 끌 때 활성 편집 모드 Markdown 파일의 커서와 스크롤 위치를 마지막 작업 위치로 저장합니다. Obsidian을 다시 켜면 workspace layout이 준비된 뒤 그 파일과 위치를 여러 번 재시도해 복원합니다.
@@ -101,6 +110,13 @@ PDF 뷰어에서 특정 영역을 마우스로 드래그해 캡처합니다.
 
 > **참고**: 스니핑은 Incurator 전용 PDF 뷰어(`EXTERNAL_PDF_VIEW_TYPE`)에서만 동작합니다.  
 > Obsidian 기본 PDF 뷰어에서는 `Cmd+Shift+L`로 페이지 전체를 참조하세요.
+
+PDF snip은 선택한 모델이 vision을 지원할 때 이미지 context로 전송됩니다.
+활성 모델이 text-only이면 sidechat은 snip 첨부를 유지하되 이미지 세부 정보를
+읽을 수 없다는 사실을 모델에 명시하고, crop을 조용히 무시하지 않습니다.
+최신 메시지에 사용자가 선택한 crop/image가 이미 첨부되어 있으면, 플러그인은
+그 로컬 이미지 context를 빠른 경로로 사용하고 해당 턴에서는 backend 전체 PDF
+context/RAG 호출을 건너뜁니다.
 
 ---
 
@@ -125,14 +141,43 @@ PDF 뷰어에서 특정 영역을 마우스로 드래그해 캡처합니다.
 | `pdfVisionFallback` | `true` | 텍스트 레이어 없을 시 자동 이미지 모드 전환 |
 | `pdfFullDocumentIndex` | `true` | PDF 전체 색인 생성 (RAG 정확도 향상) |
 
+PDF context는 다음 순서로 조립됩니다.
+
+1. 로컬 PDF.js 페이지 텍스트와 첨부된 crop/image context.
+2. 로컬 viewer text/window/image context가 없을 때만 backend PDF
+   window/outline context.
+3. backend PDF context를 사용하는 경우에만, `pdfRagEnabled=true`이고 source가
+   tracked 상태일 때 backend 전체 PDF RAG.
+
+채팅 사이드바는 backend PDF context, PDF RAG, Curator query 소요 시간을
+developer console에 기록하므로, 느린 턴에서 어느 단계가 막히는지 확인할 수
+있습니다.
+
+PDF 채팅과 PDF 지식 정제는 별도 workflow로 취급합니다.
+
+- 열린 PDF에 대한 일반 채팅은 viewer fast path를 사용합니다. durable
+  Incurator ingest 없이 현재 페이지, 주변 페이지 텍스트, 선택 텍스트, crop
+  image에서 바로 답하고, blocking backend PDF context 호출을 요구하지 않습니다.
+- 보라색 context chip과 **Add to Incurator**는 durable knowledge refinement를
+  시작하는 컨트롤입니다. PDF를 source로 등록하고 instant L1 context를 만든 뒤
+  L2/L3 build job을 queue에 넣습니다.
+- Queued L2/L3 job은 **Incurator Dashboard > Jobs > Run queued** 또는 CLI
+  `wiki jobs run`으로 실행합니다. 이렇게 하면 PDF viewer는 빠르게 유지하고,
+  오래 걸리는 LLM-heavy refinement는 명시적인 background 작업으로 분리됩니다.
+- Jobs 탭에서는 worker가 아직 claim하지 않은 queued job을 취소할 수 있고,
+  완료/실패/취소된 job은 **Rerun**으로 다시 queue에 넣을 수 있습니다.
+
 ---
 
 ## 7. AI 제공자 설정
 
+Settings 화면에서는 선택된 model의 context window를 별도 항목으로 만들지 않고
+**Model** 행의 설명에 함께 표시합니다.
+
 플러그인은 Antigravity, Claude, OpenAI Codex, Ollama, DeepSeek를 지원합니다. 설정 탭에서는 제공자와 모델을 따로 조정할 수 있고, 채팅 사이드바 하단에서는 하나의 모델 선택 메뉴에서 `Provider · Model` 형식으로 함께 전환합니다. reasoning/effort 메뉴는 백엔드 카탈로그에서 effort 단계가 선언된 모델에만 표시됩니다.
 
 > [!NOTE]
-> **Incurator Dashboard → Overview → LLM Provider** 카드에서도 보관소(`.curator/config.yml`)의 Primary/Fallback 모델을 바꿀 수 있습니다. 각 모델 드롭다운 옆에는 **effort 드롭다운**이 함께 표시되며, 선택한 모델이 노출하는 강도만 보여줍니다 (강도가 없는 모델은 `—`). Apply 시 `llm.primary_effort` / `llm.fallback_effort` 로 저장됩니다. 모델 목록은 백엔드의 `data/models.json` 카탈로그(단일 소스)에서 자동으로 채워집니다.
+> **Incurator Dashboard → Overview → LLM Provider** 카드에서도 보관소(`.curator/config.yml`)의 Primary/Fallback 모델을 바꿀 수 있습니다. 각 모델 드롭다운 옆에는 **effort 드롭다운**이 함께 표시되며, 선택한 모델이 노출하는 강도만 보여줍니다 (강도가 없는 모델은 `—`). Apply 시 `llm.primary_effort` / `llm.fallback_effort` 로 저장됩니다. 모델 목록은 플러그인 빌드 시 백엔드의 `data/models.json` 카탈로그(단일 소스)에서 번들링되므로, 모델 이름 표시가 MCP 시작 여부에 의존하지 않습니다.
 
 ### 7.1 Antigravity (기본값)
 
@@ -217,15 +262,18 @@ DeepSeek의 OpenAI 호환 API에 API 키로 연결합니다. OAuth 또는 브라
 
 ## 8. MCP 서버 설정
 
-플러그인이 외부 MCP 도구를 사용하도록 설정할 수 있습니다.
+플러그인이 외부 MCP 도구를 사용하도록 설정할 수 있습니다. 이 섹션은
+Incurator 자체가 아니라 외부 도구 서버와 외부 agent 연동을 위한 것입니다.
+같은 기기 안의 Incurator backend 연동은 `wiki mcp`를 띄우지 않고 backend
+command를 사용합니다.
 
 **설정 > AI Agent > MCP Servers**에서 서버를 추가합니다.
 
 ```json
 {
-  "name": "incurator",
-  "command": "wiki",
-  "args": ["mcp"],
+  "name": "my-external-tools",
+  "command": "example-mcp-server",
+  "args": [],
   "env": {
     "VAULT_ROOT": "/path/to/your/vault"
   },
@@ -249,7 +297,8 @@ DeepSeek의 OpenAI 호환 API에 API 키로 연결합니다. OAuth 또는 브라
       │
       │ (Incurator 연동 활성화 시)
       ▼
-IncuratorClient가 MCP를 통해 search_curator 호출
+IncuratorClient가 숨겨진 backend JSON command 호출
+(`wiki plugin source ...`, `wiki plugin pdf ...`, `wiki plugin query`)
       │
       ▼
 Exhibition 검색 결과를 시스템 컨텍스트로 주입
@@ -264,16 +313,33 @@ LLM이 Exhibition 내용을 근거로 답변 생성
 | --- | --- | --- |
 | `incuratorEnabled` | `true` | Curator 백엔드 연동 활성화 |
 | `incuratorRepoPath` | `""` | 백엔드 자동 업데이트를 위한 Incurator 저장소 절대 경로 |
-| `incuratorDefaultDestination` | `04_Resources` | PDF 임포트 기본 대상 폴더 |
-| `incuratorDefaultImportMode` | `reference` | 파일 임포트 방식 (`copy` / `reference`) |
+| `incuratorDefaultDestination` | `04_Resources` | PDF reference stub 또는 명시적 copy import의 기본 폴더 |
+| `incuratorDefaultImportMode` | `reference` | 파일 추가 방식 (`reference`는 link stub 생성, `copy`는 vault 안으로 복사) |
 | `incuratorStatusPolling` | `true` | 소스 처리 상태 폴링 활성화 |
+
+Zotero나 다른 외부 위치에서 열린 PDF의 **Add to Incurator** 기본 동작은
+Reference Mode입니다. backend는 PDF를 원래 위치에 두고 `04_Resources/` 아래에
+작은 markdown reference stub만 만들며, 실제 PDF 경로는 기기별 backend source
+metadata로 저장합니다. 자동 생성 stub에는 기본적으로 PDF 절대 경로를 넣지 않으므로,
+Zotero나 외부 PDF의 로컬 위치가 다른 기기에도 안전하게 동기화할 수 있습니다. PDF를
+vault 안으로 복사하는 동작은 기본값이 아니라 명시적 예외입니다.
+
+Source badge는 layer 상태를 구분합니다. `L1 ready`는 즉시 section context를
+사용할 수 있다는 뜻이고, `L2 ready`는 Atom이 생성됐다는 뜻이며, `Indexed`는
+L3 Concept 기반 답변이 가능하다는 뜻입니다. `Curated`는 L4 Exhibition까지
+완료된 source에만 사용합니다. 어떤 layer라도 error이면 정상 badge 대신 error를
+표시합니다.
 
 ### 백엔드 자동 업데이트 (1-Click Auto-Update)
 
-Incurator 백엔드와 Obsidian 플러그인은 각기 다른 주기로 업데이트될 수 있습니다. 플러그인은 시작 시 MCP를 통해 백엔드 버전을 확인(`curator_get_version`)하며, 버전 불일치(Mismatch)가 감지되면 채팅 창 상단에 **[Update Incurator Backend]** 배너를 표시합니다.
-설정에서 `incuratorRepoPath`에 로컬 저장소 경로를 지정해 두었다면, 버튼 클릭 한 번으로 백그라운드에서 백엔드를 최신 버전으로 자동 업데이트하고 MCP 서버를 재시작합니다.
+Incurator 백엔드와 Obsidian 플러그인은 각기 다른 주기로 업데이트될 수 있습니다. 플러그인이 백엔드 버전을 확인해 버전 불일치(Mismatch)를 감지하면 채팅 창 상단에 **[Update Incurator Backend]** 배너를 표시합니다.
+설정에서 `incuratorRepoPath`에 로컬 저장소 경로를 지정해 두었다면, 버튼 클릭 한 번으로 백그라운드에서 백엔드를 최신 버전으로 자동 업데이트합니다. 업데이트 후에는 plugin reload 또는 Obsidian 재시작이 필요합니다.
 
-`Use Incurator backend`는 Incurator MCP 도구 사용 여부를 제어합니다. 켜면 플러그인이 현재 vault 경로를 `VAULT_ROOT`로 넣은 기본 `incurator` 서버(`wiki mcp`)를 자동 생성하고 즉시 연결을 시도합니다. 설정 화면의 이 항목 아래에는 현재 상태가 표시됩니다: disabled, connected, waiting, not configured. 범용 MCP Servers 섹션은 다른 MCP 서버를 관리하거나 자동 생성된 Incurator 서버를 고급 설정할 때 사용합니다.
+`Use Incurator backend`는 local Incurator backend command 사용 여부를 제어합니다.
+켜면 plugin이 `wiki` 실행 파일을 찾고, backend runtime snapshot을 읽으며, source,
+PDF, query, promotion, Zotero 작업에 숨겨진 `wiki plugin ...` JSON command를
+호출합니다. 범용 MCP Servers 섹션은 다른 MCP 서버를 관리할 때만 사용합니다.
+같은 기기 안의 backend 접근을 위해 Incurator MCP를 자동 시작하지 않습니다.
 
 ### PDF → Curator 등록 흐름
 
@@ -282,19 +348,57 @@ Incurator 연동이 켜진 상태에서 PDF를 참조하면:
 ```text
 Cmd+Shift+L (또는 Cmd+Shift+X)으로 PDF 캡처
       │
-      │ MCP: curator_import_source 호출
+      │ backend source registration command 실행
       ▼
 Curator 백엔드에 소스 등록
       │
       │ L1 → L2 → L3 처리 (백그라운드)
       ▼
-wiki curate 실행 → L4 Exhibition 갱신
+agent가 필요로 할 때 workspace curation이 L4를 생성/갱신할 수 있음
       │
       ▼
 이후 search_curator로 검색 가능
 ```
 
+보라색 PDF chip은 refinement 컨트롤입니다. **Add source**를 눌러도 전체 DAG가
+끝날 때까지 기다리지 않습니다. source 등록, L1 생성, L2/L3 queue까지만 수행합니다.
+queue에 들어간 build 작업을 실제로 처리하려면 **Dashboard > Jobs > Run queued**를
+누르거나 `wiki jobs run`을 실행합니다. queued job은 worker가 claim하기 전에
+취소할 수 있고, 완료/실패/취소된 job은 **Rerun**으로 다시 queue에 넣을 수
+있습니다.
+
+최신 사용자 턴에 primary selected text, line range, PDF page, crop image가
+첨부되어 있지 않은 일반 workspace/domain 질문에서는 sidechat이 `wiki plugin
+query`를 직접 호출합니다. backend에 L3 grounding이 있으면 응답에
+query-generated Exhibition ID와 compact trace가 포함되어 Sources & Trace
+패널이 생성된 L4를 링크할 수 있습니다. 최신 턴이 선택 crop이나 editable
+Markdown 영역에 집중된 경우에는 `wiki plugin query`를 건너뛰고 해당 선택
+context에서 답합니다.
+
+Zotero PDF는 기본적으로 Reference Mode로 등록됩니다. 생성되는
+`04_Resources` reference stub은 로컬 PDF 절대경로를 쓰지 않고 Zotero
+attachment key와 `zotero://open-pdf/library/items/<key>` 링크 같은 portable
+identity를 기록합니다. 실제 로컬 PDF 경로는 backend source metadata에만
+저장됩니다.
+
 대시보드의 **Reset** 작업은 로컬 DB와 생성된 L1-L4 콘텐츠를 지우기 전에 두 번 확인합니다.
+
+Dashboard 상태는 plugin 자체 상태가 아니라 `.curator/runtime/` 아래의
+backend-owned shared snapshot에서 읽는 구조가 권장됩니다. 해당 JSON 파일은
+backend만 쓰고 plugin은 source count, job 상태, index health, backend version
+표시를 위해 읽기만 합니다. snapshot이 없거나 오래된 경우에는 backend가 비었다고
+해석하지 않고 waiting/unknown 상태로 표시합니다.
+
+Add, Build, Sync, Lint, Reindex, Reset, LLM Apply, Persona Save 같은 dashboard
+버튼은 상태 변경이 필요할 때 backend command를 실행합니다. plugin은 이 작업을 위해
+backend-owned `.curator` 상태를 직접 수정하지 않습니다.
+
+Zotero 검색, metadata refresh, PDF path resolution, annotation loading, source
+status/import/rebind, PDF context/search, query, promotion은 숨겨진
+plugin-local backend API(`wiki plugin ...`)를 사용합니다. 따라서 durable backend
+상태 변경과 로컬 filesystem/database 해석은 backend 코드가 담당하고, plugin은
+Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plumbing은 일반
+사용자가 쓰는 `wiki` 명령 표면에는 노출하지 않습니다.
 
 ---
 
@@ -308,8 +412,14 @@ wiki curate 실행 → L4 Exhibition 갱신
 | --- | --- | --- |
 | `data.json` | 설정(provider, model, MCP 서버 등) | 경로가 같을 때만 권장 |
 | `sessions.json` | 채팅 대화 히스토리 | 가능 |
+| `.curator/runtime/*.json` | backend가 쓰는 dashboard/status snapshot | 생성 상태로 동기화 가능 |
 
 v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 읽고 세션 id 단위로 병합합니다. 따라서 Linux와 macOS에서 서로 다른 채팅 세션을 만들면 두 세션이 함께 보존됩니다. 삭제된 세션은 `deletedSessionIds` tombstone에 남아 Syncthing 지연으로 오래된 파일이 도착해도 되살아나지 않습니다. 단, 같은 세션을 양쪽에서 동시에 편집한 경우에는 더 최신 `updatedAt`을 가진 세션이 이깁니다.
+
+사이드바 대화 목록의 채팅 제목은 첫 사용자 질문 뒤에 나온 첫 assistant 답변에서
+생성합니다. 아직 답변이 끝나지 않은 동안에는 첫 사용자 질문을 임시 제목으로
+사용합니다. 각 행에는 `updatedAt` 기준의 마지막 활동 시간이 `12m ago`,
+`3h ago`처럼 현재 시각 기준 상대 시간으로 표시됩니다.
 
 사이드바의 휴지통 버튼으로 채팅 세션을 삭제하면 별도 확인 없이 즉시 삭제됩니다. 삭제 기록은 `deletedSessionIds` tombstone으로 남아 동기화된 다른 기기에서 해당 세션이 되살아나지 않게 합니다.
 
@@ -319,14 +429,14 @@ backend 실행 경로가 기기마다 다르거나 한쪽 기기에 Incurator가
 .obsidian/plugins/incurator-obsidian-agent/data.json
 ```
 
-macOS에 `wiki` 실행 파일이 PATH에 없다면 **Settings > AI Agent > PDF & Incurator**에서 `Incurator MCP command`와 `Incurator MCP args`를 해당 기기 기준으로 설정합니다. 예를 들어 repo는 있지만 backend가 전역 설치되어 있지 않은 경우:
+macOS에 `wiki` 실행 파일이 PATH에 없다면 **Settings > AI Agent > PDF & Incurator**에서 `Backend command`와 `Backend arguments`를 해당 기기 기준으로 설정합니다. 예를 들어 repo는 있지만 backend가 전역 설치되어 있지 않은 경우:
 
 | 설정 | 값 |
 | --- | --- |
-| `Incurator MCP command` | `/opt/homebrew/bin/uv` |
-| `Incurator MCP args` | `["--directory", "/Users/<you>/Workspace/Incurator/backend", "run", "wiki", "mcp"]` |
+| `Backend command` | `/opt/homebrew/bin/uv` |
+| `Backend arguments` | `["--directory", "/Users/<you>/Workspace/Incurator/backend", "run", "wiki"]` |
 
-Obsidian plugin은 시작 시 Syncthing이 공유 중인 device 목록과 현재 기기의 backend launcher hint를 `.curator/devices.json`에 자동 기록합니다. 이 registry는 `data.json`을 동기화하지 않아도 Linux/macOS 설정 차이를 서로 확인하는 용도로 사용할 수 있습니다. `wiki devices sync`는 자동 갱신이 실패했을 때 쓰는 수동 복구 명령입니다.
+Obsidian plugin은 시작 시 Syncthing이 공유 중인 device 목록과 현재 기기의 backend launcher hint를 `.curator/devices.json`에 자동 기록합니다. 이 registry는 `data.json`을 동기화하지 않아도 Linux/macOS 설정 차이를 서로 확인하는 용도로 사용할 수 있습니다. Dashboard는 현재 Syncthing 공유 폴더 registry에 있는 모든 device를 표시하며, 현재 기기에 backend launcher가 없는 원격 device도 숨기지 않습니다. 각 device에는 동기화 중인 Vault/Zotero 폴더 이름을 표시하고, 현재 기기는 Syncthing remote 목록이 아니라 local fallback entry로만 잡히는 경우에도 **This device**로 표시합니다. platform 정보가 없으면 추측하지 않고 unknown으로 표시합니다. `wiki devices sync`는 자동 갱신이 실패했을 때 쓰는 수동 복구 명령이고, `wiki devices`는 현재 registry를 확인하는 명령입니다.
 
 자세한 동기화 설정은 [SYNC_IGNORE_GUIDE_KR.md](SYNC_IGNORE_GUIDE_KR.md)를 참조하세요.
 
@@ -346,7 +456,8 @@ Zotero 데이터 디렉토리를 설정하면, 마크다운 노트에서 Zotero 
 
 ### 설정
 
-**설정 > AI Agent > Zotero 연동 > Zotero 데이터 디렉토리**에 Zotero 데이터 폴더 경로를 입력합니다.
+**설정 > AI Agent > Zotero 연동 > Backend Zotero status > Open setup**을 열어 backend가 실제로 읽을 수 있는 Zotero 상태를 확인합니다. setup dialog가 Zotero data directory의 단일 입력 지점이며 기본값은 `~/Zotero`입니다. 홈 디렉토리 아래 경로는 절대 `/Users/...` prefix 대신 `~`로 축약해 표시합니다. 여기서 data directory와 optional linked attachment root를 backend 설정에 저장할 수 있고, 이 backend 설정은 이후 Zotero 검색, metadata, annotation, PDF 경로 해석, Add-to-Incurator 등록에 사용됩니다.
+backend가 checked roots 또는 checked PDF paths를 반환하면 setup dialog가 이를 candidate root로 표시하고 **Use** 액션으로 data directory 또는 linked root 입력칸에 채울 수 있게 합니다. 긴 path를 직접 복사해 넣지 않아도 됩니다.
 
 | 운영체제 | 기본 경로 |
 | --- | --- |
@@ -354,7 +465,8 @@ Zotero 데이터 디렉토리를 설정하면, 마크다운 노트에서 Zotero 
 | Linux | `~/Zotero` |
 | Windows | `C:\Users\<username>\Zotero` |
 
-이 디렉토리 안에 `storage/` 폴더가 있어야 합니다.
+이 디렉토리에는 `zotero.sqlite`가 있어야 합니다. PDF 첨부 파일은 Zotero `storage/` 또는 linked/base attachment directory에 있을 수 있습니다. linked attachment root는 Zotero DB의 `attachments:` 경로를 풀기 위한 base path일 뿐이며, 일반 `storage/<KEY>/...` 첨부에는 필요하지 않습니다. 디렉토리가 이동했거나 DB가 없으면 Zotero 검색이 빈 결과처럼 보이지 않고 backend status가 구조화된 상태를 반환합니다.
+Zotero 링크나 Add-to-Incurator 작업에서 PDF를 해석하지 못하면 backend는 `db_missing`, `attachment_key_missing`, `attachment_file_missing` 같은 구조화된 상태를 반환합니다. 그래서 "Zotero DB를 찾을 수 없음", "현재 DB에 해당 attachment key가 없음", "configured root 안에 linked PDF 파일이 없음"을 plugin UI에서 구분할 수 있습니다. Settings, Dashboard, Zotero link 실패, sidechat Add-to-Incurator 실패는 같은 Zotero setup dialog를 열어 복구 로직이 한 UI 경로에 모이도록 합니다.
 
 ### Import Zotero Item
 
@@ -371,6 +483,16 @@ Zotero 데이터 디렉토리를 설정하면, 마크다운 노트에서 Zotero 
 ```
 
 렌더링된 경로 segment는 Vault에 파일을 만들기 전에 안전한 파일명 형태로 정리됩니다.
+
+Zotero PDF를 plugin viewer에서 연 뒤 sidechat/purple-pin 흐름으로 등록하면 Incurator는 파일을 vault로 복사하지 않고 원본 파일을 Reference Mode로 등록합니다. 등록에 성공하면 완료 알림을 표시하고, backend가 파일 path를 해석하거나 등록하지 못하면 오류 알림을 표시합니다.
+Zotero path 설정은 Zotero 데이터 디렉토리나 `zotero.sqlite` 파일 자체를 가리킬 수 있습니다. backend PDF 해석은 `zotero.sqlite`가 들어온 경우 부모 디렉토리로 정규화한 뒤 `storage/<attachmentKey>/`를 확인합니다.
+linked Zotero attachment의 경우 backend는 configured linked attachment root에서 `attachments:` path도 확인합니다.
+plugin이 Zotero attachment key를 알고 있으면 Add-to-Incurator는 그 key를 backend source import에 직접 넘길 수 있습니다. backend가 PDF를 해석하고 local reference row에 `zotero:<attachmentKey>` 형태의 stable logical source id를 기록합니다. 같은 Zotero attachment를 반복 등록하면 이 logical source id를 재사용하며 `-02` reference stub를 새로 만들지 않습니다. PDF crop/snipping 이미지는 임시 채팅 컨텍스트로만 사용하며, 가능한 경우 선택된 모델에 전달된 뒤 `05_Assets` 아래에 영구 생성물을 남기지 않아야 합니다.
+Zotero 설정과 복구의 관리 주체는 backend입니다. 플러그인은 plugin 설정값을 canonical state로 보지 않고, `wiki plugin zotero status`, `wiki plugin zotero init`, `wiki plugin zotero search`, `wiki plugin zotero resolve-pdf` 같은 숨김 JSON 명령을 호출해 상태 진단, 초기화, 검색, PDF 경로 해석을 요청해야 합니다. PDF context 요청은 가능한 한 `source_id`, file hash, vault-relative path, absolute path, Zotero attachment key 같은 식별자를 함께 넘기고, backend가 reference-mode 파일이나 이동된 Zotero 파일을 일관되게 해석합니다.
+
+채팅 최종 답변은 plugin에서 선택한 provider/model이 작성합니다. backend/Incurator 호출은 plugin이 명시적으로 호출했을 때 검색 컨텍스트, PDF window, source status 또는 backend synthesis를 제공하는 역할입니다. 채팅 답변에서는 매 최신 요청마다 language bridge를 사용합니다: 입력 언어 감지 → 영어로 내부 검색/추론/tool 인자 처리 → 최신 입력 언어로 최종 답변 작성 순서입니다. 이전 턴, 한글 Markdown 문맥, 저장된 Exhibition metadata가 다음 영어 질문의 답변 언어를 한국어로 고정해서는 안 됩니다. `curator_query`가 임시 Exhibition을 생성하면 Sources & Trace 패널이 생성된 L4를 표시할 수 있도록 Exhibition과 trace 필드는 유지하지만, stale `final_output_language`를 sidechat 언어 상태로 재사용하지 않습니다.
+
+입력 언어 감지는 결정론적이며 매 채팅 턴마다 새로 실행됩니다. plugin은 최신 요청을 유니코드 스크립트로 분류하며 — 예: 한국어(한글), 중국어(汉字), 일본어(かな), 러시아어(Кириллица), 아랍어 등, 라틴 문자는 영어로 폴백 — 백엔드 curator query를 트리거하든 일반 provider 채팅이든 동일한 단일 감지기를 공유합니다. 따라서 채팅 세션은 영어 질문이 들어오면 영어로, 한국어 질문이면 한국어로, 중국어 질문이면 중국어로 답하며, 이전 턴이 어떤 언어였든 메시지마다 독립적으로 결정됩니다. 감지된 언어가 곧 답변 언어이며, 모델이 먼저 영어로 만든 뒤 별도 단계에서 번역하지 않습니다. 세 가지 언어 필드(`input_language`, `english_query`, `final_output_language`)는 query JSON/trace에만 존재하고 저장되는 Exhibition 파일에는 절대 기록되지 않으며, 답변 캐시는 출력 언어로 키가 구성되어 한국어 캐시 답변이 영어 질문에 재사용되지 않습니다. 활성 노트가 워크스페이스 폴더 안에 있지 않은 일반 채팅은 워크스페이스 밖으로 취급되어, 생성되는 임시 Exhibition은 `default`로 스코프되며 사용자가 열지 않은 무관한 프로젝트 워크스페이스에 묶이지 않습니다.
 
 ### Zotero 링크 처리 흐름
 

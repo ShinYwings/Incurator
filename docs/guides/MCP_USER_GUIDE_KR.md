@@ -79,7 +79,7 @@ wiki mcp install
 #### `curator_import_source`
 - **역할**: Zotero 등 외부 디렉토리의 파일을 Incurator backend에 등록합니다. 정책에 따라 파일을 복사하지 않는 Reference Mode로 연결하거나, 사용자가 승인한 `04_Resources/` 목적지로 안전하게 복사할 수 있습니다.
 - **파라미터**: 구현 단계에 따라 `file_path` 또는 `source_path`가 입력 이름으로 사용될 수 있습니다. 둘 다 외부 파일의 절대 경로를 의미합니다. 정책 필드는 `policy="reference"` 또는 `destination_policy="mirror_03_to_04"`처럼 명시합니다. 실제 클라이언트는 먼저 `dry_run=true`로 제안 결과를 받은 뒤 사용자 승인 후 mutation을 호출해야 합니다.
-- **목적지 규칙**: 외부 PDF의 기본 복사 목적지는 `03_Notes`가 아니라 `04_Resources`입니다. 활성 노트가 `03_Notes/Vision/Foo.md`라면 기본 제안은 `04_Resources/Vision/Foo/<pdf-file>.pdf`입니다. 연결된 노트가 없으면 `04_Resources/Inbox/<pdf-file>.pdf`를 제안합니다.
+- **목적지 규칙**: 외부 PDF의 기본값은 Reference Mode입니다. backend는 `04_Resources/` 아래에 markdown reference stub을 만들고 PDF 원본은 기존 위치에 둡니다. Copy mode는 명시적으로 선택할 때만 사용하며, 이 경우에도 목적지는 `03_Notes`가 아니라 `04_Resources`입니다.
 - **덮어쓰기 금지**: 동일 해시 파일은 기존 source를 재사용하고, 같은 이름이지만 다른 해시인 파일은 suffix 또는 사용자 선택 목적지를 사용해야 합니다.
 
 #### `curator_register_source`
@@ -92,7 +92,8 @@ wiki mcp install
 - **파라미터**: `file_path` 또는 `source_id`.
 
 #### `curator_add_all`
-- **역할**: 워크스페이스 내 모든 등록된 소스에 대해 `wiki add`를 실행하여 구조적 등록(L1)을 최신 상태로 유지합니다.
+- **역할**: 워크스페이스 source 디렉터리 전체에 대해 `wiki add`를 실행하여 새 파일이나 변경 파일을 발견하고 구조적 등록(L1)을 최신 상태로 유지합니다.
+- **결과**: `discovered`, `removed`, `summarized` 카운트를 반환합니다.
 
 #### `curator_build_all`
 - **역할**: 대기 중인 작업이 있는 워크스페이스 내 모든 소스에 대해 깊이 있는 L2 및 L3 지식 추출 프로세스를 트리거합니다.
@@ -112,7 +113,7 @@ wiki mcp install
 #### `curator_source_status`
 - **역할**: 파일의 처리 상태 및 외부 경로(`external_path`) fallback 로직 상태를 조회합니다. 위치가 이동되어 `MOVED` 상태인 파일들을 식별할 수 있습니다.
 - **파라미터**: `source_id`, `logical_source_id`, `source_path`, 또는 `file_path` 중 구현이 지원하는 식별자를 사용합니다.
-- **Obsidian 플러그인 표시**: 플러그인은 이 결과를 PDF chip의 상태 badge로 표시할 수 있습니다. 예: `untracked`, `queued`, `running L1`, `running L2`, `running L3`, `running L4`, `indexed`, `stale`, `moved`, `error`.
+- **Obsidian 플러그인 표시**: 플러그인은 이 결과를 PDF chip의 상태 badge로 표시할 수 있습니다. 예: `untracked`, `queued`, `running L1`, `running L2`, `running L3`, `running L4`, `l3_ready`, `l4_ready`, `stale`, `moved`, `error`.
 
 #### `curator_rebind_source`
 - **역할**: 외부 참조 파일의 해시가 변동(Hash Drift)되거나 물리적 위치가 이동된 경우, 인간의 승인을 거쳐 새로운 경로와 해시로 식별자(`logical_source_id`)를 리바인딩(Healing)합니다.
@@ -161,6 +162,7 @@ wiki mcp install
 
 #### `curator_reindex`
 - **역할**: QMD 검색 인덱스를 수동으로 다시 빌드합니다.
+- **Degraded result**: BM25 indexing은 성공했지만 vector embedding이 실패하면 `ok=true`, `updated=true`, `embedded=false`, `degraded=true`를 반환합니다. 이 상태에서는 lexical search는 최신이고 vector search만 stale입니다.
 
 ### 3.4 문서 상태 및 On-demand 쿼리 (v0.2.1)
 
@@ -174,7 +176,7 @@ wiki mcp install
 
 #### `fetch_document_section`
 
-- **역할**: 문서의 특정 섹션 텍스트를 반환합니다. 문서가 미등록이면 플러그인 in-memory(PDF.js)에서 서빙하고, `wiki add`/`import_source` 이후 `l1_complete=True`가 되면 백엔드 CTX의 `Source Sections`에서 즉시 서빙합니다. `curator_query` 기반 검색은 L3 완료 후 사용합니다.
+- **역할**: 문서의 특정 섹션 텍스트를 반환합니다. 문서가 미등록이면 플러그인 in-memory(PDF.js)에서 서빙하고, `wiki add`/`import_source` 이후 `l1_complete=True`가 되면 백엔드는 CTX section id, 원본 heading, 또는 PDF page range로 원문을 반환합니다. L1이 `source_text_policy: on_demand`인 대형 문서는 inline CTX 텍스트가 아니라 원본 파일에서 필요한 구간을 읽습니다. `curator_query` 기반 검색은 L3 완료 후 사용합니다.
 - **파라미터**: `source_key` (logical_source_id 또는 file_hash), `toc_id` (CTX frontmatter의 toc 배열 id), `page_start`/`page_end` (ToC 없는 PDF fallback).
 - **구현 상태**: `source_key`가 등록 source 또는 파일 경로일 때 CTX section marker, 원문 heading, PDF page 단위 텍스트를 반환합니다. v0.2.1 기본 설정(`llm.instant_l1: true`)에서는 L1 CTX가 LLM 없이 생성되므로 섹션 조회가 빠르게 가능해집니다.
 - **에이전트 활용 패턴**: 시스템 프롬프트에 주입된 ToC 미니맵을 보고 필요한 `toc_id`를 직접 호출.
@@ -215,13 +217,16 @@ wiki mcp install
 
 #### `get_available_models`
 
-- **역할**: 백엔드에 번들된 `models.json`에서 provider별 사용 가능 모델 목록을 반환합니다. 플러그인 UI가 모델 선택 드롭다운을 동적으로 렌더링하는 데 사용합니다.
+- **역할**: 백엔드에 번들된 `models.json`에서 provider별 사용 가능 모델 목록을 반환합니다. 이 도구는 외부 MCP 클라이언트용입니다. Obsidian 플러그인은 빌드 시 같은 백엔드 `models.json`을 번들링하므로 모델 드롭다운 표시를 위해 이 MCP 도구가 필요하지 않습니다.
 - **파라미터**: 없음.
 - **반환값**: `{ "antigravity": [...], "claude": [...] }` 형태의 provider별 모델 목록.
 
+> 참고: Obsidian plugin의 로컬 Zotero 및 dashboard 흐름은 MCP가 필요하지 않습니다.
+> backend-owned runtime snapshot과 backend JSON command를 사용합니다.
+
 #### `curator_get_version`
 
-- **역할**: Incurator 백엔드의 현재 설치 버전을 문자열(예: `"0.2.1"`)로 반환합니다. 클라이언트(특히 Obsidian 플러그인)가 버전 불일치를 감지하고 1-Click 자동 업데이트를 트리거할 때 사용합니다.
+- **역할**: Incurator 백엔드의 현재 설치 버전을 문자열(예: `"0.2.2"`)로 반환합니다. 외부 클라이언트가 backend capability를 확인할 때 사용합니다.
 - **파라미터**: 없음.
 - **반환값**: 백엔드 버전 문자열.
 

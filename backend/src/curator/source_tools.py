@@ -38,6 +38,48 @@ class SourceStatus:
         }
 
 
+def _row_get(row: dict[str, Any], key: str, default: Any = "") -> Any:
+    try:
+        return row.get(key, default)
+    except AttributeError:
+        try:
+            return row[key]
+        except Exception:
+            return default
+
+
+def derive_source_state(row: dict[str, Any], pending_jobs: list[dict[str, Any]] | None = None) -> str:
+    """Return the user-facing source state from per-layer statuses."""
+
+    layer_statuses = {
+        layer: str(_row_get(row, f"{layer}_status", "") or "").lower()
+        for layer in ("l1", "l2", "l3", "l4")
+    }
+    if any(status == "error" for status in layer_statuses.values()) or _row_get(row, "layer_error"):
+        return "error"
+    if any(status == "running" for status in layer_statuses.values()):
+        return "running"
+    if layer_statuses["l4"] == "done":
+        return "l4_ready"
+    if layer_statuses["l3"] == "done":
+        return "l3_ready"
+    if layer_statuses["l2"] == "done":
+        return "l2_ready"
+    if layer_statuses["l1"] == "done":
+        return "queued" if pending_jobs else "l1_ready"
+    if pending_jobs:
+        return "queued"
+
+    status = str(_row_get(row, "status", "pending") or "pending").lower()
+    if status == "error":
+        return "error"
+    if status in {"curated", "done"}:
+        return "l3_ready"
+    if status in {"pending", "force_pending"}:
+        return "queued"
+    return status or "unknown"
+
+
 def parse_source(path: Path) -> parsers.ParsedDocument:
     """Parse a supported source path and return the normalized document."""
     if not parsers.is_supported(path):
@@ -252,9 +294,8 @@ def source_status(
         )
         return out
 
-    status = str(row.get("status") or "pending")
-    state = "indexed" if status in {"curated", "done"} else status
     pending_jobs = db.get_pending_jobs_for_source(paths.state_db, int(row["id"]))
+    state = derive_source_state(row, pending_jobs)
     out.update(
         SourceStatus(
             state=state,
@@ -268,6 +309,7 @@ def source_status(
     out["l1_complete"] = str(row.get("l1_status") or "") == "done"
     out["l2_complete"] = str(row.get("l2_status") or "") == "done"
     out["l3_complete"] = str(row.get("l3_status") or "") == "done"
+    out["l4_complete"] = str(row.get("l4_status") or "") == "done"
     out["jobs_pending"] = [
         {
             "id": job.get("id"),

@@ -1,10 +1,10 @@
 {
   "id": "incurator-obsidian-agent",
   "name": "Incurator Obsidian Agent",
-  "version": "0.2.1",
+  "version": "0.3.1",
   "minAppVersion": "1.0.0",
-  "description": "Cursor/Antigravity-like AI Agent with inline edit (Cmd+K), highlighted selection, line referencing, and MCP.",
-  "author": "Antigravity",
+  "description": "Cursor/AskGemini-like AI Agent with inline edit, highlighted selection, line referencing, PDF context, and local Incurator backend integration.",
+  "author": "GIShin",
   "authorUrl": "",
   "fundingUrl": "",
   "isDesktopOnly": true

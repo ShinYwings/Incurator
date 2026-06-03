@@ -52,12 +52,11 @@ testbed/
 
 The Incurator Obsidian plugin is deployed into the active vault as `.obsidian/plugins/incurator-obsidian-agent/main.js`, `manifest.json`, and `styles.css`. If Syncthing does not ignore the whole `.obsidian/plugins/incurator-obsidian-agent/` folder, deploying from Linux with `plugin/deploy.sh` will synchronize those built files to macOS.
 
-Keep per-device files such as `data.json` ignored when backend paths differ. Settings that contain absolute paths, such as MCP command paths, may differ between Linux and macOS and should be configured on each device.
+Keep per-device files such as `data.json` ignored when backend paths differ. Settings that contain absolute paths, such as backend command paths, may differ between Linux and macOS and should be configured on each device.
 
-If Incurator is not installed globally on macOS, set `Incurator MCP command` and
-`Incurator MCP args` in the Obsidian plugin settings to a macOS-specific
-launcher. See the session sync section in `PLUGIN_GUIDE.md` for a `uv`
-example.
+If Incurator is not installed globally on macOS, set `Backend command` and
+`Backend arguments` in the Obsidian plugin settings to a macOS-specific launcher.
+See the session sync section in `PLUGIN_GUIDE.md` for a `uv` example.
 
 ### Syncthing Device Registry
 
@@ -73,10 +72,42 @@ Normal use does not require a command. Syncthing synchronizes the plugin build
 outputs, and each device refreshes the registry when the Obsidian plugin loads.
 The CLI commands below are only for repair or terminal inspection.
 
+On each refresh, `.curator/devices.json` is reconciled against the current
+Syncthing folder membership. Backend hints for still-present devices are kept,
+but device ids no longer shared with the vault are removed so old machines do
+not keep appearing in the dashboard.
+
 ```bash
+wiki devices
 wiki devices sync
 wiki devices status
 ```
+
+`wiki devices` is shorthand for `wiki devices status` and lists every device
+known in the registry, even when a device only has Syncthing metadata and no
+backend launcher hint yet.
+
+### Reference PDFs Across Devices
+
+For external PDFs, **Add to Incurator** creates a lightweight markdown reference
+stub under `04_Resources/` and records the real local file path in backend
+source metadata. The stub may synchronize through Syncthing with the vault, but
+it should not contain an absolute PDF path by default because each device may
+mount its Zotero or external PDF library at a different location.
+
+The intended sharing model is:
+
+- `04_Resources/` reference stubs: synchronize through Syncthing with the vault;
+  do not rely on Git for large/private resource libraries.
+- `.curator/Collections/`: may be shared through Git as generated knowledge
+  artifacts when the project chooses to version them.
+- `.curator/state.sqlite*` and `.curator/qmd/`: device-local runtime/index
+  state; do not sync through Syncthing or Git.
+- Backend executable/repository path: device-local; do not store as shared vault
+  truth.
+- Zotero/external PDF originals: may synchronize through a separate Syncthing
+  folder, but Incurator cannot infer that path from the vault alone. Each device
+  resolves or rebinds the reference using its local Zotero/external roots.
 
 If macOS does not have `wiki` installed globally and must launch the repository
 backend through `uv`:

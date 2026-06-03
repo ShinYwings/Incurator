@@ -1055,7 +1055,8 @@ class DeepSeekApiClient:
     def _headers(self) -> dict[str, str]:
         if not self.api_key:
             raise DeepSeekApiError(
-                f"DeepSeek API key is not configured. Set {self.api_key_env} or llm.deepseek-api.api_key."
+                f"DeepSeek API key is not configured. Set {self.api_key_env}, "
+                "llm.deepseek-api.api_key_secret, or legacy llm.deepseek-api.api_key."
             )
         return {
             "Authorization": f"Bearer {self.api_key}",
@@ -1134,7 +1135,8 @@ class DeepSeekApiClient:
     def ensure_ready(self) -> None:
         if not self.api_key:
             raise DeepSeekApiError(
-                f"DeepSeek API key is not configured. Set {self.api_key_env} or llm.deepseek-api.api_key."
+                f"DeepSeek API key is not configured. Set {self.api_key_env}, "
+                "llm.deepseek-api.api_key_secret, or legacy llm.deepseek-api.api_key."
             )
 
     def ping(self) -> bool:
@@ -1409,11 +1411,23 @@ def _make_codex_cli(cfg: dict) -> CodexCliClient:
 
 def _make_deepseek_api(cfg: dict) -> DeepSeekApiClient:
     model = cfg.get("model") or consts.DEFAULT_DEEPSEEK_MODEL
+    api_key = (cfg.get("api_key", "") or "").strip()
+    api_key_secret = (cfg.get("api_key_secret", "") or "").strip()
+    api_key_env = (cfg.get("api_key_env", "DEEPSEEK_API_KEY") or "DEEPSEEK_API_KEY").strip()
+    if not api_key and api_key_secret and not os.environ.get(api_key_env):
+        from . import secret_store
+
+        api_key = secret_store.get_secret(api_key_secret)
+    # Recover from common misconfiguration where the literal API key is saved
+    # into `api_key_env` instead of `api_key`.
+    if not api_key and api_key_env.startswith("sk-"):
+        api_key = api_key_env
+        api_key_env = "DEEPSEEK_API_KEY"
     return DeepSeekApiClient(
         model=model,
         base_url=cfg.get("base_url", "https://api.deepseek.com"),
-        api_key=cfg.get("api_key", ""),
-        api_key_env=cfg.get("api_key_env", "DEEPSEEK_API_KEY"),
+        api_key=api_key,
+        api_key_env=api_key_env,
         timeout=float(cfg.get("timeout", consts.DEFAULT_TIMEOUT)),
         effort=cfg.get("effort", ""),
     )

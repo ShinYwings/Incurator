@@ -7,9 +7,9 @@ Stage 1 commands:
 
 Stage 2 commands:
     wiki add <path> [-r]     Copy a file or folder into raw/, parse, track.
-    wiki sources list        List all tracked sources.
-    wiki sources show <id>   Show details for one source (with text preview).
-    wiki sources rm <id>     Remove a source from tracking.
+    wiki source ls           List all tracked sources.
+    wiki source show <id>    Show details for one source (with text preview).
+    wiki source rm <id>      Remove a source from tracking.
 
 Later stages add: ingest, query, sync, serve.
 """
@@ -21,7 +21,7 @@ import json
 import hashlib
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 from rich.console import Console
@@ -37,6 +37,7 @@ from . import ingest_raw
 from . import lint as lint_module
 from . import page_writer
 from . import query as query_module
+from . import runtime_state
 from . import search
 from .workspace.provisioner import (
     CurateTemplateData,
@@ -73,14 +74,14 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 
-sources_app = typer.Typer(
-    name="sources",
-    help="Manage tracked source files in raw/.",
+source_app = typer.Typer(
+    name="source",
+    help="Inspect and manage tracked sources.",
     no_args_is_help=True,
     add_completion=False,
     rich_markup_mode="rich",
 )
-app.add_typer(sources_app, name="sources")
+app.add_typer(source_app, name="source")
 
 workspace_app = typer.Typer(
     name="workspace",
@@ -100,6 +101,15 @@ config_app = typer.Typer(
 )
 app.add_typer(config_app, name="config")
 
+config_secret_app = typer.Typer(
+    name="secret",
+    help="Manage local encrypted backend secrets.",
+    no_args_is_help=True,
+    add_completion=False,
+    rich_markup_mode="rich",
+)
+config_app.add_typer(config_secret_app, name="secret")
+
 persona_app = typer.Typer(help="Manage the Curator and Artist personas.")
 app.add_typer(persona_app, name="persona")
 
@@ -115,11 +125,12 @@ config_app.add_typer(config_models_app, name="models")
 testbed_app = typer.Typer(
     name="testbed",
     help="[Dev Only] Manage development testbed environments and scenarios.",
+    hidden=True,
     no_args_is_help=True,
     add_completion=False,
     rich_markup_mode="rich",
 )
-app.add_typer(testbed_app, name="testbed")
+app.add_typer(testbed_app, name="testbed", hidden=True)
 
 
 
@@ -132,14 +143,52 @@ jobs_app = typer.Typer(
 )
 app.add_typer(jobs_app, name="jobs")
 
-devices_app = typer.Typer(
-    name="devices",
-    help="Inspect synced device profiles and per-device backend launchers.",
+plugin_app = typer.Typer(
+    name="plugin",
+    help="JSON backend API for the local Obsidian plugin.",
+    hidden=True,
     no_args_is_help=True,
     add_completion=False,
     rich_markup_mode="rich",
 )
-app.add_typer(devices_app, name="devices")
+app.add_typer(plugin_app, name="plugin", hidden=True)
+
+plugin_zotero_app = typer.Typer(
+    name="zotero",
+    help="Read Zotero metadata and attachments for the local Obsidian plugin.",
+    no_args_is_help=True,
+    add_completion=False,
+    rich_markup_mode="rich",
+)
+plugin_app.add_typer(plugin_zotero_app, name="zotero")
+
+plugin_source_app = typer.Typer(
+    name="source",
+    help="Read and mutate source registry state for the local Obsidian plugin.",
+    no_args_is_help=True,
+    add_completion=False,
+    rich_markup_mode="rich",
+)
+plugin_app.add_typer(plugin_source_app, name="source")
+
+plugin_pdf_app = typer.Typer(
+    name="pdf",
+    help="Read PDF context and source-page search results for the local Obsidian plugin.",
+    no_args_is_help=True,
+    add_completion=False,
+    rich_markup_mode="rich",
+)
+plugin_app.add_typer(plugin_pdf_app, name="pdf")
+
+devices_app = typer.Typer(
+    name="devices",
+    help="Inspect synced device profiles and per-device backend launchers.",
+    hidden=True,
+    no_args_is_help=False,
+    add_completion=False,
+    rich_markup_mode="rich",
+)
+app.add_typer(devices_app, name="devices", hidden=True)
 
 console = Console()
 
@@ -325,8 +374,13 @@ def _refresh_qmd_index(paths: cfg.WikiPaths, *, embed: bool = True) -> None:
         return
     try:
         console.print("[dim]Updating qmd index…[/dim]")
-        search.update_index(paths, embed=embed)
-        _ok("qmd index updated")
+        result = search.update_index(paths, embed=embed)
+        if result.degraded:
+            _warn(f"qmd vector embedding skipped: {result.warning}")
+            _ok("qmd BM25 index updated")
+            _hint("Vector search is stale; BM25 search remains available. Rerun `wiki reindex` after qmd embeddings are healthy.")
+        else:
+            _ok("qmd index updated")
     except search.SearchBackendError as e:
         _warn(f"qmd index update failed: {e}")
         _hint("Search is now stale; rerun later with `wiki reindex`.")
@@ -442,6 +496,43 @@ def _sync_blocked_node_ids(report: lint_module.LintReport) -> set[str]:
             continue
         blocked.add(_node_id_from_collection_page(issue.page))
     return blocked
+
+
+def _filter_sync_structural_issues(
+    paths: cfg.WikiPaths,
+    issues: list[lint_module.LintIssue],
+) -> list[lint_module.LintIssue]:
+    """Drop non-actionable findings from sync reports.
+
+    L1-only Contexts are expected immediately after `wiki add`; L2/L3 may still
+    be pending until `wiki build` runs, so their temporary lack of incoming DAG
+    links must not block logical checks or produce persistent review reports.
+    """
+
+    context_ids_pending_l2: set[str] = set()
+    try:
+        with db.connect(paths.state_db) as conn:
+            rows = conn.execute(
+                "SELECT context_id FROM sources "
+                "WHERE context_id IS NOT NULL AND context_id != '' "
+                "AND l1_status = 'done' AND l2_status IN ('pending', 'running', 'skipped')"
+            ).fetchall()
+            context_ids_pending_l2 = {str(row["context_id"]) for row in rows}
+    except Exception:
+        context_ids_pending_l2 = set()
+
+    filtered: list[lint_module.LintIssue] = []
+    for issue in issues:
+        check = getattr(issue.check, "value", str(issue.check))
+        page = str(issue.page)
+        if (
+            check == "orphan_page"
+            and page.startswith(f"{consts.LAYER_L1}/")
+            and Path(page).stem in context_ids_pending_l2
+        ):
+            continue
+        filtered.append(issue)
+    return filtered
 
 
 def _render_sync_preflight_summary(report: lint_module.LintReport) -> None:
@@ -588,8 +679,9 @@ def _render_latest_sync_report_summary(paths: cfg.WikiPaths) -> None:
 
     has_details = bool(logical or structural or structural_issues)
     if has_details and console.is_interactive:
-        show = typer.confirm("Sync report has details. Show them now?", default=False)
+        show = typer.confirm("Sync report has review findings. Show them now?", default=False)
         if show:
+            console.print("[dim]Review findings from the latest sync report; these are not a `wiki status` runtime error.[/dim]")
             for gap in (structural + logical)[:20]:
                 console.print(
                     f"  [yellow]•[/yellow] [{gap.get('layer', '?')}] "
@@ -719,6 +811,7 @@ def _run_sync_report_only(paths: cfg.WikiPaths, config: dict, *, reason: str) ->
         if client is not None:
             client.close()
 
+    structural_report.issues = _filter_sync_structural_issues(paths, structural_report.issues)
     structural_issues = structural_report.errors + structural_report.warnings
     blocked_node_ids = _sync_blocked_node_ids(structural_report)
     _write_latest_sync_report(
@@ -1438,7 +1531,6 @@ def _run_curator_persona_wizard(client, current_persona: dict | None = None, rec
     """Multi-turn LLM interview to build/refine the Curator persona. Returns persona dict or None (skipped)."""
     from .prompts import build_persona_interview_messages, PERSONA_INTERVIEW_CURATOR_OPENER
     import json as _json
-    import re as _re
 
     opener = PERSONA_INTERVIEW_CURATOR_OPENER
     # When refining an existing persona, show context to the LLM and user
@@ -1450,8 +1542,27 @@ def _run_curator_persona_wizard(client, current_persona: dict | None = None, rec
         context_prefix += "Based on the above, I'll ask whether you'd like to refine anything.\n\n"
 
     opener_with_context = context_prefix + opener
-    history: list[dict] = [{"role": "assistant", "content": opener_with_context}]
     typer.echo("\n" + opener_with_context)
+
+    # Display the opener only. Ask Q1 immediately so users do not need to type
+    # a throwaway "yes" before the real interview begins.
+    history: list[dict] = []
+    messages = build_persona_interview_messages(history, is_workspace=False)
+    try:
+        first_q: str = client.chat(messages)
+    except Exception as exc:
+        typer.echo(f"[LLM error] {exc}")
+        return None
+    parsed = _parse_persona_done_response(first_q)
+    if parsed is not None:
+        persona = parsed.get("persona")
+        if persona is None:
+            typer.echo("Skipping persona setup.")
+            return None
+        typer.echo("Curator persona interview complete.")
+        return persona
+    history.append({"role": "assistant", "content": first_q})
+    typer.echo(f"\nCurator: {first_q}\n")
 
     for _ in range(12):
         user_input = typer.prompt("You").strip()
@@ -1467,22 +1578,45 @@ def _run_curator_persona_wizard(client, current_persona: dict | None = None, rec
 
         history.append({"role": "assistant", "content": content})
 
-        json_match = _re.search(r'\{.*\}', content, _re.DOTALL)
-        if json_match:
-            try:
-                parsed = _json.loads(json_match.group())
-                if parsed.get("done"):
-                    persona = parsed.get("persona")
-                    if persona is None:
-                        typer.echo("Skipping persona setup.")
-                        return None
-                    return persona
-            except _json.JSONDecodeError:
-                pass
+        parsed = _parse_persona_done_response(content)
+        if parsed is not None:
+            persona = parsed.get("persona")
+            if persona is None:
+                typer.echo("Skipping persona setup.")
+                return None
+            typer.echo("Curator persona interview complete.")
+            return persona
 
         typer.echo(f"\nCurator: {content}\n")
 
     typer.echo("Persona interview ended. Using default STEM persona.")
+    return None
+
+
+def _parse_persona_done_response(content: str) -> dict | None:
+    """Parse the persona wizard's final done JSON, forgiving common LLM wrappers."""
+
+    import json as _json
+    import re as _re
+
+    cleaned = _re.sub(r"```(?:json)?\s*|\s*```", "", content).strip()
+    candidates = [cleaned]
+    if cleaned.startswith("{{") and cleaned.endswith("}}"):
+        candidates.append(cleaned[1:-1].strip())
+    match = _re.search(r"\{.*\}", cleaned, _re.DOTALL)
+    if match:
+        matched = match.group().strip()
+        candidates.append(matched)
+        if matched.startswith("{{") and matched.endswith("}}"):
+            candidates.append(matched[1:-1].strip())
+
+    for candidate in candidates:
+        try:
+            parsed = _json.loads(candidate)
+        except _json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict) and parsed.get("done"):
+            return parsed
     return None
 
 
@@ -1541,8 +1675,6 @@ def _maybe_auto_evolve_curator_persona(
 def _run_artist_persona_wizard(client, project: str) -> dict | None:
     """Multi-turn LLM interview to build an Artist persona. Returns persona dict or None (skipped)."""
     from .prompts import build_persona_interview_messages, PERSONA_INTERVIEW_ARTIST_OPENER
-    import json as _json
-    import re as _re
 
     opener = PERSONA_INTERVIEW_ARTIST_OPENER.format(project=project)
     typer.echo("\n" + opener)
@@ -1558,6 +1690,14 @@ def _run_artist_persona_wizard(client, project: str) -> dict | None:
     except Exception as exc:
         typer.echo(f"[LLM error] {exc}")
         return None
+    parsed = _parse_persona_done_response(first_q)
+    if parsed is not None:
+        persona = parsed.get("persona")
+        if persona is None:
+            typer.echo("Skipping persona setup.")
+            return None
+        typer.echo("Artist persona interview complete.")
+        return persona
     history.append({"role": "assistant", "content": first_q})
     typer.echo(f"\nCurator: {first_q}\n")
 
@@ -1575,18 +1715,14 @@ def _run_artist_persona_wizard(client, project: str) -> dict | None:
 
         history.append({"role": "assistant", "content": content})
 
-        json_match = _re.search(r'\{.*\}', content, _re.DOTALL)
-        if json_match:
-            try:
-                parsed = _json.loads(json_match.group())
-                if parsed.get("done"):
-                    persona = parsed.get("persona")
-                    if persona is None:
-                        typer.echo("Skipping persona setup.")
-                        return None
-                    return persona
-            except _json.JSONDecodeError:
-                pass
+        parsed = _parse_persona_done_response(content)
+        if parsed is not None:
+            persona = parsed.get("persona")
+            if persona is None:
+                typer.echo("Skipping persona setup.")
+                return None
+            typer.echo("Artist persona interview complete.")
+            return persona
 
         typer.echo(f"\nCurator: {content}\n")
 
@@ -1797,12 +1933,21 @@ def reset(
         
     items_to_remove = [
         paths.state_db,
+        paths.state_db.with_name(paths.state_db.name + "-wal"),
+        paths.state_db.with_name(paths.state_db.name + "-shm"),
         paths.index,
         paths.overview,
         paths.ledger,
         paths.log,
+        paths.internal / "dashboard.md",
+        paths.internal / "sync-report.json",
+        paths.internal / "devices.json",
+        paths.internal / "sessions.json",
+        paths.qmd_db,
+        paths.staging,
         paths.collections_dir if hasattr(paths, 'collections_dir') else paths.collections,
     ]
+    items_to_remove.extend(paths.internal.glob("build_trace_*.canvas"))
     
     removed = []
     for item in items_to_remove:
@@ -2305,7 +2450,13 @@ def config_provider(
             elif "api_key_env" not in deepseek_cfg:
                 deepseek_cfg["api_key_env"] = "DEEPSEEK_API_KEY"
             if api_key:
-                deepseek_cfg["api_key"] = api_key
+                from . import secret_store
+
+                deepseek_cfg["api_key_secret"] = secret_store.set_secret(
+                    secret_store.DEFAULT_DEEPSEEK_SECRET,
+                    api_key,
+                )
+                deepseek_cfg.pop("api_key", None)
             if base_url:
                 deepseek_cfg["base_url"] = base_url
             elif "base_url" not in deepseek_cfg:
@@ -2354,12 +2505,39 @@ def config_provider(
     console.print()
 
 
+@config_secret_app.command("list")
+def config_secret_list() -> None:
+    """List local encrypted backend secrets with masked values."""
+    from . import secret_store
+
+    secrets = secret_store.list_secrets()
+    if not secrets:
+        console.print("[dim]No local encrypted secrets stored.[/dim]")
+        return
+    for reference, masked in secrets.items():
+        console.print(f"{reference}\t{masked}")
+
+
+@config_secret_app.command("delete")
+def config_secret_delete(
+    reference: str = typer.Argument(..., help="Secret reference, e.g. secret:deepseek-api-key."),
+) -> None:
+    """Delete a local encrypted backend secret."""
+    from . import secret_store
+
+    if secret_store.delete_secret(reference):
+        console.print(f"[green]Deleted[/green] {reference}")
+    else:
+        console.print(f"[yellow]No such secret[/yellow] {reference}")
+
+
 @app.command()
 def status() -> None:
     """Show the current wiki's stats, paths, and config."""
     paths = _resolve_root_or_die()
     ingest_llm._mark_existing_l3_done_if_present(paths)
     config = cfg.load_config(paths)
+    runtime_state.write_runtime_snapshots(paths, config)
     stats = db.get_stats(paths.state_db)
 
     def _count_md(folder: Path) -> int:
@@ -2813,7 +2991,7 @@ def build(
                 if updated_count > 0:
                     _refresh_qmd_index(paths)
             else:
-                _hint("Run [bold]wiki update[/bold] later to merge these into Exhibitions.")
+                _hint("Run [bold]wiki refresh[/bold] later to merge these into Exhibitions.")
         else:
             _hint("Run [bold]wiki curate[/bold] to stage L4 Exhibitions.")
     finally:
@@ -2828,6 +3006,7 @@ def jobs_list(
 ) -> None:
     """List background ingest jobs."""
     paths = _resolve_root_or_die()
+    runtime_state.write_runtime_snapshots(paths)
     states = None if all else ("queued", "running")
     jobs = db.list_ingest_jobs(paths.state_db, states=states, limit=limit)
     if not jobs:
@@ -2876,6 +3055,30 @@ def jobs_run(
         job = result.get("job") or {}
         _err(f"Job #{job.get('id')} failed: {result.get('error')}")
     _refresh_qmd_index(paths, embed=True)
+
+
+@jobs_app.command("cancel")
+def jobs_cancel(job_id: int = typer.Argument(..., help="Queued job id to cancel.")) -> None:
+    """Cancel a queued background job."""
+    paths = _resolve_root_or_die()
+    if db.cancel_job(paths.state_db, job_id):
+        runtime_state.write_runtime_snapshots(paths)
+        _ok(f"Cancelled job #{job_id}.")
+        return
+    _err(f"Job #{job_id} is not queued or does not exist.")
+    raise typer.Exit(1)
+
+
+@jobs_app.command("rerun")
+def jobs_rerun(job_id: int = typer.Argument(..., help="Completed, failed, or cancelled job id to rerun.")) -> None:
+    """Requeue a completed, failed, or cancelled background job."""
+    paths = _resolve_root_or_die()
+    if db.rerun_job(paths.state_db, job_id):
+        runtime_state.write_runtime_snapshots(paths)
+        _ok(f"Requeued job #{job_id}.")
+        return
+    _err(f"Job #{job_id} is not done, failed, cancelled, or does not exist.")
+    raise typer.Exit(1)
 
 
 @devices_app.command("sync")
@@ -2928,7 +3131,7 @@ def devices_status() -> None:
         _hint("Run [bold]wiki devices sync[/bold] inside the synced vault.")
         return
 
-    local_id = registry.get("local_device_id")
+    local_id = registry.get("local_device_id") or device_registry.infer_registry_local_device_id(devices)
     table = Table(title="Synced Devices", show_header=True, box=None, padding=(0, 1))
     table.add_column("local")
     table.add_column("name")
@@ -2939,10 +3142,6 @@ def devices_status() -> None:
     for device_id, device in sorted(devices.items(), key=lambda item: str(item[1].get("name", item[0]))):
         backend = device.get("backend") or {}
         platform_info = device.get("platform") or {}
-        
-        if not backend and not platform_info and device_id != local_id:
-            continue
-            
         args = backend.get("args") or []
         table.add_row(
             "yes" if device_id == local_id else "",
@@ -2955,8 +3154,16 @@ def devices_status() -> None:
     console.print(table)
 
 
+@devices_app.callback(invoke_without_command=True)
+def devices_default(ctx: typer.Context) -> None:
+    """Show device status when `wiki devices` is run without a subcommand."""
+    if ctx.invoked_subcommand is None:
+        devices_status()
 
-@sources_app.command("list")
+
+
+@source_app.command("ls")
+@source_app.command("list", hidden=True)
 def sources_list_cmd(
     status_filter: str = typer.Option(
         None,
@@ -2968,6 +3175,7 @@ def sources_list_cmd(
     """List all tracked sources."""
     paths = _resolve_root_or_die()
     ingest_llm._mark_existing_l3_done_if_present(paths)
+    runtime_state.write_runtime_snapshots(paths)
     rows = ingest_raw.list_sources(paths, status_filter=status_filter)
 
     if not rows:
@@ -3068,7 +3276,7 @@ def sources_list_cmd(
             console.print(f"       [red]{desc}[/red]")
             if reason == "empty_file":
                 console.print(f"       [dim]→ The file has no extractable text (scanned PDF?). "
-                               f"Run [bold]wiki sources rm {row['id']}[/bold] to remove it.[/dim]")
+                               f"Run [bold]wiki source rm {row['id']}[/bold] to remove it.[/dim]")
             elif reason == "missing_context":
                 console.print("       [dim]→ Re-run [bold]wiki add --force[/bold] to regenerate L1 Contexts.[/dim]")
             elif reason in ("parse_error", "llm_error"):
@@ -3097,9 +3305,9 @@ def sources_list_cmd(
         console.print()
 
 
-@sources_app.command("show")
+@source_app.command("show")
 def sources_show_cmd(
-    source_id: int = typer.Argument(..., help="The source ID (from `wiki sources list`)."),
+    source_id: int = typer.Argument(..., help="The source ID (from `wiki source ls`)."),
     preview_chars: int = typer.Option(
         800,
         "--preview",
@@ -3167,7 +3375,7 @@ def sources_show_cmd(
     console.print()
 
 
-@sources_app.command("rm")
+@source_app.command("rm")
 def sources_rm_cmd(
     source_id: int = typer.Argument(..., help="The source ID to remove."),
     keep_file: bool = typer.Option(
@@ -3206,7 +3414,7 @@ def sources_rm_cmd(
         raise typer.Exit(code=1)
 
 
-@sources_app.command("retry")
+@source_app.command("retry")
 def sources_retry_cmd(
     source_id: Optional[int] = typer.Argument(
         None,
@@ -3313,7 +3521,7 @@ def sources_retry_cmd(
         _warn(f"  #{row['id']} has unknown error_reason '{row['error_reason']}' — skipping.")
 
     console.print()
-    _hint("Run [bold]wiki sources list -s error[/bold] to check remaining errors.")
+    _hint("Run [bold]wiki source ls -s error[/bold] to check remaining errors.")
 
 
 # ---------------------------------------------------------------------------
@@ -3412,7 +3620,7 @@ class CliIngestCallbacks(ingest_llm.IngestCallbacks):
         _err(error)
 
 
-@app.command()
+@app.command(hidden=True)
 def curate(
     force: bool = typer.Option(
         False,
@@ -3591,20 +3799,20 @@ def curate(
 
 
 # ---------------------------------------------------------------------------
-# Stage 3c — update (forward propagation)
+# Stage 3c — refresh (forward propagation)
 # ---------------------------------------------------------------------------
 
 @app.command()
-def update(
+def refresh(
     exh_id: Optional[str] = typer.Argument(
         None,
         help="Target Exhibition (EXH-). Omit to update all 'dirty' Exhibitions.",
     ),
 ) -> None:
-    """Forward propagation: reflect latest L3 changes into L4 Exhibitions.
+    """Refresh L4 Exhibitions from latest L3 Concept changes.
     
     This command identifies Exhibitions that reference Concepts (L3) with newer
-    information and performs a 'Smart Update' (merging new facts without 
+    information and performs a refresh merge (adding new facts without
     overwriting human/agent edits).
     """
     from . import sync as sync_module
@@ -3614,7 +3822,7 @@ def update(
     client = _start_client(config)
     
     console.print()
-    console.rule("[bold cyan]Update — Forward Propagation[/bold cyan]")
+    console.rule("[bold cyan]Refresh — Forward Propagation[/bold cyan]")
     
     target_ids = []
     if exh_id:
@@ -4286,9 +4494,8 @@ def query(
     # Auto-sync: if there are pending sources, add them first (L1-L3)
     pending = db.get_pending_count(paths.state_db)
     if pending > 0:
-        import subprocess
-        console.print(f"[yellow]{pending} pending source(s) found — running wiki add before query…[/yellow]")
-        subprocess.run(["wiki", "add"], check=False)
+        console.print(f"[yellow]{pending} pending source(s) found — running add before query…[/yellow]")
+        add(path=None, recursive=True, force=False, no_sync=True)
 
     # Resolve search mode shortcuts
     if lex:
@@ -4537,8 +4744,13 @@ def reindex() -> None:
     console.print()
     console.print("[dim]Rebuilding search index (this may take a minute)…[/dim]")
     try:
-        search.update_index(paths, embed=True)
-        _ok("Search index rebuilt")
+        result = search.update_index(paths, embed=True)
+        if result.degraded:
+            _warn(f"Vector index rebuild failed: {result.warning}")
+            _ok("BM25 search index rebuilt")
+            _hint("Vector search remains stale; run `qmd doctor` and retry `wiki reindex` when embeddings are healthy.")
+        else:
+            _ok("Search index rebuilt")
     except search.SearchBackendError as e:
         _err(f"Index rebuild failed: {e}")
         raise typer.Exit(code=1)
@@ -5451,6 +5663,392 @@ def persona_update(
 
 
 # ---------------------------------------------------------------------------
+# Plugin JSON commands
+# ---------------------------------------------------------------------------
+
+
+def _print_json(payload: dict) -> None:
+    console.print_json(data=payload)
+
+
+@plugin_app.command("version")
+def plugin_version() -> None:
+    """Return backend version JSON for the local plugin."""
+    _print_json({"ok": True, "version": __version__})
+
+
+def _plugin_paths(workspace_path: str = "") -> cfg.WikiPaths:
+    return _resolve_root_or_die(Path(workspace_path).expanduser() if workspace_path else None)
+
+
+@plugin_source_app.command("status")
+def plugin_source_status(
+    file_hash: str = typer.Option("", "--file-hash", help="Content hash lookup."),
+    source_id: Optional[int] = typer.Option(None, "--source-id", help="Source row id."),
+    relpath: str = typer.Option("", "--relpath", help="Vault-relative source path."),
+    source_path: str = typer.Option("", "--source-path", help="Source path."),
+    file_path: str = typer.Option("", "--file-path", help="Source file path."),
+    path: str = typer.Option("", "--path", help="Source path alias."),
+    status_filter: str = typer.Option("", "--status", help="Optional list-mode status filter."),
+    limit: int = typer.Option(50, "--limit", "-n", help="Maximum list rows."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Return source status/list JSON for the local plugin."""
+    from . import plugin_api
+
+    try:
+        _print_json(
+            plugin_api.source_status(
+                _plugin_paths(workspace_path),
+                file_hash=file_hash,
+                source_id=source_id,
+                relpath=relpath,
+                source_path=source_path,
+                file_path=file_path,
+                path=path,
+                status_filter=status_filter,
+                limit=limit,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_source_app.command("import")
+def plugin_source_import(
+    file_path: str = typer.Option("", "--file-path", help="File to import or reference."),
+    zotero_attachment_key: str = typer.Option("", "--zotero-attachment-key", help="Resolve this Zotero attachment key before import."),
+    zotero_custom_paths: str = typer.Option("", "--zotero-custom-paths", help="Zotero data directory or zotero.sqlite path."),
+    policy: str = typer.Option("mirror_03_to_04", "--policy", help="Import policy."),
+    destination: str = typer.Option("", "--destination", help="Destination relpath/folder."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Return proposal only."),
+    logical_source_id: str = typer.Option("", "--logical-source-id", help="Optional logical source id."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Import/reference a source and return JSON."""
+    from . import plugin_api
+
+    try:
+        _print_json(
+            plugin_api.import_source(
+                _plugin_paths(workspace_path),
+                file_path=file_path,
+                zotero_attachment_key=zotero_attachment_key,
+                zotero_custom_paths=zotero_custom_paths,
+                policy=policy,
+                destination=destination,
+                dry_run=dry_run,
+                logical_source_id=logical_source_id,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_source_app.command("register")
+def plugin_source_register(
+    source_id: Optional[int] = typer.Option(None, "--source-id", help="Source row id."),
+    relpath: str = typer.Option("", "--relpath", help="Vault-relative source path."),
+    source_path: str = typer.Option("", "--source-path", help="Source path."),
+    file_path: str = typer.Option("", "--file-path", help="Source file path."),
+    path: str = typer.Option("", "--path", help="Source path alias."),
+    force: bool = typer.Option(False, "--force", help="Regenerate L1."),
+    build: bool = typer.Option(True, "--build/--no-build", help="Queue L2/L3 build."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Register a source, generate instant L1, and optionally queue L2/L3."""
+    from . import plugin_api
+
+    try:
+        _print_json(
+            plugin_api.register_source(
+                _plugin_paths(workspace_path),
+                source_id=source_id,
+                relpath=relpath,
+                source_path=source_path,
+                file_path=file_path,
+                path=path,
+                force=force,
+                build=build,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_source_app.command("rebind")
+def plugin_source_rebind(
+    source_id: Optional[int] = typer.Option(None, "--source-id", help="Source row id."),
+    logical_source_id: str = typer.Option("", "--logical-source-id", help="Logical source id."),
+    source_path: str = typer.Option("", "--source-path", help="Source path."),
+    file_path: str = typer.Option("", "--file-path", help="Source file path."),
+    path: str = typer.Option("", "--path", help="Source path alias."),
+    new_path: str = typer.Option(..., "--new-path", help="New source path."),
+    apply: bool = typer.Option(False, "--apply", help="Apply the rebind."),
+    update_hash: bool = typer.Option(True, "--update-hash/--keep-hash", help="Update content hash."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Return or apply a source rebind proposal."""
+    from . import plugin_api
+
+    try:
+        _print_json(
+            plugin_api.rebind_source(
+                _plugin_paths(workspace_path),
+                source_id=source_id,
+                logical_source_id=logical_source_id,
+                source_path=source_path,
+                file_path=file_path,
+                path=path,
+                new_path=new_path,
+                apply=apply,
+                update_hash=update_hash,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_pdf_app.command("context")
+def plugin_pdf_context(
+    file_path: str = typer.Option("", "--file-path", help="PDF file path."),
+    source_id: Optional[int] = typer.Option(None, "--source-id", help="Tracked source row id."),
+    relpath: str = typer.Option("", "--relpath", help="Vault-relative source relpath."),
+    source_path: str = typer.Option("", "--source-path", help="Tracked source path alias."),
+    file_hash: str = typer.Option("", "--file-hash", help="Tracked source content hash."),
+    zotero_attachment_key: str = typer.Option("", "--zotero-attachment-key", help="Zotero attachment item key."),
+    zotero_custom_paths: str = typer.Option("", "--zotero-custom-paths", help="Zotero data directory or zotero.sqlite path."),
+    query: str = typer.Option("", "--query", help="Optional page scoring query."),
+    page_num: int = typer.Option(0, "--page-num", help="Current 1-based page number."),
+    radius: int = typer.Option(2, "--radius", help="Page window radius."),
+    max_pages: int = typer.Option(8, "--max-pages", help="Maximum pages."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Return PDF page-window context JSON."""
+    from . import plugin_api
+
+    try:
+        _print_json(
+            plugin_api.pdf_context(
+                _plugin_paths(workspace_path),
+                file_path=file_path,
+                source_id=source_id,
+                relpath=relpath,
+                source_path=source_path,
+                file_hash=file_hash,
+                zotero_attachment_key=zotero_attachment_key,
+                zotero_custom_paths=zotero_custom_paths,
+                query_text=query,
+                page_num=page_num,
+                radius=radius,
+                max_pages=max_pages,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_pdf_app.command("search")
+def plugin_pdf_search(
+    query: str = typer.Option(..., "--query", help="Search query."),
+    source_id: Optional[int] = typer.Option(None, "--source-id", help="Source row id."),
+    source_path: str = typer.Option("", "--source-path", help="Source path."),
+    file_path: str = typer.Option("", "--file-path", help="Source file path."),
+    path: str = typer.Option("", "--path", help="Source path alias."),
+    relpath: str = typer.Option("", "--relpath", help="Vault-relative source path."),
+    limit: int = typer.Option(8, "--limit", "-n", help="Maximum hits."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Search tracked source pages and return JSON."""
+    from . import plugin_api
+
+    try:
+        _print_json(
+            plugin_api.search_sources(
+                _plugin_paths(workspace_path),
+                query_text=query,
+                source_id=source_id,
+                source_path=source_path,
+                file_path=file_path,
+                path=path,
+                relpath=relpath,
+                limit=limit,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_app.command("query")
+def plugin_query(
+    question: str = typer.Option(..., "--question", "-q", help="Question to answer."),
+    input_language: str = typer.Option("", "--input-language", help="Detected original input language."),
+    english_query: str = typer.Option("", "--english-query", help="English query to use for internal search/reasoning."),
+    final_output_language: str = typer.Option("", "--final-output-language", help="Language for the final answer."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
+    force_new: bool = typer.Option(False, "--force-new", help="Bypass cached Exhibition."),
+) -> None:
+    """Run curator_query for the local plugin and return JSON."""
+    from . import plugin_api
+
+    try:
+        _print_json(
+            plugin_api.curator_query(
+                _plugin_paths(workspace_path),
+                question=question,
+                input_language=input_language,
+                english_query=english_query,
+                final_output_language=final_output_language,
+                workspace_path=workspace_path,
+                force_new=force_new,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "question": question, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_app.command("promote")
+def plugin_promote(
+    exh_id: str = typer.Option(..., "--exh-id", help="EXH id to promote."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
+) -> None:
+    """Promote a query Exhibition after explicit plugin user approval."""
+    from . import plugin_api
+
+    try:
+        _print_json(plugin_api.promote_exhibition(_plugin_paths(workspace_path), exh_id=exh_id, workspace_path=workspace_path))
+    except Exception as exc:
+        _print_json({"ok": False, "exhibition_id": exh_id, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_zotero_app.command("status")
+def zotero_status(
+    custom_paths: str = typer.Option("", "--custom-paths", help="Zotero data directory or zotero.sqlite path."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Return backend-owned Zotero setup diagnostics."""
+    from . import zotero_tools
+
+    try:
+        _print_json(zotero_tools.zotero_status(_plugin_paths(workspace_path), custom_paths))
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_zotero_app.command("init")
+def zotero_init(
+    data_dir: str = typer.Option("", "--data-dir", help="Zotero data directory or zotero.sqlite path."),
+    linked_base_dir: str = typer.Option("", "--linked-base-dir", help="Optional linked attachment base directory."),
+    custom_paths: str = typer.Option("", "--custom-paths", help="Extra Zotero data directory or sqlite candidates."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Persist local Zotero roots for backend plugin commands."""
+    from . import zotero_tools
+
+    try:
+        _print_json(
+            zotero_tools.zotero_init(
+                _plugin_paths(workspace_path),
+                data_dir=data_dir,
+                linked_base_dir=linked_base_dir,
+                custom_paths=custom_paths,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_zotero_app.command("search")
+def zotero_search(
+    query: str = typer.Option("", "--query", "-q", help="Title/author search query."),
+    custom_paths: str = typer.Option("", "--custom-paths", help="Zotero data directory or zotero.sqlite path."),
+    limit: int = typer.Option(20, "--limit", "-n", help="Maximum results."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Search local Zotero items and print JSON."""
+    from . import zotero_tools
+
+    try:
+        _print_json(zotero_tools.search_items(query, custom_paths, limit=limit, paths=_plugin_paths(workspace_path)))
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_zotero_app.command("metadata")
+def zotero_metadata(
+    item_key: str = typer.Option(..., "--item-key", help="Zotero item key."),
+    custom_paths: str = typer.Option("", "--custom-paths", help="Zotero data directory or zotero.sqlite path."),
+    citation_style: str = typer.Option("", "--citation-style", help="Optional CSL citation style."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Fetch Zotero item metadata and print JSON."""
+    from . import zotero_tools
+
+    try:
+        _print_json(
+            zotero_tools.item_metadata(
+                item_key,
+                custom_paths,
+                citation_style=citation_style,
+                paths=_plugin_paths(workspace_path),
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_zotero_app.command("annotations")
+def zotero_annotations(
+    attachment_key: str = typer.Option(..., "--attachment-key", help="Zotero attachment item key."),
+    custom_paths: str = typer.Option("", "--custom-paths", help="Zotero data directory or zotero.sqlite path."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Fetch Zotero PDF annotations and print JSON."""
+    from . import zotero_tools
+
+    paths = _plugin_paths(workspace_path)
+    try:
+        _print_json(zotero_tools.annotations(attachment_key, paths, custom_paths))
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_zotero_app.command("resolve-pdf")
+def zotero_resolve_pdf(
+    attachment_key: str = typer.Option(..., "--attachment-key", help="Zotero attachment item key."),
+    custom_paths: str = typer.Option("", "--custom-paths", help="Zotero data directory or zotero.sqlite path."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Resolve a Zotero PDF attachment path and print JSON."""
+    from . import zotero_tools
+
+    paths = _plugin_paths(workspace_path)
+    try:
+        payload = zotero_tools.resolve_pdf(attachment_key, paths, custom_paths)
+        _print_json(payload)
+        if not payload.get("ok"):
+            raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
 # Stage 7 — MCP server (workspace agent integration)
 # ---------------------------------------------------------------------------
 
@@ -5458,12 +6056,13 @@ def persona_update(
 mcp_app = typer.Typer(
     name="mcp",
     help="Run or install the incurator MCP server for workspace agents.",
+    hidden=True,
     no_args_is_help=False,
     add_completion=False,
     rich_markup_mode="rich",
     invoke_without_command=True,
 )
-app.add_typer(mcp_app, name="mcp")
+app.add_typer(mcp_app, name="mcp", hidden=True)
 
 
 @mcp_app.callback()

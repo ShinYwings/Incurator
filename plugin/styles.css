@@ -142,17 +142,33 @@
   min-width: 0;
 }
 
+.ai-agent-session-drawer-row-meta,
 .ai-agent-session-drawer-row-title,
+.ai-agent-session-drawer-row-time,
 .ai-agent-session-drawer-row-preview {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.ai-agent-session-drawer-row-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
 .ai-agent-session-drawer-row-title {
+  min-width: 0;
+  flex: 1 1 auto;
   color: var(--text-normal);
   font-size: 12px;
   font-weight: 560;
+}
+
+.ai-agent-session-drawer-row-time {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 10px;
 }
 
 .ai-agent-session-drawer-row-preview {
@@ -777,8 +793,8 @@
   flex: 0 0 auto;
 }
 
-.ai-agent-context-chip-status[data-state="indexed"],
-.ai-agent-context-chip-status[data-state="curated"] {
+.ai-agent-context-chip-status[data-state="l3_ready"],
+.ai-agent-context-chip-status[data-state="l4_ready"] {
   color: var(--text-success);
   border-color: color-mix(in srgb, var(--text-success) 35%, var(--background-modifier-border));
 }
@@ -798,6 +814,12 @@
   background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
   border-color: color-mix(in srgb, var(--interactive-accent) 35%, var(--background-modifier-border));
   color: var(--text-normal);
+}
+
+.ai-agent-context-chip.is-excluded {
+  opacity: 0.62;
+  background: var(--background-secondary);
+  border-style: dashed;
 }
 
 .ai-agent-context-chip-icon {
@@ -825,6 +847,29 @@
 }
 
 .ai-agent-context-chip-add svg {
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+}
+
+.ai-agent-context-chip-visibility {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  opacity: 0.65;
+  color: var(--text-muted);
+}
+
+.ai-agent-context-chip-visibility:hover {
+  opacity: 1;
+  color: var(--text-normal);
+}
+
+.ai-agent-context-chip-visibility svg {
   width: 12px;
   height: 12px;
   pointer-events: none;
@@ -1819,8 +1864,14 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 12px;
-  padding: 10px 12px;
+  margin: 0 0 12px;
+  color: var(--text-muted);
+}
+
+.ai-agent-incurator-status-below {
+  align-items: flex-start;
+  margin: -2px 0 14px;
+  padding: 8px 10px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;
   background: var(--background-secondary);
@@ -1832,6 +1883,7 @@
   border-radius: 999px;
   background: var(--text-muted);
   flex: 0 0 auto;
+  margin-top: 5px;
 }
 
 .ai-agent-incurator-status.is-connected .ai-agent-incurator-status-dot {
@@ -2420,6 +2472,11 @@
   white-space: nowrap;
 }
 
+.ai-agent-job-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .ai-agent-progress-row {
   display: flex;
   align-items: center;
@@ -2913,7 +2970,7 @@
   outline: none;
 }
 
-/* ── Devices tab ────────────────────────────────────────────── */
+/* ── Overview Syncthing devices ─────────────────────────────── */
 
 .ai-agent-device-folder-row {
   display: flex;
@@ -3008,4 +3065,25 @@
   margin-top: 16px !important;
   border-bottom: none;
   font-size: var(--font-ui-large);
+}
+
+.ai-agent-zotero-repair-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ai-agent-zotero-repair-candidate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-agent-zotero-repair-candidate span {
+  overflow-wrap: anywhere;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
 }

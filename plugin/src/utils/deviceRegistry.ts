@@ -13,6 +13,7 @@ export interface SyncthingFolder {
   id: string;
   label: string;
   path: string;
+  role?: "vault" | "zotero";
   type: string;
   device_ids: string[];
 }
@@ -74,7 +75,12 @@ function samePath(a: string, b: string, home = homedir()): boolean {
   return resolve(expandPath(a, home)) === resolve(expandPath(b, home));
 }
 
-export function parseSyncthingConfig(xml: string, vaultRoot: string, home = homedir()): SyncthingSnapshot {
+export function parseSyncthingConfig(
+  xml: string,
+  vaultRoot: string,
+  home = homedir(),
+  zoteroRoots: string[] = []
+): SyncthingSnapshot {
   const devicesById = new Map<string, SyncthingDevice>();
   for (const block of tagBlocks(xml, "device")) {
     const a = attrs(firstOpenTag(block));
@@ -89,11 +95,18 @@ export function parseSyncthingConfig(xml: string, vaultRoot: string, home = home
   const folders: SyncthingFolder[] = [];
   for (const block of tagBlocks(xml, "folder")) {
     const a = attrs(firstOpenTag(block));
-    if (!a.path || !samePath(a.path, vaultRoot, home)) continue;
+    if (!a.path) continue;
+    const role = samePath(a.path, vaultRoot, home)
+      ? "vault"
+      : zoteroRoots.some((root) => samePath(a.path, root, home))
+        ? "zotero"
+        : undefined;
+    if (!role) continue;
     folders.push({
       id: a.id || "",
       label: a.label || "",
       path: a.path,
+      role,
       type: a.type || "",
       device_ids: Array.from(block.matchAll(/<device\b([^>]*)\/?>/g))
         .map((match) => attrs(match[1]).id)
@@ -115,30 +128,51 @@ export function findSyncthingConfigPath(paths = defaultSyncthingConfigPaths()): 
   return paths.find((path) => existsSync(path)) || null;
 }
 
-export function readSyncthingSnapshot(vaultRoot: string): SyncthingSnapshot {
+export function readSyncthingSnapshot(vaultRoot: string, zoteroRoots: string[] = []): SyncthingSnapshot {
   const configPath = findSyncthingConfigPath();
   if (!configPath) return { config_path: null, devices: [], folders: [] };
-  const snapshot = parseSyncthingConfig(readFileSync(configPath, "utf-8"), vaultRoot);
+  const snapshot = parseSyncthingConfig(readFileSync(configPath, "utf-8"), vaultRoot, homedir(), zoteroRoots);
   snapshot.config_path = configPath;
   return snapshot;
 }
 
-export function inferLocalDeviceId(devices: SyncthingDevice[], host = hostname()): string {
+export function inferLocalDeviceId(devices: SyncthingDevice[], host = hostname()): string | undefined {
   const names = new Set([host.toLowerCase(), host.split(".")[0].toLowerCase()]);
   const match = devices.find((device) => names.has(device.name.toLowerCase()));
-  return match?.device_id || "local";
+  return match?.device_id;
+}
+
+function inferRegistryLocalDeviceId(
+  devices: Record<string, Record<string, unknown>>,
+  activeDeviceIds?: Set<string>
+): string | undefined {
+  const candidates = Object.entries(devices)
+    .filter(([id, device]) => (!activeDeviceIds || activeDeviceIds.has(id)) && (device.platform || device.backend))
+    .map(([id, device]) => [Number(device.updated_at || 0), id] as const)
+    .sort((a, b) => b[0] - a[0]);
+  return candidates[0]?.[1];
 }
 
 export function mergeDeviceRegistry(
   existing: Partial<DeviceRegistry> | null | undefined,
   snapshot: SyncthingSnapshot,
-  settings: Pick<PluginSettings, "incuratorMcpCommand" | "incuratorMcpArgs">,
+  settings: Pick<PluginSettings, "incuratorBackendCommand" | "incuratorBackendArgs">,
   now = Math.floor(Date.now() / 1000),
   localDeviceId = inferLocalDeviceId(snapshot.devices)
 ): DeviceRegistry {
-  const devices: Record<string, Record<string, unknown>> = {
-    ...(existing?.devices || {}),
-  };
+  const activeDeviceIds = new Set(snapshot.devices.map((device) => device.device_id));
+  const existingDevices = existing?.devices || {};
+  if (!localDeviceId && snapshot.devices.length) {
+    localDeviceId = inferRegistryLocalDeviceId(existingDevices, activeDeviceIds);
+  }
+  if (localDeviceId) activeDeviceIds.add(localDeviceId);
+  if (activeDeviceIds.size === 0) activeDeviceIds.add("local");
+  localDeviceId = localDeviceId || (snapshot.devices.length ? undefined : "local");
+
+  const devices: Record<string, Record<string, unknown>> = {};
+  for (const id of activeDeviceIds) {
+    devices[id] = { ...(existingDevices[id] || {}) };
+  }
 
   for (const device of snapshot.devices) {
     devices[device.device_id] = {
@@ -149,24 +183,26 @@ export function mergeDeviceRegistry(
     };
   }
 
-  const localName =
-    snapshot.devices.find((device) => device.device_id === localDeviceId)?.name || hostname();
-  devices[localDeviceId] = {
-    ...(devices[localDeviceId] || {}),
-    device_id: localDeviceId,
-    name: localName,
-    platform: {
-      system: platform(),
-      release: release(),
-      machine: arch(),
-      source: "obsidian-plugin",
-    },
-    backend: {
-      command: settings.incuratorMcpCommand || "wiki",
-      args: settings.incuratorMcpArgs?.length ? settings.incuratorMcpArgs : ["mcp"],
-    },
-    updated_at: now,
-  };
+  if (localDeviceId) {
+    const localName =
+      snapshot.devices.find((device) => device.device_id === localDeviceId)?.name || hostname();
+    devices[localDeviceId] = {
+      ...(devices[localDeviceId] || {}),
+      device_id: localDeviceId,
+      name: localName,
+      platform: {
+        system: platform(),
+        release: release(),
+        machine: arch(),
+        source: "obsidian-plugin",
+      },
+      backend: {
+        command: settings.incuratorBackendCommand || "wiki",
+        args: settings.incuratorBackendArgs?.length ? settings.incuratorBackendArgs : [],
+      },
+      updated_at: now,
+    };
+  }
 
   return {
     version: REGISTRY_VERSION,

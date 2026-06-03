@@ -2,6 +2,7 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from curator import config as cfg
 from curator import db, ingest_raw, page_writer
@@ -67,9 +68,13 @@ class InstantL1Tests(unittest.TestCase):
         self.assertEqual(parsed.frontmatter["tags"], ["md", "instant-l1"])
         self.assertEqual(parsed.frontmatter["toc"][0]["id"], "s1")
         self.assertEqual(parsed.frontmatter["toc"][0]["title"], "Intro")
+        self.assertIn("Structural L1 context for **Intro**", parsed.body)
+        self.assertIn("## Source Guide", parsed.body)
+        self.assertIn("`s1` p.1 — **Intro**: Alpha claim.", parsed.body)
         self.assertIn("<!-- section:s1 page:1 -->", parsed.body)
         self.assertIn("## 2. Atom Candidates", parsed.body)
         self.assertIn("- [fact] Intro:", parsed.body)
+        self.assertIn("Preview: Alpha claim.", parsed.body)
 
         with db.connect(self.paths.state_db) as conn:
             row = conn.execute(
@@ -79,6 +84,40 @@ class InstantL1Tests(unittest.TestCase):
         self.assertEqual(row["context_id"], context_id)
         self.assertEqual(row["l1_status"], "done")
         self.assertIsNone(row["layer_error"])
+
+    def test_large_l1_uses_on_demand_source_sections(self) -> None:
+        relpath = "03_Notes/large-source.md"
+        source = self.root / relpath
+        source.parent.mkdir(parents=True, exist_ok=True)
+        deep_evidence = "DEEP_SECRET_EVIDENCE_SHOULD_ONLY_LIVE_IN_SOURCE"
+        source.write_text(
+            "# Large Source\n\n"
+            "## Overview\n\n"
+            "Short preview sentence. "
+            + ("filler text " * 80)
+            + deep_evidence
+            + "\n\n## Method\n\nMethod details.\n",
+            encoding="utf-8",
+        )
+        source_id, content_hash = self._insert_source(relpath)
+
+        with patch.object(ingest_raw, "L1_INLINE_SOURCE_MAX_CHARS", 120):
+            context_id = ingest_raw.generate_l1_structural_context(
+                self.paths,
+                source_id=source_id,
+                relpath=relpath,
+                content_hash=content_hash,
+            )
+
+        self.assertIsNotNone(context_id)
+        parsed = page_writer.read_page(self.paths.contexts / f"{context_id}.md")
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertFalse(parsed.frontmatter["source_sections_inline"])
+        self.assertEqual(parsed.frontmatter["source_text_policy"], "on_demand")
+        self.assertIn("fetch_document_section", parsed.body)
+        self.assertIn("Preview: Short preview sentence.", parsed.body)
+        self.assertNotIn(deep_evidence, parsed.body)
 
 
 if __name__ == "__main__":

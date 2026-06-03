@@ -79,7 +79,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 #### `curator_import_source`
 - **Role**: Register an external file with the Incurator backend. Depending on policy, the backend may connect it without copying through Reference Mode, or safely copy it into a user-approved `04_Resources/` destination.
 - **Parameters**: Depending on implementation stage, the input may be named `file_path` or `source_path`; both mean the absolute path to the external file. The policy must be explicit, such as `policy="reference"` or `destination_policy="mirror_03_to_04"`. Clients should call with `dry_run=true` first, show the proposal to the user, then call the mutating operation after approval.
-- **Destination rule**: External PDFs default to `04_Resources`, never `03_Notes`. If the active note is `03_Notes/Vision/Foo.md`, the default proposal is `04_Resources/Vision/Foo/<pdf-file>.pdf`. Without a linked note, the fallback proposal is `04_Resources/Inbox/<pdf-file>.pdf`.
+- **Destination rule**: External PDFs default to Reference Mode. The backend creates a markdown reference stub under `04_Resources/` and leaves the PDF in its original location. Copy mode is explicit and still targets `04_Resources`, never `03_Notes`.
 - **No overwrite**: Same-hash files reuse the existing source record. Same-name but different-hash collisions require a suffix or a human-selected destination.
 
 #### `curator_register_source`
@@ -92,7 +92,8 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 - **Parameters**: `file_path` or `source_id`.
 
 #### `curator_add_all`
-- **Role**: Run `wiki add` across all registered sources in the workspace, ensuring structural registration (L1) is up to date.
+- **Role**: Run `wiki add` across the workspace source directories, discovering new or changed raw files and ensuring structural registration (L1) is up to date.
+- **Result**: Returns `discovered`, `removed`, and `summarized` counts.
 
 #### `curator_build_all`
 - **Role**: Trigger deep L2 and L3 knowledge extraction for all sources in the workspace that have pending jobs.
@@ -112,7 +113,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 #### `curator_source_status`
 - **Role**: Check the processing status of a file and the status of the `external_path` fallback logic. Can be used to identify files that have been `MOVED`.
 - **Parameters**: Use whichever identifier the implementation supports: `source_id`, `logical_source_id`, `source_path`, or `file_path`.
-- **Obsidian plugin display**: The plugin can render this result as a PDF chip status badge, such as `untracked`, `queued`, `running L1`, `running L2`, `running L3`, `running L4`, `indexed`, `stale`, `moved`, or `error`.
+- **Obsidian plugin display**: The plugin can render this result as a PDF chip status badge, such as `untracked`, `queued`, `running L1`, `running L2`, `running L3`, `running L4`, `l3_ready`, `l4_ready`, `stale`, `moved`, or `error`.
 
 #### `curator_rebind_source`
 - **Role**: Heal broken links caused by Hash Drift (e.g., Apple Pencil annotations) or moved files. Re-establishes the connection for a `logical_source_id` with a new path and hash after human confirmation.
@@ -159,6 +160,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 #### `curator_reindex`
 - **Role**: Manually rebuild the QMD search index.
+- **Degraded result**: Returns `ok=true`, `updated=true`, `embedded=false`, and `degraded=true` when BM25 indexing succeeds but vector embedding fails. In that state lexical search is current while vector search remains stale.
 
 ### 3.4 Document Status & On-demand Queries (v0.2.1)
 
@@ -172,7 +174,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 #### `fetch_document_section`
 
-- **Role**: Return the text of a specific document section. If the document is unregistered, the plugin serves it from in-memory (PDF.js). After `wiki add`/`import_source` reaches `l1_complete=True`, the backend serves the CTX `Source Sections` immediately. `curator_query` remains available after L3 completes.
+- **Role**: Return the text of a specific document section. If the document is unregistered, the plugin serves it from in-memory (PDF.js). After `wiki add`/`import_source` reaches `l1_complete=True`, the backend serves raw text by CTX section id, source heading, or PDF page range. For large documents whose L1 uses `source_text_policy: on_demand`, the backend reads the original source instead of relying on inline CTX text. `curator_query` remains available after L3 completes.
 - **Parameters**: `source_key` (logical_source_id or file_hash), `toc_id` (section id from the CTX frontmatter `toc` array), `page_start`/`page_end` (page-range fallback for PDFs without a ToC).
 - **Implementation status**: When `source_key` resolves to a tracked source or file path, the backend returns text by CTX section marker, source heading, or PDF page. With the v0.2.1 default (`llm.instant_l1: true`), the L1 CTX is generated without an LLM call, so section reads become available quickly.
 - **Agent usage**: The agent reads the ToC minimap in its system prompt, then calls this tool with the relevant `toc_id`.
@@ -208,13 +210,16 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 #### `get_available_models`
 
-- **Role**: Return the list of models per provider from the `models.json` file bundled with the backend package. Used by the plugin UI to dynamically populate the model selection dropdown.
+- **Role**: Return the list of models per provider from the `models.json` file bundled with the backend package. This is for external MCP clients. The Obsidian plugin bundles the same backend `models.json` at build time and does not require this MCP tool for its model dropdown.
 - **Parameters**: none.
 - **Returns**: `{ "antigravity": [...], "claude": [...] }` — per-provider model list.
 
+> Note: Obsidian plugin local Zotero and dashboard flows do not require MCP.
+> They use backend-owned shared runtime snapshots and backend JSON commands.
+
 #### `curator_get_version`
 
-- **Role**: Return the installed version of the Incurator backend as a string (e.g., `"0.2.1"`). Used by the client (specifically the Obsidian plugin) to detect version mismatches and trigger 1-Click Auto-Updates.
+- **Role**: Return the installed version of the Incurator backend as a string (e.g., `"0.2.2"`). Used by external clients to detect backend capability.
 - **Parameters**: none.
 - **Returns**: Backend version string.
 

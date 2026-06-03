@@ -26,10 +26,10 @@ export class IngestDestinationModal extends Modal {
     contentEl.empty();
     contentEl.addClass("ai-agent-ingest-modal");
 
-    contentEl.createEl("h2", { text: "Ingest Non-Zotero PDF" });
+    contentEl.createEl("h2", { text: "Add PDF to Incurator" });
     contentEl.createEl("p", {
       cls: "setting-item-description",
-      text: "This file was not recognized as a Zotero attachment. It will be copied to your vault by default so the Incurator AI can access and track it.",
+      text: "Register this PDF as an Incurator source. Reference mode keeps the original file in place and creates a lightweight link stub in 04_Resources.",
     });
     contentEl.createEl("p", {
       cls: "setting-item-name",
@@ -39,9 +39,14 @@ export class IngestDestinationModal extends Modal {
 
     let destinationSetting: Setting;
 
+    let submitBtn: HTMLButtonElement | null = null;
+    const updateSubmitText = () => {
+      if (submitBtn) submitBtn.textContent = this.importMode === "copy" ? "Copy and add" : "Add as reference";
+    };
+
     new Setting(contentEl)
       .setName("Mode")
-      .setDesc("Copy creates a vault-local copy (recommended for non-Zotero). Reference tries to link the external path.")
+      .setDesc("Reference creates a lightweight 04_Resources link stub. Copy is only for files you want the vault to manage directly.")
       .addDropdown((dropdown) =>
         dropdown
           .addOption("reference", "Reference external file")
@@ -50,6 +55,7 @@ export class IngestDestinationModal extends Modal {
           .onChange((value) => {
             this.importMode = value === "copy" ? "copy" : "reference";
             destinationSetting.settingEl.toggle(this.importMode === "copy");
+            updateSubmitText();
           })
       );
 
@@ -71,16 +77,29 @@ export class IngestDestinationModal extends Modal {
     const cancelBtn = actions.createEl("button", { text: "Cancel" });
     cancelBtn.addEventListener("click", () => this.close());
 
-    const ingestBtn = actions.createEl("button", {
+    const errorEl = contentEl.createDiv({ cls: "setting-item-description" });
+    errorEl.hide();
+
+    submitBtn = actions.createEl("button", {
       cls: "mod-cta",
-      text: "Ingest",
+      text: this.importMode === "copy" ? "Copy and add" : "Add as reference",
     });
-    ingestBtn.addEventListener("click", async () => {
-      await this.onSubmit({
-        destinationRelpath: this.destinationRelpath || "04_Resources",
-        importMode: this.importMode,
-      });
-      this.close();
+    submitBtn.addEventListener("click", async () => {
+      submitBtn.disabled = true;
+      cancelBtn.disabled = true;
+      errorEl.hide();
+      try {
+        await this.onSubmit({
+          destinationRelpath: this.destinationRelpath || "04_Resources",
+          importMode: this.importMode,
+        });
+        this.close();
+      } catch (err) {
+        errorEl.setText(err instanceof Error ? err.message : String(err));
+        errorEl.show();
+        submitBtn.disabled = false;
+        cancelBtn.disabled = false;
+      }
     });
   }
 

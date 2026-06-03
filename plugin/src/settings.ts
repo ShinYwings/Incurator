@@ -11,7 +11,6 @@ import {
   getModelOption,
 } from "./types";
 import { getIncuratorBackendStatus } from "./utils/incuratorBackendStatus";
-import { isIncuratorMcpServer } from "./utils/incuratorMcpServer";
 
 const CUSTOM_MODEL_VALUE = "__custom__";
 
@@ -45,7 +44,15 @@ export class AIAgentSettingTab extends PluginSettingTab {
     // ═══════════════════════════════════════════════════════════════
     const providerSection = containerEl.createDiv("ai-agent-settings-section");
     this.renderSectionHeader(providerSection, "AI Provider", "bot");
-
+    const currentProvider = this.plugin.settings.provider;
+    const currentModelOption = getModelOption(
+      this.plugin.getAvailableModels(),
+      currentProvider,
+      this.plugin.settings.model
+    );
+    const modelDescription = currentModelOption?.contextWindow
+      ? `Type or choose a model. Context window: ${Math.round(currentModelOption.contextWindow / 1000)}K tokens.`
+      : "Type or choose a model.";
     new Setting(providerSection)
       .setName("Provider")
       .setDesc("LLM backend for chat and inline editing.")
@@ -84,7 +91,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
 
       const modelSetting = new Setting(providerSection)
         .setName("Model")
-        .setDesc("Type a model name or fetch from server.")
+        .setDesc(modelDescription)
         .addText((text) =>
           text
             .setPlaceholder("qwen2.5:7b")
@@ -126,6 +133,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
     } else {
       new Setting(providerSection)
         .setName("Model")
+        .setDesc(modelDescription)
         .addDropdown((dropdown) => {
           const provider = this.plugin.settings.provider;
           const catalogue = this.plugin.getAvailableModels();
@@ -185,21 +193,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
     }
 
     // Show only the parameter for the CURRENT provider + model
-    const currentProvider = this.plugin.settings.provider;
-    const currentModelOption = getModelOption(
-      this.plugin.getAvailableModels(),
-      currentProvider,
-      this.plugin.settings.model
-    );
     const modelThinks = currentProvider === "claude" || currentProvider === "openai";
-
-    // Model info line: context window
-    if (currentModelOption?.contextWindow) {
-      const ctxK = Math.round(currentModelOption.contextWindow / 1000);
-      new Setting(providerSection)
-        .setName("Context window")
-        .setDesc(`This model supports up to ${ctxK}K tokens of context.`);
-    }
 
     if (currentModelOption?.efforts && currentModelOption.efforts.length > 0) {
       new Setting(providerSection)
@@ -470,9 +464,9 @@ export class AIAgentSettingTab extends PluginSettingTab {
     const backendSection = containerEl.createDiv("ai-agent-settings-section");
     this.renderSectionHeader(backendSection, "Incurator Backend", "cpu");
 
-    const incuratorSetting = new Setting(backendSection)
+    new Setting(backendSection)
       .setName("Enable")
-      .setDesc("Connect to the Incurator MCP backend for source tracking, ingest, and vault search.")
+      .setDesc("Use the local Incurator backend for source tracking, ingest, and vault search.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.incuratorEnabled)
@@ -481,7 +475,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
             this.renderIncuratorBackendStatus(incuratorStatusEl);
           })
       );
-    const incuratorStatusEl = incuratorSetting.settingEl.createDiv("ai-agent-incurator-status");
+    const incuratorStatusEl = backendSection.createDiv("ai-agent-incurator-status ai-agent-incurator-status-below");
     this.renderIncuratorBackendStatus(incuratorStatusEl);
 
     new Setting(backendSection)
@@ -537,10 +531,10 @@ export class AIAgentSettingTab extends PluginSettingTab {
       .addText((text) =>
         text
           .setPlaceholder("wiki")
-          .setValue(this.plugin.settings.incuratorMcpCommand)
+          .setValue(this.plugin.settings.incuratorBackendCommand)
           .onChange(async (value) => {
-            this.plugin.settings.incuratorMcpCommand =
-              value.trim() || DEFAULT_SETTINGS.incuratorMcpCommand;
+            this.plugin.settings.incuratorBackendCommand =
+              value.trim() || DEFAULT_SETTINGS.incuratorBackendCommand;
             await this.plugin.saveSettings();
             if (this.plugin.settings.incuratorEnabled) {
               await this.plugin.setIncuratorBackendEnabled(true);
@@ -551,15 +545,15 @@ export class AIAgentSettingTab extends PluginSettingTab {
 
     new Setting(incuratorAdvanced)
       .setName("Backend arguments")
-      .setDesc("Space-separated or JSON array.")
+      .setDesc("Optional launcher arguments placed before the wiki command arguments, for example: --directory /path/to/backend run wiki")
       .addText((text) =>
         text
-          .setPlaceholder("mcp")
-          .setValue(this.plugin.settings.incuratorMcpArgs.join(" "))
+          .setPlaceholder("")
+          .setValue(this.plugin.settings.incuratorBackendArgs.join(" "))
           .onChange(async (value) => {
             const args = parseCommandArgs(value);
-            this.plugin.settings.incuratorMcpArgs =
-              args.length ? args : [...DEFAULT_SETTINGS.incuratorMcpArgs];
+            this.plugin.settings.incuratorBackendArgs =
+              args.length ? args : [...DEFAULT_SETTINGS.incuratorBackendArgs];
             await this.plugin.saveSettings();
             if (this.plugin.settings.incuratorEnabled) {
               await this.plugin.setIncuratorBackendEnabled(true);
@@ -588,18 +582,14 @@ export class AIAgentSettingTab extends PluginSettingTab {
     this.renderSectionHeader(zoteroSection, "Zotero Integration", "book-open");
 
     new Setting(zoteroSection)
-      .setName("Zotero Data Directory (External Linking)")
-      .setDesc(
-        "Path to the folder containing zotero.sqlite. " +
-          "Zotero PDFs will use this path to create external links (instead of copying) when ingested."
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("~/Zotero")
-          .setValue(this.plugin.settings.zoteroBasePath)
-          .onChange(async (value) => {
-            this.plugin.settings.zoteroBasePath = value.trim();
-            await this.plugin.saveSettings();
+      .setName("Backend Zotero status")
+      .setDesc("Single setup point for the backend Zotero data directory, database, and attachment roots. Defaults to ~/Zotero.")
+      .addButton((button) =>
+        button
+          .setButtonText("Open setup")
+          .onClick(async () => {
+            const status = await this.plugin.incuratorClient.getZoteroStatus();
+            this.plugin.openZoteroRepairModal({ status });
           })
       );
 
@@ -628,8 +618,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
     this.renderSectionHeader(mcpSection, "MCP Servers", "plug");
 
     const userMcpServers = this.plugin.settings.mcpServers
-      .map((s, i) => ({ server: s, index: i }))
-      .filter(({ server }) => !isIncuratorMcpServer(server));
+      .map((s, i) => ({ server: s, index: i }));
 
     if (userMcpServers.length === 0) {
       mcpSection.createEl("p", {
@@ -850,14 +839,12 @@ export class AIAgentSettingTab extends PluginSettingTab {
     containerEl.empty();
     const status = getIncuratorBackendStatus({
       enabled: this.plugin.settings.incuratorEnabled,
-      servers: this.plugin.settings.mcpServers,
-      tools: this.plugin.mcpManager.getAllTools(),
+      command: this.plugin.settings.incuratorBackendCommand,
+      commandArgs: this.plugin.settings.incuratorBackendArgs,
     });
 
     containerEl.toggleClass("is-disabled", status.state === "disabled");
-    containerEl.toggleClass("is-connected", status.state === "connected");
-    containerEl.toggleClass("is-connecting", status.state === "connecting");
-    containerEl.toggleClass("is-missing", status.state === "missing");
+    containerEl.toggleClass("is-connected", status.state === "configured");
 
     const dot = containerEl.createSpan("ai-agent-incurator-status-dot");
     dot.setAttr("aria-hidden", "true");
@@ -865,7 +852,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
     const text = containerEl.createDiv("ai-agent-incurator-status-text");
     text.createDiv({
       cls: "ai-agent-incurator-status-label",
-      text: `Status: ${status.label}`,
+      text: status.label,
     });
     text.createDiv({
       cls: "ai-agent-incurator-status-detail",

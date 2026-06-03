@@ -90,6 +90,41 @@ class TestBackgroundJobQueue(unittest.TestCase):
         self.assertEqual(row["state"], "failed")
         self.assertIn("boom", row["error"])
 
+    def test_cancel_job_marks_queued_job_cancelled(self) -> None:
+        job_id = db.enqueue_job(self.paths.state_db, self.source_id, "l2_atoms")
+
+        self.assertTrue(db.cancel_job(self.paths.state_db, job_id))
+
+        with db.connect(self.paths.state_db) as conn:
+            row = conn.execute("SELECT * FROM ingest_jobs WHERE id = ?", (job_id,)).fetchone()
+        self.assertEqual(row["state"], "cancelled")
+        self.assertEqual(row["phase"], "cancelled")
+        self.assertIn("Cancelled by user", row["error"])
+
+    def test_cancel_job_leaves_running_job_untouched(self) -> None:
+        job_id = db.enqueue_job(self.paths.state_db, self.source_id, "l2_atoms")
+        db.claim_next_job(self.paths.state_db)
+
+        self.assertFalse(db.cancel_job(self.paths.state_db, job_id))
+
+        with db.connect(self.paths.state_db) as conn:
+            row = conn.execute("SELECT * FROM ingest_jobs WHERE id = ?", (job_id,)).fetchone()
+        self.assertEqual(row["state"], "running")
+
+    def test_rerun_job_requeues_terminal_job(self) -> None:
+        job_id = db.enqueue_job(self.paths.state_db, self.source_id, "l2_atoms")
+        db.mark_job_failed(self.paths.state_db, job_id, "boom")
+
+        self.assertTrue(db.rerun_job(self.paths.state_db, job_id))
+
+        with db.connect(self.paths.state_db) as conn:
+            row = conn.execute("SELECT * FROM ingest_jobs WHERE id = ?", (job_id,)).fetchone()
+        self.assertEqual(row["state"], "queued")
+        self.assertEqual(row["phase"], "rerun")
+        self.assertIsNone(row["error"])
+        self.assertIsNone(row["started_at"])
+        self.assertIsNone(row["finished_at"])
+
     def test_failed_job_sets_l2_error_layer_status(self) -> None:
         db.enqueue_job(self.paths.state_db, self.source_id, "l2_atoms")
         fake_client = Mock()
@@ -211,7 +246,8 @@ class TestBackgroundJobQueue(unittest.TestCase):
         _db.insert_dag_edge(self.paths.state_db, "ATM-bbb00001", "CON-ccc00001", "clustered_to", None)
         worker = ingest_worker.IngestWorker(self.paths)
         worker._write_build_canvas(self.source_id, "paper_test")
-        canvas_path = self.root / ".curator" / "build_trace_paper_test.canvas"
+        self.assertFalse((self.root / ".curator" / "build_trace_paper_test.canvas").exists())
+        canvas_path = self.root / ".curator" / "staging" / "canvas" / "build_trace_paper_test.canvas"
         self.assertTrue(canvas_path.exists())
         import json
         data = json.loads(canvas_path.read_text(encoding="utf-8"))

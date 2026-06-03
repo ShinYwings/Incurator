@@ -18,6 +18,21 @@ const XML = `
 </configuration>
 `;
 
+const XML_WITH_ZOTERO = `
+<configuration version="52">
+  <device id="MACOS-ID" name="MacOS"><address>dynamic</address></device>
+  <device id="LINUX-ID" name="shin"><address>dynamic</address></device>
+  <folder id="vault" label="Second Brain" path="~/Workspace/second_brain" type="sendreceive">
+    <device id="MACOS-ID" />
+    <device id="LINUX-ID" />
+  </folder>
+  <folder id="zotero" label="Zotero" path="~/Zotero" type="sendreceive">
+    <device id="MACOS-ID" />
+    <device id="LINUX-ID" />
+  </folder>
+</configuration>
+`;
+
 describe("deviceRegistry", () => {
   it("parses the Syncthing folder for the active vault", () => {
     const snapshot = parseSyncthingConfig(
@@ -29,8 +44,23 @@ describe("deviceRegistry", () => {
     expect(snapshot.folders[0]).toMatchObject({
       id: "nm6xn-urvs7",
       label: "Second Brain",
+      role: "vault",
     });
     expect(snapshot.devices.map((device) => device.name).sort()).toEqual(["MacOS", "shin"]);
+  });
+
+  it("parses Vault and Zotero Syncthing folder roles", () => {
+    const snapshot = parseSyncthingConfig(
+      XML_WITH_ZOTERO,
+      "/home/shin/Workspace/second_brain",
+      "/home/shin",
+      ["/home/shin/Zotero"]
+    );
+
+    expect(snapshot.folders.map((folder) => [folder.label, folder.role])).toEqual([
+      ["Second Brain", "vault"],
+      ["Zotero", "zotero"],
+    ]);
   });
 
   it("infers the local device from hostname", () => {
@@ -56,18 +86,76 @@ describe("deviceRegistry", () => {
           "MACOS-ID": {
             device_id: "MACOS-ID",
             name: "MacOS",
-            backend: { command: "/opt/homebrew/bin/uv", args: ["run", "wiki", "mcp"] },
+            backend: { command: "/opt/homebrew/bin/uv", args: ["run", "wiki"] },
           },
         },
       } as any,
       snapshot,
-      { incuratorMcpCommand: "wiki", incuratorMcpArgs: ["mcp"] },
+      { incuratorBackendCommand: "wiki", incuratorBackendArgs: [] },
       123,
       "LINUX-ID"
     );
 
     expect((registry.devices["MACOS-ID"].backend as any).command).toBe("/opt/homebrew/bin/uv");
     expect((registry.devices["LINUX-ID"].backend as any).command).toBe("wiki");
+  });
+
+  it("prunes devices absent from the active Syncthing folder snapshot", () => {
+    const snapshot = parseSyncthingConfig(
+      XML,
+      "/home/shin/Workspace/second_brain",
+      "/home/shin"
+    );
+
+    const registry = mergeDeviceRegistry(
+      {
+        devices: {
+          "MACOS-ID": { device_id: "MACOS-ID", name: "MacOS" },
+          "STALE-ID": {
+            device_id: "STALE-ID",
+            name: "Old laptop",
+            backend: { command: "/old/wiki", args: [] },
+          },
+        },
+      } as any,
+      snapshot,
+      { incuratorBackendCommand: "wiki", incuratorBackendArgs: [] },
+      123,
+      "LINUX-ID"
+    );
+
+    expect(Object.keys(registry.devices).sort()).toEqual(["LINUX-ID", "MACOS-ID"]);
+    expect(registry.devices["STALE-ID"]).toBeUndefined();
+  });
+
+  it("restores a missing local id from an existing current-device platform entry", () => {
+    const snapshot = parseSyncthingConfig(
+      XML,
+      "/home/shin/Workspace/second_brain",
+      "/home/shin"
+    );
+
+    const registry = mergeDeviceRegistry(
+      {
+        devices: {
+          "MACOS-ID": {
+            device_id: "MACOS-ID",
+            name: "MacOS",
+            platform: { system: "Darwin" },
+            backend: { command: "/Users/shin/wiki", args: [] },
+            updated_at: 1780408526,
+          },
+          "LINUX-ID": { device_id: "LINUX-ID", name: "shin" },
+        },
+      } as any,
+      snapshot,
+      { incuratorBackendCommand: "wiki", incuratorBackendArgs: [] },
+      123,
+      undefined
+    );
+
+    expect(registry.local_device_id).toBe("MACOS-ID");
+    expect((registry.devices["MACOS-ID"].backend as any).command).toBe("wiki");
   });
 });
 

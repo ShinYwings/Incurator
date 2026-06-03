@@ -20,6 +20,8 @@ from typing import Any
 from . import config as cfg
 from . import constants as consts
 from . import db
+from . import page_writer
+from . import parsers
 from . import prompts
 
 MAX_BATCH_CHARS = 50_000
@@ -194,6 +196,43 @@ def _ctx_body_only(ctx_content: str) -> str:
     return ctx_content[end + 5:]
 
 
+def _hydrate_on_demand_ctx_body(paths: cfg.WikiPaths, ctx_path: Path, relpath: str, fallback_body: str) -> str:
+    """Rebuild Source Sections from the original source for compact large-document L1."""
+    ctx_page = page_writer.read_page(ctx_path)
+    if not ctx_page or ctx_page.frontmatter.get("source_text_policy") != "on_demand":
+        return fallback_body
+
+    try:
+        from .ingest_raw import _extract_structural_sections, _resolve_reference_source
+
+        source_path = Path(relpath).expanduser()
+        if not source_path.is_absolute():
+            source_path = paths.root / relpath
+        parsed = parsers.parse(_resolve_reference_source(paths, source_path))
+        sections = _extract_structural_sections(parsed)
+    except Exception:
+        return fallback_body
+
+    hydrated: list[str] = []
+    for idx, section in enumerate(sections, 1):
+        sid = str(section.get("id") or f"s{idx}")
+        page = int(section.get("page") or 1)
+        level = max(2, min(int(section.get("level") or 2), 6))
+        title = str(section.get("title") or f"Section {idx}")
+        text = str(section.get("text") or "").strip()
+        hydrated.append(
+            "\n".join(
+                [
+                    f"<!-- section:{sid} page:{page} -->",
+                    f"{'#' * level} {title}",
+                    "",
+                    text,
+                ]
+            ).strip()
+        )
+    return "\n\n".join(part for part in hydrated if part) or fallback_body
+
+
 def _extract_atoms_from_chunk(
     chunk: str,
     client: Any,
@@ -215,6 +254,7 @@ def _extract_atoms_from_chunk(
     max_retries = 2
     atoms_data = None
     
+    raw = ""
     for attempt in range(max_retries + 1):
         try:
             raw = client.chat(messages, json_mode=True, temperature=0.1 + (attempt * 0.1))
@@ -254,6 +294,83 @@ def _extract_atoms_from_chunk(
     return results
 
 
+def _extract_section_index(body: str) -> dict[str, dict[str, Any]]:
+    index: dict[str, dict[str, Any]] = {}
+    pattern = re.compile(
+        r"(?m)^-\s+`(?P<section_id>s\d+)`\s+p\.(?P<page>\d+)\s+—\s+\*\*(?P<title>.*?)\*\*:"
+    )
+    for match in pattern.finditer(body):
+        title = match.group("title").strip()
+        index[title.lower()] = {
+            "source_section_id": match.group("section_id"),
+            "source_section_title": title,
+            "source_page": int(match.group("page")),
+        }
+    return index
+
+
+def _fallback_atoms_from_l1_candidates(
+    body: str,
+    paths: cfg.WikiPaths,
+    context_id: str,
+    relpath: str,
+    today: str,
+    staging: Path,
+) -> list[BatchAtomResult]:
+    """Create low-confidence Atoms from L1 candidates when the LLM is unavailable."""
+    section_index = _extract_section_index(body)
+    in_candidates = False
+    candidates: list[dict[str, Any]] = []
+    for line in body.splitlines():
+        if re.match(r"^##\s+(?:\d+\.\s+)?Atom Candidates\s*$", line):
+            in_candidates = True
+            continue
+        if in_candidates and line.startswith("## "):
+            break
+        if not in_candidates or not line.startswith("- ["):
+            continue
+        match = re.match(r"^-\s+\[(?P<type>[^\]]+)\]\s+(?P<name>[^:]+):\s*(?P<one_liner>.*)$", line)
+        if not match:
+            continue
+        name = match.group("name").strip()
+        one_liner = match.group("one_liner").strip()
+        if not name:
+            continue
+        section_meta = section_index.get(name.lower(), {})
+        page_match = re.search(r"starting on page\s+(\d+)", one_liner)
+        data = {
+            "name": name,
+            "claim_type": match.group("type").strip() or consts.CLAIM_TYPE_FACT,
+            "one_liner": one_liner,
+            "source_section_id": section_meta.get("source_section_id", ""),
+            "source_section_title": section_meta.get("source_section_title", name),
+            "source_page": section_meta.get("source_page") or (int(page_match.group(1)) if page_match else ""),
+            "confidence": 0.35,
+        }
+        candidates.append(data)
+
+    results: list[BatchAtomResult] = []
+    for data in candidates:
+        atom_id = _gen_atom_id()
+        page_content = _build_atom_page_from_data(
+            atom_id=atom_id,
+            data=data,
+            context_id=context_id,
+            relpath=relpath,
+            today=today,
+        )
+        final_path = paths.atoms / f"{atom_id}.md"
+        staged_path = staging / f"{consts.LAYER_L2}__{atom_id}.md"
+        staged_path.write_text(page_content, encoding="utf-8")
+        results.append(BatchAtomResult(
+            atom_id=atom_id,
+            staged_path=staged_path,
+            final_path=final_path,
+            operation="created",
+        ))
+    return results
+
+
 def run_l2_batch_extraction(
     paths: cfg.WikiPaths,
     client: Any,
@@ -271,6 +388,7 @@ def run_l2_batch_extraction(
     """
     ctx_content = ctx_path.read_text(encoding="utf-8")
     body = _ctx_body_only(ctx_content)
+    body = _hydrate_on_demand_ctx_body(paths, ctx_path, relpath, body)
     client_chunk_chars = getattr(client, "optimal_chunk_chars", MAX_BATCH_CHARS)
     try:
         max_batch_chars = int(client_chunk_chars)
@@ -279,21 +397,34 @@ def run_l2_batch_extraction(
     max_batch_chars = max(100, min(MAX_BATCH_CHARS, max_batch_chars))
     batches = _split_into_batches(body, max_batch_chars)
 
-    if len(batches) <= 1:
-        return _extract_atoms_from_chunk(
-            batches[0], client, paths, context_id, relpath, today, staging
+    from .llm import LLMError
+
+    def _fallback() -> list[BatchAtomResult]:
+        return _fallback_atoms_from_l1_candidates(
+            body, paths, context_id, relpath, today, staging
         )
+
+    if len(batches) <= 1:
+        try:
+            return _extract_atoms_from_chunk(
+                batches[0], client, paths, context_id, relpath, today, staging
+            )
+        except LLMError:
+            return _fallback()
 
     clone = getattr(client, "clone", None)
     type_clone = getattr(type(client), "clone", None)
     if not callable(clone) or not callable(type_clone):
         all_results: list[BatchAtomResult] = []
         for batch in batches:
-            all_results.extend(
-                _extract_atoms_from_chunk(
-                    batch, client, paths, context_id, relpath, today, staging
+            try:
+                all_results.extend(
+                    _extract_atoms_from_chunk(
+                        batch, client, paths, context_id, relpath, today, staging
+                    )
                 )
-            )
+            except LLMError:
+                return _fallback()
         return all_results
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -314,8 +445,11 @@ def run_l2_batch_extraction(
             )
             for batch in batches
         ]
-        for future in as_completed(futures):
-            all_results.extend(future.result())
+        try:
+            for future in as_completed(futures):
+                all_results.extend(future.result())
+        except LLMError:
+            return _fallback()
     return all_results
 
 

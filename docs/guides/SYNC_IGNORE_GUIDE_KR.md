@@ -53,9 +53,9 @@ testbed/
 
 Incurator Obsidian plugin은 빌드 산출물인 `.obsidian/plugins/incurator-obsidian-agent/main.js`, `manifest.json`, `styles.css`가 active vault 안에 배포됩니다. Syncthing에서 `.obsidian/plugins/incurator-obsidian-agent/` 전체를 제외하지 않았다면 Linux에서 `plugin/deploy.sh`로 배포한 변경 사항은 macOS vault에도 동기화됩니다.
 
-기기별로 달라야 하는 파일은 `data.json`처럼 ignore에 둡니다. 특히 MCP command 절대 경로나 backend 설치 경로처럼 Linux와 macOS에서 다른 값이 들어갈 수 있으면 `data.json` 동기화를 피하고 각 기기에서 설정합니다.
+기기별로 달라야 하는 파일은 `data.json`처럼 ignore에 둡니다. 특히 backend command 절대 경로나 backend 설치 경로처럼 Linux와 macOS에서 다른 값이 들어갈 수 있으면 `data.json` 동기화를 피하고 각 기기에서 설정합니다.
 
-macOS에 Incurator가 전역 설치되어 있지 않다면 Obsidian plugin 설정에서 `Incurator MCP command`와 `Incurator MCP args`를 macOS 경로로 지정합니다. `uv`를 쓰는 예시는 `PLUGIN_GUIDE_KR.md`의 세션 동기화 섹션을 참고하세요.
+macOS에 Incurator가 전역 설치되어 있지 않다면 Obsidian plugin 설정에서 `Backend command`와 `Backend arguments`를 macOS 경로로 지정합니다. `uv`를 쓰는 예시는 `PLUGIN_GUIDE_KR.md`의 세션 동기화 섹션을 참고하세요.
 
 ### Syncthing 기기 Registry
 
@@ -65,10 +65,37 @@ backend 실행 경로는 Syncthing이 알 수 없으므로 Incurator가 기기�
 
 일반 사용에서는 명령어가 필요하지 않습니다. Syncthing이 플러그인 산출물을 동기화하고, 각 기기에서 Obsidian plugin이 로드되면 registry가 자동으로 갱신됩니다. 아래 CLI는 자동 갱신이 실패했거나 터미널에서 상태를 확인하고 싶을 때만 사용합니다.
 
+갱신할 때마다 `.curator/devices.json`은 현재 Syncthing 폴더에 실제로 포함된 기기 목록과 다시 맞춰집니다. 아직 공유 중인 기기의 backend hint는 보존하지만, 더 이상 이 vault를 공유하지 않는 device id는 제거되어 오래된 기기가 dashboard에 계속 표시되지 않습니다.
+
 ```bash
+wiki devices
 wiki devices sync
 wiki devices status
 ```
+
+`wiki devices`는 `wiki devices status`의 단축 명령이며, 아직 backend launcher
+hint가 없고 Syncthing metadata만 있는 기기도 registry에 있으면 표시합니다.
+
+### 기기 간 Reference PDF
+
+외부 PDF에 대해 **Add to Incurator**를 실행하면 backend는 `04_Resources/` 아래에
+작은 markdown reference stub을 만들고, 실제 로컬 파일 경로는 backend source
+metadata에 기록합니다. 이 stub은 vault와 함께 Syncthing으로 동기화될 수 있지만,
+기기마다 Zotero나 외부 PDF 라이브러리의 mount 위치가 다를 수 있으므로 기본적으로
+PDF 절대 경로를 포함하지 않아야 합니다.
+
+의도한 공유 모델은 다음과 같습니다.
+
+- `04_Resources/` reference stub: vault와 함께 Syncthing으로 동기화합니다. 크거나
+  private한 resource library를 Git에 의존하지 않습니다.
+- `.curator/Collections/`: 프로젝트가 원하면 생성된 knowledge artifact로 Git에
+  versioning할 수 있습니다.
+- `.curator/state.sqlite*`와 `.curator/qmd/`: 기기별 runtime/index 상태입니다.
+  Syncthing이나 Git으로 공유하지 않습니다.
+- backend 실행 파일/저장소 경로: 기기별 설정입니다. 공유 vault truth로 저장하지 않습니다.
+- Zotero/external PDF 원본: 별도 Syncthing 폴더로 동기화할 수 있지만, Incurator는
+  vault만 보고 그 경로를 알 수 없습니다. 각 기기에서 로컬 Zotero/external root로
+  resolve하거나 rebind해야 합니다.
 
 macOS에 `wiki`가 설치되어 있지 않고 repo의 backend를 `uv`로 실행해야 한다면:
 

@@ -125,12 +125,12 @@ wiki add 03_Notes/my_note.md
 wiki add
 ```
 
-이 명령을 통해 Curator는 원본 데이터를 파싱하여 **L1 요약, L2 원자적 사실 추출, L3 개념 연결** 작업을 자동으로 수행하며, 그 결과는 `.curator/` 내부에 기계 친화적인 AI 전용 공간에 저장됩니다.
+이 명령을 통해 Curator는 원본 데이터를 파싱하고 L1 Context를 즉시 작성합니다. L1은 빠른 검색과 회수를 위해 영어 `Source Guide`에 section/page preview를 추가합니다. 작은/중간 문서는 원문을 `Source Sections`에 inline으로 보존하고, 책이나 긴 PDF 같은 대형 문서는 CTX에 원문 전체를 중복 저장하지 않고 원본 파일에서 필요한 구간만 on-demand로 읽습니다. L2 원자적 사실 추출과 L3 개념 연결은 build worker에 큐잉합니다. 결과는 `.curator/` 내부의 기계 친화적인 AI 전용 공간에 저장됩니다.
 
 > [!TIP]
 > `wiki add`에 파일이나 폴더 경로를 지정하지 않으면, Curator는 설정된 모든 소스 디렉토리(`03_Notes`, `04_Resources` 등)를 훑어 새로 추가되거나 변경된 파일을 자동으로 찾아내어 일괄 처리합니다.
 
-- 등록된 소스 목록은 `wiki sources list`로 확인할 수 있습니다.
+- 등록된 소스 목록은 `wiki source ls`로 확인할 수 있습니다.
 - 특정 폴더 내의 파일들을 재귀적으로 모두 등록하려면 `-r` 옵션을 사용하세요.
 
 지식이 보관소에 안전하게 등록되었다면, 이제 이를 특정 프로젝트에서 실제로 활용하기 위해 당신만의 '작업 공간'을 준비할 차례입니다.
@@ -141,23 +141,29 @@ wiki add
 
 논문 PDF처럼 외부 앱(Zotero, iCloud, Syncthing, 브라우저 다운로드 폴더 등)이 소유한 파일은 두 가지 방식으로 Incurator에 연결할 수 있습니다.
 
-### 1. Copy Import
+### 1. Reference Mode
 
-파일을 보관소의 `04_Resources/` 아래로 복사해 Incurator가 관리하는 자료로 만듭니다.
+파일을 복사하지 않고 원래 위치에 둔 채 Incurator backend에 source로
+등록합니다. Zotero, iCloud, Syncthing, 브라우저 다운로드 폴더 등 외부 위치에서
+열린 PDF의 기본 동작입니다.
+
+- backend는 파일의 content hash를 계산하고 `state.sqlite`에 source record를 생성합니다.
+- `04_Resources/`에는 PDF 복사본이 아니라 작은 markdown reference stub을 만듭니다.
+- `external_path`는 현재 파일 위치를 가리키는 hint입니다. 진짜 identity는 content hash와 logical source identity입니다.
+- 자동 생성된 reference stub에는 기본적으로 PDF 절대 경로를 쓰지 않습니다.
+  따라서 외부 PDF 라이브러리의 로컬 위치가 다른 기기에도 안전하게 동기화할 수 있습니다.
+- iPad 필기나 외부 앱 수정으로 PDF hash가 바뀌면 backend는 이를 Hash Drift로 감지해야 합니다.
+- 파일 위치가 바뀌면 backend는 configured external roots 안에서 재발견을 시도할 수 있지만, 최종 rebind는 인간 승인 후에만 수행해야 합니다.
+
+### 2. Copy Import
+
+Copy Import는 파일을 vault가 직접 관리해야 할 때 명시적으로 선택하는 예외
+동작입니다. PDF를 `04_Resources/` 아래로 복사합니다.
 
 - `03_Notes/`에는 PDF를 넣지 않습니다. `03_Notes/`는 사람이 직접 작성한 노트의 영역입니다.
 - 활성 노트가 `03_Notes/Vision/Foo.md`라면 기본 목적지는 `04_Resources/Vision/Foo/<pdf-file>.pdf`가 됩니다.
 - 연결된 노트가 없으면 기본 목적지는 `04_Resources/Inbox/<pdf-file>.pdf`입니다.
 - 같은 이름의 파일이 이미 있으면 덮어쓰지 않습니다. 같은 해시라면 기존 파일을 재사용하고, 다른 해시라면 suffix를 붙이거나 사용자가 다른 목적지를 선택해야 합니다.
-
-### 2. Reference Mode
-
-파일을 복사하지 않고 원래 위치에 둔 채 Incurator backend에 등록합니다. 이 방식은 Zotero 라이브러리처럼 외부 앱이 파일을 계속 관리해야 하는 경우에 적합합니다.
-
-- backend는 파일의 content hash를 계산하고 `state.sqlite`에 source record를 생성합니다.
-- `external_path`는 현재 파일 위치를 가리키는 hint입니다. 진짜 identity는 content hash와 logical source identity입니다.
-- iPad 필기나 외부 앱 수정으로 PDF hash가 바뀌면 backend는 이를 Hash Drift로 감지해야 합니다.
-- 파일 위치가 바뀌면 backend는 configured external roots 안에서 재발견을 시도할 수 있지만, 최종 rebind는 인간 승인 후에만 수행해야 합니다.
 
 Obsidian 플러그인은 PDF를 열었을 때 즉시 viewer context를 만들 수 있지만, 장기 지식화와 source provenance는 backend ingest가 담당합니다. 즉, 열린 PDF에 대해 바로 질문하는 것은 plugin의 PDF context engine이 처리하고, 이후 durable RAG/source tracking은 Incurator backend가 처리합니다.
 
@@ -333,7 +339,9 @@ Incurator의 가장 핵심적인 작동 방식입니다. 당신은 그저 질문
 
 시스템은 워크스페이스 또는 일반 Vault 환경에 따라 **이원화된 아키텍처(Dual Architecture)**를 사용합니다:
 - **Workspace Agent**: 워크스페이스가 지정된 경우, `curate.yml`에 정의된 **Pinned Exhibition**과 페르소나를 사용하며 임시 파일을 생성하지 않습니다.
-- **Vault Agent**: 일반 Vault 환경에서 질의하는 경우, 세션별로 **임시(Ephemeral) L4 Exhibition**을 동적으로 생성하고 글로벌 폴백 페르소나를 사용합니다.
+- **Vault Agent**: 일반 Vault 환경에서 질의하는 경우, 세션별로 **임시(Ephemeral) L4 Exhibition**을 동적으로 생성하고 글로벌 폴백 페르소나를 사용합니다. 활성 노트가 워크스페이스 폴더 안에 있지 않은 일반 채팅은 Vault 세션으로 취급되어, 임시 Exhibition이 `default`로 스코프되며 사용자가 열지 않은 무관한 프로젝트 워크스페이스에 묶이지 않습니다.
+
+**요청별 언어 처리**: 에이전트는 각 질문의 언어를 유니코드 스크립트로 매번 새로 감지하고(한국어, 영어, 중국어, 일본어, 러시아어 등) 그 언어로 답하며, 영어는 내부 검색/추론 언어로만 사용합니다. 출력 언어는 메시지마다 독립적으로 따라가므로, 이전 질문이 한국어였더라도 영어 질문에는 영어로 답합니다. 언어 메타데이터는 생성된 Exhibition 파일에 저장되지 않으며, 답변 캐시는 출력 언어로 키가 구성되어 stale 언어 캐시 답변을 받지 않습니다.
 
 **L3 제약 조건 및 가비지 컬렉션(GC)**:
 - L4 Exhibition은 일치하는 **L3 Concept이 있을 때만 생성**됩니다. 관련 L3가 없으면 L4 생성을 건너뛰고 즉시 답변을 반환합니다.
@@ -345,8 +353,8 @@ Incurator의 가장 핵심적인 작동 방식입니다. 당신은 그저 질문
 > **"그냥 쓰세요. 나머지는 시스템이 알아서 합니다."**
 > 지식을 활용하려는 "의도"가 발생했을 때 큐레이션이 트리거되므로, 사용자가 매번 어떤 워크스페이스인지 지정하거나 파이프라인을 수동으로 돌릴 필요가 없습니다. (명령어를 실행한 폴더 위치를 통해 시스템이 자동으로 맥락을 파악합니다.)
 
-### (참고) 수동 강제 큐레이션
-디버깅이나 강제 업데이트가 필요한 경우에만 제한적으로 사용합니다.
+### (참고) 고급 수동 강제 큐레이션
+디버깅, workspace-agent 복구, 강제 업데이트가 필요한 경우에만 제한적으로 사용합니다. `wiki curate`는 직접 호출할 수 있지만, 일반 사용자는 보통 직접 L4 Exhibition을 생성하지 않고 query 또는 workspace agent를 사용해야 하므로 기본 `wiki --help` 표면에서는 숨겨집니다.
 ```bash
 wiki curate
 ```
@@ -377,7 +385,7 @@ Incurator에는 두 가지 페르소나 레이어가 있으며, 각각 다른 �
 
 ### Curator 페르소나 — Vault 수준
 
-`wiki init` 실행 시 짧은 인터뷰를 통해 설정됩니다. `.curator/config.yml`에 저장되며, `wiki sync`와 `wiki query` 전반에 전역으로 적용됩니다.
+`wiki init` 실행 시 짧은 인터뷰를 통해 설정됩니다. wizard는 첫 질문을 바로 표시하고, 각 질문이 단일 선택인지 다중 선택인지 표시하며, verification source와 artifact type 같은 다중 선택 질문에서는 `1,4`처럼 쉼표로 구분한 번호를 받을 수 있습니다. 마지막 persona JSON이 저장되면 인터뷰는 즉시 종료됩니다. 결과는 `.curator/config.yml`에 저장되며, `wiki sync`와 `wiki query` 전반에 전역으로 적용됩니다.
 
 ```bash
 wiki persona              # 현재 Curator 페르소나 확인
@@ -418,12 +426,12 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 ### 2. 지식 수집 및 관리 (Ingestion)
 | 명령어 | 설명 | 사용 시점 |
 | :--- | :--- | :--- |
-| `wiki add <file>` | 소스를 등록하고 L1 Context를 즉시 생성합니다 (구조 기반, LLM 없음). | 새로운 정보를 추가할 때 |
-| `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 추출합니다 (LLM). 기본은 백그라운드 워커에 큐잉, `--wait`는 즉시 실행. | 지식 그래프 심층 구축 시 |
-| `wiki sources list` | 등록된 소스 목록을 확인합니다. | 수집된 데이터 현황 파악 시 |
-| `wiki sources show <id>` | 특정 소스의 상세 정보와 처리 상태를 확인합니다. | 소스 오류 진단 시 |
-| `wiki sources rm <id>` | 소스 등록을 해제하고 생성된 L1 노드를 삭제합니다. | 잘못된 소스를 제거할 때 |
-| `wiki sources retry <id>` | 오류 상태 소스를 재처리합니다. | 소스 처리 실패 후 재시도 시 |
+| `wiki add <file>` | 소스를 등록하고 영어 source guide와 크기 인식 source sections를 포함한 L1 Context를 즉시 생성합니다 (구조 기반, LLM 없음). | 새로운 정보를 추가할 때 |
+| `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 추출합니다. 고품질 추출에는 설정된 LLM을 사용하고, provider 실패 시 낮은 신뢰도의 L1 candidate 또는 deterministic L3 Concept fallback을 만들 수 있습니다. 기본은 백그라운드 워커에 큐잉, `--wait`는 즉시 실행. | 지식 그래프 심층 구축 시 |
+| `wiki source ls` | 등록된 소스 목록을 확인합니다. | 수집된 데이터 현황 파악 시 |
+| `wiki source show <id>` | 특정 소스의 상세 정보와 처리 상태를 확인합니다. | 소스 오류 진단 시 |
+| `wiki source rm <id>` | 소스 등록을 해제하고 생성된 L1 노드를 삭제합니다. | 잘못된 소스를 제거할 때 |
+| `wiki source retry <id>` | 오류 상태 소스를 재처리합니다. | 소스 처리 실패 후 재시도 시 |
 
 ### 2-1. 설정 및 LLM 백엔드 관리
 
@@ -438,8 +446,9 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 ### 3. 고도화 및 최적화 (Curation)
 | 명령어 | 설명 | 사용 시점 |
 | :--- | :--- | :--- |
-| `wiki curate` | L4 Exhibition을 합성합니다. | 전시물을 수동 업데이트할 때 |
+| `wiki curate` | L4 Exhibition을 합성합니다. 기본 help에서는 숨겨집니다. | 고급/디버깅용 workspace curation |
 | `wiki sync` | 무결성 검증 및 자가 치유를 수행합니다. | 노드 수정 후 일관성 회복 시 |
+| `wiki refresh` | 변경된 L3 Concept를 기존 L4 Exhibition에 반영하되, 인간/agent 편집을 덮어쓰지 않습니다. | 새 Concept를 기존 Exhibition으로 전파할 때 |
 
 ### 4. 지식 활용 (Utilization)
 | 명령어 | 설명 | 사용 시점 |
@@ -481,7 +490,7 @@ Incurator의 지능을 담당하는 LLM 백엔드를 설정합니다. 시스템�
 | `antigravity-cli` | CLI | Google Antigravity CLI (`agy`)를 통한 추론 (가장 빠르고 안정적인 무료 옵션). Gemini 3.5 Flash / 3.1 Pro 외에 Claude·GPT-OSS 모델도 노출됩니다 |
 | `claude-code` | CLI | Anthropic 공식 `claude` 명령어를 통한 추론 (Sonnet 4.6 / Opus 4.7 / Haiku 4.5) |
 | `codex-cli` | CLI | OpenAI 공식 `codex` 명령어를 통한 추론 (GPT-5.5 / 5.4 / 5.4-mini / 5.3-codex / 5.2) |
-| `deepseek-api` | API key | DeepSeek의 OpenAI 호환 API를 통한 추론 (`DEEPSEEK_API_KEY`; 현재 모델 `deepseek-v4-flash` / `deepseek-v4-pro`) |
+| `deepseek-api` | API key | DeepSeek의 OpenAI 호환 API를 통한 추론 (`DEEPSEEK_API_KEY` 또는 암호화된 로컬 backend secret; 현재 모델 `deepseek-v4-flash` / `deepseek-v4-pro`) |
 
 ```bash
 # 위자드를 따라 Primary와 Fallback을 한 번에 설정
@@ -505,9 +514,13 @@ wiki config provider --primary deepseek-api --model deepseek-v4-flash
 wiki config provider --primary deepseek-api --model deepseek-v4-pro --api-key-env DEEPSEEK_API_KEY
 ```
 
+DeepSeek에서 `--api-key-env`에는 실제 `sk-...` 키 값이 아니라 환경변수 이름
+(`DEEPSEEK_API_KEY` 같은 값)을 넣어야 합니다.
+`--api-key sk-...`를 넘기면 키는 shared vault 밖 backend encrypted local secret store에 저장되고, config에는 secret reference만 기록됩니다.
+
 선택한 강도는 `.curator/config.yml` 의 `llm.primary_effort` / `llm.fallback_effort` 에 저장되며, 비워 두면 각 CLI의 기본 강도를 사용합니다.
 
-CLI 기반 provider(`antigravity-cli`, `claude-code`, `codex-cli`)는 backend가 실행되는 머신에서 해당 CLI에 현재 로그인된 계정을 사용합니다. 다른 계정을 쓰려면 provider CLI 자체(`agy`, `claude`, `codex login`)에서 계정을 전환하세요. DeepSeek는 다릅니다. `DEEPSEEK_API_KEY` 또는 `llm.deepseek-api.api_key`의 API 키를 사용하므로 계정 선택은 브라우저 로그인 세션이 아니라 키로 결정됩니다.
+CLI 기반 provider(`antigravity-cli`, `claude-code`, `codex-cli`)는 backend가 실행되는 머신에서 해당 CLI에 현재 로그인된 계정을 사용합니다. 다른 계정을 쓰려면 provider CLI 자체(`agy`, `claude`, `codex login`)에서 계정을 전환하세요. DeepSeek는 다릅니다. `DEEPSEEK_API_KEY`, 암호화된 로컬 `llm.deepseek-api.api_key_secret`, 또는 legacy plaintext `llm.deepseek-api.api_key`의 API 키를 사용하므로 계정 선택은 브라우저 로그인 세션이 아니라 키로 결정됩니다. 새로 저장하는 키는 vault sync로 유출되지 않도록 encrypted local secret path를 사용해야 합니다.
 
 ### 2. 모델 관리 (`wiki config models`)
 현재 프로바이더에서 사용할 세부 모델을 확인하고 변경합니다.
@@ -522,6 +535,7 @@ wiki config models use gemma2:9b
 
 - `wiki config models list`는 현재 시스템 성능과 프로바이더 특성에 맞는 최적의 모델들을 추천해 줍니다.
 - `wiki config models use`를 통해 모델을 변경하면, 시스템이 해당 모델의 가용성을 즉시 검증하고 설정 파일에 반영합니다.
+- `wiki config secret list/delete`로 로컬 encrypted backend secret을 마스킹된 상태로 확인하거나 삭제할 수 있습니다.
 
 ### 3. 상태 확인 (`wiki status`)
 보관소의 건강 상태와 AI 엔진의 가동 현황을 입체적으로 진단하는 종합 대시보드입니다. 시스템 운영 중 의문이 생긴다면 가장 먼저 확인해야 할 명령어입니다.
@@ -530,6 +544,23 @@ wiki config models use gemma2:9b
 wiki status
 ```
 
+최신 sync report에 확인할 항목이 있으면 `wiki status`가 review 세부사항을 표시할지 물어볼 수 있습니다. 이 세부사항은 점검하거나 수리해야 할 무결성 진단 결과이며, status 명령 자체가 실패했다는 뜻은 아닙니다.
+state DB 파일은 존재하지만 기본 테이블이 빠진 상태라면, 이제 `wiki status`가 통계를 읽기 전에 스키마를 자동으로 보정합니다.
+
+### 3-1. 생성 상태 초기화 (`wiki reset`)
+
+```bash
+wiki reset
+wiki reset --force
+```
+
+`.curator/config.yml`과 vault의 source folder는 보존하면서 생성된 Curator
+상태를 초기화합니다. tracking database, generated Collections,
+dashboard/index/overview/ledger/log 파일, sync report, transient staging 파일,
+build trace canvas, device registry, sidechat session state를 제거합니다. 오래된
+generated state, device metadata, chat context 때문에 backend와 plugin 상태가
+어긋날 때 사용합니다.
+
 이 명령어는 크게 세 가지 영역의 데이터를 실시간으로 집계하여 출력합니다. 각 항목의 의미와 활용 방법은 다음과 같습니다:
 
 #### ⚙️ 구성 설정 (Config)
@@ -537,23 +568,25 @@ wiki status
 -   **Primary / Fallback 모델**: 현재 지식 추출과 합성을 담당하는 주력 LLM과 비상용 LLM을 보여줍니다. 의도한 모델이 활성화되어 있는지 확인하세요.
 -   **Reranking (리랭킹)**: 검색 결과의 정밀도를 높이는 2차 검증 프로세스의 활성화 여부입니다. 고품질 답변이 필요하다면 `on` 상태여야 합니다.
 -   **QMD binary**: 검색 엔진의 핵심 바이너리 상태입니다. `installed`가 아니거나 `not found`라면 `wiki reindex`나 재설치가 필요할 수 있습니다.
+-   **Search index degradation**: `wiki reindex`는 먼저 BM25 index를 갱신한 뒤 vector embedding을 시도합니다. embedding이 실패해도 BM25 search는 최신 상태로 유지되고 vector search만 stale로 표시됩니다. `qmd doctor`로 embedding 환경을 확인한 뒤 `wiki reindex`를 다시 실행하세요.
 
 #### 📂 지식 원천 현황 (Sources)
 원본 데이터가 지식화되는 '파이프라인의 입구'를 점검합니다.
 -   **Raw source files**: 보관소 폴더 내에 물리적으로 존재하는 파일의 총개수입니다.
--   **Sources summarized (L1)**: `l1_status=done`인 소스 수입니다. `wiki add`는 LLM 없이 구조 기반 L1 Context를 즉시 만듭니다. L2/L3 추출은 별도 단계로, `wiki build`로 실행합니다 (기본은 백그라운드 워커 큐잉, `--wait`는 동기 실행).
+-   **Sources summarized (L1)**: `l1_status=done`인 소스 수입니다. `wiki add`는 LLM 없이 구조 기반 L1 Context를 즉시 만듭니다. L1 page에는 검색용 영어 source guide와 크기 인식 source sections가 들어갑니다. 작은/중간 문서는 원문을 inline하고, 대형 문서는 preview와 marker만 두며 정확한 원문 증거는 원본 파일에서 on-demand로 읽습니다. L2/L3 추출은 별도 단계로, `wiki build`로 실행합니다 (기본은 백그라운드 워커 큐잉, `--wait`는 동기 실행).
 -   **Ingest runs**: 지금까지 수행된 총 수집 횟수입니다. 이 수치가 높을수록 지식 베이스가 빈번하게 업데이트되었음을 의미합니다.
 
 #### 🧠 지식 밀도 (Collections)
-파이프라인의 각 단계별 처리 현황을 나타냅니다. v0.2.1 기본 흐름에서는 L1이 즉시 생성되고, L2·L3는 MCP background worker 또는 `wiki jobs run`으로 처리되며, L4는 `wiki curate`에서 별도로 생성됩니다.
+파이프라인의 각 단계별 처리 현황을 나타냅니다. v0.2.1 기본 흐름에서는 L1이 즉시 생성되고, L2·L3는 MCP background worker 또는 `wiki jobs run`으로 처리되며, L4는 workspace-agent 흐름 또는 숨겨진 고급 `wiki curate` 명령에서 생성됩니다. worker가 claim하기 전의 queued job은 `wiki jobs cancel <id>`로 취소하고, 완료/실패/취소된 job은 `wiki jobs rerun <id>`로 다시 queue에 넣을 수 있습니다.
 
--   **L1 Contexts**: 소스당 하나씩 생성된 요약본 개수입니다. 등록된 소스 수와 일치해야 합니다.
+-   **L1 Contexts**: 소스당 하나씩 생성된 source context 개수입니다. 각 Context는 영어 retrieval scaffold와 크기 인식 source sections를 포함하며, 등록된 소스 수와 일치해야 합니다.
 -   **L2 Atoms**: 각 소스에서 추출된 원자적 사실의 총량입니다. 소스당 여러 개가 생성되므로 L1보다 많습니다.
--   **L3 Concepts**: L2 원자들을 교차 소스로 클러스터링한 개념의 개수입니다.
+-   **Fallback Atoms**: 설정된 provider가 L2 추출 중 실패하면, Incurator는 소스가 검색 가능하고 section/page provenance를 유지하도록 L1 source guide에서 낮은 신뢰도의 Atom을 만들 수 있습니다. provider가 정상화된 뒤 해당 소스를 retry하면 더 풍부한 추출로 보강할 수 있습니다.
+-   **L3 Concepts**: L2 원자들을 교차 소스로 클러스터링한 개념의 개수입니다. L3 clustering이나 drafting이 실패하면, 나중에 LLM-backed rebuild로 보강할 수 있도록 낮은 신뢰도의 deterministic fallback Concept를 만들어 provenance를 계속 추적 가능하게 유지할 수 있습니다.
 -   **L4 Exhibitions**: 워크스페이스 명세(`curate.yml`)에 따라 합성된 전시물입니다. 워크스페이스가 초기화되고 `wiki curate`가 실행되기 전까지는 0입니다.
 
 > [!TIP]
-> **파이프라인 현황 진단**: L4가 0이라면 아직 워크스페이스에서 Exhibition이 생성되지 않은 것입니다. MCP를 통해 `search_curator`를 호출하면 `wiki curate`가 자동 실행되어 L4가 생성됩니다. 수동으로 생성하려면 `wiki curate`를 직접 실행하세요.
+> **파이프라인 현황 진단**: L4가 0이라면 아직 워크스페이스에서 Exhibition이 생성되지 않은 것입니다. MCP를 통해 `search_curator`를 호출하면 workspace curation이 실행되어 L4가 생성될 수 있습니다. 수동 `wiki curate`는 고급/디버깅용으로 계속 사용할 수 있지만 기본 help 표면에서는 숨겨집니다.
 
 ### 4. 외부 리소스 연동 (Zotero & Reference Mode)
 Incurator는 Zotero 등의 외부 PDF 파일들을 보관소로 복사하지 않고 원본 그대로 참조(Reference Mode)할 수 있으며, 원할 경우 사용자가 승인한 `04_Resources/` 목적지로 안전하게 복사할 수도 있습니다.

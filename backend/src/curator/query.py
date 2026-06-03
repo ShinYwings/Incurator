@@ -51,6 +51,9 @@ class QueryResult:
     hits: list[search.SearchHit] = field(default_factory=list)
     saved_path: str | None = None   # if --save-as was used
     session_id: str | None = None
+    english_query: str = ""
+    input_language: str = ""
+    final_output_language: str = ""
     error: str | None = None
 
     @property
@@ -115,16 +118,30 @@ Rules:
 5. Be concise but substantive. Write in clean markdown.
 6. Do NOT include YAML frontmatter, preamble like "Based on the sources:",
    or meta-commentary about your process.
-7. LANGUAGE: You MUST answer the question in the SAME language that the user used to ask the question. If the user asks in Korean, answer in Korean.
+7. LANGUAGE: Use English for internal reasoning over the sources. The user
+   prompt provides `Final output language`; write the final answer in that
+   language. If it is `English`, answer in English. If it is `same_as_input`,
+   answer in the same language as the original user question.
 """
 
 
 def _build_synthesis_user_prompt(
-    question: str, results: search.SearchResults
+    question: str,
+    results: search.SearchResults,
+    *,
+    english_query: str = "",
+    input_language: str = "",
+    final_output_language: str = "",
 ) -> str:
     """Construct the user message for Qwen3 with the search results as context."""
     lines: list[str] = []
-    lines.append(f"Question: {question}")
+    lines.append(f"Original user question: {question}")
+    if input_language:
+        lines.append(f"Input language: {input_language}")
+    if english_query:
+        lines.append(f"English working query: {english_query}")
+    if final_output_language:
+        lines.append(f"Final output language: {final_output_language}")
     lines.append("")
     lines.append(f"Here are the {len(results)} most relevant wiki pages:")
     lines.append("")
@@ -493,6 +510,9 @@ def run_query(
     query_boost_terms: list[str] | None = None,
     pinned_exhibition_id: str | None = None,
     ephemeral_exhibition: bool = False,
+    english_query: str | None = None,
+    input_language: str = "",
+    final_output_language: str = "",
 ) -> QueryResult:
     """Run a full query → answer pipeline.
 
@@ -514,8 +534,9 @@ def run_query(
 
     # 0a. Translate to English first — intent classification is more accurate
     #     on English text, and search backends (BM25/vector) expect English.
-    search_question = translate_to_english(client, question)
+    search_question = (english_query or "").strip() or translate_to_english(client, question)
     base_search_question = search_question
+    resolved_final_output_language = final_output_language or input_language or "same_as_input"
 
     if not query_boost_terms:
         global_domain = curator_persona.get("domain")
@@ -562,7 +583,15 @@ def run_query(
             # Reply in the user's original language
             reply = intent_module.generate_chitchat_reply(client, question)
             callbacks.on_chitchat_reply(reply)
-            result = QueryResult(question=question, answer=reply, hits=[], session_id=session_id)
+            result = QueryResult(
+                question=question,
+                answer=reply,
+                hits=[],
+                session_id=session_id,
+                english_query=base_search_question,
+                input_language=input_language,
+                final_output_language=resolved_final_output_language,
+            )
             callbacks.on_complete(result)
             return result
 
@@ -624,11 +653,25 @@ def run_query(
         # Prioritize Exhibitions (L4) as the primary source of truth in the synthesis context
         results.hits.sort(key=lambda h: (not h.full_path.startswith(f"{consts.LAYER_L4}/"), -h.score))
     except search.QmdNotInstalled as e:
-        result = QueryResult(question=question, session_id=session_id, error=str(e))
+        result = QueryResult(
+            question=question,
+            session_id=session_id,
+            english_query=base_search_question,
+            input_language=input_language,
+            final_output_language=resolved_final_output_language,
+            error=str(e),
+        )
         callbacks.on_error(result.error)
         return result
     except search.SearchBackendError as e:
-        result = QueryResult(question=question, session_id=session_id, error=f"Search failed: {e}")
+        result = QueryResult(
+            question=question,
+            session_id=session_id,
+            english_query=base_search_question,
+            input_language=input_language,
+            final_output_language=resolved_final_output_language,
+            error=f"Search failed: {e}",
+        )
         callbacks.on_error(result.error)
         return result
 
@@ -641,6 +684,9 @@ def run_query(
             answer="",
             hits=[],
             session_id=session_id,
+            english_query=base_search_question,
+            input_language=input_language,
+            final_output_language=resolved_final_output_language,
             error="No matching wiki pages found. Try a different query or "
             "curate more sources.",
         )
@@ -659,7 +705,13 @@ def run_query(
             if page:
                 pinned_content = f"## Pinned Workspace Exhibition ({pinned_exhibition_id})\n{page.body}\n\n"
 
-    synthesis_user_content = _build_synthesis_user_prompt(question, results)
+    synthesis_user_content = _build_synthesis_user_prompt(
+        question,
+        results,
+        english_query=base_search_question,
+        input_language=input_language,
+        final_output_language=resolved_final_output_language,
+    )
     if pinned_content:
         synthesis_user_content = f"{pinned_content}{synthesis_user_content}"
 
@@ -684,13 +736,25 @@ def run_query(
                     answer_parts.append(full)
     except (OllamaNotRunning, ModelNotFound) as e:
         result = QueryResult(
-            question=question, hits=results.hits, session_id=session_id, error=str(e)
+            question=question,
+            hits=results.hits,
+            session_id=session_id,
+            english_query=base_search_question,
+            input_language=input_language,
+            final_output_language=resolved_final_output_language,
+            error=str(e),
         )
         callbacks.on_error(result.error)
         return result
     except LLMError as e:
         result = QueryResult(
-            question=question, hits=results.hits, session_id=session_id, error=f"LLM error: {e}"
+            question=question,
+            hits=results.hits,
+            session_id=session_id,
+            english_query=base_search_question,
+            input_language=input_language,
+            final_output_language=resolved_final_output_language,
+            error=f"LLM error: {e}",
         )
         callbacks.on_error(result.error)
         return result
@@ -720,6 +784,9 @@ def run_query(
                 answer=answer,
                 hits=results.hits,
                 session_id=session_id,
+                english_query=base_search_question,
+                input_language=input_language,
+                final_output_language=resolved_final_output_language,
                 error=f"Failed to save synthesis page: {e}",
             )
             callbacks.on_error(result.error)
@@ -734,6 +801,9 @@ def run_query(
         hits=results.hits,
         saved_path=saved_path,
         session_id=session_id,
+        english_query=base_search_question,
+        input_language=input_language,
+        final_output_language=resolved_final_output_language,
     )
     callbacks.on_complete(result)
     return result

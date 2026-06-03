@@ -86,6 +86,27 @@ class GetSourceRowTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(int(row["id"]), 1)
 
+    def test_lookup_by_external_path_resolves_symlink_alias(self) -> None:
+        real_dir = self.root / "real_external"
+        real_dir.mkdir()
+        real_file = real_dir / "paper.pdf"
+        real_file.write_text("pdf placeholder", encoding="utf-8")
+        alias_dir = self.root / "alias_external"
+        alias_dir.symlink_to(real_dir, target_is_directory=True)
+        alias_file = alias_dir / "paper.pdf"
+        with db.connect(self.paths.state_db) as conn:
+            conn.execute(
+                "UPDATE sources SET external_path = ? WHERE id = 1",
+                (str(real_file.resolve()),),
+            )
+
+        row = db.get_source_row(
+            self.paths.state_db, self.root, source_path=str(alias_file)
+        )
+
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row["id"]), 1)
+
     def test_lookup_by_logical_source_id(self) -> None:
         row = db.get_source_row(
             self.paths.state_db, self.root, relpath="lsid-001"

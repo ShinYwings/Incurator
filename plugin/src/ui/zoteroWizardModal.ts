@@ -1,8 +1,12 @@
 import { App, Modal, Setting, Notice, SuggestModal, AbstractInputSuggest, TFolder } from "obsidian";
 import { promises as fs } from "fs";
-import { IncuratorClient } from "../agent/incuratorClient";
 import { PluginSettings, ZoteroImportProfile } from "../types";
 import { sanitizePathSegment, TemplateRenderer } from "../zotero/templateRenderer";
+
+export interface ZoteroBackendApi {
+  searchZoteroItems(query: string, limit?: number): Promise<ZoteroSearchResult[]>;
+  getZoteroItemMetadata(itemKey: string, citationStyle?: string): Promise<any>;
+}
 
 export interface ZoteroSearchResult {
   key: string;
@@ -91,7 +95,7 @@ class VaultPathSuggest extends AbstractInputSuggest<string> {
 
 // ─── Zotero Search Modal ──────────────────────────────────────────────
 export class ZoteroSearchModal extends SuggestModal<ZoteroSearchResult> {
-  private client: IncuratorClient;
+  private backend: ZoteroBackendApi;
   private settings: PluginSettings;
   private saveSettings: (settings: PluginSettings) => Promise<void>;
   private recentCache: ZoteroSearchResult[] = [];
@@ -99,12 +103,12 @@ export class ZoteroSearchModal extends SuggestModal<ZoteroSearchResult> {
 
   constructor(
     app: App,
-    client: IncuratorClient,
+    backend: ZoteroBackendApi,
     settings: PluginSettings,
     saveSettings: (settings: PluginSettings) => Promise<void>
   ) {
     super(app);
-    this.client = client;
+    this.backend = backend;
     this.settings = settings;
     this.saveSettings = saveSettings;
     this.setPlaceholder("Search Zotero items by title or author... (leave blank for recent)");
@@ -124,11 +128,7 @@ export class ZoteroSearchModal extends SuggestModal<ZoteroSearchResult> {
       if (!this.recentFetched) {
         this.recentFetched = true;
         try {
-          const res: any = await this.client.tryTool(["curator_search_zotero_items"], {
-            query: "",
-            custom_paths: this.settings.zoteroBasePath || "~/Zotero"
-          });
-          if (res?.ok && Array.isArray(res.items)) this.recentCache = res.items;
+          this.recentCache = await this.backend.searchZoteroItems("", 20);
         } catch (e) {
           console.error("Failed to load recent Zotero items:", e);
         }
@@ -136,13 +136,8 @@ export class ZoteroSearchModal extends SuggestModal<ZoteroSearchResult> {
       return prioritizeZoteroItems(this.recentCache, this.settings.recentZoteroItems);
     }
     try {
-      const res: any = await this.client.tryTool(["curator_search_zotero_items"], {
-        query,
-        custom_paths: this.settings.zoteroBasePath || "~/Zotero"
-      });
-      if (res?.ok && Array.isArray(res.items)) {
-        return prioritizeZoteroItems(res.items, this.settings.recentZoteroItems);
-      }
+      const items = await this.backend.searchZoteroItems(query, 20);
+      return prioritizeZoteroItems(items, this.settings.recentZoteroItems);
     } catch (e) {
       console.error(e);
     }
@@ -161,14 +156,14 @@ export class ZoteroSearchModal extends SuggestModal<ZoteroSearchResult> {
   }
 
   onChooseSuggestion(item: ZoteroSearchResult, evt: MouseEvent | KeyboardEvent) {
-    new ZoteroWizardModal(this.app, item, this.client, this.settings, this.saveSettings).open();
+    new ZoteroWizardModal(this.app, item, this.backend, this.settings, this.saveSettings).open();
   }
 }
 
 // ─── Wizard Modal ─────────────────────────────────────────────────────
 export class ZoteroWizardModal extends Modal {
   private item: ZoteroSearchResult;
-  private client: IncuratorClient;
+  private backend: ZoteroBackendApi;
   private settings: PluginSettings;
   private saveSettings: (settings: PluginSettings) => Promise<void>;
 
@@ -187,13 +182,13 @@ export class ZoteroWizardModal extends Modal {
   constructor(
     app: App,
     item: ZoteroSearchResult,
-    client: IncuratorClient,
+    backend: ZoteroBackendApi,
     settings: PluginSettings,
     saveSettings: (settings: PluginSettings) => Promise<void>
   ) {
     super(app);
     this.item = item;
-    this.client = client;
+    this.backend = backend;
     this.settings = settings;
     this.saveSettings = saveSettings;
 
@@ -402,17 +397,7 @@ export class ZoteroWizardModal extends Modal {
         await this.saveSettings(this.settings);
       }
 
-      const res: any = await this.client.tryTool(["curator_get_zotero_item_metadata"], {
-        item_key: this.item.key,
-        custom_paths: this.settings.zoteroBasePath || "~/Zotero",
-        citation_style: this.bibliographyStyle || "",
-      });
-
-      if (!res || !res.ok || !res.metadata) {
-        throw new Error("Failed to fetch Zotero metadata: " + (res?.error || "Unknown error"));
-      }
-
-      const metadata = res.metadata;
+      const metadata = await this.backend.getZoteroItemMetadata(this.item.key, this.bibliographyStyle || "");
       const renderer = new TemplateRenderer(this.app);
 
       // ── Resolve all Nunjucks path templates ─────────────────────

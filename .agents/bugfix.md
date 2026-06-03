@@ -1,0 +1,3 @@
+1. obsidian agent는 agent llm이 답변을 만들어주는거야 아니면 backend llm이 만들어주는거야?  pdf 정보나 사전 지식 정보를 어떻게 가져오는거지. 이거 make sure 해야함.
+
+2. linked attachment root 의 존재 이유는??? pdf 폴더 넣을때 쓰는건가...

@@ -32,8 +32,8 @@ function settings(): PluginSettings {
     pdfVisionFallback: true,
     pdfFullDocumentIndex: true,
     incuratorEnabled: true,
-    incuratorMcpCommand: "wiki",
-    incuratorMcpArgs: ["mcp"],
+    incuratorBackendCommand: "wiki",
+    incuratorBackendArgs: [],
     incuratorRepoPath: "",
     incuratorDefaultDestination: "04_Resources",
     incuratorDefaultImportMode: "reference",
@@ -45,212 +45,331 @@ function settings(): PluginSettings {
 }
 
 describe("IncuratorClient", () => {
-  it("uses check_source_status before path-based status when a file hash is available", async () => {
-    const calls: string[] = [];
-    const mcp = {
-      getAllTools: () => [
-        { serverName: "incurator", name: "check_source_status", description: "", inputSchema: {} },
-        { serverName: "incurator", name: "curator_source_status", description: "", inputSchema: {} },
-      ],
-      callTool: async (_server: string, tool: string) => {
-        calls.push(tool);
-        return {
-          content: [
-            {
-              type: "text",
-              text:
-                tool === "check_source_status"
-                  ? JSON.stringify({
-                      registered: true,
-                      source: {
-                        state: "pending",
-                        l1_complete: true,
-                        l2_complete: false,
-                        l3_complete: false,
-                        jobs_pending: [{ id: 1 }],
-                      },
-                    })
-                  : JSON.stringify({ state: "untracked" }),
-            },
-          ],
-        };
-      },
+  it("uses the backend JSON source status command with file hashes", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      return {
+        registered: true,
+        source: {
+          state: "pending",
+          l1_complete: true,
+          l2_complete: false,
+          l3_complete: false,
+          jobs_pending: [{ id: 1 }],
+        },
+      };
     };
-    const client = new IncuratorClient(mcp as any, settings());
+    const client = new IncuratorClient(settings(), "0.2.2", backendJson);
     const status = await client.getSourceStatus({
       sourcePath: "/tmp/paper.pdf",
       fileHash: "abc",
     });
 
-    expect(calls[0]).toBe("check_source_status");
+    expect(calls[0]).toEqual([
+      "plugin",
+      "source",
+      "status",
+      "--file-hash",
+      "abc",
+      "--source-path",
+      "/tmp/paper.pdf",
+    ]);
     expect(status.state).toBe("queued");
   });
 
-  it("normalizes backend model catalogue responses", async () => {
-    const mcp = {
-      getAllTools: () => [
-        { serverName: "incurator", name: "get_available_models", description: "", inputSchema: {} },
-      ],
-      callTool: async () => ({
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              ok: true,
-              providers: {
-                antigravity: [
-                  {
-                    id: "gemini-3.5-flash",
-                    label: "Gemini 3.5 Flash",
-                    supports_vision: true,
-                    context_window: 1000000,
-                    efforts: ["low", "medium", "high"],
-                    default_effort: "medium",
-                  },
-                ],
-              },
-            }),
-          },
-        ],
-      }),
-    };
-    const client = new IncuratorClient(mcp as any, settings());
-    const catalogue = await client.getAvailableModels();
-    expect(catalogue.antigravity?.[0]).toMatchObject({
-      id: "gemini-3.5-flash",
-      supportsVision: true,
-      contextWindow: 1000000,
-      efforts: ["low", "medium", "high"],
-      defaultEffort: "medium",
-    });
+  it("normalizes layer status progressively and lets errors win", async () => {
+    const client = new IncuratorClient(settings());
+    const normalize = (value: unknown) => (client as any).normalizeStatus(value);
+
+    expect(normalize({ state: "done", l1_status: "done" }).state).toBe("l1_ready");
+    expect(normalize({ l1_status: "done", l2_status: "done" }).state).toBe("l2_ready");
+    expect(normalize({ l1_status: "done", l2_status: "done", l3_status: "done" }).state).toBe("l3_ready");
+    expect(normalize({ l1_status: "done", l2_status: "done", l3_status: "done", l4_status: "done" }).state).toBe("l4_ready");
+    expect(normalize({ l1_status: "done", l2_status: "done", l3_status: "error" }).state).toBe("error");
+  });
+
+  it("normalizes failed tool payloads as error states", async () => {
+    const client = new IncuratorClient(settings());
+    const normalize = (value: unknown) => (client as any).normalizeStatus(value);
+
+    expect(normalize({ ok: false, error: "PDF not found" }).state).toBe("error");
+    expect(normalize({ ok: false, error: "PDF not found" }).message).toBe("PDF not found");
   });
 
   it("checks backend version and sets needsUpdate flag", async () => {
-    const mcp = {
-      getAllTools: () => [
-        { serverName: "incurator", name: "curator_get_version", description: "", inputSchema: {} },
-      ],
-      callTool: async () => ({
-        content: [{ type: "text", text: '"0.2.2"' }],
-      }),
-    };
-    const client = new IncuratorClient(mcp as any, settings(), "0.2.1");
+    const client = new IncuratorClient(settings(), "0.2.2", async () => ({
+      ok: true,
+      version: "0.2.2",
+    }));
     expect(client.needsUpdate).toBe(false);
     expect(client.backendVersion).toBe("unknown");
     
     await client.checkBackendVersion();
     
     expect(client.backendVersion).toBe("0.2.2");
-    expect(client.needsUpdate).toBe(true);
+    expect(client.needsUpdate).toBe(false);
   });
 
-  it("registerSource calls curator_import_source then curator_register_source with build=true", async () => {
-    const calls: { tool: string; args: Record<string, unknown> }[] = [];
-    const mcp = {
-      getAllTools: () => [
-        { serverName: "incurator", name: "curator_import_source", description: "", inputSchema: {} },
-        { serverName: "incurator", name: "curator_register_source", description: "", inputSchema: {} },
-      ],
-      callTool: async (_server: string, tool: string, args: Record<string, unknown>) => {
-        calls.push({ tool, args });
-        if (tool === "curator_import_source") {
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  ok: true,
-                  source_id: 42,
-                  relpath: "04_Resources/paper.pdf",
-                }),
-              },
-            ],
-          };
-        }
-        // curator_register_source response
+  it("registerSource calls plugin source import then plugin source register with --build", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      if (args[2] === "import") {
         return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                ok: true,
-                state: "l1_ready",
-                source_id: 42,
-                context_id: "CTX-abc",
-                l2_l3_queued: true,
-              }),
-            },
-          ],
+          ok: true,
+          source_id: 42,
+          relpath: "04_Resources/References/paper.md",
         };
-      },
+      }
+      return {
+        ok: true,
+        state: "l1_ready",
+        source_id: 42,
+        context_id: "CTX-abc",
+        l2_l3_queued: true,
+      };
     };
-    const client = new IncuratorClient(mcp as any, settings());
+    const client = new IncuratorClient(settings(), "0.2.2", backendJson);
     const status = await client.registerSource("/tmp/paper.pdf");
 
     expect(status).not.toBeNull();
     expect(calls.length).toBe(2);
-    expect(calls[0].tool).toBe("curator_import_source");
-    expect(calls[1].tool).toBe("curator_register_source");
-    expect(calls[1].args.build).toBe(true);
+    expect(calls[0]).toEqual([
+      "plugin",
+      "source",
+      "import",
+      "--file-path",
+      "/tmp/paper.pdf",
+      "--destination",
+      "04_Resources",
+      "--policy",
+      "reference",
+    ]);
+    expect(calls[1]).toEqual([
+      "plugin",
+      "source",
+      "register",
+      "--source-id",
+      "42",
+      "--relpath",
+      "04_Resources/References/paper.md",
+      "--build",
+    ]);
+  });
+
+  it("ingestPdf returns an error status when backend import fails", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      return { ok: false, error: "File not found" };
+    };
+    const client = new IncuratorClient(settings(), "0.2.2", backendJson);
+
+    const status = await client.ingestPdf({
+      sourcePath: "/tmp/missing.pdf",
+      destinationRelpath: "04_Resources",
+      importMode: "reference",
+    });
+
+    expect(status.state).toBe("error");
+    expect(status.message).toBe("File not found");
+    expect(calls.length).toBe(1);
+  });
+
+  it("ingestPdf can import by Zotero attachment key without a plugin-resolved path", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      if (args[2] === "import") {
+        return {
+          ok: true,
+          source_id: 7,
+          relpath: "04_Resources/References/paper.md",
+          source_path: "/Users/me/Zotero/storage/ATT/paper.pdf",
+        };
+      }
+      return { ok: true, state: "queued", source_id: 7, l2_l3_queued: true };
+    };
+    const client = new IncuratorClient(settings(), "0.2.2", backendJson);
+
+    const status = await client.ingestPdf({
+      zoteroAttachmentKey: "ATT",
+      destinationRelpath: "",
+      importMode: "reference",
+    });
+
+    expect(status.sourceId).toBe(7);
+    expect(status.state).toBe("queued");
+    expect(calls[0]).toEqual([
+      "plugin",
+      "source",
+      "import",
+      "--zotero-attachment-key",
+      "ATT",
+      "--zotero-custom-paths",
+      "~/Zotero",
+      "--destination",
+      "",
+      "--policy",
+      "reference",
+    ]);
+  });
+
+  it("getPdfContext can call backend with source identity instead of only a file path", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      return {
+        ok: true,
+        pages: [{ page_num: 2, text: "context", score: 0 }],
+        outline: [],
+        total_pages: 10,
+        source_tracked: true,
+        is_empty_pdf: false,
+      };
+    };
+    const client = new IncuratorClient(settings(), "0.2.2", backendJson);
+
+    const result = await client.getPdfContext({
+      sourceId: 42,
+      fileHash: "abc",
+      zoteroAttachmentKey: "ZKEY123",
+      pageNum: 2,
+    });
+
+    expect(result?.sourceTracked).toBe(true);
+    expect(calls[0]).toEqual([
+      "plugin",
+      "pdf",
+      "context",
+      "--query",
+      "",
+      "--page-num",
+      "2",
+      "--radius",
+      "2",
+      "--max-pages",
+      "8",
+      "--source-id",
+      "42",
+      "--file-hash",
+      "abc",
+      "--zotero-attachment-key",
+      "ZKEY123",
+    ]);
+  });
+
+  it("curatorQuery preserves query-generated exhibition identity and trace", async () => {
+    const calls: string[][] = [];
+    const client = new IncuratorClient(settings(), "0.2.2", async (args: string[]) => {
+      calls.push(args);
+      return {
+        ok: true,
+        question: "What does CON-1 imply?",
+        input_language: "English",
+        english_query: "What does CON-1 imply?",
+        final_output_language: "English",
+        answer: "It implies a geometric constraint.",
+        exhibition_id: "EXH-1234abcd",
+        cache_hit: false,
+        trace: {
+          matched_concepts: ["CON-1234abcd"],
+          source_ids: [7],
+          source_paths: ["03_Concepts/CON-1234abcd.md"],
+          latency_ms: 42,
+          l3_complete: true,
+        },
+      };
+    });
+
+    const result = await client.curatorQuery("What does CON-1 imply?", {
+      workspacePath: "/tmp/workspace",
+      inputLanguage: "English",
+      englishQuery: "What does CON-1 imply?",
+      finalOutputLanguage: "English",
+    });
+
+    expect(calls[0]).toEqual([
+      "plugin",
+      "query",
+      "--question",
+      "What does CON-1 imply?",
+      "--input-language",
+      "English",
+      "--english-query",
+      "What does CON-1 imply?",
+      "--final-output-language",
+      "English",
+      "--workspace-path",
+      "/tmp/workspace",
+    ]);
+    expect(result.ok).toBe(true);
+    expect(result.input_language).toBe("English");
+    expect(result.english_query).toBe("What does CON-1 imply?");
+    expect(result.final_output_language).toBe("English");
+    expect(result.exhibition_id).toBe("EXH-1234abcd");
+    expect(result.trace?.matched_concepts).toEqual(["CON-1234abcd"]);
+    expect(result.trace?.l3_complete).toBe(true);
+  });
+
+  it("routes Zotero status, init, search, metadata, annotations, and PDF resolve through backend plugin commands", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      if (args[2] === "status" || args[2] === "init") {
+        return { ok: true, state: "ready", db_path: "/Users/me/Zotero/zotero.sqlite", roots_checked: [] };
+      }
+      if (args[2] === "search") return { ok: true, items: [{ key: "ITEM1" }] };
+      if (args[2] === "metadata") return { ok: true, metadata: { title: "Paper" } };
+      if (args[2] === "annotations") return { ok: true, annotations: [{ key: "ANN1" }] };
+      return { ok: true, path: "/Users/me/Zotero/storage/ATT/paper.pdf" };
+    };
+    const client = new IncuratorClient(settings(), "0.2.2", backendJson);
+
+    await client.getZoteroStatus();
+    await client.initZotero("~/Zotero");
+    await client.searchZoteroItems("paper", 3);
+    await client.getZoteroItemMetadata("ITEM1", "apa");
+    await client.getZoteroAnnotations("ATT");
+    const resolved = await client.resolveZoteroPdf("ATT");
+
+    expect(resolved.path).toBe("/Users/me/Zotero/storage/ATT/paper.pdf");
+    expect(calls).toEqual([
+      ["plugin", "zotero", "status", "--custom-paths", "~/Zotero"],
+      ["plugin", "zotero", "init", "--data-dir", "~/Zotero", "--custom-paths", "~/Zotero"],
+      ["plugin", "zotero", "search", "--query", "paper", "--limit", "3", "--custom-paths", "~/Zotero"],
+      ["plugin", "zotero", "metadata", "--item-key", "ITEM1", "--citation-style", "apa", "--custom-paths", "~/Zotero"],
+      ["plugin", "zotero", "annotations", "--attachment-key", "ATT", "--custom-paths", "~/Zotero"],
+      ["plugin", "zotero", "resolve-pdf", "--attachment-key", "ATT", "--custom-paths", "~/Zotero"],
+    ]);
+  });
+
+  it("normalizes structured Zotero PDF resolution failures", async () => {
+    const client = new IncuratorClient(settings(), "0.2.2", async () => ({
+      ok: false,
+      state: "attachment_file_missing",
+      error: "Zotero attachment file not found",
+      zotero_db: "/Users/me/Zotero/zotero.sqlite",
+      roots_checked: ["/Users/me/Zotero", "/Users/me/ZoteroLinked"],
+      paths_checked: ["/Users/me/ZoteroLinked/paper.pdf"],
+    }));
+
+    const result = await client.resolveZoteroPdf("ATT");
+
+    expect(result.ok).toBe(false);
+    expect(result.state).toBe("attachment_file_missing");
+    expect(result.zoteroDb).toBe("/Users/me/Zotero/zotero.sqlite");
+    expect(result.rootsChecked).toEqual(["/Users/me/Zotero", "/Users/me/ZoteroLinked"]);
+    expect(result.pathsChecked).toEqual(["/Users/me/ZoteroLinked/paper.pdf"]);
   });
 
   it("registerSource returns null when incuratorEnabled is false", async () => {
-    const mcp = {
-      getAllTools: () => [],
-      callTool: async () => ({ content: [] }),
-    };
     const s = settings();
     s.incuratorEnabled = false;
-    const client = new IncuratorClient(mcp as any, s);
+    const client = new IncuratorClient(s);
     const result = await client.registerSource("/tmp/paper.pdf");
     expect(result).toBeNull();
   });
 
-  it("runs dashboard Add and Build through backend MCP tools", async () => {
-    const calls: string[] = [];
-    const mcp = {
-      getAllTools: () => [
-        { serverName: "incurator", name: "curator_add_all", description: "", inputSchema: {} },
-        { serverName: "incurator", name: "curator_build_all", description: "", inputSchema: {} },
-      ],
-      callTool: async (_server: string, tool: string) => {
-        calls.push(tool);
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, tool }) }] };
-      },
-    };
-    const client = new IncuratorClient(mcp as any, settings());
-
-    await client.runAdd();
-    await client.runBuild();
-
-    expect(calls).toEqual(["curator_add_all", "curator_build_all"]);
-  });
-
-  it("resolves Zotero PDFs through backend and returns null when unresolved", async () => {
-    const calls: { tool: string; args: Record<string, unknown> }[] = [];
-    const mcp = {
-      getAllTools: () => [
-        { serverName: "incurator", name: "curator_resolve_zotero_pdf", description: "", inputSchema: {} },
-      ],
-      callTool: async (_server: string, tool: string, args: Record<string, unknown>) => {
-        calls.push({ tool, args });
-        return { content: [{ type: "text", text: JSON.stringify({ ok: false }) }] };
-      },
-    };
-    const client = new IncuratorClient(mcp as any, settings());
-
-    const path = await client.resolveZoteroPdf("PZBCB9LJ");
-
-    expect(path).toBeNull();
-    expect(calls).toEqual([
-      {
-        tool: "curator_resolve_zotero_pdf",
-        args: {
-          attachment_key: "PZBCB9LJ",
-          attachmentKey: "PZBCB9LJ",
-          custom_paths: "~/Zotero",
-        },
-      },
-    ]);
-  });
 });

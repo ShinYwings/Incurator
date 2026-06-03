@@ -67,4 +67,22 @@ describe("providerContextFormat", () => {
     expect(out).toContain("hello");
     expect(out.trim().endsWith("</incurator_answer>")).toBe(true);
   });
+
+  it("formatCuratorQueryResult exposes input/query metadata but not stale output language", () => {
+    const out = formatCuratorQueryResult(
+      {
+        ok: true,
+        question: "이 논문의 핵심이 뭐야?",
+        answer: "핵심 답변",
+        input_language: "Korean",
+        english_query: "What is the core idea of this paper?",
+        final_output_language: "Korean",
+      } as never,
+      "이 논문의 핵심이 뭐야?",
+    );
+
+    expect(out).toContain('input_language="Korean"');
+    expect(out).toContain('english_query="What is the core idea of this paper?"');
+    expect(out).not.toContain("final_output_language");
+  });
 });

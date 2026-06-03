@@ -122,9 +122,11 @@ wiki build --wait     # L2(Atoms) → L3(Concepts)를 지금 동기 실행
 > 백그라운드 IngestWorker에 큐잉하고 `--wait`로 즉시 실행할 수 있다. L2 추출은 활성 LLM
 > 클라이언트의 prompt budget에 맞춰 section batch 크기를 정하므로, CLI 기반 provider에는
 > local high-context 모델보다 작은 prompt가 전달된다. 진행률은 `wiki status`나
-> `.curator/dashboard.md`로 확인한다. L4 Exhibition은 별도 `wiki curate` 명령으로 생성한다.
+> `.curator/dashboard.md`로 확인한다. L4 Exhibition은 보통 필요 시 workspace
+> agent 흐름에서 생성된다. 수동 `wiki curate` 명령은 기본 help에서 숨겨진
+> 고급/디버깅용 workspace curation 경로다.
 
-### 4-2. Workspace 큐레이션
+### 4-2. 고급 Workspace 큐레이션
 
 ```bash
 # Workspace 폴더에 curate.yml 생성 (직접 또는 wiki workspace init)
@@ -136,6 +138,9 @@ wiki build --wait     # L2(Atoms) → L3(Concepts)를 지금 동기 실행
 # L4 Exhibition 생성
 wiki curate --workspace 01_Workspaces/MyProject
 ```
+
+`wiki curate`는 workspace-agent 및 디버깅 워크플로우를 위해 직접 호출 가능하지만,
+일반 사용자용 `wiki --help` 표면에는 포함하지 않는다.
 
 ### 4-3. 검색 및 질의
 
@@ -161,7 +166,14 @@ wiki lint
 # MCP 서버가 꺼져 있거나 즉시 처리하고 싶을 때
 wiki jobs list
 wiki jobs run          # queued L2/L3 background jobs를 foreground로 처리
+wiki jobs cancel <id>  # worker가 claim하기 전 queued job 취소
+wiki jobs rerun <id>   # 완료/실패/취소된 job을 다시 queue에 넣기
 ```
+
+기본 `wiki --help` 화면은 일상적인 사용자 워크플로우 중심으로 제한됩니다.
+통합/개발용 명령은 직접 호출할 수 있지만 일반 help 목록에서는 숨깁니다:
+Obsidian plugin JSON 호출용 `wiki plugin ...`, 외부 에이전트용 `wiki mcp ...`,
+개발 fixture용 `wiki testbed ...`, backend launcher 진단용 `wiki devices ...`.
 
 > **wiki sync 기본 동작 변경 (v0.2.1)**: 변경되지 않은 DAG에서 `wiki sync`는 content_hash 검사만 수행합니다(~0.6초).
 > 변경된 노드와 그 하위 노드만 LLM으로 재검증됩니다. 전체 재검증을 원하면 `--full`을 사용하세요.
@@ -174,6 +186,8 @@ wiki jobs run          # queued L2/L3 background jobs를 foreground로 처리
 
 > **백그라운드 워커 폴백**: MCP 서버가 실행 중일 때 IngestWorker가 대기 중인 작업을 자동으로 처리합니다.
 > 테스트나 오프라인 CLI 사용 시에는 `wiki jobs run` 명령으로 큐를 전경(foreground)에서 처리할 수 있습니다.
+> 실행하지 않을 queued job은 `wiki jobs cancel <id>`로 취소하고, 완료/실패/취소된 job은
+> `wiki jobs rerun <id>`로 다시 queue에 넣을 수 있습니다.
 
 > **즉각적인 L1 / L2·L3 분리**: `wiki add`는 LLM 호출 없이 파서 구조로부터 즉시 CTX, ToC, 섹션 마커 및
 > 대략적인 Atom 후보를 생성합니다(구조적 L1). v0.2.2부터 이 단계는 **AST 기반 청킹**을 사용해
@@ -214,6 +228,7 @@ Obsidian에서 PDF 열기
      │ (사용자가 "+ Add" 클릭 또는 import_source 호출)
      ▼
 ┌─── 처리 중 ──────────────────────────────────────────────────┐
+│ 외부 PDF: 04_Resources markdown reference stub 생성             │
 │ 플러그인 UI: "⟳ Processing" 상태 표시                          │
 │ 5초 간격 재폴링 → l3_complete=True 되면 자동 업그레이드         │
 │ l1_complete=True 시점부터 fetch_document_section은 CTX 섹션 사용 │
@@ -225,18 +240,31 @@ Obsidian에서 PDF 열기
 │ 에이전트: curator_query("질문", workspace_id="...") 사용 가능   │
 └───────────────────────────────────────────────────────────────┘
      │
-     │ wiki curate 실행 (필요 시)
+     │ workspace curation 실행 (필요 시)
      ▼
 L4 Exhibition 생성 → search_curator로 검색 가능
 ```
 
 ---
 
-## 6. AI Agent(MCP) 워크플로우
+## 6. Agent 워크플로우
+
+Agent 접근 경로는 두 가지로 분리합니다:
+
+- **같은 기기 안의 Obsidian plugin agent**는 shared runtime snapshot과 숨겨진
+  `wiki plugin ...` JSON command를 사용합니다. 로컬 backend 접근을 위해
+  `wiki mcp`를 시작하지 않습니다.
+- **외부 workspace agent**(Claude Code, Claude Desktop, Antigravity 등 MCP
+  client)는 `wiki mcp`를 사용합니다.
+
+두 경로를 섞지 않습니다. 같은 기기 안의 Obsidian plugin 기능은
+`wiki plugin ...` 아래에 추가하고, 외부 agent 기능은 MCP server에 추가합니다.
+
+### 외부 Agent(MCP) 워크플로우
 
 Claude Code, Antigravity 같은 AI 에이전트는 MCP 서버를 통해 Curator에 접근합니다.
 
-### MCP 서버 시작
+#### MCP 서버 시작
 
 ```bash
 # Vault를 지정해서 MCP 서버 실행
@@ -266,7 +294,7 @@ VAULT_ROOT=/path/to/vault wiki mcp
      │
      │ 2. search_curator(query, workspace_path)
      │    → Exhibition 기반 BM25+벡터 검색
-     │    → 결과가 없으면 자동으로 wiki curate 실행
+     │    → 결과가 없으면 workspace curation을 트리거할 수 있음
      ▼
 답변 생성 (검색 결과 인용)
      │

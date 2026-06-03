@@ -35,7 +35,7 @@ import {
   formatRagHits,
 } from "../context/providerContextFormat";
 import { buildBaseSystemPrompt, editableSelectionInstruction, wrapLatestUserMessageForLanguageBridge } from "../context/systemPrompt";
-import { inferQueryLanguageMetadata } from "../context/languageBridge";
+import { detectLanguage, inferQueryLanguageMetadata } from "../context/languageBridge";
 import {
   deriveChatSessionTitle,
   formatRelativeSessionTime,
@@ -1122,7 +1122,9 @@ export class ChatSidebarView extends ItemView {
       }
 
       const textContent =
-        msg === lastUserMessage ? wrapLatestUserMessageForLanguageBridge(msg.content) : msg.content;
+        msg === lastUserMessage
+          ? wrapLatestUserMessageForLanguageBridge(msg.content, detectLanguage(msg.content))
+          : msg.content;
       contentParts.push({ type: "text", text: textContent });
 
       llmMessages.push({
@@ -1400,13 +1402,17 @@ export class ChatSidebarView extends ItemView {
 
     if (client.available && query.trim()) {
       const curateFiles = this.app.vault.getFiles().filter(f => f.name === "curate.yml");
-      let targetCurate = curateFiles[0];
+      // Only bind a workspace when the active note is inside one. A plain chat
+      // outside any workspace must resolve to workspace_id=default on the backend
+      // rather than getting bound to an arbitrary first curate.yml in the vault.
+      let targetCurate: TFile | undefined;
       const activeFile = this.app.workspace.getActiveFile();
-      if (activeFile && curateFiles.length > 0) {
-        const matching = curateFiles.find(f => activeFile.path.startsWith(f.parent?.path || ""));
-        if (matching) targetCurate = matching;
+      if (activeFile) {
+        targetCurate = curateFiles.find(
+          f => f.parent && activeFile.path.startsWith(`${f.parent.path}/`)
+        );
       }
-      
+
       let wsPath = "";
       if (targetCurate) {
         const parentPath = targetCurate.parent?.path;
@@ -1421,25 +1427,28 @@ export class ChatSidebarView extends ItemView {
           `This is the active workspace path for Incurator backend commands and external-agent MCP tools.\n` +
           `</incurator_workspace>`
         );
+      }
 
-        if (shouldRunCuratorDomainQuery({ query, userContextRefs })) {
-          this.setPrepareStatus("Querying Incurator knowledge graph...");
-          const language = inferQueryLanguageMetadata(query);
-          const queryResult = await this.timedContextCall(
-            "curator_query",
-            wsPath,
-            () => client.curatorQuery(query, {
-              workspacePath: wsPath,
-              inputLanguage: language.inputLanguage,
-              englishQuery: language.englishQuery,
-              finalOutputLanguage: language.finalOutputLanguage,
-            })
-          );
-          if (queryResult.ok) {
-            sections.push(formatCuratorQueryResult(queryResult, query));
-            if (queryResult.trace || queryResult.exhibition_id) {
-              this.lastQueryTrace = queryResult;
-            }
+      // Run the knowledge-graph query for both in-workspace and plain vault
+      // chat. When wsPath is empty the backend resolves workspace_id=default,
+      // so a conversational chat never binds an unrelated workspace.
+      if (shouldRunCuratorDomainQuery({ query, userContextRefs })) {
+        this.setPrepareStatus("Querying Incurator knowledge graph...");
+        const language = inferQueryLanguageMetadata(query);
+        const queryResult = await this.timedContextCall(
+          "curator_query",
+          wsPath || "default",
+          () => client.curatorQuery(query, {
+            workspacePath: wsPath,
+            inputLanguage: language.inputLanguage,
+            englishQuery: language.englishQuery,
+            finalOutputLanguage: language.finalOutputLanguage,
+          })
+        );
+        if (queryResult.ok) {
+          sections.push(formatCuratorQueryResult(queryResult, query));
+          if (queryResult.trace || queryResult.exhibition_id) {
+            this.lastQueryTrace = queryResult;
           }
         }
       }

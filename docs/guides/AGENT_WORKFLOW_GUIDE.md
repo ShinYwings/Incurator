@@ -52,8 +52,8 @@ This document defines the official operational scenarios and tool interaction pa
 *   **Situation**: The user is reading a PDF in Obsidian and asks a question that depends on the current page, nearby pages, and previously ingested source knowledge.
 *   **Logic Flow**:
     1.  The Obsidian plugin captures immediate viewer context: current page text, current page image when enabled, nearby page text window, document outline if available, and PDF-local lexical RAG hits.
-    2.  The plugin calls `curator_source_status` to determine whether the PDF is untracked, queued, running, indexed, stale, moved, or errored.
-    3.  If the source is indexed, the plugin may call `curator_search_sources(query, source_id/source_path, limit=N)` to retrieve backend RAG hits with page provenance.
+    2.  The plugin calls `curator_source_status` to determine whether the PDF is untracked, queued, running, `l3_ready`, `l4_ready`, stale, moved, or errored.
+    3.  If the source is `l3_ready` or `l4_ready`, the plugin may call `curator_search_sources(query, source_id/source_path, limit=N)` to retrieve backend RAG hits with page provenance.
     4.  The final provider prompt includes the plugin's immediate viewer context and backend hits as distinct sections. The backend hits must not overwrite viewer context; the viewer context gives immediacy, while the backend gives durable provenance.
 
 ### 2.5 MCP Mutation Rules

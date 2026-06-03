@@ -1,10 +1,7 @@
-import type { MCPManager } from "./mcpClient";
 import type {
   CuratorQueryResult,
   IncuratorSourceStatus,
   IncuratorSourceState,
-  MCPTool,
-  ModelCatalogue,
   PdfOutlineItem,
   PdfRagHit,
   PdfWindowPage,
@@ -12,7 +9,7 @@ import type {
   PromoteExhibitionResult,
 } from "../types";
 
-type ToolWithServer = MCPTool & { serverName: string };
+type BackendJsonRunner = (cmdArgs: string[]) => Promise<unknown>;
 
 export interface IncuratorHit {
   title?: string;
@@ -26,9 +23,31 @@ export interface IncuratorHit {
 export interface IncuratorIngestRequest {
   sourcePath?: string;
   filePath?: string;
+  zoteroAttachmentKey?: string;
   displayName?: string;
   destinationRelpath: string;
   importMode?: "copy" | "reference";
+}
+
+export interface ZoteroStatus {
+  ok: boolean;
+  state: string;
+  dataDir?: string;
+  dbPath?: string;
+  rootsChecked: string[];
+  issues: Array<Record<string, unknown>>;
+  error?: string;
+}
+
+export interface ZoteroPdfResolution {
+  ok: boolean;
+  path?: string;
+  state?: string;
+  error?: string;
+  dbPath?: string;
+  zoteroDb?: string;
+  rootsChecked: string[];
+  pathsChecked: string[];
 }
 
 export interface IncuratorStatusEvent {
@@ -41,59 +60,25 @@ export class IncuratorClient {
   public backendVersion = "unknown";
 
   constructor(
-    private readonly mcpManager: MCPManager,
     private readonly settings: PluginSettings,
-    public readonly pluginVersion: string = "0.2.1"
+    public readonly pluginVersion: string = "0.3.1",
+    private readonly backendJson?: BackendJsonRunner
   ) {}
 
   get available(): boolean {
-    return this.settings.incuratorEnabled !== false && this.getIncuratorTools().length > 0;
+    return this.settings.incuratorEnabled !== false && !!this.backendJson;
   }
 
   async checkBackendVersion(): Promise<void> {
     if (!this.available) return;
-    const result = await this.tryTool(["curator_get_version"], {});
-    if (result && typeof result === "string") {
-      this.backendVersion = result;
-      // Compare backendVersion with pluginVersion
-      // Assuming semantic versioning string comparison works for simple equality
-      this.needsUpdate = this.backendVersion !== this.pluginVersion;
+    const result = await this.callBackendJson(["plugin", "version"]);
+    if (result && typeof result === "object") {
+      const version = (result as Record<string, unknown>).version;
+      if (typeof version === "string") {
+        this.backendVersion = version;
+        this.needsUpdate = this.backendVersion !== this.pluginVersion;
+      }
     }
-  }
-
-  async getBackendStatus(): Promise<any> {
-    if (this.settings.incuratorEnabled === false) return null;
-    return await this.tryTool(["curator_status"], {});
-  }
-
-  async runSync(): Promise<any> {
-    if (this.settings.incuratorEnabled === false) return null;
-    return await this.tryTool(["curator_sync"], {});
-  }
-
-  async runLint(): Promise<any> {
-    if (this.settings.incuratorEnabled === false) return null;
-    return await this.tryTool(["curator_lint"], {});
-  }
-
-  async runReindex(): Promise<any> {
-    if (this.settings.incuratorEnabled === false) return null;
-    return await this.tryTool(["curator_reindex"], {});
-  }
-
-  async runAdd(): Promise<any> {
-    if (this.settings.incuratorEnabled === false) return null;
-    return await this.tryTool(["curator_add_all", "curator_add"], {});
-  }
-
-  async runBuild(): Promise<any> {
-    if (this.settings.incuratorEnabled === false) return null;
-    return await this.tryTool(["curator_build_all", "curator_build"], {});
-  }
-
-  async runCurate(workspacePath?: string): Promise<any> {
-    if (this.settings.incuratorEnabled === false) return null;
-    return await this.tryTool(["curator_curate_workspace"], { workspace_path: workspacePath ?? "" });
   }
 
   async getSourceStatus(
@@ -105,29 +90,20 @@ export class IncuratorClient {
       return { state: "unknown", message: "No source path available" };
     }
 
-    if (fileHash) {
-      const byHash = await this.tryTool(["check_source_status"], {
-        file_hash: fileHash,
-      });
-      if (byHash && typeof byHash === "object") {
-        const record = byHash as Record<string, unknown>;
-        if (record.registered === false) {
-          return {
-            state: "untracked",
-            sourcePath,
-            message: "Source is not registered in Incurator.",
-            updatedAt: Date.now(),
-          };
-        }
-        return this.normalizeStatus(byHash, sourcePath);
-      }
+    const args = ["plugin", "source", "status"];
+    if (fileHash) args.push("--file-hash", fileHash);
+    if (sourcePath) args.push("--source-path", sourcePath);
+    const result = await this.callBackendJson(args);
+    if (!result || typeof result !== "object") return { state: "unknown", sourcePath };
+    const record = result as Record<string, unknown>;
+    if (record.registered === false) {
+      return {
+        state: "untracked",
+        sourcePath,
+        message: "Source is not registered in Incurator.",
+        updatedAt: Date.now(),
+      };
     }
-
-    const result = await this.tryTool(
-      ["curator_source_status", "source_status", "get_source_status", "pdf_status", "status"],
-      { source_path: sourcePath, file_path: sourcePath, path: sourcePath, relpath: sourcePath }
-    );
-    if (!result) return { state: "unknown", sourcePath };
     if (this.pickRecord(result).error) {
       return {
         state: "untracked",
@@ -138,88 +114,48 @@ export class IncuratorClient {
     return this.normalizeStatus(result, sourcePath);
   }
 
-  async getAvailableModels(): Promise<ModelCatalogue> {
-    if (this.settings.incuratorEnabled === false) return {};
-    const result = await this.tryTool(["get_available_models"], {});
-    const record = this.pickRecord(result);
-    const providers = record.providers;
-    if (!providers || typeof providers !== "object" || Array.isArray(providers)) {
-      return {};
-    }
-    const catalogue: ModelCatalogue = {};
-    for (const [provider, rawModels] of Object.entries(providers as Record<string, unknown>)) {
-      if (!["antigravity", "claude", "openai", "ollama", "deepseek"].includes(provider) || !Array.isArray(rawModels)) {
-        continue;
-      }
-      catalogue[provider as keyof ModelCatalogue] = rawModels
-        .map((item) => {
-          const model = this.pickRecord(item);
-          const id = this.readString(model, ["id"]);
-          if (!id) return null;
-          const rawEfforts = model["efforts"];
-          const efforts = Array.isArray(rawEfforts)
-            ? rawEfforts.filter((e): e is string => typeof e === "string")
-            : [];
-          return {
-            id,
-            label: this.readString(model, ["label"]) || id,
-            supportsVision: this.readBoolean(model, ["supports_vision", "supportsVision"]) !== false,
-
-            contextWindow: this.readNumber(model, ["context_window", "contextWindow"]),
-            efforts,
-            defaultEffort: this.readString(model, ["default_effort", "defaultEffort"]),
-          };
-        })
-        .filter((model): model is NonNullable<typeof model> => Boolean(model));
-    }
-    return catalogue;
-  }
-
   async ingestPdf(request: IncuratorIngestRequest): Promise<IncuratorSourceStatus> {
     const path = request.sourcePath || request.filePath;
-    if (!path) {
-      return { state: "unknown", message: "No PDF path available" };
+    if (!path && !request.zoteroAttachmentKey) {
+      return { state: "unknown", message: "No PDF path or Zotero attachment key available" };
     }
 
-    const imported = await this.tryTool(["curator_import_source"], {
-      source_path: path,
-      file_path: path,
-      path,
-      display_name: request.displayName,
-      name: request.displayName,
-      destination_relpath: request.destinationRelpath,
-      destination: request.destinationRelpath,
-      policy: request.importMode === "copy" ? "mirror_03_to_04" : "reference",
-      dry_run: false,
-    });
-
+    const imported = await this.callBackendJson([
+      "plugin", "source", "import",
+      ...(path ? ["--file-path", path] : []),
+      ...(request.zoteroAttachmentKey ? ["--zotero-attachment-key", request.zoteroAttachmentKey] : []),
+      ...(request.zoteroAttachmentKey && this.settings.zoteroBasePath ? ["--zotero-custom-paths", this.settings.zoteroBasePath] : []),
+      "--destination", request.destinationRelpath,
+      "--policy", request.importMode === "copy" ? "mirror_03_to_04" : "reference",
+    ]);
     if (!imported) {
       return {
         state: "unknown",
         sourcePath: path,
         destinationRelpath: request.destinationRelpath,
-        message: "Incurator ingest tool is not available",
+        message: "Incurator backend command is not available",
       };
     }
-
-    const importedRecord = this.pickRecord(imported);
-    const sourceId = this.readNumber(importedRecord, ["sourceId", "source_id", "id"]);
-    const relpath = this.readString(importedRecord, ["relpath", "source_path", "path"]);
-
-    // Instant L1 (no LLM) + enqueue L2/L3 to the background worker (build=true).
-    const ingested = await this.tryTool(["curator_register_source"], {
-      source_id: sourceId,
-      relpath,
-      source_path: relpath,
-      file_path: relpath,
-      path: relpath,
-      build: true,
-    });
-
-    const status = this.normalizeStatus(ingested || imported, path);
+    const importRecord = this.pickRecord(imported);
+    if (importRecord.ok === false || importRecord.error) {
+      return {
+        state: "error",
+        sourcePath: path,
+        destinationRelpath: request.destinationRelpath,
+        message: this.readString(importRecord, ["error", "message"]) || "Source registration failed",
+      };
+    }
+    const sourceId = this.readNumber(importRecord, ["sourceId", "source_id", "id"]);
+    const relpath = this.readString(importRecord, ["relpath", "source_path", "path"]);
+    const registered = await this.callBackendJson([
+      "plugin", "source", "register",
+      ...(sourceId ? ["--source-id", String(sourceId)] : []),
+      ...(relpath ? ["--relpath", relpath] : []),
+      "--build",
+    ]);
+    const status = this.normalizeStatus(registered || imported, path);
     status.sourceId = status.sourceId || sourceId;
-    status.destinationRelpath =
-      status.destinationRelpath || request.destinationRelpath || relpath;
+    status.destinationRelpath = status.destinationRelpath || request.destinationRelpath || relpath;
     status.sourcePath = status.sourcePath || path;
     return status;
   }
@@ -227,7 +163,7 @@ export class IncuratorClient {
   /**
    * Fire-and-forget auto-indexing for a PDF opened in the viewer.
    * Registers the file as an in-place reference and generates instant L1
-   * (structural, no LLM) so curator_search_sources RAG becomes available
+   * (structural, no LLM) so backend PDF RAG becomes available
    * within seconds; L2/L3 are queued to the background worker.
    */
   async registerSource(filePath: string): Promise<IncuratorSourceStatus | null> {
@@ -250,23 +186,14 @@ export class IncuratorClient {
     newPath: string;
     apply: boolean;
   }): Promise<IncuratorSourceStatus> {
-    const result = await this.tryTool(["curator_rebind_source"], {
-      source_id: args.sourceId,
-      source_path: args.sourcePath,
-      file_path: args.sourcePath,
-      path: args.sourcePath,
-      new_path: args.newPath,
-      apply: args.apply,
-      update_hash: true,
-    });
-    if (!result) {
-      return {
-        state: "unknown",
-        sourcePath: args.sourcePath,
-        candidatePath: args.newPath,
-        message: "Incurator rebind tool is not available",
-      };
-    }
+    const cmd = [
+      "plugin", "source", "rebind",
+      "--new-path", args.newPath,
+      args.apply ? "--apply" : "",
+    ].filter(Boolean);
+    if (args.sourceId) cmd.push("--source-id", String(args.sourceId));
+    if (args.sourcePath) cmd.push("--source-path", args.sourcePath);
+    const result = await this.callBackendJson(cmd);
     const status = this.normalizeStatus(result, args.sourcePath);
     status.candidatePath = status.candidatePath || args.newPath;
     return status;
@@ -274,15 +201,22 @@ export class IncuratorClient {
 
   async search(query: string, topK = 6): Promise<IncuratorHit[]> {
     if (!query.trim() || this.settings.incuratorEnabled === false) return [];
-    const result = await this.tryTool(
-      ["search_curator"],
-      { query, text: query, top_k: topK, topK, limit: topK }
-    );
+    const result = await this.callBackendJson([
+      "plugin", "pdf", "search",
+      "--query", query,
+      "--limit", String(topK),
+    ]);
     return this.normalizeHits(result);
   }
 
   async getPdfContext(args: {
-    filePath: string;
+    filePath?: string;
+    sourceId?: number;
+    relpath?: string;
+    sourcePath?: string;
+    fileHash?: string;
+    zoteroAttachmentKey?: string;
+    zoteroCustomPaths?: string;
     query?: string;
     pageNum?: number;
     radius?: number;
@@ -294,14 +228,25 @@ export class IncuratorClient {
     sourceTracked: boolean;
     isEmptyPdf: boolean;
   } | null> {
-    if (!args.filePath || this.settings.incuratorEnabled === false) return null;
-    const result = await this.tryTool(["curator_get_pdf_context"], {
-      file_path: args.filePath,
-      query: args.query || "",
-      page_num: args.pageNum ?? 0,
-      radius: args.radius ?? 2,
-      max_pages: args.maxPages ?? 8,
-    });
+    if (
+      this.settings.incuratorEnabled === false ||
+      (!args.filePath && !args.sourceId && !args.relpath && !args.sourcePath && !args.fileHash && !args.zoteroAttachmentKey)
+    ) return null;
+    const cmd = [
+      "plugin", "pdf", "context",
+      "--query", args.query || "",
+      "--page-num", String(args.pageNum ?? 0),
+      "--radius", String(args.radius ?? 2),
+      "--max-pages", String(args.maxPages ?? 8),
+    ];
+    if (args.filePath) cmd.push("--file-path", args.filePath);
+    if (args.sourceId) cmd.push("--source-id", String(args.sourceId));
+    if (args.relpath) cmd.push("--relpath", args.relpath);
+    if (args.sourcePath) cmd.push("--source-path", args.sourcePath);
+    if (args.fileHash) cmd.push("--file-hash", args.fileHash);
+    if (args.zoteroAttachmentKey) cmd.push("--zotero-attachment-key", args.zoteroAttachmentKey);
+    if (args.zoteroCustomPaths) cmd.push("--zotero-custom-paths", args.zoteroCustomPaths);
+    const result = await this.callBackendJson(cmd);
     if (!result || typeof result !== "object") return null;
     const r = result as Record<string, unknown>;
     if (r["ok"] === false) return null;
@@ -321,64 +266,148 @@ export class IncuratorClient {
     topK: number;
   }): Promise<PdfRagHit[]> {
     if (!args.query.trim() || this.settings.incuratorEnabled === false) return [];
-    const result = await this.tryTool(["curator_search_sources"], {
-      query: args.query,
-      source_path: args.sourcePath,
-      file_path: args.sourcePath,
-      path: args.sourcePath,
-      relpath: args.sourcePath,
-      document_id: args.documentId,
-      top_k: args.topK,
-      topK: args.topK,
-      limit: args.topK,
-    });
+    const result = await this.callBackendJson([
+      "plugin", "pdf", "search",
+      "--query", args.query,
+      ...(args.sourcePath ? ["--source-path", args.sourcePath] : []),
+      "--limit", String(args.topK),
+    ]);
     return this.normalizeRagHits(result);
-  }
-
-  async getZoteroAnnotations(attachmentKey: string): Promise<any[]> {
-    if (!attachmentKey || this.settings.incuratorEnabled === false) return [];
-    const result = await this.tryTool(["curator_get_zotero_annotations"], {
-      attachment_key: attachmentKey,
-      attachmentKey: attachmentKey,
-      custom_paths: this.buildZoteroCustomPaths(),
-    });
-
-    if (result && typeof result === "object" && (result as any).ok) {
-      return (result as any).annotations || [];
-    }
-    return [];
-  }
-
-  async resolveZoteroPdf(attachmentKey: string): Promise<string | null> {
-    if (!attachmentKey || this.settings.incuratorEnabled === false) return null;
-    const result = await this.tryTool(["curator_resolve_zotero_pdf"], {
-      attachment_key: attachmentKey,
-      attachmentKey: attachmentKey,
-      custom_paths: this.buildZoteroCustomPaths(),
-    });
-
-    if (result && typeof result === "object" && (result as any).ok) {
-      return (result as any).path || null;
-    }
-    return null;
-  }
-
-  private buildZoteroCustomPaths(): string {
-    return this.settings.zoteroBasePath || "";
   }
 
   async curatorQuery(
     question: string,
-    opts: { workspacePath?: string; forceNew?: boolean } = {}
+    opts: {
+      workspacePath?: string;
+      forceNew?: boolean;
+      inputLanguage?: string;
+      englishQuery?: string;
+      finalOutputLanguage?: string;
+    } = {}
   ): Promise<CuratorQueryResult> {
-    const empty: CuratorQueryResult = { ok: false, question, error: "curator_query not available" };
+    const empty: CuratorQueryResult = { ok: false, question, error: "Incurator backend query command is not available" };
     if (!question.trim() || this.settings.incuratorEnabled === false) return empty;
 
-    const result = await this.tryTool(["curator_query"], {
-      question,
-      workspace_path: opts.workspacePath ?? "",
-      force_new: opts.forceNew ?? false,
-    });
+    const result = await this.callBackendJson([
+      "plugin", "query",
+      "--question", question,
+      ...(opts.inputLanguage ? ["--input-language", opts.inputLanguage] : []),
+      ...(opts.englishQuery ? ["--english-query", opts.englishQuery] : []),
+      ...(opts.finalOutputLanguage ? ["--final-output-language", opts.finalOutputLanguage] : []),
+      ...(opts.workspacePath ? ["--workspace-path", opts.workspacePath] : []),
+      ...(opts.forceNew ? ["--force-new"] : []),
+    ]);
+    return this.normalizeCuratorQueryResult(result, question, empty);
+  }
+
+  async promoteExhibition(
+    exhId: string,
+    workspacePath?: string
+  ): Promise<PromoteExhibitionResult> {
+    const empty: PromoteExhibitionResult = { ok: false, exhibition_id: exhId, error: "Incurator backend promote command is not available" };
+    if (!exhId || this.settings.incuratorEnabled === false) return empty;
+
+    const result = await this.callBackendJson([
+      "plugin", "promote",
+      "--exh-id", exhId,
+      ...(workspacePath ? ["--workspace-path", workspacePath] : []),
+    ]);
+    return this.normalizePromoteResult(result, exhId, empty);
+  }
+
+  async getZoteroStatus(): Promise<ZoteroStatus> {
+    const result = await this.callBackendJson([
+      "plugin", "zotero", "status",
+      ...this.zoteroCustomPathArgs(),
+    ]);
+    return this.normalizeZoteroStatus(result);
+  }
+
+  async initZotero(dataDir = "", linkedBaseDir = ""): Promise<ZoteroStatus> {
+    const result = await this.callBackendJson([
+      "plugin", "zotero", "init",
+      ...(dataDir ? ["--data-dir", dataDir] : []),
+      ...(linkedBaseDir ? ["--linked-base-dir", linkedBaseDir] : []),
+      ...this.zoteroCustomPathArgs(),
+    ]);
+    return this.normalizeZoteroStatus(result);
+  }
+
+  async searchZoteroItems(query: string, limit = 20): Promise<unknown[]> {
+    const result = await this.callBackendJson([
+      "plugin", "zotero", "search",
+      "--query", query,
+      "--limit", String(limit),
+      ...this.zoteroCustomPathArgs(),
+    ]);
+    const record = this.pickRecord(result);
+    if (record.ok === false) throw new Error(this.readString(record, ["error", "state"]) || "Zotero search failed");
+    return this.readArray(result);
+  }
+
+  async getZoteroItemMetadata(itemKey: string, citationStyle = ""): Promise<unknown> {
+    const result = await this.callBackendJson([
+      "plugin", "zotero", "metadata",
+      "--item-key", itemKey,
+      ...(citationStyle ? ["--citation-style", citationStyle] : []),
+      ...this.zoteroCustomPathArgs(),
+    ]);
+    const record = this.pickRecord(result);
+    if (record.ok === false || !record.metadata) {
+      throw new Error(this.readString(record, ["error", "state"]) || "Failed to fetch Zotero metadata");
+    }
+    return record.metadata;
+  }
+
+  async getZoteroAnnotations(attachmentKey: string): Promise<unknown[]> {
+    const result = await this.callBackendJson([
+      "plugin", "zotero", "annotations",
+      "--attachment-key", attachmentKey,
+      ...this.zoteroCustomPathArgs(),
+    ]);
+    const record = this.pickRecord(result);
+    if (record.ok === false) throw new Error(this.readString(record, ["error", "state"]) || "Failed to fetch Zotero annotations");
+    return this.readArray(record.annotations);
+  }
+
+  async resolveZoteroPdf(attachmentKey: string): Promise<ZoteroPdfResolution> {
+    const result = await this.callBackendJson([
+      "plugin", "zotero", "resolve-pdf",
+      "--attachment-key", attachmentKey,
+      ...this.zoteroCustomPathArgs(),
+    ]);
+    const record = this.pickRecord(result);
+    return {
+      ok: record.ok === true,
+      path: this.readString(record, ["path"]),
+      state: this.readString(record, ["state"]),
+      error: this.readString(record, ["error", "message"]),
+      dbPath: this.readString(record, ["db_path", "dbPath"]),
+      zoteroDb: this.readString(record, ["zotero_db", "zoteroDb"]),
+      rootsChecked: this.readArray(record.roots_checked).filter((item): item is string => typeof item === "string"),
+      pathsChecked: this.readArray(record.paths_checked).filter((item): item is string => typeof item === "string"),
+    };
+  }
+
+  private zoteroCustomPathArgs(): string[] {
+    return this.settings.zoteroBasePath ? ["--custom-paths", this.settings.zoteroBasePath] : [];
+  }
+
+  private async callBackendJson(cmdArgs: string[]): Promise<unknown | null> {
+    if (!this.backendJson) return null;
+    try {
+      return await this.backendJson(cmdArgs);
+    } catch (err) {
+      console.warn("[Incurator] Backend JSON command failed:", err);
+      return null;
+    }
+  }
+
+  private normalizeCuratorQueryResult(
+    result: unknown,
+    question: string,
+    empty: CuratorQueryResult
+  ): CuratorQueryResult {
     if (!result || typeof result !== "object") return empty;
     const r = result as Record<string, unknown>;
     return {
@@ -391,22 +420,19 @@ export class IncuratorClient {
         ? (r.fallback_hits as CuratorQueryResult["fallback_hits"])
         : undefined,
       question: typeof r.question === "string" ? r.question : question,
+      input_language: typeof r.input_language === "string" ? r.input_language : undefined,
+      english_query: typeof r.english_query === "string" ? r.english_query : undefined,
+      final_output_language: typeof r.final_output_language === "string" ? r.final_output_language : undefined,
       trace: r.trace as CuratorQueryResult["trace"],
       error: typeof r.error === "string" ? r.error : undefined,
     };
   }
 
-  async promoteExhibition(
+  private normalizePromoteResult(
+    result: unknown,
     exhId: string,
-    workspacePath?: string
-  ): Promise<PromoteExhibitionResult> {
-    const empty: PromoteExhibitionResult = { ok: false, exhibition_id: exhId, error: "promote_exhibition not available" };
-    if (!exhId || this.settings.incuratorEnabled === false) return empty;
-
-    const result = await this.tryTool(["promote_exhibition"], {
-      exh_id: exhId,
-      workspace_path: workspacePath ?? "",
-    });
+    empty: PromoteExhibitionResult
+  ): PromoteExhibitionResult {
     if (!result || typeof result !== "object") return empty;
     const r = result as Record<string, unknown>;
     return {
@@ -417,75 +443,17 @@ export class IncuratorClient {
     };
   }
 
-  private getIncuratorTools(): ToolWithServer[] {
-    return this.mcpManager
-      .getAllTools()
-      .filter((tool) => {
-        const serverName = tool.serverName.toLowerCase();
-        const toolName = tool.name.toLowerCase();
-        return serverName.includes("incurator") || toolName.includes("incurator");
-      });
-  }
-
-  public async tryTool(
-    preferredNames: string[],
-    args: Record<string, unknown>
-  ): Promise<unknown | null> {
-    const tools = this.getIncuratorTools();
-    if (tools.length === 0) return null;
-
-    const lowerPreferred = preferredNames.map((name) => name.toLowerCase());
-    const candidates = tools
-      .filter((tool) => {
-        const name = tool.name.toLowerCase();
-        return lowerPreferred.some((preferred) => name === preferred || name.endsWith(preferred));
-      })
-      .concat(
-        tools.filter((tool) => {
-          const name = tool.name.toLowerCase();
-          return lowerPreferred.some((preferred) => name.includes(preferred));
-        })
-      );
-
-    const unique = Array.from(
-      new Map(candidates.map((tool) => [`${tool.serverName}:${tool.name}`, tool])).values()
-    );
-
-    for (const tool of unique) {
-      try {
-        const result = await this.mcpManager.callTool(tool.serverName, tool.name, this.compactArgs(args));
-        if (result.isError) continue;
-        return this.readToolResult(result);
-      } catch (err) {
-        console.warn(`[Incurator] Tool ${tool.name} failed:`, err);
-      }
-    }
-
-    return null;
-  }
-
-  private compactArgs(args: Record<string, unknown>): Record<string, unknown> {
-    return Object.fromEntries(
-      Object.entries(args).filter(([, value]) => value !== undefined && value !== "")
-    );
-  }
-
-  private readToolResult(result: unknown): unknown {
-    if (!result || typeof result !== "object") return result;
-    const content = (result as { content?: Array<{ type: string; text?: string }> }).content;
-    if (!Array.isArray(content)) return result;
-
-    const text = content
-      .filter((part) => part.type === "text" && part.text)
-      .map((part) => part.text)
-      .join("\n")
-      .trim();
-    if (!text) return result;
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text;
-    }
+  private normalizeZoteroStatus(result: unknown): ZoteroStatus {
+    const record = this.pickRecord(result);
+    return {
+      ok: record.ok === true,
+      state: this.readString(record, ["state"]) || (record.ok === true ? "ready" : "unknown"),
+      dataDir: this.readString(record, ["data_dir", "dataDir"]),
+      dbPath: this.readString(record, ["db_path", "dbPath"]),
+      rootsChecked: this.readArray(record.roots_checked).filter((item): item is string => typeof item === "string"),
+      issues: this.readArray(record.issues).filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item)),
+      error: this.readString(record, ["error", "message"]),
+    };
   }
 
   private normalizeStatus(value: unknown, sourcePath?: string): IncuratorSourceStatus {
@@ -496,17 +464,25 @@ export class IncuratorClient {
     const l1 = this.readBoolean(record, ["l1_complete"]) || this.readString(record, ["l1_status"]) === "done";
     const l2 = this.readBoolean(record, ["l2_complete"]) || this.readString(record, ["l2_status"]) === "done";
     const l3 = this.readBoolean(record, ["l3_complete"]) || this.readString(record, ["l3_status"]) === "done";
-    const l4 = this.readString(record, ["l4_status"]) === "done";
+    const l4 = this.readBoolean(record, ["l4_complete"]) || this.readString(record, ["l4_status"]) === "done";
+    const layerError = Boolean(
+      this.readString(record, ["layer_error", "error_reason"]) ||
+      ["l1", "l2", "l3", "l4"].some((layer) => this.readString(record, [`${layer}_status`]) === "error")
+    );
     const pendingJobs = this.readArray(record.jobs_pending);
-    if (state === "unknown" || state === "queued" || state === "indexed") {
-      if (l4) state = "curated";
-      else if (l3) state = "indexed";
+    if (record.ok === false) {
+      state = "error";
+    } else if (layerError) {
+      state = "error";
+    } else if (state === "unknown" || state === "queued" || state === "l1_ready" || state === "l2_ready" || state === "l3_ready" || state === "l4_ready") {
+      if (l4) state = "l4_ready";
+      else if (l3) state = "l3_ready";
       else if (l2) state = "l2_ready";
       else if (l1 && pendingJobs.length > 0) state = "queued";
       else if (l1) state = "l1_ready";
     }
     if (state === "unknown" && record.ok === true) {
-      state = record.context_id || record.contextId ? "indexed" : "queued";
+      state = record.context_id || record.contextId ? "l1_ready" : "queued";
     }
 
     let runningLayer: string | undefined;
@@ -645,8 +621,13 @@ export class IncuratorClient {
 
   private normalizeState(value: string): IncuratorSourceState {
     const lower = value.toLowerCase();
-    if (lower.includes("curated")) return "curated";
-    if (lower.includes("index") || lower.includes("ready") || lower.includes("done")) return "indexed";
+    if (lower.includes("error") || lower.includes("fail")) return "error";
+    if (lower.includes("l1_ready")) return "l1_ready";
+    if (lower.includes("l2_ready")) return "l2_ready";
+    if (lower.includes("l3_ready")) return "l3_ready";
+    if (lower.includes("l4_ready")) return "l4_ready";
+    if (lower.includes("curated")) return "l4_ready";
+    if (lower.includes("index") || lower.includes("ready") || lower.includes("done")) return "l3_ready";
     if (lower.includes("queue") || lower.includes("pending")) return "queued";
     if (lower.includes("run") || lower.includes("ingest") || lower.includes("process")) return "running";
     if (lower.includes("stale")) return "stale";
@@ -654,7 +635,6 @@ export class IncuratorClient {
     if (lower.includes("hash_drift") || (lower.includes("hash") && lower.includes("drift"))) return "hash_drift";
     if (lower.includes("moved")) return "moved";
     if (lower.includes("missing")) return "missing";
-    if (lower.includes("error") || lower.includes("fail")) return "error";
     if (lower.includes("untracked") || lower.includes("not_found")) return "untracked";
     return "unknown";
   }

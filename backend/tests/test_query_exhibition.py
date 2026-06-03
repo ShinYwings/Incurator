@@ -242,6 +242,52 @@ confidence_score: 0.8
 
         self.assertEqual(translated, "2D Gaussian Splatting dual absolute quadric")
 
+    def test_run_query_uses_explicit_english_query_metadata(self) -> None:
+        callbacks = DummyCallbacks()
+        hit = search.SearchHit(
+            full_path=f"{consts.LAYER_L3}/CON-lang1234.md",
+            title="Concept",
+            score=0.9,
+            full_content="English evidence about projective geometry.",
+        )
+        results = search.SearchResults(hits=[hit])
+        searched: list[str] = []
+        prompts_seen: list[str] = []
+
+        class PromptCapturingClient(DummyClient):
+            def chat_stream(self, messages, temperature=0.0):  # noqa: ARG002
+                prompts_seen.append(messages[-1].content)
+                yield "한국어 답변"
+
+        def fake_search(paths, question, **kwargs):  # noqa: ARG001
+            searched.append(question)
+            return results
+
+        with (
+            patch.object(query, "translate_to_english", side_effect=AssertionError("should not translate again")),
+            patch.object(query.search, "query", side_effect=fake_search),
+        ):
+            result = query.run_query(
+                paths=self.paths,
+                client=PromptCapturingClient(),
+                question="이 개념은 무엇을 의미하나요?",
+                callbacks=callbacks,
+                save_as="",
+                classify_intent_first=False,
+                english_query="What does this concept mean?",
+                input_language="Korean",
+                final_output_language="Korean",
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.english_query, "What does this concept mean?")
+        self.assertEqual(result.input_language, "Korean")
+        self.assertEqual(result.final_output_language, "Korean")
+        self.assertEqual(searched[0], "What does this concept mean?")
+        self.assertIn("Original user question: 이 개념은 무엇을 의미하나요?", prompts_seen[0])
+        self.assertIn("English working query: What does this concept mean?", prompts_seen[0])
+        self.assertIn("Final output language: Korean", prompts_seen[0])
+
 
 if __name__ == "__main__":
     unittest.main()

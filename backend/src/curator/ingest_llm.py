@@ -776,8 +776,8 @@ def _add_unassigned_atom_fallback_plans(
                 domain=domain,
                 atom_ids=unique_atom_ids,
                 description=(
-                    "Fallback coverage cluster created because the L3 clustering "
-                    "model omitted these related Atoms from any Concept."
+                    "Deterministic fallback Concept created because L3 clustering "
+                    "or concept drafting did not produce a valid Concept for these related Atoms."
                 ),
             )
         )
@@ -1493,6 +1493,82 @@ def _write_one_concept_plan(
     return staged_path, final_path, change, list(plan.atom_ids)
 
 
+def _build_fallback_concept_page(
+    *,
+    concept_id: str,
+    plan: ConceptPlan,
+    paths: cfg.WikiPaths,
+    today: str,
+) -> str:
+    """Build a low-confidence Concept without an LLM when L3 drafting is blocked."""
+    atom_ids = [
+        aid for aid in dict.fromkeys(plan.atom_ids)
+        if isinstance(aid, str) and aid.startswith(f"{consts.PREFIX_L2}-")
+    ]
+    summaries = [_atom_summary(paths, aid) for aid in atom_ids]
+    summary_lines = []
+    for summary in summaries:
+        if not summary:
+            continue
+        name = str(summary.get("name") or summary.get("id") or "").strip()
+        one_liner = str(summary.get("one_liner") or "").strip()
+        summary_lines.append(f"- **{name}**: {one_liner or 'No summary available.'}")
+    core = plan.description.strip() or "Deterministic fallback Concept created from related Atoms."
+    body = (
+        f"# {plan.name}\n\n"
+        "## 1. Core Idea\n\n"
+        f"{core}\n\n"
+        "## 2. How the Atoms Connect\n\n"
+        + ("\n".join(summary_lines) if summary_lines else "- Related Atoms share the same source context.\n")
+        + "\n\n"
+        "## 3. Key Patterns\n\n"
+        "- This Concept was generated deterministically because LLM concept clustering or drafting was unavailable.\n\n"
+        "## 4. Open Questions\n\n"
+        "- Needs later LLM or human review for richer synthesis.\n\n"
+        "## Relations\n\n"
+        + "\n".join(f"[[{consts.LAYER_L2}/{aid}]]" for aid in atom_ids)
+        + "\n"
+    )
+    parsed = page_writer.ParsedPage(
+        frontmatter={
+            "id": concept_id,
+            "type": consts.TYPE_L3,
+            "domain": plan.domain or "",
+            "confidence_score": 0.35,
+            "last_updated": today,
+        },
+        body=body,
+    )
+    return parsed.to_markdown()
+
+
+def _write_one_fallback_concept_plan(
+    plan: ConceptPlan,
+    paths: cfg.WikiPaths,
+    staging: Path,
+    today: str,
+) -> tuple[Path, Path, PageChange, list[str]] | None:
+    if len(plan.atom_ids) < 2:
+        return None
+    concept_id = _gen_id(consts.PREFIX_L3)
+    content = _build_fallback_concept_page(
+        concept_id=concept_id,
+        plan=plan,
+        paths=paths,
+        today=today,
+    )
+    final_path = paths.concepts / f"{concept_id}.md"
+    staged_path = staging / f"{consts.LAYER_L3}__{concept_id}.md"
+    staged_path.write_text(content, encoding="utf-8")
+    change = PageChange(
+        id=concept_id,
+        path=f"{consts.LAYER_L3}/{concept_id}.md",
+        layer=consts.LAYER_L3,
+        operation="created",
+    )
+    return staged_path, final_path, change, list(plan.atom_ids)
+
+
 def _run_pass2_concepts(
     paths: cfg.WikiPaths,
     client,
@@ -1530,7 +1606,7 @@ def _run_pass2_concepts(
             plans = list(cluster_result.concepts)
         except (ValueError, LLMError) as e:
             print(f"Warning: Concept clustering failed: {e}", file=sys.stderr)
-            return staged  # Non-fatal — skip concept layer for this run
+            plans = _add_unassigned_atom_fallback_plans(paths, [], atom_ids)
 
     plans = _filter_concept_plan_atoms(paths, plans, atom_ids)
     plans = _add_unassigned_atom_fallback_plans(paths, plans, atom_ids)
@@ -1565,6 +1641,23 @@ def _run_pass2_concepts(
         }
         for future in _ac(future_to_plan):
             result = future.result()
+            if result is None:
+                continue
+            staged_path, final_path, change, atom_ids = result
+            staged.append((staged_path, final_path, change))
+            callbacks.on_theme_written(change)
+            for aid in atom_ids:
+                db.insert_dag_edge(
+                    paths.state_db,
+                    from_id=aid,
+                    to_id=change.id,
+                    edge_type="clustered_to",
+                    source_id=None,
+                )
+
+    if not staged and eligible_plans:
+        for plan in eligible_plans:
+            result = _write_one_fallback_concept_plan(plan, paths, staging, today)
             if result is None:
                 continue
             staged_path, final_path, change, atom_ids = result

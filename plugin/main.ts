@@ -1,6 +1,6 @@
 
 import { promises as fs } from "fs";
-import { exec } from "child_process";
+import { exec, spawn } from "child_process";
 import { promisify } from "util";
 const execAsync = promisify(exec);
 import {
@@ -39,6 +39,10 @@ import {
 import { parseZoteroLink } from "./src/utils/zoteroUtils";
 
 import { ZoteroSearchModal, ZoteroWizardModal } from "./src/ui/zoteroWizardModal";
+import {
+  ZoteroRepairModal,
+  type ZoteroRepairInitialState,
+} from "./src/ui/zoteroRepairModal";
 import { TemplateRenderer } from "./src/zotero/templateRenderer";
 import { IncuratorDashboardModal } from "./src/ui/incuratorDashboardModal";
 
@@ -53,10 +57,7 @@ import {
   normalizeFileScrollPosition,
   upsertFileScrollPosition,
 } from "./src/utils/scrollPositions";
-import {
-  ensureIncuratorMcpServer,
-  isIncuratorMcpServer,
-} from "./src/utils/incuratorMcpServer";
+import { getBundledModelCatalogue } from "./src/utils/bundledModelCatalogue";
 import { mergeSessionData, normalizeSessionData } from "./src/utils/sessionData";
 import {
   mergeDeviceRegistry,
@@ -66,6 +67,18 @@ import {
   type DeviceRegistry,
 } from "./src/utils/deviceRegistry";
 
+function isLegacyIncuratorMcpServer(server: { name?: string; command?: string; args?: string[] }): boolean {
+  const name = (server.name || "").toLowerCase();
+  const command = (server.command || "").toLowerCase();
+  const args = (server.args || []).join(" ").toLowerCase();
+  return (
+    name === "incurator" ||
+    name.includes("incurator") ||
+    name.includes("curator") ||
+    ((command.endsWith("wiki") || command.includes("incurator")) && args.includes("mcp"))
+  );
+}
+
 export default class ObsidianAIAgent extends Plugin {
   settings: PluginSettings = DEFAULT_SETTINGS;
   sessionData: SessionData = { ...DEFAULT_SESSION_DATA };
@@ -73,7 +86,7 @@ export default class ObsidianAIAgent extends Plugin {
   llmClient!: LLMClient;
   mcpManager: MCPManager = new MCPManager();
   incuratorClient!: IncuratorClient;
-  availableModels: ModelCatalogue = {};
+  availableModels: ModelCatalogue = getBundledModelCatalogue();
   inlinePrompt!: InlinePromptWidget;
 
   private activeContext: ActiveContext = { viewType: "other" };
@@ -103,8 +116,9 @@ export default class ObsidianAIAgent extends Plugin {
       () => this.saveData(this.settings)
     );
     this.incuratorClient = new IncuratorClient(
-      this.mcpManager,
       this.settings,
+      this.manifest.version,
+      this.runBackendJsonCommand.bind(this)
     );
     this.inlinePrompt = new InlinePromptWidget(this);
 
@@ -165,12 +179,7 @@ export default class ObsidianAIAgent extends Plugin {
             }
             if (!itemKey && citekey) itemKey = citekey; // fallback to citekey if URL missing (backend will need to handle this)
 
-            const res: any = await this.incuratorClient.tryTool(["curator_get_zotero_item_metadata"], {
-                item_key: itemKey,
-                custom_paths: this.settings.zoteroBasePath || "~/Zotero"
-            });
-
-            if (!res || !res.ok || !res.metadata) throw new Error(res?.error || "Unknown error");
+            const metadata = await this.getZoteroItemMetadata(itemKey);
 
             const renderer = new TemplateRenderer(this.app);
             const profiles = this.settings.zoteroProfiles || [];
@@ -182,7 +191,7 @@ export default class ObsidianAIAgent extends Plugin {
               const imgFolder = this.app.vault.getAbstractFileByPath(p.imageFolder);
               if (!imgFolder) await this.app.vault.createFolder(p.imageFolder);
 
-              for (const ann of res.metadata.annotations || []) {
+              for (const ann of metadata.annotations || []) {
                 if (ann.imageRelativePath) {
                   try {
                     const imgBuffer = await fs.readFile(ann.imageRelativePath);
@@ -208,7 +217,7 @@ export default class ObsidianAIAgent extends Plugin {
             }
 
             const existingContent = await this.app.vault.read(file);
-            const markdown = await renderer.renderTemplate(p.templatePath, res.metadata, existingContent);
+            const markdown = await renderer.renderTemplate(p.templatePath, metadata, existingContent);
 
             await this.app.vault.modify(file, markdown);
             new Notice("Zotero note refreshed successfully!");
@@ -226,7 +235,7 @@ export default class ObsidianAIAgent extends Plugin {
       callback: () => {
         new ZoteroSearchModal(
           this.app,
-          this.incuratorClient,
+          this,
           this.settings,
           async (settings) => {
             this.settings = settings;
@@ -547,8 +556,11 @@ export default class ObsidianAIAgent extends Plugin {
       const attachmentKey = zoteroInfo.attachmentKey;
       let pdfPath: string | null = null;
 
-      if (this.incuratorClient && this.incuratorClient.available) {
-        pdfPath = await this.incuratorClient.resolveZoteroPdf(attachmentKey);
+      try {
+        pdfPath = await this.resolveZoteroPdf(attachmentKey);
+      } catch (e: any) {
+        new Notice(`Zotero PDF unavailable: ${e?.message || e}`);
+        pdfPath = null;
       }
 
       if (!pdfPath) return false; // Let OS handle it
@@ -637,14 +649,11 @@ export default class ObsidianAIAgent extends Plugin {
       await this.ensureIncuratorBackend();
     }
 
-    // ── Start MCP servers ──
-    const otherMcpServers = this.settings.mcpServers.filter(
-      (server) => !isIncuratorMcpServer(server)
-    );
-    if (otherMcpServers.length > 0) {
+    // ── Start user-configured external MCP servers ──
+    if (this.settings.mcpServers.length > 0) {
       // Delay MCP startup to not block plugin load
       setTimeout(() => {
-        this.mcpManager.startAll(otherMcpServers);
+        this.mcpManager.startAll(this.settings.mcpServers);
       }, 2000);
     }
 
@@ -673,7 +682,7 @@ export default class ObsidianAIAgent extends Plugin {
   private async refreshIngestStatusBar(): Promise<void> {
     if (!this.ingestStatusBar || !this.settings.incuratorEnabled) return;
     try {
-      const result: any = await this.incuratorClient.tryTool(["check_ingest_status"], {});
+      const result: any = await this.readRuntimeJson("jobs");
       if (!result) return;
       if (result.idle) {
         const done = result.done_today ?? 0;
@@ -684,8 +693,77 @@ export default class ObsidianAIAgent extends Plugin {
         this.ingestStatusBar.setText(`⚡ ${r} running / ${q} queued`);
       }
     } catch {
-      // MCP not connected — keep last text
+      // Runtime snapshot not available yet — keep last text.
     }
+  }
+
+  async readRuntimeJson(name: "status" | "jobs" | "sources"): Promise<any | null> {
+    try {
+      const raw = await this.app.vault.adapter.read(`.curator/runtime/${name}.json`);
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  async runBackendCommand(cmdArgs: string[]): Promise<{ ok: boolean; output?: string; error?: string }> {
+    const cwd = this.vaultRoot || (this.app.vault.adapter as any).getBasePath?.() || "";
+    if (!cwd) return { ok: false, error: "Not a local vault" };
+    const command = await this.resolveBackendCommand();
+    const prefixArgs = this.settings.incuratorBackendArgs || [];
+    return new Promise((resolve) => {
+      const cp = spawn(command, [...prefixArgs, ...cmdArgs], { cwd, env: process.env });
+      let out = "";
+      let err = "";
+      cp.stdout?.on("data", (d: Buffer) => out += d.toString());
+      cp.stderr?.on("data", (d: Buffer) => err += d.toString());
+      cp.on("error", (e) => resolve({ ok: false, error: e.message }));
+      cp.on("close", (code) => {
+        if (code === 0) resolve({ ok: true, output: out });
+        else resolve({ ok: false, output: out, error: err || out || `Exit code ${code}` });
+      });
+    });
+  }
+
+  async runBackendJsonCommand(cmdArgs: string[]): Promise<any> {
+    const result = await this.runBackendCommand(cmdArgs);
+    const text = (result.output || "").trim();
+    if (!text) {
+      throw new Error(result.error || "Backend command returned no JSON");
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      const start = text.indexOf("{");
+      const end = text.lastIndexOf("}");
+      if (start >= 0 && end > start) {
+        return JSON.parse(text.slice(start, end + 1));
+      }
+      throw new Error(result.error || `Backend command returned invalid JSON: ${text.slice(0, 200)}`);
+    }
+  }
+
+  async searchZoteroItems(query: string, limit = 20): Promise<any[]> {
+    return await this.incuratorClient.searchZoteroItems(query, limit);
+  }
+
+  async getZoteroItemMetadata(itemKey: string, citationStyle = ""): Promise<any> {
+    return await this.incuratorClient.getZoteroItemMetadata(itemKey, citationStyle);
+  }
+
+  async getZoteroAnnotations(attachmentKey: string): Promise<any[]> {
+    return await this.incuratorClient.getZoteroAnnotations(attachmentKey);
+  }
+
+  openZoteroRepairModal(initial: ZoteroRepairInitialState = {}): void {
+    new ZoteroRepairModal(this.app, this.incuratorClient, initial).open();
+  }
+
+  async resolveZoteroPdf(attachmentKey: string): Promise<string | null> {
+    const res = await this.incuratorClient.resolveZoteroPdf(attachmentKey);
+    if (res.ok && res.path) return res.path;
+    this.openZoteroRepairModal({ attachmentKey, resolution: res });
+    throw new Error(res.error || res.state || "Zotero PDF not found");
   }
 
   private captureActiveMarkdownScrollPosition(): void {
@@ -768,22 +846,25 @@ export default class ObsidianAIAgent extends Plugin {
     if (enabled) {
       await this.ensureIncuratorBackend();
     } else {
-      const incuratorServers = this.settings.mcpServers.filter(isIncuratorMcpServer);
-      for (const server of incuratorServers) {
-        server.enabled = false;
-        await this.mcpManager.shutdown(server.name);
-      }
       await this.saveSettings();
     }
   }
 
   async ensureIncuratorBackend(): Promise<void> {
+    const command = await this.resolveBackendCommand();
+    await this.refreshAvailableModels();
+    if (command !== "wiki") {
+      await this.cacheBackendCommand(command);
+    }
+  }
+
+  private async resolveBackendCommand(): Promise<string> {
     // Resolve the actual command to use:
-    //   1. If user set a non-default incuratorMcpCommand (manual override), use it as-is.
+    //   1. If user set a non-default incuratorBackendCommand, use it as-is.
     //   2. Otherwise, check devices.json for a cached per-device binary path.
     //   3. Otherwise, auto-discover from incuratorRepoPath / common PATH dirs.
     //   4. Fallback: bare "wiki" (works if wiki is on PATH).
-    let command = this.settings.incuratorMcpCommand;
+    let command = this.settings.incuratorBackendCommand;
     const isDefault = !command || command === "wiki";
 
     if (isDefault) {
@@ -806,24 +887,7 @@ export default class ObsidianAIAgent extends Plugin {
         }
       }
     }
-
-    const result = ensureIncuratorMcpServer(
-      this.settings.mcpServers,
-      this.vaultRoot,
-      command,
-      this.settings.incuratorMcpArgs
-    );
-    this.settings.mcpServers = result.servers;
-    if (result.changed) {
-      await this.saveSettings();
-    }
-    await this.mcpManager.start(result.server);
-    await this.refreshAvailableModels();
-
-    // Cache resolved command in devices.json so next load reads from cache
-    if (isDefault && command !== "wiki") {
-      this.cacheBackendCommand(command);
-    }
+    return command || "wiki";
   }
 
   /** Persist the resolved backend command into devices.json for this device. */
@@ -864,6 +928,9 @@ export default class ObsidianAIAgent extends Plugin {
   async loadSettings(): Promise<void> {
     const raw = (await this.loadData()) || {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, raw);
+    this.settings.mcpServers = (this.settings.mcpServers || []).filter(
+      (server) => !isLegacyIncuratorMcpServer(server)
+    );
     this.settings.providerUsage = {
       ...DEFAULT_SETTINGS.providerUsage,
       ...(this.settings.providerUsage || {}),
@@ -973,7 +1040,10 @@ export default class ObsidianAIAgent extends Plugin {
   private async syncDeviceRegistryFromSyncthing(): Promise<void> {
     if (!this.vaultRoot) return;
     try {
-      const snapshot = readSyncthingSnapshot(this.vaultRoot);
+      const zoteroRoots = [this.settings.zoteroBasePath].filter(
+        (value): value is string => Boolean(value && value.trim())
+      );
+      const snapshot = readSyncthingSnapshot(this.vaultRoot, zoteroRoots);
       if (snapshot.devices.length === 0 && snapshot.folders.length === 0) return;
 
       let existing: Partial<DeviceRegistry> | null = null;
@@ -1033,15 +1103,14 @@ export default class ObsidianAIAgent extends Plugin {
     return this.availableModels;
   }
 
-  async refreshAvailableModels(): Promise<void> {
-    if (!this.incuratorClient?.available) return;
-    const catalogue = await this.incuratorClient.getAvailableModels();
-    if (Object.keys(catalogue).length === 0) return;
+  async refreshAvailableModels(): Promise<boolean> {
+    const catalogue = getBundledModelCatalogue();
+    if (Object.keys(catalogue).length === 0) return false;
     this.availableModels = catalogue;
     if (!this.settings.model) {
       this.settings.model = getDefaultModel(catalogue, this.settings.provider);
       await this.saveSettings();
-      return;
+      return true;
     }
     if (!getModelOption(catalogue, this.settings.provider, this.settings.model)) {
       const fallback = getDefaultModel(catalogue, this.settings.provider);
@@ -1050,6 +1119,7 @@ export default class ObsidianAIAgent extends Plugin {
         await this.saveSettings();
       }
     }
+    return true;
   }
 
   // ── Active Context ──────────────────────────────────────────
@@ -1439,7 +1509,7 @@ export default class ObsidianAIAgent extends Plugin {
         }
         
         try {
-          const status = await this.incuratorClient.getBackendStatus();
+          const status = await this.readRuntimeJson("status");
           if (status && status.qmd_ready) {
             this.incuratorStatusBar?.setText("🟢 Incurator");
           } else if (status && !status.error) {

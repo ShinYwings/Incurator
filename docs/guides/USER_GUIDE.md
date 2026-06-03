@@ -63,7 +63,7 @@ Choose a directory to serve as your knowledge vault and initialize it:
 wiki init <path/to/your/obsidian-vault>
 ```
 
-During init, a short interview sets up the **Curator persona** — the vault-wide expert identity that governs how knowledge is synthesized and verified. The result is saved to `.curator/config.yml` and applied automatically on every `wiki sync` and `wiki query`.
+During init, a short interview sets up the **Curator persona** — the vault-wide expert identity that governs how knowledge is synthesized and verified. The wizard asks the first question immediately, labels single-select and multi-select questions, accepts comma-separated numbers on multi-select questions such as verification sources and artifact types, and exits as soon as the final persona JSON is saved. The result is saved to `.curator/config.yml` and applied automatically on every `wiki sync` and `wiki query`.
 
 #### 📂 Vault Directory Structure
 Running the `wiki init` command initializes the following structure for knowledge management. Following the philosophy that knowledge is most effective when stored in different forms for machines and humans, Incurator strictly separates human-readable spaces (Root) from the AI-only spaces (`.curator/`) via physical directory separation.
@@ -112,7 +112,7 @@ When you search for knowledge, the system automatically runs the final L4 pipeli
 > **Trigger-based Auto-sync**:
 > This automation is not a persistent background service. It is triggered at the **moment** you interact with an agent (`search_curator`) or run `wiki query` from a **registered workspace directory** (see [Initialization](#🏗️-creating-and-initializing-a-workspace)). The system checks for pending sources and processes them immediately when it detects your "intent" to use knowledge. This ensures the pipeline works organically without manual execution. See the [MCP User Guide](./MCP_USER_GUIDE.md) for details.
 
-To run it manually, use:
+For advanced debugging or workspace-agent recovery, the hidden manual command is:
 ```bash
 wiki curate
 ```
@@ -145,12 +145,18 @@ wiki add 03_Notes/my_note.md
 wiki add
 ```
 
-With this command, the Curator parses the raw data to automatically perform **L1 Summary, L2 Atomic Fact Extraction, and L3 Concept Linking**. The results are stored in the AI-only space inside `.curator/`.
+With this command, the Curator parses the raw data and immediately writes an L1
+Context. L1 adds an English `Source Guide` with section/page previews for quick
+recall, inlines raw `Source Sections` for small/medium documents, and uses
+on-demand raw-source reads for large documents so books and long PDFs are not
+duplicated into one CTX file. It queues L2 Atomic Fact Extraction plus L3 Concept
+Linking for the build worker. The results are stored in the AI-only space inside
+`.curator/`.
 
 > [!TIP]
 > If no file or directory path is specified for `wiki add`, the Curator scans all configured source directories (e.g., `03_Notes`, `04_Resources`) to automatically find and batch-process new or changed files.
 
-- You can check the list of registered sources with `wiki sources list`.
+- You can check the list of registered sources with `wiki source ls`.
 - To recursively register all files within a specific folder, use the `-r` option.
 
 Once your knowledge is safely registered in the vault, it's time to set up your own "Studio" to actually use it for specific projects.
@@ -161,23 +167,34 @@ Once your knowledge is safely registered in the vault, it's time to set up your 
 
 External files such as research PDFs owned by Zotero, iCloud, Syncthing, or a browser download folder can be connected to Incurator in two ways.
 
-### 1. Copy Import
+### 1. Reference Mode
 
-The file is copied into `04_Resources/` and becomes a vault-managed resource.
+The file stays in its original location while the Incurator backend registers it
+as a tracked source. This is the default for PDFs opened from Zotero, iCloud,
+Syncthing, browser download folders, or other external locations.
+
+- The backend calculates the content hash and records a source entry in
+  `state.sqlite`.
+- `04_Resources/` receives a small markdown reference stub, not a copied PDF.
+- `external_path` is only a recoverable location hint. The durable identity is
+  the content hash plus logical source identity.
+- Automatically generated reference stubs do not include absolute PDF paths by
+  default, so they can safely synchronize to another device whose external PDF
+  library lives elsewhere.
+- If iPad annotations or an external app change the PDF bytes, the backend
+  should detect this as Hash Drift.
+- If the file moves, the backend may rediscover it inside configured external
+  roots, but final rebind must happen only after human approval.
+
+### 2. Copy Import
+
+Copy Import is an explicit exception for files that should become
+vault-managed resources. The PDF is copied into `04_Resources/`.
 
 - PDFs do not belong in `03_Notes/`. `03_Notes/` is for human-authored notes.
 - If the active note is `03_Notes/Vision/Foo.md`, the default destination is `04_Resources/Vision/Foo/<pdf-file>.pdf`.
 - If no linked note exists, the fallback destination is `04_Resources/Inbox/<pdf-file>.pdf`.
 - Existing files are never overwritten. Same-hash files reuse the existing source; same-name but different-hash collisions require a suffix or a user-selected destination.
-
-### 2. Reference Mode
-
-The file stays in its original location while the Incurator backend registers it as a tracked source. This is best for libraries managed by external tools such as Zotero.
-
-- The backend calculates the content hash and records a source entry in `state.sqlite`.
-- `external_path` is only a recoverable location hint. The durable identity is the content hash plus logical source identity.
-- If iPad annotations or an external app change the PDF bytes, the backend should detect this as Hash Drift.
-- If the file moves, the backend may rediscover it inside configured external roots, but final rebind must happen only after human approval.
 
 The Obsidian plugin may answer immediate questions about an open PDF using viewer context, but durable source tracking, page provenance, and long-term RAG belong to the Incurator backend.
 
@@ -352,7 +369,9 @@ This is the core operational mode of Incurator. You just need to ask or converse
 
 The system uses a **Dual Architecture** for querying, depending on whether you are in a Workspace or Vault:
 - **Workspace Agent**: If a workspace is specified, it uses the **Pinned Exhibition** and persona defined in `curate.yml` without generating ephemeral files.
-- **Vault Agent**: When querying from a general Vault session, it dynamically generates an **Ephemeral L4 Exhibition** per chat session, using a global fallback persona.
+- **Vault Agent**: When querying from a general Vault session, it dynamically generates an **Ephemeral L4 Exhibition** per chat session, using a global fallback persona. A plain chat whose active note is not inside a workspace folder is treated as a Vault session: its ephemeral Exhibition is scoped to `default`, not to an arbitrary project workspace you never opened.
+
+**Per-request language**: The agent detects each question's language fresh (Korean, English, Chinese, Japanese, Russian, …) by Unicode script and answers in that same language, using English only as the internal search/reasoning language. The output language follows each message independently — an English question gets an English answer even if your previous question was in Korean. Language metadata is not stored in the generated Exhibition file, and the answer cache is keyed by output language so you never get a stale-language cached answer.
 
 **L3 Constraints & Garbage Collection (GC)**:
 - An L4 Exhibition is **only generated** if there are matching **L3 Concepts**. If no L3 Concepts match the query, the system skips L4 generation and returns an immediate answer.
@@ -364,8 +383,8 @@ The system **instantly activates the pipeline to synthesize the final answer** a
 > **"Just use it. the system handles the rest."**
 > Curation is triggered when an "intent" to use knowledge occurs, so you don't have to specify which workspace it is or manually run the pipeline every time. (The system automatically understands the context through the folder location where you run the command.)
 
-### (Reference) Manual Forced Curation
-Use this only for debugging or when a forced update is required.
+### (Reference) Advanced Manual Forced Curation
+Use this only for debugging, workspace-agent recovery, or when a forced update is required. `wiki curate` remains directly callable but is hidden from the default `wiki --help` surface because normal users should usually query or use the workspace agent instead of manually generating L4 Exhibitions.
 ```bash
 wiki curate
 ```
@@ -397,6 +416,9 @@ Incurator has two persona layers, each operating at a different level of the sys
 ### Curator Persona — Vault Level
 
 Set during `wiki init` through a short interview. Stored in `.curator/config.yml` and applied globally across `wiki sync` and `wiki query`.
+The interview labels whether each question is single-select or multi-select.
+Verification sources and artifact types may be answered with comma-separated
+numbers; the saved persona keeps canonical English fields.
 
 ```bash
 wiki persona              # Show the current Curator persona
@@ -437,12 +459,12 @@ Summary of major commands following the user workflow.
 ### 2. Knowledge Ingestion & Management
 | Command | Description | When to use |
 | :--- | :--- | :--- |
-| `wiki add <file>` | Registers sources and generates instant L1 Contexts (structural, no LLM). | Adding new information |
-| `wiki build` | Extracts L2 Atoms + L3 Concepts from registered L1 Contexts (LLM). Queues to the background worker by default; `--wait` runs now. | Deep knowledge-graph construction |
-| `wiki sources list` | Lists all registered sources. | Checking collected data inventory |
-| `wiki sources show <id>` | Shows details and processing status for a specific source. | Diagnosing source errors |
-| `wiki sources rm <id>` | Removes a source registration and its generated L1 nodes. | Removing an incorrect source |
-| `wiki sources retry <id>` | Reprocesses a failed source. | Retrying after a processing failure |
+| `wiki add <file>` | Registers sources and generates instant L1 Contexts (structural, no LLM) with an English source guide and size-aware source sections. | Adding new information |
+| `wiki build` | Extracts L2 Atoms + L3 Concepts from registered L1 Contexts. Uses the configured LLM for high-quality extraction and can fall back to low-confidence L1 candidates or deterministic L3 Concepts if the provider fails. Queues to the background worker by default; `--wait` runs now. | Deep knowledge-graph construction |
+| `wiki source ls` | Lists all registered sources. | Checking collected data inventory |
+| `wiki source show <id>` | Shows details and processing status for a specific source. | Diagnosing source errors |
+| `wiki source rm <id>` | Removes a source registration and its generated L1 nodes. | Removing an incorrect source |
+| `wiki source retry <id>` | Reprocesses a failed source. | Retrying after a processing failure |
 
 ### 2-1. Settings & LLM Backend Management
 
@@ -453,12 +475,14 @@ Summary of major commands following the user workflow.
 | `wiki config models use <tag>` | Directly set the model to use. |
 | `wiki config get <key>` | Read a specific config value. (e.g. `wiki config get llm.primary`) |
 | `wiki config set <key> <value>` | Update a specific config value. (e.g. `wiki config set llm.model gemini-3.5-flash`) |
+| `wiki config secret list/delete` | Inspect masked local encrypted backend secrets or delete a stored secret. |
 
 ### 3. Refinement & Optimization
 | Command | Description | When to use |
 | :--- | :--- | :--- |
-| `wiki curate` | Synthesizes L4 Exhibitions. | Manually updating exhibits |
+| `wiki curate` | Synthesizes L4 Exhibitions. Hidden from default help. | Advanced/debug workspace curation |
 | `wiki sync` | Verifies integrity and performs self-healing. | Restoring consistency after edits |
+| `wiki refresh` | Refreshes L4 Exhibitions from updated L3 Concepts without replacing human/agent edits. | Propagating new Concepts into existing Exhibitions |
 
 ### 4. Knowledge Utilization
 | Command | Description | When to use |
@@ -500,7 +524,7 @@ Configure the LLM backends that power Incurator's intelligence. The system maint
 | `antigravity-cli` | CLI | Inference via Google Antigravity CLI (`agy`) (Fast, reliable free option). Also exposes Claude / GPT-OSS models alongside Gemini 3.5 Flash / 3.1 Pro |
 | `claude-code` | CLI | Inference via official Anthropic `claude` command (Sonnet 4.6 / Opus 4.7 / Haiku 4.5) |
 | `codex-cli` | CLI | Inference via official OpenAI `codex` command (GPT-5.5 / 5.4 / 5.4-mini / 5.3-codex / 5.2) |
-| `deepseek-api` | API key | Inference via DeepSeek's OpenAI-compatible API (`DEEPSEEK_API_KEY`; current models `deepseek-v4-flash` / `deepseek-v4-pro`) |
+| `deepseek-api` | API key | Inference via DeepSeek's OpenAI-compatible API (`DEEPSEEK_API_KEY` or an encrypted local backend secret; current models `deepseek-v4-flash` / `deepseek-v4-pro`) |
 
 ```bash
 # Set up both Primary and Fallback at once via the wizard
@@ -524,14 +548,23 @@ wiki config provider --primary deepseek-api --model deepseek-v4-flash
 wiki config provider --primary deepseek-api --model deepseek-v4-pro --api-key-env DEEPSEEK_API_KEY
 ```
 
+For DeepSeek, `--api-key-env` must be an environment variable name (for example
+`DEEPSEEK_API_KEY`), not the raw `sk-...` key value.
+Passing `--api-key sk-...` stores the key in the backend's encrypted local
+secret store outside the shared vault and writes only a secret reference into
+config.
+
 The choice is stored as `llm.primary_effort` / `llm.fallback_effort` in `.curator/config.yml`; leaving it empty uses each CLI's default effort.
 
 CLI-backed providers (`antigravity-cli`, `claude-code`, `codex-cli`) use the
 account currently logged into that CLI on the machine running the backend.
 If you need a different account, switch it in the provider CLI itself
 (`agy`, `claude`, or `codex login`). DeepSeek is different: it uses an API key
-from `DEEPSEEK_API_KEY` or `llm.deepseek-api.api_key`, so account selection is
-controlled by the key rather than a browser-login CLI session.
+from `DEEPSEEK_API_KEY`, an encrypted local `llm.deepseek-api.api_key_secret`,
+or a legacy plaintext `llm.deepseek-api.api_key`, so account selection is
+controlled by the key rather than a browser-login CLI session. Newly stored keys
+should use the encrypted local secret path to avoid syncing secrets through the
+vault.
 
 ### 2. Model Management (`wiki config models`)
 View and change the specific models to be used by the current provider.
@@ -554,27 +587,49 @@ A comprehensive dashboard that provides a multi-dimensional diagnosis of your va
 wiki status
 ```
 
+If the latest sync report has findings, `wiki status` may ask whether to show
+review details. Those details are integrity findings to inspect or repair; they
+are not a runtime error from the status command itself.
+If the state DB file exists but is missing base tables, `wiki status` now
+bootstraps the schema automatically before reading stats.
+
 This command aggregates and outputs data from three main areas in real-time. Here is the meaning and practical use of each item:
+
+### 3-1. Reset Generated State (`wiki reset`)
+
+```bash
+wiki reset
+wiki reset --force
+```
+
+Resets generated Curator state while preserving `.curator/config.yml` and the
+vault's source folders. It removes the tracking database, generated Collections,
+dashboard/index/overview/ledger/log files, sync reports, transient staging files,
+build trace canvases, device registry, and sidechat session state. Use this when
+stale generated state, stale device metadata, or old chat context is causing the
+backend or plugin to disagree with the current vault.
 
 #### ⚙️ System Configuration (Config)
 Verifies if the system's 'brain' and 'eyes' are correctly set up.
 -   **Primary / Fallback Models**: Shows the main LLM and the emergency fallback LLM currently responsible for knowledge extraction and synthesis. Ensure the intended models are active.
 -   **Reranking**: Indicates whether the secondary verification process to improve search precision is enabled. This should be `on` for high-quality answers.
 -   **QMD binary**: The status of the core search engine binary. If it's not `installed` or is `not found`, you may need to run `wiki reindex` or reinstall.
+-   **Search index degradation**: `wiki reindex` first updates the BM25 index, then attempts vector embeddings. If embeddings fail, BM25 search remains current while vector search is marked stale; run `qmd doctor` and retry `wiki reindex` after embedding support is healthy.
 
 #### 📂 Knowledge Source Status (Sources)
 Checks the 'entrance of the pipeline' where raw data is turned into knowledge.
 -   **Raw source files**: The total number of files physically present in the vault folders.
--   **Sources summarized (L1)**: The number of sources with `l1_status=done`. `wiki add` creates a structural L1 Context immediately without an LLM call. L2/L3 extraction is a separate step — run `wiki build` (queues to the background worker by default, or `--wait` to run synchronously).
+-   **Sources summarized (L1)**: The number of sources with `l1_status=done`. `wiki add` creates a structural L1 Context immediately without an LLM call. The L1 page includes an English source guide for search plus size-aware source sections: raw text is inline for small/medium documents, while large documents keep previews and fetch exact evidence from the original source on demand. L2/L3 extraction is a separate step — run `wiki build` (queues to the background worker by default, or `--wait` to run synchronously).
 -   **Ingest runs**: The total number of ingestion runs performed. A higher number indicates that the knowledge base has been updated frequently.
 
 #### 🧠 Knowledge Density (Collections)
-Shows the processing status at each pipeline stage. In the v0.2.1 default flow, L1 is created immediately, L2/L3 are processed by the MCP background worker or `wiki jobs run`, and L4 is generated separately by `wiki curate`.
+Shows the processing status at each pipeline stage. In the v0.2.1 default flow, L1 is created immediately, L2/L3 are processed by the MCP background worker or `wiki jobs run`, and L4 is generated by workspace-agent flows or the hidden advanced `wiki curate` command. Use `wiki jobs cancel <id>` to cancel a queued job before a worker claims it, and `wiki jobs rerun <id>` to requeue a completed, failed, or cancelled job.
 
--   **L1 Contexts**: One summary per source. Should match the number of ingested sources.
+-   **L1 Contexts**: One source context per source. Each Context contains English retrieval scaffolding and size-aware source sections. It should match the number of ingested sources.
 -   **L2 Atoms**: Atomic facts extracted from each source. Multiple atoms are generated per source, so this count will be larger than L1.
--   **L3 Concepts**: Cross-source clusters formed from L2 atoms.
+-   **Fallback Atoms**: If the configured provider fails during L2 extraction, Incurator may create low-confidence Atoms from the L1 source guide so the source remains searchable and retains section/page provenance. Retry the source later when the provider is healthy for richer extraction.
+-   **L3 Concepts**: Cross-source clusters formed from L2 atoms. If L3 clustering or drafting fails, Incurator can create low-confidence deterministic fallback Concepts so provenance remains traversable until a later LLM-backed rebuild.
 -   **L4 Exhibitions**: Exhibits synthesized per workspace spec (`curate.yml`). Starts at 0 until a workspace is initialized and `wiki curate` has been run.
 
 > [!TIP]
-> **Pipeline Status Diagnosis**: If L4 is 0, no workspace Exhibition has been generated yet. Calling `search_curator` via MCP will automatically trigger `wiki curate` and create L4. To generate manually, run `wiki curate` directly.
+> **Pipeline Status Diagnosis**: If L4 is 0, no workspace Exhibition has been generated yet. Calling `search_curator` via MCP can trigger workspace curation and create L4. Manual `wiki curate` remains available for advanced/debug use, but it is hidden from the default help surface.

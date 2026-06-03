@@ -39,6 +39,17 @@ class StatusStatsTests(unittest.TestCase):
         self.assertEqual(stats["sources_l1_done"], 2)
         self.assertEqual(stats["sources_curated"], 1)
 
+    def test_get_stats_bootstraps_when_db_file_exists_without_sources_table(self) -> None:
+        # Simulate an existing DB file that has no Curator tables.
+        self.paths.state_db.parent.mkdir(parents=True, exist_ok=True)
+        self.paths.state_db.write_bytes(b"")
+
+        stats = db.get_stats(self.paths.state_db)
+
+        self.assertEqual(stats["sources_total"], 0)
+        self.assertEqual(stats["sources_l1_done"], 0)
+        self.assertEqual(stats["sources_curated"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

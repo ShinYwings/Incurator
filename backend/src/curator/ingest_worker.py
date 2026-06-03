@@ -392,7 +392,7 @@ class IngestWorker(threading.Thread):
             ]
 
             slug = re.sub(r"[^\w\-]", "_", source_slug)[:40]
-            out_path = self.paths.internal / f"build_trace_{slug}.canvas"
+            out_path = self.paths.staging / "canvas" / f"build_trace_{slug}.canvas"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = out_path.with_suffix(".tmp")
             tmp.write_text(

@@ -47,3 +47,32 @@ def test_wiki_init_then_config_provider_deepseek(tmp_path: Path):
     )
     assert key_env.exit_code == 0, key_env.output
     assert key_env.output.strip() == "DEEPSEEK_TEST_KEY"
+
+
+def test_config_provider_deepseek_api_key_uses_local_secret(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    runner = CliRunner()
+    vault = tmp_path / "vault"
+
+    init_result = runner.invoke(app, ["init", str(vault), "--no-interactive"])
+    assert init_result.exit_code == 0, init_result.output
+
+    config_result = runner.invoke(
+        app,
+        [
+            "config",
+            "provider",
+            "--primary",
+            "deepseek-api",
+            "--model",
+            "deepseek-v4-flash",
+            "--api-key",
+            "sk-test-secret",
+        ],
+        env={"VAULT_ROOT": str(vault)},
+    )
+    assert config_result.exit_code == 0, config_result.output
+
+    config_text = (vault / ".curator" / "config.yml").read_text(encoding="utf-8")
+    assert "sk-test-secret" not in config_text
+    assert "api_key_secret: secret:deepseek-api-key" in config_text

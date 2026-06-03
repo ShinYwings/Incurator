@@ -1,0 +1,65 @@
+import { describe, expect, it } from "vitest";
+import type { ContextRef } from "../types";
+import {
+  hasPrimaryImageContext,
+  shouldRunCuratorDomainQuery,
+  shouldUseBackendPdfContext,
+} from "./providerContextPolicy";
+
+function ref(overrides: Partial<ContextRef>): ContextRef {
+  return {
+    type: "text",
+    label: "context",
+    content: "content",
+    ...overrides,
+  };
+}
+
+describe("providerContextPolicy", () => {
+  it("treats an included user image or crop as primary image context", () => {
+    const refs = [
+      ref({ type: "image", imageBase64: "abc" }),
+      ref({ type: "pdf-page", imageBase64: "def", includeInPrompt: false }),
+    ];
+
+    expect(hasPrimaryImageContext(refs)).toBe(true);
+  });
+
+  it("ignores excluded image context for backend gating", () => {
+    const refs = [ref({ type: "image", imageBase64: "abc", includeInPrompt: false })];
+
+    expect(hasPrimaryImageContext(refs)).toBe(false);
+    expect(shouldUseBackendPdfContext({ query: "what is shown?", userContextRefs: refs })).toBe(true);
+  });
+
+  it("skips backend PDF context when the current user turn already carries a crop image", () => {
+    const refs = [ref({ type: "pdf-page", imageBase64: "abc" })];
+
+    expect(shouldUseBackendPdfContext({ query: "explain this crop", userContextRefs: refs })).toBe(false);
+  });
+
+  it("skips backend PDF context when the viewer already has local page/window text", () => {
+    expect(
+      shouldUseBackendPdfContext({
+        query: "explain this page",
+        hasLocalViewerContext: true,
+      })
+    ).toBe(false);
+  });
+
+  it("runs Curator domain query for ordinary workspace questions", () => {
+    expect(
+      shouldRunCuratorDomainQuery({ query: "What does the geometry concept imply?" })
+    ).toBe(true);
+  });
+
+  it("does not run Curator domain query for selected-context edits or short follow-ups", () => {
+    expect(
+      shouldRunCuratorDomainQuery({
+        query: "rewrite this",
+        userContextRefs: [ref({ type: "line-range", filePath: "note.md", lineStart: 1, lineEnd: 2 })],
+      })
+    ).toBe(false);
+    expect(shouldRunCuratorDomainQuery({ query: "다시" })).toBe(false);
+  });
+});

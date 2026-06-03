@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from curator import constants as consts
-from curator import llm
+from curator import llm, secret_store
 
 
 def test_build_client_supports_deepseek_api(monkeypatch):
@@ -40,3 +40,58 @@ def test_deepseek_body_uses_openai_compatible_messages(monkeypatch):
     assert body["response_format"] == {"type": "json_object"}
     assert body["reasoning_effort"] == "high"
     assert body["thinking"] == {"type": "enabled"}
+
+
+def test_build_client_recovers_when_api_key_env_contains_literal_key():
+    client = llm.build_client(
+        {
+            "llm": {
+                "primary": f"{consts.BACKEND_DEEPSEEK_API}::deepseek-v4-flash",
+                "fallback": "",
+                "primary_effort": "medium",
+                consts.BACKEND_DEEPSEEK_API: {
+                    "base_url": "https://api.deepseek.com",
+                    "api_key_env": "sk-accidentally-saved-as-env-name",
+                },
+            }
+        }
+    )
+
+    assert isinstance(client, llm.DeepSeekApiClient)
+    assert client.api_key == "sk-accidentally-saved-as-env-name"
+    assert client.api_key_env == "DEEPSEEK_API_KEY"
+
+
+def test_build_client_reads_encrypted_deepseek_secret(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    reference = secret_store.set_secret(secret_store.DEFAULT_DEEPSEEK_SECRET, "secret-key")
+
+    client = llm.build_client(
+        {
+            "llm": {
+                "primary": f"{consts.BACKEND_DEEPSEEK_API}::deepseek-v4-flash",
+                "fallback": "",
+                "primary_effort": "low",
+                consts.BACKEND_DEEPSEEK_API: {
+                    "base_url": "https://api.deepseek.com",
+                    "api_key_env": "DEEPSEEK_API_KEY",
+                    "api_key_secret": reference,
+                },
+            }
+        }
+    )
+
+    assert isinstance(client, llm.DeepSeekApiClient)
+    assert client.api_key == "secret-key"
+
+
+def test_secret_store_masks_and_deletes_secret(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    reference = secret_store.set_secret("example", "sk-1234567890")
+
+    assert reference == "secret:example"
+    assert secret_store.get_secret(reference) == "sk-1234567890"
+    assert secret_store.mask_secret(reference) == "sk-1...7890"
+    assert secret_store.delete_secret(reference) is True
+    assert secret_store.get_secret(reference) == ""

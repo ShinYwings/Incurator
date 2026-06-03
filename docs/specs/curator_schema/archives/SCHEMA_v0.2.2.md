@@ -90,7 +90,10 @@ backend/src/curator/data/models.json
 Rules:
 
 - Backend and plugin must not maintain divergent hard-coded cloud model lists.
-- The backend MCP tool `get_available_models` returns this catalogue to clients.
+- The backend MCP tool `get_available_models` returns this catalogue to external
+  MCP clients.
+- The Obsidian plugin bundles this same JSON file at build time for its model
+  controls; it must not maintain a separate handwritten model list.
 - Local Ollama model discovery remains runtime-local and is excluded from the
   static shared catalogue.
 - The canonical macOS/Linux Antigravity installer command is
@@ -100,7 +103,7 @@ Rules:
 
 ## 3. L1 Context Schema
 
-v0.2.2 L1 Contexts preserve structural source text in Markdown (including LaTeX math `$$...$$` and tables) for immediate RAG and section-aware extraction. L1 chunking MUST be AST-aware to avoid splitting LaTeX math blocks or code blocks.
+v0.2.2 L1 Contexts preserve structural source recall in Markdown (including LaTeX math `$$...$$` and tables) for immediate RAG and section-aware extraction. Small and medium sources may inline raw source text in `Source Sections`. Large sources MUST use a compact on-demand policy: keep section markers, page/section previews, hashes, and provenance in L1, but fetch exact raw evidence from the original source through `fetch_document_section` or page-window parsing instead of duplicating the whole document into CTX.
 
 ### 3.1 Frontmatter
 
@@ -121,6 +124,9 @@ toc:
     title: Introduction
     page: 1
 source_page_count: 12          # PDF only, optional
+source_sections_inline: true | false
+source_text_policy: inline | on_demand
+source_char_count: 12345
 parser_used: pymupdf4llm       # v0.2.2: specifies which parser (e.g. pymupdf4llm, vlm, text)
 source_pages:                  # PDF only, optional
   - page: 1
@@ -152,6 +158,14 @@ Required sections:
 
 ...
 
+## Source Guide
+
+- Generated scaffold language: English.
+- Source truth: original text under `Source Sections` for inline L1 pages, or original file text fetched on demand for large-document L1 pages; previews are retrieval hints.
+
+### Section Previews
+- `s1` p.1 — **Introduction**: compact source preview...
+
 ## 2. Atom Candidates
 
 - [fact] Section Title: Extract ...
@@ -162,12 +176,37 @@ Required sections:
 ## Introduction
 
 source text...
+
+<!-- section:s2 page:42 -->
+## Large Document Section
+
+Raw source text is not duplicated in this L1 page because the source is large.
+Fetch exact evidence on demand with `fetch_document_section(...)`.
+Preview: compact source preview...
 ```
 
 Rules:
 
-- `## Summary`, `## 1. Key Claims`, and `## 2. Atom Candidates` are required for
-  compatibility with existing L2 extraction.
+- `## Summary`, `## 1. Key Claims`, `## Source Guide`, and `## 2. Atom
+  Candidates` are required for compatibility with existing L2 extraction and
+  immediate source recall.
+- Generated L1 scaffold text (`Summary`, `Key Claims`, `Source Guide`, Atom
+  Candidate instructions) must be written in English.
+- When `source_sections_inline=true`, the original source text remains
+  unmodified under `Source Sections`, even when the source language is Korean or
+  another non-English language.
+- When `source_sections_inline=false`, `Source Sections` keeps durable section
+  markers, headings, page numbers, and compact previews only. Exact raw evidence
+  must be retrieved from the original source by `fetch_document_section`.
+- L2 extraction readers must hydrate `source_text_policy: on_demand` CTX pages
+  from the original source before calling the LLM; compact previews are not
+  sufficient evidence for Atom extraction.
+- Deterministic fallback Concepts are valid L3 pages when L3 clustering or
+  concept drafting fails. They must use `type: concept`, preserve Atom relations
+  under `## Relations`, and set a low `confidence_score` so later LLM or human
+  review can distinguish them from richer Concepts.
+- `Source Guide` previews are retrieval hints with section ids and page numbers;
+  they must not replace raw evidence.
 - `## Source Sections` is required for instant L1 CTX pages.
 - Each source section begins with `<!-- section:{toc_id} page:{page} -->`.
 - The section marker is the durable boundary used by batch splitting,
@@ -209,6 +248,11 @@ Rules:
 - Section-aware L2 batches may run in parallel when each worker uses an
   independent LLM client clone. Shared non-thread-safe clients must fall back to
   sequential batch execution.
+- If the LLM provider fails during L2 extraction, writers may create fallback
+  Atoms from L1 `Atom Candidates`. These Atoms must retain `parent_source`,
+  `source_section_id`/`source_page` when available, and a low
+  `confidence_score` so they are searchable but clearly weaker than LLM- or
+  human-verified extraction.
 
 ## 5. L3 Concept And L4 Exhibition Schema Additions
 
@@ -253,9 +297,18 @@ promoted_to: 02_Wiki/path.md
 Rules:
 
 - `workspace_id` is derived from the active workspace slug: the basename of the
-  workspace path. Outside a workspace, it defaults to `default`.
+  workspace path. Outside a workspace, it defaults to `default`. A plain chat
+  turn whose active note is not inside a workspace folder resolves to `default`;
+  the plugin must not bind an arbitrary workspace (e.g. the first `curate.yml`
+  found in the vault) to a conversational chat.
+- The query-generated Exhibition frontmatter does **not** carry the language
+  bridge fields `input_language`, `english_query`, or `final_output_language`.
+  Those are response/trace-only and are returned in the `wiki plugin query` JSON,
+  never persisted into the saved EXH. Persisting a `final_output_language` caused
+  later questions in a different language to be answered in the stale language.
 - Query-generated Exhibitions may be cached by `(workspace_id, normalized question,
-  matched concept set)`.
+  final_output_language)` so that the same normalized question asked in different
+  input languages does not collide and return a stale-language cached answer.
 - Promoted Exhibitions are protected from automatic destructive rewrite.
 - Backprop may invalidate caches that cite changed Concepts, but must preserve
   human-verified promoted artifacts unless explicitly requested.
@@ -296,6 +349,11 @@ Rules:
 - `wiki status` must count L1 completion from `l1_status='done'`.
 - `context_id` is set when L1 completes.
 - L2/L3 may remain `pending` while a source is already usable for section RAG.
+- `l4_status='done'` is the source-level signal that an L4 Exhibition has been
+  produced. L2/L3 completion must not be labelled as fully curated in user-facing
+  status surfaces.
+- Layer `error` states must remain visible until retried or reset; later layers
+  must not mask an earlier failed layer with a healthy color.
 - The `moved` and `hash_drift` states are dynamically computed and returned over MCP. They are NOT stored in the `status` column enum in SQLite to avoid destructive mutations.
 
 ### 6.2 `source_pdf_pages`
@@ -497,10 +555,12 @@ The registry records:
 
 - Syncthing folder metadata for the active vault, including folder id, label,
   and participating device ids.
+- Folder roles for the active vault and configured Zotero roots when Syncthing
+  shares those paths. UI readers use these roles to show which devices sync the
+  Vault and Zotero without inventing unsupported platform/backend facts.
 - Known device display names from Syncthing.
-- Per-device backend launcher hints, such as `wiki mcp` on Linux or
-  `uv --directory /Users/<user>/Workspace/Incurator/backend run wiki mcp` on
-  macOS.
+- Per-device backend launcher hints, such as `wiki` on Linux or
+  `uv --directory /Users/<user>/Workspace/Incurator/backend run wiki` on macOS.
 - Platform hints for the device that last updated its own entry.
 
 Each device must only update its own launcher entry. Entries learned from other
@@ -517,7 +577,14 @@ shared without synchronizing Obsidian plugin `data.json`.
 
 ## 10. External Resources (Reference Mode)
 
-Files in `04_Resources/` or other root directories may be "Markdown Stubs" that point to external files (e.g. PDFs in a Zotero library) without copying them into the vault. This is called Reference Mode.
+Files in `04_Resources/` or other root directories may be "Markdown Stubs" that
+point to external files (e.g. PDFs in a Zotero library) without copying them
+into the vault. This is called Reference Mode.
+
+When an external PDF is added to Incurator from the Obsidian plugin, Reference
+Mode is the default behavior. The PDF remains in its original location, while
+the backend creates a lightweight `04_Resources/*.md` reference stub and records
+the original PDF path in device-local backend state.
 
 ### 10.1 Markdown Stub Frontmatter
 
@@ -529,6 +596,20 @@ target_path: /absolute/path/to/external.pdf   # Optional fallback or alternative
 
 Rules:
 - The `type` must be `reference`.
+- `sources.relpath` must point to the vault-relative markdown stub, not the
+  external PDF's absolute path.
+- `sources.external_path` stores the original absolute file path as a recoverable
+  device-local location hint.
+- Automatically generated stubs should not write `target_path` because
+  `04_Resources/` may sync across devices whose external libraries live at
+  different absolute paths. Use `target_path` only for explicit local/manual
+  stubs where that portability tradeoff is accepted.
 - If `zotero_key` is present, the backend RAG pipeline must resolve the absolute path using the active `ZOTERO_BASE_PATH` (or Zotero integration logic).
 - If `target_path` is present (and `zotero_key` is missing or fails to resolve), the backend uses this absolute path.
 - The Curator backend (`ingest_raw.py` and MCP tools) must transparently redirect read/parse operations to the resolved external file, ignoring the stub's body content.
+- Zotero-backed references must use `logical_source_id:
+  zotero:<attachment-key>` and deduplicate by that id before creating a new
+  stub. The stub should include portable open links, including an Obsidian PDF
+  viewer link when available and `zotero://open-pdf/library/items/<key>`.
+- The linked attachment root resolves Zotero DB `attachments:` paths only; it is
+  not required for ordinary Zotero `storage/<KEY>/...` attachments.

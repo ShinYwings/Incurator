@@ -1,4 +1,5 @@
 import hashlib
+import shutil
 import re
 import tempfile
 import unittest
@@ -642,6 +643,91 @@ last_updated: 2026-05-04T00:00:00Z
             ).fetchone()
         self.assertEqual(row["l3_status"], "error")
         self.assertEqual(row["layer_error"], "concept_clustering_failed")
+
+    def test_l3_clustering_failure_creates_fallback_concept(self) -> None:
+        from curator.llm import LLMError
+
+        with db.connect(self.paths.state_db) as conn:
+            cur = conn.execute(
+                """INSERT INTO sources
+                   (relpath, content_hash, file_type, bytes, added_at, status, context_id,
+                    l1_status, l2_status, l3_status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    "03_Notes/source.md",
+                    "hash",
+                    "md",
+                    10,
+                    "2026-05-04T00:00:00Z",
+                    "curated",
+                    "CTX-good1234",
+                    "done",
+                    "done",
+                    "pending",
+                ),
+            )
+            source_id = cur.lastrowid
+        (self.paths.contexts / "CTX-good1234.md").write_text(
+            """---
+id: CTX-good1234
+type: context
+domain: test
+---
+
+# Source
+""",
+            encoding="utf-8",
+        )
+        for idx in range(2):
+            (self.paths.atoms / f"ATM-good123{idx}.md").write_text(
+                f"""---
+id: ATM-good123{idx}
+type: atom
+parent_source: 01_Contexts/CTX-good1234
+claim_type: fact
+confidence_score: 0.35
+last_updated: 2026-05-04T00:00:00Z
+---
+
+# Atom {idx}
+
+## Definition / Claim
+
+Fallback claim {idx}.
+""",
+                encoding="utf-8",
+            )
+
+        class FailingClient:
+            def chat(self, *args, **kwargs):  # noqa: ANN002, ANN003
+                raise LLMError("provider unavailable")
+
+        staging = self.root / "staging"
+        staging.mkdir()
+        changes = ingest_llm._run_global_pass2_concepts(
+            self.paths,
+            FailingClient(),
+            ingest_llm.IngestCallbacks(),
+            "2026-05-04T00:00:00Z",
+            staging,
+        )
+        for staged_path, final_path, _ in changes:
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(staged_path, final_path)
+
+        self.assertEqual(len(changes), 1)
+        content = changes[0][0].read_text(encoding="utf-8")
+        self.assertIn("confidence_score: 0.35", content)
+        self.assertIn("Deterministic fallback Concept", content)
+        ingest_llm._set_l3_result_status(self.paths, [source_id], changes)
+
+        with db.connect(self.paths.state_db) as conn:
+            row = conn.execute(
+                "SELECT l3_status, layer_error FROM sources WHERE id = ?",
+                (source_id,),
+            ).fetchone()
+        self.assertEqual(row["l3_status"], "done")
+        self.assertIsNone(row["layer_error"])
 
     def test_l3_success_marks_all_l2_done_sources(self) -> None:
         source_ids = []

@@ -365,6 +365,30 @@ export function formatQuotaErrorMessage(provider: LLMProvider, message: string):
   );
 }
 
+export function formatMcpToolResultForDisplay(toolName: string, raw: string): string {
+  if (!toolName.includes("curator_query")) {
+    return raw.length > 600 ? raw.slice(0, 600) + "\n…" : raw;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return raw.length > 600 ? raw.slice(0, 600) + "\n…" : raw;
+    }
+    const compact = {
+      ok: parsed.ok,
+      question: parsed.question,
+      exhibition_id: parsed.exhibition_id,
+      cache_hit: parsed.cache_hit,
+      fallback: parsed.fallback,
+      error: parsed.error,
+      trace: parsed.trace,
+    };
+    return JSON.stringify(compact, null, 2);
+  } catch {
+    return raw.length > 600 ? raw.slice(0, 600) + "\n…" : raw;
+  }
+}
+
 const execFileAsync = promisify(execFile);
 const CLI_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -854,9 +878,7 @@ export class LLMClient {
                 resultText = JSON.stringify(event.tool_use_result, null, 2);
               }
               
-              if (resultText.length > 600) {
-                resultText = resultText.slice(0, 600) + "\n…";
-              }
+              resultText = formatMcpToolResultForDisplay(toolName, resultText);
               if (!statusBlockOpen) {
                 onChunk({ text: "<thinking>\n", done: false });
                 statusBlockOpen = true;

@@ -3,37 +3,29 @@ import { getIncuratorBackendStatus } from "./incuratorBackendStatus";
 
 describe("getIncuratorBackendStatus", () => {
   it("reports disabled when the backend toggle is off", () => {
-    expect(getIncuratorBackendStatus({ enabled: false, servers: [], tools: [] }).state).toBe("disabled");
+    const status = getIncuratorBackendStatus({ enabled: false });
+    expect(status.state).toBe("disabled");
+    expect(status.detail).toContain("turned off");
   });
 
-  it("reports connected when incurator tools are loaded", () => {
+  it("reports configured local backend command when enabled", () => {
     const status = getIncuratorBackendStatus({
       enabled: true,
-      servers: [],
-      tools: [{ serverName: "incurator", name: "curator_source_status", description: "", inputSchema: {} }],
+      command: "wiki",
+      commandArgs: [],
     });
 
-    expect(status.state).toBe("connected");
-    expect(status.detail).toContain("1 tool available");
+    expect(status.state).toBe("configured");
+    expect(status.detail).toBe("Backend command: wiki");
   });
 
-  it("reports waiting when a likely incurator server is configured but tools are not loaded", () => {
+  it("shows optional launcher prefix args", () => {
     const status = getIncuratorBackendStatus({
       enabled: true,
-      servers: [{ name: "incurator", command: "wiki", args: ["mcp"], enabled: true }],
-      tools: [],
+      command: "/opt/homebrew/bin/uv",
+      commandArgs: ["--directory", "/repo/backend", "run", "wiki"],
     });
 
-    expect(status.state).toBe("connecting");
-  });
-
-  it("reports missing when no incurator server or tools are present", () => {
-    const status = getIncuratorBackendStatus({
-      enabled: true,
-      servers: [{ name: "other", command: "node", args: ["server.js"], enabled: true }],
-      tools: [],
-    });
-
-    expect(status.state).toBe("missing");
+    expect(status.detail).toContain("/opt/homebrew/bin/uv --directory /repo/backend run wiki");
   });
 });

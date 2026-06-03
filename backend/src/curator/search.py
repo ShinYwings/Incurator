@@ -72,6 +72,17 @@ class SourcePageHit:
     snippet: str = ""
 
 
+@dataclass
+class IndexUpdateResult:
+    """Outcome of a qmd index refresh."""
+
+    updated: bool = False
+    embedded: bool = False
+    embed_requested: bool = False
+    degraded: bool = False
+    warning: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Errors
 # ---------------------------------------------------------------------------
@@ -264,7 +275,7 @@ def write_qmd_config(paths: cfg.WikiPaths, *, overwrite: bool = False) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def update_index(paths: cfg.WikiPaths, *, embed: bool = False) -> None:
+def update_index(paths: cfg.WikiPaths, *, embed: bool = False) -> IndexUpdateResult:
     """Refresh qmd's index for this project's Curator collection.
 
     Runs `qmd update` (re-indexes all configured collections) and optionally
@@ -286,15 +297,20 @@ def update_index(paths: cfg.WikiPaths, *, embed: bool = False) -> None:
             f"qmd update failed (exit {result.returncode}): "
             f"{result.stderr.strip() or result.stdout.strip()}"
         )
+    outcome = IndexUpdateResult(updated=True, embed_requested=embed)
     if embed:
         result = _run_qmd(
             ["embed"], timeout=600, cwd=paths.collections, paths=paths
         )
         if result.returncode != 0:
-            raise SearchBackendError(
+            outcome.degraded = True
+            outcome.warning = (
                 f"qmd embed failed (exit {result.returncode}): "
                 f"{result.stderr.strip() or result.stdout.strip()}"
             )
+            return outcome
+        outcome.embedded = True
+    return outcome
 
 
 # ---------------------------------------------------------------------------

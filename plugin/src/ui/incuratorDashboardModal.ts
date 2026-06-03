@@ -1,4 +1,4 @@
-import { App, Modal, Notice, parseYaml, stringifyYaml, setIcon } from "obsidian";
+import { App, Modal, Notice, parseYaml, setIcon } from "obsidian";
 import type ObsidianAIAgent from "../../main";
 import type { LLMProvider, ModelOption } from "../types";
 
@@ -24,13 +24,12 @@ const PROVIDER_LABELS: Record<LLMProvider, string> = {
   deepseek:    "DeepSeek",
 };
 
-type TabId = "overview" | "jobs" | "sources" | "persona" | "devices";
+type TabId = "overview" | "jobs" | "sources" | "persona";
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "layout-dashboard" },
   { id: "jobs",     label: "Jobs",     icon: "loader" },
   { id: "sources",  label: "Sources",  icon: "list" },
   { id: "persona",  label: "Persona",  icon: "user" },
-  { id: "devices",  label: "Devices",  icon: "laptop" },
 ];
 
 export class IncuratorDashboardModal extends Modal {
@@ -71,11 +70,8 @@ export class IncuratorDashboardModal extends Modal {
     setIcon(titleEl.createSpan(), "database");
     titleEl.appendText(" Incurator");
     const versionEl = header.createDiv({ cls: "ai-agent-sidebar-version" });
-    const renderVersion = () =>
-      versionEl.setText(`backend ${this.plugin.incuratorClient.backendVersion}`);
-    renderVersion();
-    // backendVersion is lazily populated; refresh it so the modal doesn't show a stale "unknown".
-    this.plugin.incuratorClient.checkBackendVersion().then(renderVersion).catch(() => {});
+    versionEl.setText("backend …");
+    this.renderBackendVersion(versionEl);
 
     header.style.cursor = "grab";
     header.addEventListener("mousedown", (e) => {
@@ -111,8 +107,8 @@ export class IncuratorDashboardModal extends Modal {
       tab.onclick = () => this.switchTab(t.id);
     }
 
-    // Pre-fetch models in background
-    this.plugin.incuratorClient.getAvailableModels().catch(() => {});
+    // Refresh the bundled backend model catalogue before Dashboard dropdowns render.
+    this.plugin.refreshAvailableModels().catch(() => {});
 
     const cfgP = this.readVaultConfig();
     this.switchTab("overview", cfgP);
@@ -145,7 +141,6 @@ export class IncuratorDashboardModal extends Modal {
       case "jobs":      this.renderJobs(view);          break;
       case "sources":   this.renderSources(view);       break;
       case "persona":   this.renderPersona(view, p);  break;
-      case "devices":   this.renderDevices(view);      break;
     }
   }
 
@@ -182,9 +177,35 @@ export class IncuratorDashboardModal extends Modal {
     catch { return null; }
   }
 
-  private async saveVaultConfig(): Promise<void> {
-    if (!this.vaultConfig) return;
-    await this.plugin.app.vault.adapter.write(".curator/config.yml", stringifyYaml(this.vaultConfig));
+  private async readRuntimeJson<T = any>(name: "status" | "jobs" | "sources"): Promise<T | null> {
+    try {
+      return JSON.parse(await this.plugin.app.vault.adapter.read(`.curator/runtime/${name}.json`)) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  private async refreshRuntimeSnapshots(): Promise<void> {
+    await this.runWikiCommand(["status"]);
+  }
+
+  private async readRuntimeStatus(): Promise<any | null> {
+    let status = await this.readRuntimeJson("status");
+    if (status) return status;
+    await this.refreshRuntimeSnapshots();
+    status = await this.readRuntimeJson("status");
+    return status;
+  }
+
+  private async renderBackendVersion(el: HTMLElement): Promise<void> {
+    const status = await this.readRuntimeStatus();
+    if (status?.backend_version) {
+      el.setText(`backend ${status.backend_version}`);
+      return;
+    }
+    const result = await this.runWikiCommand(["version"]);
+    const match = result.output?.match(/incurator\s+([^\s]+)/i);
+    el.setText(match ? `backend ${match[1]}` : "backend unknown");
   }
 
   private vaultBase(): string {
@@ -221,27 +242,7 @@ export class IncuratorDashboardModal extends Modal {
   }
 
   private async runWikiCommand(cmdArgs: string[]): Promise<{ ok: boolean, output?: string, error?: string }> {
-    const cwd = this.vaultBase();
-    if (!cwd) return { ok: false, error: "Not a local vault" };
-    
-    let wikiBin = "wiki";
-    try {
-      const st = await this.plugin.incuratorClient.getBackendStatus();
-      if (st?.wiki_binary) wikiBin = st.wiki_binary;
-    } catch (e) {}
-
-    return new Promise((resolve) => {
-      const cp = require("child_process").spawn(wikiBin, cmdArgs, { cwd, env: process.env });
-      let out = "";
-      let err = "";
-      cp.stdout?.on("data", (d: any) => out += d.toString());
-      cp.stderr?.on("data", (d: any) => err += d.toString());
-      cp.on("error", (e: any) => resolve({ ok: false, error: e.message }));
-      cp.on("close", (code: number) => {
-        if (code === 0) resolve({ ok: true, output: out });
-        else resolve({ ok: false, error: err || out || `Exit code ${code}` });
-      });
-    });
+    return this.plugin.runBackendCommand(cmdArgs);
   }
 
   // ---------------------------------------------------------------------------
@@ -265,37 +266,43 @@ export class IncuratorDashboardModal extends Modal {
 
     this.addActionBtn(acts, "Add",     "file-plus",    async () => {
       new Notice("Running Incurator add...");
-      const r = await this.plugin.incuratorClient.runAdd();
-      new Notice(r?.ok === false ? `Add failed: ${r.error || "unknown error"}` : "Add complete.");
+      const r = await this.runWikiCommand(["add"]);
+      if (r.ok) await this.refreshRuntimeSnapshots();
+      new Notice(r.ok ? "Add complete." : `Add failed: ${r.error}`);
       this.switchTab(this.activeTab);
     });
     this.addActionBtn(acts, "Build",   "hammer",       async () => {
-      new Notice("Running Incurator build...");
-      const r = await this.plugin.incuratorClient.runBuild();
-      new Notice(r?.ok === false ? `Build failed: ${r.error || "unknown error"}` : "Build complete.");
+      new Notice("Queueing Incurator build...");
+      const r = await this.runWikiCommand(["build"]);
+      if (r.ok) await this.refreshRuntimeSnapshots();
+      new Notice(r.ok ? "Build queued. Open Jobs to run or monitor queued work." : `Build failed: ${r.error}`);
       this.switchTab(this.activeTab);
     });
     this.addActionBtn(acts, "Sync",    "refresh-cw",   async () => {
       new Notice("Running Incurator sync...");
-      const r = await this.plugin.incuratorClient.runSync();
-      new Notice(r?.ok === false ? `Sync failed: ${r.error || "unknown error"}` : "Sync complete.");
+      const r = await this.runWikiCommand(["sync"]);
+      if (r.ok) await this.refreshRuntimeSnapshots();
+      new Notice(r.ok ? "Sync complete." : `Sync failed: ${r.error}`);
       this.switchTab(this.activeTab);
     });
     this.addActionBtn(acts, "Lint",    "check-circle", async () => {
       new Notice("Running Incurator lint...");
-      const r = await this.plugin.incuratorClient.runLint();
-      new Notice(r?.ok === false ? `Lint failed: ${r.error || "unknown error"}` : "Lint complete.");
+      const r = await this.runWikiCommand(["lint"]);
+      if (r.ok) await this.refreshRuntimeSnapshots();
+      new Notice(r.ok ? "Lint complete." : `Lint failed: ${r.error}`);
     });
     this.addActionBtn(acts, "Reindex", "search",       async () => {
       new Notice("Running Incurator reindex...");
-      const r = await this.plugin.incuratorClient.runReindex();
-      new Notice(r?.ok === false ? `Reindex failed: ${r.error || "unknown error"}` : "Reindex complete.");
+      const r = await this.runWikiCommand(["reindex"]);
+      if (r.ok) await this.refreshRuntimeSnapshots();
+      new Notice(r.ok ? "Reindex complete." : `Reindex failed: ${r.error}`);
     });
     this.addActionBtn(acts, "Reset",   "trash-2",      async () => {
       if (!confirm("This will clear your local DB and L1-L4 content (keeping notes and configs). Proceed?")) return;
       if (!confirm("WARNING: Are you absolutely sure you want to RESET the backend? This action cannot be undone.")) return;
       new Notice("Running wiki reset...");
       const r = await this.runWikiCommand(["reset", "--force"]);
+      if (r.ok) await this.refreshRuntimeSnapshots();
       new Notice(r.ok ? `Reset complete: ${r.output?.slice(-100)}` : `Reset failed: ${r.error}`);
     });
 
@@ -323,7 +330,7 @@ export class IncuratorDashboardModal extends Modal {
       statValEls[key] = item.createSpan({ cls: "ai-agent-ov-kg-num", text: "…" });
       item.createSpan({ cls: "ai-agent-ov-kg-label", text: label });
     }
-    this.getLayerCounts().then((c) => {
+    this.readRuntimeStatus().then((status) => status?.layer_counts || this.getLayerCounts()).then((c) => {
       for (const [k, e] of Object.entries(statValEls)) e.setText(String(c[k] ?? 0));
     });
 
@@ -332,7 +339,7 @@ export class IncuratorDashboardModal extends Modal {
     jobsCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Build Jobs" });
     const jobsBody = jobsCard.createDiv({ cls: "ai-agent-ov-jobs-body" });
     jobsBody.createDiv({ cls: "ai-agent-dashboard-loading", text: "Checking…" });
-    this.plugin.incuratorClient.tryTool(["check_ingest_status"], {}).then((data: any) => {
+    this.readRuntimeJson("jobs").then((data: any) => {
       jobsBody.empty();
       if (!data || data.idle) {
         const row = jobsBody.createDiv("ai-agent-ov-jobs-idle");
@@ -393,27 +400,33 @@ export class IncuratorDashboardModal extends Modal {
       return row.createDiv({ cls: "ai-agent-ov-path-value", text: val ?? "…" });
     };
     const vaultEl = pathRow("Vault");
-    const deviceEl = pathRow("Device");
     const wikiEl  = pathRow("Wiki CLI");
     const qmdEl   = pathRow("QMD");
     const zoteroSysEl = pathRow("Zotero", rootsText);
     zoteroSysEl.addClass("is-ok");
-
-    this.plugin.app.vault.adapter.read(".curator/devices.json").then((raw: string) => {
-      try {
-        const reg = JSON.parse(raw);
-        if (reg?.local_device_id && reg.devices?.[reg.local_device_id]) {
-          deviceEl.setText(reg.devices[reg.local_device_id].name || reg.local_device_id);
-        } else {
-          deviceEl.setText("Unknown");
-        }
-      } catch {
-        deviceEl.setText("Unknown");
-      }
-    }).catch(() => {
-      deviceEl.setText("Unknown");
+    zoteroSysEl.style.cursor = "pointer";
+    zoteroSysEl.addEventListener("click", async () => {
+      const status = await this.plugin.incuratorClient.getZoteroStatus();
+      this.plugin.openZoteroRepairModal({ status });
     });
-    this.plugin.incuratorClient.getBackendStatus().then((st: any) => {
+    this.plugin.incuratorClient.getZoteroStatus().then((status) => {
+      const label = status.ok
+        ? status.dbPath || status.dataDir || "ready"
+        : status.error || status.dataDir || status.state;
+      zoteroSysEl.setText(label);
+      zoteroSysEl.setAttr("title", [
+        `state: ${status.state}`,
+        ...status.rootsChecked.map((root) => `checked: ${root}`),
+      ].join("\n"));
+      zoteroSysEl.toggleClass("is-ok", status.ok);
+      zoteroSysEl.toggleClass("is-warn", !status.ok);
+    }).catch(() => {
+      zoteroSysEl.setText("offline");
+      zoteroSysEl.toggleClass("is-ok", false);
+      zoteroSysEl.toggleClass("is-warn", true);
+    });
+
+    this.readRuntimeStatus().then((st: any) => {
       vaultEl.setText(st?.vault_root || this.vaultBase() || "Unknown");
       wikiEl.setText(st?.wiki_binary || "Not found");
       wikiEl.toggleClass("is-ok", !!st?.wiki_binary);
@@ -422,10 +435,13 @@ export class IncuratorDashboardModal extends Modal {
       qmdEl.toggleClass("is-ok", !!st?.qmd_binary);
       qmdEl.toggleClass("is-warn", !st?.qmd_binary);
       
-      if (st?.zotero_roots && Array.isArray(st.zotero_roots) && st.zotero_roots.length > 0) {
-        const discovered = st.zotero_roots.join(", ");
-        zoteroSysEl.setText(discovered);
-        zoteroSysEl.setAttr("title", discovered);
+      const zoteroRoots = st?.external?.zotero?.roots;
+      if (Array.isArray(zoteroRoots) && zoteroRoots.length > 0) {
+        const discovered = zoteroRoots.join(", ");
+        if (!zoteroSysEl.getText() || zoteroSysEl.getText() === rootsText) {
+          zoteroSysEl.setText(discovered);
+          zoteroSysEl.setAttr("title", discovered);
+        }
       }
     }).catch(() => {
       vaultEl.setText(this.vaultBase() || "offline");
@@ -440,9 +456,9 @@ export class IncuratorDashboardModal extends Modal {
     syncTable("Sync workers",  String(cfg?.sync?.max_parallel_verifications ?? 4));
     syncTable("Log retention", `${cfg?.curate?.log_retention_days ?? 30} days`);
 
-    // ── Devices card ─────────────────────────────────────────────────────────
-    const deviceCard = this.ovCard(grid, "span-2", "devices");
-    deviceCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Devices" });
+    // ── Syncthing device-folder card ────────────────────────────────────────
+    const deviceCard = this.ovCard(grid, "span-2", null);
+    deviceCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Syncthing Devices" });
     const devListContainer = deviceCard.createDiv({ cls: "ai-agent-ov-device-list" });
     devListContainer.style.marginTop = "12px";
     devListContainer.style.display = "flex";
@@ -454,24 +470,32 @@ export class IncuratorDashboardModal extends Modal {
         const reg = JSON.parse(raw);
         if (reg?.devices) {
           const localId = reg.local_device_id;
-          let devices = Object.entries(reg.devices).filter(([id, d]: [string, any]) => {
+          const folders: any[] = Array.isArray(reg.syncthing?.folders) ? reg.syncthing.folders : [];
+          let devices = Object.entries(reg.devices);
+          const inferLocal = ([id, d]: [string, any]) => {
             if (id === localId) return true;
-            if (id === "local") return false; // Ignore redundant local placeholder
-            if (!d.platform && !d.backend) return false; // Filter empty shells
-            return true;
-          });
+            if (!localId && (d?.platform || d?.backend)) return true;
+            if (localId === "local" && d?.platform) return true;
+            return false;
+          };
 
           if (devices.length === 0) {
             devListContainer.createDiv({ text: "No devices", cls: "ai-agent-ov-card-sub" });
           } else {
             // Sort to put the local device first
-            devices.sort(([idA], [idB]) => {
-              if (idA === localId) return -1;
-              if (idB === localId) return 1;
-              return 0;
+            devices.sort((entryA, entryB) => {
+              if (inferLocal(entryA)) return -1;
+              if (inferLocal(entryB)) return 1;
+              return String((entryA[1] as any).name || entryA[0]).localeCompare(String((entryB[1] as any).name || entryB[0]));
             });
             for (const [id, d] of devices) {
-              const isLocal = id === localId;
+              const isLocal = inferLocal([id, d]);
+              const syncedFolderIds = isLocal && id === "local"
+                ? folders
+                : folders.filter((folder) => Array.isArray(folder.device_ids) && folder.device_ids.includes(id));
+              const folderLabels = syncedFolderIds
+                .map((folder) => folder.label || folder.id || folder.role)
+                .filter(Boolean);
               const row = devListContainer.createDiv();
               row.style.fontSize = "14px";
               row.style.display = "flex";
@@ -487,16 +511,21 @@ export class IncuratorDashboardModal extends Modal {
 
               if (isLocal) {
                 row.createSpan({ text: "●", cls: "is-ok" });
-                const nameEl = row.createSpan({ text: (d as any).name || id, cls: "is-ok", attr: { title: (d as any).platform || "Current Device" } });
+                const nameEl = row.createSpan({ text: `${(d as any).name || id} (This device)`, cls: "is-ok", attr: { title: "Current device on this machine" } });
                 nameEl.style.fontWeight = "600";
                 nameEl.style.lineHeight = "1.2";
                 applyTruncation(nameEl);
               } else {
                 row.createSpan({ text: "○", attr: { style: "opacity: 0.5" } });
-                const nameEl = row.createSpan({ text: (d as any).name || "Unknown", attr: { title: (d as any).platform || "", style: "opacity: 0.8" } });
+                const nameEl = row.createSpan({ text: (d as any).name || "Unknown", attr: { title: (d as any).device_id || id, style: "opacity: 0.8" } });
                 nameEl.style.lineHeight = "1.2";
                 applyTruncation(nameEl);
               }
+              const foldersEl = row.createSpan({
+                cls: "ai-agent-compact-muted",
+                text: folderLabels.length ? ` -> ${folderLabels.join(", ")}` : " -> no synced folder",
+              });
+              applyTruncation(foldersEl);
             }
           }
         } else {
@@ -612,6 +641,7 @@ export class IncuratorDashboardModal extends Modal {
     if (Object.keys(cat).length === 0) {
       primarySel.createEl("option", { value: "", text: "Loading models…" });
       fallbackSel.createEl("option", { value: "", text: "Loading models…" });
+      this.plugin.refreshAvailableModels().catch(() => {});
       const iv = window.setInterval(() => {
         const c2 = this.plugin.availableModels;
         if (Object.keys(c2).length > 0) { window.clearInterval(iv); populate(c2); }
@@ -625,17 +655,35 @@ export class IncuratorDashboardModal extends Modal {
     const applyBtn = applyRow.createEl("button", { cls: "ai-agent-llm-apply-btn mod-cta", text: "Apply" });
     applyBtn.onclick = async () => {
       if (!this.vaultConfig) return;
-      const llmCfg = this.vaultConfig.llm ?? {};
-      llmCfg.primary  = this.toStoredValue(primarySel.value);
-      llmCfg.fallback = fallbackSel.value ? this.toStoredValue(fallbackSel.value) : "";
-      llmCfg.primary_effort  = primaryEffortSel.disabled  ? "" : primaryEffortSel.value;
-      llmCfg.fallback_effort = (fallbackSel.value && !fallbackEffortSel.disabled) ? fallbackEffortSel.value : "";
-      this.vaultConfig.llm = llmCfg;
+      const primary = this.toStoredValue(primarySel.value);
+      const fallback = fallbackSel.value ? this.toStoredValue(fallbackSel.value) : "";
+      const primaryEffort = primaryEffortSel.disabled ? "" : primaryEffortSel.value;
+      const fallbackEffort = (fallbackSel.value && !fallbackEffortSel.disabled) ? fallbackEffortSel.value : "";
       applyBtn.disabled = true; applyBtn.setText("Saving…");
       try {
-        await this.saveVaultConfig();
-        const eff = llmCfg.primary_effort ? ` (${llmCfg.primary_effort})` : "";
-        new Notice(`LLM saved · primary ${llmCfg.primary}${eff}${llmCfg.fallback ? `  fallback ${llmCfg.fallback}` : ""}`);
+        const [provider, model] = primary.split("::");
+        const args = ["config", "provider", "--primary", provider];
+        if (model) args.push("--model", model);
+        if (primaryEffort) args.push("--effort", primaryEffort);
+        let r = await this.runWikiCommand(args);
+        if (!r.ok) {
+          new Notice(`LLM save failed: ${r.error}`);
+          return;
+        }
+        r = await this.runWikiCommand(["config", "set", "llm.fallback", fallback || ""]);
+        if (!r.ok) {
+          new Notice(`Fallback save failed: ${r.error}`);
+          return;
+        }
+        r = await this.runWikiCommand(["config", "set", "llm.fallback_effort", fallbackEffort || ""]);
+        if (!r.ok) {
+          new Notice(`Fallback effort save failed: ${r.error}`);
+          return;
+        }
+        await this.refreshRuntimeSnapshots();
+        this.vaultConfig = await this.readVaultConfig();
+        const eff = primaryEffort ? ` (${primaryEffort})` : "";
+        new Notice(`LLM saved · primary ${primary}${eff}${fallback ? `  fallback ${fallback}` : ""}`);
       } finally { applyBtn.disabled = false; applyBtn.setText("Apply"); }
     };
 
@@ -670,6 +718,9 @@ export class IncuratorDashboardModal extends Modal {
   private async renderJobs(el: HTMLElement) {
     const hdr = el.createDiv("ai-agent-jobs-header");
     hdr.createEl("h3", { text: "Build Jobs", cls: "ai-agent-dashboard-section-title" });
+    const runBtn = hdr.createEl("button", { cls: "ai-agent-dashboard-btn" });
+    setIcon(runBtn.createSpan(), "play");
+    runBtn.appendText(" Run queued");
     const refreshBtn = hdr.createEl("button", { cls: "ai-agent-dashboard-btn" });
     setIcon(refreshBtn.createSpan(), "refresh-cw");
     refreshBtn.appendText(" Refresh");
@@ -677,8 +728,21 @@ export class IncuratorDashboardModal extends Modal {
     const body = el.createDiv("ai-agent-jobs-body");
     const load = async () => {
       body.empty();
-      const data = await this.plugin.incuratorClient.tryTool(["check_ingest_status"], {}) as any;
+      let data = await this.readRuntimeJson("jobs") as any;
+      if (!data) {
+        await this.refreshRuntimeSnapshots();
+        data = await this.readRuntimeJson("jobs") as any;
+      }
       this.renderJobsBody(body, data);
+    };
+    runBtn.onclick = async () => {
+      runBtn.disabled = true;
+      new Notice("Running queued Incurator build jobs...");
+      const result = await this.runWikiCommand(["jobs", "run"]);
+      if (result.ok) await this.refreshRuntimeSnapshots();
+      new Notice(result.ok ? "Queued build jobs processed." : `Build jobs failed: ${result.error}`);
+      runBtn.disabled = false;
+      await load();
     };
     refreshBtn.onclick = () => load();
     await load();
@@ -712,18 +776,28 @@ export class IncuratorDashboardModal extends Modal {
       el.createDiv({ cls: "ai-agent-status-section-label", text: `Queued (${queued.length})` });
       for (const j of queued) this.renderJobRow(el, j, "queued");
     }
+    if (data.failed?.length) {
+      el.createDiv({ cls: "ai-agent-status-section-label", text: `Failed (${data.failed.length})` });
+      for (const j of data.failed) this.renderJobRow(el, j, "failed");
+    }
+    if (data.cancelled?.length) {
+      el.createDiv({ cls: "ai-agent-status-section-label", text: `Cancelled (${data.cancelled.length})` });
+      for (const j of data.cancelled) this.renderJobRow(el, j, "cancelled");
+    }
     if (done.length) {
       el.createDiv({ cls: "ai-agent-status-section-label", text: `Completed today (${doneCount})` });
       for (const j of done) this.renderJobRow(el, j, "done");
     }
   }
 
-  private renderJobRow(el: HTMLElement, job: any, state: "running" | "queued" | "done") {
+  private renderJobRow(el: HTMLElement, job: any, state: "running" | "queued" | "done" | "failed" | "cancelled") {
     const row = el.createDiv("ai-agent-dashboard-job-item");
     if (state === "done") row.addClass("is-done");
 
     const hdr = row.createDiv("ai-agent-job-title-row");
     if (state === "done") setIcon(hdr.createSpan(), "check");
+    if (state === "failed") setIcon(hdr.createSpan(), "alert-triangle");
+    if (state === "cancelled") setIcon(hdr.createSpan(), "circle-slash");
     hdr.createSpan({ cls: "ai-agent-job-name", text: job.source_name || "Unknown" });
     const meta = [job.job_type, job.phase].filter(Boolean).join(" · ");
     if (meta) hdr.createSpan({ cls: "ai-agent-job-phase", text: meta });
@@ -739,6 +813,34 @@ export class IncuratorDashboardModal extends Modal {
       outer.createDiv("ai-agent-progress-inner").style.width = `${total ? (cur / total) * 100 : 0}%`;
       pr.createSpan({ cls: "ai-agent-progress-label", text: total ? `${cur}/${total}` : "…" });
     }
+
+    if (state === "queued" || state === "done" || state === "failed" || state === "cancelled") {
+      const actions = row.createDiv("ai-agent-job-actions");
+      const actionBtn = actions.createEl("button", {
+        cls: "ai-agent-dashboard-btn",
+      });
+      if (state === "queued") {
+        setIcon(actionBtn.createSpan(), "x");
+        actionBtn.appendText(" Cancel");
+        actionBtn.onclick = async () => {
+          actionBtn.disabled = true;
+          const result = await this.runWikiCommand(["jobs", "cancel", String(job.job_id)]);
+          if (result.ok) await this.refreshRuntimeSnapshots();
+          new Notice(result.ok ? `Cancelled job #${job.job_id}.` : `Cancel failed: ${result.error}`);
+          this.switchTab("jobs");
+        };
+      } else {
+        setIcon(actionBtn.createSpan(), "rotate-ccw");
+        actionBtn.appendText(" Rerun");
+        actionBtn.onclick = async () => {
+          actionBtn.disabled = true;
+          const result = await this.runWikiCommand(["jobs", "rerun", String(job.job_id)]);
+          if (result.ok) await this.refreshRuntimeSnapshots();
+          new Notice(result.ok ? `Requeued job #${job.job_id}.` : `Rerun failed: ${result.error}`);
+          this.switchTab("jobs");
+        };
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -749,7 +851,11 @@ export class IncuratorDashboardModal extends Modal {
     el.createEl("h3", { text: "Recent Sources", cls: "ai-agent-dashboard-section-title" });
     const loading = el.createDiv({ cls: "ai-agent-dashboard-loading", text: "Loading…" });
     try {
-      const result = await this.plugin.incuratorClient.tryTool(["check_source_status", "curator_source_status"], { limit: 20 }) as any;
+      let result = await this.readRuntimeJson("sources") as any;
+      if (!result) {
+        await this.refreshRuntimeSnapshots();
+        result = await this.readRuntimeJson("sources") as any;
+      }
       loading.remove();
       if (!result?.sources?.length) { el.createDiv({ cls: "ai-agent-dashboard-empty", text: "No sources tracked yet." }); return; }
 
@@ -822,100 +928,30 @@ export class IncuratorDashboardModal extends Modal {
     saveBtn.onclick = async () => {
       saveBtn.disabled = true; saveBtn.setText("Saving…");
       try {
-        cfg.persona = {
-          ...(cfg.persona ?? {}),
-          area:                    areaInput.value.trim(),
-          text:                    textArea.value.trim(),
-          knowledge_artifacts:     artsInput.value.split(",").map((s: string) => s.trim()).filter(Boolean),
-          verification_philosophy: verifyInput.value.trim(),
-          exhibition_intent:       intentSel.value,
-          updated_at:              new Date().toISOString(),
-        };
-        await this.saveVaultConfig();
+        const updates: Array<[string, string]> = [
+          ["persona.area", areaInput.value.trim()],
+          ["persona.text", textArea.value.trim()],
+          [
+            "persona.knowledge_artifacts",
+            JSON.stringify(artsInput.value.split(",").map((s: string) => s.trim()).filter(Boolean)),
+          ],
+          ["persona.verification_philosophy", verifyInput.value.trim()],
+          ["persona.exhibition_intent", intentSel.value],
+          ["persona.updated_at", new Date().toISOString()],
+        ];
+        for (const [key, value] of updates) {
+          const r = await this.runWikiCommand(["config", "set", key, value]);
+          if (!r.ok) {
+            new Notice(`Save failed: ${r.error}`);
+            return;
+          }
+        }
+        await this.refreshRuntimeSnapshots();
+        this.vaultConfig = await this.readVaultConfig();
         new Notice("Persona saved.");
       } catch (e) { new Notice(`Save failed: ${e}`); }
       finally { saveBtn.disabled = false; saveBtn.setText("Save Persona"); }
     };
   }
 
-  // ---------------------------------------------------------------------------
-
-  // ---------------------------------------------------------------------------
-  // DEVICES TAB
-  // ---------------------------------------------------------------------------
-
-  private async renderDevices(el: HTMLElement) {
-    el.createEl("h3", { text: "Sync Devices", cls: "ai-agent-dashboard-section-title" });
-
-    const data = await this.readDevicesJson();
-    if (!data) {
-      const empty = el.createDiv("ai-agent-dashboard-empty");
-      empty.createDiv({ text: "No devices.json found." });
-      empty.createDiv({ cls: "setting-desc", text: "Run wiki devices sync inside the synced vault to populate." });
-      return;
-    }
-
-    // Use the processed device registry (data.devices) — same source as `wiki devices`.
-    // This includes the local Mac entry (keyed by "local") that syncthing.devices omits.
-    const localId: string = data.local_device_id ?? "";
-    const devices: Record<string, any> = data.devices ?? {};
-    const folders: any[] = data.syncthing?.folders ?? [];
-
-    if (folders.length) {
-      const folderBar = el.createDiv("ai-agent-device-folder-row");
-      setIcon(folderBar.createSpan(), "folder-sync");
-      folderBar.appendText(` ${folders[0].label || folders[0].id}  ·  ${folders[0].path || "?"}`);
-    }
-
-    const entries = Object.entries(devices);
-    if (!entries.length) {
-      el.createDiv({ cls: "ai-agent-dashboard-empty", text: "No devices in registry." });
-      return;
-    }
-
-    // Sort: local device first, then by name
-    entries.sort(([idA, a], [idB, b]) => {
-      if (idA === localId) return -1;
-      if (idB === localId) return 1;
-      return String(a.name || idA).localeCompare(String(b.name || idB));
-    });
-
-    const list = el.createDiv("ai-agent-device-list");
-    for (const [id, dev] of entries) {
-      const name: string = dev.name || id.slice(0, 12);
-      const system: string = dev.platform?.system || dev.syncthing?.platform || "";
-      const backend = dev.backend ?? {};
-      const backendCmd: string = backend.command || "";
-      const updatedAt: string = dev.updated_at || "";
-      const isLocal = id === localId;
-
-      if (!isLocal && !dev.platform && !dev.backend) {
-        continue;
-      }
-
-      const card = list.createDiv("ai-agent-device-card");
-      if (isLocal) card.addClass("is-local");
-
-      const hdr = card.createDiv("ai-agent-device-card-header");
-      setIcon(hdr.createDiv("ai-agent-device-icon").createSpan(), isLocal ? "monitor" : "laptop");
-      const info = hdr.createDiv();
-      const nameRow = info.createDiv({ cls: "ai-agent-device-name-row" });
-      nameRow.createSpan({ cls: "ai-agent-device-name", text: name });
-      if (isLocal) nameRow.createSpan({ cls: "ai-agent-device-badge", text: "This device" });
-      if (system) info.createDiv({ cls: "ai-agent-device-system", text: system });
-
-      // Device ID (skip the "local" placeholder)
-      if (id !== "local") {
-        card.createDiv({ cls: "ai-agent-device-id", text: `${id.slice(0, 14)}…${id.slice(-8)}` });
-      }
-      if (backendCmd) {
-        const beRow = card.createDiv("ai-agent-device-address");
-        setIcon(beRow.createSpan(), "terminal");
-        beRow.appendText(` ${backendCmd}`);
-      }
-      if (updatedAt) {
-        card.createDiv({ cls: "ai-agent-device-updated", text: `updated ${new Date(updatedAt).toLocaleString()}` });
-      }
-    }
-  }
 }

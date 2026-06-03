@@ -136,6 +136,15 @@ def _resolve_reference_source(paths: cfg.WikiPaths, source: Path) -> Path:
         
         if not target_path and fm.get("target_path"):
             target_path = fm["target_path"]
+
+        if not target_path:
+            try:
+                relpath = str(source.resolve().relative_to(paths.root.resolve()))
+            except ValueError:
+                relpath = str(source)
+            row = db.get_source_row(paths.state_db, paths.root, relpath=relpath)
+            if row and row.get("external_path"):
+                target_path = str(row["external_path"])
             
         if target_path:
             target_p = Path(target_path)
@@ -211,6 +220,60 @@ def _unique_destination(path: Path) -> Path:
         if not candidate.exists():
             return candidate
     raise FileExistsError(f"Could not find a free destination near {path}")
+
+
+def _reference_stub_destination(paths: cfg.WikiPaths, source: Path, destination: str | Path | None = None) -> Path:
+    resources_dir = paths.root.resolve() / consts.DIR_RESOURCES
+    if destination is None:
+        dest = resources_dir / "References" / f"{source.stem}.md"
+    else:
+        rel_dest = _safe_relative_path(Path(destination))
+        dest = paths.root.resolve() / rel_dest
+        if dest.suffix == "":
+            dest = dest / f"{source.stem}.md"
+    dest = dest.resolve()
+    if not _is_inside(dest, resources_dir):
+        raise ValueError("Reference stub destination must stay inside 04_Resources.")
+    return dest
+
+
+def _write_reference_stub(
+    stub_path: Path,
+    *,
+    source: Path,
+    title: str,
+    logical_source_id: str,
+) -> None:
+    import yaml
+
+    zotero_attachment_key = ""
+    if logical_source_id.startswith("zotero:"):
+        zotero_attachment_key = logical_source_id.split(":", 1)[1]
+
+    frontmatter = {
+        "type": "reference",
+        "title": title,
+        "logical_source_id": logical_source_id,
+    }
+    if zotero_attachment_key:
+        frontmatter["reference_kind"] = "zotero"
+        frontmatter["zotero_attachment_key"] = zotero_attachment_key
+    stub_path.parent.mkdir(parents=True, exist_ok=True)
+    fm = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip()
+    body = (
+        f"# {title}\n\n"
+        "External source reference. The backend resolves the local file path "
+        "from device-local source metadata or an external library integration.\n"
+    )
+    if zotero_attachment_key:
+        body += (
+            f"\nObsidian PDF viewer: zotero://open-pdf/library/items/{zotero_attachment_key}?viewer=obsidian\n"
+            f"Zotero PDF: zotero://open-pdf/library/items/{zotero_attachment_key}\n"
+        )
+    stub_path.write_text(
+        f"---\n{fm}\n---\n\n{body}",
+        encoding="utf-8",
+    )
 
 
 def safe_import_destination(
@@ -868,13 +931,15 @@ def _structural_atom_candidates(sections: list[dict], title: str) -> list[dict]:
     for section in sections[:24]:
         section_title = _clean_section_title(str(section.get("title") or ""), title)
         page = int(section.get("page") or 1)
+        preview = _section_preview(str(section.get("text") or ""))
         candidates.append(
             {
                 "name": section_title,
                 "type": consts.CLAIM_TYPE_FACT,
                 "one_liner": (
-                    "Extract the atomic claims, methods, entities, and constraints "
+                    "Extract the atomic claims, methods, entities, equations, and constraints "
                     f"from section '{section_title}' starting on page {page}."
+                    + (f" Preview: {preview}" if preview else "")
                 ),
             }
         )
@@ -887,6 +952,107 @@ def _structural_atom_candidates(sections: list[dict], title: str) -> list[dict]:
             "one_liner": "Extract the atomic claims, methods, entities, and constraints from this source.",
         }
     ]
+
+
+def _section_preview(text: str, *, max_chars: int = 260) -> str:
+    """Return a compact source-text preview without destroying math/code recall."""
+    cleaned = re.sub(r"(?s)```.*?```", " ", text)
+    cleaned = re.sub(r"(?s)\$\$.*?\$\$", " ", cleaned)
+    cleaned = re.sub(
+        r"(?is)\*\*----- Start of picture text -----\*\*<br>.*?\*\*----- End of picture text -----\*\*<br>",
+        " ",
+        cleaned,
+    )
+    cleaned = re.sub(r"!\[\[.*?\]\]", " ", cleaned)
+    cleaned = re.sub(r"\*\*==>.*?intentionally omitted.*?<==\*\*", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned:
+        return ""
+    if len(cleaned) <= max_chars:
+        return cleaned
+
+    # Prefer sentence boundaries when available; otherwise fall back to a word
+    # boundary slice. This text is a retrieval hint, not a lossy replacement for
+    # Source Sections.
+    boundary = re.search(r"(?<=[.!?])\s+", cleaned[: max_chars + 80])
+    if boundary and boundary.end() > 40:
+        preview = cleaned[: boundary.start() + 1]
+    else:
+        preview = cleaned[:max_chars].rsplit(" ", 1)[0] or cleaned[:max_chars]
+    return preview.rstrip(" ,;:") + ("..." if len(cleaned) > len(preview) else "")
+
+
+L1_INLINE_SOURCE_MAX_CHARS = 200_000
+L1_INLINE_SOURCE_MAX_PAGES = 200
+
+
+def _source_page_count(parsed, sections: list[dict]) -> int:
+    page_count = parsed.metadata.get("page_count") or parsed.metadata.get("pdf_page_count")
+    if not page_count:
+        pages = [int(section.get("page") or 1) for section in sections]
+        page_count = max(pages) if pages else 1
+    return int(page_count or 1)
+
+
+def _should_inline_source_sections(parsed, sections: list[dict]) -> bool:
+    """Return whether L1 should inline full raw text instead of a compact minimap."""
+    total_chars = sum(len(str(section.get("text") or "")) for section in sections)
+    page_count = _source_page_count(parsed, sections)
+    return total_chars <= L1_INLINE_SOURCE_MAX_CHARS and page_count <= L1_INLINE_SOURCE_MAX_PAGES
+
+
+def _build_structural_source_guide(
+    parsed,
+    sections: list[dict],
+    *,
+    inline_source_sections: bool,
+) -> tuple[str, str, str]:
+    """Build English L1 retrieval scaffolding while preserving source recall."""
+    section_count = len(sections)
+    page_count = _source_page_count(parsed, sections)
+    source_policy = (
+        "the full original source text is preserved in `Source Sections`"
+        if inline_source_sections
+        else "large-document raw text is kept in the original source and fetched on demand"
+    )
+
+    summary = (
+        f"Structural L1 context for **{parsed.title}**. "
+        f"The parser found {section_count} source section(s)"
+        f" across {page_count} page(s). "
+        f"Use the section ids and page numbers below for recall; {source_policy} "
+        "for exact lookup, math, tables, and later extraction."
+    )
+
+    guide_lines = [
+        "- Generated scaffold language: English.",
+        (
+            "- Source truth: original text under `Source Sections`; do not treat the previews as a replacement for raw evidence."
+            if inline_source_sections
+            else "- Source truth: original file text; use `fetch_document_section` with `toc_id` or page ranges for raw evidence."
+        ),
+        "- Provenance shape: each preview maps to `section_id`, `page`, and the matching HTML section marker.",
+        "",
+        "### Section Previews",
+    ]
+    claim_lines: list[str] = []
+    for idx, section in enumerate(sections[:24], 1):
+        sid = str(section.get("id") or _section_id(idx))
+        title = _clean_section_title(str(section.get("title") or ""), f"Section {idx}")
+        page = int(section.get("page") or 1)
+        preview = _section_preview(str(section.get("text") or ""))
+        if preview:
+            guide_lines.append(f"- `{sid}` p.{page} — **{title}**: {preview}")
+            claim_lines.append(
+                f"- `{sid}` p.{page} **{title}**: {preview}"
+            )
+        else:
+            guide_lines.append(f"- `{sid}` p.{page} — **{title}**: no text preview available.")
+            claim_lines.append(
+                f"- `{sid}` p.{page} **{title}**: source section is available for extraction."
+            )
+
+    return summary, "\n".join(claim_lines), "\n".join(guide_lines)
 
 
 def _save_pdf_images(parsed, relpath: str, paths: cfg.WikiPaths) -> list[dict]:
@@ -976,7 +1142,17 @@ def _build_structural_context_page(
             for img in saved_images
         ]
 
-    key_claims_text = "- Pending L2 extraction from structural source sections."
+    inline_source_sections = _should_inline_source_sections(parsed, sections)
+    source_char_count = sum(len(str(section.get("text") or "")) for section in sections)
+    frontmatter["source_sections_inline"] = inline_source_sections
+    frontmatter["source_text_policy"] = "inline" if inline_source_sections else "on_demand"
+    frontmatter["source_char_count"] = source_char_count
+
+    summary_text, key_claims_text, source_guide_text = _build_structural_source_guide(
+        parsed,
+        sections,
+        inline_source_sections=inline_source_sections,
+    )
     candidates_text = "\n".join(
         f"- [{candidate['type']}] {candidate['name']}: {candidate['one_liner']}"
         for candidate in candidates
@@ -995,13 +1171,25 @@ def _build_structural_context_page(
     source_sections = []
     for idx, section in enumerate(sections, 1):
         level = max(2, min(int(section.get("level") or 2), 6))
+        sid = str(section.get("id") or _section_id(idx))
+        page_num = int(section.get("page") or 1)
+        title = str(section.get("title") or f"Section {idx}")
+        body = str(section.get("text") or "").strip()
+        if not inline_source_sections:
+            preview = _section_preview(body, max_chars=420)
+            body = (
+                f"Raw source text is not duplicated in this L1 page because the source is large. "
+                f"Fetch exact evidence on demand with `fetch_document_section(source_key=\"{relpath}\", toc_id=\"{sid}\")`"
+                f" or page `{page_num}`."
+                + (f"\n\nPreview: {preview}" if preview else "")
+            )
         source_sections.append(
             "\n".join(
                 [
-                    f"<!-- section:{section.get('id') or _section_id(idx)} page:{int(section.get('page') or 1)} -->",
-                    f"{'#' * level} {section.get('title') or f'Section {idx}'}",
+                    f"<!-- section:{sid} page:{page_num} -->",
+                    f"{'#' * level} {title}",
                     "",
-                    str(section.get("text") or "").strip(),
+                    body,
                 ]
             ).strip()
         )
@@ -1022,11 +1210,12 @@ def _build_structural_context_page(
     return (
         f"---\n{fm}\n---\n\n"
         "## Summary\n\n"
-        f"Instant structural L1 for **{parsed.title}**. The full source text is preserved "
-        "below with stable section markers; L2/L3 extraction runs asynchronously.\n\n"
+        f"{summary_text}\n\n"
         "## 1. Key Claims\n\n"
         f"{key_claims_text}\n"
         f"{page_provenance}"
+        "\n## Source Guide\n\n"
+        f"{source_guide_text}\n\n"
         "\n## 2. Atom Candidates\n\n"
         f"{candidates_text}\n\n"
         "## Source Sections\n\n"
@@ -1599,8 +1788,32 @@ def import_source_file(
                 message=f"Parse failed: {exc}",
             )
 
-        relpath = str(source)
         logical_id = logical_source_id or _default_logical_source_id(source)
+        existing_relpath: str | None = None
+        with db.connect(paths.state_db) as conn:
+            existing = conn.execute(
+                "SELECT relpath FROM sources WHERE logical_source_id = ? OR external_path = ?",
+                (logical_id, str(source)),
+            ).fetchone()
+            if existing is not None:
+                existing_relpath = str(existing["relpath"])
+
+        if existing_relpath:
+            stub_path = paths.root / existing_relpath
+            relpath = existing_relpath
+        else:
+            try:
+                stub_path = _reference_stub_destination(paths, source, destination)
+            except Exception as exc:
+                return AddOutcome(
+                    result=AddResult.ERROR,
+                    source_path=source,
+                    relpath=str(source),
+                    message=str(exc),
+                )
+            stub_path = _unique_destination(stub_path)
+            relpath = str(stub_path.relative_to(paths.root.resolve()))
+
         if dry_run:
             return AddOutcome(
                 result=AddResult.DEDUPED,
@@ -1615,6 +1828,27 @@ def import_source_file(
                     "Dry run: would register external reference "
                     f"{source} as {logical_id}"
                 ),
+            )
+
+        _write_reference_stub(
+            stub_path,
+            source=source,
+            title=parsed.title,
+            logical_source_id=logical_id,
+        )
+        outcome = add_file(paths, stub_path)
+        source_id = outcome.source_id
+        if source_id is None:
+            return AddOutcome(
+                result=outcome.result,
+                source_path=source,
+                relpath=relpath,
+                title=outcome.title,
+                file_type=outcome.file_type,
+                bytes=outcome.bytes,
+                word_count=outcome.word_count,
+                content_hash=outcome.content_hash,
+                message=outcome.message,
             )
 
         result_kind = AddResult.ADDED
@@ -1632,9 +1866,8 @@ def import_source_file(
 
         with db.connect(paths.state_db) as conn:
             existing = conn.execute(
-                "SELECT id, relpath, content_hash, context_id FROM sources "
-                "WHERE relpath = ? OR logical_source_id = ?",
-                (relpath, logical_id),
+                "SELECT id, relpath, content_hash, context_id FROM sources WHERE id = ?",
+                (source_id,),
             ).fetchone()
             if existing is not None:
                 if existing["content_hash"] == parsed.content_hash:
@@ -1650,7 +1883,7 @@ def import_source_file(
                     )
                     _record_pdf_pages_conn(conn, existing["id"], relpath, parsed)
                     return AddOutcome(
-                        result=AddResult.DEDUPED,
+                        result=AddResult.DEDUPED if outcome.result == AddResult.DEDUPED else result_kind,
                         source_path=source,
                         relpath=relpath,
                         title=parsed.title,
@@ -1660,7 +1893,11 @@ def import_source_file(
                         content_hash=parsed.content_hash,
                         source_id=existing["id"],
                         context_id=existing["context_id"],
-                        message=f"Already tracked external reference: #{existing['id']}",
+                        message=(
+                            f"Already tracked external reference: #{existing['id']}"
+                            if outcome.result == AddResult.DEDUPED
+                            else f"Added external reference as #{existing['id']}: {parsed.title}"
+                        ),
                     )
                 conn.execute(
                     """

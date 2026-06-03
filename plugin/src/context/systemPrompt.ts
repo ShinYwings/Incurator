@@ -2,14 +2,14 @@
  * Base system-prompt assembly for the chat sidebar.
  *
  * Pure and unit-testable: given a few flags it returns the static instruction
- * text (base behaviour + the incurator-MCP and plan-mode addenda). The dynamic,
+ * text (base behaviour + the external Incurator MCP and plan-mode addenda). The dynamic,
  * state-dependent sections (cursor rules, continuity, incurator context, open
  * tabs) are appended by the caller, which owns that state.
  */
 
 export interface BaseSystemPromptOptions {
-  /** True when an 'incurator' MCP server is enabled (acts as the vault search engine). */
-  hasIncuratorMcp: boolean;
+  /** True when an external 'incurator' MCP server is enabled for agent tools. */
+  hasExternalIncuratorMcp: boolean;
   /** True when chat is in plan mode. */
   planMode: boolean;
 }
@@ -22,7 +22,11 @@ const BASE_INSTRUCTIONS =
   "Do not use \\(...\\) or \\[...\\] math delimiters. " +
   "Wrap every mathematical expression containing ^, _, \\infty, matrices, homographies, or quadrics in math delimiters. " +
   "Do not suggest note edits, Obsidian Agent settings, or workspace configuration changes unless the user asks for edits/configuration or the current task cannot be answered without them. " +
+  "Detect the latest user request's input language and answer in that same language; use English only as the internal working language for reasoning, search terms, MCP/tool arguments, and knowledge synthesis. " +
+  "Determine the answer language only from the latest user request, not from earlier conversation turns, visible Korean Markdown context, backend query metadata, or saved Exhibition metadata. English latest requests must receive English final answers unless the latest request explicitly asks otherwise. " +
+  "Do not reveal the internal English working text unless asked. " +
   "When the user asks you to modify Markdown notes, do not directly edit files or use write/edit tools. " +
+  "First understand the user's edit intent from the whole latest request, selected context, and open Markdown files; do not reduce the request to a copy or formatting command. " +
   "Instead, explain the intended changes briefly and output one or more `ai-agent-edit` blocks. " +
   "Each block MUST target a single file and use SEARCH/REPLACE blocks. The SEARCH text must EXACTLY match the existing lines in the file. Format:\n" +
   '```ai-agent-edit filepath="path/to/file.md"\n' +
@@ -32,12 +36,15 @@ const BASE_INSTRUCTIONS =
   "New lines to insert\n" +
   ">>>>\n" +
   "```\n" +
-  "You can output multiple `ai-agent-edit` blocks in a single response to edit multiple files or multiple locations in a file.";
+  "You can output multiple `ai-agent-edit` blocks in a single response to edit multiple files or multiple locations in a file. " +
+  "When the user asks to change all similar occurrences in a Markdown file, or gives a selected PDF/text region as the example for a global Markdown-file edit, inspect the active/open Markdown file content in context and propose every matching replacement, not only the selected line. " +
+  "For global similar replacements, infer the repeated pattern from the selected example, then search the whole open Markdown file content for the same path/text shape before proposing edits. " +
+  "Preserve the user's syntax form: if the matched content is HTML inside Markdown, keep HTML syntax unless the user explicitly asks to convert it to Markdown.";
 
-const INCURATOR_MCP_ADDENDUM =
-  "\n\nThe user has the 'incurator' MCP server enabled. Use it when the user asks about the knowledge base, workspace, source provenance, build/sync state, or a domain question that needs vault RAG. " +
+const EXTERNAL_INCURATOR_MCP_ADDENDUM =
+  "\n\nThe user has an external 'incurator' MCP server enabled. Use it when the user asks about the knowledge base, workspace, source provenance, build/sync state, or a domain question that needs vault RAG. " +
   "1. For Incurator/workspace tasks, start by calling `curator_check_workspace` (passing the active workspace path provided in <incurator_workspace> if available) to initialize the session and read the `curate.yml` rules. " +
-  "2. For knowledge-base/domain questions that need synthesis, use `curator_query`. This tool synthesizes an answer and may generate an ephemeral Exhibition per chat session. " +
+  "2. For knowledge-base/domain questions that need synthesis, use `curator_query` and pass the active workspace path from <incurator_workspace> as `workspace_path` when available. This tool synthesizes an answer and may generate an ephemeral Exhibition per chat session. " +
   "3. Use `search_curator` ONLY if you need raw search hits without LLM synthesis. " +
   "4. For ordinary requests such as explaining selected text, answer directly from the visible/pinned context and do not mention Incurator setup or note-edit suggestions unless the user asks.";
 
@@ -48,7 +55,41 @@ const PLAN_MODE_ADDENDUM =
 /** Build the static base system-prompt text (before dynamic context is appended). */
 export function buildBaseSystemPrompt(opts: BaseSystemPromptOptions): string {
   let text = BASE_INSTRUCTIONS;
-  if (opts.hasIncuratorMcp) text += INCURATOR_MCP_ADDENDUM;
+  if (opts.hasExternalIncuratorMcp) text += EXTERNAL_INCURATOR_MCP_ADDENDUM;
   if (opts.planMode) text += PLAN_MODE_ADDENDUM;
   return text;
+}
+
+/**
+ * Wrap the latest user text with an explicit English-internal / detected-output
+ * bridge. When `inputLanguage` is supplied (from the shared Unicode-script
+ * detector) the instruction names the exact target language; otherwise it falls
+ * back to generic "original input language" wording.
+ */
+export function wrapLatestUserMessageForLanguageBridge(content: string, inputLanguage?: string): string {
+  const lang = (inputLanguage || "").trim();
+  const bridge = lang
+    ? `The latest user request's input language is ${lang}. Reason, search, and build MCP/tool arguments internally in English, then write the final answer in ${lang} unless the latest request explicitly asks for another output language.\n` +
+      "Detect it fresh from this request; do not infer the output language from earlier turns."
+    : "Reason, search, and build MCP/tool arguments internally in English, then write the final answer in the latest request's original input language unless it explicitly asks for another output language.\n" +
+      "Detect it fresh from this request; do not infer the output language from earlier turns.";
+  return (
+    "<language_bridge>\n" +
+    bridge + "\n" +
+    "</language_bridge>\n\n" +
+    "<original_user_request>\n" +
+    content +
+    "\n</original_user_request>"
+  );
+}
+
+export function editableSelectionInstruction(hasEditableSelection: boolean, hasOpenMarkdownEditTarget = false): string {
+  if (!hasEditableSelection && !hasOpenMarkdownEditTarget) return "";
+  return (
+    "The latest user message includes either an editable Markdown line-range context or an open Markdown file that can be edited. " +
+    "If the latest request asks to fix, rewrite, polish, translate, rephrase, replace, rename, relink, or otherwise modify selected text or an open Markdown file, output `ai-agent-edit` SEARCH/REPLACE blocks instead of only describing what to do. " +
+    "If a selected PDF/text region is used as an example for a Markdown-file edit, treat the selected region as the clue and the open Markdown file as the edit target. " +
+    "If the request asks for all similar occurrences, every matching link, or whole-file consistency, use the full open Markdown file content from `<open_markdown_edit_targets>` to propose SEARCH/REPLACE blocks for every matching occurrence, while keeping HTML as HTML and Markdown as Markdown. " +
+    "If the latest request is only asking a question about the selection, answer normally and do not propose edits."
+  );
 }

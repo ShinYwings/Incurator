@@ -1136,7 +1136,7 @@ Target JSON schema (curator persona):
   "area": "STEM | Humanities | Arts | Business | Personal",
   "text": "2-4 sentence description of the vault's knowledge focus and goals",
   "knowledge_artifacts": ["primary artifact types this vault contains, e.g. research papers, code, reports, recipes"],
-  "verification_philosophy": "citation-and-derivation | empirical-evidence | expert-consensus | logical-coherence | personal-experience",
+  "verification_philosophy": "one or more ordered canonical methods, e.g. citation-and-derivation or citation-and-derivation + logical-coherence",
   "exhibition_intent": "knowledge-worker | researcher | engineer | learner",
   "confidence": {"high_threshold": 0.85, "low_threshold": 0.55},
   "disambiguation_keywords": ["3-8 domain-specific terms to disambiguate concepts"]
@@ -1164,11 +1164,13 @@ You are a knowledge-base consultant interviewing a user to configure their Curat
 
 The interview consists of 4 questions. You must ask them ONE AT A TIME in English.
 Q1: What is the broad area and main focus of this Vault? (area + text)
-Q2: What is your primary source of truth for verifying knowledge in this Vault? (verification_philosophy)
+Q2: What are your source(s) of truth for verifying knowledge in this Vault? (verification_philosophy; multi-select allowed)
 Q3: What types of knowledge artifacts does this Vault primarily contain? (knowledge_artifacts)
 Q4: How should ambiguous or uncertain knowledge be handled? (confidence + disambiguation_keywords)
 
 For EACH question, infer the user's intent from previous answers and provide 5 tailored choices.
+Q1 and Q4 are single-select by default. Q2 and Q3 allow multi-select answers
+such as "1,4"; clearly label them as multi-select in the question text.
 
 Format your message EXACTLY like this:
 Q[X]/4: [Question Content]
@@ -1179,12 +1181,12 @@ Q[X]/4: [Question Content]
   4) [Recommended Choice 4]
   5) [Recommended Choice 5]
 
-  Or type your own answer (s = skip)
+  Or type your own answer (s = skip). For multi-select questions, comma-separated numbers are allowed.
 
 Rules:
 - Speak in English.
 - Ask ONLY ONE question per turn.
-- Wait for the user's reply (a number 1-5, or free text, or 's').
+- Wait for the user's reply (a number 1-5, comma-separated numbers when the question says multi-select, free text, or 's').
 - After receiving the answer to Q4, DO NOT ask another question. Instead, output ONLY a JSON object:
   {{"done": true, "persona": {{...filled fields...}}}}
 - If the user types "s" or "skip" at any point, use default values for that question and move to the next. If they skip the whole interview at the start, return {{"done": true, "persona": null}}.

@@ -66,6 +66,33 @@ def _zotero_db_candidates(custom_paths: str) -> list[str]:
     return out
 
 
+def _zotero_root_candidates(custom_paths: str, config: dict[str, Any] | None = None) -> list[str]:
+    """Return Zotero data/attachment roots from configured directories or db files."""
+    candidates = [os.path.expanduser("~/Zotero")]
+    for raw in str(custom_paths or "").split(","):
+        p = raw.strip()
+        if not p:
+            continue
+        expanded = os.path.expanduser(p)
+        candidates.append(os.path.dirname(expanded) if expanded.endswith(".sqlite") else expanded)
+    if config and "external" in config and "zotero" in config["external"]:
+        roots = config["external"]["zotero"].get("roots", [])
+        for root in roots:
+            candidates.append(os.path.expanduser(root))
+
+    _discover_zotero_base_attachment_path(candidates)
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        norm = os.path.normpath(candidate)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        out.append(candidate)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Zotero baseAttachmentPath auto-discovery (ZotMoov / linked attachments)
 # ---------------------------------------------------------------------------
@@ -706,8 +733,8 @@ def build_server() -> FastMCP:
             out = dict(row)
             expected_hash = str(row.get("content_hash") or "")
             path = source_tools._row_path(paths, row)
-            status = str(row.get("status") or "pending")
-            state = "indexed" if status in {"curated", "done"} else status
+            pending_jobs = db.get_pending_jobs_for_source(paths.state_db, source_id)
+            state = source_tools.derive_source_state(row, pending_jobs)
             out.update({
                 "state": state,
                 "message": "Cached status from database.",
@@ -719,7 +746,8 @@ def build_server() -> FastMCP:
                 "l1_complete": str(row.get("l1_status") or "") == "done",
                 "l2_complete": str(row.get("l2_status") or "") == "done",
                 "l3_complete": str(row.get("l3_status") or "") == "done",
-                "jobs_pending": [],
+                "l4_complete": str(row.get("l4_status") or "") == "done",
+                "jobs_pending": pending_jobs,
             })
         else:
             out = source_tools.source_status(paths, row, config)
@@ -843,22 +871,10 @@ def build_server() -> FastMCP:
         paths = _resolve_paths(workspace_path)
         config = cfg.load_config(paths)
 
-        candidates = [os.path.expanduser("~/Zotero")]
-        if custom_paths:
-            for p in custom_paths.split(","):
-                p = p.strip()
-                if not p:
-                    continue
-                p = os.path.expanduser(p)
-                candidates.append(p)
-        if "external" in config and "zotero" in config["external"]:
-            roots = config["external"]["zotero"].get("roots", [])
-            for r in roots:
-                candidates.append(os.path.expanduser(r))
-
-        # Auto-discover Zotero's baseAttachmentPath from prefs.js
-        # This is critical for ZotMoov users: macOS uses iCloud, Linux uses local paths
-        _discover_zotero_base_attachment_path(candidates)
+        # Auto-discover Zotero's baseAttachmentPath from prefs.js. This is
+        # critical for ZotMoov users: macOS may use iCloud while Linux uses
+        # local paths.
+        candidates = _zotero_root_candidates(custom_paths, config)
 
         zotero_db = config.get("zotero", {}).get("db_path", os.path.expanduser("~/Zotero/zotero.sqlite"))
         if custom_paths:
@@ -942,7 +958,13 @@ def build_server() -> FastMCP:
             if api_key_env:
                 deepseek_cfg["api_key_env"] = api_key_env
             if api_key:
-                deepseek_cfg["api_key"] = api_key
+                from . import secret_store
+
+                deepseek_cfg["api_key_secret"] = secret_store.set_secret(
+                    secret_store.DEFAULT_DEEPSEEK_SECRET,
+                    api_key,
+                )
+                deepseek_cfg.pop("api_key", None)
             if base_url:
                 deepseek_cfg["base_url"] = base_url
             
@@ -1028,7 +1050,7 @@ def build_server() -> FastMCP:
         if not source_path_obj.exists():
             return {"ok": False, "error": f"Source not found: {lookup_key}"}
         try:
-            from .ingest_raw import _resolve_reference_source
+            from .ingest_raw import _extract_structural_sections, _resolve_reference_source
             resolved_path = _resolve_reference_source(paths, source_path_obj)
             parsed = source_tools.parse_source(resolved_path)
         except Exception as exc:
@@ -1040,10 +1062,24 @@ def build_server() -> FastMCP:
         metadata: dict[str, Any] = dict(parsed.metadata or {})
         legacy_page_lookup = not source_key and not wanted and bool(source_id is not None or lookup_path)
         requested_page = int(page or page_start or (1 if legacy_page_lookup else 0))
+        if wanted:
+            sections = _extract_structural_sections(parsed)
+            for section in sections:
+                sid = str(section.get("id") or "")
+                title = str(section.get("title") or "")
+                if sid == wanted or title == wanted:
+                    text = str(section.get("text") or "").strip()
+                    metadata = {
+                        "section_id": sid,
+                        "section_title": title,
+                        "page": int(section.get("page") or 1),
+                    }
+                    requested_page = int(section.get("page") or requested_page or 0)
+                    break
         if parsed.file_type == "pdf":
             pages = parsed.metadata.get("pdf_pages") or []
             page_count = len(pages)
-            if requested_page or page_end:
+            if (requested_page or page_end) and not wanted:
                 start_page = requested_page or 1
                 end_page = int(page_end or start_page)
                 if start_page < 1 or (page_count and start_page > page_count):
@@ -1059,7 +1095,7 @@ def build_server() -> FastMCP:
                             selected_meta = page_meta
                 text = "\n\n".join(part for part in selected if part)
                 metadata = selected_meta
-        elif wanted:
+        elif wanted and not metadata.get("section_id"):
             pattern = re.compile(
                 rf"(?ms)^<!--\s*section:\s*{re.escape(wanted)}\b.*?-->\s*(.*?)(?=^<!--\s*section:|\Z)"
             )
@@ -1129,6 +1165,7 @@ def build_server() -> FastMCP:
                     "l1_complete": False,
                     "l2_complete": False,
                     "l3_complete": False,
+                    "l4_complete": False,
                     "jobs_pending": [],
                 }
             source = _source_dict(paths, dict(row), config)
@@ -1140,6 +1177,7 @@ def build_server() -> FastMCP:
                 "l1_complete": source.get("l1_complete", False),
                 "l2_complete": source.get("l2_complete", False),
                 "l3_complete": source.get("l3_complete", False),
+                "l4_complete": source.get("l4_complete", False),
                 "jobs_pending": source.get("jobs_pending", []),
                 "source": source,
             }
@@ -3123,7 +3161,8 @@ def build_server() -> FastMCP:
             import importlib.metadata
             return importlib.metadata.version("incurator")
         except Exception:
-            return "0.2.1"
+            from curator import __version__
+            return __version__
 
     @mcp.tool()
     def get_available_models() -> dict[str, Any]:
@@ -3207,16 +3246,47 @@ def build_server() -> FastMCP:
     @mcp.tool()
     def curator_add_all(workspace_path: str = "") -> dict[str, Any]:
         """Run a global discovery of raw sources, generating L1 Contexts."""
-        from . import ingest_raw
+        from . import ingest_llm, ingest_raw
         paths = _resolve_paths(workspace_path)
         try:
-            discovered = 0
-            # iter_addable_files takes path (None for all)
-            for file_to_add in ingest_raw.iter_addable_files(None, recursive=True):
-                outcome = ingest_raw.add_file(paths, file_to_add)
-                if outcome.ok:
-                    discovered += 1
-            return {"ok": True, "discovered": discovered, "removed": 0}
+            discovered, removed = ingest_llm._auto_discover_pending(paths)
+            with db.connect(paths.state_db) as conn:
+                rows = conn.execute(
+                    "SELECT id, relpath, content_hash, context_id FROM sources "
+                    "WHERE status IN ('pending', 'force_pending', 'curated') "
+                    "ORDER BY id ASC"
+                ).fetchall()
+
+            summarized = 0
+            for row in rows:
+                context_id = row["context_id"]
+                if context_id and (paths.contexts / f"{context_id}.md").exists():
+                    continue
+                db.set_source_layer_status(paths.state_db, row["id"], "l1", "running")
+                created_context_id = ingest_raw.generate_l1_structural_context(
+                    paths,
+                    source_id=row["id"],
+                    relpath=row["relpath"],
+                    content_hash=row["content_hash"],
+                    existing_context_id=context_id,
+                )
+                if created_context_id:
+                    summarized += 1
+                else:
+                    db.set_source_layer_status(
+                        paths.state_db,
+                        row["id"],
+                        "l1",
+                        "error",
+                        error="summary_failed",
+                    )
+
+            return {
+                "ok": True,
+                "discovered": discovered,
+                "removed": removed,
+                "summarized": summarized,
+            }
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
@@ -3422,10 +3492,16 @@ def build_server() -> FastMCP:
         """
         paths = _resolve_paths(workspace_path)
         try:
-            search.update_index(paths, embed=True)
-            return {"ok": True}
+            result = search.update_index(paths, embed=True)
+            return {
+                "ok": True,
+                "updated": result.updated,
+                "embedded": result.embedded,
+                "degraded": result.degraded,
+                "warning": result.warning,
+            }
         except search.SearchBackendError as exc:
-            return {"error": str(exc)}
+            return {"ok": False, "error": str(exc)}
 
 
     # ------------------------------------------------------------------

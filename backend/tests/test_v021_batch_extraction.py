@@ -320,6 +320,15 @@ class TestRunL2BatchExtraction(unittest.TestCase):
         )
         return ctx_path
 
+    def _write_ctx_with_frontmatter(self, context_id: str, body: str, extra: str) -> Path:
+        ctx_path = self.paths.contexts / f"{context_id}.md"
+        ctx_path.parent.mkdir(parents=True, exist_ok=True)
+        ctx_path.write_text(
+            f"---\nid: {context_id}\ntype: context\n{extra}---\n\n{body}",
+            encoding="utf-8",
+        )
+        return ctx_path
+
     def _make_client(self, atoms_json: str):
         from unittest.mock import Mock
         client = Mock()
@@ -493,6 +502,109 @@ class TestRunL2BatchExtraction(unittest.TestCase):
 
         self.assertGreater(client.calls, 1)
         self.assertEqual(len(results), client.calls)
+
+    def test_llm_failure_falls_back_to_l1_atom_candidates(self) -> None:
+        from curator.llm import LLMError
+
+        class FailingClient:
+            optimal_chunk_chars = 50000
+
+            def chat(self, messages, **kwargs):  # noqa: ARG002
+                raise LLMError("provider unavailable")
+
+        body = """## Summary
+
+Structural L1 context.
+
+## 1. Key Claims
+
+- `s1` p.3 **Method**: Residual blocks add an identity shortcut.
+
+## Source Guide
+
+### Section Previews
+- `s1` p.3 — **Method**: Residual blocks add an identity shortcut.
+
+## 2. Atom Candidates
+
+- [fact] Method: Extract the atomic claims, methods, entities, equations, and constraints from section 'Method' starting on page 3. Preview: Residual blocks add an identity shortcut.
+
+## Source Sections
+
+<!-- section:s1 page:3 -->
+## Method
+
+Residual blocks add an identity shortcut.
+"""
+        ctx = self._write_ctx("CTX-test0008", body)
+
+        results = self.run_l2(
+            self.paths, FailingClient(), ctx, "CTX-test0008",
+            "04_Resources/paper.pdf", "2026-05-29", self.staging,
+        )
+
+        self.assertEqual(len(results), 1)
+        content = results[0].staged_path.read_text(encoding="utf-8")
+        self.assertIn("Method", content)
+        self.assertIn("confidence_score: 0.3", content)
+        self.assertIn("source_section_id: s1", content)
+        self.assertIn("source_page: 3", content)
+
+    def test_on_demand_l1_hydrates_original_source_for_l2(self) -> None:
+        source_relpath = "03_Notes/large-original.md"
+        source = self.root / source_relpath
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(
+            "# Large Original\n\n"
+            "## Method\n\n"
+            "DEEP_ORIGINAL_EVIDENCE appears only in the source file.\n",
+            encoding="utf-8",
+        )
+        body = """## Summary
+
+Compact L1.
+
+## Source Sections
+
+<!-- section:s1 page:1 -->
+## Large Original
+
+Raw source text is not duplicated in this L1 page because the source is large.
+"""
+        ctx = self._write_ctx_with_frontmatter(
+            "CTX-ondemand",
+            body,
+            "source_text_policy: on_demand\nsource_sections_inline: false\n",
+        )
+
+        class RecordingClient:
+            optimal_chunk_chars = 50000
+
+            def __init__(self) -> None:
+                self.prompt = ""
+
+            def chat(self, messages, **kwargs):  # noqa: ARG002
+                self.prompt = messages[-1].content
+                return json.dumps([
+                    {
+                        "name": "Hydrated Evidence",
+                        "claim_type": "fact",
+                        "one_liner": "The source contains deep original evidence.",
+                        "source_section_id": "s2",
+                        "source_section_title": "Method",
+                        "source_page": 1,
+                        "confidence": 0.8,
+                    }
+                ])
+
+        client = RecordingClient()
+        results = self.run_l2(
+            self.paths, client, ctx, "CTX-ondemand",
+            source_relpath, "2026-05-29", self.staging,
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertIn("DEEP_ORIGINAL_EVIDENCE", client.prompt)
 
 
 if __name__ == "__main__":
