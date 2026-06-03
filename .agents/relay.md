@@ -264,19 +264,20 @@ user (no backward compat). The new modules are ready to plug in.
   the rewrite carefully to keep the suite green (or update tests deliberately).
 
 PENDING — Antigravity Delegated Work (Validation Required):
-Antigravity has committed the following changes (commits `daae083`, `2f42c10`, and `6ae992b`), but Opus needs to verify and integrate them:
+Antigravity has committed the following changes (commits `daae083`, `2f42c10`, `6ae992b`, and `b73b2f8`), but Opus needs to verify and integrate them:
 - Deprecated ephemeral Garbage Collection for Exhibitions (L4) in `lint.py` (now returns `[]`) to treat them as persistent living documents/memories.
 - Updated related test suites (`test_lint_ephemeral_gc.py`, `test_query_exhibition.py`) to reflect deprecated GC behavior.
 - Implemented In-Context Learning (ICL) `<selection>` tag injection in `chatSidebar.ts` & `systemPrompt.ts` to focus LLM context on selected text.
 - Added real-time background job polling and status bar rendering in the plugin sidebar using `.curator/runtime/jobs.json`.
 - Fixed streaming diff rendering race condition/bug by isolating markdown render targets in `diffViewer.ts` and `chatSidebar.ts`.
 - Fixed sidebar text selection CSS bug so user chat messages can be copied.
-- Added sidebar UI support for creating new files (`<<< NEW FILE >>>` blocks) directly from the diff view.
+- Changed sidebar AI edit workflow: edits/new files are now **auto-applied** directly to the vault when generation finishes. Diff blocks are hidden from the sidebar, replaced by a simple "✓ Applied / ✓ Created" status with a "✗ Revert" button to undo the change if rejected.
+- Fixed chat session default path: the plugin now correctly passes the `vault` root path instead of locking onto the first `curate.yml` workspace it finds.
 - Created architectural review plan `.agents/plans/2026-06_exhibitions_persistence_review.md` evaluating alternative models for user-memory consolidation. Opus needs to review this plan and decide on the persistence model (Option A vs B/C).
 
 ## Critical Context / Blockers
 
-- All modified backend, plugin, and plan files have been committed to master (commits `daae083`, `2f42c10`, `0b10833`, and `6ae992b`).
+- All modified backend, plugin, and plan files have been committed to master (commits `daae083`, `2f42c10`, `0b10833`, `6ae992b`, and `b73b2f8`).
 - pytest runs via `uv run pytest` from `backend/` (plain `python -m pytest` lacks
   pytest in the active interpreter). A benign VIRTUAL_ENV mismatch warning prints.
 
