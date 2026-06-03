@@ -1,0 +1,158 @@
+"""Query orchestrator (v0.3.1).
+
+Single entry point for the curation-native query path: resolve the workspace's
+CurationPolicy, choose a route, build an evidence pack (DB graph + qmd corpus),
+run the route's registered query prompt with tracing, and return a result with
+the full QTR trace (route, evidence ids, prompt trace ids).
+"""
+
+from __future__ import annotations
+
+import uuid
+from pathlib import Path
+from typing import Any
+
+from .. import config as cfg
+from .. import curate_yml, db, prompting
+from . import evidence as evidence_mod
+from . import router
+from .models import EvidencePack, QueryRequest, QueryResultV031
+
+__all__ = ["QueryOrchestrator"]
+
+_DEFAULT_POLICY_PROJECT = "default"
+
+
+def _default_policy() -> curate_yml.CurationPolicy:
+    spec = curate_yml.CurateSpec(project=_DEFAULT_POLICY_PROJECT)
+    return curate_yml.compile_curate_policy(spec)
+
+
+def _resolve_policy(workspace_path: str) -> tuple[curate_yml.CurationPolicy, str]:
+    if workspace_path:
+        try:
+            spec = curate_yml.load_curate_spec(Path(workspace_path))
+        except Exception:
+            spec = None
+        if spec is not None:
+            ws = Path(workspace_path)
+            policy = curate_yml.compile_curate_policy(spec, ws)
+            return policy, curate_yml.curate_spec_hash(ws)
+    return _default_policy(), ""
+
+
+class QueryOrchestrator:
+    def __init__(self, paths: cfg.WikiPaths, client: Any) -> None:
+        self.paths = paths
+        self.client = client
+
+    def run(self, request: QueryRequest) -> QueryResultV031:
+        policy, spec_hash = _resolve_policy(request.workspace_path)
+        status = router.graph_status(self.paths.state_db)
+        route, reason = router.choose_route(request, policy, status)
+        trace_id = f"QTR-{uuid.uuid4().hex[:8]}"
+
+        pack = evidence_mod.build_evidence(self.paths, request, route)
+        result = QueryResultV031(
+            question=request.question,
+            route=route,
+            trace_id=trace_id,
+            input_language=request.input_language,
+            english_query=request.working_query,
+            final_output_language=request.final_output_language,
+            source_span_ids=pack.source_span_ids,
+            community_report_ids=pack.community_report_ids,
+            memory_path_ids=pack.memory_path_ids,
+            warnings=[reason, *pack.warnings],
+        )
+
+        if route == "explore":
+            self._run_explore(request, pack, spec_hash, result)
+        else:
+            self._run_answer(request, route, pack, spec_hash, result)
+        return result
+
+    # -- answer routes (local / global / exhibition / source-section) ----------
+    def _run_answer(
+        self, request: QueryRequest, route: str, pack: EvidencePack,
+        spec_hash: str, result: QueryResultV031,
+    ) -> None:
+        prompt_id = (
+            "curator.query_global_reduce" if route == "global"
+            else "curator.query_local_answer"
+        )
+        contract = prompting.REGISTRY.get(prompt_id)
+        valid_spans = set(pack.source_span_ids)
+        if route == "global":
+            input_obj = contract.input_model(
+                question=request.question,
+                report_points_block=pack.evidence_block(),
+                valid_span_ids_block="\n".join(pack.source_span_ids),
+                final_output_language=request.final_output_language,
+            )
+        else:
+            input_obj = contract.input_model(
+                question=request.question,
+                evidence_block=pack.evidence_block(),
+                valid_span_ids_block="\n".join(pack.source_span_ids),
+                final_output_language=request.final_output_language,
+            )
+        run = prompting.run_prompt(
+            self.paths.state_db, self.client, contract, input_obj,
+            validation_context={"valid_span_ids": valid_spans},
+            curate_spec_hash=spec_hash, query_trace_id=result.trace_id,
+        )
+        result.prompt_trace_ids.append(run.trace_id)
+        if run.parsed is not None:
+            result.answer = getattr(run.parsed, "answer", "")
+            result.community_report_ids = sorted(
+                set(result.community_report_ids) | set(getattr(run.parsed, "used_report_ids", []))
+            )
+        else:
+            result.error = "answer synthesis failed validation"
+            result.warnings.extend(run.validation.errors)
+
+    # -- explore route ---------------------------------------------------------
+    def _run_explore(
+        self, request: QueryRequest, pack: EvidencePack, spec_hash: str,
+        result: QueryResultV031,
+    ) -> None:
+        contract = prompting.REGISTRY.get("curator.query_explore_expand")
+        policy, _ = _resolve_policy(request.workspace_path)
+        input_obj = contract.input_model(
+            question=request.question,
+            primer_block=pack.evidence_block(),
+            valid_span_ids_block="\n".join(pack.source_span_ids),
+            max_followups=policy.max_explore_followups,
+        )
+        run = prompting.run_prompt(
+            self.paths.state_db, self.client, contract, input_obj,
+            validation_context={"valid_span_ids": set(pack.source_span_ids)},
+            curate_spec_hash=spec_hash, query_trace_id=result.trace_id,
+        )
+        result.prompt_trace_ids.append(run.trace_id)
+        if run.parsed is None:
+            result.error = "explore expansion failed validation"
+            result.warnings.extend(run.validation.errors)
+            return
+
+        followups = getattr(run.parsed, "followup_questions", [])
+        candidates = getattr(run.parsed, "insight_candidates", [])
+        workspace_id = policy.workspace_id
+        for cand in candidates:
+            ins_id = db.create_insight_candidate(
+                self.paths.state_db,
+                classification="derived_insight",
+                statement=cand.statement,
+                workspace_id=workspace_id,
+                source_event_id=result.trace_id,
+                evidence=[{"source_span_ids": cand.source_span_ids}],
+                confidence=cand.confidence,
+                prompt_run_id=run.trace_id,
+            )
+            result.insight_candidate_ids.append(ins_id)
+        lines = ["## Follow-up questions"]
+        lines += [f"- {q}" for q in followups]
+        lines += ["", "## Insight candidates (provisional, need review)"]
+        lines += [f"- {c.statement}" for c in candidates]
+        result.answer = "\n".join(lines).strip()

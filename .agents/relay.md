@@ -217,6 +217,125 @@ DONE (Cutover step 1 — integrating orchestration built + tested, additive/gree
 - Test test_v031_compile_pipeline.py (3, end-to-end with a DynamicFakeClient that
   cites runtime span ids from the prompt). Full suite 348 passed, ruff clean.
 
+DONE (Cutover step 2a — BEHAVIORAL SWAP complete + green, 348 passed):
+- `ingest_llm.run_l1_to_l3` rewritten: per source → `pipeline.compile.compile_source_l2`,
+  then `pipeline.compile.compile_global_l3`; sets status curated; keeps finalize
+  (rebuild_index, append_log_entry, _update_ledger, _update_overview). Dropped the
+  legacy per-source ingest_source + global concept pass + atom-coordinator calls.
+- `ingest_llm.run_l3_from_existing_atoms` rewritten to compile_global_l3 (kept —
+  still used by backprop_agents + worker). Deletes old CON/EXH then re-emits.
+- `ingest_worker.run_next_job` L2 now calls compile_source_l2 (was ingest_source);
+  L3 still via run_l3_from_existing_atoms (compile-backed).
+- Verified ALL live build paths use the new pipeline: cli `wiki build` (--wait via
+  run_l1_to_l3; async via worker), MCP curator_build_source/all (→ worker), MCP
+  curator_ingest_source (→ register + build_source, NOT legacy). Legacy
+  `ingest_source` chain is now DEAD.
+- Updated tests: test_v021_background_jobs.py repointed 7 patches from the removed
+  ingest_source to `curator.pipeline.compile.compile_source_l2`; fixed fake-result
+  shape (.ok/.error/.atom_ids) + pages_updated expectation. All 22 pass.
+- callbacks_factory/mode kept in run_l1_to_l3 signature for caller compatibility
+  (now unused → harmless Hint).
+
+DONE (Cutover step 2b — LEGACY DELETION complete + green, 305 passed):
+- Computed dead set via AST reachability (roots = ingest_llm symbols referenced
+  cross-module + run_l1_to_l3/run_l3_from_existing_atoms/run_l4_scoped). Deleted
+  43 dead functions from ingest_llm.py (2868 → 1315 lines): ingest_source + atom
+  chain (_run_pass1_atoms/_run_sequential_atoms/_run_parallel_workers/
+  _process_one_atom/_run_orchestrator_plan/_extract_atoms_for_task/
+  _run_atom_coordinator/_find_existing_atom/_enforce_atom_contract), L3 legacy
+  (_run_global_pass2_concepts/_run_pass2_concepts/clustering/concept-plan/
+  fallback/_enforce_concept_contract), + orphaned helpers. KEPT L4 curate chain
+  (run_l4_scoped → _run_pass3_synthesis → _write_one_exhibition_plan →
+  _enforce_exhibition_contract → _stream_page) since L4 isn't rebuilt yet.
+- ingest_orchestrator.py reduced 474 → 35 lines (kept only _expand_downstream_via_sql,
+  used by sync).
+- Fixed BROKEN live path: MCP curator_build_all called nonexistent
+  ingest_llm.build_atoms/build_concepts (+ missing build_client import) → now calls
+  run_l1_to_l3 with proper import.
+- Deleted dead test files: test_v021_batch_extraction.py, test_v021_embedding_
+  clustering.py. Removed 12 legacy methods from test_integrity.py (atom/concept
+  contract, ingest_source, L3 clustering) — 573 lines; 12 valid tests kept.
+- Full suite 305 passed. New pipeline files ruff-clean. (3 pre-existing E702
+  semicolons remain in kept _extract_json — not mine, left per surgical rule.)
+- prompts.py NOT pruned: still actively used by L4 curate / backprop / lint /
+  persona (not yet rebuilt). Its now-dead L2/L3 constants will be pruned when those
+  pipelines are rebuilt (Phases 6/7) to avoid removing still-referenced text.
+
+>>> CUTOVER FULLY COMPLETE. The v0.3.1 curation-native compile pipeline now drives
+>>> the entire L1→L3 build, legacy generation deleted, suite green (305).
+
+DONE (Phase 6 core — retrieval/orchestrator, 318 passed):
+- New `backend/src/curator/retrieval/` package:
+  - models.py: QueryRequest, EvidenceItem, EvidencePack, GraphStatus,
+    QueryResultV031, ROUTES.
+  - router.py: graph_status() + deterministic choose_route() (explicit mode →
+    source_key → explore signal → global signal → local; degrades to allowed
+    routes; source-section always permitted).
+  - evidence.py: build_evidence() per route — DB graph (entities/spans/reports/
+    memory_paths) + qmd derived corpus (fallback, degrades w/ warning).
+  - orchestrator.py: QueryOrchestrator.run() — resolve curate.yml policy → route
+    → evidence → query family prompt via run_prompt (QTR query_trace_id groups
+    prompt_runs) → QueryResultV031. explore route creates insight_candidates +
+    records memory_paths.
+- Tests (13): test_v031_query_router.py, test_v031_query_orchestrator.py
+  (local/global/explore/source-section e2e with dynamic fake). ruff clean.
+- NOT yet wired: legacy `query.run_query` (qmd+SYNTHESIS_SYSTEM_PROMPT) still
+  powers cli/plugin/mcp query. Wiring run_query/CLI/MCP/plugin to QueryOrchestrator
+  + retiring SYNTHESIS_SYSTEM_PROMPT is Phase 8. query family prompts already exist.
+
+DONE (Phase 7 core — backprop classifier + insight lifecycle, 325 passed):
+- backend/src/curator/backprop_classifier.py: BackpropEvent + classify_feedback()
+  via curator.backprop_classify contract → BackpropClassification (traced PTR);
+  invalid output → ambiguous/flag_review.
+- backend/src/curator/insight_lifecycle.py: plan_action() maps classification →
+  ActionPlan (correction→patch_generated, contradiction→flag+needs_review,
+  derived_insight→create_insight_candidate, style_only→no_op, promotion_request→
+  promote, ambiguous→flag_review); writes_source_truth invariant = False;
+  patch_node_ids filters to generated prefixes only (ATM/CON/EXH/KNU/ENT/REL/REP).
+  create_insight_from_classification() → db insight_candidates; promote_insight()
+  writes ONLY 02_Wiki/ + sets status promoted (guards against source folders).
+- Tests (7): test_v031_backprop_lifecycle.py (classify correction/invalid,
+  plan never writes source, correction targets generated only, derived insight +
+  contradiction candidates, promotion to 02_Wiki only). ruff clean.
+- DEFERRED to Phase 8 (invoked via CLI/MCP): sync.py --backward wiring
+  (classify→curator.backprop_patch_plan) + EXH markdown reverse-parse → DB +
+  re-emit projection + curator_propose_correction MCP tool.
+
+>>> BACKEND MODULE LAYER COMPLETE (Phases 1–7). All v0.3.1 subsystems built +
+>>> tested + green (325): prompting, DB schema, curate.yml KRS, compile pipeline
+>>> (live), graph/communities/memory, query orchestrator, backprop/insight.
+
+NEXT — Phase 8 (INTERFACES — make new capabilities user-reachable):
+- CLI (cli.py): `wiki prompt list|show|trace|eval`, `wiki curate plan|validate`,
+  `wiki query --mode auto|local|global|explore|exhibition|source-section --trace`
+  (wire to QueryOrchestrator), `wiki insight list|show|promote`.
+- Wire query.run_query → retrieval.QueryOrchestrator (retire SYNTHESIS_SYSTEM_PROMPT,
+  keep language bridge + EXH save), then prune prompts.py dead constants.
+- MCP (mcp_server.py): curator_plan_workspace, curator_explore,
+  curator_get_prompt_trace, curator_get_curation_plan, curator_list_insight_candidates,
+  curator_promote_insight, curator_validate_curate_spec, curator_propose_correction.
+- Hidden plugin cmds: wiki plugin curate plan / prompt trace / insight list / promote.
+- Plugin TS (types.ts, incuratorClient.ts, incuratorQueryTrace.ts): trace payloads
+  + panels (PLUGIN_SCHEMA_v0.3.1 §9–11). + Vitest.
+- Guides: USER/WORKFLOW/MCP/PLUGIN (EN then KR) for the new surface.
+NEXT — Phase 9: complex_math_backprop testbed smoke + prompt evals.
+
+NEXT — Cutover step 2b (LEGACY DEAD-CODE DELETION, pure cleanup, no behavior change):
+Dead chain to delete (verified only referenced within itself):
+  ingest_llm: ingest_source, _run_pass1_atoms, and L2/L3 helpers only it used;
+  ingest_orchestrator: run_l2_batch_extraction, _extract_atoms_from_chunk,
+    _fallback_atoms_from_l1_candidates, _build_atom_page_from_data,
+    _split_into_batches, _BATCH_EXTRACT_PROMPT, BatchAtomResult, etc.;
+  ingest_llm: _run_global_pass2_concepts, cluster_atoms_by_embedding,
+    _concept_plans_from_embedding_clusters, _run_atom_coordinator + concept-plan
+    helpers; possibly SummaryData/AtomCandidate/ConceptPlan models IF unused.
+  AUDIT each symbol for remaining refs (e.g. SummaryData used by CliIngestCallbacks/
+  IngestCallbacks signatures, ConceptPlan elsewhere) BEFORE deleting.
+Delete dead test files: test_v021_batch_extraction.py, test_v021_embedding_clustering.py
+  (they test removed functions). Also move remaining L1/L2/L3 prompt text from
+  prompts.py into prompting/families and delete superseded funcs. Keep suite green.
+testbed smoke (LLM-gated): wiki add (instant L1, no LLM) works; full build needs LLM.
+
 NEXT — Cutover step 2 (THE DESTRUCTIVE SWAP, do as its own focused pass):
 1. Rewrite `ingest_llm.run_l1_to_l3` to drive the new pipeline: for each pending
    source call `pipeline.compile.compile_source_l2`, then once

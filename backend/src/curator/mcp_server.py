@@ -3294,13 +3294,19 @@ def build_server() -> FastMCP:
     def curator_build_all(workspace_path: str = "") -> dict[str, Any]:
         """Run a global extraction of L2 Atoms and L3 Concepts from registered L1 Contexts."""
         from . import ingest_llm, config as cfg
+        from .llm import build_client
         paths = _resolve_paths(workspace_path)
         config_dict = cfg.load_config(paths)
-        client = build_client(config_dict, "Primary")
+        client = build_client(config_dict)
         try:
-            ingest_llm.build_atoms(paths, client)
-            ingest_llm.build_concepts(paths, client)
-            return {"ok": True}
+            results = ingest_llm.run_l1_to_l3(
+                paths, client, ingest_llm.IngestCallbacks, mode="batch"
+            )
+            return {
+                "ok": True,
+                "sources": len(results),
+                "atoms_created": sum(r.fragments_created for r in results),
+            }
         except Exception as e:
             return {"ok": False, "error": str(e)}
 

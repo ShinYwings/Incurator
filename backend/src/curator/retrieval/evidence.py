@@ -1,0 +1,212 @@
+"""Evidence-pack construction per route (v0.3.1).
+
+Combines the DB graph (entities/relations/community_reports/memory_paths/
+source_spans — the source of truth) with qmd search over the derived
+``.curator/Collections`` corpus. qmd is the fallback retrieval engine; when it is
+unavailable or the graph is incomplete, evidence degrades with a warning.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from .. import config as cfg
+from .. import db
+from ..pipeline import memory_paths as mp
+from .models import EvidenceItem, EvidencePack, QueryRequest
+
+__all__ = ["build_evidence", "seed_terms"]
+
+_STOP = {
+    "the", "and", "for", "with", "what", "which", "that", "this", "from", "into",
+    "does", "are", "how", "why", "when", "where", "between", "about", "of", "to",
+    "is", "a", "an", "in", "on",
+}
+
+
+def seed_terms(query: str, limit: int = 8) -> list[str]:
+    terms: list[str] = []
+    for tok in re.findall(r"[A-Za-z][A-Za-z0-9+\-]*", query):
+        low = tok.lower()
+        if low in _STOP or (len(tok) <= 3 and not tok.isupper()):
+            continue
+        if tok not in terms:
+            terms.append(tok)
+    return terms[:limit]
+
+
+def _qmd_hits(paths: cfg.WikiPaths, query: str, limit: int, warnings: list[str]) -> list[EvidenceItem]:
+    try:
+        from .. import search
+
+        results = search.query(paths, query, mode="hybrid", limit=limit, min_score=0.3, hydrate=True, rerank=True)
+    except Exception as e:  # qmd missing / backend error → degrade
+        warnings.append(f"qmd unavailable: {e}")
+        return []
+    items: list[EvidenceItem] = []
+    for hit in results.hits:
+        text = (hit.full_content or hit.snippet or "")[:1200]
+        items.append(
+            EvidenceItem(
+                id=hit.full_path, kind="qmd_hit", title=hit.title or hit.full_path,
+                text=text, score=hit.score,
+            )
+        )
+    return items
+
+
+def _entity_evidence(db_path: Path, query: str) -> tuple[list[EvidenceItem], list[str]]:
+    items: list[EvidenceItem] = []
+    span_ids: set[str] = set()
+    seen: set[str] = set()
+    for term in seed_terms(query):
+        for ent in db.find_graph_entities(db_path, term, limit=5):
+            if ent["id"] in seen:
+                continue
+            seen.add(ent["id"])
+            items.append(
+                EvidenceItem(
+                    id=ent["id"], kind="entity",
+                    title=f'{ent["canonical_name"]} ({ent["entity_type"]})',
+                    text=ent.get("description", ""),
+                    source_span_ids=ent.get("source_span_ids", []),
+                )
+            )
+            span_ids.update(ent.get("source_span_ids") or [])
+    return items, sorted(span_ids)
+
+
+def _span_items(db_path: Path, span_ids: list[str]) -> list[EvidenceItem]:
+    items: list[EvidenceItem] = []
+    for span in db.get_source_spans_by_ids(db_path, span_ids):
+        items.append(
+            EvidenceItem(
+                id=span["id"], kind="source_span",
+                title=span.get("section_title") or span.get("relpath", ""),
+                text=span.get("text_preview", ""),
+                source_span_ids=[span["id"]],
+            )
+        )
+    return items
+
+
+def _report_items(db_path: Path) -> tuple[list[EvidenceItem], list[str], list[str]]:
+    items, report_ids, span_ids = [], [], set()
+    for rep in db.list_community_reports(db_path):
+        findings = "; ".join(f.get("summary", "") for f in rep.get("findings", []) if isinstance(f, dict))
+        items.append(
+            EvidenceItem(
+                id=rep["id"], kind="community_report", title=rep.get("title", ""),
+                text=f'{rep.get("summary","")}\n{findings}'.strip(),
+                source_span_ids=rep.get("source_span_ids", []),
+                community_report_id=rep["id"], score=rep.get("rank", 0.0),
+            )
+        )
+        report_ids.append(rep["id"])
+        span_ids.update(rep.get("source_span_ids") or [])
+    return items, report_ids, sorted(span_ids)
+
+
+def _resolve_source_id(db_path: Path, source_key: str) -> int | None:
+    if source_key.isdigit():
+        return int(source_key)
+    with db.connect(db_path) as conn:
+        row = conn.execute("SELECT id FROM sources WHERE relpath = ?", (source_key,)).fetchone()
+    return int(row["id"]) if row else None
+
+
+def build_evidence(
+    paths: cfg.WikiPaths, request: QueryRequest, route: str, *, limit: int = 8
+) -> EvidencePack:
+    db_path = paths.state_db
+    q = request.working_query
+    warnings: list[str] = []
+    pack = EvidencePack(route=route, warnings=warnings)
+
+    if route == "source-section":
+        sid = _resolve_source_id(db_path, request.source_key)
+        if sid is None:
+            warnings.append(f"unknown source: {request.source_key}")
+        else:
+            spans = db.list_source_spans(db_path, sid)
+            for span in spans:
+                pack.items.append(
+                    EvidenceItem(
+                        id=span["id"], kind="source_span",
+                        title=span.get("section_title") or "", text=span.get("text_preview", ""),
+                        source_span_ids=[span["id"]],
+                    )
+                )
+            pack.source_span_ids = [s["id"] for s in spans]
+        return pack
+
+    if route == "global":
+        items, report_ids, span_ids = _report_items(db_path)
+        if not items:
+            warnings.append("no community reports; falling back to qmd")
+            pack.items = _qmd_hits(paths, q, limit, warnings)
+        else:
+            pack.items = items
+        pack.community_report_ids = report_ids
+        pack.source_span_ids = span_ids
+        return pack
+
+    if route == "explore":
+        ent_items, span_ids = _entity_evidence(db_path, q)
+        seed_ids = [it.id for it in ent_items]
+        paths_found = mp.build_memory_paths(db_path, seed_entity_ids=seed_ids, max_depth=2)
+        mpath_ids = mp.record_memory_paths(db_path, paths_found, q_hash=mp.query_hash(q), route="explore")
+        for path_obj, pid in zip(paths_found, mpath_ids):
+            hop_desc = " → ".join(h.get("relation_type", "") for h in path_obj.hops)
+            pack.items.append(
+                EvidenceItem(
+                    id=pid, kind="memory_path", title="associative path",
+                    text=hop_desc, score=path_obj.score,
+                    source_span_ids=path_obj.source_span_ids, memory_path_id=pid,
+                )
+            )
+            span_ids = sorted(set(span_ids) | set(path_obj.source_span_ids))
+        report_items, report_ids, report_spans = _report_items(db_path)
+        pack.items.extend(report_items[:3])  # primer
+        pack.items.extend(ent_items)
+        pack.memory_path_ids = mpath_ids
+        pack.community_report_ids = report_ids[:3]
+        pack.source_span_ids = sorted(set(span_ids) | set(report_spans))
+        return pack
+
+    if route == "exhibition":
+        # Active exhibition is pinned context; supplement with local evidence.
+        exh_item = _active_exhibition_item(paths, request.workspace_path)
+        if exh_item:
+            pack.items.append(exh_item)
+        else:
+            warnings.append("no active exhibition; supplementing with local evidence")
+
+    # local (and exhibition supplement): entities + their spans + qmd hits.
+    ent_items, span_ids = _entity_evidence(db_path, q)
+    pack.items.extend(ent_items)
+    pack.items.extend(_span_items(db_path, span_ids))
+    pack.items.extend(_qmd_hits(paths, q, limit, warnings))
+    pack.source_span_ids = span_ids
+    return pack
+
+
+def _active_exhibition_item(paths: cfg.WikiPaths, workspace_path: str) -> EvidenceItem | None:
+    if not workspace_path:
+        return None
+    from ..curate_yml import load_curate_spec
+
+    try:
+        spec = load_curate_spec(Path(workspace_path))
+    except Exception:
+        return None
+    if not spec or not spec.exhibition:
+        return None
+    exh_file = paths.exhibitions / f"{spec.exhibition}.md"
+    if not exh_file.exists():
+        return None
+    return EvidenceItem(
+        id=spec.exhibition, kind="exhibition", title="active exhibition",
+        text=exh_file.read_text(encoding="utf-8")[:8000],
+    )

@@ -62,11 +62,9 @@ class TestBackgroundJobQueue(unittest.TestCase):
         job_id = db.enqueue_job(self.paths.state_db, self.source_id, "l2_atoms")
         fake_client = Mock()
         fake_client.close = Mock()
-        fake_result = SimpleNamespace(
-            ok=True, error=None, pages_created=2, pages_updated=1, changes=[]
-        )
+        fake_result = SimpleNamespace(ok=True, error=None, atom_ids=["ATM-1", "ATM-2"])
         with patch("curator.ingest_worker.build_client", return_value=fake_client), \
-             patch("curator.ingest_worker.ingest_llm.ingest_source", return_value=fake_result), \
+             patch("curator.pipeline.compile.compile_source_l2", return_value=fake_result), \
              patch("curator.ingest_worker.ingest_llm.run_l3_from_existing_atoms", return_value=[]):
             result = ingest_worker.run_next_job(self.paths, cfg.DEFAULT_CONFIG)
         self.assertTrue(result["ok"])
@@ -74,14 +72,14 @@ class TestBackgroundJobQueue(unittest.TestCase):
             row = conn.execute("SELECT * FROM ingest_jobs WHERE id = ?", (job_id,)).fetchone()
         self.assertEqual(row["state"], "done")
         self.assertEqual(row["pages_created"], 2)
-        self.assertEqual(row["pages_updated"], 1)
+        self.assertEqual(row["pages_updated"], 0)
 
     def test_failed_job_records_error(self) -> None:
         job_id = db.enqueue_job(self.paths.state_db, self.source_id, "l2_atoms")
         fake_client = Mock()
         fake_client.close = Mock()
         with patch("curator.ingest_worker.build_client", return_value=fake_client), \
-             patch("curator.ingest_worker.ingest_llm.ingest_source",
+             patch("curator.pipeline.compile.compile_source_l2",
                    side_effect=RuntimeError("boom")):
             result = ingest_worker.run_next_job(self.paths, cfg.DEFAULT_CONFIG)
         self.assertFalse(result["ok"])
@@ -130,7 +128,7 @@ class TestBackgroundJobQueue(unittest.TestCase):
         fake_client = Mock()
         fake_client.close = Mock()
         with patch("curator.ingest_worker.build_client", return_value=fake_client), \
-             patch("curator.ingest_worker.ingest_llm.ingest_source",
+             patch("curator.pipeline.compile.compile_source_l2",
                    side_effect=RuntimeError("parse failed")):
             ingest_worker.run_next_job(self.paths, cfg.DEFAULT_CONFIG)
         with db.connect(self.paths.state_db) as conn:
@@ -142,7 +140,7 @@ class TestBackgroundJobQueue(unittest.TestCase):
         fake_client = Mock()
         fake_client.close = Mock()
         with patch("curator.ingest_worker.build_client", return_value=fake_client), \
-             patch("curator.ingest_worker.ingest_llm.ingest_source",
+             patch("curator.pipeline.compile.compile_source_l2",
                    side_effect=RuntimeError("connection timeout")):
             result = ingest_worker.run_next_job(self.paths, cfg.DEFAULT_CONFIG)
         self.assertFalse(result["ok"])
@@ -163,7 +161,7 @@ class TestBackgroundJobQueue(unittest.TestCase):
         fake_client = Mock()
         fake_client.close = Mock()
         with patch("curator.ingest_worker.build_client", return_value=fake_client), \
-             patch("curator.ingest_worker.ingest_llm.ingest_source",
+             patch("curator.pipeline.compile.compile_source_l2",
                    side_effect=RuntimeError("connection timeout")):
             result = ingest_worker.run_next_job(self.paths, cfg.DEFAULT_CONFIG)
         self.assertFalse(result["ok"])
@@ -175,7 +173,7 @@ class TestBackgroundJobQueue(unittest.TestCase):
         db.enqueue_job(self.paths.state_db, self.source_id, "l2_atoms")
         fake_client = Mock()
         fake_client.close = Mock()
-        fake_result = SimpleNamespace(ok=True, error=None, pages_created=1, pages_updated=0, changes=[])
+        fake_result = SimpleNamespace(ok=True, error=None, atom_ids=["ATM-1"])
         l3_called = []
 
         def fake_l3(paths, client, cb_factory):
@@ -183,7 +181,7 @@ class TestBackgroundJobQueue(unittest.TestCase):
             return []
 
         with patch("curator.ingest_worker.build_client", return_value=fake_client), \
-             patch("curator.ingest_worker.ingest_llm.ingest_source", return_value=fake_result), \
+             patch("curator.pipeline.compile.compile_source_l2", return_value=fake_result), \
              patch("curator.ingest_worker.ingest_llm.run_l3_from_existing_atoms", side_effect=fake_l3):
             ingest_worker.run_next_job(self.paths, cfg.DEFAULT_CONFIG)
         self.assertEqual(len(l3_called), 1, "L3 should be triggered once after last L2 job")
@@ -194,7 +192,7 @@ class TestBackgroundJobQueue(unittest.TestCase):
         db.enqueue_job(self.paths.state_db, source_id2, "l2_atoms")
         fake_client = Mock()
         fake_client.close = Mock()
-        fake_result = SimpleNamespace(ok=True, error=None, pages_created=1, pages_updated=0, changes=[])
+        fake_result = SimpleNamespace(ok=True, error=None, atom_ids=["ATM-1"])
         l3_called = []
 
         def fake_l3(paths, client, cb_factory):
@@ -202,7 +200,7 @@ class TestBackgroundJobQueue(unittest.TestCase):
             return []
 
         with patch("curator.ingest_worker.build_client", return_value=fake_client), \
-             patch("curator.ingest_worker.ingest_llm.ingest_source", return_value=fake_result), \
+             patch("curator.pipeline.compile.compile_source_l2", return_value=fake_result), \
              patch("curator.ingest_worker.ingest_llm.run_l3_from_existing_atoms", side_effect=fake_l3):
             ingest_worker.run_next_job(self.paths, cfg.DEFAULT_CONFIG)
         # With 2 jobs queued initially, after first completes there's still 1 queued → skip L3
