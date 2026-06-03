@@ -1870,6 +1870,97 @@
   opacity: 0.5;
 }
 
+/* ── Applied Change Pill (compact, replaces full diff in chat) ── */
+
+.ai-agent-applied-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  padding: 3px 8px 3px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--background-secondary) 90%, transparent);
+  border: 1px solid var(--background-modifier-border);
+  font-size: 12px;
+  line-height: 1;
+  flex-wrap: wrap;
+}
+
+.ai-agent-applied-change-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.ai-agent-applied-change-name {
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  color: var(--text-accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.15s;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 260px;
+}
+
+.ai-agent-applied-change-name:hover {
+  text-decoration-color: var(--text-accent);
+}
+
+.ai-agent-applied-status {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: color-mix(in srgb, #3fb950 16%, transparent);
+  color: #3fb950;
+  border: 1px solid color-mix(in srgb, #3fb950 40%, transparent);
+  cursor: default;
+  flex-shrink: 0;
+}
+
+.ai-agent-applied-status:disabled {
+  opacity: 0.8;
+}
+
+.ai-agent-applied-revert {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: color-mix(in srgb, #f85149 12%, transparent);
+  color: #f85149;
+  border: 1px solid color-mix(in srgb, #f85149 35%, transparent);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ai-agent-applied-revert:hover:not(:disabled) {
+  background: color-mix(in srgb, #f85149 22%, transparent);
+  border-color: #f85149;
+}
+
+.ai-agent-applied-revert:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ai-agent-applied-change-reverted .ai-agent-applied-status {
+  opacity: 0.4;
+}
+
+.ai-agent-applied-change-error {
+  color: var(--text-error);
+  font-size: 11px;
+}
+
 .ai-agent-incurator-status {
   display: flex;
   align-items: center;

@@ -2319,52 +2319,61 @@ export class ChatSidebarView extends ItemView {
     msg: ChatMessage
   ): void {
     const file = this.app.vault.getAbstractFileByPath(prop.filepath);
-    const wrapper = container.createDiv("ai-agent-inline-diff ai-agent-inline-diff-applied");
-    const header = wrapper.createDiv("ai-agent-inline-diff-header");
-    header.createSpan({ cls: "ai-agent-inline-diff-filename", text: prop.filepath });
-    const btnGroup = header.createDiv("ai-agent-inline-diff-actions");
-    
+    const wrapper = container.createDiv("ai-agent-applied-change");
+
     let isNewFile = false;
     if (!(file instanceof TFile)) {
       if (prop.search.includes("<<< NEW FILE >>>") || prop.search.trim() === "") {
         isNewFile = true;
       } else {
-        header.createSpan({ cls: "ai-agent-inline-diff-error", text: " (File not found)" });
+        const errEl = wrapper.createSpan({ cls: "ai-agent-applied-change-error" });
+        errEl.setText(`⚠ File not found: ${prop.filepath}`);
         return;
       }
     }
 
-    const reviewBtn = btnGroup.createEl("button", {
-      cls: "ai-agent-inline-diff-review ai-agent-inline-diff-accept",
-      text: isNewFile ? "✓ Created" : "✓ Applied",
-      attr: { title: "This edit was automatically applied." },
+    // Compact single-line: icon + filename + status button + revert
+    const icon = wrapper.createSpan({ cls: "ai-agent-applied-change-icon", text: isNewFile ? "📄" : "✏️" });
+    const nameEl = wrapper.createSpan({ cls: "ai-agent-applied-change-name" });
+    // Clickable: opens the file
+    nameEl.setText(prop.filepath);
+    nameEl.title = "Open file";
+    nameEl.addEventListener("click", async () => {
+      const f = this.app.vault.getAbstractFileByPath(prop.filepath);
+      if (f instanceof TFile) {
+        const leaf = this.app.workspace.getLeaf("tab");
+        await leaf.openFile(f, { active: true });
+      }
     });
-    reviewBtn.disabled = true;
 
-    const rejectBtn = btnGroup.createEl("button", {
-      cls: "ai-agent-inline-diff-reject",
+    const statusBtn = wrapper.createEl("button", {
+      cls: "ai-agent-applied-status",
+      text: isNewFile ? "✓ Created" : "✓ Applied",
+      attr: { title: "Automatically applied", disabled: "" },
+    });
+    statusBtn.disabled = true;
+
+    const rejectBtn = wrapper.createEl("button", {
+      cls: "ai-agent-applied-revert",
       text: "✗ Revert",
-      attr: { title: "Undo this edit" },
+      attr: { title: "Undo this change" },
     });
 
     const rejectEdit = async () => {
-      wrapper.addClass("ai-agent-inline-diff-rejected");
+      wrapper.addClass("ai-agent-applied-change-reverted");
       rejectBtn.disabled = true;
       rejectBtn.setText("✗ Reverted");
-      
-      const revertData = msg.revertData?.find(d => d.filepath === prop.filepath);
+      const revertData = msg.revertData?.find((d) => d.filepath === prop.filepath);
       if (revertData) {
         const targetFile = this.app.vault.getAbstractFileByPath(prop.filepath);
         if (revertData.originalContent === null) {
           if (targetFile instanceof TFile) {
             await this.app.vault.trash(targetFile, false);
-            new Notice(`Reverted (Deleted): ${prop.filepath}`);
+            new Notice(`Reverted (deleted): ${prop.filepath}`);
           }
-        } else {
-          if (targetFile instanceof TFile) {
-            await this.app.vault.modify(targetFile, revertData.originalContent);
-            new Notice(`Reverted: ${prop.filepath}`);
-          }
+        } else if (targetFile instanceof TFile) {
+          await this.app.vault.modify(targetFile, revertData.originalContent);
+          new Notice(`Reverted: ${prop.filepath}`);
         }
       }
     };
@@ -2376,6 +2385,11 @@ export class ChatSidebarView extends ItemView {
     if (msg.appliedEdits) return;
     msg.appliedEdits = true;
     msg.revertData = [];
+
+    const changelogLines: string[] = [
+      `## AI Changes — ${new Date().toLocaleString()}`,
+      "",
+    ];
 
     for (const prop of proposals) {
       const file = this.app.vault.getAbstractFileByPath(prop.filepath);
@@ -2391,11 +2405,44 @@ export class ChatSidebarView extends ItemView {
       if (isNewFile) {
         msg.revertData.push({ filepath: prop.filepath, originalContent: null });
         await this.createNewFile(prop.filepath, prop.replace);
+        changelogLines.push(`### ✓ Created: \`${prop.filepath}\``);
+        changelogLines.push("");
+        changelogLines.push("```");
+        changelogLines.push(prop.replace.slice(0, 2000) + (prop.replace.length > 2000 ? "\n...[truncated]" : ""));
+        changelogLines.push("```");
+        changelogLines.push("");
       } else if (file instanceof TFile) {
         const originalContent = await this.app.vault.read(file);
         msg.revertData.push({ filepath: prop.filepath, originalContent });
         await this.applyInlineMultiEdit(prop, file);
+        changelogLines.push(`### ✓ Modified: \`${prop.filepath}\``);
+        changelogLines.push("");
+        changelogLines.push("**Removed:**");
+        changelogLines.push("```");
+        changelogLines.push(prop.search.slice(0, 1000) + (prop.search.length > 1000 ? "\n...[truncated]" : ""));
+        changelogLines.push("```");
+        changelogLines.push("");
+        changelogLines.push("**Added:**");
+        changelogLines.push("```");
+        changelogLines.push(prop.replace.slice(0, 1000) + (prop.replace.length > 1000 ? "\n...[truncated]" : ""));
+        changelogLines.push("```");
+        changelogLines.push("");
       }
+    }
+
+    // Append changelog to .ai-agent-changes.md in vault root
+    try {
+      const logPath = ".ai-agent-changes.md";
+      const logFile = this.app.vault.getAbstractFileByPath(logPath);
+      const entry = changelogLines.join("\n") + "\n---\n\n";
+      if (logFile instanceof TFile) {
+        const existing = await this.app.vault.read(logFile);
+        await this.app.vault.modify(logFile, entry + existing);
+      } else {
+        await this.app.vault.create(logPath, entry);
+      }
+    } catch {
+      // fail silently — changelog is optional
     }
   }
 
