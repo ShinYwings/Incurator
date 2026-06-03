@@ -31,6 +31,7 @@ from rich.table import Table
 from . import __version__
 from . import config as cfg
 from . import constants as consts
+from . import llm_identity
 from . import db
 from . import ingest_llm
 from . import ingest_raw
@@ -2744,6 +2745,13 @@ def status() -> None:
         )
     else:
         cfg_table.add_row("Fallback", "none")
+
+    account = llm_identity.get_llm_account_info(primary_prov)
+    if account.get("email"):
+        acc_text = f"{account['email']}  [dim]({account.get('name', '')})[/dim]"
+    else:
+        acc_text = account.get("name") or "Unknown"
+    cfg_table.add_row("Account", acc_text)
 
     ollama_cfg = llm.get(consts.BACKEND_OLLAMA, {})
     if primary_prov == consts.BACKEND_OLLAMA or fb_prov == consts.BACKEND_OLLAMA:

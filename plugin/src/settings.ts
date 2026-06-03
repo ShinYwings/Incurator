@@ -889,7 +889,13 @@ export class AIAgentSettingTab extends PluginSettingTab {
       const token = await this.plugin.authResolver.resolveToken(provider);
       if (token) {
         container.empty();
-        container.createSpan({ cls: "ai-agent-auth-ok", text: "✓ Authenticated" });
+        const account = this.plugin.authResolver.getAccountInfo(provider);
+        let okText = "✓ Authenticated";
+        if (account.email && account.name) okText = `✓ ${account.name} (${account.email})`;
+        else if (account.email) okText = `✓ ${account.email}`;
+        else if (account.name) okText = `✓ ${account.name}`;
+        
+        container.createSpan({ cls: "ai-agent-auth-ok", text: okText });
         if (loginBtn) {
           loginBtn.textContent = "Re-authenticate";
           loginBtn.classList.remove("mod-cta");

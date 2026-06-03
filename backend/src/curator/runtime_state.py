@@ -20,6 +20,7 @@ from . import config as cfg
 from . import constants as consts
 from . import db
 from . import ingest_raw
+from . import llm_identity
 from . import search
 
 
@@ -178,6 +179,14 @@ def build_sources_snapshot(paths: cfg.WikiPaths, *, limit: int = 100) -> dict[st
 def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = None) -> dict[str, Any]:
     config = config if config is not None else cfg.load_config(paths)
     stats = db.get_stats(paths.state_db)
+    
+    llm_cfg = config.get("llm", {})
+    primary_prov, _ = cfg.split_provider_model(llm_cfg.get("primary", ""))
+    fb_prov, _ = cfg.split_provider_model(llm_cfg.get("fallback", ""))
+    llm_account = {
+        "primary": llm_identity.get_llm_account_info(primary_prov) if primary_prov else None,
+        "fallback": llm_identity.get_llm_account_info(fb_prov) if fb_prov else None,
+    }
     layer_counts = {
         "contexts": _count_md(paths.contexts),
         "atoms": _count_md(paths.atoms),
@@ -208,6 +217,7 @@ def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = 
             "output": stats.get("total_output_tokens", 0),
             "cost_usd": stats.get("total_cost_usd", 0.0),
         },
+        "llm_account": llm_account,
         "llm": config.get("llm", {}),
         "search": config.get("search", {}),
         "sync": config.get("sync", {}),

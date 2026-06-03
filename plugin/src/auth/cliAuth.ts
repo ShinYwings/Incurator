@@ -144,6 +144,60 @@ export class CLIAuthResolver {
     this.launchInTerminal(command, `AI Agent ${provider} login`);
   }
 
+  getAccountInfo(provider: LLMProvider): { email?: string; name?: string } {
+    if (provider === "ollama") return { name: "Local (no account)" };
+    if (provider === "deepseek") return { name: "API key configured" };
+
+    if (provider === "antigravity") {
+      try {
+        const credsPath = join(homedir(), ".gemini", "oauth_creds.json");
+        if (existsSync(credsPath)) {
+          const raw = readFileSync(credsPath, "utf-8");
+          const data = JSON.parse(raw);
+          if (data.id_token) {
+            const claims = this.decodeJwtClaims(data.id_token);
+            if (claims) return { email: claims.email, name: claims.name || "Authenticated" };
+          }
+        }
+      } catch { /* ignore */ }
+      return { name: "Authenticated" };
+    }
+
+    if (provider === "openai") {
+      const pathsToCheck = [
+        join(homedir(), ".config", "codex", "auth.json"),
+        join(homedir(), ".codex", "auth.json"),
+      ];
+      for (const p of pathsToCheck) {
+        if (existsSync(p)) {
+          try {
+            const raw = readFileSync(p, "utf-8");
+            const data = JSON.parse(raw);
+            const tokens = data.tokens;
+            let idToken: string | undefined;
+            if (typeof tokens === "object" && tokens !== null) {
+              idToken = tokens.id_token;
+            } else if (typeof tokens === "string") {
+              idToken = tokens;
+            }
+            if (idToken) {
+              const claims = this.decodeJwtClaims(idToken);
+              if (claims) return { email: claims.email, name: claims.name || "Authenticated" };
+            }
+          } catch { /* ignore */ }
+          break;
+        }
+      }
+      return { name: "Authenticated" };
+    }
+
+    if (provider === "claude") {
+      return { name: "Authenticated (CLI-managed)" };
+    }
+
+    return { name: "Unknown" };
+  }
+
   /** Invalidate cached token, forcing re-fetch on next call */
   invalidate(provider: LLMProvider): void {
     delete this.cache[provider];
@@ -278,8 +332,14 @@ export class CLIAuthResolver {
   }
 
   private decodeJwtExpiry(token: string): number | undefined {
-    const [, payload] = token.split(".");
-    if (!payload) return undefined;
+    const claims = this.decodeJwtClaims(token);
+    return claims && typeof claims.exp === "number" ? claims.exp * 1000 : undefined;
+  }
+
+  private decodeJwtClaims(token: string): Record<string, any> | undefined {
+    const parts = token.split(".");
+    if (parts.length < 2) return undefined;
+    const payload = parts[1];
 
     try {
       const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
@@ -287,10 +347,7 @@ export class CLIAuthResolver {
         normalized.length + ((4 - (normalized.length % 4)) % 4),
         "="
       );
-      const parsed = JSON.parse(Buffer.from(padded, "base64").toString("utf-8")) as {
-        exp?: number;
-      };
-      return typeof parsed.exp === "number" ? parsed.exp * 1000 : undefined;
+      return JSON.parse(Buffer.from(padded, "base64").toString("utf-8"));
     } catch {
       return undefined;
     }
