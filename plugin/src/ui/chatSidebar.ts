@@ -120,6 +120,8 @@ export class ChatSidebarView extends ItemView {
   private lastQueryTrace: CuratorQueryResult | null = null;
   private sessionDrawerVisible = false;
   private sessionQuery = "";
+  private statusBarEl!: HTMLElement;
+  private statusPollInterval: any = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: ObsidianAIAgent) {
     super(leaf);
@@ -153,6 +155,16 @@ export class ChatSidebarView extends ItemView {
     });
 
     const headerActions = header.createDiv("ai-agent-chat-header-actions");
+    
+    // Status bar container
+    this.statusBarEl = headerActions.createDiv("ai-agent-chat-status-bar");
+    this.statusBarEl.style.display = "flex";
+    this.statusBarEl.style.alignItems = "center";
+    this.statusBarEl.style.marginRight = "8px";
+    this.statusBarEl.style.fontSize = "11px";
+    this.statusBarEl.style.color = "var(--text-muted)";
+    this.statusBarEl.style.gap = "8px";
+
     const newChatBtn = headerActions.createEl("button", {
       cls: "ai-agent-icon-btn ai-agent-new-chat-btn",
       attr: { "aria-label": "New conversation", title: "New chat" },
@@ -187,6 +199,10 @@ export class ChatSidebarView extends ItemView {
       this.renderSessionDrawer();
     });
     this.sessionDrawerEl.createDiv("ai-agent-session-drawer-list");
+
+    // Start status polling
+    this.statusPollInterval = setInterval(() => this.updateStatusBar(), 2000) as any;
+    this.updateStatusBar();
 
     // ── Messages area ──
     this.messagesContainer = container.createDiv("ai-agent-chat-messages");
@@ -382,9 +398,51 @@ export class ChatSidebarView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    if (this.statusPollInterval) {
+      clearInterval(this.statusPollInterval);
+      this.statusPollInterval = null;
+    }
     this.stopThinkingTimer();
     this.splitDropOverlay?.remove();
     this.splitDropOverlay = null;
+  }
+
+  private updateStatusBar(): void {
+    if (!this.statusBarEl) return;
+    try {
+      const vaultRoot = (this.plugin.app.vault.adapter as any).getBasePath?.() || "";
+      if (!vaultRoot) return;
+      const jobsPath = join(vaultRoot, ".curator", "runtime", "jobs.json");
+      const statusPath = join(vaultRoot, ".curator", "runtime", "status.json");
+
+      let jobText = "";
+      if (existsSync(jobsPath)) {
+        const raw = readFileSync(jobsPath, "utf8");
+        const data = JSON.parse(raw);
+        if (data.running && data.running.length > 0) {
+          jobText = `⚡ ${data.running.length} running`;
+        } else if (data.queued && data.queued.length > 0) {
+          jobText = `⏳ ${data.queued.length} queued`;
+        }
+      }
+
+      let llmText = "LLM: Unknown";
+      if (existsSync(statusPath)) {
+        const raw = readFileSync(statusPath, "utf8");
+        const data = JSON.parse(raw);
+        if (data.llm && data.llm.primary) {
+          llmText = `LLM: ${data.llm.primary.split("::")[0]} (Synced)`;
+        }
+      }
+
+      const texts = [];
+      if (jobText) texts.push(jobText);
+      texts.push(llmText);
+      
+      this.statusBarEl.innerText = texts.join(" | ");
+    } catch (e) {
+      // fail silently
+    }
   }
 
   // ── Public API ──────────────────────────────────────────────
@@ -1548,10 +1606,19 @@ export class ChatSidebarView extends ItemView {
     for (const tab of activeCtx.openTabs) {
       let ref: ContextRef | null = null;
       if (tab.viewType === "markdown" && tab.filePath) {
+        let finalContent = tab.content || "";
+        if (tab.selectedText && tab.selectedText.trim()) {
+          const sel = tab.selectedText;
+          if (finalContent.includes(sel)) {
+            finalContent = finalContent.replace(sel, `\n<selection>\n${sel}\n</selection>\n`);
+          } else {
+            finalContent = `\n<selection>\n${sel}\n</selection>\n\n${finalContent}`;
+          }
+        }
         ref = {
           type: "file",
           label: tab.filePath.split("/").pop() || tab.label,
-          content: this.truncateContext(tab.selectedText || tab.content || ""),
+          content: this.truncateContext(finalContent),
           filePath: tab.filePath,
           sourceViewType: "auto",
         };
@@ -2117,48 +2184,73 @@ export class ChatSidebarView extends ItemView {
 
     const contentEl = msgEl.createDiv("ai-agent-chat-msg-content");
     if (msg.role === "assistant" && msg.content) {
-      const editRef = !msg.isStreaming ? this.getEditTargetContextForMessage(msg) : null;
-      const multiProposals = !msg.isStreaming ? this.extractMultiEditProposals(msg.content, editRef?.filePath) : [];
-      let remainingContent = msg.content;
-
-      if (multiProposals.length > 0) {
-        // Strip out the ai-agent-edit blocks from the markdown content
-        for (const prop of multiProposals) {
-          remainingContent = remainingContent.replace(prop.originalBlock, "");
-        }
-        remainingContent = remainingContent.trim();
-        
-        if (remainingContent) {
-          const processedContent = this.processMarkdownForThoughts(remainingContent, false);
-          MarkdownRenderer.render(this.app, processedContent, contentEl, "", this);
-        }
-        
-        for (const prop of multiProposals) {
-          this.renderInlineMultiDiff(contentEl, prop, msg);
-        }
-      } else {
-        // Fallback to legacy single edit proposal format
-        const editProposal = !msg.isStreaming ? this.extractEditProposal(msg.content) : null;
-        const editRef = editProposal ? this.getEditableContextForMessage(msg) : null;
-
-        if (editProposal && editRef) {
-          const beforeEdit = msg.content.replace(/```ai-agent-edit[\s\S]*?```/i, "").trim();
-          if (beforeEdit) {
-            const processedBefore = this.processMarkdownForThoughts(beforeEdit, false);
-            MarkdownRenderer.render(this.app, processedBefore, contentEl, "", this);
-          }
-          this.renderInlineDiff(contentEl, editRef, editProposal, msg);
-        } else {
-          const processedContent = this.processMarkdownForThoughts(msg.content, msg.isStreaming || false);
-          MarkdownRenderer.render(this.app, processedContent, contentEl, "", this);
-        }
-      }
+      this.renderAssistantMessageContent(msg, contentEl);
     } else {
       contentEl.setText(msg.content);
     }
 
     if (msg.isStreaming && !msg.content) {
       contentEl.createSpan({ cls: "ai-agent-thinking", text: "Thinking..." });
+    }
+  }
+
+  private renderAssistantMessageContent(msg: ChatMessage, contentEl: HTMLElement): void {
+    contentEl.empty();
+    if (!msg.content) return;
+
+    const editRef = !msg.isStreaming ? this.getEditTargetContextForMessage(msg) : null;
+    const multiProposals = !msg.isStreaming ? this.extractMultiEditProposals(msg.content, editRef?.filePath) : [];
+    let remainingContent = msg.content;
+
+    if (multiProposals.length > 0) {
+      for (const prop of multiProposals) {
+        remainingContent = remainingContent.replace(prop.originalBlock, "");
+      }
+      remainingContent = remainingContent.trim();
+      
+      const mdWrapper = contentEl.createDiv("ai-agent-markdown-wrapper");
+      if (remainingContent) {
+        const processedContent = this.processMarkdownForThoughts(remainingContent, false);
+        MarkdownRenderer.render(this.app, processedContent, mdWrapper, "", this);
+      }
+      
+      for (const prop of multiProposals) {
+        this.renderInlineMultiDiff(contentEl, prop, msg);
+      }
+    } else {
+      const editProposal = !msg.isStreaming ? this.extractEditProposal(msg.content) : null;
+      const legacyRef = editProposal ? this.getEditableContextForMessage(msg) : null;
+
+      if (editProposal && legacyRef) {
+        const beforeEdit = msg.content.replace(/```ai-agent-edit[\s\S]*?```/i, "").trim();
+        const mdWrapper = contentEl.createDiv("ai-agent-markdown-wrapper");
+        if (beforeEdit) {
+          const processedBefore = this.processMarkdownForThoughts(beforeEdit, false);
+          MarkdownRenderer.render(this.app, processedBefore, mdWrapper, "", this);
+        }
+        this.renderInlineDiff(contentEl, legacyRef, editProposal, msg);
+      } else {
+        const mdWrapper = contentEl.createDiv("ai-agent-markdown-wrapper");
+        const processedContent = this.processMarkdownForThoughts(msg.content, msg.isStreaming || false);
+        MarkdownRenderer.render(this.app, processedContent, mdWrapper, "", this);
+      }
+    }
+
+    if (!msg.isStreaming) {
+      const exhMatch = msg.content.match(/(EXH-[0-9a-fA-F]{8})/);
+      const toolMatch = msg.content.match(/✅ \*\*mcp_[^*]*curator_query\*\* result:\n```(?:json)?\n([\s\S]*?)\n```/);
+      if (toolMatch && !this.lastQueryTrace) {
+        try {
+          const parsed = JSON.parse(toolMatch[1]);
+          if (parsed.trace || parsed.exhibition_id) {
+            this.lastQueryTrace = parsed;
+          }
+        } catch { }
+      }
+      const traceToRender = this.lastQueryTrace || (exhMatch ? { exhibition_id: exhMatch[1] } : null);
+      if (traceToRender) {
+        renderCuratorQueryTrace(contentEl, traceToRender as any, this.app);
+      }
     }
   }
 
@@ -2737,37 +2829,11 @@ export class ChatSidebarView extends ItemView {
       }
       const contentEl = lastEl.querySelector(".ai-agent-chat-msg-content");
       if (contentEl) {
-        contentEl.empty();
+        this.stopThinkingTimer();
         if (msg.content) {
-          this.stopThinkingTimer();
-          const processedContent = this.processMarkdownForThoughts(msg.content, msg.isStreaming || false);
-          MarkdownRenderer.render(
-            this.app,
-            processedContent,
-            contentEl as HTMLElement,
-            "",
-            this
-          );
-          if (!msg.isStreaming) {
-            const exhMatch = msg.content.match(/(EXH-[0-9a-fA-F]{8})/);
-            
-            // Try to extract full trace from tool result if available
-            const toolMatch = msg.content.match(/✅ \*\*mcp_[^*]*curator_query\*\* result:\n```(?:json)?\n([\s\S]*?)\n```/);
-            if (toolMatch && !this.lastQueryTrace) {
-              try {
-                const parsed = JSON.parse(toolMatch[1]);
-                if (parsed.trace || parsed.exhibition_id) {
-                  this.lastQueryTrace = parsed;
-                }
-              } catch { }
-            }
-            
-            const traceToRender = this.lastQueryTrace || (exhMatch ? { exhibition_id: exhMatch[1] } : null);
-            if (traceToRender) {
-              renderCuratorQueryTrace(contentEl as HTMLElement, traceToRender as any, this.app);
-            }
-          }
+          this.renderAssistantMessageContent(msg, contentEl as HTMLElement);
         } else if (msg.isStreaming) {
+          contentEl.empty();
           const thinkingSpan = (contentEl as HTMLElement).createSpan({
             cls: "ai-agent-thinking",
           });

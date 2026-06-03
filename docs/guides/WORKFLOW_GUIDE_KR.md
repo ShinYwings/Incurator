@@ -178,11 +178,11 @@ Obsidian plugin JSON 호출용 `wiki plugin ...`, 외부 에이전트용 `wiki m
 > **wiki sync 기본 동작 변경 (v0.2.1)**: 변경되지 않은 DAG에서 `wiki sync`는 content_hash 검사만 수행합니다(~0.6초).
 > 변경된 노드와 그 하위 노드만 LLM으로 재검증됩니다. 전체 재검증을 원하면 `--full`을 사용하세요.
 
-> **이원화된 질의 아키텍처 및 임시 가비지 컬렉션(GC)**:
+> **이원화된 질의 아키텍처 및 Exhibition 영구 보존**:
 > - **Workspace Agent**: 워크스페이스가 지정되면, `curate.yml`에 정의된 **Pinned Exhibition**과 페르소나를 사용하며, 채팅용 임시 파일을 생성하지 않습니다.
-> - **Vault Agent**: 일반 Vault 질의 시에는 세션별로 **임시 L4 Exhibition**을 동적으로 생성하고, 글로벌 폴백 페르소나를 사용합니다.
+> - **Vault Agent**: 일반 Vault 질의 시에는 세션별로 **영구적인 L4 Exhibition**을 동적으로 생성하고, 글로벌 폴백 페르소나를 사용합니다.
 > - **L3 제약 조건**: L4 Exhibition은 검색된 **L3 Concept이 있을 때만 생성**됩니다. 일치하는 L3가 없으면 L4를 저장하지 않고 즉시 답변합니다.
-> - **GC**: `wiki lint`는 이제 **임시 가비지 컬렉터(GC)**를 포함하여 24시간이 지난 오래된 임시 채팅 Exhibition을 자동으로 삭제하여 Vault 오염을 방지합니다.
+> - **Exhibition 생명주기 (v0.3.1)**: 채팅으로 생성된 Exhibition은 사용자의 성향과 세션 기록을 종합하는 "살아있는 문서(Living Document)" 역할을 합니다. 기존의 24시간 임시 GC 룰은 폐기(Deprecated)되었으며, 이제 이 Exhibition들은 고품질의 최종 전시품으로 영구 보존됩니다.
 
 > **백그라운드 워커 폴백**: MCP 서버가 실행 중일 때 IngestWorker가 대기 중인 작업을 자동으로 처리합니다.
 > 테스트나 오프라인 CLI 사용 시에는 `wiki jobs run` 명령으로 큐를 전경(foreground)에서 처리할 수 있습니다.

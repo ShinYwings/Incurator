@@ -359,14 +359,14 @@ Now you can obtain answers or perform the final synthesis for agent consumption.
 This is the core operational mode of Incurator. You just need to ask or converse.
 
 The system uses a **Dual Architecture** for querying, depending on whether you are in a Workspace or Vault:
-- **Workspace Agent**: If a workspace is specified, it uses the **Pinned Exhibition** and persona defined in `curate.yml` without generating ephemeral files.
-- **Vault Agent**: When querying from a general Vault session, it dynamically generates an **Ephemeral L4 Exhibition** per chat session, using a global fallback persona. A plain chat whose active note is not inside a workspace folder is treated as a Vault session: its ephemeral Exhibition is scoped to `default`, not to an arbitrary project workspace you never opened.
+- **Workspace Agent**: If a workspace is specified, it uses the **Pinned Exhibition** and persona defined in `curate.yml` without generating temporary chat files.
+- **Vault Agent**: When querying from a general Vault session, it dynamically generates a **Persistent L4 Exhibition** per chat session, using a global fallback persona. A plain chat whose active note is not inside a workspace folder is treated as a Vault session: its generated Exhibition is scoped to `default`, not to an arbitrary project workspace you never opened.
 
 **Per-request language**: The agent detects each question's language fresh (Korean, English, Chinese, Japanese, Russian, …) by Unicode script and answers in that same language, using English only as the internal search/reasoning language. The output language follows each message independently — an English question gets an English answer even if your previous question was in Korean. Language metadata is not stored in the generated Exhibition file, and the answer cache is keyed by output language so you never get a stale-language cached answer.
 
-**L3 Constraints & Garbage Collection (GC)**:
+**L3 Constraints & Exhibition Persistence**:
 - An L4 Exhibition is **only generated** if there are matching **L3 Concepts**. If no L3 Concepts match the query, the system skips L4 generation and returns an immediate answer.
-- Ephemeral L4 Exhibitions generated during Vault sessions are marked with `ephemeral: true` and are automatically deleted (Garbage Collected) by `wiki lint` after 24 hours to prevent vault pollution.
+- **Exhibition Lifecycle (v0.3.1)**: Chat-generated Exhibitions act as living documents that synthesize your tendencies and session history. The legacy 24-hour Ephemeral Garbage Collection rule has been deprecated; these Exhibitions are now preserved as high-quality final artifacts.
 
 The system **instantly activates the pipeline to synthesize the final answer** at the moment you run `wiki query` or interact with an agent (`curator_query` / `search_curator`).
 

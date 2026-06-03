@@ -140,23 +140,19 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
         if job_type != consts.PHASE_L2:
             raise ValueError(f"Unsupported job_type: {job_type}")
 
-        db.update_job_progress(paths.state_db, job_id, phase="starting", progress=0.05)
-        callbacks = WorkerCallbacks(paths, job_id, source_id)
+        db.update_job_progress(paths.state_db, job_id, phase=consts.PHASE_L2, progress=0.25)
 
-        # L2: extract atoms for this specific source only
-        result = ingest_llm.ingest_source(
-            paths,
-            source_id,
-            client,
-            callbacks,
-            mode="batch",
-        )
+        # L2: compile knowledge units + graph for this source (v0.3.1 pipeline).
+        from .pipeline import compile as _compile
 
-        if result.error:
-            raise RuntimeError(result.error)
+        cr = _compile.compile_source_l2(paths, client, source_id)
+        if not cr.ok:
+            raise RuntimeError(cr.error or "L2 compile failed")
+        db.set_source_layer_status(paths.state_db, source_id, "l2", consts.STATUS_DONE)
+        ingest_llm._mark_source_status(paths, source_id, "curated")
 
-        pages_created = result.pages_created
-        pages_updated = result.pages_updated
+        pages_created = len(cr.atom_ids)
+        pages_updated = 0
 
         # L3: run global concept clustering only when no other L2 jobs are waiting.
         # This prevents redundant clustering after each individual source job.

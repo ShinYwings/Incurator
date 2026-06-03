@@ -1321,31 +1321,10 @@ def apply_fixes(
 
 
 def gc_ephemeral_exhibitions(paths: cfg.WikiPaths, max_age_hours: int = 24) -> list[str]:
-    """Delete ephemeral Exhibitions older than max_age_hours.
-
-    Returns a list of deleted file paths.
+    """Deprecated: Chat Exhibitions are now persistent living documents.
+    Returns an empty list.
     """
-    import time
-    deleted = []
-    now = time.time()
-    max_age_sec = max_age_hours * 3600
-
-    if not paths.exhibitions.exists():
-        return deleted
-
-    for md_path in paths.exhibitions.glob("*.md"):
-        if md_path.name.startswith("."):
-            continue
-        page = page_writer.read_page(md_path)
-        if page and page.frontmatter.get("ephemeral") is True:
-            # Check file modification time
-            try:
-                if now - md_path.stat().st_mtime > max_age_sec:
-                    md_path.unlink()
-                    deleted.append(str(md_path))
-            except OSError:
-                pass
-    return deleted
+    return []
 
 
 def run_lint(
@@ -1389,21 +1368,8 @@ def run_lint(
         report.deep_check_run = True
         report.issues.extend(check_contradictions_deep(inv, paths, client, limit_to=limit_to))
 
-    # Run Garbage Collection for Ephemeral Exhibitions
-    try:
-        deleted = gc_ephemeral_exhibitions(paths, max_age_hours=24)
-        if deleted:
-            report.issues.append(
-                LintIssue(
-                    check=CheckId.EPHEMERAL_GC,
-                    severity=Severity.INFO,
-                    page="system",
-                    message=f"Garbage collected {len(deleted)} stale ephemeral chat exhibition(s).",
-                    suggestion="These were older than 24 hours.",
-                )
-            )
-    except Exception:
-        pass
+    # Ephemeral Garbage Collection has been deprecated as of v0.3.1.
+    # Chat Exhibitions are now treated as persistent living documents.
 
     # Sort: errors first, then warnings, then infos. Within each, by page.
     severity_order = {

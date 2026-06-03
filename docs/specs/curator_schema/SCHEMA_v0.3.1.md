@@ -287,7 +287,7 @@ workspace_id: default
 workspace_path: /absolute/path/to/workspace   # optional
 query_session: QRY-[UUID8]
 exhibition_origin: query_gen
-ephemeral: true
+ephemeral: false  # Deprecated in v0.3.1: Chat-generated Exhibitions are now persistent living memories
 question: "original question"
 cache_key: "sha256-or-prefix"
 is_verified_by_human: false
@@ -324,7 +324,7 @@ Rules:
 - Backprop may invalidate caches that cite changed Concepts, but must preserve
   human-verified promoted artifacts unless explicitly requested.
 - **L4 Constraints**: Query-generated Exhibitions are ONLY created if the query hits at least one L3 Concept. If no L3 Concepts are relevant, the system responds without generating an L4.
-- **Ephemeral GC**: Exhibitions with `ephemeral: true` are subject to garbage collection. `wiki lint` automatically deletes these files if they are older than 24 hours to prevent vault pollution.
+- **Ephemeral GC (Deprecated)**: Exhibitions are now treated as living documents that track user tendencies and session history. They are no longer garbage collected after 24 hours.
 
 ## 6. SQLite State Schema Additions
 

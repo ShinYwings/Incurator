@@ -93,7 +93,7 @@ class QueryExhibitionTests(unittest.TestCase):
                 answer=answer,
                 title="Session Chat",
                 hits=hits,
-                ephemeral=True,
+                ephemeral=False,
             )
         self.assertIn("no related L3 Concepts", str(ctx.exception))
 
@@ -118,7 +118,7 @@ class QueryExhibitionTests(unittest.TestCase):
                 callbacks=callbacks,
                 save_as="Session Chat",
                 classify_intent_first=False,
-                ephemeral_exhibition=True,
+                ephemeral_exhibition=False,
             )
 
         self.assertTrue(result.ok)
@@ -220,7 +220,7 @@ confidence_score: 0.8
                 workspace_project="Workspace Project",
                 workspace_path="/tmp/Workspace",
                 cache_key="workspace-cache-key",
-                ephemeral_exhibition=True,
+                ephemeral_exhibition=False,
             )
 
         self.assertTrue(result.ok)
@@ -230,7 +230,7 @@ confidence_score: 0.8
         saved_text = saved.read_text(encoding="utf-8")
         self.assertIn("workspace_path: /tmp/Workspace", saved_text)
         self.assertIn("cache_key: workspace-cache-key", saved_text)
-        self.assertIn("ephemeral: true", saved_text)
+        self.assertIn("ephemeral: false", saved_text)
         self.assertIn("exhibition_origin: query_gen", saved_text)
         self.assertIn(f"- {consts.LAYER_L3}/CON-work1234", saved_text)
 

@@ -2158,7 +2158,7 @@ def build_server() -> FastMCP:
                     cache_key=cache_key,
                     query_boost_terms=query_boost_terms,
                     pinned_exhibition_id=pinned_exhibition_id,
-                    ephemeral_exhibition=True,
+                    ephemeral_exhibition=False,  # Deprecated in v0.3.1
                 )
         except Exception as e:
             return {"ok": False, "question": question, "error": f"Query pipeline error: {e}"}

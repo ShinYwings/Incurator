@@ -4545,7 +4545,7 @@ def query(
         workspace_project=curate_spec.project if curate_spec else None,
         query_boost_terms=[x for x in ([curate_spec.persona.domain, curate_spec.persona.subdomain] + curate_spec.persona.disambiguation_keywords) if x] if curate_spec else None,
         pinned_exhibition_id=curate_spec.exhibition if curate_spec else None,
-        ephemeral_exhibition=False if (save_as or curate_spec) else True,
+        ephemeral_exhibition=False,  # Deprecated in v0.3.1: Chat Exhibitions are now persistent living documents
     )
 
     callbacks = CliQueryCallbacks()

@@ -179,11 +179,11 @@ fixtures, and `wiki devices ...` for launcher diagnostics.
 > content_hash scan (~0.6 seconds). Only changed nodes and their downstream are LLM-revalidated.
 > Use `--full` for a complete revalidation.
 
-> **Dual Architecture Queries & Ephemeral Garbage Collection**:
+> **Dual Architecture Queries & Exhibition Persistence**:
 > - **Workspace Agent**: When a workspace is specified, queries use the **Pinned Exhibition** and persona defined in `curate.yml` without generating temporary chat files.
-> - **Vault Agent**: General vault queries dynamically generate an **Ephemeral L4 Exhibition** per chat session and use the global fallback persona.
+> - **Vault Agent**: General vault queries dynamically generate a **Persistent L4 Exhibition** per chat session and use the global fallback persona.
 > - **L3 Constraints**: L4 Exhibitions are **only created** if there are matching L3 Concepts. Without L3 hits, the query gracefully answers without writing an L4.
-> - **GC**: `wiki lint` now includes an **Ephemeral Garbage Collector** that automatically deletes ephemeral chat Exhibitions older than 24 hours to prevent vault pollution.
+> - **Exhibition Lifecycle (v0.3.1)**: Chat-generated Exhibitions act as living documents that synthesize the user's tendencies and history over a session. The legacy 24-hour Ephemeral Garbage Collection rule has been deprecated; these Exhibitions are now preserved as high-quality final artifacts.
 
 > **Background worker fallback**: When the MCP server is running, IngestWorker processes
 > queued jobs automatically. During tests or offline CLI use, `wiki jobs run` drains the

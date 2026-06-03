@@ -36,21 +36,15 @@ class EphemeralGarbageCollectionTests(unittest.TestCase):
         )
         return path
 
-    def test_gc_deletes_only_stale_ephemeral_exhibitions(self) -> None:
+    def test_gc_deletes_nothing_due_to_deprecation(self) -> None:
         old_ephemeral = self._write_exhibition("EXH-old.md", ephemeral=True)
-        recent_ephemeral = self._write_exhibition("EXH-recent.md", ephemeral=True)
-        old_persistent = self._write_exhibition("EXH-persistent.md", ephemeral=False)
-
         old_time = time.time() - (25 * 3600)
         os.utime(old_ephemeral, (old_time, old_time))
-        os.utime(old_persistent, (old_time, old_time))
 
         deleted = lint.gc_ephemeral_exhibitions(self.paths, max_age_hours=24)
 
-        self.assertEqual(deleted, [str(old_ephemeral)])
-        self.assertFalse(old_ephemeral.exists())
-        self.assertTrue(recent_ephemeral.exists())
-        self.assertTrue(old_persistent.exists())
+        self.assertEqual(deleted, [])
+        self.assertTrue(old_ephemeral.exists())
 
 
 if __name__ == "__main__":

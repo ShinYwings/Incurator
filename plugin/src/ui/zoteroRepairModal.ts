@@ -144,7 +144,7 @@ export class ZoteroRepairModal extends Modal {
 
     new Setting(contentEl)
       .setName("Linked attachment root")
-      .setDesc("Optional root used for Zotero linked attachments.")
+      .setDesc("Optional root used for Zotero linked attachments. Auto-discovered from prefs.js if left blank.")
       .addText((text) =>
         text
           .setPlaceholder("~/Documents/Zotero")

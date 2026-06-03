@@ -2499,66 +2499,45 @@ def run_l1_to_l3(
         ).fetchall()
         pending_ids = [row["id"] for row in rows]
 
+    from .pipeline import compile as _compile
+
     results: list[IngestResult] = []
     for sid in pending_ids:
-        cb = callbacks_factory()
-        result = ingest_source(paths, sid, client, cb, mode=mode)
-        results.append(result)
-        if result.error and "Ollama" in (result.error or ""):
+        cr = _compile.compile_source_l2(paths, client, sid)
+        changes = [
+            PageChange(
+                id=atom_id,
+                path=f"{consts.LAYER_L2}/{atom_id}.md",
+                layer=consts.LAYER_L2,
+                operation="created",
+            )
+            for atom_id in cr.atom_ids
+        ]
+        results.append(
+            IngestResult(
+                source_id=sid,
+                source_title=str(sid),
+                fragments_created=len(cr.atom_ids),
+                changes=changes,
+                error=cr.error,
+            )
+        )
+        if cr.ok:
+            _mark_source_status(paths, sid, "curated", last_ingested=_now_iso())
+        if cr.error and "Ollama" in (cr.error or ""):
             break
 
-    has_concepts = any(paths.concepts.glob("*.md")) if paths.concepts.exists() else False
-    any_ok = any(r.ok for r in results)
-    if not any_ok and not force and has_concepts:
-        _mark_existing_l3_done_if_present(paths)
-        return results
-
-    # Phase A½: Atom Coordinator — semantic dedup across newly extracted atoms
-    new_atom_ids = [
-        c.id for r in results if r.ok
-        for c in r.changes if c.layer == consts.LAYER_L2
-    ]
-    if len(new_atom_ids) >= 2:
-        try:
-            merge_count = _run_atom_coordinator(paths, client, new_atom_ids)
-            if merge_count:
-                import logging as _log
-                _log.getLogger(__name__).info("Atom coordinator merged %d duplicate(s)", merge_count)
-        except Exception:
-            pass  # coordinator is best-effort; never block L3
-
+    # Global L3: detect communities → reports → CON projection pages.
     today = _now_iso()
-    staging = Path(tempfile.mkdtemp(prefix="curator-l3-"))
-    try:
-        cb = callbacks_factory()
-        concept_staged = _run_global_pass2_concepts(paths, client, cb, today, staging)
-        for staged_path, final_path, _ in concept_staged:
-            final_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(staged_path, final_path)
-        ok_source_ids = [r.source_id for r in results if r.ok]
-        l3_source_ids = _source_ids_with_l2_done(paths) if concept_staged else ok_source_ids
-        _set_l3_result_status(paths, l3_source_ids, concept_staged)
-
-        all_changes = [c for _, _, c in concept_staged]
-        page_writer.rebuild_index(paths, today)
-        if all_changes:
-            log_bullets = [f"{c.operation}: [[{c.path.replace('.md', '')}]]" for c in all_changes]
-            page_writer.append_log_entry(paths, today, "add", "L1-L3 pipeline", log_bullets)
-
-        # D4: record unique domains seen in this run so persona update can suggest refinements
-        new_ctx_ids = [
-            ch.id for r in results if r.ok
-            for ch in r.changes if ch.layer == consts.LAYER_L1
+    concept_ids = _compile.compile_global_l3(paths, client)
+    page_writer.rebuild_index(paths, today)
+    if concept_ids:
+        log_bullets = [
+            f"created: [[{consts.LAYER_L3}/{cid}]]" for cid in concept_ids
         ]
-        seen_domains = _collect_domains_from_contexts(paths, new_ctx_ids)
-        if seen_domains:
-            _append_domain_log(paths, today, seen_domains)
-
-        _update_ledger(paths)
-        _update_overview(paths)
-    finally:
-        shutil.rmtree(staging, ignore_errors=True)
-
+        page_writer.append_log_entry(paths, today, "add", "L1-L3 pipeline", log_bullets)
+    _update_ledger(paths)
+    _update_overview(paths)
     return results
 
 
@@ -2573,35 +2552,38 @@ def run_l3_from_existing_atoms(
     L4 Exhibitions are invalidated because their Concept inputs may disappear.
     """
     today = _now_iso()
+    from .pipeline import compile as _compile
+
+    # L3 clustering is global; replace the current Concept set. Existing L4
+    # Exhibitions are invalidated because their Concept inputs may disappear.
+    if paths.concepts.exists():
+        for md_path in paths.concepts.glob(f"{consts.PREFIX_L3}-*.md"):
+            md_path.unlink()
+    if paths.exhibitions.exists():
+        for md_path in paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md"):
+            md_path.unlink()
+
+    concept_ids = _compile.compile_global_l3(paths, client)
     source_ids = _source_ids_with_l2_done(paths)
-    staging = Path(tempfile.mkdtemp(prefix="curator-l3-only-"))
-    try:
-        cb = callbacks_factory()
-        concept_staged = _run_global_pass2_concepts(paths, client, cb, today, staging)
-        if paths.concepts.exists():
-            for md_path in paths.concepts.glob(f"{consts.PREFIX_L3}-*.md"):
-                md_path.unlink()
-        if paths.exhibitions.exists():
-            for md_path in paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md"):
-                md_path.unlink()
-        for staged_path, final_path, _ in concept_staged:
-            final_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(staged_path, final_path)
+    if source_ids:
+        db.set_sources_layer_status(paths.state_db, source_ids, "l4", "pending")
 
-        _set_l3_result_status(paths, source_ids, concept_staged)
-        if source_ids:
-            db.set_sources_layer_status(paths.state_db, source_ids, "l4", "pending")
-
-        changes = [c for _, _, c in concept_staged]
-        page_writer.rebuild_index(paths, today)
-        if changes:
-            log_bullets = [f"{c.operation}: [[{c.path.replace('.md', '')}]]" for c in changes]
-            page_writer.append_log_entry(paths, today, "add", "L3-only regeneration", log_bullets)
-        _update_ledger(paths)
-        _update_overview(paths)
-        return changes
-    finally:
-        shutil.rmtree(staging, ignore_errors=True)
+    changes = [
+        PageChange(
+            id=cid,
+            path=f"{consts.LAYER_L3}/{cid}.md",
+            layer=consts.LAYER_L3,
+            operation="created",
+        )
+        for cid in concept_ids
+    ]
+    page_writer.rebuild_index(paths, today)
+    if changes:
+        log_bullets = [f"created: [[{consts.LAYER_L3}/{cid}]]" for cid in concept_ids]
+        page_writer.append_log_entry(paths, today, "add", "L3-only regeneration", log_bullets)
+    _update_ledger(paths)
+    _update_overview(paths)
+    return changes
 
 
 def _get_scoped_concept_ids(

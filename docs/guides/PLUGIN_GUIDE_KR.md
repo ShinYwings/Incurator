@@ -457,6 +457,7 @@ Zotero 데이터 디렉토리를 설정하면, 마크다운 노트에서 Zotero 
 ### 설정
 
 **설정 > AI Agent > Zotero 연동 > Backend Zotero status > Open setup**을 열어 backend가 실제로 읽을 수 있는 Zotero 상태를 확인합니다. setup dialog가 Zotero data directory의 단일 입력 지점이며 기본값은 `~/Zotero`입니다. 홈 디렉토리 아래 경로는 절대 `/Users/...` prefix 대신 `~`로 축약해 표시합니다. 여기서 data directory와 optional linked attachment root를 backend 설정에 저장할 수 있고, 이 backend 설정은 이후 Zotero 검색, metadata, annotation, PDF 경로 해석, Add-to-Incurator 등록에 사용됩니다.
+> **참고**: Zotero의 기본 프로필 위치(`~/Zotero`)를 사용하는 경우, 백엔드가 `prefs.js`를 자동으로 파싱하여 Linked attachment root(연결된 파일 기본 경로)와 ZotMoov 대상 폴더를 스스로 알아냅니다. 따라서 대부분의 경우 사용자가 설정 창에서 linked attachment root를 직접 적을 필요가 없습니다. 자동 탐색이 실패하는 특수한 커스텀 환경에서만 오버라이드(override) 용도로 사용하세요.
 backend가 checked roots 또는 checked PDF paths를 반환하면 setup dialog가 이를 candidate root로 표시하고 **Use** 액션으로 data directory 또는 linked root 입력칸에 채울 수 있게 합니다. 긴 path를 직접 복사해 넣지 않아도 됩니다.
 
 | 운영체제 | 기본 경로 |

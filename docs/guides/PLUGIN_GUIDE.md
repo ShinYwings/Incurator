@@ -485,6 +485,7 @@ When a Zotero data directory is configured, clicking a `zotero://open-pdf/librar
 ### Setup
 
 Go to **Settings > AI Agent > Zotero Integration > Backend Zotero status > Open setup** to inspect what the backend can actually read on this device. The setup dialog is the single Zotero data-directory entry point, defaults to `~/Zotero`, displays home-directory paths with `~` instead of an absolute `/Users/...` prefix, and can save the data directory plus an optional linked attachment root to the backend for future status checks, searches, PDF resolution, annotations, and Add-to-Incurator registration.
+> **Note**: If you use the default Zotero profile location (`~/Zotero`), the backend automatically parses your `prefs.js` to auto-discover the Linked attachment root and ZotMoov destination directory. Therefore, you typically do not need to manually enter the linked attachment root in the settings dialog. It is only provided as an override for custom environments where auto-discovery fails.
 When backend resolution returns checked roots or checked PDF paths, the setup
 dialog shows them as candidate roots with a **Use** action so you can populate
 the data-directory or linked-root field without retyping long paths.

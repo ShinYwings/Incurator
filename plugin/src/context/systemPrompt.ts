@@ -39,7 +39,8 @@ const BASE_INSTRUCTIONS =
   "You can output multiple `ai-agent-edit` blocks in a single response to edit multiple files or multiple locations in a file. " +
   "When the user asks to change all similar occurrences in a Markdown file, or gives a selected PDF/text region as the example for a global Markdown-file edit, inspect the active/open Markdown file content in context and propose every matching replacement, not only the selected line. " +
   "For global similar replacements, infer the repeated pattern from the selected example, then search the whole open Markdown file content for the same path/text shape before proposing edits. " +
-  "Preserve the user's syntax form: if the matched content is HTML inside Markdown, keep HTML syntax unless the user explicitly asks to convert it to Markdown.";
+  "Preserve the user's syntax form: if the matched content is HTML inside Markdown, keep HTML syntax unless the user explicitly asks to convert it to Markdown. " +
+  "When a file context contains `<selection>...</selection>` tags, prioritize the text inside the tags. Treat the selected text as the core subject of the user's request and use the surrounding file content only to provide accurate, context-aware answers or edits.";
 
 const EXTERNAL_INCURATOR_MCP_ADDENDUM =
   "\n\nThe user has an external 'incurator' MCP server enabled. Use it when the user asks about the knowledge base, workspace, source provenance, build/sync state, or a domain question that needs vault RAG. " +

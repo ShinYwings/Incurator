@@ -1,6 +1,6 @@
 import { EditorPosition, MarkdownView, Notice } from "obsidian";
 import { StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
-import { Decoration, DecorationSet, EditorView } from "@codemirror/view";
+import { Decoration, DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import type ObsidianAIAgent from "../../main";
 
 interface DiffLine {
@@ -9,11 +9,42 @@ interface DiffLine {
 }
 
 interface InlineHunk {
-  removedEditorLines: number[]; // 1-based absolute editor line numbers
-  addedEditorLines: number[];   // 1-based absolute editor line numbers
+  lineNum: number; // 1-based editor line to scroll to (in the new text)
 }
 
-// ── CM6 decoration field (module-level singleton) ─────────────────────────────
+class RemovedWidget extends WidgetType {
+  constructor(public text: string) {
+    super();
+  }
+  
+  eq(other: RemovedWidget) { return this.text === other.text; }
+  
+  toDOM() {
+    const div = document.createElement("div");
+    div.className = "ai-agent-diff-inline-removed-block";
+    const lines = this.text.split("\n");
+    for (const line of lines) {
+      const lineDiv = document.createElement("div");
+      lineDiv.className = "ai-agent-diff-inline-removed-line ai-agent-inline-diff-line-removed";
+      
+      const prefix = document.createElement("span");
+      prefix.className = "ai-agent-inline-diff-gutter";
+      prefix.textContent = "- ";
+      lineDiv.appendChild(prefix);
+      
+      const textSpan = document.createElement("span");
+      textSpan.className = "ai-agent-inline-diff-text";
+      textSpan.textContent = line;
+      lineDiv.appendChild(textSpan);
+      
+      div.appendChild(lineDiv);
+    }
+    return div;
+  }
+  
+  ignoreEvent() { return true; }
+}
+
 const setDiffDecos = StateEffect.define<DecorationSet>();
 const clearDiffDecos = StateEffect.define<void>();
 
@@ -32,10 +63,10 @@ const diffDecosField = StateField.define<DecorationSet>({
 
 /**
  * Cursor-style inline diff:
- *  - Inserts a combined view (removed lines + added lines) into the editor.
- *  - Colors removed lines red, added lines green via CM6 line decorations.
- *  - Shows a small floating toolbar: ← → navigation + Accept / Reject.
- *  - Accept → strips removed lines (keeps added). Reject → strips added lines (keeps original).
+ *  - Replaces text buffer with the NEW text.
+ *  - Renders old (removed) text as virtual block widgets above the changes.
+ *  - Adds line decorations for new (added) text.
+ *  - Accept → clears decorations (keeps new text). Reject → reverts buffer.
  */
 export class DiffViewer {
   private plugin: ObsidianAIAgent;
@@ -43,13 +74,12 @@ export class DiffViewer {
   private hunkCountEl: HTMLElement | null = null;
   private view: MarkdownView | null = null;
   private originalText = "";
+  private modifiedText = "";
   private selectionStart: EditorPosition | null = null;
-
-  // After inserting the combined view:
-  private combinedEnd: EditorPosition | null = null;
+  private modifiedEnd: EditorPosition | null = null;
+  
   private hunks: InlineHunk[] = [];
   private currentHunk = 0;
-
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(plugin: ObsidianAIAgent) {
@@ -67,87 +97,92 @@ export class DiffViewer {
 
     this.view = view;
     this.originalText = originalText;
+    this.modifiedText = modifiedText;
     this.selectionStart = selectionStart;
 
     const editor = view.editor;
     const diffLines = this.computeDiff(originalText, modifiedText);
 
-    // ── 1. Build combined text ──────────────────────────────────────────────
-    // Order: for each hunk, show removed lines first then added lines.
-    // Unchanged lines pass through as-is.
-    const combinedLines: { text: string; type: DiffLine["type"] }[] = [];
-    let i = 0;
-    while (i < diffLines.length) {
-      if (diffLines[i].type === "unchanged") {
-        combinedLines.push(diffLines[i]);
-        i++;
-      } else {
-        // collect all removed then all added in this hunk
-        while (i < diffLines.length && diffLines[i].type === "removed") {
-          combinedLines.push(diffLines[i]);
-          i++;
-        }
-        while (i < diffLines.length && diffLines[i].type === "added") {
-          combinedLines.push(diffLines[i]);
-          i++;
-        }
-      }
-    }
+    // ── 1. Replace selection with NEW text ─────────────────────────────
+    editor.replaceRange(modifiedText, selectionStart, selectionEnd);
 
-    const combinedText = combinedLines.map((l) => l.text).join("\n");
-
-    // ── 2. Replace selection with combined text ─────────────────────────────
-    editor.replaceRange(combinedText, selectionStart, selectionEnd);
-
-    const combinedSplit = combinedText.split("\n");
-    this.combinedEnd = {
-      line: selectionStart.line + combinedSplit.length - 1,
-      ch:
-        combinedSplit.length === 1
-          ? selectionStart.ch + combinedText.length
-          : combinedSplit[combinedSplit.length - 1].length,
+    const modifiedSplit = modifiedText.split("\n");
+    this.modifiedEnd = {
+      line: selectionStart.line + modifiedSplit.length - 1,
+      ch: modifiedSplit.length === 1
+          ? selectionStart.ch + modifiedText.length
+          : modifiedSplit[modifiedSplit.length - 1].length,
     };
 
-    // ── 3. Compute absolute editor line numbers for each combined line ───────
-    const absLine = (relIdx: number) => selectionStart.line + relIdx + 1; // 1-based
-
+    // ── 2. Compute Decorations based on Diff ─────────────────────────────
+    let currentLineIdx = selectionStart.line + 1; // 1-based CM6 line number
+    let currentRemoved: string[] = [];
+    
     this.hunks = [];
-    let hunkRemoved: number[] = [];
-    let hunkAdded: number[] = [];
-    let inHunk = false;
+    const decos: { pos: number, deco: Decoration }[] = [];
+    const addedDeco = Decoration.line({ class: "ai-agent-diff-inline-added" });
 
-    for (let ci = 0; ci < combinedLines.length; ci++) {
-      const t = combinedLines[ci].type;
-      if (t === "removed") {
-        inHunk = true;
-        hunkRemoved.push(absLine(ci));
-      } else if (t === "added") {
-        inHunk = true;
-        hunkAdded.push(absLine(ci));
-      } else {
-        if (inHunk) {
-          this.hunks.push({ removedEditorLines: hunkRemoved, addedEditorLines: hunkAdded });
-          hunkRemoved = [];
-          hunkAdded = [];
-          inHunk = false;
+    for (const diffLine of diffLines) {
+      if (diffLine.type === "removed") {
+        currentRemoved.push(diffLine.text);
+      } else if (diffLine.type === "added") {
+        if (currentRemoved.length > 0) {
+          decos.push({
+            pos: currentLineIdx,
+            deco: Decoration.widget({
+              widget: new RemovedWidget(currentRemoved.join("\n")),
+              block: true,
+              side: -1
+            })
+          });
+          this.hunks.push({ lineNum: currentLineIdx });
+          currentRemoved = [];
+        } else if (this.hunks.length === 0 || this.hunks[this.hunks.length - 1].lineNum !== currentLineIdx) {
+          this.hunks.push({ lineNum: currentLineIdx });
         }
+        
+        decos.push({ pos: currentLineIdx, deco: addedDeco });
+        currentLineIdx++;
+      } else {
+        if (currentRemoved.length > 0) {
+          decos.push({
+            pos: currentLineIdx,
+            deco: Decoration.widget({
+              widget: new RemovedWidget(currentRemoved.join("\n")),
+              block: true,
+              side: -1
+            })
+          });
+          this.hunks.push({ lineNum: currentLineIdx });
+          currentRemoved = [];
+        }
+        currentLineIdx++;
       }
     }
-    if (inHunk) {
-      this.hunks.push({ removedEditorLines: hunkRemoved, addedEditorLines: hunkAdded });
+    
+    if (currentRemoved.length > 0) {
+      decos.push({
+        pos: currentLineIdx,
+        deco: Decoration.widget({
+          widget: new RemovedWidget(currentRemoved.join("\n")),
+          block: true,
+          side: -1
+        })
+      });
+      this.hunks.push({ lineNum: currentLineIdx });
     }
     this.currentHunk = 0;
 
-    // ── 4. Apply CM6 decorations ────────────────────────────────────────────
+    // ── 3. Apply CM6 decorations ────────────────────────────────────────────
     requestAnimationFrame(() => {
-      this.applyDecorations();
+      this.applyDecorations(decos);
 
-      // ── 5. Position and show floating toolbar ────────────────────────────
+      // ── 4. Position and show floating toolbar ────────────────────────────
       const firstChangedLine = selectionStart.line;
       const coords = this.getScreenCoordsAt(view, { line: firstChangedLine, ch: 0 });
       this.buildToolbar(coords);
 
-      editor.scrollIntoView({ from: selectionStart, to: this.combinedEnd! });
+      editor.scrollIntoView({ from: selectionStart, to: this.modifiedEnd! });
     });
   }
 
@@ -177,27 +212,23 @@ export class DiffViewer {
     }
   }
 
-  private applyDecorations(): void {
+  private applyDecorations(decos: { pos: number, deco: Decoration }[]): void {
     const cmView = this.getCmView();
     if (!cmView) return;
     this.ensureFieldRegistered(cmView);
 
     const builder = new RangeSetBuilder<Decoration>();
-    const removedDeco = Decoration.line({ class: "ai-agent-diff-inline-removed" });
-    const addedDeco = Decoration.line({ class: "ai-agent-diff-inline-added" });
+    decos.sort((a, b) => a.pos - b.pos);
 
-    // Collect all decorated lines and sort by line number (builder requires sorted order)
-    const lines: { n: number; deco: Decoration }[] = [];
-    for (const hunk of this.hunks) {
-      for (const n of hunk.removedEditorLines) lines.push({ n, deco: removedDeco });
-      for (const n of hunk.addedEditorLines) lines.push({ n, deco: addedDeco });
-    }
-    lines.sort((a, b) => a.n - b.n);
-
-    for (const { n, deco } of lines) {
-      if (n < 1 || n > cmView.state.doc.lines) continue;
-      const line = cmView.state.doc.line(n);
-      builder.add(line.from, line.from, deco);
+    for (let i = 0; i < decos.length; i++) {
+      const d = decos[i];
+      const lineNum = Math.max(1, Math.min(d.pos, cmView.state.doc.lines));
+      const linePos = cmView.state.doc.line(lineNum).from;
+      
+      // If there are multiple decorations at the exact same linePos, we must add them in one go 
+      // or ensure they don't break strict ordering. RangeSetBuilder requires `from` to be >= previous `from`.
+      // The sort above ensures `d.pos` is ascending.
+      builder.add(linePos, linePos, d.deco);
     }
 
     cmView.dispatch({ effects: setDiffDecos.of(builder.finish()) });
@@ -227,7 +258,6 @@ export class DiffViewer {
     this.toolbarEl.style.left = `${left}px`;
     document.body.appendChild(this.toolbarEl);
 
-    // Hunk navigation (only if multiple hunks)
     if (this.hunks.length > 1) {
       const navGroup = this.toolbarEl.createDiv("ai-agent-diff-toolbar-group");
       navGroup
@@ -273,10 +303,9 @@ export class DiffViewer {
     if (this.hunkCountEl && this.hunks.length > 1) {
       this.hunkCountEl.setText(`${this.currentHunk + 1}/${this.hunks.length}`);
     }
-    // Scroll editor to first line of current hunk
     const hunk = this.hunks[this.currentHunk];
     if (hunk && this.view) {
-      const firstLine = (hunk.removedEditorLines[0] ?? hunk.addedEditorLines[0]) - 1; // 0-based
+      const firstLine = hunk.lineNum - 1; // 0-based
       if (firstLine >= 0) {
         this.view.editor.scrollIntoView({ from: { line: firstLine, ch: 0 }, to: { line: firstLine, ch: 0 } });
       }
@@ -286,38 +315,16 @@ export class DiffViewer {
   // ── Accept / Reject ────────────────────────────────────────────────────────
 
   private accept(): void {
-    // Remove all removed lines, keep added lines
-    if (this.view && this.selectionStart && this.combinedEnd) {
-      const editor = this.view.editor;
-      const combined = editor.getRange(this.selectionStart, this.combinedEnd);
-      const combinedLineTexts = combined.split("\n");
-
-      // Build a set of relative line indices that are "removed"
-      const removedRelative = new Set<number>();
-      for (const hunk of this.hunks) {
-        for (const absLine of hunk.removedEditorLines) {
-          removedRelative.add(absLine - 1 - this.selectionStart.line); // convert to 0-based relative
-        }
-      }
-
-      const kept = combinedLineTexts.filter((_, idx) => !removedRelative.has(idx));
-      editor.replaceRange(kept.join("\n"), this.selectionStart, this.combinedEnd);
-      const keptEnd: EditorPosition = {
-        line: this.selectionStart.line + kept.length - 1,
-        ch: kept.length === 1
-          ? this.selectionStart.ch + kept[0].length
-          : kept[kept.length - 1].length,
-      };
-      editor.setCursor(keptEnd);
+    if (this.view && this.modifiedEnd) {
+      this.view.editor.setCursor(this.modifiedEnd);
     }
     new Notice("Edit accepted");
     this.close();
   }
 
   private reject(): void {
-    // Revert: replace entire combined range back to original text
-    if (this.view && this.selectionStart && this.combinedEnd) {
-      this.view.editor.replaceRange(this.originalText, this.selectionStart, this.combinedEnd);
+    if (this.view && this.selectionStart && this.modifiedEnd) {
+      this.view.editor.replaceRange(this.originalText, this.selectionStart, this.modifiedEnd);
       this.view.editor.setCursor(this.selectionStart);
     }
     new Notice("Edit rejected");
@@ -350,20 +357,48 @@ export class DiffViewer {
   private computeDiff(original: string, modified: string): DiffLine[] {
     const origLines = original.split("\n");
     const modLines = modified.split("\n");
-    const lcs = this.lcs(origLines, modLines);
+
+    let start = 0;
+    while (start < origLines.length && start < modLines.length && origLines[start] === modLines[start]) {
+      start++;
+    }
+
+    let endOrig = origLines.length - 1;
+    let endMod = modLines.length - 1;
+    while (endOrig >= start && endMod >= start && origLines[endOrig] === modLines[endMod]) {
+      endOrig--;
+      endMod--;
+    }
+
+    const midOrig = origLines.slice(start, endOrig + 1);
+    const midMod = modLines.slice(start, endMod + 1);
+    const lcs = this.lcs(midOrig, midMod);
 
     const result: DiffLine[] = [];
+    
+    // 1. Unchanged prefix
+    for (let i = 0; i < start; i++) {
+      result.push({ type: "unchanged", text: origLines[i] });
+    }
+
+    // 2. Middle section (diff)
     let oi = 0;
     let mi = 0;
     for (const [origIdx, modIdx] of lcs) {
-      while (oi < origIdx) result.push({ type: "removed", text: origLines[oi++] });
-      while (mi < modIdx) result.push({ type: "added", text: modLines[mi++] });
-      result.push({ type: "unchanged", text: origLines[oi] });
+      while (oi < origIdx) result.push({ type: "removed", text: midOrig[oi++] });
+      while (mi < modIdx) result.push({ type: "added", text: midMod[mi++] });
+      result.push({ type: "unchanged", text: midOrig[oi] });
       oi++;
       mi++;
     }
-    while (oi < origLines.length) result.push({ type: "removed", text: origLines[oi++] });
-    while (mi < modLines.length) result.push({ type: "added", text: modLines[mi++] });
+    while (oi < midOrig.length) result.push({ type: "removed", text: midOrig[oi++] });
+    while (mi < midMod.length) result.push({ type: "added", text: midMod[mi++] });
+
+    // 3. Unchanged suffix
+    for (let i = endOrig + 1; i < origLines.length; i++) {
+      result.push({ type: "unchanged", text: origLines[i] });
+    }
+
     return result;
   }
 

@@ -640,7 +640,7 @@ def curator_query(
                 cache_key=cache_key,
                 query_boost_terms=query_boost_terms,
                 pinned_exhibition_id=pinned_exhibition_id,
-                ephemeral_exhibition=True,
+                ephemeral_exhibition=False,  # Deprecated in v0.3.1
                 english_query=english_query or None,
                 input_language=input_language,
                 final_output_language=effective_final_output_language,
