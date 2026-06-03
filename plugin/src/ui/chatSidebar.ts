@@ -426,12 +426,12 @@ export class ChatSidebarView extends ItemView {
         }
       }
 
-      let llmText = "LLM: Unknown";
+      let llmText = "Backend: Unknown";
       if (existsSync(statusPath)) {
         const raw = readFileSync(statusPath, "utf8");
         const data = JSON.parse(raw);
         if (data.llm && data.llm.primary) {
-          llmText = `LLM: ${data.llm.primary.split("::")[0]} (Synced)`;
+          llmText = `Backend: ${data.llm.primary.split("::")[0]} (Synced)`;
         }
       }
 
