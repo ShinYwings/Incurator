@@ -2196,10 +2196,12 @@ export class ChatSidebarView extends ItemView {
     let remainingContent = msg.content;
 
     if (multiProposals.length > 0) {
-      if (!msg.appliedEdits) {
-        this.autoApplyProposals(msg, multiProposals);
-      }
+      // User explicitly requested to review diffs before applying
+      // if (!msg.appliedEdits) {
+      //   this.autoApplyProposals(msg, multiProposals);
+      // }
       
+
       for (const prop of multiProposals) {
         remainingContent = remainingContent.replace(prop.originalBlock, "");
       }
@@ -2332,53 +2334,45 @@ export class ChatSidebarView extends ItemView {
       }
     }
 
-    // Compact single-line: icon + filename + status button + revert
-    const icon = wrapper.createSpan({ cls: "ai-agent-applied-change-icon", text: isNewFile ? "📄" : "✏️" });
-    const nameEl = wrapper.createSpan({ cls: "ai-agent-applied-change-name" });
-    // Clickable: opens the file
+    const header = wrapper.createDiv("ai-agent-applied-change-header");
+
+    const icon = header.createSpan({ cls: "ai-agent-applied-change-icon", text: isNewFile ? "📄" : "✏️" });
+    const nameEl = header.createSpan({ cls: "ai-agent-applied-change-name" });
     nameEl.setText(prop.filepath);
-    nameEl.title = "Open file";
-    nameEl.addEventListener("click", async () => {
-      const f = this.app.vault.getAbstractFileByPath(prop.filepath);
-      if (f instanceof TFile) {
-        const leaf = this.app.workspace.getLeaf("tab");
-        await leaf.openFile(f, { active: true });
-      }
-    });
-
-    const statusBtn = wrapper.createEl("button", {
-      cls: "ai-agent-applied-status",
-      text: isNewFile ? "✓ Created" : "✓ Applied",
-      attr: { title: "Automatically applied", disabled: "" },
-    });
-    statusBtn.disabled = true;
-
-    const rejectBtn = wrapper.createEl("button", {
-      cls: "ai-agent-applied-revert",
-      text: "✗ Revert",
-      attr: { title: "Undo this change" },
-    });
-
-    const rejectEdit = async () => {
-      wrapper.addClass("ai-agent-applied-change-reverted");
-      rejectBtn.disabled = true;
-      rejectBtn.setText("✗ Reverted");
-      const revertData = msg.revertData?.find((d) => d.filepath === prop.filepath);
-      if (revertData) {
-        const targetFile = this.app.vault.getAbstractFileByPath(prop.filepath);
-        if (revertData.originalContent === null) {
-          if (targetFile instanceof TFile) {
-            await this.app.vault.trash(targetFile, false);
-            new Notice(`Reverted (deleted): ${prop.filepath}`);
-          }
-        } else if (targetFile instanceof TFile) {
-          await this.app.vault.modify(targetFile, revertData.originalContent);
-          new Notice(`Reverted: ${prop.filepath}`);
-        }
-      }
+    nameEl.title = "Review edit in editor";
+    
+    // Instead of auto-applying or showing diffs in chat, we just provide a button
+    // (or click the filename) to open the DiffViewer in the editor.
+    const reviewInEditor = async () => {
+      await this.reviewAssistantEdit(msg);
+      // Since DiffViewer doesn't have a callback to update this pill, we just 
+      // let the user know they are reviewing it.
+      statusBtn.setText("⏳ Reviewing...");
+      statusBtn.style.color = "var(--text-accent)";
+      statusBtn.style.borderColor = "var(--text-accent)";
+      statusBtn.style.background = "transparent";
     };
 
-    rejectBtn.addEventListener("click", (e) => { e.stopPropagation(); rejectEdit(); });
+    nameEl.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await reviewInEditor();
+    });
+
+    const statusBtn = header.createEl("button", {
+      cls: "ai-agent-applied-status",
+      text: "Pending Review",
+      attr: { title: "Click to review in editor" },
+    });
+    // Style as pending
+    statusBtn.style.color = "var(--text-muted)";
+    statusBtn.style.borderColor = "var(--background-modifier-border)";
+    statusBtn.style.background = "transparent";
+    statusBtn.style.cursor = "pointer";
+
+    statusBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await reviewInEditor();
+    });
   }
 
   private async autoApplyProposals(msg: ChatMessage, proposals: MultiEditProposal[]): Promise<void> {

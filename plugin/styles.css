@@ -1873,16 +1873,22 @@
 /* ── Applied Change Pill (compact, replaces full diff in chat) ── */
 
 .ai-agent-applied-change {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
   margin: 4px 0;
-  padding: 3px 8px 3px 6px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--background-secondary) 90%, transparent);
   border: 1px solid var(--background-modifier-border);
   font-size: 12px;
   line-height: 1;
+  overflow: hidden;
+}
+
+.ai-agent-applied-change-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 6px;
   flex-wrap: wrap;
 }
 
@@ -1926,6 +1932,37 @@
 
 .ai-agent-applied-status:disabled {
   opacity: 0.8;
+}
+
+.ai-agent-applied-diff-toggle {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  color: var(--interactive-accent);
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 35%, transparent);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ai-agent-applied-diff-toggle:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+  border-color: var(--interactive-accent);
+}
+
+.ai-agent-applied-change-diff {
+  padding: 0;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.ai-agent-applied-change-diff .ai-agent-inline-diff-code {
+  max-height: 300px;
+  margin: 0;
+  background: transparent;
+  padding: 6px 0;
 }
 
 .ai-agent-applied-revert {
