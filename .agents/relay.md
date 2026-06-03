@@ -305,6 +305,32 @@ DONE (Phase 7 core — backprop classifier + insight lifecycle, 325 passed):
 >>> tested + green (325): prompting, DB schema, curate.yml KRS, compile pipeline
 >>> (live), graph/communities/memory, query orchestrator, backprop/insight.
 
+DONE (Phase 8 backend interfaces — MCP + CLI, 336 passed):
+- MCP (mcp_server.py build_server, before persona regs): added 7 tools —
+  curator_validate_curate_spec, curator_plan_workspace, curator_explore (→
+  QueryOrchestrator), curator_get_prompt_trace, curator_list_insight_candidates,
+  curator_promote_insight, curator_propose_correction (classify → insight
+  lifecycle; source-truth-safe). Test test_v031_mcp_tools.py (5).
+- CLI (cli.py): new `prompt` group (list/show/trace/eval) + `insight` group
+  (list/show/promote), using prompting registry/evals + db + insight_lifecycle +
+  _resolve_root_or_die. Test test_v031_cli_commands.py (6, via CliRunner).
+- ruff: my additions clean; 9 pre-existing errors remain in cli.py/mcp_server.py
+  (unused typing.Any, consts redefinition, build_client local-import F821) — NOT
+  mine, left per surgical rule.
+
+REMAINING Phase 8 (not yet done):
+- Wire query.run_query → retrieval.QueryOrchestrator for `wiki query --mode` +
+  plugin/MCP curator_query trace fields; retire SYNTHESIS_SYSTEM_PROMPT; prune
+  prompts.py dead L2/L3 constants. (curate plan/validate: exposed via MCP; CLI
+  `curate` is a single command, would need group refactor for subcommands.)
+- sync.py --backward → classify + curator.backprop_patch_plan; EXH markdown
+  reverse-parse → DB + re-emit projection.
+- Plugin TypeScript (types.ts, incuratorClient.ts, incuratorQueryTrace.ts):
+  IncuratorPromptTrace / IncuratorEvidenceTrace / IncuratorCuratePlan /
+  IncuratorInsightCandidate payloads + trace panel + client methods + hidden
+  `wiki plugin curate plan / prompt trace / insight list / promote` commands.
+  + Vitest (PLUGIN_SCHEMA_v0.3.1 §9–11).
+
 NEXT — Phase 8 (INTERFACES — make new capabilities user-reachable):
 - CLI (cli.py): `wiki prompt list|show|trace|eval`, `wiki curate plan|validate`,
   `wiki query --mode auto|local|global|explore|exhibition|source-section --trace`

@@ -1,0 +1,79 @@
+"""Phase 8 (v0.3.1): CLI prompt + insight commands."""
+
+from __future__ import annotations
+
+import os
+import tempfile
+import unittest
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+from curator import config as cfg
+from curator import db
+from curator.cli import app
+
+
+class V031CliTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.runner = CliRunner()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.paths = cfg.WikiPaths(self.root)
+        self.paths.internal.mkdir(parents=True, exist_ok=True)
+        cfg.save_config(self.paths, cfg.DEFAULT_CONFIG)
+        db.init_db(self.paths.state_db)
+        os.environ["VAULT_ROOT"] = str(self.root)
+
+    def tearDown(self) -> None:
+        os.environ.pop("VAULT_ROOT", None)
+        self.tmp.cleanup()
+
+    def test_prompt_list(self) -> None:
+        res = self.runner.invoke(app, ["prompt", "list"])
+        self.assertEqual(res.exit_code, 0)
+        self.assertIn("curator.knowledge_unit_extract", res.stdout)
+
+    def test_prompt_list_family_filter(self) -> None:
+        res = self.runner.invoke(app, ["prompt", "list", "--family", "query"])
+        self.assertEqual(res.exit_code, 0)
+        self.assertIn("curator.query_router", res.stdout)
+        self.assertNotIn("curator.source_map", res.stdout)
+
+    def test_prompt_eval(self) -> None:
+        res = self.runner.invoke(app, ["prompt", "eval"])
+        self.assertEqual(res.exit_code, 0)
+        self.assertIn("eval fixtures passed", res.stdout)
+
+    def test_prompt_show_unknown_exits_nonzero(self) -> None:
+        res = self.runner.invoke(app, ["prompt", "show", "curator.nope"])
+        self.assertEqual(res.exit_code, 1)
+
+    def test_prompt_trace_roundtrip(self) -> None:
+        tid = db.record_prompt_run(
+            self.paths.state_db, prompt_id="curator.x", prompt_version="v1",
+            family="f", input_hash="h",
+        )
+        res = self.runner.invoke(app, ["prompt", "trace", tid])
+        self.assertEqual(res.exit_code, 0)
+        self.assertIn("curator.x", res.stdout)
+
+    def test_insight_list_and_promote(self) -> None:
+        ins = db.create_insight_candidate(
+            self.paths.state_db, classification="derived_insight",
+            statement="Residual blocks ~ Euler steps.", workspace_id="Lab",
+        )
+        res = self.runner.invoke(app, ["insight", "list", "--status", "pending"])
+        self.assertEqual(res.exit_code, 0)
+        self.assertIn(ins, res.stdout)
+
+        res = self.runner.invoke(app, ["insight", "promote", ins])
+        self.assertEqual(res.exit_code, 0)
+        self.assertIn("02_Wiki/", res.stdout)
+        self.assertEqual(
+            db.get_insight_candidate(self.paths.state_db, ins)["status"], "promoted"
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

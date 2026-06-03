@@ -3564,6 +3564,161 @@ def build_server() -> FastMCP:
                 pass
 
     # ------------------------------------------------------------------
+    # v0.3.1 curation-native tools (SYSTEM_BEHAVIOR_v0.3.1 §20)
+    # ------------------------------------------------------------------
+
+    @mcp.tool()
+    def curator_validate_curate_spec(workspace_path: str) -> dict[str, Any]:
+        """Validate a workspace curate.yml and return its compiled policy summary."""
+        from . import curate_yml
+        try:
+            spec = curate_yml.load_curate_spec(Path(workspace_path))
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        if spec is None:
+            return {"ok": False, "error": "no curate.yml in workspace"}
+        errors = curate_yml.validate_curate_spec(spec)
+        policy = curate_yml.compile_curate_policy(spec, Path(workspace_path))
+        return {
+            "ok": not errors,
+            "errors": errors,
+            "spec_hash": curate_yml.curate_spec_hash(Path(workspace_path)),
+            "policy": {
+                "workspace_id": policy.workspace_id,
+                "default_route": policy.default_route,
+                "allowed_routes": sorted(policy.allowed_routes),
+                "prompt_profile": policy.prompt_profile,
+                "require_source_spans": policy.require_source_spans,
+                "backprop_enabled": policy.backprop_enabled,
+            },
+        }
+
+    @mcp.tool()
+    def curator_plan_workspace(workspace_path: str) -> dict[str, Any]:
+        """Compile the workspace curate.yml into a recorded curation plan."""
+        from . import curate_yml
+        paths = _resolve_paths(workspace_path)
+        try:
+            spec = curate_yml.load_curate_spec(Path(workspace_path))
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        if spec is None:
+            return {"ok": False, "error": "no curate.yml in workspace"}
+        policy = curate_yml.compile_curate_policy(spec, Path(workspace_path))
+        plan_id = db.record_curation_plan(
+            paths.state_db,
+            workspace_id=policy.workspace_id,
+            workspace_path=workspace_path,
+            project=policy.project,
+            curate_spec_hash=curate_yml.curate_spec_hash(Path(workspace_path)),
+            route=policy.default_route,
+            source_policy={"include": list(policy.source_include), "exclude": list(policy.source_exclude)},
+            retrieval_policy={"allowed_routes": sorted(policy.allowed_routes),
+                              "exploration_enabled": policy.exploration_enabled},
+            prompt_profile=policy.prompt_profile,
+        )
+        return {"ok": True, "plan_id": plan_id, "workspace_id": policy.workspace_id,
+                "route": policy.default_route}
+
+    @mcp.tool()
+    def curator_explore(query: str, workspace_path: str = "") -> dict[str, Any]:
+        """Explore-mode query: discover connections + provisional insight candidates."""
+        from .llm import build_client
+        from . import config as _cfg
+        from .retrieval import QueryOrchestrator, QueryRequest
+        paths = _resolve_paths(workspace_path)
+        client = build_client(_cfg.load_config(paths))
+        try:
+            res = QueryOrchestrator(paths, client).run(
+                QueryRequest(question=query, workspace_path=workspace_path, mode="explore")
+            )
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+        return {
+            "ok": res.ok, "answer": res.answer, "route": res.route, "trace_id": res.trace_id,
+            "memory_path_ids": res.memory_path_ids,
+            "insight_candidate_ids": res.insight_candidate_ids,
+            "prompt_trace_ids": res.prompt_trace_ids, "warnings": res.warnings,
+            "error": res.error,
+        }
+
+    @mcp.tool()
+    def curator_get_prompt_trace(trace_id: str, workspace_path: str = "") -> dict[str, Any]:
+        """Return a recorded prompt run (PTR-…) for debugging prompt behavior."""
+        paths = _resolve_paths(workspace_path)
+        run = db.get_prompt_run(paths.state_db, trace_id)
+        if run is None:
+            return {"ok": False, "error": f"unknown prompt trace: {trace_id}"}
+        return {"ok": True, "trace": run}
+
+    @mcp.tool()
+    def curator_list_insight_candidates(
+        workspace_path: str = "", status: str = "pending"
+    ) -> dict[str, Any]:
+        """List provisional insight candidates (derived insights / corrections)."""
+        paths = _resolve_paths(workspace_path)
+        ws_id = Path(workspace_path).name if workspace_path else None
+        return {"ok": True, "candidates": db.list_insight_candidates(
+            paths.state_db, workspace_id=ws_id, status=status)}
+
+    @mcp.tool()
+    def curator_promote_insight(insight_id: str, workspace_path: str = "") -> dict[str, Any]:
+        """Promote an insight candidate to a durable 02_Wiki/ note (human approval)."""
+        from . import insight_lifecycle
+        paths = _resolve_paths(workspace_path)
+        try:
+            rel = insight_lifecycle.promote_insight(paths, insight_id)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "promoted_to": rel, "insight_id": insight_id}
+
+    @mcp.tool()
+    def curator_propose_correction(
+        node_id: str, correction: str, workspace_path: str = "", previous: str = ""
+    ) -> dict[str, Any]:
+        """Propose a correction to a generated node; classified before any patch.
+
+        Source truth is never rewritten. Derived insights become provisional
+        candidates; corrections target generated nodes only.
+        """
+        from .llm import build_client
+        from . import config as _cfg, backprop_classifier as bpc, insight_lifecycle
+        paths = _resolve_paths(workspace_path)
+        client = build_client(_cfg.load_config(paths))
+        try:
+            event = bpc.BackpropEvent(
+                previous_artifact=previous, updated_artifact=correction,
+                affected_node_ids=[node_id] if node_id else [],
+                workspace_id=Path(workspace_path).name if workspace_path else "",
+            )
+            classification = bpc.classify_feedback(paths.state_db, event, client)
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+        plan = insight_lifecycle.plan_action(classification)
+        candidate_id = ""
+        if plan.creates_candidate:
+            candidate_id = insight_lifecycle.create_insight_from_classification(
+                paths.state_db, classification, statement=correction,
+                workspace_id=event.workspace_id, source_event_id=classification.trace_id,
+            )
+        return {
+            "ok": classification.ok,
+            "classification": classification.classification,
+            "recommended_action": plan.action,
+            "patch_node_ids": plan.patch_node_ids,
+            "requires_human_review": plan.requires_human_review,
+            "insight_candidate_id": candidate_id,
+            "trace_id": classification.trace_id,
+            "reason": classification.reason,
+        }
+
+    # ------------------------------------------------------------------
     # curator_update_artist_persona / curator_update_curator_persona
     # ------------------------------------------------------------------
 
