@@ -3009,6 +3009,23 @@ def add(
     _hint("Run [bold]wiki build[/bold] to extract L2 Atoms + L3 Concepts.")
 
 
+def _spawn_background_worker(paths: cfg.WikiPaths) -> None:
+    import subprocess
+    import shutil
+    wiki_bin = shutil.which("wiki") or "wiki"
+    try:
+        subprocess.Popen(
+            [wiki_bin, "jobs", "run"],
+            cwd=str(paths.root),
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+        )
+        _ok("Started detached background daemon to process jobs asynchronously.")
+    except Exception as e:
+        _err(f"Failed to start background daemon: {e}")
+
 @app.command()
 def build(
     wait: bool = typer.Option(
@@ -3058,6 +3075,7 @@ def build(
             from . import ingest_worker
             ingest_worker.enqueue_l3_global(paths, trigger="wiki_build")
             _ok("No pending L1/L2 sources. Queued global L3 Concept clustering.")
+            _spawn_background_worker(paths)
         else:
             from . import ingest_llm
             client = ingest_llm.get_client(paths, config)
@@ -3079,10 +3097,7 @@ def build(
         )
         console.print()
         _ok(f"Queued {len(job_ids)} L2/L3 job(s).")
-        _hint(
-            "The background worker processes these when MCP is active, or run "
-            "[bold]wiki jobs run[/bold] to process the queue now."
-        )
+        _spawn_background_worker(paths)
         return
 
     # Synchronous build — the only path that starts an LLM client.

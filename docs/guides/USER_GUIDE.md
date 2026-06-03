@@ -451,7 +451,7 @@ Summary of major commands following the user workflow.
 | Command | Description | When to use |
 | :--- | :--- | :--- |
 | `wiki add <file>` | Registers sources and compiles instant L1 Contexts (structural, no LLM) directly into the database. | Adding new information |
-| `wiki build` | Compiles L2 Atoms + L3 Concepts from registered L1 Contexts into the database. Uses the configured LLM for high-quality extraction and can fall back to deterministic L3 Concepts if the provider fails. Queues to the background worker by default; `--wait` runs now. | Deep knowledge-graph construction |
+| `wiki build` | Compiles L2 Atoms + L3 Concepts from registered L1 Contexts into the database. Uses the configured LLM for high-quality extraction and can fall back to deterministic L3 Concepts if the provider fails. Queues jobs and automatically starts a detached background daemon to process them asynchronously; `--wait` runs synchronously. | Deep knowledge-graph construction |
 | `wiki source ls` | Lists all registered sources. | Checking collected data inventory |
 | `wiki source show <id>` | Shows details and processing status for a specific source. | Diagnosing source errors |
 | `wiki source rm <id>` | Removes a source registration and its generated L1 nodes. | Removing an incorrect source |
@@ -643,7 +643,7 @@ Verifies if the system's 'brain' and 'eyes' are correctly set up.
 #### 📂 Knowledge Source Status (Sources)
 Checks the 'entrance of the pipeline' where raw data is turned into knowledge.
 -   **Raw source files**: The total number of files physically present in the vault folders.
--   **Sources summarized (L1)**: The number of sources with `l1_status=done`. `wiki add` creates a structural L1 Context immediately without an LLM call. The L1 page includes an English source guide for search plus size-aware source sections: raw text is inline for small/medium documents, while large documents keep previews and fetch exact evidence from the original source on demand. L2/L3 extraction is a separate step — run `wiki build` (queues to the background worker by default, or `--wait` to run synchronously).
+-   **Sources summarized (L1)**: The number of sources with `l1_status=done`. `wiki add` creates a structural L1 Context immediately without an LLM call. The L1 page includes an English source guide for search plus size-aware source sections: raw text is inline for small/medium documents, while large documents keep previews and fetch exact evidence from the original source on demand. L2/L3 extraction is a separate step — run `wiki build` (queues jobs and automatically starts a detached background daemon to process them asynchronously, or `--wait` to run synchronously).
 -   **Ingest runs**: The total number of ingestion runs performed. A higher number indicates that the knowledge base has been updated frequently.
 
 #### 🧠 Knowledge Density (Collections)

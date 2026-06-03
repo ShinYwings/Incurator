@@ -874,7 +874,19 @@ export class IncuratorDashboardModal extends Modal {
         const row = container.createDiv("ai-agent-dashboard-table-row");
         let path = src.relpath || src.source_path || `#${src.id}`;
         if (path.length > 50) path = "…" + path.slice(-47);
-        row.createDiv({ cls: "ai-agent-dashboard-source-path", text: path });
+        const pathCell = row.createDiv("ai-agent-dashboard-source-path");
+        pathCell.style.display = "flex";
+        pathCell.style.flexDirection = "column";
+        pathCell.style.gap = "4px";
+        pathCell.createDiv({ text: path });
+        
+        if (src.layer_error) {
+          const errDiv = pathCell.createDiv({ text: `Reason: ${src.layer_error}` });
+          errDiv.style.color = "var(--text-error)";
+          errDiv.style.fontSize = "11px";
+          errDiv.style.whiteSpace = "normal";
+          errDiv.style.lineHeight = "1.2";
+        }
         
         for (const b of [
           badge(src.l1_status || (src.l1_complete ? "done" : "")),

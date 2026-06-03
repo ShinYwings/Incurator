@@ -424,7 +424,7 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 | 명령어 | 설명 | 사용 시점 |
 | :--- | :--- | :--- |
 | `wiki add <file>` | 소스를 등록하고 L1 Context 레코드를 데이터베이스에 즉시 생성합니다 (구조 기반, LLM 없음). | 새로운 정보를 추가할 때 |
-| `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 데이터베이스 레코드로 추출/컴파일합니다. 기본은 백그라운드 워커에 큐잉, `--wait`는 즉시 실행. | 지식 그래프 심층 구축 시 |
+| `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 데이터베이스 레코드로 추출/컴파일합니다. 기본은 백그라운드 워커에 큐잉 후 자동으로 데몬 프로세스를 분리 실행하여 비동기 처리하며, `--wait`는 즉시 동기 실행합니다. | 지식 그래프 심층 구축 시 |
 | `wiki source ls` | 등록된 소스 목록을 확인합니다. | 수집된 데이터 현황 파악 시 |
 | `wiki source show <id>` | 특정 소스의 상세 정보와 처리 상태를 확인합니다. | 소스 오류 진단 시 |
 | `wiki source rm <id>` | 소스 등록을 해제하고 생성된 L1 노드를 삭제합니다. | 잘못된 소스를 제거할 때 |
@@ -602,7 +602,7 @@ generated state, device metadata, chat context 때문에 backend와 plugin 상�
 #### 📂 지식 원천 현황 (Sources)
 원본 데이터가 지식화되는 '파이프라인의 입구'를 점검합니다.
 -   **Raw source files**: 보관소 폴더 내에 물리적으로 존재하는 파일의 총개수입니다.
--   **Sources summarized (L1)**: `l1_status=done`인 소스 수입니다. `wiki add`는 LLM 없이 구조 기반 L1 Context를 즉시 만듭니다. L1 page에는 검색용 영어 source guide와 크기 인식 source sections가 들어갑니다. 작은/중간 문서는 원문을 inline하고, 대형 문서는 preview와 marker만 두며 정확한 원문 증거는 원본 파일에서 on-demand로 읽습니다. L2/L3 추출은 별도 단계로, `wiki build`로 실행합니다 (기본은 백그라운드 워커 큐잉, `--wait`는 동기 실행).
+-   **Sources summarized (L1)**: `l1_status=done`인 소스 수입니다. `wiki add`는 LLM 없이 구조 기반 L1 Context를 즉시 만듭니다. L1 page에는 검색용 영어 source guide와 크기 인식 source sections가 들어갑니다. 작은/중간 문서는 원문을 inline하고, 대형 문서는 preview와 marker만 두며 정확한 원문 증거는 원본 파일에서 on-demand로 읽습니다. L2/L3 추출은 별도 단계로, `wiki build`로 실행합니다 (작업을 큐잉하고 자동으로 백그라운드 데몬을 분리 실행하여 비동기 처리하며, `--wait`는 동기 실행).
 -   **Ingest runs**: 지금까지 수행된 총 수집 횟수입니다. 이 수치가 높을수록 지식 베이스가 빈번하게 업데이트되었음을 의미합니다.
 
 #### 🧠 지식 밀도 (Collections)

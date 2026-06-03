@@ -446,3 +446,11 @@ DONE (this session — bugfix.md items 1 & 3):
   specific user direction on what to change.
 - Committed: `plugin/src/ui/chatSidebar.ts`, `plugin/styles.css`, `.agents/bugfix.md`
   (commit after this session).
+
+DONE (this session — chunking edge cases & UI errors):
+- Chunking Robustness: Implemented `_chunk_text` sub-chunking in `knowledge_units.py` for edge cases where a single extracted span exceeds the LLM context limit (`optimal_chunk_chars`). Implemented defensive statement truncation in `graph_index.py` for massive units.
+- Tests (TDD): Added `test_chunking_large_span_is_split` and `test_chunking_large_unit_is_truncated` to verify edge case handling. Both pass.
+- Dashboard Error UI: Updated `incuratorDashboardModal.ts` to display `src.layer_error` directly in the sources list, making it obvious why a specific document failed pipeline extraction.
+- Async `wiki build` Daemon: Updated `backend/src/curator/cli.py` to spawn a detached `wiki jobs run` daemon when `wiki build` is called without `--wait`. This allows the queue to process asynchronously without needing the MCP server active.
+- Rebuilt Obsidian plugin (`npm run build`).
+- Plan tracked in `.agents/plans/2026-06_chunking_and_ui_errors.md` and user-approved.

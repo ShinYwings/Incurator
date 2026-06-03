@@ -102,3 +102,24 @@ def test_empty_units_is_noop(dbp: Path) -> None:
     )
     assert result.ok
     assert result.entity_ids == {}
+
+def test_chunking_large_unit_is_truncated(dbp: Path) -> None:
+    from copy import deepcopy
+    units = deepcopy(UNITS)
+    # Make statement huge
+    units[0]["statement"] = "A" * 60000
+    
+    class SmallChunkClient:
+        def optimal_chunk_chars(self) -> int:
+            return 20000
+            
+        def chat(self, messages, **kwargs):
+            # Verify truncation in the prompt string
+            assert len(messages[-1].content) < 30000
+            return _graph_json()
+
+    client = SmallChunkClient()
+    result = graph_index.extract_entities_and_relations(
+        dbp, client, units=units, valid_span_ids=["SPAN-1"]
+    )
+    assert result.ok

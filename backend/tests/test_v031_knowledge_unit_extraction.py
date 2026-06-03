@@ -99,3 +99,30 @@ def test_empty_spans_is_noop(vault) -> None:
     )
     assert result.ok
     assert result.unit_ids == []
+
+def test_chunking_large_span_is_split(vault) -> None:
+    dbp, spans = vault
+    huge_text = "A" * 60000
+    spans[0]["text"] = huge_text
+    span_id = spans[0]["id"]
+    
+    class SmallChunkClient:
+        def optimal_chunk_chars(self) -> int:
+            return 20000
+        
+        def chat(self, messages, **kwargs):
+            from .test_v031_knowledge_unit_extraction import _units_json
+            return _units_json(span_id)
+
+    from curator.pipeline import knowledge_units as ku
+    from curator import db
+    client = SmallChunkClient()
+    result = ku.extract_knowledge_units(
+        dbp, client, source_id=1, source_title="ResNet", spans=spans
+    )
+    assert result.ok, result.errors
+    
+    units = db.list_knowledge_units_for_source(dbp, 1)
+    assert len(units) > 1
+    for u in units:
+        assert u["source_span_ids"] == [span_id]
