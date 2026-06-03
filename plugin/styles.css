@@ -638,8 +638,8 @@
   line-height: 1.6;
   color: var(--text-normal);
   max-width: 100%;
-  user-select: text;
-  -webkit-user-select: text;
+  user-select: text !important;
+  -webkit-user-select: text !important;
   cursor: text;
 }
 

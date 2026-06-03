@@ -2330,15 +2330,20 @@ export class ChatSidebarView extends ItemView {
     header.createSpan({ cls: "ai-agent-inline-diff-filename", text: prop.filepath });
     const btnGroup = header.createDiv("ai-agent-inline-diff-actions");
     
+    let isNewFile = false;
     if (!(file instanceof TFile)) {
-      header.createSpan({ cls: "ai-agent-inline-diff-error", text: " (File not found)" });
-      return;
+      if (prop.search.includes("<<< NEW FILE >>>") || prop.search.trim() === "") {
+        isNewFile = true;
+      } else {
+        header.createSpan({ cls: "ai-agent-inline-diff-error", text: " (File not found)" });
+        return;
+      }
     }
 
     const reviewBtn = btnGroup.createEl("button", {
       cls: "ai-agent-inline-diff-review ai-agent-inline-diff-accept",
-      text: "Review in file",
-      attr: { title: "Open this edit as an inline diff in the Markdown editor" },
+      text: isNewFile ? "Create File" : "Review in file",
+      attr: { title: isNewFile ? "Create this new file" : "Open this edit as an inline diff in the Markdown editor" },
     });
     const rejectBtn = btnGroup.createEl("button", {
       cls: "ai-agent-inline-diff-reject",
@@ -2365,8 +2370,16 @@ export class ChatSidebarView extends ItemView {
 
     reviewBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      await this.reviewAssistantEdit(msg);
-      wrapper.addClass("ai-agent-inline-diff-reviewing");
+      if (isNewFile) {
+        await this.createNewFile(prop.filepath, prop.replace);
+        wrapper.addClass("ai-agent-inline-diff-accepted");
+        reviewBtn.disabled = true;
+        rejectBtn.disabled = true;
+        reviewBtn.setText("✓ Created");
+      } else {
+        await this.reviewAssistantEdit(msg);
+        wrapper.addClass("ai-agent-inline-diff-reviewing");
+      }
     });
     rejectBtn.addEventListener("click", (e) => { e.stopPropagation(); rejectEdit(); });
   }
@@ -2448,6 +2461,26 @@ export class ChatSidebarView extends ItemView {
     const end = { line: endLine, ch: lineText?.length ?? 0 };
     editor.replaceRange(modifiedText, start, end);
     editor.setCursor({ line: start.line + modifiedText.split("\n").length - 1, ch: 0 });
+  }
+
+  private async createNewFile(filepath: string, content: string): Promise<void> {
+    const folders = filepath.split('/');
+    folders.pop(); // remove filename
+    let currentPath = '';
+    for (const folder of folders) {
+      currentPath += (currentPath === '' ? '' : '/') + folder;
+      const folderObj = this.app.vault.getAbstractFileByPath(currentPath);
+      if (!folderObj) {
+        await this.app.vault.createFolder(currentPath);
+      }
+    }
+    const file = this.app.vault.getAbstractFileByPath(filepath);
+    if (file instanceof TFile) {
+      await this.app.vault.modify(file, content);
+    } else {
+      await this.app.vault.create(filepath, content);
+    }
+    new Notice(`Created ${filepath}`);
   }
 
   private async applyInlineMultiEdit(prop: MultiEditProposal, file: TFile): Promise<void> {
