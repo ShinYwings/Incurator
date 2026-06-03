@@ -1,0 +1,42 @@
+// Git 내부 저장소 및 서브모듈 설정 무시
+.git
+.git/
+.gitmodules
+
+// Obsidian UI
+.obsidian/workspace.json
+
+// OS 및 툴 관련 임시 파일
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.venv/
+__pycache__/
+*.pyc
+.env
+
+// SQLite 임시 파일 (Incurator 프로젝트용)
+*.sqlite-*
+*.db-*
+
+// 의존성 폴더 무시 (Syncthing 부하 감소)
+node_modules/
+**/node_modules/
+
+// Incurator plugin: backend 실행 경로가 기기마다 다르면 설정은 로컬로 유지
+.obsidian/plugins/incurator-obsidian-agent/data.json
+
+// Incurator backend: 기기별 인덱스 상태
+// 다른 기기 위에 덮어쓰면 재인덱싱 필요; vault 파일은 Syncthing이 동기화
+.curator/state.sqlite
+.curator/qmd/index.sqlite
+
+// Incurator runtime: 백엔드 실시간 작업 상태 파일 (휘발성)
+// 짧은 주기로 업데이트되므로 동기화 시 심각한 충돌과 트래픽 유발
+.curator/runtime/
+
+// 에이전트 및 테스트베드
+.claude/
+.antigravity/
+testbed/

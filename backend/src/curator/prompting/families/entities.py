@@ -57,6 +57,8 @@ entities and typed relations that form a knowledge graph.
 Hard rules:
 - Declare every entity you reference. A relation's source and target MUST each be
   the canonical_name of an entity you list in "entities".
+- entity_type MUST be exactly one of: "concept", "method", "dataset", "metric",
+  "system", "person", "organization", "other".
 - relation_type is a short verb phrase, e.g. "improves", "is_a", "discretizes",
   "contradicts", "depends_on".
 - assertion_source: "source_states" only when a source literally states the

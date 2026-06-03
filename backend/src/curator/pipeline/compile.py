@@ -148,6 +148,16 @@ def compile_source_l2(
         valid_span_ids=span_ids,
         curate_spec_hash=curate_spec_hash,
     )
+    if not graph.ok:
+        db.set_source_layer_status(
+            paths.state_db, source_id, "l2", "error",
+            error="; ".join(graph.errors) or "graph extraction failed",
+        )
+        return CompileResult(
+            source_id=source_id,
+            prompt_trace_ids=[ku_result.trace_id, graph.trace_id] if graph.trace_id else [ku_result.trace_id],
+            error="graph extraction failed",
+        )
 
     db.set_source_layer_status(paths.state_db, source_id, "l2", "done")
     trace_ids = [t for t in (ku_result.trace_id, graph.trace_id) if t]
@@ -174,30 +184,35 @@ def compile_global_l3(
     plans = community_reports.detect_communities(paths.state_db)
     concept_ids: list[str] = []
     paths.concepts.mkdir(parents=True, exist_ok=True)
+    errors = []
     for plan in plans:
-        rep_id = community_reports.generate_community_report(
-            paths.state_db, client, plan, curate_spec_hash=curate_spec_hash
-        )
-        if not rep_id:
-            continue
-        report = db.get_community_report(paths.state_db, rep_id)
-        if not report:
-            continue
-        concept_id = projection.new_concept_id()
-        page = projection.emit_concept_markdown(report, concept_id)
-        (paths.concepts / f"{concept_id}.md").write_text(page, encoding="utf-8")
-        concept_ids.append(concept_id)
-        # dag_edges: ATM(units of entities) -> CON. Link via knowledge units whose
-        # spans back the community's entities (best-effort traversal aid).
-        for span_id in report.get("source_span_ids") or []:
-            db.record_artifact_dependency(
-                paths.state_db,
-                artifact_id=rep_id,
-                artifact_type="community_report",
-                depends_on_id=span_id,
-                depends_on_type="source_span",
-                dependency_hash=report.get("dependency_hash", ""),
+        try:
+            rep_id = community_reports.generate_community_report(
+                paths.state_db, client, plan, curate_spec_hash=curate_spec_hash
             )
+            if not rep_id:
+                continue
+
+            report = db.get_community_report(paths.state_db, rep_id)
+            if not report:
+                continue
+            concept_id = projection.new_concept_id()
+            page = projection.emit_concept_markdown(report, concept_id)
+            (paths.concepts / f"{concept_id}.md").write_text(page, encoding="utf-8")
+            concept_ids.append(concept_id)
+            # dag_edges: ATM(units of entities) -> CON. Link via knowledge units whose
+            # spans back the community's entities (best-effort traversal aid).
+            for span_id in report.get("source_span_ids") or []:
+                db.record_artifact_dependency(
+                    paths.state_db,
+                    artifact_id=rep_id,
+                    artifact_type="community_report",
+                    depends_on_id=span_id,
+                    depends_on_type="source_span",
+                    dependency_hash=report.get("dependency_hash", ""),
+                )
+        except Exception as e:
+            errors.append(str(e))
 
     # Mark L3 done for sources whose L2 is complete.
     with db.connect(paths.state_db) as conn:
@@ -205,6 +220,14 @@ def compile_global_l3(
             f"SELECT id FROM sources WHERE l2_status = '{consts.STATUS_DONE}'"
         ).fetchall()
         l2_done_ids = [r["id"] for r in rows]
+    
+    status = "error" if errors else "done"
+    error_msg = "; ".join(errors) if errors else None
+    
     for sid in l2_done_ids:
-        db.set_source_layer_status(paths.state_db, sid, "l3", "done")
+        db.set_source_layer_status(paths.state_db, sid, "l3", status, error=error_msg)
+        
+    if errors:
+        raise RuntimeError(f"L3 global clustering encountered errors: {error_msg}")
+
     return concept_ids

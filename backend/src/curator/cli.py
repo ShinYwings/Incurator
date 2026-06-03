@@ -2281,6 +2281,20 @@ def init(
     # 5. Copy template files
     templates_dir = Path(__file__).parent / "workspace" / "templates"
 
+    # .gitignore
+    gitignore_src = templates_dir / "gitignore.template"
+    gitignore_dest = root / ".gitignore"
+    if gitignore_src.exists() and not gitignore_dest.exists():
+        shutil.copy2(gitignore_src, gitignore_dest)
+        _ok(f"Git ignore:  {gitignore_dest.relative_to(root)}")
+
+    # .stignore
+    stignore_src = templates_dir / "stignore.template"
+    stignore_dest = root / ".stignore"
+    if stignore_src.exists() and not stignore_dest.exists():
+        shutil.copy2(stignore_src, stignore_dest)
+        _ok(f"Sync ignore: {stignore_dest.relative_to(root)}")
+
     # index.md (in .curator/ root, not Collections/)
     index_src = templates_dir / consts.FILE_INDEX_MD
     if index_src.exists() and not paths.index.exists():

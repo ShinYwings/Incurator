@@ -85,8 +85,8 @@ Running the `wiki init` command initializes the following structure for knowledg
 │   ├── ledger.md      # History of HITL corrections and promotions
 │   └── Collections/   # Knowledge Layer (DAG) Storage
 │       └── 04_Exhibitions/ # [L4] Task-optimized agent exhibits (Only generated markdown layer)
-├── .gitignore         # Git ignore rules
-└── .stignore          # Syncthing ignore rules
+├── .gitignore         # Git ignore rules (auto-generated)
+└── .stignore          # Syncthing ignore rules (auto-generated)
 ```
 
 > [!NOTE]

@@ -87,8 +87,8 @@ wiki init <path/to/your/obsidian-vault>
 │   ├── ledger.md      # HITL(인간 개입) 수정 및 승격 이력
 │   └── Collections/   # 지식 계층(Layers) 마크다운 저장소
 │       └── 04_Exhibitions/ # [L4] 에이전트용 맞춤형 전시물 (유일하게 생성되는 마크다운 계층)
-├── .gitignore         # Git 제외 설정
-└── .stignore          # Syncthing 동기화 제외 설정
+├── .gitignore         # Git 제외 설정 (자동 생성됨)
+└── .stignore          # Syncthing 동기화 제외 설정 (자동 생성됨)
 ```
 
 > [!NOTE]

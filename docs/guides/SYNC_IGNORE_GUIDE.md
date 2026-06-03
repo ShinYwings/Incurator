@@ -41,6 +41,10 @@ node_modules/
 .curator/state.sqlite
 .curator/qmd/index.sqlite
 
+// Incurator runtime: volatile status and job files
+// Syncing these causes massive conflicts and battery drain
+.curator/runtime/
+
 // Agent & Testbed (Optional)
 .claude/
 testbed/
@@ -101,7 +105,7 @@ The intended sharing model is:
   do not rely on Git for large/private resource libraries.
 - `.curator/Collections/`: may be shared through Git as generated knowledge
   artifacts when the project chooses to version them.
-- `.curator/state.sqlite*` and `.curator/qmd/`: device-local runtime/index
+- `.curator/state.sqlite*`, `.curator/qmd/`, and `.curator/runtime/`: device-local runtime/index/volatile
   state; do not sync through Syncthing or Git.
 - Backend executable/repository path: device-local; do not store as shared vault
   truth.

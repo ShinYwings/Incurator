@@ -40,6 +40,10 @@ node_modules/
 .curator/state.sqlite
 .curator/qmd/index.sqlite
 
+// Incurator runtime: 백엔드 실시간 작업 상태 파일 (휘발성)
+// 짧은 주기로 업데이트되므로 동기화 시 심각한 충돌과 트래픽 유발
+.curator/runtime/
+
 // 에이전트 및 테스트베드 (선택 사항)
 .claude/
 testbed/
@@ -90,7 +94,7 @@ PDF 절대 경로를 포함하지 않아야 합니다.
   private한 resource library를 Git에 의존하지 않습니다.
 - `.curator/Collections/`: 프로젝트가 원하면 생성된 knowledge artifact로 Git에
   versioning할 수 있습니다.
-- `.curator/state.sqlite*`와 `.curator/qmd/`: 기기별 runtime/index 상태입니다.
+- `.curator/state.sqlite*`, `.curator/qmd/`, `.curator/runtime/`: 기기별 runtime/index/휘발성 상태입니다.
   Syncthing이나 Git으로 공유하지 않습니다.
 - backend 실행 파일/저장소 경로: 기기별 설정입니다. 공유 vault truth로 저장하지 않습니다.
 - Zotero/external PDF 원본: 별도 Syncthing 폴더로 동기화할 수 있지만, Incurator는

@@ -1,0 +1,56 @@
+# ==========================================
+# 1. Database & Incurator Data (Recommended for Syncthing)
+# ==========================================
+# It is safer to leave DB files to real-time sync tools (like Syncthing) and exclude them from Git.
+*.sqlite*
+*.db*
+.curator/
+qmd-cache/
+
+# ==========================================
+# 2. Obsidian Local State
+# ==========================================
+# Backup plugins and core settings with Git, but ignore temporary workspace states.
+.obsidian/workspace
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.trash/
+
+# ==========================================
+# 3. Python & Agent Environment
+# ==========================================
+.venv/
+.idea/
+.vscode/
+.claude/
+.antigravity/
+testbed/
+scripts/dev/
+build/
+dist/
+.ruff_cache/
+.lock/
+__pycache__/
+*.pyc
+*.swp
+.env
+
+# ==========================================
+# 4. Syncthing & OS Files
+# ==========================================
+.stversions/
+.stfolder/
+*.sync-conflict-*
+.DS_Store
+Thumbs.db
+
+# ==========================================
+# 5. Large files (Optional)
+# ==========================================
+# Consider excluding large resources or assets if they are heavy, 
+# Ignore all heavy resources in 04_Resources, but KEEP the markdown stubs (.md).
+04_Resources/**/*
+!04_Resources/**/
+!04_Resources/**/*.md
+
+# 05_Assets/

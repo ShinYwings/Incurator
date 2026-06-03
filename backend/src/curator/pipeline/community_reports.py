@@ -193,7 +193,8 @@ def generate_community_report(
         curate_spec_hash=curate_spec_hash,
     )
     if not (result.ok and result.parsed is not None):
-        return None
+        error_msg = "; ".join(result.validation.errors) if hasattr(result, "validation") and result.validation else "Unknown LLM error"
+        raise RuntimeError(f"Community report generation failed: {error_msg}")
 
     parsed = result.parsed
     findings = [f.model_dump() for f in getattr(parsed, "findings", [])]
