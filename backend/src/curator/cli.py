@@ -4550,6 +4550,13 @@ def query(
         "--scope",
         help="Restrict to a single Curator layer: all | contexts | atoms | concepts | exhibitions.",
     ),
+    route: str = typer.Option(
+        "",
+        "--route",
+        help="v0.3.1 curation-native route: auto | local | global | explore | "
+             "exhibition | source-section. Routes through the QueryOrchestrator "
+             "(DB graph + qmd) with a QTR trace. Empty = legacy qmd synthesis.",
+    ),
     no_intent_classify: bool = typer.Option(
         False,
         "--no-intent-classify",
@@ -4661,6 +4668,7 @@ def query(
         query_boost_terms=[x for x in ([curate_spec.persona.domain, curate_spec.persona.subdomain] + curate_spec.persona.disambiguation_keywords) if x] if curate_spec else None,
         pinned_exhibition_id=curate_spec.exhibition if curate_spec else None,
         ephemeral_exhibition=False,  # Deprecated in v0.3.1: Chat Exhibitions are now persistent living documents
+        route=route,
     )
 
     callbacks = CliQueryCallbacks()

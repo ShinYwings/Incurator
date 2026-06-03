@@ -326,11 +326,14 @@ export default class ObsidianAIAgent extends Plugin {
               this.ensureChatOpen().then(() => {
                 const chatView = this.getChatView();
                 if (chatView) {
+                  const pdfCtx = pdfView.getActivePdfContext("text");
                   chatView.addContextRef({
-                    type: "image",
+                    type: "pdf-page",
                     label: `${pdfView.getDisplayText()} p.${pageNum} (Crop)`,
-                    content: "",
+                    content: pdfCtx?.text || "",
                     imageBase64: base64,
+                    pageNum: pageNum,
+                    filePath: pdfView.getState()?.path,
                   });
                 }
               });

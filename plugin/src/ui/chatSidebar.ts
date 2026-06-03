@@ -105,7 +105,7 @@ export class ChatSidebarView extends ItemView {
   private dropOverlayEl!: HTMLElement;
   private pendingContextRefs: ContextRef[] = [];
   private cachedAutoContextRefs: ContextRef[] = [];
-  private activeContextExcludedKey: string | null = null;
+  private activeContextExcludedKeys: Set<string> = new Set();
   private isGenerating = false;
   private thinkingTimer: ReturnType<typeof setInterval> | null = null;
   private thinkingStartTime = 0;
@@ -216,7 +216,7 @@ export class ChatSidebarView extends ItemView {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         setTimeout(() => {
-          this.activeContextExcludedKey = null;
+          this.activeContextExcludedKeys.clear();
           this.renderContextChips();
         }, 0);
       })
@@ -1628,7 +1628,7 @@ export class ChatSidebarView extends ItemView {
       if (!ref) continue;
       const key = this.getAutoContextKey(ref);
       if (seen.has(key)) continue;
-      if (this.activeContextExcludedKey === key) ref.includeInPrompt = false;
+      if (this.activeContextExcludedKeys.has(key)) ref.includeInPrompt = false;
       seen.add(key);
       refs.push(ref);
     }
@@ -3029,13 +3029,17 @@ export class ChatSidebarView extends ItemView {
       setIcon(visibilityBtn, shouldIncludeContext(ref) ? "eye" : "eye-off");
       visibilityBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        this.activeContextExcludedKey = shouldIncludeContext(ref) ? activeKey : null;
+        if (shouldIncludeContext(ref)) {
+          this.activeContextExcludedKeys.add(activeKey);
+        } else {
+          this.activeContextExcludedKeys.delete(activeKey);
+        }
         this.renderContextChips();
       });
       const removeBtn = chip.createSpan({ cls: "ai-agent-context-chip-remove", text: "×" });
       removeBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        this.activeContextExcludedKey = activeKey;
+        this.activeContextExcludedKeys.add(activeKey);
         this.renderContextChips();
       });
     }

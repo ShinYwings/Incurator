@@ -55,6 +55,15 @@ class QueryResult:
     input_language: str = ""
     final_output_language: str = ""
     error: str | None = None
+    # v0.3.1 curation-native trace fields (populated when a route is used).
+    route: str = ""
+    trace_id: str = ""
+    prompt_trace_ids: list[str] = field(default_factory=list)
+    source_span_ids: list[str] = field(default_factory=list)
+    community_report_ids: list[str] = field(default_factory=list)
+    memory_path_ids: list[str] = field(default_factory=list)
+    insight_candidate_ids: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -489,6 +498,62 @@ def save_wiki_page(
 # ---------------------------------------------------------------------------
 
 
+def _run_query_orchestrated(
+    paths: cfg.WikiPaths,
+    client,
+    question: str,
+    callbacks: QueryCallbacks,
+    *,
+    route: str,
+    workspace_path: str | None,
+    session_id: str | None,
+    english_query: str | None,
+    input_language: str,
+    final_output_language: str,
+) -> QueryResult:
+    """v0.3.1 query via the curation-native QueryOrchestrator.
+
+    Maps the orchestrator's QueryResultV031 onto the legacy QueryResult so
+    existing CLI/plugin/MCP callers keep a stable shape while gaining the route
+    and trace fields.
+    """
+    from .retrieval import QueryOrchestrator, QueryRequest
+
+    callbacks.on_start(question, route)
+    request = QueryRequest(
+        question=question,
+        english_query=(english_query or "").strip(),
+        input_language=input_language,
+        final_output_language=final_output_language or input_language or "English",
+        workspace_path=str(workspace_path) if workspace_path else "",
+        mode=route,
+    )
+    callbacks.on_searching()
+    res = QueryOrchestrator(paths, client).run(request)
+    result = QueryResult(
+        question=question,
+        answer=res.answer,
+        session_id=session_id,
+        english_query=res.english_query,
+        input_language=res.input_language,
+        final_output_language=res.final_output_language,
+        error=res.error,
+        route=res.route,
+        trace_id=res.trace_id,
+        prompt_trace_ids=res.prompt_trace_ids,
+        source_span_ids=res.source_span_ids,
+        community_report_ids=res.community_report_ids,
+        memory_path_ids=res.memory_path_ids,
+        insight_candidate_ids=res.insight_candidate_ids,
+        warnings=res.warnings,
+    )
+    if result.error:
+        callbacks.on_error(result.error)
+    else:
+        callbacks.on_complete(result)
+    return result
+
+
 def run_query(
     paths: cfg.WikiPaths,
     client: OllamaClient,
@@ -513,8 +578,15 @@ def run_query(
     english_query: str | None = None,
     input_language: str = "",
     final_output_language: str = "",
+    route: str = "",
 ) -> QueryResult:
     """Run a full query → answer pipeline.
+
+    When ``route`` is one of the v0.3.1 curation-native routes (local | global |
+    explore | exhibition | source-section), the query is answered by the
+    QueryOrchestrator (DB graph + qmd derived corpus, with a QTR trace). When
+    ``route`` is empty, the legacy qmd-synthesis path runs (qmd remains the
+    fallback retrieval engine per SYSTEM_BEHAVIOR_v0.3.1 §17).
 
     scope filters retrieval by Curator layer (path prefix inside
     `.curator/Collections/`):
@@ -528,6 +600,16 @@ def run_query(
     the user asked something like 'hi' or 'thanks', we skip retrieval and
     respond conversationally.
     """
+    from .retrieval import ROUTES as _V031_ROUTES
+
+    if route and route in (*_V031_ROUTES, "auto"):
+        return _run_query_orchestrated(
+            paths, client, question, callbacks,
+            route=route, workspace_path=workspace_path, session_id=session_id,
+            english_query=english_query, input_language=input_language,
+            final_output_language=final_output_language,
+        )
+
     callbacks.on_start(question, mode)
 
     curator_persona = cfg.get_curator_persona(cfg.load_config(paths))
