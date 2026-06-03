@@ -3226,3 +3226,13 @@
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
 }
+
+.ai-agent-spin svg {
+  animation: ai-agent-spin 2s linear infinite;
+}
+
+@keyframes ai-agent-spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}

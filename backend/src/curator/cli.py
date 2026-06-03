@@ -3054,10 +3054,20 @@ def build(
             db.set_source_layer_status(paths.state_db, sid, "l3", "pending")
 
     if not source_ids and not force:
-        _hint(
-            "Nothing to build — all L1 sources already have L2/L3. "
-            "Run [bold]wiki curate[/bold] to stage L4 Exhibitions."
-        )
+        if not wait:
+            from . import ingest_worker
+            ingest_worker.enqueue_l3_global(paths, trigger="wiki_build")
+            _ok("No pending L1/L2 sources. Queued global L3 Concept clustering.")
+        else:
+            from . import ingest_llm
+            client = ingest_llm.get_client(paths, config)
+            if not client:
+                _err("No LLM client configured.")
+                raise typer.Exit(1)
+            console.print()
+            console.print("[dim]No pending sources. Running global L3 Concept clustering...[/dim]")
+            ingest_llm.run_l3_from_existing_atoms(paths, client, ingest_llm.IngestCallbacks)
+            _ok("Global L3 clustering complete.")
         return
 
     # Default: enqueue to the background worker (non-blocking).

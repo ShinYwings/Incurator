@@ -118,6 +118,21 @@ def enqueue_l2_l3_for_sources(
     return job_ids
 
 
+def enqueue_l3_global(
+    paths: cfg.WikiPaths,
+    *,
+    trigger: str = "wiki_build",
+) -> int:
+    """Queue a standalone global L3 clustering job."""
+    return db.enqueue_job(
+        paths.state_db,
+        0,
+        consts.PHASE_L3,
+        trigger=trigger,
+        source_name="Global L3 Clustering",
+    )
+
+
 def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
     """Claim and run one queued job synchronously.
 
@@ -137,6 +152,26 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
     client = build_client(config)
 
     try:
+        if job_type == consts.PHASE_L3:
+            db.update_job_progress(paths.state_db, job_id, phase=consts.PHASE_L3, progress=0.1)
+            try:
+                l3_changes = ingest_llm.run_l3_from_existing_atoms(
+                    paths, client, lambda: WorkerCallbacks(paths, job_id, 0)
+                )
+                pages_created = sum(1 for c in l3_changes if c.operation == "created")
+                pages_updated = sum(1 for c in l3_changes if c.operation == "updated")
+                db.mark_job_done(paths.state_db, job_id, pages_created=pages_created, pages_updated=pages_updated)
+                return {
+                    "ok": True,
+                    "job": job,
+                    "pages_created": pages_created,
+                    "pages_updated": pages_updated,
+                    "source_id": 0,
+                }
+            except Exception as l3_err:
+                _log.error("Global L3 clustering failed: %s", l3_err)
+                raise RuntimeError(str(l3_err))
+
         if job_type != consts.PHASE_L2:
             raise ValueError(f"Unsupported job_type: {job_type}")
 
