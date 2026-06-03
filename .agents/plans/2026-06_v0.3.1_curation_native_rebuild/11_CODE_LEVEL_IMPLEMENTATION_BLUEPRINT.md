@@ -1,5 +1,18 @@
 # Code-Level Implementation Blueprint
 
+> **AMENDMENT (2026-06-03):** Two locked decisions OVERRIDE parts of this
+> blueprint — read `00_MASTER_PLAN.md` "AMENDMENT" first.
+> (1) **No backward compatibility** → ignore §13 (backward-compat sequence/rules),
+> §4.4 wrapper functions, §9.5 `run_legacy_query`, §6.3 persona→KRS mapping, and
+> §5.1 "do not remove old tables". Replace cleanly; delete/rewrite legacy code and
+> its tests instead of keeping them green via shims.
+> (2) **Derived-projection compile model** → DB (`state.sqlite`) is the single
+> source of truth; `.curator/Collections/` CTX/ATM/CON markdown is a derived,
+> disposable qmd corpus emitted from the DB; only the L4 Exhibition is
+> human-facing (`02_Wiki/`) and is reverse-parsed back to the DB. Authoritative:
+> `SCHEMA_v0.3.1.md` "Storage model"/§11–§19 and `SYSTEM_BEHAVIOR_v0.3.1.md`
+> §15–§22. The DB table/accessor/prompt/CLI/MCP targets below remain valid.
+
 ## 1. Purpose
 
 This document is intentionally close to code level. It describes which files

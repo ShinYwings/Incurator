@@ -1,0 +1,112 @@
+"""Entity/relation graph extraction (L3 graph).
+
+Builds the knowledge graph (typed entities + typed, directed, confidence-scored
+relations) from knowledge units via the registered
+``curator.entity_relation_extract`` contract. Relation endpoints must resolve to
+declared entities; the prompt validator enforces that. Records land in the
+``graph_entities`` / ``graph_relations`` DB tables (the source of truth).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from .. import db, prompting
+
+__all__ = ["GraphExtractionResult", "extract_entities_and_relations"]
+
+
+@dataclass
+class GraphExtractionResult:
+    entity_ids: dict[str, str] = field(default_factory=dict)  # canonical_name -> ENT-id
+    relation_ids: list[str] = field(default_factory=list)
+    trace_id: str = ""
+    ok: bool = False
+    errors: list[str] = field(default_factory=list)
+
+
+def _units_block(units: list[dict]) -> str:
+    lines = []
+    for u in units:
+        spans = ", ".join(u.get("source_span_ids") or [])
+        lines.append(
+            f'{u["id"]} ({u.get("unit_type","claim")}) [{spans}]: {u.get("statement","")}'
+        )
+    return "\n".join(lines)
+
+
+def extract_entities_and_relations(
+    db_path: Path,
+    client: Any,
+    *,
+    units: list[dict],
+    valid_span_ids: list[str],
+    curate_spec_hash: str = "",
+) -> GraphExtractionResult:
+    """Extract and persist entities/relations from knowledge units.
+
+    ``units`` are ``knowledge_units`` rows (with ``source_span_ids`` decoded).
+    """
+    if not units:
+        return GraphExtractionResult(ok=True)
+
+    contract = prompting.REGISTRY.get("curator.entity_relation_extract")
+    input_obj = contract.input_model(
+        units_block=_units_block(units),
+        valid_span_ids_block="\n".join(valid_span_ids),
+    )
+    result = prompting.run_prompt(
+        db_path,
+        client,
+        contract,
+        input_obj,
+        validation_context={"valid_span_ids": set(valid_span_ids)},
+        source_span_ids=valid_span_ids,
+        curate_spec_hash=curate_spec_hash,
+    )
+    if not (result.ok and result.parsed is not None):
+        return GraphExtractionResult(
+            trace_id=result.trace_id, ok=False, errors=list(result.validation.errors)
+        )
+
+    # Persist entities first so relation endpoints resolve.
+    name_to_id: dict[str, str] = {}
+    for entity in getattr(result.parsed, "entities", []):
+        ent_id = db.upsert_graph_entity(
+            db_path,
+            canonical_name=entity.canonical_name,
+            entity_type=entity.entity_type,
+            description=entity.description,
+            source_span_ids=entity.source_span_ids,
+            prompt_run_id=result.trace_id,
+        )
+        name_to_id[entity.canonical_name] = ent_id
+
+    relation_ids: list[str] = []
+    for rel in getattr(result.parsed, "relations", []):
+        src = name_to_id.get(rel.source)
+        tgt = name_to_id.get(rel.target)
+        if not src or not tgt:
+            # Validator should have caught this; skip defensively.
+            continue
+        rel_id = db.upsert_graph_relation(
+            db_path,
+            source_entity_id=src,
+            target_entity_id=tgt,
+            relation_type=rel.relation_type,
+            description=rel.description,
+            assertion_source=rel.assertion_source,
+            source_span_ids=rel.source_span_ids,
+            confidence=rel.confidence,
+            prompt_run_id=result.trace_id,
+        )
+        relation_ids.append(rel_id)
+
+    return GraphExtractionResult(
+        entity_ids=name_to_id,
+        relation_ids=relation_ids,
+        trace_id=result.trace_id,
+        ok=True,
+    )

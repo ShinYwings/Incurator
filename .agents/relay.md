@@ -139,7 +139,85 @@ DONE (Phase 3 — curate.yml KRS):
 - Guide for curate.yml fields deferred to Phase 8 (when `wiki curate validate/
   plan` surface them); spec §16 is authoritative meanwhile.
 
-NEXT — Phase 4 (in progress): Source spans + knowledge units.
+DONE (Phase 4 foundation — built + tested + green):
+- New `backend/src/curator/pipeline/` package (compile-model stages):
+  - `source_spans.py` — deterministic (NO LLM) span extraction:
+    `spans_from_sections()` splits section dicts into paragraph/equation/code
+    spans (preserves $$...$$ and ``` exactly), single-chunk → heading_section.
+    `store_source_spans()` → db.upsert_source_span (idempotent by content hash).
+  - `knowledge_units.py` — `extract_knowledge_units()` uses
+    prompting.run_prompt(curator.knowledge_unit_extract) over in-memory spans
+    (full text; DB stores only previews), persists units via db.upsert_knowledge_unit
+    ONLY when the run validates (no partial writes). Returns KnowledgeUnitResult.
+  - `projection.py` — `emit_atom_markdown(unit, atom_id)` renders the ATM page
+    (derived qmd corpus) with source_span_ids/knowledge_unit_ids/prompt_trace_ids
+    frontmatter. `new_atom_id()`.
+  - `__init__.py` does NOT eagerly import submodules (keeps instant-L1 LLM-free).
+- WIRED: `ingest_raw.generate_l1_structural_context()` now also extracts+stores
+  source_spans to the DB during instant L1 (try/except guarded; CTX output
+  unchanged so existing L1 tests stay green).
+- Tests (14): test_v031_markdown_source_spans, test_v031_pdf_source_spans,
+  test_v031_knowledge_unit_extraction, test_v031_atom_frontmatter_source_spans.
+  Full backend suite 333 passed. New code ruff-clean.
+
+PENDING — Phase 4/5 LEGACY CUTOVER (next focused pass, do together):
+The legacy L2/L3 generation lives in `ingest_llm.py` + `ingest_orchestrator.py`
+(writes `atoms`/`concepts` tables, ATM/CON pages, dag_edges) and powers many
+existing tests (test_v021_*, integrity, etc.). The clean cutover = make
+`wiki build` drive the new pipeline (knowledge_units + graph/communities +
+emit ATM/CON projections), remove legacy atom/concept generation, move L1/L2/L3
+prompt text from prompts.py into families and delete superseded funcs, then
+update the dependent tests deliberately. This is a large, risky rewrite best done
+as one focused pass spanning Phase 4 (units) + Phase 5 (graph/communities), since
+both come from the same ingest_llm module. The new pipeline modules are ready and
+tested to plug in.
+
+PLAN SYNC (2026-06-03): Added AMENDMENT blocks to `00_MASTER_PLAN.md` and
+`11_CODE_LEVEL_IMPLEMENTATION_BLUEPRINT.md` recording the two locked decisions
+(no-backward-compat; derived-projection compile model) that override the original
+plan text. Specs remain the authoritative source; plans are subordinate.
+
+LEGACY-TEST POLICY (user-clarified): keeping the suite green is for regression
+safety of UNTOUCHED code + tests-as-spec, NOT backward compat. For replaced
+legacy L2/L3 behavior, DELETE or REWRITE its tests to the new model — do not add
+shims to keep old tests passing.
+
+DONE (Phase 5 modules — built + tested + green, additive):
+- `pipeline/graph_index.py` — extract_entities_and_relations(): entity_relation_
+  extract contract → db.upsert_graph_entity/relation (entities first so endpoints
+  resolve; failed run persists nothing).
+- `pipeline/community_reports.py` — detect_communities() (deterministic union-find
+  connected components over graph_relations, NO LLM) + generate_community_report()
+  (community_report_write contract → db.upsert_community_report). Content-addressed
+  `_dependency_hash` (hashes entity/relation CONTENT, not timestamps, so staleness
+  is detected at any resolution).
+- `pipeline/memory_paths.py` — build_memory_paths() (deterministic bounded DFS over
+  relations, linear-combo scoring per SCHEMA §11.6) + record_memory_paths() +
+  query_hash(). No PPR (out of scope).
+- `pipeline/projection.py` — added emit_concept_markdown()/new_concept_id() (CON
+  page from a community_report).
+- Tests (13): test_v031_entity_relation_extraction, test_v031_community_reports,
+  test_v031_memory_paths, test_v031_concept_projection. Full suite 345 passed,
+  ruff clean.
+
+ALL NEW PIPELINE STAGE MODULES NOW EXIST + TESTED (additive, suite green):
+  source_spans, knowledge_units, graph_index, community_reports, memory_paths,
+  projection(atom/concept). They are NOT yet wired into `wiki build`.
+
+NEXT — THE CUTOVER (big integrating step, do as its own focused pass):
+Rewrite `wiki build` (ingest_orchestrator.py 474L / ingest_worker.py 419L) to
+drive the new pipeline end-to-end:
+  add: parse → source_spans (already wired in instant L1)
+  build: load spans → knowledge_units → graph_index → community_reports →
+         emit CTX/ATM/CON projections from DB → qmd update/embed
+Then DELETE legacy L2/L3 generation in ingest_llm.py (~2868L: atom coordinator,
+clustering, concept plans, fallbacks) + the `atoms`/`concepts` SQLite tables if
+unused, move remaining L1/L2/L3 prompt text from prompts.py into families and
+delete superseded funcs, and DELETE/REWRITE the dependent legacy tests to assert
+the new model (per user: do NOT shim to keep old tests green). Expect many
+test_v021_*/integrity tests to be rewritten. Check: `wiki add/build/status/lint`
+testbed smoke after cutover. This is destructive + large; confirmed acceptable by
+user (no backward compat). The new modules are ready to plug in.
 - Rewrite ingest to the compile model: parse source → write DB source_spans
   (deterministic, no LLM) → emit CTX projection md. Then LLM knowledge_unit_
   extract (use prompting.run_prompt + the registered contract) → DB

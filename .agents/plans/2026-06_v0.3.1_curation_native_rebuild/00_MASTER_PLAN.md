@@ -1,5 +1,41 @@
 # Incurator v0.3.1 Curation-Native Rebuild Master Plan
 
+## AMENDMENT (2026-06-03): Locked implementation decisions — these override the original plan text
+
+Implementation began after this suite was written. Two decisions were locked with
+the user and now **override any conflicting guidance in this file and the child
+plans**. The authoritative contracts are the v0.3.1 specs
+(`docs/specs/*/...v0.3.1.md`); these plan docs are subordinate. See also memory
+`v031-no-backward-compat` and `v031-compile-model`.
+
+1. **No backward compatibility.** The v0.3.1 rebuild does clean replacements with
+   NO migration shims. This OVERRIDES:
+   - `11_CODE_LEVEL_IMPLEMENTATION_BLUEPRINT.md` §13 (backward-compat sequence),
+     §4.4 (prompts.py compatibility wrappers), §9.5 (`run_legacy_query`), §6.3
+     (curate.yml persona→KRS auto-mapping), §5.1 ("do not remove old tables").
+   - `05_PROMPT_SYSTEM_REBUILD.md` §10 (prompts.py import-compatible wrappers).
+   - `06_CURATE_YML_SPEC_EVOLUTION.md` §8 (migration from old curate.yml).
+   Legacy code/tests for replaced behavior are deleted or rewritten to the new
+   model, not kept green via shims. Old vaults are rebuilt, not migrated.
+
+2. **Derived-projection compile model.** This refines the "preserve L1–L4"
+   framing (§2 Non-Goals here; `04_CURATION_NATIVE_ARCHITECTURE.md`):
+   - `state.sqlite` is the **single source of truth** (compiler IR): source_spans,
+     knowledge_units, graph_entities/relations, community_reports, memory_paths,
+     dependencies, backprop state.
+   - The `.curator/Collections/` L1–L3 markdown (CTX/ATM/CON) is a **derived,
+     disposable projection** emitted from the DB, existing ONLY so `qmd` can index
+     it for hybrid search. Not authoritative; re-emitted on change; no DB↔file
+     drift.
+   - **Only the L4 Exhibition is human/agent-facing** (emitted to `02_Wiki/`);
+     editing it is reverse-parsed back into the DB.
+   - Backprop via MCP `curator_propose_correction` / `curator_update_node` updates
+     the DB then re-emits the affected projection and re-indexes qmd.
+   - L1 is deterministic structure preservation (no LLM); refinement happens at
+     L2/L3 via the LLM prompt families.
+   Authoritative detail: `SCHEMA_v0.3.1.md` "Storage model" + §11–§19 and
+   `SYSTEM_BEHAVIOR_v0.3.1.md` §15–§22.
+
 ## 0. Planning-Only Scope
 
 This directory is a planning and documentation suite for v0.3.1. It is not an

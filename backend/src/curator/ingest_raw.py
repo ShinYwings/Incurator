@@ -1273,6 +1273,18 @@ def generate_l1_structural_context(
         )
 
     _record_pdf_pages_for_parsed(paths, source_id, relpath, parsed)
+
+    # v0.3.1: deterministically extract source_spans into the DB (no LLM). The
+    # DB is the source of truth; the CTX page above is the derived qmd projection.
+    try:
+        from .pipeline import source_spans as _source_spans
+
+        sections = _extract_structural_sections(parsed)
+        spans = _source_spans.spans_from_sections(sections)
+        _source_spans.store_source_spans(paths.state_db, source_id, relpath, spans)
+    except Exception as e:  # span extraction must never break instant L1
+        print(f"  [Warn] source span extraction failed for {relpath}: {e}")
+
     db.record_source_page(
         paths.state_db,
         source_id,
