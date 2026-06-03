@@ -51,42 +51,83 @@ def extract_knowledge_units(
     if not spans:
         return KnowledgeUnitResult(ok=True)
 
-    valid_ids = [s["id"] for s in spans]
-    contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
-    input_obj = contract.input_model(
-        source_title=source_title,
-        spans_block=_spans_block(spans),
-        valid_span_ids_block="\n".join(valid_ids),
-    )
-    result = prompting.run_prompt(
-        db_path,
-        client,
-        contract,
-        input_obj,
-        validation_context={"valid_span_ids": set(valid_ids)},
-        source_ids=[source_id],
-        source_span_ids=valid_ids,
-        curate_spec_hash=curate_spec_hash,
-    )
+    try:
+        max_chars = int(client.optimal_chunk_chars())
+    except Exception:
+        max_chars = 60000
 
-    unit_ids: list[str] = []
-    if result.ok and result.parsed is not None:
-        for unit in getattr(result.parsed, "units", []):
-            uid = db.upsert_knowledge_unit(
-                db_path,
-                unit_type=unit.unit_type,
-                canonical_name=unit.canonical_name,
-                statement=unit.statement,
-                source_span_ids=unit.source_span_ids,
-                source_id=source_id,
-                confidence=unit.confidence,
-                truth_status=unit.truth_status,
-                prompt_run_id=result.trace_id,
-            )
-            unit_ids.append(uid)
+    batches = []
+    current_batch = []
+    current_chars = 0
+
+    for s in spans:
+        title = s.get("section_title") or ""
+        text = s.get("text") or ""
+        # Rough estimate of span length in prompt
+        span_len = len(str(s["id"])) + len(title) + len(text) + 50
+        
+        if current_batch and current_chars + span_len > max_chars:
+            batches.append(current_batch)
+            current_batch = [s]
+            current_chars = span_len
+        else:
+            current_batch.append(s)
+            current_chars += span_len
+
+    if current_batch:
+        batches.append(current_batch)
+
+    contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
+    all_unit_ids: list[str] = []
+    last_trace_id = ""
+    all_errors = []
+    all_ok = True
+
+    for batch in batches:
+        valid_ids = [s["id"] for s in batch]
+        input_obj = contract.input_model(
+            source_title=source_title,
+            spans_block=_spans_block(batch),
+            valid_span_ids_block="\n".join(valid_ids),
+        )
+        result = prompting.run_prompt(
+            db_path,
+            client,
+            contract,
+            input_obj,
+            validation_context={"valid_span_ids": set(valid_ids)},
+            source_ids=[source_id],
+            source_span_ids=valid_ids,
+            curate_spec_hash=curate_spec_hash,
+        )
+
+        if result.trace_id:
+            last_trace_id = result.trace_id
+
+        if not result.ok:
+            all_ok = False
+            if hasattr(result, "validation") and result.validation:
+                all_errors.extend(result.validation.errors)
+            continue
+
+        if result.parsed is not None:
+            for unit in getattr(result.parsed, "units", []):
+                uid = db.upsert_knowledge_unit(
+                    db_path,
+                    unit_type=unit.unit_type,
+                    canonical_name=unit.canonical_name,
+                    statement=unit.statement,
+                    source_span_ids=unit.source_span_ids,
+                    source_id=source_id,
+                    confidence=unit.confidence,
+                    truth_status=unit.truth_status,
+                    prompt_run_id=result.trace_id,
+                )
+                all_unit_ids.append(uid)
+
     return KnowledgeUnitResult(
-        unit_ids=unit_ids,
-        trace_id=result.trace_id,
-        ok=result.ok,
-        errors=list(result.validation.errors),
+        unit_ids=all_unit_ids,
+        trace_id=last_trace_id,
+        ok=all_ok,
+        errors=all_errors,
     )

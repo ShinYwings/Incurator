@@ -52,61 +52,100 @@ def extract_entities_and_relations(
     if not units:
         return GraphExtractionResult(ok=True)
 
-    contract = prompting.REGISTRY.get("curator.entity_relation_extract")
-    input_obj = contract.input_model(
-        units_block=_units_block(units),
-        valid_span_ids_block="\n".join(valid_span_ids),
-    )
-    result = prompting.run_prompt(
-        db_path,
-        client,
-        contract,
-        input_obj,
-        validation_context={"valid_span_ids": set(valid_span_ids)},
-        source_span_ids=valid_span_ids,
-        curate_spec_hash=curate_spec_hash,
-    )
-    if not (result.ok and result.parsed is not None):
-        return GraphExtractionResult(
-            trace_id=result.trace_id, ok=False, errors=list(result.validation.errors)
-        )
+    try:
+        max_chars = int(client.optimal_chunk_chars())
+    except Exception:
+        max_chars = 60000
 
-    # Persist entities first so relation endpoints resolve.
+    batches = []
+    current_batch = []
+    current_chars = 0
+
+    for u in units:
+        statement = u.get("statement") or ""
+        unit_type = u.get("unit_type") or "claim"
+        spans_str = ", ".join(u.get("source_span_ids") or [])
+        # Rough estimate of unit length in prompt
+        unit_len = len(str(u["id"])) + len(unit_type) + len(spans_str) + len(statement) + 30
+        
+        if current_batch and current_chars + unit_len > max_chars:
+            batches.append(current_batch)
+            current_batch = [u]
+            current_chars = unit_len
+        else:
+            current_batch.append(u)
+            current_chars += unit_len
+
+    if current_batch:
+        batches.append(current_batch)
+
     name_to_id: dict[str, str] = {}
-    for entity in getattr(result.parsed, "entities", []):
-        ent_id = db.upsert_graph_entity(
-            db_path,
-            canonical_name=entity.canonical_name,
-            entity_type=entity.entity_type,
-            description=entity.description,
-            source_span_ids=entity.source_span_ids,
-            prompt_run_id=result.trace_id,
-        )
-        name_to_id[entity.canonical_name] = ent_id
+    all_relation_ids: list[str] = []
+    last_trace_id = ""
+    all_errors = []
+    all_ok = True
 
-    relation_ids: list[str] = []
-    for rel in getattr(result.parsed, "relations", []):
-        src = name_to_id.get(rel.source)
-        tgt = name_to_id.get(rel.target)
-        if not src or not tgt:
-            # Validator should have caught this; skip defensively.
-            continue
-        rel_id = db.upsert_graph_relation(
-            db_path,
-            source_entity_id=src,
-            target_entity_id=tgt,
-            relation_type=rel.relation_type,
-            description=rel.description,
-            assertion_source=rel.assertion_source,
-            source_span_ids=rel.source_span_ids,
-            confidence=rel.confidence,
-            prompt_run_id=result.trace_id,
+    contract = prompting.REGISTRY.get("curator.entity_relation_extract")
+
+    for batch in batches:
+        input_obj = contract.input_model(
+            units_block=_units_block(batch),
+            valid_span_ids_block="\n".join(valid_span_ids),
         )
-        relation_ids.append(rel_id)
+        result = prompting.run_prompt(
+            db_path,
+            client,
+            contract,
+            input_obj,
+            validation_context={"valid_span_ids": set(valid_span_ids)},
+            source_span_ids=valid_span_ids,
+            curate_spec_hash=curate_spec_hash,
+        )
+
+        if result.trace_id:
+            last_trace_id = result.trace_id
+
+        if not (result.ok and result.parsed is not None):
+            all_ok = False
+            if hasattr(result, "validation") and result.validation:
+                all_errors.extend(result.validation.errors)
+            continue
+
+        # Persist entities first so relation endpoints resolve.
+        for entity in getattr(result.parsed, "entities", []):
+            ent_id = db.upsert_graph_entity(
+                db_path,
+                canonical_name=entity.canonical_name,
+                entity_type=entity.entity_type,
+                description=entity.description,
+                source_span_ids=entity.source_span_ids,
+                prompt_run_id=result.trace_id,
+            )
+            name_to_id[entity.canonical_name] = ent_id
+
+        for rel in getattr(result.parsed, "relations", []):
+            src = name_to_id.get(rel.source)
+            tgt = name_to_id.get(rel.target)
+            if not src or not tgt:
+                # Validator should have caught this; skip defensively.
+                continue
+            rel_id = db.upsert_graph_relation(
+                db_path,
+                source_entity_id=src,
+                target_entity_id=tgt,
+                relation_type=rel.relation_type,
+                description=rel.description,
+                assertion_source=rel.assertion_source,
+                source_span_ids=rel.source_span_ids,
+                confidence=rel.confidence,
+                prompt_run_id=result.trace_id,
+            )
+            all_relation_ids.append(rel_id)
 
     return GraphExtractionResult(
         entity_ids=name_to_id,
-        relation_ids=relation_ids,
-        trace_id=result.trace_id,
-        ok=True,
+        relation_ids=all_relation_ids,
+        trace_id=last_trace_id,
+        ok=all_ok,
+        errors=all_errors,
     )
