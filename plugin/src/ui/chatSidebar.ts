@@ -2255,7 +2255,12 @@ export class ChatSidebarView extends ItemView {
     }
     const traceToRender = this.lastQueryTrace || (exhMatch ? { exhibition_id: exhMatch[1] } : null);
     if (traceToRender) {
-      renderCuratorQueryTrace(contentEl, traceToRender as any, this.app);
+      const thoughtBlock = contentEl.querySelector("details.ai-agent-thought-block");
+      if (thoughtBlock) {
+        renderCuratorQueryTrace(thoughtBlock as HTMLElement, traceToRender as any, this.app);
+      } else {
+        renderCuratorQueryTrace(contentEl, traceToRender as any, this.app);
+      }
     }
   }
 
