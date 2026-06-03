@@ -180,6 +180,13 @@ plugin_pdf_app = typer.Typer(
 )
 plugin_app.add_typer(plugin_pdf_app, name="pdf")
 
+plugin_curate_app = typer.Typer(name="curate", no_args_is_help=True, add_completion=False)
+plugin_app.add_typer(plugin_curate_app, name="curate")
+plugin_prompt_app = typer.Typer(name="prompt", no_args_is_help=True, add_completion=False)
+plugin_app.add_typer(plugin_prompt_app, name="prompt")
+plugin_insight_app = typer.Typer(name="insight", no_args_is_help=True, add_completion=False)
+plugin_app.add_typer(plugin_insight_app, name="insight")
+
 devices_app = typer.Typer(
     name="devices",
     help="Inspect synced device profiles and per-device backend launchers.",
@@ -6049,6 +6056,102 @@ def plugin_promote(
         _print_json(plugin_api.promote_exhibition(_plugin_paths(workspace_path), exh_id=exh_id, workspace_path=workspace_path))
     except Exception as exc:
         _print_json({"ok": False, "exhibition_id": exh_id, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_curate_app.command("plan")
+def plugin_curate_plan(
+    workspace_path: str = typer.Option(..., "--workspace-path", help="Workspace path with curate.yml."),
+) -> None:
+    """Compile + record the workspace curation plan; return JSON for the plugin."""
+    from . import curate_yml
+    try:
+        spec = curate_yml.load_curate_spec(Path(workspace_path))
+        if spec is None:
+            _print_json({"ok": False, "error": "no curate.yml in workspace"})
+            raise typer.Exit(code=1)
+        paths = _plugin_paths(workspace_path)
+        errors = curate_yml.validate_curate_spec(spec)
+        policy = curate_yml.compile_curate_policy(spec, Path(workspace_path))
+        plan_id = db.record_curation_plan(
+            paths.state_db, workspace_id=policy.workspace_id, workspace_path=workspace_path,
+            project=policy.project, curate_spec_hash=curate_yml.curate_spec_hash(Path(workspace_path)),
+            route=policy.default_route,
+            source_policy={"include": list(policy.source_include), "exclude": list(policy.source_exclude)},
+            retrieval_policy={"allowed_routes": sorted(policy.allowed_routes)},
+            prompt_profile=policy.prompt_profile,
+        )
+        _print_json({
+            "ok": not errors, "planId": plan_id, "workspaceId": policy.workspace_id,
+            "curateSpecHash": curate_yml.curate_spec_hash(Path(workspace_path)),
+            "route": policy.default_route, "promptProfile": policy.prompt_profile,
+            "selectedSources": list(policy.source_include),
+            "excludedSources": [{"path": p, "reason": "curate.yml exclude"} for p in policy.source_exclude],
+            "allowedModes": sorted(policy.allowed_routes), "knownGaps": [],
+            "validationErrors": errors,
+        })
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_prompt_app.command("trace")
+def plugin_prompt_trace(
+    trace_id: str = typer.Option(..., "--trace-id", help="PTR- prompt trace id."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Return a recorded prompt run as JSON for the plugin trace panel."""
+    try:
+        run = db.get_prompt_run(_plugin_paths(workspace_path).state_db, trace_id)
+        if run is None:
+            _print_json({"ok": False, "error": f"unknown prompt trace: {trace_id}"})
+            raise typer.Exit(code=1)
+        _print_json({
+            "ok": True, "traceId": run["trace_id"], "promptId": run["prompt_id"],
+            "promptVersion": run["prompt_version"], "family": run["family"],
+            "validatorStatus": run["validator_status"], "validatorErrors": run["validator_errors"],
+            "modelProvider": run["model_provider"], "modelName": run["model_name"],
+        })
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_insight_app.command("list")
+def plugin_insight_list(
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace path."),
+    status: str = typer.Option("pending", "--status", help="Candidate status filter."),
+) -> None:
+    """List insight candidates as JSON for the plugin."""
+    try:
+        ws_id = Path(workspace_path).name if workspace_path else None
+        rows = db.list_insight_candidates(_plugin_paths(workspace_path).state_db, workspace_id=ws_id, status=status)
+        _print_json({"ok": True, "candidates": [
+            {"id": r["id"], "classification": r["classification"], "statement": r["statement"],
+             "status": r["status"], "affectedNodeIds": r["affected_node_ids"], "confidence": r["confidence"]}
+            for r in rows
+        ]})
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_insight_app.command("promote")
+def plugin_insight_promote(
+    insight_id: str = typer.Option(..., "--insight-id", help="INS- candidate id."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace path."),
+) -> None:
+    """Promote an insight candidate to 02_Wiki/ after explicit plugin user approval."""
+    from . import insight_lifecycle
+    try:
+        rel = insight_lifecycle.promote_insight(_plugin_paths(workspace_path), insight_id)
+        _print_json({"ok": True, "insightId": insight_id, "promotedTo": rel})
+    except Exception as exc:
+        _print_json({"ok": False, "insightId": insight_id, "error": str(exc)})
         raise typer.Exit(code=1)
 
 

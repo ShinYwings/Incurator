@@ -479,7 +479,40 @@ Summary of major commands following the user workflow.
 | Command | Description | When to use |
 | :--- | :--- | :--- |
 | `wiki query "..."` | Gets refined answers to questions. | Using curated knowledge |
+| `wiki query "..." --route explore` | Routes through the v0.3.1 curation-native orchestrator (DB graph + qmd) with a query trace. | Discovering connections, scoped routing |
 | `wiki workspace init` | Initializes a workspace. | Starting a new project |
+
+#### v0.3.1 Curation-Native Query Routes
+
+`wiki query "..." --route <route>` answers through the curation-native
+`QueryOrchestrator` instead of the legacy qmd-synthesis path. Routes:
+
+- `auto` — let the orchestrator choose (deterministic-first).
+- `local` — precise entity/fact answers grounded in source spans.
+- `global` — broad synthesis over community reports.
+- `explore` — discover connections (memory paths) + provisional insight candidates.
+- `exhibition` — answer from the workspace's active staged Exhibition.
+- `source-section` — answer scoped to one source's spans.
+
+Without `--route`, the legacy qmd path runs (qmd remains the fallback retrieval
+engine). `--mode` (hybrid|lex|vec) selects the qmd *search* mode and is a separate
+axis from `--route`.
+
+### 4-1. Prompts & Insights (v0.3.1)
+
+| Command | Description |
+| :--- | :--- |
+| `wiki prompt list [--family F]` | List registered prompt contracts (id, version, family, purpose). |
+| `wiki prompt show <PROMPT_ID>` | Show a prompt's templates, validators, and output model. |
+| `wiki prompt trace <PTR-…>` | Inspect a recorded prompt run (model, validator status, hashes). |
+| `wiki prompt eval` | Run the offline prompt-eval fixtures (no LLM). |
+| `wiki insight list [--workspace P] [--status pending]` | List provisional insight candidates. |
+| `wiki insight show <INS-…>` | Show one insight candidate. |
+| `wiki insight promote <INS-…>` | Promote a candidate to a durable `02_Wiki/` note (explicit, human-approved). |
+
+Insight candidates are **provisional, not human truth**. Promotion writes only to
+`02_Wiki/` and never edits source folders. The same capabilities are available to
+external agents over MCP — see the [MCP User Guide](./MCP_USER_GUIDE.md) §3.6.
 
 ### 5. Developer Tools (Developer Only)
 | Command | Description | When to use |

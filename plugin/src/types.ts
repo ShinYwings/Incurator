@@ -416,6 +416,76 @@ export interface PromoteExhibitionResult {
   error?: string;
 }
 
+// ---------------------------------------------------------------------------
+// v0.3.1 curation-native trace/insight payloads (PLUGIN_SCHEMA_v0.3.1 §10–11)
+// ---------------------------------------------------------------------------
+
+export interface IncuratorPromptTrace {
+  ok: boolean;
+  traceId?: string;
+  promptId?: string;
+  promptVersion?: string;
+  family?: string;
+  validatorStatus?: "ok" | "repaired" | "failed" | "pending";
+  validatorErrors?: string[];
+  modelProvider?: string;
+  modelName?: string;
+  error?: string;
+}
+
+export interface IncuratorEvidenceTrace {
+  route: string;
+  traceId: string;
+  promptTraceIds: string[];
+  sourceSpanIds: string[];
+  communityReportIds: string[];
+  memoryPathIds: string[];
+  insightCandidateIds: string[];
+}
+
+export interface IncuratorCuratePlan {
+  ok: boolean;
+  planId?: string;
+  workspaceId?: string;
+  curateSpecHash?: string;
+  route?: string;
+  promptProfile?: string;
+  selectedSources?: string[];
+  excludedSources?: Array<{ path: string; reason: string }>;
+  allowedModes?: string[];
+  knownGaps?: string[];
+  validationErrors?: string[];
+  error?: string;
+}
+
+export interface IncuratorInsightCandidate {
+  id: string;
+  classification:
+    | "correction"
+    | "contradiction"
+    | "derived_insight"
+    | "style_only"
+    | "promotion_request"
+    | "ambiguous";
+  statement: string;
+  status: "pending" | "accepted" | "rejected" | "promoted" | "needs_review";
+  affectedNodeIds: string[];
+  confidence: number;
+}
+
+export interface IncuratorInsightListResult {
+  ok: boolean;
+  candidates: IncuratorInsightCandidate[];
+  error?: string;
+}
+
+export interface IncuratorInsightPromoteResult {
+  ok: boolean;
+  insightId?: string;
+  promotedTo?: string;
+  error?: string;
+}
+
 // ─── MCP Protocol Types ─────────────────────────────────────────
 export interface MCPTool {
   name: string;

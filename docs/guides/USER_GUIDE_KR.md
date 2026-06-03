@@ -451,7 +451,39 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 | 명령어 | 설명 | 사용 시점 |
 | :--- | :--- | :--- |
 | `wiki query "..."` | 질문에 대한 정제된 답변을 얻습니다. | 지식을 활용한 답변 필요 시 |
+| `wiki query "..." --route explore` | v0.3.1 큐레이션-네이티브 오케스트레이터(DB 그래프 + qmd)로 라우팅하고 쿼리 트레이스를 남깁니다. | 연결 발견, 라우트 지정 |
 | `wiki workspace init` | 워크스페이스를 초기화합니다. | 새 프로젝트 시작 시 |
+
+#### v0.3.1 큐레이션-네이티브 쿼리 라우트
+
+`wiki query "..." --route <route>` 는 레거시 qmd 합성 경로 대신 큐레이션-네이티브
+`QueryOrchestrator`로 답합니다. 라우트:
+
+- `auto` — 오케스트레이터가 선택 (결정적 우선).
+- `local` — source span 기반 정밀 엔티티/사실 답변.
+- `global` — 커뮤니티 리포트 기반 광역 종합.
+- `explore` — 연결(메모리 경로) 발견 + 잠정 인사이트 후보.
+- `exhibition` — 워크스페이스의 활성 Exhibition에서 답변.
+- `source-section` — 특정 원본의 span으로 범위 한정.
+
+`--route` 없이는 레거시 qmd 경로가 실행됩니다(qmd는 폴백 검색 엔진). `--mode`
+(hybrid|lex|vec)는 qmd *검색* 모드로, `--route`와는 별개의 축입니다.
+
+### 4-1. 프롬프트 & 인사이트 (v0.3.1)
+
+| 명령어 | 설명 |
+| :--- | :--- |
+| `wiki prompt list [--family F]` | 등록된 프롬프트 계약(id, 버전, 패밀리, 목적)을 나열합니다. |
+| `wiki prompt show <PROMPT_ID>` | 프롬프트의 템플릿, 검증자, 출력 모델을 표시합니다. |
+| `wiki prompt trace <PTR-…>` | 기록된 프롬프트 실행(모델, 검증자 상태, 해시)을 검사합니다. |
+| `wiki prompt eval` | 오프라인 프롬프트 평가 픽스처를 실행합니다(LLM 불필요). |
+| `wiki insight list [--workspace P] [--status pending]` | 잠정 인사이트 후보를 나열합니다. |
+| `wiki insight show <INS-…>` | 인사이트 후보 하나를 표시합니다. |
+| `wiki insight promote <INS-…>` | 후보를 `02_Wiki/`의 영구 노트로 승격합니다(명시적·사람 승인). |
+
+인사이트 후보는 **잠정적이며 사람이 검증한 진실이 아닙니다.** 승격은 `02_Wiki/`에만
+기록하고 원본 폴더는 절대 수정하지 않습니다. 동일 기능은 MCP로 외부 에이전트에도
+제공됩니다 — [MCP 사용 가이드](./MCP_USER_GUIDE_KR.md) §3.6 참고.
 
 ### 5. 개발자 전용 도구 (Developer Only)
 | 명령어 | 설명 | 사용 시점 |

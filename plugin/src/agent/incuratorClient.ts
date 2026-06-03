@@ -1,5 +1,9 @@
 import type {
   CuratorQueryResult,
+  IncuratorCuratePlan,
+  IncuratorInsightListResult,
+  IncuratorInsightPromoteResult,
+  IncuratorPromptTrace,
   IncuratorSourceStatus,
   IncuratorSourceState,
   PdfOutlineItem,
@@ -313,6 +317,52 @@ export class IncuratorClient {
       ...(workspacePath ? ["--workspace-path", workspacePath] : []),
     ]);
     return this.normalizePromoteResult(result, exhId, empty);
+  }
+
+  // -- v0.3.1 curation-native interfaces ------------------------------------
+
+  async getCuratePlan(workspacePath: string): Promise<IncuratorCuratePlan> {
+    const empty: IncuratorCuratePlan = { ok: false, error: "Incurator backend is not available" };
+    if (!workspacePath || this.settings.incuratorEnabled === false) return empty;
+    const result = await this.callBackendJson([
+      "plugin", "curate", "plan", "--workspace-path", workspacePath,
+    ]);
+    return (result as IncuratorCuratePlan) ?? empty;
+  }
+
+  async getPromptTrace(traceId: string, workspacePath = ""): Promise<IncuratorPromptTrace> {
+    const empty: IncuratorPromptTrace = { ok: false, error: "Incurator backend is not available" };
+    if (!traceId || this.settings.incuratorEnabled === false) return empty;
+    const result = await this.callBackendJson([
+      "plugin", "prompt", "trace", "--trace-id", traceId,
+      ...(workspacePath ? ["--workspace-path", workspacePath] : []),
+    ]);
+    return (result as IncuratorPromptTrace) ?? empty;
+  }
+
+  async listInsightCandidates(
+    workspacePath: string, status = "pending"
+  ): Promise<IncuratorInsightListResult> {
+    const empty: IncuratorInsightListResult = { ok: false, candidates: [], error: "Incurator backend is not available" };
+    if (this.settings.incuratorEnabled === false) return empty;
+    const result = await this.callBackendJson([
+      "plugin", "insight", "list",
+      ...(workspacePath ? ["--workspace-path", workspacePath] : []),
+      "--status", status,
+    ]);
+    return (result as IncuratorInsightListResult) ?? empty;
+  }
+
+  async promoteInsight(
+    insightId: string, workspacePath = ""
+  ): Promise<IncuratorInsightPromoteResult> {
+    const empty: IncuratorInsightPromoteResult = { ok: false, insightId, error: "Incurator backend is not available" };
+    if (!insightId || this.settings.incuratorEnabled === false) return empty;
+    const result = await this.callBackendJson([
+      "plugin", "insight", "promote", "--insight-id", insightId,
+      ...(workspacePath ? ["--workspace-path", workspacePath] : []),
+    ]);
+    return (result as IncuratorInsightPromoteResult) ?? empty;
   }
 
   async getZoteroStatus(): Promise<ZoteroStatus> {

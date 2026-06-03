@@ -58,6 +58,44 @@ class V031CliTests(unittest.TestCase):
         self.assertEqual(res.exit_code, 0)
         self.assertIn("curator.x", res.stdout)
 
+    def test_plugin_curate_plan_json(self) -> None:
+        ws = self.root / "01_Workspaces" / "Lab"
+        ws.mkdir(parents=True, exist_ok=True)
+        (ws / "curate.yml").write_text(
+            'project: "lab"\nreasoning:\n  default_mode: "local"\n  allowed_modes: ["local","global"]\n',
+            encoding="utf-8",
+        )
+        res = self.runner.invoke(app, ["plugin", "curate", "plan", "--workspace-path", str(ws)])
+        self.assertEqual(res.exit_code, 0)
+        import json
+        payload = json.loads(res.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["route"], "local")
+        self.assertTrue(payload["planId"].startswith("PLAN-"))
+
+    def test_plugin_insight_list_and_promote_json(self) -> None:
+        import json
+        ins = db.create_insight_candidate(
+            self.paths.state_db, classification="derived_insight",
+            statement="X relates to Y.", workspace_id="Lab",
+        )
+        res = self.runner.invoke(app, ["plugin", "insight", "list", "--workspace-path", str(self.root / "01_Workspaces" / "Lab")])
+        self.assertEqual(res.exit_code, 0)
+        self.assertEqual(json.loads(res.stdout)["candidates"][0]["id"], ins)
+        res = self.runner.invoke(app, ["plugin", "insight", "promote", "--insight-id", ins])
+        self.assertEqual(res.exit_code, 0)
+        self.assertTrue(json.loads(res.stdout)["promotedTo"].startswith("02_Wiki/"))
+
+    def test_plugin_prompt_trace_json(self) -> None:
+        import json
+        tid = db.record_prompt_run(
+            self.paths.state_db, prompt_id="curator.y", prompt_version="v1",
+            family="f", input_hash="h",
+        )
+        res = self.runner.invoke(app, ["plugin", "prompt", "trace", "--trace-id", tid])
+        self.assertEqual(res.exit_code, 0)
+        self.assertEqual(json.loads(res.stdout)["promptId"], "curator.y")
+
     def test_insight_list_and_promote(self) -> None:
         ins = db.create_insight_candidate(
             self.paths.state_db, classification="derived_insight",

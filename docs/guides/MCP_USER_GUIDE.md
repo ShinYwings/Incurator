@@ -261,3 +261,68 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 - **Role**: Updates the Curator `persona:` block in `.curator/config.yml` using a natural-language request.
 - **Parameters**: `request` (natural-language instruction string).
 - **Example**: `"I am a STEM researcher focused on machine learning and systems design. I prioritize rigor and only work with high-confidence (0.85+) knowledge."`
+
+### 3.6 Curation-Native Tools (v0.3.1)
+
+These tools expose the v0.3.1 curation-native compiler: `curate.yml` policy
+compilation, the query orchestrator's explore route, prompt-run traces, and the
+derived-insight lifecycle. They are backed by the same shared services as the CLI
+and plugin, and they never edit read-only source truth (`03_Notes/`,
+`04_Resources/`, `06_Archives/`).
+
+#### `curator_validate_curate_spec`
+
+- **Role**: Validate a workspace `curate.yml` (the Knowledge Requirement
+  Specification) and return its compiled runtime policy summary.
+- **Parameters**: `workspace_path`.
+- **Returns**: `ok`, `errors`, `spec_hash`, and a `policy` object
+  (`default_route`, `allowed_routes`, `prompt_profile`, `require_source_spans`,
+  `backprop_enabled`).
+
+#### `curator_plan_workspace`
+
+- **Role**: Compile `curate.yml` into a recorded `curation_plans` row (the
+  inspectable bridge between the spec and a curation run).
+- **Parameters**: `workspace_path`.
+- **Returns**: `plan_id` (`PLAN-…`), `workspace_id`, `route`.
+
+#### `curator_explore`
+
+- **Role**: Run the **explore** route of the query orchestrator: discover
+  non-obvious connections, record HippoRAG-style memory paths, and create
+  provisional insight candidates. Combines the DB graph with qmd over the derived
+  `.curator/Collections` corpus.
+- **Parameters**: `query`, `workspace_path` (optional).
+- **Returns**: `answer`, `route`, `trace_id` (`QTR-…`), `memory_path_ids`,
+  `insight_candidate_ids`, `prompt_trace_ids`, `warnings`.
+
+#### `curator_get_prompt_trace`
+
+- **Role**: Return one recorded prompt run (`PTR-…`) for debugging prompt
+  behavior — prompt id/version, model, validator status/errors, input/output
+  hashes.
+- **Parameters**: `trace_id`, `workspace_path` (optional).
+
+#### `curator_list_insight_candidates`
+
+- **Role**: List provisional insight candidates (derived insights, corrections,
+  contradictions awaiting human review). Candidates are **not** human truth.
+- **Parameters**: `workspace_path` (optional), `status` (default `pending`).
+
+#### `curator_promote_insight`
+
+- **Role**: Promote an insight candidate to a durable note under `02_Wiki/` after
+  explicit approval. Writes only to `02_Wiki/`; sets the candidate to `promoted`.
+- **Parameters**: `insight_id`, `workspace_path` (optional).
+
+#### `curator_propose_correction`
+
+- **Role**: Propose a correction to a generated node. The change is **classified
+  before any patch** (correction / contradiction / derived_insight / style_only /
+  promotion_request / ambiguous). Source truth is never rewritten; derived
+  insights become provisional candidates and corrections target generated nodes
+  only.
+- **Parameters**: `node_id`, `correction`, `workspace_path` (optional),
+  `previous` (optional prior artifact text).
+- **Returns**: `classification`, `recommended_action`, `patch_node_ids`,
+  `requires_human_review`, `insight_candidate_id`, `trace_id`, `reason`.

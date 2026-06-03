@@ -268,3 +268,49 @@ wiki mcp install
 - **역할**: `.curator/config.yml` 내 Curator `persona:` 블록을 자연어 요청으로 업데이트합니다.
 - **파라미터**: `request` (자연어 요청 문자열).
 - **예시 요청**: `"나는 STEM 분야의 연구자로, 주로 머신러닝과 시스템 설계를 다룹니다. 지식의 엄밀성을 중시하며 고신뢰도(0.85 이상) 정보만 활용합니다."`
+
+### 3.6 큐레이션-네이티브 도구 (v0.3.1)
+
+v0.3.1 큐레이션-네이티브 컴파일러를 노출하는 도구들입니다: `curate.yml` 정책 컴파일,
+쿼리 오케스트레이터의 explore 라우트, 프롬프트 실행 트레이스, 파생-인사이트
+라이프사이클. CLI·플러그인과 동일한 공유 서비스를 사용하며, 읽기 전용 원본
+(`03_Notes/`, `04_Resources/`, `06_Archives/`)은 절대 수정하지 않습니다.
+
+#### `curator_validate_curate_spec`
+
+- **역할**: 워크스페이스 `curate.yml`(지식 요구 명세, KRS)을 검증하고 컴파일된 런타임 정책 요약을 반환합니다.
+- **파라미터**: `workspace_path`.
+- **반환**: `ok`, `errors`, `spec_hash`, `policy`(`default_route`, `allowed_routes`, `prompt_profile`, `require_source_spans`, `backprop_enabled`).
+
+#### `curator_plan_workspace`
+
+- **역할**: `curate.yml`을 `curation_plans` 레코드(명세와 큐레이션 실행을 잇는 검사 가능한 다리)로 컴파일·기록합니다.
+- **파라미터**: `workspace_path`.
+- **반환**: `plan_id`(`PLAN-…`), `workspace_id`, `route`.
+
+#### `curator_explore`
+
+- **역할**: 쿼리 오케스트레이터의 **explore** 라우트 실행. 비자명한 연결을 발견하고 HippoRAG식 메모리 경로를 기록하며 잠정 인사이트 후보를 생성합니다. DB 그래프와 파생 `.curator/Collections` 코퍼스에 대한 qmd 검색을 결합합니다.
+- **파라미터**: `query`, `workspace_path`(선택).
+- **반환**: `answer`, `route`, `trace_id`(`QTR-…`), `memory_path_ids`, `insight_candidate_ids`, `prompt_trace_ids`, `warnings`.
+
+#### `curator_get_prompt_trace`
+
+- **역할**: 기록된 프롬프트 실행(`PTR-…`) 하나를 반환 — 프롬프트 id/버전, 모델, 검증자 상태/오류, 입출력 해시.
+- **파라미터**: `trace_id`, `workspace_path`(선택).
+
+#### `curator_list_insight_candidates`
+
+- **역할**: 잠정 인사이트 후보(파생 인사이트, 정정, 검토 대기 모순)를 나열합니다. 후보는 **사람이 검증한 진실이 아닙니다.**
+- **파라미터**: `workspace_path`(선택), `status`(기본 `pending`).
+
+#### `curator_promote_insight`
+
+- **역할**: 명시적 승인 후 인사이트 후보를 `02_Wiki/`의 영구 노트로 승격합니다. `02_Wiki/`에만 기록하고 후보를 `promoted`로 설정합니다.
+- **파라미터**: `insight_id`, `workspace_path`(선택).
+
+#### `curator_propose_correction`
+
+- **역할**: 생성된 노드에 정정을 제안합니다. 변경은 **패치 전에 먼저 분류**됩니다(correction / contradiction / derived_insight / style_only / promotion_request / ambiguous). 원본 진실은 절대 재작성되지 않으며, 파생 인사이트는 잠정 후보가 되고 정정은 생성된 노드만 대상으로 합니다.
+- **파라미터**: `node_id`, `correction`, `workspace_path`(선택), `previous`(선택, 이전 산출물 텍스트).
+- **반환**: `classification`, `recommended_action`, `patch_node_ids`, `requires_human_review`, `insight_candidate_id`, `trace_id`, `reason`.
