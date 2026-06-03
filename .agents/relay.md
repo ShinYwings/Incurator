@@ -1,7 +1,7 @@
 # Agent Relay Handoff
 
 **Last Updated:** 2026-06-03
-**Last Agent:** Claude Code (Opus 4.8)
+**Last Agent:** Antigravity (Claude Sonnet 4.6 Thinking)
 
 ## Goal
 
@@ -433,3 +433,16 @@ Begin Phase 1 prompt subsystem (TDD): scaffold `prompting/` package, write
 failing tests for registry/contracts/trace/validators, then implement and move
 existing prompt families out of `prompts.py`/`query.py`. Coordinate with Phase 2
 DB schema for `prompt_runs` persistence.
+
+DONE (this session — bugfix.md items 1 & 3):
+- Bug 1 (eye-off state): Removed `activeContextExcludedKey = null` from `handleSend()` so
+  auto-context chip eye-off state persists across sends (chatSidebar.ts).
+- Bug 3 (streaming render / CPU): `renderAssistantMessageContent()` now skips
+  MarkdownRenderer entirely during streaming; uses `textContent` on `.ai-agent-streaming-text`
+  div instead. Full MarkdownRenderer render happens exactly once when `isStreaming=false`.
+  Added `.ai-agent-streaming-text` CSS class. Also confirmed Bug 3's "파일 변경 내용 채팅창"
+  issue was already resolved in commit b73b2f8 (auto-apply edits workflow).
+- Bug 2 (UI/UX improvement): Deferred — needs Antigravity IDE side-chat reference and more
+  specific user direction on what to change.
+- Committed: `plugin/src/ui/chatSidebar.ts`, `plugin/styles.css`, `.agents/bugfix.md`
+  (commit after this session).

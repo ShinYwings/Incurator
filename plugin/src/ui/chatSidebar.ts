@@ -984,7 +984,8 @@ export class ChatSidebarView extends ItemView {
     };
     this.messages.push(userMsg);
     this.pendingContextRefs = this.pendingContextRefs.filter((ref) => ref.isPinned);
-    this.activeContextExcludedKey = null;
+    // Do NOT reset activeContextExcludedKey or pinned includeInPrompt here — user's
+    // eye-off state should persist across sends (bug fix: preserve eye-off after send).
     this.renderContextChips();
     await this.persistCurrentSession();
 
@@ -2180,12 +2181,22 @@ export class ChatSidebarView extends ItemView {
     contentEl.empty();
     if (!msg.content) return;
 
-    const editRef = !msg.isStreaming ? this.getEditTargetContextForMessage(msg) : null;
-    const multiProposals = !msg.isStreaming ? this.extractMultiEditProposals(msg.content, editRef?.filePath) : [];
+    // During streaming, skip MarkdownRenderer entirely to avoid CPU explosion from
+    // repeated full DOM reconstruction. Show raw text in a <pre>-like element;
+    // the final render (isStreaming=false) will do one proper MarkdownRenderer pass.
+    if (msg.isStreaming) {
+      const streamEl = contentEl.createDiv("ai-agent-streaming-text");
+      streamEl.textContent = msg.content;
+      return;
+    }
+
+    // --- Streaming is done: full render path ---
+    const editRef = this.getEditTargetContextForMessage(msg);
+    const multiProposals = this.extractMultiEditProposals(msg.content, editRef?.filePath);
     let remainingContent = msg.content;
 
     if (multiProposals.length > 0) {
-      if (!msg.isStreaming && !msg.appliedEdits) {
+      if (!msg.appliedEdits) {
         this.autoApplyProposals(msg, multiProposals);
       }
       
@@ -2204,7 +2215,7 @@ export class ChatSidebarView extends ItemView {
         this.renderInlineMultiDiff(contentEl, prop, msg);
       }
     } else {
-      const editProposal = !msg.isStreaming ? this.extractEditProposal(msg.content) : null;
+      const editProposal = this.extractEditProposal(msg.content);
       const legacyRef = editProposal ? this.getEditableContextForMessage(msg) : null;
 
       if (editProposal && legacyRef) {
@@ -2217,26 +2228,24 @@ export class ChatSidebarView extends ItemView {
         this.renderInlineDiff(contentEl, legacyRef, editProposal, msg);
       } else {
         const mdWrapper = contentEl.createDiv("ai-agent-markdown-wrapper");
-        const processedContent = this.processMarkdownForThoughts(msg.content, msg.isStreaming || false);
+        const processedContent = this.processMarkdownForThoughts(msg.content, false);
         MarkdownRenderer.render(this.app, processedContent, mdWrapper, "", this);
       }
     }
 
-    if (!msg.isStreaming) {
-      const exhMatch = msg.content.match(/(EXH-[0-9a-fA-F]{8})/);
-      const toolMatch = msg.content.match(/✅ \*\*mcp_[^*]*curator_query\*\* result:\n```(?:json)?\n([\s\S]*?)\n```/);
-      if (toolMatch && !this.lastQueryTrace) {
-        try {
-          const parsed = JSON.parse(toolMatch[1]);
-          if (parsed.trace || parsed.exhibition_id) {
-            this.lastQueryTrace = parsed;
-          }
-        } catch { }
-      }
-      const traceToRender = this.lastQueryTrace || (exhMatch ? { exhibition_id: exhMatch[1] } : null);
-      if (traceToRender) {
-        renderCuratorQueryTrace(contentEl, traceToRender as any, this.app);
-      }
+    const exhMatch = msg.content.match(/(EXH-[0-9a-fA-F]{8})/);
+    const toolMatch = msg.content.match(/✅ \*\*mcp_[^*]*curator_query\*\* result:\n```(?:json)?\n([\s\S]*?)\n```/);
+    if (toolMatch && !this.lastQueryTrace) {
+      try {
+        const parsed = JSON.parse(toolMatch[1]);
+        if (parsed.trace || parsed.exhibition_id) {
+          this.lastQueryTrace = parsed;
+        }
+      } catch { }
+    }
+    const traceToRender = this.lastQueryTrace || (exhMatch ? { exhibition_id: exhMatch[1] } : null);
+    if (traceToRender) {
+      renderCuratorQueryTrace(contentEl, traceToRender as any, this.app);
     }
   }
 

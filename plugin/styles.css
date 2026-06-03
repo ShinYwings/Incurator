@@ -711,6 +711,16 @@
   }
 }
 
+/* Streaming text: plain text display during token streaming to avoid MarkdownRenderer
+   CPU load. Replaced by full MarkdownRenderer output once streaming finishes. */
+.ai-agent-streaming-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-normal);
+}
+
 .ai-agent-thought-block {
   margin: 8px 0;
   padding: 8px 12px;

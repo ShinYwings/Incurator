@@ -1,8 +1,26 @@
-1. eye-off 기능 제대로 동작안함. eye off 하고 send 보내면 eye off 상태로 입력되어야하는데 send 보내고나면 eye off가 다시 eye 상태로 바뀌고 (첫번째 문제점, 계속 그 상태 유지해야함, purple pin만 해당) 그 eye상태가 send 보내고 난다음에도 계속 유지된 채로 있음.
+## 수정 완료
 
-2. antigravity ide의 sidechat 의 UI 를 분석해서 obsidian agent의 sidechat ui ux 개선시켜줘. 거의 탈바꿈해야할거같은데 (좋아요 싫어요 버튼 이런건 필요없을듯)
+### Bug 1: eye-off 상태 send 이후 유지 안 됨 (purple pin 해당)
 
-3. 채팅 답변 받을때 sidebar에서 renderning이 다 깨져서 나와. 그다음 쿼리를 쳐주거나 새로고침을 해줘야 rendering이 됨. 
+**원인**: `handleSend()` 실행 시 `activeContextExcludedKey = null`로 리셋되어 auto-context chip의 eye-off 상태가 사라짐. Pinned ref(`ref.includeInPrompt = false`)는 별도로 잘 유지되고 있었으나, send 후 `renderContextChips()` 재렌더 시 auto-context 쪽 eye-off가 리셋되는 구조.
 
-그리고 모든 답변 내용을 곧이 곧대로 다 채팅에 넣어버리니까 가끔씩 cpu 터짐. (채팅 답변 볼륨이 크면 왜케 cpu 터지는거지??? 이 문제 해결해줘)
-지금은 파일 변경, 수정, 생성 내용을 채팅창에다가 다 때려 박는데 그거 대신에 md 파일 생성 수정 삭제 실행시 내용은 md 파일에 직접 반영하는게 좋음. sidechat에는 요약된 내용만 넣는 걸로. 왜냐하면 script 파일에서 변경내용을 보면서 sidechat에서는 그 이유만 들으면 됨. (cli 기반 agent이면 그럴수도 있겠는데 (확인 필요) deepseek api는 네이티브로 다 개발 가능할텐데)
+**수정**: `chatSidebar.ts` line 987 — send 후 `activeContextExcludedKey = null` 제거. 사용자가 명시적으로 eye-off한 상태는 send 이후에도 유지됨. (새 세션 생성 시, active-leaf 변경 시에는 기존대로 리셋됨.)
+
+---
+
+### Bug 2: side chat UI/UX 개선
+
+→ 별도 작업으로 계획 중 (Antigravity IDE 분석 필요).
+
+---
+
+### Bug 3: 스트리밍 중 rendering 깨짐 + CPU 폭발
+
+**원인**: 스트리밍 중 매 청크마다 `renderAssistantMessageContent()` → `contentEl.empty()` + `MarkdownRenderer.render()` 호출 → 매번 전체 DOM 파괴/재생성. 불완전한 markdown(스트리밍 중)을 처리해 렌더링 결과가 깨짐. 큰 답변일수록 CPU 폭발.
+
+**수정**: 
+- `chatSidebar.ts` — `renderAssistantMessageContent()`: 스트리밍 중(`msg.isStreaming = true`)에는 `MarkdownRenderer` 완전히 Skip → `<div class="ai-agent-streaming-text">` 에 `textContent`로 raw text 업데이트만 수행.
+- 스트리밍 완료(`isStreaming = false`) 시점에 한 번만 `MarkdownRenderer`로 full render.
+- `styles.css` — `.ai-agent-streaming-text` 스타일 추가 (`white-space: pre-wrap`으로 가독성 유지).
+
+**파일 변경/생성을 채팅창에 넣는 문제**: 이미 이전 commit(`b73b2f8`)에서 auto-apply 방식으로 전환 완료. MD 파일은 직접 반영, 채팅창에는 `✓ Applied / ✓ Created` 요약 + `✗ Revert` 버튼만 표시.
