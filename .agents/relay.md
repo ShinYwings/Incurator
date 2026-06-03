@@ -1,7 +1,7 @@
 # Agent Relay Handoff
 
 **Last Updated:** 2026-06-03
-**Last Agent:** Claude Code (Opus 4.8) -> Antigravity
+**Last Agent:** Claude Code (Opus 4.8)
 
 ## Goal
 
@@ -263,13 +263,14 @@ user (no backward compat). The new modules are ready to plug in.
   CAUTION: ingest_raw.py/ingest_llm.py are large & power many existing tests; plan
   the rewrite carefully to keep the suite green (or update tests deliberately).
 
-DONE (Exhibitions & UI/Streaming Improvements - 2026-06-03):
+PENDING — Antigravity Delegated Work (Validation Required):
+Antigravity has committed the following changes (commits `daae083` and `2f42c10`), but Opus needs to verify and integrate them:
 - Deprecated ephemeral Garbage Collection for Exhibitions (L4) in `lint.py` (now returns `[]`) to treat them as persistent living documents/memories.
 - Updated related test suites (`test_lint_ephemeral_gc.py`, `test_query_exhibition.py`) to reflect deprecated GC behavior.
 - Implemented In-Context Learning (ICL) `<selection>` tag injection in `chatSidebar.ts` & `systemPrompt.ts` to focus LLM context on selected text.
 - Added real-time background job polling and status bar rendering in the plugin sidebar using `.curator/runtime/jobs.json`.
 - Fixed streaming diff rendering race condition/bug by isolating markdown render targets in `diffViewer.ts` and `chatSidebar.ts`.
-- Created architectural review plan `.agents/plans/2026-06_exhibitions_persistence_review.md` evaluating alternative models for user-memory consolidation.
+- Created architectural review plan `.agents/plans/2026-06_exhibitions_persistence_review.md` evaluating alternative models for user-memory consolidation. Opus needs to review this plan and decide on the persistence model (Option A vs B/C).
 
 ## Critical Context / Blockers
 
@@ -283,4 +284,3 @@ Begin Phase 1 prompt subsystem (TDD): scaffold `prompting/` package, write
 failing tests for registry/contracts/trace/validators, then implement and move
 existing prompt families out of `prompts.py`/`query.py`. Coordinate with Phase 2
 DB schema for `prompt_runs` persistence.
-(Note: Opus will also resume and perform the architectural validation of the exhibitions persistence plan `2026-06_exhibitions_persistence_review.md`).
