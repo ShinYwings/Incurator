@@ -1497,7 +1497,7 @@ export class ChatSidebarView extends ItemView {
         );
         if (queryResult.ok) {
           sections.push(formatCuratorQueryResult(queryResult, query));
-          if (queryResult.trace || queryResult.exhibition_id) {
+          if (queryResult.trace || queryResult.trace_id) {
             this.lastQueryTrace = queryResult;
           }
         }
@@ -2244,17 +2244,16 @@ export class ChatSidebarView extends ItemView {
       }
     }
 
-    const exhMatch = msg.content.match(/(EXH-[0-9a-fA-F]{8})/);
     const toolMatch = msg.content.match(/✅ \*\*mcp_[^*]*curator_query\*\* result:\n```(?:json)?\n([\s\S]*?)\n```/);
     if (toolMatch && !this.lastQueryTrace) {
       try {
         const parsed = JSON.parse(toolMatch[1]);
-        if (parsed.trace || parsed.exhibition_id) {
+        if (parsed.trace || parsed.trace_id) {
           this.lastQueryTrace = parsed;
         }
       } catch { }
     }
-    const traceToRender = this.lastQueryTrace || (exhMatch ? { exhibition_id: exhMatch[1] } : null);
+    const traceToRender = this.lastQueryTrace;
     if (traceToRender) {
       const thoughtBlock = contentEl.querySelector("details.ai-agent-thought-block");
       if (thoughtBlock) {

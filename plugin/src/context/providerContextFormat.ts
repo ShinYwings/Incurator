@@ -71,8 +71,8 @@ export function formatCuratorQueryResult(result: CuratorQueryResult, query: stri
     `query="${escapeAttribute(query.slice(0, 120))}"`,
     result.input_language ? `input_language="${escapeAttribute(result.input_language)}"` : null,
     result.english_query ? `english_query="${escapeAttribute(result.english_query.slice(0, 120))}"` : null,
-    result.cache_hit ? `cache="hit"` : null,
-    result.exhibition_id ? `exhibition="${result.exhibition_id}"` : null,
+    result.route ? `route="${escapeAttribute(result.route)}"` : null,
+    result.trace_id ? `trace="${escapeAttribute(result.trace_id)}"` : null,
   ].filter(Boolean).join(" ");
   let text = `<incurator_answer ${attrs}>\n`;
   text += truncateForProviderContext(result.answer ?? "", 4000);

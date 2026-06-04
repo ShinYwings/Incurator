@@ -10,7 +10,7 @@ import type {
   PdfRagHit,
   PdfWindowPage,
   PluginSettings,
-  PromoteExhibitionResult,
+  PromoteAnswerResult,
 } from "../types";
 
 type BackendJsonRunner = (cmdArgs: string[]) => Promise<unknown>;
@@ -304,19 +304,21 @@ export class IncuratorClient {
     return this.normalizeCuratorQueryResult(result, question, empty);
   }
 
-  async promoteExhibition(
-    exhId: string,
+  async promoteAnswer(
+    question: string,
+    answer: string,
     workspacePath?: string
-  ): Promise<PromoteExhibitionResult> {
-    const empty: PromoteExhibitionResult = { ok: false, exhibition_id: exhId, error: "Incurator backend promote command is not available" };
-    if (!exhId || this.settings.incuratorEnabled === false) return empty;
+  ): Promise<PromoteAnswerResult> {
+    const empty: PromoteAnswerResult = { ok: false, error: "Incurator backend promote command is not available" };
+    if (!question || !answer || this.settings.incuratorEnabled === false) return empty;
 
     const result = await this.callBackendJson([
       "plugin", "promote",
-      "--exh-id", exhId,
+      "--question", question,
+      "--answer", answer,
       ...(workspacePath ? ["--workspace-path", workspacePath] : []),
     ]);
-    return this.normalizePromoteResult(result, exhId, empty);
+    return this.normalizePromoteResult(result, empty);
   }
 
   // -- v0.3.1 curation-native interfaces ------------------------------------
@@ -463,7 +465,6 @@ export class IncuratorClient {
     return {
       ok: r.ok === true,
       answer: typeof r.answer === "string" ? r.answer : undefined,
-      exhibition_id: typeof r.exhibition_id === "string" ? r.exhibition_id : undefined,
       cache_hit: typeof r.cache_hit === "boolean" ? r.cache_hit : undefined,
       fallback: typeof r.fallback === "string" ? r.fallback : undefined,
       fallback_hits: Array.isArray(r.fallback_hits)
@@ -475,19 +476,26 @@ export class IncuratorClient {
       final_output_language: typeof r.final_output_language === "string" ? r.final_output_language : undefined,
       trace: r.trace as CuratorQueryResult["trace"],
       error: typeof r.error === "string" ? r.error : undefined,
+      route: typeof r.route === "string" ? (r.route as CuratorQueryResult["route"]) : undefined,
+      trace_id: typeof r.trace_id === "string" ? r.trace_id : undefined,
+      prompt_trace_ids: Array.isArray(r.prompt_trace_ids) ? (r.prompt_trace_ids as string[]) : undefined,
+      source_span_ids: Array.isArray(r.source_span_ids) ? (r.source_span_ids as string[]) : undefined,
+      community_report_ids: Array.isArray(r.community_report_ids) ? (r.community_report_ids as string[]) : undefined,
+      synthesis_node_ids: Array.isArray(r.synthesis_node_ids) ? (r.synthesis_node_ids as string[]) : undefined,
+      memory_path_ids: Array.isArray(r.memory_path_ids) ? (r.memory_path_ids as string[]) : undefined,
+      insight_candidate_ids: Array.isArray(r.insight_candidate_ids) ? (r.insight_candidate_ids as string[]) : undefined,
+      warnings: Array.isArray(r.warnings) ? (r.warnings as string[]) : undefined,
     };
   }
 
   private normalizePromoteResult(
     result: unknown,
-    exhId: string,
-    empty: PromoteExhibitionResult
-  ): PromoteExhibitionResult {
+    empty: PromoteAnswerResult
+  ): PromoteAnswerResult {
     if (!result || typeof result !== "object") return empty;
     const r = result as Record<string, unknown>;
     return {
       ok: r.ok === true,
-      exhibition_id: typeof r.exhibition_id === "string" ? r.exhibition_id : exhId,
       promoted_to: typeof r.promoted_to === "string" ? r.promoted_to : undefined,
       error: typeof r.error === "string" ? r.error : undefined,
     };

@@ -4,11 +4,10 @@ Each workspace in 01_Workspaces/{Project_Name}/ may carry a curate.yml
 that declares:
   - sources: which files from 02_Wiki, 03_Notes, 04_Resources to pull in
   - domains/topics: relevance boost terms for search
-  - min_confidence: confidence floor for surfaced Exhibitions
-  - exhibition: active workspace Exhibition ID (auto-set by wiki curate)
+  - min_confidence: confidence floor for surfaced evidence
 
 Used by:
-  - wiki curate --workspace  →  L4 Exhibition staging filtered by sources
+  - the QueryOrchestrator  →  the dynamic curation lens (KRS bias) over the DAG
   - search_curator MCP tool  →  scoped search with WORKSPACE_PATH env var
 """
 
@@ -146,7 +145,6 @@ class CurateSpec:
     sources: CurateSources = field(default_factory=CurateSources)
     reference_mode: CurateReferenceMode = field(default_factory=CurateReferenceMode)
     min_confidence: float = 0.60
-    exhibition: str = ""
     persona: ArtistPersona = field(default_factory=ArtistPersona)
     # v0.3.1 KRS sections
     goal: CurateGoal = field(default_factory=CurateGoal)
@@ -289,7 +287,6 @@ def load_curate_spec(workspace_path: Path) -> Optional[CurateSpec]:
         sources=sources,
         reference_mode=reference_mode,
         min_confidence=min_confidence,
-        exhibition=str(raw.get("exhibition", "") or ""),
         persona=artist_persona,
         goal=_parse_goal(raw.get("goal", {})),
         knowledge=_parse_knowledge(raw.get("knowledge", {})),
@@ -377,26 +374,6 @@ def _parse_prompts(raw: object) -> "CuratePrompts":
         output_language=str(d.get("output_language", "same_as_latest_request") or "same_as_latest_request"),
         prompt_overrides=overrides,
     )
-
-
-def write_exhibition_to_spec(workspace_path: Path, exh_id: str) -> None:
-    """Update the `exhibition` field in curate.yml with the given EXH-ID.
-
-    Reads the file as raw text and does a targeted replacement so that
-    comments and formatting are preserved.
-    """
-    curate_file = workspace_path / consts.FILE_CURATE_YML
-    if not curate_file.exists():
-        return
-    text = curate_file.read_text(encoding="utf-8")
-    import re
-    # Replace existing exhibition: "..." line (with or without quotes)
-    new_line = f'exhibition: "{exh_id}"'
-    if re.search(r'^exhibition:', text, re.MULTILINE):
-        text = re.sub(r'^exhibition:.*$', new_line, text, flags=re.MULTILINE)
-    else:
-        text = text.rstrip() + f"\n{new_line}\n"
-    curate_file.write_text(text, encoding="utf-8")
 
 
 def _str_list_from(key: str, d: dict) -> list[str]:

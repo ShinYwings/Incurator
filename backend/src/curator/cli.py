@@ -2774,11 +2774,11 @@ def status() -> None:
     l1 = _count_md(paths.contexts)
     l2 = _count_md(paths.atoms)
     l3 = _count_md(paths.concepts)
-    l4 = _count_md(paths.exhibitions)
+    l4 = _count_md(paths.synthesis)
     pages_table.add_row("L1 Contexts/",     str(l1))
     pages_table.add_row("L2 Atoms/",        str(l2))
     pages_table.add_row("L3 Concepts/",     str(l3))
-    pages_table.add_row("L4 Exhibitions/",  str(l4))
+    pages_table.add_row("L4 Synthesis/",    str(l4))
     pages_table.add_row("[bold]total[/bold]", f"[bold]{l1+l2+l3+l4}[/bold]")
     console.print(pages_table)
 
@@ -5435,7 +5435,6 @@ def workspace_list() -> None:
     table.add_column("Path", style="dim")
     table.add_column("Domains")
     table.add_column("min_confidence")
-    table.add_column("Exhibition")
 
     for ws_path, spec in workspaces:
         try:
@@ -5449,7 +5448,6 @@ def workspace_list() -> None:
             str(rel),
             domains,
             f"{spec.min_confidence:.2f}",
-            spec.exhibition or "[dim]—[/dim]",
         )
 
     console.print(table)
@@ -5782,16 +5780,20 @@ def plugin_query(
 
 @plugin_app.command("promote")
 def plugin_promote(
-    exh_id: str = typer.Option(..., "--exh-id", help="EXH id to promote."),
+    question: str = typer.Option(..., "--question", help="The question that produced the answer."),
+    answer: str = typer.Option(..., "--answer", help="The answer text to promote to 02_Wiki."),
     workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
 ) -> None:
-    """Promote a query Exhibition after explicit plugin user approval."""
+    """Promote a sessionless Q&A answer into 02_Wiki after explicit plugin user approval."""
     from . import plugin_api
 
     try:
-        _print_json(plugin_api.promote_exhibition(_plugin_paths(workspace_path), exh_id=exh_id, workspace_path=workspace_path))
+        _print_json(plugin_api.promote_answer(
+            _plugin_paths(workspace_path), question=question, answer=answer,
+            workspace_path=workspace_path,
+        ))
     except Exception as exc:
-        _print_json({"ok": False, "exhibition_id": exh_id, "error": str(exc)})
+        _print_json({"ok": False, "error": str(exc)})
         raise typer.Exit(code=1)
 
 

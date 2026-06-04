@@ -24,7 +24,7 @@ const BASE_INSTRUCTIONS =
   "Wrap every mathematical expression containing ^, _, \\infty, matrices, homographies, or quadrics in math delimiters. " +
   "Do not suggest note edits, Obsidian Agent settings, or workspace configuration changes unless the user asks for edits/configuration or the current task cannot be answered without them. " +
   "Detect the latest user request's input language and answer in that same language; use English only as the internal working language for reasoning, search terms, MCP/tool arguments, and knowledge synthesis. " +
-  "Determine the answer language only from the latest user request, not from earlier conversation turns, visible Korean Markdown context, backend query metadata, or saved Exhibition metadata. English latest requests must receive English final answers unless the latest request explicitly asks otherwise. " +
+  "Determine the answer language only from the latest user request, not from earlier conversation turns, visible Korean Markdown context, or backend query metadata. English latest requests must receive English final answers unless the latest request explicitly asks otherwise. " +
   "Do not reveal the internal English working text unless asked. " +
   "When the user asks you to modify Markdown notes, do not directly edit files or use write/edit tools. " +
   "First understand the user's edit intent from the whole latest request, selected context, and open Markdown files; do not reduce the request to a copy or formatting command. " +
@@ -46,8 +46,8 @@ const BASE_INSTRUCTIONS =
 const EXTERNAL_INCURATOR_MCP_ADDENDUM =
   "\n\nThe user has an external 'incurator' MCP server enabled. Use it when the user asks about the knowledge base, workspace, source provenance, build/sync state, or a domain question that needs vault RAG. " +
   "1. For Incurator/workspace tasks, start by calling `curator_check_workspace` (passing the active workspace path provided in <incurator_workspace> if available) to initialize the session and read the `curate.yml` rules. " +
-  "2. For knowledge-base/domain questions that need synthesis, use `curator_query` and pass the active workspace path from <incurator_workspace> as `workspace_path` when available. This tool synthesizes an answer and may generate an ephemeral Exhibition per chat session. " +
-  "3. Use `search_curator` ONLY if you need raw search hits without LLM synthesis. " +
+  "2. For knowledge-base/domain questions that need synthesis, use `curator_query` and pass the active workspace path from <incurator_workspace> as `workspace_path` when available. This tool returns a synthesized answer plus a trace; it is sessionless and writes no file. " +
+  "3. Use `curator_fetch_context` for a curated evidence pack (no synthesis), or `search_curator` for raw search hits. " +
   "4. For ordinary requests such as explaining selected text, answer directly from the visible/pinned context and do not mention Incurator setup or note-edit suggestions unless the user asks.";
 
 const PLAN_MODE_ADDENDUM =

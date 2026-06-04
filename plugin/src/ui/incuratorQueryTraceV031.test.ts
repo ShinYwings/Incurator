@@ -11,7 +11,7 @@ const source = readFileSync(join(__dirname, "incuratorQueryTrace.ts"), "utf-8");
 describe("incuratorQueryTrace v0.3.1 rendering", () => {
   it("renders when v0.3.1 trace fields are present (not just legacy trace)", () => {
     expect(source).toContain("const hasV031 = Boolean(");
-    expect(source).toContain("if (!trace && !exhId && !hasV031) return;");
+    expect(source).toContain("if (!trace && !hasV031) return;");
   });
 
   it("has a dedicated v0.3.1 renderer invoked from the panel", () => {

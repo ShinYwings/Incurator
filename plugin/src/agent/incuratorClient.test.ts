@@ -260,7 +260,7 @@ describe("IncuratorClient", () => {
     ]);
   });
 
-  it("curatorQuery preserves query-generated exhibition identity and trace", async () => {
+  it("curatorQuery preserves route and trace identity", async () => {
     const calls: string[][] = [];
     const client = new IncuratorClient(settings(), "0.2.2", async (args: string[]) => {
       calls.push(args);
@@ -271,8 +271,8 @@ describe("IncuratorClient", () => {
         english_query: "What does CON-1 imply?",
         final_output_language: "English",
         answer: "It implies a geometric constraint.",
-        exhibition_id: "EXH-1234abcd",
-        cache_hit: false,
+        route: "local",
+        trace_id: "QTR-1234abcd",
         trace: {
           matched_concepts: ["CON-1234abcd"],
           source_ids: [7],
@@ -308,7 +308,7 @@ describe("IncuratorClient", () => {
     expect(result.input_language).toBe("English");
     expect(result.english_query).toBe("What does CON-1 imply?");
     expect(result.final_output_language).toBe("English");
-    expect(result.exhibition_id).toBe("EXH-1234abcd");
+    expect(result.trace_id).toBe("QTR-1234abcd");
     expect(result.trace?.matched_concepts).toEqual(["CON-1234abcd"]);
     expect(result.trace?.l3_complete).toBe(true);
   });

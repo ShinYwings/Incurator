@@ -91,32 +91,44 @@ them; the dir just stays empty) — removed the BEHAVIOR, not every constant.
   (-promote_exhibition +curator_fetch_context), §"hidden commands" (wiki
   curate/refresh removed).
 
-**Backend GREEN: 353 passed, 4 skipped (from `backend/` cwd). Imports clean.**
-(The 3 test_plugin_pdf_context_identity failures only appear from repo-root cwd —
-pre-existing path interaction, pass standalone + from backend/.)
+**ALL GREEN: backend 353 passed + 4 skipped (from `backend/` cwd); plugin tsc
+clean + vitest 179 passed; plugin built.** (The 3 test_plugin_pdf_context_identity
+failures only appear from repo-root cwd — pre-existing path interaction, pass from
+backend/.)
 
-STILL TODO (remaining R3 — each non-breaking; backend is green now):
-- R3e sync.py: EXH propagate/regenerate/find_dirty helpers are now inert no-ops
-  on the empty 04_Exhibitions dir; `wiki sync` Mode A still references EXH. Rework
-  to DAG-integrity + reemit only (or delete the inert EXH helpers).
-- R3f lint.py: gc_ephemeral_exhibitions already returns []; EXH lint rules are
-  inert no-ops on empty dir. Optionally relabel L4→Synthesis.
-- R3i curate_yml: `exhibition`/`exhibition_intent` fields + write_exhibition_to_spec
-  still parsed but unused; remove. (LAYER_L4/PREFIX_L4/TYPE_L4/paths.exhibitions
-  KEPT as inert legacy by design — many status/path helpers reference them.)
-- mcp promote_exhibition + plugin_api.promote_exhibition: now read the empty EXH
-  dir (return not-found); rework promotion to answer→02_Wiki, OR rely on
-  curator_promote_insight. cli plugin promote command (5792) calls it.
-- overview/ledger + status tables still print "L4 Exhibitions | 0" → relabel to
-  "L4 Synthesis" (ingest_llm _update_overview/_update_ledger; cli status; sync).
-- R3j PLUGIN TS (NOT STARTED): remove exhibition commands/types/UI in plugin/src
-  (curator_curate_workspace calls, exhibition_id handling, promote-exhibition
-  button → promote answer, trace panel exhibition refs) + vitest. Large separate
-  surface; do as its own focused pass.
-- R3k GUIDES (NOT DONE): USER_GUIDE / WORKFLOW_GUIDE / MCP_USER_GUIDE / PLUGIN_GUIDE
-  EN+KR — remove wiki curate/refresh, query --save-as/--curate, curator_curate_workspace,
-  ephemeral/promoted Exhibition; describe sessionless query + synthesis layer +
-  curation lens. (WORKFLOW + MCP guides already partly updated in R1/R2.)
+DONE — remaining R3 (this session, after the committed milestone):
+- R3c: deleted the dead L4 generation chain (~530 lines) from ingest_llm.py.
+- R3i: removed `curate_yml` `exhibition` field + `write_exhibition_to_spec`; fixed
+  readers (cli workspace table, mcp check_workspace/init). `exhibition_intent`
+  persona field KEPT (it's persona audience, not the frozen EXH).
+- promote rework: `promote_exhibition` → `promote_answer(question, answer)` across
+  mcp tool, plugin_api, cli `plugin promote` (--question/--answer), and plugin TS
+  (`promoteAnswer`, `PromoteAnswerResult`). Writes only 02_Wiki/.
+- mcp init: step-5 now runs `wiki build` (was `wiki curate`); removed exhibition
+  resolution from curator_check_workspace.
+- labels: status/overview/ledger + plugin dashboard "L4 Exhibitions" → "L4
+  Synthesis" (counts from 04_Synthesis).
+- R3j plugin TS: removed exhibition_id/PromoteExhibitionResult/exhibition route
+  type; query-trace panel renders synthesis_node_ids (clickable → 04_Synthesis);
+  chatSidebar/providerContextFormat/llmClient use route/trace_id; systemPrompt
+  mentions sessionless + fetch_context; updated 3 source-string/mock tests.
+- R3k guides: USER_GUIDE, MCP_USER_GUIDE, AGENT_WORKFLOW_GUIDE (EN+KR) + WORKFLOW
+  (R1) updated — removed wiki curate/refresh, curator_curate_workspace,
+  promote_exhibition, ephemeral/pinned Exhibition; documented sessionless query,
+  shared L4 Synthesis, dynamic curation lens, promote_answer, scope synthesis.
+
+DESIGN DECISION (kept): `LAYER_L4`/`PREFIX_L4`/`TYPE_L4`/`paths.exhibitions`
+constants remain as INERT legacy (the 04_Exhibitions dir just stays empty). sync.py
+and lint.py still contain EXH helpers that are now runtime no-ops on the empty dir
+(find_dirty_exhibitions, propagate_*_exhibition, _regenerate_exhibition,
+gc_ephemeral_exhibitions→[]). These are non-breaking; a future pure-cleanup pass
+can delete them and the inert constants. Secondary guides (PLUGIN_GUIDE/CONTRIBUTION/
+DEV_SCRIPTS + WORKFLOW_KR detail) still have conceptual "exhibition" prose but no
+removed-command references.
+
+>>> REDESIGN R1+R2+R3 FUNCTIONALLY COMPLETE. The frozen-Exhibition subsystem is
+>>> removed across backend + plugin + specs + primary guides; the shared L4
+>>> Synthesis layer + dynamic Curation lens + sessionless query are the new model.
 
 DONE — REDESIGN R2 (Curation lens uses L4 synthesis):
 - models.py: `EvidenceItem.synthesis_node_id`, `EvidencePack.synthesis_node_ids`,

@@ -377,8 +377,8 @@ export function formatMcpToolResultForDisplay(toolName: string, raw: string): st
     const compact = {
       ok: parsed.ok,
       question: parsed.question,
-      exhibition_id: parsed.exhibition_id,
-      cache_hit: parsed.cache_hit,
+      route: parsed.route,
+      trace_id: parsed.trace_id,
       fallback: parsed.fallback,
       error: parsed.error,
       trace: parsed.trace,

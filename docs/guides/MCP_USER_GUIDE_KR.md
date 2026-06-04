@@ -55,7 +55,7 @@ wiki mcp install
 #### `search_curator`
 - **역할**: QMD 엔진(BM25 + Vector + Rerank)을 사용하여 저장소 전체를 검색합니다.
 - **자동 동기화**: 대기 중인 소스가 있으면 검색 전 자동으로 `wiki curate`를 실행합니다.
-- **파라미터**: `query`, `scope` (contexts/atoms/concepts/exhibitions), `mode`, `limit`.
+- **파라미터**: `query`, `scope` (contexts/atoms/concepts/synthesis), `mode`, `limit`.
 
 #### `curator_layer_index`
 - **역할**: 각 레이어별 페이지 수와 최근 노드 샘플을 확인하여 저장소의 전반적인 상태를 파악합니다.
@@ -188,25 +188,23 @@ wiki mcp install
 
 #### `curator_query`
 
-- **역할**: 자연어 질문으로 L3 Concept 지식 그래프를 검색하고, LLM이 답변을 합성하여 반환합니다. 동일한 질문+워크스페이스 조합의 Exhibition이 캐시되어 있으면 LLM 재호출 없이 즉시 반환합니다. L3가 아직 없는 소스에는 `search_curator`(raw 검색)로 자동 fallback됩니다.
+- **역할**: 자연어 질문에 대해 동적 Curation 렌즈(DB 그래프 + 공유 L4 Synthesis 레이어를 포함한 qmd 코퍼스)로 답변을 합성하여 반환합니다. **세션리스**: 답변 + 트레이스를 반환하며 어떤 vault 파일도 쓰지 않습니다(v0.2.x의 Exhibition 캐시는 v0.3.1에서 제거됨). L3가 아직 없는 소스에는 `search_curator`(raw 검색)로 fallback합니다.
 - **파라미터**:
   - `question` (자연어 질문, 필수)
   - `workspace_path` (워크스페이스 절대 경로, 없으면 `WORKSPACE_PATH` 환경변수 또는 `"default"`)
-  - `force_new` (캐시 무시하고 새 Exhibition 생성, 기본값 `false`)
-- **반환값**: `ok`, `answer` (마크다운 답변), `exhibition_id` (생성·재사용된 EXH UUID), `cache_hit`, `question`, `trace`.
-  - `trace`: `matched_concepts` (CON-ID 목록), `source_paths`, `latency_ms`, `l3_complete`.
-- **컨텍스트 상한**: 합성 단계는 scope가 제한된 L3 Concept context를 사용하고, oversized source body는 LLM 호출 전에 잘라냅니다. 큰 L1 source recap이나 raw PDF text는 `curator_query`에 통째로 넣지 않고 source/PDF tool로 명시적으로 가져와야 합니다.
-- **캐시 키**: `sha256(workspace_id + ":"+ normalized_question)[:16]`. backprop이 참조 CON을 수정하면 해당 캐시가 자동 무효화됩니다. `is_verified_by_human=true`인 EXH는 보호됩니다.
-- **구현 상태**: v0.2.1에서 구현 완료. 워크스페이스 query도 ephemeral query-generated EXH를 저장하므로 같은 질문을 반복하면 LLM 재합성 없이 캐시에서 반환합니다. L3 미완성 소스의 경우 `ok=true`, `fallback="l3_incomplete"`, `answer=""`, `trace.l3_complete=false`를 반환하고 플러그인은 `fetch_document_section` 또는 로컬 PDF context fallback으로 전환합니다.
+- **반환값**: `ok`, `answer` (마크다운 답변), `question`, `trace`.
+  - `trace`: `matched_concepts` (CON-ID 목록), `source_paths`, `synthesis_node_ids`, `community_report_ids`, `trace_id`(`QTR-`), `route`, `latency_ms`, `l3_complete`.
+- **컨텍스트 상한**: 합성 단계는 scope가 제한된 L3/L4 context를 사용하고, oversized source body는 LLM 호출 전에 잘라냅니다. 큰 L1 source recap이나 raw PDF text는 `curator_query`에 통째로 넣지 않고 source/PDF tool로 명시적으로 가져와야 합니다.
+- **구현 상태**: v0.3.1. L3 미완성 소스의 경우 `ok=true`, `fallback="l3_incomplete"`, `answer=""`, `trace.l3_complete=false`를 반환합니다. 합성 없는 증거 팩이 필요하면 `curator_fetch_context`를 사용하세요.
 
-#### `promote_exhibition`
+#### `promote_answer`
 
-- **역할**: 에이전트가 생성한 Query-gen Exhibition을 사용자가 검토한 후 `02_Wiki/<category>/<slug>.md`로 영구 승격합니다. 승격된 EXH는 `exhibition_origin: promoted`, `is_verified_by_human: true`로 설정되어 backprop 재빌드에서 보호됩니다. **반드시 사용자의 명시적 승인 후에만 호출해야 합니다.**
+- **역할**: 세션리스 Q&A 답변을 사용자가 검토한 후 `02_Wiki/`로 승격합니다(v0.3.1에서 제거된 `promote_exhibition`을 대체). `02_Wiki/`에만 쓰며 소스 진실은 절대 건드리지 않습니다. **반드시 사용자의 명시적 승인 후에만 호출해야 합니다.**
 - **파라미터**:
-  - `exh_id` (EXH 노드 ID, 예: `"EXH-12345678"`)
-  - `workspace_path` (워크스페이스 절대 경로, 선택)
-- **반환값**: `ok`, `exhibition_id`, `promoted_to` (02_Wiki/ 상대 경로).
-- **구현 상태**: v0.2.1에서 구현 완료. LLM이 카테고리/슬러그를 자동 분류하여 경로를 결정합니다.
+  - `question`, `answer` (승격할 텍스트)
+  - `workspace_path` (선택)
+- **반환값**: `ok`, `promoted_to` (02_Wiki/ 상대 경로).
+- **구현 상태**: v0.3.1. LLM이 카테고리/슬러그를 자동 분류합니다. (검토된 인사이트 후보를 승격하려면 `curator_promote_insight`를 사용하세요.)
 
 #### `check_ingest_status`
 
@@ -250,9 +248,9 @@ wiki mcp install
 
 #### `curator_check_workspace`
 
-- **역할**: 워크스페이스 상태를 검증하고 활성 Exhibition을 primary context로 로딩합니다. **도메인 쿼리에 응답하기 전 매 세션 시작 시 반드시 호출해야 합니다.**
+- **역할**: 워크스페이스 상태를 검증하고 `curate.yml` 룰을 로딩합니다. **도메인 쿼리에 응답하기 전 매 세션 시작 시 반드시 호출해야 합니다.**
 - **파라미터**: `workspace_path` (워크스페이스 절대 경로).
-- **반환값**: `ok`, `workspace`, `project`, `scenario`, `exhibition`, `exhibition_exists`, `issues`.
+- **반환값**: `ok`, `workspace`, `project`, `scenario`, `issues`.
   - `scenario`가 `"agent-only"`이면 Curator 룰이 아직 미설치 상태입니다 — `curator_workspace_init`으로 해결하세요.
 
 ### 3.5 페르소나 관리

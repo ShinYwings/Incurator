@@ -84,7 +84,7 @@ Running the `wiki init` command initializes the following structure for knowledg
 │   ├── index.md       # DAG routing table (Mapping of all node IDs)
 │   ├── ledger.md      # History of HITL corrections and promotions
 │   └── Collections/   # Knowledge Layer (DAG) Storage
-│       └── 04_Exhibitions/ # [L4] Task-optimized agent exhibits (Only generated markdown layer)
+│       └── 04_Synthesis/   # [L4] Shared corpus-wide synthesis nodes (SYN-, derived qmd corpus)
 ├── .gitignore         # Git ignore rules (auto-generated)
 └── .stignore          # Syncthing ignore rules (auto-generated)
 ```
@@ -102,18 +102,21 @@ wiki add <file>
 ```
 This command performs **Knowledge Ingestion and Refinement (L1-L3)**: it parses raw data to generate L1 Contexts, L2 Atoms, and L3 Concepts.
 
-### 4. Use Knowledge (Query) & L4 Curation
-When you search for knowledge, the system automatically runs the final L4 pipeline if needed to synthesize Concepts into Exhibitions.
+### 4. Use Knowledge (Query) & Curation
+When you ask a question, the system answers through the dynamic **Curation lens**
+over the refined DAG (L1–L4). There is no per-workspace Exhibition file to
+generate; the shared **L4 Synthesis** layer is built automatically by `wiki build`,
+and curation selects/recombines L3/L4 nodes at query time (never stored).
 
 > [!IMPORTANT]
 > **Trigger-based Auto-sync**:
 > This automation is not a persistent background service. It is triggered at the **moment** you interact with an agent (`search_curator`) or run `wiki query` from a **registered workspace directory** (see [Initialization](#🏗️-creating-and-initializing-a-workspace)). The system checks for pending sources and processes them immediately when it detects your "intent" to use knowledge. This ensures the pipeline works organically without manual execution. See the [MCP User Guide](./MCP_USER_GUIDE.md) for details.
 
-For advanced debugging or workspace-agent recovery, the hidden manual command is:
+To refine the knowledge graph (L2 Atoms → L3 Concepts → shared L4 Synthesis):
 ```bash
-wiki curate
+wiki build
 ```
-- **L4 Exhibitions**: Synthesizes high-level Concepts into task-optimized packages for agents.
+- **L4 Synthesis**: corpus-wide, cross-cutting insights distilled from the community reports — shared and workspace-independent.
 
 ---
 
@@ -328,11 +331,11 @@ sources:
 
 # Minimum confidence floor for search_curator results.
 min_confidence: 0.60
-
-# Active Exhibition anchor — auto-set by wiki curate.
-# Leave empty for auto-detection; pin a specific ID to lock context.
-exhibition: ""
 ```
+
+> **v0.3.1**: the `exhibition` anchor field was removed — there is no frozen
+> per-workspace Exhibition. `curate.yml` now drives the dynamic Curation lens that
+> biases query-time retrieval over the shared DAG.
 
 **Key fields:**
 
@@ -342,7 +345,7 @@ exhibition: ""
 | `persona.confidence` | Per-workspace confidence thresholds, overriding vault-wide defaults |
 | `sources.include` | Limit which vault files feed this workspace (empty = all) |
 | `min_confidence` | Exhibitions below this score are excluded from `search_curator` results |
-| `exhibition` | Pinned Exhibition ID used as the primary context anchor in every session |
+| `min_confidence` | Confidence floor applied by the curation lens / `search_curator` |
 
 > [!TIP]
 > The `persona:` block is generated automatically by the Artist persona wizard that runs during `wiki workspace init`. You can update it later with `wiki persona update --workspace <name>` or via the `curator_update_artist_persona` MCP tool.
@@ -358,15 +361,15 @@ Now you can obtain answers or perform the final synthesis for agent consumption.
 ### Querying and Auto-updates (Intent-based Curation)
 This is the core operational mode of Incurator. You just need to ask or converse.
 
-The system uses a **Dual Architecture** for querying, depending on whether you are in a Workspace or Vault:
-- **Workspace Agent**: If a workspace is specified, it uses the **Pinned Exhibition** and persona defined in `curate.yml` without generating temporary chat files.
-- **Vault Agent**: When querying from a general Vault session, it dynamically generates a **Persistent L4 Exhibition** per chat session, using a global fallback persona. A plain chat whose active note is not inside a workspace folder is treated as a Vault session: its generated Exhibition is scoped to `default`, not to an arbitrary project workspace you never opened.
+Querying is **sessionless** and the same whether you are in a Workspace or the
+Vault — it returns an answer + a `QTR-` trace and writes **no** vault file:
+- **Workspace query**: when a `curate.yml` is in scope, its persona/KRS biases the
+  Curation lens (which evidence is selected and how it is ranked).
+- **Vault query**: a plain chat whose active note is not inside a workspace folder
+  resolves to `default` with no KRS bias — it never binds an arbitrary project
+  workspace you never opened.
 
-**Per-request language**: The agent detects each question's language fresh (Korean, English, Chinese, Japanese, Russian, …) by Unicode script and answers in that same language, using English only as the internal search/reasoning language. The output language follows each message independently — an English question gets an English answer even if your previous question was in Korean. Language metadata is not stored in the generated Exhibition file, and the answer cache is keyed by output language so you never get a stale-language cached answer.
-
-**L3 Constraints & Exhibition Persistence**:
-- An L4 Exhibition is **only generated** if there are matching **L3 Concepts**. If no L3 Concepts match the query, the system skips L4 generation and returns an immediate answer.
-- **Exhibition Lifecycle (v0.3.1)**: Chat-generated Exhibitions act as living documents that synthesize your tendencies and session history. The legacy 24-hour Ephemeral Garbage Collection rule has been deprecated; these Exhibitions are now preserved as high-quality final artifacts.
+**Per-request language**: The agent detects each question's language fresh (Korean, English, Chinese, Japanese, Russian, …) by Unicode script and answers in that same language, using English only as the internal search/reasoning language. The output language follows each message independently — an English question gets an English answer even if your previous question was in Korean. Language metadata is response/trace-only and is never persisted.
 
 The system **instantly activates the pipeline to synthesize the final answer** at the moment you run `wiki query` or interact with an agent (`curator_query` / `search_curator`).
 
@@ -374,15 +377,11 @@ The system **instantly activates the pipeline to synthesize the final answer** a
 > **"Just use it. the system handles the rest."**
 > Curation is triggered when an "intent" to use knowledge occurs, so you don't have to specify which workspace it is or manually run the pipeline every time. (The system automatically understands the context through the folder location where you run the command.)
 
-### (Reference) Advanced Manual Forced Curation
-Use this only for debugging, workspace-agent recovery, or when a forced update is required. `wiki curate` remains directly callable but is hidden from the default `wiki --help` surface because normal users should usually query or use the workspace agent instead of manually generating L4 Exhibitions.
-```bash
-wiki curate
-```
-- **Automatic Workspace Selection**: If a `curate.yml` exists in the current or parent directory, it follows that specification.
-- **Default Fallback**: When running `wiki curate` without an active workspace, the Curator automatically creates a **default workspace** at `01_Workspaces/Curator Workspace` and performs curation on the entire knowledge base.
-    - > [!WARNING]
-    > **Scheduled for Removal**: This automatic creation feature is provided temporarily for convenience during the v0.1.0 development and debugging phase. In future versions, automatic synthesis without an explicit workspace (`curate.yml`) will be restricted to ensure clear knowledge management boundaries. We strongly recommend using `wiki workspace init` for formal setup.
+### Promoting an answer to durable knowledge
+A query answer is not stored. To keep one, promote it into `02_Wiki/` (the
+human-curated space) — via the plugin's promote action or the MCP
+`curator_promote_insight` tool. Promotion writes only `02_Wiki/`; source truth
+(`03_Notes/`, `04_Resources/`) is never touched.
 
 ---
 
@@ -471,11 +470,15 @@ Summary of major commands following the user workflow.
 ### 3. Refinement & Optimization
 | Command | Description | When to use |
 | :--- | :--- | :--- |
-| `wiki curate` | Synthesizes L4 Exhibitions. Hidden from default help. | Advanced/debug workspace curation |
+| `wiki build` | Refines L2 Atoms, L3 Concepts, and the shared L4 Synthesis layer. | Building/refreshing the knowledge graph |
 | `wiki sync` | Verifies integrity and performs self-healing. | Restoring consistency after edits |
-| `wiki sync <EXH-ID> --backward [--dry-run]` | Reverse-parses an edited Exhibition, classifies the change, and produces a safe backprop action (source truth protected). | Feeding human/agent Exhibition edits back into the graph |
-| `wiki sync --reemit` | Re-emits the derived L2/L3 markdown corpus (ATM/CON) from the authoritative DB records and re-indexes qmd. | Refreshing the qmd corpus after DB-level corrections |
-| `wiki refresh` | Refreshes L4 Exhibitions from updated L3 Concepts without replacing human/agent edits. | Propagating new Concepts into existing Exhibitions |
+| `wiki sync --reemit` | Re-emits the derived L2/L3/L4 markdown corpus (ATM/CON/SYN) from the authoritative DB records and re-indexes qmd. | Refreshing the qmd corpus after DB-level corrections |
+
+> **v0.3.1**: The frozen-Exhibition commands `wiki curate` and `wiki refresh` were
+> removed. L4 is now the shared **Synthesis** layer (built automatically by
+> `wiki build`), and curation is a dynamic query-time lens (`wiki query`).
+> Corrections flow through the MCP `curator_propose_correction` tool, not by
+> editing an Exhibition file.
 
 ### 4. Knowledge Utilization
 | Command | Description | When to use |
@@ -491,10 +494,12 @@ Summary of major commands following the user workflow.
 
 - `auto` — let the orchestrator choose (deterministic-first).
 - `local` — precise entity/fact answers grounded in source spans.
-- `global` — broad synthesis over community reports.
+- `global` — broad synthesis leading with the shared L4 Synthesis nodes, backed by community reports.
 - `explore` — discover connections (memory paths) + provisional insight candidates.
-- `exhibition` — answer from the workspace's active staged Exhibition.
 - `source-section` — answer scoped to one source's spans.
+
+Queries are **sessionless**: they return an answer + a `QTR-` trace and write no
+vault file. Durable artifacts come only from an explicit promotion to `02_Wiki/`.
 
 Without `--route`, the legacy qmd path runs (qmd remains the fallback retrieval
 engine). `--mode` (hybrid|lex|vec) selects the qmd *search* mode and is a separate
@@ -649,13 +654,13 @@ Checks the 'entrance of the pipeline' where raw data is turned into knowledge.
 -   **Ingest runs**: The total number of ingestion runs performed. A higher number indicates that the knowledge base has been updated frequently.
 
 #### 🧠 Knowledge Density (Collections)
-Shows the processing status at each pipeline stage. In the v0.2.1 default flow, L1 is created immediately, L2/L3 are processed by the MCP background worker or `wiki jobs run`, and L4 is generated by workspace-agent flows or the hidden advanced `wiki curate` command. Use `wiki jobs cancel <id>` to cancel a queued job before a worker claims it, and `wiki jobs rerun <id>` to requeue a completed, failed, or cancelled job.
+Shows the processing status at each pipeline stage. L1 is created immediately; L2/L3 and the shared L4 Synthesis layer are processed by the MCP background worker, `wiki jobs run`, or `wiki build`. Use `wiki jobs cancel <id>` to cancel a queued job before a worker claims it, and `wiki jobs rerun <id>` to requeue a completed, failed, or cancelled job.
 
 -   **L1 Contexts**: One source context record per source in the DB.
 -   **L2 Atoms**: Atomic facts extracted from each source in the DB.
 -   **Fallback Atoms**: DB records for low-confidence fallback atoms.
 -   **L3 Concepts**: Cross-source clusters formed from L2 atoms, stored as DB relations.
--   **L4 Exhibitions**: Exhibits synthesized per workspace spec (`curate.yml`) and generated as Markdown files.
+-   **L4 Synthesis**: Shared corpus-wide cross-cutting insights distilled from the community reports (DB `synthesis_nodes`, projected to `04_Synthesis/SYN-*.md`).
 
 > [!TIP]
-> **Pipeline Status Diagnosis**: If L4 is 0, no workspace Exhibition has been generated yet. Calling `search_curator` via MCP can trigger workspace curation and create L4. Manual `wiki curate` remains available for advanced/debug use, but it is hidden from the default help surface.
+> **Pipeline Status Diagnosis**: If L4 is 0, the shared Synthesis layer hasn't been built yet. Run `wiki build` (or let the background worker finish L3) to generate it.

@@ -338,7 +338,7 @@ def _update_ledger(paths: cfg.WikiPaths) -> None:
     total_contexts  = sum(1 for _ in paths.contexts.glob("*.md"))   if paths.contexts.exists()   else 0
     total_atoms     = sum(1 for _ in paths.atoms.glob("*.md"))       if paths.atoms.exists()      else 0
     total_concepts  = sum(1 for _ in paths.concepts.glob("*.md"))    if paths.concepts.exists()   else 0
-    total_exhibs    = sum(1 for _ in paths.exhibitions.glob("*.md")) if paths.exhibitions.exists() else 0
+    total_exhibs    = sum(1 for _ in paths.synthesis.glob("*.md"))   if paths.synthesis.exists()  else 0
 
     with db.connect(paths.state_db) as conn:
         row = conn.execute(
@@ -366,7 +366,7 @@ def _update_ledger(paths: cfg.WikiPaths) -> None:
         f"| L1 Contexts    | {total_contexts} |",
         f"| L2 Atoms       | {total_atoms} |",
         f"| L3 Concepts    | {total_concepts} |",
-        f"| L4 Exhibitions | {total_exhibs} |",
+        f"| L4 Synthesis   | {total_exhibs} |",
         "",
         f"*Last curated: {last_ingested or 'never'}*",
         "",
@@ -406,7 +406,7 @@ def _update_overview(paths: cfg.WikiPaths) -> None:
     contexts    = _read_layer(paths.contexts    if paths.contexts.exists()    else None)
     atoms       = _read_layer(paths.atoms       if paths.atoms.exists()       else None)
     concepts    = _read_layer(paths.concepts    if paths.concepts.exists()    else None)
-    exhibitions = _read_layer(paths.exhibitions if paths.exhibitions.exists() else None)
+    exhibitions = _read_layer(paths.synthesis   if paths.synthesis.exists()   else None)
 
     # Domain distribution from L1
     domains: dict[str, int] = {}
@@ -437,7 +437,7 @@ def _update_overview(paths: cfg.WikiPaths) -> None:
         f"| L1 Contexts    | {len(contexts)} |",
         f"| L2 Atoms       | {len(atoms)} |",
         f"| L3 Concepts    | {len(concepts)} |",
-        f"| L4 Exhibitions | {len(exhibitions)} |",
+        f"| L4 Synthesis   | {len(exhibitions)} |",
         "",
     ]
 
@@ -462,10 +462,10 @@ def _update_overview(paths: cfg.WikiPaths) -> None:
                 lines.append(f"- {link}")
         lines.append("")
 
-    _layer_section("L1 — Contexts",    consts.LAYER_L1,    contexts)
-    _layer_section("L2 — Atoms",       consts.LAYER_L2,       atoms)
-    _layer_section("L3 — Concepts",    consts.LAYER_L3,    concepts)
-    _layer_section("L4 — Exhibitions", consts.LAYER_L4, exhibitions)
+    _layer_section("L1 — Contexts",  consts.LAYER_L1,  contexts)
+    _layer_section("L2 — Atoms",     consts.LAYER_L2,  atoms)
+    _layer_section("L3 — Concepts",  consts.LAYER_L3,  concepts)
+    _layer_section("L4 — Synthesis", consts.LAYER_SYN, exhibitions)
 
     paths.overview.parent.mkdir(parents=True, exist_ok=True)
     paths.overview.write_text("\n".join(lines), encoding="utf-8")

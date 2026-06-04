@@ -16,7 +16,7 @@ This document defines the official operational scenarios and tool interaction pa
 *   **Logic Flow**:
     1.  **Requirement Specification**: Generates `curate.yml` with explicit `vault_root` to prevent path drift.
     2.  **Persona Scoping**: Runs an LLM interview to define the Artist Persona (Domain, Goals, Intent).
-    3.  **Proactive Curation**: Immediately triggers `wiki curate --workspace` to ensure the Agent has a searchable knowledge package upon entry.
+    3.  **Initial Build**: Immediately triggers `wiki build` to refine the shared DAG (L2 Atoms → L3 Concepts → L4 Synthesis) so the Agent has evidence to ground on. Curation itself is a dynamic query-time lens — no per-workspace Exhibition is generated.
 
 ---
 

@@ -56,14 +56,14 @@ describe("providerContextFormat", () => {
     expect(out).toContain("score=0.5");
   });
 
-  it("formatCuratorQueryResult wraps answer in incurator_answer with cache attr", () => {
+  it("formatCuratorQueryResult wraps answer in incurator_answer with route/trace attrs", () => {
     const out = formatCuratorQueryResult(
-      { ok: true, answer: "hello", cache_hit: true, exhibition_id: "EXH-1" } as never,
+      { ok: true, answer: "hello", route: "global", trace_id: "QTR-1" } as never,
       "q",
     );
     expect(out).toContain('<incurator_answer query="q"');
-    expect(out).toContain('cache="hit"');
-    expect(out).toContain('exhibition="EXH-1"');
+    expect(out).toContain('route="global"');
+    expect(out).toContain('trace="QTR-1"');
     expect(out).toContain("hello");
     expect(out.trim().endsWith("</incurator_answer>")).toBe(true);
   });

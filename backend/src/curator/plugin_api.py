@@ -13,7 +13,7 @@ from typing import Any
 
 from . import config as cfg
 from . import constants as consts
-from . import db, ingest_raw, llm, page_writer, query, search, source_tools
+from . import db, ingest_raw, llm, query, search, source_tools
 
 
 def source_row(
@@ -663,17 +663,18 @@ def curator_query(
     }
 
 
-def promote_exhibition(paths: cfg.WikiPaths, *, exh_id: str, workspace_path: str = "") -> dict[str, Any]:
-    exh_file = paths.exhibitions / f"{exh_id}.md"
-    if not exh_file.exists():
-        return {"ok": False, "exhibition_id": exh_id, "error": f"Exhibition {exh_id} not found"}
+def promote_answer(
+    paths: cfg.WikiPaths, *, question: str, answer: str, workspace_path: str = ""
+) -> dict[str, Any]:
+    """Promote a sessionless Q&A answer into a durable `02_Wiki/` page.
 
-    page = page_writer.read_page(exh_file)
-    if page is None:
-        return {"ok": False, "exhibition_id": exh_id, "error": f"Cannot read {exh_id}"}
+    v0.3.1: queries are sessionless (no Exhibition file), so promotion takes the
+    question + answer text directly and writes only `02_Wiki/` (source truth is
+    never touched).
+    """
+    if not (question.strip() and answer.strip()):
+        return {"ok": False, "error": "question and answer are required"}
 
-    question = page.frontmatter.get("question") or ""
-    answer = page.body.strip()
     category = "General"
     slug = ""
     try:
@@ -687,18 +688,11 @@ def promote_exhibition(paths: cfg.WikiPaths, *, exh_id: str, workspace_path: str
         import re
 
         slug = re.sub(r"[^\w\s-]", "", question).strip()
-        slug = re.sub(r"\s+", "-", slug)[:60].strip("-") or exh_id.lower()
+        slug = re.sub(r"\s+", "-", slug)[:60].strip("-") or "note"
 
     try:
         wiki_path = query.save_wiki_page(paths, question, answer, category, slug)
     except Exception as exc:
-        return {"ok": False, "exhibition_id": exh_id, "error": f"Failed to write wiki page: {exc}"}
+        return {"ok": False, "error": f"Failed to write wiki page: {exc}"}
 
-    page.frontmatter["exhibition_origin"] = "promoted"
-    page.frontmatter["ephemeral"] = False
-    page.frontmatter["is_verified_by_human"] = True
-    page.frontmatter["promoted_to"] = wiki_path
-    page.frontmatter["last_updated"] = page_writer.today_iso()
-    page_writer.write_page(exh_file, page.to_markdown())
-
-    return {"ok": True, "exhibition_id": exh_id, "promoted_to": wiki_path}
+    return {"ok": True, "promoted_to": wiki_path}

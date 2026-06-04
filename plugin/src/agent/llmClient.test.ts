@@ -34,8 +34,8 @@ describe("MCP tool result display", () => {
       ok: true,
       question: "What is result 19.4?",
       answer: "A".repeat(4000),
-      exhibition_id: "EXH-1234abcd",
-      cache_hit: false,
+      route: "global",
+      trace_id: "QTR-1234abcd",
       trace: {
         matched_concepts: ["CON-1234abcd"],
         source_ids: [],
@@ -48,7 +48,7 @@ describe("MCP tool result display", () => {
     const display = formatMcpToolResultForDisplay("mcp_incurator_curator_query", raw);
     const parsed = JSON.parse(display);
 
-    expect(parsed.exhibition_id).toBe("EXH-1234abcd");
+    expect(parsed.trace_id).toBe("QTR-1234abcd");
     expect(parsed.trace.matched_concepts).toEqual(["CON-1234abcd"]);
     expect(parsed.answer).toBeUndefined();
     expect(display).not.toContain("AAAA");

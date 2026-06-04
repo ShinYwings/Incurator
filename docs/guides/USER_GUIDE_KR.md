@@ -86,7 +86,7 @@ wiki init <path/to/your/obsidian-vault>
 │   ├── index.md       # DAG 라우팅 테이블 (L1~L4 노드 ID 목록)
 │   ├── ledger.md      # HITL(인간 개입) 수정 및 승격 이력
 │   └── Collections/   # 지식 계층(Layers) 마크다운 저장소
-│       └── 04_Exhibitions/ # [L4] 에이전트용 맞춤형 전시물 (유일하게 생성되는 마크다운 계층)
+│       └── 04_Synthesis/   # [L4] 공유 코퍼스 전역 종합 노드 (SYN-, 파생 qmd 코퍼스)
 ├── .gitignore         # Git 제외 설정 (자동 생성됨)
 └── .stignore          # Syncthing 동기화 제외 설정 (자동 생성됨)
 ```
@@ -304,11 +304,11 @@ sources:
 
 # search_curator 결과의 최소 신뢰도 하한선.
 min_confidence: 0.60
-
-# 활성 Exhibition 앵커 — wiki curate가 자동으로 설정.
-# 비워 두면 자동 감지, 특정 ID를 입력하면 해당 Exhibition으로 고정.
-exhibition: ""
 ```
+
+> **v0.3.1**: `exhibition` 앵커 필드는 제거되었습니다 — 고정된 워크스페이스별
+> Exhibition은 더 이상 없습니다. `curate.yml`은 이제 공유 DAG 위에서 쿼리 시점
+> 검색을 편향시키는 동적 Curation 렌즈를 구동합니다.
 
 **주요 필드:**
 
@@ -334,15 +334,14 @@ exhibition: ""
 ### 지식 검색 및 자동 업데이트 (Intent-based Curation)
 Incurator의 가장 핵심적인 작동 방식입니다. 당신은 그저 질문하거나 대화하기만 하면 됩니다.
 
-시스템은 워크스페이스 또는 일반 Vault 환경에 따라 **이원화된 아키텍처(Dual Architecture)**를 사용합니다:
-- **Workspace Agent**: 워크스페이스가 지정된 경우, `curate.yml`에 정의된 **Pinned Exhibition**과 페르소나를 사용하며 임시 파일을 생성하지 않습니다.
-- **Vault Agent**: 일반 Vault 환경에서 질의하는 경우, 세션별로 **영구적인 L4 Exhibition**을 동적으로 생성하고 글로벌 폴백 페르소나를 사용합니다. 활성 노트가 워크스페이스 폴더 안에 있지 않은 일반 채팅은 Vault 세션으로 취급되어, 생성된 Exhibition이 `default`로 스코프되며 사용자가 열지 않은 무관한 프로젝트 워크스페이스에 묶이지 않습니다.
+쿼리는 워크스페이스든 Vault든 동일하게 **세션리스**입니다 — 답변 + `QTR-` 트레이스를
+반환하며 vault 파일을 쓰지 않습니다:
+- **워크스페이스 쿼리**: `curate.yml`이 스코프에 있으면 그 페르소나/KRS가 Curation
+  렌즈(어떤 증거를 선택하고 어떻게 랭킹할지)를 편향시킵니다.
+- **Vault 쿼리**: 활성 노트가 워크스페이스 폴더 안에 있지 않은 일반 채팅은 `default`로
+  해석되며 KRS 편향이 없습니다 — 열지 않은 무관한 프로젝트 워크스페이스에 묶이지 않습니다.
 
-**요청별 언어 처리**: 에이전트는 각 질문의 언어를 유니코드 스크립트로 매번 새로 감지하고(한국어, 영어, 중국어, 일본어, 러시아어 등) 그 언어로 답하며, 영어는 내부 검색/추론 언어로만 사용합니다. 출력 언어는 메시지마다 독립적으로 따라가므로, 이전 질문이 한국어였더라도 영어 질문에는 영어로 답합니다. 언어 메타데이터는 생성된 Exhibition 파일에 저장되지 않으며, 답변 캐시는 출력 언어로 키가 구성되어 stale 언어 캐시 답변을 받지 않습니다.
-
-**L3 제약 조건 및 Exhibition 영구 보존**:
-- L4 Exhibition은 일치하는 **L3 Concept이 있을 때만 생성**됩니다. 관련 L3가 없으면 L4 생성을 건너뛰고 즉시 답변을 반환합니다.
-- **Exhibition 생명주기 (v0.3.1)**: 채팅으로 생성된 Exhibition은 사용자의 성향과 세션 기록을 종합하는 "살아있는 문서(Living Document)" 역할을 합니다. 기존의 24시간 임시 GC 룰은 폐기(Deprecated)되었으며, 이제 이 Exhibition들은 고품질의 최종 전시품으로 영구 보존됩니다.
+**요청별 언어 처리**: 에이전트는 각 질문의 언어를 유니코드 스크립트로 매번 새로 감지하고(한국어, 영어, 중국어, 일본어, 러시아어 등) 그 언어로 답하며, 영어는 내부 검색/추론 언어로만 사용합니다. 출력 언어는 메시지마다 독립적으로 따라갑니다. 언어 메타데이터는 응답/트레이스 전용이며 어디에도 저장되지 않습니다.
 
 `wiki query`를 실행하거나 에이전트와 대화(`curator_query` / `search_curator`)하는 **그 시점**에, 시스템은 필요한 지식이 최신이 아니라면 **즉시 파이프라인을 가동하여 최종 답변을 합성**합니다.
 
@@ -350,15 +349,16 @@ Incurator의 가장 핵심적인 작동 방식입니다. 당신은 그저 질문
 > **"그냥 쓰세요. 나머지는 시스템이 알아서 합니다."**
 > 지식을 활용하려는 "의도"가 발생했을 때 큐레이션이 트리거되므로, 사용자가 매번 어떤 워크스페이스인지 지정하거나 파이프라인을 수동으로 돌릴 필요가 없습니다. (명령어를 실행한 폴더 위치를 통해 시스템이 자동으로 맥락을 파악합니다.)
 
-### (참고) 고급 수동 강제 큐레이션
-디버깅, workspace-agent 복구, 강제 업데이트가 필요한 경우에만 제한적으로 사용합니다. `wiki curate`는 직접 호출할 수 있지만, 일반 사용자는 보통 직접 L4 Exhibition을 생성하지 않고 query 또는 workspace agent를 사용해야 하므로 기본 `wiki --help` 표면에서는 숨겨집니다.
+### 답변을 지속 지식으로 승격
+쿼리 답변은 저장되지 않습니다. 보존하려면 `02_Wiki/`(사람이 큐레이션하는 공간)로
+승격하세요 — 플러그인의 승격 동작 또는 MCP `curator_promote_insight` 도구를 사용합니다.
+승격은 `02_Wiki/`에만 쓰며, 소스 진실(`03_Notes/`, `04_Resources/`)은 건드리지 않습니다.
+
+### 지식 그래프 정제
+지식 그래프(L2 Atom → L3 Concept → 공유 L4 Synthesis)를 정제하려면:
 ```bash
-wiki curate
+wiki build
 ```
-- **워크스페이스 자동 선택**: 현재 폴더나 상위 폴더에 `curate.yml`이 있다면 해당 명세를 따릅니다.
-- **기본값 (Fallback)**: 워크스페이스가 없는 상태에서 `wiki curate`를 실행하면, Curator는 `01_Workspaces/Curator Workspace`라는 **기본 작업 공간을 자동으로 생성**하여 전체 지식을 대상으로 합성을 시작합니다.
-    - > [!WARNING]
-    > **향후 제거 예정**: 이 자동 생성 기능은 현재 v0.1.0 개발 및 디버깅 단계에서의 편의를 위해 한시적으로 제공됩니다. 향후 버전에서는 명확한 지식 관리 경계를 위해 워크스페이스(`curate.yml`)가 없는 상태에서의 자동 합성을 제한할 예정이므로, 가급적 `wiki workspace init`을 통한 정석적인 설정을 권장합니다.
 
 ---
 
@@ -443,11 +443,14 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 ### 3. 고도화 및 최적화 (Curation)
 | 명령어 | 설명 | 사용 시점 |
 | :--- | :--- | :--- |
-| `wiki curate` | L4 Exhibition을 합성합니다. 기본 help에서는 숨겨집니다. | 고급/디버깅용 workspace curation |
+| `wiki build` | L2 Atom, L3 Concept, 공유 L4 Synthesis 레이어를 정제합니다. | 지식 그래프 구축/갱신 |
 | `wiki sync` | 무결성 검증 및 자가 치유를 수행합니다. | 노드 수정 후 일관성 회복 시 |
-| `wiki sync <EXH-ID> --backward [--dry-run]` | 편집된 Exhibition을 역파싱·분류하고 안전한 backprop 액션을 산출합니다(원본 진실 보호). | 인간/agent의 Exhibition 편집을 그래프에 반영할 때 |
-| `wiki sync --reemit` | DB 레코드에서 파생 L2/L3 마크다운 코퍼스(ATM/CON)를 재생성하고 qmd를 재인덱싱합니다. | DB 레벨 정정 후 qmd 코퍼스 갱신 시 |
-| `wiki refresh` | 변경된 L3 Concept를 기존 L4 Exhibition에 반영하되, 인간/agent 편집을 덮어쓰지 않습니다. | 새 Concept를 기존 Exhibition으로 전파할 때 |
+| `wiki sync --reemit` | DB 레코드에서 파생 L2/L3/L4 마크다운 코퍼스(ATM/CON/SYN)를 재생성하고 qmd를 재인덱싱합니다. | DB 레벨 정정 후 qmd 코퍼스 갱신 시 |
+
+> **v0.3.1**: 고정 Exhibition 명령 `wiki curate`/`wiki refresh`는 제거되었습니다. L4는
+> 이제 공유 **Synthesis** 레이어(‎`wiki build`가 자동 생성)이며, 큐레이션은 쿼리 시점의
+> 동적 렌즈(`wiki query`)입니다. 정정은 Exhibition 파일 편집이 아니라 MCP
+> `curator_propose_correction` 도구로 전달합니다.
 
 ### 4. 지식 활용 (Utilization)
 | 명령어 | 설명 | 사용 시점 |
@@ -463,10 +466,12 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 
 - `auto` — 오케스트레이터가 선택 (결정적 우선).
 - `local` — source span 기반 정밀 엔티티/사실 답변.
-- `global` — 커뮤니티 리포트 기반 광역 종합.
+- `global` — 공유 L4 Synthesis 노드를 앞세우고 커뮤니티 리포트로 뒷받침하는 광역 종합.
 - `explore` — 연결(메모리 경로) 발견 + 잠정 인사이트 후보.
-- `exhibition` — 워크스페이스의 활성 Exhibition에서 답변.
 - `source-section` — 특정 원본의 span으로 범위 한정.
+
+쿼리는 **세션리스**입니다: 답변 + `QTR-` 트레이스를 반환하며 vault 파일을 쓰지
+않습니다. 지속 아티팩트는 `02_Wiki/`로의 명시적 승격을 통해서만 생깁니다.
 
 `--route` 없이는 레거시 qmd 경로가 실행됩니다(qmd는 폴백 검색 엔진). `--mode`
 (hybrid|lex|vec)는 qmd *검색* 모드로, `--route`와는 별개의 축입니다.
@@ -608,16 +613,16 @@ generated state, device metadata, chat context 때문에 backend와 plugin 상�
 -   **Ingest runs**: 지금까지 수행된 총 수집 횟수입니다. 이 수치가 높을수록 지식 베이스가 빈번하게 업데이트되었음을 의미합니다.
 
 #### 🧠 지식 밀도 (Collections)
-파이프라인의 각 단계별 처리 현황을 나타냅니다. v0.2.1 기본 흐름에서는 L1이 즉시 생성되고, L2·L3는 MCP background worker 또는 `wiki jobs run`으로 처리되며, L4는 workspace-agent 흐름 또는 숨겨진 고급 `wiki curate` 명령에서 생성됩니다. worker가 claim하기 전의 queued job은 `wiki jobs cancel <id>`로 취소하고, 완료/실패/취소된 job은 `wiki jobs rerun <id>`로 다시 queue에 넣을 수 있습니다.
+파이프라인의 각 단계별 처리 현황을 나타냅니다. L1은 즉시 생성되고, L2·L3와 공유 L4 Synthesis 레이어는 MCP background worker, `wiki jobs run`, 또는 `wiki build`로 처리됩니다. worker가 claim하기 전의 queued job은 `wiki jobs cancel <id>`로 취소하고, 완료/실패/취소된 job은 `wiki jobs rerun <id>`로 다시 queue에 넣을 수 있습니다.
 
 -   **L1 Contexts**: DB에 저장된 소스 요약 레코드 개수입니다.
 -   **L2 Atoms**: DB에 저장된 원자적 사실 레코드 개수입니다.
 -   **Fallback Atoms**: DB에 임시로 저장된 낮은 신뢰도의 Atom 레코드 개수입니다.
 -   **L3 Concepts**: DB에 저장된 교차 소스 클러스터링(개념) 레코드 개수입니다.
--   **L4 Exhibitions**: 워크스페이스 명세(`curate.yml`)에 따라 마크다운 파일로 합성된 전시물입니다.
+-   **L4 Synthesis**: 커뮤니티 리포트에서 증류된 공유 코퍼스 전역 교차 인사이트입니다(DB `synthesis_nodes`, `04_Synthesis/SYN-*.md`로 투영).
 
 > [!TIP]
-> **파이프라인 현황 진단**: L4가 0이라면 아직 워크스페이스에서 Exhibition이 생성되지 않은 것입니다. MCP를 통해 `search_curator`를 호출하면 workspace curation이 실행되어 L4가 생성될 수 있습니다. 수동 `wiki curate`는 고급/디버깅용으로 계속 사용할 수 있지만 기본 help 표면에서는 숨겨집니다.
+> **파이프라인 현황 진단**: L4가 0이라면 공유 Synthesis 레이어가 아직 빌드되지 않은 것입니다. `wiki build`를 실행하거나(또는 백그라운드 worker가 L3를 끝내도록) 두면 생성됩니다.
 
 ### 4. 외부 리소스 연동 (Zotero & Reference Mode)
 Incurator는 Zotero 등의 외부 PDF 파일들을 보관소로 복사하지 않고 원본 그대로 참조(Reference Mode)할 수 있으며, 원할 경우 사용자가 승인한 `04_Resources/` 목적지로 안전하게 복사할 수도 있습니다.

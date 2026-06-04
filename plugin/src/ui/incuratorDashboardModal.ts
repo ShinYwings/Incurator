@@ -160,7 +160,7 @@ export class IncuratorDashboardModal extends Modal {
     const adapter = this.plugin.app.vault.adapter;
     const layers: [string, string][] = [
       ["01_Contexts", "contexts"], ["02_Atoms", "atoms"],
-      ["03_Concepts", "concepts"], ["04_Exhibitions", "exhibitions"],
+      ["03_Concepts", "concepts"], ["04_Synthesis", "synthesis"],
     ];
     const counts: Record<string, number> = {};
     await Promise.all(layers.map(async ([dir, key]) => {
@@ -318,7 +318,7 @@ export class IncuratorDashboardModal extends Modal {
       ["L1", "contexts",    "Contexts"],
       ["L2", "atoms",       "Atoms"],
       ["L3", "concepts",    "Concepts"],
-      ["L4", "exhibitions", "Exhibitions"],
+      ["L4", "synthesis",   "Synthesis"],
     ];
     const kgCard = this.ovCard(grid, "span-full ai-agent-ov-kg-card", "sources");
     kgCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Knowledge Graph" });

@@ -55,7 +55,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 #### `search_curator`
 - **Role**: Search the entire vault using the QMD engine (BM25 + Vector + Rerank).
 - **Auto-Sync**: If new sources are pending, it automatically runs `wiki curate` before searching.
-- **Parameters**: `query`, `scope` (all/contexts/atoms/concepts/exhibitions), `mode` (hybrid/lex/vec), `limit`.
+- **Parameters**: `query`, `scope` (all/contexts/atoms/concepts/synthesis), `mode` (hybrid/lex/vec), `limit`.
 
 #### `curator_layer_index`
 - **Role**: Get a high-level overview of page counts and recent IDs for each layer.
@@ -186,20 +186,18 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 #### `curator_query`
 
-- **Role**: Search for relevant L3 Concepts by natural-language question and synthesize an LLM answer on demand. If an Exhibition for the same question was previously generated, returns it from cache without calling an LLM again.
-- **Parameters**: `question` (natural-language query string), `workspace_path` (absolute path to the workspace directory, defaults to `""`), `force_new` (bypass cache and regenerate, default `false`).
-- **Returns**: `ok`, `answer` (synthesized answer text), `exhibition_id` (EXH node ID of the generated or cached Exhibition), `cache_hit` (boolean), `question` (echoed back), `trace` object containing: `matched_concepts` (list of CON IDs), `source_ids`, `source_paths`, `latency_ms`, `l3_complete` (whether L3 DAG is fully built for related sources).
-- **Context bounds**: Synthesis uses scoped L3 Concept context and caps oversized source bodies before invoking the LLM. Large L1 source recaps and raw PDF text should be fetched explicitly with source/PDF tools instead of being pushed wholesale through `curator_query`.
-- **Cache key**: `sha256(workspace_id + ":" + normalized_question)[:16]` stored as `cache_key` in the EXH frontmatter.
-- **Cache invalidation**: Backprop changes to a referenced CON automatically invalidate the EXH cache. EXHs with `is_verified_by_human=true` are protected from invalidation.
-- **Implementation status**: Implemented in v0.2.1. Workspace queries save an ephemeral query-generated EXH so repeated identical questions can return from cache without another LLM synthesis call. Requires `l3_complete=true` for full concept-graph answers. If L3 is incomplete, the tool returns `ok=true`, `fallback="l3_incomplete"`, `answer=""`, and `trace.l3_complete=false`; clients should fall back to source sections or local PDF context.
+- **Role**: Answer a natural-language question through the dynamic Curation lens (DB graph + qmd corpus incl. the shared L4 Synthesis layer) and synthesize an LLM answer. **Sessionless**: returns an answer + trace and writes no vault file (the v0.2.x Exhibition cache was removed in v0.3.1).
+- **Parameters**: `question` (natural-language query string), `workspace_path` (absolute path to the workspace directory, defaults to `""`).
+- **Returns**: `ok`, `answer` (synthesized answer text), `question` (echoed back), `trace` object containing: `matched_concepts` (list of CON IDs), `source_paths`, `synthesis_node_ids`, `community_report_ids`, `trace_id` (`QTR-`), `route`, `latency_ms`, `l3_complete` (whether L3 DAG is fully built for related sources).
+- **Context bounds**: Synthesis uses scoped L3/L4 context and caps oversized source bodies before invoking the LLM. Large L1 source recaps and raw PDF text should be fetched explicitly with source/PDF tools instead of being pushed wholesale through `curator_query`.
+- **Implementation status**: v0.3.1. Requires `l3_complete=true` for full concept-graph answers. If L3 is incomplete, the tool returns `ok=true`, `fallback="l3_incomplete"`, `answer=""`, and `trace.l3_complete=false`; clients should fall back to source sections or local PDF context. For an evidence pack without synthesis, use `curator_fetch_context`.
 
-#### `promote_exhibition`
+#### `promote_answer`
 
-- **Role**: Promote an agent-generated query Exhibition to `02_Wiki/` after human review. The promoted EXH receives `is_verified_by_human=true` and `exhibition_origin="promoted"`, and is excluded from future backprop rebuilds.
-- **Parameters**: `exh_id` (EXH node ID to promote), `workspace_path` (absolute path to the workspace directory, optional).
-- **Returns**: `ok`, `exhibition_id` (the EXH that was promoted), `promoted_to` (absolute path of the new page inside `02_Wiki/`).
-- **Implementation status**: Implemented in v0.2.1. Calls `classify_wiki_topic` + `save_wiki_page` internally; updates the original EXH frontmatter with `promoted_to` so the link is bidirectional.
+- **Role**: Promote a sessionless Q&A answer into `02_Wiki/` after human review (v0.3.1 replaces the removed `promote_exhibition`). Writes only `02_Wiki/`; source truth is never touched.
+- **Parameters**: `question`, `answer` (the text to promote), `workspace_path` (optional).
+- **Returns**: `ok`, `promoted_to` (vault-relative path of the new page inside `02_Wiki/`).
+- **Implementation status**: v0.3.1. Calls `classify_wiki_topic` + `save_wiki_page` internally. (To promote a reviewed insight candidate instead, use `curator_promote_insight`.)
 
 #### `check_ingest_status`
 
@@ -243,9 +241,9 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 #### `curator_check_workspace`
 
-- **Role**: Verify that a workspace is healthy and load the active Exhibition as primary context. **Call this at every session start before responding to any domain query.**
+- **Role**: Verify that a workspace is healthy and load its `curate.yml` rules. **Call this at every session start before responding to any domain query.**
 - **Parameters**: `workspace_path` (absolute path to the workspace directory).
-- **Returns**: `ok`, `workspace`, `project`, `scenario`, `exhibition`, `exhibition_exists`, `issues`.
+- **Returns**: `ok`, `workspace`, `project`, `scenario`, `issues`.
   - `scenario` will be `"agent-only"` if Curator rules are not yet installed — call `curator_workspace_init` to fix.
 
 ### 3.5 Persona Management

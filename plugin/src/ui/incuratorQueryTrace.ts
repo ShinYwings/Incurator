@@ -11,17 +11,17 @@ export function renderCuratorQueryTrace(
   app: App
 ): void {
   const trace = result.trace;
-  const exhId = result.exhibition_id;
   const hasV031 = Boolean(
     result.route ||
       result.trace_id ||
       result.source_span_ids?.length ||
       result.community_report_ids?.length ||
+      result.synthesis_node_ids?.length ||
       result.memory_path_ids?.length ||
       result.prompt_trace_ids?.length ||
       result.insight_candidate_ids?.length
   );
-  if (!trace && !exhId && !hasV031) return;
+  if (!trace && !hasV031) return;
 
   // Remove any pre-existing trace panel (in case of re-render)
   container.querySelector(".incurator-trace-panel")?.remove();
@@ -62,19 +62,19 @@ export function renderCuratorQueryTrace(
     }
   }
 
-  // ── Exhibition row ──
-  if (exhId) {
-    const exhRow = body.createDiv("incurator-trace-exh-row");
-    exhRow.createSpan({ text: "Exhibition: ", cls: "incurator-trace-label" });
-    const exhLink = exhRow.createEl("a", { text: exhId, cls: "incurator-trace-node-link" });
-    exhLink.addEventListener("click", (e) => {
-      e.preventDefault();
-      const filePath = `.curator/Collections/04_Exhibitions/${exhId}.md`;
-      const file = app.vault.getAbstractFileByPath(filePath);
-      if (file) app.workspace.openLinkText(filePath, "", false);
-    });
-    if (result.cache_hit) {
-      exhRow.createSpan({ text: "  [cache hit ✓]", cls: "incurator-trace-cache-hit" });
+  // ── Synthesis nodes row (shared L4) ──
+  if (result.synthesis_node_ids?.length) {
+    const synList = body.createDiv("incurator-trace-syn-rows");
+    for (const synId of result.synthesis_node_ids.slice(0, 8)) {
+      const row = synList.createDiv("incurator-trace-syn-row");
+      row.createSpan({ text: "◆ ", cls: "incurator-trace-dot" });
+      const link = row.createEl("a", { text: synId, cls: "incurator-trace-node-link" });
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        const filePath = `.curator/Collections/04_Synthesis/${synId}.md`;
+        const file = app.vault.getAbstractFileByPath(filePath);
+        if (file) app.workspace.openLinkText(filePath, "", false);
+      });
     }
   }
 

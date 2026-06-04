@@ -397,7 +397,6 @@ export interface CuratorQueryTrace {
 export interface CuratorQueryResult {
   ok: boolean;
   answer?: string;
-  exhibition_id?: string;
   cache_hit?: boolean;
   fallback?: string;
   fallback_hits?: Array<{ path?: string; title?: string; score?: number; snippet?: string }>;
@@ -408,19 +407,20 @@ export interface CuratorQueryResult {
   trace?: CuratorQueryTrace;
   error?: string;
   // v0.3.1 curation-native trace fields (additive; omitted by legacy responses).
-  route?: "local" | "global" | "explore" | "exhibition" | "source-section";
+  route?: "local" | "global" | "explore" | "source-section";
   trace_id?: string;
   prompt_trace_ids?: string[];
   source_span_ids?: string[];
   community_report_ids?: string[];
+  synthesis_node_ids?: string[];
   memory_path_ids?: string[];
   insight_candidate_ids?: string[];
   warnings?: string[];
 }
 
-export interface PromoteExhibitionResult {
+// v0.3.1: sessionless promotion of a Q&A answer into 02_Wiki (no Exhibition file).
+export interface PromoteAnswerResult {
   ok: boolean;
-  exhibition_id?: string;
   promoted_to?: string;
   error?: string;
 }

@@ -2094,46 +2094,36 @@ def build_server() -> FastMCP:
         }
 
     # ------------------------------------------------------------------
-    # promote_exhibition — promote query-gen EXH to 02_Wiki/ (v0.2.1)
+    # promote_answer — promote a sessionless Q&A answer to 02_Wiki/
     # ------------------------------------------------------------------
 
     @mcp.tool()
-    def promote_exhibition(
-        exh_id: str,
+    def promote_answer(
+        question: str,
+        answer: str,
         workspace_path: str = "",
     ) -> dict[str, Any]:
-        """Promote a query-generated Exhibition to 02_Wiki/ as a human-verified artifact.
+        """Promote a sessionless Q&A answer into 02_Wiki/ as a human-verified artifact.
 
-        This must only be called after explicit user approval. Promotion sets
-        `is_verified_by_human=true` on the Exhibition and writes a permanent
-        copy to `02_Wiki/<category>/<slug>.md`.
-
-        The plugin must not call this automatically; it always requires a human action.
+        v0.3.1: queries are sessionless (no Exhibition file), so promotion takes the
+        question + answer text directly and writes only `02_Wiki/<category>/<slug>.md`
+        (source truth is never touched). Must only be called after explicit user
+        approval; the plugin must not call this automatically.
 
         Args:
-            exh_id: Exhibition ID to promote, e.g. "EXH-12345678".
+            question: The question that produced the answer.
+            answer: The answer text to promote.
             workspace_path: Optional workspace path to resolve the vault.
 
         Returns:
             ok: Whether promotion succeeded.
-            exhibition_id: Echoed EXH ID.
             promoted_to: Vault-relative path of the promoted wiki page.
             error: Error message when ok=false.
         """
         paths = _resolve_paths(workspace_path)
+        if not (question.strip() and answer.strip()):
+            return {"ok": False, "error": "question and answer are required"}
 
-        exh_file = paths.exhibitions / f"{exh_id}.md"
-        if not exh_file.exists():
-            return {"ok": False, "exhibition_id": exh_id, "error": f"Exhibition {exh_id} not found"}
-
-        page = page_writer.read_page(exh_file)
-        if page is None:
-            return {"ok": False, "exhibition_id": exh_id, "error": f"Cannot read {exh_id}"}
-
-        question = page.frontmatter.get("question") or ""
-        answer = page.body.strip()
-
-        # Use LLM to classify category/slug for the wiki page path
         from . import query as _query
         from . import llm as _llm
         category = "General"
@@ -2148,27 +2138,14 @@ def build_server() -> FastMCP:
         if not slug:
             import re as _re
             slug = _re.sub(r"[^\w\s-]", "", question).strip()
-            slug = _re.sub(r"\s+", "-", slug)[:60].strip("-") or exh_id.lower()
+            slug = _re.sub(r"\s+", "-", slug)[:60].strip("-") or "note"
 
-        # Write to 02_Wiki/
         try:
             wiki_path = _query.save_wiki_page(paths, question, answer, category, slug)
         except Exception as e:
-            return {"ok": False, "exhibition_id": exh_id, "error": f"Failed to write wiki page: {e}"}
+            return {"ok": False, "error": f"Failed to write wiki page: {e}"}
 
-        # Update Exhibition frontmatter to reflect promotion
-        page.frontmatter["exhibition_origin"] = "promoted"
-        page.frontmatter["ephemeral"] = False
-        page.frontmatter["is_verified_by_human"] = True
-        page.frontmatter["promoted_to"] = wiki_path
-        page.frontmatter["last_updated"] = page_writer.today_iso()
-        page_writer.write_page(exh_file, page.to_markdown())
-
-        return {
-            "ok": True,
-            "exhibition_id": exh_id,
-            "promoted_to": wiki_path,
-        }
+        return {"ok": True, "promoted_to": wiki_path}
 
     # ------------------------------------------------------------------
     # curator_check_workspace — validate workspace configuration health
@@ -2194,7 +2171,6 @@ def build_server() -> FastMCP:
         `issues` (list of actionable error messages).
         """
         from . import curate_yml as _cym
-        from . import ingest_llm as _ingest_llm
 
         ws = workspace_path or os.environ.get("WORKSPACE_PATH", "")
         paths = _resolve_paths(ws)
@@ -2234,25 +2210,6 @@ def build_server() -> FastMCP:
         if spec is None:
             issues.append("curate.yml loaded but returned empty spec.")
             return {"ok": False, "workspace": ws, "issues": issues}
-
-        # Resolve exhibition: pinned in spec or auto-detected
-        exh_path = None
-        if spec.exhibition:
-            candidate = paths.exhibitions / f"{spec.exhibition}.md"
-            exh_path = candidate if candidate.exists() else None
-            if exh_path is None:
-                issues.append(
-                    f"Pinned exhibition '{spec.exhibition}' not found. "
-                    "Call curator_curate_workspace() to regenerate it."
-                )
-        else:
-            exh_path = _ingest_llm.find_workspace_exhibition(paths, spec.project)
-
-        if exh_path is None:
-            issues.append(
-                "No workspace Exhibition found. "
-                "Call curator_curate_workspace() to generate one from the knowledge graph."
-            )
 
         # Auto-install agent rules for the connecting client
         agent_rules_installed = None
@@ -2306,8 +2263,6 @@ def build_server() -> FastMCP:
             "workspace": ws,
             "project": spec.project,
             "scenario": _scenario,
-            "exhibition": exh_path.stem if exh_path else None,
-            "exhibition_exists": exh_path is not None,
             "issues": issues,
         }
         if agent_rules_installed is not None:
@@ -2557,12 +2512,14 @@ def build_server() -> FastMCP:
             except Exception as e:
                 persona_error = f"Persona generated but could not be saved: {e}"
 
-        # ── 5. Trigger initial curation (Automatic Curation) ───────────────
-        initial_exhibition: str | None = None
+        # ── 5. Trigger an initial DAG build (L1→L3 + shared L4 Synthesis) ──────
+        # v0.3.1: there is no per-workspace Exhibition to stage; curation is a
+        # dynamic query-time lens. `wiki build` refines the shared DAG so queries
+        # have evidence to ground on.
         curation_error: str | None = None
         try:
             result = subprocess.run(
-                [sys.executable, "-m", "curator.cli", "curate", "--workspace", str(ws_path), "--no-sync"],
+                [sys.executable, "-m", "curator.cli", "build", "--no-sync"],
                 cwd=str(paths.root),
                 capture_output=True,
                 text=True,
@@ -2572,33 +2529,15 @@ def build_server() -> FastMCP:
             )
             if result.returncode != 0:
                 curation_error = result.stderr.strip() or result.stdout.strip() or f"Exit code {result.returncode}"
-
-            # Re-load spec to get the newly written exhibition ID
-            from . import curate_yml as _cym
-            from . import ingest_llm as _ingest_llm
-            spec = _cym.load_curate_spec(ws_path)
-            if spec and spec.exhibition:
-                initial_exhibition = spec.exhibition
-            else:
-                # Fallback lookup
-                ws_exh = _ingest_llm.find_workspace_exhibition(paths, spec.project if spec else project_name)
-                if ws_exh:
-                    initial_exhibition = ws_exh.stem
         except Exception as e:
             curation_error = str(e)
 
         # ── 6. Return result ────────────────────────────────────────────────
-        # Only surface steps that genuinely require another MCP call.
-        # Curation and reindex were already attempted inline above.
         next_steps = [
             f"search_curator('<query>', workspace_path='{ws_path}') — Search the knowledge base",
+            f"curator_fetch_context('<query>', workspace_path='{ws_path}') — Curated evidence pack",
             f"curator_update_artist_persona('{ws_path}', '<description>') — Refine workspace persona",
         ]
-        if not initial_exhibition:
-            next_steps.insert(
-                0,
-                f"curator_curate_workspace('{ws_path}') — Generate L4 Exhibition (initial attempt failed or no concepts matched yet)",
-            )
         if persona_error:
             next_steps.insert(
                 0,
