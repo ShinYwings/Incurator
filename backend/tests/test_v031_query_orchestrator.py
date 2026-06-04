@@ -98,6 +98,42 @@ def test_global_route_uses_reports(vault) -> None:
     assert res.community_report_ids  # report evidence surfaced
 
 
+def test_global_route_surfaces_synthesis_layer(vault) -> None:
+    paths, span = vault
+    db.upsert_synthesis_node(
+        paths.state_db, title="Cross-cutting insight",
+        statement="Residual learning ~ discretized dynamics.",
+        dependency_hash="d1", source_span_ids=[span], confidence=0.6,
+    )
+    res = QueryOrchestrator(paths, DynamicFakeClient()).run(
+        QueryRequest(question="overall summary of themes", mode="global")
+    )
+    assert res.ok
+    assert res.route == "global"
+    assert res.synthesis_node_ids  # shared L4 synthesis surfaced as global evidence
+
+
+def test_fetch_context_includes_synthesis_in_global(vault) -> None:
+    paths, span = vault
+    db.upsert_synthesis_node(
+        paths.state_db, title="Cross-cutting insight",
+        statement="Residual learning ~ discretized dynamics.",
+        dependency_hash="d1", source_span_ids=[span], confidence=0.6,
+    )
+
+    class NoChatClient:
+        model = "fake"
+        def chat(self, *a, **k):  # pragma: no cover - must not be called
+            raise AssertionError("fetch_context must not synthesize")
+
+    out = QueryOrchestrator(paths, NoChatClient()).fetch_context(
+        QueryRequest(question="overall summary", mode="global")
+    )
+    assert out["ok"]
+    assert out["synthesis_node_ids"]
+    assert any(it["kind"] == "synthesis" for it in out["evidence"])
+
+
 def test_explore_route_creates_insight_candidates(vault) -> None:
     paths, span = vault
     res = QueryOrchestrator(paths, DynamicFakeClient()).run(
@@ -109,6 +145,24 @@ def test_explore_route_creates_insight_candidates(vault) -> None:
     pending = db.list_insight_candidates(paths.state_db, status="pending")
     assert len(pending) == len(res.insight_candidate_ids)
     assert "Insight candidates" in res.answer
+
+
+def test_fetch_context_returns_evidence_without_synthesis(vault) -> None:
+    paths, span = vault
+    # No LLM synthesis should run; a client that errors on chat proves it.
+    class NoChatClient:
+        model = "fake"
+        def chat(self, *a, **k):  # pragma: no cover - must not be called
+            raise AssertionError("fetch_context must not synthesize")
+    out = QueryOrchestrator(paths, NoChatClient()).fetch_context(
+        QueryRequest(question="residual learning", mode="local")
+    )
+    assert out["ok"]
+    assert out["route"] == "local"
+    assert out["trace_id"].startswith("QTR-")
+    assert "answer" not in out  # evidence pack only, no synthesized answer
+    assert any(it["kind"] == "entity" for it in out["evidence"])
+    assert span in out["source_span_ids"]
 
 
 def test_source_section_route(vault) -> None:

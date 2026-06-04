@@ -75,17 +75,31 @@ Incurator processes source documents through four levels of abstraction.
      │
      │  wiki build (L3 pass)
      ▼
-[L3: Concepts]  (DB Record: graph_entities/relations)
+[L3: Concepts]  (DB Record: graph_entities/relations + community_reports)
   - Thematic clusters grouping Atoms from multiple sources
   - Cross-source comparison and synthesis
      │
-     │  wiki curate --workspace <path>
+     │  wiki build (L4 synthesis pass, automatic after L3)
      ▼
-[L4: Exhibitions]  .curator/Collections/04_Exhibitions/EXH-UUID.md
-  - Final context packages scoped to a specific Workspace's curate.yml
-  - Terminal unit consumed by agents
-  - Primary source for agent searches
+[L4: Synthesis]  (DB Record: synthesis_nodes) → .curator/Collections/04_Synthesis/SYN-UUID.md
+  - SHARED, workspace-independent, corpus-wide cross-cutting insights
+  - Distilled from all community reports (the "synthesis"/permanent-note tier)
+  - Durable knowledge — NOT tailored to any one workspace
+  - Regenerated wholesale; skipped when the report corpus is unchanged
+     │
+     │  query / curate (dynamic Curation lens — never stored)
+     ▼
+[Curation]  per-workspace/query selection & recombination of L3/L4 nodes
+  - Biased by the workspace curate.yml Knowledge Requirement Spec
+  - Produced fresh on every query; not a frozen file
 ```
+
+> **L4 Synthesis vs. Curation.** The synthesis layer is the durable shared top of
+> the knowledge graph, just like the synthesis tier in other LLM wiki repos.
+> **Curation** is the dynamic lens *above* it: it selects and recombines L3/L4
+> nodes per workspace/query and is never persisted. (The older per-workspace
+> *frozen Exhibition file* under `04_Exhibitions/` is being phased out in favor of
+> this dynamic model.)
 
 ---
 

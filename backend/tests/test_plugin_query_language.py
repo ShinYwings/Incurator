@@ -1,9 +1,9 @@
 """Language-bridge behavior for the plugin `curator_query` entry point.
 
-Covers the v0.2.2 rules that the three language-bridge fields are
-response/trace-only (never persisted in EXH frontmatter) and that the answer
-cache key incorporates the output language so different-language queries do not
-collide.
+Covers the v0.2.2 rules that the three language-bridge fields are returned in the
+response/trace. As of v0.3.1 the query is sessionless: it returns an answer +
+trace and never writes an Exhibition file (curation is a dynamic lens, not a
+frozen artifact).
 """
 
 import contextlib
@@ -31,7 +31,6 @@ def _dummy_build_client(_config):
 
 def _seed_concept(paths: cfg.WikiPaths) -> search.SearchResults:
     paths.concepts.mkdir(parents=True, exist_ok=True)
-    paths.exhibitions.mkdir(parents=True, exist_ok=True)
     concept_path = paths.concepts / "CON-lang1234.md"
     concept_path.write_text(
         """---
@@ -71,7 +70,7 @@ def _run(paths: cfg.WikiPaths, *, input_language: str, final_output_language: st
         )
 
 
-def test_curator_query_does_not_persist_language_fields_in_frontmatter(tmp_path: Path) -> None:
+def test_curator_query_returns_language_fields_in_response(tmp_path: Path) -> None:
     vault = tmp_path / "vault"
     cfg.save_config(cfg.WikiPaths(vault), {})
     paths = cfg.paths_from_config(vault)
@@ -84,28 +83,16 @@ def test_curator_query_does_not_persist_language_fields_in_frontmatter(tmp_path:
     assert result["english_query"] == "What does this concept mean?"
     assert result["final_output_language"] == "Korean"
 
-    saved = next(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md"))
-    saved_text = saved.read_text(encoding="utf-8")
-    # Frontmatter must NOT carry the language bridge fields.
-    assert "input_language:" not in saved_text
-    assert "english_query:" not in saved_text
-    assert "final_output_language:" not in saved_text
 
-
-def test_curator_query_cache_key_is_language_specific(tmp_path: Path) -> None:
+def test_curator_query_is_sessionless_writes_no_exhibition(tmp_path: Path) -> None:
     vault = tmp_path / "vault"
     cfg.save_config(cfg.WikiPaths(vault), {})
     paths = cfg.paths_from_config(vault)
 
-    # First ask in Korean (caches a Korean answer), then the same normalized
-    # question in English. The English query must NOT hit the Korean cache.
-    ko = _run(paths, input_language="Korean", final_output_language="Korean")
-    en = _run(paths, input_language="English", final_output_language="English")
-
-    assert ko["cache_hit"] is False
-    assert en["cache_hit"] is False
-    assert en["final_output_language"] == "English"
-
-    # Asking Korean again DOES hit the Korean cache.
-    ko_again = _run(paths, input_language="Korean", final_output_language="Korean")
-    assert ko_again["cache_hit"] is True
+    result = _run(paths, input_language="Korean", final_output_language="Korean")
+    assert result["ok"] is True
+    assert result["cache_hit"] is False
+    # No Exhibition file is written (sessionless Q&A returns answer + trace only).
+    assert not paths.exhibitions.exists() or not list(
+        paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md")
+    )

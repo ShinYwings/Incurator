@@ -11,12 +11,12 @@ from . import (  # noqa: F401  (imported for registration side effects)
     community_reports,
     curation_plan,
     entities,
-    exhibition,
     explore,
     knowledge_units,
     note_writing,
     query,
     source_map,
+    synthesis,
 )
 
 __all__ = [
@@ -24,10 +24,10 @@ __all__ = [
     "community_reports",
     "curation_plan",
     "entities",
-    "exhibition",
     "explore",
     "knowledge_units",
     "note_writing",
     "query",
     "source_map",
+    "synthesis",
 ]

@@ -20,7 +20,6 @@ class CurationPlanInput(BaseModel):
     curate_spec_block: str
     source_inventory_block: str
     graph_inventory_block: str
-    active_exhibition_block: str = ""
 
 
 class CurationPlanOutput(BaseModel):
@@ -39,25 +38,25 @@ class CurationPlanOutput(BaseModel):
 SYSTEM_TEMPLATE = """\
 You are the Curator's Planner. Given a workspace's Knowledge Requirement
 Specification (curate.yml) and the available source/graph inventory, you produce
-a concrete curation plan that will drive Exhibition staging and query routing.
+a concrete curation plan that drives the dynamic curation lens and query routing.
 
 Hard rules:
 - Respect the spec's source include/exclude rules. List excluded sources and
   rely only on selected ones.
-- Choose retrieval_modes from: local, global, explore, exhibition, source-section.
+- Choose retrieval_modes from: local, global, explore, source-section.
 - Honor the spec's allowed reasoning modes and verification policy.
 - Name known_gaps honestly; do not invent coverage that the inventory lacks.
 - Never propose editing read-only source truth.
 
 Return ONLY JSON:
 {
-  "route": "exhibition",
+  "route": "global",
   "selected_sources": ["03_Notes/..."],
   "excluded_sources": ["03_Notes/private/..."],
   "target_concepts": ["..."],
   "required_report_levels": [0],
   "retrieval_modes": ["local", "global"],
-  "output_shape": "exhibition with Evidence Map, Synthesis, Gaps, Directives",
+  "output_shape": "evidence pack with Evidence Map, Synthesis, Gaps, Directives",
   "verification_strategy": "require source spans; surface contradictions",
   "prompt_profile": "technical-research",
   "known_gaps": ["..."]
@@ -77,11 +76,6 @@ Source inventory:
 Graph / community inventory:
 ---
 {{ graph_inventory_block }}
----
-
-Active exhibition (if any):
----
-{{ active_exhibition_block }}
 ---
 
 Produce the curation plan as JSON."""

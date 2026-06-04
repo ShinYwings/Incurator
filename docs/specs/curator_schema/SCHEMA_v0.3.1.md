@@ -35,6 +35,7 @@ The v0.2.0 vault topology remains unchanged, with these `.curator/` additions:
     ├── 01_Contexts/
     ├── 02_Atoms/
     ├── 03_Concepts/
+    ├── 04_Synthesis/            # SYN-*.md projection of the shared L4 Synthesis layer (§11.11)
     └── 04_Exhibitions/
 ```
 
@@ -265,66 +266,32 @@ Rules:
   `confidence_score` so they are searchable but clearly weaker than LLM- or
   human-verified extraction.
 
-## 5. L3 Concept And L4 Exhibition Schema Additions
+## 5. L3 Concept Schema Additions (L4 Exhibitions removed)
 
-v0.2.0 Concept and Exhibition contracts remain valid. v0.2.1 adds query-time
-Exhibition lifecycle metadata.
+v0.2.0 Concept contracts remain valid. L3 clustering is embedding-first in
+v0.2.1+. Implementations may add local embedding dependencies such as
+`scikit-learn` and may fall back to the legacy LLM cluster-planning call when
+embeddings are unavailable.
 
-L3 clustering is embedding-first in v0.2.1. Implementations may add local
-embedding dependencies such as `scikit-learn` and may fall back to the legacy LLM
-cluster-planning call when embeddings are unavailable.
-
-### 5.1 Query-Generated Exhibition
-
-```yaml
-id: EXH-[UUID8]
-type: exhibition
-core_concepts:
-  - 03_Concepts/CON-[UUID8]
-confidence_score: 0.0
-last_updated: YYYY-MM-DDThh:mm:ssZ
-workspace_id: default
-workspace_path: /absolute/path/to/workspace   # optional
-query_session: QRY-[UUID8]
-exhibition_origin: query_gen
-ephemeral: false  # Deprecated in v0.3.1: Chat-generated Exhibitions are now persistent living memories
-question: "original question"
-cache_key: "sha256-or-prefix"
-is_verified_by_human: false
-```
-
-### 5.2 Promoted Exhibition
-
-```yaml
-id: EXH-[UUID8]
-type: exhibition
-workspace_id: my-workspace
-exhibition_origin: promoted
-ephemeral: false
-is_verified_by_human: true
-promoted_to: 02_Wiki/path.md
-```
+> **v0.3.1 redesign — frozen Exhibitions removed.** The v0.2.x query-generated
+> and promoted **Exhibition** lifecycle (`EXH-`, `exhibition_origin`, `ephemeral`,
+> `cache_key`, the EXH answer-cache) is **removed** (see §15). Queries are
+> **sessionless**: they return an answer + `QTR-` trace and write **no** vault
+> file. The L4 layer is now the shared **Synthesis** layer (`SYN-`, §11.11), and
+> curation is a dynamic query-time lens.
 
 Rules:
 
-- `workspace_id` is derived from the active workspace slug: the basename of the
-  workspace path. Outside a workspace, it defaults to `default`. A plain chat
-  turn whose active note is not inside a workspace folder resolves to `default`;
-  the plugin must not bind an arbitrary workspace (e.g. the first `curate.yml`
-  found in the vault) to a conversational chat.
-- The query-generated Exhibition frontmatter does **not** carry the language
-  bridge fields `input_language`, `english_query`, or `final_output_language`.
-  Those are response/trace-only and are returned in the `wiki plugin query` JSON,
-  never persisted into the saved EXH. Persisting a `final_output_language` caused
-  later questions in a different language to be answered in the stale language.
-- Query-generated Exhibitions may be cached by `(workspace_id, normalized question,
-  final_output_language)` so that the same normalized question asked in different
-  input languages does not collide and return a stale-language cached answer.
-- Promoted Exhibitions are protected from automatic destructive rewrite.
-- Backprop may invalidate caches that cite changed Concepts, but must preserve
-  human-verified promoted artifacts unless explicitly requested.
-- **L4 Constraints**: Query-generated Exhibitions are ONLY created if the query hits at least one L3 Concept. If no L3 Concepts are relevant, the system responds without generating an L4.
-- **Ephemeral GC (Deprecated)**: Exhibitions are now treated as living documents that track user tendencies and session history. They are no longer garbage collected after 24 hours.
+- `workspace_id` is derived from the active workspace slug (basename of the
+  workspace path); outside a workspace it defaults to `default`. A plain chat turn
+  whose active note is not inside a workspace folder resolves to `default`; the
+  plugin must not bind an arbitrary workspace (e.g. the first `curate.yml` found in
+  the vault) to a conversational chat.
+- The language bridge fields (`input_language`, `english_query`,
+  `final_output_language`) are response/trace-only and returned in the query JSON;
+  no file persists them.
+- Durable human artifacts come only from an explicit promotion to `02_Wiki/`
+  (insight candidate → `02_Wiki/`).
 
 ## 6. SQLite State Schema Additions
 
@@ -663,13 +630,18 @@ v0.3.1 fixes the storage model so the system behaves like a compiler:
   record changes (e.g. via `curator_propose_correction`), the affected projection
   page is re-emitted and qmd is re-indexed (SYSTEM_BEHAVIOR_v0.3.1.md §22).
 
-## 11. SQLite State Schema (`SCHEMA_VERSION = 4`)
+## 11. SQLite State Schema (`SCHEMA_VERSION = 5`)
 
-v0.3.1 bumps `db.SCHEMA_VERSION` to `4`. The v0.2.x tables (`sources`,
+v0.3.1 sets `db.SCHEMA_VERSION` to `5`. The v0.2.x tables (`sources`,
 `source_pdf_pages`, `ingest_jobs`, `job_events`, `dag_edges`, `page_hashes`,
 plus the qmd index) remain in use. v0.3.1 adds the tables below to
 `state.sqlite`. All ids use typed string prefixes so they are self-describing in
 traces and frontmatter.
+
+> **Version history.** `SCHEMA_VERSION = 4` introduced the v0.3.1 curation-native
+> tables. `SCHEMA_VERSION = 5` adds the shared L4 `synthesis_nodes` table (§11.11)
+> for the corpus-wide synthesis layer. The bump is forward-only; old vaults
+> self-heal via `executescript(SCHEMA_SQL)` (every table is `IF NOT EXISTS`).
 
 | Record | Id prefix | Purpose |
 | --- | --- | --- |
@@ -678,6 +650,7 @@ traces and frontmatter.
 | graph entity | `ENT-` | A named graph node (concept, method, dataset, person, system, …). |
 | graph relation | `REL-` | A typed, directed, confidence-scored edge between two entities. |
 | community report | `REP-` | A GraphRAG-style summary of a graph community, used for global reasoning. |
+| synthesis node | `SYN-` | A shared, corpus-wide cross-cutting synthesized insight distilled from community reports (the durable L4 Synthesis layer). |
 | memory path | `MPATH-` | A scored associative walk over the graph, used for explore retrieval. |
 | prompt run | `PTR-` | One LLM prompt invocation with input/output hashes, validator status, and provenance. |
 | curation plan | `PLAN-` | The compiled plan for one workspace curation/query (route, source policy, retrieval policy, prompt profile). |
@@ -1004,6 +977,53 @@ Rules:
 - This index complements `dag_edges` (which indexes file-level CTX→ATM→CON→EXH
   links). `artifact_dependencies` operates at the finer source-span/knowledge-unit
   granularity that v0.3.1 introduces.
+- `synthesis_node` (§11.11) is a valid `artifact_type`; each synthesis node records
+  a `(synthesis_node → source_span)` dependency so it is invalidated when its
+  cited spans change.
+
+### 11.11 `synthesis_nodes`
+
+```sql
+CREATE TABLE IF NOT EXISTS synthesis_nodes (
+    id TEXT PRIMARY KEY,                        -- SYN-<UUID8>
+    title TEXT NOT NULL,
+    statement TEXT NOT NULL,                    -- the cross-cutting insight
+    full_content TEXT NOT NULL DEFAULT '',      -- supporting explanation
+    community_report_ids TEXT NOT NULL DEFAULT '[]',
+    concept_ids TEXT NOT NULL DEFAULT '[]',
+    source_span_ids TEXT NOT NULL DEFAULT '[]',
+    confidence REAL NOT NULL DEFAULT 0.0,
+    prompt_run_id TEXT,
+    dependency_hash TEXT NOT NULL,              -- hash of the report corpus; staleness
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_synthesis_nodes_confidence ON synthesis_nodes(confidence);
+```
+
+Rules:
+
+- Synthesis nodes are the **shared L4 Synthesis layer**: durable,
+  workspace-INDEPENDENT, corpus-wide cross-cutting insights distilled from the
+  community reports (L3). They are the analogue of the "synthesis"/"permanent
+  note" tier in Zettelkasten and other LLM wiki repos — one level above community
+  reports, one level below the dynamic per-workspace **Curation lens** (which
+  selects/recombines them at query time and is never stored; see
+  `SYSTEM_BEHAVIOR_v0.3.1.md`).
+- Like community reports, synthesis nodes are **generated retrieval aids, not
+  human verification**. They must reflect uncertainty and never be presented as
+  human-verified truth.
+- Each node must cite only allowed `source_span_ids` (the
+  `curator.synthesis_write` contract enforces the span-id and confidence
+  validators) and records the originating community reports in
+  `community_report_ids`.
+- `dependency_hash` is the content-addressed hash of the **entire community-report
+  corpus**. The synthesis layer is regenerated **wholesale**: when the hash is
+  unchanged the layer is skipped (no LLM cost); when any report changes the whole
+  layer is cleared and rewritten.
+- Synthesis nodes are authoritative in the DB and **projected** to
+  `.curator/Collections/04_Synthesis/SYN-*.md` as disposable qmd corpus (`type:
+  synthesis`); the markdown is emitted, never edited as truth (§10 storage model).
 
 ## 12. Upgraded L1 Source Map
 
@@ -1068,39 +1088,39 @@ relation graph and community reports as backend-owned records (§11.3–§11.5).
   `.curator/Collections/` is optional and may be added later for Obsidian
   inspection; the SQL record is the source of truth.
 
-## 15. L4 Exhibition As Staged Context Package
+## 15. L4 Synthesis Layer And The Dynamic Curation Lens (replaces frozen Exhibitions)
 
-v0.3.1 keeps the v0.2.2 Exhibition lifecycle (§5) and enriches EXH- frontmatter
-so an Exhibition is an inspectable, traceable context package rather than an
-answer transcript:
+> **v0.3.1 redesign.** The per-workspace **frozen Exhibition** (`EXH-`,
+> `04_Exhibitions/`, `curator.exhibition_write`, `wiki curate`/`wiki refresh`,
+> `curator_curate_workspace`, the EXH answer-cache, and the EXH markdown
+> reverse-parse backprop path) is **removed**. It was the wrong abstraction: a
+> frozen per-workspace package under-recalls (turn-N needs unstaged knowledge),
+> goes stale against the live DAG, and duplicates the DAG (qmd pollution + GC
+> pain). There is **no backward compatibility**; old `EXH-` files become inert.
 
-```yaml
-id: EXH-[UUID8]
-type: exhibition
-workspace_id: my-workspace
-curate_spec_hash: "sha256-prefix"
-curation_plan_id: PLAN-[UUID8]
-route: exhibition           # local | global | explore | exhibition | source-section
-source_span_ids:
-  - SPAN-[UUID8]
-community_report_ids:
-  - REP-[UUID8]
-memory_path_ids:
-  - MPATH-[UUID8]
-insight_candidate_ids:
-  - INS-[UUID8]
-prompt_trace_ids:
-  - PTR-[UUID8]
-```
+The L4 layer is now the **shared Synthesis layer** (`synthesis_nodes` / `SYN-`,
+§11.11) — durable, workspace-independent, source-grounded cross-cutting insights
+distilled from the community reports.
 
-Rules:
+**Curation is a dynamic query-time lens**, never a stored file:
 
-- The Exhibition body separates source-backed claims (with span citations) from
-  derived suggestions and records unresolved gaps, contradictions, and agent
-  directives, as defined by the curation-plan and `curate.yml` output contract.
-- The language bridge fields (`input_language`, `english_query`,
-  `final_output_language`) remain response/trace-only and are still **not**
-  persisted into EXH frontmatter (§5.1 rule retained).
+- `fetch_context(query, workspace)` (MCP `curator_fetch_context`) returns the
+  workspace-KRS-biased **evidence pack** (synthesis nodes + community reports +
+  entities/spans + memory paths), with NO synthesized answer — for reasoning
+  agents that run their own LLM.
+- `answer(query, workspace)` (`wiki query`, MCP `curator_query`, plugin) returns
+  evidence + a synthesized answer. Both are **sessionless**: they return an
+  answer + a `QTR-` trace and write **no** vault file.
+- The lens is biased by `curate.yml` (the Knowledge Requirement Spec) and
+  accumulated insight candidates — additive bias over the full DAG, never a frozen
+  subset.
+
+Durable human artifacts come only from an explicit **promotion to `02_Wiki/`**
+(insight candidate → `02_Wiki/`), never from a generated Exhibition.
+
+Backprop is **correction-driven and EXH-independent**: corrections from any
+interaction (`curator_propose_correction`) are classified (§18) and patch the
+generated DB nodes / create insight candidates, protecting source truth.
 
 ## 16. `curate.yml` Knowledge Requirement Specification
 

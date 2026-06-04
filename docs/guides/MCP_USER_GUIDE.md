@@ -286,15 +286,31 @@ and plugin, and they never edit read-only source truth (`03_Notes/`,
 - **Parameters**: `workspace_path`.
 - **Returns**: `plan_id` (`PLAN-…`), `workspace_id`, `route`.
 
+#### `curator_fetch_context`
+
+- **Role**: Return the **curated evidence pack** — the workspace-KRS-biased
+  selection of evidence the agent's own reasoning LLM should ground on — **without
+  a synthesized answer**. This is curation as a *dynamic lens over the live DAG*,
+  not a frozen Exhibition; it is the primary surface for reasoning agents (e.g. the
+  Obsidian agent) that do their own synthesis. For broad questions the pack leads
+  with the shared **L4 Synthesis** nodes.
+- **Parameters**: `query`, `workspace_path` (optional).
+- **Returns**: `route`, `trace_id` (`QTR-…`), `workspace_id`, `evidence` (each item
+  has `kind` — `synthesis` | `community_report` | `entity` | `source_span` |
+  `memory_path` | `qmd_hit` — plus `id`/`title`/`text`/`score` and provenance ids),
+  `source_span_ids`, `community_report_ids`, `synthesis_node_ids`,
+  `memory_path_ids`, `warnings`. There is intentionally **no** `answer` field.
+
 #### `curator_explore`
 
 - **Role**: Run the **explore** route of the query orchestrator: discover
   non-obvious connections, record HippoRAG-style memory paths, and create
-  provisional insight candidates. Combines the DB graph with qmd over the derived
+  provisional insight candidates. Builds a primer from the shared L4 synthesis
+  nodes + community reports, and combines the DB graph with qmd over the derived
   `.curator/Collections` corpus.
 - **Parameters**: `query`, `workspace_path` (optional).
-- **Returns**: `answer`, `route`, `trace_id` (`QTR-…`), `memory_path_ids`,
-  `insight_candidate_ids`, `prompt_trace_ids`, `warnings`.
+- **Returns**: `answer`, `route`, `trace_id` (`QTR-…`), `synthesis_node_ids`,
+  `memory_path_ids`, `insight_candidate_ids`, `prompt_trace_ids`, `warnings`.
 
 #### `curator_get_prompt_trace`
 

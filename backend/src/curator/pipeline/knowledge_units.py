@@ -56,14 +56,32 @@ def extract_knowledge_units(
     except Exception:
         max_chars = 60000
 
+    from ..ingest_raw import _chunk_text
+    refined_spans = []
+    for s in spans:
+        title = s.get("section_title") or ""
+        text = s.get("text") or ""
+        span_len = len(str(s["id"])) + len(title) + len(text) + 50
+        
+        if span_len > max_chars:
+            # Subdivide the massive span text
+            sub_texts = _chunk_text(text, chunk_size=max_chars - 500, overlap=500)
+            for i, sub in enumerate(sub_texts):
+                refined_spans.append({
+                    "id": s["id"],
+                    "section_title": f"{title} (Part {i+1})",
+                    "text": sub
+                })
+        else:
+            refined_spans.append(s)
+
     batches = []
     current_batch = []
     current_chars = 0
 
-    for s in spans:
+    for s in refined_spans:
         title = s.get("section_title") or ""
         text = s.get("text") or ""
-        # Rough estimate of span length in prompt
         span_len = len(str(s["id"])) + len(title) + len(text) + 50
         
         if current_batch and current_chars + span_len > max_chars:

@@ -31,8 +31,17 @@ def db_path() -> Path:
         yield path
 
 
-def test_schema_version_is_4() -> None:
-    assert db.SCHEMA_VERSION == 4
+def test_schema_version_is_5() -> None:
+    assert db.SCHEMA_VERSION == 5
+
+
+def test_spec_declares_matching_schema_version() -> None:
+    """Guard: the active SCHEMA spec must declare the same SCHEMA_VERSION as code."""
+    spec = (
+        Path(__file__).resolve().parents[2]
+        / "docs/specs/curator_schema/SCHEMA_v0.3.1.md"
+    ).read_text(encoding="utf-8")
+    assert f"`SCHEMA_VERSION = {db.SCHEMA_VERSION}`" in spec
 
 
 def test_v031_tables_exist(db_path: Path) -> None:
@@ -47,6 +56,7 @@ def test_v031_tables_exist(db_path: Path) -> None:
         "curation_plans",
         "insight_candidates",
         "artifact_dependencies",
+        "synthesis_nodes",
     }
     with db.connect(db_path) as conn:
         tables = {

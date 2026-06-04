@@ -108,6 +108,27 @@ def _report_items(db_path: Path) -> tuple[list[EvidenceItem], list[str], list[st
     return items, report_ids, sorted(span_ids)
 
 
+def _synthesis_items(db_path: Path, limit: int = 6) -> tuple[list[EvidenceItem], list[str], list[str]]:
+    """Shared L4 Synthesis nodes — the durable corpus-wide cross-cutting insights.
+
+    These are the highest-level standing evidence for broad/global reasoning; the
+    dynamic Curation lens recombines them with community reports at query time.
+    """
+    items, node_ids, span_ids = [], [], set()
+    for node in db.list_synthesis_nodes(db_path)[:limit]:
+        items.append(
+            EvidenceItem(
+                id=node["id"], kind="synthesis", title=node.get("title", ""),
+                text=f'{node.get("statement","")}\n{node.get("full_content","")}'.strip(),
+                source_span_ids=node.get("source_span_ids", []),
+                synthesis_node_id=node["id"], score=node.get("confidence", 0.0),
+            )
+        )
+        node_ids.append(node["id"])
+        span_ids.update(node.get("source_span_ids") or [])
+    return items, node_ids, sorted(span_ids)
+
+
 def _resolve_source_id(db_path: Path, source_key: str) -> int | None:
     if source_key.isdigit():
         return int(source_key)
@@ -142,14 +163,19 @@ def build_evidence(
         return pack
 
     if route == "global":
-        items, report_ids, span_ids = _report_items(db_path)
+        # Shared L4 Synthesis nodes are the highest-level standing evidence; lead
+        # with them, then back them with the community reports they distil.
+        syn_items, syn_ids, syn_spans = _synthesis_items(db_path)
+        report_items, report_ids, report_spans = _report_items(db_path)
+        items = syn_items + report_items
         if not items:
-            warnings.append("no community reports; falling back to qmd")
+            warnings.append("no synthesis or community reports; falling back to qmd")
             pack.items = _qmd_hits(paths, q, limit, warnings)
         else:
             pack.items = items
+        pack.synthesis_node_ids = syn_ids
         pack.community_report_ids = report_ids
-        pack.source_span_ids = span_ids
+        pack.source_span_ids = sorted(set(syn_spans) | set(report_spans))
         return pack
 
     if route == "explore":
@@ -167,46 +193,21 @@ def build_evidence(
                 )
             )
             span_ids = sorted(set(span_ids) | set(path_obj.source_span_ids))
+        syn_items, syn_ids, syn_spans = _synthesis_items(db_path, limit=3)
         report_items, report_ids, report_spans = _report_items(db_path)
-        pack.items.extend(report_items[:3])  # primer
+        pack.items.extend(syn_items)  # synthesis primer (highest-level)
+        pack.items.extend(report_items[:3])  # community primer
         pack.items.extend(ent_items)
         pack.memory_path_ids = mpath_ids
+        pack.synthesis_node_ids = syn_ids
         pack.community_report_ids = report_ids[:3]
-        pack.source_span_ids = sorted(set(span_ids) | set(report_spans))
+        pack.source_span_ids = sorted(set(span_ids) | set(report_spans) | set(syn_spans))
         return pack
 
-    if route == "exhibition":
-        # Active exhibition is pinned context; supplement with local evidence.
-        exh_item = _active_exhibition_item(paths, request.workspace_path)
-        if exh_item:
-            pack.items.append(exh_item)
-        else:
-            warnings.append("no active exhibition; supplementing with local evidence")
-
-    # local (and exhibition supplement): entities + their spans + qmd hits.
+    # local: entities + their spans + qmd hits.
     ent_items, span_ids = _entity_evidence(db_path, q)
     pack.items.extend(ent_items)
     pack.items.extend(_span_items(db_path, span_ids))
     pack.items.extend(_qmd_hits(paths, q, limit, warnings))
     pack.source_span_ids = span_ids
     return pack
-
-
-def _active_exhibition_item(paths: cfg.WikiPaths, workspace_path: str) -> EvidenceItem | None:
-    if not workspace_path:
-        return None
-    from ..curate_yml import load_curate_spec
-
-    try:
-        spec = load_curate_spec(Path(workspace_path))
-    except Exception:
-        return None
-    if not spec or not spec.exhibition:
-        return None
-    exh_file = paths.exhibitions / f"{spec.exhibition}.md"
-    if not exh_file.exists():
-        return None
-    return EvidenceItem(
-        id=spec.exhibition, kind="exhibition", title="active exhibition",
-        text=exh_file.read_text(encoding="utf-8")[:8000],
-    )

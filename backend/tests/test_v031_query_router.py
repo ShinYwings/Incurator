@@ -12,7 +12,7 @@ def _policy(allowed=None, default="auto", exploration=True):
         project="lab",
         reasoning=CurateReasoning(
             default_mode=default,
-            allowed_modes=allowed or ["local", "global", "explore", "exhibition", "source-section"],
+            allowed_modes=allowed or ["local", "global", "explore", "source-section"],
             exploration_enabled=exploration,
         ),
     )

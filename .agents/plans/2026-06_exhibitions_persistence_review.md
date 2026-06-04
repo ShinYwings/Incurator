@@ -68,3 +68,43 @@ While preserving the files resolves the immediate problem of deleting chat histo
 > Please review the options above and clarify:
 > 1. **Do you prefer Option A (current: leave every chat file permanently in `04_Exhibitions/`) or Option B/C (consolidation into a single `memory.md` / moving chats to a subfolder)?**
 > 2. **If we proceed with a consolidated `memory.md`, should the compilation/extraction run asynchronously in the background when a session ends, or should it run during `wiki build`/`wiki curate`?**
+
+---
+
+## Opus Review Decision (2026-06-03) — the premise is incorrect
+
+The user clarified the architecture: **an Exhibition (EXH) is NOT a chat-session
+cache.** A *workspace* can live OUTSIDE the vault (that is the whole reason
+external-agent support exists), so it is decoupled from plugin chat sessions. EXH
+was created specifically to **stage a curated context package for a workspace**
+(possibly external) that external agents (Cursor, Claude Code) consume over MCP.
+Chat history is a separate plugin concern stored in `sessions.json`
+(PLUGIN_SCHEMA §2.2), not in EXH files.
+
+**Therefore Options A/B/C above are moot** — they all rest on the false premise
+that "EXH = persisted chat session." The v0.3.1 SCHEMA §15 already models EXH
+correctly as a workspace-scoped staged context package (`workspace_id`,
+`curate_spec_hash`, `route`).
+
+### Correct model (two distinct kinds of EXH)
+
+1. **Workspace EXH** — staged per `curate.yml` (`exhibition:` pointer),
+   `exhibition_origin: promoted`/staged. This is the durable workspace context
+   for (possibly external) agents → **persists; never GC'd.**
+2. **Query-generated ephemeral EXH** — `ephemeral: true`,
+   `exhibition_origin: query_gen`, produced as an answer cache for plain chat
+   turns with no workspace (`workspace_id: default`). These ARE caches →
+   **should remain GC-eligible.**
+
+### Consequence for the GC change
+
+Disabling ALL GC (`gc_ephemeral_exhibitions()` → `[]`) over-persists kind #2 (chat
+answer caches), which contradicts the user's model and pollutes the qmd corpus.
+The correct behavior: GC stale `ephemeral: true` + `exhibition_origin: query_gen`
+EXH, while NEVER touching workspace/promoted Exhibitions. (User memory /
+preferences belong to the insight-candidate lifecycle + sessions.json, not to
+accumulating EXH files.)
+
+**Status:** premise corrected by the user; no Option A/B/C consolidation needed.
+Pending user sign-off to re-enable scoped GC for ephemeral query_gen EXH only
+(reverses Antigravity's blanket GC-disable deliberately, so confirm before code).

@@ -18,7 +18,6 @@ from __future__ import annotations
 from . import constants as consts
 
 import json
-import hashlib
 import os
 from pathlib import Path
 from typing import Any, Optional
@@ -1028,31 +1027,6 @@ def _resolve_curate_workspace(explicit: Path | None) -> Path | None:
     for candidate in (cwd, *cwd.parents):
         if (candidate / consts.FILE_CURATE_YML).exists():
             return candidate
-    return None
-
-
-def _curate_spec_hash(workspace: Path | None) -> str:
-    if workspace is None:
-        return ""
-    curate_file = workspace / consts.FILE_CURATE_YML
-    if not curate_file.exists():
-        return ""
-    return hashlib.sha256(curate_file.read_bytes()).hexdigest()[:12]
-
-
-def _find_workspace_exhibition(paths: cfg.WikiPaths, project: str, spec_hash: str) -> Path | None:
-    if not paths.exhibitions.exists() or not project or not spec_hash:
-        return None
-    for md_path in sorted(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md")):
-        parsed = page_writer.read_page(md_path)
-        if not parsed:
-            continue
-        if (
-            parsed.frontmatter.get("workspace") == project
-            and parsed.frontmatter.get("curate_spec_hash") == spec_hash
-            and not parsed.frontmatter.get("superseded_by")
-        ):
-            return md_path
     return None
 
 
@@ -3135,34 +3109,7 @@ def build(
             if not no_sync:
                 _run_sync_report_only(paths, config, reason="build")
 
-        # Forward propagation (L3 -> L4): merge new facts into existing Exhibitions.
-        from . import sync as sync_module
-
-        dirty_exhs = sync_module.find_dirty_exhibitions(paths)
-        if dirty_exhs:
-            console.print()
-            console.print(
-                f"[dim]New information affects {len(dirty_exhs)} existing Exhibition(s).[/dim]"
-            )
-            do_merge = console.is_interactive and typer.confirm(
-                "Merge these new facts into affected Exhibitions now?", default=True
-            )
-            if do_merge:
-                updated_count = 0
-                for exh_id in dirty_exhs:
-                    console.print(f"  [dim]Merging into {exh_id}...[/dim]", end="\r")
-                    if sync_module.propagate_downstream_to_exhibition(paths, client, exh_id):
-                        console.print(" " * 60, end="\r")
-                        _ok(f"[bold]{exh_id}[/bold] updated with latest data.")
-                        updated_count += 1
-                    else:
-                        console.print(" " * 60, end="\r")
-                if updated_count > 0:
-                    _refresh_qmd_index(paths)
-            else:
-                _hint("Run [bold]wiki refresh[/bold] later to merge these into Exhibitions.")
-        else:
-            _hint("Run [bold]wiki curate[/bold] to stage L4 Exhibitions.")
+        _hint("Ask a question with [bold]wiki query \"<your question>\"[/bold]")
     finally:
         if client is not None:
             client.close()
@@ -3789,241 +3736,6 @@ class CliIngestCallbacks(ingest_llm.IngestCallbacks):
         _err(error)
 
 
-@app.command(hidden=True)
-def curate(
-    force: bool = typer.Option(
-        False,
-        "--force", "-f",
-        help="Delete existing Exhibitions and regenerate from all Concepts.",
-    ),
-    no_sync: bool = typer.Option(
-        False,
-        "--no-sync",
-        help="Skip the default sync repair/verification after curating.",
-    ),
-    workspace: Optional[Path] = typer.Option(
-        None,
-        "--workspace",
-        help="Path to a workspace directory containing curate.yml (source filter).",
-    ),
-) -> None:
-    """Stage L4 Exhibitions from L3 Concepts.
-
-    Reads Concept pages from .curator/Collections/03_Concepts/ and synthesizes
-    Exhibition pages in 04_Exhibitions/.  Use [bold]wiki add[/bold] first to build
-    L1 Contexts → L2 Atoms → L3 Concepts.
-
-    Use --workspace PATH to load a curate.yml and restrict which Concepts are
-    included based on their source provenance (sources.include/exclude patterns).
-    """
-    paths = _resolve_root_or_die()
-    curate_spec = None
-    workspace = _resolve_curate_workspace(workspace)
-    if workspace is None:
-        if console.is_interactive:
-            workspace = paths.root / consts.DIR_WORKSPACES / "Curator Workspace"
-            _warn(f"No workspace found; initializing default workspace at {workspace}.")
-            data = CurateTemplateData(
-                project=default_project_name(workspace),
-                description=f"Knowledge workspace for {default_project_name(workspace)}",
-            )
-            prepare_workspace(
-                vault_root=paths.root,
-                workspace=workspace,
-                agent="none",
-                curate_data=data,
-                install_rules=False,
-            )
-        else:
-            _err("wiki curate requires a workspace with curate.yml. Pass --workspace or set WORKSPACE_PATH.")
-            raise typer.Exit(code=1)
-    if workspace is not None:
-        from .curate_yml import load_curate_spec
-        try:
-            curate_spec = load_curate_spec(workspace)
-            if curate_spec is None:
-                _err(f"No curate.yml found in {workspace}.")
-                raise typer.Exit(code=1)
-            else:
-                src_info = f", sources.include={curate_spec.sources.include}" if curate_spec.sources.include else ""
-                console.print(
-                    f"[dim]curate.yml loaded: project=[bold]{curate_spec.project}[/bold]"
-                    f"{src_info}[/dim]"
-                )
-        except ValueError as e:
-            _err(f"curate.yml invalid: {e}")
-            raise typer.Exit(code=1)
-
-    config = cfg.load_config(paths)
-
-    if force:
-        import shutil as _shutil
-        if paths.exhibitions.exists():
-            _shutil.rmtree(str(paths.exhibitions))
-            console.print("[dim]Existing Exhibitions cleared (--force).[/dim]")
-
-    console.print()
-    console.print(f"[dim]{describe_backend(config)}…[/dim]")
-    client = _start_client(config)
-
-    syn_staged: list = []
-    try:
-        today = ingest_llm._now_iso()
-        import tempfile
-        import shutil
-        staging = Path(tempfile.mkdtemp(prefix="curator-l4-"))
-        try:
-            cb = CliIngestCallbacks(mode="batch")
-            syn_staged = ingest_llm.run_l4_scoped(paths, client, cb, curate_spec, today, staging)
-            spec_hash = _curate_spec_hash(workspace)
-            existing_workspace_exh = (
-                ingest_llm.find_workspace_exhibition(paths, curate_spec.project)
-                if curate_spec is not None else None
-            )
-            target = None
-            for idx, (sp, fp, _) in enumerate(syn_staged):
-                target = fp
-                content = sp.read_text(encoding="utf-8")
-                parsed = page_writer.parse_page(content)
-                if curate_spec is not None:
-                    parsed.frontmatter["workspace"] = curate_spec.project
-                    parsed.frontmatter["curate_spec_hash"] = spec_hash
-                    parsed.frontmatter["workspace_path"] = str(workspace)
-                if existing_workspace_exh is not None and idx == 0:
-                    target = existing_workspace_exh
-                    existing = page_writer.read_page(existing_workspace_exh)
-                    if existing:
-                        parsed.frontmatter["id"] = existing.frontmatter.get("id", existing_workspace_exh.stem)
-                content = parsed.to_markdown()
-                # Intelligent Merge: If exhibition exists and not force, use Smart Update.
-                if not force and target.exists():
-                    from . import sync as sync_module
-                    console.print(f"  [dim]Merging updates into existing Exhibition: {target.name}...[/dim]")
-                    # Use the just-staged concept data via propagate_downstream_to_exhibition
-                    sync_module.propagate_downstream_to_exhibition(paths, client, target.stem)
-                else:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    page_writer.write_page(target, content)
-
-            # Write the active Exhibition ID back into curate.yml for MCP anchor tracking
-            if curate_spec is not None and target is not None and workspace is not None:
-                try:
-                    from .curate_yml import write_exhibition_to_spec
-                    write_exhibition_to_spec(workspace, target.stem)
-                except Exception:
-                    pass
-
-            # Clean up any stale duplicate workspace Exhibitions for this project.
-            if curate_spec is not None and target is not None and paths.exhibitions.exists():
-                for dup in sorted(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md")):
-                    if dup == target:
-                        continue
-                    try:
-                        dup_page = page_writer.read_page(dup)
-                        if dup_page and dup_page.frontmatter.get("workspace") == curate_spec.project:
-                            dup.unlink()
-                            console.print(f"[dim]  removed duplicate workspace Exhibition: {dup.name}[/dim]")
-                    except Exception:
-                        pass
-
-            from . import page_writer as _pw
-            _pw.rebuild_index(paths, today)
-            all_ch = [c for _, _, c in syn_staged]
-            if all_ch:
-                scope_label = curate_spec.project if curate_spec else "global"
-                bullets = [f"{c.operation}: [[{c.path.replace('.md', '')}]]" for c in all_ch]
-                _pw.append_log_entry(paths, today, "curate", scope_label, bullets)
-                with db.connect(paths.state_db) as conn:
-                    rows = conn.execute(
-                        "SELECT id FROM sources WHERE l3_status = 'done'"
-                    ).fetchall()
-                    source_ids = [row["id"] for row in rows]
-                db.set_sources_layer_status(paths.state_db, source_ids, "l4", "done")
-            ingest_llm._update_ledger(paths)
-            ingest_llm._update_overview(paths)
-        finally:
-            shutil.rmtree(str(staging), ignore_errors=True)
-    finally:
-        if client is not None:
-            client.close()
-
-    console.print()
-    console.rule("[bold]Curate summary[/bold]")
-    if syn_staged:
-        console.print(f"  [magenta]{len(syn_staged)} exhibition(s) created[/magenta]")
-    else:
-        console.print("  [dim]No exhibitions generated — ensure L3 Concepts exist.[/dim]")
-        _hint("Run [bold]wiki add[/bold] first to build L1 Contexts → L2 Atoms → L3 Concepts.")
-    console.print()
-
-    if syn_staged:
-        _refresh_qmd_index(paths, embed=True)
-
-        if not no_sync:
-            _run_sync_report_only(paths, config, reason="curate")
-
-        console.print()
-        _hint("Run [bold]wiki status[/bold] to see updated page counts.")
-        _hint("Ask a question with [bold]wiki query \"<your question>\"[/bold]")
-
-
-# ---------------------------------------------------------------------------
-# Stage 3c — refresh (forward propagation)
-# ---------------------------------------------------------------------------
-
-@app.command()
-def refresh(
-    exh_id: Optional[str] = typer.Argument(
-        None,
-        help="Target Exhibition (EXH-). Omit to update all 'dirty' Exhibitions.",
-    ),
-) -> None:
-    """Refresh L4 Exhibitions from latest L3 Concept changes.
-    
-    This command identifies Exhibitions that reference Concepts (L3) with newer
-    information and performs a refresh merge (adding new facts without
-    overwriting human/agent edits).
-    """
-    from . import sync as sync_module
-    
-    paths = _resolve_root_or_die()
-    config = cfg.load_config(paths)
-    client = _start_client(config)
-    
-    console.print()
-    console.rule("[bold cyan]Refresh — Forward Propagation[/bold cyan]")
-    
-    target_ids = []
-    if exh_id:
-        target_ids = [exh_id]
-    else:
-        console.print("[dim]Scanning for Exhibitions with updated concepts...[/dim]")
-        target_ids = sync_module.find_dirty_exhibitions(paths)
-        
-    if not target_ids:
-        _ok("All Exhibitions are already up-to-date with their referenced concepts.")
-        return
-
-    console.print(f"[dim]Found {len(target_ids)} exhibition(s) requiring update.[/dim]")
-    
-    updated_count = 0
-    for tid in target_ids:
-        console.print(f"  [dim]Merging updates into {tid}...[/dim]", end="\r")
-        if sync_module.propagate_downstream_to_exhibition(paths, client, tid):
-            console.print(" " * 60, end="\r")
-            _ok(f"[bold]{tid}[/bold] updated with latest concept data.")
-            updated_count += 1
-        else:
-            console.print(" " * 60, end="\r")
-            console.print(f"  [dim]• {tid} already consistent.[/dim]")
-            
-    if updated_count > 0:
-        _refresh_qmd_index(paths)
-        _ok(f"Forward propagation complete. {updated_count} exhibitions updated.")
-    else:
-        _ok("All exhibitions are consistent.")
-
-
 # ---------------------------------------------------------------------------
 
 
@@ -4037,6 +3749,12 @@ def sync(
         False,
         "--dry-run",
         help="Report gaps without fixing or rebuilding routing tables.",
+    ),
+    reemit: bool = typer.Option(
+        False,
+        "--reemit",
+        help="Re-emit the derived L2/L3 markdown corpus (ATM/CON) from the "
+             "authoritative DB records and re-index qmd. Use after DB corrections.",
     ),
     no_fix: bool = typer.Option(
         False,
@@ -4107,6 +3825,16 @@ def sync(
     config = cfg.load_config(paths)
     console.print()
     console.rule("[bold cyan]Sync — Deductive Verification[/bold cyan]")
+
+    # v0.3.1: re-emit the derived L2/L3 markdown corpus from the DB (DB is truth).
+    if reemit:
+        from .pipeline import compile as _compile
+
+        counts = _compile.reemit_projections(paths)
+        _refresh_qmd_index(paths)
+        _ok(f"Re-emitted derived corpus from DB: {counts['atoms']} atoms, "
+            f"{counts['concepts']} concepts; qmd re-indexed.")
+        return
 
     if not any([node_id, dry_run, no_fix, deep, no_deep, no_interactive, full, backward]):
         result = sync_module.run_incremental_sync(paths, client=None, config=config)
@@ -4565,13 +4293,6 @@ class CliQueryCallbacks(query_module.QueryCallbacks):
         if self._stream_active:
             console.print(chunk, end="", highlight=False)
 
-    def on_saved(self, saved_path: str) -> None:
-        if self._stream_active:
-            console.print()
-            self._stream_active = False
-        console.print()
-        _ok(f"Saved answer as [cyan]{saved_path}[/cyan]")
-
     def on_wiki_saved(self, saved_path: str, category: str) -> None:
         if self._stream_active:
             console.print()
@@ -4627,22 +4348,16 @@ def query(
     no_rerank: bool = typer.Option(
         False, "--no-rerank", help="Skip LLM reranking in hybrid mode."
     ),
-    save_as: Optional[str] = typer.Option(
-        None,
-        "--save-as",
-        help="Save the answer as a new L4 Exhibition page (EXH-UUID.md). "
-             "The value is used as the page title hint.",
-    ),
     scope: str = typer.Option(
         "all",
         "--scope",
-        help="Restrict to a single Curator layer: all | contexts | atoms | concepts | exhibitions.",
+        help="Restrict to a single Curator layer: all | contexts | atoms | concepts | synthesis.",
     ),
     route: str = typer.Option(
         "",
         "--route",
         help="v0.3.1 curation-native route: auto | local | global | explore | "
-             "exhibition | source-section. Routes through the QueryOrchestrator "
+             "source-section. Routes through the QueryOrchestrator "
              "(DB graph + qmd) with a QTR trace. Empty = legacy qmd synthesis.",
     ),
     no_intent_classify: bool = typer.Option(
@@ -4660,12 +4375,6 @@ def query(
         "--workspace",
         help="Path to a workspace directory containing curate.yml. Defaults to WORKSPACE_PATH or current workspace.",
     ),
-    curate: bool = typer.Option(
-        False,
-        "--curate",
-        help="Create and maintain a session Exhibition: first answer creates an ephemeral L4 page; "
-             "each follow-up appends to it. Prompted at session end whether to keep or discard.",
-    ),
 ) -> None:
     """Ask a question: search the wiki, synthesize an answer with citations.
 
@@ -4676,14 +4385,14 @@ def query(
     Use --update to automatically create a new L2 Atom from the synthesized answer,
     feeding new knowledge back into the L1-L3 pipeline for future curation.
 
-    Use --curate to build a session-scoped L4 Exhibition across all turns, then
-    decide at the end whether to keep it as a permanent knowledge record.
+    Sessionless Q&A returns an answer + trace only; durable artifacts come from an
+    explicit promotion to 02_Wiki.
 
     The query pipeline:
       1. Translate question to English (for non-English input)
       2. QMD search (BM25 + vector + rerank by default)
       3. Synthesize a cited answer from Curator pages, streamed to the terminal
-      4. Optionally save as an Exhibition page (--save-as) or promote to 02_Wiki
+      4. Optionally promote to 02_Wiki
     """
     paths = _resolve_root_or_die()
     config = cfg.load_config(paths)
@@ -4716,9 +4425,9 @@ def query(
         _err(f"Invalid mode '{mode}'. Use hybrid, lex, or vec.")
         raise typer.Exit(code=1)
 
-    if scope not in ("all", "contexts", "atoms", "concepts", "exhibitions"):
+    if scope not in ("all", "contexts", "atoms", "concepts", "synthesis"):
         _err(
-            f"Invalid scope '{scope}'. Use all, contexts, atoms, concepts, or exhibitions."
+            f"Invalid scope '{scope}'. Use all, contexts, atoms, concepts, or synthesis."
         )
         raise typer.Exit(code=1)
     if not search.is_available():
@@ -4730,14 +4439,14 @@ def query(
         raise typer.Exit(code=1)
 
     collection_pages = 0
-    for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.exhibitions):
+    for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.synthesis):
         if layer_dir.exists():
             collection_pages += sum(
                 1 for p in layer_dir.glob("*.md") if not p.name.startswith(".")
             )
     if collection_pages == 0:
         _err("Curator collections are empty.")
-        _hint("Run [bold]wiki add[/bold] then [bold]wiki curate[/bold] first.")
+        _hint("Run [bold]wiki add[/bold] then [bold]wiki build[/bold] first.")
         raise typer.Exit(code=1)
 
     console.print()
@@ -4749,13 +4458,9 @@ def query(
         limit=limit,
         min_score=min_score,
         rerank=not no_rerank,
-        save_as=save_as,
         scope=scope,
         classify_intent_first=not no_intent_classify,
-        workspace_project=curate_spec.project if curate_spec else None,
         query_boost_terms=[x for x in ([curate_spec.persona.domain, curate_spec.persona.subdomain] + curate_spec.persona.disambiguation_keywords) if x] if curate_spec else None,
-        pinned_exhibition_id=curate_spec.exhibition if curate_spec else None,
-        ephemeral_exhibition=False,  # Deprecated in v0.3.1: Chat Exhibitions are now persistent living documents
         route=route,
     )
 
@@ -4767,7 +4472,6 @@ def query(
             initial_question=question,
             update_knowledge=update,
             curate_spec=curate_spec,
-            create_session_exhibition=curate,
         )
     finally:
         client.close()
@@ -4778,14 +4482,14 @@ def _run_query_repl(
     initial_question: str | None = None,
     update_knowledge: bool = False,
     curate_spec=None,
-    create_session_exhibition: bool = False,
 ) -> None:
     """Interactive REPL: ask questions until the user submits an empty line.
 
     If initial_question is provided, it is answered first before prompting
     for further input — so `wiki query "question"` enters the same REPL.
     update_knowledge=True creates a new L2 Atom from each synthesized answer.
-    create_session_exhibition=True builds a running L4 Exhibition across all turns.
+    Sessionless: answers are returned/streamed; durable artifacts come only from
+    explicit promotion to 02_Wiki.
     """
     from rich.prompt import Prompt
     import uuid
@@ -4793,7 +4497,6 @@ def _run_query_repl(
     last_question: str | None = None
     last_answer: str | None = None
     session_id = f"QRY-{uuid.uuid4().hex[:8]}"
-    session_exh_path: Path | None = None
 
     console.print()
     console.rule("[bold cyan]Wiki Chat[/bold cyan]")
@@ -4860,9 +4563,6 @@ def _run_query_repl(
         if result.answer:
             last_question = user_input
             last_answer = result.answer
-            if result.saved_path:
-                config = cfg.load_config(paths)
-                _run_sync_report_only(paths, config, reason="query")
 
             if update_knowledge:
                 today = ingest_llm._now_iso()
@@ -4872,31 +4572,7 @@ def _run_query_repl(
                 if atom_id:
                     console.print(f"[dim]  → new atom created: [cyan]{atom_id}[/cyan][/dim]")
 
-            if create_session_exhibition:
-                if session_exh_path is None:
-                    try:
-                        rel = query_module._save_curation_page(
-                            paths,
-                            user_input,
-                            result.answer,
-                            title=user_input[:60],
-                            hits=result.hits,
-                            session_id=session_id,
-                            ephemeral=True,
-                        )
-                        session_exh_path = paths.exhibitions / Path(rel).name
-                        console.print(
-                            f"[dim]  → session Exhibition created: "
-                            f"[cyan]{session_exh_path.name}[/cyan][/dim]"
-                        )
-                    except ValueError:
-                        pass  # no L3 Concepts yet — skip silently
-                elif session_exh_path.exists():
-                    query_module.update_curation_page(
-                        paths, session_exh_path, user_input, result.answer, result.hits
-                    )
-
-    if last_answer and last_question and run_kwargs.get("save_as") is None and console.is_interactive:
+    if last_answer and last_question and console.is_interactive:
         confirmed = Prompt.ask(
             "  [yellow]Save session answer to 02_Wiki?[/yellow]",
             choices=["yes", "no"],
@@ -4913,27 +4589,6 @@ def _run_query_repl(
                 callbacks.on_wiki_saved(saved, category)
             except OSError as e:
                 _err(f"Failed to save wiki page: {e}")
-
-    if create_session_exhibition and session_exh_path and session_exh_path.exists():
-        if console.is_interactive:
-            keep = Prompt.ask(
-                f"  [yellow]Keep session Exhibition?[/yellow] "
-                f"([dim]{session_exh_path.name}[/dim])",
-                choices=["yes", "no"],
-                default="no",
-            )
-            if keep == "yes":
-                page = page_writer.read_page(session_exh_path)
-                if page:
-                    page.frontmatter["ephemeral"] = False
-                    page_writer.write_page(session_exh_path, page.to_markdown())
-                    _ok(f"Exhibition retained: [[{consts.LAYER_L4}/{session_exh_path.stem}]]")
-            else:
-                session_exh_path.unlink(missing_ok=True)
-                page_writer.rebuild_index(paths, page_writer.today_iso())
-        else:
-            session_exh_path.unlink(missing_ok=True)
-            page_writer.rebuild_index(paths, page_writer.today_iso())
 
 
 @app.command()

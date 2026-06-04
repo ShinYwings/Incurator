@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from ..contracts import PromptContract
 from ..registry import register
 
-Route = Literal["local", "global", "explore", "exhibition", "source-section"]
+Route = Literal["local", "global", "explore", "source-section"]
 
 
 # --- router ----------------------------------------------------------

@@ -46,6 +46,42 @@ class QueryOrchestrator:
         self.paths = paths
         self.client = client
 
+    def fetch_context(self, request: QueryRequest) -> dict:
+        """Curated-context surface (no synthesis) for reasoning agents.
+
+        Returns the workspace-KRS-biased evidence pack the agent's own reasoning
+        LLM should ground on — the primary product for external/Obsidian agents.
+        This is curation as a *dynamic lens over the live DAG*, not a frozen
+        Exhibition.
+        """
+        policy, _spec_hash = _resolve_policy(request.workspace_path)
+        status = router.graph_status(self.paths.state_db)
+        route, reason = router.choose_route(request, policy, status)
+        trace_id = f"QTR-{uuid.uuid4().hex[:8]}"
+        pack = evidence_mod.build_evidence(self.paths, request, route)
+        return {
+            "ok": True,
+            "route": route,
+            "trace_id": trace_id,
+            "workspace_id": policy.workspace_id,
+            "evidence": [
+                {
+                    "id": it.id, "kind": it.kind, "title": it.title, "text": it.text,
+                    "score": it.score, "source_span_ids": it.source_span_ids,
+                    "community_report_id": it.community_report_id,
+                    "synthesis_node_id": it.synthesis_node_id,
+                    "memory_path_id": it.memory_path_id,
+                }
+                for it in pack.items
+            ],
+            "source_span_ids": pack.source_span_ids,
+            "community_report_ids": pack.community_report_ids,
+            "synthesis_node_ids": pack.synthesis_node_ids,
+            "memory_path_ids": pack.memory_path_ids,
+            "route_reason": reason,
+            "warnings": pack.warnings,
+        }
+
     def run(self, request: QueryRequest) -> QueryResultV031:
         policy, spec_hash = _resolve_policy(request.workspace_path)
         status = router.graph_status(self.paths.state_db)
@@ -62,6 +98,7 @@ class QueryOrchestrator:
             final_output_language=request.final_output_language,
             source_span_ids=pack.source_span_ids,
             community_report_ids=pack.community_report_ids,
+            synthesis_node_ids=pack.synthesis_node_ids,
             memory_path_ids=pack.memory_path_ids,
             warnings=[reason, *pack.warnings],
         )
@@ -72,7 +109,7 @@ class QueryOrchestrator:
             self._run_answer(request, route, pack, spec_hash, result)
         return result
 
-    # -- answer routes (local / global / exhibition / source-section) ----------
+    # -- answer routes (local / global / source-section) -----------------------
     def _run_answer(
         self, request: QueryRequest, route: str, pack: EvidencePack,
         spec_hash: str, result: QueryResultV031,

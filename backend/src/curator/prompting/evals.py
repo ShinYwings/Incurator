@@ -190,13 +190,18 @@ BUILTIN_EVAL_CASES: list[PromptEvalCase] = [
         expect_valid=False,  # "Neural ODE" not declared as an entity
     ),
     PromptEvalCase(
-        name="exhibition: proposing source mutation is rejected",
-        prompt_id="curator.exhibition_write",
+        name="synthesis: proposing source mutation is rejected",
+        prompt_id="curator.synthesis_write",
         raw_output=json.dumps(
             {
-                "title": "Bad exhibition",
-                "markdown": "Next, edit 04_Resources/paper.pdf to add the new claim.",
-                "source_span_ids": ["SPAN-aaaa1111"],
+                "syntheses": [
+                    {
+                        "title": "Bad synthesis",
+                        "statement": "Next, edit 04_Resources/paper.pdf to add the new claim.",
+                        "source_span_ids": ["SPAN-aaaa1111"],
+                        "confidence": 0.5,
+                    }
+                ]
             }
         ),
         validation_context={"valid_span_ids": ["SPAN-aaaa1111"]},

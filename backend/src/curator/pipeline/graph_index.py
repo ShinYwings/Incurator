@@ -61,7 +61,19 @@ def extract_entities_and_relations(
     current_batch = []
     current_chars = 0
 
+    import copy
+    refined_units = []
     for u in units:
+        statement = u.get("statement") or ""
+        # Defensive truncation: units shouldn't be massive, but if they are, truncate to fit context
+        if len(statement) > max_chars - 500:
+            u_copy = copy.copy(u)
+            u_copy["statement"] = statement[:max_chars - 500] + "... [TRUNCATED]"
+            refined_units.append(u_copy)
+        else:
+            refined_units.append(u)
+
+    for u in refined_units:
         statement = u.get("statement") or ""
         unit_type = u.get("unit_type") or "claim"
         spans_str = ", ".join(u.get("source_span_ids") or [])

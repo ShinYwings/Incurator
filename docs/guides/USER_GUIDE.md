@@ -473,6 +473,8 @@ Summary of major commands following the user workflow.
 | :--- | :--- | :--- |
 | `wiki curate` | Synthesizes L4 Exhibitions. Hidden from default help. | Advanced/debug workspace curation |
 | `wiki sync` | Verifies integrity and performs self-healing. | Restoring consistency after edits |
+| `wiki sync <EXH-ID> --backward [--dry-run]` | Reverse-parses an edited Exhibition, classifies the change, and produces a safe backprop action (source truth protected). | Feeding human/agent Exhibition edits back into the graph |
+| `wiki sync --reemit` | Re-emits the derived L2/L3 markdown corpus (ATM/CON) from the authoritative DB records and re-indexes qmd. | Refreshing the qmd corpus after DB-level corrections |
 | `wiki refresh` | Refreshes L4 Exhibitions from updated L3 Concepts without replacing human/agent edits. | Propagating new Concepts into existing Exhibitions |
 
 ### 4. Knowledge Utilization

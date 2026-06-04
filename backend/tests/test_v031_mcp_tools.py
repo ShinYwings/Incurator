@@ -96,6 +96,28 @@ class V031McpToolsTests(unittest.TestCase):
             db.get_insight_candidate(self.paths.state_db, ins_id)["status"], "promoted"
         )
 
+    def test_fetch_context_evidence_only(self) -> None:
+        # Seed minimal graph so the evidence pack has content.
+        with db.connect(self.paths.state_db) as conn:
+            conn.execute("INSERT INTO sources (relpath,content_hash,file_type,bytes,added_at) "
+                         "VALUES ('x.md','c1','md',1,datetime('now'))")
+        sp = db.upsert_source_span(self.paths.state_db, source_id=1,
+                                   relpath="x.md", span_type="paragraph",
+                                   content_hash="c1", text_preview="residual learning")
+        db.upsert_graph_entity(self.paths.state_db, canonical_name="residual learning",
+                               entity_type="concept", source_span_ids=[sp])
+
+        class NoChatClient:
+            model = "fake"
+            def chat(self, *a, **k):
+                raise AssertionError("fetch_context must not synthesize")
+
+        with patch("curator.llm.build_client", return_value=NoChatClient()):
+            out = self._tool("curator_fetch_context")(query="residual learning", workspace_path=str(self.ws))
+        self.assertTrue(out["ok"])
+        self.assertNotIn("answer", out)
+        self.assertTrue(out["trace_id"].startswith("QTR-"))
+
     def test_get_prompt_trace(self) -> None:
         trace_id = db.record_prompt_run(
             self.paths.state_db, prompt_id="curator.x", prompt_version="v1",

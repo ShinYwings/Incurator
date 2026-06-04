@@ -21,9 +21,16 @@ from typing import Any
 from .. import config as cfg
 from .. import constants as consts
 from .. import db, parsers
-from . import community_reports, graph_index, knowledge_units, projection, source_spans
+from . import (
+    community_reports,
+    graph_index,
+    knowledge_units,
+    projection,
+    source_spans,
+    synthesis,
+)
 
-__all__ = ["CompileResult", "compile_source_l2", "compile_global_l3"]
+__all__ = ["CompileResult", "compile_source_l2", "compile_global_l3", "reemit_projections"]
 
 
 @dataclass
@@ -214,6 +221,14 @@ def compile_global_l3(
         except Exception as e:
             errors.append(str(e))
 
+    # L4 Synthesis: distill all community reports into shared corpus-wide insights.
+    # Skipped automatically when the report corpus is unchanged.
+    if not errors:
+        try:
+            synthesis.generate_synthesis(paths, client, curate_spec_hash=curate_spec_hash)
+        except Exception as e:
+            errors.append(str(e))
+
     # Mark L3 done for sources whose L2 is complete.
     with db.connect(paths.state_db) as conn:
         rows = conn.execute(
@@ -231,3 +246,44 @@ def compile_global_l3(
         raise RuntimeError(f"L3 global clustering encountered errors: {error_msg}")
 
     return concept_ids
+
+
+def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
+    """Re-emit the derived L2/L3 markdown corpus from the authoritative DB records.
+
+    Realizes the compile-model invariant: the DB is the source of truth and the
+    ``.curator/Collections`` markdown is a disposable projection. Existing ATM/CON
+    projection files are deleted first, then re-emitted from current
+    ``knowledge_units`` / ``community_reports`` rows — so the qmd corpus always
+    reflects the DB after any correction. Source truth (CTX/spans, 03_Notes,
+    04_Resources) is never touched.
+
+    Returns counts of emitted atom/concept pages.
+    """
+    paths.atoms.mkdir(parents=True, exist_ok=True)
+    paths.concepts.mkdir(parents=True, exist_ok=True)
+    for stale in paths.atoms.glob(f"{consts.PREFIX_L2}-*.md"):
+        stale.unlink()
+    for stale in paths.concepts.glob(f"{consts.PREFIX_L3}-*.md"):
+        stale.unlink()
+
+    n_atoms = 0
+    with db.connect(paths.state_db) as conn:
+        source_ids = [int(r["id"]) for r in conn.execute("SELECT id FROM sources").fetchall()]
+    for sid in source_ids:
+        for unit in db.list_knowledge_units_for_source(paths.state_db, sid):
+            atom_id = unit.get("atom_node_id") or projection.new_atom_id()
+            page = projection.emit_atom_markdown(unit, atom_id)
+            (paths.atoms / f"{atom_id}.md").write_text(page, encoding="utf-8")
+            n_atoms += 1
+
+    n_concepts = 0
+    for report in db.list_community_reports(paths.state_db):
+        concept_id = projection.new_concept_id()
+        page = projection.emit_concept_markdown(report, concept_id)
+        (paths.concepts / f"{concept_id}.md").write_text(page, encoding="utf-8")
+        n_concepts += 1
+
+    n_synthesis = synthesis.reemit_synthesis(paths)
+
+    return {"atoms": n_atoms, "concepts": n_concepts, "synthesis": n_synthesis}

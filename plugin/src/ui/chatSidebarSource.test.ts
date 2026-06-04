@@ -12,9 +12,10 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).not.toContain("this.pendingContextRefs.length <= 2");
     expect(source).toContain("ai-agent-context-chip-visibility");
     expect(source).toContain('setIcon(visibilityBtn, shouldIncludeContext(ref) ? "eye" : "eye-off")');
-    expect(source).toContain('this.activeContextExcludedKey === key) ref.includeInPrompt = false');
+    expect(source).toContain('this.activeContextExcludedKeys.has(key)) ref.includeInPrompt = false');
     expect(source).toContain('if (!shouldIncludeContext(ref)) chip.addClass("is-excluded")');
-    expect(source).toContain("this.activeContextExcludedKey = shouldIncludeContext(ref) ? activeKey : null");
+    expect(source).toContain("this.activeContextExcludedKeys.add(activeKey)");
+    expect(source).toContain("this.activeContextExcludedKeys.delete(activeKey)");
   });
 
   it("recognizes bare SEARCH/REPLACE edits against whole-file Markdown context", () => {
@@ -24,7 +25,7 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("getEditTargetContextForMessage");
     expect(source).toContain('ref.type === "file"');
     expect(source).toContain("bareBlockRegex");
-    expect(source).toContain("Review in file");
+    expect(source).toContain("Review edit");
     expect(source).toContain("multiProposals.length > 0");
     expect(source).toContain("modifiedFullText = parts.join(proposal.replace)");
     expect(source).toContain("editor.lineCount() - 1");
@@ -37,7 +38,7 @@ describe("chat sidebar context chip source contract", () => {
 
     // Must not default to the first curate.yml found in the vault.
     expect(source).not.toContain("let targetCurate = curateFiles[0]");
-    expect(source).toContain("Only bind a workspace when the active note is inside one");
+    expect(source).toContain("a conversational chat never binds an unrelated workspace");
     expect(source).toContain("const language = inferQueryLanguageMetadata(query)");
   });
 

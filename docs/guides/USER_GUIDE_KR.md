@@ -445,6 +445,8 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 | :--- | :--- | :--- |
 | `wiki curate` | L4 Exhibition을 합성합니다. 기본 help에서는 숨겨집니다. | 고급/디버깅용 workspace curation |
 | `wiki sync` | 무결성 검증 및 자가 치유를 수행합니다. | 노드 수정 후 일관성 회복 시 |
+| `wiki sync <EXH-ID> --backward [--dry-run]` | 편집된 Exhibition을 역파싱·분류하고 안전한 backprop 액션을 산출합니다(원본 진실 보호). | 인간/agent의 Exhibition 편집을 그래프에 반영할 때 |
+| `wiki sync --reemit` | DB 레코드에서 파생 L2/L3 마크다운 코퍼스(ATM/CON)를 재생성하고 qmd를 재인덱싱합니다. | DB 레벨 정정 후 qmd 코퍼스 갱신 시 |
 | `wiki refresh` | 변경된 L3 Concept를 기존 L4 Exhibition에 반영하되, 인간/agent 편집을 덮어쓰지 않습니다. | 새 Concept를 기존 Exhibition으로 전파할 때 |
 
 ### 4. 지식 활용 (Utilization)

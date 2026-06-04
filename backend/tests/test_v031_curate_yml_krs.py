@@ -106,7 +106,7 @@ def test_parse_minimal_uses_defaults() -> None:
     assert spec.project == "minimal-lab"
     assert spec.goal.audience == "generalist"
     assert spec.reasoning.default_mode == "auto"
-    assert spec.reasoning.allowed_modes == ["local", "global", "explore", "exhibition"]
+    assert spec.reasoning.allowed_modes == ["local", "global", "explore"]
     assert spec.verification.require_source_spans is True
     assert spec.backprop.enabled is True
     assert spec.prompts.profile == "default"

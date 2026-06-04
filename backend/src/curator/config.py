@@ -116,6 +116,11 @@ class WikiPaths:
         """L4: `.curator/Collections/04_Exhibitions/`"""
         return self.collections / consts.LAYER_L4
 
+    @property
+    def synthesis(self) -> Path:
+        """L4 Synthesis: `.curator/Collections/04_Synthesis/` (shared corpus-wide)."""
+        return self.collections / consts.LAYER_SYN
+
     # ------------------------------------------------------------------
     # Control-plane routing files
     # ------------------------------------------------------------------

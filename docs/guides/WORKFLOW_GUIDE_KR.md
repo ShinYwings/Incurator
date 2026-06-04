@@ -77,17 +77,30 @@ Incurator는 소스 문서를 4단계 추상화 레이어로 처리합니다.
      │
      │  wiki build (L3 pass)
      ▼
-[L3: Concepts]  (DB 레코드: graph_entities/relations)
+[L3: Concepts]  (DB 레코드: graph_entities/relations + community_reports)
   - 여러 소스의 Atom을 묶은 주제 클러스터
   - 크로스-소스 비교·통합
      │
-     │  wiki curate --workspace <path>
+     │  wiki build (L4 종합 패스, L3 이후 자동 실행)
      ▼
-[L4: Exhibitions]  .curator/Collections/04_Exhibitions/EXH-UUID.md
-  - 특정 Workspace의 curate.yml 기준으로 패키징된 최종 컨텍스트
-  - Agent가 소비하는 터미널 단위
-  - 에이전트 검색의 1차 소스
+[L4: Synthesis]  (DB 레코드: synthesis_nodes) → .curator/Collections/04_Synthesis/SYN-UUID.md
+  - 공유되는, 워크스페이스 독립적인, 코퍼스 전체를 가로지르는 종합 인사이트
+  - 모든 커뮤니티 리포트로부터 증류됨 ("synthesis"/영구 노트 계층)
+  - 특정 워크스페이스에 맞춤되지 않은 지속적 지식
+  - 전체를 한꺼번에 재생성; 리포트 코퍼스가 바뀌지 않으면 건너뜀
+     │
+     │  query / curate (동적 Curation 렌즈 — 저장되지 않음)
+     ▼
+[Curation]  워크스페이스/쿼리별 L3/L4 노드의 동적 선택·재조합
+  - 워크스페이스 curate.yml 지식 요구 사양(KRS)에 의해 편향됨
+  - 매 쿼리마다 새로 생성; 고정된 파일이 아님
 ```
+
+> **L4 Synthesis vs. Curation.** Synthesis 레이어는 다른 LLM 위키 레포지토리의
+> synthesis 계층처럼 지식 그래프의 지속적·공유 최상위 계층입니다. **Curation**은
+> 그 *위에 있는 동적 렌즈*로, 워크스페이스/쿼리별로 L3/L4 노드를 선택·재조합하며
+> 절대 영속화되지 않습니다. (기존의 워크스페이스별 *고정 Exhibition 파일*
+> `04_Exhibitions/`은 이 동적 모델로 점진적으로 대체되고 있습니다.)
 
 ---
 

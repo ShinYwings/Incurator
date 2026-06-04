@@ -157,18 +157,6 @@ def validate_relation_endpoints(raw: str, parsed: BaseModel | None, ctx: Mapping
     return ValidationResult.passed() if not errors else ValidationResult(ok=False, errors=errors)
 
 
-def validate_exhibition_frontmatter(raw: str, parsed: BaseModel | None, ctx: Mapping[str, Any]) -> ValidationResult:
-    required = set(ctx.get("required_frontmatter") or [])
-    if not required:
-        return ValidationResult.passed()
-    data = _as_dict(parsed)
-    fm = data.get("frontmatter") if isinstance(data.get("frontmatter"), dict) else data
-    missing = sorted(required - set(fm))
-    if missing:
-        return ValidationResult.failed(f"exhibition frontmatter missing: {missing}")
-    return ValidationResult.passed()
-
-
 VALIDATORS: dict[str, Validator] = {
     "json_model": validate_json_model,
     "source_span_ids": validate_source_span_ids,
@@ -177,7 +165,6 @@ VALIDATORS: dict[str, Validator] = {
     "no_source_truth_pollution": validate_no_source_truth_pollution,
     "confidence_range": validate_confidence_range,
     "relation_endpoints": validate_relation_endpoints,
-    "exhibition_frontmatter": validate_exhibition_frontmatter,
 }
 
 

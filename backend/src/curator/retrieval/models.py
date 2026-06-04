@@ -16,7 +16,7 @@ __all__ = [
     "ROUTES",
 ]
 
-ROUTES = ("local", "global", "explore", "exhibition", "source-section")
+ROUTES = ("local", "global", "explore", "source-section")
 
 
 @dataclass
@@ -26,7 +26,7 @@ class QueryRequest:
     input_language: str = ""
     final_output_language: str = "English"
     workspace_path: str = ""
-    mode: str = "auto"  # auto | local | global | explore | exhibition | source-section
+    mode: str = "auto"  # auto | local | global | explore | source-section
     source_key: str = ""  # source id / relpath for source-section
     session_id: str | None = None
 
@@ -38,13 +38,15 @@ class QueryRequest:
 @dataclass
 class EvidenceItem:
     id: str
-    kind: str  # source_span | knowledge_unit | community_report | memory_path | qmd_hit | entity
+    # source_span | knowledge_unit | community_report | synthesis | memory_path | qmd_hit | entity
+    kind: str
     title: str
     text: str
     score: float = 0.0
     source_span_ids: list[str] = field(default_factory=list)
     community_report_id: str = ""
     memory_path_id: str = ""
+    synthesis_node_id: str = ""
 
 
 @dataclass
@@ -53,6 +55,7 @@ class EvidencePack:
     items: list[EvidenceItem] = field(default_factory=list)
     source_span_ids: list[str] = field(default_factory=list)
     community_report_ids: list[str] = field(default_factory=list)
+    synthesis_node_ids: list[str] = field(default_factory=list)
     memory_path_ids: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -88,6 +91,7 @@ class QueryResultV031:
     prompt_trace_ids: list[str] = field(default_factory=list)
     source_span_ids: list[str] = field(default_factory=list)
     community_report_ids: list[str] = field(default_factory=list)
+    synthesis_node_ids: list[str] = field(default_factory=list)
     memory_path_ids: list[str] = field(default_factory=list)
     insight_candidate_ids: list[str] = field(default_factory=list)
     input_language: str = ""

@@ -75,8 +75,9 @@ def test_advanced_command_groups_are_hidden_but_callable() -> None:
         assert name not in help_result.output
     assert re.search(r"│\s+sources\s+", help_result.output) is None
     assert re.search(r"│\s+update\s+", help_result.output) is None
-    assert re.search(r"│\s+refresh\s+", help_result.output) is not None
+    # `curate` and `refresh` (frozen-Exhibition commands) were removed in v0.3.1.
     assert re.search(r"│\s+curate\s+", help_result.output) is None
+    assert re.search(r"│\s+refresh\s+", help_result.output) is None
     assert re.search(r"│\s+source\s+", help_result.output) is not None
 
     for args in (
@@ -87,9 +88,7 @@ def test_advanced_command_groups_are_hidden_but_callable() -> None:
         ["testbed", "--help"],
         ["devices", "--help"],
         ["mcp", "--help"],
-        ["curate", "--help"],
         ["source", "--help"],
-        ["refresh", "--help"],
     ):
         result = runner.invoke(app, args)
         assert result.exit_code == 0

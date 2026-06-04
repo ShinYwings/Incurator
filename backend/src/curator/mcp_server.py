@@ -687,19 +687,16 @@ def build_server() -> FastMCP:
             "Explain that Curator workspace initialization is required for knowledge "
             "management, then present the question.\n"
             "  Step 3: After `curator_workspace_init` completes, call `search_curator` with "
-            "`workspace_path` to retrieve prior knowledge. "
-            "Do NOT call `curator_curate_workspace` or `curator_reindex` separately — "
-            "`curator_workspace_init` already runs both inline.\n\n"
+            "`workspace_path` to retrieve prior knowledge. For a curated evidence pack use "
+            "`curator_fetch_context`; for a synthesized answer use `curator_query`.\n\n"
             "SEARCH PROTOCOL:\n"
-            "  - Always pass `workspace_path` to `search_curator`.\n"
-            "  - If response has `needs_curation: true`, call `curator_curate_workspace` "
-            "then retry `search_curator`.\n"
+            "  - Always pass `workspace_path` to `search_curator` / `curator_fetch_context`.\n"
             "  - If response has `needs_initialization: true`, follow its `instructions` to start the interview.\n\n"
             "KNOWLEDGE UPDATE PROTOCOL:\n"
-            "  - Edit only EXH- nodes via `curator_update_node` (reindex runs automatically).\n"
-            "  - Add new insights via `curator_add_knowledge` (reindex runs automatically).\n"
+            "  - Propose corrections via `curator_propose_correction` (classified, source-truth-safe).\n"
+            "  - Add new insights via `curator_add_knowledge`.\n"
             "  - Call `curator_reindex` only after manually editing vault files outside MCP.\n\n"
-            "Layer prefixes: CTX- (01_Contexts), ATM- (02_Atoms), CON- (03_Concepts), EXH- (04_Exhibitions)."
+            "Layer prefixes: CTX- (01_Contexts), ATM- (02_Atoms), CON- (03_Concepts), SYN- (04_Synthesis)."
         ),
     )
 
@@ -1818,10 +1815,7 @@ def build_server() -> FastMCP:
         min_score: float = 0.6,
         workspace_path: str = "",
     ) -> dict[str, Any]:
-        """Search the Curator DAG.
-
-        IMPORTANT: If the response contains `needs_curation: true`, call
-        `curator_curate_workspace` first, then retry this search.
+        """Search the Curator DAG (derived qmd corpus over L1–L4 + synthesis).
 
         Args:
             query: Natural-language query.
@@ -1832,25 +1826,14 @@ def build_server() -> FastMCP:
             workspace_path: The workspace to scope the search to. Use if WORKSPACE_PATH env var is not set.
 
         Returns a dict with `hits` (each has `path`, `title`, `score`, `snippet`,
-        `body`), `count`, and optionally `needs_curation` with guidance.
+        `body`), `count`. For an answer (not raw hits) use `curator_query`; for the
+        curated evidence pack use `curator_fetch_context`.
         """
         ws_path_str = workspace_path or os.environ.get("WORKSPACE_PATH")
         paths = _resolve_paths(ws_path_str)
 
-        # Auto-sync: if there are pending sources, curate them synchronously first
-        from . import db as _db
-        if _db.get_pending_count(paths.state_db) > 0:
-            subprocess.run(
-                ["wiki", "curate", "--no-sync"],
-                cwd=str(paths.root),
-                check=False,
-                capture_output=True,
-                env={**os.environ, "VAULT_ROOT": str(paths.root)},
-            )
-
         # Load curate.yml if workspace_path or WORKSPACE_PATH is set
         from . import curate_yml as _cym
-        ws_exh = None  # resolved below if workspace is configured
         curate_spec = None
         if ws_path_str:
             ws_path = Path(ws_path_str).expanduser().resolve()
@@ -1880,50 +1863,9 @@ def build_server() -> FastMCP:
 
         base_query = query
         if curate_spec is not None:
-            # Apply confidence floor
+            # Apply confidence floor + boost query with domain/topic terms (KRS lens).
             min_score = max(min_score, curate_spec.min_confidence)
-            # Boost query with domain/topic terms
             query = curate_spec.boost_query(query)
-
-            # Resolve workspace Exhibition: pinned in curate.yml takes priority
-            from . import ingest_llm as _ingest_llm
-            ws_exh = None
-            if curate_spec.exhibition:
-                candidate = paths.exhibitions / f"{curate_spec.exhibition}.md"
-                ws_exh = candidate if candidate.exists() else None
-
-            if ws_exh is None:
-                ws_exh = _ingest_llm.find_workspace_exhibition(paths, curate_spec.project)
-
-            # PROACTIVE CURATION: If still no exhibition, run it now instead of asking the user
-            if ws_exh is None:
-                try:
-                    subprocess.run(
-                        ["wiki", "curate", "--workspace", ws_path_str, "--no-sync"],
-                        cwd=str(paths.root),
-                        check=False,
-                        capture_output=True,
-                        text=True,
-                        timeout=300,
-                        env={**os.environ, "VAULT_ROOT": str(paths.root)},
-                    )
-                    # Retry lookup
-                    ws_exh = _ingest_llm.find_workspace_exhibition(paths, curate_spec.project)
-                except Exception:
-                    pass
-
-            if ws_exh is None:
-                return {
-                    "needs_curation": True,
-                    "action_required": (
-                        "1. Ensure you have run `wiki add` on some sources. "
-                        "2. Call `curator_curate_workspace` manually to see detailed errors. "
-                        "3. Then retry `search_curator`."
-                    ),
-                    "workspace_path": ws_path_str,
-                    "hits": [],
-                    "count": 0,
-                }
 
         # Translate Korean queries to English for BM25/vector search
         from .llm import build_client
@@ -1960,28 +1902,17 @@ def build_server() -> FastMCP:
         except search.SearchBackendError as e:
             return {"error": f"qmd error: {e}", "hits": []}
 
-        hits = []
-        for hit in results.hits:
-            # Apply curate.yml min_confidence filter on Exhibition pages
-            if curate_spec is not None and hit.full_path.startswith(f"{consts.LAYER_L4}/"):
-                if round(hit.score, 4) < curate_spec.min_confidence:
-                    continue
-            hits.append({
+        hits = [
+            {
                 "path": hit.full_path,
                 "title": hit.title,
                 "score": round(hit.score, 4),
                 "snippet": hit.snippet,
                 "body": hit.full_content,
                 "docid": hit.docid,
-            })
-
-        # Append query context to workspace Exhibition (lightweight, no LLM)
-        if curate_spec is not None and hits and ws_exh is not None:
-            from .query import update_curation_page
-            try:
-                update_curation_page(paths, ws_exh, query, "", [])
-            except Exception:
-                pass
+            }
+            for hit in results.hits
+        ]
 
         return {
             "hits": hits,
@@ -2030,18 +1961,13 @@ def build_server() -> FastMCP:
         ws_path_str = workspace_path or os.environ.get("WORKSPACE_PATH", "")
         paths = _resolve_paths(ws_path_str)
 
-        workspace_id = Path(ws_path_str).name if ws_path_str else "default"
-
-        # Resolve workspace project name (for Exhibition scoping)
-        workspace_project: str | None = None
+        # Resolve workspace persona retrieval boost (KRS lens) when configured.
         query_boost_terms: list[str] | None = None
-        pinned_exhibition_id: str | None = None
         if ws_path_str:
             ws_p = Path(ws_path_str).expanduser().resolve()
             from . import curate_yml as _cym
             try:
                 spec = _cym.load_curate_spec(ws_p)
-                workspace_project = spec.project
                 if spec.persona:
                     persona_terms = [
                         spec.persona.domain,
@@ -2049,37 +1975,8 @@ def build_server() -> FastMCP:
                         *spec.persona.disambiguation_keywords,
                     ]
                     query_boost_terms = [term for term in persona_terms if term]
-                pinned_exhibition_id = spec.exhibition
             except Exception:
-                workspace_project = ws_p.name
-
-        # Check whether a cached Exhibition already answers this question.
-        # Cache key = sha256 prefix of (workspace_id + normalized question).
-        import hashlib as _hashlib
-        _norm_q = question.strip().lower()
-        cache_key = _hashlib.sha256(f"{workspace_id}:{_norm_q}".encode()).hexdigest()[:16]
-
-        if not force_new:
-            for _exh_file in sorted(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md"), reverse=True):
-                _page = page_writer.read_page(_exh_file)
-                if _page and _page.frontmatter.get("cache_key") == cache_key:
-                    _latency = int((_time.monotonic() - start) * 1000)
-                    _exh_id = _page.frontmatter.get("id", _exh_file.stem)
-                    _concepts = _page.frontmatter.get("core_concepts") or []
-                    return {
-                        "ok": True,
-                        "answer": _page.body.strip(),
-                        "exhibition_id": _exh_id,
-                        "cache_hit": True,
-                        "question": question,
-                        "trace": {
-                            "matched_concepts": _concepts,
-                            "source_ids": [],
-                            "source_paths": [],
-                            "latency_ms": _latency,
-                            "l3_complete": True,
-                        },
-                    }
+                pass
 
         # Build LLM client and run query pipeline
         from . import llm as _llm
@@ -2148,17 +2045,12 @@ def build_server() -> FastMCP:
                     limit=12,
                     min_score=0.35,
                     rerank=False,
-                    save_as=question[:60],
                     temperature=0.3,
                     scope="all",
                     classify_intent_first=False,
                     session_id=session_id,
-                    workspace_project=workspace_project,
                     workspace_path=ws_path_str or None,
-                    cache_key=cache_key,
                     query_boost_terms=query_boost_terms,
-                    pinned_exhibition_id=pinned_exhibition_id,
-                    ephemeral_exhibition=False,  # Deprecated in v0.3.1
                 )
         except Exception as e:
             return {"ok": False, "question": question, "error": f"Query pipeline error: {e}"}
@@ -2172,53 +2064,30 @@ def build_server() -> FastMCP:
                 "error": result.error or "Query returned no answer",
             }
 
-        # Extract provenance from hits
+        # Extract provenance from hits (sessionless: no Exhibition file is written).
         matched_concepts: list[str] = []
         source_paths: list[str] = []
-        source_ids: list[int] = []
         for hit in result.hits:
             if hit.full_path.startswith(f"{consts.LAYER_L3}/"):
                 con_id = Path(hit.full_path).stem
                 if con_id not in matched_concepts:
                     matched_concepts.append(con_id)
-            elif hit.full_path.startswith(f"{consts.LAYER_L4}/"):
-                hit_path = paths.collections / hit.full_path
-                hit_page = page_writer.read_page(hit_path)
-                if hit_page:
-                    for raw_con in hit_page.frontmatter.get("core_concepts") or []:
-                        if not isinstance(raw_con, str):
-                            continue
-                        con_id = Path(_normalize_link(raw_con)).stem
-                        if con_id.startswith(consts.PREFIX_L3) and con_id not in matched_concepts:
-                            matched_concepts.append(con_id)
-            sp = hit.full_path
-            if sp not in source_paths:
-                source_paths.append(sp)
-
-        exh_id = Path(result.saved_path).stem if result.saved_path else ""
-
-        # Update cache_key on the saved Exhibition so future cache lookups work
-        if exh_id and result.saved_path:
-            _exh_path = paths.collections / result.saved_path
-            if _exh_path.exists():
-                _page = page_writer.read_page(_exh_path)
-                if _page:
-                    _page.frontmatter["cache_key"] = cache_key
-                    _page.frontmatter["workspace_id"] = workspace_id
-                    if ws_path_str:
-                        _page.frontmatter["workspace_path"] = ws_path_str
-                    page_writer.write_page(_exh_path, _page.to_markdown())
+            if hit.full_path not in source_paths:
+                source_paths.append(hit.full_path)
 
         return {
             "ok": True,
             "answer": result.answer,
-            "exhibition_id": exh_id,
             "cache_hit": False,
             "question": question,
             "trace": {
                 "matched_concepts": matched_concepts,
-                "source_ids": source_ids,
+                "source_ids": [],
                 "source_paths": source_paths,
+                "synthesis_node_ids": result.synthesis_node_ids,
+                "community_report_ids": result.community_report_ids,
+                "trace_id": result.trace_id,
+                "route": result.route,
                 "latency_ms": latency_ms,
                 "l3_complete": l3_complete,
             },
@@ -2300,61 +2169,6 @@ def build_server() -> FastMCP:
             "exhibition_id": exh_id,
             "promoted_to": wiki_path,
         }
-
-    # ------------------------------------------------------------------
-    # curator_curate_workspace — create or refresh the workspace Exhibition
-    # ------------------------------------------------------------------
-
-    @mcp.tool()
-    def curator_curate_workspace(workspace_path: str = "") -> dict[str, Any]:
-        """Create or refresh the L4 Exhibition for a workspace, then reindex.
-
-        Call this when `search_curator` returns `needs_curation: true`, or after
-        `curator_update_node` / `curator_add_knowledge` to stage a fresh Exhibition
-        from the updated L3 Concepts.
-
-        Args:
-            workspace_path: Absolute path to workspace containing curate.yml.
-                            Defaults to the WORKSPACE_PATH environment variable.
-
-        Returns `{'ok': True, 'exhibition': 'EXH-xxxx.md'}` on success.
-        """
-        ws = workspace_path or os.environ.get("WORKSPACE_PATH", "")
-        if not ws:
-            return {"error": "workspace_path required (or set WORKSPACE_PATH env var)"}
-
-        paths = _resolve_paths(ws)
-        try:
-            result = subprocess.run(
-                ["wiki", "curate", "--workspace", ws, "--no-sync"],
-                cwd=str(paths.root),
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=300,
-                env={**os.environ, "VAULT_ROOT": str(paths.root)},
-            )
-        except subprocess.TimeoutExpired as exc:
-            return {
-                "ok": False,
-                "error": "wiki curate timed out after 300 seconds",
-                "stdout": (exc.stdout or "")[-4000:] if isinstance(exc.stdout, str) else "",
-                "stderr": (exc.stderr or "")[-4000:] if isinstance(exc.stderr, str) else "",
-            }
-        if result.returncode != 0:
-            return {"error": result.stderr.strip() or "wiki curate failed"}
-
-        from . import ingest_llm as _ingest_llm
-        from . import curate_yml as _cym
-        spec = _cym.load_curate_spec(Path(ws).expanduser().resolve())
-        project = spec.project if spec else ws
-
-        # find_workspace_exhibition is now usually sufficient since project name
-        # is synchronized with curate.yml.
-        ws_exh = _ingest_llm.find_workspace_exhibition(paths, project)
-
-        # No need to manually update_index here as 'wiki curate' already did it.
-        return {"ok": True, "exhibition": ws_exh.name if ws_exh else None}
 
     # ------------------------------------------------------------------
     # curator_check_workspace — validate workspace configuration health
@@ -3621,6 +3435,31 @@ def build_server() -> FastMCP:
                 "route": policy.default_route}
 
     @mcp.tool()
+    def curator_fetch_context(query: str, workspace_path: str = "") -> dict[str, Any]:
+        """Fetch curated prior knowledge (evidence pack) for a query + workspace.
+
+        This is curation as a dynamic, workspace-KRS-biased lens over the refined
+        DAG — NOT a frozen Exhibition. Returns cited evidence (source spans,
+        knowledge, community reports, memory paths) WITHOUT a backend-synthesized
+        answer, so a reasoning agent's own LLM can ground on it. Use this (not
+        curator_query) when your agent does its own synthesis.
+        """
+        from .llm import build_client
+        from . import config as _cfg
+        from .retrieval import QueryOrchestrator, QueryRequest
+        paths = _resolve_paths(workspace_path)
+        client = build_client(_cfg.load_config(paths))
+        try:
+            return QueryOrchestrator(paths, client).fetch_context(
+                QueryRequest(question=query, workspace_path=workspace_path, mode="auto")
+            )
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    @mcp.tool()
     def curator_explore(query: str, workspace_path: str = "") -> dict[str, Any]:
         """Explore-mode query: discover connections + provisional insight candidates."""
         from .llm import build_client
@@ -3639,6 +3478,7 @@ def build_server() -> FastMCP:
                 pass
         return {
             "ok": res.ok, "answer": res.answer, "route": res.route, "trace_id": res.trace_id,
+            "synthesis_node_ids": res.synthesis_node_ids,
             "memory_path_ids": res.memory_path_ids,
             "insight_candidate_ids": res.insight_candidate_ids,
             "prompt_trace_ids": res.prompt_trace_ids, "warnings": res.warnings,

@@ -288,11 +288,17 @@ v0.3.1 큐레이션-네이티브 컴파일러를 노출하는 도구들입니다
 - **파라미터**: `workspace_path`.
 - **반환**: `plan_id`(`PLAN-…`), `workspace_id`, `route`.
 
+#### `curator_fetch_context`
+
+- **역할**: **큐레이션된 증거 팩**을 반환합니다 — 에이전트 자신의 추론 LLM이 근거로 삼아야 할, 워크스페이스 KRS로 편향된 증거 선택을 **합성된 답변 없이** 제공합니다. 이는 고정된 Exhibition이 아니라 *라이브 DAG 위의 동적 렌즈*로서의 큐레이션이며, 자체 합성을 수행하는 추론 에이전트(예: Obsidian 에이전트)의 1차 surface입니다. 광범위한 질문의 경우 팩은 공유 **L4 Synthesis** 노드를 앞세웁니다.
+- **파라미터**: `query`, `workspace_path`(선택).
+- **반환**: `route`, `trace_id`(`QTR-…`), `workspace_id`, `evidence`(각 항목은 `kind` — `synthesis` | `community_report` | `entity` | `source_span` | `memory_path` | `qmd_hit` — 와 `id`/`title`/`text`/`score` 및 출처 id 포함), `source_span_ids`, `community_report_ids`, `synthesis_node_ids`, `memory_path_ids`, `warnings`. 의도적으로 `answer` 필드는 **없습니다**.
+
 #### `curator_explore`
 
-- **역할**: 쿼리 오케스트레이터의 **explore** 라우트 실행. 비자명한 연결을 발견하고 HippoRAG식 메모리 경로를 기록하며 잠정 인사이트 후보를 생성합니다. DB 그래프와 파생 `.curator/Collections` 코퍼스에 대한 qmd 검색을 결합합니다.
+- **역할**: 쿼리 오케스트레이터의 **explore** 라우트 실행. 비자명한 연결을 발견하고 HippoRAG식 메모리 경로를 기록하며 잠정 인사이트 후보를 생성합니다. 공유 L4 synthesis 노드 + 커뮤니티 리포트로 primer를 구성하고, DB 그래프와 파생 `.curator/Collections` 코퍼스에 대한 qmd 검색을 결합합니다.
 - **파라미터**: `query`, `workspace_path`(선택).
-- **반환**: `answer`, `route`, `trace_id`(`QTR-…`), `memory_path_ids`, `insight_candidate_ids`, `prompt_trace_ids`, `warnings`.
+- **반환**: `answer`, `route`, `trace_id`(`QTR-…`), `synthesis_node_ids`, `memory_path_ids`, `insight_candidate_ids`, `prompt_trace_ids`, `warnings`.
 
 #### `curator_get_prompt_trace`
 

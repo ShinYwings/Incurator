@@ -415,16 +415,6 @@ export class ChatSidebarView extends ItemView {
       const jobsPath = join(vaultRoot, ".curator", "runtime", "jobs.json");
       const statusPath = join(vaultRoot, ".curator", "runtime", "status.json");
 
-      if (existsSync(jobsPath)) {
-        const raw = readFileSync(jobsPath, "utf8");
-        const data = JSON.parse(raw);
-        if (data.running && data.running.length > 0) {
-          jobText = `⚡ ${data.running.length} running`;
-        } else if (data.queued && data.queued.length > 0) {
-          jobText = `⏳ ${data.queued.length} queued`;
-        }
-      }
-
       let llmText = "Backend: Unknown";
       if (existsSync(statusPath)) {
         const raw = readFileSync(statusPath, "utf8");
@@ -443,8 +433,7 @@ export class ChatSidebarView extends ItemView {
       }
 
       this.statusBarEl.empty();
-      
-      let hasJobs = false;
+
       if (existsSync(jobsPath)) {
         const raw = readFileSync(jobsPath, "utf8");
         const data = JSON.parse(raw);
@@ -452,15 +441,13 @@ export class ChatSidebarView extends ItemView {
           const spinner = this.statusBarEl.createSpan({ cls: "ai-agent-spin" });
           setIcon(spinner, "loader");
           this.statusBarEl.createSpan({ text: ` ${data.running.length} running | ` });
-          hasJobs = true;
         } else if (data.queued && data.queued.length > 0) {
           const spinner = this.statusBarEl.createSpan({ cls: "ai-agent-spin" });
           setIcon(spinner, "loader");
           this.statusBarEl.createSpan({ text: ` ${data.queued.length} queued | ` });
-          hasJobs = true;
         }
       }
-      
+
       this.statusBarEl.createSpan({ text: llmText });
     } catch (e) {
       // fail silently

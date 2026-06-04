@@ -11,7 +11,14 @@ import uuid
 
 import yaml
 
-__all__ = ["new_atom_id", "new_concept_id", "emit_atom_markdown", "emit_concept_markdown"]
+__all__ = [
+    "new_atom_id",
+    "new_concept_id",
+    "new_synthesis_id",
+    "emit_atom_markdown",
+    "emit_concept_markdown",
+    "emit_synthesis_markdown",
+]
 
 
 def new_atom_id() -> str:
@@ -20,6 +27,10 @@ def new_atom_id() -> str:
 
 def new_concept_id() -> str:
     return f"CON-{uuid.uuid4().hex[:8]}"
+
+
+def new_synthesis_id() -> str:
+    return f"SYN-{uuid.uuid4().hex[:8]}"
 
 
 def _frontmatter(data: dict) -> str:
@@ -88,4 +99,32 @@ def emit_concept_markdown(report: dict, concept_id: str) -> str:
             if isinstance(f, dict) and f.get("summary"):
                 parts.append(f"- {f['summary']}")
         parts.append("")
+    return "\n".join(parts)
+
+
+def emit_synthesis_markdown(node: dict) -> str:
+    """Render a SYN page (the projection of one synthesis_node).
+
+    ``node`` is a ``synthesis_nodes`` row (with id lists decoded). The page is a
+    derived qmd-corpus rendering of a shared, corpus-wide synthesized insight plus
+    its concept/report/source provenance per SCHEMA_v0.3.1 §15.
+    """
+    fm: dict = {
+        "id": node["id"],
+        "type": "synthesis",
+        "community_report_ids": list(node.get("community_report_ids") or []),
+        "concept_ids": list(node.get("concept_ids") or []),
+        "source_span_ids": list(node.get("source_span_ids") or []),
+        "confidence_score": float(node.get("confidence") or 0.0),
+    }
+    prompt_run_id = node.get("prompt_run_id")
+    if prompt_run_id:
+        fm["prompt_trace_ids"] = [prompt_run_id]
+
+    title = node.get("title") or "Synthesis"
+    statement = node.get("statement") or ""
+    full = node.get("full_content") or ""
+    parts = [f"{_frontmatter(fm)}", f"# {title}", "", statement, ""]
+    if full:
+        parts += ["## Synthesis", "", full, ""]
     return "\n".join(parts)

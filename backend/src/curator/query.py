@@ -1,13 +1,13 @@
-"""Query pipeline: search → synthesize → (optionally) save back as a page.
+"""Query pipeline: search → synthesize → return answer + trace.
 
 Flow:
   1. Call search.query() to get top-K matching Curator pages.
   2. Build a synthesis prompt with the matches as context.
   3. Stream the LLM's answer via the active client.
   4. Provide a streaming answer using markdown citations.
-  5. Optionally save the answer as
-     `.curator/Collections/04_Exhibitions/EXH-<UUID8>.md` and update
-     index.md + log.md.
+
+Sessionless: a query returns an answer + trace; it does NOT write any vault file.
+Durable human artifacts come only from an explicit promotion to ``02_Wiki/``.
 
 Callbacks let the CLI render progress (search phase, synthesis streaming).
 """
@@ -15,15 +15,10 @@ Callbacks let the CLI render progress (search phase, synthesis streaming).
 from __future__ import annotations
 from . import constants as consts
 
-import uuid
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from pathlib import Path
 
 from . import config as cfg
-from . import constants as consts
-from . import db
 from . import page_writer
 from . import prompts
 from . import search
@@ -49,7 +44,6 @@ class QueryResult:
     question: str
     answer: str = ""
     hits: list[search.SearchHit] = field(default_factory=list)
-    saved_path: str | None = None   # if --save-as was used
     session_id: str | None = None
     english_query: str = ""
     input_language: str = ""
@@ -61,6 +55,7 @@ class QueryResult:
     prompt_trace_ids: list[str] = field(default_factory=list)
     source_span_ids: list[str] = field(default_factory=list)
     community_report_ids: list[str] = field(default_factory=list)
+    synthesis_node_ids: list[str] = field(default_factory=list)
     memory_path_ids: list[str] = field(default_factory=list)
     insight_candidate_ids: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -96,8 +91,6 @@ class QueryCallbacks:
 
     def on_stream_chunk(self, chunk: str) -> None: ...
 
-    def on_saved(self, saved_path: str) -> None: ...
-
     def on_complete(self, result: QueryResult) -> None: ...
 
     def on_error(self, error: str) -> None: ...
@@ -114,14 +107,13 @@ from the Curator's DAG knowledge base under `.curator/Collections/`.
 Rules:
 1. Base your answer STRICTLY on the provided pages and excerpts below.
    Do not invent facts or speculate beyond what the sources say.
-3. **Exhibition Authority**: Nodes prefixed with `EXH-` (Exhibitions) represent human-verified or agent-refined "final truths." If information in an `EXH-` node conflicts with data in a `CTX-`, `ATM-`, or `CON-` node, **ALWAYS prioritize the Exhibition's content** as the most authoritative.
-4. **Link-Based Reasoning**: Use the `[[wikilinks]]` to trace provenance. If a Concept (`CON-`) is used, mention its supporting Exhibition if available.
+2. **Link-Based Reasoning**: Use the `[[wikilinks]]` to trace provenance, using the
    layer prefix exactly as shown in the source headers, e.g.
    [[01_Contexts/CTX-a1b2c3d4]], [[02_Atoms/ATM-9f8e7d6c]],
-   [[03_Concepts/CON-12345678]], [[04_Exhibitions/EXH-abcdef01]].
+   [[03_Concepts/CON-12345678]], [[04_Synthesis/SYN-abcdef01]].
 3. Prefer citing L2 Atoms for factual claims, L3 Concepts for thematic groupings,
-   and L4 Exhibitions for cross-domain conclusions. Trace back to L2 if a higher
-   layer's confidence_score is below 0.90.
+   and L4 Synthesis nodes for cross-cutting conclusions. Trace back to L2 if a
+   higher layer's confidence_score is below 0.90.
 4. If the sources don't contain enough information to answer confidently,
    say so explicitly and identify which layer is missing.
 5. Be concise but substantive. Write in clean markdown.
@@ -202,190 +194,6 @@ def _node_path_from_target(target: str) -> str:
     cleaned = cleaned.split("|", 1)[0].strip()
     import re as _re
     return _re.sub(r"^/?qmd://[^/]+/", "", cleaned).lstrip("/")
-
-
-def _concept_paths_for_atom(paths: cfg.WikiPaths, atom_id: str) -> list[str]:
-    found: list[str] = []
-    if not paths.concepts.exists():
-        return found
-    for concept_path in sorted(paths.concepts.glob(f"{consts.PREFIX_L3}-*.md")):
-        page = page_writer.read_page(concept_path)
-        if not page:
-            continue
-        targets = page_writer.extract_relation_targets(page.body, prefix=f"{consts.LAYER_L2}/")
-        if f"{consts.LAYER_L2}/{atom_id}" in targets:
-            found.append(f"{consts.LAYER_L3}/{concept_path.stem}")
-    return found
-
-
-def _atom_ids_for_context(paths: cfg.WikiPaths, context_id: str) -> list[str]:
-    found: list[str] = []
-    if not paths.atoms.exists():
-        return found
-    for atom_path in sorted(paths.atoms.glob(f"{consts.PREFIX_L2}-*.md")):
-        page = page_writer.read_page(atom_path)
-        if not page:
-            continue
-        raw_parent = page.frontmatter.get("parent_source", [])
-        parents = raw_parent if isinstance(raw_parent, list) else [raw_parent]
-        parent_ids = {
-            _node_path_from_target(str(parent)).rsplit("/", 1)[-1]
-            for parent in parents
-            if parent
-        }
-        if context_id in parent_ids:
-            found.append(atom_path.stem)
-    return found
-
-
-def _derive_core_concepts(paths: cfg.WikiPaths, answer: str, hits: list[search.SearchHit]) -> list[str]:
-    """Resolve query citations/hits to L3 Concept paths for valid L4 metadata."""
-    core_concepts: list[str] = []
-    atom_ids: list[str] = []
-    context_ids: list[str] = []
-
-    targets = [hit.full_path for hit in hits]
-    targets.extend(page_writer.extract_wikilink_targets(answer))
-
-    for target in targets:
-        cleaned = _node_path_from_target(target)
-        if cleaned.startswith(f"{consts.LAYER_L3}/") and cleaned not in core_concepts:
-            core_concepts.append(cleaned)
-        elif cleaned.startswith(f"{consts.LAYER_L4}/"):
-            exh_id = cleaned.rsplit("/", 1)[-1]
-            exh_page = page_writer.read_page(paths.exhibitions / f"{exh_id}.md")
-            if exh_page:
-                raw_concepts = exh_page.frontmatter.get("core_concepts") or []
-                for raw_concept in raw_concepts:
-                    if not isinstance(raw_concept, str):
-                        continue
-                    concept_path = _node_path_from_target(raw_concept)
-                    if concept_path.startswith(f"{consts.LAYER_L3}/") and concept_path not in core_concepts:
-                        core_concepts.append(concept_path)
-        elif cleaned.startswith(f"{consts.LAYER_L2}/"):
-            atom_id = cleaned.rsplit("/", 1)[-1]
-            if atom_id not in atom_ids:
-                atom_ids.append(atom_id)
-        elif cleaned.startswith(f"{consts.LAYER_L1}/"):
-            context_id = cleaned.rsplit("/", 1)[-1]
-            if context_id not in context_ids:
-                context_ids.append(context_id)
-
-    for context_id in context_ids:
-        for atom_id in _atom_ids_for_context(paths, context_id):
-            if atom_id not in atom_ids:
-                atom_ids.append(atom_id)
-
-    for atom_id in atom_ids:
-        for concept_path in _concept_paths_for_atom(paths, atom_id):
-            if concept_path not in core_concepts:
-                core_concepts.append(concept_path)
-
-    return core_concepts
-
-
-def _save_curation_page(
-    paths: cfg.WikiPaths,
-    question: str,
-    answer: str,
-    title: str,
-    hits: list[search.SearchHit],
-    session_id: str | None = None,
-    workspace_project: str | None = None,
-    workspace_path: str | None = None,
-    workspace_id: str = "default",
-    cache_key: str | None = None,
-    ephemeral: bool = False,
-) -> str:
-    """Write the answer to `.curator/Collections/04_Exhibitions/EXH-<UUID8>.md`,
-    rebuild index, append log.
-
-    Returns the relative path (relative to `.curator/Collections/`) of the
-    saved page.
-    """
-    import hashlib as _hashlib
-
-    exh_id = f"{consts.PREFIX_L4}-{uuid.uuid4().hex[:8]}"
-    qry_id = session_id if session_id else f"QRY-{uuid.uuid4().hex[:8]}"
-    today = page_writer.today_iso()
-
-    core_concepts = _derive_core_concepts(paths, answer, hits)
-    if not core_concepts:
-        raise ValueError("Cannot save query Exhibition: no related L3 Concepts were found.")
-
-    if cache_key is None:
-        cache_key = _hashlib.sha256(question.encode()).hexdigest()[:16]
-
-    display_title = (title or question).strip()
-    if len(display_title) > 80:
-        display_title = display_title[:77] + "..."
-
-    parsed = page_writer.parse_page(answer.strip())
-    base_frontmatter: dict = {
-        "id": exh_id,
-        "type": consts.TYPE_L4,
-        "core_concepts": core_concepts,
-        "confidence_score": 0.70,
-        "last_updated": today,
-        "workspace_id": workspace_id,
-        "query_session": qry_id,
-        "exhibition_origin": "query_gen",
-        "ephemeral": ephemeral,
-        "question": question,
-        "cache_key": cache_key,
-        "is_verified_by_human": False,
-    }
-    if workspace_path:
-        base_frontmatter["workspace_path"] = workspace_path
-    if workspace_project:
-        base_frontmatter["workspace"] = workspace_project
-
-    if not parsed.frontmatter:
-        parsed.frontmatter = base_frontmatter
-        parsed.body = f"# {display_title}\n\n{answer.strip()}"
-    else:
-        parsed.frontmatter.update(base_frontmatter)
-
-    final_path = paths.exhibitions / f"{exh_id}.md"
-    page_writer.write_page(final_path, parsed.to_markdown())
-
-    page_writer.rebuild_index(paths, today)
-    page_writer.append_log_entry(
-        paths,
-        today,
-        "query",
-        display_title,
-        [
-            f"saved: [[{consts.LAYER_L4}/{exh_id}]]",
-            f"query_session: {session_id}" if session_id else "query_session: none",
-            f"consulted: {len(hits)} page(s)",
-        ],
-    )
-
-    return f"{consts.LAYER_L4}/{exh_id}.md"
-
-
-def update_curation_page(
-    paths: cfg.WikiPaths,
-    exh_path: Path,
-    question: str,
-    answer: str,
-    hits: list[search.SearchHit],
-) -> None:
-    """Append a new Q&A turn to an existing session Exhibition and refresh metadata."""
-    today = page_writer.today_iso()
-    page = page_writer.read_page(exh_path)
-    if page is None:
-        return
-    new_concepts = _derive_core_concepts(paths, answer, hits)
-    existing = page.frontmatter.get("core_concepts") or []
-    merged = list(dict.fromkeys(existing + new_concepts))
-    page.frontmatter["core_concepts"] = merged
-    page.frontmatter["last_updated"] = today
-    if answer.strip():
-        page.body = page.body.rstrip() + f"\n\n## Follow-up: {question}\n\n{answer.strip()}"
-    page_writer.write_page(exh_path, page.to_markdown())
-    page_writer.rebuild_index(paths, today)
 
 
 def translate_to_english(client: OllamaClient, question: str) -> str:
@@ -543,6 +351,7 @@ def _run_query_orchestrated(
         prompt_trace_ids=res.prompt_trace_ids,
         source_span_ids=res.source_span_ids,
         community_report_ids=res.community_report_ids,
+        synthesis_node_ids=res.synthesis_node_ids,
         memory_path_ids=res.memory_path_ids,
         insight_candidate_ids=res.insight_candidate_ids,
         warnings=res.warnings,
@@ -564,17 +373,12 @@ def run_query(
     limit: int = 8,
     min_score: float = 0.6,
     rerank: bool = True,
-    save_as: str | None = None,
     temperature: float = 0.3,
     scope: str = "all",
     classify_intent_first: bool = True,
     session_id: str | None = None,
-    workspace_project: str | None = None,
     workspace_path: str | None = None,
-    cache_key: str | None = None,
     query_boost_terms: list[str] | None = None,
-    pinned_exhibition_id: str | None = None,
-    ephemeral_exhibition: bool = False,
     english_query: str | None = None,
     input_language: str = "",
     final_output_language: str = "",
@@ -687,10 +491,10 @@ def run_query(
     # 1. Search the single Curator collection
     callbacks.on_searching()
     layer_prefix = {
-        "contexts":    f"{consts.LAYER_L1}/",
-        "atoms":       f"{consts.LAYER_L2}/",
-        "concepts":    f"{consts.LAYER_L3}/",
-        "exhibitions": f"{consts.LAYER_L4}/",
+        "contexts":  f"{consts.LAYER_L1}/",
+        "atoms":     f"{consts.LAYER_L2}/",
+        "concepts":  f"{consts.LAYER_L3}/",
+        "synthesis": f"{consts.LAYER_SYN}/",
     }.get(scope)
 
     def _search_for(query_text: str) -> search.SearchResults:
@@ -732,8 +536,7 @@ def run_query(
             if semantic_terms:
                 results = _search_for(" ".join(semantic_terms))
 
-        # Prioritize Exhibitions (L4) as the primary source of truth in the synthesis context
-        results.hits.sort(key=lambda h: (not h.full_path.startswith(f"{consts.LAYER_L4}/"), -h.score))
+        results.hits.sort(key=lambda h: -h.score)
     except search.QmdNotInstalled as e:
         result = QueryResult(
             question=question,
@@ -779,14 +582,6 @@ def run_query(
     callbacks.on_synthesizing()
     agent_context = curator_persona.get("text", "")
 
-    pinned_content = ""
-    if pinned_exhibition_id:
-        pinned_path = paths.exhibitions / f"{pinned_exhibition_id}.md"
-        if pinned_path.exists():
-            page = page_writer.read_page(pinned_path)
-            if page:
-                pinned_content = f"## Pinned Workspace Exhibition ({pinned_exhibition_id})\n{page.body}\n\n"
-
     synthesis_user_content = _build_synthesis_user_prompt(
         question,
         results,
@@ -794,8 +589,6 @@ def run_query(
         input_language=input_language,
         final_output_language=resolved_final_output_language,
     )
-    if pinned_content:
-        synthesis_user_content = f"{pinned_content}{synthesis_user_content}"
 
     if agent_context:
         synthesis_user_content = f"## Agent Context\n{agent_context}\n\n{synthesis_user_content}"
@@ -843,45 +636,13 @@ def run_query(
 
     answer = page_writer.strip_llm_noise("".join(answer_parts))
 
-    # 3. Optionally save as a synthesis page
-    saved_path: str | None = None
-    if save_as:
-        try:
-            saved_path = _save_curation_page(
-                paths,
-                question,
-                answer,
-                save_as,
-                results.hits,
-                session_id=session_id,
-                workspace_project=workspace_project,
-                workspace_path=workspace_path,
-                cache_key=cache_key,
-                ephemeral=ephemeral_exhibition,
-            )
-            callbacks.on_saved(saved_path)
-        except OSError as e:
-            result = QueryResult(
-                question=question,
-                answer=answer,
-                hits=results.hits,
-                session_id=session_id,
-                english_query=base_search_question,
-                input_language=input_language,
-                final_output_language=resolved_final_output_language,
-                error=f"Failed to save synthesis page: {e}",
-            )
-            callbacks.on_error(result.error)
-            return result
-        except ValueError:
-            # Skip saving silently if no L3 Concepts were found, preserving the query answer.
-            pass
-
+    # Sessionless Q&A returns answer + trace only; no Exhibition file is written
+    # (v0.3.1: curation is a dynamic lens, not a frozen artifact). Durable human
+    # artifacts come only from explicit 02_Wiki/ promotion.
     result = QueryResult(
         question=question,
         answer=answer,
         hits=results.hits,
-        saved_path=saved_path,
         session_id=session_id,
         english_query=base_search_question,
         input_language=input_language,

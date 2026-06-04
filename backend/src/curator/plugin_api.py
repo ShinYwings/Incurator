@@ -6,7 +6,6 @@ functions, and the MCP server can be migrated to the same functions later.
 
 from __future__ import annotations
 
-import hashlib
 import time
 import uuid
 from pathlib import Path
@@ -525,58 +524,29 @@ def curator_query(
     final_output_language: str = "",
 ) -> dict[str, Any]:
     start = time.monotonic()
-    workspace_id = Path(workspace_path).name if workspace_path else "default"
     effective_final_output_language = final_output_language or input_language or "same_as_input"
 
-    workspace_project: str | None = None
     query_boost_terms: list[str] | None = None
-    pinned_exhibition_id: str | None = None
     if workspace_path:
+        from . import curate_yml
+
         try:
-            from . import curate_yml
-
             spec = curate_yml.load_curate_spec(Path(workspace_path).expanduser().resolve())
-            workspace_project = spec.project
-            if spec.persona:
-                query_boost_terms = [
-                    term
-                    for term in [
-                        spec.persona.domain,
-                        spec.persona.subdomain,
-                        *spec.persona.disambiguation_keywords,
-                    ]
-                    if term
-                ]
-            pinned_exhibition_id = spec.exhibition
         except Exception:
-            workspace_project = Path(workspace_path).name
-
-    # Include the resolved output language so the same normalized question asked
-    # in different languages does not collide and return a stale-language answer.
-    cache_key = hashlib.sha256(
-        f"{workspace_id}:{question.strip().lower()}:{effective_final_output_language}".encode()
-    ).hexdigest()[:16]
-    if not force_new:
-        for exh_file in sorted(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md"), reverse=True):
-            page = page_writer.read_page(exh_file)
-            if page and page.frontmatter.get("cache_key") == cache_key:
-                return {
-                    "ok": True,
-                    "answer": page.body.strip(),
-                    "exhibition_id": page.frontmatter.get("id", exh_file.stem),
-                    "cache_hit": True,
-                    "question": question,
-                    "input_language": input_language,
-                    "english_query": english_query,
-                    "final_output_language": effective_final_output_language,
-                    "trace": {
-                        "matched_concepts": page.frontmatter.get("core_concepts") or [],
-                        "source_ids": [],
-                        "source_paths": [],
-                        "latency_ms": int((time.monotonic() - start) * 1000),
-                        "l3_complete": True,
-                    },
-                }
+            spec = None
+        if spec is not None and spec.persona:
+            # A real workspace with curate.yml: apply its persona retrieval boost.
+            query_boost_terms = [
+                term
+                for term in [
+                    spec.persona.domain,
+                    spec.persona.subdomain,
+                    *spec.persona.disambiguation_keywords,
+                ]
+                if term
+            ]
+        # Vault-wide chat (no curate.yml) resolves to default with no boost — never
+        # error (SYSTEM_BEHAVIOR §9: no ancestor curate.yml → workspace_id=default).
 
     try:
         config = cfg.load_config(paths)
@@ -630,17 +600,12 @@ def curator_query(
                 limit=12,
                 min_score=0.35,
                 rerank=False,
-                save_as=question[:60],
                 temperature=0.3,
                 scope="all",
                 classify_intent_first=False,
                 session_id=session_id,
-                workspace_project=workspace_project,
                 workspace_path=workspace_path or None,
-                cache_key=cache_key,
                 query_boost_terms=query_boost_terms,
-                pinned_exhibition_id=pinned_exhibition_id,
-                ephemeral_exhibition=False,  # Deprecated in v0.3.1
                 english_query=english_query or None,
                 input_language=input_language,
                 final_output_language=effective_final_output_language,
@@ -672,36 +637,13 @@ def curator_query(
             con_id = Path(hit.full_path).stem
             if con_id not in matched_concepts:
                 matched_concepts.append(con_id)
-        elif hit.full_path.startswith(f"{consts.LAYER_L4}/"):
-            hit_page = page_writer.read_page(paths.collections / hit.full_path)
-            if hit_page:
-                for raw_con in hit_page.frontmatter.get("core_concepts") or []:
-                    if not isinstance(raw_con, str):
-                        continue
-                    con_id = Path(_normalize_link(raw_con)).stem
-                    if con_id.startswith(consts.PREFIX_L3) and con_id not in matched_concepts:
-                        matched_concepts.append(con_id)
         if hit.full_path not in source_paths:
             source_paths.append(hit.full_path)
 
-    exh_id = Path(result.saved_path).stem if result.saved_path else ""
-    if exh_id and result.saved_path:
-        exh_path = paths.collections / result.saved_path
-        page = page_writer.read_page(exh_path)
-        if page:
-            page.frontmatter["cache_key"] = cache_key
-            page.frontmatter["workspace_id"] = workspace_id
-            # Language-bridge fields are response/trace-only; never persist them
-            # into the saved EXH frontmatter (a stale final_output_language would
-            # otherwise force later questions into the earlier language).
-            if workspace_path:
-                page.frontmatter["workspace_path"] = workspace_path
-            page_writer.write_page(exh_path, page.to_markdown())
-
+    # Sessionless: no Exhibition file is written; return the answer + trace only.
     return {
         "ok": True,
         "answer": result.answer,
-        "exhibition_id": exh_id,
         "cache_hit": False,
         "question": question,
         "input_language": input_language,
@@ -711,6 +653,10 @@ def curator_query(
             "matched_concepts": matched_concepts,
             "source_ids": [],
             "source_paths": source_paths,
+            "synthesis_node_ids": result.synthesis_node_ids,
+            "community_report_ids": result.community_report_ids,
+            "trace_id": result.trace_id,
+            "route": result.route,
             "latency_ms": int((time.monotonic() - start) * 1000),
             "l3_complete": l3_complete,
         },

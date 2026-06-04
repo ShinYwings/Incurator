@@ -355,59 +355,50 @@ Rules:
   `noop=true`, `updated=false`, and `propagation.llm_calls=0` without invoking
   the LLM or rebuilding routing tables.
 
-## 9. Query-Time Exhibition Behavior
+## 9. Sessionless Query Behavior (frozen Exhibitions removed)
 
-`curator_query(question, workspace_id, force_new=false)` is the v0.2.2 MCP entry
-point for sidebar-style concept-grounded answers after L3 exists.
+`curator_query(question, workspace_path)` is the MCP entry point for sidebar-style
+answers; `curator_fetch_context(question, workspace_path)` is the evidence-only
+surface for reasoning agents; `wiki query` is the CLI surface. All are
+**sessionless**: they return an answer (or evidence pack) plus a `QTR-` trace and
+write **no** vault file. The v0.2.x query-generated/ephemeral Exhibition and its
+answer-cache are removed (§15, SCHEMA §5/§15).
 
 Expected behavior:
 
-1. Resolve `workspace_id`.
-   - From active workspace basename if a workspace path is available.
-   - Otherwise `default`.
-   - A plain chat turn whose active note is **not** inside a workspace folder
-     (no ancestor `curate.yml`) is treated as outside a workspace and MUST
-     resolve to `default`. The plugin must not fall back to an arbitrary
-     workspace (for example the first `curate.yml` found in the vault); binding
-     an unrelated workspace to a conversational chat is a defect. The resulting
-     ephemeral EXH therefore carries `workspace_id: default`, never an unrelated
-     project workspace the user did not open.
+1. Resolve `workspace_id` from the active workspace basename when a workspace path
+   is available, else `default`. A plain chat turn whose active note is **not**
+   inside a workspace folder (no ancestor `curate.yml`) MUST resolve to `default`;
+   the plugin must not bind an arbitrary workspace (e.g. the first `curate.yml`
+   found in the vault) to a conversational chat.
 2. If L3 Concepts do not exist yet, return `ok=true`, `fallback="l3_incomplete"`,
    `answer=""`, raw fallback hits when available, and `trace.l3_complete=false`.
-   The client must then use L1/source-section or local PDF context rather than
-   pretending concept-grounded retrieval succeeded.
-3. Retrieve relevant L3 Concepts and source provenance.
-4. Synthesize or reuse a query-generated Exhibition. Workspace-scoped queries
-   must still save an ephemeral query-generated EXH so repeated identical
-   questions can return from cache without another LLM synthesis call.
-5. Return answer content plus trace.
+3. Run the QueryOrchestrator: choose a route (local/global/explore/source-section),
+   build the curated evidence pack (the dynamic Curation lens over L1–L4 incl. the
+   shared Synthesis layer), and — for `curator_query`/`wiki query` — synthesize an
+   answer. `curator_fetch_context` returns the evidence pack without synthesis.
+4. Return answer/evidence plus trace. No Exhibition is created or cached.
 
-The Obsidian sidechat uses this behavior directly through the hidden
-`wiki plugin query` JSON command for ordinary workspace/domain questions. It
-must not wait for an external Incurator MCP server to be discovered before it
-can create or reuse a query-generated Exhibition. If the latest user turn is
-centered on selected Markdown, a line-range edit, a PDF page reference, or a
-selected PDF/image crop, sidechat treats that selected context as primary and
-does not start workspace-wide Exhibition generation for that turn.
+The Obsidian sidechat uses `wiki plugin query` (JSON) for ordinary
+workspace/domain questions; it must not wait for an external MCP server. If the
+latest turn is centered on selected Markdown, a line-range edit, a PDF page
+reference, or a selected PDF/image crop, sidechat treats that selected context as
+primary.
 
 Trace must include:
 
-- matched concept IDs
-- source IDs or paths
-- section/page provenance when available
-- cache hit/miss
-- generated Exhibition ID when one exists
+- matched concept IDs and `synthesis_node_ids` / `community_report_ids`
+- source IDs or paths; section/page provenance when available
+- `trace_id` (`QTR-`) and `route`
 - latency or timing fields when practical
 
-`promote_exhibition(exh_id)` promotes a query-generated Exhibition into a durable
-human-facing artifact under `02_Wiki/` after user approval.
+Durable human artifacts come only from an explicit promotion of an **insight
+candidate** to `02_Wiki/` (`curator_promote_insight`), after user approval.
 
 Rules:
 
-- Query-generated Exhibitions are not automatically human truth.
-- Promotion sets `is_verified_by_human=true` only for the promoted artifact, not
-  for every cited Atom/Concept.
-- Promotion must not edit `03_Notes/`.
+- Generated answers/insights are not automatically human truth.
+- Promotion writes only `02_Wiki/`; it must not edit `03_Notes/`/`04_Resources/`.
 
 ## 10. MCP Tools
 
@@ -417,8 +408,8 @@ v0.2.2 introduces these new core MCP tools:
 
 - `check_source_status`
 - `fetch_document_section`
-- `curator_query`
-- `promote_exhibition`
+- `curator_query` (sessionless: answer + trace, no Exhibition file)
+- `curator_fetch_context` (curated evidence pack, no synthesis)
 - `get_available_models`
 - `curator_get_version` (Returns the backend version string to detect cross-platform mismatches)
 
@@ -621,11 +612,11 @@ be hidden from the default help listing:
 - `wiki testbed ...` — development validation fixtures.
 - `wiki devices ...` — synced-device/backend launcher diagnostics. Running
   `wiki devices` without a subcommand is equivalent to `wiki devices status`.
-- `wiki curate ...` — advanced/workspace-agent L4 Exhibition generation.
 
-`wiki refresh` is the public forward-propagation command for refreshing L4
-Exhibitions from changed L3 Concepts. `wiki update` is not part of the v0.2.2
-public CLI.
+The v0.2.x `wiki curate` and `wiki refresh` commands (frozen-Exhibition staging /
+forward propagation) are **removed** in v0.3.1: the L4 layer is the shared
+Synthesis layer (built automatically by `wiki build`) and curation is a dynamic
+query-time lens (`wiki query`). `wiki update` is not part of the public CLI.
 
 Tracked source listing belongs to the source namespace: `wiki source ls`.
 The legacy top-level `wiki ls` shorthand is not part of the v0.2.2 public
@@ -811,7 +802,8 @@ provisioning code.
 - The minimum v0.3.1 prompt families and ids are:
   `curator.source_map`, `curator.knowledge_unit_extract`,
   `curator.entity_relation_extract`, `curator.community_report_write`,
-  `curator.curation_plan`, `curator.exhibition_write`, `curator.query_router`,
+  `curator.synthesis_write`,
+  `curator.curation_plan`, `curator.query_router`,
   `curator.query_local_answer`, `curator.query_global_reduce`,
   `curator.query_explore_expand`, `curator.backprop_classify`,
   `curator.backprop_patch_plan`, and `curator.note_context_pack`.
@@ -896,14 +888,17 @@ Routes and selection rules:
 - **local** — entity/fact questions. Resolve query entities (lexical + vector +
   graph), expand to related claims/concepts/spans, build a bounded context pack,
   answer with `curator.query_local_answer`.
-- **global** — broad workspace/vault synthesis. Select community reports by
-  `curate.yml` + query, run map/reduce with rated intermediate points, backfill
-  with source spans, answer with `curator.query_global_reduce`.
+- **global** — broad workspace/vault synthesis. Lead with the shared **L4
+  Synthesis** nodes (the highest-level standing evidence; SCHEMA §11.11), back them
+  with the community reports they distil, run map/reduce with rated intermediate
+  points, backfill with source spans, answer with `curator.query_global_reduce`.
+  This is the dynamic **Curation lens** in action: it selects/recombines L3+L4
+  nodes per query and is never stored.
 - **explore** — insight discovery ("what else", "find connections", "new
-  insight"). Build a global primer, generate follow-up questions
-  (`curator.query_explore_expand`), run local searches per follow-up, build a
-  memory-path-backed exploration tree, return ranked **insight candidates** as
-  provisional (not truth).
+  insight"). Build a primer from L4 synthesis nodes + community reports, generate
+  follow-up questions (`curator.query_explore_expand`), run local searches per
+  follow-up, build a memory-path-backed exploration tree, return ranked **insight
+  candidates** as provisional (not truth).
 - **exhibition** — a workspace with an active Exhibition asks for project
   context. Use the active Exhibition as pinned context, check freshness against
   source/report/graph hashes, optionally supplement with other routes, and record
@@ -917,9 +912,12 @@ Rules:
   orchestrator falls back to qmd lexical/vector retrieval and records a warning in
   the trace. qmd remains the fallback retrieval engine.
 - Every query produces a `QTR-` query trace carrying `route`, `route_reason`,
-  evidence (`source_span_ids`, `community_report_ids`, `memory_path_ids`),
-  `prompt_trace_ids`, `insight_candidate_ids`, latency, and warnings. These are
-  returned in the query JSON (CLI `--trace`, plugin, MCP).
+  evidence (`source_span_ids`, `community_report_ids`, `synthesis_node_ids`,
+  `memory_path_ids`), `prompt_trace_ids`, `insight_candidate_ids`, latency, and
+  warnings. These are returned in the query JSON (CLI `--trace`, plugin, MCP).
+- The `fetch_context` surface (MCP `curator_fetch_context`) returns the same
+  curated evidence pack — including `synthesis` items and `synthesis_node_ids` —
+  WITHOUT a synthesized answer, for reasoning agents that have their own LLM.
 - The v0.2.2 language bridge (§11 inherited) is unchanged: detect latest-input
   language, reason in English, answer in the detected language; bridge fields stay
   response/trace-only and are never persisted into EXH frontmatter.
@@ -1063,15 +1061,25 @@ Raw source
   └─ LLM + embeddings
        → DB: graph_entities, graph_relations, community_reports   (L3)
        → emit .curator/Collections/03_Concepts/CON-*.md   (derived projection)
+  └─ LLM synthesize (cross-community, source-grounded)
+       → DB: synthesis_nodes                        (L4 Synthesis, shared)
+       → emit .curator/Collections/04_Synthesis/SYN-*.md (derived projection)
   └─ qmd update/embed indexes .curator/Collections/  (BM25 + vector)
   └─ query/curate: qmd search (derived corpus) + DB graph traversal (HippoRAG)
-       → emit L4 Exhibition to 02_Wiki/             (human/agent interface)
+       → dynamic Curation lens over L3/L4 (per workspace/query, never stored)
 ```
 
 Rules:
 
-- The DB is the single source of truth. L1–L3 markdown is emitted FROM the DB and
+- The DB is the single source of truth. L1–L4 markdown is emitted FROM the DB and
   is never edited as truth, so there is no DB↔file drift.
+- **L4 Synthesis** (`synthesis_nodes` / `SYN-`) is a shared, workspace-INDEPENDENT
+  layer distilled from all community reports (the "synthesis"/permanent-note tier
+  of other LLM wiki repos). It is generated wholesale and content-addressed by the
+  report-corpus hash, so it is skipped when nothing changed and regenerated
+  entirely when any report changes (`compile_global_l3` → `generate_synthesis`).
+  The per-workspace **Curation lens** sits ABOVE this layer: it selects and
+  recombines L3/L4 nodes at query time and is never persisted (see SCHEMA §11.11).
 - L1 (source_spans / CTX) is deterministic structure preservation, not
   refinement. It must not require an LLM (the v0.2.2 instant-L1 guarantee holds).
   Knowledge refinement happens at L2/L3 via the LLM prompt families.
@@ -1090,11 +1098,12 @@ Rules:
 - `curator_propose_correction` records the change as an `insight_candidates` /
   backprop event and runs the classification lifecycle (§18) before patching
   generated nodes; ambiguous changes require review.
-- Editing an L4 Exhibition markdown file is reverse-parsed back into the DB:
-  the backend diffs the edited Exhibition against its DB record, classifies the
-  change (§18), and back-propagates source-grounded corrections to the dependent
-  generated nodes via `artifact_dependencies`, while protecting source truth and
-  human-verified promoted artifacts.
+- Backprop is **correction-driven and Exhibition-independent** (v0.3.1 redesign).
+  The removed frozen-Exhibition markdown reverse-parse path is gone; corrections
+  arrive via `curator_propose_correction` / `curator_update_node`, are classified
+  (§18), and back-propagate source-grounded patches to dependent generated nodes
+  via `artifact_dependencies`, protecting source truth and human-verified `02_Wiki/`
+  promotions.
 
 ### 22.3 Directory Roles (Two-Track)
 

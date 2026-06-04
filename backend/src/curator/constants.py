@@ -33,18 +33,22 @@ LAYER_L1 = "01_Contexts"
 LAYER_L2 = "02_Atoms"
 LAYER_L3 = "03_Concepts"
 LAYER_L4 = "04_Exhibitions"
+# Shared corpus-wide synthesis layer (v0.3.1 L4 Synthesis; SCHEMA §15).
+LAYER_SYN = "04_Synthesis"
 
 # Layer Types
 TYPE_L1 = "context"
 TYPE_L2 = "atom"
 TYPE_L3 = "concept"
 TYPE_L4 = "exhibition"
+TYPE_SYN = "synthesis"
 
 # Node prefixes
 PREFIX_L1 = "CTX"
 PREFIX_L2 = "ATM"
 PREFIX_L3 = "CON"
 PREFIX_L4 = "EXH"
+PREFIX_SYN = "SYN"
 
 # Claim & Domain Types
 CLAIM_TYPE_FACT = "fact"

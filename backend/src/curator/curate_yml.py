@@ -92,7 +92,7 @@ class CurateReasoning:
 
     default_mode: str = "auto"
     allowed_modes: list[str] = field(
-        default_factory=lambda: ["local", "global", "explore", "exhibition"]
+        default_factory=lambda: ["local", "global", "explore"]
     )
     exploration_enabled: bool = True
     max_followups: int = 5
@@ -340,7 +340,7 @@ def _parse_reasoning(raw: object) -> "CurateReasoning":
     allowed = _str_list_from("allowed_modes", d)
     return CurateReasoning(
         default_mode=str(d.get("default_mode", "auto") or "auto"),
-        allowed_modes=allowed or ["local", "global", "explore", "exhibition"],
+        allowed_modes=allowed or ["local", "global", "explore"],
         exploration_enabled=bool(d.get("exploration_enabled", True)),
         max_followups=int(d.get("max_followups", 5) or 5),
         require_insight_candidates=bool(d.get("require_insight_candidates", False)),
@@ -457,7 +457,7 @@ def find_workspaces(vault_root: Path) -> list[tuple[Path, CurateSpec]]:
 # ---------------------------------------------------------------------------
 
 VALID_ROUTES: frozenset[str] = frozenset(
-    {"local", "global", "explore", "exhibition", "source-section"}
+    {"local", "global", "explore", "source-section"}
 )
 VALID_AUDIENCES: frozenset[str] = frozenset(
     {"researcher", "engineer", "learner", "writer", "generalist"}

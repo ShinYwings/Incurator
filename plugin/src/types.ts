@@ -407,6 +407,15 @@ export interface CuratorQueryResult {
   final_output_language?: string;
   trace?: CuratorQueryTrace;
   error?: string;
+  // v0.3.1 curation-native trace fields (additive; omitted by legacy responses).
+  route?: "local" | "global" | "explore" | "exhibition" | "source-section";
+  trace_id?: string;
+  prompt_trace_ids?: string[];
+  source_span_ids?: string[];
+  community_report_ids?: string[];
+  memory_path_ids?: string[];
+  insight_candidate_ids?: string[];
+  warnings?: string[];
 }
 
 export interface PromoteExhibitionResult {

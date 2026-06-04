@@ -20,7 +20,7 @@ from typing import Any, Iterator
 
 from . import constants as consts
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -383,6 +383,26 @@ CREATE TABLE IF NOT EXISTS artifact_dependencies (
     PRIMARY KEY (artifact_id, depends_on_id, depends_on_type)
 );
 CREATE INDEX IF NOT EXISTS idx_artifact_deps_dependson ON artifact_dependencies(depends_on_id);
+
+-- L4 Synthesis: shared, durable corpus-wide synthesized insights (SCHEMA_v0.3.1
+-- redesign). Workspace-INDEPENDENT distillation above concepts/community reports;
+-- the dynamic per-workspace "Curation" lens draws on these but does not store
+-- itself here. Source-grounded like every other generated layer.
+CREATE TABLE IF NOT EXISTS synthesis_nodes (
+    id                   TEXT PRIMARY KEY,   -- SYN-[UUID8]
+    title                TEXT NOT NULL,
+    statement            TEXT NOT NULL,      -- the synthesized insight
+    full_content         TEXT NOT NULL DEFAULT '',
+    community_report_ids TEXT NOT NULL DEFAULT '[]',
+    concept_ids          TEXT NOT NULL DEFAULT '[]',
+    source_span_ids      TEXT NOT NULL DEFAULT '[]',
+    confidence           REAL NOT NULL DEFAULT 0.0,
+    prompt_run_id        TEXT,
+    dependency_hash      TEXT NOT NULL,
+    created_at           TEXT NOT NULL,
+    updated_at           TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_synthesis_nodes_conf ON synthesis_nodes(confidence);
 """
 
 
@@ -1906,3 +1926,78 @@ def dependents_of(db_path: Path, depends_on_id: str) -> list[dict]:
             (depends_on_id,),
         ).fetchall()
         return [dict(row) for row in rows]
+
+
+# --- synthesis_nodes (L4 shared synthesis) ---------------------------
+
+
+def upsert_synthesis_node(
+    db_path: Path,
+    *,
+    title: str,
+    statement: str,
+    dependency_hash: str,
+    full_content: str = "",
+    community_report_ids: list[str] | None = None,
+    concept_ids: list[str] | None = None,
+    source_span_ids: list[str] | None = None,
+    confidence: float = 0.0,
+    prompt_run_id: str | None = None,
+    node_id: str | None = None,
+) -> str:
+    """Insert or replace a shared synthesis node (SYN-)."""
+    now = _now_iso()
+    with connect(db_path) as conn:
+        existing = None
+        if node_id:
+            existing = conn.execute(
+                "SELECT created_at FROM synthesis_nodes WHERE id = ?", (node_id,)
+            ).fetchone()
+        syn_id = node_id or _new_id("SYN")
+        created_at = str(existing["created_at"]) if existing else now
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO synthesis_nodes
+                (id, title, statement, full_content, community_report_ids,
+                 concept_ids, source_span_ids, confidence, prompt_run_id,
+                 dependency_hash, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                syn_id, title, statement, full_content,
+                json.dumps(community_report_ids or []), json.dumps(concept_ids or []),
+                json.dumps(source_span_ids or []), confidence, prompt_run_id,
+                dependency_hash, created_at, now,
+            ),
+        )
+        return syn_id
+
+
+def _decode_synthesis_row(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["community_report_ids"] = _loads_list(data.get("community_report_ids"))
+    data["concept_ids"] = _loads_list(data.get("concept_ids"))
+    data["source_span_ids"] = _loads_list(data.get("source_span_ids"))
+    return data
+
+
+def list_synthesis_nodes(db_path: Path) -> list[dict]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM synthesis_nodes ORDER BY confidence DESC, created_at"
+        ).fetchall()
+        return [_decode_synthesis_row(row) for row in rows]
+
+
+def get_synthesis_node(db_path: Path, node_id: str) -> dict | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM synthesis_nodes WHERE id = ?", (node_id,)
+        ).fetchone()
+        return _decode_synthesis_row(row) if row else None
+
+
+def clear_synthesis_nodes(db_path: Path) -> None:
+    """Delete every synthesis node (the shared L4 layer is regenerated wholesale)."""
+    with connect(db_path) as conn:
+        conn.execute("DELETE FROM synthesis_nodes")
