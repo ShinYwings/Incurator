@@ -364,7 +364,7 @@ export class IncuratorDashboardModal extends Modal {
     const s = cfg?.search ?? {};
     const searchCard = this.ovCard(grid, "span-1", null);
     searchCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Search" });
-    searchCard.createDiv({ cls: "ai-agent-ov-card-value", text: (s.backend || "qmd").toUpperCase() });
+    searchCard.createDiv({ cls: "ai-agent-ov-card-value", text: (s.backend || "native").toUpperCase() });
     searchCard.createDiv({
       cls: `ai-agent-ov-card-sub ${s.rerank !== false ? "is-ok" : ""}`,
       text: `rerank ${s.rerank !== false ? "on" : "off"}`,
@@ -401,7 +401,7 @@ export class IncuratorDashboardModal extends Modal {
     };
     const vaultEl = pathRow("Vault");
     const wikiEl  = pathRow("Wiki CLI");
-    const qmdEl   = pathRow("QMD");
+    const qmdEl   = pathRow("Search engine");
     const zoteroSysEl = pathRow("Zotero", rootsText);
     zoteroSysEl.addClass("is-ok");
     zoteroSysEl.style.cursor = "pointer";
@@ -431,9 +431,14 @@ export class IncuratorDashboardModal extends Modal {
       wikiEl.setText(st?.wiki_binary || "Not found");
       wikiEl.toggleClass("is-ok", !!st?.wiki_binary);
       wikiEl.toggleClass("is-warn", !st?.wiki_binary);
-      qmdEl.setText(st?.qmd_binary || "Not found");
-      qmdEl.toggleClass("is-ok", !!st?.qmd_binary);
-      qmdEl.toggleClass("is-warn", !st?.qmd_binary);
+      // v0.3.2: native in-DB search engine; fall back to legacy qmd_* keys.
+      const searchReady = st?.search_ready ?? !!st?.qmd_ready;
+      const searchLabel = st?.search_version
+        ? `${st.search_version}${st?.vector_ready ? " · vector" : " · FTS5-only"}`
+        : (st?.qmd_binary || "Not found");
+      qmdEl.setText(searchLabel);
+      qmdEl.toggleClass("is-ok", !!searchReady);
+      qmdEl.toggleClass("is-warn", !searchReady);
       
       const zoteroRoots = st?.external?.zotero?.roots;
       if (Array.isArray(zoteroRoots) && zoteroRoots.length > 0) {

@@ -1,6 +1,6 @@
 [project]
 name = "incurator"
-version = "0.3.1"
+version = "0.3.2"
 description = "An LLM-maintained personal wiki, per Karpathy's pattern. Local-first, enterprise-grade."
 readme = "../README.md"
 requires-python = ">=3.10"
@@ -25,6 +25,8 @@ dependencies = [
     "pydantic>=2.6.0",
     "hatchling>=1.21.0",
     "scikit-learn>=1.4.0",
+    # Stage 4 — v0.3.2 DB-native search (brute-force vector cosine)
+    "numpy>=1.26.0",
 ]
 
 [project.optional-dependencies]
@@ -39,6 +41,13 @@ dev = [
     "pytest>=8.0.0",
     "ruff>=0.11.0",
     "mypy>=1.8.0",
+]
+# Premium local reranker: bge-reranker-v2-gemma GGUF via llama-cpp-python.
+# Install with: uv pip install -e '.[rerank]' (plus the GGUF model file, and set
+# search.reranker_model_path in config.yml). Without it search degrades to
+# `no_rerank` (RRF order).
+rerank = [
+    "llama-cpp-python>=0.3.0",
 ]
 
 [project.scripts]

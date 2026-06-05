@@ -567,8 +567,6 @@ def curator_query(
         return {
             "ok": True,
             "answer": "",
-            "exhibition_id": "",
-            "cache_hit": False,
             "question": question,
             "input_language": input_language,
             "english_query": english_query,
@@ -609,6 +607,7 @@ def curator_query(
                 english_query=english_query or None,
                 input_language=input_language,
                 final_output_language=effective_final_output_language,
+                route="auto",
             )
     except Exception as exc:
         return {
@@ -640,11 +639,10 @@ def curator_query(
         if hit.full_path not in source_paths:
             source_paths.append(hit.full_path)
 
-    # Sessionless: no Exhibition file is written; return the answer + trace only.
+    # Sessionless: no generated L4 file is written; return the answer + trace only.
     return {
         "ok": True,
         "answer": result.answer,
-        "cache_hit": False,
         "question": question,
         "input_language": input_language,
         "english_query": result.english_query,
@@ -668,7 +666,7 @@ def promote_answer(
 ) -> dict[str, Any]:
     """Promote a sessionless Q&A answer into a durable `02_Wiki/` page.
 
-    v0.3.1: queries are sessionless (no Exhibition file), so promotion takes the
+    v0.3.1: queries are sessionless (no generated L4 file), so promotion takes the
     question + answer text directly and writes only `02_Wiki/` (source truth is
     never touched).
     """

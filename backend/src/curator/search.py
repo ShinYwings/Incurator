@@ -1,29 +1,22 @@
-"""Search backend — wraps the QMD binary.
+"""Search backend — DB-native hybrid search (v0.3.2; qmd retired).
 
-QMD provides BM25 + vector + LLM-rerank search over markdown collections.
-We use it as the retrieval engine for the Curator's `.curator/Collections/`
-DAG. The Python side never embeds qmd as a library — we shell out to the
-TypeScript CLI and parse `--json` output.
+Search runs entirely inside `state.sqlite`: FTS5 (BM25) lexical retrieval +
+chunk-level vector cosine KNN, fused with RRF and optionally reranked. The
+heavy lifting lives in `curator.retrieval` (engine/lexical/vector/fusion/
+expansion/providers); this module keeps the stable public surface
+(`SearchHit`/`SearchResults`/`query`/`update_index`) that callers depend on.
 
-The binary is resolved in this order:
-  1. `WIKI_QMD_BIN` env var (explicit override)
-  2. `qmd` on PATH (system install, e.g. via npm)
-
-Search and indexing degrade gracefully when qmd is missing — ingest and
-lint still work; only `wiki query` / `wiki reindex` require it.
+There is no external binary: lexical search always works (FTS5 is bundled in
+Python's SQLite); vector and rerank degrade gracefully when their models are
+unavailable. `search_source_pages` is a separate lexical helper over raw
+tracked files for provenance lookups.
 """
 
 from __future__ import annotations
-from . import constants as consts
 
-import json
-import os
 import re
-import shutil
-import subprocess
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Iterable
+from typing import Iterable
 
 from . import config as cfg
 
@@ -50,7 +43,9 @@ class SearchResults:
     """Ranked list of hits returned from one query call."""
 
     hits: list[SearchHit] = field(default_factory=list)
-    fallback_mode: str = ""  # set when hybrid fell back (e.g. "lex" after GPU OOM)
+    fallback_mode: str = ""  # set when hybrid degraded (e.g. "lex"/"no_rerank")
+    warnings: list[str] = field(default_factory=list)
+    trace_id: str = ""
 
     def __len__(self) -> int:
         return len(self.hits)
@@ -89,185 +84,28 @@ class IndexUpdateResult:
 
 
 class SearchBackendError(Exception):
-    """The qmd binary failed, returned malformed output, or timed out."""
-
-
-class QmdNotInstalled(SearchBackendError):
-    """No qmd binary found via env override, bundled copy, or PATH."""
+    """The DB-native search engine failed (e.g. malformed FTS5 query, DB error)."""
 
 
 # ---------------------------------------------------------------------------
-# Binary resolution
+# Engine capability probes (qmd binary retired in v0.3.2)
 # ---------------------------------------------------------------------------
 
-
-def get_qmd_binary() -> Path | None:
-    """Resolve the qmd binary. Returns None if no source can be found."""
-    override = os.environ.get("WIKI_QMD_BIN")
-    if override:
-        p = Path(override).expanduser()
-        if p.exists() and os.access(p, os.X_OK):
-            return p
-
-    # 1. Check current PATH
-    on_path = shutil.which("qmd")
-    if on_path:
-        return Path(on_path)
-        
-    # 2. Check NVM directories (highest version first)
-    nvm_base = Path.home() / ".nvm" / "versions" / "node"
-    if nvm_base.exists():
-        # Sort versions backwards so we hit the latest Node version first
-        for d in sorted(nvm_base.iterdir(), reverse=True):
-            if d.is_dir():
-                qmd_cand = d / "bin" / "qmd"
-                if qmd_cand.exists() and os.access(qmd_cand, os.X_OK):
-                    return qmd_cand
-                    
-    # 3. Check common global dirs (Homebrew, user-local)
-    common_dirs = [
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        str(Path.home() / ".local" / "bin")
-    ]
-    for cdir in common_dirs:
-        qmd_cand = Path(cdir) / "qmd"
-        if qmd_cand.exists() and os.access(qmd_cand, os.X_OK):
-            return qmd_cand
-
-    return None
 
 def is_available() -> bool:
-    """True if a qmd binary can be found AND responds to --version."""
-    bin_path = get_qmd_binary()
-    if bin_path is None:
-        return False
-    try:
-        result = subprocess.run(
-            [str(bin_path), "--version"], capture_output=True, timeout=5,
-            env=_qmd_env(None),
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return False
+    """True — the DB-native search engine (FTS5, bundled in SQLite) is always available.
+
+    Kept for caller/status compatibility after the qmd retirement (v0.3.2).
+    Vector/rerank availability is a separate, gracefully-degrading concern.
+    """
+    return True
 
 
 def get_version() -> str | None:
-    """Return the qmd version string, or None if unavailable."""
-    bin_path = get_qmd_binary()
-    if bin_path is None:
-        return None
-    try:
-        result = subprocess.run(
-            [str(bin_path), "--version"], capture_output=True, text=True, timeout=5,
-            env=_qmd_env(None),
-        )
-        if result.returncode == 0:
-            return result.stdout.strip() or result.stderr.strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        pass
-    return None
+    """Return the DB-native search engine version string."""
+    from . import __version__
 
-
-def _require_binary() -> Path:
-    bin_path = get_qmd_binary()
-    if bin_path is None:
-        raise QmdNotInstalled(
-            "qmd not found. Install with `npm install -g @tobilu/qmd`, "
-            "or set WIKI_QMD_BIN to a qmd binary."
-        )
-    return bin_path
-
-
-def _qmd_env(paths: cfg.WikiPaths | None) -> dict[str, str]:
-    """Build the env that pins qmd to this project's per-vault config + DB.
-
-    `QMD_CONFIG_DIR` controls where qmd looks for `index.yml`; `INDEX_PATH`
-    pins the sqlite database. Both live under `.curator/qmd/` so the search
-    state travels with the vault.
-
-    Also injects the NVM node/bin directory into PATH so that the `bin/qmd`
-    launcher script can find `node` even when it is not on the system PATH.
-    """
-    env = dict(os.environ)
-
-    # Ensure NVM-installed node is on PATH (takes priority if system node is absent)
-    nvm_dir = Path.home() / ".nvm" / "versions" / "node"
-    if nvm_dir.exists():
-        for d in sorted(nvm_dir.iterdir(), reverse=True):
-            if d.is_dir() and (d / "bin").exists():
-                bin_dir = str(d / "bin")
-                existing_path = env.get("PATH", "")
-                if bin_dir not in existing_path.split(os.pathsep):
-                    env["PATH"] = bin_dir + os.pathsep + existing_path
-                break
-
-    if paths is not None:
-        paths.qmd_dir.mkdir(parents=True, exist_ok=True)
-        env["QMD_CONFIG_DIR"] = str(paths.qmd_dir)
-        env["INDEX_PATH"] = str(paths.qmd_db)
-    return env
-
-
-def _run_qmd(
-    args: list[str],
-    *,
-    timeout: int = 60,
-    cwd: Path | None = None,
-    paths: cfg.WikiPaths | None = None,
-) -> subprocess.CompletedProcess[str]:
-    """Invoke qmd with the given args. Raises SearchBackendError on failure.
-
-    When `paths` is provided, the call is scoped to that project's qmd
-    config + DB via env vars; otherwise it inherits the parent environment
-    (used only by `is_available()` / `get_version()`).
-    """
-    bin_path = _require_binary()
-    try:
-        return subprocess.run(
-            [str(bin_path), *args],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=str(cwd) if cwd else None,
-            env=_qmd_env(paths) if paths is not None else None,
-        )
-    except subprocess.TimeoutExpired as e:
-        raise SearchBackendError(f"qmd timed out after {timeout}s: {' '.join(args)}") from e
-    except FileNotFoundError as e:
-        raise QmdNotInstalled(f"qmd binary not found at {bin_path}") from e
-    except OSError as e:
-        raise SearchBackendError(f"qmd invocation failed: {e}") from e
-
-
-# ---------------------------------------------------------------------------
-# Project bootstrap (called from `wiki init`)
-# ---------------------------------------------------------------------------
-
-
-_QMD_TEMPLATE = Path(__file__).resolve().parent / "workspace" / "templates" / "qmd-index.yml"
-
-
-def write_qmd_config(paths: cfg.WikiPaths, *, overwrite: bool = False) -> bool:
-    """Render the per-project `index.yml` from the template.
-
-    Returns True if the file was written, False if it already existed and
-    `overwrite=False`. The template's `__COLLECTIONS_PATH__` placeholder is
-    substituted with the absolute path to `.curator/Collections/`.
-    """
-    if paths.qmd_config_file.exists() and not overwrite:
-        return False
-    if not _QMD_TEMPLATE.exists():
-        raise SearchBackendError(
-            f"qmd config template missing at {_QMD_TEMPLATE}"
-        )
-    template = _QMD_TEMPLATE.read_text(encoding="utf-8")
-    rendered = template.replace(
-        "__COLLECTIONS_PATH__", str(paths.collections.resolve())
-    )
-    paths.qmd_dir.mkdir(parents=True, exist_ok=True)
-    paths.qmd_config_file.write_text(rendered, encoding="utf-8")
-    return True
+    return f"native-{__version__}"
 
 
 # ---------------------------------------------------------------------------
@@ -276,40 +114,29 @@ def write_qmd_config(paths: cfg.WikiPaths, *, overwrite: bool = False) -> bool:
 
 
 def update_index(paths: cfg.WikiPaths, *, embed: bool = False) -> IndexUpdateResult:
-    """Refresh qmd's index for this project's Curator collection.
+    """Rebuild the DB-native search index (v0.3.2; retires qmd).
 
-    Runs `qmd update` (re-indexes all configured collections) and optionally
-    `qmd embed` to compute vector embeddings for semantic search.
-
-    Requires `paths.qmd_config_file` to already exist — written by `wiki init`
-    via `write_qmd_config()`.
+    Materializes `search_documents`/FTS/`search_chunks` from the authoritative
+    `state.sqlite` rows and, when `embed=True`, generates chunk embeddings via the
+    configured embedder. Embedding degrades gracefully (FTS5-only) when no
+    embedder is configured or the model is unreachable.
     """
-    if not paths.qmd_config_file.exists():
-        raise SearchBackendError(
-            f"qmd config not found at {paths.qmd_config_file}. "
-            f"Run `wiki init` (or call search.write_qmd_config(paths)) first."
-        )
-    result = _run_qmd(
-        ["update"], timeout=300, cwd=paths.collections, paths=paths
-    )
-    if result.returncode != 0:
-        raise SearchBackendError(
-            f"qmd update failed (exit {result.returncode}): "
-            f"{result.stderr.strip() or result.stdout.strip()}"
-        )
+    from .retrieval import embedding, materializer, providers
+
+    config = cfg.load_config(paths)
+    search_config = config.get("search", {})
+    result = materializer.materialize_search_documents(paths.state_db, search_config)
     outcome = IndexUpdateResult(updated=True, embed_requested=embed)
     if embed:
-        result = _run_qmd(
-            ["embed"], timeout=600, cwd=paths.collections, paths=paths
-        )
-        if result.returncode != 0:
+        ollama_host = (config.get("llm", {}).get("ollama", {}) or {}).get("host")
+        embedder = providers.build_embedder(search_config, ollama_host=ollama_host)
+        emb = embedding.embed_corpus(paths.state_db, embedder)
+        outcome.embedded = emb.embedded > 0
+        if emb.degraded or emb.warning:
             outcome.degraded = True
-            outcome.warning = (
-                f"qmd embed failed (exit {result.returncode}): "
-                f"{result.stderr.strip() or result.stdout.strip()}"
-            )
-            return outcome
-        outcome.embedded = True
+            outcome.warning = emb.warning or "vector embeddings unavailable (FTS5-only)"
+    else:
+        outcome.warning = f"indexed {result.documents} documents, {result.chunks} chunks"
     return outcome
 
 
@@ -318,139 +145,85 @@ def update_index(paths: cfg.WikiPaths, *, embed: bool = False) -> IndexUpdateRes
 # ---------------------------------------------------------------------------
 
 
-_QMD_URI_RE = re.compile(r"^/?qmd://[^/]+/")
-
-
-def _normalize_qmd_path(raw: str) -> str:
-    """Strip qmd://<collection>/ URI prefix and any leading slash."""
-    cleaned = _QMD_URI_RE.sub("", raw)
-    cleaned = cleaned.lstrip("/")
-    layer_aliases = {
-        "01-Contexts/": f"{consts.LAYER_L1}/",
-        "02-Atoms/": f"{consts.LAYER_L2}/",
-        "03-Concepts/": f"{consts.LAYER_L3}/",
-        "04-Exhibitions/": f"{consts.LAYER_L4}/",
-    }
-    for old, new in layer_aliases.items():
-        if cleaned.startswith(old):
-            return new + cleaned[len(old):]
-    return cleaned
-
-
-def _mode_to_subcommand(mode: str) -> str:
-    """Map our 'hybrid'|'lex'|'vec' to qmd's subcommand."""
-    if mode == "lex":
-        return "search"     # BM25 only, no LLM
-    if mode == "vec":
-        return "vsearch"    # vector only, no rerank
-    return "query"          # hybrid + rerank (default)
-
-
 def query(
     paths: cfg.WikiPaths,
     question: str,
     *,
     mode: str = "hybrid",
     limit: int = 8,
-    min_score: float = 0.6,
+    min_score: float = 0.0,
     collections: list[str] | None = None,
     hydrate: bool = True,
     rerank: bool = True,
+    families: set[str] | None = None,
+    workspace_id: str = "default",
+    persist: bool = True,
 ) -> SearchResults:
-    """Run a qmd search and return ranked, optionally hydrated, hits.
+    """Run a DB-native hybrid search and return ranked, hydrated hits (v0.3.2).
+
+    Searches `state.sqlite` directly (FTS5 + chunked vector + RRF + optional
+    rerank), retiring the external qmd binary. The `SearchHit`/`SearchResults`
+    field shapes are preserved so callers (`query.py`, `evidence.py`, MCP, plugin)
+    are unchanged.
 
     Args:
         paths:        Wiki project paths.
         question:     User query string.
-        mode:         'hybrid' (BM25+vec+rerank), 'lex' (BM25), 'vec' (vector).
-        limit:        Max number of hits before min_score filtering.
-        min_score:    Drop hits with score below this threshold.
-        collections:  Restrict search to these qmd collection names. None ⇒ all.
-                      The Curator uses a single 'curator' collection, so this
-                      is rarely set; kept for caller flexibility.
-        hydrate:      Re-fetch full markdown for each hit via `qmd get --full`.
-        rerank:       Hybrid mode applies rerank by default; setting False
-                      falls back to BM25 alone for speed.
+        mode:         'hybrid' (lexical+vector+rerank), 'lex' (FTS5 only),
+                      'vec' (vector only).
+        limit:        Max number of hits returned.
+        min_score:    Advisory filter on the blended score. Native scores are not
+                      on qmd's 0–1 scale; defaults to 0 (no hard filter) so RRF-only
+                      results are not discarded. The engine never returns empty on
+                      a borderline single hit.
+        collections:  Legacy qmd collection names — ignored (single corpus now).
+        hydrate:      Populate `full_content` from the authoritative DB row.
+        rerank:       Apply rerank in hybrid mode when a reranker is configured.
+        families:     Optional record-type filter (route-scoped retrieval).
+        workspace_id: KRS/workspace id recorded on the persisted query trace.
+        persist:      Persist a durable `QTR-` query trace.
     """
-    subcmd = _mode_to_subcommand(mode)
-    args: list[str] = [subcmd, question, "--json", "-n", str(limit)]
+    from .retrieval import providers
+    from .retrieval.engine import HybridEngine
 
-    # Hybrid mode without rerank → drop down to BM25-only `search`
-    if mode == "hybrid" and not rerank:
-        args[0] = "search"
+    config = cfg.load_config(paths)
+    search_config = config.get("search", {})
+    ollama_host = (config.get("llm", {}).get("ollama", {}) or {}).get("host")
+    embedder = providers.build_embedder(search_config, ollama_host=ollama_host)
+    reranker = providers.build_reranker(search_config)
 
-    if collections:
-        for col in collections:
-            args.extend(["-c", col])
+    engine = HybridEngine(
+        paths.state_db, search_config, embedder=embedder, reranker=reranker
+    )
+    result = engine.search(
+        question,
+        families=families,
+        mode=mode,
+        limit=limit,
+        min_score=min_score,
+        rerank=rerank,
+        want_hyde=(mode == "hybrid" and rerank),
+        workspace_id=workspace_id,
+        persist=persist,
+    )
 
-    result = _run_qmd(args, timeout=60, cwd=paths.collections, paths=paths)
-    if result.returncode != 0:
-        raise SearchBackendError(
-            f"qmd {subcmd} failed (exit {result.returncode}): "
-            f"{result.stderr.strip() or result.stdout.strip()}"
+    hits = [
+        SearchHit(
+            full_path=h.full_path,
+            title=h.title,
+            score=h.score,
+            snippet=h.snippet,
+            full_content=h.full_content if hydrate else "",
+            docid=h.record_id,
         )
-
-    stdout_str = result.stdout or ""
-    start_idx = stdout_str.find("[")
-    if start_idx == -1:
-        start_idx = stdout_str.find("{")
-
-    end_idx = stdout_str.rfind("]")
-    if end_idx == -1:
-        end_idx = stdout_str.rfind("}")
-
-    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-        stdout_str = stdout_str[start_idx:end_idx + 1]
-
-    if not stdout_str.strip():
-        stdout_str = "[]"
-
-    try:
-        payload: Any = json.loads(stdout_str)
-    except json.JSONDecodeError as e:
-        raise SearchBackendError(f"qmd returned malformed JSON: {e}\nRaw output:\n{result.stdout}") from e
-
-    raw_hits = payload if isinstance(payload, list) else payload.get("results", [])
-    hits: list[SearchHit] = []
-    for r in raw_hits:
-        if not isinstance(r, dict):
-            continue
-        score = float(r.get("score", 0.0) or 0.0)
-        if score < min_score:
-            continue
-        path = _normalize_qmd_path(str(r.get("file") or r.get("path") or ""))
-        hits.append(
-            SearchHit(
-                full_path=path,
-                title=str(r.get("title") or "").strip(),
-                score=score,
-                snippet=str(r.get("snippet") or r.get("context") or "").strip(),
-                docid=str(r.get("docid") or "").lstrip("#"),
-            )
-        )
-
-    if hydrate and hits:
-        _hydrate_hits(paths, hits)
-
-    return SearchResults(hits=hits)
-
-
-def _hydrate_hits(paths: cfg.WikiPaths, hits: list[SearchHit]) -> None:
-    """Populate `full_content` on each hit by reading from disk.
-
-    Reading from disk is faster than spawning `qmd get` per hit, and the
-    files are colocated with the Curator anyway. qmd's hits already give us
-    the relative path inside the collection.
-    """
-    for hit in hits:
-        if not hit.full_path:
-            continue
-        on_disk = paths.collections / hit.full_path
-        if on_disk.exists() and on_disk.is_file():
-            try:
-                hit.full_content = on_disk.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                pass
+        for h in result.hits
+    ]
+    return SearchResults(
+        hits=hits,
+        fallback_mode=result.fallback_mode,
+        warnings=result.warnings,
+        trace_id=result.trace_id,
+    )
 
 
 def _snippet(text: str, query: str, *, width: int = 320) -> str:

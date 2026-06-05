@@ -1,9 +1,10 @@
-"""Phase 2 (v0.3.1): SQLite schema v4 tables and accessors.
+"""Phase 2 (v0.3.2): SQLite schema v6 tables and accessors.
 
 Covers the new curation-native records defined in
-docs/specs/curator_schema/SCHEMA_v0.3.1.md §11: source_spans, knowledge_units,
+docs/specs/curator_schema/SCHEMA_v0.3.2.md §11: source_spans, knowledge_units,
 graph_entities, graph_relations, community_reports, memory_paths, prompt_runs,
-curation_plans, insight_candidates, and artifact_dependencies.
+curation_plans, insight_candidates, artifact_dependencies, and DB-native search
+records.
 """
 
 from __future__ import annotations
@@ -31,15 +32,15 @@ def db_path() -> Path:
         yield path
 
 
-def test_schema_version_is_5() -> None:
-    assert db.SCHEMA_VERSION == 5
+def test_schema_version_is_6() -> None:
+    assert db.SCHEMA_VERSION == 6
 
 
 def test_spec_declares_matching_schema_version() -> None:
     """Guard: the active SCHEMA spec must declare the same SCHEMA_VERSION as code."""
     spec = (
         Path(__file__).resolve().parents[2]
-        / "docs/specs/curator_schema/SCHEMA_v0.3.1.md"
+        / "docs/specs/curator_schema/SCHEMA_v0.3.2.md"
     ).read_text(encoding="utf-8")
     assert f"`SCHEMA_VERSION = {db.SCHEMA_VERSION}`" in spec
 
@@ -57,6 +58,11 @@ def test_v031_tables_exist(db_path: Path) -> None:
         "insight_candidates",
         "artifact_dependencies",
         "synthesis_nodes",
+        "search_documents",
+        "search_chunks",
+        "search_embeddings",
+        "search_index_meta",
+        "query_traces",
     }
     with db.connect(db_path) as conn:
         tables = {
@@ -66,6 +72,16 @@ def test_v031_tables_exist(db_path: Path) -> None:
             ).fetchall()
         }
     assert expected <= tables
+
+    with db.connect(db_path) as conn:
+        virtual_tables = {
+            str(r[0])
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
+                "('search_documents_fts', 'search_documents_fts_tri')"
+            ).fetchall()
+        }
+    assert {"search_documents_fts", "search_documents_fts_tri"} <= virtual_tables
 
 
 def test_source_span_roundtrip(db_path: Path) -> None:
@@ -188,7 +204,7 @@ def test_curation_plan_roundtrip(db_path: Path) -> None:
         workspace_path="/v/01_Workspaces/resnet-lab",
         project="resnet",
         curate_spec_hash="spec-1",
-        route="exhibition",
+        route="auto",
         source_policy={"include": ["03_Notes/**"], "exclude": []},
         retrieval_policy={"allowed_modes": ["local", "global"]},
         prompt_profile="technical-research",
@@ -196,7 +212,7 @@ def test_curation_plan_roundtrip(db_path: Path) -> None:
     assert plan_id.startswith("PLAN-")
     plan = db.get_curation_plan(db_path, workspace_id="resnet-lab")
     assert plan is not None
-    assert plan["route"] == "exhibition"
+    assert plan["route"] == "auto"
     assert plan["source_policy"]["include"] == ["03_Notes/**"]
 
 
@@ -233,12 +249,12 @@ def test_artifact_dependency_invalidation(db_path: Path) -> None:
     )
     db.record_artifact_dependency(
         db_path,
-        artifact_id="EXH-1",
-        artifact_type="exhibition",
+        artifact_id="SYN-1",
+        artifact_type="synthesis_node",
         depends_on_id="SPAN-1",
         depends_on_type="source_span",
         dependency_hash="h1",
     )
     stale = db.dependents_of(db_path, depends_on_id="SPAN-1")
     stale_ids = {d["artifact_id"] for d in stale}
-    assert stale_ids == {"REP-1", "EXH-1"}
+    assert stale_ids == {"REP-1", "SYN-1"}

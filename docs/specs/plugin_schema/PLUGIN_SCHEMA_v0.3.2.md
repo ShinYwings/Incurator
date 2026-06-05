@@ -1,18 +1,18 @@
-# Incurator Plugin Schema & API Contract (v0.3.1)
+# Incurator Plugin Schema & API Contract (v0.3.2)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
-This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute schema source of truth for the plugin in the v0.3.1 line. Backend contracts live in `docs/specs/curator_schema/SCHEMA_v0.3.1.md` and `docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.1.md`. When there is a conflict, the system behavior spec takes precedence.
+This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute schema source of truth for the plugin in the v0.3.2 line. Backend contracts live in `docs/specs/curator_schema/SCHEMA_v0.3.2.md` and `docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.2.md`. When there is a conflict, the system behavior spec takes precedence.
 
 Implementation plans under `.agents/plans/` are transient and strictly subordinate to this spec.
 
-v0.3.1 extends v0.2.2. Sections 1–8 below preserve the inherited v0.2.2 plugin contract; the v0.3.1 plugin additions (curation-plan, prompt-trace, evidence-trace, and insight-candidate payloads and panels) are defined in sections 9 onward. The archived v0.2.2 source of truth lives at `docs/specs/plugin_schema/archives/PLUGIN_SCHEMA_v0.2.2.md`.
+v0.3.2 extends v0.3.1. Sections 1-11 below preserve the inherited plugin contract except where v0.3.2 replaces external-search evidence wording with DB-native search evidence and adds dashboard click-to-use trace/insight commands. The archived v0.3.1 source of truth lives at `docs/specs/plugin_schema/archives/PLUGIN_SCHEMA_v0.3.1.md`.
 
-**Clean-rebuild stance (no migration compatibility shims).** v0.3.1 adds trace/
+**Clean-rebuild stance (no migration compatibility shims).** v0.3.2 keeps trace/
 insight payloads additively to the existing plugin query result. New panels render
-the new fields; the plugin does not maintain compatibility shims for the v0.3.1
-migration. Existing v0.2.2 plugin behavior that is not replaced continues
-unchanged.
+the new fields; the plugin does not maintain compatibility shims for retired
+migration surfaces or qmd-specific status fields. Existing plugin behavior that is
+not replaced continues unchanged.
 
 ## 1. Plugin Authority Boundary
 
@@ -230,8 +230,8 @@ Rules:
   user explicitly requests another output language.
 - When MCP tool output for `curator_query` is rendered into the chat transcript,
   the plugin may compact the visible tool-result block, but it must preserve
-  parseable `exhibition_id`, `cache_hit`, `fallback`, `error`, and `trace`
-  fields so the Sources & Trace panel can link the generated Exhibition.
+  parseable `fallback`, `error`, and `trace` fields so the Sources & Trace panel
+  can link the answer to its source evidence and query trace.
 
 ### 2.1.1 Zotero Import Profiles
 
@@ -362,7 +362,7 @@ type IncuratorSourceState =
   | "queued"            // registered, L2/L3 job pending
   | "running"           // L2/L3 job in progress
   | "l3_ready"          // L3 complete (concept-grounded answers available)
-  | "l4_ready"          // L4 Exhibition complete
+  | "l4_ready"          // L4 Synthesis complete
   | "stale"             // content hash changed since registration
   | "missing"           // registered but file not found at stored path
   | "moved"             // file path changed, hash matches a known source
@@ -425,8 +425,6 @@ JSON output:
 interface CuratorQueryResult {
   ok: boolean;
   answer?: string;
-  exhibition_id?: string;        // EXH-<UUID8> of the generated/reused Exhibition
-  cache_hit?: boolean;           // true if a cached Exhibition was returned
   question: string;
   input_language?: string;       // detected original language, e.g. English/Korean
   english_query?: string;        // query actually used for internal search/reasoning
@@ -463,23 +461,19 @@ Rules:
   always equals the freshly detected `input_language` unless the latest request
   explicitly asks for another output language.
 - The three language fields are response/trace-only. They appear in this JSON but
-  are never written into the saved query-generated EXH frontmatter.
+  are never written into generated node frontmatter.
 - Backend query search, intent classification, and synthesis context must use
   `english_query` as the internal working query. The final answer must target
   `final_output_language`, not a language inferred from earlier chat turns.
-- The answer cache key incorporates `final_output_language` so the same
-  normalized question asked in different languages does not return a
-  stale-language cached answer.
 - The plugin must skip `wiki plugin query` when the latest turn is focused on
   user-selected text, an editable line range, a PDF page reference, or a
   selected crop/image. Those turns are answered from the selected context rather
   than from workspace-wide Exhibition generation.
 - The plugin must not call `curator_query` for unregistered sources. Use
   plugin-served ephemeral sections via `fetch_document_section` for unregistered PDFs.
-- The backend saves workspace-scoped successful answers as ephemeral
-  query-generated Exhibitions. Repeating the same normalized question in the
-  same workspace and output language should return the cached EXH without another
-  LLM synthesis call unless `force_new=true`.
+- The backend does not save query answers as generated Exhibitions. Each query is
+  a sessionless curation answer with a `QTR-` trace over selected DB-native search
+  and graph evidence.
 - When the latest chat turn is not inside a workspace folder, the plugin sends an
   empty `workspace_path` so the backend resolves `workspace_id=default`. The
   plugin must not bind an arbitrary workspace (e.g. the first `curate.yml` in the
@@ -487,7 +481,8 @@ Rules:
 - If `fallback="l3_incomplete"` and `trace.l3_complete=false`, do not present
   the response as concept-grounded. Show that the document is still being
   processed and fall back to `fetch_document_section` or local PDF context.
-- `exhibition_id` may be used to call `wiki plugin promote` after user approval.
+- The returned answer text may be used to call `wiki plugin promote` after user
+  approval.
 - The plugin must display `trace` in a "Sources & Trace" panel when available.
 
 ### 5.2 `wiki plugin promote` Contract
@@ -495,16 +490,16 @@ Rules:
 Command input:
 ```json
 {
-  "exh_id": "EXH-12345678",
+  "question": "What should we preserve from this answer?",
+  "answer": "The reviewed answer text to promote.",
   "workspace_path": ""
 }
 ```
 
 JSON output:
 ```typescript
-interface PromoteExhibitionResult {
+interface PromoteAnswerResult {
   ok: boolean;
-  exhibition_id?: string;
   promoted_to?: string;      // vault-relative path in 02_Wiki/
   error?: string;
 }
@@ -512,7 +507,8 @@ interface PromoteExhibitionResult {
 
 Rules:
 
-- The plugin must request explicit user confirmation before calling `promote_exhibition`.
+- The plugin must request explicit user confirmation before calling
+  `promote_answer`.
 - After promotion, the plugin should refresh the status of any pinned context
   referencing the source.
 - Promotion must not be called automatically; it always requires a human action.
@@ -650,15 +646,15 @@ the data directory `storage/<KEY>/...` path and do not require this root.
 
 ---
 
-# v0.3.1 Curation-Native Plugin Additions
+# v0.3.2 Curation-Native Plugin Contract
 
 The sections above (1–8) define the inherited v0.2.2 plugin contract. The
-sections below define the new plugin payloads and panels for the v0.3.1
-curation-native rebuild. Backend contracts live in
-`docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.1.md` §15–§20 and
-`docs/specs/curator_schema/SCHEMA_v0.3.1.md` §11.
+sections below define the plugin payloads and panels for the v0.3.1
+curation-native rebuild and the v0.3.2 search/trace dashboard additions. Backend contracts live in
+`docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.2.md` §15–§20 and
+`docs/specs/curator_schema/SCHEMA_v0.3.2.md` §11.
 
-## 9. v0.3.1 Local Plugin Commands
+## 9. v0.3.2 Local Plugin Commands
 
 The hidden `wiki plugin …` namespace (§1) gains these commands. They return JSON,
 call shared backend services, and never go through MCP for same-device flows:
@@ -667,7 +663,12 @@ call shared backend services, and never go through MCP for same-device flows:
 wiki plugin curate plan --workspace-path PATH --json
 wiki plugin prompt trace --trace-id ID --json
 wiki plugin insight list --workspace-path PATH --json
+wiki plugin insight show --insight-id ID --workspace-path PATH --json
 wiki plugin insight promote --insight-id ID --workspace-path PATH --json
+wiki plugin insight reject --insight-id ID --workspace-path PATH --reason TEXT --json
+wiki plugin trace list --workspace-path PATH --limit N --json
+wiki plugin trace show --trace-id QTR-... --workspace-path PATH --json
+wiki plugin correction propose --node-id ID --correction TEXT --previous TEXT --workspace-path PATH --json
 ```
 
 Client method mapping (`plugin/src/agent/incuratorClient.ts`):
@@ -677,27 +678,32 @@ Client method mapping (`plugin/src/agent/incuratorClient.ts`):
 | `getCuratePlan(workspacePath)` | `wiki plugin curate plan` |
 | `getPromptTrace(traceId)` | `wiki plugin prompt trace` |
 | `listInsightCandidates(workspacePath)` | `wiki plugin insight list` |
+| `getInsightCandidate(insightId, workspacePath)` | `wiki plugin insight show` |
 | `promoteInsight(insightId, workspacePath)` | `wiki plugin insight promote` |
+| `rejectInsight(insightId, workspacePath, reason)` | `wiki plugin insight reject` |
+| `listQueryTraces(workspacePath, limit)` | `wiki plugin trace list` |
+| `getQueryTrace(traceId, workspacePath)` | `wiki plugin trace show` |
+| `proposeCorrection(nodeId, correction, previous, workspacePath)` | `wiki plugin correction propose` |
 
 Rules:
 
 - These methods return `null`/empty gracefully when `incuratorEnabled=false` or
   when the backend cannot return JSON, like all other plugin-local methods (§7).
 - `promoteInsight` requires explicit user confirmation before it is called, the
-  same rule as `promoteExhibition` (§5.2). It writes only to `02_Wiki/` backend-side.
+  same rule as `promoteAnswer` (§5.2). It writes only to `02_Wiki/` backend-side.
 - Plugin-local Incurator calls must use backend JSON commands only; they must not
   discover or call Incurator MCP tools as a fallback.
 
-## 10. v0.3.1 Query Result And Trace Payloads
+## 10. v0.3.2 Query Result And Trace Payloads
 
-`wiki plugin query` (§5.1) returns the v0.3.1 fields additively. `CuratorQueryResult`
+`wiki plugin query` (§5.1) returns the curation-native fields additively. `CuratorQueryResult`
 gains:
 
 ```typescript
 interface CuratorQueryResult {
-  // ... existing v0.2.2 fields (ok, answer, exhibition_id, cache_hit, question,
-  // input_language, english_query, final_output_language, trace, error) ...
-  route?: "local" | "global" | "explore" | "exhibition" | "source-section";
+  // ... fields from §5.1: ok, answer, question, input_language, english_query,
+  // final_output_language, trace, error ...
+  route?: "auto" | "local" | "global" | "explore" | "source-section";
   trace_id?: string;              // QTR-<UUID8>
   prompt_trace_ids?: string[];    // PTR-<UUID8>
   source_span_ids?: string[];     // SPAN-<UUID8>
@@ -761,7 +767,7 @@ interface IncuratorInsightCandidate {
 The chat "Sources & Trace" panel (`plugin/src/ui/incuratorQueryTrace.ts`) renders,
 when the fields are present:
 
-- a **route badge** (`local`/`global`/`explore`/`exhibition`/`source-section`);
+- a **route badge** (`auto`/`local`/`global`/`explore`/`source-section`);
 - the active workspace and `curate.yml` spec hash;
 - **source spans** cited by the answer (id + preview, grouped by source);
 - **community reports** used (id + title);
@@ -773,7 +779,7 @@ when the fields are present:
 
 Rules:
 
-- The panel must degrade gracefully: missing v0.3.1 fields render nothing rather
+- The panel must degrade gracefully: missing curation-native fields render nothing rather
   than erroring, so an older/partial backend response still shows the v0.2.2 trace.
 - Insight-candidate promotion and any backprop action are explicit user actions;
   the panel must not auto-promote or auto-patch.
@@ -781,3 +787,92 @@ Rules:
   `excludedSources` so the user sees why sources were dropped, rather than the
   plugin silently inventing workspace scope (the §5.1 no-arbitrary-workspace rule
   is retained).
+
+## 12. v0.3.2 Dashboard Trace And Insight Click-To-Use
+
+The Dashboard gains first-class Trace and Insights surfaces. These surfaces are
+read-only by default and mutate durable backend state only through explicit hidden
+backend commands.
+
+### 12.1 Query Trace Commands
+
+```ts
+type QueryTraceSummary = {
+  traceId: string;          // QTR-<UUID8>
+  workspaceId: string;
+  route: "local" | "global" | "explore" | "source-section";
+  warnings: string[];
+  createdAt: string;
+  latencyMs?: number;
+};
+
+type TraceListResult = {
+  ok: boolean;
+  traces: QueryTraceSummary[];
+  error?: string;
+};
+
+type QueryTraceDetail = {
+  ok: boolean;
+  traceId: string;
+  workspaceId: string;
+  route: "local" | "global" | "explore" | "source-section";
+  routeReason: string;
+  sourceSpanIds: string[];
+  communityReportIds: string[];
+  synthesisNodeIds: string[];
+  memoryPathIds: string[];
+  promptTraceIds: string[];
+  insightCandidateIds: string[];
+  retrievalTrace?: {
+    expansions?: unknown[];
+    ftsCandidates?: unknown[];
+    vectorCandidates?: unknown[];
+    rrf?: unknown[];
+    rerank?: unknown[];
+    degraded?: string[];
+  };
+  warnings: string[];
+  latencyMs?: number;
+  createdAt: string;
+  error?: string;
+};
+```
+
+`wiki plugin trace list` returns `TraceListResult`. `wiki plugin trace show`
+returns `QueryTraceDetail`. Trace rows may be partial when only prompt-run joins
+exist, but the plugin must render partial rows rather than failing.
+
+### 12.2 Insight Detail And Review Commands
+
+`wiki plugin insight show` returns the current insight-candidate fields plus:
+
+- `evidence`
+- `sourceEventId`
+- `promptRunId`
+- `createdAt`
+- `updatedAt`
+
+`wiki plugin insight reject` marks a candidate rejected with a reason. `wiki
+plugin insight promote` remains the only promotion path and writes only to
+`02_Wiki/` after explicit user confirmation.
+
+### 12.3 Correction Proposal Command
+
+`wiki plugin correction propose` accepts `node_id`, correction text, optional
+previous text, and workspace path. It calls the backend correction classifier and
+returns the classification, recommended action, any created insight candidate id,
+and whether human review is required. The plugin must never overwrite generated
+nodes directly.
+
+### 12.4 Safety And Boundary Rules
+
+- Dashboard Trace and Insights tabs call hidden local `wiki plugin ... --json`
+  commands, not MCP tools.
+- Runtime snapshots remain backend-owned read models. The plugin reads them but
+  never writes them.
+- Dashboard must not edit `.curator/state.sqlite`, `.curator/Collections/`,
+  `03_Notes/`, `04_Resources/`, or `06_Archives` directly.
+- Prompt trace UI does not expose raw prompt input/output bodies by default in
+  v0.3.2; ids, hashes, model, route, validator status, evidence ids, and warnings
+  are sufficient.

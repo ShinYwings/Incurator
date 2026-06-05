@@ -35,8 +35,7 @@ The v0.2.0 vault topology remains unchanged, with these `.curator/` additions:
     ├── 01_Contexts/
     ├── 02_Atoms/
     ├── 03_Concepts/
-    ├── 04_Synthesis/            # SYN-*.md projection of the shared L4 Synthesis layer (§11.11)
-    └── 04_Exhibitions/
+    └── 04_Synthesis/            # SYN-*.md projection of the shared L4 Synthesis layer (§11.11)
 ```
 
 Rules:
@@ -266,16 +265,16 @@ Rules:
   `confidence_score` so they are searchable but clearly weaker than LLM- or
   human-verified extraction.
 
-## 5. L3 Concept Schema Additions (L4 Exhibitions removed)
+## 5. L3 Concept Schema Additions (Frozen L4 Artifacts Removed)
 
 v0.2.0 Concept contracts remain valid. L3 clustering is embedding-first in
 v0.2.1+. Implementations may add local embedding dependencies such as
 `scikit-learn` and may fall back to the legacy LLM cluster-planning call when
 embeddings are unavailable.
 
-> **v0.3.1 redesign — frozen Exhibitions removed.** The v0.2.x query-generated
-> and promoted **Exhibition** lifecycle (`EXH-`, `exhibition_origin`, `ephemeral`,
-> `cache_key`, the EXH answer-cache) is **removed** (see §15). Queries are
+> **v0.3.1 redesign — frozen L4 artifacts removed.** The v0.2.x query-generated
+> and promoted lifecycle (`exhibition_origin`, `ephemeral`,
+> `cache_key`, answer cache) is **removed** (see §15). Queries are
 > **sessionless**: they return an answer + `QTR-` trace and write **no** vault
 > file. The L4 layer is now the shared **Synthesis** layer (`SYN-`, §11.11), and
 > curation is a dynamic query-time lens.
@@ -916,8 +915,9 @@ Rules:
   why), the retrieval policy, the prompt profile, and known gaps.
 - `curate_spec_hash` ties the plan to the exact `curate.yml` content that produced
   it (see §16). A plan is stale when the spec hash changes.
-- Plans are inspectable through `wiki curate plan --json`, the plugin curation
-  panel, and the MCP `curator_get_curation_plan` tool.
+- Plans are inspectable through the hidden plugin command
+  `wiki plugin curate plan --workspace-path PATH` and the MCP
+  `curator_plan_workspace` tool.
 
 ### 11.9 `insight_candidates`
 
@@ -956,7 +956,7 @@ Rules:
 ```sql
 CREATE TABLE IF NOT EXISTS artifact_dependencies (
     artifact_id TEXT NOT NULL,
-    artifact_type TEXT NOT NULL,       -- knowledge_unit | entity | relation | community_report | exhibition | curation_plan
+    artifact_type TEXT NOT NULL,       -- knowledge_unit | entity | relation | community_report | synthesis_node | curation_plan
     depends_on_id TEXT NOT NULL,
     depends_on_type TEXT NOT NULL,     -- source_span | knowledge_unit | entity | relation | community_report
     dependency_hash TEXT NOT NULL,     -- hash of the depended-on content at link time
@@ -1088,15 +1088,14 @@ relation graph and community reports as backend-owned records (§11.3–§11.5).
   `.curator/Collections/` is optional and may be added later for Obsidian
   inspection; the SQL record is the source of truth.
 
-## 15. L4 Synthesis Layer And The Dynamic Curation Lens (replaces frozen Exhibitions)
+## 15. L4 Synthesis Layer And The Dynamic Curation Lens
 
-> **v0.3.1 redesign.** The per-workspace **frozen Exhibition** (`EXH-`,
-> `04_Exhibitions/`, `curator.exhibition_write`, `wiki curate`/`wiki refresh`,
-> `curator_curate_workspace`, the EXH answer-cache, and the EXH markdown
+> **v0.3.1 redesign.** The per-workspace frozen L4 artifact (`curator.exhibition_write`,
+> the answer-cache, and the markdown
 > reverse-parse backprop path) is **removed**. It was the wrong abstraction: a
 > frozen per-workspace package under-recalls (turn-N needs unstaged knowledge),
 > goes stale against the live DAG, and duplicates the DAG (qmd pollution + GC
-> pain). There is **no backward compatibility**; old `EXH-` files become inert.
+> pain). There is **no backward compatibility**.
 
 The L4 layer is now the **shared Synthesis layer** (`synthesis_nodes` / `SYN-`,
 §11.11) — durable, workspace-independent, source-grounded cross-cutting insights
@@ -1116,9 +1115,9 @@ distilled from the community reports.
   subset.
 
 Durable human artifacts come only from an explicit **promotion to `02_Wiki/`**
-(insight candidate → `02_Wiki/`), never from a generated Exhibition.
+(insight candidate -> `02_Wiki/`), never from a generated query artifact.
 
-Backprop is **correction-driven and EXH-independent**: corrections from any
+Backprop is **correction-driven and generated-artifact-independent**: corrections from any
 interaction (`curator_propose_correction`) are classified (§18) and patch the
 generated DB nodes / create insight candidates, protecting source truth.
 
@@ -1135,7 +1134,7 @@ description: "Workspace purpose."
 goal:
   primary: "Explain and extend residual-network knowledge through a dynamics lens."
   audience: "researcher"        # researcher | engineer | learner | writer | generalist
-  deliverables: ["curated-exhibition", "research-note-context"]
+  deliverables: ["curated-context", "research-note-context"]
   success_criteria:
     - "Every mathematical claim cites a source span."
 
@@ -1154,14 +1153,14 @@ knowledge:
     - "original ResNet claim != later ODE interpretation"
 
 output:
-  format: "exhibition"
+  format: "context-pack"
   style: "dense-technical"
   citation_style: "curator-source-spans"
   include_sections: ["Evidence Map", "Conceptual Synthesis", "Unresolved Gaps", "Agent Directives"]
 
 reasoning:
-  default_mode: "auto"            # auto | local | global | explore | exhibition | source-section
-  allowed_modes: ["local", "global", "explore", "exhibition"]
+  default_mode: "auto"            # auto | local | global | explore | source-section
+  allowed_modes: ["local", "global", "explore"]
   exploration_enabled: true
   max_followups: 5
   require_insight_candidates: false
@@ -1197,14 +1196,14 @@ Rules:
 
 ## 17. Id And Prefix Registry
 
-v0.3.1 valid id prefixes are the v0.2.0 DAG prefixes plus the new record
-prefixes:
+v0.3.1 valid id prefixes are the active projection prefixes plus the new record
+prefixes.
 
 ```text
 CTX-   L1 Context page
 ATM-   L2 Atom page (knowledge unit projection)
 CON-   L3 Concept page
-EXH-   L4 Exhibition page
+SYN-   L4 Synthesis page
 SPAN-  source span
 KNU-   knowledge unit
 ENT-   graph entity

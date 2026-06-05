@@ -10,8 +10,8 @@
 *   **트리거**: 모든 세션 시작 시 에이전트에 의해 자동으로 호출됩니다.
 *   **논리 흐름**:
     1.  **경로 해석**: `workspace_path`에서 위로 이동하며 `vault_root`를 발견합니다.
-    2.  **상태 검증**: `curate.yml`의 존재 여부와 검색 인덱스에 구성된 Exhibition이 있는지 확인합니다.
-    3.  **결과**: 초기화 필요 여부(`needs_initialization`)와 Exhibition 존재 여부(`exhibition_exists`)를 반환합니다.
+    2.  **상태 검증**: `curate.yml` 존재 여부와 agent rule 준비 상태를 확인합니다.
+    3.  **결과**: 초기화 필요 여부(`needs_initialization`), 프로젝트 메타데이터, 실행 가능한 설정 이슈를 반환합니다.
 
 ### 1.2 워크스페이스 스캐폴딩 (`curator_workspace_init`)
 *   **트리거**: `check_workspace`가 `needs_initialization: true`를 반환할 때 시작됩니다.
@@ -26,17 +26,17 @@
 
 ### 2.1 페르소나 기반 질의 및 검색 (`curator_query` & `search_curator`)
 *   **논리 흐름 (`curator_query`)**:
-    1.  **이원화된 아키텍처(Dual Architecture) 적용**: 워크스페이스가 지정되면 `curate.yml`의 Pinned L4 Exhibition과 페르소나를 사용합니다(임시 파일 생성 안 함). 워크스페이스가 없는 일반 Vault 모드인 경우, 세션별로 임시(Ephemeral) L4 Exhibition을 동적으로 생성합니다.
-    2.  **L3 제약 조건**: 질의와 관련된 L3 Concept이 존재할 때만 L4 Exhibition을 생성합니다. 없으면 L4 생성을 건너뛰고 직접 답변하거나 일반 검색으로 폴백합니다.
+    1.  워크스페이스가 지정되면 `curate.yml`의 페르소나/KRS를 적용하고, Vault 모드는 글로벌 폴백 페르소나를 사용합니다.
+    2.  선택된 L3 Concept, L4 Synthesis node, source section, report, insight candidate에 대한 `QTR-` trace와 함께 sessionless 답변을 반환합니다.
 *   **논리 흐름 (`search_curator`)**:
     1.  로컬 `curate.yml`에서 `domains`, `topics`, `min_confidence` 필터를 자동으로 적용합니다.
-    2.  대상 Exhibition이 없으면 검색을 수행하기 전에 **큐레이션 패스를 자동으로 트리거**합니다.
+    2.  authoritative record 위의 DB-native search row를 검색하며 staging pass를 트리거하지 않습니다.
     3.  프로젝트의 지식 요구사항으로 범위가 지정된 결과를 반환하여 Vault의 관련 없는 부분에서 발생하는 "지식 노이즈"를 방지합니다.
 
 ### 2.2 근거 추적 (`curator_traverse_evidence`)
 *   **상황**: 검색 결과 신뢰도 점수가 높은 임계값(0.90)보다 낮지만 낮은 하한선(0.60)보다는 높은 경우.
 *   **논리 흐름**:
-    1.  에이전트가 증거 체인을 거슬러 올라갑니다: `EXH → CON → ATM`.
+    1.  에이전트가 증거 체인을 거슬러 올라갑니다: `SYN -> CON/REP -> ATM/source spans`.
     2.  작업 결과물에 정보를 인용하기 전에 특정 주장과 출처를 검증합니다.
 
 ### 2.3 외부 리소스 통합 및 해시 복구
@@ -70,12 +70,12 @@
 ## 3. 지식 진화 및 무결성 시나리오
 
 ### 3.1 역전파 (지식 교정)
-*   **상황**: 사람(Director) 또는 에이전트(Artist)가 미리 컴파일된 Exhibition 또는 Concept에서 오류를 식별합니다.
+*   **상황**: 사람(Director) 또는 에이전트(Artist)가 생성된 지식에서 오류를 식별합니다.
 *   **논리 흐름**:
-    1.  에이전트가 `curator_update_node`를 통해 L4 Exhibition을 업데이트합니다.
-    2.  엔진이 편집 내용을 구성 Concept과 Atom으로 거슬러 올라가며 **역방향 패스(Backward Pass)**를 트리거합니다.
-    3.  엔진이 수정된 진실과 일치하도록 기본 DAG 노드에 수정을 제안하거나 적용합니다.
-    4.  `wiki sync`를 통해 수정 사항이 네트워크 전체에 전파되도록 합니다.
+    1.  에이전트가 claim, correction, evidence context와 함께 `curator_propose_correction`을 호출합니다.
+    2.  엔진은 패치 전에 피드백을 분류합니다.
+    3.  correction은 생성 노드에만 대한 patch plan을 만들며, source truth는 자율적으로 편집하지 않습니다.
+    4.  승인된 변경 후 `wiki sync`로 그래프 일관성을 검증합니다.
 
 ### 3.2 통합 승격 (무한 루프 - Path B)
 *   **상황**: 대화 세션 중에 가치 있는 통찰이 도출됩니다.

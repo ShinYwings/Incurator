@@ -3,7 +3,7 @@
 Distills community reports / concepts into a small set of cross-cutting,
 corpus-wide synthesized insights — the durable, workspace-INDEPENDENT top layer of
 the refined DAG (Zettelkasten "linking & synthesis"). NOT a per-workspace
-exhibition; the dynamic per-workspace curation lens sits above this and draws on
+synthesis artifact; the dynamic per-workspace curation lens sits above this and draws on
 it. Every synthesized insight stays grounded in real source spans.
 """
 

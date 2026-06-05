@@ -1,17 +1,17 @@
-# Incurator - System Behavior (v0.3.1)
+# Incurator - System Behavior (v0.3.2)
 
-This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth for the v0.3.1 line. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA_v0.3.1.md`.
+This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth for the v0.3.2 line. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA_v0.3.2.md`.
 
 Implementation plans under `.agents/plans/` are transient and strictly subordinate to this document. If a plan conflicts with this behavior contract, update the plan or bring the conflict back to review before coding.
 
-v0.3.1 extends v0.2.2. Sections 1–14 below preserve the inherited v0.2.2 behavior contract; the v0.3.1 curation-native behavior (prompt registry and tracing, `curate.yml` compilation, curation plans, local/global/explore/exhibition query routing, the backprop classification lifecycle, and source-truth protection) is defined in sections 15 onward. The archived v0.2.2 source of truth lives at `docs/specs/system_behavior/archives/SYSTEM_BEHAVIOR_v0.2.2.md`.
+v0.3.2 extends v0.3.1. Sections 1-22 below preserve the inherited behavior contract except where v0.3.2 retires qmd as an external search backend and replaces it with DB-native search, query expansion, chunk vectors, RRF, configured reranking, and durable query traces. The archived v0.3.1 source of truth lives at `docs/specs/system_behavior/archives/SYSTEM_BEHAVIOR_v0.3.1.md`.
 
-**Clean-rebuild stance (no migration compatibility shims).** v0.3.1 does not keep
-prompt-function wrappers, a legacy-query fallback path, or `curate.yml`
-persona→KRS auto-mapping. New runs use the v0.3.1 path directly. Still-current
-v0.2.2 behaviors that v0.3.1 does not replace (instant L1, background jobs,
-Reference Mode, runtime snapshots, the device registry, the language bridge)
-continue unchanged.
+**Clean-rebuild stance (no migration compatibility shims).** v0.3.2 does not keep
+prompt-function wrappers, a legacy-query fallback path, `curate.yml`
+persona→KRS auto-mapping, or a qmd runtime fallback. New runs use the v0.3.2 path
+directly. Still-current behaviors that v0.3.2 does not replace (instant L1,
+background jobs, Reference Mode, runtime snapshots, the device registry, the
+language bridge) continue unchanged.
 
 ## 1. v0.2.2 Goal
 
@@ -515,7 +515,9 @@ Canonical runtime snapshots live under:
 Recommended files:
 
 - `.curator/runtime/status.json` — vault health, source layer counts, active job
-  counts, qmd/BM25/vector readiness, backend version, and generated timestamp.
+  counts, DB-native search readiness (`fts_ready`, embedded chunk counts,
+  vector readiness, provider/model, degraded reason), backend version, and
+  generated timestamp.
 - `.curator/runtime/sources.json` — read-only source rows needed for dashboard
   and source chips.
 - `.curator/runtime/jobs.json` — active/recent background jobs and errors.
@@ -527,7 +529,8 @@ Rules:
 - The plugin must treat missing or stale snapshots as "unknown/waiting", not as
   proof that backend state is empty.
 - Runtime snapshots must be derived from backend-owned state (`state.sqlite`,
-  qmd metadata, job queue, config) and must not become a second source of truth.
+  internal search metadata, job queue, config) and must not become a second
+  source of truth.
 - Mutating actions such as import, rebind, reset, query generation, and
   promotion must not be implemented by editing shared JSON files.
 - Dashboard buttons that change backend state must invoke backend code. The
@@ -613,8 +616,7 @@ be hidden from the default help listing:
 - `wiki devices ...` — synced-device/backend launcher diagnostics. Running
   `wiki devices` without a subcommand is equivalent to `wiki devices status`.
 
-The v0.2.x `wiki curate` and `wiki refresh` commands (frozen-Exhibition staging /
-forward propagation) are **removed** in v0.3.1: the L4 layer is the shared
+The frozen-staging command family is **removed** in v0.3.1: the L4 layer is the shared
 Synthesis layer (built automatically by `wiki build`) and curation is a dynamic
 query-time lens (`wiki query`). `wiki update` is not part of the public CLI.
 
@@ -672,7 +674,7 @@ stale:
 - root-level legacy `build_trace_*.canvas` files
 - `.curator/devices.json`
 - `.curator/sessions.json`
-- qmd's generated index database
+- internal DB-native search index rows stored in `state.sqlite`
 
 Build trace canvases are diagnostics and must not be written at `.curator/`
 root during normal background builds. If generated, they live under
@@ -681,11 +683,29 @@ transient state.
 
 ## 12.2 Search Index Degradation
 
-qmd indexing has two layers: `qmd update` for lexical/BM25 search and `qmd embed`
-for vector search. If `qmd update` succeeds but `qmd embed` fails, Incurator must
-not treat the whole index rebuild as failed. It should report a degraded result:
-BM25 search is current, vector search is stale, and the user can retry
-`wiki reindex` after qmd embedding support is healthy.
+Search has internal stages:
+
+1. FTS5/BM25 lexical retrieval over authoritative DB records. This is always
+   available for a valid SQLite build with FTS5 support.
+2. Chunked vector retrieval over `search_chunks` / `search_embeddings`.
+3. Typed query expansion (`lex`, `vec`, `hyde`) from deterministic rules and,
+   when configured, a search/query-expansion model.
+4. RRF fusion with traceable per-list contributions.
+5. Configured reranking over best chunks for answer-producing routes.
+
+If embeddings are missing or stale, Incurator must not treat search as failed.
+It degrades to FTS5-only retrieval with `vector_unavailable` in the query trace
+and runtime status. If the configured query expander is unavailable, deterministic
+expansion still runs and `query_expander_unavailable` is recorded. If the
+configured reranker is unavailable for `local` or `global` routes, retrieval
+proceeds in RRF order and `reranker_unavailable` is recorded. These are degraded
+modes, not the parity target.
+
+`wiki reindex` rebuilds DB-native search state: `search_documents`,
+`search_chunks`, FTS5 rows, and missing/stale chunk embeddings. It reports counts
+for FTS rows, chunks, embedded chunks, skipped unchanged chunks, failures,
+provider/model, and degraded state. It does not shell out to an external search
+binary.
 
 ## 13. Syncthing Device Registry
 
@@ -746,7 +766,7 @@ answered in English even when an earlier Korean turn cached the same question.
 
 When `curator_query` creates or reuses a query-generated Exhibition, the plugin
 may compact visible MCP tool output before rendering it into the chat transcript,
-but it must preserve parseable `exhibition_id` and `trace` fields so the
+but it must preserve parseable `trace` fields so the
 Sources & Trace panel can link the generated L4 Exhibition.
 
 ## 14. Testbed Validation
@@ -761,8 +781,8 @@ VAULT_ROOT=testbed wiki sync
 VAULT_ROOT=testbed wiki lint
 ```
 
-If LLM or qmd dependencies are unavailable, lower-level deterministic tests must
-still run and the blocker must be reported.
+If LLM, embedding, query-expansion, or reranker dependencies are unavailable,
+lower-level deterministic tests must still run and the blocker must be reported.
 
 For instant L1 work, validation must show that `wiki add` can create CTX without
 printing or requiring LLM readiness when `llm.instant_l1=true`.
@@ -772,14 +792,14 @@ from the original source by `toc_id` or page range.
 
 ---
 
-# v0.3.1 Curation-Native Behavior
+# v0.3.2 Curation-Native Behavior
 
 The sections above (1–14) define the inherited v0.2.2 behavior contract. The
-sections below define the new behavior introduced by the v0.3.1 curation-native
-rebuild. Schema records referenced here are defined in
-`docs/specs/curator_schema/SCHEMA_v0.3.1.md`.
+sections below define the behavior introduced by the v0.3.1 curation-native
+rebuild and amended by v0.3.2 search internalization. Schema records referenced here are defined in
+`docs/specs/curator_schema/SCHEMA_v0.3.2.md`.
 
-The v0.3.1 thesis: the Curator is a curation-native graph/memory compiler. It
+The v0.3.2 thesis: the Curator is a curation-native graph/memory compiler. It
 reads a workspace's `curate.yml`, compiles a curation plan, chooses a retrieval
 route, builds an evidence pack from source spans / graph / community reports /
 memory paths, runs registered and traced prompts, stages an Exhibition, and
@@ -818,7 +838,7 @@ provisioning code.
   version/family/role, model provider/name, input/output hashes, validator status
   and errors, retry count, source ids/spans, `curate_spec_hash`, and the owning
   query trace id when applicable.
-- A generated artifact (knowledge unit, entity, relation, report, exhibition)
+- A generated artifact (knowledge unit, entity, relation, report, synthesis node)
   must record the `PTR-` that produced it. An artifact that cannot name its prompt
   run is a defect.
 - Prompt traces are inspectable through `wiki prompt trace TRACE_ID`, the MCP
@@ -851,17 +871,16 @@ failure marks the run `failed` and must not write a partial artifact.
   `allow_general_knowledge`, `contradiction_policy`, `backprop_enabled`, and
   `max_explore_followups`.
 - `curate_spec_hash` is a stable hash of the workspace's `curate.yml` content. It
-  is recorded on curation plans, prompt runs, and saved Exhibitions so staleness
-  is detectable.
-- `wiki curate validate --workspace PATH` returns the parsed spec summary, the
-  compiled policy, the spec hash, and any validation errors. Invalid specs
+  is recorded on curation plans and prompt runs so staleness is detectable.
+- `curator_validate_curate_spec(workspace_path)` returns the parsed spec summary,
+  the compiled policy, the spec hash, and any validation errors. Invalid specs
   (unknown route, contradictory policy) surface errors instead of silently using
   defaults.
 
 ### 16.2 Curation Plan Flow
 
-Before writing or refreshing an Exhibition, the backend generates a
-`curation_plans` row (`PLAN-…`):
+Before a workspace curation run, the backend generates a `curation_plans` row
+(`PLAN-…`):
 
 1. Load and compile `curate.yml` into a `CurationPolicy`.
 2. Inventory available sources, entities, concepts, and community reports.
@@ -871,11 +890,11 @@ Before writing or refreshing an Exhibition, the backend generates a
    concepts/entities, output shape, verification policy, and prompt profile.
 5. Record known gaps.
 
-`wiki curate plan --workspace PATH --json` returns the plan without writing an
-Exhibition. `wiki curate --workspace PATH` builds the plan and then stages the
-Exhibition. The plan is inspectable over CLI, plugin JSON, and MCP.
+`wiki plugin curate plan --workspace-path PATH` and MCP
+`curator_plan_workspace(workspace_path)` record and return the plan. They do not
+write a frozen Exhibition.
 
-## 17. Query Routing: local / global / explore / exhibition / source-section
+## 17. Query Routing: local / global / explore / source-section
 
 `wiki query` and `curator_query` route through a single `QueryOrchestrator`.
 Routing is deterministic-first; an LLM router (`curator.query_router`) is used
@@ -899,18 +918,14 @@ Routes and selection rules:
   follow-up questions (`curator.query_explore_expand`), run local searches per
   follow-up, build a memory-path-backed exploration tree, return ranked **insight
   candidates** as provisional (not truth).
-- **exhibition** — a workspace with an active Exhibition asks for project
-  context. Use the active Exhibition as pinned context, check freshness against
-  source/report/graph hashes, optionally supplement with other routes, and record
-  whether the Exhibition should be refreshed.
-
 Rules:
 
 - An explicit `--mode` wins when the policy allows it; a disallowed mode returns a
   clear error rather than silently downgrading.
 - When the graph is incomplete (no entities/relations/reports yet), the
-  orchestrator falls back to qmd lexical/vector retrieval and records a warning in
-  the trace. qmd remains the fallback retrieval engine.
+  orchestrator falls back to DB-native retrieval and records a warning in the
+  trace. The fallback is FTS5 + available chunk vectors + RRF over authoritative
+  DB records, not an external binary.
 - Every query produces a `QTR-` query trace carrying `route`, `route_reason`,
   evidence (`source_span_ids`, `community_report_ids`, `synthesis_node_ids`,
   `memory_path_ids`), `prompt_trace_ids`, `insight_candidate_ids`, latency, and
@@ -920,7 +935,7 @@ Rules:
   WITHOUT a synthesized answer, for reasoning agents that have their own LLM.
 - The v0.2.2 language bridge (§11 inherited) is unchanged: detect latest-input
   language, reason in English, answer in the detected language; bridge fields stay
-  response/trace-only and are never persisted into EXH frontmatter.
+  response/trace-only and are never persisted.
 
 ## 18. Backprop Classification And Insight Lifecycle
 
@@ -932,7 +947,8 @@ v0.3.1 routes feedback through an explicit classifier before any patch.
 one of:
 
 - `correction` — a generated artifact misread its evidence. Patch the generated
-  knowledge unit/concept/exhibition, invalidate dependents, preserve source text.
+  knowledge unit/entity/relation/report/synthesis node, invalidate dependents,
+  preserve source text.
 - `contradiction` — two sources/artifacts conflict. Record it, flag both sides,
   surface in the Exhibition, require review before any merge that would erase the
   disagreement.
@@ -946,10 +962,11 @@ one of:
 
 ### 18.2 Patch Planning And Sync
 
-- `wiki sync --backward --target <ID>` runs the classifier, then
-  `curator.backprop_patch_plan` produces an explicit patch plan (generated nodes
-  to patch, nodes/reports/exhibitions to invalidate via `artifact_dependencies`,
-  human-verified nodes to preserve, sources that must stay unchanged).
+- `curator_propose_correction(node_id, correction, workspace_path)` runs the
+  classifier, then `curator.backprop_patch_plan` produces an explicit patch plan
+  (generated nodes to patch, nodes/reports/synthesis to invalidate via
+  `artifact_dependencies`, human-verified nodes to preserve, sources that must
+  stay unchanged).
 - `--dry-run` returns the classification and patch plan without writing.
 - Identical-submission no-ops are preserved from v0.2.2 (no LLM call, no rebuild).
 
@@ -985,9 +1002,7 @@ New human CLI commands:
 
 ```text
 wiki prompt list | show PROMPT_ID | trace TRACE_ID | eval
-wiki curate plan --workspace PATH [--json]
-wiki curate validate --workspace PATH
-wiki query "..." --mode auto|local|global|explore|exhibition|source-section [--trace]
+wiki query "..." --route auto|local|global|explore|source-section [--trace]
 wiki insight list --workspace PATH | show INSIGHT_ID | promote INSIGHT_ID
 ```
 
@@ -1007,7 +1022,6 @@ duplicated logic):
 curator_plan_workspace(workspace_path)
 curator_explore(query, workspace_path="")
 curator_get_prompt_trace(trace_id, workspace_path="")
-curator_get_curation_plan(workspace_path)
 curator_list_insight_candidates(workspace_path="", status="pending")
 curator_promote_insight(insight_id, workspace_path="")
 curator_validate_curate_spec(workspace_path)
@@ -1015,13 +1029,13 @@ curator_propose_correction(node_id, correction, workspace_path="")
 ```
 
 Mutation tools (`curator_propose_correction`, the inherited `curator_update_node`)
-update the DB record, re-emit the affected derived markdown projection, and
-re-index qmd; they run the backprop classification lifecycle (§18, §22.2) and
-never edit read-only source truth.
+update the DB record and DB-native search rows, re-emit the affected derived
+markdown projection when projection emission is enabled, and run the backprop
+classification lifecycle (§18, §22.2). They never edit read-only source truth.
 
 `curator_query` returns the v0.3.1 trace fields additively: `route`, `trace_id`,
 `prompt_trace_ids`, `source_span_ids`, `community_report_ids`, `memory_path_ids`,
-`insight_candidate_ids`, and the existing `answer`/`exhibition_id`/`trace`.
+`insight_candidate_ids`, and the existing `answer`/`trace`.
 
 ## 21. Testbed Validation (v0.3.1)
 
@@ -1037,9 +1051,9 @@ Beyond the v0.2.2 smoke (§14), v0.3.1 validation must show:
 - backprop classification does not rewrite the original L1;
 - prompt traces are visible for generated artifacts.
 
-If LLM or qmd is unavailable, deterministic tests, prompt validators, and the
-`local_slm_simulator` role still run, and the exact blocker is documented; the
-scenario is not reported as passed.
+If LLM, embedding, query-expansion, or reranker dependencies are unavailable,
+deterministic tests, prompt validators, and the `local_slm_simulator` role still
+run, and the exact blocker is documented; the scenario is not reported as passed.
 
 ## 22. Compile Model: DB Source Of Truth, Derived Markdown Projection
 
@@ -1064,8 +1078,10 @@ Raw source
   └─ LLM synthesize (cross-community, source-grounded)
        → DB: synthesis_nodes                        (L4 Synthesis, shared)
        → emit .curator/Collections/04_Synthesis/SYN-*.md (derived projection)
-  └─ qmd update/embed indexes .curator/Collections/  (BM25 + vector)
-  └─ query/curate: qmd search (derived corpus) + DB graph traversal (HippoRAG)
+  └─ DB-native search index update
+       → search_documents/search_chunks, FTS5, chunk embeddings
+  └─ query/curate: typed expansion + FTS5 + chunk vectors + RRF + configured rerank
+       plus DB graph traversal (HippoRAG)
        → dynamic Curation lens over L3/L4 (per workspace/query, never stored)
 ```
 
@@ -1083,18 +1099,22 @@ Rules:
 - L1 (source_spans / CTX) is deterministic structure preservation, not
   refinement. It must not require an LLM (the v0.2.2 instant-L1 guarantee holds).
   Knowledge refinement happens at L2/L3 via the LLM prompt families.
-- The emitted markdown is search-optimized, not human-pretty; humans are not
-  expected to read L1–L3 pages.
-- `qmd` is retained as the retrieval engine over `.curator/Collections/`. No
-  search-engine rewrite. If qmd is unavailable, search degrades to DB-backed
-  lookups with a warning (§17 fallback).
+- The emitted markdown is an Obsidian convenience projection, not the search
+  corpus. Search reads DB-native `search_documents`, `search_chunks`, FTS5 rows,
+  and chunk embeddings.
+- Query expansion and reranking are v0.3.2 quality requirements. If a configured
+  query-expansion model or reranker is unavailable, the query may proceed through
+  deterministic expansion and RRF-only order, but the trace must explicitly record
+  the degraded stage.
 
 ### 22.2 Backprop Re-emission (Loss Signal → Backward Pass)
 
 - MCP mutation tools `curator_propose_correction` and `curator_update_node` let
-  external agents correct knowledge. They update the DB record, re-emit the
-  affected L1–L3 projection page(s), and trigger a qmd re-index. They never edit
-  read-only source truth.
+  external agents correct knowledge. They update the DB record and the affected
+  DB-native search rows (`search_documents`, `search_chunks`, FTS5 rows, and
+  embedding freshness state) in the same backend write path. Projection pages are
+  re-emitted only as an Obsidian convenience. They never edit read-only source
+  truth, and there is no external re-index step.
 - `curator_propose_correction` records the change as an `insight_candidates` /
   backprop event and runs the classification lifecycle (§18) before patching
   generated nodes; ambiguous changes require review.
@@ -1107,8 +1127,60 @@ Rules:
 
 ### 22.3 Directory Roles (Two-Track)
 
-- `.curator/` — AI-Only Space: `state.sqlite` (source of truth) plus the derived
-  `Collections/` qmd corpus and `runtime/` snapshots. Hidden; not a user concern.
+- `.curator/` — AI-Only Space: `state.sqlite` (source of truth), DB-native search
+  indexes/traces, the derived `Collections/` Obsidian projection, and `runtime/`
+  snapshots. Hidden; not a user concern.
 - `02_Wiki/` — Human-Only Space: promoted Exhibitions and human knowledge only.
 - `wiki reset` may delete the entire derived `Collections/` projection because it
   is rebuildable from the DB (and the DB from source truth).
+
+## 23. v0.3.2 DB-Native Search Providers, Traces, And Dashboard Actions
+
+### 23.1 Provider Contracts
+
+v0.3.2 introduces backend-owned providers for:
+
+- **embeddings**: `embed(texts) -> list[float32_vector]`
+- **query expansion**: plain question + route/context -> typed `lex` / `vec` /
+  `hyde` expansions
+- **reranking**: query + best candidate chunks -> relevance scores/order
+
+The active provider, model, dimension, and degraded state must be recorded in
+runtime status and query traces. Generic chat-model reranking is a degraded
+fallback only; the parity target is a search reranker/cross-encoder or validated
+search-fine-tuned local model. Query expansion and reranking are quality
+requirements: when unavailable, the trace must say exactly what was skipped and
+which deterministic fallback ran.
+
+### 23.2 Retrieval Trace Contents
+
+Every `QTR-` trace must persist enough retrieval metadata for debugging and
+dashboard display:
+
+- deterministic and model-generated expansions
+- rejected malformed expansions
+- FTS candidate ids and ranks
+- vector candidate chunk ids and scores
+- RRF contribution list (`source`, `query_type`, rank, weight, contribution)
+- reranker provider/model, best chunks, scores, and degraded reason if skipped
+- selected evidence ids used by synthesis
+
+Raw prompt bodies are not required in `query_traces`; prompt-level hashes and
+validator status remain in `prompt_runs`.
+
+### 23.3 Plugin Dashboard Click-To-Use Commands
+
+The hidden same-device plugin command namespace gains:
+
+```text
+wiki plugin trace list --workspace-path PATH --limit N --json
+wiki plugin trace show --trace-id QTR-... --workspace-path PATH --json
+wiki plugin insight show --insight-id INS-... --workspace-path PATH --json
+wiki plugin insight reject --insight-id INS-... --workspace-path PATH --reason TEXT --json
+wiki plugin correction propose --node-id ID --correction TEXT --previous TEXT --workspace-path PATH --json
+```
+
+Dashboard trace/insight actions must call backend commands. The plugin must not
+edit `.curator/state.sqlite`, `.curator/Collections/`, `03_Notes/`,
+`04_Resources/`, `06_Archives/`, or runtime snapshots directly. Insight promotion
+requires explicit confirmation and writes only to `02_Wiki/`.

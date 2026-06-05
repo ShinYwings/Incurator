@@ -191,10 +191,19 @@ def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = 
         "contexts": _count_md(paths.contexts),
         "atoms": _count_md(paths.atoms),
         "concepts": _count_md(paths.concepts),
-        "exhibitions": _count_md(paths.exhibitions),
+        "synthesis": _count_md(paths.synthesis),
     }
-    qmd_bin = search.get_qmd_binary()
-    qmd_version = search.get_version() if search.is_available() else None
+    # v0.3.2: DB-native search engine (qmd retired). The legacy qmd_* keys are
+    # kept as a back-compat shim for the current plugin UI until it migrates to
+    # the search_* keys; they now report the native engine.
+    search_version = search.get_version()
+    search_config = (config or {}).get("search", {})
+    embed_spec = str(search_config.get("embedding") or "")
+    embed_provider, _, embed_model = embed_spec.partition("::")
+    vector_ready = bool(
+        embed_provider and embed_model
+        and db.has_search_embeddings(paths.state_db, embed_provider.strip(), embed_model.strip())
+    ) if paths.state_db.exists() else False
     jobs = build_jobs_snapshot(paths)
     source_layers = _source_layer_counts(paths)
     return {
@@ -204,9 +213,15 @@ def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = 
         "backend_version": __version__,
         "collections": str(paths.collections),
         "wiki_binary": _wiki_binary(),
-        "qmd_binary": str(qmd_bin) if qmd_bin else None,
-        "qmd_ready": bool(qmd_bin and search.is_available()),
-        "qmd_version": qmd_version,
+        # native DB search engine status (v0.3.2)
+        "search_engine": "native",
+        "search_ready": True,
+        "search_version": search_version,
+        "vector_ready": vector_ready,
+        # back-compat shim for the current plugin UI (migrated in P10)
+        "qmd_binary": "native (in-DB FTS5+vector)",
+        "qmd_ready": True,
+        "qmd_version": search_version,
         "total_pages": sum(layer_counts.values()),
         "layer_counts": layer_counts,
         "raw_source_files": _count_raw_files(paths),

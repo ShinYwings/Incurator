@@ -1,7 +1,8 @@
 """Incurator v0.3.1 query retrieval/orchestration package.
 
-The query path: resolve curate.yml policy → route (local/global/explore/
-exhibition/source-section) → evidence pack (DB graph + qmd derived corpus) →
+The query path: resolve curate.yml policy -> route
+(auto/local/global/explore/source-section) -> evidence pack
+(DB graph + qmd derived corpus) ->
 registered query prompt with tracing → QueryResultV031 with the full QTR trace.
 
 See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.1.md`` §17.

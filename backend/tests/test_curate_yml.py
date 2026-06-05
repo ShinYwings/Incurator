@@ -13,7 +13,7 @@ persona:
   domain: "test"
   subdomain: "modern"
   goal: "This is the canonical goal field."
-  exhibition_intent: "engineer"
+  output_intent: "engineer"
   disambiguation_keywords: ["modern"]
 """)
     spec = load_curate_spec(tmp_path)
@@ -32,7 +32,7 @@ persona:
   domain: "test"
   subdomain: "compat"
   text: "This is a text field."
-  exhibition_intent: "researcher"
+  output_intent: "researcher"
   disambiguation_keywords: ["compat"]
 """)
     spec = load_curate_spec(tmp_path)

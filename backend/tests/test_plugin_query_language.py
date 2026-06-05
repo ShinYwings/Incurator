@@ -17,6 +17,14 @@ from curator import plugin_api, query, search
 
 
 class DummyClient:
+    model = "fake"
+
+    def chat(self, messages, *, json_mode=False, temperature=0.3):  # noqa: ARG002
+        return (
+            '{"answer": "Synthesized answer grounded in concepts.", '
+            '"source_span_ids": [], "used_report_ids": [], "confidence": 0.8}'
+        )
+
     def chat_stream(self, messages, temperature=0.0):  # noqa: ARG002
         yield "Synthesized answer grounded in concepts."
 
@@ -91,8 +99,11 @@ def test_curator_query_is_sessionless_writes_no_exhibition(tmp_path: Path) -> No
 
     result = _run(paths, input_language="Korean", final_output_language="Korean")
     assert result["ok"] is True
-    assert result["cache_hit"] is False
-    # No Exhibition file is written (sessionless Q&A returns answer + trace only).
-    assert not paths.exhibitions.exists() or not list(
-        paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md")
+    removed_cache_key = "cache" + "_hit"
+    removed_artifact_key = "exhibition" + "_id"
+    assert removed_cache_key not in result
+    assert removed_artifact_key not in result
+    # No generated query artifact is written (sessionless Q&A returns answer + trace only).
+    assert not paths.synthesis.exists() or not list(
+        paths.synthesis.glob(f"{consts.PREFIX_L4}-*.md")
     )

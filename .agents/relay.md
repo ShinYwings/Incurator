@@ -1,194 +1,153 @@
-# Agent Relay Handoff
-
-**Last Updated:** 2026-06-04
-**Last Agent:** Claude Code (Opus 4.8)
+# Relay State — v0.3.2 Search Internalization Plan / Spec Gate
 
 ## Goal
-
-Implement the v0.3.1 curation-native rebuild. The backend module/interface layer
-(Phases 0–9) is COMPLETE and green. We are now executing a **locked redesign** of
-the curation/persistence model on top of it.
-
-**Redesign (user-locked):**
-- Curation = a **dynamic workspace-KRS-biased lens** over the refined DAG, NOT a
-  frozen per-workspace Exhibition file. It is produced fresh per query and never
-  stored.
-- Concept/graph layers (L3: entities/relations/community_reports) are KEPT.
-- Add an explicit **shared L4 Synthesis layer** (durable, workspace-independent,
-  source-grounded — like the synthesis tier in other LLM wiki repos). The
-  Curation lens sits ABOVE this layer and selects/recombines L3/L4 nodes.
-- Two agent surfaces: `fetch_context` (evidence pack only, for reasoning agents
-  with their own LLM) and `answer` (evidence + synthesis, for `wiki query` CLI).
-- Backprop = correction-driven and EXH-independent. Memory = additive bias (KRS +
-  insights), never a frozen package.
-- NO backward compatibility (clean replacements). User performs all git commits.
+Proceed from the approved v0.3.2 direction: retire qmd as the runtime search
+backend and internalize search in Python/SQLite, while preserving or exceeding
+qmd retrieval quality. The user explicitly rejected a naive Ollama embedding
+drop-in and requires query expansion plus reranking as architectural
+requirements. Dashboard click-to-use for query traces and insight candidates is
+queued as part of v0.3.2.
 
 ## Plan Reference
-
-- `.agents/plans/2026-06_curation_rethink.md` and
-  `.agents/plans/2026-06_curation_persistence_redesign.md` (design proposals).
-- Specs (all synchronized at v0.3.1):
-  `docs/specs/curator_schema/SCHEMA_v0.3.1.md`,
-  `docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.1.md`,
-  `docs/specs/plugin_schema/PLUGIN_SCHEMA_v0.3.1.md`.
+- Parent plan:
+  - `.agents/plans/2026-06_v0.3.2_search_internalization_plan.md`
+- Existing v0.3.2 search committee artifacts (Cleaned up: redundant A, B, C, D drafts removed):
+  - `.agents/plans/2026-06_v0.3.2_search/A_inventory_and_qmd_parity.md`
+  - `.agents/plans/2026-06_v0.3.2_search/B_retrieval_engine_design.md`
+  - `.agents/plans/2026-06_v0.3.2_search/C_providers_lifecycle_sync.md`
+  - `.agents/plans/2026-06_v0.3.2_search/D_spec_schema_tests_migration.md`
+- New integrated artifacts from this Codex pass:
+  - `.agents/plans/2026-06_v0.3.2_search/E_qmd_parity_requirements.md` (Crucial: Contains user's strict query expansion & LLM re-ranking requirements)
+  - `.agents/plans/2026-06_v0.3.2_search/F_dashboard_click_to_use.md`
+  - `.agents/plans/2026-06_v0.3.2_search/G_spec_draft_addendum.md`
+- Active synchronized specs remain v0.3.1 until the next approved implementation
+  pass:
+  - `docs/specs/curator_schema/SCHEMA_v0.3.1.md`
+  - `docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.1.md`
+  - `docs/specs/plugin_schema/PLUGIN_SCHEMA_v0.3.1.md`
 
 ## Analysis & Reasoning
-
-Compile model (locked): DB (`state.sqlite`) = single source of truth;
-`.curator/Collections/` markdown = derived, disposable qmd corpus (emitted from
-DB, never authoritative). L1 = deterministic (no LLM); refinement = LLM at L2/L3;
-synthesis = LLM at L4. The synthesis layer is content-addressed by the whole
-report corpus so it is skipped when nothing changed and regenerated wholesale on
-any change.
+- Microsoft GraphRAG infrastructure remains rejected as a runtime dependency.
+  Incurator should keep its own SQLite IR, source-span provenance, KRS, and
+  local-first plugin/MCP split, while selectively borrowing ideas like Leiden,
+  DRIFT-style routing, and disciplined invalidation where useful.
+- qmd retirement is approved, but the replacement must replicate/exceed qmd's
+  actual retrieval stack:
+  - FTS5/BM25 lexical retrieval with robust parsing.
+  - Chunk-level vector retrieval, not whole-record vectors only.
+  - Typed query expansion: `lex`, `vec`, `hyde`, plus intent/context.
+  - RRF with qmd-compatible defaults/tracing (`k=60`, original-query weighting,
+    candidate window, top-rank protection).
+  - Best-chunk reranking with a configured cross-encoder/search reranker or
+    search-fine-tuned model. Generic chat rerank is degraded mode only.
+  - Explicit degraded traces when embeddings, query expansion, or reranker are
+    unavailable.
+- qmd source inspection confirmed that a simple embedding drop-in would regress:
+  qmd uses separate local GGUF models for embedding, query expansion, and
+  reranking through `node-llama-cpp`, plus RRF, chunking, caching, fingerprints,
+  stale-vector detection, and FTS-only degradation.
+- Dashboard click-to-use requires durable `QTR-` query traces. Current v0.3.1
+  has `QTR-` ids and `prompt_runs.query_trace_id`, but no first-class query-trace
+  list/show API.
 
 ## Progress Status
-
-IN PROGRESS — REDESIGN R3 (remove frozen-Exhibition subsystem). User chose
-"Full R3 now (backend + plugin)". Backend is currently GREEN (357 passed) and
-importable. Engineering decision: keep `LAYER_L4`/`PREFIX_L4`/`TYPE_L4` +
-`paths.exhibitions` as INERT legacy constants (many status/path helpers reference
-them; the dir just stays empty) — removed the BEHAVIOR, not every constant.
-- R3a DONE: removed exhibition route (ROUTES, evidence `_active_exhibition_item`,
-  curate_yml VALID_ROUTES/allowed_modes defaults) + tests.
-- R3b DONE: deleted `curator.exhibition_write` family, `exhibition_frontmatter`
-  validator, eval case (→ synthesis), registry test, `Route` literal, curation_plan
-  `active_exhibition_block`.
-- R3c PARTIAL: removed callers (`wiki curate`/`wiki refresh` CLI commands, the
-  `wiki build` L3→L4 forward-prop block, orphan cli helpers
-  `_curate_spec_hash`/`_find_workspace_exhibition`). STILL TODO: delete the now-dead
-  L4 functions in ingest_llm.py (`run_l4_scoped`, `_run_pass3_synthesis`,
-  `_write_one_exhibition_plan`, `_enforce_exhibition_contract`,
-  `_run_exhibition_refinement`, `find_workspace_exhibition`,
-  `_get_scoped_concept_ids`, `_count_followup_sections`,
-  `_extract_followup_questions`, `invalidate_exh_cache_for_concept`,
-  SynthesisPlan/SynthesisPlanResult, `_stream_page` if orphaned) + prompts.py
-  exhibition prompt text.
-- R3d DONE: `query.run_query` is sessionless (no EXH save; removed
-  `_save_curation_page`/`update_curation_page`/`_derive_core_concepts`/
-  `_concept_paths_for_atom`/`_atom_ids_for_context`, `saved_path`/`on_saved`,
-  pinned/ephemeral params, SYNTHESIS prompt EXH-authority text). plugin_api +
-  mcp `curator_query` reworked: no cache/EXH file, return answer + trace
-  (synthesis_node_ids/community_report_ids/trace_id/route). cli `query` command
-  dropped `--save-as`/`--curate`, scope `exhibitions`→`synthesis`.
-- R3h PARTIAL: deleted `curator_curate_workspace` tool; `search_curator` stripped of
-  proactive-curate/ws_exh/update_curation_page. STILL TODO: `promote_exhibition`
-  (mcp+plugin_api) is now inert (reads empty dir) — rework to promote answer→02_Wiki;
-  `curator_check_workspace` still reports exhibition status (degraded, harmless).
-- EXH tests: deleted test_query_exhibition.py; rewrote test_plugin_query_language.py
-  (sessionless); fixed test_plugin_cli.py (curate/refresh removed).
-- R3c DONE: deleted the dead L4 generation chain from ingest_llm.py (run_l4_scoped,
-  _run_pass3_synthesis, _write_one_exhibition_plan, _enforce_exhibition_contract,
-  _run_exhibition_refinement, _get_scoped_concept_ids, _count/_extract_followup,
-  invalidate_exh_cache_for_concept, _stream_page, _strip_embedded_frontmatter,
-  _strip_out_of_scope_curator_links, _is_llm_refusal, _concept_atom_ids,
-  SynthesisPlan/SynthesisPlanResult) ~530 lines. Kept find_workspace_exhibition
-  (used by mcp curator_check_workspace, returns None on empty dir). EXH-cache test
-  now auto-skips (try/except import guard). ingest_raw docstring updated.
-- R3k SPECS DONE: SCHEMA §5 (Exhibition lifecycle removed), §15 (rewritten →
-  "L4 Synthesis Layer And The Dynamic Curation Lens"), §1/§11 (synthesis from R1);
-  SYSTEM_BEHAVIOR §9 (rewritten → "Sessionless Query Behavior"), §22.2 (backprop
-  EXH-independent), prompt list (-exhibition_write), MCP tools list
-  (-promote_exhibition +curator_fetch_context), §"hidden commands" (wiki
-  curate/refresh removed).
-
-**ALL GREEN: backend 353 passed + 4 skipped (from `backend/` cwd); plugin tsc
-clean + vitest 179 passed; plugin built.** (The 3 test_plugin_pdf_context_identity
-failures only appear from repo-root cwd — pre-existing path interaction, pass from
-backend/.)
-
-DONE — remaining R3 (this session, after the committed milestone):
-- R3c: deleted the dead L4 generation chain (~530 lines) from ingest_llm.py.
-- R3i: removed `curate_yml` `exhibition` field + `write_exhibition_to_spec`; fixed
-  readers (cli workspace table, mcp check_workspace/init). `exhibition_intent`
-  persona field KEPT (it's persona audience, not the frozen EXH).
-- promote rework: `promote_exhibition` → `promote_answer(question, answer)` across
-  mcp tool, plugin_api, cli `plugin promote` (--question/--answer), and plugin TS
-  (`promoteAnswer`, `PromoteAnswerResult`). Writes only 02_Wiki/.
-- mcp init: step-5 now runs `wiki build` (was `wiki curate`); removed exhibition
-  resolution from curator_check_workspace.
-- labels: status/overview/ledger + plugin dashboard "L4 Exhibitions" → "L4
-  Synthesis" (counts from 04_Synthesis).
-- R3j plugin TS: removed exhibition_id/PromoteExhibitionResult/exhibition route
-  type; query-trace panel renders synthesis_node_ids (clickable → 04_Synthesis);
-  chatSidebar/providerContextFormat/llmClient use route/trace_id; systemPrompt
-  mentions sessionless + fetch_context; updated 3 source-string/mock tests.
-- R3k guides: USER_GUIDE, MCP_USER_GUIDE, AGENT_WORKFLOW_GUIDE (EN+KR) + WORKFLOW
-  (R1) updated — removed wiki curate/refresh, curator_curate_workspace,
-  promote_exhibition, ephemeral/pinned Exhibition; documented sessionless query,
-  shared L4 Synthesis, dynamic curation lens, promote_answer, scope synthesis.
-
-DESIGN DECISION (kept): `LAYER_L4`/`PREFIX_L4`/`TYPE_L4`/`paths.exhibitions`
-constants remain as INERT legacy (the 04_Exhibitions dir just stays empty). sync.py
-and lint.py still contain EXH helpers that are now runtime no-ops on the empty dir
-(find_dirty_exhibitions, propagate_*_exhibition, _regenerate_exhibition,
-gc_ephemeral_exhibitions→[]). These are non-breaking; a future pure-cleanup pass
-can delete them and the inert constants. Secondary guides (PLUGIN_GUIDE/CONTRIBUTION/
-DEV_SCRIPTS + WORKFLOW_KR detail) still have conceptual "exhibition" prose but no
-removed-command references.
-
->>> REDESIGN R1+R2+R3 FUNCTIONALLY COMPLETE. The frozen-Exhibition subsystem is
->>> removed across backend + plugin + specs + primary guides; the shared L4
->>> Synthesis layer + dynamic Curation lens + sessionless query are the new model.
-
-DONE — REDESIGN R2 (Curation lens uses L4 synthesis):
-- models.py: `EvidenceItem.synthesis_node_id`, `EvidencePack.synthesis_node_ids`,
-  `QueryResultV031.synthesis_node_ids`.
-- evidence.py: `_synthesis_items()`; **global** route leads with synthesis nodes
-  then community reports; **explore** primer includes synthesis nodes.
-- orchestrator.py: `run` + `fetch_context` propagate `synthesis_node_ids` (and a
-  `synthesis_node_id` per evidence item in fetch_context).
-- query.py `QueryResult.synthesis_node_ids`; mcp_server curator_explore returns it.
-- Tests: test_v031_query_orchestrator.py +2 (global surfaces synthesis;
-  fetch_context includes synthesis). Suite **364 green**, retrieval files ruff-clean.
-- Spec SYSTEM_BEHAVIOR §17 (global/explore + trace + fetch_context). Guides
-  MCP_USER_GUIDE EN/KR (documented curator_fetch_context, updated curator_explore).
-
-DONE — REDESIGN R1 (shared L4 Synthesis layer):
-- DB: `SCHEMA_VERSION` 4 → **5**; `synthesis_nodes` table (SYN-) + accessors
-  `upsert_synthesis_node` / `list_synthesis_nodes` / `get_synthesis_node` /
-  `clear_synthesis_nodes` / `_decode_synthesis_row` (db.py).
-- Prompt: `curator.synthesis_write` family (prompting/families/synthesis.py),
-  registered in families/__init__.py; validators source_span_ids / confidence_range
-  / no_source_truth_pollution.
-- Pipeline: `pipeline/synthesis.py` — `generate_synthesis()` (community reports →
-  cross-cutting SYN nodes, source-grounded, skip-when-unchanged, wholesale
-  regenerate), `reemit_synthesis()`, `corpus_dependency_hash()`.
-- Projection: `projection.emit_synthesis_markdown()` + `new_synthesis_id()` →
-  `.curator/Collections/04_Synthesis/SYN-*.md`. Constants `LAYER_SYN`/`TYPE_SYN`/
-  `PREFIX_SYN`; `WikiPaths.synthesis` path property.
-- Wiring: `compile.compile_global_l3()` calls `generate_synthesis()` after reports;
-  `compile.reemit_projections()` now also re-emits SYN (returns synthesis count).
-- Tests: test_v031_synthesis.py (4) + updated test_v031_db_schema.py (version 5,
-  table, spec-drift guard), test_v031_reemit_projections.py, test_v031_prompt_registry.py.
-- Specs: SCHEMA §1 topology + §11 header (v5 + SYN row) + new §11.11 synthesis_nodes;
-  SYSTEM_BEHAVIOR §22.1 forward flow + §15 prompt list.
-- Guides: WORKFLOW_GUIDE.md + WORKFLOW_GUIDE_KR.md 4-layer DAG section updated
-  (L4 Synthesis + Curation lens).
-- `orchestrator.fetch_context()` + MCP `curator_fetch_context` (evidence-pack
-  surface) were added earlier and are green.
-- **Full backend suite: 362 passed** (canonical run from `backend/` via
-  `uv run pytest`). Ruff clean on all R1 files.
+- [x] Read `.agents/relay.md` before work.
+- [x] Inspected active v0.3.1 specs and existing v0.3.2 search plans.
+- [x] Cloned and inspected qmd source locally at `/tmp/qmd-inspect`.
+- [x] Ran four read-only sub-agent analyses:
+  - qmd parity inventory and risks.
+  - Python retrieval architecture.
+  - synchronized v0.3.2 spec migration.
+  - dashboard trace/insight click-to-use.
+- [x] Strengthened the parent v0.3.2 plan to reject naive embeddings and require
+  query expansion/reranking.
+- [x] Tightened older v0.3.2 design/test plan language that still said rerank was
+  optional/default-off.
+- [x] Added qmd parity requirements artifact (`E_qmd_parity_requirements.md`, specifically fulfilling user's mandate for query expansion & LLM re-ranking).
+- [x] Added dashboard click-to-use artifact.
+- [x] Added v0.3.2 spec draft addendum.
+- [x] Cleaned up redundant early drafts (A, B, C, D drafts) from `.agents/plans/2026-06_v0.3.2_search/`.
+- [x] P1 — DB schema v6 + version bump + spec-sync guard (Claude Code)
+- [x] P2 — db.py search accessors + tests (Claude Code)
+- [x] P3 — materializer (records → search_documents + FTS + chunks) wired into compile/reindex + tests
+- [x] P4 — lexical query parser + BM25 over FTS5 (phrases/negation/identifiers/Korean) + tests
+      (`retrieval/lexical.py`, `test_v032_lexical_search.py`, 8 green)
+- [x] P5 — Embedder/Reranker provider family + chunking + embedding lifecycle + tests
+      (`retrieval/{chunking,providers,embedding}.py`, `reindex --embed`, numpy dep, 8 green)
+- [x] P6 — vector cosine KNN + typed expansion (lex/vec/hyde) + RRF k=60 + tests
+      (`retrieval/{vector,expansion,fusion}.py`, `test_v032_vector_rrf.py`, 9 green)
+- [x] P7 — HybridEngine answer path + rerank blend + query_traces persistence + tests
+      (`retrieval/engine.py`, `test_v032_engine.py`, 5 green). NOTE: concrete GGUF
+      reranker NOT yet wired (`providers.build_reranker` returns None → `no_rerank`
+      degraded mode); engine fully supports an injected reranker (tested via mock).
+- [x] P8 — swapped `search.query`/`search.update_index`/`evidence._search_hits` to the
+      native engine; `is_available`→True, `get_version`→`native-<ver>`; CLI `status`/
+      `reindex`/`query` + `runtime_state` + `mcp_server` status report native (qmd_*
+      back-compat shim kept until P10 migrates the plugin). Full suite 384 green.
+- [x] P9 — retired qmd plumbing: deleted get_qmd_binary/_require_binary/_qmd_env/
+      _run_qmd/write_qmd_config/_QMD_TEMPLATE/_QMD_URI_RE/_normalize_qmd_path/
+      _mode_to_subcommand/_hydrate_hits/QmdNotInstalled; removed qmd_dir/qmd_config_file/
+      qmd_db (config.py) + DIR_QMD/FILE_QMD_YML/FILE_INDEX_YML/FILE_QMD_INDEX_SQLITE
+      (constants); deleted qmd-index.yml template; dropped qmd lines from git/stignore
+      templates; removed write_qmd_config from `wiki init` + testbed_manager; removed
+      QmdNotInstalled excepts in query.py/mcp_server.py; fixed test_cli_reset. Full
+      suite 385 green. (qmd PROSE in docs/guides still pending → folded into P11.)
+- [~] P10 — DONE: backend click-to-use commands `wiki plugin trace list|show`,
+      `wiki plugin insight show|reject`, `wiki plugin correction propose` (cli.py) +
+      `test_v032_plugin_clicktouse.py` (4 green); plugin status keys migrated
+      qmd_*→search_* in `plugin/main.ts` + `incuratorDashboardModal.ts` (tsc clean).
+      REMAINING: the Trace/Insights dashboard TAB RENDERING UI (panels + buttons wired
+      to the new commands) per F_dashboard_click_to_use.md §1 + vitest. Backend status
+      still emits qmd_* shim AND search_* — drop the shim once the UI fully uses search_*.
+- [ ] P11 — parity tests (recall@k/MRR vs qmd on testbed) + guides EN/KR (search
+      contract, `wiki reindex --embed`, removed qmd prose) + testbed smoke
+      (add/build/query/lint/sync/reindex incl. Reference Mode/Zotero). BLOCKED on a
+      live reranker + embedder (Ollama bge-m3 + llama-cpp GGUF) for true parity numbers.
 
 ## Critical Context / Blockers
-
-- pytest must run from `backend/` (`uv run pytest`). Running from repo root
-  collects with a different cwd and 3 unrelated `test_plugin_pdf_context_identity`
-  tests fail due to a pre-existing path/cwd interaction — they pass standalone and
-  in the canonical backend/ run. NOT an R1 regression.
-- ~49 pre-existing ruff errors live in OTHER modules (unused imports, etc.); none
-  in files I touched. Left per surgical rule.
-- The old frozen-Exhibition machinery (04_Exhibitions, lint GC, EXH reverse-parse,
-  exhibition_write prompt, `wiki curate`) still co-exists; it is removed in R3.
-- User does ALL git commits. R1 is an uncommitted logical unit ready to commit.
+- Spec-first gate is active. Do not modify active specs/code until the user
+  explicitly approves moving from plan/spec drafts into implementation.
+- When implementation begins, v0.3.2 must bump all three spec domains together
+  and archive v0.3.1 from the roots.
+- Backward compatibility is not required per user direction, but quality parity
+  with qmd is required before qmd can be retired.
+- Worktree is already dirty from previous cleanup and existing plan/doc edits.
+  Preserve unrelated changes. Do not revert user/agent work.
+- Important provider decisions:
+  - Embedding and Query Expansion proceed exactly as defined in the master plan.
+  - **USER OVERRIDE (Reranker):** Do NOT use the baseline `bge-reranker-v2-m3`. Upgrade to a premium LLM-based reranker (e.g., `bge-reranker-v2-gemma` 2B or `Qwen` 1.5B GGUF) to fully utilize the remaining ~1.3GB of the 2.5GB VRAM budget.
+  - whether `.curator/Collections/` remains emitted by default or becomes opt-in
 
 ## Immediate Next Action
+P1–P9 complete; P10 backend + status migration complete. qmd is fully retired from
+backend code/config/templates/constants. Full backend suite **389 green**; plugin
+`tsc --noEmit` clean. User decisions captured: reranker=llama-cpp GGUF (wired,
+fail-closed → degrades to `no_rerank` until model installed), proceed with P9 (done),
+Collections markdown = keep opt-in (default emission unchanged, already decoupled).
 
-**REDESIGN R2 — Curation lens.** Make the orchestrator's global/explore routes draw
-on the L4 `synthesis_nodes` as evidence (alongside community_reports), so the
-dynamic lens actually surfaces the synthesis layer. `fetch_context` (done) is the
-evidence-only agent surface; `answer` (run) is the synthesis surface for
-`wiki query`. Add evidence builder support for SYN nodes + tests. Then R3 removes
-the frozen-EXH machinery (ephemeral EXH files, lint.gc_ephemeral_exhibitions,
-backprop_sync EXH reverse-parse), makes sessionless Q&A return answer+trace (no
-file), optional DB query_cache TTL keyed on curate_spec_hash + DAG version, and
-reconciles specs (§15/§9) + guides EN/KR.
+Resume with the two remaining pieces:
+
+1. **P10 UI (frontend)** — add Trace and Insights tabs to the Obsidian dashboard
+   (`plugin/src/ui/incuratorDashboardModal.ts`) that call the new backend commands:
+   - `wiki plugin trace list/show` → render route, RRF/rerank contributions, warnings.
+   - `wiki plugin insight show/reject` + existing `insight promote` → candidate panel.
+   - `wiki plugin correction propose` → correction dialog showing the classification.
+   Add vitest coverage. Then drop the backend qmd_* status shim once the UI reads
+   search_* exclusively (runtime_state.py + mcp_server.py).
+
+2. **P11** — guides EN/KR first (English then faithful _KR): document the native
+   search contract, `wiki reindex --embed`, the `[rerank]` extra + `reranker_model_path`,
+   and strip qmd prose from docs/guides. Add parity tests + testbed smoke
+   (`VAULT_ROOT=testbed wiki add/build/query/lint/sync/reindex`, incl. Reference
+   Mode/Zotero). True recall@k/MRR parity numbers require a live embedder
+   (Ollama bge-m3) + the llama-cpp GGUF reranker installed.
+
+KEY FILES THIS SESSION (P4–P10):
+- `backend/src/curator/retrieval/{lexical,chunking,providers,embedding,vector,
+  expansion,fusion,engine}.py` (new); `materializer.py` (chunks); `search.py` (native
+  rewrite); `evidence.py` (_search_hits); `cli.py` (reindex --embed, status, plugin
+  trace/insight/correction); `config.py`/`constants.py` (search config + reranker);
+  `runtime_state.py`/`mcp_server.py` (status); `pyproject.toml` (numpy, [rerank]).
+- Tests: `test_v032_{lexical_search,embedding,vector_rrf,engine,plugin_clicktouse}.py`,
+  rewrote `test_search_index_fallback.py`, fixed `test_cli_reset.py`.
+- Plugin: `main.ts` + `incuratorDashboardModal.ts` status keys → search_*.

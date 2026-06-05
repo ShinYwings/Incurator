@@ -11,7 +11,7 @@ Incurator treats a personal knowledge base not as a "searchable pile of files" b
 The Curator is a **compiler-inspired pipeline** that builds L1–L4 DAG nodes from source truth and agent interactions, then uses `wiki sync` to verify structural and logical consistency.
 
 - **LLM-readable IR**: Context, Atom, Concept, and Exhibition are hierarchical IR layers. Each layer prioritizes stable frontmatter, relations, and provenance over human-readable prose.
-- **Forward pass**: `wiki add` and `wiki curate` stack source/workspace inputs into a L1–L4 DAG.
+- **Forward pass**: `wiki add` and `wiki query` stack source/workspace inputs into a L1–L4 DAG.
 - **Backward pass**: `wiki sync` walks the DAG in reverse to find structural, grounding, and logical gaps — and safely repairs what it can.
 - **Feedback signal**: When a human edits a Context, Concept, or Exhibition, or when an agent surfaces new requirements, the diff becomes the signal that drives the next sync and re-generation cycle.
 
@@ -36,9 +36,9 @@ The core challenge is evolving the Curator toward a true compiler — treating t
 
 ### 🏗 Architecture & State
 
-- **Unified knowledge engine**: The `qmd` search index and Curator DB must agree on the same truth. Search results, DAG provenance, and sync reports should never diverge.
+- **Unified knowledge engine**: DB-native search rows, chunk embeddings, query traces, and Curator DB records must agree on the same truth. Search results, DAG provenance, and sync reports should never diverge.
 - **Sync-friendly state management**: SQLite (`state.sqlite`) is vulnerable to file-lock conflicts during multi-device sync. Long-term, a more sync-friendly state layer is needed.
-- **Reproducible testbed validation**: `wiki add`, `wiki sync`, `wiki curate`, and MCP flows must be repeatedly verifiable against private fixtures.
+- **Reproducible testbed validation**: `wiki add`, `wiki sync`, `wiki query`, and MCP flows must be repeatedly verifiable against private fixtures.
 
 ### 🛠 User Experience & Tooling
 
@@ -145,7 +145,7 @@ The v0.2.0 target layout manages the Python backend daemon (`backend/`) and Obsi
 
 ### 7.1 Backend/Client Boundary
 
-- The Incurator backend owns `.curator/state.sqlite`, source registry, PDF page provenance, the L1-L4 DAG, QMD search, and MCP tools.
+- The Incurator backend owns `.curator/state.sqlite`, source registry, PDF page provenance, the L1-L4 DAG, DB-native search, query traces, and MCP tools.
 - The Obsidian plugin is a client. It owns open-PDF context capture, chat UI, import/rebind approval modals, and provider prompt assembly.
 - The plugin must not write `.curator/state.sqlite` directly. Persistent source changes must go through MCP/CLI backend APIs.
 - MCP/backend must not silently edit `03_Notes/`. Human note edits require explicit approval and a diff/confirm flow.

@@ -16,7 +16,7 @@ description: "Workspace purpose."
 goal:
   primary: "Explain residual networks through a dynamics lens."
   audience: "researcher"
-  deliverables: ["curated-exhibition", "research-note-context"]
+  deliverables: ["curated-context", "research-note-context"]
   success_criteria:
     - "Every mathematical claim cites a source span."
 
@@ -35,14 +35,14 @@ knowledge:
     - "original ResNet claim != later ODE interpretation"
 
 output:
-  format: "exhibition"
+  format: "context-pack"
   style: "dense-technical"
   citation_style: "curator-source-spans"
   include_sections: ["Evidence Map", "Unresolved Gaps"]
 
 reasoning:
   default_mode: "explore"
-  allowed_modes: ["local", "global", "explore", "exhibition"]
+  allowed_modes: ["local", "global", "explore"]
   exploration_enabled: true
   max_followups: 7
   require_insight_candidates: true
@@ -83,7 +83,7 @@ def test_parse_full_krs() -> None:
     assert spec is not None
     assert spec.goal.primary.startswith("Explain residual")
     assert spec.goal.audience == "researcher"
-    assert spec.goal.deliverables == ["curated-exhibition", "research-note-context"]
+    assert spec.goal.deliverables == ["curated-context", "research-note-context"]
     assert spec.knowledge.domains == ["machine-learning", "dynamical-systems"]
     assert "ResNet" in spec.knowledge.disambiguation_keywords
     assert spec.knowledge.avoid_merges

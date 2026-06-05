@@ -20,7 +20,7 @@ from typing import Any, Iterator
 
 from . import constants as consts
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -168,8 +168,8 @@ CREATE INDEX IF NOT EXISTS idx_concepts_domain ON concepts(domain);
 
 -- L4 Exhibitions
 CREATE TABLE IF NOT EXISTS synthesis (
-    id                      TEXT PRIMARY KEY,        -- EXH-[UUID8]
-    topic                   TEXT NOT NULL DEFAULT '', -- exhibition topic name
+    id                      TEXT PRIMARY KEY,        -- SYN-[UUID8]
+    topic                   TEXT NOT NULL DEFAULT '', -- synthesis topic name
     core_concepts           TEXT NOT NULL DEFAULT '', -- JSON array of CON-UUIDs
     confidence_score        REAL NOT NULL,           -- 0.00–1.00
     last_updated            TEXT NOT NULL            -- ISO timestamp
@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS page_hashes (
 CREATE TABLE IF NOT EXISTS dag_edges (
     id          TEXT PRIMARY KEY,   -- '{from_id}:{to_id}'
     from_id     TEXT NOT NULL,      -- CTX-xxx | ATM-xxx | CON-xxx
-    to_id       TEXT NOT NULL,      -- ATM-xxx | CON-xxx | EXH-xxx
+    to_id       TEXT NOT NULL,      -- ATM-xxx | CON-xxx | SYN-xxx
     edge_type   TEXT NOT NULL,
     -- 'extracted_from'  : CTX → ATM  (L1 → L2)
     -- 'clustered_to'    : ATM → CON  (L2 → L3)
@@ -375,7 +375,7 @@ CREATE INDEX IF NOT EXISTS idx_insight_candidates_status ON insight_candidates(s
 -- Staleness/invalidation index at source-span/knowledge-unit granularity.
 CREATE TABLE IF NOT EXISTS artifact_dependencies (
     artifact_id     TEXT NOT NULL,
-    artifact_type   TEXT NOT NULL,           -- knowledge_unit|entity|relation|community_report|exhibition|curation_plan
+    artifact_type   TEXT NOT NULL,           -- knowledge_unit|entity|relation|community_report|synthesis_node|curation_plan
     depends_on_id   TEXT NOT NULL,
     depends_on_type TEXT NOT NULL,           -- source_span|knowledge_unit|entity|relation|community_report
     dependency_hash TEXT NOT NULL,
@@ -403,6 +403,100 @@ CREATE TABLE IF NOT EXISTS synthesis_nodes (
     updated_at           TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_synthesis_nodes_conf ON synthesis_nodes(confidence);
+
+-- v0.3.2 DB-native search (retires the external qmd binary). See SCHEMA_v0.3.2 §11.12–§11.16.
+CREATE TABLE IF NOT EXISTS search_documents (
+    doc_id TEXT PRIMARY KEY,
+    record_type TEXT NOT NULL,       -- source_span | knowledge_unit | graph_entity | graph_relation | community_report | synthesis_node
+    record_id TEXT NOT NULL,
+    source_id INTEGER,
+    projection_path TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL,
+    language TEXT NOT NULL DEFAULT '',
+    content_hash TEXT NOT NULL,
+    dependency_hash TEXT NOT NULL,
+    provenance_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_search_documents_record ON search_documents(record_type, record_id);
+CREATE INDEX IF NOT EXISTS idx_search_documents_source ON search_documents(source_id);
+
+CREATE TABLE IF NOT EXISTS search_chunks (
+    chunk_id TEXT PRIMARY KEY,
+    doc_id TEXT NOT NULL,
+    record_type TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    char_start INTEGER NOT NULL,
+    char_end INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    source_span_ids TEXT NOT NULL DEFAULT '[]',
+    provenance_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY(doc_id) REFERENCES search_documents(doc_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_search_chunks_doc ON search_chunks(doc_id);
+CREATE INDEX IF NOT EXISTS idx_search_chunks_record ON search_chunks(record_type, record_id);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS search_documents_fts USING fts5(
+    title,
+    body,
+    record_type UNINDEXED,
+    record_id UNINDEXED,
+    doc_id UNINDEXED,
+    tokenize = "unicode61 remove_diacritics 2 tokenchars '_-.'"
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS search_documents_fts_tri USING fts5(
+    title,
+    body,
+    record_type UNINDEXED,
+    record_id UNINDEXED,
+    doc_id UNINDEXED,
+    tokenize = "trigram"
+);
+
+CREATE TABLE IF NOT EXISTS search_embeddings (
+    chunk_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    dim INTEGER NOT NULL,
+    vector BLOB NOT NULL,
+    input_hash TEXT NOT NULL,
+    dependency_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ready',
+    error TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(chunk_id, provider, model),
+    FOREIGN KEY(chunk_id) REFERENCES search_chunks(chunk_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_search_embeddings_model ON search_embeddings(provider, model);
+
+CREATE TABLE IF NOT EXISTS search_index_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS query_traces (
+    trace_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'default',
+    question_hash TEXT NOT NULL,
+    route TEXT NOT NULL,
+    route_reason TEXT NOT NULL DEFAULT '',
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    source_span_ids TEXT NOT NULL DEFAULT '[]',
+    community_report_ids TEXT NOT NULL DEFAULT '[]',
+    synthesis_node_ids TEXT NOT NULL DEFAULT '[]',
+    memory_path_ids TEXT NOT NULL DEFAULT '[]',
+    prompt_trace_ids TEXT NOT NULL DEFAULT '[]',
+    insight_candidate_ids TEXT NOT NULL DEFAULT '[]',
+    retrieval_trace_json TEXT NOT NULL DEFAULT '{}',
+    warnings_json TEXT NOT NULL DEFAULT '[]',
+    latency_ms INTEGER,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_query_traces_workspace_created ON query_traces(workspace_id, created_at);
 """
 
 
@@ -2001,3 +2095,312 @@ def clear_synthesis_nodes(db_path: Path) -> None:
     """Delete every synthesis node (the shared L4 layer is regenerated wholesale)."""
     with connect(db_path) as conn:
         conn.execute("DELETE FROM synthesis_nodes")
+
+
+# ---------------------------------------------------------------------------
+# v0.3.2 DB-native search accessors (SCHEMA_v0.3.2 §11.12–§11.16)
+# ---------------------------------------------------------------------------
+
+
+def upsert_search_document(
+    db_path: Path,
+    *,
+    record_type: str,
+    record_id: str,
+    body: str,
+    content_hash: str,
+    dependency_hash: str,
+    doc_id: str | None = None,
+    source_id: int | None = None,
+    projection_path: str = "",
+    title: str = "",
+    language: str = "",
+    provenance: dict | None = None,
+) -> str:
+    """Insert/replace one row of the authoritative search corpus and re-index FTS."""
+    did = doc_id or f"DOC-{record_type}-{record_id}"
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO search_documents
+                (doc_id, record_type, record_id, source_id, projection_path, title,
+                 body, language, content_hash, dependency_hash, provenance_json, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                did, record_type, record_id, source_id, projection_path, title,
+                body, language, content_hash, dependency_hash,
+                json.dumps(provenance or {}), _now_iso(),
+            ),
+        )
+        for tbl in ("search_documents_fts", "search_documents_fts_tri"):
+            conn.execute(f"DELETE FROM {tbl} WHERE doc_id = ?", (did,))
+            conn.execute(
+                f"INSERT INTO {tbl} (title, body, record_type, record_id, doc_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (title, body, record_type, record_id, did),
+            )
+    return did
+
+
+def _decode_search_document(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["provenance"] = _loads_obj(data.pop("provenance_json", "{}"))
+    return data
+
+
+def get_search_document(db_path: Path, doc_id: str) -> dict | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM search_documents WHERE doc_id = ?", (doc_id,)
+        ).fetchone()
+        return _decode_search_document(row) if row else None
+
+
+def list_search_documents(db_path: Path) -> list[dict]:
+    with connect(db_path) as conn:
+        rows = conn.execute("SELECT * FROM search_documents ORDER BY doc_id").fetchall()
+        return [_decode_search_document(r) for r in rows]
+
+
+def delete_search_document(db_path: Path, doc_id: str) -> None:
+    """Delete a search document (cascades chunks/embeddings) and its FTS rows."""
+    with connect(db_path) as conn:
+        conn.execute("DELETE FROM search_documents WHERE doc_id = ?", (doc_id,))
+        for tbl in ("search_documents_fts", "search_documents_fts_tri"):
+            conn.execute(f"DELETE FROM {tbl} WHERE doc_id = ?", (doc_id,))
+
+
+def clear_search_corpus(db_path: Path) -> None:
+    """Drop the entire derived search corpus (rebuilt by `wiki reindex`)."""
+    with connect(db_path) as conn:
+        conn.execute("DELETE FROM search_documents")  # cascades chunks → embeddings
+        conn.execute("DELETE FROM search_documents_fts")
+        conn.execute("DELETE FROM search_documents_fts_tri")
+
+
+def fts_search(
+    db_path: Path,
+    match: str,
+    *,
+    trigram: bool = False,
+    limit: int = 50,
+) -> list[dict]:
+    """BM25 lexical search over one FTS table. Lower bm25() = more relevant.
+
+    Returns rows: doc_id, record_type, record_id, title, score (rank, ascending).
+    """
+    table = "search_documents_fts_tri" if trigram else "search_documents_fts"
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT doc_id, record_type, record_id, title, bm25({table}) AS score
+            FROM {table}
+            WHERE {table} MATCH ?
+            ORDER BY score
+            LIMIT ?
+            """,
+            (match, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def upsert_search_chunk(
+    db_path: Path,
+    *,
+    chunk_id: str,
+    doc_id: str,
+    record_type: str,
+    record_id: str,
+    chunk_index: int,
+    char_start: int,
+    char_end: int,
+    text: str,
+    input_hash: str,
+    source_span_ids: list[str] | None = None,
+    provenance: dict | None = None,
+) -> str:
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO search_chunks
+                (chunk_id, doc_id, record_type, record_id, chunk_index, char_start,
+                 char_end, text, input_hash, source_span_ids, provenance_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                chunk_id, doc_id, record_type, record_id, chunk_index, char_start,
+                char_end, text, input_hash, json.dumps(source_span_ids or []),
+                json.dumps(provenance or {}),
+            ),
+        )
+    return chunk_id
+
+
+def _decode_search_chunk(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["source_span_ids"] = _loads_list(data.get("source_span_ids"))
+    data["provenance"] = _loads_obj(data.pop("provenance_json", "{}"))
+    return data
+
+
+def list_search_chunks_for_doc(db_path: Path, doc_id: str) -> list[dict]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM search_chunks WHERE doc_id = ? ORDER BY chunk_index", (doc_id,)
+        ).fetchall()
+        return [_decode_search_chunk(r) for r in rows]
+
+
+def get_search_chunk(db_path: Path, chunk_id: str) -> dict | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM search_chunks WHERE chunk_id = ?", (chunk_id,)
+        ).fetchone()
+        return _decode_search_chunk(row) if row else None
+
+
+def upsert_search_embedding(
+    db_path: Path,
+    *,
+    chunk_id: str,
+    provider: str,
+    model: str,
+    dim: int,
+    vector: bytes,
+    input_hash: str,
+    dependency_hash: str,
+    status: str = "ready",
+    error: str = "",
+) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO search_embeddings
+                (chunk_id, provider, model, dim, vector, input_hash, dependency_hash,
+                 status, error, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (chunk_id, provider, model, dim, vector, input_hash, dependency_hash,
+             status, error, _now_iso()),
+        )
+
+
+def get_search_embeddings(db_path: Path, provider: str, model: str) -> list[dict]:
+    """Return all ready embeddings for one provider/model (chunk_id, dim, vector)."""
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT chunk_id, dim, vector, input_hash, dependency_hash FROM search_embeddings "
+            "WHERE provider = ? AND model = ? AND status = 'ready'",
+            (provider, model),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def has_search_embeddings(db_path: Path, provider: str, model: str) -> bool:
+    """Cheap probe: True if any ready embedding exists for this provider/model."""
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM search_embeddings WHERE provider = ? AND model = ? "
+            "AND status = 'ready' LIMIT 1",
+            (provider, model),
+        ).fetchone()
+        return row is not None
+
+
+def get_index_meta(db_path: Path, key: str, default: str | None = None) -> str | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT value FROM search_index_meta WHERE key = ?", (key,)
+        ).fetchone()
+        return str(row["value"]) if row else default
+
+
+def set_index_meta(db_path: Path, key: str, value: str) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO search_index_meta (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+
+
+def insert_query_trace(
+    db_path: Path,
+    *,
+    route: str,
+    question_hash: str,
+    workspace_id: str = "default",
+    route_reason: str = "",
+    evidence: list | None = None,
+    source_span_ids: list[str] | None = None,
+    community_report_ids: list[str] | None = None,
+    synthesis_node_ids: list[str] | None = None,
+    memory_path_ids: list[str] | None = None,
+    prompt_trace_ids: list[str] | None = None,
+    insight_candidate_ids: list[str] | None = None,
+    retrieval_trace: dict | None = None,
+    warnings: list[str] | None = None,
+    latency_ms: int | None = None,
+    trace_id: str | None = None,
+) -> str:
+    """Persist a durable QTR- query trace. Returns the trace_id."""
+    tid = trace_id or _new_id("QTR")
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO query_traces
+                (trace_id, workspace_id, question_hash, route, route_reason,
+                 evidence_json, source_span_ids, community_report_ids,
+                 synthesis_node_ids, memory_path_ids, prompt_trace_ids,
+                 insight_candidate_ids, retrieval_trace_json, warnings_json,
+                 latency_ms, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                tid, workspace_id, question_hash, route, route_reason,
+                json.dumps(evidence or []), json.dumps(source_span_ids or []),
+                json.dumps(community_report_ids or []), json.dumps(synthesis_node_ids or []),
+                json.dumps(memory_path_ids or []), json.dumps(prompt_trace_ids or []),
+                json.dumps(insight_candidate_ids or []), json.dumps(retrieval_trace or {}),
+                json.dumps(warnings or []), latency_ms, _now_iso(),
+            ),
+        )
+    return tid
+
+
+def _decode_query_trace(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["evidence"] = _loads_list(data.pop("evidence_json", "[]"))
+    for key in (
+        "source_span_ids", "community_report_ids", "synthesis_node_ids",
+        "memory_path_ids", "prompt_trace_ids", "insight_candidate_ids",
+    ):
+        data[key] = _loads_list(data.get(key))
+    data["retrieval_trace"] = _loads_obj(data.pop("retrieval_trace_json", "{}"))
+    data["warnings"] = _loads_list(data.pop("warnings_json", "[]"))
+    return data
+
+
+def list_query_traces(
+    db_path: Path, workspace_id: str | None = None, limit: int = 50
+) -> list[dict]:
+    with connect(db_path) as conn:
+        if workspace_id:
+            rows = conn.execute(
+                "SELECT * FROM query_traces WHERE workspace_id = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (workspace_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM query_traces ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [_decode_query_trace(r) for r in rows]
+
+
+def get_query_trace(db_path: Path, trace_id: str) -> dict | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM query_traces WHERE trace_id = ?", (trace_id,)
+        ).fetchone()
+        return _decode_query_trace(row) if row else None

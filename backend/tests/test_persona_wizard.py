@@ -12,7 +12,7 @@ class FakePersonaClient:
         self.calls.append(messages)
         if len(self.calls) == 1:
             return "Q1/4: What is the broad area?\n\n  1) STEM\n\n  Or type your own answer (s = skip)"
-        return '{{"done": true, "persona": {"area": "STEM", "text": "Computer science notes.", "knowledge_artifacts": ["papers"], "verification_philosophy": "citation-and-derivation + logical-coherence", "exhibition_intent": "researcher", "confidence": {"high_threshold": 0.85, "low_threshold": 0.55}, "disambiguation_keywords": ["proof"]}}}'
+        return '{{"done": true, "persona": {"area": "STEM", "text": "Computer science notes.", "knowledge_artifacts": ["papers"], "verification_philosophy": "citation-and-derivation + logical-coherence", "output_intent": "researcher", "confidence": {"high_threshold": 0.85, "low_threshold": 0.55}, "disambiguation_keywords": ["proof"]}}}'
 
 
 def test_parse_persona_done_response_accepts_double_wrapped_json() -> None:

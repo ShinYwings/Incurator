@@ -4,7 +4,7 @@ The synthesis layer is the durable, workspace-INDEPENDENT top of the refined DAG
 it distills the community reports (L3) into a small set of cross-cutting,
 source-grounded synthesized insights — like the "synthesis" tier in other LLM
 wiki repos (Zettelkasten permanent/synthesis notes, RAPTOR roll-ups). It is NOT a
-per-workspace exhibition; the dynamic Curation lens sits ABOVE this layer and
+per-workspace artifact; the dynamic Curation lens sits ABOVE this layer and
 selects/recombines synthesis nodes per workspace/query (never stored).
 
 Synthesis is generated wholesale from all community reports and is content-
@@ -142,7 +142,7 @@ def reemit_synthesis(paths: cfg.WikiPaths) -> int:
     """
     out_dir: Path = paths.synthesis
     out_dir.mkdir(parents=True, exist_ok=True)
-    for stale in out_dir.glob(f"{consts.PREFIX_SYN}-*.md"):
+    for stale in out_dir.glob(f"{consts.PREFIX_L4}-*.md"):
         stale.unlink()
 
     count = 0

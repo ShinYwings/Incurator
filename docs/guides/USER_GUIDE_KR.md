@@ -11,7 +11,7 @@
 1.  **Python 3.10+**: 시스템의 핵심 로직이 Python으로 작성되었습니다.
 2.  **터미널 (Terminal)**: 모든 명령어는 CLI 환경에서 실행됩니다.
 3.  **노트 편집기 (Obsidian 권장)**: 지식 베이스의 시각화 및 편집을 위한 도구입니다. 옵시디언이 필수는 아니며 텍스트 파일을 볼 수 있는 에디터라면 무엇이든 가능하지만, 본 시스템은 옵시디언의 링크 구조와 플러그인 생태계에 최적화되어 개발되었습니다.
-4.  **Node.js**: 검색 엔진(QMD) 빌드 및 MCP 서버 구동을 위해 필요합니다. (Ollama와 함께 `./setup.sh` 실행 시 자동으로 설치를 시도하며, 플러그인은 `wiki init` 과정에서 설치되므로 별도로 준비하실 필요가 없습니다.)
+4.  **Node.js**: Obsidian 플러그인 빌드와 플러그인 개발 도구 실행을 위해 필요합니다. (Ollama와 함께 `./setup.sh` 실행 시 자동으로 설치를 시도하며, 플러그인은 `wiki init` 과정에서 설치되므로 별도로 준비하실 필요가 없습니다.)
 5.  **Curator Engine 백엔드**: 시스템 구동을 위해 하나 이상의 모델 백엔드가 필요하며, 로컬과 클라우드 방식을 모두 지원합니다.
     - **로컬 LLM (Ollama)**: 강력한 개인 정보 보호와 별도 비용 없는 사용이 가능합니다. (VRAM 필요)
     - **클라우드 LLM (Providers)**: Antigravity, Claude, OpenAI 등의 외부 엔진을 활용합니다. 로컬 자원(VRAM) 소모가 거의 없으며 고성능 추론이 가능합니다. (큐레이션 단계에서는 고가의 추론 전용 모델이 아닌 일반 범용 모델로도 충분히 안정적인 성능을 발휘합니다.)
@@ -27,9 +27,9 @@
 >   - **Linux**: NVIDIA GeForce RTX 4070 Ti 12GB, RAM 64GB
 >   - **macOS**: Apple Silicon (8GB RAM 환경 테스트 완료)
 > - **최소 사양 및 하드웨어 성능**: 
->   - 검색 엔진(QMD) 구동을 위한 **최소 2.5GB VRAM**이 기본적으로 필요합니다.
+>   - 로컬 embedding, query expansion, rerank 모델은 설정한 provider에 따라 추가 RAM/VRAM이 필요할 수 있습니다.
 >   - **로컬 모델(Ollama)** 사용 시: 선택한 모델 크기만큼의 추가 VRAM이 필요합니다 (8B 모델 기준 시스템 전체 약 10GB VRAM 점유 확인, 모델 크기보다 약 2GB 이상의 추가 여유 공간 권장).
->   - **클라우드 모델(Antigravity, Claude 등)** 사용 시: 추가적인 VRAM을 소모하지 않으므로, QMD 구동을 위한 최소 VRAM 사양만으로도 충분합니다.
+>   - **클라우드 모델(Antigravity, Claude 등)** 사용 시: 로컬 VRAM 부담은 줄어들지만, DB-native FTS5 검색은 여전히 로컬에서 실행됩니다.
 >   - Ollama를 통해 CPU+GPU 혼합 추론이 가능하지만, 처리 속도가 매우 느려 실용적인 큐레이션이 어려울 수 있습니다. 가급적 모델 전체가 VRAM에 올라가는 환경을 권장합니다.
 
 
@@ -86,7 +86,7 @@ wiki init <path/to/your/obsidian-vault>
 │   ├── index.md       # DAG 라우팅 테이블 (L1~L4 노드 ID 목록)
 │   ├── ledger.md      # HITL(인간 개입) 수정 및 승격 이력
 │   └── Collections/   # 지식 계층(Layers) 마크다운 저장소
-│       └── 04_Synthesis/   # [L4] 공유 코퍼스 전역 종합 노드 (SYN-, 파생 qmd 코퍼스)
+│       └── 04_Synthesis/   # [L4] 공유 코퍼스 전역 종합 노드 (SYN-, 파생 projection)
 ├── .gitignore         # Git 제외 설정 (자동 생성됨)
 └── .stignore          # Syncthing 동기화 제외 설정 (자동 생성됨)
 ```
@@ -103,7 +103,7 @@ wiki init <path/to/your/obsidian-vault>
 
 보관소의 물리적 구조가 준비되었다면, 이제 당신의 파편화된 지식들을 시스템에 주입할 차례입니다. 
 
-Incurator의 지식 등록 과정은 **사용자가 파일을 정리(Organize)**하고, **시스템이 이를 읽어 지식 계층(L1~L3)으로 변환(Ingest)**하는 두 단계로 이루어집니다. 이렇게 수집된 데이터는 이후 워크스페이스에서 전시물(Exhibition)로 가공되어 실제 작업에 활용됩니다.
+Incurator의 지식 등록 과정은 **사용자가 파일을 정리(Organize)**하고, **시스템이 이를 읽어 지식 계층(L1~L4)으로 변환(Ingest)**하는 두 단계로 이루어집니다. 이렇게 수집된 데이터는 공유 Synthesis가 되고, 실제 사용 시 동적 workspace/query 렌즈가 필요한 근거를 선택합니다.
 
 ### 1단계: 파일 배치 (Organize)
 먼저 사용자가 보유한 원본 파일(PDF, Markdown, HTML, 이미지 등)을 보관소의 성격에 맞는 폴더에 직접 배치합니다.
@@ -282,15 +282,15 @@ project: "my-project"
 description: "my-project 지식 워크스페이스"
 
 # Artist 페르소나 — wiki workspace init 마법사가 자동 생성.
-# Curator가 이 프로젝트용 Exhibition을 준비하는 방식을 제어합니다.
+# Curator가 이 프로젝트용 동적 curation을 준비하는 방식을 제어합니다.
 persona:
   domain: ""               # 예: "computer-vision", "biochemistry"
   subdomain: ""            # 더 구체적인 세부 분야
   goal: ""                 # 이 워크스페이스의 큐레이션 목표 (2~4문장)
-  exhibition_intent: "engineer"  # researcher | engineer | learner
+  output_intent: "engineer"      # researcher | engineer | learner
   disambiguation_keywords: []    # 이 워크스페이스 특화 검색 키워드
   confidence:
-    high_threshold: 0.85   # 이 이상 → 고신뢰도 Exhibition
+    high_threshold: 0.85   # 이 이상 → 고신뢰도 근거
     low_threshold: 0.55    # 이 이하 → HITL 검토 큐
   updated_at: ""
 
@@ -302,23 +302,22 @@ sources:
   #  - "02_Wiki/my-topic/**"
   exclude: []
 
-# search_curator 결과의 최소 신뢰도 하한선.
+# curation/search 결과의 최소 신뢰도 하한선.
 min_confidence: 0.60
 ```
 
-> **v0.3.1**: `exhibition` 앵커 필드는 제거되었습니다 — 고정된 워크스페이스별
-> Exhibition은 더 이상 없습니다. `curate.yml`은 이제 공유 DAG 위에서 쿼리 시점
+> **v0.3.1**: 이전 anchor 필드는 제거되었습니다 — 고정된 워크스페이스별
+> 생성 파일은 더 이상 없습니다. `curate.yml`은 이제 공유 DAG 위에서 쿼리 시점
 > 검색을 편향시키는 동적 Curation 렌즈를 구동합니다.
 
 **주요 필드:**
 
 | 필드 | 설명 |
 | ---- | ---- |
-| `persona.exhibition_intent` | `researcher` — 검증할 가설; `engineer` — 구현 단계; `learner` — 복습할 개념 |
+| `persona.output_intent` | `researcher` — 검증할 가설; `engineer` — 구현 단계; `learner` — 복습할 개념 |
 | `persona.confidence` | 워크스페이스별 신뢰도 임계값 (vault 전역 설정을 덮어씀) |
 | `sources.include` | 이 워크스페이스에 공급할 vault 파일 범위 (비어 있으면 전체) |
-| `min_confidence` | 이 값 미만의 Exhibition은 `search_curator` 결과에서 제외 |
-| `exhibition` | 매 세션의 primary context로 사용할 Exhibition ID |
+| `min_confidence` | curation lens / `search_curator`에 적용되는 신뢰도 하한 |
 
 > [!TIP]
 > `persona:` 블록은 `wiki workspace init` 시 Artist 페르소나 마법사가 자동으로 생성합니다. 이후 `wiki persona update --workspace <name>` 또는 `curator_update_artist_persona` MCP 툴로 업데이트할 수 있습니다.
@@ -396,7 +395,7 @@ wiki persona update       # 인터뷰를 다시 실행하여 재설정
 
 ### Artist 페르소나 — 워크스페이스 수준
 
-`wiki workspace init` 마법사가 자동으로 생성하며, `curate.yml`의 `persona:` 블록에 저장됩니다. 이 프로젝트에서만 Curator 페르소나를 덮어써, `exhibition_intent`, 신뢰도 임계값, disambiguation 키워드를 워크스페이스별로 세밀하게 조정합니다.
+`wiki workspace init` 마법사가 자동으로 생성하며, `curate.yml`의 `persona:` 블록에 저장됩니다. 이 프로젝트에서만 Curator 페르소나를 덮어써, `output_intent`, 신뢰도 임계값, disambiguation 키워드를 워크스페이스별로 세밀하게 조정합니다.
 
 ```bash
 wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재설정
@@ -445,24 +444,24 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 | :--- | :--- | :--- |
 | `wiki build` | L2 Atom, L3 Concept, 공유 L4 Synthesis 레이어를 정제합니다. | 지식 그래프 구축/갱신 |
 | `wiki sync` | 무결성 검증 및 자가 치유를 수행합니다. | 노드 수정 후 일관성 회복 시 |
-| `wiki sync --reemit` | DB 레코드에서 파생 L2/L3/L4 마크다운 코퍼스(ATM/CON/SYN)를 재생성하고 qmd를 재인덱싱합니다. | DB 레벨 정정 후 qmd 코퍼스 갱신 시 |
+| `wiki sync --reemit` | DB 레코드에서 파생 L2/L3/L4 마크다운 projection(ATM/CON/SYN)을 재생성하고 DB-native search row를 갱신합니다. | DB 레벨 정정 후 projection 갱신 시 |
 
-> **v0.3.1**: 고정 Exhibition 명령 `wiki curate`/`wiki refresh`는 제거되었습니다. L4는
-> 이제 공유 **Synthesis** 레이어(‎`wiki build`가 자동 생성)이며, 큐레이션은 쿼리 시점의
-> 동적 렌즈(`wiki query`)입니다. 정정은 Exhibition 파일 편집이 아니라 MCP
+> **v0.3.1**: 고정 staging 명령은 제거되었습니다. L4는 이제 공유 **Synthesis**
+> 레이어(‎`wiki build`가 자동 생성)이며, 큐레이션은 쿼리 시점의 동적 렌즈(`wiki query`)입니다.
+> 정정은 생성된 L4 파일 편집이 아니라 MCP
 > `curator_propose_correction` 도구로 전달합니다.
 
 ### 4. 지식 활용 (Utilization)
 | 명령어 | 설명 | 사용 시점 |
 | :--- | :--- | :--- |
 | `wiki query "..."` | 질문에 대한 정제된 답변을 얻습니다. | 지식을 활용한 답변 필요 시 |
-| `wiki query "..." --route explore` | v0.3.1 큐레이션-네이티브 오케스트레이터(DB 그래프 + qmd)로 라우팅하고 쿼리 트레이스를 남깁니다. | 연결 발견, 라우트 지정 |
+| `wiki query "..." --route explore` | v0.3.2 큐레이션-네이티브 오케스트레이터(DB 그래프 + DB-native hybrid search)로 라우팅하고 쿼리 트레이스를 남깁니다. | 연결 발견, 라우트 지정 |
 | `wiki workspace init` | 워크스페이스를 초기화합니다. | 새 프로젝트 시작 시 |
 
-#### v0.3.1 큐레이션-네이티브 쿼리 라우트
+#### v0.3.2 큐레이션-네이티브 쿼리 라우트
 
-`wiki query "..." --route <route>` 는 레거시 qmd 합성 경로 대신 큐레이션-네이티브
-`QueryOrchestrator`로 답합니다. 라우트:
+`wiki query "..." --route <route>` 는 큐레이션-네이티브 `QueryOrchestrator`로
+답합니다. 라우트:
 
 - `auto` — 오케스트레이터가 선택 (결정적 우선).
 - `local` — source span 기반 정밀 엔티티/사실 답변.
@@ -473,8 +472,11 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 쿼리는 **세션리스**입니다: 답변 + `QTR-` 트레이스를 반환하며 vault 파일을 쓰지
 않습니다. 지속 아티팩트는 `02_Wiki/`로의 명시적 승격을 통해서만 생깁니다.
 
-`--route` 없이는 레거시 qmd 경로가 실행됩니다(qmd는 폴백 검색 엔진). `--mode`
-(hybrid|lex|vec)는 qmd *검색* 모드로, `--route`와는 별개의 축입니다.
+`--route`가 없으면 `auto`가 실행됩니다. v0.3.2 검색은 DB-native입니다:
+FTS5 lexical retrieval, chunk-level vector, typed query expansion(`lex`/`vec`/
+`hyde`), RRF, best chunk에 대한 configured reranking을 사용합니다.
+`--mode`(hybrid|lex|vec)는 lower-level retrieval mode이며, `--route`와는 별개의
+축입니다.
 
 ### 4-1. 프롬프트 & 인사이트 (v0.3.1)
 
@@ -603,8 +605,8 @@ generated state, device metadata, chat context 때문에 backend와 plugin 상�
 시스템의 '두뇌'와 '눈'이 제대로 세팅되었는지 확인합니다.
 -   **Primary / Fallback 모델**: 현재 지식 추출과 합성을 담당하는 주력 LLM과 비상용 LLM을 보여줍니다. 의도한 모델이 활성화되어 있는지 확인하세요.
 -   **Reranking (리랭킹)**: 검색 결과의 정밀도를 높이는 2차 검증 프로세스의 활성화 여부입니다. 고품질 답변이 필요하다면 `on` 상태여야 합니다.
--   **QMD binary**: 검색 엔진의 핵심 바이너리 상태입니다. `installed`가 아니거나 `not found`라면 `wiki reindex`나 재설치가 필요할 수 있습니다.
--   **Search index degradation**: `wiki reindex`는 먼저 BM25 index를 갱신한 뒤 vector embedding을 시도합니다. embedding이 실패해도 BM25 search는 최신 상태로 유지되고 vector search만 stale로 표시됩니다. `qmd doctor`로 embedding 환경을 확인한 뒤 `wiki reindex`를 다시 실행하세요.
+-   **Search readiness**: DB-native FTS5 준비 상태, embedded chunk 수, vector readiness, provider/model, degraded stage를 표시합니다.
+-   **Search index degradation**: embedding, query expansion, reranking이 사용할 수 없더라도 lexical FTS5 search는 계속 작동합니다. Query trace에는 `vector_unavailable`, `query_expander_unavailable`, `reranker_unavailable` 같은 경고가 기록됩니다. provider/model 설정을 고친 뒤 `wiki reindex`로 chunk와 embedding을 다시 빌드하세요.
 
 #### 📂 지식 원천 현황 (Sources)
 원본 데이터가 지식화되는 '파이프라인의 입구'를 점검합니다.

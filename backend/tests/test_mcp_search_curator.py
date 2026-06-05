@@ -14,7 +14,7 @@ class SearchCuratorWorkspaceTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.paths = cfg.WikiPaths(self.root)
-        for folder in (self.paths.contexts, self.paths.atoms, self.paths.concepts, self.paths.exhibitions):
+        for folder in (self.paths.contexts, self.paths.atoms, self.paths.concepts, self.paths.synthesis):
             folder.mkdir(parents=True, exist_ok=True)
         self.paths.internal.mkdir(parents=True, exist_ok=True)
         cfg.save_config(self.paths, cfg.DEFAULT_CONFIG)
@@ -30,15 +30,14 @@ class SearchCuratorWorkspaceTests(unittest.TestCase):
                     "  disambiguation_keywords:",
                     "    - noisy-term",
                     "min_confidence: 0.6",
-                    "exhibition: EXH-test0001",
                 ]
             ),
             encoding="utf-8",
         )
-        (self.paths.exhibitions / "EXH-test0001.md").write_text(
+        (self.paths.synthesis / "SYN-test0001.md").write_text(
             "---\n"
-            "id: EXH-test0001\n"
-            "type: exhibition\n"
+            "id: SYN-test0001\n"
+            "type: synthesis\n"
             "workspace: Boosted\n"
             "---\n\n"
             "# Boosted\n\nWorkspace context.",
@@ -58,7 +57,7 @@ class SearchCuratorWorkspaceTests(unittest.TestCase):
         hit = search.SearchResults(
             hits=[
                 search.SearchHit(
-                    full_path=f"{consts.LAYER_L4}/EXH-test0001.md",
+                    full_path=f"{consts.LAYER_L4}/SYN-test0001.md",
                     title="Boosted",
                     score=0.9,
                     full_content="Workspace context.",
@@ -79,7 +78,7 @@ class SearchCuratorWorkspaceTests(unittest.TestCase):
 
         self.assertEqual(search_mock.call_count, 2)
         self.assertEqual(result["count"], 1)
-        self.assertEqual(result["hits"][0]["path"], f"{consts.LAYER_L4}/EXH-test0001.md")
+        self.assertEqual(result["hits"][0]["path"], f"{consts.LAYER_L4}/SYN-test0001.md")
 
 
 if __name__ == "__main__":

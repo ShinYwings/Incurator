@@ -1,0 +1,1106 @@
+# Incurator - System Behavior (v0.3.1)
+
+This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth for the v0.3.1 line. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA_v0.3.1.md`.
+
+Implementation plans under `.agents/plans/` are transient and strictly subordinate to this document. If a plan conflicts with this behavior contract, update the plan or bring the conflict back to review before coding.
+
+v0.3.1 extends v0.2.2. Sections 1–14 below preserve the inherited v0.2.2 behavior contract except where the clean-rebuild stance removes frozen Exhibitions. The v0.3.1 curation-native behavior (prompt registry and tracing, `curate.yml` compilation, curation plans, local/global/explore/source-section query routing, the backprop classification lifecycle, and source-truth protection) is defined in sections 15 onward. The archived v0.2.2 source of truth lives at `docs/specs/system_behavior/archives/SYSTEM_BEHAVIOR_v0.2.2.md`.
+
+**Clean-rebuild stance (no migration compatibility shims).** v0.3.1 does not keep
+prompt-function wrappers, a legacy-query fallback path, or `curate.yml`
+persona→KRS auto-mapping. New runs use the v0.3.1 path directly. Still-current
+v0.2.2 behaviors that v0.3.1 does not replace (instant L1, background jobs,
+Reference Mode, runtime snapshots, the device registry, the language bridge)
+continue unchanged.
+
+## 1. v0.2.2 Goal
+
+v0.2.2 changes Incurator from a blocking eager DAG compiler into a two-track
+RAG/DAG system:
+
+1. **Immediate reading path**: create or expose structural L1 context quickly so
+   an agent can answer sidebar-style document questions right after a PDF or
+   markdown file is opened or registered.
+2. **Complete compilation path**: extract L2 Atoms, cluster L3 Concepts, and
+   synthesize L4 Exhibitions asynchronously so the long-running DAG compiler does
+   not block the client UI.
+
+The target user experience is comparable to an "Ask Gemini sidebar" reading a
+PDF, while preserving Incurator's durable L1-L4 knowledge graph.
+
+## 2. Authority Boundaries
+
+### 2.1 Backend Authority
+
+The Incurator backend owns:
+
+- `.curator/state.sqlite`
+- source registration and content hashes
+- Reference Mode source identity and provenance
+- L1-L4 generated pages under `.curator/Collections/`
+- `dag_edges`
+- background ingest job queue
+- shared cloud model catalogue
+- MCP tools that mutate or query durable Incurator state
+
+### 2.2 Plugin Authority
+
+The Obsidian plugin owns:
+
+- viewer state
+- transient PDF.js extraction for open documents
+- chat UI
+- human approval prompts for import, reference registration, rebind, and promotion
+- rendering progress/status/trace returned by backend tools or backend-owned
+  shared status snapshots
+
+The plugin must not mutate `.curator/state.sqlite` or `.curator/Collections/`
+directly. The only v0.2.2 exception is `.curator/devices.json`, which the
+plugin may refresh on startup as sync-friendly device metadata. All durable DAG,
+source registry, ingest, and backpropagation writes must go through backend code.
+For read-only dashboard synchronization, the preferred boundary is a backend-owned
+shared JSON snapshot under `.curator/runtime/`: the backend is the only writer,
+and the plugin is a read-only consumer.
+
+### 2.3 Workspace Agent Authority
+
+Workspace agents may:
+
+- read MCP tool results
+- call `check_source_status`, `fetch_document_section`, `curator_query`, and
+  `get_available_models`
+- request promotion of generated knowledge through explicit tools
+
+Workspace agents must not silently edit `03_Notes/`, `04_Resources/`, or
+`.curator/` by filesystem writes.
+
+## 3. Source Status And Adaptive Routing
+
+When a PDF or document is opened, the same-device Obsidian plugin computes a
+SHA-256 file hash and calls `wiki plugin source status --file-hash ... --json`.
+External workspace agents use the equivalent MCP `check_source_status` tool.
+
+### 3.1 Unregistered Source
+
+Expected behavior:
+
+1. Backend returns `registered=false`.
+2. Plugin may build an ephemeral L1 from PDF.js or viewer text.
+3. Agent can answer using plugin-served `fetch_document_section` data.
+4. Plugin shows an explicit "Add to Incurator" action.
+5. Durable backend source registration only happens after human approval or an
+   explicit tool call. For external PDFs, the default action is Reference Mode:
+   the backend creates a lightweight markdown stub under `04_Resources/`, keeps
+   the PDF in its original location, stores the stub relpath in `sources.relpath`,
+   and stores the actual PDF path in device-local `sources.external_path`.
+   Generated stubs must not embed absolute `target_path` values by default,
+   because `04_Resources/` may synchronize across devices whose external PDF
+   libraries use different local paths. For Zotero-backed PDFs, the stub must
+   include portable Zotero identity such as `reference_kind: zotero`,
+   `zotero_attachment_key`, `logical_source_id: zotero:<key>`, and a
+   `zotero://open-pdf/library/items/<key>` link.
+
+The backend must not create a source row from passive viewing alone.
+
+### 3.2 Registered, L1 Complete, L2/L3 Pending
+
+Expected behavior:
+
+1. Backend returns `registered=true`, `l1_complete=true`, and pending L2/L3 state.
+2. Agent may call `fetch_document_section` against backend CTX sections.
+3. `curator_query` may report that the document is not fully compiled yet if it
+   requires L3 Concepts.
+4. Background worker, **Incurator Dashboard > Jobs > Run queued**, or
+   `wiki jobs run` continues L2/L3 extraction.
+
+This is the normal fast path after `wiki add` in v0.2.2.
+
+PDF viewer questions and durable PDF knowledge refinement are separate user
+flows. Viewer questions should answer from local PDF/page/selection/crop context
+without requiring ingestion. Purple PDF chips and Add-to-Incurator actions start
+durable refinement by registering the source, producing instant L1, and queueing
+L2/L3 jobs; they must not block until L2/L3 or L4 completes.
+
+### 3.3 Registered, L3 Complete
+
+Expected behavior:
+
+1. Backend returns `l3_complete=true`.
+2. Agent may use `curator_query` for concept-grounded answers.
+3. The response should include trace/provenance sufficient for the plugin to show
+   "Sources & Trace".
+
+### 3.4 Missing Or Drifted Source
+
+If a registered Reference Mode source cannot be found at its remembered
+`external_path`, backend status must report drift instead of silently choosing a
+different file. Any rebind requires human approval.
+
+## 4. `wiki add` Behavior
+
+Default v0.2.2 behavior:
+
+```text
+wiki add
+  -> discover/register changed sources
+  -> parse source structure
+  -> write instant L1 CTX without LLM (always structural)
+  -> set sources.context_id and l1_status='done'
+  -> return
+```
+
+`wiki add` is the **registration + instant L1** command. It never requires an LLM
+client and completes within seconds even when the LLM backend is offline.
+
+Rules:
+
+- `wiki add` must not require an LLM to complete.
+- `wiki add` does **not** queue or run L2/L3 extraction. Use `wiki build` for that.
+- L1 completion and full DAG compilation are different states. Status output must
+  show layer statuses separately.
+
+## 4.1 `wiki build` Behavior
+
+`wiki build` triggers L2 (Atoms) and L3 (Concepts) extraction for sources whose
+L1 is complete but L2/L3 are still pending.
+
+```text
+wiki build [path]
+  -> find sources with l1_status='done' and l2_status='pending'
+  -> enqueue L2/L3 jobs to the background worker
+  -> return immediately (default) or block until done (--wait)
+```
+
+Rules:
+
+- `wiki build` uses the configured LLM client for high-quality extraction. If
+  the LLM fails during L2 batch extraction, the backend may create low-confidence
+  deterministic fallback Atoms from L1 `Atom Candidates` so the build remains
+  searchable and provenance-preserving instead of leaving the source completely
+  unusable.
+- `wiki build --wait` runs L2/L3 synchronously before returning.
+- Without `--wait`, jobs are queued to the persistent `ingest_jobs` table and
+  processed by the MCP server's IngestWorker or `wiki jobs run`.
+
+### MCP Tool Mapping
+
+| CLI command | MCP tool |
+|---|---|
+| `wiki add` | `curator_register_source` |
+| `wiki add` with no path | `curator_add_all` |
+| `wiki build` | `curator_build_source` |
+| `wiki build` for pending sources | `curator_build_all` |
+| (legacy) | `curator_ingest_source` (deprecated — calls register + build internally) |
+
+## 5. Instant L1 Generation
+
+The backend parser must generate a CTX with:
+
+- source hash
+- content hash
+- ToC entries when available
+- PDF page provenance when available
+- stable section markers
+- an English `## Source Guide` with section/page previews for immediate search
+  and MCP recall
+- `## 2. Atom Candidates` compatible with L2 extraction
+- `## Source Sections` preserving text recall inline for small/medium sources,
+  or preserving section markers/previews with on-demand raw-source fetch for
+  large sources
+
+Parser priority:
+
+1. PDF: PyMuPDF outline/ToC when available, with page fallback.
+2. Markdown/text: markdown heading structure.
+
+When an L1 CTX has `source_text_policy: on_demand`, L2 extraction must hydrate
+the extraction body from the original source file before calling the LLM. The
+compact L1 previews are useful retrieval hints, but they are not enough evidence
+for Atom extraction.
+3. HTML: heading structure from parser output when available, otherwise text fallback.
+4. Other supported formats: one document section if no better structure exists.
+
+The backend must not use plugin ephemeral payloads to write durable CTX pages.
+Durable CTX pages are generated from backend-accessible source files.
+
+## 6. Background L2/L3 Orchestration
+
+Heavy extraction is queued in `ingest_jobs`.
+
+Workers:
+
+- MCP server may run an embedded background worker.
+- CLI users may run `wiki jobs run`.
+- CLI users may cancel a queued job with `wiki jobs cancel <id>` before a worker
+  claims it.
+- CLI users may requeue a completed, failed, or cancelled job with
+  `wiki jobs rerun <id>`.
+- Both consume the same persistent queue.
+
+Job behavior:
+
+- Queued jobs must survive process restart.
+- Running jobs should publish phase/progress in `ingest_jobs` and `job_events`.
+- Failed jobs should mark the relevant layer status as `error` and record
+  `layer_error`.
+- Cancelled jobs stay terminal until explicitly requeued. A running job is not
+  cancelled by the foreground command because a worker may already own it.
+- Retrying must not duplicate already valid CTX pages unless source content changed
+  or the user forces regeneration.
+
+Sub-agent model:
+
+- L1 sub-agent is structural and parser-first.
+- L2 sub-agent extracts Atoms section-by-section or batch-by-batch. When a CTX
+  exceeds one section-aware batch and the client can be cloned safely, batches may
+  run in parallel with independent client instances. Batch size must respect the
+  active LLM client's `optimal_chunk_chars` cap, bounded by the system maximum,
+  so CLI-backed models are not given oversized extraction prompts. Codex CLI is
+  clone-safe for independent batch calls and uses a conservative chunk budget so
+  large PDFs do not enter one long `codex exec` request.
+- L3 sub-agent clusters Atoms into Concepts. It should prefer local embedding
+  clustering (Ollama embeddings first, sentence-transformers/sklearn when
+  available) and use the LLM clustering-plan call only as a fallback. Concept
+  plans must be filtered to real L2 Atom files from the active build before
+  Concept pages and `dag_edges` are written, preventing hallucinated or stale
+  Atom IDs from entering evidence traversal.
+- The orchestrator owns ordering, retries, progress, and downstream invalidation.
+
+### 6.1 LLM Resiliency and Extraction Fallbacks
+
+Batch Atom extraction (`_extract_atoms_from_chunk`) relies on the LLM adhering to a strict JSON array schema. To prevent silent failures when using lightweight or unreliable models:
+
+1. **Self-Correction Loop**: If the LLM generates malformed JSON, the orchestrator catches the `JSONDecodeError` (via `LLMError`) and automatically resubmits the request to the LLM up to 2 times, appending the exact error message to prompt self-correction.
+2. **Deterministic L1-Candidate Fallback**: If batch extraction ultimately
+   fails with an `LLMError`, the orchestrator may create low-confidence L2 Atoms
+   directly from the English L1 `Atom Candidates` and `Source Guide` provenance.
+   These fallback Atoms must include the closest section id/page when available
+   and must use low confidence so later LLM-backed retries or human review can
+   supersede them.
+3. **Deterministic L3 Fallback Concepts**: If L3 clustering or L3 Concept
+   drafting fails after L2 Atoms exist, the build may create low-confidence
+   deterministic fallback Concepts that group related Atoms by source context.
+   This keeps L3 coverage and provenance available while clearly marking the
+   Concept as needing later LLM or human review.
+4. **Legacy Sequential Fallback**: Older extraction paths may still attempt
+   candidate-by-candidate LLM calls, but they must not be the only resilience
+   mechanism for provider failures because they multiply the same failing LLM
+   dependency.
+
+## 7. Section-Aware Extraction
+
+L2 extraction should split CTX body by `<!-- section:... -->` markers.
+
+Rules:
+
+- Split at section boundaries when possible.
+- Do not split unmarked text arbitrarily unless the implementation has a
+  provenance-preserving fallback.
+- Each extracted Atom should include `source_section_id`, `source_section_title`,
+  and `source_page` when available.
+- Extraction should preserve recall first, then deduplicate exact or near-exact
+  Atoms at controlled stages.
+
+## 7.1 Embedding-Based L3 Clustering
+
+v0.2.2 includes embedding-first L3 clustering.
+
+Rules:
+
+- If embeddings are available, L3 clustering should not call an LLM to decide
+  Atom group membership.
+- Ollama local embeddings are preferred when an Ollama host is active.
+- `sentence-transformers`/`scikit-learn` may be used as local CPU fallback.
+- If no embedding path is available, the legacy LLM clustering planner remains
+  valid.
+- Concept page drafting may still use an LLM after clusters have been chosen.
+
+## 8. Incremental Sync And Backprop
+
+Default `wiki sync` behavior in v0.2.2 is incremental:
+
+```text
+wiki sync
+  -> scan generated page hashes
+  -> identify changed nodes
+  -> expand downstream through dag_edges
+  -> invalidate affected caches/jobs
+  -> rebuild routing tables/report
+```
+
+Rules:
+
+- `wiki sync --full` performs full structural/logical verification.
+- `wiki sync --backward` performs explicit backward repair where supported.
+- Hash-only incremental sync must be fast on unchanged DAGs.
+- Human-verified promoted Exhibitions are protected from automatic destructive rewrite.
+- `dag_edges` is the preferred downstream expansion index.
+- MCP `curator_update_node` defaults to L4 -> L3 -> L2 -> L1 propagation.
+  Insight backprop is expected to be rare, so graph consistency is prioritized
+  over single-call latency. L1 updates must preserve original source truth while
+  recording derived corrections separately. `propagate_sources=false` is reserved
+  for explicit Concept-only diagnostic paths.
+- For MCP updates where the previous Exhibition content is available, upstream
+  propagation must target the Concepts most related to newly added/changed
+  Exhibition text before invoking the LLM. Concept reconciliation should batch
+  multiple targeted Concepts into one structured LLM call when the provider
+  supports JSON output, and unchanged Concepts may be omitted from that response
+  so model output is proportional to actual edits. Invalid batch output must use
+  a safe fallback to per-Concept calls. Reconciled
+  Concepts may then propagate to L2 and L1, but only when the upstream node
+  actually changed. Propagation responses should expose `target_concepts`,
+  `llm_calls`, and `timings_ms` so clients can diagnose latency without
+  weakening backprop depth.
+- Identical EXH submissions are no-ops. `curator_update_node` must return
+  `noop=true`, `updated=false`, and `propagation.llm_calls=0` without invoking
+  the LLM or rebuilding routing tables.
+
+## 9. Sessionless Query Behavior (frozen Exhibitions removed)
+
+`curator_query(question, workspace_path)` is the MCP entry point for sidebar-style
+answers; `curator_fetch_context(question, workspace_path)` is the evidence-only
+surface for reasoning agents; `wiki query` is the CLI surface. All are
+**sessionless**: they return an answer (or evidence pack) plus a `QTR-` trace and
+write **no** vault file. The v0.2.x query-generated/ephemeral Exhibition and its
+answer-cache are removed (§15, SCHEMA §5/§15).
+
+Expected behavior:
+
+1. Resolve `workspace_id` from the active workspace basename when a workspace path
+   is available, else `default`. A plain chat turn whose active note is **not**
+   inside a workspace folder (no ancestor `curate.yml`) MUST resolve to `default`;
+   the plugin must not bind an arbitrary workspace (e.g. the first `curate.yml`
+   found in the vault) to a conversational chat.
+2. If L3 Concepts do not exist yet, return `ok=true`, `fallback="l3_incomplete"`,
+   `answer=""`, raw fallback hits when available, and `trace.l3_complete=false`.
+3. Run the QueryOrchestrator: choose a route (local/global/explore/source-section),
+   build the curated evidence pack (the dynamic Curation lens over L1–L4 incl. the
+   shared Synthesis layer), and — for `curator_query`/`wiki query` — synthesize an
+   answer. `curator_fetch_context` returns the evidence pack without synthesis.
+4. Return answer/evidence plus trace. No Exhibition is created or cached.
+
+The Obsidian sidechat uses `wiki plugin query` (JSON) for ordinary
+workspace/domain questions; it must not wait for an external MCP server. If the
+latest turn is centered on selected Markdown, a line-range edit, a PDF page
+reference, or a selected PDF/image crop, sidechat treats that selected context as
+primary.
+
+Trace must include:
+
+- matched concept IDs and `synthesis_node_ids` / `community_report_ids`
+- source IDs or paths; section/page provenance when available
+- `trace_id` (`QTR-`) and `route`
+- latency or timing fields when practical
+
+Durable human artifacts come only from an explicit promotion of an **insight
+candidate** to `02_Wiki/` (`curator_promote_insight`), after user approval.
+
+Rules:
+
+- Generated answers/insights are not automatically human truth.
+- Promotion writes only `02_Wiki/`; it must not edit `03_Notes/`/`04_Resources/`.
+
+## 10. MCP Tools
+
+The Incurator MCP server exposes over 40 tools. The following list highlights the *newly introduced tools specific to v0.2.2 behavior*. For a complete and exhaustive list of all MCP tools and their descriptions, please see [MCP_USER_GUIDE.md](file:///Users/shin/shinywings/Incurator/docs/guides/MCP_USER_GUIDE.md).
+
+v0.2.2 introduces these new core MCP tools:
+
+- `check_source_status`
+- `fetch_document_section`
+- `curator_query` (sessionless: answer + trace, no Exhibition file)
+- `curator_fetch_context` (curated evidence pack, no synthesis)
+- `get_available_models`
+- `curator_get_version` (Returns the backend version string to detect cross-platform mismatches)
+
+Implemented tools may be released incrementally, but docs and UI must not present
+an unimplemented mutating tool as fully available without a clear status note.
+
+## 11. Model Provider Behavior
+
+Antigravity replaces Gemini CLI as the canonical Gemini-family CLI provider.
+
+Rules:
+
+- New config and docs use `antigravity-cli`.
+- Legacy `gemini-cli` aliases and environment variables have been completely removed.
+- The executable command for Antigravity is `agy`.
+- Backend model choices come from the shared model catalogue.
+- Plugin UI must use the backend model catalogue without duplicating cloud model
+  lists. For the Obsidian plugin, this catalogue is bundled from
+  `backend/src/curator/data/models.json` at plugin build time so model controls
+  do not depend on MCP startup.
+
+### 11.1 Model Catalogue and Reasoning Effort
+
+The shared catalogue (`backend/src/curator/data/models.json`, the single source of
+truth) is `schema_version: 2`. It must only list models the corresponding CLI
+actually exposes — phantom entries (models the installed `agy`/`claude`/`codex`
+or the configured API provider does not offer) are a defect. Each cloud/API model may declare a reasoning/effort
+dimension:
+
+- `efforts`: ordered list of effort levels the CLI accepts for that model
+  (empty/absent = no effort dimension).
+- `default_effort`: the level used when none is explicitly selected.
+
+`curator.models` and external-agent `get_available_models` must surface
+`efforts` and `default_effort` so clients render an effort picker without
+hardcoding levels. The Obsidian plugin reads the same fields from the bundled
+backend `models.json` artifact.
+
+Effort is stored per failover slot in `llm.primary_effort` / `llm.fallback_effort`
+(empty = the CLI's own default). The clients map a non-empty effort to the
+provider-native control:
+
+- `claude-code` → `claude --effort <level>` (`low|medium|high|xhigh|max`).
+- `codex-cli` → `codex -c model_reasoning_effort=<level>` (`low|medium|high|xhigh`).
+- `antigravity-cli` → `agy` has no effort flag, so the level is embedded as a
+  prompt hint (best-effort only).
+- `deepseek-api` → OpenAI-compatible `https://api.deepseek.com/chat/completions`
+  with `DEEPSEEK_API_KEY`, `llm.deepseek-api.api_key_secret`, or the legacy
+  plaintext `llm.deepseek-api.api_key`. Environment variables take precedence.
+  `api_key_secret` points to a local encrypted secret outside the shared vault;
+  shared/project config must not contain newly stored plaintext API keys.
+  Current catalogue
+  entries are `deepseek-v4-flash` and `deepseek-v4-pro`; legacy aliases
+  `deepseek-chat` and `deepseek-reasoner` are not preferred because DeepSeek
+  schedules them for deprecation on 2026-07-24.
+
+The interactive `wiki config provider` wizard and the plugin dashboard LLM card
+must offer only the efforts a chosen model declares, and changing the model must
+reset its effort to that model's `default_effort`.
+
+Language handling is per request. Each query detects the latest user input
+language, uses English as the internal/search working language, and then writes
+the final answer in the detected latest input language unless that latest
+request explicitly asks for another output language. Previous chat turns, saved
+EXH metadata, Korean Markdown context, or workspace defaults must not force the
+output language of a later English/Chinese/Korean question.
+
+Input-language detection is a deterministic, logic-level step, not merely a
+prompt instruction. The plugin classifies the latest request by Unicode script
+ranges (Hangul → Korean; Han without Kana → Chinese; Hiragana/Katakana →
+Japanese; Cyrillic → Russian; Arabic, Devanagari, Thai, Greek, Hebrew, …;
+default Latin → English). Detection runs fresh on every request and a single
+canonical detector is shared by both the curator-query path and the plain-chat
+path so language behavior is identical everywhere. The detected language drives
+the final answer language directly: the answering model generates in the
+detected language rather than producing English and then translating in a
+separate round-trip.
+
+The three language fields (`input_language`, `english_query`,
+`final_output_language`) are **response/trace-only**. They are returned in the
+`wiki plugin query` JSON so the bridge is auditable, but they MUST NOT be
+persisted into saved query-generated EXH frontmatter. Persisting them caused a
+stale `final_output_language` to force later English/Chinese questions to keep
+answering in the earlier language; saved EXH pages therefore omit them entirely.
+
+Query-generated EXH pages remain valid cache/trace artifacts. Their
+question/persona/context fields must be derived from the current query and
+active chat/workspace context, not a stale session-level language or unrelated
+workspace default.
+
+### 11.2 Plugin Dashboard State Sharing
+
+The Obsidian plugin dashboard should synchronize backend status through
+backend-owned shared files rather than MCP tool discovery or a plugin-specific
+IPC process.
+
+Canonical runtime snapshots live under:
+
+```text
+.curator/runtime/
+```
+
+Recommended files:
+
+- `.curator/runtime/status.json` — vault health, source layer counts, active job
+  counts, qmd/BM25/vector readiness, backend version, and generated timestamp.
+- `.curator/runtime/sources.json` — read-only source rows needed for dashboard
+  and source chips.
+- `.curator/runtime/jobs.json` — active/recent background jobs and errors.
+
+Rules:
+
+- Backend code is the single writer for `.curator/runtime/*.json`.
+- The plugin may read these files directly through the Obsidian vault adapter.
+- The plugin must treat missing or stale snapshots as "unknown/waiting", not as
+  proof that backend state is empty.
+- Runtime snapshots must be derived from backend-owned state (`state.sqlite`,
+  qmd metadata, job queue, config) and must not become a second source of truth.
+- Mutating actions such as import, rebind, reset, query generation, and
+  promotion must not be implemented by editing shared JSON files.
+- Dashboard buttons that change backend state must invoke backend code. The
+  plugin may launch an explicit backend command after a user action, but the
+  backend command performs the write.
+- Status bars and dashboard widgets should read runtime snapshots. They must not
+  poll Incurator MCP tools for ordinary local status.
+- Zotero plugin flows should call hidden backend plugin commands
+  (`wiki plugin zotero ...`) that return JSON, rather than using MCP tools for
+  local Zotero DB/path operations or exposing Zotero plumbing as normal human
+  CLI commands.
+- Backend Zotero commands must include status/init diagnostics so missing
+  Zotero installs, moved data directories, and unreadable databases produce
+  structured states instead of empty search results.
+- Backend Zotero PDF resolution must distinguish missing database
+  (`db_missing`), missing attachment key (`attachment_key_missing`), and missing
+  attachment file (`attachment_file_missing`). It must resolve Zotero `storage:`
+  paths under the active data directory and `attachments:` linked-file paths
+  against configured linked attachment roots without mutating the Zotero DB.
+  Linked attachment root discovery may use Zotero profile `prefs.js`
+  `extensions.zotero.baseAttachmentPath` and ZotMoov
+  `extensions.zotmoov.dst_dir` values as read-only candidates.
+- PDF context commands should accept the richest available identity, not only a
+  raw path: local file path, source id, vault relpath, file hash, or Zotero
+  attachment key. For Reference Mode stubs, backend resolves the current
+  device's real file path from `sources.external_path` or Zotero logic.
+- Source import commands used by the plugin may also accept Zotero attachment
+  keys. Backend resolves the key, imports the resolved PDF as a Reference Mode
+  source, and stores a stable logical source id such as
+  `zotero:<attachmentKey>` in the local source registry.
+- Snapshot writes should be atomic: write a temporary file in `.curator/runtime/`
+  and replace the target path.
+
+### 11.3 Agent Access Scenarios
+
+There are two distinct agent scenarios in v0.2.2:
+
+1. **Obsidian agent on the same device as the backend.**
+   - Uses shared runtime snapshots for read-only status.
+   - Uses hidden `wiki plugin ...` JSON commands for source, PDF, query,
+     promotion, Zotero, and backend mutations.
+   - Does not auto-start `wiki mcp`.
+   - Does not require Incurator MCP tool discovery for model lists, dashboard
+     status, source badges, Zotero, PDF context, or query/promotion.
+
+2. **External workspace agents such as Claude Code, Claude Desktop, Antigravity,
+   or other MCP-capable clients.**
+   - Use `wiki mcp ...`.
+   - Use MCP tools such as `curator_query`, `search_curator`,
+     `fetch_document_section`, and workspace initialization/check tools.
+   - May run with `VAULT_ROOT` or `WORKSPACE_PATH` to scope the server.
+
+Do not mix the two paths. New same-device Obsidian plugin behavior belongs under
+`wiki plugin ...` or runtime snapshots. New external-agent behavior belongs in
+the MCP server and MCP guides.
+
+Provider account ownership:
+
+- CLI-backed providers (`antigravity-cli`, `claude-code`, `codex-cli`) use the
+  account currently logged into the provider CLI on the backend machine. In a
+  multi-account setup, users switch accounts through the CLI itself.
+- API-key providers (`deepseek-api`) use the configured key. Account selection
+  follows the key, not a browser-login CLI session.
+- Quota/capacity/rate-limit errors must be surfaced as provider errors, not
+  swallowed as empty LLM output; frontend sidechat should render them directly.
+
+### 11.4 CLI Surface Policy
+
+The normal human-facing `wiki --help` command surface should stay focused on the
+daily workflow:
+
+```text
+init, status, add, build, query, sync, lint, reindex,
+source, jobs, config, workspace, version
+```
+
+Advanced or integration-only command groups remain directly callable but should
+be hidden from the default help listing:
+
+- `wiki plugin ...` — JSON backend API for the local Obsidian plugin.
+- `wiki mcp ...` — external workspace-agent server and installer.
+- `wiki testbed ...` — development validation fixtures.
+- `wiki devices ...` — synced-device/backend launcher diagnostics. Running
+  `wiki devices` without a subcommand is equivalent to `wiki devices status`.
+
+The frozen-staging command family is **removed** in v0.3.1: the L4 layer is the shared
+Synthesis layer (built automatically by `wiki build`) and curation is a dynamic
+query-time lens (`wiki query`). `wiki update` is not part of the public CLI.
+
+Tracked source listing belongs to the source namespace: `wiki source ls`.
+The legacy top-level `wiki ls` shorthand is not part of the v0.2.2 public
+surface.
+
+Plugin-local JSON commands must be added under `wiki plugin ...` rather than as
+new top-level public command groups.
+
+### 11.5 Persona Interview Behavior
+
+The Curator persona interview used by `wiki init` and `wiki persona update`
+must ask the first real question immediately after the opener; users must not
+need to type a throwaway acknowledgement such as `yes` to begin. Each question
+must label whether it accepts a single selection or multiple selections. The
+vault verification-source question and artifact-type question accept
+comma-separated numeric answers. When the LLM returns final `done=true` persona
+JSON, the CLI must parse common JSON wrappers, save the persona, and terminate
+the interview without accepting further chat turns.
+
+## 12. Observability
+
+Status surfaces:
+
+- `wiki status` shows per-layer source status and active background jobs.
+- `wiki jobs list` shows queued/running jobs.
+- `wiki jobs run` drains queued jobs in foreground.
+- `wiki jobs cancel <id>` cancels a queued job.
+- `wiki jobs rerun <id>` requeues a completed, failed, or cancelled job.
+- `.curator/dashboard.md` may summarize job and DAG state for Obsidian viewing.
+
+Status rules:
+
+- "Sources summarized (L1)" means `sources.l1_status='done'`.
+- It must not be derived from `sources.status='curated'`.
+- L1 complete does not imply L2/L3 complete.
+- Source health must be derived from per-layer statuses. Any `error` layer must
+  be surfaced as unhealthy even if another layer is complete.
+- User-facing source state names are progressive and layer-explicit:
+  `l1_ready`, `l2_ready`, `l3_ready` for Concept readiness, and `l4_ready`
+  only when L4 Exhibition status is done.
+
+## 12.1 Reset Behavior
+
+`wiki reset` preserves `.curator/config.yml` and source folders, but clears
+generated and device-local Curator state that can make a fresh vault run appear
+stale:
+
+- `.curator/state.sqlite*`
+- generated L1-L4 Collections
+- dashboard/index/overview/ledger/log files
+- `.curator/sync-report.json`
+- `.curator/staging/`
+- root-level legacy `build_trace_*.canvas` files
+- `.curator/devices.json`
+- `.curator/sessions.json`
+- qmd's generated index database
+
+Build trace canvases are diagnostics and must not be written at `.curator/`
+root during normal background builds. If generated, they live under
+`.curator/staging/canvas/` so reset and sync-ignore rules can treat them as
+transient state.
+
+## 12.2 Search Index Degradation
+
+qmd indexing has two layers: `qmd update` for lexical/BM25 search and `qmd embed`
+for vector search. If `qmd update` succeeds but `qmd embed` fails, Incurator must
+not treat the whole index rebuild as failed. It should report a degraded result:
+BM25 search is current, vector search is stale, and the user can retry
+`wiki reindex` after qmd embedding support is healthy.
+
+## 13. Syncthing Device Registry
+
+When a vault is synchronized by Syncthing, Incurator may use the local
+Syncthing `config.xml` as device discovery input. This discovery is limited to
+facts Syncthing actually knows: device ids, device names, shared folder ids,
+folder labels, and folder paths on the current machine.
+
+Backend launch paths are not Syncthing facts. Incurator records those as
+per-device declarations in `.curator/devices.json`. The Obsidian plugin performs
+a best-effort refresh on startup by reading local Syncthing config files and the
+current plugin MCP launcher settings. Running `wiki devices sync` remains a
+manual repair/debug command, but normal plugin use should not require it.
+Running `wiki devices` must inspect the current registry and list devices that
+only have Syncthing metadata, even when no backend launcher hint has been
+recorded yet.
+The Obsidian dashboard follows the same rule: it must not hide a shared
+Syncthing device merely because that device has no local backend command or
+platform block. Device names come from Syncthing or registry metadata first.
+Platform labels are shown only when explicit platform metadata exists; otherwise
+the UI labels the platform as unknown instead of inferring unrelated text.
+Existing entries for devices still present in the current Syncthing folder are
+preserved, including backend launcher hints. Entries absent from the current
+shared-folder snapshot are pruned so stale devices do not inflate the registry
+or dashboard count. If the local device cannot be identified from Syncthing's
+REST status or the configured device names, Incurator must not create a
+synthetic `local` device when Syncthing already reports real shared devices.
+
+The Obsidian plugin should keep `data.json` local when backend paths differ by
+machine. Shared state, such as chat `sessions.json` and `.curator/devices.json`,
+can synchronize independently from per-device plugin settings.
+
+## 13.1 Chat Query Language And Trace
+
+Plugin chat must use a structured English working-language bridge for every
+user question. The plugin derives and passes `input_language`,
+`english_query` when already known, and `final_output_language` to
+`wiki plugin query`. Backend query code may compute `english_query` when the
+plugin cannot, but it must return the resolved field in JSON. Search, intent
+classification, MCP/tool arguments, and synthesis context use `english_query`
+as the internal working query; the final answer targets
+`final_output_language`.
+
+The latest user request decides `final_output_language`; previous turns must not
+create a persistent language preference. English latest requests receive English
+final answers unless they explicitly ask for another language. `curator_query`
+must expose `input_language`, `english_query`, and `final_output_language` in
+its plugin JSON response so the language bridge is auditable rather than only a
+prompt instruction. These fields are response/trace-only and are never written
+into the saved EXH frontmatter.
+
+The answer cache key incorporates the resolved output language so that the same
+normalized question asked in different input languages does not collide. A
+Korean-language cached answer must never be returned for an English query (or
+vice versa); the cache key is derived from `(workspace_id, normalized_question,
+final_output_language)`. This guarantees a freshly detected English request is
+answered in English even when an earlier Korean turn cached the same question.
+
+When `curator_query` creates or reuses a query-generated Exhibition, the plugin
+may compact visible MCP tool output before rendering it into the chat transcript,
+but it must preserve parseable `trace` fields so the
+Sources & Trace panel can link the generated L4 Exhibition.
+
+## 14. Testbed Validation
+
+Any v0.2.2 behavior change must be validated with:
+
+```bash
+wiki testbed init <active_scenario> --force
+VAULT_ROOT=testbed wiki status
+VAULT_ROOT=testbed wiki add
+VAULT_ROOT=testbed wiki sync
+VAULT_ROOT=testbed wiki lint
+```
+
+If LLM or qmd dependencies are unavailable, lower-level deterministic tests must
+still run and the blocker must be reported.
+
+For instant L1 work, validation must show that `wiki add` can create CTX without
+printing or requiring LLM readiness when `llm.instant_l1=true`.
+Large-source validation must also show that L1 does not duplicate the full raw
+document text while `fetch_document_section` can still return exact evidence
+from the original source by `toc_id` or page range.
+
+---
+
+# v0.3.1 Curation-Native Behavior
+
+The sections above (1–14) define the inherited v0.2.2 behavior contract. The
+sections below define the new behavior introduced by the v0.3.1 curation-native
+rebuild. Schema records referenced here are defined in
+`docs/specs/curator_schema/SCHEMA_v0.3.1.md`.
+
+The v0.3.1 thesis: the Curator is a curation-native graph/memory compiler. It
+reads a workspace's `curate.yml`, compiles a curation plan, chooses a retrieval
+route, builds an evidence pack from source spans / graph / community reports /
+memory paths, runs registered and traced prompts, stages an Exhibition, and
+accepts human/agent feedback as a backprop signal.
+
+## 15. Prompt Registry And Tracing
+
+v0.3.1 makes prompts a versioned, contract-driven, traceable subsystem. Prompt
+behavior is no longer scattered across `prompts.py`, `query.py`, `lint.py`, and
+provisioning code.
+
+### 15.1 Prompt Registry
+
+- Every prompt is a `PromptContract` registered in a `PromptRegistry` with a
+  unique `prompt_id`, a `version`, a `family`, a `role`, an input model, an
+  optional output model (required for JSON families), system/user templates,
+  declared validators, and a retry policy.
+- Prompt ids are unique. Backend startup (or a registry self-check) asserts
+  uniqueness; a duplicate prompt id is a defect.
+- The minimum v0.3.1 prompt families and ids are:
+  `curator.source_map`, `curator.knowledge_unit_extract`,
+  `curator.entity_relation_extract`, `curator.community_report_write`,
+  `curator.synthesis_write`,
+  `curator.curation_plan`, `curator.query_router`,
+  `curator.query_local_answer`, `curator.query_global_reduce`,
+  `curator.query_explore_expand`, `curator.backprop_classify`,
+  `curator.backprop_patch_plan`, and `curator.note_context_pack`.
+- The clean-rebuild stance applies: prompt text currently in `prompts.py` and
+  `query.py` moves into `backend/src/curator/prompting/families/*` and callers
+  import the registered contracts directly. No compatibility wrapper functions are
+  kept in `prompts.py`.
+
+### 15.2 Prompt Trace
+
+- Every prompt invocation records a `prompt_runs` row (`PTR-…`) with prompt id/
+  version/family/role, model provider/name, input/output hashes, validator status
+  and errors, retry count, source ids/spans, `curate_spec_hash`, and the owning
+  query trace id when applicable.
+- A generated artifact (knowledge unit, entity, relation, report, synthesis node)
+  must record the `PTR-` that produced it. An artifact that cannot name its prompt
+  run is a defect.
+- Prompt traces are inspectable through `wiki prompt trace TRACE_ID`, the MCP
+  `curator_get_prompt_trace` tool, and the plugin trace panel.
+
+### 15.3 Prompt Validators
+
+Prompt outputs are validated before they are persisted. Required validator
+behaviors:
+
+- valid JSON parsed into the declared output model for JSON families;
+- only real Curator/source ids (invented `SPAN-`/`ENT-`/node ids are rejected);
+- no invented wikilinks to non-existent targets;
+- confidence values within `[0.0, 1.0]`;
+- source-truth vs derived-insight separation respected;
+- no instruction that mutates `03_Notes/`/`04_Resources/`;
+- Obsidian-compatible math delimiters preserved.
+
+On a JSON-schema failure, the declared retry policy (default
+`json_repair_once`) re-prompts once with the validator error appended; a second
+failure marks the run `failed` and must not write a partial artifact.
+
+## 16. `curate.yml` Compilation And Curation Plan
+
+### 16.1 Compilation
+
+- `curate.yml` is parsed into a `CurateSpec` and compiled into a
+  `CurationPolicy`: `source_include`/`source_exclude`, `allowed_routes`,
+  `default_route`, `prompt_profile`, `require_source_spans`,
+  `allow_general_knowledge`, `contradiction_policy`, `backprop_enabled`, and
+  `max_explore_followups`.
+- `curate_spec_hash` is a stable hash of the workspace's `curate.yml` content. It
+  is recorded on curation plans and prompt runs so staleness is detectable.
+- `curator_validate_curate_spec(workspace_path)` returns the parsed spec summary,
+  the compiled policy, the spec hash, and any validation errors. Invalid specs
+  (unknown route, contradictory policy) surface errors instead of silently using
+  defaults.
+
+### 16.2 Curation Plan Flow
+
+Before a workspace curation run, the backend generates a `curation_plans` row
+(`PLAN-…`):
+
+1. Load and compile `curate.yml` into a `CurationPolicy`.
+2. Inventory available sources, entities, concepts, and community reports.
+3. Select in-scope sources (respecting `include`/`exclude` and Reference Mode)
+   and record excluded sources with reasons.
+4. Choose the retrieval mode mix, required community-report levels, target
+   concepts/entities, output shape, verification policy, and prompt profile.
+5. Record known gaps.
+
+`wiki plugin curate plan --workspace-path PATH` and MCP
+`curator_plan_workspace(workspace_path)` record and return the plan. They do not
+write a frozen Exhibition.
+
+## 17. Query Routing: local / global / explore / source-section
+
+`wiki query` and `curator_query` route through a single `QueryOrchestrator`.
+Routing is deterministic-first; an LLM router (`curator.query_router`) is used
+only when deterministic signals are ambiguous.
+
+Routes and selection rules:
+
+- **source-section** — a question scoped to a known source/section id. Answers
+  from source spans of that source.
+- **local** — entity/fact questions. Resolve query entities (lexical + vector +
+  graph), expand to related claims/concepts/spans, build a bounded context pack,
+  answer with `curator.query_local_answer`.
+- **global** — broad workspace/vault synthesis. Lead with the shared **L4
+  Synthesis** nodes (the highest-level standing evidence; SCHEMA §11.11), back them
+  with the community reports they distil, run map/reduce with rated intermediate
+  points, backfill with source spans, answer with `curator.query_global_reduce`.
+  This is the dynamic **Curation lens** in action: it selects/recombines L3+L4
+  nodes per query and is never stored.
+- **explore** — insight discovery ("what else", "find connections", "new
+  insight"). Build a primer from L4 synthesis nodes + community reports, generate
+  follow-up questions (`curator.query_explore_expand`), run local searches per
+  follow-up, build a memory-path-backed exploration tree, return ranked **insight
+  candidates** as provisional (not truth).
+Rules:
+
+- An explicit `--mode` wins when the policy allows it; a disallowed mode returns a
+  clear error rather than silently downgrading.
+- When the graph is incomplete (no entities/relations/reports yet), the
+  orchestrator falls back to qmd lexical/vector retrieval and records a warning in
+  the trace. qmd remains the fallback retrieval engine.
+- Every query produces a `QTR-` query trace carrying `route`, `route_reason`,
+  evidence (`source_span_ids`, `community_report_ids`, `synthesis_node_ids`,
+  `memory_path_ids`), `prompt_trace_ids`, `insight_candidate_ids`, latency, and
+  warnings. These are returned in the query JSON (CLI `--trace`, plugin, MCP).
+- The `fetch_context` surface (MCP `curator_fetch_context`) returns the same
+  curated evidence pack — including `synthesis` items and `synthesis_node_ids` —
+  WITHOUT a synthesized answer, for reasoning agents that have their own LLM.
+- The v0.2.2 language bridge (§11 inherited) is unchanged: detect latest-input
+  language, reason in English, answer in the detected language; bridge fields stay
+  response/trace-only and are never persisted.
+
+## 18. Backprop Classification And Insight Lifecycle
+
+v0.3.1 routes feedback through an explicit classifier before any patch.
+
+### 18.1 Classification
+
+`curator.backprop_classify` classifies each feedback/change event into exactly
+one of:
+
+- `correction` — a generated artifact misread its evidence. Patch the generated
+  knowledge unit/entity/relation/report/synthesis node, invalidate dependents,
+  preserve source text.
+- `contradiction` — two sources/artifacts conflict. Record it, flag both sides,
+  surface in the Exhibition, require review before any merge that would erase the
+  disagreement.
+- `derived_insight` — a later interpretation not stated by the source. Create an
+  `insight_candidates` row; never write it into the originating source's L1.
+- `style_only` — presentation change, no claim change. Update the artifact if
+  allowed; do not trigger graph rebuild.
+- `promotion_request` — the human wants an artifact to become durable knowledge.
+  Requires explicit approval; writes only `02_Wiki/`.
+- `ambiguous` — set `status='needs_review'`; do not patch.
+
+### 18.2 Patch Planning And Sync
+
+- `curator_propose_correction(node_id, correction, workspace_path)` runs the
+  classifier, then `curator.backprop_patch_plan` produces an explicit patch plan
+  (generated nodes to patch, nodes/reports/synthesis to invalidate via
+  `artifact_dependencies`, human-verified nodes to preserve, sources that must
+  stay unchanged).
+- `--dry-run` returns the classification and patch plan without writing.
+- Identical-submission no-ops are preserved from v0.2.2 (no LLM call, no rebuild).
+
+### 18.3 Promotion
+
+- Promotion writes only to `02_Wiki/` and sets `is_verified_by_human=true` for the
+  promoted artifact only, never for every cited node.
+- `insight_candidates.status='promoted'` is set only by an explicit promotion.
+
+## 19. Source Truth Protection (Behavior-Level)
+
+Enforced across every v0.3.1 flow (extraction, query, explore, backprop,
+promotion):
+
+- The Curator never edits `03_Notes/`, `04_Resources/`, or `06_Archives/`.
+- A derived insight is never backfilled into the originating source's L1 context
+  or into a `source_supported` knowledge unit. It lives as a `derived_insight`
+  unit and an `insight_candidate` until explicitly promoted.
+- Community-report confidence and memory-path scores are retrieval aids, not human
+  verification.
+- If a derived insight needs a durable source, it must come from a promoted
+  `02_Wiki/` note, a conversation artifact, or an explicit human-created source —
+  never from rewriting an existing source map.
+
+## 20. CLI / MCP / Plugin Surface (v0.3.1)
+
+The same backend service functions power CLI, MCP, and plugin JSON. MCP is the
+external-agent interface; the plugin uses local `wiki plugin …` JSON commands and
+runtime snapshots for same-device flows (the v0.2.2 separation in §11.3 is
+retained).
+
+New human CLI commands:
+
+```text
+wiki prompt list | show PROMPT_ID | trace TRACE_ID | eval
+wiki query "..." --route auto|local|global|explore|source-section [--trace]
+wiki insight list --workspace PATH | show INSIGHT_ID | promote INSIGHT_ID
+```
+
+New hidden plugin commands:
+
+```text
+wiki plugin curate plan --workspace-path PATH --json
+wiki plugin prompt trace --trace-id ID --json
+wiki plugin insight list --workspace-path PATH --json
+wiki plugin insight promote --insight-id ID --workspace-path PATH --json
+```
+
+New/updated MCP tools (external-agent safe; they call shared services, not
+duplicated logic):
+
+```text
+curator_plan_workspace(workspace_path)
+curator_explore(query, workspace_path="")
+curator_get_prompt_trace(trace_id, workspace_path="")
+curator_list_insight_candidates(workspace_path="", status="pending")
+curator_promote_insight(insight_id, workspace_path="")
+curator_validate_curate_spec(workspace_path)
+curator_propose_correction(node_id, correction, workspace_path="")
+```
+
+Mutation tools (`curator_propose_correction`, the inherited `curator_update_node`)
+update the DB record, re-emit the affected derived markdown projection, and
+re-index qmd; they run the backprop classification lifecycle (§18, §22.2) and
+never edit read-only source truth.
+
+`curator_query` returns the v0.3.1 trace fields additively: `route`, `trace_id`,
+`prompt_trace_ids`, `source_span_ids`, `community_report_ids`, `memory_path_ids`,
+`insight_candidate_ids`, and the existing `answer`/`trace`.
+
+## 21. Testbed Validation (v0.3.1)
+
+The default scenario is `scripts/dev/complex_math_backprop` (ResNet / Neural ODE).
+Beyond the v0.2.2 smoke (§14), v0.3.1 validation must show:
+
+- original ResNet source claims remain `source_supported` only;
+- the later Neural ODE interpretation becomes a `derived_insight` / insight
+  candidate, not a rewrite of the original ResNet L1;
+- a global query uses a community report;
+- an explore query returns a memory path between residual learning and Euler
+  discretization;
+- backprop classification does not rewrite the original L1;
+- prompt traces are visible for generated artifacts.
+
+If LLM or qmd is unavailable, deterministic tests, prompt validators, and the
+`local_slm_simulator` role still run, and the exact blocker is documented; the
+scenario is not reported as passed.
+
+## 22. Compile Model: DB Source Of Truth, Derived Markdown Projection
+
+v0.3.1 makes the Curator a compiler whose intermediate representation is the DB
+and whose L1–L3 markdown pages are a derived, disposable search corpus. This is
+grounded in `docs/philosophy/ABOUT.md` (".curator/ = Database for search and
+reasoning"; Curator = Knowledge Compiler; Forward/Backward pass).
+
+### 22.1 Forward Compile Flow
+
+```
+Raw source
+  └─ parse (deterministic, NO LLM, instant)
+       → DB: source_spans                          (L1)
+       → emit .curator/Collections/01_Contexts/CTX-*.md   (derived projection)
+  └─ LLM refine (local SLM / non-reasoning model)
+       → DB: knowledge_units                        (L2)
+       → emit .curator/Collections/02_Atoms/ATM-*.md      (derived projection)
+  └─ LLM + embeddings
+       → DB: graph_entities, graph_relations, community_reports   (L3)
+       → emit .curator/Collections/03_Concepts/CON-*.md   (derived projection)
+  └─ LLM synthesize (cross-community, source-grounded)
+       → DB: synthesis_nodes                        (L4 Synthesis, shared)
+       → emit .curator/Collections/04_Synthesis/SYN-*.md (derived projection)
+  └─ qmd update/embed indexes .curator/Collections/  (BM25 + vector)
+  └─ query/curate: qmd search (derived corpus) + DB graph traversal (HippoRAG)
+       → dynamic Curation lens over L3/L4 (per workspace/query, never stored)
+```
+
+Rules:
+
+- The DB is the single source of truth. L1–L4 markdown is emitted FROM the DB and
+  is never edited as truth, so there is no DB↔file drift.
+- **L4 Synthesis** (`synthesis_nodes` / `SYN-`) is a shared, workspace-INDEPENDENT
+  layer distilled from all community reports (the "synthesis"/permanent-note tier
+  of other LLM wiki repos). It is generated wholesale and content-addressed by the
+  report-corpus hash, so it is skipped when nothing changed and regenerated
+  entirely when any report changes (`compile_global_l3` → `generate_synthesis`).
+  The per-workspace **Curation lens** sits ABOVE this layer: it selects and
+  recombines L3/L4 nodes at query time and is never persisted (see SCHEMA §11.11).
+- L1 (source_spans / CTX) is deterministic structure preservation, not
+  refinement. It must not require an LLM (the v0.2.2 instant-L1 guarantee holds).
+  Knowledge refinement happens at L2/L3 via the LLM prompt families.
+- The emitted markdown is search-optimized, not human-pretty; humans are not
+  expected to read L1–L3 pages.
+- `qmd` is retained as the retrieval engine over `.curator/Collections/`. No
+  search-engine rewrite. If qmd is unavailable, search degrades to DB-backed
+  lookups with a warning (§17 fallback).
+
+### 22.2 Backprop Re-emission (Loss Signal → Backward Pass)
+
+- MCP mutation tools `curator_propose_correction` and `curator_update_node` let
+  external agents correct knowledge. They update the DB record, re-emit the
+  affected L1–L3 projection page(s), and trigger a qmd re-index. They never edit
+  read-only source truth.
+- `curator_propose_correction` records the change as an `insight_candidates` /
+  backprop event and runs the classification lifecycle (§18) before patching
+  generated nodes; ambiguous changes require review.
+- Backprop is **correction-driven and Exhibition-independent** (v0.3.1 redesign).
+  The removed frozen-Exhibition markdown reverse-parse path is gone; corrections
+  arrive via `curator_propose_correction` / `curator_update_node`, are classified
+  (§18), and back-propagate source-grounded patches to dependent generated nodes
+  via `artifact_dependencies`, protecting source truth and human-verified `02_Wiki/`
+  promotions.
+
+### 22.3 Directory Roles (Two-Track)
+
+- `.curator/` — AI-Only Space: `state.sqlite` (source of truth) plus the derived
+  `Collections/` qmd corpus and `runtime/` snapshots. Hidden; not a user concern.
+- `02_Wiki/` — Human-Only Space: promoted Exhibitions and human knowledge only.
+- `wiki reset` may delete the entire derived `Collections/` projection because it
+  is rebuildable from the DB (and the DB from source truth).

@@ -8,13 +8,10 @@ DIR_NOTES = "03_Notes"
 DIR_RESOURCES = "04_Resources"
 DIR_ASSETS = "05_Assets"
 DIR_ARCHIVES = "06_Archives"
-DIR_QMD = "qmd"
 
 # System Files
 FILE_CURATE_YML = "curate.yml"
 FILE_CONFIG_YML = "config.yml"
-FILE_QMD_YML = "qmd.yml"
-FILE_INDEX_YML = "index.yml"
 FILE_OVERVIEW_MD = "overview.md"
 FILE_LEDGER_MD = "ledger.md"
 FILE_LOG_MD = "log.md"
@@ -22,33 +19,28 @@ FILE_INDEX_MD = "index.md"
 FILE_DASHBOARD_MD = "dashboard.md"
 FILE_DISMISSED_CONTRADICTIONS = "contradiction_dismissed.json"
 FILE_LAST_ROOT = "last_root"
-FILE_QMD_INDEX_SQLITE = "index.sqlite"
 FILE_AGENTS_MD = "AGENTS.md"
 FILE_CLAUDE_MD = "CLAUDE.md"
 FILE_ZOTERO_SQLITE = "zotero.sqlite"
 FILE_ZOTERO_PREFS = "prefs.js"
 
-# Layer directories
+# Layer directories (L4 is the shared Synthesis layer)
 LAYER_L1 = "01_Contexts"
 LAYER_L2 = "02_Atoms"
 LAYER_L3 = "03_Concepts"
-LAYER_L4 = "04_Exhibitions"
-# Shared corpus-wide synthesis layer (v0.3.1 L4 Synthesis; SCHEMA §15).
-LAYER_SYN = "04_Synthesis"
+LAYER_L4 = "04_Synthesis"
 
 # Layer Types
 TYPE_L1 = "context"
 TYPE_L2 = "atom"
 TYPE_L3 = "concept"
-TYPE_L4 = "exhibition"
-TYPE_SYN = "synthesis"
+TYPE_L4 = "synthesis"
 
 # Node prefixes
 PREFIX_L1 = "CTX"
 PREFIX_L2 = "ATM"
 PREFIX_L3 = "CON"
-PREFIX_L4 = "EXH"
-PREFIX_SYN = "SYN"
+PREFIX_L4 = "SYN"
 
 # Claim & Domain Types
 CLAIM_TYPE_FACT = "fact"
@@ -87,7 +79,7 @@ MANAGED_END = "<!-- incurator:end -->"
 PHASE_L1 = "l1_contexts"
 PHASE_L2 = "l2_atoms"
 PHASE_L3 = "l3_concepts"
-PHASE_L4 = "l4_exhibitions"
+PHASE_L4 = "l4_synthesis"
 
 # Default Configs
 DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
@@ -98,6 +90,18 @@ DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
 DEFAULT_CODEX_MODEL = "gpt-5.5"
 DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.5-flash"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
+
+# v0.3.2 DB-native search providers (retires qmd). bge-m3 is chosen for EN/KR
+# cross-lingual retrieval quality; the reranker upgrades to a premium LLM-based
+# GGUF (bge-reranker-v2-gemma) to fully use the local VRAM budget.
+DEFAULT_EMBED_PROVIDER = "ollama"
+DEFAULT_EMBED_MODEL = "bge-m3"
+DEFAULT_EMBED_DIM = 1024
+# Premium LLM-based reranker (user override): bge-reranker-v2-gemma GGUF run
+# locally via llama-cpp-python. Fully uses the local VRAM budget; degrades to
+# `no_rerank` when llama-cpp-python or the model file is absent.
+DEFAULT_RERANK_PROVIDER = "llama-cpp"
+DEFAULT_RERANK_MODEL = "bge-reranker-v2-gemma"
 
 # Default reasoning/effort levels per CLI backend. Empty = let the CLI use its
 # own default. These map to: claude `--effort`, codex `-c model_reasoning_effort`,

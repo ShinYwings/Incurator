@@ -1,7 +1,7 @@
 # 🔌 MCP 사용법 가이드: 에이전트 연결하기
 
 
-**Incurator MCP 서버**는 아티스트(인간 + 에이전트)가 큐레이터와 직접 상호작용하는 인터페이스입니다. Claude Desktop, Claude Code, Antigravity 등 워크스페이스 내의 에이전트는 이 MCP 서버를 통해 큐레이터가 준비한 전시물(Exhibition)을 탐색하고, 대화 중 발견한 오류나 새로운 인사이트를 사전 지식에 즉시 반영할 수 있습니다. 이를 통해 아티스트의 피드백이 지식 그래프로 전파되어 사전 지식이 교정되는 순환 구조가 완성됩니다.
+**Incurator MCP 서버**는 아티스트(인간 + 에이전트)가 큐레이터와 직접 상호작용하는 인터페이스입니다. Claude Desktop, Claude Code, Antigravity 등 워크스페이스 내의 에이전트는 이 MCP 서버를 통해 live DAG를 질의하고, 근거를 검사하며, 대화 중 발견한 오류나 새로운 인사이트를 지식 그래프에 반영할 수 있습니다. 이를 통해 아티스트의 피드백이 지식 그래프로 전파되어 사전 지식이 교정되는 순환 구조가 완성됩니다.
 
 [English Guide](MCP_USER_GUIDE.md)
 
@@ -53,8 +53,10 @@ wiki mcp install
 ### 3.1 검색 및 탐색
 
 #### `search_curator`
-- **역할**: QMD 엔진(BM25 + Vector + Rerank)을 사용하여 저장소 전체를 검색합니다.
-- **자동 동기화**: 대기 중인 소스가 있으면 검색 전 자동으로 `wiki curate`를 실행합니다.
+- **역할**: DB-native hybrid search로 저장소 전체를 검색합니다: FTS5 lexical
+  retrieval, chunk-level vector, typed query expansion, RRF, configured reranking.
+- **인덱싱**: 파생 markdown projection이 아니라 authoritative DB search row를
+  검색합니다. 대기 중인 소스를 그래프에 반영하려면 검색 전에 `wiki add`/`wiki build`를 실행합니다.
 - **파라미터**: `query`, `scope` (contexts/atoms/concepts/synthesis), `mode`, `limit`.
 
 #### `curator_layer_index`
@@ -66,13 +68,25 @@ wiki mcp install
 ### 3.2 DAG 분석 및 순회
 
 #### `curator_get_node`
-- **역할**: 노드 ID(예: `EXH-abc12345`)를 통해 해당 마크다운의 전체 내용을 가져옵니다.
+- **역할**: 노드 ID(예: `SYN-abc12345`)를 통해 해당 마크다운의 전체 내용을 가져옵니다.
 
 #### `curator_traverse_evidence`
-- **역할**: Exhibition 노드를 기준으로 하위 Concept 및 Atom으로 이어지는 전체 증거 체인을 조회하여 주장을 검증합니다.
+- **역할**: Synthesis 노드를 기준으로 하위 Concept/Report/Atom/source span으로 이어지는 증거 체인을 조회하여 주장을 검증합니다.
 
 #### `curator_find_contradictions`
 - **역할**: 인간의 검토가 필요하거나 모순되는 주장이 포함된 Atom 목록을 조회합니다.
+
+#### `curator_dismiss_contradiction`
+- **역할**: 사용자나 에이전트가 무효하거나 중요하지 않다고 판단한 모순을 무시(Dismiss) 처리합니다.
+- **파라미터**: `contradiction_id`, `reason`, `workspace_path` (선택).
+
+#### `curator_resolve_contradiction`
+- **역할**: 병합된 해결책이나 정정된 내용을 제공하여 모순을 해결합니다.
+- **파라미터**: `contradiction_id`, `resolution_text`, `workspace_path` (선택).
+
+#### `curator_get_provenance`
+- **역할**: 생성된 특정 지식의 전체 출처 체인(원본 소스, Atom, Concept)을 검색합니다.
+- **파라미터**: `node_id`, `workspace_path` (선택).
 
 ### 3.3 지식 관리 및 업데이트
 
@@ -110,10 +124,7 @@ wiki mcp install
 #### `curator_list_external_resources`
 - **역할**: 플랫폼별 글로벌 설정(`~/.config/curator/config.yml`)에 정의된 외부 라이브러리(예: Zotero) 목록과 현재 활성화된 절대 경로를 반환합니다.
 
-#### `curator_source_status`
-- **역할**: 파일의 처리 상태 및 외부 경로(`external_path`) fallback 로직 상태를 조회합니다. 위치가 이동되어 `MOVED` 상태인 파일들을 식별할 수 있습니다.
-- **파라미터**: `source_id`, `logical_source_id`, `source_path`, 또는 `file_path` 중 구현이 지원하는 식별자를 사용합니다.
-- **Obsidian 플러그인 표시**: 플러그인은 이 결과를 PDF chip의 상태 badge로 표시할 수 있습니다. 예: `untracked`, `queued`, `running L1`, `running L2`, `running L3`, `running L4`, `l3_ready`, `l4_ready`, `stale`, `moved`, `error`.
+
 
 #### `curator_rebind_source`
 - **역할**: 외부 참조 파일의 해시가 변동(Hash Drift)되거나 물리적 위치가 이동된 경우, 인간의 승인을 거쳐 새로운 경로와 해시로 식별자(`logical_source_id`)를 리바인딩(Healing)합니다.
@@ -126,12 +137,6 @@ wiki mcp install
 - **반환값**: page number, score, snippet, source provenance를 포함해야 합니다.
 - **참고**: 이전의 단수형 alias `curator_search_source`는 v0.2.1에서 제거되었습니다.
 
-#### `curator_get_source_page`
-
-- **역할**: backend가 파싱한 특정 source page의 text/provenance를 반환합니다. PDF 페이지 및 비-PDF 소스 모두 지원합니다.
-- **파라미터**: `source_id` 또는 `source_path`, `page`.
-- **용도**: plugin viewer context가 일시적으로 부족하거나 provider가 이미지 첨부를 무시하는 경우에도 텍스트 기반 컨텍스트를 안정적으로 보강합니다.
-- **참고**: 이전의 alias `curator_get_pdf_page`는 v0.2.1에서 제거되었습니다.
 
 #### `curator_get_pdf_context`
 
@@ -156,9 +161,8 @@ wiki mcp install
 - **역할**: 대화 중 얻은 귀중한 통찰이나 정보를 **Wiki(02_Wiki/)** 페이지로 승격하여 영구 저장합니다. 카테고리 분류와 슬러그 생성이 자동으로 수행됩니다.
 
 #### `curator_update_node`
-- **역할**: **Exhibition (EXH)** 노드의 마크다운 내용을 덮어씁니다. L4가 유일하게 마크다운 파일로 생성되는 계층이므로 L1/L2/L3 노드에 대한 직접 수정은 여기서 불가능하며, 대신 `curator_propose_correction`을 사용해야 합니다.
-- **자동 수정 (Backprop)**: **Exhibition (EXH)** 노드를 수정할 경우, 백엔드 내부에서 `wiki sync`가 트리거되어 Concept, Atom, Context까지 변경 사항을 전파합니다. insight backprop은 드물게 발생하는 정정 경로이므로 단일 호출 latency보다 그래프 정합성을 우선합니다. 백엔드는 이전 Exhibition과 수정된 Exhibition의 텍스트 차이를 비교해 새 insight와 가장 관련 있는 Concept을 먼저 고르고, 가능한 경우 실제 변경이 필요한 Concept만 하나의 structured batch LLM 호출로 조정한 뒤, 실제로 상위 노드가 바뀐 경우에만 L2/L1로 내려갑니다. 변경이 없는 Concept은 batch 응답에서 생략할 수 있어 모델 출력 latency를 줄입니다. L1 업데이트는 원본 source truth를 보존하면서 derived correction을 별도로 기록해야 합니다. 명시적인 Concept-only dry run이나 진단 경로에서만 `propagate_sources=false`를 전달하세요.
-- **No-op 보호**: 동일한 EXH 내용을 다시 제출하면 `noop=true`, `updated=false`, `propagation.llm_calls=0`을 반환하고, 백엔드는 routing table rebuild나 LLM 호출을 수행하지 않습니다.
+- **역할**: v0.3.1에서는 상태를 변경하지 않는 호환용 endpoint입니다. 생성 노드를 직접 덮어쓰는 방식은 사용하지 않습니다.
+- **대신 사용**: 검토된 정정은 `curator_propose_correction`, 지속 지식 승격은 `promote_answer` / `curator_promote_insight`를 사용합니다.
 
 #### `curator_propose_correction`
 - **역할**: L1 Context, L2 Atom, L3 Concept의 기반 데이터베이스(`state.sqlite`) 레코드에 대한 정정을 직접 제안합니다. L1-L3 계층이 더 이상 마크다운 파일로 존재하지 않으므로, 이 도구는 에이전트가 추출된 지식 그래프의 오류를 수정하는 핵심 메커니즘이 됩니다.
@@ -166,8 +170,12 @@ wiki mcp install
 - **백엔드 처리**: 백엔드는 정정 사항을 DB에 기록하고, 영향을 받는 하위 노드들의 최소 재빌드를 트리거합니다.
 
 #### `curator_reindex`
-- **역할**: QMD 검색 인덱스를 수동으로 다시 빌드합니다.
-- **Degraded result**: BM25 indexing은 성공했지만 vector embedding이 실패하면 `ok=true`, `updated=true`, `embedded=false`, `degraded=true`를 반환합니다. 이 상태에서는 lexical search는 최신이고 vector search만 stale입니다.
+- **역할**: DB-native search state(`search_documents`, `search_chunks`, FTS5 row,
+  missing/stale chunk embedding)를 수동으로 다시 빌드합니다.
+- **Degraded result**: lexical FTS5는 최신이지만 embedding, query expansion,
+  reranking 중 일부를 사용할 수 없으면 `ok=true`, `degraded=true`를 반환합니다.
+  Query trace에는 `vector_unavailable`, `query_expander_unavailable`,
+  `reranker_unavailable` 같은 경고가 기록됩니다.
 
 ### 3.4 문서 상태 및 On-demand 쿼리 (v0.2.1)
 
@@ -188,14 +196,18 @@ wiki mcp install
 
 #### `curator_query`
 
-- **역할**: 자연어 질문에 대해 동적 Curation 렌즈(DB 그래프 + 공유 L4 Synthesis 레이어를 포함한 qmd 코퍼스)로 답변을 합성하여 반환합니다. **세션리스**: 답변 + 트레이스를 반환하며 어떤 vault 파일도 쓰지 않습니다(v0.2.x의 Exhibition 캐시는 v0.3.1에서 제거됨). L3가 아직 없는 소스에는 `search_curator`(raw 검색)로 fallback합니다.
+- **역할**: 자연어 질문에 대해 동적 Curation 렌즈(DB 그래프 + source span,
+  atom, report, 공유 L4 Synthesis 레이어에 대한 DB-native hybrid search)로 답변을
+  합성하여 반환합니다. **세션리스**: 답변 + 트레이스를 반환하며 어떤 vault 파일도 쓰지 않습니다.
 - **파라미터**:
   - `question` (자연어 질문, 필수)
   - `workspace_path` (워크스페이스 절대 경로, 없으면 `WORKSPACE_PATH` 환경변수 또는 `"default"`)
 - **반환값**: `ok`, `answer` (마크다운 답변), `question`, `trace`.
   - `trace`: `matched_concepts` (CON-ID 목록), `source_paths`, `synthesis_node_ids`, `community_report_ids`, `trace_id`(`QTR-`), `route`, `latency_ms`, `l3_complete`.
 - **컨텍스트 상한**: 합성 단계는 scope가 제한된 L3/L4 context를 사용하고, oversized source body는 LLM 호출 전에 잘라냅니다. 큰 L1 source recap이나 raw PDF text는 `curator_query`에 통째로 넣지 않고 source/PDF tool로 명시적으로 가져와야 합니다.
-- **구현 상태**: v0.3.1. L3 미완성 소스의 경우 `ok=true`, `fallback="l3_incomplete"`, `answer=""`, `trace.l3_complete=false`를 반환합니다. 합성 없는 증거 팩이 필요하면 `curator_fetch_context`를 사용하세요.
+- **구현 상태**: v0.3.2. L3 미완성 소스의 경우 degraded trace를 남기고 가능한
+  DB-native lexical/vector retrieval을 사용합니다. 합성 없는 증거 팩이 필요하면
+  `curator_fetch_context`를 사용하세요.
 
 #### `promote_answer`
 
@@ -259,7 +271,7 @@ wiki mcp install
 
 - **역할**: 워크스페이스의 `curate.yml` 내 Artist `persona:` 블록을 자연어 요청으로 업데이트합니다.
 - **파라미터**: `workspace_path` (워크스페이스 절대 경로), `request` (자연어 요청 문자열).
-- **예시 요청**: `"이 워크스페이스는 컴퓨터 비전 연구자를 위한 공간입니다. 신뢰도 임계값을 0.85로 설정하고 exhibition_intent를 researcher로 지정해주세요."`
+- **예시 요청**: `"이 워크스페이스는 컴퓨터 비전 연구자를 위한 공간입니다. 신뢰도 임계값을 0.85로 설정하고 출력 스타일을 연구 가설 중심으로 맞춰주세요."`
 
 #### `curator_update_curator_persona`
 
@@ -267,9 +279,9 @@ wiki mcp install
 - **파라미터**: `request` (자연어 요청 문자열).
 - **예시 요청**: `"나는 STEM 분야의 연구자로, 주로 머신러닝과 시스템 설계를 다룹니다. 지식의 엄밀성을 중시하며 고신뢰도(0.85 이상) 정보만 활용합니다."`
 
-### 3.6 큐레이션-네이티브 도구 (v0.3.1)
+### 3.6 큐레이션-네이티브 도구 (v0.3.2)
 
-v0.3.1 큐레이션-네이티브 컴파일러를 노출하는 도구들입니다: `curate.yml` 정책 컴파일,
+v0.3.2 큐레이션-네이티브 컴파일러를 노출하는 도구들입니다: `curate.yml` 정책 컴파일,
 쿼리 오케스트레이터의 explore 라우트, 프롬프트 실행 트레이스, 파생-인사이트
 라이프사이클. CLI·플러그인과 동일한 공유 서비스를 사용하며, 읽기 전용 원본
 (`03_Notes/`, `04_Resources/`, `06_Archives/`)은 절대 수정하지 않습니다.
@@ -288,13 +300,13 @@ v0.3.1 큐레이션-네이티브 컴파일러를 노출하는 도구들입니다
 
 #### `curator_fetch_context`
 
-- **역할**: **큐레이션된 증거 팩**을 반환합니다 — 에이전트 자신의 추론 LLM이 근거로 삼아야 할, 워크스페이스 KRS로 편향된 증거 선택을 **합성된 답변 없이** 제공합니다. 이는 고정된 Exhibition이 아니라 *라이브 DAG 위의 동적 렌즈*로서의 큐레이션이며, 자체 합성을 수행하는 추론 에이전트(예: Obsidian 에이전트)의 1차 surface입니다. 광범위한 질문의 경우 팩은 공유 **L4 Synthesis** 노드를 앞세웁니다.
+- **역할**: **큐레이션된 증거 팩**을 반환합니다 — 에이전트 자신의 추론 LLM이 근거로 삼아야 할, 워크스페이스 KRS로 편향된 증거 선택을 **합성된 답변 없이** 제공합니다. 이는 고정 파일이 아니라 *라이브 DAG 위의 동적 렌즈*로서의 큐레이션이며, 자체 합성을 수행하는 추론 에이전트(예: Obsidian 에이전트)의 1차 surface입니다. 광범위한 질문의 경우 팩은 공유 **L4 Synthesis** 노드를 앞세웁니다.
 - **파라미터**: `query`, `workspace_path`(선택).
-- **반환**: `route`, `trace_id`(`QTR-…`), `workspace_id`, `evidence`(각 항목은 `kind` — `synthesis` | `community_report` | `entity` | `source_span` | `memory_path` | `qmd_hit` — 와 `id`/`title`/`text`/`score` 및 출처 id 포함), `source_span_ids`, `community_report_ids`, `synthesis_node_ids`, `memory_path_ids`, `warnings`. 의도적으로 `answer` 필드는 **없습니다**.
+- **반환**: `route`, `trace_id`(`QTR-…`), `workspace_id`, `evidence`(각 항목은 `kind` — `synthesis` | `community_report` | `entity` | `source_span` | `memory_path` | `search_hit` — 와 `id`/`title`/`text`/`score` 및 출처 id 포함), `source_span_ids`, `community_report_ids`, `synthesis_node_ids`, `memory_path_ids`, `warnings`. 의도적으로 `answer` 필드는 **없습니다**.
 
 #### `curator_explore`
 
-- **역할**: 쿼리 오케스트레이터의 **explore** 라우트 실행. 비자명한 연결을 발견하고 HippoRAG식 메모리 경로를 기록하며 잠정 인사이트 후보를 생성합니다. 공유 L4 synthesis 노드 + 커뮤니티 리포트로 primer를 구성하고, DB 그래프와 파생 `.curator/Collections` 코퍼스에 대한 qmd 검색을 결합합니다.
+- **역할**: 쿼리 오케스트레이터의 **explore** 라우트 실행. 비자명한 연결을 발견하고 HippoRAG식 메모리 경로를 기록하며 잠정 인사이트 후보를 생성합니다. 공유 L4 synthesis 노드 + 커뮤니티 리포트로 primer를 구성하고, DB 그래프와 authoritative record에 대한 DB-native hybrid search를 결합합니다.
 - **파라미터**: `query`, `workspace_path`(선택).
 - **반환**: `answer`, `route`, `trace_id`(`QTR-…`), `synthesis_node_ids`, `memory_path_ids`, `insight_candidate_ids`, `prompt_trace_ids`, `warnings`.
 
@@ -318,3 +330,31 @@ v0.3.1 큐레이션-네이티브 컴파일러를 노출하는 도구들입니다
 - **역할**: 생성된 노드에 정정을 제안합니다. 변경은 **패치 전에 먼저 분류**됩니다(correction / contradiction / derived_insight / style_only / promotion_request / ambiguous). 원본 진실은 절대 재작성되지 않으며, 파생 인사이트는 잠정 후보가 되고 정정은 생성된 노드만 대상으로 합니다.
 - **파라미터**: `node_id`, `correction`, `workspace_path`(선택), `previous`(선택, 이전 산출물 텍스트).
 - **반환**: `classification`, `recommended_action`, `patch_node_ids`, `requires_human_review`, `insight_candidate_id`, `trace_id`, `reason`.
+
+### 3.7 Zotero 연동 (Zotero Integration)
+
+#### `curator_search_zotero_items`
+- **역할**: 제목이나 저자로 Zotero 항목을 검색합니다.
+- **파라미터**: `query`, `workspace_path` (선택), `custom_paths` (선택), `limit`.
+
+#### `curator_get_zotero_item_metadata`
+- **역할**: 특정 Zotero 항목의 상세 메타데이터를 가져옵니다.
+- **파라미터**: `item_key`, `workspace_path` (선택), `custom_paths` (선택).
+
+#### `curator_get_zotero_annotations`
+- **역할**: Zotero PDF 첨부 파일에서 주석과 하이라이트를 추출합니다.
+- **파라미터**: `item_key`, `workspace_path` (선택), `custom_paths` (선택).
+
+#### `curator_resolve_zotero_pdf`
+- **역할**: Zotero 항목에 대한 물리적 PDF 파일 경로를 찾습니다.
+- **파라미터**: `item_key`, `workspace_path` (선택), `custom_paths` (선택).
+
+### 3.8 환경 설정 관리 (Configuration Management)
+
+#### `curator_get_provider_config`
+- **역할**: 현재 구성된 LLM 공급자 설정을 가져옵니다.
+- **파라미터**: `workspace_path` (선택).
+
+#### `curator_set_provider_config`
+- **역할**: LLM 공급자 설정을 동적으로 업데이트합니다.
+- **파라미터**: `provider` (예: 'claude', 'antigravity'), `model`, `api_key` (선택), `workspace_path` (선택).

@@ -31,7 +31,7 @@ This document is the identity of your scenario. It must describe:
 ### Step 3: Seed the Stage (`stage/`)
 Place the minimum set of files required to reproduce the behavior in `stage/`.
 - Use **anonymized** data. Never commit private notes.
-- Ensure at least one workspace exists in `01_Workspaces/` if you are testing `wiki curate`.
+- Ensure at least one workspace exists in `01_Workspaces/` if you are testing workspace-scoped queries.
 
 ### Step 4: Write Automation Dialogues (`dialogues/`)
 Dialogues automate the verification. 

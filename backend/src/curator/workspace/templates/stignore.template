@@ -30,7 +30,6 @@ node_modules/
 // Incurator backend: 기기별 인덱스 상태
 // 다른 기기 위에 덮어쓰면 재인덱싱 필요; vault 파일은 Syncthing이 동기화
 .curator/state.sqlite
-.curator/qmd/index.sqlite
 
 // Incurator runtime: 백엔드 실시간 작업 상태 파일 (휘발성)
 // 짧은 주기로 업데이트되므로 동기화 시 심각한 충돌과 트래픽 유발

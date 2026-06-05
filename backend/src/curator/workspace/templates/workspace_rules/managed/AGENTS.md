@@ -18,14 +18,11 @@
   Repeat this loop until initialization is complete.
   After init: follow the `recommended_next_steps` returned by the tool.
 
-- If response has `exhibition_exists: false`:
-  Call `curator_curate_workspace(workspace_path="{{workspace_path}}")` then `curator_reindex()`.
+- If response reports incomplete graph processing:
+  Ask the user whether to run `wiki build --wait` or continue with available evidence.
 
-**Every domain query** — call `search_curator(query="<your query>", workspace_path="{{workspace_path}}")` BEFORE
+**Every domain query** — call `curator_query(question="<your query>", workspace_path="{{workspace_path}}")` BEFORE
 searching local files, the web, or training knowledge.
-
-- If response has `needs_curation: true`:
-  Call `curator_curate_workspace` → `curator_reindex` → retry search.
 
 - Use Curator results as the primary evidence source.
   Fall back to local files only if Curator returns nothing, and state clearly when falling back.

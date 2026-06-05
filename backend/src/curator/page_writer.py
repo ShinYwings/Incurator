@@ -314,7 +314,7 @@ def rebuild_index(paths: cfg.WikiPaths, today: str) -> None:
     contexts    = _list_pages_in(paths.contexts)
     atoms       = _list_pages_in(paths.atoms)
     concepts    = _list_pages_in(paths.concepts)
-    exhibitions = _list_pages_in(paths.exhibitions)
+    synthesis = _list_pages_in(paths.synthesis)
 
     lines = [INDEX_HEADER.format(today=today)]
 
@@ -331,12 +331,12 @@ def rebuild_index(paths: cfg.WikiPaths, today: str) -> None:
     _section("L1 — Contexts (Collection & Summarization)",    consts.LAYER_L1,    contexts)
     _section("L2 — Atoms (Selection & Atomization)",          consts.LAYER_L2,       atoms)
     _section("L3 — Concepts (Structuring & Value Addition)",  consts.LAYER_L3,    concepts)
-    _section("L4 — Exhibitions (Placement & Staging)",        consts.LAYER_L4, exhibitions)
+    _section("L4 — Synthesis (Shared Corpus Insights)",       consts.LAYER_L4, synthesis)
 
     lines.append("---\n")
     lines.append(
         f"**Stats:** {len(contexts)} contexts · {len(atoms)} atoms · "
-        f"{len(concepts)} concepts · {len(exhibitions)} exhibitions\n"
+        f"{len(concepts)} concepts · {len(synthesis)} synthesis\n"
     )
 
     paths.index.parent.mkdir(parents=True, exist_ok=True)

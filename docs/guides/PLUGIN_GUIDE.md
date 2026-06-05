@@ -44,7 +44,7 @@ In Obsidian, go to **Settings → Community Plugins → Installed Plugins** and 
 - **Streaming responses**: Enabled by default; can be turned off in settings.
 - **Context references**: Attach text, PDF pages, or image snippets to your messages.
 - **Plan mode**: With `chatMode: plan`, the AI presents a step-by-step plan before acting.
-- **Incurator integration**: When connected to a Curator backend, Exhibition search results are injected as context.
+- **Incurator integration**: When connected to a Curator backend, traceable DAG evidence is injected as context.
 
 ---
 
@@ -320,10 +320,10 @@ IncuratorClient calls hidden backend JSON commands
 (`wiki plugin source ...`, `wiki plugin pdf ...`, `wiki plugin query`)
       │
       ▼
-Exhibition search results injected as system context
+Traceable DAG evidence injected as system context
       │
       ▼
-LLM generates answer grounded in Exhibition content
+LLM generates answer grounded in retrieved evidence
 ```
 
 ### Incurator settings
@@ -338,9 +338,8 @@ LLM generates answer grounded in Exhibition content
 
 Source badges are layer-aware. `L1 ready` means instant section context is
 available, `L2 ready` means Atoms exist, `Indexed` means L3 Concepts are ready
-for concept-grounded answers, and `Curated` is reserved for sources that have
-reached an L4 Exhibition. Any layer error is shown as an error instead of a
-healthy badge.
+for concept-grounded answers, and `Synthesized` means shared L4 Synthesis is
+available. Any layer error is shown as an error instead of a healthy badge.
 
 ### 1-Click Auto-Update
 
@@ -367,10 +366,10 @@ Source registered in Curator backend
       │
       │ L1 → L2 → L3 processing (background)
       ▼
-Workspace curation may generate/update L4 when an agent needs it
+Shared L4 Synthesis is available after build
       │
       ▼
-Searchable via search_curator
+Searchable via query/search tools
 ```
 
 The purple PDF chip is the refinement control. Clicking **Add source** does not
@@ -381,8 +380,8 @@ queued build work, or leave the queue for a backend worker to process.
 For ordinary workspace/domain questions with no primary selected text, line
 range, PDF page, or crop image attached to the latest user turn, sidechat calls
 `wiki plugin query` directly. If the backend has L3 grounding, the response
-includes a query-generated Exhibition ID and compact trace so the Sources &
-Trace panel can link the generated L4. If the latest turn is focused on a
+includes a compact trace so the Sources & Trace panel can link the supporting
+evidence. If the latest turn is focused on a
 selected crop or editable Markdown region, sidechat skips `wiki plugin query`
 and answers from that selected context instead.
 
@@ -563,12 +562,11 @@ plugin uses a structured language bridge for every latest request: detect input
 language, use English for internal search/reasoning/tool arguments, then answer
 in the detected latest input language unless that latest request asks for
 another output language. Previous turns, Korean Markdown context, and saved
-Exhibition metadata do not set a persistent answer language; English latest
+saved metadata does not set a persistent answer language; English latest
 questions receive English final answers unless the latest request asks
-otherwise. When `curator_query` generates an ephemeral Exhibition, the chat
-transcript keeps compact parseable Exhibition and trace fields so the Sources &
-Trace panel can show the generated L4, but stale `final_output_language` is not
-reused as sidechat language state.
+otherwise. When `curator_query` runs, the chat transcript keeps compact parseable
+trace fields so the Sources & Trace panel can show the supporting evidence, but
+stale `final_output_language` is not reused as sidechat language state.
 
 Input-language detection is deterministic and runs fresh on every chat turn.
 The plugin classifies the latest request by Unicode script — for example Korean
@@ -581,12 +579,10 @@ decided independently per message regardless of what language earlier turns used
 The detected language is the answer language directly; the model does not first
 produce English and then translate in a separate pass. The three language fields
 (`input_language`, `english_query`, `final_output_language`) live only in the
-query JSON/trace and are never written into the saved Exhibition file, and the
-answer cache is keyed by output language so a cached Korean answer is never
-reused for an English question. A plain chat whose active note is not inside a
-workspace folder is treated as outside a workspace: any ephemeral Exhibition it
-generates is scoped to `default`, never to an unrelated project workspace you did
-not open.
+query JSON/trace and are never written into generated node frontmatter. A plain
+chat whose active note is not inside a workspace folder is treated as outside a
+workspace and resolves to `default`, never to an unrelated project workspace you
+did not open.
 
 ### Zotero link flow
 
@@ -630,9 +626,9 @@ Right-click an item in Zotero → **Copy Item Link**, or use the [Zotero Integra
 
 ---
 
-## 12. v0.3.1 Curation-Native Interfaces
+## 12. v0.3.2 Curation-Native Interfaces
 
-The plugin talks to the backend's v0.3.1 curation-native features through hidden
+The plugin talks to the backend's v0.3.2 curation-native features through hidden
 local JSON commands (never via MCP for same-device flows). The client
 (`IncuratorClient`) exposes:
 
@@ -641,10 +637,15 @@ local JSON commands (never via MCP for same-device flows). The client
 | `getCuratePlan(workspacePath)` | `wiki plugin curate plan` | `IncuratorCuratePlan` (route, selected/excluded sources, allowed modes, validation errors) |
 | `getPromptTrace(traceId)` | `wiki plugin prompt trace` | `IncuratorPromptTrace` (prompt id/version, validator status, model) |
 | `listInsightCandidates(workspacePath)` | `wiki plugin insight list` | `IncuratorInsightCandidate[]` |
+| `getInsightCandidate(insightId, workspacePath)` | `wiki plugin insight show` | `IncuratorInsightCandidate` with evidence/source event details |
 | `promoteInsight(insightId, workspacePath)` | `wiki plugin insight promote` | `{ promotedTo }` (writes only `02_Wiki/`) |
+| `rejectInsight(insightId, workspacePath, reason)` | `wiki plugin insight reject` | `{ ok, status }` |
+| `listQueryTraces(workspacePath, limit)` | `wiki plugin trace list` | Recent `QTR-` trace summaries |
+| `getQueryTrace(traceId, workspacePath)` | `wiki plugin trace show` | Query route, evidence ids, retrieval trace, warnings |
+| `proposeCorrection(nodeId, correction, previous, workspacePath)` | `wiki plugin correction propose` | Classification/recommended action/review flag |
 
 Query results (`CuratorQueryResult`) and the Sources & Trace panel carry the
-v0.3.1 fields additively: `route`, `trace_id` (`QTR-`), `prompt_trace_ids`
+v0.3.2 fields additively: `route`, `trace_id` (`QTR-`), `prompt_trace_ids`
 (`PTR-`), `source_span_ids` (`SPAN-`), `community_report_ids` (`REP-`),
 `memory_path_ids` (`MPATH-`), and `insight_candidate_ids` (`INS-`). Older/partial
 backend responses simply omit them, so the panel degrades gracefully.
@@ -654,7 +655,12 @@ Rules:
   before calling `promoteInsight`, which writes only to `02_Wiki/`.
 - These local commands return JSON and must not be routed through Incurator MCP
   tools (MCP is for external agents). See
-  [Plugin Schema spec](../specs/plugin_schema/PLUGIN_SCHEMA_v0.3.1.md) §9–11.
+  [Plugin Schema spec](../specs/plugin_schema/PLUGIN_SCHEMA_v0.3.2.md) §9–12.
+- Dashboard Trace and Insights tabs are click-to-use surfaces over these commands.
+  They may list/show traces and insight candidates, promote/reject candidates, and
+  propose corrections, but they must never write `.curator/state.sqlite`,
+  `.curator/Collections/`, `03_Notes/`, `04_Resources/`, or `06_Archives`
+  directly.
 
 ---
 

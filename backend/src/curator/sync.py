@@ -27,10 +27,9 @@ import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, List, Dict, Set
+from typing import Optional
 
 from . import config as cfg
-from . import constants as consts
 from . import db
 from . import page_writer
 from . import prompts
@@ -126,7 +125,7 @@ def _find_changed_nodes(paths: cfg.WikiPaths) -> list[str]:
         (paths.contexts, f"{consts.PREFIX_L1}-"),
         (paths.atoms, f"{consts.PREFIX_L2}-"),
         (paths.concepts, f"{consts.PREFIX_L3}-"),
-        (paths.exhibitions, f"{consts.PREFIX_L4}-"),
+        (paths.synthesis, f"{consts.PREFIX_L4}-"),
     ):
         if not layer_dir.exists():
             continue
@@ -164,7 +163,7 @@ def scan_for_changes(paths: cfg.WikiPaths) -> ChangeReport:
     db_hashes = db.get_page_hashes(paths.state_db)
     seen_in_fs: set[str] = set()
 
-    for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.exhibitions):
+    for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.synthesis):
         if not layer_dir.exists():
             continue
         
@@ -193,7 +192,7 @@ def scan_for_changes(paths: cfg.WikiPaths) -> ChangeReport:
 
 def update_all_page_hashes(paths: cfg.WikiPaths):
     """Save current filesystem hashes to DB."""
-    for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.exhibitions):
+    for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.synthesis):
         if not layer_dir.exists():
             continue
         layer_name = layer_dir.name
@@ -293,9 +292,9 @@ def _concept_atom_ids(paths: cfg.WikiPaths, con_id: str) -> list[str]:
 
 
 def run_mode_a(paths: cfg.WikiPaths, callbacks: Optional[SyncCallbacks] = None) -> list[VerificationGap]:
-    """Walk all EXH pages downward through CON → ATM → CTX, flag broken refs."""
+    """Walk all SYN pages downward through CON -> ATM -> CTX, flag broken refs."""
     gaps: list[VerificationGap] = []
-    exh_dir = paths.exhibitions
+    exh_dir = paths.synthesis
     if not exh_dir.exists():
         return gaps
 
@@ -305,13 +304,10 @@ def run_mode_a(paths: cfg.WikiPaths, callbacks: Optional[SyncCallbacks] = None) 
             callbacks.on_node_check(exh_id)
         fm = _read_fm(paths, exh_id)
         if fm is None:
-            gaps.append(VerificationGap(consts.TYPE_L4, exh_id, "Exhibition file unreadable."))
+            gaps.append(VerificationGap(consts.TYPE_L4, exh_id, "Synthesis file unreadable."))
             continue
 
-        con_ids = _fm_links(fm, "core_concepts")
-        if not con_ids:
-            gaps.append(VerificationGap(consts.TYPE_L4, exh_id, "core_concepts is empty or missing."))
-
+        con_ids = _fm_links(fm, "concept_ids")
         for con_id in con_ids:
             con_page = _read_node_page(paths, con_id)
             if con_page is None:
@@ -390,13 +386,13 @@ def _trace_upstream(paths: cfg.WikiPaths, node_id: str, callbacks: Optional[Sync
                 gaps.extend(_trace_upstream(paths, atm_id, callbacks=callbacks))
 
     elif layer == consts.TYPE_L4:
-        for con_id in _fm_links(fm, "core_concepts"):
+        for con_id in _fm_links(fm, "concept_ids"):
             if not con_id.startswith(f"{consts.PREFIX_L3}-"):
                 continue
             if _read_fm(paths, con_id) is None:
                 gaps.append(VerificationGap(
                     consts.TYPE_L3, con_id,
-                    f"core_concepts entry in {node_id} does not exist."
+                    f"concept_ids entry in {node_id} does not exist."
                 ))
             else:
                 gaps.extend(_trace_upstream(paths, con_id, callbacks=callbacks))
@@ -420,11 +416,11 @@ def _trace_downstream(paths: cfg.WikiPaths, node_id: str, callbacks: Optional[Sy
     elif layer == consts.TYPE_L2:
         search_dirs = [(consts.LAYER_L3, f"{consts.PREFIX_L3}-", "relations")]
     elif layer == consts.TYPE_L3:
-        search_dirs = [(consts.LAYER_L4, f"{consts.PREFIX_L4}-", "core_concepts")]
+        search_dirs = [(consts.LAYER_L4, f"{consts.PREFIX_L4}-", "concept_ids")]
     else:
-        return gaps  # exhibitions have no downstream within the DAG
+        return gaps  # synthesis nodes have no downstream within the DAG
 
-    for subdir, prefix, field in search_dirs:
+    for subdir, prefix, fm_field in search_dirs:
         d = paths.collections / subdir
         if not d.exists():
             continue
@@ -433,10 +429,10 @@ def _trace_downstream(paths: cfg.WikiPaths, node_id: str, callbacks: Optional[Sy
             child_fm = _read_fm(paths, child_id)
             if child_fm is None:
                 continue
-            if field == "relations":
+            if fm_field == "relations":
                 refs = _concept_atom_ids(paths, child_id)
             else:
-                refs = _fm_links(child_fm, field)
+                refs = _fm_links(child_fm, fm_field)
             if node_id in refs:
                 gaps.extend(_trace_downstream(paths, child_id, callbacks=callbacks))
 
@@ -455,13 +451,13 @@ def downstream_concepts_for_atom(paths: cfg.WikiPaths, atom_id: str) -> list[str
 
 
 def downstream_exhibitions_for_concept(paths: cfg.WikiPaths, concept_id: str) -> list[str]:
-    """Return EXH IDs whose core_concepts include concept_id."""
-    if not paths.exhibitions.exists():
+    """Return SYN IDs whose concept_ids include concept_id."""
+    if not paths.synthesis.exists():
         return []
     found: list[str] = []
-    for md_path in sorted(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md")):
+    for md_path in sorted(paths.synthesis.glob(f"{consts.PREFIX_L4}-*.md")):
         fm = _read_fm(paths, md_path.stem)
-        if fm and concept_id in _fm_links(fm, "core_concepts"):
+        if fm and concept_id in _fm_links(fm, "concept_ids"):
             found.append(md_path.stem)
     return found
 
@@ -487,28 +483,28 @@ def _node_id_from_ref(ref: str) -> str:
 
 
 def _logical_scope_for_nodes(paths: cfg.WikiPaths, node_refs: list[str] | None) -> tuple[set[str], set[str]]:
-    """Return Concept/Exhibition IDs affected by the given changed nodes.
+    """Return Concept/Synthesis IDs affected by the given changed nodes.
 
     The scope is endpoint-aware:
-    - dirty EXH: verify only that EXH
-    - dirty CON: verify the CON and downstream EXHs, if any
-    - dirty ATM: verify downstream CONs and their downstream EXHs
-    - dirty CTX: verify downstream ATMs → CONs → EXHs
+    - dirty SYN: verify only that SYN
+    - dirty CON: verify the CON and downstream SYN nodes, if any
+    - dirty ATM: verify downstream CONs and their downstream SYN nodes
+    - dirty CTX: verify downstream ATMs -> CONs -> SYNs
 
     Empty/None means global Mode C verification.
     """
     concept_ids: set[str] = set()
-    exhibition_ids: set[str] = set()
+    synthesis_ids: set[str] = set()
     if not node_refs:
-        return concept_ids, exhibition_ids
+        return concept_ids, synthesis_ids
 
     def add_concept(con_id: str) -> None:
         if not con_id.startswith(f"{consts.PREFIX_L3}-"):
             return
         if (paths.concepts / f"{con_id}.md").exists():
             concept_ids.add(con_id)
-        for exh_id in downstream_exhibitions_for_concept(paths, con_id):
-            exhibition_ids.add(exh_id)
+        for syn_id in downstream_exhibitions_for_concept(paths, con_id):
+            synthesis_ids.add(syn_id)
 
     def add_atom(atom_id: str) -> None:
         if not atom_id.startswith(f"{consts.PREFIX_L2}-"):
@@ -520,8 +516,8 @@ def _logical_scope_for_nodes(paths: cfg.WikiPaths, node_refs: list[str] | None) 
         node_id = _node_id_from_ref(ref)
         layer = _layer_for_id(node_id)
         if layer == consts.TYPE_L4:
-            if (paths.exhibitions / f"{node_id}.md").exists():
-                exhibition_ids.add(node_id)
+            if (paths.synthesis / f"{node_id}.md").exists():
+                synthesis_ids.add(node_id)
         elif layer == consts.TYPE_L3:
             add_concept(node_id)
         elif layer == consts.TYPE_L2:
@@ -530,7 +526,7 @@ def _logical_scope_for_nodes(paths: cfg.WikiPaths, node_refs: list[str] | None) 
             for atom_id in downstream_atoms_for_context(paths, node_id):
                 add_atom(atom_id)
 
-    return concept_ids, exhibition_ids
+    return concept_ids, synthesis_ids
 
 
 def _body_atom_ids(page: page_writer.ParsedPage) -> list[str]:
@@ -591,8 +587,8 @@ def repair_structural_gaps(paths: cfg.WikiPaths, gaps: list[VerificationGap], ca
             if callbacks:
                 callbacks.on_node_repair(gap.node_id, message="Restored missing ## Relations section")
 
-        elif gap.layer == consts.TYPE_L4 and "core_concepts is empty" in gap.message:
-            exh_path = paths.exhibitions / f"{gap.node_id}.md"
+        elif gap.layer == consts.TYPE_L4 and "concept_ids is empty" in gap.message:
+            exh_path = paths.synthesis / f"{gap.node_id}.md"
             page = page_writer.read_page(exh_path)
             if page is None:
                 continue
@@ -614,7 +610,7 @@ def repair_structural_gaps(paths: cfg.WikiPaths, gaps: list[VerificationGap], ca
             ]
             if not concept_paths:
                 continue
-            page.frontmatter["core_concepts"] = concept_paths
+            page.frontmatter["concept_ids"] = concept_paths
             exh_path.write_text(page.to_markdown(), encoding="utf-8")
             modified += 1
 
@@ -624,7 +620,7 @@ def repair_structural_gaps(paths: cfg.WikiPaths, gaps: list[VerificationGap], ca
 def repair_nested_frontmatter(paths: cfg.WikiPaths, callbacks: Optional[SyncCallbacks] = None) -> int:
     """Remove duplicate YAML frontmatter blocks accidentally embedded in bodies."""
     modified = 0
-    for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.exhibitions):
+    for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.synthesis):
         if not layer_dir.exists():
             continue
         for md_path in sorted(layer_dir.glob("*.md")):
@@ -671,7 +667,6 @@ _THEME_BODY_CHARS = 6000
 _FRAGMENT_BODY_CHARS = 2400
 _THEME_CONTENT_CHARS = 4000
 _CONCEPT_BATCH_SIZE = 3
-_EXHIBITION_BATCH_SIZE = 2
 
 
 def _body_for_logic_check(body: str, max_chars: int, *, relation_prefix: str = "") -> str:
@@ -753,7 +748,7 @@ def run_mode_c(
     """LLM logical deduction verification — the core purpose of wiki sync.
 
     Phase 1: each CON — can it be logically derived from its Atom Relations?
-    Phase 2: each EXH - can it be logically derived from its CON core_concepts?
+    Phase 2: each SYN - can it be logically derived from its CON evidence?
 
     Gaps are returned with `reasoning` populated from the LLM response.
     """
@@ -765,7 +760,7 @@ def run_mode_c(
 
     gaps: list[VerificationGap] = []
     blocked_node_ids = blocked_node_ids or set()
-    target_concept_ids, target_exhibition_ids = _logical_scope_for_nodes(paths, target_node_ids)
+    target_concept_ids, target_synthesis_ids = _logical_scope_for_nodes(paths, target_node_ids)
     targeted = bool(target_node_ids)
 
     # Phase 1 — CON ← ATMs
@@ -857,17 +852,17 @@ def run_mode_c(
                     if gap:
                         gaps.append(gap)
 
-    # Phase 2 — EXH ← CONs (if L4 exists)
+    # Phase 2 — SYN <- CONs (if L4 exists)
     # Phase 1 con_results are passed as context so the LLM can factor in CON validity.
-    if paths.exhibitions.exists():
+    if paths.synthesis.exists():
         if targeted:
             exhibition_files = [
-                paths.exhibitions / f"{exh_id}.md"
-                for exh_id in sorted(target_exhibition_ids)
-                if (paths.exhibitions / f"{exh_id}.md").exists()
+                paths.synthesis / f"{exh_id}.md"
+                for exh_id in sorted(target_synthesis_ids)
+                if (paths.synthesis / f"{exh_id}.md").exists()
             ]
         else:
-            exhibition_files = sorted(paths.exhibitions.glob("EXH-*.md"))[:max_curations]
+            exhibition_files = sorted(paths.synthesis.glob(f"{consts.PREFIX_L4}-*.md"))[:max_curations]
         if not exhibition_files:
             return gaps
         for exh_md in exhibition_files:
@@ -878,7 +873,7 @@ def run_mode_c(
             fm = _read_fm(paths, exh_md.stem)
             if fm is None:
                 continue
-            con_ids = _fm_links(fm, "core_concepts")
+            con_ids = _fm_links(fm, "concept_ids")
             if not con_ids:
                 continue
             if any(cid in blocked_node_ids for cid in con_ids):
@@ -899,7 +894,7 @@ def run_mode_c(
             if not exh_page:
                 continue
 
-            # Pass only Phase 1 results relevant to this EXH's core_concepts
+            # Pass only Phase 1 results relevant to this SYN's concept_ids
             relevant_con_results = [r for r in con_results if r.get("id") in con_ids]
             messages = prompts.build_curation_logic_verify_messages(
                 curation_content=_body_for_logic_check(
@@ -921,7 +916,7 @@ def run_mode_c(
                 gaps.append(VerificationGap(
                     layer=consts.TYPE_L4,
                     node_id=exh_md.stem,
-                    message="Exhibition logic not fully derivable from its Concepts.",
+                    message="Synthesis logic not fully derivable from its Concepts.",
                     reasoning=result.get("reasoning", response.strip()[:600]),
                 ))
 
@@ -933,37 +928,17 @@ def run_mode_c(
 # ---------------------------------------------------------------------------
 
 
-def _regenerate_concept(paths: cfg.WikiPaths, client, con_id: str) -> bool:
-    """[DEPRECATED] Concept is updated from Exhibition via propagate_upstream_from_exhibition.
-    Bottom-up regeneration from Atoms is disabled to respect EXH as Source of Truth.
-    """
-    return False
-
-
-def _regenerate_exhibition(paths: cfg.WikiPaths, client, exh_id: str) -> bool:
-    """[DEPRECATED] Exhibition is the Source of Truth. 
-    Manual or Insight-driven updates are the only allowed paths for changing L4.
-    """
-    return False
-
-
-def _rebuild_downstream_from_fixed_node(paths: cfg.WikiPaths, client, layer: str, node_id: str) -> int:
-    """[DEPRECATED] Forward-rebuild is disabled. 
-    Changes now flow Top-Down from Exhibition to lower layers.
-    """
-    return 0
-    return 0
-
-
 def fix_gaps(
     paths: cfg.WikiPaths,
     client,
     gaps: list[VerificationGap],
 ) -> SyncRepairResult:
-    """Attempt to fix detected gaps and rebuild affected downstream endpoints.
+    """Collect detected gaps for human/agent review.
 
-    Mode C logical gaps (gap.reasoning set) → regenerate the affected page via LLM.
-    Mode A/B structural gaps → leave for structural safe repair / review.
+    v0.3.1: L3 Concepts and the L4 Synthesis layer are DB-derived projections
+    regenerated by the compile pipeline (`pipeline/synthesis.py`) and corrected via
+    the insight/backprop lifecycle — not by in-place LLM rewrites during sync. So
+    sync surfaces logical gaps for review rather than auto-regenerating pages.
     """
     result = SyncRepairResult()
     seen: set[tuple[str, str]] = set()
@@ -973,26 +948,8 @@ def fix_gaps(
         if key in seen:
             continue
         seen.add(key)
-
-        if gap.reasoning:  # Mode C — logical deduction gap
-            if gap.layer == consts.TYPE_L3:
-                ok = _regenerate_concept(paths, client, gap.node_id)
-            elif gap.layer == consts.TYPE_L4:
-                ok = _regenerate_exhibition(paths, client, gap.node_id)
-            else:
-                ok = False
-            if ok:
-                result.fixed += 1
-                result.fixed_nodes.append(gap.node_id)
-                result.rebuilt_downstream += _rebuild_downstream_from_fixed_node(
-                    paths, client, gap.layer, gap.node_id
-                )
-            else:
-                result.unfixable += 1
-                result.needs_review.append(gap)
-        else:
-            result.unfixable += 1
-            result.needs_review.append(gap)
+        result.unfixable += 1
+        result.needs_review.append(gap)
 
     return result
 
@@ -1024,7 +981,7 @@ def apply_generative_backprop(paths, client, gaps, callbacks=None) -> list[str]:
         if gap.layer == consts.TYPE_L3:
             md_path = paths.concepts / f"{gap.node_id}.md"
         else:
-            md_path = paths.exhibitions / f"{gap.node_id}.md"
+            md_path = paths.synthesis / f"{gap.node_id}.md"
 
         if not md_path.exists():
             continue
@@ -1113,332 +1070,6 @@ def repair_logical_gaps(
     return remaining, aggregate
 
 
-# ---------------------------------------------------------------------------
-# Backward propagation — agent correction: EXH → CON → ATM
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class PropagationResult:
-    """Result of an upstream propagation pass triggered by an EXH correction."""
-    exh_id: str
-    concepts_updated: list[str]
-    atoms_updated: list[str]
-    contexts_updated: list[str] = field(default_factory=list)
-    feedback_required: list[dict[str, Any]] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
-    llm_calls: int = 0
-    timings_ms: dict[str, int] = field(default_factory=dict)
-    source_propagation_skipped: bool = False
-    target_concepts: list[str] = field(default_factory=list)
-
-
-def propagate_upstream_from_exhibition(
-    paths: cfg.WikiPaths,
-    client,
-    exh_id: str = "",
-    insight: str = "",
-    propagate_sources: bool = True,
-    previous_exh_content: str = "",
-) -> PropagationResult:
-    """Unified backpropagation (hybrid static + dynamic) from EXH or Insight down to CTX.
-
-    Workflow:
-      1. Source discovery: Read Exhibition (L4) OR use provided Insight string.
-      2. Reconcile Concepts (L3): Static links + Semantic Search.
-      3. Reconcile Atoms (L2) and Contexts (L1) by default. Insight backprop
-         should be rare, so consistency is favored over latency. L1 updates
-         must preserve source truth and record derived corrections separately.
-    """
-    from . import search
-    from .llm import LLMError
-    from . import ingest_llm as _ingest
-    import time as _time
-
-    started_total = _time.monotonic()
-
-    result = PropagationResult(
-        exh_id=exh_id, concepts_updated=[], atoms_updated=[], contexts_updated=[], feedback_required=[], errors=[]
-    )
-    today = page_writer.today_iso()
-
-    exh_page = None
-    if exh_id:
-        exh_path = paths.exhibitions / f"{exh_id}.md"
-        exh_page = page_writer.read_page(exh_path)
-    
-    if not exh_page and not insight:
-        result.errors.append(f"No source of truth (Exhibition {exh_id} not found and no insight provided)")
-        return result
-
-    # Determine source text for search and static links
-    source_text = insight
-    static_con_ids = []
-    
-    if exh_page:
-        source_text = exh_page.to_markdown()
-        static_con_ids = _fm_links(exh_page.frontmatter, "core_concepts")
-
-    def _added_text(before: str, after: str) -> str:
-        if not before:
-            return after
-        parsed_before = page_writer.parse_page(before)
-        if parsed_before.frontmatter:
-            before = parsed_before.to_markdown()
-        before_lines = set(line.strip() for line in before.splitlines() if line.strip())
-        added = [
-            line.strip()
-            for line in after.splitlines()
-            if line.strip() and line.strip() not in before_lines
-        ]
-        return "\n".join(added)
-
-    target_text = _added_text(previous_exh_content, source_text)
-    if len(target_text.strip()) < 80:
-        target_text = insight or source_text
-
-    def _tokens(text: str) -> set[str]:
-        stop = {
-            "about", "after", "also", "and", "are", "because", "been", "but",
-            "can", "from", "have", "into", "not", "original", "paper",
-            "source", "that", "the", "this", "with",
-        }
-        return {
-            token.lower()
-            for token in re.findall(r"[A-Za-z][A-Za-z0-9+-]*", text)
-            if len(token) > 2 and token.lower() not in stop
-        }
-
-    target_tokens = _tokens(target_text)
-    
-    # --- Step 1: L3 (Concepts) ---
-    started_concepts = _time.monotonic()
-    # Dynamic discovery for Concepts
-    dynamic_con_ids = []
-    try:
-        search_results = search.query(
-            paths,
-            target_text,
-            mode="hybrid",
-            limit=5,
-            rerank=False,
-        )
-        for hit in search_results.hits:
-            if hit.score > 0.8 and hit.full_path.startswith(f"{consts.LAYER_L3}/"):
-                cid = hit.full_path.rsplit("/", 1)[-1].removesuffix(".md")
-                dynamic_con_ids.append(cid)
-    except Exception:
-        pass
-
-    all_con_ids = sorted(list(set(static_con_ids + dynamic_con_ids)))
-    if previous_exh_content and all_con_ids:
-        ranked_con_ids: list[tuple[int, str]] = []
-        dynamic_set = set(dynamic_con_ids)
-        for con_id in all_con_ids:
-            if not con_id.startswith(f"{consts.PREFIX_L3}-"):
-                continue
-            con_page = page_writer.read_page(paths.concepts / f"{con_id}.md")
-            if con_page is None:
-                continue
-            con_tokens = _tokens(con_page.to_markdown())
-            overlap = len(target_tokens & con_tokens)
-            if con_id in dynamic_set:
-                overlap += 5
-            if overlap > 0:
-                ranked_con_ids.append((overlap, con_id))
-        ranked_con_ids.sort(key=lambda item: (-item[0], item[1]))
-        selected = [con_id for _score, con_id in ranked_con_ids[:5]]
-        if selected:
-            all_con_ids = selected
-    result.target_concepts = list(all_con_ids)
-
-    concept_originals: dict[str, str] = {}
-    concept_pages: dict[str, page_writer.ParsedPage] = {}
-    valid_con_ids: list[str] = []
-    for con_id in all_con_ids:
-        if not con_id.startswith(f"{consts.PREFIX_L3}-"): continue
-        con_path = paths.concepts / f"{con_id}.md"
-        con_page = page_writer.read_page(con_path)
-        if con_page is None: continue # Could happen if search index is stale
-        concept_pages[con_id] = con_page
-        concept_originals[con_id] = con_page.to_markdown()
-        valid_con_ids.append(con_id)
-
-    def _apply_updated_concept(con_id: str, updated_con: str) -> bool:
-        con_page = concept_pages.get(con_id)
-        con_original = concept_originals.get(con_id, "")
-        if con_page is None or not con_original:
-            return False
-        updated_con = page_writer.strip_llm_noise(updated_con)
-        if not updated_con or updated_con.strip() == con_original.strip():
-            return False
-        updated_con_page = _drop_nested_frontmatter_body(page_writer.parse_page(updated_con))
-        updated_con_page.frontmatter = _merge_immutable_frontmatter(
-            con_page.frontmatter, updated_con_page.frontmatter, {"id", "type", "name", "domain", "confidence_score"}
-        )
-        updated_con_page.frontmatter["last_updated"] = today
-        (paths.concepts / f"{con_id}.md").write_text(updated_con_page.to_markdown(), encoding="utf-8")
-        if con_id not in result.concepts_updated:
-            result.concepts_updated.append(con_id)
-        return True
-
-    batch_outputs: dict[str, str] = {}
-    batch_succeeded = False
-    batch_attempted = len(valid_con_ids) > 1
-    if batch_attempted:
-        messages = prompts.build_batch_concept_update_from_exhibition_messages(
-            exh_id=exh_id or "Insight",
-            exh_content=source_text,
-            concept_pages=[(con_id, concept_originals[con_id]) for con_id in valid_con_ids],
-            today=today,
-        )
-        try:
-            result.llm_calls += 1
-            raw_batch = client.chat(messages, json_mode=True, temperature=0.2)
-            batch_data = json.loads(raw_batch)
-            raw_items = batch_data.get("concepts", []) if isinstance(batch_data, dict) else []
-            if not isinstance(raw_items, list):
-                raise ValueError("batch response field `concepts` is not a list")
-            for item in raw_items:
-                if not isinstance(item, dict):
-                    continue
-                con_id = str(item.get("id", ""))
-                changed = bool(item.get("changed"))
-                markdown = str(item.get("markdown", ""))
-                if con_id in concept_originals and changed and markdown.strip():
-                    batch_outputs[con_id] = markdown
-            batch_succeeded = True
-            for con_id, updated_con in batch_outputs.items():
-                _apply_updated_concept(con_id, updated_con)
-        except Exception as exc:
-            result.errors.append(f"Batch CON update failed; falling back to individual updates: {exc}")
-            batch_outputs = {}
-            batch_succeeded = False
-
-    for con_id in valid_con_ids:
-        con_original = concept_originals[con_id]
-        if batch_succeeded:
-            updated_con = batch_outputs.get(con_id, con_original)
-        else:
-            messages = prompts.build_concept_update_from_exhibition_messages(
-                exh_id=exh_id or "Insight", exh_content=source_text, con_id=con_id, con_content=con_original, today=today
-            )
-            try:
-                result.llm_calls += 1
-                updated_con = client.chat(messages, temperature=0.2)
-                _apply_updated_concept(con_id, updated_con)
-            except LLMError as e:
-                result.errors.append(f"CON {con_id} update failed: {e}")
-                continue
-
-        if con_id not in result.concepts_updated:
-            continue
-
-        if not propagate_sources:
-            result.source_propagation_skipped = True
-            continue
-
-        # --- Step 2: L2 (Atoms) ---
-        static_atm_ids = _concept_atom_ids(paths, con_id)
-        
-        # Dynamic discovery for Atoms within this Concept
-        dynamic_atm_ids = []
-        try:
-            con_text = updated_con if result.concepts_updated and con_id in result.concepts_updated else con_original
-            search_results = search.query(
-                paths,
-                con_text,
-                mode="hybrid",
-                limit=5,
-                rerank=False,
-            )
-            for hit in search_results.hits:
-                if hit.score > 0.8 and hit.full_path.startswith(f"{consts.LAYER_L2}/"):
-                    aid = hit.full_path.rsplit("/", 1)[-1].removesuffix(".md")
-                    dynamic_atm_ids.append(aid)
-        except Exception:
-            pass
-
-        all_atm_ids = sorted(list(set(static_atm_ids + dynamic_atm_ids)))
-        updated_con_content = updated_con if con_id in result.concepts_updated else con_original
-
-        for atm_id in all_atm_ids:
-            if not atm_id.startswith(f"{consts.PREFIX_L2}-"): continue
-            atm_path = paths.atoms / f"{atm_id}.md"
-            atm_page = page_writer.read_page(atm_path)
-            if atm_page is None: continue
-
-            atm_original = atm_page.to_markdown()
-            atom_changed = False
-            messages = prompts.build_atom_update_from_concept_messages(
-                con_id=con_id, con_content=updated_con_content, atm_id=atm_id, atm_content=atm_original, today=today
-            )
-            try:
-                result.llm_calls += 1
-                updated_atm = client.chat(messages, temperature=0.1)
-                updated_atm = page_writer.strip_llm_noise(updated_atm)
-                if updated_atm and updated_atm.strip() != atm_original.strip():
-                    updated_atm_page = page_writer.parse_page(updated_atm)
-                    updated_atm_page.frontmatter = _merge_immutable_frontmatter(
-                        atm_page.frontmatter, updated_atm_page.frontmatter,
-                        {"id", "type", "parent_source", "source_path", "claim_type", "confidence_score", "contradicts", "is_verified_by_human", "is_flagged_for_agent"}
-                    )
-                    updated_atm_page.frontmatter["last_updated"] = today
-                    atm_path.write_text(updated_atm_page.to_markdown(), encoding="utf-8")
-                    result.atoms_updated.append(atm_id)
-                    atom_changed = True
-            except LLMError as e:
-                result.errors.append(f"ATM {atm_id} update failed: {e}")
-                continue
-
-            # --- Step 3: L1 (Contexts) ---
-            # Reconcile L1 Context for this updated Atom
-            if not atom_changed:
-                continue
-            parent_source = atm_page.frontmatter.get("parent_source")
-            ctx_id = None
-            if parent_source:
-                from . import query as _q
-                try:
-                    ctx_id = _q._node_path_from_target(str(parent_source)).rsplit("/", 1)[-1]
-                except Exception: pass
-            
-            if not ctx_id:
-                # Search for L1
-                try:
-                    ctx_results = search.query(paths, atm_original, scope="contexts", limit=1)
-                    if ctx_results.hits and ctx_results.hits[0].score > 0.8:
-                        ctx_id = ctx_results.hits[0].full_path.rsplit("/", 1)[-1].removesuffix(".md")
-                except Exception: pass
-
-            if ctx_id:
-                ctx_path = paths.contexts / f"{ctx_id}.md"
-                ctx_page = page_writer.read_page(ctx_path)
-                if ctx_page:
-                    ctx_original = ctx_page.to_markdown()
-                    # Use the new prompt added to prompts.py
-                    messages = prompts.build_context_update_from_atom_messages(
-                        atm_id=atm_id, atm_content=atm_original, ctx_id=ctx_id, ctx_content=ctx_original, today=today
-                    )
-                    try:
-                        result.llm_calls += 1
-                        updated_ctx = client.chat(messages, temperature=0.1)
-                        updated_ctx = page_writer.strip_llm_noise(updated_ctx)
-                        if updated_ctx and updated_ctx.strip() != ctx_original.strip():
-                            ctx_path.write_text(updated_ctx, encoding="utf-8")
-                            result.contexts_updated.append(ctx_id)
-                    except Exception: pass
-            else:
-                # No L1 found -> Feedback
-                result.feedback_required.append({
-                    "atom_id": atm_id,
-                    "insight": "Knowledge updated without verified source provenance."
-                })
-
-    result.timings_ms["concepts"] = int((_time.monotonic() - started_concepts) * 1000)
-    result.timings_ms["total"] = int((_time.monotonic() - started_total) * 1000)
-    return result
-
 
 # ---------------------------------------------------------------------------
 # Finalization — rebuild routing tables
@@ -1456,83 +1087,3 @@ def finalize_routing_tables(paths: cfg.WikiPaths) -> None:
         "Deductive verification pass",
         ["Routing tables rebuilt by wiki sync"],
     )
-
-
-# ---------------------------------------------------------------------------
-# Forward propagation: CON (L3) -> EXH (L4)
-# ---------------------------------------------------------------------------
-
-def propagate_downstream_to_exhibition(paths: cfg.WikiPaths, client, exh_id: str) -> bool:
-    """Forward propagation: update an EXH to incorporate changes from its L3 Concepts.
-    Uses EXHIBITION_SMART_UPDATE_PROMPT to merge new info without overwriting human edits.
-    """
-    from .llm import LLMError
-    
-    exh_path = paths.exhibitions / f"{exh_id}.md"
-    exh_page = page_writer.read_page(exh_path)
-    if not exh_page:
-        return False
-    
-    con_ids = _fm_links(exh_page.frontmatter, "core_concepts")
-    if not con_ids:
-        return False
-    
-    # 1. Gather current content of all referenced concepts
-    concepts_content = ""
-    for cid in con_ids:
-        cp = page_writer.read_page(paths.concepts / f"{cid}.md")
-        if cp:
-            concepts_content += f"\n### {cid}\n{cp.body}\n"
-    
-    if not concepts_content:
-        return False
-        
-    # 2. Trigger Smart Update
-    today = page_writer.today_iso()
-    messages = prompts.build_exhibition_refinement_messages(
-        exh_id=exh_id,
-        existing_body=exh_page.body,
-        updates=f"Updated Supporting Concepts:\n{concepts_content}"
-    )
-    
-    try:
-        updated_body = client.chat(messages, temperature=0.2)
-        updated_body = page_writer.strip_llm_noise(updated_body)
-        
-        if updated_body and updated_body.strip() != exh_page.body.strip():
-            exh_page.body = updated_body
-            exh_page.frontmatter["last_updated"] = today
-            exh_path.write_text(exh_page.to_markdown(), encoding="utf-8")
-            return True
-    except LLMError:
-        pass
-        
-    return False
-
-
-def find_dirty_exhibitions(paths: cfg.WikiPaths) -> list[str]:
-    """Find EXH IDs where referenced CONs are newer than the EXH itself."""
-    dirty = []
-    exh_dir = paths.exhibitions
-    if not exh_dir.exists():
-        return dirty
-        
-    for exh_file in sorted(exh_dir.glob("EXH-*.md")):
-        exh_id = exh_file.stem
-        exh_fm = _read_fm(paths, exh_id)
-        if not exh_fm: continue
-        
-        exh_time = exh_fm.get("last_updated", "1970-01-01")
-        con_ids = _fm_links(exh_fm, "core_concepts")
-        
-        is_dirty = False
-        for cid in con_ids:
-            con_fm = _read_fm(paths, cid)
-            if con_fm and con_fm.get("last_updated", "1970-01-01") > exh_time:
-                is_dirty = True
-                break
-        
-        if is_dirty:
-            dirty.append(exh_id)
-            
-    return dirty

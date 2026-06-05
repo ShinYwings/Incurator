@@ -8,8 +8,8 @@ This document defines the official operational scenarios and tool interaction pa
 *   **Trigger**: Automatically called by the Agent at the start of every session.
 *   **Logic Flow**:
     1.  **Path Resolution**: Discovers the `vault_root` by walking upward from `workspace_path`.
-    2.  **State Validation**: Checks for `curate.yml` existence and the presence of a staged Exhibition in the search index.
-    3.  **Result**: Returns initialization status (`needs_initialization`) and exhibition status (`exhibition_exists`).
+    2.  **State Validation**: Checks for `curate.yml` existence and agent-rule readiness.
+    3.  **Result**: Returns initialization status (`needs_initialization`), project metadata, and actionable setup issues.
 
 ### 1.2 Workspace Scaffolding (`curator_workspace_init`)
 *   **Trigger**: Initiated when `check_workspace` returns `needs_initialization: true`.
@@ -24,17 +24,17 @@ This document defines the official operational scenarios and tool interaction pa
 
 ### 2.1 Persona-Driven Query & Search (`curator_query` & `search_curator`)
 *   **Logic Flow (`curator_query`)**:
-    1.  Implements **Dual Architecture**: If a Workspace is specified, uses the Pinned L4 Exhibition and persona from `curate.yml` (no ephemeral files). If Vault mode (no workspace), dynamically generates an Ephemeral L4 Exhibition per chat session.
-    2.  Enforces **L3 Constraints**: L4 Exhibitions are only generated if L3 Concepts are present. Otherwise, skips L4 generation and returns a direct answer or falls back to raw search.
+    1.  Applies the workspace `curate.yml` persona/KRS when a workspace is specified; Vault mode uses the global fallback persona.
+    2.  Returns a sessionless answer with a `QTR-` trace over selected L3 Concepts, L4 Synthesis nodes, source sections, reports, and insight candidates.
 *   **Logic Flow (`search_curator`)**:
     1.  Automatically applies `domains`, `topics`, and `min_confidence` filters from the local `curate.yml`.
-    2.  If the targeted Exhibition is missing, it **auto-triggers a curation pass** before performing the search.
+    2.  Searches DB-native search rows over authoritative records; it does not trigger a staging pass.
     3.  Returns results scoped to the project's knowledge requirements, preventing "knowledge noise" from unrelated parts of the vault.
 
 ### 2.2 Evidence Traversal (`curator_traverse_evidence`)
 *   **Situation**: Search result confidence score is below the high threshold (0.90) but above the low floor (0.60).
 *   **Logic Flow**:
-    1.  The Agent walks down the evidence chain: `EXH → CON → ATM`.
+    1.  The Agent walks down the evidence chain: `SYN -> CON/REP -> ATM/source spans`.
     2.  Verifies the specific claims and source provenance before citing the information in a task output.
 
 ### 2.3 External Resource Integration & Hash Healing
@@ -68,12 +68,12 @@ This document defines the official operational scenarios and tool interaction pa
 ## 3. Knowledge Evolution & Integrity Scenarios
 
 ### 3.1 Backward Propagation (Knowledge Correction)
-*   **Situation**: A Human (Director) or Agent (Artist) identifies an error in a pre-compiled Exhibition or Concept.
+*   **Situation**: A Human (Director) or Agent (Artist) identifies an error in generated knowledge.
 *   **Logic Flow**:
-    1.  The Agent updates the L4 Exhibition via `curator_update_node`.
-    2.  The Engine triggers a **Backward Pass**, tracing the edit back to its constituent Concepts and Atoms.
-    3.  The Engine proposes or applies repairs to the underlying DAG nodes to match the corrected truth.
-    4.  `wiki sync` ensures the fix is propagated throughout the network.
+    1.  The Agent calls `curator_propose_correction` with the claim, correction, and evidence context.
+    2.  The Engine classifies the feedback before any patch.
+    3.  Corrections produce a patch plan over generated nodes only; source truth is never edited autonomously.
+    4.  `wiki sync` verifies graph consistency after approved changes.
 
 ### 3.2 Synthesis Promotion (The Infinite Loop - Path B)
 *   **Situation**: A high-value insight is derived during a conversational session.

@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Optional
 
 from . import config as cfg
 from . import constants as consts
@@ -171,8 +171,8 @@ def _build_inventory(paths: cfg.WikiPaths, progress_callback: Optional[Callable[
     _CURATOR_FM_LINK_FIELDS = (
         # ATM: link to parent L1 Context
         "parent_source",
-        # EXH: links to L3 Concepts
-        "core_concepts",
+        # SYN: optional links to L3 Concepts
+        "concept_ids",
         # legacy / any extra sources field
         "sources",
     )
@@ -181,8 +181,8 @@ def _build_inventory(paths: cfg.WikiPaths, progress_callback: Optional[Callable[
         links = page_writer.extract_wikilinks(parsed.body)
 
         # Extract wikilinks from curator-specific frontmatter fields
-        for field in _CURATOR_FM_LINK_FIELDS:
-            val = parsed.frontmatter.get(field)
+        for fm_field in _CURATOR_FM_LINK_FIELDS:
+            val = parsed.frontmatter.get(fm_field)
             if isinstance(val, str) and val:
                 links.append(val)
             elif isinstance(val, list):
@@ -442,12 +442,12 @@ def check_orphan_pages(inv: PageInventory) -> list[LintIssue]:
 def check_frontmatter(inv: PageInventory) -> list[LintIssue]:
     """Verify every page has required frontmatter fields per layer."""
     issues: list[LintIssue] = []
-    # Required fields per layer — SCHEMA_v0.1.0 §3
+    # Required fields per layer — SCHEMA_v0.3.1 projection contract
     required_by_type = {
         consts.LAYER_L1:   {"id", "type", "source_path", "source_hash", "last_updated"},
         consts.LAYER_L2:   {"id", "type", "source_path", "unit_type", "knowledge_unit_ids", "source_span_ids"},
-        consts.LAYER_L3:   {"id", "type", "domain", "last_updated"},
-        consts.LAYER_L4: {"id", "type", "core_concepts", "confidence_score", "last_updated"},
+        consts.LAYER_L3:   {"id", "type", "community_report_id", "entity_ids", "relation_ids", "source_span_ids", "confidence_score"},
+        consts.LAYER_L4: {"id", "type", "community_report_ids", "source_span_ids", "confidence_score"},
     }
     id_prefix_by_type = {
         consts.LAYER_L1: consts.PREFIX_L1,
@@ -503,15 +503,15 @@ def check_frontmatter(inv: PageInventory) -> list[LintIssue]:
                     context={"remove_field": "dependencies"},
                 )
             )
-        for field in sorted(required & set(parsed.frontmatter.keys())):
-            value = parsed.frontmatter.get(field)
+        for fm_field in sorted(required & set(parsed.frontmatter.keys())):
+            value = parsed.frontmatter.get(fm_field)
             if value is None or value == "" or value == []:
                 issues.append(
                     LintIssue(
                         check=CheckId.INVALID_FRONTMATTER,
                         severity=Severity.ERROR,
                         page=relpath,
-                        message=f"Frontmatter field `{field}` is empty.",
+                        message=f"Frontmatter field `{fm_field}` is empty.",
                         suggestion="Re-run ingest or repair the field from source metadata.",
                         fixable=False,
                     )
@@ -602,7 +602,7 @@ def check_malformed_wikilinks(inv: PageInventory, paths: cfg.WikiPaths) -> list[
                 )
 
         # Curator frontmatter wikilink list/scalar entries
-        for key in ("parent_source", "core_concepts"):
+        for key in ("parent_source", "concept_ids"):
             raw = parsed.frontmatter.get(key)
             values = raw if isinstance(raw, list) else ([raw] if isinstance(raw, str) else [])
             for val in values:
@@ -807,12 +807,12 @@ def check_atom_source_paths(inv: PageInventory, paths: cfg.WikiPaths) -> list[Li
 
 
 def check_noise_in_curation_sources(inv: PageInventory) -> list[LintIssue]:
-    """Flag L4 Exhibition pages that list routing files as core_concepts."""
+    """Flag L4 Synthesis pages that list routing files as concept ids."""
     issues: list[LintIssue] = []
     for relpath, parsed in inv.pages.items():
         if not relpath.startswith(f"{consts.LAYER_L4}/"):
             continue
-        for key in ("core_concepts",):
+        for key in ("concept_ids",):
             values = parsed.frontmatter.get(key, []) or []
             if not isinstance(values, list):
                 continue
@@ -827,7 +827,7 @@ def check_noise_in_curation_sources(inv: PageInventory) -> list[LintIssue]:
                             check=CheckId.NOISE_IN_SYNTHESIS,
                             severity=Severity.WARNING,
                             page=relpath,
-                            message=f"Exhibition references routing file '{val}' as core concept.",
+                            message=f"Synthesis references routing file '{val}' as concept id.",
                             suggestion="Run `wiki lint --fix` to remove noise.",
                             fixable=True,
                             context={"location": "frontmatter", "field": key, "remove_value": val},
@@ -842,7 +842,7 @@ def check_cross_layer_links(inv: PageInventory) -> list[LintIssue]:
 
       L2 ATM  → parent_source   must be in 01_Contexts/
       L3 CON  → ## Relations    must link to 02_Atoms/
-      L4 EXH  → core_concepts   must be in 03_Concepts/
+      L4 SYN  -> concept_ids    must be in 03_Concepts/
 
     A wrong-layer reference is caught as WARNING (not ERROR) because the page
     may still render and be useful; it's a structural integrity issue, not a
@@ -853,14 +853,14 @@ def check_cross_layer_links(inv: PageInventory) -> list[LintIssue]:
     _rules: list[tuple[str, str, str, str]] = [
         # (layer_dir,      field,           expected_prefix,  expected_id_prefix)
         (consts.LAYER_L2,      "parent_source",  f"{consts.LAYER_L1}/",   f"{consts.PREFIX_L1}-"),
-        (consts.LAYER_L4, "core_concepts", f"{consts.LAYER_L3}/",   f"{consts.PREFIX_L3}-"),
+        (consts.LAYER_L4, "concept_ids", f"{consts.LAYER_L3}/",   f"{consts.PREFIX_L3}-"),
     ]
 
-    for layer_dir, field, expected_prefix, expected_id_prefix in _rules:
+    for layer_dir, fm_field, expected_prefix, expected_id_prefix in _rules:
         for relpath, parsed in inv.pages.items():
             if not relpath.startswith(f"{layer_dir}/"):
                 continue
-            raw = parsed.frontmatter.get(field)
+            raw = parsed.frontmatter.get(fm_field)
             if raw is None:
                 continue
             values: list[str] = [raw] if isinstance(raw, str) else (
@@ -880,7 +880,7 @@ def check_cross_layer_links(inv: PageInventory) -> list[LintIssue]:
                             severity=Severity.WARNING,
                             page=relpath,
                             message=(
-                                f"`{field}` points to '{normalized}' which is not in "
+                                f"`{fm_field}` points to '{normalized}' which is not in "
                                 f"{expected_prefix} (expected {expected_id_prefix}* IDs)."
                             ),
                             suggestion=(
@@ -1082,7 +1082,7 @@ def _apply_fixes_to_page(parsed: page_writer.ParsedPage, fixes: list[LintIssue])
                                 changed_this_issue = True
 
         elif issue.check == CheckId.NOISE_IN_SYNTHESIS:
-            field = ctx.get("field", "core_concepts")
+            field = ctx.get("field", "concept_ids")
             remove_value = ctx.get("remove_value", "")
             values = parsed.frontmatter.get(field, []) or []
             if isinstance(values, list):
@@ -1320,13 +1320,6 @@ def apply_fixes(
 # ---------------------------------------------------------------------------
 
 
-def gc_ephemeral_exhibitions(paths: cfg.WikiPaths, max_age_hours: int = 24) -> list[str]:
-    """Deprecated: Chat Exhibitions are now persistent living documents.
-    Returns an empty list.
-    """
-    return []
-
-
 def run_lint(
     paths: cfg.WikiPaths,
     *,
@@ -1368,9 +1361,6 @@ def run_lint(
         report.deep_check_run = True
         report.issues.extend(check_contradictions_deep(inv, paths, client, limit_to=limit_to))
 
-    # Ephemeral Garbage Collection has been deprecated as of v0.3.1.
-    # Chat Exhibitions are now treated as persistent living documents.
-
     # Sort: errors first, then warnings, then infos. Within each, by page.
     severity_order = {
         Severity.ERROR: 0,
@@ -1394,8 +1384,8 @@ def render_report_markdown(report: LintReport, paths: cfg.WikiPaths) -> str:
     lines: list[str] = []
     lines.append("---")
     lines.append(f"title: Lint Report {today}")
-    lines.append("type: exhibition")
-    lines.append("core_concepts: []")
+    lines.append("type: synthesis")
+    lines.append("concept_ids: []")
     lines.append("confidence_score: 1.00")
     lines.append(f"last_updated: '{today}'")
     lines.append("tags: [lint, health-check]")

@@ -7,7 +7,7 @@ updated: 2026-05-01
 # .curator/index.md — DAG Routing Table
 
 > Auto-maintained by the Curator engine. DO NOT edit manually.
-> Lists all pages by layer. Rebuilt after every curate run.
+> Lists all pages by layer. Rebuilt after graph compile/re-emit runs.
 
 ## L1 — Contexts (Collection & Summarization)
 
@@ -15,16 +15,16 @@ updated: 2026-05-01
 
 ## L2 — Atoms (Selection & Atomization)
 
-*No atoms yet. Run `wiki curate` after add.*
+*No atoms yet. Run `wiki build` after add.*
 
 ## L3 — Concepts (Structuring & Value Addition)
 
 *No concepts yet.*
 
-## L4 — Exhibitions (Placement & Staging)
+## L4 — Synthesis (Shared Corpus Insights)
 
-*No exhibitions yet.*
+*No synthesis nodes yet.*
 
 ---
 
-**Stats:** 0 contexts · 0 atoms · 0 concepts · 0 exhibitions
+**Stats:** 0 contexts · 0 atoms · 0 concepts · 0 synthesis

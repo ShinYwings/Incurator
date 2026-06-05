@@ -9,7 +9,7 @@
 Incurator는 개인 지식 베이스를 “검색 가능한 파일 묶음”이 아니라 검증 가능한 지식 DAG로 다룹니다. 처음 설계부터 이 DAG는 사람이 읽기 좋은 문서보다 **LLM이 안정적으로 읽고 추론하기 좋은 중간 표현(IR)**에 가깝게 만들어졌습니다. 현재 Curator는 source truth와 agent 대화를 L1-L4 DAG로 쌓고, `wiki sync`로 구조/논리 정합성을 되짚는 **compiler-inspired pipeline**입니다.
 
 - **LLM-readable IR**: Context, Atom, Concept, Exhibition은 LLM이 읽고 추론하기 좋은 계층형 IR입니다. 각 layer는 사람이 보기 좋은 prose보다 안정적인 frontmatter, relation, provenance를 우선합니다.
-- **Forward pass**: `wiki add`와 `wiki curate`는 source/workspace input을 L1-L4 DAG로 쌓아 올립니다.
+- **Forward pass**: `wiki add`와 `wiki query`는 source/workspace input을 L1-L4 DAG로 쌓아 올립니다.
 - **Backward pass**: `wiki sync`는 생성된 DAG를 거꾸로 검증하며 structural gap, grounding gap, logical gap을 찾고 안전하게 수리 가능한 항목을 고칩니다.
 - **Feedback signal**: 사람이 Context, Concept, Exhibition을 수정하거나 agent 대화에서 새로운 요구를 만들면, 그 차이가 sync와 재생성의 기준이 됩니다.
 
@@ -41,9 +41,9 @@ Incurator는 개인 지식 베이스를 “검색 가능한 파일 묶음”이 
 - **오케스트레이션 고도화**: L1-L4 생성, sync backprop, workspace curate, query session을 같은 정책 아래에서 조율하는 실행 모델이 필요합니다.
 
 ### 🏗 Architecture & State
-- **통합 지식 엔진**: `qmd` 검색 인덱스와 Curator DB가 더 일관되게 협력해야 합니다. 검색 결과, DAG provenance, sync report가 서로 다른 진실을 말하면 안 됩니다.
+- **통합 지식 엔진**: DB-native search row, chunk embedding, query trace와 Curator DB record가 같은 진실을 말해야 합니다. 검색 결과, DAG provenance, sync report가 서로 다른 진실을 말하면 안 됩니다.
 - **동기화 친화적 상태 관리**: SQLite(`state.sqlite`)는 파일 잠금과 충돌에 취약합니다. 현재는 DB 파일을 sync에서 제외하는 방식을 권장하지만, 장기적으로는 더 sync-friendly한 state layer가 필요합니다.
-- **재현 가능한 testbed 검증**: private fixture를 기반으로 `wiki add`, `wiki sync`, `wiki curate`, MCP 흐름을 반복 검증해야 합니다.
+- **재현 가능한 testbed 검증**: private fixture를 기반으로 `wiki add`, `wiki sync`, `wiki query`, MCP 흐름을 반복 검증해야 합니다.
 
 ### 🛠 User Experience & Tooling
 - **워크스페이스 설정 자동화**: `curate.yml` 작성과 agent rule provisioning을 더 쉽게 만들어야 합니다.
@@ -144,7 +144,6 @@ VAULT_ROOT=testbed wiki status
 
 # 시드된 노트를 기반으로 큐레이션 파이프라인 실행
 VAULT_ROOT=testbed wiki add "03_Notes/**/*.md"
-VAULT_ROOT=testbed wiki curate
 
 # 특정 클레임 검증
 VAULT_ROOT=testbed wiki query "fixture domain을 대표하는 질문을 입력하세요"
@@ -162,7 +161,7 @@ Incurator v0.2.0의 목표 구조는 파이썬 백엔드 데몬(`backend/`)과 O
 
 ### 7.1 Backend/Client 경계
 
-- Incurator backend는 `.curator/state.sqlite`, source registry, PDF page provenance, L1-L4 DAG, QMD search, MCP tools를 소유합니다.
+- Incurator backend는 `.curator/state.sqlite`, source registry, PDF page provenance, L1-L4 DAG, DB-native search, query trace, MCP tools를 소유합니다.
 - Obsidian 플러그인은 client입니다. 열린 PDF context 수집, 채팅 UI, import/rebind 승인 modal, provider prompt assembly를 담당합니다.
 - 플러그인은 `.curator/state.sqlite`를 직접 쓰면 안 됩니다. 필요한 상태 변경은 MCP/CLI backend API를 통해 요청해야 합니다.
 - MCP/backend는 `03_Notes/`를 조용히 수정하면 안 됩니다. 인간 노트 수정은 별도 승인과 diff/confirm 흐름이 필요합니다.

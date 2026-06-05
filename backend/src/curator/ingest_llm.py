@@ -2,10 +2,10 @@
 
 This module provides the core logic for high-level knowledge synthesis:
 - Phase A (L2 Atoms) & Phase B (L3 Concepts): Driven by `wiki add`.
-- Phase C (L4 Exhibitions): Driven by `wiki curate`.
+- Phase C (L4 Synthesis): Driven by `wiki build`.
 
 The pipeline is sequential to ensure cross-source concepts and exhibitions 
-emerge correctly. All IDs are UUID-based (ATM-/CON-/EXH-).
+emerge correctly. All IDs are UUID-based (ATM-/CON-/SYN-).
 """
 
 from __future__ import annotations
@@ -67,10 +67,11 @@ class ConceptClusterResult(BaseModel):
     concepts: list[ConceptPlan] = Field(default_factory=list)
 
 
+@dataclass
 class PageChange:
-    id: str          # CTX-/ATM-/CON-/EXH- UUID
+    id: str          # CTX-/ATM-/CON-/SYN- UUID
     path: str        # relative to .curator/Collections/
-    layer: str       # '01_Contexts' | '02_Atoms' | '03_Concepts' | '04_Exhibitions'
+    layer: str       # '01_Contexts' | '02_Atoms' | '03_Concepts' | '04_Synthesis'
     operation: str   # 'created' | 'updated'
 
 
@@ -465,7 +466,7 @@ def _update_overview(paths: cfg.WikiPaths) -> None:
     _layer_section("L1 — Contexts",  consts.LAYER_L1,  contexts)
     _layer_section("L2 — Atoms",     consts.LAYER_L2,  atoms)
     _layer_section("L3 — Concepts",  consts.LAYER_L3,  concepts)
-    _layer_section("L4 — Synthesis", consts.LAYER_SYN, exhibitions)
+    _layer_section("L4 — Synthesis", consts.LAYER_L4, exhibitions)
 
     paths.overview.parent.mkdir(parents=True, exist_ok=True)
     paths.overview.write_text("\n".join(lines), encoding="utf-8")
@@ -494,7 +495,7 @@ def _collect_domains_from_contexts(paths: cfg.WikiPaths, ctx_ids: list[str]) -> 
 
 
 # ---------------------------------------------------------------------------
-# Entry points — pipeline split (wiki add = L1-L3, wiki curate = L4)
+# Entry points — pipeline split (wiki add = L1, wiki build = L2/L3/L4)
 # ---------------------------------------------------------------------------
 
 
@@ -592,8 +593,8 @@ def run_l3_from_existing_atoms(
     if paths.concepts.exists():
         for md_path in paths.concepts.glob(f"{consts.PREFIX_L3}-*.md"):
             md_path.unlink()
-    if paths.exhibitions.exists():
-        for md_path in paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md"):
+    if paths.synthesis.exists():
+        for md_path in paths.synthesis.glob(f"{consts.PREFIX_L4}-*.md"):
             md_path.unlink()
 
     concept_ids = _compile.compile_global_l3(paths, client)
@@ -688,9 +689,9 @@ def find_workspace_exhibition(paths: cfg.WikiPaths, project: str) -> Optional[Pa
     Intentionally ignores curate_spec_hash so stale Exhibitions are still found
     after curate.yml edits (the caller can re-curate to refresh them).
     """
-    if not paths.exhibitions.exists() or not project:
+    if not paths.synthesis.exists() or not project:
         return None
-    for md_path in sorted(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md")):
+    for md_path in sorted(paths.synthesis.glob(f"{consts.PREFIX_L4}-*.md")):
         try:
             parsed = page_writer.read_page(md_path)
             if parsed and parsed.frontmatter.get("workspace") == project:

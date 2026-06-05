@@ -21,19 +21,17 @@ If the response contains `needs_initialization: true`:
 3. Present the `current_step` question and its `suggestions` to the user in Korean.
 4. Wait for their answer, then call `curator_workspace_init` again with the new answer and all previously `provided_so_far` answers.
 5. Repeat this step-by-step interview loop until initialization completes.
-6. After init succeeds, follow the `recommended_next_steps` returned by the tool (e.g. curate, reindex, persona setup).
+6. After init succeeds, follow the `recommended_next_steps` returned by the tool (e.g. build, query, persona setup).
 5. Tell the user: *"초기화 완료! 이제 페르소나를 설정하려면 'Curator 페르소나 설정해줘'라고 말씀해주세요."*
 
-### 0-C. Handle `exhibition_exists: false`
-If curator_check_workspace returns `ok: true` but `exhibition_exists: false`:
-- Call `curator_curate_workspace(workspace_path="{{workspace_path}}")`
-- Call `curator_reindex()`
+### 0-C. Handle incomplete graph processing
+If curator_check_workspace reports incomplete graph processing:
+- Ask the user whether to run `wiki build --wait` or continue with currently available evidence.
 
 ## 1. Knowledge Query
 
 - **[Trigger]** User asks any question requiring domain knowledge.
-- **[Action]** Call `search_curator(query="<your query>", workspace_path="{{workspace_path}}")` FIRST.
-- **[Handle `needs_curation: true`]** Call `curator_curate_workspace` → `curator_reindex` → retry search.
+- **[Action]** Call `curator_query(question="<your query>", workspace_path="{{workspace_path}}")` FIRST.
 - **[Fallback]** Only if Curator returns no relevant results: search local workspace files.
 - **[Constraint]** State clearly when falling back. Never silently skip Curator.
 
@@ -46,13 +44,13 @@ If curator_check_workspace returns `ok: true` but `exhibition_exists: false`:
 ## 3. Update The Graph
 
 - Promote accepted knowledge to `02_Wiki/` only with explicit human consensus.
-- After accepted changes, run or request `wiki add`, workspace curation, and `wiki sync`.
+- After accepted changes, run or request `wiki add`, `wiki build`, and `wiki sync`.
 - Leave ambiguous Curator repair items visible for review.
 
 ## 4. Persona Setup (on user request)
 
 - **[Trigger]** User asks to configure or update the workspace persona.
-- **[Action]** Ask: domain, goal, exhibition_intent (researcher/engineer/learner), keywords.
+- **[Action]** Ask: domain, goal, output_intent (researcher/engineer/learner), keywords.
 - **[Action]** Call: `curator_update_artist_persona(workspace_path="{{workspace_path}}", request=<summary of answers>)`
 
 ## 5. Session End

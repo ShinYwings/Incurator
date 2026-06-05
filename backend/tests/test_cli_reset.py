@@ -21,7 +21,6 @@ def test_wiki_reset_removes_generated_state_and_keeps_config(tmp_path: Path) -> 
         curator / "dashboard.md",
         curator / "sync-report.json",
         curator / "build_trace_old.canvas",
-        curator / "qmd" / "index.sqlite",
         curator / "staging" / "canvas" / "build_trace_new.canvas",
     ]
     for path in generated_files:

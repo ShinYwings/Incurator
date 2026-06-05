@@ -39,7 +39,7 @@ Routes:
 - local: precise entity/fact questions.
 - global: broad synthesis across the whole workspace/vault.
 - explore: open-ended discovery ("what else", "find connections", "new insight").
-- exhibition: answer from the workspace's active staged Exhibition context.
+- source-section: answer from one source section.
 - source-section: a question scoped to a specific source/section.
 
 Rules:

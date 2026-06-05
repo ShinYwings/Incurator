@@ -36,20 +36,24 @@ def seed_terms(query: str, limit: int = 8) -> list[str]:
     return terms[:limit]
 
 
-def _qmd_hits(paths: cfg.WikiPaths, query: str, limit: int, warnings: list[str]) -> list[EvidenceItem]:
+def _search_hits(paths: cfg.WikiPaths, query: str, limit: int, warnings: list[str]) -> list[EvidenceItem]:
+    """DB-native hybrid search hits (v0.3.2; replaces the qmd fallback)."""
     try:
         from .. import search
 
-        results = search.query(paths, query, mode="hybrid", limit=limit, min_score=0.3, hydrate=True, rerank=True)
-    except Exception as e:  # qmd missing / backend error → degrade
-        warnings.append(f"qmd unavailable: {e}")
+        # min_score=0 — native RRF/rerank scores are not on qmd's 0–1 scale, so the
+        # engine ranks and caps by `limit` rather than hard-thresholding.
+        results = search.query(paths, query, mode="hybrid", limit=limit, min_score=0.0, hydrate=True, rerank=True)
+    except Exception as e:  # backend error → degrade gracefully
+        warnings.append(f"search unavailable: {e}")
         return []
+    warnings.extend(results.warnings if hasattr(results, "warnings") else [])
     items: list[EvidenceItem] = []
     for hit in results.hits:
         text = (hit.full_content or hit.snippet or "")[:1200]
         items.append(
             EvidenceItem(
-                id=hit.full_path, kind="qmd_hit", title=hit.title or hit.full_path,
+                id=hit.full_path, kind="search_hit", title=hit.title or hit.full_path,
                 text=text, score=hit.score,
             )
         )
@@ -170,7 +174,7 @@ def build_evidence(
         items = syn_items + report_items
         if not items:
             warnings.append("no synthesis or community reports; falling back to qmd")
-            pack.items = _qmd_hits(paths, q, limit, warnings)
+            pack.items = _search_hits(paths, q, limit, warnings)
         else:
             pack.items = items
         pack.synthesis_node_ids = syn_ids
@@ -208,6 +212,6 @@ def build_evidence(
     ent_items, span_ids = _entity_evidence(db_path, q)
     pack.items.extend(ent_items)
     pack.items.extend(_span_items(db_path, span_ids))
-    pack.items.extend(_qmd_hits(paths, q, limit, warnings))
+    pack.items.extend(_search_hits(paths, q, limit, warnings))
     pack.source_span_ids = span_ids
     return pack

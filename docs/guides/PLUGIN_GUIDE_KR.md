@@ -44,7 +44,7 @@ Obsidian → **설정 > 커뮤니티 플러그인 > 설치된 플러그인**에�
 - **스트리밍 응답**: 기본값으로 활성화되어 있으며, 설정에서 끌 수 있습니다.
 - **컨텍스트 참조**: 텍스트, PDF 페이지, 이미지 스니펫을 메시지에 첨부해 질문합니다.
 - **Plan 모드**: `chatMode: plan`으로 전환 시 AI가 단계별 계획을 먼저 제시합니다.
-- **Incurator 연동**: Curator 백엔드가 연결된 경우 Exhibition 기반 검색 결과를 컨텍스트로 주입합니다.
+- **Incurator 연동**: Curator 백엔드가 연결된 경우 추적 가능한 DAG 근거를 컨텍스트로 주입합니다.
 
 ---
 
@@ -301,10 +301,10 @@ IncuratorClient가 숨겨진 backend JSON command 호출
 (`wiki plugin source ...`, `wiki plugin pdf ...`, `wiki plugin query`)
       │
       ▼
-Exhibition 검색 결과를 시스템 컨텍스트로 주입
+추적 가능한 DAG 근거를 시스템 컨텍스트로 주입
       │
       ▼
-LLM이 Exhibition 내용을 근거로 답변 생성
+LLM이 검색된 근거를 바탕으로 답변 생성
 ```
 
 ### Incurator 연동 설정
@@ -326,9 +326,8 @@ vault 안으로 복사하는 동작은 기본값이 아니라 명시적 예외�
 
 Source badge는 layer 상태를 구분합니다. `L1 ready`는 즉시 section context를
 사용할 수 있다는 뜻이고, `L2 ready`는 Atom이 생성됐다는 뜻이며, `Indexed`는
-L3 Concept 기반 답변이 가능하다는 뜻입니다. `Curated`는 L4 Exhibition까지
-완료된 source에만 사용합니다. 어떤 layer라도 error이면 정상 badge 대신 error를
-표시합니다.
+L3 Concept 기반 답변이 가능하다는 뜻입니다. `Synthesized`는 공유 L4 Synthesis가
+사용 가능하다는 뜻입니다. 어떤 layer라도 error이면 정상 badge 대신 error를 표시합니다.
 
 ### 백엔드 자동 업데이트 (1-Click Auto-Update)
 
@@ -369,9 +368,8 @@ queue에 들어간 build 작업을 실제로 처리하려면 **Dashboard > Jobs 
 
 최신 사용자 턴에 primary selected text, line range, PDF page, crop image가
 첨부되어 있지 않은 일반 workspace/domain 질문에서는 sidechat이 `wiki plugin
-query`를 직접 호출합니다. backend에 L3 grounding이 있으면 응답에
-query-generated Exhibition ID와 compact trace가 포함되어 Sources & Trace
-패널이 생성된 L4를 링크할 수 있습니다. 최신 턴이 선택 crop이나 editable
+query`를 직접 호출합니다. backend에 L3 grounding이 있으면 응답에 compact trace가
+포함되어 Sources & Trace 패널이 지원 근거를 링크할 수 있습니다. 최신 턴이 선택 crop이나 editable
 Markdown 영역에 집중된 경우에는 `wiki plugin query`를 건너뛰고 해당 선택
 context에서 답합니다.
 
@@ -491,9 +489,9 @@ linked Zotero attachment의 경우 backend는 configured linked attachment root�
 plugin이 Zotero attachment key를 알고 있으면 Add-to-Incurator는 그 key를 backend source import에 직접 넘길 수 있습니다. backend가 PDF를 해석하고 local reference row에 `zotero:<attachmentKey>` 형태의 stable logical source id를 기록합니다. 같은 Zotero attachment를 반복 등록하면 이 logical source id를 재사용하며 `-02` reference stub를 새로 만들지 않습니다. PDF crop/snipping 이미지는 임시 채팅 컨텍스트로만 사용하며, 가능한 경우 선택된 모델에 전달된 뒤 `05_Assets` 아래에 영구 생성물을 남기지 않아야 합니다.
 Zotero 설정과 복구의 관리 주체는 backend입니다. 플러그인은 plugin 설정값을 canonical state로 보지 않고, `wiki plugin zotero status`, `wiki plugin zotero init`, `wiki plugin zotero search`, `wiki plugin zotero resolve-pdf` 같은 숨김 JSON 명령을 호출해 상태 진단, 초기화, 검색, PDF 경로 해석을 요청해야 합니다. PDF context 요청은 가능한 한 `source_id`, file hash, vault-relative path, absolute path, Zotero attachment key 같은 식별자를 함께 넘기고, backend가 reference-mode 파일이나 이동된 Zotero 파일을 일관되게 해석합니다.
 
-채팅 최종 답변은 plugin에서 선택한 provider/model이 작성합니다. backend/Incurator 호출은 plugin이 명시적으로 호출했을 때 검색 컨텍스트, PDF window, source status 또는 backend synthesis를 제공하는 역할입니다. 채팅 답변에서는 매 최신 요청마다 language bridge를 사용합니다: 입력 언어 감지 → 영어로 내부 검색/추론/tool 인자 처리 → 최신 입력 언어로 최종 답변 작성 순서입니다. 이전 턴, 한글 Markdown 문맥, 저장된 Exhibition metadata가 다음 영어 질문의 답변 언어를 한국어로 고정해서는 안 됩니다. `curator_query`가 임시 Exhibition을 생성하면 Sources & Trace 패널이 생성된 L4를 표시할 수 있도록 Exhibition과 trace 필드는 유지하지만, stale `final_output_language`를 sidechat 언어 상태로 재사용하지 않습니다.
+채팅 최종 답변은 plugin에서 선택한 provider/model이 작성합니다. backend/Incurator 호출은 plugin이 명시적으로 호출했을 때 검색 컨텍스트, PDF window, source status 또는 backend synthesis를 제공하는 역할입니다. 채팅 답변에서는 매 최신 요청마다 language bridge를 사용합니다: 입력 언어 감지 → 영어로 내부 검색/추론/tool 인자 처리 → 최신 입력 언어로 최종 답변 작성 순서입니다. 이전 턴, 한글 Markdown 문맥, 저장된 metadata가 다음 영어 질문의 답변 언어를 한국어로 고정해서는 안 됩니다. `curator_query`가 실행되면 Sources & Trace 패널이 지원 근거를 표시할 수 있도록 trace 필드는 유지하지만, stale `final_output_language`를 sidechat 언어 상태로 재사용하지 않습니다.
 
-입력 언어 감지는 결정론적이며 매 채팅 턴마다 새로 실행됩니다. plugin은 최신 요청을 유니코드 스크립트로 분류하며 — 예: 한국어(한글), 중국어(汉字), 일본어(かな), 러시아어(Кириллица), 아랍어 등, 라틴 문자는 영어로 폴백 — 백엔드 curator query를 트리거하든 일반 provider 채팅이든 동일한 단일 감지기를 공유합니다. 따라서 채팅 세션은 영어 질문이 들어오면 영어로, 한국어 질문이면 한국어로, 중국어 질문이면 중국어로 답하며, 이전 턴이 어떤 언어였든 메시지마다 독립적으로 결정됩니다. 감지된 언어가 곧 답변 언어이며, 모델이 먼저 영어로 만든 뒤 별도 단계에서 번역하지 않습니다. 세 가지 언어 필드(`input_language`, `english_query`, `final_output_language`)는 query JSON/trace에만 존재하고 저장되는 Exhibition 파일에는 절대 기록되지 않으며, 답변 캐시는 출력 언어로 키가 구성되어 한국어 캐시 답변이 영어 질문에 재사용되지 않습니다. 활성 노트가 워크스페이스 폴더 안에 있지 않은 일반 채팅은 워크스페이스 밖으로 취급되어, 생성되는 임시 Exhibition은 `default`로 스코프되며 사용자가 열지 않은 무관한 프로젝트 워크스페이스에 묶이지 않습니다.
+입력 언어 감지는 결정론적이며 매 채팅 턴마다 새로 실행됩니다. plugin은 최신 요청을 유니코드 스크립트로 분류하며 — 예: 한국어(한글), 중국어(汉字), 일본어(かな), 러시아어(Кириллица), 아랍어 등, 라틴 문자는 영어로 폴백 — 백엔드 curator query를 트리거하든 일반 provider 채팅이든 동일한 단일 감지기를 공유합니다. 따라서 채팅 세션은 영어 질문이 들어오면 영어로, 한국어 질문이면 한국어로, 중국어 질문이면 중국어로 답하며, 이전 턴이 어떤 언어였든 메시지마다 독립적으로 결정됩니다. 감지된 언어가 곧 답변 언어이며, 모델이 먼저 영어로 만든 뒤 별도 단계에서 번역하지 않습니다. 세 가지 언어 필드(`input_language`, `english_query`, `final_output_language`)는 query JSON/trace에만 존재하고 생성 노드 frontmatter에는 절대 기록되지 않습니다. 활성 노트가 워크스페이스 폴더 안에 있지 않은 일반 채팅은 워크스페이스 밖으로 취급되어 `default`로 해석되며, 사용자가 열지 않은 무관한 프로젝트 워크스페이스에 묶이지 않습니다.
 
 ### Zotero 링크 처리 흐름
 
@@ -537,9 +535,9 @@ Zotero에서 논문 항목을 우클릭 → **항목 링크 복사**하거나, [
 
 ---
 
-## 13. v0.3.1 큐레이션-네이티브 인터페이스
+## 13. v0.3.2 큐레이션-네이티브 인터페이스
 
-플러그인은 백엔드의 v0.3.1 큐레이션-네이티브 기능을 숨김 로컬 JSON 명령으로
+플러그인은 백엔드의 v0.3.2 큐레이션-네이티브 기능을 숨김 로컬 JSON 명령으로
 호출합니다(동일 기기 흐름에서는 MCP를 거치지 않음). 클라이언트
 (`IncuratorClient`)가 노출하는 메서드:
 
@@ -548,7 +546,12 @@ Zotero에서 논문 항목을 우클릭 → **항목 링크 복사**하거나, [
 | `getCuratePlan(workspacePath)` | `wiki plugin curate plan` | `IncuratorCuratePlan` (route, 선택/제외 소스, 허용 모드, 검증 오류) |
 | `getPromptTrace(traceId)` | `wiki plugin prompt trace` | `IncuratorPromptTrace` (프롬프트 id/버전, 검증자 상태, 모델) |
 | `listInsightCandidates(workspacePath)` | `wiki plugin insight list` | `IncuratorInsightCandidate[]` |
+| `getInsightCandidate(insightId, workspacePath)` | `wiki plugin insight show` | evidence/source event 세부 정보가 포함된 `IncuratorInsightCandidate` |
 | `promoteInsight(insightId, workspacePath)` | `wiki plugin insight promote` | `{ promotedTo }` (`02_Wiki/`에만 기록) |
+| `rejectInsight(insightId, workspacePath, reason)` | `wiki plugin insight reject` | `{ ok, status }` |
+| `listQueryTraces(workspacePath, limit)` | `wiki plugin trace list` | 최근 `QTR-` trace summary |
+| `getQueryTrace(traceId, workspacePath)` | `wiki plugin trace show` | query route, evidence id, retrieval trace, warning |
+| `proposeCorrection(nodeId, correction, previous, workspacePath)` | `wiki plugin correction propose` | classification/recommended action/review flag |
 
 쿼리 결과(`CuratorQueryResult`)와 Sources & Trace 패널은 v0.3.1 필드를 추가로
 담습니다: `route`, `trace_id`(`QTR-`), `prompt_trace_ids`(`PTR-`),
@@ -560,8 +563,12 @@ Zotero에서 논문 항목을 우클릭 → **항목 링크 복사**하거나, [
 - 인사이트 후보 승격은 명시적 사용자 동작입니다. 플러그인은 `promoteInsight`
   호출 전 확인을 받아야 하며, 이는 `02_Wiki/`에만 기록합니다.
 - 이 로컬 명령들은 JSON을 반환하며 Incurator MCP 도구로 라우팅하면 안 됩니다(MCP는
-  외부 에이전트용). [플러그인 스키마 스펙](../specs/plugin_schema/PLUGIN_SCHEMA_v0.3.1.md)
-  §9–11 참고.
+  외부 에이전트용). [플러그인 스키마 스펙](../specs/plugin_schema/PLUGIN_SCHEMA_v0.3.2.md)
+  §9–12 참고.
+- Dashboard의 Trace/Insights 탭은 이 명령들 위에 놓인 click-to-use surface입니다.
+  trace와 insight candidate를 list/show하고, 후보를 promote/reject하거나 correction을
+  propose할 수 있지만 `.curator/state.sqlite`, `.curator/Collections/`,
+  `03_Notes/`, `04_Resources/`, `06_Archives`를 직접 쓰면 안 됩니다.
 
 ---
 

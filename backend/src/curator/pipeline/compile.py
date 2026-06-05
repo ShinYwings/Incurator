@@ -21,6 +21,7 @@ from typing import Any
 from .. import config as cfg
 from .. import constants as consts
 from .. import db, parsers
+from ..retrieval import materializer
 from . import (
     community_reports,
     graph_index,
@@ -101,6 +102,7 @@ def compile_source_l2(
         curate_spec_hash=curate_spec_hash,
     )
     if not ku_result.ok:
+        materializer.materialize_search_documents(paths.state_db)
         db.set_source_layer_status(
             paths.state_db, source_id, "l2", "error",
             error="; ".join(ku_result.errors) or "knowledge unit extraction failed",
@@ -156,6 +158,7 @@ def compile_source_l2(
         curate_spec_hash=curate_spec_hash,
     )
     if not graph.ok:
+        materializer.materialize_search_documents(paths.state_db)
         db.set_source_layer_status(
             paths.state_db, source_id, "l2", "error",
             error="; ".join(graph.errors) or "graph extraction failed",
@@ -166,6 +169,7 @@ def compile_source_l2(
             error="graph extraction failed",
         )
 
+    materializer.materialize_search_documents(paths.state_db)
     db.set_source_layer_status(paths.state_db, source_id, "l2", "done")
     trace_ids = [t for t in (ku_result.trace_id, graph.trace_id) if t]
     return CompileResult(
@@ -245,6 +249,7 @@ def compile_global_l3(
     if errors:
         raise RuntimeError(f"L3 global clustering encountered errors: {error_msg}")
 
+    materializer.materialize_search_documents(paths.state_db)
     return concept_ids
 
 
@@ -285,5 +290,6 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
         n_concepts += 1
 
     n_synthesis = synthesis.reemit_synthesis(paths)
+    materializer.materialize_search_documents(paths.state_db)
 
     return {"atoms": n_atoms, "concepts": n_concepts, "synthesis": n_synthesis}

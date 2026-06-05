@@ -139,6 +139,7 @@ def test_compile_source_l2_writes_units_atoms_graph(vault) -> None:
 
     # l2 done.
     assert _layer_status(paths, 1, "l2") == "done"
+    assert any(doc["record_type"] == "knowledge_unit" for doc in db.list_search_documents(paths.state_db))
 
 
 def test_compile_global_l3_writes_concepts(vault) -> None:
@@ -172,3 +173,6 @@ def test_compile_source_l2_failed_extraction_sets_error(vault) -> None:
     assert not result.ok
     assert _layer_status(paths, 1, "l2") == "error"
     assert db.list_knowledge_units_for_source(paths.state_db, 1) == []
+    docs = db.list_search_documents(paths.state_db)
+    assert {doc["record_type"] for doc in docs} == {"source_span"}
+    assert len(docs) == len(db.list_source_spans(paths.state_db, 1))

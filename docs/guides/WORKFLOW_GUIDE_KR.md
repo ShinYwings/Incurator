@@ -27,7 +27,7 @@ Incurator는 세 개의 독립적인 구성 요소로 이루어집니다.
               ▼                          ▼
    ┌─────────────────────┐   ┌───────────────────────┐
    │  AI Agent (MCP)     │   │  wiki 명령어           │
-   │  Claude Code        │   │  wiki add / curate    │
+   │  Claude Code        │   │  wiki add / query     │
    │  Antigravity        │   │  wiki sync / query    │
    │  Codex              │   │  wiki status / lint   │
    └─────────────────────┘   └───────────────────────┘
@@ -89,7 +89,7 @@ Incurator는 소스 문서를 4단계 추상화 레이어로 처리합니다.
   - 특정 워크스페이스에 맞춤되지 않은 지속적 지식
   - 전체를 한꺼번에 재생성; 리포트 코퍼스가 바뀌지 않으면 건너뜀
      │
-     │  query / curate (동적 Curation 렌즈 — 저장되지 않음)
+     │  query (동적 Curation 렌즈 — 저장되지 않음)
      ▼
 [Curation]  워크스페이스/쿼리별 L3/L4 노드의 동적 선택·재조합
   - 워크스페이스 curate.yml 지식 요구 사양(KRS)에 의해 편향됨
@@ -99,8 +99,8 @@ Incurator는 소스 문서를 4단계 추상화 레이어로 처리합니다.
 > **L4 Synthesis vs. Curation.** Synthesis 레이어는 다른 LLM 위키 레포지토리의
 > synthesis 계층처럼 지식 그래프의 지속적·공유 최상위 계층입니다. **Curation**은
 > 그 *위에 있는 동적 렌즈*로, 워크스페이스/쿼리별로 L3/L4 노드를 선택·재조합하며
-> 절대 영속화되지 않습니다. (기존의 워크스페이스별 *고정 Exhibition 파일*
-> `04_Exhibitions/`은 이 동적 모델로 점진적으로 대체되고 있습니다.)
+> 절대 영속화되지 않습니다. v0.3.1에는 워크스페이스별 고정 Exhibition 파일이
+> 없습니다.
 
 ---
 
@@ -135,9 +135,8 @@ wiki build --wait     # L2(Atoms) → L3(Concepts)를 지금 동기 실행
 > 백그라운드 IngestWorker에 큐잉하고 `--wait`로 즉시 실행할 수 있다. L2 추출은 활성 LLM
 > 클라이언트의 prompt budget에 맞춰 section batch 크기를 정하므로, CLI 기반 provider에는
 > local high-context 모델보다 작은 prompt가 전달된다. 진행률은 `wiki status`나
-> `.curator/dashboard.md`로 확인한다. L4 Exhibition은 보통 필요 시 workspace
-> agent 흐름에서 생성된다. 수동 `wiki curate` 명령은 기본 help에서 숨겨진
-> 고급/디버깅용 workspace curation 경로다.
+> `.curator/dashboard.md`로 확인한다. L4 Synthesis는 `wiki build`가 생성하며,
+> workspace curation은 별도의 staging 패스가 아니라 동적 query 렌즈입니다.
 
 ### 4-2. 고급 Workspace 큐레이션
 
@@ -148,12 +147,9 @@ wiki build --wait     # L2(Atoms) → L3(Concepts)를 지금 동기 실행
 #   sources.include: ["03_Notes/**", "04_Resources/**"]
 #   min_confidence: 0.70
 
-# L4 Exhibition 생성
-wiki curate --workspace 01_Workspaces/MyProject
+# 워크스페이스 KRS가 반영된 동적 답변 질의
+wiki query "질문" --workspace 01_Workspaces/MyProject
 ```
-
-`wiki curate`는 workspace-agent 및 디버깅 워크플로우를 위해 직접 호출 가능하지만,
-일반 사용자용 `wiki --help` 표면에는 포함하지 않는다.
 
 ### 4-3. 검색 및 질의
 
@@ -161,7 +157,7 @@ wiki curate --workspace 01_Workspaces/MyProject
 # 자연어 질의 (BM25 + vector + LLM rerank + 동적 2-Step RAG)
 wiki query "Gaussian Splatting에서 COLMAP 없이 카메라 포즈를 추정하는 방법은?"
 
-# 명시적 Workspace를 지정한 질의 (Pinned Exhibition 모드)
+# 명시적 Workspace를 지정한 질의 (curate.yml 기반 동적 curation)
 wiki query --workspace 01_Workspaces/MyProject "우리의 목표를 요약해줘."
 
 # 검색 인덱스 재구축
@@ -191,11 +187,14 @@ Obsidian plugin JSON 호출용 `wiki plugin ...`, 외부 에이전트용 `wiki m
 > **wiki sync 기본 동작 변경 (v0.2.1)**: 변경되지 않은 DAG에서 `wiki sync`는 content_hash 검사만 수행합니다(~0.6초).
 > 변경된 노드와 그 하위 노드만 LLM으로 재검증됩니다. 전체 재검증을 원하면 `--full`을 사용하세요.
 
-> **이원화된 질의 아키텍처 및 Exhibition 영구 보존**:
-> - **Workspace Agent**: 워크스페이스가 지정되면, `curate.yml`에 정의된 **Pinned Exhibition**과 페르소나를 사용하며, 채팅용 임시 파일을 생성하지 않습니다.
-> - **Vault Agent**: 일반 Vault 질의 시에는 세션별로 **영구적인 L4 Exhibition**을 동적으로 생성하고, 글로벌 폴백 페르소나를 사용합니다.
-> - **L3 제약 조건**: L4 Exhibition은 검색된 **L3 Concept이 있을 때만 생성**됩니다. 일치하는 L3가 없으면 L4를 저장하지 않고 즉시 답변합니다.
-> - **Exhibition 생명주기 (v0.3.1)**: 채팅으로 생성된 Exhibition은 사용자의 성향과 세션 기록을 종합하는 "살아있는 문서(Living Document)" 역할을 합니다. 기존의 24시간 임시 GC 룰은 폐기(Deprecated)되었으며, 이제 이 Exhibition들은 고품질의 최종 전시품으로 영구 보존됩니다.
+> **Curation-native 질의**:
+> - **Workspace Agent**: 워크스페이스가 지정되면 `curate.yml`의 페르소나와
+>   Knowledge Requirement Spec을 사용합니다.
+> - **Vault Agent**: 일반 Vault 질의는 글로벌 폴백 페르소나를 사용합니다.
+> - **L3/L4 근거**: 질의는 필요에 따라 L3 Concepts, L4 Synthesis nodes,
+>   memory paths, source sections, insight candidates에서 근거를 선택합니다.
+> - **고정 질의 산출물 없음**: 질의 답변은 sessionless이고 `QTR-` trace를 남기며,
+>   명시적 승격만 검토된 결과를 `02_Wiki/`에 씁니다.
 
 > **백그라운드 워커 폴백**: MCP 서버가 실행 중일 때 IngestWorker가 대기 중인 작업을 자동으로 처리합니다.
 > 테스트나 오프라인 CLI 사용 시에는 `wiki jobs run` 명령으로 큐를 전경(foreground)에서 처리할 수 있습니다.
@@ -222,8 +221,8 @@ Obsidian 플러그인 단독 사용:
   사용자 채팅 → LLM 직접 호출 (Antigravity/Claude/OpenAI/DeepSeek/Ollama)
 
 Curator 백엔드 연동 사용:
-  사용자 채팅 → 플러그인이 MCP 도구 호출 → Curator가 Exhibition 검색
-              → LLM이 Exhibition 내용을 근거로 답변 생성
+  사용자 채팅 → 플러그인이 backend 도구 호출 → Curator가 파생 코퍼스 검색
+              → LLM이 추적 가능한 근거로 답변 생성
 ```
 
 ### PDF 처리 흐름 (v0.2.1 — Adaptive Routing)
@@ -253,9 +252,9 @@ Obsidian에서 PDF 열기
 │ 에이전트: curator_query("질문", workspace_id="...") 사용 가능   │
 └───────────────────────────────────────────────────────────────┘
      │
-     │ workspace curation 실행 (필요 시)
+     │ 동적 curation 질의
      ▼
-L4 Exhibition 생성 → search_curator로 검색 가능
+Sources & Trace가 포함된 답변
 ```
 
 ---
@@ -301,13 +300,13 @@ VAULT_ROOT=/path/to/vault wiki mcp
 에이전트 세션 시작
      │
      │ 1. curator_check_workspace(workspace_path)
-     │    → curate.yml 유효성, 에이전트 룰 설치, Exhibition 존재 확인
+     │    → curate.yml 유효성 확인 및 에이전트 룰 설치
      ▼
 도메인 질의 발생
      │
-     │ 2. search_curator(query, workspace_path)
-     │    → Exhibition 기반 BM25+벡터 검색
-     │    → 결과가 없으면 workspace curation을 트리거할 수 있음
+     │ 2. curator_query(query, workspace_path)
+     │    → local/global/explore/source-section 근거 라우팅
+     │    → Sources & Trace가 포함된 답변 반환
      ▼
 답변 생성 (검색 결과 인용)
      │
@@ -316,9 +315,6 @@ VAULT_ROOT=/path/to/vault wiki mcp
      │    → Atom 생성 → 인덱스 자동 갱신
      ▼
 세션 종료
-     │
-     │ 4. (optional) curator_curate_workspace
-     │    → Exhibition 갱신
 ```
 
 ### 주요 MCP 도구
@@ -326,12 +322,11 @@ VAULT_ROOT=/path/to/vault wiki mcp
 | 도구 | 용도 |
 |------|------|
 | `curator_check_workspace` | 세션 시작 시 Workspace 상태 점검 및 룰 설치 |
-| `search_curator` | 자연어 검색 (Exhibition 기반) |
+| `curator_query` | Sources & Trace가 포함된 자연어 답변 |
 | `curator_workspace_init` | 새 Workspace 생성 (인터뷰 방식) |
-| `curator_curate_workspace` | 현재 Workspace의 L4 Exhibition 재생성 |
 | `curator_add_knowledge` | 새 지식 단위(Atom) 직접 추가 |
-| `curator_update_node` | 기존 DAG 노드 수정 및 propagation |
-| `curator_get_node` | 특정 노드(CTX/ATM/CON/EXH) 내용 조회 |
+| `curator_propose_correction` | 생성 노드에 대한 검토된 correction 제안 |
+| `curator_get_node` | 특정 노드(CTX/ATM/CON/SYN) 내용 조회 |
 
 ---
 
@@ -396,9 +391,8 @@ wiki init /path/to/your/vault
 #    - ~/.antigravity/mcp_config.json
 #    - <vault>/.claude/settings.json
 
-# 5. 소스 추가 및 큐레이션
+# 5. 소스 추가
 wiki add 03_Notes/
-wiki curate --workspace 01_Workspaces/MyProject
 
 # 6. 검색 확인
 wiki query "첫 번째 질문"
@@ -413,9 +407,9 @@ wiki query "첫 번째 질문"
   03_Notes/ ──┐
   04_Resources/ ──┤── wiki add ──► L1 CTX ──► L2 ATM ──► L3 CON
   02_Wiki/ ───┘                                              │
-                                                             │ wiki curate
+                                                             │ wiki query
 [Machine Layer (state.sqlite DB)]                            ▼
-  .curator/Collections/04_Exhibitions/ ◄─────── L4 EXH (workspace-scoped)
+  .curator/Collections/04_Synthesis/ ◄─────── L4 SYN (shared)
                     │
          ┌──────────┼──────────┐
          ▼          ▼          ▼
@@ -425,19 +419,21 @@ wiki query "첫 번째 질문"
 
 ---
 
-## 9. v0.3.1 큐레이션-네이티브 컴파일 모델
+## 9. v0.3.2 큐레이션-네이티브 컴파일 모델
 
-v0.3.1은 Curator를 **컴파일러**로 만듭니다. 중간 표현(IR)은 DB이고, 마크다운
-컬렉션은 거기서 파생된 일회용 검색 코퍼스입니다.
+v0.3.2는 Curator를 **컴파일러**로 만듭니다. 중간 표현(IR)은 DB이고, 마크다운
+컬렉션은 Obsidian 표시용 파생 산출물이며 검색 코퍼스가 아닙니다.
 
 - **`state.sqlite`가 큐레이션 지식의 유일한 진실원**입니다: `source_spans`,
   `knowledge_units`, `graph_entities`/`graph_relations`, `community_reports`,
   `memory_paths`, 의존성, 프롬프트 실행, 인사이트 후보.
-- **`.curator/Collections/`의 L1–L3 마크다운(CTX/ATM/CON)은 DB에서 emit**되어
-  `qmd`가 하이브리드 검색용으로 인덱싱합니다. 권위가 없고 언제든 재생성 가능 →
+- **`.curator/Collections/`의 L1–L4 마크다운(CTX/ATM/CON/SYN)은 DB에서 emit**되어
+  Obsidian에서 확인할 수 있는 projection으로 쓰입니다. 권위가 없고 언제든 재생성 가능 →
   DB↔파일 드리프트 없음.
-- **사람/에이전트에 노출되는 건 L4 Exhibition뿐**(`02_Wiki/`로 출력)이며, 편집 시
-  DB로 역파싱됩니다.
+- **검색은 DB-native**입니다: authoritative record에 대한 FTS5, chunk-level
+  vector, typed query expansion, RRF, configured reranking을 사용합니다.
+- **L4 Synthesis는 생성된 검색 projection**이며 사람이 직접 편집하는 산출물이
+  아닙니다. 지속적인 human-reviewed 결과는 명시적 승격으로만 `02_Wiki/`에 기록됩니다.
 
 전방 컴파일 흐름:
 
@@ -445,16 +441,16 @@ v0.3.1은 Curator를 **컴파일러**로 만듭니다. 중간 표현(IR)은 DB�
 wiki add   → 파싱(LLM 없음) → DB source_spans              → CTX projection emit
 wiki build → LLM            → DB knowledge_units            → ATM projection emit
            → LLM+임베딩      → DB entities/relations/reports → CON projection emit
-           → qmd update/embed가 .curator/Collections/ 인덱싱
-wiki query → 라우트 → qmd 검색(파생 코퍼스) + DB 그래프 탐색 → L4 EXH
+           → DB-native search rows/chunks/embeddings
+wiki query → 라우트 → typed expansion + FTS5/vector/RRF/rerank + DB 그래프 탐색 → 답변 + QTR
 ```
 
 ### 9.1 쿼리 라우트
 
 `wiki query "..." --route <route>` 는 v0.3.1 `QueryOrchestrator`로 답합니다:
 `local`(엔티티/사실), `global`(커뮤니티 리포트), `explore`(메모리 경로 + 인사이트
-후보), `exhibition`(활성 staged 컨텍스트), `source-section`(특정 원본). `--route`
-없으면 레거시 qmd 경로(qmd는 폴백 엔진). 동일 라우팅이 MCP `curator_query` /
+후보), `source-section`(특정 원본), `auto`(orchestrator 선택)를 지원합니다.
+`--route`가 없으면 `auto`가 실행됩니다. 동일 라우팅이 MCP `curator_query` /
 `curator_explore`로 에이전트에도 제공됩니다.
 
 ### 9.2 백프롭 & 인사이트 라이프사이클 (역방향 패스)
@@ -462,12 +458,11 @@ wiki query → 라우트 → qmd 검색(파생 코퍼스) + DB 그래프 탐색 
 사람/에이전트 피드백은 **loss signal**입니다. 역방향 패스는 패치 전에 변경을
 분류하고 원본 진실을 보호합니다:
 
-- `wiki sync <EXH-ID> --backward [--dry-run]` 는 편집된 Exhibition을 역파싱하고
-  분류(correction / contradiction / derived_insight / style_only /
-  promotion_request / ambiguous)한 뒤 안전한 액션을 산출 — 파생 인사이트는 잠정
-  **인사이트 후보**가 되고, 정정은 **생성된 노드에만** 대한 명시적 패치 플랜을
-  만듭니다. `03_Notes/`/`04_Resources/`는 절대 수정하지 않습니다.
-- 에이전트는 MCP `curator_propose_correction`으로 동일하게 수행합니다.
+- 에이전트는 MCP `curator_propose_correction`으로 피드백을 correction /
+  contradiction / derived_insight / style_only / promotion_request / ambiguous로
+  분류합니다. 파생 인사이트는 잠정 **인사이트 후보**가 되고, 정정은
+  **생성된 노드에만** 대한 명시적 패치 플랜을 만듭니다.
+  `03_Notes/`/`04_Resources/`는 절대 수정하지 않습니다.
 - `wiki insight list|show|promote`(또는 MCP `curator_list_insight_candidates` /
   `curator_promote_insight`)로 후보를 검토하며, 승격은 `02_Wiki/`에만 기록합니다.
 

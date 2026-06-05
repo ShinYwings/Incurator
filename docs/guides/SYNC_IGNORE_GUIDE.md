@@ -36,10 +36,9 @@ node_modules/
 // sessions.json supports session-level merge-on-save in v0.2.1 and may sync
 .obsidian/plugins/incurator-obsidian-agent/data.json
 
-// Incurator backend: per-device index state
-// Vault files synchronize through Syncthing; indexes should be rebuilt per device
+// Incurator backend: per-device DB and internal search state
+// Vault files synchronize through Syncthing; DB-native search rows rebuild per device
 .curator/state.sqlite
-.curator/qmd/index.sqlite
 
 // Incurator runtime: volatile status and job files
 // Syncing these causes massive conflicts and battery drain
@@ -105,7 +104,7 @@ The intended sharing model is:
   do not rely on Git for large/private resource libraries.
 - `.curator/Collections/`: may be shared through Git as generated knowledge
   artifacts when the project chooses to version them.
-- `.curator/state.sqlite*`, `.curator/qmd/`, and `.curator/runtime/`: device-local runtime/index/volatile
+- `.curator/state.sqlite*` and `.curator/runtime/`: device-local runtime/index/volatile
   state; do not sync through Syncthing or Git.
 - Backend executable/repository path: device-local; do not store as shared vault
   truth.
@@ -145,7 +144,6 @@ Settings to exclude large files or local state when managing your knowledge base
 *.sqlite*
 *.db*
 .curator/
-qmd-cache/
 
 # ==========================================
 # 2. Obsidian Local State

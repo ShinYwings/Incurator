@@ -27,7 +27,7 @@ __all__ = ["ActionPlan", "plan_action", "create_insight_from_classification", "p
 
 # Generated-node prefixes that backprop may patch. Source spans and the
 # read-only source folders are never touched.
-_PATCHABLE = ("ATM-", "CON-", "EXH-", "KNU-", "ENT-", "REL-", "REP-")
+_PATCHABLE = ("ATM-", "CON-", "SYN-", "KNU-", "ENT-", "REL-", "REP-")
 _READ_ONLY_DIRS = ("03_Notes/", "04_Resources/", "06_Archives/")
 
 

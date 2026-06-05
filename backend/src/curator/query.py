@@ -382,15 +382,12 @@ def run_query(
     english_query: str | None = None,
     input_language: str = "",
     final_output_language: str = "",
-    route: str = "",
+    route: str = "auto",
 ) -> QueryResult:
     """Run a full query → answer pipeline.
 
-    When ``route`` is one of the v0.3.1 curation-native routes (local | global |
-    explore | exhibition | source-section), the query is answered by the
-    QueryOrchestrator (DB graph + qmd derived corpus, with a QTR trace). When
-    ``route`` is empty, the legacy qmd-synthesis path runs (qmd remains the
-    fallback retrieval engine per SYSTEM_BEHAVIOR_v0.3.1 §17).
+    ``route`` is answered by the v0.3.1 QueryOrchestrator (DB graph + qmd
+    derived corpus, with a QTR trace). Empty route is normalized to ``auto``.
 
     scope filters retrieval by Curator layer (path prefix inside
     `.curator/Collections/`):
@@ -398,7 +395,7 @@ def run_query(
         - 'contexts'    → 01_Contexts/ only
         - 'atoms'       → 02_Atoms/ only
         - 'concepts'    → 03_Concepts/ only
-        - 'exhibitions' → 04_Exhibitions/ only
+        - 'synthesis'   → 04_Synthesis/ only
 
     classify_intent_first runs intent classification before retrieval. If
     the user asked something like 'hi' or 'thanks', we skip retrieval and
@@ -406,13 +403,22 @@ def run_query(
     """
     from .retrieval import ROUTES as _V031_ROUTES
 
-    if route and route in (*_V031_ROUTES, "auto"):
-        return _run_query_orchestrated(
-            paths, client, question, callbacks,
-            route=route, workspace_path=workspace_path, session_id=session_id,
-            english_query=english_query, input_language=input_language,
-            final_output_language=final_output_language,
+    selected_route = (route or "auto").strip()
+    if selected_route not in (*_V031_ROUTES, "auto"):
+        return QueryResult(
+            question=question,
+            session_id=session_id,
+            error=(
+                f"Invalid route '{selected_route}'. Use auto, local, global, "
+                "explore, or source-section."
+            ),
         )
+    return _run_query_orchestrated(
+        paths, client, question, callbacks,
+        route=selected_route, workspace_path=workspace_path, session_id=session_id,
+        english_query=english_query, input_language=input_language,
+        final_output_language=final_output_language,
+    )
 
     callbacks.on_start(question, mode)
 
@@ -494,7 +500,7 @@ def run_query(
         "contexts":  f"{consts.LAYER_L1}/",
         "atoms":     f"{consts.LAYER_L2}/",
         "concepts":  f"{consts.LAYER_L3}/",
-        "synthesis": f"{consts.LAYER_SYN}/",
+        "synthesis": f"{consts.LAYER_L4}/",
     }.get(scope)
 
     def _search_for(query_text: str) -> search.SearchResults:
@@ -537,17 +543,6 @@ def run_query(
                 results = _search_for(" ".join(semantic_terms))
 
         results.hits.sort(key=lambda h: -h.score)
-    except search.QmdNotInstalled as e:
-        result = QueryResult(
-            question=question,
-            session_id=session_id,
-            english_query=base_search_question,
-            input_language=input_language,
-            final_output_language=resolved_final_output_language,
-            error=str(e),
-        )
-        callbacks.on_error(result.error)
-        return result
     except search.SearchBackendError as e:
         result = QueryResult(
             question=question,

@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from curator import config as cfg
+from curator import constants as consts
 from curator import db, ingest_llm, ingest_raw, lint, page_writer, prompts, sync
 
 
@@ -20,7 +21,7 @@ class IntegrityTests(unittest.TestCase):
             self.paths.contexts,
             self.paths.atoms,
             self.paths.concepts,
-            self.paths.exhibitions,
+            self.paths.synthesis,
         ):
             layer_dir.mkdir(parents=True, exist_ok=True)
         db.init_db(self.paths.state_db)
@@ -227,8 +228,18 @@ Original body.
             encoding="utf-8",
         )
 
-        ok = sync._regenerate_concept(self.paths, _StubClient(), con_id)
-        self.assertFalse(ok)
+        # v0.3.1: in-place regeneration is removed. A Mode-C logical gap is routed
+        # to needs_review and the concept page is left untouched (L3/L4 are
+        # DB-derived projections corrected via the insight/backprop lifecycle).
+        self.assertFalse(hasattr(sync, "_regenerate_concept"))
+        gap = sync.VerificationGap(
+            layer=consts.TYPE_L3, node_id=con_id,
+            message="Concept logic not fully derivable from its Atoms.",
+            reasoning="stubbed logical gap",
+        )
+        repair = sync.fix_gaps(self.paths, _StubClient(), [gap])
+        self.assertEqual(repair.fixed, 0)
+        self.assertIn(gap, repair.needs_review)
         rewritten = page_writer.read_page(self.paths.concepts / f"{con_id}.md")
         self.assertIsNotNone(rewritten)
         self.assertEqual(rewritten.frontmatter["id"], con_id)
@@ -252,18 +263,6 @@ Original body.
         self.assertIn("Do NOT include `dependencies`", text_l3)
         self.assertIn("## Relations", text_l3)
         self.assertNotIn("dependencies: ['02_Atoms/ATM-a", text_l3)
-
-        msgs_l4 = prompts.build_curation_page_messages(
-            curation_id="EXH-good1234",
-            topic="Stable Exhibition",
-            theme_ids=["CON-a", "CON-b"],
-            themes_content="dummy",
-            confidence=0.8,
-            today="2026-05-04T00:00:00Z",
-        )
-        text_l4 = msgs_l4[-1].content
-        self.assertIn("core_concepts: ['03_Concepts/CON-a', '03_Concepts/CON-b']", text_l4)
-        self.assertNotIn("'[[03_Concepts/CON-a]]'", text_l4)
 
     def test_strip_llm_noise_keeps_first_yaml_fenced_page(self) -> None:
         noisy = """```yaml

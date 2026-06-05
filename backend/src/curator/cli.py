@@ -20,7 +20,7 @@ from . import constants as consts
 import json
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import typer
 from rich.console import Console
@@ -29,13 +29,11 @@ from rich.table import Table
 
 from . import __version__
 from . import config as cfg
-from . import constants as consts
 from . import llm_identity
 from . import db
 from . import ingest_llm
 from . import ingest_raw
 from . import lint as lint_module
-from . import page_writer
 from . import query as query_module
 from . import runtime_state
 from . import search
@@ -53,8 +51,6 @@ from .workspace.provisioner import (
 from .llm import (
     LLMError,
     ClaudeCodeError,
-    detect_ram_gb,
-    has_enough_ram_for_local,
     FailoverClient,
     ModelNotFound,
     OllamaNotRunning,
@@ -186,6 +182,10 @@ plugin_prompt_app = typer.Typer(name="prompt", no_args_is_help=True, add_complet
 plugin_app.add_typer(plugin_prompt_app, name="prompt")
 plugin_insight_app = typer.Typer(name="insight", no_args_is_help=True, add_completion=False)
 plugin_app.add_typer(plugin_insight_app, name="insight")
+plugin_trace_app = typer.Typer(name="trace", no_args_is_help=True, add_completion=False)
+plugin_app.add_typer(plugin_trace_app, name="trace")
+plugin_correction_app = typer.Typer(name="correction", no_args_is_help=True, add_completion=False)
+plugin_app.add_typer(plugin_correction_app, name="correction")
 
 devices_app = typer.Typer(
     name="devices",
@@ -475,37 +475,25 @@ def _warn(text: str) -> None:
 
 
 def _refresh_qmd_index(paths: cfg.WikiPaths, *, embed: bool = True) -> None:
-    """Run `qmd update` (and optionally `qmd embed`) for this project.
+    """Rebuild the DB-native search index for this project (v0.3.2).
 
-    Friendly: emits hints instead of raising when qmd isn't built or fails;
-    callers (sync/ingest/lint --fix) are non-fatal — the source of truth is
-    on disk regardless.
+    Friendly: emits hints instead of raising. Callers (sync/ingest/lint --fix)
+    are non-fatal — the source of truth is `state.sqlite` regardless. FTS5
+    lexical search always works; vector embeddings degrade gracefully when the
+    embedder is unavailable.
     """
-    if not search.is_available():
-        bin_path = search.get_qmd_binary()
-        if bin_path and not bin_path.exists():
-            _hint(
-                "qmd binary not found. Install it globally via npm: "
-                "[bold]npm install -g @tobilu/qmd[/bold]"
-            )
-        else:
-            _hint(
-                "qmd binary present but not responding. "
-                "Try `qmd --version` to diagnose."
-            )
-        return
     try:
-        console.print("[dim]Updating qmd index…[/dim]")
+        console.print("[dim]Rebuilding search index…[/dim]")
         result = search.update_index(paths, embed=embed)
         if result.degraded:
-            _warn(f"qmd vector embedding skipped: {result.warning}")
-            _ok("qmd BM25 index updated")
-            _hint("Vector search is stale; BM25 search remains available. Rerun `wiki reindex` after qmd embeddings are healthy.")
+            _warn(f"Vector embedding skipped: {result.warning}")
+            _ok("BM25 (FTS5) index updated")
+            _hint("Vector search is stale; BM25 search remains available. Rerun `wiki reindex --embed` once the embedder is healthy.")
         else:
-            _ok("qmd index updated")
+            _ok("Search index updated")
     except search.SearchBackendError as e:
-        _warn(f"qmd index update failed: {e}")
-        _hint("Search is now stale; rerun later with `wiki reindex`.")
+        _warn(f"Search index update failed: {e}")
+        _hint("Search may be stale; rerun later with `wiki reindex`.")
 
 
 def _resolve_root_or_die(hint_path: Path | None = None) -> cfg.WikiPaths:
@@ -1009,7 +997,7 @@ def _mark_clean_sync_status(paths: cfg.WikiPaths) -> None:
         ]
     if l2_done and paths.concepts.exists() and any(paths.concepts.glob(f"{consts.PREFIX_L3}-*.md")):
         db.set_sources_layer_status(paths.state_db, l2_done, "l3", "done")
-    if l3_done and paths.exhibitions.exists() and any(paths.exhibitions.glob(f"{consts.PREFIX_L4}-*.md")):
+    if l3_done and paths.synthesis.exists() and any(paths.synthesis.glob(f"{consts.PREFIX_L4}-*.md")):
         db.set_sources_layer_status(paths.state_db, l3_done, "l4", "done")
 
 
@@ -1748,7 +1736,7 @@ def _maybe_auto_evolve_curator_persona(
         "to the vault's core identity), return ONLY an updated JSON object with the SAME "
         "schema as the current persona. Update the area, text, knowledge_artifacts, "
         "verification_philosophy, or disambiguation_keywords fields as appropriate. "
-        "Do not change confidence thresholds or exhibition_intent unless clearly needed.\n\n"
+        "Do not change confidence thresholds or output_intent unless clearly needed.\n\n"
         "Return only valid JSON — no prose, no code fences. Either null or the updated JSON."
     )
     try:
@@ -2015,7 +2003,6 @@ def reset(
     It does not delete the 01_Workspaces..06_Archives topology.
     """
     import shutil
-    import os
     
     if not force:
         confirm = typer.confirm("This will permanently delete all Curator state and generated collections. Are you sure?")
@@ -2040,7 +2027,6 @@ def reset(
         paths.internal / "sync-report.json",
         paths.internal / "devices.json",
         paths.internal / "sessions.json",
-        paths.qmd_db,
         paths.staging,
         paths.collections_dir if hasattr(paths, 'collections_dir') else paths.collections,
     ]
@@ -2059,7 +2045,7 @@ def reset(
                 _err(f"Failed to remove {item.name}: {e}")
                 
     if removed:
-        console.print(f"[green]✓ Reset complete.[/green] Removed:")
+        console.print("[green]✓ Reset complete.[/green] Removed:")
         for r in removed:
             console.print(f"  - {r}")
     else:
@@ -2099,7 +2085,7 @@ def init(
       00_System/ … 06_Archives/ — Vault topology (created if absent)
       .curator/config.yml        — project configuration
       .curator/state.sqlite      — tracking database
-      .curator/Collections/      — 01_Contexts/ 02_Atoms/ 03_Concepts/ 04_Exhibitions/
+      .curator/Collections/      — 01_Contexts/ 02_Atoms/ 03_Concepts/ 04_Synthesis/
       .curator/overview.md       — domain manifest
       .curator/index.md          — DAG routing table
       .curator/log.md            — ingest log
@@ -2304,14 +2290,9 @@ def init(
         )
         _ok(f"Log:       {paths.log.relative_to(root)}")
 
-    # qmd index.yml — pin qmd to this project's collections + per-vault DB
-    try:
-        if search.write_qmd_config(paths):
-            _ok(f"QMD cfg:   {paths.qmd_config_file.relative_to(root)}")
-        else:
-            _hint(f"qmd config already exists at {paths.qmd_config_file.relative_to(root)}")
-    except search.SearchBackendError as e:
-        _warn(f"Could not write qmd config: {e}")
+    # v0.3.2: search is DB-native (FTS5 + vector inside state.sqlite). No external
+    # qmd config/index is written; `wiki build`/`wiki reindex` materialize the
+    # search corpus directly from the DB.
 
     # 6. Curator persona interview (requires LLM to be configured)
     if interactive and config.get("llm", {}).get("primary"):
@@ -2354,7 +2335,7 @@ def init(
     if not config.get("llm", {}).get("primary"):
         _hint("LLM provider not set. Run [bold]wiki config provider[/bold] to configure.")
     else:
-        _hint("Next: run [bold]wiki add[/bold] to discover & summarize sources, then [bold]wiki curate[/bold].")
+        _hint("Next: run [bold]wiki add[/bold] to discover sources, then [bold]wiki build[/bold].")
 
 @config_app.command("get")
 def config_get(
@@ -2731,16 +2712,13 @@ def status() -> None:
     if primary_prov == consts.BACKEND_OLLAMA or fb_prov == consts.BACKEND_OLLAMA:
         cfg_table.add_row("Ollama host", ollama_cfg.get("host", "?"))
 
-    cfg_table.add_row("Search backend", search_cfg.get("backend", "?"))
+    cfg_table.add_row("Search backend", search_cfg.get("backend", "native"))
     cfg_table.add_row("Reranking", "on" if search_cfg.get("rerank") else "off")
-    qmd_bin = search.get_qmd_binary()
-    if search.is_available():
-        version = search.get_version() or "installed"
-        cfg_table.add_row("QMD binary", f"[green]{version}[/green]  [dim]{qmd_bin}[/dim]")
-    elif qmd_bin is not None:
-        cfg_table.add_row("QMD binary", f"[yellow]not built[/yellow]  [dim]{qmd_bin}[/dim]")
-    else:
-        cfg_table.add_row("QMD binary", "[red]not found[/red]")
+    cfg_table.add_row("Embedding", str(search_cfg.get("embedding") or "[dim]none[/dim]"))
+    cfg_table.add_row(
+        "Search engine",
+        f"[green]{search.get_version()}[/green]  [dim]in-DB FTS5 + vector[/dim]",
+    )
     console.print(cfg_table)
 
     table = Table(title="Sources", show_header=False, box=None, padding=(0, 2))
@@ -2937,7 +2915,7 @@ def add(
     if not pending_rows and not force:
         if not discovered:
             if has_concepts:
-                _hint("All sources have L1 Contexts. Run [bold]wiki build[/bold] for L2/L3, or [bold]wiki curate[/bold] for L4.")
+                _hint("All sources have L1 Contexts. Run [bold]wiki build[/bold] for L2/L3/L4 Synthesis.")
             else:
                 _hint("All sources have L1 Contexts. Run [bold]wiki build[/bold] to extract L2 Atoms + L3 Concepts.")
         return
@@ -3051,7 +3029,6 @@ def build(
             _ok("No pending L1/L2 sources. Queued global L3 Concept clustering.")
             _spawn_background_worker(paths)
         else:
-            from . import ingest_llm
             client = ingest_llm.get_client(paths, config)
             if not client:
                 _err("No LLM client configured.")
@@ -3306,8 +3283,8 @@ def sources_list_cmd(
     _ERROR_REASON_LABEL = {
         "empty_file":  ("empty/unreadable",  "wiki add error — file has no extractable text"),
         "missing_context": ("missing L1",    "wiki add error — L1 Context is missing or invalid"),
-        "parse_error": ("parse failed",       "wiki curate error — file could not be parsed"),
-        "llm_error":   ("LLM error",          "wiki curate error — LLM call failed"),
+        "parse_error": ("parse failed",       "wiki add error — file could not be parsed"),
+        "llm_error":   ("LLM error",          "wiki build error — LLM call failed"),
         "invalid_atom_output": ("bad atom",   "wiki add error — L2 Atom output was invalid"),
     }
 
@@ -3396,7 +3373,7 @@ def sources_list_cmd(
             elif reason == "missing_context":
                 console.print("       [dim]→ Re-run [bold]wiki add --force[/bold] to regenerate L1 Contexts.[/dim]")
             elif reason in ("parse_error", "llm_error"):
-                console.print(f"       [dim]→ Re-try with [bold]wiki curate {row['id']} --force[/bold][/dim]")
+                console.print(f"       [dim]→ Re-try with [bold]wiki source retry {row['id']}[/bold][/dim]")
             shown_reasons.add(reason)
         for row in layer_error_rows:
             if row.get("status") == "error":
@@ -3701,10 +3678,10 @@ class CliIngestCallbacks(ingest_llm.IngestCallbacks):
 
     def on_pass3_start(self, theme_count: int) -> None:
         console.print()
-        console.print(f"[dim]  Pass 3 — synthesizing {theme_count} concept(s) into Exhibitions (L4)...[/dim]")
+        console.print(f"[dim]  Pass 3 — synthesizing {theme_count} concept(s) into L4 Synthesis...[/dim]")
 
     def on_curation_drafting(self, cur_id: str, topic: str) -> None:
-        console.print(f"  [magenta]creating[/magenta] [dim]exhibition[/dim] [cyan]{cur_id}[/cyan]  {topic}")
+        console.print(f"  [magenta]creating[/magenta] [dim]synthesis[/dim] [cyan]{cur_id}[/cyan]  {topic}")
         console.print("[dim]┄[/dim]" * 60)
         self._stream_active = True
 
@@ -3743,7 +3720,7 @@ class CliIngestCallbacks(ingest_llm.IngestCallbacks):
 def sync(
     node_id: Optional[str] = typer.Argument(
         None,
-        help="Target node (CTX-/ATM-/CON-/EXH-). Omit for global verification.",
+        help="Target node (CTX-/ATM-/CON-/SYN-). Omit for global verification.",
     ),
     dry_run: bool = typer.Option(
         False,
@@ -3784,17 +3761,17 @@ def sync(
     backward: bool = typer.Option(
         False,
         "--backward",
-        help="Run the legacy backward verification/repair path explicitly.",
+        help="Run correction-aware verification/repair explicitly.",
     ),
 ) -> None:
     """Run deductive verification and rebuild routing tables.
 
     \b
-    Mode A (no node_id): global reverse verification — traces L4 Exhibitions back
+    Mode A (no node_id): global reverse verification — traces L4 Synthesis back
     to L1 Contexts and flags any logical discontinuities.
 
     Mode B (node_id given): targeted bidirectional propagation — traces upstream
-    to L1 and downstream to L4 from the given node, flagging broken references.
+    to L1 and downstream to L4 Synthesis from the given node, flagging broken references.
 
     By default, wiki sync runs LLM contradiction detection and prompts for
     interactive resolution when a TTY is present. Use --no-deep to skip the
@@ -3851,39 +3828,10 @@ def sync(
         _ok("Routing tables rebuilt (incremental).")
         return
 
-    # v0.3.1 curation-native backprop: `wiki sync <EXH-ID> --backward [--dry-run]`
-    # Reverse-parse an edited Exhibition → classify → safe action (never touches
-    # source truth). See SYSTEM_BEHAVIOR_v0.3.1 §18/§22.2.
-    if backward and node_id and node_id.startswith(f"{consts.PREFIX_L4}-"):
-        from . import backprop_sync
-        from .llm import build_client as _bc
-
-        bclient = _bc(config)
-        try:
-            res = backprop_sync.backprop_from_exhibition(
-                paths, bclient, node_id, dry_run=dry_run
-            )
-        finally:
-            try:
-                bclient.close()
-            except Exception:
-                pass
-        if not res.ok:
-            console.print(f"[red]{res.error}[/red]")
-            raise typer.Exit(1)
-        console.print(
-            f"[bold]Backprop:[/bold] {res.classification.classification} "
-            f"→ action: {res.plan.action}"
-        )
-        if res.classification.reason:
-            console.print(f"[dim]{res.classification.reason}[/dim]")
-        if res.insight_candidate_id:
-            console.print(f"  → insight candidate: [cyan]{res.insight_candidate_id}[/cyan]")
-        if res.patch_plan:
-            console.print(f"  → patch plan nodes: {res.patch_plan.get('nodes_to_patch', [])}")
-        if res.dry_run:
-            _hint("--dry-run: no changes written.")
-        return
+    if backward:
+        _warn("Direct generated-L4 backprop was removed in v0.3.1.")
+        _hint("Use MCP [bold]curator_propose_correction[/bold] for reviewed corrections.")
+        raise typer.Exit(code=1)
 
     # 0. Change detection (Manual changes)
     change_report = sync_module.scan_for_changes(paths)
@@ -4354,11 +4302,11 @@ def query(
         help="Restrict to a single Curator layer: all | contexts | atoms | concepts | synthesis.",
     ),
     route: str = typer.Option(
-        "",
+        "auto",
         "--route",
         help="v0.3.1 curation-native route: auto | local | global | explore | "
              "source-section. Routes through the QueryOrchestrator "
-             "(DB graph + qmd) with a QTR trace. Empty = legacy qmd synthesis.",
+             "(DB graph + qmd) with a QTR trace.",
     ),
     no_intent_classify: bool = typer.Option(
         False,
@@ -4390,8 +4338,8 @@ def query(
 
     The query pipeline:
       1. Translate question to English (for non-English input)
-      2. QMD search (BM25 + vector + rerank by default)
-      3. Synthesize a cited answer from Curator pages, streamed to the terminal
+      2. QueryOrchestrator routing over DB graph + qmd search
+      3. Synthesize a cited answer with a QTR trace
       4. Optionally promote to 02_Wiki
     """
     paths = _resolve_root_or_die()
@@ -4428,13 +4376,6 @@ def query(
     if scope not in ("all", "contexts", "atoms", "concepts", "synthesis"):
         _err(
             f"Invalid scope '{scope}'. Use all, contexts, atoms, concepts, or synthesis."
-        )
-        raise typer.Exit(code=1)
-    if not search.is_available():
-        _err("qmd binary not available.")
-        _hint(
-            "Install it globally via npm: "
-            "[bold]npm install -g @tobilu/qmd[/bold]"
         )
         raise typer.Exit(code=1)
 
@@ -4592,32 +4533,42 @@ def _run_query_repl(
 
 
 @app.command()
-def reindex() -> None:
-    """Force a full rebuild of the QMD search index.
+def reindex(
+    embed: bool = typer.Option(
+        False, "--embed", help="Also (re)generate chunk embeddings for vector search."
+    ),
+) -> None:
+    """Force a full rebuild of the DB-native search index.
 
-    Normally this runs automatically after `wiki curate`, so you only need
-    this if the index gets out of sync (e.g. you edited wiki pages manually).
+    Normally this runs automatically after `wiki build`, so you only need this
+    if the index gets out of sync. Pass `--embed` to also generate vector
+    embeddings (requires a configured embedder, e.g. Ollama `bge-m3`); without it
+    search runs FTS5-only until embeddings exist.
     """
+    from .retrieval import embedding, materializer, providers
+
     paths = _resolve_root_or_die()
-    if not search.is_available():
-        _err("qmd binary not available.")
-        _hint(
-            "Install it globally via npm: "
-            "[bold]npm install -g @tobilu/qmd[/bold]"
-        )
-        raise typer.Exit(code=1)
+    config = cfg.load_config(paths)
+    search_config = config.get("search", {})
 
     console.print()
-    console.print("[dim]Rebuilding search index (this may take a minute)…[/dim]")
+    console.print("[dim]Rebuilding DB-native search index...[/dim]")
     try:
-        result = search.update_index(paths, embed=True)
-        if result.degraded:
-            _warn(f"Vector index rebuild failed: {result.warning}")
-            _ok("BM25 search index rebuilt")
-            _hint("Vector search remains stale; run `qmd doctor` and retry `wiki reindex` when embeddings are healthy.")
-        else:
-            _ok("Search index rebuilt")
-    except search.SearchBackendError as e:
+        result = materializer.materialize_search_documents(paths.state_db, search_config)
+        embedded = 0
+        if embed:
+            ollama_host = (config.get("llm", {}).get("ollama", {}) or {}).get("host")
+            embedder = providers.build_embedder(search_config, ollama_host=ollama_host)
+            emb = embedding.embed_corpus(paths.state_db, embedder)
+            embedded = emb.embedded
+            if emb.degraded or emb.warning:
+                _warn(emb.warning or "vector embeddings unavailable (FTS5-only)")
+        _ok(
+            "Search index rebuilt: "
+            f"{result.documents} documents, {result.chunks} chunks, "
+            f"{embedded} embeddings"
+        )
+    except Exception as e:
         _err(f"Index rebuild failed: {e}")
         raise typer.Exit(code=1)
 
@@ -4718,7 +4669,7 @@ def lint(
     save: bool = typer.Option(
         False,
         "--save",
-        help="Save the report as .curator/Collections/04_Exhibitions/EXH-lint-YYYY-MM-DD.md",
+        help="Save the report as .curator/Collections/04_Synthesis/SYN-lint-YYYY-MM-DD.md",
     ),
     max_pairs: int = typer.Option(
         10,
@@ -4801,8 +4752,8 @@ def lint(
     if save:
         import uuid as _uuid
         today = lint_module.page_writer.today_iso()
-        cur_id = f"EXH-lint-{today}-{_uuid.uuid4().hex[:4]}"
-        target_path = paths.exhibitions / f"{cur_id}.md"
+        cur_id = f"SYN-lint-{today}-{_uuid.uuid4().hex[:4]}"
+        target_path = paths.synthesis / f"{cur_id}.md"
         content = lint_module.render_report_markdown(report, paths)
         lint_module.page_writer.write_page(target_path, content)
         lint_module.page_writer.rebuild_index(paths, today)
@@ -5474,7 +5425,7 @@ def _show_curator_persona() -> None:
     typer.echo(f"Area:                  {area}")
     typer.echo(f"Description:           {text_first_line}")
     typer.echo(f"Verification:          {persona.get('verification_philosophy', '')}")
-    typer.echo(f"Exhibition intent:     {persona.get('exhibition_intent', '')}")
+    typer.echo(f"Output intent:         {persona.get('output_intent', '')}")
     conf = persona.get("confidence", {})
     typer.echo(f"Confidence thresholds: high={conf.get('high_threshold', 0.85)}, low={conf.get('low_threshold', 0.55)}")
     typer.echo(f"Last updated:          {persona.get('updated_at') or '(never)'}")
@@ -5756,7 +5707,7 @@ def plugin_query(
     english_query: str = typer.Option("", "--english-query", help="English query to use for internal search/reasoning."),
     final_output_language: str = typer.Option("", "--final-output-language", help="Language for the final answer."),
     workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
-    force_new: bool = typer.Option(False, "--force-new", help="Bypass cached Exhibition."),
+    force_new: bool = typer.Option(False, "--force-new", help="Accepted for compatibility; queries are sessionless."),
 ) -> None:
     """Run curator_query for the local plugin and return JSON."""
     from . import plugin_api
@@ -5890,6 +5841,138 @@ def plugin_insight_promote(
         _print_json({"ok": True, "insightId": insight_id, "promotedTo": rel})
     except Exception as exc:
         _print_json({"ok": False, "insightId": insight_id, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_insight_app.command("show")
+def plugin_insight_show(
+    insight_id: str = typer.Option(..., "--insight-id", help="INS- candidate id."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace path."),
+) -> None:
+    """Return one insight candidate as JSON for the plugin click-to-use panel."""
+    try:
+        row = db.get_insight_candidate(_plugin_paths(workspace_path).state_db, insight_id)
+        if row is None:
+            _print_json({"ok": False, "error": f"unknown insight: {insight_id}"})
+            raise typer.Exit(code=1)
+        _print_json({"ok": True, "candidate": {
+            "id": row["id"], "classification": row["classification"], "statement": row["statement"],
+            "status": row["status"], "affectedNodeIds": row["affected_node_ids"],
+            "confidence": row["confidence"], "reason": row.get("reason", ""),
+        }})
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _print_json({"ok": False, "insightId": insight_id, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_insight_app.command("reject")
+def plugin_insight_reject(
+    insight_id: str = typer.Option(..., "--insight-id", help="INS- candidate id."),
+    reason: str = typer.Option("", "--reason", help="Optional rejection reason."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace path."),
+) -> None:
+    """Reject an insight candidate (status → rejected) after explicit plugin user action."""
+    try:
+        db_path = _plugin_paths(workspace_path).state_db
+        if db.get_insight_candidate(db_path, insight_id) is None:
+            _print_json({"ok": False, "error": f"unknown insight: {insight_id}"})
+            raise typer.Exit(code=1)
+        db.update_insight_candidate_status(db_path, insight_id, status="rejected")
+        _print_json({"ok": True, "insightId": insight_id, "status": "rejected", "reason": reason})
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _print_json({"ok": False, "insightId": insight_id, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_trace_app.command("list")
+def plugin_trace_list(
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace path."),
+    limit: int = typer.Option(50, "--limit", help="Max traces (most recent first)."),
+) -> None:
+    """List durable QTR- query traces as JSON for the plugin Trace tab."""
+    try:
+        ws_id = Path(workspace_path).name if workspace_path else None
+        rows = db.list_query_traces(_plugin_paths(workspace_path).state_db, workspace_id=ws_id, limit=limit)
+        _print_json({"ok": True, "traces": [
+            {"traceId": r["trace_id"], "route": r["route"], "createdAt": r["created_at"],
+             "latencyMs": r["latency_ms"], "warnings": r["warnings"],
+             "fallbackMode": (r.get("retrieval_trace") or {}).get("fallback_mode", "")}
+            for r in rows
+        ]})
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_trace_app.command("show")
+def plugin_trace_show(
+    trace_id: str = typer.Option(..., "--trace-id", help="QTR- query trace id."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace path."),
+) -> None:
+    """Return one QTR- query trace (route, evidence, RRF/rerank trace) as JSON."""
+    try:
+        row = db.get_query_trace(_plugin_paths(workspace_path).state_db, trace_id)
+        if row is None:
+            _print_json({"ok": False, "error": f"unknown trace: {trace_id}"})
+            raise typer.Exit(code=1)
+        _print_json({"ok": True, "trace": {
+            "traceId": row["trace_id"], "route": row["route"], "routeReason": row["route_reason"],
+            "evidence": row["evidence"], "sourceSpanIds": row["source_span_ids"],
+            "synthesisNodeIds": row["synthesis_node_ids"], "communityReportIds": row["community_report_ids"],
+            "retrievalTrace": row["retrieval_trace"], "warnings": row["warnings"],
+            "latencyMs": row["latency_ms"], "createdAt": row["created_at"],
+        }})
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _print_json({"ok": False, "traceId": trace_id, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_correction_app.command("propose")
+def plugin_correction_propose(
+    node_id: str = typer.Option(..., "--node-id", help="Generated node id the correction targets."),
+    correction: str = typer.Option(..., "--correction", help="Corrected text proposed by the user."),
+    previous: str = typer.Option("", "--previous", help="Optional previous text of the node."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace path."),
+) -> None:
+    """Classify a user correction proposal and return the recommended action as JSON.
+
+    Never overwrites generated nodes. Runs the backprop classifier; the plugin
+    shows the classification + any recorded insight candidate for explicit follow-up.
+    """
+    from . import backprop_classifier, llm
+
+    try:
+        paths = _plugin_paths(workspace_path)
+        config = cfg.load_config(paths)
+        ws_id = Path(workspace_path).name if workspace_path else "default"
+        event = backprop_classifier.BackpropEvent(
+            previous_artifact=previous,
+            updated_artifact=correction,
+            human_request=correction,
+            workspace_id=ws_id,
+            affected_node_ids=[node_id],
+        )
+        with llm.build_client(config) as client:
+            result = backprop_classifier.classify_feedback(paths.state_db, event, client)
+        _print_json({
+            "ok": result.ok,
+            "nodeId": node_id,
+            "classification": result.classification,
+            "confidence": result.confidence,
+            "recommendedAction": result.recommended_action,
+            "sourceTruthImpact": result.source_truth_impact,
+            "affectedNodes": result.affected_nodes,
+            "reason": result.reason,
+            "traceId": result.trace_id,
+        })
+    except Exception as exc:
+        _print_json({"ok": False, "nodeId": node_id, "error": str(exc)})
         raise typer.Exit(code=1)
 
 

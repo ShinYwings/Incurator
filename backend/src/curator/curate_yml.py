@@ -14,7 +14,6 @@ Used by:
 from __future__ import annotations
 from . import constants as consts
 
-import fnmatch
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -41,7 +40,7 @@ class ArtistPersona:
     domain: str = ""
     subdomain: str = ""
     goal: str = ""
-    exhibition_intent: str = "engineer"  # researcher | engineer | learner
+    output_intent: str = "engineer"  # researcher | engineer | learner
     disambiguation_keywords: list[str] = field(default_factory=list)
     confidence: dict = field(default_factory=lambda: {"high_threshold": 0.85, "low_threshold": 0.55})
     updated_at: str = ""
@@ -57,7 +56,7 @@ class CurateReferenceMode:
 
 @dataclass
 class CurateGoal:
-    """Why the workspace exists and what a successful Exhibition enables."""
+    """Why the workspace exists and what successful dynamic curation enables."""
 
     primary: str = ""
     audience: str = "generalist"  # researcher | engineer | learner | writer | generalist
@@ -77,9 +76,9 @@ class CurateKnowledge:
 
 @dataclass
 class CurateOutput:
-    """Output contract for staged Exhibitions."""
+    """Output contract for dynamic curation answers."""
 
-    format: str = "exhibition"
+    format: str = "context-pack"
     style: str = "dense-technical"
     citation_style: str = "curator-source-spans"
     include_sections: list[str] = field(default_factory=list)
@@ -262,7 +261,7 @@ def load_curate_spec(workspace_path: Path) -> Optional[CurateSpec]:
             subdomain=str(persona_raw.get("subdomain", "") or ""),
             # "goal" is canonical; "text" is accepted as fallback for forward compat
             goal=str(persona_raw.get("goal", persona_raw.get("text", "")) or ""),
-            exhibition_intent=str(persona_raw.get("exhibition_intent", "engineer") or "engineer"),
+            output_intent=str(persona_raw.get("output_intent", "engineer") or "engineer"),
             disambiguation_keywords=_str_list_from("disambiguation_keywords", persona_raw),
             confidence=confidence,
             updated_at=str(persona_raw.get("updated_at", "") or ""),
@@ -325,7 +324,7 @@ def _parse_knowledge(raw: object) -> "CurateKnowledge":
 def _parse_output(raw: object) -> "CurateOutput":
     d = _as_dict(raw)
     return CurateOutput(
-        format=str(d.get("format", "exhibition") or "exhibition"),
+        format=str(d.get("format", "context-pack") or "context-pack"),
         style=str(d.get("style", "dense-technical") or "dense-technical"),
         citation_style=str(d.get("citation_style", "curator-source-spans") or "curator-source-spans"),
         include_sections=_str_list_from("include_sections", d),

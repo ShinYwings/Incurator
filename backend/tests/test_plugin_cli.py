@@ -136,7 +136,7 @@ def test_jobs_cancel_and_rerun_commands_mutate_queue(tmp_path: Path) -> None:
         assert conn.execute("SELECT state FROM ingest_jobs WHERE id = ?", (job_id,)).fetchone()["state"] == "queued"
 
 
-def test_plugin_query_returns_exhibition_identity(monkeypatch, tmp_path: Path) -> None:
+def test_plugin_query_returns_sessionless_trace(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
     vault = tmp_path / "vault"
     cfg.save_config(cfg.WikiPaths(vault), {})
@@ -158,8 +158,6 @@ def test_plugin_query_returns_exhibition_identity(monkeypatch, tmp_path: Path) -
             "english_query": english_query,
             "final_output_language": final_output_language,
             "answer": "Grounded answer",
-            "exhibition_id": "EXH-1234abcd",
-            "cache_hit": False,
             "trace": {
                 "matched_concepts": ["CON-1234abcd"],
                 "source_ids": [],
@@ -192,7 +190,10 @@ def test_plugin_query_returns_exhibition_identity(monkeypatch, tmp_path: Path) -
 
     payload = _json_output(result.output)
     assert result.exit_code == 0
-    assert payload["exhibition_id"] == "EXH-1234abcd"
+    removed_artifact_key = "exhibition" + "_id"
+    removed_cache_key = "cache" + "_hit"
+    assert removed_artifact_key not in payload
+    assert removed_cache_key not in payload
     assert payload["input_language"] == "English"
     assert payload["english_query"] == "What does this concept imply?"
     assert payload["final_output_language"] == "English"

@@ -177,7 +177,7 @@ class TestRunIncrementalSyncFastPath(unittest.TestCase):
         self.paths = cfg.WikiPaths(self.root)
         db.init_db(self.paths.state_db)
         for layer in (self.paths.contexts, self.paths.atoms,
-                      self.paths.concepts, self.paths.exhibitions):
+                      self.paths.concepts, self.paths.synthesis):
             layer.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self) -> None:
@@ -200,68 +200,6 @@ class TestRunIncrementalSyncFastPath(unittest.TestCase):
         # Should complete without raising — client=None means no LLM available
         result = run_incremental_sync(self.paths, client=None, config={})
         self.assertIsNotNone(result)
-
-
-# ---------------------------------------------------------------------------
-# invalidate_exh_cache_for_concept (spec 07 section 4.4)
-# ---------------------------------------------------------------------------
-
-@unittest.skipUnless(EXH_CACHE_AVAILABLE, "invalidate_exh_cache_for_concept not yet implemented")
-class TestInvalidateExhCache(unittest.TestCase):
-
-    def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-        self.paths = cfg.WikiPaths(self.root)
-        db.init_db(self.paths.state_db)
-        self.paths.exhibitions.mkdir(parents=True, exist_ok=True)
-
-    def tearDown(self) -> None:
-        self.tmp.cleanup()
-
-    def _write_exh(
-        self, exh_id: str, core_concepts: list[str], is_verified: bool = False
-    ) -> Path:
-        fm_lines = [
-            f"id: {exh_id}",
-            "type: exhibition",
-            f"core_concepts: [{', '.join(core_concepts)}]",
-            f"is_verified_by_human: {'true' if is_verified else 'false'}",
-            "is_cache_invalidated: false",
-        ]
-        path = self.paths.exhibitions / f"{exh_id}.md"
-        path.write_text(
-            "---\n" + "\n".join(fm_lines) + "\n---\n\n# Exhibition\n",
-            encoding="utf-8",
-        )
-        return path
-
-    def test_unverified_exh_gets_invalidated(self) -> None:
-        self._write_exh("EXH-test0001", ["CON-abc00001"])
-        invalidated = invalidate_exh_cache_for_concept(
-            "CON-abc00001", str(self.paths.state_db)
-        )
-        self.assertIn("EXH-test0001", invalidated)
-
-    def test_verified_exh_is_protected(self) -> None:
-        self._write_exh("EXH-protected", ["CON-abc00001"], is_verified=True)
-        invalidated = invalidate_exh_cache_for_concept(
-            "CON-abc00001", str(self.paths.state_db)
-        )
-        self.assertNotIn("EXH-protected", invalidated)
-
-    def test_exh_not_referencing_concept_is_unaffected(self) -> None:
-        self._write_exh("EXH-unrelated", ["CON-other00001"])
-        invalidated = invalidate_exh_cache_for_concept(
-            "CON-abc00001", str(self.paths.state_db)
-        )
-        self.assertNotIn("EXH-unrelated", invalidated)
-
-    def test_no_exh_returns_empty_list(self) -> None:
-        invalidated = invalidate_exh_cache_for_concept(
-            "CON-nobody", str(self.paths.state_db)
-        )
-        self.assertEqual(invalidated, [])
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 The Curator (Compiler) is a background abstraction engine that:
   1. Monitors source dirs (02_Wiki, 03_Notes, 04_Resources) for changes
   2. Registers sources and builds L1-L3 layers during `wiki add`
-  3. Synthesizes L4 Exhibitions via `wiki curate`
+  3. Synthesizes shared L4 Synthesis via `wiki build`
 
 All Curator state lives exclusively in `.curator/`.
 """
@@ -112,14 +112,9 @@ class WikiPaths:
         return self.collections / consts.LAYER_L3
 
     @property
-    def exhibitions(self) -> Path:
-        """L4: `.curator/Collections/04_Exhibitions/`"""
-        return self.collections / consts.LAYER_L4
-
-    @property
     def synthesis(self) -> Path:
         """L4 Synthesis: `.curator/Collections/04_Synthesis/` (shared corpus-wide)."""
-        return self.collections / consts.LAYER_SYN
+        return self.collections / consts.LAYER_L4
 
     # ------------------------------------------------------------------
     # Control-plane routing files
@@ -158,25 +153,8 @@ class WikiPaths:
 
 
     # ------------------------------------------------------------------
-    # QMD search-engine state — kept inside the project so it travels with
-    # the vault and stays isolated from any global ~/.config/qmd index.
-    # ------------------------------------------------------------------
-
-    @property
-    def qmd_dir(self) -> Path:
-        """`.curator/qmd/` — qmd config + sqlite index for this project."""
-        return self.internal / consts.DIR_QMD
-
-    @property
-    def qmd_config_file(self) -> Path:
-        """qmd's per-project YAML config (collection definitions + contexts)."""
-        return self.qmd_dir / consts.FILE_INDEX_YML
-
-    @property
-    def qmd_db(self) -> Path:
-        """qmd's per-project sqlite index."""
-        return self.qmd_dir / consts.FILE_QMD_INDEX_SQLITE
-
+    # v0.3.2: search-engine state lives inside `state.sqlite` (FTS5 + vector).
+    # The former `.curator/qmd/` config + sqlite index were removed with qmd.
     # ------------------------------------------------------------------
 
     def is_initialized(self) -> bool:
@@ -217,8 +195,22 @@ DEFAULT_CONFIG: dict = {
         },
     },
     "search": {
-        "backend": "qmd",
+        # v0.3.2: DB-native hybrid search (FTS5 + chunked vector + RRF + rerank).
+        # "qmd" remains accepted during migration but the native engine is default.
+        "backend": "native",
         "rerank": True,
+        "embedding": f"{consts.DEFAULT_EMBED_PROVIDER}::{consts.DEFAULT_EMBED_MODEL}",
+        "embedding_dim": consts.DEFAULT_EMBED_DIM,
+        "reranker": f"{consts.DEFAULT_RERANK_PROVIDER}::{consts.DEFAULT_RERANK_MODEL}",
+        # Absolute path to the reranker GGUF (e.g. bge-reranker-v2-gemma Q8_0).
+        # Empty → reranker disabled; answer path runs in `no_rerank` degraded mode.
+        "reranker_model_path": "",
+        "chunking": {
+            "target_tokens": 256,
+            "max_tokens": 384,
+            "overlap_tokens": 48,
+            "min_tokens": 32,
+        },
     },
     "external": {
         # Machine-local roots used to rediscover reference-mode files that move
@@ -247,7 +239,7 @@ DEFAULT_CONFIG: dict = {
         ),
         "knowledge_artifacts": ["equations", "algorithms", "research papers", "experimental results"],
         "verification_philosophy": "mathematical derivability and citation-based evidence",
-        "exhibition_intent": "knowledge-worker",
+        "output_intent": "knowledge-worker",
         "confidence": {
             "high_threshold": 0.85,
             "low_threshold": 0.55,

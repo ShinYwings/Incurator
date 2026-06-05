@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from . import config as cfg
-from . import db, page_writer, search
+from . import db, page_writer
 from .workspace.provisioner import prepare_workspace
 
 def get_scenarios_dir() -> Path:
@@ -87,7 +87,6 @@ def init_testbed(
 
     db.init_db(paths.state_db)
     page_writer.rebuild_index(paths, datetime.now(timezone.utc).isoformat())
-    search.write_qmd_config(paths, overwrite=True)
 
     # Install agent rules
     fixture_rules = scenario_dir / "fixture_workspace_rules"

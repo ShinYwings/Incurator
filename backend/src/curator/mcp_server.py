@@ -44,7 +44,6 @@ except ImportError as e:  # pragma: no cover - import-time hint
     ) from e
 
 from . import config as cfg
-from . import constants as consts
 from . import page_writer
 from . import source_tools
 
@@ -237,7 +236,7 @@ def _read_node(paths: cfg.WikiPaths, node_id: str) -> dict[str, Any]:
     """
     info = _layer_for_id(node_id)
     if info is None:
-        return {"error": f"Unknown ID prefix in '{node_id}' (expected CTX-/ATM-/CON-/EXH-)"}
+        return {"error": f"Unknown ID prefix in '{node_id}' (expected CTX-/ATM-/CON-/SYN-)"}
     layer, subdir = info
     page_path = paths.collections / subdir / f"{node_id}.md"
     if not page_path.exists():
@@ -297,13 +296,13 @@ def _concept_atom_ids(con: dict[str, Any]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 _ARTIST_PERSONA_KEYS = [
-    "domain", "subdomain", "goal", "exhibition_intent",
+    "domain", "subdomain", "goal", "output_intent",
     "confidence", "disambiguation_keywords", "updated_at",
 ]
 
 _CURATOR_PERSONA_KEYS = [
     "area", "text", "knowledge_artifacts", "verification_philosophy",
-    "exhibition_intent", "confidence", "disambiguation_keywords", "updated_at",
+    "output_intent", "confidence", "disambiguation_keywords", "updated_at",
 ]
 
 
@@ -1897,10 +1896,8 @@ def build_server() -> FastMCP:
                     hydrate=True,
                     rerank=True,
                 )
-        except search.QmdNotInstalled as e:
-            return {"error": str(e), "hits": []}
         except search.SearchBackendError as e:
-            return {"error": f"qmd error: {e}", "hits": []}
+            return {"error": f"search error: {e}", "hits": []}
 
         hits = [
             {
@@ -1930,12 +1927,11 @@ def build_server() -> FastMCP:
         workspace_path: str = "",
         force_new: bool = False,
     ) -> dict[str, Any]:
-        """Answer a question using the Curator knowledge graph (L3 concepts + L4 Exhibitions).
+        """Answer a question using the Curator knowledge graph and dynamic curation lens.
 
-        This is the v0.2.1 primary query entry point for sidebar-style answers.
-        It retrieves relevant L3 Concepts, synthesizes an answer with the LLM,
-        creates an ephemeral query-generated Exhibition, and returns provenance
-        trace data for the "Sources & Trace" plugin panel.
+        This is the v0.3.1 primary query entry point for sidebar-style answers.
+        It retrieves relevant evidence, synthesizes an answer with the LLM, and
+        returns provenance trace data for the "Sources & Trace" plugin panel.
 
         Use `search_curator` for raw DAG hit retrieval without LLM synthesis.
 
@@ -1943,14 +1939,11 @@ def build_server() -> FastMCP:
             question: Natural-language question to answer.
             workspace_path: Active workspace path to scope retrieval. Falls back
                 to the WORKSPACE_PATH env var when not provided.
-            force_new: When true, skip cache lookup and always create a fresh
-                Exhibition even if a cached answer exists.
+            force_new: Ignored in v0.3.1; queries are sessionless.
 
         Returns:
             ok: Whether synthesis succeeded.
             answer: Synthesized markdown answer.
-            exhibition_id: EXH-<UUID8> of the generated/reused Exhibition.
-            cache_hit: True if a cached Exhibition was returned.
             question: Original question echoed back.
             trace: Provenance — matched concept IDs, source paths, latency.
             error: Error message when ok=false.
@@ -2015,8 +2008,6 @@ def build_server() -> FastMCP:
             return {
                 "ok": True,
                 "answer": "",
-                "exhibition_id": "",
-                "cache_hit": False,
                 "question": question,
                 "fallback": "l3_incomplete",
                 "fallback_hits": fallback_hits,
@@ -2051,6 +2042,7 @@ def build_server() -> FastMCP:
                     session_id=session_id,
                     workspace_path=ws_path_str or None,
                     query_boost_terms=query_boost_terms,
+                    route="auto",
                 )
         except Exception as e:
             return {"ok": False, "question": question, "error": f"Query pipeline error: {e}"}
@@ -2078,7 +2070,6 @@ def build_server() -> FastMCP:
         return {
             "ok": True,
             "answer": result.answer,
-            "cache_hit": False,
             "question": question,
             "trace": {
                 "matched_concepts": matched_concepts,
@@ -2159,15 +2150,14 @@ def build_server() -> FastMCP:
         """Check workspace configuration health and return setup guidance.
 
         Call this at the start of each session when WORKSPACE_PATH is set.
-        Validates that curate.yml exists and is valid, checks whether a workspace
-        Exhibition has been generated, and auto-installs agent rules for the
+        Validates that curate.yml exists and is valid, and auto-installs agent rules for the
         connecting client (Claude Code, Antigravity, etc.) if not yet present.
 
         Args:
             workspace_path: Absolute path to workspace. Defaults to WORKSPACE_PATH env var.
 
-        Returns a dict with `ok` (bool), `workspace`, `project`, `exhibition`,
-        `exhibition_exists`, `agent_rules_installed` (if newly installed), and
+        Returns a dict with `ok` (bool), `workspace`, `project`,
+        `agent_rules_installed` (if newly installed), and
         `issues` (list of actionable error messages).
         """
         from . import curate_yml as _cym
@@ -2464,11 +2454,11 @@ def build_server() -> FastMCP:
             '  "domain": "primary domain slug, e.g. computer-vision",\n'
             '  "subdomain": "more specific focus (optional, can be empty string)",\n'
             '  "goal": "2-4 sentences describing this workspace\'s knowledge goal",\n'
-            '  "exhibition_intent": "researcher | engineer | learner",\n'
+            '  "output_intent": "researcher | engineer | learner",\n'
             '  "disambiguation_keywords": ["3-8 workspace-specific terms"],\n'
             '  "confidence": {"high_threshold": 0.85, "low_threshold": 0.55}\n'
             "}\n\n"
-            "exhibition_intent meanings:\n"
+            "output_intent meanings:\n"
             "  researcher — next papers/hypotheses to validate\n"
             "  engineer   — specific code/system implementation steps\n"
             "  learner    — concepts to review and practice exercises\n\n"
@@ -2570,10 +2560,10 @@ def build_server() -> FastMCP:
 
     @mcp.tool()
     def curator_get_node(node_id: str, workspace_path: str = "") -> dict[str, Any]:
-        """Fetch a single DAG node (Context/Atom/Concept/Exhibition) by ID.
+        """Fetch a single DAG node (Context/Atom/Concept/Synthesis) by ID.
 
         Args:
-            node_id: e.g. 'EXH-abcdef01', 'ATM-9f8e7d6c'. Prefix determines
+            node_id: e.g. 'SYN-abcdef01', 'ATM-9f8e7d6c'. Prefix determines
                      the layer.
             workspace_path: Optional workspace path to help resolve the vault.
 
@@ -2583,38 +2573,35 @@ def build_server() -> FastMCP:
         return _read_node(paths, node_id)
 
     # ------------------------------------------------------------------
-    # curator_traverse_evidence — walk SYN → CON → ATM
+    # curator_traverse_evidence — walk SYN -> CON/REP -> ATM/source spans
     # ------------------------------------------------------------------
 
     @mcp.tool()
     def curator_traverse_evidence(cur_id: str, workspace_path: str = "") -> dict[str, Any]:
-        """Walk an Exhibition's evidence chain down to its constituent Atoms.
+        """Walk a Synthesis node's evidence chain down to its supporting evidence.
 
-        Returns the full EXH page plus every CON it depends on and every ATM
-        each CON depends on, including confidence/contradiction flags. Use
-        this to verify an Exhibition claim before citing it (especially when
+        Returns the full SYN page plus referenced Concepts, Reports, Atoms, and
+        source span ids where available. Use this to verify a Synthesis claim before citing it (especially when
         confidence_score < 0.90).
 
         Args:
-            cur_id: The ID of the Exhibition (EXH-) or Concept (CON-) to traverse.
+            cur_id: The ID of the Synthesis node (SYN-) to traverse.
             workspace_path: Optional workspace path to help resolve the vault.
         """
         paths = _resolve_paths(workspace_path)
         cur = _read_node(paths, cur_id)
         if "error" in cur:
             return cur
-        if cur["layer"] != "exhibition":
-            return {"error": f"{cur_id} is a {cur['layer']}, not an exhibition."}
+        if cur["layer"] != consts.TYPE_L4:
+            return {"error": f"{cur_id} is a {cur['layer']}, not a synthesis node."}
 
         concepts: list[dict[str, Any]] = []
         atoms: list[dict[str, Any]] = []
         broken_atom_refs: list[dict[str, str]] = []
         seen_atoms: set[str] = set()
 
-        for raw_link in cur["frontmatter"].get("core_concepts", []) or []:
-            if not isinstance(raw_link, str):
-                continue
-            con_id = _id_from_link(raw_link)
+        for raw_ref in cur["frontmatter"].get("concept_ids", []) or []:
+            con_id = _id_from_link(str(raw_ref))
             con = _read_node(paths, con_id)
             if "error" in con:
                 concepts.append({"id": con_id, "error": con["error"]})
@@ -2632,8 +2619,10 @@ def build_server() -> FastMCP:
                 atoms.append(atom)
 
         return {
-            "exhibition": cur,
+            "synthesis": cur,
             "confidence_score": cur["frontmatter"].get("confidence_score"),
+            "source_span_ids": cur["frontmatter"].get("source_span_ids", []) or [],
+            "community_report_ids": cur["frontmatter"].get("community_report_ids", []) or [],
             "concepts": concepts,
             "atoms": atoms,
             "broken_atom_refs": broken_atom_refs,
@@ -2878,7 +2867,7 @@ def build_server() -> FastMCP:
     def curator_layer_index(workspace_path: str = "") -> dict[str, Any]:
         """Return per-layer page counts and a sample of recent IDs.
 
-        Layers: context (CTX-), atom (ATM-), concept (CON-), exhibition (EXH-).
+        Layers: context (CTX-), atom (ATM-), concept (CON-), synthesis (SYN-).
         Cheap overview suitable as the agent's first call when entering a
         fresh vault — tells it what's available before any search.
 
@@ -2934,9 +2923,10 @@ def build_server() -> FastMCP:
         Args:
             workspace_path: Optional workspace path to help resolve the vault.
         """
-        import shutil as _shutil, sys as _sys
+        import shutil as _shutil
+        import sys as _sys
         paths = _resolve_paths(workspace_path)
-        qmd_bin = search.get_qmd_binary()
+        search_version = search.get_version()
 
         # Locate wiki binary: which → alongside Python → argv[0]
         wiki_bin = _shutil.which("wiki")
@@ -2956,7 +2946,7 @@ def build_server() -> FastMCP:
             "contexts": 0,
             "atoms": 0,
             "concepts": 0,
-            "exhibitions": 0,
+            "synthesis": 0,
         }
 
         for layer_key, (subdir, _prefix) in _LAYERS.items():
@@ -2976,7 +2966,7 @@ def build_server() -> FastMCP:
                 elif consts.LAYER_L3 in subdir:
                     layer_counts["concepts"] = count
                 elif consts.LAYER_L4 in subdir:
-                    layer_counts["exhibitions"] = count
+                    layer_counts["synthesis"] = count
 
         # Discover Zotero roots (attachment paths)
         zotero_roots = []
@@ -2991,8 +2981,13 @@ def build_server() -> FastMCP:
             "total_pages":  sum(layer_counts.values()),
             "layer_counts": layer_counts,
             "wiki_binary":  wiki_bin,
-            "qmd_binary":   str(qmd_bin) if qmd_bin else None,
-            "qmd_ready":    bool(qmd_bin),
+            "search_engine": "native",
+            "search_ready": True,
+            "search_version": search_version,
+            # back-compat shim for the current plugin UI (migrated in P10)
+            "qmd_binary":   "native (in-DB FTS5+vector)",
+            "qmd_ready":    True,
+            "qmd_version":  search_version,
             "zotero_roots": zotero_roots,
         }
 
@@ -3068,10 +3063,11 @@ def build_server() -> FastMCP:
         """Run a bidirectional synchronization to repair the DAG integrity."""
         from . import sync as sync_mod
         from . import config as cfg
-        
+        from .llm import build_client
+
         paths = _resolve_paths(workspace_path)
         config_dict = cfg.load_config(paths)
-        client = build_client(config_dict, "Primary")
+        client = build_client(config_dict)
         
         try:
             res = sync_mod.run_incremental_sync(paths, client, config_dict)
@@ -3093,10 +3089,10 @@ def build_server() -> FastMCP:
             report = lint_mod.run_lint(paths, progress_callback=None)
             return {
                 "ok": True,
-                "health_score": report.health_score(),
-                "errors": len(report.errors()),
-                "warnings": len(report.warnings()),
-                "infos": len(report.infos()),
+                "health_score": report.health_score,
+                "errors": len(report.errors),
+                "warnings": len(report.warnings),
+                "infos": len(report.infos),
             }
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -3112,125 +3108,21 @@ def build_server() -> FastMCP:
         workspace_path: str = "",
         propagate_sources: bool = True,
     ) -> dict[str, Any]:
-        """Overwrite an L4 Exhibition and propagate changes backward through the DAG.
+        """Direct generated-node overwrite is disabled in v0.3.1.
 
-        Only EXH- (Exhibition) nodes may be edited directly by agents. L1/L2/L3 nodes
-        are pipeline-generated and must be updated via backward propagation from L4.
-
-        Args:
-            node_id: The Exhibition to update (must start with EXH-).
-            new_content: Full replacement markdown (frontmatter + body).
-            workspace_path: Optional workspace path to help resolve the vault.
-            propagate_sources: When true, continue propagation into L2 Atoms
-                and L1 Contexts. Defaults to true because insight backprop is a
-                rare correction path where graph consistency is more important
-                than single-call latency. L1 source text must preserve original
-                evidence while recording derived corrections separately.
-
-        Writes the Exhibition file, then runs upstream backward propagation
-        (EXH → CON → ATM) via LLM so referenced Concepts and Atoms are updated
-        to reflect the correction. Finally rebuilds routing tables.
-
-        Returns a dict with `updated`, `propagation`, `gaps`, and
-        `routing_tables_rebuilt`.
+        Use `curator_propose_correction` for reviewed corrections or
+        `curator_promote_insight` / `promote_answer` for durable human-approved
+        insights. This tool is retained only to return a non-mutating error to
+        older clients.
         """
-        paths = _resolve_paths(workspace_path)
-        info = _layer_for_id(node_id)
-        if info is None:
-            return {"error": f"Unknown ID prefix in '{node_id}' (expected EXH-)"}
-        layer, subdir = info
-        if layer != consts.TYPE_L4:
-            return {
-                "error": (
-                    f"Direct edits to {layer} nodes are not allowed. "
-                    "Only L4 Exhibitions (EXH-) may be modified by agents. "
-                    "Edit the Exhibition that references this node; "
-                    "backward propagation will update L1-L3 automatically."
-                )
-            }
-        page_path = paths.collections / subdir / f"{node_id}.md"
-        if not page_path.exists():
-            return {"error": f"Page not found: {subdir}/{node_id}.md"}
-
-        previous_content = page_path.read_text(encoding="utf-8", errors="replace")
-        if previous_content.strip() == new_content.strip():
-            return {
-                "updated": False,
-                "noop": True,
-                "propagation": {
-                    "concepts_updated": [],
-                    "atoms_updated": [],
-                    "contexts_updated": [],
-                    "feedback_required": [],
-                    "errors": [],
-                    "llm_calls": 0,
-                    "timings_ms": {"total": 0},
-                    "source_propagation_skipped": False,
-                    "target_concepts": [],
-                },
-                "gaps": [],
-                "routing_tables_rebuilt": False,
-            }
-        page_path.write_text(new_content, encoding="utf-8")
-
-        from . import sync as sync_module
-
-        # Propagate upstream L4 → L3 → L2 via LLM
-        propagation_summary: dict[str, Any] = {}
-        try:
-            from .llm import build_client
-            from . import config as _cfg
-            _config = _cfg.load_config(paths)
-            _client = build_client(_config)
-            try:
-                prop_result = sync_module.propagate_upstream_from_exhibition(
-                    paths,
-                    _client,
-                    exh_id=node_id,
-                    propagate_sources=propagate_sources,
-                    previous_exh_content=previous_content,
-                )
-                propagation_summary = {
-                    "concepts_updated": prop_result.concepts_updated,
-                    "atoms_updated": prop_result.atoms_updated,
-                    "contexts_updated": prop_result.contexts_updated,
-                    "feedback_required": prop_result.feedback_required,
-                    "errors": prop_result.errors,
-                    "llm_calls": prop_result.llm_calls,
-                    "timings_ms": prop_result.timings_ms,
-                    "source_propagation_skipped": prop_result.source_propagation_skipped,
-                    "target_concepts": prop_result.target_concepts,
-                }
-            finally:
-                try:
-                    _client.close()
-                except Exception:
-                    pass
-        except Exception as exc:
-            propagation_summary = {"error": f"Upstream propagation failed: {exc}"}
-
-        try:
-            gaps = sync_module.run_mode_b(paths, node_id)
-            sync_module.finalize_routing_tables(paths)
-            routing_rebuilt = True
-        except Exception as exc:
-            return {
-                "updated": True,
-                "propagation": propagation_summary,
-                "error": f"sync failed: {exc}",
-                "routing_tables_rebuilt": False,
-            }
-
-        try:
-            search.update_index(paths, embed=True)
-        except Exception:
-            pass
-
         return {
-            "updated": True,
-            "propagation": propagation_summary,
-            "gaps": [{"layer": g.layer, "node_id": g.node_id, "message": g.message} for g in gaps],
-            "routing_tables_rebuilt": routing_rebuilt,
+            "ok": False,
+            "updated": False,
+            "error": (
+                "Direct Curator node overwrites were removed in v0.3.1. "
+                "Use curator_propose_correction for corrections or promote_answer/"
+                "curator_promote_insight for reviewed durable knowledge."
+            ),
         }
 
     # ------------------------------------------------------------------

@@ -78,12 +78,10 @@ def test_route_explore_records_insight_candidates(vault) -> None:
     assert res.memory_path_ids
 
 
-def test_empty_route_uses_legacy_path_fields(vault) -> None:
-    # With no route, the v0.3.1 trace fields stay empty (legacy qmd path).
-    # qmd is unavailable in tests, so this returns an error result — but crucially
-    # it does NOT carry a QTR route/trace (i.e. the orchestrator was not used).
+def test_empty_route_uses_auto_orchestrator(vault) -> None:
     paths, sp = vault
     res = query.run_query(paths, DynamicFakeClient(), "hello?",
                           query.QueryCallbacks(), route="")
-    assert res.route == ""
-    assert res.trace_id == ""
+    assert res.ok
+    assert res.route == "local"
+    assert res.trace_id.startswith("QTR-")

@@ -161,7 +161,7 @@ class TestInsertDagEdge(unittest.TestCase):
         pairs = [
             ("CTX-c", "ATM-a", "extracted_from"),
             ("ATM-a", "CON-c", "clustered_to"),
-            ("CON-c", "EXH-e", "synthesized_to"),
+            ("CON-c", "SYN-e", "synthesized_to"),
         ]
         for from_id, to_id, etype in pairs:
             _insert_edge(
@@ -176,11 +176,11 @@ class TestInsertDagEdge(unittest.TestCase):
         self.assertEqual(retrieved_types, edge_types)
 
     def test_null_source_id_is_accepted(self) -> None:
-        # synthesized_to (EXH from wiki curate) may have no source_id
+        # synthesized_to (SYN from wiki build) may have no source_id
         _insert_edge(
             str(self.paths.state_db),
             from_id="CON-con00001",
-            to_id="EXH-exh00001",
+            to_id="SYN-syn00001",
             edge_type="synthesized_to",
             source_id=None,
         )
@@ -215,14 +215,14 @@ class TestExpandDownstreamViaSql(unittest.TestCase):
         self.tmp.cleanup()
 
     def _build_graph(self) -> None:
-        # Graph: CTX-c → ATM-a1 → CON-c1 → EXH-e1
+        # Graph: CTX-c -> ATM-a1 -> CON-c1 -> SYN-e1
         #        CTX-c → ATM-a2 → CON-c1
         edges = [
             ("CTX-c", "ATM-a1", "extracted_from"),
             ("CTX-c", "ATM-a2", "extracted_from"),
             ("ATM-a1", "CON-c1", "clustered_to"),
             ("ATM-a2", "CON-c1", "clustered_to"),
-            ("CON-c1", "EXH-e1", "synthesized_to"),
+            ("CON-c1", "SYN-e1", "synthesized_to"),
         ]
         for from_id, to_id, etype in edges:
             _insert_edge(
@@ -233,20 +233,20 @@ class TestExpandDownstreamViaSql(unittest.TestCase):
                 source_id=self._source_id,
             )
 
-    def test_atom_change_propagates_to_concept_and_exhibition(self) -> None:
+    def test_atom_change_propagates_to_concept_and_synthesis(self) -> None:
         affected = _expand_downstream_via_sql(self.paths, ["ATM-a1"])
         self.assertIn("ATM-a1", affected)
         self.assertIn("CON-c1", affected)
-        self.assertIn("EXH-e1", affected)
+        self.assertIn("SYN-e1", affected)
 
     def test_unrelated_node_not_included(self) -> None:
         affected = _expand_downstream_via_sql(self.paths, ["ATM-a1"])
         self.assertNotIn("ATM-a2", affected)
 
-    def test_concept_change_propagates_to_exhibition_only(self) -> None:
+    def test_concept_change_propagates_to_synthesis_only(self) -> None:
         affected = _expand_downstream_via_sql(self.paths, ["CON-c1"])
         self.assertIn("CON-c1", affected)
-        self.assertIn("EXH-e1", affected)
+        self.assertIn("SYN-e1", affected)
         self.assertNotIn("ATM-a1", affected)
         self.assertNotIn("ATM-a2", affected)
 
@@ -255,8 +255,8 @@ class TestExpandDownstreamViaSql(unittest.TestCase):
         self.assertEqual(affected, set())
 
     def test_node_with_no_edges_returns_itself_only(self) -> None:
-        affected = _expand_downstream_via_sql(self.paths, ["EXH-e1"])
-        self.assertEqual(affected, {"EXH-e1"})
+        affected = _expand_downstream_via_sql(self.paths, ["SYN-e1"])
+        self.assertEqual(affected, {"SYN-e1"})
 
 
 if __name__ == "__main__":

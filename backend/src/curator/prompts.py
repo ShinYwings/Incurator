@@ -7,7 +7,7 @@ The Curator runs four sequential passes per source, building a DAG:
     curate → Pass 2 (CONCEPTS)   — L3: clustered atoms into coherent concepts
     curate → Pass 3 (EXHIBITIONS)— L4: cross-domain terminal packaged contexts
 
-All pages use UUID-based IDs (CTX-, ATM-, CON-, EXH-) so the Agent (Artist) can
+All pages use UUID-based IDs (CTX-, ATM-, CON-, SYN-) so the Agent (Artist) can
 traverse the DAG by ID without relying on human-readable slugs.
 """
 
@@ -188,7 +188,7 @@ Write the complete markdown page with:
    ## Constraints
    Boundary conditions, assumptions, or edge cases.
    ## Relations
-   The ONLY valid wikilink for this page is [[01_Contexts/{context_id}]]. Write exactly this one link and no others. FORBIDDEN: do NOT invent wikilinks with unknown IDs. The only valid layer prefixes are 01_Contexts/, 02_Atoms/, 03_Concepts/, 04_Exhibitions/ — layers like 03_Collections/ or 04_Resources/ do NOT exist. NEVER write placeholder paths like [[02_Atoms/ATM-...]] or [[03_Collections/...]] — if you do not know an ID, omit the wikilink entirely.
+   The ONLY valid wikilink for this page is [[01_Contexts/{context_id}]]. Write exactly this one link and no others. FORBIDDEN: do NOT invent wikilinks with unknown IDs. The only valid layer prefixes are 01_Contexts/, 02_Atoms/, 03_Concepts/, 04_Synthesis/ — layers like 03_Collections/ or 04_Resources/ do NOT exist. NEVER write placeholder paths like [[02_Atoms/ATM-...]] or [[03_Collections/...]] — if you do not know an ID, omit the wikilink entirely.
 
 Return ONLY the markdown. No preamble, no code fences.
 """
@@ -546,7 +546,7 @@ Return ONLY the markdown. No preamble, no code fences.
 """
 
 
-_EXHIBITION_INTENT_DIRECTIVES: dict[str, str] = {
+_OUTPUT_INTENT_DIRECTIVES: dict[str, str] = {
     "researcher": (
         "Suggest specific follow-up papers, open hypotheses, and experimental validations "
         "the researcher should pursue next based on the evidence in this exhibition."
@@ -560,7 +560,7 @@ _EXHIBITION_INTENT_DIRECTIVES: dict[str, str] = {
         "exercises or worked examples to solidify understanding of this exhibition's content."
     ),
 }
-_EXHIBITION_INTENT_DEFAULT = (
+_OUTPUT_INTENT_DEFAULT = (
     "Explicit instructions and hypotheses for the AI Agent (Artist). "
     "What specific code, pipeline, or research task should the Agent execute next based on this exhibition?"
 )
@@ -576,7 +576,7 @@ def build_curation_page_messages(
     domain: str = "",
     flagged_fragment_ids: list[str] | None = None,
     agent_context: str = "",
-    exhibition_intent: str = "",
+    output_intent: str = "",
 ) -> list[ChatMessage]:
     """Pass 3 — draft a single L4 Exhibition page."""
     theme_ids_yaml = ", ".join(f"'03_Concepts/{t}'" for t in theme_ids)
@@ -585,7 +585,7 @@ def build_curation_page_messages(
     else:
         flagged_fragments = "none"
 
-    directive = _EXHIBITION_INTENT_DIRECTIVES.get(exhibition_intent, _EXHIBITION_INTENT_DEFAULT)
+    directive = _OUTPUT_INTENT_DIRECTIVES.get(output_intent, _OUTPUT_INTENT_DEFAULT)
     template = CURATION_PAGE_TEMPLATE.replace(
         "   - **3. Actionable Directives for Agent**: Explicit instructions and hypotheses for the AI Agent (Artist). What specific code, pipeline, or research task should the Agent execute next based on this exhibition? Confidence score: {confidence}. Flagged atoms that require human review: {flagged_fragments}",
         f"   - **3. Actionable Directives for Agent**: {directive} Confidence score: {{confidence}}. Flagged atoms that require human review: {{flagged_fragments}}",
@@ -671,58 +671,6 @@ def build_curation_planning_messages(
     ]
 
 
-# ---------------------------------------------------------------------------
-# Exhibition refinement  (used by `wiki curate --workspace` re-run)
-# ---------------------------------------------------------------------------
-
-EXHIBITION_SMART_UPDATE_PROMPT = """\
-You are an expert curator updating a L4 Exhibition page. You must integrate new information \
-into the existing Exhibition body while maintaining its premium structure and formatting.
-
-The new information may come from conversational insights (Follow-up questions) or \
-updated downstream Concepts (Supporting Concepts).
-
-## Current Exhibition Body ({exh_id})
-{existing_body}
-
-## New Information to Integrate
-{updates}
-
-## Your task
-Rewrite the Exhibition body to incorporate the new information. This page is the "Final Synthesis" where objective source knowledge meets the user's workspace insights. Your goal is NOT to summarize, but to build a **RICH, COMPREHENSIVE, and AUTHORITATIVE** knowledge document with high **KNOWLEDGE DENSITY**.
-
-Rules:
-- DEEP SYNTHESIS: Actively blend external facts from Concepts with internal insights from the Workspace. Create a narrative that shows how these two worlds connect.
-- TOPIC-CENTRIC INTEGRATION: Seamlessly integrate updates into appropriate sections (Executive Brief, Background, Key Facts, Directives, etc.). The final output must read as a single, coherent knowledge document about the topic itself.
-- NO META-COMMENTARY: Do NOT include any meta-talk or changelog-style phrases. Never say "Updated section:", "This was modified to include...", or "The following information was added...".
-- PRIORITY TRUTH: If new information CONTRADICTS the current body, prioritize the new information as the latest truth.
-- FORMATTING: Maintain the bold-bullet format (- **Section**: Content). No ## headers in body.
-- PRESERVATION: Preserve ALL existing [[03_Concepts/CON-xxx]] wikilinks unless specifically deprecated.
-- OUTPUT ONLY: Output ONLY the updated markdown body. No frontmatter, no preamble, no commentary.
-"""
-
-
-def build_exhibition_refinement_messages(
-    exh_id: str,
-    existing_body: str,
-    updates: str,
-) -> list[ChatMessage]:
-    """Build smart update prompt for an Exhibition using unified template."""
-    user_content = EXHIBITION_SMART_UPDATE_PROMPT.format(
-        exh_id=exh_id,
-        existing_body=existing_body,
-        updates=updates,
-    )
-    return [
-        ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
-        ChatMessage(role="user", content=user_content),
-    ]
-
-
-# ---------------------------------------------------------------------------
-# Logical deduction verification  (used by `wiki sync`)
-# ---------------------------------------------------------------------------
-
 THEME_LOGIC_VERIFY_PROMPT = """\
 You are a deductive logic auditor for a knowledge DAG.
 
@@ -754,26 +702,54 @@ or
 CURATION_LOGIC_VERIFY_PROMPT = """\
 You are a deductive logic auditor for a knowledge DAG.
 {concept_verification_context}
-## L4 Exhibition under review
+## L4 Synthesis node under review
 {curation_content}
 
-## L3 Concepts this Exhibition synthesizes
+## L3 Concepts this Synthesis node draws on
 {themes_content}
 
 ## Task
-Determine whether the Exhibition's synthesis is logically derivable from the given Concepts.
+Determine whether the Synthesis node's claims are logically derivable from the given Concepts.
 - Evaluate these fixed checks:
-  1) Executive brief grounding in supplied Concepts.
+  1) Cross-cutting claim grounding in supplied Concepts.
   2) Reasoning chain correctness (L2→L3→L4 narrative).
-  3) Directive validity (actions are justified by Concept evidence).
-  4) Scope discipline: no external facts absent from all Concepts.
-  5) Concept citation fidelity: referenced CON IDs are real and in-scope.
+  3) Scope discipline: no external facts absent from all Concepts.
+  4) Concept citation fidelity: referenced CON IDs are real and in-scope.
 - If a Concept was already verified invalid in Phase 1, treat its reasoning as a known gap.
 
 Respond ONLY with a JSON object — no prose, no markdown fences:
 {{"valid": true}}
 or
 {{"valid": false, "reasoning": "<failed check #> - <specific gap>"}}
+"""
+
+CONTRADICTION_RESOLUTION_PROMPT = """\
+You are resolving a factual conflict between two L2 Atom pages.
+
+Atom A ({path_a}):
+---
+{content_a}
+---
+
+Atom B ({path_b}):
+---
+{content_b}
+---
+
+Identified conflict:
+{conflict_reasoning}
+
+Propose minimal body edits to make both Atoms factually consistent.
+Preserve the existing structure (sections, wikilinks) as much as possible.
+
+Return ONLY a valid JSON object:
+{{
+  "reasoning": "One or two sentences explaining how the conflict is resolved",
+  "atom_a_body_revised": "<revised body for Atom A — sections only, no frontmatter>",
+  "atom_b_body_revised": "<revised body for Atom B — sections only, no frontmatter>"
+}}
+
+Return ONLY the JSON. No prose, no code fences.
 """
 
 
@@ -849,7 +825,7 @@ Rules:
 - NO META-COMMENTARY: Do NOT include meta-talk in the body. Never say "Updated to match...", "This was corrected by...", or "Following the exhibition...".
 - PRIORITY TRUTH: If the Exhibition CORRECTS the Concept, update the claims to be consistent with the latest truth.
 - PRESERVATION: Preserve the CON- ID, YAML structure, and existing wikilinks.
-- METADATA: Add `corrected_by: [[04_Exhibitions/{exh_id}]]` and update `updated: {today}` in the frontmatter.
+- METADATA: Add `corrected_by: [[04_Synthesis/{exh_id}]]` and update `updated: {today}` in the frontmatter.
 - OUTPUT ONLY: Output ONLY the full updated markdown. No preamble, no code fences, no commentary.
 """
 
@@ -873,180 +849,6 @@ Rules:
 - METADATA: If updating, set `is_flagged_for_agent: true` and `updated: {today}` in frontmatter.
 - PRESERVATION: Preserve the ATM- ID and all wikilinks exactly.
 - OUTPUT ONLY: Output ONLY the full updated markdown. No preamble, no code fences, no commentary.
-"""
-
-
-def build_concept_update_from_exhibition_messages(
-    exh_id: str,
-    exh_content: str,
-    con_id: str,
-    con_content: str,
-    today: str,
-) -> list[ChatMessage]:
-    """Backward propagation: update a CON to be consistent with a corrected EXH."""
-    user_content = CONCEPT_UPDATE_FROM_EXHIBITION_PROMPT.format(
-        exh_id=exh_id,
-        exh_content=exh_content[:2000],
-        con_id=con_id,
-        con_content=con_content[:2000],
-        today=today,
-    )
-    return [
-        ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
-        ChatMessage(role="user", content=user_content),
-    ]
-
-
-BATCH_CONCEPT_UPDATE_FROM_EXHIBITION_PROMPT = """\
-You are updating multiple L3 Concept pages based on corrections or new insights found in a L4 Exhibition.
-
-## Upstream Exhibition ({exh_id})
-{exh_content}
-
-## Target Concept pages
-{concept_blocks}
-
-## Your task
-For each target Concept, decide whether it needs to change. Return JSON only:
-
-{{
-  "concepts": [
-    {{
-      "id": "CON-...",
-      "changed": true,
-      "markdown": "full updated markdown page"
-    }}
-  ]
-}}
-
-Rules:
-- Include changed Concept IDs only. Omit Concepts that do not need changes.
-- If you include an unchanged Concept, set `changed` to false and omit `markdown`.
-- TOPIC-CENTRIC INTEGRATION: Merge updates seamlessly into the topic. The resulting page must read as a pure, coherent knowledge document.
-- NO META-COMMENTARY: Do NOT include meta-talk in the body. Never say "Updated to match...", "This was corrected by...", or "Following the exhibition...".
-- PRIORITY TRUTH: If the Exhibition CORRECTS the Concept, update the claims to be consistent with the latest truth.
-- PRESERVATION: Preserve each CON- ID, YAML structure, and existing wikilinks.
-- METADATA: For changed Concepts, add `corrected_by: [[04_Exhibitions/{exh_id}]]` and update `updated: {today}` in frontmatter.
-- OUTPUT ONLY: valid JSON. No preamble, no code fences, no markdown outside JSON.
-"""
-
-
-def build_batch_concept_update_from_exhibition_messages(
-    exh_id: str,
-    exh_content: str,
-    concept_pages: list[tuple[str, str]],
-    today: str,
-) -> list[ChatMessage]:
-    """Backward propagation: update several CON pages in one structured call."""
-    blocks: list[str] = []
-    for con_id, con_content in concept_pages:
-        blocks.append(
-            f"### Concept {con_id}\n"
-            f"{con_content[:2200]}"
-        )
-    user_content = BATCH_CONCEPT_UPDATE_FROM_EXHIBITION_PROMPT.format(
-        exh_id=exh_id,
-        exh_content=exh_content[:3000],
-        concept_blocks="\n\n".join(blocks),
-        today=today,
-    )
-    return [
-        ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
-        ChatMessage(role="user", content=user_content),
-    ]
-
-
-def build_atom_update_from_concept_messages(
-    con_id: str,
-    con_content: str,
-    atm_id: str,
-    atm_content: str,
-    today: str,
-) -> list[ChatMessage]:
-    """Backward propagation: update an ATM if directly contradicted by an updated CON."""
-    user_content = ATOM_UPDATE_FROM_CONCEPT_PROMPT.format(
-        con_id=con_id,
-        con_content=con_content[:1500],
-        atm_id=atm_id,
-        atm_content=atm_content[:1200],
-        today=today,
-    )
-    return [
-        ChatMessage(role="system", content=CURATOR_SYSTEM_PROMPT),
-        ChatMessage(role="user", content=user_content),
-    ]
-
-
-# ---------------------------------------------------------------------------
-# Exhibition update from conversational insight
-# ---------------------------------------------------------------------------
-
-EXHIBITION_UPDATE_FROM_INSIGHT_PROMPT = """\
-You are updating a L4 Exhibition page to incorporate a new conversational insight or direct correction.
-
-## Current Exhibition Body ({exh_id})
-{exh_content}
-
-## New Insight or Correction
-{insight}
-
-## Context / Reasoning
-{context}
-
-## Your task
-Rewrite the Exhibition body to incorporate this update.
-
-Rules:
-- Seamlessly integrate the new information into the appropriate sections. 
-- If the new insight CONTRADICTS the current body, prioritize the new information (it represents the latest consensus).
-- Maintain the bold-bullet format (- **Section**: Content).
-- Do NOT delete existing [[03_Concepts/CON-xxx]] wikilinks unless the concept itself is being deprecated by this update.
-- Output ONLY the full updated markdown body.
-"""
-
-
-def build_exhibition_update_from_insight_messages(
-    exh_id: str,
-    exh_content: str,
-    insight: str,
-    context: str = "",
-) -> list[ChatMessage]:
-    """Build prompt for integrating a conversational insight into an Exhibition's body."""
-    updates = f"Conversational Insight: {insight}\nContext: {context}"
-    return build_exhibition_refinement_messages(exh_id, exh_content, updates)
-
-
-# ---------------------------------------------------------------------------
-# Contradiction detection (used by `wiki lint --deep`)
-# ---------------------------------------------------------------------------
-
-CONTRADICTION_RESOLUTION_PROMPT = """\
-You are resolving a factual conflict between two L2 Atom pages.
-
-Atom A ({path_a}):
----
-{content_a}
----
-
-Atom B ({path_b}):
----
-{content_b}
----
-
-Identified conflict:
-{conflict_reasoning}
-
-Propose minimal body edits to make both Atoms factually consistent.
-Preserve the existing structure (sections, wikilinks) as much as possible.
-
-Return ONLY a valid JSON object:
-{{
-  "reasoning": "One or two sentences explaining how the conflict is resolved",
-  "atom_a_body_revised": "<revised body for Atom A — sections only, no frontmatter>",
-  "atom_b_body_revised": "<revised body for Atom B — sections only, no frontmatter>"
-}}
-
-Return ONLY the JSON. No prose, no code fences.
 """
 
 
@@ -1137,7 +939,7 @@ Target JSON schema (curator persona):
   "text": "2-4 sentence description of the vault's knowledge focus and goals",
   "knowledge_artifacts": ["primary artifact types this vault contains, e.g. research papers, code, reports, recipes"],
   "verification_philosophy": "one or more ordered canonical methods, e.g. citation-and-derivation or citation-and-derivation + logical-coherence",
-  "exhibition_intent": "knowledge-worker | researcher | engineer | learner",
+  "output_intent": "knowledge-worker | researcher | engineer | learner",
   "confidence": {"high_threshold": 0.85, "low_threshold": 0.55},
   "disambiguation_keywords": ["3-8 domain-specific terms to disambiguate concepts"]
 }"""
@@ -1148,11 +950,11 @@ Target JSON schema (artist persona for workspace "{project}"):
   "domain": "primary domain slug, e.g. domain-name, broad-topic",
   "subdomain": "more specific focus, e.g. specific-subtopic (optional)",
   "goal": "2-4 sentence description of this workspace's knowledge goal",
-  "exhibition_intent": "researcher | engineer | learner",
+  "output_intent": "researcher | engineer | learner",
   "disambiguation_keywords": ["3-8 workspace-specific terms for concept disambiguation"],
   "confidence": {"high_threshold": 0.85, "low_threshold": 0.55}
 }
-exhibition_intent meanings:
+output_intent meanings:
 - researcher: next papers/hypotheses to validate
 - engineer: specific code/system implementation steps
 - learner: concepts to review and practice exercises"""
@@ -1200,7 +1002,7 @@ You are a knowledge-base consultant interviewing a user to configure their Artis
 The interview consists of 5 questions. You must ask them ONE AT A TIME in English.
 Q1: What is the main topic or theme of this workspace? (domain & subdomain)
 Q2: What is the primary knowledge goal of this workspace? (goal)
-Q3: How do you intend to use the final output? (exhibition_intent)
+Q3: How do you intend to use the final output? (output_intent)
 Q4: Are there any specific terms that need precise definition in this workspace? (disambiguation_keywords)
 Q5: What confidence thresholds should filter knowledge for this workspace? (confidence)
 
