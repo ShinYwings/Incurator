@@ -47,6 +47,7 @@ import { TemplateRenderer } from "./src/zotero/templateRenderer";
 import { IncuratorDashboardModal } from "./src/ui/incuratorDashboardModal";
 
 import { InlinePromptWidget } from "./src/ui/inlinePrompt";
+import { QuickQueryPopover } from "./src/ui/quickQueryPopover";
 import {
   getPdfContext,
   getPdfSelection,
@@ -88,6 +89,7 @@ export default class ObsidianAIAgent extends Plugin {
   incuratorClient!: IncuratorClient;
   availableModels: ModelCatalogue = getBundledModelCatalogue();
   inlinePrompt!: InlinePromptWidget;
+  quickQuery!: QuickQueryPopover;
 
   private activeContext: ActiveContext = { viewType: "other" };
   // Last non-chat leaf — preserved so context survives sidebar focus changes
@@ -113,7 +115,8 @@ export default class ObsidianAIAgent extends Plugin {
       this.settings,
       this.authResolver,
       this.vaultRoot,
-      () => this.saveData(this.settings)
+      () => this.saveData(this.settings),
+      this.mcpManager
     );
     this.incuratorClient = new IncuratorClient(
       this.settings,
@@ -121,6 +124,19 @@ export default class ObsidianAIAgent extends Plugin {
       this.runBackendJsonCommand.bind(this)
     );
     this.inlinePrompt = new InlinePromptWidget(this);
+    this.quickQuery = new QuickQueryPopover(this);
+
+    // ── In-line Copilot: drag-to-select quick query popover ──
+    this.registerDomEvent(document, "mouseup", () => {
+      // Defer so the browser finalizes the selection before we read it.
+      window.setTimeout(() => this.quickQuery.handleSelectionChange(), 0);
+    });
+    this.registerDomEvent(
+      document,
+      "mousedown",
+      (e: MouseEvent) => this.quickQuery.handleDocumentClick(e.target),
+      { capture: true }
+    );
 
     // ── Register settings tab ──
     this.addSettingTab(new AIAgentSettingTab(this.app, this));
@@ -245,15 +261,26 @@ export default class ObsidianAIAgent extends Plugin {
       },
     });
 
+    // No default hotkey: Cmd+K is reserved by Obsidian/another binding. Users can
+    // assign their own hotkey to this command in Settings → Hotkeys.
     this.addCommand({
       id: "inline-edit",
-      name: "Inline Edit (Cmd+K)",
+      name: "Inline Edit",
       editorCallback: (_editor: Editor, ctx: MarkdownView | MarkdownFileInfo) => {
         if (ctx instanceof MarkdownView) {
           this.inlinePrompt.open(ctx);
         }
       },
-      hotkeys: [{ modifiers: ["Mod"], key: "k" }],
+    });
+
+    // Cmd+Shift+K: In-line Copilot quick query on the current selection
+    this.addCommand({
+      id: "quick-query-selection",
+      name: "Quick Query on Selection (Cmd+Shift+K)",
+      callback: () => {
+        this.quickQuery.openForCurrentSelection();
+      },
+      hotkeys: [{ modifiers: ["Mod", "Shift"], key: "k" }],
     });
 
     // Cmd+Shift+L: Line reference → chat
@@ -273,6 +300,10 @@ export default class ObsidianAIAgent extends Plugin {
         } else if (view.getViewType() === EXTERNAL_PDF_VIEW_TYPE || view.getViewType() === "pdf") {
           if (!checking) {
             let selectedText = window.getSelection()?.toString().trim();
+            if (!selectedText) {
+              const pdfSel = getPdfSelection(leaf);
+              if (pdfSel) selectedText = pdfSel.text;
+            }
             this.ensureChatOpen().then(() => {
               const chatView = this.getChatView();
               if (!chatView) return;
@@ -294,10 +325,11 @@ export default class ObsidianAIAgent extends Plugin {
                 if (pdfCtx) {
                   chatView.addContextRef({
                     type: "pdf-page",
-                    label: `${pdfView.getDisplayText()} p.${pdfCtx.pageNum}`,
+                    label: `${pdfView.getDisplayText()} p.${pdfCtx.pageNum} (Selection)`,
                     content: pdfCtx.text,
                     imageBase64: pdfCtx.imageBase64,
                     pageNum: pdfCtx.pageNum,
+                    filePath: pdfView.getState()?.path,
                   });
                 }
               }
@@ -670,6 +702,7 @@ export default class ObsidianAIAgent extends Plugin {
     }
     // ensure inline prompt is unmounted
     this.inlinePrompt.unload();
+    this.quickQuery?.unload();
 
     // Shut down MCP servers
     await this.mcpManager.shutdownAll();
@@ -976,6 +1009,14 @@ export default class ObsidianAIAgent extends Plugin {
     await this.saveData(this.settings);
     // Update LLM client with new settings
     this.llmClient?.updateSettings(this.settings);
+    // Notify sidebar to sync UI controls
+    const leaves = this.app.workspace.getLeavesOfType(CHAT_VIEW_TYPE);
+    for (const leaf of leaves) {
+      if (leaf.view instanceof ChatSidebarView) {
+        leaf.view.syncModelControls();
+        leaf.view.syncReasoningControl();
+      }
+    }
   }
 
   // ── Session data (device-local, stored in sessions.json) ────────
@@ -1221,7 +1262,12 @@ export default class ObsidianAIAgent extends Plugin {
         if (pdfCtx) this.activeContext.pdfPage = pdfCtx;
 
         const pdfSelection = getPdfSelection(leaf);
-        if (pdfSelection) this.activeContext.selectedText = pdfSelection;
+        if (pdfSelection) {
+          this.activeContext.selectedText = pdfSelection.text;
+          if (this.activeContext.pdfPage && pdfSelection.imageBase64) {
+            this.activeContext.pdfPage.selectedImageBase64 = pdfSelection.imageBase64;
+          }
+        }
       } catch (err) {
         console.warn("[AI Agent] Failed to capture PDF context:", err);
       }
@@ -1282,6 +1328,14 @@ export default class ObsidianAIAgent extends Plugin {
             this.settings.pdfVisionFallback,
             () => extView.getActivePdfContext("image")?.imageBase64
           ) || undefined;
+          // Capture PDF text selection + cropped image for external PDF tabs.
+          const pdfSel = getPdfSelection(leaf);
+          if (pdfSel) {
+            selectedText = pdfSel.text;
+            if (pdfPage && pdfSel.imageBase64) {
+              pdfPage.selectedImageBase64 = pdfSel.imageBase64;
+            }
+          }
         } catch (err) {
           console.warn("[AI Agent] Failed to capture open external PDF context:", err);
         }
@@ -1293,6 +1347,16 @@ export default class ObsidianAIAgent extends Plugin {
             this.settings.pdfVisionFallback,
             () => getPdfContext(leaf, "image")?.imageBase64
           ) || undefined;
+          // Capture PDF text selection + cropped image for non-active tabs too.
+          // Without this, selectedImageBase64 is always undefined in openTabs,
+          // causing buildAutoContextRefs to fall back to the full-page image.
+          const pdfSel = getPdfSelection(leaf);
+          if (pdfSel) {
+            selectedText = pdfSel.text;
+            if (pdfPage && pdfSel.imageBase64) {
+              pdfPage.selectedImageBase64 = pdfSel.imageBase64;
+            }
+          }
         } catch (err) {
           console.warn("[AI Agent] Failed to capture open PDF context:", err);
         }

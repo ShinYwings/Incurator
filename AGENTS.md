@@ -175,7 +175,9 @@ To prevent context fragmentation and hallucinations when switching between AI co
 - **Update Frequency**: 
   - Agents MUST update `.agents/relay.md` at the **end of every session** (before stopping execution).
   - Agents MUST always keep `.agents/relay.md` updated during a `/goal` or when an implementation plan is active.
-- **Format**: Overwrite `.agents/relay.md` entirely using the standard template (Goal, Plan Reference, Analysis & Reasoning, Progress Status, Critical Context/Blockers, Immediate Next Action). Do not archive old states; maintain a single active state.
+- **Format & Behavior**: 
+  - **For Main Architecture Tasks / Goals**: Overwrite `.agents/relay.md` entirely using the standard template (Goal, Plan Reference, Analysis & Reasoning, Progress Status, Critical Context/Blockers, Immediate Next Action). Maintain a single active state for the core task.
+  - **For Bug Fixes / Side-Tasks (Antigravity Only)**: When Antigravity is assigned side-tasks or bug fixes, it must NOT overwrite the main relay state. Instead, **APPEND** a new section (e.g., `### Update (YYYY-MM-DD)`) at the bottom of `.agents/relay.md` summarizing what was investigated, fixed, or modified. This ensures the primary agent's context is not destroyed by small interventions.
 
 ---
 

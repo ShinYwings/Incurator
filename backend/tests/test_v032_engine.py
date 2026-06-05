@@ -131,3 +131,55 @@ def test_engine_no_persist(db_path: Path):
     result = engine.search("residual", persist=False)
     assert result.trace_id == ""
     assert db.list_query_traces(db_path) == []
+
+
+def test_engine_skips_expander_when_recovery_only_confidence_is_high(db_path: Path):
+    _seed(db_path)
+    calls = []
+
+    def _expander(raw):
+        calls.append(raw)
+        return {"lex_terms": ["attention"], "vec_texts": ["attention"], "hyde_text": "attention"}
+
+    engine = HybridEngine(
+        db_path,
+        {
+            "query_expansion": True,
+            "expansion_recovery_only": True,
+            "expansion_min_lex_hits": 1,
+            "expansion_vector_confidence_floor": 0.0,
+        },
+        embedder=_FakeEmbedder(),
+        expander=_expander,
+    )
+    result = engine.search("residual optimization", rerank=False, want_hyde=True, persist=False)
+    assert calls == []
+    assert result.retrieval_trace["expansion"]["used"] is False
+    assert "vec_hyde" not in result.retrieval_trace["lists"]
+
+
+def test_engine_uses_expander_when_recovery_is_needed(db_path: Path):
+    _seed(db_path)
+    calls = []
+
+    def _expander(raw):
+        calls.append(raw)
+        return {"lex_terms": ["attention"], "vec_texts": ["attention"], "hyde_text": "attention"}
+
+    engine = HybridEngine(
+        db_path,
+        {
+            "query_expansion": True,
+            "expansion_recovery_only": True,
+            "expansion_min_lex_hits": 5,
+            "expansion_vector_confidence_floor": 0.0,
+        },
+        embedder=_FakeEmbedder(),
+        expander=_expander,
+    )
+    result = engine.search("residual optimization", rerank=False, want_hyde=True, persist=False)
+    assert calls == ["residual optimization"]
+    assert result.retrieval_trace["expansion"]["used"] is True
+    assert result.retrieval_trace["expansion"]["hyde_used"] is True
+    assert "lex_exp" in result.retrieval_trace["lists"]
+    assert "vec_hyde" in result.retrieval_trace["lists"]

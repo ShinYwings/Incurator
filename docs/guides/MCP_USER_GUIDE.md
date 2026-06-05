@@ -55,7 +55,8 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 #### `search_curator`
 - **Role**: Search the entire vault using DB-native hybrid search: FTS5 lexical
   retrieval, chunk-level vectors, typed query expansion, RRF, and configured
-  reranking.
+  reranking. Tier-2 LLM/HyDE expansion is recovery-only by default, engaging when
+  raw lexical/vector confidence is low.
 - **Indexing**: Searches authoritative DB search rows, not the derived markdown
   projection. Run `wiki add`/`wiki build` to bring pending sources into the graph
   before search.
@@ -140,7 +141,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 
 #### `curator_get_pdf_context`
-- **Role**: Lightweight on-demand PDF text extraction for chat context. Works for **both tracked and untracked PDFs** — no prior ingestion required. This is the primary tool the Obsidian plugin uses to assemble the `<pdf_window>` and `<document_outline>` context blocks for LLM prompts.
+- **Role**: Lightweight on-demand PDF text extraction for chat context. Works for **both tracked and untracked PDFs** — no prior ingestion required. This is the primary tool the Obsidian plugin uses to assemble the `<pdf_window>` and `<document_outline>` context blocks for LLM prompts. **Agentic usage**: Agents should proactively call this tool with `radius=0` and a specific `page_num` when asked to read a specific chapter or page.
 - **Parameters**:
   - `file_path` (required): Absolute filesystem path to the PDF.
   - `query` (optional): Query string to score pages by relevance. When provided, the most relevant pages are returned rather than a fixed window.
@@ -156,6 +157,11 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
   - `is_empty_pdf`: `true` if the PDF contains no extractable text (scanned/image-only).
 - **Why it replaces multiple calls**: Previously the plugin made three separate MCP calls (`pdf_window`, `document_outline`, `pdf_rag_hits`) that did not exist in the backend and silently returned empty results. This tool unifies them in a single call that actually works.
 - **Performance**: Uses `parse_page_window()` to read only the requested pages, making it safe for 600-page documents without loading the full file into memory.
+
+#### `curator_get_pdf_toc`
+- **Role**: Extract the Table of Contents (Outline) from a PDF. When the agent is asked to find a chapter but doesn't know the page number, it should call this tool first, then call `curator_get_pdf_context` with the discovered `page_num`.
+- **Parameters**: `file_path` (Absolute filesystem path to the PDF).
+- **Returns**: `[{title, page, level}]`
 
 #### `curator_add_knowledge`
 - **Role**: Promote a conversational insight or discussion to the human-verified Wiki space (`02_Wiki/`). This permanently captures valuable information from the chat into the project's durable Wiki.

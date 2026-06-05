@@ -55,6 +55,8 @@ wiki mcp install
 #### `search_curator`
 - **역할**: DB-native hybrid search로 저장소 전체를 검색합니다: FTS5 lexical
   retrieval, chunk-level vector, typed query expansion, RRF, configured reranking.
+  Tier-2 LLM/HyDE expansion은 기본적으로 recovery-only이며 raw lexical/vector
+  confidence가 낮을 때만 실행됩니다.
 - **인덱싱**: 파생 markdown projection이 아니라 authoritative DB search row를
   검색합니다. 대기 중인 소스를 그래프에 반영하려면 검색 전에 `wiki add`/`wiki build`를 실행합니다.
 - **파라미터**: `query`, `scope` (contexts/atoms/concepts/synthesis), `mode`, `limit`.

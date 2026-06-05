@@ -103,21 +103,25 @@ class HybridEngine:
     # candidate lists
     # ------------------------------------------------------------------
 
-    def _vector_list(self, text: str, families: set[str] | None) -> tuple[list[str], dict[str, str]]:
-        """Return (doc_id rank list, doc_id → best chunk_id) for one probe text."""
+    def _vector_list(
+        self, text: str, families: set[str] | None
+    ) -> tuple[list[str], dict[str, str], float | None]:
+        """Return (doc_id rank list, doc_id → best chunk_id, top cosine)."""
         if not self.embedder:
-            return [], {}
+            return [], {}, None
         try:
-            vecs = self.embedder.embed([text])
+            embed_query = getattr(self.embedder, "embed_query", None)
+            vecs = embed_query([text]) if callable(embed_query) else self.embedder.embed([text])
         except Exception:
-            return [], {}
+            return [], {}, None
         if not vecs:
-            return [], {}
+            return [], {}, None
         hits = vector.vector_search(
             self.db_path, vecs[0], provider=self.embedder.provider,
             model=self.embedder.model, families=families, limit=_CANDIDATE_CAP,
         )
-        return [h.doc_id for h in hits], {h.doc_id: h.chunk_id for h in hits}
+        top_score = hits[0].score if hits else None
+        return [h.doc_id for h in hits], {h.doc_id: h.chunk_id for h in hits}, top_score
 
     # ------------------------------------------------------------------
     # rerank
@@ -201,32 +205,61 @@ class HybridEngine:
     ) -> EngineResult:
         started = time.monotonic()
         warnings: list[str] = []
-        expanded = expansion_mod.expand(
-            question, boosts=boosts, expander=self.expander, want_hyde=want_hyde
-        )
+        expanded = expansion_mod.expand(question, boosts=boosts)
 
         ranked_lists: dict[str, tuple[float, list[str]]] = {}
         chunk_by_doc: dict[str, str] = {}
+        lex_hit_count = 0
+        top_vector_score: float | None = None
 
         if mode in ("hybrid", "lex"):
             lex_raw = lexical.lexical_search(self.db_path, question, families=families, limit=_CANDIDATE_CAP)
+            lex_hit_count = len(lex_raw)
             ranked_lists["lex_raw"] = (fusion.DEFAULT_WEIGHTS["lex_raw"], [h.doc_id for h in lex_raw])
-            if expanded.lex_terms_expanded:
-                exp_q = " ".join(expanded.lex_terms_expanded)
-                lex_exp = lexical.lexical_search(self.db_path, exp_q, families=families, limit=_CANDIDATE_CAP)
-                ranked_lists["lex_exp"] = (fusion.DEFAULT_WEIGHTS["lex_exp"], [h.doc_id for h in lex_exp])
 
         vectors_available = self._vectors_available()
         if mode in ("hybrid", "vec") and vectors_available:
-            docs, chunks = self._vector_list(expanded.vec_texts[0], families)
+            docs, chunks, top_vector_score = self._vector_list(expanded.vec_texts[0], families)
             ranked_lists["vec_raw"] = (fusion.DEFAULT_WEIGHTS["vec_raw"], docs)
             chunk_by_doc.update(chunks)
+
+        expansion_recovery_only = bool(self.config.get("expansion_recovery_only", True))
+        vector_floor = float(self.config.get("expansion_vector_confidence_floor", 0.35))
+        min_lex_hits = int(self.config.get("expansion_min_lex_hits", 5))
+        lex_recovery = mode in ("hybrid", "lex") and lex_hit_count < min_lex_hits
+        vector_recovery = (
+            mode in ("hybrid", "vec")
+            and vectors_available
+            and top_vector_score is not None
+            and top_vector_score < vector_floor
+        )
+        recovery_needed = lex_recovery or vector_recovery
+        use_expander = self.expander is not None and (
+            not expansion_recovery_only or recovery_needed
+        )
+        if self.config.get("query_expansion", True) and self.expander is None and want_hyde:
+            warnings.append("query_expander_unavailable: using deterministic expansion only")
+
+        if use_expander:
+            expanded = expansion_mod.expand(
+                question,
+                boosts=boosts,
+                expander=self.expander,
+                want_hyde=want_hyde and (recovery_needed or not expansion_recovery_only),
+            )
+
+        if mode in ("hybrid", "lex") and expanded.lex_terms_expanded:
+            exp_q = " ".join(expanded.lex_terms_expanded)
+            lex_exp = lexical.lexical_search(self.db_path, exp_q, families=families, limit=_CANDIDATE_CAP)
+            ranked_lists["lex_exp"] = (fusion.DEFAULT_WEIGHTS["lex_exp"], [h.doc_id for h in lex_exp])
+
+        if mode in ("hybrid", "vec") and vectors_available:
             for i, text in enumerate(expanded.vec_texts[1:], 1):
-                docs, chunks = self._vector_list(text, families)
+                docs, chunks, _ = self._vector_list(text, families)
                 ranked_lists[f"vec_exp{i}"] = (fusion.DEFAULT_WEIGHTS["vec_exp"], docs)
                 chunk_by_doc.update(chunks)
             if expanded.hyde_text:
-                docs, chunks = self._vector_list(expanded.hyde_text, families)
+                docs, chunks, _ = self._vector_list(expanded.hyde_text, families)
                 ranked_lists["vec_hyde"] = (fusion.DEFAULT_WEIGHTS["vec_hyde"], docs)
                 chunk_by_doc.update(chunks)
 
@@ -237,7 +270,8 @@ class HybridEngine:
             else:
                 warnings.append("vector_unavailable: no embedder configured (FTS5-only)")
 
-        fused = fusion.rrf_fuse(ranked_lists, candidate_cap=_CANDIDATE_CAP)
+        fuse_cap = int(self.config.get("fuse_cap", 40))
+        fused = fusion.rrf_fuse(ranked_lists, candidate_cap=_CANDIDATE_CAP, fuse_cap=fuse_cap)
 
         do_rerank = rerank and mode == "hybrid"
         if do_rerank:
@@ -284,10 +318,21 @@ class HybridEngine:
             "mode": mode,
             "intent": expanded.intent,
             "is_cjk": expanded.is_cjk,
+            "expansion": {
+                "recovery_only": expansion_recovery_only,
+                "recovery_needed": recovery_needed,
+                "used": use_expander,
+                "lex_hit_count": lex_hit_count,
+                "min_lex_hits": min_lex_hits,
+                "top_vector_score": top_vector_score,
+                "vector_confidence_floor": vector_floor,
+                "hyde_used": bool(expanded.hyde_text),
+            },
             "lists": {name: {"weight": w, "count": len(docs)} for name, (w, docs) in ranked_lists.items()},
             "fused": [{"doc_id": h.doc_id, "rrf_score": h.score, "contributions": h.contributions} for h in fused[:limit]],
             "fallback_mode": fallback_mode,
             "weights": fusion.DEFAULT_WEIGHTS,
+            "fuse_cap": fuse_cap,
             "latency_ms": latency_ms,
         }
 

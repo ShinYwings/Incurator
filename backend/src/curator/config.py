@@ -199,12 +199,32 @@ DEFAULT_CONFIG: dict = {
         # "qmd" remains accepted during migration but the native engine is default.
         "backend": "native",
         "rerank": True,
+        # Tier-2 LLM query expansion (lex/vec/hyde) on the answer path. Uses the
+        # configured chat LLM; fail-safe to deterministic Tier-1 if unavailable.
+        "query_expansion": True,
+        # Keep LLM expansion/HyDE as a recovery tool by default so strong raw
+        # lexical/vector matches are not perturbed by noisy expansion probes.
+        "expansion_recovery_only": True,
+        "expansion_vector_confidence_floor": 0.35,
+        "expansion_min_lex_hits": 5,
+        # Optional qmd-compatible local GGUF query expander. Empty -> use the
+        # configured chat LLM when query_expansion is enabled.
+        "query_expander": "",
+        "query_expander_model_path": "",
         "embedding": f"{consts.DEFAULT_EMBED_PROVIDER}::{consts.DEFAULT_EMBED_MODEL}",
         "embedding_dim": consts.DEFAULT_EMBED_DIM,
+        # Absolute path to the embedding GGUF. Empty → use the host cache
+        # populated by `wiki models ensure`, or degrade to FTS5-only.
+        "embedding_model_path": "",
+        "embedding_gguf_repo": consts.DEFAULT_EMBED_GGUF_REPO,
+        "embedding_gguf_file": consts.DEFAULT_EMBED_GGUF_FILE,
         "reranker": f"{consts.DEFAULT_RERANK_PROVIDER}::{consts.DEFAULT_RERANK_MODEL}",
-        # Absolute path to the reranker GGUF (e.g. bge-reranker-v2-gemma Q8_0).
+        # Absolute path to the reranker GGUF.
         # Empty → reranker disabled; answer path runs in `no_rerank` degraded mode.
+        # `wiki models ensure` downloads the GGUF below and sets this automatically.
         "reranker_model_path": "",
+        "reranker_gguf_repo": consts.DEFAULT_RERANK_GGUF_REPO,
+        "reranker_gguf_file": consts.DEFAULT_RERANK_GGUF_FILE,
         "chunking": {
             "target_tokens": 256,
             "max_tokens": 384,
@@ -267,25 +287,9 @@ def get_curator_persona(config: dict) -> dict:
 
 
 def get_global_config_dir() -> Path:
-    """Get cross-platform global config directory for macOS and Linux."""
-    import sys
-    import os
-    # If XDG_CONFIG_HOME is set, respect it
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    if xdg:
-        return Path(xdg) / "curator"
-
-    # macOS specific standard path fallback
-    if sys.platform == "darwin":
-        mac_path = Path.home() / "Library" / "Application Support" / "curator"
-        linux_fallback = Path.home() / ".config" / "curator"
-        # If macOS path exists, or Linux path doesn't exist, use macOS path
-        if mac_path.exists() or not linux_fallback.exists():
-            return mac_path
-        return linux_fallback
-
-    # Linux fallback
-    return Path.home() / ".config" / "curator"
+    """Get project-local config directory (originally global)."""
+    # Force everything to be inside the project's .cache so no byproducts leak into ~
+    return Path(__file__).resolve().parents[3] / ".cache" / "config"
 
 
 def get_last_root() -> Optional[Path]:

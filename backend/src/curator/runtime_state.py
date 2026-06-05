@@ -19,6 +19,7 @@ from . import __version__
 from . import config as cfg
 from . import constants as consts
 from . import db
+from . import device_registry
 from . import ingest_raw
 from . import llm_identity
 from . import search
@@ -176,6 +177,56 @@ def build_sources_snapshot(paths: cfg.WikiPaths, *, limit: int = 100) -> dict[st
     }
 
 
+def _search_models_status(search_config: dict[str, Any]) -> dict[str, Any]:
+    """Identity + health of the search embed/rerank models, without loading them.
+
+    Lets the Obsidian plugin show which models are in use and whether they are
+    ready (file present + runtime importable), and offer a refresh when not.
+    """
+    from . import model_setup
+
+    sc = search_config or {}
+    cache = model_setup.models_cache_dir()
+    llama_ok = model_setup.llama_cpp_installed()
+
+    def _resolve(path_key: str, file_key: str) -> tuple[str, bool]:
+        explicit = str(sc.get(path_key) or "").strip()
+        if explicit:
+            return explicit, Path(explicit).exists()
+        filename = str(sc.get(file_key) or "").strip()
+        cand = cache / filename if filename else None
+        present = bool(cand and cand.exists() and cand.stat().st_size > 0)
+        return (str(cand) if cand else ""), present
+
+    def _ready(provider: str, present: bool) -> bool:
+        if provider == "llama-cpp":
+            return bool(present and llama_ok)
+        if provider == consts.BACKEND_OLLAMA:
+            return True  # ollama model health is reflected by ollamaReachable
+        return False
+
+    embed_provider, _, embed_model = str(sc.get("embedding") or "").partition("::")
+    rerank_provider, _, rerank_model = str(sc.get("reranker") or "").partition("::")
+    embed_path, embed_present = _resolve("embedding_model_path", "embedding_gguf_file")
+    rerank_path, rerank_present = _resolve("reranker_model_path", "reranker_gguf_file")
+    rerank_enabled = bool(sc.get("rerank", True))
+
+    return {
+        "embed": {
+            "provider": embed_provider.strip(), "model": embed_model.strip(),
+            "path": embed_path, "present": embed_present,
+            "ready": _ready(embed_provider.strip(), embed_present),
+        },
+        "reranker": {
+            "provider": rerank_provider.strip(), "model": rerank_model.strip(),
+            "path": rerank_path, "present": rerank_present, "enabled": rerank_enabled,
+            "ready": rerank_enabled and _ready(rerank_provider.strip(), rerank_present),
+        },
+        "llama_cpp_installed": llama_ok,
+        "cache_dir": str(cache),
+    }
+
+
 def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = None) -> dict[str, Any]:
     config = config if config is not None else cfg.load_config(paths)
     stats = db.get_stats(paths.state_db)
@@ -204,8 +255,37 @@ def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = 
         embed_provider and embed_model
         and db.has_search_embeddings(paths.state_db, embed_provider.strip(), embed_model.strip())
     ) if paths.state_db.exists() else False
+    search_models = _search_models_status(search_config)
     jobs = build_jobs_snapshot(paths)
     source_layers = _source_layer_counts(paths)
+    # devices registry — read only; never writes here
+    _registry = device_registry.load_registry(paths.root)
+    _local_id = _registry.get("local_device_id")
+    _syncthing_folders = _registry.get("syncthing", {}).get("folders", [])
+    if not isinstance(_syncthing_folders, list):
+        _syncthing_folders = []
+        
+    _device_list = []
+    for did, d in _registry.get("devices", {}).items():
+        if not isinstance(d, dict):
+            continue
+        is_local = (did == _local_id) or (did == "local")
+        synced_folders = _syncthing_folders if is_local else [
+            f for f in _syncthing_folders
+            if isinstance(f.get("device_ids"), list) and did in f["device_ids"]
+        ]
+        folder_labels = [
+            f.get("label") or f.get("id") or f.get("role")
+            for f in synced_folders
+        ]
+        _device_list.append({
+            "device_id": did,
+            "name": d.get("name") or did[:12],
+            "is_local": is_local,
+            "platform": d.get("platform") or {},
+            "folders": [lbl for lbl in folder_labels if lbl]
+        })
+    _device_list.sort(key=lambda x: (not x["is_local"], str(x["name"]).lower()))
     return {
         "ok": True,
         "generated_at": _now_iso(),
@@ -218,6 +298,7 @@ def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = 
         "search_ready": True,
         "search_version": search_version,
         "vector_ready": vector_ready,
+        "search_models": search_models,
         # back-compat shim for the current plugin UI (migrated in P10)
         "qmd_binary": "native (in-DB FTS5+vector)",
         "qmd_ready": True,
@@ -239,6 +320,8 @@ def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = 
         "curate": config.get("curate", {}),
         "external": config.get("external", {}),
         "persona": config.get("persona", {}),
+        "devices": _device_list,
+        "local_device_id": _local_id,
         "jobs": {
             "running": len(jobs["running"]),
             "queued": len(jobs["queued"]),

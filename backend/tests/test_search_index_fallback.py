@@ -48,6 +48,25 @@ class SearchIndexFallbackTests(unittest.TestCase):
         self.assertTrue(result.degraded)
         self.assertIn("FTS5-only", result.warning)
 
+    def test_embed_unloads_configured_ollama_before_llama_cpp(self) -> None:
+        config = cfg.DEFAULT_CONFIG.copy()
+        config["llm"] = {
+            **cfg.DEFAULT_CONFIG["llm"],
+            "primary": "ollama::qwen2.5:7b",
+        }
+        config["search"] = {
+            **cfg.DEFAULT_CONFIG["search"],
+            "embedding": "llama-cpp::qwen3-embedding-0.6b",
+        }
+        with (
+            patch.object(cfg, "load_config", return_value=config),
+            patch("curator.model_setup.unload_configured_ollama_models") as unload,
+            patch.object(providers, "build_embedder", return_value=None),
+        ):
+            search.update_index(self.paths, embed=True)
+
+        unload.assert_called_once_with(config)
+
 
 if __name__ == "__main__":
     unittest.main()

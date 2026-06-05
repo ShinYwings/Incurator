@@ -1,5 +1,5 @@
 import { execSync, spawn } from "child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync, rmSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import type { LLMProvider } from "../types";
@@ -138,6 +138,16 @@ export class CLIAuthResolver {
     if (provider === "deepseek") {
       throw new Error(AUTH_HELP.deepseek);
     }
+    
+    if (provider === "antigravity") {
+      try {
+        const credsPath = join(homedir(), ".gemini", "oauth_creds.json");
+        const accountsPath = join(homedir(), ".gemini", "google_accounts.json");
+        if (existsSync(credsPath)) rmSync(credsPath);
+        if (existsSync(accountsPath)) rmSync(accountsPath);
+      } catch { /* ignore */ }
+    }
+
     this.invalidate(provider);
     const command = LOGIN_COMMANDS[provider];
     this.assertCommandAvailable(command[0], provider);
@@ -149,6 +159,10 @@ export class CLIAuthResolver {
     if (provider === "deepseek") return { name: "API key configured" };
 
     if (provider === "antigravity") {
+      // agy 1.0.5 keeps its account in the OS keychain (no readable creds file),
+      // and has no `whoami` command, so we cannot reliably read the email. Only
+      // report an account if a (legacy) readable creds file actually exists;
+      // otherwise stay honest about it being a CLI-managed session.
       try {
         const credsPath = join(homedir(), ".gemini", "oauth_creds.json");
         if (existsSync(credsPath)) {
@@ -156,11 +170,11 @@ export class CLIAuthResolver {
           const data = JSON.parse(raw);
           if (data.id_token) {
             const claims = this.decodeJwtClaims(data.id_token);
-            if (claims) return { email: claims.email, name: claims.name || "Authenticated" };
+            if (claims?.email) return { email: claims.email, name: claims.name };
           }
         }
       } catch { /* ignore */ }
-      return { name: "Authenticated" };
+      return { name: "agy CLI session" };
     }
 
     if (provider === "openai") {
@@ -201,6 +215,72 @@ export class CLIAuthResolver {
   /** Invalidate cached token, forcing re-fetch on next call */
   invalidate(provider: LLMProvider): void {
     delete this.cache[provider];
+  }
+
+  /**
+   * Sign out / reset what the plugin can control for a provider, then drop the
+   * cached credential. Returns a short note describing any limitation.
+   *
+   * The plugin only manages its own readable artifacts. CLI providers
+   * (antigravity/claude/openai) keep their real session in their own
+   * config/keychain, so a full sign-out may still require the provider CLI.
+   */
+  signOut(provider: LLMProvider): { ok: boolean; note: string } {
+    this.invalidate(provider);
+
+    if (provider === "ollama") {
+      return { ok: true, note: "Ollama is local and needs no sign-out." };
+    }
+    if (provider === "deepseek") {
+      // The key itself lives in plugin settings; the caller clears it. Nothing
+      // to remove here beyond cache invalidation.
+      return { ok: true, note: "Cleared the saved DeepSeek API key from plugin settings." };
+    }
+
+    if (provider === "antigravity") {
+      const removed = this.removeFiles([
+        join(homedir(), ".gemini", "oauth_creds.json"),
+        join(homedir(), ".gemini", "google_accounts.json"),
+        join(homedir(), ".incurator-obsidian-agent-cli", "agy-home", ".gemini", "oauth_creds.json"),
+      ]);
+      return {
+        ok: true,
+        note:
+          (removed ? "Removed plugin-readable Antigravity credentials. " : "") +
+          "agy may also hold a session in the OS keychain — run `agy` to fully sign out/in.",
+      };
+    }
+
+    if (provider === "claude") {
+      return {
+        ok: true,
+        note: "Cleared the cached Claude session. Claude Code manages its own login — run `claude` to fully sign out/in.",
+      };
+    }
+
+    if (provider === "openai") {
+      return {
+        ok: true,
+        note: "Cleared the cached Codex session. Codex manages its own login — run `codex` to fully sign out/in.",
+      };
+    }
+
+    return { ok: true, note: "Cleared cached credentials." };
+  }
+
+  private removeFiles(paths: string[]): boolean {
+    let removed = false;
+    for (const p of paths) {
+      try {
+        if (existsSync(p)) {
+          rmSync(p);
+          removed = true;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return removed;
   }
 
   // ── Antigravity (agy) browser login ────────────────────────────

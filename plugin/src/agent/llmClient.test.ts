@@ -4,7 +4,10 @@ import {
   formatMcpToolResultForDisplay,
   formatQuotaErrorMessage,
   isQuotaErrorMessage,
+  sanitizeOpenAIMessages,
+  normalizeOpenAIContent,
 } from "./llmClient";
+import type { LLMMessage } from "../types";
 
 vi.mock("obsidian", () => ({
   Notice: class Notice {
@@ -59,5 +62,81 @@ describe("MCP tool result display", () => {
 
     expect(display.length).toBeLessThan(650);
     expect(display.endsWith("…")).toBe(true);
+  });
+});
+
+describe("sanitizeOpenAIMessages", () => {
+  it("drops assistant turns with neither content nor tool_calls", () => {
+    const messages: LLMMessage[] = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "" }, // degenerate turn → 400 culprit
+      { role: "user", content: "again" },
+    ];
+    const out = sanitizeOpenAIMessages(messages);
+    expect(out).toHaveLength(3);
+    expect(out.some((m) => m.role === "assistant")).toBe(false);
+  });
+
+  it("keeps assistant tool-call turns even with empty content", () => {
+    const messages: LLMMessage[] = [
+      { role: "user", content: "do it" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          { id: "c1", type: "function", function: { name: "f", arguments: "{}" } },
+        ],
+      },
+      { role: "tool", tool_call_id: "c1", content: "result" },
+    ];
+    const out = sanitizeOpenAIMessages(messages);
+    expect(out).toHaveLength(3);
+  });
+
+  it("keeps normal assistant turns and non-assistant roles untouched", () => {
+    const messages: LLMMessage[] = [
+      { role: "user", content: "q" },
+      { role: "assistant", content: "real answer" },
+    ];
+    expect(sanitizeOpenAIMessages(messages)).toEqual(messages);
+  });
+
+  it("treats whitespace-only assistant content as empty", () => {
+    const messages: LLMMessage[] = [
+      { role: "assistant", content: "   \n  " },
+    ];
+    expect(sanitizeOpenAIMessages(messages)).toHaveLength(0);
+  });
+});
+
+describe("normalizeOpenAIContent", () => {
+  const identity = (c: any) => c;
+
+  it("emits empty string (not null) for an assistant tool-call turn", () => {
+    const msg: LLMMessage = {
+      role: "assistant",
+      content: "",
+      tool_calls: [
+        { id: "c1", type: "function", function: { name: "f", arguments: "{}" } },
+      ],
+    };
+    expect(normalizeOpenAIContent(msg, identity)).toBe("");
+  });
+
+  it("emits empty string for an empty tool result turn", () => {
+    const msg: LLMMessage = { role: "tool", tool_call_id: "c1", content: "" };
+    expect(normalizeOpenAIContent(msg, identity)).toBe("");
+  });
+
+  it("passes real content through the mapper", () => {
+    const msg: LLMMessage = { role: "assistant", content: "hello" };
+    expect(normalizeOpenAIContent(msg, identity)).toBe("hello");
+  });
+
+  it("keeps null for empty user/system turns", () => {
+    expect(normalizeOpenAIContent({ role: "user", content: "" }, identity)).toBe(
+      null
+    );
   });
 });

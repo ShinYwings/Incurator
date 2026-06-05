@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { withVisionFallback } from "./pdfCapture";
+import { extractPdfPageTextFromDom, withVisionFallback } from "./pdfCapture";
 import type { PdfPageContext } from "../types";
 
 function makeCtx(overrides: Partial<PdfPageContext> = {}): PdfPageContext {
@@ -71,5 +71,33 @@ describe("withVisionFallback", () => {
     const fn = vi.fn(() => "img");
     withVisionFallback(ctx, "text", true, fn);
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("extractPdfPageTextFromDom", () => {
+  it("trusts substantial text-layer span text instead of marking it scanned-like", () => {
+    const warningSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const text =
+      "This rendered PDF text layer contains enough selectable words to answer from text context " +
+      "without falling back to image capture. The viewer should keep this as normal DOM text.";
+    const spans = text.split(" ").map((word) => ({ textContent: word }));
+    const textLayer = {
+      querySelectorAll: () => spans,
+      innerText: "",
+      textContent: text,
+    };
+    const pageEl = {
+      dataset: {},
+      querySelector: (selector: string) =>
+        selector === ".textLayer" ? textLayer : null,
+      innerText: "",
+    };
+
+    const result = extractPdfPageTextFromDom(pageEl as unknown as HTMLElement);
+
+    expect(result.text).toContain("rendered PDF text layer");
+    expect(result.textQuality.source).toBe("obsidian-text-layer");
+    expect(result.textQuality.isScannedLike).toBe(false);
+    warningSpy.mockRestore();
   });
 });

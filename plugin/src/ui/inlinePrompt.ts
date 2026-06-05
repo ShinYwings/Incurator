@@ -4,7 +4,8 @@ import type { StreamChunk } from "../types";
 import { DiffViewer } from "./diffViewer";
 
 /**
- * Floating inline prompt bar that appears above the cursor when Cmd+K is pressed.
+ * Floating inline prompt bar that appears above the cursor when the Inline Edit
+ * command runs (no default hotkey; user-assignable in Settings → Hotkeys).
  * Sends the selected text + instruction to the LLM and opens a diff view.
  */
 export class InlinePromptWidget {

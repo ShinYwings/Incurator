@@ -695,6 +695,8 @@ def build_server() -> FastMCP:
             "  - Propose corrections via `curator_propose_correction` (classified, source-truth-safe).\n"
             "  - Add new insights via `curator_add_knowledge`.\n"
             "  - Call `curator_reindex` only after manually editing vault files outside MCP.\n\n"
+            "PDF AGENTIC NAVIGATION:\n"
+            "  - If the user asks about a specific chapter or section of a PDF, use `curator_get_pdf_toc` to find the page number, then call `curator_get_pdf_context` with `radius=0` and that `page_num` to fetch it.\n\n"
             "Layer prefixes: CTX- (01_Contexts), ATM- (02_Atoms), CON- (03_Concepts), SYN- (04_Synthesis)."
         ),
     )
@@ -1559,6 +1561,19 @@ def build_server() -> FastMCP:
             "count": len(hits),
         }
 
+
+    @mcp.tool()
+    def curator_get_pdf_toc(file_path: str) -> list[dict]:
+        """Extract the Table of Contents (Outline) from a PDF.
+        
+        Useful when you need to know which page a specific chapter starts on.
+        Returns a list of dictionaries with 'level', 'title', and 'page' (1-based).
+        """
+        from .parsers import pdf
+        try:
+            return pdf._extract_pdf_toc(Path(file_path))
+        except Exception as e:
+            return [{"error": str(e)}]
 
     @mcp.tool()
     def curator_get_pdf_context(
@@ -3405,7 +3420,24 @@ def build_server() -> FastMCP:
 
 
 def serve_stdio() -> None:
-    """Run the MCP server over stdio. Used by `wiki mcp`."""
+    """Run the MCP server over stdio. Used by `wiki mcp`.
+
+    The MCP server is the long-lived backend the plugin connects to, so it
+    auto-starts Ollama (non-interactive, best-effort) for local chat/fallback
+    profiles. Search defaults to llama-cpp GGUFs and unloads configured Ollama
+    models before loading them when VRAM is tight. Failure is non-fatal.
+    """
+    try:
+        from . import config as _cfg
+        from . import model_setup
+
+        paths = _cfg.WikiPaths(Path(os.environ["VAULT_ROOT"])) if os.environ.get("VAULT_ROOT") else None
+        host = consts.DEFAULT_OLLAMA_HOST
+        if paths is not None:
+            host = (_cfg.load_config(paths).get("llm", {}).get("ollama", {}) or {}).get("host") or host
+        model_setup.ensure_ollama_serving(host)
+    except Exception:
+        pass  # never block the daemon on model provisioning
     server = build_server()
     server.run()  # FastMCP defaults to stdio transport
 

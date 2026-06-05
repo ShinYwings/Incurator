@@ -289,6 +289,22 @@ export class AIAgentSettingTab extends PluginSettingTab {
           this.renderAuthStatusInline(authBadge, button.buttonEl);
         })
       );
+      // Sign out clears the saved key so a stale value can't masquerade as
+      // "configured" (it lives in plugin data.json, not in `.curator`).
+      if (this.plugin.settings.deepseekApiKey) {
+        authRow.addButton((button) =>
+          button
+            .setButtonText("Sign out")
+            .setWarning()
+            .onClick(async () => {
+              this.plugin.settings.deepseekApiKey = "";
+              await this.plugin.saveSettings();
+              this.plugin.authResolver.signOut("deepseek");
+              new Notice("DeepSeek API key cleared.");
+              this.display();
+            })
+        );
+      }
       this.renderAuthStatusInline(authBadge);
     } else {
       const authRow = new Setting(providerSection).setName("Authentication");
@@ -326,6 +342,21 @@ export class AIAgentSettingTab extends PluginSettingTab {
         });
       });
 
+      // Sign out clears the plugin's cached/readable credentials. The provider
+      // CLI keeps its own session (keychain/config), so this is best-effort and
+      // the note tells the user when the CLI must also be used.
+      authRow.addButton((button) =>
+        button
+          .setButtonText("Sign out")
+          .setWarning()
+          .onClick(() => {
+            stopAuthPoll();
+            const { note } = this.plugin.authResolver.signOut(this.plugin.settings.provider);
+            new Notice(note);
+            this.renderAuthStatusInline(authBadge, loginBtn);
+          })
+      );
+
       this.renderAuthStatusInline(authBadge, loginBtn!);
     }
 
@@ -336,6 +367,21 @@ export class AIAgentSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.streamingEnabled)
           .onChange(async (value) => {
             this.plugin.settings.streamingEnabled = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(providerSection)
+      .setName("Quick query on selection")
+      .setDesc(
+        "Show a floating \"Ask AI\" button when you select text, opening a one-off " +
+          "popup query. Answers are ephemeral and never touch chat history."
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.quickQueryEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.quickQueryEnabled = value;
             await this.plugin.saveSettings();
           })
       );
@@ -870,8 +916,20 @@ export class AIAgentSettingTab extends PluginSettingTab {
     const provider = this.plugin.settings.provider;
     if (provider === "deepseek") {
       container.empty();
-      if (this.plugin.settings.deepseekApiKey || process.env.DEEPSEEK_API_KEY) {
-        container.createSpan({ cls: "ai-agent-auth-ok", text: "✓ API key configured" });
+      const savedKey = !!this.plugin.settings.deepseekApiKey;
+      const envKey = !savedKey && !!process.env.DEEPSEEK_API_KEY;
+      if (savedKey) {
+        container.createSpan({ cls: "ai-agent-auth-ok", text: "✓ API key configured (saved in plugin)" });
+        if (loginBtn) {
+          loginBtn.textContent = "Check API key";
+          loginBtn.classList.remove("mod-cta");
+        }
+        return true;
+      }
+      if (envKey) {
+        // Distinguish env-provided keys so a shell DEEPSEEK_API_KEY isn't mistaken
+        // for one the user typed and forgot.
+        container.createSpan({ cls: "ai-agent-auth-ok", text: "✓ Using DEEPSEEK_API_KEY from environment" });
         if (loginBtn) {
           loginBtn.textContent = "Check API key";
           loginBtn.classList.remove("mod-cta");

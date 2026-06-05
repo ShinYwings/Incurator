@@ -48,9 +48,12 @@ Obsidian → **설정 > 커뮤니티 플러그인 > 설치된 플러그인**에�
 
 ---
 
-## 3. 인라인 편집 (`Cmd+K`)
+## 3. 인라인 편집
 
-마크다운 편집기에서 텍스트를 선택한 뒤 `Cmd+K`를 누르면 인라인 프롬프트 위젯이 열립니다.
+마크다운 편집기에서 텍스트를 선택한 뒤 **Inline Edit** 명령을 실행하면 인라인
+프롬프트 위젯이 열립니다. 이 명령은 **기본 단축키가 없습니다**(`Cmd+K`는
+Obsidian/다른 바인딩이 이미 사용 중). 단축키가 필요하면 **설정 → 단축키(Hotkeys)**
+에서 직접 할당하세요.
 
 - **선택 없음**: 전체 문서 맥락으로 편집 명령을 입력합니다.
 - **텍스트 선택 후**: 선택 영역만 대상으로 편집됩니다.
@@ -63,12 +66,52 @@ Obsidian → **설정 > 커뮤니티 플러그인 > 설치된 플러그인**에�
 ```text
 편집기에서 텍스트 선택
        │
-       │ Cmd+K
+       │ Inline Edit 명령
        ▼
 인라인 프롬프트 위젯 (명령 입력)
        │
        ▼
 LLM이 제안 생성 → Diff 표시 → Accept / Reject
+```
+
+---
+
+## 3.5 선택 영역 빠른 질의 (In-line Copilot)
+
+마크다운 노트, 읽기 뷰, PDF 어디서든 텍스트를 드래그(선택)하면 선택 영역 옆에
+**✨ Ask AI** 버튼 하나가 나타납니다. 이 버튼을 누르거나(텍스트가 선택된 상태에서
+`Cmd+Shift+K`를 눌러도 됨) 해당 구절에 대해 1회성 질문을 던질 수 있는 작은 팝업이
+열립니다. 읽는 도중 "참조: [섹션 4.2]"나 "Eq. (3)에 의해…" 같은 구절을 빠르게
+해석/요약받는, `wiki query`의 가벼운 버전처럼 동작합니다.
+
+- **버튼 1개**: 드래그 시 툴바 없이 버튼 단 하나만 표시됩니다.
+- **심플한 팝업**: 팝업에는 질문 입력칸과 **Ask** 버튼만 있습니다. 프리셋·퀵버튼은
+  없습니다.
+- **답변만 표시**: 질문을 제출하면 입력칸은 숨겨지고 스트리밍되는 AI 답변만 깔끔하게
+  표시됩니다(채팅 말풍선 구조 아님). 스트림이 끝나면 답변은 Markdown(수식/LaTeX 포함)
+  으로 렌더링됩니다.
+- **복사 가능**: 답변 텍스트는 드래그로 복사할 수 있도록 선택 가능 상태를 유지합니다.
+- **스크롤·최대 크기**: 팝업은 `max-height`/`max-width`로 크기가 제한되며, 내용이 길면
+  팝업 내부에서 스크롤됩니다.
+- **1회성(Temp)**: 임시 창이므로 닫으면(`×` 버튼, `Esc`, 또는 답변 완료 후 바깥 클릭)
+  데이터는 소멸하며 사이드바 대화 기록을 오염시키지 않습니다.
+
+선택한 구절이 질문과 함께 1차 컨텍스트로 전달되며, 현재 설정된 AI 제공자/모델을
+사용합니다. 버튼이 뜨지 않게 하려면 **설정 → AI Provider → Quick query on selection**
+에서 기능을 끌 수 있습니다.
+
+```text
+텍스트 드래그 선택
+       │
+       │ ✨ Ask AI 버튼 표시
+       ▼
+팝업: [ 질문 입력칸 ] [ Ask ]
+       │  제출
+       ▼
+입력칸 숨김 → 답변만 스트리밍 (복사·스크롤 가능)
+       │  닫기 (×, Esc, 바깥 클릭)
+       ▼
+소멸 — 대화 기록 유지
 ```
 
 ---
@@ -85,7 +128,7 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
 
 Incurator PDF 뷰어의 텍스트 선택은 실제 텍스트 span 위에서만 시작됩니다. PDF의 빈 여백을 드래그해도 선택 영역이 생기지 않도록 처리합니다.
 
-사이드챗에서 메시지를 보낼 때 선택 영역, 라인 참조, PDF 스니핑으로 명시적으로 추가한 컨텍스트가 현재 턴의 중심 맥락으로 취급됩니다. 보라색 pin 컨텍스트와 자동으로 보이는 탭은 질문에서 직접 요구하지 않는 한 배경 맥락으로만 사용됩니다. pin 또는 첨부 context chip은 invisible/excluded 상태로 전환할 수 있으며, 이 상태에서는 chip row에는 남아 있지만 다시 visible로 바꾸기 전까지 모델 prompt에는 포함되지 않습니다.
+사이드챗에서 메시지를 보낼 때 선택 영역, 라인 참조, PDF 스니핑으로 명시적으로 추가한 컨텍스트가 현재 턴의 중심 맥락으로 취급됩니다. 명시적으로 선택한 snippet, 선택 텍스트, crop, line range는 pin 된 뒤에도 중심 맥락으로 유지됩니다. 반면 전체 파일이나 전체 PDF 페이지를 pin 한 context와 자동으로 보이는 탭은 질문에서 직접 요구하지 않는 한 배경 맥락으로만 사용됩니다. pin 또는 첨부 context chip은 invisible/excluded 상태로 전환할 수 있으며, 이 상태에서는 chip row에는 남아 있지만 다시 visible로 바꾸기 전까지 모델 prompt에는 포함되지 않습니다.
 
 선택한 Markdown line range가 첨부된 상태에서 사용자가 해당 텍스트를 고치거나, 다시 쓰거나, 다듬거나, 번역하라고 요청하면 assistant는 `ai-agent-edit` SEARCH/REPLACE 제안을 반환해야 합니다. 선택 영역에 대한 단순 질문이면 파일 수정 제안 없이 답변만 합니다.
 
@@ -138,12 +181,14 @@ context/RAG 호출을 건너뜁니다.
 | `pdfOutlineEnabled` | `true` | PDF 목차(아웃라인) 컨텍스트 포함 여부 |
 | `pdfRagEnabled` | `true` | 전체 PDF 내 RAG 검색 활성화 |
 | `pdfRagTopK` | `5` | RAG 검색 상위 결과 수 |
-| `pdfVisionFallback` | `true` | 텍스트 레이어 없을 시 자동 이미지 모드 전환 |
+| `pdfVisionFallback` | `true` | text mode 캡처가 scanned-like이거나 쓸 수 있는 텍스트가 없을 때만 이미지 첨부 |
 | `pdfFullDocumentIndex` | `true` | PDF 전체 색인 생성 (RAG 정확도 향상) |
 
 PDF context는 다음 순서로 조립됩니다.
 
-1. 로컬 PDF.js 페이지 텍스트와 첨부된 crop/image context.
+1. 로컬 PDF.js 페이지 텍스트와 첨부된 crop/image context. PDF viewer가 충분한
+   selectable DOM text를 제공하면 그 텍스트를 빠른 경로로 유지하고 image
+   fallback을 트리거하지 않습니다.
 2. 로컬 viewer text/window/image context가 없을 때만 backend PDF
    window/outline context.
 3. backend PDF context를 사용하는 경우에만, `pdfRagEnabled=true`이고 source가
@@ -256,7 +301,15 @@ DeepSeek의 OpenAI 호환 API에 API 키로 연결합니다. OAuth 또는 브라
 - **Model**: 백엔드 카탈로그에서 선택합니다. 2026-06-01 기준 현재 DeepSeek API 모델 ID는 `deepseek-v4-flash`, `deepseek-v4-pro`입니다.
 - `deepseek-chat`, `deepseek-reasoner`는 DeepSeek가 2026-07-24 폐기 예정으로 안내한 legacy alias이므로 기본 선택지로 권장하지 않습니다.
 
-어떤 provider에서든 quota 또는 capacity 오류가 발생하면 sidechat에 명확히 표시되어 사용자가 provider/model을 바꾸거나 fallback을 설정할 수 있습니다.
+어떤 provider에서든 quota 또는 capacity 오류가 발생하면 sidechat에 명확히 표시되어 사용자가 provider/model을 바꾸거나 fallback을 설정할 수 있습니다. CLI provider(예: Antigravity `agy`)가 **답변 없이** 끝나는 경우 — 예를 들어 `Thinking…` 이후 토큰/quota 소진이나 타임아웃 — 이제 무한 스피너나 빈 말풍선 대신 **명확한 에러**를 표시합니다.
+
+### 인증 상태와 로그아웃(Sign out)
+
+각 provider의 **Authentication** 행은 현재 상태를 보여줍니다.
+
+- **DeepSeek**은 플러그인에 저장된 키(`✓ API key configured (saved in plugin)`)와 환경 변수로 제공된 키(`✓ Using DEEPSEEK_API_KEY from environment`)를 구분합니다. 저장된 키는 플러그인 `data.json`에 있고 `.curator`에 있지 **않으므로**, `.curator` 삭제나 `wiki reset`으로는 지워지지 않습니다 — **Sign out**으로 제거하세요.
+- **CLI provider**(Antigravity, Claude, Codex)는 각자의 CLI로 인증합니다. 플러그인은 CLI 파일에서 읽을 수 있을 때만(Codex) 계정 이메일을 표시합니다. Antigravity `agy` 1.0.5는 세션을 OS 키체인에 보관하고 계정 조회 명령이 없어, 플러그인은 계정을 추측하지 않고 중립적인 `agy CLI session`으로 표시합니다.
+- **Sign out**은 플러그인이 제어할 수 있는 것(캐시된 자격증명, 저장된 DeepSeek 키, 플러그인이 읽을 수 있는 자격증명 파일)을 정리합니다. CLI provider는 실제 세션을 자체 키체인/설정에 보관하므로, 완전한 로그아웃은 provider CLI(`agy`, `claude`, `codex`) 실행이 추가로 필요할 수 있습니다 — 해당되는 경우 Sign out 알림이 안내합니다.
 
 ---
 
@@ -283,6 +336,21 @@ command를 사용합니다.
 
 > **주의**: `VAULT_ROOT`는 반드시 Vault 경로(`.curator/`가 있는 곳)를 가리켜야 합니다.  
 > Wiki 시스템(Incurator 코드) 경로나 testbed 경로를 설정하지 마세요.
+
+### 툴 호출 와이어 포맷 (DeepSeek / Ollama)
+
+MCP **서버 전송 계층**은 플러그인 내부에 native(JSON-RPC over stdio)로 구현돼 있으며
+provider 중립적입니다. 플러그인이 HTTP provider(DeepSeek·Ollama)를 상대로 자체 에이전트
+루프를 돌리며 MCP 툴을 모델에 넘길 때는 해당 provider의 `/v1/chat/completions`
+엔드포인트로 통신합니다.
+
+**2026-06-05 기준**, 이 툴 호출 교환은 **OpenAI-호환 chat-completions 규약**(`tools`,
+`tool_calls`, `role: "tool"`, 그리고 tool-call 턴의 빈 `content`는 빈 문자열)을
+따릅니다. 이는 OpenAI사에 대한 종속이 **아니라**, DeepSeek와 Ollama가 스스로 노출하는
+와이어 프로토콜입니다 — 현재 그 서버들이 받아들이는 유일한 요청 형태입니다. 자체 native
+툴 스키마를 가진 provider(Anthropic Claude, Google Gemini/Antigravity)는 별도 어댑터를
+쓰므로 영향받지 않습니다. 향후 DeepSeek/Ollama가 받는 스키마를 바꾸면 OpenAI-호환
+어댑터만 갱신하면 됩니다.
 
 ---
 
@@ -390,6 +458,25 @@ backend만 쓰고 plugin은 source count, job 상태, index health, backend vers
 Add, Build, Sync, Lint, Reindex, Reset, LLM Apply, Persona Save 같은 dashboard
 버튼은 상태 변경이 필요할 때 backend command를 실행합니다. plugin은 이 작업을 위해
 backend-owned `.curator` 상태를 직접 수정하지 않습니다.
+
+### 대시보드 탭 (v0.3.2)
+
+- **Overview → System** 카드는 DB-native 검색 엔진과 함께 현재 **Embed model**,
+  **Reranker** 행(정체성 + health, backend `search_models` 상태 기반)을 보여줍니다.
+  두 행 중 하나를 클릭하면 로컬 검색 모델을 재준비합니다
+  (`wiki plugin models refresh` → 필요 시 Qwen3 GGUF 다운로드 / `llama-cpp-python`
+  설치 / Ollama 기동). `· not downloaded` / `· runtime missing` 접미사는 비정상
+  모델을 표시합니다.
+- **Traces** 탭은 현재 Obsidian vault의 durable `QTR-` query trace 목록을
+  vault-local backend command runner로 보여줍니다 (`wiki plugin trace list`).
+  항목을 선택하면 별도의 backend detail view를 로드해 route, latency, intent/mode,
+  degradation/`fallbackMode`, warnings, evidence, 사용 가능한 RRF/rerank
+  contribution 데이터를 표시합니다 (`wiki plugin trace show`).
+- **Insights** 탭은 현재 Obsidian vault의 대기 중인 파생 insight 후보 목록을
+  보여줍니다 (`wiki plugin insight list`). 항목을 선택하면 먼저 backend detail
+  payload를 로드한 뒤(`wiki plugin insight show`) **Promote**(`insight promote`,
+  `02_Wiki/`에 기록), **Reject**(`insight reject`) 액션을 제공합니다. 승급/거부는
+  항상 명시적인 사용자 액션이며 backend가 자동 승급하지 않습니다.
 
 Zotero 검색, metadata refresh, PDF path resolution, annotation loading, source
 status/import/rebind, PDF context/search, query, promotion은 숨겨진
@@ -526,7 +613,7 @@ Zotero에서 논문 항목을 우클릭 → **항목 링크 복사**하거나, [
 
 | 단축키 | 기능 |
 | --- | --- |
-| `Cmd+K` | 인라인 편집 (마크다운 에디터에서) |
+| `Cmd+Shift+K` | 선택한 텍스트에 빠른 질의 (In-line Copilot) |
 | `Cmd+Shift+L` | 현재 내용을 채팅 컨텍스트로 추가 (마크다운·PDF) |
 | `Cmd+Shift+X` | PDF 영역 스니핑 → 채팅 첨부 (Incurator PDF 뷰어 전용) |
 | `Cmd+Shift+;` | 채팅 사이드바 열기/닫기 |

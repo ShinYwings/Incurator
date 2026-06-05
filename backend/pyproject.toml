@@ -42,10 +42,9 @@ dev = [
     "ruff>=0.11.0",
     "mypy>=1.8.0",
 ]
-# Premium local reranker: bge-reranker-v2-gemma GGUF via llama-cpp-python.
-# Install with: uv pip install -e '.[rerank]' (plus the GGUF model file, and set
-# search.reranker_model_path in config.yml). Without it search degrades to
-# `no_rerank` (RRF order).
+# Local search GGUF runtime: Qwen3 embedding + reranker via llama-cpp-python.
+# Install with: uv pip install -e '.[rerank]' (GGUF files are provisioned by
+# `wiki models ensure`). Without it search degrades to FTS5/RRF / `no_rerank`.
 rerank = [
     "llama-cpp-python>=0.3.0",
 ]

@@ -85,6 +85,7 @@ export interface PluginSettings {
   providerUsage: Record<LLMProvider, ProviderUsage>;
   diffMode: "inline" | "side-by-side";
   streamingEnabled: boolean;
+  quickQueryEnabled: boolean;
   mcpServers: MCPServerConfig[];
   maxContextLength: number;
   deepseekApiKey: string;
@@ -162,9 +163,10 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   ollamaHost: "http://localhost:11434",
   diffMode: "inline",
   streamingEnabled: true,
+  quickQueryEnabled: true,
   mcpServers: [],
   maxContextLength: 128000,
-  pdfCaptureMode: "both",
+  pdfCaptureMode: "text",
   pdfWindowRadius: 1,
   pdfOutlineEnabled: true,
   pdfRagEnabled: true,
@@ -205,7 +207,13 @@ export function modelSupportsVision(
   const option = getModelOption(catalogue, provider, model);
   if (option) return option.supportsVision === true;
   // Unknown Ollama models default to no vision to avoid sending images to text-only models
-  if (provider === "ollama") return false;
+  if (provider === "ollama") {
+    const lower = model.toLowerCase();
+    if (lower.includes("vision") || lower.includes("llava") || lower.includes("minicpm-v") || lower.includes("pixtral") || lower.includes("-vl")) {
+      return true;
+    }
+    return false;
+  }
   return true;
 }
 
@@ -238,8 +246,15 @@ export interface ContextRef {
 
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "tool";
   content: string;
+  name?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: "function";
+    function: { name: string; arguments: string };
+  }>;
+  tool_call_id?: string;
   timestamp: number;
   contextRefs?: ContextRef[];
   /** For streaming: is the message still being received? */
@@ -295,6 +310,7 @@ export interface PdfPageContext {
   pageCount?: number;
   text: string;
   imageBase64?: string;
+  selectedImageBase64?: string;
   windowPages?: PdfWindowPage[];
   outline?: PdfOutlineItem[];
   textQuality?: PdfTextQuality;
@@ -509,8 +525,15 @@ export interface MCPToolResult {
 
 // ─── LLM Request/Response ───────────────────────────────────────
 export interface LLMMessage {
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "tool";
   content: string | LLMContentPart[];
+  name?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: "function";
+    function: { name: string; arguments: string };
+  }>;
+  tool_call_id?: string;
 }
 
 export type LLMContentPart =
@@ -525,4 +548,10 @@ export interface StreamChunk {
   eventType?: StreamEventType;
   status?: string;
   toolName?: string;
+  tool_calls?: Array<{
+    index: number;
+    id?: string;
+    type?: "function";
+    function?: { name?: string; arguments?: string };
+  }>;
 }

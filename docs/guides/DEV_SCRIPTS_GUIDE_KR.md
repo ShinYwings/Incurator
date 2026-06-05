@@ -62,19 +62,30 @@ scripts/dev/<scenario_name>/
 2. **초기화**: `wiki testbed init <name> --force`를 실행합니다.
 3. **실행**: 다이얼로그 스크립트를 수동으로 실행합니다: `bash scripts/dev/<name>/dialogues/verify_fix.sh`.
 
-## 4. 모범 사례
+## 4. 벤치마크 스크립트
+
+저장소에서 추적되는 benchmark harness는 `scripts/benchmarks/`에 둡니다. 이는
+testbed scenario가 아니며 `wiki testbed list`에 표시되지 않습니다.
+
+- `scripts/benchmarks/search_parity_bench.py`는
+  `docs/benchmarks/SEARCH_PARITY_v0.3.2.md`에 문서화된 v0.3.2 DB-native search
+  vs qmd parity 측정을 재현합니다.
+- 서로 다른 llama-cpp model stack을 로드하는 benchmark row는 분리 실행하세요.
+  일부 host에서는 all-in-one wrapper가 덜 안정적일 수 있습니다.
+
+## 5. 모범 사례
 - **상태 최소화**: 테스트에 엄격하게 필요한 파일만 포함하세요.
 - **문서 우선**: 코드를 읽지 않고도 다른 개발자가 테스트를 이해할 수 있을 만큼 `MASTER_PLAN.md`가 명확해야 합니다.
 - **정리**: 테스트가 `testbed/` 외부에 임시 파일을 생성하는 경우, 다이얼로그 스크립트에서 이를 정리하세요.
 
-## 5. 플러그인 개발 및 모노레포 빌드 (v0.2.0)
+## 6. 플러그인 개발 및 모노레포 빌드 (v0.2.0)
 
 Incurator v0.2.0은 Python 백엔드(`backend/`)와 Obsidian 플러그인(`plugin/`)을 모두 포함하는 모노레포 구조를 사용합니다.
 
 전환 기간 동안 일부 체크아웃은 백엔드를 여전히 저장소 루트(`src/`, `tests/`, `pyproject.toml`)에 두고, 활성 플러그인을 `.obsidian/plugins/incurator-obsidian-agent`와 같은 Obsidian Vault 경로 내에 둘 수 있습니다. 개발 스크립트는 타겟 레이아웃이 이미 정착되었다고 가정해서는 안 됩니다. 스크립트가 경로 깊이에 의존할 경우, `.agents/plans/2024-05_v0.2.0_system_build/INCURATOR_SYSTEM_BUILD_EVIDENCE.md`에 근거를 기록하고 코드를 변경하기 전에 마스터 플랜을 업데이트하세요.
 
 ### 설치 스크립트
-저장소 루트에서 `./setup.sh`를 실행하여 Python 백엔드 종속성(`uv` 사용)을 자동으로 설치하고 Node.js/Ollama를 설치합니다. Obsidian 플러그인은 이제 `wiki init` 실행 시 상호작용 방식으로 설치됩니다.
+저장소 루트에서 `./setup.sh`를 실행하여 Python 백엔드 종속성(`uv` 사용), Node.js/Ollama, 로컬 DB-native 검색 모델(`wiki models ensure`)을 자동으로 설치합니다. 모델 준비를 건너뛰려면 `INCURATOR_SKIP_MODELS=1`을 설정하세요. Obsidian 플러그인은 이제 `wiki init` 실행 시 상호작용 방식으로 설치됩니다.
 
 ### OBSIDIAN_PLUGIN_DIR 재정의
 파일을 수동으로 복사하거나 불안정한 심볼릭 링크를 생성하지 않고 로컬에서 Obsidian 플러그인을 개발하려면 `OBSIDIAN_PLUGIN_DIR` 환경 변수를 사용할 수 있습니다.

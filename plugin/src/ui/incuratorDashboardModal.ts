@@ -24,11 +24,13 @@ const PROVIDER_LABELS: Record<LLMProvider, string> = {
   deepseek:    "DeepSeek",
 };
 
-type TabId = "overview" | "jobs" | "sources" | "persona";
+type TabId = "overview" | "jobs" | "sources" | "traces" | "insights" | "persona";
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "layout-dashboard" },
   { id: "jobs",     label: "Jobs",     icon: "loader" },
   { id: "sources",  label: "Sources",  icon: "list" },
+  { id: "traces",   label: "Traces",   icon: "search" },
+  { id: "insights", label: "Insights", icon: "lightbulb" },
   { id: "persona",  label: "Persona",  icon: "user" },
 ];
 
@@ -140,6 +142,8 @@ export class IncuratorDashboardModal extends Modal {
       case "overview":  this.renderOverview(view, p);  break;
       case "jobs":      this.renderJobs(view);          break;
       case "sources":   this.renderSources(view);       break;
+      case "traces":    this.renderTraces(view);        break;
+      case "insights":  this.renderInsights(view);      break;
       case "persona":   this.renderPersona(view, p);  break;
     }
   }
@@ -243,6 +247,167 @@ export class IncuratorDashboardModal extends Modal {
 
   private async runWikiCommand(cmdArgs: string[]): Promise<{ ok: boolean, output?: string, error?: string }> {
     return this.plugin.runBackendCommand(cmdArgs);
+  }
+
+  /** Run a `wiki plugin …` command and parse its JSON stdout. */
+  private async runPluginJson(cmdArgs: string[]): Promise<any | null> {
+    const r = await this.runWikiCommand(cmdArgs);
+    const text = r.output || "";
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start < 0 || end <= start) return r.ok ? {} : null;
+    try { return JSON.parse(text.slice(start, end + 1)); }
+    catch { return null; }
+  }
+
+  // ---------------------------------------------------------------------------
+  // TRACES TAB — durable QTR- query traces (DB-native search, v0.3.2)
+  // ---------------------------------------------------------------------------
+
+  private async renderTraces(el: HTMLElement) {
+    const header = el.createDiv("ai-agent-jobs-header");
+    header.createEl("h3", { text: "Query traces", cls: "ai-agent-dashboard-section-title" });
+    const refreshBtn = header.createEl("button", { cls: "ai-agent-dashboard-btn" });
+    setIcon(refreshBtn.createSpan(), "refresh-cw");
+    refreshBtn.appendText(" Refresh");
+
+    el.createDiv({
+      cls: "ai-agent-ov-card-sub",
+      text: "Live QTR traces from the current vault database. Select a row to inspect retrieval, rerank, warnings, and evidence.",
+    });
+    const layout = el.createDiv("ai-agent-dashboard-split");
+    const listEl = layout.createDiv("ai-agent-dashboard-info-table");
+    const detailEl = layout.createDiv("ai-agent-dashboard-info-table");
+    detailEl.setText("Select a trace.");
+
+    const load = async () => {
+      listEl.setText("Loading…");
+      detailEl.setText("Select a trace.");
+      const data = await this.runPluginJson(["plugin", "trace", "list", "--limit", "50"]);
+      listEl.empty();
+      const traces = data?.traces || [];
+      if (!data?.ok || traces.length === 0) {
+        listEl.setText(data?.ok ? "No query traces yet. Run a search first." : data?.error || "Backend unavailable.");
+        return;
+      }
+      for (const t of traces) {
+        const row = listEl.createDiv("info-row");
+        row.style.cursor = "pointer";
+        const left = row.createDiv({ cls: "info-label" });
+        left.setText(`${t.traceId || "QTR-?"}\n${(t.createdAt || "").replace("T", " ").slice(0, 19)}`);
+        const right = row.createDiv({ cls: "info-value" });
+        const warn = (t.warnings && t.warnings.length) || t.fallbackMode;
+        right.setText(`${t.route || "?"} · ${t.latencyMs ?? "?"}ms${t.fallbackMode ? " · " + t.fallbackMode : ""}`);
+        right.toggleClass("is-warn", !!warn);
+        right.toggleClass("is-ok", !warn);
+        row.addEventListener("click", () => this.showTraceDetail(detailEl, t.traceId));
+      }
+      await this.showTraceDetail(detailEl, traces[0].traceId);
+    };
+    refreshBtn.onclick = () => load();
+    await load();
+  }
+
+  private async showTraceDetail(el: HTMLElement, traceId: string) {
+    el.empty();
+    el.setText("Loading trace…");
+    const data = await this.runPluginJson(["plugin", "trace", "show", "--trace-id", traceId]);
+    const tr = data?.trace;
+    el.empty();
+    if (!data?.ok || !tr) {
+      el.setText(data?.error || "Could not load trace.");
+      return;
+    }
+    el.createDiv({ cls: "ai-agent-ov-card-title", text: `Trace ${traceId}` });
+    const tbl = this.makeInfoTable(el);
+    tbl("Route", `${tr.route}${tr.routeReason ? " (" + tr.routeReason + ")" : ""}`);
+    tbl("Latency", `${tr.latencyMs ?? "?"} ms`);
+    const rt = tr.retrievalTrace || {};
+    tbl("Mode/Intent", `${rt.mode || "?"} / ${rt.intent || "?"}`);
+    tbl("Fallback", rt.fallback_mode || "none", rt.fallback_mode ? "is-warn" : "is-ok");
+    if (tr.warnings && tr.warnings.length) tbl("Warnings", tr.warnings.join("; "), "is-warn");
+    const ev = tr.evidence || [];
+    tbl("Evidence", ev.length ? ev.map((e: any) => e.record_id || e.doc_id || e.id).filter(Boolean).join(", ") : "—");
+    const promptIds = tr.retrievalTrace?.prompt_trace_ids || tr.promptTraceIds || tr.prompt_trace_ids || [];
+    if (Array.isArray(promptIds) && promptIds.length) tbl("Prompt traces", promptIds.join(", "));
+    const contributions = rt.rrf || rt.contributions || rt.fused || [];
+    if (Array.isArray(contributions) && contributions.length) {
+      tbl("RRF/rerank", contributions.slice(0, 5).map((c: any) => c.doc_id || c.record_id || c.id || JSON.stringify(c)).join(", "));
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // INSIGHTS TAB — derived insight candidates (promote / reject)
+  // ---------------------------------------------------------------------------
+
+  private async renderInsights(el: HTMLElement) {
+    const header = el.createDiv("ai-agent-jobs-header");
+    header.createEl("h3", { text: "Insight candidates", cls: "ai-agent-dashboard-section-title" });
+    const refreshBtn = header.createEl("button", { cls: "ai-agent-dashboard-btn" });
+    setIcon(refreshBtn.createSpan(), "refresh-cw");
+    refreshBtn.appendText(" Refresh");
+
+    el.createDiv({ cls: "ai-agent-ov-card-sub", text: "Backend-owned insight candidates from the current vault. Select one before promoting or rejecting." });
+    const layout = el.createDiv("ai-agent-dashboard-split");
+    const listEl = layout.createDiv("ai-agent-dashboard-info-table");
+    const detailEl = layout.createDiv("ai-agent-dashboard-info-table");
+    detailEl.setText("Select an insight.");
+
+    const load = async () => {
+      listEl.setText("Loading…");
+      detailEl.setText("Select an insight.");
+      const data = await this.runPluginJson(["plugin", "insight", "list", "--status", "pending"]);
+      listEl.empty();
+      const candidates = data?.candidates || [];
+      if (!data?.ok || candidates.length === 0) {
+        listEl.setText(data?.ok ? "No pending insight candidates." : data?.error || "Backend unavailable.");
+        return;
+      }
+      for (const c of candidates) {
+        const row = listEl.createDiv("info-row");
+        row.style.cursor = "pointer";
+        const left = row.createDiv({ cls: "info-label" });
+        left.setText(`${c.id || "INS-?"}\n${c.classification || "insight"}`);
+        const mid = row.createDiv({ cls: "info-value" });
+        mid.setText((c.statement || "").slice(0, 140));
+        row.addEventListener("click", () => this.showInsightDetail(detailEl, c.id, load));
+      }
+      await this.showInsightDetail(detailEl, candidates[0].id, load);
+    };
+    refreshBtn.onclick = () => load();
+    await load();
+  }
+
+  private async showInsightDetail(el: HTMLElement, insightId: string, reload: () => Promise<void>) {
+    el.empty();
+    el.setText("Loading insight…");
+    const data = await this.runPluginJson(["plugin", "insight", "show", "--insight-id", insightId]);
+    const c = data?.candidate;
+    el.empty();
+    if (!data?.ok || !c) {
+      el.setText(data?.error || "Could not load insight.");
+      return;
+    }
+    el.createDiv({ cls: "ai-agent-ov-card-title", text: c.id || insightId });
+    const tbl = this.makeInfoTable(el);
+    tbl("Classification", c.classification || "insight");
+    tbl("Status", c.status || "unknown", c.status === "pending" ? "is-ok" : "");
+    tbl("Confidence", typeof c.confidence === "number" ? c.confidence.toFixed(2) : "—");
+    tbl("Affected nodes", Array.isArray(c.affectedNodeIds) && c.affectedNodeIds.length ? c.affectedNodeIds.join(", ") : "—");
+    tbl("Statement", c.statement || "—");
+    if (c.reason) tbl("Reason", c.reason);
+
+    const actions = el.createDiv("ai-agent-dashboard-actions");
+    this.addActionBtn(actions, "Promote", "check", async () => {
+      const r = await this.runPluginJson(["plugin", "insight", "promote", "--insight-id", c.id]);
+      new Notice(r?.ok ? `Promoted ${c.id} to ${r.promotedTo || "02_Wiki"}.` : `Promote failed: ${r?.error || "unknown error"}`);
+      await reload();
+    });
+    this.addActionBtn(actions, "Reject", "x", async () => {
+      const r = await this.runPluginJson(["plugin", "insight", "reject", "--insight-id", c.id, "--reason", "Rejected from dashboard"]);
+      new Notice(r?.ok ? `Rejected ${c.id}.` : `Reject failed: ${r?.error || "unknown error"}`);
+      await reload();
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -360,15 +525,7 @@ export class IncuratorDashboardModal extends Modal {
       }
     }).catch(() => { jobsBody.empty(); jobsBody.createSpan({ text: "—" }); });
 
-    // ── Search card ──────────────────────────────────────────────────────────
-    const s = cfg?.search ?? {};
-    const searchCard = this.ovCard(grid, "span-1", null);
-    searchCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Search" });
-    searchCard.createDiv({ cls: "ai-agent-ov-card-value", text: (s.backend || "native").toUpperCase() });
-    searchCard.createDiv({
-      cls: `ai-agent-ov-card-sub ${s.rerank !== false ? "is-ok" : ""}`,
-      text: `rerank ${s.rerank !== false ? "on" : "off"}`,
-    });
+
 
     // Determine Zotero initial fallback path for System card
     const z = cfg?.external?.zotero ?? {};
@@ -383,12 +540,22 @@ export class IncuratorDashboardModal extends Modal {
     }
 
     // ── Persona card ─────────────────────────────────────────────────────────
-    const personaCard = this.ovCard(grid, "span-1", "persona");
+    // persona lives in config.yml under 'persona' key, populated via load_config
+    // defaults, and is already included in runtime/status.json by build_status_snapshot()
+    const personaCard = this.ovCard(grid, "span-2", "persona");
     personaCard.createDiv({ cls: "ai-agent-ov-card-title", text: "PERSONA" });
-    const pArea = cfg?.persona?.area || "General";
-    personaCard.createDiv({ cls: "ai-agent-ov-card-value is-ok", text: pArea, attr: { title: pArea } }).style.fontSize = "18px";
-    const pText = cfg?.persona?.text || "No description";
-    personaCard.createDiv({ cls: "ai-agent-ov-card-sub", text: pText.length > 50 ? pText.slice(0, 50) + "…" : pText, attr: { title: pText } });
+    const pAreaEl = personaCard.createDiv({ cls: "ai-agent-ov-card-value is-ok", text: "…" });
+    pAreaEl.style.fontSize = "18px";
+    const pTextEl = personaCard.createDiv({ cls: "ai-agent-ov-card-sub", text: "" });
+    this.readRuntimeStatus().then((st: any) => {
+      const p = st?.persona ?? cfg?.persona ?? {};
+      const pArea = p.area || "Unset (run `wiki persona`)";
+      pAreaEl.setText(pArea);
+      pAreaEl.setAttr("title", pArea);
+      const pText = p.text || "No description configured";
+      pTextEl.setText(pText.length > 50 ? pText.slice(0, 50) + "…" : pText);
+      pTextEl.setAttr("title", pText);
+    });
 
     // ── System card (full paths, spans full width) ───────────────────────────
     const sysCard = this.ovCard(grid, "span-full ai-agent-ov-sys-card", null);
@@ -401,7 +568,6 @@ export class IncuratorDashboardModal extends Modal {
     };
     const vaultEl = pathRow("Vault");
     const wikiEl  = pathRow("Wiki CLI");
-    const qmdEl   = pathRow("Search engine");
     const zoteroSysEl = pathRow("Zotero", rootsText);
     zoteroSysEl.addClass("is-ok");
     zoteroSysEl.style.cursor = "pointer";
@@ -426,6 +592,37 @@ export class IncuratorDashboardModal extends Modal {
       zoteroSysEl.toggleClass("is-warn", true);
     });
 
+    // ── Search Engine card ───────────────────────────────────────────────────
+    const searchCard = this.ovCard(grid, "span-full ai-agent-ov-sys-card", null);
+    searchCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Search Engine" });
+    const searchTable = searchCard.createDiv("ai-agent-ov-path-table");
+    const searchRow = (label: string, val?: string) => {
+      const row = searchTable.createDiv("ai-agent-ov-path-row");
+      row.createDiv({ cls: "ai-agent-ov-path-label", text: label });
+      return row.createDiv({ cls: "ai-agent-ov-path-value", text: val ?? "…" });
+    };
+    const qmdEl   = searchRow("Engine");
+    const embedEl = searchRow("Embed model");
+    const rerankEl = searchRow("Reranker");
+
+    // Click the reranker/embed rows to (re)provision the search stack — repairs
+    // missing/unhealthy models via `wiki plugin models refresh`.
+    const refreshModels = async (target: HTMLElement) => {
+      const orig = target.getText();
+      target.setText("refreshing…");
+      target.toggleClass("is-warn", false);
+      const r = await this.runWikiCommand(["plugin", "models", "refresh"]);
+      new Notice(r.ok ? "Search models refreshed." : `Model refresh failed: ${r.error}`);
+      if (!r.ok) target.setText(orig);
+      await this.refreshRuntimeSnapshots();
+      this.switchTab(this.activeTab);
+    };
+    for (const el of [embedEl, rerankEl]) {
+      el.style.cursor = "pointer";
+      el.setAttr("title", "Click to (re)download & verify search models");
+      el.addEventListener("click", () => refreshModels(el));
+    }
+
     this.readRuntimeStatus().then((st: any) => {
       vaultEl.setText(st?.vault_root || this.vaultBase() || "Unknown");
       wikiEl.setText(st?.wiki_binary || "Not found");
@@ -434,12 +631,27 @@ export class IncuratorDashboardModal extends Modal {
       // v0.3.2: native in-DB search engine; fall back to legacy qmd_* keys.
       const searchReady = st?.search_ready ?? !!st?.qmd_ready;
       const searchLabel = st?.search_version
-        ? `${st.search_version}${st?.vector_ready ? " · vector" : " · FTS5-only"}`
+        ? `${st.search_version}${st?.vector_ready ? " · vector" : " · FTS5-only (Models missing)"}`
         : (st?.qmd_binary || "Not found");
       qmdEl.setText(searchLabel);
       qmdEl.toggleClass("is-ok", !!searchReady);
       qmdEl.toggleClass("is-warn", !searchReady);
-      
+
+      // v0.3.2: search model identity + health (embed / reranker)
+      const sm = st?.search_models;
+      const fmtModel = (m: any, disabledHint = "") => {
+        if (!m || !m.model) return disabledHint || "not configured";
+        const where = m.provider === "llama-cpp" ? "GGUF" : m.provider;
+        return `${m.model} (${where})${m.ready ? "" : m.present ? " · runtime missing" : " · not downloaded"}`;
+      };
+      embedEl.setText(fmtModel(sm?.embed));
+      embedEl.toggleClass("is-ok", !!sm?.embed?.ready);
+      embedEl.toggleClass("is-warn", !sm?.embed?.ready);
+      const rr = sm?.reranker;
+      rerankEl.setText(rr && rr.enabled === false ? "disabled" : fmtModel(rr));
+      rerankEl.toggleClass("is-ok", !!rr?.ready);
+      rerankEl.toggleClass("is-warn", !!rr && rr.enabled !== false && !rr.ready);
+
       const zoteroRoots = st?.external?.zotero?.roots;
       if (Array.isArray(zoteroRoots) && zoteroRoots.length > 0) {
         const discovered = zoteroRoots.join(", ");
@@ -452,6 +664,8 @@ export class IncuratorDashboardModal extends Modal {
       vaultEl.setText(this.vaultBase() || "offline");
       wikiEl.setText("offline"); wikiEl.addClass("is-warn");
       qmdEl.setText("offline");  qmdEl.addClass("is-warn");
+      embedEl.setText("offline"); embedEl.addClass("is-warn");
+      rerankEl.setText("offline"); rerankEl.addClass("is-warn");
     });
 
     // ── Sync/Curate card ─────────────────────────────────────────────────────
@@ -470,77 +684,52 @@ export class IncuratorDashboardModal extends Modal {
     devListContainer.style.flexDirection = "column";
     devListContainer.style.gap = "8px";
 
-    this.plugin.app.vault.adapter.read(".curator/devices.json").then((raw: string) => {
+    this.readRuntimeStatus().then((st: any) => {
       try {
-        const reg = JSON.parse(raw);
-        if (reg?.devices) {
-          const localId = reg.local_device_id;
-          const folders: any[] = Array.isArray(reg.syncthing?.folders) ? reg.syncthing.folders : [];
-          let devices = Object.entries(reg.devices);
-          const inferLocal = ([id, d]: [string, any]) => {
-            if (id === localId) return true;
-            if (!localId && (d?.platform || d?.backend)) return true;
-            if (localId === "local" && d?.platform) return true;
-            return false;
+        const devices = st?.devices;
+        if (!Array.isArray(devices) || devices.length === 0) {
+          devListContainer.createDiv({ text: "No devices", cls: "ai-agent-ov-card-sub" });
+          return;
+        }
+
+        for (const d of devices) {
+          const row = devListContainer.createDiv();
+          row.style.fontSize = "14px";
+          row.style.display = "flex";
+          row.style.alignItems = "center";
+          row.style.gap = "8px";
+          row.style.minWidth = "0"; // ensure truncation works
+          
+          const applyTruncation = (el: HTMLElement) => {
+            el.style.whiteSpace = "nowrap";
+            el.style.overflow = "hidden";
+            el.style.textOverflow = "ellipsis";
           };
 
-          if (devices.length === 0) {
-            devListContainer.createDiv({ text: "No devices", cls: "ai-agent-ov-card-sub" });
+          if (d.is_local) {
+            row.createSpan({ text: "●", cls: "is-ok" });
+            const nameEl = row.createSpan({ text: `${d.name} (This device)`, cls: "is-ok", attr: { title: "Current device on this machine" } });
+            nameEl.style.fontWeight = "600";
+            nameEl.style.lineHeight = "1.2";
+            applyTruncation(nameEl);
           } else {
-            // Sort to put the local device first
-            devices.sort((entryA, entryB) => {
-              if (inferLocal(entryA)) return -1;
-              if (inferLocal(entryB)) return 1;
-              return String((entryA[1] as any).name || entryA[0]).localeCompare(String((entryB[1] as any).name || entryB[0]));
-            });
-            for (const [id, d] of devices) {
-              const isLocal = inferLocal([id, d]);
-              const syncedFolderIds = isLocal && id === "local"
-                ? folders
-                : folders.filter((folder) => Array.isArray(folder.device_ids) && folder.device_ids.includes(id));
-              const folderLabels = syncedFolderIds
-                .map((folder) => folder.label || folder.id || folder.role)
-                .filter(Boolean);
-              const row = devListContainer.createDiv();
-              row.style.fontSize = "14px";
-              row.style.display = "flex";
-              row.style.alignItems = "center";
-              row.style.gap = "8px";
-              row.style.minWidth = "0"; // ensure truncation works
-              
-              const applyTruncation = (el: HTMLElement) => {
-                el.style.whiteSpace = "nowrap";
-                el.style.overflow = "hidden";
-                el.style.textOverflow = "ellipsis";
-              };
-
-              if (isLocal) {
-                row.createSpan({ text: "●", cls: "is-ok" });
-                const nameEl = row.createSpan({ text: `${(d as any).name || id} (This device)`, cls: "is-ok", attr: { title: "Current device on this machine" } });
-                nameEl.style.fontWeight = "600";
-                nameEl.style.lineHeight = "1.2";
-                applyTruncation(nameEl);
-              } else {
-                row.createSpan({ text: "○", attr: { style: "opacity: 0.5" } });
-                const nameEl = row.createSpan({ text: (d as any).name || "Unknown", attr: { title: (d as any).device_id || id, style: "opacity: 0.8" } });
-                nameEl.style.lineHeight = "1.2";
-                applyTruncation(nameEl);
-              }
-              const foldersEl = row.createSpan({
-                cls: "ai-agent-compact-muted",
-                text: folderLabels.length ? ` -> ${folderLabels.join(", ")}` : " -> no synced folder",
-              });
-              applyTruncation(foldersEl);
-            }
+            row.createSpan({ text: "○", attr: { style: "opacity: 0.5" } });
+            const nameEl = row.createSpan({ text: d.name || "Unknown", attr: { title: d.device_id, style: "opacity: 0.8" } });
+            nameEl.style.lineHeight = "1.2";
+            applyTruncation(nameEl);
           }
-        } else {
-          devListContainer.createDiv({ text: "No sync data", cls: "ai-agent-ov-card-sub" });
+          const folderLabels = Array.isArray(d.folders) ? d.folders : [];
+          const foldersEl = row.createSpan({
+            cls: "ai-agent-compact-muted",
+            text: folderLabels.length ? ` -> ${folderLabels.join(", ")}` : " -> no synced folder",
+          });
+          applyTruncation(foldersEl);
         }
       } catch {
         devListContainer.createDiv({ text: "Error loading", cls: "ai-agent-ov-card-sub" });
       }
     }).catch(() => {
-      devListContainer.createDiv({ text: "devices.json not found", cls: "ai-agent-ov-card-sub" });
+      devListContainer.createDiv({ text: "No sync data", cls: "ai-agent-ov-card-sub" });
     });
 
   }
@@ -753,7 +942,7 @@ export class IncuratorDashboardModal extends Modal {
     await load();
     this.jobsTimer = window.setInterval(() => {
       if (this.activeTab === "jobs") load();
-    }, 5000);
+    }, 2000);
   }
 
   private renderJobsBody(el: HTMLElement, data: any) {
@@ -816,7 +1005,19 @@ export class IncuratorDashboardModal extends Modal {
       const pr = row.createDiv("ai-agent-progress-row");
       const outer = pr.createDiv("ai-agent-progress-outer");
       outer.createDiv("ai-agent-progress-inner").style.width = `${total ? (cur / total) * 100 : 0}%`;
-      pr.createSpan({ cls: "ai-agent-progress-label", text: total ? `${cur}/${total}` : "…" });
+      pr.createSpan({ cls: "ai-agent-progress-label", text: total ? `${cur}/${total}` : "running…" });
+      // Cancel button for running jobs too
+      const actions = row.createDiv("ai-agent-job-actions");
+      const cancelBtn = actions.createEl("button", { cls: "ai-agent-dashboard-btn" });
+      setIcon(cancelBtn.createSpan(), "x");
+      cancelBtn.appendText(" Cancel");
+      cancelBtn.onclick = async () => {
+        cancelBtn.disabled = true;
+        const result = await this.runWikiCommand(["jobs", "cancel", String(job.job_id)]);
+        if (result.ok) await this.refreshRuntimeSnapshots();
+        new Notice(result.ok ? `Cancelled job #${job.job_id}.` : `Cancel failed: ${result.error}`);
+        this.switchTab("jobs");
+      };
     }
 
     if (state === "queued" || state === "done" || state === "failed" || state === "cancelled") {
@@ -910,9 +1111,16 @@ export class IncuratorDashboardModal extends Modal {
   private async renderPersona(el: HTMLElement, cfgP: Promise<any>) {
     el.createEl("h3", { text: "Vault Persona", cls: "ai-agent-dashboard-section-title" });
     const cfg = await cfgP;
-    if (!cfg) { el.createDiv({ cls: "ai-agent-dashboard-error", text: "Could not read config.yml." }); return; }
+    const status = await this.readRuntimeStatus();
+    if (!cfg && !status) {
+      const errDiv = el.createDiv({ cls: "ai-agent-dashboard-error", text: "Could not read .curator/config.yml — run \"wiki init\" first." });
+      const retryBtn = el.createEl("button", { cls: "ai-agent-dashboard-btn", text: "Retry" });
+      retryBtn.style.marginTop = "12px";
+      retryBtn.onclick = () => this.switchTab("persona");
+      return;
+    }
 
-    const persona = cfg.persona ?? {};
+    const persona = status?.persona ?? cfg?.persona ?? {};
     const form = el.createDiv("ai-agent-persona-form");
 
     const field = (label: string, desc?: string) => {

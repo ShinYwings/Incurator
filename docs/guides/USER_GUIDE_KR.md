@@ -27,8 +27,8 @@
 >   - **Linux**: NVIDIA GeForce RTX 4070 Ti 12GB, RAM 64GB
 >   - **macOS**: Apple Silicon (8GB RAM 환경 테스트 완료)
 > - **최소 사양 및 하드웨어 성능**: 
->   - 로컬 embedding, query expansion, rerank 모델은 설정한 provider에 따라 추가 RAM/VRAM이 필요할 수 있습니다.
->   - **로컬 모델(Ollama)** 사용 시: 선택한 모델 크기만큼의 추가 VRAM이 필요합니다 (8B 모델 기준 시스템 전체 약 10GB VRAM 점유 확인, 모델 크기보다 약 2GB 이상의 추가 여유 공간 권장).
+>   - 로컬 검색 기본값은 `llama-cpp-python`을 통해 Qwen3 0.6B embedding/reranker GGUF를 사용합니다(런타임 오버헤드 전 모델 파일 기준 약 1.28GB). Incurator는 검색 모델을 로드하기 전에 설정된 Ollama LLM 모델을 unload하여 VRAM 압박을 줄입니다.
+>   - **채팅/큐레이션에 로컬 모델(Ollama)을 사용할 때**: 선택한 모델 크기만큼의 추가 VRAM이 필요합니다 (8B 모델 기준 시스템 전체 약 10GB VRAM 점유 확인, 모델 크기보다 약 2GB 이상의 추가 여유 공간 권장).
 >   - **클라우드 모델(Antigravity, Claude 등)** 사용 시: 로컬 VRAM 부담은 줄어들지만, DB-native FTS5 검색은 여전히 로컬에서 실행됩니다.
 >   - Ollama를 통해 CPU+GPU 혼합 추론이 가능하지만, 처리 속도가 매우 느려 실용적인 큐레이션이 어려울 수 있습니다. 가급적 모델 전체가 VRAM에 올라가는 환경을 권장합니다.
 
@@ -407,6 +407,25 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 
 ---
 
+## 🐙 GitHub 연동 (v0.3.3)
+
+Incurator (v0.3.3+)는 Git 커밋 및 원격 저장소 동기화를 통해 볼트의 문서를 완벽하게 관리할 수 있도록 네이티브 GitHub 연동을 지원합니다. 이 기능은 복잡한 UI 버튼 대신 대화형 AI 액션에 중점을 둡니다.
+
+### 1. 인증 (로그인 / 로그아웃)
+GitHub 인증은 **Obsidian 플러그인 설정**에서 직접 관리됩니다:
+- `Settings > Incurator`로 이동합니다.
+- (AI Provider 설정 바로 아래에 있는) **GitHub Integration** 섹션으로 스크롤합니다.
+- 플러그인은 GitHub CLI(`gh auth status`)를 활용하여 로그인 상태를 확인합니다. 로그인되어 있지 않은 경우, **Authenticate** 버튼을 클릭하면 터미널이 열려 안전한 `gh auth login` 흐름을 수행할 수 있습니다.
+
+### 2. 대화형 Git 동기화 (Sidechat)
+UI를 복잡하게 만드는 수동 "Commit"이나 "Push" 버튼은 없습니다. 대신, **Sidechat**의 Antigravity LLM에 네이티브 Git 도구가 탑재되어 있습니다.
+- **상태 확인**: 에이전트에게 *"푸시되지 않은 변경 사항이 있나요?"* 또는 *"내 원격 저장소 상태가 어때?"*라고 물어보세요. 에이전트가 `git status` 또는 `git log`를 실행하여 히스토리를 요약해 줍니다.
+- **변경 사항 커밋**: 에이전트에게 *"최근 지식 그래프 변경 사항을 커밋해 줘"* 또는 *"내 노트를 GitHub에 동기화해 줘"*라고 말하세요. 에이전트가 알아서 커밋 메시지를 작성하고 `git add`, `git commit`, `git push` 작업을 수행합니다.
+
+> [!TIP]
+> **.gitignore 권장 사항**
+> 기본적으로 (무거운 SQLite DB와 검색 인덱스가 포함된) `.curator/` 디렉터리는 대용량 바이너리 충돌을 방지하기 위해 Git에서 무시되어야 합니다. 마크다운 파일과 표준 구성 설정 파일만 Git으로 추적하는 것이 좋습니다.
+
 ## 🛠️ 핵심 명령어 (CLI Reference)
 
 사용자의 워크플로우에 따른 주요 명령어 요약입니다.
@@ -423,7 +442,7 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 | 명령어 | 설명 | 사용 시점 |
 | :--- | :--- | :--- |
 | `wiki add <file>` | 소스를 등록하고 L1 Context 레코드를 데이터베이스에 즉시 생성합니다 (구조 기반, LLM 없음). | 새로운 정보를 추가할 때 |
-| `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 데이터베이스 레코드로 추출/컴파일합니다. 기본은 백그라운드 워커에 큐잉 후 자동으로 데몬 프로세스를 분리 실행하여 비동기 처리하며, `--wait`는 즉시 동기 실행합니다. | 지식 그래프 심층 구축 시 |
+| `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 데이터베이스 레코드로 추출/컴파일합니다. 기본은 백그라운드 워커에 큐잉 후 자동으로 데몬 프로세스를 분리 실행하여 비동기 처리하며, `--wait`는 즉시 동기 실행합니다. 백그라운드 데몬(`wiki jobs run`)은 완료 시 **벡터 임베딩도 자동으로 (재)생성**하므로, 별도의 `wiki reindex --embed` 없이도 검색이 벡터까지 준비됩니다. 이 embed 갱신은 큐가 이미 비어 있어도 실행되므로, 이전에 중단된 빌드도 다음 `build`/`jobs run`에서 벡터 검색으로 수렴합니다. | 지식 그래프 심층 구축 시 |
 | `wiki source ls` | 등록된 소스 목록을 확인합니다. | 수집된 데이터 현황 파악 시 |
 | `wiki source show <id>` | 특정 소스의 상세 정보와 처리 상태를 확인합니다. | 소스 오류 진단 시 |
 | `wiki source rm <id>` | 소스 등록을 해제하고 생성된 L1 노드를 삭제합니다. | 잘못된 소스를 제거할 때 |
@@ -436,6 +455,8 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 | `wiki config provider` | LLM 백엔드 (Ollama / Claude Code / Antigravity / Codex / DeepSeek) 와 모델을 대화형으로 설정합니다. |
 | `wiki config models list` | 현재 백엔드에서 사용 가능한 모델 목록을 표시합니다. |
 | `wiki config models use <tag>` | 사용할 모델을 직접 지정합니다. |
+| `wiki models ensure` | 로컬 검색 모델 의존성과 GGUF 파일을 설치/갱신합니다. `setup.sh`는 `INCURATOR_SKIP_MODELS=1`이 설정되지 않은 한 이 명령을 자동 실행합니다. |
+| `wiki models status` | 로컬 검색 모델 상태, 캐시 경로, 의존성 상태를 JSON으로 표시합니다. |
 | `wiki config get <key>` | 특정 설정 값을 조회합니다. (예: `wiki config get llm.primary`) |
 | `wiki config set <key> <value>` | 특정 설정 값을 변경합니다. (예: `wiki config set llm.model gemini-3.5-flash`) |
 
@@ -445,6 +466,7 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 | `wiki build` | L2 Atom, L3 Concept, 공유 L4 Synthesis 레이어를 정제합니다. | 지식 그래프 구축/갱신 |
 | `wiki sync` | 무결성 검증 및 자가 치유를 수행합니다. | 노드 수정 후 일관성 회복 시 |
 | `wiki sync --reemit` | DB 레코드에서 파생 L2/L3/L4 마크다운 projection(ATM/CON/SYN)을 재생성하고 DB-native search row를 갱신합니다. | DB 레벨 정정 후 projection 갱신 시 |
+| `wiki reindex` | 권위 레코드에서 DB-native 검색 인덱스(FTS5 + chunk)를 재구축합니다. `--embed`를 추가하면 chunk 벡터 임베딩도 (재)생성합니다. 평상시에는 `wiki build`가 이미 자동으로 임베딩하므로, `--embed`는 주로 모델/임베더 변경 후의 수동 복구 경로입니다. | 모델/설정 변경 후, 또는 검색이 어긋날 때 |
 
 > **v0.3.1**: 고정 staging 명령은 제거되었습니다. L4는 이제 공유 **Synthesis**
 > 레이어(‎`wiki build`가 자동 생성)이며, 큐레이션은 쿼리 시점의 동적 렌즈(`wiki query`)입니다.
@@ -477,6 +499,11 @@ FTS5 lexical retrieval, chunk-level vector, typed query expansion(`lex`/`vec`/
 `hyde`), RRF, best chunk에 대한 configured reranking을 사용합니다.
 `--mode`(hybrid|lex|vec)는 lower-level retrieval mode이며, `--route`와는 별개의
 축입니다.
+
+Tier-2 LLM/HyDE query expansion은 기본적으로 recovery mechanism으로 켜져
+있습니다. Incurator는 먼저 raw lexical/vector confidence를 확인한 뒤 lexical hit이
+부족하거나 vector confidence가 낮을 때만 configured expansion을 사용합니다. 그래서
+이미 확실한 검색 순위는 흔들지 않고, paraphrase가 심한 miss만 회복합니다.
 
 ### 4-1. 프롬프트 & 인사이트 (v0.3.1)
 
@@ -575,6 +602,22 @@ wiki config models use gemma2:9b
 - `wiki config models use`를 통해 모델을 변경하면, 시스템이 해당 모델의 가용성을 즉시 검증하고 설정 파일에 반영합니다.
 - `wiki config secret list/delete`로 로컬 encrypted backend secret을 마스킹된 상태로 확인하거나 삭제할 수 있습니다.
 
+### 2-1. 검색 모델 준비 (`wiki models`)
+DB-native search는 채팅/큐레이션 LLM과 별도의 로컬 검색 모델을 사용합니다.
+기본값은 chunk embedding용 `llama-cpp::qwen3-embedding-0.6b`와 answer-path
+reranking용 `llama-cpp::qwen3-reranker-0.6b`입니다. `wiki models ensure`는
+설정된 GGUF를 `~/.cache/incurator/models/`에 다운로드하고, 필요한 경우
+`llama-cpp-python`을 설치하며, vault가 있을 때는 vault별 모델 경로를
+설정에 기록합니다. `wiki models ensure --smoke`는 관련 passage가 무관한
+passage보다 높게 ranking되는지 확인하는 작은 live sanity check도 실행합니다.
+모델이 없더라도 검색은 FTS5/RRF degraded mode로 계속 사용할 수 있습니다.
+
+보통은 직접 실행할 일이 없습니다: `setup.sh`가 설치/업데이트 시 준비하고,
+Obsidian 대시보드의 **System** 카드가 현재 embed/reranker 모델 정체성과 health를
+보여줍니다 — **Embed model** / **Reranker** 행을 클릭하면 재준비할 수 있습니다
+(`wiki plugin models refresh`). 모델이 정상이 된 뒤 벡터 인덱스를 (재)구축하려면
+`wiki reindex --embed`를 실행하세요(`wiki reindex`만 실행하면 FTS5/chunk만 재구축).
+
 ### 3. 상태 확인 (`wiki status`)
 보관소의 건강 상태와 AI 엔진의 가동 현황을 입체적으로 진단하는 종합 대시보드입니다. 시스템 운영 중 의문이 생긴다면 가장 먼저 확인해야 할 명령어입니다.
 
@@ -593,7 +636,7 @@ wiki reset --force
 ```
 
 `.curator/config.yml`과 vault의 source folder는 보존하면서 생성된 Curator
-상태를 초기화합니다. tracking database, generated Collections,
+상태를 초기화합니다. tracking database (DB 내장 검색 인덱스 포함), generated Collections,
 dashboard/index/overview/ledger/log 파일, sync report, transient staging 파일,
 build trace canvas, device registry, sidechat session state를 제거합니다. 오래된
 generated state, device metadata, chat context 때문에 backend와 plugin 상태가
@@ -605,6 +648,7 @@ generated state, device metadata, chat context 때문에 backend와 plugin 상�
 시스템의 '두뇌'와 '눈'이 제대로 세팅되었는지 확인합니다.
 -   **Primary / Fallback 모델**: 현재 지식 추출과 합성을 담당하는 주력 LLM과 비상용 LLM을 보여줍니다. 의도한 모델이 활성화되어 있는지 확인하세요.
 -   **Reranking (리랭킹)**: 검색 결과의 정밀도를 높이는 2차 검증 프로세스의 활성화 여부입니다. 고품질 답변이 필요하다면 `on` 상태여야 합니다.
+-   **Query expansion**: recovery-only Tier-2 expansion을 실행할 수 있는지 표시합니다. 사용할 수 없어도 deterministic lexical/vector expansion은 계속 실행되고 trace에 degraded stage가 기록됩니다.
 -   **Search readiness**: DB-native FTS5 준비 상태, embedded chunk 수, vector readiness, provider/model, degraded stage를 표시합니다.
 -   **Search index degradation**: embedding, query expansion, reranking이 사용할 수 없더라도 lexical FTS5 search는 계속 작동합니다. Query trace에는 `vector_unavailable`, `query_expander_unavailable`, `reranker_unavailable` 같은 경고가 기록됩니다. provider/model 설정을 고친 뒤 `wiki reindex`로 chunk와 embedding을 다시 빌드하세요.
 

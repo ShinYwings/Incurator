@@ -45,6 +45,7 @@ import {
   contextPromptLabel,
   hasPrimaryUserContext,
   includedContextRefs,
+  isPrimaryUserContext,
   shouldIncludeContext,
 } from "../context/chatContextPriority";
 import {
@@ -258,48 +259,11 @@ export class ChatSidebarView extends ItemView {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "l") {
         e.preventDefault();
 
-        // Capture line-range from active Markdown editor before focus shifts
-        const pinnedSnapshot = this.pendingContextRefs.filter((ref) => ref.isPinned);
-        const activeLeaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
-        if (activeLeaf?.view instanceof MarkdownView) {
-          const mdView = activeLeaf.view as MarkdownView;
-          const editor = mdView.editor;
-          const file = mdView.file;
-          if (file && editor) {
-            const from = editor.getCursor("from");
-            const to = editor.getCursor("to");
-            const hasSelection = from.line !== to.line || from.ch !== to.ch;
-            const lineStart = from.line + 1;
-            const lineEnd = (hasSelection ? to : from).line + 1;
-            const selectedText = hasSelection ? editor.getSelection() : editor.getLine(from.line);
-            // Replace any prior line-range ref for the same file
-            this.pendingContextRefs = this.pendingContextRefs.filter(
-              (r) => !(r.type === "line-range" && r.filePath === file.path)
-            );
-            this.pendingContextRefs.push({
-              type: "line-range",
-              label: `${file.name} L${lineStart}${lineStart !== lineEnd ? `-${lineEnd}` : ""}`,
-              content: selectedText,
-              filePath: file.path,
-              lineStart,
-              lineEnd,
-            });
-          }
-        }
-
+        // Defer execution so that any current focus/selection states are preserved,
+        // then execute the global command which handles both MD and PDF extraction robustly.
         window.setTimeout(() => {
-          for (const ref of pinnedSnapshot) {
-            const exists = this.pendingContextRefs.some(
-              (current) =>
-                current.type === ref.type &&
-                current.label === ref.label &&
-                current.filePath === ref.filePath
-            );
-            if (!exists) {
-              this.pendingContextRefs.push(ref);
-            }
-          }
-          this.renderContextChips();
+          // @ts-ignore (Obsidian internal API)
+          this.app.commands.executeCommandById("incurator-obsidian-agent:line-reference");
         }, 0);
         return;
       }
@@ -414,24 +378,7 @@ export class ChatSidebarView extends ItemView {
       if (!vaultRoot) return;
       const jobsPath = join(vaultRoot, ".curator", "runtime", "jobs.json");
       const statusPath = join(vaultRoot, ".curator", "runtime", "status.json");
-
-      let llmText = "Backend: Unknown";
-      if (existsSync(statusPath)) {
-        const raw = readFileSync(statusPath, "utf8");
-        const data = JSON.parse(raw);
-        if (data.llm && data.llm.primary) {
-          const parts = data.llm.primary.split("::");
-          const provider = parts[0];
-          const modelName = parts[1] || parts[0];
-          
-          if (provider === "ollama") {
-            llmText = `Backend: ${modelName} (Synced)`;
-          } else {
-            llmText = `Backend: ${modelName}`;
-          }
-        }
-      }
-
+      
       this.statusBarEl.empty();
 
       if (existsSync(jobsPath)) {
@@ -440,15 +387,13 @@ export class ChatSidebarView extends ItemView {
         if (data.running && data.running.length > 0) {
           const spinner = this.statusBarEl.createSpan({ cls: "ai-agent-spin" });
           setIcon(spinner, "loader");
-          this.statusBarEl.createSpan({ text: ` ${data.running.length} running | ` });
+          this.statusBarEl.createSpan({ text: ` ${data.running.length} running` });
         } else if (data.queued && data.queued.length > 0) {
           const spinner = this.statusBarEl.createSpan({ cls: "ai-agent-spin" });
           setIcon(spinner, "loader");
-          this.statusBarEl.createSpan({ text: ` ${data.queued.length} queued | ` });
+          this.statusBarEl.createSpan({ text: ` ${data.queued.length} queued` });
         }
       }
-
-      this.statusBarEl.createSpan({ text: llmText });
     } catch (e) {
       // fail silently
     }
@@ -848,13 +793,24 @@ export class ChatSidebarView extends ItemView {
   ): Promise<void> {
     if (!dataTransfer) return;
 
-    // 1. Obsidian internal file drag: vault path in text/plain.
-    const obsidianPath = dataTransfer.getData("text/plain");
-    if (obsidianPath) {
-      const file = this.app.vault.getAbstractFileByPath(obsidianPath);
+    // 1. Obsidian internal file drag or pure text drag: vault path or text in text/plain.
+    const textData = dataTransfer.getData("text/plain");
+    if (textData) {
+      const file = this.app.vault.getAbstractFileByPath(textData);
       if (file instanceof TFile && (!pdfOnly || file.extension === "pdf")) {
         await this.attachVaultFile(file);
         return;
+      } else if (!pdfOnly && !file) {
+        // Not a file path, treat as a dragged text snippet
+        const trimmed = textData.trim();
+        if (trimmed) {
+          this.addContextRef({
+            type: "text",
+            label: "Dragged Text",
+            content: trimmed,
+          });
+          return;
+        }
       }
     }
 
@@ -1161,13 +1117,27 @@ export class ChatSidebarView extends ItemView {
         this.plugin.settings.model
       );
 
+      if (msg === lastUserMessage) {
+        contentParts.push(...activeContextParts);
+      }
+
       if (msg.contextRefs && msg.contextRefs.length > 0) {
         for (const ref of includedContextRefs(msg.contextRefs)) {
           if (ref.sourceViewType === "auto") continue;
           if (ref.content || ref.imageBase64) {
+            let textToPush = `[${contextPromptLabel(ref)}]\n`;
+            if (ref.content) {
+              if (isPrimaryUserContext(ref)) {
+                textToPush += `<primary_focus_selection>\n${ref.content}\n</primary_focus_selection>`;
+              } else {
+                textToPush += ref.content;
+              }
+            } else {
+              textToPush += "(Image context attached below.)";
+            }
             contentParts.push({
               type: "text",
-              text: `[${contextPromptLabel(ref)}]\n${ref.content || "(Image context attached below.)"}`,
+              text: textToPush,
             });
           }
           if (ref.imageBase64 && canSendImages) {
@@ -1183,10 +1153,6 @@ export class ChatSidebarView extends ItemView {
             });
           }
         }
-      }
-
-      if (msg === lastUserMessage) {
-        contentParts.push(...activeContextParts);
       }
 
       const textContent =
@@ -1416,7 +1382,21 @@ export class ChatSidebarView extends ItemView {
       }
 
       if (this.plugin.settings.pdfOutlineEnabled) {
-        const outline = backendCtx?.outline ?? pdf.outline ?? [];
+        let outline = backendCtx?.outline ?? pdf.outline ?? [];
+        // Fetch ToC independently when backend PDF context was skipped
+        // (e.g., local viewer already has text). This ensures chapter/section
+        // information is always available for the LLM to reference.
+        if (outline.length === 0 && client.available && sourcePath) {
+          try {
+            outline = await this.timedContextCall(
+              "backend_pdf_toc",
+              docLabel,
+              () => client.getPdfToc(sourcePath!)
+            );
+          } catch {
+            // Non-fatal: outline is optional context
+          }
+        }
         if (outline.length > 0) {
           sections.push(
             `<document_outline document="${escapeAttribute(tab.label)}">\n${formatOutline(outline)}\n</document_outline>`
@@ -1598,14 +1578,17 @@ export class ChatSidebarView extends ItemView {
     for (const tab of activeCtx.openTabs) {
       let ref: ContextRef | null = null;
       if (tab.viewType === "markdown" && tab.filePath) {
-        let finalContent = tab.content || "";
+        let finalContent = tab.content ? this.truncateContext(tab.content) : "";
         if (tab.selectedText && tab.selectedText.trim()) {
           const sel = tab.selectedText;
           if (finalContent.includes(sel)) {
-            finalContent = finalContent.replace(sel, `\n<selection>\n${sel}\n</selection>\n`);
+            finalContent = finalContent.replace(sel, `\n<primary_focus_selection>\n${sel}\n</primary_focus_selection>\n`);
+            finalContent = `<background_reference_only>\n${finalContent}\n</background_reference_only>`;
           } else {
-            finalContent = `\n<selection>\n${sel}\n</selection>\n\n${finalContent}`;
+            finalContent = `\n<primary_focus_selection>\n${sel}\n</primary_focus_selection>\n\n<background_reference_only>\n${finalContent}\n</background_reference_only>`;
           }
+        } else {
+          finalContent = `<background_reference_only>\n${finalContent}\n</background_reference_only>`;
         }
         ref = {
           type: "file",
@@ -1615,12 +1598,33 @@ export class ChatSidebarView extends ItemView {
           sourceViewType: "auto",
         };
       } else if ((tab.viewType === "pdf" || tab.viewType === EXTERNAL_PDF_VIEW_TYPE) && tab.pdfPage) {
+        let finalContent = tab.pdfPage.text
+          ? this.truncateContext(tab.pdfPage.text)
+          : "(No extractable text on this page. If you need visual information, please attach the image manually.)";
+        
+        const hasTextSelection = tab.selectedText && tab.selectedText.trim();
+        const hasImageSelection = Boolean(tab.pdfPage.selectedImageBase64 || (tab.pdfPage.isScannedLike && tab.pdfPage.imageBase64));
+
+        if (hasTextSelection) {
+          const sel = tab.selectedText || "";
+          if (finalContent.includes(sel)) {
+            finalContent = finalContent.replace(sel, `\n<primary_focus_selection>\n${sel}\n</primary_focus_selection>\n`);
+            finalContent = `<background_reference_only>\n${finalContent}\n</background_reference_only>`;
+          } else {
+            finalContent = `\n<primary_focus_selection>\n${sel}\n</primary_focus_selection>\n\n<background_reference_only>\n${finalContent}\n</background_reference_only>`;
+          }
+        } else if (hasImageSelection) {
+          finalContent = `<background_reference_only>\n${finalContent}\n</background_reference_only>`;
+        } else {
+          // Even without any selection, if this is an auto-injected background tab,
+          // wrap it to ensure it doesn't overpower explicit user queries or explicit pinned images.
+          finalContent = `<background_reference_only>\n${finalContent}\n</background_reference_only>`;
+        }
+        
         ref = {
           type: "pdf-page",
           label: `${tab.label} p.${tab.pdfPage.pageNum}`,
-          content: tab.pdfPage.text
-            ? this.truncateContext(tab.pdfPage.text)
-            : "(No extractable text on this page. If you need visual information, please attach the image manually.)",
+          content: finalContent,
           filePath: tab.filePath,
           fileHash: tab.pdfPage.fileHash,
           pageNum: tab.pdfPage.pageNum,
@@ -1631,6 +1635,9 @@ export class ChatSidebarView extends ItemView {
           textQuality: tab.pdfPage.textQuality,
           isScannedLike: tab.pdfPage.isScannedLike,
           sourceViewType: "auto",
+          // Only send the full page image if the PDF is scanned (vision fallback).
+          // Otherwise, only send an explicitly cropped image (if any).
+          imageBase64: tab.pdfPage.selectedImageBase64 || (tab.pdfPage.isScannedLike ? tab.pdfPage.imageBase64 : undefined),
         };
       }
 
@@ -2147,7 +2154,7 @@ export class ChatSidebarView extends ItemView {
     for (const msg of this.messages) {
       this.renderMessage(msg);
     }
-    this.scrollToBottom();
+    this.scrollToBottom(true);
   }
 
   private renderMessage(msg: ChatMessage): void {
@@ -2610,8 +2617,8 @@ export class ChatSidebarView extends ItemView {
         ? `<details class="ai-agent-thought-block" open><summary>🧠 Thinking Process...</summary>\n\n`
         : `<details class="ai-agent-thought-block"><summary>🧠 Thinking Process</summary>\n\n`;
     
-    processed = processed.replace(/<(thought|thinking)>/gi, openTag);
-    processed = processed.replace(/<\/(thought|thinking)>/gi, "\n\n</details>");
+    processed = processed.replace(/<(thought|thinking|think)>/gi, openTag);
+    processed = processed.replace(/<\/(thought|thinking|think)>/gi, "\n\n</details>");
 
     const openCount = (processed.match(/<details class="ai-agent-thought-block"/g) || []).length;
     const closeCount = (processed.match(/<\/details>/g) || []).length;
@@ -2957,7 +2964,7 @@ export class ChatSidebarView extends ItemView {
         }
       }
     }
-    this.scrollToBottom();
+    this.scrollToBottom(false);
   }
 
   private stopThinkingTimer(): void {
@@ -2991,11 +2998,23 @@ export class ChatSidebarView extends ItemView {
 
     // When fresh context lacks PDF data (pdfPage not yet captured), restore cached PDF refs
     // for tabs that are still open so the chip doesn't flicker away on leaf-change.
-    const openPdfTabKeys = new Set(
-      (activeCtx?.openTabs ?? [])
-        .filter((t) => t.viewType === "pdf" || t.viewType === EXTERNAL_PDF_VIEW_TYPE)
-        .map((t) => t.filePath || t.label)
-    );
+    const openPdfTabKeys = new Set<string>();
+    this.plugin.app.workspace.iterateAllLeaves((leaf) => {
+      const viewType = leaf.view.getViewType();
+      if (viewType === "pdf" || viewType === EXTERNAL_PDF_VIEW_TYPE) {
+        if (viewType === EXTERNAL_PDF_VIEW_TYPE) {
+          const state = leaf.view.getState();
+          if (state.path) openPdfTabKeys.add(state.path);
+          openPdfTabKeys.add(leaf.view.getDisplayText());
+        } else {
+          // Internal PDF view
+          const file = (leaf.view as any).file;
+          if (file && file.path) openPdfTabKeys.add(file.path);
+          openPdfTabKeys.add(leaf.view.getDisplayText());
+        }
+      }
+    });
+    
     const cachedPdfsStillOpen = this.cachedAutoContextRefs.filter((r) => {
       if (r.type !== "pdf-page") return false;
       return openPdfTabKeys.has(r.filePath || r.label.replace(/ p\.\d+$/, ""));
@@ -3012,13 +3031,25 @@ export class ChatSidebarView extends ItemView {
 
     // Auto context chips show every visible markdown/PDF split.
     for (const ref of autoRefs) {
-      if (this.pendingContextRefs.some((pinned) => {
-        // line-range refs share only a slice of the file — they should NOT suppress
-        // the auto chip that represents the full open tab.
-        if (pinned.type === "line-range") return false;
-        if (ref.filePath && pinned.filePath === ref.filePath) return true;
-        return pinned.label.replace(/ p\.\d+$/, "") === ref.label.replace(/ p\.\d+$/, "");
-      })) {
+      let isSuppressed = false;
+      for (const pinned of this.pendingContextRefs) {
+        // Text/line-range/selections never suppress the full file auto chip
+        if (pinned.type === "line-range" || pinned.type === "text" || pinned.type === "selection") continue;
+        
+        // Explicit PDF crops/selections never suppress the full PDF page auto chip
+        if (pinned.type === "pdf-page" && pinned.label && (pinned.label.includes("(Crop)") || pinned.label.includes("(Selection)"))) continue;
+
+        // If it's a full file or full PDF page pin, check if it matches this auto chip
+        if (ref.filePath && pinned.filePath === ref.filePath) {
+          isSuppressed = true;
+          break;
+        }
+        if (!ref.filePath && pinned.label.replace(/ p\.\d+$/, "") === ref.label.replace(/ p\.\d+$/, "")) {
+          isSuppressed = true;
+          break;
+        }
+      }
+      if (isSuppressed) {
         continue;
       }
 
@@ -3572,7 +3603,7 @@ export class ChatSidebarView extends ItemView {
     this.restoreInputFocus();
   }
 
-  private syncModelControls(): void {
+  public syncModelControls(): void {
     if (!this.modelSelectEl || !this.customModelInputEl) return;
 
     const provider = this.plugin.settings.provider;
@@ -3615,7 +3646,7 @@ export class ChatSidebarView extends ItemView {
     this.syncReasoningControl();
   }
 
-  private syncReasoningControl(): void {
+  public syncReasoningControl(): void {
     if (!this.reasoningSelectEl) return;
     
     this.reasoningSelectEl.empty();
@@ -3652,9 +3683,15 @@ export class ChatSidebarView extends ItemView {
 
   // ── Utils ───────────────────────────────────────────────────
 
-  private scrollToBottom(): void {
+  private scrollToBottom(force: boolean = false): void {
     requestAnimationFrame(() => {
-      this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+      if (!this.messagesContainer) return;
+      const threshold = 150;
+      const isNearBottom = this.messagesContainer.scrollHeight - this.messagesContainer.scrollTop - this.messagesContainer.clientHeight <= threshold;
+      
+      if (force || isNearBottom) {
+        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+      }
     });
   }
 

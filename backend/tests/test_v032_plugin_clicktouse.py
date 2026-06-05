@@ -93,3 +93,37 @@ def test_plugin_insight_reject_unknown(tmp_path: Path) -> None:
     result = runner.invoke(app, ["plugin", "insight", "reject", "--insight-id", "INS-nope", "--workspace-path", str(vault)])
     assert result.exit_code == 1
     assert _json_output(result.output)["ok"] is False
+
+
+def test_plugin_models_status(tmp_path: Path, monkeypatch) -> None:
+    runner = CliRunner()
+    vault = _vault(tmp_path)
+    # Isolate the model cache so presence is deterministic (no host GGUFs).
+    monkeypatch.setenv("INCURATOR_MODELS_DIR", str(tmp_path / "models"))
+    result = runner.invoke(app, ["plugin", "models", "status", "--workspace-path", str(vault)])
+    assert result.exit_code == 0, result.output
+    data = _json_output(result.output)
+    assert data["ok"] is True
+    assert "embed" in data and "reranker" in data
+    assert data["embed"]["model"]  # identity exposed to the plugin
+    assert data["embed"]["present"] is False  # empty isolated cache
+    assert "ollamaReachable" in data and "llama_cpp_installed" in data
+
+
+def test_plugin_models_refresh(tmp_path: Path, monkeypatch) -> None:
+    runner = CliRunner()
+    vault = _vault(tmp_path)
+    from curator import model_setup
+
+    def _fake_ensure(paths, **kw):
+        rep = model_setup.ModelReport()
+        rep.add("ollama-serving", True, "already running")
+        rep.add("reranker-gguf", True, "downloaded")
+        return rep
+
+    monkeypatch.setattr(model_setup, "ensure_search_models", _fake_ensure)
+    result = runner.invoke(app, ["plugin", "models", "refresh", "--workspace-path", str(vault)])
+    assert result.exit_code == 0, result.output
+    data = _json_output(result.output)
+    assert data["ok"] is True
+    assert [s["name"] for s in data["steps"]] == ["ollama-serving", "reranker-gguf"]

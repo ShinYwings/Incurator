@@ -40,8 +40,36 @@ describe("chat context priority", () => {
     };
 
     expect(contextPromptLabel(auto)).toBe("Visible background context: curate.yml");
-    expect(contextPriorityInstruction(true)).toContain("Primary user-selected context is the focus");
-    expect(contextPriorityInstruction(false)).toContain("Pinned and visible Obsidian context are background");
+    expect(contextPriorityInstruction(true)).toContain("Primary user-selected context is the MAIN FOCUS");
+    expect(contextPriorityInstruction(false)).toContain("Pinned and visible Obsidian contexts");
+  });
+
+  it("treats pinned explicit snippets as primary while whole pinned docs stay background", () => {
+    const pinnedSnippet: ContextRef = {
+      type: "text",
+      label: "Pinned selection from paper",
+      content: "focus this exact passage",
+      isPinned: true,
+    };
+    const pinnedWholePdf: ContextRef = {
+      type: "pdf-page",
+      label: "Paper p.4",
+      content: "whole page background",
+      isPinned: true,
+    };
+    const visibleMarkdown: ContextRef = {
+      type: "file",
+      label: "active.md",
+      content: "visible file background",
+      sourceViewType: "auto",
+    };
+
+    expect(isPrimaryUserContext(pinnedSnippet)).toBe(true);
+    expect(isPrimaryUserContext(pinnedWholePdf)).toBe(false);
+    expect(isPrimaryUserContext(visibleMarkdown)).toBe(false);
+    expect(hasPrimaryUserContext([visibleMarkdown, pinnedWholePdf, pinnedSnippet])).toBe(true);
+    expect(contextPromptLabel(pinnedSnippet)).toBe("Primary user-selected context: Pinned selection from paper");
+    expect(contextPromptLabel(pinnedWholePdf)).toBe("Pinned background context: Paper p.4");
   });
 
   it("excludes invisible pinned context from prompt priority", () => {

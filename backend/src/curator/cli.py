@@ -186,6 +186,8 @@ plugin_trace_app = typer.Typer(name="trace", no_args_is_help=True, add_completio
 plugin_app.add_typer(plugin_trace_app, name="trace")
 plugin_correction_app = typer.Typer(name="correction", no_args_is_help=True, add_completion=False)
 plugin_app.add_typer(plugin_correction_app, name="correction")
+plugin_models_app = typer.Typer(name="models", no_args_is_help=True, add_completion=False)
+plugin_app.add_typer(plugin_models_app, name="models")
 
 devices_app = typer.Typer(
     name="devices",
@@ -196,6 +198,19 @@ devices_app = typer.Typer(
     rich_markup_mode="rich",
 )
 app.add_typer(devices_app, name="devices", hidden=True)
+
+models_app = typer.Typer(
+    name="models",
+    help="Provision the search stack (embedding + reranker GGUFs).",
+    hidden=True,
+    no_args_is_help=True,
+    add_completion=False,
+    rich_markup_mode="rich",
+)
+# Hidden: this is plumbing called by `setup.sh` and the Obsidian plugin's
+# "refresh models" action, not a daily user command. Users select chat models via
+# `wiki config models`; the search stack auto-provisions on setup/update.
+app.add_typer(models_app, name="models", hidden=True)
 
 prompt_app = typer.Typer(
     name="prompt",
@@ -1998,9 +2013,9 @@ def reset(
 ) -> None:
     """Reset the Curator vault state while preserving config.yml.
     
-    This deletes the tracking database (state.sqlite), the ingest log, 
-    overview/index/ledger files, and clears the Collections directory. 
-    It does not delete the 01_Workspaces..06_Archives topology.
+    This deletes the tracking database (state.sqlite) including the native
+    search index, the ingest log, overview/index/ledger files, and clears 
+    the Collections directory. It does not delete the 01_Workspaces..06_Archives topology.
     """
     import shutil
     
@@ -2966,6 +2981,10 @@ def _spawn_background_worker(paths: cfg.WikiPaths) -> None:
     import shutil
     wiki_bin = shutil.which("wiki") or "wiki"
     try:
+        # Pass VAULT_ROOT explicitly so the detached process can resolve the
+        # vault root without relying on CWD discovery (which silently exits
+        # when the child process CWD doesn't match `_resolve_root_or_die`).
+        env = {**__import__('os').environ, "VAULT_ROOT": str(paths.root)}
         subprocess.Popen(
             [wiki_bin, "jobs", "run"],
             cwd=str(paths.root),
@@ -2973,6 +2992,7 @@ def _spawn_background_worker(paths: cfg.WikiPaths) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
+            env=env,
         )
         _ok("Started detached background daemon to process jobs asynchronously.")
     except Exception as e:
@@ -3137,16 +3157,26 @@ def jobs_run(
 
     paths = _resolve_root_or_die()
     config = cfg.load_config(paths)
+    # Recover any jobs left in 'running' state from a previous crashed worker.
+    recovered = db.recover_stale_jobs(paths.state_db)
+    if recovered:
+        _ok(f"Recovered {recovered} stale job(s) back to queue.")
     results = ingest_worker.run_queued_jobs(paths, config, limit=limit)
     if not results:
         _ok("No queued jobs.")
-        return
-    ok_count = sum(1 for result in results if result.get("ok"))
-    failed = [result for result in results if not result.get("ok")]
-    _ok(f"Processed {ok_count} job(s).")
-    for result in failed:
-        job = result.get("job") or {}
-        _err(f"Job #{job.get('id')} failed: {result.get('error')}")
+    else:
+        ok_count = sum(1 for result in results if result.get("ok"))
+        failed = [result for result in results if not result.get("ok")]
+        _ok(f"Processed {ok_count} job(s).")
+        for result in failed:
+            job = result.get("job") or {}
+            _err(f"Job #{job.get('id')} failed: {result.get('error')}")
+    # Always refresh the search index — including vector embeddings — even when
+    # the queue was already empty. Otherwise a vault whose L2/L3 finished but
+    # whose embeddings never completed (interrupted daemon, FTS-only `add`) has
+    # no automatic path to vectors and degrades to FTS5-only until a manual
+    # `wiki reindex --embed`. update_index is fingerprinted/idempotent, so this
+    # is cheap when embeddings are already current.
     _refresh_qmd_index(paths, embed=True)
 
 
@@ -4573,6 +4603,102 @@ def reindex(
         raise typer.Exit(code=1)
 
 
+def _render_model_report(report) -> None:
+    for step in report.steps:
+        if step.ok:
+            _ok(f"{step.name}: {step.detail}")
+        else:
+            _warn(f"{step.name}: {step.detail}")
+
+
+@models_app.command("ensure")
+def models_ensure(
+    serve_ollama: bool = typer.Option(True, "--serve-ollama/--no-serve-ollama", help="Auto-start Ollama if not running."),
+    pull_embed: bool = typer.Option(True, "--ollama-embed/--no-ollama-embed", help="Pull an Ollama embedding model only when configured."),
+    install_llama: bool = typer.Option(True, "--llama/--no-llama", help="Install llama-cpp-python (Metal on macOS)."),
+    download_embedder: bool = typer.Option(True, "--embedder/--no-embedder", help="Download the embedding GGUF."),
+    download_reranker: bool = typer.Option(True, "--reranker/--no-reranker", help="Download the reranker GGUF."),
+    smoke: bool = typer.Option(False, "--smoke", help="Load providers and run a tiny live embedding/reranker sanity check."),
+    force: bool = typer.Option(False, "--force", help="Re-download GGUF models even if present."),
+) -> None:
+    """Provision the v0.3.2 search stack (idempotent; safe to re-run on update).
+
+    Installs `llama-cpp-python`, downloads the embedding + reranker GGUFs, and
+    pins model paths when a vault is available. Ollama serving/pull steps are
+    retained for chat and fallback embedding profiles. Every step degrades
+    gracefully — search stays functional (FTS5/RRF) even if a model is
+    unavailable. `setup.sh` calls this after install.
+    """
+    from . import model_setup
+
+    # Vault is optional here: `setup.sh` runs this before any vault exists. Global
+    # steps (serve/pull/install/download) still run; per-vault config is persisted
+    # only when a vault resolves.
+    try:
+        paths = _resolve_root_or_die()
+    except typer.Exit:
+        paths = None
+    console.print()
+    console.print("[dim]Provisioning search models…[/dim]")
+    report = model_setup.ensure_search_models(
+        paths,
+        serve_ollama=serve_ollama,
+        pull_embed=pull_embed,
+        install_llama=install_llama,
+        download_embedder=download_embedder,
+        download_reranker=download_reranker,
+        force=force,
+    )
+    _render_model_report(report)
+    if smoke:
+        config = cfg.load_config(paths) if paths is not None else cfg.DEFAULT_CONFIG
+        smoke_report = model_setup.smoke_test_search_models(config)
+        _render_model_report(smoke_report)
+        report.steps.extend(smoke_report.steps)
+    if report.ok:
+        _ok("Search stack ready.")
+    else:
+        _hint("Some steps degraded — search still works (FTS5/RRF). Re-run `wiki models ensure` after fixing.")
+
+
+@models_app.command("status")
+def models_status() -> None:
+    """Show search-stack model/dependency status as JSON."""
+    from . import model_setup
+
+    paths = _resolve_root_or_die()
+    config = cfg.load_config(paths)
+    search_cfg = config.get("search", {})
+    host = (config.get("llm", {}).get("ollama", {}) or {}).get("host") or consts.DEFAULT_OLLAMA_HOST
+    embed_spec = str(search_cfg.get("embedding") or "")
+    embed_provider, _, embed_model = embed_spec.partition("::")
+    embed_path = str(search_cfg.get("embedding_model_path") or "")
+    embed_cached = model_setup.models_cache_dir() / str(search_cfg.get("embedding_gguf_file") or consts.DEFAULT_EMBED_GGUF_FILE)
+    reranker_spec = str(search_cfg.get("reranker") or "")
+    reranker_provider, _, reranker_model = reranker_spec.partition("::")
+    reranker_path = str(search_cfg.get("reranker_model_path") or "")
+    reranker_cached = model_setup.models_cache_dir() / str(search_cfg.get("reranker_gguf_file") or consts.DEFAULT_RERANK_GGUF_FILE)
+    ollama_models = list_models_on_host(host, timeout=3.0)
+    _print_json({
+        "ok": True,
+        "ollamaReachable": model_setup._ollama_reachable(host),
+        "embedProvider": embed_provider.strip(),
+        "embedModel": embed_model.strip(),
+        "embedPulled": any(
+            m == embed_model.strip() or m.startswith(embed_model.split(":")[0].strip())
+            for m in ollama_models
+        ) if embed_provider.strip() == consts.BACKEND_OLLAMA and embed_model.strip() else False,
+        "embeddingModelPath": embed_path,
+        "embeddingPresent": bool((embed_path and Path(embed_path).exists()) or embed_cached.exists()),
+        "llamaCppInstalled": model_setup.llama_cpp_installed(),
+        "rerankerProvider": reranker_provider.strip(),
+        "rerankerModel": reranker_model.strip(),
+        "rerankerModelPath": reranker_path,
+        "rerankerPresent": bool((reranker_path and Path(reranker_path).exists()) or reranker_cached.exists()),
+        "modelsCacheDir": str(model_setup.models_cache_dir()),
+    })
+
+
 # ---------------------------------------------------------------------------
 # Stage 5 — lint
 # ---------------------------------------------------------------------------
@@ -5668,6 +5794,22 @@ def plugin_pdf_context(
         raise typer.Exit(code=1)
 
 
+@plugin_pdf_app.command("toc")
+def plugin_pdf_toc(
+    file_path: str = typer.Option(..., "--file-path", help="PDF file path."),
+) -> None:
+    """Return PDF Table of Contents (Outline) as JSON."""
+    from .parsers import pdf as pdf_parser
+    from pathlib import Path as _P
+
+    try:
+        toc = pdf_parser._extract_pdf_toc(_P(file_path))
+        _print_json({"ok": True, "outline": toc})
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
 @plugin_pdf_app.command("search")
 def plugin_pdf_search(
     query: str = typer.Option(..., "--query", help="Search query."),
@@ -5973,6 +6115,51 @@ def plugin_correction_propose(
         })
     except Exception as exc:
         _print_json({"ok": False, "nodeId": node_id, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_models_app.command("status")
+def plugin_models_status(
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
+) -> None:
+    """Return search-model identity + health as JSON for the plugin dashboard."""
+    from . import model_setup, runtime_state
+
+    try:
+        paths = _plugin_paths(workspace_path)
+        config = cfg.load_config(paths)
+        search_cfg = config.get("search", {})
+        host = (config.get("llm", {}).get("ollama", {}) or {}).get("host") or consts.DEFAULT_OLLAMA_HOST
+        models = runtime_state._search_models_status(search_cfg)
+        models["ollamaReachable"] = model_setup._ollama_reachable(host)
+        models["ok"] = True
+        _print_json(models)
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_models_app.command("refresh")
+def plugin_models_refresh(
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
+    force: bool = typer.Option(False, "--force", help="Re-download GGUFs even if present."),
+) -> None:
+    """(Re)provision the search stack from the plugin and return a per-step report.
+
+    Lets the Obsidian agent repair search when a model is missing/unhealthy:
+    starts Ollama, pulls/installs, downloads GGUFs, and pins model paths.
+    """
+    from . import model_setup
+
+    try:
+        paths = _plugin_paths(workspace_path)
+        report = model_setup.ensure_search_models(paths, force=force)
+        _print_json({
+            "ok": report.ok,
+            "steps": [{"name": s.name, "ok": s.ok, "detail": s.detail} for s in report.steps],
+        })
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
         raise typer.Exit(code=1)
 
 

@@ -108,6 +108,7 @@ interface PluginSettings {
   // UI preferences
   diffMode: "inline" | "side-by-side";
   streamingEnabled: boolean;
+  quickQueryEnabled: boolean;      // drag-to-select In-line Copilot popover (default true)
   maxContextLength: number;        // tokens
 
   // MCP configuration for external/non-Incurator tool servers
@@ -557,6 +558,9 @@ interface PdfTextQuality {
 Rules:
 
 - `isScannedLike=true` must trigger vision fallback if `pdfVisionFallback=true`.
+  Text-mode capture must not set `isScannedLike=true` when the viewer exposes
+  substantial selectable DOM text; usable PDF.js/DOM text remains the fast path
+  and must not be replaced by image fallback.
 - PDF context must never be written to `.curator/` without explicit user approval.
 - PDF viewer chat and durable PDF knowledge refinement are separate workflows.
   Normal chat over an open PDF must use viewer-local page/selection/crop context
@@ -566,9 +570,10 @@ Rules:
 - Queued L2/L3 jobs are executed only by an explicit worker path such as
   Dashboard Jobs `Run queued`, `wiki jobs run`, or an active backend worker. The
   Add-source chip must not wait for L2/L3 completion.
-- In sidechat prompts, non-pinned user-added context references such as line
-  references, selected text, and PDF snips are the primary focus for the current
-  turn. Pinned and automatically visible context are background grounding.
+- In sidechat prompts, user-added context references such as line references,
+  selected text, explicit text snippets, and PDF snips are the primary focus for
+  the current turn, including when those explicit snippets are pinned. Pinned
+  whole files/pages and automatically visible context are background grounding.
   Context chips may be toggled invisible/excluded; excluded chips remain visible
   in the UI but must not be included in model prompts, continuity summaries, or
   primary-context detection.
@@ -839,13 +844,19 @@ type QueryTraceDetail = {
 };
 ```
 
-`wiki plugin trace list` returns `TraceListResult`. `wiki plugin trace show`
-returns `QueryTraceDetail`. Trace rows may be partial when only prompt-run joins
+`wiki plugin trace list` returns `TraceListResult` for the currently open
+Obsidian vault because the plugin backend runner executes with the vault root as
+its working directory. `wiki plugin trace show` returns `QueryTraceDetail`.
+Dashboard Trace UI is vault-local, not tied to `01_Workspaces/` directories;
+external workspace folders are backend/domain concepts and must not be inferred
+by the plugin dashboard. Trace rows may be partial when only prompt-run joins
 exist, but the plugin must render partial rows rather than failing.
 
 ### 12.2 Insight Detail And Review Commands
 
-`wiki plugin insight show` returns the current insight-candidate fields plus:
+`wiki plugin insight list` returns candidates for the currently open Obsidian
+vault. `wiki plugin insight show` returns the current insight-candidate fields
+plus:
 
 - `evidence`
 - `sourceEventId`
@@ -868,7 +879,11 @@ nodes directly.
 ### 12.4 Safety And Boundary Rules
 
 - Dashboard Trace and Insights tabs call hidden local `wiki plugin ... --json`
-  commands, not MCP tools.
+  commands via the plugin's vault-local backend command runner, not MCP tools and
+  not `01_Workspaces/` paths.
+- Dashboard Trace and Insights tabs must use a list/detail flow: list commands
+  render summaries, and selecting a row loads the backend detail payload before
+  exposing follow-up actions such as promote/reject.
 - Runtime snapshots remain backend-owned read models. The plugin reads them but
   never writes them.
 - Dashboard must not edit `.curator/state.sqlite`, `.curator/Collections/`,
@@ -876,3 +891,42 @@ nodes directly.
 - Prompt trace UI does not expose raw prompt input/output bodies by default in
   v0.3.2; ids, hashes, model, route, validator status, evidence ids, and warnings
   are sufficient.
+
+## 13. In-line Copilot Quick Query (v0.3.2)
+
+The plugin provides a drag-to-select quick query surface ("In-line Copilot") for
+one-off questions about a selected passage. It is gated by
+`PluginSettings.quickQueryEnabled` (default `true`).
+
+### 13.1 Trigger And Surface
+
+- On a non-empty text selection anywhere in the workspace (Markdown editor,
+  reading view, or PDF), the plugin shows exactly one floating trigger button next
+  to the selection. No toolbar or multi-button cluster is rendered.
+- Activating the button — or invoking the `quick-query-selection` command
+  (default hotkey `Cmd+Shift+K`) while text is selected — opens a single popover
+  containing only a free-text query input and a submit control. No preset/quick-
+  action buttons are present.
+- Selections made inside the plugin's own button/popover must not re-trigger the
+  surface.
+
+### 13.2 Answer Rendering
+
+- On submit, the input row is hidden and only the model answer is shown; the chat
+  bubble layout is not used.
+- The answer streams as plain text while generating and is rendered as Markdown
+  (math/LaTeX included) once the stream completes. Provider thinking/status
+  scaffolding (`<thinking>`, `<think>`, `<thought>` blocks) is stripped from the
+  displayed answer.
+- The answer container keeps text selectable/copyable and is size-capped
+  (`max-height`/`max-width`) with internal scrolling for long answers.
+
+### 13.3 Ephemerality And Boundaries
+
+- The popover is a temporary surface. Closing it (close button, `Escape`, or an
+  outside click once the answer is complete) discards the exchange. It must never
+  be written into `SessionData` or the chat sidebar history.
+- The query is issued through the standard `LLMClient` using the active
+  provider/model. The selected passage is supplied as the primary context
+  alongside the user's question; no prior chat turns are appended.
+- An in-flight quick query is aborted when its popover is dismissed.

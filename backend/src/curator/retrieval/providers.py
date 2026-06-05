@@ -9,6 +9,7 @@ to FTS5-only (no embeddings) or RRF order (no rerank) rather than hard-failing.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 import httpx
@@ -19,6 +20,7 @@ __all__ = [
     "Embedder",
     "Reranker",
     "OllamaEmbedder",
+    "LlamaCppEmbedder",
     "LlamaCppReranker",
     "build_embedder",
     "build_reranker",
@@ -39,6 +41,10 @@ class Embedder(Protocol):
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Return one vector per input text. May raise on transport failure."""
+        ...
+
+    def embed_query(self, texts: list[str]) -> list[list[float]]:
+        """Return query vectors when the provider has asymmetric instructions."""
         ...
 
 
@@ -98,6 +104,77 @@ class OllamaEmbedder:
             self.dim = len(embeddings[0])
         return [[float(x) for x in vec] for vec in embeddings]
 
+    def embed_query(self, texts: list[str]) -> list[list[float]]:
+        return self.embed(texts)
+
+
+def _coerce_vectors(raw) -> list[list[float]]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        return [[float(raw)]]
+    if not raw:
+        return []
+    first = raw[0]
+    if isinstance(first, (int, float)):
+        return [[float(x) for x in raw]]
+    return [[float(x) for x in vec] for vec in raw]
+
+
+class LlamaCppEmbedder:
+    """Qwen3 embedding GGUF via llama-cpp-python.
+
+    Document chunks are embedded raw. Query probes receive a short retrieval
+    instruction because Qwen3 embeddings are instruction-aware.
+    """
+
+    query_instruction = "Retrieve the most relevant knowledge-base chunk for this query."
+
+    def __init__(
+        self,
+        model: str,
+        model_path: str,
+        *,
+        dim: int = consts.DEFAULT_EMBED_DIM,
+        n_ctx: int = 32768,
+    ) -> None:
+        from llama_cpp import Llama  # lazy: optional dependency
+
+        self.provider = "llama-cpp"
+        self.model = model
+        self.model_path = model_path
+        self.dim = dim
+        llama_cpp = __import__("llama_cpp")
+        self._llm = Llama(
+            model_path=model_path,
+            embedding=True,
+            pooling_type=getattr(llama_cpp, "LLAMA_POOLING_TYPE_LAST", 2),
+            n_ctx=n_ctx,
+            verbose=False,
+        )
+
+    @property
+    def fingerprint(self) -> str:
+        return f"{self.provider}::{self.model}::{self.dim}"
+
+    def _embed_inputs(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        raw = self._llm.embed(texts if len(texts) > 1 else texts[0])
+        vectors = _coerce_vectors(raw)
+        if len(vectors) != len(texts):
+            raise ValueError(f"embed count mismatch: got {len(vectors)} for {len(texts)} inputs")
+        if vectors and len(vectors[0]) != self.dim:
+            self.dim = len(vectors[0])
+        return vectors
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return self._embed_inputs(texts)
+
+    def embed_query(self, texts: list[str]) -> list[list[float]]:
+        prefixed = [f"Instruct: {self.query_instruction}\nQuery: {text}" for text in texts]
+        return self._embed_inputs(prefixed)
+
 
 def build_embedder(search_config: dict, *, ollama_host: str | None = None) -> Embedder | None:
     """Construct an embedder from ``search.embedding`` (``provider::model``).
@@ -116,12 +193,29 @@ def build_embedder(search_config: dict, *, ollama_host: str | None = None) -> Em
             host=(ollama_host or consts.DEFAULT_OLLAMA_HOST),
             dim=dim,
         )
+    if provider == "llama-cpp":
+        model_path = str((search_config or {}).get("embedding_model_path") or "").strip()
+        if not model_path:
+            from ..model_setup import models_cache_dir
+
+            cached = models_cache_dir() / str(
+                (search_config or {}).get("embedding_gguf_file") or consts.DEFAULT_EMBED_GGUF_FILE
+            )
+            if not (cached.exists() and cached.stat().st_size > 0):
+                return None
+            model_path = str(cached)
+        elif not Path(model_path).exists():
+            return None
+        try:
+            return LlamaCppEmbedder(model or consts.DEFAULT_EMBED_MODEL, model_path, dim=dim)
+        except Exception:
+            return None
     # Other providers (e.g. openai-api text-embedding-3-small) plug in here later.
     return None
 
 
 class LlamaCppReranker:
-    """bge-reranker-v2-gemma (or any cross-encoder GGUF) via llama-cpp-python.
+    """Qwen3 reranker (or any cross-encoder GGUF) via llama-cpp-python.
 
     Loaded with rank pooling; ``score`` returns one relevance logit per passage
     (higher = more relevant). All llama-cpp specifics are guarded — a wrong API
@@ -129,6 +223,11 @@ class LlamaCppReranker:
     ``no_rerank`` rather than failing the query. Live validation requires
     ``pip install 'incurator[rerank]'`` plus the GGUF model file.
     """
+
+    # Qwen3-Reranker instruction template. The instruction-formatted input gives
+    # markedly sharper relevant/irrelevant separation than a bare "query\tpassage"
+    # (≈2x the score gap in practice), which is what brings ranking to qmd parity.
+    _INSTRUCTION = "Given a web search query, retrieve relevant passages that answer the query"
 
     def __init__(self, model: str, model_path: str, *, n_ctx: int = 2048) -> None:
         from llama_cpp import Llama  # lazy: optional dependency
@@ -149,11 +248,16 @@ class LlamaCppReranker:
     def fingerprint(self) -> str:
         return f"{self.provider}::{self.model}"
 
+    def _format(self, query: str, passage: str) -> str:
+        return f"<Instruct>: {self._INSTRUCTION}\n<Query>: {query}\n<Document>: {passage}"
+
     def score(self, query: str, passages: list[str]) -> list[float]:
         scores: list[float] = []
         for passage in passages:
-            emb = self._llm.embed(f"{query}\t{passage}")
-            value = emb[0] if isinstance(emb, (list, tuple)) else emb
+            emb = self._llm.embed(self._format(query, passage))
+            value = emb
+            while isinstance(value, (list, tuple)):
+                value = value[0] if value else 0.0
             scores.append(float(value))
         return scores
 
@@ -174,6 +278,17 @@ def build_reranker(search_config: dict) -> Reranker | None:
     model_path = str(config.get("reranker_model_path") or "").strip()
     if provider == "llama-cpp":
         if not model_path:
+            # Fall back to the host model cache populated by `wiki models ensure`
+            # (so a global GGUF download works without per-vault config).
+            from ..model_setup import models_cache_dir
+
+            cached = models_cache_dir() / str(
+                config.get("reranker_gguf_file") or consts.DEFAULT_RERANK_GGUF_FILE
+            )
+            if not (cached.exists() and cached.stat().st_size > 0):
+                return None
+            model_path = str(cached)
+        elif not Path(model_path).exists():
             return None
         try:
             return LlamaCppReranker(model or "reranker", model_path)

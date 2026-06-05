@@ -123,10 +123,10 @@ def enqueue_l3_global(
     *,
     trigger: str = "wiki_build",
 ) -> int:
-    """Queue a standalone global L3 clustering job."""
+    """Queue a standalone global L3 clustering job (source_id=0 sentinel)."""
     return db.enqueue_job(
         paths.state_db,
-        0,
+        0,  # sentinel: no specific source
         consts.PHASE_L3,
         trigger=trigger,
         source_name="Global L3 Clustering",
@@ -146,7 +146,7 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
 
     job_id = int(job["id"])
     job_type = str(job.get("job_type") or consts.PHASE_L2)
-    source_id = int(job["source_id"])
+    source_id = int(job["source_id"] or 0)
     retry_count = int(job.get("retry_count") or 0)
     config = config or cfg.load_config(paths)
     client = build_client(config)
@@ -175,10 +175,12 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
         if job_type != consts.PHASE_L2:
             raise ValueError(f"Unsupported job_type: {job_type}")
 
-        db.update_job_progress(paths.state_db, job_id, phase=consts.PHASE_L2, progress=0.25)
+        db.update_job_progress(paths.state_db, job_id, phase=consts.PHASE_L2, progress=0.1,
+                               progress_current=0, progress_total=1)
 
         # L2: compile knowledge units + graph for this source (v0.3.1 pipeline).
         from .pipeline import compile as _compile
+        from . import runtime_state
 
         cr = _compile.compile_source_l2(paths, client, source_id)
         if not cr.ok:
@@ -186,7 +188,16 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
         db.set_source_layer_status(paths.state_db, source_id, "l2", consts.STATUS_DONE)
         ingest_llm._mark_source_status(paths, source_id, "curated")
 
+        # Update progress to reflect L2 complete; progress_total = atoms created
         pages_created = len(cr.atom_ids)
+        db.update_job_progress(paths.state_db, job_id, phase=consts.PHASE_L2, progress=0.5,
+                               progress_current=pages_created, progress_total=max(1, pages_created))
+        # Write snapshot so the plugin dashboard sees the L2-done state immediately.
+        try:
+            runtime_state.write_runtime_snapshots(paths)
+        except Exception:
+            pass
+
         pages_updated = 0
 
         # L3: run global concept clustering only when no other L2 jobs are waiting.
@@ -196,6 +207,10 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
         if remaining_l2 <= 1:
             _log.info("No pending L2 jobs after source %d; triggering L3 clustering.", source_id)
             db.update_job_progress(paths.state_db, job_id, phase=consts.PHASE_L3, progress=0.75)
+            try:
+                runtime_state.write_runtime_snapshots(paths)
+            except Exception:
+                pass
             try:
                 l3_changes = ingest_llm.run_l3_from_existing_atoms(
                     paths, client, lambda: WorkerCallbacks(paths, job_id, source_id)
@@ -234,6 +249,7 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
             "source_id": source_id,
         }
 
+
     except Exception as exc:
         error_str = str(exc)
         if retry_count < MAX_RETRIES and _is_transient(error_str):
@@ -244,9 +260,10 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
             db.requeue_job_for_retry(paths.state_db, job_id, retry_count + 1, error_str)
         else:
             db.mark_job_failed(paths.state_db, job_id, error_str)
-            db.set_source_layer_status(
-                paths.state_db, source_id, "l2", consts.STATUS_ERROR, error=error_str
-            )
+            if source_id:
+                db.set_source_layer_status(
+                    paths.state_db, source_id, "l2", consts.STATUS_ERROR, error=error_str
+                )
         return {"ok": False, "job": job, "error": error_str}
     finally:
         try:

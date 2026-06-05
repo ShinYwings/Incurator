@@ -6,6 +6,21 @@ Scope: concrete engine design for the native, in-`state.sqlite` hybrid search
 that retires the external `qmd` binary, per
 `.agents/plans/2026-06_v0.3.2_search_internalization_plan.md`.
 
+## 2026-06-05 Provider Default Update
+
+The engine design remains valid, but the concrete embedding/reranker defaults in
+§6.2 and §10 are superseded by
+`.agents/plans/2026-06_v0.3.2_model_provisioning_decision_plan.md`:
+
+- embedding: `llama-cpp::qwen3-embedding-0.6b`
+- reranker: `llama-cpp::qwen3-reranker-0.6b`
+- reranker artifact: `ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF`
+
+The earlier BGE-M3/BGE-reranker recommendation remains useful fallback context,
+not the current default. Arbitrary community Qwen3-Reranker GGUFs still require
+caution, but the selected `ggml-org` Q8_0 artifact is the corrected candidate and
+must be live-smoke-validated before recall@k/MRR parity claims.
+
 This is the engine-level companion to `A_code_inventory.md` (what exists today),
 `C_embeddings_and_sync.md` (embedding lifecycle/invalidation), and
 `D_spec_test_migration.md` (spec + test plan). Where those documents already cover
@@ -754,10 +769,10 @@ fused RRF order is the answer for non-answer callers.
 | search-fine-tuned LLM rerank prompt | LLM scores passages | reuses existing LLM client | slower, prompt-fragile |
 | generic chat rerank prompt | LLM ranks list | no new model | **degraded only** — plan forbids it as parity target |
 
-**Recommendation: `bge-reranker-v2-m3` GGUF via llama.cpp as the configured
-default**, with a search-fine-tuned/validated LLM rerank prompt as a secondary
-configured option, and the generic chat prompt strictly as degraded fallback. The
-sigmoid-normalized [0,1] score is what we blend in §6.3.
+**Current default: `llama-cpp::qwen3-reranker-0.6b` using the corrected
+`ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF` artifact**, with live smoke validation
+before parity claims. `bge-reranker-v2-m3` remains a fallback profile. The generic
+chat prompt is strictly a degraded fallback.
 
 The reranker scores the **best chunk per candidate document** (not whole
 documents) — chunking (§2) is what makes cross-encoder reranking precise, because
@@ -982,11 +997,11 @@ Notes on compatibility:
 | BM25 column weights | title 2.0 / body 1.0 | §1.2 |
 | Chunk size | 256 target / 384 max / 48 overlap / 32 min tokens | §2.2 |
 | Embedding storage | float32 BLOB, normalized, keyed by `chunk_hash` + `model_fp` | §3.1 |
-| Embedding model | `bge-m3` (EN/KR) or `nomic-embed-text` (simple local) | §3.3 |
+| Embedding model | `llama-cpp::qwen3-embedding-0.6b` default; `ollama::bge-m3` fallback profile | model provisioning plan |
 | KNN | brute-force NumPy now; `sqlite-vec` at >50k chunks or >250 ms p95 | §3.2 |
 | HyDE | recovery-only (low vec confidence / sparse lexical) | §4.2 |
 | RRF | `k=60`, lex_raw 1.0 / vec_raw 0.9 / exp 0.6 / hyde 0.7, cap 100→40, top-rank bonus 0.5 | §5 |
-| Reranker | `bge-reranker-v2-m3` GGUF (llama.cpp), sigmoid-normalized | §6.2 |
+| Reranker | `llama-cpp::qwen3-reranker-0.6b` with corrected ggml-org Q8_0 GGUF + smoke validation | §6.2 |
 | Rerank blend | `alpha=0.7` (cross-encoder-led) + RRF stabilizer | §6.3 |
 | Rerank scope | answer path only | §6.1 |
 | Degradation | no embed → `lex`; no rerank → `no_rerank`; both → FTS5-only + warning | §6.4 |

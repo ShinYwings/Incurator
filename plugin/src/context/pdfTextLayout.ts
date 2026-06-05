@@ -194,9 +194,9 @@ export function assessPdfTextQuality(
     source === "none" ||
     charCount < 20 ||
     wordCount < 4 ||
-    alphaNumRatio < 0.18 ||
-    brokenCharRatio > 0.2 ||
-    score < 0.18;
+    alphaNumRatio < 0.10 ||
+    brokenCharRatio > 0.35 ||
+    score < 0.10;
 
   return {
     score,

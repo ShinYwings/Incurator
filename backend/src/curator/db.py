@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS source_pages (
 -- Persistent ingest jobs — survive tab close, restart, etc.
 CREATE TABLE IF NOT EXISTS ingest_jobs (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_id       INTEGER NOT NULL,
+    source_id       INTEGER NOT NULL DEFAULT 0,
     job_type        TEXT NOT NULL DEFAULT 'l2_atoms',
     trigger         TEXT NOT NULL DEFAULT 'wiki_add',
     node_id         TEXT,
@@ -117,8 +117,8 @@ CREATE TABLE IF NOT EXISTS ingest_jobs (
     error           TEXT,
     created_at      TEXT NOT NULL,
     started_at      TEXT,
-    finished_at     TEXT,
-    FOREIGN KEY (source_id) REFERENCES sources(id)
+    finished_at     TEXT
+    -- Note: no FK on source_id — source_id=0 is the sentinel for global L3 jobs.
 );
 
 CREATE INDEX IF NOT EXISTS idx_jobs_state   ON ingest_jobs(state);
@@ -597,6 +597,71 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
             "estimated_cost_usd",
             "estimated_cost_usd REAL DEFAULT 0.0",
         )
+        # Migration: drop the FK constraint on ingest_jobs.source_id.
+        # source_id=0 is the sentinel for global L3 jobs which have no sources row.
+        # The FK caused IntegrityError when inserting those jobs.
+        # SQLite requires table-rebuild to drop a constraint; idempotent via FK check.
+        has_fk = any(
+            "REFERENCES sources" in str(row[0])
+            for row in conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='ingest_jobs'"
+            ).fetchall()
+        )
+        if has_fk:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS ingest_jobs_new (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_id        INTEGER NOT NULL DEFAULT 0,
+                    job_type         TEXT NOT NULL DEFAULT 'l2_atoms',
+                    trigger          TEXT NOT NULL DEFAULT 'wiki_add',
+                    node_id          TEXT,
+                    state            TEXT NOT NULL DEFAULT 'queued',
+                    phase            TEXT,
+                    progress         REAL DEFAULT 0.0,
+                    progress_current INTEGER DEFAULT 0,
+                    progress_total   INTEGER DEFAULT 0,
+                    source_name      TEXT DEFAULT '',
+                    pages_created    INTEGER DEFAULT 0,
+                    pages_updated    INTEGER DEFAULT 0,
+                    error            TEXT,
+                    retry_count      INTEGER NOT NULL DEFAULT 0,
+                    input_tokens     INTEGER DEFAULT 0,
+                    output_tokens    INTEGER DEFAULT 0,
+                    estimated_cost_usd REAL DEFAULT 0.0,
+                    created_at       TEXT NOT NULL,
+                    started_at       TEXT,
+                    finished_at      TEXT
+                );
+                INSERT INTO ingest_jobs_new SELECT
+                    id,
+                    COALESCE(source_id, 0),
+                    job_type,
+                    COALESCE(trigger, 'wiki_add'),
+                    node_id, state, phase,
+                    COALESCE(progress, 0.0),
+                    COALESCE(progress_current, 0),
+                    COALESCE(progress_total, 0),
+                    COALESCE(source_name, ''),
+                    COALESCE(pages_created, 0),
+                    COALESCE(pages_updated, 0),
+                    error,
+                    COALESCE(retry_count, 0),
+                    COALESCE(input_tokens, 0),
+                    COALESCE(output_tokens, 0),
+                    COALESCE(estimated_cost_usd, 0.0),
+                    created_at, started_at, finished_at
+                FROM ingest_jobs;
+                DROP TABLE ingest_jobs;
+                ALTER TABLE ingest_jobs_new RENAME TO ingest_jobs;
+                CREATE INDEX IF NOT EXISTS idx_jobs_state   ON ingest_jobs(state);
+                CREATE INDEX IF NOT EXISTS idx_jobs_source  ON ingest_jobs(source_id);
+                CREATE INDEX IF NOT EXISTS idx_jobs_created ON ingest_jobs(created_at);
+                """
+            )
+            conn.execute("PRAGMA foreign_keys = ON")
+
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_sources_logical_source_id "
         "ON sources(logical_source_id)"
@@ -625,6 +690,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_source_pdf_pages_relpath "
         "ON source_pdf_pages(relpath)"
     )
+
 
 
 def init_db(db_path: Path) -> None:
@@ -715,7 +781,12 @@ def enqueue_job(
     node_id: str | None = None,
     source_name: str = "",
 ) -> int:
-    """Create or reuse a queued/running ingest job for a source and job type."""
+    """Create or reuse a queued/running ingest job for a source and job type.
+
+    source_id=0 is the sentinel for global jobs (e.g. L3 clustering) that are
+    not tied to a specific source row.  The ingest_jobs table has no FK on
+    source_id (removed in migration) so 0 inserts cleanly.
+    """
     with connect(db_path) as conn:
         existing = conn.execute(
             f"""
@@ -745,6 +816,7 @@ def enqueue_job(
             ),
         )
         return int(cur.lastrowid)
+
 
 
 def get_pending_jobs_for_source(db_path: Path, source_id: int) -> list[dict]:

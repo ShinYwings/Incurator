@@ -91,17 +91,27 @@ DEFAULT_CODEX_MODEL = "gpt-5.5"
 DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.5-flash"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 
-# v0.3.2 DB-native search providers (retires qmd). bge-m3 is chosen for EN/KR
-# cross-lingual retrieval quality; the reranker upgrades to a premium LLM-based
-# GGUF (bge-reranker-v2-gemma) to fully use the local VRAM budget.
-DEFAULT_EMBED_PROVIDER = "ollama"
-DEFAULT_EMBED_MODEL = "bge-m3"
+# v0.3.2 DB-native search providers (retires qmd). Qwen3 0.6B GGUFs are chosen
+# to keep embedding + reranking under the local ~2.5 GB VRAM target while using
+# one llama-cpp runtime. Ollama remains available as a chat backend and fallback
+# embedding profile (e.g. ollama::bge-m3).
+DEFAULT_EMBED_PROVIDER = "llama-cpp"
+DEFAULT_EMBED_MODEL = "qwen3-embedding-0.6b"
 DEFAULT_EMBED_DIM = 1024
-# Premium LLM-based reranker (user override): bge-reranker-v2-gemma GGUF run
-# locally via llama-cpp-python. Fully uses the local VRAM budget; degrades to
-# `no_rerank` when llama-cpp-python or the model file is absent.
+# Qwen3 embedding GGUF auto-download source (HuggingFace resolve/main).
+DEFAULT_EMBED_GGUF_REPO = "Qwen/Qwen3-Embedding-0.6B-GGUF"
+DEFAULT_EMBED_GGUF_FILE = "Qwen3-Embedding-0.6B-Q8_0.gguf"
+# Corrected Qwen3 reranker GGUF run locally via llama-cpp-python. Random
+# community Qwen3 reranker GGUFs can be broken; this ggml-org artifact is still
+# smoke-validated and degrades to `no_rerank` when invalid/unavailable.
 DEFAULT_RERANK_PROVIDER = "llama-cpp"
-DEFAULT_RERANK_MODEL = "bge-reranker-v2-gemma"
+DEFAULT_RERANK_MODEL = "qwen3-reranker-0.6b"
+# Reranker GGUF auto-download source (HuggingFace resolve/main). Override via
+# config `search.reranker_gguf_repo` / `reranker_gguf_file` if these move or you
+# prefer a different quant. `wiki models ensure` downloads this and pins
+# `search.reranker_model_path`.
+DEFAULT_RERANK_GGUF_REPO = "ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF"
+DEFAULT_RERANK_GGUF_FILE = "qwen3-reranker-0.6b-q8_0.gguf"
 
 # Default reasoning/effort levels per CLI backend. Empty = let the CLI use its
 # own default. These map to: claude `--effort`, codex `-c model_reasoning_effort`,

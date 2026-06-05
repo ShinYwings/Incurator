@@ -3,6 +3,28 @@
 Companion design doc for `.agents/plans/2026-06_v0.3.2_search_internalization_plan.md`.
 Scope: **design only**. No runtime code, specs, or other plan files are modified by this document.
 
+## 2026-06-05 Provider Default Update
+
+The original provider recommendations in this artifact are superseded by
+`.agents/plans/2026-06_v0.3.2_model_provisioning_decision_plan.md`:
+
+- default embedder: `llama-cpp::qwen3-embedding-0.6b`
+  (`Qwen/Qwen3-Embedding-0.6B-GGUF` /
+  `Qwen3-Embedding-0.6B-Q8_0.gguf`)
+- default reranker: `llama-cpp::qwen3-reranker-0.6b`
+  (`ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF` /
+  `qwen3-reranker-0.6b-q8_0.gguf`)
+- before loading those llama-cpp search GGUFs, Incurator issues a best-effort
+  Ollama unload request (`keep_alive: 0`) for configured Incurator Ollama LLM
+  models to protect the 2.5 GB VRAM budget.
+
+The earlier warning against community Qwen3-Reranker GGUFs was valid: broken
+conversions can omit `cls.output.weight` and return near-zero scores. It should
+now be read narrowly as "do not trust arbitrary community Qwen3 reranker GGUFs."
+The selected `ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF` artifact is the corrected
+candidate referenced by llama.cpp maintainers in issue #16407 and must be
+validated by an Incurator live smoke check before parity claims.
+
 This doc answers five questions for the in-DB hybrid search work:
 1. A provider abstraction for `embed()` / `rerank()` / `expand_query()` that fits the existing `llm.py` multi-provider pattern.
 2. The embedding *lifecycle* (when vectors are produced, how they are keyed, when they are re-computed or invalidated).
@@ -109,17 +131,21 @@ Today `DEFAULT_CONFIG["search"] = {"backend": "qmd", "rerank": True}`. v0.3.2 re
 search:
   backend: native            # was "qmd"
   embedding:
-    primary:  "ollama::bge-m3"          # provider::model, parsed by split_provider_model
-    fallback: ""                        # e.g. "openai-api::text-embedding-3-small"
+    primary:  "llama-cpp::qwen3-embedding-0.6b"  # provider::model, parsed by split_provider_model
+    fallback: ""                        # e.g. "ollama::bge-m3"
     dim: 1024                           # MUST match model; stored in fingerprint, validated
     batch_size: 64
     timeout: 60
     enabled: true                       # false ⇒ FTS5-only, no vectors ever generated
+    gguf_repo: "Qwen/Qwen3-Embedding-0.6B-GGUF"
+    gguf_file: "Qwen3-Embedding-0.6B-Q8_0.gguf"
   rerank:
     enabled: true
-    primary:  "ollama::bge-reranker-v2-m3"   # or "gguf::<path>" / "deepseek-api::..."
+    primary:  "llama-cpp::qwen3-reranker-0.6b"
     fallback: ""
     timeout: 30
+    gguf_repo: "ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF"
+    gguf_file: "qwen3-reranker-0.6b-q8_0.gguf"
   query_expansion:
     enabled: true
     model: ""                # "" ⇒ reuse llm.primary chat model; else provider::model
@@ -151,7 +177,7 @@ If a chunk's stored fingerprint != the active embedder's fingerprint, that chunk
 
 ### 1.7 Concrete recommended default models (with citations)
 
-**Embedding — default: `bge-m3` (1024-dim) via Ollama, local-first.**
+**Embedding — previous default candidate: `bge-m3` (1024-dim) via Ollama.**
 
 Rationale and tradeoffs:
 - Incurator is bilingual EN/KR by design (paired EN/KR guides, Korean users). The original `nomic-embed-text` is **English-specialized and does not place Korean and English sentences of the same meaning near each other**; BGE-M3 learns a shared cross-lingual space across 100+ languages and is the clear pick for Korean ([Medium: Korean/English embedding test](https://medium.com/@jongbaekim0710/test-of-multilingual-embedding-model-for-english-and-korean-8015b2957ca7), [ai-marketinglabs: NV-Embed vs BGE-M3 vs Nomic](https://ai-marketinglabs.com/lab-experiments/nv-embed-vs-bge-m3-vs-nomic-picking-the-right-embeddings-for-pinecone-rag)).
@@ -166,7 +192,7 @@ Rationale and tradeoffs:
 - $0.02 / 1M tokens, 1536-dim native but supports **Matryoshka truncation to 1024/512/256** without retraining — so we can request 1024-dim to *match BGE-M3's dim* and keep one storage column shape ([pecollective: embedding specs 2026](https://pecollective.com/tools/text-embedding-models-compared/), [agentset: voyage vs 3-small](https://agentset.ai/embeddings/compare/voyage-35-vs-openai-text-embedding-3-small)). It is "the safe default… good enough for 90% of applications."
 - The project already ships a `deepseek-api` OpenAI-compatible client; an OpenAI-compatible embedding client is a near-clone. **Critical caveat:** cloud and local fingerprints differ (different model → different vector space). You **cannot mix** vectors from two models in one similarity search. So the cloud "fallback" for embedding is NOT a per-request failover like chat — it is a *whole-corpus mode*: if you switch the active embedder, the corpus must be re-embedded with that model before vector search is valid again (§2.4, §4). Until re-embed completes, vector search degrades to FTS5-only (§5). This is the single biggest difference from the chat `FailoverClient` semantics and must be called out in the spec.
 
-**Reranker — default: `bge-reranker-v2-m3` (local cross-encoder).**
+**Reranker — previous default candidate: `bge-reranker-v2-m3` (local cross-encoder).**
 - Available as working GGUF (Q8_0 / Q4_K_M) and runs via llama.cpp with `pooling=rank` and via Ollama; BGE rerankers "work with rank pooling" out of the box ([HF: bge-reranker-v2-m3 GGUF](https://huggingface.co/klnstpr/bge-reranker-v2-m3-Q8_0-GGUF), [gist: llama-server rerank guide](https://gist.github.com/VooDisss/42bce4eb5c76d3c325633886c5e348ee)).
 - Pairs naturally with BGE-M3 (same family, multilingual, Korean-capable) — the embedder and reranker share a language model lineage.
 - **Avoid community Qwen3-Reranker GGUFs as default**: they are frequently broken (missing `cls.output.weight`, producing near-zero garbage scores ~4.5e-23) unless converted with the corrected pipeline ([llama.cpp issue #16407](https://github.com/ggml-org/llama.cpp/issues/16407), [gist guide](https://gist.github.com/VooDisss/42bce4eb5c76d3c325633886c5e348ee)). Offer Qwen3-Reranker only as an advanced opt-in with a validation check.
@@ -357,8 +383,8 @@ This is the offline-capable invariant in action:
 ## 6. Summary of decisive recommendations
 
 1. **Separate `Embedder` / `Reranker` client families** + `build_embedder()` / `build_reranker()` factories that mirror `build_client()` / `make_client_by_key()` and reuse `FailoverClient`. **`expand_query()` reuses the chat client** — no third family.
-2. **Default embedder: `ollama::bge-m3` (1024-dim, L2-normalized).** Strong Korean/multilingual + dense&sparse; the project is bilingual. Lighter opt-ins: `nomic-embed-text` (768, English-mostly), `multilingual-e5-large-instruct` (1024, multilingual). **Cloud fallback: `openai-api::text-embedding-3-small` truncated to 1024-dim** (Matryoshka) — but treat embedder switch as a *whole-corpus re-embed mode*, not a per-request failover.
-3. **Default reranker: `bge-reranker-v2-m3`** (working GGUF, rank pooling). Avoid Qwen3-Reranker GGUF as default (commonly broken). Generic chat rerank = degraded only.
+2. **Default embedder: `llama-cpp::qwen3-embedding-0.6b` (1024-dim, L2-normalized).** `ollama::bge-m3` remains a compatibility/fallback profile. Treat any embedder switch as a *whole-corpus re-embed mode*, not a per-request failover.
+3. **Default reranker: `llama-cpp::qwen3-reranker-0.6b`** using the corrected `ggml-org` Q8_0 GGUF with live smoke validation. Generic chat rerank = degraded only.
 4. **Lifecycle:** embed incrementally during compile (skip-when-unchanged via chunk `dependency_hash`) + `wiki reindex --embed` for catch-up. Re-embed iff `dependency_hash` OR `model_fingerprint` changed. Invalidation/deletion rides the existing `artifact_dependencies` + FK-cascade chain.
 5. **Storage:** `search_embeddings(chunk_id, model_fingerprint, dim, vector BLOB float32, dependency_hash)` keyed `(chunk_id, fingerprint)` for resumable migrations; `search_index_meta` holds the active fingerprint + counts. Sizes are trivial at personal scale (~4 MB / 1k chunks at 1024-dim; ~400 MB at 100k).
 6. **Sync:** **NO synced sidecar by default** — embeddings stay DB-local and rebuildable; the §4.1 cost is a modest tail on the already-mandatory LLM compile. Offer an optional, self-validating `--export/--import-embeddings` escape hatch that is not auto-synced and re-checks hashes on import. Avoids drift, binary churn, divergent-device merge conflicts, and per-device fingerprint mismatch.

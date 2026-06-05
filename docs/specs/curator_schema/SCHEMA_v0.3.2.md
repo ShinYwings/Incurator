@@ -68,6 +68,15 @@ returns exit code 0 with empty stdout but records `RESOURCE_EXHAUSTED`, `429`, o
 equivalent capacity text in its CLI log, Incurator must treat the call as a
 recoverable `AntigravityCliError` rather than as an empty model answer.
 
+### 2.1.1 Search Provider Selection
+
+Search engine configuration is specified separately in
+`docs/specs/search_engine/SEARCH_ENGINE_SCHEMA_v0.3.2.md`. Curator schema only
+requires that `search.backend` defaults to `native` and that search state remains
+inside `.curator/state.sqlite`; embedding/query-expansion/reranker provider
+fields, recovery-only expansion thresholds, FTS tables, chunk embeddings, and
+query traces belong to the search-engine spec.
+
 ### 2.2 Antigravity Model Fields
 
 ```yaml
@@ -1037,153 +1046,22 @@ Rules:
   projection (`type: synthesis`); the markdown is emitted, never edited as truth
   (§10 storage model).
 
-### 11.12 `search_documents`
+### 11.12 Search Engine Tables
 
-v0.3.2 search is DB-native. The backend materializes authoritative records into
-`search_documents`; `.curator/Collections/` is not the search corpus.
+Search engine tables are specified separately in
+`docs/specs/search_engine/SEARCH_ENGINE_SCHEMA_v0.3.2.md`:
 
-```sql
-CREATE TABLE IF NOT EXISTS search_documents (
-    doc_id TEXT PRIMARY KEY,
-    record_type TEXT NOT NULL,       -- source_span | knowledge_unit | graph_entity | graph_relation | community_report | synthesis_node
-    record_id TEXT NOT NULL,
-    source_id INTEGER,
-    projection_path TEXT NOT NULL DEFAULT '',
-    title TEXT NOT NULL DEFAULT '',
-    body TEXT NOT NULL,
-    language TEXT NOT NULL DEFAULT '',
-    content_hash TEXT NOT NULL,
-    dependency_hash TEXT NOT NULL,
-    provenance_json TEXT NOT NULL DEFAULT '{}',
-    updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_search_documents_record ON search_documents(record_type, record_id);
-CREATE INDEX IF NOT EXISTS idx_search_documents_source ON search_documents(source_id);
-```
+- `search_documents`
+- `search_chunks`
+- `search_documents_fts`
+- `search_documents_fts_tri`
+- `search_embeddings`
+- `search_index_meta`
+- `query_traces`
 
-The indexed corpus includes at minimum:
-
-- `source_spans.section_title` and `source_spans.text_preview`
-- `knowledge_units.canonical_name` and `knowledge_units.statement`
-- `graph_entities.canonical_name` and `graph_entities.description`
-- `graph_relations.relation_type` and `graph_relations.description`
-- `community_reports.title`, `community_reports.summary`, and `community_reports.full_content`
-- `synthesis_nodes.title`, `synthesis_nodes.statement`, and `synthesis_nodes.full_content`
-
-### 11.13 `search_chunks`
-
-Vector retrieval and reranking operate on chunks, not whole documents only.
-Whole-record embeddings may exist as a cache, but they are below the qmd parity
-target if used as the only vector unit.
-
-```sql
-CREATE TABLE IF NOT EXISTS search_chunks (
-    chunk_id TEXT PRIMARY KEY,
-    doc_id TEXT NOT NULL,
-    record_type TEXT NOT NULL,
-    record_id TEXT NOT NULL,
-    chunk_index INTEGER NOT NULL,
-    char_start INTEGER NOT NULL,
-    char_end INTEGER NOT NULL,
-    text TEXT NOT NULL,
-    input_hash TEXT NOT NULL,
-    source_span_ids TEXT NOT NULL DEFAULT '[]',
-    provenance_json TEXT NOT NULL DEFAULT '{}',
-    FOREIGN KEY(doc_id) REFERENCES search_documents(doc_id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_search_chunks_doc ON search_chunks(doc_id);
-CREATE INDEX IF NOT EXISTS idx_search_chunks_record ON search_chunks(record_type, record_id);
-```
-
-Chunking must keep stable positions for trace display and must avoid destructive
-splits of code fences, math blocks, and citation spans where practical.
-
-### 11.14 `search_documents_fts` and `search_documents_fts_tri`
-
-The lexical index is internal FTS5. The primary table uses `unicode61`; the
-trigram table is a fallback for Korean/CJK and substring/code-identifier search.
-
-```sql
-CREATE VIRTUAL TABLE IF NOT EXISTS search_documents_fts USING fts5(
-    title,
-    body,
-    record_type UNINDEXED,
-    record_id UNINDEXED,
-    doc_id UNINDEXED,
-    tokenize = "unicode61 remove_diacritics 2 tokenchars '_-.'"
-);
-
-CREATE VIRTUAL TABLE IF NOT EXISTS search_documents_fts_tri USING fts5(
-    title,
-    body,
-    record_type UNINDEXED,
-    record_id UNINDEXED,
-    doc_id UNINDEXED,
-    tokenize = "trigram"
-);
-```
-
-FTS rows are maintained from `search_documents` and can be fully rebuilt by
-`wiki reindex`. The implementation may keep an additional rowid map if needed
-for deterministic targeted delete/upsert.
-
-### 11.15 `search_embeddings` and `search_index_meta`
-
-Embeddings are per-device DB state. They are generated for `search_chunks`,
-stored as normalized little-endian float32 vectors, and invalidated when provider,
-model, dimension, chunking format, `input_hash`, or `dependency_hash` changes.
-
-```sql
-CREATE TABLE IF NOT EXISTS search_embeddings (
-    chunk_id TEXT NOT NULL,
-    provider TEXT NOT NULL,
-    model TEXT NOT NULL,
-    dim INTEGER NOT NULL,
-    vector BLOB NOT NULL,
-    input_hash TEXT NOT NULL,
-    dependency_hash TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'ready',
-    error TEXT NOT NULL DEFAULT '',
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY(chunk_id, provider, model),
-    FOREIGN KEY(chunk_id) REFERENCES search_chunks(chunk_id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_search_embeddings_model ON search_embeddings(provider, model);
-
-CREATE TABLE IF NOT EXISTS search_index_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-```
-
-### 11.16 `query_traces`
-
-`QTR-` traces are durable first-class records so the plugin dashboard and MCP
-clients can list and inspect query evidence after the immediate response.
-
-```sql
-CREATE TABLE IF NOT EXISTS query_traces (
-    trace_id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL DEFAULT 'default',
-    question_hash TEXT NOT NULL,
-    route TEXT NOT NULL,
-    route_reason TEXT NOT NULL DEFAULT '',
-    evidence_json TEXT NOT NULL DEFAULT '[]',
-    source_span_ids TEXT NOT NULL DEFAULT '[]',
-    community_report_ids TEXT NOT NULL DEFAULT '[]',
-    synthesis_node_ids TEXT NOT NULL DEFAULT '[]',
-    memory_path_ids TEXT NOT NULL DEFAULT '[]',
-    prompt_trace_ids TEXT NOT NULL DEFAULT '[]',
-    insight_candidate_ids TEXT NOT NULL DEFAULT '[]',
-    retrieval_trace_json TEXT NOT NULL DEFAULT '{}',
-    warnings_json TEXT NOT NULL DEFAULT '[]',
-    latency_ms INTEGER,
-    created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_query_traces_workspace_created ON query_traces(workspace_id, created_at);
-```
-
-`prompt_runs.query_trace_id` remains the join key for prompt-level traces.
+Curator records remain the authoritative source. Search tables are derived
+retrieval state in `.curator/state.sqlite` and must be rebuilt from Curator
+records by `wiki reindex`.
 
 ## 12. Upgraded L1 Source Map
 

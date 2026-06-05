@@ -8,6 +8,34 @@ artifacts in this folder: `A_inventory_and_qmd_parity.md`,
 `B_retrieval_engine_design.md`, `C_providers_lifecycle_sync.md`,
 `D_spec_schema_tests_migration.md`. Read those for full detail.
 
+## 2026-06-05 Provider Decision Supersession
+
+The provider defaults in the original "Locked design decisions" section were
+written before the 2026 model provisioning review. They are now superseded by:
+
+- `.agents/plans/2026-06_v0.3.2_model_provisioning_decision_plan.md`
+
+Current pending default:
+
+- embedding: `llama-cpp::qwen3-embedding-0.6b`
+  (`Qwen/Qwen3-Embedding-0.6B-GGUF` /
+  `Qwen3-Embedding-0.6B-Q8_0.gguf`)
+- reranker: `llama-cpp::qwen3-reranker-0.6b`
+  (`ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF` /
+  `qwen3-reranker-0.6b-q8_0.gguf`)
+- VRAM guard: before loading llama-cpp search GGUFs, issue a best-effort Ollama
+  unload request (`keep_alive: 0`) for configured Incurator Ollama LLM models.
+
+Known validation gap: actual recall@k/MRR parity numbers cannot be measured until
+the live embedder and reranker are installed and usable. Mocked provider tests and
+deterministic FTS/RRF tests remain necessary, but they are not a substitute for
+live parity measurements.
+
+After model provisioning is implemented, the full
+`.agents/plans/2026-06_v0.3.2_search/` folder must be validated by a
+role-specific committee and the integrated result must be written back into this
+folder, for example as `H_committee_validation.md`.
+
 ## Strict quality condition (user-mandated, non-negotiable)
 A naive Ollama-embedding drop-in is **below parity**. The Python backend MUST
 replicate or exceed qmd's pipeline: **typed query expansion (lex/vec/hyde)** +
@@ -36,15 +64,19 @@ enforced by the test matrix in artifact D.
 - **RRF:** `k=60`; original-query weighting (lex 1.0 / vec 0.9 / expansions 0.6 /
   hyde 0.7); candidate cap ~100→40; top-rank bonus; full per-candidate
   contribution trace persisted to `query_traces`.
-- **Rerank (answer path only):** default `bge-reranker-v2-m3` (GGUF); position-aware
-  blend (alpha≈0.7 cross-encoder over RRF). Explicitly AVOID Qwen3-Reranker GGUF as
-  default (commonly broken). Degraded fallbacks recorded in trace.
+- **Rerank (answer path only):** default is superseded by the 2026-06-05 model
+  provisioning decision: `llama-cpp::qwen3-reranker-0.6b` using
+  `ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF`. The earlier warning against arbitrary
+  community Qwen3-Reranker GGUFs remains valid because bad conversions can return
+  near-zero garbage scores; the selected `ggml-org` artifact is the corrected
+  candidate and must be live-smoke-validated. Degraded fallbacks recorded in trace.
 - **Providers:** separate duck-typed `Embedder`/`Reranker` client family +
   `build_embedder()`/`build_reranker()` mirroring `build_client()`; `expand_query()`
-  reuses the chat client. Default embedder **`ollama::bge-m3` (1024-dim)** — chosen
-  for Korean cross-lingual quality; cloud fallback `openai-api::text-embedding-3-small`
-  (Matryoshka→1024). Embedder switch = **whole-corpus re-embed**, NOT per-request
-  failover (different model = different vector space).
+  reuses the chat client. Default embedder is superseded by the 2026-06-05 model
+  provisioning decision: **`llama-cpp::qwen3-embedding-0.6b` (1024-dim)** with
+  Qwen instruction-aware query embeddings. `ollama::bge-m3` remains a fallback
+  profile. Embedder switch = **whole-corpus re-embed**, NOT per-request failover
+  (different model = different vector space).
 - **Sync:** embeddings are **per-device DB state, NOT synced** (no sidecar by
   default; regenerable from synced source truth). Optional `--export/--import-
   embeddings` escape hatch. Offline → FTS5-only with `vector_unavailable` in trace.
@@ -98,10 +130,14 @@ are preserved; new fields are additive/optional (artifact A §3, B §8).
 
 ## Model-availability note
 P2–P4, P6 (RRF/expansion-structure), P8 are fully testable WITHOUT live models
-(mock the embedder/reranker). P5/P7 live verification needs Ollama `bge-m3` +
-`bge-reranker-v2-m3`; tests mock these and a testbed smoke runs them when present.
+(mock the embedder/reranker). P5/P7 live verification now targets the llama-cpp
+Qwen3 0.6B embedding + reranker GGUFs from the model provisioning decision.
+Actual recall@k/MRR parity numbers require those live models to be installed and
+usable; mocked tests are not sufficient for that claim.
 
 ## Open items to confirm (optionally `/grill-me`)
-- Pin default embedder/reranker models (bge-m3 / bge-reranker-v2-m3 recommended).
+- Default embedder/reranker are pinned by
+  `.agents/plans/2026-06_v0.3.2_model_provisioning_decision_plan.md`; live smoke
+  validation remains required before parity claims.
 - Keep emitting `.curator/Collections/` markdown at all once search no longer needs
   it (recommend: optional Obsidian-only projection, decoupled from search).

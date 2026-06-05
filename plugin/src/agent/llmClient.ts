@@ -10,6 +10,7 @@ import {
 import { homedir } from "os";
 import { join } from "path";
 import { promisify, TextDecoder } from "util";
+import type { MCPManager } from "./mcpClient";
 import { buildGuiCliSearchPaths, type CLICredential, type CLIAuthResolver } from "../auth/cliAuth";
 import type {
   LLMProvider,
@@ -20,6 +21,45 @@ import type {
   ProviderUsage,
 } from "../types";
 
+// ─── Message sanitization (OpenAI-compatible providers) ─────────
+
+function messageHasContent(content: string | LLMContentPart[]): boolean {
+  if (typeof content === "string") return content.trim().length > 0;
+  return Array.isArray(content) && content.length > 0;
+}
+
+/**
+ * OpenAI/DeepSeek/Ollama reject an assistant message that has neither content
+ * nor tool_calls ("Invalid assistant message: content or tool_calls is
+ * required"). Such degenerate turns can linger in chat history after an
+ * aborted/empty response or a reset, and then fail every subsequent request
+ * with a 400. Drop them before building the request body. Assistant turns that
+ * carry tool_calls are kept even with empty content (that is a valid tool turn).
+ */
+export function sanitizeOpenAIMessages(messages: LLMMessage[]): LLMMessage[] {
+  return messages.filter((m) => {
+    if (m.role !== "assistant") return true;
+    const hasTools = Array.isArray(m.tool_calls) && m.tool_calls.length > 0;
+    return messageHasContent(m.content) || hasTools;
+  });
+}
+
+/**
+ * Produce the `content` field for an OpenAI-compatible message. DeepSeek (and
+ * some Ollama models) reject `content: null` on assistant/tool turns — e.g. an
+ * assistant turn that only carries tool_calls during the MCP tool loop fails
+ * with a 400 "Invalid assistant message: content or tool_calls". Emit an empty
+ * string instead of null for assistant/tool roles so those turns stay valid.
+ */
+export function normalizeOpenAIContent(
+  message: LLMMessage,
+  toContent: (content: string | LLMContentPart[]) => string | Array<Record<string, unknown>>
+): string | Array<Record<string, unknown>> | null {
+  if (messageHasContent(message.content)) return toContent(message.content);
+  if (message.role === "assistant" || message.role === "tool") return "";
+  return null;
+}
+
 // ─── Provider-specific request builders ─────────────────────────
 
 interface ProviderAdapter {
@@ -27,7 +67,8 @@ interface ProviderAdapter {
   buildHeaders(credential: CLICredential): Record<string, string>;
   buildBody(
     messages: LLMMessage[],
-    stream: boolean
+    stream: boolean,
+    tools?: any[]
   ): Record<string, unknown>;
   parseStreamChunk(raw: string): StreamChunk | null;
   parseFullResponse(json: unknown): string;
@@ -48,7 +89,8 @@ abstract class BaseProviderAdapter implements ProviderAdapter {
   abstract buildUrl(model: string): string;
   abstract buildBody(
     messages: LLMMessage[],
-    stream: boolean
+    stream: boolean,
+    tools?: any[]
   ): Record<string, unknown>;
   abstract parseFullResponse(json: unknown): string;
 
@@ -159,7 +201,8 @@ class ClaudeAdapter extends BaseProviderAdapter {
 
   buildBody(
     messages: LLMMessage[],
-    stream: boolean
+    stream: boolean,
+    tools?: any[]
   ): Record<string, unknown> {
     const systemMsg = messages.find((m) => m.role === "system");
     const chatMessages = messages
@@ -239,16 +282,27 @@ class OpenAIAdapter extends BaseProviderAdapter {
 
   buildBody(
     messages: LLMMessage[],
-    stream: boolean
+    stream: boolean,
+    tools?: any[]
   ): Record<string, unknown> {
-    return {
+    const body: Record<string, unknown> = {
       model: "", // Will be overridden
       stream,
-      messages: messages.map((m) => ({
-        role: m.role,
-        content: this.toContent(m.content),
-      })),
+      messages: sanitizeOpenAIMessages(messages).map((m) => {
+        const mapped: any = {
+          role: m.role,
+          content: normalizeOpenAIContent(m, (c) => this.toContent(c)),
+        };
+        if (m.name) mapped.name = m.name;
+        if (m.tool_calls) mapped.tool_calls = m.tool_calls;
+        if (m.tool_call_id) mapped.tool_call_id = m.tool_call_id;
+        return mapped;
+      }),
     };
+    if (tools && tools.length > 0) {
+      body.tools = tools;
+    }
+    return body;
   }
 
   private toContent(
@@ -268,8 +322,15 @@ class OpenAIAdapter extends BaseProviderAdapter {
 
   protected extractDelta(parsed: any): StreamChunk | null {
     const delta = parsed.choices?.[0]?.delta;
-    const done = parsed.choices?.[0]?.finish_reason === "stop";
-    return { text: delta?.content || "", done };
+    const finish_reason = parsed.choices?.[0]?.finish_reason;
+    const done = finish_reason === "stop" || finish_reason === "tool_calls";
+
+    return {
+      text: delta?.content || "",
+      reasoning_content: delta?.reasoning_content,
+      done,
+      tool_calls: delta?.tool_calls
+    };
   }
 
   parseFullResponse(json: unknown): string {
@@ -301,15 +362,25 @@ class OllamaAdapter extends BaseProviderAdapter {
     return { "Content-Type": "application/json" };
   }
 
-  buildBody(messages: LLMMessage[], stream: boolean): Record<string, unknown> {
-    return {
+  buildBody(messages: LLMMessage[], stream: boolean, tools?: any[]): Record<string, unknown> {
+    const body: Record<string, unknown> = {
       model: "", // overridden by caller
       stream,
-      messages: messages.map((m) => ({
-        role: m.role,
-        content: this.toContent(m.content),
-      })),
+      messages: sanitizeOpenAIMessages(messages).map((m) => {
+        const mapped: any = {
+          role: m.role,
+          content: normalizeOpenAIContent(m, (c) => this.toContent(c)),
+        };
+        if (m.name) mapped.name = m.name;
+        if (m.tool_calls) mapped.tool_calls = m.tool_calls;
+        if (m.tool_call_id) mapped.tool_call_id = m.tool_call_id;
+        return mapped;
+      }),
     };
+    if (tools && tools.length > 0) {
+      body.tools = tools;
+    }
+    return body;
   }
 
   private toContent(content: string | LLMContentPart[]): string | Array<Record<string, unknown>> {
@@ -322,8 +393,15 @@ class OllamaAdapter extends BaseProviderAdapter {
 
   protected extractDelta(parsed: any): StreamChunk | null {
     const delta = parsed.choices?.[0]?.delta;
-    const done = parsed.choices?.[0]?.finish_reason === "stop";
-    return { text: delta?.content || "", done };
+    const finish_reason = parsed.choices?.[0]?.finish_reason;
+    const done = finish_reason === "stop" || finish_reason === "tool_calls";
+    
+    return { 
+      text: delta?.content || "", 
+      reasoning_content: delta?.reasoning_content,
+      done,
+      tool_calls: delta?.tool_calls 
+    };
   }
 
   parseFullResponse(json: unknown): string {
@@ -411,17 +489,20 @@ export class LLMClient {
   private abortController: AbortController | null = null;
   private vaultRoot: string;
   private persistSettings?: () => Promise<void>;
+  private mcpManager?: MCPManager;
 
   constructor(
     settings: PluginSettings,
     auth: CLIAuthResolver,
     vaultRoot: string = "",
-    persistSettings?: () => Promise<void>
+    persistSettings?: () => Promise<void>,
+    mcpManager?: MCPManager
   ) {
     this.settings = settings;
     this.auth = auth;
     this.vaultRoot = vaultRoot;
     this.persistSettings = persistSettings;
+    this.mcpManager = mcpManager;
   }
 
   updateSettings(settings: PluginSettings): void {
@@ -534,11 +615,99 @@ export class LLMClient {
     messages: LLMMessage[],
     onChunk: (chunk: StreamChunk) => void
   ): Promise<string> {
+    const provider = this.settings.provider;
+    if (this.shouldUseCli(messages) || !this.mcpManager) {
+      const { text } = await this._streamChatSingleTurn(messages, onChunk);
+      return text;
+    }
+
+    const rawTools = this.mcpManager.getAllTools();
+    const tools = rawTools.map((t) => ({
+      type: "function",
+      function: {
+        name: `${t.serverName}__${t.name}`.replace(/[^a-zA-Z0-9_-]/g, "_"),
+        description: t.description,
+        parameters: t.inputSchema,
+      },
+    }));
+
+    let currentMessages = [...messages];
+    let fullFinalText = "";
+    const MAX_RECURSION = 5;
+    let iteration = 0;
+
+    while (iteration < MAX_RECURSION) {
+      iteration++;
+      const isLastTurn = iteration === MAX_RECURSION;
+      // Don't pass tools if it's the last turn to force a final answer
+      const activeTools = isLastTurn ? undefined : (tools.length > 0 ? tools : undefined);
+
+      const { text, tool_calls } = await this._streamChatSingleTurn(currentMessages, onChunk, activeTools);
+      fullFinalText += text;
+
+      if (!tool_calls || tool_calls.length === 0) {
+        break;
+      }
+
+      // Append assistant's tool call message
+      currentMessages.push({
+        role: "assistant",
+        content: text,
+        tool_calls: tool_calls,
+      });
+
+      // Execute tools
+      for (const tc of tool_calls) {
+        onChunk({ text: `\n> Running tool: ${tc.function.name}...\n`, done: false, eventType: "status" });
+        try {
+          // e.g. "serverName__toolName"
+          const splitIdx = tc.function.name.indexOf("__");
+          if (splitIdx === -1) throw new Error("Invalid tool name format");
+          const serverName = tc.function.name.substring(0, splitIdx);
+          const toolName = tc.function.name.substring(splitIdx + 2);
+          
+          let args = {};
+          try {
+            args = JSON.parse(tc.function.arguments || "{}");
+          } catch (e) {
+            throw new Error(`Invalid JSON arguments: ${tc.function.arguments}`);
+          }
+
+          const result = await this.mcpManager.callTool(serverName, toolName, args);
+          const resultContent = result.content.map(c => c.text).join("\n");
+          
+          currentMessages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            name: tc.function.name,
+            content: resultContent,
+          });
+        } catch (e) {
+          const errStr = e instanceof Error ? e.message : String(e);
+          currentMessages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            name: tc.function.name,
+            content: `Error executing tool: ${errStr}`,
+          });
+        }
+      }
+    }
+
+    return fullFinalText;
+  }
+
+  private async _streamChatSingleTurn(
+    messages: LLMMessage[],
+    onChunk: (chunk: StreamChunk) => void,
+    tools?: any[]
+  ): Promise<{ text: string; tool_calls?: any[] }> {
     this.abortController = new AbortController();
     const provider = this.settings.provider;
 
     if (this.shouldUseCli(messages)) {
-      return this.streamChatViaCli(messages, onChunk);
+      const text = await this.streamChatViaCli(messages, onChunk);
+      return { text };
     }
 
     // For Ollama, refresh the adapter host from current settings
@@ -553,15 +722,26 @@ export class LLMClient {
         ? { type: "bearer" as const, token: this.settings.deepseekApiKey || process.env.DEEPSEEK_API_KEY || "" }
       : await this.auth.resolveCredential(provider);
 
+    // Guard: DeepSeek requires an API key — reject early before making a request
+    // that will return a 400 error with a confusing "Invalid assistant message" error.
+    if (provider === "deepseek" && !credential.token) {
+      throw new Error(
+        "DeepSeek API key is not set.\n" +
+        "Go to Settings → AI Provider and enter your API key,\n" +
+        "or set the DEEPSEEK_API_KEY environment variable."
+      );
+    }
+
     const url = adapter.buildUrl(this.settings.model);
     const headers = adapter.buildHeaders(credential);
-    const body = adapter.buildBody(messages, true);
+    const body = adapter.buildBody(messages, true, tools);
 
     // Always inject the model into the body for HTTP providers
     (body as Record<string, unknown>).model = this.settings.model;
 
     // Use fetch for streaming (Obsidian's requestUrl doesn't support streaming)
     let fullText = "";
+    let toolCallsMap = new Map<number, any>();
 
     try {
       let response: Response;
@@ -594,7 +774,8 @@ export class LLMClient {
           }
           this.auth.invalidate(provider);
           new Notice(`${provider} HTTP auth failed. Retrying through the provider CLI login session.`);
-          return this.streamChatViaCli(messages, onChunk);
+          const text = await this.streamChatViaCli(messages, onChunk);
+          return { text };
         }
         throw new Error(`LLM API error ${response.status}: ${errorText.slice(0, 200)}`);
       }
@@ -607,6 +788,7 @@ export class LLMClient {
       const decoder = new TextDecoder();
       let buffer = "";
 
+      let isReasoning = false;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -621,8 +803,38 @@ export class LLMClient {
           if (!line.trim()) continue;
           const chunk = adapter.parseStreamChunk(line);
           if (chunk) {
-            fullText += chunk.text;
-            onChunk(chunk);
+            let chunkText = chunk.text;
+            
+            // Handle reasoning_content from DeepSeek/Ollama
+            if (chunk.reasoning_content !== undefined && chunk.reasoning_content !== null) {
+              if (!isReasoning && chunk.reasoning_content) {
+                isReasoning = true;
+                chunkText = "<think>\n" + chunk.reasoning_content;
+              } else {
+                chunkText = chunk.reasoning_content + chunkText;
+              }
+            } else if (isReasoning && chunk.text) {
+              // Transition from reasoning to normal text
+              isReasoning = false;
+              chunkText = "\n</think>\n\n" + chunk.text;
+            }
+
+            fullText += chunkText;
+            
+            if (chunk.tool_calls) {
+              for (const tc of chunk.tool_calls) {
+                const tcId = tc.id || `call_${Math.random().toString(36).substring(2, 9)}`;
+                if (!toolCallsMap.has(tc.index)) {
+                  toolCallsMap.set(tc.index, { id: tcId, type: tc.type || "function", function: { name: tc.function?.name || "", arguments: tc.function?.arguments || "" } });
+                } else {
+                  const existing = toolCallsMap.get(tc.index);
+                  if (tc.function?.arguments) existing.function.arguments += tc.function.arguments;
+                }
+              }
+            }
+            
+            // Re-emit chunk with formatted text
+            onChunk({ ...chunk, text: chunkText });
             if (chunk.done) break;
           }
         }
@@ -632,9 +844,36 @@ export class LLMClient {
       if (buffer.trim()) {
         const chunk = adapter.parseStreamChunk(buffer);
         if (chunk) {
-          fullText += chunk.text;
-          onChunk(chunk);
+          let chunkText = chunk.text;
+          if (chunk.reasoning_content !== undefined && chunk.reasoning_content !== null) {
+            if (!isReasoning && chunk.reasoning_content) {
+              isReasoning = true;
+              chunkText = "<think>\n" + chunk.reasoning_content;
+            } else {
+              chunkText = chunk.reasoning_content + chunkText;
+            }
+          }
+          fullText += chunkText;
+          if (chunk.tool_calls) {
+            for (const tc of chunk.tool_calls) {
+              const tcId = tc.id || `call_${Math.random().toString(36).substring(2, 9)}`;
+              if (!toolCallsMap.has(tc.index)) {
+                toolCallsMap.set(tc.index, { id: tcId, type: tc.type || "function", function: { name: tc.function?.name || "", arguments: tc.function?.arguments || "" } });
+              } else {
+                const existing = toolCallsMap.get(tc.index);
+                if (tc.function?.arguments) existing.function.arguments += tc.function.arguments;
+              }
+            }
+          }
+          onChunk({ ...chunk, text: chunkText });
         }
+      }
+
+      if (isReasoning) {
+        // Ensure reasoning block is closed if the stream ends abruptly
+        isReasoning = false;
+        fullText += "\n</think>\n\n";
+        onChunk({ text: "\n</think>\n\n", done: false });
       }
 
       // Ensure we send a done signal
@@ -642,7 +881,7 @@ export class LLMClient {
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
         onChunk({ text: "", done: true });
-        return fullText;
+        return { text: fullText };
       }
       const msg = err instanceof Error ? err.message : String(err);
       if (isQuotaErrorMessage(msg)) {
@@ -653,7 +892,8 @@ export class LLMClient {
       this.abortController = null;
     }
 
-    return fullText;
+    const tool_calls = toolCallsMap.size > 0 ? Array.from(toolCallsMap.values()) : undefined;
+    return { text: fullText, tool_calls };
   }
 
   /**
@@ -733,9 +973,7 @@ export class LLMClient {
   }
 
   private shouldUseCli(_messages: LLMMessage[]): boolean {
-    // Ollama and DeepSeek are direct HTTP providers.
     if (this.settings.provider === "ollama" || this.settings.provider === "deepseek") return false;
-    // All other providers route through their respective CLIs.
     return true;
   }
 
@@ -909,7 +1147,7 @@ export class LLMClient {
       const child = spawn(command, args, {
         cwd,
         env: this.getAugmentedEnv(env),
-        stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
       });
 
@@ -999,7 +1237,15 @@ export class LLMClient {
           reject(new Error(`CLI authentication required. Please go to Settings -> Incurator -> ${provider} and click 'Login' to authenticate interactively.`));
           return;
         }
-        
+
+        // Token/quota exhausted mid-stream → fail fast instead of letting the
+        // CLI spin until its print-timeout with no answer.
+        if (isQuotaErrorMessage(fullStderr)) {
+          child.kill();
+          reject(new Error(formatQuotaErrorMessage(provider, fullStderr.trim())));
+          return;
+        }
+
         // For non-JSON stdout providers, intercept stderr as thinking updates
         if (provider !== "claude" && provider !== "openai") {
           const lines = text.split("\n");
@@ -1069,12 +1315,49 @@ export class LLMClient {
           closeStatusBlock();
         }
 
-        onChunk({ text: "", done: true });
+        const trimmedOutput = fullOutput.trim();
+        // The user-visible answer: codex streams via codexAnswerText, other CLI
+        // providers stream fullOutput. Use this to decide "did we answer at all".
+        const emittedAnswer =
+          provider === "openai"
+            ? codexAnswerText.trim() || trimmedOutput
+            : trimmedOutput;
+        const aborted = this.abortController?.signal.aborted;
+        const combinedForQuota = `${fullStderr}\n${fullOutput}`;
 
-        if (code !== 0 && !this.abortController?.signal.aborted && fullOutput.trim().length === 0) {
+        if (aborted) {
+          onChunk({ text: "", done: true });
+          this.recordUsage(provider, observedUsage);
+          resolve(fullOutput);
+        } else if (isQuotaErrorMessage(combinedForQuota)) {
+          // Provider token/quota exhausted — surface a real error instead of
+          // spinning forever or silently returning an empty answer.
+          reject(
+            new Error(
+              formatQuotaErrorMessage(
+                provider,
+                fullStderr.trim() || trimmedOutput || "quota or capacity exhausted"
+              )
+            )
+          );
+        } else if (code !== 0 && emittedAnswer.length === 0) {
           const errText = fullStderr.trim();
           reject(new Error(`${provider} CLI failed: ${errText.slice(0, 500)}`));
+        } else if (emittedAnswer.length === 0) {
+          // Exit 0 but no answer text — e.g. agy shows "Thinking…" then ends with
+          // nothing. Usually quota/capacity, a timeout, or an empty model
+          // response. Reject so the UI shows an error instead of an empty bubble
+          // or an endless spinner.
+          const errText = fullStderr.trim();
+          reject(
+            new Error(
+              `${provider} returned no answer (empty response).` +
+                (errText ? `\n\n${errText.slice(0, 400)}` : "") +
+                `\n\nThis usually means the provider quota/capacity is exhausted, the request timed out, or the model returned nothing. Switch provider/model or retry after quota resets.`
+            )
+          );
         } else {
+          onChunk({ text: "", done: true });
           this.recordUsage(provider, observedUsage);
           resolve(fullOutput);
         }
@@ -1481,8 +1764,21 @@ export class LLMClient {
           ],
         };
       }
-      case "openai": {
+      case "openai":
+      case "deepseek":
+      case "ollama": {
         this.syncCodexMcpConfig();
+        
+        const extraEnv: Record<string, string> = {};
+        if (provider === "deepseek") {
+          extraEnv["OPENAI_API_BASE"] = "https://api.deepseek.com/v1";
+          extraEnv["OPENAI_API_KEY"] = this.settings.deepseekApiKey || process.env.DEEPSEEK_API_KEY || "";
+        } else if (provider === "ollama") {
+          const host = this.settings.ollamaHost || "http://localhost:11434";
+          extraEnv["OPENAI_API_BASE"] = `${host.replace(/\/$/, "")}/v1`;
+          extraEnv["OPENAI_API_KEY"] = "ollama";
+        }
+
         return {
           command: "codex",
           args: [
@@ -1499,6 +1795,7 @@ export class LLMClient {
             ...(outputFile ? ["--output-last-message", outputFile] : []),
             preferStdin ? "-" : prompt,
           ],
+          env: extraEnv,
           stdin: preferStdin ? prompt : undefined,
         };
       }

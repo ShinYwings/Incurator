@@ -21,6 +21,26 @@ from typing import Iterable
 from . import config as cfg
 
 
+def _uses_llama_cpp_search_model(search_config: dict, *, include_reranker: bool = True) -> bool:
+    embed_provider = str((search_config or {}).get("embedding") or "").split("::", 1)[0].strip()
+    rerank_provider = str((search_config or {}).get("reranker") or "").split("::", 1)[0].strip()
+    return embed_provider == "llama-cpp" or (
+        include_reranker and (search_config or {}).get("rerank", True) and rerank_provider == "llama-cpp"
+    )
+
+
+def _free_ollama_vram_before_llama_cpp(config: dict, search_config: dict, *, include_reranker: bool = True) -> None:
+    """Best-effort VRAM guard before loading llama-cpp search GGUFs."""
+    if not _uses_llama_cpp_search_model(search_config, include_reranker=include_reranker):
+        return
+    try:
+        from . import model_setup
+
+        model_setup.unload_configured_ollama_models(config)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Result types
 # ---------------------------------------------------------------------------
@@ -128,6 +148,7 @@ def update_index(paths: cfg.WikiPaths, *, embed: bool = False) -> IndexUpdateRes
     result = materializer.materialize_search_documents(paths.state_db, search_config)
     outcome = IndexUpdateResult(updated=True, embed_requested=embed)
     if embed:
+        _free_ollama_vram_before_llama_cpp(config, search_config, include_reranker=False)
         ollama_host = (config.get("llm", {}).get("ollama", {}) or {}).get("host")
         embedder = providers.build_embedder(search_config, ollama_host=ollama_host)
         emb = embedding.embed_corpus(paths.state_db, embedder)
@@ -188,12 +209,22 @@ def query(
 
     config = cfg.load_config(paths)
     search_config = config.get("search", {})
+    _free_ollama_vram_before_llama_cpp(config, search_config, include_reranker=rerank)
     ollama_host = (config.get("llm", {}).get("ollama", {}) or {}).get("host")
     embedder = providers.build_embedder(search_config, ollama_host=ollama_host)
     reranker = providers.build_reranker(search_config)
 
+    # Tier-2 LLM query expansion (lex/vec/hyde) only on the answer path, where one
+    # extra LLM call is acceptable alongside synthesis. Fail-safe → Tier-1 only.
+    expander = None
+    want_hyde = mode == "hybrid" and rerank
+    if want_hyde:
+        from .retrieval.query_expander import build_query_expander
+        expander = build_query_expander(config, want_hyde=True)
+
     engine = HybridEngine(
-        paths.state_db, search_config, embedder=embedder, reranker=reranker
+        paths.state_db, search_config, embedder=embedder, reranker=reranker,
+        expander=expander,
     )
     result = engine.search(
         question,
@@ -202,7 +233,7 @@ def query(
         limit=limit,
         min_score=min_score,
         rerank=rerank,
-        want_hyde=(mode == "hybrid" and rerank),
+        want_hyde=want_hyde,
         workspace_id=workspace_id,
         persist=persist,
     )

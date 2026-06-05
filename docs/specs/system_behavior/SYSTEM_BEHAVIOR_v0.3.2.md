@@ -181,6 +181,15 @@ Rules:
 - `wiki build --wait` runs L2/L3 synchronously before returning.
 - Without `--wait`, jobs are queued to the persistent `ingest_jobs` table and
   processed by the MCP server's IngestWorker or `wiki jobs run`.
+- After processing, `wiki jobs run` (which `wiki build` spawns as a detached
+  background daemon) **always refreshes the DB-native search index with
+  embeddings** (`_refresh_qmd_index(embed=True)`), **even when the queue was
+  already empty**. This is required so a vault whose L2/L3 finished but whose
+  vector embeddings never completed (interrupted daemon, or FTS-only `wiki add`)
+  has an automatic path back to vector search instead of staying FTS5-only until
+  a manual `wiki reindex --embed`. The embed refresh is idempotent: `update_index`
+  fingerprints chunk input/dependency hashes, so already-current embeddings are
+  not recomputed. `wiki build --wait` performs the same embed refresh inline.
 
 ### MCP Tool Mapping
 
@@ -258,9 +267,10 @@ Sub-agent model:
   so CLI-backed models are not given oversized extraction prompts. Codex CLI is
   clone-safe for independent batch calls and uses a conservative chunk budget so
   large PDFs do not enter one long `codex exec` request.
-- L3 sub-agent clusters Atoms into Concepts. It should prefer local embedding
-  clustering (Ollama embeddings first, sentence-transformers/sklearn when
-  available) and use the LLM clustering-plan call only as a fallback. Concept
+- L3 sub-agent clusters Atoms into Concepts. It should prefer the configured
+  local embedding provider when available (for v0.3.2 search this defaults to
+  llama-cpp Qwen3 embedding; Ollama and sentence-transformers/sklearn remain
+  valid fallback profiles) and use the LLM clustering-plan call only as a fallback. Concept
   plans must be filtered to real L2 Atom files from the active build before
   Concept pages and `dag_edges` are written, preventing hallucinated or stale
   Atom IDs from entering evidence traversal.
@@ -309,7 +319,8 @@ Rules:
 
 - If embeddings are available, L3 clustering should not call an LLM to decide
   Atom group membership.
-- Ollama local embeddings are preferred when an Ollama host is active.
+- The configured local embedding provider is preferred; Ollama local embeddings
+  remain a valid fallback profile when an Ollama host is active.
 - `sentence-transformers`/`scikit-learn` may be used as local CPU fallback.
 - If no embedding path is available, the legacy LLM clustering planner remains
   valid.
@@ -689,7 +700,10 @@ Search has internal stages:
    available for a valid SQLite build with FTS5 support.
 2. Chunked vector retrieval over `search_chunks` / `search_embeddings`.
 3. Typed query expansion (`lex`, `vec`, `hyde`) from deterministic rules and,
-   when configured, a search/query-expansion model.
+   when configured, a search/query-expansion model. Tier-2 LLM/HyDE expansion is
+   recovery-only by default: it engages when lexical recall is thin or raw vector
+   confidence is below the configured floor, so expansion can add recall without
+   perturbing already-confident rankings.
 4. RRF fusion with traceable per-list contributions.
 5. Configured reranking over best chunks for answer-producing routes.
 
@@ -1152,6 +1166,19 @@ search-fine-tuned local model. Query expansion and reranking are quality
 requirements: when unavailable, the trace must say exactly what was skipped and
 which deterministic fallback ran.
 
+The default v0.3.2 search model profile is local-first and llama-cpp based:
+`llama-cpp::qwen3-embedding-0.6b` for chunk embeddings and
+`llama-cpp::qwen3-reranker-0.6b` for answer-path reranking. Implementations must
+validate installed GGUFs with a live smoke check before using them for parity
+claims; if validation fails, search degrades to FTS5/RRF with explicit warnings.
+The optional local query-expansion GGUF provider uses qmd-compatible structured
+lines (`lex:`, `vec:`, `hyde:`) and must remain fail-safe; if it is absent or too
+slow, the chat-client expander or deterministic Tier-1 expansion remains valid.
+Before loading llama-cpp search GGUFs, Incurator should issue a best-effort
+Ollama `keep_alive=0` unload request for configured Incurator Ollama LLM models
+to reduce VRAM contention. It must not unload arbitrary Ollama models belonging
+to other applications by default.
+
 ### 23.2 Retrieval Trace Contents
 
 Every `QTR-` trace must persist enough retrieval metadata for debugging and
@@ -1184,3 +1211,14 @@ Dashboard trace/insight actions must call backend commands. The plugin must not
 edit `.curator/state.sqlite`, `.curator/Collections/`, `03_Notes/`,
 `04_Resources/`, `06_Archives/`, or runtime snapshots directly. Insight promotion
 requires explicit confirmation and writes only to `02_Wiki/`.
+
+## 24. GitHub Integration (v0.3.3)
+
+### 24.1 Authentication Boundary
+The system relies on the GitHub CLI (`gh`) for authentication. The Obsidian plugin is strictly responsible for running `gh auth status` and launching `gh auth login` via terminal if required. The plugin **must not** store OAuth tokens internally. 
+
+### 24.2 Commit and Sync Workflow
+The plugin UI **will not** expose manual `Commit` or `Push` buttons. All git operations (status, history, commit, push) are strictly mediated through conversational AI (Sidechat) via native tool calls (`git_manager.py`). 
+
+### 24.3 State Exclusions
+By default, the `.curator/` directory and all local SQLite databases / vector indexes must be excluded from Git tracking via `.gitignore`. Only semantic source files (`01_Workspaces` through `06_Archives`) and non-ephemeral configurations are synced.

@@ -26,8 +26,8 @@ Before installing the system, ensure the following tools are installed:
 >   - **Linux**: NVIDIA GeForce RTX 4070 Ti 12GB, RAM 64GB
 >   - **macOS**: Apple Silicon (8GB RAM environment tested)
 > - **Minimum Specs & Hardware Performance**: 
->   - Local embedding, query-expansion, and rerank models may require additional RAM/VRAM depending on the configured provider.
->   - **When using a Local Model (Ollama)**: Additional VRAM is required based on the model size (e.g., ~10GB total for an 8B model, a margin of at least 2GB over the model size is recommended).
+>   - Local search defaults use Qwen3 0.6B embedding and reranker GGUFs through `llama-cpp-python` (about 1.28GB of model files before runtime overhead). Incurator unloads configured Ollama LLM models before loading these search models to reduce VRAM pressure.
+>   - **When using a Local Model (Ollama) for chat/curation**: Additional VRAM is required based on the model size (e.g., ~10GB total for an 8B model, a margin of at least 2GB over the model size is recommended).
 >   - **When using a Cloud Model (Antigravity, Claude, etc.)**: local VRAM pressure is lower, but DB-native FTS5 search still runs locally.
 >   - While CPU+GPU offloading via Ollama is possible, it is extremely slow and may make practical curation difficult. We strongly recommend an environment where the entire model can fit into VRAM.
 
@@ -433,6 +433,25 @@ Or update it from within a chat session via the `curator_update_artist_persona` 
 
 ---
 
+## 🐙 GitHub Integration (v0.3.3)
+
+Incurator (v0.3.3+) supports native GitHub integration to seamlessly manage your vault's documents using Git commits and remote repository syncing. This feature focuses on conversational AI actions rather than complex UI buttons.
+
+### 1. Authentication (Login / Logout)
+GitHub authentication is managed directly in the **Obsidian Plugin Settings**:
+- Go to `Settings > Incurator`.
+- Scroll down to the **GitHub Integration** section (right below the AI Provider settings).
+- The plugin utilizes the GitHub CLI (`gh auth status`) to check your login state. If you are not logged in, clicking the **Authenticate** button will open a terminal to perform the secure `gh auth login` flow.
+
+### 2. Conversational Git Sync (Sidechat)
+There are no manual "Commit" or "Push" buttons to clutter the UI. Instead, the Antigravity LLM in your **Sidechat** is equipped with native Git tools.
+- **Checking Status**: Ask the agent, *"Are there any unpushed changes?"* or *"What's the status of my remote repository?"* The agent will run `git status` or `git log` and summarize the history.
+- **Committing Changes**: Tell the agent, *"Commit my recent changes to the knowledge graph"* or *"Sync my notes to GitHub."* The agent will automatically construct a commit message and perform the `git add`, `git commit`, and `git push` operations for you.
+
+> [!TIP]
+> **.gitignore Best Practices**
+> By default, the `.curator/` directory (which contains the heavy SQLite DB and search indices) should be ignored to prevent large binary conflicts. Only markdown files and standard configuration should be tracked in Git.
+
 ## 🛠️ Core Commands (CLI Reference)
 
 Summary of major commands following the user workflow.
@@ -449,7 +468,7 @@ Summary of major commands following the user workflow.
 | Command | Description | When to use |
 | :--- | :--- | :--- |
 | `wiki add <file>` | Registers sources and compiles instant L1 Contexts (structural, no LLM) directly into the database. | Adding new information |
-| `wiki build` | Compiles L2 Atoms + L3 Concepts from registered L1 Contexts into the database. Uses the configured LLM for high-quality extraction and can fall back to deterministic L3 Concepts if the provider fails. Queues jobs and automatically starts a detached background daemon to process them asynchronously; `--wait` runs synchronously. | Deep knowledge-graph construction |
+| `wiki build` | Compiles L2 Atoms + L3 Concepts from registered L1 Contexts into the database. Uses the configured LLM for high-quality extraction and can fall back to deterministic L3 Concepts if the provider fails. Queues jobs and automatically starts a detached background daemon to process them asynchronously; `--wait` runs synchronously. The background daemon (`wiki jobs run`) **also (re)generates vector embeddings** when it finishes, so search becomes fully vector-ready without a separate `wiki reindex --embed`. This embed refresh runs even when the queue was already empty, so an interrupted earlier build still converges to vector search on the next `build`/`jobs run`. | Deep knowledge-graph construction |
 | `wiki source ls` | Lists all registered sources. | Checking collected data inventory |
 | `wiki source show <id>` | Shows details and processing status for a specific source. | Diagnosing source errors |
 | `wiki source rm <id>` | Removes a source registration and its generated L1 nodes. | Removing an incorrect source |
@@ -462,6 +481,8 @@ Summary of major commands following the user workflow.
 | `wiki config provider` | Interactively configure the LLM backend (Ollama / Claude Code / Antigravity / Codex / DeepSeek) and model. |
 | `wiki config models list` | Show available models for the current backend. |
 | `wiki config models use <tag>` | Directly set the model to use. |
+| `wiki models ensure` | Install/refresh local search model dependencies and GGUF files. `setup.sh` runs this automatically unless `INCURATOR_SKIP_MODELS=1` is set. |
+| `wiki models status` | Show local search model health, cache paths, and dependency status as JSON. |
 | `wiki config get <key>` | Read a specific config value. (e.g. `wiki config get llm.primary`) |
 | `wiki config set <key> <value>` | Update a specific config value. (e.g. `wiki config set llm.model gemini-3.5-flash`) |
 | `wiki config secret list/delete` | Inspect masked local encrypted backend secrets or delete a stored secret. |
@@ -472,6 +493,7 @@ Summary of major commands following the user workflow.
 | `wiki build` | Refines L2 Atoms, L3 Concepts, and the shared L4 Synthesis layer. | Building/refreshing the knowledge graph |
 | `wiki sync` | Verifies integrity and performs self-healing. | Restoring consistency after edits |
 | `wiki sync --reemit` | Re-emits the derived L2/L3/L4 markdown projection (ATM/CON/SYN) from the authoritative DB records and refreshes DB-native search rows. | Refreshing projections after DB-level corrections |
+| `wiki reindex` | Rebuilds the DB-native search index (FTS5 + chunks) from the authoritative records. Add `--embed` to also (re)generate chunk vector embeddings. In normal use `wiki build` already embeds automatically, so `--embed` is mainly a manual recovery path after a model/embedder change. | After model/config changes, or if search drifts |
 
 > **v0.3.1**: The frozen-staging commands were removed. L4 is now the shared
 > **Synthesis** layer (built automatically by
@@ -504,6 +526,11 @@ Without `--route`, `auto` runs. Search is DB-native in v0.3.2: FTS5 lexical
 retrieval, chunk-level vectors, typed query expansion (`lex`/`vec`/`hyde`), RRF,
 and configured reranking over best chunks. `--mode` (hybrid|lex|vec) selects the
 lower-level retrieval mode and is a separate axis from `--route`.
+
+Tier-2 LLM/HyDE query expansion is enabled as a recovery mechanism by default:
+Incurator first checks raw lexical/vector confidence, then uses configured
+expansion only when lexical hits are thin or vector confidence is low. This keeps
+high-confidence searches stable while still recovering paraphrase-heavy misses.
 
 ### 4-1. Prompts & Insights (v0.3.1)
 
@@ -611,6 +638,22 @@ wiki config models use gemma2:9b
 - `wiki config models list` recommends the best models suited for your system performance and provider characteristics.
 - When you change a model via `wiki config models use`, the system instantly verifies the model's availability and reflects the change in the configuration file.
 
+### 2-1. Search Model Provisioning (`wiki models`)
+DB-native search uses separate local search models from the chat/curation LLM:
+`llama-cpp::qwen3-embedding-0.6b` for chunk embeddings and
+`llama-cpp::qwen3-reranker-0.6b` for answer-path reranking. `wiki models ensure`
+downloads the configured GGUFs into `~/.cache/incurator/models/`, installs
+`llama-cpp-python` when needed, and pins per-vault model paths when a vault is
+available. `wiki models ensure --smoke` additionally runs a tiny live sanity
+check that the embedding and reranker rank a relevant passage above an unrelated
+one. Search remains usable in FTS5/RRF degraded mode if these models are missing.
+
+You normally never run this by hand: `setup.sh` provisions on install/update, and
+the Obsidian dashboard's **System** card shows the live embed/reranker model
+identity + health — click the **Embed model** / **Reranker** rows to re-provision
+(`wiki plugin models refresh`). To (re)build the vector index after the models are
+healthy, run `wiki reindex --embed` (plain `wiki reindex` rebuilds FTS5/chunks only).
+
 ### 3. Status Verification (`wiki status`)
 A comprehensive dashboard that provides a multi-dimensional diagnosis of your vault's health and the operational status of your AI engines. This is the first command you should check whenever you have questions during system operation.
 
@@ -634,7 +677,7 @@ wiki reset --force
 ```
 
 Resets generated Curator state while preserving `.curator/config.yml` and the
-vault's source folders. It removes the tracking database, generated Collections,
+vault's source folders. It removes the tracking database (which includes the native search index), generated Collections,
 dashboard/index/overview/ledger/log files, sync reports, transient staging files,
 build trace canvases, device registry, and sidechat session state. Use this when
 stale generated state, stale device metadata, or old chat context is causing the
@@ -644,6 +687,7 @@ backend or plugin to disagree with the current vault.
 Verifies if the system's 'brain' and 'eyes' are correctly set up.
 -   **Primary / Fallback Models**: Shows the main LLM and the emergency fallback LLM currently responsible for knowledge extraction and synthesis. Ensure the intended models are active.
 -   **Reranking**: Indicates whether the configured search reranker is available. High-quality answers should use a real reranker/cross-encoder or validated search-fine-tuned model; RRF-only is a degraded fallback.
+-   **Query expansion**: Indicates whether recovery-only Tier-2 expansion can run. If unavailable, deterministic lexical/vector expansion still runs and the trace records the degraded stage.
 -   **Search readiness**: Shows DB-native FTS5 readiness, embedded chunk counts, vector readiness, provider/model, and any degraded stage.
 -   **Search index degradation**: If embeddings, query expansion, or reranking are unavailable, lexical FTS5 search remains usable and the query trace records `vector_unavailable`, `query_expander_unavailable`, or `reranker_unavailable`. Run `wiki reindex` after fixing provider/model configuration to rebuild chunks and embeddings.
 

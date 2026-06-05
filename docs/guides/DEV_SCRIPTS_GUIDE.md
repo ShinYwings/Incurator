@@ -60,19 +60,30 @@ Dialogues automate the verification.
 2. **Initialization**: Run `wiki testbed init <name> --force`.
 3. **Execution**: Run your dialogue script manually: `bash scripts/dev/<name>/dialogues/verify_fix.sh`.
 
-## 4. Best Practices
+## 4. Benchmark Scripts
+
+Repository-tracked benchmark harnesses live in `scripts/benchmarks/`. They are
+not testbed scenarios and do not appear in `wiki testbed list`.
+
+- `scripts/benchmarks/search_parity_bench.py` reproduces the v0.3.2 DB-native
+  search vs qmd parity measurements documented in
+  `docs/benchmarks/SEARCH_PARITY_v0.3.2.md`.
+- Run benchmark rows separately when they load different llama-cpp model stacks;
+  the all-in-one wrapper can be less stable on some hosts.
+
+## 5. Best Practices
 - **Minimize State**: Only include the files strictly necessary for the test.
 - **Doc-First**: The `MASTER_PLAN.md` should be clear enough for another developer to understand the test without reading the code.
 - **Clean Up**: If your test creates temporary files outside of `testbed/`, clean them up in the dialogue script.
 
-## 5. Plugin Development & Monorepo Build (v0.2.0)
+## 6. Plugin Development & Monorepo Build (v0.2.0)
 
 Incurator v0.2.0 uses a Monorepo structure containing both the Python backend (`backend/`) and the Obsidian plugin (`plugin/`).
 
 During transition, some checkouts may still keep the backend at repository root (`src/`, `tests/`, `pyproject.toml`) and the active plugin inside an Obsidian vault path such as `.obsidian/plugins/incurator-obsidian-agent`. Development scripts must not assume the target layout has already landed. When a script depends on a path depth, record the evidence in `.agents/plans/2024-05_v0.2.0_system_build/INCURATOR_SYSTEM_BUILD_EVIDENCE.md` and update the master plan before changing code.
 
 ### Setup Script
-Run `./setup.sh` at the repository root to automatically install the Python backend dependencies (via `uv`), and install Node.js/Ollama. The Obsidian plugin is now installed interactively when running `wiki init`.
+Run `./setup.sh` at the repository root to automatically install the Python backend dependencies (via `uv`), install Node.js/Ollama, and run `wiki models ensure` for the local DB-native search models. Set `INCURATOR_SKIP_MODELS=1` to skip model provisioning. The Obsidian plugin is now installed interactively when running `wiki init`.
 
 ### OBSIDIAN_PLUGIN_DIR Override
 To develop the Obsidian plugin locally without manually copying files or creating brittle symlinks, you can use the `OBSIDIAN_PLUGIN_DIR` environment variable.

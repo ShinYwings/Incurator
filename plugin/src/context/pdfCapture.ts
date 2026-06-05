@@ -194,7 +194,10 @@ export function extractPdfPageTextFromDom(pageEl: HTMLElement): {
 
   try {
     const result = extractDomTextLayerText(textLayer, "obsidian-text-layer");
-    if (result.text) {
+    const spansCount = textLayer.querySelectorAll("span").length;
+    // If layout extraction succeeded and didn't trigger the scanned-like fallback
+    // (which happens if words are smashed due to 0-width rects), use it.
+    if (result.text && (!result.quality.isScannedLike || spansCount < 10)) {
       return {
         text: result.text,
         textQuality: result.quality,
@@ -204,14 +207,34 @@ export function extractPdfPageTextFromDom(pageEl: HTMLElement): {
     console.warn("[AI Agent] Failed to layout PDF text layer:", err);
   }
 
-  const text = textLayer.textContent?.trim() || "";
+  // Fallback: If DOM is unrendered (rects are 0), layout extraction mashes text.
+  // Instead, try innerText (if partially rendered) or join spans with spaces manually.
+  let text = (textLayer as HTMLElement).innerText?.trim();
+  if (!text) {
+    const spans = Array.from(textLayer.querySelectorAll("span"));
+    if (spans.length > 0) {
+      text = spans.map((s) => s.textContent?.trim()).filter(Boolean).join(" ");
+    } else {
+      text = textLayer.textContent?.trim() || "";
+    }
+  }
+
+  // Final sanity check: if we got substantial text but it's marked as scanned-like
+  // (e.g. math heavy or weird whitespace), we still want to prefer the text over a blank/bad image.
+  const quality = assessPdfTextQuality(
+    text,
+    text ? "obsidian-text-layer" : "none",
+    text ? undefined : "The PDF text layer did not contain selectable text."
+  );
+
+  // If we extracted more than 100 characters of text, forcefully trust it.
+  if (text.length > 100) {
+    quality.isScannedLike = false;
+  }
+
   return {
     text,
-    textQuality: assessPdfTextQuality(
-      text,
-      text ? "obsidian-text-layer" : "none",
-      text ? undefined : "The PDF text layer did not contain selectable text."
-    ),
+    textQuality: quality,
   };
 }
 
@@ -236,7 +259,7 @@ function capturePageCanvas(pageEl: HTMLElement): string | undefined {
 /**
  * Get the currently selected text in a PDF view, if any.
  */
-export function getPdfSelection(leaf: WorkspaceLeaf): string | null {
+export function getPdfSelection(leaf: WorkspaceLeaf): { text: string; imageBase64?: string } | null {
   const view = leaf.view as unknown as Record<string, unknown>;
   const containerEl =
     (view.containerEl as HTMLElement) ||
@@ -251,7 +274,10 @@ export function getPdfSelection(leaf: WorkspaceLeaf): string | null {
   const range = selection.getRangeAt(0);
   if (!containerEl.contains(range.commonAncestorContainer)) return null;
 
-  return selection.toString().trim() || null;
+  const text = selection.toString().trim();
+  if (!text) return null;
+
+  return { text };
 }
 
 export function composePdfContextText(

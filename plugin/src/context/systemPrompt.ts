@@ -48,7 +48,8 @@ const EXTERNAL_INCURATOR_MCP_ADDENDUM =
   "1. For Incurator/workspace tasks, start by calling `curator_check_workspace` (passing the active workspace path provided in <incurator_workspace> if available) to initialize the session and read the `curate.yml` rules. " +
   "2. For knowledge-base/domain questions that need synthesis, use `curator_query` and pass the active workspace path from <incurator_workspace> as `workspace_path` when available. This tool returns a synthesized answer plus a trace; it is sessionless and writes no file. " +
   "3. Use `curator_fetch_context` for a curated evidence pack (no synthesis), or `search_curator` for raw search hits. " +
-  "4. For ordinary requests such as explaining selected text, answer directly from the visible/pinned context and do not mention Incurator setup or note-edit suggestions unless the user asks.";
+  "4. For ordinary requests such as explaining selected text, answer directly from the visible/pinned context and do not mention Incurator setup or note-edit suggestions unless the user asks. " +
+  "5. If asked to refer to a specific chapter or section of a PDF, use `curator_get_pdf_toc` to find the page number, then call `curator_get_pdf_context` with `radius=0` and that `page_num` to fetch it.";
 
 const PLAN_MODE_ADDENDUM =
   "\n\nPlan mode is enabled. First reason about the user's goal, then respond with a concise implementation plan. " +

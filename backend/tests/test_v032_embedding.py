@@ -136,15 +136,18 @@ def test_build_embedder_factory():
     assert providers.build_embedder({"embedding": ""}) is None
 
 
-def test_build_reranker_degrades_safely():
+def test_build_reranker_degrades_safely(tmp_path, monkeypatch):
+    # Isolate the host model cache so the "no path" assertions are deterministic
+    # even when a real GGUF has been downloaded by `wiki models ensure`.
+    monkeypatch.setattr("curator.model_setup.models_cache_dir", lambda: tmp_path)
     # rerank disabled
     assert providers.build_reranker({"rerank": False}) is None
-    # llama-cpp reranker configured but no model path → degrade (no_rerank)
+    # llama-cpp reranker configured but no model path + empty cache → degrade
     assert providers.build_reranker(
-        {"rerank": True, "reranker": "llama-cpp::bge-reranker-v2-gemma", "reranker_model_path": ""}
+        {"rerank": True, "reranker": "llama-cpp::qwen3-reranker-0.6b", "reranker_model_path": ""}
     ) is None
-    # model path set but llama-cpp-python absent / load fails → degrade, never raise
+    # model path set but file missing → degrade, never raise
     assert providers.build_reranker(
-        {"rerank": True, "reranker": "llama-cpp::bge-reranker-v2-gemma",
+        {"rerank": True, "reranker": "llama-cpp::qwen3-reranker-0.6b",
          "reranker_model_path": "/nonexistent/model.gguf"}
     ) is None

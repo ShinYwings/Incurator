@@ -263,6 +263,15 @@ export class IncuratorClient {
     };
   }
 
+  async getPdfToc(filePath: string): Promise<PdfOutlineItem[]> {
+    if (!filePath || this.settings.incuratorEnabled === false) return [];
+    const result = await this.callBackendJson([
+      "plugin", "pdf", "toc",
+      "--file-path", filePath,
+    ]);
+    return this.normalizeOutline(result);
+  }
+
   async getPdfRagHits(args: {
     query: string;
     sourcePath?: string;

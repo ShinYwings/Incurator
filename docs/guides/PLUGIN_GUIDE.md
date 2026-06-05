@@ -48,9 +48,12 @@ In Obsidian, go to **Settings → Community Plugins → Installed Plugins** and 
 
 ---
 
-## 3. Inline Edit (`Cmd+K`)
+## 3. Inline Edit
 
-Select text in a Markdown editor then press `Cmd+K` to open the inline prompt widget.
+Select text in a Markdown editor then run the **Inline Edit** command to open the
+inline prompt widget. This command ships **without a default hotkey** (`Cmd+K` is
+reserved by Obsidian/other bindings) — assign your own in **Settings → Hotkeys**
+if you want a shortcut.
 
 - **No selection**: The whole document is used as context for the edit command.
 - **With selection**: Only the selected region is targeted.
@@ -63,12 +66,55 @@ Select text in a Markdown editor then press `Cmd+K` to open the inline prompt wi
 ```text
 Select text in editor
        │
-       │ Cmd+K
+       │ Inline Edit command
        ▼
 Inline prompt widget (enter command)
        │
        ▼
 LLM generates suggestion → Diff shown → Accept / Reject
+```
+
+---
+
+## 3.5 Quick Query on Selection (In-line Copilot)
+
+Select (drag) any text — in a Markdown note, reading view, or PDF — and a single
+floating **✨ Ask AI** button appears next to the selection. Click it (or press
+`Cmd+Shift+K` with text selected) to open a small popover for a one-off question
+about that passage. This works like a lightweight `wiki query` aimed at quick
+lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
+"Eq. (3)에 의해…".
+
+- **Single button**: A drag only ever shows one button — no toolbar.
+- **Minimal popover**: The popover has just a query input and an **Ask** button.
+  There are no preset/quick buttons.
+- **Answer-only display**: After you submit, the input row hides and only the
+  streamed AI answer is shown (no chat-bubble layout). The answer renders as
+  Markdown (math/LaTeX included) once the stream completes.
+- **Copyable**: The answer text stays selectable so you can drag-copy it.
+- **Scrollable & capped**: The popover is size-capped (`max-height`/`max-width`);
+  long answers scroll inside it.
+- **Ephemeral**: It is a temporary window. Closing it (the `×` button, `Esc`, or
+  clicking outside once the answer is done) discards the exchange — it never
+  pollutes the chat sidebar history.
+
+The passage you selected is sent as the primary context together with your
+question, using the currently configured AI provider/model. Disable the feature
+with **Settings → AI Provider → Quick query on selection** if you do not want the
+button to appear.
+
+```text
+Drag-select text
+       │
+       │ ✨ Ask AI button appears
+       ▼
+Popover: [ question input ] [ Ask ]
+       │  submit
+       ▼
+Input hides → streamed answer only (copyable, scrollable)
+       │  close (×, Esc, click outside)
+       ▼
+Discarded — chat history untouched
 ```
 
 ---
@@ -86,11 +132,13 @@ Adds the currently viewed content to the chat as a context reference.
 Text selection in the Incurator PDF viewer starts only on actual text spans. Dragging over empty PDF margins does not create a selection region.
 
 When sidechat sends a message, context added explicitly through selection,
-line reference, or PDF snipping is treated as the primary focus. Pinned purple
-context and automatically visible tabs remain background grounding unless the
-question explicitly asks about them. A pinned or attached context chip can be
-toggled invisible/excluded; it stays visible in the chip row but is not sent to
-the model until toggled visible again.
+line reference, or PDF snipping is treated as the primary focus. A pinned
+explicit snippet, selected text, crop, or line range remains the primary focus
+even after it is pinned. Pinned whole files/pages and automatically visible tabs
+remain background grounding unless the question explicitly asks about them. A
+pinned or attached context chip can be toggled invisible/excluded; it stays
+visible in the chip row but is not sent to the model until toggled visible
+again.
 
 When a selected Markdown line range is attached and the user asks to fix,
 rewrite, polish, translate, or otherwise modify that selected text, the
@@ -152,12 +200,14 @@ The plugin offers three capture modes when using a PDF as context.
 | `pdfOutlineEnabled` | `true` | Include PDF table of contents in context |
 | `pdfRagEnabled` | `true` | Enable RAG search across the full PDF |
 | `pdfRagTopK` | `5` | Number of top RAG results to retrieve |
-| `pdfVisionFallback` | `true` | Auto-switch to image mode when text layer is absent |
+| `pdfVisionFallback` | `true` | Attach an image only when text-mode capture is scanned-like or has no usable text |
 | `pdfFullDocumentIndex` | `true` | Index the entire PDF for better RAG accuracy |
 
 PDF context is assembled in this order:
 
-1. Local PDF.js page text and attached crop/image context.
+1. Local PDF.js page text and attached crop/image context. If the PDF viewer
+   exposes substantial selectable DOM text, that text remains the fast path and
+   does not trigger image fallback.
 2. Backend PDF window/outline context only when local viewer text/window/image
    context is unavailable.
 3. Optional backend whole-PDF RAG only when backend PDF context is being used,
@@ -276,7 +326,30 @@ Settings:
 
 Quota or capacity errors from any provider are rendered directly in sidechat so
 the user can switch provider/model or configure a fallback instead of seeing an
-empty answer.
+empty answer. If a CLI provider (e.g. Antigravity `agy`) finishes with **no
+answer** — for example after `Thinking…` when the token/quota is exhausted or the
+request times out — the plugin now surfaces a clear error instead of spinning
+forever or showing an empty bubble.
+
+### Authentication status and Sign out
+
+Each provider's **Authentication** row shows its current state:
+
+- **DeepSeek** distinguishes a key saved in the plugin (`✓ API key configured
+  (saved in plugin)`) from one provided by the environment (`✓ Using
+  DEEPSEEK_API_KEY from environment`). The saved key lives in the plugin's
+  `data.json`, **not** in `.curator`, so deleting `.curator` or running
+  `wiki reset` does not clear it — use **Sign out** to remove it.
+- **CLI providers** (Antigravity, Claude, Codex) authenticate through their own
+  CLI. The plugin reports an account email only when it can read one from the
+  CLI's files (Codex). Antigravity `agy` 1.0.5 keeps its session in the OS
+  keychain and exposes no account command, so the plugin shows a neutral
+  `agy CLI session` rather than guessing an account.
+- **Sign out** clears what the plugin controls (the cached credential, the saved
+  DeepSeek key, and any plugin-readable credential files). Because CLI providers
+  keep their real session in their own keychain/config, fully signing out may
+  still require running the provider CLI (`agy`, `claude`, `codex`); the Sign out
+  notice says so when relevant.
 
 ---
 
@@ -302,6 +375,22 @@ Go to **Settings → AI Agent → MCP Servers** and add a server:
 
 > **Important**: `VAULT_ROOT` must point to your Vault directory (where `.curator/` lives).  
 > Do not set it to the wiki system (Incurator code) path or a testbed path.
+
+### Tool-calling wire format (DeepSeek / Ollama)
+
+The MCP **server transport** is implemented natively in the plugin (JSON-RPC over
+stdio) and is provider-neutral. When the plugin runs its in-process agent loop
+against an HTTP provider (DeepSeek or Ollama) and feeds MCP tools to the model,
+it talks to that provider's `/v1/chat/completions` endpoint.
+
+As of **2026-06-05**, that tool-calling exchange follows the **OpenAI-compatible
+chat-completions convention** (`tools`, `tool_calls`, `role: "tool"`, and an
+empty-string `content` on tool-call turns). This is **not** a dependency on
+OpenAI the vendor — it is the wire protocol that DeepSeek and Ollama themselves
+expose; it is currently the only request shape those servers accept. Providers
+with their own native tool schema (Anthropic Claude, Google Gemini/Antigravity)
+use separate adapters and are unaffected. If DeepSeek/Ollama change their
+accepted schema in the future, only the OpenAI-compatible adapters need updating.
 
 ---
 
@@ -411,6 +500,26 @@ unknown state, not as an empty backend.
 Dashboard buttons such as Add, Build, Sync, Lint, Reindex, Reset, LLM Apply, and
 Persona Save run backend commands for mutations. The plugin does not directly
 edit backend-owned `.curator` state for those actions.
+
+### Dashboard tabs (v0.3.2)
+
+- **Overview → System** card shows the DB-native search engine plus the live
+  **Embed model** and **Reranker** rows (identity + health, from the backend
+  `search_models` status). Click either row to re-provision the local search
+  models (`wiki plugin models refresh` → downloads the Qwen3 GGUFs / installs
+  `llama-cpp-python` / starts Ollama as needed). A `· not downloaded` /
+  `· runtime missing` suffix flags an unhealthy model.
+- **Traces** tab lists durable `QTR-` query traces from the current Obsidian
+  vault via the vault-local backend command runner (`wiki plugin trace list`).
+  Selecting one loads a separate backend detail view with route, latency, intent/mode,
+  degradation/`fallbackMode`, warnings, evidence, and available RRF/rerank
+  contribution data (`wiki plugin trace show`).
+- **Insights** tab lists pending derived insight candidates
+  from the current Obsidian vault (`wiki plugin insight list`). Selecting one
+  loads the backend detail payload (`wiki plugin insight show`) before exposing
+  **Promote** (`insight promote`, writes to `02_Wiki/`) and **Reject**
+  (`insight reject`) actions. Promotion/rejection are always explicit user
+  actions; the backend never auto-promotes.
 
 Zotero search, metadata refresh, PDF path resolution, annotation loading, source
 status/import/rebind, PDF context/search, query, and promotion use the hidden
@@ -617,7 +726,7 @@ Right-click an item in Zotero → **Copy Item Link**, or use the [Zotero Integra
 
 | Shortcut | Action |
 |----------|--------|
-| `Cmd+K` | Inline edit (in Markdown editor) |
+| `Cmd+Shift+K` | Quick query on the selected text (In-line Copilot) |
 | `Cmd+Shift+L` | Add current content to chat context (Markdown or PDF) |
 | `Cmd+Shift+X` | Snip PDF region → attach to chat (Incurator PDF viewer only) |
 | `Cmd+Shift+;` | Toggle chat sidebar |

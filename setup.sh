@@ -29,6 +29,20 @@ echo "=== Running post-installation build hook ==="
 python ../scripts/build/hatch_build.py
 
 echo ""
+echo "=== Provisioning search models (Ollama embedder + llama-cpp reranker) ==="
+# Idempotent + safe to re-run on update. Degrades gracefully: search still works
+# (FTS5/RRF) even if a model is unavailable. Skip with INCURATOR_SKIP_MODELS=1.
+if [ "${INCURATOR_SKIP_MODELS:-0}" != "1" ]; then
+    if command -v wiki &> /dev/null; then
+        wiki models ensure || echo "⚠️  Some model steps degraded — search still works. Re-run: wiki models ensure"
+    else
+        echo "ℹ️  'wiki' not on PATH yet; after it is, run: wiki models ensure"
+    fi
+else
+    echo "ℹ️  INCURATOR_SKIP_MODELS=1 set — skipping model provisioning. Run later: wiki models ensure"
+fi
+
+echo ""
 echo "ℹ️  Note: Obsidian plugin installation is now handled interactively via 'wiki init'."
 
 echo ""
