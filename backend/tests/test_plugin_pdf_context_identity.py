@@ -1,6 +1,10 @@
 from pathlib import Path
 import sqlite3
 
+import pytest
+
+pymupdf4llm = pytest.importorskip("pymupdf4llm", reason="pymupdf4llm not installed")
+
 from curator import config as cfg
 from curator import db, ingest_raw, plugin_api
 

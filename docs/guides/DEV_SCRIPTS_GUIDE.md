@@ -7,7 +7,7 @@ Every scenario lives in `tests/scenarios/<scenario_name>/`. Use the `testbed_tem
 
 ```text
 tests/
-├── create_testbed.py       # [Legacy] Optional custom setup script
+├── create_testbed.py       # Central testbed bootstrap script
 └── scenarios/<scenario_name>/
     ├── MASTER_PLAN.md          # [Required] Goals and setup instructions
     ├── stage/                  # [Required] The raw source files (L0)
