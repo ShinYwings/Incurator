@@ -111,7 +111,7 @@ def test_chunking_large_span_is_split(vault) -> None:
             return 20000
         
         def chat(self, messages, **kwargs):
-            from .test_v031_knowledge_unit_extraction import _units_json
+            from .test_knowledge_unit_extraction import _units_json
             return _units_json(span_id)
 
     from curator.pipeline import knowledge_units as ku

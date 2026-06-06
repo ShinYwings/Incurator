@@ -3,10 +3,10 @@
 This guide explains how to create and manage development validation scenarios (testbeds) to verify Incurator's behavior in isolated environments.
 
 ## 1. Scenario Structure
-Every scenario lives in `scripts/dev/<scenario_name>/`. Use the `testbed_template` as your starting point.
+Every scenario lives in `tests/scenarios/<scenario_name>/`. Use the `testbed_template` as your starting point.
 
 ```text
-scripts/dev/<scenario_name>/
+tests/scenarios/<scenario_name>/
 ├── MASTER_PLAN.md          # [Required] Goals and setup instructions
 ├── stage/                  # [Required] The raw source files (L0)
 │   ├── 01_Workspaces/      # Workspace definitions (curate.yml)
@@ -20,7 +20,7 @@ scripts/dev/<scenario_name>/
 ## 2. Step-by-Step Creation
 
 ### Step 1: Initialize the Folder
-Copy `scripts/dev/testbed_template` to `scripts/dev/my_scenario`.
+Copy `tests/scenarios/testbed_template` to `tests/scenarios/my_scenario`.
 
 ### Step 2: Define the Master Plan (`MASTER_PLAN.md`)
 This document is the identity of your scenario. It must describe:
@@ -58,7 +58,7 @@ Dialogues automate the verification.
 ## 3. Execution Workflow
 1. **Discovery**: Run `wiki testbed list` to see your new scenario.
 2. **Initialization**: Run `wiki testbed init <name> --force`.
-3. **Execution**: Run your dialogue script manually: `bash scripts/dev/<name>/dialogues/verify_fix.sh`.
+3. **Execution**: Run your dialogue script manually: `bash tests/scenarios/<name>/dialogues/verify_fix.sh`.
 
 ## 4. Benchmark Scripts
 
@@ -76,11 +76,9 @@ not testbed scenarios and do not appear in `wiki testbed list`.
 - **Doc-First**: The `MASTER_PLAN.md` should be clear enough for another developer to understand the test without reading the code.
 - **Clean Up**: If your test creates temporary files outside of `testbed/`, clean them up in the dialogue script.
 
-## 6. Plugin Development & Monorepo Build (v0.2.0)
+## 6. Plugin Development & Monorepo Build
 
-Incurator v0.2.0 uses a Monorepo structure containing both the Python backend (`backend/`) and the Obsidian plugin (`plugin/`).
-
-During transition, some checkouts may still keep the backend at repository root (`src/`, `tests/`, `pyproject.toml`) and the active plugin inside an Obsidian vault path such as `.obsidian/plugins/incurator-obsidian-agent`. Development scripts must not assume the target layout has already landed. When a script depends on a path depth, record the evidence in your active Evidence Ledger (e.g., `.agents/plans/MASTER_ROADMAP_EVIDENCE.md`) using the `.agents/plans/PLAN_TEMPLATE.md` process and update the master plan before changing code.
+Incurator uses a Monorepo structure containing both the Python backend (`backend/`) and the Obsidian plugin (`plugin/`).
 
 ### Setup Script
 Run `./setup.sh` at the repository root to automatically install the Python backend dependencies (via `uv`), install Node.js/Ollama, and run `wiki models ensure` for the local DB-native search models. Set `INCURATOR_SKIP_MODELS=1` to skip model provisioning. The Obsidian plugin is now installed interactively when running `wiki init`.

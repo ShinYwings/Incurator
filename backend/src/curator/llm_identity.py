@@ -1,6 +1,5 @@
 import base64
 import json
-import os
 from pathlib import Path
 
 from . import constants as consts

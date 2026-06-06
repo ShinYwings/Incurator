@@ -1,4 +1,4 @@
-"""v0.3.2 Phase 2: DB-native search accessors (SCHEMA_v0.3.2 §11.12–§11.16)."""
+"""v0.3.2 Phase 2: DB-native search accessors (SCHEMA.md §11.12–§11.16)."""
 
 from __future__ import annotations
 

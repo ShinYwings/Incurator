@@ -11,6 +11,8 @@ per-workspace Exhibition generation; curation is a dynamic query-time lens.
 """
 
 from __future__ import annotations
+import os
+
 from . import constants as consts
 
 import json
@@ -22,11 +24,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from pydantic import BaseModel, Field
 from typing import Iterable
 
 from . import config as cfg
-from . import constants as consts
 from . import db
 from . import parsers
 from .llm import LLMError
@@ -90,7 +90,6 @@ def _default_logical_source_id(source: Path) -> str:
     return f"ref-{digest[:16]}"
 
 
-import os
 
 def _resolve_reference_source(paths: cfg.WikiPaths, source: Path) -> Path:
     """Resolve Reference Mode Markdown Stubs to their actual external target.

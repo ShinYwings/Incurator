@@ -1,10 +1,10 @@
-# Incurator - System Behavior (v0.3.2)
+# Incurator - System Behavior (v0.3.3)
 
-This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth for the v0.3.2 line. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA_v0.3.2.md`.
+This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
 Implementation plans under `.agents/plans/` are transient and strictly subordinate to this document. If a plan conflicts with this behavior contract, update the plan or bring the conflict back to review before coding.
 
-v0.3.2 extends v0.3.1. Sections 1-22 below preserve the inherited behavior contract except where v0.3.2 retires qmd as an external search backend and replaces it with DB-native search, query expansion, chunk vectors, RRF, configured reranking, and durable query traces. The archived v0.3.1 source of truth lives at `docs/specs/system_behavior/archives/SYSTEM_BEHAVIOR_v0.3.1.md`.
+Sections 1-22 below define the behavior contract. The system retires qmd as an external search backend and replaces it with DB-native search, query expansion, chunk vectors, RRF, configured reranking, and durable query traces. Historical behavior definitions are tracked via git history.
 
 **Clean-rebuild stance (no migration compatibility shims).** v0.3.2 does not keep
 prompt-function wrappers, a legacy-query fallback path, `curate.yml`
@@ -864,7 +864,7 @@ from the original source by `toc_id` or page range.
 The sections above (1–14) define the inherited v0.2.2 behavior contract. The
 sections below define the behavior introduced by the v0.3.1 curation-native
 rebuild and amended by v0.3.2 search internalization. Schema records referenced here are defined in
-`docs/specs/curator_schema/SCHEMA_v0.3.2.md`.
+`docs/specs/curator_schema/SCHEMA.md`.
 
 The v0.3.2 thesis: the Curator is a curation-native graph/memory compiler. It
 reads a workspace's `curate.yml`, compiles a curation plan, chooses a retrieval

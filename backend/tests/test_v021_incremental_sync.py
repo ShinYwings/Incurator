@@ -32,7 +32,7 @@ except ImportError:
     INCREMENTAL_SYNC_AVAILABLE = False
 
 try:
-    from curator.ingest_llm import invalidate_exh_cache_for_concept
+    pass
     EXH_CACHE_AVAILABLE = True
 except ImportError:
     EXH_CACHE_AVAILABLE = False

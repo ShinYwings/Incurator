@@ -1,12 +1,12 @@
-# Incurator Plugin Schema & API Contract (v0.3.2)
+# Incurator Plugin Schema & API Contract (v0.3.3)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
-This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute schema source of truth for the plugin in the v0.3.2 line. Backend contracts live in `docs/specs/curator_schema/SCHEMA_v0.3.2.md` and `docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.2.md`. When there is a conflict, the system behavior spec takes precedence.
+This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute schema source of truth for the plugin. Backend contracts live in `docs/specs/curator_schema/SCHEMA.md` and `docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`. When there is a conflict, the system behavior spec takes precedence.
 
 Implementation plans under `.agents/plans/` are transient and strictly subordinate to this spec.
 
-v0.3.2 extends v0.3.1. Sections 1-11 below preserve the inherited plugin contract except where v0.3.2 replaces external-search evidence wording with DB-native search evidence and adds dashboard click-to-use trace/insight commands. The archived v0.3.1 source of truth lives at `docs/specs/plugin_schema/archives/PLUGIN_SCHEMA_v0.3.1.md`.
+Sections 1-11 below define the plugin contract, supporting DB-native search evidence, and dashboard click-to-use trace/insight commands. Historical plugin schema definitions are tracked via git history.
 
 **Clean-rebuild stance (no migration compatibility shims).** v0.3.2 keeps trace/
 insight payloads additively to the existing plugin query result. New panels render
@@ -702,8 +702,8 @@ the data directory `storage/<KEY>/...` path and do not require this root.
 The sections above (1–8) define the inherited v0.2.2 plugin contract. The
 sections below define the plugin payloads and panels for the v0.3.1
 curation-native rebuild and the v0.3.2 search/trace dashboard additions. Backend contracts live in
-`docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.2.md` §15–§20 and
-`docs/specs/curator_schema/SCHEMA_v0.3.2.md` §11.
+`docs/specs/system_behavior/SYSTEM_BEHAVIOR.md` §15–§20 and
+`docs/specs/curator_schema/SCHEMA.md` §11.
 
 ## 9. v0.3.2 Local Plugin Commands
 
@@ -1067,7 +1067,7 @@ nodes directly.
   v0.3.2; ids, hashes, model, route, validator status, evidence ids, and warnings
   are sufficient.
 
-## 13. In-line Copilot Quick Query (v0.3.2)
+## 13. In-line Copilot Quick Query (v0.3.3)
 
 The plugin provides a drag-to-select quick query surface ("In-line Copilot") for
 one-off questions about a selected passage. It is gated by

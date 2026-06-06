@@ -6836,21 +6836,13 @@ def mcp_install_cmd(
     _hint("After pasting, restart the agent so it reloads MCP config.")
 
 
-def main() -> None:
-    """Entry point used by the `wiki` console script."""
-    app()
-
-
-if __name__ == "__main__":
-    main()
-
 # ---------------------------------------------------------------------------
 # Testbed Commands
 # ---------------------------------------------------------------------------
 
 @testbed_app.command(name="init")
 def testbed_init(
-    scenario: str = typer.Argument("testbed_template", help="Scenario name from scripts/dev/"),
+    scenario: str = typer.Argument("testbed_template", help="Scenario name from tests/scenarios/"),
     force: bool = typer.Option(False, "--force", "-f", help="Recreate the testbed."),
     llm: Optional[str] = typer.Option(None, "--llm", help="Primary LLM provider (ollama|antigravity-cli|cloud|claude-code)"),
     model: Optional[str] = typer.Option(None, "--model", help="Specific model name to use for the provider."),
@@ -6871,7 +6863,7 @@ def testbed_list():
     from . import testbed_manager
     scenarios = testbed_manager.list_scenarios()
     if not scenarios:
-        _warn("No scenarios found in scripts/dev/.")
+        _warn("No scenarios found in tests/scenarios/.")
         return
 
     table = Table(title="Available Testbed Scenarios", box=None)
@@ -6879,3 +6871,12 @@ def testbed_list():
     for s in sorted(scenarios):
         table.add_row(s)
     console.print(table)
+
+
+def main() -> None:
+    """Entry point used by the `wiki` console script."""
+    app()
+
+
+if __name__ == "__main__":
+    main()

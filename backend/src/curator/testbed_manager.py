@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import shutil
-import sys
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -14,12 +12,12 @@ from . import db, page_writer
 from .workspace.provisioner import prepare_workspace
 
 def get_scenarios_dir() -> Path:
-    """Find the scripts/dev directory relative to the package."""
+    """Find the tests/scenarios directory relative to the package."""
     # REPO_ROOT is 3 levels up from backend/src/curator/testbed_manager.py
-    return Path(__file__).resolve().parents[3] / "scripts" / "dev"
+    return Path(__file__).resolve().parents[3] / "tests" / "scenarios"
 
 def list_scenarios() -> List[str]:
-    """List available testbed scenarios in scripts/dev/."""
+    """List available testbed scenarios in tests/scenarios/."""
     dev_dir = get_scenarios_dir()
     if not dev_dir.exists():
         return []

@@ -1,9 +1,9 @@
-# Incurator Search Engine Schema (v0.3.2)
+# Incurator Search Engine Schema (v0.3.3)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
 This file is the concrete schema source of truth for the v0.3.2 DB-native search
-engine. It is split out from `docs/specs/curator_schema/SCHEMA_v0.3.2.md` so the
+engine. It is split out from `docs/specs/curator_schema/SCHEMA.md` so the
 Curator DAG schema stays focused on knowledge records while search indexing,
 retrieval providers, expansion, embeddings, and query traces have their own
 contract.

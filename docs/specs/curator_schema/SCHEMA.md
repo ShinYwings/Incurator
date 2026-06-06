@@ -1,12 +1,12 @@
-# Incurator - Schema & Operating Conventions (v0.3.2)
+# Incurator - Schema & Operating Conventions (v0.3.3)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
-This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute schema source of truth for the v0.3.2 line.
+This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute schema source of truth.
 
 Implementation plans under `.agents/plans/` are transient and strictly subordinate to this spec. They may explain sequencing and alternatives, but code must conform to this file when it writes `.curator/` state, Curator DAG pages, MCP payloads, or provider/model configuration.
 
-v0.3.2 extends v0.3.1. Any v0.3.1 field not contradicted here remains valid. Sections 1-17 below preserve the inherited schema contract except where v0.3.2 retires qmd as a search backend and internalizes search/query traces inside `state.sqlite`. The archived v0.3.1 source of truth lives at `docs/specs/curator_schema/archives/SCHEMA_v0.3.1.md`.
+Sections 1-17 below define the schema contract. The database engine retires qmd as a search backend and internalizes search/query traces inside `state.sqlite`. Historical schema definitions are tracked via git history.
 
 **Clean-rebuild stance (no migration compatibility shims).** v0.3.2 continues the
 curation-native rebuild that does **not** maintain backward-compatibility shims
@@ -71,7 +71,7 @@ recoverable `AntigravityCliError` rather than as an empty model answer.
 ### 2.1.1 Search Provider Selection
 
 Search engine configuration is specified separately in
-`docs/specs/search_engine/SEARCH_ENGINE_SCHEMA_v0.3.2.md`. Curator schema only
+`docs/specs/search_engine/SEARCH_ENGINE_SCHEMA.md`. Curator schema only
 requires that `search.backend` defaults to `native` and that search state remains
 inside `.curator/state.sqlite`; embedding/query-expansion/reranker provider
 fields, recovery-only expansion thresholds, FTS tables, chunk embeddings, and
@@ -614,8 +614,8 @@ source spans and to the prompt run that produced it, and `curate.yml` compiles
 into a runtime policy that drives retrieval and synthesis.
 
 The companion behavior contract is
-`docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.2.md`; the plugin contract is
-`docs/specs/plugin_schema/PLUGIN_SCHEMA_v0.3.2.md`. All three must stay
+`docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`; the plugin contract is
+`docs/specs/plugin_schema/PLUGIN_SCHEMA.md`. All three must stay
 version-synchronized.
 
 ### Storage model: DB is the single source of truth; markdown is a derived projection
@@ -966,7 +966,7 @@ Rules:
   Curator believes a piece of feedback or a discovered connection means, pending
   explicit human action.
 - `classification` follows the backprop lifecycle in
-  `SYSTEM_BEHAVIOR_v0.3.2.md`. A `derived_insight` candidate must never be written
+  `SYSTEM_BEHAVIOR.md`. A `derived_insight` candidate must never be written
   back into the originating source's L1 context; it lives as a candidate until
   promoted to `02_Wiki/` or attached to a generated/conversational artifact.
 - `status='promoted'` is set only by an explicit promotion that writes `02_Wiki/`.
@@ -1029,7 +1029,7 @@ Rules:
   note" tier in Zettelkasten and other LLM wiki repos — one level above community
   reports, one level below the dynamic per-workspace **Curation lens** (which
   selects/recombines them at query time and is never stored; see
-  `SYSTEM_BEHAVIOR_v0.3.2.md`).
+  `SYSTEM_BEHAVIOR.md`).
 - Like community reports, synthesis nodes are **generated retrieval aids, not
   human verification**. They must reflect uncertainty and never be presented as
   human-verified truth.
@@ -1100,7 +1100,7 @@ Rules:
 ### 11.12 Search Engine Tables
 
 Search engine tables are specified separately in
-`docs/specs/search_engine/SEARCH_ENGINE_SCHEMA_v0.3.2.md`:
+`docs/specs/search_engine/SEARCH_ENGINE_SCHEMA.md`:
 
 - `search_documents`
 - `search_chunks`
@@ -1214,7 +1214,7 @@ generated DB nodes / create insight candidates, protecting source truth.
 
 v0.3.1 makes `curate.yml` the full Knowledge Requirement Specification. The
 canonical shape adds structured sections; the authoritative field-by-field
-semantics live in `SYSTEM_BEHAVIOR_v0.3.2.md` §16 and the user guides.
+semantics live in `SYSTEM_BEHAVIOR.md` §16 and the user guides.
 
 ```yaml
 project: "resnet-dynamics-lab"

@@ -1,7 +1,7 @@
 """Phase 2 (v0.3.2): SQLite schema v6 tables and accessors.
 
 Covers the new curation-native records defined in
-docs/specs/curator_schema/SCHEMA_v0.3.2.md §11: source_spans, knowledge_units,
+docs/specs/curator_schema/SCHEMA.md §11: source_spans, knowledge_units,
 graph_entities, graph_relations, community_reports, memory_paths, prompt_runs,
 curation_plans, insight_candidates, artifact_dependencies, and DB-native search
 records.
@@ -40,7 +40,7 @@ def test_spec_declares_matching_schema_version() -> None:
     """Guard: the active SCHEMA spec must declare the same SCHEMA_VERSION as code."""
     spec = (
         Path(__file__).resolve().parents[2]
-        / "docs/specs/curator_schema/SCHEMA_v0.3.2.md"
+        / "docs/specs/curator_schema/SCHEMA.md"
     ).read_text(encoding="utf-8")
     assert f"`SCHEMA_VERSION = {db.SCHEMA_VERSION}`" in spec
 

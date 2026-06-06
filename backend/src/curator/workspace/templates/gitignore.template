@@ -24,7 +24,7 @@
 .claude/
 .antigravity/
 testbed/
-scripts/dev/
+tests/scenarios/
 build/
 dist/
 .ruff_cache/

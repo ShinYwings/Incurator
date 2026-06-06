@@ -1,5 +1,4 @@
 import hashlib
-import shutil
 import re
 import tempfile
 import unittest

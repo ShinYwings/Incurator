@@ -525,7 +525,7 @@ dashboard 버튼은 상태 변경이 필요할 때 backend command를 실행하�
 세부 단계인 **Add / Build / Sync / Lint / Reindex / Reset**은 **Advanced** 접이식
 영역으로 옮겼습니다. LLM Apply와 Persona Save는 설정을 저장합니다.
 
-### 대시보드 탭 (v0.3.2)
+### 대시보드 탭 (v0.3.3)
 
 - **Overview → System** 카드는 DB-native 검색 엔진과 함께 현재 **Embed model**,
   **Reranker** 행(정체성 + health, backend `search_models` 상태 기반)을 보여줍니다.
@@ -778,7 +778,7 @@ merge/rebase/unsafe push를 시도하지 않고 그 blocker를 보고합니다.
 - 인사이트 후보 승격은 명시적 사용자 동작입니다. 플러그인은 `promoteInsight`
   호출 전 확인을 받아야 하며, 이는 `02_Wiki/`에만 기록합니다.
 - 이 로컬 명령들은 JSON을 반환하며 Incurator MCP 도구로 라우팅하면 안 됩니다(MCP는
-  외부 에이전트용). [플러그인 스키마 스펙](../specs/plugin_schema/PLUGIN_SCHEMA_v0.3.2.md)
+  외부 에이전트용). [플러그인 스키마 스펙](../specs/plugin_schema/PLUGIN_SCHEMA.md)
   §9–12 참고.
 - Dashboard의 Trace/Insights 탭은 이 명령들 위에 놓인 click-to-use surface입니다.
   trace와 insight candidate를 list/show하고, 후보를 promote/reject하거나 correction을

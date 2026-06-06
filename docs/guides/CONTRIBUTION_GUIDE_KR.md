@@ -132,7 +132,7 @@ testbed/
 
 새로운 검증 시나리오를 생성하고 실행할 때는 다음과 같은 4단계 표준 절차를 따릅니다. 상세한 단계별 지침은 [시나리오 작성 가이드](file:///home/shin/Workspace/Incurator/docs/guides/DEV_SCRIPTS_GUIDE.md)를 확인하십시오.
 
-1. **시나리오 스캐폴딩**: `scripts/dev/` 아래에 새로운 시나리오 폴더를 생성하고 `MASTER_PLAN.md`를 작성합니다.
+1. **시나리오 스캐폴딩**: `tests/scenarios/` 아래에 새로운 시나리오 폴더를 생성하고 `MASTER_PLAN.md`를 작성합니다.
 2. **데이터 시딩 (Seeding)**: 익명화된 소스 파일들을 `stage/` 디렉토리에 배치합니다.
 3. **시스템 초기화**: `wiki testbed init <name> --force` 명령으로 테스트 전용 Vault를 구축합니다.
 4. **자동화 다이얼로그 작성**: `dialogues/`에 검증 로직을 자동화하는 스크립트를 작성하고 실행합니다.
@@ -156,9 +156,9 @@ VAULT_ROOT=testbed wiki query "fixture domain을 대표하는 질문을 입력�
 
 ---
 
-## 7. 단일 리포지토리(Monorepo) 기여 가이드라인 (v0.2.0)
+## 7. 단일 리포지토리(Monorepo) 기여 가이드라인
 
-Incurator v0.2.0의 목표 구조는 파이썬 백엔드 데몬(`backend/`)과 Obsidian 플러그인 클라이언트(`plugin/`)가 단일 리포지토리(Monorepo)로 통합되어 관리되는 것입니다. 전환 중인 checkout에서는 아직 backend 코드가 루트의 `src/`, `tests/`, `pyproject.toml`에 남아 있거나, 활성 플러그인이 Obsidian vault 내부의 `.obsidian/plugins/incurator-obsidian-agent`에서 개발되고 있을 수 있습니다. 기여자는 목표 구조와 현재 checkout 구조를 혼동하지 않아야 합니다.
+Incurator는 파이썬 백엔드 데몬(`backend/`)과 Obsidian 플러그인 클라이언트(`plugin/`)가 단일 리포지토리(Monorepo)로 통합되어 관리됩니다.
 
 - **PR(Pull Request) 단위**: 백엔드와 플러그인의 변경 사항이 강하게 결합되는 기능(예: Reference Mode 추가 및 UI 연동)의 경우, 분리하지 않고 하나의 PR로 묶어 리뷰 컨텍스트를 유지하는 것을 권장합니다.
 - **빌드 및 환경 검증**: PR 제출 전 리포지토리 루트의 `./setup.sh` 스크립트를 실행하여 파이썬 패키지가 정상 설치되는지 확인하고, `plugin/` 디렉토리에서 `npm install && npm run build`를 실행해 플러그인 빌드에도 문제가 없는지 반드시 확인하십시오.

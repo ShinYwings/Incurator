@@ -203,12 +203,12 @@ To prevent context fragmentation and hallucinations when switching between AI co
 All feature additions, bug fixes, migrations, and system rule changes must be validated in the `testbed/` vault which simulates a real environment. 
 
 ### Testbed Scenario Management
-The standard scenario template for development and validation is located at `scripts/dev/`. 
-Each scenario is contained in its own folder (e.g., `scripts/dev/testbed_template/`).
+The standard scenario template for development and validation is located at `tests/scenarios/`. 
+Each scenario is contained in its own folder (e.g., `tests/scenarios/testbed_template/`).
 Agents should refer to the specific scenario's `MASTER_PLAN.md` to understand the domain and validation goals.
 
-- **Standard Template**: `scripts/dev/testbed_template/` is the blueprint for creating new scenarios, but it is rarely the active one.
-- **Scenario Discovery**: Because developers often use custom, `.gitignore`d scenario folders, the agent MUST first identify or ask the USER which scenario folder under `scripts/dev/` is currently active. Do not blindly default to `testbed_template`.
+- **Standard Template**: `tests/scenarios/testbed_template/` is the blueprint for creating new scenarios, but it is rarely the active one.
+- **Scenario Discovery**: Because developers often use custom, `.gitignore`d scenario folders, the agent MUST first identify or ask the USER which scenario folder under `tests/scenarios/` is currently active. Do not blindly default to `testbed_template`.
 - **Initialization Requirement**: If the `testbed/` directory does not exist, the agent MUST initialize it using the active scenario's name (`wiki testbed init <scenario_name>`). If the USER explicitly refuses, the agent may skip testbed validation but must report the risk of unverified changes.
 - **Before Action**: Before changing behavior, reproduce or describe the failing scenario using `testbed/` or the active scenario assets.
 - **After Action**: After changing behavior, run the same scenario again and report the result.

@@ -574,7 +574,7 @@ Overview action is **Update** (the one-shot `wiki update`: add → build → emb
 sync); the granular **Add / Build / Sync / Lint / Reindex / Reset** steps live
 under an **Advanced** disclosure. LLM Apply and Persona Save persist config.
 
-### Dashboard tabs (v0.3.2)
+### Dashboard tabs (v0.3.3)
 
 - **Overview → System** card shows the DB-native search engine plus the live
   **Embed model** and **Reranker** rows (identity + health, from the backend
@@ -905,7 +905,7 @@ Rules:
   before calling `promoteInsight`, which writes only to `02_Wiki/`.
 - These local commands return JSON and must not be routed through Incurator MCP
   tools (MCP is for external agents). See
-  [Plugin Schema spec](../specs/plugin_schema/PLUGIN_SCHEMA_v0.3.2.md) §9–12.
+  [Plugin Schema spec](../specs/plugin_schema/PLUGIN_SCHEMA.md) §9–12.
 - Dashboard Trace and Insights tabs are click-to-use surfaces over these commands.
   They may list/show traces and insight candidates, promote/reject candidates, and
   propose corrections, but they must never write `.curator/state.sqlite`,

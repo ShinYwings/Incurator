@@ -42,7 +42,7 @@ When humans or agents spot an error in prior knowledge — or derive a new insig
 Offload **compilation** (summarizing and atomizing knowledge) to non-reasoning models and reserve **creative synthesis** (requiring complex calculation or sophisticated reasoning) for reasoning models. This strategic role separation minimizes costs while maximizing insight.
 
 ### 4. Monorepo and Dual-Track Structure for AI and Humans
-The Incurator v0.2.0 target layout provides the Python backend daemon (`backend/`) and Obsidian plugin client (`plugin/`) in a **single repository (monorepo)**. During transition, a checkout may still keep backend code under root `src/`, or develop the active plugin inside the vault at `.obsidian/plugins/incurator-obsidian-agent`. Knowledge is most effective when managed in different forms for machines and humans:
+The Incurator repository provides the Python backend daemon (`backend/`) and Obsidian plugin client (`plugin/`) in a **single repository (monorepo)**. Knowledge is most effective when managed in different forms for machines and humans:
 - **AI Space (`.curator/`)**: The **Archive/Storage**. A machine-friendly backend designed for agents to instantly search and leverage knowledge. It operates as a high-speed database (`state.sqlite`) where all L1-L3 knowledge is stored as records without polluting the vault with intermediary markdown files.
 - **Human Space (`02_Wiki/`)**: The **Permanent Collection**. A beautiful knowledge library designed for users to read, manage, and own long-term. Only the final synthesized L4 Exhibitions are output as Markdown for direct interaction.
 - **Client Space (`incurator-obsidian-agent`)**: The Obsidian client handles open-PDF context, split-view chips, chat UI, provider selection, and import/rebind approval. Durable source registry and RAG provenance belong to the backend.
@@ -77,7 +77,7 @@ As such, splitting your knowledge into multiple vaults solely for administrative
 
 > [!NOTE]
 > **Developer Only**: The `wiki testbed` command is a tool for scenario validation and system development. Do not use it for standard knowledge management tasks.
-
+ 
 Check the [User Guide](docs/guides/USER_GUIDE.md) for more details.
 
 ---
@@ -96,5 +96,4 @@ Check out our [Contribution Guide](docs/guides/CONTRIBUTION_GUIDE.md) to get sta
 - [MCP Integration Guide](docs/guides/MCP_USER_GUIDE.md)
 - [Sync Ignore Guide](docs/guides/SYNC_IGNORE_GUIDE.md)
 - [Project Philosophy](docs/philosophy/ABOUT.md)
-- [v0.2.0 System Build Plan](.agents/plans/2024-05_v0.2.0_system_build/INCURATOR_SYSTEM_BUILD.md)
-- [v0.2.0 Evidence Ledger](.agents/plans/2024-05_v0.2.0_system_build/INCURATOR_SYSTEM_BUILD_EVIDENCE.md)
+

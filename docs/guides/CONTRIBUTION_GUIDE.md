@@ -126,7 +126,7 @@ testbed/
 
 When creating and executing a new validation scenario, follow these standard 4 steps. For detailed instructions, see the [Scenario Creation Guide](file:///home/shin/Workspace/Incurator/docs/guides/DEV_SCRIPTS_GUIDE.md).
 
-1. **Scenario Scaffolding**: Create a new scenario folder under `scripts/dev/` and write a `MASTER_PLAN.md`.
+1. **Scenario Scaffolding**: Create a new scenario folder under `tests/scenarios/` and write a `MASTER_PLAN.md`.
 2. **Data Seeding**: Place anonymized source files into the `stage/` directory.
 3. **System Initialization**: Build the test-only vault using `wiki testbed init <name> --force`.
 4. **Automation Dialogue Creation**: Write and execute scripts in `dialogues/` to automate the verification logic.
@@ -135,16 +135,16 @@ When creating and executing a new validation scenario, follow these standard 4 s
 
 ## 6. Submission Checklist
 
-- [ ] Run `ruff check src/` and `mypy src/`.
+- [ ] Run `ruff check` and `mypy`.
 - [ ] Run `pytest`.
 - [ ] Verify changes in the `testbed/` vault using `wiki testbed init <scenario> --force`.
 - [ ] Ensure `AGENTS.md` and `CLAUDE.md` are synchronized.
 
 ---
 
-## 7. Monorepo Contribution Guidelines (v0.2.0)
+## 7. Monorepo Contribution Guidelines
 
-The v0.2.0 target layout manages the Python backend daemon (`backend/`) and Obsidian plugin client (`plugin/`) together in a monorepo. During transition, a checkout may still keep backend code at repository root (`src/`, `tests/`, `pyproject.toml`) or develop the active plugin inside an Obsidian vault path such as `.obsidian/plugins/incurator-obsidian-agent`. Contributors must distinguish the target layout from the active checkout layout.
+The Incurator repository manages the Python backend daemon (`backend/`) and Obsidian plugin client (`plugin/`) together in a monorepo. 
 
 - **Pull Request Scope**: For features where backend and plugin changes are tightly coupled (e.g., adding Reference Mode and its UI), please submit them as a single PR to maintain review context.
 - **Build & Verification**: Before submitting a PR, run `./setup.sh` at the repository root to ensure Python packages build successfully, and then run `npm install && npm run build` in the `plugin/` directory to verify the Node.js plugin.

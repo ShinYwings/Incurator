@@ -46,7 +46,7 @@ Incurator는 대부분 지식의 닫힌 순환(수집 → 처리 → 활용 → 
 사전 지식을 요약·원자화하는 **단순 컴파일**은 비추론 모델에, 복잡한 계산이나 정교한 추론이 필요한 **창의적 합성**은 추론 모델에 맡기세요. 역할 분리로 지식 관리 비용을 획기적으로 낮춥니다.
 
 ### 4. AI와 인간을 위한 이원화 및 모노레포(Monorepo) 구조
-Incurator v0.2.0의 목표 구조는 파이썬 백엔드 데몬(`backend/`)과 Obsidian 플러그인 클라이언트(`plugin/`)를 **단일 리포지토리(Monorepo)**로 통합하여 제공하는 것입니다. 전환 중인 checkout에서는 backend 코드가 아직 루트 `src/`에 있거나 활성 플러그인이 vault 내부 `.obsidian/plugins/incurator-obsidian-agent`에서 개발될 수 있습니다. 지식은 기계와 인간에게 각각 다른 형태로 존재할 때 가장 효율적입니다.
+Incurator는 파이썬 백엔드 데몬(`backend/`)과 Obsidian 플러그인 클라이언트(`plugin/`)를 **단일 리포지토리(Monorepo)**로 통합하여 제공합니다. 지식은 기계와 인간에게 각각 다른 형태로 존재할 때 가장 효율적입니다.
 -   **AI 공간 (`.curator/`)**: 지식의 **수장고(Archive/Storage)**. 에이전트가 지식을 즉각적으로 탐색하고 활용할 수 있도록 설계된 기계 친화적 백엔드입니다. L1-L3 지식은 파일로 남아 저장소를 오염시키지 않고, 고속 데이터베이스(`state.sqlite`)의 레코드로 운영됩니다.
 -   **인간 공간 (`02_Wiki/`)**: 지식의 **상설전시실(Permanent Collection)**. 사용자가 직접 읽고 관리하며 장기적으로 소유할 수 있게 정리된 아름다운 지식 서재입니다. 최종 합성된 L4 Exhibition만이 직접 상호작용 가능한 마크다운으로 출력됩니다.
 -   **클라이언트 공간 (`incurator-obsidian-agent`)**: 열린 PDF, split view, chat UI, provider 선택, import/rebind 승인 같은 사용자 상호작용을 담당합니다. 장기 source registry와 RAG provenance는 backend가 담당합니다.
@@ -100,5 +100,3 @@ Zotero와 같은 외부 레퍼런스 PDF 파일들을 보관소 내부로 강제
 - [MCP 연동 가이드](docs/guides/MCP_USER_GUIDE_KR.md)
 - [동기화 제외 가이드](docs/guides/SYNC_IGNORE_GUIDE_KR.md)
 - [프로젝트 철학 (ABOUT_KR.md)](docs/philosophy/ABOUT_KR.md)
-- [v0.2.0 시스템 빌드 플랜](.agents/plans/2024-05_v0.2.0_system_build/INCURATOR_SYSTEM_BUILD.md)
-- [v0.2.0 Evidence Ledger](.agents/plans/2024-05_v0.2.0_system_build/INCURATOR_SYSTEM_BUILD_EVIDENCE.md)

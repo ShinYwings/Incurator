@@ -162,7 +162,7 @@ Settings to exclude large files or local state when managing your knowledge base
 .vscode/
 .claude/
 testbed/
-scripts/dev/
+tests/scenarios/
 build/
 dist/
 .ruff_cache/

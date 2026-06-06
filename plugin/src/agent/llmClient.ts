@@ -1792,9 +1792,9 @@ export class LLMClient {
         return {
           command: "agy",
           args: [
-            "-p", prompt,
             "--print-timeout", `${Math.max(30, this.settings.antigravityPrintTimeoutSec || 300)}s`,
             "--dangerously-skip-permissions",
+            "-p", prompt,
           ],
           env: {
             GEMINI_CLI_TRUST_WORKSPACE: "true",

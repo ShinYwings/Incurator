@@ -1,6 +1,5 @@
 import sqlite3
 import shutil
-import json
 import tempfile
 import os
 from pathlib import Path
