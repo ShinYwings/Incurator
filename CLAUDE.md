@@ -311,12 +311,11 @@ VAULT_ROOT=testbed wiki lint
 ```bash
 wiki init <path>        # Initialize a Curator vault
 wiki update             # One-shot pipeline: add → build → embed → sync
-wiki add <file>         # Parse source and generate L1-L3 layers
-wiki curate             # Stage L4 Exhibitions for workspace
+wiki add <file>         # Parse source and generate L1-L4 layers
 wiki sync               # Verify DAG integrity, rebuild index/ledger
 wiki lint               # Health check: broken links, orphans, contradictions
 wiki query "<question>" # Search and synthesize answer with citations
-wiki reindex            # Rebuild QMD search index
+wiki reindex            # Force rebuild of DB-native FTS5 search index
 wiki status             # Show config and stats
 wiki config provider    # Switch LLM backend
 wiki sources list|show|rm  # Manage tracked source files
