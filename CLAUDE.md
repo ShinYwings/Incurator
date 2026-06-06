@@ -208,7 +208,7 @@ All branches are created from `master` and merged back to `master` via PR. Never
 
 | Pattern | Base | When to use |
 |---|---|---|
-| `release/vX.Y.Z` | `master` | Batch releases planned from user_report |
+| `release/vX.Y.Z` | `master` | Batch releases planned from `user_report.md` |
 | `feature/short-description` | `master` | New standalone features |
 | `fix/short-description` | `master` | Bug fixes and post-release cleanup |
 | `chore/short-description` | `master` | CI, tooling, config, dependency changes |
