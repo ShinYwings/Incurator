@@ -47,3 +47,12 @@ for cross-device SQLite synchronisation.  PR #4 submitted; awaiting user merge.
 2. **After merge**: delete `.agents/plans/03_knowledge_sync_bridge.md` from master.
 3. **Next milestone**: `01_minor_quick_wins.md` (items 2, 9, 10 from user_report.md)
    or `02_stabilization.md` (items 3–7) — user decides priority.
+
+### Update (2026-06-06, Antigravity)
+- Handled additional Syncthing Auto-Sync features requested during review.
+- Implemented `db_sync.py` LWW loop prevention via `sync_meta.json` hashing and added clock skew warnings.
+- Fixed failing `test_db_sync.py` tests.
+- Implemented Obsidian Plugin Hooks in `main.ts` for Auto-Import on load and Debounced Auto-Export on file modify.
+- Added "Sync Database" UI Ribbon button.
+- Cleaned up `.agents/user_report.md` and deleted completed plan files in `.agents/plans/`.
+- Pushed changes to `release/v0.4.0`. Waiting for User to create PR since `gh pr create` failed due to auth.
