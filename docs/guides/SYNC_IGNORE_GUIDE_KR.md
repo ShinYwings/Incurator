@@ -74,13 +74,13 @@ macOS에 Incurator가 전역 설치되어 있지 않다면 Obsidian plugin 설�
 
 ### Syncthing 기기 Registry
 
-Obsidian plugin은 시작 시 로컬 Syncthing `config.xml`을 읽어서 현재 vault를 공유하는 기기 목록을 `.curator/devices.json`에 자동 기록합니다. Syncthing이 아는 정보는 device id, device name, folder id, folder label, 현재 기기의 folder path까지입니다.
+Obsidian plugin은 시작 시 로컬 Syncthing `config.xml`을 읽어서 현재 vault를 공유하는 기기 목록을 `.cache/config/devices.json`에 자동 기록합니다. Syncthing이 아는 정보는 device id, device name, folder id, folder label, 현재 기기의 folder path까지입니다.
 
 backend 실행 경로는 Syncthing이 알 수 없으므로 Incurator가 기기별 entry로 기록합니다. 각 기기에서 한 번씩 실행하면 서로 다른 backend launcher를 같은 registry에서 볼 수 있습니다.
 
 일반 사용에서는 명령어가 필요하지 않습니다. Syncthing이 플러그인 산출물을 동기화하고, 각 기기에서 Obsidian plugin이 로드되면 registry가 자동으로 갱신됩니다. 아래 CLI는 자동 갱신이 실패했거나 터미널에서 상태를 확인하고 싶을 때만 사용합니다.
 
-갱신할 때마다 `.curator/devices.json`은 현재 Syncthing 폴더에 실제로 포함된 기기 목록과 다시 맞춰집니다. 아직 공유 중인 기기의 backend hint는 보존하지만, 더 이상 이 vault를 공유하지 않는 device id는 제거되어 오래된 기기가 dashboard에 계속 표시되지 않습니다.
+갱신할 때마다 `.cache/config/devices.json`은 현재 Syncthing 폴더에 실제로 포함된 기기 목록과 다시 맞춰집니다. 아직 공유 중인 기기의 backend hint는 보존하지만, 더 이상 이 vault를 공유하지 않는 device id는 제거되어 오래된 기기가 dashboard에 계속 표시되지 않습니다.
 
 ```bash
 wiki devices

@@ -608,9 +608,9 @@ v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 
 사이드바의 휴지통 버튼으로 채팅 세션을 삭제하면 별도 확인 없이 즉시 삭제됩니다. 삭제 기록은 `deletedSessionIds` tombstone으로 남아 동기화된 다른 기기에서 해당 세션이 되살아나지 않게 합니다.
 
 backend 실행 경로나 repo 경로가 기기마다 다르거나 한쪽 기기에 Incurator가 설치되어
-있지 않다면, `.curator/devices.json`이 현재 기기의 local override 역할을 합니다.
+있지 않다면, `.cache/config/devices.json`이 현재 기기의 local override 역할을 합니다.
 동기화된 `data.json`에 `incuratorRepoPath`가 들어 있더라도, 시작 시 플러그인은
-현재 기기의 `.curator/devices.json` 안 `backend.repo_path`가 비어 있지 않으면 그
+현재 기기의 `.cache/config/devices.json` 안 `backend.repo_path`가 비어 있지 않으면 그
 값으로 메모리상의 repo path를 교체합니다. plugin-local 설정 전체를 동기화하지
 않고 싶다면 `.stignore`에는 `sessions.json` 대신 `data.json`을 추가합니다.
 
@@ -625,7 +625,7 @@ macOS에 `wiki` 실행 파일이 PATH에 없다면 **Settings > AI Agent > PDF &
 | `Backend command` | `/opt/homebrew/bin/uv` |
 | `Backend arguments` | `["--directory", "/Users/<you>/Workspace/Incurator/backend", "run", "wiki"]` |
 
-Obsidian plugin은 시작 시와 설정 저장 후에 Syncthing이 공유 중인 device 목록과 현재 기기의 backend launcher/repository hint를 `.curator/devices.json`에 자동 기록합니다. 이 registry는 동기화된 `data.json`의 절대 경로가 현재 기기의 runtime path를 덮어쓰지 않게 하면서 Linux/macOS 설정 차이를 서로 확인하는 용도로 사용할 수 있습니다. Dashboard는 현재 Syncthing 공유 폴더 registry에 있는 모든 device를 표시하며, 현재 기기에 backend launcher가 없는 원격 device도 숨기지 않습니다. 각 device에는 동기화 중인 Vault/Zotero 폴더 이름을 표시하고, 현재 기기는 가능하면 Syncthing local REST `myID`로 식별하고, 그게 없으면 기기별 repository path/backend launcher hint로 식별해 **This device**로 표시합니다. platform 정보가 없으면 추측하지 않고 unknown으로 표시합니다. `wiki devices sync`는 자동 갱신이 실패했을 때 쓰는 수동 복구 명령이고, `wiki devices`는 현재 registry를 확인하는 명령입니다.
+Obsidian plugin은 시작 시와 설정 저장 후에 Syncthing이 공유 중인 device 목록과 현재 기기의 backend launcher/repository hint를 `.cache/config/devices.json`에 자동 기록합니다. 이 registry는 동기화된 `data.json`의 절대 경로가 현재 기기의 runtime path를 덮어쓰지 않게 하면서 Linux/macOS 설정 차이를 서로 확인하는 용도로 사용할 수 있습니다. Dashboard는 현재 Syncthing 공유 폴더 registry에 있는 모든 device를 표시하며, 현재 기기에 backend launcher가 없는 원격 device도 숨기지 않습니다. 각 device에는 동기화 중인 Vault/Zotero 폴더 이름을 표시하고, 현재 기기는 가능하면 Syncthing local REST `myID`로 식별하고, 그게 없으면 기기별 repository path/backend launcher hint로 식별해 **This device**로 표시합니다. platform 정보가 없으면 추측하지 않고 unknown으로 표시합니다. `wiki devices sync`는 자동 갱신이 실패했을 때 쓰는 수동 복구 명령이고, `wiki devices`는 현재 registry를 확인하는 명령입니다.
 
 자세한 동기화 설정은 [SYNC_IGNORE_GUIDE_KR.md](SYNC_IGNORE_GUIDE_KR.md)를 참조하세요.
 

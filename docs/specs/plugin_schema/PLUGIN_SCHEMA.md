@@ -27,7 +27,7 @@ The Obsidian plugin owns:
 - Rendering of progress/status/trace returned by backend calls or backend-owned
   shared status snapshots
 - Best-effort Syncthing device registry refresh on startup, writing
-  `.curator/devices.json` without requiring a manual backend command
+  `.cache/config/devices.json` without requiring a manual backend command
 
 The plugin must not:
 
@@ -36,7 +36,7 @@ The plugin must not:
 - Maintain its own hard-coded cloud model list; bundle the backend
   `backend/src/curator/data/models.json` catalogue at plugin build time
 
-The plugin may write `.curator/devices.json` as the single exception to the
+The plugin may write `.cache/config/devices.json` as the single exception to the
 `.curator/` write boundary. That file is sync metadata, not DAG state. The
 plugin may also read `.curator/runtime/*.json` dashboard snapshots, but backend
 code is the only writer for those files. Dashboard backend health, source/job
@@ -181,7 +181,7 @@ Rules:
   per-device settings. They may point to `wiki` when the backend is installed on
   PATH, or to a platform specific launcher such as command `uv` with args
   `--directory /path/to/Incurator/backend run wiki`. When
-  `.curator/devices.json` has a non-empty `backend.repo_path` for the local
+  `.cache/config/devices.json` has a non-empty `backend.repo_path` for the local
   device, that value overrides any synced `incuratorRepoPath` from plugin
   `data.json` at runtime. Saving settings refreshes the local device entry so a
   path edit is recorded immediately.
@@ -197,7 +197,7 @@ Rules:
   own plugin integration must not require MCP tool discovery for static
   metadata such as model choices.
 - On desktop startup and settings save, the plugin may read local Syncthing
-  config files and refresh `.curator/devices.json` with the current device's
+  config files and refresh `.cache/config/devices.json` with the current device's
   launcher settings. This removes the need to run `wiki devices sync` for normal
   Obsidian use.
   The current device should be identified from Syncthing REST `myID` when
