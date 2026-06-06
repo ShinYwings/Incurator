@@ -123,7 +123,14 @@ When editing existing files (especially specs, plans, and research notes):
 - **Additive Editing**: Treat existing architectural details as sacred. Add new sections at the bottom or expand existing ones. Never replace detailed paragraphs with bulleted summaries.
 - **Extreme Detail**: When explaining logic or architecture, write exhaustively. Do not use abstract buzzwords to compress complex mechanisms.
 
-## Project Overview
+### 7. Root Cause Over Workarounds
+
+**Fix the disease, not the symptoms. Do not use workarounds.**
+
+- Never bypass a broken system with a temporary hack or "workaround" just to make a test pass or a command succeed.
+- If a function is fundamentally flawed, fix the function. Do not wrap it in a `try...except` that hides the failure or add external scripts to patch its outputs.
+- If you find yourself writing logic that "corrects" the output of another buggy component, STOP. Go back and fix the buggy component directly.
+- Workarounds accumulate tech debt and cause cascading failures. Your job is to identify the root cause and resolve it definitively.
 
 Incurator is an LLM-maintained personal knowledge base (Zettelkasten) integrated with Obsidian. It ingests external sources through a 4-layer curation pipeline (L1 Contexts → L2 Atoms → L3 Concepts → L4 Synthesis) using a multi-provider LLM backend, building a verifiable cross-linked knowledge graph accessible to both humans and AI agents.
 
