@@ -1,5 +1,9 @@
 # Native PDF Annotation System Plan
 
+## Linked user_report Items
+현재 user_report에 직접 대응 항목 없음 (Knowledge Sync Bridge 완료 후 진행).
+구현 완료 후 관련 user_report 항목이 생기면 여기에 추가.
+
 ## Context
 Zotero에 의존하던 어노테이션 시스템을 자체 시스템으로 교체합니다. 옵시디언 내장 PDF Viewer를 활용하여 하이라이트와 메모를 `state.sqlite`에 직접 저장하고 오프라인 동기화합니다.
 

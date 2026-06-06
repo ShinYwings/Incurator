@@ -1,5 +1,13 @@
 # Core RAG & Knowledge Distillation Stabilization Plan
 
+## Linked user_report Items
+이 마일스톤이 해결하는 user_report 항목:
+- **3**: qmd/검색 엔진 심층 분석 및 보완
+- **4**: PDF 및 정제된 지식 내 수학 수식 누락 문제 해결
+- **5**: 지식 정제용 LLM과 쿼리 확장(HyDE)용 LLM 설정 분리
+- **6**: GraphRAG급 엔티티 통합, 노이즈 필터링 및 Vault Quota 아키텍처
+- **7**: 전역적 사고를 위한 계층적 군집화 알고리즘 설계
+
 ## Context
 현재 RAG 검색 엔진(Qwen3 Reranker + FTS5)과 지식 추출(Distillation) 파이프라인에서 발생하는 할루시네이션, 엣지(Edge) 유실, 사전 지식(Prior Knowledge) 맵핑 불안정성을 해결해야 합니다. Sync와 Annotation 개발에 앞서 기반을 닦는 최우선 과제입니다.
 

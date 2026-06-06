@@ -1,5 +1,9 @@
 # Knowledge Sync Bridge (DB Export/Import) Plan
 
+## Linked user_report Items
+현재 user_report에 직접 대응 항목 없음 (독립 인프라 마일스톤).
+구현 완료 후 관련 user_report 항목이 생기면 여기에 추가.
+
 ## Context
 기기 간 지식(`state.sqlite`) 파편화 문제를 해결하기 위해 오프라인 동기화 브릿지(JSONL)를 구축합니다.
 
