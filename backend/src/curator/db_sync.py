@@ -293,7 +293,25 @@ def _apply_tombstone(
     deleted_at: str,
 ) -> None:
     """Delete a record from its table and record the tombstone locally."""
+    # Check if there is already a newer tombstone
+    existing_tombstone = conn.execute(
+        "SELECT deleted_at FROM deleted_records WHERE table_name = ? AND record_id = ?",
+        (table_name, record_id),
+    ).fetchone()
+    if existing_tombstone and existing_tombstone[0] >= deleted_at:
+        return
+
+    # Check if the local record is newer than the tombstone
     pk_col = _PK_COL.get(table_name)
+    updated_col = _UPDATED_AT_COL.get(table_name)
+    if pk_col and updated_col:
+        local_record = conn.execute(
+            f"SELECT {updated_col} FROM {table_name} WHERE {pk_col} = ?",
+            (record_id,),
+        ).fetchone()
+        if local_record and (local_record[0] or "") >= deleted_at:
+            return
+
     if pk_col:
         try:
             conn.execute(f"DELETE FROM {table_name} WHERE {pk_col} = ?", (record_id,))
@@ -339,9 +357,9 @@ def _lw_upsert(conn: "db.sqlite3.Connection", table_name: str, row: dict) -> str
         _do_upsert(conn, table_name, row)
         return "updated"
 
-    # Composite PK or unknown PK — always INSERT OR IGNORE
-    _do_insert_or_ignore(conn, table_name, row)
-    return "inserted"
+    # Composite PK or unknown PK — always upsert (INSERT OR REPLACE) as intended
+    _do_upsert(conn, table_name, row)
+    return "updated"
 
 
 def _do_insert(conn: "db.sqlite3.Connection", table: str, row: dict) -> None:
