@@ -76,7 +76,7 @@ See the session sync section in `PLUGIN_GUIDE.md` for a `uv` example.
 ### Syncthing Device Registry
 
 On startup, the Obsidian plugin reads the local Syncthing `config.xml` and
-records the devices that share the current vault in `.curator/devices.json`.
+records the devices that share the current vault in `.cache/config/devices.json`.
 Syncthing knows device ids, device names, folder ids, folder labels, and the
 current machine's folder path.
 
@@ -87,7 +87,7 @@ Normal use does not require a command. Syncthing synchronizes the plugin build
 outputs, and each device refreshes the registry when the Obsidian plugin loads.
 The CLI commands below are only for repair or terminal inspection.
 
-On each refresh, `.curator/devices.json` is reconciled against the current
+On each refresh, `.cache/config/devices.json` is reconciled against the current
 Syncthing folder membership. Backend hints for still-present devices are kept,
 but device ids no longer shared with the vault are removed so old machines do
 not keep appearing in the dashboard.

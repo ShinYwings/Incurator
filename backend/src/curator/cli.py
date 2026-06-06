@@ -2149,7 +2149,6 @@ def reset(
         paths.log,
         paths.internal / "dashboard.md",
         paths.internal / "sync-report.json",
-        paths.internal / "devices.json",
         paths.internal / "sessions.json",
         paths.staging,
         paths.collections_dir if hasattr(paths, 'collections_dir') else paths.collections,

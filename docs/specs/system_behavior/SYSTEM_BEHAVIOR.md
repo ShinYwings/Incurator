@@ -55,7 +55,7 @@ The Obsidian plugin owns:
   shared status snapshots
 
 The plugin must not mutate `.curator/state.sqlite` or `.curator/Collections/`
-directly. The only v0.2.2 exception is `.curator/devices.json`, which the
+directly. The only v0.2.2 exception is `.cache/config/devices.json`, which the
 plugin may refresh on startup as sync-friendly device metadata. All durable DAG,
 source registry, ingest, and backpropagation writes must go through backend code.
 For read-only dashboard synchronization, the preferred boundary is a backend-owned
@@ -736,7 +736,7 @@ stale:
 - `.curator/sync-report.json`
 - `.curator/staging/`
 - root-level legacy `build_trace_*.canvas` files
-- `.curator/devices.json`
+- `.cache/config/devices.json`
 - `.curator/sessions.json`
 - internal DB-native search index rows stored in `state.sqlite`
 
@@ -782,7 +782,7 @@ facts Syncthing actually knows: device ids, device names, shared folder ids,
 folder labels, and folder paths on the current machine.
 
 Backend launch paths are not Syncthing facts. Incurator records those as
-per-device declarations in `.curator/devices.json`. The Obsidian plugin performs
+per-device declarations in `.cache/config/devices.json`. The Obsidian plugin performs
 a best-effort refresh on startup by reading local Syncthing config files and the
 current plugin MCP launcher settings. Running `wiki devices sync` remains a
 manual repair/debug command, but normal plugin use should not require it.
@@ -802,7 +802,7 @@ REST status or the configured device names, Incurator must not create a
 synthetic `local` device when Syncthing already reports real shared devices.
 
 The Obsidian plugin should keep `data.json` local when backend paths differ by
-machine. Shared state, such as chat `sessions.json` and `.curator/devices.json`,
+machine. Shared state, such as chat `sessions.json` and `.cache/config/devices.json`,
 can synchronize independently from per-device plugin settings.
 
 ## 13.1 Syncthing Auto-Sync (One-Writer-Per-File)

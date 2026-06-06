@@ -16,7 +16,6 @@ def test_wiki_reset_removes_generated_state_and_keeps_config(tmp_path: Path) -> 
 
     curator = vault / ".curator"
     generated_files = [
-        curator / "devices.json",
         curator / "sessions.json",
         curator / "dashboard.md",
         curator / "sync-report.json",

@@ -216,7 +216,8 @@ def backend_launcher(command: str | None = None, args: list[str] | None = None) 
 
 
 def registry_path(vault_root: Path) -> Path:
-    return vault_root / REGISTRY_RELATIVE_PATH
+    from . import config as cfg
+    return cfg.get_global_config_dir() / "devices.json"
 
 
 def load_registry(vault_root: Path) -> dict[str, Any]:

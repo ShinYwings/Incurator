@@ -305,6 +305,35 @@ def get_global_config_dir() -> Path:
     return Path(__file__).resolve().parents[3] / ".cache" / "config"
 
 
+def save_global_config(config: dict) -> None:
+    """Write config to the global cache config directory, merging with existing."""
+    global_dir = get_global_config_dir()
+    global_dir.mkdir(parents=True, exist_ok=True)
+    config_file = global_dir / consts.FILE_CONFIG_YML
+
+    existing = {}
+    if config_file.exists():
+        try:
+            with config_file.open("r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                if isinstance(data, dict):
+                    existing = data
+        except Exception:
+            pass
+
+    def merge_dict(a: dict, b: dict) -> dict:
+        for k, v in b.items():
+            if isinstance(v, dict) and isinstance(a.get(k), dict):
+                a[k] = merge_dict(a[k], v)
+            else:
+                a[k] = v
+        return a
+
+    merged = merge_dict(existing, config)
+    with config_file.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(merged, f, sort_keys=False, default_flow_style=False, allow_unicode=True)
+
+
 def get_last_root() -> Optional[Path]:
     """Get the last active project root from the dedicated last_root file."""
     last_root_file = get_global_config_dir() / consts.FILE_LAST_ROOT

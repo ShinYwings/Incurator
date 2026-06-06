@@ -534,7 +534,7 @@ Rules:
 
 ## 8. Synced Device Registry
 
-v0.2.1 defines a sync-friendly device registry at `.curator/devices.json`.
+v0.2.1 defines a sync-friendly device registry at `.cache/config/devices.json`.
 This file is shared vault metadata, not a SQLite index, and may be synchronized
 by Syncthing.
 

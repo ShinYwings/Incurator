@@ -673,10 +673,10 @@ is still recorded as a tombstone in `deletedSessionIds` so synced devices do not
 restore the removed session.
 
 If the backend executable path differs per device, or one device does not have
-Incurator installed, `.curator/devices.json` is the local override for the
+Incurator installed, `.cache/config/devices.json` is the local override for the
 current device. A synced `data.json` may still contain an `incuratorRepoPath`,
 but on startup the plugin replaces it in memory with the current device's
-`backend.repo_path` from `.curator/devices.json` when that value exists. If you
+`backend.repo_path` from `.cache/config/devices.json` when that value exists. If you
 want to avoid syncing any plugin-local settings at all, add `data.json` to
 `.stignore`, not `sessions.json`.
 
@@ -693,7 +693,7 @@ If `wiki` is not available on PATH on macOS, configure **Settings > AI Agent > P
 
 On startup and after settings saves, the Obsidian plugin automatically records
 Syncthing device names and the current device's backend launcher/repository hint
-in `.curator/devices.json`. This registry lets Linux/macOS path differences be
+in `.cache/config/devices.json`. This registry lets Linux/macOS path differences be
 visible without letting a synced `data.json` path clobber the active machine's
 runtime path. The dashboard Overview lists every device in the active
 Syncthing shared-folder registry, including remote devices that have no backend

@@ -96,8 +96,8 @@ def test_download_gguf_http_error(monkeypatch):
         assert path is None and "404" in detail
 
 
-def test_ensure_search_models_no_vault_no_persist(monkeypatch):
-    # all global steps stubbed; paths=None must not raise or persist config
+def test_ensure_search_models_no_vault_persists_globally(monkeypatch):
+    # all global steps stubbed; paths=None must still persist global config
     monkeypatch.setattr(model_setup, "ensure_ollama_serving", lambda h, **k: model_setup.ModelStep("s", True, "ok"))
     monkeypatch.setattr(model_setup, "ensure_ollama_model", lambda h, m: model_setup.ModelStep("m", True, "ok"))
     monkeypatch.setattr(model_setup, "install_llama_cpp", lambda **k: model_setup.ModelStep("l", True, "ok"))
@@ -105,13 +105,13 @@ def test_ensure_search_models_no_vault_no_persist(monkeypatch):
         model_setup, "download_gguf",
         lambda repo, fn, d, **k: (Path("/tmp/x.gguf"), "downloaded"),
     )
+    monkeypatch.setattr(model_setup.cfg, "save_global_config", lambda c: None)
     report = model_setup.ensure_search_models(None)
     assert report.ok
     assert any(s.name.startswith("embedding-gguf:") for s in report.steps)
     assert any(s.name.startswith("reranker-gguf:") for s in report.steps)
-    # no per-vault config steps (no vault to persist into)
-    assert not any(s.name == "embedding-config" for s in report.steps)
-    assert not any(s.name == "reranker-config" for s in report.steps)
+    assert any(s.name == "embedding-config" for s in report.steps)
+    assert any(s.name == "reranker-config" for s in report.steps)
 
 
 def test_unload_configured_ollama_models(monkeypatch):

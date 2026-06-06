@@ -12,7 +12,7 @@ import {
 const XML = `
 <configuration version="52">
   <device id="MACOS-ID" name="MacOS"><address>dynamic</address></device>
-  <device id="LINUX-ID" name="shin"><address>dynamic</address></device>
+  <device id="LINUX-ID" name="linux-desktop"><address>dynamic</address></device>
   <folder id="nm6xn-urvs7" label="Second Brain" path="~/Workspace/second_brain" type="sendreceive">
     <device id="MACOS-ID" />
     <device id="LINUX-ID" />
@@ -23,7 +23,7 @@ const XML = `
 const XML_WITH_ZOTERO = `
 <configuration version="52">
   <device id="MACOS-ID" name="MacOS"><address>dynamic</address></device>
-  <device id="LINUX-ID" name="shin"><address>dynamic</address></device>
+  <device id="LINUX-ID" name="linux-desktop"><address>dynamic</address></device>
   <folder id="vault" label="Second Brain" path="~/Workspace/second_brain" type="sendreceive">
     <device id="MACOS-ID" />
     <device id="LINUX-ID" />
@@ -48,7 +48,7 @@ describe("deviceRegistry", () => {
       label: "Second Brain",
       role: "vault",
     });
-    expect(snapshot.devices.map((device) => device.name).sort()).toEqual(["MacOS", "shin"]);
+    expect(snapshot.devices.map((device) => device.name).sort()).toEqual(["MacOS", "linux-desktop"]);
   });
 
   it("parses Vault and Zotero Syncthing folder roles", () => {
@@ -72,7 +72,7 @@ describe("deviceRegistry", () => {
       "/home/shin"
     );
 
-    expect(inferLocalDeviceId(snapshot.devices, "shin")).toBe("LINUX-ID");
+    expect(inferLocalDeviceId(snapshot.devices, "linux-desktop")).toBe("LINUX-ID");
   });
 
   it("preserves remote backend hints while updating the local plugin entry", () => {
@@ -147,7 +147,7 @@ describe("deviceRegistry", () => {
             backend: { command: "/Users/shin/wiki", args: [] },
             updated_at: 1780408526,
           },
-          "LINUX-ID": { device_id: "LINUX-ID", name: "shin" },
+          "LINUX-ID": { device_id: "LINUX-ID", name: "linux-desktop" },
         },
       } as any,
       snapshot,
@@ -196,7 +196,7 @@ describe("deviceRegistry", () => {
           },
           "LINUX-ID": {
             device_id: "LINUX-ID",
-            name: "shin",
+            name: "linux-desktop",
             backend: { repo_path: "/home/shin/Incurator" },
           },
         },

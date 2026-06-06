@@ -370,9 +370,9 @@ def ensure_search_models(
         filename = str(search_cfg.get("embedding_gguf_file") or consts.DEFAULT_EMBED_GGUF_FILE)
         path, detail = download_gguf(repo, filename, models_cache_dir(), force=force)
         report.add(f"embedding-gguf:{filename}", path is not None, detail)
-        if path is not None and paths is not None and str(search_cfg.get("embedding_model_path") or "") != str(path):
+        if path is not None and str(search_cfg.get("embedding_model_path") or "") != str(path):
             try:
-                cfg.save_config(paths, {"search": {"embedding_model_path": str(path)}})
+                cfg.save_global_config({"search": {"embedding_model_path": str(path)}})
                 report.add("embedding-config", True, f"set embedding_model_path={path}")
             except Exception as exc:
                 report.add("embedding-config", False, f"could not persist path: {exc}")
@@ -384,9 +384,9 @@ def ensure_search_models(
         report.add(f"reranker-gguf:{filename}", path is not None, detail)
         # Persist the resolved path only when a vault exists; otherwise the engine
         # falls back to the cached GGUF automatically (providers.build_reranker).
-        if path is not None and paths is not None and str(search_cfg.get("reranker_model_path") or "") != str(path):
+        if path is not None and str(search_cfg.get("reranker_model_path") or "") != str(path):
             try:
-                cfg.save_config(paths, {"search": {"reranker_model_path": str(path)}})
+                cfg.save_global_config({"search": {"reranker_model_path": str(path)}})
                 report.add("reranker-config", True, f"set reranker_model_path={path}")
             except Exception as exc:
                 report.add("reranker-config", False, f"could not persist path: {exc}")
