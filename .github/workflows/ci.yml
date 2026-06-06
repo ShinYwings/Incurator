@@ -26,10 +26,10 @@ jobs:
         run: cd backend && uv pip install -e ".[dev]" --system
 
       - name: Run ruff
-        run: cd backend && uv run --system ruff check src/
+        run: cd backend && ruff check src/
 
       - name: Run pytest
-        run: cd backend && uv run --system pytest -q
+        run: cd backend && pytest -q
 
   plugin-tests:
     name: Plugin Tests
