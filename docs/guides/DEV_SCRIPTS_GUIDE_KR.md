@@ -9,7 +9,7 @@
 
 ```text
 tests/
-├── create_testbed.py       # [레거시] 선택적 커스텀 설정 스크립트
+├── create_testbed.py       # 테스트베드 부트스트랩 스크립트
 └── scenarios/<scenario_name>/
     ├── MASTER_PLAN.md          # [필수] 목표 및 설정 지침
     ├── stage/                  # [필수] 원시 소스 파일들 (L0)

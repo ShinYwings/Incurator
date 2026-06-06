@@ -19,4 +19,4 @@ Zotero에 의존하던 어노테이션 시스템을 자체 시스템으로 교�
 - `backend/src/curator/db.py`: `pdf_annotations` 테이블 생성.
 - `plugin/src/pdf/*`: 형광펜 렌더링, 이벤트 리스너, IPC 전송 로직 추가.
 - `backend/src/curator/mcp_server.py` 또는 IPC 라우터: 플러그인으로부터 어노테이션 생성/조회/삭제 요청을 받아 DB에 반영.
-- `backend/src/curator/db_sync.py`: `pdf_annotations` 테이블을 v0.4.1 브릿지 Export/Import 대상에 포함.
+- `backend/src/curator/db_sync.py`: `pdf_annotations` 테이블을 Knowledge Sync Bridge Export/Import 대상에 포함.
