@@ -1,7 +1,15 @@
-# [v0.3.3] Core RAG & Knowledge Distillation Stabilization Plan
+# Core RAG & Knowledge Distillation Stabilization Plan
 
 ## Context
-현재 RAG 검색 엔진(Qwen3 Reranker + FTS5)과 지식 추출(Distillation) 파이프라인에서 발생하는 할루시네이션, 엣지(Edge) 유실, 사전 지식(Prior Knowledge) 맵핑 불안정성을 해결해야 합니다. Sync와 Annotation 개발에 앞서 기반을 닦는 최우선 과제입니다.
+현재 RAG 검색 엔진(Qwen3 Reranker + FTS5)과 지식 추출(Distillation) 파이프라인에서 발생하는 할루시네이션, 엣지(Edge) 유실, 사전 지식(Prior Knowledge) 맵핑 불안정성을 해결해야 합니다. Knowledge Sync Bridge 및 PDF Annotation 개발에 앞서 기반을 닦는 핵심 과제입니다.
+
+## Linked user_report Items
+이 플랜은 `.agents/user_report.md`의 다음 항목들을 해결합니다:
+- **항목 3**: qmd/검색 엔진 심층 분석 및 보완
+- **항목 4**: PDF 및 정제된 지식 내 수학 수식 누락 문제 해결
+- **항목 5**: 지식 정제용 LLM과 쿼리 확장(HyDE)용 LLM 설정 분리
+- **항목 6**: GraphRAG급 엔티티 통합, 노이즈 필터링 및 보관소 용량 관리 아키텍처
+- **항목 7**: 전역적 사고(Global Sensemaking)를 위한 계층적 군집화 알고리즘 설계
 
 ## Reference Plans (Must Read Before Implementation)
 에이전트들은 다음 과거 아카이브 플랜들을 반드시 읽고, 기존 설계 의도와 RAG 구축 히스토리를 파악한 뒤 안정화에 돌입해야 합니다.
