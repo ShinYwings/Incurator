@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import IO
 
 from . import db
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = db.SCHEMA_VERSION
 
@@ -358,6 +361,15 @@ def _apply_tombstone(
                 conn.execute(f"DELETE FROM {table_name} WHERE {pk_col} = ?", (record_id,))
             except Exception:
                 pass
+        else:
+            # Composite-PK tables cannot be deleted by a single record_id. The
+            # tombstone is still recorded for propagation, but the local row is not
+            # removed here — surface it rather than failing silently.
+            logger.warning(
+                "Tombstone for composite-PK table %r (record_id=%r) recorded but not "
+                "applied as a delete; composite-key deletion is unsupported.",
+                table_name, record_id,
+            )
         # Record tombstone so this device also propagates the deletion on future exports.
         conn.execute(
             "INSERT OR REPLACE INTO deleted_records (table_name, record_id, deleted_at)"
@@ -421,15 +433,6 @@ def _do_upsert(conn: "db.sqlite3.Connection", table: str, row: dict) -> None:
     placeholders = ", ".join("?" * len(row))
     conn.execute(
         f"INSERT OR REPLACE INTO {table} ({cols}) VALUES ({placeholders})",
-        list(row.values()),
-    )
-
-
-def _do_insert_or_ignore(conn: "db.sqlite3.Connection", table: str, row: dict) -> None:
-    cols = ", ".join(row.keys())
-    placeholders = ", ".join("?" * len(row))
-    conn.execute(
-        f"INSERT OR IGNORE INTO {table} ({cols}) VALUES ({placeholders})",
         list(row.values()),
     )
 
