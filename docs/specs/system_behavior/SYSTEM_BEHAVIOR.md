@@ -1151,7 +1151,7 @@ pipeline.
 
 ## 21. Testbed Validation (v0.3.1)
 
-The default scenario is `scripts/dev/complex_math_backprop` (ResNet / Neural ODE).
+The default scenario is `tests/scenarios/complex_math_backprop` (ResNet / Neural ODE).
 Beyond the v0.2.2 smoke (§14), v0.3.1 validation must show:
 
 - original ResNet source claims remain `source_supported` only;

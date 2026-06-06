@@ -8,15 +8,16 @@
 모든 시나리오는 `tests/scenarios/<scenario_name>/`에 위치합니다. `testbed_template`을 시작점으로 사용하세요.
 
 ```text
-tests/scenarios/<scenario_name>/
-├── MASTER_PLAN.md          # [필수] 목표 및 설정 지침
-├── stage/                  # [필수] 원시 소스 파일들 (L0)
-│   ├── 01_Workspaces/      # 워크스페이스 정의 (curate.yml)
-│   ├── 03_Notes/           # 샘플 마크다운 노트
-│   └── 04_Resources/       # 샘플 레퍼런스 PDF/HTML
-├── dialogues/              # [선택] 자동화 스크립트 (.sh 또는 .py)
-├── fixture_workspace_rules/ # [선택] 이 시나리오를 위한 에이전트 규칙
-└── create_testbed.py       # [레거시] 선택적 커스텀 설정 스크립트
+tests/
+├── create_testbed.py       # [레거시] 선택적 커스텀 설정 스크립트
+└── scenarios/<scenario_name>/
+    ├── MASTER_PLAN.md          # [필수] 목표 및 설정 지침
+    ├── stage/                  # [필수] 원시 소스 파일들 (L0)
+    │   ├── 01_Workspaces/      # 워크스페이스 정의 (curate.yml)
+    │   ├── 03_Notes/           # 샘플 마크다운 노트
+    │   └── 04_Resources/       # 샘플 레퍼런스 PDF/HTML
+    ├── dialogues/              # [선택] 자동화 스크립트 (.sh 또는 .py)
+    └── fixture_workspace_rules/ # [선택] 이 시나리오를 위한 에이전트 규칙
 ```
 
 ## 2. 단계별 생성 방법

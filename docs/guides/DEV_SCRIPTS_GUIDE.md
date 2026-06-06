@@ -6,15 +6,16 @@ This guide explains how to create and manage development validation scenarios (t
 Every scenario lives in `tests/scenarios/<scenario_name>/`. Use the `testbed_template` as your starting point.
 
 ```text
-tests/scenarios/<scenario_name>/
-├── MASTER_PLAN.md          # [Required] Goals and setup instructions
-├── stage/                  # [Required] The raw source files (L0)
-│   ├── 01_Workspaces/      # Workspace definitions (curate.yml)
-│   ├── 03_Notes/           # Sample markdown notes
-│   └── 04_Resources/       # Sample reference PDFs/HTML
-├── dialogues/              # [Optional] Automation scripts (.sh or .py)
-├── fixture_workspace_rules/ # [Optional] Agent rules for this scenario
-└── create_testbed.py       # [Legacy] Optional custom setup script
+tests/
+├── create_testbed.py       # [Legacy] Optional custom setup script
+└── scenarios/<scenario_name>/
+    ├── MASTER_PLAN.md          # [Required] Goals and setup instructions
+    ├── stage/                  # [Required] The raw source files (L0)
+    │   ├── 01_Workspaces/      # Workspace definitions (curate.yml)
+    │   ├── 03_Notes/           # Sample markdown notes
+    │   └── 04_Resources/       # Sample reference PDFs/HTML
+    ├── dialogues/              # [Optional] Automation scripts (.sh or .py)
+    └── fixture_workspace_rules/ # [Optional] Agent rules for this scenario
 ```
 
 ## 2. Step-by-Step Creation
