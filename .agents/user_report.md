@@ -3,25 +3,50 @@
 > **에이전트 참고**: 각 항목 옆 `→ plan` 링크가 해당 마일스톤 명세서입니다.
 > 배치 작업 시 같은 plan에 묶인 항목들은 함께 처리하세요.
 
+## 📝 계획됨 (Planned)
+
+- **[PR 픽스] `db import --dry-run` 시 변경사항 0건 표시 버그**
+- **[기능 제안] Zotero급 로컬 DB 클라우드화 (Syncthing 연동 기반 자동 Export/Import 동기화 아키텍처 및 엣지 케이스 대응)**`
+
+  - 현상: 현재 DB(`state.sqlite`) 업데이트 내역을 수동으로 export/import 해야 함. 사용자는 Syncthing을 통해 기기 간 파일을 동기화 중.
+  - 제안: Zotero의 데이터베이스 클라우드 동기화 시스템과 동일한 수준의 안정성을 제공하도록 시스템을 고도화. `.curator` 디렉터리나 DB에 변경이 발생하면 자동으로 `jsonl`을 export하고, 외부(Syncthing)에서 `jsonl` 파일이 업데이트되어 들어오면 기존 DB보다 최신인지 판별하여 자동으로 import하는 Zotero급 로컬 클라우드화 로직 추가.
+  - 구체적 트리거(Trigger) 및 UI 요구사항: 
+    1. **Auto-Export**: 사용자가 Obsidian에서 노트를 저장(Save)하거나 DB 변경사항이 생길 때마다 자동으로 Export를 트리거하여 최신 `jsonl`을 생성.
+    2. **Auto-Import**: 사용자가 컴퓨터를 켜거나 Obsidian을 열 때(Load) 자동으로 `jsonl` 타임스탬프를 체크하여 Import를 수행.
+    3. **수동 동기화 UI 버튼**: Obsidian 리본(Ribbon) 또는 명령어 팔레트에 수동으로 'DB Sync (Export/Import)'를 실행할 수 있는 버튼 추가.
+    4. **상태 불일치 알림창 (Mismatch Alert)**: DB의 최신 변경 시점과 `jsonl`의 타임스탬프가 어긋나거나, 내보내지 않은 변경사항이 있는 상태에서 새로운 `jsonl`이 들어오면 사용자에게 경고 알림창(Modal/Toast)을 띄움.
+  - 심층 분석 및 기기 동기화 시 추가 발생 가능 문제점 (Edge Cases):
+    1. **Syncthing 충돌 파일 (Sync Conflict) 생성 방치**:
+       - **문제**: 기기 A에서 동기화가 완료되기 전에 기기 B에서 옵시디언을 켜서 작업을 하면, Syncthing은 나중에 두 기기가 연결될 때 `*.sync-conflict-*` 형태의 JSONL 충돌 파일을 생성함.
+       - **해결/기능**: 플러그인이 파일 시스템 이벤트를 주시하여 `.curator` 내에 `sync-conflict` 파일이 발견되면, "동기화 충돌이 감지되었습니다"라는 UI 모달을 띄우고 사용자가 어떤 버전을 채택할지(Conflict Resolution) 선택하게 하거나 백업을 권고해야 함.
+    2. **옵시디언 로드 시점과 Syncthing 다운로드 지연 (Race Condition)**:
+       - **문제**: 사용자가 기기 B를 켜자마자 옵시디언을 열면, 백그라운드의 Syncthing이 아직 최신 `jsonl` 파일을 다운로드하지 못했을 수 있음. 이 경우 과거 데이터 상태로 Auto-Import가 완료됨. 나중에 뒤늦게 최신 `jsonl`이 다운로드 됨.
+       - **해결/기능**: 옵시디언이 열려 있는 도중에도 파일 시스템 Watcher를 통해 외부(Syncthing)에 의해 `jsonl` 파일이 업데이트되면 실시간으로 감지하여 "새로운 동기화 데이터가 도착했습니다. 지금 적용하시겠습니까?"라는 실시간 프롬프트를 띄우는 기능 추가 필요.
+    3. **단순 덮어쓰기(Overwrite)로 인한 데이터 유실 위험**:
+       - **문제**: 오프라인 상태에서 두 기기 모두 노트를 수정한 상태라면, 나중에 들어온 `jsonl` 파일을 DB에 단순 덮어쓰기(Overwrite)할 경우 한쪽 기기의 변경 내역이 완전히 날아감.
+       - **해결/기능**: 백엔드의 DB Import 로직이 단순 통째 교체가 아니라, 개별 엔티티(Atom, Concept 등)의 `updated_at` 타임스탬프를 기반으로 **병합(Upsert)** 하도록 정밀하게 설계되어야 함. 삭제된 엔티티에 대한 툼스톤(Tombstone) 동기화 전략도 고려 필요.
+    4. **대용량 JSONL 파싱 시 UI 프리징 (성능 문제)**:
+       - **문제**: 누적된 지식 데이터로 인해 `jsonl` 크기가 커지면, Auto-Import가 옵시디언의 메인 스레드를 점유하여 켜질 때 심각한 프리징을 유발할 수 있음.
+       - **해결/기능**: 파싱 및 DB 업데이트를 백그라운드 워커(Worker) 또는 백엔드 데몬에게 비동기적으로 위임하고, 옵시디언 UI에는 Sync 진행률이나 '동기화 중...' 표시를 보여주는 인디케이터(Indicator)가 필요함.
+
+
 ## 🚀 향후 해결할 미해결 항목 (To-Do)
 
-
-
-### 📦 01_minor_quick_wins.md 배치
-- **2. [마이너 업데이트] 웹 검색 기능 구현 검토** → `01_minor_quick_wins.md`
+### 📦 minor_quick_wins.md 배치
+- **[마이너 업데이트] 웹 검색 기능 구현 검토** → `minor_quick_wins.md`
   - 현상: 로컬 모델(Ollama, Deepseek 등) 사용 시 웹 검색 기능 연동을 지원할지 설계 및 구현 필요.
-- **9. [검증 필요] L1~L4 생성 문서 내 Obsidian `[[wikilink]]` 명시적 링킹 도입 여부 검토** → `01_minor_quick_wins.md`
+- **[검증 필요] L1~L4 생성 문서 내 Obsidian `[[wikilink]]` 명시적 링킹 도입 여부 검토** → `minor_quick_wins.md`
   - 현상: 백엔드 파이프라인에서 생성되는 L1~L4 문서들에 핵심 엔티티나 개념이 옵시디언 고유의 `[[wikilink]]` 문법으로 명시화되어 있지 않음.
   - 불확실성(Pending): 사용자 기억상 과거 DB 구조에서 백링크(Backlink) 추적 시 정규식 편의를 위해 `()` 또는 일반 마크다운 링크를 쓰느라 `[[wikilink]]`를 의도적으로 제거했을 가능성이 있음.
   - 요구사항: 무작정 프롬프트를 고치기 전에, 기존 백엔드 DB의 파싱 로직(`()` 백링크 처리 등)과 `[[wikilink]]` 문법이 충돌하지 않는지 아키텍처 레벨에서 검증 후 도입 여부 결정.
-- **10. [마이너 업데이트] Diff Viewer UI/UX 개선** → `01_minor_quick_wins.md`
+- **[마이너 업데이트] Diff Viewer UI/UX 개선** → `minor_quick_wins.md`
   - 현황: `plugin/src/ui/diffViewer.ts` (530줄)에 기능 구현은 되어 있으나 현재 UI/UX가 불편함.
   - 요구사항: 사용자가 직관적으로 변경사항을 수락/거절할 수 있도록 UI/UX 전반 개선. 예: 버튼/헝크 레이아웃 정리, 다크/라이트 테마 대응, 키보드 단축키 힌트 표시, 헝크 간 이동 UX 등.
 
-### 📦 02_stabilization.md 배치
-- **3. [매이저 업데이트] qmd/검색 엔진 심층 분석 및 보완** → `02_stabilization.md`
+### 📦 stabilization.md 배치
+- **[매이저 업데이트] qmd/검색 엔진 심층 분석 및 보완** → `stabilization.md`
   - 현상: qmd가 어떻게 동작하는지 repository를 심층 분석해서 search engine에서 부족한 부분 보완.
-- **4. [매이저 업데이트] PDF 및 정제된 지식(Atom, Concept) 내 수학 수식 누락 문제 해결** → `02_stabilization.md`
+- **[매이저 업데이트] PDF 및 정제된 지식(Atom, Concept) 내 수학 수식 누락 문제 해결** → `stabilization.md`
   - 현상: 현재 `pymupdf4llm`을 기본 파서로 사용 중이나, 표나 텍스트 흐름 보존과 달리 복잡한 공학/수학 논문의 블록 수식은 완벽한 `LaTeX` 코드로 역변환(OCR)되지 않고 깨지거나 누락되어 L1에 온전히 반영되지 않음. 또한, Markdown 원본에는 수식이 유지됨에도 불구하고, 이를 바탕으로 L2(Atom), L3(Concept)로 지식을 정제하는 과정에서 LLM이 수식을 보존하지 않고 증발시키는 문제가 있음.
   - 팩트체크 필요: 아키텍처 개편에 앞서, 실제로 `pymupdf4llm`이 수식 영역을 마크다운으로 변환할 때 어떤 형태의 텍스트(Garbage text)로 파편화하여 뱉어내는지, 혹은 완전히 생략해버리는지에 대해 L1 생성 결과물에 대한 구체적인 팩트체크 및 디버깅이 선행되어야 함.
   - 개선 방향 (하이브리드 파이프라인): 팩트체크 결과에 따라, 페이지 전체를 VLM에 넘기는 대신 `pymupdf4llm`으로 텍스트와 뼈대를 빠르게 잡고 수식(Formula)으로 판별된 영역만 이미지 캡처 후 백엔드 VLM(Claude, Gemini 등)에게 넘겨 `LaTeX` 코드로 번역하는 **하이브리드 추출 방식** 도입 검토. 아울러 LLM 지식 추출 프롬프트 자체도 수식을 보존하도록 강화 필수.

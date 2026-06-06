@@ -56,3 +56,9 @@ for cross-device SQLite synchronisation.  PR #4 submitted; awaiting user merge.
 - Added "Sync Database" UI Ribbon button.
 - Cleaned up `.agents/user_report.md` and deleted completed plan files in `.agents/plans/`.
 - Pushed changes to `release/v0.4.0`. Waiting for User to create PR since `gh pr create` failed due to auth.
+
+### Update (2026-06-06, Antigravity - Planner)
+- Created a new master implementation plan for v0.4.0 review fixes based on the Arena Model.
+- Plan saved to `.agents/plans/04_zotero_sync.md` involving multiple sub-agents (DB Architect, Frontend Expert, Security Auditor).
+- Moved the `dry-run` bug and `Syncthing Sync` feature requirements from `To-Do` to `Planned` in `.agents/user_report.md`.
+- Waiting for user's approval on the plan. No code has been implemented.
