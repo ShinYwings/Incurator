@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.3.3)
+# Incurator - System Behavior (v0.4.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1316,7 +1316,7 @@ Dashboard synthesis actions are read-only. The Synthesis/Graph view lists recent
 L4 `SYN-` nodes and opens `wiki plugin synthesis show` details so the user can
 inspect the L4→L1 evidence chain without manual SQLite access.
 
-## 24. GitHub Integration (v0.3.3)
+## 24. GitHub Integration (v0.4.0)
 
 ### 24.1 Authentication Boundary
 The system relies on the GitHub CLI (`gh`) for authentication. The Obsidian
