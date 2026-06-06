@@ -606,6 +606,38 @@ external agents over MCP — see the [MCP User Guide](./MCP_USER_GUIDE.md) §3.6
 
 ---
 
+## 🔄 Cross-Device Knowledge Sync (`wiki db`)
+
+Incurator stores all knowledge in `.curator/state.sqlite`. Because SQLite files cannot be safely merged by file-sync tools (Syncthing, iCloud, Dropbox), the `wiki db` commands provide a safe JSONL-based export/import pipeline for moving your knowledge between devices.
+
+### How it works
+
+1. **Export** your knowledge base on Device A → produces a `.jsonl` file
+2. **Transfer** the file to Device B (scp, AirDrop, Syncthing, USB, etc.)
+3. **Import** on Device B → records are merged using Last-Write-Wins; deleted records propagate via tombstones; `wiki reindex` runs automatically
+
+### `wiki db export`
+
+```bash
+wiki db export                              # exports to .curator/export-YYYYMMDD.jsonl
+wiki db export --out ~/Desktop/kb.jsonl     # custom output path
+wiki db export --since 2026-01-01T00:00:00Z # incremental: only changed records
+wiki db export --compress                   # gzip output (.jsonl.gz)
+```
+
+### `wiki db import`
+
+```bash
+wiki db import ~/Desktop/kb.jsonl          # import and auto-reindex
+wiki db import ~/Desktop/kb.jsonl --dry-run # preview changes without writing
+wiki db import ~/Desktop/kb.jsonl --skip-reindex  # import without reindexing
+```
+
+> [!NOTE]
+> Device-local data (vector embeddings, background job state) is **never** included in export files. After import, `wiki reindex` rebuilds the local search index automatically.
+
+---
+
 ## 🧩 Configuration Management
 
 Incurator allows you to safely and conveniently manage all core settings via the `wiki config` command without having to manually edit the `.curator/config.yml` file.

@@ -575,6 +575,38 @@ Tier-2 LLM/HyDE query expansion은 기본적으로 recovery mechanism으로 켜�
 
 ---
 
+## 🔄 기기 간 지식 동기화 (`wiki db`)
+
+Incurator는 모든 지식을 `.curator/state.sqlite`에 저장합니다. SQLite 파일은 Syncthing, iCloud, Dropbox 같은 파일 동기화 도구로는 안전하게 병합할 수 없으므로, `wiki db` 명령어를 통해 JSONL 기반 내보내기/가져오기 파이프라인을 제공합니다.
+
+### 동작 방식
+
+1. **내보내기**: 기기 A에서 지식 베이스를 내보내면 `.jsonl` 파일이 생성됩니다.
+2. **전송**: 파일을 기기 B로 전달합니다 (scp, AirDrop, Syncthing, USB 등).
+3. **가져오기**: 기기 B에서 가져오기 실행 → 최신 레코드 우선(LWW) 병합, 삭제된 레코드는 Tombstone으로 전파, `wiki reindex` 자동 실행.
+
+### `wiki db export`
+
+```bash
+wiki db export                              # .curator/export-YYYYMMDD.jsonl로 내보내기
+wiki db export --out ~/Desktop/kb.jsonl     # 출력 경로 지정
+wiki db export --since 2026-01-01T00:00:00Z # 이후 변경된 레코드만 증분 내보내기
+wiki db export --compress                   # gzip 압축 (.jsonl.gz)
+```
+
+### `wiki db import`
+
+```bash
+wiki db import ~/Desktop/kb.jsonl          # 가져오기 후 자동 reindex
+wiki db import ~/Desktop/kb.jsonl --dry-run # 실제 변경 없이 미리 보기
+wiki db import ~/Desktop/kb.jsonl --skip-reindex  # reindex 없이 가져오기만
+```
+
+> [!NOTE]
+> 기기 로컬 데이터(벡터 임베딩, 백그라운드 잡 상태)는 내보내기 파일에 **절대 포함되지 않습니다**. 가져오기 후 `wiki reindex`가 자동으로 로컬 검색 인덱스를 재구축합니다.
+
+---
+
 ## 🧩 설정 관리 (Configuration)
 
 Incurator는 `.curator/config.yml` 파일을 직접 수정하지 않아도, `wiki config` 명령어를 통해 모든 핵심 설정을 안전하고 편리하게 관리할 수 있습니다.
