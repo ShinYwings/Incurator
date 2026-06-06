@@ -44,10 +44,22 @@ node_modules/
 // Syncing these causes massive conflicts and battery drain
 .curator/runtime/
 
+// Incurator auto-sync: per-device local marks (device_id, peer high-water marks)
+// Must stay local — syncing it makes devices overwrite each other's marks and
+// trigger re-import storms. NOTE: do NOT exclude .curator/sync/ — those dev-*.jsonl
+// knowledge snapshots are exactly what Syncthing must carry between devices.
+.curator/sync_state.json
+
 // Agent & Testbed (Optional)
 .claude/
 testbed/
 ```
+
+> [!IMPORTANT]
+> Cross-device auto-sync (`wiki db autosync`) relies on Syncthing carrying the
+> `.curator/sync/dev-<device_id>.jsonl` snapshot files. Keep `.curator/sync/`
+> **synced**; only `.curator/state.sqlite` and `.curator/sync_state.json` are
+> device-local. See USER_GUIDE "Cross-Device Knowledge Sync" and SYSTEM_BEHAVIOR §13.1.
 
 > **Note**: `sessions.json` may be synchronized in v0.2.1 because the plugin merges by session id before saving and records delete tombstones in `deletedSessionIds`. Keep `data.json` local if settings contain per-device paths such as MCP commands, backend executable paths, or Zotero paths.
 

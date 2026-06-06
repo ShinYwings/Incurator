@@ -1333,6 +1333,20 @@ CREATE TABLE IF NOT EXISTS deleted_records (
 - During `wiki db import`, tombstones are applied **before** upserts. A tombstone beats a concurrent update (deletion wins over modification).
 - Device-local tables (`search_embeddings`, `ingest_jobs`, `job_events`, `page_hashes`, FTS5 virtual tables) are **never** listed as `table_name` in tombstones and are excluded from `wiki db export`.
 
+**Device-local columns (`_DEVICE_LOCAL_COLUMNS`):** Some columns are device-specific
+and must not be overwritten by a peer's value during an LWW *update*. The authoritative
+map lives in `db_sync._DEVICE_LOCAL_COLUMNS`:
+
+| Table | Column | Reason |
+|---|---|---|
+| `sources` | `external_path` | Reference-Mode (Zotero) absolute path differs per machine; a peer's path would break local file resolution. |
+
+On **update** of an existing row, a non-NULL local value for a device-local column is
+preserved while all other columns merge by LWW. On **insert** the peer value is taken
+(no local value exists yet). New device-local columns MUST be added to this single map
+(and documented here) rather than handled ad hoc. This is the one-writer-per-file
+auto-sync contract; see SYSTEM_BEHAVIOR §13.1.
+
 ---
 
 ## 18. Source Truth Protection (Schema-Level)

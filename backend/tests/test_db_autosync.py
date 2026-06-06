@@ -312,6 +312,84 @@ class TestAutosync:
         assert (_internal(vault) / "runtime" / "sync_conflicts" / conflict.name).exists()
 
 
+class TestTwoDeviceE2E:
+    """Full Syncthing-style round trip across two independent vaults."""
+
+    def _vault(self, base: Path, name: str) -> Path:
+        v = base / name
+        (v / ".curator").mkdir(parents=True)
+        db.init_db(v / ".curator" / "state.sqlite")
+        return v
+
+    def _sync_from_to(self, src: Path, dst: Path) -> None:
+        """Simulate Syncthing copying every dev-*.jsonl from src into dst."""
+        src_sync = src / ".curator" / "sync"
+        dst_sync = dst / ".curator" / "sync"
+        dst_sync.mkdir(parents=True, exist_ok=True)
+        if not src_sync.is_dir():
+            return
+        for f in src_sync.glob("dev-*.jsonl"):
+            (dst_sync / f.name).write_text(f.read_text(encoding="utf-8"), encoding="utf-8")
+
+    def test_bidirectional_merge_no_loss(self, tmp_path: Path) -> None:
+        A = self._vault(tmp_path, "A")
+        B = self._vault(tmp_path, "B")
+        dbA, dbB = A / ".curator" / "state.sqlite", B / ".curator" / "state.sqlite"
+        intA, intB = A / ".curator", B / ".curator"
+
+        # Each device creates a distinct atom offline.
+        _add_atom(dbA, "ATM-A1", "from-A", "2026-06-01T00:00:00Z")
+        _add_atom(dbB, "ATM-B1", "from-B", "2026-06-01T00:00:00Z")
+
+        # A exports, Syncthing carries A's file to B, B autosyncs.
+        db_sync.autosync(intA, dbA)
+        self._sync_from_to(A, B)
+        db_sync.autosync(intB, dbB)
+
+        # Syncthing carries B's (now updated) file back to A, A autosyncs.
+        self._sync_from_to(B, A)
+        db_sync.autosync(intA, dbA)
+
+        for dbp in (dbA, dbB):
+            with db.connect(dbp) as conn:
+                ids = {r[0] for r in conn.execute("SELECT id FROM atoms")}
+            assert {"ATM-A1", "ATM-B1"} <= ids  # neither device lost data
+
+    def test_concurrent_edit_newer_wins(self, tmp_path: Path) -> None:
+        A = self._vault(tmp_path, "A")
+        B = self._vault(tmp_path, "B")
+        dbA, dbB = A / ".curator" / "state.sqlite", B / ".curator" / "state.sqlite"
+        intA, intB = A / ".curator", B / ".curator"
+
+        # Same atom edited on both devices; B's edit is newer.
+        _add_atom(dbA, "ATM-X", "A-version", "2026-06-01T00:00:00Z")
+        _add_atom(dbB, "ATM-X", "B-version", "2026-06-05T00:00:00Z")
+
+        db_sync.autosync(intB, dbB)
+        self._sync_from_to(B, A)
+        db_sync.autosync(intA, dbA)
+
+        with db.connect(dbA) as conn:
+            name = conn.execute("SELECT name FROM atoms WHERE id='ATM-X'").fetchone()[0]
+        assert name == "B-version"  # newer edit won on A
+
+    def test_reimport_is_stable_noop(self, tmp_path: Path) -> None:
+        """Repeated autosync with no new data must not loop or rewrite endlessly."""
+        A = self._vault(tmp_path, "A")
+        B = self._vault(tmp_path, "B")
+        dbA, dbB = A / ".curator" / "state.sqlite", B / ".curator" / "state.sqlite"
+        intA, intB = A / ".curator", B / ".curator"
+
+        _add_atom(dbA, "ATM-A1", "from-A", "2026-06-01T00:00:00Z")
+        db_sync.autosync(intA, dbA)
+        self._sync_from_to(A, B)
+        db_sync.autosync(intB, dbB)
+        # Second pass on B with the same peer file: nothing imported, nothing exported.
+        res2 = db_sync.autosync(intB, dbB)
+        assert all(s.inserted == 0 and s.updated == 0 for s in res2.imported.values())
+        assert res2.exported is None
+
+
 class TestLocalUnexported:
     def test_true_when_never_exported(self, vault: Path) -> None:
         _add_atom(_db(vault), "ATM-Z", "z", "2026-06-01T00:00:00Z")

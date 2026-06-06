@@ -636,6 +636,24 @@ wiki db import ~/Desktop/kb.jsonl --skip-reindex  # import without reindexing
 > [!NOTE]
 > Device-local data (vector embeddings, background job state) is **never** included in export files. After import, `wiki reindex` rebuilds the local search index automatically.
 
+### `wiki db autosync` — automatic sync over Syncthing
+
+If you already sync your vault folder with **Syncthing**, `wiki db autosync` turns the manual export/import above into a hands-off, Zotero-grade flow.
+
+```bash
+wiki db autosync             # import peers, merge conflicts, export self if changed
+wiki db autosync --dry-run   # preview without writing
+```
+
+How it stays safe across devices:
+
+- **One file per device.** Each device writes only its own `.curator/sync/dev-<id>.jsonl` and reads everyone else's. Because no two devices write the same file, Syncthing never creates write-write conflicts.
+- **Last-Write-Wins merge.** Records merge row-by-row by timestamp; deletes propagate via tombstones. Concurrent offline edits on two devices both survive — there is no whole-file overwrite.
+- **No infinite loops** — without any fragile hash guard. A device never imports its own file, and it re-exports only when something actually changed.
+- **Syncthing conflict files** (`*.sync-conflict-*`) are imported as ordinary peers (always data-safe) and archived under `.curator/runtime/sync_conflicts/`.
+
+`.curator/state.sqlite` and `.curator/sync_state.json` stay device-local (excluded in `.stignore`); only the `.curator/sync/` JSONL files travel between devices. To have `wiki update` export automatically for CLI-only workflows, set `auto_sync.enabled: true` in `.curator/config.yml`. The Obsidian plugin drives `wiki db autosync` for you — see the Plugin Guide.
+
 ---
 
 ## 🧩 Configuration Management

@@ -64,4 +64,12 @@ Date: 2026-06-07 | Plan: `syncthing_auto_sync.md` (+ `syncthing_auto_sync_arena/
   change + conflict Notices). Settings UI: 4 toggles (enabled/on-load/watch/notify),
   optional in PluginSettings (read with `!== false`). `tsc` clean, `npm run build` ok,
   `vitest` → **282 passed** (incl. new SyncScheduler + dbAutosync tests).
-- P5: _pending_
+- P5: **PASS** — Docs (EN+KR): USER_GUIDE `wiki db autosync`, PLUGIN_GUIDE auto-sync
+  settings/triggers, SYNC_IGNORE_GUIDE `sync_state.json` exclusion. Specs: SYSTEM_BEHAVIOR
+  §13.1 rewritten (removed the stale reverted `sync_meta.json` hash design) + §13.3;
+  SCHEMA `_DEVICE_LOCAL_COLUMNS`. CHANGELOG: replaced stale reverted-approach entry, added
+  Fixed note for the dry-run/import bug. **E2E**: `TestTwoDeviceE2E` — bidirectional merge
+  (no loss), concurrent-edit-newer-wins, stable re-import no-op. Full CI: backend
+  **485 passed**, `ruff` clean (mypy db_sync clean; config.py note is pre-existing
+  missing `types-PyYAML` stub, and CI runs ruff+pytest only); plugin **282 passed**, `tsc`
+  clean, `npm run build` ok. No `SCHEMA_VERSION` bump (still 7).
