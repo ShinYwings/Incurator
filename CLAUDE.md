@@ -191,6 +191,23 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
 
 ---
 
+## Core Rule: Review Feedback Loop (Plan-First, Proactively)
+
+**A PR is not the end of the workflow — review feedback re-enters it.** When a review (human PR comment, `/code-review` / `ultrareview` findings, or an in-session design review) surfaces a **new feature request or a non-trivial bug** on work that is already in flight, the agent MUST handle it through the same plan-first discipline as any other item — **without being asked**. Do not wait for the user to say "make a plan"; recognizing review feedback and routing it back through the workflow is the agent's own responsibility.
+
+The mandatory sequence when review feedback arrives:
+
+1. **Capture in `user_report.md` immediately.** Add the feedback as a labeled item under the `To-Do`/`Planned` sections: `[PR 픽스]` for a bug, `[기능 제안]` for a feature/enhancement. Preserve the reviewer's edge cases verbatim — do not compress them away (see Anti-Compression rule).
+2. **Author a `PLAN_TEMPLATE.md`-compliant plan BEFORE writing any implementation code.** A non-trivial review-requested feature gets the full Arena treatment (problem statement → persona proposals → cross-critique → master plan), exactly like a fresh milestone. Link the plan from its `user_report.md` item and vice versa.
+3. **STOP for approval on substantial work.** As with Step 3 of the Universal Strict Workflow, pause for user approval of the plan before coding a substantial feature. (Trivial nits — see exception below — skip this.)
+4. **Then implement** through TDD + incremental commits + local CI, and only then push the follow-up onto the same release branch / PR.
+
+**TRIVIAL-NIT EXCEPTION**: Pure review nits with no behavioral or architectural impact — typos, lint, formatting, a rename, a one-line guard, a doc-only fix — may be patched directly into the open PR without a separate plan. Use judgment: if it touches schema, control flow, a public contract, a new file/module, or introduces a new user-facing behavior, it is NOT trivial and needs a plan.
+
+**WHY THIS RULE EXISTS (anti-pattern to avoid)**: Hot-patching a substantial feature directly in response to a review comment — coding first, skipping the Arena plan — produces buggy, hard-to-review changes that often have to be reverted wholesale. A real precedent: a cross-device auto-sync feature was implemented straight from review feedback with no Arena plan; its hash-based loop-prevention silently broke `wiki db import` (reported 0 changes) and the entire feature had to be reverted, then re-planned from scratch. Plan-first is cheaper than revert-then-replan. **The disease is "code-first on review feedback"; the cure is "capture → plan → approve → implement," done proactively.**
+
+---
+
 ## Core Rule: Cross-Agent Relay Protocol
 
 To prevent context fragmentation and hallucinations when switching between AI coding agents (Antigravity, Claude Code, Cursor/Codex), all agents MUST adhere to the following protocol:
