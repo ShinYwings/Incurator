@@ -80,7 +80,8 @@ def test_sync_device_registry_preserves_remote_device_profiles(tmp_path: Path, m
     curator_dir.mkdir(parents=True)
     config_path = tmp_path / "config.xml"
     config_path.write_text(SYNCTHING_CONFIG.format(vault=vault), encoding="utf-8")
-    registry_path = vault / device_registry.REGISTRY_RELATIVE_PATH
+    registry_path = device_registry.registry_path(vault)
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
     registry_path.write_text(
         json.dumps(
             {
@@ -121,7 +122,8 @@ def test_sync_device_registry_prunes_stale_syncthing_devices(tmp_path: Path) -> 
     curator_dir.mkdir(parents=True)
     config_path = tmp_path / "config.xml"
     config_path.write_text(SYNCTHING_CONFIG.format(vault=vault), encoding="utf-8")
-    registry_path = vault / device_registry.REGISTRY_RELATIVE_PATH
+    registry_path = device_registry.registry_path(vault)
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
     registry_path.write_text(
         json.dumps(
             {
@@ -156,7 +158,8 @@ def test_sync_device_registry_restores_missing_local_id_from_platform_entry(tmp_
     curator_dir.mkdir(parents=True)
     config_path = tmp_path / "config.xml"
     config_path.write_text(SYNCTHING_CONFIG.format(vault=vault), encoding="utf-8")
-    registry_path = vault / device_registry.REGISTRY_RELATIVE_PATH
+    registry_path = device_registry.registry_path(vault)
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
     registry_path.write_text(
         json.dumps(
             {

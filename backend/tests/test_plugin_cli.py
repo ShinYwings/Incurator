@@ -228,7 +228,11 @@ def test_devices_default_status_lists_syncthing_only_profiles(tmp_path: Path) ->
     curator_dir = vault / ".curator"
     curator_dir.mkdir(parents=True)
     (curator_dir / "config.yml").write_text("version: 1\n", encoding="utf-8")
-    (curator_dir / "devices.json").write_text(
+    
+    from curator import device_registry
+    registry_path = device_registry.registry_path(vault)
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(
         json.dumps(
             {
                 "version": 1,
