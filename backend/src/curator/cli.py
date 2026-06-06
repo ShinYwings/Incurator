@@ -3248,7 +3248,7 @@ def update(
     rebuild routing tables (`sync`). Use the individual `add` / `build` /
     `reindex` / `sync` commands for finer control.
     """
-    _resolve_root_or_die()
+    paths = _resolve_root_or_die()
     console.print()
     console.print("[bold]Updating vault[/bold] — add → build → embed → sync")
 
@@ -3271,8 +3271,30 @@ def update(
             backward=False,
         )
 
+    _maybe_auto_export(paths)
+
     console.print()
     _ok("Vault up to date.")
+
+
+def _maybe_auto_export(paths: cfg.WikiPaths) -> None:
+    """When `auto_sync.enabled`, write this device's snapshot after a mutation.
+
+    Best-effort: any failure is logged but never breaks the host command. The
+    explicit `wiki db autosync` path is unaffected by this flag.
+    """
+    try:
+        config = cfg.load_config(paths)
+        block = config.get("auto_sync") or {}
+        if not block.get("enabled"):
+            return
+        from curator.db_sync import export_for_device
+        out = export_for_device(
+            paths.internal, paths.state_db, dir_name=block.get("dir", "sync")
+        )
+        console.print(f"[dim]Auto-sync: exported snapshot → {out.name}[/dim]")
+    except Exception as e:  # pragma: no cover — defensive
+        console.print(f"[dim]Auto-sync export skipped: {e}[/dim]")
 
 
 @jobs_app.command("list")
@@ -3481,8 +3503,7 @@ def db_export(
     stats = export_knowledge(paths.state_db, out, since=since, compress=compress)
 
     if json_output:
-        import json as _json
-        console.print(_json.dumps({"out": str(out), "total_rows": stats.total_rows, "by_table": stats.rows_by_table}))
+        _print_json({"out": str(out), "total_rows": stats.total_rows, "by_table": stats.rows_by_table})
     else:
         console.print(f"[green]Exported {stats.total_rows} rows → {out}[/green]")
         for tbl, count in stats.rows_by_table.items():
@@ -3498,7 +3519,6 @@ def db_import(
     json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON summary.", hidden=True),
 ) -> None:
     """Import a JSONL export file into the local knowledge DB (LWW merge)."""
-    import json as _json
     from curator.db_sync import import_knowledge
 
     if not path.exists():
@@ -3521,7 +3541,7 @@ def db_import(
     }
 
     if json_output:
-        console.print(_json.dumps(summary))
+        _print_json(summary)
     else:
         tag = "[dim](dry-run)[/dim] " if dry_run else ""
         console.print(
@@ -3531,6 +3551,51 @@ def db_import(
         )
 
     if not dry_run and not skip_reindex:
+        console.print("[dim]Running wiki reindex…[/dim]")
+        _refresh_qmd_index(paths)
+
+
+@db_app.command("autosync")
+def db_autosync(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without writing to DB or sync files."),
+    skip_reindex: bool = typer.Option(False, "--skip-reindex", help="Skip wiki reindex after import."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON summary.", hidden=True),
+) -> None:
+    """Bidirectional cross-device sync: import peers (+ merge conflict files), then
+    export this device's snapshot if anything changed (one-writer-per-file)."""
+    from curator.db_sync import autosync
+
+    paths = _resolve_root_or_die()
+    res = autosync(paths.internal, paths.state_db, dry_run=dry_run)
+
+    total = sum(
+        s.inserted + s.updated + s.deleted for s in res.imported.values()
+    )
+    summary = {
+        "dry_run": res.dry_run,
+        "imported_files": len(res.imported),
+        "inserted": sum(s.inserted for s in res.imported.values()),
+        "updated": sum(s.updated for s in res.imported.values()),
+        "deleted": sum(s.deleted for s in res.imported.values()),
+        "conflicts": res.conflicts,
+        "exported": res.exported,
+    }
+
+    if json_output:
+        _print_json(summary)
+    else:
+        tag = "[dim](dry-run)[/dim] " if dry_run else ""
+        console.print(
+            f"[green]{tag}Auto-sync:[/green] "
+            f"+{summary['inserted']} inserted, ~{summary['updated']} updated, "
+            f"{summary['deleted']} deleted from {summary['imported_files']} peer file(s)"
+        )
+        if res.conflicts:
+            console.print(f"[yellow]Merged {len(res.conflicts)} Syncthing conflict file(s).[/yellow]")
+        if res.exported:
+            console.print(f"[dim]Exported snapshot → {res.exported}[/dim]")
+
+    if not dry_run and not skip_reindex and total:
         console.print("[dim]Running wiki reindex…[/dim]")
         _refresh_qmd_index(paths)
 

@@ -96,8 +96,8 @@ _UPDATED_AT_COL: dict[str, str] = {
     "deleted_records": "deleted_at",
 }
 
-# Primary key column per table.
-_PK_COL: dict[str, str] = {
+# Primary key column per table. None = composite/handled-separately (always upsert).
+_PK_COL: dict[str, str | None] = {
     "sources": "id",
     "atoms": "id",
     "concepts": "id",
@@ -558,3 +558,87 @@ def detect_conflict_files(internal_dir: Path, *, dir_name: str = "sync") -> list
     if not sync_dir.is_dir():
         return []
     return sorted(sync_dir.glob("*.sync-conflict-*"))
+
+
+def _local_max_ts(db_path: Path) -> str:
+    """The newest LWW timestamp across all canonical tables (for mismatch detection)."""
+    newest = ""
+    with db.connect(db_path) as conn:
+        existing = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        for tbl, col in _UPDATED_AT_COL.items():
+            if tbl not in existing or tbl == "deleted_records":
+                continue
+            row = conn.execute(f"SELECT MAX({col}) FROM {tbl}").fetchone()
+            if row and row[0] and row[0] > newest:
+                newest = row[0]
+    return newest
+
+
+def local_has_unexported_changes(internal_dir: Path, db_path: Path) -> bool:
+    """True if the local DB has rows newer than this device's last export."""
+    last = read_sync_state(internal_dir).get("last_export_ts")
+    if not last:
+        return True
+    return _local_max_ts(db_path) > last
+
+
+def _archive_conflict(cf: Path, internal_dir: Path) -> None:
+    """Move a merged conflict file out of the synced dir into local runtime storage,
+    so it stops re-triggering the conflict notice and is not re-synced."""
+    archive = internal_dir / "runtime" / "sync_conflicts"
+    archive.mkdir(parents=True, exist_ok=True)
+    try:
+        cf.rename(archive / cf.name)
+    except Exception:
+        pass
+
+
+@dataclass
+class AutosyncResult:
+    imported: dict[str, ImportStats] = field(default_factory=dict)
+    conflicts: list[str] = field(default_factory=list)
+    exported: str | None = None
+    dry_run: bool = False
+
+
+def autosync(
+    internal_dir: Path,
+    db_path: Path,
+    *,
+    dry_run: bool = False,
+    dir_name: str = "sync",
+) -> AutosyncResult:
+    """One-shot bidirectional sync: import peers (+ merge/archive conflict files),
+    then export this device's snapshot only if anything actually changed.
+
+    Loop-safe: never imports own file; export is skipped when nothing changed, and
+    even when it runs, peers ignore this device's file and re-import is mtime-gated.
+    """
+    result = AutosyncResult(dry_run=dry_run)
+    conflicts = detect_conflict_files(internal_dir, dir_name=dir_name)
+    result.conflicts = [c.name for c in conflicts]
+
+    # Conflict files are LWW-mergeable; import then archive (real runs only).
+    if not dry_run:
+        for cf in conflicts:
+            try:
+                result.imported[cf.name] = import_knowledge(db_path, cf)
+            except Exception:
+                continue
+            _archive_conflict(cf, internal_dir)
+
+    result.imported.update(
+        import_all_peers(internal_dir, db_path, dry_run=dry_run, dir_name=dir_name)
+    )
+
+    changed = any(
+        s.inserted or s.updated or s.deleted for s in result.imported.values()
+    )
+    if not dry_run and (changed or local_has_unexported_changes(internal_dir, db_path)):
+        result.exported = export_for_device(
+            internal_dir, db_path, dir_name=dir_name
+        ).name
+    return result

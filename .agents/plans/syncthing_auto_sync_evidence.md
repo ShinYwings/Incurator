@@ -46,6 +46,15 @@ Date: 2026-06-07 | Plan: `syncthing_auto_sync.md` (+ `syncthing_auto_sync_arena/
   block-level transfer + subprocess import mitigate size. Incremental deferred.
   `pytest tests/test_db_autosync.py` → 15 passed; regression `test_db_sync.py` +
   `test_db_schema.py` → 23 passed; `ruff` clean.
-- P3: _pending_
+- P3: **PASS** — `db_sync.autosync` (import peers + merge/archive conflict files +
+  export-if-changed), `wiki db autosync [--dry-run] [--json] [--skip-reindex]`,
+  `_maybe_auto_export` hook on `wiki update` (gated by `auto_sync.enabled`).
+  **Scope note**: hook wired into `update` only (single clean exit), not threaded into
+  the 500-line `sync`/`add`/`build` exit mazes — `wiki db autosync` (explicit, used by
+  the plugin) covers the standalone path. **Bug fixed**: `--json` used
+  `console.print(json.dumps(...))` which rich wrapped mid-token at width 80 (would break
+  the plugin's JSON parse); switched export/import/autosync `--json` to `_print_json`
+  (valid JSON). Also fixed pre-existing mypy error on `_PK_COL` annotation.
+  Full suite: **482 passed**; `ruff` + `mypy src/curator/db_sync.py` clean.
 - P4: _pending_
 - P5: _pending_

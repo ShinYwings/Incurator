@@ -262,3 +262,62 @@ def _peer_with_tombstone(vault: Path, filename: str, table: str, rid: str, ts: s
         encoding="utf-8",
     )
     return peer
+
+
+# ---------------------------------------------------------------------------
+# P3 — autosync orchestrator
+# ---------------------------------------------------------------------------
+
+
+class TestAutosync:
+    def test_imports_peer_and_exports_self(self, vault: Path) -> None:
+        _make_peer(vault, "dev-peerGGGG.jsonl", "ATM-0001", "P", "2026-06-03T00:00:00Z")
+        res = db_sync.autosync(_internal(vault), _db(vault))
+        assert res.imported["dev-peerGGGG.jsonl"].inserted == 1
+        # Exported self because the import changed the local DB.
+        did = db_sync.get_device_id(_internal(vault))
+        assert res.exported == f"dev-{did}.jsonl"
+        assert (_internal(vault) / "sync" / res.exported).exists()
+
+    def test_noop_when_nothing_changed(self, vault: Path) -> None:
+        # First pass exports baseline.
+        db_sync.export_for_device(_internal(vault), _db(vault))
+        # No peers, no local change → no re-export.
+        res = db_sync.autosync(_internal(vault), _db(vault))
+        assert res.exported is None
+        assert res.imported == {}
+
+    def test_dry_run_writes_nothing(self, vault: Path) -> None:
+        _make_peer(vault, "dev-peerHHHH.jsonl", "ATM-0002", "Q", "2026-06-03T00:00:00Z")
+        res = db_sync.autosync(_internal(vault), _db(vault), dry_run=True)
+        assert res.dry_run is True
+        with db.connect(_db(vault)) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM atoms").fetchone()[0] == 0
+
+    def test_conflict_file_merged_and_archived(self, vault: Path) -> None:
+        # A conflict file carrying one atom.
+        sync_dir = _internal(vault) / "sync"
+        sync_dir.mkdir(parents=True, exist_ok=True)
+        src = tmp_src(vault, "ATM-0003", "C", "2026-06-04T00:00:00Z")
+        conflict = sync_dir / "dev-peerIIII.sync-conflict-20260607-120000-ABCDEFG.jsonl"
+        conflict.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+
+        res = db_sync.autosync(_internal(vault), _db(vault))
+        assert conflict.name in res.conflicts
+        # Atom merged in.
+        with db.connect(_db(vault)) as conn:
+            assert conn.execute("SELECT 1 FROM atoms WHERE id='ATM-0003'").fetchone() is not None
+        # Conflict file moved out of the synced dir.
+        assert not conflict.exists()
+        assert (_internal(vault) / "runtime" / "sync_conflicts" / conflict.name).exists()
+
+
+class TestLocalUnexported:
+    def test_true_when_never_exported(self, vault: Path) -> None:
+        _add_atom(_db(vault), "ATM-Z", "z", "2026-06-01T00:00:00Z")
+        assert db_sync.local_has_unexported_changes(_internal(vault), _db(vault)) is True
+
+    def test_false_after_export(self, vault: Path) -> None:
+        _add_atom(_db(vault), "ATM-Z", "z", "2026-06-01T00:00:00Z")
+        db_sync.export_for_device(_internal(vault), _db(vault))
+        assert db_sync.local_has_unexported_changes(_internal(vault), _db(vault)) is False
