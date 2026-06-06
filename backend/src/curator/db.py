@@ -20,7 +20,7 @@ from typing import Any, Iterator
 
 from . import constants as consts
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -497,6 +497,22 @@ CREATE TABLE IF NOT EXISTS query_traces (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_query_traces_workspace_created ON query_traces(workspace_id, created_at);
+
+-- Cross-device sync tombstones: records deleted on this device so other devices can apply the deletion on import.
+CREATE TABLE IF NOT EXISTS deleted_records (
+    table_name  TEXT NOT NULL,
+    record_id   TEXT NOT NULL,
+    deleted_at  TEXT NOT NULL,
+    PRIMARY KEY (table_name, record_id),
+    CHECK (table_name IN (
+        'sources','atoms','concepts','synthesis_nodes',
+        'source_spans','knowledge_units','graph_entities','graph_relations',
+        'community_reports','memory_paths','prompt_runs','dag_edges',
+        'curation_plans','insight_candidates','artifact_dependencies',
+        'synthesis','query_traces','source_pages','source_pdf_pages'
+    ))
+);
+CREATE INDEX IF NOT EXISTS idx_deleted_records_at ON deleted_records(deleted_at);
 """
 
 
