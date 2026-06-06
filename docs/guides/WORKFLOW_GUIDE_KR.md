@@ -128,6 +128,9 @@ wiki add 04_Resources/
 wiki build            # L2/L3를 백그라운드 워커에 큐잉 (논블로킹)
 wiki build --wait     # L2(Atoms) → L3(Concepts)를 지금 동기 실행
 #   - 진행 상황: .curator/dashboard.md 실시간 업데이트 (Obsidian에서 바로 확인)
+
+# 단축: 2~4단계(add → build → 임베딩 → sync)를 한 번에 동기 실행
+wiki update
 ```
 
 > **2단계 수집**: `wiki add`는 소스를 등록하고 즉시 L1을 생성한다(구조 기반, LLM 없음) —

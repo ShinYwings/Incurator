@@ -11,6 +11,8 @@ per-workspace Exhibition generation; curation is a dynamic query-time lens.
 """
 
 from __future__ import annotations
+import os
+
 from . import constants as consts
 
 import json
@@ -22,11 +24,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from pydantic import BaseModel, Field
 from typing import Iterable
 
 from . import config as cfg
-from . import constants as consts
 from . import db
 from . import parsers
 from .llm import LLMError
@@ -90,7 +90,6 @@ def _default_logical_source_id(source: Path) -> str:
     return f"ref-{digest[:16]}"
 
 
-import os
 
 def _resolve_reference_source(paths: cfg.WikiPaths, source: Path) -> Path:
     """Resolve Reference Mode Markdown Stubs to their actual external target.
@@ -236,6 +235,40 @@ def _reference_stub_destination(paths: cfg.WikiPaths, source: Path, destination:
     if not _is_inside(dest, resources_dir):
         raise ValueError("Reference stub destination must stay inside 04_Resources.")
     return dest
+
+
+def _find_existing_reference_stub(directory: Path, logical_id: str) -> Path | None:
+    """Return an existing reference stub in ``directory`` for ``logical_id``.
+
+    Reference Mode keys an external document by its stable ``logical_source_id``
+    (e.g. ``zotero:<attachmentKey>``). If a stub for that id already exists on
+    disk we must reuse it instead of writing a duplicate ``<name>-2.md``. This
+    happens when the stub file survives but its ``sources`` DB row does not —
+    for example after a ``state.sqlite`` rebuild or a testbed re-init — so the
+    DB dedup lookup misses and the destination would otherwise collide.
+    """
+    if not logical_id or not directory.is_dir():
+        return None
+    import yaml
+
+    for candidate in sorted(directory.glob("*.md")):
+        try:
+            content = candidate.read_text(encoding="utf-8")
+            if not content.startswith("---"):
+                continue
+            end_idx = content.find("---", 3)
+            if end_idx == -1:
+                continue
+            fm = yaml.safe_load(content[3:end_idx])
+        except Exception:
+            continue
+        if (
+            isinstance(fm, dict)
+            and fm.get("type") == "reference"
+            and fm.get("logical_source_id") == logical_id
+        ):
+            return candidate.resolve()
+    return None
 
 
 def _write_reference_stub(
@@ -1824,7 +1857,14 @@ def import_source_file(
                     relpath=str(source),
                     message=str(exc),
                 )
-            stub_path = _unique_destination(stub_path)
+            # Reuse an existing stub for the same external document instead of
+            # writing a duplicate `<name>-2.md` when the DB row is missing but
+            # the stub file still exists on disk (e.g. after a state rebuild).
+            existing_stub = _find_existing_reference_stub(stub_path.parent, logical_id)
+            if existing_stub is not None:
+                stub_path = existing_stub
+            else:
+                stub_path = _unique_destination(stub_path)
             relpath = str(stub_path.relative_to(paths.root.resolve()))
 
         if dry_run:

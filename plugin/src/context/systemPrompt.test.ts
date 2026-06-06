@@ -14,6 +14,10 @@ describe("buildBaseSystemPrompt", () => {
     expect(text).toContain("Preserve the user's syntax form");
     expect(text).toContain("First understand the user's edit intent");
     expect(text).toContain("selected PDF/text region as the example");
+    // Item 17: the math instruction must not model backtick-wrapped math and
+    // must forbid it explicitly, so the LLM stops emitting `$x$`.
+    expect(text).toContain("Never wrap a math expression in inline-code backticks");
+    expect(text).not.toContain("(e.g., `$x = 2$`)");
     expect(text).not.toContain("external 'incurator' MCP server enabled");
     expect(text).not.toContain("Plan mode is enabled");
   });

@@ -118,6 +118,12 @@ wiki build
 ```
 - **L4 Synthesis**: corpus-wide, cross-cutting insights distilled from the community reports — shared and workspace-independent.
 
+> [!TIP]
+> **One-shot update**: instead of running `wiki add`, `wiki build`, and
+> `wiki sync` by hand, run `wiki update` to do the whole pipeline
+> (discover → L1 → L2/L3 → vector embeddings → verification) synchronously in a
+> single step.
+
 ---
 
 ---
@@ -170,6 +176,11 @@ Syncthing, browser download folders, or other external locations.
 - The backend calculates the content hash and records a source entry in
   `state.sqlite`.
 - `04_Resources/` receives a small markdown reference stub, not a copied PDF.
+- Re-referencing the same external document never creates a duplicate stub. The
+  backend keys each reference by its stable `logical_source_id` (for Zotero,
+  `zotero:<attachmentKey>`) and reuses the existing stub — even if the
+  `state.sqlite` row was lost and only the stub file survives on disk, so you no
+  longer see a `<name>-2.md` twin appear under `04_Resources/References/`.
 - `external_path` is only a recoverable location hint. The durable identity is
   the content hash plus logical source identity.
 - Automatically generated reference stubs do not include absolute PDF paths by
@@ -435,22 +446,50 @@ Or update it from within a chat session via the `curator_update_artist_persona` 
 
 ## 🐙 GitHub Integration (v0.3.3)
 
-Incurator (v0.3.3+) supports native GitHub integration to seamlessly manage your vault's documents using Git commits and remote repository syncing. This feature focuses on conversational AI actions rather than complex UI buttons.
+Incurator can inspect an already Git-managed vault from Obsidian and expose the
+common GitHub workflow through sidechat. This is designed for vaults that already
+use GitHub and may already have scheduled commits. The plugin does not add a
+manual Commit/Push button cluster.
 
 ### 1. Authentication (Login / Logout)
-GitHub authentication is managed directly in the **Obsidian Plugin Settings**:
+
+GitHub authentication is managed in **Obsidian Plugin Settings**:
+
 - Go to `Settings > Incurator`.
-- Scroll down to the **GitHub Integration** section (right below the AI Provider settings).
-- The plugin utilizes the GitHub CLI (`gh auth status`) to check your login state. If you are not logged in, clicking the **Authenticate** button will open a terminal to perform the secure `gh auth login` flow.
+- Use the **GitHub Integration** section below the AI Provider settings.
+- The plugin uses the GitHub CLI (`gh auth status`) to check login state. If you
+  are not logged in, the login action opens a terminal for the secure
+  `gh auth login` flow.
+- The plugin does not store GitHub OAuth tokens.
 
 ### 2. Conversational Git Sync (Sidechat)
-There are no manual "Commit" or "Push" buttons to clutter the UI. Instead, the Antigravity LLM in your **Sidechat** is equipped with native Git tools.
-- **Checking Status**: Ask the agent, *"Are there any unpushed changes?"* or *"What's the status of my remote repository?"* The agent will run `git status` or `git log` and summarize the history.
-- **Committing Changes**: Tell the agent, *"Commit my recent changes to the knowledge graph"* or *"Sync my notes to GitHub."* The agent will automatically construct a commit message and perform the `git add`, `git commit`, and `git push` operations for you.
+
+Sidechat can run deterministic backend Git commands for the active vault:
+
+- **Status**: ask *"Are there any unpushed changes?"* or *"What's the GitHub
+  status?"* to summarize branch, upstream, ahead/behind, dirty files, and
+  `.curator/` ignore warnings.
+- **Push**: ask *"push해줘"* or *"Push this vault to GitHub."* The backend runs
+  `git push` only when the branch has an upstream and is not behind/diverged.
+- **History for selected text**: select Markdown text and ask *"이 내용 예전에
+  어떻게 바뀌었는지 히스토리 찾아줘."* The backend searches git history for the
+  selected text or a normalized excerpt in the active Markdown file and returns
+  matching commits with capped patch snippets.
+- **File history**: ask for the active Markdown file's history to get recent
+  commits and summaries.
+
+Scheduled commit jobs remain compatible with this flow. Incurator's sidechat
+does not need to create commits before pushing when your scheduler already does
+that. A guarded commit backend primitive may exist for explicit requests, but
+the default conversational workflow is status/history/push.
 
 > [!TIP]
 > **.gitignore Best Practices**
-> By default, the `.curator/` directory (which contains the heavy SQLite DB and search indices) should be ignored to prevent large binary conflicts. Only markdown files and standard configuration should be tracked in Git.
+> Git decides what is tracked. Incurator stages or inspects files according to
+> `.gitignore`; ignored files are not added. `.curator/` should be ignored
+> because it contains generated SQLite databases and vector/search indexes. If
+> `.curator/` is not ignored, the Git status result warns you instead of
+> silently editing `.gitignore`.
 
 ## 🛠️ Core Commands (CLI Reference)
 
@@ -467,8 +506,9 @@ Summary of major commands following the user workflow.
 ### 2. Knowledge Ingestion & Management
 | Command | Description | When to use |
 | :--- | :--- | :--- |
+| `wiki update` | **One-shot pipeline**: runs `add` → `build --wait` → vector embeddings → `sync` synchronously, bringing the whole vault up to date in a single command. Use `--force` to rebuild existing layers and `--no-sync` to skip the final verification. | The everyday "just make it current" command |
 | `wiki add <file>` | Registers sources and compiles instant L1 Contexts (structural, no LLM) directly into the database. | Adding new information |
-| `wiki build` | Compiles L2 Atoms + L3 Concepts from registered L1 Contexts into the database. Uses the configured LLM for high-quality extraction and can fall back to deterministic L3 Concepts if the provider fails. Queues jobs and automatically starts a detached background daemon to process them asynchronously; `--wait` runs synchronously. The background daemon (`wiki jobs run`) **also (re)generates vector embeddings** when it finishes, so search becomes fully vector-ready without a separate `wiki reindex --embed`. This embed refresh runs even when the queue was already empty, so an interrupted earlier build still converges to vector search on the next `build`/`jobs run`. | Deep knowledge-graph construction |
+| `wiki build` | Compiles L2 Atoms + L3 Concepts from registered L1 Contexts into the database. Uses the configured LLM for high-quality extraction and can fall back to deterministic L3 Concepts if the provider fails. By default it queues jobs and starts a detached background daemon; `--wait` runs synchronously. Build **always (re)generates vector embeddings** when it finishes — even when no atoms changed or the queue was already empty — so search converges to vector-ready without a separate `wiki reindex --embed`. (The queue is drained internally; the `jobs` command group still exists for the background worker but is hidden from `wiki --help`.) | Deep knowledge-graph construction |
 | `wiki source ls` | Lists all registered sources. | Checking collected data inventory |
 | `wiki source show <id>` | Shows details and processing status for a specific source. | Diagnosing source errors |
 | `wiki source rm <id>` | Removes a source registration and its generated L1 nodes. | Removing an incorrect source |
@@ -484,7 +524,7 @@ Summary of major commands following the user workflow.
 | `wiki models ensure` | Install/refresh local search model dependencies and GGUF files. `setup.sh` runs this automatically unless `INCURATOR_SKIP_MODELS=1` is set. |
 | `wiki models status` | Show local search model health, cache paths, and dependency status as JSON. |
 | `wiki config get <key>` | Read a specific config value. (e.g. `wiki config get llm.primary`) |
-| `wiki config set <key> <value>` | Update a specific config value. (e.g. `wiki config set llm.model gemini-3.5-flash`) |
+| `wiki config set <key> <value>` | Update a specific config value. Writes to the **global** config by default; pass `--local` to write the active vault's `.curator/config.yml` (the vault config shadows global keys on load). (e.g. `wiki config set --local llm.fallback ""`) |
 | `wiki config secret list/delete` | Inspect masked local encrypted backend secrets or delete a stored secret. |
 
 ### 3. Refinement & Optimization
@@ -506,6 +546,8 @@ Summary of major commands following the user workflow.
 | :--- | :--- | :--- |
 | `wiki query "..."` | Gets refined answers to questions. | Using curated knowledge |
 | `wiki query "..." --route explore` | Routes through the v0.3.2 curation-native orchestrator (DB graph + DB-native hybrid search) with a query trace. | Discovering connections, scoped routing |
+| `wiki inspect synthesis <SYN-…>` | Exports the L4-to-L1 evidence chain for a synthesis node. Add `--json` for machine-readable output. | Proving why a generated synthesis exists |
+| `wiki inspect answer <QTR-…>` | Exports the evidence chain behind a recorded query trace. Add `--json` for machine-readable output. | Auditing an answer from Sources & Trace |
 | `wiki workspace init` | Initializes a workspace. | Starting a new project |
 
 #### v0.3.2 Curation-Native Query Routes
@@ -521,6 +563,8 @@ Summary of major commands following the user workflow.
 
 Queries are **sessionless**: they return an answer + a `QTR-` trace and write no
 vault file. Durable artifacts come only from an explicit promotion to `02_Wiki/`.
+Every orchestrator query persists the `QTR-` trace so the answer can later be
+audited with `wiki inspect answer <QTR-…>`.
 
 Without `--route`, `auto` runs. Search is DB-native in v0.3.2: FTS5 lexical
 retrieval, chunk-level vectors, typed query expansion (`lex`/`vec`/`hyde`), RRF,
@@ -540,6 +584,9 @@ high-confidence searches stable while still recovering paraphrase-heavy misses.
 | `wiki prompt show <PROMPT_ID>` | Show a prompt's templates, validators, and output model. |
 | `wiki prompt trace <PTR-…>` | Inspect a recorded prompt run (model, validator status, hashes). |
 | `wiki prompt eval` | Run the offline prompt-eval fixtures (no LLM). |
+| `wiki inspect synthesis <SYN-…>` | Inspect a read-only audit report for one L4 Synthesis node, including community reports, graph entities/relations, source spans, prompt traces, and warnings. |
+| `wiki inspect report <REP-…>` | Inspect the source support for one L3 community report. |
+| `wiki inspect answer <QTR-…>` | Inspect the persisted route, selected evidence, prompt traces, and warnings for one query answer. |
 | `wiki insight list [--workspace P] [--status pending]` | List provisional insight candidates. |
 | `wiki insight show <INS-…>` | Show one insight candidate. |
 | `wiki insight promote <INS-…>` | Promote a candidate to a durable `02_Wiki/` note (explicit, human-approved). |
@@ -653,6 +700,10 @@ the Obsidian dashboard's **System** card shows the live embed/reranker model
 identity + health — click the **Embed model** / **Reranker** rows to re-provision
 (`wiki plugin models refresh`). To (re)build the vector index after the models are
 healthy, run `wiki reindex --embed` (plain `wiki reindex` rebuilds FTS5/chunks only).
+If you need a manual backend-only repair, run
+`cd backend && uv pip install -e '.[rerank]'`. Do not run
+`uv pip install -e .` from the repository root; the Python project lives in
+`backend/`.
 
 ### 3. Status Verification (`wiki status`)
 A comprehensive dashboard that provides a multi-dimensional diagnosis of your vault's health and the operational status of your AI engines. This is the first command you should check whenever you have questions during system operation.

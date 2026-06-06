@@ -22,25 +22,21 @@ class PersistExtension implements nunjucks.Extension {
   }
 
   run(context: any, name: string, body: () => string) {
-    let retainedText = '';
-    if (context?.ctx?._retained && context.ctx._retained[name]) {
-      retainedText = context.ctx._retained[name];
+    let content = body();
+    if (context?.ctx?._retained && typeof context.ctx._retained[name] !== 'undefined') {
+      content = context.ctx._retained[name];
     }
-    let bodyText = body();
-    if (retainedText) {
-      bodyText = bodyText.trimStart();
-    }
-    return new nunjucks.runtime.SafeString(`%% begin ${name} %%${retainedText}${bodyText}%% end ${name} %%`);
+    return new nunjucks.runtime.SafeString(`{% persist "${name}" %}${content}{% endpersist %}`);
   }
 
   static hasPersist(text: string): boolean {
-    return /%% begin (.+?) %%([\w\W]*?)%% end \1 %%/gi.test(text);
+    return /\{%\s*persist\s+"([^"]+)"\s*%\}([\w\W]*?)\{%\s*endpersist\s*%\}/gi.test(text);
   }
 
   static prepareTemplateData(data: any, existingContent?: string): any {
     const retained: Record<string, string> = {};
     if (existingContent) {
-      const matches = existingContent.matchAll(/%% begin (.+?) %%([\w\W]*?)%% end \1 %%/gi);
+      const matches = existingContent.matchAll(/\{%\s*persist\s+"([^"]+)"\s*%\}([\w\W]*?)\{%\s*endpersist\s*%\}/gi);
       for (const match of matches) {
         retained[match[1]] = match[2];
       }

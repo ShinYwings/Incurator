@@ -1,4 +1,3 @@
-import pytest
 from curator.ingest_raw import _chunk_text
 
 def test_chunk_text_preserves_latex():

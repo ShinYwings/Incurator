@@ -156,14 +156,28 @@ Concrete examples:
 
 ## Core Rule: Automatic /goal Workflow Mandate
 
-Whenever a user requests a new feature, major change, or uses the `/goal` command, the agent MUST automatically follow this strict 4-step workflow without being explicitly prompted:
+**GLOBAL PRIORITY RULE**: Before starting any `/goal` or architectural planning, agents MUST check `.agents/user_report.md`. If there are unresolved bugs or pending items in the user report, you MUST prioritize fixing those first. Only proceed with architectural planning if the user report is empty or explicitly overridden by the user.
 
-1. **Plan First (Research & Design)**: Read the existing `docs/` to understand the current architecture. Then, write a detailed implementation plan in `.agents/plans/`. If there are design decisions or ambiguities, you MUST recommend the `/grill-me` slash command to align with the user through an interactive interview. **STOP** and wait for user approval before coding or changing docs.
-2. **Docs Update**: Once the plan is approved, update or create the relevant specifications in `docs/specs/` and user guides in `docs/guides/` to define the target behavior.
-3. **Test-Driven Development (TDD)**: Write failing tests (e.g., `pytest` or `testbed` scenarios) before writing the application logic.
-4. **Implementation**: Write the code to make the tests pass, referencing the updated docs and plan, keeping changes surgical and minimal.
+## Core Rule: System Update Workflow (Universal Strict Workflow)
 
-Do not skip straight to implementation. This workflow is non-negotiable for architectural changes or `/goal` requests.
+**GLOBAL PRIORITY RULE**: Before starting any `/goal` or architectural planning, agents MUST check `.agents/user_report.md`. If there are unresolved bugs or pending items in the user report, you MUST prioritize grouping and fixing those first.
+**BLOCKED ICEBOX EXCEPTION**: If an item in `user_report.md` is waiting on an external dependency or cannot be fixed immediately, move it to a `🧊 Blocked / Icebox` section within the file. The Global Priority Rule explicitly IGNORES items in this section.
+**HOTFIX EXCEPTION**: If a critical bug is reported while a large Batch Release (e.g., `v0.4.0`) is already being planned or worked on, the agent MUST immediately create a separate `hotfix/...` branch, patch the bug (`+0.0.1`), and open a PR. Do not delay hotfixes by bundling them into ongoing major/minor batch plans.
+
+Whenever a user requests a new feature, reports a bug, or uses the `/goal` command, the agent MUST automatically follow this strict 12-step `Universal Strict Workflow`:
+
+1. **Batch & Version Planning**: Read `.agents/user_report.md` (ignoring Blocked items) and group related items into a single Batch Release. Decide whether this batch warrants a Patch, Minor, or Major version bump. **CRITICAL**: If the update is Minor/Major and includes breaking schema changes, you MUST plan and write a data migration script.
+2. **Branch Creation**: Create and switch to a new Git branch for the release (e.g., `release/v0.3.3` or `feature/issue-name`). NEVER work directly on the `main` branch. You MUST update `.agents/relay.md` with the current branch name so other agents know where they are.
+3. **Plan Creation & Report Status Update**: Write a detailed implementation plan in `.agents/plans/` using the `.agents/plans/PLAN_TEMPLATE.md` blueprint. **CRITICAL**: As soon as the plan is drafted, you MUST update `.agents/user_report.md` by moving the target item from the `To-Do` section to the `Planned` section to reflect its active state. If there are ambiguities, explicitly ask the user clarifying questions before proceeding. **STOP** and wait for user approval before coding.
+4. **Docs Update**: Update `docs/specs/` and `docs/guides/` to define the target behavior. (Crucial: Update the English guides first, then faithfully synchronize the matching `_KR.md` Korean guides).
+5. **Test-Driven Development (TDD)**: Write failing tests before writing application logic.
+6. **Implementation & Incremental Commits**: Write code to make tests pass. Commit work incrementally using Conventional Commits (e.g., `feat(core): ...`, `fix(plugin): ...`).
+7. **Local CI Validation**: Before finalizing, you MUST run all local checks: `uv run pytest`, `ruff check`, `mypy`, and the plugin's `npx vitest run`. Ensure the entire system is intact.
+8. **Report Cleanup**: Once an item is verified, **delete** it from `.agents/user_report.md`.
+9. **Version Bump & Changelog**: Update the version strings in all relevant configuration files (`pyproject.toml`, `package.json`, `manifest.json`) AND update `CHANGELOG.md` with the release notes for this version.
+10. **Plan Deletion**: **Delete** the implemented plan file(s) from the workspace. The plan's historical context will be statically preserved in the Git history for this version.
+11. **Release Commit**: Create a final release commit explicitly named `chore(release): vX.Y.Z`.
+12. **Push & PR (Zero-Interaction Auto-Pilot)**: Push the branch to the remote repository. Create a GitHub Pull Request that includes a detailed PR Description (Why, What, How). **CRITICAL**: Once the workflow begins, agents MUST auto-approve their own steps and operate with zero user interaction. Do not pause to ask the user for confirmation on intermediate code changes or terminal commands. The human user's ONLY responsibility is to review and merge the final Pull Request on GitHub.
 
 ---
 
@@ -178,6 +192,7 @@ To prevent context fragmentation and hallucinations when switching between AI co
 - **Format & Behavior**: 
   - **For Main Architecture Tasks / Goals**: Overwrite `.agents/relay.md` entirely using the standard template (Goal, Plan Reference, Analysis & Reasoning, Progress Status, Critical Context/Blockers, Immediate Next Action). Maintain a single active state for the core task.
   - **For Bug Fixes / Side-Tasks (Antigravity Only)**: When Antigravity is assigned side-tasks or bug fixes, it must NOT overwrite the main relay state. Instead, **APPEND** a new section (e.g., `### Update (YYYY-MM-DD)`) at the bottom of `.agents/relay.md` summarizing what was investigated, fixed, or modified. This ensures the primary agent's context is not destroyed by small interventions.
+  - **Antigravity Fallback Execution**: If primary executors (e.g., Claude Code) are rate-limited or resting, Antigravity may temporarily act as the Executor. However, any code written by Antigravity MUST be explicitly marked in `.agents/relay.md` for mandatory verification by the primary Executor upon wakeup.
 
 ---
 
@@ -186,12 +201,12 @@ To prevent context fragmentation and hallucinations when switching between AI co
 All feature additions, bug fixes, migrations, and system rule changes must be validated in the `testbed/` vault which simulates a real environment. 
 
 ### Testbed Scenario Management
-The standard scenario template for development and validation is located at `scripts/dev/`. 
-Each scenario is contained in its own folder (e.g., `scripts/dev/testbed_template/`). 
+The standard scenario template for development and validation is located at `tests/scenarios/`. 
+Each scenario is contained in its own folder (e.g., `tests/scenarios/testbed_template/`). 
 Agents should refer to the specific scenario's `MASTER_PLAN.md` to understand the domain and validation goals.
 
-- **Standard Template**: `scripts/dev/testbed_template/` is the blueprint for creating new scenarios, but it is rarely the active one.
-- **Scenario Discovery**: Because developers often use custom, `.gitignore`d scenario folders (e.g., `GS_Testbed`), the agent MUST first identify or ask the USER which scenario folder under `scripts/dev/` is currently active. Do not blindly default to `testbed_template`.
+- **Standard Template**: `tests/scenarios/testbed_template/` is the blueprint for creating new scenarios, but it is rarely the active one.
+- **Scenario Discovery**: Because developers often use custom, `.gitignore`d scenario folders, the agent MUST first identify or ask the USER which scenario folder under `tests/scenarios/` is currently active. Do not blindly default to `testbed_template`.
 - **Initialization Requirement**: If the `testbed/` directory does not exist, the agent MUST initialize it using the active scenario's name (`wiki testbed init <scenario_name>`). If the USER explicitly refuses, the agent may skip testbed validation but must report the risk of unverified changes.
 - **Before Action**: Before changing behavior, reproduce or describe the failing scenario using `testbed/` or the active scenario assets.
 - **After Action**: After changing behavior, run the same scenario again and report the result.
@@ -202,13 +217,15 @@ Agents should refer to the specific scenario's `MASTER_PLAN.md` to understand th
 Recommended baseline:
 
 ```bash
-# Replace <scenario_name> with the folder name (e.g., testbed_template or GS_Testbed)
+# Replace <scenario_name> with the folder name (e.g., testbed_template)
 # Optional: --llm <provider> --model <model_name>
 wiki testbed init <scenario_name> --force
 VAULT_ROOT=testbed wiki status
 VAULT_ROOT=testbed wiki add
 VAULT_ROOT=testbed wiki sync
 VAULT_ROOT=testbed wiki lint
+# Or run the whole ingest pipeline (add → build → embed → sync) in one step:
+VAULT_ROOT=testbed wiki update
 ```
 
 The generated `testbed/` vault is configured to use a primary LLM backend (default: `antigravity-cli`). Before running LLM-sensitive testbed commands, make sure the configured primary LLM tool is installed and authenticated.
@@ -235,8 +252,8 @@ The **entire `docs/` tree is source of truth**. The system design becomes increa
 When they conflict, the more concrete layer (spec) dictates the implementation reality, but any divergence means both are wrong until reconciled. Do not treat guides as subordinate to specs — fix both together.
 
 **Dynamic Planning**: `.agents/plans/` for implementation sequencing and context.
-- `.agents/plans/2024-05_v0.2.1_update/` for migration and feature implementation plans.
-- **CRITICAL**: When creating architectural or feature implementation plans, all agents (Codex, Claude, Antigravity) MUST write their plan artifacts into `.agents/plans/` (instead of default temporary directories). You MUST read `.agents/plans/` for historical context before modifying existing systems.
+- **CRITICAL RULE - PLAN TEMPLATE MANDATE**: When creating architectural or feature implementation plans, all agents (Codex, Claude, Antigravity) MUST FIRST read `.agents/plans/PLAN_TEMPLATE.md` and strictly copy/adhere to its Markdown skeleton. You MUST write your final plan artifacts into `.agents/plans/` (instead of default temporary directories). 
+- To read historical plans, you MUST use `git show` or `git log` on the `.agents/plans/` directory, as completed plans are deleted from the active workspace.
 - Plans describe *how* to implement; specs describe *what* to implement.
   When they conflict, specs and guides win over plans.
 
@@ -253,27 +270,20 @@ Before implementing any behavior change, the agent MUST:
 
 ### Spec-First Version Development
 
-Before implementing any new versioned architecture work (for example v0.2.1,
-v0.2.2, or a new DAG/schema/MCP behavior change), the agent MUST first create or
-update the matching `docs/specs/` contract:
+Before implementing any new architecture work, the agent MUST first create or update the matching `docs/specs/` contract:
 
-- Schema changes go in `docs/specs/curator_schema/SCHEMA_vX.Y.Z.md`.
-- Runtime behavior changes go in `docs/specs/system_behavior/SYSTEM_BEHAVIOR_vX.Y.Z.md`.
-- Plugin API changes go in `docs/specs/plugin_schema/PLUGIN_SCHEMA_vX.Y.Z.md`.
+- Schema changes go in `docs/specs/curator_schema/SCHEMA.md`.
+- Runtime behavior changes go in `docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`.
+- Plugin API changes go in `docs/specs/plugin_schema/PLUGIN_SCHEMA.md`.
 
-**CRITICAL RULE - SPEC SYNCHRONIZATION:** 
-The three core spec domains (`curator_schema`, `plugin_schema`, `system_behavior`) **MUST ALWAYS** be strictly version-synchronized. 
-1. When planning or starting a task, the agent MUST first check the root of the `docs/specs/` directories to discover the *latest* active version in use across all three folders.
-2. **Archives Rule**: Old versions of specs MUST be moved to the `archives/` folder within their respective domain directory. The root of each domain directory must only contain the single, currently active version of the spec. Do NOT use files in `archives/` as current contracts; they are for historical migration context only.
-3. If one domain (e.g., `curator_schema`) has been bumped to a new version (e.g., `v0.2.2`), you MUST immediately ensure the other two domains also have matching `v0.2.2` files (by copying the previous versions, renaming them, and moving the old versions to `archives/`). Do not leave one domain at `v0.2.1` while others are at `v0.2.2`.
-4. `.agents/plans/` artifacts must explicitly reference these synchronized `vX.Y.Z` spec files.
+**CRITICAL RULE - STATIC SPECS MANDATE:** 
+1. **Static Filenames**: Spec files MUST maintain static names (e.g., `SCHEMA.md`). Do NOT append version suffixes (e.g., `_v0.3.2.md`) to the filenames. The current version should only be noted inside the markdown title or frontmatter.
+2. **No Archives**: Do NOT use or create `archives/` folders for specs. Old versions of specs are tracked entirely via Git. If you need historical context, use `git log` and `git show`.
+3. **Synchronization**: When updating behavior for a new version, update all three core domains (`curator_schema`, `plugin_schema`, `system_behavior`) synchronously so they reflect the same target version in their titles.
 
-- If code has already been written before the spec exists, stop and add the
-  missing spec and guide entries before continuing implementation.
-- Tests should include a lightweight guard when practical so version plans cannot
-  drift away from the required `docs/specs/` contract.
+- If code has already been written before the spec exists, stop and add the missing spec and guide entries before continuing implementation.
 
-## v0.2.0 Invariants
+## System Invariants
 
 - The Curator DAG layers are `01_Contexts`, `02_Atoms`, `03_Concepts`, and
   `04_Exhibitions`.

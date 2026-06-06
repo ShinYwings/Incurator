@@ -203,7 +203,7 @@ CREATE INDEX IF NOT EXISTS idx_dag_edges_from ON dag_edges(from_id);
 CREATE INDEX IF NOT EXISTS idx_dag_edges_to   ON dag_edges(to_id);
 
 -- =====================================================================
--- v0.3.1 curation-native records (SCHEMA_v0.3.1.md §11)
+-- v0.3.1 curation-native records (SCHEMA.md §11)
 -- =====================================================================
 
 -- Precise, hashed regions of a source. The atomic citation unit.
@@ -384,7 +384,7 @@ CREATE TABLE IF NOT EXISTS artifact_dependencies (
 );
 CREATE INDEX IF NOT EXISTS idx_artifact_deps_dependson ON artifact_dependencies(depends_on_id);
 
--- L4 Synthesis: shared, durable corpus-wide synthesized insights (SCHEMA_v0.3.1
+-- L4 Synthesis: shared, durable corpus-wide synthesized insights (SCHEMA
 -- redesign). Workspace-INDEPENDENT distillation above concepts/community reports;
 -- the dynamic per-workspace "Curation" lens draws on these but does not store
 -- itself here. Source-grounded like every other generated layer.
@@ -404,7 +404,7 @@ CREATE TABLE IF NOT EXISTS synthesis_nodes (
 );
 CREATE INDEX IF NOT EXISTS idx_synthesis_nodes_conf ON synthesis_nodes(confidence);
 
--- v0.3.2 DB-native search (retires the external qmd binary). See SCHEMA_v0.3.2 §11.12–§11.16.
+-- v0.3.2 DB-native search (retires the external qmd binary). See SCHEMA §11.12–§11.16.
 CREATE TABLE IF NOT EXISTS search_documents (
     doc_id TEXT PRIMARY KEY,
     record_type TEXT NOT NULL,       -- source_span | knowledge_unit | graph_entity | graph_relation | community_report | synthesis_node
@@ -1343,7 +1343,7 @@ def get_source_row(
 
 
 # =====================================================================
-# v0.3.1 curation-native accessors (SCHEMA_v0.3.1.md §11)
+# v0.3.1 curation-native accessors (SCHEMA.md §11)
 # =====================================================================
 
 
@@ -2170,7 +2170,7 @@ def clear_synthesis_nodes(db_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# v0.3.2 DB-native search accessors (SCHEMA_v0.3.2 §11.12–§11.16)
+# v0.3.2 DB-native search accessors (SCHEMA §11.12–§11.16)
 # ---------------------------------------------------------------------------
 
 

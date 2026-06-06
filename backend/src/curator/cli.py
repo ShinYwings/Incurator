@@ -19,6 +19,7 @@ from . import constants as consts
 
 import json
 import os
+from importlib import resources
 from pathlib import Path
 from typing import Optional
 
@@ -79,6 +80,15 @@ source_app = typer.Typer(
 )
 app.add_typer(source_app, name="source")
 
+inspect_app = typer.Typer(
+    name="inspect",
+    help="Inspect synthesis, report, and answer evidence chains.",
+    no_args_is_help=True,
+    add_completion=False,
+    rich_markup_mode="rich",
+)
+app.add_typer(inspect_app, name="inspect")
+
 workspace_app = typer.Typer(
     name="workspace",
     help="Manage workspace curate.yml Knowledge Requirement Specifications.",
@@ -137,7 +147,10 @@ jobs_app = typer.Typer(
     add_completion=False,
     rich_markup_mode="rich",
 )
-app.add_typer(jobs_app, name="jobs")
+# Hidden from `wiki --help` (item 14): the common path is `wiki update`, which
+# drains the queue synchronously. `jobs` stays fully functional for the
+# background worker and the Obsidian dashboard.
+app.add_typer(jobs_app, name="jobs", hidden=True)
 
 plugin_app = typer.Typer(
     name="plugin",
@@ -184,10 +197,14 @@ plugin_insight_app = typer.Typer(name="insight", no_args_is_help=True, add_compl
 plugin_app.add_typer(plugin_insight_app, name="insight")
 plugin_trace_app = typer.Typer(name="trace", no_args_is_help=True, add_completion=False)
 plugin_app.add_typer(plugin_trace_app, name="trace")
+plugin_synthesis_app = typer.Typer(name="synthesis", no_args_is_help=True, add_completion=False)
+plugin_app.add_typer(plugin_synthesis_app, name="synthesis")
 plugin_correction_app = typer.Typer(name="correction", no_args_is_help=True, add_completion=False)
 plugin_app.add_typer(plugin_correction_app, name="correction")
 plugin_models_app = typer.Typer(name="models", no_args_is_help=True, add_completion=False)
 plugin_app.add_typer(plugin_models_app, name="models")
+plugin_git_app = typer.Typer(name="git", no_args_is_help=True, add_completion=False)
+plugin_app.add_typer(plugin_git_app, name="git")
 
 devices_app = typer.Typer(
     name="devices",
@@ -289,6 +306,81 @@ def prompt_eval() -> None:
     console.print(f"\n[dim]{passed}/{len(outcomes)} eval fixtures passed[/dim]")
     if passed != len(outcomes):
         raise typer.Exit(1)
+
+
+def _print_audit_summary(audit: dict) -> None:
+    if not audit.get("ok"):
+        console.print(f"[red]{audit.get('error', 'audit failed')}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[bold]{audit['kind']}[/bold] {audit['id']}")
+    synthesis = audit.get("synthesis")
+    if synthesis:
+        console.print(f"[cyan]Synthesis[/cyan]: {synthesis.get('title')}")
+        console.print(synthesis.get("statement", ""))
+    query_trace = audit.get("query_trace")
+    if query_trace:
+        console.print(
+            f"[cyan]Trace[/cyan]: {query_trace.get('traceId')} "
+            f"route={query_trace.get('route')}"
+        )
+    console.print(f"[cyan]Reports[/cyan]: {len(audit.get('community_reports') or [])}")
+    console.print(f"[cyan]Entities[/cyan]: {len(audit.get('entities') or [])}")
+    console.print(f"[cyan]Relations[/cyan]: {len(audit.get('relations') or [])}")
+    console.print(f"[cyan]Knowledge units[/cyan]: {len(audit.get('knowledge_units') or [])}")
+    console.print(f"[cyan]Source spans[/cyan]: {len(audit.get('source_spans') or [])}")
+    console.print(f"[cyan]Prompt runs[/cyan]: {len(audit.get('prompt_runs') or [])}")
+    for warning in audit.get("warnings") or []:
+        console.print(f"[yellow]warning:[/yellow] {warning}")
+    for warning in audit.get("dependency_warnings") or []:
+        console.print(f"[yellow]dependency:[/yellow] {warning}")
+
+
+@inspect_app.command("synthesis")
+def inspect_synthesis(
+    synthesis_id: str,
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
+) -> None:
+    """Inspect one L4 synthesis node's L4-to-L1 evidence chain."""
+    from .inspection import synthesis_audit
+
+    paths = _resolve_root_or_die()
+    audit = synthesis_audit.build_synthesis_audit(paths.state_db, synthesis_id)
+    if json_output:
+        _print_json(audit)
+    else:
+        _print_audit_summary(audit)
+
+
+@inspect_app.command("report")
+def inspect_report(
+    report_id: str,
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
+) -> None:
+    """Inspect one L3 community report's source support."""
+    from .inspection import synthesis_audit
+
+    paths = _resolve_root_or_die()
+    audit = synthesis_audit.build_report_audit(paths.state_db, report_id)
+    if json_output:
+        _print_json(audit)
+    else:
+        _print_audit_summary(audit)
+
+
+@inspect_app.command("answer")
+def inspect_answer(
+    trace_id: str,
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
+) -> None:
+    """Inspect one persisted query answer trace."""
+    from .inspection import synthesis_audit
+
+    paths = _resolve_root_or_die()
+    audit = synthesis_audit.build_answer_audit(paths.state_db, trace_id)
+    if json_output:
+        _print_json(audit)
+    else:
+        _print_audit_summary(audit)
 
 
 @insight_app.command("list")
@@ -1833,6 +1925,14 @@ def _run_artist_persona_wizard(client, project: str) -> dict | None:
 def _offer_install(overrides: dict, llm_cfg: dict) -> None:
     """After wizard, offer to install CLI tools and/or pull Ollama models."""
     import subprocess
+    import sys
+
+    # These offers are interactive (typer.confirm). When stdin is not a TTY —
+    # e.g. invoked as a subprocess by the Obsidian dashboard — skip them entirely
+    # so the command never blocks on, or aborts at, a prompt. The provider change
+    # has already been saved by the caller.
+    if not sys.stdin.isatty():
+        return
 
     primary = overrides.get("primary") or llm_cfg.get("primary", "")
     model   = overrides.get("model")   or llm_cfg.get("model", consts.DEFAULT_OLLAMA_MODEL)
@@ -2595,16 +2695,19 @@ def config_provider(
 
         llm["primary_effort"] = primary_effort
         overrides["primary"] = llm["primary"]
-        _offer_install(overrides, llm)
     else:
         # Interactive wizard
         overrides = _run_init_wizard()
         llm.update(overrides)
-        _offer_install(overrides, llm)
 
     llm.pop("provider", None)
     current_config["llm"] = llm
+    # Persist the provider change FIRST so it always sticks, then offer the
+    # optional (interactive-only) tool/model install. Previously the offer ran
+    # before the save, so a non-interactive caller (the Obsidian dashboard) that
+    # aborted at the prompt lost the change entirely.
     cfg.save_config(paths, current_config)
+    _offer_install(overrides, llm)
 
     console.print()
     console.print("[bold green]Provider settings saved.[/bold green]")
@@ -3049,14 +3152,16 @@ def build(
             _ok("No pending L1/L2 sources. Queued global L3 Concept clustering.")
             _spawn_background_worker(paths)
         else:
-            client = ingest_llm.get_client(paths, config)
-            if not client:
-                _err("No LLM client configured.")
-                raise typer.Exit(1)
             console.print()
             console.print("[dim]No pending sources. Running global L3 Concept clustering...[/dim]")
-            ingest_llm.run_l3_from_existing_atoms(paths, client, ingest_llm.IngestCallbacks)
-            _ok("Global L3 clustering complete.")
+            client = _start_client(config)
+            try:
+                ingest_llm.run_l3_from_existing_atoms(paths, client, ingest_llm.IngestCallbacks)
+                _ok("Global L3 clustering complete.")
+            finally:
+                client.close()
+            # Ensure embeddings are current even when nothing new was built (item 14).
+            _refresh_qmd_index(paths, embed=True)
         return
 
     # Default: enqueue to the background worker (non-blocking).
@@ -3090,8 +3195,13 @@ def build(
         console.print()
         _ok(f"Build complete: {atoms_created} atoms created, {atoms_updated} updated")
 
+        # Always refresh the vector index (item 14). update_index is
+        # fingerprinted/idempotent, so this is cheap when embeddings are already
+        # current, but it guarantees an already-built vault with stale/missing
+        # embeddings never silently stays FTS5-only.
+        _refresh_qmd_index(paths, embed=True)
+
         if atoms_created or atoms_updated:
-            _refresh_qmd_index(paths, embed=True)
             _invalidate_latest_sync_report(paths, reason="build changed L2-L3")
 
             # Progressively reinforce Curator persona from newly observed domains
@@ -3110,6 +3220,50 @@ def build(
     finally:
         if client is not None:
             client.close()
+
+
+@app.command()
+def update(
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Rebuild L1 Contexts and L2/L3 even if they already exist."
+    ),
+    no_sync: bool = typer.Option(
+        False, "--no-sync", help="Skip the final deductive verification (sync) pass."
+    ),
+) -> None:
+    """Bring the vault fully up to date in one step.
+
+    Runs the whole ingest pipeline synchronously: discover + register sources and
+    generate L1 (`add`), extract L2 Atoms + L3 Concepts and refresh the vector
+    index (`build --wait`, which now always embeds), then verify the DAG and
+    rebuild routing tables (`sync`). Use the individual `add` / `build` /
+    `reindex` / `sync` commands for finer control.
+    """
+    _resolve_root_or_die()
+    console.print()
+    console.print("[bold]Updating vault[/bold] — add → build → embed → sync")
+
+    # 1. Discover sources + instant L1 (defer verification to the final sync).
+    add(path=None, recursive=True, force=force, no_sync=True)
+    # 2. L2/L3 synchronously; build always refreshes embeddings idempotently.
+    build(wait=True, force=force, no_sync=True)
+    # 3. Single deductive verification + routing rebuild at the end. Run
+    #    non-interactively so the one-shot pipeline never blocks on a prompt.
+    if not no_sync:
+        sync(
+            node_id=None,
+            dry_run=False,
+            reemit=False,
+            no_fix=False,
+            deep=False,
+            no_deep=False,
+            no_interactive=True,
+            full=False,
+            backward=False,
+        )
+
+    console.print()
+    _ok("Vault up to date.")
 
 
 @jobs_app.command("list")
@@ -5615,11 +5769,109 @@ def _print_json(payload: dict) -> None:
 @plugin_app.command("version")
 def plugin_version() -> None:
     """Return backend version JSON for the local plugin."""
-    _print_json({"ok": True, "version": __version__})
+    build: dict[str, object] = {}
+    try:
+        text = (
+            resources.files("curator.data")
+            .joinpath("build_manifest.json")
+            .read_text(encoding="utf-8")
+        )
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            build = parsed
+    except Exception:
+        build = {}
+    _print_json({"ok": True, "version": __version__, "build": build})
 
 
 def _plugin_paths(workspace_path: str = "") -> cfg.WikiPaths:
     return _resolve_root_or_die(Path(workspace_path).expanduser() if workspace_path else None)
+
+
+def _git_manager_for_plugin(workspace_path: str = ""):
+    from .git_manager import GitManager
+    return GitManager(_plugin_paths(workspace_path).root)
+
+
+@plugin_git_app.command("status")
+def plugin_git_status(
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Return Git/GitHub repository status JSON for the local plugin."""
+    try:
+        _print_json(_git_manager_for_plugin(workspace_path).status())
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+
+
+@plugin_git_app.command("log")
+def plugin_git_log(
+    limit: int = typer.Option(10, "--limit", "-n", help="Maximum commits."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Return recent Git commit history JSON for the local plugin."""
+    try:
+        _print_json(_git_manager_for_plugin(workspace_path).recent_commits(limit=limit))
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+
+
+@plugin_git_app.command("diff")
+def plugin_git_diff(
+    stat: bool = typer.Option(False, "--stat", help="Return a capped diff stat."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Return Git diff summary JSON for the local plugin."""
+    try:
+        # The plugin contract currently exposes a stat view only. Keep the flag
+        # for command-shape parity with `git diff --stat`.
+        _ = stat
+        _print_json(_git_manager_for_plugin(workspace_path).diff_stat())
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+
+
+@plugin_git_app.command("history")
+def plugin_git_history(
+    file_path: str = typer.Option(..., "--file-path", help="Vault file path."),
+    query: str = typer.Option("", "--query", help="Selected text or search excerpt."),
+    limit: int = typer.Option(10, "--limit", "-n", help="Maximum commits."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Return selected-text or file Git history JSON for the local plugin."""
+    try:
+        _print_json(
+            _git_manager_for_plugin(workspace_path).history(
+                file_path=file_path,
+                query=query,
+                limit=limit,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+
+
+@plugin_git_app.command("push")
+def plugin_git_push(
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Push current branch JSON for the local plugin."""
+    try:
+        _print_json(_git_manager_for_plugin(workspace_path).push())
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+
+
+@plugin_git_app.command("commit")
+def plugin_git_commit(
+    message: str = typer.Option(..., "--message", "-m", help="Commit message."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Create a guarded Git commit JSON for an explicit sidechat request."""
+    try:
+        _print_json(_git_manager_for_plugin(workspace_path).commit_all(message))
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
 
 
 @plugin_source_app.command("status")
@@ -6075,6 +6327,49 @@ def plugin_trace_show(
         raise typer.Exit(code=1)
 
 
+@plugin_synthesis_app.command("list")
+def plugin_synthesis_list(
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace path."),
+    limit: int = typer.Option(50, "--limit", help="Max synthesis nodes."),
+) -> None:
+    """List L4 synthesis summaries as JSON for the plugin Synthesis tab."""
+    from .inspection import synthesis_audit
+
+    try:
+        rows = synthesis_audit.list_synthesis_summaries(
+            _plugin_paths(workspace_path).state_db,
+            limit=limit,
+        )
+        _print_json({"ok": True, "synthesis": rows})
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_synthesis_app.command("show")
+def plugin_synthesis_show(
+    synthesis_id: str = typer.Option(..., "--synthesis-id", help="SYN- synthesis id."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace path."),
+) -> None:
+    """Return one L4-to-L1 synthesis audit report for the plugin."""
+    from .inspection import synthesis_audit
+
+    try:
+        audit = synthesis_audit.build_synthesis_audit(
+            _plugin_paths(workspace_path).state_db,
+            synthesis_id,
+        )
+        if not audit.get("ok"):
+            _print_json({"ok": False, "synthesisId": synthesis_id, "error": audit.get("error")})
+            raise typer.Exit(code=1)
+        _print_json({"ok": True, "audit": audit})
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _print_json({"ok": False, "synthesisId": synthesis_id, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
 @plugin_correction_app.command("propose")
 def plugin_correction_propose(
     node_id: str = typer.Option(..., "--node-id", help="Generated node id the correction targets."),
@@ -6161,6 +6456,80 @@ def plugin_models_refresh(
     except Exception as exc:
         _print_json({"ok": False, "error": str(exc)})
         raise typer.Exit(code=1)
+
+
+@plugin_models_app.command("ollama")
+def plugin_models_ollama(
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
+) -> None:
+    """Recommended Ollama models (models.json) with local install + RAM-fit status.
+
+    Lets the dashboard recommend Ollama models, mark which are already pulled,
+    and flag the ones that fit this machine's RAM.
+    """
+    from . import llm as _llm
+    from .models import load_models_catalogue
+
+    try:
+        paths = _plugin_paths(workspace_path)
+        config = cfg.load_config(paths)
+        host = (config.get("llm", {}).get("ollama", {}) or {}).get("host") or consts.DEFAULT_OLLAMA_HOST
+        ram_gb = round(float(_llm.detect_ram_gb()), 1)
+        installed = set(list_models_on_host(host, timeout=3.0) or [])
+
+        models: list[dict] = []
+        for m in load_models_catalogue().get("providers", {}).get(consts.BACKEND_OLLAMA, {}).get("models", []):
+            mid = m.get("id", "")
+            if not mid:
+                continue
+            vram = m.get("vram_gb")
+            # Exact tag match when the catalogue id carries a tag (qwen2.5:7b);
+            # only fall back to base-name match for untagged ids (qwen2.5).
+            is_installed = mid in installed or (
+                ":" not in mid and any(x.split(":")[0] == mid for x in installed)
+            )
+            fits = vram is None or float(vram) <= ram_gb
+            models.append({
+                "id": mid,
+                "label": m.get("label", mid),
+                "vram_gb": vram,
+                "supports_vision": bool(m.get("supports_vision")),
+                "installed": bool(is_installed),
+                "fits_ram": bool(fits),
+            })
+        payload = {"ok": True, "host": host, "ram_gb": ram_gb, "models": models}
+        if json_output:
+            _print_json(payload)
+        else:
+            console.print(f"[dim]Ollama @ {host} · {ram_gb} GB RAM[/dim]")
+            for m in models:
+                badge = "[green]✓ installed[/green]" if m["installed"] else "[dim]· pull[/dim]"
+                fit = "" if m["fits_ram"] else "  [yellow](exceeds RAM)[/yellow]"
+                console.print(f"  {badge}  {m['label']} [dim][{m['id']}][/dim]{fit}")
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_models_app.command("pull")
+def plugin_models_pull(
+    model: str = typer.Option(..., "--model", help="Ollama model id to pull, e.g. qwen2.5:7b."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
+) -> None:
+    """Pull an Ollama model (`ollama pull <model>`) from the plugin dashboard."""
+    import subprocess
+
+    try:
+        res = subprocess.run([consts.BACKEND_OLLAMA, "pull", model])
+        ok = res.returncode == 0
+        payload: dict = {"ok": ok, "model": model}
+        if not ok:
+            payload["error"] = f"ollama pull exited with code {res.returncode}"
+        _print_json(payload)
+    except Exception as exc:
+        _print_json({"ok": False, "model": model, "error": str(exc)})
 
 
 @plugin_zotero_app.command("status")
@@ -6467,21 +6836,13 @@ def mcp_install_cmd(
     _hint("After pasting, restart the agent so it reloads MCP config.")
 
 
-def main() -> None:
-    """Entry point used by the `wiki` console script."""
-    app()
-
-
-if __name__ == "__main__":
-    main()
-
 # ---------------------------------------------------------------------------
 # Testbed Commands
 # ---------------------------------------------------------------------------
 
 @testbed_app.command(name="init")
 def testbed_init(
-    scenario: str = typer.Argument("testbed_template", help="Scenario name from scripts/dev/"),
+    scenario: str = typer.Argument("testbed_template", help="Scenario name from tests/scenarios/"),
     force: bool = typer.Option(False, "--force", "-f", help="Recreate the testbed."),
     llm: Optional[str] = typer.Option(None, "--llm", help="Primary LLM provider (ollama|antigravity-cli|cloud|claude-code)"),
     model: Optional[str] = typer.Option(None, "--model", help="Specific model name to use for the provider."),
@@ -6502,7 +6863,7 @@ def testbed_list():
     from . import testbed_manager
     scenarios = testbed_manager.list_scenarios()
     if not scenarios:
-        _warn("No scenarios found in scripts/dev/.")
+        _warn("No scenarios found in tests/scenarios/.")
         return
 
     table = Table(title="Available Testbed Scenarios", box=None)
@@ -6510,3 +6871,12 @@ def testbed_list():
     for s in sorted(scenarios):
         table.add_row(s)
     console.print(table)
+
+
+def main() -> None:
+    """Entry point used by the `wiki` console script."""
+    app()
+
+
+if __name__ == "__main__":
+    main()

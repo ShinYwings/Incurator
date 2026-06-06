@@ -5,7 +5,7 @@ Classifies a feedback/change event BEFORE any patch, via the
 lifecycle (insight_lifecycle.py). Source truth is never rewritten — the classifier
 only diagnoses; patching targets generated nodes only.
 
-See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.1.md`` §18.
+See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`` §18.
 """
 
 from __future__ import annotations

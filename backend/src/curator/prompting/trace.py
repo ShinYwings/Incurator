@@ -4,7 +4,7 @@ A prompt run is opened (``start_prompt_run``) before the model call and closed
 (``finish_prompt_run``) after validation, recording input/output hashes,
 validator status, retry count, and model provenance. Every generated artifact
 must be able to name the ``PTR-`` that produced it
-(SYSTEM_BEHAVIOR_v0.3.1.md §15.2).
+(SYSTEM_BEHAVIOR.md §15.2).
 """
 
 from __future__ import annotations

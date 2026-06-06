@@ -22,6 +22,7 @@ export interface SyncthingSnapshot {
   config_path: string | null;
   devices: SyncthingDevice[];
   folders: SyncthingFolder[];
+  status?: { myID?: string };
 }
 
 export interface DeviceRegistry {
@@ -136,7 +137,55 @@ export function readSyncthingSnapshot(vaultRoot: string, zoteroRoots: string[] =
   return snapshot;
 }
 
-export function inferLocalDeviceId(devices: SyncthingDevice[], host = hostname()): string | undefined {
+export function parseSyncthingGuiConfig(xml: string): { url: string; apiKey: string } | null {
+  const guiBlock = tagBlocks(xml, "gui")[0];
+  if (!guiBlock) return null;
+  const guiAttrs = attrs(firstOpenTag(guiBlock));
+  const address = tagTexts(guiBlock, "address")[0] || "127.0.0.1:8384";
+  const apiKey = tagTexts(guiBlock, "apikey")[0] || "";
+  if (!apiKey) return null;
+  const scheme = guiAttrs.tls === "true" ? "https" : "http";
+  const url = address.startsWith("http://") || address.startsWith("https://")
+    ? address
+    : `${scheme}://${address}`;
+  return { url: `${url.replace(/\/$/, "")}/rest/system/status`, apiKey };
+}
+
+export async function readSyncthingSnapshotWithStatus(
+  vaultRoot: string,
+  zoteroRoots: string[] = []
+): Promise<SyncthingSnapshot> {
+  const configPath = findSyncthingConfigPath();
+  if (!configPath) return { config_path: null, devices: [], folders: [] };
+  const xml = readFileSync(configPath, "utf-8");
+  const snapshot = parseSyncthingConfig(xml, vaultRoot, homedir(), zoteroRoots);
+  snapshot.config_path = configPath;
+  const gui = parseSyncthingGuiConfig(xml);
+  if (!gui) return snapshot;
+  try {
+    const response = await fetch(gui.url, {
+      headers: { "X-API-Key": gui.apiKey },
+    });
+    if (response.ok) {
+      const status = await response.json();
+      if (status && typeof status === "object") {
+        const myID = (status as Record<string, unknown>).myID;
+        if (typeof myID === "string" && myID) snapshot.status = { myID };
+      }
+    }
+  } catch {
+    // Syncthing may be stopped or use a self-signed HTTPS GUI. Static config
+    // parsing still gives remote devices; current-device marking falls back.
+  }
+  return snapshot;
+}
+
+export function inferLocalDeviceId(
+  devices: SyncthingDevice[],
+  host = hostname(),
+  status?: { myID?: string }
+): string | undefined {
+  if (status?.myID) return status.myID;
   const names = new Set([host.toLowerCase(), host.split(".")[0].toLowerCase()]);
   const match = devices.find((device) => names.has(device.name.toLowerCase()));
   return match?.device_id;
@@ -144,8 +193,17 @@ export function inferLocalDeviceId(devices: SyncthingDevice[], host = hostname()
 
 function inferRegistryLocalDeviceId(
   devices: Record<string, Record<string, unknown>>,
-  activeDeviceIds?: Set<string>
+  activeDeviceIds?: Set<string>,
+  repoPath?: string
 ): string | undefined {
+  if (repoPath) {
+    for (const [id, device] of Object.entries(devices)) {
+      if (activeDeviceIds && !activeDeviceIds.has(id)) continue;
+      const backend = device.backend as Record<string, unknown> | undefined;
+      const recorded = typeof backend?.repo_path === "string" ? backend.repo_path : "";
+      if (recorded && samePath(recorded, repoPath)) return id;
+    }
+  }
   const candidates = Object.entries(devices)
     .filter(([id, device]) => (!activeDeviceIds || activeDeviceIds.has(id)) && (device.platform || device.backend))
     .map(([id, device]) => [Number(device.updated_at || 0), id] as const)
@@ -156,14 +214,18 @@ function inferRegistryLocalDeviceId(
 export function mergeDeviceRegistry(
   existing: Partial<DeviceRegistry> | null | undefined,
   snapshot: SyncthingSnapshot,
-  settings: Pick<PluginSettings, "incuratorBackendCommand" | "incuratorBackendArgs">,
+  settings: Pick<PluginSettings, "incuratorBackendCommand" | "incuratorBackendArgs" | "incuratorRepoPath">,
   now = Math.floor(Date.now() / 1000),
-  localDeviceId = inferLocalDeviceId(snapshot.devices)
+  localDeviceId = inferLocalDeviceId(snapshot.devices, hostname(), snapshot.status)
 ): DeviceRegistry {
   const activeDeviceIds = new Set(snapshot.devices.map((device) => device.device_id));
   const existingDevices = existing?.devices || {};
   if (!localDeviceId && snapshot.devices.length) {
-    localDeviceId = inferRegistryLocalDeviceId(existingDevices, activeDeviceIds);
+    localDeviceId = inferRegistryLocalDeviceId(
+      existingDevices,
+      activeDeviceIds,
+      settings.incuratorRepoPath
+    );
   }
   if (localDeviceId) activeDeviceIds.add(localDeviceId);
   if (activeDeviceIds.size === 0) activeDeviceIds.add("local");
@@ -199,6 +261,7 @@ export function mergeDeviceRegistry(
       backend: {
         command: settings.incuratorBackendCommand || "wiki",
         args: settings.incuratorBackendArgs?.length ? settings.incuratorBackendArgs : [],
+        repo_path: settings.incuratorRepoPath || "",
       },
       updated_at: now,
     };
@@ -231,6 +294,21 @@ export function getLocalBackendCommand(
   }
   
   return command || undefined;
+}
+
+/**
+ * Read the local device's repository path from a DeviceRegistry. This lets a
+ * synced plugin `data.json` keep a stale absolute path while each machine uses
+ * its own `.curator/devices.json` path at runtime.
+ */
+export function getLocalBackendRepoPath(
+  registry: Partial<DeviceRegistry> | null | undefined
+): string | undefined {
+  if (!registry?.local_device_id || !registry.devices) return undefined;
+  const local = registry.devices[registry.local_device_id];
+  const backend = local?.backend as { repo_path?: string } | undefined;
+  const repoPath = backend?.repo_path;
+  return repoPath && repoPath.trim() ? repoPath : undefined;
 }
 
 /**

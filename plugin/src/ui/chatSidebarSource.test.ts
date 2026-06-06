@@ -53,4 +53,47 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("Use this full file content to find every similar occurrence");
     expect(source).toContain("tab.selectedText?.trim()");
   });
+
+  it("injects Markdown outlines as background structure for selected-context answers", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    expect(source).toContain("buildMarkdownOutline");
+    expect(source).toContain("<markdown_outlines>");
+    expect(source).toContain("<markdown_outline document=");
+    expect(source).toContain('active="true"');
+  });
+
+  it("writes proposed edits to a diff artifact note, guarded and idempotent (item 20)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // Writer is guarded by the setting and only runs once per message.
+    expect(source).toContain("private async maybeWriteEditArtifact(msg: ChatMessage)");
+    expect(source).toContain("if (!this.plugin.settings.editArtifactEnabled) return;");
+    expect(source).toContain("if (msg.editArtifactPath) return;");
+    expect(source).toContain("buildEditArtifactMarkdown(");
+    expect(source).toContain("await this.app.vault.create(path, content);");
+    expect(source).toContain("msg.editArtifactPath = path;");
+    // Invoked from the generation-complete finalize path.
+    expect(source).toContain("await this.maybeWriteEditArtifact(assistantMsg);");
+    // Chat renders a link pill to the artifact, additive to the Review-Diff pills.
+    expect(source).toContain("this.renderEditArtifactPill(contentEl, msg);");
+    expect(source).toContain('nameEl.setText("Open diff artifact");');
+  });
+
+  it("does not yank the chat view to the bottom when generation completes", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // renderMessages preserves the reader's scroll position unless they were
+    // already near the bottom (or a caller explicitly forces a bottom scroll).
+    expect(source).toContain("private renderMessages(forceScroll: boolean = true)");
+    expect(source).toContain("const wasNearBottom = this.isNearBottom();");
+    expect(source).toContain("if (forceScroll || wasNearBottom) {");
+    expect(source).toContain("this.messagesContainer.scrollTop = prevScrollTop;");
+    expect(source).toContain("private isNearBottom(threshold: number = 150): boolean");
+    // The generation-complete re-render must opt out of the forced bottom scroll.
+    expect(source).toContain("this.renderMessages(false);");
+  });
 });

@@ -30,7 +30,8 @@ def parse(path: Path) -> ParsedDocument:
         from bs4 import BeautifulSoup
     except ImportError as e:
         raise ParserError(
-            "beautifulsoup4 is not installed. Run `uv pip install -e .`."
+            "beautifulsoup4 is not installed. Run `./setup.sh` from the repository root, "
+            "or `cd backend && uv pip install -e .` for a backend-only repair."
         ) from e
 
     try:

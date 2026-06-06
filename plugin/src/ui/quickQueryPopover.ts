@@ -1,6 +1,11 @@
 import type { MarkdownRenderer as MarkdownRendererType } from "obsidian";
 import type ObsidianAIAgent from "../../main";
 import type { LLMMessage, StreamChunk } from "../types";
+import {
+  buildQuickQueryMessages as buildQuickQueryContextMessages,
+  type QuickQueryTurn,
+} from "../context/quickQueryContext";
+import { normalizeLatexDelimiters } from "../utils/textUtils";
 
 /**
  * In-line Copilot — drag-to-select quick query popover.
@@ -21,22 +26,7 @@ export function buildQuickQueryMessages(
   selectedText: string,
   question: string
 ): LLMMessage[] {
-  return [
-    {
-      role: "system",
-      content:
-        "You are a reading assistant embedded in Obsidian. The user selected a " +
-        "passage while reading and asks a quick question about it. Answer " +
-        "concisely and directly, in the same language as the question. Resolve " +
-        "references, equations, and citations using the selected passage as the " +
-        "primary context. Do not add preamble, sign-off, or restate the question.",
-    },
-    {
-      role: "user",
-      content:
-        `Selected passage:\n"""\n${selectedText}\n"""\n\n` + `Question: ${question}`,
-    },
-  ];
+  return buildQuickQueryContextMessages({ selectedText, question });
 }
 
 /**
@@ -53,7 +43,54 @@ export function stripThinkingForDisplay(content: string): string {
     .trim();
 }
 
+export interface FloatingSize {
+  width: number;
+  height: number;
+}
+
+export interface FloatingViewport {
+  width: number;
+  height: number;
+}
+
+export interface FloatingAnchor {
+  top: number;
+  bottom: number;
+  left: number;
+}
+
+export interface FloatingPosition {
+  top: number;
+  left: number;
+}
+
+/**
+ * Position a floating element next to a selection rect. Defaults below the
+ * selection, flips above when it would overflow the viewport bottom (so the
+ * answer is never clipped — report item 5), and clamps into the viewport on
+ * both axes. Pure so it is unit-tested without a DOM.
+ */
+export function computeFloatingPosition(
+  anchor: FloatingAnchor,
+  size: FloatingSize,
+  viewport: FloatingViewport,
+  gap = 6,
+  margin = 8
+): FloatingPosition {
+  let top = anchor.bottom + gap;
+  if (top + size.height > viewport.height - margin) {
+    const above = anchor.top - gap - size.height;
+    top = above >= margin ? above : Math.max(margin, viewport.height - size.height - margin);
+  }
+  let left = Math.min(anchor.left, viewport.width - size.width - margin);
+  left = Math.max(margin, left);
+  top = Math.max(margin, top);
+  return { top, left };
+}
+
 const MAX_SELECTION_LENGTH = 8000;
+const BUTTON_SIZE: FloatingSize = { width: 120, height: 40 };
+const POPOVER_SIZE: FloatingSize = { width: 380, height: 320 };
 
 export class QuickQueryPopover {
   private plugin: ObsidianAIAgent;
@@ -61,9 +98,19 @@ export class QuickQueryPopover {
   private popoverEl: HTMLElement | null = null;
   private capturedSelection = "";
   private isProcessing = false;
+  private turns: QuickQueryTurn[] = [];
+  /** Document that owns the current selection (main window or a popout). */
+  private activeDoc: Document = document;
+  /** Live selection range, kept so the button/popover track PDF scrolling. */
+  private anchorRange: Range | null = null;
+  private repositionHandler: (() => void) | null = null;
 
   constructor(plugin: ObsidianAIAgent) {
     this.plugin = plugin;
+  }
+
+  private get activeWin(): Window {
+    return this.activeDoc.defaultView ?? window;
   }
 
   /** Hide the trigger button and any open popover, discarding the exchange. */
@@ -82,7 +129,7 @@ export class QuickQueryPopover {
    * Called on mouseup. Shows or hides the floating trigger button based on the
    * current selection. Ignores selections inside our own popover.
    */
-  handleSelectionChange(): void {
+  handleSelectionChange(doc: Document = document): void {
     if (!this.plugin.settings.quickQueryEnabled) {
       this.removeButton();
       return;
@@ -90,7 +137,7 @@ export class QuickQueryPopover {
     // Don't react to selections the user makes inside our own answer popover.
     if (this.popoverEl) return;
 
-    const selection = window.getSelection();
+    const selection = doc.getSelection();
     const text = selection?.toString().trim() ?? "";
     if (!text || !selection || selection.rangeCount === 0) {
       this.removeButton();
@@ -101,12 +148,15 @@ export class QuickQueryPopover {
       return;
     }
 
-    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
     if (!rect || (rect.width === 0 && rect.height === 0)) {
       this.removeButton();
       return;
     }
 
+    this.activeDoc = doc;
+    this.anchorRange = range.cloneRange();
     this.capturedSelection = text.slice(0, MAX_SELECTION_LENGTH);
     this.showButton(rect);
   }
@@ -116,16 +166,22 @@ export class QuickQueryPopover {
    * command/hotkey instead of the floating button. No-op (with a hint) when
    * there is no active text selection.
    */
-  openForCurrentSelection(): void {
-    const selection = window.getSelection();
+  openForCurrentSelection(doc?: Document): void {
+    const ownerDoc =
+      doc ??
+      this.plugin.app.workspace.activeLeaf?.view?.containerEl?.ownerDocument ??
+      document;
+    const selection = ownerDoc.getSelection();
     const text = selection?.toString().trim() ?? "";
     if (!text || !selection || selection.rangeCount === 0) {
       new (require("obsidian").Notice)("Quick query: select some text first.");
       return;
     }
-    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    const range = selection.getRangeAt(0);
+    this.activeDoc = ownerDoc;
+    this.anchorRange = range.cloneRange();
     this.capturedSelection = text.slice(0, MAX_SELECTION_LENGTH);
-    this.openPopover(rect);
+    this.openPopover(range.getBoundingClientRect());
   }
 
   private isInsideOwnUi(selection: Selection): boolean {
@@ -141,16 +197,13 @@ export class QuickQueryPopover {
   private showButton(rect: DOMRect): void {
     this.removeButton();
 
-    const btn = document.createElement("div");
+    const doc = this.activeDoc;
+    const btn = doc.createElement("div");
     btn.className = "ai-agent-quick-query-button";
     btn.setAttr("aria-label", "Ask AI about selection");
     btn.setText("✨ Ask AI");
 
-    // Position just below the end of the selection, clamped to the viewport.
-    const top = Math.min(rect.bottom + 6, window.innerHeight - 40);
-    const left = Math.min(rect.left, window.innerWidth - 120);
-    btn.style.top = `${Math.max(8, top)}px`;
-    btn.style.left = `${Math.max(8, left)}px`;
+    this.applyFloatingPosition(btn, rect, BUTTON_SIZE);
 
     // Use mousedown to fire before the selection collapses on click.
     btn.addEventListener("mousedown", (e) => {
@@ -159,13 +212,51 @@ export class QuickQueryPopover {
       this.openPopover(rect);
     });
 
-    document.body.appendChild(btn);
+    doc.body.appendChild(btn);
     this.buttonEl = btn;
+    this.attachRepositionListeners();
+  }
+
+  /** Position a floating element using the clamp/flip math against the active window. */
+  private applyFloatingPosition(el: HTMLElement, rect: DOMRect, size: FloatingSize): void {
+    const win = this.activeWin;
+    const pos = computeFloatingPosition(
+      { top: rect.top, bottom: rect.bottom, left: rect.left },
+      size,
+      { width: win.innerWidth, height: win.innerHeight }
+    );
+    el.style.top = `${pos.top}px`;
+    el.style.left = `${pos.left}px`;
+  }
+
+  /**
+   * Keep the trigger button / popover pinned to the live selection as the PDF
+   * (or note) scrolls or the window resizes (report item 5). Detached on close.
+   */
+  private attachRepositionListeners(): void {
+    if (this.repositionHandler) return;
+    const handler = () => {
+      const rect = this.anchorRange?.getBoundingClientRect();
+      if (!rect || (rect.width === 0 && rect.height === 0)) return;
+      if (this.buttonEl) this.applyFloatingPosition(this.buttonEl, rect, BUTTON_SIZE);
+      if (this.popoverEl) this.applyFloatingPosition(this.popoverEl, rect, POPOVER_SIZE);
+    };
+    this.repositionHandler = handler;
+    this.activeWin.addEventListener("scroll", handler, true);
+    this.activeWin.addEventListener("resize", handler);
+  }
+
+  private detachRepositionListeners(): void {
+    if (!this.repositionHandler) return;
+    this.activeWin.removeEventListener("scroll", this.repositionHandler, true);
+    this.activeWin.removeEventListener("resize", this.repositionHandler);
+    this.repositionHandler = null;
   }
 
   private removeButton(): void {
     this.buttonEl?.remove();
     this.buttonEl = null;
+    if (!this.popoverEl) this.detachRepositionListeners();
   }
 
   // ── Popover ───────────────────────────────────────────────────
@@ -173,14 +264,13 @@ export class QuickQueryPopover {
   private openPopover(rect: DOMRect): void {
     this.removeButton();
     this.removePopover();
+    this.turns = [];
 
-    const popover = document.createElement("div");
+    const doc = this.activeDoc;
+    const popover = doc.createElement("div");
     popover.className = "ai-agent-quick-query-popover";
 
-    const top = Math.min(rect.bottom + 6, window.innerHeight - 80);
-    const left = Math.min(rect.left, window.innerWidth - 380);
-    popover.style.top = `${Math.max(8, top)}px`;
-    popover.style.left = `${Math.max(8, left)}px`;
+    this.applyFloatingPosition(popover, rect, POPOVER_SIZE);
 
     // Header (label + close)
     const header = popover.createDiv("ai-agent-quick-query-header");
@@ -213,7 +303,7 @@ export class QuickQueryPopover {
       if (!question || this.isProcessing) return;
       inputRow.hide();
       answerEl.show();
-      void this.runQuery(question, answerEl);
+      void this.runQuery(question, answerEl, inputRow, input);
     };
 
     input.addEventListener("keydown", (e: KeyboardEvent) => {
@@ -227,12 +317,18 @@ export class QuickQueryPopover {
     });
     submitBtn.addEventListener("click", submit);
 
-    document.body.appendChild(popover);
+    doc.body.appendChild(popover);
     this.popoverEl = popover;
-    requestAnimationFrame(() => input.focus());
+    this.attachRepositionListeners();
+    (this.activeWin.requestAnimationFrame ?? requestAnimationFrame)(() => input.focus());
   }
 
-  private async runQuery(question: string, answerEl: HTMLElement): Promise<void> {
+  private async runQuery(
+    question: string,
+    answerEl: HTMLElement,
+    inputRow: HTMLElement,
+    input: HTMLInputElement
+  ): Promise<void> {
     this.isProcessing = true;
     answerEl.empty();
     answerEl.createSpan({
@@ -240,7 +336,12 @@ export class QuickQueryPopover {
       text: "⏳ Thinking…",
     });
 
-    const messages = buildQuickQueryMessages(this.capturedSelection, question);
+    const messages = buildQuickQueryContextMessages({
+      selectedText: this.capturedSelection,
+      question,
+      activeContext: this.plugin.refreshActiveContext(),
+      previousTurns: this.turns,
+    });
     let raw = "";
 
     try {
@@ -270,19 +371,25 @@ export class QuickQueryPopover {
         cls: "ai-agent-quick-query-error",
         text: `❌ ${err instanceof Error ? err.message : String(err)}`,
       });
+      input.value = "";
+      input.placeholder = "Ask a follow-up…";
+      inputRow.show();
       return;
     }
 
     this.isProcessing = false;
     if (!this.popoverEl) return;
 
-    const finalText = stripThinkingForDisplay(raw);
+    const finalText = normalizeLatexDelimiters(stripThinkingForDisplay(raw));
     answerEl.empty();
     if (!finalText) {
       answerEl.createSpan({
         cls: "ai-agent-quick-query-error",
         text: "No answer was returned.",
       });
+      input.value = "";
+      input.placeholder = "Ask a follow-up…";
+      inputRow.show();
       return;
     }
     try {
@@ -302,6 +409,11 @@ export class QuickQueryPopover {
         text: finalText,
       });
     }
+    this.turns.push({ question, answer: finalText });
+    this.turns = this.turns.slice(-3);
+    input.value = "";
+    input.placeholder = "Ask a follow-up…";
+    inputRow.show();
   }
 
   private removePopover(): void {
@@ -311,6 +423,8 @@ export class QuickQueryPopover {
     }
     this.popoverEl?.remove();
     this.popoverEl = null;
+    this.anchorRange = null;
+    if (!this.buttonEl) this.detachRepositionListeners();
   }
 
   /**

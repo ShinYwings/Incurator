@@ -151,11 +151,14 @@ def _extract_json(text: str) -> str:
     for i in range(start, len(text)):
         c = text[i]
         if escape:
-            escape = False; continue
+            escape = False
+            continue
         if c == "\\":
-            escape = True; continue
+            escape = True
+            continue
         if c == '"':
-            in_str = not in_str; continue
+            in_str = not in_str
+            continue
         if in_str:
             continue
         if c == "{":

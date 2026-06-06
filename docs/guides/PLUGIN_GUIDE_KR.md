@@ -42,6 +42,7 @@ Obsidian → **설정 > 커뮤니티 플러그인 > 설치된 플러그인**에�
 - **멀티턴 대화**: 세션 히스토리가 유지됩니다. 여러 세션을 생성·전환할 수 있습니다.
 - **Codex 스타일 사이드바**: 상단 thread header에서 새 대화와 대화 목록을 열고, 대화 목록은 사이드바 안에서 검색·전환·삭제합니다.
 - **스트리밍 응답**: 기본값으로 활성화되어 있으며, 설정에서 끌 수 있습니다.
+- **스크롤 고정**: 답변이 스트리밍되는 동안에는 이미 맨 아래에 있을 때만 새 텍스트를 따라 내려갑니다. 위로 스크롤해 이전 내용을 읽고 있으면 현재 위치가 유지되며, 답변 생성이 끝나도 더 이상 화면이 맨 아래로 강제 이동하지 않습니다.
 - **컨텍스트 참조**: 텍스트, PDF 페이지, 이미지 스니펫을 메시지에 첨부해 질문합니다.
 - **Plan 모드**: `chatMode: plan`으로 전환 시 AI가 단계별 계획을 먼저 제시합니다.
 - **Incurator 연동**: Curator 백엔드가 연결된 경우 추적 가능한 DAG 근거를 컨텍스트로 주입합니다.
@@ -61,6 +62,20 @@ Obsidian/다른 바인딩이 이미 사용 중). 단축키가 필요하면 **설
 - **채팅 편집 검토**: 사이드챗이 Markdown SEARCH/REPLACE 수정을 제안하면
   **Review in file**로 대상 노트를 source mode에서 열고, Markdown 편집기
   안에서 제안된 hunk를 확인한 뒤 Accept 또는 Reject합니다.
+- **채팅에 코드 전체를 뱉지 않음**: 코드 수정 내용이 대화창을 길게 채우지
+  않습니다. 답변이 스트리밍되는 동안 모든 `ai-agent-edit` 블록은
+  *[Generating code edit…]* 자리표시자 하나로 가려지고, 답변이 끝나면 각 수정은
+  `✏️ <파일경로> · Review Diff` 형태의 간결한 pill로 접힙니다. pill을 클릭하면
+  실제 대상 파일에 대한 Diff가 열리므로, 전체 before/after는 채팅 기록이 아니라
+  Diff Viewer 안에서만 표시됩니다.
+- **Diff 아티팩트 노트**: **Write edits as diff artifact**(기본 ON)가 켜져 있으면,
+  수정 제안이 포함된 답변이 완료될 때 변경 내용을 unified-diff(```` ```diff ````)
+  블록으로 정리한 Markdown 노트를 `00_System/Agent Diffs/` 아래에 함께 작성합니다
+  (대상 파일마다 한 섹션). 채팅에는 노트를 여는 `📝 Open diff artifact` pill이
+  추가로 표시됩니다. 이 노트는 `type: agent-diff-artifact` frontmatter를 가지며
+  ingest 대상 `raw_dirs` 바깥에 있으므로 `wiki add`가 source로 취급하지 않습니다.
+  이는 **추가형**이라 기존 인라인 `Review Diff` / 적용 버튼은 그대로 동작합니다.
+  토글을 끄면 인라인 pill만 유지됩니다.
 - **Diff 모드**: 설정에서 `inline` 또는 `side-by-side` 중 선택합니다.
 
 ```text
@@ -87,18 +102,38 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
 - **버튼 1개**: 드래그 시 툴바 없이 버튼 단 하나만 표시됩니다.
 - **심플한 팝업**: 팝업에는 질문 입력칸과 **Ask** 버튼만 있습니다. 프리셋·퀵버튼은
   없습니다.
-- **답변만 표시**: 질문을 제출하면 입력칸은 숨겨지고 스트리밍되는 AI 답변만 깔끔하게
-  표시됩니다(채팅 말풍선 구조 아님). 스트림이 끝나면 답변은 Markdown(수식/LaTeX 포함)
-  으로 렌더링됩니다.
+- **집중 답변 표시**: 질문을 제출하면 답변이 스트리밍되는 동안 입력칸은 숨겨지고,
+  채팅 말풍선 구조 없이 답변 영역만 표시됩니다. 답변이 끝나면 같은 팝업 안에 작은
+  후속 질문 입력칸이 다시 나타납니다.
+- **꼬리 질문**: 같은 팝업 안에서 하는 후속 질문은 직전 quick-query 질의/응답을 짧은
+  메모리로 유지합니다. 팝업을 닫으면 이 메모리는 사라지며 사이드바 대화 기록에는
+  절대 저장되지 않습니다.
+- **현재 페이지 + ToC 컨텍스트**: 선택한 구절은 항상 1차 초점입니다. 활성
+  Markdown/PDF 페이지, 주변 PDF window 텍스트, 사용 가능한 Markdown/PDF outline을
+  배경 컨텍스트로 함께 보내므로 "section 4.2", "Eq. (3)", 현재 페이지 heading 같은
+  참조를 해석할 수 있으면서도 전체 문서가 선택 영역을 압도하지 않습니다.
+- **참조 따라가기**: 선택한 텍스트 자체가 "see Section A4.2 (p580)" 또는
+  "Figure 19.1"처럼 다른 위치를 가리키는 pointer라면, 플러그인은 먼저 PDF
+  outline/window 텍스트에서 해당 target을 찾아 `<resolved_cross_references>`로
+  넣고, 그 뒤에 일반 페이지 배경을 보냅니다.
+- **문서 내 위치이지 폴더가 아님**: "문서 위쪽", "앞부분", "top of the document",
+  "end of the page" 같은 위치 표현은 파일 시스템이 아니라 **현재 문서의
+  내용/outline 안에서의 위치**로 해석됩니다. 팝오버는 파일 시스템에 접근하지
+  않으므로 폴더·파일 이름을 나열하거나 지어내지 않으며, "문서 위쪽"을 물으면 상위
+  디렉터리를 뒤지는 대신 그 영역의 텍스트를 요약합니다.
+- **Markdown 렌더링**: 스트림이 끝나면 답변은 Markdown(수식/LaTeX 포함)으로
+  렌더링됩니다. 렌더링 전에 수식이 정규화되어, `` `$x^2$` `` 처럼 백틱으로 감싼
+  수식은 `$x^2$` 로 풀려 모노스페이스 텍스트가 아니라 실제 수식으로 표시됩니다
+  (채팅 사이드바와 동일한 동작).
 - **복사 가능**: 답변 텍스트는 드래그로 복사할 수 있도록 선택 가능 상태를 유지합니다.
 - **스크롤·최대 크기**: 팝업은 `max-height`/`max-width`로 크기가 제한되며, 내용이 길면
   팝업 내부에서 스크롤됩니다.
 - **1회성(Temp)**: 임시 창이므로 닫으면(`×` 버튼, `Esc`, 또는 답변 완료 후 바깥 클릭)
   데이터는 소멸하며 사이드바 대화 기록을 오염시키지 않습니다.
 
-선택한 구절이 질문과 함께 1차 컨텍스트로 전달되며, 현재 설정된 AI 제공자/모델을
-사용합니다. 버튼이 뜨지 않게 하려면 **설정 → AI Provider → Quick query on selection**
-에서 기능을 끌 수 있습니다.
+선택한 구절은 질문과 함께 1차 컨텍스트로 전달되고, 현재 페이지/outline은 배경으로
+전달됩니다. 현재 설정된 AI 제공자/모델을 사용합니다. 버튼이 뜨지 않게 하려면
+**설정 → AI Provider → Quick query on selection**에서 기능을 끌 수 있습니다.
 
 ```text
 텍스트 드래그 선택
@@ -109,6 +144,9 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
        │  제출
        ▼
 입력칸 숨김 → 답변만 스트리밍 (복사·스크롤 가능)
+       │  후속 질문 입력칸 다시 표시
+       ▼
+같은 선택 영역에 대해 추가 질문 (선택 사항)
        │  닫기 (×, Esc, 바깥 클릭)
        ▼
 소멸 — 대화 기록 유지
@@ -129,6 +167,15 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
 Incurator PDF 뷰어의 텍스트 선택은 실제 텍스트 span 위에서만 시작됩니다. PDF의 빈 여백을 드래그해도 선택 영역이 생기지 않도록 처리합니다.
 
 사이드챗에서 메시지를 보낼 때 선택 영역, 라인 참조, PDF 스니핑으로 명시적으로 추가한 컨텍스트가 현재 턴의 중심 맥락으로 취급됩니다. 명시적으로 선택한 snippet, 선택 텍스트, crop, line range는 pin 된 뒤에도 중심 맥락으로 유지됩니다. 반면 전체 파일이나 전체 PDF 페이지를 pin 한 context와 자동으로 보이는 탭은 질문에서 직접 요구하지 않는 한 배경 맥락으로만 사용됩니다. pin 또는 첨부 context chip은 invisible/excluded 상태로 전환할 수 있으며, 이 상태에서는 chip row에는 남아 있지만 다시 visible로 바꾸기 전까지 모델 prompt에는 포함되지 않습니다.
+
+선택 영역 중심 질문에서는 현재 페이지 구조도 배경 grounding으로 함께 전달됩니다. Markdown heading은 compact outline으로, PDF는 가능한 경우 outline/window context로 전달됩니다. 이 outline/page 블록은 보조 자료일 뿐이며, 선택한 텍스트, line range, crop이 여전히 답변의 대상입니다.
+
+assistant 답변에 `#page=604`, `p.604`, `#section=A4.2`, `§19.3` 같은 page 또는
+section 링크가 포함되면, 사이드바에서 클릭했을 때 열린 Incurator PDF 뷰어가
+해당 page로 이동합니다. section 링크는 활성 PDF outline으로 해석합니다. `p.580`
+같은 printed page 링크는 Incurator PDF 뷰어가 PDF의 native PageLabels map을
+제공하는 경우 이를 사용하므로, front-matter offset 때문에 `p.580`이 물리적 580쪽으로
+잘못 이동하지 않습니다. 일반 웹 링크와 vault 링크는 기존 동작을 유지합니다.
 
 선택한 Markdown line range가 첨부된 상태에서 사용자가 해당 텍스트를 고치거나, 다시 쓰거나, 다듬거나, 번역하라고 요청하면 assistant는 `ai-agent-edit` SEARCH/REPLACE 제안을 반환해야 합니다. 선택 영역에 대한 단순 질문이면 파일 수정 제안 없이 답변만 합니다.
 
@@ -222,7 +269,9 @@ Settings 화면에서는 선택된 model의 context window를 별도 항목으�
 플러그인은 Antigravity, Claude, OpenAI Codex, Ollama, DeepSeek를 지원합니다. 설정 탭에서는 제공자와 모델을 따로 조정할 수 있고, 채팅 사이드바 하단에서는 하나의 모델 선택 메뉴에서 `Provider · Model` 형식으로 함께 전환합니다. reasoning/effort 메뉴는 백엔드 카탈로그에서 effort 단계가 선언된 모델에만 표시됩니다.
 
 > [!NOTE]
-> **Incurator Dashboard → Overview → LLM Provider** 카드에서도 보관소(`.curator/config.yml`)의 Primary/Fallback 모델을 바꿀 수 있습니다. 각 모델 드롭다운 옆에는 **effort 드롭다운**이 함께 표시되며, 선택한 모델이 노출하는 강도만 보여줍니다 (강도가 없는 모델은 `—`). Apply 시 `llm.primary_effort` / `llm.fallback_effort` 로 저장됩니다. 모델 목록은 플러그인 빌드 시 백엔드의 `data/models.json` 카탈로그(단일 소스)에서 번들링되므로, 모델 이름 표시가 MCP 시작 여부에 의존하지 않습니다.
+> **Incurator Dashboard → Overview → LLM Provider** 카드에서도 보관소(`.curator/config.yml`)의 Primary/Fallback 모델을 바꿀 수 있습니다. 각 모델 드롭다운 옆에는 **effort 드롭다운**이 함께 표시되며, 선택한 모델이 노출하는 강도만 보여줍니다 (강도가 없는 모델은 `—`). Apply 시 Primary는 `wiki config provider`로, Fallback은 `wiki config set --local`로 저장되어 **둘 다 같은 vault 범위 설정에 기록**됩니다(이전에는 Fallback이 global 설정으로 가서 vault의 llm 블록에 가려져 바뀌지 않는 것처럼 보였습니다). 모델 목록은 플러그인 빌드 시 백엔드의 `data/models.json` 카탈로그(단일 소스)에서 번들링되므로, 모델 이름 표시가 MCP 시작 여부에 의존하지 않습니다.
+>
+> 모델 드롭다운 아래의 **Ollama models** 섹션은 `data/models.json`의 추천 Ollama 모델을 이 머신 기준으로 보여줍니다. 이미 받은 모델에는 **installed** 배지, `vram_gb`가 감지된 RAM보다 큰 모델에는 **exceeds RAM** 배지가 붙고, 아직 설치되지 않은 모델에는 **Pull** 버튼(`wiki plugin models pull`)이 표시되어 `ollama pull`을 실행하고 새로고침합니다. 덕분에 "로컬 모델로 전환 → 빌드 재개"(Sources 탭의 **Retry errored sources** 버튼 참고) 흐름이 처음부터 끝까지 동작합니다.
 
 ### 7.1 Antigravity (기본값)
 
@@ -302,6 +351,13 @@ DeepSeek의 OpenAI 호환 API에 API 키로 연결합니다. OAuth 또는 브라
 - `deepseek-chat`, `deepseek-reasoner`는 DeepSeek가 2026-07-24 폐기 예정으로 안내한 legacy alias이므로 기본 선택지로 권장하지 않습니다.
 
 어떤 provider에서든 quota 또는 capacity 오류가 발생하면 sidechat에 명확히 표시되어 사용자가 provider/model을 바꾸거나 fallback을 설정할 수 있습니다. CLI provider(예: Antigravity `agy`)가 **답변 없이** 끝나는 경우 — 예를 들어 `Thinking…` 이후 토큰/quota 소진이나 타임아웃 — 이제 무한 스피너나 빈 말풍선 대신 **명확한 에러**를 표시합니다.
+
+Antigravity `agy` print mode는 일반적으로 최종 답변을 stdout에 쓰고
+진행/상태 줄은 stderr에 씁니다. CLI가 성공적으로 종료되었지만 stdout이
+비어 있고 stderr에 상태가 아닌 답변 텍스트가 있으면, 플러그인은 그
+텍스트를 assistant 답변으로 복구합니다. `Thinking…`, 모델 시작, MCP 상태
+같은 순수 진행 stderr는 thinking/status 블록 안에만 숨기며 답변으로
+취급하지 않습니다.
 
 ### 인증 상태와 로그아웃(Sign out)
 
@@ -397,10 +453,18 @@ Source badge는 layer 상태를 구분합니다. `L1 ready`는 즉시 section co
 L3 Concept 기반 답변이 가능하다는 뜻입니다. `Synthesized`는 공유 L4 Synthesis가
 사용 가능하다는 뜻입니다. 어떤 layer라도 error이면 정상 badge 대신 error를 표시합니다.
 
-### 백엔드 자동 업데이트 (1-Click Auto-Update)
+### Setup/Rebuild 배너
 
-Incurator 백엔드와 Obsidian 플러그인은 각기 다른 주기로 업데이트될 수 있습니다. 플러그인이 백엔드 버전을 확인해 버전 불일치(Mismatch)를 감지하면 채팅 창 상단에 **[Update Incurator Backend]** 배너를 표시합니다.
-설정에서 `incuratorRepoPath`에 로컬 저장소 경로를 지정해 두었다면, 버튼 클릭 한 번으로 백그라운드에서 백엔드를 최신 버전으로 자동 업데이트합니다. 업데이트 후에는 plugin reload 또는 Obsidian 재시작이 필요합니다.
+Incurator 백엔드와 Obsidian 플러그인은 기기마다 다른 시점에 rebuild될 수 있습니다.
+`./setup.sh`는 backend/plugin 공통 build fingerprint를 기록합니다. 플러그인은
+`wiki plugin version`을 확인할 때 backend fingerprint와 설치된 plugin bundle에
+포함된 fingerprint를 비교합니다.
+
+fingerprint가 없거나 서로 다르면 채팅 창 상단에 setup/rebuild 배너를 표시합니다.
+버튼을 누르면 설정된 `incuratorRepoPath`에서 `./setup.sh`를 실행합니다. 이 동작은
+`git pull`을 강제하지 않습니다. 따라서 Syncthing으로 같은 vault를 쓰는 다른 기기가
+다른 branch나 checkout에 있어도, 현재 기기에서 backend/plugin 쌍만 다시 맞출 수
+있습니다. setup 완료 후에는 plugin reload 또는 Obsidian 재시작이 필요합니다.
 
 `Use Incurator backend`는 local Incurator backend command 사용 여부를 제어합니다.
 켜면 plugin이 `wiki` 실행 파일을 찾고, backend runtime snapshot을 읽으며, source,
@@ -455,11 +519,13 @@ backend만 쓰고 plugin은 source count, job 상태, index health, backend vers
 표시를 위해 읽기만 합니다. snapshot이 없거나 오래된 경우에는 backend가 비었다고
 해석하지 않고 waiting/unknown 상태로 표시합니다.
 
-Add, Build, Sync, Lint, Reindex, Reset, LLM Apply, Persona Save 같은 dashboard
-버튼은 상태 변경이 필요할 때 backend command를 실행합니다. plugin은 이 작업을 위해
-backend-owned `.curator` 상태를 직접 수정하지 않습니다.
+dashboard 버튼은 상태 변경이 필요할 때 backend command를 실행하며, plugin은 이
+작업을 위해 backend-owned `.curator` 상태를 직접 수정하지 않습니다. Overview의 주
+액션은 **Update**(한 번에 처리하는 `wiki update`: add → build → embed → sync)이고,
+세부 단계인 **Add / Build / Sync / Lint / Reindex / Reset**은 **Advanced** 접이식
+영역으로 옮겼습니다. LLM Apply와 Persona Save는 설정을 저장합니다.
 
-### 대시보드 탭 (v0.3.2)
+### 대시보드 탭 (v0.3.3)
 
 - **Overview → System** 카드는 DB-native 검색 엔진과 함께 현재 **Embed model**,
   **Reranker** 행(정체성 + health, backend `search_models` 상태 기반)을 보여줍니다.
@@ -472,6 +538,18 @@ backend-owned `.curator` 상태를 직접 수정하지 않습니다.
   항목을 선택하면 별도의 backend detail view를 로드해 route, latency, intent/mode,
   degradation/`fallbackMode`, warnings, evidence, 사용 가능한 RRF/rerank
   contribution 데이터를 표시합니다 (`wiki plugin trace show`).
+- **Synthesis** 탭은 현재 vault의 최근 L4 `SYN-` node 목록을 보여줍니다
+  (`wiki plugin synthesis list`). 항목을 선택하면 community report, graph
+  entity/relation, source span, prompt trace, grounding/staleness warning이
+  포함된 read-only L4→L1 audit chain을 로드합니다
+  (`wiki plugin synthesis show`).
+- **Sources** 탭은 최근 소스를 L1–L4 단계별 상태 badge와 함께 보여줍니다. 빌드가
+  에러로 멈춘 경우(예: *"Antigravity capacity exhausted (429)"*) 탭 상단에
+  **Retry errored sources** 버튼이 나타납니다. 동작하는 모델로 전환한 뒤(설정 →
+  LLM Provider, 또는 Overview의 LLM Provider 카드) 이 버튼을 누르면 재개됩니다.
+  내부적으로 `wiki build`를 실행하여 L2/L3가 아직 `pending`이거나 `error`인 모든
+  소스를 현재 provider로 다시 시도하므로, 지식 정제 그래프가 멈춘 지점부터 이어집니다.
+  진행 상황은 **Jobs** 탭에서 확인합니다.
 - **Insights** 탭은 현재 Obsidian vault의 대기 중인 파생 insight 후보 목록을
   보여줍니다 (`wiki plugin insight list`). 항목을 선택하면 먼저 backend detail
   payload를 로드한 뒤(`wiki plugin insight show`) **Promote**(`insight promote`,
@@ -502,13 +580,20 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
 v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 읽고 세션 id 단위로 병합합니다. 따라서 Linux와 macOS에서 서로 다른 채팅 세션을 만들면 두 세션이 함께 보존됩니다. 삭제된 세션은 `deletedSessionIds` tombstone에 남아 Syncthing 지연으로 오래된 파일이 도착해도 되살아나지 않습니다. 단, 같은 세션을 양쪽에서 동시에 편집한 경우에는 더 최신 `updatedAt`을 가진 세션이 이깁니다.
 
 사이드바 대화 목록의 채팅 제목은 첫 사용자 질문 뒤에 나온 첫 assistant 답변에서
-생성합니다. 아직 답변이 끝나지 않은 동안에는 첫 사용자 질문을 임시 제목으로
-사용합니다. 각 행에는 `updatedAt` 기준의 마지막 활동 시간이 `12m ago`,
-`3h ago`처럼 현재 시각 기준 상대 시간으로 표시됩니다.
+생성합니다. 이때 추론 모델의 `<think>…</think>` 블록을 먼저 제거해, 제목이
+`<think>`/`<thinking>` 같은 글자가 아니라 실제 답변을 요약하도록 합니다(닫히지
+않은 추론 블록은 통째로 버립니다). 아직 답변이 끝나지 않은 동안에는 첫 사용자
+질문을 임시 제목으로 사용합니다. 각 행에는 `updatedAt` 기준의 마지막 활동 시간이
+`12m ago`, `3h ago`처럼 현재 시각 기준 상대 시간으로 표시됩니다.
 
 사이드바의 휴지통 버튼으로 채팅 세션을 삭제하면 별도 확인 없이 즉시 삭제됩니다. 삭제 기록은 `deletedSessionIds` tombstone으로 남아 동기화된 다른 기기에서 해당 세션이 되살아나지 않게 합니다.
 
-backend 실행 경로가 기기마다 다르거나 한쪽 기기에 Incurator가 설치되어 있지 않다면 `data.json`은 동기화하지 않는 편이 안전합니다. 이 경우 `.stignore`에는 `sessions.json` 대신 `data.json`을 추가합니다.
+backend 실행 경로나 repo 경로가 기기마다 다르거나 한쪽 기기에 Incurator가 설치되어
+있지 않다면, `.curator/devices.json`이 현재 기기의 local override 역할을 합니다.
+동기화된 `data.json`에 `incuratorRepoPath`가 들어 있더라도, 시작 시 플러그인은
+현재 기기의 `.curator/devices.json` 안 `backend.repo_path`가 비어 있지 않으면 그
+값으로 메모리상의 repo path를 교체합니다. plugin-local 설정 전체를 동기화하지
+않고 싶다면 `.stignore`에는 `sessions.json` 대신 `data.json`을 추가합니다.
 
 ```text
 .obsidian/plugins/incurator-obsidian-agent/data.json
@@ -521,7 +606,7 @@ macOS에 `wiki` 실행 파일이 PATH에 없다면 **Settings > AI Agent > PDF &
 | `Backend command` | `/opt/homebrew/bin/uv` |
 | `Backend arguments` | `["--directory", "/Users/<you>/Workspace/Incurator/backend", "run", "wiki"]` |
 
-Obsidian plugin은 시작 시 Syncthing이 공유 중인 device 목록과 현재 기기의 backend launcher hint를 `.curator/devices.json`에 자동 기록합니다. 이 registry는 `data.json`을 동기화하지 않아도 Linux/macOS 설정 차이를 서로 확인하는 용도로 사용할 수 있습니다. Dashboard는 현재 Syncthing 공유 폴더 registry에 있는 모든 device를 표시하며, 현재 기기에 backend launcher가 없는 원격 device도 숨기지 않습니다. 각 device에는 동기화 중인 Vault/Zotero 폴더 이름을 표시하고, 현재 기기는 Syncthing remote 목록이 아니라 local fallback entry로만 잡히는 경우에도 **This device**로 표시합니다. platform 정보가 없으면 추측하지 않고 unknown으로 표시합니다. `wiki devices sync`는 자동 갱신이 실패했을 때 쓰는 수동 복구 명령이고, `wiki devices`는 현재 registry를 확인하는 명령입니다.
+Obsidian plugin은 시작 시와 설정 저장 후에 Syncthing이 공유 중인 device 목록과 현재 기기의 backend launcher/repository hint를 `.curator/devices.json`에 자동 기록합니다. 이 registry는 동기화된 `data.json`의 절대 경로가 현재 기기의 runtime path를 덮어쓰지 않게 하면서 Linux/macOS 설정 차이를 서로 확인하는 용도로 사용할 수 있습니다. Dashboard는 현재 Syncthing 공유 폴더 registry에 있는 모든 device를 표시하며, 현재 기기에 backend launcher가 없는 원격 device도 숨기지 않습니다. 각 device에는 동기화 중인 Vault/Zotero 폴더 이름을 표시하고, 현재 기기는 가능하면 Syncthing local REST `myID`로 식별하고, 그게 없으면 기기별 repository path/backend launcher hint로 식별해 **This device**로 표시합니다. platform 정보가 없으면 추측하지 않고 unknown으로 표시합니다. `wiki devices sync`는 자동 갱신이 실패했을 때 쓰는 수동 복구 명령이고, `wiki devices`는 현재 registry를 확인하는 명령입니다.
 
 자세한 동기화 설정은 [SYNC_IGNORE_GUIDE_KR.md](SYNC_IGNORE_GUIDE_KR.md)를 참조하세요.
 
@@ -638,7 +723,50 @@ Zotero에서 논문 항목을 우클릭 → **항목 링크 복사**하거나, [
 | `rejectInsight(insightId, workspacePath, reason)` | `wiki plugin insight reject` | `{ ok, status }` |
 | `listQueryTraces(workspacePath, limit)` | `wiki plugin trace list` | 최근 `QTR-` trace summary |
 | `getQueryTrace(traceId, workspacePath)` | `wiki plugin trace show` | query route, evidence id, retrieval trace, warning |
+| `listSynthesisNodes(workspacePath, limit)` | `wiki plugin synthesis list` | 최근 L4 `SYN-` summary |
+| `getSynthesisAudit(synthesisId, workspacePath)` | `wiki plugin synthesis show` | read-only L4→L1 synthesis audit report |
 | `proposeCorrection(nodeId, correction, previous, workspacePath)` | `wiki plugin correction propose` | classification/recommended action/review flag |
+
+## 14. GitHub / Git Sidechat 연동
+
+플러그인은 수동 Commit/Push dashboard 버튼을 추가하지 않고, 설정과 sidechat을 통해
+GitHub 저장소 워크플로우를 노출합니다.
+
+설정은 GitHub CLI(`gh`)를 인증 상태와 로그인에만 사용합니다.
+
+- `gh auth status`로 현재 기기의 인증 상태를 확인합니다.
+- `gh auth login`은 로그인용 터미널을 엽니다.
+- `gh auth logout`은 로그아웃용으로 실행할 수 있습니다.
+- 플러그인은 GitHub OAuth token을 저장하면 안 됩니다.
+
+**Authentication** 행에는 상태 badge와 함께 현재 상태에 따라 번갈아 표시되는
+단일 **Sign in / Sign out** 토글이 있습니다. `gh`가 인증된 상태면 **Sign
+out**(`gh auth logout` 실행)을, 인증되지 않았으면 **Sign in**(`gh auth login`
+실행)을 보여줍니다. 로그인·로그아웃은 외부 터미널에서 실행되므로, 터미널 작업이
+끝난 뒤 **Check** 버튼으로 `gh auth status`를 다시 실행해 행을 새로고침할 수
+있습니다.
+
+저장소 작업은 숨은 backend JSON 명령을 사용합니다.
+
+| 클라이언트 메서드 | 백엔드 명령 | 목적 |
+|---|---|---|
+| `getGitStatus()` | `wiki plugin git status` | branch, upstream, ahead/behind, dirty count, `.curator/` ignore 경고 |
+| `getGitLog(limit)` | `wiki plugin git log` | 최근 vault commit |
+| `getGitDiffStat()` | `wiki plugin git diff --stat` | 제한된 working-tree diff 요약 |
+| `getGitHistory(filePath, queryText, limit)` | `wiki plugin git history` | 현재 Markdown 파일 또는 선택 텍스트 history |
+| `pushGitChanges()` | `wiki plugin git push` | upstream이 안전할 때 현재 branch push |
+| `commitGitChanges(message)` | `wiki plugin git commit` | 명시적 commit 요청용 guarded fallback |
+
+기본 워크플로우는 vault에 scheduled commit이 이미 있을 수 있다고 가정합니다.
+`push해줘` 같은 요청에서는 sidechat이 새 commit을 먼저 만들지 않고 기존 commit을
+push해야 합니다. "이 내용 예전에 어떻게 바뀌었는지 히스토리 찾아줘" 같은 선택한
+Markdown history 질문에서는 선택 텍스트 또는 정규화된 excerpt와 현재 Markdown 파일
+경로를 `getGitHistory`에 전달해야 합니다.
+
+Git 명령은 provider-native shell/tool 추측이 아니라 `IncuratorClient`를 통한 결정적
+backend 호출이어야 합니다. backend가 git repository 없음, upstream 없음,
+behind/diverged branch, GitHub 인증 없음 같은 구조화된 blocker를 반환하면, sidechat은
+merge/rebase/unsafe push를 시도하지 않고 그 blocker를 보고합니다.
 
 쿼리 결과(`CuratorQueryResult`)와 Sources & Trace 패널은 v0.3.1 필드를 추가로
 담습니다: `route`, `trace_id`(`QTR-`), `prompt_trace_ids`(`PTR-`),
@@ -650,7 +778,7 @@ Zotero에서 논문 항목을 우클릭 → **항목 링크 복사**하거나, [
 - 인사이트 후보 승격은 명시적 사용자 동작입니다. 플러그인은 `promoteInsight`
   호출 전 확인을 받아야 하며, 이는 `02_Wiki/`에만 기록합니다.
 - 이 로컬 명령들은 JSON을 반환하며 Incurator MCP 도구로 라우팅하면 안 됩니다(MCP는
-  외부 에이전트용). [플러그인 스키마 스펙](../specs/plugin_schema/PLUGIN_SCHEMA_v0.3.2.md)
+  외부 에이전트용). [플러그인 스키마 스펙](../specs/plugin_schema/PLUGIN_SCHEMA.md)
   §9–12 참고.
 - Dashboard의 Trace/Insights 탭은 이 명령들 위에 놓인 click-to-use surface입니다.
   trace와 insight candidate를 list/show하고, 후보를 promote/reject하거나 correction을

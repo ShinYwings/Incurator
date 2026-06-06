@@ -127,7 +127,8 @@ def parse(path: Path) -> ParsedDocument:
         import fitz
     except ImportError as e:
         raise ParserError(
-            "pymupdf4llm is not installed. Run `uv pip install -e .` to install dependencies."
+            "pymupdf4llm is not installed. Run `./setup.sh` from the repository root, "
+            "or `cd backend && uv pip install -e .` for a backend-only repair."
         ) from e
 
     try:

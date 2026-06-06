@@ -71,10 +71,13 @@ def test_advanced_command_groups_are_hidden_but_callable() -> None:
 
     help_result = runner.invoke(app, ["--help"])
     assert help_result.exit_code == 0
-    for name in ("plugin", "testbed", "devices", "mcp"):
+    # `jobs` is hidden in v0.3.2 (item 14): the canonical path is `wiki update`,
+    # which drains the queue synchronously.
+    for name in ("plugin", "testbed", "devices", "mcp", "jobs"):
         assert name not in help_result.output
     assert re.search(r"│\s+sources\s+", help_result.output) is None
-    assert re.search(r"│\s+update\s+", help_result.output) is None
+    # `wiki update` is the visible one-shot ingest command (item 14).
+    assert re.search(r"│\s+update\s+", help_result.output) is not None
     # `curate` and `refresh` (frozen-Exhibition commands) were removed in v0.3.1.
     assert re.search(r"│\s+curate\s+", help_result.output) is None
     assert re.search(r"│\s+refresh\s+", help_result.output) is None
@@ -94,7 +97,23 @@ def test_advanced_command_groups_are_hidden_but_callable() -> None:
         assert result.exit_code == 0
 
     assert runner.invoke(app, ["sources", "--help"]).exit_code != 0
-    assert runner.invoke(app, ["update", "--help"]).exit_code != 0
+    # `update` is now a real command; `jobs` is hidden but still callable.
+    assert runner.invoke(app, ["update", "--help"]).exit_code == 0
+    assert runner.invoke(app, ["jobs", "--help"]).exit_code == 0
+
+
+def test_plugin_version_returns_build_fingerprint_fields() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["plugin", "version"])
+    payload = _json_output(result.output)
+
+    assert result.exit_code == 0
+    assert payload["ok"] is True
+    assert payload["version"]
+    assert payload["build"]["combined_fingerprint"]
+    assert payload["build"]["backend_fingerprint"]
+    assert payload["build"]["plugin_fingerprint"]
 
 
 def test_git_like_source_aliases_are_callable() -> None:

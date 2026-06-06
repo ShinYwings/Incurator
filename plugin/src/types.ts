@@ -85,6 +85,8 @@ export interface PluginSettings {
   providerUsage: Record<LLMProvider, ProviderUsage>;
   diffMode: "inline" | "side-by-side";
   streamingEnabled: boolean;
+  /** Write proposed code edits as a diff artifact note under 00_System/Agent Diffs/. */
+  editArtifactEnabled: boolean;
   quickQueryEnabled: boolean;
   mcpServers: MCPServerConfig[];
   maxContextLength: number;
@@ -163,6 +165,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   ollamaHost: "http://localhost:11434",
   diffMode: "inline",
   streamingEnabled: true,
+  editArtifactEnabled: true,
   quickQueryEnabled: true,
   mcpServers: [],
   maxContextLength: 128000,
@@ -234,6 +237,7 @@ export interface ContextRef {
   backendStatus?: IncuratorSourceStatus;
   windowPages?: PdfWindowPage[];
   outline?: PdfOutlineItem[];
+  pageLabels?: string[];
   ragHits?: PdfRagHit[];
   textQuality?: PdfTextQuality;
   isScannedLike?: boolean;
@@ -260,6 +264,8 @@ export interface ChatMessage {
   /** For streaming: is the message still being received? */
   isStreaming?: boolean;
   appliedEdits?: boolean;
+  /** Vault path of the diff artifact note written for this message's edits, if any. */
+  editArtifactPath?: string;
   revertData?: { filepath: string; originalContent: string | null }[];
 }
 
@@ -308,6 +314,8 @@ export interface PdfRagHit {
 export interface PdfPageContext {
   pageNum: number;
   pageCount?: number;
+  /** PDF PageLabels array, 0-based physical page index -> printed label. */
+  pageLabels?: string[];
   text: string;
   imageBase64?: string;
   selectedImageBase64?: string;
@@ -442,7 +450,7 @@ export interface PromoteAnswerResult {
 }
 
 // ---------------------------------------------------------------------------
-// v0.3.1 curation-native trace/insight payloads (PLUGIN_SCHEMA_v0.3.1 §10–11)
+// v0.3.1 curation-native trace/insight payloads (PLUGIN_SCHEMA §10–11)
 // ---------------------------------------------------------------------------
 
 export interface IncuratorPromptTrace {
@@ -511,6 +519,96 @@ export interface IncuratorInsightPromoteResult {
   error?: string;
 }
 
+export interface IncuratorSynthesisSummary {
+  id: string;
+  title: string;
+  confidence: number;
+  sourceSpanIds: string[];
+  communityReportIds: string[];
+  promptRunId?: string;
+  updatedAt?: string;
+}
+
+export interface IncuratorSynthesisListResult {
+  ok: boolean;
+  synthesis: IncuratorSynthesisSummary[];
+  error?: string;
+}
+
+export interface IncuratorSynthesisAuditResult {
+  ok: boolean;
+  audit?: {
+    ok: boolean;
+    kind: "synthesis" | "report" | "answer";
+    id: string;
+    synthesis?: Record<string, unknown>;
+    community_reports?: unknown[];
+    entities?: unknown[];
+    relations?: unknown[];
+    knowledge_units?: unknown[];
+    source_spans?: unknown[];
+    prompt_runs?: unknown[];
+    query_trace?: unknown;
+    dependency_warnings?: string[];
+    warnings?: string[];
+  };
+  synthesisId?: string;
+  error?: string;
+}
+
+export interface GitStatusResult {
+  ok: boolean;
+  repo?: {
+    is_repo?: boolean;
+    root?: string;
+    branch?: string;
+    upstream?: string;
+    ahead?: number;
+    behind?: number;
+    remote_url?: string;
+    github_authenticated?: boolean;
+    github_account?: string;
+  };
+  working_tree?: {
+    clean?: boolean;
+    staged?: number;
+    unstaged?: number;
+    untracked?: number;
+    conflicted?: number;
+  };
+  warnings?: string[];
+  error?: string;
+  message?: string;
+}
+
+export interface GitHistoryCommit {
+  hash: string;
+  author?: string;
+  date?: string;
+  subject: string;
+  patch?: string;
+}
+
+export interface GitHistoryResult {
+  ok: boolean;
+  file_path?: string;
+  query_excerpt?: string;
+  exact_match?: boolean;
+  commits?: GitHistoryCommit[];
+  error?: string;
+  message?: string;
+}
+
+export interface GitPushResult {
+  ok: boolean;
+  branch?: string;
+  upstream?: string;
+  stdout?: string;
+  stderr?: string;
+  error?: string;
+  message?: string;
+}
+
 // ─── MCP Protocol Types ─────────────────────────────────────────
 export interface MCPTool {
   name: string;
@@ -545,6 +643,7 @@ export type StreamEventType = "text" | "thinking" | "status" | "tool" | "done";
 export interface StreamChunk {
   text: string;
   done: boolean;
+  reasoning_content?: string;
   eventType?: StreamEventType;
   status?: string;
   toolName?: string;

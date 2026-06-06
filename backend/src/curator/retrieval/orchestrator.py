@@ -8,6 +8,8 @@ the full QTR trace (route, evidence ids, prompt trace ids).
 
 from __future__ import annotations
 
+import hashlib
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -41,6 +43,27 @@ def _resolve_policy(workspace_path: str) -> tuple[curate_yml.CurationPolicy, str
     return _default_policy(), ""
 
 
+def _question_hash(question: str, working_query: str = "") -> str:
+    raw = (working_query or question).strip()
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _evidence_json(pack: EvidencePack) -> list[dict]:
+    return [
+        {
+            "id": item.id,
+            "kind": item.kind,
+            "title": item.title,
+            "score": item.score,
+            "source_span_ids": item.source_span_ids,
+            "community_report_id": item.community_report_id,
+            "synthesis_node_id": item.synthesis_node_id,
+            "memory_path_id": item.memory_path_id,
+        }
+        for item in pack.items
+    ]
+
+
 class QueryOrchestrator:
     def __init__(self, paths: cfg.WikiPaths, client: Any) -> None:
         self.paths = paths
@@ -59,6 +82,20 @@ class QueryOrchestrator:
         route, reason = router.choose_route(request, policy, status)
         trace_id = f"QTR-{uuid.uuid4().hex[:8]}"
         pack = evidence_mod.build_evidence(self.paths, request, route)
+        db.insert_query_trace(
+            self.paths.state_db,
+            trace_id=trace_id,
+            workspace_id=policy.workspace_id,
+            question_hash=_question_hash(request.question, request.working_query),
+            route=route,
+            route_reason=reason,
+            evidence=_evidence_json(pack),
+            source_span_ids=pack.source_span_ids,
+            community_report_ids=pack.community_report_ids,
+            synthesis_node_ids=pack.synthesis_node_ids,
+            memory_path_ids=pack.memory_path_ids,
+            warnings=pack.warnings,
+        )
         return {
             "ok": True,
             "route": route,
@@ -83,6 +120,7 @@ class QueryOrchestrator:
         }
 
     def run(self, request: QueryRequest) -> QueryResultV031:
+        started = time.monotonic()
         policy, spec_hash = _resolve_policy(request.workspace_path)
         status = router.graph_status(self.paths.state_db)
         route, reason = router.choose_route(request, policy, status)
@@ -107,6 +145,23 @@ class QueryOrchestrator:
             self._run_explore(request, pack, spec_hash, result)
         else:
             self._run_answer(request, route, pack, spec_hash, result)
+        db.insert_query_trace(
+            self.paths.state_db,
+            trace_id=result.trace_id,
+            workspace_id=policy.workspace_id,
+            question_hash=_question_hash(request.question, request.working_query),
+            route=result.route,
+            route_reason=reason,
+            evidence=_evidence_json(pack),
+            source_span_ids=result.source_span_ids,
+            community_report_ids=result.community_report_ids,
+            synthesis_node_ids=result.synthesis_node_ids,
+            memory_path_ids=result.memory_path_ids,
+            prompt_trace_ids=result.prompt_trace_ids,
+            insight_candidate_ids=result.insight_candidate_ids,
+            warnings=result.warnings,
+            latency_ms=int((time.monotonic() - started) * 1000),
+        )
         return result
 
     # -- answer routes (local / global / source-section) -----------------------

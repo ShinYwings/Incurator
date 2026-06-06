@@ -5,7 +5,7 @@ The query path: resolve curate.yml policy -> route
 (DB graph + qmd derived corpus) ->
 registered query prompt with tracing → QueryResultV031 with the full QTR trace.
 
-See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.1.md`` §17.
+See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`` §17.
 """
 
 from __future__ import annotations

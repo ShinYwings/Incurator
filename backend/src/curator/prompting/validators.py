@@ -5,7 +5,7 @@ and is referenced by name from a ``PromptContract.validators`` tuple. The runner
 runs them in order with a shared context dict; the implicit JSON-model parse is
 handled by the runner before named validators run.
 
-See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.1.md`` §15.3.
+See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`` §15.3.
 """
 
 from __future__ import annotations

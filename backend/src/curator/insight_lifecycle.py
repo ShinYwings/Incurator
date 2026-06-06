@@ -10,7 +10,7 @@ immutability:
 - promotion_request → write ONLY to 02_Wiki/ (explicit human approval)
 - ambiguous         → needs_review
 
-See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.1.md`` §18–§19.
+See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`` §18–§19.
 """
 
 from __future__ import annotations

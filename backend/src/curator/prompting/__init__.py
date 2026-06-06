@@ -8,7 +8,7 @@ surface pipelines use:
     contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
     result = prompting.run_prompt(db_path, client, contract, input_obj, ...)
 
-See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.1.md`` §15.
+See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`` §15.
 """
 
 from __future__ import annotations

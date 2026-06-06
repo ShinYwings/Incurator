@@ -21,7 +21,12 @@ import {
 } from "./externalPdfView";
 import { IngestDestinationModal } from "./ingestDestinationModal";
 import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
-import { normalizeLatexDelimiters, truncateToLength } from "../utils/textUtils";
+import { collapseStreamingEditBlocks, normalizeLatexDelimiters, truncateToLength } from "../utils/textUtils";
+import {
+  ARTIFACT_DIR,
+  buildEditArtifactFilename,
+  buildEditArtifactMarkdown,
+} from "../context/editArtifact";
 import { inferIngestDestination } from "../utils/pathUtils";
 import { hashFileSha256 } from "../utils/fileHash";
 import { DiffViewer } from "./diffViewer";
@@ -48,10 +53,17 @@ import {
   isPrimaryUserContext,
   shouldIncludeContext,
 } from "../context/chatContextPriority";
+import { buildMarkdownOutline } from "../context/quickQueryContext";
+import { parseAnswerLinkTarget, type AnswerLinkTarget } from "../context/answerLinkNavigation";
+import { resolveSelectionReferencesBlock } from "../context/pdfReferenceContext";
 import {
   shouldRunCuratorDomainQuery,
   shouldUseBackendPdfContext,
 } from "../context/providerContextPolicy";
+import {
+  detectGitSidechatCommand,
+  type GitSidechatCommand,
+} from "./gitSidechatCommands";
 import {
   type ChatMessage,
   type ChatMode,
@@ -62,6 +74,7 @@ import {
   type IncuratorSourceStatus,
   type LLMMessage,
   type LLMContentPart,
+  type PdfPageContext,
   type LLMProvider,
   type StreamChunk,
   getDefaultModel,
@@ -968,6 +981,32 @@ export class ChatSidebarView extends ItemView {
     this.renderMessages();
     await this.persistCurrentSession();
 
+    const gitCommand = detectGitSidechatCommand(
+      content,
+      userMsg.contextRefs || [],
+      capturedActiveCtx
+        ? {
+            viewType: capturedActiveCtx.viewType,
+            filePath: capturedActiveCtx.filePath,
+            absolutePath: capturedActiveCtx.absolutePath,
+          }
+        : null
+    );
+    if (gitCommand) {
+      assistantMsg.content = "Running Git command...";
+      this.renderAssistantMessage(assistantMsg);
+      try {
+        assistantMsg.content = await this.runGitSidechatCommand(gitCommand);
+      } catch (err) {
+        assistantMsg.content = `❌ Git command failed: ${err instanceof Error ? err.message : String(err)}`;
+      } finally {
+        assistantMsg.isStreaming = false;
+        this.renderAssistantMessage(assistantMsg);
+        await this.persistCurrentSession();
+      }
+      return;
+    }
+
     this.setPrepareStatus("Preparing context...");
     const llmMessages = await this.buildLLMMessages(capturedActiveCtx);
     this.prepareStatusText = "";
@@ -1002,10 +1041,76 @@ export class ChatSidebarView extends ItemView {
       this.isGenerating = false;
       setIcon(this.sendBtn, "send");
       this.sendBtn.setAttribute("aria-label", "Send message");
-      this.renderMessages();
+      // Write any proposed edits to a diff artifact note before re-rendering so
+      // the artifact-link pill can show immediately. Runs once per message.
+      await this.maybeWriteEditArtifact(assistantMsg);
+      // Do not yank the view to the bottom when generation finishes; keep the
+      // reader where they are unless they were already following along.
+      this.renderMessages(false);
       await this.persistCurrentSession();
     }
 
+  }
+
+  private async runGitSidechatCommand(command: GitSidechatCommand): Promise<string> {
+    const client = this.getIncuratorClient();
+    if (command.kind === "status") {
+      const status = await client.getGitStatus();
+      if (!status.ok) {
+        return `❌ Git status unavailable: ${status.message || status.error || "unknown error"}`;
+      }
+      const repo = status.repo || {};
+      const tree = status.working_tree || {};
+      const warnings = status.warnings?.length
+        ? `\n\nWarnings:\n${status.warnings.map((w) => `- ${w}`).join("\n")}`
+        : "";
+      return [
+        "GitHub/Git status",
+        "",
+        `- Branch: ${repo.branch || "unknown"}`,
+        `- Upstream: ${repo.upstream || "none"}`,
+        `- Ahead/behind: ${repo.ahead ?? 0}/${repo.behind ?? 0}`,
+        `- Remote: ${repo.remote_url || "none"}`,
+        `- GitHub auth: ${repo.github_authenticated ? (repo.github_account || "authenticated") : "not authenticated/unknown"}`,
+        `- Working tree: ${tree.clean ? "clean" : "dirty"}`,
+        `- Staged/unstaged/untracked/conflicted: ${tree.staged ?? 0}/${tree.unstaged ?? 0}/${tree.untracked ?? 0}/${tree.conflicted ?? 0}`,
+        warnings,
+      ].filter(Boolean).join("\n");
+    }
+
+    if (command.kind === "push") {
+      const result = await client.pushGitChanges();
+      if (!result.ok) {
+        return `❌ Git push blocked: ${result.message || result.error || "unknown error"}`;
+      }
+      const details = [result.stdout, result.stderr].filter((v) => v && v.trim()).join("\n").trim();
+      return `✅ Pushed ${result.branch || "current branch"}${result.upstream ? ` to ${result.upstream}` : ""}.${details ? `\n\n${details}` : ""}`;
+    }
+
+    const history = await client.getGitHistory(command.filePath, command.queryText, 10);
+    if (!history.ok) {
+      return `❌ Git history unavailable: ${history.message || history.error || "unknown error"}`;
+    }
+    const commits = history.commits || [];
+    if (commits.length === 0) {
+      return `No Git history found for ${history.file_path || command.filePath}.`;
+    }
+    const mode = history.query_excerpt
+      ? history.exact_match
+        ? `matching "${history.query_excerpt}"`
+        : `recent file history (no exact match for "${history.query_excerpt}")`
+      : "recent file history";
+    const lines = [`Git history for ${history.file_path || command.filePath} — ${mode}:`, ""];
+    for (const commit of commits.slice(0, 5)) {
+      lines.push(`- ${commit.hash.slice(0, 8)} ${commit.subject}${commit.date ? ` (${commit.date})` : ""}`);
+      const patch = (commit.patch || "").trim();
+      if (patch) {
+        lines.push("```diff");
+        lines.push(patch.slice(0, 1200));
+        lines.push("```");
+      }
+    }
+    return lines.join("\n");
   }
 
   private async buildLLMMessages(
@@ -1093,6 +1198,20 @@ export class ChatSidebarView extends ItemView {
           .join("\n\n---\n\n");
         systemText += `\n\n<open_tabs_content>\n${tabContents}\n</open_tabs_content>`;
       }
+
+      const markdownOutlines = activeCtx.openTabs
+        .filter((tab) => tab.viewType === "markdown" && tab.content)
+        .map((tab) => {
+          const outline = buildMarkdownOutline(tab.content || "");
+          if (!outline) return "";
+          const path = tab.filePath ? ` path="${escapeAttribute(tab.filePath)}"` : "";
+          return `<markdown_outline document="${escapeAttribute(tab.label)}"${path}${tab.isActive ? ' active="true"' : ""}>\n${outline}\n</markdown_outline>`;
+        })
+        .filter(Boolean)
+        .join("\n\n");
+      if (markdownOutlines) {
+        systemText += `\n\n<markdown_outlines>\n${markdownOutlines}\n</markdown_outlines>`;
+      }
     }
 
     if (activeCtx?.filePath) {
@@ -1129,6 +1248,16 @@ export class ChatSidebarView extends ItemView {
             if (ref.content) {
               if (isPrimaryUserContext(ref)) {
                 textToPush += `<primary_focus_selection>\n${ref.content}\n</primary_focus_selection>`;
+                // Follow any cross-reference (crop caption or dragged "see §X")
+                // to the target page/section so the model explains the referent,
+                // not the visible page. (report items 3/4/6/7)
+                const resolvedBlock = resolveSelectionReferencesBlock(ref.content, {
+                  outline: ref.outline,
+                  windowPages: ref.windowPages,
+                  pageNum: ref.pageNum,
+                  pageLabels: ref.pageLabels,
+                });
+                if (resolvedBlock) textToPush += `\n${resolvedBlock}`;
               } else {
                 textToPush += ref.content;
               }
@@ -1628,6 +1757,7 @@ export class ChatSidebarView extends ItemView {
           filePath: tab.filePath,
           fileHash: tab.pdfPage.fileHash,
           pageNum: tab.pdfPage.pageNum,
+          pageLabels: tab.pdfPage.pageLabels,
           zoteroAttachmentKey: tab.pdfPage.zoteroAttachmentKey,
           windowPages: tab.pdfPage.windowPages,
           outline: tab.pdfPage.outline,
@@ -1672,7 +1802,7 @@ export class ChatSidebarView extends ItemView {
     viewType: string;
     filePath?: string;
   }): ContextRef | null {
-    let pdfCtx: { pageNum: number; text: string; imageBase64?: string } | null = null;
+    let pdfCtx: PdfPageContext | null = null;
 
     if (tab.viewType === EXTERNAL_PDF_VIEW_TYPE) {
       for (const leaf of this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE)) {
@@ -1710,6 +1840,7 @@ export class ChatSidebarView extends ItemView {
       imageBase64: pdfCtx.imageBase64,
       filePath: tab.filePath,
       pageNum: pdfCtx.pageNum,
+      pageLabels: pdfCtx.pageLabels,
       isPinned: true,
       sourceViewType: tab.viewType,
     };
@@ -1743,6 +1874,7 @@ export class ChatSidebarView extends ItemView {
           content: pdfCtx.text,
           imageBase64: pdfCtx.imageBase64,
           pageNum: pdfCtx.pageNum,
+          pageLabels: pdfCtx.pageLabels,
         };
       }
     }
@@ -1763,11 +1895,7 @@ export class ChatSidebarView extends ItemView {
     return await this.app.vault.cachedRead(file);
   }
 
-  private capturePinnedPdfContext(ref: ContextRef): {
-    pageNum: number;
-    text: string;
-    imageBase64?: string;
-  } | null {
+  private capturePinnedPdfContext(ref: ContextRef): PdfPageContext | null {
     const baseLabel = ref.label.replace(/ p\.\d+$/, "");
 
     for (const leaf of this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE)) {
@@ -2101,10 +2229,16 @@ export class ChatSidebarView extends ItemView {
 
   // ── Rendering ───────────────────────────────────────────────
 
-  private renderMessages(): void {
+  private renderMessages(forceScroll: boolean = true): void {
+    // Capture the user's scroll position before the DOM is torn down so a
+    // re-render triggered by generation completion does not yank the view to
+    // the bottom. We only follow to the bottom when the user was already there.
+    const prevScrollTop = this.messagesContainer.scrollTop;
+    const wasNearBottom = this.isNearBottom();
     this.messagesContainer.empty();
 
-    if (this.plugin.settings.incuratorRepoPath && this.getIncuratorClient().needsUpdate) {
+    const updateClient = this.getIncuratorClient();
+    if (this.plugin.settings.incuratorRepoPath && updateClient.needsUpdate) {
       const banner = this.messagesContainer.createDiv("ai-agent-update-banner");
       banner.style.padding = "10px";
       banner.style.marginBottom = "10px";
@@ -2116,9 +2250,9 @@ export class ChatSidebarView extends ItemView {
       banner.style.alignItems = "center";
       
       const text = banner.createSpan();
-      text.setText("A new version of Incurator is available.");
+      text.setText(updateClient.updateMessage || "Incurator setup needs to be refreshed on this device.");
       
-      const btn = banner.createEl("button", { text: "Update Now" });
+      const btn = banner.createEl("button", { text: updateClient.updateActionLabel || "Run Setup" });
       btn.style.backgroundColor = "transparent";
       btn.style.border = "1px solid var(--text-on-accent)";
       btn.style.color = "var(--text-on-accent)";
@@ -2128,7 +2262,7 @@ export class ChatSidebarView extends ItemView {
       
       btn.addEventListener("click", async () => {
         btn.disabled = true;
-        btn.setText("Updating...");
+        btn.setText("Running setup...");
         await this.plugin.updateIncuratorBackend();
         btn.setText("Restart Required");
       });
@@ -2154,7 +2288,16 @@ export class ChatSidebarView extends ItemView {
     for (const msg of this.messages) {
       this.renderMessage(msg);
     }
-    this.scrollToBottom(true);
+    if (forceScroll || wasNearBottom) {
+      this.scrollToBottom(true);
+    } else {
+      // Preserve the reader's position; the full rebuild reset scrollTop to 0.
+      requestAnimationFrame(() => {
+        if (this.messagesContainer) {
+          this.messagesContainer.scrollTop = prevScrollTop;
+        }
+      });
+    }
   }
 
   private renderMessage(msg: ChatMessage): void {
@@ -2202,7 +2345,10 @@ export class ChatSidebarView extends ItemView {
     // the final render (isStreaming=false) will do one proper MarkdownRenderer pass.
     if (msg.isStreaming) {
       const streamEl = contentEl.createDiv("ai-agent-streaming-text");
-      streamEl.textContent = msg.content;
+      // Hide ALL code-edit blocks while streaming, not just the last one, so the
+      // chat never floods with raw SEARCH/REPLACE code. The final render swaps
+      // the blocks for compact diff-review pills.
+      streamEl.textContent = collapseStreamingEditBlocks(msg.content);
       return;
     }
 
@@ -2212,14 +2358,14 @@ export class ChatSidebarView extends ItemView {
     let remainingContent = msg.content;
 
     if (multiProposals.length > 0) {
-      // User explicitly requested to review diffs before applying
-      // if (!msg.appliedEdits) {
-      //   this.autoApplyProposals(msg, multiProposals);
-      // }
-      
-
       for (const prop of multiProposals) {
-        remainingContent = remainingContent.replace(prop.originalBlock, "");
+        const escaped = prop.originalBlock.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const withTicks = new RegExp(`\`\`\`(?:\\w+)?\\n?${escaped}\\n?\`\`\``, "g");
+        if (withTicks.test(remainingContent)) {
+          remainingContent = remainingContent.replace(withTicks, "");
+        } else {
+          remainingContent = remainingContent.replace(prop.originalBlock, "");
+        }
       }
       remainingContent = remainingContent.trim();
       
@@ -2251,6 +2397,10 @@ export class ChatSidebarView extends ItemView {
       }
     }
 
+    // Additive: a link to the persistent diff artifact note (item 20), shown
+    // alongside the inline Review-Diff pills when one was written.
+    this.renderEditArtifactPill(contentEl, msg);
+
     const toolMatch = msg.content.match(/✅ \*\*mcp_[^*]*curator_query\*\* result:\n```(?:json)?\n([\s\S]*?)\n```/);
     if (toolMatch && !this.lastQueryTrace) {
       try {
@@ -2269,6 +2419,65 @@ export class ChatSidebarView extends ItemView {
         renderCuratorQueryTrace(contentEl, traceToRender as any, this.app);
       }
     }
+    window.setTimeout(() => this.attachAssistantAnswerLinkNavigation(contentEl), 0);
+  }
+
+  private attachAssistantAnswerLinkNavigation(container: HTMLElement): void {
+    const links = Array.from(container.querySelectorAll<HTMLAnchorElement>("a"));
+    for (const link of links) {
+      const target = parseAnswerLinkTarget(link.getAttribute("href"), link.textContent || "");
+      if (!target) continue;
+      link.addClass("ai-agent-answer-target-link");
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.navigateAssistantAnswerTarget(target);
+      });
+    }
+  }
+
+  private navigateAssistantAnswerTarget(target: AnswerLinkTarget): void {
+    const view = this.findNavigablePdfView();
+    if (!view) {
+      new Notice("Open the PDF in Incurator's PDF view to jump to answer links.");
+      return;
+    }
+
+    const pageNum =
+      target.kind === "page"
+        ? target.pageKind === "printed"
+          ? view.resolvePrintedPageLabel(target.pageNum) ?? target.pageNum
+          : target.pageNum
+        : this.resolveAssistantSectionPage(target.sectionNumber);
+    if (!pageNum) {
+      new Notice(
+        target.kind === "section"
+          ? `Could not find Section ${target.sectionNumber} in the active PDF outline.`
+          : "Could not resolve the PDF page link."
+      );
+      return;
+    }
+    view.jumpToPage(pageNum, "smooth");
+  }
+
+  private resolveAssistantSectionPage(sectionNumber: string): number | undefined {
+    const outline = this.plugin.refreshActiveContext()?.pdfPage?.outline ?? [];
+    const want = sectionNumber.toUpperCase();
+    const match = outline.find((item) => this.parseAssistantOutlineNumber(item.title) === want);
+    return match?.pageNum;
+  }
+
+  private parseAssistantOutlineNumber(title: string): string | undefined {
+    const match = /^\s*(?:appendix\s+)?([A-Z]?\d+(?:\.\d+)*)/i.exec(title);
+    return match?.[1]?.toUpperCase();
+  }
+
+  private findNavigablePdfView(): ExternalPdfView | null {
+    const activeView = this.app.workspace.activeLeaf?.view;
+    if (activeView instanceof ExternalPdfView) return activeView;
+    const leaves = this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE);
+    const first = leaves[0]?.view;
+    return first instanceof ExternalPdfView ? first : null;
   }
 
   private renderInlineDiff(
@@ -2367,32 +2576,28 @@ export class ChatSidebarView extends ItemView {
       await this.reviewAssistantEdit(msg);
       // Since DiffViewer doesn't have a callback to update this pill, we just 
       // let the user know they are reviewing it.
-      statusBtn.setText("⏳ Reviewing...");
+      statusBtn.setText("🔍 Opened Diff");
       statusBtn.style.color = "var(--text-accent)";
       statusBtn.style.borderColor = "var(--text-accent)";
       statusBtn.style.background = "transparent";
     };
 
-    nameEl.addEventListener("click", async (e) => {
+    wrapper.style.cursor = "pointer";
+    wrapper.addEventListener("click", async (e) => {
       e.stopPropagation();
       await reviewInEditor();
     });
 
     const statusBtn = header.createEl("button", {
       cls: "ai-agent-applied-status",
-      text: "Pending Review",
-      attr: { title: "Click to review in editor" },
+      text: "🔍 Review Diff",
+      attr: { title: "Click to open Diff Viewer" },
     });
     // Style as pending
     statusBtn.style.color = "var(--text-muted)";
     statusBtn.style.borderColor = "var(--background-modifier-border)";
     statusBtn.style.background = "transparent";
     statusBtn.style.cursor = "pointer";
-
-    statusBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      await reviewInEditor();
-    });
   }
 
   private async autoApplyProposals(msg: ChatMessage, proposals: MultiEditProposal[]): Promise<void> {
@@ -2865,6 +3070,88 @@ export class ChatSidebarView extends ItemView {
     return bare ? bare[1].trim() : fallbackFilepath;
   }
 
+  /**
+   * Write any proposed edits in `msg` to a diff artifact note under
+   * 00_System/Agent Diffs/ (item 20). Idempotent: only runs when the setting is
+   * on, the message has edit proposals, and no artifact was created yet.
+   */
+  private async maybeWriteEditArtifact(msg: ChatMessage): Promise<void> {
+    if (!this.plugin.settings.editArtifactEnabled) return;
+    if (msg.editArtifactPath) return;
+
+    const editRef = this.getEditTargetContextForMessage(msg);
+    const proposals = this.extractMultiEditProposals(msg.content, editRef?.filePath);
+    if (proposals.length === 0) return;
+
+    try {
+      const created = new Date();
+      const idx = this.messages.indexOf(msg);
+      const prevUser =
+        idx > 0
+          ? [...this.messages.slice(0, idx)].reverse().find((m) => m.role === "user")
+          : undefined;
+      const title =
+        (prevUser?.content || "").split("\n")[0].trim().slice(0, 80) || "code edits";
+      const sessionId = this.plugin.sessionData.activeChatSessionId ?? "";
+
+      const content = buildEditArtifactMarkdown(
+        proposals.map((p) => ({
+          filepath: p.filepath,
+          search: p.search,
+          replace: p.replace,
+        })),
+        { title, sessionId, created }
+      );
+
+      if (!this.app.vault.getAbstractFileByPath(ARTIFACT_DIR)) {
+        try {
+          await this.app.vault.createFolder(ARTIFACT_DIR);
+        } catch {
+          /* folder already exists */
+        }
+      }
+
+      const baseName = buildEditArtifactFilename(proposals, created);
+      let path = `${ARTIFACT_DIR}/${baseName}`;
+      if (this.app.vault.getAbstractFileByPath(path)) {
+        const stem = baseName.replace(/\.md$/, "");
+        for (let i = 2; i < 1000; i++) {
+          const candidate = `${ARTIFACT_DIR}/${stem}-${i}.md`;
+          if (!this.app.vault.getAbstractFileByPath(candidate)) {
+            path = candidate;
+            break;
+          }
+        }
+      }
+
+      await this.app.vault.create(path, content);
+      msg.editArtifactPath = path;
+    } catch (err) {
+      console.error("Failed to write edit artifact:", err);
+    }
+  }
+
+  private renderEditArtifactPill(container: HTMLElement, msg: ChatMessage): void {
+    if (!msg.editArtifactPath) return;
+    const path = msg.editArtifactPath;
+    const pill = container.createDiv("ai-agent-applied-change ai-agent-edit-artifact-pill");
+    pill.style.cursor = "pointer";
+    const header = pill.createDiv("ai-agent-applied-change-header");
+    header.createSpan({ cls: "ai-agent-applied-change-icon", text: "📝" });
+    const nameEl = header.createSpan({ cls: "ai-agent-applied-change-name" });
+    nameEl.setText("Open diff artifact");
+    nameEl.title = path;
+    pill.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (file instanceof TFile) {
+        await this.app.workspace.getLeaf("tab").openFile(file, { active: true });
+      } else {
+        new Notice(`Diff artifact not found: ${path}`);
+      }
+    });
+  }
+
   private extractMultiEditProposals(content: string, fallbackFilepath = ""): MultiEditProposal[] {
     const proposals: MultiEditProposal[] = [];
     const blockRegex = /```ai-agent-edit([^\n]*)\n([\s\S]*?)```/gi;
@@ -3003,8 +3290,8 @@ export class ChatSidebarView extends ItemView {
       const viewType = leaf.view.getViewType();
       if (viewType === "pdf" || viewType === EXTERNAL_PDF_VIEW_TYPE) {
         if (viewType === EXTERNAL_PDF_VIEW_TYPE) {
-          const state = leaf.view.getState();
-          if (state.path) openPdfTabKeys.add(state.path);
+          const state = leaf.view.getState() as { path?: unknown };
+          if (typeof state.path === "string") openPdfTabKeys.add(state.path);
           openPdfTabKeys.add(leaf.view.getDisplayText());
         } else {
           // Internal PDF view
@@ -3247,6 +3534,7 @@ export class ChatSidebarView extends ItemView {
               content: pdfCtx.text,
               imageBase64: pdfCtx.imageBase64,
               pageNum: pdfCtx.pageNum,
+              pageLabels: pdfCtx.pageLabels,
             });
             return;
           }
@@ -3683,13 +3971,20 @@ export class ChatSidebarView extends ItemView {
 
   // ── Utils ───────────────────────────────────────────────────
 
+  private isNearBottom(threshold: number = 150): boolean {
+    if (!this.messagesContainer) return true;
+    return (
+      this.messagesContainer.scrollHeight -
+        this.messagesContainer.scrollTop -
+        this.messagesContainer.clientHeight <=
+      threshold
+    );
+  }
+
   private scrollToBottom(force: boolean = false): void {
     requestAnimationFrame(() => {
       if (!this.messagesContainer) return;
-      const threshold = 150;
-      const isNearBottom = this.messagesContainer.scrollHeight - this.messagesContainer.scrollTop - this.messagesContainer.clientHeight <= threshold;
-      
-      if (force || isNearBottom) {
+      if (force || this.isNearBottom()) {
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
       }
     });

@@ -149,7 +149,7 @@ Git으로 지식 베이스를 관리할 때 대용량 파일이나 로컬 상태
 .vscode/
 .claude/
 testbed/
-scripts/dev/
+tests/scenarios/
 build/
 dist/
 .ruff_cache/

@@ -3224,7 +3224,7 @@ def build_server() -> FastMCP:
                 pass
 
     # ------------------------------------------------------------------
-    # v0.3.1 curation-native tools (SYSTEM_BEHAVIOR_v0.3.1 §20)
+    # v0.3.1 curation-native tools (SYSTEM_BEHAVIOR §20)
     # ------------------------------------------------------------------
 
     @mcp.tool()

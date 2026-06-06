@@ -77,6 +77,7 @@ interface PdfDocument {
   getOutline: () => Promise<PdfJsOutlineItem[] | null>;
   getDestination: (dest: string) => Promise<unknown[] | null>;
   getPageIndex: (ref: unknown) => Promise<number>;
+  getPageLabels?: () => Promise<string[] | null>;
 }
 
 interface PdfPage {
@@ -235,6 +236,7 @@ export class ExternalPdfView extends ItemView {
   private pageTextCache = new Map<number, PdfWindowPage>();
   private pageTextPromises = new Map<number, Promise<PdfWindowPage | null>>();
   private currentOutlineItems: ContextPdfOutlineItem[] = [];
+  private pageLabels: string[] | null = null;
   private indexBuildToken = 0;
 
   // Lazy rendering state
@@ -499,6 +501,7 @@ export class ExternalPdfView extends ItemView {
       this.styleObserver = null;
     }
     this.cachedPdf = null;
+    this.pageLabels = null;
     this.indexBuildToken++;
     this.documentIndex.removeDocument(this.docId);
   }
@@ -562,6 +565,7 @@ export class ExternalPdfView extends ItemView {
     return {
       pageNum: this.currentPage,
       pageCount: this.totalPages,
+      pageLabels: this.pageLabels ?? undefined,
       text,
       imageBase64,
       windowPages,
@@ -851,6 +855,7 @@ export class ExternalPdfView extends ItemView {
       this.renderedZoom = this.zoom;
       this.renderedBaseFitScale = this.baseFitScale;
       this.totalPages = pdf.numPages;
+      this.pageLabels = await this.loadPageLabels(pdf);
       this.updatePageCount();
       await this.renderToc(pdf);
       // Removed startDocumentTextIndex: Frontend should not perform full-document indexing. L1 extraction is handled by backend.
@@ -1474,6 +1479,16 @@ export class ExternalPdfView extends ItemView {
     }
   }
 
+  private async loadPageLabels(pdf: PdfDocument): Promise<string[] | null> {
+    if (typeof pdf.getPageLabels !== "function") return null;
+    try {
+      const labels = await pdf.getPageLabels();
+      return Array.isArray(labels) ? labels : null;
+    } catch {
+      return null;
+    }
+  }
+
   private renderTocNode(container: HTMLElement, node: TocTreeNode, level: number): void {
     const wrap = container.createDiv("ai-agent-pdf-toc-node");
     const row = wrap.createDiv("ai-agent-pdf-toc-row");
@@ -1786,6 +1801,16 @@ export class ExternalPdfView extends ItemView {
   }
 
   // ── Navigation ────────────────────────────────────────────────
+
+  public jumpToPage(pageNum: number, behavior: ScrollBehavior = "smooth"): void {
+    this.goToPage(pageNum, behavior);
+  }
+
+  public resolvePrintedPageLabel(printedPage: number): number | undefined {
+    const wanted = String(printedPage);
+    const index = this.pageLabels?.findIndex((label) => String(label).trim() === wanted) ?? -1;
+    return index >= 0 ? index + 1 : undefined;
+  }
 
   private goToPage(pageNum: number, behavior: ScrollBehavior = "auto"): void {
     if (!this.pagesEl || !Number.isFinite(pageNum)) return;

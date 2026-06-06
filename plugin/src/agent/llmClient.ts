@@ -467,6 +467,36 @@ export function formatMcpToolResultForDisplay(toolName: string, raw: string): st
   }
 }
 
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+export function isAntigravityStatusLine(line: string): boolean {
+  const value = stripAnsi(line).trim();
+  if (!value) return true;
+  if (/^[⠁-⣿◐◓◑◒|/\\\-]+\s*$/.test(value)) return true;
+  if (/^[-–—•*]?\s*(thinking|processing|generating|starting|loading|initializing|connecting|authenticating|requesting|waiting)\b/i.test(value)) {
+    return true;
+  }
+  if (/^[-–—•*]?\s*(mcp servers? available|using tool|running tool|calling tool|tool use|tool result)\b/i.test(value)) {
+    return true;
+  }
+  if (/^[-–—•*]?\s*(antigravity|gemini)\b.*\b(generating|thinking|processing)\b/i.test(value)) {
+    return true;
+  }
+  return false;
+}
+
+export function extractAntigravityAnswerFromStderr(stderr: string): string {
+  return stderr
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => stripAnsi(line).trim())
+    .filter((line) => line && !isAntigravityStatusLine(line))
+    .join("\n")
+    .trim();
+}
+
 const execFileAsync = promisify(execFile);
 const CLI_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -1153,6 +1183,8 @@ export class LLMClient {
 
       if (stdin !== undefined) {
         child.stdin?.end(stdin);
+      } else {
+        child.stdin?.end();
       }
 
       if (this.abortController) {
@@ -1246,8 +1278,19 @@ export class LLMClient {
           return;
         }
 
-        // For non-JSON stdout providers, intercept stderr as thinking updates
-        if (provider !== "claude" && provider !== "openai") {
+        // For non-JSON stdout providers, intercept stderr as thinking updates.
+        // agy can occasionally route the final answer through stderr; only
+        // display known status/progress lines here and recover answer-like
+        // stderr content on process close if stdout stayed empty.
+        if (provider === "antigravity") {
+          const lines = text.split("\n");
+          for (const line of lines) {
+            const cleanLine = line.trim();
+            if (cleanLine && isAntigravityStatusLine(cleanLine)) {
+              emitCodexStatus(cleanLine);
+            }
+          }
+        } else if (provider !== "claude" && provider !== "openai") {
           const lines = text.split("\n");
           for (const line of lines) {
             const cleanLine = line.trim();
@@ -1294,6 +1337,7 @@ export class LLMClient {
           if (status && !codexAnswerText) emitCodexStatus(status);
         }
 
+        let recoveredAntigravityAnswer = "";
         if (outputFile && existsSync(outputFile)) {
           try {
             fullOutput = readFileSync(outputFile, "utf-8").trim();
@@ -1303,6 +1347,12 @@ export class LLMClient {
           }
         } else {
           fullOutput = this.cleanCliOutput(provider, fullOutput);
+          if (provider === "antigravity" && fullOutput.trim().length === 0) {
+            recoveredAntigravityAnswer = extractAntigravityAnswerFromStderr(fullStderr);
+            if (recoveredAntigravityAnswer) {
+              fullOutput = recoveredAntigravityAnswer;
+            }
+          }
         }
 
         if (provider === "openai") {
@@ -1310,6 +1360,9 @@ export class LLMClient {
           if (!codexAnswerText) {
             onChunk({ text: fullOutput, done: false });
           }
+        } else if (provider === "antigravity" && recoveredAntigravityAnswer) {
+          closeStatusBlock();
+          onChunk({ text: recoveredAntigravityAnswer, done: false });
         } else {
           // antigravity: ensure thinking block is closed before done
           closeStatusBlock();
@@ -1739,9 +1792,9 @@ export class LLMClient {
         return {
           command: "agy",
           args: [
-            "-p", prompt,
             "--print-timeout", `${Math.max(30, this.settings.antigravityPrintTimeoutSec || 300)}s`,
             "--dangerously-skip-permissions",
+            "-p", prompt,
           ],
           env: {
             GEMINI_CLI_TRUST_WORKSPACE: "true",

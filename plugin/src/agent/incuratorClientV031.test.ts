@@ -21,6 +21,7 @@ function settings(): PluginSettings {
     deepseekApiKey: "",
     diffMode: "inline",
     streamingEnabled: true,
+    editArtifactEnabled: true,
     quickQueryEnabled: true,
     mcpServers: [],
     maxContextLength: 128000,
@@ -105,10 +106,41 @@ describe("IncuratorClient v0.3.1 curation-native methods", () => {
     expect(res.promotedTo).toBe("02_Wiki/x.md");
   });
 
+  it("listSynthesisNodes calls the hidden plugin synthesis list command", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      return { ok: true, synthesis: [
+        { id: "SYN-1", title: "S", confidence: 0.8, sourceSpanIds: ["SPAN-1"], communityReportIds: ["REP-1"] },
+      ] };
+    };
+    const client = new IncuratorClient(settings(), "0.3.1", backendJson);
+    const res = await client.listSynthesisNodes("/v/01_Workspaces/Lab", 10);
+    expect(calls[0]).toEqual([
+      "plugin", "synthesis", "list", "--workspace-path", "/v/01_Workspaces/Lab", "--limit", "10",
+    ]);
+    expect(res.synthesis[0].id).toBe("SYN-1");
+  });
+
+  it("getSynthesisAudit calls the hidden plugin synthesis show command", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      return { ok: true, audit: { ok: true, kind: "synthesis", id: "SYN-1", warnings: [] } };
+    };
+    const client = new IncuratorClient(settings(), "0.3.1", backendJson);
+    const res = await client.getSynthesisAudit("SYN-1", "/v/01_Workspaces/Lab");
+    expect(calls[0]).toEqual([
+      "plugin", "synthesis", "show", "--synthesis-id", "SYN-1", "--workspace-path", "/v/01_Workspaces/Lab",
+    ]);
+    expect(res.audit?.id).toBe("SYN-1");
+  });
+
   it("returns graceful empties when the backend is disabled", async () => {
     const disabled = { ...settings(), incuratorEnabled: false };
     const client = new IncuratorClient(disabled, "0.3.1", async () => ({ ok: true }));
     expect((await client.getCuratePlan("/v/ws")).ok).toBe(false);
     expect((await client.listInsightCandidates("/v/ws")).candidates).toEqual([]);
+    expect((await client.listSynthesisNodes("/v/ws")).synthesis).toEqual([]);
   });
 });

@@ -5,7 +5,6 @@ so the suite runs fast without external dependencies.
 """
 from __future__ import annotations
 
-import io
 import tempfile
 import unittest
 from pathlib import Path

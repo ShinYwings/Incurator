@@ -5,24 +5,25 @@
 [English Guide](DEV_SCRIPTS_GUIDE.md)
 
 ## 1. 시나리오 구조
-모든 시나리오는 `scripts/dev/<scenario_name>/`에 위치합니다. `testbed_template`을 시작점으로 사용하세요.
+모든 시나리오는 `tests/scenarios/<scenario_name>/`에 위치합니다. `testbed_template`을 시작점으로 사용하세요.
 
 ```text
-scripts/dev/<scenario_name>/
-├── MASTER_PLAN.md          # [필수] 목표 및 설정 지침
-├── stage/                  # [필수] 원시 소스 파일들 (L0)
-│   ├── 01_Workspaces/      # 워크스페이스 정의 (curate.yml)
-│   ├── 03_Notes/           # 샘플 마크다운 노트
-│   └── 04_Resources/       # 샘플 레퍼런스 PDF/HTML
-├── dialogues/              # [선택] 자동화 스크립트 (.sh 또는 .py)
-├── fixture_workspace_rules/ # [선택] 이 시나리오를 위한 에이전트 규칙
-└── create_testbed.py       # [레거시] 선택적 커스텀 설정 스크립트
+tests/
+├── create_testbed.py       # [레거시] 선택적 커스텀 설정 스크립트
+└── scenarios/<scenario_name>/
+    ├── MASTER_PLAN.md          # [필수] 목표 및 설정 지침
+    ├── stage/                  # [필수] 원시 소스 파일들 (L0)
+    │   ├── 01_Workspaces/      # 워크스페이스 정의 (curate.yml)
+    │   ├── 03_Notes/           # 샘플 마크다운 노트
+    │   └── 04_Resources/       # 샘플 레퍼런스 PDF/HTML
+    ├── dialogues/              # [선택] 자동화 스크립트 (.sh 또는 .py)
+    └── fixture_workspace_rules/ # [선택] 이 시나리오를 위한 에이전트 규칙
 ```
 
 ## 2. 단계별 생성 방법
 
 ### 1단계: 폴더 초기화
-`scripts/dev/testbed_template`을 `scripts/dev/my_scenario`로 복사합니다.
+`tests/scenarios/testbed_template`을 `tests/scenarios/my_scenario`로 복사합니다.
 
 ### 2단계: 마스터 플랜 정의 (`MASTER_PLAN.md`)
 이 문서는 시나리오의 정체성입니다. 다음 사항을 반드시 포함해야 합니다:
@@ -60,7 +61,7 @@ scripts/dev/<scenario_name>/
 ## 3. 실행 워크플로우
 1. **발견**: `wiki testbed list`를 실행하여 새 시나리오를 확인합니다.
 2. **초기화**: `wiki testbed init <name> --force`를 실행합니다.
-3. **실행**: 다이얼로그 스크립트를 수동으로 실행합니다: `bash scripts/dev/<name>/dialogues/verify_fix.sh`.
+3. **실행**: 다이얼로그 스크립트를 수동으로 실행합니다: `bash tests/scenarios/<name>/dialogues/verify_fix.sh`.
 
 ## 4. 벤치마크 스크립트
 
@@ -78,11 +79,9 @@ testbed scenario가 아니며 `wiki testbed list`에 표시되지 않습니다.
 - **문서 우선**: 코드를 읽지 않고도 다른 개발자가 테스트를 이해할 수 있을 만큼 `MASTER_PLAN.md`가 명확해야 합니다.
 - **정리**: 테스트가 `testbed/` 외부에 임시 파일을 생성하는 경우, 다이얼로그 스크립트에서 이를 정리하세요.
 
-## 6. 플러그인 개발 및 모노레포 빌드 (v0.2.0)
+## 6. 플러그인 개발 및 모노레포 빌드
 
-Incurator v0.2.0은 Python 백엔드(`backend/`)와 Obsidian 플러그인(`plugin/`)을 모두 포함하는 모노레포 구조를 사용합니다.
-
-전환 기간 동안 일부 체크아웃은 백엔드를 여전히 저장소 루트(`src/`, `tests/`, `pyproject.toml`)에 두고, 활성 플러그인을 `.obsidian/plugins/incurator-obsidian-agent`와 같은 Obsidian Vault 경로 내에 둘 수 있습니다. 개발 스크립트는 타겟 레이아웃이 이미 정착되었다고 가정해서는 안 됩니다. 스크립트가 경로 깊이에 의존할 경우, `.agents/plans/2024-05_v0.2.0_system_build/INCURATOR_SYSTEM_BUILD_EVIDENCE.md`에 근거를 기록하고 코드를 변경하기 전에 마스터 플랜을 업데이트하세요.
+Incurator는 Python 백엔드(`backend/`)와 Obsidian 플러그인(`plugin/`)을 모두 포함하는 모노레포 구조를 사용합니다.
 
 ### 설치 스크립트
 저장소 루트에서 `./setup.sh`를 실행하여 Python 백엔드 종속성(`uv` 사용), Node.js/Ollama, 로컬 DB-native 검색 모델(`wiki models ensure`)을 자동으로 설치합니다. 모델 준비를 건너뛰려면 `INCURATOR_SKIP_MODELS=1`을 설정하세요. Obsidian 플러그인은 이제 `wiki init` 실행 시 상호작용 방식으로 설치됩니다.

@@ -1,9 +1,8 @@
 """incurator: An AI-maintained personal knowledge base."""
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 import os
-import sys
 from pathlib import Path
 
 # Prioritize Node installed via NVM

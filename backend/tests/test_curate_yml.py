@@ -1,5 +1,4 @@
 from pathlib import Path
-import yaml
 from curator.curate_yml import load_curate_spec
 
 

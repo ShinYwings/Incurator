@@ -11,6 +11,7 @@ Use build_client(config) to get the right backend automatically.
 """
 
 from __future__ import annotations
+from . import constants as consts
 
 import json
 import os
@@ -79,7 +80,6 @@ def has_enough_ram_for_local() -> bool:
 # Constants & defaults
 # ---------------------------------------------------------------------------
 
-from . import constants as consts
 
 
 # ---------------------------------------------------------------------------
@@ -589,7 +589,6 @@ class OllamaClient:
 
 def _cli_installed(cmd: str) -> bool:
     """Return True if *cmd* is found in PATH."""
-    import shutil
     return shutil.which(cmd) is not None
 
 
@@ -898,7 +897,8 @@ class CodexCliClient:
         return CodexCliClient(model=self.model, effort=self.effort)
 
     def _run(self, prompt: str) -> str:
-        import tempfile, os as _os
+        import tempfile
+        import os as _os
         out_file = tempfile.mktemp(suffix=".txt")
         cmd = [self.CLI, "--profile", "incurator"]
         # codex exposes reasoning depth through the config override

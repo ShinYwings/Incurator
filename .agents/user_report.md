@@ -1,16 +1,42 @@
-1. Ollama/DeepSeek Native MCP 연동 및 Antigravity CLI 답변 미출력 버그
-    - Native MCP 연동 에러: 파이썬 `codex` CLI 의존성을 제거하기 위해 플러그인 내부에 Native TypeScript MCP 루프를 구현했으나, 통신 루프가 비정상 동작하거나 400 에러가 발생함.
-    - Antigravity 답변 미출력 (Thinking 증발): Antigravity(`agy`) 사용 시 답변 텍스트가 전혀 나오지 않고 'Thinking...'만 표시되다가 응답이 허무하게 끝나버림. (DeepSeek 연동 문제가 아니라 `agy` 파이프라인의 독립적인 결함)
-    - 상태(Native MCP 400): **수정 완료** — 근본 원인은 MCP 툴 루프에서 assistant tool-call 턴의 `content`를 `null`로 보낸 것. DeepSeek/Ollama(OpenAI-호환)는 `content: null`을 거부("Invalid assistant message"). `llmClient.ts`에 `sanitizeOpenAIMessages`(빈 assistant 턴 제거) + `normalizeOpenAIContent`(assistant/tool 빈 content를 `""`로) 추가. 테스트 `llmClient.test.ts` 12/12 통과. (item 2와 동일 원인)
-    - 상태(Antigravity Thinking 증발): **부분 진단 — 플러그인 경로 한정**. 라이브 확인: (a) `agy -p "간단"`는 정상("hello world"); (b) 백엔드 `wiki query`/`wiki plugin query`의 Antigravity 합성도 정상(일관 답변, latency~60s). 백엔드 경로엔 버그 없음. "Thinking 증발"은 **플러그인의 `agy` 스트리밍 경로(`llmClient.ts streamChatViaCli`)** 한정으로 좁혀짐. 유력 원인: agy가 답변을 stderr로 흘려 plugin이 status로 소비, 또는 stdout flush 타이밍. 플러그인에서 실제 `agy` 실행 시 raw stdout/stderr 캡처가 있으면 즉시 수정 가능.
+# User Report
 
-3. github 연동해줘. git commit이나 원격 저장소 보면서 vault 문서 관리하게. 그걸 위해서 github 연동하는거 로그인 로그아웃 상태표시 이런거 다 해줘야하는거 알지? 워크플로우 다 고려하고 edge케이스도 고려하고
+## ⏳ 구현 대기 / 계획 완료 항목 (Planned)
+- **1. [마이너 업데이트] GitHub 연동**
+  - 상태: 아키텍처 계획 갱신 완료 (`.agents/plans/archives/2026-06_v0.3.3_github_integration.md`). 승인 후 백엔드 TDD → API → 플러그인 UI 경로 순서로 구현이 진행될 예정입니다.
 
-4. wiki cli에서 할수 있는거는 obsidian backend dashboard에서도 할수 있어야함.
 
-5. inline copilot 꼬리 질문 할수 있어야함. 그리고 답변할때 ToC 및 현재 페이지 참고해야함. 그래야 엉뚱한소리 안하지.
-6.cmd+shift+L 이나 cmd+shift+X 할때 그 부분에 대해 가중치 높게 대답안하고 md 파일이나 pdf viewer 에 대해서만 엉뚱한 답변함. 가끔 deepseek 같은 애들은 답변을 하는데 추출한 부분 외에는 pdf 나 md파일 열려있는 현제 페이지를 background로 보질 않음. (pdf viewer 를 이미지로 fallback함 dom 에서 텍스트 뽑아낼수 있음에도 불구하고 이거는 pdf를 못읽어와서 그런가? pdf viewer는 제대로 읽어오는데 backend에서 다르게 동작하나? 싶음, 그리고 md파일이랑 pdf 파일 ToC 참조도 안함. Ask Gemini 이런거 예전에 분석해놨었는데 그거 따라 해달라고 해도 안따라해지네...)
+## 🚀 향후 해결할 미해결 항목 (To-Do)
+- **2. [마이너 업데이트] 웹 검색 기능 구현 검토**
+  - 현상: 로컬 모델(Ollama, Deepseek 등) 사용 시 웹 검색 기능 연동을 지원할지 설계 및 구현 필요.
+- **3. [매이저 업데이트, 심층 플랜, 02_Stabilization과 연관] qmd/검색 엔진 심층 분석 및 보완** (02_stabilization.md 할 때 같이 하도록)
+  - 현상: qmd가 어떻게 동작하는지 repository를 심층 분석해서 search engine에서 부족한 부분 보완.
+- **4. [매이저 업데이트, 심층 플랜, 7번과 연관] PDF 및 정제된 지식(Atom, Concept) 내 수학 수식 누락 문제 해결**
+  - 현상: 현재 `pymupdf4llm`을 기본 파서로 사용 중이나, 표나 텍스트 흐름 보존과 달리 복잡한 공학/수학 논문의 블록 수식은 완벽한 `LaTeX` 코드로 역변환(OCR)되지 않고 깨지거나 누락되어 L1에 온전히 반영되지 않음. 또한, Markdown 원본에는 수식이 유지됨에도 불구하고, 이를 바탕으로 L2(Atom), L3(Concept)로 지식을 정제하는 과정에서 LLM이 수식을 보존하지 않고 증발시키는 문제가 있음.
+  - 팩트체크 필요: 아키텍처 개편에 앞서, 실제로 `pymupdf4llm`이 수식 영역을 마크다운으로 변환할 때 어떤 형태의 텍스트(Garbage text)로 파편화하여 뱉어내는지, 혹은 완전히 생략해버리는지에 대해 L1 생성 결과물에 대한 구체적인 팩트체크 및 디버깅이 선행되어야 함.
+  - 개선 방향 (하이브리드 파이프라인): 팩트체크 결과에 따라, 페이지 전체를 VLM에 넘기는 대신 `pymupdf4llm`으로 텍스트와 뼈대를 빠르게 잡고 수식(Formula)으로 판별된 영역만 이미지 캡처 후 백엔드 VLM(Claude, Gemini 등)에게 넘겨 `LaTeX` 코드로 번역하는 **하이브리드 추출 방식** 도입 검토. 아울러 LLM 지식 추출 프롬프트 자체도 수식을 보존하도록 강화 필수.
+- **5. [매이저 업데이트, 심층 플랜, 4번과 연관] 지식 정제용 LLM과 쿼리 확장(HyDE)용 LLM 설정 분리 및 UI/CLI 노출**
+  - 현상: 사용자의 VRAM 환경과 용도(지식 정제용 무거운 모델 vs 쿼리 확장용 가볍고 빠른 로컬 모델)에 맞게 각각 독립적으로 모델을 선택할 수 있도록 설정 옵션을 명확히 제공해야 함.
+  - 팩트체크 필요: 현재 백엔드 설정(`config.py`) 내부에 `query_expander` 관련 구조가 어느 정도 준비되어 있는지, 그리고 CLI(`wiki config provider`)와 플러그인 대시보드 UI에서 사용자가 이 두 모델을 직관적으로 따로 선택할 수 있도록 노출되어 있는지 팩트체크 및 검증 후 미비점 보완 필요.
+- **6. [매이저 업데이트, 심층 플랜, 4번과 연관] GraphRAG급 엔티티 통합(Entity Resolution), 노이즈 필터링 및 보관소 용량 관리(Vault Quota) 아키텍처 설계**
+  - 현상: 현재 자체 DB(`graph_entities`, `graph_relations`) 구조상 동의어나 유사 개념이 파편화되어 중복 저장되거나 노이즈 엣지가 무한 증식할 위험이 있음. `.curator` DB와 마크다운 파일들이 방치되면 컴퓨터 디스크 용량이 터질 수 있음.
+  - 요구사항 1 (노이즈 필터링): 추출된 지식을 DB에 꽂아넣기 전/후로 임베딩 유사도 및 LLM을 활용해 동일한 엔티티를 병합하고 연결선 가중치를 정밀하게 최적화하는 파이프라인 아키텍처 설계 요망.
+  - 요구사항 2 (용량 관리/Context Compat): 무한 증식을 막기 위해 보관소 최대 용량(Default: 200GB) 제한(Quota) 개념 도입.
+  - 요구사항 3 (UI/UX 가시성): 사용자가 용량 압박을 직관적으로 인지할 수 있도록, **Claude Code 스타일의 원형 프로그레스 바(Circle Bar)** 형태의 UI를 도입. 
+    - **옵시디언 에이전트**: 채팅창 상단에 상시 표시.
+    - **CLI**: `wiki status` 출력 결과에 텍스트/이모지 기반 진행률 바 표시.
+    - `wiki init` 시에도 명시적으로 용량 정책 안내 및 설정.
+- **7. [매이저 업데이트, 심층 플랜, 4번과 연관] 전역적 사고(Global Sensemaking)를 위한 계층적 군집화 알고리즘 설계 플랜 작성**
+  - 현상: 수백 편의 논문 전체를 아우르는 거시적 통찰력(Global Summary)이나 커뮤니티 단위의 요약 기능이 부족함.
+  - 요구사항: MS GraphRAG의 Leiden 알고리즘 등을 벤치마킹하여, 파편화된 L2(Atom) 지식들을 수학적으로 묶어 L3(Concept/Community) 단위로 자동 군집화하는 고도화된 클러스터링 로직 구현 플랜 작성 요망.
+- **9. [검증 필요] L1~L4 생성 문서 내 Obsidian `[[wikilink]]` 명시적 링킹 도입 여부 검토**
+  - 현상: 백엔드 파이프라인에서 생성되는 L1~L4 문서들에 핵심 엔티티나 개념이 옵시디언 고유의 `[[wikilink]]` 문법으로 명시화되어 있지 않음.
+  - 불확실성(Pending): 사용자 기억상 과거 DB 구조에서 백링크(Backlink) 추적 시 정규식 편의를 위해 `()` 또는 일반 마크다운 링크를 쓰느라 `[[wikilink]]`를 의도적으로 제거했을 가능성이 있음.
+  - 요구사항: 무작정 프롬프트를 고치기 전에, 기존 백엔드 DB의 파싱 로직(`()` 백링크 처리 등)과 `[[wikilink]]` 문법이 충돌하지 않는지 아키텍처 레벨에서 검증 후 도입 여부 결정.
+- **10. [마이너 업데이트] 옵시디언 에이전트 UI: IDE 스타일의 Diff Viewer 도입**
+  - 요구사항: 에이전트가 코드를 수정하거나 문서를 편집할 때, 단순히 텍스트만 보여주는 것이 아니라 IDE(예: Cursor, Antigravity)처럼 사이드바 채팅창과 문서 화면 자체에 인라인 Diff Viewer를 띄워주도록 구현.
+  - 디테일: 변경 사항 위에 `Accept`, `Reject`, `Accept All` 버튼이 표시되어 사용자가 직관적으로 변경 사항을 수락/거절할 수 있는 세련된 UI 제공 필요.
 
-6. build 자동 임베딩 (jobs run이 빈 큐에서도 embed)	testbed 0→10 + second_brain 0→2119 검증 ->  wiki add, build, reindex 이런거 다 하나로 합치면 안됨? 어차피 다 순서대로 하는건데.  그리고 lint랑 sync도 둘이 세트인데, sync랑 reindex도 세트고 (wiki jobs run이 왜 있어야하는지 모르겠음 wiki jobs list도 status 비슷한 부류이고 source도 비슷한 부류이고)
-wiki device는 init 할때 그리고 status 확인할때. 같이하고. syncthing device 체크 옵시디언 실행할때만 하면 되는건데.
-그리고 prompt 역할이 애매함. 아 wiki 명령어도 대분류 이렇게 바꿨었는데 revert 됐네 gemini 시발련
+
+## 🧊 Blocked / Icebox (대기 중인 보류 항목)
+- 외부 의존성(라이브러리 업데이트 등) 문제로 당장 해결할 수 없는 항목들을 이곳에 보관합니다.
+- (참고: 에이전트의 최우선 해결 의무(Global Priority Rule)에서 이 섹션의 항목들은 예외로 취급됩니다.)

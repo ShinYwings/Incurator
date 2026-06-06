@@ -2,6 +2,7 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_SETTINGS } from "./types";
 
 function settingsSource(): string {
   const dir = fileURLToPath(new URL(".", import.meta.url));
@@ -31,5 +32,13 @@ describe("settings UI source contract", () => {
     expect(source).not.toContain("backendEnableSetting.settingEl.createDiv");
     expect(source).not.toContain("ai-agent-incurator-status-inline");
     expect(source).not.toContain("Status: ${status.label}");
+  });
+
+  it("exposes the diff-artifact toggle, defaulting it on (item 20)", () => {
+    const source = settingsSource();
+
+    expect(source).toContain('.setName("Write edits as diff artifact")');
+    expect(source).toContain("this.plugin.settings.editArtifactEnabled = value");
+    expect(DEFAULT_SETTINGS.editArtifactEnabled).toBe(true);
   });
 });

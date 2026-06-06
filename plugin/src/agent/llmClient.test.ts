@@ -3,6 +3,8 @@ import { vi } from "vitest";
 import {
   formatMcpToolResultForDisplay,
   formatQuotaErrorMessage,
+  extractAntigravityAnswerFromStderr,
+  isAntigravityStatusLine,
   isQuotaErrorMessage,
   sanitizeOpenAIMessages,
   normalizeOpenAIContent,
@@ -138,5 +140,32 @@ describe("normalizeOpenAIContent", () => {
     expect(normalizeOpenAIContent({ role: "user", content: "" }, identity)).toBe(
       null
     );
+  });
+});
+
+describe("Antigravity CLI stderr recovery", () => {
+  it("classifies agy progress lines as status, not answer text", () => {
+    expect(isAntigravityStatusLine("Thinking...")).toBe(true);
+    expect(isAntigravityStatusLine("- MCP servers available: incurator")).toBe(true);
+    expect(isAntigravityStatusLine("The dual absolute quadric is a 4x4 symmetric matrix.")).toBe(false);
+  });
+
+  it("recovers answer-like stderr text while dropping progress lines", () => {
+    const stderr = [
+      "Thinking...",
+      "Generating response",
+      "The answer is 42.",
+      "It follows from the selected passage.",
+    ].join("\n");
+
+    expect(extractAntigravityAnswerFromStderr(stderr)).toBe(
+      "The answer is 42.\nIt follows from the selected passage."
+    );
+  });
+
+  it("does not convert pure progress stderr into an answer", () => {
+    expect(
+      extractAntigravityAnswerFromStderr("Thinking...\nProcessing request\n")
+    ).toBe("");
   });
 });

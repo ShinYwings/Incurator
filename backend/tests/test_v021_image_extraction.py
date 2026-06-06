@@ -102,7 +102,7 @@ class TestStructuralContextWithImages(unittest.TestCase):
         from curator.ingest_raw import _build_structural_context_page
         from types import SimpleNamespace
 
-        parsed = _fake_parsed(images=[])
+        _fake_parsed(images=[])
         saved = [{"obsidian_path": "05_Assets/paper/p03_img01.png", "page": 3}]
 
         # Minimal parsed object that _build_structural_context_page can handle

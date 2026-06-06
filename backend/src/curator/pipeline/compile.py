@@ -8,7 +8,7 @@ Drives the curation-native compile for sources whose L1 (source_spans) exists:
                  -> emit CON projection pages, set l3_status
 
 The DB is the source of truth; ATM/CON markdown pages are derived projections
-emitted for qmd indexing (SYSTEM_BEHAVIOR_v0.3.1.md §22). Source spans are
+emitted for qmd indexing (SYSTEM_BEHAVIOR.md §22). Source spans are
 re-derived from the source here (the DB stores only previews) so units cite the
 exact stored span ids.
 """

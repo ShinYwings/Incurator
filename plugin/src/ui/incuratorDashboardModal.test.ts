@@ -53,15 +53,73 @@ describe("Incurator dashboard backend boundary", () => {
     const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
 
     expect(source).toContain("Syncthing Devices");
-    expect(source).toContain("folder.label || folder.id || folder.role");
+    expect(source).toContain("const devices = st?.devices");
+    expect(source).toContain("folderLabels.join");
     expect(source).toContain("(This device)");
     expect(source).toContain("Current device on this machine");
-    expect(source).toContain("!localId && (d?.platform || d?.backend)");
-    expect(source).toContain("let devices = Object.entries(reg.devices)");
     expect(source).not.toContain('filter(([id]: [string, any]) => id !== "local")');
     expect(source).not.toContain('folder.role === "vault" ? "Vault"');
     expect(source).not.toContain("label: \"Devices\"");
     expect(source).not.toContain("case \"devices\"");
     expect(source).not.toContain("pathRow(\"Device\")");
+  });
+
+  it("exposes a Synthesis tab backed by plugin synthesis commands", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    expect(source).toContain('id: "synthesis"');
+    expect(source).toContain("renderSynthesis");
+    expect(source).toContain("[\"plugin\", \"synthesis\", \"list\"");
+    expect(source).toContain("[\"plugin\", \"synthesis\", \"show\"");
+  });
+
+  it("saves LLM primary and fallback to the same (vault) scope (item 13)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    // Primary via `config provider` (vault); fallback must use --local so it
+    // does NOT land in the global config where the vault llm block masks it.
+    expect(source).toContain('["config", "set", "--local", "llm.fallback"');
+    expect(source).toContain('["config", "set", "--local", "llm.fallback_effort"');
+    expect(source).not.toContain('["config", "set", "llm.fallback"');
+    // Do not apply with an unloaded catalogue (empty provider).
+    expect(source).toContain("Models are still loading");
+  });
+
+  it("adds a one-shot Update action and demotes granular steps to Advanced (item 13)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    expect(source).toContain('this.addActionBtn(acts, "Update"');
+    expect(source).toContain('this.runWikiCommand(["update"])');
+    expect(source).toContain('createEl("details", { cls: "ai-agent-ov-advanced" })');
+    // Granular steps moved under the Advanced disclosure (adv), not top-level acts.
+    expect(source).toContain('this.addActionBtn(adv, "Build"');
+    expect(source).toContain('this.addActionBtn(adv, "Reset"');
+  });
+
+  it("recommends Ollama models with install/RAM status and a Pull action (item 13)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    expect(source).toContain("renderOllamaRecommendations");
+    expect(source).toContain('["plugin", "models", "ollama", "--json"]');
+    expect(source).toContain('["plugin", "models", "pull", "--model", m.id, "--json"]');
+    expect(source).toContain("exceeds RAM");
+    expect(source).toContain('text: "installed"');
+  });
+
+  it("offers a one-click resume for errored sources on the Sources tab (item 21)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    // The Sources tab detects errored sources and surfaces a retry button that
+    // re-runs the build (which re-attempts pending/error L2/L3 layers).
+    expect(source).toContain("ai-agent-dashboard-retry-banner");
+    expect(source).toContain("Retry errored sources");
+    expect(source).toContain('s.status === "error"');
+    expect(source).toContain('"l1_status", "l2_status", "l3_status", "l4_status"');
+    expect(source).toContain('this.runWikiCommand(["build"])');
   });
 });
