@@ -66,22 +66,25 @@ def test_plugin_zotero_namespace_is_hidden_but_callable(tmp_path: Path) -> None:
     assert "ok" in payload
 
 
+import click
+
 def test_advanced_command_groups_are_hidden_but_callable() -> None:
     runner = CliRunner()
 
     help_result = runner.invoke(app, ["--help"])
     assert help_result.exit_code == 0
+    clean_output = click.unstyle(help_result.output)
     # `jobs` is hidden in v0.3.2 (item 14): the canonical path is `wiki update`,
     # which drains the queue synchronously.
     for name in ("plugin", "testbed", "devices", "mcp", "jobs"):
-        assert name not in help_result.output
-    assert re.search(r"│\s+sources\s+", help_result.output) is None
+        assert name not in clean_output
+    assert re.search(r"│\s+sources\s+", clean_output) is None
     # `wiki update` is the visible one-shot ingest command (item 14).
-    assert re.search(r"│\s+update\s+", help_result.output) is not None
+    assert re.search(r"│\s+update\s+", clean_output) is not None
     # `curate` and `refresh` (frozen-Exhibition commands) were removed in v0.3.1.
-    assert re.search(r"│\s+curate\s+", help_result.output) is None
-    assert re.search(r"│\s+refresh\s+", help_result.output) is None
-    assert re.search(r"│\s+source\s+", help_result.output) is not None
+    assert re.search(r"│\s+curate\s+", clean_output) is None
+    assert re.search(r"│\s+refresh\s+", clean_output) is None
+    assert re.search(r"│\s+source\s+", clean_output) is not None
 
     for args in (
         ["plugin", "--help"],
