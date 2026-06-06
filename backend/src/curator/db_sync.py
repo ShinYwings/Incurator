@@ -153,6 +153,7 @@ def export_knowledge(
     stats = ExportStats()
     now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     opener: IO[str]
     if compress:
         opener = gzip.open(out_path, "wt", encoding="utf-8")  # type: ignore[assignment]

@@ -3506,7 +3506,11 @@ def db_import(
         raise typer.Exit(1)
 
     paths = _resolve_root_or_die()
-    stats = import_knowledge(paths.state_db, path, dry_run=dry_run)
+    try:
+        stats = import_knowledge(paths.state_db, path, dry_run=dry_run)
+    except ValueError as e:
+        console.print(f"[red]Import failed: {e}[/red]")
+        raise typer.Exit(1)
 
     summary = {
         "dry_run": dry_run,
