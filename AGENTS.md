@@ -216,6 +216,40 @@ To prevent context fragmentation and hallucinations when switching between AI co
   - **For Main Architecture Tasks / Goals**: Overwrite `.agents/relay.md` entirely using the standard template (Goal, Plan Reference, Analysis & Reasoning, Progress Status, Critical Context/Blockers, Immediate Next Action). Maintain a single active state for the core task.
   - **For Bug Fixes / Side-Tasks (Any Agent)**: When any agent handles a side-task or bug fix while a main goal is active, it must NOT overwrite the main relay state. Instead, **APPEND** a new section (e.g., `### Update (YYYY-MM-DD, AgentName)`) at the bottom of `.agents/relay.md` summarizing what was investigated, fixed, or modified. This ensures the primary agent's context is not destroyed by small interventions.
   - **Antigravity Fallback Execution**: If primary executors (e.g., Claude Code) are rate-limited or resting, Antigravity may temporarily act as the Executor. However, any code written by Antigravity MUST be explicitly marked in `.agents/relay.md` for mandatory verification by the primary Executor upon wakeup.
+  - **IDLE Cleanup**: When the goal is fully shipped (PR merged, no active task), truncate `.agents/relay.md` to a minimal IDLE stub — do NOT accumulate session history. Git log is the history; relay.md is live state only.
+
+---
+
+## Core Rule: Branch Naming & Merge Safety
+
+### Branch Naming Convention
+| Pattern | When to use |
+|---|---|
+| `release/vX.Y.Z` | Batch releases from user_report |
+| `fix/short-description` | Bug fixes / post-release cleanup |
+| `feature/short-description` | New features outside a batch release |
+| `hotfix/vX.Y.Z-description` | Critical production fixes (separate from ongoing release work) |
+
+> **Note on default branch name**: This repo uses `master` (not `main`). All workflow rules that say "main" mean `master`. Do not rename the branch.
+
+### Rollback Procedure (Bad Merge)
+If a merged PR introduces a regression that cannot be quickly patched forward:
+
+```bash
+# 1. Find the bad merge commit hash
+git log --oneline master | head -5
+
+# 2. Revert it safely — creates a new "undo" commit, keeps history intact
+git checkout master
+git revert -m 1 <merge-commit-hash>
+
+# 3. Push and open a follow-up PR explaining the revert
+git push origin master   # only if user explicitly approves a direct push to master
+```
+
+**Never use `git reset --hard` on a shared branch.** `git revert` is always
+safe because it is additive — it can itself be reverted if the original fix
+was actually correct.
 
 ---
 
@@ -309,10 +343,12 @@ Before implementing any new architecture work, the agent MUST first create or up
 ## System Invariants
 
 - The Curator DAG layers are `01_Contexts`, `02_Atoms`, `03_Concepts`, and
-  `04_Exhibitions`.
-- Valid node prefixes are `CTX-`, `ATM-`, `CON-`, and `EXH-`.
-- `qmd.yml` or qmd `index.yml` is search-engine configuration. `curate.yml` is
-  the workspace Knowledge Requirement Specification.
+  `04_Synthesis`. The `04_Exhibitions` directory exists as an inert no-op
+  (static EXH files were removed in v0.3.1). Do not write new EXH files.
+- Valid node prefixes are `CTX-`, `ATM-`, `CON-`, `SYN-`. `EXH-` is retired.
+- `curate.yml` is the workspace Knowledge Requirement Specification.
+  `qmd` is retired — search is DB-native (FTS5 + vector + RRF + reranking).
+  Do not add new `qmd` dependencies or reference `qmd.yml`.
 - `03_Notes/` is human-verified source truth. Do not edit it autonomously.
 - `04_Resources/` and `06_Archives/` are read-only source/reference spaces.
 - `.curator/` is machine-readable Curator state. Modify it only through the
@@ -324,8 +360,8 @@ Before implementing any new architecture work, the agent MUST first create or up
 When a change is broad, split review or implementation thinking into these
 roles and then integrate the result in one coherent patch:
 
-- `schema_guardian`: checks v0.2.0 schema, layer names, prefixes, and
-  frontmatter shape.
+- `schema_guardian`: checks current schema (SCHEMA.md), layer names, prefixes,
+  and frontmatter shape against the spec in `docs/specs/curator_schema/`.
 - `source_pair_analyst`: checks that `03_Notes/Papers` notes and
   `04_Resources` references can merge into shared higher-level DAG concepts.
 - `topic_boundary_checker`: checks that unrelated `02_Wiki` topics remain
