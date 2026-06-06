@@ -105,7 +105,7 @@ def test_ensure_search_models_no_vault_persists_globally(monkeypatch):
         model_setup, "download_gguf",
         lambda repo, fn, d, **k: (Path("/tmp/x.gguf"), "downloaded"),
     )
-    monkeypatch.setattr(model_setup.config, "save_global_config", lambda c: None)
+    monkeypatch.setattr(model_setup.cfg, "save_global_config", lambda c: None)
     report = model_setup.ensure_search_models(None)
     assert report.ok
     assert any(s.name.startswith("embedding-gguf:") for s in report.steps)
