@@ -23,6 +23,7 @@
 - **항목 10** — Diff Viewer UI/UX 개선 (`plugin/src/ui/diffViewer.ts`)
 - **항목 9** — `[[wikilink]]` 도입 여부 아키텍처 검증 (연구/검증 태스크, 코딩 최소)
 - **항목 2** — 웹 검색 기능 설계 및 구현 검토 (설계 논의 필요)
+- 상세 명세: `01_minor_quick_wins.md`
 
 ### 3. RAG & Knowledge Quality Stabilization
 검색 품질과 지식 추출 정확도를 높입니다. FTS5 + Qwen3 Reranker 파이프라인 안정화, 수식 누락 문제 해결, 엔티티 중복 병합, GraphRAG급 군집화 도입. 가장 복잡한 Major 작업.
