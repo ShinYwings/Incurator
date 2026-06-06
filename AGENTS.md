@@ -252,7 +252,12 @@ The **entire `docs/` tree is source of truth**. The system design becomes increa
 When they conflict, the more concrete layer (spec) dictates the implementation reality, but any divergence means both are wrong until reconciled. Do not treat guides as subordinate to specs — fix both together.
 
 **Dynamic Planning**: `.agents/plans/` for implementation sequencing and context.
-- **CRITICAL RULE - PLAN TEMPLATE MANDATE**: When creating architectural or feature implementation plans, all agents (Codex, Claude, Antigravity) MUST FIRST read `.agents/plans/PLAN_TEMPLATE.md` and strictly copy/adhere to its Markdown skeleton. You MUST write your final plan artifacts into `.agents/plans/` (instead of default temporary directories). 
+- **CRITICAL RULE - PLAN TEMPLATE MANDATE**: When creating architectural or feature implementation plans, all agents (Codex, Claude, Antigravity) MUST FIRST read `.agents/plans/PLAN_TEMPLATE.md` and strictly copy/adhere to its Markdown skeleton. You MUST write your final plan artifacts into `.agents/plans/` (instead of default temporary directories).
+- **Three mandatory documents** (per PLAN_TEMPLATE.md) before any code is written:
+  1. **Domain Analysis docs** (`A_*.md`, `B_*.md`, …) — one per major component. Each must cover: design constraints from codebase, docs/specs invariants, alternatives & trade-offs, final decision, and implementation pseudocode/SQL.
+  2. **Master Implementation Plan** (`[XX]_[feature].md`) — locked design decisions, contracts preserved, multi-agent role reviews, and strict phases (`P1 → P2 → …`). Each phase must pass `pytest` + `ruff` before the next begins.
+  3. **Evidence Ledger** (`[XX]_roadmap_evidence.md`) — created immediately before coding starts. Records rollback anchor, current schema reality, and pre/post validation results.
+- The skeleton plan files in `.agents/plans/` (e.g., `02_stabilization.md`, `03_knowledge_sync_bridge.md`) are **scope notes only**, not implementation plans. They must be replaced or accompanied by the full three-document set before implementation begins.
 - To read historical plans, you MUST use `git show` or `git log` on the `.agents/plans/` directory, as completed plans are deleted from the active workspace.
 - Plans describe *how* to implement; specs describe *what* to implement.
   When they conflict, specs and guides win over plans.
