@@ -23,12 +23,15 @@ def _init_vault(runner: CliRunner, tmp_path: Path) -> Path:
     return vault
 
 
+import click
+
 def test_update_command_is_registered() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["update", "--help"])
     assert result.exit_code == 0, result.output
-    assert "--force" in result.output
-    assert "--no-sync" in result.output
+    clean_output = click.unstyle(result.output)
+    assert "--force" in clean_output
+    assert "--no-sync" in clean_output
 
 
 def test_jobs_group_is_hidden_but_functional() -> None:
