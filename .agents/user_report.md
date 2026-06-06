@@ -1,10 +1,5 @@
 # User Report
 
-## ⏳ 구현 대기 / 계획 완료 항목 (Planned)
-- **1. [마이너 업데이트] GitHub 연동**
-  - 상태: 아키텍처 계획 갱신 완료 (`.agents/plans/archives/2026-06_v0.3.3_github_integration.md`). 승인 후 백엔드 TDD → API → 플러그인 UI 경로 순서로 구현이 진행될 예정입니다.
-
-
 ## 🚀 향후 해결할 미해결 항목 (To-Do)
 - **2. [마이너 업데이트] 웹 검색 기능 구현 검토**
   - 현상: 로컬 모델(Ollama, Deepseek 등) 사용 시 웹 검색 기능 연동을 지원할지 설계 및 구현 필요.

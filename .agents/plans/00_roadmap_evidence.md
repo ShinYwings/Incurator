@@ -1,6 +1,6 @@
-# Incurator v0.3.3 ~ v0.4.2 Master Roadmap Evidence Ledger
+# Incurator Master Roadmap Evidence Ledger
 
-This file records the factual baseline that the v0.3.3 (Stabilization), v0.4.1 (Sync Bridge), and v0.4.2 (Native PDF Annotation) Master Roadmap must obey.
+This file records the factual baseline that the Stabilization, Sync Bridge, and Native PDF Annotation roadmap must obey.
 It exists so that documentation, database schema migrations, and plugin behavior do not drift away from the actual repository and vault state.
 
 The ledger is intentionally operational. It is the evidence table that must be refreshed before any destructive repository operation such as SQLite schema changes, JSONL export mappings, or PDF viewer DOM modifications.
@@ -45,8 +45,8 @@ Observed categories:
 
 ## 6. Execution Updates (Phase-by-Phase)
 
-[To be appended as the Master Roadmap executes]
+[To be appended as each milestone executes]
 
-- Phase 1 (v0.3.3) Update:
-- Phase 2 (v0.4.1) Update:
-- Phase 3 (v0.4.2) Update:
+- Knowledge Sync Bridge Update:
+- RAG Stabilization Update:
+- PDF Annotation Update:

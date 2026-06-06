@@ -750,7 +750,14 @@ class AntigravityCliClient:
         cmd = [self.CLI]
         if log_path:
             cmd.extend(["--log-file", log_path])
-        cmd.extend(["--print", "--print-timeout", "15m"])
+        cmd.extend(
+            [
+                "--print",
+                "Follow the instructions in the provided input.",
+                "--print-timeout",
+                "15m",
+            ]
+        )
         # agy has no --model/--effort flag, so the preference is embedded as a
         # prompt hint for traceability (best-effort; the active model is chosen
         # in the agy UI/session).

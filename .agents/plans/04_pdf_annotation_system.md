@@ -1,7 +1,7 @@
-# [v0.4.2] Native PDF Annotation System Plan
+# Native PDF Annotation System Plan
 
 ## Context
-v0.4.1 동기화 브릿지가 완성되면, Zotero에 의존하던 어노테이션 시스템을 자체 시스템으로 교체합니다. 옵시디언 내장 PDF Viewer를 활용하여 하이라이트와 메모를 `state.sqlite`에 직접 저장하고 오프라인 동기화합니다.
+Zotero에 의존하던 어노테이션 시스템을 자체 시스템으로 교체합니다. 옵시디언 내장 PDF Viewer를 활용하여 하이라이트와 메모를 `state.sqlite`에 직접 저장하고, Knowledge Sync Bridge를 통해 오프라인 동기화합니다. Knowledge Sync Bridge 구현 이후에 진행해야 합니다 (`db_sync.py`의 Export/Import 대상에 `pdf_annotations` 테이블이 포함되어야 하기 때문).
 
 ## Multi-Agent Debate Topics (For Codex & Claude)
 1. **`schema_guardian`**: 
@@ -15,4 +15,4 @@ v0.4.1 동기화 브릿지가 완성되면, Zotero에 의존하던 어노테이�
 - `backend/src/curator/db.py`: `pdf_annotations` 테이블 생성.
 - `plugin/src/pdf/*`: 형광펜 렌더링, 이벤트 리스너, IPC 전송 로직 추가.
 - `backend/src/curator/mcp_server.py` 또는 IPC 라우터: 플러그인으로부터 어노테이션 생성/조회/삭제 요청을 받아 DB에 반영.
-- `backend/src/curator/db_sync.py`: `pdf_annotations` 테이블을 v0.4.1 브릿지 Export/Import 대상에 포함.
+- `backend/src/curator/db_sync.py`: `pdf_annotations` 테이블을 Knowledge Sync Bridge Export/Import 대상에 포함.
