@@ -1,37 +1,34 @@
 # Relay State — v0.4.0 release branch (2026-06-07, Claude Code)
 
 ## Current Branch
-`release/v0.4.0` — PR #6 OPEN ("v0.4.0: Syncthing Auto-Sync and Cross-Device DB
-Bridge"). Not merged to master.
+`release/v0.4.0` — PR #6 OPEN. Not merged to master.
 
 ## Live State
 
-### Shipped on this branch (base Knowledge Sync Bridge, v0.4.0)
-- `wiki db export` / `wiki db import` — JSONL LWW + `deleted_records` tombstones,
-  `SCHEMA_VERSION = 7`. Working, 13 tests green.
+Syncthing auto-sync (Zotero-grade) **implemented end-to-end** on top of the base
+Knowledge Sync Bridge. Plan-first per the Review Feedback Loop rule.
 
-### Just done this session
-- **Reverted** Antigravity's hash-based loop prevention + plugin auto-sync wiring
-  (`365ee78`). Root cause of the `db import --dry-run` 0-changes bug was the
-  `sync_meta.json` hash guard; revert fixes it (verified by repro). Working tree clean.
-- **New workflow rule**: "Review Feedback Loop (Plan-First, Proactively)" added to
-  AGENTS.md + CLAUDE.md (`76f5c27`). Review feedback → user_report item → Arena plan
-  BEFORE coding, done without being asked.
-- **Arena plan authored** for Syncthing auto-sync: `.agents/plans/syncthing_auto_sync.md`
-  + `syncthing_auto_sync_arena/` (`3fcca36`). **Awaiting user approval before any code.**
-
-## Plan Reference
-- `.agents/plans/syncthing_auto_sync.md` (master) + `syncthing_auto_sync_arena/` (debate)
-- Other skeletons: `roadmap.md`, `minor_quick_wins.md`, `stabilization.md`,
-  `pdf_annotation_system.md` (numeric prefixes dropped; ordering lives in roadmap.md).
+- Plan: `.agents/plans/syncthing_auto_sync.md` (+ `_arena/`, `_evidence.md`) — all 5
+  phases PASS (see evidence ledger).
+- Backend: `db_sync.py` `export_for_device` / `import_all_peers` / `detect_conflict_files`
+  / `autosync` (one-writer-per-file, structural loop prevention, no hash guard);
+  `wiki db autosync` CLI; `auto_sync` config; `.curator/sync_state.json` (in `.stignore`).
+- Plugin: `IncuratorClient.dbAutosync`, `SyncScheduler`, `main.ts setupAutoSync`
+  (on-load + fs.watch + 60s poll + ribbon + status bar + notices), 4 settings toggles.
+- Docs/specs (EN+KR) + CHANGELOG updated; stale reverted-approach spec text replaced.
+- Tests: backend 485 passed, plugin 282 passed; ruff clean; `tsc`/build ok.
 
 ## Critical Context
-- **Never reintroduce** the `sync_meta.json` hash guard or a `vault.on("modify")` export
-  trigger (both were the broken approach). Loop prevention is structural (LWW idempotency
-  + import-never-exports + export-only-on-local-change). See plan §"Locked decisions".
-- No SQLite schema change for auto-sync; `SCHEMA_VERSION` stays 7.
+- **Never reintroduce** the `sync_meta.json` content-hash loop guard or a
+  `vault.on("modify")` export trigger (both were the reverted broken approach and the
+  cause of the dry-run/import 0-changes bug).
+- Loop prevention is structural: own file never imported + import≠mutation +
+  export-only-when-changed. No `SCHEMA_VERSION` bump (still 7).
+- `.curator/sync/` IS synced (transport); `state.sqlite` + `sync_state.json` are local.
 
 ## Immediate Next Action
-1. **User**: approve `syncthing_auto_sync.md` (or request changes), and review/merge PR #6.
-2. **On approval**: implement P1→P5 of the plan via TDD (do NOT start before approval —
-   Universal Strict Workflow Step 3 / Review Feedback Loop).
+1. **User**: review & merge PR #6 (`release/v0.4.0` → `master`).
+2. **On merge**: delete `syncthing_auto_sync*.md` plan files; remove the completed item
+   from `user_report.md`; truncate this relay to an IDLE stub.
+3. **Next**: `minor_quick_wins.md` (web search, wikilink, DiffViewer UX) or
+   `stabilization.md` (RAG) — user decides priority.
