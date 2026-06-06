@@ -18,6 +18,11 @@ All notable changes to Incurator are documented here.
   - Device-local tables (embeddings, job state, FTS5 indices) are automatically excluded from exports
 - **Tombstone table** (`deleted_records`) — deleted records propagate to other devices on next import
 - `db_sync.record_tombstone()` helper for future delete operations to call
+- **Syncthing Auto-Sync (Obsidian Plugin Hooks)**
+  - Auto-export triggered on file modify (debounced 10 seconds)
+  - Auto-import triggered on Obsidian layout ready (plugin load)
+  - "Sync DB" Ribbon icon for manual triggers
+  - Infinite loop prevention (file hashing) and clock skew detection during synchronization
 
 ### Changed
 
