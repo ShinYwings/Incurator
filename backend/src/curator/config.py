@@ -315,7 +315,9 @@ def save_global_config(config: dict) -> None:
     if config_file.exists():
         try:
             with config_file.open("r", encoding="utf-8") as f:
-                existing = yaml.safe_load(f) or {}
+                data = yaml.safe_load(f)
+                if isinstance(data, dict):
+                    existing = data
         except Exception:
             pass
 
@@ -329,7 +331,7 @@ def save_global_config(config: dict) -> None:
 
     merged = merge_dict(existing, config)
     with config_file.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(merged, f, sort_keys=False, default_flow_style=False)
+        yaml.safe_dump(merged, f, sort_keys=False, default_flow_style=False, allow_unicode=True)
 
 
 def get_last_root() -> Optional[Path]:
