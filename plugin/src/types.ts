@@ -106,6 +106,12 @@ export interface PluginSettings {
   incuratorDefaultDestination: string;
   incuratorDefaultImportMode: "copy" | "reference";
   incuratorStatusPolling: boolean;
+  // Cross-device knowledge auto-sync over Syncthing (one-writer-per-file).
+  // Optional + read with `!== false` so older saved settings default to enabled.
+  autoSyncEnabled?: boolean;     // master switch for all auto-sync behavior
+  autoSyncOnLoad?: boolean;      // run autosync once when Obsidian opens
+  autoSyncWatch?: boolean;       // watch .curator/sync for peer files (desktop only)
+  autoSyncNotify?: boolean;      // toast only when peers actually delivered changes
   zoteroBasePath: string;
   zoteroProfiles: ZoteroImportProfile[];
   recentZoteroItems: string[];
@@ -183,6 +189,10 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   incuratorDefaultDestination: "04_Resources",
   incuratorDefaultImportMode: "reference",
   incuratorStatusPolling: true,
+  autoSyncEnabled: true,
+  autoSyncOnLoad: true,
+  autoSyncWatch: true,
+  autoSyncNotify: true,
   fileScrollPositions: {},
 };
 

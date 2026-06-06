@@ -21,6 +21,17 @@ import localBuildManifest from "../generated/buildManifest.json";
 
 type BackendJsonRunner = (cmdArgs: string[]) => Promise<unknown>;
 
+export interface DbAutosyncResult {
+  ok: boolean;
+  inserted?: number;
+  updated?: number;
+  deleted?: number;
+  importedFiles?: number;
+  conflicts?: string[];
+  exported?: string | null;
+  error?: string;
+}
+
 function readString(record: unknown, key: string): string {
   if (!record || typeof record !== "object") return "";
   const value = (record as Record<string, unknown>)[key];
@@ -271,6 +282,30 @@ export class IncuratorClient {
       "--message", message,
     ]);
     return this.pickRecord(result) as { ok: boolean; commit?: string; error?: string; message?: string };
+  }
+
+  /**
+   * Cross-device knowledge sync: import peer snapshots (and merge any Syncthing
+   * conflict files), then export this device's snapshot if anything changed.
+   * Runs in the backend subprocess so the Obsidian UI thread never parses JSONL.
+   */
+  async dbAutosync(): Promise<DbAutosyncResult> {
+    if (this.settings.incuratorEnabled === false) {
+      return { ok: false, error: "backend_disabled" };
+    }
+    const result = await this.callBackendJson(["db", "autosync", "--json", "--skip-reindex"]);
+    if (!result) return { ok: false, error: "Empty response from backend" };
+    const r = this.pickRecord(result);
+    if (r.error) return { ok: false, error: r.error as string };
+    return {
+      ok: true,
+      inserted: (r.inserted as number) ?? 0,
+      updated: (r.updated as number) ?? 0,
+      deleted: (r.deleted as number) ?? 0,
+      importedFiles: (r.imported_files as number) ?? 0,
+      conflicts: Array.isArray(r.conflicts) ? (r.conflicts as string[]) : [],
+      exported: (r.exported as string | null) ?? null,
+    };
   }
 
   async rebindSource(args: {

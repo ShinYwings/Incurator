@@ -56,5 +56,12 @@ Date: 2026-06-07 | Plan: `syncthing_auto_sync.md` (+ `syncthing_auto_sync_arena/
   the plugin's JSON parse); switched export/import/autosync `--json` to `_print_json`
   (valid JSON). Also fixed pre-existing mypy error on `_PK_COL` annotation.
   Full suite: **482 passed**; `ruff` + `mypy src/curator/db_sync.py` clean.
-- P4: _pending_
+- P4: **PASS** — `IncuratorClient.dbAutosync()` (calls `wiki db autosync --json
+  --skip-reindex`, maps stats); `SyncScheduler` (debounce + non-overlap coalescing, in
+  its own testable module); `main.ts` wiring: `setupAutoSync` (ribbon "Sync Knowledge
+  DB", on-load runNow, `fs.watch` on `.curator/sync` via `window.require("fs")` with
+  mobile/feature-detect fallback, 60 s poll fallback, status-bar `⟳/✓` indicator,
+  change + conflict Notices). Settings UI: 4 toggles (enabled/on-load/watch/notify),
+  optional in PluginSettings (read with `!== false`). `tsc` clean, `npm run build` ok,
+  `vitest` → **282 passed** (incl. new SyncScheduler + dbAutosync tests).
 - P5: _pending_
