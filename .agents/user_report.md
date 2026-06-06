@@ -5,9 +5,10 @@
 
 ## 📝 계획됨 (Planned)
 
-- **[PR 픽스] `db import --dry-run` 시 변경사항 0건 표시 버그**
-- **[기능 제안] Zotero급 로컬 DB 클라우드화 (Syncthing 연동 기반 자동 Export/Import 동기화 아키텍처 및 엣지 케이스 대응)**`
+> **해결됨**: `[PR 픽스] db import --dry-run 변경사항 0건 버그` — 해시 기반 루프 방지 코드 revert(`365ee78`)로 근본 원인(`sync_meta.json` 해시 가드)이 제거되어 해결됨. 회귀 테스트는 `syncthing_auto_sync.md` P2에서 고정.
 
+- **[기능 제안] Zotero급 로컬 DB 클라우드화 (Syncthing 연동 기반 자동 Export/Import 동기화 아키텍처 및 엣지 케이스 대응)** → `syncthing_auto_sync.md` (Arena: `syncthing_auto_sync_arena/`)
+  - **상태**: 플랜 작성 완료(Arena 토론 + 마스터 플랜). **코딩 전 사용자 승인 대기 중** (Review Feedback Loop / Universal Strict Workflow Step 3).
   - 현상: 현재 DB(`state.sqlite`) 업데이트 내역을 수동으로 export/import 해야 함. 사용자는 Syncthing을 통해 기기 간 파일을 동기화 중.
   - 제안: Zotero의 데이터베이스 클라우드 동기화 시스템과 동일한 수준의 안정성을 제공하도록 시스템을 고도화. `.curator` 디렉터리나 DB에 변경이 발생하면 자동으로 `jsonl`을 export하고, 외부(Syncthing)에서 `jsonl` 파일이 업데이트되어 들어오면 기존 DB보다 최신인지 판별하여 자동으로 import하는 Zotero급 로컬 클라우드화 로직 추가.
   - 구체적 트리거(Trigger) 및 UI 요구사항: 
