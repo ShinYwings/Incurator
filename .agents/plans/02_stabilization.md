@@ -1,4 +1,4 @@
-# [v0.3.3] Core RAG & Knowledge Distillation Stabilization Plan
+# Core RAG & Knowledge Distillation Stabilization Plan
 
 ## Context
 현재 RAG 검색 엔진(Qwen3 Reranker + FTS5)과 지식 추출(Distillation) 파이프라인에서 발생하는 할루시네이션, 엣지(Edge) 유실, 사전 지식(Prior Knowledge) 맵핑 불안정성을 해결해야 합니다. Sync와 Annotation 개발에 앞서 기반을 닦는 최우선 과제입니다.

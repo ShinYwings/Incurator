@@ -1,7 +1,7 @@
-# [v0.4.1] Knowledge Sync Bridge (DB Export/Import) Plan
+# Knowledge Sync Bridge (DB Export/Import) Plan
 
 ## Context
-v0.3.3 안정화가 끝나면, 기기 간 지식(`state.sqlite`) 파편화 문제를 해결하기 위해 오프라인 동기화 브릿지(JSONL)를 구축합니다.
+기기 간 지식(`state.sqlite`) 파편화 문제를 해결하기 위해 오프라인 동기화 브릿지(JSONL)를 구축합니다.
 
 ## Multi-Agent Debate Topics (For Codex & Claude)
 1. **`schema_guardian`**: 

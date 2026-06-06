@@ -1,7 +1,7 @@
-# [v0.4.2] Native PDF Annotation System Plan
+# Native PDF Annotation System Plan
 
 ## Context
-v0.4.1 동기화 브릿지가 완성되면, Zotero에 의존하던 어노테이션 시스템을 자체 시스템으로 교체합니다. 옵시디언 내장 PDF Viewer를 활용하여 하이라이트와 메모를 `state.sqlite`에 직접 저장하고 오프라인 동기화합니다.
+Zotero에 의존하던 어노테이션 시스템을 자체 시스템으로 교체합니다. 옵시디언 내장 PDF Viewer를 활용하여 하이라이트와 메모를 `state.sqlite`에 직접 저장하고 오프라인 동기화합니다.
 
 ## Multi-Agent Debate Topics (For Codex & Claude)
 1. **`schema_guardian`**: 
