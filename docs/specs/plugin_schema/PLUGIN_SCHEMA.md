@@ -73,6 +73,8 @@ wiki plugin pdf search
 wiki plugin version
 wiki plugin query
 wiki plugin promote
+wiki plugin db export
+wiki plugin db import
 ```
 
 PDF context requests should pass the richest available identity to backend:

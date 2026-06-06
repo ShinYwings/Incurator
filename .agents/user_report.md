@@ -6,8 +6,9 @@
 ## 🚀 향후 해결할 미해결 항목 (To-Do)
 
 ### 🛠️ v0.4.0 PR 리뷰 반영 사항 (현재 브랜치에서 즉시 해결 요망)
-- **1. [PR 픽스] `db import --dry-run` 시 변경사항 0건 표시 버그**
-  - 현상: `wiki db export --out /tmp/test.jsonl`은 성공하나, `wiki db import /tmp/test.jsonl --dry-run` 실행 시 0 changes로 표시됨. (로직 오류 혹은 LWW 판단 기준 점검 필요)
+- **1. [PR 픽스] `db import --dry-run` 시 변경사항 0건 표시 버그** (수정 완료)
+
+### 🚀 Planned (작업 진행 중)
 - **2. [기능 제안] Syncthing 연동 기반 자동 Export/Import 동기화 아키텍처**
   - 현상: 현재 DB(`state.sqlite`) 업데이트 내역을 수동으로 export/import 해야 함. 사용자는 Syncthing을 통해 기기 간 파일을 동기화 중.
   - 제안: `.curator` 디렉터리나 DB에 변경이 발생하면 자동으로 `jsonl`을 export하고, 외부(Syncthing)에서 `jsonl` 파일이 업데이트되어 들어오면 기존 DB보다 최신인지 판별하여 자동으로 import하는 로직 추가. 동기화 기준 시점(마지막 export/import 타임스탬프)은 `.curator` 내부에 저장하도록 설계.
