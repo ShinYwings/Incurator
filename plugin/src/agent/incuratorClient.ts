@@ -273,6 +273,35 @@ export class IncuratorClient {
     return this.pickRecord(result) as { ok: boolean; commit?: string; error?: string; message?: string };
   }
 
+  async dbExport(): Promise<{ ok: boolean; out?: string; total_rows?: number; error?: string }> {
+    if (this.settings.incuratorEnabled === false) return { ok: false, error: "backend_disabled" };
+    // Using the db namespace with --json directly
+    const result = await this.callBackendJson(["db", "export", "--json"]);
+    if (!result) return { ok: false, error: "Empty response from backend" };
+    const r = this.pickRecord(result);
+    if (r.error) return { ok: false, error: r.error as string };
+    return { ok: true, out: r.out as string, total_rows: r.total_rows as number };
+  }
+
+  async dbImport(): Promise<{ ok: boolean; inserted?: number; skipped?: number; updated?: number; deleted?: number; error?: string }> {
+    if (this.settings.incuratorEnabled === false) return { ok: false, error: "backend_disabled" };
+    // Find the export file path first
+    const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const defaultExportPath = `.curator/export-${dateStr}.jsonl`;
+    const result = await this.callBackendJson(["db", "import", defaultExportPath, "--json", "--skip-reindex"]);
+    if (!result) return { ok: false, error: "Empty response from backend" };
+    const r = this.pickRecord(result);
+    // If there is an error field, or if it failed to parse
+    if (r.error || r.inserted === undefined) return { ok: false, error: (r.error as string) || "Failed to parse import stats" };
+    return {
+      ok: true,
+      inserted: r.inserted as number,
+      skipped: r.skipped as number,
+      updated: r.updated as number,
+      deleted: r.deleted as number,
+    };
+  }
+
   async rebindSource(args: {
     sourceId?: number;
     sourcePath?: string;

@@ -101,6 +101,8 @@ export default class ObsidianAIAgent extends Plugin {
   private ingestStatusBar: HTMLElement | null = null;
   private incuratorStatusBar: HTMLElement | null = null;
 
+  private exportDebounceTimer: number | null = null;
+
   async onload(): Promise<void> {
     console.log("Loading Obsidian AI Agent plugin");
     this.startupRestoreUntilMs = Date.now() + 15000;
@@ -173,6 +175,29 @@ export default class ObsidianAIAgent extends Plugin {
     // ── Dashboard Ribbon Icon ──
     this.addRibbonIcon("database", "Open Incurator Dashboard", () => {
       new IncuratorDashboardModal(this.app, this).open();
+    });
+
+    // ── Sync DB Ribbon Icon ──
+    this.addRibbonIcon("refresh", "Sync Database", async () => {
+      new Notice("Starting DB Sync...");
+      try {
+        const importRes = await this.incuratorClient.dbImport();
+        if (!importRes.ok) throw new Error(importRes.error || "Import failed");
+        const exportRes = await this.incuratorClient.dbExport();
+        if (!exportRes.ok) throw new Error(exportRes.error || "Export failed");
+        
+        let msg = "DB Sync complete.\n";
+        if (importRes.inserted || importRes.updated || importRes.deleted) {
+          msg += `Imported changes from remote.\n`;
+        } else {
+          msg += `Local DB was already up-to-date.\n`;
+        }
+        msg += `Exported snapshot to JSONL.`;
+        new Notice(msg);
+      } catch (e: any) {
+        new Notice("Sync Error: " + e.message);
+        console.error("DB Sync Error", e);
+      }
     });
 
     // ── Status Bar ──
@@ -557,7 +582,33 @@ export default class ObsidianAIAgent extends Plugin {
 
     this.app.workspace.onLayoutReady(() => {
       this.restoreLastMarkdownScrollPosition();
+      
+      // Auto-import on startup
+      if (this.settings.incuratorEnabled !== false) {
+        this.incuratorClient.dbImport().then(res => {
+          if (res.ok && (res.inserted! > 0 || res.updated! > 0 || res.deleted! > 0)) {
+            new Notice(`Syncthing Auto-Sync: Imported ${res.inserted} new, ${res.updated} updated records from remote.`);
+          }
+        }).catch(err => console.error("Auto-import on startup failed:", err));
+      }
     });
+
+    // Auto-export on file modify (debounced)
+    this.registerEvent(
+      this.app.vault.on("modify", () => {
+        if (this.settings.incuratorEnabled === false) return;
+        if (this.exportDebounceTimer !== null) {
+          window.clearTimeout(this.exportDebounceTimer);
+        }
+        this.exportDebounceTimer = window.setTimeout(async () => {
+          try {
+            await this.incuratorClient.dbExport();
+          } catch (e) {
+            console.error("Auto DB export failed", e);
+          }
+        }, 10000); // 10s debounce
+      })
+    );
 
     this.registerInterval(
       window.setInterval(() => {
