@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.3.3)
+# Incurator Plugin Schema & API Contract (v0.4.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -73,6 +73,8 @@ wiki plugin pdf search
 wiki plugin version
 wiki plugin query
 wiki plugin promote
+wiki plugin db export
+wiki plugin db import
 ```
 
 PDF context requests should pass the richest available identity to backend:
@@ -1067,7 +1069,7 @@ nodes directly.
   v0.3.2; ids, hashes, model, route, validator status, evidence ids, and warnings
   are sufficient.
 
-## 13. In-line Copilot Quick Query (v0.3.3)
+## 13. In-line Copilot Quick Query (v0.4.0)
 
 The plugin provides a drag-to-select quick query surface ("In-line Copilot") for
 one-off questions about a selected passage. It is gated by

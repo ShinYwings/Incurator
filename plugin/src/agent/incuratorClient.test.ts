@@ -453,4 +453,37 @@ describe("IncuratorClient", () => {
     expect(result).toBeNull();
   });
 
+  it("dbAutosync calls the backend and maps stats", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      return {
+        dry_run: false,
+        imported_files: 2,
+        inserted: 3,
+        updated: 1,
+        deleted: 0,
+        conflicts: ["dev-x.sync-conflict-20260607-1.jsonl"],
+        exported: "dev-self.jsonl",
+      };
+    };
+    const client = new IncuratorClient(settings(), "0.4.0", backendJson);
+    const res = await client.dbAutosync();
+    expect(calls[0]).toEqual(["db", "autosync", "--json", "--skip-reindex"]);
+    expect(res.ok).toBe(true);
+    expect(res.inserted).toBe(3);
+    expect(res.importedFiles).toBe(2);
+    expect(res.conflicts).toEqual(["dev-x.sync-conflict-20260607-1.jsonl"]);
+    expect(res.exported).toBe("dev-self.jsonl");
+  });
+
+  it("dbAutosync short-circuits when backend disabled", async () => {
+    const s = settings();
+    s.incuratorEnabled = false;
+    const client = new IncuratorClient(s);
+    const res = await client.dbAutosync();
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("backend_disabled");
+  });
+
 });

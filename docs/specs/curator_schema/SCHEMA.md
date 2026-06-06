@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.3.3)
+# Incurator - Schema & Operating Conventions (v0.4.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -645,15 +645,12 @@ on emitted markdown:
   in the same backend write path. Projection re-emission is an Obsidian
   convenience step, not a retrieval prerequisite.
 
-## 11. SQLite State Schema (`SCHEMA_VERSION = 6`)
+## 11. SQLite State Schema (`SCHEMA_VERSION = 7`)
 
-v0.3.2 sets `db.SCHEMA_VERSION` to `6`. The v0.3.1 tables (`sources`,
-`source_pdf_pages`, `ingest_jobs`, `job_events`, `dag_edges`, `page_hashes`,
-source spans, knowledge units, graph entities/relations, community reports,
-memory paths, prompt traces, curation plans, insight candidates, synthesis nodes,
-and artifact dependencies) remain in use. v0.3.2 adds the internal search and
-query-trace tables below. All ids use typed string prefixes so they are
-self-describing in traces and frontmatter.
+v0.4.0 sets `db.SCHEMA_VERSION` to `7`. The v0.3.2 tables remain in use.
+v0.4.0 adds the cross-device sync tombstone table (`deleted_records`, §11.17)
+and the `wiki db export/import` pipeline. All ids use typed string prefixes so
+they are self-describing in traces and frontmatter.
 
 > **Version history.** `SCHEMA_VERSION = 4` introduced the v0.3.1 curation-native
 > tables. `SCHEMA_VERSION = 5` adds the shared L4 `synthesis_nodes` table (§11.11)
@@ -661,6 +658,8 @@ self-describing in traces and frontmatter.
 > self-heal via `executescript(SCHEMA_SQL)` (every table is `IF NOT EXISTS`).
 > `SCHEMA_VERSION = 6` adds DB-native search documents/chunks, FTS5 tables,
 > chunk embeddings, search index metadata, and durable query traces (§11.12-§11.16).
+> `SCHEMA_VERSION = 7` adds `deleted_records` tombstone table for cross-device
+> knowledge synchronization (§11.17).
 
 | Record | Id prefix | Purpose |
 | --- | --- | --- |
@@ -1308,6 +1307,47 @@ QTR-   query trace
 All ids are generated backend-side. Generated content (knowledge units,
 entities, relations, reports, paths, exhibitions) must reference only ids that
 already exist; prompt validators reject invented ids.
+
+## 11.17 `deleted_records` — Cross-Device Sync Tombstones (`SCHEMA_VERSION = 7`)
+
+Records deleted on one device are propagated to other devices on the next `wiki db import`. The tombstone table stores the table name and the deleted record's primary key so the deletion can be applied without needing the original row.
+
+```sql
+CREATE TABLE IF NOT EXISTS deleted_records (
+    table_name  TEXT NOT NULL,
+    record_id   TEXT NOT NULL,
+    deleted_at  TEXT NOT NULL,   -- ISO 8601 UTC
+    PRIMARY KEY (table_name, record_id),
+    CHECK (table_name IN (
+        'sources','atoms','concepts','synthesis_nodes',
+        'source_spans','knowledge_units','graph_entities','graph_relations',
+        'community_reports','memory_paths','prompt_runs','dag_edges',
+        'curation_plans','insight_candidates','artifact_dependencies',
+        'synthesis','query_traces','source_pages','source_pdf_pages'
+    ))
+);
+```
+
+**Invariants:**
+- `record_tombstone(db_path, table_name, record_id)` must be called whenever a canonical row is hard-deleted. It records the deletion and enables other devices to apply it on import.
+- During `wiki db import`, tombstones are applied **before** upserts. A tombstone beats a concurrent update (deletion wins over modification).
+- Device-local tables (`search_embeddings`, `ingest_jobs`, `job_events`, `page_hashes`, FTS5 virtual tables) are **never** listed as `table_name` in tombstones and are excluded from `wiki db export`.
+
+**Device-local columns (`_DEVICE_LOCAL_COLUMNS`):** Some columns are device-specific
+and must not be overwritten by a peer's value during an LWW *update*. The authoritative
+map lives in `db_sync._DEVICE_LOCAL_COLUMNS`:
+
+| Table | Column | Reason |
+|---|---|---|
+| `sources` | `external_path` | Reference-Mode (Zotero) absolute path differs per machine; a peer's path would break local file resolution. |
+
+On **update** of an existing row, a non-NULL local value for a device-local column is
+preserved while all other columns merge by LWW. On **insert** the peer value is taken
+(no local value exists yet). New device-local columns MUST be added to this single map
+(and documented here) rather than handled ad hoc. This is the one-writer-per-file
+auto-sync contract; see SYSTEM_BEHAVIOR §13.1.
+
+---
 
 ## 18. Source Truth Protection (Schema-Level)
 

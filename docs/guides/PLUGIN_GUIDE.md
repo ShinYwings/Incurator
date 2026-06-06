@@ -618,6 +618,36 @@ plumbing as normal human-facing `wiki` commands.
 
 ## 10. Sync Notes
 
+### Cross-device knowledge auto-sync (Syncthing)
+
+When the **Auto-sync knowledge DB** setting is on (default), the plugin keeps your
+knowledge base in step across every device that shares the vault through Syncthing —
+no manual export/import.
+
+- **Triggers**: one pass when Obsidian opens (Auto-sync on open), live detection when
+  Syncthing delivers a peer file (Watch for incoming sync data — desktop only), a
+  60-second safety poll, and a manual **Sync Knowledge DB** ribbon button.
+- **What a pass does**: runs `wiki db autosync` in the backend — imports every other
+  device's snapshot (`.curator/sync/dev-<id>.jsonl`), merges any Syncthing
+  `*.sync-conflict-*` files, then writes this device's own snapshot if anything changed.
+  All heavy work runs in the backend subprocess, so the Obsidian UI never freezes.
+- **Merge safety**: row-level Last-Write-Wins + tombstones — concurrent offline edits on
+  two devices both survive; deletes propagate. No whole-file overwrite.
+- **Feedback**: a status-bar `⟳ Sync` while running, and a toast only when a sync actually
+  applied changes (Notify on sync changes).
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| Auto-sync knowledge DB | On | Master switch for all auto-sync behavior |
+| Auto-sync on Obsidian open | On | Run one sync pass at vault load |
+| Watch for incoming sync data | On | `fs.watch` `.curator/sync/` for peer files (desktop) |
+| Notify on sync changes | On | Toast only when a sync applied changes |
+
+> [!NOTE]
+> `.curator/state.sqlite` and `.curator/sync_state.json` stay device-local; only the
+> `.curator/sync/` JSONL snapshots travel between devices. See the User Guide
+> "Cross-Device Knowledge Sync" and the Sync Ignore Guide.
+
 ### Session history (`sessions.json`)
 
 Plugin data is split into two files.

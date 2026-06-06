@@ -611,6 +611,59 @@ export class AIAgentSettingTab extends PluginSettingTab {
       );
 
     new Setting(backendSection)
+      .setName("Auto-sync knowledge DB")
+      .setDesc(
+        "Cross-device knowledge sync over Syncthing. Imports peer snapshots and " +
+          "exports this device's snapshot (one file per device — no Syncthing conflicts)."
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.autoSyncEnabled !== false)
+          .onChange(async (value) => {
+            this.plugin.settings.autoSyncEnabled = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(backendSection)
+      .setName("Auto-sync on Obsidian open")
+      .setDesc("Run one sync pass when the vault loads.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.autoSyncOnLoad !== false)
+          .onChange(async (value) => {
+            this.plugin.settings.autoSyncOnLoad = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(backendSection)
+      .setName("Watch for incoming sync data")
+      .setDesc(
+        "Detect peer files delivered by Syncthing while Obsidian is open (desktop only)."
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.autoSyncWatch !== false)
+          .onChange(async (value) => {
+            this.plugin.settings.autoSyncWatch = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(backendSection)
+      .setName("Notify on sync changes")
+      .setDesc("Show a toast only when a sync actually applied changes from another device.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.autoSyncNotify !== false)
+          .onChange(async (value) => {
+            this.plugin.settings.autoSyncNotify = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(backendSection)
       .setName("Copy destination folder")
       .setDesc("Vault folder for imported PDFs (Copy mode).")
       .addText((text) =>

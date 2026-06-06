@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.3.3)
+# Incurator - System Behavior (v0.4.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -805,7 +805,66 @@ The Obsidian plugin should keep `data.json` local when backend paths differ by
 machine. Shared state, such as chat `sessions.json` and `.curator/devices.json`,
 can synchronize independently from per-device plugin settings.
 
-## 13.1 Chat Query Language And Trace
+## 13.1 Syncthing Auto-Sync (One-Writer-Per-File)
+
+Incurator supports P2P DB synchronization for `state.sqlite` via Syncthing
+without a central server. `state.sqlite` itself is device-local (excluded in
+`.stignore`); knowledge crosses devices through JSONL snapshot files that *are*
+synced.
+
+**Topology — one writer per file.** Each device exports only its own snapshot to
+`.curator/sync/dev-<device_id>.jsonl` and imports every *other* device's file.
+Because no two devices ever write the same file, Syncthing produces no
+write-write conflicts under normal operation. `device_id` is generated once and
+stored in `.curator/sync_state.json` (device-local; see §13.3). The exported file
+is a **full snapshot** (not a delta) so a late-joining peer always receives the
+complete view that device holds.
+
+**Conflict resolution — LWW + tombstones.** Import is a row-level
+Last-Write-Wins upsert keyed by each table's `updated_at`/`last_updated` column,
+plus tombstone reconciliation via `deleted_records`. There is **no whole-file
+replace**, so concurrent offline edits on two devices both survive: the row with
+the newer timestamp wins, and a delete wins only when its `deleted_at` is newer
+than the competing edit. Import preserves the source row's timestamp and never
+stamps `now()`.
+
+**Loop prevention is structural — there is no content-hash guard.** (An earlier
+`sync_meta.json` `last_exported_hash`/`last_imported_hash` design was removed: it
+silently skipped legitimate imports and reported 0 changes.) Loops cannot form
+because: (a) LWW import is idempotent — re-importing a row at the same timestamp
+is a no-op; (b) a device never imports its own file; and (c) `wiki db autosync`
+exports this device's file only when something actually changed
+(`local_has_unexported_changes()` compares the DB's newest timestamp against the
+recorded `last_export_ts`). Importing peer data is therefore not, by itself, a
+reason to re-export.
+
+**Triggers.** The Obsidian plugin runs `wiki db autosync` (a) once when the
+vault loads, (b) when a `fs.watch` on `.curator/sync/` observes a peer file (a
+debounced/coalesced scheduler collapses Syncthing's chunked delivery into one
+pass and prevents overlapping runs), (c) on a 60-second fallback poll for
+platforms where `fs.watch` is unavailable or misses events, and (d) from a manual
+"Sync Knowledge DB" ribbon action. The plugin never triggers export on
+`Vault.on('modify')` (a markdown-note save is not a DB mutation). CLI users may
+set `auto_sync.enabled` so `wiki update` exports this device's snapshot at the
+end of a mutation. All heavy JSONL work runs in the backend subprocess, never on
+the Obsidian UI thread.
+
+**Syncthing conflict files.** If a `*.sync-conflict-*` file appears in
+`.curator/sync/` (e.g. a duplicated `device_id`), `wiki db autosync` imports it
+as an ordinary LWW peer — which is always data-safe — then moves it out of the
+synced tree into `.curator/runtime/sync_conflicts/` and surfaces a UI notice.
+
+## 13.3 Device-Local Sync State (`sync_state.json`)
+
+`.curator/sync_state.json` holds this device's `device_id`, its `last_export_ts`,
+and per-peer `last_imported_mtime` high-water marks (so a peer file is imported
+exactly once per change and a late Syncthing delivery is never missed). It MUST
+be excluded from Syncthing (`.stignore`); if it were synced, devices would
+overwrite each other's marks and trigger re-import storms. The synced
+`.curator/sync/` directory itself is NOT excluded — those files are the
+transport.
+
+## 13.2 Chat Query Language And Trace
 
 Plugin chat must use a structured English working-language bridge for every
 user question. The plugin derives and passes `input_language`,
@@ -1316,7 +1375,7 @@ Dashboard synthesis actions are read-only. The Synthesis/Graph view lists recent
 L4 `SYN-` nodes and opens `wiki plugin synthesis show` details so the user can
 inspect the L4→L1 evidence chain without manual SQLite access.
 
-## 24. GitHub Integration (v0.3.3)
+## 24. GitHub Integration (v0.4.0)
 
 ### 24.1 Authentication Boundary
 The system relies on the GitHub CLI (`gh`) for authentication. The Obsidian

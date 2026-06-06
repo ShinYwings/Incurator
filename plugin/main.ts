@@ -30,6 +30,7 @@ import { CLIAuthResolver } from "./src/auth/cliAuth";
 import { LLMClient } from "./src/agent/llmClient";
 import { MCPManager } from "./src/agent/mcpClient";
 import { IncuratorClient } from "./src/agent/incuratorClient";
+import { SyncScheduler } from "./src/agent/syncScheduler";
 import { ChatSidebarView, CHAT_VIEW_TYPE } from "./src/ui/chatSidebar";
 import {
   ExternalPdfView,
@@ -100,6 +101,9 @@ export default class ObsidianAIAgent extends Plugin {
   private vaultRoot = "";
   private ingestStatusBar: HTMLElement | null = null;
   private incuratorStatusBar: HTMLElement | null = null;
+  private syncScheduler: SyncScheduler | null = null;
+  private syncWatcher: { close: () => void } | null = null;
+  private syncStatusBar: HTMLElement | null = null;
 
   async onload(): Promise<void> {
     console.log("Loading Obsidian AI Agent plugin");
@@ -177,6 +181,9 @@ export default class ObsidianAIAgent extends Plugin {
 
     // ── Status Bar ──
     this.setupIncuratorStatusBar();
+
+    // ── Cross-device knowledge auto-sync (Syncthing) ──
+    this.setupAutoSync();
 
     // ── Register commands ──
 
@@ -1580,6 +1587,106 @@ export default class ObsidianAIAgent extends Plugin {
       return leaves[0].view as ChatSidebarView;
     }
     return null;
+  }
+
+  /**
+   * Cross-device knowledge auto-sync over Syncthing (one-writer-per-file).
+   * All triggers — Obsidian load, the .curator/sync file watcher, the fallback
+   * poll, and the manual ribbon — funnel through a single coalescing scheduler so
+   * passes never overlap. The heavy JSONL work runs in the backend subprocess via
+   * `wiki db autosync`, never on the Obsidian UI thread.
+   */
+  private setupAutoSync(): void {
+    if (this.settings.incuratorEnabled === false) return;
+    if (this.settings.autoSyncEnabled === false) return;
+
+    this.syncStatusBar = this.addStatusBarItem();
+    this.syncStatusBar.setText("");
+
+    this.syncScheduler = new SyncScheduler(() => this.runAutoSyncPass(), 4000);
+
+    // Manual trigger.
+    this.addRibbonIcon("refresh-cw", "Sync Knowledge DB", () => {
+      void this.syncScheduler?.runNow();
+    });
+
+    this.app.workspace.onLayoutReady(() => {
+      if (this.settings.autoSyncOnLoad !== false) {
+        void this.syncScheduler?.runNow();
+      }
+      this.startSyncWatcher();
+    });
+
+    // Fallback poll: covers platforms where fs.watch misses events and the case
+    // where the sync dir did not exist yet when the watcher was first started.
+    this.registerInterval(
+      window.setInterval(() => {
+        this.syncScheduler?.schedule();
+      }, 60000)
+    );
+
+    this.register(() => {
+      this.syncWatcher?.close();
+      this.syncScheduler?.dispose();
+    });
+  }
+
+  /** Watch .curator/sync for peer files (desktop only; degrades on mobile). */
+  private startSyncWatcher(): void {
+    if (this.settings.autoSyncWatch === false) return;
+    const fsmod = (window as { require?: (m: string) => unknown }).require?.("fs") as
+      | {
+          watch?: (
+            p: string,
+            opts: { persistent: boolean },
+            cb: (evt: string, filename: string) => void
+          ) => { close: () => void };
+          existsSync?: (p: string) => boolean;
+        }
+      | undefined;
+    if (!fsmod?.watch) return; // mobile / no node fs → on-load + poll only
+    const base =
+      this.vaultRoot || (this.app.vault.adapter as { getBasePath?: () => string }).getBasePath?.() || "";
+    if (!base) return;
+    const dir = `${base}/.curator/sync`;
+    try {
+      if (fsmod.existsSync && !fsmod.existsSync(dir)) return;
+      this.syncWatcher = fsmod.watch(dir, { persistent: false }, (_evt, filename) => {
+        if (!filename || !filename.endsWith(".jsonl")) return;
+        this.syncScheduler?.schedule();
+      });
+    } catch (e) {
+      console.warn("[Incurator] sync watcher unavailable:", e);
+    }
+  }
+
+  /** One auto-sync pass: import peers, merge conflicts, export self if changed. */
+  private async runAutoSyncPass(): Promise<void> {
+    if (this.settings.incuratorEnabled === false) return;
+    this.syncStatusBar?.setText("⟳ Sync");
+    try {
+      const res = await this.incuratorClient.dbAutosync();
+      if (!res.ok) {
+        this.syncStatusBar?.setText("");
+        return;
+      }
+      const changes = (res.inserted ?? 0) + (res.updated ?? 0) + (res.deleted ?? 0);
+      if (this.settings.autoSyncNotify !== false && changes > 0) {
+        new Notice(
+          `Knowledge sync: ${res.inserted ?? 0} new, ${res.updated ?? 0} updated, ${res.deleted ?? 0} removed.`
+        );
+      }
+      if ((res.conflicts?.length ?? 0) > 0) {
+        new Notice(
+          `Merged ${res.conflicts!.length} Syncthing conflict file(s) (LWW). ` +
+            `Backups archived under .curator/runtime/sync_conflicts.`
+        );
+      }
+      this.syncStatusBar?.setText(changes > 0 ? `✓ Sync ${changes}` : "");
+    } catch (e) {
+      console.error("[Incurator] auto-sync failed:", e);
+      this.syncStatusBar?.setText("");
+    }
   }
 
   private setupIncuratorStatusBar() {

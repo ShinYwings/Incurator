@@ -575,6 +575,56 @@ Tier-2 LLM/HyDE query expansion은 기본적으로 recovery mechanism으로 켜�
 
 ---
 
+## 🔄 기기 간 지식 동기화 (`wiki db`)
+
+Incurator는 모든 지식을 `.curator/state.sqlite`에 저장합니다. SQLite 파일은 Syncthing, iCloud, Dropbox 같은 파일 동기화 도구로는 안전하게 병합할 수 없으므로, `wiki db` 명령어를 통해 JSONL 기반 내보내기/가져오기 파이프라인을 제공합니다.
+
+### 동작 방식
+
+1. **내보내기**: 기기 A에서 지식 베이스를 내보내면 `.jsonl` 파일이 생성됩니다.
+2. **전송**: 파일을 기기 B로 전달합니다 (scp, AirDrop, Syncthing, USB 등).
+3. **가져오기**: 기기 B에서 가져오기 실행 → 최신 레코드 우선(LWW) 병합, 삭제된 레코드는 Tombstone으로 전파, `wiki reindex` 자동 실행.
+
+### `wiki db export`
+
+```bash
+wiki db export                              # .curator/export-YYYYMMDD.jsonl로 내보내기
+wiki db export --out ~/Desktop/kb.jsonl     # 출력 경로 지정
+wiki db export --since 2026-01-01T00:00:00Z # 이후 변경된 레코드만 증분 내보내기
+wiki db export --compress                   # gzip 압축 (.jsonl.gz)
+```
+
+### `wiki db import`
+
+```bash
+wiki db import ~/Desktop/kb.jsonl          # 가져오기 후 자동 reindex
+wiki db import ~/Desktop/kb.jsonl --dry-run # 실제 변경 없이 미리 보기
+wiki db import ~/Desktop/kb.jsonl --skip-reindex  # reindex 없이 가져오기만
+```
+
+> [!NOTE]
+> 기기 로컬 데이터(벡터 임베딩, 백그라운드 잡 상태)는 내보내기 파일에 **절대 포함되지 않습니다**. 가져오기 후 `wiki reindex`가 자동으로 로컬 검색 인덱스를 재구축합니다.
+
+### `wiki db autosync` — Syncthing 기반 자동 동기화
+
+이미 vault 폴더를 **Syncthing**으로 동기화하고 있다면, `wiki db autosync`가 위의 수동 내보내기/가져오기를 손댈 필요 없는 Zotero급 흐름으로 바꿔 줍니다.
+
+```bash
+wiki db autosync             # 피어 가져오기 + 충돌 병합 + 변경 시 자기 스냅샷 내보내기
+wiki db autosync --dry-run   # 실제 변경 없이 미리 보기
+```
+
+기기 간 안전성을 보장하는 방식:
+
+- **기기당 파일 1개.** 각 기기는 자기 `.curator/sync/dev-<id>.jsonl`만 쓰고 나머지는 읽기만 합니다. 두 기기가 같은 파일을 쓰지 않으므로 Syncthing이 쓰기-쓰기 충돌을 만들지 않습니다.
+- **Last-Write-Wins 병합.** 레코드는 타임스탬프 기준으로 행 단위 병합되고, 삭제는 tombstone으로 전파됩니다. 두 기기에서 오프라인으로 각각 편집해도 모두 살아남으며 — 파일 통째 덮어쓰기는 없습니다.
+- **무한 루프 없음** — 취약한 해시 가드 없이. 기기는 자기 파일을 가져오지 않고, 실제로 변경이 있을 때만 다시 내보냅니다.
+- **Syncthing 충돌 파일**(`*.sync-conflict-*`)은 일반 피어로 가져와(항상 데이터 안전) `.curator/runtime/sync_conflicts/`에 보관됩니다.
+
+`.curator/state.sqlite`와 `.curator/sync_state.json`은 기기 로컬로 유지되며(`.stignore` 제외), `.curator/sync/`의 JSONL 파일만 기기 간 이동합니다. CLI 전용 워크플로에서 `wiki update`가 자동으로 내보내게 하려면 `.curator/config.yml`에 `auto_sync.enabled: true`를 설정하세요. Obsidian 플러그인은 `wiki db autosync`를 자동으로 실행해 줍니다 — 플러그인 가이드 참고.
+
+---
+
 ## 🧩 설정 관리 (Configuration)
 
 Incurator는 `.curator/config.yml` 파일을 직접 수정하지 않아도, `wiki config` 명령어를 통해 모든 핵심 설정을 안전하고 편리하게 관리할 수 있습니다.

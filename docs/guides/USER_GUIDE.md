@@ -606,6 +606,56 @@ external agents over MCP — see the [MCP User Guide](./MCP_USER_GUIDE.md) §3.6
 
 ---
 
+## 🔄 Cross-Device Knowledge Sync (`wiki db`)
+
+Incurator stores all knowledge in `.curator/state.sqlite`. Because SQLite files cannot be safely merged by file-sync tools (Syncthing, iCloud, Dropbox), the `wiki db` commands provide a safe JSONL-based export/import pipeline for moving your knowledge between devices.
+
+### How it works
+
+1. **Export** your knowledge base on Device A → produces a `.jsonl` file
+2. **Transfer** the file to Device B (scp, AirDrop, Syncthing, USB, etc.)
+3. **Import** on Device B → records are merged using Last-Write-Wins; deleted records propagate via tombstones; `wiki reindex` runs automatically
+
+### `wiki db export`
+
+```bash
+wiki db export                              # exports to .curator/export-YYYYMMDD.jsonl
+wiki db export --out ~/Desktop/kb.jsonl     # custom output path
+wiki db export --since 2026-01-01T00:00:00Z # incremental: only changed records
+wiki db export --compress                   # gzip output (.jsonl.gz)
+```
+
+### `wiki db import`
+
+```bash
+wiki db import ~/Desktop/kb.jsonl          # import and auto-reindex
+wiki db import ~/Desktop/kb.jsonl --dry-run # preview changes without writing
+wiki db import ~/Desktop/kb.jsonl --skip-reindex  # import without reindexing
+```
+
+> [!NOTE]
+> Device-local data (vector embeddings, background job state) is **never** included in export files. After import, `wiki reindex` rebuilds the local search index automatically.
+
+### `wiki db autosync` — automatic sync over Syncthing
+
+If you already sync your vault folder with **Syncthing**, `wiki db autosync` turns the manual export/import above into a hands-off, Zotero-grade flow.
+
+```bash
+wiki db autosync             # import peers, merge conflicts, export self if changed
+wiki db autosync --dry-run   # preview without writing
+```
+
+How it stays safe across devices:
+
+- **One file per device.** Each device writes only its own `.curator/sync/dev-<id>.jsonl` and reads everyone else's. Because no two devices write the same file, Syncthing never creates write-write conflicts.
+- **Last-Write-Wins merge.** Records merge row-by-row by timestamp; deletes propagate via tombstones. Concurrent offline edits on two devices both survive — there is no whole-file overwrite.
+- **No infinite loops** — without any fragile hash guard. A device never imports its own file, and it re-exports only when something actually changed.
+- **Syncthing conflict files** (`*.sync-conflict-*`) are imported as ordinary peers (always data-safe) and archived under `.curator/runtime/sync_conflicts/`.
+
+`.curator/state.sqlite` and `.curator/sync_state.json` stay device-local (excluded in `.stignore`); only the `.curator/sync/` JSONL files travel between devices. To have `wiki update` export automatically for CLI-only workflows, set `auto_sync.enabled: true` in `.curator/config.yml`. The Obsidian plugin drives `wiki db autosync` for you — see the Plugin Guide.
+
+---
+
 ## 🧩 Configuration Management
 
 Incurator allows you to safely and conveniently manage all core settings via the `wiki config` command without having to manually edit the `.curator/config.yml` file.

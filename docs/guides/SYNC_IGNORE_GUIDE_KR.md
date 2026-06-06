@@ -43,10 +43,22 @@ node_modules/
 // 짧은 주기로 업데이트되므로 동기화 시 심각한 충돌과 트래픽 유발
 .curator/runtime/
 
+// Incurator 자동 동기화: 기기별 로컬 마크 (device_id, peer high-water mark)
+// 반드시 로컬 유지 — 동기화되면 기기끼리 서로의 마크를 덮어써 재import 폭주를 유발.
+// 주의: .curator/sync/ 는 제외하지 말 것 — dev-*.jsonl 지식 스냅샷은 Syncthing이 기기 간에 운반해야 함.
+.curator/sync_state.json
+
 // 에이전트 및 테스트베드 (선택 사항)
 .claude/
 testbed/
 ```
+
+> [!IMPORTANT]
+> 기기 간 자동 동기화(`wiki db autosync`)는 Syncthing이
+> `.curator/sync/dev-<device_id>.jsonl` 스냅샷 파일을 운반하는 것에 의존합니다.
+> `.curator/sync/`는 **동기화 유지**하고, `.curator/state.sqlite`와
+> `.curator/sync_state.json`만 기기 로컬로 두세요. USER_GUIDE "기기 간 지식 동기화"와
+> SYSTEM_BEHAVIOR §13.1 참고.
 
 > **참고**: `sessions.json`과 `data.json` 분리 구조
 > 채팅 히스토리(`.curator/sessions.json`)는 안전한 보존과 동기화를 위해 플러그인 폴더 외부(`.curator/`)에 저장되며 세션 단위 병합과 삭제 tombstone을 지원합니다.

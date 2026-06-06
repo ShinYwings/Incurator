@@ -1,32 +1,34 @@
-# Relay State — fix/v0.3.3-cleanup (2026-06-06, Claude Code)
+# Relay State — v0.4.0 release branch (2026-06-07, Claude Code)
 
-## Status: Wrapping up — ready to merge PR #3
+## Current Branch
+`release/v0.4.0` — PR #6 OPEN. Not merged to master.
 
-Branch: `fix/v0.3.3-cleanup`  
-PR target: `master` — https://github.com/ShinYwings/Incurator/pull/3
+## Live State
 
-## What was done this session
+Syncthing auto-sync (Zotero-grade) **implemented end-to-end** on top of the base
+Knowledge Sync Bridge. Plan-first per the Review Feedback Loop rule.
 
-**Workflow infrastructure (8 issues fixed):**
-- GitHub Actions CI, PR template, branch naming convention, master vs main note
-- relay.md IDLE Cleanup rule, System Invariants updated, schema_guardian fix
-- Rollback procedure, Shared Architecture Memory section
-- Full CLAUDE.md sync with AGENTS.md
+- Plan: `.agents/plans/syncthing_auto_sync.md` (+ `_arena/`, `_evidence.md`) — all 5
+  phases PASS (see evidence ledger).
+- Backend: `db_sync.py` `export_for_device` / `import_all_peers` / `detect_conflict_files`
+  / `autosync` (one-writer-per-file, structural loop prevention, no hash guard);
+  `wiki db autosync` CLI; `auto_sync` config; `.curator/sync_state.json` (in `.stignore`).
+- Plugin: `IncuratorClient.dbAutosync`, `SyncScheduler`, `main.ts setupAutoSync`
+  (on-load + fs.watch + 60s poll + ribbon + status bar + notices), 4 settings toggles.
+- Docs/specs (EN+KR) + CHANGELOG updated; stale reverted-approach spec text replaced.
+- Tests: backend 485 passed, plugin 282 passed; ruff clean; `tsc`/build ok.
 
-**Docs cleanup:**
-- Removed stale `wiki curate` and `wiki reindex (QMD)` references from CLAUDE.md, AGENTS.md
-- Fixed `backend/pyproject.toml` readme path (root README deleted → `docs/README.md`)
-
-**Roadmap cleanup:**
-- Stripped version numbers from all plan skeleton files (02, 03, 04, roadmap)
-- Reordered roadmap: Knowledge Sync Bridge (03) is now milestone 1, Stabilization (02) is milestone 2
-- Linked user_report items 3-7 to 02_stabilization.md
-- Removed item 1 (GitHub 연동) from user_report — fully implemented and verified
+## Critical Context
+- **Never reintroduce** the `sync_meta.json` content-hash loop guard or a
+  `vault.on("modify")` export trigger (both were the reverted broken approach and the
+  cause of the dry-run/import 0-changes bug).
+- Loop prevention is structural: own file never imported + import≠mutation +
+  export-only-when-changed. No `SCHEMA_VERSION` bump (still 7).
+- `.curator/sync/` IS synced (transport); `state.sqlite` + `sync_state.json` are local.
 
 ## Immediate Next Action
-
-Merge PR #3 on GitHub. After merge, reset this file to a minimal IDLE stub and start the next batch from user_report.md following the Universal Strict Workflow.
-
-**Next batch candidates (user_report To-Do):**
-- Priority items per roadmap: Knowledge Sync Bridge (no user_report item yet — may need to add one)
-- Otherwise: items 2, 9, 10 (minor/standalone), or items 3-7 (major/RAG stabilization batch)
+1. **User**: review & merge PR #6 (`release/v0.4.0` → `master`).
+2. **On merge**: delete `syncthing_auto_sync*.md` plan files; remove the completed item
+   from `user_report.md`; truncate this relay to an IDLE stub.
+3. **Next**: `minor_quick_wins.md` (web search, wikilink, DiffViewer UX) or
+   `stabilization.md` (RAG) — user decides priority.

@@ -124,6 +124,15 @@ When editing existing files (especially specs, plans, and research notes):
 - **Additive Editing**: Treat existing architectural details as sacred. Add new sections at the bottom or expand existing ones. Never replace detailed paragraphs with bulleted summaries.
 - **Extreme Detail**: When explaining logic or architecture, write exhaustively. Do not use abstract buzzwords to compress complex mechanisms.
 
+### 7. Root Cause Over Workarounds
+
+**Fix the disease, not the symptoms. Do not use workarounds.**
+
+- Never bypass a broken system with a temporary hack or "workaround" just to make a test pass or a command succeed.
+- If a function is fundamentally flawed, fix the function. Do not wrap it in a `try...except` that hides the failure or add external scripts to patch its outputs.
+- If you find yourself writing logic that "corrects" the output of another buggy component, STOP. Go back and fix the buggy component directly.
+- Workarounds accumulate tech debt and cause cascading failures. Your job is to identify the root cause and resolve it definitively.
+
 ## Core Rule: Documentation & Test Mandate
 
 **Every code change must have matching documentation and test coverage. Skipping either is incomplete work.**
@@ -166,7 +175,7 @@ Concrete examples:
 
 Whenever a user requests a new feature, reports a bug, or uses the `/goal` command, the agent MUST automatically follow this strict 12-step `Universal Strict Workflow`:
 
-1. **Batch & Version Planning**: Read `.agents/user_report.md` (ignoring Blocked items) and group related items into a single Batch Release. Decide whether this batch warrants a Patch, Minor, or Major version bump. **CRITICAL**: If the update is Minor/Major and includes breaking schema changes, you MUST plan and write a data migration script.
+1. **Batch & Version Planning**: Read `.agents/user_report.md` (ignoring Blocked items) and group related items into a single Batch Release. Cross-reference each candidate item against `.agents/plans/` roadmap skeletons to understand which milestone it belongs to. Decide whether this batch warrants a Patch, Minor, or Major version bump. **CRITICAL**: If the update is Minor/Major and includes breaking schema changes, you MUST plan and write a data migration script.
 2. **Branch Creation**: Create and switch to a new Git branch for the release (e.g., `release/v0.3.3` or `feature/issue-name`). NEVER work directly on the `main` branch. You MUST update `.agents/relay.md` with the current branch name so other agents know where they are.
 3. **Plan Creation & Report Status Update**: Write a detailed implementation plan in `.agents/plans/` using the `.agents/plans/PLAN_TEMPLATE.md` blueprint. **CRITICAL**: As soon as the plan is drafted, you MUST update `.agents/user_report.md` by moving the target item from the `To-Do` section to the `Planned` section to reflect its active state. If there are ambiguities, explicitly ask the user clarifying questions before proceeding. **STOP** and wait for user approval before coding.
 4. **Docs Update**: Update `docs/specs/` and `docs/guides/` to define the target behavior. (Crucial: Update the English guides first, then faithfully synchronize the matching `_KR.md` Korean guides).
@@ -178,6 +187,23 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
 10. **Plan Deletion**: **Delete** the implemented plan file(s) from the workspace. The plan's historical context will be statically preserved in the Git history for this version.
 11. **Release Commit**: Create a final release commit explicitly named `chore(release): vX.Y.Z`.
 12. **Push & PR (Zero-Interaction Auto-Pilot)**: Push the branch to the remote repository. Create a GitHub Pull Request that includes a detailed PR Description (Why, What, How). **CRITICAL**: Once the workflow begins, agents MUST auto-approve their own steps and operate with zero user interaction. Do not pause to ask the user for confirmation on intermediate code changes or terminal commands. The human user's ONLY responsibility is to review and merge the final Pull Request on GitHub.
+
+---
+
+## Core Rule: Review Feedback Loop (Plan-First, Proactively)
+
+**A PR is not the end of the workflow — review feedback re-enters it.** When a review (human PR comment, `/code-review` / `ultrareview` findings, or an in-session design review) surfaces a **new feature request or a non-trivial bug** on work that is already in flight, the agent MUST handle it through the same plan-first discipline as any other item — **without being asked**. Do not wait for the user to say "make a plan"; recognizing review feedback and routing it back through the workflow is the agent's own responsibility.
+
+The mandatory sequence when review feedback arrives:
+
+1. **Capture in `user_report.md` immediately.** Add the feedback as a labeled item under the `To-Do`/`Planned` sections: `[PR 픽스]` for a bug, `[기능 제안]` for a feature/enhancement. Preserve the reviewer's edge cases verbatim — do not compress them away (see Anti-Compression rule).
+2. **Author a `PLAN_TEMPLATE.md`-compliant plan BEFORE writing any implementation code.** A non-trivial review-requested feature gets the full Arena treatment (problem statement → persona proposals → cross-critique → master plan), exactly like a fresh milestone. Link the plan from its `user_report.md` item and vice versa.
+3. **STOP for approval on substantial work.** As with Step 3 of the Universal Strict Workflow, pause for user approval of the plan before coding a substantial feature. (Trivial nits — see exception below — skip this.)
+4. **Then implement** through TDD + incremental commits + local CI, and only then push the follow-up onto the same release branch / PR.
+
+**TRIVIAL-NIT EXCEPTION**: Pure review nits with no behavioral or architectural impact — typos, lint, formatting, a rename, a one-line guard, a doc-only fix — may be patched directly into the open PR without a separate plan. Use judgment: if it touches schema, control flow, a public contract, a new file/module, or introduces a new user-facing behavior, it is NOT trivial and needs a plan.
+
+**WHY THIS RULE EXISTS (anti-pattern to avoid)**: Hot-patching a substantial feature directly in response to a review comment — coding first, skipping the Arena plan — produces buggy, hard-to-review changes that often have to be reverted wholesale. A real precedent: a cross-device auto-sync feature was implemented straight from review feedback with no Arena plan; its hash-based loop-prevention silently broke `wiki db import` (reported 0 changes) and the entire feature had to be reverted, then re-planned from scratch. Plan-first is cheaper than revert-then-replan. **The disease is "code-first on review feedback"; the cure is "capture → plan → approve → implement," done proactively.**
 
 ---
 
@@ -313,7 +339,12 @@ The **entire `docs/` tree is source of truth**. The system design becomes increa
 When they conflict, the more concrete layer (spec) dictates the implementation reality, but any divergence means both are wrong until reconciled. Do not treat guides as subordinate to specs — fix both together.
 
 **Dynamic Planning**: `.agents/plans/` for implementation sequencing and context.
-- **CRITICAL RULE - PLAN TEMPLATE MANDATE**: When creating architectural or feature implementation plans, all agents (Codex, Claude, Antigravity) MUST FIRST read `.agents/plans/PLAN_TEMPLATE.md` and strictly copy/adhere to its Markdown skeleton. You MUST write your final plan artifacts into `.agents/plans/` (instead of default temporary directories). 
+- **CRITICAL RULE - PLAN TEMPLATE MANDATE**: When creating architectural or feature implementation plans, all agents (Codex, Claude, Antigravity) MUST FIRST read `.agents/plans/PLAN_TEMPLATE.md` and strictly copy/adhere to its Markdown skeleton. You MUST write your final plan artifacts into `.agents/plans/` (instead of default temporary directories).
+- **Three mandatory documents** (per PLAN_TEMPLATE.md) before any code is written:
+  1. **Domain Analysis docs** (`A_*.md`, `B_*.md`, …) — one per major component. Each must cover: design constraints from codebase, docs/specs invariants, alternatives & trade-offs, final decision, and implementation pseudocode/SQL.
+  2. **Master Implementation Plan** (`[XX]_[feature].md`) — locked design decisions, contracts preserved, multi-agent role reviews, and strict phases (`P1 → P2 → …`). Each phase must pass `pytest` + `ruff` before the next begins.
+  3. **Evidence Ledger** (`[XX]_roadmap_evidence.md`) — created immediately before coding starts. Records rollback anchor, current schema reality, and pre/post validation results.
+- The skeleton plan files in `.agents/plans/` (e.g., `stabilization.md`, `knowledge_sync_bridge.md`) are **scope notes only**, not implementation plans. They must be replaced or accompanied by the full three-document set before implementation begins.
 - To read historical plans, you MUST use `git show` or `git log` on the `.agents/plans/` directory, as completed plans are deleted from the active workspace.
 - Plans describe *how* to implement; specs describe *what* to implement.
   When they conflict, specs and guides win over plans.
@@ -359,27 +390,17 @@ Before implementing any new architecture work, the agent MUST first create or up
   project code or explicit testbed setup scripts.
 
 
-## Multi-Agent Development Roles
+## Multi-Agent Execution Roles (Development & CI Workflow)
 
-When a change is broad, split review or implementation thinking into these
-roles and then integrate the result in one coherent patch:
+During the execution phase (after the Arena Master Plan is approved), the implementation must be driven by a structured, role-based execution pipeline (similar to MetaGPT/ChatDev software company models). Agents must adopt these personas sequentially to ensure robust code quality:
 
-- `schema_guardian`: checks current schema (SCHEMA.md), layer names, prefixes,
-  and frontmatter shape against the spec in `docs/specs/curator_schema/`.
-- `source_pair_analyst`: checks that `03_Notes/Papers` notes and
-  `04_Resources` references can merge into shared higher-level DAG concepts.
-- `topic_boundary_checker`: checks that unrelated `02_Wiki` topics remain
-  distinguishable from the paper/resource topic.
-- `cli_regression_runner`: checks `wiki init/status/add/curate/lint/reindex/query`
-  smoke behavior in the testbed.
-- `local_slm_simulator`: when the primary cloud LLM validation is too slow or unavailable,
-  quickly simulates the expected small-model judgment using the seeded testbed
-  Collections and source files. It must stay conservative and mark uncertain
-  claims as "needs real LLM validation".
-- `legacy_sweeper`: searches for qmd-excluded legacy terms and stale docs.
+- **`coder_engineer`**: Focuses purely on implementing the feature logic according to the Master Plan and writing initial tests. Does not touch unrelated files or "improve" adjacent code.
+- **`schema_guardian`**: Reviews the `coder_engineer`'s implementation to strictly ensure `SCHEMA.md`, layer names, prefixes (`CTX-`, `ATM-`, `CON-`, `SYN-`), and frontmatter shape conform to the spec without regressions.
+- **`qa_runner` (CI/Testbed)**: Executes the E2E verification. Runs `pytest`, `ruff check`, `mypy`, and `wiki testbed init`. Simulates edge cases (e.g., `local_slm_simulator` for LLM failure, verifying topic boundary isolation).
+- **`docs_sync_manager`**: Ensures that `docs/specs/` and `docs/guides/` are faithfully updated immediately after the code passes QA, maintaining the English -> Korean `_KR.md` translation sync.
+- **`legacy_sweeper`**: Performs cleanup before finalizing the PR. Searches for unused imports, deleted API references (like the retired `qmd`), orphaned test functions, and stale comments left behind by the new implementation.
 
-Codex orchestrates these roles: gather their findings, avoid conflicting edits,
-and report a concise verification result.
+As the orchestrator, you must route the workflow through these execution roles sequentially, ensuring code passes through the `schema_guardian` and `qa_runner` validations before considering the implementation phase complete.
 
 ## Simulated LLM Fallback
 
