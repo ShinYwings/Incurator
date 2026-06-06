@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import click
 from typer.testing import CliRunner
 
 from curator import config as cfg
@@ -22,7 +23,7 @@ def _init_vault(runner: CliRunner, tmp_path: Path) -> Path:
 def test_autosync_command_registered() -> None:
     result = CliRunner().invoke(app, ["db", "autosync", "--help"])
     assert result.exit_code == 0, result.output
-    assert "--dry-run" in result.output
+    assert "--dry-run" in click.unstyle(result.output)
 
 
 def test_autosync_json_runs_on_empty_vault(tmp_path: Path) -> None:
