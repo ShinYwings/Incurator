@@ -20,16 +20,18 @@ jobs:
           python-version: "3.10"
 
       - name: Install uv
-        run: pip install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
 
       - name: Install backend dependencies
-        run: cd backend && uv pip install -e ".[dev,mcp]" --system
+        run: cd backend && uv sync --extra dev --extra mcp
 
       - name: Run ruff
-        run: cd backend && ruff check src/
+        run: cd backend && uv run ruff check src/
 
       - name: Run pytest
-        run: cd backend && pytest -q
+        run: cd backend && uv run pytest -q
 
   plugin-tests:
     name: Plugin Tests
