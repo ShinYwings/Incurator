@@ -7,13 +7,17 @@ Usage:
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO
 
 from . import db
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = db.SCHEMA_VERSION
 
@@ -132,6 +136,32 @@ def record_tombstone(db_path: Path, table_name: str, record_id: str) -> None:
         )
 
 
+def _compute_file_hash(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        while chunk := f.read(8192 * 1024):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _read_sync_meta(db_path: Path) -> dict:
+    meta_path = db_path.parent / "sync_meta.json"
+    if meta_path.exists():
+        try:
+            return json.loads(meta_path.read_text("utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _write_sync_meta(db_path: Path, meta: dict) -> None:
+    meta_path = db_path.parent / "sync_meta.json"
+    try:
+        meta_path.write_text(json.dumps(meta, indent=2), "utf-8")
+    except Exception:
+        pass
+
+
 def export_knowledge(
     db_path: Path,
     out_path: Path,
@@ -198,6 +228,14 @@ def export_knowledge(
                 stats.rows_by_table[tbl] = count
                 stats.total_rows += count
 
+    try:
+        file_hash = _compute_file_hash(out_path)
+        meta = _read_sync_meta(db_path)
+        meta["last_exported_hash"] = file_hash
+        _write_sync_meta(db_path, meta)
+    except Exception as e:
+        logger.warning(f"Failed to record sync_meta.json export hash: {e}")
+
     return stats
 
 
@@ -215,6 +253,21 @@ def import_knowledge(
         dry_run: If True, calculate stats without writing anything.
     """
     stats = ImportStats(dry_run=dry_run)
+
+    if not in_path.exists():
+        raise ValueError(f"Export file not found: {in_path}")
+
+    try:
+        file_hash = _compute_file_hash(in_path)
+    except Exception as e:
+        raise ValueError(f"Failed to read export file for hashing: {e}") from e
+
+    meta = _read_sync_meta(db_path)
+    if not dry_run:
+        # Loop prevention: if this file is exactly what we just exported or imported, skip it
+        if meta.get("last_imported_hash") == file_hash or meta.get("last_exported_hash") == file_hash:
+            logger.info("Import skipped: file hash identical to last sync operation (infinite loop prevented).")
+            return stats
 
     opener: IO[str]
     if in_path.suffix == ".gz":
@@ -243,6 +296,8 @@ def import_knowledge(
                 ).fetchall()
             }
 
+            max_remote_ts = ""
+
             for line in f:
                 line = line.strip()
                 if not line:
@@ -267,6 +322,33 @@ def import_knowledge(
                         stats.updated += 1
                     else:
                         stats.skipped += 1
+
+                updated_col = _UPDATED_AT_COL.get(tbl)
+                if updated_col and updated_col in row:
+                    remote_ts = row[updated_col] or ""
+                    if remote_ts > max_remote_ts:
+                        max_remote_ts = remote_ts
+
+            if not dry_run and max_remote_ts:
+                try:
+                    clean_remote = max_remote_ts.replace("Z", "+00:00")
+                    remote_dt = datetime.fromisoformat(clean_remote)
+                    now_dt = datetime.now(timezone.utc)
+                    diff_sec = (remote_dt - now_dt).total_seconds()
+                    if diff_sec > 300:  # 5 minutes in the future
+                        logger.warning(
+                            f"Clock skew detected! Remote data is {diff_sec/60:.1f} minutes in the future. "
+                            "LWW sync may ignore local edits until the local clock catches up."
+                        )
+                except Exception:
+                    pass
+
+    if not dry_run:
+        try:
+            meta["last_imported_hash"] = file_hash
+            _write_sync_meta(db_path, meta)
+        except Exception as e:
+            logger.warning(f"Failed to record sync_meta.json import hash: {e}")
 
     return stats
 
