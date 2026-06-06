@@ -222,15 +222,19 @@ To prevent context fragmentation and hallucinations when switching between AI co
 
 ## Core Rule: Branch Naming & Merge Safety
 
-### Branch Naming Convention
-| Pattern | When to use |
-|---|---|
-| `release/vX.Y.Z` | Batch releases from user_report |
-| `fix/short-description` | Bug fixes / post-release cleanup |
-| `feature/short-description` | New features outside a batch release |
-| `hotfix/vX.Y.Z-description` | Critical production fixes (separate from ongoing release work) |
+### Branch Naming Convention (GitHub Flow)
 
-> **Note on default branch name**: This repo uses `master` (not `main`). All workflow rules that say "main" mean `master`. Do not rename the branch.
+All branches are created from `master` and merged back to `master` via PR. Never nest branches (no feature-from-release, no fix-from-feature).
+
+| Pattern | Base | When to use |
+|---|---|---|
+| `release/vX.Y.Z` | `master` | Batch releases planned from user_report |
+| `feature/short-description` | `master` | New standalone features |
+| `fix/short-description` | `master` | Bug fixes and post-release cleanup |
+| `chore/short-description` | `master` | CI, tooling, config, dependency changes |
+| `hotfix/vX.Y.Z-description` | `master` | Critical production fixes (bypass normal release cycle) |
+
+> **Note**: This repo uses `master` (not `main`). Do not rename the branch.
 
 ### Rollback Procedure (Bad Merge)
 If a merged PR introduces a regression that cannot be quickly patched forward:
