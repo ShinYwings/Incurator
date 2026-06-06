@@ -1,31 +1,32 @@
 # Relay State — fix/v0.3.3-cleanup (2026-06-06, Claude Code)
 
-## Status: Wrapping up
+## Status: Wrapping up — ready to merge PR #3
 
 Branch: `fix/v0.3.3-cleanup`  
-PR target: `master`
+PR target: `master` — https://github.com/ShinYwings/Incurator/pull/3
 
 ## What was done this session
 
-Fixed 8 structural workflow issues identified during v0.3.3 PR audit:
+**Workflow infrastructure (8 issues fixed):**
+- GitHub Actions CI, PR template, branch naming convention, master vs main note
+- relay.md IDLE Cleanup rule, System Invariants updated, schema_guardian fix
+- Rollback procedure, Shared Architecture Memory section
+- Full CLAUDE.md sync with AGENTS.md
 
-1. **relay.md bloat** — added IDLE Cleanup rule to AGENTS.md + CLAUDE.md
-2. **No CI** — created `.github/workflows/ci.yml` (backend pytest + ruff; plugin tsc + vitest)
-3. **master vs main** — documented in AGENTS.md + CLAUDE.md branch naming section (no rename)
-4. **Branch naming inconsistency** — added convention table to AGENTS.md + CLAUDE.md
-5. **System Invariants stale** — updated EXH→Synthesis, qmd retired in AGENTS.md + CLAUDE.md
-6. **schema_guardian "v0.2.0" hardcoded** — removed version in AGENTS.md + CLAUDE.md
-7. **No PR template** — created `.github/pull_request_template.md`
-8. **No rollback procedure** — documented `git revert -m 1` in AGENTS.md + CLAUDE.md
+**Docs cleanup:**
+- Removed stale `wiki curate` and `wiki reindex (QMD)` references from CLAUDE.md, AGENTS.md
+- Fixed `backend/pyproject.toml` readme path (root README deleted → `docs/README.md`)
 
-Also fixed: `backend/pyproject.toml` readme path (root README deleted → points to `docs/README.md`).  
-Also added: **Shared Architecture Memory** section to both agent files.  
-Also synced: all prior AGENTS.md changes (relay IDLE cleanup, branch naming, Antigravity Fallback bullet) into CLAUDE.md.
-
-Tests: 445 passed (full backend suite).
+**Roadmap cleanup:**
+- Stripped version numbers from all plan skeleton files (02, 03, 04, roadmap)
+- Reordered roadmap: Knowledge Sync Bridge (03) is now milestone 1, Stabilization (02) is milestone 2
+- Linked user_report items 3-7 to 02_stabilization.md
+- Removed item 1 (GitHub 연동) from user_report — fully implemented and verified
 
 ## Immediate Next Action
 
-Commit all staged changes and push → open PR against `master`.
+Merge PR #3 on GitHub. After merge, reset this file to a minimal IDLE stub and start the next batch from user_report.md following the Universal Strict Workflow.
 
-After PR merges: reset this file to a minimal IDLE stub.
+**Next batch candidates (user_report To-Do):**
+- Priority items per roadmap: Knowledge Sync Bridge (no user_report item yet — may need to add one)
+- Otherwise: items 2, 9, 10 (minor/standalone), or items 3-7 (major/RAG stabilization batch)
