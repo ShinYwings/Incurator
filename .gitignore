@@ -8,6 +8,10 @@
 .venv/
 venv/
 build/
+
+# Exempt specific scripts directories from the global build/ rule
+!scripts/build/
+
 dist/
 .ruff_cache/
 .lock/
