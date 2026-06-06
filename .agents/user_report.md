@@ -11,6 +11,9 @@
 - **2. [기능 제안] Syncthing 연동 기반 자동 Export/Import 동기화 아키텍처**
   - 현상: 현재 DB(`state.sqlite`) 업데이트 내역을 수동으로 export/import 해야 함. 사용자는 Syncthing을 통해 기기 간 파일을 동기화 중.
   - 제안: `.curator` 디렉터리나 DB에 변경이 발생하면 자동으로 `jsonl`을 export하고, 외부(Syncthing)에서 `jsonl` 파일이 업데이트되어 들어오면 기존 DB보다 최신인지 판별하여 자동으로 import하는 로직 추가. 동기화 기준 시점(마지막 export/import 타임스탬프)은 `.curator` 내부에 저장하도록 설계.
+  - 구체적 트리거(Trigger) 요구사항: 
+    1. **Auto-Export**: 사용자가 Obsidian에서 노트를 저장(Save)하거나 변경사항이 생길 때마다 자동으로 Export를 트리거하여 최신 `jsonl`을 생성.
+    2. **Auto-Import**: 사용자가 컴퓨터를 켜거나 Obsidian을 열 때(Load) 자동으로 `jsonl` 타임스탬프를 체크하여 Import를 수행.
 
 ### 📦 01_minor_quick_wins.md 배치
 - **2. [마이너 업데이트] 웹 검색 기능 구현 검토** → `01_minor_quick_wins.md`
