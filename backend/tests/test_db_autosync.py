@@ -79,3 +79,186 @@ def vault(tmp_path: Path) -> Path:
     internal.mkdir()
     db.init_db(internal / "state.sqlite")
     return tmp_path
+
+
+def _internal(vault: Path) -> Path:
+    return vault / ".curator"
+
+
+def _db(vault: Path) -> Path:
+    return vault / ".curator" / "state.sqlite"
+
+
+def _add_atom(db_path: Path, atom_id: str, name: str, ts: str) -> None:
+    with db.connect(db_path) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO atoms"
+            " (id, name, parent_source, claim_type, one_liner, last_updated)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (atom_id, name, "01_Contexts/CTX-1.md", "fact", name, ts),
+        )
+
+
+# ---------------------------------------------------------------------------
+# P2 — export_for_device / import_all_peers / detect_conflict_files
+# ---------------------------------------------------------------------------
+
+
+class TestExportForDevice:
+    def test_creates_dev_named_file(self, vault: Path) -> None:
+        _add_atom(_db(vault), "ATM-00000001", "A", "2026-06-01T00:00:00Z")
+        out = db_sync.export_for_device(_internal(vault), _db(vault))
+        assert out.parent == _internal(vault) / "sync"
+        did = db_sync.get_device_id(_internal(vault))
+        assert out.name == f"dev-{did}.jsonl"
+        assert out.exists()
+
+    def test_records_last_export_ts(self, vault: Path) -> None:
+        db_sync.export_for_device(_internal(vault), _db(vault))
+        assert db_sync.read_sync_state(_internal(vault)).get("last_export_ts")
+
+
+class TestImportAllPeers:
+    def test_dry_run_matches_real_delta(self, vault: Path) -> None:
+        """REGRESSION LOCK for the reverted hash-guard bug: dry-run must report the
+        exact same insert count that a real import then applies."""
+        # Source device exports a full snapshot.
+        src = tmp_src(vault, "ATM-00000001", "A", "2026-06-01T00:00:00Z")
+        # Place it as a peer file in a fresh target vault.
+        peer_name = "dev-peerAAAA.jsonl"
+        (_internal(vault) / "sync").mkdir(parents=True, exist_ok=True)
+        (_internal(vault) / "sync" / peer_name).write_text(
+            src.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
+        dry = db_sync.import_all_peers(_internal(vault), _db(vault), dry_run=True)
+        real = db_sync.import_all_peers(_internal(vault), _db(vault), dry_run=False)
+        assert dry[peer_name].inserted == real[peer_name].inserted
+        assert real[peer_name].inserted == 1
+
+    def test_never_imports_own_file(self, vault: Path) -> None:
+        _add_atom(_db(vault), "ATM-00000001", "A", "2026-06-01T00:00:00Z")
+        own = db_sync.export_for_device(_internal(vault), _db(vault))
+        assert own.exists()
+        results = db_sync.import_all_peers(_internal(vault), _db(vault))
+        assert own.name not in results  # own snapshot is never re-imported
+
+    def test_skips_unchanged_peer_on_second_run(self, vault: Path) -> None:
+        peer = _make_peer(vault, "dev-peerBBBB.jsonl", "ATM-00000002", "B", "2026-06-02T00:00:00Z")
+        assert peer.name in db_sync.import_all_peers(_internal(vault), _db(vault))
+        # No mtime change → skipped (not re-imported).
+        assert peer.name not in db_sync.import_all_peers(_internal(vault), _db(vault))
+
+
+class TestReferenceModePreservation:
+    def test_external_path_preserved_on_update(self, vault: Path) -> None:
+        dbp = _db(vault)
+        # Local reference source with a device-specific path.
+        with db.connect(dbp) as conn:
+            conn.execute(
+                "INSERT INTO sources (relpath, content_hash, file_type, bytes,"
+                " added_at, last_ingested, external_path, is_reference)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+                ("04_Resources/p.pdf", "h1", "pdf", 10, "2026-06-01T00:00:00Z",
+                 "2026-06-01T00:00:00Z", "/local/zotero/p.pdf"),
+            )
+            sid = conn.execute("SELECT id FROM sources").fetchone()[0]
+
+        # Peer file: newer row, same id, DIFFERENT external_path + new domain.
+        peer_dir = _internal(vault) / "sync"
+        peer_dir.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        peer = peer_dir / "dev-peerCCCC.jsonl"
+        peer.write_text(
+            _json.dumps({"type": "header", "schema_version": db_sync.SCHEMA_VERSION, "exported_at": "x"}) + "\n"
+            + _json.dumps({"type": "row", "table": "sources", "row": {
+                "id": sid, "relpath": "04_Resources/p.pdf", "content_hash": "h2",
+                "file_type": "pdf", "bytes": 10, "added_at": "2026-06-01T00:00:00Z",
+                "last_ingested": "2026-06-09T00:00:00Z", "status": "curated",
+                "external_path": "/peer/zotero/p.pdf", "is_reference": 1,
+                "domain": "peer-domain",
+            }}) + "\n",
+            encoding="utf-8",
+        )
+
+        db_sync.import_all_peers(_internal(vault), _db(vault))
+        with db.connect(dbp) as conn:
+            r = conn.execute("SELECT external_path, domain FROM sources WHERE id=?", (sid,)).fetchone()
+        assert r["external_path"] == "/local/zotero/p.pdf"  # local path preserved
+        assert r["domain"] == "peer-domain"                  # other cols updated by LWW
+
+
+class TestTombstoneTieBreak:
+    def test_edit_newer_than_delete_survives(self, vault: Path) -> None:
+        dbp = _db(vault)
+        # Local: atom edited at T2.
+        _add_atom(dbp, "ATM-X", "edited", "2026-06-02T00:00:00Z")
+        # Peer: tombstone for same atom at T1 < T2.
+        peer = _peer_with_tombstone(vault, "dev-peerDDDD.jsonl", "atoms", "ATM-X", "2026-06-01T00:00:00Z")
+        assert peer.exists()
+        db_sync.import_all_peers(_internal(vault), dbp)
+        with db.connect(dbp) as conn:
+            assert conn.execute("SELECT 1 FROM atoms WHERE id='ATM-X'").fetchone() is not None
+
+    def test_delete_newer_than_edit_wins(self, vault: Path) -> None:
+        dbp = _db(vault)
+        _add_atom(dbp, "ATM-Y", "edited", "2026-06-01T00:00:00Z")
+        peer = _peer_with_tombstone(vault, "dev-peerEEEE.jsonl", "atoms", "ATM-Y", "2026-06-02T00:00:00Z")
+        assert peer.exists()
+        db_sync.import_all_peers(_internal(vault), dbp)
+        with db.connect(dbp) as conn:
+            assert conn.execute("SELECT 1 FROM atoms WHERE id='ATM-Y'").fetchone() is None
+
+
+class TestConflictFiles:
+    def test_detect_and_excluded_from_peers(self, vault: Path) -> None:
+        sync_dir = _internal(vault) / "sync"
+        sync_dir.mkdir(parents=True, exist_ok=True)
+        # A normal peer file + a Syncthing conflict file.
+        _make_peer(vault, "dev-peerFFFF.jsonl", "ATM-00000009", "Z", "2026-06-01T00:00:00Z")
+        conflict = sync_dir / "dev-peerFFFF.sync-conflict-20260607-120000-ABCDEFG.jsonl"
+        conflict.write_text("{}\n", encoding="utf-8")
+
+        found = db_sync.detect_conflict_files(_internal(vault))
+        assert conflict in found
+        # Conflict files are NOT imported by import_all_peers (handled separately).
+        results = db_sync.import_all_peers(_internal(vault), _db(vault))
+        assert conflict.name not in results
+
+
+# --- small builders -------------------------------------------------------
+
+
+def tmp_src(vault: Path, atom_id: str, name: str, ts: str) -> Path:
+    """Build a standalone source DB with one atom, return its full export file."""
+    src_db = vault / "src.sqlite"
+    db.init_db(src_db)
+    _add_atom(src_db, atom_id, name, ts)
+    out = vault / "src-export.jsonl"
+    db_sync.export_knowledge(src_db, out)
+    return out
+
+
+def _make_peer(vault: Path, filename: str, atom_id: str, name: str, ts: str) -> Path:
+    """Create a peer export file under .curator/sync/ containing one atom."""
+    out = tmp_src(vault, atom_id, name, ts)
+    sync_dir = _internal(vault) / "sync"
+    sync_dir.mkdir(parents=True, exist_ok=True)
+    peer = sync_dir / filename
+    peer.write_text(out.read_text(encoding="utf-8"), encoding="utf-8")
+    return peer
+
+
+def _peer_with_tombstone(vault: Path, filename: str, table: str, rid: str, ts: str) -> Path:
+    import json as _json
+    sync_dir = _internal(vault) / "sync"
+    sync_dir.mkdir(parents=True, exist_ok=True)
+    peer = sync_dir / filename
+    peer.write_text(
+        _json.dumps({"type": "header", "schema_version": db_sync.SCHEMA_VERSION, "exported_at": "x"}) + "\n"
+        + _json.dumps({"type": "row", "table": "deleted_records", "row": {
+            "table_name": table, "record_id": rid, "deleted_at": ts,
+        }}) + "\n",
+        encoding="utf-8",
+    )
+    return peer

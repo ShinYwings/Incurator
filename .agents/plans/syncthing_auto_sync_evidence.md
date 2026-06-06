@@ -37,7 +37,15 @@ Date: 2026-06-07 | Plan: `syncthing_auto_sync.md` (+ `syncthing_auto_sync_arena/
   `get_device_id` (`.curator/sync_state.json`), `_DEVICE_LOCAL_COLUMNS` (sources.external_path),
   `.stignore` template excludes `sync_state.json` (keeps `sync/` synced).
   `pytest tests/test_db_autosync.py` → 6 passed; `ruff` clean.
-- P2: _pending_
+- P2: **PASS** — `export_for_device` (full snapshot per device), `import_all_peers`
+  (own-file skip + per-peer mtime high-water mark), `detect_conflict_files`,
+  `_preserve_device_local` (reference external_path kept on LWW update). **Design
+  deviation from plan §1.3**: device file is a FULL snapshot each export (overwrite),
+  not an incremental `--since` delta — incremental-by-overwrite would lose earlier rows
+  for a late-joining peer. Full snapshot is correct + idempotent (LWW); Syncthing
+  block-level transfer + subprocess import mitigate size. Incremental deferred.
+  `pytest tests/test_db_autosync.py` → 15 passed; regression `test_db_sync.py` +
+  `test_db_schema.py` → 23 passed; `ruff` clean.
 - P3: _pending_
 - P4: _pending_
 - P5: _pending_

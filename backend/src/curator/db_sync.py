@@ -393,12 +393,14 @@ def _lw_upsert(conn: "db.sqlite3.Connection", table_name: str, row: dict, dry_ru
             remote_ts = row.get(updated_col) or ""
             if remote_ts > local_ts:
                 if not dry_run:
+                    _preserve_device_local(conn, table_name, row)
                     _do_upsert(conn, table_name, row)
                 return "updated"
             return "skipped"
 
         # No updated_at col — always upsert
         if not dry_run:
+            _preserve_device_local(conn, table_name, row)
             _do_upsert(conn, table_name, row)
         return "updated"
 
@@ -430,3 +432,129 @@ def _do_insert_or_ignore(conn: "db.sqlite3.Connection", table: str, row: dict) -
         f"INSERT OR IGNORE INTO {table} ({cols}) VALUES ({placeholders})",
         list(row.values()),
     )
+
+
+def _preserve_device_local(conn: "db.sqlite3.Connection", table_name: str, row: dict) -> None:
+    """Before updating an existing row, keep this device's value for device-local
+    columns (e.g. Reference-Mode `sources.external_path`) instead of the peer's.
+
+    Only preserves when a non-NULL local value exists, so genuinely new info still
+    flows through for vault-local (non-reference) rows whose column is NULL.
+    """
+    cols = _DEVICE_LOCAL_COLUMNS.get(table_name)
+    if not cols:
+        return
+    pk_col = _PK_COL.get(table_name)
+    if not pk_col or pk_col not in row:
+        return
+    col_list = ", ".join(cols)
+    local = conn.execute(
+        f"SELECT {col_list} FROM {table_name} WHERE {pk_col} = ?",
+        (row[pk_col],),
+    ).fetchone()
+    if local is None:
+        return
+    for col in cols:
+        local_val = local[col]
+        if local_val is not None:
+            row[col] = local_val
+
+
+# ---------------------------------------------------------------------------
+# One-writer-per-file auto-sync (P2)
+# ---------------------------------------------------------------------------
+
+
+def _sync_dir(internal_dir: Path, *, dir_name: str = "sync") -> Path:
+    return internal_dir / dir_name
+
+
+def export_for_device(
+    internal_dir: Path,
+    db_path: Path,
+    *,
+    dir_name: str = "sync",
+) -> Path:
+    """Write this device's full snapshot to .curator/<dir>/dev-<device_id>.jsonl.
+
+    One-writer-per-file: a device only ever writes its OWN file, so Syncthing never
+    produces write-write conflicts under normal operation. A full snapshot (not a
+    delta) is written so a late-joining peer always receives the complete view this
+    device holds — including rows it previously imported from other peers.
+
+    Returns the path written. Records `last_export_ts` in sync_state for mismatch
+    detection.
+    """
+    device_id = get_device_id(internal_dir)
+    sync_dir = _sync_dir(internal_dir, dir_name=dir_name)
+    sync_dir.mkdir(parents=True, exist_ok=True)
+    out = sync_dir / f"dev-{device_id}.jsonl"
+    export_knowledge(db_path, out)
+
+    state = read_sync_state(internal_dir)
+    state["last_export_ts"] = datetime.now(timezone.utc).isoformat(
+        timespec="seconds"
+    ).replace("+00:00", "Z")
+    write_sync_state(internal_dir, state)
+    return out
+
+
+def _peer_files(internal_dir: Path, *, dir_name: str = "sync") -> list[Path]:
+    """All peer export files (dev-*.jsonl) excluding this device's own file and any
+    Syncthing conflict files (handled separately)."""
+    sync_dir = _sync_dir(internal_dir, dir_name=dir_name)
+    if not sync_dir.is_dir():
+        return []
+    own = f"dev-{get_device_id(internal_dir)}.jsonl"
+    peers = []
+    for f in sorted(sync_dir.glob("dev-*.jsonl")):
+        if f.name == own:
+            continue
+        if ".sync-conflict-" in f.name:
+            continue
+        peers.append(f)
+    return peers
+
+
+def import_all_peers(
+    internal_dir: Path,
+    db_path: Path,
+    *,
+    dry_run: bool = False,
+    dir_name: str = "sync",
+) -> dict[str, ImportStats]:
+    """Import every peer file whose mtime advanced since the last import.
+
+    Never imports this device's own file (loop safety). Records per-peer
+    `last_imported_mtime` in sync_state so a re-run is a cheap no-op and a
+    late-arriving Syncthing delivery is picked up exactly once.
+    """
+    results: dict[str, ImportStats] = {}
+    state = read_sync_state(internal_dir)
+    peers: dict = state.setdefault("peers", {})
+
+    for f in _peer_files(internal_dir, dir_name=dir_name):
+        mtime = f.stat().st_mtime
+        rec = peers.get(f.name, {})
+        if not dry_run and rec.get("last_imported_mtime") == mtime:
+            continue
+        stats = import_knowledge(db_path, f, dry_run=dry_run)
+        results[f.name] = stats
+        if not dry_run:
+            peers[f.name] = {"last_imported_mtime": mtime}
+
+    if not dry_run:
+        write_sync_state(internal_dir, state)
+    return results
+
+
+def detect_conflict_files(internal_dir: Path, *, dir_name: str = "sync") -> list[Path]:
+    """Return any Syncthing conflict files in the sync dir (`*.sync-conflict-*`).
+
+    A conflict file is just another LWW-mergeable export; callers import it as an
+    ordinary peer and then archive it. Its mere presence warrants a UI notice.
+    """
+    sync_dir = _sync_dir(internal_dir, dir_name=dir_name)
+    if not sync_dir.is_dir():
+        return []
+    return sorted(sync_dir.glob("*.sync-conflict-*"))
