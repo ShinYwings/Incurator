@@ -11,6 +11,12 @@ import {
   getModelOption,
 } from "./types";
 import { getIncuratorBackendStatus } from "./utils/incuratorBackendStatus";
+import {
+  getGitHubAuthStatus,
+  githubAuthButtonState,
+  startGitHubLogin,
+  startGitHubLogout,
+} from "./auth/githubAuth";
 
 const CUSTOM_MODEL_VALUE = "__custom__";
 
@@ -400,8 +406,73 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
+    new Setting(providerSection)
+      .setName("Write edits as diff artifact")
+      .setDesc(
+        "When the chat proposes code edits, also save them as a unified-diff " +
+          "note under 00_System/Agent Diffs/ and link it from the chat. The " +
+          "inline Review Diff / apply buttons keep working either way."
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.editArtifactEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.editArtifactEnabled = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
     // ═══════════════════════════════════════════════════════════════
-    // 2. PDF Viewer
+    // 2. GitHub Integration
+    // ═══════════════════════════════════════════════════════════════
+    const githubSection = containerEl.createDiv("ai-agent-settings-section");
+    this.renderSectionHeader(githubSection, "GitHub Integration", "github");
+    const githubAuthRow = new Setting(githubSection)
+      .setName("Authentication")
+      .setDesc("Uses GitHub CLI (gh). The plugin does not store GitHub OAuth tokens.");
+    const githubBadge = githubAuthRow.settingEl.createSpan("ai-agent-auth-inline-badge");
+    // A single Sign in / Sign out toggle that alternates with auth state, plus a
+    // Check button to re-detect after the external `gh` terminal action finishes.
+    const renderGitHubAuthRow = () => {
+      githubBadge.empty();
+      githubAuthRow.controlEl.empty();
+      const status = getGitHubAuthStatus();
+      const ok = status.installed && status.authenticated;
+      githubBadge.createSpan({
+        cls: ok ? "ai-agent-auth-ok" : "ai-agent-auth-fail",
+        text: ok ? `✓ ${status.account || "Authenticated"}` : `✗ ${status.message}`,
+      });
+
+      if (status.installed) {
+        const toggle = githubAuthButtonState(status);
+        githubAuthRow.addButton((button) => {
+          button.setButtonText(toggle.label);
+          if (toggle.cta) button.setCta();
+          if (toggle.warning) button.setWarning();
+          button.onClick(() => {
+            try {
+              if (toggle.intent === "logout") {
+                startGitHubLogout();
+                new Notice("Opening GitHub CLI logout in a terminal. Click Check when it finishes.");
+              } else {
+                startGitHubLogin();
+                new Notice("Opening GitHub CLI login in a terminal. Click Check when it finishes.");
+              }
+            } catch (err) {
+              new Notice(`GitHub ${toggle.intent} failed: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          });
+        });
+      }
+
+      githubAuthRow.addButton((button) =>
+        button.setButtonText("Check").onClick(() => renderGitHubAuthRow())
+      );
+    };
+    renderGitHubAuthRow();
+
+    // ═══════════════════════════════════════════════════════════════
+    // 3. PDF Viewer
     // ═══════════════════════════════════════════════════════════════
     const pdfSection = containerEl.createDiv("ai-agent-settings-section");
     this.renderSectionHeader(pdfSection, "PDF Viewer", "file-text");
@@ -505,7 +576,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
       );
 
     // ═══════════════════════════════════════════════════════════════
-    // 3. Incurator Backend
+    // 4. Incurator Backend
     // ═══════════════════════════════════════════════════════════════
     const backendSection = containerEl.createDiv("ai-agent-settings-section");
     this.renderSectionHeader(backendSection, "Incurator Backend", "cpu");

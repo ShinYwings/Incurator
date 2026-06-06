@@ -146,6 +146,7 @@ wiki add
 
 - backend는 파일의 content hash를 계산하고 `state.sqlite`에 source record를 생성합니다.
 - `04_Resources/`에는 PDF 복사본이 아니라 작은 markdown reference stub을 만듭니다.
+- 같은 외부 문서를 다시 참조해도 stub이 중복 생성되지 않습니다. backend는 각 참조를 안정적인 `logical_source_id`(Zotero의 경우 `zotero:<attachmentKey>`)로 식별하여 기존 stub을 재사용합니다. `state.sqlite` 행이 사라지고 stub 파일만 디스크에 남아 있어도 마찬가지여서, 더 이상 `04_Resources/References/` 아래에 `<name>-2.md` 같은 중복본이 나타나지 않습니다.
 - `external_path`는 현재 파일 위치를 가리키는 hint입니다. 진짜 identity는 content hash와 logical source identity입니다.
 - 자동 생성된 reference stub에는 기본적으로 PDF 절대 경로를 쓰지 않습니다.
   따라서 외부 PDF 라이브러리의 로컬 위치가 다른 기기에도 안전하게 동기화할 수 있습니다.
@@ -409,22 +410,51 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 
 ## 🐙 GitHub 연동 (v0.3.3)
 
-Incurator (v0.3.3+)는 Git 커밋 및 원격 저장소 동기화를 통해 볼트의 문서를 완벽하게 관리할 수 있도록 네이티브 GitHub 연동을 지원합니다. 이 기능은 복잡한 UI 버튼 대신 대화형 AI 액션에 중점을 둡니다.
+Incurator는 이미 Git으로 관리 중인 vault를 Obsidian 안에서 점검하고,
+일상적인 GitHub 워크플로우를 sidechat으로 실행할 수 있게 합니다. 이 기능은
+이미 GitHub를 쓰고 있고 scheduled commit도 따로 운용하는 vault를 전제로 합니다.
+플러그인은 수동 Commit/Push 버튼 묶음을 추가하지 않습니다.
 
 ### 1. 인증 (로그인 / 로그아웃)
-GitHub 인증은 **Obsidian 플러그인 설정**에서 직접 관리됩니다:
+
+GitHub 인증은 **Obsidian 플러그인 설정**에서 관리됩니다.
+
 - `Settings > Incurator`로 이동합니다.
-- (AI Provider 설정 바로 아래에 있는) **GitHub Integration** 섹션으로 스크롤합니다.
-- 플러그인은 GitHub CLI(`gh auth status`)를 활용하여 로그인 상태를 확인합니다. 로그인되어 있지 않은 경우, **Authenticate** 버튼을 클릭하면 터미널이 열려 안전한 `gh auth login` 흐름을 수행할 수 있습니다.
+- AI Provider 설정 아래의 **GitHub Integration** 섹션을 사용합니다.
+- 플러그인은 GitHub CLI(`gh auth status`)로 로그인 상태를 확인합니다. 로그인되어
+  있지 않으면 login action이 터미널을 열어 안전한 `gh auth login` 흐름을
+  실행합니다.
+- 플러그인은 GitHub OAuth token을 저장하지 않습니다.
 
 ### 2. 대화형 Git 동기화 (Sidechat)
-UI를 복잡하게 만드는 수동 "Commit"이나 "Push" 버튼은 없습니다. 대신, **Sidechat**의 Antigravity LLM에 네이티브 Git 도구가 탑재되어 있습니다.
-- **상태 확인**: 에이전트에게 *"푸시되지 않은 변경 사항이 있나요?"* 또는 *"내 원격 저장소 상태가 어때?"*라고 물어보세요. 에이전트가 `git status` 또는 `git log`를 실행하여 히스토리를 요약해 줍니다.
-- **변경 사항 커밋**: 에이전트에게 *"최근 지식 그래프 변경 사항을 커밋해 줘"* 또는 *"내 노트를 GitHub에 동기화해 줘"*라고 말하세요. 에이전트가 알아서 커밋 메시지를 작성하고 `git add`, `git commit`, `git push` 작업을 수행합니다.
+
+Sidechat은 현재 vault에 대해 결정적인 backend Git 명령을 실행할 수 있습니다.
+
+- **상태 확인**: *"푸시되지 않은 변경 사항이 있나요?"*, *"GitHub 상태
+  어때?"*라고 물으면 branch, upstream, ahead/behind, dirty file,
+  `.curator/` ignore 경고를 요약합니다.
+- **Push**: *"push해줘"*, *"이 vault GitHub에 올려줘"*라고 말하면 backend가
+  `git push`를 실행합니다. 단, upstream이 있고 branch가 behind/diverged 상태가
+  아닐 때만 실행합니다.
+- **선택 텍스트 히스토리**: Markdown 텍스트를 선택하고 *"이 내용 예전에
+  어떻게 바뀌었는지 히스토리 찾아줘"*라고 물으면, backend가 현재 Markdown
+  파일에서 선택 텍스트 또는 정규화된 excerpt를 git history에서 찾아 관련 commit과
+  제한된 patch snippet을 반환합니다.
+- **파일 히스토리**: 현재 Markdown 파일의 history를 물으면 최근 commit과 요약을
+  보여줍니다.
+
+scheduled commit job은 이 흐름과 같이 사용할 수 있습니다. scheduler가 이미 commit을
+만든다면, Incurator sidechat은 push 전에 commit을 새로 만들 필요가 없습니다. 명시적
+요청을 위한 guarded commit backend primitive는 있을 수 있지만, 기본 대화형 워크플로우는
+status/history/push입니다.
 
 > [!TIP]
 > **.gitignore 권장 사항**
-> 기본적으로 (무거운 SQLite DB와 검색 인덱스가 포함된) `.curator/` 디렉터리는 대용량 바이너리 충돌을 방지하기 위해 Git에서 무시되어야 합니다. 마크다운 파일과 표준 구성 설정 파일만 Git으로 추적하는 것이 좋습니다.
+> 무엇이 추적되는지는 Git이 결정합니다. Incurator는 `.gitignore` 기준으로 파일을
+> stage하거나 검사하며, ignored file은 추가하지 않습니다. `.curator/`는 생성된
+> SQLite DB와 vector/search index를 담으므로 ignore하는 것이 좋습니다. `.curator/`가
+> ignore되어 있지 않으면 Git status 결과가 경고만 표시하고 `.gitignore`를 조용히
+> 수정하지 않습니다.
 
 ## 🛠️ 핵심 명령어 (CLI Reference)
 
@@ -478,6 +508,8 @@ UI를 복잡하게 만드는 수동 "Commit"이나 "Push" 버튼은 없습니다
 | :--- | :--- | :--- |
 | `wiki query "..."` | 질문에 대한 정제된 답변을 얻습니다. | 지식을 활용한 답변 필요 시 |
 | `wiki query "..." --route explore` | v0.3.2 큐레이션-네이티브 오케스트레이터(DB 그래프 + DB-native hybrid search)로 라우팅하고 쿼리 트레이스를 남깁니다. | 연결 발견, 라우트 지정 |
+| `wiki inspect synthesis <SYN-…>` | synthesis node의 L4→L1 근거 체인을 내보냅니다. machine-readable 출력이 필요하면 `--json`을 추가합니다. | 생성된 synthesis가 왜 존재하는지 증명할 때 |
+| `wiki inspect answer <QTR-…>` | 기록된 query trace 뒤의 근거 체인을 내보냅니다. machine-readable 출력이 필요하면 `--json`을 추가합니다. | Sources & Trace의 답변을 감사할 때 |
 | `wiki workspace init` | 워크스페이스를 초기화합니다. | 새 프로젝트 시작 시 |
 
 #### v0.3.2 큐레이션-네이티브 쿼리 라우트
@@ -493,6 +525,8 @@ UI를 복잡하게 만드는 수동 "Commit"이나 "Push" 버튼은 없습니다
 
 쿼리는 **세션리스**입니다: 답변 + `QTR-` 트레이스를 반환하며 vault 파일을 쓰지
 않습니다. 지속 아티팩트는 `02_Wiki/`로의 명시적 승격을 통해서만 생깁니다.
+모든 orchestrator query는 나중에 `wiki inspect answer <QTR-…>`로 감사할 수 있도록
+`QTR-` trace를 지속 저장합니다.
 
 `--route`가 없으면 `auto`가 실행됩니다. v0.3.2 검색은 DB-native입니다:
 FTS5 lexical retrieval, chunk-level vector, typed query expansion(`lex`/`vec`/
@@ -513,6 +547,9 @@ Tier-2 LLM/HyDE query expansion은 기본적으로 recovery mechanism으로 켜�
 | `wiki prompt show <PROMPT_ID>` | 프롬프트의 템플릿, 검증자, 출력 모델을 표시합니다. |
 | `wiki prompt trace <PTR-…>` | 기록된 프롬프트 실행(모델, 검증자 상태, 해시)을 검사합니다. |
 | `wiki prompt eval` | 오프라인 프롬프트 평가 픽스처를 실행합니다(LLM 불필요). |
+| `wiki inspect synthesis <SYN-…>` | L4 Synthesis node 하나의 read-only audit report를 검사합니다. community report, graph entity/relation, source span, prompt trace, warning을 포함합니다. |
+| `wiki inspect report <REP-…>` | L3 community report 하나의 source support를 검사합니다. |
+| `wiki inspect answer <QTR-…>` | query answer 하나의 지속 저장된 route, 선택 근거, prompt trace, warning을 검사합니다. |
 | `wiki insight list [--workspace P] [--status pending]` | 잠정 인사이트 후보를 나열합니다. |
 | `wiki insight show <INS-…>` | 인사이트 후보 하나를 표시합니다. |
 | `wiki insight promote <INS-…>` | 후보를 `02_Wiki/`의 영구 노트로 승격합니다(명시적·사람 승인). |
@@ -616,7 +653,11 @@ passage보다 높게 ranking되는지 확인하는 작은 live sanity check도 �
 Obsidian 대시보드의 **System** 카드가 현재 embed/reranker 모델 정체성과 health를
 보여줍니다 — **Embed model** / **Reranker** 행을 클릭하면 재준비할 수 있습니다
 (`wiki plugin models refresh`). 모델이 정상이 된 뒤 벡터 인덱스를 (재)구축하려면
-`wiki reindex --embed`를 실행하세요(`wiki reindex`만 실행하면 FTS5/chunk만 재구축).
+`wiki reindex --embed`를 실행합니다(plain `wiki reindex`는 FTS5/chunks만
+다시 만듭니다). backend만 수동 복구해야 한다면
+`cd backend && uv pip install -e '.[rerank]'`를 실행하세요. 저장소 루트에서
+`uv pip install -e .`를 실행하지 마세요. Python 프로젝트는 `backend/` 아래에
+있습니다.
 
 ### 3. 상태 확인 (`wiki status`)
 보관소의 건강 상태와 AI 엔진의 가동 현황을 입체적으로 진단하는 종합 대시보드입니다. 시스템 운영 중 의문이 생긴다면 가장 먼저 확인해야 할 명령어입니다.

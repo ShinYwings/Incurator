@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { IncuratorClient } from "./incuratorClient";
 import type { PluginSettings } from "../types";
+import localBuildManifest from "../generated/buildManifest.json";
 
 function settings(): PluginSettings {
   return {
@@ -21,6 +22,7 @@ function settings(): PluginSettings {
     deepseekApiKey: "",
     diffMode: "inline",
     streamingEnabled: true,
+    editArtifactEnabled: true,
     quickQueryEnabled: true,
     mcpServers: [],
     maxContextLength: 128000,
@@ -99,17 +101,60 @@ describe("IncuratorClient", () => {
   });
 
   it("checks backend version and sets needsUpdate flag", async () => {
-    const client = new IncuratorClient(settings(), "0.2.2", async () => ({
+    const client = new IncuratorClient(settings(), "0.3.1", async () => ({
       ok: true,
-      version: "0.2.2",
+      version: "0.3.1",
+      build: { backend_version: "0.3.1" },
     }));
+    // Override local manifest mock for this test implicitly by passing version match
+    const originalManifest = JSON.parse(JSON.stringify(localBuildManifest));
+    (localBuildManifest as any).backend_version = "0.3.1";
+
     expect(client.needsUpdate).toBe(false);
     expect(client.backendVersion).toBe("unknown");
     
     await client.checkBackendVersion();
     
-    expect(client.backendVersion).toBe("0.2.2");
+    expect(client.backendVersion).toBe("0.3.1");
     expect(client.needsUpdate).toBe(false);
+
+    // restore
+    Object.assign(localBuildManifest, originalManifest);
+  });
+
+  it("does not request setup when backend_version matches local manifest", async () => {
+    const client = new IncuratorClient(settings(), "0.3.1", async () => ({
+      ok: true,
+      version: "0.3.2",
+    }));
+    
+    const originalManifest = JSON.parse(JSON.stringify(localBuildManifest));
+    (localBuildManifest as any).backend_version = "0.3.2";
+
+    await client.checkBackendVersion();
+
+    expect(client.needsUpdate).toBe(false);
+    expect(client.updateMessage).toBe("");
+    
+    Object.assign(localBuildManifest, originalManifest);
+  });
+
+  it("requests setup when backend version and local manifest expected version differ", async () => {
+    const client = new IncuratorClient(settings(), "0.3.1", async () => ({
+      ok: true,
+      version: "0.3.3",
+    }));
+
+    const originalManifest = JSON.parse(JSON.stringify(localBuildManifest));
+    (localBuildManifest as any).backend_version = "0.3.2"; // Expected 0.3.2, got 0.3.3
+
+    await client.checkBackendVersion();
+
+    expect(client.needsUpdate).toBe(true);
+    expect(client.updateMessage).toContain("backend version mismatch");
+    expect(client.updateActionLabel).toBe("Run Setup");
+
+    Object.assign(localBuildManifest, originalManifest);
   });
 
   it("registerSource calls plugin source import then plugin source register with --build", async () => {
@@ -214,6 +259,41 @@ describe("IncuratorClient", () => {
       "",
       "--policy",
       "reference",
+    ]);
+  });
+
+  it("calls hidden plugin git commands for status, history, and push", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      if (args.includes("history")) {
+        return { ok: true, file_path: "note.md", commits: [] };
+      }
+      if (args.includes("push")) {
+        return { ok: true, branch: "main", upstream: "origin/main" };
+      }
+      return { ok: true, repo: { is_repo: true, branch: "main" } };
+    };
+    const client = new IncuratorClient(settings(), "0.3.1", backendJson);
+
+    await client.getGitStatus();
+    await client.getGitHistory("/vault/note.md", "selected phrase", 7);
+    await client.pushGitChanges();
+
+    expect(calls).toEqual([
+      ["plugin", "git", "status"],
+      [
+        "plugin",
+        "git",
+        "history",
+        "--file-path",
+        "/vault/note.md",
+        "--query",
+        "selected phrase",
+        "--limit",
+        "7",
+      ],
+      ["plugin", "git", "push"],
     ]);
   });
 

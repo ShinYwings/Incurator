@@ -108,6 +108,7 @@ interface PluginSettings {
   // UI preferences
   diffMode: "inline" | "side-by-side";
   streamingEnabled: boolean;
+  editArtifactEnabled: boolean;    // write proposed edits as a diff artifact note (default true)
   quickQueryEnabled: boolean;      // drag-to-select In-line Copilot popover (default true)
   maxContextLength: number;        // tokens
 
@@ -174,19 +175,32 @@ Rules:
   **Backend Zotero status > Open setup**. The setup dialog defaults to
   `~/Zotero`, displays home-directory paths with `~` instead of an absolute
   `/Users/...` prefix, and writes the backend-owned Zotero configuration.
-- `incuratorBackendCommand`, `incuratorBackendArgs`, and `incuratorRepoPath` are per-device settings. They may
-  point to `wiki` when the backend is installed on PATH, or to a platform
-  specific launcher such as command `uv` with args
-  `--directory /path/to/Incurator/backend run wiki`.
-- **1-Click Auto-Update:** The plugin checks the backend version. If the backend version
-  does not match the plugin's `manifest.json` version, the plugin displays an update banner.
-  If `incuratorRepoPath` is set, clicking the banner executes `cd <incuratorRepoPath> && git pull && ./setup.sh`.
+- `incuratorBackendCommand`, `incuratorBackendArgs`, and `incuratorRepoPath` are
+  per-device settings. They may point to `wiki` when the backend is installed on
+  PATH, or to a platform specific launcher such as command `uv` with args
+  `--directory /path/to/Incurator/backend run wiki`. When
+  `.curator/devices.json` has a non-empty `backend.repo_path` for the local
+  device, that value overrides any synced `incuratorRepoPath` from plugin
+  `data.json` at runtime. Saving settings refreshes the local device entry so a
+  path edit is recorded immediately.
+- **Setup/build fingerprint check:** `./setup.sh` writes a shared backend/plugin
+  build manifest. The plugin compares its bundled build fingerprint with
+  `wiki plugin version`'s backend build fingerprint and displays a setup/rebuild
+  banner only when those fingerprints are missing or mismatched. Semantic
+  backend/plugin version labels alone are not enough to show an update banner
+  when the fingerprints prove both sides came from the same local setup run. If
+  `incuratorRepoPath` is set, clicking the banner executes
+  `cd <incuratorRepoPath> && ./setup.sh`; it must not force `git pull`.
 - `mcpServers` entries are for external/non-Incurator MCP servers. Incurator's
   own plugin integration must not require MCP tool discovery for static
   metadata such as model choices.
-- On desktop startup, the plugin may read local Syncthing config files and
-  refresh `.curator/devices.json` with the current device's launcher settings.
-  This removes the need to run `wiki devices sync` for normal Obsidian use.
+- On desktop startup and settings save, the plugin may read local Syncthing
+  config files and refresh `.curator/devices.json` with the current device's
+  launcher settings. This removes the need to run `wiki devices sync` for normal
+  Obsidian use.
+  The current device should be identified from Syncthing REST `myID` when
+  available, then from per-device `incuratorRepoPath`/backend launcher metadata,
+  before falling back to hostname matching.
   During refresh it preserves entries for devices still present in the active
   shared-folder snapshot and prunes stale device ids that no longer appear.
   Dashboard device lists must render every processed registry device, including
@@ -286,12 +300,16 @@ interface ChatMessage {
   timestamp: number;    // unix ms
   contextRefs?: ContextRef[];
   isStreaming?: boolean;
+  editArtifactPath?: string;  // vault path of the diff artifact note for this message's edits
 }
 ```
 
 Rules:
 
 - `chatSessions` is local plugin history. It is not sent to the backend.
+- `editArtifactPath` is set once, when a completed assistant answer that proposes
+  `ai-agent-edit` blocks is finalized and `editArtifactEnabled` is true. It makes
+  artifact creation idempotent across re-renders and persists with the session.
 - When synchronized, separate sessions from different devices must be preserved.
   Concurrent edits to the same session are last-writer-wins by `updatedAt`.
 - `activeChatSessionId` is the session currently visible in the sidebar.
@@ -529,6 +547,7 @@ interface ContextRef {
   backendStatus?: IncuratorSourceStatus;
   windowPages?: PdfWindowPage[];
   outline?: PdfOutlineItem[];
+  pageLabels?: string[];       // PDF PageLabels, 0-based physical page -> printed label
   ragHits?: PdfRagHit[];
   textQuality?: PdfTextQuality;
   isScannedLike?: boolean;
@@ -577,6 +596,19 @@ Rules:
   Context chips may be toggled invisible/excluded; excluded chips remain visible
   in the UI but must not be included in model prompts, continuity summaries, or
   primary-context detection.
+- Selected-context sidechat turns should include current page/document structure
+  as supplementary grounding when available: Markdown headings as a compact
+  outline and PDF outline/window context for PDF tabs. These outline/page blocks
+  must not replace the selected text, line range, or crop as the primary answer
+  target.
+- If a selected PDF text/crop is itself a cross-reference pointer (for example
+  `Section A4.2`, `p580`, `Figure 19.1`, or `Eq. (19.6)`), the plugin may add a
+  `<resolved_cross_references>` block ahead of generic page background. Each
+  reference entry should identify the label, resolved target page when known,
+  section title when known, confidence, and the fetched target text/snippet.
+  Pointer resolution failures must not silently turn the current page into the
+  answer target; the prompt must tell the provider when the referenced target
+  could not be located.
 - Attached PDF/image snips must be sent to vision-capable models as image parts.
   For non-vision models, the prompt must explicitly state that image details are
   unavailable instead of silently dropping the crop.
@@ -595,6 +627,20 @@ Rules:
   targets so the assistant can search the whole file for similar occurrences,
   preserve HTML as HTML and Markdown as Markdown, and return SEARCH/REPLACE
   hunks that are reviewed in the Markdown editor before mutation.
+- Proposed edits must never flood the chat transcript with raw SEARCH/REPLACE
+  code. While streaming, all `ai-agent-edit` content (from the first edit marker)
+  is collapsed behind a single placeholder; once finalized, each proposal renders
+  as a compact diff-review pill that opens the `DiffViewer` against the real file.
+- Diff artifact note (gated by `editArtifactEnabled`, default true): when a
+  finalized answer contains edit proposals, the plugin writes a Markdown note
+  under `00_System/Agent Diffs/` named `YYYY-MM-DD_HHmm_<slug>.md`. The note has
+  `type: agent-diff-artifact` frontmatter (`created`, `session`, deduped `files`)
+  and one `## <filepath>` section per target, each proposal rendered as a
+  ```` ```diff ```` block (`search` lines `-`, `replace` lines `+`; new-file
+  proposals are all `+`). `00_System/` is outside `raw_dirs`, so artifacts are
+  never ingested as Curator sources. Creation is idempotent via
+  `ChatMessage.editArtifactPath`. This is additive: the inline Review-Diff/apply
+  pills remain, plus a chat pill that opens the artifact note.
 
 ## 7. Backend Access Contract
 
@@ -673,7 +719,15 @@ wiki plugin insight promote --insight-id ID --workspace-path PATH --json
 wiki plugin insight reject --insight-id ID --workspace-path PATH --reason TEXT --json
 wiki plugin trace list --workspace-path PATH --limit N --json
 wiki plugin trace show --trace-id QTR-... --workspace-path PATH --json
+wiki plugin synthesis list --workspace-path PATH --limit N --json
+wiki plugin synthesis show --synthesis-id SYN-... --workspace-path PATH --json
 wiki plugin correction propose --node-id ID --correction TEXT --previous TEXT --workspace-path PATH --json
+wiki plugin git status --json
+wiki plugin git log --limit N --json
+wiki plugin git diff --stat --json
+wiki plugin git history --file-path PATH --query TEXT --limit N --json
+wiki plugin git push --json
+wiki plugin git commit --message TEXT --json
 ```
 
 Client method mapping (`plugin/src/agent/incuratorClient.ts`):
@@ -688,7 +742,15 @@ Client method mapping (`plugin/src/agent/incuratorClient.ts`):
 | `rejectInsight(insightId, workspacePath, reason)` | `wiki plugin insight reject` |
 | `listQueryTraces(workspacePath, limit)` | `wiki plugin trace list` |
 | `getQueryTrace(traceId, workspacePath)` | `wiki plugin trace show` |
+| `listSynthesisNodes(workspacePath, limit)` | `wiki plugin synthesis list` |
+| `getSynthesisAudit(synthesisId, workspacePath)` | `wiki plugin synthesis show` |
 | `proposeCorrection(nodeId, correction, previous, workspacePath)` | `wiki plugin correction propose` |
+| `getGitStatus()` | `wiki plugin git status` |
+| `getGitLog(limit)` | `wiki plugin git log` |
+| `getGitDiffStat()` | `wiki plugin git diff --stat` |
+| `getGitHistory(filePath, queryText, limit)` | `wiki plugin git history` |
+| `pushGitChanges()` | `wiki plugin git push` |
+| `commitGitChanges(message)` | `wiki plugin git commit` |
 
 Rules:
 
@@ -698,6 +760,58 @@ Rules:
   same rule as `promoteAnswer` (§5.2). It writes only to `02_Wiki/` backend-side.
 - Plugin-local Incurator calls must use backend JSON commands only; they must not
   discover or call Incurator MCP tools as a fallback.
+
+### 9.1 GitHub / Git Plugin Commands
+
+GitHub authentication is plugin-local and tokenless: the plugin may run
+`gh auth status`, `gh auth login`, and `gh auth logout`, but it must not store
+GitHub OAuth tokens. Repository operations are backend JSON commands.
+
+`wiki plugin git status --json` returns a structured repository state:
+
+```typescript
+interface GitStatusResult {
+  ok: boolean;
+  repo: {
+    is_repo: boolean;
+    root: string;
+    branch?: string;
+    upstream?: string;
+    ahead?: number;
+    behind?: number;
+    remote_url?: string;
+    github_authenticated?: boolean;
+    github_account?: string;
+  };
+  working_tree?: {
+    clean: boolean;
+    staged: number;
+    unstaged: number;
+    untracked: number;
+    conflicted: number;
+  };
+  warnings?: string[];
+  error?: string;
+  message?: string;
+}
+```
+
+`wiki plugin git history` accepts an active Markdown file path and optional
+selected text. It must reject paths outside the vault root. With selected text it
+uses a short normalized excerpt for exact pickaxe-style lookup first; if no exact
+match exists it falls back to recent file history and marks the result as
+`exact_match: false`. Returned patches/snippets are capped.
+
+`wiki plugin git push` must refuse unsafe pushes: not a git repository, missing
+upstream/remote, conflicted working tree, branch behind or diverged from
+upstream, or missing `git`. It must not merge, rebase, or create commits
+implicitly. This supports vaults that already create commits through scheduled
+jobs. `wiki plugin git commit` is a guarded explicit fallback only; if used, it
+stages files according to `.gitignore` and must not add ignored files.
+
+Sidechat must call these backend commands through `IncuratorClient` for explicit
+status, push, and selected-text/file-history requests. It must not depend on
+provider-native shell/tool behavior to guess Git commands.
 
 ## 10. v0.3.2 Query Result And Trace Payloads
 
@@ -852,7 +966,58 @@ external workspace folders are backend/domain concepts and must not be inferred
 by the plugin dashboard. Trace rows may be partial when only prompt-run joins
 exist, but the plugin must render partial rows rather than failing.
 
-### 12.2 Insight Detail And Review Commands
+### 12.2 Synthesis Audit Commands
+
+```ts
+type SynthesisSummary = {
+  id: string;                 // SYN-<UUID8>
+  title: string;
+  confidence: number;
+  sourceSpanIds: string[];
+  communityReportIds: string[];
+  promptRunId?: string;
+  updatedAt: string;
+};
+
+type SynthesisListResult = {
+  ok: boolean;
+  synthesis: SynthesisSummary[];
+  error?: string;
+};
+
+type SynthesisAuditReport = {
+  ok: boolean;
+  kind: "synthesis" | "report" | "answer";
+  id: string;
+  synthesis?: {
+    id: string;
+    title: string;
+    statement: string;
+    confidence: number;
+    sourceSpanIds: string[];
+    communityReportIds: string[];
+    promptRunId?: string;
+  };
+  communityReports: unknown[];
+  entities: unknown[];
+  relations: unknown[];
+  knowledgeUnits: unknown[];
+  sourceSpans: unknown[];
+  promptRuns: IncuratorPromptTrace[];
+  queryTrace?: QueryTraceDetail;
+  dependencyWarnings: string[];
+  warnings: string[];
+  error?: string;
+};
+```
+
+`wiki plugin synthesis list` returns recent L4 synthesis nodes for the currently
+open vault. `wiki plugin synthesis show` returns the read-only L4→L1 audit chain
+for one `SYN-` id. The plugin must not attempt to compute this chain itself from
+SQLite; it must render the backend JSON and degrade gracefully if only partial
+evidence is available.
+
+### 12.3 Insight Detail And Review Commands
 
 `wiki plugin insight list` returns candidates for the currently open Obsidian
 vault. `wiki plugin insight show` returns the current insight-candidate fields
@@ -910,23 +1075,50 @@ one-off questions about a selected passage. It is gated by
 - Selections made inside the plugin's own button/popover must not re-trigger the
   surface.
 
-### 13.2 Answer Rendering
+### 13.2 Context And Follow-ups
 
-- On submit, the input row is hidden and only the model answer is shown; the chat
-  bubble layout is not used.
+- The selected passage is always supplied as the current turn's
+  `<primary_focus_selection>`.
+- The plugin should refresh active Obsidian context before each quick-query
+  request and may include the active Markdown/PDF page, nearby PDF window pages,
+  and available Markdown/PDF outline as background context. Background context
+  must be marked as supplementary and must not override the selected passage.
+- Follow-up questions asked in the same popover may include a short in-memory
+  trace of prior quick-query turns from that popover only. These turns are
+  ephemeral and are not the chat-sidebar session history.
+- Quick query must not run workspace-wide `wiki plugin query` merely because
+  background context is present; it answers from the selected passage plus
+  current page/outline background.
+
+### 13.3 Answer Rendering
+
+- On submit, the input row is hidden while the model answer streams; the chat
+  bubble layout is not used. After the answer completes, a compact follow-up
+  input may return in the same popover.
 - The answer streams as plain text while generating and is rendered as Markdown
   (math/LaTeX included) once the stream completes. Provider thinking/status
   scaffolding (`<thinking>`, `<think>`, `<thought>` blocks) is stripped from the
   displayed answer.
+- CLI providers may emit progress on stderr. Antigravity `agy` stderr lines that
+  are recognizable as progress/status must stay in the thinking/status block. If
+  `agy` exits successfully with empty stdout and stderr contains non-status
+  answer text, that text is recovered as the assistant answer rather than
+  leaving the UI on `Thinking...` or producing an empty message.
 - The answer container keeps text selectable/copyable and is size-capped
   (`max-height`/`max-width`) with internal scrolling for long answers.
+- Rendered assistant links that parse as page/section targets (`#page=N`,
+  `p.N`, `#section=A4.2`, `Section A4.2`, or `§A4.2`) should navigate the open
+  Incurator PDF viewer to the resolved page. Section targets resolve through the
+  active PDF outline. Printed page targets (`p.N` / `page N`) resolve through
+  the PDF's native PageLabels array when available; explicit `#page=N` targets
+  remain physical page numbers. Links that do not parse as page/section targets
+  retain normal Obsidian/Markdown behavior.
 
-### 13.3 Ephemerality And Boundaries
+### 13.4 Ephemerality And Boundaries
 
 - The popover is a temporary surface. Closing it (close button, `Escape`, or an
   outside click once the answer is complete) discards the exchange. It must never
   be written into `SessionData` or the chat sidebar history.
 - The query is issued through the standard `LLMClient` using the active
-  provider/model. The selected passage is supplied as the primary context
-  alongside the user's question; no prior chat turns are appended.
+  provider/model. No prior chat-sidebar turns are appended.
 - An in-flight quick query is aborted when its popover is dismissed.

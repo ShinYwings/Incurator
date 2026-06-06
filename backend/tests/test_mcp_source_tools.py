@@ -84,6 +84,44 @@ class ImportSourceTests(unittest.TestCase):
         self.assertEqual(second.result, ingest_raw.AddResult.DEDUPED)
         self.assertFalse((self.root / "04_Resources" / "References" / "paper-2.md").exists())
 
+    def test_reference_import_reuses_disk_stub_when_db_row_missing(self) -> None:
+        """A surviving stub must not spawn a duplicate `<name>-2.md` when its
+        sources DB row was lost (e.g. after a state.sqlite rebuild)."""
+        external_root = self.root.parent / f"{self.root.name}_zotero_library"
+        external_root.mkdir(parents=True, exist_ok=True)
+        external = external_root / "paper.md"
+        external.write_text(
+            "# External Reference\n\nZotero-backed source kept outside the vault.",
+            encoding="utf-8",
+        )
+
+        first = ingest_raw.import_source_file(
+            self.paths,
+            external,
+            policy="reference",
+            logical_source_id="zotero:ABCD1234",
+        )
+        self.assertEqual(first.relpath, "04_Resources/References/paper.md")
+
+        # Simulate a state rebuild: the stub file survives, its DB row is gone.
+        with db.connect(self.paths.state_db) as conn:
+            conn.execute("DELETE FROM sources")
+
+        second = ingest_raw.import_source_file(
+            self.paths,
+            external,
+            policy="reference",
+            logical_source_id="zotero:ABCD1234",
+        )
+
+        self.assertEqual(second.relpath, "04_Resources/References/paper.md")
+        self.assertFalse(
+            (self.root / "04_Resources" / "References" / "paper-2.md").exists()
+        )
+        # Only one reference stub remains on disk for the same document.
+        stubs = list((self.root / "04_Resources" / "References").glob("*.md"))
+        self.assertEqual(len(stubs), 1)
+
     def test_reference_status_detects_hash_drift_without_mutation(self) -> None:
         external_root = self.root.parent / f"{self.root.name}_zotero_library"
         external_root.mkdir(parents=True, exist_ok=True)

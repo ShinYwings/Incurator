@@ -4,6 +4,17 @@
  * inline code, existing math spans, markdown links, and HTML tags untouched.
  */
 export function normalizeLatexDelimiters(content: string): string {
+  // Fix LLMs that wrap a whole math span in inline-code backticks
+  // (e.g. `$x^2$` or `$$y = z$$`), often mimicking prompt examples. Obsidian
+  // then renders the raw LaTeX as monospace text instead of a formula, so the
+  // backticks must be stripped. Only unwrap when the span actually looks like
+  // math (contains a LaTeX command or sub/superscript/brace) to avoid touching
+  // legitimate inline code such as a `$5 and $10` price range.
+  content = content.replace(
+    /`(\$\$?[^`\n]*?\$\$?)`/g,
+    (match, span: string) => (/[\\^_{}]/.test(span) ? span : match)
+  );
+
   // Fix LLMs that output $$...$$ for inline math.
   // If $$...$$ does not contain newlines and has non-whitespace characters on the same line, convert it to $...$.
   content = content.replace(/\$\$([^\n]+?)\$\$/g, (match, math, offset, string) => {
@@ -50,6 +61,25 @@ export function normalizeLatexDelimiters(content: string): string {
   return processed.replace(/@@AI_AGENT_PROTECTED_(\d+)@@/g, (_match, index) => {
     return protectedBlocks[Number(index)] ?? "";
   });
+}
+
+/**
+ * Hide code-edit blocks from a streaming assistant message so the chat never
+ * floods with raw SEARCH/REPLACE code while the answer is still generating.
+ *
+ * The LLM commonly emits several `ai-agent-edit` blocks in one answer. We cut
+ * from the FIRST edit marker (the fenced ```` ```ai-agent-edit ```` opener or a
+ * bare `<<<< SEARCH` line) and replace everything after it with a single
+ * placeholder. The post-stream render later swaps the blocks for compact
+ * diff-review pills, so the full code only ever lives against the real file.
+ */
+export function collapseStreamingEditBlocks(content: string): string {
+  const fenceIdx = content.indexOf("```ai-agent-edit");
+  const searchIdx = content.indexOf("<<<< SEARCH");
+  const markers = [fenceIdx, searchIdx].filter((i) => i !== -1);
+  if (markers.length === 0) return content;
+  const cut = Math.min(...markers);
+  return content.slice(0, cut).trimEnd() + "\n\n*[Generating code edit…]*";
 }
 
 /**

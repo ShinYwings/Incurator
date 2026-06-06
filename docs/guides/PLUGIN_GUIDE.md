@@ -42,6 +42,7 @@ In Obsidian, go to **Settings → Community Plugins → Installed Plugins** and 
 - **Multi-turn conversation**: Session history is preserved. Create and switch between multiple sessions.
 - **Codex-style sidebar**: New chat and conversation history live in the top thread header; history opens as an in-sidebar searchable drawer.
 - **Streaming responses**: Enabled by default; can be turned off in settings.
+- **Sticky scroll**: While a response streams, the view follows the new text only when you are already scrolled to the bottom. If you scroll up to read earlier text, your position is preserved — completing a response no longer yanks the view down to the latest message.
 - **Context references**: Attach text, PDF pages, or image snippets to your messages.
 - **Plan mode**: With `chatMode: plan`, the AI presents a step-by-step plan before acting.
 - **Incurator integration**: When connected to a Curator backend, traceable DAG evidence is injected as context.
@@ -61,6 +62,20 @@ if you want a shortcut.
 - **Chat edit review**: When sidechat proposes Markdown SEARCH/REPLACE edits,
   use **Review in file** to open the target note in source mode and review the
   proposed hunks inside the Markdown editor before accepting or rejecting them.
+- **No raw code dump in chat**: Code edits never flood the conversation. While
+  the answer streams, every `ai-agent-edit` block is hidden behind a single
+  *[Generating code edit…]* placeholder, and once the answer completes each edit
+  collapses into a compact `✏️ <filepath> · Review Diff` pill. Clicking the pill
+  opens the diff against the real target file — the full before/after lives in
+  the Diff Viewer, not the chat transcript.
+- **Diff artifact note**: With **Write edits as diff artifact** enabled (default
+  on), a completed answer that proposes edits also writes a Markdown note under
+  `00_System/Agent Diffs/` containing the changes as unified-diff (```` ```diff ````)
+  blocks, one section per target file. The chat shows an extra `📝 Open diff
+  artifact` pill that opens the note. The note has `type: agent-diff-artifact`
+  frontmatter and lives outside the ingested `raw_dirs`, so `wiki add` never
+  treats it as a source. This is **additive** — the inline `Review Diff` / apply
+  buttons keep working. Turn the toggle off to keep only the inline pills.
 - **Diff mode**: Choose `inline` or `side-by-side` in settings.
 
 ```text
@@ -88,9 +103,25 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
 - **Single button**: A drag only ever shows one button — no toolbar.
 - **Minimal popover**: The popover has just a query input and an **Ask** button.
   There are no preset/quick buttons.
-- **Answer-only display**: After you submit, the input row hides and only the
-  streamed AI answer is shown (no chat-bubble layout). The answer renders as
-  Markdown (math/LaTeX included) once the stream completes.
+- **Focused answer display**: After you submit, the input row hides while the
+  answer streams (no chat-bubble layout). Once the answer completes, a compact
+  follow-up input returns in the same popover.
+- **Follow-up questions**: Follow-ups in the same popover keep a short
+  in-memory trace of the prior quick-query turns. Closing the popover discards
+  that trace; it is never written to chat history.
+- **Current page + ToC context**: The selected passage is always the primary
+  focus. The active Markdown/PDF page, nearby PDF window text, and available
+  Markdown/PDF outline are sent as background context so references like
+  "section 4.2", "Eq. (3)", or the current page's heading can be resolved
+  without letting the full document overpower the selection.
+- **Reference following**: If the selected text is itself a pointer such as
+  "see Section A4.2 (p580)" or "Figure 19.1", the plugin first tries to resolve
+  the referenced target from the PDF outline/window text and sends that target
+  as `<resolved_cross_references>` before the generic page background.
+- **Markdown rendering**: The answer renders as Markdown (math/LaTeX included)
+  once the stream completes. Math is normalized before rendering — backtick-wrapped
+  spans such as `` `$x^2$` `` are unwrapped to `$x^2$` so LaTeX renders as a
+  formula instead of monospace text (matching the chat sidebar behavior).
 - **Copyable**: The answer text stays selectable so you can drag-copy it.
 - **Scrollable & capped**: The popover is size-capped (`max-height`/`max-width`);
   long answers scroll inside it.
@@ -99,9 +130,9 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   pollutes the chat sidebar history.
 
 The passage you selected is sent as the primary context together with your
-question, using the currently configured AI provider/model. Disable the feature
-with **Settings → AI Provider → Quick query on selection** if you do not want the
-button to appear.
+question and the current page/outline as background, using the currently
+configured AI provider/model. Disable the feature with **Settings → AI Provider
+→ Quick query on selection** if you do not want the button to appear.
 
 ```text
 Drag-select text
@@ -112,6 +143,9 @@ Popover: [ question input ] [ Ask ]
        │  submit
        ▼
 Input hides → streamed answer only (copyable, scrollable)
+       │  follow-up input returns
+       ▼
+Ask another question about the same selection (optional)
        │  close (×, Esc, click outside)
        ▼
 Discarded — chat history untouched
@@ -139,6 +173,20 @@ remain background grounding unless the question explicitly asks about them. A
 pinned or attached context chip can be toggled invisible/excluded; it stays
 visible in the chip row but is not sent to the model until toggled visible
 again.
+
+For selected-context questions, the plugin also supplies current-page structure
+as background grounding: Markdown headings are sent as a compact outline, and
+PDF outline/window context is included when available. These outline/page blocks
+are supplementary; the selected text, line range, or crop remains the answer's
+target.
+
+When an assistant answer contains a page or section link such as `#page=604`,
+`p.604`, `#section=A4.2`, or `§19.3`, clicking that link in the chat sidebar
+jumps the open Incurator PDF viewer to the resolved page. Section links resolve
+through the active PDF outline. Printed page links such as `p.580` use the PDF's
+native PageLabels map when the Incurator PDF viewer exposes one, so front-matter
+offsets do not force `p.580` to mean physical page 580. Ordinary web and vault
+links keep their normal behavior.
 
 When a selected Markdown line range is attached and the user asks to fix,
 rewrite, polish, translate, or otherwise modify that selected text, the
@@ -331,6 +379,13 @@ answer** — for example after `Thinking…` when the token/quota is exhausted o
 request times out — the plugin now surfaces a clear error instead of spinning
 forever or showing an empty bubble.
 
+Antigravity `agy` print mode normally writes the final answer to stdout and
+progress/status lines to stderr. If the CLI exits successfully with empty stdout
+but stderr contains non-status answer text, the plugin recovers that text as the
+assistant answer. Pure progress stderr such as `Thinking…`, model startup, or
+MCP status remains hidden inside the thinking/status block and is not treated as
+an answer.
+
 ### Authentication status and Sign out
 
 Each provider's **Authentication** row shows its current state:
@@ -430,10 +485,18 @@ available, `L2 ready` means Atoms exist, `Indexed` means L3 Concepts are ready
 for concept-grounded answers, and `Synthesized` means shared L4 Synthesis is
 available. Any layer error is shown as an error instead of a healthy badge.
 
-### 1-Click Auto-Update
+### Setup/Rebuild Banner
 
-The Incurator backend and the Obsidian plugin may be updated at different frequencies. When the plugin checks the backend version and detects a mismatch, it displays an **[Update Incurator Backend]** banner at the top of the chat window.
-If you have configured the `incuratorRepoPath` in the plugin settings, clicking this button will automatically execute a background update (`git pull && ./setup.sh`). Reload the plugin or restart Obsidian after the update.
+The Incurator backend and the Obsidian plugin may be rebuilt at different times
+on different devices. `./setup.sh` writes a shared backend/plugin build
+fingerprint. When the plugin checks `wiki plugin version`, it compares the
+backend fingerprint with the fingerprint bundled into the installed plugin.
+
+If the fingerprints are missing or do not match, the chat window shows a
+setup/rebuild banner. Clicking the button runs `./setup.sh` from the configured
+`incuratorRepoPath`; it does **not** force `git pull`. This lets a device repair
+its local backend/plugin pair even when another synced device is on a different
+branch or checkout. Reload the plugin or restart Obsidian after setup completes.
 
 `Use Incurator backend` controls whether the plugin uses local Incurator backend
 commands. When enabled, the plugin discovers the `wiki` binary, reads backend
@@ -514,6 +577,11 @@ edit backend-owned `.curator` state for those actions.
   Selecting one loads a separate backend detail view with route, latency, intent/mode,
   degradation/`fallbackMode`, warnings, evidence, and available RRF/rerank
   contribution data (`wiki plugin trace show`).
+- **Synthesis** tab lists recent L4 `SYN-` nodes from the current vault
+  (`wiki plugin synthesis list`). Selecting one loads the read-only L4-to-L1
+  audit chain (`wiki plugin synthesis show`) with community reports, graph
+  entities/relations, source spans, prompt traces, and grounding/staleness
+  warnings.
 - **Insights** tab lists pending derived insight candidates
   from the current Obsidian vault (`wiki plugin insight list`). Selecting one
   loads the backend detail payload (`wiki plugin insight show`) before exposing
@@ -545,15 +613,24 @@ Plugin data is split into two files.
 In v0.2.1, the plugin re-reads the latest on-disk `sessions.json` before saving and merges by session id. This preserves distinct sessions created on Linux and macOS. Deleted sessions are recorded in `deletedSessionIds` tombstones so an older synced file does not resurrect them later. If the same session is edited on both devices concurrently, the copy with the newer `updatedAt` timestamp wins.
 
 The sidebar conversation list derives each chat title from the first assistant
-answer after the first user question. While that answer is still pending, it
-uses the first user question as the temporary title. Each row also shows
-relative last activity from `updatedAt`, such as `12m ago` or `3h ago`.
+answer after the first user question. Reasoning-model `<think>…</think>` blocks
+are stripped first so the title summarizes the actual answer rather than showing
+literal `<think>`/`<thinking>` text (an unclosed reasoning block is dropped
+entirely). While that answer is still pending, it uses the first user question
+as the temporary title. Each row also shows relative last activity from
+`updatedAt`, such as `12m ago` or `3h ago`.
 
 Deleting a chat session from the sidebar trash action is immediate. The delete
 is still recorded as a tombstone in `deletedSessionIds` so synced devices do not
 restore the removed session.
 
-If the backend executable path differs per device, or one device does not have Incurator installed, keep `data.json` local instead of synchronizing it. In that setup, add `data.json` to `.stignore`, not `sessions.json`.
+If the backend executable path differs per device, or one device does not have
+Incurator installed, `.curator/devices.json` is the local override for the
+current device. A synced `data.json` may still contain an `incuratorRepoPath`,
+but on startup the plugin replaces it in memory with the current device's
+`backend.repo_path` from `.curator/devices.json` when that value exists. If you
+want to avoid syncing any plugin-local settings at all, add `data.json` to
+`.stignore`, not `sessions.json`.
 
 ```text
 .obsidian/plugins/incurator-obsidian-agent/data.json
@@ -566,17 +643,19 @@ If `wiki` is not available on PATH on macOS, configure **Settings > AI Agent > P
 | `Backend command` | `/opt/homebrew/bin/uv` |
 | `Backend arguments` | `["--directory", "/Users/<you>/Workspace/Incurator/backend", "run", "wiki"]` |
 
-On startup, the Obsidian plugin automatically records Syncthing device names and
-the current device's backend launcher hint in `.curator/devices.json`. This
-registry lets Linux/macOS path differences be visible without synchronizing
-plugin `data.json`. The dashboard Overview lists every device in the active
+On startup and after settings saves, the Obsidian plugin automatically records
+Syncthing device names and the current device's backend launcher/repository hint
+in `.curator/devices.json`. This registry lets Linux/macOS path differences be
+visible without letting a synced `data.json` path clobber the active machine's
+runtime path. The dashboard Overview lists every device in the active
 Syncthing shared-folder registry, including remote devices that have no backend
 launcher configured on the current machine, and shows whether each device syncs
 the Vault and/or Zotero folders. The current machine is marked as **This
-device**, even when Syncthing only exposes it through the local fallback entry.
-There is no standalone Devices tab. Unknown platform fields are shown as unknown
-instead of guessed. `wiki devices sync` is a manual repair command when the
-automatic refresh is unavailable; `wiki devices` inspects the current registry.
+device** using Syncthing's local REST `myID` when available, then the per-device
+repository path/backend launcher hint as a fallback. There is no standalone
+Devices tab. Unknown platform fields are shown as unknown instead of guessed.
+`wiki devices sync` is a manual repair command when the automatic refresh is
+unavailable; `wiki devices` inspects the current registry.
 
 See [SYNC_IGNORE_GUIDE.md](SYNC_IGNORE_GUIDE.md) for the full synchronization setup.
 
@@ -751,7 +830,51 @@ local JSON commands (never via MCP for same-device flows). The client
 | `rejectInsight(insightId, workspacePath, reason)` | `wiki plugin insight reject` | `{ ok, status }` |
 | `listQueryTraces(workspacePath, limit)` | `wiki plugin trace list` | Recent `QTR-` trace summaries |
 | `getQueryTrace(traceId, workspacePath)` | `wiki plugin trace show` | Query route, evidence ids, retrieval trace, warnings |
+| `listSynthesisNodes(workspacePath, limit)` | `wiki plugin synthesis list` | Recent L4 `SYN-` summaries |
+| `getSynthesisAudit(synthesisId, workspacePath)` | `wiki plugin synthesis show` | Read-only L4-to-L1 synthesis audit report |
 | `proposeCorrection(nodeId, correction, previous, workspacePath)` | `wiki plugin correction propose` | Classification/recommended action/review flag |
+
+## 13. GitHub / Git Sidechat Integration
+
+The plugin exposes GitHub repository workflows through settings and sidechat
+without adding manual Commit/Push dashboard buttons.
+
+Settings use the GitHub CLI (`gh`) only for authentication status and login:
+
+- `gh auth status` checks whether the device is authenticated.
+- `gh auth login` is launched in a terminal for login.
+- `gh auth logout` may be launched for logout.
+- The plugin must not store GitHub OAuth tokens.
+
+The **Authentication** row shows a status badge plus a single **Sign in / Sign
+out** toggle that alternates with the current state: when `gh` is authenticated
+the row offers **Sign out** (launches `gh auth logout`); otherwise it offers
+**Sign in** (launches `gh auth login`). Because login and logout run in an
+external terminal, a **Check** button re-runs `gh auth status` so the row can
+refresh after the terminal action finishes.
+
+Repository operations use hidden backend JSON commands:
+
+| Client method | Backend command | Purpose |
+|---|---|---|
+| `getGitStatus()` | `wiki plugin git status` | Branch, upstream, ahead/behind, dirty counts, `.curator/` ignore warning |
+| `getGitLog(limit)` | `wiki plugin git log` | Recent vault commits |
+| `getGitDiffStat()` | `wiki plugin git diff --stat` | Capped working-tree diff summary |
+| `getGitHistory(filePath, queryText, limit)` | `wiki plugin git history` | Active Markdown file or selected-text history |
+| `pushGitChanges()` | `wiki plugin git push` | Push current branch when upstream is safe |
+| `commitGitChanges(message)` | `wiki plugin git commit` | Guarded fallback for explicit commit requests |
+
+The default workflow assumes the vault may already use scheduled commits. For
+requests like `push해줘`, sidechat should push existing commits rather than
+creating a new commit first. For selected Markdown history questions such as
+"이 내용 예전에 어떻게 바뀌었는지 히스토리 찾아줘", sidechat should pass the
+selected text or a normalized excerpt plus the active Markdown file path to
+`getGitHistory`.
+
+Git commands must be deterministic backend calls through `IncuratorClient`, not
+provider-native shell/tool guesses. If the backend reports no git repository, no
+upstream, behind/diverged branch, or missing GitHub auth, sidechat reports the
+structured blocker instead of attempting a merge, rebase, or unsafe push.
 
 Query results (`CuratorQueryResult`) and the Sources & Trace panel carry the
 v0.3.2 fields additively: `route`, `trace_id` (`QTR-`), `prompt_trace_ids`
