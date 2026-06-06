@@ -245,6 +245,19 @@ DEFAULT_CONFIG: dict = {
     "sync": {
         "max_parallel_verifications": 4,  # threads for Mode C Phase 1; 0 = sequential
     },
+    "auto_sync": {
+        # Cross-device knowledge auto-sync over Syncthing (one-writer-per-file).
+        # Opt-in: when enabled, mutating CLI commands (add/build/sync/update) write
+        # this device's .curator/sync/dev-<id>.jsonl at the end. The plugin and the
+        # explicit `wiki db autosync` command work regardless of this flag.
+        "enabled": False,
+        # Folder under .curator/ holding per-device export files. This folder IS
+        # synced by Syncthing; .curator/sync_state.json (local marks) is NOT.
+        "dir": "sync",
+        # Plugin file-watcher debounce / fallback poll (milliseconds).
+        "debounce_ms": 4000,
+        "poll_ms": 60000,
+    },
     "curate": {
         "interactive": True,
         "auto_update_index": True,

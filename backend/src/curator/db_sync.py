@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,20 @@ from typing import IO
 from . import db
 
 SCHEMA_VERSION = db.SCHEMA_VERSION
+
+# Columns that are device-specific and must NOT be overwritten by a peer's value
+# when an existing local row is updated by LWW. On UPDATE the local value for these
+# columns is preserved; on INSERT the peer value is taken (no local value exists).
+# `sources.external_path` is the Reference-Mode (Zotero) path, which differs per
+# machine — clobbering it with a peer's path breaks local file resolution.
+_DEVICE_LOCAL_COLUMNS: dict[str, set[str]] = {
+    "sources": {"external_path"},
+}
+
+# Device-local sync bookkeeping file. Lives directly under .curator/, holds this
+# device's id and per-peer high-water marks. MUST be excluded from Syncthing
+# (.stignore) so peers never fight over each other's marks.
+SYNC_STATE_FILE = "sync_state.json"
 
 # Tables exported in this order. deleted_records must be first so tombstones
 # are applied before upserts during import.
@@ -130,6 +145,44 @@ def record_tombstone(db_path: Path, table_name: str, record_id: str) -> None:
             " VALUES (?, ?, ?)",
             (table_name, record_id, now),
         )
+
+
+# ---------------------------------------------------------------------------
+# Device-local sync state (.curator/sync_state.json — NOT synced)
+# ---------------------------------------------------------------------------
+
+
+def _sync_state_path(internal_dir: Path) -> Path:
+    return internal_dir / SYNC_STATE_FILE
+
+
+def read_sync_state(internal_dir: Path) -> dict:
+    """Read this device's local sync bookkeeping (device_id, peer high-water marks)."""
+    p = _sync_state_path(internal_dir)
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def write_sync_state(internal_dir: Path, state: dict) -> None:
+    """Persist this device's local sync bookkeeping."""
+    p = _sync_state_path(internal_dir)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def get_device_id(internal_dir: Path) -> str:
+    """Return this device's stable id, generating + persisting one on first use."""
+    state = read_sync_state(internal_dir)
+    device_id = state.get("device_id")
+    if not device_id:
+        device_id = uuid.uuid4().hex[:12]
+        state["device_id"] = device_id
+        write_sync_state(internal_dir, state)
+    return device_id
 
 
 def export_knowledge(
