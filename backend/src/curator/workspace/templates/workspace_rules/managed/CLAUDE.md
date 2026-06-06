@@ -1,6 +1,6 @@
 ## Curator Knowledge Navigation
 
-**Vault Topology**: You are working in a **Workspace** (`{{workspace_path}}`), which is a sub-directory of the **Vault Root** (`{{vault_root}}`).
+**Vault Topology**: You are working in a **Workspace** (`{{workspace_path}}`), which is connected to the **Vault Root** (`{{vault_root}}`).
 - **Knowledge Sources**: Global folders (`02_Wiki/`, `03_Notes/`, `04_Resources/`) live at the Vault Root.
 - **Rules for `curate.yml`**: All `sources.include/exclude` patterns MUST be relative to the **Vault Root**.
 > [!CAUTION]

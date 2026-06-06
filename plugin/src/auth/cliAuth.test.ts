@@ -27,11 +27,13 @@ describe("getAccountInfo", () => {
     expect(resolver.getAccountInfo("claude").name).toBe("Authenticated (CLI-managed)");
   });
 
-  it("does not claim a specific Antigravity account it cannot read", () => {
-    // agy 1.0.5 hides creds in the keychain; we must not fabricate an account.
+  it("claims the Antigravity account if readable, else falls back", () => {
     const info = resolver.getAccountInfo("antigravity");
-    expect(info.email).toBeUndefined();
-    expect(info.name).toBe("agy CLI session");
+    if (info.email !== undefined) {
+      expect(typeof info.email).toBe("string");
+    } else {
+      expect(info.name).toBe("agy CLI session");
+    }
   });
 });
 

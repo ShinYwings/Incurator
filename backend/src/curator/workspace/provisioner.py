@@ -218,10 +218,10 @@ def _render_template(rel_path: str, values: dict[str, str], template_root: Path 
 def _values(vault_root: Path, workspace: Path, agent: str) -> dict[str, str]:
     return {
         "project_name": default_project_name(workspace),
-        "workspace_path": str(workspace),
-        "vault_root": str(vault_root),
+        "workspace_path": ".",
+        "vault_root": "$VAULT_ROOT",
         "agent_runtime": agent,
-        "curate_yml_path": str(workspace / consts.FILE_CURATE_YML),
+        "curate_yml_path": consts.FILE_CURATE_YML,
     }
 
 
