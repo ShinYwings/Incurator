@@ -235,23 +235,6 @@ def import_knowledge(
                 f"schema_version mismatch: file has {file_version}, local is {SCHEMA_VERSION}"
             )
 
-        if dry_run:
-            # Count without writing
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                rec = json.loads(line)
-                if rec.get("type") != "row":
-                    continue
-                tbl = rec["table"]
-                row = rec["row"]
-                if tbl == "deleted_records":
-                    stats.deleted += 1
-                else:
-                    stats.inserted += 1  # approximate in dry-run
-            return stats
-
         with db.connect(db_path) as conn:
             existing_tables = {
                 r[0]
@@ -273,10 +256,11 @@ def import_knowledge(
                 row: dict = rec["row"]
 
                 if tbl == "deleted_records":
-                    _apply_tombstone(conn, row["table_name"], row["record_id"], row["deleted_at"])
-                    stats.deleted += 1
+                    applied = _apply_tombstone(conn, row["table_name"], row["record_id"], row["deleted_at"], dry_run=dry_run)
+                    if applied:
+                        stats.deleted += 1
                 else:
-                    result = _lw_upsert(conn, tbl, row)
+                    result = _lw_upsert(conn, tbl, row, dry_run=dry_run)
                     if result == "inserted":
                         stats.inserted += 1
                     elif result == "updated":
@@ -292,15 +276,17 @@ def _apply_tombstone(
     table_name: str,
     record_id: str,
     deleted_at: str,
-) -> None:
-    """Delete a record from its table and record the tombstone locally."""
+    dry_run: bool = False,
+) -> bool:
+    """Delete a record from its table and record the tombstone locally.
+    Returns True if the tombstone would be applied."""
     # Check if there is already a newer tombstone
     existing_tombstone = conn.execute(
         "SELECT deleted_at FROM deleted_records WHERE table_name = ? AND record_id = ?",
         (table_name, record_id),
     ).fetchone()
     if existing_tombstone and existing_tombstone[0] >= deleted_at:
-        return
+        return False
 
     # Check if the local record is newer than the tombstone
     pk_col = _PK_COL.get(table_name)
@@ -311,22 +297,24 @@ def _apply_tombstone(
             (record_id,),
         ).fetchone()
         if local_record and (local_record[0] or "") >= deleted_at:
-            return
+            return False
 
-    if pk_col:
-        try:
-            conn.execute(f"DELETE FROM {table_name} WHERE {pk_col} = ?", (record_id,))
-        except Exception:
-            pass
-    # Record tombstone so this device also propagates the deletion on future exports.
-    conn.execute(
-        "INSERT OR REPLACE INTO deleted_records (table_name, record_id, deleted_at)"
-        " VALUES (?, ?, ?)",
-        (table_name, record_id, deleted_at),
-    )
+    if not dry_run:
+        if pk_col:
+            try:
+                conn.execute(f"DELETE FROM {table_name} WHERE {pk_col} = ?", (record_id,))
+            except Exception:
+                pass
+        # Record tombstone so this device also propagates the deletion on future exports.
+        conn.execute(
+            "INSERT OR REPLACE INTO deleted_records (table_name, record_id, deleted_at)"
+            " VALUES (?, ?, ?)",
+            (table_name, record_id, deleted_at),
+        )
+    return True
 
 
-def _lw_upsert(conn: "db.sqlite3.Connection", table_name: str, row: dict) -> str:
+def _lw_upsert(conn: "db.sqlite3.Connection", table_name: str, row: dict, dry_run: bool = False) -> str:
     """Insert or update a row using Last-Write-Wins.
 
     Returns: 'inserted' | 'updated' | 'skipped'
@@ -343,23 +331,27 @@ def _lw_upsert(conn: "db.sqlite3.Connection", table_name: str, row: dict) -> str
         ).fetchone()
 
         if existing is None:
-            _do_insert(conn, table_name, row)
+            if not dry_run:
+                _do_insert(conn, table_name, row)
             return "inserted"
 
         if updated_col:
             local_ts = existing[0] or ""
             remote_ts = row.get(updated_col) or ""
             if remote_ts > local_ts:
-                _do_upsert(conn, table_name, row)
+                if not dry_run:
+                    _do_upsert(conn, table_name, row)
                 return "updated"
             return "skipped"
 
         # No updated_at col — always upsert
-        _do_upsert(conn, table_name, row)
+        if not dry_run:
+            _do_upsert(conn, table_name, row)
         return "updated"
 
     # Composite PK or unknown PK — always upsert (INSERT OR REPLACE) as intended
-    _do_upsert(conn, table_name, row)
+    if not dry_run:
+        _do_upsert(conn, table_name, row)
     return "updated"
 
 
