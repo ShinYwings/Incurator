@@ -190,6 +190,37 @@ Rules:
   a manual `wiki reindex --embed`. The embed refresh is idempotent: `update_index`
   fingerprints chunk input/dependency hashes, so already-current embeddings are
   not recomputed. `wiki build --wait` performs the same embed refresh inline.
+- The `wiki build --wait` embed refresh runs **unconditionally** — it is no
+  longer gated on `atoms_created or atoms_updated`. A `--wait` build that finds
+  no pending sources (the global-L3 path) and a build that produces zero atom
+  changes both still call `_refresh_qmd_index(embed=True)`. Only the
+  change-dependent side effects (persona reinforcement, sync-report
+  invalidation) remain gated on real L2/L3 changes.
+
+## 4.2 `wiki update` Behavior
+
+`wiki update` is the one-shot ingest pipeline. It runs the full sequence
+**synchronously** so the vault is fully current when the command returns:
+
+```text
+wiki update [--force] [--no-sync]
+  -> add  (discover + register + instant L1; no LLM)
+  -> build --wait  (L2/L3 extraction + unconditional embed refresh)
+  -> sync  (deductive verification + routing rebuild; skipped with --no-sync)
+```
+
+Rules:
+
+- `wiki update` orchestrates the existing `add` / `build` / `sync` behaviors;
+  it adds no new ingest logic. `add` and `build` run with verification deferred,
+  and a single `sync` runs at the end (non-interactively).
+- `--force` rebuilds existing L1/L2/L3; `--no-sync` skips the final verification.
+- The granular `wiki add` / `wiki build` / `wiki reindex` / `wiki sync` commands
+  remain for fine-grained control; `wiki update` is the recommended common path.
+- The `jobs` command group (`wiki jobs run/list/cancel/rerun`) stays functional
+  for the background worker and the Obsidian dashboard but is **hidden** from
+  `wiki --help`, because the synchronous `update`/`build --wait` path drains the
+  queue without a manual `jobs run`.
 
 ### MCP Tool Mapping
 
@@ -396,6 +427,16 @@ latest turn is centered on selected Markdown, a line-range edit, a PDF page
 reference, or a selected PDF/image crop, sidechat treats that selected context as
 primary.
 
+For PDF selected-context turns, a selected phrase that is itself a pointer
+(`Section A4.2`, `p580`, `Figure 19.1`, `Eq. (19.6)`, etc.) changes the target
+of the turn: the system should resolve the referenced section/page/object from
+the PDF outline and local page/window text, inject the resolved target context
+ahead of generic page background, and answer about the referenced target. If the
+pointer is detected but cannot be resolved, the answer must say so instead of
+silently explaining the visible page or inventing external knowledge.
+Printed page references should use the PDF's native PageLabels map when
+available instead of assuming printed page `N` equals physical page `N`.
+
 Trace must include:
 
 - matched concept IDs and `synthesis_node_ids` / `community_report_ids`
@@ -480,6 +521,18 @@ provider-native control:
 The interactive `wiki config provider` wizard and the plugin dashboard LLM card
 must offer only the efforts a chosen model declares, and changing the model must
 reset its effort to that model's `default_effort`.
+
+`wiki config provider` must be **non-interactive-safe** so callers like the
+dashboard (which run it as a subprocess with no TTY) can persist a change:
+1. The provider change is written to the project config **before** the optional
+   tool/model install offer, so a skipped/failed offer never loses the change.
+2. The install offer (`typer.confirm`) is **skipped entirely when stdin is not a
+   TTY**, so the command never blocks on, or aborts at, a prompt.
+The dashboard writes Primary via `config provider` and Fallback via
+`config set --local`; both must target the **same project-scoped config**.
+`config set` defaults to `--global`, and the project `llm` block shadows global
+keys on load — so writing the fallback globally silently masked it. Mixing config
+scopes for related `llm` keys is a defect.
 
 Language handling is per request. Each query detects the latest user input
 language, uses English as the internal/search working language, and then writes
@@ -943,7 +996,10 @@ Rules:
 - Every query produces a `QTR-` query trace carrying `route`, `route_reason`,
   evidence (`source_span_ids`, `community_report_ids`, `synthesis_node_ids`,
   `memory_path_ids`), `prompt_trace_ids`, `insight_candidate_ids`, latency, and
-  warnings. These are returned in the query JSON (CLI `--trace`, plugin, MCP).
+  warnings. The trace is persisted in `query_traces` for every
+  `QueryOrchestrator` run, including CLI, MCP, plugin query, plugin quick-query,
+  and explore surfaces. These fields are returned in the query JSON (CLI
+  `--trace`, plugin, MCP).
 - The `fetch_context` surface (MCP `curator_fetch_context`) returns the same
   curated evidence pack — including `synthesis` items and `synthesis_node_ids` —
   WITHOUT a synthesized answer, for reasoning agents that have their own LLM.
@@ -1017,6 +1073,9 @@ New human CLI commands:
 ```text
 wiki prompt list | show PROMPT_ID | trace TRACE_ID | eval
 wiki query "..." --route auto|local|global|explore|source-section [--trace]
+wiki inspect synthesis SYN-... [--json]
+wiki inspect report REP-... [--json]
+wiki inspect answer QTR-... [--json]
 wiki insight list --workspace PATH | show INSIGHT_ID | promote INSIGHT_ID
 ```
 
@@ -1027,6 +1086,8 @@ wiki plugin curate plan --workspace-path PATH --json
 wiki plugin prompt trace --trace-id ID --json
 wiki plugin insight list --workspace-path PATH --json
 wiki plugin insight promote --insight-id ID --workspace-path PATH --json
+wiki plugin synthesis list --workspace-path PATH --limit N --json
+wiki plugin synthesis show --synthesis-id SYN-... --workspace-path PATH --json
 ```
 
 New/updated MCP tools (external-agent safe; they call shared services, not
@@ -1050,6 +1111,43 @@ classification lifecycle (§18, §22.2). They never edit read-only source truth.
 `curator_query` returns the v0.3.1 trace fields additively: `route`, `trace_id`,
 `prompt_trace_ids`, `source_span_ids`, `community_report_ids`, `memory_path_ids`,
 `insight_candidate_ids`, and the existing `answer`/`trace`.
+
+### 20.1 Synthesis Audit Reports
+
+A synthesis audit report is a deterministic inspection payload for proving how a
+generated L4 synthesis node, L3 community report, or query answer is grounded.
+It is an export/inspection surface only: building an audit report must not call an
+LLM, mutate `.curator/state.sqlite`, rewrite projection markdown, or mark any
+artifact as human verified.
+
+Audit reports hydrate the evidence chain that already exists in the DB:
+
+- L4 `synthesis_nodes` (`SYN-`) with title, statement, confidence,
+  `prompt_run_id`, `community_report_ids`, and `source_span_ids`;
+- L3 `community_reports` (`REP-`) with findings, entity ids, relation ids,
+  prompt trace, dependency hash, and cited source spans;
+- L3 graph entities and relations named by those reports;
+- L2 `knowledge_units` (`KNU-`) whose `source_span_ids` intersect the audited
+  source spans or whose ids are reachable from the audited entities;
+- L1 `source_spans` (`SPAN-`) with source path, page/section metadata,
+  `content_hash`, and text preview;
+- prompt traces (`PTR-`) for synthesis/report/unit generation when present;
+- query trace (`QTR-`) evidence when inspecting an answer.
+
+The payload must include `warnings` instead of crashing when references are
+missing or stale. Required warnings include missing synthesis/report/span rows,
+missing prompt traces, unresolved graph endpoints, stale dependency hashes, and
+weak grounding when a generated artifact has no cited source spans. Staleness is
+computed from `artifact_dependencies.dependency_hash` where dependency rows
+exist, and from `dependency_hash` fields on reports/synthesis nodes when the
+audit cannot resolve a finer dependency edge.
+
+Report selection remains conservative in this milestone. Global query answers
+may continue to use the existing community-report set, but the persisted
+`QTR-` must record the selected synthesis/report ids and any excluded stale
+reports. Algorithmic upgrades such as modular community detection or DRIFT-like
+exploration trees are deferred until audit/export surfaces prove the existing
+pipeline.
 
 ## 21. Testbed Validation (v0.3.1)
 
@@ -1202,6 +1300,8 @@ The hidden same-device plugin command namespace gains:
 ```text
 wiki plugin trace list --workspace-path PATH --limit N --json
 wiki plugin trace show --trace-id QTR-... --workspace-path PATH --json
+wiki plugin synthesis list --workspace-path PATH --limit N --json
+wiki plugin synthesis show --synthesis-id SYN-... --workspace-path PATH --json
 wiki plugin insight show --insight-id INS-... --workspace-path PATH --json
 wiki plugin insight reject --insight-id INS-... --workspace-path PATH --reason TEXT --json
 wiki plugin correction propose --node-id ID --correction TEXT --previous TEXT --workspace-path PATH --json
@@ -1212,13 +1312,50 @@ edit `.curator/state.sqlite`, `.curator/Collections/`, `03_Notes/`,
 `04_Resources/`, `06_Archives/`, or runtime snapshots directly. Insight promotion
 requires explicit confirmation and writes only to `02_Wiki/`.
 
+Dashboard synthesis actions are read-only. The Synthesis/Graph view lists recent
+L4 `SYN-` nodes and opens `wiki plugin synthesis show` details so the user can
+inspect the L4→L1 evidence chain without manual SQLite access.
+
 ## 24. GitHub Integration (v0.3.3)
 
 ### 24.1 Authentication Boundary
-The system relies on the GitHub CLI (`gh`) for authentication. The Obsidian plugin is strictly responsible for running `gh auth status` and launching `gh auth login` via terminal if required. The plugin **must not** store OAuth tokens internally. 
+The system relies on the GitHub CLI (`gh`) for authentication. The Obsidian
+plugin is responsible for running `gh auth status` and launching `gh auth login`
+via terminal if required. The plugin **must not** store OAuth tokens internally.
 
-### 24.2 Commit and Sync Workflow
-The plugin UI **will not** expose manual `Commit` or `Push` buttons. All git operations (status, history, commit, push) are strictly mediated through conversational AI (Sidechat) via native tool calls (`git_manager.py`). 
+### 24.2 Status, History, And Push Workflow
+The plugin UI **will not** expose manual `Commit` or `Push` buttons. Git
+operations are mediated through sidechat and hidden backend JSON commands
+implemented by `git_manager.py`.
+
+The default workflow assumes the vault may already have scheduled commit jobs.
+Therefore sidechat requests such as `push해줘` must push existing commits rather
+than creating a new commit first. Explicit commit requests may call a guarded
+commit primitive, but commit creation is not the default sync path.
+
+The backend exposes:
+
+```text
+wiki plugin git status --json
+wiki plugin git log --limit N --json
+wiki plugin git diff --stat --json
+wiki plugin git history --file-path PATH --query TEXT --limit N --json
+wiki plugin git push --json
+wiki plugin git commit --message TEXT --json
+```
+
+`git history` is used for Markdown selected-text/file history questions. It
+searches the active file's history for the selected text or a normalized excerpt,
+then returns matching commits and capped patch snippets. Paths outside the vault
+root are rejected.
+
+`git push` refuses unsafe states: no repository, no upstream, conflicted working
+tree, branch behind/diverged from upstream, or missing `git`. It must not merge,
+rebase, or commit implicitly.
 
 ### 24.3 State Exclusions
-By default, the `.curator/` directory and all local SQLite databases / vector indexes must be excluded from Git tracking via `.gitignore`. Only semantic source files (`01_Workspaces` through `06_Archives`) and non-ephemeral configurations are synced.
+Git's own ignore rules are authoritative. Backend Git operations must stage or
+inspect files according to `.gitignore`; ignored files are not added. The
+`.curator/` directory and local SQLite/vector/search indexes should be excluded
+from Git tracking. If `.curator/` is not ignored, status returns a warning rather
+than silently editing `.gitignore`.

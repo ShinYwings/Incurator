@@ -1046,6 +1046,57 @@ Rules:
   projection (`type: synthesis`); the markdown is emitted, never edited as truth
   (§10 storage model).
 
+### 11.11.1 Synthesis Audit Payload
+
+Synthesis audit reports are returned JSON payloads, not persisted tables. They
+hydrate existing rows from `synthesis_nodes`, `community_reports`,
+`graph_entities`, `graph_relations`, `knowledge_units`, `source_spans`,
+`prompt_runs`, `artifact_dependencies`, and `query_traces`.
+
+The JSON shape is additive and stable enough for CLI/plugin consumers:
+
+```json
+{
+  "ok": true,
+  "kind": "synthesis",
+  "id": "SYN-12345678",
+  "synthesis": {
+    "id": "SYN-12345678",
+    "title": "Cross-community insight",
+    "statement": "...",
+    "confidence": 0.84,
+    "community_report_ids": ["REP-..."],
+    "source_span_ids": ["SPAN-..."],
+    "prompt_run_id": "PTR-..."
+  },
+  "community_reports": [],
+  "entities": [],
+  "relations": [],
+  "knowledge_units": [],
+  "source_spans": [],
+  "prompt_runs": [],
+  "query_trace": null,
+  "dependency_warnings": [],
+  "warnings": []
+}
+```
+
+For `kind="report"` the `synthesis` field is omitted and the audited report is
+returned in `community_reports`. For `kind="answer"` the `query_trace` field is
+required and the evidence lists are hydrated from the `QTR-` row.
+
+Rules:
+
+- Audit payloads must not create new ids or mutate the DB.
+- Missing references are represented as warning strings with the missing id.
+- `source_spans` entries expose `id`, `source_id`, `relpath`, `span_type`,
+  `page_number`, `section_title`, `toc_id`, `content_hash`, `text_preview`, and
+  parsed `metadata`.
+- `prompt_runs` entries expose trace metadata and hashes, not raw prompt bodies.
+- Dependency checks compare `artifact_dependencies.dependency_hash` with the
+  depended-on row's current hash when the row type has one. A mismatch becomes a
+  warning and must not silently remove the artifact from the report.
+
 ### 11.12 Search Engine Tables
 
 Search engine tables are specified separately in

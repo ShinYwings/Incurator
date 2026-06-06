@@ -8,7 +8,13 @@ interface DiffLine {
   text: string;
 }
 
+interface DiffChunk {
+  type: "unchanged" | "change";
+  lines: DiffLine[];
+}
+
 interface InlineHunk {
+  chunkIndex: number;
   lineNum: number; // 1-based editor line to scroll to (in the new text)
 }
 
@@ -66,7 +72,7 @@ const diffDecosField = StateField.define<DecorationSet>({
  *  - Replaces text buffer with the NEW text.
  *  - Renders old (removed) text as virtual block widgets above the changes.
  *  - Adds line decorations for new (added) text.
- *  - Accept → clears decorations (keeps new text). Reject → reverts buffer.
+ *  - Supports accepting/rejecting changes hunk-by-hunk.
  */
 export class DiffViewer {
   private plugin: ObsidianAIAgent;
@@ -76,8 +82,9 @@ export class DiffViewer {
   private originalText = "";
   private modifiedText = "";
   private selectionStart: EditorPosition | null = null;
-  private modifiedEnd: EditorPosition | null = null;
+  private currentEndPos: EditorPosition | null = null;
   
+  private chunks: DiffChunk[] = [];
   private hunks: InlineHunk[] = [];
   private currentHunk = 0;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -93,7 +100,7 @@ export class DiffViewer {
     selectionStart: EditorPosition,
     selectionEnd: EditorPosition
   ): void {
-    this.close();
+    this.close(); // Cleans up previous UI and event listeners
 
     this.view = view;
     this.originalText = originalText;
@@ -102,75 +109,64 @@ export class DiffViewer {
 
     const editor = view.editor;
     const diffLines = this.computeDiff(originalText, modifiedText);
+    this.chunks = this.groupIntoChunks(diffLines);
+
+    // If there are no changes, just close and exit
+    if (this.chunks.filter(c => c.type === "change").length === 0) {
+      editor.replaceRange(modifiedText, selectionStart, selectionEnd);
+      // new Notice("All changes resolved.");
+      return;
+    }
 
     // ── 1. Replace selection with NEW text ─────────────────────────────
     editor.replaceRange(modifiedText, selectionStart, selectionEnd);
 
     const modifiedSplit = modifiedText.split("\n");
-    this.modifiedEnd = {
+    this.currentEndPos = {
       line: selectionStart.line + modifiedSplit.length - 1,
       ch: modifiedSplit.length === 1
           ? selectionStart.ch + modifiedText.length
           : modifiedSplit[modifiedSplit.length - 1].length,
     };
 
-    // ── 2. Compute Decorations based on Diff ─────────────────────────────
+    // ── 2. Compute Decorations based on Chunks ─────────────────────────────
     let currentLineIdx = selectionStart.line + 1; // 1-based CM6 line number
-    let currentRemoved: string[] = [];
     
     this.hunks = [];
     const decos: { pos: number, deco: Decoration }[] = [];
     const addedDeco = Decoration.line({ class: "ai-agent-diff-inline-added" });
 
-    for (const diffLine of diffLines) {
-      if (diffLine.type === "removed") {
-        currentRemoved.push(diffLine.text);
-      } else if (diffLine.type === "added") {
-        if (currentRemoved.length > 0) {
+    for (let chunkIdx = 0; chunkIdx < this.chunks.length; chunkIdx++) {
+      const chunk = this.chunks[chunkIdx];
+      if (chunk.type === "unchanged") {
+        currentLineIdx += chunk.lines.length;
+      } else {
+        const removedLines = chunk.lines.filter(l => l.type === "removed").map(l => l.text);
+        const addedLines = chunk.lines.filter(l => l.type === "added").map(l => l.text);
+
+        if (removedLines.length > 0) {
           decos.push({
             pos: currentLineIdx,
             deco: Decoration.widget({
-              widget: new RemovedWidget(currentRemoved.join("\n")),
+              widget: new RemovedWidget(removedLines.join("\n")),
               block: true,
               side: -1
             })
           });
-          this.hunks.push({ lineNum: currentLineIdx });
-          currentRemoved = [];
-        } else if (this.hunks.length === 0 || this.hunks[this.hunks.length - 1].lineNum !== currentLineIdx) {
-          this.hunks.push({ lineNum: currentLineIdx });
         }
         
-        decos.push({ pos: currentLineIdx, deco: addedDeco });
-        currentLineIdx++;
-      } else {
-        if (currentRemoved.length > 0) {
-          decos.push({
-            pos: currentLineIdx,
-            deco: Decoration.widget({
-              widget: new RemovedWidget(currentRemoved.join("\n")),
-              block: true,
-              side: -1
-            })
-          });
-          this.hunks.push({ lineNum: currentLineIdx });
-          currentRemoved = [];
+        this.hunks.push({ chunkIndex: chunkIdx, lineNum: currentLineIdx });
+
+        for (let i = 0; i < addedLines.length; i++) {
+          decos.push({ pos: currentLineIdx, deco: addedDeco });
+          currentLineIdx++;
         }
-        currentLineIdx++;
+        
+        // If it was purely a deletion (no added lines), currentLineIdx didn't advance, 
+        // but the widget is placed at currentLineIdx.
       }
     }
     
-    if (currentRemoved.length > 0) {
-      decos.push({
-        pos: currentLineIdx,
-        deco: Decoration.widget({
-          widget: new RemovedWidget(currentRemoved.join("\n")),
-          block: true,
-          side: -1
-        })
-      });
-      this.hunks.push({ lineNum: currentLineIdx });
-    }
     this.currentHunk = 0;
 
     // ── 3. Apply CM6 decorations ────────────────────────────────────────────
@@ -178,11 +174,11 @@ export class DiffViewer {
       this.applyDecorations(decos);
 
       // ── 4. Position and show floating toolbar ────────────────────────────
-      const firstChangedLine = selectionStart.line;
+      const firstChangedLine = this.hunks[0]?.lineNum ? this.hunks[0].lineNum - 1 : selectionStart.line;
       const coords = this.getScreenCoordsAt(view, { line: firstChangedLine, ch: 0 });
       this.buildToolbar(coords);
 
-      editor.scrollIntoView({ from: selectionStart, to: this.modifiedEnd! });
+      editor.scrollIntoView({ from: selectionStart, to: this.currentEndPos! });
     });
   }
 
@@ -224,10 +220,6 @@ export class DiffViewer {
       const d = decos[i];
       const lineNum = Math.max(1, Math.min(d.pos, cmView.state.doc.lines));
       const linePos = cmView.state.doc.line(lineNum).from;
-      
-      // If there are multiple decorations at the exact same linePos, we must add them in one go 
-      // or ensure they don't break strict ordering. RangeSetBuilder requires `from` to be >= previous `from`.
-      // The sort above ensures `d.pos` is ascending.
       builder.add(linePos, linePos, d.deco);
     }
 
@@ -248,7 +240,7 @@ export class DiffViewer {
   // ── Floating toolbar ───────────────────────────────────────────────────────
 
   private buildToolbar(coords: { top: number; left: number }): void {
-    const top = Math.min(coords.top - 38, window.innerHeight - 50);
+    const top = Math.min(coords.top - 68, window.innerHeight - 80); // Adjusted height for more buttons
     const left = Math.max(8, Math.min(coords.left, window.innerWidth - 320));
 
     this.toolbarEl = document.createElement("div");
@@ -256,10 +248,20 @@ export class DiffViewer {
     this.toolbarEl.style.position = "fixed";
     this.toolbarEl.style.top = `${top}px`;
     this.toolbarEl.style.left = `${left}px`;
+    this.toolbarEl.style.display = "flex";
+    this.toolbarEl.style.flexDirection = "column";
+    this.toolbarEl.style.gap = "4px";
+    this.toolbarEl.style.zIndex = "1000";
     document.body.appendChild(this.toolbarEl);
 
+    // Top row: Navigation + Hunk actions
+    const hunkRow = this.toolbarEl.createDiv("ai-agent-diff-toolbar-row");
+    hunkRow.style.display = "flex";
+    hunkRow.style.gap = "8px";
+    hunkRow.style.justifyContent = "center";
+    
     if (this.hunks.length > 1) {
-      const navGroup = this.toolbarEl.createDiv("ai-agent-diff-toolbar-group");
+      const navGroup = hunkRow.createDiv("ai-agent-diff-toolbar-group");
       navGroup
         .createEl("button", { cls: "ai-agent-diff-toolbar-btn", text: "↑", attr: { title: "Prev change (Shift+Tab)" } })
         .addEventListener("click", () => this.goHunk(-1));
@@ -271,21 +273,40 @@ export class DiffViewer {
       this.hunkCountEl = null;
     }
 
-    const actionGroup = this.toolbarEl.createDiv("ai-agent-diff-toolbar-group");
+    const actionGroup = hunkRow.createDiv("ai-agent-diff-toolbar-group");
     actionGroup
-      .createEl("button", { cls: "ai-agent-diff-toolbar-accept", text: "✓ Accept" })
-      .addEventListener("click", () => this.accept());
+      .createEl("button", { cls: "ai-agent-diff-toolbar-accept", text: "✓ Accept", attr: { title: "Accept this hunk (Y)" } })
+      .addEventListener("click", () => this.acceptCurrentHunk());
     actionGroup
-      .createEl("button", { cls: "ai-agent-diff-toolbar-reject", text: "✗ Reject" })
-      .addEventListener("click", () => this.reject());
+      .createEl("button", { cls: "ai-agent-diff-toolbar-reject", text: "✗ Reject", attr: { title: "Reject this hunk (N)" } })
+      .addEventListener("click", () => this.rejectCurrentHunk());
+
+    // Bottom row: Global actions
+    const globalRow = this.toolbarEl.createDiv("ai-agent-diff-toolbar-row");
+    globalRow.style.display = "flex";
+    globalRow.style.gap = "8px";
+    globalRow.style.justifyContent = "center";
+    globalRow.style.width = "100%";
+    globalRow.style.borderTop = "1px solid var(--background-modifier-border)";
+    globalRow.style.paddingTop = "4px";
+    
+    const globalGroup = globalRow.createDiv("ai-agent-diff-toolbar-group");
+    globalGroup
+      .createEl("button", { cls: "ai-agent-diff-toolbar-accept-all", text: "✓ Accept All", attr: { title: "Accept all remaining changes (Enter)" } })
+      .addEventListener("click", () => this.acceptAll());
+    globalGroup
+      .createEl("button", { cls: "ai-agent-diff-toolbar-reject-all", text: "✗ Reject All", attr: { title: "Reject all remaining changes (Escape)" } })
+      .addEventListener("click", () => this.rejectAll());
 
     this.refreshHunkUI();
 
     this.keyHandler = (e: KeyboardEvent) => {
-      if (e.key === "Enter") { e.preventDefault(); this.accept(); }
-      else if (e.key === "Escape") { e.preventDefault(); this.reject(); }
+      if (e.key === "Enter") { e.preventDefault(); this.acceptAll(); }
+      else if (e.key === "Escape") { e.preventDefault(); this.rejectAll(); }
       else if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); this.goHunk(1); }
       else if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); this.goHunk(-1); }
+      else if (e.key.toLowerCase() === "y") { e.preventDefault(); this.acceptCurrentHunk(); }
+      else if (e.key.toLowerCase() === "n") { e.preventDefault(); this.rejectCurrentHunk(); }
     };
     document.addEventListener("keydown", this.keyHandler);
   }
@@ -312,22 +333,74 @@ export class DiffViewer {
     }
   }
 
-  // ── Accept / Reject ────────────────────────────────────────────────────────
+  // ── Accept / Reject Logic ──────────────────────────────────────────────────
 
-  private accept(): void {
-    if (this.view && this.modifiedEnd) {
-      this.view.editor.setCursor(this.modifiedEnd);
+  private acceptCurrentHunk(): void {
+    if (!this.view || !this.currentEndPos || this.hunks.length === 0) return;
+    
+    const hunk = this.hunks[this.currentHunk];
+    const targetChunkIndex = hunk.chunkIndex;
+
+    const newOriginalLines: string[] = [];
+    for (let i = 0; i < this.chunks.length; i++) {
+      const chunk = this.chunks[i];
+      if (chunk.type === "unchanged") {
+        newOriginalLines.push(...chunk.lines.map(l => l.text));
+      } else {
+        if (i === targetChunkIndex) {
+          // Accepted: baseline now includes added lines
+          newOriginalLines.push(...chunk.lines.filter(l => l.type === "added").map(l => l.text));
+        } else {
+          // Other hunks: baseline keeps removed lines
+          newOriginalLines.push(...chunk.lines.filter(l => l.type === "removed").map(l => l.text));
+        }
+      }
     }
-    new Notice("Edit accepted");
+
+    const newOriginalText = newOriginalLines.join("\n");
+    this.show(this.view, newOriginalText, this.modifiedText, this.selectionStart!, this.currentEndPos);
+  }
+
+  private rejectCurrentHunk(): void {
+    if (!this.view || !this.currentEndPos || this.hunks.length === 0) return;
+    
+    const hunk = this.hunks[this.currentHunk];
+    const targetChunkIndex = hunk.chunkIndex;
+
+    const newModifiedLines: string[] = [];
+    for (let i = 0; i < this.chunks.length; i++) {
+      const chunk = this.chunks[i];
+      if (chunk.type === "unchanged") {
+        newModifiedLines.push(...chunk.lines.map(l => l.text));
+      } else {
+        if (i === targetChunkIndex) {
+          // Rejected: modified text reverts to removed lines
+          newModifiedLines.push(...chunk.lines.filter(l => l.type === "removed").map(l => l.text));
+        } else {
+          // Other hunks: modified text keeps added lines
+          newModifiedLines.push(...chunk.lines.filter(l => l.type === "added").map(l => l.text));
+        }
+      }
+    }
+
+    const newModifiedText = newModifiedLines.join("\n");
+    this.show(this.view, this.originalText, newModifiedText, this.selectionStart!, this.currentEndPos);
+  }
+
+  private acceptAll(): void {
+    if (this.view && this.currentEndPos) {
+      this.view.editor.setCursor(this.currentEndPos);
+    }
+    new Notice("All remaining edits accepted");
     this.close();
   }
 
-  private reject(): void {
-    if (this.view && this.selectionStart && this.modifiedEnd) {
-      this.view.editor.replaceRange(this.originalText, this.selectionStart, this.modifiedEnd);
+  private rejectAll(): void {
+    if (this.view && this.selectionStart && this.currentEndPos) {
+      this.view.editor.replaceRange(this.originalText, this.selectionStart, this.currentEndPos);
       this.view.editor.setCursor(this.selectionStart);
     }
-    new Notice("Edit rejected");
+    new Notice("All remaining edits rejected");
     this.close();
   }
 
@@ -429,5 +502,29 @@ export class DiffViewer {
       }
     }
     return result;
+  }
+
+  private groupIntoChunks(diffLines: DiffLine[]): DiffChunk[] {
+    const chunks: DiffChunk[] = [];
+    let currentChunk: DiffLine[] = [];
+    let currentType: "unchanged" | "change" | null = null;
+
+    for (const line of diffLines) {
+      const type = line.type === "unchanged" ? "unchanged" : "change";
+      if (currentType === null) {
+        currentType = type;
+        currentChunk.push(line);
+      } else if (currentType === type) {
+        currentChunk.push(line);
+      } else {
+        chunks.push({ type: currentType, lines: currentChunk });
+        currentType = type;
+        currentChunk = [line];
+      }
+    }
+    if (currentChunk.length > 0 && currentType) {
+      chunks.push({ type: currentType, lines: currentChunk });
+    }
+    return chunks;
   }
 }

@@ -24,12 +24,13 @@ const PROVIDER_LABELS: Record<LLMProvider, string> = {
   deepseek:    "DeepSeek",
 };
 
-type TabId = "overview" | "jobs" | "sources" | "traces" | "insights" | "persona";
+type TabId = "overview" | "jobs" | "sources" | "traces" | "synthesis" | "insights" | "persona";
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "layout-dashboard" },
   { id: "jobs",     label: "Jobs",     icon: "loader" },
   { id: "sources",  label: "Sources",  icon: "list" },
   { id: "traces",   label: "Traces",   icon: "search" },
+  { id: "synthesis", label: "Synthesis", icon: "network" },
   { id: "insights", label: "Insights", icon: "lightbulb" },
   { id: "persona",  label: "Persona",  icon: "user" },
 ];
@@ -143,6 +144,7 @@ export class IncuratorDashboardModal extends Modal {
       case "jobs":      this.renderJobs(view);          break;
       case "sources":   this.renderSources(view);       break;
       case "traces":    this.renderTraces(view);        break;
+      case "synthesis": this.renderSynthesis(view);     break;
       case "insights":  this.renderInsights(view);      break;
       case "persona":   this.renderPersona(view, p);  break;
     }
@@ -337,6 +339,75 @@ export class IncuratorDashboardModal extends Modal {
   }
 
   // ---------------------------------------------------------------------------
+  // SYNTHESIS TAB — read-only L4 -> L1 audit chains
+  // ---------------------------------------------------------------------------
+
+  private async renderSynthesis(el: HTMLElement) {
+    const header = el.createDiv("ai-agent-jobs-header");
+    header.createEl("h3", { text: "Synthesis", cls: "ai-agent-dashboard-section-title" });
+    const refreshBtn = header.createEl("button", { cls: "ai-agent-dashboard-btn" });
+    setIcon(refreshBtn.createSpan(), "refresh-cw");
+    refreshBtn.appendText(" Refresh");
+
+    el.createDiv({ cls: "ai-agent-ov-card-sub", text: "Generated L4 synthesis nodes from the current vault. Select one to inspect its source support." });
+    const layout = el.createDiv("ai-agent-dashboard-split");
+    const listEl = layout.createDiv("ai-agent-dashboard-info-table");
+    const detailEl = layout.createDiv("ai-agent-dashboard-info-table");
+    detailEl.setText("Select a synthesis.");
+
+    const load = async () => {
+      listEl.setText("Loading…");
+      detailEl.setText("Select a synthesis.");
+      const data = await this.runPluginJson(["plugin", "synthesis", "list", "--limit", "50"]);
+      listEl.empty();
+      const nodes = data?.synthesis || [];
+      if (!data?.ok || nodes.length === 0) {
+        listEl.setText(data?.ok ? "No synthesis nodes yet. Run build first." : data?.error || "Backend unavailable.");
+        return;
+      }
+      for (const node of nodes) {
+        const row = listEl.createDiv("info-row");
+        row.style.cursor = "pointer";
+        const left = row.createDiv({ cls: "info-label" });
+        left.setText(`${node.id || "SYN-?"}\n${typeof node.confidence === "number" ? node.confidence.toFixed(2) : "—"}`);
+        const right = row.createDiv({ cls: "info-value" });
+        right.setText(node.title || "Untitled synthesis");
+        row.addEventListener("click", () => this.showSynthesisDetail(detailEl, node.id));
+      }
+      await this.showSynthesisDetail(detailEl, nodes[0].id);
+    };
+    refreshBtn.onclick = () => load();
+    await load();
+  }
+
+  private async showSynthesisDetail(el: HTMLElement, synthesisId: string) {
+    el.empty();
+    el.setText("Loading synthesis…");
+    const data = await this.runPluginJson(["plugin", "synthesis", "show", "--synthesis-id", synthesisId]);
+    const audit = data?.audit;
+    const syn = audit?.synthesis;
+    el.empty();
+    if (!data?.ok || !audit || !syn) {
+      el.setText(data?.error || "Could not load synthesis.");
+      return;
+    }
+    el.createDiv({ cls: "ai-agent-ov-card-title", text: syn.title || synthesisId });
+    const tbl = this.makeInfoTable(el);
+    tbl("Synthesis", syn.id || synthesisId);
+    tbl("Confidence", typeof syn.confidence === "number" ? syn.confidence.toFixed(2) : "—");
+    tbl("Statement", syn.statement || "—");
+    tbl("Reports", (audit.community_reports || []).map((r: any) => r.id).filter(Boolean).join(", ") || "—");
+    tbl("Entities", (audit.entities || []).map((r: any) => r.canonical_name || r.id).filter(Boolean).slice(0, 8).join(", ") || "—");
+    tbl("Relations", (audit.relations || []).map((r: any) => r.id).filter(Boolean).join(", ") || "—");
+    tbl("Knowledge units", (audit.knowledge_units || []).map((r: any) => r.id).filter(Boolean).join(", ") || "—");
+    tbl("Source spans", (audit.source_spans || []).map((r: any) => r.id).filter(Boolean).join(", ") || "—");
+    const prompts = audit.prompt_runs || [];
+    if (prompts.length) tbl("Prompt traces", prompts.map((p: any) => p.traceId || p.trace_id).filter(Boolean).join(", "));
+    const warnings = [...(audit.warnings || []), ...(audit.dependency_warnings || [])];
+    if (warnings.length) tbl("Warnings", warnings.join("; "), "is-warn");
+  }
+
+  // ---------------------------------------------------------------------------
   // INSIGHTS TAB — derived insight candidates (promote / reject)
   // ---------------------------------------------------------------------------
 
@@ -429,40 +500,54 @@ export class IncuratorDashboardModal extends Modal {
     acts.style.justifyContent = "flex-start";
     acts.style.gap = "6px";
 
-    this.addActionBtn(acts, "Add",     "file-plus",    async () => {
+    // Primary action: the one-shot pipeline (add → build → embed → sync).
+    this.addActionBtn(acts, "Update", "rocket", async () => {
+      new Notice("Updating vault (add → build → embed → sync)…");
+      const r = await this.runWikiCommand(["update"]);
+      if (r.ok) await this.refreshRuntimeSnapshots();
+      new Notice(r.ok ? "Vault up to date." : `Update failed: ${r.error}`);
+      this.switchTab(this.activeTab);
+    });
+
+    // The granular steps live under an Advanced disclosure so Update is the
+    // obvious default; they remain available for fine-grained control.
+    const advanced = acts.createEl("details", { cls: "ai-agent-ov-advanced" });
+    advanced.createEl("summary", { text: "Advanced" });
+    const adv = advanced.createDiv("ai-agent-ov-advanced-actions");
+    this.addActionBtn(adv, "Add",     "file-plus",    async () => {
       new Notice("Running Incurator add...");
       const r = await this.runWikiCommand(["add"]);
       if (r.ok) await this.refreshRuntimeSnapshots();
       new Notice(r.ok ? "Add complete." : `Add failed: ${r.error}`);
       this.switchTab(this.activeTab);
     });
-    this.addActionBtn(acts, "Build",   "hammer",       async () => {
+    this.addActionBtn(adv, "Build",   "hammer",       async () => {
       new Notice("Queueing Incurator build...");
       const r = await this.runWikiCommand(["build"]);
       if (r.ok) await this.refreshRuntimeSnapshots();
       new Notice(r.ok ? "Build queued. Open Jobs to run or monitor queued work." : `Build failed: ${r.error}`);
       this.switchTab(this.activeTab);
     });
-    this.addActionBtn(acts, "Sync",    "refresh-cw",   async () => {
+    this.addActionBtn(adv, "Sync",    "refresh-cw",   async () => {
       new Notice("Running Incurator sync...");
       const r = await this.runWikiCommand(["sync"]);
       if (r.ok) await this.refreshRuntimeSnapshots();
       new Notice(r.ok ? "Sync complete." : `Sync failed: ${r.error}`);
       this.switchTab(this.activeTab);
     });
-    this.addActionBtn(acts, "Lint",    "check-circle", async () => {
+    this.addActionBtn(adv, "Lint",    "check-circle", async () => {
       new Notice("Running Incurator lint...");
       const r = await this.runWikiCommand(["lint"]);
       if (r.ok) await this.refreshRuntimeSnapshots();
       new Notice(r.ok ? "Lint complete." : `Lint failed: ${r.error}`);
     });
-    this.addActionBtn(acts, "Reindex", "search",       async () => {
+    this.addActionBtn(adv, "Reindex", "search",       async () => {
       new Notice("Running Incurator reindex...");
       const r = await this.runWikiCommand(["reindex"]);
       if (r.ok) await this.refreshRuntimeSnapshots();
       new Notice(r.ok ? "Reindex complete." : `Reindex failed: ${r.error}`);
     });
-    this.addActionBtn(acts, "Reset",   "trash-2",      async () => {
+    this.addActionBtn(adv, "Reset",   "trash-2",      async () => {
       if (!confirm("This will clear your local DB and L1-L4 content (keeping notes and configs). Proceed?")) return;
       if (!confirm("WARNING: Are you absolutely sure you want to RESET the backend? This action cannot be undone.")) return;
       new Notice("Running wiki reset...");
@@ -850,12 +935,19 @@ export class IncuratorDashboardModal extends Modal {
     applyBtn.onclick = async () => {
       if (!this.vaultConfig) return;
       const primary = this.toStoredValue(primarySel.value);
+      // Guard against applying before the model catalogue has loaded — an empty
+      // primary would otherwise send `config provider --primary ""`, which the
+      // backend resolves to an interactive Ollama model picker that aborts.
+      const [provider, model] = primary.split("::");
+      if (!provider) {
+        new Notice("Models are still loading — pick a Primary model first.");
+        return;
+      }
       const fallback = fallbackSel.value ? this.toStoredValue(fallbackSel.value) : "";
       const primaryEffort = primaryEffortSel.disabled ? "" : primaryEffortSel.value;
       const fallbackEffort = (fallbackSel.value && !fallbackEffortSel.disabled) ? fallbackEffortSel.value : "";
       applyBtn.disabled = true; applyBtn.setText("Saving…");
       try {
-        const [provider, model] = primary.split("::");
         const args = ["config", "provider", "--primary", provider];
         if (model) args.push("--model", model);
         if (primaryEffort) args.push("--effort", primaryEffort);
@@ -864,12 +956,16 @@ export class IncuratorDashboardModal extends Modal {
           new Notice(`LLM save failed: ${r.error}`);
           return;
         }
-        r = await this.runWikiCommand(["config", "set", "llm.fallback", fallback || ""]);
+        // Write the fallback to the SAME (vault/project) scope as `config
+        // provider`. `config set` defaults to --global, so without --local the
+        // fallback landed in the global config and was masked by the vault's
+        // own llm block — the change silently never took effect.
+        r = await this.runWikiCommand(["config", "set", "--local", "llm.fallback", fallback || ""]);
         if (!r.ok) {
           new Notice(`Fallback save failed: ${r.error}`);
           return;
         }
-        r = await this.runWikiCommand(["config", "set", "llm.fallback_effort", fallbackEffort || ""]);
+        r = await this.runWikiCommand(["config", "set", "--local", "llm.fallback_effort", fallbackEffort || ""]);
         if (!r.ok) {
           new Notice(`Fallback effort save failed: ${r.error}`);
           return;
@@ -885,6 +981,45 @@ export class IncuratorDashboardModal extends Modal {
     const ollama = llm.ollama ?? {};
     const ollamaRow = container.createDiv("ai-agent-llm-ollama-hint");
     ollamaRow.setText(`Ollama: ${ollama.host || "http://localhost:11434"} · ${ollama.timeout ?? 120}s`);
+
+    // ── Ollama recommendations: install status + RAM fit + one-click Pull ──
+    const ollamaModelsEl = container.createDiv("ai-agent-llm-ollama-models");
+    void this.renderOllamaRecommendations(ollamaModelsEl);
+  }
+
+  /** Render the models.json Ollama recommendations with install/RAM-fit status. */
+  private async renderOllamaRecommendations(el: HTMLElement): Promise<void> {
+    el.empty();
+    el.createDiv({ cls: "ai-agent-ov-card-sub", text: "Loading Ollama models…" });
+    const data = await this.runPluginJson(["plugin", "models", "ollama", "--json"]);
+    el.empty();
+    if (!data?.ok || !Array.isArray(data.models)) {
+      el.createDiv({ cls: "ai-agent-ov-card-sub", text: "Ollama recommendations unavailable." });
+      return;
+    }
+    el.createDiv({
+      cls: "ai-agent-ov-card-sub",
+      text: `Recommended Ollama models · this machine has ~${data.ram_gb} GB RAM`,
+    });
+    for (const m of data.models as Array<any>) {
+      const row = el.createDiv("ai-agent-ollama-model-row");
+      row.createSpan({ cls: "ai-agent-ollama-model-name", text: m.label || m.id });
+      if (m.installed) {
+        row.createSpan({ cls: "ai-agent-ollama-badge is-ok", text: "installed" });
+      } else if (!m.fits_ram) {
+        row.createSpan({ cls: "ai-agent-ollama-badge is-warn", text: "exceeds RAM" });
+      }
+      if (!m.installed) {
+        const pull = row.createEl("button", { cls: "ai-agent-dashboard-btn", text: "Pull" });
+        pull.onclick = async () => {
+          pull.disabled = true;
+          pull.setText("Pulling…");
+          const r = await this.runPluginJson(["plugin", "models", "pull", "--model", m.id, "--json"]);
+          new Notice(r?.ok ? `Pulled ${m.id}` : `Pull failed: ${r?.error || m.id}`);
+          await this.renderOllamaRecommendations(el);
+        };
+      }
+    }
   }
 
   private populateModelSelect(sel: HTMLSelectElement, cat: any, current: string, allowNone: boolean) {
@@ -1064,6 +1199,38 @@ export class IncuratorDashboardModal extends Modal {
       }
       loading.remove();
       if (!result?.sources?.length) { el.createDiv({ cls: "ai-agent-dashboard-empty", text: "No sources tracked yet." }); return; }
+
+      // Resume after a mid-build error (item 21): if any source errored (e.g.
+      // "Antigravity capacity exhausted (429)"), surface a one-click resume that
+      // re-attempts the errored L2/L3 layers with the currently configured
+      // provider — so after switching models the user knows exactly what to press.
+      const isErrored = (s: any): boolean =>
+        s.status === "error" ||
+        ["l1_status", "l2_status", "l3_status", "l4_status"].some((k) => s[k] === "error");
+      const erroredCount = result.sources.filter(isErrored).length;
+      if (erroredCount > 0) {
+        const banner = el.createDiv("ai-agent-dashboard-retry-banner");
+        banner.createSpan({
+          text: `${erroredCount} source(s) stopped on an error. Switch the model in Settings if needed, then resume:`,
+        });
+        const retryBtn = banner.createEl("button", { cls: "ai-agent-dashboard-btn" });
+        setIcon(retryBtn.createSpan(), "refresh-cw");
+        retryBtn.appendText(" Retry errored sources");
+        retryBtn.addEventListener("click", async () => {
+          retryBtn.disabled = true;
+          retryBtn.setText("Resuming…");
+          // `wiki build` re-attempts every source whose L2/L3 is pending OR error,
+          // continuing from where the build stopped with the current provider.
+          const r = await this.runWikiCommand(["build"]);
+          new Notice(
+            r.ok
+              ? "Resume queued — errored sources will rebuild. Open Jobs to monitor."
+              : `Retry failed: ${r.error}`
+          );
+          el.empty();
+          await this.renderSources(el);
+        });
+      }
 
       const container = el.createDiv("ai-agent-dashboard-table-container");
       const header = container.createDiv("ai-agent-dashboard-table-header");

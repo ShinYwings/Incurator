@@ -721,6 +721,8 @@ wiki plugin trace list --workspace-path PATH --limit N --json
 wiki plugin trace show --trace-id QTR-... --workspace-path PATH --json
 wiki plugin synthesis list --workspace-path PATH --limit N --json
 wiki plugin synthesis show --synthesis-id SYN-... --workspace-path PATH --json
+wiki plugin models ollama --workspace-path PATH --json
+wiki plugin models pull --model ID --json
 wiki plugin correction propose --node-id ID --correction TEXT --previous TEXT --workspace-path PATH --json
 wiki plugin git status --json
 wiki plugin git log --limit N --json
@@ -729,6 +731,14 @@ wiki plugin git history --file-path PATH --query TEXT --limit N --json
 wiki plugin git push --json
 wiki plugin git commit --message TEXT --json
 ```
+
+`wiki plugin models ollama` returns
+`{ ok, host, ram_gb, models: [{ id, label, vram_gb, supports_vision, installed,
+fits_ram }] }` — the `data/models.json` Ollama catalogue merged with live
+`ollama list` (`installed`) and a `vram_gb <= detected RAM` (`fits_ram`) flag.
+`wiki plugin models pull --model ID` runs `ollama pull ID` and returns
+`{ ok, model, error? }`. The dashboard LLM Provider card uses these to recommend
+models, badge install/RAM status, and offer a one-click **Pull**.
 
 Client method mapping (`plugin/src/agent/incuratorClient.ts`):
 

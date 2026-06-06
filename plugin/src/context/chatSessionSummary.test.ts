@@ -37,6 +37,40 @@ describe("chatSessionSummary", () => {
     expect(title).toBe("This paper explains projective geometry...");
   });
 
+  it("skips the reasoning block and titles from the real answer", () => {
+    const title = deriveChatSessionTitle(
+      session([
+        { id: "u1", role: "user", content: "이 내용 설명해줘", timestamp: 1_000 },
+        {
+          id: "a1",
+          role: "assistant",
+          content:
+            "<think>\nThe user selected a cross-reference, let me resolve it.\n</think>\n\nJacobi's algorithm computes eigenvalues by iterative rotation.",
+          timestamp: 2_000,
+        },
+      ])
+    );
+
+    expect(title).toBe("Jacobi's algorithm computes eigenvalues...");
+  });
+
+  it("does not title from an unclosed reasoning block", () => {
+    const title = deriveChatSessionTitle(
+      session([
+        { id: "u1", role: "user", content: "설명해줘", timestamp: 1_000 },
+        {
+          id: "a1",
+          role: "assistant",
+          content: "<think>\nStill reasoning, stream cut off here",
+          timestamp: 2_000,
+        },
+      ])
+    );
+
+    // No real answer text → falls back to the question, never "<think>".
+    expect(title).toBe("설명해줘");
+  });
+
   it("falls back to the first question while the first answer is not available", () => {
     const title = deriveChatSessionTitle(
       session([

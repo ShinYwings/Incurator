@@ -1,7 +1,7 @@
 """Incurator v0.3.1 compile pipeline.
 
 Stage modules for the curation-native compile model (see
-``docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.1.md`` §22):
+``docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`` §22):
 
 - ``source_spans`` — deterministic L1: source -> source_spans DB records.
 - ``knowledge_units`` — LLM L2: source_spans -> knowledge_units DB records.

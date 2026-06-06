@@ -126,6 +126,9 @@ wiki add 04_Resources/
 wiki build            # queue L2/L3 to the background worker (non-blocking)
 wiki build --wait     # run L2 (Atoms) → L3 (Concepts) synchronously now
 #   - Progress: .curator/dashboard.md updated in real-time (open in Obsidian to watch)
+
+# Shortcut: do steps 2–4 (add → build → embed → sync) in one synchronous command
+wiki update
 ```
 
 > **Two-step ingest**: `wiki add` registers sources and generates instant L1

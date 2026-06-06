@@ -193,6 +193,6 @@ Thumbs.db
 
 ## 💡 Best Practices
 
-1.  **SQLite DB Management**: The `state.sqlite` file is frequently updated. Synchronizing this via Git often results in large commit sizes and merge conflicts. We recommend using **Syncthing** for real-time database sync and **Git** for markdown file versioning.
-2.  **Conflict Prevention**: Ensure that database files in the `.curator/` directory are properly ignored to prevent corruption during simultaneous syncs.
+1.  **SQLite DB Management**: The `state.sqlite` file is heavily updated and contains device-specific embedding vectors and machine paths. Synchronizing this via **Git OR Syncthing** will result in merge conflicts, file corruption (due to WAL/SHM locks), and broken embeddings on other devices. We recommend excluding DB files entirely and letting each device rebuild its own index locally (`wiki reindex`).
+2.  **Conflict Prevention**: Ensure that database files and the `.curator/runtime/` directory are properly ignored in both Git and Syncthing to prevent massive conflicts and battery drain.
 3.  **Syncthing Tip**: After setting up your Vault folder in Syncthing, go to folder settings -> "Ignore Patterns" tab, and paste the contents of the `.stignore` section above.

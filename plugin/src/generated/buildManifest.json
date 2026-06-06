@@ -1,0 +1,12 @@
+{
+  "backend_fingerprint": "e13aec2f0aa39a5c735044dac280eb95c8adcdb23effb721bc7ccaabd1d3b042",
+  "backend_version": "0.3.2",
+  "built_at": "2026-06-05T21:01:46.481217+00:00",
+  "combined_fingerprint": "5948c7e80735c4a08eace7e597309275ab8a9cf19fdd0aa9f719daffd5e87b8d",
+  "git_commit": "9b540cb91082",
+  "git_dirty": true,
+  "plugin_fingerprint": "03b1eb290f6a2d4da0ba8b658cda47c5e0114365da7ac563d87ed93d8b34a608",
+  "plugin_version": "0.3.1",
+  "repo_root": "/Users/shin/shinywings/Incurator",
+  "schema": 1
+}

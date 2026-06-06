@@ -209,16 +209,34 @@ def install_llama_cpp(*, metal: bool = True) -> ModelStep:
         # Apple Silicon GPU offload. (CMAKE_ARGS="-DGGML_METAL=on")
         env["CMAKE_ARGS"] = "-DGGML_METAL=on"
     if shutil.which("uv"):
-        cmd = ["uv", "pip", "install", "llama-cpp-python"]
+        # Explicitly target *this* interpreter: when `wiki` is installed via
+        # `uv tool`, it lives in an isolated env under
+        # `~/.local/share/uv/tools/incurator/`. Without `--python`, `uv pip`
+        # may install into a different venv and the import will still fail.
+        cmd = ["uv", "pip", "install", "--python", sys.executable,
+               "llama-cpp-python"]
     else:
         cmd = [sys.executable, "-m", "pip", "install", "llama-cpp-python"]
     try:
         res = subprocess.run(cmd, env=env)
     except Exception as exc:
         return ModelStep("llama-cpp-python", False, f"install error: {exc}")
-    if res.returncode == 0 and llama_cpp_installed():
-        return ModelStep("llama-cpp-python", True, "installed")
-    return ModelStep("llama-cpp-python", False, "install failed; run `uv pip install -e '.[rerank]'`")
+    if res.returncode == 0:
+        # Python caches failed imports in sys.modules. After the subprocess
+        # installs the package into the venv, the in-process import finder
+        # still holds a stale "not found" result. Clear both caches so the
+        # verification import below can discover the freshly-installed package.
+        import importlib
+        sys.modules.pop("llama_cpp", None)
+        importlib.invalidate_caches()
+        if llama_cpp_installed():
+            return ModelStep("llama-cpp-python", True, "installed")
+    return ModelStep(
+        "llama-cpp-python",
+        False,
+        "install failed; run `./setup.sh` from the repository root, or "
+        "`cd backend && uv pip install -e '.[rerank]'` for a backend-only repair",
+    )
 
 
 # ---------------------------------------------------------------------------

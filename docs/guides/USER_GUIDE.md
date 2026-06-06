@@ -118,6 +118,12 @@ wiki build
 ```
 - **L4 Synthesis**: corpus-wide, cross-cutting insights distilled from the community reports — shared and workspace-independent.
 
+> [!TIP]
+> **One-shot update**: instead of running `wiki add`, `wiki build`, and
+> `wiki sync` by hand, run `wiki update` to do the whole pipeline
+> (discover → L1 → L2/L3 → vector embeddings → verification) synchronously in a
+> single step.
+
 ---
 
 ---
@@ -500,8 +506,9 @@ Summary of major commands following the user workflow.
 ### 2. Knowledge Ingestion & Management
 | Command | Description | When to use |
 | :--- | :--- | :--- |
+| `wiki update` | **One-shot pipeline**: runs `add` → `build --wait` → vector embeddings → `sync` synchronously, bringing the whole vault up to date in a single command. Use `--force` to rebuild existing layers and `--no-sync` to skip the final verification. | The everyday "just make it current" command |
 | `wiki add <file>` | Registers sources and compiles instant L1 Contexts (structural, no LLM) directly into the database. | Adding new information |
-| `wiki build` | Compiles L2 Atoms + L3 Concepts from registered L1 Contexts into the database. Uses the configured LLM for high-quality extraction and can fall back to deterministic L3 Concepts if the provider fails. Queues jobs and automatically starts a detached background daemon to process them asynchronously; `--wait` runs synchronously. The background daemon (`wiki jobs run`) **also (re)generates vector embeddings** when it finishes, so search becomes fully vector-ready without a separate `wiki reindex --embed`. This embed refresh runs even when the queue was already empty, so an interrupted earlier build still converges to vector search on the next `build`/`jobs run`. | Deep knowledge-graph construction |
+| `wiki build` | Compiles L2 Atoms + L3 Concepts from registered L1 Contexts into the database. Uses the configured LLM for high-quality extraction and can fall back to deterministic L3 Concepts if the provider fails. By default it queues jobs and starts a detached background daemon; `--wait` runs synchronously. Build **always (re)generates vector embeddings** when it finishes — even when no atoms changed or the queue was already empty — so search converges to vector-ready without a separate `wiki reindex --embed`. (The queue is drained internally; the `jobs` command group still exists for the background worker but is hidden from `wiki --help`.) | Deep knowledge-graph construction |
 | `wiki source ls` | Lists all registered sources. | Checking collected data inventory |
 | `wiki source show <id>` | Shows details and processing status for a specific source. | Diagnosing source errors |
 | `wiki source rm <id>` | Removes a source registration and its generated L1 nodes. | Removing an incorrect source |
@@ -517,7 +524,7 @@ Summary of major commands following the user workflow.
 | `wiki models ensure` | Install/refresh local search model dependencies and GGUF files. `setup.sh` runs this automatically unless `INCURATOR_SKIP_MODELS=1` is set. |
 | `wiki models status` | Show local search model health, cache paths, and dependency status as JSON. |
 | `wiki config get <key>` | Read a specific config value. (e.g. `wiki config get llm.primary`) |
-| `wiki config set <key> <value>` | Update a specific config value. (e.g. `wiki config set llm.model gemini-3.5-flash`) |
+| `wiki config set <key> <value>` | Update a specific config value. Writes to the **global** config by default; pass `--local` to write the active vault's `.curator/config.yml` (the vault config shadows global keys on load). (e.g. `wiki config set --local llm.fallback ""`) |
 | `wiki config secret list/delete` | Inspect masked local encrypted backend secrets or delete a stored secret. |
 
 ### 3. Refinement & Optimization

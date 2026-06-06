@@ -450,7 +450,7 @@ export interface PromoteAnswerResult {
 }
 
 // ---------------------------------------------------------------------------
-// v0.3.1 curation-native trace/insight payloads (PLUGIN_SCHEMA_v0.3.1 §10–11)
+// v0.3.1 curation-native trace/insight payloads (PLUGIN_SCHEMA §10–11)
 // ---------------------------------------------------------------------------
 
 export interface IncuratorPromptTrace {

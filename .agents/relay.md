@@ -1,8 +1,67 @@
-# Relay State — user_report items 16/17/18/20 fixed (2026-06-06, Claude Code)
+# Relay State — user_report items 16/17/18/19/20 + 14 fixed (2026-06-06, Claude Code)
 
-## Latest Session Summary (2026-06-06, Claude Code)
+## Session Summary 2 (2026-06-06, Claude Code) — items 19 + 14 + 21 + 13
 
-Fixed four user_report To-Do items. Remaining open items: 13, 14, 15, 19.
+Working through user_report To-Do; order 19 → 14 → 21 → 13 → 15. Items 19, 14,
+21, 13 done; **remaining open: 15** (+ new items 22 "deep qmd/search-engine
+analysis", appended by user — not yet scoped).
+
+- **Item 13 (dashboard provider bug + Ollama recommend + parity)**: see
+  `.agents/plans/2026-06-06_dashboard_provider_ollama_parity.md`.
+  (A) Provider "won't change" root cause: dashboard wrote Fallback via
+  `config set` which defaults to `--global`; the vault `llm` block shadows global
+  on load, so the fallback was masked. Fixed dashboard to `config set --local`;
+  hardened `config provider` to save BEFORE the install offer and skip the offer
+  when stdin is not a TTY (`_offer_install` early-returns). (B) New
+  `wiki plugin models ollama --json` (models.json + live `ollama list` +
+  `fits_ram` via `detect_ram_gb`) and `wiki plugin models pull --model … --json`;
+  dashboard LLM card now shows install/RAM badges + a **Pull** button. (C) Added
+  an Overview **Update** button (`wiki update`); demoted Add/Build/Sync/Lint/
+  Reindex/Reset to an **Advanced** disclosure. Tests:
+  `test_cli_config_provider.py` (3), `test_plugin_models_ollama.py` (3),
+  `incuratorDashboardModal.test.ts` (+3). Docs/spec: PLUGIN_GUIDE/USER_GUIDE
+  EN+KR, PLUGIN_SCHEMA_v0.3.2, SYSTEM_BEHAVIOR_v0.3.2. Verified: plugin tsc clean,
+  vitest 277, build ok; testbed provider switch works non-interactively
+  (restored to antigravity) and `plugin models ollama --json` returns the merged
+  list. Backend full-suite result pending in this session's final check.
+
+- **Item 21 (resume after a mid-build error)**: capacity 429 leaves L2/L3 sources
+  ERROR; user didn't know what to click to resume after switching models. The
+  resume path already existed (`wiki build`/`wiki update` re-attempt
+  `l2/l3_status IN ('pending','error')`; `wiki source retry` retries all errored)
+  — the gap was UI. Added a **Retry errored sources** button to the dashboard
+  Sources tab (`plugin/src/ui/incuratorDashboardModal.ts` `renderSources`) shown
+  when any source is errored; it runs `wiki build` and points to the Jobs tab.
+  Tests: `incuratorDashboardModal.test.ts`. Docs: PLUGIN_GUIDE EN/KR + styles.css.
+  Plugin tsc clean, vitest 274 passed.
+
+- **Item 19 (quick-query folder hallucination)**: in the Ask-AI popover,
+  positional questions like "문서 위쪽을 찾아줘" made the LLM list/invent
+  folder+file names instead of reading the document. Fix in
+  `plugin/src/context/quickQueryContext.ts` system prompt: positional words
+  ("위쪽/앞부분/top/beginning/…") mean positions WITHIN the current document's
+  content/outline, and the model has NO filesystem access (never list/invent
+  folders or files). Tests: `quickQueryContext.test.ts`. Docs: PLUGIN_GUIDE EN/KR.
+  Plugin tsc clean, vitest 273 passed.
+- **Item 14 (`wiki update` + always-embed + hide jobs)**: see
+  `.agents/plans/2026-06-06_cli_update_consolidation.md`. New synchronous
+  `wiki update` (add→build→embed→sync); embedding refresh moved out of the
+  `atoms_created` gate (always idempotent) incl. the no-pending global-L3 branch;
+  `jobs` group hidden from `wiki --help` (still functional). **Latent bug fixed**:
+  the `build --wait` no-pending branch called nonexistent `ingest_llm.get_client`
+  — `wiki update` surfaced it on a built vault; replaced with `_start_client`
+  (+ try/finally close) and a regression test. Tests: `test_cli_update.py` (6),
+  reconciled `test_plugin_cli.py`. Docs/spec: USER_GUIDE/WORKFLOW_GUIDE EN+KR,
+  SYSTEM_BEHAVIOR_v0.3.2 §4.1/§4.2, CLAUDE.md, AGENTS.md.
+  Verified: `pytest tests/test_cli_update.py` 6 passed; full backend 434 passed
+  /3 skipped/4 failed (pre-existing `pymupdf4llm` PDF blocker only). Testbed
+  `wiki update` runs end-to-end (`✓ Vault up to date`; embed gracefully degraded
+  to FTS5 since the testbed has no embedder configured). `jobs` hidden, `update`
+  visible in `wiki --help`.
+
+## Prior Session Summary (2026-06-06, Claude Code)
+
+Fixed four user_report To-Do items (16/17/18/20). Earlier-listed open: 13, 14, 15, 19.
 
 - **Item 18 (chat auto-scroll)**: `plugin/src/ui/chatSidebar.ts` —
   `renderMessages(forceScroll=true)` now captures scroll position before the
@@ -178,5 +237,16 @@ the audit surface can be used on a richer scenario.
 
 ## Immediate Next Action
 
-1. **Coding Agents**: Check `.agents/user_report.md`. Prioritize and fix the remaining items (e.g., Item 17 LaTeX bug, Item 18 Chat scroll UX, Item 20 Agent Diff formatting).
+1. **Coding Agents**: Check `.agents/user_report.md`. Prioritize and fix the remaining items.
 2. **Planning Agents**: Only if the user report is completely clear, **preprocess the existing plan skeletons** (e.g., `01_v0.4.0_stabilization_plan.md`). You MUST migrate these legacy single-file skeletons into the strict multi-document domain format (`A_*.md`, `B_*.md`, `00_MASTER_IMPLEMENTATION_PLAN.md`) as mandated by `.agents/plans/PLAN_TEMPLATE.md` before any deep research or coding begins.
+
+### Update (2026-06-06)
+- **User Report Renumbering**: `user_report.md`의 기존 항목 번호가 1~8로 새롭게 재정렬(Renumbering) 되었습니다. (예: 기존 27번 정적화 플랜 -> 현재 8번). 다른 에이전트들은 바뀐 번호(1~8)를 기준으로 Task를 추적할 것.
+- **Rule Update**: `AGENTS.md` 및 `CLAUDE.md`에 플랜 작성 시 반드시 `.agents/plans/PLAN_TEMPLATE.md`를 100% 준수해야 한다는 강력한 글로벌 룰(`CRITICAL RULE - PLAN TEMPLATE MANDATE`)이 추가되었습니다.
+- **System Docs Cleansed**: Removed stale references to the deleted `GS_Testbed` from `AGENTS.md` and `CLAUDE.md` to prevent hallucinations.
+
+### Update (2026-06-06, Antigravity Handoff to Claude Code)
+- **Static Specs Refactoring Plan Ready**: `user_report.md` Item 8 (Static specs refactoring) has been meticulously planned and perfected in `.agents/plans/01_static_specs_refactoring.md`. 
+- **Antigravity Execution Progress**: Antigravity successfully executed **Phase 1 (Cleanup)** and **Phase 2 (Global Version String Replacement)**.
+- **Critical Action Required**: You **MUST** use `git mv` to preserve git history during the massive directory migrations (`scripts/dev/testbed_template` ➔ `tests/scenarios/testbed_template`). **Note**: Unit tests remain in `backend/tests/` as per the monorepo strategy.
+- **Next Step**: Claude Code, please read the updated `01_static_specs_refactoring.md` carefully and execute **Phases 3 and 4** (Docs renaming and testbed migration) exactly as planned, strictly adhering to the `Zero-Interaction Auto-Pilot` rule.

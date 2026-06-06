@@ -43,8 +43,9 @@ dev = [
     "mypy>=1.8.0",
 ]
 # Local search GGUF runtime: Qwen3 embedding + reranker via llama-cpp-python.
-# Install with: uv pip install -e '.[rerank]' (GGUF files are provisioned by
-# `wiki models ensure`). Without it search degrades to FTS5/RRF / `no_rerank`.
+# Install with: cd backend && uv pip install -e '.[rerank]' (or run ./setup.sh
+# from the repository root). GGUF files are provisioned by `wiki models ensure`.
+# Without it search degrades to FTS5/RRF / `no_rerank`.
 rerank = [
     "llama-cpp-python>=0.3.0",
 ]
@@ -63,3 +64,6 @@ packages = ["src/curator"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/curator/workspace/templates" = "curator/workspace/templates"
 "src/curator/data" = "curator/data"
+
+[tool.pytest.ini_options]
+cache_dir = "../.cache/pytest_cache"

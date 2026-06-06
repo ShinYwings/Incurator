@@ -4,7 +4,7 @@ A ``PromptContract`` is the single, versioned, testable description of one
 prompt: its identity, its typed input/output models, its system/user templates,
 the validators its output must pass, and its retry policy. Contracts are the
 v0.3.1 replacement for the scattered ``build_*_messages()`` functions; see
-``docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.1.md`` §15.
+``docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`` §15.
 """
 
 from __future__ import annotations

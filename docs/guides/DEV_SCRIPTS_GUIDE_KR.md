@@ -82,7 +82,7 @@ testbed scenario가 아니며 `wiki testbed list`에 표시되지 않습니다.
 
 Incurator v0.2.0은 Python 백엔드(`backend/`)와 Obsidian 플러그인(`plugin/`)을 모두 포함하는 모노레포 구조를 사용합니다.
 
-전환 기간 동안 일부 체크아웃은 백엔드를 여전히 저장소 루트(`src/`, `tests/`, `pyproject.toml`)에 두고, 활성 플러그인을 `.obsidian/plugins/incurator-obsidian-agent`와 같은 Obsidian Vault 경로 내에 둘 수 있습니다. 개발 스크립트는 타겟 레이아웃이 이미 정착되었다고 가정해서는 안 됩니다. 스크립트가 경로 깊이에 의존할 경우, `.agents/plans/2024-05_v0.2.0_system_build/INCURATOR_SYSTEM_BUILD_EVIDENCE.md`에 근거를 기록하고 코드를 변경하기 전에 마스터 플랜을 업데이트하세요.
+전환 기간 동안 일부 체크아웃은 백엔드를 여전히 저장소 루트(`src/`, `tests/`, `pyproject.toml`)에 두고, 활성 플러그인을 `.obsidian/plugins/incurator-obsidian-agent`와 같은 Obsidian Vault 경로 내에 둘 수 있습니다. 개발 스크립트는 타겟 레이아웃이 이미 정착되었다고 가정해서는 안 됩니다. 스크립트가 경로 깊이에 의존할 경우, 반드시 `.agents/plans/PLAN_TEMPLATE.md` 프로세스를 따라 활성 Evidence 장부(예: `.agents/plans/MASTER_ROADMAP_EVIDENCE.md`)에 근거를 기록하고 코드를 변경하기 전에 마스터 플랜을 업데이트하세요.
 
 ### 설치 스크립트
 저장소 루트에서 `./setup.sh`를 실행하여 Python 백엔드 종속성(`uv` 사용), Node.js/Ollama, 로컬 DB-native 검색 모델(`wiki models ensure`)을 자동으로 설치합니다. 모델 준비를 건너뛰려면 `INCURATOR_SKIP_MODELS=1`을 설정하세요. Obsidian 플러그인은 이제 `wiki init` 실행 시 상호작용 방식으로 설치됩니다.

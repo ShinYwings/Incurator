@@ -3,7 +3,9 @@ import {
   inferLocalDeviceId,
   mergeDeviceRegistry,
   parseSyncthingConfig,
+  parseSyncthingGuiConfig,
   getLocalBackendCommand,
+  getLocalBackendRepoPath,
   resolveWikiBinary,
 } from "./deviceRegistry";
 
@@ -91,7 +93,7 @@ describe("deviceRegistry", () => {
         },
       } as any,
       snapshot,
-      { incuratorBackendCommand: "wiki", incuratorBackendArgs: [] },
+      { incuratorBackendCommand: "wiki", incuratorBackendArgs: [], incuratorRepoPath: "" },
       123,
       "LINUX-ID"
     );
@@ -119,7 +121,7 @@ describe("deviceRegistry", () => {
         },
       } as any,
       snapshot,
-      { incuratorBackendCommand: "wiki", incuratorBackendArgs: [] },
+      { incuratorBackendCommand: "wiki", incuratorBackendArgs: [], incuratorRepoPath: "" },
       123,
       "LINUX-ID"
     );
@@ -149,13 +151,83 @@ describe("deviceRegistry", () => {
         },
       } as any,
       snapshot,
-      { incuratorBackendCommand: "wiki", incuratorBackendArgs: [] },
+      { incuratorBackendCommand: "wiki", incuratorBackendArgs: [], incuratorRepoPath: "" },
       123,
       undefined
     );
 
     expect(registry.local_device_id).toBe("MACOS-ID");
     expect((registry.devices["MACOS-ID"].backend as any).command).toBe("wiki");
+  });
+
+  it("uses Syncthing REST myID before hostname guesses", () => {
+    const snapshot = parseSyncthingConfig(
+      XML,
+      "/home/shin/Workspace/second_brain",
+      "/home/shin"
+    );
+    snapshot.status = { myID: "MACOS-ID" };
+
+    const registry = mergeDeviceRegistry(
+      null,
+      snapshot,
+      { incuratorBackendCommand: "wiki", incuratorBackendArgs: [], incuratorRepoPath: "/repo/mac" },
+      123
+    );
+
+    expect(registry.local_device_id).toBe("MACOS-ID");
+    expect((registry.devices["MACOS-ID"].backend as any).repo_path).toBe("/repo/mac");
+  });
+
+  it("uses per-device repo path as fallback when Syncthing cannot report myID", () => {
+    const snapshot = parseSyncthingConfig(
+      XML,
+      "/home/shin/Workspace/second_brain",
+      "/home/shin"
+    );
+
+    const registry = mergeDeviceRegistry(
+      {
+        devices: {
+          "MACOS-ID": {
+            device_id: "MACOS-ID",
+            name: "MacOS",
+            backend: { repo_path: "/Users/shin/Incurator" },
+          },
+          "LINUX-ID": {
+            device_id: "LINUX-ID",
+            name: "shin",
+            backend: { repo_path: "/home/shin/Incurator" },
+          },
+        },
+      } as any,
+      snapshot,
+      {
+        incuratorBackendCommand: "wiki",
+        incuratorBackendArgs: [],
+        incuratorRepoPath: "/Users/shin/Incurator",
+      },
+      123,
+      undefined
+    );
+
+    expect(registry.local_device_id).toBe("MACOS-ID");
+  });
+
+  it("parses Syncthing GUI API settings for current-device status lookup", () => {
+    const gui = parseSyncthingGuiConfig(`
+      <configuration>
+        <gui tls="false">
+          <address>127.0.0.1:8384</address>
+          <apikey>secret</apikey>
+        </gui>
+      </configuration>
+    `);
+
+    expect(gui).toEqual({
+      url: "http://127.0.0.1:8384/rest/system/status",
+      apiKey: "secret",
+    });
   });
 });
 
@@ -181,6 +253,30 @@ describe("getLocalBackendCommand", () => {
       devices: { DEV1: { name: "test" } },
     };
     expect(getLocalBackendCommand(registry as any)).toBeUndefined();
+  });
+});
+
+describe("getLocalBackendRepoPath", () => {
+  it("returns the repo path for the local device only", () => {
+    const registry = {
+      local_device_id: "MACOS-ID",
+      devices: {
+        "MACOS-ID": { backend: { repo_path: "/Users/shin/Incurator" } },
+        "LINUX-ID": { backend: { repo_path: "/home/shin/Incurator" } },
+      },
+    };
+
+    expect(getLocalBackendRepoPath(registry as any)).toBe("/Users/shin/Incurator");
+  });
+
+  it("ignores missing or blank local repo paths", () => {
+    expect(getLocalBackendRepoPath(null)).toBeUndefined();
+    expect(
+      getLocalBackendRepoPath({
+        local_device_id: "DEV1",
+        devices: { DEV1: { backend: { repo_path: "  " } } },
+      } as any)
+    ).toBeUndefined();
   });
 });
 

@@ -1,6 +1,6 @@
 """Deterministic query routing (v0.3.1).
 
-Routing is deterministic-first (SYSTEM_BEHAVIOR_v0.3.1.md §17). An explicit
+Routing is deterministic-first (SYSTEM_BEHAVIOR.md §17). An explicit
 ``--mode`` wins when the policy allows it; otherwise simple signals choose the
 route. The LLM router contract (curator.query_router) exists for the ambiguous
 case but deterministic routing covers the common paths first.

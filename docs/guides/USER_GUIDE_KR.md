@@ -360,6 +360,11 @@ Incurator의 가장 핵심적인 작동 방식입니다. 당신은 그저 질문
 wiki build
 ```
 
+> [!TIP]
+> **한 번에 업데이트**: `wiki add`, `wiki build`, `wiki sync`를 일일이 실행하는
+> 대신 `wiki update` 하나로 전체 파이프라인(디스커버리 → L1 → L2/L3 → 벡터
+> 임베딩 → 검증)을 동기적으로 한 번에 처리할 수 있습니다.
+
 ---
 
 ## 🔄 피드백 루프 및 자가 치유 (HITL & Sync)
@@ -471,8 +476,9 @@ status/history/push입니다.
 ### 2. 지식 수집 및 관리 (Ingestion)
 | 명령어 | 설명 | 사용 시점 |
 | :--- | :--- | :--- |
+| `wiki update` | **한 번에 처리하는 파이프라인**: `add` → `build --wait` → 벡터 임베딩 → `sync`를 동기적으로 실행하여 vault 전체를 한 명령으로 최신화합니다. `--force`로 기존 레이어를 재빌드하고 `--no-sync`로 마지막 검증을 건너뜁니다. | 평소 "그냥 최신으로 맞춰줘" 명령 |
 | `wiki add <file>` | 소스를 등록하고 L1 Context 레코드를 데이터베이스에 즉시 생성합니다 (구조 기반, LLM 없음). | 새로운 정보를 추가할 때 |
-| `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 데이터베이스 레코드로 추출/컴파일합니다. 기본은 백그라운드 워커에 큐잉 후 자동으로 데몬 프로세스를 분리 실행하여 비동기 처리하며, `--wait`는 즉시 동기 실행합니다. 백그라운드 데몬(`wiki jobs run`)은 완료 시 **벡터 임베딩도 자동으로 (재)생성**하므로, 별도의 `wiki reindex --embed` 없이도 검색이 벡터까지 준비됩니다. 이 embed 갱신은 큐가 이미 비어 있어도 실행되므로, 이전에 중단된 빌드도 다음 `build`/`jobs run`에서 벡터 검색으로 수렴합니다. | 지식 그래프 심층 구축 시 |
+| `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 데이터베이스 레코드로 추출/컴파일합니다. 기본은 백그라운드 워커에 큐잉 후 자동으로 데몬 프로세스를 분리 실행하며, `--wait`는 즉시 동기 실행합니다. Build는 완료 시 **항상 벡터 임베딩을 (재)생성**합니다 — atom 변경이 없거나 큐가 비어 있어도 실행되므로, 별도의 `wiki reindex --embed` 없이 검색이 벡터까지 수렴합니다. (큐는 내부적으로 drain되며, `jobs` 명령 그룹은 백그라운드 워커용으로 남아 있지만 `wiki --help`에서는 숨겨집니다.) | 지식 그래프 심층 구축 시 |
 | `wiki source ls` | 등록된 소스 목록을 확인합니다. | 수집된 데이터 현황 파악 시 |
 | `wiki source show <id>` | 특정 소스의 상세 정보와 처리 상태를 확인합니다. | 소스 오류 진단 시 |
 | `wiki source rm <id>` | 소스 등록을 해제하고 생성된 L1 노드를 삭제합니다. | 잘못된 소스를 제거할 때 |
@@ -488,7 +494,7 @@ status/history/push입니다.
 | `wiki models ensure` | 로컬 검색 모델 의존성과 GGUF 파일을 설치/갱신합니다. `setup.sh`는 `INCURATOR_SKIP_MODELS=1`이 설정되지 않은 한 이 명령을 자동 실행합니다. |
 | `wiki models status` | 로컬 검색 모델 상태, 캐시 경로, 의존성 상태를 JSON으로 표시합니다. |
 | `wiki config get <key>` | 특정 설정 값을 조회합니다. (예: `wiki config get llm.primary`) |
-| `wiki config set <key> <value>` | 특정 설정 값을 변경합니다. (예: `wiki config set llm.model gemini-3.5-flash`) |
+| `wiki config set <key> <value>` | 특정 설정 값을 변경합니다. 기본은 **global** 설정에 기록하며, `--local`을 주면 현재 vault의 `.curator/config.yml`에 기록합니다(로드 시 vault 설정이 global 키를 덮어씁니다). (예: `wiki config set --local llm.fallback ""`) |
 
 ### 3. 고도화 및 최적화 (Curation)
 | 명령어 | 설명 | 사용 시점 |

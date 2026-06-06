@@ -62,4 +62,12 @@ describe("backend command boundary", () => {
     expect(source).not.toContain("check_source_status");
     expect(source).not.toContain("search_curator");
   });
+
+  it("runs local setup for update repair without forcing git pull", () => {
+    const root = fileURLToPath(new URL("../../", import.meta.url));
+    const source = readFileSync(join(root, "main.ts"), "utf8");
+
+    expect(source).toContain('await execAsync("./setup.sh"');
+    expect(source).not.toContain("git pull && ./setup.sh");
+  });
 });

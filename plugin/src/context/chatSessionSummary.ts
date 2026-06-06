@@ -58,7 +58,14 @@ function summarizeTitleSource(content: string, maxLength: number): string {
 }
 
 function normalizeTitleSource(content: string): string {
-  const withoutEditBlocks = content.replace(
+  // Reasoning models (DeepSeek/Ollama) prepend a `<think>…</think>` block to the
+  // answer. Strip it first so the session title summarizes the real answer
+  // instead of becoming literally "<think>"/"<thinking>". A stream that ends
+  // mid-reasoning leaves an unclosed open tag, so drop a dangling block too.
+  const withoutThinking = content
+    .replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, " ")
+    .replace(/<think(?:ing)?>[\s\S]*$/i, " ");
+  const withoutEditBlocks = withoutThinking.replace(
     /```ai-agent-edit[\s\S]*?```/gi,
     " "
   );

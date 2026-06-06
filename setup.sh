@@ -3,6 +3,22 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+echo "=== Setting up Python Virtual Environment ==="
+export VIRTUAL_ENV="$ROOT_DIR/.venv"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
+
+if [ ! -d "$VIRTUAL_ENV" ]; then
+    if command -v uv &> /dev/null; then
+        uv venv "$VIRTUAL_ENV"
+    else
+        python3 -m venv "$VIRTUAL_ENV"
+    fi
+fi
+
+echo "=== Writing Incurator build fingerprint ==="
+python "$ROOT_DIR/scripts/build/write_build_manifest.py"
+echo ""
+
 echo "=== Building Incurator Obsidian Plugin (Frontend) ==="
 cd "$ROOT_DIR/plugin"
 if command -v npm &> /dev/null; then
@@ -15,18 +31,17 @@ fi
 echo ""
 
 echo "=== Installing Incurator backend ==="
-cd "$ROOT_DIR/backend"
-
+cd "$ROOT_DIR"
 echo "=== Installing dependencies via uv or pip ==="
 if command -v uv &> /dev/null; then
-    uv pip install -e .
+    uv pip install -e ./backend
 else
-    pip install -e .
+    pip install -e ./backend
 fi
 
 echo ""
 echo "=== Running post-installation build hook ==="
-python ../scripts/build/hatch_build.py
+python scripts/build/hatch_build.py
 
 echo ""
 echo "=== Provisioning search models (Ollama embedder + llama-cpp reranker) ==="

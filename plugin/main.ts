@@ -62,8 +62,9 @@ import { getBundledModelCatalogue } from "./src/utils/bundledModelCatalogue";
 import { mergeSessionData, normalizeSessionData } from "./src/utils/sessionData";
 import {
   mergeDeviceRegistry,
-  readSyncthingSnapshot,
+  readSyncthingSnapshotWithStatus,
   getLocalBackendCommand,
+  getLocalBackendRepoPath,
   resolveWikiBinary,
   type DeviceRegistry,
 } from "./src/utils/deviceRegistry";
@@ -127,15 +128,29 @@ export default class ObsidianAIAgent extends Plugin {
     this.quickQuery = new QuickQueryPopover(this);
 
     // ── In-line Copilot: drag-to-select quick query popover ──
-    this.registerDomEvent(document, "mouseup", () => {
-      // Defer so the browser finalizes the selection before we read it.
-      window.setTimeout(() => this.quickQuery.handleSelectionChange(), 0);
-    });
-    this.registerDomEvent(
-      document,
-      "mousedown",
-      (e: MouseEvent) => this.quickQuery.handleDocumentClick(e.target),
-      { capture: true }
+    // Register on the main document AND every Obsidian popout window so the
+    // "Ask AI" button appears regardless of which window holds the selection
+    // (report item 5: popover missing in new windows).
+    const registerQuickQueryDom = (doc: Document) => {
+      this.registerDomEvent(doc, "mouseup", () => {
+        // Defer so the browser finalizes the selection before we read it.
+        (doc.defaultView ?? window).setTimeout(
+          () => this.quickQuery.handleSelectionChange(doc),
+          0
+        );
+      });
+      this.registerDomEvent(
+        doc,
+        "mousedown",
+        (e: MouseEvent) => this.quickQuery.handleDocumentClick(e.target),
+        { capture: true }
+      );
+    };
+    registerQuickQueryDom(document);
+    this.registerEvent(
+      this.app.workspace.on("window-open", (_workspaceWindow, win: Window) => {
+        registerQuickQueryDom(win.document);
+      })
     );
 
     // ── Register settings tab ──
@@ -329,6 +344,7 @@ export default class ObsidianAIAgent extends Plugin {
                     content: pdfCtx.text,
                     imageBase64: pdfCtx.imageBase64,
                     pageNum: pdfCtx.pageNum,
+                    pageLabels: pdfCtx.pageLabels,
                     filePath: pdfView.getState()?.path,
                   });
                 }
@@ -365,6 +381,7 @@ export default class ObsidianAIAgent extends Plugin {
                     content: pdfCtx?.text || "",
                     imageBase64: base64,
                     pageNum: pageNum,
+                    pageLabels: pdfCtx?.pageLabels,
                     filePath: pdfView.getState()?.path,
                   });
                 }
@@ -964,6 +981,15 @@ export default class ObsidianAIAgent extends Plugin {
   async loadSettings(): Promise<void> {
     const raw = (await this.loadData()) || {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, raw);
+    try {
+      const registry = JSON.parse(
+        await this.app.vault.adapter.read(".curator/devices.json")
+      ) as Partial<DeviceRegistry>;
+      const localRepoPath = getLocalBackendRepoPath(registry);
+      if (localRepoPath) this.settings.incuratorRepoPath = localRepoPath;
+    } catch {
+      // No per-device registry yet; the plugin setting remains the fallback.
+    }
     this.settings.mcpServers = (this.settings.mcpServers || []).filter(
       (server) => !isLegacyIncuratorMcpServer(server)
     );
@@ -988,11 +1014,13 @@ export default class ObsidianAIAgent extends Plugin {
       const setupPath = `${repoPath}/setup.sh`;
       await fs.access(setupPath);
 
-      // Run git pull and setup.sh
-      new Notice("Updating Incurator backend... Please wait.");
-      await execAsync("git pull && ./setup.sh", { cwd: repoPath });
+      // Rebuild/reinstall the local backend+plugin pair. Pulling remote changes
+      // is intentionally not part of this repair path; multiple devices may be
+      // on different branches or local checkouts.
+      new Notice("Running Incurator setup... Please wait.");
+      await execAsync("./setup.sh", { cwd: repoPath });
       
-      new Notice("Incurator backend updated successfully! Please reload the plugin or restart Obsidian.");
+      new Notice("Incurator setup completed. Please reload the plugin or restart Obsidian.");
     } catch (e: any) {
       console.error("Failed to update Incurator backend:", e);
       new Notice("Failed to update Incurator backend: " + (e.message || "Unknown error"));
@@ -1007,6 +1035,7 @@ export default class ObsidianAIAgent extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+    await this.syncDeviceRegistryFromSyncthing();
     // Update LLM client with new settings
     this.llmClient?.updateSettings(this.settings);
     // Notify sidebar to sync UI controls
@@ -1087,8 +1116,7 @@ export default class ObsidianAIAgent extends Plugin {
       const zoteroRoots = [this.settings.zoteroBasePath].filter(
         (value): value is string => Boolean(value && value.trim())
       );
-      const snapshot = readSyncthingSnapshot(this.vaultRoot, zoteroRoots);
-      if (snapshot.devices.length === 0 && snapshot.folders.length === 0) return;
+      const snapshot = await readSyncthingSnapshotWithStatus(this.vaultRoot, zoteroRoots);
 
       let existing: Partial<DeviceRegistry> | null = null;
       try {
@@ -1504,6 +1532,7 @@ export default class ObsidianAIAgent extends Plugin {
       imageBase64: pdfCtx.imageBase64,
       filePath: file?.path,
       pageNum: pdfCtx.pageNum,
+      pageLabels: pdfCtx.pageLabels,
     };
 
     this.ensureChatOpen().then(() => {

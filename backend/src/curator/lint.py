@@ -442,7 +442,7 @@ def check_orphan_pages(inv: PageInventory) -> list[LintIssue]:
 def check_frontmatter(inv: PageInventory) -> list[LintIssue]:
     """Verify every page has required frontmatter fields per layer."""
     issues: list[LintIssue] = []
-    # Required fields per layer — SCHEMA_v0.3.1 projection contract
+    # Required fields per layer — SCHEMA projection contract
     required_by_type = {
         consts.LAYER_L1:   {"id", "type", "source_path", "source_hash", "last_updated"},
         consts.LAYER_L2:   {"id", "type", "source_path", "unit_type", "knowledge_unit_ids", "source_span_ids"},

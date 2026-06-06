@@ -1,6 +1,6 @@
 """Retrieval data models for the v0.3.1 query orchestrator.
 
-See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR_v0.3.1.md`` §17.
+See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`` §17.
 """
 
 from __future__ import annotations

@@ -45,6 +45,11 @@ Incurator는 개인 지식 베이스를 “검색 가능한 파일 묶음”이 
 - **동기화 친화적 상태 관리**: SQLite(`state.sqlite`)는 파일 잠금과 충돌에 취약합니다. 현재는 DB 파일을 sync에서 제외하는 방식을 권장하지만, 장기적으로는 더 sync-friendly한 state layer가 필요합니다.
 - **재현 가능한 testbed 검증**: private fixture를 기반으로 `wiki add`, `wiki sync`, `wiki query`, MCP 흐름을 반복 검증해야 합니다.
 
+**LIFECYCLE & VERSIONING RULE (수명 주기 및 버전 관리 규칙)**:
+1. **버그 수정 (Bug Fixes)**: `.agents/user_report.md`의 항목을 수정하면 패치 버전을 올리고(`+0.0.1`, 예: `0.4.4 -> 0.4.5`), `git commit` 후 `.agents/user_report.md`에서 해당 항목을 **삭제**합니다.
+2. **아키텍처 플랜 (Architectural Plans)**: `.agents/plans/`의 마스터 플랜 구현을 완료하면 마이너 버전을 올리고 패치는 0으로 초기화합니다(`+0.1.0`, 예: `0.4.4 -> 0.5.0`). `git commit` 후 플랜 파일들을 `.agents/plans/archives/`로 **이동(Archive)**시킵니다.
+3. **메이저 업데이트 (Major Updates)**: 호환되지 않는 API 변경이나 대규모 시스템 개편 시 메이저 버전을 올리고 하위 버전을 0으로 초기화합니다(`+1.0.0`, 예: `0.4.4 -> 1.0.0`).
+
 ### 🛠 User Experience & Tooling
 - **워크스페이스 설정 자동화**: `curate.yml` 작성과 agent rule provisioning을 더 쉽게 만들어야 합니다.
 - **가시성 개선**: 사용자는 `wiki status`와 sync report만 보고도 어떤 layer가 clean/fixed/review_needed인지 이해할 수 있어야 합니다.
@@ -168,7 +173,7 @@ Incurator v0.2.0의 목표 구조는 파이썬 백엔드 데몬(`backend/`)과 O
 
 ### 7.2 Evidence Gate
 
-큰 구조 변경을 시작하기 전에는 `.agents/plans/2024-05_v0.2.0_system_build/INCURATOR_SYSTEM_BUILD_EVIDENCE.md`에 다음을 기록하세요.
+큰 구조 변경을 시작하기 전에는 반드시 `.agents/plans/PLAN_TEMPLATE.md`에 정의된 심층 분석 프로세스를 따르고, 새로운 장부(예: `.agents/plans/MASTER_ROADMAP_EVIDENCE.md`)에 다음을 기록하세요:
 
 - 현재 active source path와 target source path
 - 변경하려는 파일/디렉토리가 backend인지 client인지

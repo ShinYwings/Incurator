@@ -1,5 +1,12 @@
 # 🛠 Incurator Contribution & Development Guide
 
+**LIFECYCLE & VERSIONING RULE**:
+1. **Bug Fixes**: When fixing an item from `.agents/user_report.md`, bump the patch version (`+0.0.1`, e.g., `0.4.4 -> 0.4.5`), commit the changes, and **delete** the item from `.agents/user_report.md`.
+2. **Architectural Plans**: When successfully implementing a master plan from `.agents/plans/`, bump the minor version and reset the patch to 0 (`+0.1.0`, e.g., `0.4.4 -> 0.5.0`). Commit the changes, and **move** the plan file(s) into `.agents/plans/archives/`.
+3. **Major Updates**: When making incompatible API changes or massive system overhauls, bump the major version and reset both minor and patch to 0 (`+1.0.0`, e.g., `0.4.4 -> 1.0.0`).
+
+### Spec-First Version Development Guide
+
 This guide is for developers who want to contribute to the Incurator project. It covers the current technical architecture, open challenges, and how to set up the development environment (Testbed) safely. For the system's design philosophy and differentiators, see [Project Philosophy (ABOUT_KR.md)](../philosophy/ABOUT.md).
 
 ---
@@ -152,12 +159,12 @@ The v0.2.0 target layout manages the Python backend daemon (`backend/`) and Obsi
 
 ### 7.2 Evidence Gate
 
-Before making large structural changes, record the following in `.agents/plans/2024-05_v0.2.0_system_build/INCURATOR_SYSTEM_BUILD_EVIDENCE.md`:
+Before making large structural changes, you MUST follow the deep analysis process defined in `.agents/plans/PLAN_TEMPLATE.md` and record the following evidence in a new ledger (e.g., `.agents/plans/MASTER_ROADMAP_EVIDENCE.md`):
 
 - current active source path and target source path
 - whether each touched file/directory belongs to backend or client
-- verification commands run and their results
-- whether failures are pre-existing or introduced by the change
-- whether any migration is hard to roll back
+- commands run for validation and their results
+- whether a failure is pre-existing or introduced by the new change
+- any migration step that cannot be cleanly rolled back
 
 This file is not a summary report. It is a handoff ledger for the next developer or agent continuing the work.

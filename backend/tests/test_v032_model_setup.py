@@ -58,6 +58,22 @@ def test_ensure_ollama_model_already_present(monkeypatch):
     assert step.ok and "already" in step.detail
 
 
+def test_install_llama_cpp_failure_hint_uses_repo_root_safe_commands(monkeypatch):
+    monkeypatch.setattr(model_setup, "llama_cpp_installed", lambda: False)
+    monkeypatch.setattr(model_setup.shutil, "which", lambda _c: "/usr/bin/uv")
+
+    class _Res:
+        returncode = 1
+
+    monkeypatch.setattr(model_setup.subprocess, "run", lambda *a, **k: _Res())
+    step = model_setup.install_llama_cpp()
+
+    assert step.ok is False
+    assert "./setup.sh" in step.detail
+    assert "cd backend && uv pip install -e '.[rerank]'" in step.detail
+    assert "run `uv pip install -e '.[rerank]'`" not in step.detail
+
+
 def test_download_gguf_skip_when_present():
     with tempfile.TemporaryDirectory() as tmp:
         dest = Path(tmp)

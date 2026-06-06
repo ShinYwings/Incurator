@@ -86,6 +86,11 @@ def test_local_route_answers_with_spans(vault) -> None:
     # prompt run is linked to the query trace
     runs = db.list_prompt_runs_for_query(paths.state_db, res.trace_id)
     assert runs and runs[0]["query_trace_id"] == res.trace_id
+    trace = db.get_query_trace(paths.state_db, res.trace_id)
+    assert trace is not None
+    assert trace["route"] == "local"
+    assert trace["source_span_ids"] == [span]
+    assert trace["prompt_trace_ids"] == res.prompt_trace_ids
 
 
 def test_global_route_uses_reports(vault) -> None:

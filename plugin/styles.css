@@ -2430,6 +2430,69 @@
   background: var(--background-secondary);
 }
 
+.ai-agent-dashboard-retry-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-error-border, var(--text-error));
+  border-radius: 10px;
+  background: var(--background-modifier-error-hover, rgba(var(--color-red-rgb), 0.08));
+  font-size: 12px;
+}
+
+.ai-agent-ov-advanced {
+  font-size: 12px;
+}
+
+.ai-agent-ov-advanced > summary {
+  cursor: pointer;
+  padding: 4px 8px;
+  color: var(--text-muted);
+}
+
+.ai-agent-ov-advanced-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0 0;
+}
+
+.ai-agent-llm-ollama-models {
+  margin-top: 8px;
+}
+
+.ai-agent-ollama-model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.ai-agent-ollama-model-name {
+  flex: 1;
+}
+
+.ai-agent-ollama-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+
+.ai-agent-ollama-badge.is-ok {
+  color: var(--text-success, var(--color-green));
+  background: rgba(var(--color-green-rgb), 0.12);
+}
+
+.ai-agent-ollama-badge.is-warn {
+  color: var(--text-warning, var(--color-yellow));
+  background: rgba(var(--color-yellow-rgb), 0.12);
+}
+
 .ai-agent-dashboard-table-header {
   display: grid;
   grid-template-columns: 3fr 1fr 1fr 1fr 1fr;

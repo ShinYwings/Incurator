@@ -118,6 +118,12 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   "see Section A4.2 (p580)" or "Figure 19.1", the plugin first tries to resolve
   the referenced target from the PDF outline/window text and sends that target
   as `<resolved_cross_references>` before the generic page background.
+- **In-document positions, not folders**: Positional phrases like "문서 위쪽",
+  "앞부분", "top of the document", or "end of the page" are treated as positions
+  **within the current document's content/outline**, never as the file system.
+  The popover has no filesystem access, so it never lists or invents folder/file
+  names — asking for the "top of the document" summarizes that region's text
+  instead of browsing the parent directory.
 - **Markdown rendering**: The answer renders as Markdown (math/LaTeX included)
   once the stream completes. Math is normalized before rendering — backtick-wrapped
   spans such as `` `$x^2$` `` are unwrapped to `$x^2$` so LaTeX renders as a
@@ -289,7 +295,9 @@ The Settings page shows the selected model's context window on the **Model**
 row instead of as a separate setting.
 
 > [!NOTE]
-> The **Incurator Dashboard → Overview → LLM Provider** card also edits the vault's (`​.curator/config.yml`) Primary/Fallback models. Each model dropdown is paired with an **effort dropdown** that shows only the levels the selected model exposes (models with no effort show `—`). Applying saves to `llm.primary_effort` / `llm.fallback_effort`. The model list is bundled from the backend's single-source `data/models.json` catalogue when the plugin is built, so model names do not depend on MCP startup.
+> The **Incurator Dashboard → Overview → LLM Provider** card also edits the vault's (`​.curator/config.yml`) Primary/Fallback models. Each model dropdown is paired with an **effort dropdown** that shows only the levels the selected model exposes (models with no effort show `—`). Applying saves Primary via `wiki config provider` and Fallback via `wiki config set --local` so **both land in the same vault-scoped config** (previously the fallback went to the global config and was masked, so it appeared not to change). The model list is bundled from the backend's single-source `data/models.json` catalogue when the plugin is built, so model names do not depend on MCP startup.
+>
+> Below the model dropdowns, an **Ollama models** section lists the recommended Ollama models from `data/models.json` annotated for this machine: each shows an **installed** badge when already pulled or an **exceeds RAM** badge when its `vram_gb` is larger than detected RAM, and not-yet-installed models get a **Pull** button (`wiki plugin models pull`) that runs `ollama pull` and refreshes. This makes the "switch to a local model, then resume the build" flow (see the Sources tab **Retry errored sources** button) work end to end.
 
 ### 7.1 Antigravity (default)
 
@@ -560,9 +568,11 @@ for those JSON files; the plugin reads them to render source counts, job state,
 index health, and backend version. Missing snapshots are treated as waiting or
 unknown state, not as an empty backend.
 
-Dashboard buttons such as Add, Build, Sync, Lint, Reindex, Reset, LLM Apply, and
-Persona Save run backend commands for mutations. The plugin does not directly
-edit backend-owned `.curator` state for those actions.
+Dashboard buttons run backend commands for mutations; the plugin does not
+directly edit backend-owned `.curator` state for those actions. The primary
+Overview action is **Update** (the one-shot `wiki update`: add → build → embed →
+sync); the granular **Add / Build / Sync / Lint / Reindex / Reset** steps live
+under an **Advanced** disclosure. LLM Apply and Persona Save persist config.
 
 ### Dashboard tabs (v0.3.2)
 
@@ -582,6 +592,14 @@ edit backend-owned `.curator` state for those actions.
   audit chain (`wiki plugin synthesis show`) with community reports, graph
   entities/relations, source spans, prompt traces, and grounding/staleness
   warnings.
+- **Sources** tab lists recent sources with per-layer L1–L4 status badges. If a
+  build stopped on an error (for example *"Antigravity capacity exhausted
+  (429)"*), the tab shows a **Retry errored sources** button at the top. After
+  switching to a working model (Settings → LLM Provider, or the Overview LLM
+  Provider card), click it to resume: it runs `wiki build`, which re-attempts
+  every source whose L2/L3 is still `pending` or `error` with the now-current
+  provider, continuing the knowledge-refinement graph from where it stopped.
+  Watch progress in the **Jobs** tab.
 - **Insights** tab lists pending derived insight candidates
   from the current Obsidian vault (`wiki plugin insight list`). Selecting one
   loads the backend detail payload (`wiki plugin insight show`) before exposing

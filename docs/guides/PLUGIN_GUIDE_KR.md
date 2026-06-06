@@ -116,6 +116,11 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   "Figure 19.1"처럼 다른 위치를 가리키는 pointer라면, 플러그인은 먼저 PDF
   outline/window 텍스트에서 해당 target을 찾아 `<resolved_cross_references>`로
   넣고, 그 뒤에 일반 페이지 배경을 보냅니다.
+- **문서 내 위치이지 폴더가 아님**: "문서 위쪽", "앞부분", "top of the document",
+  "end of the page" 같은 위치 표현은 파일 시스템이 아니라 **현재 문서의
+  내용/outline 안에서의 위치**로 해석됩니다. 팝오버는 파일 시스템에 접근하지
+  않으므로 폴더·파일 이름을 나열하거나 지어내지 않으며, "문서 위쪽"을 물으면 상위
+  디렉터리를 뒤지는 대신 그 영역의 텍스트를 요약합니다.
 - **Markdown 렌더링**: 스트림이 끝나면 답변은 Markdown(수식/LaTeX 포함)으로
   렌더링됩니다. 렌더링 전에 수식이 정규화되어, `` `$x^2$` `` 처럼 백틱으로 감싼
   수식은 `$x^2$` 로 풀려 모노스페이스 텍스트가 아니라 실제 수식으로 표시됩니다
@@ -264,7 +269,9 @@ Settings 화면에서는 선택된 model의 context window를 별도 항목으�
 플러그인은 Antigravity, Claude, OpenAI Codex, Ollama, DeepSeek를 지원합니다. 설정 탭에서는 제공자와 모델을 따로 조정할 수 있고, 채팅 사이드바 하단에서는 하나의 모델 선택 메뉴에서 `Provider · Model` 형식으로 함께 전환합니다. reasoning/effort 메뉴는 백엔드 카탈로그에서 effort 단계가 선언된 모델에만 표시됩니다.
 
 > [!NOTE]
-> **Incurator Dashboard → Overview → LLM Provider** 카드에서도 보관소(`.curator/config.yml`)의 Primary/Fallback 모델을 바꿀 수 있습니다. 각 모델 드롭다운 옆에는 **effort 드롭다운**이 함께 표시되며, 선택한 모델이 노출하는 강도만 보여줍니다 (강도가 없는 모델은 `—`). Apply 시 `llm.primary_effort` / `llm.fallback_effort` 로 저장됩니다. 모델 목록은 플러그인 빌드 시 백엔드의 `data/models.json` 카탈로그(단일 소스)에서 번들링되므로, 모델 이름 표시가 MCP 시작 여부에 의존하지 않습니다.
+> **Incurator Dashboard → Overview → LLM Provider** 카드에서도 보관소(`.curator/config.yml`)의 Primary/Fallback 모델을 바꿀 수 있습니다. 각 모델 드롭다운 옆에는 **effort 드롭다운**이 함께 표시되며, 선택한 모델이 노출하는 강도만 보여줍니다 (강도가 없는 모델은 `—`). Apply 시 Primary는 `wiki config provider`로, Fallback은 `wiki config set --local`로 저장되어 **둘 다 같은 vault 범위 설정에 기록**됩니다(이전에는 Fallback이 global 설정으로 가서 vault의 llm 블록에 가려져 바뀌지 않는 것처럼 보였습니다). 모델 목록은 플러그인 빌드 시 백엔드의 `data/models.json` 카탈로그(단일 소스)에서 번들링되므로, 모델 이름 표시가 MCP 시작 여부에 의존하지 않습니다.
+>
+> 모델 드롭다운 아래의 **Ollama models** 섹션은 `data/models.json`의 추천 Ollama 모델을 이 머신 기준으로 보여줍니다. 이미 받은 모델에는 **installed** 배지, `vram_gb`가 감지된 RAM보다 큰 모델에는 **exceeds RAM** 배지가 붙고, 아직 설치되지 않은 모델에는 **Pull** 버튼(`wiki plugin models pull`)이 표시되어 `ollama pull`을 실행하고 새로고침합니다. 덕분에 "로컬 모델로 전환 → 빌드 재개"(Sources 탭의 **Retry errored sources** 버튼 참고) 흐름이 처음부터 끝까지 동작합니다.
 
 ### 7.1 Antigravity (기본값)
 
@@ -512,9 +519,11 @@ backend만 쓰고 plugin은 source count, job 상태, index health, backend vers
 표시를 위해 읽기만 합니다. snapshot이 없거나 오래된 경우에는 backend가 비었다고
 해석하지 않고 waiting/unknown 상태로 표시합니다.
 
-Add, Build, Sync, Lint, Reindex, Reset, LLM Apply, Persona Save 같은 dashboard
-버튼은 상태 변경이 필요할 때 backend command를 실행합니다. plugin은 이 작업을 위해
-backend-owned `.curator` 상태를 직접 수정하지 않습니다.
+dashboard 버튼은 상태 변경이 필요할 때 backend command를 실행하며, plugin은 이
+작업을 위해 backend-owned `.curator` 상태를 직접 수정하지 않습니다. Overview의 주
+액션은 **Update**(한 번에 처리하는 `wiki update`: add → build → embed → sync)이고,
+세부 단계인 **Add / Build / Sync / Lint / Reindex / Reset**은 **Advanced** 접이식
+영역으로 옮겼습니다. LLM Apply와 Persona Save는 설정을 저장합니다.
 
 ### 대시보드 탭 (v0.3.2)
 
@@ -534,6 +543,13 @@ backend-owned `.curator` 상태를 직접 수정하지 않습니다.
   entity/relation, source span, prompt trace, grounding/staleness warning이
   포함된 read-only L4→L1 audit chain을 로드합니다
   (`wiki plugin synthesis show`).
+- **Sources** 탭은 최근 소스를 L1–L4 단계별 상태 badge와 함께 보여줍니다. 빌드가
+  에러로 멈춘 경우(예: *"Antigravity capacity exhausted (429)"*) 탭 상단에
+  **Retry errored sources** 버튼이 나타납니다. 동작하는 모델로 전환한 뒤(설정 →
+  LLM Provider, 또는 Overview의 LLM Provider 카드) 이 버튼을 누르면 재개됩니다.
+  내부적으로 `wiki build`를 실행하여 L2/L3가 아직 `pending`이거나 `error`인 모든
+  소스를 현재 provider로 다시 시도하므로, 지식 정제 그래프가 멈춘 지점부터 이어집니다.
+  진행 상황은 **Jobs** 탭에서 확인합니다.
 - **Insights** 탭은 현재 Obsidian vault의 대기 중인 파생 insight 후보 목록을
   보여줍니다 (`wiki plugin insight list`). 항목을 선택하면 먼저 backend detail
   payload를 로드한 뒤(`wiki plugin insight show`) **Promote**(`insight promote`,

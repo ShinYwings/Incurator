@@ -1,7 +1,7 @@
 """Memory paths: HippoRAG-style associative walks over the graph (explore).
 
 Deterministic bounded walk over ``graph_relations`` from seed entities, scored by
-an explicit linear combination (SCHEMA_v0.3.1.md §11.6). Full Personalized
+an explicit linear combination (SCHEMA.md §11.6). Full Personalized
 PageRank is intentionally out of scope for v0.3.1.
 """
 

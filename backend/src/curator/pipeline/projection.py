@@ -2,7 +2,7 @@
 
 These markdown pages are the disposable qmd search corpus, projected from the
 authoritative DB records. They are emitted, never edited as truth, so there is no
-DB↔file drift (SYSTEM_BEHAVIOR_v0.3.1.md §22).
+DB↔file drift (SYSTEM_BEHAVIOR.md §22).
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def emit_atom_markdown(unit: dict, atom_id: str, *, source_path: str = "") -> st
     """Render an ATM page (the projection of one knowledge_unit).
 
     ``unit`` is a ``knowledge_units`` row (with ``source_span_ids`` decoded to a
-    list). The page carries span/unit/trace provenance per SCHEMA_v0.3.1 §13.
+    list). The page carries span/unit/trace provenance per SCHEMA §13.
     """
     fm: dict = {
         "id": atom_id,
@@ -69,7 +69,7 @@ def emit_concept_markdown(report: dict, concept_id: str) -> str:
 
     ``report`` is a ``community_reports`` row (with id lists decoded). The page is
     a derived qmd-corpus rendering of the community summary plus its graph/source
-    provenance per SCHEMA_v0.3.1 §14.
+    provenance per SCHEMA §14.
     """
     fm: dict = {
         "id": concept_id,
@@ -107,7 +107,7 @@ def emit_synthesis_markdown(node: dict) -> str:
 
     ``node`` is a ``synthesis_nodes`` row (with id lists decoded). The page is a
     derived qmd-corpus rendering of a shared, corpus-wide synthesized insight plus
-    its concept/report/source provenance per SCHEMA_v0.3.1 §15.
+    its concept/report/source provenance per SCHEMA §15.
     """
     fm: dict = {
         "id": node["id"],

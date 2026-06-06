@@ -4,16 +4,28 @@ import type {
   IncuratorInsightListResult,
   IncuratorInsightPromoteResult,
   IncuratorPromptTrace,
+  IncuratorSynthesisAuditResult,
+  IncuratorSynthesisListResult,
   IncuratorSourceStatus,
   IncuratorSourceState,
+  GitHistoryResult,
+  GitPushResult,
+  GitStatusResult,
   PdfOutlineItem,
   PdfRagHit,
   PdfWindowPage,
   PluginSettings,
   PromoteAnswerResult,
 } from "../types";
+import localBuildManifest from "../generated/buildManifest.json";
 
 type BackendJsonRunner = (cmdArgs: string[]) => Promise<unknown>;
+
+function readString(record: unknown, key: string): string {
+  if (!record || typeof record !== "object") return "";
+  const value = (record as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : "";
+}
 
 export interface IncuratorHit {
   title?: string;
@@ -62,6 +74,8 @@ export interface IncuratorStatusEvent {
 export class IncuratorClient {
   public needsUpdate = false;
   public backendVersion = "unknown";
+  public updateMessage = "";
+  public updateActionLabel = "Run Setup";
 
   constructor(
     private readonly settings: PluginSettings,
@@ -77,11 +91,27 @@ export class IncuratorClient {
     if (!this.available) return;
     const result = await this.callBackendJson(["plugin", "version"]);
     if (result && typeof result === "object") {
-      const version = (result as Record<string, unknown>).version;
+      const record = result as Record<string, unknown>;
+      const version = record.version;
       if (typeof version === "string") {
         this.backendVersion = version;
-        this.needsUpdate = this.backendVersion !== this.pluginVersion;
       }
+      
+      const expectedBackendVersion = readString(localBuildManifest, "backend_version");
+      if (expectedBackendVersion) {
+        this.needsUpdate = this.backendVersion !== expectedBackendVersion;
+        this.updateMessage = this.needsUpdate
+          ? `Incurator backend version mismatch. Expected ${expectedBackendVersion}, got ${this.backendVersion}. Run setup to update this device.`
+          : "";
+        this.updateActionLabel = "Run Setup";
+        return;
+      }
+
+      this.needsUpdate = this.backendVersion !== this.pluginVersion;
+      this.updateMessage = this.needsUpdate
+        ? "Incurator build metadata is missing or legacy. Run setup to refresh this device."
+        : "";
+      this.updateActionLabel = "Run Setup";
     }
   }
 
@@ -182,6 +212,65 @@ export class IncuratorClient {
     } catch {
       return null;
     }
+  }
+
+  async getGitStatus(): Promise<GitStatusResult> {
+    if (this.settings.incuratorEnabled === false) {
+      return { ok: false, error: "backend_disabled", message: "Incurator backend is disabled." };
+    }
+    const result = await this.callBackendJson(["plugin", "git", "status"]);
+    return this.pickRecord(result) as unknown as GitStatusResult;
+  }
+
+  async getGitLog(limit = 10): Promise<{ ok: boolean; commits?: unknown[]; error?: string; message?: string }> {
+    if (this.settings.incuratorEnabled === false) {
+      return { ok: false, error: "backend_disabled", message: "Incurator backend is disabled." };
+    }
+    const result = await this.callBackendJson([
+      "plugin", "git", "log",
+      "--limit", String(limit),
+    ]);
+    return this.pickRecord(result) as { ok: boolean; commits?: unknown[]; error?: string; message?: string };
+  }
+
+  async getGitDiffStat(): Promise<{ ok: boolean; stat?: string; staged_stat?: string; error?: string; message?: string }> {
+    if (this.settings.incuratorEnabled === false) {
+      return { ok: false, error: "backend_disabled", message: "Incurator backend is disabled." };
+    }
+    const result = await this.callBackendJson(["plugin", "git", "diff", "--stat"]);
+    return this.pickRecord(result) as { ok: boolean; stat?: string; staged_stat?: string; error?: string; message?: string };
+  }
+
+  async getGitHistory(filePath: string, queryText = "", limit = 10): Promise<GitHistoryResult> {
+    if (this.settings.incuratorEnabled === false) {
+      return { ok: false, error: "backend_disabled", message: "Incurator backend is disabled." };
+    }
+    const result = await this.callBackendJson([
+      "plugin", "git", "history",
+      "--file-path", filePath,
+      "--query", queryText,
+      "--limit", String(limit),
+    ]);
+    return this.pickRecord(result) as unknown as GitHistoryResult;
+  }
+
+  async pushGitChanges(): Promise<GitPushResult> {
+    if (this.settings.incuratorEnabled === false) {
+      return { ok: false, error: "backend_disabled", message: "Incurator backend is disabled." };
+    }
+    const result = await this.callBackendJson(["plugin", "git", "push"]);
+    return this.pickRecord(result) as unknown as GitPushResult;
+  }
+
+  async commitGitChanges(message: string): Promise<{ ok: boolean; commit?: string; error?: string; message?: string }> {
+    if (this.settings.incuratorEnabled === false) {
+      return { ok: false, error: "backend_disabled", message: "Incurator backend is disabled." };
+    }
+    const result = await this.callBackendJson([
+      "plugin", "git", "commit",
+      "--message", message,
+    ]);
+    return this.pickRecord(result) as { ok: boolean; commit?: string; error?: string; message?: string };
   }
 
   async rebindSource(args: {
@@ -374,6 +463,31 @@ export class IncuratorClient {
       ...(workspacePath ? ["--workspace-path", workspacePath] : []),
     ]);
     return (result as IncuratorInsightPromoteResult) ?? empty;
+  }
+
+  async listSynthesisNodes(
+    workspacePath = "", limit = 50
+  ): Promise<IncuratorSynthesisListResult> {
+    const empty: IncuratorSynthesisListResult = { ok: false, synthesis: [], error: "Incurator backend is not available" };
+    if (this.settings.incuratorEnabled === false) return empty;
+    const result = await this.callBackendJson([
+      "plugin", "synthesis", "list",
+      ...(workspacePath ? ["--workspace-path", workspacePath] : []),
+      "--limit", String(limit),
+    ]);
+    return (result as IncuratorSynthesisListResult) ?? empty;
+  }
+
+  async getSynthesisAudit(
+    synthesisId: string, workspacePath = ""
+  ): Promise<IncuratorSynthesisAuditResult> {
+    const empty: IncuratorSynthesisAuditResult = { ok: false, synthesisId, error: "Incurator backend is not available" };
+    if (!synthesisId || this.settings.incuratorEnabled === false) return empty;
+    const result = await this.callBackendJson([
+      "plugin", "synthesis", "show", "--synthesis-id", synthesisId,
+      ...(workspacePath ? ["--workspace-path", workspacePath] : []),
+    ]);
+    return (result as IncuratorSynthesisAuditResult) ?? empty;
   }
 
   async getZoteroStatus(): Promise<ZoteroStatus> {
