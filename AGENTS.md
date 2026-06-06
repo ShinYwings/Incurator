@@ -181,6 +181,29 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
 
 ---
 
+## Shared Architecture Memory
+
+All agents (Claude Code, Codex, Antigravity) MUST treat the following decisions as locked unless the user explicitly overrides them. These are condensed here so every agent starts with the same mental model regardless of which tool-specific memory system it uses.
+
+### Storage Model
+- **`state.sqlite` = single source of truth.** Holds source_spans, knowledge_units, graph entities/relations, community_reports, synthesis_nodes, dag_edges, job queue.
+- **`.curator/Collections/` markdown = derived disposable search corpus.** Regenerated from DB at any time. Not authoritative. Do not treat stale markdown as ground truth — re-emit from DB if in doubt.
+- **Search is DB-native (v0.3.2+).** SQLite FTS5/BM25 + chunk vector + RRF fusion + LLM reranking. The external `qmd` binary is retired. Do not add new qmd dependencies.
+- **No backward-compat shims.** New runs use the current code path directly.
+
+### Curation Model
+- **Static/frozen Exhibition files (EXH-*.md) are REMOVED.** `wiki curate`, `curator_curate_workspace`, EXH answer-cache, and EXH reverse-parse backprop were deleted. Do not reintroduce them.
+- **Curation = dynamic KRS-biased lens applied at retrieval time.** `curate.yml` (KRS) + insight promotions = a retrieval policy; never stored as a file.
+- **Layer stack: L1 spans → L2 atoms → L3 concepts → L4 Synthesis (shared stored SYN-*) → Curation lens (dynamic, not stored).**
+- **Durable human artifacts = `02_Wiki/` promotions only.** Chat history lives in plugin `sessions.json`, not the vault.
+
+### Where to Find Extended Decisions
+- Claude-specific memory: `~/.claude/projects/-Users-shin-shinywings-Incurator/memory/`
+- Project-local memory (all agents): `.claude/projects/-Users-shin-shinywings-Incurator/memory/`
+- Specs (authoritative): `docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`, `docs/specs/curator_schema/SCHEMA.md`
+
+---
+
 ## Core Rule: Cross-Agent Relay Protocol
 
 To prevent context fragmentation and hallucinations when switching between AI coding agents (Antigravity, Claude Code, Cursor/Codex), all agents MUST adhere to the following protocol:
@@ -191,7 +214,7 @@ To prevent context fragmentation and hallucinations when switching between AI co
   - Agents MUST always keep `.agents/relay.md` updated during a `/goal` or when an implementation plan is active.
 - **Format & Behavior**: 
   - **For Main Architecture Tasks / Goals**: Overwrite `.agents/relay.md` entirely using the standard template (Goal, Plan Reference, Analysis & Reasoning, Progress Status, Critical Context/Blockers, Immediate Next Action). Maintain a single active state for the core task.
-  - **For Bug Fixes / Side-Tasks (Antigravity Only)**: When Antigravity is assigned side-tasks or bug fixes, it must NOT overwrite the main relay state. Instead, **APPEND** a new section (e.g., `### Update (YYYY-MM-DD)`) at the bottom of `.agents/relay.md` summarizing what was investigated, fixed, or modified. This ensures the primary agent's context is not destroyed by small interventions.
+  - **For Bug Fixes / Side-Tasks (Any Agent)**: When any agent handles a side-task or bug fix while a main goal is active, it must NOT overwrite the main relay state. Instead, **APPEND** a new section (e.g., `### Update (YYYY-MM-DD, AgentName)`) at the bottom of `.agents/relay.md` summarizing what was investigated, fixed, or modified. This ensures the primary agent's context is not destroyed by small interventions.
   - **Antigravity Fallback Execution**: If primary executors (e.g., Claude Code) are rate-limited or resting, Antigravity may temporarily act as the Executor. However, any code written by Antigravity MUST be explicitly marked in `.agents/relay.md` for mandatory verification by the primary Executor upon wakeup.
 
 ---
