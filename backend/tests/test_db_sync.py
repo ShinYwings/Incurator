@@ -129,9 +129,7 @@ class TestImport:
         out = tmp_path / "export.jsonl"
         export_knowledge(populated_db, out)
 
-        target_dir = tmp_path / "target_dev"
-        target_dir.mkdir()
-        fresh = target_dir / "fresh.sqlite"
+        fresh = tmp_path / "fresh.sqlite"
         db.init_db(fresh)
         stats = import_knowledge(fresh, out)
 
@@ -160,9 +158,7 @@ class TestImport:
         export_knowledge(populated_db, out)
 
         # Create target DB with older version of same atom
-        target_dir = tmp_path / "target_dev"
-        target_dir.mkdir()
-        target = target_dir / "target.sqlite"
+        target = tmp_path / "target.sqlite"
         db.init_db(target)
         with db.connect(target) as conn:
             conn.execute(
@@ -185,9 +181,7 @@ class TestImport:
         out = tmp_path / "export.jsonl"
         export_knowledge(source, out)
 
-        target_dir = tmp_path / "target_dev"
-        target_dir.mkdir()
-        target = target_dir / "target.sqlite"
+        target = tmp_path / "target.sqlite"
         db.init_db(target)
         with db.connect(target) as conn:
             conn.execute(
