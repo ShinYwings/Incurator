@@ -2995,19 +2995,19 @@ def migrate_vault(
 
 def _requeue_stale_sources(paths: cfg.WikiPaths, stale_files: list) -> None:
     """Mark sources of stale Collection files for L1-L4 regeneration."""
-    import re
+    from .migrate import _parse_frontmatter  # noqa: PLC0415
 
     requeued = 0
     with db.connect(paths.state_db) as conn:
         for sf in stale_files:
             try:
-                text = sf.path.read_text(encoding="utf-8", errors="ignore")
-                m = re.search(r"^source_path:\s*\[\[(.+?)]]", text, re.MULTILINE)
-                if not m:
-                    m = re.search(r"^source_path:\s*(.+)", text, re.MULTILINE)
-                if not m:
+                text = sf.path.read_text(encoding="utf-8-sig", errors="ignore")
+                fm = _parse_frontmatter(text)
+                relpath = fm.get("source_path", "")
+                if not relpath:
                     continue
-                relpath = m.group(1).strip()
+                # Strip wikilink brackets if present: [[path]] → path
+                relpath = relpath.strip().strip("[]")
                 row = conn.execute(
                     "SELECT id FROM sources WHERE relpath = ?", (relpath,)
                 ).fetchone()

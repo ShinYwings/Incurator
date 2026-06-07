@@ -1048,7 +1048,7 @@ export default class ObsidianAIAgent extends Plugin {
       const destDir = `${vaultBase}/.obsidian/plugins/incurator-obsidian-agent`;
       const fsSync = require("fs") as typeof import("fs");
       let copied = 0;
-      for (const fname of ["main.js", "manifest.json"]) {
+      for (const fname of ["main.js", "manifest.json", "styles.css"]) {
         const src = `${repoPath}/plugin/${fname}`;
         try {
           fsSync.copyFileSync(src, `${destDir}/${fname}`);

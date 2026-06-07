@@ -124,7 +124,7 @@ def scan_stale_collection_files(paths: cfg.WikiPaths) -> list[StaleFile]:
             if md_file.name.startswith("."):
                 continue
             try:
-                text = md_file.read_text(encoding="utf-8", errors="ignore")
+                text = md_file.read_text(encoding="utf-8-sig", errors="ignore")
                 frontmatter = _parse_frontmatter(text)
                 missing = required - set(frontmatter.keys())
                 if missing:
