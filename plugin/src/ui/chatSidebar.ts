@@ -2337,6 +2337,7 @@ export class ChatSidebarView extends ItemView {
     if (msg.isStreaming && !msg.content) {
       contentEl.createSpan({ cls: "ai-agent-thinking", text: "Thinking..." });
     }
+
   }
 
   private renderAssistantMessageContent(msg: ChatMessage, contentEl: HTMLElement): void {
