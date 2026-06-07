@@ -2337,6 +2337,20 @@ export class ChatSidebarView extends ItemView {
     if (msg.isStreaming && !msg.content) {
       contentEl.createSpan({ cls: "ai-agent-thinking", text: "Thinking..." });
     }
+
+    if (msg.role === "assistant") {
+      contentEl.addEventListener("contextmenu", (e: MouseEvent) => {
+        if (!msg.content) return;
+        const menu = new Menu();
+        menu.addItem((item) =>
+          item.setIcon("copy").setTitle("Copy as Markdown")
+            .onClick(() => this.copyAssistantMarkdown(msg.content))
+        );
+        menu.showAtMouseEvent(e);
+        e.preventDefault();
+        e.stopPropagation();
+      });
+    }
   }
 
   private renderAssistantMessageContent(msg: ChatMessage, contentEl: HTMLElement): void {
