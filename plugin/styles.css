@@ -646,13 +646,16 @@
    pointer-events:none lets mouse events fall through the SVG to surrounding text;
    user-select:text lets the DOM selection range include the mjx-container node. */
 .ai-agent-chat-msg-content span.math,
-.ai-agent-chat-msg-content mjx-container {
+.ai-agent-chat-msg-content mjx-container,
+.ai-agent-quick-query-answer span.math,
+.ai-agent-quick-query-answer mjx-container {
   pointer-events: none;
   user-select: text;
   -webkit-user-select: text;
 }
 
-.ai-agent-chat-msg-content mjx-container svg {
+.ai-agent-chat-msg-content mjx-container svg,
+.ai-agent-quick-query-answer mjx-container svg {
   pointer-events: none;
   user-select: text;
   -webkit-user-select: text;
