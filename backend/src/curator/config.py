@@ -466,10 +466,19 @@ def paths_from_config(root: Path, config: dict | None = None) -> WikiPaths:
 
 
 def save_config(paths: WikiPaths, config: dict) -> None:
-    """Write config to disk, creating the internal directory if needed."""
+    """Write config to disk, routing machine-local keys to the global cache.
+
+    Keys in MACHINE_LOCAL_CONFIG_KEYS (llm, search, external) are written to
+    the global cache config instead of the synced vault config.  All other
+    keys go to .curator/config.yml as before.
+    """
+    machine_local = {k: v for k, v in config.items() if k in MACHINE_LOCAL_CONFIG_KEYS}
+    vault_only = {k: v for k, v in config.items() if k not in MACHINE_LOCAL_CONFIG_KEYS}
+    if machine_local:
+        save_global_config(machine_local)
     paths.internal.mkdir(parents=True, exist_ok=True)
     with paths.config_file.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(config, f, sort_keys=False, default_flow_style=False)
+        yaml.safe_dump(vault_only, f, sort_keys=False, default_flow_style=False, allow_unicode=True)
 
 
 def find_wiki_root(start: Path | None = None) -> Path | None:
