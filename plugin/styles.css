@@ -642,6 +642,22 @@
   cursor: text;
 }
 
+/* Allow Shift+click selection to span MathJax-rendered formulas.
+   pointer-events:none lets mouse events fall through the SVG to surrounding text;
+   user-select:text lets the DOM selection range include the mjx-container node. */
+.ai-agent-chat-msg-content span.math,
+.ai-agent-chat-msg-content mjx-container {
+  pointer-events: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ai-agent-chat-msg-content mjx-container svg {
+  pointer-events: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .ai-agent-chat-msg-assistant .ai-agent-chat-msg-content {
   padding: 10px 12px;
   background: color-mix(in srgb, var(--background-secondary) 82%, transparent);

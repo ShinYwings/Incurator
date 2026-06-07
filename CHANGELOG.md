@@ -4,6 +4,20 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.4.3] — 2026-06-07
+
+### Fixed
+
+- **Chat sidebar LaTeX selection** — Shift+click could not extend a text selection
+  across rendered MathJax formulas because SVG elements block mouse events by
+  browser default. Added `pointer-events: none` and `user-select: text` on
+  `.ai-agent-chat-msg-content mjx-container` and its SVG child so that the mouse
+  event passes through to the surrounding text layer, letting selection span
+  formulas. The existing `copy` event interceptor then extracts LaTeX source from
+  `annotation[encoding="application/x-tex"]` as before.
+
+---
+
 ## [0.4.2] — 2026-06-07
 
 ### Added
