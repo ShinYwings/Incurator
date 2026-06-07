@@ -564,11 +564,12 @@ question/persona/context fields must be derived from the current query and
 active chat/workspace context, not a stale session-level language or unrelated
 workspace default.
 
-### 11.2 Plugin Dashboard State Sharing
+### 11.2 Plugin Dashboard Runtime Snapshots
 
-The Obsidian plugin dashboard should synchronize backend status through
-backend-owned shared files rather than MCP tool discovery or a plugin-specific
-IPC process.
+The Obsidian plugin dashboard reads backend status through backend-owned local
+snapshot files rather than MCP tool discovery or a plugin-specific IPC process.
+These files are generated caches for the current machine. They are not shared
+truth and must not be synchronized across devices.
 
 Canonical runtime snapshots live under:
 
@@ -589,12 +590,16 @@ Recommended files:
 Rules:
 
 - Backend code is the single writer for `.curator/runtime/*.json`.
-- The plugin may read these files directly through the Obsidian vault adapter.
+- The plugin may read these files directly through the Obsidian vault adapter
+  only after giving the local backend a chance to refresh them.
 - The plugin must treat missing or stale snapshots as "unknown/waiting", not as
   proof that backend state is empty.
 - Runtime snapshots must be derived from backend-owned state (`state.sqlite`,
   internal search metadata, job queue, config) and must not become a second
   source of truth.
+- Runtime snapshots may include local absolute paths such as the active vault
+  root, backend executable, model cache, and Zotero roots. `.curator/runtime/`
+  must therefore stay device-local in Syncthing and Git ignore rules.
 - Mutating actions such as import, rebind, reset, query generation, and
   promotion must not be implemented by editing shared JSON files.
 - Dashboard buttons that change backend state must invoke backend code. The
@@ -625,6 +630,10 @@ Rules:
   keys. Backend resolves the key, imports the resolved PDF as a Reference Mode
   source, and stores a stable logical source id such as
   `zotero:<attachmentKey>` in the local source registry.
+- Dashboard source summaries for Zotero-backed references should expose the
+  portable `zotero://open-pdf/library/items/<attachmentKey>` identity for
+  display/opening. The local absolute PDF path remains a device-local
+  `sources.external_path` hint and must not be treated as a portable source id.
 - Snapshot writes should be atomic: write a temporary file in `.curator/runtime/`
   and replace the target path.
 
@@ -863,6 +872,33 @@ be excluded from Syncthing (`.stignore`); if it were synced, devices would
 overwrite each other's marks and trigger re-import storms. The synced
 `.curator/sync/` directory itself is NOT excluded — those files are the
 transport.
+
+## 13.4 Machine-Local Configuration
+
+Machine-local runtime configuration lives in the project cache config:
+
+```text
+.cache/config/config.yml
+```
+
+The machine-local config blocks are:
+
+- `llm`
+- `search`
+- `external`
+
+These blocks may contain provider choices, model cache paths, Ollama/DeepSeek
+connection settings, embedding/reranker model paths, external roots, and Zotero
+data/attachment roots. They must not be persisted as shared vault truth in
+`.curator/config.yml` because each device can have different local paths and
+model availability.
+
+`.curator/config.yml` remains vault-scoped and portable. It may hold values such
+as `version`, `paths`, `persona`, `sync`, `auto_sync`, and `curate`.
+
+When a backend loads a vault config that still contains `llm`, `search`, or
+`external`, it must migrate those blocks into `.cache/config/config.yml` and
+remove them from the vault config while preserving the effective merged values.
 
 ## 13.2 Chat Query Language And Trace
 

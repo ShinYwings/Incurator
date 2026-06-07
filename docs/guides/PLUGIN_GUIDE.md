@@ -295,7 +295,14 @@ The Settings page shows the selected model's context window on the **Model**
 row instead of as a separate setting.
 
 > [!NOTE]
-> The **Incurator Dashboard → Overview → LLM Provider** card also edits the vault's (`​.curator/config.yml`) Primary/Fallback models. Each model dropdown is paired with an **effort dropdown** that shows only the levels the selected model exposes (models with no effort show `—`). Applying saves Primary via `wiki config provider` and Fallback via `wiki config set --local` so **both land in the same vault-scoped config** (previously the fallback went to the global config and was masked, so it appeared not to change). The model list is bundled from the backend's single-source `data/models.json` catalogue when the plugin is built, so model names do not depend on MCP startup.
+> The **Incurator Dashboard → Overview → LLM Provider** card edits the current
+> machine's cached model settings in `.cache/config/config.yml`. Each model
+> dropdown is paired with an **effort dropdown** that shows only the levels the
+> selected model exposes (models with no effort show `—`). Applying saves
+> Primary/Fallback and their effort values through `wiki config`, so these
+> machine-local choices do not leak into the synced vault `.curator/config.yml`.
+> The model list is bundled from the backend's single-source `data/models.json`
+> catalogue when the plugin is built, so model names do not depend on MCP startup.
 >
 > Below the model dropdowns, an **Ollama models** section lists the recommended Ollama models from `data/models.json` annotated for this machine: each shows an **installed** badge when already pulled or an **exceeds RAM** badge when its `vram_gb` is larger than detected RAM, and not-yet-installed models get a **Pull** button (`wiki plugin models pull`) that runs `ollama pull` and refreshes. This makes the "switch to a local model, then resume the build" flow (see the Sources tab **Retry errored sources** button) work end to end.
 
@@ -562,11 +569,13 @@ attachment resolution, then presents any required user choice or repair action.
 The dashboard **Reset** action asks for two confirmations before clearing the
 local database and generated L1-L4 content.
 
-Dashboard status should come from backend-owned shared snapshots under
+Dashboard status comes from backend-owned local snapshots under
 `.curator/runtime/`, not from plugin-owned state. The backend is the only writer
-for those JSON files; the plugin reads them to render source counts, job state,
-index health, and backend version. Missing snapshots are treated as waiting or
-unknown state, not as an empty backend.
+for those JSON files; the plugin asks the local backend to refresh them before
+rendering source counts, job state, index health, and backend version. Missing
+or stale snapshots are treated as waiting or unknown state, not as an empty
+backend. Because these snapshots include local paths, keep `.curator/runtime/`
+device-local rather than syncing it between machines.
 
 Dashboard buttons run backend commands for mutations; the plugin does not
 directly edit backend-owned `.curator` state for those actions. The primary
@@ -656,7 +665,7 @@ Plugin data is split into two files.
 | --- | --- | --- |
 | `data.json` | Settings such as provider, model, and MCP servers | Recommended only when paths match |
 | `sessions.json` | Chat conversation history | Supported |
-| `.curator/runtime/*.json` | Backend-written dashboard/status snapshots | Supported as generated state |
+| `.curator/runtime/*.json` | Backend-written dashboard/status snapshots | Local cache only |
 
 In v0.2.1, the plugin re-reads the latest on-disk `sessions.json` before saving and merges by session id. This preserves distinct sessions created on Linux and macOS. Deleted sessions are recorded in `deletedSessionIds` tombstones so an older synced file does not resurrect them later. If the same session is edited on both devices concurrently, the copy with the newer `updatedAt` timestamp wins.
 

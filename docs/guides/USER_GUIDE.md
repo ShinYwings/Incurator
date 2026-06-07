@@ -11,7 +11,7 @@ Before installing the system, ensure the following tools are installed:
 1.  **Python 3.10+**: The core logic is written in Python.
 2.  **Terminal**: All commands are executed within a CLI environment.
 3.  **Note Editor (Obsidian Recommended)**: The primary tool for visualizing and editing your knowledge base. While any text editor that supports Markdown can be used, the system is optimized for Obsidian's link structure and plugin ecosystem.
-4.  **Node.js**: Required for building the Obsidian plugin and plugin development tooling. (Note: `./setup.sh` handles the installation of Node.js, Ollama, and the backend package automatically, while `wiki init` handles the plugin installation.)
+4.  **Node.js**: Required for building the Obsidian plugin and plugin development tooling. (Note: `./setup.sh` handles the installation of Node.js, GitHub CLI, Ollama, and the backend package automatically, while `wiki init` handles the plugin installation.)
 5.  **Curator Engine Backends**: At least one model backend is required, supporting both local and cloud providers.
     - **Local LLM (Ollama)**: Provides strong privacy and offline capabilities with no additional cost. (Requires VRAM)
     - **Subscription Services (Providers)**: Leverages external engines like Antigravity, Claude, and OpenAI. These do not consume local VRAM and offer high reasoning performance. (Note: Standard universal models are sufficient for the curation phase; high-cost reasoning-only models are not strictly required.)
@@ -524,7 +524,7 @@ Summary of major commands following the user workflow.
 | `wiki models ensure` | Install/refresh local search model dependencies and GGUF files. `setup.sh` runs this automatically unless `INCURATOR_SKIP_MODELS=1` is set. |
 | `wiki models status` | Show local search model health, cache paths, and dependency status as JSON. |
 | `wiki config get <key>` | Read a specific config value. (e.g. `wiki config get llm.primary`) |
-| `wiki config set <key> <value>` | Update a specific config value. Writes to the **global** config by default; pass `--local` to write the active vault's `.curator/config.yml` (the vault config shadows global keys on load). (e.g. `wiki config set --local llm.fallback ""`) |
+| `wiki config set <key> <value>` | Update a specific config value. Machine-local keys such as `llm.*`, `search.*`, and `external.*` write to `.cache/config/config.yml`; pass `--local` only for portable vault-scoped keys that belong in `.curator/config.yml`. |
 | `wiki config secret list/delete` | Inspect masked local encrypted backend secrets or delete a stored secret. |
 
 ### 3. Refinement & Optimization
@@ -658,7 +658,10 @@ How it stays safe across devices:
 
 ## 🧩 Configuration Management
 
-Incurator allows you to safely and conveniently manage all core settings via the `wiki config` command without having to manually edit the `.curator/config.yml` file.
+Incurator allows you to safely and conveniently manage settings via the
+`wiki config` command without manually editing YAML files. Machine-local blocks
+such as `llm`, `search`, and `external` are stored in `.cache/config/config.yml`;
+portable vault behavior remains in `.curator/config.yml`.
 
 ### 1. Provider Configuration (`wiki config provider`)
 Configure the LLM backends that power Incurator's intelligence. The system maintains two backend layers.

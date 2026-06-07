@@ -74,17 +74,24 @@ describe("Incurator dashboard backend boundary", () => {
     expect(source).toContain("[\"plugin\", \"synthesis\", \"show\"");
   });
 
-  it("saves LLM primary and fallback to the same (vault) scope (item 13)", () => {
+  it("saves LLM primary and fallback to machine-local config scope", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
 
-    // Primary via `config provider` (vault); fallback must use --local so it
-    // does NOT land in the global config where the vault llm block masks it.
-    expect(source).toContain('["config", "set", "--local", "llm.fallback"');
-    expect(source).toContain('["config", "set", "--local", "llm.fallback_effort"');
-    expect(source).not.toContain('["config", "set", "llm.fallback"');
+    expect(source).toContain('["config", "set", "llm.fallback"');
+    expect(source).toContain('["config", "set", "llm.fallback_effort"');
+    expect(source).not.toContain('["config", "set", "--local", "llm.fallback"');
     // Do not apply with an unloaded catalogue (empty provider).
     expect(source).toContain("Models are still loading");
+  });
+
+  it("refreshes local runtime snapshots before reading status or sources", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    expect(source).toContain("private async readFreshRuntimeJson");
+    expect(source).toContain('await this.refreshRuntimeSnapshots();');
+    expect(source).toContain('await this.readFreshRuntimeJson("sources")');
   });
 
   it("adds a one-shot Update action and demotes granular steps to Advanced (item 13)", () => {

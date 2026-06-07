@@ -11,7 +11,7 @@
 1.  **Python 3.10+**: 시스템의 핵심 로직이 Python으로 작성되었습니다.
 2.  **터미널 (Terminal)**: 모든 명령어는 CLI 환경에서 실행됩니다.
 3.  **노트 편집기 (Obsidian 권장)**: 지식 베이스의 시각화 및 편집을 위한 도구입니다. 옵시디언이 필수는 아니며 텍스트 파일을 볼 수 있는 에디터라면 무엇이든 가능하지만, 본 시스템은 옵시디언의 링크 구조와 플러그인 생태계에 최적화되어 개발되었습니다.
-4.  **Node.js**: Obsidian 플러그인 빌드와 플러그인 개발 도구 실행을 위해 필요합니다. (Ollama와 함께 `./setup.sh` 실행 시 자동으로 설치를 시도하며, 플러그인은 `wiki init` 과정에서 설치되므로 별도로 준비하실 필요가 없습니다.)
+4.  **Node.js**: Obsidian 플러그인 빌드와 플러그인 개발 도구 실행을 위해 필요합니다. (Ollama, GitHub CLI와 함께 `./setup.sh` 실행 시 자동으로 설치를 시도하며, 플러그인은 `wiki init` 과정에서 설치되므로 별도로 준비하실 필요가 없습니다.)
 5.  **Curator Engine 백엔드**: 시스템 구동을 위해 하나 이상의 모델 백엔드가 필요하며, 로컬과 클라우드 방식을 모두 지원합니다.
     - **로컬 LLM (Ollama)**: 강력한 개인 정보 보호와 별도 비용 없는 사용이 가능합니다. (VRAM 필요)
     - **클라우드 LLM (Providers)**: Antigravity, Claude, OpenAI 등의 외부 엔진을 활용합니다. 로컬 자원(VRAM) 소모가 거의 없으며 고성능 추론이 가능합니다. (큐레이션 단계에서는 고가의 추론 전용 모델이 아닌 일반 범용 모델로도 충분히 안정적인 성능을 발휘합니다.)
@@ -494,7 +494,7 @@ status/history/push입니다.
 | `wiki models ensure` | 로컬 검색 모델 의존성과 GGUF 파일을 설치/갱신합니다. `setup.sh`는 `INCURATOR_SKIP_MODELS=1`이 설정되지 않은 한 이 명령을 자동 실행합니다. |
 | `wiki models status` | 로컬 검색 모델 상태, 캐시 경로, 의존성 상태를 JSON으로 표시합니다. |
 | `wiki config get <key>` | 특정 설정 값을 조회합니다. (예: `wiki config get llm.primary`) |
-| `wiki config set <key> <value>` | 특정 설정 값을 변경합니다. 기본은 **global** 설정에 기록하며, `--local`을 주면 현재 vault의 `.curator/config.yml`에 기록합니다(로드 시 vault 설정이 global 키를 덮어씁니다). (예: `wiki config set --local llm.fallback ""`) |
+| `wiki config set <key> <value>` | 특정 설정 값을 변경합니다. `llm.*`, `search.*`, `external.*` 같은 기기별 key는 `.cache/config/config.yml`에 기록합니다. `--local`은 `.curator/config.yml`에 속하는 portable vault-scoped key에만 사용하세요. |
 
 ### 3. 고도화 및 최적화 (Curation)
 | 명령어 | 설명 | 사용 시점 |
@@ -627,7 +627,7 @@ wiki db autosync --dry-run   # 실제 변경 없이 미리 보기
 
 ## 🧩 설정 관리 (Configuration)
 
-Incurator는 `.curator/config.yml` 파일을 직접 수정하지 않아도, `wiki config` 명령어를 통해 모든 핵심 설정을 안전하고 편리하게 관리할 수 있습니다.
+Incurator는 YAML 파일을 직접 수정하지 않아도 `wiki config` 명령어를 통해 설정을 안전하고 편리하게 관리할 수 있습니다. `llm`, `search`, `external` 같은 기기별 block은 `.cache/config/config.yml`에 저장되고, portable vault 동작은 `.curator/config.yml`에 남습니다.
 
 ### 1. 프로바이더 설정 (`wiki config provider`)
 Incurator의 지능을 담당하는 LLM 백엔드를 설정합니다. 시스템은 두 개의 백엔드 계층을 가집니다.

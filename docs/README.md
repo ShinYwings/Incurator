@@ -62,11 +62,11 @@ As such, splitting your knowledge into multiple vaults solely for administrative
 ### 📋 Prerequisites
 - **Core Environment**: Python 3.10+, Terminal, Note Editor (Obsidian recommended)
 - **Backend Accounts**: An API Key or subscription account is required for cloud models (Antigravity, Claude, etc.).
-- **Automation Note**: Installing Ollama (local models) and Node.js (search engine), along with building the monorepo backend package and plugin, is automatically handled all at once by running `./setup.sh` in the root directory.
+- **Automation Note**: Installing Ollama (local models) and Node.js (search engine), along with building the monorepo backend package, plugin, and installing GitHub CLI (`gh`), is automatically handled all at once by running `./setup.sh` in the root directory.
 - See the [User Guide](docs/guides/USER_GUIDE.md) for more details.
 
 ### 🚀 Quick Start
-1.  **Install**: `./setup.sh` (Automatically installs the backend package, builds the plugin, and installs Ollama, Node.js, etc.)
+1.  **Install**: `./setup.sh` (Automatically installs the backend package, builds the plugin, and installs Ollama, Node.js, GitHub CLI, etc.)
 2.  **Initialize**: `wiki init <path/to/your/obsidian-vault>`
     > **Single Vault Principle**: Every folder initialized with `wiki init` has its own resident **Curator**. Since Incurator runs one Curator at a time, we strongly recommend maintaining **a single main vault** to maximize knowledge connectivity and growth.
     >

@@ -302,7 +302,7 @@ def get_curator_persona(config: dict) -> dict:
 def get_global_config_dir() -> Path:
     """Get project-local config directory (originally global)."""
     # Force everything to be inside the project's .cache so no byproducts leak into ~
-    return Path(__file__).resolve().parents[3] / ".cache" / "config"
+    return Path(__file__).resolve().parents[3] / consts.DIR_GLOBAL_CACHE
 
 
 def save_global_config(config: dict) -> None:
@@ -357,6 +357,30 @@ def set_last_root(root: Path) -> None:
         pass
 
 
+MACHINE_LOCAL_CONFIG_KEYS = frozenset({"llm", "search", "external"})
+
+
+def _migrate_vault_machine_local_to_global(paths: WikiPaths, vault_cfg: dict) -> None:
+    """Move machine-local keys from vault config dict to global cache config.
+
+    Modifies ``vault_cfg`` in-place by removing the machine-local keys, and
+    rewrites the vault config file without them.  A no-op when the vault config
+    contains none of the machine-local keys.
+    """
+    moved = {k: vault_cfg.pop(k) for k in list(vault_cfg) if k in MACHINE_LOCAL_CONFIG_KEYS}
+    if not moved:
+        return
+    save_global_config(moved)
+    paths.internal.mkdir(parents=True, exist_ok=True)
+    tmp = paths.config_file.with_name(f".{paths.config_file.name}.tmp")
+    tmp.write_text(
+        yaml.safe_dump(vault_cfg, sort_keys=False, default_flow_style=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    import os as _os
+    _os.replace(tmp, paths.config_file)
+
+
 def load_config(paths: WikiPaths) -> dict:
     """Load the Curator's config.yml, falling back to defaults for missing keys."""
     import copy
@@ -388,11 +412,14 @@ def load_config(paths: WikiPaths) -> dict:
         try:
             with paths.config_file.open("r", encoding="utf-8") as f:
                 loaded = yaml.safe_load(f) or {}
+            # Merge entire vault dict first so machine-local values are not lost.
+            # Migration only rewrites the file; merged already gets the correct values.
             for key, val in loaded.items():
                 if isinstance(val, dict) and isinstance(merged.get(key), dict):
                     merged[key] = {**merged[key], **val}
                 else:
                     merged[key] = val
+            _migrate_vault_machine_local_to_global(paths, loaded)
         except yaml.YAMLError as e:
             import logging
             logging.getLogger(__name__).warning(

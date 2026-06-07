@@ -133,3 +133,38 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
         self.assertEqual(jobs["queued"][0]["source_name"], "paper.pdf")
         self.assertEqual(jobs["failed"][0]["source_name"], "failed.pdf")
         self.assertEqual(jobs["cancelled"][0]["source_name"], "cancelled.pdf")
+
+    def test_zotero_source_snapshot_uses_portable_source_path(self) -> None:
+        with db.connect(self.paths.state_db) as conn:
+            conn.execute("DELETE FROM sources")
+            conn.execute(
+                """
+                INSERT INTO sources
+                (relpath, content_hash, file_type, bytes, added_at, status,
+                 external_path, is_reference, logical_source_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "04_Resources/References/paper.md",
+                    "zotero-hash",
+                    "pdf",
+                    123,
+                    "2026-06-02T00:00:00Z",
+                    "curated",
+                    "/home/user/Zotero/storage/ATTKEY/paper.pdf",
+                    1,
+                    "zotero:ATTKEY",
+                ),
+            )
+
+        sources = runtime_state.build_sources_snapshot(self.paths)
+
+        self.assertEqual(sources["sources"][0]["relpath"], "04_Resources/References/paper.md")
+        self.assertEqual(
+            sources["sources"][0]["source_path"],
+            "zotero://open-pdf/library/items/ATTKEY",
+        )
+        self.assertEqual(
+            sources["sources"][0]["external_path"],
+            "/home/user/Zotero/storage/ATTKEY/paper.pdf",
+        )

@@ -587,6 +587,9 @@ Rules:
   external PDF's absolute path.
 - `sources.external_path` stores the original absolute file path as a recoverable
   device-local location hint.
+- For Zotero-backed references, UI/source summaries should use
+  `zotero://open-pdf/library/items/<attachment-key>` as the portable display
+  path instead of copying the device-local absolute PDF path into `source_path`.
 - Automatically generated stubs should not write `target_path` because
   `04_Resources/` may sync across devices whose external libraries live at
   different absolute paths. Use `target_path` only for explicit local/manual
