@@ -175,7 +175,7 @@ Concrete examples:
 
 Whenever a user requests a new feature, reports a bug, or uses the `/goal` command, the agent MUST automatically follow this strict 12-step `Universal Strict Workflow`:
 
-1. **Triage & Queuing**: Read `.agents/USER_REPORT.md` (the chronological inbox). For complex items or multi-step tasks, perform a 1st-level analysis and extract the details into a separate skeleton `.md` file in `.agents/plans/`. Then, register a concise bullet point in the `To-Do` queue in `.agents/ROADMAP.md` that links to the skeleton file, and **delete** the raw item from `.agents/USER_REPORT.md`.
+1. **Triage & Queuing**: Read `.agents/USER_REPORT.md` (the chronological inbox). For complex items or multi-step tasks, perform a 1st-level analysis and extract the details into a separate skeleton `.md` file in `.agents/drafts/`. Then, register a concise bullet point in the `To-Do` queue in `.agents/ROADMAP.md` that links to the skeleton file, and **delete** the raw item from `.agents/USER_REPORT.md`.
 2. **Batch & Version Planning**: Read the `To-Do` section in `.agents/ROADMAP.md` (ignoring Blocked items) and group related items into a single Batch Release. Cross-reference each candidate item against roadmap skeletons to understand which milestone it belongs to. Decide whether this batch warrants a Patch, Minor, or Major version bump. **CRITICAL**: If the update is Minor/Major and includes breaking schema changes, you MUST plan and write a data migration script.
 3. **Branch Creation**: Create and switch to a new Git branch for the release (e.g., `release/v0.3.3` or `feature/issue-name`). NEVER work directly on the `main` branch. You MUST update `.agents/RELAY.md` with the current branch name so other agents know where they are.
 4. **Plan Creation & Report Status Update**: Write a detailed implementation plan in `.agents/plans/` using the `.agents/PLAN_TEMPLATE.md` blueprint. **CRITICAL**: As soon as the plan is drafted, you MUST update `.agents/ROADMAP.md` to reflect the new active milestone. If there are ambiguities, explicitly ask the user clarifying questions before proceeding. **STOP** and wait for user approval before coding.
@@ -345,7 +345,7 @@ When they conflict, the more concrete layer (spec) dictates the implementation r
   1. **Domain Analysis docs** (`A_*.md`, `B_*.md`, …) — one per major component. Each must cover: design constraints from codebase, docs/specs invariants, alternatives & trade-offs, final decision, and implementation pseudocode/SQL.
   2. **Master Implementation Plan** (`[XX]_[feature].md`) — locked design decisions, contracts preserved, multi-agent role reviews, and strict phases (`P1 → P2 → …`). Each phase must pass `pytest` + `ruff` before the next begins.
   3. **Evidence Ledger** (`[XX]_roadmap_evidence.md`) — created immediately before coding starts. Records rollback anchor, current schema reality, and pre/post validation results.
-- The skeleton plan files in `.agents/plans/` (e.g., `stabilization.md`, `knowledge_sync_bridge.md`) are **scope notes only**, not implementation plans. They must be replaced or accompanied by the full three-document set before implementation begins.
+- The skeleton plan files in `.agents/drafts/` (e.g., `stabilization.md`, `knowledge_sync_bridge.md`) are **scope notes only**, not implementation plans. They must be replaced or accompanied by the full three-document set before implementation begins.
 - To read historical plans, you MUST use `git show` or `git log` on the `.agents/plans/` directory, as completed plans are deleted from the active workspace.
 - Plans describe *how* to implement; specs describe *what* to implement.
   When they conflict, specs and guides win over plans.
@@ -396,12 +396,14 @@ Before implementing any new architecture work, the agent MUST first create or up
 During the execution phase (after the Arena Master Plan is approved), the implementation must be driven by a structured, role-based execution pipeline (similar to MetaGPT/ChatDev software company models). Agents must adopt these personas sequentially to ensure robust code quality:
 
 - **`coder_engineer`**: Focuses purely on implementing the feature logic according to the Master Plan and writing initial tests. Does not touch unrelated files or "improve" adjacent code.
-- **`schema_guardian`**: Reviews the `coder_engineer`'s implementation to strictly ensure `SCHEMA.md`, layer names, prefixes (`CTX-`, `ATM-`, `CON-`, `SYN-`), and frontmatter shape conform to the spec without regressions.
+- **`peer_reviewer`**: Conducts a strict static analysis of the `coder_engineer`'s PR before it goes to QA. Checks for tight coupling, memory leaks, missing error handling, and hardcoded variables.
+- **`schema_guardian`**: Reviews the implementation to strictly ensure `SCHEMA.md`, layer names, prefixes (`CTX-`, `ATM-`, `CON-`, `SYN-`), and frontmatter shape conform to the spec without regressions.
 - **`qa_runner` (CI/Testbed)**: Executes the E2E verification. Runs `pytest`, `ruff check`, `mypy`, and `wiki testbed init`. Simulates edge cases (e.g., `local_slm_simulator` for LLM failure, verifying topic boundary isolation).
+- **`rollback_strategist`**: Activates if the `qa_runner` fails more than 3 times in a row. Analyzes the failure loop, cleanly reverts the Git branch to the last stable state, and forces a return to the planning phase (prevents LLM infinite-looping).
 - **`docs_sync_manager`**: Ensures that `docs/specs/` and `docs/guides/` are faithfully updated immediately after the code passes QA, maintaining the English -> Korean `_KR.md` translation sync.
 - **`legacy_sweeper`**: Performs cleanup before finalizing the PR. Searches for unused imports, deleted API references (like the retired `qmd`), orphaned test functions, and stale comments left behind by the new implementation.
 
-As the orchestrator, you must route the workflow through these execution roles sequentially, ensuring code passes through the `schema_guardian` and `qa_runner` validations before considering the implementation phase complete.
+As the orchestrator, you must route the workflow through these execution roles sequentially, ensuring code passes through the `peer_reviewer`, `schema_guardian`, and `qa_runner` validations before considering the implementation phase complete.
 
 ## Simulated LLM Fallback
 

@@ -1,72 +1,49 @@
 # Incurator Master Roadmap & Todo List
 
-아키텍처 대공사 및 향후 업데이트를 위한 마스터 로드맵입니다.
-이 문서는 에이전트들이 향후 마일스톤을 어떻게 계획하고 실행해야 하는지에 대한 핵심 지침을 제공합니다.
+This is the master roadmap for major architectural overhauls and future updates.
+This document provides key guidelines on how agents should plan and execute future milestones.
 
 ## 🚨 Update Classification & Planning Rule
 
-모든 에이전트는 작업 시작 전 반드시 `.agents/USER_REPORT.md`를 단일 진실 공급원(Single Source of Truth)으로 삼아 미해결 항목(To-Do)을 파악해야 합니다. 
-항목의 업데이트 규모에 따라 다음의 기획 규칙을 **반드시** 따라야 합니다:
+Before starting work, all agents MUST use `.agents/USER_REPORT.md` as the Single Source of Truth to identify unresolved items (To-Do).
+Depending on the scale of the update, you MUST follow these planning rules:
 
-- **메이저(Major) 및 마이너(Minor) 업데이트** (버전 `v.X.Y.Z`에서 X, Y가 증가하는 아키텍처/기능 변경):
-  - **절대 코드를 바로 작성하지 마세요.**
-  - `USER_REPORT.md`의 항목을 바탕으로, 구현 시작 전에 반드시 `.agents/PLAN_TEMPLATE.md` 템플릿을 엄격하게 준수하여 마일스톤 명세서와 세부 플랜을 작성해야 합니다.
-  - 작성된 플랜은 파편화를 막기 위해 본 문서(`ROADMAP.md`)의 해당 마일스톤 항목 하단에 병합하여 관리해야 합니다.
-- **핫픽스(Hotfix) 및 단순 버그 수정(Fix)** (버전 `v.X.Y.Z`에서 Z가 증가하는 규모의 버그 수정):
-  - 무거운 템플릿 작성 절차에서 예외로 인정되며, 즉시 원인 분석 및 수정(Fix)이 가능합니다.
-
----
-
-
-## 📥 Triage & Queuing (할 일 대기열)
-
-`.agents/USER_REPORT.md`에서 접수된 유저의 요청들이 실제 마일스톤으로 기획/편입되기 전 대기하는 공간입니다.
-
-### 🚀 향후 해결할 미해결 항목 (To-Do)
-
-1. **Minor Quick Wins**
-   - 웹 검색 기능 검토, `[[wikilink]]` 충돌 검토, Diff Viewer UI/UX 등.
-   - 세부 분석: `.agents/plans/minor_quick_wins.md`
-
-2. **RAG & Knowledge Quality Stabilization**
-   - 검색 엔진 심층 보완, 수식 누락 해결, 엔티티 중복 필터링 및 Vault Quota 도입.
-   - 세부 분석: `.agents/plans/stabilization.md`
-
-3. **Native PDF Annotation System**
-   - 옵시디언 내장 PDF Viewer를 활용한 자체 어노테이션 및 동기화 설계.
-   - 세부 분석: `.agents/plans/pdf_annotation_system.md`
-
-### 🧊 Blocked / Icebox (대기 중인 보류 항목)
-- 외부 의존성(라이브러리 업데이트 등) 문제로 당장 해결할 수 없는 항목들을 이곳에 보관합니다.
-- (참고: 에이전트의 최우선 해결 의무에서 이 섹션의 항목들은 예외로 취급됩니다.)
+- **Major and Minor Updates** (Architecture/feature changes where X or Y increases in version `v.X.Y.Z`):
+  - **NEVER write code immediately.**
+  - Based on the items in `USER_REPORT.md`, you MUST write a milestone specification and detailed plan in strict compliance with the `.agents/PLAN_TEMPLATE.md` template before starting implementation.
+  - The written plan must be merged and managed under the corresponding milestone item in this document (`ROADMAP.md`) to prevent fragmentation.
+- **Hotfix and Simple Bug Fix (Fix)** (Bug fixes on a scale where Z increases in version `v.X.Y.Z`):
+  - These are exempted from the heavy template writing procedure, and you can immediately analyze the cause and apply the fix.
 
 ---
 
-## 📌 Current Focus & Future Updates
+## 📥 Triage & Queuing (To-Do Queue)
 
-로드맵의 구체적인 To-Do 리스트는 유저의 Inbox인 `.agents/USER_REPORT.md`에서 본 문서의 `Triage & Queuing` 섹션으로 이관되어 관리됩니다. 본 문서는 대기열(Queue)과 현재 진행 상황 및 향후 방향성을 모두 통합 관리합니다.
+This is the holding area where user requests received from `.agents/USER_REPORT.md` wait before being planned/incorporated into actual milestones. Writing a PLAN_TEMPLATE is mandatory when proceeding.
 
-### 🟢 지금 진행 중인 작업 (Current Active Milestone)
-- 현재 지정된 활성 마일스톤이 없습니다. (아래 To-Do 목록에서 다음 작업을 선택해주세요)
+### 🚀 Unresolved Items to be Addressed in the Future (To-Do)
 
-### ⏩ 앞으로 진행할 업데이트 방향 (Future Roadmap)
-위의 현재 작업이 완료된 후, `USER_REPORT.md`를 기반으로 다음 규모의 업데이트들이 대기 중입니다 (진행 시 반드시 PLAN_TEMPLATE 작성 필수):
-1. **Minor Quick Wins (Minor)**: 웹 검색 연동 검토, Obsidian 백링크 명시적 링킹 도입 여부 검증, Diff Viewer UI/UX 개선.
-2. **RAG & Knowledge Quality Stabilization (Major)**: 검색 엔진(Qwen3 + FTS5) 심층 분석 및 보완, 수식 누락 해결을 위한 하이브리드 추출 도입, 엔티티 중복 방지를 위한 통합 로직, 보관소 용량 관리 가시성 제공.
-3. **Native PDF Annotation System (Major)**: 외부 Zotero 의존성 제거, 옵시디언 내장 PDF Viewer를 활용한 자체 하이라이트/메모 동기화 체계 구축.
+1. **[Minor Update] Minor Quick Wins**
+   - Review web search feature integration, validate potential `[[wikilink]]` conflicts and introduction of explicit Obsidian backlinks, Diff Viewer UI/UX improvements, etc.
+   - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
+
+2. **[Major Update] RAG & Knowledge Quality Stabilization**
+   - Deep analysis and supplementation of the search engine (Qwen3 + FTS5), introduction of hybrid extraction to resolve missing math formulas, integrated logic for entity deduplication filtering and prevention, providing visibility for Vault Quota management.
+   - Detailed analysis: `.agents/drafts/stabilization.md`
+
+3. **[Major Update] Native PDF Annotation System**
+   - Remove external Zotero dependency, build a native annotation (highlight/memo) synchronization system utilizing Obsidian's built-in PDF Viewer.
+   - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
+
+### 🧊 Blocked / Icebox (Pending Items)
+- Items that cannot be resolved immediately due to external dependencies (library updates, etc.) are stored here.
+- (Note: Items in this section are treated as exceptions to the agent's top-priority resolution duty.)
 
 ---
 
-## 🤖 Multi-Agent Debate Protocol
-(메이저/마이너 플랜 작성 시 에이전트들이 필수로 거쳐야 할 검증 시뮬레이션 역할)
+## 📌 Current Focus & Active Milestone
 
-- **`schema_guardian`**: `state.sqlite` 스키마 변경 시 `docs/specs/`와 동기화 무결성 방어.
-- **`cli_regression_runner`**: 각 마일스톤 완료 후 `testbed/`에서 CLI 회귀 테스트 시나리오 실행.
-- **`source_pair_analyst`**: 지식 정제 및 어노테이션 변경이 L1~L4 DAG 생태계에 미치는 파급 효과 분석.
+The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
-## 📁 Evidence Ledger (사전 검증 장부)
-문서화, DB 마이그레이션, 플러그인 코드가 실제 레포지토리와 볼트의 상태에서 어긋나지 않도록, 에이전트들은 `PLAN_TEMPLATE.md` 기획 단계에서 다음 사항을 반드시 수집하고 검증해야 합니다.
-
-1. **Current Repository & Schema Reality**: 현재 스키마(`sources`, `synthesis_nodes` 등)가 시스템 스펙 문서를 정확히 반영하고 있는지 사전 팩트 체크.
-2. **Current Dirty Worktree**: 사용자나 타 에이전트가 작업 중인 커밋되지 않은 변경 사항 파악 (강제 덮어쓰기 방지).
-3. **Rollback Requirements**: 파괴적 작업(DB 변경 등) 전 안전한 백업 및 복구(Rollback) 포인트 지정.
+### 🟢 Currently Ongoing Work (Current Active Milestone)
+- No active milestone is currently designated. (Please select the next task from the To-Do list above)

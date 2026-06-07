@@ -1,8 +1,8 @@
 # User Report
 
-이 문서는 유저가 제보한 버그나 필요한 기능, 아이디어 등을 시간 순서대로 가감 없이 기록하는 **담백한 Inbox(백로그) 로그**입니다.
+This document is a **plain Inbox (backlog) log** that records bugs reported by the user, required features, ideas, etc., in chronological order without any filtering.
 
-에이전트는 이 문서를 확인하여, 접수된 항목들을 `.agents/ROADMAP.md`의 `To-Do (Queuing)` 영역이나 `Icebox` 영역으로 이관(Triage)해야 합니다. 이관이 완료된 항목은 이 문서에서 **즉시 삭제**하세요.
+Agents must check this document and triage the received items into the `To-Do (Queuing)` area or `Icebox` area of `.agents/ROADMAP.md`. Once the triage is complete, **immediately delete** the item from this document.
 
 ## 📝 User Inbox
-- 현재 접수된 항목이 없습니다. (모든 항목이 ROADMAP.md로 이관됨)
+- No items currently received. (All items have been triaged to ROADMAP.md)

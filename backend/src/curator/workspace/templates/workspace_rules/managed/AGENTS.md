@@ -5,7 +5,8 @@
 - **Rules for `curate.yml`**: All `sources.include/exclude` patterns MUST be relative to the **Vault Root**.
 > [!CAUTION]
 > **CRITICAL PROHIBITION**: NEVER add local workspace files, folders, or patterns (e.g., `01_Workspaces/**`, `Papers/`, `methodology.md`) to `sources.include` in `curate.yml`. Including local project data in the global Curator DAG is a severe architecture violation. Local data must only be "promoted" to `02_Wiki/` before being curated.
-
+>
+> The skeleton plan files in `.agents/drafts/` (e.g., `stabilization.md`, `knowledge_sync_bridge.md`) are **scope notes only**, not implementation plans. They must be replaced or accompanied by the full three-document set before implementation begins.
 
 **Mandatory for every session in `{{workspace_path}}`:**
 
@@ -25,7 +26,9 @@
 searching local files, the web, or training knowledge.
 
 - Use Curator results as the primary evidence source.
-  Fall back to local files only if Curator returns nothing, and state clearly when falling back.
+- Fall back to local files only if Curator returns nothing, and state clearly when falling back.
+
+1. **Triage & Queuing**: Read `.agents/USER_REPORT.md` (the chronological inbox). For complex items or multi-step tasks, perform a 1st-level analysis and extract the details into a separate skeleton `.md` file in `.agents/drafts/`. Then, register a concise bullet point in the `To-Do` queue in `.agents/ROADMAP.md` that links to the skeleton file, and **delete** the raw item from `.agents/USER_REPORT.md`.
 
 **Session end** — follow `.agents/curator/workflows/session_closeout.md`.
 
