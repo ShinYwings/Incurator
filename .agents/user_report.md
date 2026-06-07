@@ -7,6 +7,11 @@
 
 ## 🚀 향후 해결할 미해결 항목 (To-Do)
 
+### 📦 knowledge_sync_bridge.md 배치
+- **[매이저 업데이트] Knowledge Sync Bridge 파이프라인 구현** → `knowledge_sync_bridge.md`
+  - 현상: 기기 간 지식(`state.sqlite`)이 파편화되는 문제를 해결하기 위해, JSONL 기반 Export/Import 및 Tombstone 충돌 해결(LWW) 로직이 필요함 (PDF Annotation 마일스톤의 전제 조건).
+  - 요구사항: `wiki db export` / `wiki db import` CLI 추가, 기기 종속 데이터 필터링, 그리고 `deleted_records` 기반의 무손실 라운드트립 동기화 체계 구축.
+
 ### 📦 minor_quick_wins.md 배치
 - **[마이너 업데이트] 웹 검색 기능 구현 검토** → `minor_quick_wins.md`
   - 현상: 로컬 모델(Ollama, Deepseek 등) 사용 시 웹 검색 기능 연동을 지원할지 설계 및 구현 필요.
@@ -39,6 +44,11 @@
 - **7. [매이저 업데이트] 전역적 사고(Global Sensemaking)를 위한 계층적 군집화 알고리즘 설계 플랜 작성** → `stabilization.md`
   - 현상: 수백 편의 논문 전체를 아우르는 거시적 통찰력(Global Summary)이나 커뮤니티 단위의 요약 기능이 부족함.
   - 요구사항: MS GraphRAG의 Leiden 알고리즘 등을 벤치마킹하여, 파편화된 L2(Atom) 지식들을 수학적으로 묶어 L3(Concept/Community) 단위로 자동 군집화하는 고도화된 클러스터링 로직 구현 플랜 작성 요망.
+
+### 📦 pdf_annotation_system.md 배치
+- **[매이저 업데이트] Native PDF Annotation System 도입 (Zotero 의존성 제거)** → `pdf_annotation_system.md`
+  - 현상: 외부 Zotero 시스템에 의존하던 PDF 하이라이팅 및 어노테이션을 자체 시스템으로 교체해야 함.
+  - 요구사항: 옵시디언 내장 PDF Viewer를 활용하여 하이라이트와 메모를 `state.sqlite`(`pdf_annotations` 테이블)에 직접 저장하고 오프라인 동기화(Sync Bridge 연동)하며, Zotero 수준의 매끄러운 하이라이팅 UX 및 팝업 메모 UI를 구현.
 
 
 ## 🧊 Blocked / Icebox (대기 중인 보류 항목)

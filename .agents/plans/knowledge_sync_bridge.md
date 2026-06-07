@@ -10,8 +10,8 @@ Domain Analysis:
 ---
 
 ## Linked user_report Items
-현재 user_report에 직접 대응 항목 없음 (독립 인프라 마일스톤).
-구현 완료 후 관련 user_report 항목이 생기면 여기에 추가.
+이 마일스톤은 `user_report.md`의 다음 항목을 해결합니다:
+- **[매이저 업데이트] Knowledge Sync Bridge 파이프라인 구현**
 
 ---
 

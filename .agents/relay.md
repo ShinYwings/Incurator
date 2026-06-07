@@ -10,4 +10,3 @@ No active goal. Last shipped: `v0.4.1` (hotfix/v0.4.1-device-local-paths → PR 
 - Fixed plugin `config set llm.fallback` to use global scope (no `--local`).
 
 ### Update (2026-06-07, Antigravity)
-- Committed and pushed residual unstaged changes (`deviceRegistry.ts`, `buildManifest.json`, etc.) to the `hotfix/v0.4.1-device-local-paths` branch.
