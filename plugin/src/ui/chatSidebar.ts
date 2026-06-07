@@ -21,7 +21,7 @@ import {
 } from "./externalPdfView";
 import { IngestDestinationModal } from "./ingestDestinationModal";
 import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
-import { collapseStreamingEditBlocks, normalizeLatexDelimiters, truncateToLength } from "../utils/textUtils";
+import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, truncateToLength } from "../utils/textUtils";
 import {
   ARTIFACT_DIR,
   buildEditArtifactFilename,
@@ -2423,6 +2423,7 @@ export class ChatSidebarView extends ItemView {
       }
     }
     window.setTimeout(() => this.attachAssistantAnswerLinkNavigation(contentEl), 0);
+    attachLatexCopyHandler(contentEl);
   }
 
   private attachAssistantAnswerLinkNavigation(container: HTMLElement): void {

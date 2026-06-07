@@ -1,11 +1,13 @@
 import {
   ItemView,
+  Menu,
   WorkspaceLeaf,
   loadPdfJs,
   setIcon,
   Notice,
   type ViewStateResult,
 } from "obsidian";
+import type { LLMMessage } from "../types";
 import { existsSync, readFileSync, readdirSync } from "fs";
 import { basename, join } from "path";
 import type {
@@ -838,6 +840,7 @@ export class ExternalPdfView extends ItemView {
       this.renderToolbar(container);
       const pagesEl = container.createDiv("ai-agent-external-pdf-pages");
       this.pagesEl = pagesEl;
+      this.attachPdfSelectionHandlers(pagesEl);
 
       // Determine a stable reference width by checking the first few pages and the current page,
       // because the cover page (Page 1) is often narrower than the rest of the document.
@@ -1323,6 +1326,57 @@ export class ExternalPdfView extends ItemView {
     const range = selection.getRangeAt(0);
     if (!this.pagesEl.contains(range.commonAncestorContainer)) return null;
     return selection.toString().trim() || null;
+  }
+
+  private attachPdfSelectionHandlers(pagesEl: HTMLElement): void {
+    pagesEl.addEventListener("contextmenu", (e: MouseEvent) => {
+      const text = this.getSelectionTextWithinView();
+      if (!text) return;
+      const menu = new Menu();
+      menu.addItem((item) =>
+        item
+          .setIcon("sigma")
+          .setTitle("Convert to LaTeX (Copy)")
+          .onClick(() => this.convertSelectionToLatex(text))
+      );
+      menu.showAtMouseEvent(e);
+    });
+
+    pagesEl.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "c" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+        const text = this.getSelectionTextWithinView();
+        if (!text) return;
+        e.preventDefault();
+        this.convertSelectionToLatex(text);
+      }
+    });
+  }
+
+  private async convertSelectionToLatex(rawText: string): Promise<void> {
+    if (!this.plugin?.llmClient) {
+      new Notice("LLM client not available.");
+      return;
+    }
+    new Notice("Converting to LaTeX…");
+    const messages: LLMMessage[] = [
+      {
+        role: "system",
+        content:
+          "You are a LaTeX transcription assistant. The user will give you raw text extracted from a PDF, which may contain garbled or missing math. Convert it to clean Markdown with proper LaTeX delimiters: inline math as $...$, display math as $$...$$. Output only the converted text — no explanations, no code fences.",
+      },
+      {
+        role: "user",
+        content: rawText,
+      },
+    ];
+    try {
+      const result = await this.plugin.llmClient.complete(messages);
+      await navigator.clipboard.writeText(result.trim());
+      new Notice("LaTeX copied to clipboard.");
+    } catch (err) {
+      console.error("LaTeX conversion failed:", err);
+      new Notice("Conversion failed. Check the console for details.");
+    }
   }
 
   // ── Toolbar ───────────────────────────────────────────────────

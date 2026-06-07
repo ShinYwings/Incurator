@@ -89,3 +89,59 @@ export function truncateToLength(content: string, maxLength: number): string {
   if (content.length <= maxLength) return content;
   return `${content.slice(0, maxLength)}\n\n[Context truncated at ${maxLength} characters]`;
 }
+
+function getLatexFromMathEl(el: Element): { source: string; isBlock: boolean } | null {
+  const annotation = el.querySelector('annotation[encoding="application/x-tex"]');
+  if (annotation?.textContent) {
+    const isBlock =
+      el.classList.contains("math-block") ||
+      el.getAttribute("display") === "true" ||
+      !!el.closest(".math-block");
+    return { source: annotation.textContent.trim(), isBlock };
+  }
+  const scriptBlock = el.querySelector('script[type="math/tex; mode=display"]');
+  if (scriptBlock?.textContent) return { source: scriptBlock.textContent.trim(), isBlock: true };
+  const scriptInline = el.querySelector('script[type="math/tex"]');
+  if (scriptInline?.textContent) return { source: scriptInline.textContent.trim(), isBlock: false };
+  return null;
+}
+
+function extractTextWithLatex(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+  const el = node as Element;
+  const tag = el.tagName?.toLowerCase() ?? "";
+  if (tag === "span" && el.classList.contains("math")) {
+    const result = getLatexFromMathEl(el);
+    if (result) return result.isBlock ? `$$${result.source}$$` : `$${result.source}$`;
+    return el.textContent ?? "";
+  }
+  if (tag === "mjx-container") {
+    const result = getLatexFromMathEl(el);
+    if (result) return result.isBlock ? `$$${result.source}$$` : `$${result.source}$`;
+    return "";
+  }
+  if (tag === "svg") return "";
+  const blockTags = new Set(["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "pre"]);
+  const text = Array.from(node.childNodes)
+    .map((c) => extractTextWithLatex(c))
+    .join("");
+  return blockTags.has(tag) ? `\n${text}\n` : text;
+}
+
+/**
+ * Attach a copy-event interceptor to `el` so that when the user's selection
+ * contains rendered MathJax elements, the clipboard receives LaTeX source
+ * (`$...$` for inline, `$$...$$` for block) instead of empty SVG content.
+ */
+export function attachLatexCopyHandler(el: HTMLElement): void {
+  el.addEventListener("copy", (e: ClipboardEvent) => {
+    if (!e.clipboardData) return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const fragment = selection.getRangeAt(0).cloneContents();
+    if (!fragment.querySelector("mjx-container, span.math")) return;
+    e.preventDefault();
+    const text = extractTextWithLatex(fragment).replace(/\n{3,}/g, "\n\n").trim();
+    e.clipboardData.setData("text/plain", text);
+  });
+}

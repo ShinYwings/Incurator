@@ -5,7 +5,7 @@ import {
   buildQuickQueryMessages as buildQuickQueryContextMessages,
   type QuickQueryTurn,
 } from "../context/quickQueryContext";
-import { normalizeLatexDelimiters } from "../utils/textUtils";
+import { attachLatexCopyHandler, normalizeLatexDelimiters } from "../utils/textUtils";
 
 /**
  * In-line Copilot — drag-to-select quick query popover.
@@ -403,6 +403,7 @@ export class QuickQueryPopover {
         "",
         this.plugin
       );
+      attachLatexCopyHandler(answerEl);
     } catch {
       answerEl.createEl("div", {
         cls: "ai-agent-quick-query-stream",
