@@ -24,19 +24,15 @@
 
 ### 🚀 향후 해결할 미해결 항목 (To-Do)
 
-1. **Knowledge Sync Bridge** ← 최우선
-   - 기기 간 지식 파편화 문제 해결 (JSONL Export/Import 파이프라인).
-   - 세부 분석: `.agents/plans/knowledge_sync_bridge.md`
-
-2. **Minor Quick Wins**
+1. **Minor Quick Wins**
    - 웹 검색 기능 검토, `[[wikilink]]` 충돌 검토, Diff Viewer UI/UX 등.
    - 세부 분석: `.agents/plans/minor_quick_wins.md`
 
-3. **RAG & Knowledge Quality Stabilization**
+2. **RAG & Knowledge Quality Stabilization**
    - 검색 엔진 심층 보완, 수식 누락 해결, 엔티티 중복 필터링 및 Vault Quota 도입.
    - 세부 분석: `.agents/plans/stabilization.md`
 
-4. **Native PDF Annotation System**
+3. **Native PDF Annotation System**
    - 옵시디언 내장 PDF Viewer를 활용한 자체 어노테이션 및 동기화 설계.
    - 세부 분석: `.agents/plans/pdf_annotation_system.md`
 
@@ -51,9 +47,7 @@
 로드맵의 구체적인 To-Do 리스트는 유저의 Inbox인 `.agents/USER_REPORT.md`에서 본 문서의 `Triage & Queuing` 섹션으로 이관되어 관리됩니다. 본 문서는 대기열(Queue)과 현재 진행 상황 및 향후 방향성을 모두 통합 관리합니다.
 
 ### 🟢 지금 진행 중인 작업 (Current Active Milestone)
-- **Knowledge Sync Bridge 파이프라인 구현** (최우선 과제 / Major)
-  - **현황**: 기기 간 지식(`state.sqlite`) 파편화 문제를 해결하기 위해, JSONL 기반 Export/Import 파이프라인과 Tombstone 충돌 해결(LWW) 로직을 구축 중입니다.
-  - **목적**: 이후 진행할 Native PDF Annotation 시스템의 필수 전제 조건입니다.
+- 현재 지정된 활성 마일스톤이 없습니다. (아래 To-Do 목록에서 다음 작업을 선택해주세요)
 
 ### ⏩ 앞으로 진행할 업데이트 방향 (Future Roadmap)
 위의 현재 작업이 완료된 후, `USER_REPORT.md`를 기반으로 다음 규모의 업데이트들이 대기 중입니다 (진행 시 반드시 PLAN_TEMPLATE 작성 필수):
