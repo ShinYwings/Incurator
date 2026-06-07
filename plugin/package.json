@@ -15,7 +15,7 @@
     "@types/node": "^20.19.41",
     "@types/nunjucks": "^3.2.6",
     "dotenv": "^17.4.2",
-    "esbuild": "^0.19.0",
+    "esbuild": "^0.28.0",
     "obsidian": "^1.4.16",
     "typescript": "^5.0.0",
     "vitest": "^4.1.7"

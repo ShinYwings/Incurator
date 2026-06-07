@@ -1,12 +1,7 @@
 {
-  "backend_fingerprint": "492c952713294c7652e40473524a8ba932cacabea126827da4a2d97300030cf1",
   "backend_version": "0.4.1",
-  "built_at": "2026-06-07T04:44:59.749337+00:00",
-  "combined_fingerprint": "7dee2fddf5ae20afbbd3fc8cf7d6e939b42fca8e847725dcd0898fd6171412fd",
-  "git_commit": "5e7a91db276a",
+  "git_commit": "400a48dcd1ef",
   "git_dirty": true,
-  "plugin_fingerprint": "3ac90c42e5f4538fd3b1a7ced3cc004cf5ca549f06bd6876693b4da834b57996",
   "plugin_version": "0.4.1",
-  "repo_root": "/home/shin/Workspace/Incurator",
   "schema": 1
 }
