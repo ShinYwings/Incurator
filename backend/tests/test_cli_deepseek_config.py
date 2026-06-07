@@ -4,6 +4,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from curator import config as cfg
 from curator.cli import app
 
 
@@ -50,7 +51,8 @@ def test_wiki_init_then_config_provider_deepseek(tmp_path: Path):
 
 
 def test_config_provider_deepseek_api_key_uses_local_secret(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    global_dir = tmp_path / "cache_config"
+    monkeypatch.setattr(cfg, "get_global_config_dir", lambda: global_dir)
     runner = CliRunner()
     vault = tmp_path / "vault"
 
@@ -73,6 +75,10 @@ def test_config_provider_deepseek_api_key_uses_local_secret(tmp_path: Path, monk
     )
     assert config_result.exit_code == 0, config_result.output
 
-    config_text = (vault / ".curator" / "config.yml").read_text(encoding="utf-8")
-    assert "sk-test-secret" not in config_text
-    assert "api_key_secret: secret:deepseek-api-key" in config_text
+    # Raw key must NOT appear anywhere in the synced vault config
+    vault_text = (vault / ".curator" / "config.yml").read_text(encoding="utf-8")
+    assert "sk-test-secret" not in vault_text
+    # llm is machine-local → key reference goes to global cache, not vault
+    assert "api_key_secret" not in vault_text
+    global_text = (global_dir / "config.yml").read_text(encoding="utf-8")
+    assert "api_key_secret: secret:deepseek-api-key" in global_text

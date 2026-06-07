@@ -122,7 +122,7 @@ def zotero_init(
             roots.append(expanded)
     zotero_cfg["roots"] = roots
 
-    cfg.save_config(paths, updated)
+    cfg.save_global_config({"external": external})
     status = zotero_status(paths, custom_paths)
     status["saved_roots"] = roots
     return status

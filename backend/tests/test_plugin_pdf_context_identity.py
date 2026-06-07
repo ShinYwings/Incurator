@@ -131,6 +131,7 @@ def test_import_source_resolves_zotero_attachment_key_as_reference(
     assert str(pdf.resolve()) not in stub_text
     row = db.get_source_row(paths.state_db, paths.root, source_id=imported["source_id"])
     assert row is not None
+    assert row["relpath"] == "04_Resources/References/paper.md"
     assert row["external_path"] == str(pdf.resolve())
     assert row["logical_source_id"] == "zotero:ATTKEY"
 

@@ -44,6 +44,7 @@ export class IncuratorDashboardModal extends Modal {
   private viewEls = new Map<TabId, HTMLElement>();
   private jobsTimer: number | null = null;
 
+  private _refreshPromise: Promise<void> | null = null;
   private dragState = { isDragging: false, startX: 0, startY: 0, initialLeft: 0, initialTop: 0 };
   private onMouseMove = (e: MouseEvent) => {
     if (!this.dragState.isDragging) return;
@@ -178,10 +179,6 @@ export class IncuratorDashboardModal extends Modal {
     return counts;
   }
 
-  private async readDevicesJson(): Promise<any> {
-    try { return JSON.parse(await this.plugin.app.vault.adapter.read(".curator/devices.json")); }
-    catch { return null; }
-  }
 
   private async readRuntimeJson<T = any>(name: "status" | "jobs" | "sources"): Promise<T | null> {
     try {
@@ -192,7 +189,18 @@ export class IncuratorDashboardModal extends Modal {
   }
 
   private async refreshRuntimeSnapshots(): Promise<void> {
-    await this.runWikiCommand(["status"]);
+    if (!this._refreshPromise) {
+      this._refreshPromise = this.runWikiCommand(["status"]).then(
+        () => { this._refreshPromise = null; },
+        () => { this._refreshPromise = null; },
+      );
+    }
+    return this._refreshPromise;
+  }
+
+  private async readFreshRuntimeJson<T = any>(name: "status" | "jobs" | "sources"): Promise<T | null> {
+    await this.refreshRuntimeSnapshots();
+    return this.readRuntimeJson<T>(name);
   }
 
   private async readRuntimeStatus(): Promise<any | null> {
@@ -956,16 +964,12 @@ export class IncuratorDashboardModal extends Modal {
           new Notice(`LLM save failed: ${r.error}`);
           return;
         }
-        // Write the fallback to the SAME (vault/project) scope as `config
-        // provider`. `config set` defaults to --global, so without --local the
-        // fallback landed in the global config and was masked by the vault's
-        // own llm block — the change silently never took effect.
-        r = await this.runWikiCommand(["config", "set", "--local", "llm.fallback", fallback || ""]);
+        r = await this.runWikiCommand(["config", "set", "llm.fallback", fallback || ""]);
         if (!r.ok) {
           new Notice(`Fallback save failed: ${r.error}`);
           return;
         }
-        r = await this.runWikiCommand(["config", "set", "--local", "llm.fallback_effort", fallbackEffort || ""]);
+        r = await this.runWikiCommand(["config", "set", "llm.fallback_effort", fallbackEffort || ""]);
         if (!r.ok) {
           new Notice(`Fallback effort save failed: ${r.error}`);
           return;
@@ -1192,13 +1196,10 @@ export class IncuratorDashboardModal extends Modal {
     el.createEl("h3", { text: "Recent Sources", cls: "ai-agent-dashboard-section-title" });
     const loading = el.createDiv({ cls: "ai-agent-dashboard-loading", text: "Loading…" });
     try {
-      let result = await this.readRuntimeJson("sources") as any;
-      if (!result) {
-        await this.refreshRuntimeSnapshots();
-        result = await this.readRuntimeJson("sources") as any;
-      }
+      const result = await this.readFreshRuntimeJson("sources") as any;
       loading.remove();
-      if (!result?.sources?.length) { el.createDiv({ cls: "ai-agent-dashboard-empty", text: "No sources tracked yet." }); return; }
+      if (result === null) { el.createDiv({ cls: "ai-agent-dashboard-empty", text: "Failed to load sources — backend unavailable." }); return; }
+      if (!result.sources?.length) { el.createDiv({ cls: "ai-agent-dashboard-empty", text: "No sources tracked yet." }); return; }
 
       // Resume after a mid-build error (item 21): if any source errored (e.g.
       // "Antigravity capacity exhausted (429)"), surface a one-click resume that

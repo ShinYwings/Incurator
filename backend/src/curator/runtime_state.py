@@ -118,11 +118,19 @@ def build_jobs_snapshot(paths: cfg.WikiPaths) -> dict[str, Any]:
     }
 
 
+def _source_display_path(row: dict[str, Any]) -> str:
+    logical_id = row.get("logical_source_id") or ""
+    if logical_id.startswith("zotero:"):
+        key = logical_id.split(":", 1)[1]
+        return f"zotero://open-pdf/library/items/{key}"
+    return row.get("relpath") or ""
+
+
 def _source_summary(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row.get("id"),
         "relpath": row.get("relpath") or "",
-        "source_path": row.get("relpath") or "",
+        "source_path": _source_display_path(row),
         "file_type": row.get("file_type") or "",
         "bytes": row.get("bytes") or 0,
         "added_at": row.get("added_at") or "",

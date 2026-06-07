@@ -12,6 +12,7 @@
 > **[PR 픽스] db import --dry-run 0건 버그** — revert `365ee78`로 근본 원인 제거, 회귀 테스트 고정(완료).
 
 
+
 ## 🚀 향후 해결할 미해결 항목 (To-Do)
 
 ### 📦 minor_quick_wins.md 배치

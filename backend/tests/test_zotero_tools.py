@@ -26,8 +26,10 @@ def test_zotero_root_candidates_normalizes_sqlite_to_parent(tmp_path: Path) -> N
 
 def test_zotero_status_ready_for_readable_sqlite(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    global_dir = tmp_path / "cache_config"
+    monkeypatch.setattr(cfg, "get_global_config_dir", lambda: global_dir)
     paths = cfg.WikiPaths(tmp_path / "vault")
-    cfg.save_config(paths, {"external": {"zotero": {"enabled": True, "roots": []}}})
+    cfg.save_global_config({"external": {"zotero": {"enabled": True, "roots": []}}})
     zotero_dir = tmp_path / "Zotero"
     zotero_dir.mkdir()
     sqlite_path = zotero_dir / "zotero.sqlite"
@@ -44,8 +46,10 @@ def test_zotero_status_ready_for_readable_sqlite(tmp_path: Path, monkeypatch) ->
 
 def test_zotero_status_reports_db_missing_for_existing_data_dir(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    global_dir = tmp_path / "cache_config"
+    monkeypatch.setattr(cfg, "get_global_config_dir", lambda: global_dir)
     paths = cfg.WikiPaths(tmp_path / "vault")
-    cfg.save_config(paths, {"external": {"zotero": {"enabled": True, "roots": []}}})
+    cfg.save_global_config({"external": {"zotero": {"enabled": True, "roots": []}}})
     zotero_dir = tmp_path / "Zotero"
     zotero_dir.mkdir()
 
@@ -59,6 +63,7 @@ def test_zotero_status_reports_db_missing_for_existing_data_dir(tmp_path: Path, 
 def test_zotero_init_saves_local_roots(tmp_path: Path) -> None:
     vault = tmp_path / "vault"
     paths = cfg.WikiPaths(vault)
+    global_dir = tmp_path / "repo" / "cache_config"
     zotero_dir = tmp_path / "Zotero"
     linked_dir = tmp_path / "ZoteroLinked"
     zotero_dir.mkdir()
@@ -66,16 +71,22 @@ def test_zotero_init_saves_local_roots(tmp_path: Path) -> None:
     with sqlite3.connect(zotero_dir / "zotero.sqlite") as conn:
         conn.execute("CREATE TABLE items (itemID INTEGER PRIMARY KEY)")
 
-    status = zotero_tools.zotero_init(
-        paths,
-        data_dir=str(zotero_dir),
-        linked_base_dir=str(linked_dir),
-    )
-    saved = cfg.load_config(paths)
+    from unittest.mock import patch
+
+    with patch.object(cfg, "get_global_config_dir", return_value=global_dir):
+        status = zotero_tools.zotero_init(
+            paths,
+            data_dir=str(zotero_dir),
+            linked_base_dir=str(linked_dir),
+        )
+        saved = cfg.load_config(paths)
+        global_cfg = (global_dir / "config.yml").read_text(encoding="utf-8")
 
     assert status["state"] == "ready"
     assert str(zotero_dir) in saved["external"]["zotero"]["roots"]
     assert str(linked_dir) in saved["external"]["zotero"]["roots"]
+    assert str(zotero_dir) in global_cfg
+    assert not paths.config_file.exists() or "external:" not in paths.config_file.read_text(encoding="utf-8")
 
 
 def test_zotero_root_candidates_reads_base_attachment_path_from_prefs(tmp_path: Path, monkeypatch) -> None:
@@ -131,6 +142,8 @@ def test_resolve_pdf_uses_storage_path_from_zotero_db(tmp_path: Path, monkeypatc
 
 def test_resolve_pdf_uses_linked_attachment_root(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    global_dir = tmp_path / "cache_config"
+    monkeypatch.setattr(cfg, "get_global_config_dir", lambda: global_dir)
     paths = cfg.WikiPaths(tmp_path / "vault")
     zotero_dir = tmp_path / "Zotero"
     zotero_dir.mkdir()
@@ -140,7 +153,7 @@ def test_resolve_pdf_uses_linked_attachment_root(tmp_path: Path, monkeypatch) ->
     pdf.parent.mkdir()
     pdf.write_bytes(b"%PDF-1.4\n")
     _make_zotero_attachment_db(zotero_dir / "zotero.sqlite", "ATTACH2", "attachments:papers/paper.pdf")
-    cfg.save_config(paths, {"external": {"zotero": {"enabled": True, "roots": [str(linked_dir)]}}})
+    cfg.save_global_config({"external": {"zotero": {"enabled": True, "roots": [str(linked_dir)]}}})
 
     result = zotero_tools.resolve_pdf("ATTACH2", paths, str(zotero_dir))
 

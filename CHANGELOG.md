@@ -4,6 +4,30 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.4.1] — 2026-06-07
+
+### Fixed
+
+- **Machine-local config isolation** (`config.py`) — `llm`, `search`, and
+  `external` blocks are no longer stored in the synced vault `.curator/config.yml`.
+  `load_config()` automatically migrates any existing machine-local blocks into
+  `.cache/config/config.yml` (global cache) and rewrites the vault config without
+  them. `zotero_init()` saves Zotero roots to the global cache instead of the
+  vault config, so ZotMoov/data-directory paths never leak into synced state.
+- **Portable Zotero source identity** (`runtime_state.py`) — `build_sources_snapshot()`
+  now returns `zotero://open-pdf/library/items/<attachmentKey>` as `source_path`
+  for Zotero-backed references (where `logical_source_id` starts with `zotero:`).
+  The absolute local PDF path is preserved as `external_path` (device-local hint)
+  and is no longer surfaced as the portable display identifier.
+- **Plugin dashboard always refreshes local snapshots** (`incuratorDashboardModal.ts`) —
+  Added `readFreshRuntimeJson()` which always triggers a local backend refresh
+  before reading. Sources tab now uses it so the dashboard never renders a peer
+  device's stale snapshot. `wiki config set llm.fallback` no longer passes
+  `--local` (vault scope); LLM fallback is now written to the machine-local
+  global config, consistent with how all `llm` config is handled.
+
+---
+
 ## [0.4.0] — 2026-06-06
 
 ### Added

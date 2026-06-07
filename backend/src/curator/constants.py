@@ -8,10 +8,12 @@ DIR_NOTES = "03_Notes"
 DIR_RESOURCES = "04_Resources"
 DIR_ASSETS = "05_Assets"
 DIR_ARCHIVES = "06_Archives"
+DIR_GLOBAL_CACHE = ".cache/config"
 
 # System Files
 FILE_CURATE_YML = "curate.yml"
 FILE_CONFIG_YML = "config.yml"
+FILE_DEVICES_JSON = "devices.json"
 FILE_OVERVIEW_MD = "overview.md"
 FILE_LEDGER_MD = "ledger.md"
 FILE_LOG_MD = "log.md"

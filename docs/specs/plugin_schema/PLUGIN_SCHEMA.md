@@ -1061,8 +1061,12 @@ nodes directly.
 - Dashboard Trace and Insights tabs must use a list/detail flow: list commands
   render summaries, and selecting a row loads the backend detail payload before
   exposing follow-up actions such as promote/reject.
-- Runtime snapshots remain backend-owned read models. The plugin reads them but
-  never writes them.
+- Runtime snapshots remain backend-owned local read models. The plugin reads
+  them but never writes them, and it must let the local backend refresh them
+  before treating dashboard status or source rows as current.
+- Runtime snapshots can contain machine-local absolute paths. The plugin must
+  not assume a synced `.curator/runtime/*.json` file belongs to the current
+  device.
 - Dashboard must not edit `.curator/state.sqlite`, `.curator/Collections/`,
   `03_Notes/`, `04_Resources/`, or `06_Archives` directly.
 - Prompt trace UI does not expose raw prompt input/output bodies by default in
