@@ -165,28 +165,29 @@ Concrete examples:
 
 ## Core Rule: Automatic /goal Workflow Mandate
 
-**GLOBAL PRIORITY RULE**: Before starting any `/goal` or architectural planning, agents MUST check `.agents/USER_REPORT.md`. If there are unresolved bugs or pending items in the user report, you MUST prioritize fixing those first. Only proceed with architectural planning if the user report is empty or explicitly overridden by the user.
+**GLOBAL PRIORITY RULE**: Before starting any `/goal` or architectural planning, agents MUST check `.agents/USER_REPORT.md` for new inbox items, and `.agents/ROADMAP.md`'s To-Do queue. If there are unresolved bugs or pending items in the user report, you MUST prioritize fixing those first. Only proceed with architectural planning if the user report is empty or explicitly overridden by the user.
 
 ## Core Rule: System Update Workflow (Universal Strict Workflow)
 
-**GLOBAL PRIORITY RULE**: Before starting any `/goal` or architectural planning, agents MUST check `.agents/USER_REPORT.md`. If there are unresolved bugs or pending items in the user report, you MUST prioritize grouping and fixing those first.
-**BLOCKED ICEBOX EXCEPTION**: If an item in `USER_REPORT.md` is waiting on an external dependency or cannot be fixed immediately, move it to a `🧊 Blocked / Icebox` section within the file. The Global Priority Rule explicitly IGNORES items in this section.
+**GLOBAL PRIORITY RULE**: Before starting any `/goal` or architectural planning, agents MUST check `.agents/USER_REPORT.md` for new inbox items, and `.agents/ROADMAP.md`'s To-Do queue. If there are unresolved bugs or pending items in the user report, you MUST prioritize grouping and fixing those first.
+**BLOCKED ICEBOX EXCEPTION**: If an item in `USER_REPORT.md` is waiting on an external dependency or cannot be fixed immediately, move it to the `🧊 Blocked / Icebox` section in `.agents/ROADMAP.md` and **delete** it from `USER_REPORT.md`. The Global Priority Rule explicitly IGNORES items in this section.
 **HOTFIX EXCEPTION**: If a critical bug is reported while a large Batch Release (e.g., `v0.4.0`) is already being planned or worked on, the agent MUST immediately create a separate `hotfix/...` branch, patch the bug (`+0.0.1`), and open a PR. Do not delay hotfixes by bundling them into ongoing major/minor batch plans.
 
 Whenever a user requests a new feature, reports a bug, or uses the `/goal` command, the agent MUST automatically follow this strict 12-step `Universal Strict Workflow`:
 
-1. **Batch & Version Planning**: Read `.agents/USER_REPORT.md` (ignoring Blocked items) and group related items into a single Batch Release. Cross-reference each candidate item against `.agents/plans/` roadmap skeletons to understand which milestone it belongs to. Decide whether this batch warrants a Patch, Minor, or Major version bump. **CRITICAL**: If the update is Minor/Major and includes breaking schema changes, you MUST plan and write a data migration script.
-2. **Branch Creation**: Create and switch to a new Git branch for the release (e.g., `release/v0.3.3` or `feature/issue-name`). NEVER work directly on the `main` branch. You MUST update `.agents/RELAY.md` with the current branch name so other agents know where they are.
-3. **Plan Creation & Report Status Update**: Write a detailed implementation plan in `.agents/plans/` using the `.agents/plans/PLAN_TEMPLATE.md` blueprint. **CRITICAL**: As soon as the plan is drafted, you MUST update `.agents/ROADMAP.md` to reflect the new active milestone, and then **DELETE** the target item from `.agents/USER_REPORT.md`. If there are ambiguities, explicitly ask the user clarifying questions before proceeding. **STOP** and wait for user approval before coding.
-4. **Docs Update**: Update `docs/specs/` and `docs/guides/` to define the target behavior. (Crucial: Update the English guides first, then faithfully synchronize the matching `_KR.md` Korean guides).
-5. **Test-Driven Development (TDD)**: Write failing tests before writing application logic.
-6. **Implementation & Incremental Commits**: Write code to make tests pass. Commit work incrementally using Conventional Commits (e.g., `feat(core): ...`, `fix(plugin): ...`).
-7. **Local CI Validation**: Before finalizing, you MUST run all local checks: `cd backend && uv run pytest`, `ruff check`, `mypy`, and the plugin's `npx vitest run`. Ensure the entire system is intact.
-8. **Report Cleanup**: Once an item is verified, ensure it is marked as completed or removed from `.agents/ROADMAP.md` (since it was already deleted from USER_REPORT.md during planning).
-9. **Version Bump & Changelog**: Update the version strings in all relevant configuration files (`pyproject.toml`, `package.json`, `manifest.json`) AND update `CHANGELOG.md` with the release notes for this version.
-10. **Plan Deletion**: **Delete** the implemented plan file(s) from the workspace. The plan's historical context will be statically preserved in the Git history for this version.
-11. **Release Commit**: Create a final release commit explicitly named `chore(release): vX.Y.Z`.
-12. **Push & PR (Zero-Interaction Auto-Pilot)**: Push the branch to the remote repository. Create a GitHub Pull Request that includes a detailed PR Description (Why, What, How). **CRITICAL**: Once the workflow begins, agents MUST auto-approve their own steps and operate with zero user interaction. Do not pause to ask the user for confirmation on intermediate code changes or terminal commands. The human user's ONLY responsibility is to review and merge the final Pull Request on GitHub.
+1. **Triage & Queuing**: Read `.agents/USER_REPORT.md` (the chronological inbox). Move any new unhandled items into the `To-Do` queue in `.agents/ROADMAP.md`, then **delete** them from `.agents/USER_REPORT.md`.
+2. **Batch & Version Planning**: Read the `To-Do` section in `.agents/ROADMAP.md` (ignoring Blocked items) and group related items into a single Batch Release. Cross-reference each candidate item against roadmap skeletons to understand which milestone it belongs to. Decide whether this batch warrants a Patch, Minor, or Major version bump. **CRITICAL**: If the update is Minor/Major and includes breaking schema changes, you MUST plan and write a data migration script.
+3. **Branch Creation**: Create and switch to a new Git branch for the release (e.g., `release/v0.3.3` or `feature/issue-name`). NEVER work directly on the `main` branch. You MUST update `.agents/RELAY.md` with the current branch name so other agents know where they are.
+4. **Plan Creation & Report Status Update**: Write a detailed implementation plan in `.agents/plans/` using the `.agents/PLAN_TEMPLATE.md` blueprint. **CRITICAL**: As soon as the plan is drafted, you MUST update `.agents/ROADMAP.md` to reflect the new active milestone. If there are ambiguities, explicitly ask the user clarifying questions before proceeding. **STOP** and wait for user approval before coding.
+5. **Docs Update**: Update `docs/specs/` and `docs/guides/` to define the target behavior. (Crucial: Update the English guides first, then faithfully synchronize the matching `_KR.md` Korean guides).
+6. **Test-Driven Development (TDD)**: Write failing tests before writing application logic.
+7. **Implementation & Incremental Commits**: Write code to make tests pass. Commit work incrementally using Conventional Commits (e.g., `feat(core): ...`, `fix(plugin): ...`).
+8. **Local CI Validation**: Before finalizing, you MUST run all local checks: `cd backend && uv run pytest`, `ruff check`, `mypy`, and the plugin's `npx vitest run`. Ensure the entire system is intact.
+9. **Report Cleanup**: Once an item is verified, ensure it is marked as completed or removed from `.agents/ROADMAP.md` (since it was already deleted from USER_REPORT.md during planning).
+10. **Version Bump & Changelog**: Update the version strings in all relevant configuration files (`pyproject.toml`, `package.json`, `manifest.json`) AND update `CHANGELOG.md` with the release notes for this version.
+11. **Plan Deletion**: **Delete** the implemented plan file(s) from the workspace. The plan's historical context will be statically preserved in the Git history for this version.
+12. **Release Commit**: Create a final release commit explicitly named `chore(release): vX.Y.Z`.
+13. **Push & PR (Zero-Interaction Auto-Pilot)**: Push the branch to the remote repository. Create a GitHub Pull Request that includes a detailed PR Description (Why, What, How). **CRITICAL**: Once the workflow begins, agents MUST auto-approve their own steps and operate with zero user interaction. Do not pause to ask the user for confirmation on intermediate code changes or terminal commands. The human user's ONLY responsibility is to review and merge the final Pull Request on GitHub.
 
 ---
 
@@ -196,7 +197,7 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
 
 The mandatory sequence when review feedback arrives:
 
-1. **Capture in `USER_REPORT.md` immediately.** Add the feedback as a labeled item under the `To-Do`/`Planned` sections: `[PR 픽스]` for a bug, `[기능 제안]` for a feature/enhancement. Preserve the reviewer's edge cases verbatim — do not compress them away (see Anti-Compression rule).
+1. **Capture in `USER_REPORT.md` immediately.** Add the feedback as a labeled item: `[PR 픽스]` for a bug, `[기능 제안]` for a feature/enhancement. Preserve the reviewer's edge cases verbatim — do not compress them away (see Anti-Compression rule).
 2. **Author a `PLAN_TEMPLATE.md`-compliant plan BEFORE writing any implementation code.** A non-trivial review-requested feature gets the full Arena treatment (problem statement → persona proposals → cross-critique → master plan), exactly like a fresh milestone. Link the plan from its `USER_REPORT.md` item and vice versa.
 3. **STOP for approval on substantial work.** As with Step 3 of the Universal Strict Workflow, pause for user approval of the plan before coding a substantial feature. (Trivial nits — see exception below — skip this.)
 4. **Then implement** through TDD + incremental commits + local CI, and only then push the follow-up onto the same release branch / PR.
@@ -329,9 +330,9 @@ VAULT_ROOT=testbed wiki query "Summarize the core concepts in this vault."
 The **entire `docs/` tree is source of truth**. The system design becomes increasingly concrete across three distinct levels of documentation. Agents must read the relevant docs before implementing or changing behavior, and respect this hierarchy:
 
 1. **Philosophy (`docs/philosophy/`)**: The abstract intent and high-level principles of the system.
-2. **User Guides (`docs/guides/`)**: The concrete user-facing behavior and operational workflows.
+3. **User Guides (`docs/guides/`)**: The concrete user-facing behavior and operational workflows.
     - Guides are authoritative for CLI commands, MCP tools, plugin features, config fields, env vars, and workflow behaviors.
-3. **Static Specs (`docs/specs/`)**: The absolute concrete implementation details, system contracts, and schemas.
+4. **Static Specs (`docs/specs/`)**: The absolute concrete implementation details, system contracts, and schemas.
     - `docs/specs/curator_schema/` for Curator DAG schema contracts.
     - `docs/specs/system_behavior/` for Curator system behavior.
     - `docs/specs/plugin_schema/` for Obsidian plugin API contracts.
@@ -370,8 +371,8 @@ Before implementing any new architecture work, the agent MUST first create or up
 
 **CRITICAL RULE - STATIC SPECS MANDATE:** 
 1. **Static Filenames**: Spec files MUST maintain static names (e.g., `SCHEMA.md`). Do NOT append version suffixes (e.g., `_v0.3.2.md`) to the filenames. The current version should only be noted inside the markdown title or frontmatter.
-2. **No Archives**: Do NOT use or create `archives/` folders for specs. Old versions of specs are tracked entirely via Git. If you need historical context, use `git log` and `git show`.
-3. **Synchronization**: When updating behavior for a new version, update all three core domains (`curator_schema`, `plugin_schema`, `system_behavior`) synchronously so they reflect the same target version in their titles.
+3. **No Archives**: Do NOT use or create `archives/` folders for specs. Old versions of specs are tracked entirely via Git. If you need historical context, use `git log` and `git show`.
+4. **Synchronization**: When updating behavior for a new version, update all three core domains (`curator_schema`, `plugin_schema`, `system_behavior`) synchronously so they reflect the same target version in their titles.
 
 - If code has already been written before the spec exists, stop and add the missing spec and guide entries before continuing implementation.
 
