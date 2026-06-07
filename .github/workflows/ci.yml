@@ -10,7 +10,11 @@ jobs:
   version-consistency:
     name: Version Consistency
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/heads/hotfix/') || startsWith(github.ref, 'refs/heads/release/')
+    if: |
+      startsWith(github.ref, 'refs/heads/hotfix/') ||
+      startsWith(github.ref, 'refs/heads/release/') ||
+      startsWith(github.ref, 'refs/heads/feature/') ||
+      startsWith(github.ref, 'refs/heads/fix/')
     steps:
       - uses: actions/checkout@v4
       - name: Check all version files agree
