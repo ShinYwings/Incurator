@@ -17,9 +17,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
+from . import constants as consts
+
 
 REGISTRY_VERSION = 1
-REGISTRY_RELATIVE_PATH = ".curator/devices.json"
 
 
 def default_syncthing_config_paths() -> list[Path]:
@@ -217,7 +218,7 @@ def backend_launcher(command: str | None = None, args: list[str] | None = None) 
 
 def registry_path(vault_root: Path) -> Path:
     from . import config as cfg
-    return cfg.get_global_config_dir() / "devices.json"
+    return cfg.get_global_config_dir() / consts.FILE_DEVICES_JSON
 
 
 def load_registry(vault_root: Path) -> dict[str, Any]:
