@@ -5,6 +5,7 @@ node_modules/
 main.js
 dist/
 build/
+src/generated/buildManifest.json
 
 # Local/Test data files
 data.json
