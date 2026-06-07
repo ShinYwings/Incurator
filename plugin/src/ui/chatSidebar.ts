@@ -243,15 +243,6 @@ export class ChatSidebarView extends ItemView {
       }
     );
 
-    this.registerDomEvent(this.containerEl.ownerDocument, "keydown", (e: KeyboardEvent) => {
-      if (e.key === "c" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
-        const last = [...this.messages].reverse().find((m) => m.role === "assistant" && m.content);
-        if (!last) return;
-        e.preventDefault();
-        this.copyAssistantMarkdown(last.content);
-      }
-    });
-
     // Drop overlay (hidden by default)
     this.dropOverlayEl = this.inputAreaEl.createDiv("ai-agent-drop-overlay");
     this.dropOverlayEl.createDiv({
@@ -2347,19 +2338,6 @@ export class ChatSidebarView extends ItemView {
       contentEl.createSpan({ cls: "ai-agent-thinking", text: "Thinking..." });
     }
 
-    if (msg.role === "assistant") {
-      contentEl.addEventListener("contextmenu", (e: MouseEvent) => {
-        if (!msg.content) return;
-        const menu = new Menu();
-        menu.addItem((item) =>
-          item.setIcon("copy").setTitle("Copy as Markdown")
-            .onClick(() => this.copyAssistantMarkdown(msg.content))
-        );
-        menu.showAtMouseEvent(e);
-        e.preventDefault();
-        e.stopPropagation();
-      });
-    }
   }
 
   private renderAssistantMessageContent(msg: ChatMessage, contentEl: HTMLElement): void {
