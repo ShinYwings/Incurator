@@ -2323,6 +2323,7 @@ def init(
         "raw_dirs": raw_dirs,
         "collections_dir": consts.DEFAULT_COLLECTIONS_DIR,
     }
+    config["vault_schema_version"] = consts.VAULT_SCHEMA_VERSION
     # Cloud provider + API keys
     llm = dict(config.get("llm", {}))
 
@@ -2921,6 +2922,109 @@ def status() -> None:
             f"{stats['sources_total']} source(s) tracked but not summarized. "
             f"Run [bold]wiki add[/bold] to create L1 Contexts."
         )
+
+    from . import migrate as _migrate
+    vault_v = _migrate.get_vault_schema_version(paths)
+    if vault_v < consts.VAULT_SCHEMA_VERSION:
+        _warn(
+            f"Vault schema v{vault_v} → backend expects v{consts.VAULT_SCHEMA_VERSION}. "
+            "Run [bold]wiki migrate[/bold] to upgrade."
+        )
+
+
+# ---------------------------------------------------------------------------
+# wiki migrate
+# ---------------------------------------------------------------------------
+
+@app.command("migrate")
+def migrate_vault(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report what would be done without writing."),
+    requeue: bool = typer.Option(False, "--requeue", help="Re-queue sources whose Collection files have missing required fields."),
+) -> None:
+    """Upgrade vault schema to the current backend version.
+
+    Run this after updating the incurator backend to apply any structural
+    changes to .curator/config.yml or Collections/*.md.
+    """
+    from . import migrate as _migrate
+
+    paths = _resolve_root_or_die()
+    result = _migrate.run_migrations(paths, dry_run=dry_run)
+
+    if result.already_current:
+        _ok(f"Vault is up to date (schema v{result.current_version}).")
+    else:
+        if dry_run:
+            console.print(f"[dim]dry-run:[/dim] would migrate vault schema v{result.current_version} → v{result.target_version}")
+            for step in result.steps_run:
+                console.print(f"  [cyan]{step}[/cyan]")
+        else:
+            for step in result.steps_run:
+                _ok(f"{step}")
+            for step, err in result.errors.items():
+                _err(f"{step}: {err}")
+            if result.ok:
+                _ok(f"Vault upgraded to schema v{result.current_version}.")
+            else:
+                _warn("Migration stopped due to errors. Fix the issues above and re-run.")
+
+    if result.stale_files:
+        stale_table = Table(title="Stale Collection Files", show_header=True, box=None, padding=(0, 2))
+        stale_table.add_column("File", style="dim")
+        stale_table.add_column("Missing fields")
+        for sf in result.stale_files[:20]:
+            stale_table.add_row(
+                str(sf.path.relative_to(paths.root)),
+                ", ".join(sorted(sf.missing_fields)),
+            )
+        if len(result.stale_files) > 20:
+            stale_table.add_row(f"… and {len(result.stale_files) - 20} more", "")
+        console.print(stale_table)
+
+        if requeue and not dry_run:
+            _requeue_stale_sources(paths, result.stale_files)
+        else:
+            _hint(
+                f"{len(result.stale_files)} collection file(s) have missing required fields. "
+                "Run [bold]wiki migrate --requeue[/bold] to re-queue their sources for regeneration."
+            )
+    else:
+        if result.already_current:
+            console.print("[dim]No stale collection files found.[/dim]")
+
+
+def _requeue_stale_sources(paths: cfg.WikiPaths, stale_files: list) -> None:
+    """Mark sources of stale Collection files for L1-L4 regeneration."""
+    import re
+
+    requeued = 0
+    with db.connect(paths.state_db) as conn:
+        for sf in stale_files:
+            try:
+                text = sf.path.read_text(encoding="utf-8", errors="ignore")
+                m = re.search(r"^source_path:\s*\[\[(.+?)]]", text, re.MULTILINE)
+                if not m:
+                    m = re.search(r"^source_path:\s*(.+)", text, re.MULTILINE)
+                if not m:
+                    continue
+                relpath = m.group(1).strip()
+                row = conn.execute(
+                    "SELECT id FROM sources WHERE relpath = ?", (relpath,)
+                ).fetchone()
+                if row:
+                    conn.execute(
+                        "UPDATE sources SET l1_status='pending', l2_status='pending', "
+                        "l3_status='pending', l4_status='pending' WHERE id = ?",
+                        (row["id"],),
+                    )
+                    requeued += 1
+            except Exception as exc:
+                _warn(f"Could not requeue {sf.path.name}: {exc}")
+
+    if requeued:
+        _ok(f"Re-queued {requeued} source(s) for regeneration. Run [bold]wiki build[/bold] to process them.")
+    else:
+        _warn("No matching source rows found for the stale files.")
 
 
 # ---------------------------------------------------------------------------
