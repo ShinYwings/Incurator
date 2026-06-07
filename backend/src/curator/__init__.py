@@ -1,6 +1,11 @@
 """incurator: An AI-maintained personal knowledge base."""
 
-__version__ = "0.4.1"
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("incurator")
+except PackageNotFoundError:
+    __version__ = "0.0.0"
 
 import os
 from pathlib import Path
