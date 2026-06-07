@@ -1,0 +1,36 @@
+project: "Gaussian Splatting Geometry Lab"
+description: "Research workspace for geometric consistency, splatting representations, and multi-view reconstruction notes."
+
+sources:
+  include:
+    - "01_Workspaces/Gaussian Splatting Geometry Lab/**/*.md"
+    - "02_Wiki/**/*.md"
+    - "03_Notes/Papers/**/*.md"
+    - "04_Resources/Zotero/**/*.pdf"
+    - "05_Assets/Zotero Assets/**/*"
+  exclude:
+    - "01_Workspaces/Gaussian Splatting Geometry Lab/.agents/**"
+    - "01_Workspaces/Gaussian Splatting Geometry Lab/.antigravity/**"
+    - "01_Workspaces/Gaussian Splatting Geometry Lab/Artifacts/**"
+
+collections:
+  research_workspace:
+    path: "01_Workspaces/Gaussian Splatting Geometry Lab"
+    intent: "Living project notes, methodology drafts, related work synthesis, and local concept pages."
+  paper_notes:
+    path: "03_Notes/Papers"
+    intent: "Human-authored paper notes that should remain source-preserving at the context layer."
+  references:
+    path: "04_Resources/Zotero"
+    intent: "Reference artifacts paired with paper notes during higher-level synthesis."
+  assets:
+    path: "05_Assets/Zotero Assets"
+    intent: "Figures and supplementary assets used as evidence for splatting and geometry analysis."
+  external_wiki:
+    path: "02_Wiki"
+    intent: "Adjacent knowledge topics that may share vocabulary but should not be collapsed into the splatting research cluster."
+
+priorities:
+  - "Keep source provenance separate before synthesis."
+  - "Connect paper notes and reference artifacts when they describe the same splatting or geometry claim."
+  - "Keep LLM/RAG material as a separate topic unless the relation is explicitly about shared abstractions such as retrieval, representation, or knowledge graphs."

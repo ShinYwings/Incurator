@@ -1,16 +1,28 @@
 import { config } from "dotenv";
-config();
-import esbuild from "esbuild";
 import { copyFileSync, existsSync, mkdirSync } from "fs";
 import path from "path";
+import esbuild from "esbuild";
+
+if (existsSync(".env.local")) {
+  config({ path: ".env.local" });
+}
+config();
 
 const isProduction = process.argv.includes("--production");
 const isWatch = process.argv.includes("--watch");
 const pluginDir = process.env.OBSIDIAN_PLUGIN_DIR;
-const outfile = pluginDir ? path.join(pluginDir, "main.js") : "main.js";
+let actualPluginDir = null;
+let outfile = "main.js";
 
 if (pluginDir) {
-  mkdirSync(pluginDir, { recursive: true });
+  try {
+    mkdirSync(pluginDir, { recursive: true });
+    actualPluginDir = pluginDir;
+    outfile = path.join(pluginDir, "main.js");
+  } catch (err) {
+    console.warn(`\x1b[33m⚠️ Warning: Could not access/create OBSIDIAN_PLUGIN_DIR "${pluginDir}": ${err.message}\x1b[0m`);
+    console.warn("Falling back to building plugin in the local directory.");
+  }
 }
 
 const context = await esbuild.context({
@@ -47,10 +59,14 @@ if (isWatch) {
 } else {
   await context.rebuild();
   await context.dispose();
-  if (pluginDir) {
+  if (actualPluginDir) {
     for (const file of ["manifest.json", "styles.css"]) {
       if (existsSync(file)) {
-        copyFileSync(file, path.join(pluginDir, file));
+        try {
+          copyFileSync(file, path.join(actualPluginDir, file));
+        } catch (err) {
+          console.warn(`\x1b[33m⚠️ Warning: Could not copy ${file} to "${actualPluginDir}": ${err.message}\x1b[0m`);
+        }
       }
     }
   }

@@ -1,0 +1,8 @@
+incurator:
+  workspace: "{{workspace_path}}"
+  wiki_root: "{{wiki_root}}"
+  runtime: "antigravity"
+  rules:
+    - ".agents/curator/shared/rules.md"
+    - ".agents/curator/runtime/antigravity.md"
+    - ".agents/curator/workflows/research_pipeline.md"
