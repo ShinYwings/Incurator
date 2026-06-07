@@ -1,6 +1,7 @@
 # Incurator Master Roadmap
 
 아키텍처 대공사를 위한 마스터 로드맵입니다. 각 마일스톤은 독립 브랜치로 작업하며, 구현 시작 전 `PLAN_TEMPLATE.md`를 따르는 상세 명세서를 별도 작성합니다.
+**단, 메이저(Major) 및 마이너(Minor) 업데이트(버전 v.X.Y.Z 에서 X, Y 업데이트 부분)는 반드시 `PLAN_TEMPLATE.md`를 엄격하게 따라야 하며, 단순 핫픽스(Hotfix)나 버그 수정(fix) 등은 예외로 합니다.**
 
 **Global Priority Rule**: 작업 시작 전 반드시 `.agents/user_report.md`를 먼저 확인하세요. 미해결 항목이 있으면 그것부터 처리합니다.
 
