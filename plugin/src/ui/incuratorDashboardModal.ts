@@ -44,6 +44,7 @@ export class IncuratorDashboardModal extends Modal {
   private viewEls = new Map<TabId, HTMLElement>();
   private jobsTimer: number | null = null;
 
+  private _refreshPromise: Promise<void> | null = null;
   private dragState = { isDragging: false, startX: 0, startY: 0, initialLeft: 0, initialTop: 0 };
   private onMouseMove = (e: MouseEvent) => {
     if (!this.dragState.isDragging) return;
@@ -188,7 +189,13 @@ export class IncuratorDashboardModal extends Modal {
   }
 
   private async refreshRuntimeSnapshots(): Promise<void> {
-    await this.runWikiCommand(["status"]);
+    if (!this._refreshPromise) {
+      this._refreshPromise = this.runWikiCommand(["status"]).then(
+        () => { this._refreshPromise = null; },
+        () => { this._refreshPromise = null; },
+      );
+    }
+    return this._refreshPromise;
   }
 
   private async readFreshRuntimeJson<T = any>(name: "status" | "jobs" | "sources"): Promise<T | null> {
@@ -1189,9 +1196,10 @@ export class IncuratorDashboardModal extends Modal {
     el.createEl("h3", { text: "Recent Sources", cls: "ai-agent-dashboard-section-title" });
     const loading = el.createDiv({ cls: "ai-agent-dashboard-loading", text: "Loading…" });
     try {
-      let result = await this.readFreshRuntimeJson("sources") as any;
+      const result = await this.readFreshRuntimeJson("sources") as any;
       loading.remove();
-      if (!result?.sources?.length) { el.createDiv({ cls: "ai-agent-dashboard-empty", text: "No sources tracked yet." }); return; }
+      if (result === null) { el.createDiv({ cls: "ai-agent-dashboard-empty", text: "Failed to load sources — backend unavailable." }); return; }
+      if (!result.sources?.length) { el.createDiv({ cls: "ai-agent-dashboard-empty", text: "No sources tracked yet." }); return; }
 
       // Resume after a mid-build error (item 21): if any source errored (e.g.
       // "Antigravity capacity exhausted (429)"), surface a one-click resume that

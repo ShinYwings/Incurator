@@ -426,8 +426,12 @@ def load_config(paths: WikiPaths) -> dict:
                 "Vault config '%s' has invalid YAML — using defaults. Error: %s",
                 paths.config_file, e,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Vault config migration failed for '%s' — machine-local keys may remain in vault config: %s",
+                paths.config_file, e,
+            )
 
     _migrate_llm_config(merged)
     return merged
