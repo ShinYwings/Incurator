@@ -490,7 +490,7 @@ LLM generates answer grounded in retrieved evidence
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `incuratorEnabled` | `true` | Enable Curator backend integration |
-| `incuratorRepoPath` | `""` | Absolute path to the Incurator repository for 1-Click Auto-Updates |
+| `incuratorRepoPath` | `""` | **Optional override.** Absolute path to the Incurator repository. Normally left blank — the backend reports its own repo path via `wiki plugin version`. Set this only to override the auto-detected path. |
 | `incuratorDefaultDestination` | `04_Resources` | Default folder for PDF reference stubs or explicit copy imports |
 | `incuratorDefaultImportMode` | `reference` | Add mode for files (`reference` creates a link stub; `copy` copies into the vault) |
 | `incuratorStatusPolling` | `true` | Poll for source processing status updates |
@@ -508,10 +508,19 @@ fingerprint. When the plugin checks `wiki plugin version`, it compares the
 backend fingerprint with the fingerprint bundled into the installed plugin.
 
 If the fingerprints are missing or do not match, the chat window shows a
-setup/rebuild banner. Clicking the button runs `./setup.sh` from the configured
-`incuratorRepoPath`; it does **not** force `git pull`. This lets a device repair
-its local backend/plugin pair even when another synced device is on a different
-branch or checkout. Reload the plugin or restart Obsidian after setup completes.
+setup/rebuild banner — but only when a repo path is available to update from.
+The plugin resolves the repo path in this order: the optional
+`incuratorRepoPath` override → the path the backend reports in
+`wiki plugin version` (`repo_path`) → none. When the backend is a regular
+(non-editable) install with no repo, `repo_path` is `null` and the banner is
+hidden so there is no dead update button.
+
+Clicking the update button copies the freshly built `main.js` and
+`manifest.json` from `<repo>/plugin/` into the **currently open vault's** plugin
+directory. It does **not** run `git pull` or `./setup.sh` — building the backend
+and plugin is the job of `./setup.sh`, which you run manually after pulling
+updates. Other vaults update themselves the next time they are opened. Reload the
+plugin or restart Obsidian after the copy completes.
 
 `Use Incurator backend` controls whether the plugin uses local Incurator backend
 commands. When enabled, the plugin discovers the `wiki` binary, reads backend

@@ -732,12 +732,16 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
+    const detectedRepo = this.plugin.incuratorClient?.repoPath || "";
+    const repoDesc = detectedRepo
+      ? `Auto-detected from backend: ${detectedRepo}. Leave blank to use it; set only to override.`
+      : "Optional. The backend reports its repo path automatically; set this only to override.";
     new Setting(incuratorAdvanced)
-      .setName("Repository path")
-      .setDesc("Absolute path to the Incurator repo (for 1-click updates).")
+      .setName("Repository path (override)")
+      .setDesc(repoDesc)
       .addText((text) =>
         text
-          .setPlaceholder("/path/to/Incurator")
+          .setPlaceholder(detectedRepo || "/path/to/Incurator")
           .setValue(this.plugin.settings.incuratorRepoPath)
           .onChange(async (value) => {
             this.plugin.settings.incuratorRepoPath = value.trim();

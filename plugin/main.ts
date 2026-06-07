@@ -1018,10 +1018,18 @@ export default class ObsidianAIAgent extends Plugin {
     }
   }
 
+  /** Resolve the repo path: explicit override → live backend answer → cache. */
+  resolveRepoPath(): string | null {
+    const override = this.settings.incuratorRepoPath?.trim();
+    if (override) return override;
+    if (this.incuratorClient?.repoPath) return this.incuratorClient.repoPath;
+    return null;
+  }
+
   async updateIncuratorBackend(): Promise<void> {
-    const repoPath = this.settings.incuratorRepoPath;
+    const repoPath = this.resolveRepoPath();
     if (!repoPath) {
-      new Notice("Incurator repository path is not configured. Please set it in the plugin settings.");
+      new Notice("This backend is not an editable install — nothing to update from. (Set a repository path in settings to override.)");
       return;
     }
 

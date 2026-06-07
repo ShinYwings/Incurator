@@ -193,6 +193,40 @@ def test_sync_device_registry_restores_missing_local_id_from_platform_entry(tmp_
     assert registry["devices"]["MACOS-DEVICE"]["backend"]["command"] == "/usr/bin/wiki"
 
 
+def test_detect_repo_root_returns_root_when_markers_present(tmp_path: Path, monkeypatch) -> None:
+    # Simulate an editable/source layout: <repo>/backend/src/curator/__init__.py
+    repo = tmp_path / "Incurator"
+    pkg = repo / "backend" / "src" / "curator"
+    pkg.mkdir(parents=True)
+    (repo / "setup.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    (repo / "plugin").mkdir()
+    (repo / "plugin" / "manifest.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(device_registry, "__file__", str(pkg / "device_registry.py"))
+    assert device_registry.detect_repo_root() == str(repo)
+
+
+def test_detect_repo_root_returns_none_for_site_packages(tmp_path: Path, monkeypatch) -> None:
+    # Simulate a regular install with no repo markers
+    pkg = tmp_path / "site-packages" / "curator"
+    pkg.mkdir(parents=True)
+    monkeypatch.setattr(device_registry, "__file__", str(pkg / "device_registry.py"))
+    assert device_registry.detect_repo_root() is None
+
+
+def test_backend_launcher_includes_repo_path(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "Incurator"
+    pkg = repo / "backend" / "src" / "curator"
+    pkg.mkdir(parents=True)
+    (repo / "setup.sh").write_text("", encoding="utf-8")
+    (repo / "plugin").mkdir()
+    (repo / "plugin" / "manifest.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(device_registry, "__file__", str(pkg / "device_registry.py"))
+
+    launcher = device_registry.backend_launcher()
+    assert launcher["repo_path"] == str(repo)
+
+
 def test_parse_args_text_accepts_json_or_shell_style() -> None:
     assert device_registry.parse_args_text('["--directory", "/repo/backend", "run", "wiki"]') == [
         "--directory",

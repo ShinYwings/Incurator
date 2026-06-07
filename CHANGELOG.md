@@ -6,6 +6,22 @@ All notable changes to Incurator are documented here.
 
 ## [0.4.1] — 2026-06-07
 
+### Added
+
+- **Vault schema migration** (`wiki migrate`) — explicit upgrade path for vaults
+  after a backend update changes config or Collections structure. Tracks
+  `VAULT_SCHEMA_VERSION`; `wiki status` warns when a vault is behind. `wiki migrate`
+  applies pending steps, scans `Collections/*.md` for files missing required
+  frontmatter fields, and `--requeue` re-queues their sources for regeneration.
+  `--dry-run` previews without writing. `wiki init` stamps new vaults with the
+  current schema version.
+- **Plugin repo-path auto-discovery** — the backend now reports its own repo root
+  via `wiki plugin version` (`repo_path`), so the Obsidian plugin no longer needs
+  a manually configured "Repository path". The setting becomes an optional
+  override. Non-editable (site-packages) installs report `repo_path: null` and the
+  plugin hides the update banner instead of showing a dead button. The 1-click
+  update copies built plugin files into the currently open vault only.
+
 ### Fixed
 
 - **Machine-local config isolation** (`config.py`) — `llm`, `search`, and

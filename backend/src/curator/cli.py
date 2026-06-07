@@ -6045,7 +6045,13 @@ def plugin_version() -> None:
             build = parsed
     except Exception:
         build = {}
-    _print_json({"ok": True, "version": __version__, "build": build})
+    from . import device_registry
+    _print_json({
+        "ok": True,
+        "version": __version__,
+        "repo_path": device_registry.detect_repo_root(),
+        "build": build,
+    })
 
 
 def _plugin_paths(workspace_path: str = "") -> cfg.WikiPaths:

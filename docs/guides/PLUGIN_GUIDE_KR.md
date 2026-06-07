@@ -436,7 +436,7 @@ LLM이 검색된 근거를 바탕으로 답변 생성
 | 설정 | 기본값 | 설명 |
 | --- | --- | --- |
 | `incuratorEnabled` | `true` | Curator 백엔드 연동 활성화 |
-| `incuratorRepoPath` | `""` | 백엔드 자동 업데이트를 위한 Incurator 저장소 절대 경로 |
+| `incuratorRepoPath` | `""` | **선택적 override.** Incurator 저장소 절대 경로. 보통 비워둡니다 — 백엔드가 `wiki plugin version`으로 자기 저장소 경로를 보고합니다. 자동 감지된 경로를 덮어쓰고 싶을 때만 설정하세요. |
 | `incuratorDefaultDestination` | `04_Resources` | PDF reference stub 또는 명시적 copy import의 기본 폴더 |
 | `incuratorDefaultImportMode` | `reference` | 파일 추가 방식 (`reference`는 link stub 생성, `copy`는 vault 안으로 복사) |
 | `incuratorStatusPolling` | `true` | 소스 처리 상태 폴링 활성화 |
@@ -461,10 +461,17 @@ Incurator 백엔드와 Obsidian 플러그인은 기기마다 다른 시점에 re
 포함된 fingerprint를 비교합니다.
 
 fingerprint가 없거나 서로 다르면 채팅 창 상단에 setup/rebuild 배너를 표시합니다.
-버튼을 누르면 설정된 `incuratorRepoPath`에서 `./setup.sh`를 실행합니다. 이 동작은
-`git pull`을 강제하지 않습니다. 따라서 Syncthing으로 같은 vault를 쓰는 다른 기기가
-다른 branch나 checkout에 있어도, 현재 기기에서 backend/plugin 쌍만 다시 맞출 수
-있습니다. setup 완료 후에는 plugin reload 또는 Obsidian 재시작이 필요합니다.
+단, 업데이트할 저장소 경로가 있을 때만 표시됩니다. 플러그인은 저장소 경로를 다음
+순서로 결정합니다: 선택적 `incuratorRepoPath` override → 백엔드가
+`wiki plugin version`으로 보고한 경로(`repo_path`) → 없음. 백엔드가 저장소가 없는
+일반(non-editable) 설치이면 `repo_path`가 `null`이 되어 배너를 숨기므로, 동작하지
+않는 업데이트 버튼이 뜨지 않습니다.
+
+업데이트 버튼을 누르면 `<repo>/plugin/`에서 새로 빌드된 `main.js`와
+`manifest.json`을 **현재 열린 vault**의 플러그인 디렉토리로 복사합니다. `git pull`이나
+`./setup.sh`를 실행하지 않습니다 — 백엔드와 플러그인 빌드는 업데이트를 pull한 뒤
+직접 실행하는 `./setup.sh`의 역할입니다. 다른 vault는 다음에 열릴 때 각자
+업데이트됩니다. 복사 완료 후에는 plugin reload 또는 Obsidian 재시작이 필요합니다.
 
 `Use Incurator backend`는 local Incurator backend command 사용 여부를 제어합니다.
 켜면 plugin이 `wiki` 실행 파일을 찾고, backend runtime snapshot을 읽으며, source,

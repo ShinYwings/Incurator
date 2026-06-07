@@ -87,6 +87,8 @@ export class IncuratorClient {
   public backendVersion = "unknown";
   public updateMessage = "";
   public updateActionLabel = "Run Setup";
+  // Repo root reported by the backend (null for non-editable site-packages installs).
+  public repoPath: string | null = null;
 
   constructor(
     private readonly settings: PluginSettings,
@@ -107,7 +109,9 @@ export class IncuratorClient {
       if (typeof version === "string") {
         this.backendVersion = version;
       }
-      
+      const repoPath = record.repo_path;
+      this.repoPath = typeof repoPath === "string" && repoPath ? repoPath : null;
+
       const expectedBackendVersion = readString(localBuildManifest, "backend_version");
       if (expectedBackendVersion) {
         this.needsUpdate = this.backendVersion !== expectedBackendVersion;
