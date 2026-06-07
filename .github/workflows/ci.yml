@@ -50,6 +50,11 @@ jobs:
       - name: Install plugin dependencies
         run: cd plugin && npm ci
 
+      - name: Stub build manifest
+        run: |
+          mkdir -p plugin/src/generated
+          echo '{"schema":1,"git_commit":"ci","git_dirty":false,"backend_version":"0.0.0","plugin_version":"0.0.0"}' > plugin/src/generated/buildManifest.json
+
       - name: Run TypeScript check
         run: cd plugin && npx tsc --noEmit
 

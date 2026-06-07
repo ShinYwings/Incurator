@@ -105,7 +105,7 @@ def test_advanced_command_groups_are_hidden_but_callable() -> None:
     assert runner.invoke(app, ["jobs", "--help"]).exit_code == 0
 
 
-def test_plugin_version_returns_build_fingerprint_fields() -> None:
+def test_plugin_version_returns_build_fields() -> None:
     runner = CliRunner()
 
     result = runner.invoke(app, ["plugin", "version"])
@@ -114,9 +114,10 @@ def test_plugin_version_returns_build_fingerprint_fields() -> None:
     assert result.exit_code == 0
     assert payload["ok"] is True
     assert payload["version"]
-    assert payload["build"]["combined_fingerprint"]
-    assert payload["build"]["backend_fingerprint"]
-    assert payload["build"]["plugin_fingerprint"]
+    assert payload["build"]["backend_version"]
+    assert payload["build"]["plugin_version"]
+    assert "git_commit" in payload["build"]
+    assert "schema" in payload["build"]
     # repo_path key always present (string when editable install, null otherwise)
     assert "repo_path" in payload
 

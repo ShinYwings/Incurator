@@ -101,7 +101,7 @@ describe("quick query: latex normalization (item 17)", () => {
     const source = readFileSync(join(dir, "quickQueryPopover.ts"), "utf8");
 
     expect(source).toContain(
-      'import { normalizeLatexDelimiters } from "../utils/textUtils"'
+      'import { attachLatexCopyHandler, normalizeLatexDelimiters } from "../utils/textUtils"'
     );
     expect(source).toContain(
       "normalizeLatexDelimiters(stripThinkingForDisplay(raw))"
