@@ -15,7 +15,7 @@ if [ ! -d "$VIRTUAL_ENV" ]; then
     fi
 fi
 
-echo "=== Writing Incurator build fingerprint ==="
+echo "=== Writing Incurator build manifest ==="
 python "$ROOT_DIR/scripts/build/write_build_manifest.py"
 echo ""
 
@@ -25,7 +25,25 @@ if command -v npm &> /dev/null; then
     npm install
     npm run build
     echo "✓ Plugin build complete."
-    echo "ℹ️  Open Obsidian and click the update notification to apply the new plugin."
+
+    # Deploy to vault: read last_root from global config cache
+    LAST_ROOT_FILE="$ROOT_DIR/.cache/config/last_root"
+    if [ -f "$LAST_ROOT_FILE" ]; then
+        VAULT_ROOT="$(cat "$LAST_ROOT_FILE" | tr -d '\r\n')"
+        PLUGIN_DEST="$VAULT_ROOT/.obsidian/plugins/incurator-obsidian-agent"
+        if [ -d "$VAULT_ROOT" ]; then
+            mkdir -p "$PLUGIN_DEST"
+            for f in main.js manifest.json styles.css; do
+                [ -f "$ROOT_DIR/plugin/$f" ] && cp "$ROOT_DIR/plugin/$f" "$PLUGIN_DEST/$f"
+            done
+            echo "✓ Plugin deployed to $PLUGIN_DEST"
+            echo "ℹ️  Reload the Incurator plugin in Obsidian to apply the update."
+        else
+            echo "⚠️  last_root vault not found at $VAULT_ROOT — skipping deploy."
+        fi
+    else
+        echo "ℹ️  No last_root found — run 'wiki init <vault>' once to register your vault."
+    fi
 else
     echo "⚠️  npm not found. Skipping plugin build."
 fi

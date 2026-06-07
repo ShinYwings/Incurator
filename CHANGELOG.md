@@ -4,6 +4,34 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.4.2] — 2026-06-07
+
+### Added
+
+- **LaTeX copy preservation** — selecting rendered math in the agent chat sidebar
+  or quick query popover and pressing Ctrl+C now copies `$...$` / `$$...$$` LaTeX
+  source instead of empty SVG content. Implemented via a `copy` event interceptor
+  that extracts the source from MathJax v3 `annotation[encoding="application/x-tex"]`.
+- **PDF → LaTeX conversion** — right-click "Convert to LaTeX (Copy)" (or
+  Cmd+Shift+C) in the PDF viewer sends selected text to the LLM, which returns
+  clean Markdown with proper LaTeX delimiters. Result is copied to clipboard.
+  Shortcut registered on `ownerDocument` via `registerDomEvent` for correct
+  event bubbling and automatic cleanup.
+
+### Fixed
+
+- **CI TypeScript check** — `buildManifest.json` is gitignored so it was absent
+  in CI after checkout. Plugin-tests job now generates a minimal stub before
+  `tsc --noEmit` and `vitest run`.
+- **CI pytest** — `test_plugin_version_returns_build_fields` was asserting stale
+  `*_fingerprint` fields removed in v0.4.1. Updated to match current schema.
+- **setup.sh plugin deploy** — after building, setup.sh now reads `last_root`
+  from `.cache/config/last_root` and copies `main.js`, `manifest.json`,
+  `styles.css` directly to the vault's plugin directory. Removes the need for
+  `OBSIDIAN_PLUGIN_DIR` or a `.env` file.
+
+---
+
 ## [0.4.1] — 2026-06-07
 
 ### Added
