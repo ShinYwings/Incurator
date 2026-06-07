@@ -243,6 +243,15 @@ export class ChatSidebarView extends ItemView {
       }
     );
 
+    this.registerDomEvent(this.containerEl.ownerDocument, "keydown", (e: KeyboardEvent) => {
+      if (e.key === "c" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+        const last = [...this.messages].reverse().find((m) => m.role === "assistant" && m.content);
+        if (!last) return;
+        e.preventDefault();
+        this.copyAssistantMarkdown(last.content);
+      }
+    });
+
     // Drop overlay (hidden by default)
     this.dropOverlayEl = this.inputAreaEl.createDiv("ai-agent-drop-overlay");
     this.dropOverlayEl.createDiv({
