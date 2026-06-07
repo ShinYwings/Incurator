@@ -224,6 +224,7 @@ export class ExternalPdfView extends ItemView {
   private pageCountEl: HTMLElement | null = null;
   private tocPanelEl: HTMLElement | null = null;
   private pagesEl: HTMLElement | null = null;
+  private latexKeydownRegistered = false;
   private darkModeBtnEl: HTMLButtonElement | null = null;
   private zoomInputEl: HTMLInputElement | null = null;
   private totalPages = 0;
@@ -1342,14 +1343,21 @@ export class ExternalPdfView extends ItemView {
       menu.showAtMouseEvent(e);
     });
 
-    pagesEl.addEventListener("keydown", (e: KeyboardEvent) => {
-      if (e.key === "c" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
-        const text = this.getSelectionTextWithinView();
-        if (!text) return;
-        e.preventDefault();
-        this.convertSelectionToLatex(text);
-      }
-    });
+    if (!this.latexKeydownRegistered) {
+      this.latexKeydownRegistered = true;
+      this.registerDomEvent(
+        this.containerEl.ownerDocument,
+        "keydown",
+        (e: KeyboardEvent) => {
+          if (e.key === "c" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+            const text = this.getSelectionTextWithinView();
+            if (!text) return;
+            e.preventDefault();
+            this.convertSelectionToLatex(text);
+          }
+        }
+      );
+    }
   }
 
   private async convertSelectionToLatex(rawText: string): Promise<void> {
