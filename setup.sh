@@ -29,7 +29,7 @@ if command -v npm &> /dev/null; then
     # Deploy to vault: read last_root from global config cache
     LAST_ROOT_FILE="$ROOT_DIR/.cache/config/last_root"
     if [ -f "$LAST_ROOT_FILE" ]; then
-        VAULT_ROOT="$(cat "$LAST_ROOT_FILE" | tr -d '[:space:]')"
+        VAULT_ROOT="$(cat "$LAST_ROOT_FILE" | tr -d '\r\n')"
         PLUGIN_DEST="$VAULT_ROOT/.obsidian/plugins/incurator-obsidian-agent"
         if [ -d "$VAULT_ROOT" ]; then
             mkdir -p "$PLUGIN_DEST"
