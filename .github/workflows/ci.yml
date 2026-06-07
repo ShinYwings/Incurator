@@ -7,6 +7,24 @@ on:
     branches: ["master"]
 
 jobs:
+  version-consistency:
+    name: Version Consistency
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/heads/hotfix/') || startsWith(github.ref, 'refs/heads/release/')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check all version files agree
+        run: |
+          PY=$(grep '^version' backend/pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          PKG=$(node -p "require('./plugin/package.json').version")
+          MAN=$(node -p "require('./plugin/manifest.json').version")
+          echo "pyproject: $PY  package.json: $PKG  manifest.json: $MAN"
+          if [ "$PY" != "$PKG" ] || [ "$PKG" != "$MAN" ]; then
+            echo "❌ Version mismatch — bump all three files to the same version before merging."
+            exit 1
+          fi
+          echo "✓ All versions agree: $PY"
+
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest
