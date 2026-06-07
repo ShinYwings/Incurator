@@ -25,21 +25,7 @@ if command -v npm &> /dev/null; then
     npm install
     npm run build
     echo "✓ Plugin build complete."
-
-    LAST_ROOT_FILE="$ROOT_DIR/.cache/config/last_root"
-    if [ -f "$LAST_ROOT_FILE" ]; then
-        LAST_ROOT=$(cat "$LAST_ROOT_FILE")
-        PLUGIN_DEST="$LAST_ROOT/.obsidian/plugins/incurator-obsidian-agent"
-        if [ -d "$PLUGIN_DEST" ]; then
-            cp "$ROOT_DIR/plugin/main.js"      "$PLUGIN_DEST/main.js"
-            cp "$ROOT_DIR/plugin/manifest.json" "$PLUGIN_DEST/manifest.json"
-            echo "✓ Plugin installed → $PLUGIN_DEST"
-        else
-            echo "ℹ️  Plugin dir not found at $PLUGIN_DEST — run 'wiki init <vault>' to install."
-        fi
-    else
-        echo "ℹ️  No vault configured yet — run 'wiki init <vault>' to install the plugin."
-    fi
+    echo "ℹ️  Open Obsidian and click the update notification to apply the new plugin."
 else
     echo "⚠️  npm not found. Skipping plugin build."
 fi

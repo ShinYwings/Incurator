@@ -1,8 +1,6 @@
 
 import { promises as fs } from "fs";
-import { exec, spawn } from "child_process";
-import { promisify } from "util";
-const execAsync = promisify(exec);
+import { spawn } from "child_process";
 import {
   Plugin,
   WorkspaceLeaf,
@@ -1032,25 +1030,28 @@ export default class ObsidianAIAgent extends Plugin {
       const setupPath = `${repoPath}/setup.sh`;
       await fs.access(setupPath);
 
-      // Rebuild/reinstall the local backend+plugin pair. Pulling remote changes
-      // is intentionally not part of this repair path; multiple devices may be
-      // on different branches or local checkouts.
-      new Notice("Running Incurator setup... Please wait.");
-      await execAsync("./setup.sh", { cwd: repoPath });
-
-      // Copy freshly built plugin files into this vault's Obsidian plugin directory.
+      // Copy pre-built plugin files from the repo into this vault's plugin directory.
+      // setup.sh is responsible for building; this just deploys the result.
       const vaultBase = (this.app.vault.adapter as any).getBasePath?.() || this.vaultRoot;
-      if (vaultBase) {
-        const destDir = `${vaultBase}/.obsidian/plugins/incurator-obsidian-agent`;
-        const fsSync = require("fs") as typeof import("fs");
-        for (const fname of ["main.js", "manifest.json"]) {
-          const src = `${repoPath}/plugin/${fname}`;
-          const dst = `${destDir}/${fname}`;
-          try { fsSync.copyFileSync(src, dst); } catch { /* dest dir may not exist yet */ }
-        }
+      if (!vaultBase) {
+        new Notice("Cannot locate vault path. Update the plugin manually.");
+        return;
       }
-
-      new Notice("Incurator updated. Reload Obsidian to apply the new plugin.");
+      const destDir = `${vaultBase}/.obsidian/plugins/incurator-obsidian-agent`;
+      const fsSync = require("fs") as typeof import("fs");
+      let copied = 0;
+      for (const fname of ["main.js", "manifest.json"]) {
+        const src = `${repoPath}/plugin/${fname}`;
+        try {
+          fsSync.copyFileSync(src, `${destDir}/${fname}`);
+          copied++;
+        } catch { /* ignore — file may not exist if setup.sh hasn't run yet */ }
+      }
+      if (copied === 0) {
+        new Notice("Plugin files not found in repo. Run setup.sh first, then try again.");
+        return;
+      }
+      new Notice("Plugin updated. Reload Obsidian to apply the changes.");
     } catch (e: any) {
       console.error("Failed to update Incurator backend:", e);
       new Notice("Failed to update Incurator backend: " + (e.message || "Unknown error"));
