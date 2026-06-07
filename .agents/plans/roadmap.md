@@ -20,15 +20,15 @@
 ### 2. Minor Quick Wins
 독립적인 소규모 개선 항목들. 백엔드 대공사와 무관하게 플러그인 단독 작업 가능. Knowledge Sync Bridge와 병행 또는 그 사이에 처리.
 
-- **항목 10** — Diff Viewer UI/UX 개선 (`plugin/src/ui/diffViewer.ts`)
-- **항목 9** — `[[wikilink]]` 도입 여부 아키텍처 검증 (연구/검증 태스크, 코딩 최소)
-- **항목 2** — 웹 검색 기능 설계 및 구현 검토 (설계 논의 필요)
+- **[마이너 업데이트] Diff Viewer UI/UX 개선**
+- **[검증 필요] L1~L4 생성 문서 내 Obsidian `[[wikilink]]` 명시적 링킹 도입 여부 검토**
+- **[마이너 업데이트] 웹 검색 기능 구현 검토**
 - 상세 명세: `minor_quick_wins.md`
 
 ### 3. RAG & Knowledge Quality Stabilization
 검색 품질과 지식 추출 정확도를 높입니다. FTS5 + Qwen3 Reranker 파이프라인 안정화, 수식 누락 문제 해결, 엔티티 중복 병합, GraphRAG급 군집화 도입. 가장 복잡한 Major 작업.
 
-- 연관 user_report 항목: **3, 4, 5, 6, 7**
+- 연관 user_report 항목: **검색 엔진 보완, 수식 누락 해결, LLM 설정 분리, GraphRAG 엔티티 통합, 계층적 군집화**
 - 상세 명세: `stabilization.md`
 
 ### 4. Native PDF Annotation System
