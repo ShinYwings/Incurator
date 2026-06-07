@@ -1,0 +1,25 @@
+# curate.yml — Knowledge Requirement Specification for Validation Lab
+# [CRITICAL] sources.include patterns are relative to the VAULT ROOT, not this workspace.
+
+project: "Validation Lab"
+description: "Domain-neutral validation workspace for testing core Curator pipeline behaviors."
+vault_root: ""  # resolved at runtime by testbed init
+
+persona:
+  domain: "General"
+  subdomain: "Knowledge Curation Validation"
+  goal: "Verify that L1-L4 pipeline, DAG integrity, and DB-native search work correctly on minimal synthetic inputs."
+  output_intent: "engineer"
+  disambiguation_keywords: []
+  confidence:
+    high_threshold: 0.85
+    low_threshold: 0.55
+  updated_at: "2026-06-07"
+
+sources:
+  include:
+    - "03_Notes/**/*.md"
+    - "04_Resources/**/*.md"
+  exclude: []
+
+min_confidence: 0.60
