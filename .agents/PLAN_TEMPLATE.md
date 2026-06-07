@@ -73,5 +73,5 @@ Status: APPROVED — Arena debate concluded. Specs are authored, tests are spec-
 
 > **LIFECYCLE & VERSIONING RULE REMINDER**:
 > 1. **버전 및 체인지로그 갱신**: 모든 구현과 로컬 CI가 통과되면 버전 명세(`pyproject.toml` 등)를 올리고 `CHANGELOG.md`를 갱신합니다.
-> 2. **리포트 갱신**: `user_report.md`에서 해결된 항목을 지우거나 옮깁니다.
+> 2. **리포트 갱신**: `USER_REPORT.md`에서 해결된 항목을 지우거나 옮깁니다.
 > 3. **푸쉬 및 PR**: 모든 과정은 `AGENTS.md`에 명시된 `Universal Strict Workflow`에 따라 깃허브 PR을 올리는 것으로 종료됩니다.
