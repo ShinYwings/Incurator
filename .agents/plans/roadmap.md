@@ -15,7 +15,6 @@
 - `wiki db export / wiki db import` CLI 추가
 - 기기 종속 데이터(임베딩 등) Export 블랙리스트 정책
 - 연관 user_report 항목: 없음 (독립 인프라 마일스톤)
-- 상세 명세: `knowledge_sync_bridge.md`
 
 ### 2. Minor Quick Wins
 독립적인 소규모 개선 항목들. 백엔드 대공사와 무관하게 플러그인 단독 작업 가능. Knowledge Sync Bridge와 병행 또는 그 사이에 처리.
@@ -23,13 +22,11 @@
 - **[마이너 업데이트] Diff Viewer UI/UX 개선**
 - **[검증 필요] L1~L4 생성 문서 내 Obsidian `[[wikilink]]` 명시적 링킹 도입 여부 검토**
 - **[마이너 업데이트] 웹 검색 기능 구현 검토**
-- 상세 명세: `minor_quick_wins.md`
 
 ### 3. RAG & Knowledge Quality Stabilization
 검색 품질과 지식 추출 정확도를 높입니다. FTS5 + Qwen3 Reranker 파이프라인 안정화, 수식 누락 문제 해결, 엔티티 중복 병합, GraphRAG급 군집화 도입. 가장 복잡한 Major 작업.
 
 - 연관 user_report 항목: **검색 엔진 보완, 수식 누락 해결, LLM 설정 분리, GraphRAG 엔티티 통합, 계층적 군집화**
-- 상세 명세: `stabilization.md`
 
 ### 4. Native PDF Annotation System
 Zotero 의존성 제거. Knowledge Sync Bridge 완료 후 진행 (어노테이션도 기기 간 동기화 필요).
@@ -38,7 +35,6 @@ Zotero 의존성 제거. Knowledge Sync Bridge 완료 후 진행 (어노테이�
 - 플러그인 하이라이팅 UI + IPC 연동
 - Sync Bridge Export/Import 대상에 포함
 - 연관 user_report 항목: 없음 (Sync Bridge 완료 후 추가 예정)
-- 상세 명세: `pdf_annotation_system.md`
 
 ---
 

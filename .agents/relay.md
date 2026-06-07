@@ -10,3 +10,7 @@ No active goal. Last shipped: `v0.4.1` (hotfix/v0.4.1-device-local-paths → PR 
 - Fixed plugin `config set llm.fallback` to use global scope (no `--local`).
 
 ### Update (2026-06-07, Antigravity)
+
+- Committed and pushed residual unstaged changes (`deviceRegistry.ts`, `buildManifest.json`, etc.) to the `hotfix/v0.4.1-device-local-paths` branch.
+- Synced and cleaned up `.agents/plans` based on `user_report.md` as ground truth (deleted completed `syncthing_auto_sync` plans, aligned headers in `minor_quick_wins.md`, `stabilization.md`, and `roadmap.md`), then committed and pushed these changes.
+- Added `knowledge_sync_bridge.md` and `pdf_annotation_system.md` to `user_report.md`'s To-Do list, and synced their respective plan files to point back to the new `user_report.md` entries, followed by a commit and push.
