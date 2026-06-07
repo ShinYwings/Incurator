@@ -79,7 +79,7 @@ wiki testbed list
 wiki testbed init <scenario_name> --force
 ```
 
-- **생성 스크립트 (`create_testbed.py`)**: 시나리오 자산에서 로컬 testbed vault를 재생성합니다.
+- **생성 명령 (`wiki testbed init`)**: 시나리오 자산에서 로컬 testbed vault를 재생성합니다 (`backend/src/curator/testbed_manager.py`).
 - **Stage fixture**: notes, references, assets 등 testbed로 복사되는 원본 코퍼스입니다.
 - **Dialogue scripts**: MCP/query/curation 동작을 반복 검증하는 대사/행동 스크립트입니다.
 - **Fixture workspace rules**: private testbed workspace에 설치되는 dev 전용 agent rules입니다.

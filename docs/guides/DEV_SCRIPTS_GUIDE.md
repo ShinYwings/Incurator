@@ -5,17 +5,20 @@ This guide explains how to create and manage development validation scenarios (t
 ## 1. Scenario Structure
 Every scenario lives in `tests/scenarios/<scenario_name>/`. Use the `testbed_template` as your starting point.
 
+Testbed creation is handled by the `wiki testbed init <scenario_name>` command
+(implemented in `backend/src/curator/testbed_manager.py`). There is no
+standalone bootstrap script — the CLI is the single entry point.
+
 ```text
-tests/
-├── create_testbed.py       # Central testbed bootstrap script
-└── scenarios/<scenario_name>/
-    ├── MASTER_PLAN.md          # [Required] Goals and setup instructions
-    ├── stage/                  # [Required] The raw source files (L0)
-    │   ├── 01_Workspaces/      # Workspace definitions (curate.yml)
-    │   ├── 03_Notes/           # Sample markdown notes
-    │   └── 04_Resources/       # Sample reference PDFs/HTML
-    ├── dialogues/              # [Optional] Automation scripts (.sh or .py)
-    └── fixture_workspace_rules/ # [Optional] Agent rules for this scenario
+tests/scenarios/<scenario_name>/
+├── MASTER_PLAN.md          # [Required] Goals and setup instructions
+├── stage/                  # [Required] The raw source files (L0)
+│   ├── 01_Workspaces/      # Workspace definitions (curate.yml)
+│   ├── 03_Notes/           # Sample markdown notes
+│   └── 04_Resources/       # Sample reference PDFs/HTML
+├── mock_zotero_env/        # [Optional] Mock Zotero data dir for reference-mode tests
+├── dialogues/              # [Optional] Automation scripts (.sh or .py)
+└── fixture_workspace_rules/ # [Optional] Agent rules for this scenario
 ```
 
 ## 2. Step-by-Step Creation

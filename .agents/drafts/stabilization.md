@@ -47,4 +47,4 @@ Agents must read the following past archive plans and understand the original de
 ### Additional System Integration Logic
 - `backend/src/curator/retrieval/*.py`: Tune reranking weights and stabilize hybrid search referring to past RAG build plans.
 - `backend/src/curator/pipeline/*.py`: Strengthen prompts and validation for the L2->L3->L4 promotion logic. (Normalize Generative Backprop logic)
-- `testbed`: Add new scenarios in `scripts/dev/` to reproduce instability and broken Backprop phenomena.
+- `testbed`: Add new scenarios in `tests/scenarios/` to reproduce instability and broken Backprop phenomena.

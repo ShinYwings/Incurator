@@ -7,17 +7,20 @@
 ## 1. 시나리오 구조
 모든 시나리오는 `tests/scenarios/<scenario_name>/`에 위치합니다. `testbed_template`을 시작점으로 사용하세요.
 
+테스트베드 생성은 `wiki testbed init <scenario_name>` 명령
+(`backend/src/curator/testbed_manager.py`에 구현)이 담당합니다. 별도의
+부트스트랩 스크립트는 없으며, CLI가 유일한 진입점입니다.
+
 ```text
-tests/
-├── create_testbed.py       # 테스트베드 부트스트랩 스크립트
-└── scenarios/<scenario_name>/
-    ├── MASTER_PLAN.md          # [필수] 목표 및 설정 지침
-    ├── stage/                  # [필수] 원시 소스 파일들 (L0)
-    │   ├── 01_Workspaces/      # 워크스페이스 정의 (curate.yml)
-    │   ├── 03_Notes/           # 샘플 마크다운 노트
-    │   └── 04_Resources/       # 샘플 레퍼런스 PDF/HTML
-    ├── dialogues/              # [선택] 자동화 스크립트 (.sh 또는 .py)
-    └── fixture_workspace_rules/ # [선택] 이 시나리오를 위한 에이전트 규칙
+tests/scenarios/<scenario_name>/
+├── MASTER_PLAN.md          # [필수] 목표 및 설정 지침
+├── stage/                  # [필수] 원시 소스 파일들 (L0)
+│   ├── 01_Workspaces/      # 워크스페이스 정의 (curate.yml)
+│   ├── 03_Notes/           # 샘플 마크다운 노트
+│   └── 04_Resources/       # 샘플 레퍼런스 PDF/HTML
+├── mock_zotero_env/        # [선택] 레퍼런스 모드 테스트용 모의 Zotero 데이터 디렉토리
+├── dialogues/              # [선택] 자동화 스크립트 (.sh 또는 .py)
+└── fixture_workspace_rules/ # [선택] 이 시나리오를 위한 에이전트 규칙
 ```
 
 ## 2. 단계별 생성 방법
