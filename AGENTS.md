@@ -197,7 +197,7 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
 
 The mandatory sequence when review feedback arrives:
 
-1. **Capture in `USER_REPORT.md` immediately.** Add the feedback as a labeled item: `[PR 픽스]` for a bug, `[기능 제안]` for a feature/enhancement. Preserve the reviewer's edge cases verbatim — do not compress them away (see Anti-Compression rule).
+1. **Capture in `USER_REPORT.md` immediately.** Add the feedback as a new item. Preserve the reviewer's edge cases verbatim — do not compress them away (see Anti-Compression rule).
 2. **Author a `PLAN_TEMPLATE.md`-compliant plan BEFORE writing any implementation code.** A non-trivial review-requested feature gets the full Arena treatment (problem statement → persona proposals → cross-critique → master plan), exactly like a fresh milestone. Link the plan from its `USER_REPORT.md` item and vice versa.
 3. **STOP for approval on substantial work.** As with Step 3 of the Universal Strict Workflow, pause for user approval of the plan before coding a substantial feature. (Trivial nits — see exception below — skip this.)
 4. **Then implement** through TDD + incremental commits + local CI, and only then push the follow-up onto the same release branch / PR.
