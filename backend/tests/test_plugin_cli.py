@@ -117,6 +117,19 @@ def test_plugin_version_returns_build_fingerprint_fields() -> None:
     assert payload["build"]["combined_fingerprint"]
     assert payload["build"]["backend_fingerprint"]
     assert payload["build"]["plugin_fingerprint"]
+    # repo_path key always present (string when editable install, null otherwise)
+    assert "repo_path" in payload
+
+
+def test_plugin_version_runs_without_a_vault(tmp_path: Path, monkeypatch) -> None:
+    # `wiki plugin version` powers the update check and MUST NOT require a vault.
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(app, ["plugin", "version"])
+    payload = _json_output(result.output)
+    assert result.exit_code == 0
+    assert payload["ok"] is True
+    assert "repo_path" in payload
 
 
 def test_git_like_source_aliases_are_callable() -> None:

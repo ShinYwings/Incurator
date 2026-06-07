@@ -201,6 +201,25 @@ def infer_registry_local_device_id(
     return candidates[0][1]
 
 
+def detect_repo_root() -> str | None:
+    """Return the Incurator repo root when running from a source/editable install.
+
+    The plugin's 1-click update copies built plugin files from `<repo>/plugin/`
+    and runs `<repo>/setup.sh`. This function lets the backend report its own repo
+    location so the plugin never needs a manually configured "Repository path".
+
+    Returns the repo root string only when both `setup.sh` and
+    `plugin/manifest.json` exist there (proving it is an updatable checkout, not a
+    regular site-packages install). Otherwise returns None.
+    """
+    backend_root = Path(__file__).resolve().parents[2]   # <repo>/backend
+    repo_root = backend_root.parent                        # <repo>
+    markers = (repo_root / "setup.sh", repo_root / "plugin" / "manifest.json")
+    if all(marker.exists() for marker in markers):
+        return str(repo_root)
+    return None
+
+
 def backend_launcher(command: str | None = None, args: list[str] | None = None) -> dict[str, Any]:
     backend_root = Path(__file__).resolve().parents[2]
     command = command or shutil.which("wiki") or "wiki"
@@ -209,6 +228,7 @@ def backend_launcher(command: str | None = None, args: list[str] | None = None) 
         "command": command,
         "args": args,
         "backend_root": str(backend_root),
+        "repo_path": detect_repo_root(),
         "uv_fallback": {
             "command": shutil.which("uv") or "uv",
             "args": ["--directory", str(backend_root), "run", "wiki"],

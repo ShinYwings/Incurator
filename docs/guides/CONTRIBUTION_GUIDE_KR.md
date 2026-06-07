@@ -46,7 +46,7 @@ Incurator는 개인 지식 베이스를 “검색 가능한 파일 묶음”이 
 - **재현 가능한 testbed 검증**: private fixture를 기반으로 `wiki add`, `wiki sync`, `wiki query`, MCP 흐름을 반복 검증해야 합니다.
 
 **LIFECYCLE & VERSIONING RULE (수명 주기 및 버전 관리 규칙)**:
-1. **버그 수정 (Bug Fixes)**: `.agents/user_report.md`의 항목을 수정하면 패치 버전을 올리고(`+0.0.1`, 예: `0.4.4 -> 0.4.5`), `git commit` 후 `.agents/user_report.md`에서 해당 항목을 **삭제**합니다.
+1. **버그 수정 (Bug Fixes)**: `.agents/USER_REPORT.md`의 항목을 수정하면 패치 버전을 올리고(`+0.0.1`, 예: `0.4.4 -> 0.4.5`), `git commit` 후 `.agents/USER_REPORT.md`에서 해당 항목을 **삭제**합니다.
 2. **아키텍처 플랜 (Architectural Plans)**: `.agents/plans/`의 마스터 플랜 구현을 완료하면 마이너 버전을 올리고 패치는 0으로 초기화합니다(`+0.1.0`, 예: `0.4.4 -> 0.5.0`). `git commit` 후 플랜 파일들을 `.agents/plans/archives/`로 **이동(Archive)**시킵니다.
 3. **메이저 업데이트 (Major Updates)**: 호환되지 않는 API 변경이나 대규모 시스템 개편 시 메이저 버전을 올리고 하위 버전을 0으로 초기화합니다(`+1.0.0`, 예: `0.4.4 -> 1.0.0`).
 
@@ -79,7 +79,7 @@ wiki testbed list
 wiki testbed init <scenario_name> --force
 ```
 
-- **생성 스크립트 (`create_testbed.py`)**: 시나리오 자산에서 로컬 testbed vault를 재생성합니다.
+- **생성 명령 (`wiki testbed init`)**: 시나리오 자산에서 로컬 testbed vault를 재생성합니다 (`backend/src/curator/testbed_manager.py`).
 - **Stage fixture**: notes, references, assets 등 testbed로 복사되는 원본 코퍼스입니다.
 - **Dialogue scripts**: MCP/query/curation 동작을 반복 검증하는 대사/행동 스크립트입니다.
 - **Fixture workspace rules**: private testbed workspace에 설치되는 dev 전용 agent rules입니다.

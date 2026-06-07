@@ -332,16 +332,27 @@ export function resolveWikiBinary(repoPath: string): string | undefined {
     );
   }
 
-  // Common global dirs (Apple Silicon homebrew, Intel homebrew, user-local)
-  const home = homedir();
-  candidates.push(
-    `${home}/.local/bin/wiki`,
-    "/opt/homebrew/bin/wiki",
-    "/usr/local/bin/wiki",
-  );
-
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
   }
   return undefined;
+}
+
+export function getGlobalRegistryDir(repoPath?: string, home = homedir()): string | null {
+  if (!repoPath) return null;
+  const expandedRepo = expandPath(repoPath, home);
+  const constsPath = resolve(expandedRepo, "backend/src/curator/constants.py");
+  let cacheDir = ".cache/config";
+  
+  if (existsSync(constsPath)) {
+    const py = readFileSync(constsPath, "utf-8");
+    const dirMatch = py.match(/DIR_GLOBAL_CACHE\s*=\s*"([^"]+)"/);
+    if (dirMatch) cacheDir = dirMatch[1];
+  }
+  return resolve(expandedRepo, cacheDir);
+}
+
+export function getGlobalRegistryPath(repoPath?: string, home = homedir()): string | null {
+  const dir = getGlobalRegistryDir(repoPath, home);
+  return dir ? resolve(dir, "devices.json") : null;
 }

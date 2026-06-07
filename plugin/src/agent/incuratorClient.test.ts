@@ -157,6 +157,26 @@ describe("IncuratorClient", () => {
     Object.assign(localBuildManifest, originalManifest);
   });
 
+  it("captures repo_path from backend version response", async () => {
+    const client = new IncuratorClient(settings(), "0.3.1", async () => ({
+      ok: true,
+      version: "0.3.1",
+      repo_path: "/home/shin/Workspace/Incurator",
+    }));
+    await client.checkBackendVersion();
+    expect(client.repoPath).toBe("/home/shin/Workspace/Incurator");
+  });
+
+  it("leaves repoPath null when backend reports no repo (site-packages install)", async () => {
+    const client = new IncuratorClient(settings(), "0.3.1", async () => ({
+      ok: true,
+      version: "0.3.1",
+      repo_path: null,
+    }));
+    await client.checkBackendVersion();
+    expect(client.repoPath).toBeNull();
+  });
+
   it("registerSource calls plugin source import then plugin source register with --build", async () => {
     const calls: string[][] = [];
     const backendJson = async (args: string[]) => {

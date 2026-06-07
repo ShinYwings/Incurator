@@ -2238,7 +2238,10 @@ export class ChatSidebarView extends ItemView {
     this.messagesContainer.empty();
 
     const updateClient = this.getIncuratorClient();
-    if (this.plugin.settings.incuratorRepoPath && updateClient.needsUpdate) {
+    // Show the update banner only when an update is needed AND we have a repo to
+    // update from (explicit override or backend-reported path). Non-editable
+    // installs report no repo path → no dead update button.
+    if (updateClient.needsUpdate && this.plugin.resolveRepoPath()) {
       const banner = this.messagesContainer.createDiv("ai-agent-update-banner");
       banner.style.padding = "10px";
       banner.style.marginBottom = "10px";

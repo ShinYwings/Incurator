@@ -63,11 +63,14 @@ describe("backend command boundary", () => {
     expect(source).not.toContain("search_curator");
   });
 
-  it("runs local setup for update repair without forcing git pull", () => {
+  it("installs plugin by copying pre-built files without running git pull or setup.sh", () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
     const source = readFileSync(join(root, "main.ts"), "utf8");
 
-    expect(source).toContain('await execAsync("./setup.sh"');
-    expect(source).not.toContain("git pull && ./setup.sh");
+    // Copies pre-built plugin files from repo — does not re-run setup.sh or git pull
+    expect(source).toContain("copyFileSync");
+    expect(source).toContain("main.js");
+    expect(source).not.toContain("git pull");
+    expect(source).not.toContain('execAsync("./setup.sh"');
   });
 });

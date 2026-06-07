@@ -636,6 +636,21 @@ Rules:
   `sources.external_path` hint and must not be treated as a portable source id.
 - Snapshot writes should be atomic: write a temporary file in `.curator/runtime/`
   and replace the target path.
+- `wiki plugin version` MUST be vault-independent (it powers the update check
+  before any vault is selected) and MUST report `repo_path`: the backend's own
+  repo root when running from an editable/source checkout (both `setup.sh` and
+  `plugin/manifest.json` present at the inferred root), or `null` for a regular
+  site-packages install with no repo to update from. The plugin uses this so the
+  user never has to configure a "Repository path" manually. The plugin's repo
+  path precedence is: explicit `incuratorRepoPath` override → backend-reported
+  `repo_path` → none. When none, the plugin hides the update banner instead of
+  showing a dead button. `repo_path` is a machine-local value and must only be
+  carried in vault-independent JSON / the device-local `devices.json`, never in a
+  synced artifact.
+- The plugin update action copies the freshly built `main.js` and
+  `manifest.json` from `<repo>/plugin/` into the currently open vault's plugin
+  directory only. It must not run `git pull` or `setup.sh`; building is the
+  user's explicit `setup.sh` step. Other vaults update when next opened.
 
 ### 11.3 Agent Access Scenarios
 

@@ -25,11 +25,27 @@ if command -v npm &> /dev/null; then
     npm install
     npm run build
     echo "✓ Plugin build complete."
+    echo "ℹ️  Open Obsidian and click the update notification to apply the new plugin."
 else
     echo "⚠️  npm not found. Skipping plugin build."
 fi
 echo ""
 
+echo "=== Installing GitHub CLI (gh) ==="
+if ! command -v gh &> /dev/null; then
+    if command -v brew &> /dev/null; then
+        echo "Installing gh via Homebrew..."
+        brew install gh
+    elif command -v apt-get &> /dev/null; then
+        echo "Installing gh via APT..."
+        sudo apt-get update && sudo apt-get install -y gh
+    else
+        echo "⚠️  Could not detect brew or apt. Please install 'gh' manually."
+    fi
+else
+    echo "✓ GitHub CLI (gh) is already installed."
+fi
+echo ""
 echo "=== Installing Incurator backend ==="
 cd "$ROOT_DIR"
 echo "=== Installing dependencies via uv or pip ==="
@@ -56,9 +72,6 @@ if [ "${INCURATOR_SKIP_MODELS:-0}" != "1" ]; then
 else
     echo "ℹ️  INCURATOR_SKIP_MODELS=1 set — skipping model provisioning. Run later: wiki models ensure"
 fi
-
-echo ""
-echo "ℹ️  Note: Obsidian plugin installation is now handled interactively via 'wiki init'."
 
 echo ""
 echo "=== Setup complete ==="

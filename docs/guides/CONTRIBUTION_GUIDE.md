@@ -1,7 +1,7 @@
 # 🛠 Incurator Contribution & Development Guide
 
 **LIFECYCLE & VERSIONING RULE**:
-1. **Bug Fixes**: When fixing an item from `.agents/user_report.md`, bump the patch version (`+0.0.1`, e.g., `0.4.4 -> 0.4.5`), commit the changes, and **delete** the item from `.agents/user_report.md`.
+1. **Bug Fixes**: When fixing an item from `.agents/USER_REPORT.md`, bump the patch version (`+0.0.1`, e.g., `0.4.4 -> 0.4.5`), commit the changes, and **delete** the item from `.agents/USER_REPORT.md`.
 2. **Architectural Plans**: When successfully implementing a master plan from `.agents/plans/`, bump the minor version and reset the patch to 0 (`+0.1.0`, e.g., `0.4.4 -> 0.5.0`). Commit the changes, and **move** the plan file(s) into `.agents/plans/archives/`.
 3. **Major Updates**: When making incompatible API changes or massive system overhauls, bump the major version and reset both minor and patch to 0 (`+1.0.0`, e.g., `0.4.4 -> 1.0.0`).
 

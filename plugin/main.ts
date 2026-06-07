@@ -1,8 +1,6 @@
 
 import { promises as fs } from "fs";
-import { exec, spawn } from "child_process";
-import { promisify } from "util";
-const execAsync = promisify(exec);
+import { spawn } from "child_process";
 import {
   Plugin,
   WorkspaceLeaf,
@@ -67,6 +65,7 @@ import {
   getLocalBackendCommand,
   getLocalBackendRepoPath,
   resolveWikiBinary,
+  getGlobalRegistryPath,
   type DeviceRegistry,
 } from "./src/utils/deviceRegistry";
 
@@ -931,8 +930,11 @@ export default class ObsidianAIAgent extends Plugin {
       // Try devices.json cache first
       let registry: Partial<DeviceRegistry> | null = null;
       try {
-        const raw = await this.app.vault.adapter.read(".curator/devices.json");
-        registry = JSON.parse(raw) as Partial<DeviceRegistry>;
+        const configPath = getGlobalRegistryPath(this.settings.incuratorRepoPath);
+        if (configPath) {
+          const raw = await fs.readFile(configPath, "utf-8");
+          registry = JSON.parse(raw) as Partial<DeviceRegistry>;
+        }
       } catch { /* no devices.json yet */ }
 
       const cached = getLocalBackendCommand(registry);
@@ -954,13 +956,16 @@ export default class ObsidianAIAgent extends Plugin {
   private async cacheBackendCommand(command: string): Promise<void> {
     try {
       let registry: Partial<DeviceRegistry> | null = null;
-      try {
-        const raw = await this.app.vault.adapter.read(".curator/devices.json");
-        registry = JSON.parse(raw) as Partial<DeviceRegistry>;
-      } catch { /* none yet */ }
+      const configPath = getGlobalRegistryPath(this.settings.incuratorRepoPath);
+      if (configPath) {
+        try {
+          const raw = await fs.readFile(configPath, "utf-8");
+          registry = JSON.parse(raw) as Partial<DeviceRegistry>;
+        } catch { /* none yet */ }
+      }
 
       // Update the local device's backend.command
-      if (registry?.local_device_id && registry.devices) {
+      if (registry?.local_device_id && registry.devices && configPath) {
         const local = registry.devices[registry.local_device_id];
         if (local) {
           (local as Record<string, unknown>).backend = {
@@ -968,13 +973,14 @@ export default class ObsidianAIAgent extends Plugin {
             command,
           };
           registry.updated_at = Math.floor(Date.now() / 1000);
-          if (!(await this.app.vault.adapter.exists(".curator"))) {
-            await this.app.vault.adapter.mkdir(".curator");
-          }
-          await this.app.vault.adapter.write(
-            ".curator/devices.json",
-            `${JSON.stringify(registry, null, 2)}\n`
-          );
+          
+          // Ensure parent dir exists
+          const path = require("path");
+          const fsSync = require("fs");
+          const dir = path.dirname(configPath);
+          if (!fsSync.existsSync(dir)) fsSync.mkdirSync(dir, { recursive: true });
+          
+          await fs.writeFile(configPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
           console.log(`[Incurator] Cached backend command in devices.json: ${command}`);
         }
       }
@@ -989,11 +995,14 @@ export default class ObsidianAIAgent extends Plugin {
     const raw = (await this.loadData()) || {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, raw);
     try {
-      const registry = JSON.parse(
-        await this.app.vault.adapter.read(".curator/devices.json")
-      ) as Partial<DeviceRegistry>;
-      const localRepoPath = getLocalBackendRepoPath(registry);
-      if (localRepoPath) this.settings.incuratorRepoPath = localRepoPath;
+      const configPath = getGlobalRegistryPath(this.settings.incuratorRepoPath);
+      if (configPath) {
+        const registry = JSON.parse(
+          await fs.readFile(configPath, "utf-8")
+        ) as Partial<DeviceRegistry>;
+        const localRepoPath = getLocalBackendRepoPath(registry);
+        if (localRepoPath) this.settings.incuratorRepoPath = localRepoPath;
+      }
     } catch {
       // No per-device registry yet; the plugin setting remains the fallback.
     }
@@ -1009,10 +1018,18 @@ export default class ObsidianAIAgent extends Plugin {
     }
   }
 
+  /** Resolve the repo path: explicit override → live backend answer → cache. */
+  resolveRepoPath(): string | null {
+    const override = this.settings.incuratorRepoPath?.trim();
+    if (override) return override;
+    if (this.incuratorClient?.repoPath) return this.incuratorClient.repoPath;
+    return null;
+  }
+
   async updateIncuratorBackend(): Promise<void> {
-    const repoPath = this.settings.incuratorRepoPath;
+    const repoPath = this.resolveRepoPath();
     if (!repoPath) {
-      new Notice("Incurator repository path is not configured. Please set it in the plugin settings.");
+      new Notice("This backend is not an editable install — nothing to update from. (Set a repository path in settings to override.)");
       return;
     }
 
@@ -1021,13 +1038,28 @@ export default class ObsidianAIAgent extends Plugin {
       const setupPath = `${repoPath}/setup.sh`;
       await fs.access(setupPath);
 
-      // Rebuild/reinstall the local backend+plugin pair. Pulling remote changes
-      // is intentionally not part of this repair path; multiple devices may be
-      // on different branches or local checkouts.
-      new Notice("Running Incurator setup... Please wait.");
-      await execAsync("./setup.sh", { cwd: repoPath });
-      
-      new Notice("Incurator setup completed. Please reload the plugin or restart Obsidian.");
+      // Copy pre-built plugin files from the repo into this vault's plugin directory.
+      // setup.sh is responsible for building; this just deploys the result.
+      const vaultBase = (this.app.vault.adapter as any).getBasePath?.() || this.vaultRoot;
+      if (!vaultBase) {
+        new Notice("Cannot locate vault path. Update the plugin manually.");
+        return;
+      }
+      const destDir = `${vaultBase}/.obsidian/plugins/incurator-obsidian-agent`;
+      const fsSync = require("fs") as typeof import("fs");
+      let copied = 0;
+      for (const fname of ["main.js", "manifest.json", "styles.css"]) {
+        const src = `${repoPath}/plugin/${fname}`;
+        try {
+          fsSync.copyFileSync(src, `${destDir}/${fname}`);
+          copied++;
+        } catch { /* ignore — file may not exist if setup.sh hasn't run yet */ }
+      }
+      if (copied === 0) {
+        new Notice("Plugin files not found in repo. Run setup.sh first, then try again.");
+        return;
+      }
+      new Notice("Plugin updated. Reload Obsidian to apply the changes.");
     } catch (e: any) {
       console.error("Failed to update Incurator backend:", e);
       new Notice("Failed to update Incurator backend: " + (e.message || "Unknown error"));
@@ -1126,21 +1158,26 @@ export default class ObsidianAIAgent extends Plugin {
       const snapshot = await readSyncthingSnapshotWithStatus(this.vaultRoot, zoteroRoots);
 
       let existing: Partial<DeviceRegistry> | null = null;
-      try {
-        const raw = await this.app.vault.adapter.read(".curator/devices.json");
-        existing = JSON.parse(raw) as Partial<DeviceRegistry>;
-      } catch {
-        existing = null;
+      const configPath = getGlobalRegistryPath(this.settings.incuratorRepoPath);
+      if (configPath) {
+        try {
+          const raw = await fs.readFile(configPath, "utf-8");
+          existing = JSON.parse(raw) as Partial<DeviceRegistry>;
+        } catch {
+          existing = null;
+        }
       }
 
       const registry = mergeDeviceRegistry(existing, snapshot, this.settings);
-      if (!(await this.app.vault.adapter.exists(".curator"))) {
-        await this.app.vault.adapter.mkdir(".curator");
+      
+      if (configPath) {
+        const path = require("path");
+        const fsSync = require("fs");
+        const dir = path.dirname(configPath);
+        if (!fsSync.existsSync(dir)) fsSync.mkdirSync(dir, { recursive: true });
+        
+        await fs.writeFile(configPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
       }
-      await this.app.vault.adapter.write(
-        ".curator/devices.json",
-        `${JSON.stringify(registry, null, 2)}\n`
-      );
     } catch (err) {
       console.warn("[Incurator] Device registry auto-sync failed:", err);
     }
@@ -1667,7 +1704,8 @@ export default class ObsidianAIAgent extends Plugin {
     try {
       const res = await this.incuratorClient.dbAutosync();
       if (!res.ok) {
-        this.syncStatusBar?.setText("");
+        this.syncStatusBar?.setText("⚠ Sync Failed");
+        new Notice(`Auto-sync failed: ${res.error || "Unknown error"}. Check if Incurator Repo Path is set in settings.`);
         return;
       }
       const changes = (res.inserted ?? 0) + (res.updated ?? 0) + (res.deleted ?? 0);

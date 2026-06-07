@@ -48,6 +48,10 @@ PREFIX_L4 = "SYN"
 CLAIM_TYPE_FACT = "fact"
 DOMAIN_GENERAL = "general"
 
+# Vault schema version — bump when Collections/*.md or config structure changes
+# requiring a `wiki migrate` run on existing vaults.
+VAULT_SCHEMA_VERSION = 1
+
 # Database & State
 INTERNAL_DIR = ".curator"
 STATE_DB = "state.sqlite"
