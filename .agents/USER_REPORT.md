@@ -40,9 +40,10 @@ Auto-calibration으로  추정 ()
  그리고 diff 할때 수정이 몇개됐는지 알수도없고 (예를 들어, 1/8)  수정 내용 움직이는 화살표도 없네. 
  
  Review diff 눌러야 diff 뜨게하지말고 바로 뜨게해줘
-그리고 ![](image-2.png) 이런 버그도 있어서 md파일에 diff 안뜸.
+그리고 ![](image-2.png) 이런 버그도 있어서 md파일에 diff 안뜸. ai-agent-edit이 자꾸 SEARCH 매칭에 실패하는 것 같습니다. 라는데?
 
-ai-agent-edit이 자꾸 SEARCH 매칭에 실패하는 것 같습니다. 라는데?
+- 00_System/Agent Diffs/ 에 생성 안되도록 해줘. vscode에서 어떻게 diff view 만들었는지 vscodium 레포지토리 참조해서 밴치마킹해.
+
 
 - **[sidechat] partial selection + LaTeX 복사 불가 문제**: MathJax가 수식을 SVG로 교체하는 구조 때문에 드래그 선택 영역만 LaTeX 포함해서 복사하는 게 불가능. `pointer-events: none` CSS 시도 및 Cmd+Shift+C / 우클릭 메뉴 시도 모두 전체 메시지 복사만 되어 revert. 근본 해결책 후보: (1) MathJax 대신 KaTeX로 교체 — KaTeX는 DOM 텍스트 노드를 보존해서 브라우저 selection이 수식을 가로질러 작동함, (2) 각 `mjx-container` 위에 LaTeX 소스를 담은 투명 텍스트 overlay `<span>` 을 얹는 방식. 우선순위 낮음.
 - PDF LaTeX 변환 기능(우클릭 "Convert to LaTeX")에서 사용하는 LLM 모델을 사용자가 선택할 수 있도록 settings에 "Fast/Light model" 옵션 추가 필요. 현재는 메인 모델을 그대로 사용하는데, LaTeX 변환처럼 간단한 작업엔 qwen2.5:0.5b 같은 경량 로컬 모델을 별도 지정할 수 있어야 함. Ollama 사용자 기준 추천 기본값은 `qwen2.5:0.5b`. 더 작은 용량 쓸수 있는거 있으면 찾아봐.
@@ -81,3 +82,6 @@ ai-agent-edit이 자꾸 SEARCH 매칭에 실패하는 것 같습니다. 라는�
   Account                   Local (no account)         
 
   - 그리고 docs에 실제 사용하는 path 다 지워줄래 제발.
+
+  - plugin/.env.example 생성 원인 발견해서 근본 원인 제거해.
+
