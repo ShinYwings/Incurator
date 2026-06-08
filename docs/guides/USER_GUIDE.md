@@ -754,7 +754,7 @@ identity + health — click the **Embed model** / **Reranker** rows to re-provis
 (`wiki plugin models refresh`). To (re)build the vector index after the models are
 healthy, run `wiki reindex --embed` (plain `wiki reindex` rebuilds FTS5/chunks only).
 If you need a manual backend-only repair, run
-`cd backend && uv pip install -e '.[rerank]'`. Do not run
+`pip install -e './backend[rerank]'`. Do not run
 `uv pip install -e .` from the repository root; the Python project lives in
 `backend/`.
 

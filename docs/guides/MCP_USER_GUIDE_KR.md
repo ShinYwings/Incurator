@@ -11,8 +11,7 @@
 
 MCP 의존성 패키지가 설치되어 있는지 확인하세요.
 ```bash
-cd backend
-uv pip install -e '.[mcp]'
+uv pip install -e './backend[mcp]'
 ```
 
 > [!NOTE]

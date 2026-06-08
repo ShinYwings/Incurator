@@ -70,8 +70,8 @@ def test_install_llama_cpp_failure_hint_uses_repo_root_safe_commands(monkeypatch
 
     assert step.ok is False
     assert "./setup.sh" in step.detail
-    assert "cd backend && uv pip install -e '.[rerank]'" in step.detail
-    assert "run `uv pip install -e '.[rerank]'`" not in step.detail
+    assert "uv pip install -e './backend[rerank]'" in step.detail
+    assert "run `uv pip install -e './backend[rerank]'`" not in step.detail
 
 
 def test_download_gguf_skip_when_present():

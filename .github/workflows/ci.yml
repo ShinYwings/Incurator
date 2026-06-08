@@ -47,13 +47,16 @@ jobs:
           version: "latest"
 
       - name: Install backend dependencies
-        run: cd backend && uv sync --extra dev --extra mcp
+        working-directory: ./backend
+        run: uv sync --extra dev --extra mcp
 
       - name: Run ruff
-        run: cd backend && uv run ruff check src/
+        working-directory: ./backend
+        run: uv run ruff check src/
 
       - name: Run pytest
-        run: cd backend && uv run pytest -q
+        working-directory: ./backend
+        run: uv run pytest -q
 
   plugin-tests:
     name: Plugin Tests
@@ -70,7 +73,8 @@ jobs:
           cache-dependency-path: plugin/package-lock.json
 
       - name: Install plugin dependencies
-        run: cd plugin && npm ci
+        working-directory: ./plugin
+        run: npm ci
 
       - name: Stub build manifest
         run: |
@@ -78,7 +82,9 @@ jobs:
           echo '{"schema":1,"git_commit":"ci","git_dirty":false,"backend_version":"0.0.0","plugin_version":"0.0.0"}' > plugin/src/generated/buildManifest.json
 
       - name: Run TypeScript check
-        run: cd plugin && npx tsc --noEmit
+        working-directory: ./plugin
+        run: npx tsc --noEmit
 
       - name: Run vitest
-        run: cd plugin && npx vitest run
+        working-directory: ./plugin
+        run: npx vitest run

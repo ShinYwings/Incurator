@@ -235,7 +235,7 @@ def install_llama_cpp(*, metal: bool = True) -> ModelStep:
         "llama-cpp-python",
         False,
         "install failed; run `./setup.sh` from the repository root, or "
-        "`cd backend && uv pip install -e '.[rerank]'` for a backend-only repair",
+        "`uv pip install -e './backend[rerank]'` for a backend-only repair",
     )
 
 

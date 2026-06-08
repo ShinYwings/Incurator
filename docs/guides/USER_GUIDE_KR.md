@@ -711,7 +711,7 @@ Obsidian 대시보드의 **System** 카드가 현재 embed/reranker 모델 정�
 (`wiki plugin models refresh`). 모델이 정상이 된 뒤 벡터 인덱스를 (재)구축하려면
 `wiki reindex --embed`를 실행합니다(plain `wiki reindex`는 FTS5/chunks만
 다시 만듭니다). backend만 수동 복구해야 한다면
-`cd backend && uv pip install -e '.[rerank]'`를 실행하세요. 저장소 루트에서
+`uv pip install -e './backend[rerank]'`를 실행하세요. 저장소 루트에서
 `uv pip install -e .`를 실행하지 마세요. Python 프로젝트는 `backend/` 아래에
 있습니다.
 

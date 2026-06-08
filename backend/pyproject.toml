@@ -32,7 +32,6 @@ dependencies = [
 [project.optional-dependencies]
 # MCP server: lets workspace agents (Claude Code, Antigravity, etc.) query the
 # Curator DAG natively. Install with:
-#   uv pip install -e '.[mcp]'
 mcp = [
     "mcp>=1.0.0",
     "httpx>=0.27.0",
@@ -43,7 +42,7 @@ dev = [
     "mypy>=1.8.0",
 ]
 # Local search GGUF runtime: Qwen3 embedding + reranker via llama-cpp-python.
-# Install with: cd backend && uv pip install -e '.[rerank]' (or run ./setup.sh
+# Install with: uv pip install -e './backend[rerank]' (or run ./setup.sh
 # from the repository root). GGUF files are provisioned by `wiki models ensure`.
 # Without it search degrades to FTS5/RRF / `no_rerank`.
 rerank = [

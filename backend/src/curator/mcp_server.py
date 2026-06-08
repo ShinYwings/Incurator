@@ -40,7 +40,7 @@ try:
 except ImportError as e:  # pragma: no cover - import-time hint
     raise ImportError(
         "The `mcp` package is required. Install with: "
-        "cd backend && uv pip install -e '.[mcp]'"
+        "uv pip install -e './backend[mcp]'"
     ) from e
 
 from . import config as cfg

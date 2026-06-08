@@ -6970,7 +6970,7 @@ def mcp_callback(ctx: typer.Context) -> None:
         from . import mcp_server
     except ImportError as e:
         _err(str(e))
-        _hint("Install with: [bold]cd backend && uv pip install -e '.[mcp]'[/bold]")
+        _hint("Install with: [bold] uv pip install -e './backend[mcp]'[/bold]")
         raise typer.Exit(code=1)
     mcp_server.serve_stdio()
 
@@ -7059,7 +7059,7 @@ def mcp_install_cmd(
         from . import mcp_server
     except ImportError as e:
         _err(str(e))
-        _hint("Install with: [bold]cd backend && uv pip install -e '.[mcp]'[/bold]")
+        _hint("Install with: [bold] uv pip install -e './backend[mcp]'[/bold]")
         raise typer.Exit(code=1)
 
     snippets = mcp_server.render_install_snippets(paths)

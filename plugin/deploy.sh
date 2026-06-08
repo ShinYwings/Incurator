@@ -1,15 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
+cd "$(dirname "$0")"
+
+# 변수가 없으면 에러를 뿜는 대신 로컬 빌드 안내 메시지를 출력합니다.
 if [ -z "${OBSIDIAN_PLUGIN_DIR:-}" ]; then
-  echo "Error: OBSIDIAN_PLUGIN_DIR environment variable is not set."
-  echo "Please set it to your target vault's plugin directory."
-  echo "Example: OBSIDIAN_PLUGIN_DIR=/path/to/vault/.obsidian/plugins/incurator-obsidian-agent ./deploy.sh"
-  exit 1
+  echo "OBSIDIAN_PLUGIN_DIR is not set. Building in the local directory..."
+else
+  echo "Deploying Incurator Obsidian plugin to: ${OBSIDIAN_PLUGIN_DIR}"
+  export OBSIDIAN_PLUGIN_DIR
 fi
 
-export OBSIDIAN_PLUGIN_DIR
-
-echo "Deploying Incurator Obsidian plugin to: ${OBSIDIAN_PLUGIN_DIR}"
-cd "$(dirname "$0")"
+# esbuild가 알아서 로컬 또는 지정된 경로로 빌드합니다.
 npm run build

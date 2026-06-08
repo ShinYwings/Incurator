@@ -11,8 +11,7 @@ The **Incurator MCP Server** is the interface through which the Artist (human + 
 
 Ensure you have the MCP dependencies installed:
 ```bash
-cd backend
-uv pip install -e '.[mcp]'
+uv pip install -e './backend[mcp]'
 ```
 
 > [!NOTE]

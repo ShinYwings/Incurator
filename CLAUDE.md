@@ -184,7 +184,7 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
 5. **Docs Update**: Update `docs/specs/` and `docs/guides/` to define the target behavior. (Crucial: Update the English guides first, then faithfully synchronize the matching `_KR.md` Korean guides).
 6. **Test-Driven Development (TDD)**: Write failing tests before writing application logic.
 7. **Implementation & Incremental Commits**: Write code to make tests pass. Commit work incrementally using Conventional Commits (e.g., `feat(core): ...`, `fix(plugin): ...`).
-8. **Local CI Validation**: Before finalizing, you MUST run all local checks: `cd backend && uv run pytest`, `ruff check`, `mypy`, and the plugin's `npx vitest run`. Ensure the entire system is intact.
+8. **Local CI Validation**: Before finalizing, you MUST run all local checks: `uv run backend/pytest`, `ruff check`, `mypy`, and the plugin's `npx vitest run -c ./plugin/vitest.config.ts`. Ensure the entire system is intact.
 9. **Report Cleanup**: Once an item is verified, ensure it is marked as completed or removed from `.agents/ROADMAP.md` (since it was already deleted from USER_REPORT.md during planning).
 10. **Version Bump & Changelog**: Update the version strings in all relevant configuration files (`pyproject.toml`, `package.json`, `manifest.json`) AND update `CHANGELOG.md` with the release notes for this version.
 11. **Plan Deletion**: **Delete** the implemented plan file(s) from the workspace. The plan's historical context will be statically preserved in the Git history for this version.
@@ -311,22 +311,20 @@ Agents should refer to the specific scenario's `MASTER_PLAN.md` to understand th
 ./setup.sh
 
 # Or manually with uv
-cd backend
-uv pip install -e ".[dev]"
+uv pip install -e "./backend[dev]"
 
 # Lint / type-check
 ruff check backend/src/
 mypy backend/src/
 
 # Run tests (must use backend venv — root uv env lacks pytest)
-cd backend && uv run pytest
+uv run backend/pytest
 
 # Run a single test
-cd backend && uv run pytest tests/test_db.py::test_source_deduplication -v
+uv run backend/pytest tests/test_db.py::test_source_deduplication -v
 
 # Build package
-cd backend
-hatch build
+hatch backend/build
 
 # Recreate the ignored development validation vault
 # Optional: --llm <provider> --model <model_name>

@@ -8,9 +8,9 @@
 <!-- Key implementation decisions, architecture changes, or tradeoffs worth noting. -->
 
 ## Checklist
-- [ ] Tests pass: `cd backend && uv run pytest`
+- [ ] Tests pass: `uv run backend/pytest`
 - [ ] Ruff clean: `ruff check backend/src/`
-- [ ] Plugin tests pass: `cd plugin && npx vitest run`
+- [ ] Plugin tests pass: `npx vitest run -c ./plugin/vitest.config.ts`
 - [ ] Docs updated (English guides first, then `_KR.md` counterparts)
 - [ ] `CHANGELOG.md` updated
 - [ ] Version bumped in `pyproject.toml` / `package.json` / `manifest.json` (if release)
