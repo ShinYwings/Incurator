@@ -92,7 +92,12 @@ export function findSearchBlock(haystack: string, search: string): MatchResult |
       const spans: Array<{ i: number; k: number }> = [];
       for (let i = 0; i < fileLines.length; i++) {
         if (fileLines[i].trim() !== firstAnchor) continue;
-        for (let k = i; k < fileLines.length; k++) {
+        // Start at i+1: a ≥3-line search always spans ≥2 file lines, so the first
+        // and last anchors must be DIFFERENT lines. Starting at i would let an
+        // identical first/last anchor (e.g. a closing `}`) match the same single
+        // line, collapsing the span to length 1 and replacing one line with the
+        // whole REPLACE block.
+        for (let k = i + 1; k < fileLines.length; k++) {
           if (fileLines[k].trim() === lastAnchor) {
             spans.push({ i, k }); // nearest last-anchor → minimal span for this i
             break;

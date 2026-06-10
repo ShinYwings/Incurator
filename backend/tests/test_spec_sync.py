@@ -25,6 +25,7 @@ DOMAINS = {
     "curator_schema": "SCHEMA",
     "system_behavior": "SYSTEM_BEHAVIOR",
     "plugin_schema": "PLUGIN_SCHEMA",
+    "search_engine": "SEARCH_ENGINE_SCHEMA",
 }
 
 

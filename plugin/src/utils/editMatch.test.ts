@@ -75,4 +75,28 @@ describe("findSearchBlock", () => {
   it("returns null for empty search", () => {
     expect(findSearchBlock(file, "")).toBeNull();
   });
+
+  it("does not collapse a multi-line search to one line when first/last anchors are identical", () => {
+    // Reviewer regression: identical anchors (closing `}`) must match DIFFERENT
+    // file lines, not the same single line (which would replace 1 line with the
+    // whole block). Here there is exactly one valid 2-brace span.
+    const code = [
+      "function a() {",
+      "  return 1;",
+      "}",
+      "const x = 9;",
+    ].join("\n");
+    const r = findSearchBlock(code, "}\nDIFFERENT MIDDLE\n}");
+    // Only one `}` exists → no second anchor line → no false single-line match.
+    expect(r).toBeNull();
+  });
+
+  it("anchors correctly when identical anchors appear on two distinct lines", () => {
+    const code = ["{", "  body", "}", "tail"].join("\n");
+    // search first/last anchors are `{` and `}` (distinct), middle drifted.
+    const r = findSearchBlock(code, "{\nDRIFT\n}");
+    expect(r).not.toBeNull();
+    expect(r!.strategy).toBe("anchored");
+    expect(code.slice(r!.start, r!.end)).toBe("{\n  body\n}");
+  });
 });
