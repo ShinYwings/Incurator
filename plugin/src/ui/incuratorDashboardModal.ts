@@ -1052,7 +1052,7 @@ export class IncuratorDashboardModal extends Modal {
       // to `wiki status` instead of snapping back to the first catalogue entry.
       const sep = decision.value.indexOf("::");
       const prov = sep >= 0 ? decision.value.slice(0, sep) : "";
-      const model = sep >= 0 ? decision.value.slice(sep + 2) : decision.value;
+      const model = (sep >= 0 ? decision.value.slice(sep + 2) : decision.value).trim();
       const provLabel = PROVIDER_LABELS[prov as LLMProvider];
       const text = provLabel ? `${provLabel} · ${model} (current)` : `${model} (current)`;
       sel.createEl("option", { value: decision.value, text });

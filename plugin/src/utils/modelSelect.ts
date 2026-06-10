@@ -21,7 +21,7 @@ export function resolveModelSelectValue(
   if (!current) return { action: "default", value: "" };
   if (optionValues.includes(current)) return { action: "select", value: current };
   const sep = current.indexOf("::");
-  const model = sep >= 0 ? current.slice(sep + 2) : current;
+  const model = (sep >= 0 ? current.slice(sep + 2) : current).trim();
   if (model) return { action: "inject", value: current };
   return { action: "default", value: "" };
 }

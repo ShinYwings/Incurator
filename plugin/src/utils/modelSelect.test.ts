@@ -37,4 +37,11 @@ describe("resolveModelSelectValue", () => {
       value: "",
     });
   });
+
+  it("does not inject a whitespace-only model name", () => {
+    expect(resolveModelSelectValue(catalogue, "ollama::   ")).toEqual({
+      action: "default",
+      value: "",
+    });
+  });
 });
