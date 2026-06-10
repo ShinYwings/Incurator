@@ -1,7 +1,7 @@
 # v0.5.0 Master Implementation Plan — Agent Edit & Diff Viewer Reliability
 
 Date: 2026-06-11
-Status: **DRAFT — awaiting user approval before any code** (Universal Strict Workflow Step 4)
+Status: **APPROVED 2026-06-11** — user decisions: Minor **v0.5.0**; auto-open **safe-gated**; artifact **removed entirely**.
 Branch: `feature/agent-edit-diff-reliability` (from `master` @ e268809)
 Arena: `.agents/plans/agent_edit_diff_arena/` (00_problem, 01_proposal, 02_critique_redteam, 03_specialists)
 Source: `.agents/drafts/agent_edit_diff_viewer.md`
@@ -17,7 +17,7 @@ Source: `.agents/drafts/agent_edit_diff_viewer.md`
 2. **One unified matcher** `plugin/src/utils/editMatch.ts`, tiers: **exact → line-trim → anchored**. **Tier 2 (intra-line whitespace-normalize) REJECTED** (Markdown whitespace hazard, red_teamer V1). Anchored tier (search ≥3 lines) uses minimal non-overlapping spans; >1 candidate → null; reject span > 3× search line count (V3). Replacement always splices the **original** file span, never normalized text.
 3. **All three apply/preview paths consume the one matcher** — `applyInlineEdit`, `autoApplyProposals`, and `reviewAssistantEdit` (the latter's whole-file `split/join` is replaced by matcher-driven splice so **preview == apply**, V7).
 4. **Immediate diff**: auto-open the DiffViewer once per message, **hard-gated** (single resolvable target that is already the active `MarkdownView` or no focused MarkdownView; never force a new tab). `msg.diffAutoOpened` guard, reset on active-session switch (V2). Pill remains as a re-open affordance.
-5. **Artifact off by default**: `DEFAULT_SETTINGS.editArtifactEnabled = false`; relabel setting "(legacy)"; keep helper + setting; never delete existing files (V4, schema_guardian). CHANGELOG tells existing users to toggle off.
+5. **Artifact REMOVED entirely** (user decision, overrides Arena's off-by-default): delete `maybeWriteEditArtifact`, `renderEditArtifactPill`, the `editArtifactEnabled` setting (`types.ts` field + default + `settings.ts` UI), `context/editArtifact.ts` + its test, `ARTIFACT_DIR`, and the `msg.editArtifactPath` field. `legacy_sweeper` pass. Do NOT delete users' pre-existing `00_System/Agent Diffs/*.md` files (their data); just stop producing/linking them. CHANGELOG notes the removal + that the in-editor diff replaces it.
 6. **Faithful marker stripping**: new pure `stripDanglingEditMarkers` runs on the **rendered** pass only, code-fence-aware, exact marker grammar, own-line only (V5). Strengthen `collapseStreamingEditBlocks` for lone-opener variants.
 7. **Scope**: prompt rule (minimal REPLACE; target only the referenced section; never paste the whole answer) in `systemPrompt.ts` + `editableSelectionInstruction`, PLUS a **non-blocking** "large replacement" warning Notice in the apply path as a model-independent net (V6).
 8. **Counter always visible**: show `1/1` for single-hunk; arrows hidden/disabled when only one hunk.
@@ -50,10 +50,10 @@ Source: `.agents/drafts/agent_edit_diff_viewer.md`
   - Tests: garbled-closer block, image-then-`>>>>` leak, code-fenced `>>>>` preserved, stored-content-untouched.
   - Gate: `vitest` + `tsc`.
 
-- **P4 — UX: immediate diff + counter + artifact default**
-  - Hard-gated auto-open in `renderInlineMultiDiff`; `msg.diffAutoOpened` (+ reset on session switch); pill relabel.
-  - `buildToolbar`: always-visible counter.
-  - `DEFAULT_SETTINGS.editArtifactEnabled = false` + setting relabel.
+- **P4 — UX: immediate diff + counter + REMOVE artifact**
+  - Safe-gated auto-open in `renderInlineMultiDiff` (single resolvable target that is the active MarkdownView or no focused MarkdownView; never force a tab); `msg.diffAutoOpened` (+ reset on session switch).
+  - `buildToolbar`: always-visible counter (`1/1` for single hunk).
+  - `legacy_sweeper`: delete the artifact feature wholesale (writer, pill, setting, `editArtifact.ts` + test, `ARTIFACT_DIR`, `editArtifactPath`). Leave users' existing files on disk.
   - Gate: `vitest` + `tsc`.
 
 - **P5 — Docs, testbed smoke, version, changelog**
