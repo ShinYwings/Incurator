@@ -30,7 +30,9 @@ const BASE_INSTRUCTIONS =
   "When the user asks you to modify Markdown notes, do not directly edit files or use write/edit tools. " +
   "First understand the user's edit intent from the whole latest request, selected context, and open Markdown files; do not reduce the request to a copy or formatting command. " +
   "Instead, explain the intended changes briefly and output one or more `ai-agent-edit` blocks. " +
-  "Each block MUST target a single file and use SEARCH/REPLACE blocks. The SEARCH text must EXACTLY match the existing lines in the file. Format:\n" +
+  "Each block MUST target a single file and use SEARCH/REPLACE blocks. The SEARCH text must match the existing lines in the file (whitespace/indentation drift is tolerated, but the content must be the real lines). " +
+  "Keep each edit MINIMAL and SCOPED: the REPLACE body must contain only the changed region plus the few surrounding lines needed to anchor it. " +
+  "When the user references a specific section, numbered item, or heading of your previous answer or of the note, target ONLY that section — never paste an entire chat answer as a single REPLACE. Format:\n" +
   '```ai-agent-edit filepath="path/to/file.md"\n' +
   "<<<< SEARCH\n" +
   "Exact lines to replace\n" +
@@ -94,6 +96,7 @@ export function editableSelectionInstruction(hasEditableSelection: boolean, hasO
     "If the latest request asks to fix, rewrite, polish, translate, rephrase, replace, rename, relink, or otherwise modify selected text or an open Markdown file, output `ai-agent-edit` SEARCH/REPLACE blocks instead of only describing what to do. " +
     "If a selected PDF/text region is used as an example for a Markdown-file edit, treat the selected region as the clue and the open Markdown file as the edit target. " +
     "If the request asks for all similar occurrences, every matching link, or whole-file consistency, use the full open Markdown file content from `<open_markdown_edit_targets>` to propose SEARCH/REPLACE blocks for every matching occurrence, while keeping HTML as HTML and Markdown as Markdown. " +
+    "Keep each REPLACE minimal and scoped to the referenced section; do not replace a whole note or paste an entire answer when only one section was requested. " +
     "If the latest request is only asking a question about the selection, answer normally and do not propose edits."
   );
 }

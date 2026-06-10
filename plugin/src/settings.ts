@@ -406,22 +406,6 @@ export class AIAgentSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(providerSection)
-      .setName("Write edits as diff artifact")
-      .setDesc(
-        "When the chat proposes code edits, also save them as a unified-diff " +
-          "note under 00_System/Agent Diffs/ and link it from the chat. The " +
-          "inline Review Diff / apply buttons keep working either way."
-      )
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.editArtifactEnabled)
-          .onChange(async (value) => {
-            this.plugin.settings.editArtifactEnabled = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
     // ═══════════════════════════════════════════════════════════════
     // 2. GitHub Integration
     // ═══════════════════════════════════════════════════════════════

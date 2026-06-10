@@ -85,8 +85,6 @@ export interface PluginSettings {
   providerUsage: Record<LLMProvider, ProviderUsage>;
   diffMode: "inline" | "side-by-side";
   streamingEnabled: boolean;
-  /** Write proposed code edits as a diff artifact note under 00_System/Agent Diffs/. */
-  editArtifactEnabled: boolean;
   quickQueryEnabled: boolean;
   mcpServers: MCPServerConfig[];
   maxContextLength: number;
@@ -171,7 +169,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   ollamaHost: "http://localhost:11434",
   diffMode: "inline",
   streamingEnabled: true,
-  editArtifactEnabled: true,
   quickQueryEnabled: true,
   mcpServers: [],
   maxContextLength: 128000,
@@ -274,8 +271,8 @@ export interface ChatMessage {
   /** For streaming: is the message still being received? */
   isStreaming?: boolean;
   appliedEdits?: boolean;
-  /** Vault path of the diff artifact note written for this message's edits, if any. */
-  editArtifactPath?: string;
+  /** True once this message's edit diff was auto-opened, so it never re-opens. */
+  diffAutoOpened?: boolean;
   revertData?: { filepath: string; originalContent: string | null }[];
 }
 

@@ -22,11 +22,6 @@ import {
 import { IngestDestinationModal } from "./ingestDestinationModal";
 import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
 import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, stripDanglingEditMarkers, truncateToLength } from "../utils/textUtils";
-import {
-  ARTIFACT_DIR,
-  buildEditArtifactFilename,
-  buildEditArtifactMarkdown,
-} from "../context/editArtifact";
 import { inferIngestDestination } from "../utils/pathUtils";
 import { hashFileSha256 } from "../utils/fileHash";
 import { findSearchBlock } from "../utils/editMatch";
@@ -1042,12 +1037,13 @@ export class ChatSidebarView extends ItemView {
       this.isGenerating = false;
       setIcon(this.sendBtn, "send");
       this.sendBtn.setAttribute("aria-label", "Send message");
-      // Write any proposed edits to a diff artifact note before re-rendering so
-      // the artifact-link pill can show immediately. Runs once per message.
-      await this.maybeWriteEditArtifact(assistantMsg);
       // Do not yank the view to the bottom when generation finishes; keep the
       // reader where they are unless they were already following along.
       this.renderMessages(false);
+      // Immediately surface the diff for a just-completed edit (safe-gated: only
+      // when the target is the active note or no note is focused). Runs once per
+      // message here, NOT on history re-render, so old sessions never auto-open.
+      await this.maybeAutoOpenDiff(assistantMsg);
       await this.persistCurrentSession();
     }
 
@@ -2402,10 +2398,6 @@ export class ChatSidebarView extends ItemView {
       }
     }
 
-    // Additive: a link to the persistent diff artifact note (item 20), shown
-    // alongside the inline Review-Diff pills when one was written.
-    this.renderEditArtifactPill(contentEl, msg);
-
     const toolMatch = msg.content.match(/✅ \*\*mcp_[^*]*curator_query\*\* result:\n```(?:json)?\n([\s\S]*?)\n```/);
     if (toolMatch && !this.lastQueryTrace) {
       try {
@@ -3096,85 +3088,31 @@ export class ChatSidebarView extends ItemView {
   }
 
   /**
-   * Write any proposed edits in `msg` to a diff artifact note under
-   * 00_System/Agent Diffs/ (item 20). Idempotent: only runs when the setting is
-   * on, the message has edit proposals, and no artifact was created yet.
+   * Immediately open the in-editor diff for a just-completed edit, but only
+   * under a safe gate so it never steals the user's editor:
+   *   - exactly one target file (multi-file edits keep the clickable pill);
+   *   - the target is the already-active Markdown note, OR no Markdown note is
+   *     focused (a different focused note → keep the pill).
+   * Runs once per message from the stream-completion path, never on history
+   * re-render, so loading an old session does not pop diffs open.
    */
-  private async maybeWriteEditArtifact(msg: ChatMessage): Promise<void> {
-    if (!this.plugin.settings.editArtifactEnabled) return;
-    if (msg.editArtifactPath) return;
+  private async maybeAutoOpenDiff(msg: ChatMessage): Promise<void> {
+    if (msg.diffAutoOpened) return;
 
     const editRef = this.getEditTargetContextForMessage(msg);
     const proposals = this.extractMultiEditProposals(msg.content, editRef?.filePath);
     if (proposals.length === 0) return;
 
-    try {
-      const created = new Date();
-      const idx = this.messages.indexOf(msg);
-      const prevUser =
-        idx > 0
-          ? [...this.messages.slice(0, idx)].reverse().find((m) => m.role === "user")
-          : undefined;
-      const title =
-        (prevUser?.content || "").split("\n")[0].trim().slice(0, 80) || "code edits";
-      const sessionId = this.plugin.sessionData.activeChatSessionId ?? "";
+    const files = new Set(proposals.map((p) => p.filepath));
+    if (files.size !== 1) return;
+    const target = proposals[0].filepath;
+    if (!(this.app.vault.getAbstractFileByPath(target) instanceof TFile)) return;
 
-      const content = buildEditArtifactMarkdown(
-        proposals.map((p) => ({
-          filepath: p.filepath,
-          search: p.search,
-          replace: p.replace,
-        })),
-        { title, sessionId, created }
-      );
+    const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (active && active.file?.path !== target) return; // different note focused → keep pill
 
-      if (!this.app.vault.getAbstractFileByPath(ARTIFACT_DIR)) {
-        try {
-          await this.app.vault.createFolder(ARTIFACT_DIR);
-        } catch {
-          /* folder already exists */
-        }
-      }
-
-      const baseName = buildEditArtifactFilename(proposals, created);
-      let path = `${ARTIFACT_DIR}/${baseName}`;
-      if (this.app.vault.getAbstractFileByPath(path)) {
-        const stem = baseName.replace(/\.md$/, "");
-        for (let i = 2; i < 1000; i++) {
-          const candidate = `${ARTIFACT_DIR}/${stem}-${i}.md`;
-          if (!this.app.vault.getAbstractFileByPath(candidate)) {
-            path = candidate;
-            break;
-          }
-        }
-      }
-
-      await this.app.vault.create(path, content);
-      msg.editArtifactPath = path;
-    } catch (err) {
-      console.error("Failed to write edit artifact:", err);
-    }
-  }
-
-  private renderEditArtifactPill(container: HTMLElement, msg: ChatMessage): void {
-    if (!msg.editArtifactPath) return;
-    const path = msg.editArtifactPath;
-    const pill = container.createDiv("ai-agent-applied-change ai-agent-edit-artifact-pill");
-    pill.style.cursor = "pointer";
-    const header = pill.createDiv("ai-agent-applied-change-header");
-    header.createSpan({ cls: "ai-agent-applied-change-icon", text: "📝" });
-    const nameEl = header.createSpan({ cls: "ai-agent-applied-change-name" });
-    nameEl.setText("Open diff artifact");
-    nameEl.title = path;
-    pill.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const file = this.app.vault.getAbstractFileByPath(path);
-      if (file instanceof TFile) {
-        await this.app.workspace.getLeaf("tab").openFile(file, { active: true });
-      } else {
-        new Notice(`Diff artifact not found: ${path}`);
-      }
-    });
+    msg.diffAutoOpened = true;
+    await this.reviewAssistantEdit(msg);
   }
 
   private extractMultiEditProposals(content: string, fallbackFilepath = ""): MultiEditProposal[] {

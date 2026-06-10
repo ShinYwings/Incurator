@@ -21,7 +21,6 @@ function settings(): PluginSettings {
     deepseekApiKey: "",
     diffMode: "inline",
     streamingEnabled: true,
-    editArtifactEnabled: true,
     quickQueryEnabled: true,
     mcpServers: [],
     maxContextLength: 128000,
