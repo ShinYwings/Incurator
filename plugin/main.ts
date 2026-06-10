@@ -142,6 +142,22 @@ export default class ObsidianAIAgent extends Plugin {
           0
         );
       });
+      // Keyboard selections (Shift+Arrow/Home/End, Ctrl/Cmd+A) produce no mouseup,
+      // so the Ask AI button never appeared. Fire the same handler on those keys
+      // only — handleSelectionChange no-ops on an empty selection, so shrinking a
+      // selection back to a caret correctly hides the button. selectionchange is
+      // deliberately avoided (it fires on every caret move).
+      this.registerDomEvent(doc, "keyup", (e: KeyboardEvent) => {
+        const isExtendKey =
+          e.shiftKey &&
+          (e.key.startsWith("Arrow") || e.key === "Home" || e.key === "End");
+        const isSelectAll = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a";
+        if (!isExtendKey && !isSelectAll) return;
+        (doc.defaultView ?? window).setTimeout(
+          () => this.quickQuery.handleSelectionChange(doc),
+          0
+        );
+      });
       this.registerDomEvent(
         doc,
         "mousedown",

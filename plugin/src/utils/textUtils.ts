@@ -171,6 +171,26 @@ function extractTextWithLatex(node: Node): string {
 }
 
 /**
+ * Serialize a `Selection` to text, preserving rendered MathJax formulas as
+ * `$...$` / `$$...$$` LaTeX. Reads the formula's `annotation[encoding=
+ * "application/x-tex"]` source, which is present whether MathJax shows the SVG
+ * or has swapped it back to markdown text — so the captured LaTeX does not
+ * depend on Obsidian Live Preview's swap timing (the cause of the Ask-AI
+ * "formula disappears on drag" bug).
+ *
+ * Non-math selections take the fast path and return `selection.toString()`
+ * unchanged, so ordinary text capture is byte-identical to before.
+ */
+export function selectionToTextWithLatex(selection: Selection | null): string {
+  if (!selection || selection.rangeCount === 0) return "";
+  const fragment = selection.getRangeAt(0).cloneContents();
+  if (!fragment.querySelector("mjx-container, span.math")) {
+    return selection.toString();
+  }
+  return extractTextWithLatex(fragment).replace(/\n{3,}/g, "\n\n");
+}
+
+/**
  * Attach a copy-event interceptor to `el` so that when the user's selection
  * contains rendered MathJax elements, the clipboard receives LaTeX source
  * (`$...$` for inline, `$$...$$` for block) instead of empty SVG content.

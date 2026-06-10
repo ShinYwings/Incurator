@@ -1,10 +1,33 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { join } from "path";
 import {
   collapseStreamingEditBlocks,
   normalizeLatexDelimiters,
+  selectionToTextWithLatex,
   stripDanglingEditMarkers,
   truncateToLength,
 } from "./textUtils";
+
+// Minimal Selection fake: vitest runs in a node environment with no DOM, so the
+// MathJax DOM-walking branch is covered by a source assertion below; here we
+// verify the empty and non-math (byte-identical) branches with real assertions.
+function fakeSelection(opts: {
+  text?: string;
+  rangeCount?: number;
+  hasMath?: boolean;
+}): Selection {
+  return {
+    rangeCount: opts.rangeCount ?? 1,
+    toString: () => opts.text ?? "",
+    getRangeAt: () => ({
+      cloneContents: () => ({
+        querySelector: (_sel: string) => (opts.hasMath ? ({} as Element) : null),
+      }),
+    }),
+  } as unknown as Selection;
+}
 
 // ─── truncateToLength ────────────────────────────────────────────────────────
 
@@ -200,5 +223,28 @@ describe("stripDanglingEditMarkers", () => {
   it("is a no-op when there is no marker evidence", () => {
     const input = "Just a normal answer.\nWith two lines.";
     expect(stripDanglingEditMarkers(input)).toBe(input);
+  });
+});
+
+// ─── selectionToTextWithLatex ───────────────────────────────────────────────
+
+describe("selectionToTextWithLatex", () => {
+  it("returns '' for null or empty selection", () => {
+    expect(selectionToTextWithLatex(null)).toBe("");
+    expect(selectionToTextWithLatex(fakeSelection({ rangeCount: 0 }))).toBe("");
+  });
+
+  it("returns selection.toString() unchanged for non-math selections", () => {
+    const text = "plain    text\nwith   odd   spacing";
+    expect(selectionToTextWithLatex(fakeSelection({ text, hasMath: false }))).toBe(text);
+  });
+
+  it("routes math-containing selections through the LaTeX-preserving DOM extractor", () => {
+    // DOM walking can't run under the node test env; assert the wiring instead:
+    // it gates on rendered-math nodes and reuses extractTextWithLatex, not toString.
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const src = readFileSync(join(dir, "textUtils.ts"), "utf8");
+    expect(src).toContain('fragment.querySelector("mjx-container, span.math")');
+    expect(src).toContain("return extractTextWithLatex(fragment)");
   });
 });

@@ -5,7 +5,7 @@ import {
   buildQuickQueryMessages as buildQuickQueryContextMessages,
   type QuickQueryTurn,
 } from "../context/quickQueryContext";
-import { attachLatexCopyHandler, normalizeLatexDelimiters } from "../utils/textUtils";
+import { attachLatexCopyHandler, normalizeLatexDelimiters, selectionToTextWithLatex } from "../utils/textUtils";
 
 /**
  * In-line Copilot — drag-to-select quick query popover.
@@ -138,7 +138,7 @@ export class QuickQueryPopover {
     if (this.popoverEl) return;
 
     const selection = doc.getSelection();
-    const text = selection?.toString().trim() ?? "";
+    const text = selectionToTextWithLatex(selection).trim();
     if (!text || !selection || selection.rangeCount === 0) {
       this.removeButton();
       return;
@@ -172,7 +172,7 @@ export class QuickQueryPopover {
       this.plugin.app.workspace.activeLeaf?.view?.containerEl?.ownerDocument ??
       document;
     const selection = ownerDoc.getSelection();
-    const text = selection?.toString().trim() ?? "";
+    const text = selectionToTextWithLatex(selection).trim();
     if (!text || !selection || selection.rangeCount === 0) {
       new (require("obsidian").Notice)("Quick query: select some text first.");
       return;

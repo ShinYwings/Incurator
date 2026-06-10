@@ -1,7 +1,8 @@
 # Master Implementation Plan — Sidechat Selection & LaTeX Robustness
 
 Date: 2026-06-11
-Status: **DRAFT — awaiting user approval before any code** (Universal Strict Workflow Step 4)
+Status: **APPROVED 2026-06-11** — user decisions: Patch **v0.5.1** (no spec-title bump); symptom 3 **deferred to Icebox**.
+Test note: vitest env is `node` (no jsdom); per codebase convention the DOM math-extraction branch is covered by a source-assertion + the production-proven `extractTextWithLatex`, while empty/non-math branches get real unit assertions via trivial Selection fakes.
 Branch: `feature/sidechat-selection-latex` (from `master` @ afe8e60)
 Arena: `.agents/plans/sidechat_selection_arena/` (00_problem, 01_proposal, 02_critique_redteam, 03_specialists)
 Source: `.agents/drafts/sidechat_selection_latex.md`
