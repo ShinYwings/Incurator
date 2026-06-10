@@ -314,34 +314,23 @@ export function getLocalBackendRepoPath(
 /**
  * Auto-discover the absolute path to the `wiki` binary.
  *
- * Probe order:
- *   1. `<repoPath>/.venv/bin/wiki`          (canonical repo-root venv)
- *   2. `<repoPath>/backend/.venv/bin/wiki`  (legacy backend-local venv)
+ * Probes ONLY the canonical repo-root venv: `<repoPath>/.venv/bin/wiki`.
  *
- * The repo-root `.venv` is the single source of truth: `setup.sh` sets
- * `VIRTUAL_ENV="$ROOT_DIR/.venv"` and runs `uv pip install -e ./backend`, so the
- * live `wiki` always lands in `<repo>/.venv/bin/wiki`. The `backend/.venv` copy
- * is a leftover from the retired `cd backend && uv pip install -e .` workflow
- * and is frequently stale (the cause of the plugin reporting an old backend
- * version). It is probed last, only as a fallback for un-migrated checkouts.
+ * `setup.sh` sets `VIRTUAL_ENV="$ROOT_DIR/.venv"` and installs the backend there,
+ * so the live `wiki` always lands in `<repo>/.venv/bin/wiki`. We deliberately do
+ * NOT fall back to `<repoPath>/backend/.venv/bin/wiki`: that path is a leftover
+ * from the retired `cd backend` workflow and is frequently STALE, so probing it
+ * would silently run an out-of-date backend (wrong version, missing fixes)
+ * without the user noticing — the exact failure this avoids. If only a stale
+ * `backend/.venv` exists, returning `undefined` (which prompts a proper
+ * `./setup.sh`) is safer than running it.
  *
  * Returns the absolute path if found, otherwise undefined.
  */
 export function resolveWikiBinary(repoPath: string): string | undefined {
-  const candidates: string[] = [];
-
-  if (repoPath) {
-    const expanded = expandPath(repoPath);
-    candidates.push(
-      resolve(expanded, ".venv/bin/wiki"),
-      resolve(expanded, "backend/.venv/bin/wiki"),
-    );
-  }
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return undefined;
+  if (!repoPath) return undefined;
+  const candidate = resolve(expandPath(repoPath), ".venv/bin/wiki");
+  return existsSync(candidate) ? candidate : undefined;
 }
 
 export function getGlobalRegistryDir(repoPath?: string, home = homedir()): string | null {

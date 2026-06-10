@@ -307,7 +307,7 @@ describe("resolveWikiBinary", () => {
     expect(resolveWikiBinary(repo)).toBeUndefined();
   });
 
-  it("prefers the canonical repo-root .venv over the legacy backend/.venv", () => {
+  it("resolves the canonical repo-root .venv even when a stale backend/.venv exists", () => {
     // The exact regression behind v0.4.x: both venvs exist, but backend/.venv is
     // stale. The plugin must resolve the root .venv that setup.sh maintains.
     writeWiki(".venv/bin");
@@ -315,8 +315,11 @@ describe("resolveWikiBinary", () => {
     expect(resolveWikiBinary(repo)).toBe(join(repo, ".venv/bin/wiki"));
   });
 
-  it("falls back to backend/.venv for un-migrated checkouts", () => {
+  it("does NOT fall back to a stale backend/.venv — returns undefined instead", () => {
+    // backend/.venv is never created by the supported workflow; if it is the only
+    // thing present it is stale, and running it would silently execute an
+    // out-of-date backend. Refuse so the user is prompted to re-run ./setup.sh.
     writeWiki("backend/.venv/bin");
-    expect(resolveWikiBinary(repo)).toBe(join(repo, "backend/.venv/bin/wiki"));
+    expect(resolveWikiBinary(repo)).toBeUndefined();
   });
 });
