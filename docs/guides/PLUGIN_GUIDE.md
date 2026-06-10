@@ -60,22 +60,25 @@ if you want a shortcut.
 - **With selection**: Only the selected region is targeted.
 - **Result display**: Changes are shown as an inline diff; choose Accept or Reject.
 - **Chat edit review**: When sidechat proposes Markdown SEARCH/REPLACE edits,
-  use **Review in file** to open the target note in source mode and review the
-  proposed hunks inside the Markdown editor before accepting or rejecting them.
+  the diff opens **immediately** in the target note's in-editor Diff Viewer when
+  that note is the one you're already looking at (or no note is focused). If a
+  different note is focused, a compact `✏️ <filepath> · Review Diff` pill is
+  shown instead so the diff never steals your editor; click it to open the diff.
+- **Resilient SEARCH matching**: the agent's SEARCH text no longer has to match
+  the file byte-for-byte. Leading/trailing whitespace and indentation-level drift
+  are tolerated, so a correct edit applies even when the model re-indents. The
+  match is **ambiguity-safe**: if two or more places could match, the edit is
+  refused (you get a "could not find" notice) rather than risking the wrong spot.
+  A very large single replacement triggers a "review carefully" notice.
 - **No raw code dump in chat**: Code edits never flood the conversation. While
   the answer streams, every `ai-agent-edit` block is hidden behind a single
-  *[Generating code edit…]* placeholder, and once the answer completes each edit
-  collapses into a compact `✏️ <filepath> · Review Diff` pill. Clicking the pill
-  opens the diff against the real target file — the full before/after lives in
-  the Diff Viewer, not the chat transcript.
-- **Diff artifact note**: With **Write edits as diff artifact** enabled (default
-  on), a completed answer that proposes edits also writes a Markdown note under
-  `00_System/Agent Diffs/` containing the changes as unified-diff (```` ```diff ````)
-  blocks, one section per target file. The chat shows an extra `📝 Open diff
-  artifact` pill that opens the note. The note has `type: agent-diff-artifact`
-  frontmatter and lives outside the ingested `raw_dirs`, so `wiki add` never
-  treats it as a source. This is **additive** — the inline `Review Diff` / apply
-  buttons keep working. Turn the toggle off to keep only the inline pills.
+  *[Generating code edit…]* placeholder; once the answer completes each edit
+  collapses into a compact pill. The full before/after lives in the Diff Viewer,
+  not the chat transcript. Any stray edit markers (`<<<<`/`====`/`>>>>`) from a
+  malformed block are stripped from the rendered message.
+- **Diff Viewer navigation**: the floating toolbar shows a hunk counter (e.g.
+  `1/1`, `2/8`); with more than one change, ↑/↓ (or Tab / Shift+Tab) move between
+  hunks and Y/N accept/reject the current one (Enter = accept all, Esc = reject all).
 - **Diff mode**: Choose `inline` or `side-by-side` in settings.
 
 ```text
