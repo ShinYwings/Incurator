@@ -29,6 +29,7 @@ import {
 } from "../context/editArtifact";
 import { inferIngestDestination } from "../utils/pathUtils";
 import { hashFileSha256 } from "../utils/fileHash";
+import { findSearchBlock } from "../utils/editMatch";
 import { DiffViewer } from "./diffViewer";
 import { renderCuratorQueryTrace } from "./incuratorQueryTrace";
 import {
@@ -2785,39 +2786,48 @@ export class ChatSidebarView extends ItemView {
       const view = (leaf as WorkspaceLeaf).view as MarkdownView;
       const editor = view.editor;
       const content = editor.getValue();
-      
-      const searchIndex = content.indexOf(prop.search);
-      if (searchIndex !== -1) {
-        const prefix = content.substring(0, searchIndex);
-        const prefixLines = prefix.split("\n");
-        const startLine = prefixLines.length - 1;
-        const startCh = prefixLines[prefixLines.length - 1].length;
 
-        const searchLines = prop.search.split("\n");
-        const endLine = startLine + searchLines.length - 1;
-        const endCh = searchLines.length === 1 
-          ? startCh + prop.search.length 
-          : searchLines[searchLines.length - 1].length;
-
+      const match = findSearchBlock(content, prop.search);
+      if (match) {
+        this.warnIfLargeReplacement(match.matchedText, prop.replace, file.basename);
         editor.replaceRange(
           prop.replace,
-          { line: startLine, ch: startCh },
-          { line: endLine, ch: endCh }
+          editor.offsetToPos(match.start),
+          editor.offsetToPos(match.end)
         );
         new Notice(`Applied edit to ${file.basename}`);
       } else {
-        new Notice(`Could not find the exact SEARCH block in ${file.basename}`);
+        new Notice(`Could not find the SEARCH block in ${file.basename}`);
       }
     } else {
       // 2. Modify via vault API if file is closed
       const content = await this.app.vault.read(file);
-      if (content.includes(prop.search)) {
-        const newContent = content.replace(prop.search, prop.replace);
+      const match = findSearchBlock(content, prop.search);
+      if (match) {
+        this.warnIfLargeReplacement(match.matchedText, prop.replace, file.basename);
+        const newContent =
+          content.slice(0, match.start) + prop.replace + content.slice(match.end);
         await this.app.vault.modify(file, newContent);
         new Notice(`Applied edit to ${file.basename}`);
       } else {
-        new Notice(`Could not find the exact SEARCH block in ${file.basename}`);
+        new Notice(`Could not find the SEARCH block in ${file.basename}`);
       }
+    }
+  }
+
+  /**
+   * Non-blocking heads-up when a single edit rewrites a very large region — a
+   * model-independent safety net for the scope bug where a weak model pastes an
+   * entire chat answer as one REPLACE instead of the referenced section.
+   */
+  private warnIfLargeReplacement(matched: string, replace: string, basename: string): void {
+    const matchedLines = matched.split("\n").length;
+    const replaceLines = replace.split("\n").length;
+    if (replaceLines >= 40 && replaceLines > matchedLines * 4) {
+      new Notice(
+        `Large edit in ${basename}: replacing ${matchedLines} line(s) with ${replaceLines}. Review the diff carefully.`,
+        8000
+      );
     }
   }
 
@@ -3037,10 +3047,17 @@ export class ChatSidebarView extends ItemView {
 
       for (const proposal of multiProposals) {
         if (!proposal.search) continue;
-        const parts = modifiedFullText.split(proposal.search);
-        if (parts.length <= 1) continue;
-        replacementCount += parts.length - 1;
-        modifiedFullText = parts.join(proposal.replace);
+        // Use the same matcher as apply so the previewed diff equals what would
+        // actually be written. Splice one (the matcher's) span per proposal; if
+        // the agent emitted N blocks for N identical occurrences, each block
+        // resolves against the progressively-mutated text and hits a fresh one.
+        const match = findSearchBlock(modifiedFullText, proposal.search);
+        if (!match) continue;
+        replacementCount += 1;
+        modifiedFullText =
+          modifiedFullText.slice(0, match.start) +
+          proposal.replace +
+          modifiedFullText.slice(match.end);
       }
 
       if (replacementCount === 0 || modifiedFullText === originalFullText) {

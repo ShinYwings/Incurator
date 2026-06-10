@@ -27,7 +27,9 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("bareBlockRegex");
     expect(source).toContain("Review edit");
     expect(source).toContain("multiProposals.length > 0");
-    expect(source).toContain("modifiedFullText = parts.join(proposal.replace)");
+    // Preview is built with the same ambiguity-safe matcher as apply, so the
+    // shown diff equals what would be written (no exact-only split/join).
+    expect(source).toContain("findSearchBlock(modifiedFullText, proposal.search)");
     expect(source).toContain("editor.lineCount() - 1");
     expect(source).not.toContain("fullText.indexOf(multiProposal.search)");
   });
