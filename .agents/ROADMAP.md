@@ -24,37 +24,34 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 ### 🚀 Unresolved Items to be Addressed in the Future (To-Do)
 
 > Last triage: 2026-06-11 (bulk inbox triage from `USER_REPORT.md`).
+> #1 Installation & Version Management Unification — ✅ shipped in v0.4.4 (PR #16, merged 2026-06-11).
 
-1. **[Patch/Minor — HIGH PRIORITY] Installation & Version Management Unification**
-   - Multiple `wiki` binaries at different versions; plugin resolves the wrong one, breaking the self-update toast. Unify the backend install to one external location/command, single version source of truth (build manifests), finish the `OBSIDIAN_PLUGIN_DIR`/`.env`/`.env.example` removal, fix `plugin/deploy.sh exit 1`, fix dashboard model-display persistence, scrub real paths from docs.
-   - Detailed analysis: `.agents/drafts/install_version_unification.md`
-   - **Note**: partly hotfix-class (broken self-update); recommend tackling first.
-
-2. **[Minor Update — high priority] Agent Edit & Diff Viewer Reliability**
+1. **[Minor Update — high priority] Agent Edit & Diff Viewer Reliability** 🟢 ACTIVE
    - `ai-agent-edit` SEARCH-match failures (no `.md` diff), wrong edit scope (whole answer vs. one section), render diff immediately (drop "Review diff" gate), hunk counter + nav arrows, stop writing `00_System/Agent Diffs/` files (benchmark VSCodium in-memory diff), fix image-insertion `>>>>` artifact. User-tagged [hotfix].
    - Detailed analysis: `.agents/drafts/agent_edit_diff_viewer.md`
+   - Active plan: `.agents/plans/01_agent_edit_diff_viewer.md` (Arena: `.agents/plans/agent_edit_diff_arena/`)
 
-3. **[Minor Update] Sidechat Selection & LaTeX Robustness**
+2. **[Minor Update] Sidechat Selection & LaTeX Robustness**
    - MathJax SVG→text stale read drops formulas in the Ask AI popover on drag; keyboard (Shift+Arrow) selection doesn't trigger Ask AI; partial-selection LaTeX copy (KaTeX swap or transparent overlay, low priority). #1/#2 are hotfix-class.
    - Detailed analysis: `.agents/drafts/sidechat_selection_latex.md`
 
-4. **[Minor Update] Sidechat Local Git History (drop `gh` dependency)**
+3. **[Minor Update] Sidechat Local Git History (drop `gh` dependency)**
    - Audit why `gh` is required; use local `git log`/`git show` for vault file-history reference ("how did I write this before?", recovery). Remove the hard `gh` requirement where local git suffices.
    - Detailed analysis: `.agents/drafts/sidechat_git_history.md`
 
-5. **[Major Update] RAG & Knowledge Quality Stabilization**
+4. **[Major Update] RAG & Knowledge Quality Stabilization**
    - Deep analysis and supplementation of the search engine (Qwen3 + FTS5), introduction of hybrid extraction to resolve missing math formulas, integrated logic for entity deduplication filtering and prevention, providing visibility for Vault Quota management. Now also owns the shared light/fast-model config plumbing (consumed by the Convert-to-LaTeX quick win).
    - Detailed analysis: `.agents/drafts/stabilization.md`
 
-6. **[Minor Update] Chat Session Context Compaction**
+5. **[Minor Update] Chat Session Context Compaction**
    - Confirm/ensure full-session history usage; add a Claude-Code-style circular token-usage meter under the query box and a click-to-compact action for the session.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-7. **[Minor Update] Minor Quick Wins**
+6. **[Minor Update] Minor Quick Wins**
    - Web search integration review, `[[wikilink]]` conflict validation, Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`).
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
 
-8. **[Major Update] Native PDF Annotation & Asset System**
+7. **[Major Update] Native PDF Annotation & Asset System**
    - Remove external Zotero dependency, build a native annotation (highlight/memo) synchronization system utilizing Obsidian's built-in PDF Viewer. Expanded scope (2026-06-11): PDF/Zotero asset-location management (frontmatter-driven asset folder, external-image fallback to `05_Assets`), fix reload relativepath bug, add-source button → "Added" state, and in-PDF full-text search (with strict-spelling mode).
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
@@ -69,4 +66,6 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- No active milestone is currently designated. (Please select the next task from the To-Do list above)
+- **Agent Edit & Diff Viewer Reliability** (target `v0.5.0`, branch `feature/agent-edit-diff-reliability`).
+  - Status: **PLAN AUTHORED — awaiting user approval before coding** (2026-06-11).
+  - Master Plan: `.agents/plans/01_agent_edit_diff_viewer.md` · Arena: `.agents/plans/agent_edit_diff_arena/`
