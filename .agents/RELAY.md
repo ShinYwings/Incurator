@@ -15,11 +15,17 @@ This branch finishes the gaps that commit missed:
   option. (`plugin/src/utils/modelSelect.ts` + `incuratorDashboardModal.ts`)
 - **Docs path scrub**: absolute link + `second_brain`/`/Users/<you>` examples.
 
-## Status
-Code + tests done. Local CI green: vitest 291 pass, tsc clean, ruff clean,
-pytest 505 pass. (mypy has 84 PRE-EXISTING backend errors, not from this change;
-not a CI gate.) Version bumped 0.4.3 → 0.4.4 across pyproject/package/manifest/
-lock + CHANGELOG. Next: commit, push, PR.
+## Status — AWAITING REVIEW/MERGE
+PR #16 opened (https://github.com/ShinYwings/Incurator/pull/16). Code + tests
+done. Local CI green: vitest 291 pass, tsc clean, ruff clean, pytest 505 pass.
+(mypy has 84 PRE-EXISTING backend errors, not from this change; not a CI gate.)
+Version bumped 0.4.3 → 0.4.4 across pyproject/package/manifest/lock + CHANGELOG.
+
+**User decision (2026-06-11): verify #16 first** — do NOT start ROADMAP #2
+(Agent Edit & Diff Viewer) until the user has reviewed/merged PR #16 and
+manually verified the wiki-binary + dashboard-model fixes in Obsidian. After
+merge, #2 is next and needs a full PLAN_TEMPLATE Arena plan + approval (it is
+Minor-class, not fix-class).
 
 ## Last Completed Work
 
