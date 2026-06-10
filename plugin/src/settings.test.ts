@@ -34,11 +34,11 @@ describe("settings UI source contract", () => {
     expect(source).not.toContain("Status: ${status.label}");
   });
 
-  it("exposes the diff-artifact toggle, defaulting it on (item 20)", () => {
+  it("no longer exposes the removed on-disk diff-artifact toggle", () => {
     const source = settingsSource();
 
-    expect(source).toContain('.setName("Write edits as diff artifact")');
-    expect(source).toContain("this.plugin.settings.editArtifactEnabled = value");
-    expect(DEFAULT_SETTINGS.editArtifactEnabled).toBe(true);
+    expect(source).not.toContain("Write edits as diff artifact");
+    expect(source).not.toContain("editArtifactEnabled");
+    expect(DEFAULT_SETTINGS).not.toHaveProperty("editArtifactEnabled");
   });
 });

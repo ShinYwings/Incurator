@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.4.0)
+# Incurator Plugin Schema & API Contract (v0.5.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -110,7 +110,6 @@ interface PluginSettings {
   // UI preferences
   diffMode: "inline" | "side-by-side";
   streamingEnabled: boolean;
-  editArtifactEnabled: boolean;    // write proposed edits as a diff artifact note (default true)
   quickQueryEnabled: boolean;      // drag-to-select In-line Copilot popover (default true)
   maxContextLength: number;        // tokens
 
@@ -302,16 +301,16 @@ interface ChatMessage {
   timestamp: number;    // unix ms
   contextRefs?: ContextRef[];
   isStreaming?: boolean;
-  editArtifactPath?: string;  // vault path of the diff artifact note for this message's edits
+  diffAutoOpened?: boolean;  // true once this message's edit diff was auto-opened
 }
 ```
 
 Rules:
 
 - `chatSessions` is local plugin history. It is not sent to the backend.
-- `editArtifactPath` is set once, when a completed assistant answer that proposes
-  `ai-agent-edit` blocks is finalized and `editArtifactEnabled` is true. It makes
-  artifact creation idempotent across re-renders and persists with the session.
+- `diffAutoOpened` is set once, when a completed assistant answer that proposes
+  `ai-agent-edit` blocks has its diff auto-opened. It makes the immediate diff
+  open at-most-once per message and prevents re-opening on history re-render.
 - When synchronized, separate sessions from different devices must be preserved.
   Concurrent edits to the same session are last-writer-wins by `updatedAt`.
 - `activeChatSessionId` is the session currently visible in the sidebar.
@@ -629,20 +628,34 @@ Rules:
   targets so the assistant can search the whole file for similar occurrences,
   preserve HTML as HTML and Markdown as Markdown, and return SEARCH/REPLACE
   hunks that are reviewed in the Markdown editor before mutation.
+- SEARCH location must be resilient and ambiguity-safe. A single shared matcher
+  (`utils/editMatch.findSearchBlock`) is used by every apply and preview path. It
+  tries `exact` → `line-trim` (same line count, per-line trimmed equality, for
+  indentation/whitespace drift) → `anchored` (≥3-line blocks, first/last non-blank
+  trimmed lines as anchors). It returns the REAL file span (callers splice the
+  file's own text). When two or more spans are plausible, or an anchored span
+  balloons past 3× the search size, it returns `null` and the UI reports "could
+  not find" — it never applies a guessed/ambiguous edit. The preview diff is built
+  with the same matcher, so the shown diff equals what apply writes.
 - Proposed edits must never flood the chat transcript with raw SEARCH/REPLACE
   code. While streaming, all `ai-agent-edit` content (from the first edit marker)
   is collapsed behind a single placeholder; once finalized, each proposal renders
-  as a compact diff-review pill that opens the `DiffViewer` against the real file.
-- Diff artifact note (gated by `editArtifactEnabled`, default true): when a
-  finalized answer contains edit proposals, the plugin writes a Markdown note
-  under `00_System/Agent Diffs/` named `YYYY-MM-DD_HHmm_<slug>.md`. The note has
-  `type: agent-diff-artifact` frontmatter (`created`, `session`, deduped `files`)
-  and one `## <filepath>` section per target, each proposal rendered as a
-  ```` ```diff ```` block (`search` lines `-`, `replace` lines `+`; new-file
-  proposals are all `+`). `00_System/` is outside `raw_dirs`, so artifacts are
-  never ingested as Curator sources. Creation is idempotent via
-  `ChatMessage.editArtifactPath`. This is additive: the inline Review-Diff/apply
-  pills remain, plus a chat pill that opens the artifact note.
+  as a compact diff-review pill. Orphan markers (`<<<<`/`====`/`>>>>`) left by a
+  malformed/partial block are stripped from the RENDERED message only (fence-aware,
+  evidence-gated); stored `ChatMessage.content` is never mutated, so copy stays
+  faithful.
+- Immediate diff (safe-gated): on answer completion, if the proposals target a
+  single existing file AND that file is the active `MarkdownView` (or no Markdown
+  note is focused), the plugin opens the in-editor `DiffViewer` automatically,
+  once per message (`diffAutoOpened`); it never force-opens a background tab or
+  steals a different focused note — those keep the clickable Review-Diff pill.
+  This runs only from the generation-complete path, never on history re-render.
+- A non-blocking notice warns when a single replacement rewrites a very large
+  region (model-independent guard against whole-answer-as-one-REPLACE scope drift).
+- There is NO on-disk diff artifact. The previous `00_System/Agent Diffs/` note
+  feature and its `editArtifactEnabled` setting were removed in v0.5.0; the
+  in-editor `DiffViewer` is the single source of truth. (Pre-existing artifact
+  files in users' vaults are left untouched.)
 
 ## 7. Backend Access Contract
 

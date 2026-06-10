@@ -19,12 +19,13 @@ from curator import __version__
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPECS_ROOT = REPO_ROOT / "docs" / "specs"
 
-ACTIVE_VERSION = "0.4.0"
+ACTIVE_VERSION = "0.5.0"
 
 DOMAINS = {
     "curator_schema": "SCHEMA",
     "system_behavior": "SYSTEM_BEHAVIOR",
     "plugin_schema": "PLUGIN_SCHEMA",
+    "search_engine": "SEARCH_ENGINE_SCHEMA",
 }
 
 

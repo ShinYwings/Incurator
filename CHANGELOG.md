@@ -4,6 +4,47 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.5.0] — 2026-06-11
+
+### Changed
+
+- **Resilient, ambiguity-safe agent-edit matching** — `ai-agent-edit` SEARCH
+  blocks no longer need to match the file byte-for-byte. A single shared matcher
+  (`utils/editMatch.findSearchBlock`, used by every apply and preview path) tries
+  `exact → line-trim → anchored`, tolerating leading/trailing whitespace and
+  indentation-level drift, and always splices the file's real text. It refuses
+  (returns null → "could not find") when ≥2 spans are plausible or an anchored
+  span balloons past 3× the search size, so it never applies a guessed edit. This
+  fixes the frequent "Could not find the exact SEARCH block" failures where no
+  diff rendered at all.
+- **Immediate diff (safe-gated)** — when an answer's edits target the note you're
+  already viewing (or no note is focused), the in-editor Diff Viewer now opens
+  automatically instead of waiting for a "Review Diff" click. A different focused
+  note keeps the clickable pill so the diff never steals your editor; auto-open
+  fires once per message and never on history re-render.
+- **Diff Viewer hunk counter is always visible** (e.g. `1/1`), with ↑/↓ · Tab
+  navigation and Y/N/Enter/Esc shortcuts for multi-hunk diffs (unchanged).
+- **Scoped edits** — the edit prompt now requires minimal, section-scoped REPLACE
+  bodies (never pasting a whole chat answer), plus a non-blocking "large
+  replacement" warning as a model-independent safety net.
+
+### Fixed
+
+- **Leaked edit markers** — orphan `<<<<` / `====` / `>>>>` markers from a
+  malformed/partial edit block are stripped from the rendered message (fence-aware,
+  evidence-gated). Stored message content is untouched, so "Copy as Markdown"
+  stays faithful. The block parser also tolerates marker spacing/length variants
+  and a missing closer.
+
+### Removed
+
+- **On-disk diff artifact** — the `00_System/Agent Diffs/` note feature and its
+  **Write edits as diff artifact** setting were removed; the in-editor Diff Viewer
+  is now the single source of truth. Existing artifact files in your vault are
+  left untouched.
+
+---
+
 ## [0.4.4] — 2026-06-11
 
 ### Fixed

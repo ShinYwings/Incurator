@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   collapseStreamingEditBlocks,
   normalizeLatexDelimiters,
+  stripDanglingEditMarkers,
   truncateToLength,
 } from "./textUtils";
 
@@ -163,5 +164,41 @@ describe("collapseStreamingEditBlocks", () => {
     expect(collapseStreamingEditBlocks(input)).toBe(
       "Editing now.\n\n*[Generating code edit…]*"
     );
+  });
+
+  it("tolerates a spacing-less opener variant", () => {
+    const input = "Editing now.\n<<<<SEARCH\nfoo";
+    expect(collapseStreamingEditBlocks(input)).toBe(
+      "Editing now.\n\n*[Generating code edit…]*"
+    );
+  });
+});
+
+// ─── stripDanglingEditMarkers ───────────────────────────────────────────────
+
+describe("stripDanglingEditMarkers", () => {
+  it("removes an orphan >>>> leaked after a heading (the reported bug)", () => {
+    const input = "### 2. Apparent Contour\n>>>>\nrest";
+    expect(stripDanglingEditMarkers(input)).toBe("### 2. Apparent Contour\nrest");
+  });
+
+  it("removes orphan SEARCH / REPLACE markers", () => {
+    const input = "<<<< SEARCH\nkept line\n==== REPLACE\nkept too\n>>>>";
+    expect(stripDanglingEditMarkers(input)).toBe("kept line\nkept too");
+  });
+
+  it("preserves markers inside a fenced code block", () => {
+    const input = "```\n<<<< SEARCH\n>>>>\n```";
+    expect(stripDanglingEditMarkers(input)).toBe(input);
+  });
+
+  it("does not touch a plain ==== horizontal rule or normal text", () => {
+    const input = "Title\n====\nbody";
+    expect(stripDanglingEditMarkers(input)).toBe(input);
+  });
+
+  it("is a no-op when there is no marker evidence", () => {
+    const input = "Just a normal answer.\nWith two lines.";
+    expect(stripDanglingEditMarkers(input)).toBe(input);
   });
 });

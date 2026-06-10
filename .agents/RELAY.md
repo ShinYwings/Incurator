@@ -1,39 +1,32 @@
 # Relay State — ACTIVE (2026-06-11)
 
-Branch: `fix/install-version-unification` (from master). Target: `v0.4.4`.
-
-## Active Goal
-Completing ROADMAP To-Do #1 (Installation & Version Management Unification).
-The user already landed a workaround (commit 1066292: CI `working-directory`,
-install-hint strings, deleted `plugin/.env.example`, `plugin/deploy.sh` fallback).
-This branch finishes the gaps that commit missed:
-- **resolveWikiBinary probe order** (root cause): now prefers repo-root `.venv`
-  over the stale `backend/.venv` → fixes the plugin reporting an old backend
-  version / broken self-update toast. (`plugin/src/utils/deviceRegistry.ts`)
-- **Dashboard model display**: `populateModelSelect` no longer snaps custom
-  models to Antigravity Gemini; surfaces the active model as a "(current)"
-  option. (`plugin/src/utils/modelSelect.ts` + `incuratorDashboardModal.ts`)
-- **Docs path scrub**: absolute link + `second_brain`/`/Users/<you>` examples.
+## Goal
+Agent Edit & Diff Viewer Reliability — **implemented, v0.5.0**, branch
+`feature/agent-edit-diff-reliability`.
 
 ## Status — AWAITING REVIEW/MERGE
-PR #16 opened (https://github.com/ShinYwings/Incurator/pull/16). Code + tests
-done. Local CI green: vitest 291 pass, tsc clean, ruff clean, pytest 505 pass.
-(mypy has 84 PRE-EXISTING backend errors, not from this change; not a CI gate.)
-Version bumped 0.4.3 → 0.4.4 across pyproject/package/manifest/lock + CHANGELOG.
+All 5 phases done. Local CI green: vitest 297 pass (40 files), tsc clean,
+production esbuild OK, version-consistency 0.5.0 across pyproject/package/
+manifest/lock. Backend Python unchanged (only version string) → its ruff/pytest
+unaffected; CI re-verifies on the PR. Plan + Arena + draft deleted (Step 11);
+ROADMAP/RELAY updated. PR pending push.
 
-**User decision (2026-06-11): verify #16 first** — do NOT start ROADMAP #2
-(Agent Edit & Diff Viewer) until the user has reviewed/merged PR #16 and
-manually verified the wiki-binary + dashboard-model fixes in Obsidian. After
-merge, #2 is next and needs a full PLAN_TEMPLATE Arena plan + approval (it is
-Minor-class, not fix-class).
+## What shipped (edge-hardening, no DiffViewer rewrite)
+- `utils/editMatch.findSearchBlock` — unified, ambiguity-safe SEARCH matcher
+  (exact → line-trim → anchored; refuses on >1 candidate or >3× span). Wired
+  into `applyInlineMultiEdit` + `reviewAssistantEdit` so preview == apply.
+- Tolerant edit-block parser + `stripDanglingEditMarkers` (fence-aware,
+  render-only; stored content untouched) + stronger `collapseStreamingEditBlocks`.
+- Safe-gated `maybeAutoOpenDiff` (active note / no focus only; once per message;
+  never on history re-render). Always-visible hunk counter. Scope prompt rule +
+  non-blocking large-replacement warning.
+- **Removed** the `00_System/Agent Diffs/` artifact feature entirely (writer,
+  pill, setting, `editArtifact.ts` + test, `editArtifactPath`). Existing user
+  files left on disk.
 
-## Last Completed Work
+## User decisions captured (2026-06-11)
+Minor v0.5.0 · safe-gated auto-open · artifact removed entirely.
 
-## Last Completed Work
-- **v0.4.3**: `pointer-events: none` + `user-select: text` on `mjx-container` / svg inside `.ai-agent-chat-msg-content` and `.ai-agent-quick-query-answer`. Fixes Shift+click selection spanning MathJax formulas in chat sidebar and quick query popover.
-
-## Pending
-USER_REPORT inbox triaged on 2026-06-11 → 8 To-Do milestones in
-`.agents/ROADMAP.md`. Recommended next pickup: **#1 Installation & Version
-Management Unification** (partly hotfix-class — broken self-update toast).
-USER_REPORT inbox is now empty.
+## Immediate Next Action
+Push branch + open PR. After merge, next milestone candidate = To-Do #1
+(Sidechat Selection & LaTeX Robustness) — needs its own Arena plan + approval.

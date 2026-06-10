@@ -21,14 +21,10 @@ import {
 } from "./externalPdfView";
 import { IngestDestinationModal } from "./ingestDestinationModal";
 import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
-import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, truncateToLength } from "../utils/textUtils";
-import {
-  ARTIFACT_DIR,
-  buildEditArtifactFilename,
-  buildEditArtifactMarkdown,
-} from "../context/editArtifact";
+import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, stripDanglingEditMarkers, truncateToLength } from "../utils/textUtils";
 import { inferIngestDestination } from "../utils/pathUtils";
 import { hashFileSha256 } from "../utils/fileHash";
+import { findSearchBlock } from "../utils/editMatch";
 import { DiffViewer } from "./diffViewer";
 import { renderCuratorQueryTrace } from "./incuratorQueryTrace";
 import {
@@ -1041,12 +1037,13 @@ export class ChatSidebarView extends ItemView {
       this.isGenerating = false;
       setIcon(this.sendBtn, "send");
       this.sendBtn.setAttribute("aria-label", "Send message");
-      // Write any proposed edits to a diff artifact note before re-rendering so
-      // the artifact-link pill can show immediately. Runs once per message.
-      await this.maybeWriteEditArtifact(assistantMsg);
       // Do not yank the view to the bottom when generation finishes; keep the
       // reader where they are unless they were already following along.
       this.renderMessages(false);
+      // Immediately surface the diff for a just-completed edit (safe-gated: only
+      // when the target is the active note or no note is focused). Runs once per
+      // message here, NOT on history re-render, so old sessions never auto-open.
+      await this.maybeAutoOpenDiff(assistantMsg);
       await this.persistCurrentSession();
     }
 
@@ -2401,10 +2398,6 @@ export class ChatSidebarView extends ItemView {
       }
     }
 
-    // Additive: a link to the persistent diff artifact note (item 20), shown
-    // alongside the inline Review-Diff pills when one was written.
-    this.renderEditArtifactPill(contentEl, msg);
-
     const toolMatch = msg.content.match(/✅ \*\*mcp_[^*]*curator_query\*\* result:\n```(?:json)?\n([\s\S]*?)\n```/);
     if (toolMatch && !this.lastQueryTrace) {
       try {
@@ -2785,44 +2778,56 @@ export class ChatSidebarView extends ItemView {
       const view = (leaf as WorkspaceLeaf).view as MarkdownView;
       const editor = view.editor;
       const content = editor.getValue();
-      
-      const searchIndex = content.indexOf(prop.search);
-      if (searchIndex !== -1) {
-        const prefix = content.substring(0, searchIndex);
-        const prefixLines = prefix.split("\n");
-        const startLine = prefixLines.length - 1;
-        const startCh = prefixLines[prefixLines.length - 1].length;
 
-        const searchLines = prop.search.split("\n");
-        const endLine = startLine + searchLines.length - 1;
-        const endCh = searchLines.length === 1 
-          ? startCh + prop.search.length 
-          : searchLines[searchLines.length - 1].length;
-
+      const match = findSearchBlock(content, prop.search);
+      if (match) {
+        this.warnIfLargeReplacement(match.matchedText, prop.replace, file.basename);
         editor.replaceRange(
           prop.replace,
-          { line: startLine, ch: startCh },
-          { line: endLine, ch: endCh }
+          editor.offsetToPos(match.start),
+          editor.offsetToPos(match.end)
         );
         new Notice(`Applied edit to ${file.basename}`);
       } else {
-        new Notice(`Could not find the exact SEARCH block in ${file.basename}`);
+        new Notice(`Could not find the SEARCH block in ${file.basename}`);
       }
     } else {
       // 2. Modify via vault API if file is closed
       const content = await this.app.vault.read(file);
-      if (content.includes(prop.search)) {
-        const newContent = content.replace(prop.search, prop.replace);
+      const match = findSearchBlock(content, prop.search);
+      if (match) {
+        this.warnIfLargeReplacement(match.matchedText, prop.replace, file.basename);
+        const newContent =
+          content.slice(0, match.start) + prop.replace + content.slice(match.end);
         await this.app.vault.modify(file, newContent);
         new Notice(`Applied edit to ${file.basename}`);
       } else {
-        new Notice(`Could not find the exact SEARCH block in ${file.basename}`);
+        new Notice(`Could not find the SEARCH block in ${file.basename}`);
       }
     }
   }
 
+  /**
+   * Non-blocking heads-up when a single edit rewrites a very large region — a
+   * model-independent safety net for the scope bug where a weak model pastes an
+   * entire chat answer as one REPLACE instead of the referenced section.
+   */
+  private warnIfLargeReplacement(matched: string, replace: string, basename: string): void {
+    const matchedLines = matched.split("\n").length;
+    const replaceLines = replace.split("\n").length;
+    if (replaceLines >= 40 && replaceLines > matchedLines * 4) {
+      new Notice(
+        `Large edit in ${basename}: replacing ${matchedLines} line(s) with ${replaceLines}. Review the diff carefully.`,
+        8000
+      );
+    }
+  }
+
   private processMarkdownForThoughts(content: string, isStreaming: boolean): string {
-    let processed = this.normalizeLatexDelimiters(content);
+    // Drop any orphan ai-agent-edit markers left by a failed parse so they never
+    // render as note text. Operates on the display string only — stored
+    // msg.content is untouched, keeping "Copy as Markdown" faithful.
+    let processed = stripDanglingEditMarkers(this.normalizeLatexDelimiters(content));
     const openTag = isStreaming 
         ? `<details class="ai-agent-thought-block" open><summary>🧠 Thinking Process...</summary>\n\n`
         : `<details class="ai-agent-thought-block"><summary>🧠 Thinking Process</summary>\n\n`;
@@ -3037,10 +3042,17 @@ export class ChatSidebarView extends ItemView {
 
       for (const proposal of multiProposals) {
         if (!proposal.search) continue;
-        const parts = modifiedFullText.split(proposal.search);
-        if (parts.length <= 1) continue;
-        replacementCount += parts.length - 1;
-        modifiedFullText = parts.join(proposal.replace);
+        // Use the same matcher as apply so the previewed diff equals what would
+        // actually be written. Splice one (the matcher's) span per proposal; if
+        // the agent emitted N blocks for N identical occurrences, each block
+        // resolves against the progressively-mutated text and hits a fresh one.
+        const match = findSearchBlock(modifiedFullText, proposal.search);
+        if (!match) continue;
+        replacementCount += 1;
+        modifiedFullText =
+          modifiedFullText.slice(0, match.start) +
+          proposal.replace +
+          modifiedFullText.slice(match.end);
       }
 
       if (replacementCount === 0 || modifiedFullText === originalFullText) {
@@ -3076,85 +3088,31 @@ export class ChatSidebarView extends ItemView {
   }
 
   /**
-   * Write any proposed edits in `msg` to a diff artifact note under
-   * 00_System/Agent Diffs/ (item 20). Idempotent: only runs when the setting is
-   * on, the message has edit proposals, and no artifact was created yet.
+   * Immediately open the in-editor diff for a just-completed edit, but only
+   * under a safe gate so it never steals the user's editor:
+   *   - exactly one target file (multi-file edits keep the clickable pill);
+   *   - the target is the already-active Markdown note, OR no Markdown note is
+   *     focused (a different focused note → keep the pill).
+   * Runs once per message from the stream-completion path, never on history
+   * re-render, so loading an old session does not pop diffs open.
    */
-  private async maybeWriteEditArtifact(msg: ChatMessage): Promise<void> {
-    if (!this.plugin.settings.editArtifactEnabled) return;
-    if (msg.editArtifactPath) return;
+  private async maybeAutoOpenDiff(msg: ChatMessage): Promise<void> {
+    if (msg.diffAutoOpened) return;
 
     const editRef = this.getEditTargetContextForMessage(msg);
     const proposals = this.extractMultiEditProposals(msg.content, editRef?.filePath);
     if (proposals.length === 0) return;
 
-    try {
-      const created = new Date();
-      const idx = this.messages.indexOf(msg);
-      const prevUser =
-        idx > 0
-          ? [...this.messages.slice(0, idx)].reverse().find((m) => m.role === "user")
-          : undefined;
-      const title =
-        (prevUser?.content || "").split("\n")[0].trim().slice(0, 80) || "code edits";
-      const sessionId = this.plugin.sessionData.activeChatSessionId ?? "";
+    const files = new Set(proposals.map((p) => p.filepath));
+    if (files.size !== 1) return;
+    const target = proposals[0].filepath;
+    if (!(this.app.vault.getAbstractFileByPath(target) instanceof TFile)) return;
 
-      const content = buildEditArtifactMarkdown(
-        proposals.map((p) => ({
-          filepath: p.filepath,
-          search: p.search,
-          replace: p.replace,
-        })),
-        { title, sessionId, created }
-      );
+    const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (active && active.file?.path !== target) return; // different note focused → keep pill
 
-      if (!this.app.vault.getAbstractFileByPath(ARTIFACT_DIR)) {
-        try {
-          await this.app.vault.createFolder(ARTIFACT_DIR);
-        } catch {
-          /* folder already exists */
-        }
-      }
-
-      const baseName = buildEditArtifactFilename(proposals, created);
-      let path = `${ARTIFACT_DIR}/${baseName}`;
-      if (this.app.vault.getAbstractFileByPath(path)) {
-        const stem = baseName.replace(/\.md$/, "");
-        for (let i = 2; i < 1000; i++) {
-          const candidate = `${ARTIFACT_DIR}/${stem}-${i}.md`;
-          if (!this.app.vault.getAbstractFileByPath(candidate)) {
-            path = candidate;
-            break;
-          }
-        }
-      }
-
-      await this.app.vault.create(path, content);
-      msg.editArtifactPath = path;
-    } catch (err) {
-      console.error("Failed to write edit artifact:", err);
-    }
-  }
-
-  private renderEditArtifactPill(container: HTMLElement, msg: ChatMessage): void {
-    if (!msg.editArtifactPath) return;
-    const path = msg.editArtifactPath;
-    const pill = container.createDiv("ai-agent-applied-change ai-agent-edit-artifact-pill");
-    pill.style.cursor = "pointer";
-    const header = pill.createDiv("ai-agent-applied-change-header");
-    header.createSpan({ cls: "ai-agent-applied-change-icon", text: "📝" });
-    const nameEl = header.createSpan({ cls: "ai-agent-applied-change-name" });
-    nameEl.setText("Open diff artifact");
-    nameEl.title = path;
-    pill.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const file = this.app.vault.getAbstractFileByPath(path);
-      if (file instanceof TFile) {
-        await this.app.workspace.getLeaf("tab").openFile(file, { active: true });
-      } else {
-        new Notice(`Diff artifact not found: ${path}`);
-      }
-    });
+    msg.diffAutoOpened = true;
+    await this.reviewAssistantEdit(msg);
   }
 
   private extractMultiEditProposals(content: string, fallbackFilepath = ""): MultiEditProposal[] {
@@ -3166,8 +3124,11 @@ export class ChatSidebarView extends ItemView {
       const filepath = this.readEditBlockFilepath(match[1], fallbackFilepath);
       const innerContent = match[2];
 
-      const searchMatch = innerContent.match(/<<<<\s*SEARCH\n([\s\S]*?)====\s*REPLACE/i);
-      const replaceMatch = innerContent.match(/====\s*REPLACE\n([\s\S]*?)>>>>/i);
+      // Tolerate marker variants: 3+ angle/equals chars, optional spacing, and a
+      // REPLACE body that ends at `>>>>` OR at the end of the block (a missing
+      // closer should still parse rather than leak markers into the render).
+      const searchMatch = innerContent.match(/<{3,}\s*SEARCH\s*\n([\s\S]*?)={3,}\s*REPLACE/i);
+      const replaceMatch = innerContent.match(/={3,}\s*REPLACE\s*\n([\s\S]*?)(?:>{3,}|$)/i);
 
       if (filepath && searchMatch && replaceMatch) {
         let search = searchMatch[1];
@@ -3186,7 +3147,7 @@ export class ChatSidebarView extends ItemView {
     }
     if (proposals.length > 0) return proposals;
 
-    const bareBlockRegex = /<<<<\s*SEARCH\n([\s\S]*?)====\s*REPLACE\n([\s\S]*?)>>>>/gi;
+    const bareBlockRegex = /<{3,}\s*SEARCH\s*\n([\s\S]*?)={3,}\s*REPLACE\s*\n([\s\S]*?)>{3,}/gi;
     while ((match = bareBlockRegex.exec(content)) !== null) {
       if (!fallbackFilepath) continue;
       let search = match[1];

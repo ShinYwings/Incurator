@@ -59,23 +59,25 @@ Obsidian/다른 바인딩이 이미 사용 중). 단축키가 필요하면 **설
 - **선택 없음**: 전체 문서 맥락으로 편집 명령을 입력합니다.
 - **텍스트 선택 후**: 선택 영역만 대상으로 편집됩니다.
 - **결과 표시**: 변경 전후를 인라인 Diff로 보여주며, 적용(Accept) 또는 거부(Reject) 선택 가능합니다.
-- **채팅 편집 검토**: 사이드챗이 Markdown SEARCH/REPLACE 수정을 제안하면
-  **Review in file**로 대상 노트를 source mode에서 열고, Markdown 편집기
-  안에서 제안된 hunk를 확인한 뒤 Accept 또는 Reject합니다.
+- **채팅 편집 검토**: 사이드챗이 Markdown SEARCH/REPLACE 수정을 제안하면,
+  지금 보고 있는 노트가 대상일 때(또는 포커스된 노트가 없을 때) 해당 노트의
+  인편집기 Diff Viewer에 Diff가 **즉시** 열립니다. 다른 노트가 포커스되어 있으면
+  편집기를 가로채지 않도록 대신 `✏️ <파일경로> · Review Diff` 형태의 간결한
+  pill을 표시하며, 클릭하면 Diff가 열립니다.
+- **견고한 SEARCH 매칭**: 더 이상 에이전트의 SEARCH 텍스트가 파일과 1바이트까지
+  똑같을 필요가 없습니다. 앞뒤 공백과 들여쓰기 수준 차이는 허용되므로, 모델이
+  다시 들여쓰기를 해도 올바른 수정이 적용됩니다. 매칭은 **모호성에 안전**합니다.
+  두 군데 이상에 매칭될 수 있으면 잘못된 위치를 건드리는 대신 수정을 거부합니다
+  ("could not find" 알림). 단일 교체가 매우 크면 "주의해서 검토" 알림이 뜹니다.
 - **채팅에 코드 전체를 뱉지 않음**: 코드 수정 내용이 대화창을 길게 채우지
   않습니다. 답변이 스트리밍되는 동안 모든 `ai-agent-edit` 블록은
   *[Generating code edit…]* 자리표시자 하나로 가려지고, 답변이 끝나면 각 수정은
-  `✏️ <파일경로> · Review Diff` 형태의 간결한 pill로 접힙니다. pill을 클릭하면
-  실제 대상 파일에 대한 Diff가 열리므로, 전체 before/after는 채팅 기록이 아니라
-  Diff Viewer 안에서만 표시됩니다.
-- **Diff 아티팩트 노트**: **Write edits as diff artifact**(기본 ON)가 켜져 있으면,
-  수정 제안이 포함된 답변이 완료될 때 변경 내용을 unified-diff(```` ```diff ````)
-  블록으로 정리한 Markdown 노트를 `00_System/Agent Diffs/` 아래에 함께 작성합니다
-  (대상 파일마다 한 섹션). 채팅에는 노트를 여는 `📝 Open diff artifact` pill이
-  추가로 표시됩니다. 이 노트는 `type: agent-diff-artifact` frontmatter를 가지며
-  ingest 대상 `raw_dirs` 바깥에 있으므로 `wiki add`가 source로 취급하지 않습니다.
-  이는 **추가형**이라 기존 인라인 `Review Diff` / 적용 버튼은 그대로 동작합니다.
-  토글을 끄면 인라인 pill만 유지됩니다.
+  간결한 pill로 접힙니다. 전체 before/after는 채팅 기록이 아니라 Diff Viewer
+  안에서만 표시됩니다. 잘못 형성된 블록에서 남은 편집 마커(`<<<<`/`====`/`>>>>`)는
+  렌더링된 메시지에서 제거됩니다.
+- **Diff Viewer 내비게이션**: 떠 있는 툴바에 hunk 카운터(예: `1/1`, `2/8`)가
+  표시되고, 변경이 둘 이상이면 ↑/↓(또는 Tab / Shift+Tab)로 hunk 사이를 이동하며
+  Y/N으로 현재 hunk를 Accept/Reject합니다(Enter = 전체 수락, Esc = 전체 거부).
 - **Diff 모드**: 설정에서 `inline` 또는 `side-by-side` 중 선택합니다.
 
 ```text

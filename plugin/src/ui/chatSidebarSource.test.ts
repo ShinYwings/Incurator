@@ -27,7 +27,9 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("bareBlockRegex");
     expect(source).toContain("Review edit");
     expect(source).toContain("multiProposals.length > 0");
-    expect(source).toContain("modifiedFullText = parts.join(proposal.replace)");
+    // Preview is built with the same ambiguity-safe matcher as apply, so the
+    // shown diff equals what would be written (no exact-only split/join).
+    expect(source).toContain("findSearchBlock(modifiedFullText, proposal.search)");
     expect(source).toContain("editor.lineCount() - 1");
     expect(source).not.toContain("fullText.indexOf(multiProposal.search)");
   });
@@ -64,22 +66,22 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain('active="true"');
   });
 
-  it("writes proposed edits to a diff artifact note, guarded and idempotent (item 20)", () => {
+  it("auto-opens the diff once per message under a safe focus gate, not on history re-render", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
 
-    // Writer is guarded by the setting and only runs once per message.
-    expect(source).toContain("private async maybeWriteEditArtifact(msg: ChatMessage)");
-    expect(source).toContain("if (!this.plugin.settings.editArtifactEnabled) return;");
-    expect(source).toContain("if (msg.editArtifactPath) return;");
-    expect(source).toContain("buildEditArtifactMarkdown(");
-    expect(source).toContain("await this.app.vault.create(path, content);");
-    expect(source).toContain("msg.editArtifactPath = path;");
-    // Invoked from the generation-complete finalize path.
-    expect(source).toContain("await this.maybeWriteEditArtifact(assistantMsg);");
-    // Chat renders a link pill to the artifact, additive to the Review-Diff pills.
-    expect(source).toContain("this.renderEditArtifactPill(contentEl, msg);");
-    expect(source).toContain('nameEl.setText("Open diff artifact");');
+    // The on-disk artifact feature is fully removed (no writer / pill / setting).
+    expect(source).not.toContain("maybeWriteEditArtifact");
+    expect(source).not.toContain("renderEditArtifactPill");
+    expect(source).not.toContain("editArtifactEnabled");
+    expect(source).not.toContain("editArtifactPath");
+
+    // Safe-gated auto-open runs once per message from the completion path.
+    expect(source).toContain("private async maybeAutoOpenDiff(msg: ChatMessage)");
+    expect(source).toContain("if (msg.diffAutoOpened) return;");
+    expect(source).toContain("if (files.size !== 1) return;");
+    expect(source).toContain("if (active && active.file?.path !== target) return;");
+    expect(source).toContain("await this.maybeAutoOpenDiff(assistantMsg);");
   });
 
   it("does not yank the chat view to the bottom when generation completes", () => {

@@ -260,17 +260,19 @@ export class DiffViewer {
     hunkRow.style.gap = "8px";
     hunkRow.style.justifyContent = "center";
     
-    if (this.hunks.length > 1) {
-      const navGroup = hunkRow.createDiv("ai-agent-diff-toolbar-group");
+    // Counter is always shown (e.g. "1/1"); arrows appear only with >1 hunk.
+    const navGroup = hunkRow.createDiv("ai-agent-diff-toolbar-group");
+    const multiHunk = this.hunks.length > 1;
+    if (multiHunk) {
       navGroup
         .createEl("button", { cls: "ai-agent-diff-toolbar-btn", text: "↑", attr: { title: "Prev change (Shift+Tab)" } })
         .addEventListener("click", () => this.goHunk(-1));
-      this.hunkCountEl = navGroup.createSpan({ cls: "ai-agent-diff-toolbar-count" });
+    }
+    this.hunkCountEl = navGroup.createSpan({ cls: "ai-agent-diff-toolbar-count" });
+    if (multiHunk) {
       navGroup
         .createEl("button", { cls: "ai-agent-diff-toolbar-btn", text: "↓", attr: { title: "Next change (Tab)" } })
         .addEventListener("click", () => this.goHunk(1));
-    } else {
-      this.hunkCountEl = null;
     }
 
     const actionGroup = hunkRow.createDiv("ai-agent-diff-toolbar-group");
@@ -321,7 +323,7 @@ export class DiffViewer {
   }
 
   private refreshHunkUI(): void {
-    if (this.hunkCountEl && this.hunks.length > 1) {
+    if (this.hunkCountEl && this.hunks.length >= 1) {
       this.hunkCountEl.setText(`${this.currentHunk + 1}/${this.hunks.length}`);
     }
     const hunk = this.hunks[this.currentHunk];
