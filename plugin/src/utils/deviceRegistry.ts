@@ -315,9 +315,15 @@ export function getLocalBackendRepoPath(
  * Auto-discover the absolute path to the `wiki` binary.
  *
  * Probe order:
- *   1. `<repoPath>/backend/.venv/bin/wiki`  (venv inside repo)
- *   2. `<repoPath>/.venv/bin/wiki`          (root-level venv)
- *   3. Common global install dirs that Obsidian's minimal PATH might miss
+ *   1. `<repoPath>/.venv/bin/wiki`          (canonical repo-root venv)
+ *   2. `<repoPath>/backend/.venv/bin/wiki`  (legacy backend-local venv)
+ *
+ * The repo-root `.venv` is the single source of truth: `setup.sh` sets
+ * `VIRTUAL_ENV="$ROOT_DIR/.venv"` and runs `uv pip install -e ./backend`, so the
+ * live `wiki` always lands in `<repo>/.venv/bin/wiki`. The `backend/.venv` copy
+ * is a leftover from the retired `cd backend && uv pip install -e .` workflow
+ * and is frequently stale (the cause of the plugin reporting an old backend
+ * version). It is probed last, only as a fallback for un-migrated checkouts.
  *
  * Returns the absolute path if found, otherwise undefined.
  */
@@ -327,8 +333,8 @@ export function resolveWikiBinary(repoPath: string): string | undefined {
   if (repoPath) {
     const expanded = expandPath(repoPath);
     candidates.push(
-      resolve(expanded, "backend/.venv/bin/wiki"),
       resolve(expanded, ".venv/bin/wiki"),
+      resolve(expanded, "backend/.venv/bin/wiki"),
     );
   }
 

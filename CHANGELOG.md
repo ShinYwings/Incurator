@@ -4,6 +4,34 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.4.4] — 2026-06-11
+
+### Fixed
+
+- **Plugin resolved a stale `wiki` binary** — `resolveWikiBinary` probed
+  `<repo>/backend/.venv/bin/wiki` *before* the canonical repo-root
+  `<repo>/.venv/bin/wiki`. Because `setup.sh` installs the live backend into the
+  root `.venv` (`VIRTUAL_ENV="$ROOT_DIR/.venv"` + `uv pip install -e ./backend`),
+  the leftover `backend/.venv` copy was frequently stale, so the plugin reported
+  an old backend version (e.g. `0.4.2`/`0.3.2`) and silently broke the self-update
+  toast. The probe now prefers the root `.venv` and keeps `backend/.venv` only as
+  a fallback for un-migrated checkouts. Completes the install-path hotfix started
+  in the previous commit.
+- **Backend dashboard misreported the active model** — the LLM selector fell back
+  to the first catalogue entry (Antigravity Gemini) whenever the configured model
+  was not in the bundled catalogue (e.g. a custom local Ollama model like
+  `qwen2.5:3b`), so the dashboard always showed Antigravity Gemini even though the
+  backend config (`wiki status`) was correct. The unmatched model is now surfaced
+  as its own "(current)" option and selected, keeping the display faithful to the
+  persisted config.
+- **Docs path scrub** — removed an absolute `file:///Users/...` link from
+  `SYSTEM_BEHAVIOR.md` (now relative) and genericized real vault-name examples
+  (`second_brain`, `/Users/<you>/...`) to `/path/to/<vault>/...` in the dev/sync
+  guides. Updated `DEV_SCRIPTS_GUIDE` to match `plugin/deploy.sh`'s new local-build
+  fallback when `OBSIDIAN_PLUGIN_DIR` is unset.
+
+---
+
 ## [0.4.3] — 2026-06-07
 
 ### Fixed
