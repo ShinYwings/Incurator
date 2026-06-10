@@ -184,7 +184,7 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
 5. **Docs Update**: Update `docs/specs/` and `docs/guides/` to define the target behavior. (Crucial: Update the English guides first, then faithfully synchronize the matching `_KR.md` Korean guides).
 6. **Test-Driven Development (TDD)**: Write failing tests before writing application logic.
 7. **Implementation & Incremental Commits**: Write code to make tests pass. Commit work incrementally using Conventional Commits (e.g., `feat(core): ...`, `fix(plugin): ...`).
-8. **Local CI Validation**: Before finalizing, you MUST run all local checks. Keep the backend venv at the repo root (`export UV_PROJECT_ENVIRONMENT="$PWD/.venv"`, never `backend/.venv`), then: `( cd backend && uv run pytest -q )`, `( cd backend && uv run ruff check src/ )`, `( cd backend && uv run mypy src/ )`, and the plugin's `npx vitest run -c ./plugin/vitest.config.ts`. Ensure the entire system is intact.
+8. **Local CI Validation**: Before finalizing, you MUST run all local checks. Keep the backend venv at the repo root (`export UV_PROJECT_ENVIRONMENT="$PWD/.venv"`, never `backend/.venv`) and use `uv run --directory backend` (never `cd backend`, which leaves your shell inside backend and risks stray artifacts): `uv run --directory backend pytest -q`, `uv run --directory backend ruff check src/`, `uv run --directory backend mypy src/`, and the plugin's `npx vitest run -c ./plugin/vitest.config.ts`. Ensure the entire system is intact.
 9. **Report Cleanup**: Once an item is verified, ensure it is marked as completed or removed from `.agents/ROADMAP.md` (since it was already deleted from USER_REPORT.md during planning).
 10. **Version Bump & Changelog**: Update the version strings in all relevant configuration files (`pyproject.toml`, `package.json`, `manifest.json`) AND update `CHANGELOG.md` with the release notes for this version.
 11. **Plan Deletion**: **Delete** the implemented plan file(s) from the workspace. The plan's historical context will be statically preserved in the Git history for this version.
@@ -315,15 +315,18 @@ export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
 # Install backend (+dev) and plugin dependencies
 ./setup.sh
 # Or, to mirror CI exactly (populates <repo>/.venv with backend + dev/mcp deps):
-( cd backend && uv sync --extra dev --extra mcp )
+uv sync --directory backend --extra dev --extra mcp
 
-# Lint / type-check / test — subshells avoid leaving you inside backend/
-( cd backend && uv run ruff check src/ )
-( cd backend && uv run mypy src/ )
-( cd backend && uv run pytest -q )
+# Lint / type-check / test. Use `uv run --directory backend` (NOT `cd backend`):
+# uv runs the command with its cwd in backend/ — needed for correct pytest/mypy
+# package resolution — WITHOUT moving your shell, so nothing accumulates in
+# backend/ and there is no `cd ..` to forget. The venv stays at the repo root.
+uv run --directory backend ruff check src/
+uv run --directory backend mypy src/
+uv run --directory backend pytest -q
 
 # Run a single test
-( cd backend && uv run pytest tests/test_db.py::test_source_deduplication -v )
+uv run --directory backend pytest tests/test_db.py::test_source_deduplication -v
 
 # Build package
 hatch backend/build
