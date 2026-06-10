@@ -72,31 +72,26 @@ describe("findSearchBlock", () => {
     expect(r).toBeNull();
   });
 
-  it("returns null for empty search", () => {
-    expect(findSearchBlock(file, "")).toBeNull();
+  it("does not match a single line when first and last anchors are the same", () => {
+    // Reviewer regression: identical anchors (closing `}`) must map to DIFFERENT
+    // file lines. With only one `}` in the file, there is no valid 2-line span,
+    // so the matcher must refuse rather than collapse onto that single line.
+    const code = ["class A {", "}"].join("\n");
+    const searchBlock = ["}", "some drifted content", "}"].join("\n");
+    expect(findSearchBlock(code, searchBlock)).toBeNull();
   });
 
-  it("does not collapse a multi-line search to one line when first/last anchors are identical", () => {
-    // Reviewer regression: identical anchors (closing `}`) must match DIFFERENT
-    // file lines, not the same single line (which would replace 1 line with the
-    // whole block). Here there is exactly one valid 2-brace span.
-    const code = [
-      "function a() {",
-      "  return 1;",
-      "}",
-      "const x = 9;",
-    ].join("\n");
-    const r = findSearchBlock(code, "}\nDIFFERENT MIDDLE\n}");
-    // Only one `}` exists → no second anchor line → no false single-line match.
-    expect(r).toBeNull();
-  });
-
-  it("anchors correctly when identical anchors appear on two distinct lines", () => {
-    const code = ["{", "  body", "}", "tail"].join("\n");
-    // search first/last anchors are `{` and `}` (distinct), middle drifted.
-    const r = findSearchBlock(code, "{\nDRIFT\n}");
+  it("anchors the span between two identical anchors on distinct lines", () => {
+    // Positive counterpart: identical `}` anchors that DO appear on two separate
+    // lines should match the region between them (exercises the k=i+1 start).
+    const code = ["}", "  body", "}", "tail"].join("\n");
+    const r = findSearchBlock(code, "}\nDRIFT\n}");
     expect(r).not.toBeNull();
     expect(r!.strategy).toBe("anchored");
-    expect(code.slice(r!.start, r!.end)).toBe("{\n  body\n}");
+    expect(code.slice(r!.start, r!.end)).toBe("}\n  body\n}");
+  });
+
+  it("returns null for empty search", () => {
+    expect(findSearchBlock(file, "")).toBeNull();
   });
 });
