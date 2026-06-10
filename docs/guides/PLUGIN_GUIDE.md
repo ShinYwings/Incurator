@@ -96,14 +96,21 @@ LLM generates suggestion → Diff shown → Accept / Reject
 
 ## 3.5 Quick Query on Selection (In-line Copilot)
 
-Select (drag) any text — in a Markdown note, reading view, or PDF — and a single
+Select any text — in a Markdown note, reading view, or PDF — and a single
 floating **✨ Ask AI** button appears next to the selection. Click it (or press
 `Cmd+Shift+K` with text selected) to open a small popover for a one-off question
 about that passage. This works like a lightweight `wiki query` aimed at quick
 lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
 "Eq. (3)에 의해…".
 
-- **Single button**: A drag only ever shows one button — no toolbar.
+- **Mouse or keyboard selection**: Both a mouse drag and a keyboard selection
+  (Shift+Arrow / Shift+Home/End, or Ctrl/Cmd+A) surface the button; collapsing
+  the selection back to a caret hides it.
+- **Formulas are preserved**: When your selection spans rendered MathJax, the
+  captured passage keeps the LaTeX source (`$...$` / `$$...$$`) instead of empty
+  SVG — so dragging across a formula no longer drops it, regardless of Live
+  Preview's render timing.
+- **Single button**: A selection only ever shows one button — no toolbar.
 - **Minimal popover**: The popover has just a query input and an **Ask** button.
   There are no preset/quick buttons.
 - **Focused answer display**: After you submit, the input row hides while the

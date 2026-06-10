@@ -1,38 +1,32 @@
 # Relay State — ACTIVE (2026-06-11)
 
 ## Goal
-ROADMAP To-Do #1: **Sidechat Selection & LaTeX Robustness**. Branch
-`feature/sidechat-selection-latex` (from master @ afe8e60, post-PR#17).
+Sidechat Selection & LaTeX Robustness — **implemented, v0.5.1**, branch
+`feature/sidechat-selection-latex`.
 
-## Plan Reference
-- Master Plan: `.agents/plans/01_sidechat_selection_latex.md`
-- Arena: `.agents/plans/sidechat_selection_arena/`
-- Source draft: `.agents/drafts/sidechat_selection_latex.md`
+## Status — AWAITING REVIEW/MERGE
+All phases done. Local CI green: vitest 303 pass, tsc clean, spec-sync 9 pass
+(after `uv sync` — patch keeps the 0.5 line so no spec-title bump), versions
+0.5.1 consistent across pyproject/package/manifest/lock. Plan + Arena + draft
+deleted. ROADMAP/RELAY updated. PR pending push.
 
-## Analysis & Reasoning (key finding)
-Symptom 1 ("Ask AI drops formulas") is a CAPTURE-METHOD bug, not a timing race:
-`quickQueryPopover` reads `selection.toString()`, which is empty for SVG MathJax.
-The `mjx-container` keeps its LaTeX in `annotation[...x-tex]` in BOTH SVG and
-swapped-text states, and `textUtils.extractTextWithLatex` already extracts it
-(used by chat copy). Fix = a new exported `selectionToTextWithLatex` (math-gated:
-non-math → raw toString, byte-identical) routed through both capture sites →
-timing-independent. Symptom 2 = missing event source; popover trigger is
-mouseup-only (main.ts:138). Add a gated `keyup` listener (shift+Arrow/Home/End,
-Ctrl/Cmd+A), NOT selectionchange. Symptom 3 (partial editor LaTeX copy) DEFERRED
-to Icebox (needs heavy KaTeX/overlay route). No schema/RAG impact.
+## What shipped
+- `utils/textUtils.selectionToTextWithLatex` — reads MathJax annotation LaTeX
+  from the selection DOM (SVG or swapped-text), math-gated (non-math = raw
+  toString, byte-identical). Routed through both `quickQueryPopover` capture
+  sites → dragging over a formula no longer drops it.
+- `main.ts` gated `keyup` trigger (Shift+Arrow/Home/End, Ctrl/Cmd+A) per
+  document + popout → keyboard selections surface the Ask AI button.
+- Partial-editor LaTeX copy (Cmd+C) DEFERRED → ROADMAP Icebox.
 
-## Progress Status
-- ✅ Investigation, Arena debate, Master Plan authored. ROADMAP/RELAY updated.
-- ⏸️ **AWAITING USER APPROVAL + 2 questions (version: v0.5.1 patch vs v0.6.0
-  minor; symptom-3 defer confirm) before any code (Workflow Step 4).**
+## User decisions captured (2026-06-11)
+Patch v0.5.1 (no spec-title bump) · symptom 3 deferred to Icebox.
 
-## Critical Context / Blockers
-- Do NOT start P1 until plan approved + version chosen.
-- Minor (0.6.0) bump would also require all 4 spec titles + ACTIVE_VERSION; a
-  patch (0.5.1) would not.
-- Touched files (plugin-only TS): `utils/textUtils.ts`, `ui/quickQueryPopover.ts`,
-  `main.ts`.
+## Recurring note
+`uv run pytest` vs the editable install metadata drift keeps making spec-sync
+look red locally until `uv sync`; CI is fine. Symptom of the lingering dual-venv
+setup (the install-unification milestone improved but didn't fully kill it).
 
 ## Immediate Next Action
-On approval: P1 — TDD `selectionToTextWithLatex` (math-gated) + tests; then P2
-wire both popover capture sites; P3 keyboard trigger.
+Push branch + open PR. After merge, next milestone candidate = To-Do #1
+(Sidechat Local Git History — drop `gh`) — needs its own Arena plan + approval.
