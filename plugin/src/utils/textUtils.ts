@@ -182,7 +182,10 @@ function extractTextWithLatex(node: Node): string {
  * unchanged, so ordinary text capture is byte-identical to before.
  */
 export function selectionToTextWithLatex(selection: Selection | null): string {
-  if (!selection || selection.rangeCount === 0) return "";
+  // A collapsed selection (caret) has no text and no math; bail before the
+  // expensive cloneContents()/querySelector, which would otherwise run on every
+  // keyup/caret move now that keyboard navigation also triggers the check.
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return "";
   const fragment = selection.getRangeAt(0).cloneContents();
   if (!fragment.querySelector("mjx-container, span.math")) {
     return selection.toString();

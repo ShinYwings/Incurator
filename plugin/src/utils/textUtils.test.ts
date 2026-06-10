@@ -17,9 +17,13 @@ function fakeSelection(opts: {
   text?: string;
   rangeCount?: number;
   hasMath?: boolean;
+  isCollapsed?: boolean;
 }): Selection {
   return {
     rangeCount: opts.rangeCount ?? 1,
+    // A real Selection is collapsed when it has no extent (empty text); default
+    // accordingly so collapsed/empty cases match real browser behavior.
+    isCollapsed: opts.isCollapsed ?? (opts.text ?? "") === "",
     toString: () => opts.text ?? "",
     getRangeAt: () => ({
       cloneContents: () => ({
@@ -229,9 +233,13 @@ describe("stripDanglingEditMarkers", () => {
 // ─── selectionToTextWithLatex ───────────────────────────────────────────────
 
 describe("selectionToTextWithLatex", () => {
-  it("returns '' for null or empty selection", () => {
+  it("returns '' for null, range-less, or collapsed selection", () => {
     expect(selectionToTextWithLatex(null)).toBe("");
     expect(selectionToTextWithLatex(fakeSelection({ rangeCount: 0 }))).toBe("");
+    // Collapsed caret: must early-out before cloneContents() even with a range.
+    expect(
+      selectionToTextWithLatex(fakeSelection({ rangeCount: 1, isCollapsed: true }))
+    ).toBe("");
   });
 
   it("returns selection.toString() unchanged for non-math selections", () => {
