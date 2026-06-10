@@ -30,6 +30,11 @@ Agents must read the following past archive plans and understand the original de
 ### Separate LLM Configuration for Knowledge Distillation and Query Expansion (HyDE) & Expose to UI/CLI
 - **Current Status**: We need to clearly provide configuration options so that models can be selected independently based on the user's VRAM environment and purpose (heavy model for knowledge distillation vs. light and fast local model for query expansion).
 - **Fact-Check Required**: Check how well the query_expander related structure is prepared inside the backend configuration (config.py), and verify if users can intuitively select these two models separately in the CLI (wiki config provider) and plugin dashboard UI. Supplement any deficiencies after fact-checking.
+- **Reuse target (triaged 2026-06-11)**: The plugin's right-click "Convert to
+  LaTeX" feature also needs to target this light/fast model instead of the main
+  model (recommended Ollama default `qwen2.5:0.5b`). Build the light-model config
+  plumbing here once and let the Convert-to-LaTeX setting in
+  `.agents/drafts/minor_quick_wins.md` consume it.
 
 ### GraphRAG-level Entity Resolution, Noise Filtering, and Vault Quota Architecture Design
 - **Current Status**: Due to the structure of the current internal DB (graph_entities, graph_relations), there is a risk that synonyms or similar concepts will be fragmented and duplicated, or noise edges will multiply infinitely. If the .curator DB and markdown files are left alone, the computer disk space could explode.

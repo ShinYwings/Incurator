@@ -23,16 +23,39 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 
 ### 🚀 Unresolved Items to be Addressed in the Future (To-Do)
 
-1. **[Minor Update] Minor Quick Wins**
-   - Review web search feature integration, validate potential `[[wikilink]]` conflicts and introduction of explicit Obsidian backlinks, Diff Viewer UI/UX improvements, etc.
-   - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
+> Last triage: 2026-06-11 (bulk inbox triage from `USER_REPORT.md`).
 
-2. **[Major Update] RAG & Knowledge Quality Stabilization**
-   - Deep analysis and supplementation of the search engine (Qwen3 + FTS5), introduction of hybrid extraction to resolve missing math formulas, integrated logic for entity deduplication filtering and prevention, providing visibility for Vault Quota management.
+1. **[Patch/Minor — HIGH PRIORITY] Installation & Version Management Unification**
+   - Multiple `wiki` binaries at different versions; plugin resolves the wrong one, breaking the self-update toast. Unify the backend install to one external location/command, single version source of truth (build manifests), finish the `OBSIDIAN_PLUGIN_DIR`/`.env`/`.env.example` removal, fix `plugin/deploy.sh exit 1`, fix dashboard model-display persistence, scrub real paths from docs.
+   - Detailed analysis: `.agents/drafts/install_version_unification.md`
+   - **Note**: partly hotfix-class (broken self-update); recommend tackling first.
+
+2. **[Minor Update — high priority] Agent Edit & Diff Viewer Reliability**
+   - `ai-agent-edit` SEARCH-match failures (no `.md` diff), wrong edit scope (whole answer vs. one section), render diff immediately (drop "Review diff" gate), hunk counter + nav arrows, stop writing `00_System/Agent Diffs/` files (benchmark VSCodium in-memory diff), fix image-insertion `>>>>` artifact. User-tagged [hotfix].
+   - Detailed analysis: `.agents/drafts/agent_edit_diff_viewer.md`
+
+3. **[Minor Update] Sidechat Selection & LaTeX Robustness**
+   - MathJax SVG→text stale read drops formulas in the Ask AI popover on drag; keyboard (Shift+Arrow) selection doesn't trigger Ask AI; partial-selection LaTeX copy (KaTeX swap or transparent overlay, low priority). #1/#2 are hotfix-class.
+   - Detailed analysis: `.agents/drafts/sidechat_selection_latex.md`
+
+4. **[Minor Update] Sidechat Local Git History (drop `gh` dependency)**
+   - Audit why `gh` is required; use local `git log`/`git show` for vault file-history reference ("how did I write this before?", recovery). Remove the hard `gh` requirement where local git suffices.
+   - Detailed analysis: `.agents/drafts/sidechat_git_history.md`
+
+5. **[Major Update] RAG & Knowledge Quality Stabilization**
+   - Deep analysis and supplementation of the search engine (Qwen3 + FTS5), introduction of hybrid extraction to resolve missing math formulas, integrated logic for entity deduplication filtering and prevention, providing visibility for Vault Quota management. Now also owns the shared light/fast-model config plumbing (consumed by the Convert-to-LaTeX quick win).
    - Detailed analysis: `.agents/drafts/stabilization.md`
 
-3. **[Major Update] Native PDF Annotation System**
-   - Remove external Zotero dependency, build a native annotation (highlight/memo) synchronization system utilizing Obsidian's built-in PDF Viewer.
+6. **[Minor Update] Chat Session Context Compaction**
+   - Confirm/ensure full-session history usage; add a Claude-Code-style circular token-usage meter under the query box and a click-to-compact action for the session.
+   - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
+
+7. **[Minor Update] Minor Quick Wins**
+   - Web search integration review, `[[wikilink]]` conflict validation, Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`).
+   - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
+
+8. **[Major Update] Native PDF Annotation & Asset System**
+   - Remove external Zotero dependency, build a native annotation (highlight/memo) synchronization system utilizing Obsidian's built-in PDF Viewer. Expanded scope (2026-06-11): PDF/Zotero asset-location management (frontmatter-driven asset folder, external-image fallback to `05_Assets`), fix reload relativepath bug, add-source button → "Added" state, and in-PDF full-text search (with strict-spelling mode).
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
 ### 🧊 Blocked / Icebox (Pending Items)

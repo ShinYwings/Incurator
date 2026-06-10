@@ -5,12 +5,22 @@ These are small improvement items independent of the major backend overhauls (Kn
 
 ## Implementation Skeleton
 
-### Diff Viewer UI/UX Improvement
-- **Current Status**: Functionality exists in `plugin/src/ui/diffViewer.ts`, but the UI/UX is inconvenient.
-- **Requirements**: Overall improvement so the user can intuitively accept/reject changes.
-- **Execution Plan**:
-  - `plugin/src/ui/diffViewer.ts`: Organize button/hunk layout, support dark/light themes, show keyboard shortcut hints, improve UX for navigating between hunks.
-  - `plugin/styles.css`: Organize color variables by theme.
+### Diff Viewer UI/UX — MOVED
+- The Diff Viewer UI/UX work, plus the `ai-agent-edit` SEARCH-match failures,
+  edit-scope bug, immediate-diff rendering, hunk navigation, and the
+  `00_System/Agent Diffs/` cleanup, grew substantial and were promoted to a
+  dedicated milestone: `.agents/drafts/agent_edit_diff_viewer.md`.
+
+### Convert-to-LaTeX Fast/Light Model Option (triaged 2026-06-11)
+- **Current Status**: The right-click "Convert to LaTeX" PDF feature reuses the
+  main model. Simple conversion doesn't need the heavy model.
+- **Requirements**: Add a settings option to pick a separate "Fast/Light model"
+  for LaTeX conversion. Recommended Ollama default `qwen2.5:0.5b`; investigate
+  whether an even smaller usable model exists.
+- **Note**: Architecturally this is the same "task-specialized light model"
+  theme as the HyDE/query-expansion split in `.agents/drafts/stabilization.md`
+  ("Separate LLM Configuration ..."). Implement the config plumbing once and
+  reuse; this entry is the quick plugin-settings surface for it.
 
 ### `[[wikilink]]` Architecture Validation
 - **Current Status**: Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
