@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   inferLocalDeviceId,
   mergeDeviceRegistry,
@@ -281,19 +284,39 @@ describe("getLocalBackendRepoPath", () => {
 });
 
 describe("resolveWikiBinary", () => {
-  it("returns undefined for empty repoPath with no global install", () => {
-    // This test checks the probe logic runs without error.
-    // It may find a global binary on some machines.
-    const result = resolveWikiBinary("");
-    expect(result === undefined || typeof result === "string").toBe(true);
+  let repo: string;
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "incurator-repo-"));
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
   });
 
-  it("finds the binary in a real repo path", () => {
-    // Uses the actual Incurator repo — this test is environment-specific.
-    const result = resolveWikiBinary("/Users/shin/shinywings/Incurator");
-    // On this machine it should exist; on CI it won't → skip
-    if (result) {
-      expect(result).toContain("wiki");
-    }
+  const writeWiki = (relDir: string) => {
+    const dir = join(repo, relDir);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "wiki"), "#!/bin/sh\n");
+  };
+
+  it("returns undefined when repoPath is empty", () => {
+    expect(resolveWikiBinary("")).toBeUndefined();
+  });
+
+  it("returns undefined when neither venv has a wiki binary", () => {
+    expect(resolveWikiBinary(repo)).toBeUndefined();
+  });
+
+  it("prefers the canonical repo-root .venv over the legacy backend/.venv", () => {
+    // The exact regression behind v0.4.x: both venvs exist, but backend/.venv is
+    // stale. The plugin must resolve the root .venv that setup.sh maintains.
+    writeWiki(".venv/bin");
+    writeWiki("backend/.venv/bin");
+    expect(resolveWikiBinary(repo)).toBe(join(repo, ".venv/bin/wiki"));
+  });
+
+  it("falls back to backend/.venv for un-migrated checkouts", () => {
+    writeWiki("backend/.venv/bin");
+    expect(resolveWikiBinary(repo)).toBe(join(repo, "backend/.venv/bin/wiki"));
   });
 });

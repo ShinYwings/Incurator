@@ -124,7 +124,7 @@ macOS에서 직접 배포해야 하는 경우에는 같은 스크립트에 macOS
 
 ```bash
 cd /path/to/Incurator/plugin
-OBSIDIAN_PLUGIN_DIR=/Users/<you>/path/to/second_brain/.obsidian/plugins/incurator-obsidian-agent ./deploy.sh
+OBSIDIAN_PLUGIN_DIR=/path/to/<vault>/.obsidian/plugins/incurator-obsidian-agent ./deploy.sh
 ```
 
 Syncthing으로 산출물이 도착했거나 macOS에서 직접 배포한 뒤에는 Obsidian에서 Incurator plugin을 reload하거나 Obsidian을 재시작합니다.

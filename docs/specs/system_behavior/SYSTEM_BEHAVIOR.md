@@ -454,7 +454,7 @@ Rules:
 
 ## 10. MCP Tools
 
-The Incurator MCP server exposes over 40 tools. The following list highlights the *newly introduced tools specific to v0.2.2 behavior*. For a complete and exhaustive list of all MCP tools and their descriptions, please see [MCP_USER_GUIDE.md](file:///Users/shin/shinywings/Incurator/docs/guides/MCP_USER_GUIDE.md).
+The Incurator MCP server exposes over 40 tools. The following list highlights the *newly introduced tools specific to v0.2.2 behavior*. For a complete and exhaustive list of all MCP tools and their descriptions, please see [MCP_USER_GUIDE.md](../../guides/MCP_USER_GUIDE.md).
 
 v0.2.2 introduces these new core MCP tools:
 

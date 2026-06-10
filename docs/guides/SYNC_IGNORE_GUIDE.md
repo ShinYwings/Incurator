@@ -137,7 +137,7 @@ To deploy directly on macOS, pass the macOS vault plugin path to the same script
 
 ```bash
 cd /path/to/Incurator/plugin
-OBSIDIAN_PLUGIN_DIR=/Users/<you>/path/to/second_brain/.obsidian/plugins/incurator-obsidian-agent ./deploy.sh
+OBSIDIAN_PLUGIN_DIR=/path/to/<vault>/.obsidian/plugins/incurator-obsidian-agent ./deploy.sh
 ```
 
 After Syncthing receives the built files, or after deploying directly on macOS, reload the Incurator plugin in Obsidian or restart Obsidian.

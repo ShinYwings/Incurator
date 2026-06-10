@@ -91,14 +91,14 @@ Incurator는 Python 백엔드(`backend/`)와 Obsidian 플러그인(`plugin/`)을
 
 ### OBSIDIAN_PLUGIN_DIR 재정의
 파일을 수동으로 복사하거나 불안정한 심볼릭 링크를 생성하지 않고 로컬에서 Obsidian 플러그인을 개발하려면 `OBSIDIAN_PLUGIN_DIR` 환경 변수를 사용할 수 있습니다.
-`OBSIDIAN_PLUGIN_DIR`이 설정되면 (예: `export OBSIDIAN_PLUGIN_DIR=/path/to/second_brain/.obsidian/plugins/incurator-plugin`), 플러그인의 `esbuild.config.mjs`가 동적으로 빌드 출력 디렉토리(outdir)를 덮어씁니다.
+`OBSIDIAN_PLUGIN_DIR`이 설정되면 (예: `export OBSIDIAN_PLUGIN_DIR=/path/to/<vault>/.obsidian/plugins/incurator-plugin`), 플러그인의 `esbuild.config.mjs`가 동적으로 빌드 출력 디렉토리(outdir)를 덮어씁니다.
 이를 통해 `plugin/` 디렉토리에서 `npm run dev`를 실행하고 변경 사항을 즉시 활성화된 Obsidian Vault에 반영할 수 있습니다.
 
-`plugin/deploy.sh`도 동일한 규칙을 따릅니다. 기본값은 로컬 Linux 개발 Vault 경로지만, `OBSIDIAN_PLUGIN_DIR`이 이미 설정되어 있으면 해당 경로로 배포합니다. 이로 인해 스크립트를 macOS와 Linux 모두에서 사용할 수 있습니다:
+`plugin/deploy.sh`도 동일한 규칙을 따릅니다. `OBSIDIAN_PLUGIN_DIR`이 설정되지 않으면 로컬 `plugin/` 디렉토리에 빌드하고, 설정되어 있으면 해당 경로로 배포합니다. 이로 인해 스크립트를 macOS와 Linux 모두에서 사용할 수 있습니다:
 
 ```bash
 cd plugin
-OBSIDIAN_PLUGIN_DIR=/Users/<you>/path/to/second_brain/.obsidian/plugins/incurator-obsidian-agent ./deploy.sh
+OBSIDIAN_PLUGIN_DIR=/path/to/<vault>/.obsidian/plugins/incurator-obsidian-agent ./deploy.sh
 ```
 
 ### 근거 기반 경로 마이그레이션

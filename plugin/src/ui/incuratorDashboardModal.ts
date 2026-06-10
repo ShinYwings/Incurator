@@ -1,6 +1,7 @@
 import { App, Modal, Notice, parseYaml, setIcon } from "obsidian";
 import type ObsidianAIAgent from "../../main";
 import type { LLMProvider, ModelOption } from "../types";
+import { resolveModelSelectValue } from "../utils/modelSelect";
 
 const PROVIDER_TO_PRIMARY: Record<LLMProvider, string> = {
   antigravity: "antigravity-cli",
@@ -1039,9 +1040,28 @@ export class IncuratorDashboardModal extends Modal {
         });
       }
     }
-    if (current && Array.from(sel.options).some(o => o.value === current)) sel.value = current;
-    else if (!allowNone && sel.options.length) sel.selectedIndex = 0;
-    else if (allowNone) sel.value = "";
+    const decision = resolveModelSelectValue(
+      Array.from(sel.options).map(o => o.value),
+      current,
+    );
+    if (decision.action === "select") {
+      sel.value = decision.value;
+    } else if (decision.action === "inject") {
+      // Active backend model isn't in the bundled catalogue (e.g. a custom local
+      // Ollama model). Surface it as its own option so the display stays faithful
+      // to `wiki status` instead of snapping back to the first catalogue entry.
+      const sep = decision.value.indexOf("::");
+      const prov = sep >= 0 ? decision.value.slice(0, sep) : "";
+      const model = (sep >= 0 ? decision.value.slice(sep + 2) : decision.value).trim();
+      const provLabel = PROVIDER_LABELS[prov as LLMProvider];
+      const text = provLabel ? `${provLabel} · ${model} (current)` : `${model} (current)`;
+      sel.createEl("option", { value: decision.value, text });
+      sel.value = decision.value;
+    } else if (!allowNone && sel.options.length) {
+      sel.selectedIndex = 0;
+    } else if (allowNone) {
+      sel.value = "";
+    }
   }
 
   // ---------------------------------------------------------------------------
