@@ -1,32 +1,38 @@
 # Relay State — ACTIVE (2026-06-11)
 
 ## Goal
-Agent Edit & Diff Viewer Reliability — **implemented, v0.5.0**, branch
-`feature/agent-edit-diff-reliability`.
+ROADMAP To-Do #1: **Sidechat Selection & LaTeX Robustness**. Branch
+`feature/sidechat-selection-latex` (from master @ afe8e60, post-PR#17).
 
-## Status — AWAITING REVIEW/MERGE
-All 5 phases done. Local CI green: vitest 297 pass (40 files), tsc clean,
-production esbuild OK, version-consistency 0.5.0 across pyproject/package/
-manifest/lock. Backend Python unchanged (only version string) → its ruff/pytest
-unaffected; CI re-verifies on the PR. Plan + Arena + draft deleted (Step 11);
-ROADMAP/RELAY updated. PR pending push.
+## Plan Reference
+- Master Plan: `.agents/plans/01_sidechat_selection_latex.md`
+- Arena: `.agents/plans/sidechat_selection_arena/`
+- Source draft: `.agents/drafts/sidechat_selection_latex.md`
 
-## What shipped (edge-hardening, no DiffViewer rewrite)
-- `utils/editMatch.findSearchBlock` — unified, ambiguity-safe SEARCH matcher
-  (exact → line-trim → anchored; refuses on >1 candidate or >3× span). Wired
-  into `applyInlineMultiEdit` + `reviewAssistantEdit` so preview == apply.
-- Tolerant edit-block parser + `stripDanglingEditMarkers` (fence-aware,
-  render-only; stored content untouched) + stronger `collapseStreamingEditBlocks`.
-- Safe-gated `maybeAutoOpenDiff` (active note / no focus only; once per message;
-  never on history re-render). Always-visible hunk counter. Scope prompt rule +
-  non-blocking large-replacement warning.
-- **Removed** the `00_System/Agent Diffs/` artifact feature entirely (writer,
-  pill, setting, `editArtifact.ts` + test, `editArtifactPath`). Existing user
-  files left on disk.
+## Analysis & Reasoning (key finding)
+Symptom 1 ("Ask AI drops formulas") is a CAPTURE-METHOD bug, not a timing race:
+`quickQueryPopover` reads `selection.toString()`, which is empty for SVG MathJax.
+The `mjx-container` keeps its LaTeX in `annotation[...x-tex]` in BOTH SVG and
+swapped-text states, and `textUtils.extractTextWithLatex` already extracts it
+(used by chat copy). Fix = a new exported `selectionToTextWithLatex` (math-gated:
+non-math → raw toString, byte-identical) routed through both capture sites →
+timing-independent. Symptom 2 = missing event source; popover trigger is
+mouseup-only (main.ts:138). Add a gated `keyup` listener (shift+Arrow/Home/End,
+Ctrl/Cmd+A), NOT selectionchange. Symptom 3 (partial editor LaTeX copy) DEFERRED
+to Icebox (needs heavy KaTeX/overlay route). No schema/RAG impact.
 
-## User decisions captured (2026-06-11)
-Minor v0.5.0 · safe-gated auto-open · artifact removed entirely.
+## Progress Status
+- ✅ Investigation, Arena debate, Master Plan authored. ROADMAP/RELAY updated.
+- ⏸️ **AWAITING USER APPROVAL + 2 questions (version: v0.5.1 patch vs v0.6.0
+  minor; symptom-3 defer confirm) before any code (Workflow Step 4).**
+
+## Critical Context / Blockers
+- Do NOT start P1 until plan approved + version chosen.
+- Minor (0.6.0) bump would also require all 4 spec titles + ACTIVE_VERSION; a
+  patch (0.5.1) would not.
+- Touched files (plugin-only TS): `utils/textUtils.ts`, `ui/quickQueryPopover.ts`,
+  `main.ts`.
 
 ## Immediate Next Action
-Push branch + open PR. After merge, next milestone candidate = To-Do #1
-(Sidechat Selection & LaTeX Robustness) — needs its own Arena plan + approval.
+On approval: P1 — TDD `selectionToTextWithLatex` (math-gated) + tests; then P2
+wire both popover capture sites; P3 keyboard trigger.

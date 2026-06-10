@@ -27,9 +27,10 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 > #1 Installation & Version Management Unification — ✅ shipped in v0.4.4 (PR #16, merged 2026-06-11).
 > Agent Edit & Diff Viewer Reliability — ✅ shipped in v0.5.0 (branch `feature/agent-edit-diff-reliability`, PR pending).
 
-1. **[Minor Update] Sidechat Selection & LaTeX Robustness**
+1. **[Minor Update] Sidechat Selection & LaTeX Robustness** 🟢 ACTIVE
    - MathJax SVG→text stale read drops formulas in the Ask AI popover on drag; keyboard (Shift+Arrow) selection doesn't trigger Ask AI; partial-selection LaTeX copy (KaTeX swap or transparent overlay, low priority). #1/#2 are hotfix-class.
    - Detailed analysis: `.agents/drafts/sidechat_selection_latex.md`
+   - Active plan: `.agents/plans/01_sidechat_selection_latex.md` (Arena: `.agents/plans/sidechat_selection_arena/`)
 
 2. **[Minor Update] Sidechat Local Git History (drop `gh` dependency)**
    - Audit why `gh` is required; use local `git log`/`git show` for vault file-history reference ("how did I write this before?", recovery). Remove the hard `gh` requirement where local git suffices.
@@ -62,5 +63,6 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Agent Edit & Diff Viewer Reliability** — ✅ implemented (v0.5.0), PR pending review/merge.
-- No other milestone active. Next candidate: To-Do #1 (Sidechat Selection & LaTeX Robustness).
+- **Agent Edit & Diff Viewer Reliability** — ✅ shipped v0.5.0 (PR #17, merged 2026-06-11).
+- **Sidechat Selection & LaTeX Robustness** (To-Do #1) — 🟢 PLAN AUTHORED, awaiting user approval before coding.
+  - Master Plan: `.agents/plans/01_sidechat_selection_latex.md` · Arena: `.agents/plans/sidechat_selection_arena/`
