@@ -21,7 +21,7 @@ import {
 } from "./externalPdfView";
 import { IngestDestinationModal } from "./ingestDestinationModal";
 import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
-import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, truncateToLength } from "../utils/textUtils";
+import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, stripDanglingEditMarkers, truncateToLength } from "../utils/textUtils";
 import {
   ARTIFACT_DIR,
   buildEditArtifactFilename,
@@ -2832,7 +2832,10 @@ export class ChatSidebarView extends ItemView {
   }
 
   private processMarkdownForThoughts(content: string, isStreaming: boolean): string {
-    let processed = this.normalizeLatexDelimiters(content);
+    // Drop any orphan ai-agent-edit markers left by a failed parse so they never
+    // render as note text. Operates on the display string only — stored
+    // msg.content is untouched, keeping "Copy as Markdown" faithful.
+    let processed = stripDanglingEditMarkers(this.normalizeLatexDelimiters(content));
     const openTag = isStreaming 
         ? `<details class="ai-agent-thought-block" open><summary>🧠 Thinking Process...</summary>\n\n`
         : `<details class="ai-agent-thought-block"><summary>🧠 Thinking Process</summary>\n\n`;
@@ -3183,8 +3186,11 @@ export class ChatSidebarView extends ItemView {
       const filepath = this.readEditBlockFilepath(match[1], fallbackFilepath);
       const innerContent = match[2];
 
-      const searchMatch = innerContent.match(/<<<<\s*SEARCH\n([\s\S]*?)====\s*REPLACE/i);
-      const replaceMatch = innerContent.match(/====\s*REPLACE\n([\s\S]*?)>>>>/i);
+      // Tolerate marker variants: 3+ angle/equals chars, optional spacing, and a
+      // REPLACE body that ends at `>>>>` OR at the end of the block (a missing
+      // closer should still parse rather than leak markers into the render).
+      const searchMatch = innerContent.match(/<{3,}\s*SEARCH\s*\n([\s\S]*?)={3,}\s*REPLACE/i);
+      const replaceMatch = innerContent.match(/={3,}\s*REPLACE\s*\n([\s\S]*?)(?:>{3,}|$)/i);
 
       if (filepath && searchMatch && replaceMatch) {
         let search = searchMatch[1];
@@ -3203,7 +3209,7 @@ export class ChatSidebarView extends ItemView {
     }
     if (proposals.length > 0) return proposals;
 
-    const bareBlockRegex = /<<<<\s*SEARCH\n([\s\S]*?)====\s*REPLACE\n([\s\S]*?)>>>>/gi;
+    const bareBlockRegex = /<{3,}\s*SEARCH\s*\n([\s\S]*?)={3,}\s*REPLACE\s*\n([\s\S]*?)>{3,}/gi;
     while ((match = bareBlockRegex.exec(content)) !== null) {
       if (!fallbackFilepath) continue;
       let search = match[1];

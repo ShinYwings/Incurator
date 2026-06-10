@@ -75,11 +75,53 @@ export function normalizeLatexDelimiters(content: string): string {
  */
 export function collapseStreamingEditBlocks(content: string): string {
   const fenceIdx = content.indexOf("```ai-agent-edit");
-  const searchIdx = content.indexOf("<<<< SEARCH");
+  // Tolerate spacing variants of the bare opener (e.g. `<<<<SEARCH`, `<<<< SEARCH`).
+  const searchMatch = content.match(/<{3,}\s*SEARCH/i);
+  const searchIdx = searchMatch ? searchMatch.index ?? -1 : -1;
   const markers = [fenceIdx, searchIdx].filter((i) => i !== -1);
   if (markers.length === 0) return content;
   const cut = Math.min(...markers);
   return content.slice(0, cut).trimEnd() + "\n\n*[Generating code edit…]*";
+}
+
+/**
+ * Remove orphan `ai-agent-edit` markers (`<<<< SEARCH`, `==== REPLACE`, `>>>>`)
+ * that survived a failed parse, so they never render as note text (e.g. the
+ * reported `### heading` followed by a bare `>>>>`). Safety rules:
+ *   - acts only when the message actually contains marker evidence;
+ *   - strips only lines that are EXACTLY a marker (on their own line);
+ *   - is fenced-code-block aware — markers inside ``` / ~~~ fences are preserved
+ *     (a user may legitimately document conflict markers);
+ *   - is meant for the RENDERED display string only; never mutate stored
+ *     `msg.content`, so "Copy as Markdown" stays byte-faithful.
+ */
+export function stripDanglingEditMarkers(rendered: string): string {
+  const hasEvidence =
+    /<{3,}\s*SEARCH/i.test(rendered) ||
+    /={3,}\s*REPLACE/i.test(rendered) ||
+    /^>{3,}(\s+\w+)?\s*$/m.test(rendered);
+  if (!hasEvidence) return rendered;
+
+  const out: string[] = [];
+  let fence = ""; // "" = outside; otherwise the active fence char (` or ~)
+  for (const line of rendered.split("\n")) {
+    const trimmed = line.trim();
+    const fenceMatch = trimmed.match(/^(```+|~~~+)/);
+    if (fenceMatch) {
+      const ch = fenceMatch[1][0];
+      if (!fence) fence = ch;
+      else if (fence === ch) fence = "";
+      out.push(line);
+      continue;
+    }
+    if (!fence) {
+      if (/^<{3,}\s*SEARCH\s*$/i.test(trimmed)) continue;
+      if (/^={3,}\s*REPLACE\s*$/i.test(trimmed)) continue;
+      if (/^>{3,}(\s+\w+)?\s*$/.test(trimmed)) continue;
+    }
+    out.push(line);
+  }
+  return out.join("\n");
 }
 
 /**
