@@ -11,7 +11,7 @@
 1.  **Python 3.10+**: 시스템의 핵심 로직이 Python으로 작성되었습니다.
 2.  **터미널 (Terminal)**: 모든 명령어는 CLI 환경에서 실행됩니다.
 3.  **노트 편집기 (Obsidian 권장)**: 지식 베이스의 시각화 및 편집을 위한 도구입니다. 옵시디언이 필수는 아니며 텍스트 파일을 볼 수 있는 에디터라면 무엇이든 가능하지만, 본 시스템은 옵시디언의 링크 구조와 플러그인 생태계에 최적화되어 개발되었습니다.
-4.  **Node.js**: Obsidian 플러그인 빌드와 플러그인 개발 도구 실행을 위해 필요합니다. (Ollama, GitHub CLI와 함께 `./setup.sh` 실행 시 자동으로 설치를 시도하며, 플러그인은 `wiki init` 과정에서 설치되므로 별도로 준비하실 필요가 없습니다.)
+4.  **Node.js**: Obsidian 플러그인 빌드와 플러그인 개발 도구 실행을 위해 필요합니다. (Ollama와 함께 `./setup.sh` 실행 시 자동으로 설치를 시도하며, 플러그인은 `wiki init` 과정에서 설치되므로 별도로 준비하실 필요가 없습니다.)
 5.  **Curator Engine 백엔드**: 시스템 구동을 위해 하나 이상의 모델 백엔드가 필요하며, 로컬과 클라우드 방식을 모두 지원합니다.
     - **로컬 LLM (Ollama)**: 강력한 개인 정보 보호와 별도 비용 없는 사용이 가능합니다. (VRAM 필요)
     - **클라우드 LLM (Providers)**: Antigravity, Claude, OpenAI 등의 외부 엔진을 활용합니다. 로컬 자원(VRAM) 소모가 거의 없으며 고성능 추론이 가능합니다. (큐레이션 단계에서는 고가의 추론 전용 모델이 아닌 일반 범용 모델로도 충분히 안정적인 성능을 발휘합니다.)
@@ -413,25 +413,17 @@ wiki persona update --workspace <name>   # 인터뷰로 Artist 페르소나 재�
 
 ---
 
-## 🐙 GitHub 연동 (v0.3.3)
+## 🐙 Git 연동
 
 Incurator는 이미 Git으로 관리 중인 vault를 Obsidian 안에서 점검하고,
-일상적인 GitHub 워크플로우를 sidechat으로 실행할 수 있게 합니다. 이 기능은
-이미 GitHub를 쓰고 있고 scheduled commit도 따로 운용하는 vault를 전제로 합니다.
-플러그인은 수동 Commit/Push 버튼 묶음을 추가하지 않습니다.
+일상적인 Git 워크플로우를 sidechat으로 실행할 수 있게 합니다. 이 기능은
+이미 Git을 쓰고 있고 scheduled commit도 따로 운용하는 vault를 전제로 합니다.
+기존 로컬 `git`만 사용하며 **GitHub CLI(`gh`) 의존성이 없고** 플러그인이 GitHub
+token을 저장하지도 않습니다. (HTTPS push 인증이 필요하면 플러그인 밖, 평소 쓰는
+git credential helper가 처리합니다.) 플러그인은 수동 Commit/Push 버튼 묶음을
+추가하지 않습니다.
 
-### 1. 인증 (로그인 / 로그아웃)
-
-GitHub 인증은 **Obsidian 플러그인 설정**에서 관리됩니다.
-
-- `Settings > Incurator`로 이동합니다.
-- AI Provider 설정 아래의 **GitHub Integration** 섹션을 사용합니다.
-- 플러그인은 GitHub CLI(`gh auth status`)로 로그인 상태를 확인합니다. 로그인되어
-  있지 않으면 login action이 터미널을 열어 안전한 `gh auth login` 흐름을
-  실행합니다.
-- 플러그인은 GitHub OAuth token을 저장하지 않습니다.
-
-### 2. 대화형 Git 동기화 (Sidechat)
+### 대화형 Git 동기화 (Sidechat)
 
 Sidechat은 현재 vault에 대해 결정적인 backend Git 명령을 실행할 수 있습니다.
 

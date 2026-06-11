@@ -910,24 +910,13 @@ local JSON commands (never via MCP for same-device flows). The client
 | `getSynthesisAudit(synthesisId, workspacePath)` | `wiki plugin synthesis show` | Read-only L4-to-L1 synthesis audit report |
 | `proposeCorrection(nodeId, correction, previous, workspacePath)` | `wiki plugin correction propose` | Classification/recommended action/review flag |
 
-## 13. GitHub / Git Sidechat Integration
+## 13. Git Sidechat Integration
 
-The plugin exposes GitHub repository workflows through settings and sidechat
-without adding manual Commit/Push dashboard buttons.
-
-Settings use the GitHub CLI (`gh`) only for authentication status and login:
-
-- `gh auth status` checks whether the device is authenticated.
-- `gh auth login` is launched in a terminal for login.
-- `gh auth logout` may be launched for logout.
-- The plugin must not store GitHub OAuth tokens.
-
-The **Authentication** row shows a status badge plus a single **Sign in / Sign
-out** toggle that alternates with the current state: when `gh` is authenticated
-the row offers **Sign out** (launches `gh auth logout`); otherwise it offers
-**Sign in** (launches `gh auth login`). Because login and logout run in an
-external terminal, a **Check** button re-runs `gh auth status` so the row can
-refresh after the terminal action finishes.
+The plugin exposes local Git repository workflows through sidechat without
+adding manual Commit/Push dashboard buttons. It uses your existing local `git`
+only — there is **no GitHub CLI (`gh`) dependency** and the plugin never stores
+GitHub tokens. (Authentication for pushing over HTTPS, if you use it, is handled
+by your normal git credential helper, outside the plugin.)
 
 Repository operations use hidden backend JSON commands:
 
@@ -949,8 +938,8 @@ selected text or a normalized excerpt plus the active Markdown file path to
 
 Git commands must be deterministic backend calls through `IncuratorClient`, not
 provider-native shell/tool guesses. If the backend reports no git repository, no
-upstream, behind/diverged branch, or missing GitHub auth, sidechat reports the
-structured blocker instead of attempting a merge, rebase, or unsafe push.
+upstream, or a behind/diverged branch, sidechat reports the structured blocker
+instead of attempting a merge, rebase, or unsafe push.
 
 Query results (`CuratorQueryResult`) and the Sources & Trace panel carry the
 v0.3.2 fields additively: `route`, `trace_id` (`QTR-`), `prompt_trace_ids`

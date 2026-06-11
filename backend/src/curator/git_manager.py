@@ -43,8 +43,6 @@ class GitManager:
         if (self.root / ".curator").exists() and not self._is_ignored(".curator/"):
             warnings.append(".curator/ is not ignored")
 
-        gh_status = self._github_status()
-
         return {
             "ok": True,
             "repo": {
@@ -55,8 +53,6 @@ class GitManager:
                 "ahead": ahead,
                 "behind": behind,
                 "remote_url": remote_url,
-                "github_authenticated": gh_status["authenticated"],
-                "github_account": gh_status["account"],
             },
             "working_tree": worktree,
             "warnings": warnings,
@@ -262,23 +258,6 @@ class GitManager:
     def _is_ignored(self, relpath: str) -> bool:
         result = self._run(["check-ignore", "-q", relpath], check=False)
         return result.returncode == 0
-
-    def _github_status(self) -> dict[str, Any]:
-        if shutil.which("gh") is None:
-            return {"authenticated": False, "account": ""}
-        result = subprocess.run(
-            ["gh", "auth", "status"],
-            cwd=self.root,
-            text=True,
-            capture_output=True,
-            timeout=10,
-        )
-        text = f"{result.stdout}\n{result.stderr}"
-        account = ""
-        match = re.search(r"Logged in to .* as ([^\s]+)", text)
-        if match:
-            account = match.group(1)
-        return {"authenticated": result.returncode == 0, "account": account}
 
     def _git_text(self, args: list[str], timeout: int = 20) -> str:
         result = self._run(args, check=False, timeout=timeout)

@@ -761,24 +761,12 @@ Zotero에서 논문 항목을 우클릭 → **항목 링크 복사**하거나, [
 | `getSynthesisAudit(synthesisId, workspacePath)` | `wiki plugin synthesis show` | read-only L4→L1 synthesis audit report |
 | `proposeCorrection(nodeId, correction, previous, workspacePath)` | `wiki plugin correction propose` | classification/recommended action/review flag |
 
-## 14. GitHub / Git Sidechat 연동
+## 14. Git Sidechat 연동
 
-플러그인은 수동 Commit/Push dashboard 버튼을 추가하지 않고, 설정과 sidechat을 통해
-GitHub 저장소 워크플로우를 노출합니다.
-
-설정은 GitHub CLI(`gh`)를 인증 상태와 로그인에만 사용합니다.
-
-- `gh auth status`로 현재 기기의 인증 상태를 확인합니다.
-- `gh auth login`은 로그인용 터미널을 엽니다.
-- `gh auth logout`은 로그아웃용으로 실행할 수 있습니다.
-- 플러그인은 GitHub OAuth token을 저장하면 안 됩니다.
-
-**Authentication** 행에는 상태 badge와 함께 현재 상태에 따라 번갈아 표시되는
-단일 **Sign in / Sign out** 토글이 있습니다. `gh`가 인증된 상태면 **Sign
-out**(`gh auth logout` 실행)을, 인증되지 않았으면 **Sign in**(`gh auth login`
-실행)을 보여줍니다. 로그인·로그아웃은 외부 터미널에서 실행되므로, 터미널 작업이
-끝난 뒤 **Check** 버튼으로 `gh auth status`를 다시 실행해 행을 새로고침할 수
-있습니다.
+플러그인은 수동 Commit/Push dashboard 버튼을 추가하지 않고, sidechat을 통해
+로컬 Git 저장소 워크플로우를 노출합니다. 기존 로컬 `git`만 사용하며 **GitHub
+CLI(`gh`) 의존성이 없고** 플러그인이 GitHub token을 저장하지도 않습니다. (HTTPS
+push 인증이 필요하면 플러그인 밖, 평소 쓰는 git credential helper가 처리합니다.)
 
 저장소 작업은 숨은 backend JSON 명령을 사용합니다.
 
@@ -799,7 +787,7 @@ Markdown history 질문에서는 선택 텍스트 또는 정규화된 excerpt와
 
 Git 명령은 provider-native shell/tool 추측이 아니라 `IncuratorClient`를 통한 결정적
 backend 호출이어야 합니다. backend가 git repository 없음, upstream 없음,
-behind/diverged branch, GitHub 인증 없음 같은 구조화된 blocker를 반환하면, sidechat은
+behind/diverged branch 같은 구조화된 blocker를 반환하면, sidechat은
 merge/rebase/unsafe push를 시도하지 않고 그 blocker를 보고합니다.
 
 쿼리 결과(`CuratorQueryResult`)와 Sources & Trace 패널은 v0.3.1 필드를 추가로

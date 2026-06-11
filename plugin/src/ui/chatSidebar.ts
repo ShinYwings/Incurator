@@ -1062,13 +1062,12 @@ export class ChatSidebarView extends ItemView {
         ? `\n\nWarnings:\n${status.warnings.map((w) => `- ${w}`).join("\n")}`
         : "";
       return [
-        "GitHub/Git status",
+        "Git status",
         "",
         `- Branch: ${repo.branch || "unknown"}`,
         `- Upstream: ${repo.upstream || "none"}`,
         `- Ahead/behind: ${repo.ahead ?? 0}/${repo.behind ?? 0}`,
         `- Remote: ${repo.remote_url || "none"}`,
-        `- GitHub auth: ${repo.github_authenticated ? (repo.github_account || "authenticated") : "not authenticated/unknown"}`,
         `- Working tree: ${tree.clean ? "clean" : "dirty"}`,
         `- Staged/unstaged/untracked/conflicted: ${tree.staged ?? 0}/${tree.unstaged ?? 0}/${tree.untracked ?? 0}/${tree.conflicted ?? 0}`,
         warnings,
