@@ -70,5 +70,29 @@ Rollback anchor: `aee49954341999fa39f4a7cfd8fc3b863560829c` (master, post PR #22
 
 ## Validation Log (filled per phase)
 
-- P2 pre: `uv run --directory backend pytest -q` baseline green on branch start.
-- (append results here)
+- P2 pre: `uv run --directory backend pytest -q` baseline green on branch start
+  (508 passed). mypy baseline = 84 pre-existing errors (unchanged after P2).
+- P2 post: targeted pytest green (test_pdf_asset_dir_routing + adjacent image/
+  register suites, 24 passed); ruff clean.
+- P3 post: vitest 358 passed (44 files, +4 new asset-dir cases + badge source
+  contract); `tsc --noEmit` clean; esbuild production build OK.
+- P4 testbed smoke (2026-06-12, vault=testbed, source_id=2,
+  /tmp/smoke_images_paper.pdf with one >1KB raster figure):
+  - Routed: `register --asset-dir "05_Assets/Smoke Routed/paper item"` →
+    image at `05_Assets/Smoke Routed/paper item/p01_img01.png`, CTX embed
+    `![[05_Assets/Smoke Routed/paper item/p01_img01.png]]` resolves. ✓
+  - Unsafe: `--asset-dir "../../escape_dir"` → fell back to
+    `05_Assets/smoke_images_paper/`, embed points at fallback, nothing written
+    outside the vault. ✓
+  - Legacy: omitted flag → `05_Assets/smoke_images_paper/` exactly as before. ✓
+  - `register --build` → `state: queued`, `l2_l3_queued: true` (L1 immediate,
+    L2/L3 queued — documented add-source behavior confirmed). ✓
+  - Reference Mode: the smoke PDF lived outside the vault (/tmp); import
+    created a stub at `04_Resources/smoke_images_paper.md`. External-reference
+    behavior verified. Zotero-key resolution untouched by this feature
+    (plugin-side Zotero asset-dir derivation covered by vitest).
+  - Note: smoke source rows/artifacts remain in the disposable `testbed/`
+    vault (recreate with `wiki testbed init <scenario> --force` if needed).
+  - Note: real arXiv-style PDFs (ResNet) carry vector figures, so
+    `pdf_images` is often empty — raster-image PDFs are the asset-routing
+    test vehicle.
