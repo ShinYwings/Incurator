@@ -608,7 +608,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
 
     new Setting(backendSection)
       .setName("PDF image asset folder")
-      .setDesc("Vault folder for images extracted from added PDFs (non-Zotero). Empty uses the backend default 05_Assets/<source-name>/. Zotero PDFs use their import profile's asset folder.")
+      .setDesc("Base vault folder for images extracted from added PDFs (non-Zotero); each PDF gets a source-name subfolder. Empty uses the backend default 05_Assets/<source-name>/. Zotero PDFs use their import profile's asset folder.")
       .addText((text) =>
         text
           .setPlaceholder("05_Assets")

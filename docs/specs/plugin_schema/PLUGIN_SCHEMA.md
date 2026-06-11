@@ -108,8 +108,10 @@ under that folder instead of the default `05_Assets/<slug>/`. Contract:
   argument — image extraction happens only at instant-L1 time inside `register`.
 - The plugin resolves the folder it passes: for Zotero-backed PDFs it reuses the
   matching Zotero import profile's asset spec (`resolveProfileAssetSpec` —
-  asset folder + rendered per-item subfolder); for non-Zotero PDFs it uses the
-  `incuratorPdfAssetFolder` setting when set, otherwise omits the flag.
+  asset folder + rendered per-item subfolder); for non-Zotero PDFs it appends a
+  sanitized PDF filename stem to the `incuratorPdfAssetFolder` base folder when
+  set, otherwise omits the flag. The per-source subfolder prevents generic
+  extracted image filenames from colliding across differently named PDFs.
 
 ## 2. Persisted Settings Schema
 
@@ -156,7 +158,7 @@ interface PluginSettings {
   incuratorRepoPath: string;            // per-device absolute path to backend repo for 1-click updates
   incuratorDefaultDestination: string;   // vault-relative folder for reference stubs/copy imports
   incuratorDefaultImportMode: "copy" | "reference"; // reference creates a link stub
-  incuratorPdfAssetFolder: string;       // vault-relative folder for extracted PDF images of non-Zotero sources; "" = backend default 05_Assets/<slug>/
+  incuratorPdfAssetFolder: string;       // vault-relative base folder for extracted PDF images of non-Zotero sources; each PDF gets a filename subfolder; "" = backend default 05_Assets/<slug>/
   incuratorStatusPolling: boolean;
 
   // Zotero integration
@@ -187,8 +189,9 @@ Rules:
 - `incuratorDefaultImportMode` defaults to `"reference"` (no file copy).
 - `incuratorPdfAssetFolder` defaults to `""` (v0.5.6). When empty the plugin
   omits `--asset-dir` and the backend uses its default `05_Assets/<slug>/`.
-  It applies only to non-Zotero add-source PDFs; Zotero-backed PDFs derive
-  their asset dir from the matching Zotero import profile (Section 1.1).
+  When set it is the base folder for non-Zotero add-source PDFs; the plugin
+  appends a sanitized PDF filename stem. Zotero-backed PDFs derive their asset
+  dir from the matching Zotero import profile (Section 1.1).
 - Incurator backend enablement must render its configured/disabled state as a
   compact status row directly below the Enable setting, not squeezed into the
   Enable row.

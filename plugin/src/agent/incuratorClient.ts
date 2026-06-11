@@ -221,9 +221,9 @@ export class IncuratorClient {
    * Resolve the vault-relative folder for images extracted from an added PDF
    * (PLUGIN_SCHEMA §1.1). Zotero-backed PDFs reuse the first import profile's
    * asset spec with a per-item subfolder (display name, falling back to the
-   * attachment key); other PDFs use the `incuratorPdfAssetFolder` setting.
-   * Returns "" to omit --asset-dir so the backend falls back to
-   * `05_Assets/<slug>/`.
+   * attachment key); other PDFs use a sanitized filename subfolder under the
+   * `incuratorPdfAssetFolder` setting. Returns "" to omit --asset-dir so the
+   * backend falls back to `05_Assets/<slug>/`.
    */
   private resolvePdfAssetDir(request: IncuratorIngestRequest): string {
     if (request.zoteroAttachmentKey) {
@@ -234,7 +234,12 @@ export class IncuratorClient {
         return joinVaultPath(spec.assetFolder, item);
       }
     }
-    return (this.settings.incuratorPdfAssetFolder || "").trim();
+    const baseFolder = (this.settings.incuratorPdfAssetFolder || "").trim();
+    if (!baseFolder) return "";
+    const path = request.filePath || request.sourcePath || "";
+    const filename = path.split(/[\\/]/).pop() || "source";
+    const slug = sanitizePathSegment(filename.replace(/\.pdf$/i, "")) || "source";
+    return joinVaultPath(baseFolder, slug);
   }
 
   /**

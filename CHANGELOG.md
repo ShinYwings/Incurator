@@ -13,10 +13,11 @@ All notable changes to Incurator are documented here.
   `05_Assets/<slug>/`. `wiki plugin source register` accepts a vault-relative
   `--asset-dir`; the plugin resolves it per source — Zotero-backed PDFs reuse
   the Zotero import profile's asset folder (plus a per-item subfolder from the
-  item's display name), other PDFs use the new `incuratorPdfAssetFolder`
-  setting. Unsafe values (absolute paths, `..` escapes) and an empty setting
-  fall back to the legacy `05_Assets/<slug>/`, and the L1 page's `![[...]]`
-  embeds always reference the folder actually written (PLUGIN_SCHEMA §1.1).
+  item's display name), other PDFs use a sanitized source-name subfolder under
+  the new `incuratorPdfAssetFolder` base folder. Unsafe values (absolute paths,
+  `..` escapes, or path-resolution errors) and an empty setting fall back to
+  the legacy `05_Assets/<slug>/`, and the L1 page's `![[...]]` embeds always
+  reference the folder actually written (PLUGIN_SCHEMA §1.1).
 - **Inert "Added" badge for tracked sources.** A successfully built source
   (`l1_ready` … `l4_ready`) now shows a single non-clickable **Added** badge in
   the chat context chip instead of clickable layer labels, so an

@@ -548,7 +548,7 @@ LLM generates answer grounded in retrieved evidence
 | `incuratorRepoPath` | `""` | **Optional override.** Absolute path to the Incurator repository. Normally left blank — the backend reports its own repo path via `wiki plugin version`. Set this only to override the auto-detected path. |
 | `incuratorDefaultDestination` | `04_Resources` | Default folder for PDF reference stubs or explicit copy imports |
 | `incuratorDefaultImportMode` | `reference` | Add mode for files (`reference` creates a link stub; `copy` copies into the vault) |
-| `incuratorPdfAssetFolder` | `""` (empty) | Vault folder for images extracted from non-Zotero add-source PDFs. Empty means the backend default `05_Assets/<source-name>/`. Zotero PDFs ignore this and use their import profile's asset folder. |
+| `incuratorPdfAssetFolder` | `""` (empty) | Base vault folder for images extracted from non-Zotero add-source PDFs. Each PDF uses a sanitized source-name subfolder. Empty means the backend default `05_Assets/<source-name>/`. Zotero PDFs ignore this and use their import profile's asset folder. |
 | `incuratorStatusPolling` | `true` | Poll for source processing status updates |
 
 A successfully tracked source — any state from L1 ready through full L4
@@ -622,9 +622,11 @@ embed them with `![[...]]` links. Where they land (v0.5.6):
 - **Zotero-backed PDFs** reuse the asset folder of the matching Zotero import
   profile (the same base folder + per-item subfolder the annotation images use),
   so a paper's extracted figures sit next to its annotation assets.
-- **Other PDFs** go to the `incuratorPdfAssetFolder` setting if you set one.
-- **Fallback** (setting empty, or the resolved folder is unsafe/escapes the
-  vault): the backend default `05_Assets/<source-name>/`.
+- **Other PDFs** go to a sanitized source-name subfolder under the
+  `incuratorPdfAssetFolder` base folder if you set one.
+- **Fallback** (setting empty, or the resolved folder is unsafe, cannot be
+  resolved, or escapes the vault): the backend default
+  `05_Assets/<source-name>/`.
 
 The L1 page always links the folder the images were actually written to, so the
 embeds resolve either way. Note that text-layer extraction of mathematical

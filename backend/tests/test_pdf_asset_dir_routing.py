@@ -1,7 +1,8 @@
 """v0.5.6 tests: PDF add-source asset routing via --asset-dir (PLUGIN_SCHEMA §1.1).
 
 Covers:
-  - _safe_vault_subdir: vault-relative validation (no abs paths, no `..` escape)
+  - _safe_vault_subdir: vault-relative validation (no abs paths, no `..` escape,
+    path-resolution errors fall back without failing ingest)
   - _save_pdf_images(asset_dir=...): routed write, obsidian_path == write root,
     unsafe/empty values fall back to the legacy 05_Assets/<slug>/ location
   - plugin_api.register_source(asset_dir=...) → generate_l1_structural_context
@@ -75,6 +76,10 @@ class TestSafeVaultSubdir(unittest.TestCase):
     def test_trailing_and_duplicate_slashes_are_normalized(self) -> None:
         result = _safe_vault_subdir(self.paths, "05_Assets//sub/")
         self.assertEqual(result, "05_Assets/sub")
+
+    def test_resolution_error_is_rejected(self) -> None:
+        with patch("curator.ingest_raw.Path.resolve", side_effect=OSError("invalid path")):
+            self.assertIsNone(_safe_vault_subdir(self.paths, "05_Assets/sub"))
 
 
 class TestSavePdfImagesAssetDir(unittest.TestCase):

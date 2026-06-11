@@ -485,7 +485,7 @@ LLM이 검색된 근거를 바탕으로 답변 생성
 | `incuratorRepoPath` | `""` | **선택적 override.** Incurator 저장소 절대 경로. 보통 비워둡니다 — 백엔드가 `wiki plugin version`으로 자기 저장소 경로를 보고합니다. 자동 감지된 경로를 덮어쓰고 싶을 때만 설정하세요. |
 | `incuratorDefaultDestination` | `04_Resources` | PDF reference stub 또는 명시적 copy import의 기본 폴더 |
 | `incuratorDefaultImportMode` | `reference` | 파일 추가 방식 (`reference`는 link stub 생성, `copy`는 vault 안으로 복사) |
-| `incuratorPdfAssetFolder` | `""` (비어 있음) | Zotero가 아닌 add-source PDF에서 추출된 이미지를 저장할 vault 폴더. 비어 있으면 백엔드 기본값 `05_Assets/<source-name>/`을 사용합니다. Zotero PDF는 이 설정을 무시하고 import profile의 asset 폴더를 사용합니다. |
+| `incuratorPdfAssetFolder` | `""` (비어 있음) | Zotero가 아닌 add-source PDF에서 추출된 이미지를 저장할 vault 기본 폴더. 각 PDF는 정리된 source-name 하위 폴더를 사용합니다. 비어 있으면 백엔드 기본값 `05_Assets/<source-name>/`을 사용합니다. Zotero PDF는 이 설정을 무시하고 import profile의 asset 폴더를 사용합니다. |
 | `incuratorStatusPolling` | `true` | 소스 처리 상태 폴링 활성화 |
 
 Zotero나 다른 외부 위치에서 열린 PDF의 **Add to Incurator** 기본 동작은
@@ -564,9 +564,11 @@ badge가 표시됩니다.
 - **Zotero 기반 PDF**는 매칭되는 Zotero import profile의 asset 폴더(annotation
   이미지가 쓰는 것과 같은 base 폴더 + item별 subfolder)를 재사용하므로, 논문의
   추출 figure가 annotation asset 옆에 놓입니다.
-- **그 외 PDF**는 `incuratorPdfAssetFolder` 설정이 있으면 그 폴더로 갑니다.
-- **Fallback** (설정이 비어 있거나, 결정된 폴더가 안전하지 않거나 vault를
-  벗어나는 경우): 백엔드 기본값 `05_Assets/<source-name>/`.
+- **그 외 PDF**는 `incuratorPdfAssetFolder` 기본 폴더 아래의 정리된
+  source-name 하위 폴더로 갑니다.
+- **Fallback** (설정이 비어 있거나, 결정된 폴더가 안전하지 않거나 경로를
+  해석할 수 없거나 vault를 벗어나는 경우): 백엔드 기본값
+  `05_Assets/<source-name>/`.
 
 L1 페이지는 항상 이미지가 실제로 기록된 폴더를 링크하므로 어느 경우든 임베드가
 해석됩니다. PDF의 수학 표기 텍스트 추출은 근사적이라는 점에 유의하세요. 수학

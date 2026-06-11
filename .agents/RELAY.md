@@ -1,7 +1,7 @@
 # Agent Relay State
 
 ## Current Active Goal
-**[Minor Update] PDF Add-Source Asset Routing + "Added" State (v0.5.6)** — IMPLEMENTED. PR open on `feature/pdf-add-source-assets`, awaiting user review/merge.
+**[Minor Update] PDF Add-Source Asset Routing + "Added" State (v0.5.6)** — IMPLEMENTED. PR #23 review feedback addressed; awaiting user review/merge.
 
 ## Branch
 `feature/pdf-add-source-assets` (off `master` @ aee4995). Version bumped to v0.5.6 (pyproject/package/manifest/lockfile agree).
@@ -21,9 +21,10 @@
   validation log is preserved in git history (deleted from worktree per Step 11).
 
 ## Validation
-pytest 521 passed; ruff clean; mypy 84 pre-existing (no new); vitest 358 passed;
+pytest 522 passed; ruff clean; mypy 84 pre-existing (no new); vitest 359 passed;
 tsc clean; esbuild production OK; testbed smoke green (routed / unsafe-fallback /
-legacy / queued-build cases). Smoke artifacts remain in disposable `testbed/`.
+legacy / queued-build / review-reroute cases). Smoke artifacts remain in
+disposable `testbed/`.
 
 ## Immediate Next Action
 User merges the v0.5.6 PR. After merge: truncate this file to IDLE, then the next

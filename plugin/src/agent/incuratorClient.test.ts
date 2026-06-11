@@ -540,7 +540,28 @@ describe("IncuratorClient", () => {
     const registerCall = calls.find((c) => c[2] === "register");
     expect(importCall).not.toContain("--asset-dir");
     expect(registerCall).toContain("--asset-dir");
-    expect(registerCall![registerCall!.indexOf("--asset-dir") + 1]).toBe("05_Assets/PDF Figures");
+    expect(registerCall![registerCall!.indexOf("--asset-dir") + 1]).toBe(
+      "05_Assets/PDF Figures/paper"
+    );
+  });
+
+  it("sanitizes the PDF filename in the non-Zotero asset subfolder", async () => {
+    const calls: string[][] = [];
+    const s = settings();
+    s.incuratorPdfAssetFolder = "05_Assets/PDF Figures";
+    const client = new IncuratorClient(s, "0.2.2", ingestBackend(calls));
+
+    await client.ingestPdf({
+      filePath: "C:\\papers\\A B: Study?.PDF",
+      sourcePath: "C:\\papers\\A B: Study?.PDF",
+      destinationRelpath: "04_Resources",
+      importMode: "reference",
+    });
+
+    const registerCall = calls.find((c) => c[2] === "register");
+    expect(registerCall![registerCall!.indexOf("--asset-dir") + 1]).toBe(
+      "05_Assets/PDF Figures/A B- Study-"
+    );
   });
 
   it("omits --asset-dir when no asset folder resolves", async () => {

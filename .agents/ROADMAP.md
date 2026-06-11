@@ -73,5 +73,5 @@ The specific To-Do list for the roadmap is migrated from the user's Inbox (`.age
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
 - **Active Milestone**: **PDF Add-Source Asset Routing + "Added" State (v0.5.6)**
-  - **Status**: Implemented on `feature/pdf-add-source-assets` (P0–P5 complete: backend `--asset-dir` routing, plugin `incuratorPdfAssetFolder` + inert "Added" badge, testbed smoke green). PR open — awaiting user review/merge.
+  - **Status**: Implemented on `feature/pdf-add-source-assets` (P0–P5 complete: backend `--asset-dir` routing, plugin `incuratorPdfAssetFolder` + inert "Added" badge, review feedback addressed, testbed smoke green). PR open — awaiting user review/merge.
 - **Next in Queue**: To-Do #1 **RAG & Knowledge Quality Stabilization**. Planning completed (`03_rag_knowledge_quality_stabilization.md` and `A-F` plans). Implementation remains blocked until the v0.5.6 PR merges and explicit approval is given.

@@ -1096,16 +1096,19 @@ def _safe_vault_subdir(paths: cfg.WikiPaths, candidate: str) -> str | None:
     empty, absolute, or escapes the vault root (e.g. via `..`). Routing must
     never write outside the vault.
     """
-    candidate = (candidate or "").strip()
-    if not candidate:
+    try:
+        candidate = (candidate or "").strip()
+        if not candidate:
+            return None
+        if Path(candidate).is_absolute():
+            return None
+        root = paths.root.resolve()
+        resolved = (root / candidate).resolve()
+        if resolved == root or not resolved.is_relative_to(root):
+            return None
+        return resolved.relative_to(root).as_posix()
+    except Exception:
         return None
-    if Path(candidate).is_absolute():
-        return None
-    root = paths.root.resolve()
-    resolved = (root / candidate).resolve()
-    if resolved == root or not resolved.is_relative_to(root):
-        return None
-    return resolved.relative_to(root).as_posix()
 
 
 def _save_pdf_images(
