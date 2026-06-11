@@ -9,6 +9,7 @@ import {
   MarkdownFileInfo,
   Notice,
   Editor,
+  htmlToMarkdown,
 } from "obsidian";
 import {
   type PluginSettings,
@@ -59,6 +60,12 @@ import {
 } from "./src/utils/scrollPositions";
 import { getBundledModelCatalogue } from "./src/utils/bundledModelCatalogue";
 import { isSelectionRelevantKey } from "./src/utils/selectionKeys";
+import {
+  isSelectionInReadingView,
+  selectionContainsRenderedMath,
+  selectionToMarkdownWithLatex,
+  stampMathSourceData,
+} from "./src/utils/textUtils";
 import { mergeSessionData, normalizeSessionData } from "./src/utils/sessionData";
 import {
   mergeDeviceRegistry,
@@ -167,10 +174,49 @@ export default class ObsidianAIAgent extends Plugin {
         { capture: true }
       );
     };
+
+    // ── Reading-view math source stamping ──
+    // Obsidian's reading view renders math as CHTML with NO LaTeX source in the
+    // DOM. Re-parse each rendered section's source and stamp it onto the `.math`
+    // elements as `data-tex` (exact-count guarded, so a mis-parse can never stamp a
+    // wrong source) so a reading-view copy can recover `$...$` / `$$...$$`.
+    this.registerMarkdownPostProcessor((el, ctx) => {
+      if (!el.querySelector(".math")) return;
+      const info = ctx.getSectionInfo(el);
+      if (!info) return;
+      const source = info.text.split("\n").slice(info.lineStart, info.lineEnd + 1).join("\n");
+      stampMathSourceData(el, source);
+    });
+
+    // ── Note reading-view LaTeX-preserving copy / cut ──
+    // When a reading-view note selection contains rendered math, copy it as Markdown
+    // with the formula's LaTeX source restored (from the stamped `data-tex`) instead
+    // of the empty MathJax SVG. Gated to reading view + math: Live Preview / source
+    // mode copy the document source natively, and non-math selections fall through
+    // to the native clipboard untouched. Reading view is read-only, so `cut` cannot
+    // delete anything and is treated as a copy. Registered per document AND popout,
+    // capture-phase to run before any view-level handler.
+    const registerNoteLatexCopyDom = (doc: Document) => {
+      const handle = (e: ClipboardEvent) => {
+        if (!e.clipboardData) return;
+        const sel = doc.getSelection();
+        if (!isSelectionInReadingView(sel)) return;
+        if (!selectionContainsRenderedMath(sel)) return;
+        const md = selectionToMarkdownWithLatex(sel, htmlToMarkdown);
+        if (!md) return;
+        e.preventDefault();
+        e.clipboardData.setData("text/plain", md);
+      };
+      this.registerDomEvent(doc, "copy", handle, { capture: true });
+      this.registerDomEvent(doc, "cut", handle, { capture: true });
+    };
+
     registerQuickQueryDom(document);
+    registerNoteLatexCopyDom(document);
     this.registerEvent(
       this.app.workspace.on("window-open", (_workspaceWindow, win: Window) => {
         registerQuickQueryDom(win.document);
+        registerNoteLatexCopyDom(win.document);
       })
     );
 

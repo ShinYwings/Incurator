@@ -393,9 +393,10 @@ export class QuickQueryPopover {
       return;
     }
     try {
-      const MarkdownRenderer = (
-        require("obsidian") as { MarkdownRenderer: typeof MarkdownRendererType }
-      ).MarkdownRenderer;
+      const { MarkdownRenderer, htmlToMarkdown } = require("obsidian") as {
+        MarkdownRenderer: typeof MarkdownRendererType;
+        htmlToMarkdown: (input: HTMLElement) => string;
+      };
       await MarkdownRenderer.render(
         this.plugin.app,
         finalText,
@@ -403,7 +404,7 @@ export class QuickQueryPopover {
         "",
         this.plugin
       );
-      attachLatexCopyHandler(answerEl);
+      attachLatexCopyHandler(answerEl, htmlToMarkdown);
     } catch {
       answerEl.createEl("div", {
         cls: "ai-agent-quick-query-stream",

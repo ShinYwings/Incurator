@@ -169,6 +169,51 @@ Discarded — chat history untouched
 
 ---
 
+## 3.6 Copy as Markdown from the AI chat (`Cmd/Ctrl+C`)
+
+When you drag-select part of an assistant reply in the **chat sidebar** and press
+**Cmd/Ctrl+C**, the selection is copied as **Markdown** — formatting *and* math —
+instead of the browser's flattened plain text:
+
+- **Formatting is preserved**: bold, italics, headings, bullet/numbered lists,
+  links, and tables come back as Markdown (`**bold**`, `## heading`, `- item`,
+  `[text](url)`), via Obsidian's own `htmlToMarkdown`.
+- **Formulas are preserved**: rendered math is restored to its **LaTeX source**
+  (`$...$` inline, `$$...$$` block) instead of the empty MathJax SVG — so you can
+  paste a derivation straight into a note as editable LaTeX.
+- **Selection-scoped**: Only the region you selected is copied — not the whole
+  message.
+
+---
+
+## 3.7 Copy note formulas in Reading View (`Cmd/Ctrl+C`, `Cmd/Ctrl+X`)
+
+Drag-select part of a note in **Reading View** and press **Cmd/Ctrl+C** (or
+**Cmd/Ctrl+X**): if the selection contains a rendered formula, it is copied as
+**Markdown with the LaTeX source restored** (`$...$` inline, `$$...$$` block)
+instead of the empty MathJax SVG. The selection visually *skipping* the formula
+while you drag is normal — the formula is still captured. Works in pop-out windows
+too.
+
+- **Selection-scoped**: only the dragged region is copied. A formula the selection
+  only partially overlaps is captured **whole** (a half-formula is not useful).
+- **Non-math copies are unchanged**: a selection with no formula is left to
+  Obsidian's native clipboard — the plugin does not intercept it.
+- **Live Preview / Source mode** already preserve `$...$` natively (CodeMirror
+  copies the document source), so they need no special handling; the plugin only
+  augments **Reading View**, which otherwise loses the source.
+- **`Cmd/Ctrl+X`** in read-only Reading View copies the LaTeX but (correctly)
+  deletes nothing; in Live Preview, native cut already removes the source.
+
+> **How it works.** Obsidian renders Reading-View math as CHTML and keeps **no**
+> LaTeX source in the page DOM. The plugin registers a Markdown post-processor that
+> re-parses each rendered section's source and stamps it back onto every formula as
+> `data-tex` (only when the parsed and rendered formula counts match exactly, so a
+> mis-parse can never attach the wrong source). The copy handler then reads that
+> stamp — the same mechanism the chat sidebar uses (§3.6).
+
+---
+
 ## 4. Line Reference (`Cmd+Shift+L`)
 
 Adds the currently viewed content to the chat as a context reference.

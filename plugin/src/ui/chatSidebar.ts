@@ -2,6 +2,7 @@ import {
   ItemView,
   WorkspaceLeaf,
   MarkdownRenderer,
+  htmlToMarkdown,
   setIcon,
   TFile,
   Notice,
@@ -21,7 +22,7 @@ import {
 } from "./externalPdfView";
 import { IngestDestinationModal } from "./ingestDestinationModal";
 import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
-import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, stripDanglingEditMarkers, truncateToLength } from "../utils/textUtils";
+import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, stampMathSourceData, stripDanglingEditMarkers, truncateToLength } from "../utils/textUtils";
 import { inferIngestDestination } from "../utils/pathUtils";
 import { hashFileSha256 } from "../utils/fileHash";
 import { findSearchBlock } from "../utils/editMatch";
@@ -2336,6 +2337,19 @@ export class ChatSidebarView extends ItemView {
 
   }
 
+  /**
+   * Render assistant markdown into `wrapper`, then stamp each rendered formula's
+   * LaTeX source onto it as `data-tex` (reading-view CHTML keeps no source in the
+   * DOM, so selecting + copying a formula would otherwise drop it). `source` is the
+   * exact string rendered, so the Nth formula maps to the Nth `.math` element; the
+   * stamp only applies on an exact count match (never a wrong source).
+   */
+  private renderAssistantMarkdown(source: string, wrapper: HTMLElement): void {
+    void MarkdownRenderer.render(this.app, source, wrapper, "", this).then(() =>
+      stampMathSourceData(wrapper, source)
+    );
+  }
+
   private renderAssistantMessageContent(msg: ChatMessage, contentEl: HTMLElement): void {
     contentEl.empty();
     if (!msg.content) return;
@@ -2372,7 +2386,7 @@ export class ChatSidebarView extends ItemView {
       const mdWrapper = contentEl.createDiv("ai-agent-markdown-wrapper");
       if (remainingContent) {
         const processedContent = this.processMarkdownForThoughts(remainingContent, false);
-        MarkdownRenderer.render(this.app, processedContent, mdWrapper, "", this);
+        this.renderAssistantMarkdown(processedContent, mdWrapper);
       }
       
       for (const prop of multiProposals) {
@@ -2387,13 +2401,13 @@ export class ChatSidebarView extends ItemView {
         const mdWrapper = contentEl.createDiv("ai-agent-markdown-wrapper");
         if (beforeEdit) {
           const processedBefore = this.processMarkdownForThoughts(beforeEdit, false);
-          MarkdownRenderer.render(this.app, processedBefore, mdWrapper, "", this);
+          this.renderAssistantMarkdown(processedBefore, mdWrapper);
         }
         this.renderInlineDiff(contentEl, legacyRef, editProposal, msg);
       } else {
         const mdWrapper = contentEl.createDiv("ai-agent-markdown-wrapper");
         const processedContent = this.processMarkdownForThoughts(msg.content, false);
-        MarkdownRenderer.render(this.app, processedContent, mdWrapper, "", this);
+        this.renderAssistantMarkdown(processedContent, mdWrapper);
       }
     }
 
@@ -2416,7 +2430,7 @@ export class ChatSidebarView extends ItemView {
       }
     }
     window.setTimeout(() => this.attachAssistantAnswerLinkNavigation(contentEl), 0);
-    attachLatexCopyHandler(contentEl);
+    attachLatexCopyHandler(contentEl, htmlToMarkdown);
   }
 
   private attachAssistantAnswerLinkNavigation(container: HTMLElement): void {

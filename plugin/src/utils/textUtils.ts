@@ -1,3 +1,5 @@
+import { parseMathSources } from "./mathSource";
+
 /**
  * Normalise LaTeX delimiters from various source formats to standard
  * single-dollar / double-dollar markdown form, while leaving code blocks,
@@ -133,6 +135,17 @@ export function truncateToLength(content: string, maxLength: number): string {
 }
 
 function getLatexFromMathEl(el: Element): { source: string; isBlock: boolean } | null {
+  // Reading-view path: Obsidian's reading-view MathJax (CHTML) keeps NO source in
+  // the DOM (no annotation / assistive MathML — verified live), so our markdown
+  // post-processor stamps the source onto the `.math` wrapper as `data-tex`
+  // (+ `data-tex-display`). Read that first; it is the only source available in
+  // reading view. `closest` covers being handed either the wrapper or its
+  // `mjx-container` child.
+  const stamped = (el.closest?.("[data-tex]") ?? null) as HTMLElement | null;
+  const stampedTex = stamped?.dataset?.tex;
+  if (stampedTex) {
+    return { source: stampedTex.trim(), isBlock: stamped?.dataset?.texDisplay === "block" };
+  }
   const annotation = el.querySelector('annotation[encoding="application/x-tex"]');
   if (annotation?.textContent) {
     const isBlock =
@@ -194,19 +207,119 @@ export function selectionToTextWithLatex(selection: Selection | null): string {
 }
 
 /**
- * Attach a copy-event interceptor to `el` so that when the user's selection
- * contains rendered MathJax elements, the clipboard receives LaTeX source
- * (`$...$` for inline, `$$...$$` for block) instead of empty SVG content.
+/**
+ * Serialize a chat / answer selection to **Markdown**, preserving BOTH inline
+ * formatting (bold, headings, lists, links, tables…) via Obsidian's
+ * `htmlToMarkdown` AND rendered math as LaTeX source (`$...$` / `$$...$$`).
+ *
+ * Math is protected from `htmlToMarkdown`'s escaping (which would turn `\frac`
+ * into `\\frac`) by swapping each rendered formula for a placeholder token BEFORE
+ * conversion and restoring the LaTeX AFTER. The formula source comes from
+ * `getLatexFromMathEl` (the `data-tex` stamp in the chat / reading view).
+ *
+ * `htmlToMarkdown` is injected (the Obsidian API) so this module stays free of an
+ * `obsidian` runtime import and remains unit-testable. Returns `null` for an
+ * empty/collapsed selection (caller leaves the native copy untouched) or if
+ * conversion throws.
  */
-export function attachLatexCopyHandler(el: HTMLElement): void {
+export function selectionToMarkdownWithLatex(
+  selection: Selection | null,
+  htmlToMarkdown: (input: HTMLElement) => string
+): string | null {
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  try {
+    const wrapper = document.createElement("div");
+    wrapper.appendChild(selection.getRangeAt(0).cloneContents());
+    const placeholders: string[] = [];
+    for (const m of Array.from(wrapper.querySelectorAll<HTMLElement>(".math, mjx-container"))) {
+      // An ancestor `.math` was already replaced (its mjx-container detached) → skip.
+      if (!wrapper.contains(m)) continue;
+      const info = getLatexFromMathEl(m);
+      if (!info) continue;
+      const token = `@@LATEX${placeholders.length}@@`;
+      placeholders.push(info.isBlock ? `$$${info.source}$$` : `$${info.source}$`);
+      m.replaceWith(wrapper.ownerDocument.createTextNode(token));
+    }
+    const md = htmlToMarkdown(wrapper).replace(
+      /@@LATEX(\d+)@@/g,
+      (_match, i: string) => placeholders[Number(i)] ?? ""
+    );
+    return md.trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stamp the LaTeX source onto rendered MathJax elements as `data-tex` /
+ * `data-tex-display`, so a later copy of a selection can recover `$...$`/`$$...$$`.
+ *
+ * Why this is needed: Obsidian renders math (in the chat sidebar via
+ * `MarkdownRenderer`, and in reading view) as CHTML and keeps NO source in the
+ * DOM — no `annotation[x-tex]`, no assistive MathML, no attribute (verified live).
+ * So `getLatexFromMathEl` has nothing to read. Wherever we render markdown from a
+ * source string we DO have, we call this right after the render to put the source
+ * back, in document order, onto the `.math` wrappers.
+ *
+ * `source` MUST be the exact string that was rendered into `container`. The Nth
+ * parsed formula maps to the Nth rendered `.math` element. As a correctness guard
+ * we ONLY stamp when the parsed count EXACTLY equals the rendered count — so a
+ * mis-parse can never produce a WRONG source; it just skips this container.
+ */
+export function stampMathSourceData(container: HTMLElement, source: string): void {
+  const mathEls = container.querySelectorAll<HTMLElement>(".math");
+  if (mathEls.length === 0) return;
+  const formulas = parseMathSources(source);
+  if (formulas.length !== mathEls.length) return; // never stamp a wrong source
+  mathEls.forEach((m, i) => {
+    m.dataset.tex = formulas[i].tex;
+    m.dataset.texDisplay = formulas[i].display ? "block" : "inline";
+  });
+}
+
+/**
+ * True when the selection is anchored inside a Markdown **reading view** (rendered,
+ * read-only). Only there does a copy need our `data-tex` extraction: Live Preview /
+ * source mode (CodeMirror) already copy the document source — including `$...$` —
+ * natively, so they are deliberately excluded. Null-safe. This also excludes the
+ * chat / quick-query surfaces (they are not reading views and own their own copy
+ * handler), so the document-level note handler never double-processes them.
+ */
+export function isSelectionInReadingView(selection: Selection | null): boolean {
+  const node = selection?.anchorNode ?? null;
+  if (!node) return false;
+  const el = node instanceof Element ? node : node.parentElement;
+  return Boolean(el?.closest(".markdown-reading-view"));
+}
+
+/**
+ * True when the cloned selection range contains a rendered math element. The math
+ * node is included in `cloneContents()` even when MathJax's `user-select:none`
+ * stops it from *visually* highlighting — which is exactly why a reading-view copy
+ * can still recover the formula. Null/collapsed-safe.
+ */
+export function selectionContainsRenderedMath(selection: Selection | null): boolean {
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
+  return Boolean(
+    selection.getRangeAt(0).cloneContents().querySelector("mjx-container, span.math")
+  );
+}
+
+/**
+ * Attach a copy-event interceptor to `el` so a selection is copied as **Markdown**
+ * (formatting + LaTeX source) instead of the browser's plain text / empty math SVG.
+ * `htmlToMarkdown` is the injected Obsidian API. A non-collapsed selection that
+ * converts to empty falls through to the native copy.
+ */
+export function attachLatexCopyHandler(
+  el: HTMLElement,
+  htmlToMarkdown: (input: HTMLElement) => string
+): void {
   el.addEventListener("copy", (e: ClipboardEvent) => {
     if (!e.clipboardData) return;
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-    const fragment = selection.getRangeAt(0).cloneContents();
-    if (!fragment.querySelector("mjx-container, span.math")) return;
+    const md = selectionToMarkdownWithLatex(window.getSelection(), htmlToMarkdown);
+    if (!md) return;
     e.preventDefault();
-    const text = extractTextWithLatex(fragment).replace(/\n{3,}/g, "\n\n").trim();
-    e.clipboardData.setData("text/plain", text);
+    e.clipboardData.setData("text/plain", md);
   });
 }

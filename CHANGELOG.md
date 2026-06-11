@@ -4,6 +4,36 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.5.4] — 2026-06-11
+
+### Added
+
+- **LaTeX-preserving copy from the AI chat (copy as Markdown).** Selecting part of
+  an assistant reply and pressing `Cmd/Ctrl+C` now copies it as Markdown with
+  formatting *and* the formulas' LaTeX **source** (`$...$` / `$$...$$`) restored,
+  instead of the browser's flattened plain text / empty MathJax SVG.
+- **LaTeX-preserving copy/cut from a note's Reading View.** Drag-selecting note
+  text that contains a formula and pressing `Cmd/Ctrl+C` (or `Cmd/Ctrl+X`) copies
+  the selection as Markdown with the LaTeX source restored. Works in pop-out
+  windows. The selection visually skipping a non-selectable formula is expected —
+  the formula is still captured.
+  - Implemented via a Markdown post-processor that re-parses each rendered
+    section's source and stamps it onto every formula as `data-tex` (only when the
+    parsed and rendered formula counts match exactly, so a wrong source is never
+    attached), plus a capture-phase clipboard handler gated to
+    `.markdown-reading-view` + rendered math.
+  - Non-math selections are left to Obsidian's native clipboard (byte-identical).
+    Live Preview / Source mode already preserve `$...$` natively (CodeMirror copies
+    the document source), so they are unchanged.
+
+### Docs
+
+- `PLUGIN_GUIDE` (EN + KR) §3.6/§3.7 and `PLUGIN_SCHEMA` §14 document the chat and
+  Reading-View LaTeX copy behavior, the render-time stamping mechanism, and the
+  exact-count correctness guard.
+
+---
+
 ## [0.5.3] — 2026-06-11
 
 ### Removed

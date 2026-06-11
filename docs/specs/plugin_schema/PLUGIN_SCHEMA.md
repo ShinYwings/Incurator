@@ -1150,3 +1150,64 @@ one-off questions about a selected passage. It is gated by
 - The query is issued through the standard `LLMClient` using the active
   provider/model. No prior chat-sidebar turns are appended.
 - An in-flight quick query is aborted when its popover is dismissed.
+
+---
+
+## 14. LaTeX-preserving copy (chat sidebar + note Reading View) (v0.5.4)
+
+Selecting part of a rendered assistant reply (chat sidebar) or a note (Reading
+View) and copying it (`Cmd/Ctrl+C`, or `Cmd/Ctrl+X`) places the formulas' LaTeX
+**source** (`$...$` / `$$...$$`) on the clipboard instead of the empty MathJax SVG.
+
+### 14.1 Renderer constraint (why this needs render-time stamping)
+
+- Obsidian renders math (chat sidebar and reading view alike) as MathJax **CHTML**
+  and keeps **no** LaTeX source in the rendered DOM: there is no
+  `annotation[encoding="application/x-tex"]`, no `mjx-assistive-mml`, and no source
+  attribute on the `mjx-container` or its `.math` wrapper (verified against a live
+  vault). A selection that spans a formula therefore carries no recoverable source.
+- Consequence: any rendered surface must **re-attach** the source at render time
+  (stamping) for a selection-based copy to recover it. The selection visually
+  *skipping* a non-selectable formula does **not** prevent capture — the math node
+  is still present in the selection range's `cloneContents()`, so the stamped source
+  is read regardless of the visual highlight.
+- Live Preview / Source mode are unaffected — CodeMirror copies the markdown source
+  natively — so the plugin augments only the **chat sidebar** and the note
+  **Reading View**, not the Live Preview editor.
+
+### 14.2 Behavior contract
+
+- The chat sidebar renders each assistant reply from a source string the plugin
+  holds. Immediately after each `MarkdownRenderer.render(...)` resolves, the plugin
+  stamps every rendered `.math` element with its source as `data-tex` and its kind
+  as `data-tex-display` = `"inline" | "block"`, in document order.
+- **Correctness guard:** the source is parsed for `$...$` / `$$...$$` (code-span,
+  fenced-code, and escaped-`\$` aware) and the stamp is applied **only when the
+  parsed formula count exactly equals the rendered `.math` count**. On any mismatch
+  the block is left unstamped (no wrong source is ever attached; the formula simply
+  falls back to non-recoverable, as before).
+- The existing element-scoped `copy` handler on the chat message container then
+  serializes a math-containing selection to `text/plain` with LaTeX preserved,
+  reading each formula's source from its `data-tex` stamp (`getLatexFromMathEl`
+  checks `data-tex` first, then the legacy annotation/script lookups). A selection
+  with no rendered math is a no-op (native copy is byte-identical).
+- A formula partially overlapped by the selection is captured **whole**; the plugin
+  does not emit a truncated half-formula.
+
+### 14.3 Note Reading-View contract
+
+- The plugin registers a Markdown post-processor. For each rendered section that
+  contains `.math`, it reconstructs the section's source from `getSectionInfo`
+  (`text` sliced by `lineStart..lineEnd`) and calls the same `data-tex` stamping as
+  the chat path, under the same exact-count correctness guard.
+- A document-level `copy` and `cut` interceptor is registered on the main document
+  and every pop-out window, in the **capture** phase (so it runs before any
+  view-level handler). It acts **only** when the selection is anchored inside a
+  `.markdown-reading-view` **and** its cloned fragment contains rendered math; on
+  either guard failing it returns before `preventDefault`, leaving the native
+  clipboard untouched (non-math copies and Live Preview / source mode are never
+  intercepted).
+- When it acts, the selection is serialized to Markdown with LaTeX preserved
+  (`selectionToMarkdownWithLatex` via Obsidian's `htmlToMarkdown`) and written to
+  `text/plain`. Reading View is read-only, so `cut` writes the clipboard but deletes
+  nothing; Live Preview's native cut already removes the source.
