@@ -23,14 +23,6 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 
 ### 🚀 Unresolved Items to be Addressed in the Future (To-Do)
 
-> Last triage: 2026-06-12 (all inbox items moved to linked scope drafts/milestones).
-> #1 Installation & Version Management Unification — ✅ shipped in v0.4.4 (PR #16, merged 2026-06-11).
-> Agent Edit & Diff Viewer Reliability — ✅ shipped in v0.5.0 (PR #17, merged 2026-06-11).
-> Sidechat Selection & LaTeX (capture + keyboard trigger) — ✅ shipped in v0.5.1 (PR #18, merged 2026-06-11).
-> Backend venv at root + wiki resolver root-only — ✅ shipped (PR #19 chore, PR #20 v0.5.2, merged 2026-06-11).
-> Sidechat Local Git History / drop `gh` — ✅ shipped in v0.5.3 (PR #21, merged 2026-06-11). Decisions: removed the optional GitHub-auth feature entirely; local history already worked gh-free (verify-only).
-> Note-view LaTeX copy/cut (Partial-selection) — ✅ shipped in v0.5.4 (PR #22, merged 2026-06-12).
-> Urgent bugfix batch (Zotero reload/assets/nav + dashboard refresh + external-PDF `resolveDoc`) — ✅ shipped in v0.5.5 (PR #22, merged 2026-06-12). #1 Zotero: unified reload/import asset localization (vault-relative `05_Assets`, legacy `imageFolder` migration), overwrite changed annotation regions, parent-item→child-attachment `resolve-pdf`, annotation-location jump via the child key, `Cmd+Shift+R` reload (note + PDF). #2 dashboard fresh-first `readRuntimeStatus` + explicit-unavailable. #3 external-PDF path-preserving get/setState + cache retention. (Bug-fix drafts under `.agents/drafts/` can be deleted.)
 
 1. **[Minor Update — TOP PRIORITY] PDF Add-Source Asset Routing + "Added" State** ⭐
    - Route add-source PDF extracted images to a plugin-resolved asset folder
