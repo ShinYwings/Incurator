@@ -23,14 +23,14 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 
 ### 🚀 Unresolved Items to be Addressed in the Future (To-Do)
 
-> Last triage: 2026-06-11 (all inbox items moved to linked scope drafts/milestones).
+> Last triage: 2026-06-12 (all inbox items moved to linked scope drafts/milestones).
 > #1 Installation & Version Management Unification — ✅ shipped in v0.4.4 (PR #16, merged 2026-06-11).
 > Agent Edit & Diff Viewer Reliability — ✅ shipped in v0.5.0 (PR #17, merged 2026-06-11).
-> Sidechat Selection & LaTeX (capture + keyboard trigger) — ✅ shipped in v0.5.1 (PR #18, merged 2026-06-11). Partial-editor-copy part → Icebox.
+> Sidechat Selection & LaTeX (capture + keyboard trigger) — ✅ shipped in v0.5.1 (PR #18, merged 2026-06-11).
 > Backend venv at root + wiki resolver root-only — ✅ shipped (PR #19 chore, PR #20 v0.5.2, merged 2026-06-11).
 > Sidechat Local Git History / drop `gh` — ✅ shipped in v0.5.3 (PR #21, merged 2026-06-11). Decisions: removed the optional GitHub-auth feature entirely; local history already worked gh-free (verify-only).
-> Note-view LaTeX copy/cut — ✅ shipped in v0.5.4 (PR #22, on `feature/editor-latex-copy`).
-> Urgent bugfix batch (Zotero reload/assets/nav + dashboard refresh + external-PDF `resolveDoc`) — ✅ shipped in v0.5.5 (PR #22, on `feature/editor-latex-copy`). #1 Zotero: unified reload/import asset localization (vault-relative `05_Assets`, legacy `imageFolder` migration), overwrite changed annotation regions, parent-item→child-attachment `resolve-pdf`, annotation-location jump via the child key, `Cmd+Shift+R` reload (note + PDF). #2 dashboard fresh-first `readRuntimeStatus` + explicit-unavailable. #3 external-PDF path-preserving get/setState + cache retention. (Bug-fix drafts under `.agents/drafts/` can be deleted.)
+> Note-view LaTeX copy/cut (Partial-selection) — ✅ shipped in v0.5.4 (PR #22, merged 2026-06-12).
+> Urgent bugfix batch (Zotero reload/assets/nav + dashboard refresh + external-PDF `resolveDoc`) — ✅ shipped in v0.5.5 (PR #22, merged 2026-06-12). #1 Zotero: unified reload/import asset localization (vault-relative `05_Assets`, legacy `imageFolder` migration), overwrite changed annotation regions, parent-item→child-attachment `resolve-pdf`, annotation-location jump via the child key, `Cmd+Shift+R` reload (note + PDF). #2 dashboard fresh-first `readRuntimeStatus` + explicit-unavailable. #3 external-PDF path-preserving get/setState + cache retention. (Bug-fix drafts under `.agents/drafts/` can be deleted.)
 
 1. **[Minor Update — TOP PRIORITY] PDF Add-Source Asset Routing + "Added" State** ⭐
    - Route add-source PDF extracted images to a plugin-resolved asset folder
@@ -84,8 +84,6 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 ### 🧊 Blocked / Icebox (Pending Items)
 - Items that cannot be resolved immediately due to external dependencies (library updates, etc.) are stored here.
 - (Note: Items in this section are treated as exceptions to the agent's top-priority resolution duty.)
-- **Partial-selection LaTeX copy in the note view (Cmd+C / Cmd+X)** — ✅ **SHIPPED in v0.5.4** (PR #22, branch `feature/editor-latex-copy`). The earlier "not feasible (MathJax v3 non-selectable)" conclusion was WRONG: a live chat test proved the selection only *visually* skips a non-selectable formula while the math node is still in the range's `cloneContents()`, so the source IS recoverable on copy. Solution: a Markdown post-processor stamps each rendered formula's source as `data-tex` (exact-count guarded), and a capture-phase copy/cut handler gated to `.markdown-reading-view` + rendered math copies it as Markdown-with-LaTeX. Live Preview/source already copy source natively. No renderer swap needed.
-
 ---
 
 ## 📌 Current Focus & Active Milestone
@@ -93,10 +91,7 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **`feature/editor-latex-copy` (PR #22)** now bundles: note-view LaTeX copy/cut
-  (v0.5.4) + the urgent bugfix batch (v0.5.5: Zotero reload/assets/nav, dashboard
-  refresh, external-PDF `resolveDoc`). All local CI green; awaiting review/merge.
-- Next after PR #22 merge: To-Do #1 **PDF Add-Source Asset Routing + "Added"
-  State** according to the approved priority. To-Do #2 **RAG & Knowledge Quality
-  Stabilization** now has its umbrella and six component plans; implementation
-  remains blocked until the relevant plans are explicitly approved.
+- **Active Milestone**: **To-Do #1 PDF Add-Source Asset Routing + "Added" State**
+  - **Status**: PR #22 is merged, unblocking implementation. Planning is completed (`.agents/plans/04_pdf_add_source_assets.md`).
+  - **Next Step**: Create branch (e.g., `feature/pdf-add-source-assets`), execute implementation following the plan, and bump to `v0.5.6`.
+- **Next in Queue**: To-Do #2 **RAG & Knowledge Quality Stabilization**. Planning completed (`03_rag_knowledge_quality_stabilization.md` and `A-F` plans). Implementation remains blocked until PDF Add-Source is finished and explicit approval is given.
