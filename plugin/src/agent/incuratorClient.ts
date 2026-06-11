@@ -18,6 +18,8 @@ import type {
   PromoteAnswerResult,
 } from "../types";
 import localBuildManifest from "../generated/buildManifest.json";
+import { joinVaultPath, resolveProfileAssetSpec } from "../zotero/assetLocalization";
+import { sanitizePathSegment } from "../zotero/templateRenderer";
 
 type BackendJsonRunner = (cmdArgs: string[]) => Promise<unknown>;
 
@@ -200,10 +202,12 @@ export class IncuratorClient {
     }
     const sourceId = this.readNumber(importRecord, ["sourceId", "source_id", "id"]);
     const relpath = this.readString(importRecord, ["relpath", "source_path", "path"]);
+    const assetDir = this.resolvePdfAssetDir(request);
     const registered = await this.callBackendJson([
       "plugin", "source", "register",
       ...(sourceId ? ["--source-id", String(sourceId)] : []),
       ...(relpath ? ["--relpath", relpath] : []),
+      ...(assetDir ? ["--asset-dir", assetDir] : []),
       "--build",
     ]);
     const status = this.normalizeStatus(registered || imported, path);
@@ -211,6 +215,26 @@ export class IncuratorClient {
     status.destinationRelpath = status.destinationRelpath || request.destinationRelpath || relpath;
     status.sourcePath = status.sourcePath || path;
     return status;
+  }
+
+  /**
+   * Resolve the vault-relative folder for images extracted from an added PDF
+   * (PLUGIN_SCHEMA §1.1). Zotero-backed PDFs reuse the first import profile's
+   * asset spec with a per-item subfolder (display name, falling back to the
+   * attachment key); other PDFs use the `incuratorPdfAssetFolder` setting.
+   * Returns "" to omit --asset-dir so the backend falls back to
+   * `05_Assets/<slug>/`.
+   */
+  private resolvePdfAssetDir(request: IncuratorIngestRequest): string {
+    if (request.zoteroAttachmentKey) {
+      const profile = this.settings.zoteroProfiles?.[0];
+      if (profile) {
+        const spec = resolveProfileAssetSpec(profile);
+        const item = sanitizePathSegment(request.displayName || request.zoteroAttachmentKey);
+        return joinVaultPath(spec.assetFolder, item);
+      }
+    }
+    return (this.settings.incuratorPdfAssetFolder || "").trim();
   }
 
   /**

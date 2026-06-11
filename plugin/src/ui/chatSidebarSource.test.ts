@@ -98,4 +98,19 @@ describe("chat sidebar context chip source contract", () => {
     // The generation-complete re-render must opt out of the forced bottom scroll.
     expect(source).toContain("this.renderMessages(false);");
   });
+
+  it("shows an inert Added badge for built sources (PLUGIN_SCHEMA §4.1.1)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // l1..l4_ready all collapse to the single "Added" label.
+    expect(source).toContain('return "Added"');
+    expect(source).not.toContain('return "L1 ready"');
+    expect(source).not.toContain('return "L4 ready"');
+    // Clicking an Added badge is a no-op (no re-ingest fallthrough), and the
+    // badge is styled as inert.
+    expect(source).toContain("isAddedState");
+    expect(source).toContain('badge.toggleClass("is-added", isAddedState(status.state))');
+    expect(source).toContain("if (isAddedState(status.state)) return;");
+  });
 });

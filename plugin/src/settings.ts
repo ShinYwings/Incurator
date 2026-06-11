@@ -607,6 +607,19 @@ export class AIAgentSettingTab extends PluginSettingTab {
       );
 
     new Setting(backendSection)
+      .setName("PDF image asset folder")
+      .setDesc("Vault folder for images extracted from added PDFs (non-Zotero). Empty uses the backend default 05_Assets/<source-name>/. Zotero PDFs use their import profile's asset folder.")
+      .addText((text) =>
+        text
+          .setPlaceholder("05_Assets")
+          .setValue(this.plugin.settings.incuratorPdfAssetFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.incuratorPdfAssetFolder = value.trim();
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(backendSection)
       .setName("Auto-poll ingest status")
       .setDesc("Refresh status badges while ingest jobs are running.")
       .addToggle((toggle) =>

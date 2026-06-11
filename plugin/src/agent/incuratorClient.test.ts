@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// incuratorClient pulls in the Zotero asset-localization helpers, whose module
+// chain imports "obsidian" at runtime (templateRenderer); mock it for node.
+vi.mock("obsidian", () => ({ moment: (value: string) => ({ format: () => value }) }));
+
 import { IncuratorClient } from "./incuratorClient";
 import type { PluginSettings } from "../types";
 import localBuildManifest from "../generated/buildManifest.json";
@@ -39,6 +44,7 @@ function settings(): PluginSettings {
     incuratorRepoPath: "",
     incuratorDefaultDestination: "04_Resources",
     incuratorDefaultImportMode: "reference",
+    incuratorPdfAssetFolder: "",
     incuratorStatusPolling: true,
     zoteroBasePath: "~/Zotero",
     zoteroProfiles: [],
@@ -503,6 +509,112 @@ describe("IncuratorClient", () => {
     const res = await client.dbAutosync();
     expect(res.ok).toBe(false);
     expect(res.error).toBe("backend_disabled");
+  });
+
+  // ── PDF asset routing (--asset-dir, PLUGIN_SCHEMA §1.1, v0.5.6) ──────────
+
+  function ingestBackend(calls: string[][]) {
+    return async (args: string[]) => {
+      calls.push(args);
+      if (args[2] === "import") {
+        return { ok: true, source_id: 7, relpath: "04_Resources/paper.pdf" };
+      }
+      return { ok: true, state: "queued", l1_status: "done", jobs_pending: [{ id: 1 }] };
+    };
+  }
+
+  it("passes --asset-dir from incuratorPdfAssetFolder for non-Zotero PDFs", async () => {
+    const calls: string[][] = [];
+    const s = settings();
+    s.incuratorPdfAssetFolder = "05_Assets/PDF Figures";
+    const client = new IncuratorClient(s, "0.2.2", ingestBackend(calls));
+
+    await client.ingestPdf({
+      filePath: "/tmp/paper.pdf",
+      sourcePath: "/tmp/paper.pdf",
+      destinationRelpath: "04_Resources",
+      importMode: "reference",
+    });
+
+    const importCall = calls.find((c) => c[2] === "import");
+    const registerCall = calls.find((c) => c[2] === "register");
+    expect(importCall).not.toContain("--asset-dir");
+    expect(registerCall).toContain("--asset-dir");
+    expect(registerCall![registerCall!.indexOf("--asset-dir") + 1]).toBe("05_Assets/PDF Figures");
+  });
+
+  it("omits --asset-dir when no asset folder resolves", async () => {
+    const calls: string[][] = [];
+    const client = new IncuratorClient(settings(), "0.2.2", ingestBackend(calls));
+
+    await client.ingestPdf({
+      filePath: "/tmp/paper.pdf",
+      sourcePath: "/tmp/paper.pdf",
+      destinationRelpath: "04_Resources",
+      importMode: "reference",
+    });
+
+    const registerCall = calls.find((c) => c[2] === "register");
+    expect(registerCall).not.toContain("--asset-dir");
+  });
+
+  it("derives the Zotero asset dir from the import profile asset spec", async () => {
+    const calls: string[][] = [];
+    const s = settings();
+    s.incuratorPdfAssetFolder = "05_Assets/PDF Figures"; // must NOT win for Zotero
+    s.zoteroProfiles = [{
+      name: "Papers",
+      templatePath: "",
+      outputFolder: "",
+      outputSubfolder: "",
+      outputFilename: "",
+      assetFolder: "05_Assets/Zotero Assets",
+      assetSubfolder: "{{citekey}}",
+      bibliographyStyle: "",
+    }];
+    const client = new IncuratorClient(s, "0.2.2", ingestBackend(calls));
+
+    await client.ingestPdf({
+      sourcePath: "/zotero/storage/ABCD1234/paper.pdf",
+      zoteroAttachmentKey: "ABCD1234",
+      displayName: "Kim et al. 2024",
+      destinationRelpath: "",
+      importMode: "reference",
+    });
+
+    const registerCall = calls.find((c) => c[2] === "register");
+    expect(registerCall).toContain("--asset-dir");
+    expect(registerCall![registerCall!.indexOf("--asset-dir") + 1]).toBe(
+      "05_Assets/Zotero Assets/Kim et al. 2024"
+    );
+  });
+
+  it("falls back to the attachment key when a Zotero item has no display name", async () => {
+    const calls: string[][] = [];
+    const s = settings();
+    s.zoteroProfiles = [{
+      name: "Papers",
+      templatePath: "",
+      outputFolder: "",
+      outputSubfolder: "",
+      outputFilename: "",
+      assetFolder: "05_Assets/Zotero Assets",
+      assetSubfolder: "{{citekey}}",
+      bibliographyStyle: "",
+    }];
+    const client = new IncuratorClient(s, "0.2.2", ingestBackend(calls));
+
+    await client.ingestPdf({
+      sourcePath: "/zotero/storage/ABCD1234/paper.pdf",
+      zoteroAttachmentKey: "ABCD1234",
+      destinationRelpath: "",
+      importMode: "reference",
+    });
+
+    const registerCall = calls.find((c) => c[2] === "register");
+    expect(registerCall![registerCall!.indexOf("--asset-dir") + 1]).toBe(
+      "05_Assets/Zotero Assets/ABCD1234"
+    );
   });
 
 });

@@ -97,6 +97,11 @@ const CUSTOM_MODEL_VALUE = "__custom__";
 const RULES_CONTEXT_LIMIT = 12000;
 const CONTINUITY_MESSAGE_LIMIT = 6;
 
+/** Built sources show an inert "Added" badge (PLUGIN_SCHEMA §4.1.1). */
+function isAddedState(state: string): boolean {
+  return state === "l1_ready" || state === "l2_ready" || state === "l3_ready" || state === "l4_ready";
+}
+
 export class ChatSidebarView extends ItemView {
   private plugin: ObsidianAIAgent;
   private messages: ChatMessage[] = [];
@@ -2037,19 +2042,17 @@ export class ChatSidebarView extends ItemView {
     badge.empty();
     badge.setText(this.getIncuratorStatusLabel(status));
     badge.dataset.state = status.state;
+    badge.toggleClass("is-added", isAddedState(status.state));
     badge.setAttribute("title", status.message || `Incurator: ${status.state}`);
   }
 
   private getIncuratorStatusLabel(status: IncuratorSourceStatus): string {
     switch (status.state) {
       case "l4_ready":
-        return "L4 ready";
       case "l3_ready":
-        return "L3 ready";
       case "l2_ready":
-        return "L2 ready";
       case "l1_ready":
-        return "L1 ready";
+        return "Added";
       case "queued":
         return "Queued";
       case "running":
@@ -2105,6 +2108,9 @@ export class ChatSidebarView extends ItemView {
     ref: ContextRef,
     status: IncuratorSourceStatus
   ): Promise<void> {
+    // A built source's "Added" badge is inert — never fall through to
+    // re-ingest (PLUGIN_SCHEMA §4.1.1).
+    if (isAddedState(status.state)) return;
     const sourcePath = this.getPdfRefSourcePath(ref) || status.sourcePath || status.currentPath;
     const statusKey = sourcePath || (ref.zoteroAttachmentKey ? `zotero:${ref.zoteroAttachmentKey}` : "");
     if (!sourcePath && !ref.zoteroAttachmentKey) {
