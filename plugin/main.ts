@@ -58,6 +58,7 @@ import {
   upsertFileScrollPosition,
 } from "./src/utils/scrollPositions";
 import { getBundledModelCatalogue } from "./src/utils/bundledModelCatalogue";
+import { isSelectionRelevantKey } from "./src/utils/selectionKeys";
 import { mergeSessionData, normalizeSessionData } from "./src/utils/sessionData";
 import {
   mergeDeviceRegistry,
@@ -137,6 +138,23 @@ export default class ObsidianAIAgent extends Plugin {
     const registerQuickQueryDom = (doc: Document) => {
       this.registerDomEvent(doc, "mouseup", () => {
         // Defer so the browser finalizes the selection before we read it.
+        (doc.defaultView ?? window).setTimeout(
+          () => this.quickQuery.handleSelectionChange(doc),
+          0
+        );
+      });
+      // Keyboard selections produce no mouseup, so the Ask AI button never
+      // appeared. Fire the same handler on any selection-relevant key, WITHOUT
+      // inspecting the modifier state at release time: if the user lifts Shift a
+      // hair before the arrow key, the arrow's keyup reports shiftKey=false, so a
+      // modifier check would miss the gesture. handleSelectionChange itself reads
+      // the live selection and shows OR hides the button, so collapse keys (plain
+      // arrows, Escape, Backspace, Delete, Enter, PageUp/Down) also correctly
+      // dismiss a lingering button. selectionchange is avoided (fires on every
+      // caret move); these discrete keyups + the cheap isCollapsed early-out are
+      // enough.
+      this.registerDomEvent(doc, "keyup", (e: KeyboardEvent) => {
+        if (!isSelectionRelevantKey(e.key)) return;
         (doc.defaultView ?? window).setTimeout(
           () => this.quickQuery.handleSelectionChange(doc),
           0

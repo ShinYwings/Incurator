@@ -4,6 +4,29 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.5.1] — 2026-06-11
+
+### Fixed
+
+- **Ask AI dropped formulas when selecting over math** — the quick-query popover
+  captured the selection via `selection.toString()`, which is empty for a
+  MathJax formula rendered as SVG, so dragging across a formula lost it. Capture
+  now reads the formula's LaTeX source from the DOM annotation (present in both
+  the SVG and the Live-Preview swapped-text state), preserving `$...$` / `$$...$$`
+  — independent of render timing. Non-math selections are unchanged.
+
+### Added
+
+- **Keyboard selections trigger Ask AI** — selecting text with the keyboard
+  (Shift+Arrow, Shift+Home/End, or Ctrl/Cmd+A) now surfaces the floating
+  **✨ Ask AI** button, not just a mouse drag. Collapsing the selection back to a
+  caret hides it.
+
+> Note: copying only a partial editor selection with LaTeX intact (Cmd+C in an
+> open note) remains deferred — see the ROADMAP Icebox.
+
+---
+
 ## [0.5.0] — 2026-06-11
 
 ### Changed

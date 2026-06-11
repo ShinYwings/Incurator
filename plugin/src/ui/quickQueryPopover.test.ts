@@ -101,10 +101,22 @@ describe("quick query: latex normalization (item 17)", () => {
     const source = readFileSync(join(dir, "quickQueryPopover.ts"), "utf8");
 
     expect(source).toContain(
-      'import { attachLatexCopyHandler, normalizeLatexDelimiters } from "../utils/textUtils"'
+      'import { attachLatexCopyHandler, normalizeLatexDelimiters, selectionToTextWithLatex } from "../utils/textUtils"'
     );
     expect(source).toContain(
       "normalizeLatexDelimiters(stripThinkingForDisplay(raw))"
     );
+  });
+
+  it("captures the selection via the LaTeX-preserving extractor, not selection.toString()", async () => {
+    const { readFileSync } = await import("fs");
+    const { fileURLToPath } = await import("url");
+    const { join } = await import("path");
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "quickQueryPopover.ts"), "utf8");
+
+    // Both capture sites must read MathJax LaTeX, not the SVG-empty toString().
+    expect(source).toContain("selectionToTextWithLatex(selection).trim()");
+    expect(source).not.toContain("selection?.toString().trim()");
   });
 });
