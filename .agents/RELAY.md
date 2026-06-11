@@ -1,32 +1,32 @@
 # Relay State — ACTIVE (2026-06-11)
 
 ## Goal
-Agent Edit & Diff Viewer Reliability — **implemented, v0.5.0**, branch
-`feature/agent-edit-diff-reliability`.
+Sidechat Selection & LaTeX Robustness — **implemented, v0.5.1**, branch
+`feature/sidechat-selection-latex`.
 
 ## Status — AWAITING REVIEW/MERGE
-All 5 phases done. Local CI green: vitest 297 pass (40 files), tsc clean,
-production esbuild OK, version-consistency 0.5.0 across pyproject/package/
-manifest/lock. Backend Python unchanged (only version string) → its ruff/pytest
-unaffected; CI re-verifies on the PR. Plan + Arena + draft deleted (Step 11);
-ROADMAP/RELAY updated. PR pending push.
+All phases done. Local CI green: vitest 303 pass, tsc clean, spec-sync 9 pass
+(after `uv sync` — patch keeps the 0.5 line so no spec-title bump), versions
+0.5.1 consistent across pyproject/package/manifest/lock. Plan + Arena + draft
+deleted. ROADMAP/RELAY updated. PR pending push.
 
-## What shipped (edge-hardening, no DiffViewer rewrite)
-- `utils/editMatch.findSearchBlock` — unified, ambiguity-safe SEARCH matcher
-  (exact → line-trim → anchored; refuses on >1 candidate or >3× span). Wired
-  into `applyInlineMultiEdit` + `reviewAssistantEdit` so preview == apply.
-- Tolerant edit-block parser + `stripDanglingEditMarkers` (fence-aware,
-  render-only; stored content untouched) + stronger `collapseStreamingEditBlocks`.
-- Safe-gated `maybeAutoOpenDiff` (active note / no focus only; once per message;
-  never on history re-render). Always-visible hunk counter. Scope prompt rule +
-  non-blocking large-replacement warning.
-- **Removed** the `00_System/Agent Diffs/` artifact feature entirely (writer,
-  pill, setting, `editArtifact.ts` + test, `editArtifactPath`). Existing user
-  files left on disk.
+## What shipped
+- `utils/textUtils.selectionToTextWithLatex` — reads MathJax annotation LaTeX
+  from the selection DOM (SVG or swapped-text), math-gated (non-math = raw
+  toString, byte-identical). Routed through both `quickQueryPopover` capture
+  sites → dragging over a formula no longer drops it.
+- `main.ts` gated `keyup` trigger (Shift+Arrow/Home/End, Ctrl/Cmd+A) per
+  document + popout → keyboard selections surface the Ask AI button.
+- Partial-editor LaTeX copy (Cmd+C) DEFERRED → ROADMAP Icebox.
 
 ## User decisions captured (2026-06-11)
-Minor v0.5.0 · safe-gated auto-open · artifact removed entirely.
+Patch v0.5.1 (no spec-title bump) · symptom 3 deferred to Icebox.
+
+## Recurring note
+`uv run pytest` vs the editable install metadata drift keeps making spec-sync
+look red locally until `uv sync`; CI is fine. Symptom of the lingering dual-venv
+setup (the install-unification milestone improved but didn't fully kill it).
 
 ## Immediate Next Action
 Push branch + open PR. After merge, next milestone candidate = To-Do #1
-(Sidechat Selection & LaTeX Robustness) — needs its own Arena plan + approval.
+(Sidechat Local Git History — drop `gh`) — needs its own Arena plan + approval.
