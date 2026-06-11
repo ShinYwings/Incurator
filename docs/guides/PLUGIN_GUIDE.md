@@ -548,12 +548,18 @@ LLM generates answer grounded in retrieved evidence
 | `incuratorRepoPath` | `""` | **Optional override.** Absolute path to the Incurator repository. Normally left blank — the backend reports its own repo path via `wiki plugin version`. Set this only to override the auto-detected path. |
 | `incuratorDefaultDestination` | `04_Resources` | Default folder for PDF reference stubs or explicit copy imports |
 | `incuratorDefaultImportMode` | `reference` | Add mode for files (`reference` creates a link stub; `copy` copies into the vault) |
+| `incuratorPdfAssetFolder` | `""` (empty) | Vault folder for images extracted from non-Zotero add-source PDFs. Empty means the backend default `05_Assets/<source-name>/`. Zotero PDFs ignore this and use their import profile's asset folder. |
 | `incuratorStatusPolling` | `true` | Poll for source processing status updates |
 
-Source badges are layer-aware. `L1 ready` means instant section context is
-available, `L2 ready` means Atoms exist, `Indexed` means L3 Concepts are ready
-for concept-grounded answers, and `Synthesized` means shared L4 Synthesis is
-available. Any layer error is shown as an error instead of a healthy badge.
+A successfully tracked source — any state from L1 ready through full L4
+Synthesis — shows a single **Added** badge (v0.5.6). The badge is inert:
+clicking it does nothing, so an already-added source can never be re-imported
+by accident. Hover the badge to see the exact layer state in the tooltip. If a
+later status refresh finds the source `stale`, `moved`, `changed`, `missing`,
+or in `error`, the badge switches back to that actionable label and becomes
+clickable again. `Queued` and `Building...` keep their own labels while the
+background build runs. Any layer error is shown as an error instead of a
+healthy badge.
 
 ### Setup/Rebuild Banner
 
@@ -606,7 +612,25 @@ Searchable via query/search tools
 The purple PDF chip is the refinement control. Clicking **Add source** does not
 wait for the whole DAG to finish; it registers the source, creates L1, and queues
 L2/L3. Use **Dashboard > Jobs > Run queued** when you want to actively drain the
-queued build work, or leave the queue for a backend worker to process.
+queued build work, or leave the queue for a backend worker to process. Once the
+source is tracked, the chip shows the inert **Added** badge described above.
+
+Images embedded in an added PDF (figures, diagrams) are extracted during the
+instant L1 step and saved into the vault so the generated L1 context page can
+embed them with `![[...]]` links. Where they land (v0.5.6):
+
+- **Zotero-backed PDFs** reuse the asset folder of the matching Zotero import
+  profile (the same base folder + per-item subfolder the annotation images use),
+  so a paper's extracted figures sit next to its annotation assets.
+- **Other PDFs** go to the `incuratorPdfAssetFolder` setting if you set one.
+- **Fallback** (setting empty, or the resolved folder is unsafe/escapes the
+  vault): the backend default `05_Assets/<source-name>/`.
+
+The L1 page always links the folder the images were actually written to, so the
+embeds resolve either way. Note that text-layer extraction of mathematical
+notation from PDFs is approximate; improving math fidelity (VLM-assisted
+extraction) is tracked separately by the RAG & Knowledge Quality Stabilization
+program, not by this asset-routing feature.
 
 For ordinary workspace/domain questions with no primary selected text, line
 range, PDF page, or crop image attached to the latest user turn, sidechat calls

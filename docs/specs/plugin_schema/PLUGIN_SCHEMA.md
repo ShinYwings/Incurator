@@ -87,6 +87,30 @@ Reference Mode, and records a stable logical source id such as
 `zotero:<attachmentKey>` instead of requiring the plugin to resolve the path
 first.
 
+### 1.1 PDF asset routing — `source register --asset-dir` (v0.5.6)
+
+`wiki plugin source register` accepts an optional `--asset-dir <vault-relative
+folder>`. Embedded PDF images extracted during instant L1 generation are written
+under that folder instead of the default `05_Assets/<slug>/`. Contract:
+
+- The value is a **vault-relative** folder (e.g. `05_Assets/Zotero Assets/kim2024`).
+  The backend rejects unsafe values — absolute paths, `..` traversal, or paths
+  that escape the vault root — by falling back to the default `05_Assets/<slug>/`
+  location. Routing must never fail an ingest.
+- The generated L1 page's `embedded_images` frontmatter and `![[...]]` figure
+  embeds always reference the folder the images were **actually** written to,
+  so embeds resolve in both the routed and the fallback case.
+- Omitted or empty `--asset-dir` preserves the legacy behavior exactly:
+  `05_Assets/<slug>/` where `<slug>` is derived from the source filename.
+- The asset dir is **not persisted** in the backend DB. Each `register` call
+  resolves its own routing; re-registering without `--asset-dir` writes to the
+  default location. `source import` does not write images and takes no asset
+  argument — image extraction happens only at instant-L1 time inside `register`.
+- The plugin resolves the folder it passes: for Zotero-backed PDFs it reuses the
+  matching Zotero import profile's asset spec (`resolveProfileAssetSpec` —
+  asset folder + rendered per-item subfolder); for non-Zotero PDFs it uses the
+  `incuratorPdfAssetFolder` setting when set, otherwise omits the flag.
+
 ## 2. Persisted Settings Schema
 
 ### 2.1 `PluginSettings`
@@ -132,6 +156,7 @@ interface PluginSettings {
   incuratorRepoPath: string;            // per-device absolute path to backend repo for 1-click updates
   incuratorDefaultDestination: string;   // vault-relative folder for reference stubs/copy imports
   incuratorDefaultImportMode: "copy" | "reference"; // reference creates a link stub
+  incuratorPdfAssetFolder: string;       // vault-relative folder for extracted PDF images of non-Zotero sources; "" = backend default 05_Assets/<slug>/
   incuratorStatusPolling: boolean;
 
   // Zotero integration
@@ -160,6 +185,10 @@ Rules:
   **Model** row, not as a separate setting row.
 - `incuratorDefaultDestination` defaults to `"04_Resources"` for new installs.
 - `incuratorDefaultImportMode` defaults to `"reference"` (no file copy).
+- `incuratorPdfAssetFolder` defaults to `""` (v0.5.6). When empty the plugin
+  omits `--asset-dir` and the backend uses its default `05_Assets/<slug>/`.
+  It applies only to non-Zotero add-source PDFs; Zotero-backed PDFs derive
+  their asset dir from the matching Zotero import profile (Section 1.1).
 - Incurator backend enablement must render its configured/disabled state as a
   compact status row directly below the Enable setting, not squeezed into the
   Enable row.
@@ -400,6 +429,21 @@ Rules:
 - `"error"` wins over all ready states when any active layer reports `error`.
 - `"running"` must expose `runningLayer` ("l1"|"l2"|"l3"|"l4") to show progress.
 - `"untracked"` must trigger the "Add to Incurator" action prompt, not silent import.
+
+### 4.1.1 "Added" badge for built sources (v0.5.6)
+
+- The four ready states — `l1_ready`, `l2_ready`, `l3_ready`, `l4_ready` —
+  render as a single non-clickable **"Added"** badge in the chat context chip.
+  Clicking it is a no-op (it must NOT fall through to the re-ingest modal or
+  Zotero auto-register). The badge tooltip still exposes the underlying layer
+  state (e.g. `Incurator: l2_ready`).
+- This is a label + click-guard only. There is no `added` backend state and no
+  new DB status; the status poll keeps returning the layer states above.
+- A subsequent refresh that re-derives `stale`, `missing`, `moved`,
+  `hash_drift`, `moved_and_hash_drift`, or `error` makes the badge actionable
+  (clickable) again with its existing label and behavior.
+- `queued` and `running` keep their existing labels and informational click
+  behavior (job notice), unchanged.
 
 ### 4.2 `IncuratorSourceStatus`
 
@@ -669,7 +713,7 @@ Current local dynamic methods for v0.2.2:
 | Method | Backend command |
 |---|---|
 | `getSourceStatus(path/hash)` | `wiki plugin source status` |
-| `ingestPdf(request)` | `wiki plugin source import` → `wiki plugin source register`; accepts file path or Zotero attachment key |
+| `ingestPdf(request)` | `wiki plugin source import` → `wiki plugin source register`; accepts file path or Zotero attachment key; passes `--asset-dir` to `register` when the plugin resolves a PDF asset folder (Section 1.1) |
 | `rebindSource(args)` | `wiki plugin source rebind` |
 | `getPdfContext(args)` | `wiki plugin pdf context` |
 | `getPdfRagHits(args)` | `wiki plugin pdf search` |
