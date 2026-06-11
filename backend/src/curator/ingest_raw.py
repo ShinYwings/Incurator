@@ -1089,9 +1089,34 @@ def _build_structural_source_guide(
     return summary, "\n".join(claim_lines), "\n".join(guide_lines)
 
 
-def _save_pdf_images(parsed, relpath: str, paths: cfg.WikiPaths) -> list[dict]:
-    """Save embedded PDF images to 05_Assets/<slug>/ and return obsidian metadata.
+def _safe_vault_subdir(paths: cfg.WikiPaths, candidate: str) -> str | None:
+    """Validate a vault-relative folder for asset writes.
 
+    Returns the normalized POSIX-style relative path, or None when the value is
+    empty, absolute, or escapes the vault root (e.g. via `..`). Routing must
+    never write outside the vault.
+    """
+    candidate = (candidate or "").strip()
+    if not candidate:
+        return None
+    if Path(candidate).is_absolute():
+        return None
+    root = paths.root.resolve()
+    resolved = (root / candidate).resolve()
+    if resolved == root or not resolved.is_relative_to(root):
+        return None
+    return resolved.relative_to(root).as_posix()
+
+
+def _save_pdf_images(
+    parsed, relpath: str, paths: cfg.WikiPaths, asset_dir: str | None = None
+) -> list[dict]:
+    """Save embedded PDF images and return obsidian metadata.
+
+    Images land in `asset_dir` (vault-relative, validated by
+    `_safe_vault_subdir`) when provided and safe, otherwise in the legacy
+    `05_Assets/<slug>/`. The returned `obsidian_path` always matches the folder
+    actually written so `![[...]]` embeds resolve in both cases.
     Images smaller than 1 KB are skipped (icons, decorators).
     Returns [] when parsed is not a PDF or has no images. Silently ignores errors.
     """
@@ -1101,8 +1126,11 @@ def _save_pdf_images(parsed, relpath: str, paths: cfg.WikiPaths) -> list[dict]:
     if not pdf_images:
         return []
 
-    slug = re.sub(r"[^\w\-]", "_", Path(relpath).stem)[:40].strip("_") or "source"
-    assets_dir = paths.root / consts.DIR_ASSETS / slug
+    obsidian_prefix = _safe_vault_subdir(paths, asset_dir) if asset_dir else None
+    if not obsidian_prefix:
+        slug = re.sub(r"[^\w\-]", "_", Path(relpath).stem)[:40].strip("_") or "source"
+        obsidian_prefix = f"{consts.DIR_ASSETS}/{slug}"
+    assets_dir = paths.root / obsidian_prefix
     saved: list[dict] = []
     try:
         assets_dir.mkdir(parents=True, exist_ok=True)
@@ -1115,7 +1143,7 @@ def _save_pdf_images(parsed, relpath: str, paths: cfg.WikiPaths) -> list[dict]:
             filename = f"p{page:02d}_img{idx:02d}.{ext}"
             dest = assets_dir / filename
             dest.write_bytes(img["data"])
-            saved.append({"obsidian_path": f"{consts.DIR_ASSETS}/{slug}/{filename}", "page": page})
+            saved.append({"obsidian_path": f"{obsidian_prefix}/{filename}", "page": page})
     except Exception:
         pass
     return saved
@@ -1265,6 +1293,7 @@ def generate_l1_structural_context(
     content_hash: str,
     *,
     existing_context_id: str | None = None,
+    asset_dir: str | None = None,
 ) -> str | None:
     """Create an L1 Context from parser structure only."""
     file_path = paths.root / relpath
@@ -1281,7 +1310,7 @@ def generate_l1_structural_context(
         return None
 
     context_id = existing_context_id or _generate_id(consts.PREFIX_L1)
-    saved_images = _save_pdf_images(parsed, relpath, paths)
+    saved_images = _save_pdf_images(parsed, relpath, paths, asset_dir=asset_dir)
     page_content = _build_structural_context_page(
         context_id=context_id,
         parsed=parsed,

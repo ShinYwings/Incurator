@@ -210,6 +210,7 @@ def register_source(
     path: str = "",
     force: bool = False,
     build: bool = True,
+    asset_dir: str = "",
 ) -> dict[str, Any]:
     lookup_path = relpath or source_path or file_path or path
     row = source_row(paths, source_id=source_id, relpath=relpath, source_path=lookup_path)
@@ -237,6 +238,7 @@ def register_source(
             relpath=str(row["relpath"]),
             content_hash=str(row["content_hash"]),
             existing_context_id=None if force else row.get("context_id"),
+            asset_dir=asset_dir or None,
         )
         if not context_id:
             return {"ok": False, "source_id": source_id_int, "error": "L1 generation failed"}
