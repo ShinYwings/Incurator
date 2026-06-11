@@ -4,6 +4,36 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.5.6] — 2026-06-12
+
+### Added
+
+- **PDF add-source asset routing (`--asset-dir`).** Images extracted from an
+  added PDF during instant L1 no longer always land in the hardcoded
+  `05_Assets/<slug>/`. `wiki plugin source register` accepts a vault-relative
+  `--asset-dir`; the plugin resolves it per source — Zotero-backed PDFs reuse
+  the Zotero import profile's asset folder (plus a per-item subfolder from the
+  item's display name), other PDFs use the new `incuratorPdfAssetFolder`
+  setting. Unsafe values (absolute paths, `..` escapes) and an empty setting
+  fall back to the legacy `05_Assets/<slug>/`, and the L1 page's `![[...]]`
+  embeds always reference the folder actually written (PLUGIN_SCHEMA §1.1).
+- **Inert "Added" badge for tracked sources.** A successfully built source
+  (`l1_ready` … `l4_ready`) now shows a single non-clickable **Added** badge in
+  the chat context chip instead of clickable layer labels, so an
+  already-tracked PDF can no longer be re-imported by accident. The tooltip
+  still exposes the underlying layer state, and a refresh that re-derives
+  `stale`/`moved`/`changed`/`missing`/`error` makes the badge actionable again
+  (PLUGIN_SCHEMA §4.1.1).
+
+### Documentation
+
+- Documented what add-source actually does (instant L1 immediately, L2/L3
+  queued to the background worker) and where extracted PDF figures land, in
+  `PLUGIN_GUIDE` (EN/KR). PDF math-extraction fidelity is explicitly out of
+  scope here and tracked by the RAG & Knowledge Quality Stabilization program.
+
+---
+
 ## [0.5.5] — 2026-06-11
 
 ### Fixed

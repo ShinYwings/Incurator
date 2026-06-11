@@ -1,30 +1,31 @@
 # Agent Relay State
 
 ## Current Active Goal
-**[Minor Update] PDF Add-Source Asset Routing + "Added" State** (ROADMAP To-Do #1) — IMPLEMENTATION IN PROGRESS (user greenlit 2026-06-12).
-
-## Plan Reference
-- Master plan: `.agents/plans/04_pdf_add_source_assets.md` (+ arena)
-- Evidence ledger: `.agents/plans/04_pdf_add_source_assets_evidence.md`
+**[Minor Update] PDF Add-Source Asset Routing + "Added" State (v0.5.6)** — IMPLEMENTED. PR open on `feature/pdf-add-source-assets`, awaiting user review/merge.
 
 ## Branch
-`feature/pdf-add-source-assets` (off `master` @ aee4995, v0.5.5 → target v0.5.6)
+`feature/pdf-add-source-assets` (off `master` @ aee4995). Version bumped to v0.5.6 (pyproject/package/manifest/lockfile agree).
 
-## Analysis & Reasoning (P0 key finding)
-Images are written during **`source register`** (instant L1 via
-`generate_l1_structural_context` → `_save_pdf_images`), NOT during `source
-import`. So the new CLI arg is `wiki plugin source register --asset-dir`
-(the master plan's "import" mention is corrected in the evidence ledger).
-Worker L2/L3 never re-writes images. "Added" badge set = exactly
-`l1_ready/l2_ready/l3_ready/l4_ready` (no literal `ready` state exists).
+## What shipped on this branch
+- Backend: `wiki plugin source register --asset-dir` → `plugin_api.register_source`
+  → `generate_l1_structural_context` → `_save_pdf_images(asset_dir=...)`, guarded
+  by new `_safe_vault_subdir` (abs/`..`/escape → legacy `05_Assets/<slug>/`
+  fallback; `obsidian_path` always matches the actual write root).
+- Plugin: `incuratorPdfAssetFolder` setting (non-Zotero PDFs); Zotero PDFs reuse
+  profile asset spec (`resolveProfileAssetSpec`) + display-name subfolder;
+  `l1..l4_ready` badge states collapse to inert "Added" (click no-op, `is-added`
+  style, tooltip keeps layer state).
+- Specs/guides: PLUGIN_SCHEMA §1.1/§2.1/§4.1.1; PLUGIN_GUIDE EN+KR.
+- Key P0 correction vs the original plan: `--asset-dir` lives on `register`
+  (where instant-L1 writes images), NOT on `import`. Evidence ledger with full
+  validation log is preserved in git history (deleted from worktree per Step 11).
 
-## Progress Status
-- P0 ✅ branch + fact-checks + evidence ledger
-- P1 ⏳ specs (PLUGIN_SCHEMA) + guides (PLUGIN_GUIDE EN→KR)
-- P2 backend (`_save_pdf_images(asset_dir=...)`, `_safe_vault_subdir`, register plumbing) + pytest
-- P3 plugin (`incuratorPdfAssetFolder`, `--asset-dir` wiring, Added badge) + vitest
-- P4 testbed smoke
-- P5 release v0.5.6 (bump + CHANGELOG + plan deletion + PR)
+## Validation
+pytest 521 passed; ruff clean; mypy 84 pre-existing (no new); vitest 358 passed;
+tsc clean; esbuild production OK; testbed smoke green (routed / unsafe-fallback /
+legacy / queued-build cases). Smoke artifacts remain in disposable `testbed/`.
 
 ## Immediate Next Action
-Execute P1 (spec-first docs), then P2 backend TDD.
+User merges the v0.5.6 PR. After merge: truncate this file to IDLE, then the next
+milestone is ROADMAP To-Do #1 (RAG & Knowledge Quality Stabilization, Batch 1
+D1 → E → D2) — implementation still requires explicit user approval.

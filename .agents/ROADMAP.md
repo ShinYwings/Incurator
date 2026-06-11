@@ -24,18 +24,7 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 ### 🚀 Unresolved Items to be Addressed in the Future (To-Do)
 
 
-1. **[Minor Update — TOP PRIORITY] PDF Add-Source Asset Routing + "Added" State** ⭐
-   - Route add-source PDF extracted images to a plugin-resolved asset folder
-     (`--asset-dir`, `05_Assets` fallback) instead of the hardcoded `05_Assets/<slug>/`;
-     add a non-clickable **"Added"** badge for tracked/built sources; verify+document
-     the add-source behavior (ingests L1 immediately, queues L2/L3). Split out of #6
-     (Native PDF Annotation) per the user. User decisions locked: (A) plugin passes
-     the asset folder; (B) "Added" disabled badge.
-   - PDF math/VLM fidelity is OUT of scope here → owned by RAG plan B (#2).
-   - **Plan (DRAFT, awaiting approval):** `.agents/plans/04_pdf_add_source_assets.md`
-     (+ `04_pdf_add_source_assets_arena/`).
-
-2. **[Major Update] RAG & Knowledge Quality Stabilization**
+1. **[Major Update] RAG & Knowledge Quality Stabilization**
    - Heart-of-system three-program initiative for using the notes vault like a
      codebase: first establish the truth contract, deep diagnosis, external
      research, and quality observatory; then make the note-to-L1-L4 evidence
@@ -55,22 +44,22 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
    - Batch 3: `.agents/plans/A_rag_retrieval_provenance.md` →
      `.agents/plans/F_agent_context_service.md`
 
-3. **[Minor Update] Vault Storage Governance & Quota Visibility**
+2. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative/derived/cache/external storage accounting, capacity
      guidance, safe admission control, and CLI/plugin visibility from RAG quality.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-4. **[Minor Update] Chat Session Context Compaction**
+3. **[Minor Update] Chat Session Context Compaction**
    - Confirm/ensure full-session history usage; add a Claude-Code-style circular token-usage meter under the query box and a click-to-compact action for the session.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-5. **[Minor Update] Minor Quick Wins**
+4. **[Minor Update] Minor Quick Wins**
    - Web search integration review, `[[wikilink]]` conflict validation, Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`).
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
 
-6. **[Major Update] Native PDF Annotation & Asset System**
+5. **[Major Update] Native PDF Annotation & Asset System**
    - Remove external Zotero dependency, build a native annotation (highlight/memo) synchronization system utilizing Obsidian's built-in PDF Viewer. In-PDF full-text search (with strict-spelling mode) and native highlight/memo sync remain here.
-   - **Split out (2026-06-11):** PDF add-source asset-location routing + "Added" button state → promoted to To-Do **#1**; the Zotero reload relativepath bug was already fixed in v0.5.5. External-image-attachment-to-`.md` routing rides #1's `--asset-dir` mechanism as a follow-up.
+   - **Split out (2026-06-11):** PDF add-source asset-location routing + "Added" button state → **shipped in v0.5.6** (2026-06-12); the Zotero reload relativepath bug was already fixed in v0.5.5. External-image-attachment-to-`.md` routing rides v0.5.6's `--asset-dir` mechanism as a follow-up.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
 ### 🧊 Blocked / Icebox (Pending Items)
@@ -83,7 +72,6 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Active Milestone**: **To-Do #1 PDF Add-Source Asset Routing + "Added" State**
-  - **Status**: PR #22 is merged, unblocking implementation. Planning is completed (`.agents/plans/04_pdf_add_source_assets.md`).
-  - **Next Step**: Create branch (e.g., `feature/pdf-add-source-assets`), execute implementation following the plan, and bump to `v0.5.6`.
-- **Next in Queue**: To-Do #2 **RAG & Knowledge Quality Stabilization**. Planning completed (`03_rag_knowledge_quality_stabilization.md` and `A-F` plans). Implementation remains blocked until PDF Add-Source is finished and explicit approval is given.
+- **Active Milestone**: **PDF Add-Source Asset Routing + "Added" State (v0.5.6)**
+  - **Status**: Implemented on `feature/pdf-add-source-assets` (P0–P5 complete: backend `--asset-dir` routing, plugin `incuratorPdfAssetFolder` + inert "Added" badge, testbed smoke green). PR open — awaiting user review/merge.
+- **Next in Queue**: To-Do #1 **RAG & Knowledge Quality Stabilization**. Planning completed (`03_rag_knowledge_quality_stabilization.md` and `A-F` plans). Implementation remains blocked until the v0.5.6 PR merges and explicit approval is given.
