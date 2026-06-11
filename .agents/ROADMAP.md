@@ -26,25 +26,23 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 > Last triage: 2026-06-11 (bulk inbox triage from `USER_REPORT.md`).
 > #1 Installation & Version Management Unification — ✅ shipped in v0.4.4 (PR #16, merged 2026-06-11).
 > Agent Edit & Diff Viewer Reliability — ✅ shipped in v0.5.0 (PR #17, merged 2026-06-11).
-> Sidechat Selection & LaTeX (capture + keyboard trigger) — ✅ shipped in v0.5.1 (branch `feature/sidechat-selection-latex`, PR pending). Partial-editor-copy part → Icebox.
+> Sidechat Selection & LaTeX (capture + keyboard trigger) — ✅ shipped in v0.5.1 (PR #18, merged 2026-06-11). Partial-editor-copy part → Icebox.
+> Backend venv at root + wiki resolver root-only — ✅ shipped (PR #19 chore, PR #20 v0.5.2, merged 2026-06-11).
+> Sidechat Local Git History / drop `gh` — ✅ shipped in v0.5.3 (branch `fix/drop-gh-dependency`, PR pending). Decisions: removed the optional GitHub-auth feature entirely; local history already worked gh-free (verify-only).
 
-1. **[Minor Update] Sidechat Local Git History (drop `gh` dependency)**
-   - Audit why `gh` is required; use local `git log`/`git show` for vault file-history reference ("how did I write this before?", recovery). Remove the hard `gh` requirement where local git suffices.
-   - Detailed analysis: `.agents/drafts/sidechat_git_history.md`
-
-2. **[Major Update] RAG & Knowledge Quality Stabilization**
+1. **[Major Update] RAG & Knowledge Quality Stabilization**
    - Deep analysis and supplementation of the search engine (Qwen3 + FTS5), introduction of hybrid extraction to resolve missing math formulas, integrated logic for entity deduplication filtering and prevention, providing visibility for Vault Quota management. Now also owns the shared light/fast-model config plumbing (consumed by the Convert-to-LaTeX quick win).
    - Detailed analysis: `.agents/drafts/stabilization.md`
 
-3. **[Minor Update] Chat Session Context Compaction**
+2. **[Minor Update] Chat Session Context Compaction**
    - Confirm/ensure full-session history usage; add a Claude-Code-style circular token-usage meter under the query box and a click-to-compact action for the session.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-4. **[Minor Update] Minor Quick Wins**
+3. **[Minor Update] Minor Quick Wins**
    - Web search integration review, `[[wikilink]]` conflict validation, Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`).
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
 
-5. **[Major Update] Native PDF Annotation & Asset System**
+4. **[Major Update] Native PDF Annotation & Asset System**
    - Remove external Zotero dependency, build a native annotation (highlight/memo) synchronization system utilizing Obsidian's built-in PDF Viewer. Expanded scope (2026-06-11): PDF/Zotero asset-location management (frontmatter-driven asset folder, external-image fallback to `05_Assets`), fix reload relativepath bug, add-source button → "Added" state, and in-PDF full-text search (with strict-spelling mode).
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
@@ -60,5 +58,5 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Sidechat Selection & LaTeX Robustness** — ✅ implemented (v0.5.1), PR pending review/merge. (Partial-editor-copy → Icebox.)
-- No other milestone active. Next candidate: To-Do #1 (Sidechat Local Git History — drop `gh`).
+- **Drop `gh` dependency / local Git sidechat** — ✅ implemented (v0.5.3), PR pending review/merge.
+- No other milestone active. Next candidate: To-Do #1 (RAG & Knowledge Quality Stabilization — Major, needs full Arena plan).

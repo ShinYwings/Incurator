@@ -49,21 +49,6 @@ else
 fi
 echo ""
 
-echo "=== Installing GitHub CLI (gh) ==="
-if ! command -v gh &> /dev/null; then
-    if command -v brew &> /dev/null; then
-        echo "Installing gh via Homebrew..."
-        brew install gh
-    elif command -v apt-get &> /dev/null; then
-        echo "Installing gh via APT..."
-        sudo apt-get update && sudo apt-get install -y gh
-    else
-        echo "⚠️  Could not detect brew or apt. Please install 'gh' manually."
-    fi
-else
-    echo "✓ GitHub CLI (gh) is already installed."
-fi
-echo ""
 echo "=== Installing Incurator backend ==="
 cd "$ROOT_DIR"
 echo "=== Installing dependencies via uv or pip ==="

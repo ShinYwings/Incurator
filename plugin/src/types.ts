@@ -573,8 +573,6 @@ export interface GitStatusResult {
     ahead?: number;
     behind?: number;
     remote_url?: string;
-    github_authenticated?: boolean;
-    github_account?: string;
   };
   working_tree?: {
     clean?: boolean;

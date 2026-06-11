@@ -1426,12 +1426,15 @@ Dashboard synthesis actions are read-only. The Synthesis/Graph view lists recent
 L4 `SYN-` nodes and opens `wiki plugin synthesis show` details so the user can
 inspect the L4→L1 evidence chain without manual SQLite access.
 
-## 24. GitHub Integration (v0.4.0)
+## 24. Git Integration (v0.5.3)
 
-### 24.1 Authentication Boundary
-The system relies on the GitHub CLI (`gh`) for authentication. The Obsidian
-plugin is responsible for running `gh auth status` and launching `gh auth login`
-via terminal if required. The plugin **must not** store OAuth tokens internally.
+### 24.1 Local Git Only — No `gh` Dependency
+The system uses the local `git` binary only. It has **no** GitHub CLI (`gh`)
+dependency: `setup.sh` does not install `gh`, the plugin has no GitHub
+sign-in/out UI, and `git_manager.status()` exposes no GitHub-account fields.
+Authentication for pushing over HTTPS, if used, is handled by the user's normal
+git credential helper, outside Incurator. The plugin **must not** store OAuth
+tokens internally.
 
 ### 24.2 Status, History, And Push Workflow
 The plugin UI **will not** expose manual `Commit` or `Push` buttons. Git

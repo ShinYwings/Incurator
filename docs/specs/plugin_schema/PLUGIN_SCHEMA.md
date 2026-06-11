@@ -786,11 +786,12 @@ Rules:
 - Plugin-local Incurator calls must use backend JSON commands only; they must not
   discover or call Incurator MCP tools as a fallback.
 
-### 9.1 GitHub / Git Plugin Commands
+### 9.1 Git Plugin Commands
 
-GitHub authentication is plugin-local and tokenless: the plugin may run
-`gh auth status`, `gh auth login`, and `gh auth logout`, but it must not store
-GitHub OAuth tokens. Repository operations are backend JSON commands.
+Git operations use the local `git` binary via backend JSON commands. There is
+**no** GitHub CLI (`gh`) dependency and the plugin stores no GitHub tokens;
+HTTPS-push authentication, if used, is handled by the user's git credential
+helper outside the plugin.
 
 `wiki plugin git status --json` returns a structured repository state:
 
@@ -805,8 +806,6 @@ interface GitStatusResult {
     ahead?: number;
     behind?: number;
     remote_url?: string;
-    github_authenticated?: boolean;
-    github_account?: string;
   };
   working_tree?: {
     clean: boolean;

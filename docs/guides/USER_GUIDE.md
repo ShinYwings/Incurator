@@ -11,7 +11,7 @@ Before installing the system, ensure the following tools are installed:
 1.  **Python 3.10+**: The core logic is written in Python.
 2.  **Terminal**: All commands are executed within a CLI environment.
 3.  **Note Editor (Obsidian Recommended)**: The primary tool for visualizing and editing your knowledge base. While any text editor that supports Markdown can be used, the system is optimized for Obsidian's link structure and plugin ecosystem.
-4.  **Node.js**: Required for building the Obsidian plugin and plugin development tooling. (Note: `./setup.sh` handles the installation of Node.js, GitHub CLI, Ollama, and the backend package automatically, while `wiki init` handles the plugin installation.)
+4.  **Node.js**: Required for building the Obsidian plugin and plugin development tooling. (Note: `./setup.sh` handles the installation of Node.js, Ollama, and the backend package automatically, while `wiki init` handles the plugin installation.)
 5.  **Curator Engine Backends**: At least one model backend is required, supporting both local and cloud providers.
     - **Local LLM (Ollama)**: Provides strong privacy and offline capabilities with no additional cost. (Requires VRAM)
     - **Subscription Services (Providers)**: Leverages external engines like Antigravity, Claude, and OpenAI. These do not consume local VRAM and offer high reasoning performance. (Note: Standard universal models are sufficient for the curation phase; high-cost reasoning-only models are not strictly required.)
@@ -444,25 +444,17 @@ Or update it from within a chat session via the `curator_update_artist_persona` 
 
 ---
 
-## 🐙 GitHub Integration (v0.3.3)
+## 🐙 Git Integration
 
 Incurator can inspect an already Git-managed vault from Obsidian and expose the
-common GitHub workflow through sidechat. This is designed for vaults that already
-use GitHub and may already have scheduled commits. The plugin does not add a
-manual Commit/Push button cluster.
+common Git workflow through sidechat. This is designed for vaults that already
+use Git and may already have scheduled commits. It uses your existing local
+`git` only — there is **no GitHub CLI (`gh`) dependency** and the plugin stores
+no GitHub tokens. (If you push over HTTPS, your normal git credential helper
+handles authentication, outside the plugin.) The plugin does not add a manual
+Commit/Push button cluster.
 
-### 1. Authentication (Login / Logout)
-
-GitHub authentication is managed in **Obsidian Plugin Settings**:
-
-- Go to `Settings > Incurator`.
-- Use the **GitHub Integration** section below the AI Provider settings.
-- The plugin uses the GitHub CLI (`gh auth status`) to check login state. If you
-  are not logged in, the login action opens a terminal for the secure
-  `gh auth login` flow.
-- The plugin does not store GitHub OAuth tokens.
-
-### 2. Conversational Git Sync (Sidechat)
+### Conversational Git Sync (Sidechat)
 
 Sidechat can run deterministic backend Git commands for the active vault:
 

@@ -4,6 +4,27 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.5.3] — 2026-06-11
+
+### Removed
+
+- **GitHub CLI (`gh`) dependency** — Incurator no longer requires or installs
+  `gh`. `setup.sh` no longer installs it; the plugin's GitHub Sign-in/out
+  settings toggle, the `github_authenticated`/`github_account` status fields, and
+  `auth/githubAuth.ts` are removed; the backend `git_manager` no longer shells
+  out to `gh auth status`. None of the core Git features needed it — `status`,
+  `log`, file `history`, `commit`, and `push` all use the local `git` binary.
+
+### Changed
+
+- **Sidechat Git integration is local-only.** Asking "how did I write this
+  before?" / history & status / push continue to work via local `git` with no
+  GitHub account. HTTPS-push authentication, if you use it, is handled by your
+  normal git credential helper, outside the plugin (commit/push can also stay
+  with whatever tool you already use).
+
+---
+
 ## [0.5.2] — 2026-06-11
 
 ### Fixed
