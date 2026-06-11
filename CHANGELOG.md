@@ -4,6 +4,19 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.5.2] — 2026-06-11
+
+### Fixed
+
+- **Plugin no longer falls back to a stale `backend/.venv`** — `resolveWikiBinary`
+  used to probe `<repo>/backend/.venv/bin/wiki` as a fallback after the canonical
+  `<repo>/.venv/bin/wiki`. Because `backend/.venv` is never created by the
+  supported workflow, when present it is stale, and running it silently executed
+  an out-of-date backend (wrong version, missing fixes) without the user
+  noticing. The resolver now probes ONLY the repo-root `.venv` and returns
+  nothing if it is absent, so the user is prompted to re-run `./setup.sh` instead
+  of unknowingly running an old build.
+
 ## [0.5.1] — 2026-06-11
 
 ### Fixed
