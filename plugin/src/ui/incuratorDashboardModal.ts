@@ -46,6 +46,10 @@ export class IncuratorDashboardModal extends Modal {
   private jobsTimer: number | null = null;
 
   private _refreshPromise: Promise<void> | null = null;
+  // Whether the most recent `wiki status` snapshot refresh succeeded. When false,
+  // the on-disk runtime/status.json may be stale, so the dashboard reports the
+  // backend as unavailable instead of trusting the last good snapshot.
+  private _lastStatusOk = false;
   private dragState = { isDragging: false, startX: 0, startY: 0, initialLeft: 0, initialTop: 0 };
   private onMouseMove = (e: MouseEvent) => {
     if (!this.dragState.isDragging) return;
@@ -192,8 +196,8 @@ export class IncuratorDashboardModal extends Modal {
   private async refreshRuntimeSnapshots(): Promise<void> {
     if (!this._refreshPromise) {
       this._refreshPromise = this.runWikiCommand(["status"]).then(
-        () => { this._refreshPromise = null; },
-        () => { this._refreshPromise = null; },
+        (r) => { this._lastStatusOk = r.ok === true; this._refreshPromise = null; },
+        () => { this._lastStatusOk = false; this._refreshPromise = null; },
       );
     }
     return this._refreshPromise;
@@ -205,22 +209,28 @@ export class IncuratorDashboardModal extends Modal {
   }
 
   private async readRuntimeStatus(): Promise<any | null> {
-    let status = await this.readRuntimeJson("status");
-    if (status) return status;
-    await this.refreshRuntimeSnapshots();
-    status = await this.readRuntimeJson("status");
-    return status;
+    // Fresh-first: force a `wiki status` snapshot refresh before reading, so the
+    // dashboard reflects the CURRENT backend version/provider rather than a stale
+    // runtime/status.json (the reported "backend shows 0.4.3 while it is 0.5.3" /
+    // "wiki config provider change not reflected" bug). refreshRuntimeSnapshots()
+    // dedups concurrent callers via _refreshPromise, so one render burst triggers
+    // at most one `wiki status`.
+    return this.readFreshRuntimeJson("status");
   }
 
   private async renderBackendVersion(el: HTMLElement): Promise<void> {
-    const status = await this.readRuntimeStatus();
-    if (status?.backend_version) {
+    const status = await this.readFreshRuntimeJson("status");
+    // Only trust the snapshot version if the refresh actually succeeded; a failed
+    // `wiki status` leaves a possibly-stale snapshot on disk, which must not be
+    // shown as if current.
+    if (this._lastStatusOk && status?.backend_version) {
       el.setText(`backend ${status.backend_version}`);
       return;
     }
+    // Snapshot stale or backend unreachable → query the binary directly.
     const result = await this.runWikiCommand(["version"]);
     const match = result.output?.match(/incurator\s+([^\s]+)/i);
-    el.setText(match ? `backend ${match[1]}` : "backend unknown");
+    el.setText(match ? `backend ${match[1]}` : "backend unavailable");
   }
 
   private vaultBase(): string {

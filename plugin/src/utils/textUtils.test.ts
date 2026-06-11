@@ -4,8 +4,13 @@ import { fileURLToPath } from "url";
 import { join } from "path";
 import {
   collapseStreamingEditBlocks,
+  isSelectionInReadingView,
   normalizeLatexDelimiters,
+  selectionContainsRenderedMath,
+  selectionToMarkdownWithLatex,
   selectionToTextWithLatex,
+  sliceLinesByIndex,
+  stampMathSourceData,
   stripDanglingEditMarkers,
   truncateToLength,
 } from "./textUtils";
@@ -254,5 +259,174 @@ describe("selectionToTextWithLatex", () => {
     const src = readFileSync(join(dir, "textUtils.ts"), "utf8");
     expect(src).toContain('fragment.querySelector("mjx-container, span.math")');
     expect(src).toContain("return extractTextWithLatex(fragment)");
+  });
+});
+
+// ─── selectionToMarkdownWithLatex (markdown + LaTeX copy) ───────────────────
+
+describe("selectionToMarkdownWithLatex", () => {
+  const fakeHtmlToMarkdown = (_el: HTMLElement) => "should-not-be-called";
+
+  it("returns null for null, range-less, or collapsed selection (native copy left alone)", () => {
+    expect(selectionToMarkdownWithLatex(null, fakeHtmlToMarkdown)).toBeNull();
+    expect(
+      selectionToMarkdownWithLatex(fakeSelection({ rangeCount: 0 }), fakeHtmlToMarkdown)
+    ).toBeNull();
+    expect(
+      selectionToMarkdownWithLatex(
+        fakeSelection({ rangeCount: 1, isCollapsed: true }),
+        fakeHtmlToMarkdown
+      )
+    ).toBeNull();
+  });
+
+  it("converts via injected htmlToMarkdown and protects/restores math (source wiring)", () => {
+    // The DOM path (cloneContents/replaceWith) can't run under the node test env;
+    // assert the mechanism in source: math is swapped for an @@LATEX@@ placeholder
+    // before htmlToMarkdown, then restored to $...$ from getLatexFromMathEl.
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const src = readFileSync(join(dir, "textUtils.ts"), "utf8");
+    expect(src).toMatch(/selectionToMarkdownWithLatex[\s\S]*?@@LATEX\$\{placeholders\.length\}@@/);
+    expect(src).toMatch(/selectionToMarkdownWithLatex[\s\S]*?getLatexFromMathEl\(m\)/);
+    expect(src).toMatch(/selectionToMarkdownWithLatex[\s\S]*?htmlToMarkdown\(wrapper\)/);
+    expect(src).toContain("info.isBlock ? `$$${info.source}$$` : `$${info.source}$`");
+    // attachLatexCopyHandler delegates to it with the injected htmlToMarkdown,
+    // using the element's OWN document selection (pop-out safe — see review fix).
+    expect(src).toMatch(
+      /attachLatexCopyHandler[\s\S]*?selectionToMarkdownWithLatex\(selection, htmlToMarkdown\)/
+    );
+  });
+});
+
+// ─── getLatexFromMathEl reads the data-tex stamp first ──────────────────────
+
+describe("getLatexFromMathEl data-tex source (reading-view recovery)", () => {
+  it("prefers the data-tex stamp over the (absent) annotation", () => {
+    // Reading-view / chat CHTML has no annotation; the stamped data-tex is the
+    // only source. Assert getLatexFromMathEl reads it (via closest) before falling
+    // back to annotation/script lookups. DOM walking can't run in the node env.
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const src = readFileSync(join(dir, "textUtils.ts"), "utf8");
+    expect(src).toMatch(
+      /getLatexFromMathEl[\s\S]*?closest\?\.\("\[data-tex\]"\)/
+    );
+    expect(src).toMatch(/getLatexFromMathEl[\s\S]*?stamped\?\.dataset\?\.tex/);
+    expect(src).toMatch(/dataset\?\.texDisplay === "block"/);
+  });
+});
+
+// ─── stampMathSourceData (render-time source recovery) ──────────────────────
+
+/** Minimal fake container: querySelectorAll(".math") returns `count` fake
+ * HTMLElements, each with an own `dataset` object we can assert against. */
+function fakeMathContainer(count: number): { el: any; maths: Array<{ dataset: any }> } {
+  const maths = Array.from({ length: count }, () => ({ dataset: {} as Record<string, string> }));
+  return { el: { querySelectorAll: (_sel: string) => maths }, maths };
+}
+
+describe("stampMathSourceData", () => {
+  it("no-ops when the container has no rendered math", () => {
+    const { el, maths } = fakeMathContainer(0);
+    stampMathSourceData(el as HTMLElement, "text with $x$ that won't be stamped");
+    expect(maths.length).toBe(0);
+  });
+
+  it("stamps each rendered math IN ORDER with its source and display type", () => {
+    const { el, maths } = fakeMathContainer(3);
+    stampMathSourceData(el as HTMLElement, "First $a^2$ then $$b^2$$ then $c^2$.");
+    expect(maths[0].dataset).toEqual({ tex: "a^2", texDisplay: "inline" });
+    expect(maths[1].dataset).toEqual({ tex: "b^2", texDisplay: "block" });
+    expect(maths[2].dataset).toEqual({ tex: "c^2", texDisplay: "inline" });
+  });
+
+  it("never stamps a WRONG source: skips entirely on a parsed/rendered count mismatch", () => {
+    // Source parses 1 formula but 2 math elements rendered ⇒ no stamping at all
+    // (the correctness guard), so nothing wrong is ever attached.
+    const { el, maths } = fakeMathContainer(2);
+    stampMathSourceData(el as HTMLElement, "only $one$ formula here");
+    expect(maths[0].dataset).toEqual({});
+    expect(maths[1].dataset).toEqual({});
+  });
+});
+
+// ─── selectionContainsRenderedMath (note-view copy gate) ────────────────────
+
+describe("selectionContainsRenderedMath", () => {
+  it("is false for null / range-less / collapsed selections", () => {
+    expect(selectionContainsRenderedMath(null)).toBe(false);
+    expect(selectionContainsRenderedMath(fakeSelection({ rangeCount: 0 }))).toBe(false);
+    expect(
+      selectionContainsRenderedMath(fakeSelection({ rangeCount: 1, isCollapsed: true }))
+    ).toBe(false);
+  });
+
+  it("is false when the selection has no rendered math (native copy untouched)", () => {
+    expect(
+      selectionContainsRenderedMath(fakeSelection({ text: "plain note text", hasMath: false }))
+    ).toBe(false);
+  });
+
+  it("is true when the cloned range contains a math node", () => {
+    expect(
+      selectionContainsRenderedMath(fakeSelection({ text: "x", hasMath: true }))
+    ).toBe(true);
+  });
+});
+
+// ─── isSelectionInReadingView (note-view copy gate) ─────────────────────────
+
+describe("isSelectionInReadingView", () => {
+  it("is null-safe: null / anchor-less selection ⇒ false", () => {
+    expect(isSelectionInReadingView(null)).toBe(false);
+    expect(
+      isSelectionInReadingView({ anchorNode: null } as unknown as Selection)
+    ).toBe(false);
+  });
+
+  it("gates on a `.markdown-reading-view` ancestor (excludes Live Preview / chat)", () => {
+    // DOM `closest` can't run under the node env; assert the source gate instead.
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const src = readFileSync(join(dir, "textUtils.ts"), "utf8");
+    expect(src).toMatch(
+      /isSelectionInReadingView[\s\S]*?closest\("\.markdown-reading-view"\)/
+    );
+  });
+});
+
+// ─── sliceLinesByIndex (post-processor perf: no full-doc split) ──────────────
+
+describe("sliceLinesByIndex", () => {
+  const ref = (t: string, a: number, b: number) => t.split("\n").slice(a, b + 1).join("\n");
+
+  it("matches split().slice().join() for interior, first, and last ranges", () => {
+    const t = "a\nb\nc\nd\ne";
+    for (const [a, b] of [[1, 2], [0, 0], [0, 4], [3, 4], [2, 2]] as const) {
+      expect(sliceLinesByIndex(t, a, b)).toBe(ref(t, a, b));
+    }
+  });
+
+  it("handles a trailing newline and a single-line document", () => {
+    expect(sliceLinesByIndex("a\nb\n", 0, 1)).toBe("a\nb");
+    expect(sliceLinesByIndex("only", 0, 0)).toBe("only");
+  });
+
+  it("returns '' when lineStart is past the end of the text", () => {
+    expect(sliceLinesByIndex("a\nb", 5, 6)).toBe("");
+  });
+});
+
+// ─── attachLatexCopyHandler pop-out correctness (review fix) ─────────────────
+
+describe("attachLatexCopyHandler", () => {
+  it("reads the element's OWN document selection, not window's (pop-out safe)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const src = readFileSync(join(dir, "textUtils.ts"), "utf8");
+    expect(src).toMatch(
+      /attachLatexCopyHandler[\s\S]*?el\.ownerDocument\.getSelection\(\)/
+    );
+    // Must NOT regress to window.getSelection() inside this handler.
+    expect(src).not.toMatch(
+      /attachLatexCopyHandler[\s\S]*?selectionToMarkdownWithLatex\(window\.getSelection\(\)/
+    );
   });
 });

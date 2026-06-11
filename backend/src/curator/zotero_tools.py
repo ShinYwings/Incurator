@@ -301,18 +301,29 @@ def resolve_pdf(attachment_key: str, paths: cfg.WikiPaths, custom_paths: str = "
             "roots_checked": checked,
         }
 
-    db_path = zotero.get_zotero_attachment_path_from_db(zotero_db, attachment_key)
+    # Accept either an attachment key OR a parent item key (zotero_app_url carries
+    # the parent item key; the PDF lives on a child attachment). The effective
+    # attachment key drives the storage subdirectory lookup.
+    resolved = zotero.resolve_pdf_attachment_for_key(zotero_db, attachment_key)
+    effective_key = resolved[0] if resolved else attachment_key
+    db_path = resolved[1] if resolved else None
     checked_paths: list[str] = []
     if db_path:
-        checked_paths = _pdf_candidates_for_db_path(db_path, attachment_key, candidates)
+        checked_paths = _pdf_candidates_for_db_path(db_path, effective_key, candidates)
         found = _first_existing_pdf(checked_paths)
         if found:
-            return {"ok": True, "path": found, "db_path": db_path, "zotero_db": zotero_db}
+            return {
+                "ok": True, "path": found, "db_path": db_path,
+                "zotero_db": zotero_db, "attachment_key": effective_key,
+            }
 
-    fallback_candidates = _storage_pdf_candidates(attachment_key, candidates)
+    fallback_candidates = _storage_pdf_candidates(effective_key, candidates)
     found = _first_existing_pdf(fallback_candidates)
     if found:
-        return {"ok": True, "path": found, "zotero_db": zotero_db}
+        return {
+            "ok": True, "path": found, "zotero_db": zotero_db,
+            "attachment_key": effective_key,
+        }
 
     checked_paths.extend(fallback_candidates)
     state = "attachment_file_missing" if db_path else "attachment_key_missing"

@@ -69,6 +69,10 @@ export interface ZoteroStatus {
 export interface ZoteroPdfResolution {
   ok: boolean;
   path?: string;
+  /** Effective ATTACHMENT key the backend resolved to. Differs from the input
+   * when a parent item key (from zotero_app_url) was resolved to its child PDF
+   * attachment — needed so annotation lookups use the child key. */
+  attachmentKey?: string;
   state?: string;
   error?: string;
   dbPath?: string;
@@ -594,6 +598,7 @@ export class IncuratorClient {
     return {
       ok: record.ok === true,
       path: this.readString(record, ["path"]),
+      attachmentKey: this.readString(record, ["attachment_key", "attachmentKey"]),
       state: this.readString(record, ["state"]),
       error: this.readString(record, ["error", "message"]),
       dbPath: this.readString(record, ["db_path", "dbPath"]),

@@ -23,33 +23,68 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 
 ### 🚀 Unresolved Items to be Addressed in the Future (To-Do)
 
-> Last triage: 2026-06-11 (bulk inbox triage from `USER_REPORT.md`).
+> Last triage: 2026-06-11 (all inbox items moved to linked scope drafts/milestones).
 > #1 Installation & Version Management Unification — ✅ shipped in v0.4.4 (PR #16, merged 2026-06-11).
 > Agent Edit & Diff Viewer Reliability — ✅ shipped in v0.5.0 (PR #17, merged 2026-06-11).
 > Sidechat Selection & LaTeX (capture + keyboard trigger) — ✅ shipped in v0.5.1 (PR #18, merged 2026-06-11). Partial-editor-copy part → Icebox.
 > Backend venv at root + wiki resolver root-only — ✅ shipped (PR #19 chore, PR #20 v0.5.2, merged 2026-06-11).
-> Sidechat Local Git History / drop `gh` — ✅ shipped in v0.5.3 (branch `fix/drop-gh-dependency`, PR pending). Decisions: removed the optional GitHub-auth feature entirely; local history already worked gh-free (verify-only).
+> Sidechat Local Git History / drop `gh` — ✅ shipped in v0.5.3 (PR #21, merged 2026-06-11). Decisions: removed the optional GitHub-auth feature entirely; local history already worked gh-free (verify-only).
+> Note-view LaTeX copy/cut — ✅ shipped in v0.5.4 (PR #22, on `feature/editor-latex-copy`).
+> Urgent bugfix batch (Zotero reload/assets/nav + dashboard refresh + external-PDF `resolveDoc`) — ✅ shipped in v0.5.5 (PR #22, on `feature/editor-latex-copy`). #1 Zotero: unified reload/import asset localization (vault-relative `05_Assets`, legacy `imageFolder` migration), overwrite changed annotation regions, parent-item→child-attachment `resolve-pdf`, annotation-location jump via the child key, `Cmd+Shift+R` reload (note + PDF). #2 dashboard fresh-first `readRuntimeStatus` + explicit-unavailable. #3 external-PDF path-preserving get/setState + cache retention. (Bug-fix drafts under `.agents/drafts/` can be deleted.)
 
-1. **[Major Update] RAG & Knowledge Quality Stabilization**
-   - Deep analysis and supplementation of the search engine (Qwen3 + FTS5), introduction of hybrid extraction to resolve missing math formulas, integrated logic for entity deduplication filtering and prevention, providing visibility for Vault Quota management. Now also owns the shared light/fast-model config plumbing (consumed by the Convert-to-LaTeX quick win).
-   - Detailed analysis: `.agents/drafts/stabilization.md`
+1. **[Minor Update — TOP PRIORITY] PDF Add-Source Asset Routing + "Added" State** ⭐
+   - Route add-source PDF extracted images to a plugin-resolved asset folder
+     (`--asset-dir`, `05_Assets` fallback) instead of the hardcoded `05_Assets/<slug>/`;
+     add a non-clickable **"Added"** badge for tracked/built sources; verify+document
+     the add-source behavior (ingests L1 immediately, queues L2/L3). Split out of #6
+     (Native PDF Annotation) per the user. User decisions locked: (A) plugin passes
+     the asset folder; (B) "Added" disabled badge.
+   - PDF math/VLM fidelity is OUT of scope here → owned by RAG plan B (#2).
+   - **Plan (DRAFT, awaiting approval):** `.agents/plans/04_pdf_add_source_assets.md`
+     (+ `04_pdf_add_source_assets_arena/`).
 
-2. **[Minor Update] Chat Session Context Compaction**
+2. **[Major Update] RAG & Knowledge Quality Stabilization**
+   - Heart-of-system three-program initiative for using the notes vault like a
+     codebase: first establish the truth contract, deep diagnosis, external
+     research, and quality observatory; then make the note-to-L1-L4 evidence
+     compiler faithful and incremental; finally serve the trusted prior knowledge
+     to external and Obsidian agents through one bounded agentic context runtime.
+     External techniques are benchmarked and adopted selectively, never wholesale.
+   - Scope analysis: `.agents/drafts/stabilization.md`
+   - Umbrella program plan:
+     `.agents/plans/03_rag_knowledge_quality_stabilization.md`
+   - Six component plans (`A-F`) each have their own Arena and Master Plan; they
+     are executed in three ordered batches after the current PR merges.
+   - Batch 1: `.agents/plans/D_current_system_failure_atlas.md` D1 →
+     `.agents/plans/E_external_research_design_matrix.md` →
+     `.agents/plans/D_current_system_failure_atlas.md` D2
+   - Batch 2: `.agents/plans/B_math_extraction_distillation.md` →
+     `.agents/plans/C_graph_quality.md`
+   - Batch 3: `.agents/plans/A_rag_retrieval_provenance.md` →
+     `.agents/plans/F_agent_context_service.md`
+
+3. **[Minor Update] Vault Storage Governance & Quota Visibility**
+   - Separate authoritative/derived/cache/external storage accounting, capacity
+     guidance, safe admission control, and CLI/plugin visibility from RAG quality.
+   - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
+
+4. **[Minor Update] Chat Session Context Compaction**
    - Confirm/ensure full-session history usage; add a Claude-Code-style circular token-usage meter under the query box and a click-to-compact action for the session.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-3. **[Minor Update] Minor Quick Wins**
+5. **[Minor Update] Minor Quick Wins**
    - Web search integration review, `[[wikilink]]` conflict validation, Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`).
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
 
-4. **[Major Update] Native PDF Annotation & Asset System**
-   - Remove external Zotero dependency, build a native annotation (highlight/memo) synchronization system utilizing Obsidian's built-in PDF Viewer. Expanded scope (2026-06-11): PDF/Zotero asset-location management (frontmatter-driven asset folder, external-image fallback to `05_Assets`), fix reload relativepath bug, add-source button → "Added" state, and in-PDF full-text search (with strict-spelling mode).
+6. **[Major Update] Native PDF Annotation & Asset System**
+   - Remove external Zotero dependency, build a native annotation (highlight/memo) synchronization system utilizing Obsidian's built-in PDF Viewer. In-PDF full-text search (with strict-spelling mode) and native highlight/memo sync remain here.
+   - **Split out (2026-06-11):** PDF add-source asset-location routing + "Added" button state → promoted to To-Do **#1**; the Zotero reload relativepath bug was already fixed in v0.5.5. External-image-attachment-to-`.md` routing rides #1's `--asset-dir` mechanism as a follow-up.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
 ### 🧊 Blocked / Icebox (Pending Items)
 - Items that cannot be resolved immediately due to external dependencies (library updates, etc.) are stored here.
 - (Note: Items in this section are treated as exceptions to the agent's top-priority resolution duty.)
-- **Partial-selection LaTeX copy in the editor (Cmd+C)** — deferred from the Sidechat Selection milestone (v0.5.1). Copying only a drag-selected region of an open note with LaTeX intact needs a MathJax→KaTeX swap or a transparent LaTeX overlay; both are large and were previously attempted and reverted. The Ask-AI capture already preserves LaTeX (shipped v0.5.1), so this is low-value/high-risk for now. Revisit only if specifically requested.
+- **Partial-selection LaTeX copy in the note view (Cmd+C / Cmd+X)** — ✅ **SHIPPED in v0.5.4** (PR #22, branch `feature/editor-latex-copy`). The earlier "not feasible (MathJax v3 non-selectable)" conclusion was WRONG: a live chat test proved the selection only *visually* skips a non-selectable formula while the math node is still in the range's `cloneContents()`, so the source IS recoverable on copy. Solution: a Markdown post-processor stamps each rendered formula's source as `data-tex` (exact-count guarded), and a capture-phase copy/cut handler gated to `.markdown-reading-view` + rendered math copies it as Markdown-with-LaTeX. Live Preview/source already copy source natively. No renderer swap needed.
 
 ---
 
@@ -58,5 +93,10 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Drop `gh` dependency / local Git sidechat** — ✅ implemented (v0.5.3), PR pending review/merge.
-- No other milestone active. Next candidate: To-Do #1 (RAG & Knowledge Quality Stabilization — Major, needs full Arena plan).
+- **`feature/editor-latex-copy` (PR #22)** now bundles: note-view LaTeX copy/cut
+  (v0.5.4) + the urgent bugfix batch (v0.5.5: Zotero reload/assets/nav, dashboard
+  refresh, external-PDF `resolveDoc`). All local CI green; awaiting review/merge.
+- Next after PR #22 merge: To-Do #1 **PDF Add-Source Asset Routing + "Added"
+  State** according to the approved priority. To-Do #2 **RAG & Knowledge Quality
+  Stabilization** now has its umbrella and six component plans; implementation
+  remains blocked until the relevant plans are explicitly approved.

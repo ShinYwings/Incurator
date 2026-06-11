@@ -9,6 +9,7 @@ import {
   MarkdownFileInfo,
   Notice,
   Editor,
+  htmlToMarkdown,
 } from "obsidian";
 import {
   type PluginSettings,
@@ -43,6 +44,7 @@ import {
   type ZoteroRepairInitialState,
 } from "./src/ui/zoteroRepairModal";
 import { TemplateRenderer } from "./src/zotero/templateRenderer";
+import { localizeAnnotationImages } from "./src/zotero/assetLocalization";
 import { IncuratorDashboardModal } from "./src/ui/incuratorDashboardModal";
 
 import { InlinePromptWidget } from "./src/ui/inlinePrompt";
@@ -59,6 +61,13 @@ import {
 } from "./src/utils/scrollPositions";
 import { getBundledModelCatalogue } from "./src/utils/bundledModelCatalogue";
 import { isSelectionRelevantKey } from "./src/utils/selectionKeys";
+import {
+  isSelectionInReadingView,
+  selectionContainsRenderedMath,
+  selectionToMarkdownWithLatex,
+  sliceLinesByIndex,
+  stampMathSourceData,
+} from "./src/utils/textUtils";
 import { mergeSessionData, normalizeSessionData } from "./src/utils/sessionData";
 import {
   mergeDeviceRegistry,
@@ -167,10 +176,51 @@ export default class ObsidianAIAgent extends Plugin {
         { capture: true }
       );
     };
+
+    // ── Reading-view math source stamping ──
+    // Obsidian's reading view renders math as CHTML with NO LaTeX source in the
+    // DOM. Re-parse each rendered section's source and stamp it onto the `.math`
+    // elements as `data-tex` (exact-count guarded, so a mis-parse can never stamp a
+    // wrong source) so a reading-view copy can recover `$...$` / `$$...$$`.
+    this.registerMarkdownPostProcessor((el, ctx) => {
+      if (!el.querySelector(".math")) return;
+      const info = ctx.getSectionInfo(el);
+      if (!info) return;
+      // Extract the section's source lines by index (no full-document split — this
+      // runs per math block on every render).
+      const source = sliceLinesByIndex(info.text, info.lineStart, info.lineEnd);
+      stampMathSourceData(el, source);
+    });
+
+    // ── Note reading-view LaTeX-preserving copy / cut ──
+    // When a reading-view note selection contains rendered math, copy it as Markdown
+    // with the formula's LaTeX source restored (from the stamped `data-tex`) instead
+    // of the empty MathJax SVG. Gated to reading view + math: Live Preview / source
+    // mode copy the document source natively, and non-math selections fall through
+    // to the native clipboard untouched. Reading view is read-only, so `cut` cannot
+    // delete anything and is treated as a copy. Registered per document AND popout,
+    // capture-phase to run before any view-level handler.
+    const registerNoteLatexCopyDom = (doc: Document) => {
+      const handle = (e: ClipboardEvent) => {
+        if (!e.clipboardData) return;
+        const sel = doc.getSelection();
+        if (!isSelectionInReadingView(sel)) return;
+        if (!selectionContainsRenderedMath(sel)) return;
+        const md = selectionToMarkdownWithLatex(sel, htmlToMarkdown);
+        if (!md) return;
+        e.preventDefault();
+        e.clipboardData.setData("text/plain", md);
+      };
+      this.registerDomEvent(doc, "copy", handle, { capture: true });
+      this.registerDomEvent(doc, "cut", handle, { capture: true });
+    };
+
     registerQuickQueryDom(document);
+    registerNoteLatexCopyDom(document);
     this.registerEvent(
       this.app.workspace.on("window-open", (_workspaceWindow, win: Window) => {
         registerQuickQueryDom(win.document);
+        registerNoteLatexCopyDom(win.document);
       })
     );
 
@@ -209,8 +259,17 @@ export default class ObsidianAIAgent extends Plugin {
 
     this.addCommand({
       id: "incurator-zotero-refresh",
-      name: "Refresh Zotero Item",
+      name: "Reload Source (Zotero item / PDF)",
+      hotkeys: [{ modifiers: ["Mod", "Shift"], key: "r" }],
       checkCallback: (checking: boolean) => {
+        // PDF view active → reload it from disk (same path as the toolbar button).
+        const pdfView = this.app.workspace.getActiveViewOfType(ExternalPdfView);
+        if (pdfView) {
+          if (checking) return true;
+          pdfView.reloadFromDisk();
+          return true;
+        }
+
         const file = this.app.workspace.getActiveFile();
         if (!file) return false;
         const cache = this.app.metadataCache.getFileCache(file as any);
@@ -241,35 +300,13 @@ export default class ObsidianAIAgent extends Plugin {
             if (profiles.length === 0) throw new Error("No Zotero profile found. Please run the Import Wizard once first.");
             const p = profiles[0]; // use first profile as default
 
-            // If imageFolder is specified, copy images first
-            if (p.imageFolder) {
-              const imgFolder = this.app.vault.getAbstractFileByPath(p.imageFolder);
-              if (!imgFolder) await this.app.vault.createFolder(p.imageFolder);
-
-              for (const ann of metadata.annotations || []) {
-                if (ann.imageRelativePath) {
-                  try {
-                    const imgBuffer = await fs.readFile(ann.imageRelativePath);
-                    const filename = `${ann.key || ann.id}.png`;
-                    let destPath = p.imageFolder;
-                    if (!destPath.endsWith("/")) destPath += "/";
-                    destPath += filename;
-
-                    const existing = this.app.vault.getAbstractFileByPath(destPath);
-                    if (!existing) {
-                      const data = imgBuffer.buffer.slice(
-                        imgBuffer.byteOffset,
-                        imgBuffer.byteOffset + imgBuffer.byteLength
-                      ) as ArrayBuffer;
-                      await this.app.vault.createBinary(destPath, data);
-                    }
-                    ann.imageRelativePath = destPath;
-                  } catch (e) {
-                    console.error("Failed to copy image for annotation on refresh", ann.key, e);
-                  }
-                }
-              }
-            }
+            // Localize annotation region images into the vault asset folder using
+            // the SAME path resolution as the import wizard (assetFolder/
+            // assetSubfolder, with legacy imageFolder migration). Previously this
+            // read the deprecated `imageFolder` field, which was empty after
+            // migration, so reload emitted absolute Zotero cache paths. The shared
+            // helper also overwrites an asset whose source region changed.
+            await localizeAnnotationImages(this.app, renderer, p, metadata);
 
             const existingContent = await this.app.vault.read(file);
             const markdown = await renderer.renderTemplate(p.templatePath, metadata, existingContent);
@@ -630,16 +667,21 @@ export default class ObsidianAIAgent extends Plugin {
       if (!zoteroInfo) return false;
 
       const attachmentKey = zoteroInfo.attachmentKey;
-      let pdfPath: string | null = null;
+      let resolved: { path: string; attachmentKey: string } | null = null;
 
       try {
-        pdfPath = await this.resolveZoteroPdf(attachmentKey);
+        resolved = await this.resolveZoteroPdf(attachmentKey);
       } catch (e: any) {
         new Notice(`Zotero PDF unavailable: ${e?.message || e}`);
-        pdfPath = null;
+        resolved = null;
       }
 
-      if (!pdfPath) return false; // Let OS handle it
+      if (!resolved) return false; // Let OS handle it
+
+      const pdfPath = resolved.path;
+      // Effective child attachment key — annotations are keyed by this, so a
+      // parent (select) link can still jump to and highlight the annotation.
+      const effectiveKey = resolved.attachmentKey;
 
       let leaf = this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE).find(l => {
         return l.view.getState()?.path === pdfPath;
@@ -649,10 +691,10 @@ export default class ObsidianAIAgent extends Plugin {
       if (leaf) {
         pdfState = {
           ...leaf.view.getState(),
-          zoteroAttachmentKey: attachmentKey,
+          zoteroAttachmentKey: effectiveKey,
         };
       } else {
-        pdfState = registerExternalPdfByPath(pdfPath, attachmentKey);
+        pdfState = registerExternalPdfByPath(pdfPath, effectiveKey);
         leaf = this.app.workspace.getLeaf("split");
       }
 
@@ -836,9 +878,16 @@ export default class ObsidianAIAgent extends Plugin {
     new ZoteroRepairModal(this.app, this.incuratorClient, initial).open();
   }
 
-  async resolveZoteroPdf(attachmentKey: string): Promise<string | null> {
+  async resolveZoteroPdf(
+    attachmentKey: string
+  ): Promise<{ path: string; attachmentKey: string } | null> {
     const res = await this.incuratorClient.resolveZoteroPdf(attachmentKey);
-    if (res.ok && res.path) return res.path;
+    if (res.ok && res.path) {
+      // Prefer the backend's effective attachment key: a parent item key (from
+      // zotero_app_url) resolves to its child PDF attachment, and annotations are
+      // keyed by that child — so this is what must drive annotation lookups/jumps.
+      return { path: res.path, attachmentKey: res.attachmentKey || attachmentKey };
+    }
     this.openZoteroRepairModal({ attachmentKey, resolution: res });
     throw new Error(res.error || res.state || "Zotero PDF not found");
   }
