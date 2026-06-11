@@ -838,6 +838,29 @@ templating engine as Zotero note templates. Examples:
 
 Rendered path segments are sanitized before files are created in the vault.
 
+### Reload Zotero Item / PDF (`Cmd+Shift+R`)
+
+With a Zotero note (it has a `citekey` or `zotero_app_url` in frontmatter) or an
+external PDF view active, **`Cmd+Shift+R`** reloads it — the same action as the
+PDF viewer's toolbar Reload button:
+
+- **Zotero note**: re-fetches the item's metadata and re-renders the note from its
+  template. Annotation region images are localized into the vault asset folder
+  using the **same** path resolution as the import wizard (`assetFolder` /
+  `assetSubfolder`, e.g. `05_Assets/.../{{citekey}}`), so reload writes
+  **vault-relative** embeds (`![[05_Assets/...]]`) — never absolute
+  `![[/Users/.../Zotero/cache/...]]` paths. If an annotation region changed in
+  Zotero, its asset file is **overwritten** so the note shows the current image.
+- **External PDF view**: drops the cached document and re-reads the PDF from disk.
+
+### Annotation links and parent-item resolution
+
+A `zotero://select/library/items/<KEY>` link (as stored in `zotero_app_url`)
+carries the **parent item** key. Backend PDF resolution now resolves that parent
+key to its **child PDF attachment**, so the link still opens the PDF, and an
+annotation link (`...?annotation=<KEY>`) jumps to and highlights the annotation —
+annotation lookups use the resolved child attachment key.
+
 When a Zotero PDF is opened in the plugin viewer and registered from the
 sidechat/purple-pin flow, Incurator registers the original file in Reference
 Mode instead of copying it into the vault. The generated reference stub records

@@ -28,7 +28,11 @@ import {
   type RawPdfTextItem,
 } from "../context/pdfTextLayout";
 import { buildZoteroAnnotationBoxStyle } from "./externalPdfAnnotationStyle";
-import { buildSyncedExternalPdfState } from "./externalPdfState";
+import {
+  buildSyncedExternalPdfState,
+  isRetainablePersistedDoc,
+  resolveExternalPdfPath,
+} from "./externalPdfState";
 
 export const EXTERNAL_PDF_VIEW_TYPE = "ai-agent-external-pdf";
 export const EXTERNAL_PDF_CONTEXT_EVENT = "ai-agent-external-pdf-context";
@@ -103,7 +107,11 @@ function loadPersistedDocs(): Map<string, ExternalPdfDoc> {
     if (raw) {
       const parsed = JSON.parse(raw) as Array<[string, ExternalPdfDoc]>;
       for (const [id, doc] of parsed) {
-        if (doc.path && existsSync(doc.path)) {
+        // Retain any path-bearing entry. Do NOT existsSync here — module load
+        // races Obsidian startup (a not-yet-mounted volume would wrongly drop a
+        // valid doc, causing "no path in docState or cache"). A genuinely missing
+        // file is reported distinctly at resolveDoc() time.
+        if (isRetainablePersistedDoc(doc)) {
           map.set(id, doc);
         }
       }
@@ -289,20 +297,24 @@ export class ExternalPdfView extends ItemView {
     result: ViewStateResult
   ): Promise<void> {
     this.docId = state.docId || "";
-    this.docState =
-      state.docId && state.name
-        ? {
-            docId: state.docId,
-            name: state.name,
-            path: state.path,
-            zoom: this.readNumberState(state.zoom, 1),
-            darkMode: state.darkMode === true,
-            tocOpen: state.tocOpen === true,
-            currentPage: this.readNumberState(state.currentPage, 1),
-            zoteroAttachmentKey: state.zoteroAttachmentKey,
-            targetAnnotationKey: state.targetAnnotationKey,
-          }
-        : null;
+    // Build docState whenever a docId is present — even if `name` is missing on a
+    // restored state — and backfill path/name from the persisted cache. Previously
+    // a name-less restore nulled docState, which then made getState() persist a
+    // path-less state and permanently lose the document identity.
+    const cached = state.docId ? externalPdfDocs.get(state.docId) : undefined;
+    this.docState = state.docId
+      ? {
+          docId: state.docId,
+          name: state.name || cached?.name || "External PDF",
+          path: resolveExternalPdfPath(state.path, cached?.path),
+          zoom: this.readNumberState(state.zoom, 1),
+          darkMode: state.darkMode === true,
+          tocOpen: state.tocOpen === true,
+          currentPage: this.readNumberState(state.currentPage, 1),
+          zoteroAttachmentKey: state.zoteroAttachmentKey,
+          targetAnnotationKey: state.targetAnnotationKey,
+        }
+      : null;
     this.zoom = this.docState?.zoom ?? 1;
     this.renderedZoom = this.zoom;
     this.darkMode = this.docState?.darkMode ?? false;
@@ -313,16 +325,22 @@ export class ExternalPdfView extends ItemView {
   }
 
   getState(): ExternalPdfState {
-    return (
-      this.docState || {
-        docId: this.docId,
-        name: externalPdfDocs.get(this.docId)?.name || "External PDF",
-        zoom: this.zoom,
-        darkMode: this.darkMode,
-        tocOpen: this.tocOpen,
-        currentPage: this.currentPage,
-      }
-    );
+    // Always persist the path (from docState OR the cache) so a restored view is
+    // self-sufficient. The previous fallback branch omitted `path`, so once
+    // docState was null the path was lost permanently across restarts.
+    const cachePath = externalPdfDocs.get(this.docId)?.path;
+    if (this.docState) {
+      return { ...this.docState, path: resolveExternalPdfPath(this.docState.path, cachePath) };
+    }
+    return {
+      docId: this.docId,
+      name: externalPdfDocs.get(this.docId)?.name || "External PDF",
+      path: cachePath,
+      zoom: this.zoom,
+      darkMode: this.darkMode,
+      tocOpen: this.tocOpen,
+      currentPage: this.currentPage,
+    };
   }
 
   async onOpen(): Promise<void> {
@@ -330,6 +348,24 @@ export class ExternalPdfView extends ItemView {
     this.setupPdfJsStyleSync();
     this.render();
     this.notifyContextChanged();
+  }
+
+  /**
+   * Force a full reload of the PDF from disk: drop the cached document, rendered
+   * pages, text caches, and document index, then re-render. Shared by the toolbar
+   * Reload button and the `Cmd+Shift+R` hotkey so both take the same path.
+   */
+  reloadFromDisk(): void {
+    this.cachedPdf = null;
+    this.cachedPdfDocId = "";
+    this.renderedPages.clear();
+    this.renderingPages.clear();
+    this.pageTextCache.clear();
+    this.pageTextPromises.clear();
+    this.documentIndex.removeDocument(this.docId);
+    this.indexBuildToken++;
+    this.render();
+    new Notice("PDF reloaded");
   }
 
   private setupPdfJsStyleSync(): void {
@@ -1478,19 +1514,7 @@ export class ExternalPdfView extends ItemView {
         attr: { "aria-label": "Reload PDF from disk" },
       });
       setIcon(refreshBtn, "refresh-cw");
-      refreshBtn.addEventListener("click", () => {
-        // Force a full reload from disk by clearing the cached PDF document
-        this.cachedPdf = null;
-        this.cachedPdfDocId = "";
-        this.renderedPages.clear();
-        this.renderingPages.clear();
-        this.pageTextCache.clear();
-        this.pageTextPromises.clear();
-        this.documentIndex.removeDocument(this.docId);
-        this.indexBuildToken++;
-        this.render();
-        new Notice("PDF reloaded");
-      });
+      refreshBtn.addEventListener("click", () => this.reloadFromDisk());
       const pageGroup = toolbar.createDiv("ai-agent-pdf-page-jump");
       this.pageInputEl = pageGroup.createEl("input", {
         cls: "ai-agent-pdf-page-input",

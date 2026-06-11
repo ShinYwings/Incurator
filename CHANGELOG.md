@@ -4,6 +4,42 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.5.5] — 2026-06-11
+
+### Fixed
+
+- **Zotero reload emitted absolute cache image paths.** "Reload Source"
+  (`Cmd+Shift+R`, formerly "Refresh Zotero Item") read the deprecated `imageFolder`
+  profile field, which was empty after the wizard migrated to
+  `assetFolder`/`assetSubfolder`, so it skipped localization and wrote
+  `![[/Users/.../Zotero/cache/...]]` instead of vault-relative `![[05_Assets/...]]`.
+  Reload and import now share one localization path (`src/zotero/assetLocalization`).
+- **Changed annotation regions did not refresh.** Localization skipped any asset
+  that already existed; it now overwrites an asset whose source region bytes
+  changed (and only then), so edited annotations update.
+- **`zotero_app_url` PDF open failed with "attachment key not found".** That URL
+  carries the **parent item** key; backend `resolve-pdf` now resolves it to the
+  item's child PDF attachment and returns the effective `attachment_key`.
+- **Zotero annotation links did not jump to the annotation.** The plugin now uses
+  the resolved child attachment key for annotation lookups, so a parent/select link
+  can open the PDF *and* navigate to + highlight the annotation.
+- **`Cmd+Shift+R` reloads the active Zotero note OR external PDF view**, via the
+  same code path as the PDF viewer's toolbar Reload button.
+- **Dashboard showed a stale backend version / provider.** The dashboard read a
+  cached `runtime/status.json` first; it now forces a fresh `wiki status` snapshot
+  (deduped per render burst) and reports the backend as *unavailable* instead of
+  trusting a stale snapshot when `wiki status` fails. A backend upgrade or
+  `wiki config provider` change is reflected on the next dashboard open/refresh
+  without restarting Obsidian.
+- **External PDF view lost its document after restart** (`resolveDoc failed: no
+  path in docState or cache for ID`). The persisted-doc cache no longer drops a
+  path-bearing entry at load (startup `existsSync` race), `setState` keeps the doc
+  identity even when a restored state lacks a name, and `getState` always persists
+  the path — so a reopened/restored PDF resolves the same document; a genuinely
+  missing file is reported distinctly at use time.
+
+---
+
 ## [0.5.4] — 2026-06-11
 
 ### Added

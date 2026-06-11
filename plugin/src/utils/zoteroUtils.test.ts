@@ -14,6 +14,17 @@ describe("zoteroUtils", () => {
     expect(info).not.toBeNull();
     expect(info?.attachmentKey).toBe("PZBCB9LJ");
     expect(info?.pageNum).toBe(5);
+    // The annotation key must survive so the view can jump to it (#1d).
+    expect(info?.annotationKey).toBe("ZJKGLJQ6");
+  });
+
+  it("should parse a parent-item select link (no annotation/page)", () => {
+    // zotero_app_url carries the parent item key; backend resolves it to the
+    // child PDF attachment (#1b), then annotations jump via the child key (#1d).
+    const info = parseZoteroLink("zotero://select/library/items/PARENT01");
+    expect(info).not.toBeNull();
+    expect(info?.attachmentKey).toBe("PARENT01");
+    expect(info?.annotationKey).toBeUndefined();
   });
 
   it("should return null if viewer=zotero is present", () => {

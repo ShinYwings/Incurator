@@ -186,4 +186,46 @@ def test_resolve_pdf_reports_attachment_key_missing(tmp_path: Path, monkeypatch)
 
     assert result["ok"] is False
     assert result["state"] == "attachment_key_missing"
+
+
+def _make_zotero_parent_child_db(
+    db_path: Path, parent_key: str, child_key: str, attachment_path: str
+) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("CREATE TABLE items (itemID INTEGER PRIMARY KEY, key TEXT)")
+        conn.execute(
+            "CREATE TABLE itemAttachments "
+            "(itemID INTEGER PRIMARY KEY, parentItemID INTEGER, path TEXT, contentType TEXT)"
+        )
+        conn.execute("INSERT INTO items (itemID, key) VALUES (1, ?)", (parent_key,))
+        conn.execute("INSERT INTO items (itemID, key) VALUES (2, ?)", (child_key,))
+        conn.execute(
+            "INSERT INTO itemAttachments (itemID, parentItemID, path, contentType) "
+            "VALUES (2, 1, ?, 'application/pdf')",
+            (attachment_path,),
+        )
+
+
+def test_resolve_pdf_resolves_parent_item_key_to_child_attachment(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # zotero_app_url carries the PARENT item key; the PDF lives on a child
+    # attachment. Resolution must find the child and use the child's key for the
+    # storage subdir (the "attachment key not found" reload bug).
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    paths = cfg.WikiPaths(tmp_path / "vault")
+    zotero_dir = tmp_path / "Zotero"
+    storage_dir = zotero_dir / "storage" / "CHILD1"
+    storage_dir.mkdir(parents=True)
+    pdf = storage_dir / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    _make_zotero_parent_child_db(
+        zotero_dir / "zotero.sqlite", "PARENT1", "CHILD1", "storage:paper.pdf"
+    )
+
+    result = zotero_tools.resolve_pdf("PARENT1", paths, str(zotero_dir))
+
+    assert result["ok"] is True
+    assert result["path"] == str(pdf)
+    assert result["attachment_key"] == "CHILD1"
     assert result["zotero_db"] == str(zotero_dir / "zotero.sqlite")

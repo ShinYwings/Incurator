@@ -727,6 +727,27 @@ Zotero 링크나 Add-to-Incurator 작업에서 PDF를 해석하지 못하면 bac
 
 렌더링된 경로 segment는 Vault에 파일을 만들기 전에 안전한 파일명 형태로 정리됩니다.
 
+### Zotero 항목 / PDF 리로드 (`Cmd+Shift+R`)
+
+Zotero 노트(frontmatter에 `citekey` 또는 `zotero_app_url`이 있는 노트)나 외부 PDF
+뷰가 활성화된 상태에서 **`Cmd+Shift+R`**을 누르면 리로드됩니다 — PDF 뷰어 툴바의
+리로드 버튼과 동일한 동작입니다:
+
+- **Zotero 노트**: 항목 메타데이터를 다시 가져와 템플릿으로 노트를 다시 렌더링합니다.
+  주석(annotation) 영역 이미지는 Import Wizard와 **동일한** 경로 해석(`assetFolder` /
+  `assetSubfolder`, 예: `05_Assets/.../{{citekey}}`)으로 Vault 자산 폴더에
+  로컬라이즈되어, 리로드 시 **Vault 상대경로** 임베드(`![[05_Assets/...]]`)를
+  씁니다 — 절대경로 `![[/Users/.../Zotero/cache/...]]`가 아닙니다. Zotero에서 주석
+  영역이 바뀌었다면 해당 자산 파일을 **덮어써서** 최신 이미지를 반영합니다.
+- **외부 PDF 뷰**: 캐시된 문서를 버리고 디스크에서 PDF를 다시 읽습니다.
+
+### 주석 링크와 부모 항목 해석
+
+`zotero://select/library/items/<KEY>` 링크(`zotero_app_url`에 저장됨)는 **부모 항목**
+키를 담고 있습니다. 이제 backend PDF 해석이 그 부모 키를 **자식 PDF 첨부**로
+해석하므로, 링크가 PDF를 정상적으로 열고, 주석 링크(`...?annotation=<KEY>`)는 해당
+주석 위치로 점프·하이라이트합니다 — 주석 조회가 해석된 자식 첨부 키를 사용합니다.
+
 Zotero PDF를 plugin viewer에서 연 뒤 sidechat/purple-pin 흐름으로 등록하면 Incurator는 파일을 vault로 복사하지 않고 원본 파일을 Reference Mode로 등록합니다. 등록에 성공하면 완료 알림을 표시하고, backend가 파일 path를 해석하거나 등록하지 못하면 오류 알림을 표시합니다.
 Zotero path 설정은 Zotero 데이터 디렉토리나 `zotero.sqlite` 파일 자체를 가리킬 수 있습니다. backend PDF 해석은 `zotero.sqlite`가 들어온 경우 부모 디렉토리로 정규화한 뒤 `storage/<attachmentKey>/`를 확인합니다.
 linked Zotero attachment의 경우 backend는 configured linked attachment root에서 `attachments:` path도 확인합니다.

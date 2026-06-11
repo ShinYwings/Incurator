@@ -1,7 +1,7 @@
 import { App, Modal, Setting, Notice, SuggestModal, AbstractInputSuggest, TFolder } from "obsidian";
-import { promises as fs } from "fs";
 import { PluginSettings, ZoteroImportProfile } from "../types";
 import { sanitizePathSegment, TemplateRenderer } from "../zotero/templateRenderer";
+import { localizeAnnotationImages } from "../zotero/assetLocalization";
 
 export interface ZoteroBackendApi {
   searchZoteroItems(query: string, limit?: number): Promise<ZoteroSearchResult[]>;
@@ -404,38 +404,24 @@ export class ZoteroWizardModal extends Modal {
       const resolvedSubfolder = await this.renderPathTemplate(renderer, this.outputSubfolder, metadata);
       const resolvedFilename =
         await this.renderFilenameTemplate(renderer, this.outputFilename || "{{title}}", metadata) || "Untitled";
-      const resolvedAssetSubfolder = await this.renderPathTemplate(renderer, this.assetSubfolder, metadata);
-
       const outputFolderFull = this.joinPath(this.outputFolder, resolvedSubfolder);
-      const resolvedAssetFolder = this.joinPath(this.assetFolder, resolvedAssetSubfolder);
 
-      // ── Ensure folders exist ────────────────────────────────────
+      // ── Ensure output folder exists ─────────────────────────────
       if (outputFolderFull) {
         const f = this.app.vault.getAbstractFileByPath(outputFolderFull);
         if (!f) await this.app.vault.createFolder(outputFolderFull);
       }
-      if (resolvedAssetFolder) {
-        const f = this.app.vault.getAbstractFileByPath(resolvedAssetFolder);
-        if (!f) await this.app.vault.createFolder(resolvedAssetFolder);
-      }
 
-      // ── Copy PDF images into vault ──────────────────────────────
-      for (const ann of metadata.annotations || []) {
-        if (ann.imageRelativePath && resolvedAssetFolder) {
-          try {
-            const imgBuffer = await fs.readFile(ann.imageRelativePath);
-            const destPath = this.joinPath(resolvedAssetFolder, `${ann.key || ann.id}.png`);
-            if (!this.app.vault.getAbstractFileByPath(destPath)) {
-              await this.app.vault.createBinary(destPath, imgBuffer as any);
-            }
-            ann.imageRelativePath = destPath;
-          } catch (e) {
-            console.error("Failed to copy image for annotation", ann.key, e);
-          }
-        } else if (ann.imageRelativePath && !resolvedAssetFolder) {
-          ann.imageRelativePath = "";
-        }
-      }
+      // ── Localize annotation region images into the vault asset folder ──
+      // Shared with the "Refresh Zotero Item" reload command so the two paths
+      // never diverge (vault-relative, never absolute), and overwrites the asset
+      // of an annotation region that changed.
+      await localizeAnnotationImages(
+        this.app,
+        renderer,
+        { assetFolder: this.assetFolder, assetSubfolder: this.assetSubfolder } as ZoteroImportProfile,
+        metadata
+      );
 
       // ── Render template and write note ──────────────────────────
       const outputPath = this.joinPath(outputFolderFull, `${resolvedFilename}.md`);

@@ -129,4 +129,32 @@ describe("Incurator dashboard backend boundary", () => {
     expect(source).toContain('"l1_status", "l2_status", "l3_status", "l4_status"');
     expect(source).toContain('this.runWikiCommand(["build"])');
   });
+
+  it("reads runtime status fresh-first so backend version/provider are never stale", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    // readRuntimeStatus must force a fresh `wiki status` snapshot, not read the
+    // cached runtime/status.json first (the stale-version / stale-provider bug).
+    expect(source).toMatch(
+      /readRuntimeStatus\(\)[\s\S]*?return this\.readFreshRuntimeJson\("status"\)/
+    );
+    expect(source).not.toMatch(
+      /readRuntimeStatus\(\)[\s\S]*?let status = await this\.readRuntimeJson\("status"\);\s*\n\s*if \(status\) return status;/
+    );
+  });
+
+  it("reports the backend as unavailable instead of trusting a stale snapshot", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    // renderBackendVersion forces a fresh read, only trusts the snapshot when the
+    // refresh succeeded, and otherwise queries the binary / shows "unavailable".
+    expect(source).toContain("this._lastStatusOk = r.ok === true");
+    expect(source).toMatch(
+      /renderBackendVersion[\s\S]*?readFreshRuntimeJson\("status"\)/
+    );
+    expect(source).toMatch(/if \(this\._lastStatusOk && status\?\.backend_version\)/);
+    expect(source).toContain('"backend unavailable"');
+  });
 });

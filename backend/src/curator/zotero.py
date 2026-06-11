@@ -177,6 +177,79 @@ def get_zotero_attachment_path_from_db(zotero_db_path: str, attachment_key: str)
         if temp_db_path.exists():
             temp_db_path.unlink(missing_ok=True)
 
+def resolve_pdf_attachment_for_key(
+    zotero_db_path: str, key: str
+) -> Optional[tuple[str, str]]:
+    """Resolve a Zotero ``key`` (an attachment key OR a parent item key) to the
+    PDF attachment's ``(attachment_key, db_path)``.
+
+    A ``zotero_app_url`` (``zotero://select/library/items/<KEY>``) carries the
+    PARENT item key, but the PDF lives on a CHILD attachment. The previous
+    resolution only looked up ``itemAttachments`` by the key's own ``itemID``, so
+    a parent key found no path and reported "attachment key not found" (while
+    page-based navigation, which already had the attachment key, worked). This
+    returns the key as-is when it is itself an attachment, otherwise finds the
+    item's first PDF child attachment and returns that child's key + path.
+    """
+    db_path = Path(zotero_db_path)
+    if not db_path.exists():
+        return None
+
+    temp_db_path = Path(tempfile.gettempdir()) / f"zotero_temp_{os.getpid()}.sqlite"
+    shutil.copy2(db_path, temp_db_path)
+
+    conn = None
+    try:
+        conn = sqlite3.connect(temp_db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        cur.execute("SELECT itemID FROM items WHERE key = ?", (key,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        item_id = row["itemID"]
+
+        # 1. The key is itself an attachment with a path.
+        cur.execute("SELECT path FROM itemAttachments WHERE itemID = ?", (item_id,))
+        att = cur.fetchone()
+        if att and att["path"]:
+            return (key, att["path"])
+
+        # 2. The key is a parent item → find its PDF child attachment. Defensive
+        #    against a simplified/old schema lacking parentItemID/contentType.
+        try:
+            cur.execute(
+                """
+                SELECT i.key AS att_key, ia.path AS path, ia.contentType AS ctype
+                FROM itemAttachments ia
+                JOIN items i ON i.itemID = ia.itemID
+                WHERE ia.parentItemID = ?
+                """,
+                (item_id,),
+            )
+            children = cur.fetchall()
+        except sqlite3.OperationalError:
+            return None
+
+        first_with_path: Optional[tuple[str, str]] = None
+        for child in children:
+            path = child["path"] or ""
+            if not path:
+                continue
+            if first_with_path is None:
+                first_with_path = (child["att_key"], path)
+            ctype = (child["ctype"] or "") if "ctype" in child.keys() else ""
+            if path.lower().endswith(".pdf") or ctype == "application/pdf":
+                return (child["att_key"], path)
+        return first_with_path
+    finally:
+        if conn:
+            conn.close()
+        if temp_db_path.exists():
+            temp_db_path.unlink(missing_ok=True)
+
+
 def resolve_zotero_attachment_path(zotero_data_dir: str, attachment_key: str) -> Optional[str]:
     """
     Finds the absolute path to a PDF attachment given its key.
