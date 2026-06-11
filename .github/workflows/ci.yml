@@ -32,6 +32,11 @@ jobs:
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest
+    # Keep the uv project environment OUT of backend/ (repo policy: the backend
+    # venv lives at the repo root, never backend/.venv). Without this, `uv sync`
+    # run from ./backend would create backend/.venv.
+    env:
+      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/.venv
 
     steps:
       - uses: actions/checkout@v4
