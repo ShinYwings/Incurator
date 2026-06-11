@@ -65,6 +65,7 @@ import {
   isSelectionInReadingView,
   selectionContainsRenderedMath,
   selectionToMarkdownWithLatex,
+  sliceLinesByIndex,
   stampMathSourceData,
 } from "./src/utils/textUtils";
 import { mergeSessionData, normalizeSessionData } from "./src/utils/sessionData";
@@ -185,7 +186,9 @@ export default class ObsidianAIAgent extends Plugin {
       if (!el.querySelector(".math")) return;
       const info = ctx.getSectionInfo(el);
       if (!info) return;
-      const source = info.text.split("\n").slice(info.lineStart, info.lineEnd + 1).join("\n");
+      // Extract the section's source lines by index (no full-document split — this
+      // runs per math block on every render).
+      const source = sliceLinesByIndex(info.text, info.lineStart, info.lineEnd);
       stampMathSourceData(el, source);
     });
 

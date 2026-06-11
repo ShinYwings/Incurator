@@ -317,9 +317,38 @@ export function attachLatexCopyHandler(
 ): void {
   el.addEventListener("copy", (e: ClipboardEvent) => {
     if (!e.clipboardData) return;
-    const md = selectionToMarkdownWithLatex(window.getSelection(), htmlToMarkdown);
+    // Use the element's OWN document selection, not window's — in an Obsidian
+    // pop-out window `window` is the main window, so window.getSelection() would
+    // miss (or mis-read) the pop-out's selection.
+    const selection = el.ownerDocument.getSelection();
+    const md = selectionToMarkdownWithLatex(selection, htmlToMarkdown);
     if (!md) return;
     e.preventDefault();
     e.clipboardData.setData("text/plain", md);
   });
+}
+
+/**
+ * Extract lines `[lineStart, lineEnd]` (0-indexed, inclusive) from `text` by walking
+ * newline indices — equivalent to
+ * `text.split("\n").slice(lineStart, lineEnd + 1).join("\n")` but WITHOUT splitting
+ * the whole string into an array. Used by the reading-view math post-processor,
+ * which runs per math block on every render; full-document splits there cause lag on
+ * large notes.
+ */
+export function sliceLinesByIndex(text: string, lineStart: number, lineEnd: number): string {
+  let start = 0;
+  for (let l = 0; l < lineStart; l++) {
+    const nl = text.indexOf("\n", start);
+    if (nl === -1) return "";
+    start = nl + 1;
+  }
+  let cursor = start;
+  for (let l = lineStart; l <= lineEnd; l++) {
+    const nl = text.indexOf("\n", cursor);
+    if (nl === -1) return text.slice(start);
+    if (l === lineEnd) return text.slice(start, nl);
+    cursor = nl + 1;
+  }
+  return text.slice(start);
 }

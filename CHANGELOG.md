@@ -8,6 +8,12 @@ All notable changes to Incurator are documented here.
 
 ### Fixed
 
+- **LaTeX-copy review fixes (PR #22):** an escaped backtick (`\``) no longer makes
+  the math-source parser mistake it for an inline-code opener (which could drop a
+  later formula); the chat/quick-query copy handler reads the element's own
+  document selection (`el.ownerDocument`) so it works in Obsidian pop-out windows;
+  and the reading-view math post-processor extracts section source by line index
+  instead of splitting the whole document on every render (large-note perf).
 - **Zotero reload emitted absolute cache image paths.** "Reload Source"
   (`Cmd+Shift+R`, formerly "Refresh Zotero Item") read the deprecated `imageFolder`
   profile field, which was empty after the wizard migrated to

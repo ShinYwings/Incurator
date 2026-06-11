@@ -86,8 +86,11 @@ export function parseMathSources(src: string): MathSource[] {
         continue;
       }
     }
-    // Escaped dollar — not a delimiter.
-    if (src[i] === "\\" && src[i + 1] === "$") {
+    // Escaped character — the next char is literal: not a math delimiter, and not
+    // a code-span opener. Skip the backslash + the escaped char so an escaped
+    // backtick (`\``) is not mistaken for an inline-code opener that would swallow
+    // the rest of the document (standard markdown escaping).
+    if (src[i] === "\\") {
       i += 2;
       continue;
     }

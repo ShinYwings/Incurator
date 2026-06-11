@@ -9,6 +9,7 @@ import {
   selectionContainsRenderedMath,
   selectionToMarkdownWithLatex,
   selectionToTextWithLatex,
+  sliceLinesByIndex,
   stampMathSourceData,
   stripDanglingEditMarkers,
   truncateToLength,
@@ -289,9 +290,10 @@ describe("selectionToMarkdownWithLatex", () => {
     expect(src).toMatch(/selectionToMarkdownWithLatex[\s\S]*?getLatexFromMathEl\(m\)/);
     expect(src).toMatch(/selectionToMarkdownWithLatex[\s\S]*?htmlToMarkdown\(wrapper\)/);
     expect(src).toContain("info.isBlock ? `$$${info.source}$$` : `$${info.source}$`");
-    // attachLatexCopyHandler delegates to it with the injected htmlToMarkdown.
+    // attachLatexCopyHandler delegates to it with the injected htmlToMarkdown,
+    // using the element's OWN document selection (pop-out safe — see review fix).
     expect(src).toMatch(
-      /attachLatexCopyHandler[\s\S]*?selectionToMarkdownWithLatex\(window\.getSelection\(\), htmlToMarkdown\)/
+      /attachLatexCopyHandler[\s\S]*?selectionToMarkdownWithLatex\(selection, htmlToMarkdown\)/
     );
   });
 });
@@ -387,6 +389,44 @@ describe("isSelectionInReadingView", () => {
     const src = readFileSync(join(dir, "textUtils.ts"), "utf8");
     expect(src).toMatch(
       /isSelectionInReadingView[\s\S]*?closest\("\.markdown-reading-view"\)/
+    );
+  });
+});
+
+// ─── sliceLinesByIndex (post-processor perf: no full-doc split) ──────────────
+
+describe("sliceLinesByIndex", () => {
+  const ref = (t: string, a: number, b: number) => t.split("\n").slice(a, b + 1).join("\n");
+
+  it("matches split().slice().join() for interior, first, and last ranges", () => {
+    const t = "a\nb\nc\nd\ne";
+    for (const [a, b] of [[1, 2], [0, 0], [0, 4], [3, 4], [2, 2]] as const) {
+      expect(sliceLinesByIndex(t, a, b)).toBe(ref(t, a, b));
+    }
+  });
+
+  it("handles a trailing newline and a single-line document", () => {
+    expect(sliceLinesByIndex("a\nb\n", 0, 1)).toBe("a\nb");
+    expect(sliceLinesByIndex("only", 0, 0)).toBe("only");
+  });
+
+  it("returns '' when lineStart is past the end of the text", () => {
+    expect(sliceLinesByIndex("a\nb", 5, 6)).toBe("");
+  });
+});
+
+// ─── attachLatexCopyHandler pop-out correctness (review fix) ─────────────────
+
+describe("attachLatexCopyHandler", () => {
+  it("reads the element's OWN document selection, not window's (pop-out safe)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const src = readFileSync(join(dir, "textUtils.ts"), "utf8");
+    expect(src).toMatch(
+      /attachLatexCopyHandler[\s\S]*?el\.ownerDocument\.getSelection\(\)/
+    );
+    // Must NOT regress to window.getSelection() inside this handler.
+    expect(src).not.toMatch(
+      /attachLatexCopyHandler[\s\S]*?selectionToMarkdownWithLatex\(window\.getSelection\(\)/
     );
   });
 });

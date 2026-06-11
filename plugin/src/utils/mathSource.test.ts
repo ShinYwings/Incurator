@@ -76,4 +76,19 @@ describe("parseMathSources", () => {
     expect(parsed.length).toBe(3);
     expect(parsed.map((m) => m.display)).toEqual([false, true, false]);
   });
+
+  it("does not let an escaped backtick swallow the rest of the document", () => {
+    // Review fix: an escaped backtick (`\``) must be skipped at the top level, so
+    // it is NOT mistaken for an inline-code opener that consumes everything — which
+    // would drop the trailing real formula and break the parsed/rendered count.
+    expect(parseMathSources("A literal \\` backtick, then $x^2$ stays visible.")).toEqual([
+      { tex: "x^2", display: false },
+    ]);
+  });
+
+  it("treats other escaped chars (\\\\, \\*) as literal without losing later math", () => {
+    expect(parseMathSources("Path C:\\\\dir and a star \\* then $y$.")).toEqual([
+      { tex: "y", display: false },
+    ]);
+  });
 });

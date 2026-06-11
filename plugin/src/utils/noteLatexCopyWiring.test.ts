@@ -14,8 +14,9 @@ describe("reading-view math source stamping (main.ts)", () => {
   it("registers a markdown post-processor that stamps section source as data-tex", () => {
     expect(main).toMatch(/registerMarkdownPostProcessor\(\(el, ctx\)/);
     expect(main).toContain("ctx.getSectionInfo(el)");
-    // stamps the section's source lines (lineStart..lineEnd) onto the math elements
-    expect(main).toMatch(/slice\(info\.lineStart, info\.lineEnd \+ 1\)/);
+    // stamps the section's source lines (lineStart..lineEnd) onto the math elements,
+    // extracted by index (no full-document split — review perf fix).
+    expect(main).toMatch(/sliceLinesByIndex\(info\.text, info\.lineStart, info\.lineEnd\)/);
     expect(main).toMatch(/stampMathSourceData\(el, source\)/);
   });
 });
