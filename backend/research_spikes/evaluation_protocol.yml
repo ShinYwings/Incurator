@@ -1,0 +1,75 @@
+version: 1
+frozen_at: "2026-06-12"
+scope: Plan E P2/P3 disposable comparative research
+partitions:
+  dev:
+    tuning_allowed: true
+    final_decision_allowed: false
+  regression:
+    tuning_allowed: false
+    binding_non_regression: true
+  adversarial:
+    tuning_allowed: false
+    binding_non_regression: true
+  holdout:
+    tuning_allowed: false
+    accessible_before_p7: false
+    run_count: 1
+label_types:
+  retrieval: expected record ids and hard negatives
+  provenance: expected source span ids
+  claim_support: deterministic expected support spans per claim
+  route_task: expected family and bounded task-success oracle
+model_judges:
+  permitted: supplementary-only
+  calibration_required: true
+  enabled_for_wave_a: false
+metrics:
+  recall_at_1:
+    layer: retrieval
+    direction: higher-is-better
+  recall_at_5:
+    layer: retrieval
+    direction: higher-is-better
+  mrr_at_5:
+    layer: retrieval
+    direction: higher-is-better
+  hard_negative_outranks:
+    layer: retrieval
+    direction: lower-is-better
+  provenance_resolution_rate:
+    layer: evidence
+    direction: higher-is-better
+  citation_correctness:
+    layer: evidence
+    direction: higher-is-better
+  citation_completeness:
+    layer: evidence
+    direction: higher-is-better
+  latency_ms:
+    layer: cost
+    direction: lower-is-better
+  indexed_characters:
+    layer: cost
+    direction: lower-is-better
+wave_a_interpretation:
+  direct_factual_non_regression:
+    metric: recall_at_1
+    allowed_regression: 0.0
+  source_scoped_candidate_gate:
+    metric: recall_at_5
+    must_beat: deterministic-heading-context
+  provenance_gate:
+    metric: provenance_resolution_rate
+    minimum: 1.0
+  citation_gate:
+    metrics: [citation_correctness, citation_completeness]
+    minimum: 1.0
+budgets:
+  retrieval_limit: 5
+  generated_context_max_characters_per_chunk: 220
+  provider_calls_wave_a: 0
+mutation_policy:
+  committed_inputs: hash-guarded
+  sqlite_inputs: copied-read-only
+  production_mutations_allowed: false

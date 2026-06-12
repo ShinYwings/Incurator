@@ -1,0 +1,121 @@
+# Synthetic Wave D formula-loss corpus. Formula strings are deterministic oracle labels.
+version: 1
+description: >
+  Formula fixtures that isolate parser-only loss, raw-text fallback recovery,
+  downstream distillation loss, image-only loss, uncertain visual recovery,
+  selective cost, and page-hash update invalidation.
+partitions:
+  dev: [FR01, FR02]
+  regression: [FR03]
+  adversarial: [FR04]
+  holdout: [FR05]
+budgets:
+  acceptance_confidence: 0.80
+  recovery_cost_per_page: 10
+fixtures:
+  - id: FR01
+    partition: dev
+    family: text-layer-and-distillation-boundary
+    source_locator: {source_id: SRC-FR01, page: 2, region: eq-1}
+    source_page_hash: PAGE-FR01-V1
+    source_page_count: 4
+    expected_formulas:
+      - 'y = F(x, {W_i}) + x'
+      - 'h_{k+1} = h_k + F_k(h_k)'
+    parser_formulas:
+      - 'y = F(x, {W_i}) + x'
+    raw_text_formulas:
+      - 'y = F(x, {W_i}) + x'
+      - 'h_{k+1} = h_k + F_k(h_k)'
+    current_extraction_formulas:
+      - 'y = F(x, {W_i}) + x'
+      - 'h_{k+1} = h_k + F_k(h_k)'
+    current_distillation_formulas:
+      - 'y = F(x, {W_i}) + x'
+    proven_loss_region: false
+    recovery: null
+  - id: FR02
+    partition: dev
+    family: image-only-proven-loss
+    source_locator: {source_id: SRC-FR02, page: 3, region: eq-7}
+    source_page_hash: PAGE-FR02-V1
+    source_page_count: 5
+    expected_formulas:
+      - '\mathcal{L} = \sum_i \lVert f(x_i) - y_i \rVert_2^2'
+      - '\nabla_\theta \mathcal{L} = 0'
+    parser_formulas: []
+    raw_text_formulas: []
+    current_extraction_formulas: []
+    current_distillation_formulas: []
+    proven_loss_region: true
+    recovery:
+      formulas:
+        - '\mathcal{L} = \sum_i \lVert f(x_i) - y_i \rVert_2^2'
+        - '\nabla_\theta \mathcal{L} = 0'
+      confidence: 0.96
+      overwrites_raw: false
+  - id: FR03
+    partition: regression
+    family: ambiguous-visual-formula
+    source_locator: {source_id: SRC-FR03, page: 1, region: eq-2}
+    source_page_hash: PAGE-FR03-V1
+    source_page_count: 3
+    expected_formulas:
+      - 'p(x) = \frac{1}{Z} e^{-E(x)}'
+    parser_formulas: []
+    raw_text_formulas: []
+    current_extraction_formulas: []
+    current_distillation_formulas: []
+    proven_loss_region: true
+    recovery:
+      formulas:
+        - 'p(x) = \frac{1}{2} e^{-E(x)}'
+      confidence: 0.42
+      overwrites_raw: false
+  - id: FR04
+    partition: adversarial
+    family: intact-no-recovery
+    source_locator: {source_id: SRC-FR04, page: 4, region: eq-3}
+    source_page_hash: PAGE-FR04-V1
+    source_page_count: 2
+    expected_formulas:
+      - 'a^2 + b^2 = c^2'
+    parser_formulas:
+      - 'a^2 + b^2 = c^2'
+    raw_text_formulas:
+      - 'a^2 + b^2 = c^2'
+    current_extraction_formulas:
+      - 'a^2 + b^2 = c^2'
+    current_distillation_formulas:
+      - 'a^2 + b^2 = c^2'
+    proven_loss_region: false
+    recovery: null
+  - id: FR05
+    partition: holdout
+    frozen: true
+    family: hidden-formula-holdout
+    source_locator: {source_id: SRC-FR05, page: 1, region: hidden}
+    source_page_hash: PAGE-FR05-V1
+    source_page_count: 1
+    expected_formulas: ['hidden']
+    parser_formulas: []
+    raw_text_formulas: []
+    current_extraction_formulas: []
+    current_distillation_formulas: []
+    proven_loss_region: true
+    recovery: null
+updates:
+  - id: FU01
+    source_id: SRC-FR02
+    source_page_count: 5
+    stored_page_hash: PAGE-FR02-V1
+    updated_page_hash: PAGE-FR02-V2
+    expected_invalidate: true
+    refresh_succeeds: true
+  - id: FU02
+    source_id: SRC-FR02
+    source_page_count: 5
+    stored_page_hash: PAGE-FR02-V1
+    updated_page_hash: PAGE-FR02-V1
+    expected_invalidate: false
+    refresh_succeeds: true

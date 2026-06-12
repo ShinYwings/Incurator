@@ -1,0 +1,48 @@
+candidate_id: fine-grained-rag-diagnostics
+name: Fine-grained retrieval and citation diagnostics
+version_checked: "2026-06-12"
+candidate_family: evaluation
+target:
+  kind: failure-atlas
+  failure_ids: [F1, F2, F12, F13]
+  question: Which deterministic and calibrated metrics distinguish retrieval, support, citation, and client-parity failures?
+primary_sources:
+  - title: RAGChecker
+    url: https://arxiv.org/abs/2408.08067
+    claim_boundary: Defines fine-grained retrieval and generation diagnostics and reports meta-evaluation against human judgments.
+  - title: RAGAS
+    url: https://arxiv.org/abs/2309.15217
+    claim_boundary: Defines reference-free RAG metrics; model-judged metrics remain supplementary under Plan E.
+  - title: ALCE
+    url: https://arxiv.org/abs/2305.14627
+    claim_boundary: Evaluates correctness and citation quality with reproducible retrieval corpora and automatic metrics.
+  - title: KILT
+    url: https://arxiv.org/abs/2009.02252
+    claim_boundary: Evaluates downstream tasks and provenance against a shared snapshot.
+  - title: GraphRAG-Bench
+    url: https://arxiv.org/abs/2506.02404
+    claim_boundary: Separates graph construction, retrieval, and answer-generation evaluation on domain-specific reasoning tasks.
+official_implementations:
+  - url: https://github.com/amazon-science/RAGChecker
+    license: Apache-2.0
+    operational_note: Metric definitions are references; no dependency is added in P1.
+mechanism: Report retrieval, evidence support, citation/locator, answer/task, cost, and parity metrics separately per family.
+assumptions: [Deterministic or human labels exist, model judges can be calibrated before supplementary use.]
+claimed_benefit: Diagnoses which RAG stage failed instead of hiding regressions in aggregate answer scores.
+reported_benchmark_scope: Multiple RAG systems, citation benchmarks, knowledge-intensive tasks, and graph-RAG pipelines.
+falsifiable_hypothesis: Fine-grained metrics identify D1 failures that aggregate retrieval or answer scores cannot distinguish.
+controls: [existing D1 deterministic labels, aggregate-only score]
+spike:
+  independent_variable: diagnostic metric decomposition over the same frozen result bundles
+  metrics: [retrieval_recall, claim_support_completeness, citation_correctness, locator_resolution, client_parity]
+metrics: [retrieval_recall, claim_support_completeness, citation_correctness, locator_resolution, client_parity]
+risks:
+  provenance: Incorrect labels can falsely certify citations.
+  update_delete: Metrics must include freshness and deleted-evidence behavior.
+  cost_latency: Model judges add cost and nondeterminism.
+  dependency: External metric libraries may encode incompatible assumptions.
+evidence_against_adoption: Reject any metric that cannot distinguish a D1 failure or correlate with deterministic/human labels.
+preliminary_decision: adopt-contract
+confidence: high
+rejection_section: Model-judge-only and aggregate-only release gates are prohibited.
+downstream_owner: plan-d2

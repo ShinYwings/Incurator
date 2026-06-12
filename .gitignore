@@ -39,3 +39,6 @@ uv.lock
 
 # Agent-managed local DB backups (rollback anchors, never committed)
 .agents/backups/
+
+# Plan E disposable research inputs/results (may contain private vault snapshots)
+backend/research_spikes/local/

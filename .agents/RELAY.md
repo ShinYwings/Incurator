@@ -1,19 +1,136 @@
 # Cross-Agent Relay State
 
-> **CRITICAL RULE**: All agents (Claude Code, Antigravity) MUST read this file upon wakeup. 
-> Do NOT overwrite the main block when handling minor side-tasks/bugs. Instead, append updates below.
+## Goal
 
-## 🎯 Current Goal & Task
-- **Goal**: Implement **Plan E** (`.agents/plans/E_external_research_design_matrix.md`)
-- **Status**: Transitioning from Plan D1 (v0.6.0 officially shipped and merged).
-- **Target Branch**: `feature/plan-e-research` (Claude MUST branch off `master`)
+Execute Plan E (`.agents/plans/E_external_research_design_matrix.md`) on `feature/plan-e-research` without production behavior/schema changes.
 
-## 📝 Immediate Next Action for Executor (Claude/Codex)
-1. You are waking up to start Plan E.
-2. Read `.agents/plans/E_external_research_design_matrix.md` to understand the architectural goal and benchmarking requirements.
-3. Switch to `master`, pull the latest code, and checkout a new branch `feature/plan-e-research`.
-4. Begin executing Plan E.
+## Plan Reference
 
----
-### Updates & Bug Fixes
-- **(2026-06-12, Antigravity PM)**: Plan D1 PR merged. RELAY history truncated to prepare for Plan E.
+- Master plan: `.agents/plans/E_external_research_design_matrix.md`
+- Research package: `backend/research_spikes/`
+- Wave A report: `backend/research_spikes/reports/wave_a.md`
+- Wave B report: `backend/research_spikes/reports/wave_b.md`
+- Wave C report: `backend/research_spikes/reports/wave_c.md`
+- Wave D report: `backend/research_spikes/reports/wave_d.md`
+- P7 report: `backend/research_spikes/reports/p7.md`
+- P7 manifest: `backend/research_spikes/manifests/p7.yml`
+- Draft PR: `https://github.com/ShinYwings/Incurator/pull/26`
+
+## Analysis And Reasoning
+
+- P7 consumed the four research-spike holdout items exactly once under frozen Wave A-D configurations: `RUQ05`, `GQ07`, `HQ01`, `FR05`. Corpus hashes were verified identical before and after the run.
+- The Failure Atlas qrels holdout (`Q06`) was NOT consumed: the qrels reserve it for a D2-approved evaluation procedure. P7 records that reservation explicitly.
+- RUQ05 (blind probe): aggregate Recall@5 alone reports `1.00` while top-1 citation correctness (`0.00`) and hard-negative outranks (`2`) expose the failure — direct holdout proof of the fine-grained diagnostics contract.
+- GQ07: memory walk `1.00`, unfiltered PPR `1.00` (but again surfaced noisy-bridge node N14 at 660 edge updates), filtered bounded expansion `0.50` — the true `N07→N08` ecology-link edge (confidence 0.25) sits below the frozen 0.5 filter. The threshold is a correctness/noise dial that cannot be set until Program 2 makes relation confidence discriminative.
+- HQ01: frozen regex classifier routed the blind probe `local` correctly at token cost 1 vs 6.
+- FR05 (proven loss, no recovery candidate): all policies recall `0.00`, nothing fabricated, loss remained explicit, selective cost 0 vs 10.
+- All five red teams passed: provenance, benchmark leakage, framework bias, cost, update/delete.
+- Final decisions (no production authorization): `adopt-contract` = fine-grained-rag-diagnostics (Plan D2), query-relevant-global (Program 3, coverage limitation recorded), progressive-context-disclosure (Program 3, coverage limitation recorded), formula-preserving-distillation (Program 2). `reject-default` = unfiltered passage-entity-ppr, whole-corpus heavy recovery. All others remain `benchmark-later` with revisit triggers in `reports/p7.md`.
+
+## Progress Status
+
+- [x] P0 baseline and research safety ledger.
+- [x] P1 primary-source candidate dossiers.
+- [x] P2 frozen evaluation protocol.
+- [x] Wave A retrieval units and evaluation controls (approved).
+- [x] Wave B graph, hierarchy, global, and expansion controls (approved).
+- [x] Wave C adaptive, corrective, iterative, and progressive serving controls (approved).
+- [x] Wave D conditional formula recovery (approved).
+- [x] P7 untouched holdout, red team, and decision synthesis (PM approved).
+- [x] P8 research validation and handoff.
+
+## Verification
+
+- Focused research spike suite (contract + waves A/B/C/D + P7): `60 passed`.
+- Full backend: `701 passed, 1 failed (pre-existing env bug, see below), 2 skipped, 12 xfailed`.
+- Ruff (`src/`, research runners, P7 test): passed. Research mypy on `p7_holdout.py`: clean.
+- P7 is provider-free and reads no database; corpus hash guard verified identical before/after the run.
+- Production `mypy src/`: `75` errors in untouched files. The previously recorded `73` was measured on the macOS environment; the delta is environment-only (different Python/stub versions) — `src/` was not modified on this branch.
+- Plugin Vitest: no test files matched by the configured include pattern (pre-existing repository state).
+
+## Critical Context And Blockers
+
+- **Environment changed (2026-06-12): development moved from macOS (Apple Silicon, 8GB) to Ubuntu 24.04 (64GB RAM, 12GB VRAM).** Repo path here is `~/Workspace/Incurator` (macOS: `~/shinywings/Incurator`); active vault `~/Workspace/second_brain` (macOS: `~/shinywings/second_brain`). Both platforms remain supported targets. No runtime code hardcodes absolute paths (verified: only test fixtures contain them).
+- **Testbed DB hash note:** the frozen P0 hash `cfffd778…` was recorded against the macOS machine's gitignored testbed copy. This Ubuntu machine's local `testbed/.curator/state.sqlite` is a different pre-existing copy (hash `4bb46326…`, mtime 2026-06-07) that P7 never opened or modified. The P0 mutation guard is satisfied by construction: P7 reads no SQLite at all.
+- **New pre-existing bug captured in `.agents/USER_REPORT.md`:** `db.init_db` leaks its SQLite connection (sqlite3 context manager commits but does not close), leaving WAL sidecars; on Ubuntu/py3.11 this makes `tests/test_v021_status_stats.py::…bootstraps_when_db_file_exists_without_sources_table` fail with "database is locked". Not fixed here — Plan E forbids production changes; needs its own fix branch after triage.
+- Do not commit `backend/research_spikes/local/`; it contains ignored private SQLite copies and raw result output. The official P7 raw-result hash is recorded in `manifests/p7.yml` (`sha256_at_recording`); do not re-run the CLI runner casually, as `latency_ms` fields change the file hash.
+- No version bump/changelog: Plan E remains research-only and explicitly forbids production versions, dependencies, schema, and behavior changes.
+- No P7 decision authorizes production implementation. Contracts land in Program 1/2/3 specifications during their own plans.
+
+## P8 Record (2026-06-12)
+
+- Artifact completeness and link integrity validated: all 24 inventory
+  artifacts present, 11 dossiers complete, every path reference in
+  reports/README resolves, all five downstream plans carry their handoff.
+- Specification requirements handed off as additive "Plan E P7 Research
+  Handoff" sections in `.agents/plans/D_current_system_failure_atlas.md`
+  (fine-grained diagnostics gates + Q06 reservation),
+  `B_math_extraction_distillation.md` (formula-preserving distillation,
+  selective-recovery invariants, context-enriched-chunks benchmark contract),
+  `C_graph_quality.md` (discriminative relation confidence as the blocking
+  gate, GQ07 threshold dial, hierarchy/PPR benchmark conditions),
+  `A_rag_retrieval_provenance.md` (query-relevant bounded global selection,
+  PPR reject-default, expansion explainability/budget invariants), and
+  `F_agent_context_service.md` (progressive disclosure, bounded-iteration
+  invariants, sufficiency-gate and routing postures).
+- CI re-validated after handoff edits: research suite `60 passed`; ruff clean.
+- Plan E master plan file deleted per Universal Strict Workflow step 11
+  (history preserved in git; read via `git show`).
+
+## Immediate Next Action
+
+Plan E is COMPLETE (P0-P8). PR #26 is ready for final human review and merge.
+After merge: truncate this relay to an IDLE stub and proceed to Plan D2
+(Batch 1 order D1 → E → D2) only on explicit user approval. Independently, the
+`[Hotfix] SQLite connection leak in db.init_db` item queued in ROADMAP is
+being handled as a side-task on its own `hotfix/*` branch from `master` (see
+update section below if present).
+
+### Update (2026-06-12, Claude Code) — Hotfix v0.6.1 side-task
+
+- Fixed the SQLite connection leak triaged as ROADMAP To-Do item 7
+  (`.agents/drafts/bug_sqlite_leak.md`) on `hotfix/v0.6.1-sqlite-connection-leak`
+  (branched from `master`, pushed).
+- Root cause: `db.init_db` used `with sqlite3.connect(...)`, which only
+  commits — it never closes. Fixed with an explicit `finally: conn.close()`,
+  mirroring `db.connect()`. Audited all other production `sqlite3.connect`
+  sites: Zotero readers and `db.connect()` already close properly.
+- TDD: new regression test
+  `test_db_schema.py::test_init_db_closes_its_connection_and_leaves_no_wal_sidecars`
+  (failed before fix on Ubuntu, passes after). The previously failing
+  `test_v021_status_stats` bootstrap test now passes. Full backend on the
+  hotfix branch: 643 passed, 0 failed. Ruff clean. Testbed smoke OK.
+- Version bumped 0.6.0 → 0.6.1 (pyproject/package.json/manifest.json) +
+  CHANGELOG entry. Release commit `chore(release): v0.6.1` pushed.
+- **BLOCKER: `gh` CLI is not authenticated on the new Ubuntu machine**, so the
+  PR could not be opened automatically. User action: run `gh auth login`, then
+  `gh pr create` from the hotfix branch, or open
+  https://github.com/ShinYwings/Incurator/pull/new/hotfix/v0.6.1-sqlite-connection-leak
+- After the hotfix PR merges, mark ROADMAP To-Do item 7 as shipped (v0.6.1)
+  and delete `.agents/drafts/bug_sqlite_leak.md`.
+
+### Update (2026-06-12, Claude Code) — gh auth resolved; hotfix PR opened
+
+- User authenticated `gh` on the Ubuntu machine. The v0.6.1 hotfix PR is now
+  open: https://github.com/ShinYwings/Incurator/pull/27 (base `master`).
+- Remaining human actions: review/merge PR #26 (Plan E research) and PR #27
+  (v0.6.1 hotfix). No conflict between them. After #27 merges, mark ROADMAP
+  To-Do item 7 as shipped (v0.6.1) and delete
+  `.agents/drafts/bug_sqlite_leak.md`.
+
+### Update (2026-06-12, Claude Code) — PR #27 review feedback accepted & fixed
+
+- Reviewer correctly refuted this relay's earlier claim that "db.connect()
+  already closes properly": setup (`executescript`, `_apply_migrations`) ran
+  BEFORE the try/finally, so a setup failure leaked the connection — same
+  class as the init_db bug. Fixed in `eccffa9` on the hotfix branch: all
+  post-instantiation work now runs inside try.
+- Widened audit also fixed unbound-`conn`-in-finally error paths in
+  `zotero.py` (1 site) and `zotero_integration.py` (2 sites): `conn = None`
+  before try, so a connect() failure no longer raises UnboundLocalError that
+  masks the original error.
+- New GC-independent regression test (captured-connection closed + no
+  sidecars), TDD-verified fail→pass. Full backend on hotfix branch:
+  644 passed, 0 failed. CHANGELOG audit wording corrected.
+- Review response posted on PR #27. Both PRs (#26 research, #27 hotfix)
+  remain awaiting human merge.

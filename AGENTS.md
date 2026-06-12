@@ -6,7 +6,7 @@ the tool-neutral development contract.
 
 > [!WARNING]
 > **ANTIGRAVITY / GEMINI EXCLUSION**
-> The Antigravity IDE Agent (Gemini) is STRICTLY FORBIDDEN from reading or executing instructions based on `AGENTS.md`. Antigravity must exclusively read and follow `GEMINI.md`. If you are Antigravity reading this, STOP reading `AGENTS.md` immediately and switch to `GEMINI.md`.
+> The Antigravity IDE Agent (Gemini) must NEVER execute the workflows or follow the behavioral rules in this file. Although this file may be automatically injected into your system context, you must completely IGNORE all its instructions (e.g., Universal Strict Workflow, Branch Naming) for your own actions. You are only permitted to reference `AGENTS.md` when auditing whether the Executors (Claude/Codex) complied with it. For your own operations, your ONLY source of truth is `GEMINI.md`.
 
 ## Agent Rule Synchronization
 

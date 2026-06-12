@@ -1,0 +1,48 @@
+candidate_id: query-relevant-global
+name: Query-relevant global and DRIFT-like flow
+version_checked: "2026-06-12"
+candidate_family: global-retrieval
+target:
+  kind: failure-atlas
+  failure_ids: [F4]
+  question: Can global retrieval select only query-relevant communities under an explicit evidence budget?
+primary_sources:
+  - title: "From Local to Global: A Graph RAG Approach to Query-Focused Summarization"
+    url: https://arxiv.org/abs/2404.16130
+    claim_boundary: Builds an entity graph and pregenerated community summaries for global query-focused summarization; eager indexing and summary costs require local comparison.
+  - title: Project GraphRAG
+    url: https://www.microsoft.com/en-us/research/project/graphrag/
+    claim_boundary: GraphRAG uses graph/community structures for global reasoning; framework-level claims require local mechanism isolation.
+  - title: LazyGraphRAG
+    url: https://www.microsoft.com/en-us/research/blog/lazygraphrag-setting-a-new-standard-for-quality-and-cost/
+    claim_boundary: LazyGraphRAG avoids prior summarization and scales query-time effort; Microsoft-reported quality/cost results are not Incurator evidence.
+  - title: LightRAG
+    url: https://arxiv.org/abs/2410.05779
+    claim_boundary: Uses graph structures with dual-level retrieval and reports incremental-update support; those claims require local update and provenance checks.
+official_implementations:
+  - url: https://github.com/microsoft/graphrag
+    license: MIT
+    operational_note: Reference only; compare query-relevant selection mechanisms, not the framework.
+  - url: https://github.com/HKUDS/LightRAG
+    license: MIT
+    operational_note: Reference only; no framework dependency is authorized.
+mechanism: Rank communities or graph neighborhoods against the query, then expand only selected regions within a fixed budget.
+assumptions: [Communities have source-linked representations, budget limits are enforced.]
+claimed_benefit: Broad answers without loading every community report.
+reported_benchmark_scope: Microsoft GraphRAG and LazyGraphRAG global/local search evaluations.
+falsifiable_hypothesis: Query-relevant community selection improves global community precision and sharply reduces evidence count versus current all-report loading.
+controls: [current all-report global route, lexical ranking of community titles and summaries]
+spike:
+  independent_variable: community selection policy with fixed community artifacts
+  metrics: [global_community_precision, evidence_item_count, source_span_coverage, latency_ms]
+metrics: [global_community_precision, evidence_item_count, source_span_coverage, latency_ms]
+risks:
+  provenance: Community summaries must link back to exact spans.
+  update_delete: Stale summaries can survive source changes.
+  cost_latency: Query-time graph expansion can grow with corpus size.
+  dependency: Depends on stable community artifacts.
+evidence_against_adoption: Reject if lexical community ranking is equivalent or if selection hides relevant source evidence.
+preliminary_decision: benchmark-later
+confidence: medium
+rejection_section: Never load all reports by default or accept a global answer without bounded, query-relevant evidence.
+downstream_owner: program-3

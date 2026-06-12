@@ -1,0 +1,67 @@
+version: 1
+wave: D
+recorded_at: "2026-06-12"
+hypotheses:
+  - Current extraction recovers text-layer formulas that parser-only output loses, but downstream distillation can still remove formulas already present in extraction.
+  - Confidence-gated selective recovery improves formula recall on proven-loss regions without overwriting raw evidence or accepting an ambiguous wrong candidate.
+  - Page-hash-bound recovery invalidates stale output on a changed source page and avoids reprocessing an unchanged formula page.
+  - Whole-corpus heavy recovery costs materially more than recovery limited to proven-loss pages.
+metric_semantics:
+  formula_recall: Set-based unique formula labels per fixture; duplicate occurrences do not change the denominator.
+  stale_recovery_served: Compares the independently simulated served page hash after refresh success/failure with the updated source-page hash.
+fixtures:
+  formula_recovery:
+    path: backend/research_spikes/corpora/formula_recovery.yml
+    sha256: fe7eb1ac5e9879729e0f4ccd389efa255607e4a21d3c2c430864fda861384a9d
+  evaluation_protocol:
+    path: backend/research_spikes/evaluation_protocol.yml
+    sha256: f664cd85b80660b865a76d9491176d31d8398015128621d5de33536988e6f366
+partitions:
+  measured: [dev, regression, adversarial]
+  holdout_accessed: false
+baseline_and_controls:
+  parser_only_control: parser formulas before raw-text fallback
+  current_extraction_baseline: parser output plus current raw-text fallback
+  downstream_boundary: current distillation output, measured separately from recovery policies
+  candidate: confidence-gated recovery on proven-loss regions only
+  rejected_default_control: whole-corpus heavy recovery
+budgets:
+  acceptance_confidence: 0.80
+  recovery_cost_per_page: 10
+metrics:
+  - parser_loss
+  - current_extraction_loss
+  - distillation_loss
+  - formula_recall
+  - recovery_candidate_error_rate
+  - accepted_recovery_error_rate
+  - hallucinated_replacement_rate
+  - raw_evidence_preservation
+  - selective_recovery_cost
+  - whole_corpus_recovery_cost
+  - update_invalidation_accuracy
+  - stale_recovery_served
+provider_model:
+  provider_calls: 0
+  model_judges: 0
+  prompts: none
+environment:
+  os: Darwin 25.3.0 arm64
+  cpu: Apple M1
+  python: 3.10.9
+commands:
+  - uv run --directory backend pytest -q tests/test_research_spikes_wave_d.py
+  - uv run --directory backend python research_spikes/wave_d.py
+raw_results:
+  path: backend/research_spikes/local/results/wave_d.json
+  sha256_at_recording: 52ab963b320c70050f250f9f576258f4ec2eb6117939b7e0bc7980452c378ad6
+  committed: false
+mutation_guard:
+  production_mutations: 0
+  authoritative_testbed_mutations: 0
+  production_state_read: false
+  provider_free: true
+role_separation:
+  dossier_author: research_methodologist
+  spike_executor: coder_engineer
+  decision_reviewer: peer_reviewer

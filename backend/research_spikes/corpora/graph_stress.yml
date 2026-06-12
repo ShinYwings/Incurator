@@ -1,0 +1,82 @@
+# Synthetic Plan E corpus. No live-vault content.
+version: 1
+description: >
+  Graph stress corpus for homonym separation, noisy bridge resistance,
+  query-relevant global selection, bounded expansion, and multi-hop recall.
+partitions:
+  dev: [GQ01, GQ02]
+  regression: [GQ03, GQ04]
+  adversarial: [GQ05, GQ06]
+  holdout: [GQ07]
+nodes:
+  - {id: N01, community: ml, label: Residual learning, provenance: SPAN-gs01}
+  - {id: N02, community: ml, label: Euler discretization, provenance: SPAN-gs02}
+  - {id: N03, community: ml, label: Neural ordinary differential equation, provenance: SPAN-gs03}
+  - {id: N04, community: ml, label: Attention mechanism, provenance: SPAN-gs04}
+  - {id: N05, community: reef, label: Coral bleaching, provenance: SPAN-gs05}
+  - {id: N06, community: reef, label: Symbiotic algae, provenance: SPAN-gs06}
+  - {id: N07, community: reef, label: Reef calcification, provenance: SPAN-gs07}
+  - {id: N08, community: reef, label: Mangrove nursery, provenance: SPAN-gs08}
+  - {id: N09, community: animal, label: Jaguar, provenance: SPAN-gs09}
+  - {id: N10, community: automobile, label: Jaguar, provenance: SPAN-gs10}
+  - {id: N11, community: animal, label: Amazon basin, provenance: SPAN-gs11}
+  - {id: N12, community: automobile, label: Straight-six engine, provenance: SPAN-gs12}
+  - {id: N13, community: distractor, label: Bridge noise alpha, provenance: SPAN-gs13}
+  - {id: N14, community: distractor, label: Bridge noise beta, provenance: SPAN-gs14}
+edges:
+  - {source: N01, target: N02, kind: interpretable-as, confidence: 0.95}
+  - {source: N02, target: N03, kind: generalizes-to, confidence: 0.95}
+  - {source: N01, target: N04, kind: co-mentioned, confidence: 0.20}
+  - {source: N05, target: N06, kind: caused-by-loss-of, confidence: 0.95}
+  - {source: N06, target: N07, kind: supports, confidence: 0.85}
+  - {source: N07, target: N08, kind: ecology-link, confidence: 0.25}
+  - {source: N09, target: N11, kind: habitat, confidence: 0.95}
+  - {source: N10, target: N12, kind: engine, confidence: 0.95}
+  - {source: N04, target: N13, kind: noisy-bridge, confidence: 0.05}
+  - {source: N13, target: N14, kind: noisy-bridge, confidence: 0.05}
+  - {source: N14, target: N05, kind: noisy-bridge, confidence: 0.05}
+queries:
+  - id: GQ01
+    partition: dev
+    family: associative
+    text: residual learning as a continuous-depth model
+    seeds: [N01]
+    expected_path: [N01, N02, N03]
+    forbidden: [N05, N06, N07]
+  - id: GQ02
+    partition: dev
+    family: global
+    text: summarize coral bleaching and symbiotic algae
+    expected_communities: [reef]
+    forbidden_communities: [ml, automobile]
+  - id: GQ03
+    partition: regression
+    family: associative
+    text: what organism loss drives coral bleaching
+    seeds: [N05]
+    expected_path: [N05, N06]
+    forbidden: [N13, N14]
+  - id: GQ04
+    partition: regression
+    family: global
+    text: summarize continuous-depth neural network concepts
+    expected_communities: [ml]
+    forbidden_communities: [reef, animal]
+  - id: GQ05
+    partition: adversarial
+    family: direct-factual
+    text: jaguar apex predator amazon basin
+    expected: [N09, N11]
+    hard_negatives: [N10, N12]
+  - id: GQ06
+    partition: adversarial
+    family: direct-factual
+    text: jaguar e-type straight-six engine
+    expected: [N10, N12]
+    hard_negatives: [N09, N11]
+  - id: GQ07
+    partition: holdout
+    frozen: true
+    family: associative
+    text: hidden holdout path
+    expected_path: [N06, N07, N08]

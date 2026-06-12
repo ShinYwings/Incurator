@@ -1,0 +1,73 @@
+version: 1
+recorded_at: "2026-06-12"
+repository:
+  branch: feature/plan-e-research
+  baseline_master_sha: 0f9b8f54f562480fe68fe10cfaf68b14461566a4
+  execution_start_sha: 6ee703c9607ee7594b2edf1f1308a045267b94f2
+  schema_version: 7
+  dirty_boundaries:
+    - .agents/RELAY.md
+    - GEMINI.md
+environment:
+  os: Darwin 25.3.0 arm64
+  cpu: Apple M1
+  memory_bytes: 8589934592
+  python: 3.14.5
+  uv: 0.11.8
+  node: 22.14.0
+  npm: 10.9.2
+  provider_model: not-required-for-p0-p1
+  tokenizer: not-required-for-p0-p1
+corpora:
+  failure_atlas:
+    fixture: docs/specs/failure_atlas/fixture_corpus.yml
+    fixture_sha256: 35301871bdd1e8e676d63c032e7c566d863a9760f94d1c00e5de8217e364603b
+    qrels: docs/specs/failure_atlas/qrels.yml
+    qrels_sha256: e3b254054779595aa4157df82db1c885356e3763f35430be0b23bb187c35c6a0
+  graph_stress:
+    fixture: backend/research_spikes/corpora/graph_stress.yml
+    privacy: synthetic
+  scale_snapshot:
+    storage: backend/research_spikes/local/snapshots/
+    policy: ignored-read-only-copy-only
+    production_source_sha256_at_p0: 45437346fa33026ea0482ccd2d0388070f736384fdc17d35034aac714a0e497c
+    production_copy_sha256: fb977f187a57430f4450c3787454fb0a7998d94991c51bd0bdd30805b84560fe
+    production_copy_bytes: 45297664
+    production_copy_schema_version: 6
+    production_source_unchanged_after_copy: true
+active_scenario:
+  name: complex_math_backprop
+  state_db: testbed/.curator/state.sqlite
+  state_db_sha256_at_p0: cfffd778763b12f98836130fe13fdf58c5e237f4e3a38d170e5e6ffc381674c6
+  copied_state_db_sha256: 96334114edfb1c5f7a1e55fe7dd891d38d2f2facf36560acd58ca9f6ecc279ce
+  copied_state_db_schema_version: 6
+  eligible_as_comparison_corpus: false
+  reason: Scenario plan contains retired EXH-era behavior and its DB is one schema behind current code; use only as copied diagnostic input.
+baseline_repeatability:
+  command: uv run --directory backend pytest -q tests/test_failure_atlas_eval.py tests/test_failure_atlas_repro.py
+  run_1: 21-passed-13-xfailed
+  run_2: 21-passed-13-xfailed
+  source_state_unchanged: true
+candidate_targets:
+  context-enriched-chunks: [F10]
+  passage-entity-ppr: [F8, F9, F11]
+  denoised-hierarchy: [F4, F8]
+  query-relevant-global: [F4]
+  kg-guided-expansion: [F8, F9, F11]
+  retrieval-sufficiency-gate: [F3, F4, F11]
+  complexity-aware-routing: [F3, F4]
+  bounded-iterative-retrieval: [F11]
+  progressive-context-disclosure: [F5, F12]
+  fine-grained-rag-diagnostics: [F1, F2, F12, F13]
+  selective-formula-recovery: architecture-neutral-control-pending-proven-loss
+mutation_guards:
+  - hash committed corpora before and after every run
+  - copy SQLite with online backup API from a read-only source connection
+  - hash source SQLite before and after copying
+  - open copied SQLite read-only for inspection
+  - never persist private source excerpts in committed artifacts
+role_separation:
+  dossier_author: research_methodologist
+  spike_executor: coder_engineer
+  decision_reviewer: peer_reviewer
+  execution_mode: simulated-sequential-distinct-reviews

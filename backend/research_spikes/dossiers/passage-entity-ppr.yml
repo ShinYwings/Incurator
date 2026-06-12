@@ -1,0 +1,39 @@
+candidate_id: passage-entity-ppr
+name: Passage/entity Personalized PageRank
+version_checked: "2026-06-12"
+candidate_family: graph-retrieval
+target:
+  kind: failure-atlas
+  failure_ids: [F8, F9, F11]
+  question: Can bounded PPR improve associative multi-hop recall while resisting homonym and noisy-bridge failures?
+primary_sources:
+  - title: "HippoRAG: Neurobiologically Inspired Long-Term Memory for Large Language Models"
+    url: https://arxiv.org/abs/2405.14831
+    claim_boundary: Combines an LLM-built knowledge graph with Personalized PageRank for associative retrieval.
+  - title: "From RAG to Memory: Non-Parametric Continual Learning for Large Language Models"
+    url: https://arxiv.org/abs/2502.14802
+    claim_boundary: HippoRAG 2 adds deeper passage integration and online LLM use; reported gains do not establish robustness to Incurator graph noise.
+official_implementations:
+  - url: https://github.com/OSU-NLP-Group/HippoRAG
+    license: MIT
+    operational_note: Reference only; spike isolates PPR and does not import the framework.
+mechanism: Seed a passage/entity graph from query retrieval and rank reachable evidence with restart-biased PageRank.
+assumptions: [Graph identities and edges are trustworthy enough for propagation, restart seeds are explainable.]
+claimed_benefit: Associative and multi-hop evidence recall beyond lexical overlap.
+reported_benchmark_scope: Multi-hop QA and associative-memory tasks on framework-specific graphs.
+falsifiable_hypothesis: Bounded PPR improves graph-stress multi-hop path recall over hybrid-only retrieval without homonym hard-negative or direct-factual regression.
+controls: [hybrid-only retrieval, one-hop seed expansion]
+spike:
+  independent_variable: PPR propagation from fixed seeds over the same frozen graph
+  metrics: [multihop_path_recall, hard_negative_outranks, direct_factual_recall_at_1, traversed_edge_budget]
+metrics: [multihop_path_recall, hard_negative_outranks, direct_factual_recall_at_1, traversed_edge_budget]
+risks:
+  provenance: Propagated nodes need seed and edge-path explanations.
+  update_delete: Edge changes can globally alter ranks.
+  cost_latency: Iterative graph ranking adds query cost.
+  dependency: Quality depends on Program 2 graph identity and relation quality.
+evidence_against_adoption: Noisy bridges or homonym merges that outrank correct evidence invalidate default use.
+preliminary_decision: benchmark-later
+confidence: medium
+rejection_section: Reject graph-only retrieval and any PPR result that cannot expose seeds and traversed paths.
+downstream_owner: program-3

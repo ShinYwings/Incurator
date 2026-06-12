@@ -1,0 +1,39 @@
+candidate_id: bounded-iterative-retrieval
+name: Bounded iterative retrieval
+version_checked: "2026-06-12"
+candidate_family: agentic-retrieval
+target:
+  kind: failure-atlas
+  failure_ids: [F11]
+  question: Can executed follow-up retrieval improve agent task completion under explicit iteration and token limits?
+primary_sources:
+  - title: RepoCoder
+    url: https://arxiv.org/abs/2303.12570
+    claim_boundary: Iterates retrieval and generation for repository-level code completion; generated-query drift and task specificity require local testing.
+  - title: CodeRAG-Bench
+    url: https://arxiv.org/abs/2406.14497
+    claim_boundary: Separates retrieval and end-to-end code-generation evaluation and reports remaining retrieval/context-integration weaknesses.
+official_implementations:
+  - url: https://github.com/microsoft/CodeT/tree/main/RepoCoder
+    license: MIT
+    operational_note: Reference only; the spike simulates bounded follow-up execution.
+mechanism: Execute a retrieval, inspect gaps, form one or more follow-up queries, and stop at success or a hard limit.
+assumptions: [Task-success oracle exists, each iteration preserves snapshot identity.]
+claimed_benefit: Resolve multi-step tasks that one-shot retrieval cannot complete.
+reported_benchmark_scope: Repository-level code completion and code RAG evaluation, not personal knowledge vaults.
+falsifiable_hypothesis: At most two executed follow-ups improve associative task success over one-shot retrieval without exceeding the fixed budget.
+controls: [one-shot retrieval, one deterministic follow-up]
+spike:
+  independent_variable: number and policy of executed follow-up retrievals
+  metrics: [task_success, retrieval_iterations, tokens_used, latency_ms, snapshot_consistency]
+metrics: [task_success, retrieval_iterations, tokens_used, latency_ms, snapshot_consistency]
+risks:
+  provenance: Later iterations must preserve evidence lineage.
+  update_delete: A changing corpus can mix snapshots across iterations.
+  cost_latency: Iteration multiplies retrieval and generation cost.
+  dependency: Follow-up generation may require an LLM.
+evidence_against_adoption: Reject if generated follow-ups drift, repeat evidence, or fail to beat deterministic follow-up controls.
+preliminary_decision: benchmark-later
+confidence: medium
+rejection_section: No loop may be unbounded, and rendered-but-unexecuted follow-ups do not count as iteration.
+downstream_owner: program-3

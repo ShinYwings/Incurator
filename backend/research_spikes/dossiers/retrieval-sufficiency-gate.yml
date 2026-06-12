@@ -1,0 +1,36 @@
+candidate_id: retrieval-sufficiency-gate
+name: Retrieval sufficiency and corrective gate
+version_checked: "2026-06-12"
+candidate_family: adaptive-retrieval
+target:
+  kind: failure-atlas
+  failure_ids: [F3, F4, F11]
+  question: Can an explicit sufficiency gate trigger bounded correction only when initial evidence is weak?
+primary_sources:
+  - title: Corrective Retrieval Augmented Generation
+    url: https://arxiv.org/abs/2401.15884
+    claim_boundary: CRAG uses a retrieval evaluator to trigger corrective actions and may use web search; web evidence is outside Incurator's vault-evidence contract.
+  - title: Self-RAG
+    url: https://arxiv.org/abs/2310.11511
+    claim_boundary: Self-RAG trains a model to retrieve and critique with reflection tokens; it is not a drop-in sufficiency classifier.
+official_implementations: []
+mechanism: Score whether initial evidence is sufficient, then stop, retry, or expand within a fixed correction budget.
+assumptions: [Sufficiency labels exist, corrective actions preserve the same snapshot and evidence boundary.]
+claimed_benefit: Avoid weak one-shot answers without paying correction cost for every query.
+reported_benchmark_scope: Open-domain QA and generation tasks with framework-specific evaluators and actions.
+falsifiable_hypothesis: A calibrated sufficiency gate improves weak-retrieval task success over one-shot retrieval at lower cost than always-correct.
+controls: [one-shot retrieval, always-run-one-correction]
+spike:
+  independent_variable: sufficiency decision policy with fixed retrieval and correction actions
+  metrics: [sufficiency_precision, sufficiency_recall, task_success, correction_rate, latency_ms]
+metrics: [sufficiency_precision, sufficiency_recall, task_success, correction_rate, latency_ms]
+risks:
+  provenance: Correction must not silently mix web or another snapshot.
+  update_delete: Gate labels and thresholds can drift after corpus changes.
+  cost_latency: Misclassification can waste a second retrieval or miss needed correction.
+  dependency: Model-based gate needs calibrated labels and provider identity.
+evidence_against_adoption: Reject if the fixed corrective policy performs as well or gate errors harm direct factual tasks.
+preliminary_decision: benchmark-later
+confidence: medium
+rejection_section: Web fallback cannot be presented as vault evidence; correction must be bounded and snapshot-stable.
+downstream_owner: program-3

@@ -1,0 +1,36 @@
+candidate_id: complexity-aware-routing
+name: Complexity-aware routing
+version_checked: "2026-06-12"
+candidate_family: adaptive-retrieval
+target:
+  kind: failure-atlas
+  failure_ids: [F3, F4]
+  question: Can measured query complexity choose a cheaper correct route more reliably than current or fixed-route policies?
+primary_sources:
+  - title: Adaptive-RAG
+    url: https://arxiv.org/abs/2403.14403
+    claim_boundary: Uses a smaller LM classifier to choose no-retrieval, single-step, or iterative strategies by question complexity.
+official_implementations:
+  - url: https://github.com/starsuzi/Adaptive-RAG
+    license: Apache-2.0
+    operational_note: Reference only; spike compares route policies on local labels.
+mechanism: Classify query/task complexity and select among explicit fixed retrieval routes.
+assumptions: [Route labels are defined by measured outcomes, each route has a bounded budget.]
+claimed_benefit: Better accuracy-cost balance than one fixed retrieval strategy.
+reported_benchmark_scope: Open-domain QA datasets with automatically collected complexity labels.
+falsifiable_hypothesis: Complexity-aware routing improves route accuracy and task success per token over current and always-complex controls.
+controls: [current router, always-local, always-most-complex-route]
+spike:
+  independent_variable: route-selection policy over unchanged route implementations
+  metrics: [route_accuracy, task_success, tokens_used, latency_ms]
+metrics: [route_accuracy, task_success, tokens_used, latency_ms]
+risks:
+  provenance: Route selection must be recorded with evidence and snapshot identity.
+  update_delete: Route labels may become stale as retrieval changes.
+  cost_latency: Classifier overhead can exceed savings on simple queries.
+  dependency: A learned classifier requires representative labeled queries.
+evidence_against_adoption: Reject if a simple deterministic rule or fixed route matches accuracy-cost performance.
+preliminary_decision: benchmark-later
+confidence: medium
+rejection_section: Never infer route quality from aggregate answer score alone or allow an unbounded route.
+downstream_owner: program-3

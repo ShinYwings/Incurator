@@ -1,0 +1,35 @@
+candidate_id: selective-formula-recovery
+name: Selective formula recovery
+version_checked: "2026-06-12"
+candidate_family: extraction-recovery
+target:
+  kind: architecture-neutral-control
+  question: After a proven parser loss, can selective visual recovery restore formulas without overwriting raw evidence or hallucinating replacements?
+primary_sources:
+  - title: Nougat
+    url: https://arxiv.org/abs/2308.13418
+    claim_boundary: Uses a visual transformer to convert scientific documents to markup and targets semantic loss in PDFs, especially mathematical expressions.
+official_implementations:
+  - url: https://github.com/facebookresearch/nougat
+    license: MIT
+    operational_note: Heavy reference implementation; default whole-corpus processing is outside scope.
+mechanism: Detect proven formula-loss regions and run visual recovery only on those regions while retaining raw parser output and uncertainty.
+assumptions: [A deterministic loss detector and formula ground truth exist before recovery runs.]
+claimed_benefit: Restore formulas that text parsers demonstrably lose.
+reported_benchmark_scope: Scientific-document OCR and markup conversion, not incremental personal-vault extraction.
+falsifiable_hypothesis: Selective recovery improves formula recall on proven-loss fixtures with zero raw-evidence overwrite and an acceptably low hallucinated-replacement rate.
+controls: [current parser, parser-only postprocessing]
+spike:
+  independent_variable: selective visual recovery on pre-labeled loss regions only
+  metrics: [formula_recall, hallucinated_replacement_rate, raw_evidence_preservation, processing_cost]
+metrics: [formula_recall, hallucinated_replacement_rate, raw_evidence_preservation, processing_cost]
+risks:
+  provenance: Recovered markup may be mistaken for raw source.
+  update_delete: Recovery outputs must invalidate with source-page changes.
+  cost_latency: Vision processing is expensive.
+  dependency: Heavy model/runtime and model-license implications require separate review.
+evidence_against_adoption: Without a reproduced parser-loss fixture this candidate cannot advance beyond benchmark-later.
+preliminary_decision: benchmark-later
+confidence: low
+rejection_section: Reject default whole-corpus VLM processing and any recovery that overwrites raw evidence.
+downstream_owner: program-2

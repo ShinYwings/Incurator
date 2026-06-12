@@ -1,0 +1,65 @@
+# Synthetic Wave A corpus. Generated context is explicitly non-authoritative.
+version: 1
+documents:
+  - record_id: ATM-ru01
+    heading: Emergency procedure
+    raw_chunk: Hold the amber switch for seven seconds to flush stale entries.
+    generated_context: This procedure belongs to the Triton cache invalidation handbook.
+    source_span_ids: [SPAN-ru01]
+  - record_id: ATM-ru02
+    heading: Emergency procedure
+    raw_chunk: Hold the amber switch for three seconds to reset the navigation display.
+    generated_context: This procedure belongs to the Pelican navigation display handbook.
+    source_span_ids: [SPAN-ru02]
+  - record_id: ATM-ru03
+    heading: Residual optimization
+    raw_chunk: Residual connections let layers fit residual functions instead of full mappings.
+    generated_context: This chunk explains deep neural network optimization.
+    source_span_ids: [SPAN-ru03]
+  - record_id: ATM-ru04
+    heading: Coral heat response
+    raw_chunk: Heat stress causes corals to expel symbiotic algae.
+    generated_context: This chunk explains the biological mechanism of coral bleaching.
+    source_span_ids: [SPAN-ru04]
+  - record_id: ATM-ru05
+    heading: Emergency procedure
+    raw_chunk: Hold the amber switch for nine seconds to clear the ballast warning.
+    generated_context: This procedure belongs to the Narwhal ballast controller handbook.
+    source_span_ids: [SPAN-ru05]
+queries:
+  - id: RUQ01
+    partition: dev
+    family: source-scoped
+    text: Triton operational recovery duration
+    expected: [ATM-ru01]
+    expected_spans: [SPAN-ru01]
+    hard_negatives: [ATM-ru02, ATM-ru05]
+  - id: RUQ02
+    partition: regression
+    family: direct-factual
+    text: residual connections fit residual functions
+    expected: [ATM-ru03]
+    expected_spans: [SPAN-ru03]
+    hard_negatives: []
+  - id: RUQ03
+    partition: regression
+    family: direct-factual
+    text: heat stress coral expel symbiotic algae
+    expected: [ATM-ru04]
+    expected_spans: [SPAN-ru04]
+    hard_negatives: []
+  - id: RUQ04
+    partition: adversarial
+    family: source-scoped
+    text: Pelican operational recovery duration
+    expected: [ATM-ru02]
+    expected_spans: [SPAN-ru02]
+    hard_negatives: [ATM-ru01, ATM-ru05]
+  - id: RUQ05
+    partition: holdout
+    frozen: true
+    family: source-scoped
+    text: hidden source-scoped holdout
+    expected: [ATM-ru05]
+    expected_spans: [SPAN-ru05]
+    hard_negatives: [ATM-ru01, ATM-ru02]
