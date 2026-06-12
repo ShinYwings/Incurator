@@ -31,7 +31,7 @@ after_counts="$(authoritative_counts)"
 test "$before_counts" = "$after_counts"
 
 before_traces="$(sqlite3 "$db_path" "SELECT COUNT(*) FROM query_traces;")"
-VAULT_ROOT="$vault_root" python - <<'PY'
+VAULT_ROOT="$vault_root" python3 - <<'PY'
 import os
 from pathlib import Path
 
@@ -63,7 +63,7 @@ sqlite3 "$db_path" "
   FROM query_traces ORDER BY created_at DESC LIMIT 1;
 " | grep -q '"mode"'
 
-python -m pytest -q \
+python3 -m pytest -q \
   backend/tests/test_failure_atlas_experiments.py::test_unchanged_rebuild_is_id_stable_at_l1_and_search \
   backend/tests/test_failure_atlas_experiments.py::test_rename_as_new_source_duplicates_every_span \
   backend/tests/test_failure_atlas_repro.py::test_f7_baseline_no_dependency_invalidation_and_stale_spans_linger

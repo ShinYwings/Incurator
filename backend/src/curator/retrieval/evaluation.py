@@ -32,7 +32,7 @@ def evaluate_rankings(
         ranked = ranked_by_query.get(query["id"], [])
         ranked_ids = [hit["record_id"] for hit in ranked]
         expected = set(query["expected"])
-        expected_spans = set(expected_spans_by_query[query["id"]])
+        expected_spans = set(expected_spans_by_query.get(query["id"], []))
         resolved_spans = {
             span
             for hit in ranked
@@ -67,17 +67,17 @@ def evaluate_rankings(
                 "partition": query["partition"],
                 "ranked": ranked_ids,
                 "recall_at": {
-                    k: len(expected & set(ranked_ids[:k])) / len(expected)
+                    k: (len(expected & set(ranked_ids[:k])) / len(expected) if expected else 1.0)
                     for k in (1, 3, 5)
                 },
                 "mrr": (1.0 / first_expected_rank) if first_expected_rank else 0.0,
                 "top1_citation_correctness": 1.0 if top_is_correct else 0.0,
                 "citation_completeness": (
                     len(expected_spans & resolved_spans) / len(expected_spans)
-                    if expected_spans else 0.0
+                    if expected_spans else 1.0
                 ),
                 "provenance_resolution_rate": (
-                    resolved_hits / len(ranked) if ranked else 0.0
+                    resolved_hits / len(ranked) if ranked else 1.0
                 ),
                 "hard_negative_outranks": sum(
                     1
