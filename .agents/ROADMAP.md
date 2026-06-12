@@ -42,15 +42,22 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
        records F1–F13 (all reproduced & assigned), deterministic
        repro/oracle/contract/experiment/eval suites, frozen fixture corpus +
        qrels + baseline.
-     - **Plan E Wave D completed; awaiting PM review before P7** (2026-06-12).
-       P0/P1 established immutable multi-tier inputs and primary-source
-       dossiers; P2 froze the evaluation protocol; Wave A completed
-       retrieval-unit and fine-grained diagnostic controls. Wave B completed
-       graph, hierarchy, global-selection, and graph-guided expansion controls
-       (approved). Wave C completed complexity-routing, sufficiency-gating,
-       bounded-iterative, and progressive-disclosure serving controls (approved).
-       Wave D completed conditional formula-recovery controls; execution is
-       stopped before P7 untouched holdout and decision synthesis pending review.
+     - **Plan E P7 completed; awaiting PM review of the decision package
+       before P8 handoff** (2026-06-12). P7 consumed the four research-spike
+       holdout items (RUQ05/GQ07/HQ01/FR05) exactly once under frozen
+       configurations, passed all five red teams (provenance, leakage,
+       framework bias, cost, update/delete), and issued final scoped
+       decisions: 4 `adopt-contract` (fine-grained diagnostics → Plan D2;
+       query-relevant-global and progressive-context-disclosure → Program 3;
+       formula-preserving-distillation → Program 2), 2 `reject-default`
+       (unfiltered PPR, whole-corpus heavy recovery), rest `benchmark-later`.
+       The Failure Atlas qrels holdout (Q06) remains reserved for D2. See
+       `backend/research_spikes/reports/p7.md`. No decision authorizes
+       production implementation.
+       Earlier phases: P0/P1 established immutable multi-tier inputs and
+       primary-source dossiers; P2 froze the evaluation protocol; Waves A-D
+       (retrieval units, graph/hierarchy/global/expansion, serving policies,
+       conditional formula recovery) all completed and were approved.
    - Batch 2: `.agents/plans/B_math_extraction_distillation.md` →
      `.agents/plans/C_graph_quality.md`
    - Batch 3: `.agents/plans/A_rag_retrieval_provenance.md` →
@@ -89,8 +96,10 @@ The specific To-Do list for the roadmap is migrated from the user's Inbox (`.age
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
 - **Active Milestone**: **Plan E (External Research Design Matrix)**.
-  Plan D1 (v0.6.0) has been officially shipped and merged. Plan E P0/P1/P2 and
-  Waves A/B/C are complete and approved. Wave D is complete; execution is
-  stopped at the mandatory PM review gate before P7.
+  Plan D1 (v0.6.0) has been officially shipped and merged. Plan E P0/P1/P2,
+  Waves A/B/C/D, and the P7 untouched holdout + red team + decision synthesis
+  are complete. Execution is stopped at the mandatory PM review gate: the P7
+  decision package (`backend/research_spikes/reports/p7.md`) awaits approval
+  before P8 (research validation and handoff).
 - **Next in Queue**: Plan D2 (following Plan E completion).
   Execution order: Batch 1 `D1 → E → D2`, Batch 2 `B → C`, Batch 3 `A → F`. Implementation starts only on explicit user approval.

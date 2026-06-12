@@ -23,6 +23,11 @@ modules must never import anything from this directory.
 - `wave_d.py`: deterministic Wave D formula-loss/recovery/update runner
   (provider-free; reads only the committed corpus).
 - `reports/wave_d.md`: scoped Wave D results, decisions, and limitations.
+- `p7_holdout.py`: P7 single-run untouched-holdout runner, red-team audits,
+  and decision synthesis (provider-free; consumes RUQ05/GQ07/HQ01/FR05 once).
+- `reports/p7.md`: final holdout results, red-team outcomes, and scoped
+  decision records mapped to Programs 1/2/3.
+- `manifests/p7.yml`: frozen P7 inputs, holdout access record, and decisions.
 - `contracts.py`: validation and mutation-guard helpers.
 - `prepare_inputs.py`: copies SQLite databases with SQLite's online backup API,
   verifies that sources were unchanged, and writes only under ignored `local/`.

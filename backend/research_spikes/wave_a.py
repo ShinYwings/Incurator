@@ -51,7 +51,13 @@ def _body(document: dict[str, Any], variant: str) -> str:
     return f"[GENERATED CONTEXT] {document['generated_context']}\n{document['raw_chunk']}"
 
 
-def _evaluate_variant(corpus: dict[str, Any], variant: str, mode: str) -> dict[str, Any]:
+def _evaluate_variant(
+    corpus: dict[str, Any],
+    variant: str,
+    mode: str,
+    *,
+    partitions: set[str] = MEASURED_PARTITIONS,
+) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as temp:
         db_path = Path(temp) / "state.sqlite"
         db.init_db(db_path)
@@ -76,7 +82,7 @@ def _evaluate_variant(corpus: dict[str, Any], variant: str, mode: str) -> dict[s
 
         cases: list[dict[str, Any]] = []
         for query in corpus["queries"]:
-            if query["partition"] not in MEASURED_PARTITIONS:
+            if query["partition"] not in partitions:
                 continue
             result = engine.search(
                 query["text"], mode=mode, limit=5, rerank=False, persist=False
@@ -112,7 +118,7 @@ def _evaluate_variant(corpus: dict[str, Any], variant: str, mode: str) -> dict[s
             "variant": variant,
             "mode": mode,
             "indexed_characters": indexed_characters,
-            "holdout_measured": False,
+            "holdout_measured": "holdout" in partitions,
             "cases": cases,
         }
 
