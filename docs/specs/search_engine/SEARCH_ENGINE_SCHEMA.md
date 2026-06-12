@@ -335,3 +335,44 @@ Rules:
 - If the query expander or reranker is unavailable, answer-producing retrieval
   still returns ranked candidates from the available stages and records explicit
   warnings.
+
+## 10. Compiler-Generation Publish And Full-Span Evidence Hydration (v0.8.0)
+
+Plan B (Evidence Compiler Integrity) binds search-derived state into the
+staged compiler generation contract (SCHEMA.md §20.3, SYSTEM_BEHAVIOR §26.3)
+and removes the preview-as-evidence defect (Failure Atlas F10).
+
+### 10.1 Generation-Aware Materialization
+
+- Search materialization derived from Plan-B-owned compiled records
+  (knowledge units and their projections) is part of the staged generation:
+  it is built for the staged scope, validated by the publish gate, and
+  becomes visible only when the generation flips to `authoritative`.
+- A discarded generation leaves prior search state untouched; rollback after
+  a failed publish re-emits search-derived state from the prior authoritative
+  generation, never from staged leftovers.
+- Retired (`retired_at` set) and `failed`/`stale` claims are excluded from
+  materialization. The compiler audit asserts zero retired/staged records in
+  the served index.
+- Unchanged rebuild produces byte-identical search rows for unchanged records
+  (the existing `(record_type, record_id)` upsert idempotency is preserved
+  and now asserted per generation).
+
+### 10.2 Full-Span Evidence Hydration (F10)
+
+- `source_spans.text_preview` remains a 200-character display preview in the
+  DB; it is NEVER presented as the sufficient source evidence for a span
+  longer than the preview.
+- Evidence surfaces (evidence packs, source-section route items,
+  entity-derived span items) hydrate the exact span text from the registered
+  source file via `start_char`/`end_char` at evidence-build time, verifying
+  the hydrated text against the span's `content_hash`.
+- Hash mismatch or unreadable source marks the evidence item explicitly
+  `stale`/`unavailable` — the preview is not silently substituted.
+- Hydrated long spans may be served in explicitly chunked, expandable form;
+  each chunk carries its parent `SPAN-` id so citation provenance is
+  unchanged.
+- Central-formula spans (`span_type='equation'`) hydrate with exact source
+  text and delimiters; destructive truncation of formula-bearing statements
+  in graph input and search materialization is removed (SYSTEM_BEHAVIOR
+  §26.2).

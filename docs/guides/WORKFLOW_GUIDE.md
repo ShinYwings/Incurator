@@ -457,6 +457,38 @@ Every query records a `QTR-` trace linking its route, evidence, and prompt runs.
 
 ---
 
+## 10. v0.8.0 Evidence Compiler Integrity
+
+v0.8.0 hardens the forward compile flow of §9 with claim-level grounding and
+atomic publishes (specs: SCHEMA.md §20, SYSTEM_BEHAVIOR.md §26):
+
+- **Minimal claim support**: `wiki build` records, per L2 claim, the minimal
+  span set that entails it (`claim_supports` rows with roles
+  `primary`/`contextual`/`formula`) and validates it. A real span id alone is
+  no longer treated as proof of support.
+- **Staged generations**: each compile runs inside a `GEN-` compiler
+  generation. DB rows, dependencies, markdown projections, and search rows
+  publish together only after the audit gate passes; a failed compile
+  discards the staged generation and the previous one keeps serving.
+- **Idempotent rebuilds**: re-running `wiki build` on unchanged sources reuses
+  the authoritative generation's ids, hashes, and counts — no duplicate
+  accumulation.
+- **Edit/delete/split reconciliation**: changing a source regenerates only its
+  measured dependency closure; claims that lost their source basis are
+  retired (kept for audit, removed from serving), and stale spans are
+  reconciled instead of lingering.
+- **Formula lifecycle**: central formulas survive distillation intact or as
+  exactly linked formula evidence. Selective visual recovery runs only on
+  measured loss regions (`fragmented`/`image_only`/`parser_omitted`), is
+  stored separately from raw evidence, and never overwrites parser output.
+- **Full-span evidence**: evidence packs hydrate the exact span text from the
+  source file (hash-verified) instead of presenting the 200-character preview
+  as the evidence.
+- **Audit in lint**: `wiki lint` reports the Compiler Integrity findings and
+  fails on release-blocking violations, so CI and testbeds can gate on it.
+
+---
+
 ## Related Docs
 
 - [Plugin Guide](PLUGIN_GUIDE.md) — Obsidian plugin features in detail

@@ -1495,3 +1495,154 @@ Quality Stabilization program as a versioned Failure Atlas.
   committed result and never reruns it.
 - The tracked testbed template is the current-architecture F13 oracle and
   covers truth, DB-native retrieval, agent reuse, and incremental correctness.
+
+## 26. Evidence Compiler Integrity (Plan B, v0.8.0)
+
+v0.8.0 is the first Evidence Compiler Integrity release. It makes Markdown/PDF
+source truth compile into stable, minimal, claim-level grounded L2 knowledge
+without formula loss, unsupported broad-span grounding, duplicate
+accumulation, stale records, or partial authoritative publishes. The frozen
+schema names live in SCHEMA.md §20; this section freezes the behavior.
+Owned failure-atlas cases: F6, F7, F10. F8/F9 (graph) stay with Plan C;
+F3/F4/F5/F11/F12 stay with Program 3.
+
+### 26.1 Claim-Level Minimal Support Lifecycle
+
+- Extraction (the versioned knowledge-unit prompt contract) must declare, per
+  claim, the minimal span set that entails it, with roles
+  `primary | contextual | formula`. The compiler persists these as
+  `claim_supports` rows in the `unchecked` state.
+- Support validation promotes a support row to `verified` only via:
+  1. deterministic gold checks (release oracles — exact-match/structural
+     checks against labeled fixtures), and
+  2. secondary calibrated model validation for non-gold claims, recorded with
+     a `PTR-` validator trace.
+  A valid span id alone NEVER proves support (the F6 anti-pattern).
+- A claim whose cited spans fail minimal-support validation is marked
+  `support_status='failed'` with a reason; it is excluded from downstream
+  compile stages and flagged by the compiler audit. Wrong-real-span citations
+  are a release-blocking gate (0 accepted on gold fixtures).
+- Evidence freshness: every audit pass re-compares `claim_supports.evidence_hash`
+  against the cited span's current `content_hash`; a mismatch marks the
+  support row and unit `stale`. Stale units leave downstream surfaces until
+  re-validated against current source truth.
+- Broad-fallback removal: no Plan-B-owned source-pair/L2 or non-graph
+  generated-claim path may substitute an all-upstream-span set for missing
+  claim-level support. Downstream compiler prompts receive claim-scoped
+  evidence only. Graph/community-report fallback occurrences are measured,
+  reported by the audit, and handed to Plan C explicitly.
+
+### 26.2 Formula Lifecycle And Selective Recovery
+
+- Formula-preserving distillation (adopted Plan E contract): every
+  distillation stage carries an explicit preservation check — the formula set
+  present in authoritative extraction must be a subset of
+  distillation-visible evidence, or an explicit recorded exception
+  (`omitted_incidental` with reason code) exists. Silent formula drops are a
+  release-blocking defect. Visual recovery is NOT a substitute for this check.
+- Central formulas survive in one of two valid forms (Arena decision 7):
+  intact in the concise claim text (`formula_status='preserved_in_text'`), or
+  exactly referenced formula evidence (`linked_evidence` + a `formula`
+  support row). Destructive central-formula truncation in graph input and
+  search materialization is removed.
+- Selective recovery runs only after a measured loss verdict
+  (`fragmented | image_only | parser_omitted`) where parser output, raw text,
+  and current extraction all miss the region. Whole-corpus/every-page VLM
+  processing is rejected. Recovery output is additive
+  (`source_spans.metadata.formula_recovery`, SCHEMA §20.4), labeled with full
+  lineage, and lifecycle-gated (`candidate | reviewed | rejected`) — parseable
+  LaTeX alone verifies nothing.
+- Below-threshold confidence keeps a claim's `formula_status='uncertain'`
+  and out of served formulas. A changed page hash invalidates exactly that
+  page's candidates.
+
+### 26.3 Staged Compile Generations And Atomic Publish
+
+- Every Plan-B-owned compile runs inside a `GEN-` generation
+  (SCHEMA §20.3). Rows, dependency records, markdown projections, and
+  search-derived state for the scope publish together or not at all.
+- Publish gate: the generation flips to `authoritative` only after the
+  compiler audit validates required rows, dependencies, projections, and
+  search materialization for its scope. Failed validation discards the staged
+  generation; the prior authoritative generation, its projections, and its
+  search state remain untouched and continue serving.
+- Unchanged rebuild is idempotent: same source content + same prompt contract
+  version reuses the authoritative generation's claim ids, hashes, dependency
+  closure, and counts — no duplicate accumulation, no count amplification.
+- Query, evidence, and search surfaces read only authoritative-generation
+  rows. Staged rows are invisible everywhere outside the compiler.
+
+### 26.4 Source Edit/Delete/Split Reconciliation
+
+- A source edit/delete/split triggers reconciliation over the complete
+  measured downstream dependency closure (via `artifact_dependencies`):
+  - unchanged claims (per `semantic_hash` candidates + validation) keep their
+    ids and verified supports;
+  - changed claims are re-extracted and re-validated within the new staged
+    generation;
+  - claims whose source basis disappeared are retired (`retired_at` set),
+    never silently deleted; their dependents are invalidated and regenerated
+    or retired;
+  - stale spans of the edited source are reconciled (removed or tombstoned)
+    instead of lingering beside their replacements (F7).
+- `semantic_hash` proposes reconciliation candidates only; materially
+  different claims/equations are never auto-merged.
+- One-source mutation regenerates only the expected dependency closure —
+  measured and asserted by tests, not assumed.
+
+### 26.5 Compiler Audit Surface
+
+- The audit is read-only and runs (a) as the staged-generation publish gate
+  and (b) on demand via `wiki lint`, which gains a Compiler Integrity section
+  reporting: unsupported/failed/stale claim counts, evidence-hash mismatches,
+  broad-fallback findings (with Plan-C assignment for graph/report cases),
+  orphan/staged leftovers, duplicate-claim candidates, and formula-status
+  inconsistencies (SCHEMA §20.5 assertions).
+- `wiki lint` exits non-zero when a release-blocking audit assertion fails,
+  so CI and the testbed can gate on it. Existing lint checks are unchanged.
+- Surface scope: CLI only in v0.8.0. No MCP tool schema changes and no plugin
+  contract changes (PLUGIN_SCHEMA.md is intentionally untouched apart from the
+  synchronized version title). MCP/plugin clients observe Plan B only through
+  better evidence: full-span hydration (SEARCH_ENGINE_SCHEMA §10) and
+  support/formula labels already carried on returned records.
+
+### 26.6 Migration Rehearsal And Rollback Acceptance Criteria
+
+The v8 migration (SCHEMA §20.6) ships only with a rehearsed rollback path.
+Acceptance criteria — ALL must pass before the migration may touch a real
+vault DB, and they are encoded as tests in P3:
+
+1. Rehearsal runs on a disposable copy of the pre-implementation backup
+   (`.agents/backups/b-pre-implementation-state.sqlite`) — never first on the
+   live testbed DB.
+2. Post-migration: `PRAGMA integrity_check` = ok; `schema_version` row = 8;
+   all pre-existing row counts unchanged; every legacy `knowledge_units` row
+   reads `support_status='unchecked'`, `formula_status='not_applicable'`,
+   `retired_at IS NULL`, `generation_id IS NULL`; zero `claim_supports` and
+   zero `compiler_generations` rows exist.
+3. Idempotency: running the migration twice is a no-op the second time.
+4. Round-trip: `wiki db export` → `wiki db import` on a migrated DB preserves
+   the new tables/columns; tombstones for the two new tables apply
+   deletion-before-upsert as in §13.1.
+5. Restore drill: replacing the migrated DB with the backup and re-running
+   the migration reproduces an identical schema fingerprint (SHA-256 over
+   ordered `sqlite_master` DDL).
+6. Failure rollback: if migration or the post-migration audit fails, restore
+   the DB backup, discard staged generations, re-emit projections/search from
+   the prior authoritative state, and (after three repeated QA failures)
+   return to planning via the rollback strategist.
+7. Clean rebuild remains available: source truth under `03_Notes/` /
+   `04_Resources/` is never modified by migration, compile, or rollback.
+
+### 26.7 Testbed Validation (Plan B)
+
+- The confirmed active scenario is initialized and exercised with
+  `VAULT_ROOT=testbed wiki status|add|update|lint`; the historical
+  `complex_math_backprop` scenario is rewritten as the math-specific scenario
+  against current DB-native L1-L4 and Reference Mode behavior rather than
+  assumed to exist.
+- Markdown, local PDF, and Reference Mode external PDF paths are all
+  validated. Provider-backed extraction/recovery runs where available;
+  otherwise every deterministic/local-simulator gate runs and the exact
+  provider blocker is documented (this is the only accepted gap).
+- No source or reference file is autonomously edited at any point.
