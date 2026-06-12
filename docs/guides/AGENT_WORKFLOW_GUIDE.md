@@ -88,3 +88,45 @@ This document defines the official operational scenarios and tool interaction pa
 
 *   **No Silent Fallbacks**: During initialization or workspace scoping, the system MUST NOT fallback to `last_root` or CWD if the target path is not within a valid vault. It must fail explicitly to prevent data corruption.
 *   **Immutability Hierarchy**: Original sources (`03_Notes`) are never modified by the MCP server. All corrections happen within the DAG (`.curator/`) or via promotion to `02_Wiki/`.
+
+---
+
+## 5. Failure Atlas Diagnostics (Program 1)
+
+The Failure Atlas (`docs/specs/failure_atlas/FAILURE_ATLAS.md`) is the
+versioned record of every known end-to-end quality failure (F1–F13) in the
+RAG/DAG system, with deterministic reproductions and frozen oracles. Agents
+working on retrieval, the compiler pipeline, or client surfaces MUST consult it
+before changing behavior in those areas.
+
+### 5.1 Running the diagnostic suite
+
+```bash
+export UV_PROJECT_ENVIRONMENT="$(git rev-parse --show-toplevel)/.venv"
+# Atlas record integrity (schema, lifecycle, snapshot identities)
+uv run --directory backend pytest tests/test_failure_atlas_contract.py -q
+# Deterministic reproductions (baseline + strict-xfail oracles)
+uv run --directory backend pytest tests/test_failure_atlas_repro.py -q
+# Mutation/degradation/atomicity experiments
+uv run --directory backend pytest tests/test_failure_atlas_experiments.py -q
+# Frozen retrieval baseline (holdout is never measured)
+uv run --directory backend pytest tests/test_failure_atlas_eval.py -q
+```
+
+### 5.2 Rules when your change touches an atlas case
+
+*   **Baseline tests pin current behavior**: `test_f*_baseline_*` passing means
+    the documented defect still exists. If your change makes a baseline test
+    fail, you have changed measured behavior — update the corresponding
+    `docs/specs/failure_atlas/cases/F*.yml` record in the same commit.
+*   **Oracle tests are the handoff**: `test_f*_oracle_*` are
+    `xfail(strict=True)`. Fixing a failure makes its oracle XPASS, which fails
+    CI on purpose. Remove the marker, flip the case record's status with a new
+    `status_history` entry, and update the baseline test — all in the fixing
+    commit. Never weaken an oracle to make it pass; oracle renegotiation
+    requires a new atlas version per `FAILURE_ATLAS.md` §3.
+*   **Capture before repair**: no production behavior may be repaired before
+    its current failure baseline is captured in the atlas.
+*   **No holdout tuning**: queries in the `holdout` partition of
+    `docs/specs/failure_atlas/qrels.yml` are frozen and must never be used to
+    develop or tune retrieval changes.

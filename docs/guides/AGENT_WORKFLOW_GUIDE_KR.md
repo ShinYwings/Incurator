@@ -90,3 +90,46 @@
 
 *   **조용한 폴백 금지**: 초기화 또는 워크스페이스 스코핑 중에 대상 경로가 유효한 Vault 내에 없는 경우 시스템은 절대로 `last_root`나 CWD로 폴백해서는 안 됩니다. 데이터 손상을 방지하기 위해 명시적으로 실패해야 합니다.
 *   **불변성 계층구조**: 원본 소스(`03_Notes`)는 MCP 서버에 의해 절대 수정되지 않습니다. 모든 수정은 DAG(`.curator/`) 내부에서 일어나거나 `02_Wiki/`로의 승격을 통해 이루어집니다.
+
+---
+
+## 5. Failure Atlas 진단 (Program 1)
+
+Failure Atlas(`docs/specs/failure_atlas/FAILURE_ATLAS.md`)는 RAG/DAG 시스템의
+알려진 모든 end-to-end 품질 결함(F1–F13)을 결정론적 재현과 동결된 오라클과
+함께 기록한 버전 관리 문서입니다. 검색(retrieval), 컴파일러 파이프라인,
+클라이언트 표면을 수정하는 에이전트는 해당 영역의 동작을 변경하기 전에 반드시
+이 문서를 확인해야 합니다.
+
+### 5.1 진단 스위트 실행
+
+```bash
+export UV_PROJECT_ENVIRONMENT="$(git rev-parse --show-toplevel)/.venv"
+# Atlas 레코드 무결성 (스키마, 라이프사이클, 스냅샷 식별자)
+uv run --directory backend pytest tests/test_failure_atlas_contract.py -q
+# 결정론적 재현 (baseline + strict-xfail 오라클)
+uv run --directory backend pytest tests/test_failure_atlas_repro.py -q
+# 변이/성능저하/원자성 실험
+uv run --directory backend pytest tests/test_failure_atlas_experiments.py -q
+# 동결된 검색 베이스라인 (holdout은 절대 측정하지 않음)
+uv run --directory backend pytest tests/test_failure_atlas_eval.py -q
+```
+
+### 5.2 변경 사항이 Atlas 케이스에 닿을 때의 규칙
+
+*   **Baseline 테스트는 현재 동작을 고정합니다**: `test_f*_baseline_*`가
+    통과한다는 것은 문서화된 결함이 여전히 존재한다는 뜻입니다. 변경으로 인해
+    baseline 테스트가 실패하면 측정된 동작이 바뀐 것이므로, 같은 커밋에서
+    해당 `docs/specs/failure_atlas/cases/F*.yml` 레코드를 갱신해야 합니다.
+*   **Oracle 테스트는 핸드오프 장치입니다**: `test_f*_oracle_*`는
+    `xfail(strict=True)`입니다. 결함을 고치면 해당 오라클이 XPASS가 되어
+    의도적으로 CI가 실패합니다. 고치는 커밋에서 마커를 제거하고, 케이스
+    레코드의 status를 새 `status_history` 항목과 함께 전환하고, baseline
+    테스트를 갱신해야 합니다. 통과시키기 위해 오라클을 약화시키는 것은
+    금지이며, 오라클 재협상은 `FAILURE_ATLAS.md` §3에 따라 새 atlas 버전이
+    필요합니다.
+*   **수리 전 캡처(capture before repair)**: 현재 결함 베이스라인이 atlas에
+    캡처되기 전에는 어떤 프로덕션 동작도 수리할 수 없습니다.
+*   **Holdout 튜닝 금지**: `docs/specs/failure_atlas/qrels.yml`의 `holdout`
+    파티션 쿼리는 동결 상태이며 검색 변경의 개발이나 튜닝에 절대 사용해서는
+    안 됩니다.
