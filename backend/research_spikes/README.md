@@ -20,6 +20,9 @@ modules must never import anything from this directory.
 - `wave_c.py`: deterministic Wave C routing/sufficiency/iterative/disclosure
   serving runner (provider-free; reads only the committed corpus).
 - `reports/wave_c.md`: scoped Wave C results, decisions, and limitations.
+- `wave_d.py`: deterministic Wave D formula-loss/recovery/update runner
+  (provider-free; reads only the committed corpus).
+- `reports/wave_d.md`: scoped Wave D results, decisions, and limitations.
 - `contracts.py`: validation and mutation-guard helpers.
 - `prepare_inputs.py`: copies SQLite databases with SQLite's online backup API,
   verifies that sources were unchanged, and writes only under ignored `local/`.
@@ -31,7 +34,9 @@ The research corpus tiers are:
    pressure, multi-hop paths, and query-relevant global selection.
 3. Synthetic serving stress corpus for complexity routing, sufficiency gating,
    bounded iterative retrieval, and progressive context disclosure.
-4. Read-only copied SQLite snapshots under `local/snapshots/` for scale checks.
+4. Synthetic formula-recovery corpus for parser/distillation loss boundaries,
+   uncertain recovery, selective cost, and page-hash invalidation.
+5. Read-only copied SQLite snapshots under `local/snapshots/` for scale checks.
 
 `testbed/` currently contains the `complex_math_backprop` scenario. Its plan
 documents retired EXH-era behavior, so it is recorded as a stale diagnostic
