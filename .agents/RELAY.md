@@ -60,3 +60,21 @@ Execute Plan E (`.agents/plans/E_external_research_design_matrix.md`) on
 
 PM reviews `backend/research_spikes/reports/wave_a.md`. After explicit approval,
 continue with Plan E Wave B on the same branch.
+
+### Update (2026-06-12, Claude Code) — PR #26 review fixes
+
+Trivial-nit review feedback patched directly into the open PR (no plan needed
+per the trivial-nit exception):
+
+- `contracts.py`: spike `None`-safe check, nested target validation (question
+  check no longer skipped, no raw `target["kind"]` access), per-source dict
+  type check, `sqlite_master` queried before `schema_version`.
+- `metrics.py`: `recall_at`/`mrr_at` reject negative `k`.
+- Tests added in `test_research_spikes_contract.py` and
+  `test_research_spikes_wave_a.py` (TDD: confirmed failing first).
+- `wave_a.md`: cache/invalidation assumptions recorded in Interpretation
+  (P3 verify criterion); downstream contract/spec owner and inline revisit
+  trigger added to each Scoped Decision Posture candidate block.
+- Validation: 661 passed / 13 xfailed; ruff and mypy clean on touched files.
+
+Wave B gate unchanged: still awaiting PM approval.
