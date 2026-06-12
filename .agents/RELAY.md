@@ -4,8 +4,7 @@
 **[Corrective Follow-up] PDF Adaptive Routing Fix** (PR #23 Review Feedback)
 
 ## Plan Reference
-- Corrective plan: `.agents/plans/06_pdf_adaptive_routing_fix.md`
-- Master plan (shipped to PR): `.agents/plans/04_pdf_add_source_assets.md`
+- Completed corrective plan preserved in Git commit `2c85ea3`.
 
 ## Branch
 `feature/pdf-add-source-assets` (PR #23, target v0.5.6)
@@ -24,7 +23,8 @@
 - [x] User approved implementation on 2026-06-12.
 - [x] Implement application code changes on the same branch.
 - [x] Verify with TDD, full local CI, and testbed smoke.
-- [ ] Push updates to PR #23.
+- [x] Preserve and delete completed corrective plan artifacts.
+- [ ] Push updates and confirm PR #23 CI.
 
 ## Immediate Next Action
-- Commit the verified correction, clean completed plan artifacts, and push PR #23.
+- Push cleanup commit to PR #23 and monitor CI.
