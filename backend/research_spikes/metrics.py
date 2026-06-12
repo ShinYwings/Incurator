@@ -6,12 +6,16 @@ from __future__ import annotations
 def recall_at(ranked: list[str], expected: set[str], k: int) -> float:
     if not expected:
         raise ValueError("expected set must not be empty")
+    if k < 0:
+        raise ValueError("k must be non-negative")
     return len(expected & set(ranked[:k])) / len(expected)
 
 
 def mrr_at(ranked: list[str], expected: set[str], k: int) -> float:
     if not expected:
         raise ValueError("expected set must not be empty")
+    if k < 0:
+        raise ValueError("k must be non-negative")
     rank = next((index + 1 for index, record_id in enumerate(ranked[:k]) if record_id in expected), None)
     return 0.0 if rank is None else 1.0 / rank
 

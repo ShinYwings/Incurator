@@ -65,19 +65,24 @@ def validate_dossier(dossier: dict[str, Any]) -> list[str]:
         errors.append(f"missing fields: {', '.join(missing)}")
 
     target = dossier.get("target")
-    if not isinstance(target, dict) or target.get("kind") not in ALLOWED_TARGET_KINDS:
+    if not isinstance(target, dict):
         errors.append("target must declare failure-atlas or architecture-neutral-control")
-    elif target["kind"] == "failure-atlas" and not target.get("failure_ids"):
-        errors.append("failure-atlas target requires failure_ids")
-    elif not str(target.get("question", "")).strip():
-        errors.append("target requires a scoped question")
+    else:
+        if target.get("kind") not in ALLOWED_TARGET_KINDS:
+            errors.append("target must declare failure-atlas or architecture-neutral-control")
+        if target.get("kind") == "failure-atlas" and not target.get("failure_ids"):
+            errors.append("failure-atlas target requires failure_ids")
+        if not str(target.get("question", "")).strip():
+            errors.append("target requires a scoped question")
 
     sources = dossier.get("primary_sources")
     if not isinstance(sources, list) or not sources:
         errors.append("at least one primary source is required")
     else:
         for source in sources:
-            if not all(str(source.get(key, "")).strip() for key in ("title", "url", "claim_boundary")):
+            if not isinstance(source, dict) or not all(
+                str(source.get(key, "")).strip() for key in ("title", "url", "claim_boundary")
+            ):
                 errors.append("every primary source needs title, url, and claim_boundary")
 
     if not dossier.get("controls"):
@@ -86,7 +91,8 @@ def validate_dossier(dossier: dict[str, Any]) -> list[str]:
         errors.append("at least one metric is required")
     if not str(dossier.get("falsifiable_hypothesis", "")).strip():
         errors.append("falsifiable_hypothesis must be non-empty")
-    if not str(dossier.get("spike", {}).get("independent_variable", "")).strip():
+    spike = dossier.get("spike")
+    if not isinstance(spike, dict) or not str(spike.get("independent_variable", "")).strip():
         errors.append("spike.independent_variable must isolate the mechanism")
 
     risks = dossier.get("risks")
@@ -106,7 +112,6 @@ def validate_dossier(dossier: dict[str, Any]) -> list[str]:
 def sqlite_readonly_summary(path: Path) -> dict[str, Any]:
     uri = f"{path.resolve().as_uri()}?mode=ro"
     with sqlite3.connect(uri, uri=True) as conn:
-        schema_row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         tables = [
             row[0]
             for row in conn.execute(
@@ -114,6 +119,9 @@ def sqlite_readonly_summary(path: Path) -> dict[str, Any]:
                 "WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
             )
         ]
+        schema_row = None
+        if "schema_version" in tables:
+            schema_row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         counts = {
             table: conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
             for table in tables

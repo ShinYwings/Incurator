@@ -99,6 +99,30 @@ def test_p1_all_required_candidate_dossiers_are_complete_and_scoped() -> None:
     assert set(dossiers) == expected
 
 
+def test_p1_validate_dossier_guards_malformed_shapes_without_crashing() -> None:
+    dossier = {
+        "spike": None,
+        "target": {"kind": "failure-atlas"},
+        "primary_sources": ["not-a-mapping"],
+    }
+    errors = contracts.validate_dossier(dossier)
+    assert "spike.independent_variable must isolate the mechanism" in errors
+    assert "failure-atlas target requires failure_ids" in errors
+    assert "target requires a scoped question" in errors
+    assert "every primary source needs title, url, and claim_boundary" in errors
+
+
+def test_p0_sqlite_readonly_summary_handles_missing_schema_version(tmp_path: Path) -> None:
+    import sqlite3
+
+    legacy = tmp_path / "legacy.sqlite"
+    with sqlite3.connect(legacy) as conn:
+        conn.executescript("CREATE TABLE sample(id INTEGER PRIMARY KEY);")
+    summary = contracts.sqlite_readonly_summary(legacy)
+    assert summary["schema_version"] is None
+    assert summary["table_counts"]["sample"] == 0
+
+
 def test_p1_no_dossier_authorizes_production_implementation() -> None:
     prohibited = {"implement-now", "adopt-framework", "production-approved"}
     for path in (SPIKES / "dossiers").glob("*.yml"):

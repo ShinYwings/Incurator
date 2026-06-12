@@ -32,6 +32,10 @@ def test_p2_hand_computable_metric_contracts() -> None:
     assert metrics.set_coverage({"S1", "BAD"}, {"S1", "S2"}) == 0.5
     with pytest.raises(ValueError):
         metrics.recall_at(ranked, set(), 1)
+    with pytest.raises(ValueError):
+        metrics.recall_at(ranked, {"A"}, -1)
+    with pytest.raises(ValueError):
+        metrics.mrr_at(ranked, {"A"}, -1)
 
 
 def test_p2_protocol_freezes_holdout_and_disables_wave_a_judges() -> None:
