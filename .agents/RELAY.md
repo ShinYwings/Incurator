@@ -85,3 +85,26 @@ After merge: truncate this relay to an IDLE stub and proceed to Plan D2
 `[Hotfix] SQLite connection leak in db.init_db` item queued in ROADMAP is
 being handled as a side-task on its own `hotfix/*` branch from `master` (see
 update section below if present).
+
+### Update (2026-06-12, Claude Code) — Hotfix v0.6.1 side-task
+
+- Fixed the SQLite connection leak triaged as ROADMAP To-Do item 7
+  (`.agents/drafts/bug_sqlite_leak.md`) on `hotfix/v0.6.1-sqlite-connection-leak`
+  (branched from `master`, pushed).
+- Root cause: `db.init_db` used `with sqlite3.connect(...)`, which only
+  commits — it never closes. Fixed with an explicit `finally: conn.close()`,
+  mirroring `db.connect()`. Audited all other production `sqlite3.connect`
+  sites: Zotero readers and `db.connect()` already close properly.
+- TDD: new regression test
+  `test_db_schema.py::test_init_db_closes_its_connection_and_leaves_no_wal_sidecars`
+  (failed before fix on Ubuntu, passes after). The previously failing
+  `test_v021_status_stats` bootstrap test now passes. Full backend on the
+  hotfix branch: 643 passed, 0 failed. Ruff clean. Testbed smoke OK.
+- Version bumped 0.6.0 → 0.6.1 (pyproject/package.json/manifest.json) +
+  CHANGELOG entry. Release commit `chore(release): v0.6.1` pushed.
+- **BLOCKER: `gh` CLI is not authenticated on the new Ubuntu machine**, so the
+  PR could not be opened automatically. User action: run `gh auth login`, then
+  `gh pr create` from the hotfix branch, or open
+  https://github.com/ShinYwings/Incurator/pull/new/hotfix/v0.6.1-sqlite-connection-leak
+- After the hotfix PR merges, mark ROADMAP To-Do item 7 as shipped (v0.6.1)
+  and delete `.agents/drafts/bug_sqlite_leak.md`.
