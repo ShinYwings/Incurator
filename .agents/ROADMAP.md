@@ -88,10 +88,6 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
    - The `qmd` binary has been retired since v0.3.2, but over 50 references still exist across the codebase (`cli.py`, `search.py`, `lint.py`, tests, etc.). These references must be completely purged to prevent hallucination or regressions before removing the tombstone warnings from the agent contracts.
    - Detailed analysis: `.agents/drafts/purge_qmd_legacy.md`
 
-7. **[Hotfix] SQLite connection leak in `db.init_db`**
-   - `init_db()` uses `with sqlite3.connect()` without explicitly closing the connection, leaving WAL sidecars and causing environment-dependent "database is locked" errors on Ubuntu.
-   - Detailed analysis: `.agents/drafts/bug_sqlite_leak.md`
-
 ### 🧊 Blocked / Icebox (Pending Items)
 - Items that cannot be resolved immediately due to external dependencies (library updates, etc.) are stored here.
 - (Note: Items in this section are treated as exceptions to the agent's top-priority resolution duty.)
@@ -102,11 +98,7 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Active Milestone**: **Plan E (External Research Design Matrix)** —
-  **COMPLETE (P0-P8)**. Plan D1 (v0.6.0) shipped and merged. The P7 decision
-  package was PM-approved; P8 validation and downstream handoff are done.
-  PR #26 awaits final human review and merge. Side-task in flight: the
-  `[Hotfix] SQLite connection leak in db.init_db` (To-Do item 7) on its own
-  `hotfix/*` branch from `master`.
-- **Next in Queue**: Plan D2 (following Plan E completion).
+- **Active Milestone**: **Plan D2 (Current System Failure Atlas, Part 2)** —
+  Plan E (PR #26) and hotfix (PR #27) shipped and merged. Batch 1 proceeds to D2.
+- **Next in Queue**: Batch 2 (Plan B → C).
   Execution order: Batch 1 `D1 → E → D2`, Batch 2 `B → C`, Batch 3 `A → F`. Implementation starts only on explicit user approval.
