@@ -90,7 +90,13 @@ describe("IncuratorClient", () => {
     const client = new IncuratorClient(settings());
     const normalize = (value: unknown) => (client as any).normalizeStatus(value);
 
-    expect(normalize({ state: "done", l1_status: "done" }).state).toBe("l1_ready");
+    expect(normalize({ state: "done", l1_status: "done" })).toMatchObject({
+      state: "l1_ready",
+      l1Complete: true,
+      l2Complete: false,
+      l3Complete: false,
+      l4Complete: false,
+    });
     expect(normalize({ l1_status: "done", l2_status: "done" }).state).toBe("l2_ready");
     expect(normalize({ l1_status: "done", l2_status: "done", l3_status: "done" }).state).toBe("l3_ready");
     expect(normalize({ l1_status: "done", l2_status: "done", l3_status: "done", l4_status: "done" }).state).toBe("l4_ready");
@@ -333,6 +339,8 @@ describe("IncuratorClient", () => {
         total_pages: 10,
         source_tracked: true,
         is_empty_pdf: false,
+        context_source: "durable_l1_projection",
+        degraded_reason: "projection_preview_only",
       };
     };
     const client = new IncuratorClient(settings(), "0.2.2", backendJson);
@@ -345,6 +353,8 @@ describe("IncuratorClient", () => {
     });
 
     expect(result?.sourceTracked).toBe(true);
+    expect(result?.contextSource).toBe("durable_l1_projection");
+    expect(result?.degradedReason).toBe("projection_preview_only");
     expect(calls[0]).toEqual([
       "plugin",
       "pdf",

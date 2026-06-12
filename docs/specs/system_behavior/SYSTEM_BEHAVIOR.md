@@ -86,7 +86,9 @@ Expected behavior:
 
 1. Backend returns `registered=false`.
 2. Plugin may build an ephemeral L1 from PDF.js or viewer text.
-3. Agent can answer using plugin-served `fetch_document_section` data.
+3. Agent answers from local PDF.js/viewer context first. If local context is
+   unavailable, a read-only backend PDF parse may provide ephemeral page/outline
+   context without creating durable state.
 4. Plugin shows an explicit "Add to Incurator" action.
 5. Durable backend source registration only happens after human approval or an
    explicit tool call. For external PDFs, the default action is Reference Mode:
@@ -100,14 +102,19 @@ Expected behavior:
    `zotero_attachment_key`, `logical_source_id: zotero:<key>`, and a
    `zotero://open-pdf/library/items/<key>` link.
 
-The backend must not create a source row from passive viewing alone.
+The backend must not create a source row from passive viewing alone. Provider
+context assembly must never call source import/register as a side effect.
 
 ### 3.2 Registered, L1 Complete, L2/L3 Pending
 
 Expected behavior:
 
 1. Backend returns `registered=true`, `l1_complete=true`, and pending L2/L3 state.
-2. Agent may call `fetch_document_section` against backend CTX sections.
+2. Missing-local-context and `toc_id` requests use the registered durable L1 CTX
+   projection. The response identifies `context_source=durable_l1_projection`.
+   If that derived projection is missing, stale, or contains previews rather
+   than exact source text, the backend may visibly degrade to a read-only
+   original-source parse without mutating durable state.
 3. `curator_query` may report that the document is not fully compiled yet if it
    requires L3 Concepts.
 4. Background worker, **Incurator Dashboard > Jobs > Run queued**, or
@@ -120,6 +127,12 @@ flows. Viewer questions should answer from local PDF/page/selection/crop context
 without requiring ingestion. Purple PDF chips and Add-to-Incurator actions start
 durable refinement by registering the source, producing instant L1, and queueing
 L2/L3 jobs; they must not block until L2/L3 or L4 completes.
+
+Adaptive routing is priority-based rather than a forced backend round trip:
+explicit/local viewer context → registered durable L1 projection → read-only
+ephemeral parse fallback. `curator_query` is an L3/workspace operation and must
+not be presented as concept-grounded for a PDF-focused turn whose relevant
+source is unregistered or L3-incomplete.
 
 ### 3.3 Registered, L3 Complete
 

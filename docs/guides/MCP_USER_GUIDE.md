@@ -140,7 +140,13 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 
 #### `curator_get_pdf_context`
-- **Role**: Lightweight on-demand PDF text extraction for chat context. Works for **both tracked and untracked PDFs** — no prior ingestion required. This is the primary tool the Obsidian plugin uses to assemble the `<pdf_window>` and `<document_outline>` context blocks for LLM prompts. **Agentic usage**: Agents should proactively call this tool with `radius=0` and a specific `page_num` when asked to read a specific chapter or page.
+- **Role**: Adaptive PDF chat context. For registered, L1-complete sources it
+  serves the durable CTX projection without reparsing the PDF. Otherwise it
+  performs read-only on-demand extraction and never registers the source. This
+  is the primary tool used to assemble `<pdf_window>` and `<document_outline>`
+  context blocks. **Agentic usage**: Agents should proactively call this tool
+  with `radius=0` and a specific `page_num` when asked to read a specific
+  chapter or page.
 - **Parameters**:
   - `file_path` (required): Absolute filesystem path to the PDF.
   - `query` (optional): Query string to score pages by relevance. When provided, the most relevant pages are returned rather than a fixed window.
@@ -154,11 +160,18 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
   - `pages`: `[{page_num, text, score}]` — up to `max_pages` most relevant pages.
   - `outline`: `[{title, page_num, level}]` — document table of contents.
   - `is_empty_pdf`: `true` if the PDF contains no extractable text (scanned/image-only).
+  - `context_source`: `durable_l1_projection` or `ephemeral_parse`.
+  - `degraded_reason`: Optional reason that durable context could not provide
+    exact text.
 - **Why it replaces multiple calls**: Previously the plugin made three separate MCP calls (`pdf_window`, `document_outline`, `pdf_rag_hits`) that did not exist in the backend and silently returned empty results. This tool unifies them in a single call that actually works.
-- **Performance**: Uses `parse_page_window()` to read only the requested pages, making it safe for 600-page documents without loading the full file into memory.
+- **Performance**: Registered L1 sources read the CTX projection first.
+  Ephemeral/degraded fallback uses `parse_page_window()` to read only requested
+  pages, making it safe for 600-page documents without loading the full file.
 
 #### `curator_get_pdf_toc`
-- **Role**: Extract the Table of Contents (Outline) from a PDF. When the agent is asked to find a chapter but doesn't know the page number, it should call this tool first, then call `curator_get_pdf_context` with the discovered `page_num`.
+- **Role**: Extract a raw Table of Contents directly from a PDF. Prefer
+  `curator_get_pdf_context` for registered L1 sources because it can return the
+  durable CTX ToC without reparsing the original PDF.
 - **Parameters**: `file_path` (Absolute filesystem path to the PDF).
 - **Returns**: `[{title, page, level}]`
 
@@ -186,7 +199,9 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 #### `check_source_status`
 
-- **Role**: Look up a file's registration state by its SHA-256 hash. Called automatically by the plugin when a PDF is opened to determine whether the agent should use ephemeral mode or `curator_query`.
+- **Role**: Look up a file's registration state by its SHA-256 hash. Called
+  automatically by the plugin when a PDF is opened to distinguish ephemeral
+  mode, durable L1 section serving, and L3-complete `curator_query`.
 - **Parameters**: `file_hash` (SHA-256 hash string of the file).
 - **Returns**: `registered`, `source_id`, `l1_complete`, `l2_complete`, `l3_complete`, `jobs_pending`.
 - **Implementation status**: The backend looks up `sources.content_hash` and returns queued/running `ingest_jobs` with the source status.

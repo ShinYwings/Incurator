@@ -113,4 +113,20 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain('badge.toggleClass("is-added", isAddedState(status.state))');
     expect(source).toContain("if (isAddedState(status.state)) return;");
   });
+
+  it("never registers a PDF as a passive provider-context side effect", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const providerContext = source.slice(
+      source.indexOf("private async buildIncuratorProviderContext"),
+      source.indexOf("private async timedContextCall")
+    );
+
+    expect(providerContext).not.toContain("registerSource(");
+    expect(providerContext).not.toContain("auto-index");
+    expect(providerContext).toContain("context_source=");
+    expect(providerContext).toContain("pdfSourceStatuses");
+    expect(providerContext).toContain("if (useBackendPdfContext && client.available");
+    expect(providerContext).not.toContain("const shouldFetchBackendContext");
+  });
 });

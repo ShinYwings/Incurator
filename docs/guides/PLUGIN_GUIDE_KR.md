@@ -282,9 +282,11 @@ PDF context는 다음 순서로 조립됩니다.
 1. 로컬 PDF.js 페이지 텍스트와 첨부된 crop/image context. PDF viewer가 충분한
    selectable DOM text를 제공하면 그 텍스트를 빠른 경로로 유지하고 image
    fallback을 트리거하지 않습니다.
-2. 로컬 viewer text/window/image context가 없을 때만 backend PDF
-   window/outline context.
-3. backend PDF context를 사용하는 경우에만, `pdfRagEnabled=true`이고 source가
+2. local viewer text/window/image context가 없을 때 등록되고 L1 완료된
+   durable CTX projection context.
+3. local context와 사용 가능한 durable projection이 모두 없을 때 read-only
+   backend PDF parsing. 이 fallback은 PDF를 등록하지 않습니다.
+4. backend PDF context를 사용하는 경우에만, `pdfRagEnabled=true`이고 source가
    tracked 상태일 때 backend 전체 PDF RAG.
 
 채팅 사이드바는 backend PDF context, PDF RAG, Curator query 소요 시간을
@@ -296,6 +298,8 @@ PDF 채팅과 PDF 지식 정제는 별도 workflow로 취급합니다.
 - 열린 PDF에 대한 일반 채팅은 viewer fast path를 사용합니다. durable
   Incurator ingest 없이 현재 페이지, 주변 페이지 텍스트, 선택 텍스트, crop
   image에서 바로 답하고, blocking backend PDF context 호출을 요구하지 않습니다.
+- passive chat은 미등록 PDF를 import/register하지 않습니다. 등록은 보라색
+  context chip의 명시적인 **Add to Incurator** 동작으로만 수행됩니다.
 - 보라색 context chip과 **Add to Incurator**는 durable knowledge refinement를
   시작하는 컨트롤입니다. PDF를 source로 등록하고 instant L1 context를 만든 뒤
   L2/L3 build job을 queue에 넣습니다.

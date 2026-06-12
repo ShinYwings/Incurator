@@ -141,7 +141,10 @@ wiki mcp install
 
 #### `curator_get_pdf_context`
 
-- **역할**: 채팅 컨텍스트용 경량 온디맨드 PDF 텍스트 추출. **인덱싱된 PDF와 인덱싱되지 않은 PDF 모두 지원** — 사전 ingestion 불필요. Obsidian 플러그인이 LLM 프롬프트의 `<pdf_window>`, `<document_outline>` 컨텍스트 블록을 조립할 때 사용하는 기본 툴.
+- **역할**: adaptive PDF chat context. 등록되고 L1 완료된 source는 원본 PDF를
+  다시 파싱하지 않고 durable CTX projection을 제공합니다. 그 외에는 source를
+  등록하지 않는 read-only on-demand 추출을 수행합니다. `<pdf_window>`,
+  `<document_outline>` context block을 조립하는 기본 툴입니다.
 - **파라미터**:
   - `file_path` (필수): PDF의 절대 경로.
   - `query` (선택): 관련도 기반 페이지 스코어링에 사용할 쿼리 문자열.
@@ -155,8 +158,19 @@ wiki mcp install
   - `pages`: `[{page_num, text, score}]` — 최대 `max_pages`개의 관련 페이지.
   - `outline`: `[{title, page_num, level}]` — 문서 목차.
   - `is_empty_pdf`: 텍스트 추출 불가(스캔/이미지 전용) 시 `true`.
+  - `context_source`: `durable_l1_projection` 또는 `ephemeral_parse`.
+  - `degraded_reason`: durable context가 exact text를 제공하지 못한 선택적 이유.
 - **기존 문제 해결**: 이전에 플러그인은 `pdf_window`, `document_outline`, `pdf_rag_hits` 세 가지 MCP 호출을 했는데 모두 backend에 없어서 silent fail했음. 이 툴이 하나의 호출로 통합.
-- **성능**: `parse_page_window()`로 필요한 페이지만 읽어 600페이지 PDF도 전체 메모리 로드 없이 안전하게 처리.
+- **성능**: 등록된 L1 source는 CTX projection을 먼저 읽습니다. ephemeral/degraded
+  fallback은 `parse_page_window()`로 필요한 페이지만 읽어 600페이지 PDF도 전체
+  메모리 로드 없이 안전하게 처리합니다.
+
+#### `curator_get_pdf_toc`
+- **역할**: PDF에서 raw ToC를 직접 추출합니다. 등록된 L1 source는 원본 PDF를
+  다시 파싱하지 않고 durable CTX ToC를 반환할 수 있는
+  `curator_get_pdf_context`를 우선 사용합니다.
+- **파라미터**: `file_path` (PDF 절대 경로).
+- **반환값**: `[{title, page, level}]`
 
 #### `curator_add_knowledge`
 - **역할**: 대화 중 얻은 귀중한 통찰이나 정보를 **Wiki(02_Wiki/)** 페이지로 승격하여 영구 저장합니다. 카테고리 분류와 슬러그 생성이 자동으로 수행됩니다.
@@ -182,7 +196,9 @@ wiki mcp install
 
 #### `check_source_status`
 
-- **역할**: 파일의 SHA-256 해시로 Incurator 등록 상태를 조회합니다. 플러그인이 PDF를 열 때 자동 호출하여 에이전트가 어느 모드(ephemeral / curator_query)로 작동해야 할지 결정합니다.
+- **역할**: 파일의 SHA-256 해시로 Incurator 등록 상태를 조회합니다. 플러그인이
+  PDF를 열 때 자동 호출하여 ephemeral mode, durable L1 section serving,
+  L3-complete `curator_query`를 구분합니다.
 - **파라미터**: `file_hash` (파일 SHA-256 해시 문자열).
 - **반환값**: `registered`, `source_id`, `l1_complete`, `l2_complete`, `l3_complete`, `jobs_pending`.
 - **구현 상태**: 백엔드는 `sources.content_hash`를 조회하고 queued/running `ingest_jobs`를 함께 반환합니다.

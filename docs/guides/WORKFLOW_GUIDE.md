@@ -246,7 +246,8 @@ Open PDF in Obsidian
 ┌─── Unregistered ──────────────────────────────────────────────┐
 │ ephemeral L1 mode: PDF.js in-memory parsing                   │
 │ plugin UI: "+ Add to Incurator" button                        │
-│ agent: read sections with fetch_document_section(source_key)   │
+│ local context first; read-only backend parse fallback          │
+│ passive chat never imports/registers the PDF                   │
 └───────────────────────────────────────────────────────────────┘
      │
      │ user clicks "+ Add" or calls import_source
@@ -255,7 +256,7 @@ Open PDF in Obsidian
 │ external PDFs: create 04_Resources markdown reference stub     │
 │ backend writes instant structural L1 CTX without an LLM call   │
 │ L2/L3 extraction runs in the background                        │
-│ fetch_document_section can read CTX sections after L1 complete │
+│ L1-complete fallback/section requests use the CTX projection   │
 └───────────────────────────────────────────────────────────────┘
      │
      │ L3 complete
@@ -269,6 +270,14 @@ Open PDF in Obsidian
      ▼
 Answer with Sources & Trace
 ```
+
+The handoff is priority-based. Visible PDF.js text, selections, and crops stay
+the fastest context even after registration. When local context is unavailable,
+an L1-complete registered source is served from its durable CTX projection and
+`toc_id` locators. If the projection is missing or preview-only, the backend
+reports the degradation and may reparse the original PDF read-only. Only an
+explicit Add action registers a source; L3-complete sources additionally enable
+concept-grounded `curator_query`.
 
 ---
 

@@ -238,7 +238,8 @@ Obsidian에서 PDF 열기
 ┌─── 미등록 ────────────────────────────────────────────────────┐
 │ ephemeral L1 모드: PDF.js in-memory 파싱                       │
 │ 플러그인 UI: "+ Add to Incurator" 버튼                         │
-│ 에이전트: fetch_document_section(source_key, toc_id)로 섹션 읽기│
+│ local context 우선; read-only backend parse fallback            │
+│ passive chat은 PDF를 import/register하지 않음                   │
 └───────────────────────────────────────────────────────────────┘
      │ (사용자가 "+ Add" 클릭 또는 import_source 호출)
      ▼
@@ -246,7 +247,7 @@ Obsidian에서 PDF 열기
 │ 외부 PDF: 04_Resources markdown reference stub 생성             │
 │ 플러그인 UI: "⟳ Processing" 상태 표시                          │
 │ 5초 간격 재폴링 → l3_complete=True 되면 자동 업그레이드         │
-│ l1_complete=True 시점부터 fetch_document_section은 CTX 섹션 사용 │
+│ l1_complete 이후 fallback/section 요청은 CTX projection 사용    │
 └───────────────────────────────────────────────────────────────┘
      │ (L3 처리 완료)
      ▼
@@ -259,6 +260,13 @@ Obsidian에서 PDF 열기
      ▼
 Sources & Trace가 포함된 답변
 ```
+
+handoff는 우선순위 기반입니다. 등록 후에도 화면에 보이는 PDF.js 텍스트, 선택
+영역, crop은 가장 빠른 context로 유지됩니다. local context가 없으면 L1 완료된
+등록 source의 durable CTX projection과 `toc_id` locator를 사용합니다. projection이
+없거나 preview-only이면 backend가 degradation을 표시하고 원본 PDF를 read-only로
+다시 파싱할 수 있습니다. source 등록은 명시적인 Add 동작만 수행하며,
+L3-complete source부터 concept-grounded `curator_query`를 사용할 수 있습니다.
 
 ---
 

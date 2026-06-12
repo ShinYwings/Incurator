@@ -317,9 +317,11 @@ PDF context is assembled in this order:
 1. Local PDF.js page text and attached crop/image context. If the PDF viewer
    exposes substantial selectable DOM text, that text remains the fast path and
    does not trigger image fallback.
-2. Backend PDF window/outline context only when local viewer text/window/image
-   context is unavailable.
-3. Optional backend whole-PDF RAG only when backend PDF context is being used,
+2. Registered, L1-complete durable CTX projection context when local viewer
+   text/window/image context is unavailable.
+3. Read-only backend PDF parsing when neither local context nor a usable durable
+   projection is available. This fallback never registers the PDF.
+4. Optional backend whole-PDF RAG only when backend PDF context is being used,
    `pdfRagEnabled=true`, and the source is tracked.
 
 The chat sidebar logs backend PDF context, PDF RAG, and Curator query timings to
@@ -331,6 +333,8 @@ Treat PDF chat and PDF knowledge refinement as separate workflows:
 - Normal chat over an open PDF uses the viewer fast path. It answers from the
   current page, nearby page text, selected text, or crop image without requiring
   durable Incurator ingestion or a blocking backend PDF context call.
+- Passive chat never imports or registers an untracked PDF. Registration only
+  occurs through an explicit purple-chip **Add to Incurator** action.
 - Purple context chips and **Add to Incurator** start durable knowledge
   refinement. They register the PDF as a source, create instant L1 context, and
   queue L2/L3 build jobs.

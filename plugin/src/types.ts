@@ -361,6 +361,10 @@ export type IncuratorSourceState =
 
 export interface IncuratorSourceStatus {
   state: IncuratorSourceState;
+  l1Complete?: boolean;
+  l2Complete?: boolean;
+  l3Complete?: boolean;
+  l4Complete?: boolean;
   sourceId?: number;
   sourcePath?: string;
   destinationRelpath?: string;

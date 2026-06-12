@@ -392,6 +392,8 @@ export class IncuratorClient {
     totalPages: number;
     sourceTracked: boolean;
     isEmptyPdf: boolean;
+    contextSource?: "durable_l1_projection" | "ephemeral_parse";
+    degradedReason?: string;
   } | null> {
     if (
       this.settings.incuratorEnabled === false ||
@@ -421,6 +423,11 @@ export class IncuratorClient {
       totalPages: typeof r["total_pages"] === "number" ? r["total_pages"] : 0,
       sourceTracked: r["source_tracked"] === true,
       isEmptyPdf: r["is_empty_pdf"] === true,
+      contextSource:
+        r["context_source"] === "durable_l1_projection" || r["context_source"] === "ephemeral_parse"
+          ? r["context_source"]
+          : undefined,
+      degradedReason: typeof r["degraded_reason"] === "string" ? r["degraded_reason"] : undefined,
     };
   }
 
@@ -752,6 +759,10 @@ export class IncuratorClient {
 
     return {
       state,
+      l1Complete: l1,
+      l2Complete: l2,
+      l3Complete: l3,
+      l4Complete: l4,
       sourceId: this.readNumber(record, ["sourceId", "source_id", "id"]),
       sourcePath: this.readString(record, ["sourcePath", "source_path", "file_path", "path"]) || sourcePath,
       destinationRelpath: this.readString(record, [

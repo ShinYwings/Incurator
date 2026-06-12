@@ -634,6 +634,15 @@ Rules:
   first and must not require source registration. Purple context chips and
   `Add to Incurator` are the durable refinement controls: they register the
   source, create instant L1, and queue L2/L3 build jobs.
+- Provider-context assembly must never import/register an untracked PDF as a
+  side effect. Passive viewing and read-only backend fallback leave source rows,
+  reference stubs, CTX pages, assets, and ingest jobs unchanged.
+- Backend PDF context responses expose
+  `context_source="durable_l1_projection"|"ephemeral_parse"` and may expose a
+  `degraded_reason`. Durable L1 projection serving requires a registered source,
+  `l1_complete=true`, and a readable CTX projection. The CTX projection is
+  derived/disposable; SQLite remains authoritative for source/L1 status and
+  source-span locators.
 - Queued L2/L3 jobs are executed only by an explicit worker path such as
   Dashboard Jobs `Run queued`, `wiki jobs run`, or an active backend worker. The
   Add-source chip must not wait for L2/L3 completion.
@@ -665,6 +674,9 @@ Rules:
   whole-PDF context and PDF RAG calls for that turn. Local PDF.js text/image
   context is the fast path; backend PDF window/outline and RAG are fallback
   paths when local viewer context is unavailable.
+- For a PDF-focused turn, the plugin must not run `curator_query` as though the
+  relevant PDF were concept-grounded unless that source is L3-complete. L1
+  section serving and L3 workspace querying are separate capabilities.
 - If the latest user message includes an editable Markdown line-range and asks
   to fix, rewrite, polish, translate, or otherwise modify the selected text, the
   assistant must propose an `ai-agent-edit` SEARCH/REPLACE block. Ordinary

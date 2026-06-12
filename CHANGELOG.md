@@ -26,6 +26,15 @@ All notable changes to Incurator are documented here.
   `stale`/`moved`/`changed`/`missing`/`error` makes the badge actionable again
   (PLUGIN_SCHEMA §4.1.1).
 
+### Fixed
+
+- **PDF viewer-to-L1 adaptive routing.** Passive PDF chat no longer registers an
+  untracked source. Local PDF.js text/crops remain the fast path; after an
+  explicit Add Source completes L1, durable CTX ToC/section projection becomes
+  available without reparsing the original PDF. Missing or preview-only CTX
+  projections visibly degrade to read-only parsing, and PDF-focused turns do
+  not use concept-grounded `curator_query` until the relevant source reaches L3.
+
 ### Documentation
 
 - Documented what add-source actually does (instant L1 immediately, L2/L3

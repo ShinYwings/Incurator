@@ -23,8 +23,16 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 
 ### 🚀 Unresolved Items to be Addressed in the Future (To-Do)
 
+1. **[Corrective Follow-Up] PDF Adaptive Routing Contract**
+   - Restore the intended explicit handoff between ephemeral PDF.js viewer
+     context and durable Add Source L1 serving: remove passive auto-registration,
+     serve registered L1 sections from CTX/source-span locators, preserve local
+     viewer priority, and separate L1 section serving from L3 curator queries.
+   - Plan: `.agents/plans/06_pdf_adaptive_routing_fix.md`
+   - Evidence: `.agents/plans/06_pdf_adaptive_routing_fix_evidence.md`
+   - Status: implemented and locally verified; pending push/PR CI.
 
-1. **[Major Update] RAG & Knowledge Quality Stabilization**
+2. **[Major Update] RAG & Knowledge Quality Stabilization**
    - Heart-of-system three-program initiative for using the notes vault like a
      codebase: first establish the truth contract, deep diagnosis, external
      research, and quality observatory; then make the note-to-L1-L4 evidence
@@ -44,20 +52,20 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
    - Batch 3: `.agents/plans/A_rag_retrieval_provenance.md` →
      `.agents/plans/F_agent_context_service.md`
 
-2. **[Minor Update] Vault Storage Governance & Quota Visibility**
+3. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative/derived/cache/external storage accounting, capacity
      guidance, safe admission control, and CLI/plugin visibility from RAG quality.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-3. **[Minor Update] Chat Session Context Compaction**
+4. **[Minor Update] Chat Session Context Compaction**
    - Confirm/ensure full-session history usage; add a Claude-Code-style circular token-usage meter under the query box and a click-to-compact action for the session.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-4. **[Minor Update] Minor Quick Wins**
-   - Web search integration review, `[[wikilink]]` conflict validation, Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`).
+5. **[Minor Update] Minor Quick Wins**
+   - Web search integration review, `[[wikilink]]` conflict validation, Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`), Zotero profile import sorted by recently accessed.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
 
-5. **[Major Update] Native PDF Annotation & Asset System**
+6. **[Major Update] Native PDF Annotation & Asset System**
    - Remove external Zotero dependency, build a native annotation (highlight/memo) synchronization system utilizing Obsidian's built-in PDF Viewer. In-PDF full-text search (with strict-spelling mode) and native highlight/memo sync remain here.
    - **Split out (2026-06-11):** PDF add-source asset-location routing + "Added" button state → **shipped in v0.5.6** (2026-06-12); the Zotero reload relativepath bug was already fixed in v0.5.5. External-image-attachment-to-`.md` routing rides v0.5.6's `--asset-dir` mechanism as a follow-up.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
@@ -73,5 +81,8 @@ The specific To-Do list for the roadmap is migrated from the user's Inbox (`.age
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
 - **Active Milestone**: **PDF Add-Source Asset Routing + "Added" State (v0.5.6)**
-  - **Status**: Implemented on `feature/pdf-add-source-assets` (P0–P5 complete: backend `--asset-dir` routing, plugin `incuratorPdfAssetFolder` + inert "Added" badge, review feedback addressed, testbed smoke green). PR open — awaiting user review/merge.
-- **Next in Queue**: To-Do #1 **RAG & Knowledge Quality Stabilization**. Planning completed (`03_rag_knowledge_quality_stabilization.md` and `A-F` plans). Implementation remains blocked until the v0.5.6 PR merges and explicit approval is given.
+  - **Status**: Asset-routing implementation complete on
+    `feature/pdf-add-source-assets`; deep validation found adaptive-routing
+    contract defects. Corrective plan `06_pdf_adaptive_routing_fix.md` is
+    implemented and locally verified on the same PR branch; push/PR CI remains.
+- **Next in Queue**: To-Do #2 **RAG & Knowledge Quality Stabilization**. Planning completed (`03_rag_knowledge_quality_stabilization.md` and `A-F` plans). Implementation remains blocked until the v0.5.6 PR merges and explicit approval is given.

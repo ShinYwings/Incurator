@@ -1,32 +1,30 @@
 # Agent Relay State
 
 ## Current Active Goal
-**[Minor Update] PDF Add-Source Asset Routing + "Added" State (v0.5.6)** — IMPLEMENTED. PR #23 review feedback addressed; awaiting user review/merge.
+**[Corrective Follow-up] PDF Adaptive Routing Fix** (PR #23 Review Feedback)
+
+## Plan Reference
+- Corrective plan: `.agents/plans/06_pdf_adaptive_routing_fix.md`
+- Master plan (shipped to PR): `.agents/plans/04_pdf_add_source_assets.md`
 
 ## Branch
-`feature/pdf-add-source-assets` (off `master` @ aee4995). Version bumped to v0.5.6 (pyproject/package/manifest/lockfile agree).
+`feature/pdf-add-source-assets` (PR #23, target v0.5.6)
 
-## What shipped on this branch
-- Backend: `wiki plugin source register --asset-dir` → `plugin_api.register_source`
-  → `generate_l1_structural_context` → `_save_pdf_images(asset_dir=...)`, guarded
-  by new `_safe_vault_subdir` (abs/`..`/escape → legacy `05_Assets/<slug>/`
-  fallback; `obsidian_path` always matches the actual write root).
-- Plugin: `incuratorPdfAssetFolder` setting (non-Zotero PDFs); Zotero PDFs reuse
-  profile asset spec (`resolveProfileAssetSpec`) + display-name subfolder;
-  `l1..l4_ready` badge states collapse to inert "Added" (click no-op, `is-added`
-  style, tooltip keeps layer state).
-- Specs/guides: PLUGIN_SCHEMA §1.1/§2.1/§4.1.1; PLUGIN_GUIDE EN+KR.
-- Key P0 correction vs the original plan: `--asset-dir` lives on `register`
-  (where instant-L1 writes images), NOT on `import`. Evidence ledger with full
-  validation log is preserved in git history (deleted from worktree per Step 11).
+## Analysis & Reasoning
+- Review feedback addressed:
+  1. Passive PDF chat auto-registration must be removed; only explicit Add Source allows permanent registration.
+  2. Priority routing: Local PDF.js → Registered L1 CTX → read-only original parsing fallback.
+  3. Context/toc_id-based lookup is allowed only after `l1_complete`.
+  4. Block inappropriate `curator_query` for unregistered or L3-incomplete PDFs.
+  5. Reuse existing CTX/source-span locator without DB migration.
 
-## Validation
-pytest 522 passed; ruff clean; mypy 84 pre-existing (no new); vitest 359 passed;
-tsc clean; esbuild production OK; testbed smoke green (routed / unsafe-fallback /
-legacy / queued-build / review-reroute cases). Smoke artifacts remain in
-disposable `testbed/`.
+## Progress Status
+- [x] P0–P5 of `04_pdf_add_source_assets.md` implemented, PR #23 open.
+- [x] Corrective plan drafted (`06_pdf_adaptive_routing_fix.md`).
+- [x] User approved implementation on 2026-06-12.
+- [x] Implement application code changes on the same branch.
+- [x] Verify with TDD, full local CI, and testbed smoke.
+- [ ] Push updates to PR #23.
 
 ## Immediate Next Action
-User merges the v0.5.6 PR. After merge: truncate this file to IDLE, then the next
-milestone is ROADMAP To-Do #1 (RAG & Knowledge Quality Stabilization, Batch 1
-D1 → E → D2) — implementation still requires explicit user approval.
+- Commit the verified correction, clean completed plan artifacts, and push PR #23.
