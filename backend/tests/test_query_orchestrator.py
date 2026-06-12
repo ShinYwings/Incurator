@@ -91,6 +91,8 @@ def test_local_route_answers_with_spans(vault) -> None:
     assert trace["route"] == "local"
     assert trace["source_span_ids"] == [span]
     assert trace["prompt_trace_ids"] == res.prompt_trace_ids
+    assert trace["retrieval_trace"]["mode"] == "hybrid"
+    assert len(db.list_query_traces(paths.state_db)) == 1
 
 
 def test_global_route_uses_reports(vault) -> None:
@@ -177,3 +179,4 @@ def test_source_section_route(vault) -> None:
     )
     assert res.route == "source-section"
     assert span in res.source_span_ids
+    assert len(db.list_query_traces(paths.state_db)) == 1

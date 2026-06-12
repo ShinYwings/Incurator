@@ -858,3 +858,10 @@ snapshots. Unbounded or snapshot-mixing iteration is a REJECTED DEFAULT.
 - Complexity-aware routing: the P7 probe routed correctly, but the classifier
   remains a trivial regex with no measured overhead or real query
   distribution; benchmark on this plan's actual query mix before adoption.
+
+### Plan D2 Program-1 Handoff (v0.7.0)
+
+Consume `docs/specs/failure_atlas/PROGRAM_HANDOFFS.md`, especially F3/F4/F5/
+F11/F12. Progressive disclosure and client parity must preserve the
+authoritative QTR, exact source-span provenance, explicit omissions, and
+per-family fine-grained evaluation.

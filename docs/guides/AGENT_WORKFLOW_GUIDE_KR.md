@@ -111,7 +111,7 @@ uv run --directory backend pytest tests/test_failure_atlas_contract.py -q
 uv run --directory backend pytest tests/test_failure_atlas_repro.py -q
 # 변이/성능저하/원자성 실험
 uv run --directory backend pytest tests/test_failure_atlas_experiments.py -q
-# 동결된 검색 베이스라인 (holdout은 절대 측정하지 않음)
+# 동결된 검색 베이스라인 (CI는 D2에서 소비한 holdout을 다시 실행하지 않음)
 uv run --directory backend pytest tests/test_failure_atlas_eval.py -q
 ```
 
@@ -132,4 +132,10 @@ uv run --directory backend pytest tests/test_failure_atlas_eval.py -q
     캡처되기 전에는 어떤 프로덕션 동작도 수리할 수 없습니다.
 *   **Holdout 튜닝 금지**: `docs/specs/failure_atlas/qrels.yml`의 `holdout`
     파티션 쿼리는 동결 상태이며 검색 변경의 개발이나 튜닝에 절대 사용해서는
-    안 됩니다.
+    안 됩니다. D2는 동일한 동결 ranking 설정에서 방법론 감사로 무효화된
+    실행 2회 후 유효한 `Q06` 결과 1회를 기록했으며, CI는
+    `D2_HOLDOUT_RESULT.yml`을 검증할 뿐 다시 실행하지 않습니다.
+*   **세분화된 게이트 사용**: Recall@k, MRR, 인용 정확도와 완전성,
+    provenance 해소율, hard-negative outrank 수, 비용, 지연 시간을 쿼리
+    패밀리별로 각각 보고해야 합니다. 집계 수치만으로는 릴리스 근거가 될 수
+    없습니다.

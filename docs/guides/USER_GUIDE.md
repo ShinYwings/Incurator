@@ -539,7 +539,7 @@ Summary of major commands following the user workflow.
 | `wiki query "..."` | Gets refined answers to questions. | Using curated knowledge |
 | `wiki query "..." --route explore` | Routes through the v0.3.2 curation-native orchestrator (DB graph + DB-native hybrid search) with a query trace. | Discovering connections, scoped routing |
 | `wiki inspect synthesis <SYN-…>` | Exports the L4-to-L1 evidence chain for a synthesis node. Add `--json` for machine-readable output. | Proving why a generated synthesis exists |
-| `wiki inspect answer <QTR-…>` | Exports the evidence chain behind a recorded query trace. Add `--json` for machine-readable output. | Auditing an answer from Sources & Trace |
+| `wiki inspect answer <QTR-…>` | Exports the evidence chain behind a recorded query trace. Add `--json` for machine-readable output. Orchestrated queries persist one authoritative QTR containing their retrieval trace. | Auditing an answer from Sources & Trace |
 | `wiki workspace init` | Initializes a workspace. | Starting a new project |
 
 #### v0.3.2 Curation-Native Query Routes

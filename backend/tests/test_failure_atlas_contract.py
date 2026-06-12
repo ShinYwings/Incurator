@@ -22,7 +22,7 @@ ATLAS_DIR = REPO_ROOT / "docs" / "specs" / "failure_atlas"
 CASES_DIR = ATLAS_DIR / "cases"
 
 EXPECTED_IDS = [f"F{i}" for i in range(1, 14)]
-STATUSES = {"suspected", "reproduced", "disproven", "accepted", "assigned"}
+STATUSES = {"suspected", "reproduced", "disproven", "accepted", "assigned", "retired"}
 QUERY_FAMILIES = {
     "direct-factual", "associative", "global", "source-scoped",
     "cross-route", "compiler", "client-parity", "evaluation-infra",
@@ -34,6 +34,7 @@ ALLOWED_TRANSITIONS = {
     ("suspected", "disproven"),
     ("reproduced", "assigned"),
     ("reproduced", "accepted"),
+    ("assigned", "retired"),
 }
 _GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
@@ -164,6 +165,19 @@ def test_assigned_cases_declare_program_and_gate(case_id: str) -> None:
     assert record["owner"] == assignment["program"], (
         f"{case_id}: owner must match the assigned program"
     )
+
+
+@pytest.mark.parametrize("case_id", EXPECTED_IDS)
+def test_retired_cases_declare_resolution_evidence(case_id: str) -> None:
+    record = CASES[case_id]
+    if record["status"] != "retired":
+        return
+    assert record["owner"] == "unassigned"
+    resolution = record.get("resolution")
+    assert isinstance(resolution, dict), f"{case_id}: retired cases need resolution"
+    assert _SEMVER.match(str(resolution.get("version", "")))
+    assert str(resolution.get("evidence", "")).strip()
+    assert str(resolution.get("after_state", "")).strip()
 
 
 @pytest.mark.parametrize("case_id", EXPECTED_IDS)

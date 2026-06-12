@@ -58,6 +58,18 @@ VAULT_ROOT=testbed wiki status
 - `mock_zotero_env/storage/TESTKEY1/mock_paper.pdf` is accessible via reference mode.
 - `zotero://open-pdf/library/items/TESTKEY1` resolves to the mock PDF path.
 
+### G8: Agent Reuse And Traceability
+
+- `wiki query "sample"` returns evidence with resolvable `source_span_ids`.
+- One orchestrated query persists exactly one authoritative `QTR-` containing
+  its retrieval trace.
+
+### G9: Incremental Correctness
+
+- An unchanged `wiki update` creates no duplicate authoritative records.
+- Editing, deleting, or renaming one scenario source invalidates only its
+  dependency closure; stale search rows are not served afterward.
+
 ## Creating a New Scenario
 
 1. Copy this directory: `cp -r tests/scenarios/testbed_template tests/scenarios/my_scenario`

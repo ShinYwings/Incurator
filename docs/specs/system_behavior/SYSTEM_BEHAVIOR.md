@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.6.0)
+# Incurator - System Behavior (v0.7.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1479,3 +1479,19 @@ Quality Stabilization program as a versioned Failure Atlas.
   `docs/specs/failure_atlas/EVALUATION_BASELINE.md` and enforced by
   `backend/tests/test_failure_atlas_eval.py`. Proposed thresholds in that
   document are not binding until user approval.
+
+### 25.1 D2 Minimum Quality Observatory (v0.7.0)
+
+- Search-hit evidence preserves the hydrated `source_span_ids` supplied by the
+  DB-native engine.
+- A query executed through `QueryOrchestrator` persists exactly one
+  authoritative `QTR-`; the engine retrieval trace is embedded in that row
+  rather than persisted as a disconnected second trace.
+- Fine-grained retrieval evaluation reports Recall@k, MRR, top-1 citation
+  correctness, citation completeness, provenance resolution, hard-negative
+  outranks, indexed-character cost, and latency separately per query family.
+- The frozen Failure Atlas holdout has one final valid no-tuning result after
+  two transparently audit-invalidated methodology runs. CI validates the
+  committed result and never reruns it.
+- The tracked testbed template is the current-architecture F13 oracle and
+  covers truth, DB-native retrieval, agent reuse, and incremental correctness.

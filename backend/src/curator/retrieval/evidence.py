@@ -36,17 +36,22 @@ def seed_terms(query: str, limit: int = 8) -> list[str]:
     return terms[:limit]
 
 
-def _search_hits(paths: cfg.WikiPaths, query: str, limit: int, warnings: list[str]) -> list[EvidenceItem]:
+def _search_hits(
+    paths: cfg.WikiPaths, query: str, limit: int, warnings: list[str]
+) -> tuple[list[EvidenceItem], dict]:
     """DB-native hybrid search hits (v0.3.2; replaces the qmd fallback)."""
     try:
         from .. import search
 
         # min_score=0 — native RRF/rerank scores are not on qmd's 0–1 scale, so the
         # engine ranks and caps by `limit` rather than hard-thresholding.
-        results = search.query(paths, query, mode="hybrid", limit=limit, min_score=0.0, hydrate=True, rerank=True)
+        results = search.query(
+            paths, query, mode="hybrid", limit=limit, min_score=0.0,
+            hydrate=True, rerank=True, persist=False,
+        )
     except Exception as e:  # backend error → degrade gracefully
         warnings.append(f"search unavailable: {e}")
-        return []
+        return [], {}
     warnings.extend(results.warnings if hasattr(results, "warnings") else [])
     items: list[EvidenceItem] = []
     for hit in results.hits:
@@ -54,10 +59,22 @@ def _search_hits(paths: cfg.WikiPaths, query: str, limit: int, warnings: list[st
         items.append(
             EvidenceItem(
                 id=hit.full_path, kind="search_hit", title=hit.title or hit.full_path,
-                text=text, score=hit.score,
+                text=text, score=hit.score, source_span_ids=hit.source_span_ids,
             )
         )
-    return items
+    return items, results.retrieval_trace
+
+
+def _add_search_hits(
+    pack: EvidencePack, paths: cfg.WikiPaths, query: str, limit: int
+) -> None:
+    hits, retrieval_trace = _search_hits(paths, query, limit, pack.warnings)
+    pack.items.extend(hits)
+    pack.source_span_ids = sorted({
+        *pack.source_span_ids,
+        *(span_id for hit in hits for span_id in hit.source_span_ids),
+    })
+    pack.retrieval_trace = retrieval_trace
 
 
 def _entity_evidence(db_path: Path, query: str) -> tuple[list[EvidenceItem], list[str]]:
@@ -96,7 +113,9 @@ def _span_items(db_path: Path, span_ids: list[str]) -> list[EvidenceItem]:
 
 
 def _report_items(db_path: Path) -> tuple[list[EvidenceItem], list[str], list[str]]:
-    items, report_ids, span_ids = [], [], set()
+    items: list[EvidenceItem] = []
+    report_ids: list[str] = []
+    span_ids: set[str] = set()
     for rep in db.list_community_reports(db_path):
         findings = "; ".join(f.get("summary", "") for f in rep.get("findings", []) if isinstance(f, dict))
         items.append(
@@ -118,7 +137,9 @@ def _synthesis_items(db_path: Path, limit: int = 6) -> tuple[list[EvidenceItem],
     These are the highest-level standing evidence for broad/global reasoning; the
     dynamic Curation lens recombines them with community reports at query time.
     """
-    items, node_ids, span_ids = [], [], set()
+    items: list[EvidenceItem] = []
+    node_ids: list[str] = []
+    span_ids: set[str] = set()
     for node in db.list_synthesis_nodes(db_path)[:limit]:
         items.append(
             EvidenceItem(
@@ -174,12 +195,12 @@ def build_evidence(
         items = syn_items + report_items
         if not items:
             warnings.append("no synthesis or community reports; falling back to qmd")
-            pack.items = _search_hits(paths, q, limit, warnings)
+            _add_search_hits(pack, paths, q, limit)
         else:
             pack.items = items
+            pack.source_span_ids = sorted(set(syn_spans) | set(report_spans))
         pack.synthesis_node_ids = syn_ids
         pack.community_report_ids = report_ids
-        pack.source_span_ids = sorted(set(syn_spans) | set(report_spans))
         return pack
 
     if route == "explore":
@@ -212,6 +233,6 @@ def build_evidence(
     ent_items, span_ids = _entity_evidence(db_path, q)
     pack.items.extend(ent_items)
     pack.items.extend(_span_items(db_path, span_ids))
-    pack.items.extend(_search_hits(paths, q, limit, warnings))
     pack.source_span_ids = span_ids
+    _add_search_hits(pack, paths, q, limit)
     return pack

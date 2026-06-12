@@ -532,3 +532,9 @@ equivalent) before any threshold becomes a serving-time contract.
   deterministic seed stability and `0.0` churn for already-excluded edges;
   community-summary freshness and source-edit invalidation remain unmeasured
   and block mechanism adoption.
+
+### Plan D2 Program-1 Handoff (v0.7.0)
+
+Consume `docs/specs/failure_atlas/PROGRAM_HANDOFFS.md` and the frozen F8/F9
+oracles. Graph mechanisms must report quality, provenance, and traversal cost
+separately; unfiltered PPR remains a rejected default.

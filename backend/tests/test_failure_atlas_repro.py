@@ -92,6 +92,16 @@ def _seed_search_docs(db_path: Path) -> dict[str, str]:
     }
     for rid, span in doc_spans.items():
         title, body = bodies[rid]
+        with db.connect(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO source_spans
+                    (id, source_id, relpath, span_type, content_hash,
+                     text_preview, created_at)
+                VALUES (?, 1, ?, 'paragraph', ?, ?, datetime('now'))
+                """,
+                (span, RELPATH, span, body),
+            )
         db.upsert_search_document(
             db_path, record_type="knowledge_unit", record_id=rid, title=title,
             body=body, content_hash=rid, dependency_hash=rid,
@@ -117,7 +127,7 @@ def _store_section_spans(paths: cfg.WikiPaths, text: str, title: str = "Note") -
 # F1 — search-hit provenance dropped at EngineHit→SearchHit conversion
 # ---------------------------------------------------------------------------
 
-def test_f1_baseline_search_hit_items_drop_source_span_ids(vault, degraded_search) -> None:
+def test_f1_search_hit_items_carry_source_span_ids(vault, degraded_search) -> None:
     paths = vault
     _seed_search_docs(paths.state_db)
     pack = evidence_mod.build_evidence(
@@ -125,63 +135,48 @@ def test_f1_baseline_search_hit_items_drop_source_span_ids(vault, degraded_searc
     )
     hits = [it for it in pack.items if it.kind == "search_hit"]
     assert hits, "seeded corpus must produce search hits"
-    # Defect: every search-derived evidence item lost its span provenance...
-    assert all(it.source_span_ids == [] for it in hits)
-    # ...while the engine-persisted trace for the same physical search kept it.
-    traces = _all_traces(paths.state_db)
-    assert traces, "engine persists its own QTR- trace"
-    assert any(json.loads(t["source_span_ids"]) for t in traces)
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="F1 reproduced: SearchHit drops EngineHit.source_span_ids (search.py:50-58); "
-    "assigned to plan-d2 (critical provenance adapter)",
-)
-def test_f1_oracle_search_hit_items_carry_source_span_ids(vault, degraded_search) -> None:
-    paths = vault
-    _seed_search_docs(paths.state_db)
-    pack = evidence_mod.build_evidence(
-        paths, QueryRequest(question="residual optimization"), "local"
-    )
-    hits = [it for it in pack.items if it.kind == "search_hit"]
-    assert hits
     assert all(it.source_span_ids for it in hits)
+    assert set(pack.source_span_ids) == {
+        span_id for hit in hits for span_id in hit.source_span_ids
+    }
+    assert {
+        span["id"] for span in db.get_source_spans_by_ids(
+            paths.state_db, pack.source_span_ids
+        )
+    } == set(pack.source_span_ids)
+
+
+def test_f1_global_search_fallback_preserves_source_span_ids(
+    vault, degraded_search
+) -> None:
+    paths = vault
+    expected = set(_seed_search_docs(paths.state_db).values())
+    pack = evidence_mod.build_evidence(
+        paths, QueryRequest(question="residual optimization"), "global"
+    )
+    hits = [item for item in pack.items if item.kind == "search_hit"]
+    assert hits
+    returned = {span_id for hit in hits for span_id in hit.source_span_ids}
+    assert returned <= expected
+    assert set(pack.source_span_ids) == returned
 
 
 # ---------------------------------------------------------------------------
 # F2 — one logical query persists disconnected QTR- traces
 # ---------------------------------------------------------------------------
 
-def test_f2_baseline_one_query_persists_disconnected_traces(vault, degraded_search) -> None:
+def test_f2_one_query_persists_one_authoritative_trace(vault, degraded_search) -> None:
     paths = vault
     _seed_search_docs(paths.state_db)
     out = QueryOrchestrator(paths, _NoChatClient()).fetch_context(
         QueryRequest(question="residual optimization", mode="local")
     )
     traces = _all_traces(paths.state_db)
-    # Defect: orchestrator trace + engine trace, with no linkage either way.
-    assert len(traces) == 2
-    ids = {t["trace_id"] for t in traces}
-    assert out["trace_id"] in ids
-    other = next(t for t in traces if t["trace_id"] != out["trace_id"])
-    orch = next(t for t in traces if t["trace_id"] == out["trace_id"])
-    assert other["trace_id"] not in json.dumps(orch, default=str)
-    assert orch["trace_id"] not in json.dumps(other, default=str)
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="F2 reproduced: no authoritative transaction / parent-child trace model; "
-    "assigned to plan-d2 (D4 observatory)",
-)
-def test_f2_oracle_single_logical_transaction_per_query(vault, degraded_search) -> None:
-    paths = vault
-    _seed_search_docs(paths.state_db)
-    QueryOrchestrator(paths, _NoChatClient()).fetch_context(
-        QueryRequest(question="residual optimization", mode="local")
-    )
-    assert len(_all_traces(paths.state_db)) == 1
+    assert len(traces) == 1
+    assert traces[0]["trace_id"] == out["trace_id"]
+    retrieval_trace = json.loads(traces[0]["retrieval_trace_json"])
+    assert retrieval_trace["mode"] == "hybrid"
+    assert retrieval_trace["lists"]
 
 
 # ---------------------------------------------------------------------------
@@ -694,31 +689,24 @@ def test_f12_oracle_normalized_pack_parity(vault, degraded_search) -> None:
 # F13 — active scenario validates retired architecture
 # ---------------------------------------------------------------------------
 
-_SCENARIO_PLAN = REPO_ROOT / "tests" / "scenarios" / "complex_math_backprop" / "MASTER_PLAN.md"
-
-# The active scenario is a developer-local asset: .gitignore excludes
-# tests/scenarios/* (except testbed_template/), so these reproductions only run
-# where the scenario exists (reproduced locally 2026-06-12; see cases/F13.yml).
-_scenario_skip = pytest.mark.skipif(
-    not _SCENARIO_PLAN.exists(),
-    reason="active scenario assets are local-only (tests/scenarios/* is gitignored)",
-)
+_SCENARIO_PLAN = REPO_ROOT / "tests" / "scenarios" / "testbed_template" / "MASTER_PLAN.md"
 
 
-@_scenario_skip
-def test_f13_baseline_scenario_validates_retired_architecture() -> None:
+def test_f13_scenario_targets_current_architecture() -> None:
     plan = _SCENARIO_PLAN.read_text(encoding="utf-8")
-    # Defect: the active scenario's oracles assert retired EXH-era behavior.
-    assert "EXH" in plan
-    assert "04_Exhibitions" in plan
-
-
-@_scenario_skip
-@pytest.mark.xfail(
-    strict=True,
-    reason="F13 reproduced: complex_math_backprop targets retired EXH/qmd flows; "
-    "assigned to plan-d2 (current-architecture scenarios, P1.4)",
-)
-def test_f13_oracle_scenario_targets_current_architecture() -> None:
-    plan = _SCENARIO_PLAN.read_text(encoding="utf-8")
+    script = _SCENARIO_PLAN.parent / "dialogues" / "verify_current_architecture.sh"
+    script_text = script.read_text(encoding="utf-8")
     assert "EXH" not in plan
+    assert "04_Exhibitions" not in plan
+    for current_contract in (
+        "CTX-*", "ATM-*", "CON-*", "SYN-*", "DB-Native Search",
+        "Agent Reuse And Traceability", "Incremental Correctness",
+    ):
+        assert current_contract in plan
+    for executable_gate in (
+        "knowledge_units", "graph_entities", "community_reports",
+        "synthesis_nodes", "source_spans", "query_traces",
+        "retrieval_trace_json", "wiki update", "fetch_context",
+        "test_rename_as_new_source_duplicates_every_span",
+    ):
+        assert executable_gate in script_text

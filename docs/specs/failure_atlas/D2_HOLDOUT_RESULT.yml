@@ -1,0 +1,104 @@
+version: 2
+recorded_at: '2026-06-12'
+git_sha: ea3e435838375f4208822835d519d8725d2cbc02
+holdout_ids:
+- Q06
+frozen_inputs:
+  fixture_corpus_sha256: 35301871bdd1e8e676d63c032e7c566d863a9760f94d1c00e5de8217e364603b
+  qrels_sha256: e3b254054779595aa4157df82db1c885356e3763f35430be0b23bb187c35c6a0
+  support_labels_sha256: 89f7842824e381931735583cb1dc28b79d471ea425df88cc9d6e7cd63c4478d5
+  engine: DB-native lexical FTS5/BM25
+  limit: 5
+  rerank: false
+procedure:
+  run_count: 3
+  valid_run_count: 1
+  tuning_after_run: false
+  provider_calls: 0
+  model_judges: 0
+  ci_reruns_holdout: false
+  invalidated_runs:
+  - run: 1
+    reason: schema review found provenance resolution compared against fixture declarations
+      instead of authoritative source_spans
+    ranking_configuration_changed: false
+  - run: 2
+    reason: review required complete ranking-stack identity, all-gate preflight, and
+      authoritative record/span citation pairing
+    ranking_configuration_changed: false
+evaluated_code:
+  git_dirty: true
+  file_sha256:
+    backend/scripts/failure_atlas_holdout.py: c6afe0307dd3f68fa9902387bb0dc269db6ff9d6b73ad2f3ac1cc6ecc883297a
+    backend/src/curator/retrieval/evaluation.py: 0cc9e655142c725dd4bbbabfd2b44d6bf0355265bb2510fbb78cbd47d7d43c17
+    backend/src/curator/retrieval/engine.py: f3c8981de6eda322e054016031bf3c3ab3420875a21304aa087adf059a70d268
+    backend/src/curator/retrieval/lexical.py: eb1633f384be1a1d5484fc112f4e92bb800b9726cad5d64acddacd0a2cb7f62f
+    backend/src/curator/retrieval/fusion.py: ffed6f90d6b0eb55692dfd9a02526d8e4a220ef6625a3e245175a07fa08eb716
+    backend/src/curator/retrieval/embedding.py: a6a7da88af3fc824f1fa2c9a4f4ce0720e870c0584c49e011b865678cb0f8f7e
+    backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
+    backend/src/curator/db.py: 2825a82e04e1e1102beb20373af785f2a550930f5fd630999f56208d9af4718d
+  preflight_family_metrics:
+    direct-factual:
+      query_count: 7
+      recall_at:
+        '1': 1.0
+        '3': 1.0
+        '5': 1.0
+      mrr: 1.0
+      top1_citation_correctness: 1.0
+      citation_completeness: 1.0
+      provenance_resolution_rate: 1.0
+      hard_negative_outranks: 0
+      indexed_characters: 1217
+      mean_latency_ms: 12.0
+    associative:
+      query_count: 1
+      recall_at:
+        '1': 0.5
+        '3': 1.0
+        '5': 1.0
+      mrr: 1.0
+      top1_citation_correctness: 1.0
+      citation_completeness: 1.0
+      provenance_resolution_rate: 1.0
+      hard_negative_outranks: 0
+      indexed_characters: 1217
+      mean_latency_ms: 11.0
+environment:
+  package_version: 0.7.0
+  db_schema_version: 7
+  scenario: failure_atlas_fixture
+  providers: none
+  model_judges: none
+queries:
+- id: Q06
+  family: direct-factual
+  partition: holdout
+  ranked:
+  - ATM-fc000007
+  - ATM-fc000006
+  recall_at:
+    1: 1.0
+    3: 1.0
+    5: 1.0
+  mrr: 1.0
+  top1_citation_correctness: 1.0
+  citation_completeness: 1.0
+  provenance_resolution_rate: 1.0
+  hard_negative_outranks: 0
+  indexed_characters: 1217
+  latency_ms: 9
+families:
+  direct-factual:
+    query_count: 1
+    recall_at:
+      1: 1.0
+      3: 1.0
+      5: 1.0
+    mrr: 1.0
+    top1_citation_correctness: 1.0
+    citation_completeness: 1.0
+    provenance_resolution_rate: 1.0
+    hard_negative_outranks: 0
+    indexed_characters: 1217
+    mean_latency_ms: 9.0

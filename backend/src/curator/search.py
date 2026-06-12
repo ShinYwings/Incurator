@@ -56,6 +56,7 @@ class SearchHit:
     snippet: str = ""
     full_content: str = ""   # populated when hydrate=True
     docid: str = ""          # qmd's content-hash short id (#abc123)
+    source_span_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -66,6 +67,7 @@ class SearchResults:
     fallback_mode: str = ""  # set when hybrid degraded (e.g. "lex"/"no_rerank")
     warnings: list[str] = field(default_factory=list)
     trace_id: str = ""
+    retrieval_trace: dict = field(default_factory=dict)
 
     def __len__(self) -> int:
         return len(self.hits)
@@ -246,6 +248,7 @@ def query(
             snippet=h.snippet,
             full_content=h.full_content if hydrate else "",
             docid=h.record_id,
+            source_span_ids=h.source_span_ids,
         )
         for h in result.hits
     ]
@@ -254,6 +257,7 @@ def query(
         fallback_mode=result.fallback_mode,
         warnings=result.warnings,
         trace_id=result.trace_id,
+        retrieval_trace=result.retrieval_trace,
     )
 
 

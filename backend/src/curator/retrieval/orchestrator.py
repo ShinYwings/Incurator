@@ -94,6 +94,7 @@ class QueryOrchestrator:
             community_report_ids=pack.community_report_ids,
             synthesis_node_ids=pack.synthesis_node_ids,
             memory_path_ids=pack.memory_path_ids,
+            retrieval_trace=pack.retrieval_trace,
             warnings=pack.warnings,
         )
         return {
@@ -159,6 +160,7 @@ class QueryOrchestrator:
             memory_path_ids=result.memory_path_ids,
             prompt_trace_ids=result.prompt_trace_ids,
             insight_candidate_ids=result.insight_candidate_ids,
+            retrieval_trace=pack.retrieval_trace,
             warnings=result.warnings,
             latency_ms=int((time.monotonic() - started) * 1000),
         )
