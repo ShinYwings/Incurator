@@ -56,6 +56,14 @@ When a PR is merged or a milestone is completed, you MUST automatically transiti
 5. **Executor Handoff**: Set clear instructions in `RELAY.md` for the Executors.
 6. **Final Output Constraint**: Do not output generic phrases like "Execute the workflow." Instead, your final output MUST be the actual review content, your architectural verdict, and an explanation of the state transition. Write it plainly so the user understands the context. Do not provide copy-paste prompts for the Executors; they will read the updated `.agents/RELAY.md` automatically based on your review.
 
+### C. Autonomous Executor Invocation (Claude Code)
+When you are instructed to launch Claude Code autonomously in the background (e.g., via the `run_command` or `schedule` tools), you MUST adhere to the following syntax rules to prevent the interactive terminal from swallowing inputs and hanging indefinitely:
+1. **Never use interactive input for automated tasks**: Do NOT run `claude` and attempt to use `send_input` to pass the prompt. The pseudo-tty and `prompt-toolkit` will fail to recognize the Enter key correctly.
+2. **Always pass the prompt as a positional argument**: Append the exact instruction string at the very end of the command line so Claude executes it immediately.
+3. **Mandatory Remote Control syntax**: If the `--remote-control` flag is requested, you MUST explicitly provide a session name string immediately after the flag, BEFORE the prompt argument. Otherwise, Claude will mistakenly parse your prompt as the session name and drop into an empty interactive shell.
+   - **Incorrect**: `claude --permission-mode auto --remote-control "Read RELAY.md..."` (Hangs)
+   - **Correct**: `claude --permission-mode auto --remote-control rc-session "Read RELAY.md..."` (Executes immediately)
+
 ## 4. The Ultimate Audit Protocol (Code & Plan Review)
 When the user asks for a review (e.g., prior to a PR, after an Executor implements a plan, or when a new architecture plan is drafted):
 - **Workflow Enforcement:** You MUST strictly execute `.agents/workflows/Antigravity Strict Workflow.md`. Do not guess or make assumptions. You must deeply trace the actual codebase (using search and view tools) to fully understand the context before making a review hypothesis.
