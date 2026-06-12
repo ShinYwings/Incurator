@@ -30,7 +30,7 @@
   sessionless query, correction proposal behavior, and internal links.
 - [x] Verify backend 526 tests, plugin 361 tests, ruff, typecheck, plugin build,
   spec-sync guard, and internal links.
-- [ ] Push documentation audit follow-up and confirm PR #23 CI.
+- [x] Push documentation audit follow-up (`26d2d98`) and confirm PR #23 CI.
 
 ## Immediate Next Action
-- Push documentation audit follow-up, confirm PR #23 CI, then user reviews and merges.
+- User reviews and merges PR #23.
