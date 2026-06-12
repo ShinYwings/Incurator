@@ -4,6 +4,27 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.6.1] — 2026-06-12
+
+Hotfix release. No schema or API changes.
+
+### Fixed
+
+- **SQLite connection leak in `db.init_db`** (`backend/src/curator/db.py`).
+  `init_db()` used `with sqlite3.connect(...)`, but Python's sqlite3 context
+  manager only commits/rolls back the transaction — it never closes the
+  connection. The leaked connection kept the `state.sqlite-wal` /
+  `state.sqlite-shm` sidecar files alive until garbage collection, which is
+  timing-dependent across platforms and caused environment-dependent
+  `sqlite3.OperationalError: database is locked` failures on Ubuntu 24.04
+  (observed in `wiki status` bootstrap paths and the corresponding test).
+  `init_db()` now closes its connection explicitly in a `finally` block, so
+  no WAL sidecars outlive the call. All other `sqlite3.connect` call sites in
+  production code were audited: `db.connect()` and the Zotero readers already
+  close in `finally` blocks; no other leak exists.
+
+---
+
 ## [0.6.0] — 2026-06-12
 
 Program 1 (RAG & Knowledge Quality Stabilization) — Plan D1 diagnostic
