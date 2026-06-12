@@ -98,7 +98,7 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Active Milestone**: **Plan D2 (Current System Failure Atlas, Part 2)** —
-  Plan E (PR #26) and hotfix (PR #27) shipped and merged. Batch 1 proceeds to D2. (Implementation finished; resuming from uncommitted state for final QA and PR due to API limits).
-- **Next in Queue**: Batch 2 (Plan B → C).
-  Execution order: Batch 1 `D1 → E → D2`, Batch 2 `B → C`, Batch 3 `A → F`. Implementation starts only on explicit user approval.
+- **Active Milestone**: **Batch 2: Plan B (Math Extraction Distillation)** —
+  Batch 1 (D1, E, D2) is fully merged and shipped.
+- **Next in Queue**: Plan C (Graph Quality).
+  Execution order: Batch 2 `B → C`, Batch 3 `A → F`. Implementation starts only on explicit user approval.
