@@ -36,3 +36,6 @@ testbed/
 *.lock
 uv.lock
 .cache/
+
+# Agent-managed local DB backups (rollback anchors, never committed)
+.agents/backups/
