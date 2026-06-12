@@ -12,6 +12,8 @@ Execute Plan E (`.agents/plans/E_external_research_design_matrix.md`) on
 - Wave A report: `backend/research_spikes/reports/wave_a.md`
 - Wave B report: `backend/research_spikes/reports/wave_b.md`
 - Wave B manifest: `backend/research_spikes/manifests/wave_b.yml`
+- Wave C report: `backend/research_spikes/reports/wave_c.md`
+- Wave C manifest: `backend/research_spikes/manifests/wave_c.yml`
 - Draft PR: `https://github.com/ShinYwings/Incurator/pull/26`
 
 ## Analysis And Reasoning
@@ -29,6 +31,21 @@ Execute Plan E (`.agents/plans/E_external_research_design_matrix.md`) on
   ways) because all `1,180` current relation confidences are `0.9–1.0`.
 - Query-relevant top-1 community selection improved measured global precision
   from `0.333` to `1.000` while reducing selected reports from `3` to `1`.
+- Wave C compared current/fixed serving policies with disposable complexity
+  routing, evaluator-gated correction, bounded iterative retrieval, and
+  progressive disclosure over a synthetic serving corpus (provider-free, no DB).
+- Complexity-aware routing matched all 3 labeled routes (`1.00` accuracy) at a
+  token cost (`10`) between always-local (`3`, `0.33` accuracy) and
+  always-most-complex (`18`, `0.33`).
+- The sufficiency gate beat one-shot success (`0.67` vs `0.33`) at one-third the
+  correction rate of always-correct, but its recall was only `0.50`: an honest
+  false negative where the evaluator overrated a one-shot pass (SF03).
+- Bounded iterative retrieval completed the two/three-hop tasks one-shot could
+  not (`0.67` vs `0.00`), capped at `3` retrievals, failed the four-hop case
+  instead of looping, and never mixed snapshots.
+- Progressive disclosure kept every omitted relevant record recoverable
+  (`1.00` recall) via stable handles and held the highest context precision,
+  while the fixed character block and fixed top-k silently dropped evidence.
 
 ## Progress Status
 
@@ -38,7 +55,9 @@ Execute Plan E (`.agents/plans/E_external_research_design_matrix.md`) on
 - [x] Wave A retrieval units and evaluation controls.
 - [x] Wave B graph, hierarchy, global, and expansion controls.
 - [x] Peer review, schema guardian, QA, docs sync, and legacy sweep.
-- [ ] **STOP: PM review/approval required before Wave C.**
+- [x] PM reviewed/approved Wave B; Wave C authorized on the same branch.
+- [x] Wave C adaptive, corrective, iterative, and progressive serving controls.
+- [ ] **STOP: PM review/approval required before Wave D (P6 formula recovery).**
 
 ## Scoped Wave B Decisions
 
@@ -50,20 +69,36 @@ Execute Plan E (`.agents/plans/E_external_research_design_matrix.md`) on
 - KG-guided expansion: `benchmark-later`; adopt only explainable
   seed/path/provenance/budget invariants as a contract candidate.
 
+## Scoped Wave C Decisions
+
+- Complexity-aware routing: `benchmark-later`; classifier is a trivial regex
+  over synthetic labels with no measured overhead or query distribution.
+- Retrieval sufficiency / corrective gate: `benchmark-later`; recall-limited by
+  evaluator blind spots and bounded to vault-evidence, single-snapshot
+  correction.
+- Bounded iterative retrieval: `benchmark-later`; adopt only the explicit
+  max-iteration/budget/stop-oracle/single-snapshot invariant as a contract
+  candidate.
+- Progressive context disclosure: `adopt-contract` candidate pending P7
+  holdout/provenance audit — declare omissions and expose stable expansion
+  handles; a silent fixed character cutoff is a rejected default.
+
 ## Verification
 
-- Focused research/atlas: `142 passed, 13 xfailed`.
-- Full backend: `672 passed, 13 xfailed`.
-- Plugin from `plugin/`: `44 files / 361 tests passed`.
-- Research ruff and mypy: passed.
-- Wave B primary/official source links: reachable or access-controlled.
-- Production/testbed authoritative DB hashes: unchanged.
-- Full production `mypy src/`: still fails with the same 73 pre-existing
-  errors in untouched files.
+- Focused research spike suite (contract + waves A/B/C): `38 passed`.
+- Full backend: `681 passed, 13 xfailed` (the `+9` over Wave B are the new Wave
+  C tests).
+- Research ruff (`src/`, `wave_c.py`, Wave C test): passed.
+- Research mypy on `wave_c.py`: passed.
+- Wave C is provider-free and reads no database; mutation guard holds by
+  construction (no production/testbed state opened).
+- Production/testbed authoritative DB hashes: unchanged (untouched this wave).
+- Full production `mypy src/`: still the same 73 pre-existing errors in
+  untouched files; `src/` was not modified.
 
 ## Critical Context And Blockers
 
-- Do not start Wave C until PM review/approval.
+- Do not start Wave D (P6 conditional formula recovery) until PM review/approval.
 - Preserve the unrelated dirty `GEMINI.md` edit.
 - Do not commit `backend/research_spikes/local/`; it contains ignored private
   SQLite copies and raw result output.
@@ -75,5 +110,9 @@ Execute Plan E (`.agents/plans/E_external_research_design_matrix.md`) on
 
 ## Immediate Next Action
 
-PM reviews `backend/research_spikes/reports/wave_b.md`. After explicit approval,
-continue with Plan E Wave C on the same branch.
+Wave C (Plan E P5) is in progress on this branch: deterministic, provider-free
+comparisons for complexity-aware routing, retrieval sufficiency/corrective
+gating, bounded iterative retrieval, and progressive context disclosure. After
+the spike, manifest, and report land, STOP at the next PM review gate before
+Wave D (P6 conditional formula recovery). The untouched holdout remains
+inaccessible until P7.
