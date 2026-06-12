@@ -38,7 +38,8 @@ def vault():
         with db.connect(paths.state_db) as conn:
             conn.execute(
                 "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
-                f"VALUES ('{RELPATH}', 'h', 'md', 1, datetime('now'))"
+                "VALUES (?, 'h', 'md', 1, datetime('now'))",
+                (RELPATH,),
             )
         yield paths
 
@@ -63,6 +64,8 @@ def _spans_for(paths: cfg.WikiPaths, source_id: int, text: str) -> list[str]:
 
 def _count(paths: cfg.WikiPaths, table: str) -> int:
     with db.connect(paths.state_db) as conn:
+        allowed_tables = {"sources", "source_spans", "search_documents", "search_chunks", "graph_entities"}
+        assert table in allowed_tables, f"Invalid table: {table}"
         return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
 
 

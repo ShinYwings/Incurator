@@ -87,12 +87,14 @@ class DynamicFakeClient:
         return "{}"
 
 
-def _layer_status(paths, source_id: int, layer: str) -> str:
+def _layer_status(paths, source_id: int, layer: str) -> str | None:
     with db.connect(paths.state_db) as conn:
+        allowed_layers = {"l1", "l2", "l3", "l4"}
+        assert layer in allowed_layers, f"Invalid layer: {layer}"
         row = conn.execute(
-            f"SELECT {layer}_status AS s FROM sources WHERE id = ?", (source_id,)
+            f"SELECT {layer}_status FROM sources WHERE id = ?", (source_id,)
         ).fetchone()
-    return row["s"]
+    return row[0] if row else None
 
 
 @pytest.fixture()

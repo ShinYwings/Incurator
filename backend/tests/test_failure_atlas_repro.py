@@ -62,7 +62,8 @@ def vault():
         with db.connect(paths.state_db) as conn:
             conn.execute(
                 "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
-                f"VALUES ('{RELPATH}', 'h', 'md', 1, datetime('now'))"
+                "VALUES (?, 'h', 'md', 1, datetime('now'))",
+                (RELPATH,),
             )
         yield paths
 

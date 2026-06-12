@@ -72,6 +72,7 @@ def test_required_fields_present_and_typed(case_id: str) -> None:
     assert record["status"] in STATUSES
     assert record["owner"] in OWNERS
     boundary = record["boundary"]
+    assert isinstance(boundary, dict), f"{case_id}: boundary must be a dictionary"
     assert boundary.get("module") and boundary.get("symbol"), (
         f"{case_id}: boundary must name the exact module and symbol"
     )
@@ -81,8 +82,10 @@ def test_required_fields_present_and_typed(case_id: str) -> None:
 def test_status_lifecycle_transitions_valid(case_id: str) -> None:
     record = CASES[case_id]
     history = record["status_history"]
+    assert isinstance(history, list), f"{case_id}: status_history must be a list"
     assert history, f"{case_id}: empty status_history"
     for entry in history:
+        assert isinstance(entry, dict), f"{case_id}: history entry must be a dictionary"
         assert entry.get("date") and entry.get("status") and entry.get("evidence"), (
             f"{case_id}: each history entry needs date/status/evidence"
         )
@@ -103,6 +106,7 @@ def test_status_lifecycle_transitions_valid(case_id: str) -> None:
 @pytest.mark.parametrize("case_id", EXPECTED_IDS)
 def test_snapshot_identities_declared(case_id: str) -> None:
     snapshot = CASES[case_id]["snapshot"]
+    assert isinstance(snapshot, dict), f"{case_id}: snapshot must be a dictionary"
     assert _GIT_SHA.match(str(snapshot.get("git_sha", ""))), (
         f"{case_id}: snapshot.git_sha must be a 40-hex commit sha"
     )
@@ -119,6 +123,7 @@ def test_snapshot_identities_declared(case_id: str) -> None:
 def test_oracles_declared(case_id: str) -> None:
     record = CASES[case_id]
     oracles = record["oracles"]
+    assert isinstance(oracles, dict), f"{case_id}: oracles must be a dictionary"
     assert oracles.get("deterministic") or oracles.get("semantic"), (
         f"{case_id}: at least one oracle is required"
     )
@@ -148,7 +153,8 @@ def test_assigned_cases_declare_program_and_gate(case_id: str) -> None:
     record = CASES[case_id]
     if record["status"] != "assigned":
         return
-    assignment = record.get("assignment") or {}
+    assignment = record.get("assignment")
+    assert isinstance(assignment, dict), f"{case_id}: assignment must be a dictionary"
     assert assignment.get("program") in {"plan-d2", "program-2", "program-3"}, (
         f"{case_id}: assigned cases must name a downstream program"
     )
@@ -169,6 +175,7 @@ def test_fixture_node_ids_resolve(case_id: str) -> None:
     file_part, _, test_name = fixture.partition("::")
     test_file = REPO_ROOT / file_part
     assert test_file.is_file(), f"{case_id}: fixture file {file_part} does not exist"
-    assert test_name and f"def {test_name}(" in test_file.read_text(encoding="utf-8"), (
-        f"{case_id}: fixture test {test_name!r} not found in {file_part}"
+    base_test_name = test_name.split("[")[0]
+    assert base_test_name and f"def {base_test_name}(" in test_file.read_text(encoding="utf-8"), (
+        f"{case_id}: fixture test {base_test_name!r} not found in {file_part}"
     )
