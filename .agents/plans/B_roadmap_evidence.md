@@ -1,0 +1,127 @@
+# Plan B Evidence Ledger (Coding-Time)
+
+Date: 2026-06-13
+Branch: `feature/plan-b-math-distillation`
+Rollback anchor: `688c6d0c478104494bf3cca9841a58c5f535ca6c`
+(= merged Program 1 `master` `5a3932cbdcd84055e3b8d5bc03b959c384e465be`
+plus two PM workflow chore commits)
+
+This is the coding-time ledger required by Plan B
+(`.agents/plans/B_math_extraction_distillation.md` — "Evidence Ledger Refresh
+Deliverable"). The Arena ledger at
+`.agents/plans/math_extraction_distillation_arena/04_evidence_ledger.md` is a
+planning snapshot only.
+
+## Current Repository And Schema Reality
+
+- Program 1 is fully merged: D1 (`v0.6.0`), SQLite leak hotfix (`v0.6.1`),
+  Plan E (PR #26), D2 (`v0.7.0`, PR #28). Branch is created from the merged
+  `master` at `5a3932c`.
+- Backend/plugin version at baseline: `0.7.0` (`backend/pyproject.toml`,
+  `plugin/package.json`, `plugin/manifest.json` agree).
+- `state.sqlite` schema version: `7` (from the `schema_version` table;
+  `PRAGMA user_version` is unused and reads 0).
+- `wiki status` reports a pre-existing, non-blocking warning:
+  "Vault schema v0 → backend expects v1. Run wiki migrate to upgrade."
+  This predates Plan B and is not introduced by this branch.
+- `source_spans` deduplicates by `(source_id, content_hash)`, stores a
+  200-char `text_preview` (`_PREVIEW_CHARS = 200`), and accepts metadata.
+  Confirmed unchanged from the planning inspection.
+- `knowledge_units` has no `semantic_hash`, `support_status`,
+  `formula_status`, or `retired_at` columns, and there is no
+  `claim_supports` table — the Plan B candidate schema is entirely additive
+  from this baseline.
+- No stale-dependency invalidation API exists in `db.py` (F7 boundary
+  evidence re-confirmed by the passing repro suite at this SHA).
+
+## Baseline And Rollback Evidence
+
+- Active testbed scenario: `gaussian_splatting` (confirmed from the
+  initialized `testbed/` workspace: 2D Gaussian Splatting + EWA splatting
+  papers in `03_Notes/Papers` and `04_Resources/Zotero`, workspace
+  `01_Workspaces/Gaussian Splatting Geometry Lab/`). The historical
+  `complex_math_backprop` scenario is NOT present under `tests/scenarios/`;
+  per Plan P2/P7 it will be rewritten as the math-specific scenario rather
+  than assumed active.
+- Providers/models at baseline (`wiki status`):
+  - Primary LLM: Antigravity CLI (`gemini-3.5-flash`), fallback none.
+  - Embedding: `llama-cpp::qwen3-embedding-0.6b`.
+  - Search engine: `native-0.7.0` in-DB FTS5 + vector, reranking on.
+- Testbed DB SHA-256 before Plan B:
+  `4bb46326faf8512f88b51c7a35bbe3d31ac36fafbf1cf887759db1784a6109cc`
+  (unchanged since the D2 pre-observatory backup).
+- Testbed DB backup: `.agents/backups/b-pre-implementation-state.sqlite`
+  (gitignored), SHA-256 identical to the live DB; restoration verified —
+  `PRAGMA integrity_check` = ok on the backup copy.
+- Testbed DB baseline row counts: 3 `sources`, 212 `source_spans`,
+  0 `knowledge_units`, 0 `synthesis_nodes`. Pipeline state: L1 done (3/3),
+  L2/L3/L4 pending (0/3 each).
+- Testbed `curate.yml` SHA-256
+  (`01_Workspaces/Gaussian Splatting Geometry Lab/curate.yml`):
+  `a45b5ef13bff1d335ff1d95a95e1df9d6e34d338bd7aef6644e6e17633ed672f`.
+- Failure Atlas fixture corpus SHA-256:
+  `35301871bdd1e8e676d63c032e7c566d863a9760f94d1c00e5de8217e364603b`.
+- Failure Atlas qrels SHA-256:
+  `e3b254054779595aa4157df82db1c885356e3763f35430be0b23bb187c35c6a0`.
+- Failure Atlas support labels SHA-256:
+  `89f7842824e381931735583cb1dc28b79d471ea425df88cc9d6e7cd63c4478d5`.
+- DB schema fingerprint (SHA-256 over ordered `sqlite_master` DDL):
+  `32de7dcfcb87e23a0e2c47985c9fbcbf05e6b30012f10da198e8ba594a9a0842`.
+
+## P0 Measured Baseline (Program 1 Suites At This SHA)
+
+All five Program 1 failure-atlas suites pass at the rollback anchor:
+
+```
+uv run --directory backend pytest tests/test_failure_atlas_repro.py \
+  tests/test_failure_atlas_contract.py tests/test_failure_atlas_experiments.py \
+  tests/test_failure_atlas_d2.py tests/test_failure_atlas_eval.py -q
+135 passed, 10 xfailed
+```
+
+The 10 strict-xfail oracles are the frozen Program 1 targets. Plan B owns
+turning F6, F7, and F10 oracles green; F8/F9 are Program 2 cases owned by
+Plan C (graph), and F3/F4/F5/F11/F12 are Program 3.
+
+### Failure Boundary Classification (P0 Deliverable)
+
+| Concern (Plan B P0) | Atlas case / evidence | Boundary | Status |
+|---|---|---|---|
+| Formula loss (distillation) | Plan E Wave D FR01: distillation drops a formula present in authoritative extraction; FR05 holdout: distillation adds nothing absent from extraction | downstream distillation prompt path (no formula-preservation check exists) | **Reproduced** (frozen Wave D result); adopted contract: formula-preserving distillation |
+| Formula loss (parser/L1) | L1 preserves `$$...$$` only when parser output contains them; no per-class loss verdicts (`fragmented`/`image_only`/`parser_omitted`) measured yet on the current corpus | `parsers/*` → L1 span path | **Scheduled** — P2 gold fixtures + P5 loss-boundary classifier; recovery work stays blocked until these verdicts are measured (Plan stop condition) |
+| Wrong-real-span support | F6: `synthesis.py:110` `item_spans = list(item.source_span_ids) or span_ids`; `curator.synthesis_write` validator chain omits `requires_source_spans` | synthesis persistence; valid span id treated as proof of support | **Reproduced** (deterministic, xfail oracle `test_f6_oracle_synthesis_spans_match_declared_support`) |
+| Unchanged rebuild | F7 partial pass: unchanged re-store IS id-stable at L1; search upsert row-idempotent. L2+ rebuild identity undefined (`upsert_knowledge_unit()` creates new ids by default) | `db.upsert_knowledge_unit`, compile generation identity | **Reproduced at L1 / Scheduled at L2+** — provider-mode portion documented as blocked in F7 notes |
+| Edit (stale rows) | F7: edited content creates new span rows, old rows linger; stale-citing synthesis untouched; no invalidation API | `source_spans.store_source_spans`, missing dependency-closure API | **Reproduced** (deterministic, xfail oracle `test_f7_oracle_source_edit_reconciles_stale_spans`) |
+| Delete/split reconciliation | No Program 1 fixture exercises source delete or split | same reconciliation boundary as F7 | **Scheduled** — P2 gold fixtures (`edit/delete/split`), P4 reconciliation |
+| Failed compile (partial publish) | `compile_source_l2()` makes persistent writes across multiple stages before all stages validate (planning evidence, re-confirmed in code at this SHA); no atomicity test exists | staged-generation publish boundary | **Accepted as real / Scheduled** — P6 failure injection at every publish boundary |
+| Evidence truncation | F10: `_PREVIEW_CHARS = 200` is the only stored span text; evidence packs present the preview as span evidence | `source_spans.SourceSpan.text_preview`, `evidence.py` pack items | **Reproduced** (deterministic, xfail oracle `test_f10_oracle_full_span_text_retrievable`) |
+
+Every P0 concern is therefore reproduced, accepted, or explicitly scheduled;
+none is disproven. No recovery (VLM) work is approved yet — the P5 gate
+requires measured per-class loss verdicts first.
+
+## Current Dirty Worktree
+
+- `.agents/RELAY.md` — modified by the PM (Plan B kickoff state), uncommitted.
+  Preserved; Plan B appends progress to it rather than reverting.
+- No other tracked files were modified at ledger creation time.
+
+## Environment Repairs Performed During P0 (No Code Behavior Change)
+
+- Removed a stray `backend/.venv` (policy: the backend venv lives at the repo
+  root only). It was shadowing the root venv for `uv run` script resolution.
+- Recreated the root `.venv`: its console-script shebangs still pointed at the
+  pre-rename repo path (`~/Workspace/llm_wiki/...`), which silently fell back
+  to the Anaconda toolchain. After `rm -rf .venv && uv sync --directory
+  backend --extra dev --extra mcp`, `uv run --directory backend pytest`
+  resolves to `<repo>/.venv` correctly.
+
+## Migration Rehearsal Status
+
+- The Plan B additive migration does not exist yet (P3 scope). Rehearsal on a
+  disposable DB copy is REQUIRED before the migration touches the testbed DB,
+  using `.agents/backups/b-pre-implementation-state.sqlite` as the rehearsal
+  input. Acceptance criteria are frozen in the P1 contract documents.
+- Clean rebuild from source truth is preserved: testbed sources are intact
+  under `03_Notes/` and `04_Resources/` (read-only), and L2+ state is empty
+  at baseline, so a full recompile is the trivial recovery path.
