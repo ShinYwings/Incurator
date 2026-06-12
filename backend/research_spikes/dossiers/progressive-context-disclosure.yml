@@ -1,0 +1,36 @@
+candidate_id: progressive-context-disclosure
+name: Progressive context disclosure
+version_checked: "2026-06-12"
+candidate_family: context-serving
+target:
+  kind: failure-atlas
+  failure_ids: [F5, F12]
+  question: Can a compact initial context plus explicit expansion handles outperform a silent fixed character cutoff?
+primary_sources:
+  - title: MemGPT
+    url: https://arxiv.org/abs/2310.08560
+    claim_boundary: Proposes virtual context management across memory tiers; its autonomous memory design is broader than the bounded disclosure mechanism tested here.
+  - title: Effective context engineering for AI agents
+    url: https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents
+    claim_boundary: Advocates just-in-time context strategies for agents; it is operational guidance rather than an Incurator benchmark.
+official_implementations: []
+mechanism: Return a budgeted evidence summary with omissions, stable handles, and reserved capacity for explicit expansion.
+assumptions: [Stable snapshot and record handles exist, omissions can be declared accurately.]
+claimed_benefit: Higher context precision per token with recoverable omitted evidence.
+reported_benchmark_scope: Long-document analysis, multi-session chat, and agent context-engineering guidance.
+falsifiable_hypothesis: Progressive disclosure improves context precision per token and task success over a fixed 16000-character block without reducing recoverable evidence recall.
+controls: [fixed-16000-character-block, fixed-top-k-evidence]
+spike:
+  independent_variable: initial disclosure budget and expansion-handle policy
+  metrics: [context_precision_per_token, recoverable_context_recall, task_success, tokens_used, snapshot_consistency]
+metrics: [context_precision_per_token, recoverable_context_recall, task_success, tokens_used, snapshot_consistency]
+risks:
+  provenance: Summaries and handles must resolve to exact evidence.
+  update_delete: Expansion handles must not resolve across stale snapshots.
+  cost_latency: Additional expansion round trips may add latency.
+  dependency: Client parity requires one normalized context contract.
+evidence_against_adoption: Reject if omissions are silent, handles are unstable, or fixed top-k matches task success.
+preliminary_decision: adopt-contract
+confidence: medium
+rejection_section: Adopt only the bounded disclosure invariant; no production implementation is authorized by this dossier.
+downstream_owner: program-3

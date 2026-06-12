@@ -1,0 +1,33 @@
+candidate_id: kg-guided-expansion
+name: KG-guided expansion and organization
+version_checked: "2026-06-12"
+candidate_family: graph-retrieval
+target:
+  kind: failure-atlas
+  failure_ids: [F8, F9, F11]
+  question: Can graph-guided expansion organize coherent multi-hop evidence without propagating noisy or false-merged edges?
+primary_sources:
+  - title: Knowledge Graph-Guided Retrieval Augmented Generation
+    url: https://arxiv.org/abs/2502.06864
+    claim_boundary: KG2RAG expands semantic seed chunks through a KG and organizes them; reported HotpotQA results do not prove personal-vault graph quality.
+official_implementations: []
+mechanism: Retrieve semantic seed chunks, expand through selected graph relations, then order added chunks by graph structure.
+assumptions: [Seed retrieval is adequate, relation confidence and provenance are available.]
+claimed_benefit: More diverse and coherent multi-hop evidence packs.
+reported_benchmark_scope: HotpotQA and variants using the paper's constructed knowledge graphs.
+falsifiable_hypothesis: Bounded graph expansion improves expected-path recall over seed retrieval without adding forbidden noisy-bridge or homonym evidence.
+controls: [seed hybrid retrieval, unweighted one-hop expansion]
+spike:
+  independent_variable: relation-filtered graph expansion and ordering from fixed seeds
+  metrics: [multihop_path_recall, forbidden_evidence_rate, expansion_budget, provenance_resolution_rate]
+metrics: [multihop_path_recall, forbidden_evidence_rate, expansion_budget, provenance_resolution_rate]
+risks:
+  provenance: Added chunks need an explainable seed-to-edge path.
+  update_delete: Deleted edges and chunks must disappear from packs.
+  cost_latency: Expansion and organization add query work.
+  dependency: Depends on Program 2 relation quality.
+evidence_against_adoption: Any gain driven by unsupported bridge edges or hidden expansion paths rejects the mechanism as default.
+preliminary_decision: benchmark-later
+confidence: low
+rejection_section: Reject unbounded expansion and expansion over automatically merged entities without confidence gates.
+downstream_owner: program-3

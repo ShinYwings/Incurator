@@ -1,0 +1,39 @@
+candidate_id: denoised-hierarchy
+name: Denoised hierarchy and Leiden candidate
+version_checked: "2026-06-12"
+candidate_family: graph-organization
+target:
+  kind: failure-atlas
+  failure_ids: [F4, F8]
+  question: Can a stable denoised hierarchy prevent giant components and support bounded global retrieval?
+primary_sources:
+  - title: "From Louvain to Leiden: guaranteeing well-connected communities"
+    url: https://arxiv.org/abs/1810.08473
+    claim_boundary: Leiden guarantees well-connected communities and reports improved partition quality over Louvain; it does not solve semantic edge correctness.
+  - title: RAPTOR
+    url: https://arxiv.org/abs/2401.18059
+    claim_boundary: Recursively clusters and summarizes chunks into a retrieval tree; generated hierarchy and summaries carry update and provenance costs.
+official_implementations:
+  - url: https://github.com/microsoft/graphrag
+    license: MIT
+    operational_note: GraphRAG is a reference for hierarchical reports; no framework import is authorized.
+mechanism: Remove or downweight weak edges, partition the graph, and optionally build higher-level summaries over stable communities.
+assumptions: [Edge confidence is meaningful, seeds and partition settings can be frozen.]
+claimed_benefit: Coherent bounded global structure instead of query-independent giant components.
+reported_benchmark_scope: Network partition benchmarks, long-document QA, and GraphRAG-style global reasoning.
+falsifiable_hypothesis: Denoising plus a fixed-seed hierarchy reduces giant-component ratio and improves query-relevant global selection over connected components.
+controls: [raw connected components, authored-topology-only components]
+spike:
+  independent_variable: edge denoising and hierarchy algorithm on one frozen graph
+  metrics: [giant_component_ratio, partition_seed_stability, global_community_precision, update_churn]
+metrics: [giant_component_ratio, partition_seed_stability, global_community_precision, update_churn]
+risks:
+  provenance: Generated summaries can blur source support.
+  update_delete: Small graph edits may cause community and summary churn.
+  cost_latency: Clustering and summaries add rebuild cost.
+  dependency: Requires trustworthy graph edges from Program 2.
+evidence_against_adoption: Better-looking partitions without query gains or stable rebuilds are insufficient.
+preliminary_decision: benchmark-later
+confidence: low
+rejection_section: Reject eager unbounded global summarization and unexplained nondeterministic partitions.
+downstream_owner: program-2

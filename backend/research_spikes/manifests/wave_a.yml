@@ -1,0 +1,46 @@
+version: 1
+wave: A
+recorded_at: "2026-06-12"
+hypotheses:
+  - Context-enriched chunks beat deterministic heading context on source-scoped retrieval.
+  - Context enrichment does not regress direct-factual retrieval or source-span resolution.
+  - Fine-grained retrieval and citation metrics expose failures hidden by aggregate recall.
+fixtures:
+  retrieval_units:
+    path: backend/research_spikes/corpora/retrieval_units.yml
+    sha256: b45485c824c4bfb372d502143d072230623d1ebf4299c7746356dcf1e61a36c7
+  evaluation_protocol:
+    path: backend/research_spikes/evaluation_protocol.yml
+    sha256: f664cd85b80660b865a76d9491176d31d8398015128621d5de33536988e6f366
+partitions:
+  measured: [dev, regression, adversarial]
+  holdout_accessed: false
+baseline_and_controls:
+  baseline: raw chunks
+  simplest_control: deterministic heading prefix
+  candidate: explicitly labeled generated context prefix
+  retrieval_modes: [lex, vec, hybrid]
+independent_variables:
+  - chunk context construction
+  - retrieval mode
+provider_model:
+  provider_calls: 0
+  vector_control: research::token-hash-v1::64
+  reranker: none
+  prompts: none
+  seeds: deterministic-token-hash
+environment:
+  os: Darwin 25.3.0 arm64
+  cpu: Apple M1
+  python: 3.14.5
+commands:
+  - uv run --directory backend pytest -q tests/test_research_spikes_wave_a.py
+  - uv run --directory backend python research_spikes/wave_a.py
+raw_results:
+  path: backend/research_spikes/local/results/wave_a.json
+  sha256_at_recording: 60bd19e6dee088a4a24d9ff72438aa0c3861598747597ec00d8ba4219514787a
+  committed: false
+mutation_guard:
+  production_mutations: 0
+  authoritative_testbed_mutations: 0
+  input_mode: synthetic-temporary-sqlite-only

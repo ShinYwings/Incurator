@@ -1,0 +1,36 @@
+candidate_id: context-enriched-chunks
+name: Context-enriched chunks
+version_checked: "2026-06-12"
+candidate_family: retrieval-units
+target:
+  kind: failure-atlas
+  failure_ids: [F10]
+  question: Can generated chunk context recover source-scoped retrieval without weakening exact raw-span provenance?
+primary_sources:
+  - title: Contextual Retrieval
+    url: https://www.anthropic.com/engineering/contextual-retrieval
+    claim_boundary: Prepends short document-specific context to chunks before embedding and BM25; reported retrieval-failure reductions are Anthropic's corpus/model results.
+  - title: Reconstructing Context
+    url: https://arxiv.org/abs/2504.19754
+    claim_boundary: Comparative analysis reports contextual retrieval can improve coherence with greater compute cost; it does not establish Incurator behavior.
+official_implementations: []
+mechanism: Generate a short context prefix for each raw chunk, index prefix plus chunk, and retain a separate locator to the unchanged raw chunk.
+assumptions: [Document-level context is available at indexing time, generated context can be invalidated after source edits.]
+claimed_benefit: Better retrieval of chunks whose local text omits identifying context.
+reported_benchmark_scope: Anthropic retrieval experiments and later comparative retrieval studies, not personal-vault incremental rebuilds.
+falsifiable_hypothesis: Context-enriched chunks improve source-scoped Recall@5 over current chunks and deterministic heading context without direct-factual regression or provenance loss.
+controls: [current raw chunks, deterministic heading-and-title prefix]
+spike:
+  independent_variable: chunk context construction only
+  metrics: [source_scoped_recall_at_5, direct_factual_recall_at_1, provenance_resolution_rate, reindex_cost]
+metrics: [source_scoped_recall_at_5, direct_factual_recall_at_1, provenance_resolution_rate, reindex_cost]
+risks:
+  provenance: Generated prefix may be mistaken for source text.
+  update_delete: Every source edit may invalidate generated prefixes.
+  cost_latency: Index-time LLM calls and larger index entries.
+  dependency: Requires a context generator unless deterministic control wins.
+evidence_against_adoption: Reject if heading context matches the gain, raw-span linkage is obscured, or direct factual retrieval regresses.
+preliminary_decision: benchmark-later
+confidence: medium
+rejection_section: Never store generated context as authoritative source evidence or adopt it without an invalidation contract.
+downstream_owner: program-2
