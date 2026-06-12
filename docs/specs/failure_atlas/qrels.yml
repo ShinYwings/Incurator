@@ -1,0 +1,73 @@
+# Ground-truth relevance labels (qrels) over fixture_corpus.yml.
+# See FAILURE_ATLAS.md and EVALUATION_BASELINE.md.
+#
+# Labeling method: deterministic expected-id labels authored together with the
+# synthetic corpus (each query's vocabulary was written to have exactly one —
+# or for associative queries, an enumerated set of — correct document[s]).
+# Reviewer provenance: authored and cross-checked by the D1 agent against the
+# corpus bodies on 2026-06-12; no model judge involved.
+#
+# Partition discipline (no-tuning rule):
+# - dev:        may be inspected and re-run freely during development.
+# - regression: frozen; run on every CI pass; thresholds are binding.
+# - holdout:    frozen and NEVER measured during development/tuning. The eval
+#               runner validates its structure but skips measurement until a
+#               D2-approved evaluation procedure consumes it.
+# - adversarial: hard-negative pairs; binding like regression.
+version: 1
+queries:
+  - id: Q01
+    family: direct-factual
+    partition: dev
+    text: residual connections deep network optimization
+    expected: [ATM-fc000001]
+    hard_negatives: []
+  - id: Q02
+    family: direct-factual
+    partition: dev
+    text: attention relevance tokens transformer
+    expected: [ATM-fc000002]
+    hard_negatives: []
+  - id: Q03
+    family: direct-factual
+    partition: dev
+    text: dropout regularization randomly deactivating units
+    expected: [ATM-fc000004]
+    hard_negatives: []
+  - id: Q04
+    family: direct-factual
+    partition: regression
+    text: coral bleaching heat stress algae
+    expected: [ATM-fc000005]
+    hard_negatives: []
+  - id: Q05
+    family: direct-factual
+    partition: regression
+    text: reef calcification aragonite carbonate chemistry
+    expected: [ATM-fc000006]
+    hard_negatives: []
+  - id: Q06
+    family: direct-factual
+    partition: holdout
+    frozen: true
+    text: mangrove nurseries juvenile reef fish
+    expected: [ATM-fc000007]
+    hard_negatives: []
+  - id: Q07
+    family: direct-factual
+    partition: adversarial
+    text: jaguar apex predator amazon basin
+    expected: [ATM-fc000008]
+    hard_negatives: [ATM-fc000009]
+  - id: Q08
+    family: direct-factual
+    partition: adversarial
+    text: jaguar e-type sports car engine
+    expected: [ATM-fc000009]
+    hard_negatives: [ATM-fc000008]
+  - id: Q09
+    family: associative
+    partition: dev
+    text: residual learning connection to euler discretization of odes
+    expected: [ATM-fc000001, ATM-fc000010]
+    hard_negatives: []

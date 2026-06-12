@@ -1,0 +1,60 @@
+# Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
+id: F11
+title: Explore is a single prompt pass — follow-up questions are rendered, never executed
+query_family: associative
+execution_mode: deterministic
+status: assigned
+status_history:
+  - date: "2026-06-11"
+    status: suspected
+    evidence: "Umbrella plan §4, Arena consensus"
+  - date: "2026-06-12"
+    status: reproduced
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f11_baseline_explore_single_pass"
+  - date: "2026-06-12"
+    status: assigned
+    evidence: "FAILURE_ATLAS.md §8 — bounded iterative retrieval is Program 3 P3.3 scope"
+owner: program-3
+impact: >
+  The explore route advertises iterative research but performs exactly one
+  expansion prompt: follow-up questions are formatted into the answer text and
+  abandoned. There is no retrieval-sufficiency check, no bounded iteration, no
+  measurement of whether exploration actually closed the knowledge gap.
+boundary:
+  module: backend/src/curator/retrieval/orchestrator.py
+  symbol: QueryOrchestrator._run_explore
+  detail: >
+    _run_explore (orchestrator.py:208-250) runs the
+    curator.query_explore_expand contract once, persists insight candidates,
+    and renders followup_questions as markdown bullets in result.answer. No
+    code path issues the follow-ups as queries or evaluates sufficiency.
+fixture: backend/tests/test_failure_atlas_repro.py::test_f11_baseline_explore_single_pass
+commands:
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f11_baseline_explore_single_pass" -q
+oracles:
+  deterministic: >
+    Explore executes a measured, bounded iterative loop: follow-up retrieval
+    happens under an explicit iteration/budget/sufficiency stop rule, every
+    iteration is traced under the parent transaction, and the loop's
+    gap-closure is measurable per task family.
+  semantic: null
+before_state_evidence: >
+  At baseline, an explore run with a fake client producing one follow-up
+  question records exactly 1 prompt run and exactly 1 query trace; the
+  follow-up appears only as answer text.
+observed_result: >
+  Reproduced 2026-06-12 — prompt_trace_ids length == 1; query_traces count ==
+  1; follow-up question present in answer text only.
+snapshot:
+  git_sha: 8458f652d5481f377bd957ed1256240aaf470f54
+  version: 0.5.6
+  schema_version: 6
+  scenario: complex_math_backprop
+assignment:
+  program: program-3
+  gate: >
+    Bounded DRIFT/iterative retrieval only behind complexity/sufficiency
+    gates, traced and measured (umbrella P3.3).
+notes: >
+  Oracle test: test_f11_oracle_explore_executes_followups_bounded
+  (strict xfail).

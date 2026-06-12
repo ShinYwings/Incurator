@@ -1,0 +1,59 @@
+# Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
+id: F4
+title: Global evidence is query-independent; source-scoped evidence is unbounded
+query_family: global
+execution_mode: deterministic
+status: assigned
+status_history:
+  - date: "2026-06-11"
+    status: suspected
+    evidence: "Umbrella plan §4, Arena consensus"
+  - date: "2026-06-12"
+    status: reproduced
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f4_baseline_global_evidence_query_independent_and_unbounded"
+  - date: "2026-06-12"
+    status: assigned
+    evidence: "FAILURE_ATLAS.md §8 — bounded query-relevant routes are Program 3 scope"
+owner: program-3
+impact: >
+  Global queries load every community report regardless of the question, so
+  cost grows linearly with corpus size and irrelevant material dilutes the
+  context window. Source-section queries load every span of a source with no
+  bound, which combined with F5's silent cutoff means long sources are
+  arbitrarily truncated.
+boundary:
+  module: backend/src/curator/retrieval/evidence.py
+  symbol: _report_items
+  detail: >
+    route == "global" (evidence.py:169-183) concatenates _synthesis_items
+    (first 6) with _report_items(db_path) which iterates
+    db.list_community_reports with no query argument and no limit; route ==
+    "source-section" (evidence.py:152-167) appends every span of the source.
+fixture: backend/tests/test_failure_atlas_repro.py::test_f4_baseline_global_evidence_query_independent_and_unbounded
+commands:
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f4_baseline_global_evidence_query_independent_and_unbounded" -q
+oracles:
+  deterministic: >
+    Global-route evidence selection is bounded (item count respects an
+    explicit budget) and query-relevant: on a two-topic fixture corpus,
+    orthogonal queries select differing community reports. Source-scoped
+    evidence declares an explicit bound with explicit omissions.
+  semantic: null
+before_state_evidence: >
+  At baseline, fetch_context(mode=global) with two orthogonal questions on a
+  30-report corpus returns identical evidence id lists (set equality), each
+  containing all 30 reports.
+observed_result: >
+  Reproduced 2026-06-12 — two orthogonal global queries returned identical
+  30-report evidence lists; report selection never consulted the query.
+snapshot:
+  git_sha: 8458f652d5481f377bd957ed1256240aaf470f54
+  version: 0.5.6
+  schema_version: 6
+  scenario: complex_math_backprop
+assignment:
+  program: program-3
+  gate: "Global/source routes are bounded and query-relevant (Program 3 release gate)."
+notes: >
+  Secondary family: source-scoped. Oracle test:
+  test_f4_oracle_global_evidence_bounded_and_query_dependent (strict xfail).

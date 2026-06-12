@@ -1,0 +1,60 @@
+# Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
+id: F2
+title: One logical query persists two or more disconnected QTR- traces
+query_family: cross-route
+execution_mode: deterministic
+status: assigned
+status_history:
+  - date: "2026-06-11"
+    status: suspected
+    evidence: "Umbrella plan §4, Arena consensus"
+  - date: "2026-06-12"
+    status: reproduced
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f2_baseline_one_query_persists_disconnected_traces"
+  - date: "2026-06-12"
+    status: assigned
+    evidence: "FAILURE_ATLAS.md §8 — authoritative query-transaction identity is D4 observatory scope"
+owner: plan-d2
+impact: >
+  A query cannot be reconstructed as one logical transaction: latency, token,
+  evidence, and provenance accounting are split across unlinked query_traces
+  rows, so per-query measurement (the heart of the Quality Observatory) is
+  untruthful.
+boundary:
+  module: backend/src/curator/retrieval/orchestrator.py
+  symbol: QueryOrchestrator.fetch_context
+  detail: >
+    fetch_context (orchestrator.py:83) and run() (:127) each mint their own
+    QTR- id, while build_evidence → _search_hits → search.query →
+    HybridEngine.search persists a second, independent QTR- trace
+    (retrieval/engine.py:341). query_traces has no parent/child or
+    transaction-id column linking them.
+fixture: backend/tests/test_failure_atlas_repro.py::test_f2_baseline_one_query_persists_disconnected_traces
+commands:
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f2_baseline_one_query_persists_disconnected_traces" -q
+oracles:
+  deterministic: >
+    One logical query surface call persists exactly one authoritative QTR-
+    transaction, or a declared parent trace with child traces explicitly
+    linked to it. Reconstructing the request from the DB must yield one
+    connected trace tree.
+  semantic: null
+before_state_evidence: >
+  At baseline, a single QueryOrchestrator.fetch_context(mode=local) call on a
+  corpus with search documents persists 2 query_traces rows (orchestrator
+  trace + engine trace); neither row references the other's trace id anywhere
+  in its stored JSON.
+observed_result: >
+  Reproduced 2026-06-12 — query_traces count after one fetch_context call: 2;
+  cross-reference scan of both rows' JSON found no linkage.
+snapshot:
+  git_sha: 8458f652d5481f377bd957ed1256240aaf470f54
+  version: 0.5.6
+  schema_version: 6
+  scenario: complex_math_backprop
+assignment:
+  program: plan-d2
+  gate: "Exactly one authoritative QTR per query surface (Program 1 release gate)."
+notes: >
+  Oracle test: test_f2_oracle_single_logical_transaction_per_query
+  (strict xfail until the transaction model lands in D2/P5).

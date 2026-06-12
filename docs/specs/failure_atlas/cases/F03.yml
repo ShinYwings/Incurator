@@ -1,0 +1,60 @@
+# Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
+id: F3
+title: CurationPolicy (KRS) is not enforced through evidence assembly
+query_family: cross-route
+execution_mode: deterministic
+status: assigned
+status_history:
+  - date: "2026-06-11"
+    status: suspected
+    evidence: "Umbrella plan §4, Arena consensus"
+  - date: "2026-06-12"
+    status: reproduced
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f3_baseline_build_evidence_accepts_no_policy"
+  - date: "2026-06-12"
+    status: assigned
+    evidence: "FAILURE_ATLAS.md §8 — route policy enforcement is Program 3 ContextService scope"
+owner: program-3
+impact: >
+  The workspace Knowledge Requirement Spec (curate.yml) is resolved by the
+  orchestrator but cannot influence which evidence is assembled: KRS bias,
+  source scoping, and exclusions are silently ignored on every route, so two
+  workspaces with opposite curation policies receive identical evidence packs.
+boundary:
+  module: backend/src/curator/retrieval/evidence.py
+  symbol: build_evidence
+  detail: >
+    QueryOrchestrator resolves CurationPolicy via _resolve_policy
+    (orchestrator.py:80,124) but calls build_evidence(self.paths, request,
+    route) (:84,:129). The build_evidence signature (evidence.py:144) accepts
+    no policy parameter; no callee consults the policy.
+fixture: backend/tests/test_failure_atlas_repro.py::test_f3_baseline_build_evidence_accepts_no_policy
+commands:
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f3_baseline_build_evidence_accepts_no_policy" -q
+oracles:
+  deterministic: >
+    Evidence assembly receives the resolved CurationPolicy on every route, and
+    a policy change (e.g. KRS exclusion or boost) produces a measurably
+    different evidence pack on a fixture corpus constructed to discriminate
+    policies.
+  semantic: null
+before_state_evidence: >
+  At baseline, inspect.signature(build_evidence) parameters are exactly
+  (paths, request, route, *, limit) — no policy parameter exists anywhere in
+  the evidence module.
+observed_result: >
+  Reproduced 2026-06-12 — signature check confirms no policy parameter;
+  module source contains no CurationPolicy reference.
+snapshot:
+  git_sha: 8458f652d5481f377bd957ed1256240aaf470f54
+  version: 0.5.6
+  schema_version: 6
+  scenario: complex_math_backprop
+assignment:
+  program: program-3
+  gate: >
+    Enforce KRS policy, source scope, truth/freshness rules, and explicit
+    degradation on every route (umbrella P3.1).
+notes: >
+  Oracle test: test_f3_oracle_build_evidence_receives_curation_policy
+  (strict xfail).

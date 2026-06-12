@@ -1,0 +1,63 @@
+# Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
+id: F10
+title: Searchable span evidence is capped at a 200-character preview
+query_family: source-scoped
+execution_mode: deterministic
+status: assigned
+status_history:
+  - date: "2026-06-11"
+    status: suspected
+    evidence: "Umbrella plan §4, Arena consensus"
+  - date: "2026-06-12"
+    status: reproduced
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f10_baseline_span_evidence_capped_at_preview"
+  - date: "2026-06-12"
+    status: assigned
+    evidence: "FAILURE_ATLAS.md §8 — long-source evidence retrieval is Program 2 P2.1 scope"
+owner: program-2
+impact: >
+  Evidence packs ground claims on at most the first 200 normalized characters
+  of a span. For long paragraphs, derivations, or code blocks the cited
+  "evidence" is a stub: claim verification against exact source evidence is
+  impossible through the pack, and answer synthesis reasons over truncated
+  text while citing the full span id as if it were fully consulted.
+boundary:
+  module: backend/src/curator/pipeline/source_spans.py
+  symbol: SourceSpan.text_preview
+  detail: >
+    _PREVIEW_CHARS = 200 (source_spans.py:22,37-39); the DB stores only
+    text_preview (db.py:221 source_spans.text_preview), and evidence packs
+    use span["text_preview"] for both source-section route items
+    (evidence.py:162) and entity-derived span items (evidence.py:90). Full
+    span text is recoverable only by re-reading the source file via
+    start_char/end_char offsets — no evidence route does so.
+fixture: backend/tests/test_failure_atlas_repro.py::test_f10_baseline_span_evidence_capped_at_preview
+commands:
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f10_baseline_span_evidence_capped_at_preview" -q
+oracles:
+  deterministic: >
+    Long-source span evidence is retrievable in full (or in explicitly
+    chunked, expandable form) through the evidence surface; a 200-character
+    preview is never presented as the sufficient source truth for a span that
+    is longer than the preview.
+  semantic: null
+before_state_evidence: >
+  At baseline, a 1,000-character span stored via upsert_source_span carries a
+  200-char text_preview; the source-section evidence pack item's text equals
+  that 200-char preview and the remaining 800 characters are unreachable from
+  the pack.
+observed_result: >
+  Reproduced 2026-06-12 — pack item text length == 200 for a 1,000-char span;
+  tail content absent from every item field.
+snapshot:
+  git_sha: 8458f652d5481f377bd957ed1256240aaf470f54
+  version: 0.5.6
+  schema_version: 6
+  scenario: complex_math_backprop
+assignment:
+  program: program-2
+  gate: >
+    Long-source searchable evidence retrievable without treating a
+    200-character preview as sufficient source truth (umbrella P2.1).
+notes: >
+  Oracle test: test_f10_oracle_full_span_text_retrievable (strict xfail).

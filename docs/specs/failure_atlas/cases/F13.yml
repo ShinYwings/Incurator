@@ -1,0 +1,64 @@
+# Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
+id: F13
+title: Active testbed scenario validates retired EXH/qmd-era architecture
+query_family: evaluation-infra
+execution_mode: deterministic
+status: assigned
+status_history:
+  - date: "2026-06-11"
+    status: suspected
+    evidence: "Umbrella plan §4, Arena consensus; D plan evidence ledger names complex_math_backprop as stale"
+  - date: "2026-06-12"
+    status: reproduced
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f13_baseline_scenario_validates_retired_architecture"
+  - date: "2026-06-12"
+    status: assigned
+    evidence: "FAILURE_ATLAS.md §8 — current-architecture scenarios are D2 observatory scope (umbrella P1.4)"
+owner: plan-d2
+impact: >
+  The only rich validation scenario asserts behavior of the retired static
+  Exhibition (EXH-*) layer and qmd-era flows, so "testbed passes" measures the
+  wrong architecture: current truth/retrieval/agent-reuse/incremental
+  correctness has no scenario coverage at all.
+boundary:
+  module: tests/scenarios/complex_math_backprop
+  symbol: MASTER_PLAN.md
+  detail: >
+    MASTER_PLAN.md validation goals require EXH-only correction flows,
+    .curator/Collections/04_Exhibitions/ EXH-*.md files, and exhibition_id
+    prefixes (lines 43, 55, 75, 245, 273) — all removed in v0.3.1+. The
+    scenario is preserved as historical evidence (Arena consensus #6) and
+    must not be modified by D1.
+fixture: backend/tests/test_failure_atlas_repro.py::test_f13_baseline_scenario_validates_retired_architecture
+commands:
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f13_baseline_scenario_validates_retired_architecture" -q
+oracles:
+  deterministic: >
+    The active validation scenario's oracles reference only current
+    architecture (CTX-/ATM-/CON-/SYN- layers, DB-native search, dynamic
+    curation lens) — zero retired EXH-/qmd-era oracle terms — and cover
+    truth, retrieval, agent reuse, and incremental correctness of the current
+    system.
+  semantic: null
+before_state_evidence: >
+  At baseline, tests/scenarios/complex_math_backprop/MASTER_PLAN.md contains
+  EXH-prefixed oracle assertions and a 04_Exhibitions output contract;
+  no scenario under tests/scenarios/ targets the DB-native v0.3.2+
+  architecture.
+observed_result: >
+  Reproduced 2026-06-12 — retired "EXH" markers present in the active
+  scenario's MASTER_PLAN; no current-architecture scenario exists.
+snapshot:
+  git_sha: 8458f652d5481f377bd957ed1256240aaf470f54
+  version: 0.5.6
+  schema_version: 6
+  scenario: complex_math_backprop
+assignment:
+  program: plan-d2
+  gate: >
+    Current-architecture testbed scenarios implemented as part of the
+    approved minimum Quality Observatory (umbrella P1.4).
+notes: >
+  Historical scenario assets are inventoried, not modified (Arena consensus
+  #6). Oracle test: test_f13_oracle_scenario_targets_current_architecture
+  (strict xfail).
