@@ -712,7 +712,11 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
 def init_db(db_path: Path) -> None:
     """Create the state database and apply the schema. Idempotent."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db_path) as conn:
+    # sqlite3's context manager only commits/rolls back the transaction; it
+    # does not close the connection. Close explicitly so the WAL sidecars do
+    # not outlive this call on a GC-timing-dependent schedule.
+    conn = sqlite3.connect(db_path)
+    try:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys = ON")
         conn.executescript(SCHEMA_SQL)
@@ -726,11 +730,13 @@ def init_db(db_path: Path) -> None:
             # Handle version mismatch if necessary
             current_version = row[0]
             if current_version != SCHEMA_VERSION:
-                # In v0.1.0 fresh start, we just stamp it. 
+                # In v0.1.0 fresh start, we just stamp it.
                 # In production, this would trigger migration logic.
                 conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
-        
+
         conn.commit()
+    finally:
+        conn.close()
 
 
 

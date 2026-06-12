@@ -258,3 +258,25 @@ def test_artifact_dependency_invalidation(db_path: Path) -> None:
     stale = db.dependents_of(db_path, depends_on_id="SPAN-1")
     stale_ids = {d["artifact_id"] for d in stale}
     assert stale_ids == {"REP-1", "SYN-1"}
+
+
+def test_init_db_closes_its_connection_and_leaves_no_wal_sidecars() -> None:
+    """init_db must not leak its connection (v0.6.1 hotfix).
+
+    Python's sqlite3 context manager only commits/rolls back; it does not
+    close. A leaked connection keeps the -wal/-shm sidecars alive until GC,
+    which is timing-dependent across platforms and made a later truncate +
+    reopen fail with "database is locked" on Ubuntu.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "state.sqlite"
+        db.init_db(path)
+
+        sidecars = sorted(p.name for p in path.parent.iterdir() if p.name != path.name)
+        assert sidecars == [], f"WAL sidecars persisted after init_db: {sidecars}"
+
+        # Regression for the observed failure mode: truncating the main DB
+        # file and reopening must self-heal, not raise "database is locked".
+        path.write_bytes(b"")
+        stats = db.get_stats(path)
+        assert stats["sources_total"] == 0
