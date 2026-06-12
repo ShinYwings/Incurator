@@ -745,13 +745,15 @@ def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
     """Context-managed connection with row factory and foreign keys enabled."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys = ON")
-    # Self-heal for existing empty/corrupted state DB files missing base tables.
-    conn.executescript(SCHEMA_SQL)
-    _apply_migrations(conn)
+    # Everything after instantiation runs inside try so a failure in schema
+    # setup or migration cannot leak the connection (and its WAL sidecars).
     try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys = ON")
+        # Self-heal for existing empty/corrupted state DB files missing base tables.
+        conn.executescript(SCHEMA_SQL)
+        _apply_migrations(conn)
         yield conn
         conn.commit()
     finally:

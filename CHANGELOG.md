@@ -19,9 +19,21 @@ Hotfix release. No schema or API changes.
   `sqlite3.OperationalError: database is locked` failures on Ubuntu 24.04
   (observed in `wiki status` bootstrap paths and the corresponding test).
   `init_db()` now closes its connection explicitly in a `finally` block, so
-  no WAL sidecars outlive the call. All other `sqlite3.connect` call sites in
-  production code were audited: `db.connect()` and the Zotero readers already
-  close in `finally` blocks; no other leak exists.
+  no WAL sidecars outlive the call.
+- **Same leak class in `db.connect()` on the setup-failure path** (review
+  follow-up). `connect()` ran `executescript(SCHEMA_SQL)` and
+  `_apply_migrations()` *before* its `try`/`finally`, so an exception during
+  schema setup or migration leaked the connection and its WAL sidecars
+  exactly like the `init_db` bug. All post-instantiation work now runs inside
+  the `try` block. Regression test holds a reference to the connection and
+  asserts it is closed (GC-independent) with no surviving sidecars.
+- **Unbound `conn` in Zotero readers' error paths.** One site in `zotero.py`
+  and both sites in `zotero_integration.py` referenced `conn` in `finally`
+  without initializing it before `try`; if `sqlite3.connect()` itself raised,
+  the cleanup raised `UnboundLocalError` and masked the original error. All
+  sites now initialize `conn = None` first, matching the existing pattern in
+  the other `zotero.py` readers. With these, every production
+  `sqlite3.connect` call site is leak-safe on both success and failure paths.
 
 ---
 
