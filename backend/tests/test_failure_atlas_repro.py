@@ -695,7 +695,16 @@ def test_f12_oracle_normalized_pack_parity(vault, degraded_search) -> None:
 
 _SCENARIO_PLAN = REPO_ROOT / "tests" / "scenarios" / "complex_math_backprop" / "MASTER_PLAN.md"
 
+# The active scenario is a developer-local asset: .gitignore excludes
+# tests/scenarios/* (except testbed_template/), so these reproductions only run
+# where the scenario exists (reproduced locally 2026-06-12; see cases/F13.yml).
+_scenario_skip = pytest.mark.skipif(
+    not _SCENARIO_PLAN.exists(),
+    reason="active scenario assets are local-only (tests/scenarios/* is gitignored)",
+)
 
+
+@_scenario_skip
 def test_f13_baseline_scenario_validates_retired_architecture() -> None:
     plan = _SCENARIO_PLAN.read_text(encoding="utf-8")
     # Defect: the active scenario's oracles assert retired EXH-era behavior.
@@ -703,6 +712,7 @@ def test_f13_baseline_scenario_validates_retired_architecture() -> None:
     assert "04_Exhibitions" in plan
 
 
+@_scenario_skip
 @pytest.mark.xfail(
     strict=True,
     reason="F13 reproduced: complex_math_backprop targets retired EXH/qmd flows; "

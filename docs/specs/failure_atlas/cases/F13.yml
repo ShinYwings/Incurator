@@ -60,5 +60,10 @@ assignment:
     approved minimum Quality Observatory (umbrella P1.4).
 notes: >
   Historical scenario assets are inventoried, not modified (Arena consensus
-  #6). Oracle test: test_f13_oracle_scenario_targets_current_architecture
-  (strict xfail).
+  #6). The scenario is a developer-local asset (.gitignore excludes
+  tests/scenarios/* except testbed_template/), so the fixture tests are
+  skipped where the scenario is absent (e.g. GitHub CI) — the reproduction
+  was performed locally on the snapshot environment; the scenario content is
+  intentionally NOT copied into the repository (privacy rule, FAILURE_ATLAS
+  §9). Oracle test: test_f13_oracle_scenario_targets_current_architecture
+  (strict xfail under the same skip guard).
