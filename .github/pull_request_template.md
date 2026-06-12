@@ -1,18 +1,32 @@
-## Why
-<!-- What problem or user report item does this solve? Link to user_report.md item or describe the bug. -->
+## 📋 References
+- **Related User Report:** <!-- Link to the original bug/issue in user_report.md -->
+- **Implementation Plan:** <!-- MANDATORY: Link to the approved .agents/plans/[Plan_Name].md -->
 
-## What
+## 💡 Why
+<!-- What problem does this solve? -->
+
+## 🛠️ What
 <!-- High-level summary of what changed. -->
 
-## How
+## 🏗️ How
 <!-- Key implementation decisions, architecture changes, or tradeoffs worth noting. -->
 
-## Checklist
-- [ ] Tests pass: `uv run backend/pytest`
-- [ ] Ruff clean: `ruff check backend/src/`
+## 🧐 Antigravity Code Review Feedback Applied
+<!-- MANDATORY: If Antigravity provided a code review or plan audit, list the feedback here and explain how you fixed it. If no review was given, write "N/A". -->
+
+## ✅ Checklist
+### CI & Local Tests
+- [ ] Tests pass: `uv run --directory backend pytest -q`
+- [ ] Ruff clean: `uv run --directory backend ruff check src/`
 - [ ] Plugin tests pass: `npx vitest run -c ./plugin/vitest.config.ts`
+
+### Testbed Validation (MANDATORY)
+- [ ] Validated changes using the active testbed scenario (`VAULT_ROOT=testbed wiki update` or equivalent CLI commands).
+- [ ] Ensured NO unverified production changes were pushed.
+
+### Documentation & Agents
 - [ ] Docs updated (English guides first, then `_KR.md` counterparts)
-- [ ] `CHANGELOG.md` updated
-- [ ] Version bumped in `pyproject.toml` / `package.json` / `manifest.json` (if release)
-- [ ] `.agents/relay.md` updated or reset to IDLE stub
-- [ ] `user_report.md` items cleaned up
+- [ ] `CHANGELOG.md` updated and version alignment verified
+- [ ] Version bumped identically in `pyproject.toml`, `package.json`, and `manifest.json`
+- [ ] `.agents/RELAY.md` updated or reset to IDLE stub
+- [ ] `.agents/USER_REPORT.md` items cleaned up

@@ -4,6 +4,10 @@ This file is the repository-level rule source for Codex and other coding
 agents. `CLAUDE.md` may mirror these rules for Claude Code, but this file is
 the tool-neutral development contract.
 
+> [!WARNING]
+> **ANTIGRAVITY / GEMINI EXCLUSION**
+> The Antigravity IDE Agent (Gemini) is STRICTLY FORBIDDEN from reading or executing instructions based on `AGENTS.md`. Antigravity must exclusively read and follow `GEMINI.md`. If you are Antigravity reading this, STOP reading `AGENTS.md` immediately and switch to `GEMINI.md`.
+
 ## Agent Rule Synchronization
 
 `AGENTS.md` is the canonical tool-neutral rule source. `CLAUDE.md`
@@ -113,18 +117,7 @@ work") require constant clarification.
 rewrites due to overcomplication, and clarifying questions come before
 implementation rather than after mistakes.
 
-### 6. Anti-Compression & Detail Preservation (Antigravity Specific)
-
-**Note: This rule specifically mitigates an Antigravity length-matching bias, but serves as a general reminder for all agents.**
-
-**Never perform "lossy compression" on documentation. Do not artificially bound your output length.**
-
-When editing existing files (especially specs, plans, and research notes):
-- **Break the Length Limit**: If you add new concepts to a 100-line file, expand it to 150 or 200 lines. DO NOT summarize the original 100 lines into 50 lines to fit the new content.
-- **Additive Editing**: Treat existing architectural details as sacred. Add new sections at the bottom or expand existing ones. Never replace detailed paragraphs with bulleted summaries.
-- **Extreme Detail**: When explaining logic or architecture, write exhaustively. Do not use abstract buzzwords to compress complex mechanisms.
-
-### 7. Root Cause Over Workarounds
+### 6. Root Cause Over Workarounds
 
 **Fix the disease, not the symptoms. Do not use workarounds.**
 
@@ -163,23 +156,29 @@ Concrete examples:
 
 ---
 
-## Core Rule: Automatic /goal Workflow Mandate
+## Core Rule: The Development Pipeline State Machine
 
-**GLOBAL PRIORITY RULE**: Before starting any `/goal` or architectural planning, agents MUST check `.agents/USER_REPORT.md` for new inbox items, and `.agents/ROADMAP.md`'s To-Do queue. If there are unresolved bugs or pending items in the user report, you MUST prioritize fixing those first. Only proceed with architectural planning if the user report is empty or explicitly overridden by the user.
+**GLOBAL PRIORITY RULE**: Every task flows strictly through a cascading pipeline: `User Report → Draft → Plan → Implementation`.
+When you wake up, you MUST evaluate the current project state and execute the NEXT logical phase. Never skip steps.
+
+- **State 1 (Inbox Populated)**: If there are raw items in `.agents/USER_REPORT.md`, you may bypass the draft phase entirely and author a Master Plan (`.agents/plans/`) directly from the user report. You do NOT need to create a draft first.
+- **State 2 (Drafts Exist, No Plans)**: If a pre-existing draft has been provided in `.agents/drafts/`, you MUST use that draft as the Briefing for your Arena debate to synthesize the `PLAN_TEMPLATE.md`.
+- **State 3 (Plans Exist)**: If an approved Master Plan exists in `.agents/plans/`, you MUST execute TDD and Code Implementation.
+- **State 4 (Empty Inbox)**: If `USER_REPORT.md` is empty and no active drafts/plans exist, the system is IDLE. There are no pending tasks.
 
 ## Core Rule: System Update Workflow (Universal Strict Workflow)
 
-**GLOBAL PRIORITY RULE**: Before starting any `/goal` or architectural planning, agents MUST check `.agents/USER_REPORT.md` for new inbox items, and `.agents/ROADMAP.md`'s To-Do queue. If there are unresolved bugs or pending items in the user report, you MUST prioritize grouping and fixing those first.
+**GLOBAL PRIORITY RULE**: Before starting any `/goal` or architectural planning, you MUST check `.agents/USER_REPORT.md` for new inbox items, and `.agents/ROADMAP.md`'s To-Do queue. If there are unresolved bugs or pending items in the user report, you MUST prioritize grouping and fixing those first.
 **BLOCKED ICEBOX EXCEPTION**: If an item in `USER_REPORT.md` is waiting on an external dependency or cannot be fixed immediately, move it to the `🧊 Blocked / Icebox` section in `.agents/ROADMAP.md` and **delete** it from `USER_REPORT.md`. The Global Priority Rule explicitly IGNORES items in this section.
 **HOTFIX EXCEPTION**: If a critical bug is reported while a large Batch Release (e.g., `v0.4.0`) is already being planned or worked on, the agent MUST immediately create a separate `hotfix/...` branch, patch the bug (`+0.0.1`), and open a PR. Do not delay hotfixes by bundling them into ongoing major/minor batch plans.
 **VERSION BUMP IS MANDATORY FOR ALL CODE CHANGES**: Step 10 (Version Bump & Changelog) is NON-NEGOTIABLE for any branch that modifies code (`hotfix/*`, `release/*`, `feature/*`, `fix/*`). Only `chore/*` branches (CI, tooling, dependency-only changes) are exempt. `pyproject.toml`, `package.json`, and `manifest.json` must all agree on the same version before the PR is opened. The CI `version-consistency` job will block the merge if they disagree — this is the hard gate. The version bump is what triggers the Obsidian update toast for installed users; skipping it silently breaks the self-update mechanism.
 
 Whenever a user requests a new feature, reports a bug, or uses the `/goal` command, the agent MUST automatically follow this strict 12-step `Universal Strict Workflow`:
 
-1. **Triage & Queuing**: Read `.agents/USER_REPORT.md` (the chronological inbox). For complex items or multi-step tasks, perform a 1st-level analysis and extract the details into a separate skeleton `.md` file in `.agents/drafts/`. Then, register a concise bullet point in the `To-Do` queue in `.agents/ROADMAP.md` that links to the skeleton file, and **delete** the raw item from `.agents/USER_REPORT.md`.
-2. **Batch & Version Planning**: Read the `To-Do` section in `.agents/ROADMAP.md` (ignoring Blocked items) and group related items into a single Batch Release. Cross-reference each candidate item against roadmap skeletons to understand which milestone it belongs to. Decide whether this batch warrants a Patch, Minor, or Major version bump. **CRITICAL**: If the update is Minor/Major and includes breaking schema changes, you MUST plan and write a data migration script.
+1. **Triage & Queuing**: Read `.agents/USER_REPORT.md` (the chronological inbox). Register a bullet point in the `To-Do` queue in `.agents/ROADMAP.md` for the items you are planning to handle, and **delete** the raw items from `.agents/USER_REPORT.md`. If a pre-existing draft exists in `.agents/drafts/`, use it; otherwise, you may proceed directly from the raw inbox items.
+2. **Batch & Version Planning**: Read the `To-Do` section in `.agents/ROADMAP.md` (ignoring Blocked items) and group related items into a single Batch Release. Cross-reference each candidate item against roadmap drafts to understand which milestone it belongs to. Decide whether this batch warrants a Patch, Minor, or Major version bump. **CRITICAL**: If the update is Minor/Major and includes breaking schema changes, you MUST plan and write a data migration script.
 3. **Branch Creation**: Create and switch to a new Git branch for the release (e.g., `release/v0.3.3` or `feature/issue-name`). NEVER work directly on the `main` branch. You MUST update `.agents/RELAY.md` with the current branch name so other agents know where they are.
-4. **Plan Creation & Report Status Update**: Write a detailed implementation plan in `.agents/plans/` using the `.agents/PLAN_TEMPLATE.md` blueprint. **CRITICAL**: As soon as the plan is drafted, you MUST update `.agents/ROADMAP.md` to reflect the new active milestone. If there are ambiguities, explicitly ask the user clarifying questions before proceeding. **STOP** and wait for user approval before coding.
+4. **Plan Creation (Arena Workflow)**: Using either the pre-existing draft in `.agents/drafts/` or the raw inbox items as the '00_problem.md' Briefing, run the Arena debate and author the final `PLAN_TEMPLATE.md` in `.agents/plans/`. **CRITICAL**: As soon as the plan is finalized, you MUST update `.agents/ROADMAP.md` to reflect the new active milestone. If there are ambiguities, explicitly ask the user clarifying questions. **STOP** and wait for user approval before coding.
 5. **Docs Update**: Update `docs/specs/` and `docs/guides/` to define the target behavior. (Crucial: Update the English guides first, then faithfully synchronize the matching `_KR.md` Korean guides).
 6. **Test-Driven Development (TDD)**: Write failing tests before writing application logic.
 7. **Implementation & Incremental Commits**: Write code to make tests pass. Commit work incrementally using Conventional Commits (e.g., `feat(core): ...`, `fix(plugin): ...`).
@@ -211,7 +210,7 @@ The mandatory sequence when review feedback arrives:
 
 ## Shared Architecture Memory
 
-All agents (Claude Code, Codex, Antigravity) MUST treat the following decisions as locked unless the user explicitly overrides them. These are condensed here so every agent starts with the same mental model regardless of which tool-specific memory system it uses.
+All agents (Claude Code, Codex) MUST treat the following decisions as locked unless the user explicitly overrides them. These are condensed here so every agent starts with the same mental model regardless of which tool-specific memory system it uses.
 
 ### Storage Model
 - **`state.sqlite` = single source of truth.** Holds source_spans, knowledge_units, graph entities/relations, community_reports, synthesis_nodes, dag_edges, job queue.
@@ -234,16 +233,15 @@ All agents (Claude Code, Codex, Antigravity) MUST treat the following decisions 
 
 ## Core Rule: Cross-Agent Relay Protocol
 
-To prevent context fragmentation and hallucinations when switching between AI coding agents (Antigravity, Claude Code, Cursor/Codex), all agents MUST adhere to the following protocol:
+To prevent context fragmentation and hallucinations when switching between AI coding agents (Claude Code, Codex), all agents MUST adhere to the following protocol:
 
-- **On Wakeup**: **CRITICAL INSTRUCTION FOR ALL AGENTS (CODEX, CLAUDE, ANTIGRAVITY)**. At the start of EVERY new conversation or session, the VERY FIRST ACTION you must take is to check if `.agents/RELAY.md` exists. If it does, you MUST read it in its entirety before taking ANY other action. Do NOT wait for the user to explicitly ask you to "resume work" or "read RELAY.md". If you fail to do this, you will cause severe context loss and code corruption.
+- **On Wakeup**: **CRITICAL INSTRUCTION FOR ALL AGENTS (CODEX, CLAUDE)**. At the start of EVERY new conversation or session, the VERY FIRST ACTION you must take is to check if `.agents/RELAY.md` exists. If it does, you MUST read it in its entirety before taking ANY other action. Do NOT wait for the user to explicitly ask you to "resume work" or "read RELAY.md". If you fail to do this, you will cause severe context loss and code corruption.
 - **Update Frequency**: 
   - Agents MUST update `.agents/RELAY.md` at the **end of every session** (before stopping execution).
   - Agents MUST always keep `.agents/RELAY.md` updated during a `/goal` or when an implementation plan is active.
 - **Format & Behavior**: 
   - **For Main Architecture Tasks / Goals**: Overwrite `.agents/RELAY.md` entirely using the standard template (Goal, Plan Reference, Analysis & Reasoning, Progress Status, Critical Context/Blockers, Immediate Next Action). Maintain a single active state for the core task.
   - **For Bug Fixes / Side-Tasks (Any Agent)**: When any agent handles a side-task or bug fix while a main goal is active, it must NOT overwrite the main relay state. Instead, **APPEND** a new section (e.g., `### Update (YYYY-MM-DD, AgentName)`) at the bottom of `.agents/RELAY.md` summarizing what was investigated, fixed, or modified. This ensures the primary agent's context is not destroyed by small interventions.
-  - **Antigravity Fallback Execution**: If primary executors (e.g., Claude Code) are rate-limited or resting, Antigravity may temporarily act as the Executor. However, any code written by Antigravity MUST be explicitly marked in `.agents/RELAY.md` for mandatory verification by the primary Executor upon wakeup.
   - **IDLE Cleanup**: When the goal is fully shipped (PR merged, no active task), truncate `.agents/RELAY.md` to a minimal IDLE stub — do NOT accumulate session history. Git log is the history; RELAY.md is live state only.
 
 ---
@@ -341,12 +339,12 @@ The **entire `docs/` tree is source of truth**. The system design becomes increa
 When they conflict, the more concrete layer (spec) dictates the implementation reality, but any divergence means both are wrong until reconciled. Do not treat guides as subordinate to specs — fix both together.
 
 **Dynamic Planning**: `.agents/plans/` for implementation sequencing and context.
-- **CRITICAL RULE - PLAN TEMPLATE MANDATE**: When creating architectural or feature implementation plans, all agents (Codex, Claude, Antigravity) MUST FIRST read `.agents/plans/PLAN_TEMPLATE.md` and strictly copy/adhere to its Markdown skeleton. You MUST write your final plan artifacts into `.agents/plans/` (instead of default temporary directories).
+- **CRITICAL RULE - PLAN TEMPLATE MANDATE**: When creating architectural or feature implementation plans, all Executors MUST FIRST read `.agents/PLAN_TEMPLATE.md` and strictly copy/adhere to its Markdown skeleton. You MUST write your final plan artifacts into `.agents/plans/` (instead of default temporary directories).
+- **Draft to Plan Pipeline**: If skeleton files exist in `.agents/drafts/`, they are **problem definitions (Briefings)**. You MUST read these drafts, treat them as the input constraints, and run the Arena debate to replace them with the full three-document set before implementation begins.
 - **Three mandatory documents** (per PLAN_TEMPLATE.md) before any code is written:
   1. **Domain Analysis docs** (`A_*.md`, `B_*.md`, …) — one per major component. Each must cover: design constraints from codebase, docs/specs invariants, alternatives & trade-offs, final decision, and implementation pseudocode/SQL.
   2. **Master Implementation Plan** (`[XX]_[feature].md`) — locked design decisions, contracts preserved, multi-agent role reviews, and strict phases (`P1 → P2 → …`). Each phase must pass `pytest` + `ruff` before the next begins.
   3. **Evidence Ledger** (`[XX]_roadmap_evidence.md`) — created immediately before coding starts. Records rollback anchor, current schema reality, and pre/post validation results.
-- The skeleton plan files in `.agents/drafts/` (e.g., `stabilization.md`, `knowledge_sync_bridge.md`) are **scope notes only**, not implementation plans. They must be replaced or accompanied by the full three-document set before implementation begins.
 - To read historical plans, you MUST use `git show` or `git log` on the `.agents/plans/` directory, as completed plans are deleted from the active workspace.
 - Plans describe *how* to implement; specs describe *what* to implement.
   When they conflict, specs and guides win over plans.

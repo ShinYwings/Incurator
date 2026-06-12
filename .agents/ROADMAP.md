@@ -41,8 +41,8 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
      - **D1 shipped as v0.6.0** (2026-06-12): Failure Atlas spec + case
        records F1–F13 (all reproduced & assigned), deterministic
        repro/oracle/contract/experiment/eval suites, frozen fixture corpus +
-       qrels + baseline. Next in batch: **Plan E** (starts only after the
-       v0.6.0 PR merges).
+       qrels + baseline.
+     - **Plan E is IN PROGRESS** (starts after v0.6.0 PR merge).
    - Batch 2: `.agents/plans/B_math_extraction_distillation.md` →
      `.agents/plans/C_graph_quality.md`
    - Batch 3: `.agents/plans/A_rag_retrieval_provenance.md` →
@@ -66,6 +66,10 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
    - **Split out (2026-06-11):** PDF add-source asset-location routing + "Added" button state → **shipped in v0.5.6** (2026-06-12); the Zotero reload relativepath bug was already fixed in v0.5.5. External-image-attachment-to-`.md` routing rides v0.5.6's `--asset-dir` mechanism as a follow-up.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
+6. **[Minor Update] Purge Legacy QMD References**
+   - The `qmd` binary has been retired since v0.3.2, but over 50 references still exist across the codebase (`cli.py`, `search.py`, `lint.py`, tests, etc.). These references must be completely purged to prevent hallucination or regressions before removing the tombstone warnings from the agent contracts.
+   - Detailed analysis: `.agents/drafts/purge_qmd_legacy.md`
+
 ### 🧊 Blocked / Icebox (Pending Items)
 - Items that cannot be resolved immediately due to external dependencies (library updates, etc.) are stored here.
 - (Note: Items in this section are treated as exceptions to the agent's top-priority resolution duty.)
@@ -76,11 +80,7 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Active Milestone**: _none_ — **v0.5.6 shipped** (PR #23 merged to `master`
-  on 2026-06-12: PDF add-source asset routing + "Added" badge + adaptive PDF
-  routing correction + documentation audit).
-- **Next in Queue**: To-Do #1 **RAG & Knowledge Quality Stabilization**.
-  Planning completed (`03_rag_knowledge_quality_stabilization.md` and `A-F`
-  plans, each with its own Arena). Execution order: Batch 1 `D1 → E → D2`,
-  Batch 2 `B → C`, Batch 3 `A → F`. Implementation starts only on explicit
-  user approval.
+- **Active Milestone**: **Plan E (External Research Design Matrix)**.
+  Plan D1 (v0.6.0) has been officially shipped and merged. The system has now transitioned to Plan E.
+- **Next in Queue**: Plan D2 (following Plan E completion).
+  Execution order: Batch 1 `D1 → E → D2`, Batch 2 `B → C`, Batch 3 `A → F`. Implementation starts only on explicit user approval.
