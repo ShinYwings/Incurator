@@ -42,11 +42,12 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
        records F1–F13 (all reproduced & assigned), deterministic
        repro/oracle/contract/experiment/eval suites, frozen fixture corpus +
        qrels + baseline.
-     - **Plan E Wave A completed; awaiting PM review** (2026-06-12).
+     - **Plan E Wave B completed; awaiting PM review** (2026-06-12).
        P0/P1 established immutable multi-tier inputs and primary-source
        dossiers; P2 froze the evaluation protocol; Wave A completed
-       retrieval-unit and fine-grained diagnostic controls. Wave B must not
-       start until PM approval.
+       retrieval-unit and fine-grained diagnostic controls. Wave B completed
+       graph, hierarchy, global-selection, and graph-guided expansion controls.
+       Wave C must not start until PM approval.
    - Batch 2: `.agents/plans/B_math_extraction_distillation.md` →
      `.agents/plans/C_graph_quality.md`
    - Batch 3: `.agents/plans/A_rag_retrieval_provenance.md` →
@@ -86,7 +87,7 @@ The specific To-Do list for the roadmap is migrated from the user's Inbox (`.age
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
 - **Active Milestone**: **Plan E (External Research Design Matrix)**.
   Plan D1 (v0.6.0) has been officially shipped and merged. Plan E P0/P1/P2 and
-  Wave A are complete; execution is stopped at the mandatory PM review gate
-  before Wave B.
+  Waves A/B are complete; execution is stopped at the mandatory PM review gate
+  before Wave C.
 - **Next in Queue**: Plan D2 (following Plan E completion).
   Execution order: Batch 1 `D1 → E → D2`, Batch 2 `B → C`, Batch 3 `A → F`. Implementation starts only on explicit user approval.

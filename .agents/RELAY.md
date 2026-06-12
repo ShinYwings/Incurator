@@ -8,73 +8,72 @@ Execute Plan E (`.agents/plans/E_external_research_design_matrix.md`) on
 ## Plan Reference
 
 - Master plan: `.agents/plans/E_external_research_design_matrix.md`
-- P0/P1/P2 artifacts: `backend/research_spikes/`
+- Research package: `backend/research_spikes/`
 - Wave A report: `backend/research_spikes/reports/wave_a.md`
-- Wave A manifest: `backend/research_spikes/manifests/wave_a.yml`
+- Wave B report: `backend/research_spikes/reports/wave_b.md`
+- Wave B manifest: `backend/research_spikes/manifests/wave_b.yml`
+- Draft PR: `https://github.com/ShinYwings/Incurator/pull/26`
 
 ## Analysis And Reasoning
 
-- The D1 Failure Atlas is tier 1; a synthetic graph stress corpus is tier 2;
-  ignored read-only SQLite copies are tier 3.
-- The active `complex_math_backprop` testbed and production vault snapshots are
-  schema version 6 while current code is schema version 7. They are guarded
-  copied diagnostics/scale inputs, not the comparison baseline.
-- Wave A tested raw chunks, deterministic heading context, and explicitly
-  generated context across lexical, deterministic vector, and hybrid controls.
-- Generated context beat heading context on the frozen source-scoped cases,
-  preserved direct-factual retrieval and exact source-span linkage, but added
-  125% indexed characters. This supports a scoped contract candidate only.
+- Wave B compared current depth-2 memory paths, connected components, and
+  all-report global loading with disposable PPR, confidence denoising,
+  query-relevant global selection, and confidence-filtered expansion.
+- Unfiltered PPR matched current associative recall but leaked a noisy bridge
+  and required `660` edge updates versus `4` traversed expansion edges.
+- Filtered bounded expansion matched associative recall, added no forbidden
+  evidence, exposed seeds/paths/source locators, and repaired the Jaguar
+  car/animal homonym case.
+- Synthetic confidence denoising reduced giant-component ratio from `0.714` to
+  `0.300`. It had zero effect on the guarded production copy (`0.740` both
+  ways) because all `1,180` current relation confidences are `0.9–1.0`.
+- Query-relevant top-1 community selection improved measured global precision
+  from `0.333` to `1.000` while reducing selected reports from `3` to `1`.
 
 ## Progress Status
 
 - [x] P0 baseline and research safety ledger.
-- [x] P1 eleven primary-source candidate dossiers and claim-to-spike mapping.
-- [x] P2 frozen evaluation protocol, metric unit tests, and holdout guard.
-- [x] Wave A retrieval-unit and fine-grained diagnostic comparison.
+- [x] P1 primary-source candidate dossiers.
+- [x] P2 frozen evaluation protocol.
+- [x] Wave A retrieval units and evaluation controls.
+- [x] Wave B graph, hierarchy, global, and expansion controls.
 - [x] Peer review, schema guardian, QA, docs sync, and legacy sweep.
-- [ ] **STOP: PM review/approval required before Wave B.**
+- [ ] **STOP: PM review/approval required before Wave C.**
+
+## Scoped Wave B Decisions
+
+- Unfiltered PPR: `reject-default` in the measured scope; `benchmark-later`
+  only after Program 2 graph-quality gates.
+- Denoised hierarchy / Leiden candidate: `benchmark-later`.
+- Query-relevant bounded global selection: `adopt-contract` candidate pending
+  P7 holdout/provenance audit.
+- KG-guided expansion: `benchmark-later`; adopt only explainable
+  seed/path/provenance/budget invariants as a contract candidate.
 
 ## Verification
 
-- Focused research/atlas: `129 passed, 13 xfailed`.
-- Full backend: `659 passed, 13 xfailed`.
+- Focused research/atlas: `142 passed, 13 xfailed`.
+- Full backend: `672 passed, 13 xfailed`.
 - Plugin from `plugin/`: `44 files / 361 tests passed`.
 - Research ruff and mypy: passed.
+- Wave B primary/official source links: reachable or access-controlled.
 - Production/testbed authoritative DB hashes: unchanged.
-- Full production `mypy src/`: still fails with 73 pre-existing errors in
-  untouched files.
-- Mandated root-level Vitest command finds no tests because the config include
-  path is plugin-relative; running from `plugin/` passes.
+- Full production `mypy src/`: still fails with the same 73 pre-existing
+  errors in untouched files.
 
 ## Critical Context And Blockers
 
-- Do not start Wave B until the PM reviews Wave A.
+- Do not start Wave C until PM review/approval.
+- Preserve the unrelated dirty `GEMINI.md` edit.
 - Do not commit `backend/research_spikes/local/`; it contains ignored private
   SQLite copies and raw result output.
-- Existing qmd references found by the legacy sweep belong to the separate
-  queued purge milestone and were not changed.
-- No version bump/changelog is appropriate: Plan E explicitly forbids
-  production versions, dependencies, schema, and behavior changes.
+- No version bump/changelog is appropriate: Plan E remains research-only and
+  explicitly forbids production versions, dependencies, schema, and behavior
+  changes.
+- Current production relation confidence is not discriminative, so hierarchy,
+  PPR, and expansion mechanism conclusions remain gated on Program 2.
 
 ## Immediate Next Action
 
-PM reviews `backend/research_spikes/reports/wave_a.md`. After explicit approval,
-continue with Plan E Wave B on the same branch.
-
-### Update (2026-06-12, Claude Code) — PR #26 review fixes
-
-Trivial-nit review feedback patched directly into the open PR (no plan needed
-per the trivial-nit exception):
-
-- `contracts.py`: spike `None`-safe check, nested target validation (question
-  check no longer skipped, no raw `target["kind"]` access), per-source dict
-  type check, `sqlite_master` queried before `schema_version`.
-- `metrics.py`: `recall_at`/`mrr_at` reject negative `k`.
-- Tests added in `test_research_spikes_contract.py` and
-  `test_research_spikes_wave_a.py` (TDD: confirmed failing first).
-- `wave_a.md`: cache/invalidation assumptions recorded in Interpretation
-  (P3 verify criterion); downstream contract/spec owner and inline revisit
-  trigger added to each Scoped Decision Posture candidate block.
-- Validation: 661 passed / 13 xfailed; ruff and mypy clean on touched files.
-
-Wave B gate unchanged: still awaiting PM approval.
+PM reviews `backend/research_spikes/reports/wave_b.md`. After explicit approval,
+continue with Plan E Wave C on the same branch.
