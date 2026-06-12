@@ -159,8 +159,8 @@ def iterative_comparison(corpus: dict[str, Any]) -> dict[str, Any]:
         hops = query["hops"]
         expected = set(query["expected_evidence"])
 
-        one_shot = set(hops[0])
-        one_follow_up: set[str] = set().union(*hops[:2])
+        one_shot = set(hops[0]) if hops else set()
+        one_follow_up: set[str] = set().union(*hops[:2]) if hops else set()
 
         accumulated: set[str] = set()
         bounded_iterations = 0
@@ -221,7 +221,7 @@ def _disclosure_metrics(
     relevant_chars = sum(item["chars"] for item in included if item["relevant"])
     included_relevant = {item["id"] for item in included if item["relevant"]}
     recoverable = included_relevant | (set(handles) & expected)
-    recoverable_recall = len(recoverable & expected) / len(expected)
+    recoverable_recall = len(recoverable & expected) / len(expected) if expected else 1.0
     return {
         "included": [item["id"] for item in included],
         "tokens_used": included_chars,

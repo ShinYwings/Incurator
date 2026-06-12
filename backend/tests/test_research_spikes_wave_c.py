@@ -87,6 +87,30 @@ def test_bounded_iterative_is_capped_and_snapshot_consistent(result: dict) -> No
     assert over_budget["bounded_iterations"] == 1 + max_followups
 
 
+def test_iterative_comparison_handles_query_without_hops() -> None:
+    corpus = {
+        "budgets": {"max_followups": 2},
+        "iterative": [
+            {
+                "id": "IT_EMPTY",
+                "partition": "adversarial",
+                "hops": [],
+                "expected_evidence": ["missing"],
+                "snapshot": "snapshot-empty",
+            }
+        ],
+    }
+
+    iterative = wave_c.iterative_comparison(corpus)
+
+    assert iterative["cases"][0]["bounded_iterations"] == 0
+    assert iterative["policy_task_success"] == {
+        "one_shot": 0.0,
+        "one_follow_up": 0.0,
+        "bounded_iterative": 0.0,
+    }
+
+
 def test_progressive_disclosure_recovers_omissions_without_silent_loss(result: dict) -> None:
     disclosure = result["serving"]["disclosure"]
     recall = disclosure["policy_recoverable_recall"]
@@ -100,6 +124,13 @@ def test_progressive_disclosure_recovers_omissions_without_silent_loss(result: d
     for case in disclosure["cases"]:
         progressive = case["progressive"]
         assert set(progressive["omitted_with_handles"]) == set(progressive["omitted"])
+
+
+def test_disclosure_metrics_treats_empty_expected_set_as_fully_recoverable() -> None:
+    metrics = wave_c._disclosure_metrics([], expected=set(), handles=[])
+
+    assert metrics["recoverable_recall"] == 1.0
+    assert metrics["task_success"] is True
 
 
 def test_wave_c_is_repeatable(result: dict) -> None:

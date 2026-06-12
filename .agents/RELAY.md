@@ -116,3 +116,15 @@ gating, bounded iterative retrieval, and progressive context disclosure. After
 the spike, manifest, and report land, STOP at the next PM review gate before
 Wave D (P6 conditional formula recovery). The untouched holdout remains
 inaccessible until P7.
+
+### Update (2026-06-12, Codex)
+
+- Addressed Wave C PR review guards in `backend/research_spikes/wave_c.py`:
+  empty `hops` now produces empty one-shot/follow-up evidence, and empty
+  `expected` disclosure sets define recoverable recall as `1.0`.
+- Added regression tests for both boundary cases and documented the definitions
+  in the Wave C report.
+- Verification: Wave C tests `11 passed`; full backend `683 passed, 13 xfailed`;
+  research ruff/mypy and production ruff passed. Production mypy remains at the
+  same 73 pre-existing errors. Plugin Vitest found no configured test files.
+- Continue to STOP before Wave D pending explicit PM approval.

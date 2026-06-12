@@ -83,7 +83,8 @@ and a single follow-up could not, while never exceeding `1 + max_followups = 3`
 retrievals. The four-hop adversarial case IT03 stopped at the iteration cap and
 failed rather than looping unbounded — the intended bounded-failure behavior. A
 single frozen snapshot per case kept `snapshot_consistent` true on every case;
-no iteration mixed snapshots.
+no iteration mixed snapshots. A query with no supplied hops is treated as zero
+retrievals rather than an invalid one-shot access.
 
 ### Progressive Context Disclosure
 
@@ -110,7 +111,8 @@ over filler within the same budget.
 
 The budget is a hand-computable proxy; it maps to the production
 `evidence_block` `16000`-character default but was scaled to small synthetic
-records so the arithmetic is checkable by hand.
+records so the arithmetic is checkable by hand. When a query has no expected
+relevant records, recoverable recall is defined as `1.00`.
 
 ## Scoped Decision Posture
 
