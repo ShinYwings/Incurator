@@ -111,9 +111,11 @@ updates:
     stored_page_hash: PAGE-FR02-V1
     updated_page_hash: PAGE-FR02-V2
     expected_invalidate: true
+    refresh_succeeds: true
   - id: FU02
     source_id: SRC-FR02
     source_page_count: 5
     stored_page_hash: PAGE-FR02-V1
     updated_page_hash: PAGE-FR02-V1
     expected_invalidate: false
+    refresh_succeeds: true

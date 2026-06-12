@@ -57,6 +57,12 @@ def test_selective_recovery_improves_recall_without_hallucinated_replacement(res
     assert metrics["selective_recovery"]["accepted_recovery_error_rate"] == 0.0
 
 
+def test_formula_recall_counts_unique_formula_labels_per_fixture() -> None:
+    fixtures = [{"expected_formulas": ["x = 1", "x = 1"]}]
+
+    assert wave_d._formula_recall([{"x = 1"}], fixtures) == 1.0
+
+
 def test_low_confidence_recovery_is_explicitly_uncertain(result: dict) -> None:
     cases = result["formula_recovery"]["cases"]
     ambiguous = next(case for case in cases if case["id"] == "FR03")
@@ -81,11 +87,35 @@ def test_recovered_content_invalidates_on_source_page_change_only(result: dict) 
     changed = next(case for case in update["cases"] if case["id"] == "FU01")
     unchanged = next(case for case in update["cases"] if case["id"] == "FU02")
     assert changed["invalidated"] is True
+    assert changed["refresh_succeeds"] is True
     assert changed["stale_recovery_served"] is False
     assert changed["selective_reprocessed_pages"] == 1
     assert unchanged["invalidated"] is False
     assert unchanged["selective_reprocessed_pages"] == 0
     assert update["selective_reprocessed_pages"] < update["whole_corpus_reprocessed_pages"]
+
+
+def test_update_comparison_detects_stale_recovery_when_refresh_fails() -> None:
+    corpus = {
+        "updates": [
+            {
+                "id": "FU_STALE",
+                "source_id": "SRC-STALE",
+                "source_page_count": 2,
+                "stored_page_hash": "PAGE-V1",
+                "updated_page_hash": "PAGE-V2",
+                "expected_invalidate": True,
+                "refresh_succeeds": False,
+            }
+        ]
+    }
+
+    update = wave_d.update_comparison(corpus)
+
+    assert update["invalidation_accuracy"] == 1.0
+    assert update["stale_recovery_served"] is True
+    assert update["cases"][0]["stale_recovery_served"] is True
+    assert update["cases"][0]["served_page_hash"] == "PAGE-V1"
 
 
 def test_wave_d_is_repeatable(result: dict) -> None:

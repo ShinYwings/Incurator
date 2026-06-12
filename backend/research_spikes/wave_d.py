@@ -80,7 +80,7 @@ def _recovery_record(
 
 
 def _formula_recall(observed_by_case: list[set[str]], fixtures: list[dict[str, Any]]) -> float:
-    expected_count = sum(len(fixture["expected_formulas"]) for fixture in fixtures)
+    expected_count = sum(len(set(fixture["expected_formulas"])) for fixture in fixtures)
     if not expected_count:
         return 1.0
     matched = sum(
@@ -191,8 +191,11 @@ def update_comparison(corpus: dict[str, Any]) -> dict[str, Any]:
     cases: list[dict[str, Any]] = []
     for update in corpus["updates"]:
         invalidated = update["stored_page_hash"] != update["updated_page_hash"]
+        refresh_succeeds = bool(update["refresh_succeeds"])
         served_page_hash = (
-            update["updated_page_hash"] if invalidated else update["stored_page_hash"]
+            update["updated_page_hash"]
+            if invalidated and refresh_succeeds
+            else update["stored_page_hash"]
         )
         cases.append(
             {
@@ -200,6 +203,7 @@ def update_comparison(corpus: dict[str, Any]) -> dict[str, Any]:
                 "source_id": update["source_id"],
                 "invalidated": invalidated,
                 "expected_invalidate": update["expected_invalidate"],
+                "refresh_succeeds": refresh_succeeds,
                 "served_page_hash": served_page_hash,
                 "stale_recovery_served": served_page_hash != update["updated_page_hash"],
                 "selective_reprocessed_pages": 1 if invalidated else 0,

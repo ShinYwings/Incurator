@@ -17,6 +17,9 @@ distillation loss, image-only loss, an ambiguous visual formula, an intact
 no-recovery case, source-page update cases, and an inaccessible holdout.
 Formula strings are deterministic oracle labels. No provider, vision model,
 model judge, production state, testbed state, network call, or holdout was used.
+Formula recall is set-based per fixture: repeated instances of one identical
+formula string count as one oracle label, matching the set-intersection
+numerator.
 
 This spike evaluates the recovery contract, not a particular VLM's recognition
 quality. It does not authorize production formula-recovery code or dependencies.
@@ -96,9 +99,12 @@ Recovered output binds to the exact source-page hash:
 | FU02 unrelated edit; formula page unchanged | no | no | 0 | 5 |
 
 Invalidation accuracy is `1.00`; stale recovered output is never served. The
-selective policy reprocesses one changed page across both updates, compared with
-ten pages for whole-corpus processing. This is a page-hash contract result, not
-proof of production dependency-closure invalidation.
+simulation models refresh success independently from hash-change detection, and
+a regression test proves that a detected change followed by failed refresh is
+reported as stale serving. The selective policy reprocesses one changed page
+across both updates, compared with ten pages for whole-corpus processing. This
+is a page-hash contract result, not proof of production dependency-closure
+invalidation.
 
 ## Scoped Decision Posture
 

@@ -6,10 +6,13 @@ hypotheses:
   - Confidence-gated selective recovery improves formula recall on proven-loss regions without overwriting raw evidence or accepting an ambiguous wrong candidate.
   - Page-hash-bound recovery invalidates stale output on a changed source page and avoids reprocessing an unchanged formula page.
   - Whole-corpus heavy recovery costs materially more than recovery limited to proven-loss pages.
+metric_semantics:
+  formula_recall: Set-based unique formula labels per fixture; duplicate occurrences do not change the denominator.
+  stale_recovery_served: Compares the independently simulated served page hash after refresh success/failure with the updated source-page hash.
 fixtures:
   formula_recovery:
     path: backend/research_spikes/corpora/formula_recovery.yml
-    sha256: 67fa16f6ea45cdcaca32a65028665cb93e7d615e835c337e589da805e2b29a18
+    sha256: fe7eb1ac5e9879729e0f4ccd389efa255607e4a21d3c2c430864fda861384a9d
   evaluation_protocol:
     path: backend/research_spikes/evaluation_protocol.yml
     sha256: f664cd85b80660b865a76d9491176d31d8398015128621d5de33536988e6f366
@@ -51,7 +54,7 @@ commands:
   - uv run --directory backend python research_spikes/wave_d.py
 raw_results:
   path: backend/research_spikes/local/results/wave_d.json
-  sha256_at_recording: 1c93c7c648fe1f1e801fb8983b21dbd8249901117291458ca34e4878d054cf0e
+  sha256_at_recording: 52ab963b320c70050f250f9f576258f4ec2eb6117939b7e0bc7980452c378ad6
   committed: false
 mutation_guard:
   production_mutations: 0

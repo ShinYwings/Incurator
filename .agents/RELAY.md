@@ -89,3 +89,22 @@ Execute Plan E (`.agents/plans/E_external_research_design_matrix.md`) on `featur
 ## Immediate Next Action
 
 Wave D is complete on `feature/plan-e-research`. Stop at the PM review gate. After explicit approval, begin P7 untouched holdout, red-team, and decision synthesis under the frozen configurations; do not access the holdout before approval.
+
+### Update (2026-06-12, Codex)
+
+- Addressed Wave D review feedback without entering P7 or accessing the holdout.
+- Accepted the recall typology finding: formula recall is explicitly set-based
+  per fixture, and duplicate identical formula strings no longer depress the
+  maximum possible recall.
+- Accepted the stale-serving tautology diagnosis but rejected the suggested
+  oracle-driven implementation: `expected_invalidate` remains evaluation truth,
+  not candidate behavior. Refresh success/failure is now an independent
+  simulation input, and a failed-refresh regression proves stale recovery is
+  detected.
+- Updated the Wave D corpus, manifest metric semantics, report, and raw-result
+  hashes.
+- Verification: research suite `50 passed`; full backend `693 passed, 13
+  xfailed`; ruff and Wave D mypy passed. Production mypy remains at the same 73
+  pre-existing errors; plugin Vitest still has no configured test files.
+- Testbed authoritative DB hash remains unchanged:
+  `cfffd778763b12f98836130fe13fdf58c5e237f4e3a38d170e5e6ffc381674c6`.
