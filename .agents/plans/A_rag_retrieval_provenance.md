@@ -602,3 +602,9 @@ the added node, and a bounded expansion cost (edge budget honored — holdout:
 REJECTED DEFAULT. Mechanism-level recall behavior (including the low-confidence
 true-edge miss) remains `benchmark-later`, gated on Plan C confidence
 calibration.
+
+### Plan D2 Program-1 Handoff (v0.7.0)
+
+Consume `docs/specs/failure_atlas/PROGRAM_HANDOFFS.md`, the retired F1/F2
+contracts, and the frozen F3/F4/F5/F11/F12 oracles. Preserve one authoritative
+QTR and report every retrieval gate separately per query family.

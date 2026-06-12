@@ -349,7 +349,9 @@ and plugin, and they never edit read-only source truth (`03_Notes/`,
   has `kind` — `synthesis` | `community_report` | `entity` | `source_span` |
   `memory_path` | `search_hit` — plus `id`/`title`/`text`/`score` and provenance ids),
   `source_span_ids`, `community_report_ids`, `synthesis_node_ids`,
-  `memory_path_ids`, `warnings`. There is intentionally **no** `answer` field.
+  `memory_path_ids`, `warnings`. Search-hit evidence preserves hydrated
+  `source_span_ids`, and `trace_id` identifies the single authoritative
+  orchestrated query trace. There is intentionally **no** `answer` field.
 
 #### `curator_explore`
 

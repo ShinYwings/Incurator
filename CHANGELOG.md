@@ -4,6 +4,29 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.7.0] — 2026-06-12
+
+Program 1 D2 quality-observatory release.
+
+### Added
+
+- Fine-grained provider-free retrieval evaluation with per-family Recall@k,
+  MRR, citation correctness/completeness, authoritative provenance resolution,
+  hard-negative outranks, indexed-character cost, and latency.
+- Query-level minimal-support labels and an auditable D2 Q06 holdout result.
+- Final Program 2/3 Failure Atlas handoff contracts.
+- A tracked current-architecture testbed scenario gate covering CTX/ATM/CON/SYN,
+  DB-native retrieval, query traceability, and unchanged-update correctness.
+
+### Fixed
+
+- Search-hit `source_span_ids` now survive the public search adapter and
+  evidence assembly, including global search fallback.
+- Orchestrated queries persist one authoritative `QTR-` containing the engine
+  retrieval trace instead of a disconnected second trace.
+
+---
+
 ## [0.6.1] — 2026-06-12
 
 Hotfix release. No schema or API changes.

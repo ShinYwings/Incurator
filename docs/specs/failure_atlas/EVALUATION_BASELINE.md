@@ -1,6 +1,6 @@
-# Evaluation Baseline & Proposed Gates (Program 1, D1)
+# Evaluation Baseline & Release Gates (Program 1, D2)
 
-Current version: v0.6.0 (D1 diagnostic baseline release)
+Current version: v0.7.0 (D2 observatory release)
 Contract: `docs/specs/failure_atlas/FAILURE_ATLAS.md`
 Data: `fixture_corpus.yml` (frozen synthetic corpus, version 1) and
 `qrels.yml` (ground-truth labels, version 1)
@@ -8,10 +8,8 @@ Runner: `backend/tests/test_failure_atlas_eval.py`
 
 This document records the query/task families, dataset partitions, labeling
 methodology, the measured deterministic baseline at the D1 snapshot, and the
-**proposed** (not yet binding) thresholds for later Program 1/2/3 gates.
-Thresholds become binding only after user approval per the umbrella plan §6.3 —
-"No release threshold is binding until its labeling procedure, baseline,
-variance, and user-approved threshold are documented."
+release thresholds and downstream proposed gates. The user authorized D2
+execution on 2026-06-12, making the deterministic Program 1 thresholds binding.
 
 ## 1. Measurement Snapshot
 
@@ -61,11 +59,10 @@ cross-checked against corpus bodies by the D1 agent, 2026-06-12. No model
 judges anywhere in the deterministic baseline (model judges may appear in D2
 only as supplementary diagnostics).
 
-Claim-to-minimal-support labels: at D1 these exist as fixture-level
-constructions inside the reproduction tests (every fixture document/span
-declares its provenance; F1/F6 assert support propagation against them). A
-corpus-scale claim-support label set is a D2 deliverable, after E informs the
-target IR.
+Claim-to-minimal-support labels are query-level and live in
+`support_labels.yml`. The evaluation runner resolves them against authoritative
+temporary `source_spans` rows; a declared fixture id alone does not count as
+resolved provenance.
 
 ## 4. Measured Baseline (2026-06-12, deterministic lexical mode)
 
@@ -78,7 +75,7 @@ deterministic engine, frozen corpus).
 | direct-factual | regression | 2 | 1.00 | 1.00 | 1.00 | 1.00 | — |
 | direct-factual | adversarial | 2 | — | — | 1.00 | >0 | 0 |
 | associative | dev | 1 | — | — | 1.00 | >0 | — |
-| direct-factual | holdout | 1 | not measured (frozen) | | | | |
+| direct-factual | holdout | 1 | one valid D2 run after two audit-invalidated methodology runs; see `D2_HOLDOUT_RESULT.yml` | | | | |
 
 Reading: on a 10-document corpus with well-separated vocabulary, lexical
 FTS5/BM25 is already perfect. This is expected and is precisely why this corpus
@@ -88,20 +85,21 @@ unambiguous regression) and hard-negative wiring. Realistic-scale corpora,
 distractor density, and provider modes arrive with Plan E benchmarks and the
 D2 evaluation specification.
 
-## 5. Proposed Thresholds (NOT binding until user approval)
+## 5. Release Thresholds And Downstream Proposed Gates
 
-1. **Regression partition (binding at D1 via CI)**: direct-factual
+1. **Program 1 retrieval diagnostics (binding)**: every family is reported
+   separately; provenance resolution is 1.00; no aggregate-only or
+   model-judge-only gate is admissible.
+2. **Regression partition (binding via CI)**: direct-factual
    Recall@1 = 1.00 on the frozen regression queries; 0 hard-negative outranks
    on the adversarial partition. Already enforced by
    `test_failure_atlas_eval.py`.
-2. **Program 1 citation gates (proposed, from umbrella §8)**: citation
-   correctness ≥ 95% and completeness ≥ 90% on the initial gold suite — cannot
-   be measured until F1 (provenance loss) is repaired in D2; proposed to be
-   measured on the D2 observatory and then ratified.
-3. **Program 2 compiler gates (proposed, encoded per case)**: see
+3. **Program 1 citation gates (binding on the frozen deterministic suite)**:
+   top-1 citation correctness ≥ 95% and citation completeness ≥ 90%.
+4. **Program 2 compiler gates (proposed, encoded per case)**: see
    `assignment.gate` in cases F6–F10 (0 broad fallbacks, idempotent rebuilds,
    0 homonym false merges, authored topology compiled, full-span evidence).
-4. **Program 3 serving gates (proposed)**: see cases F3–F5, F11, F12 (policy
+5. **Program 3 serving gates (proposed)**: see cases F3–F5, F11, F12 (policy
    enforcement, bounded query-relevant routes, explicit omissions, bounded
    iteration, client parity), plus no regression of the §4 table beyond
    approved tolerance on the then-current corpus version.

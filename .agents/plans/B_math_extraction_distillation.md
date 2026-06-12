@@ -486,3 +486,9 @@ deletion-driven invalidation (generated context never outlives its raw span);
 full-rebuild cost measured for prompt/model version changes. Generated context
 must remain visibly non-authoritative, preserve exact raw-span linkage, beat a
 deterministic heading control, and pass direct-factual non-regression.
+
+### Plan D2 Program-1 Handoff (v0.7.0)
+
+Consume `docs/specs/failure_atlas/PROGRAM_HANDOFFS.md` and the frozen F6/F7/F10
+oracles. Every evaluation report must use the D2 per-family fine-grained metric
+contract; aggregate-only and model-judge-only gates are prohibited.

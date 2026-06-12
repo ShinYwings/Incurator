@@ -3,7 +3,7 @@ id: F13
 title: Active testbed scenario validates retired EXH/qmd-era architecture
 query_family: evaluation-infra
 execution_mode: deterministic
-status: assigned
+status: retired
 status_history:
   - date: "2026-06-11"
     status: suspected
@@ -14,7 +14,10 @@ status_history:
   - date: "2026-06-12"
     status: assigned
     evidence: "FAILURE_ATLAS.md §8 — current-architecture scenarios are D2 observatory scope (umbrella P1.4)"
-owner: plan-d2
+  - date: "2026-06-12"
+    status: retired
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f13_scenario_targets_current_architecture"
+owner: unassigned
 impact: >
   The only rich validation scenario asserts behavior of the retired static
   Exhibition (EXH-*) layer and qmd-era flows, so "testbed passes" measures the
@@ -29,9 +32,9 @@ boundary:
     prefixes (lines 43, 55, 75, 245, 273) — all removed in v0.3.1+. The
     scenario is preserved as historical evidence (Arena consensus #6) and
     must not be modified by D1.
-fixture: backend/tests/test_failure_atlas_repro.py::test_f13_baseline_scenario_validates_retired_architecture
+fixture: backend/tests/test_failure_atlas_repro.py::test_f13_scenario_targets_current_architecture
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f13_baseline_scenario_validates_retired_architecture" -q
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f13_scenario_targets_current_architecture" -q
 oracles:
   deterministic: >
     The active validation scenario's oracles reference only current
@@ -58,12 +61,13 @@ assignment:
   gate: >
     Current-architecture testbed scenarios implemented as part of the
     approved minimum Quality Observatory (umbrella P1.4).
+resolution:
+  version: 0.7.0
+  evidence: backend/tests/test_failure_atlas_repro.py::test_f13_scenario_targets_current_architecture
+  after_state: >
+    The tracked testbed_template is the current-architecture oracle and covers
+    CTX/ATM/CON/SYN truth, DB-native search, agent traceability, and
+    incremental correctness without modifying historical local scenarios.
 notes: >
-  Historical scenario assets are inventoried, not modified (Arena consensus
-  #6). The scenario is a developer-local asset (.gitignore excludes
-  tests/scenarios/* except testbed_template/), so the fixture tests are
-  skipped where the scenario is absent (e.g. GitHub CI) — the reproduction
-  was performed locally on the snapshot environment; the scenario content is
-  intentionally NOT copied into the repository (privacy rule, FAILURE_ATLAS
-  §9). Oracle test: test_f13_oracle_scenario_targets_current_architecture
-  (strict xfail under the same skip guard).
+  Historical local scenario assets remain inventoried and unmodified. D2
+  retires this case with a tracked, CI-visible current-architecture scenario.

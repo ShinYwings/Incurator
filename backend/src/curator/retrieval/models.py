@@ -58,6 +58,7 @@ class EvidencePack:
     synthesis_node_ids: list[str] = field(default_factory=list)
     memory_path_ids: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    retrieval_trace: dict = field(default_factory=dict)
 
     def evidence_block(self, *, max_chars: int = 16000) -> str:
         lines: list[str] = []

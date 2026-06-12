@@ -3,7 +3,7 @@ id: F1
 title: Search-hit provenance dropped at EngineHit→SearchHit conversion and evidence assembly
 query_family: direct-factual
 execution_mode: deterministic
-status: assigned
+status: retired
 status_history:
   - date: "2026-06-11"
     status: suspected
@@ -14,7 +14,10 @@ status_history:
   - date: "2026-06-12"
     status: assigned
     evidence: "FAILURE_ATLAS.md §8 — critical provenance adapter; unresolved hit provenance invalidates every retrieval measurement"
-owner: plan-d2
+  - date: "2026-06-12"
+    status: retired
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f1_search_hit_items_carry_source_span_ids"
+owner: unassigned
 impact: >
   Hybrid-search evidence reaching agents and answer synthesis carries no
   source_span_ids, so search-derived claims cannot be verified against exact
@@ -31,9 +34,9 @@ boundary:
     legacy SearchHit dataclass (search.py:50-58) which has NO source_span_ids
     field. retrieval/evidence.py::_search_hits() (lines 51-60) then builds
     EvidenceItem without span ids — it could not recover them even if it tried.
-fixture: backend/tests/test_failure_atlas_repro.py::test_f1_baseline_search_hit_items_drop_source_span_ids
+fixture: backend/tests/test_failure_atlas_repro.py::test_f1_search_hit_items_carry_source_span_ids
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f1_baseline_search_hit_items_drop_source_span_ids" -q
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f1_search_hit_items_carry_source_span_ids" -q
 oracles:
   deterministic: >
     Every EvidenceItem of kind "search_hit" must carry the source_span_ids that
@@ -61,6 +64,12 @@ assignment:
     100% selected source-supported evidence has resolvable record and source
     ids (Program 1 release gate). This is the single critical provenance
     adapter repair P5 is allowed to make.
+resolution:
+  version: 0.7.0
+  evidence: backend/tests/test_failure_atlas_repro.py::test_f1_search_hit_items_carry_source_span_ids
+  after_state: >
+    SearchHit and search-derived EvidenceItem preserve hydrated source_span_ids;
+    the EvidencePack unions those spans into its authoritative provenance set.
 notes: >
-  Oracle test: test_f1_oracle_search_hit_items_carry_source_span_ids
-  (strict xfail until repaired).
+  Retired by Plan D2 after the capture-before-repair baseline was preserved in
+  Git history.

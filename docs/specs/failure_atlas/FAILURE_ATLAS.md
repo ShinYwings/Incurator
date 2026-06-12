@@ -1,6 +1,6 @@
-# Failure Atlas — Diagnostic Contract (Program 1, D1 baseline)
+# Failure Atlas — Diagnostic Contract (Program 1, D2 observatory)
 
-Current version: v0.6.0 (D1 diagnostic baseline release)
+Current version: v0.7.0 (D2 observatory release)
 Plan of record: `.agents/plans/D_current_system_failure_atlas.md` (Git history
 after release); umbrella program:
 `.agents/plans/03_rag_knowledge_quality_stabilization.md`.
@@ -23,8 +23,11 @@ resumes from this baseline after Plan E (external research) merges.
 |---|---|
 | This contract spec | `docs/specs/failure_atlas/FAILURE_ATLAS.md` |
 | Case records (machine-readable, authoritative) | `docs/specs/failure_atlas/cases/F01.yml` … `F13.yml` |
-| Evaluation baseline & proposed gates | `docs/specs/failure_atlas/EVALUATION_BASELINE.md` |
+| Evaluation baseline & release gates | `docs/specs/failure_atlas/EVALUATION_BASELINE.md` |
+| D2 one-shot holdout result | `docs/specs/failure_atlas/D2_HOLDOUT_RESULT.yml` |
+| Final Program 2/3 handoffs | `docs/specs/failure_atlas/PROGRAM_HANDOFFS.md` |
 | Frozen fixture corpus + qrels | `docs/specs/failure_atlas/fixture_corpus.yml`, `docs/specs/failure_atlas/qrels.yml` |
+| Query-level minimal support labels | `docs/specs/failure_atlas/support_labels.yml` |
 | Contract tests (schema/lifecycle enforcement) | `backend/tests/test_failure_atlas_contract.py` |
 | Deterministic reproductions (baseline + oracle) | `backend/tests/test_failure_atlas_repro.py` |
 | Mutation/degradation/parity experiments | `backend/tests/test_failure_atlas_experiments.py` |
@@ -45,7 +48,7 @@ Each `cases/F*.yml` file holds exactly one record with these fields:
 | `title` | string | yes | One-line failure statement. |
 | `query_family` | enum | yes | Primary family in which the failure manifests: `direct-factual`, `associative`, `global`, `source-scoped`, `cross-route`, `compiler`, `client-parity`, `evaluation-infra`. Per-family reporting is mandatory; aggregate-only claims are prohibited. |
 | `execution_mode` | enum | yes | `deterministic` (provider-free), `provider` (configured LLM/embedder required), `degraded` (missing-provider behavior), `human-review` (semantic judgment). Modes are never mixed in one result. |
-| `status` | enum | yes | Current classification: `suspected`, `reproduced`, `disproven`, `accepted`, `assigned`. |
+| `status` | enum | yes | Current classification: `suspected`, `reproduced`, `disproven`, `accepted`, `assigned`, `retired`. |
 | `status_history` | list | yes | Ordered `{date, status, evidence}` entries. First entry must be `suspected`. Transitions must follow §3. The last entry's status must equal `status`. |
 | `owner` | enum | yes | Who owns the next action: `plan-d2`, `program-2`, `program-3`, `plan-e`, `unassigned`. |
 | `impact` | string | yes | What truth/quality property is lost while unfixed. |
@@ -57,6 +60,7 @@ Each `cases/F*.yml` file holds exactly one record with these fields:
 | `observed_result` | string | yes | What the reproduction actually showed at the baseline snapshot. |
 | `snapshot` | object | yes | Identity of the measurement: `git_sha` (40-hex), `version` (semver), `schema_version` (int), `scenario` (active testbed scenario name). |
 | `assignment` | object | status=assigned | `{program, gate}` — downstream program and the release gate that will retire this case. |
+| `resolution` | object | status=retired | `{version, evidence, after_state}` — release and exact passing contract that retired the case. |
 | `notes` | string | no | Anything that doesn't fit above (secondary families, partial passes). |
 
 A valid `source_span_id` is never treated as proof of claim support: oracles
@@ -69,14 +73,14 @@ locator resolution, and freshness where applicable.
 suspected ──> reproduced ──> assigned   (routed to plan-d2 / program-2 / program-3)
     │              └───────> accepted   (explicit limitation w/ user-visible contract)
     └───────> disproven                 (concern measured and rejected)
+                              assigned ──> retired (assigned gate satisfied)
 ```
 
 Allowed transitions: `suspected→reproduced`, `suspected→disproven`,
 `reproduced→assigned`, `reproduced→accepted`. Everything else (including
 skipping `reproduced` on the way to `assigned`) is rejected by the contract
-tests. `disproven`, `accepted`, and `assigned` are terminal for D1; Plan D2 may
-reopen a case only by appending a new `suspected` entry with evidence in a new
-atlas version.
+tests. D2 adds `assigned→retired` when the assigned release gate is satisfied
+with explicit after-state evidence.
 
 Rules:
 
@@ -107,9 +111,11 @@ evaluation run — must declare:
   sources; private live-vault excerpts are never persisted in the repository
   without explicit user approval.
 
-In D1 the evidence bundles are encoded as the deterministic pytest modules
-themselves (assertions + docstrings) plus the case records; D2 may add a
-structured export format if a reproduced measurement blocker justifies it.
+In D1 the evidence bundles were encoded as deterministic pytest modules plus
+the case records. D2 adds a provider-free fine-grained evaluation result
+contract. Every result reports per query family, preserves ranked record and
+span identities, records indexed-character cost and latency, and keeps
+aggregate-only metrics out of release gates.
 
 ## 5. Execution-Mode Separation
 
@@ -144,8 +150,8 @@ green baseline test and an XFAILing oracle test, and the full suite passes.
 
 | Id | Title | Family | Status | Owner |
 |---|---|---|---|---|
-| F1 | Search-hit provenance dropped at `EngineHit→SearchHit` conversion and evidence assembly | direct-factual | assigned | plan-d2 |
-| F2 | One logical query persists ≥2 disconnected `QTR-` traces | cross-route | assigned | plan-d2 |
+| F1 | Search-hit provenance dropped at `EngineHit→SearchHit` conversion and evidence assembly | direct-factual | retired | unassigned |
+| F2 | One logical query persists ≥2 disconnected `QTR-` traces | cross-route | retired | unassigned |
 | F3 | `CurationPolicy` (KRS) not enforced through evidence assembly | cross-route | assigned | program-3 |
 | F4 | Global evidence is query-independent; source-scoped evidence unbounded | global | assigned | program-3 |
 | F5 | Context packing is a fixed 16,000-char cutoff with silent omission | cross-route | assigned | program-3 |
@@ -156,11 +162,11 @@ green baseline test and an XFAILing oracle test, and the full suite passes.
 | F10 | Searchable span evidence capped at a 200-char preview | source-scoped | assigned | program-2 |
 | F11 | Explore is a single prompt pass — follow-ups are rendered, never executed | associative | assigned | program-3 |
 | F12 | External MCP and Obsidian plugin do not share one normalized context contract | client-parity | assigned | program-3 |
-| F13 | Active testbed scenario validates retired EXH/qmd-era architecture | evaluation-infra | assigned | plan-d2 |
+| F13 | Active testbed scenario validates retired EXH/qmd-era architecture | evaluation-infra | retired | unassigned |
 
-All thirteen cases were reproduced deterministically at the v0.6.0 baseline
-snapshot and assigned downstream. No case was disproven; no case is accepted
-as a permanent limitation.
+All thirteen cases were reproduced deterministically at the v0.6.0 baseline.
+D2 retires F1, F2, and F13 by satisfying their frozen oracles; F3-F12 remain
+assigned to Program 2 or Program 3.
 
 ## 8. Downstream Handoff (deliverable D5, D1 portion)
 
@@ -175,6 +181,31 @@ as a permanent limitation.
 - **Plan E (External Research Design Matrix)** must benchmark candidate
   techniques against the reproduced failures by atlas id (no technique adoption
   without a reproduced target failure).
+
+## 10. D2 Fine-Grained Evaluation And Holdout Contract
+
+Every retrieval release gate reports separately for each query family:
+
+- Recall@1/3/5 and MRR;
+- top-1 citation correctness and citation completeness against expected spans;
+- provenance resolution rate;
+- hard-negative outrank count;
+- indexed-character cost and latency.
+
+Aggregate-only quality claims and model-judge-only gates are prohibited. The
+Failure Atlas `Q06` has one valid D2 measurement under the frozen D1 corpus,
+qrels, lexical engine configuration, and no-tuning procedure. Two earlier runs
+were audit-invalidated while provenance resolution, citation pairing,
+preflight gates, and execution identity were hardened. All three runs used the
+identical ranking configuration and are recorded transparently. The committed
+`D2_HOLDOUT_RESULT.yml` is authoritative; CI validates it but does not rerun
+the holdout.
+
+The frozen D1 holdout contains only direct-factual Q06. Associative,
+source-scoped, and global families are still reported separately on their
+available deterministic or structural oracles, but realistic holdout coverage
+for those families is an explicit downstream evaluation requirement, not a
+claim made by D2.
 
 ## 9. Privacy And Retention
 

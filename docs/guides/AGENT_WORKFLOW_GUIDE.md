@@ -109,7 +109,7 @@ uv run --directory backend pytest tests/test_failure_atlas_contract.py -q
 uv run --directory backend pytest tests/test_failure_atlas_repro.py -q
 # Mutation/degradation/atomicity experiments
 uv run --directory backend pytest tests/test_failure_atlas_experiments.py -q
-# Frozen retrieval baseline (holdout is never measured)
+# Frozen retrieval baseline (CI never reruns the consumed D2 holdout)
 uv run --directory backend pytest tests/test_failure_atlas_eval.py -q
 ```
 
@@ -129,4 +129,11 @@ uv run --directory backend pytest tests/test_failure_atlas_eval.py -q
     its current failure baseline is captured in the atlas.
 *   **No holdout tuning**: queries in the `holdout` partition of
     `docs/specs/failure_atlas/qrels.yml` are frozen and must never be used to
-    develop or tune retrieval changes.
+    develop or tune retrieval changes. D2 recorded one valid `Q06` result
+    after two audit-invalidated methodology runs under the identical frozen
+    ranking configuration; CI validates `D2_HOLDOUT_RESULT.yml` and does not
+    rerun it.
+*   **Use fine-grained gates**: report Recall@k, MRR, citation correctness and
+    completeness, provenance resolution, hard-negative outranks, cost, and
+    latency separately per query family. Aggregate-only quality claims are not
+    release evidence.

@@ -1,0 +1,15 @@
+# Query-level minimal support labels for the frozen Failure Atlas corpus.
+# These labels are independent of ranking output and are used only to score
+# citation correctness/completeness. Every listed span is authoritative in the
+# temporary evaluation DB during measurement.
+version: 1
+queries:
+  Q01: [SPAN-fc000001]
+  Q02: [SPAN-fc000002]
+  Q03: [SPAN-fc000004]
+  Q04: [SPAN-fc000005]
+  Q05: [SPAN-fc000006]
+  Q06: [SPAN-fc000007]
+  Q07: [SPAN-fc000008]
+  Q08: [SPAN-fc000009]
+  Q09: [SPAN-fc000001, SPAN-fc000010]

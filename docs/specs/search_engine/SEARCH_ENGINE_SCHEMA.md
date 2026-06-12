@@ -1,4 +1,4 @@
-# Incurator Search Engine Schema (v0.6.0)
+# Incurator Search Engine Schema (v0.7.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -224,6 +224,12 @@ Rules:
 
 ## 7. `query_traces`
 
+An orchestrated query owns exactly one authoritative `QTR-` row. Its
+`retrieval_trace_json` contains the DB-native engine retrieval details; an
+internal engine search performed while assembling orchestrated evidence must
+not persist a disconnected second `QTR-`. Public hydrated search hits preserve
+their `source_span_ids` through evidence assembly.
+
 `QTR-` traces are durable first-class records so the plugin dashboard and MCP
 clients can list and inspect query evidence after the immediate response.
 
@@ -253,8 +259,10 @@ CREATE INDEX IF NOT EXISTS idx_query_traces_workspace_created ON query_traces(wo
 
 ## 8. Retrieval Trace JSON Contract
 
-`retrieval_trace_json` must be a JSON object. It must include enough detail for
-the dashboard and MCP clients to explain ranking without re-running the query.
+`retrieval_trace_json` must be a JSON object. When DB-native search executes,
+it must include enough detail for the dashboard and MCP clients to explain
+ranking without re-running the query. Routes that do not execute search may
+store `{}`; the authoritative QTR still records their route and evidence.
 
 Required top-level fields:
 

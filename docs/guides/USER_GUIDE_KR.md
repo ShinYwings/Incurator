@@ -507,7 +507,7 @@ status/history/push입니다.
 | `wiki query "..."` | 질문에 대한 정제된 답변을 얻습니다. | 지식을 활용한 답변 필요 시 |
 | `wiki query "..." --route explore` | v0.3.2 큐레이션-네이티브 오케스트레이터(DB 그래프 + DB-native hybrid search)로 라우팅하고 쿼리 트레이스를 남깁니다. | 연결 발견, 라우트 지정 |
 | `wiki inspect synthesis <SYN-…>` | synthesis node의 L4→L1 근거 체인을 내보냅니다. machine-readable 출력이 필요하면 `--json`을 추가합니다. | 생성된 synthesis가 왜 존재하는지 증명할 때 |
-| `wiki inspect answer <QTR-…>` | 기록된 query trace 뒤의 근거 체인을 내보냅니다. machine-readable 출력이 필요하면 `--json`을 추가합니다. | Sources & Trace의 답변을 감사할 때 |
+| `wiki inspect answer <QTR-…>` | 기록된 query trace 뒤의 근거 체인을 내보냅니다. machine-readable 출력이 필요하면 `--json`을 추가합니다. 오케스트레이션된 쿼리는 retrieval trace를 포함한 하나의 authoritative QTR을 저장합니다. | Sources & Trace의 답변을 감사할 때 |
 | `wiki workspace init` | 워크스페이스를 초기화합니다. | 새 프로젝트 시작 시 |
 
 #### v0.3.2 큐레이션-네이티브 쿼리 라우트
