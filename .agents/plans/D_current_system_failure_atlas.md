@@ -468,3 +468,35 @@ scenarios, and full local CI.
 - Stop if Program 2 or Program 3 implementation is pulled into Plan D.
 - After three repeated QA failures for the same blocker, activate
   `rollback_strategist`, restore the last stable phase, and return to planning.
+
+---
+
+## Plan E P7 Research Handoff (2026-06-12)
+
+Source: `backend/research_spikes/reports/p7.md`, `backend/research_spikes/manifests/p7.yml`.
+These are binding specification requirements handed off at Plan E P8. They do
+not authorize implementation outside this plan's own phases and gates.
+
+### Adopted Contract: Fine-Grained RAG Diagnostics (`adopt-contract`, confirmed at P7)
+
+D2's evaluation and release gates MUST report, separately and per query
+family (direct-factual, source-scoped, associative, global):
+
+- Recall@k and MRR per family — never aggregated across families in a gate.
+- Top-1 citation correctness and citation completeness against expected spans.
+- Provenance resolution rate (every returned hit must resolve to source spans).
+- Hard-negative outrank counts.
+- Cost (indexed characters / latency) alongside quality, not in place of it.
+
+Holdout proof (RUQ05): aggregate Recall@5 alone reported `1.00` on a blind
+probe while top-1 citation correctness (`0.00`) and hard-negative outranks
+(`2`) exposed the failure. Therefore the following are REJECTED DEFAULTS for
+any D2 gate: aggregate-only retrieval reporting, and model-judge-only release
+gates.
+
+### Failure Atlas Holdout Reservation
+
+The qrels holdout (`Q06`) was deliberately NOT consumed by Plan E P7. D2 must
+define the approved single-run evaluation procedure that consumes it, with the
+same no-tuning discipline Plan E applied to its own holdouts (frozen inputs,
+single measurement, provenance audit, decision recorded before any re-run).

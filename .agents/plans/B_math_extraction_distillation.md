@@ -437,3 +437,52 @@ Program 1/B quality suite.
   reconciliation, migration, CI, or testbed gate fails.
 - After three repeated QA failures, activate `rollback_strategist`, restore the
   last stable state, and return to planning.
+
+---
+
+## Plan E P7 Research Handoff (2026-06-12)
+
+Source: `backend/research_spikes/reports/p7.md`, `backend/research_spikes/manifests/p7.yml`.
+Binding specification requirements handed off at Plan E P8; adoption still
+flows through this plan's own phases, benchmarks, and gates.
+
+### Adopted Contract: Formula-Preserving Distillation (`adopt-contract`, confirmed at P7)
+
+Downstream distillation MUST NOT silently remove a formula that is present in
+authoritative extraction. Wave D FR01 proved current distillation drops a
+formula that current extraction contains; the FR05 holdout confirmed
+distillation introduced nothing absent from extraction. Any distillation stage
+in this plan must carry an explicit formula-preservation check (extraction
+formula set ⊆ distillation-visible evidence, or an explicit recorded
+exception), and visual recovery is NOT a substitute for this boundary.
+
+### Contract Candidates: Selective Formula Recovery (`benchmark-later`)
+
+If/when this plan benchmarks visual formula recovery, only the following
+invariants are pre-accepted as contract candidates (mechanism adoption needs
+this plan's own measured win):
+
+- Recovery runs only on proven-loss regions (parser AND raw-text AND current
+  extraction all missing the region) — never whole-corpus by default.
+- Recovered content is stored separately from raw evidence and never
+  overwrites it.
+- Confidence below the acceptance threshold stays explicitly uncertain and is
+  excluded from served formulas.
+- Every recovered item carries an exact source locator (source id, page,
+  region) and the source page hash.
+- A changed page hash invalidates exactly that page's recovery; a failed
+  refresh must be detectable as stale (Wave D regression proof).
+
+REJECTED DEFAULT: whole-corpus heavy visual recovery (`7x` measured proxy
+cost; reaffirmed on the FR05 holdout, 10 vs 0).
+
+### Benchmark Requirements Inherited: Context-Enriched Chunks (`benchmark-later`)
+
+If this plan's projection/search-state work evaluates generated retrieval
+context, the Wave A cache/invalidation assumptions are the benchmark contract:
+per-chunk cache keyed by span content hash + prompt/model version; source-edit
+invalidation of the edited chunk plus re-queue of sibling chunks;
+deletion-driven invalidation (generated context never outlives its raw span);
+full-rebuild cost measured for prompt/model version changes. Generated context
+must remain visibly non-authoritative, preserve exact raw-span linkage, beat a
+deterministic heading control, and pass direct-factual non-regression.

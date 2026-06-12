@@ -819,3 +819,42 @@ Release:
 - Frozen cross-client E2E and quality suite.
 - Migration/rollback evidence.
 - Versioned release and PR after all gates pass.
+
+---
+
+## Plan E P7 Research Handoff (2026-06-12)
+
+Source: `backend/research_spikes/reports/p7.md`, `backend/research_spikes/manifests/p7.yml`.
+Binding specification requirements handed off at Plan E P8; adoption still
+flows through this plan's own phases, benchmarks, and gates.
+
+### Adopted Contract: Progressive Context Disclosure (`adopt-contract`, confirmed at P7)
+
+The ContextService MUST declare omissions and expose stable expansion handles
+for every record it omits from a served context block. A silent fixed
+character cutoff is a REJECTED DEFAULT (Wave C: fixed block and fixed top-k
+silently dropped relevant evidence; progressive disclosure kept every omitted
+relevant record recoverable at `1.00` recall with the highest context
+precision). Coverage limitation recorded at P7: the research holdout contained
+no disclosure-family case, so this confirmation is contract-level
+(provenance/leakage audits + Wave C evidence); this plan's own E2E suite must
+include disclosure cases.
+
+### Contract Candidates: Bounded Iterative Retrieval Invariants (`benchmark-later`)
+
+Any iterative retrieval loop MUST carry: an explicit maximum iteration count,
+per-iteration budget accounting, a deterministic stop condition, and a single
+snapshot per task (no mixing snapshots mid-loop). Wave C evidence: bounded
+iteration completed the two/three-hop tasks one-shot could not (`0.67` vs
+`0.00`), failed the four-hop case instead of looping, and never mixed
+snapshots. Unbounded or snapshot-mixing iteration is a REJECTED DEFAULT.
+
+### `benchmark-later` Inherited Postures
+
+- Retrieval sufficiency / corrective gate: recall-limited by evaluator blind
+  spots (Wave C SF03 false negative); any future gate is bounded to
+  vault-evidence, single-snapshot correction and must measure gate
+  precision/recall against an independent oracle.
+- Complexity-aware routing: the P7 probe routed correctly, but the classifier
+  remains a trivial regex with no measured overhead or real query
+  distribution; benchmark on this plan's actual query mix before adoption.

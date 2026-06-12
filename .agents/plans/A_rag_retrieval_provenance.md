@@ -566,3 +566,39 @@ and full local CI. Public ContextService and plugin tests belong to Plan F.
   provenance.
 - After three repeated QA failures for the same blocker, activate
   `rollback_strategist`, restore the last stable phase, and return to planning.
+
+---
+
+## Plan E P7 Research Handoff (2026-06-12)
+
+Source: `backend/research_spikes/reports/p7.md`, `backend/research_spikes/manifests/p7.yml`.
+Binding specification requirements handed off at Plan E P8; adoption still
+flows through this plan's own phases, benchmarks, and gates.
+
+### Adopted Contract: Query-Relevant Bounded Global Selection (`adopt-contract`, confirmed at P7)
+
+Global retrieval MUST rank/select query-relevant communities under an explicit
+evidence budget, with every selected community exposing its source-span
+locators. Loading every community report for every global query is a REJECTED
+DEFAULT (Wave B: precision `0.333 -> 1.000`, selected reports `3 -> 1`).
+Coverage limitation recorded at P7: the research holdout contained no
+global-family query, so this confirmation is contract-level; mechanism
+validation against source-linked, freshness-checked community reports waits on
+Program 2 invalidation contracts.
+
+### Rejected Default: Unfiltered Graph-Only PPR
+
+Reaffirmed on the GQ07 holdout: unfiltered weighted PPR surfaced the
+noisy-bridge distractor in its top 4 at `660` edge updates versus `4`
+traversed expansion edges, with no recall gain over current memory paths.
+Re-benchmark only after Program 2 graph-quality gates pass.
+
+### Contract Candidates: Graph-Guided Expansion Explainability/Budget Invariants
+
+Any graph-assisted retrieval addition this plan introduces MUST expose: the
+seed it grew from, the traversed path and edge kinds, the source locator of
+the added node, and a bounded expansion cost (edge budget honored — holdout:
+4 traversed ≤ budget 8). Graph additions without these explanations are a
+REJECTED DEFAULT. Mechanism-level recall behavior (including the low-confidence
+true-edge miss) remains `benchmark-later`, gated on Plan C confidence
+calibration.

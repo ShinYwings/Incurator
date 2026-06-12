@@ -36,8 +36,8 @@ Execute Plan E (`.agents/plans/E_external_research_design_matrix.md`) on `featur
 - [x] Wave B graph, hierarchy, global, and expansion controls (approved).
 - [x] Wave C adaptive, corrective, iterative, and progressive serving controls (approved).
 - [x] Wave D conditional formula recovery (approved).
-- [x] P7 untouched holdout, red team, and decision synthesis.
-- [ ] P8 research validation and handoff (awaiting PM review of the P7 decision package).
+- [x] P7 untouched holdout, red team, and decision synthesis (PM approved).
+- [x] P8 research validation and handoff.
 
 ## Verification
 
@@ -57,6 +57,31 @@ Execute Plan E (`.agents/plans/E_external_research_design_matrix.md`) on `featur
 - No version bump/changelog: Plan E remains research-only and explicitly forbids production versions, dependencies, schema, and behavior changes.
 - No P7 decision authorizes production implementation. Contracts land in Program 1/2/3 specifications during their own plans.
 
+## P8 Record (2026-06-12)
+
+- Artifact completeness and link integrity validated: all 24 inventory
+  artifacts present, 11 dossiers complete, every path reference in
+  reports/README resolves, all five downstream plans carry their handoff.
+- Specification requirements handed off as additive "Plan E P7 Research
+  Handoff" sections in `.agents/plans/D_current_system_failure_atlas.md`
+  (fine-grained diagnostics gates + Q06 reservation),
+  `B_math_extraction_distillation.md` (formula-preserving distillation,
+  selective-recovery invariants, context-enriched-chunks benchmark contract),
+  `C_graph_quality.md` (discriminative relation confidence as the blocking
+  gate, GQ07 threshold dial, hierarchy/PPR benchmark conditions),
+  `A_rag_retrieval_provenance.md` (query-relevant bounded global selection,
+  PPR reject-default, expansion explainability/budget invariants), and
+  `F_agent_context_service.md` (progressive disclosure, bounded-iteration
+  invariants, sufficiency-gate and routing postures).
+- CI re-validated after handoff edits: research suite `60 passed`; ruff clean.
+- Plan E master plan file deleted per Universal Strict Workflow step 11
+  (history preserved in git; read via `git show`).
+
 ## Immediate Next Action
 
-P7 is complete and pushed. Await PM review of the P7 decision package (`reports/p7.md`). On approval, execute P8: validate artifact completeness/link integrity, present the decision package, and hand specification requirements to the remaining Program-1 specification package. Stop after user approval — do not proceed into implementation under this plan.
+Plan E is COMPLETE (P0-P8). PR #26 is ready for final human review and merge.
+After merge: truncate this relay to an IDLE stub and proceed to Plan D2
+(Batch 1 order D1 → E → D2) only on explicit user approval. Independently, the
+`[Hotfix] SQLite connection leak in db.init_db` item queued in ROADMAP is
+being handled as a side-task on its own `hotfix/*` branch from `master` (see
+update section below if present).

@@ -492,3 +492,43 @@ active testbed, and exact approved Program 1/B/C quality suite.
 - Stop immediately if quota enters implementation scope.
 - After three repeated QA failures, activate `rollback_strategist`, restore the
   last stable state, and return to planning.
+
+---
+
+## Plan E P7 Research Handoff (2026-06-12)
+
+Source: `backend/research_spikes/reports/p7.md`, `backend/research_spikes/manifests/p7.yml`.
+Binding specification requirements handed off at Plan E P8; adoption still
+flows through this plan's own phases, benchmarks, and gates.
+
+### Blocking Requirement: Discriminative Relation Confidence
+
+The guarded production copy showed every one of `1,180` relation confidences
+in `0.9-1.0` (`mean=0.966`): current confidence carries no denoising signal.
+Every confidence-dependent graph mechanism (denoising, filtered expansion,
+weighted PPR, hierarchy partitioning) is gated on this plan delivering
+relation-confidence values that actually separate weak edges from strong ones,
+with labeled relation-quality data to prove it.
+
+### Holdout Evidence: The Confidence Threshold Is A Correctness/Noise Dial (GQ07)
+
+On the P7 holdout, a fixed `0.5` filter both blocked the noisy-bridge path
+AND lost a true `0.25`-confidence ecology-link edge (filtered expansion recall
+`0.50` vs unfiltered `1.00`); unfiltered traversal recovered the true edge but
+re-surfaced the noise node at `165x` the traversal cost. REJECTED DEFAULT: a
+fixed confidence threshold treated as a calibrated noise filter. This plan
+must produce calibration evidence (per-relation-type quality labels or
+equivalent) before any threshold becomes a serving-time contract.
+
+### `benchmark-later` Inherited Comparisons
+
+- Denoised hierarchy / Leiden: compare raw connected components,
+  confidence-denoised components, authored topology, and fixed-seed Leiden
+  ONLY after relation-quality labels exist; changing the partition algorithm
+  cannot repair untrustworthy edge scores.
+- Filtered/budgeted PPR: re-run only after graph identity, relation
+  confidence, and authored-topology contracts pass this plan's gates.
+- Update/delete behavior is part of any future benchmark: P7 re-verified
+  deterministic seed stability and `0.0` churn for already-excluded edges;
+  community-summary freshness and source-edit invalidation remain unmeasured
+  and block mechanism adoption.
