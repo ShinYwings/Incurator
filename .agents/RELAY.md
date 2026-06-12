@@ -25,6 +25,12 @@
 - [x] Verify with TDD, full local CI, and testbed smoke.
 - [x] Preserve and delete completed corrective plan artifacts.
 - [x] Push updates and confirm PR #23 CI.
+- [x] Deep logical audit of docs against current implementation.
+- [x] Reconcile DB authority, adaptive PDF routing, CLI/plugin ingest split,
+  sessionless query, correction proposal behavior, and internal links.
+- [x] Verify backend 526 tests, plugin 361 tests, ruff, typecheck, plugin build,
+  spec-sync guard, and internal links.
+- [ ] Push documentation audit follow-up and confirm PR #23 CI.
 
 ## Immediate Next Action
-- User reviews and merges PR #23.
+- Push documentation audit follow-up, confirm PR #23 CI, then user reviews and merges.

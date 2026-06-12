@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.5.0)
+# Incurator Plugin Schema & API Contract (v0.5.6)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -8,11 +8,8 @@ Implementation plans under `.agents/plans/` are transient and strictly subordina
 
 Sections 1-11 below define the plugin contract, supporting DB-native search evidence, and dashboard click-to-use trace/insight commands. Historical plugin schema definitions are tracked via git history.
 
-**Clean-rebuild stance (no migration compatibility shims).** v0.3.2 keeps trace/
-insight payloads additively to the existing plugin query result. New panels render
-the new fields; the plugin does not maintain compatibility shims for retired
-migration surfaces or qmd-specific status fields. Existing plugin behavior that is
-not replaced continues unchanged.
+The current fields and command contracts below are the only supported plugin
+contract.
 
 ## 1. Plugin Authority Boundary
 
@@ -100,7 +97,7 @@ under that folder instead of the default `05_Assets/<slug>/`. Contract:
 - The generated L1 page's `embedded_images` frontmatter and `![[...]]` figure
   embeds always reference the folder the images were **actually** written to,
   so embeds resolve in both the routed and the fallback case.
-- Omitted or empty `--asset-dir` preserves the legacy behavior exactly:
+- Omitted or empty `--asset-dir` uses the default behavior:
   `05_Assets/<slug>/` where `<slug>` is derived from the source filename.
 - The asset dir is **not persisted** in the backend DB. Each `register` call
   resolves its own routing; re-registering without `--asset-dir` writes to the
@@ -464,6 +461,10 @@ interface IncuratorSourceStatus {
   message?: string;
   updatedAt?: number;       // unix ms of last status poll
   runningLayer?: string;    // "l1"|"l2"|"l3"|"l4" when running
+  l1Complete?: boolean;
+  l2Complete?: boolean;
+  l3Complete?: boolean;
+  l4Complete?: boolean;
 }
 ```
 
@@ -535,9 +536,13 @@ Rules:
 - The plugin must skip `wiki plugin query` when the latest turn is focused on
   user-selected text, an editable line range, a PDF page reference, or a
   selected crop/image. Those turns are answered from the selected context rather
-  than from workspace-wide Exhibition generation.
-- The plugin must not call `curator_query` for unregistered sources. Use
-  plugin-served ephemeral sections via `fetch_document_section` for unregistered PDFs.
+  than from a workspace-wide dynamic curation query.
+- PDF-focused turns use adaptive routing. Visible local PDF.js context is always
+  preferred and does not require source registration. When local context is
+  unavailable, the plugin may request read-only backend PDF context: unregistered
+  PDFs receive an ephemeral parse, registered L1-complete PDFs receive durable CTX
+  sections, and `curator_query` is allowed only after L3 completes. Passive chat
+  must never import or register a PDF.
 - The backend does not save query answers as generated Exhibitions. Each query is
   a sessionless curation answer with a `QTR-` trace over selected DB-native search
   and graph evidence.
@@ -734,7 +739,7 @@ Current local dynamic methods for v0.2.2:
 | `getPdfRagHits(args)` | `wiki plugin pdf search` |
 | `checkBackendVersion()` | `wiki plugin version` |
 | `curatorQuery(question, opts)` | `wiki plugin query` |
-| `promoteExhibition(exhId)` | `wiki plugin promote` |
+| `promoteAnswer(args)` | `wiki plugin promote` |
 
 Rules:
 
@@ -743,7 +748,7 @@ Rules:
 - Plugin-local Incurator calls must use backend JSON commands only. They must
   not discover or call Incurator MCP tools as a fallback.
 
-## 8. Compatibility Rules
+## 8. Current Rules
 
 - v0.2.2 plugin source-status normalization must treat missing
   `l2_complete`/`l3_complete` fields as `false`.

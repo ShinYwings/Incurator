@@ -74,5 +74,6 @@ The specific To-Do list for the roadmap is migrated from the user's Inbox (`.age
 - **Active Milestone**: **PDF Add-Source Asset Routing + "Added" State (v0.5.6)**
   - **Status**: Asset-routing implementation complete on
     `feature/pdf-add-source-assets`; adaptive routing correction is implemented,
-    locally verified, and passing PR #23 CI. User review/merge remains.
+    locally verified, and passing PR #23 CI. A final documentation logic audit
+    is locally verified and pending push/CI; user review/merge remains.
 - **Next in Queue**: To-Do #1 **RAG & Knowledge Quality Stabilization**. Planning completed (`03_rag_knowledge_quality_stabilization.md` and `A-F` plans). Implementation remains blocked until the v0.5.6 PR merges and explicit approval is given.

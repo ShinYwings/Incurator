@@ -41,6 +41,13 @@ All notable changes to Incurator are documented here.
   queued to the background worker) and where extracted PDF figures land, in
   `PLUGIN_GUIDE` (EN/KR). PDF math-extraction fidelity is explicitly out of
   scope here and tracked by the RAG & Knowledge Quality Stabilization program.
+- Reconciled the documentation authority and workflow contracts with the
+  implementation: `state.sqlite` is authoritative, Collections Markdown is a
+  disposable projection, queries are sessionless, CLI `wiki add` stops at L1
+  while plugin Add Source queues L2/L3, PDF.js remains the viewer fast path,
+  and correction proposals classify without silently patching generated nodes.
+  Also repaired internal documentation links and advanced the spec-sync guard
+  to v0.5.6.
 
 ---
 

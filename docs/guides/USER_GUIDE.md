@@ -1,6 +1,6 @@
 # 📖 User Guide: Master the Incurator
 
-This guide provides technical details on how to operate the **Curator Engine** and manage your knowledge DAG. For the design philosophy and motivation behind the system, see [Project Philosophy (ABOUT_KR.md)](../philosophy/ABOUT.md). For a feature overview, see the [README](../../README.md).
+This guide provides technical details on how to operate the **Curator Engine** and manage your knowledge DAG. For the design philosophy and motivation behind the system, see [Project Philosophy](../philosophy/ABOUT.md). For a feature overview, see the [README](../README.md).
 
 ---
 
@@ -44,7 +44,7 @@ To maintain the powerful performance of Incurator and manage your knowledge safe
 -   **Single Source of Truth**: Instead of running `wiki init` in multiple project directories to create small, fragmented knowledge bases, maintain **a single main vault** where all your knowledge is aggregated. A dedicated **Curator** resides in every folder initialized with `wiki init`, and knowledge truly **Increments** and yields new insights only when it is concentrated and organically connected in one place.
 -   **Persona-based Vault Segmentation**: Only operate separate vaults if the 'perspective' or 'expert persona' you want for your knowledge management is fundamentally different (e.g., a STEM expert vs. a Cooking expert). Since a single Incurator instance runs one Curator at a time, excessive fragmentation hinders knowledge connectivity.
 -   **Respect the AI Space (AI-only Space)**: The `.curator/` folder is an 'AI-only space' designed exclusively for agents and the system. It is a high-density data network intentionally structured to be difficult for humans to read or edit. Manually modifying files here can break the integrity of your knowledge graph, so avoid touching it directly.
--   **Self-Healing & Integrity**: If you feel your knowledge graph is contaminated or links are broken, run the `wiki sync` command. Incurator has self-healing capabilities to trace errors and restore logical integrity automatically. **Crucially, if you manually edit any node files yourself (rather than via an agent), you must run `wiki sync` to propagate those changes through the entire graph.**
+-   **Integrity Verification**: Run `wiki sync` to verify structural and logical integrity and apply supported repairs. Do not manually edit generated files under `.curator/Collections/`; they are disposable projections, not an input channel for DB changes.
 -   **Workspace Flexibility**: While your knowledge Library (Vault) should be centralized, your **Workspaces** (where you do the work) can be located anywhere. Connect any project folder or working directory to your central main Vault to consume its knowledge. The Curator lives in the "Library" (Vault), and the Artist lives in the "Studio" (Workspace). You have one Library but can have unlimited Studios.
 
 ---
@@ -140,8 +140,8 @@ First, place your original files (PDF, Markdown, HTML, images, etc.) into the ap
 - `04_Resources/`: External papers, articles, and literature.
 - `05_Assets/`: Attached images or data files.
 
-### Step 2: Extract and Register Knowledge (Ingest)
-Once the files are organized, command the Curator to read them and refine them into the knowledge layers (L1–L3).
+### Step 2: Register Structural Knowledge (L1)
+Once the files are organized, command the Curator to register their structural L1 context.
 
 ```bash
 # Register a specific file within the vault
@@ -151,7 +151,7 @@ wiki add 03_Notes/my_note.md
 wiki add
 ```
 
-With this command, the Curator parses the raw data and immediately extracts structural L1 Contexts into the `state.sqlite` database. L1 adds an English `Source Guide` with section/page previews for quick recall, inlines raw `Source Sections` for small/medium documents, and uses on-demand raw-source reads for large documents. L1-L3 are managed strictly as database records—no intermediate markdown files are written, preventing vault pollution. It queues L2 Atomic Fact Extraction plus L3 Concept Linking for the build worker. The results are stored in the AI-only database inside `.curator/state.sqlite`.
+With this command, the Curator parses the raw data and immediately records structural L1 state in `state.sqlite`. L1 adds an English `Source Guide` with section/page previews for quick recall, inlines raw `Source Sections` for small/medium documents, and uses on-demand raw-source reads for large documents. It also emits a derived CTX Markdown projection under `.curator/Collections/01_Contexts/` for inspection. That projection is disposable; the DB remains authoritative. Run `wiki build` separately to queue or compile L2 Atomic Facts and L3 Concepts.
 
 > [!TIP]
 > If no file or directory path is specified for `wiki add`, the Curator scans all configured source directories (e.g., `03_Notes`, `04_Resources`) to automatically find and batch-process new or changed files.
@@ -368,7 +368,7 @@ Both the vault and workspaces are now ready. Let's see how the Curator answers y
 
 Now you can obtain answers or perform the final synthesis for agent consumption.
 
-### Querying and Auto-updates (Intent-based Curation)
+### Querying With The Dynamic Curation Lens
 This is the core operational mode of Incurator. You just need to ask or converse.
 
 Querying is **sessionless** and the same whether you are in a Workspace or the
@@ -381,11 +381,11 @@ Vault — it returns an answer + a `QTR-` trace and writes **no** vault file:
 
 **Per-request language**: The agent detects each question's language fresh (Korean, English, Chinese, Japanese, Russian, …) by Unicode script and answers in that same language, using English only as the internal search/reasoning language. The output language follows each message independently — an English question gets an English answer even if your previous question was in Korean. Language metadata is response/trace-only and is never persisted.
 
-The system **instantly activates the pipeline to synthesize the final answer** at the moment you run `wiki query` or interact with an agent (`curator_query` / `search_curator`).
+`wiki query` and `curator_query` read the currently compiled DAG and synthesize a sessionless answer with a `QTR-` trace. `search_curator` returns retrieval results without answer synthesis. Queries do not register sources, run pending L2/L3 jobs, or write a frozen Exhibition file; use `wiki add` and `wiki build` explicitly to update the compiled DAG.
 
 > [!TIP]
-> **"Just use it. the system handles the rest."**
-> Curation is triggered when an "intent" to use knowledge occurs, so you don't have to specify which workspace it is or manually run the pipeline every time. (The system automatically understands the context through the folder location where you run the command.)
+> The active workspace path determines whether a `curate.yml` KRS biases the
+> query. Outside a workspace, the query uses the `default` vault scope.
 
 ### Promoting an answer to durable knowledge
 A query answer is not stored. To keep one, promote it into `02_Wiki/` (the
@@ -395,13 +395,13 @@ human-curated space) — via the plugin's promote action or the MCP
 
 ---
 
-## 🔄 Feedback Loop & Self-Healing (HITL & Sync)
+## 🔄 Feedback Loop & Integrity Review (HITL & Sync)
 
 Knowledge is refined incrementally through dialogue and correction.
 
 1.  **Synthesis**: Derive new insights by engaging in dialogue with the agent in your workspace.
-2.  **Feedback & Correction**: If you discover errors in prior knowledge, correct the nodes immediately using MCP tools.
-3.  **Self-Healing**: When a node is updated, `wiki sync` runs automatically to trace the DAG backward (Backprop) and restore consistency. Run `wiki sync` manually to verify overall integrity.
+2.  **Feedback & Correction**: If you discover errors in prior knowledge, submit a classified correction proposal with MCP tools. Proposals do not overwrite generated nodes automatically.
+3.  **Integrity Review**: Apply any approved follow-up change through its reviewed workflow, then run `wiki sync` to verify structural and logical integrity.
 4.  **Promotion**: Move finalized insights to `02_Wiki/` to promote them to human-readable wikis.
 5.  **Loop**: Promoted wikis are recognized as new sources in the next cycle, allowing knowledge to grow **incrementally**.
 

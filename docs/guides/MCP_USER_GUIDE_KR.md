@@ -176,13 +176,18 @@ wiki mcp install
 - **역할**: 대화 중 얻은 귀중한 통찰이나 정보를 **Wiki(02_Wiki/)** 페이지로 승격하여 영구 저장합니다. 카테고리 분류와 슬러그 생성이 자동으로 수행됩니다.
 
 #### `curator_update_node`
-- **역할**: v0.3.1에서는 상태를 변경하지 않는 호환용 endpoint입니다. 생성 노드를 직접 덮어쓰는 방식은 사용하지 않습니다.
+- **역할**: 상태를 변경하지 않는 비활성 endpoint입니다. 생성 노드를 직접 덮어쓰는 방식은 지원하지 않습니다.
 - **대신 사용**: 검토된 정정은 `curator_propose_correction`, 지속 지식 승격은 `promote_answer` / `curator_promote_insight`를 사용합니다.
 
 #### `curator_propose_correction`
-- **역할**: L1 Context, L2 Atom, L3 Concept의 기반 데이터베이스(`state.sqlite`) 레코드에 대한 정정을 직접 제안합니다. L1-L3 계층이 더 이상 마크다운 파일로 존재하지 않으므로, 이 도구는 에이전트가 추출된 지식 그래프의 오류를 수정하는 핵심 메커니즘이 됩니다.
-- **파라미터**: `node_id` (CTX, ATM, 또는 CON 레코드의 ID), `correction_text`, `reasoning`.
-- **백엔드 처리**: 백엔드는 정정 사항을 DB에 기록하고, 영향을 받는 하위 노드들의 최소 재빌드를 트리거합니다.
+- **역할**: 권위 생성 레코드를 대상으로 정정을 제안합니다. 백엔드는 제안을
+  분류하고 권장 동작을 반환하지만 대상을 자동으로 덮어쓰지 않습니다.
+  `.curator/Collections/`의 Markdown 페이지는 파생된 검사 projection이므로 이를
+  편집하는 것은 정정 메커니즘이 아닙니다.
+- **파라미터**: `node_id`, `correction`, `workspace_path`(선택),
+  `previous`(선택적 이전 artifact 텍스트).
+- **백엔드 처리**: classification, recommended action, affected node id,
+  review requirement, trace id, provisional insight candidate를 반환합니다.
 
 #### `curator_reindex`
 - **역할**: DB-native search state(`search_documents`, `search_chunks`, FTS5 row,
@@ -196,9 +201,10 @@ wiki mcp install
 
 #### `check_source_status`
 
-- **역할**: 파일의 SHA-256 해시로 Incurator 등록 상태를 조회합니다. 플러그인이
-  PDF를 열 때 자동 호출하여 ephemeral mode, durable L1 section serving,
-  L3-complete `curator_query`를 구분합니다.
+- **역할**: 파일의 SHA-256 해시로 Incurator 등록 상태를 조회합니다. 플러그인은
+  backend PDF context 또는 명시적 Add/status 동작이 ephemeral mode, durable L1
+  section serving, L3-complete `curator_query`를 구분해야 할 때 호출합니다. local
+  viewer context는 이 호출을 기다리지 않습니다.
 - **파라미터**: `file_hash` (파일 SHA-256 해시 문자열).
 - **반환값**: `registered`, `source_id`, `l1_complete`, `l2_complete`, `l3_complete`, `jobs_pending`.
 - **구현 상태**: 백엔드는 `sources.content_hash`를 조회하고 queued/running `ingest_jobs`를 함께 반환합니다.
@@ -206,7 +212,12 @@ wiki mcp install
 
 #### `fetch_document_section`
 
-- **역할**: 문서의 특정 섹션 텍스트를 반환합니다. 문서가 미등록이면 플러그인 in-memory(PDF.js)에서 서빙하고, `wiki add`/`import_source` 이후 `l1_complete=True`가 되면 백엔드는 CTX section id, 원본 heading, 또는 PDF page range로 원문을 반환합니다. L1이 `source_text_policy: on_demand`인 대형 문서는 inline CTX 텍스트가 아니라 원본 파일에서 필요한 구간을 읽습니다. `curator_query` 기반 검색은 L3 완료 후 사용합니다.
+- **역할**: 등록된 문서의 특정 섹션 텍스트를 CTX section id, 원본 heading,
+  또는 PDF page range로 반환합니다. 미등록 viewer turn은 이 도구를 호출하지 않고,
+  플러그인의 local in-memory PDF.js context 또는 read-only backend PDF-context
+  fallback을 사용합니다. L1이 `source_text_policy: on_demand`인 대형 문서는 inline
+  CTX 텍스트가 아니라 원본 파일에서 필요한 구간을 읽습니다. `curator_query`는 L3
+  완료 후 사용합니다.
 - **파라미터**: `source_key` (logical_source_id 또는 file_hash), `toc_id` (CTX frontmatter의 toc 배열 id), `page_start`/`page_end` (ToC 없는 PDF fallback).
 - **구현 상태**: `source_key`가 등록 source 또는 파일 경로일 때 CTX section marker, 원문 heading, PDF page 단위 텍스트를 반환합니다. v0.2.1 기본 설정(`llm.instant_l1: true`)에서는 L1 CTX가 LLM 없이 생성되므로 섹션 조회가 빠르게 가능해집니다.
 - **에이전트 활용 패턴**: 시스템 프롬프트에 주입된 ToC 미니맵을 보고 필요한 `toc_id`를 직접 호출.
@@ -228,7 +239,7 @@ wiki mcp install
 
 #### `promote_answer`
 
-- **역할**: 세션리스 Q&A 답변을 사용자가 검토한 후 `02_Wiki/`로 승격합니다(v0.3.1에서 제거된 `promote_exhibition`을 대체). `02_Wiki/`에만 쓰며 소스 진실은 절대 건드리지 않습니다. **반드시 사용자의 명시적 승인 후에만 호출해야 합니다.**
+- **역할**: 세션리스 Q&A 답변을 사용자가 검토한 후 `02_Wiki/`로 승격합니다. `02_Wiki/`에만 쓰며 소스 진실은 절대 건드리지 않습니다. **반드시 사용자의 명시적 승인 후에만 호출해야 합니다.**
 - **파라미터**:
   - `question`, `answer` (승격할 텍스트)
   - `workspace_path` (선택)
@@ -237,7 +248,9 @@ wiki mcp install
 
 #### `check_ingest_status`
 
-- **역할**: 백그라운드 ingest job 큐의 현재 상태를 반환합니다. 플러그인이 `wiki add` 또는 `import_source` 이후 L2/L3 처리 완료를 감지하기 위해 5초 간격으로 폴링합니다. `idle: true`가 되면 폴링을 멈추고 UI를 갱신합니다.
+- **역할**: 백그라운드 ingest job 큐의 현재 상태를 반환합니다. 플러그인은 명시적
+  Add Source 등록이 L2/L3 작업을 queue에 넣은 뒤 이 상태를 폴링합니다.
+  `idle: true`가 되면 폴링을 멈추고 UI를 갱신합니다.
 - **파라미터**: `workspace_path` (절대 경로, 선택).
 - **반환값**:
   - `ok` (항상 true)

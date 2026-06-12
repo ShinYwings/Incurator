@@ -172,7 +172,6 @@ wiki status
 # DAG 무결성 검사 (v0.2.1 — 기본값: hash 기반 증분 검사)
 wiki sync              # 기본: 변경 노드만 재검증 (~1초, 변경 없을 시)
 wiki sync --full       # 전체 재검증 (v0.2.0 이전 동작)
-wiki sync --backward   # 특정 노드 역전파 수동 트리거
 wiki lint
 
 # MCP 서버가 꺼져 있거나 즉시 처리하고 싶을 때
@@ -233,7 +232,7 @@ Curator 백엔드 연동 사용:
 ```text
 Obsidian에서 PDF 열기
      │
-     │ check_source_status(file_hash) 자동 호출
+     │ local PDF.js context 우선; backend fallback 필요 시에만 status 조회
      ▼
 ┌─── 미등록 ────────────────────────────────────────────────────┐
 │ ephemeral L1 모드: PDF.js in-memory 파싱                       │
@@ -251,9 +250,9 @@ Obsidian에서 PDF 열기
 └───────────────────────────────────────────────────────────────┘
      │ (L3 처리 완료)
      ▼
-┌─── 인덱싱 완료 ───────────────────────────────────────────────┐
-│ 플러그인 UI: "✓ Indexed (47 atoms · 8 concepts)"              │
-│ 에이전트: curator_query("질문", workspace_id="...") 사용 가능   │
+┌─── Added / L3 완료 ──────────────────────────────────────────┐
+│ 플러그인 UI: 비활성 "Added" 배지                              │
+│ 에이전트: curator_query("질문", workspace_path="...") 사용 가능 │
 └───────────────────────────────────────────────────────────────┘
      │
      │ 동적 curation 질의
@@ -321,9 +320,9 @@ VAULT_ROOT=/path/to/vault wiki mcp
      ▼
 답변 생성 (검색 결과 인용)
      │
-     │ (선택) 새 소스 발견 시
-     │ 3. curator_add_knowledge(content, source_type)
-     │    → Atom 생성 → 인덱스 자동 갱신
+     │ (선택) 검토된 인사이트 승격
+     │ 3. curator_add_knowledge(insight, context)
+     │    → human-reviewed note를 02_Wiki/에 기록
      ▼
 세션 종료
 ```
@@ -335,7 +334,7 @@ VAULT_ROOT=/path/to/vault wiki mcp
 | `curator_check_workspace` | 세션 시작 시 Workspace 상태 점검 및 룰 설치 |
 | `curator_query` | Sources & Trace가 포함된 자연어 답변 |
 | `curator_workspace_init` | 새 Workspace 생성 (인터뷰 방식) |
-| `curator_add_knowledge` | 새 지식 단위(Atom) 직접 추가 |
+| `curator_add_knowledge` | 검토된 대화 지식을 `02_Wiki/`로 승격 |
 | `curator_propose_correction` | 생성 노드에 대한 검토된 correction 제안 |
 | `curator_get_node` | 특정 노드(CTX/ATM/CON/SYN) 내용 조회 |
 
@@ -343,7 +342,8 @@ VAULT_ROOT=/path/to/vault wiki mcp
 
 ## 6-1. 백그라운드 처리 모니터링
 
-`wiki add` 이후 L2/L3 처리는 MCP 서버의 IngestWorker 스레드가 비동기로 수행한다.
+플러그인 Add Source 또는 `wiki build`가 queue에 넣은 L2/L3 작업은 MCP 서버의
+IngestWorker 스레드, `wiki jobs run`, 또는 Dashboard의 **Run queued**가 처리합니다.
 진행 상황을 확인하는 방법은 세 가지다.
 
 ### 방법 1: .curator/dashboard.md (Obsidian)
@@ -416,9 +416,9 @@ wiki query "첫 번째 질문"
 ```text
 [Human Layer]
   03_Notes/ ──┐
-  04_Resources/ ──┤── wiki add ──► L1 CTX ──► L2 ATM ──► L3 CON
-  02_Wiki/ ───┘                                              │
-                                                             │ wiki query
+  04_Resources/ ──┤── wiki add ──► L1 CTX ──► wiki build ──► L2 ATM ──► L3 CON
+  02_Wiki/ ───┘                                                           │
+                                                                          │ wiki query
 [Machine Layer (state.sqlite DB)]                            ▼
   .curator/Collections/04_Synthesis/ ◄─────── L4 SYN (shared)
                     │
@@ -471,8 +471,8 @@ wiki query → 라우트 → typed expansion + FTS5/vector/RRF/rerank + DB 그�
 
 - 에이전트는 MCP `curator_propose_correction`으로 피드백을 correction /
   contradiction / derived_insight / style_only / promotion_request / ambiguous로
-  분류합니다. 파생 인사이트는 잠정 **인사이트 후보**가 되고, 정정은
-  **생성된 노드에만** 대한 명시적 패치 플랜을 만듭니다.
+  분류합니다. 이 도구는 자동 패치 없이 권장 동작과 영향받는 생성 노드 id를
+  반환하며, 파생 인사이트는 잠정 **인사이트 후보**가 될 수 있습니다.
   `03_Notes/`/`04_Resources/`는 절대 수정하지 않습니다.
 - `wiki insight list|show|promote`(또는 MCP `curator_list_insight_candidates` /
   `curator_promote_insight`)로 후보를 검토하며, 승격은 `02_Wiki/`에만 기록합니다.

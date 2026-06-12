@@ -10,7 +10,7 @@ Incurator의 궁극적인 목표는 **노트 필기를 잘 하기 위한 (문헌
 
 Incurator는 파편화된 데이터를 구조화된 **방향성 비순환 그래프(DAG)**로 변환하여, 지식을 유기적으로 배양(Incubate)하고 확장(Increment)할 수 있게 돕는 비용 효율적인 지식 시스템입니다.
 
-> 이 시스템이 어떤 문제를 해결하려 하는지, 그리고 왜 이런 구조로 설계되었는지는 [프로젝트 철학 (ABOUT_KR.md)](docs/philosophy/ABOUT_KR.md)에서 다룹니다.
+> 이 시스템이 어떤 문제를 해결하려 하는지, 그리고 왜 이런 구조로 설계되었는지는 [프로젝트 철학](philosophy/ABOUT_KR.md)에서 다룹니다.
 
 ---
 
@@ -19,14 +19,14 @@ Incurator는 파편화된 데이터를 구조화된 **방향성 비순환 그래
 대부분의 AI 지식 베이스는 LLM을 단순한 검색 엔진으로 취급하기 때문에 실패합니다. 우리는 이 과정을 두 가지 뚜렷한 역할로 분리했습니다.
 
 ### ⚙️ 큐레이터 (보관소의 관리자 / 지식 정제 엔진)
-큐레이터는 **보관소(Vault)**에 상주하며 지식의 정제를 담당하는 백그라운드 엔진입니다. 고도의 "추론"보다는 **지식을 요약하고 원자화하는 작업**에 집중합니다. 큐레이터는 클라우드 공급업체의 표준 범용 모델을 통해서도 충분히 안정적으로 작동하며, 별도의 고비용 추론 전용 모델을 필요로 하지 않는다는 점이 검증되었습니다. 큐레이터는 4계층의 근거 사슬(Evidence Chain)을 구축하고, 아티스트가 `curate.yml`에 정의한 취향에 맞춰 맞춤형 전시회(Exhibition)를 준비합니다. 로컬 모델(Ollama)과 클라우드 모델(Antigravity, Claude, OpenAI)을 모두 지원하여 사용자의 하드웨어 사양과 필요에 맞는 최적의 엔진을 선택할 수 있습니다.
-1.  **L1 Contexts**: 풍부한 메타데이터를 포함한 요약본 (마크다운 파일 없이 고속 DB 레코드로 관리).
-2.  **L2 Atoms**: 더 이상 쪼개지지 않는 원자적 사실 (마크다운 파일 없이 고속 DB 레코드로 관리).
-3.  **L3 Concepts**: 여러 소스를 가로지르는 테마별 구조체 (마크다운 파일 없이 고속 DB 레코드로 관리).
-4.  **L4 Exhibitions**: 아티스트의 작업 맥락에 맞춰 기획된 **맞춤형 특별 전시(Special Exhibition)**. 인간과 에이전트가 직접 상호작용하는 **유일한** 마크다운 레이어.
+큐레이터는 **보관소(Vault)**에 상주하며 지식 정제를 담당하는 백그라운드 엔진입니다. 4계층 근거 사슬의 권위 상태는 `state.sqlite`에 저장하고, `.curator/Collections/` 마크다운은 DB에서 emit되는 폐기 가능한 점검 projection으로 사용합니다.
+1.  **L1 Contexts**: source 구조, section/page locator, provenance.
+2.  **L2 Atoms**: 더 이상 쪼개지지 않는 source-grounded 사실.
+3.  **L3 Concepts**: 여러 source를 가로지르는 개념과 community report.
+4.  **L4 Synthesis**: 코퍼스 전체에서 공유되는 `SYN-` 종합 근거.
 
 ### 🎨 아티스트 (워크스페이스의 주인 / 추론 에이전트 + 인간)
-아티스트는 실제 작업실인 **워크스페이스(Workspace)**에 상주합니다. 아티스트는 `curate.yml`을 통해 자신의 취향과 프로젝트의 요구사항을 큐레이터에게 전달하고, 큐레이터가 준비해 둔 **전시회(Exhibition)**를 관람하며 새로운 통찰을 이끌어냅니다(**Synthesis**). 작업 중 오류를 발견하거나 새로운 아이디어가 떠오르면 이를 큐레이터에게 피드백하고, 큐레이터는 그에 맞춰 기반 지식을 수정합니다. 이 대화가 반복될수록 전시회는 더욱 정교해집니다.
+아티스트는 실제 작업실인 **워크스페이스(Workspace)**에 상주합니다. `curate.yml`의 KRS는 쿼리 시점의 동적 Curation lens를 편향합니다. 쿼리는 답변 또는 evidence pack과 trace를 반환하며 고정 Exhibition 파일을 쓰지 않습니다. 검토된 결과는 명시적 승격을 통해서만 `02_Wiki/`에 지속됩니다.
 
 ---
 
@@ -34,21 +34,21 @@ Incurator는 파편화된 데이터를 구조화된 **방향성 비순환 그래
 
 Incurator는 대부분 지식의 닫힌 순환(수집 → 처리 → 활용 → 재입력)을 지향합니다. Incurator도 이 흐름을 따르는 Incurator지만, 두 가지 측면에서 다른 Incurator들과 차별화됩니다.
 
-### 1. 맞춤형 지식 전달 (Specification-Driven Exhibition)
+### 1. 맞춤형 지식 전달 (Specification-Driven Curation)
 
-일반적인 LLM 위키는 수집된 지식을 있는 그대로 검색·제공합니다. Incurator는 다릅니다. 인간이 `curate.yml`로 프로젝트 목적과 필요 지식을 명시하면, Curator는 방대한 지식 그래프에서 그 맥락에 맞는 정보만을 선별·합성하여 **맞춤형 전시물(Exhibition)**을 준비합니다. 에이전트와 인간은 원본 데이터를 탐색할 필요 없이 이미 정제된 전시물을 참조하여 통찰을 도출합니다. 또한 단일 보관소에 다양한 분야의 지식이 혼재하더라도, 명세 기반으로 관련 개념만을 선별하기 때문에 서로 다른 도메인의 개념이 섞이는 현상을 방지합니다.
+인간이 `curate.yml`로 프로젝트 목적과 필요 지식을 명시하면, 쿼리 시점의 Curation lens가 live graph에서 관련 근거를 선별하고 랭킹합니다. 워크스페이스별 고정 subset을 저장하지 않으므로 stale 전시물 없이 도메인 오염을 줄입니다.
 
 ### 2. 사전 지식 교정 (Prior Knowledge Correction)
 
-인간과 에이전트가 전시물을 활용하는 과정에서 사전 지식의 오류를 발견하거나 새로운 인사이트를 얻는 경우, 이 피드백은 단순 메모로 끝나지 않습니다. 수정 신호가 지식 그래프를 역방향으로 타고 올라가 관련 Atom과 Concept을 교정하고, 전체 그래프의 일관성을 복원합니다. 이는 딥러닝의 역전파(Backpropagation)와 유사한 구조로, **시스템은 사용할수록 정교해지며 지식은 진화합니다.**
+인간과 에이전트가 사전 지식의 오류를 발견하면 correction proposal을 제출할 수 있습니다. 시스템은 source truth를 보호하면서 제안을 분류하고 영향받은 generated record를 식별하며, 실제 교정 적용은 별도의 검토 동작을 요구합니다. derived insight는 별도로 추적하며 명시적 승격 전에는 지속 인간 지식이 되지 않습니다.
 
 ### 3. 토큰 최적화 (AI를 위한 FinOps)
 사전 지식을 요약·원자화하는 **단순 컴파일**은 비추론 모델에, 복잡한 계산이나 정교한 추론이 필요한 **창의적 합성**은 추론 모델에 맡기세요. 역할 분리로 지식 관리 비용을 획기적으로 낮춥니다.
 
 ### 4. AI와 인간을 위한 이원화 및 모노레포(Monorepo) 구조
 Incurator는 파이썬 백엔드 데몬(`backend/`)과 Obsidian 플러그인 클라이언트(`plugin/`)를 **단일 리포지토리(Monorepo)**로 통합하여 제공합니다. 지식은 기계와 인간에게 각각 다른 형태로 존재할 때 가장 효율적입니다.
--   **AI 공간 (`.curator/`)**: 지식의 **수장고(Archive/Storage)**. 에이전트가 지식을 즉각적으로 탐색하고 활용할 수 있도록 설계된 기계 친화적 백엔드입니다. L1-L3 지식은 파일로 남아 저장소를 오염시키지 않고, 고속 데이터베이스(`state.sqlite`)의 레코드로 운영됩니다.
--   **인간 공간 (`02_Wiki/`)**: 지식의 **상설전시실(Permanent Collection)**. 사용자가 직접 읽고 관리하며 장기적으로 소유할 수 있게 정리된 아름다운 지식 서재입니다. 최종 합성된 L4 Exhibition만이 직접 상호작용 가능한 마크다운으로 출력됩니다.
+-   **AI 공간 (`.curator/`)**: `state.sqlite`가 단일 진실 공급원입니다. `.curator/Collections/`에는 점검용 CTX/ATM/CON/SYN 파생 projection이 있습니다.
+-   **인간 공간 (`02_Wiki/`)**: 명시적으로 승격된 human-reviewed artifact만 지속되는 상설 공간입니다.
 -   **클라이언트 공간 (`incurator-obsidian-agent`)**: 열린 PDF, split view, chat UI, provider 선택, import/rebind 승인 같은 사용자 상호작용을 담당합니다. 장기 source registry와 RAG provenance는 backend가 담당합니다.
 
 ### 5. 외부 리소스 무손실 통합 (Reference Mode & Hash Drift 방어)
@@ -67,7 +67,7 @@ Zotero와 같은 외부 레퍼런스 PDF 파일들을 보관소 내부로 강제
 - **필수 환경**: Python 3.10+, 터미널, 노트 편집기 (Obsidian 권장)
 - **백엔드 계정**: 클라우드 모델(Antigravity, Claude 등) 사용 시 API 키 또는 구독 계정이 필요합니다.
 - **자동화 안내**: Ollama(로컬 모델), Node.js(검색 엔진) 및 GitHub CLI(`gh`) 설치, 그리고 모노레포 백엔드 패키지와 플러그인 빌드는 루트 디렉토리의 `./setup.sh` 실행 시 한 번에 자동으로 처리됩니다.
-- 상세 정보는 [사용자 가이드](docs/guides/USER_GUIDE_KR.md)를 참조하세요.
+- 상세 정보는 [사용자 가이드](guides/USER_GUIDE_KR.md)를 참조하세요.
 
 ### 🚀 빠른 시작
 1.  **설치**: `./setup.sh` (백엔드 패키지, 플러그인 빌드, Ollama, Node.js, GitHub CLI 등을 한 번에 자동 통합 설치합니다.)
@@ -76,13 +76,13 @@ Zotero와 같은 외부 레퍼런스 PDF 파일들을 보관소 내부로 강제
     > 
     > **예외 (페르소나 분리)**: 만약 지식을 관리하는 '관점'이나 '전문 페르소나'를 완전히 다르게 가져가고 싶다면(예: STEM 보관소 vs 요리 보관소) 별도의 Vault를 생성하세요. 각 Vault의 Curator는 자신만의 고유한 세계관으로 지식을 정제합니다.
 3.  **페르소나 설정**: `wiki init` 중 인터뷰를 통해 지식 도메인을 설정합니다. 이후 `wiki persona update`로 언제든 재설정 가능합니다.
-4.  **지식 등록 (요약 및 정제)**: `wiki add <file>` (원본 소스를 L1~L3 데이터베이스 레코드로 자동 컴파일)
-5.  **지식 활용 (검색)**: `wiki query "질문"` 또는 MCP 검색 (L4 Exhibition 자동 합성 포함)
+4.  **지식 등록 (요약 및 정제)**: `wiki add <file>`은 instant L1만 만들며, `wiki build`가 L2/L3를 queue에 넣거나 컴파일합니다. 플러그인의 명시적 Add Source 동작은 instant L1 등록과 L2/L3 queueing을 함께 수행합니다.
+5.  **지식 활용 (검색)**: `wiki query "질문"` 또는 MCP 검색은 sessionless 답변/evidence pack과 trace를 반환합니다.
 
 > [!NOTE]
 > **개발자 전용 기능**: `wiki testbed` 명령어는 새로운 시나리오 검증 및 개발을 위한 도구입니다. 일반적인 지식 관리 상황에서는 사용하지 마십시오.
 
-더 자세한 사용법은 [사용자 가이드](docs/guides/USER_GUIDE_KR.md)를 확인해주세요.
+더 자세한 사용법은 [사용자 가이드](guides/USER_GUIDE_KR.md)를 확인해주세요.
 
 ---
 
@@ -90,13 +90,13 @@ Zotero와 같은 외부 레퍼런스 PDF 파일들을 보관소 내부로 강제
 
 사용해 보시다가 불편한 점이나 어려운 부분이 있다면 언제든 말씀해 주세요. 특히, 문제를 직접 해결하여 다른 사용자들이 같은 어려움을 겪지 않도록 도와주시면 프로젝트 성장에 큰 힘이 됩니다. 
 
-버그 수정이나 기능 개선에 참여하고 싶으시다면 [컨트리뷰션 가이드](docs/guides/CONTRIBUTION_GUIDE_KR.md)를 확인해 주세요!
+버그 수정이나 기능 개선에 참여하고 싶으시다면 [컨트리뷰션 가이드](guides/CONTRIBUTION_GUIDE_KR.md)를 확인해 주세요!
 
 ---
 
 ## 🔗 연결 링크
-- [사용자 가이드](docs/guides/USER_GUIDE_KR.md)
-- [컨트리뷰션 가이드](docs/guides/CONTRIBUTION_GUIDE_KR.md)
-- [MCP 연동 가이드](docs/guides/MCP_USER_GUIDE_KR.md)
-- [동기화 제외 가이드](docs/guides/SYNC_IGNORE_GUIDE_KR.md)
-- [프로젝트 철학 (ABOUT_KR.md)](docs/philosophy/ABOUT_KR.md)
+- [사용자 가이드](guides/USER_GUIDE_KR.md)
+- [컨트리뷰션 가이드](guides/CONTRIBUTION_GUIDE_KR.md)
+- [MCP 연동 가이드](guides/MCP_USER_GUIDE_KR.md)
+- [동기화 제외 가이드](guides/SYNC_IGNORE_GUIDE_KR.md)
+- [프로젝트 철학](philosophy/ABOUT_KR.md)

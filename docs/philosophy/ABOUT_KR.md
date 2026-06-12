@@ -1,6 +1,6 @@
 # 📐 Incurator 프로젝트 철학
 
-이 문서는 Incurator가 왜 만들어졌는지, 어떤 문제를 해결하려 했는지를 다룹니다. 기술적인 사용법은 [사용자 가이드](../guides/USER_GUIDE_KR.md)를, 시스템 기능 개요는 [README](../../README_KR.md)를 참조하세요.
+이 문서는 Incurator가 왜 만들어졌는지, 어떤 문제를 해결하려 했는지를 다룹니다. 기술적인 사용법은 [사용자 가이드](../guides/USER_GUIDE_KR.md)를, 시스템 기능 개요는 [README](../README_KR.md)를 참조하세요.
 
 ---
 
@@ -57,12 +57,12 @@ LLM은 데이터를 정해진 규칙에 따라 분해하고 재조립하는 데�
 
 데이터를 분해하고 재조립하는 과정(`Summary -> Atoms -> Concept`)은 고도의 추론 능력이 거의 필요하지 않습니다. LLM이 매우 잘 해낼 수 있으면서도 인간의 개입 역시 최소화해도 되는 영역입니다.
 
-**따라서, 이 데이터 분해 및 재조립 단계는 집 컴퓨터에서 돌아가는 가벼운 Local Model(예: Ollama 등) 또는 비추론 모델이 전담하도록 분리합니다.** 가벼운 검색 모델(QMD 등)로 토큰 소모를 줄이는 다른 Incurator들의 접근과 같은 맥락이지만, Incurator는 여기서 한발 더 나아가 지식의 '구조화' 자체를 Local Model이나 비추론 모델에게 맡깁니다.
+**따라서, 이 데이터 분해 및 재조립 단계는 집 컴퓨터에서 돌아가는 가벼운 Local Model(예: Ollama 등) 또는 비추론 모델이 전담하도록 분리합니다.** 로컬 embedding, expansion, reranking 모델은 검색 비용을 줄이고, 설정된 생성 모델은 지식 구조화를 담당합니다.
 
 최종 목표인 **'새로운 인사이트 도출(Synthesis)'** 단계에서는 반드시 **인간**이 개입하여, 데이터가 분해/조립된 결과를 바탕으로 에이전트와 끝없이 토론하며 새로운 지식을 창출해 내야 합니다.
 
-- **AI 전용 공간 (`.curator/`)**: 지식의 **수장고(Archive/Storage)**. 에이전트가 지식을 즉각적으로 탐색하고 활용할 수 있도록 설계된 기계 친화적 백엔드입니다. 중간 단계의 마크다운 파일을 생성하지 않고 고속 데이터베이스(`state.sqlite`)로 지식을 컴파일하여 보관합니다.
-- **인간 전용 공간 (`02_Wiki/`)**: 지식의 **상설전시실(Permanent Collection)**. 사용자가 직접 읽고 소유하며 장기적으로 관리할 수 있게 정리된 아름다운 지식 서재입니다. 오직 최종 큐레이션된 L4 Exhibition만이 마크다운으로 출력되어 상호작용합니다.
+- **AI 전용 공간 (`.curator/`)**: `state.sqlite`가 권위 상태이며, 생성된 CTX/ATM/CON/SYN 마크다운은 폐기 가능한 점검 projection입니다.
+- **인간 전용 공간 (`02_Wiki/`)**: 명시적으로 승격된 human-reviewed 지식만 지속되는 상설 공간입니다.
 
 ## 4. 시스템 아키텍처: 미술관 큐레이터(Curator)와 아티스트(Artist)
 
@@ -77,7 +77,7 @@ The Curator resides in the **Vault**, the home of your knowledge. It focuses on 
     
 3. **공간 기획 및 구조화 (Spatial Planning & Structuring):** 분해된 원자들을 Concept 단위로 엮어 기계와 Agent가 읽기 쉽게 맥락을 형성.
     
-4. **전시 및 소통 (Exhibition & Engagement):** 단순한 정보의 나열이 아닌, 에이전트의 작업 목표와 요구사항이 명시된 지식 요구 명세서를 기반으로 맞춤형 큐레이션을 수행하여 **특별 전시(Special Exhibition)**를 개최합니다. 즉, 에이전트가 거대한 원본 데이터를 탐색할 필요 없이 지식 창출에만 집중할 수 있도록 고도화된 전처리(Preprocessing)를 수행합니다. (기존 방법론에서 가장 차별화된 부분)
+4. **큐레이션 및 소통 (Curation & Engagement):** 고정 subset을 저장하는 대신, 워크스페이스 지식 요구 명세서(`curate.yml`)를 live DAG 위의 동적 retrieval lens로 적용합니다.
     
 
 ### 🎨 The Artist (Resident of the Workspace: Human + Agent)
@@ -87,7 +87,7 @@ The Artist resides in the **Workspace**, the painter's studio where projects or 
     
 2. **Agent의 상주:** 강력한 추론 능력을 가진 Agent는 옵시디언 사이드바(익스텐션)에 상주하며 인간의 보조자 역할을 합니다. 사용자가 현재 열어둔 노트나 논문의 맥락을 실시간으로 파악하며 대화에 참여합니다.
     
-3. **사전 지식의 활용:** 사용자가 질문을 던질 때, Agent는 무거운 원본 데이터를 뒤지는 대신 **Curator가 미리 깔끔하게 요약하고 정제(전시)해둔 큐레이션 정보**를 가볍게 가져옵니다.
+3. **사전 지식의 활용:** 사용자가 질문을 던질 때, Agent는 정제된 live DAG에서 선택된 bounded evidence pack을 trace와 함께 가져옵니다.
     
 4. **인사이트 도출 (Synthesis):** 최종적으로 인간과 Agent가 협업하고 토론하여 새로운 그림(Synthesis = New Raw Data)을 창조해 냅니다.
 
@@ -99,15 +99,14 @@ The Artist resides in the **Workspace**, the painter's studio where projects or 
 
 Incurator는 대부분 지식의 닫힌 순환(수집 → 처리 → 활용 → 재입력)을 지향합니다. Incurator도 이 흐름을 따르는 Incurator지만, 세 가지 측면에서 다른 Incurator들과 차별화됩니다.
 
-첫째, **맞춤형 지식 전달**입니다. 일반적인 LLM 위키는 수집된 지식을 그대로 검색·제공합니다. Incurator의 Curator는 인간이 `curate.yml`로 명시한 프로젝트 목적과 필요 지식을 기준으로, 방대한 지식 그래프에서 맥락에 맞는 정보만을 선별·합성하여 맞춤형 전시물(Exhibition)을 준비합니다. 에이전트와 인간은 원본 데이터를 직접 탐색할 필요 없이 이미 정제된 전시물을 참조하여 통찰을 도출합니다. 또한 단일 보관소에 다양한 분야의 지식이 혼재하더라도, 명세 기반으로 관련 개념만을 선별하기 때문에 서로 다른 도메인의 개념이 섞이는 현상을 방지합니다.
+첫째, **맞춤형 지식 전달**입니다. `curate.yml`의 프로젝트 목적과 필요 지식은 쿼리 시점의 동적 Curation lens로 작동하여 live graph에서 관련 근거를 선별하고 랭킹합니다. 워크스페이스별 고정 전시물을 저장하지 않으므로 stale subset 없이 도메인 오염을 줄입니다.
 
-둘째, **사전 지식 교정**입니다. 전시물을 활용하는 과정에서 사전 지식의 오류를 발견하거나 새로운 인사이트를 얻었을 때, 이 피드백은 단순 메모로 끝나지 않습니다. 수정 신호가 지식 그래프를 역방향으로 타고 올라가 관련 Atom과 Concept을 교정하고, 전체 그래프의 일관성을 복원합니다.
+둘째, **사전 지식 교정**입니다. 사전 지식의 오류나 새로운 인사이트에 대한 피드백은 correction, contradiction, derived insight, style-only, promotion, ambiguous proposal로 분류됩니다. source truth는 보호되며, 실제 generated knowledge 변경은 별도의 검토 동작을 거쳐야 합니다.
 
-이 두 메커니즘은 딥러닝의 학습 과정과 유사한 구조를 형성합니다. `wiki add/build/curate`가 **순방향 빌드(Forward Pass)**라면, 인간과 에이전트의 수정 요청은 **손실 신호(Loss Signal)**이고, `wiki sync`가 **역전파(Backward Pass)**입니다. 시스템은 사용할수록 정교해지며, 지식은 단순히 쌓이는 것이 아니라 **진화**합니다.
+`wiki add`와 `wiki build`는 source-grounded L1-L4 지식을 컴파일하는 **순방향 빌드(Forward Pass)**입니다. 인간과 에이전트의 수정 요청은 분류된 proposal로 들어오며 generated record를 조용히 덮어쓰지 않습니다. 승인된 후속 동작과 무결성 검증을 통해 source, generated knowledge, promoted human knowledge 사이의 감사 가능한 경계를 유지합니다.
 
 셋째, **페르소나: 당신의 지식 모델을 표현하다.** 제텔카스텐은 구조를 강요하지 않습니다 — 사용자가 지식을 바라보는 방식 자체가 구조가 됩니다. Incurator의 **페르소나 시스템**은 이 철학을 시스템 수준에서 구현합니다. `wiki init` 시 인터뷰를 통해 설정되는 **전역 페르소나**는 당신이 어떤 분야에서 어떤 목적으로 지식을 쌓는지를 시스템에 각인시킵니다. 
 
 이 페르소나는 각 Vault마다 상주하는 **Curator의 정체성**입니다. 지식은 단일한 공간에 응집되어 있을 때 가장 강력한 연결성(**Increment**)을 가지지만, 만약 당신이 "과학자"로서의 지식 체계와 "요리사"로서의 지식 체계를 완전히 분리하여 각기 다른 전문가(Curator)에게 맡기고 싶다면, 그때가 바로 Vault를 나눌 때입니다. 큐레이터는 구조를 부과하는 것이 아니라, 당신이 선택한 **전문가적 시선**으로 지식을 해석하고 전시할 뿐입니다. 
 
 워크스페이스별 **로컬 페르소나**는 그 위에서 프로젝트의 맥락을 덧씌워, 동일한 큐레이션 엔진이 도메인마다 전혀 다른 방식으로 지식을 해석하고 전시하게 만듭니다.
-

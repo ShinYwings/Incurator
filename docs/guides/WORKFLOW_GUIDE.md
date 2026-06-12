@@ -171,7 +171,6 @@ wiki status
 # DAG integrity check (v0.2.1 — incremental by default)
 wiki sync              # default: revalidate only changed nodes (~1s when nothing changed)
 wiki sync --full       # full revalidation (pre-v0.2.1 behaviour)
-wiki sync --backward   # manual backprop trigger for a specific node
 wiki lint
 
 # When the MCP server is not running or you want foreground processing
@@ -241,7 +240,7 @@ With Curator backend:
 ```text
 Open PDF in Obsidian
      │
-     │ check_source_status(file_hash) auto-call
+     │ local PDF.js context first; status only when backend fallback is needed
      ▼
 ┌─── Unregistered ──────────────────────────────────────────────┐
 │ ephemeral L1 mode: PDF.js in-memory parsing                   │
@@ -261,9 +260,9 @@ Open PDF in Obsidian
      │
      │ L3 complete
      ▼
-┌─── Indexed ──────────────────────────────────────────────────┐
-│ plugin UI: "Indexed" status                                  │
-│ agent: curator_query(question, workspace_id="...") available  │
+┌─── Added / L3 complete ──────────────────────────────────────┐
+│ plugin UI: inactive "Added" badge                            │
+│ agent: curator_query(question, workspace_path="...") available│
 └───────────────────────────────────────────────────────────────┘
      │
      │ dynamic curation query
@@ -332,9 +331,9 @@ Domain query occurs
      ▼
 Answer generated (with citations from search results)
      │
-     │ (Optional) New source discovered
-     │ 3. curator_add_knowledge(content, source_type)
-     │    → Create Atom → auto-update index
+     │ (Optional) Reviewed insight promoted
+     │ 3. curator_add_knowledge(insight, context)
+     │    → Write human-reviewed note to 02_Wiki/
      ▼
 Session ends
 ```
@@ -346,7 +345,7 @@ Session ends
 | `curator_check_workspace` | Verify Workspace state and install rules at session start |
 | `curator_query` | Natural language answer with Sources & Trace |
 | `curator_workspace_init` | Create a new Workspace (interview-style wizard) |
-| `curator_add_knowledge` | Add a new knowledge unit (Atom) directly |
+| `curator_add_knowledge` | Promote reviewed conversational knowledge to `02_Wiki/` |
 | `curator_propose_correction` | Propose a reviewed correction over generated nodes |
 | `curator_get_node` | Retrieve content of a specific node (CTX/ATM/CON/SYN) |
 
@@ -385,9 +384,9 @@ wiki query "First question"
 ```text
 [Human Layer]
   03_Notes/ ──┐
-  04_Resources/ ──┤── wiki add ──► L1 CTX ──► L2 ATM ──► L3 CON
-  02_Wiki/ ───┘                                              │
-                                                             │ wiki query
+  04_Resources/ ──┤── wiki add ──► L1 CTX ──► wiki build ──► L2 ATM ──► L3 CON
+  02_Wiki/ ───┘                                                           │
+                                                                          │ wiki query
 [Machine Layer (state.sqlite DB)]                            ▼
   .curator/Collections/04_Synthesis/ ◄─────── L4 SYN (shared)
                     │
@@ -443,9 +442,9 @@ before any patch and protects source truth:
 
 - Agents classify feedback with MCP `curator_propose_correction`: correction /
   contradiction / derived_insight / style_only / promotion_request / ambiguous.
-  Derived insights become provisional **insight candidates**; corrections yield
-  an explicit patch plan over GENERATED nodes only. `03_Notes/`/`04_Resources/`
-  are never edited.
+  The tool returns a recommended action and affected generated node ids without
+  patching automatically. Derived insights may become provisional **insight
+  candidates**. `03_Notes/`/`04_Resources/` are never edited.
 - `wiki insight list|show|promote` (or MCP `curator_list_insight_candidates` /
   `curator_promote_insight`) review candidates; promotion writes only `02_Wiki/`.
 

@@ -1,6 +1,6 @@
 # 🛠 Incurator Contribution & Development Guide
 
-이 가이드는 Incurator 프로젝트에 기여하려는 개발자들을 위한 문서입니다. 현재 프로젝트가 직면한 기술적 과제들과, 이를 안전하게 해결하기 위한 개발 환경(Testbed) 구축 방법을 설명합니다. 시스템의 설계 철학과 차별점은 [프로젝트 철학 (ABOUT_KR.md)](../philosophy/ABOUT_KR.md)에서 확인할 수 있습니다.
+이 가이드는 Incurator 프로젝트에 기여하려는 개발자들을 위한 문서입니다. 현재 프로젝트가 직면한 기술적 과제들과, 이를 안전하게 해결하기 위한 개발 환경(Testbed) 구축 방법을 설명합니다. 시스템의 설계 철학과 차별점은 [프로젝트 철학](../philosophy/ABOUT_KR.md)에서 확인할 수 있습니다.
 
 ---
 
@@ -8,17 +8,17 @@
 
 Incurator는 개인 지식 베이스를 “검색 가능한 파일 묶음”이 아니라 검증 가능한 지식 DAG로 다룹니다. 처음 설계부터 이 DAG는 사람이 읽기 좋은 문서보다 **LLM이 안정적으로 읽고 추론하기 좋은 중간 표현(IR)**에 가깝게 만들어졌습니다. 현재 Curator는 source truth와 agent 대화를 L1-L4 DAG로 쌓고, `wiki sync`로 구조/논리 정합성을 되짚는 **compiler-inspired pipeline**입니다.
 
-- **LLM-readable IR**: Context, Atom, Concept, Exhibition은 LLM이 읽고 추론하기 좋은 계층형 IR입니다. 각 layer는 사람이 보기 좋은 prose보다 안정적인 frontmatter, relation, provenance를 우선합니다.
-- **Forward pass**: `wiki add`와 `wiki query`는 source/workspace input을 L1-L4 DAG로 쌓아 올립니다.
+- **LLM-readable IR**: Context, Atom, Concept, 공유 Synthesis는 계층형 IR입니다. 권위 DB record는 안정적인 relation과 provenance를 우선하며, Markdown page는 파생 점검 projection입니다.
+- **Forward pass**: `wiki add`는 L1을 만들고, `wiki build`는 L2/L3/공유 L4 Synthesis를 컴파일하며, `wiki query`는 동적 Curation lens로 컴파일된 DAG를 읽습니다.
 - **Backward pass**: `wiki sync`는 생성된 DAG를 거꾸로 검증하며 structural gap, grounding gap, logical gap을 찾고 안전하게 수리 가능한 항목을 고칩니다.
-- **Feedback signal**: 사람이 Context, Concept, Exhibition을 수정하거나 agent 대화에서 새로운 요구를 만들면, 그 차이가 sync와 재생성의 기준이 됩니다.
+- **Feedback signal**: correction은 명시적 correction tool로 들어오며, derived insight는 candidate가 된 뒤 명시적 승격을 거쳐야 `02_Wiki/`에 지속됩니다.
 
 이 구조는 모델 출력이 흔들릴 수 있고, 지식 노드는 서로 의존하며, 사람이 수정한 내용은 다시 DAG 전체에 반영되어야 한다는 문제의식에서 발전해 왔습니다. 그래서 Curator는 단순 markdown 생성기가 아니라 다음 성질을 가진 compiler-inspired pipeline으로 설계되었습니다.
 
 - **Stable IR**: layer schema, relation, provenance를 분리해 모델 출력 변동이 DAG 전체를 오염시키지 않게 합니다.
 - **Sync as verification pass**: `wiki sync`는 type check처럼 구조 오류를 보고, grounding/logical gap을 역방향으로 확인합니다.
 - **Affected subgraph rebuild**: 특정 L2/L3/L4가 바뀌면 전체를 다시 만들기보다 연결된 subgraph를 중심으로 재검증합니다.
-- **Human feedback loop**: 사람이 고친 Context, Concept, Exhibition과 agent 대화 내용은 다음 sync/curate의 feedback signal이 됩니다.
+- **Human feedback loop**: 승인된 correction과 promotion만 다음 sync/build의 feedback signal이 됩니다.
 
 ## 2. 프로젝트 로드맵 및 현재의 한계 (Current Challenges)
 
@@ -67,7 +67,7 @@ Testbed는 실제 지식 베이스(Vault)에 영향을 주지 않고 Incurator�
 
 Testbed 소스에는 개인 노트, 워크스페이스 지시문, 연구 파일, 공개되지 않은 에이전트 대화가 포함될 수 있습니다. 이런 자료는 공개 commit에 포함하지 마세요. 
 
-재현 가능한 개발 환경 구축에 대한 상세한 가이드와 템플릿 사용법은 [DEV_SCRIPTS_GUIDE.md](file:///home/shin/Workspace/Incurator/docs/guides/DEV_SCRIPTS_GUIDE.md)를 참고하십시오.
+재현 가능한 개발 환경 구축에 대한 상세한 가이드와 템플릿 사용법은 [DEV_SCRIPTS_GUIDE.md](DEV_SCRIPTS_GUIDE.md)를 참고하십시오.
 
 **테스트 베드 초기화 명령어:**
 ```bash
@@ -95,7 +95,7 @@ Testbed는 빈 폴더에서 시작하는 대신, 특정 도메인이나 문제 �
 
 > [!TIP]
 > **실제 검증 사례 및 워크플로우**
-> 개발 중에는 다음과 같은 private validation case로 시스템의 실용성을 검증할 수 있습니다. 이러한 검증 사례를 직접 구축하는 방법은 **[DEV_SCRIPTS_GUIDE.md](file:///home/shin/Workspace/Incurator/docs/guides/DEV_SCRIPTS_GUIDE.md)의 시나리오 작성 가이드**를 참고하십시오.
+> 개발 중에는 다음과 같은 private validation case로 시스템의 실용성을 검증할 수 있습니다. 이러한 검증 사례를 직접 구축하는 방법은 **[DEV_SCRIPTS_GUIDE.md](DEV_SCRIPTS_GUIDE.md)의 시나리오 작성 가이드**를 참고하십시오.
 > - **도메인 격리 및 병합 테스트**: 서로 연관된 개념 한 쌍(예: PDF 논문 + 해당 논문 분석 노트)과 전혀 다른 도메인의 지식 하나를 입력하여, 시스템이 연관 지식은 **Concept(L3)**으로 자연스럽게 묶고 무관한 지식은 명확히 격리하는지 확인합니다.
 > - **워크스페이스 기반 실전 검증**: 실제 진행 중인 프로젝트의 워크스페이스를 Testbed에 추가하여 실전 환경을 시뮬레이션합니다. 예를 들어, 원본 데이터(Raw data)에서 특정 핵심 인사이트를 의도적으로 누락시킨 뒤, MCP 서버를 통해 해당 내용에 대해 질문합니다. 이때 시스템이 부족한 정보를 인지하고 Curator 업데이트를 통해 지식을 보완하거나 수정하는지 확인하여 파이프라인의 완성도를 검증했습니다.
 >
@@ -130,7 +130,7 @@ testbed/
 
 ## 5. 시나리오 구현 및 검증 워크플로우
 
-새로운 검증 시나리오를 생성하고 실행할 때는 다음과 같은 4단계 표준 절차를 따릅니다. 상세한 단계별 지침은 [시나리오 작성 가이드](file:///home/shin/Workspace/Incurator/docs/guides/DEV_SCRIPTS_GUIDE.md)를 확인하십시오.
+새로운 검증 시나리오를 생성하고 실행할 때는 다음과 같은 4단계 표준 절차를 따릅니다. 상세한 단계별 지침은 [시나리오 작성 가이드](DEV_SCRIPTS_GUIDE.md)를 확인하십시오.
 
 1. **시나리오 스캐폴딩**: `tests/scenarios/` 아래에 새로운 시나리오 폴더를 생성하고 `MASTER_PLAN.md`를 작성합니다.
 2. **데이터 시딩 (Seeding)**: 익명화된 소스 파일들을 `stage/` 디렉토리에 배치합니다.
