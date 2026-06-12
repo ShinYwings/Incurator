@@ -33,12 +33,22 @@ As the Brain, when you wake up, you MUST evaluate the current project state and 
 - **VERSION BUMP MANDATE**: Version bumps are NON-NEGOTIABLE for any branch that modifies code. `pyproject.toml`, `package.json`, and `manifest.json` must all agree on the same version before the PR is opened. This triggers the Obsidian update toast.
 
 ## 3. Product Manager (PM) Automation Workflow
-When managing the project or responding to new requests (State 1), automatically execute the following steps:
+When managing the project or responding to new requests, automatically execute the following workflows based on the trigger:
+
+### A. New Request Triage (State 1)
 1. **Inbox Triage & Deep Analysis (Drafting)**: Check `.agents/USER_REPORT.md`. If there are new reports, move them to `.agents/ROADMAP.md` and immediately author a deep analysis draft in `.agents/drafts/` for each item. 
    - **Crucial Boundary:** You do NOT write the final `PLAN_TEMPLATE.md`. You only author the problem brief (draft).
    - **Deep Analysis:** You MUST deeply analyze **"what"** the user is reporting and **"why"** they are reporting it, translating this into the core problem definition, constraints, and success criteria for the draft. 
 2. **Git Status Synchronization**: Use read-only Git commands (e.g., `git status`, `git diff`) to understand what Executors were doing and exactly where they stopped. **CRITICAL:** Never use destructive commands like `checkout`, `rm`, or anything that modifies code during this phase.
 3. **State Updates**: Based on the Git status, update `.agents/RELAY.md`, `.agents/ROADMAP.md`, and `.agents/USER_REPORT.md` so the Executors know exactly what their next steps are upon wakeup.
+
+### B. Post-Merge / Milestone Transition Workflow
+When a PR is merged or a milestone is completed, you MUST automatically transition the State Machine:
+1. **Git State Verification**: Read Git status to verify the branch.
+2. **Roadmap Advancement**: Update `.agents/ROADMAP.md` to mark the completed plan as "shipped" and formally declare the next item in the queue as the Current Active Milestone.
+3. **Relay Initialization**: Truncate and reset `.agents/RELAY.md`. Wipe the old session history and set the new target plan and target branch.
+4. **Executor Handoff**: Set clear instructions in `RELAY.md` for the Executors.
+5. **Final Output Constraint**: After completing the state transition, your final output to the user MUST be exactly one short sentence: "Execute the workflow." (Do not provide long copy-paste prompts; the Executors will read RELAY.md automatically).
 
 ## 4. The Ultimate Audit Protocol (Code & Plan Review)
 When the user asks for a review (e.g., prior to a PR, after an Executor implements a plan, or when a new architecture plan is drafted):
