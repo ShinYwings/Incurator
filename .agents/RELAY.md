@@ -117,3 +117,20 @@ update section below if present).
   (v0.6.1 hotfix). No conflict between them. After #27 merges, mark ROADMAP
   To-Do item 7 as shipped (v0.6.1) and delete
   `.agents/drafts/bug_sqlite_leak.md`.
+
+### Update (2026-06-12, Claude Code) — PR #27 review feedback accepted & fixed
+
+- Reviewer correctly refuted this relay's earlier claim that "db.connect()
+  already closes properly": setup (`executescript`, `_apply_migrations`) ran
+  BEFORE the try/finally, so a setup failure leaked the connection — same
+  class as the init_db bug. Fixed in `eccffa9` on the hotfix branch: all
+  post-instantiation work now runs inside try.
+- Widened audit also fixed unbound-`conn`-in-finally error paths in
+  `zotero.py` (1 site) and `zotero_integration.py` (2 sites): `conn = None`
+  before try, so a connect() failure no longer raises UnboundLocalError that
+  masks the original error.
+- New GC-independent regression test (captured-connection closed + no
+  sidecars), TDD-verified fail→pass. Full backend on hotfix branch:
+  644 passed, 0 failed. CHANGELOG audit wording corrected.
+- Review response posted on PR #27. Both PRs (#26 research, #27 hotfix)
+  remain awaiting human merge.
