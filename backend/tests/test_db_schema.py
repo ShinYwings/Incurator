@@ -258,3 +258,57 @@ def test_artifact_dependency_invalidation(db_path: Path) -> None:
     stale = db.dependents_of(db_path, depends_on_id="SPAN-1")
     stale_ids = {d["artifact_id"] for d in stale}
     assert stale_ids == {"REP-1", "SYN-1"}
+
+
+def test_init_db_closes_its_connection_and_leaves_no_wal_sidecars() -> None:
+    """init_db must not leak its connection (v0.6.1 hotfix).
+
+    Python's sqlite3 context manager only commits/rolls back; it does not
+    close. A leaked connection keeps the -wal/-shm sidecars alive until GC,
+    which is timing-dependent across platforms and made a later truncate +
+    reopen fail with "database is locked" on Ubuntu.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "state.sqlite"
+        db.init_db(path)
+
+        sidecars = sorted(p.name for p in path.parent.iterdir() if p.name != path.name)
+        assert sidecars == [], f"WAL sidecars persisted after init_db: {sidecars}"
+
+        # Regression for the observed failure mode: truncating the main DB
+        # file and reopening must self-heal, not raise "database is locked".
+        path.write_bytes(b"")
+        stats = db.get_stats(path)
+        assert stats["sources_total"] == 0
+
+
+def test_connect_closes_connection_when_schema_setup_fails(monkeypatch) -> None:
+    """A failure during connect()'s schema setup/migration must not leak the
+    connection (v0.6.1 review follow-up).
+
+    Before the fix, executescript/_apply_migrations ran before the
+    try/finally, so an exception there leaked the connection and its WAL
+    sidecars exactly like the init_db bug. Holding a reference to the
+    connection makes the assertion GC-independent.
+    """
+    import sqlite3
+
+    captured: dict[str, sqlite3.Connection] = {}
+
+    def boom(conn: sqlite3.Connection) -> None:
+        captured["conn"] = conn
+        raise RuntimeError("simulated migration failure")
+
+    monkeypatch.setattr(db, "_apply_migrations", boom)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "state.sqlite"
+        with pytest.raises(RuntimeError, match="simulated migration failure"):
+            with db.connect(path):
+                pass
+
+        # The connection must be closed even though setup failed...
+        with pytest.raises(sqlite3.ProgrammingError):
+            captured["conn"].execute("SELECT 1")
+        # ...so its WAL sidecars do not outlive the call.
+        sidecars = sorted(p.name for p in path.parent.iterdir() if p.name != path.name)
+        assert sidecars == [], f"WAL sidecars persisted after failed connect: {sidecars}"

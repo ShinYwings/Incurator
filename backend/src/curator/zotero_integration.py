@@ -17,6 +17,7 @@ def search_zotero_items(zotero_db_path: str, query: str, limit: int = 20) -> Lis
     except Exception:
         temp_db_path = db_path
 
+    conn = None
     try:
         conn = sqlite3.connect(temp_db_path)
         conn.row_factory = sqlite3.Row
@@ -91,7 +92,7 @@ def search_zotero_items(zotero_db_path: str, query: str, limit: int = 20) -> Lis
             })
 
     finally:
-        if 'conn' in locals() and conn:
+        if conn:
             conn.close()
         if temp_db_path != db_path and temp_db_path.exists():
             temp_db_path.unlink(missing_ok=True)
@@ -158,6 +159,7 @@ def get_zotero_item_metadata(zotero_db_path: str, item_key: str, citation_style:
     except Exception:
         pass
 
+    conn = None
     try:
         conn = sqlite3.connect(temp_db_path)
         conn.row_factory = sqlite3.Row
@@ -244,7 +246,7 @@ def get_zotero_item_metadata(zotero_db_path: str, item_key: str, citation_style:
         metadata['bibliographyStyle'] = citation_style
 
     finally:
-        if 'conn' in locals() and conn:
+        if conn:
             conn.close()
         if temp_db_path != db_path and temp_db_path.exists():
             temp_db_path.unlink(missing_ok=True)

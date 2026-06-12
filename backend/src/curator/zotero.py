@@ -51,6 +51,7 @@ def get_zotero_annotations(
     temp_db_path = Path(tempfile.gettempdir()) / f"zotero_temp_{os.getpid()}.sqlite"
     shutil.copy2(db_path, temp_db_path)
 
+    conn = None
     try:
         conn = sqlite3.connect(temp_db_path)
         conn.row_factory = sqlite3.Row
