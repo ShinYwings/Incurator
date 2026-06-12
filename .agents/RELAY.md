@@ -46,7 +46,8 @@ Execute Plan E (`.agents/plans/E_external_research_design_matrix.md`) on `featur
 - [x] Wave C adaptive, corrective, iterative, and progressive serving controls.
 - [x] Wave C approved. State transitioned to authorize Wave D.
 - [x] Wave D conditional formula recovery.
-- [ ] **STOP: PM review/approval required before P7 untouched holdout and decision synthesis.**
+- [x] Wave D approved. State transitioned to authorize P7.
+- [ ] P7 untouched holdout, red team, and decision synthesis.
 
 ## Scoped Wave B Decisions
 
@@ -88,7 +89,8 @@ Execute Plan E (`.agents/plans/E_external_research_design_matrix.md`) on `featur
 
 ## Immediate Next Action
 
-Wave D is complete on `feature/plan-e-research`. Stop at the PM review gate. After explicit approval, begin P7 untouched holdout, red-team, and decision synthesis under the frozen configurations; do not access the holdout before approval.
+Wave D flaws have been fixed and mathematically verified. The PM review gate is cleared.
+Execute P7 untouched holdout, red-team, and decision synthesis under the frozen configurations. Access to the P7 holdout corpus is granted. Do not authorize any production implementation.
 
 ### Update (2026-06-12, Codex)
 
