@@ -108,3 +108,12 @@ update section below if present).
   https://github.com/ShinYwings/Incurator/pull/new/hotfix/v0.6.1-sqlite-connection-leak
 - After the hotfix PR merges, mark ROADMAP To-Do item 7 as shipped (v0.6.1)
   and delete `.agents/drafts/bug_sqlite_leak.md`.
+
+### Update (2026-06-12, Claude Code) — gh auth resolved; hotfix PR opened
+
+- User authenticated `gh` on the Ubuntu machine. The v0.6.1 hotfix PR is now
+  open: https://github.com/ShinYwings/Incurator/pull/27 (base `master`).
+- Remaining human actions: review/merge PR #26 (Plan E research) and PR #27
+  (v0.6.1 hotfix). No conflict between them. After #27 merges, mark ROADMAP
+  To-Do item 7 as shipped (v0.6.1) and delete
+  `.agents/drafts/bug_sqlite_leak.md`.
