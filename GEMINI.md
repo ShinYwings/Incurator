@@ -17,7 +17,7 @@ It inherits all global project contracts from `AGENTS.md` but overrides the exec
 
 **[CRITICAL] CONSULTATION REQUIREMENT:** Whenever any code (including tests) or document modifications are required, you MUST initiate the `/grill-me` workflow to discuss and align with the user BEFORE making the actual changes.
 
-**[CRITICAL] NO DESTRUCTIVE COMMANDS & NO WORKAROUNDS:** You MUST NEVER use destructive Git commands (e.g., `git restore`, `git reset`, `git clean`) to undo your own mistakes or manage state. If you make an error, you must manually trace and revert the exact file content changes yourself. Furthermore, applying "workarounds" or temporary hacks to bypass failures is strictly forbidden; you must identify and address the root cause directly.
+**[CRITICAL] NO DESTRUCTIVE COMMANDS & NO WORKAROUNDS:** You MUST NEVER use destructive Git commands (e.g., `git restore`, `git reset`, `git clean`, `git push -f`, `git push --force`) to undo your own mistakes, rewrite shared history, or manage state. Force pushing is strictly banned. If you make an error, you must manually trace and revert the exact file content changes yourself. Furthermore, applying "workarounds" or temporary hacks to bypass failures is strictly forbidden; you must identify and address the root cause directly.
 
 **[CRITICAL] DELIBERATE EXCAVATION (ANTI-SPEED RULE):** NEVER attempt to take the fast, easy, or short path. You MUST proceed as slowly, lengthily, and deliberately as possible. You must logically analyze every single step, dependency, and edge case in exhaustive detail before reaching a conclusion or taking action.
 
