@@ -4,6 +4,47 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.6.0] — 2026-06-12
+
+Program 1 (RAG & Knowledge Quality Stabilization) — Plan D1 diagnostic
+baseline release. **No runtime behavior, schema, or API changes**: this
+release freezes the truth contract that Programs 2/3 will be measured
+against.
+
+### Added
+
+- **Failure Atlas diagnostic contract** (`docs/specs/failure_atlas/`).
+  Versioned machine-readable case records for all thirteen suspected
+  end-to-end quality failures (F1–F13), each with exact code boundary,
+  minimal deterministic fixture, capture-before-repair evidence, frozen
+  oracle, status lifecycle (`suspected → reproduced → assigned/accepted |
+  disproven`), and downstream owner (Plan D2, Program 2, or Program 3). All
+  thirteen were reproduced deterministically and assigned.
+- **Deterministic reproduction suite**
+  (`backend/tests/test_failure_atlas_repro.py`). Baseline tests pin the
+  current defective behavior; strict-xfail oracle tests encode the desired
+  contract and intentionally fail CI (XPASS) when a failure is fixed without
+  updating the atlas — the mechanical anti-silent-redefinition handoff.
+- **Atlas contract tests** (`backend/tests/test_failure_atlas_contract.py`)
+  rejecting missing snapshot identities, missing oracles, aggregate-only
+  reporting, unsupported status transitions, and dangling fixture references.
+- **Mutation/degradation/atomicity experiments**
+  (`backend/tests/test_failure_atlas_experiments.py`): unchanged-rebuild
+  idempotency at L1/search, rename-duplication, failed-batch partial graph
+  state, and provider-free lexical degradation evidence.
+- **Frozen evaluation baseline** (`fixture_corpus.yml`, `qrels.yml`,
+  `EVALUATION_BASELINE.md`, `backend/tests/test_failure_atlas_eval.py`):
+  synthetic corpus with dev/regression/holdout/adversarial partitions,
+  deterministic lexical baseline metrics (binding regression floor:
+  Recall@1 = 1.0, 0 hard-negative outranks), and a runner-enforced
+  no-holdout-tuning rule. Proposed Program 1/2/3 thresholds recorded,
+  pending user approval.
+- **Docs**: `SYSTEM_BEHAVIOR.md` §25 (Failure Atlas diagnostic contract) and
+  `AGENT_WORKFLOW_GUIDE(_KR).md` §5 (running the diagnostic suite; rules when
+  a change touches an atlas case).
+
+---
+
 ## [0.5.6] — 2026-06-12
 
 ### Added
