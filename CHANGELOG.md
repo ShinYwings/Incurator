@@ -4,6 +4,53 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.5.6] — 2026-06-12
+
+### Added
+
+- **PDF add-source asset routing (`--asset-dir`).** Images extracted from an
+  added PDF during instant L1 no longer always land in the hardcoded
+  `05_Assets/<slug>/`. `wiki plugin source register` accepts a vault-relative
+  `--asset-dir`; the plugin resolves it per source — Zotero-backed PDFs reuse
+  the Zotero import profile's asset folder (plus a per-item subfolder from the
+  item's display name), other PDFs use a sanitized source-name subfolder under
+  the new `incuratorPdfAssetFolder` base folder. Unsafe values (absolute paths,
+  `..` escapes, or path-resolution errors) and an empty setting fall back to
+  the legacy `05_Assets/<slug>/`, and the L1 page's `![[...]]` embeds always
+  reference the folder actually written (PLUGIN_SCHEMA §1.1).
+- **Inert "Added" badge for tracked sources.** A successfully built source
+  (`l1_ready` … `l4_ready`) now shows a single non-clickable **Added** badge in
+  the chat context chip instead of clickable layer labels, so an
+  already-tracked PDF can no longer be re-imported by accident. The tooltip
+  still exposes the underlying layer state, and a refresh that re-derives
+  `stale`/`moved`/`changed`/`missing`/`error` makes the badge actionable again
+  (PLUGIN_SCHEMA §4.1.1).
+
+### Fixed
+
+- **PDF viewer-to-L1 adaptive routing.** Passive PDF chat no longer registers an
+  untracked source. Local PDF.js text/crops remain the fast path; after an
+  explicit Add Source completes L1, durable CTX ToC/section projection becomes
+  available without reparsing the original PDF. Missing or preview-only CTX
+  projections visibly degrade to read-only parsing, and PDF-focused turns do
+  not use concept-grounded `curator_query` until the relevant source reaches L3.
+
+### Documentation
+
+- Documented what add-source actually does (instant L1 immediately, L2/L3
+  queued to the background worker) and where extracted PDF figures land, in
+  `PLUGIN_GUIDE` (EN/KR). PDF math-extraction fidelity is explicitly out of
+  scope here and tracked by the RAG & Knowledge Quality Stabilization program.
+- Reconciled the documentation authority and workflow contracts with the
+  implementation: `state.sqlite` is authoritative, Collections Markdown is a
+  disposable projection, queries are sessionless, CLI `wiki add` stops at L1
+  while plugin Add Source queues L2/L3, PDF.js remains the viewer fast path,
+  and correction proposals classify without silently patching generated nodes.
+  Also repaired internal documentation links and advanced the spec-sync guard
+  to v0.5.6.
+
+---
+
 ## [0.5.5] — 2026-06-11
 
 ### Fixed

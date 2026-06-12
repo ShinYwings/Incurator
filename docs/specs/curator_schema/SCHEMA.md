@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.5.0)
+# Incurator - Schema & Operating Conventions (v0.5.6)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -8,17 +8,9 @@ Implementation plans under `.agents/plans/` are transient and strictly subordina
 
 Sections 1-17 below define the schema contract. The database engine retires qmd as a search backend and internalizes search/query traces inside `state.sqlite`. Historical schema definitions are tracked via git history.
 
-**Clean-rebuild stance (no migration compatibility shims).** v0.3.2 continues the
-curation-native rebuild that does **not** maintain backward-compatibility shims
-for retired migration surfaces. There are no prompt-function wrapper layers, no
-legacy-query fallback path, no `curate.yml` persona→KRS auto-mapping, and no qmd
-runtime fallback path. The new shapes below are the only supported shapes; an
-existing vault is expected to be rebuilt (`wiki reset` + `wiki add` + `wiki build`)
-rather than silently migrated.
-Working v0.2.2 capabilities that are not replaced (instant L1, background jobs,
-Reference Mode, the device registry, runtime snapshots) continue unchanged — the
-no-compat rule applies to the v0.3.1 migration surface, not to removing
-still-current features.
+The shapes below are the only supported schema contract. There are no
+prompt-function wrapper layers, legacy-query fallback path, `curate.yml`
+persona-to-KRS auto-mapping, or qmd runtime fallback.
 
 ## 1. Topology Additions
 
@@ -44,8 +36,9 @@ Rules:
 - `.curator/staging/` is transient. It may be deleted and rebuilt.
 - `.curator/staging/`, `state.sqlite`, `state.sqlite-wal`, and `state.sqlite-shm`
   must be ignored by sync tools that cannot safely merge SQLite state.
-- Generated dashboards must never become the source of truth. The source of
-  truth is `state.sqlite` plus DAG page frontmatter/body content.
+- `state.sqlite` is the single source of truth. Generated dashboards and DAG
+  Markdown pages under `.curator/Collections/` are disposable projections that
+  may be regenerated from the database.
 - `03_Notes/`, `04_Resources/`, and `06_Archives/` remain read-only for autonomous
   agents. `02_Wiki/` promotion requires an explicit promote/import operation.
 
@@ -96,8 +89,9 @@ llm:
 
 Default: `true`.
 
-When enabled, `wiki add` and backend import paths create L1 Contexts from parser
-structure without calling an LLM. L2/L3 extraction is queued as background work.
+When enabled, `wiki add` and backend registration paths create L1 Contexts from
+parser structure without calling an LLM. CLI `wiki add` stops after L1; the
+plugin's explicit Add Source registration queues L2/L3 background work.
 When set to `false`, the legacy LLM-generated L1 summary path is allowed.
 
 ### 2.4 Shared Model Catalogue
@@ -209,8 +203,7 @@ Preview: compact source preview...
 Rules:
 
 - `## Summary`, `## 1. Key Claims`, `## Source Guide`, and `## 2. Atom
-  Candidates` are required for compatibility with existing L2 extraction and
-  immediate source recall.
+  Candidates` are required by L2 extraction and immediate source recall.
 - Generated L1 scaffold text (`Summary`, `Key Claims`, `Source Guide`, Atom
   Candidate instructions) must be written in English.
 - When `source_sections_inline=true`, the original source text remains
@@ -336,8 +329,8 @@ Rules:
 - `wiki status` must count L1 completion from `l1_status='done'`.
 - `context_id` is set when L1 completes.
 - L2/L3 may remain `pending` while a source is already usable for section RAG.
-- `l4_status='done'` is the source-level signal that an L4 Exhibition has been
-  produced. L2/L3 completion must not be labelled as fully curated in user-facing
+- `l4_status='done'` is the source-level signal that shared L4 Synthesis has been
+  produced. L2/L3 completion must not be labelled as L4-ready in user-facing
   status surfaces.
 - Layer `error` states must remain visible until retried or reset; later layers
   must not mask an earlier failed layer with a healthy color.
@@ -394,7 +387,9 @@ queued | running | done | failed | interrupted
 
 Rules:
 
-- `wiki add` queues L2/L3 work unless `--wait` requests foreground processing.
+- Plugin Add Source registration queues L2/L3 work. CLI `wiki build` queues the
+  same work unless `--wait` requests foreground processing; CLI `wiki add` stops
+  after instant L1.
 - MCP server workers and `wiki jobs run` consume the same queue.
 - Job state must survive UI tab close and process restart.
 
@@ -642,8 +637,8 @@ on emitted markdown:
   Synthesis nodes remain DB-owned projections; query answers are sessionless and
   traceable.
 - Consequently the per-page frontmatter shapes in §12–§15 describe the **emitted
-  projection** of the DB records, not an independent source of truth. When a DB
-  record changes (e.g. via `curator_propose_correction`), the authoritative DB
+  projection** of the DB records, not an independent source of truth. When an
+  approved backend mutation changes a DB record, the authoritative DB
   row, search document/chunk rows, FTS5 rows, and embedding freshness state update
   in the same backend write path. Projection re-emission is an Obsidian
   convenience step, not a retrieval prerequisite.
@@ -1208,9 +1203,10 @@ distilled from the community reports.
 Durable human artifacts come only from an explicit **promotion to `02_Wiki/`**
 (insight candidate -> `02_Wiki/`), never from a generated query artifact.
 
-Backprop is **correction-driven and generated-artifact-independent**: corrections from any
-interaction (`curator_propose_correction`) are classified (§18) and patch the
-generated DB nodes / create insight candidates, protecting source truth.
+Backprop is **correction-driven and generated-artifact-independent**:
+`curator_propose_correction` classifies proposals and may create provisional
+insight candidates; it never patches generated DB nodes automatically. Any
+approved follow-up mutation must protect source truth.
 
 ## 16. `curate.yml` Knowledge Requirement Specification
 
@@ -1308,7 +1304,7 @@ QTR-   query trace
 ```
 
 All ids are generated backend-side. Generated content (knowledge units,
-entities, relations, reports, paths, exhibitions) must reference only ids that
+entities, relations, reports, paths, synthesis nodes) must reference only ids that
 already exist; prompt validators reject invented ids.
 
 ## 11.17 `deleted_records` — Cross-Device Sync Tombstones (`SCHEMA_VERSION = 7`)

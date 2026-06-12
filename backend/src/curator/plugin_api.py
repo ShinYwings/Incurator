@@ -6,6 +6,7 @@ functions, and the MCP server can be migrated to the same functions later.
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from pathlib import Path
@@ -13,7 +14,13 @@ from typing import Any
 
 from . import config as cfg
 from . import constants as consts
-from . import db, ingest_raw, llm, query, search, source_tools
+from . import db, ingest_raw, llm, page_writer, query, search, source_tools
+
+
+_CTX_SECTION_RE = re.compile(
+    r"(?ms)^<!--\s*section:(?P<id>\S+)\s+page:(?P<page>\d+)\s*-->\s*"
+    r"(?P<text>.*?)(?=^<!--\s*section:|\Z)"
+)
 
 
 def source_row(
@@ -210,6 +217,7 @@ def register_source(
     path: str = "",
     force: bool = False,
     build: bool = True,
+    asset_dir: str = "",
 ) -> dict[str, Any]:
     lookup_path = relpath or source_path or file_path or path
     row = source_row(paths, source_id=source_id, relpath=relpath, source_path=lookup_path)
@@ -237,6 +245,7 @@ def register_source(
             relpath=str(row["relpath"]),
             content_hash=str(row["content_hash"]),
             existing_context_id=None if force else row.get("context_id"),
+            asset_dir=asset_dir or None,
         )
         if not context_id:
             return {"ok": False, "source_id": source_id_int, "error": "L1 generation failed"}
@@ -388,6 +397,99 @@ def _resolve_pdf_path(
     return source_tools._row_path(paths, row).expanduser().resolve(strict=False), row, ""
 
 
+def _durable_l1_projection(
+    paths: cfg.WikiPaths,
+    row: dict[str, Any],
+) -> dict[str, Any] | None:
+    if str(row.get("l1_status") or "") != "done":
+        return None
+    context_id = str(row.get("context_id") or "")
+    if not context_id:
+        return None
+    parsed = page_writer.read_page(paths.contexts / f"{context_id}.md")
+    if parsed is None or parsed.is_invalid:
+        return None
+
+    toc = parsed.frontmatter.get("toc") or []
+    toc_by_id = {
+        str(item.get("id") or ""): item
+        for item in toc
+        if isinstance(item, dict) and str(item.get("id") or "")
+    }
+    sections: list[dict[str, Any]] = []
+    for match in _CTX_SECTION_RE.finditer(parsed.body):
+        section_id = match.group("id")
+        toc_item = toc_by_id.get(section_id, {})
+        text = match.group("text").strip()
+        text = re.split(r"(?m)^##\s+Embedded Figures\s*$", text, maxsplit=1)[0].strip()
+        sections.append(
+            {
+                "id": section_id,
+                "title": str(toc_item.get("title") or section_id),
+                "level": int(toc_item.get("level") or 2),
+                "page": int(toc_item.get("page") or match.group("page") or 1),
+                "text": text,
+            }
+        )
+    if not sections:
+        return None
+
+    outline = [
+        {
+            "title": str(item.get("title") or ""),
+            "page_num": int(item.get("page") or 0),
+            "level": int(item.get("level") or 1),
+        }
+        for item in toc
+        if isinstance(item, dict)
+    ]
+    total_pages = int(parsed.frontmatter.get("source_page_count") or 0)
+    if total_pages <= 0:
+        total_pages = max((int(section["page"]) for section in sections), default=1)
+    return {
+        "context_id": context_id,
+        "source_text_policy": str(parsed.frontmatter.get("source_text_policy") or ""),
+        "sections": sections,
+        "outline": outline,
+        "total_pages": total_pages,
+    }
+
+
+def durable_l1_section(
+    paths: cfg.WikiPaths,
+    row: dict[str, Any],
+    wanted: str,
+) -> dict[str, Any] | None:
+    projection = _durable_l1_projection(paths, row)
+    if projection is None or projection["source_text_policy"] != "inline":
+        return None
+    for section in projection["sections"]:
+        if section["id"] == wanted or section["title"] == wanted:
+            text = str(section["text"])
+            return {
+                "ok": True,
+                "source_id": int(row["id"]),
+                "source_key": str(row.get("relpath") or ""),
+                "relpath": row.get("relpath"),
+                "toc_id": wanted,
+                "page": int(section["page"]),
+                "page_start": int(section["page"]),
+                "page_end": int(section["page"]),
+                "page_count": int(projection["total_pages"]),
+                "title": str(row.get("title") or Path(str(row.get("relpath") or "")).stem),
+                "file_type": str(row.get("file_type") or ""),
+                "metadata": {
+                    "section_id": section["id"],
+                    "section_title": section["title"],
+                    "page": int(section["page"]),
+                },
+                "text": text,
+                "char_count": len(text),
+                "context_source": "durable_l1_projection",
+            }
+    return None
+
+
 def pdf_context(
     paths: cfg.WikiPaths,
     *,
@@ -418,16 +520,72 @@ def pdf_context(
     )
     if resolved is None:
         return {"ok": False, "error": resolve_error or "PDF source not found"}
-    if not resolved.exists():
-        return {"ok": False, "error": f"File not found: {resolved}"}
     if resolved.suffix.lower() != ".pdf":
         return {"ok": False, "error": f"Not a PDF file: {resolved}"}
 
     source_tracked = row is not None
     source_id_val: int | None = int(row["id"]) if row else None
+    degraded_reason = ""
+    pages_out: list[dict[str, Any]] = []
 
     try:
         if source_tracked and row is not None:
+            projection = _durable_l1_projection(paths, row)
+            if projection is not None:
+                sections: list[dict[str, Any]] = list(projection["sections"])
+                total_pages = int(projection["total_pages"])
+                if page_num > 0:
+                    lo = max(1, page_num - radius)
+                    hi = min(total_pages, page_num + radius)
+                    candidates: list[dict[str, Any]] = [
+                        section for section in sections if lo <= int(section["page"]) <= hi
+                    ]
+                    if not candidates:
+                        prior = [section for section in sections if int(section["page"]) <= page_num]
+                        candidates = prior[-1:] or sections[:1]
+                else:
+                    candidates = sections[: max_pages * 3]
+                if query_text.strip():
+                    candidates = [
+                        {**section, "_score": lexical_score(str(section["text"]), query_text)}
+                        for section in candidates
+                    ]
+                    candidates.sort(key=lambda item: float(item["_score"]), reverse=True)
+                candidates = candidates[:max_pages]
+                pages_out = [
+                    {
+                        "page_num": int(section["page"]),
+                        "text": str(section["text"]),
+                        "score": float(section.get("_score", 0.0)),
+                    }
+                    for section in candidates
+                ]
+                pages_out.sort(key=lambda item: int(item["page_num"]))
+                outline = list(projection["outline"])
+                return {
+                    "ok": True,
+                    "source_tracked": True,
+                    "source_id": source_id_val,
+                    "total_pages": total_pages,
+                    "title": str(row.get("title") or "") or resolved.stem,
+                    "pages": pages_out,
+                    "outline": outline,
+                    "is_empty_pdf": all(not page["text"].strip() for page in pages_out),
+                    "context_source": "durable_l1_projection",
+                    "degraded_reason": (
+                        "projection_preview_only"
+                        if projection["source_text_policy"] != "inline"
+                        else None
+                    ),
+                }
+
+            if not resolved.exists():
+                return {"ok": False, "error": f"File not found: {resolved}"}
+            if str(row.get("l1_status") or "") == "done":
+                degraded_reason = "missing_l1_projection"
+            else:
+                degraded_reason = "l1_incomplete"
+            assert source_id_val is not None
             all_pages: list[dict[str, Any]] = db.list_source_pdf_pages(paths.state_db, source_id_val)
             total_pages = len(all_pages) or get_page_count(resolved)
             if page_num > 0:
@@ -465,6 +623,8 @@ def pdf_context(
             pages_out.sort(key=lambda x: x["page_num"])
             outline_raw = _extract_pdf_toc(resolved) if resolved.exists() else []
         else:
+            if not resolved.exists():
+                return {"ok": False, "error": f"File not found: {resolved}"}
             total_pages = get_page_count(resolved)
             if total_pages == 0:
                 return {"ok": False, "error": "Could not read PDF (encrypted or corrupt)"}
@@ -504,6 +664,8 @@ def pdf_context(
             "pages": pages_out,
             "outline": outline,
             "is_empty_pdf": all(not p["text"].strip() for p in pages_out),
+            "context_source": "ephemeral_parse",
+            "degraded_reason": degraded_reason or None,
         }
     except Exception as exc:
         return {"ok": False, "error": str(exc)}

@@ -62,4 +62,28 @@ describe("providerContextPolicy", () => {
     ).toBe(false);
     expect(shouldRunCuratorDomainQuery({ query: "다시" })).toBe(false);
   });
+
+  it("does not present PDF-focused turns as concept-grounded before L3 completes", () => {
+    expect(
+      shouldRunCuratorDomainQuery({
+        query: "What does this paper conclude?",
+        pdfFocused: true,
+        pdfSourceStatuses: [{ state: "untracked", l3Complete: false }],
+      })
+    ).toBe(false);
+    expect(
+      shouldRunCuratorDomainQuery({
+        query: "What does this paper conclude?",
+        pdfFocused: true,
+        pdfSourceStatuses: [{ state: "l1_ready", l1Complete: true, l3Complete: false }],
+      })
+    ).toBe(false);
+    expect(
+      shouldRunCuratorDomainQuery({
+        query: "What does this paper conclude?",
+        pdfFocused: true,
+        pdfSourceStatuses: [{ state: "l3_ready", l1Complete: true, l3Complete: true }],
+      })
+    ).toBe(true);
+  });
 });

@@ -97,6 +97,11 @@ const CUSTOM_MODEL_VALUE = "__custom__";
 const RULES_CONTEXT_LIMIT = 12000;
 const CONTINUITY_MESSAGE_LIMIT = 6;
 
+/** Built sources show an inert "Added" badge (PLUGIN_SCHEMA §4.1.1). */
+function isAddedState(state: string): boolean {
+  return state === "l1_ready" || state === "l2_ready" || state === "l3_ready" || state === "l4_ready";
+}
+
 export class ChatSidebarView extends ItemView {
   private plugin: ObsidianAIAgent;
   private messages: ChatMessage[] = [];
@@ -1423,6 +1428,7 @@ export class ChatSidebarView extends ItemView {
 
     const sections: string[] = [];
     const client = this.getIncuratorClient();
+    const pdfSourceStatuses: IncuratorSourceStatus[] = [];
     const pdfTabs = (activeCtx?.openTabs ?? []).filter(
       (tab) =>
         (tab.viewType === "pdf" || tab.viewType === EXTERNAL_PDF_VIEW_TYPE) &&
@@ -1457,12 +1463,14 @@ export class ChatSidebarView extends ItemView {
         pageNum: pdf.pageNum,
         zoteroAttachmentKey: pdf.zoteroAttachmentKey,
       };
-      const sourceStatus = useBackendPdfContext && (sourcePath || pdf.fileHash || pdf.zoteroAttachmentKey)
-        ? await this.ensureIncuratorStatusForRef(statusRef)
-        : undefined;
+      let sourceStatus = sourcePath ? this.incuratorStatusByPath.get(sourcePath) : undefined;
+      if (useBackendPdfContext && client.available && (sourcePath || pdf.fileHash || pdf.zoteroAttachmentKey)) {
+        sourceStatus = await this.ensureIncuratorStatusForRef(statusRef);
+      }
       if (sourceStatus) {
+        if (tab.isActive) pdfSourceStatuses.push(sourceStatus);
         sections.push(
-          `<incurator_source_status document="${escapeAttribute(tab.label)}" state="${sourceStatus.state}" l1="${sourceStatus.state === "l1_ready" || sourceStatus.state === "queued" || sourceStatus.state === "l2_ready" || sourceStatus.state === "l3_ready" || sourceStatus.state === "l4_ready"}">\n${escapeAttribute(sourceStatus.message || "")}\n</incurator_source_status>`
+          `<incurator_source_status document="${escapeAttribute(tab.label)}" state="${sourceStatus.state}" l1="${sourceStatus.l1Complete === true}" l3="${sourceStatus.l3Complete === true}">\n${escapeAttribute(sourceStatus.message || "")}\n</incurator_source_status>`
         );
       }
 
@@ -1481,6 +1489,7 @@ export class ChatSidebarView extends ItemView {
         const startedAt = performance.now();
         backendCtx = await client.getPdfContext({
           filePath: sourcePath,
+          sourceId: sourceStatus?.sourceId,
           fileHash: pdf.fileHash,
           zoteroAttachmentKey: pdf.zoteroAttachmentKey,
           query: query.trim() || undefined,
@@ -1491,38 +1500,21 @@ export class ChatSidebarView extends ItemView {
         this.logContextTiming("backend_pdf_context", startedAt, docLabel);
       }
 
-      // Ask Gemini-style auto-index: if this PDF isn't in the knowledge graph
-      // yet, register it (instant L1, no LLM) and queue L2/L3 in the background.
-      // Fire-and-forget — this turn still answers from the raw window above;
-      // the next turn gets backend PDF RAG once L1 lands (~seconds).
-      if (backendCtx && !backendCtx.sourceTracked && sourcePath && client.available) {
-        void client.registerSource(sourcePath);
-        if (sourcePath) this.incuratorStatusByPath.delete(sourcePath);
-      }
-
-      const windowPages = backendCtx?.pages ?? pdf.windowPages ?? [];
+      const windowPages = useBackendPdfContext
+        ? backendCtx?.pages ?? pdf.windowPages ?? []
+        : pdf.windowPages ?? [];
       if (windowPages.length > 0) {
+        const contextSource = useBackendPdfContext
+          ? backendCtx?.contextSource ?? "ephemeral_parse"
+          : "local_viewer";
+        const degradedReason = useBackendPdfContext ? backendCtx?.degradedReason : undefined;
         sections.push(
-          `<pdf_window document="${escapeAttribute(tab.label)}" current_page="${pdf.pageNum}">\n${formatPdfWindow(windowPages)}\n</pdf_window>`
+          `<pdf_window document="${escapeAttribute(tab.label)}" current_page="${pdf.pageNum}" context_source="${contextSource}"${degradedReason ? ` degraded_reason="${escapeAttribute(degradedReason)}"` : ""}>\n${formatPdfWindow(windowPages)}\n</pdf_window>`
         );
       }
 
       if (this.plugin.settings.pdfOutlineEnabled) {
         let outline = backendCtx?.outline ?? pdf.outline ?? [];
-        // Fetch ToC independently when backend PDF context was skipped
-        // (e.g., local viewer already has text). This ensures chapter/section
-        // information is always available for the LLM to reference.
-        if (outline.length === 0 && client.available && sourcePath) {
-          try {
-            outline = await this.timedContextCall(
-              "backend_pdf_toc",
-              docLabel,
-              () => client.getPdfToc(sourcePath!)
-            );
-          } catch {
-            // Non-fatal: outline is optional context
-          }
-        }
         if (outline.length > 0) {
           sections.push(
             `<document_outline document="${escapeAttribute(tab.label)}">\n${formatOutline(outline)}\n</document_outline>`
@@ -1588,7 +1580,8 @@ export class ChatSidebarView extends ItemView {
       // Run the knowledge-graph query for both in-workspace and plain vault
       // chat. When wsPath is empty the backend resolves workspace_id=default,
       // so a conversational chat never binds an unrelated workspace.
-      if (shouldRunCuratorDomainQuery({ query, userContextRefs })) {
+      const pdfFocused = pdfTabs.some((tab) => tab.isActive);
+      if (shouldRunCuratorDomainQuery({ query, userContextRefs, pdfFocused, pdfSourceStatuses })) {
         this.setPrepareStatus("Querying Incurator knowledge graph...");
         const language = inferQueryLanguageMetadata(query);
         const queryResult = await this.timedContextCall(
@@ -2037,19 +2030,17 @@ export class ChatSidebarView extends ItemView {
     badge.empty();
     badge.setText(this.getIncuratorStatusLabel(status));
     badge.dataset.state = status.state;
+    badge.toggleClass("is-added", isAddedState(status.state));
     badge.setAttribute("title", status.message || `Incurator: ${status.state}`);
   }
 
   private getIncuratorStatusLabel(status: IncuratorSourceStatus): string {
     switch (status.state) {
       case "l4_ready":
-        return "L4 ready";
       case "l3_ready":
-        return "L3 ready";
       case "l2_ready":
-        return "L2 ready";
       case "l1_ready":
-        return "L1 ready";
+        return "Added";
       case "queued":
         return "Queued";
       case "running":
@@ -2105,6 +2096,9 @@ export class ChatSidebarView extends ItemView {
     ref: ContextRef,
     status: IncuratorSourceStatus
   ): Promise<void> {
+    // A built source's "Added" badge is inert — never fall through to
+    // re-ingest (PLUGIN_SCHEMA §4.1.1).
+    if (isAddedState(status.state)) return;
     const sourcePath = this.getPdfRefSourcePath(ref) || status.sourcePath || status.currentPath;
     const statusKey = sourcePath || (ref.zoteroAttachmentKey ? `zotero:${ref.zoteroAttachmentKey}` : "");
     if (!sourcePath && !ref.zoteroAttachmentKey) {

@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from curator import config as cfg
-from curator import db, ingest_raw, plugin_api
+from curator import db, ingest_raw, page_writer, plugin_api
 from curator.parsers.base import ParsedDocument
 
 _MOCK_TEXT = "Page one content for reference source identity tests. " * 5
@@ -44,6 +44,36 @@ def _make_zotero_attachment_db(db_path: Path, attachment_key: str, attachment_pa
         conn.execute("INSERT INTO itemAttachments (itemID, path) VALUES (1, ?)", (attachment_path,))
 
 
+def _write_inline_l1(paths: cfg.WikiPaths, source_id: int, context_id: str = "CTX-test") -> None:
+    paths.contexts.mkdir(parents=True, exist_ok=True)
+    page = page_writer.ParsedPage(
+        frontmatter={
+            "id": context_id,
+            "source_text_policy": "inline",
+            "source_page_count": 2,
+            "toc": [
+                {"id": "s1", "title": "Introduction", "level": 2, "page": 1},
+                {"id": "s2", "title": "Method", "level": 2, "page": 2},
+            ],
+        },
+        body=(
+            "## Source Sections\n\n"
+            "<!-- section:s1 page:1 -->\n"
+            "## Introduction\n\n"
+            "Durable introduction text.\n\n"
+            "<!-- section:s2 page:2 -->\n"
+            "## Method\n\n"
+            "Durable method text.\n"
+        ),
+    )
+    (paths.contexts / f"{context_id}.md").write_text(page.to_markdown(), encoding="utf-8")
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE sources SET context_id = ?, l1_status = 'done' WHERE id = ?",
+            (context_id, source_id),
+        )
+
+
 @patch("curator.parsers.pdf.parse_page_window", side_effect=_mock_page_window)
 @patch("curator.parsers.pdf.get_page_count", return_value=3)
 @patch("curator.parsers.parse", side_effect=_mock_parsed_doc)
@@ -72,6 +102,86 @@ def test_pdf_context_resolves_reference_source_id_to_external_pdf(
     assert result["source_id"] == outcome.source_id
     assert result["total_pages"] >= 1
     assert result["pages"][0]["page_num"] == 1
+
+
+@patch("curator.parsers.pdf.parse_page_window", side_effect=AssertionError("must not reparse durable L1"))
+@patch("curator.parsers.pdf._extract_pdf_toc", side_effect=AssertionError("must not reparse durable L1"))
+@patch("curator.parsers.parse", side_effect=_mock_parsed_doc)
+def test_pdf_context_uses_inline_l1_projection_without_reparsing_pdf(
+    _mock_parse, _mock_toc, _mock_window, tmp_path: Path
+) -> None:
+    vault = tmp_path / "vault"
+    paths = cfg.WikiPaths(vault)
+    db.init_db(paths.state_db)
+
+    external = tmp_path / "outside" / "paper.pdf"
+    external.parent.mkdir(parents=True)
+    external.write_bytes(b"%PDF-1.4 mock")
+    outcome = ingest_raw.import_source_file(paths, external, policy="reference")
+    _write_inline_l1(paths, outcome.source_id)
+    external.unlink()
+
+    result = plugin_api.pdf_context(paths, source_id=outcome.source_id, page_num=2, radius=0)
+
+    assert result["ok"] is True
+    assert result["context_source"] == "durable_l1_projection"
+    assert result.get("degraded_reason") is None
+    assert result["outline"][1]["title"] == "Method"
+    assert result["pages"] == [{"page_num": 2, "text": "## Method\n\nDurable method text.", "score": 0.0}]
+
+
+@patch("curator.parsers.pdf.parse_page_window", side_effect=_mock_page_window)
+@patch("curator.parsers.pdf.get_page_count", return_value=3)
+@patch("curator.parsers.pdf._extract_pdf_toc", return_value=[])
+@patch("curator.parsers.parse", side_effect=_mock_parsed_doc)
+def test_pdf_context_missing_l1_projection_degrades_to_read_only_parse(
+    _mock_parse, _mock_toc, _mock_count, _mock_window, tmp_path: Path
+) -> None:
+    vault = tmp_path / "vault"
+    paths = cfg.WikiPaths(vault)
+    db.init_db(paths.state_db)
+
+    external = tmp_path / "outside" / "paper.pdf"
+    external.parent.mkdir(parents=True)
+    external.write_bytes(b"%PDF-1.4 mock")
+    outcome = ingest_raw.import_source_file(paths, external, policy="reference")
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE sources SET context_id = 'CTX-missing', l1_status = 'done' WHERE id = ?",
+            (outcome.source_id,),
+        )
+        before = conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
+
+    result = plugin_api.pdf_context(paths, source_id=outcome.source_id, page_num=1, radius=0)
+
+    with db.connect(paths.state_db) as conn:
+        after = conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
+    assert result["ok"] is True
+    assert result["context_source"] == "ephemeral_parse"
+    assert result["degraded_reason"] == "missing_l1_projection"
+    assert after == before
+
+
+@patch("curator.parsers.pdf.parse_page_window", side_effect=_mock_page_window)
+@patch("curator.parsers.pdf.get_page_count", return_value=1)
+@patch("curator.parsers.pdf._extract_pdf_toc", return_value=[])
+def test_untracked_pdf_context_does_not_create_source_row(
+    _mock_toc, _mock_count, _mock_window, tmp_path: Path
+) -> None:
+    paths = cfg.WikiPaths(tmp_path / "vault")
+    db.init_db(paths.state_db)
+    external = tmp_path / "outside" / "untracked.pdf"
+    external.parent.mkdir(parents=True)
+    external.write_bytes(b"%PDF-1.4 mock")
+
+    result = plugin_api.pdf_context(paths, file_path=str(external), max_pages=1)
+
+    with db.connect(paths.state_db) as conn:
+        source_count = conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
+    assert result["ok"] is True
+    assert result["source_tracked"] is False
+    assert result["context_source"] == "ephemeral_parse"
+    assert source_count == 0
 
 
 @patch("curator.parsers.pdf.parse_page_window", side_effect=_mock_page_window)

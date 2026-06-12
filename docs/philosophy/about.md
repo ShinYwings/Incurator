@@ -39,12 +39,12 @@ Collaborating with commercial agents (GPT-4, Claude 3 Opus) for the entire pipel
 
 The process of decomposing and reassembling data (`Summary -> Atoms -> Concept`) requires very little high-level reasoning. It is an area where LLMs excel and human intervention can be minimized.
 
-**Therefore, we offload this stage to a light Local Model (e.g., Ollama/SLM) or a non-reasoning model.** This aligns with modern Incurator approaches that use light embedding/search models (like QMD) to reduce search costs. We take it a step further by entrusting the "Structuring" of knowledge itself to the Local Model or a non-reasoning model.
+**Therefore, we offload this stage to a light Local Model (e.g., Ollama/SLM) or a non-reasoning model.** Local embedding, expansion, and reranking models reduce retrieval cost, while the configured generation model handles knowledge structuring.
 
 In the final **Insight Derivation (Synthesis)** stage, **Humans** must intervene to discuss the results with the agent, iteratively refining the output to create truly new and valuable knowledge.
 
-- **AI-Only Space (`.curator/`)**: The **Archive/Storage**. A machine-friendly backend designed for agents to instantly search and leverage knowledge. It compiles knowledge directly into a high-speed database (`state.sqlite`) instead of generating intermediate markdown files.
-- **Human-Only Space (`02_Wiki/`)**: The **Permanent Collection**. A beautiful knowledge library designed for users to read, manage, and own long-term. Only the final synthesized L4 Exhibitions are output as Markdown for direct interaction.
+- **AI-Only Space (`.curator/`)**: The **Archive/Storage**. `state.sqlite` is authoritative; generated CTX/ATM/CON/SYN Markdown is a disposable inspection projection.
+- **Human-Only Space (`02_Wiki/`)**: The **Permanent Collection**. Only explicitly promoted, human-reviewed knowledge is durable here.
 
 ---
 
@@ -57,13 +57,13 @@ The Curator resides in the **Vault**, the home of your knowledge. It focuses on 
 1.  **Collection & Selection**: Gathering Raw Data.
 2.  **Analysis & Contextualization**: Summarizing data and decomposing it into Atoms.
 3.  **Spatial Planning & Structuring**: Weaving Atoms into Concepts to form a machine-readable context.
-4. **Exhibition & Engagement**: Instead of a flat list, the Curator stages a **Special Exhibition** based on a "Knowledge Requirement Specification" (curate.yml). The agent focuses on creation without searching through massive original texts. (The most distinctive part of the system)
+4. **Curation & Engagement**: Instead of staging a frozen subset, the Curator applies the workspace Knowledge Requirement Specification (`curate.yml`) as a dynamic retrieval lens over the live DAG.
 
 ### 🎨 The Artist (Resident of the Workspace: Human + Agent)
 The Artist resides in the **Workspace**, the painter's studio where projects or research happen. Drawing a new painting (Synthesis) requires immense creativity and reasoning:
 1.  **Workspace**: The painter's studio where projects or research happen.
 2.  **The Agent**: A high-reasoning agent resides in the workspace as a human assistant.
-3.  **Prior Knowledge Utilization**: The agent retrieves "Exhibits" pre-refined by the Curator instead of searching heavy raw data.
+3.  **Prior Knowledge Utilization**: The agent retrieves a bounded, traceable evidence pack selected from the refined live DAG.
 4.  **Insight Derivation (Synthesis)**: Human and Agent collaborate to create a new "Painting" (Synthesis = New Raw Data).
 
 ---
@@ -72,13 +72,13 @@ The Artist resides in the **Workspace**, the painter's studio where projects or 
 
 The Curator isn't just an organizer; it's a **Refinement Engine** that produces data in a form the agent can understand most efficiently.
 
-1.  **Self-Healing Knowledge Compiler:**
-    *   The system operates similarly to a deep learning model. `wiki add/build/curate` performs the **Forward Pass** to build the knowledge foundation and synthesize outputs.
-    *   Modifications by humans or agents act as **Loss Signals**, representing errors in the current state. `wiki sync` then performs the **Backward Pass**, tracing these signals through the graph to restore logical integrity.
-    *   Through this iterative cycle, fragmented information evolves into a robust "Concrete" of knowledge, fostering a **Self-Healing** ecosystem that grows more accurate and sophisticated through interaction.
+1.  **Reviewed Knowledge Compiler:**
+    *   `wiki add` and `wiki build` perform the **Forward Pass** that compiles source-grounded L1-L4 knowledge.
+    *   Human or agent feedback enters as a classified proposal. Source truth is protected, and no generated record is silently overwritten.
+    *   Approved follow-up actions and integrity checks improve the compiled knowledge while preserving an auditable boundary between source, generated knowledge, and promoted human knowledge.
 
 2.  **High-Fidelity Knowledge Grounding (Quality):**
-    *   Agent response quality and contextual understanding improve significantly because data is compiled (Exhibition) in a way that is tailored to the current project and task context.
+    *   Agent response quality and contextual understanding improve because a project-specific Curation lens selects bounded evidence from the compiled DAG.
     *   The agent doesn't get lost in massive datasets, providing hallucination-free answers by leveraging only the refined essence of curated knowledge.
 
 3.  **Token Optimization (AI FinOps):**
@@ -87,7 +87,7 @@ The Curator isn't just an organizer; it's a **Refinement Engine** that produces 
 
 4.  **Two-Track Directory Structure (UX):**
     *   We perfectly separate machine-readable, high-density data (managed via `.curator/state.sqlite` database records) from human-readable, domain-organized wikis (`02_Wiki/`).
-    *   By completely eliminating intermediate L1-L3 Markdown files, users can comfortably browse and manage refined knowledge without being distracted by or accidentally polluting the vault with machine-generated artifacts.
+    *   Generated L1-L4 Markdown stays hidden under `.curator/Collections/` as a disposable inspection projection; durable human knowledge remains isolated in `02_Wiki/`.
 
 5.  **Ecosystem Diversity & Growth:**
     *   Agents residing in the workspace become unique 'Artists' reflecting the user's style and project goals.

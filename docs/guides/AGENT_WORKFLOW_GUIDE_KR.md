@@ -53,10 +53,10 @@
 ### 2.4 소스 인식 PDF 검색
 *   **상황**: 사용자가 Obsidian에서 PDF를 읽고 있으며 현재 페이지, 인접 페이지 및 이전에 수집된 소스 지식에 의존하는 질문을 합니다.
 *   **논리 흐름**:
-    1.  Obsidian 플러그인이 즉각적인 뷰어 컨텍스트(현재 페이지 텍스트, 활성화된 경우 현재 페이지 이미지, 인접 페이지 텍스트 창, 사용 가능한 경우 문서 목차 및 PDF 로컬 어휘 RAG 히트)를 캡처합니다.
-    2.  플러그인이 `curator_source_status`를 호출하여 PDF가 미추적 상태인지, 대기 중인지, 실행 중인지, 인덱싱되었는지, 오래되었는지, 이동되었는지, 오류 상태인지 확인합니다.
-    3.  소스가 인덱싱된 경우, 플러그인은 `curator_search_sources(query, source_id/source_path, limit=N)`를 호출하여 페이지 출처가 포함된 백엔드 RAG 히트를 검색할 수 있습니다.
-    4.  최종 제공자 프롬프트에는 플러그인의 즉각적인 뷰어 컨텍스트와 백엔드 히트가 별도의 섹션으로 포함됩니다. 백엔드 히트가 뷰어 컨텍스트를 덮어써서는 안 됩니다. 뷰어 컨텍스트는 즉시성을 제공하는 반면 백엔드는 영구적인 출처를 제공합니다.
+    1.  Obsidian 플러그인은 현재 페이지 텍스트, 활성화된 현재 페이지 이미지, 인접 페이지 텍스트 창, 문서 목차, PDF-local lexical RAG hit 등 즉각적인 viewer context를 먼저 캡처합니다. 이 local PDF.js 경로는 backend status를 기다리지 않습니다.
+    2.  local context가 충분하면 그것으로 답합니다. passive chat은 PDF를 import하거나 register하지 않습니다.
+    3.  local context가 없을 때만 플러그인이 read-only source status를 확인하고 backend PDF context를 요청합니다. 미등록 PDF는 ephemeral parse를, 등록되고 L1이 완료된 PDF는 durable CTX section을 받습니다.
+    4.  등록되고 L3까지 완료된 PDF만 PDF-focused `curator_query` 결과를 추가할 수 있습니다. backend evidence는 즉각적인 viewer context를 대체하지 않고 보완합니다.
 
 ### 2.5 MCP 상태 변경 규칙
 *   **조용한 노트 편집 금지**: MCP 도구는 `03_Notes/`를 편집해서는 안 됩니다.
@@ -74,16 +74,15 @@
 *   **논리 흐름**:
     1.  에이전트가 claim, correction, evidence context와 함께 `curator_propose_correction`을 호출합니다.
     2.  엔진은 패치 전에 피드백을 분류합니다.
-    3.  correction은 생성 노드에만 대한 patch plan을 만들며, source truth는 자율적으로 편집하지 않습니다.
-    4.  승인된 변경 후 `wiki sync`로 그래프 일관성을 검증합니다.
+    3.  엔진은 자동 패치 없이 권장 동작과 영향받는 생성 노드 id를 반환하며, source truth는 자율적으로 편집하지 않습니다.
+    4.  별도의 검토 workflow가 승인된 변경을 적용한 뒤 `wiki sync`로 그래프 일관성을 검증할 수 있습니다.
 
 ### 3.2 통합 승격 (무한 루프 - Path B)
 *   **상황**: 대화 세션 중에 가치 있는 통찰이 도출됩니다.
 *   **논리 흐름**:
     1.  사용자가 `curator_add_knowledge`를 통해 승격 명령을 내립니다.
-    2.  엔진이 통찰을 선택하고 새로운 L2 Atom으로 원자화합니다.
-    3.  Atom이 `02_Wiki/` (공식 Exhibition Hall)로 승격됩니다.
-    4.  다음 수집 주기에서 이 통찰은 L1 파이프라인으로 재흡수되어 시스템의 기반 진실을 확장합니다.
+    2.  엔진은 검토된 답변 또는 통찰을 `02_Wiki/`에만 기록합니다.
+    3.  이후 별도의 명시적 ingest가 해당 노트를 등록할 때만 source material이 되며, 승격 자체는 생성 DAG를 변경하지 않습니다.
 
 ---
 

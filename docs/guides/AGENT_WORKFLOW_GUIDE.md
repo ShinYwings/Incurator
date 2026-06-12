@@ -51,10 +51,10 @@ This document defines the official operational scenarios and tool interaction pa
 ### 2.4 Source-Aware PDF Search
 *   **Situation**: The user is reading a PDF in Obsidian and asks a question that depends on the current page, nearby pages, and previously ingested source knowledge.
 *   **Logic Flow**:
-    1.  The Obsidian plugin captures immediate viewer context: current page text, current page image when enabled, nearby page text window, document outline if available, and PDF-local lexical RAG hits.
-    2.  The plugin calls `curator_source_status` to determine whether the PDF is untracked, queued, running, `l3_ready`, `l4_ready`, stale, moved, or errored.
-    3.  If the source is `l3_ready` or `l4_ready`, the plugin may call `curator_search_sources(query, source_id/source_path, limit=N)` to retrieve backend RAG hits with page provenance.
-    4.  The final provider prompt includes the plugin's immediate viewer context and backend hits as distinct sections. The backend hits must not overwrite viewer context; the viewer context gives immediacy, while the backend gives durable provenance.
+    1.  The Obsidian plugin captures immediate viewer context first: current page text, current page image when enabled, nearby page text window, document outline if available, and PDF-local lexical RAG hits. This local PDF.js path must not block on backend status.
+    2.  If local context is sufficient, answer from it. Passive chat never imports or registers the PDF.
+    3.  If local context is unavailable, the plugin checks read-only source status and requests backend PDF context. An unregistered PDF receives an ephemeral parse; a registered L1-complete PDF receives durable CTX sections.
+    4.  Only an L3-complete registered PDF may add a PDF-focused `curator_query` result. Backend evidence supplements rather than replaces immediate viewer context.
 
 ### 2.5 MCP Mutation Rules
 *   **No silent note edits**: MCP tools must not edit `03_Notes/`.
@@ -72,16 +72,15 @@ This document defines the official operational scenarios and tool interaction pa
 *   **Logic Flow**:
     1.  The Agent calls `curator_propose_correction` with the claim, correction, and evidence context.
     2.  The Engine classifies the feedback before any patch.
-    3.  Corrections produce a patch plan over generated nodes only; source truth is never edited autonomously.
-    4.  `wiki sync` verifies graph consistency after approved changes.
+    3.  The Engine returns a recommended action and affected generated node ids without patching automatically; source truth is never edited autonomously.
+    4.  A separate reviewed workflow applies any approved change, after which `wiki sync` can verify graph consistency.
 
 ### 3.2 Synthesis Promotion (The Infinite Loop - Path B)
 *   **Situation**: A high-value insight is derived during a conversational session.
 *   **Logic Flow**:
     1.  The Human issues a promotion command via `curator_add_knowledge`.
-    2.  The Engine selects the insight and atomizes it into a new L2 Atom.
-    3.  The Atom is promoted to `02_Wiki/` (the Official Exhibition Hall).
-    4.  On the next ingest cycle, this insight is re-absorbed into the L1 pipeline, expanding the system's foundational truth.
+    2.  The Engine writes the reviewed answer or insight only to `02_Wiki/`.
+    3.  The promotion becomes source material only if a later explicit ingest operation registers it; promotion itself does not mutate the generated DAG.
 
 ---
 

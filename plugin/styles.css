@@ -839,6 +839,14 @@
   border-color: color-mix(in srgb, var(--text-error) 35%, var(--background-modifier-border));
 }
 
+/* Built sources: inert "Added" badge (click is a no-op in JS; the title
+   tooltip still reveals the underlying layer state, so no pointer-events) */
+.ai-agent-context-chip-status.is-added {
+  cursor: default;
+  color: var(--text-success);
+  border-color: color-mix(in srgb, var(--text-success) 35%, var(--background-modifier-border));
+}
+
 .ai-agent-context-chip-auto {
   background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
   border-color: color-mix(in srgb, var(--interactive-accent) 35%, var(--background-modifier-border));

@@ -6219,6 +6219,7 @@ def plugin_source_register(
     path: str = typer.Option("", "--path", help="Source path alias."),
     force: bool = typer.Option(False, "--force", help="Regenerate L1."),
     build: bool = typer.Option(True, "--build/--no-build", help="Queue L2/L3 build."),
+    asset_dir: str = typer.Option("", "--asset-dir", help="Vault-relative folder for extracted PDF images."),
     workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
 ) -> None:
     """Register a source, generate instant L1, and optionally queue L2/L3."""
@@ -6235,6 +6236,7 @@ def plugin_source_register(
                 path=path,
                 force=force,
                 build=build,
+                asset_dir=asset_dir,
             )
         )
     except Exception as exc:

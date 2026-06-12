@@ -7,7 +7,7 @@
 
 ### Spec-First Version Development Guide
 
-This guide is for developers who want to contribute to the Incurator project. It covers the current technical architecture, open challenges, and how to set up the development environment (Testbed) safely. For the system's design philosophy and differentiators, see [Project Philosophy (ABOUT_KR.md)](../philosophy/ABOUT.md).
+This guide is for developers who want to contribute to the Incurator project. It covers the current technical architecture, open challenges, and how to set up the development environment (Testbed) safely. For the system's design philosophy and differentiators, see [Project Philosophy](../philosophy/ABOUT.md).
 
 ---
 
@@ -17,10 +17,10 @@ Incurator treats a personal knowledge base not as a "searchable pile of files" b
 
 The Curator is a **compiler-inspired pipeline** that builds L1–L4 DAG nodes from source truth and agent interactions, then uses `wiki sync` to verify structural and logical consistency.
 
-- **LLM-readable IR**: Context, Atom, Concept, and Exhibition are hierarchical IR layers. Each layer prioritizes stable frontmatter, relations, and provenance over human-readable prose.
-- **Forward pass**: `wiki add` and `wiki query` stack source/workspace inputs into a L1–L4 DAG.
+- **LLM-readable IR**: Context, Atom, Concept, and shared Synthesis are hierarchical IR layers. Authoritative records prioritize stable relations and provenance; Markdown pages are derived inspection projections.
+- **Forward pass**: `wiki add` creates L1, `wiki build` compiles L2/L3/shared L4 Synthesis, and `wiki query` reads the compiled DAG through a dynamic Curation lens.
 - **Backward pass**: `wiki sync` walks the DAG in reverse to find structural, grounding, and logical gaps — and safely repairs what it can.
-- **Feedback signal**: When a human edits a Context, Concept, or Exhibition, or when an agent surfaces new requirements, the diff becomes the signal that drives the next sync and re-generation cycle.
+- **Feedback signal**: Corrections arrive through explicit correction tools; derived insights become candidates and require explicit promotion to `02_Wiki/`.
 
 This architecture emerged from three constraints: LLM outputs can drift, knowledge nodes depend on each other, and human edits must propagate back through the entire DAG.
 
@@ -91,7 +91,7 @@ A testbed should start from a **private stage fixture** — a curated set of sou
 >
 > [!TIP]
 > **Practical Validation Cases & Workflows**
-> During development, you can use the following private validation cases to verify system utility. To build these validation cases yourself, follow the **scenario creation guide in [DEV_SCRIPTS_GUIDE.md](file:///home/shin/Workspace/Incurator/docs/guides/DEV_SCRIPTS_GUIDE.md)**.
+> During development, you can use the following private validation cases to verify system utility. To build these validation cases yourself, follow the **scenario creation guide in [DEV_SCRIPTS_GUIDE.md](DEV_SCRIPTS_GUIDE.md)**.
 > - **Domain Isolation & Merge Testing**: Input a pair of related concepts (e.g., a PDF paper + an analysis note of that paper) along with one piece of knowledge from a completely different domain. Verify that the system naturally groups related knowledge into a **Concept (L3)** while clearly isolating unrelated knowledge.
 > - **Workspace-Based Real-World Verification**: Add an active project workspace to the Testbed to simulate a real-world environment. For example, intentionally omit a key insight from the raw data and then ask about it via the MCP server. Verify the pipeline's completeness by ensuring the system recognizes the missing information and prompts a Curator update to supplement or correct the knowledge base.
 >
@@ -124,7 +124,7 @@ testbed/
 
 ## 5. Scenario Implementation & Validation Workflow
 
-When creating and executing a new validation scenario, follow these standard 4 steps. For detailed instructions, see the [Scenario Creation Guide](file:///home/shin/Workspace/Incurator/docs/guides/DEV_SCRIPTS_GUIDE.md).
+When creating and executing a new validation scenario, follow these standard 4 steps. For detailed instructions, see the [Scenario Creation Guide](DEV_SCRIPTS_GUIDE.md).
 
 1. **Scenario Scaffolding**: Create a new scenario folder under `tests/scenarios/` and write a `MASTER_PLAN.md`.
 2. **Data Seeding**: Place anonymized source files into the `stage/` directory.

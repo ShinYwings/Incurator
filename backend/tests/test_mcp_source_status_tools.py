@@ -2,9 +2,10 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from curator import config as cfg
-from curator import db, mcp_server
+from curator import db, mcp_server, page_writer
 from curator import parsers
 
 
@@ -116,6 +117,65 @@ class McpSourceStatusToolsTests(unittest.TestCase):
         self.assertIn("Method evidence from original source.", result["text"])
         self.assertNotIn("Intro text.", result["text"])
         self.assertEqual(result["metadata"]["section_id"], "s3")
+
+    def test_fetch_document_section_uses_inline_l1_projection_without_reparsing_source(self) -> None:
+        relpath = "03_Notes/sectioned.pdf"
+        source = self.root / relpath
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(b"%PDF-1.4 mock")
+        with db.connect(self.paths.state_db) as conn:
+            cursor = conn.execute(
+                """INSERT INTO sources
+                   (relpath, content_hash, file_type, bytes, added_at, status)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (relpath, "pdf-hash", "pdf", source.stat().st_size, "2026-06-01T00:00:00Z", "pending"),
+            )
+            source_id = int(cursor.lastrowid)
+        context_id = "CTX-inline-section"
+        self.paths.contexts.mkdir(parents=True, exist_ok=True)
+        page = page_writer.ParsedPage(
+            frontmatter={
+                "id": context_id,
+                "source_text_policy": "inline",
+                "toc": [{"id": "s2", "title": "Method", "level": 2, "page": 2}],
+            },
+            body=(
+                "## Source Sections\n\n"
+                "<!-- section:s2 page:2 -->\n"
+                "## Method\n\n"
+                "Durable method evidence.\n"
+            ),
+        )
+        (self.paths.contexts / f"{context_id}.md").write_text(page.to_markdown(), encoding="utf-8")
+        with db.connect(self.paths.state_db) as conn:
+            conn.execute(
+                "UPDATE sources SET context_id = ?, l1_status = 'done' WHERE id = ?",
+                (context_id, source_id),
+            )
+        source.unlink()
+
+        with patch("curator.source_tools.parse_source", side_effect=AssertionError("must not reparse durable L1")):
+            result = self._tool("fetch_document_section")(
+                source_id=source_id,
+                toc_id="s2",
+                workspace_path=str(self.root),
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["context_source"], "durable_l1_projection")
+        self.assertEqual(result["text"], "## Method\n\nDurable method evidence.")
+
+        with patch("curator.parsers.pdf.parse_page_window", side_effect=AssertionError("must not reparse durable L1")):
+            context = self._tool("curator_get_pdf_context")(
+                file_path=str(source),
+                page_num=2,
+                radius=0,
+                workspace_path=str(self.root),
+            )
+
+        self.assertTrue(context["ok"])
+        self.assertEqual(context["context_source"], "durable_l1_projection")
+        self.assertEqual(context["pages"][0]["text"], "## Method\n\nDurable method evidence.")
 
     def test_curator_add_all_scans_raw_dirs_and_generates_l1(self) -> None:
         source = self.root / "03_Notes" / "paper.md"

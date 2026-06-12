@@ -6,7 +6,7 @@
 
 Incurator is a cost-effective, multi-agent knowledge system that transforms fragmented data into a structured **Directed Acyclic Graph (DAG)**. It serves as a bridge between raw information and high-reasoning agents, enabling you to organically incubate and increment your knowledge while executing complex projects without token waste or hallucinations.
 
-> For the problems this system addresses and the reasoning behind its design, see [Project Philosophy (ABOUT_KR.md)](docs/philosophy/ABOUT.md).
+> For the problems this system addresses and the reasoning behind its design, see [Project Philosophy](philosophy/ABOUT.md).
 
 ---
 
@@ -15,14 +15,14 @@ Incurator is a cost-effective, multi-agent knowledge system that transforms frag
 Most AI knowledge bases fail because they treat LLMs as simple search engines. We separate the process into two distinct roles:
 
 ### ⚙️ The Curator (Manager of the Vault)
-The Curator is the background engine that resides in the **Vault** to handle knowledge refinement. It focuses on **summarizing and refining knowledge** rather than high-level "reasoning." It has been verified that the Curator performs reliably using standard universal models from cloud providers, without requiring high-cost reasoning-only models. It builds a 4-layer evidence chain and stages a tailored Exhibition based on the Artist's preferences in `curate.yml`. It supports both Local models (via Ollama) and Cloud models (Antigravity, Claude, OpenAI), allowing you to choose the best engine based on your hardware and requirements.
-1.  **L1 Contexts**: Metadata-rich summaries (Managed solely as high-speed DB records).
-2.  **L2 Atoms**: Irreducible, atomic facts (Managed solely as high-speed DB records).
-3.  **L3 Concepts**: Multi-source thematic structures (Managed solely as high-speed DB records).
-4.  **L4 Exhibitions**: **Special Exhibitions** tailored to the Artist's specific project context. These are the **only** layer generated as Markdown files for human and agent interaction.
+The Curator is the background engine that resides in the **Vault** to handle knowledge refinement. It focuses on **summarizing and refining knowledge** rather than high-level "reasoning." It builds a 4-layer evidence chain in `state.sqlite`; `.curator/Collections/` Markdown is a disposable inspection projection emitted from that DB. It supports both Local models (via Ollama) and Cloud models (Antigravity, Claude, OpenAI), allowing you to choose the best engine based on your hardware and requirements.
+1.  **L1 Contexts**: Source structure, section/page locators, and provenance.
+2.  **L2 Atoms**: Irreducible, source-grounded facts.
+3.  **L3 Concepts**: Multi-source thematic structures and community reports.
+4.  **L4 Synthesis**: Shared, corpus-wide `SYN-` insights used as standing evidence.
 
 ### 🎨 The Artist (Owner of the Workspace)
-The Artist resides in the **Workspace**, their personal studio. They express their taste and project requirements to the Curator via `curate.yml`, then visit the **Exhibition** the Curator has prepared. From these curated exhibits the Artist draws new insights (**Synthesis**). When they spot errors or uncover new ideas, they feed that back to the Curator — who corrects the underlying knowledge accordingly. The more this dialogue repeats, the more precise the exhibitions become.
+The Artist resides in the **Workspace**, their personal studio. They express project requirements through `curate.yml`; at query time, that KRS biases a dynamic Curation lens over the live DAG. Queries return an answer or evidence pack plus a trace and write no frozen Exhibition file. Valuable reviewed results become durable only through explicit promotion to `02_Wiki/`.
 
 ---
 
@@ -30,21 +30,21 @@ The Artist resides in the **Workspace**, their personal studio. They express the
 
 Incurators broadly aim for a closed loop — ingest, process, retrieve, feed back. Incurator is an Incurator too, but differentiates itself from others in two key ways.
 
-### 1. Specification-Driven Exhibition
+### 1. Specification-Driven Curation
 
-Generic Incurators retrieve knowledge as-is. Incurator's Curator does more. When a human defines their project goals and knowledge requirements in `curate.yml`, the Curator selects and synthesizes only the relevant material from the knowledge graph, staging a **tailored Exhibition** for that specific context. Agents and humans consult this curated output directly — no raw data spelunking required — allowing focus to stay on generating insight. And when a single vault holds knowledge across many different domains, spec-driven selection ensures that only relevant concepts surface, preventing contamination between unrelated fields.
+Generic Incurators retrieve knowledge as-is. Incurator's Curator does more. When a human defines project goals and knowledge requirements in `curate.yml`, the query-time Curation lens selects and ranks relevant live graph evidence without freezing a workspace-specific subset. This keeps retrieval scoped while avoiding stale staged artifacts.
 
 ### 2. Prior Knowledge Correction
 
-When humans or agents spot an error in prior knowledge — or derive a new insight from an Exhibition — the feedback doesn't just get appended as a new note. The correction signal propagates backward through the knowledge graph, updating the affected Atoms and Concepts and restoring logical coherence across the entire graph. This mirrors deep-learning backpropagation: **the system grows more precise with use, and knowledge evolves rather than just accumulates.**
+When humans or agents spot an error in prior knowledge, they can submit a correction proposal that is classified and linked to affected generated records while source truth remains protected. Applying a correction requires a separate reviewed action. Derived insights are tracked separately and require explicit promotion before becoming durable human knowledge.
 
 ### 3. Token Optimization (FinOps for AI)
 Offload **compilation** (summarizing and atomizing knowledge) to non-reasoning models and reserve **creative synthesis** (requiring complex calculation or sophisticated reasoning) for reasoning models. This strategic role separation minimizes costs while maximizing insight.
 
 ### 4. Monorepo and Dual-Track Structure for AI and Humans
 The Incurator repository provides the Python backend daemon (`backend/`) and Obsidian plugin client (`plugin/`) in a **single repository (monorepo)**. Knowledge is most effective when managed in different forms for machines and humans:
-- **AI Space (`.curator/`)**: The **Archive/Storage**. A machine-friendly backend designed for agents to instantly search and leverage knowledge. It operates as a high-speed database (`state.sqlite`) where all L1-L3 knowledge is stored as records without polluting the vault with intermediary markdown files.
-- **Human Space (`02_Wiki/`)**: The **Permanent Collection**. A beautiful knowledge library designed for users to read, manage, and own long-term. Only the final synthesized L4 Exhibitions are output as Markdown for direct interaction.
+- **AI Space (`.curator/`)**: The **Archive/Storage**. `state.sqlite` is the single source of truth. `.curator/Collections/` contains disposable CTX/ATM/CON/SYN Markdown projections for inspection.
+- **Human Space (`02_Wiki/`)**: The **Permanent Collection**. Durable human-reviewed artifacts appear here only after explicit promotion.
 - **Client Space (`incurator-obsidian-agent`)**: The Obsidian client handles open-PDF context, split-view chips, chat UI, provider selection, and import/rebind approval. Durable source registry and RAG provenance belong to the backend.
 
 ### 5. Lossless External Resource Integration (Reference Mode & Hash Drift Defense)
@@ -63,7 +63,7 @@ As such, splitting your knowledge into multiple vaults solely for administrative
 - **Core Environment**: Python 3.10+, Terminal, Note Editor (Obsidian recommended)
 - **Backend Accounts**: An API Key or subscription account is required for cloud models (Antigravity, Claude, etc.).
 - **Automation Note**: Installing Ollama (local models) and Node.js (search engine), along with building the monorepo backend package, plugin, and installing GitHub CLI (`gh`), is automatically handled all at once by running `./setup.sh` in the root directory.
-- See the [User Guide](docs/guides/USER_GUIDE.md) for more details.
+- See the [User Guide](guides/USER_GUIDE.md) for more details.
 
 ### 🚀 Quick Start
 1.  **Install**: `./setup.sh` (Automatically installs the backend package, builds the plugin, and installs Ollama, Node.js, GitHub CLI, etc.)
@@ -72,13 +72,13 @@ As such, splitting your knowledge into multiple vaults solely for administrative
     >
     > **Exception (Persona Segmentation)**: If you want to maintain knowledge through completely different "expert perspectives" (e.g., a STEM vault vs. a Cooking vault), create separate vaults. Each vault's Curator will refine knowledge according to their unique worldview.
 3.  **Set up Persona**: During `wiki init`, a short interview configures your knowledge domain. Run `wiki persona update` anytime to refine it.
-4.  **Register Knowledge (Refine)**: `wiki add <file>` (Auto-compiles raw sources into L1-L3 database records)
-5.  **Use Knowledge (Query)**: `wiki query "question"` or MCP search (Includes auto-synthesis of L4)
+4.  **Register Knowledge (Refine)**: `wiki add <file>` creates instant L1; run `wiki build` to queue or compile L2/L3. The plugin's explicit Add Source action performs both steps by registering instant L1 and queueing L2/L3.
+5.  **Use Knowledge (Query)**: `wiki query "question"` or MCP search returns a sessionless answer/evidence pack plus trace.
 
 > [!NOTE]
 > **Developer Only**: The `wiki testbed` command is a tool for scenario validation and system development. Do not use it for standard knowledge management tasks.
  
-Check the [User Guide](docs/guides/USER_GUIDE.md) for more details.
+Check the [User Guide](guides/USER_GUIDE.md) for more details.
 
 ---
 
@@ -86,14 +86,13 @@ Check the [User Guide](docs/guides/USER_GUIDE.md) for more details.
 
 If you encounter any issues or difficulties while using Incurator, please let us know. We especially welcome direct contributions—fixing a problem yourself helps ensure others don't face the same hurdle.
 
-Check out our [Contribution Guide](docs/guides/CONTRIBUTION_GUIDE.md) to get started with bug fixes or feature improvements!
+Check out our [Contribution Guide](guides/CONTRIBUTION_GUIDE.md) to get started with bug fixes or feature improvements!
 
 ---
 
 ## 🔗 Connections
-- [User Guide](docs/guides/USER_GUIDE.md)
-- [Contribution Guide](docs/guides/CONTRIBUTION_GUIDE.md)
-- [MCP Integration Guide](docs/guides/MCP_USER_GUIDE.md)
-- [Sync Ignore Guide](docs/guides/SYNC_IGNORE_GUIDE.md)
-- [Project Philosophy](docs/philosophy/ABOUT.md)
-
+- [User Guide](guides/USER_GUIDE.md)
+- [Contribution Guide](guides/CONTRIBUTION_GUIDE.md)
+- [MCP Integration Guide](guides/MCP_USER_GUIDE.md)
+- [Sync Ignore Guide](guides/SYNC_IGNORE_GUIDE.md)
+- [Project Philosophy](philosophy/ABOUT.md)

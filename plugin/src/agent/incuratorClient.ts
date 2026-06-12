@@ -18,6 +18,8 @@ import type {
   PromoteAnswerResult,
 } from "../types";
 import localBuildManifest from "../generated/buildManifest.json";
+import { joinVaultPath, resolveProfileAssetSpec } from "../zotero/assetLocalization";
+import { sanitizePathSegment } from "../zotero/templateRenderer";
 
 type BackendJsonRunner = (cmdArgs: string[]) => Promise<unknown>;
 
@@ -200,10 +202,12 @@ export class IncuratorClient {
     }
     const sourceId = this.readNumber(importRecord, ["sourceId", "source_id", "id"]);
     const relpath = this.readString(importRecord, ["relpath", "source_path", "path"]);
+    const assetDir = this.resolvePdfAssetDir(request);
     const registered = await this.callBackendJson([
       "plugin", "source", "register",
       ...(sourceId ? ["--source-id", String(sourceId)] : []),
       ...(relpath ? ["--relpath", relpath] : []),
+      ...(assetDir ? ["--asset-dir", assetDir] : []),
       "--build",
     ]);
     const status = this.normalizeStatus(registered || imported, path);
@@ -211,6 +215,31 @@ export class IncuratorClient {
     status.destinationRelpath = status.destinationRelpath || request.destinationRelpath || relpath;
     status.sourcePath = status.sourcePath || path;
     return status;
+  }
+
+  /**
+   * Resolve the vault-relative folder for images extracted from an added PDF
+   * (PLUGIN_SCHEMA §1.1). Zotero-backed PDFs reuse the first import profile's
+   * asset spec with a per-item subfolder (display name, falling back to the
+   * attachment key); other PDFs use a sanitized filename subfolder under the
+   * `incuratorPdfAssetFolder` setting. Returns "" to omit --asset-dir so the
+   * backend falls back to `05_Assets/<slug>/`.
+   */
+  private resolvePdfAssetDir(request: IncuratorIngestRequest): string {
+    if (request.zoteroAttachmentKey) {
+      const profile = this.settings.zoteroProfiles?.[0];
+      if (profile) {
+        const spec = resolveProfileAssetSpec(profile);
+        const item = sanitizePathSegment(request.displayName || request.zoteroAttachmentKey);
+        return joinVaultPath(spec.assetFolder, item);
+      }
+    }
+    const baseFolder = (this.settings.incuratorPdfAssetFolder || "").trim();
+    if (!baseFolder) return "";
+    const path = request.filePath || request.sourcePath || "";
+    const filename = path.split(/[\\/]/).pop() || "source";
+    const slug = sanitizePathSegment(filename.replace(/\.pdf$/i, "")) || "source";
+    return joinVaultPath(baseFolder, slug);
   }
 
   /**
@@ -363,6 +392,8 @@ export class IncuratorClient {
     totalPages: number;
     sourceTracked: boolean;
     isEmptyPdf: boolean;
+    contextSource?: "durable_l1_projection" | "ephemeral_parse";
+    degradedReason?: string;
   } | null> {
     if (
       this.settings.incuratorEnabled === false ||
@@ -392,6 +423,11 @@ export class IncuratorClient {
       totalPages: typeof r["total_pages"] === "number" ? r["total_pages"] : 0,
       sourceTracked: r["source_tracked"] === true,
       isEmptyPdf: r["is_empty_pdf"] === true,
+      contextSource:
+        r["context_source"] === "durable_l1_projection" || r["context_source"] === "ephemeral_parse"
+          ? r["context_source"]
+          : undefined,
+      degradedReason: typeof r["degraded_reason"] === "string" ? r["degraded_reason"] : undefined,
     };
   }
 
@@ -723,6 +759,10 @@ export class IncuratorClient {
 
     return {
       state,
+      l1Complete: l1,
+      l2Complete: l2,
+      l3Complete: l3,
+      l4Complete: l4,
       sourceId: this.readNumber(record, ["sourceId", "source_id", "id"]),
       sourcePath: this.readString(record, ["sourcePath", "source_path", "file_path", "path"]) || sourcePath,
       destinationRelpath: this.readString(record, [

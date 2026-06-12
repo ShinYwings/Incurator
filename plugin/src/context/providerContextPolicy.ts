@@ -1,4 +1,4 @@
-import type { ContextRef } from "../types";
+import type { ContextRef, IncuratorSourceStatus } from "../types";
 import { includedContextRefs, isPrimaryUserContext } from "./chatContextPriority";
 
 const SHORT_FOLLOW_UP_RE = /^(again|retry|redo|regenerate|once more|다시|다시 해줘|한번 더|재시도)$/i;
@@ -33,10 +33,21 @@ export function shouldUseBackendPdfContext(args: {
 export function shouldRunCuratorDomainQuery(args: {
   query: string;
   userContextRefs?: ContextRef[];
+  pdfFocused?: boolean;
+  pdfSourceStatuses?: IncuratorSourceStatus[];
 }): boolean {
   const query = args.query.trim();
   if (!query) return false;
   if (SHORT_FOLLOW_UP_RE.test(query)) return false;
   if (hasPrimarySelectedContext(args.userContextRefs)) return false;
+  if (args.pdfFocused) {
+    const hasL3Source = (args.pdfSourceStatuses ?? []).some(
+      (status) =>
+        status.l3Complete === true ||
+        status.state === "l3_ready" ||
+        status.state === "l4_ready"
+    );
+    if (!hasL3Source) return false;
+  }
   return true;
 }

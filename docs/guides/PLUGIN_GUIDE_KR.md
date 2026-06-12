@@ -282,9 +282,11 @@ PDF context는 다음 순서로 조립됩니다.
 1. 로컬 PDF.js 페이지 텍스트와 첨부된 crop/image context. PDF viewer가 충분한
    selectable DOM text를 제공하면 그 텍스트를 빠른 경로로 유지하고 image
    fallback을 트리거하지 않습니다.
-2. 로컬 viewer text/window/image context가 없을 때만 backend PDF
-   window/outline context.
-3. backend PDF context를 사용하는 경우에만, `pdfRagEnabled=true`이고 source가
+2. local viewer text/window/image context가 없을 때 등록되고 L1 완료된
+   durable CTX projection context.
+3. local context와 사용 가능한 durable projection이 모두 없을 때 read-only
+   backend PDF parsing. 이 fallback은 PDF를 등록하지 않습니다.
+4. backend PDF context를 사용하는 경우에만, `pdfRagEnabled=true`이고 source가
    tracked 상태일 때 backend 전체 PDF RAG.
 
 채팅 사이드바는 backend PDF context, PDF RAG, Curator query 소요 시간을
@@ -296,6 +298,8 @@ PDF 채팅과 PDF 지식 정제는 별도 workflow로 취급합니다.
 - 열린 PDF에 대한 일반 채팅은 viewer fast path를 사용합니다. durable
   Incurator ingest 없이 현재 페이지, 주변 페이지 텍스트, 선택 텍스트, crop
   image에서 바로 답하고, blocking backend PDF context 호출을 요구하지 않습니다.
+- passive chat은 미등록 PDF를 import/register하지 않습니다. 등록은 보라색
+  context chip의 명시적인 **Add to Incurator** 동작으로만 수행됩니다.
 - 보라색 context chip과 **Add to Incurator**는 durable knowledge refinement를
   시작하는 컨트롤입니다. PDF를 source로 등록하고 instant L1 context를 만든 뒤
   L2/L3 build job을 queue에 넣습니다.
@@ -485,6 +489,7 @@ LLM이 검색된 근거를 바탕으로 답변 생성
 | `incuratorRepoPath` | `""` | **선택적 override.** Incurator 저장소 절대 경로. 보통 비워둡니다 — 백엔드가 `wiki plugin version`으로 자기 저장소 경로를 보고합니다. 자동 감지된 경로를 덮어쓰고 싶을 때만 설정하세요. |
 | `incuratorDefaultDestination` | `04_Resources` | PDF reference stub 또는 명시적 copy import의 기본 폴더 |
 | `incuratorDefaultImportMode` | `reference` | 파일 추가 방식 (`reference`는 link stub 생성, `copy`는 vault 안으로 복사) |
+| `incuratorPdfAssetFolder` | `""` (비어 있음) | Zotero가 아닌 add-source PDF에서 추출된 이미지를 저장할 vault 기본 폴더. 각 PDF는 정리된 source-name 하위 폴더를 사용합니다. 비어 있으면 백엔드 기본값 `05_Assets/<source-name>/`을 사용합니다. Zotero PDF는 이 설정을 무시하고 import profile의 asset 폴더를 사용합니다. |
 | `incuratorStatusPolling` | `true` | 소스 처리 상태 폴링 활성화 |
 
 Zotero나 다른 외부 위치에서 열린 PDF의 **Add to Incurator** 기본 동작은
@@ -494,10 +499,14 @@ metadata로 저장합니다. 자동 생성 stub에는 기본적으로 PDF 절대
 Zotero나 외부 PDF의 로컬 위치가 다른 기기에도 안전하게 동기화할 수 있습니다. PDF를
 vault 안으로 복사하는 동작은 기본값이 아니라 명시적 예외입니다.
 
-Source badge는 layer 상태를 구분합니다. `L1 ready`는 즉시 section context를
-사용할 수 있다는 뜻이고, `L2 ready`는 Atom이 생성됐다는 뜻이며, `Indexed`는
-L3 Concept 기반 답변이 가능하다는 뜻입니다. `Synthesized`는 공유 L4 Synthesis가
-사용 가능하다는 뜻입니다. 어떤 layer라도 error이면 정상 badge 대신 error를 표시합니다.
+성공적으로 추적 중인 소스 — L1 ready부터 전체 L4 Synthesis까지의 모든 상태 —
+는 단일 **Added** badge로 표시됩니다(v0.5.6). 이 badge는 비활성입니다: 클릭해도
+아무 동작이 없으므로 이미 추가된 소스를 실수로 다시 import할 수 없습니다.
+badge에 마우스를 올리면 tooltip에서 정확한 layer 상태를 확인할 수 있습니다.
+이후 상태 갱신에서 소스가 `stale`, `moved`, `changed`, `missing`, `error`로
+재판정되면 badge는 해당 actionable 라벨로 돌아가 다시 클릭 가능해집니다.
+`Queued`와 `Building...`은 백그라운드 build가 도는 동안 기존 라벨을 유지합니다.
+어떤 layer라도 error이면 정상 badge 대신 error를 표시합니다.
 
 ### Setup/Rebuild 배너
 
@@ -549,7 +558,26 @@ agent가 필요로 할 때 workspace curation이 L4를 생성/갱신할 수 있�
 queue에 들어간 build 작업을 실제로 처리하려면 **Dashboard > Jobs > Run queued**를
 누르거나 `wiki jobs run`을 실행합니다. queued job은 worker가 claim하기 전에
 취소할 수 있고, 완료/실패/취소된 job은 **Rerun**으로 다시 queue에 넣을 수
-있습니다.
+있습니다. 소스가 추적되기 시작하면 chip에는 위에서 설명한 비활성 **Added**
+badge가 표시됩니다.
+
+추가된 PDF에 포함된 이미지(figure, diagram)는 즉시 L1 단계에서 추출되어 vault에
+저장되고, 생성된 L1 context 페이지가 `![[...]]` 링크로 임베드합니다. 저장 위치는
+다음과 같습니다(v0.5.6):
+
+- **Zotero 기반 PDF**는 매칭되는 Zotero import profile의 asset 폴더(annotation
+  이미지가 쓰는 것과 같은 base 폴더 + item별 subfolder)를 재사용하므로, 논문의
+  추출 figure가 annotation asset 옆에 놓입니다.
+- **그 외 PDF**는 `incuratorPdfAssetFolder` 기본 폴더 아래의 정리된
+  source-name 하위 폴더로 갑니다.
+- **Fallback** (설정이 비어 있거나, 결정된 폴더가 안전하지 않거나 경로를
+  해석할 수 없거나 vault를 벗어나는 경우): 백엔드 기본값
+  `05_Assets/<source-name>/`.
+
+L1 페이지는 항상 이미지가 실제로 기록된 폴더를 링크하므로 어느 경우든 임베드가
+해석됩니다. PDF의 수학 표기 텍스트 추출은 근사적이라는 점에 유의하세요. 수학
+충실도 개선(VLM 보조 추출)은 이 asset-routing 기능이 아니라 RAG & Knowledge
+Quality Stabilization 프로그램에서 별도로 추적합니다.
 
 최신 사용자 턴에 primary selected text, line range, PDF page, crop image가
 첨부되어 있지 않은 일반 workspace/domain 질문에서는 sidechat이 `wiki plugin

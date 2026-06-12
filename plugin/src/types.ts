@@ -103,6 +103,10 @@ export interface PluginSettings {
   incuratorRepoPath: string;
   incuratorDefaultDestination: string;
   incuratorDefaultImportMode: "copy" | "reference";
+  /** Vault-relative base folder for images extracted from non-Zotero add-source
+   *  PDFs; each PDF gets a filename subfolder, while "" lets the backend default
+   *  to 05_Assets/<slug>/ (PLUGIN_SCHEMA §1.1). */
+  incuratorPdfAssetFolder: string;
   incuratorStatusPolling: boolean;
   // Cross-device knowledge auto-sync over Syncthing (one-writer-per-file).
   // Optional + read with `!== false` so older saved settings default to enabled.
@@ -185,6 +189,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   incuratorRepoPath: "",
   incuratorDefaultDestination: "04_Resources",
   incuratorDefaultImportMode: "reference",
+  incuratorPdfAssetFolder: "",
   incuratorStatusPolling: true,
   autoSyncEnabled: true,
   autoSyncOnLoad: true,
@@ -356,6 +361,10 @@ export type IncuratorSourceState =
 
 export interface IncuratorSourceStatus {
   state: IncuratorSourceState;
+  l1Complete?: boolean;
+  l2Complete?: boolean;
+  l3Complete?: boolean;
+  l4Complete?: boolean;
   sourceId?: number;
   sourcePath?: string;
   destinationRelpath?: string;

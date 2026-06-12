@@ -140,7 +140,13 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 
 #### `curator_get_pdf_context`
-- **Role**: Lightweight on-demand PDF text extraction for chat context. Works for **both tracked and untracked PDFs** — no prior ingestion required. This is the primary tool the Obsidian plugin uses to assemble the `<pdf_window>` and `<document_outline>` context blocks for LLM prompts. **Agentic usage**: Agents should proactively call this tool with `radius=0` and a specific `page_num` when asked to read a specific chapter or page.
+- **Role**: Adaptive PDF chat context. For registered, L1-complete sources it
+  serves the durable CTX projection without reparsing the PDF. Otherwise it
+  performs read-only on-demand extraction and never registers the source. This
+  is the primary tool used to assemble `<pdf_window>` and `<document_outline>`
+  context blocks. **Agentic usage**: Agents should proactively call this tool
+  with `radius=0` and a specific `page_num` when asked to read a specific
+  chapter or page.
 - **Parameters**:
   - `file_path` (required): Absolute filesystem path to the PDF.
   - `query` (optional): Query string to score pages by relevance. When provided, the most relevant pages are returned rather than a fixed window.
@@ -154,11 +160,18 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
   - `pages`: `[{page_num, text, score}]` — up to `max_pages` most relevant pages.
   - `outline`: `[{title, page_num, level}]` — document table of contents.
   - `is_empty_pdf`: `true` if the PDF contains no extractable text (scanned/image-only).
+  - `context_source`: `durable_l1_projection` or `ephemeral_parse`.
+  - `degraded_reason`: Optional reason that durable context could not provide
+    exact text.
 - **Why it replaces multiple calls**: Previously the plugin made three separate MCP calls (`pdf_window`, `document_outline`, `pdf_rag_hits`) that did not exist in the backend and silently returned empty results. This tool unifies them in a single call that actually works.
-- **Performance**: Uses `parse_page_window()` to read only the requested pages, making it safe for 600-page documents without loading the full file into memory.
+- **Performance**: Registered L1 sources read the CTX projection first.
+  Ephemeral/degraded fallback uses `parse_page_window()` to read only requested
+  pages, making it safe for 600-page documents without loading the full file.
 
 #### `curator_get_pdf_toc`
-- **Role**: Extract the Table of Contents (Outline) from a PDF. When the agent is asked to find a chapter but doesn't know the page number, it should call this tool first, then call `curator_get_pdf_context` with the discovered `page_num`.
+- **Role**: Extract a raw Table of Contents directly from a PDF. Prefer
+  `curator_get_pdf_context` for registered L1 sources because it can return the
+  durable CTX ToC without reparsing the original PDF.
 - **Parameters**: `file_path` (Absolute filesystem path to the PDF).
 - **Returns**: `[{title, page, level}]`
 
@@ -166,13 +179,19 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 - **Role**: Promote a conversational insight or discussion to the human-verified Wiki space (`02_Wiki/`). This permanently captures valuable information from the chat into the project's durable Wiki.
 
 #### `curator_update_node`
-- **Role**: Disabled non-mutating compatibility endpoint. Direct generated-node overwrites are not part of v0.3.1.
+- **Role**: Disabled non-mutating endpoint. Direct generated-node overwrites are not supported.
 - **Use instead**: `curator_propose_correction` for reviewed corrections, or `promote_answer` / `curator_promote_insight` for durable human-approved knowledge.
 
 #### `curator_propose_correction`
-- **Role**: Propose a correction directly to the underlying `state.sqlite` database records for L1 Contexts, L2 Atoms, or L3 Concepts. Since L1-L3 layers are no longer represented as Markdown files, this tool is the primary mechanism for an agent to fix errors in the extracted knowledge graph.
-- **Parameters**: `node_id` (the ID of the CTX, ATM, or CON record), `correction_text`, `reasoning`.
-- **Backend handling**: The backend records the correction in the DB and triggers a minimal rebuild of dependent downstream nodes.
+- **Role**: Propose a correction targeting an authoritative generated record.
+  The backend classifies the proposal and returns a recommended action; it does
+  not overwrite the target automatically. Markdown pages under
+  `.curator/Collections/` are derived inspection projections, so editing them is
+  not a correction mechanism.
+- **Parameters**: `node_id`, `correction`, `workspace_path` (optional),
+  `previous` (optional prior artifact text).
+- **Backend handling**: Returns classification, recommended action, affected node
+  ids, review requirement, trace id, and any provisional insight candidate.
 
 #### `curator_reindex`
 - **Role**: Manually rebuild DB-native search state (`search_documents`,
@@ -186,7 +205,10 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 #### `check_source_status`
 
-- **Role**: Look up a file's registration state by its SHA-256 hash. Called automatically by the plugin when a PDF is opened to determine whether the agent should use ephemeral mode or `curator_query`.
+- **Role**: Look up a file's registration state by its SHA-256 hash. The plugin
+  calls it when backend PDF context or an explicit Add/status action needs to
+  distinguish ephemeral mode, durable L1 section serving, and L3-complete
+  `curator_query`; local viewer context does not wait for this call.
 - **Parameters**: `file_hash` (SHA-256 hash string of the file).
 - **Returns**: `registered`, `source_id`, `l1_complete`, `l2_complete`, `l3_complete`, `jobs_pending`.
 - **Implementation status**: The backend looks up `sources.content_hash` and returns queued/running `ingest_jobs` with the source status.
@@ -194,7 +216,13 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 #### `fetch_document_section`
 
-- **Role**: Return the text of a specific document section. If the document is unregistered, the plugin serves it from in-memory (PDF.js). After `wiki add`/`import_source` reaches `l1_complete=True`, the backend serves raw text by CTX section id, source heading, or PDF page range. For large documents whose L1 uses `source_text_policy: on_demand`, the backend reads the original source instead of relying on inline CTX text. `curator_query` remains available after L3 completes.
+- **Role**: Return backend text for a registered document section by CTX section
+  id, source heading, or PDF page range. Unregistered viewer turns do not call
+  this tool; the plugin uses local in-memory PDF.js context or its read-only
+  backend PDF-context fallback instead. For large documents whose L1 uses
+  `source_text_policy: on_demand`, the backend reads the original source instead
+  of relying on inline CTX text. `curator_query` becomes available after L3
+  completes.
 - **Parameters**: `source_key` (logical_source_id or file_hash), `toc_id` (section id from the CTX frontmatter `toc` array), `page_start`/`page_end` (page-range fallback for PDFs without a ToC).
 - **Implementation status**: When `source_key` resolves to a tracked source or file path, the backend returns text by CTX section marker, source heading, or PDF page. With the v0.2.1 default (`llm.instant_l1: true`), the L1 CTX is generated without an LLM call, so section reads become available quickly.
 - **Agent usage**: The agent reads the ToC minimap in its system prompt, then calls this tool with the relevant `toc_id`.
@@ -223,7 +251,9 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 #### `check_ingest_status`
 
-- **Role**: Return the current background ingest job queue status. The plugin polls this every 5 seconds after `wiki add` or `import_source` to detect when L2/L3 processing completes. Stop polling when `idle: true` and refresh the UI.
+- **Role**: Return the current background ingest job queue status. The plugin
+  polls this after explicit Add Source registration queues L2/L3 work. Stop
+  polling when `idle: true` and refresh the UI.
 - **Parameters**: `workspace_path` (absolute path, optional).
 - **Returns**:
   - `ok` (always true)

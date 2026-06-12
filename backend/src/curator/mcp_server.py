@@ -1045,6 +1045,13 @@ def build_server() -> FastMCP:
             source_path_obj = paths.root / lookup_key
         if not lookup_key and row is None:
             return {"ok": False, "error": "Source not found: missing source_key, source_id, or path"}
+        wanted = section_id or toc_id
+        if row is not None and wanted:
+            from . import plugin_api
+
+            durable = plugin_api.durable_l1_section(paths, row, wanted)
+            if durable is not None:
+                return durable
         if not source_path_obj.exists():
             return {"ok": False, "error": f"Source not found: {lookup_key}"}
         try:
@@ -1054,7 +1061,6 @@ def build_server() -> FastMCP:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-        wanted = section_id or toc_id
         text = parsed.text
         page_count = 1
         metadata: dict[str, Any] = dict(parsed.metadata or {})
@@ -1123,6 +1129,12 @@ def build_server() -> FastMCP:
             "metadata": metadata,
             "text": text,
             "char_count": len(text),
+            "context_source": "ephemeral_parse",
+            "degraded_reason": (
+                "durable_exact_text_unavailable"
+                if row is not None and wanted and str(row.get("l1_status") or "") == "done"
+                else None
+            ),
         }
 
     @mcp.tool()
@@ -1603,139 +1615,17 @@ def build_server() -> FastMCP:
             pages ([{page_num, text, score}]), outline ([{title, page_num, level}]),
             is_empty_pdf
         """
-        from .search import lexical_score
-        from .parsers.pdf import get_page_count, parse_page_window, _extract_pdf_toc
+        from . import plugin_api
 
         paths = _resolve_paths(workspace_path)
-
-        # Resolve the file path
-        resolved = Path(file_path).expanduser().resolve()
-        if not resolved.exists():
-            return {"ok": False, "error": f"File not found: {file_path}"}
-        if resolved.suffix.lower() != ".pdf":
-            return {"ok": False, "error": f"Not a PDF file: {file_path}"}
-
-        # Check if source is tracked in DB
-        row = _get_source_row(paths, source_path=str(resolved))
-        source_tracked = row is not None
-        source_id_val: int | None = int(row["id"]) if row else None
-
-        try:
-            if source_tracked and row is not None:
-                # Use DB-cached page text — zero re-parsing
-                all_pages: list[dict[str, Any]] = db.list_source_pdf_pages(
-                    paths.state_db, source_id_val
-                )
-                total_pages = len(all_pages)
-
-                # Build window candidates
-                if page_num > 0:
-                    lo = max(1, page_num - radius)
-                    hi = min(total_pages, page_num + radius)
-                    window_set = set(range(lo, hi + 1))
-                else:
-                    window_set = set(range(1, min(max_pages * 3, total_pages) + 1))
-
-                candidates = [
-                    p for p in all_pages
-                    if int(p.get("page") or p.get("page_num") or 0) in window_set
-                ]
-
-                # Score by query if provided
-                if query.strip():
-                    scored = [
-                        {**p, "_score": lexical_score(str(p.get("text") or ""), query)}
-                        for p in candidates
-                    ]
-                    scored.sort(key=lambda x: x["_score"], reverse=True)
-                    candidates = scored[:max_pages]
-                else:
-                    candidates = candidates[:max_pages]
-
-                pages_out = [
-                    {
-                        "page_num": int(p.get("page") or p.get("page_num") or 0),
-                        "text": str(p.get("text") or ""),
-                        "score": float(p.get("_score", 0.0)),
-                    }
-                    for p in candidates
-                ]
-                pages_out.sort(key=lambda x: x["page_num"])
-
-                # TOC from DB if available; otherwise from file
-                source_file = paths.root / str(row["relpath"])
-                outline_raw = _extract_pdf_toc(source_file) if source_file.exists() else []
-
-            else:
-                # Untracked: parse only the needed window pages
-                total_pages = get_page_count(resolved)
-                if total_pages == 0:
-                    return {"ok": False, "error": "Could not read PDF (encrypted or corrupt)"}
-
-                if page_num > 0:
-                    lo = max(1, page_num - radius)
-                    hi = min(total_pages, page_num + radius)
-                    window_set = set(range(lo, hi + 1))
-                else:
-                    window_set = set(range(1, min(max_pages, total_pages) + 1))
-
-                # Expand candidates if query provided (score wider, return top N)
-                if query.strip():
-                    candidate_set = set(range(1, min(max_pages * 3, total_pages) + 1))
-                    candidate_set |= window_set
-                else:
-                    candidate_set = window_set
-
-                page_texts = parse_page_window(resolved, candidate_set)
-
-                if query.strip():
-                    scored_pages = [
-                        (pn, text, lexical_score(text, query))
-                        for pn, text in page_texts.items()
-                    ]
-                    scored_pages.sort(key=lambda x: x[2], reverse=True)
-                    top = scored_pages[:max_pages]
-                else:
-                    top = [(pn, text, 0.0) for pn, text in page_texts.items()]
-
-                pages_out = [
-                    {"page_num": pn, "text": text, "score": score}
-                    for pn, text, score in sorted(top, key=lambda x: x[0])
-                ]
-                outline_raw = _extract_pdf_toc(resolved)
-
-            # Build outline
-            outline = [
-                {
-                    "title": str(item.get("title") or ""),
-                    "page_num": int(item.get("page") or item.get("page_num") or 0),
-                    "level": int(item.get("level") or 1),
-                }
-                for item in (outline_raw or [])
-            ]
-
-            is_empty = all(not p["text"].strip() for p in pages_out)
-
-            # Title from DB row or filename
-            title = ""
-            if row:
-                title = str(row.get("title") or "")
-            if not title:
-                title = resolved.stem
-
-            return {
-                "ok": True,
-                "source_tracked": source_tracked,
-                "source_id": source_id_val,
-                "total_pages": total_pages,
-                "title": title,
-                "pages": pages_out,
-                "outline": outline,
-                "is_empty_pdf": is_empty,
-            }
-
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+        return plugin_api.pdf_context(
+            paths,
+            file_path=file_path,
+            query_text=query,
+            page_num=page_num,
+            radius=radius,
+            max_pages=max_pages,
+        )
 
     @mcp.tool()
     def curator_get_provenance(

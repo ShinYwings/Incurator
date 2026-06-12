@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// incuratorClient pulls in the Zotero asset-localization helpers, whose module
+// chain imports "obsidian" at runtime (templateRenderer); mock it for node.
+vi.mock("obsidian", () => ({ moment: (value: string) => ({ format: () => value }) }));
+
 import { IncuratorClient } from "./incuratorClient";
 import type { PluginSettings } from "../types";
 
@@ -38,6 +43,7 @@ function settings(): PluginSettings {
     incuratorRepoPath: "",
     incuratorDefaultDestination: "04_Resources",
     incuratorDefaultImportMode: "reference",
+    incuratorPdfAssetFolder: "",
     incuratorStatusPolling: true,
     zoteroBasePath: "~/Zotero",
     zoteroProfiles: [],
