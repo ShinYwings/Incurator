@@ -14,6 +14,8 @@ modules must never import anything from this directory.
   contract.
 - `wave_a.py`: deterministic Wave A retrieval-unit/control runner.
 - `reports/wave_a.md`: scoped Wave A result and decision posture.
+- `wave_b.py`: deterministic Wave B graph/hierarchy/global/expansion runner.
+- `reports/wave_b.md`: scoped Wave B results, decisions, and limitations.
 - `contracts.py`: validation and mutation-guard helpers.
 - `prepare_inputs.py`: copies SQLite databases with SQLite's online backup API,
   verifies that sources were unchanged, and writes only under ignored `local/`.

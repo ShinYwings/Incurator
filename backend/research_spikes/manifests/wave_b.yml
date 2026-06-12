@@ -1,0 +1,71 @@
+version: 1
+wave: B
+recorded_at: "2026-06-12"
+hypotheses:
+  - Bounded PPR improves associative recall over current depth-limited memory paths without noisy-bridge regression.
+  - Denoising reduces giant components and remains stable under irrelevant edge deletion.
+  - Query-relevant global selection beats current all-report loading under a fixed evidence budget.
+  - Confidence-filtered graph expansion improves multi-hop or homonym resolution with explainable paths.
+fixtures:
+  graph_stress:
+    path: backend/research_spikes/corpora/graph_stress.yml
+    sha256: 7bd3d1e5cd1fb18a249f0bdbcfd5fe5f9b2fee45e99bc109d405a1c3f8590c73
+  evaluation_protocol:
+    path: backend/research_spikes/evaluation_protocol.yml
+    sha256: f664cd85b80660b865a76d9491176d31d8398015128621d5de33536988e6f366
+  production_copy:
+    path: backend/research_spikes/local/snapshots/prod-second-brain.sqlite
+    sha256: fb977f187a57430f4450c3787454fb0a7998d94991c51bd0bdd30805b84560fe
+    committed: false
+partitions:
+  measured: [dev, regression, adversarial]
+  holdout_accessed: false
+baseline_and_controls:
+  associative_baseline: current depth-2 memory-path scoring
+  ppr_candidate: weighted personalized PageRank with explicit restart and iteration limit
+  hierarchy_baseline: raw connected components
+  hierarchy_candidate: confidence-denoised connected components
+  global_baseline: all connected-component reports
+  global_candidate: query-relevant top-1 component selection
+  expansion_baseline: seed retrieval
+  expansion_candidate: confidence-filtered breadth-first expansion
+budgets:
+  ppr_iterations: 30
+  ppr_edge_updates_stress_corpus: 660
+  expansion_max_edges: 8
+  global_selected_components: 1
+metrics:
+  - associative_path_recall
+  - forbidden_evidence_rate
+  - direct_factual_recall_at_2
+  - hard_negative_outranks
+  - giant_component_ratio
+  - deterministic_seed_stability
+  - edge_delete_partition_churn
+  - global_community_precision
+  - selected_component_count
+  - traversed_edge_budget
+  - production_scale_elapsed_ms
+provider_model:
+  provider_calls: 0
+  model_judges: 0
+  prompts: none
+environment:
+  os: Darwin 25.3.0 arm64
+  cpu: Apple M1
+  python: 3.14.5
+commands:
+  - uv run --directory backend pytest -q tests/test_research_spikes_wave_b.py
+  - uv run --directory backend python research_spikes/wave_b.py
+raw_results:
+  path: backend/research_spikes/local/results/wave_b.json
+  sha256_at_recording: a38ddef45f852ac6a22ca20479ef227df65ccc604c4e606f4a5d20d13c53bea4
+  committed: false
+mutation_guard:
+  production_mutations: 0
+  authoritative_testbed_mutations: 0
+  production_copy_read_only: true
+role_separation:
+  dossier_author: research_methodologist
+  spike_executor: coder_engineer
+  decision_reviewer: peer_reviewer

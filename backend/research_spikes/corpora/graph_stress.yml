@@ -46,7 +46,7 @@ queries:
   - id: GQ02
     partition: dev
     family: global
-    text: summarize reef stress and its biological mechanism
+    text: summarize coral bleaching and symbiotic algae
     expected_communities: [reef]
     forbidden_communities: [ml, automobile]
   - id: GQ03
@@ -65,13 +65,13 @@ queries:
   - id: GQ05
     partition: adversarial
     family: direct-factual
-    text: jaguar predator habitat
+    text: jaguar apex predator amazon basin
     expected: [N09, N11]
     hard_negatives: [N10, N12]
   - id: GQ06
     partition: adversarial
     family: direct-factual
-    text: jaguar e-type engine
+    text: jaguar e-type straight-six engine
     expected: [N10, N12]
     hard_negatives: [N09, N11]
   - id: GQ07
