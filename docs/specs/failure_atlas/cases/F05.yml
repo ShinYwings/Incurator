@@ -1,0 +1,60 @@
+# Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
+id: F5
+title: Context packing is a fixed 16,000-character cutoff with silent omission
+query_family: cross-route
+execution_mode: deterministic
+status: assigned
+status_history:
+  - date: "2026-06-11"
+    status: suspected
+    evidence: "Umbrella plan §4, Arena consensus"
+  - date: "2026-06-12"
+    status: reproduced
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f5_baseline_evidence_block_truncates_silently"
+  - date: "2026-06-12"
+    status: assigned
+    evidence: "FAILURE_ATLAS.md §8 — token budgets / progressive disclosure are Program 3 scope"
+owner: program-3
+impact: >
+  Evidence beyond the character budget is dropped with no record: the consuming
+  LLM and the trace both believe the full pack was used. Character counts are
+  not token counts, so the effective budget varies arbitrarily by language and
+  content. No reserved expansion budget, no explicit omission, no progressive
+  disclosure.
+boundary:
+  module: backend/src/curator/retrieval/models.py
+  symbol: EvidencePack.evidence_block
+  detail: >
+    evidence_block(max_chars=16000) (models.py:62-71) breaks out of the item
+    loop when the next chunk would exceed max_chars and returns the joined
+    prefix; dropped items leave no marker in the block, the pack, or the trace.
+fixture: backend/tests/test_failure_atlas_repro.py::test_f5_baseline_evidence_block_truncates_silently
+commands:
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f5_baseline_evidence_block_truncates_silently" -q
+oracles:
+  deterministic: >
+    Context packing enforces an explicit model-aware token budget; items that
+    do not fit are recorded as explicit omissions (in the block and/or the
+    pack/trace) with expansion handles, never silently dropped.
+  semantic: null
+before_state_evidence: >
+  At baseline, an EvidencePack with 20 items of ~1,000 chars each renders an
+  evidence_block of <=16,000 chars containing only a prefix of the items; the
+  block contains no omission marker and the pack records nothing about the
+  dropped items.
+observed_result: >
+  Reproduced 2026-06-12 — 20-item pack rendered 15 items; 5 dropped silently;
+  no omission marker present.
+snapshot:
+  git_sha: 8458f652d5481f377bd957ed1256240aaf470f54
+  version: 0.5.6
+  schema_version: 6
+  scenario: complex_math_backprop
+assignment:
+  program: program-3
+  gate: >
+    Every route passes token-budget, snapshot, provenance, locator, and
+    degraded-mode fixtures (Program 3 release gate; umbrella P3.2).
+notes: >
+  Oracle test: test_f5_oracle_evidence_block_reports_explicit_omissions
+  (strict xfail).

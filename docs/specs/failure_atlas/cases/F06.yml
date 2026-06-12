@@ -1,0 +1,63 @@
+# Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
+id: F6
+title: Synthesis items without declared spans are grounded to ALL upstream spans
+query_family: compiler
+execution_mode: deterministic
+status: assigned
+status_history:
+  - date: "2026-06-11"
+    status: suspected
+    evidence: "Umbrella plan §4, Arena consensus"
+  - date: "2026-06-12"
+    status: reproduced
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f6_baseline_synthesis_empty_spans_fall_back_to_all_upstream"
+  - date: "2026-06-12"
+    status: assigned
+    evidence: "FAILURE_ATLAS.md §8 — claim-level grounding is Program 2 P2.3 scope"
+owner: program-2
+impact: >
+  An unsupported generated claim is stored looking fully grounded: a synthesis
+  node whose model output cited zero spans is persisted citing EVERY span any
+  community report depends on, plus matching artifact_dependencies rows.
+  Claim-support verification downstream cannot distinguish it from genuinely
+  supported synthesis. A valid span id is treated as proof of support — the
+  exact anti-pattern the truth contract forbids.
+boundary:
+  module: backend/src/curator/pipeline/synthesis.py
+  symbol: generate_synthesis
+  detail: >
+    synthesis.py:110 — `item_spans = list(item.source_span_ids) or span_ids`
+    where span_ids is the union of ALL reports' spans. Reachable because the
+    curator.synthesis_write contract's validator chain ("source_span_ids",
+    "confidence_range", "no_source_truth_pollution") omits the registered
+    "requires_source_spans" validator, so an empty span list passes
+    validation.
+fixture: backend/tests/test_failure_atlas_repro.py::test_f6_baseline_synthesis_empty_spans_fall_back_to_all_upstream
+commands:
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f6_baseline_synthesis_empty_spans_fall_back_to_all_upstream" -q
+oracles:
+  deterministic: >
+    A stored synthesis node's source_span_ids equal exactly the spans the
+    model declared for that item. An item with no declared spans is stored in
+    an explicit provisional/unsupported state (or rejected), never silently
+    grounded to upstream spans. 0 broad all-upstream-span fallbacks.
+  semantic: null
+before_state_evidence: >
+  At baseline, generate_synthesis with a fake client returning one synthesis
+  item with source_span_ids: [] persists a synthesis_nodes row whose
+  source_span_ids equal the union of all upstream report spans, with
+  artifact_dependencies rows for each.
+observed_result: >
+  Reproduced 2026-06-12 — node stored with all 4 upstream spans despite the
+  model declaring none; 4 artifact_dependencies rows created.
+snapshot:
+  git_sha: 8458f652d5481f377bd957ed1256240aaf470f54
+  version: 0.5.6
+  schema_version: 6
+  scenario: complex_math_backprop
+assignment:
+  program: program-2
+  gate: "0 broad all-upstream-span grounding fallbacks (Program 2 release gate)."
+notes: >
+  Oracle test: test_f6_oracle_synthesis_spans_match_declared_support
+  (strict xfail).

@@ -1,0 +1,69 @@
+# Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
+id: F12
+title: External MCP and Obsidian plugin do not share one normalized context contract
+query_family: client-parity
+execution_mode: deterministic
+status: assigned
+status_history:
+  - date: "2026-06-11"
+    status: suspected
+    evidence: "Umbrella plan §4, Arena consensus"
+  - date: "2026-06-12"
+    status: reproduced
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f12_baseline_mcp_plugin_shapes_diverge"
+  - date: "2026-06-12"
+    status: assigned
+    evidence: "FAILURE_ATLAS.md §8 — unified ContextService is Program 3 / Plan F scope"
+owner: program-3
+impact: >
+  Equivalent requests from an external agent (MCP) and the Obsidian plugin
+  travel different code paths and return structurally different evidence:
+  the MCP path returns an orchestrator pack with trace_id/source_span_ids,
+  while the plugin path has its own persona-boost, fallback, and trace shape.
+  Cross-client answer parity cannot be measured, and fixes to one surface
+  silently miss the other.
+boundary:
+  module: backend/src/curator/plugin_api.py
+  symbol: curator_query
+  detail: >
+    MCP curator_fetch_context / curator_query (mcp_server.py:3174-3207)
+    delegate to QueryOrchestrator. plugin_api.curator_query
+    (plugin_api.py:678-826) is an independent implementation with its own
+    persona boost-term resolution, its own l3_incomplete fallback payload
+    (fallback_hits + trace dict without QTR trace_id), and its own response
+    schema. No shared normalized evidence-pack model exists.
+fixture: backend/tests/test_failure_atlas_repro.py::test_f12_baseline_mcp_plugin_shapes_diverge
+commands:
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f12_baseline_mcp_plugin_shapes_diverge" -q
+oracles:
+  deterministic: >
+    For an equivalent request, the backend evidence delivered to external MCP
+    clients and to the Obsidian plugin normalizes to the same evidence-pack
+    contract (same core fields: route, trace identity, evidence items with
+    span provenance), with client-owned immediate viewer context explicitly
+    separated and excluded from the parity comparison.
+  semantic: null
+before_state_evidence: >
+  At baseline, for the same question on the same vault,
+  QueryOrchestrator.fetch_context returns keys including route/trace_id/
+  evidence/source_span_ids, while plugin_api.curator_query (provider-free
+  fallback path) returns answer/fallback/fallback_hits/trace with no QTR
+  trace_id and no source_span_ids — the shapes share almost no contract.
+observed_result: >
+  Reproduced 2026-06-12 — key-set comparison shows the plugin payload lacks
+  trace_id-linked evidence and span provenance entirely; shared keys are
+  insufficient to reconstruct equivalent evidence.
+snapshot:
+  git_sha: 8458f652d5481f377bd957ed1256240aaf470f54
+  version: 0.5.6
+  schema_version: 6
+  scenario: complex_math_backprop
+assignment:
+  program: program-3
+  gate: >
+    External MCP and Obsidian normalized packs are equivalent (Program 3
+    release gate; Plan F ContextService).
+notes: >
+  Client-owned immediate viewer context (open note, selection) is explicitly
+  out of parity scope per Arena consensus #5. Oracle test:
+  test_f12_oracle_normalized_pack_parity (strict xfail).

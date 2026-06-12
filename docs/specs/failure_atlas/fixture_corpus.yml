@@ -1,0 +1,80 @@
+# Frozen synthetic fixture corpus for the Failure Atlas evaluation baseline.
+# See FAILURE_ATLAS.md §1/§9 and EVALUATION_BASELINE.md. All content is
+# invented for this repository — no live-vault material (privacy contract).
+#
+# Documents are projected into a temporary search corpus exactly as the
+# materializer would (search_documents + provenance), then queried with the
+# deterministic lexical engine. Editing this file invalidates the recorded
+# baseline metrics: bump `version` and re-measure.
+version: 1
+documents:
+  - record_id: ATM-fc000001
+    record_type: knowledge_unit
+    title: Residual learning
+    body: >
+      Residual connections ease optimization in very deep networks by letting
+      layers fit residual functions instead of full mappings.
+    source_span_ids: [SPAN-fc000001]
+  - record_id: ATM-fc000002
+    record_type: knowledge_unit
+    title: Attention mechanism
+    body: >
+      Attention weights tokens by relevance across the sequence, letting
+      transformers model long-range dependencies.
+    source_span_ids: [SPAN-fc000002]
+  - record_id: ATM-fc000003
+    record_type: knowledge_unit
+    title: Batch normalization
+    body: >
+      Batch normalization stabilizes layer input distributions and accelerates
+      training of deep networks.
+    source_span_ids: [SPAN-fc000003]
+  - record_id: ATM-fc000004
+    record_type: knowledge_unit
+    title: Dropout regularization
+    body: >
+      Dropout regularizes networks by randomly deactivating units during
+      training, reducing co-adaptation.
+    source_span_ids: [SPAN-fc000004]
+  - record_id: ATM-fc000005
+    record_type: knowledge_unit
+    title: Coral bleaching
+    body: >
+      Coral bleaching occurs when heat stress causes corals to expel their
+      symbiotic zooxanthellae algae.
+    source_span_ids: [SPAN-fc000005]
+  - record_id: ATM-fc000006
+    record_type: knowledge_unit
+    title: Reef calcification
+    body: >
+      Reef calcification depends on aragonite saturation in seawater carbonate
+      chemistry.
+    source_span_ids: [SPAN-fc000006]
+  - record_id: ATM-fc000007
+    record_type: knowledge_unit
+    title: Mangrove nurseries
+    body: >
+      Mangrove forests act as nurseries sheltering juvenile reef fish from
+      predators before they migrate to the reef.
+    source_span_ids: [SPAN-fc000007]
+  - record_id: ATM-fc000008
+    record_type: knowledge_unit
+    title: Jaguar (animal)
+    body: >
+      The jaguar is an apex predator big cat ranging across the Amazon basin
+      and preying on capybara and caiman.
+    source_span_ids: [SPAN-fc000008]
+  - record_id: ATM-fc000009
+    record_type: knowledge_unit
+    title: Jaguar E-Type (car)
+    body: >
+      Jaguar produced the E-Type sports car with a straight-six engine,
+      launched in 1961.
+    source_span_ids: [SPAN-fc000009]
+  - record_id: ATM-fc000010
+    record_type: knowledge_unit
+    title: Euler discretization
+    body: >
+      Euler discretization approximates ordinary differential equation
+      trajectories with fixed integration steps.
+    source_span_ids: [SPAN-fc000010]

@@ -1,0 +1,74 @@
+# Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
+id: F7
+title: Rebuild idempotency, atomicity, and dependency-closure invalidation are unproven; stale L1 rows linger after edits
+query_family: compiler
+execution_mode: deterministic
+status: assigned
+status_history:
+  - date: "2026-06-11"
+    status: suspected
+    evidence: "Umbrella plan §4, Arena consensus"
+  - date: "2026-06-12"
+    status: reproduced
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f7_baseline_no_dependency_invalidation_and_stale_spans_linger"
+  - date: "2026-06-12"
+    status: assigned
+    evidence: "FAILURE_ATLAS.md §8 — transactional compile/reconciliation is Program 2 P2.2 scope"
+owner: program-2
+impact: >
+  After a source edit, old spans remain authoritative rows alongside new ones
+  and downstream artifacts (reports/synthesis) keep citing the stale spans
+  with no mechanism to find or invalidate them. dependency_hash values are
+  written but never verified against current upstream content, so staleness
+  is invisible. Failed mid-compile batches can leave partial state.
+boundary:
+  module: backend/src/curator/pipeline/source_spans.py
+  symbol: store_source_spans
+  detail: >
+    Span ids are content-hash addressed, so edited content creates NEW span
+    rows while old rows linger (no reconciliation/delete pass at store time).
+    db.py exposes record_artifact_dependency writes but no API to query or
+    invalidate stale dependents (grep: no invalidate/stale-closure function;
+    only jobs.recover_stale_jobs exists, which is unrelated). No test in
+    backend/tests proves unchanged-rebuild idempotency at L2+ or atomic
+    failed-batch behavior.
+fixture: backend/tests/test_failure_atlas_repro.py::test_f7_baseline_no_dependency_invalidation_and_stale_spans_linger
+commands:
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f7_baseline_no_dependency_invalidation_and_stale_spans_linger" -q
+  - uv run --directory backend pytest "tests/test_failure_atlas_experiments.py" -q
+oracles:
+  deterministic: >
+    Unchanged rebuild produces identical authoritative records and dependency
+    hashes; a one-source edit regenerates only the measured dependency
+    closure and reconciles (removes or tombstones) stale spans and their
+    dependents; a failed compile batch leaves no partial authoritative state.
+  semantic: null
+before_state_evidence: >
+  At baseline, storing spans for a source, then re-storing with edited
+  content, leaves both the old and new span rows in source_spans (count
+  grows), while a synthesis node citing the old span id remains in place and
+  no API exists to enumerate artifacts invalidated by the change.
+observed_result: >
+  Reproduced 2026-06-12 — edit created new span ids; old span rows remained
+  (span count grew); stale-citing synthesis node untouched; no invalidation
+  API found. Partial pass recorded: unchanged re-store of identical content
+  IS id-stable at L1, and search upsert by (record_type, record_id) is
+  row-idempotent (see experiments module).
+snapshot:
+  git_sha: 8458f652d5481f377bd957ed1256240aaf470f54
+  version: 0.5.6
+  schema_version: 6
+  scenario: complex_math_backprop
+assignment:
+  program: program-2
+  gate: >
+    Unchanged rebuild produces identical authoritative records/dependency
+    hashes; one-source edit regenerates only the expected dependency closure;
+    failed compile produces no partial authoritative state (Program 2 release
+    gates).
+notes: >
+  L2+ atomicity under live LLM compile is execution_mode: provider and is
+  scheduled for D2/E benchmarking (blocked: provider — documented gap). The
+  deterministic portion (stale L1 rows, missing invalidation API) is fully
+  reproduced provider-free. Oracle test:
+  test_f7_oracle_source_edit_reconciles_stale_spans (strict xfail).

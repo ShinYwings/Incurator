@@ -1,0 +1,65 @@
+# Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
+id: F9
+title: Authored note topology (wikilinks/embeds/tags/frontmatter refs) is never compiled into the graph
+query_family: compiler
+execution_mode: deterministic
+status: assigned
+status_history:
+  - date: "2026-06-11"
+    status: suspected
+    evidence: "Umbrella plan §4, Arena consensus"
+  - date: "2026-06-12"
+    status: reproduced
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f9_baseline_authored_wikilinks_not_compiled"
+  - date: "2026-06-12"
+    status: assigned
+    evidence: "FAILURE_ATLAS.md §8 — note-native IR / authored topology is Program 2 P2.1 scope"
+owner: program-2
+impact: >
+  A human-authored wikilink is the highest-confidence semantic edge in the
+  vault, yet the compiled graph contains only LLM-inferred relations. Authored
+  and extracted topology are not merely indistinguishable — authored topology
+  is absent entirely, so retrieval and graph traversal cannot use the
+  strongest signal the vault offers (vault-as-codebase: imports are ignored).
+boundary:
+  module: backend/src/curator/pipeline
+  symbol: compile_source
+  detail: >
+    grep for "wikilink" across backend/src/curator/pipeline/ returns zero
+    hits. Wikilinks are parsed elsewhere (page_writer.py, lint.py, sync.py)
+    for index/lint purposes, but the L1→L4 compile path
+    (source_spans/knowledge_units/graph_index) never converts an authored
+    [[link]], embed, tag, or frontmatter ref into a graph edge or any other
+    topology record.
+fixture: backend/tests/test_failure_atlas_repro.py::test_f9_baseline_authored_wikilinks_not_compiled
+commands:
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f9_baseline_authored_wikilinks_not_compiled" -q
+oracles:
+  deterministic: >
+    Compiling a note containing authored [[wikilinks]] produces distinct
+    high-confidence topology records (e.g. graph_relations with an
+    assertion_source identifying human authorship, or a dedicated authored
+    edge table) that remain distinguishable from LLM-extracted relations and
+    from semantic similarity.
+  semantic: null
+before_state_evidence: >
+  At baseline, storing L1 spans for a markdown note containing [[Residual
+  Learning]] and [[Euler Method]] wikilinks leaves graph_relations and
+  dag_edges completely empty — no record anywhere encodes the authored links.
+observed_result: >
+  Reproduced 2026-06-12 — after L1 compile of a wikilinked note:
+  graph_relations rows = 0, dag_edges rows = 0; authored links nowhere in DB.
+snapshot:
+  git_sha: 8458f652d5481f377bd957ed1256240aaf470f54
+  version: 0.5.6
+  schema_version: 6
+  scenario: complex_math_backprop
+assignment:
+  program: program-2
+  gate: >
+    Authored wikilinks, embeds, backlinks, aliases, tags, frontmatter refs,
+    and citations compiled as distinct high-confidence topology (umbrella
+    P2.1).
+notes: >
+  Oracle test: test_f9_oracle_authored_links_compiled_as_topology
+  (strict xfail).

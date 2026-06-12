@@ -23,7 +23,7 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 
 ### 🚀 Unresolved Items to be Addressed in the Future (To-Do)
 
-1. **[Major Update] RAG & Knowledge Quality Stabilization**
+1. **[Major Update] RAG & Knowledge Quality Stabilization** — *IN PROGRESS*
    - Heart-of-system three-program initiative for using the notes vault like a
      codebase: first establish the truth contract, deep diagnosis, external
      research, and quality observatory; then make the note-to-L1-L4 evidence
@@ -38,6 +38,11 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
    - Batch 1: `.agents/plans/D_current_system_failure_atlas.md` D1 →
      `.agents/plans/E_external_research_design_matrix.md` →
      `.agents/plans/D_current_system_failure_atlas.md` D2
+     - **D1 shipped as v0.6.0** (2026-06-12): Failure Atlas spec + case
+       records F1–F13 (all reproduced & assigned), deterministic
+       repro/oracle/contract/experiment/eval suites, frozen fixture corpus +
+       qrels + baseline. Next in batch: **Plan E** (starts only after the
+       v0.6.0 PR merges).
    - Batch 2: `.agents/plans/B_math_extraction_distillation.md` →
      `.agents/plans/C_graph_quality.md`
    - Batch 3: `.agents/plans/A_rag_retrieval_provenance.md` →

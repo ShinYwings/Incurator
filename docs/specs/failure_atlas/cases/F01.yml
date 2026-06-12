@@ -1,0 +1,66 @@
+# Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
+id: F1
+title: Search-hit provenance dropped at EngineHit→SearchHit conversion and evidence assembly
+query_family: direct-factual
+execution_mode: deterministic
+status: assigned
+status_history:
+  - date: "2026-06-11"
+    status: suspected
+    evidence: "Umbrella plan §4 (.agents/plans/03_rag_knowledge_quality_stabilization.md), Arena consensus"
+  - date: "2026-06-12"
+    status: reproduced
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f1_baseline_search_hit_items_drop_source_span_ids"
+  - date: "2026-06-12"
+    status: assigned
+    evidence: "FAILURE_ATLAS.md §8 — critical provenance adapter; unresolved hit provenance invalidates every retrieval measurement"
+owner: plan-d2
+impact: >
+  Hybrid-search evidence reaching agents and answer synthesis carries no
+  source_span_ids, so search-derived claims cannot be verified against exact
+  source evidence. Citation validation (valid_span_ids) silently excludes
+  search-hit material, and "grounded" answers built from search hits are
+  unverifiable.
+boundary:
+  module: backend/src/curator/search.py
+  symbol: query
+  detail: >
+    HybridEngine hydrates EngineHit.source_span_ids
+    (retrieval/engine.py:46,184) and even aggregates them into the persisted
+    trace (engine.py:348), but search.py::query() converts EngineHit to the
+    legacy SearchHit dataclass (search.py:50-58) which has NO source_span_ids
+    field. retrieval/evidence.py::_search_hits() (lines 51-60) then builds
+    EvidenceItem without span ids — it could not recover them even if it tried.
+fixture: backend/tests/test_failure_atlas_repro.py::test_f1_baseline_search_hit_items_drop_source_span_ids
+commands:
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f1_baseline_search_hit_items_drop_source_span_ids" -q
+oracles:
+  deterministic: >
+    Every EvidenceItem of kind "search_hit" must carry the source_span_ids that
+    the engine hydrated for that hit, and those ids must resolve to
+    source_spans rows. Id validity alone is not claim support: correctness
+    (the span backs the hit's content) is asserted by construction in the
+    fixture corpus.
+  semantic: null
+before_state_evidence: >
+  At baseline, build_evidence(route=local) on a corpus whose search documents
+  declare provenance {"source_span_ids": [...]} returns search_hit items with
+  source_span_ids == [] for every hit, while the engine-persisted QTR trace for
+  the same physical search carries the non-empty hydrated span ids.
+observed_result: >
+  Reproduced 2026-06-12 — search_hit items: 2/2 with empty source_span_ids;
+  engine trace source_span_ids non-empty for the same query.
+snapshot:
+  git_sha: 8458f652d5481f377bd957ed1256240aaf470f54
+  version: 0.5.6
+  schema_version: 6
+  scenario: complex_math_backprop
+assignment:
+  program: plan-d2
+  gate: >
+    100% selected source-supported evidence has resolvable record and source
+    ids (Program 1 release gate). This is the single critical provenance
+    adapter repair P5 is allowed to make.
+notes: >
+  Oracle test: test_f1_oracle_search_hit_items_carry_source_span_ids
+  (strict xfail until repaired).

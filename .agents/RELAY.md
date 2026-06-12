@@ -1,16 +1,32 @@
 # Agent Relay State
 
-## Status: IDLE
+## Status: AWAITING MERGE — Program 1 / Plan D1 shipped as v0.6.0
 
-No active goal. PR #23 (`release v0.5.6` — PDF add-source asset routing,
-inert "Added" badge, adaptive PDF routing correction, docs audit) was merged
-to `master` on 2026-06-12 (merge commit `8625668`). The feature branch is
-deleted locally and on origin; implemented plan artifacts live in Git history.
+- **Goal**: ROADMAP To-Do #1 Batch 1, first release: Plan D1 Failure Atlas
+  diagnostic baseline. User approved via `/goal 다음 마일스톤 진행해`
+  (2026-06-12).
+- **Branch**: `release/v0.6.0` (from `master` @ `8458f65`). PR open — the
+  human's only action is to review and merge it on GitHub.
+- **Plan**: `.agents/plans/D_current_system_failure_atlas.md` phases P0–P4
+  complete. The D1 evidence ledger was deleted in the release commit per the
+  Universal Strict Workflow (full content in Git history of this branch).
 
-## Next Candidate (NOT started — requires explicit user approval)
-ROADMAP To-Do #1 **RAG & Knowledge Quality Stabilization** (Major Update).
-- Umbrella plan: `.agents/plans/03_rag_knowledge_quality_stabilization.md`
-- Execution order: Batch 1 `D1 → E → D2` (failure atlas / external research /
-  observatory), Batch 2 `B → C` (compiler integrity), Batch 3 `A → F`
-  (retrieval substrate / ContextService). Component plans `A`–`F` each have an
-  Arena and Master Plan in `.agents/plans/`.
+## What shipped (diagnostics only — zero runtime behavior change)
+
+- `docs/specs/failure_atlas/` — FAILURE_ATLAS.md contract, cases F01–F13
+  (all `reproduced` → `assigned`), EVALUATION_BASELINE.md,
+  fixture_corpus.yml, qrels.yml.
+- `backend/tests/test_failure_atlas_{contract,repro,experiments,eval}.py` —
+  13 passing baselines + 13 strict-xfail oracles + experiments + frozen
+  lexical baseline. Local CI: backend 643 passed / 13 xfailed; vitest 361
+  passed; ruff clean; spec titles + ACTIVE_VERSION + 3 manifests at 0.6.0.
+- Known pre-existing (not D1): `mypy src/` has 73 errors on master (CI does
+  not gate mypy); `ruff check tests/` has 6 findings in old test files.
+
+## Immediate Next Action (after this PR merges)
+
+Per the Intermission Gate in the D plan: start **Plan E**
+(`.agents/plans/E_external_research_design_matrix.md`) on a fresh branch from
+post-merge `master`. Plan E benchmarks external technique candidates against
+the reproduced atlas failures (by case id) and produces the ADR decision
+package. D2 resumes only after E merges. Do NOT start Program 2/3 work.

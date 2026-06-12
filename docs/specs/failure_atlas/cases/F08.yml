@@ -1,0 +1,67 @@
+# Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
+id: F8
+title: Exact-name entity merging (homonym false-merge) and connected-component giant communities
+query_family: compiler
+execution_mode: deterministic
+status: assigned
+status_history:
+  - date: "2026-06-11"
+    status: suspected
+    evidence: "Umbrella plan §4, Arena consensus"
+  - date: "2026-06-12"
+    status: reproduced
+    evidence: "backend/tests/test_failure_atlas_repro.py::test_f8_baseline_exact_name_merge_and_giant_component"
+  - date: "2026-06-12"
+    status: assigned
+    evidence: "FAILURE_ATLAS.md §8 — entity resolution / hierarchy quality is Program 2 P2.4 scope"
+owner: program-2
+impact: >
+  Homonyms from unrelated domains are silently merged into one entity (their
+  span references unioned), poisoning every downstream relation, community,
+  report, and synthesis that touches the entity. Conversely, aliases split
+  into separate entities. Community detection is plain connected components,
+  so any chain of weak relations collapses the graph into one giant
+  community, making "community" reports corpus-wide mush.
+boundary:
+  module: backend/src/curator/db.py
+  symbol: upsert_graph_entity
+  detail: >
+    Entities are deduplicated by exact (canonical_name, entity_type) string
+    match (db.py:1553-1573) — no alias handling, no homonym protection.
+    pipeline/graph_index.py:136 keys name_to_id on canonical_name alone.
+    pipeline/community_reports.py:58-76 detects communities as connected
+    components (union-find) over all relations regardless of weight or
+    support.
+fixture: backend/tests/test_failure_atlas_repro.py::test_f8_baseline_exact_name_merge_and_giant_component
+commands:
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f8_baseline_exact_name_merge_and_giant_component" -q
+oracles:
+  deterministic: >
+    On the adversarial homonym fixture (same surface name, unrelated
+    domains), the compiler stores distinct entities or an explicit reviewable
+    merge proposal — 0 silent homonym false merges. On the chain fixture, the
+    hierarchy does not produce one unexplained giant component containing
+    every entity.
+  semantic: null
+before_state_evidence: >
+  At baseline, upserting "Transformer (electrical device)" and "Transformer
+  (neural architecture)" with the same canonical_name and entity_type returns
+  the same entity id with unioned spans; chaining 10 entities with one weak
+  relation each yields exactly one detected community containing all 10.
+observed_result: >
+  Reproduced 2026-06-12 — homonym upserts returned identical entity id (span
+  refs unioned across domains); 10-entity weak chain produced 1 community of
+  size 10.
+snapshot:
+  git_sha: 8458f652d5481f377bd957ed1256240aaf470f54
+  version: 0.5.6
+  schema_version: 6
+  scenario: complex_math_backprop
+assignment:
+  program: program-2
+  gate: >
+    0 homonym false merges in adversarial fixtures; hierarchy is seed-stable
+    and has no unexplained giant component (Program 2 release gates).
+notes: >
+  Oracle test: test_f8_oracle_homonyms_distinct_and_no_giant_component
+  (strict xfail).

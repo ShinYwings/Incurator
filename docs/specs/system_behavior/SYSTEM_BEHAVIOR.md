@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.5.6)
+# Incurator - System Behavior (v0.6.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1452,3 +1452,30 @@ inspect files according to `.gitignore`; ignored files are not added. The
 `.curator/` directory and local SQLite/vector/search indexes should be excluded
 from Git tracking. If `.curator/` is not ignored, status returns a warning rather
 than silently editing `.gitignore`.
+
+## 25. Failure Atlas Diagnostic Contract (v0.6.0)
+
+v0.6.0 is a diagnostics-only release: it changes **no** runtime behavior,
+schema, or API. It freezes the Program-1 truth contract for the RAG & Knowledge
+Quality Stabilization program as a versioned Failure Atlas.
+
+- The atlas contract, case records (F1–F13), evaluation baseline, frozen
+  fixture corpus, and qrels live in `docs/specs/failure_atlas/`
+  (`FAILURE_ATLAS.md` is the contract; `cases/F*.yml` are the authoritative
+  machine-readable records).
+- Every known end-to-end quality failure is classified
+  (`reproduced`/`disproven`/`accepted`/`assigned`) with a minimal deterministic
+  fixture, exact code boundary, capture-before-repair evidence, and a
+  downstream owner (Plan D2, Program 2, or Program 3).
+- Reproduction tests in `backend/tests/test_failure_atlas_repro.py` encode the
+  contract mechanically: `*_baseline_*` tests assert the current defective
+  behavior (they pass today and pin it), `*_oracle_*` tests assert the desired
+  contract as strict xfail. Fixing a failure makes its oracle XPASS and fails
+  CI until the fixer deliberately removes the marker and updates the atlas
+  record in the same change — downstream programs cannot silently redefine an
+  oracle.
+- The deterministic retrieval baseline (lexical mode, frozen synthetic corpus)
+  and the no-tuning holdout discipline are specified in
+  `docs/specs/failure_atlas/EVALUATION_BASELINE.md` and enforced by
+  `backend/tests/test_failure_atlas_eval.py`. Proposed thresholds in that
+  document are not binding until user approval.
