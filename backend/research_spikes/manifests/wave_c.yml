@@ -1,0 +1,76 @@
+version: 1
+wave: C
+recorded_at: "2026-06-12"
+hypotheses:
+  - Complexity-aware routing matches the correct route more often than always-local or always-most-complex while avoiding the highest token cost.
+  - A retrieval sufficiency gate beats one-shot task success at a lower correction rate than always-correct, but its recall is bounded by evaluator blind spots.
+  - Bounded iterative retrieval completes multi-step tasks one-shot cannot, stays within 1 + max_followups retrievals, and never mixes snapshots.
+  - Progressive disclosure recovers every omitted relevant item through stable handles, unlike a silent fixed character block or fixed top-k.
+fixtures:
+  serving_stress:
+    path: backend/research_spikes/corpora/serving_stress.yml
+    sha256: 521387429581e2d4f021ab288b36fc1fa49f25f662e0b153817f782a99244228
+  evaluation_protocol:
+    path: backend/research_spikes/evaluation_protocol.yml
+    sha256: f664cd85b80660b865a76d9491176d31d8398015128621d5de33536988e6f366
+partitions:
+  measured: [dev, regression, adversarial]
+  holdout_accessed: false
+baseline_and_controls:
+  routing_baseline: current deterministic router signals
+  routing_candidate: complexity-aware route selection over fixed routes
+  routing_controls: [always-local, always-most-complex]
+  sufficiency_baseline: one-shot retrieval
+  sufficiency_candidate: evaluator-gated bounded correction
+  sufficiency_control: always-run-one-correction
+  iterative_baseline: one-shot retrieval
+  iterative_candidate: bounded iterative retrieval (<= 1 + max_followups)
+  iterative_control: one deterministic follow-up
+  disclosure_baseline: fixed 16000-character block (EvidencePack.evidence_block default)
+  disclosure_candidate: budgeted progressive disclosure with expansion handles
+  disclosure_control: fixed top-k evidence
+budgets:
+  route_token_cost: {local: 1, global: 3, iterative: 6}
+  sufficiency_threshold: 0.5
+  max_followups: 2
+  max_retrieval_iterations: 3
+  disclosure_budget_chars: 350
+  disclosure_top_k: 2
+metrics:
+  - route_accuracy
+  - route_token_cost
+  - route_task_success
+  - sufficiency_gate_precision
+  - sufficiency_gate_recall
+  - correction_rate
+  - sufficiency_task_success
+  - bounded_retrieval_iterations
+  - iterative_task_success
+  - snapshot_consistency
+  - context_precision
+  - recoverable_context_recall
+  - disclosure_task_success
+provider_model:
+  provider_calls: 0
+  model_judges: 0
+  prompts: none
+environment:
+  os: Darwin 25.3.0 arm64
+  cpu: Apple M1
+  python: 3.10.9
+commands:
+  - uv run --directory backend pytest -q tests/test_research_spikes_wave_c.py
+  - uv run --directory backend python research_spikes/wave_c.py
+raw_results:
+  path: backend/research_spikes/local/results/wave_c.json
+  sha256_at_recording: bd472826ed544a049d3ceb9a910535c67372a5ab681df25391c87196ee5de6f8
+  committed: false
+mutation_guard:
+  production_mutations: 0
+  authoritative_testbed_mutations: 0
+  production_state_read: false
+  provider_free: true
+role_separation:
+  dossier_author: research_methodologist
+  spike_executor: coder_engineer
+  decision_reviewer: peer_reviewer

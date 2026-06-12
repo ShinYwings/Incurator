@@ -1,0 +1,119 @@
+# Synthetic Plan E Wave C corpus. No live-vault content.
+version: 1
+description: >
+  Serving stress corpus for complexity-aware routing, retrieval sufficiency /
+  corrective gating, bounded iterative retrieval, and progressive context
+  disclosure. Every case carries hand-computable oracle labels so each policy
+  comparison is deterministic and provider-free. Token and character counts are
+  synthetic proxies scaled for hand calculation; the disclosure budget maps to
+  the production `EvidencePack.evidence_block(max_chars=16000)` default.
+partitions:
+  dev: [RT01, SF01, IT01, DC01]
+  regression: [RT02, SF02, IT02, DC02]
+  adversarial: [RT03, SF03, IT03, DC03]
+  holdout: [HQ01]
+budgets:
+  route_token_cost:
+    local: 1
+    global: 3
+    iterative: 6
+  sufficiency_threshold: 0.5
+  max_followups: 2
+  disclosure_budget_chars: 350
+  disclosure_top_k: 2
+routing:
+  # expected_route is the oracle; the deterministic classifier under test reads
+  # only `text`. route accuracy = classifier route == expected_route.
+  - id: RT01
+    partition: dev
+    expected_route: local
+    text: what is residual learning
+  - id: RT02
+    partition: regression
+    expected_route: global
+    text: summarize the overall themes across all sources
+  - id: RT03
+    partition: adversarial
+    expected_route: iterative
+    text: how does residual learning connect to continuous-depth models and then relate to attention
+  - id: HQ01
+    partition: holdout
+    frozen: true
+    expected_route: local
+    text: hidden holdout routing probe
+sufficiency:
+  # evaluator_score is the CRAG-style retrieval-evaluator output the gate reads.
+  # needs_correction is the independent oracle truth. oneshot_recall and
+  # corrected_recall drive task success. SF03 is an honest false-negative: the
+  # evaluator overrates a one-shot pass that actually omits a contradicting span.
+  - id: SF01
+    partition: dev
+    evaluator_score: 0.9
+    needs_correction: false
+    oneshot_recall: 1.0
+    corrected_recall: 1.0
+    snapshot: SNAP-SF01
+  - id: SF02
+    partition: regression
+    evaluator_score: 0.3
+    needs_correction: true
+    oneshot_recall: 0.5
+    corrected_recall: 1.0
+    snapshot: SNAP-SF02
+  - id: SF03
+    partition: adversarial
+    evaluator_score: 0.8
+    needs_correction: true
+    oneshot_recall: 0.5
+    corrected_recall: 1.0
+    snapshot: SNAP-SF03
+iterative:
+  # hops list the evidence revealed at each executed retrieval. one-shot reads
+  # hop 0 only; one deterministic follow-up reads hops 0-1; bounded iterative
+  # accumulates hops until expected_evidence is covered or 1 + max_followups
+  # retrievals are spent. A single snapshot per case forbids snapshot mixing.
+  - id: IT01
+    partition: dev
+    snapshot: SNAP-IT01
+    hops: [[A1], [B1]]
+    expected_evidence: [A1, B1]
+  - id: IT02
+    partition: regression
+    snapshot: SNAP-IT02
+    hops: [[A2], [B2], [C2]]
+    expected_evidence: [A2, B2, C2]
+  - id: IT03
+    partition: adversarial
+    snapshot: SNAP-IT03
+    hops: [[A3], [B3], [C3], [D3]]
+    expected_evidence: [A3, B3, C3, D3]
+disclosure:
+  # items are listed in retrieval order. The fixed block fills greedily in this
+  # order and breaks on overflow with no omission signal. Fixed top-k keeps the
+  # first k items in order. Progressive disclosure fills by relevance within the
+  # budget and emits stable expansion handles for every omitted item.
+  - id: DC01
+    partition: dev
+    snapshot: SNAP-DC01
+    expected_relevant: [E1, E3, E4]
+    items:
+      - {id: E1, chars: 100, relevant: true}
+      - {id: E2, chars: 200, relevant: false}
+      - {id: E3, chars: 100, relevant: true}
+      - {id: E4, chars: 100, relevant: true}
+  - id: DC02
+    partition: regression
+    snapshot: SNAP-DC02
+    expected_relevant: [F2, F3]
+    items:
+      - {id: F1, chars: 150, relevant: false}
+      - {id: F2, chars: 100, relevant: true}
+      - {id: F3, chars: 100, relevant: true}
+  - id: DC03
+    partition: adversarial
+    snapshot: SNAP-DC03
+    expected_relevant: [G1, G2, G3]
+    items:
+      - {id: G1, chars: 200, relevant: true}
+      - {id: G2, chars: 200, relevant: true}
+      - {id: G3, chars: 200, relevant: true}

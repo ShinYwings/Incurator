@@ -7,6 +7,7 @@ modules must never import anything from this directory.
 ## P0/P1 Scope
 
 - `corpora/graph_stress.yml`: committed synthetic graph-limit corpus.
+- `corpora/serving_stress.yml`: committed synthetic serving-policy corpus.
 - `dossiers/`: primary-source, mechanism-level candidate records.
 - `manifests/p0_baseline_ledger.yml`: frozen repository, corpus, environment,
   and failure-to-candidate identities.
@@ -16,16 +17,21 @@ modules must never import anything from this directory.
 - `reports/wave_a.md`: scoped Wave A result and decision posture.
 - `wave_b.py`: deterministic Wave B graph/hierarchy/global/expansion runner.
 - `reports/wave_b.md`: scoped Wave B results, decisions, and limitations.
+- `wave_c.py`: deterministic Wave C routing/sufficiency/iterative/disclosure
+  serving runner (provider-free; reads only the committed corpus).
+- `reports/wave_c.md`: scoped Wave C results, decisions, and limitations.
 - `contracts.py`: validation and mutation-guard helpers.
 - `prepare_inputs.py`: copies SQLite databases with SQLite's online backup API,
   verifies that sources were unchanged, and writes only under ignored `local/`.
 
-The three research corpus tiers are:
+The research corpus tiers are:
 
 1. D1 Failure Atlas frozen corpus and qrels.
 2. Synthetic graph stress corpus for noisy bridges, homonyms, giant-component
    pressure, multi-hop paths, and query-relevant global selection.
-3. Read-only copied SQLite snapshots under `local/snapshots/` for scale checks.
+3. Synthetic serving stress corpus for complexity routing, sufficiency gating,
+   bounded iterative retrieval, and progressive context disclosure.
+4. Read-only copied SQLite snapshots under `local/snapshots/` for scale checks.
 
 `testbed/` currently contains the `complex_math_backprop` scenario. Its plan
 documents retired EXH-era behavior, so it is recorded as a stale diagnostic
