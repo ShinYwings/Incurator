@@ -267,17 +267,37 @@ def compile_source_l2(
         span_texts = {str(item["id"]): str(item["text"]) for item in span_inputs}
         for unit_id in ku_result.unit_ids:
             validate_claim_support(paths.state_db, unit_id, span_texts=span_texts)
+        # Graph LLM extraction runs DURING staging (returning data IN MEMORY) so a
+        # graph failure occurs BEHIND the publish gate: it discards the staged
+        # units and never leaves a published generation without its graph (§26.3).
+        # The persist (no LLM) happens only after the gate + flip.
+        staged_units = db.list_generation_units(paths.state_db, gen_id)
+        graph_data = graph_index.extract_graph_data(
+            paths.state_db, client, units=staged_units,
+            valid_span_ids=span_ids, curate_spec_hash=curate_spec_hash,
+        )
+        if not graph_data.ok:
+            raise RuntimeError(
+                "graph extraction failed: " + ("; ".join(graph_data.errors) or "unknown")
+            )
         _run_publish_gate(paths.state_db, source_id)
-        # Gate cleared → reconcile stable ids (an unchanged claim's prior stable
-        # id is carried into this generation), then atomically publish: retire the
-        # source's prior-generation units and flip this generation authoritative.
-        reconcile_source(
-            paths.state_db, source_id,
-            current_span_ids=span_ids, candidate_unit_ids=ku_result.unit_ids,
-        )
-        _publish_generation(
-            paths.state_db, source_id, gen_id, _source_content_hash(paths.state_db, source_id)
-        )
+        # Persist the in-memory graph FIRST — graph entities are anchored to L1
+        # spans (not unit ids), so this is safe before reconcile and mutates no
+        # prior authoritative state. If it fails, the staged generation is
+        # discarded cleanly and the prior authoritative generation is untouched.
+        graph = graph_index.persist_graph_data(paths.state_db, graph_data)
+        # Reconcile (which re-tags an unchanged claim's prior stable id into this
+        # generation) + publish run in ONE transaction, so ANY exception rolls
+        # the prior authoritative state back unchanged (§26.3 atomic publish);
+        # the outer except then discards only the still-staged candidates.
+        fingerprint = _source_content_hash(paths.state_db, source_id)
+        with db.connect(paths.state_db) as conn:
+            reconcile_source(
+                paths.state_db, source_id,
+                current_span_ids=span_ids, candidate_unit_ids=ku_result.unit_ids,
+                conn=conn,
+            )
+            _publish_generation(paths.state_db, source_id, gen_id, fingerprint, conn=conn)
     except Exception as e:
         _discard_staged_units(paths.state_db, gen_id)
         db.discard_compiler_generation(paths.state_db, gen_id)
@@ -290,9 +310,9 @@ def compile_source_l2(
             error=f"staged compile failed: {e}",
         )
 
-    # --- Post-publish: emit ATM + graph + search ONLY from the now-authoritative
+    # --- Post-publish: emit ATM + materialize search ONLY from the now-authoritative
     # served set (the DB is truth, so these re-emit from it; never from staged
-    # leftovers).
+    # leftovers). The graph was persisted above inside the publish step.
     units = db.list_serving_units(paths.state_db, source_id)
     atom_ids: list[str] = []
     paths.atoms.mkdir(parents=True, exist_ok=True)
@@ -326,29 +346,8 @@ def compile_source_l2(
                 dependency_hash=unit.get("prompt_run_id") or "",
             )
 
-    # Build the graph from the served units (entities cite stable L1 spans, so
-    # they are generation-agnostic; graph generation-scoping is Plan C).
-    graph = graph_index.extract_entities_and_relations(
-        paths.state_db,
-        client,
-        units=units,
-        valid_span_ids=span_ids,
-        curate_spec_hash=curate_spec_hash,
-    )
-    trace_ids = [t for t in (ku_result.trace_id, graph.trace_id) if t]
-    if not graph.ok:
-        materializer.materialize_search_documents(paths.state_db)
-        db.set_source_layer_status(
-            paths.state_db, source_id, "l2", "error",
-            error="; ".join(graph.errors) or "graph extraction failed",
-        )
-        return CompileResult(
-            source_id=source_id, atom_ids=atom_ids,
-            knowledge_unit_ids=[str(unit["id"]) for unit in units],
-            prompt_trace_ids=trace_ids, error="graph extraction failed",
-        )
-
     materializer.materialize_search_documents(paths.state_db)
+    trace_ids = [t for t in (ku_result.trace_id, graph.trace_id) if t]
     db.set_source_layer_status(paths.state_db, source_id, "l2", "done")
     return CompileResult(
         source_id=source_id,
@@ -417,33 +416,41 @@ def _discard_staged_units(db_path: Path, generation_id: str) -> None:
         conn.execute("DELETE FROM knowledge_units WHERE generation_id = ?", (generation_id,))
 
 
-def _retire_prior_generation_units(db_path: Path, source_id: int, generation_id: str) -> None:
+def _retire_prior_generation_units(
+    db_path: Path, source_id: int, generation_id: str, *, conn: Any = None
+) -> None:
     """Retire the source's active units that are NOT part of the generation being
     published (their generation becomes 'discarded' on publish, so they leave
-    serving; retiring also drops their claim_supports — §26.3, §20.5 #3)."""
-    with db.connect(db_path) as conn:
+    serving; retiring also drops their claim_supports — §26.3, §20.5 #3).
+    Pass ``conn`` to run inside a caller's transaction (atomic publish)."""
+    with db._maybe_conn(db_path, conn) as c:
         prior = [
-            str(r[0]) for r in conn.execute(
+            str(r[0]) for r in c.execute(
                 "SELECT id FROM knowledge_units WHERE source_id = ? AND retired_at IS NULL "
                 "AND (generation_id IS NULL OR generation_id != ?)",
                 (source_id, generation_id),
             ).fetchall()
         ]
     for uid in prior:
-        db.retire_knowledge_unit(db_path, uid)
+        db.retire_knowledge_unit(db_path, uid, conn=conn)
 
 
-def _publish_generation(db_path: Path, source_id: int, generation_id: str, fingerprint: str) -> None:
+def _publish_generation(
+    db_path: Path, source_id: int, generation_id: str, fingerprint: str, *, conn: Any = None
+) -> None:
     """Atomically publish a staged generation: retire the source's prior-generation
     units, then flip this generation authoritative (prior → discarded). Assumes the
-    generation's units are already attributed and the publish gate has passed."""
-    _retire_prior_generation_units(db_path, source_id, generation_id)
-    verified_ids = sorted(str(u["id"]) for u in db.list_generation_units(db_path, generation_id))
+    generation's units are already attributed and the publish gate has passed.
+    Pass ``conn`` so the retire + flip run in the caller's single transaction."""
+    _retire_prior_generation_units(db_path, source_id, generation_id, conn=conn)
+    verified_ids = sorted(
+        str(u["id"]) for u in db.list_generation_units(db_path, generation_id, conn=conn)
+    )
     audit_json = json.dumps(
         {"content_hash": fingerprint, "unit_ids": verified_ids, "unit_count": len(verified_ids)},
         sort_keys=True,
     )
-    db.publish_compiler_generation(db_path, generation_id, audit_json=audit_json)
+    db.publish_compiler_generation(db_path, generation_id, audit_json=audit_json, conn=conn)
 
 
 def recompile_source(

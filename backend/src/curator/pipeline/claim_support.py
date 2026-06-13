@@ -501,11 +501,13 @@ def run_compiler_audit(db_path: Path) -> AuditReport:
 
 
 def _reuse_verified_candidate(
-    db_path: Path, old_id: str, candidate_id: str
+    db_path: Path, old_id: str, candidate_id: str, *,
+    conn: "object | None" = None,
 ) -> None:
-    """Move a verified semantic-match candidate onto the prior stable id."""
-    with db.connect(db_path) as conn:
-        candidate = conn.execute(
+    """Move a verified semantic-match candidate onto the prior stable id.
+    Pass ``conn`` to run inside a caller's transaction (atomic publish)."""
+    with db._maybe_conn(db_path, conn) as c:  # type: ignore[arg-type]
+        candidate = c.execute(
             "SELECT * FROM knowledge_units WHERE id = ?", (candidate_id,)
         ).fetchone()
         if candidate is None:
@@ -517,12 +519,12 @@ def _reuse_verified_candidate(
             "formula_status", "generation_id",
         )
         assignments = ", ".join(f"{field} = ?" for field in fields)
-        conn.execute(
+        c.execute(
             f"UPDATE knowledge_units SET {assignments}, updated_at = ? WHERE id = ?",
             tuple(candidate[field] for field in fields) + (candidate["updated_at"], old_id),
         )
-        conn.execute("DELETE FROM claim_supports WHERE knowledge_unit_id = ?", (old_id,))
-        conn.execute(
+        c.execute("DELETE FROM claim_supports WHERE knowledge_unit_id = ?", (old_id,))
+        c.execute(
             """
             INSERT INTO claim_supports
                 (knowledge_unit_id, source_span_id, support_role, support_status,
@@ -534,7 +536,7 @@ def _reuse_verified_candidate(
             """,
             (old_id, candidate_id),
         )
-    db.retire_knowledge_unit(db_path, candidate_id)
+    db.retire_knowledge_unit(db_path, candidate_id, conn=conn)  # type: ignore[arg-type]
 
 
 def reconcile_source(
@@ -543,6 +545,7 @@ def reconcile_source(
     *,
     current_span_ids: list[str] | None = None,
     candidate_unit_ids: list[str] | None = None,
+    conn: "object | None" = None,
 ) -> list[str]:
     """Reconcile active units after source edit/delete/split.
 
@@ -551,16 +554,20 @@ def reconcile_source(
     Such a candidate revalidates the old stable id, then retires its temporary
     id. Semantic hashes only propose candidates and never authorize reuse by
     themselves. Returns every id retired by reconciliation.
+
+    Pass ``conn`` to run every mutation inside a caller's transaction, so the
+    whole reconcile + publish is atomic (SYSTEM_BEHAVIOR §26.3): any exception
+    rolls the prior authoritative state back unchanged.
     """
-    with db.connect(db_path) as conn:
+    with db._maybe_conn(db_path, conn) as c:  # type: ignore[arg-type]
         existing = {
-            str(r[0]) for r in conn.execute(
+            str(r[0]) for r in c.execute(
                 "SELECT id FROM source_spans WHERE source_id = ?", (source_id,)
             ).fetchall()
         }
         current = set(current_span_ids) if current_span_ids is not None else existing
         units = [
-            dict(row) for row in conn.execute(
+            dict(row) for row in c.execute(
                 "SELECT id, statement, source_span_ids, semantic_hash, support_status "
                 "FROM knowledge_units WHERE source_id = ? AND retired_at IS NULL",
                 (source_id,),
@@ -595,12 +602,12 @@ def reconcile_source(
             None,
         )
         if match:
-            _reuse_verified_candidate(db_path, unit_id, match)
+            _reuse_verified_candidate(db_path, unit_id, match, conn=conn)
             retired.append(match)
             candidates.pop(match)
             continue
 
-        db.retire_knowledge_unit(db_path, unit_id)
+        db.retire_knowledge_unit(db_path, unit_id, conn=conn)  # type: ignore[arg-type]
         retired.append(unit_id)
 
     # F7 (§26.4): stale spans of the edited source are removed rather than left
@@ -608,5 +615,5 @@ def reconcile_source(
     # was retired above, so the deletion cannot orphan an active claim.
     stale_spans = sorted(existing - current)
     if stale_spans:
-        db.delete_source_spans(db_path, stale_spans)
+        db.delete_source_spans(db_path, stale_spans, conn=conn)  # type: ignore[arg-type]
     return retired

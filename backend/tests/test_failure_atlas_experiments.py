@@ -153,12 +153,14 @@ class _SecondBatchFailsClient:
 
 
 def test_failed_batch_leaves_partial_graph_state(vault) -> None:
-    """F7 atomicity evidence: a mid-compile batch failure persists partial truth.
+    """F7 atomicity: a mid-extraction batch failure persists NO partial graph.
 
-    Observed: when unit batch 2 fails validation, batch 1's entities remain in
-    graph_entities and the extraction returns ok=False — there is no
-    transaction around the multi-batch compile, so a failed compile leaves
-    partial authoritative state (Program 2 gate: it must not).
+    Plan B2 (§26.3 copy-on-stage) split graph extraction (LLM, in memory) from
+    persistence: ``extract_entities_and_relations`` collects every batch's parsed
+    entities/relations in memory and only ``persist_graph_data`` writes them — and
+    it is skipped entirely when any batch fails (``ok=False``). So a multi-batch
+    failure now leaves ZERO graph rows (the Program-2 gate the original defect
+    note demanded), instead of batch 1's entities lingering as partial truth.
     """
     paths = vault
     span = db.upsert_source_span(
@@ -179,8 +181,8 @@ def test_failed_batch_leaves_partial_graph_state(vault) -> None:
         paths.state_db, client, units=units, valid_span_ids=[span]
     )
     assert client.calls >= 2, "experiment requires multiple batches"
-    assert not result.ok  # the compile FAILED...
-    assert _count(paths, "graph_entities") >= 1  # ...but partial truth persisted
+    assert not result.ok  # the extraction FAILED...
+    assert _count(paths, "graph_entities") == 0  # ...and persisted NO partial graph
 
 
 # ---------------------------------------------------------------------------

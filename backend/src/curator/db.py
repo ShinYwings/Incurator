@@ -992,6 +992,21 @@ def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+@contextmanager
+def _maybe_conn(
+    db_path: Path, conn: sqlite3.Connection | None
+) -> Iterator[sqlite3.Connection]:
+    """Yield ``conn`` when provided (the caller owns the transaction — no commit
+    here), else open a fresh :func:`connect` block. Lets compiler helpers run
+    inside ONE caller-controlled transaction so a multi-step publish is atomic
+    (SYSTEM_BEHAVIOR §26.3): any exception rolls the whole transaction back."""
+    if conn is not None:
+        yield conn
+    else:
+        with connect(db_path) as owned:
+            yield owned
+
+
 def get_stats(db_path: Path) -> dict:
     """Quick stats for `wiki status`."""
     if not db_path.exists():
@@ -1711,30 +1726,33 @@ def get_source_spans_by_ids(db_path: Path, span_ids: list[str]) -> list[dict]:
         return [_decode_span_row(row) for row in rows]
 
 
-def delete_source_spans(db_path: Path, span_ids: list[str]) -> int:
+def delete_source_spans(
+    db_path: Path, span_ids: list[str], *, conn: sqlite3.Connection | None = None
+) -> int:
     """Remove stale source spans and their derived support/dependency rows
     (SYSTEM_BEHAVIOR §26.4 / F7 reconciliation). The span rows of an edited
     source are removed rather than left lingering beside their replacements;
     dependent `claim_supports` and `artifact_dependencies` rows are removed in
     the same transaction so the compiler audit finds no dangling references.
-    Returns the number of span rows deleted. Source truth files are untouched."""
+    Returns the number of span rows deleted. Source truth files are untouched.
+    Pass ``conn`` to run inside a caller's transaction (atomic publish)."""
     if not span_ids:
         return 0
     deleted = 0
-    with connect(db_path) as conn:
+    with _maybe_conn(db_path, conn) as c:
         for chunk in _chunked(span_ids):
             placeholders = ",".join("?" for _ in chunk)
             params = tuple(chunk)
-            conn.execute(
+            c.execute(
                 f"DELETE FROM claim_supports WHERE source_span_id IN ({placeholders})",
                 params,
             )
-            conn.execute(
+            c.execute(
                 "DELETE FROM artifact_dependencies "
                 f"WHERE depends_on_type = 'source_span' AND depends_on_id IN ({placeholders})",
                 params,
             )
-            cur = conn.execute(
+            cur = c.execute(
                 f"DELETE FROM source_spans WHERE id IN ({placeholders})", params
             )
             deleted += cur.rowcount
@@ -1914,18 +1932,21 @@ def set_unit_formula_status(
             )
 
 
-def retire_knowledge_unit(db_path: Path, unit_id: str) -> None:
+def retire_knowledge_unit(
+    db_path: Path, unit_id: str, *, conn: sqlite3.Connection | None = None
+) -> None:
     """Tombstone a unit retired by source edit/delete/split reconciliation
     (SCHEMA §20.1). Retired rows are never deleted by the compiler and never
     feed downstream stages. Its `claim_supports` rows are removed so the
-    compiler audit finds no support row citing a retired unit (§20.5 #3)."""
-    with connect(db_path) as conn:
-        conn.execute(
+    compiler audit finds no support row citing a retired unit (§20.5 #3).
+    Pass ``conn`` to run inside a caller's transaction (atomic publish)."""
+    with _maybe_conn(db_path, conn) as c:
+        c.execute(
             "UPDATE knowledge_units SET retired_at = ?, updated_at = ? "
             "WHERE id = ? AND retired_at IS NULL",
             (_now_iso(), _now_iso(), unit_id),
         )
-        conn.execute(
+        c.execute(
             "DELETE FROM claim_supports WHERE knowledge_unit_id = ?", (unit_id,)
         )
 
@@ -1976,12 +1997,15 @@ def list_serving_units(db_path: Path, source_id: int | None = None) -> list[dict
     return [_decode_unit_row(row) for row in rows]
 
 
-def list_generation_units(db_path: Path, generation_id: str) -> list[dict]:
+def list_generation_units(
+    db_path: Path, generation_id: str, *, conn: sqlite3.Connection | None = None
+) -> list[dict]:
     """The compiler-internal view of ONE generation's verified active units
     (SYSTEM_BEHAVIOR §26.3) — used while building/auditing a staged generation
-    before it publishes. Visible to the compiler only, never to serving."""
-    with connect(db_path) as conn:
-        rows = conn.execute(
+    before it publishes. Visible to the compiler only, never to serving.
+    Pass ``conn`` to read within a caller's transaction (atomic publish)."""
+    with _maybe_conn(db_path, conn) as c:
+        rows = c.execute(
             "SELECT * FROM knowledge_units WHERE generation_id = ? "
             "AND retired_at IS NULL AND support_status = 'verified' ORDER BY created_at",
             (generation_id,),
@@ -2067,15 +2091,17 @@ def get_authoritative_generation(
 
 
 def publish_compiler_generation(
-    db_path: Path, gen_id: str, *, audit_json: str = "{}"
+    db_path: Path, gen_id: str, *, audit_json: str = "{}",
+    conn: sqlite3.Connection | None = None,
 ) -> None:
     """Flip a staged generation to authoritative (SCHEMA §20.3). Discards the
     prior authoritative generation for the same source scope so the
     at-most-one-authoritative invariant holds. The publish GATE (audit
-    validation) is enforced by the compiler in P6, not here."""
+    validation) is enforced by the compiler in P6, not here. Pass ``conn`` to
+    flip inside a caller's transaction (atomic publish)."""
     now = _now_iso()
-    with connect(db_path) as conn:
-        row = conn.execute(
+    with _maybe_conn(db_path, conn) as c:
+        row = c.execute(
             "SELECT source_id, status FROM compiler_generations WHERE id = ?",
             (gen_id,),
         ).fetchone()
@@ -2085,18 +2111,18 @@ def publish_compiler_generation(
             raise ValueError(f"generation {gen_id} is not staged (is {row['status']})")
         source_id = row["source_id"]
         if source_id is None:
-            conn.execute(
+            c.execute(
                 "UPDATE compiler_generations SET status = 'discarded', "
                 "discarded_at = ? WHERE source_id IS NULL AND status = 'authoritative'",
                 (now,),
             )
         else:
-            conn.execute(
+            c.execute(
                 "UPDATE compiler_generations SET status = 'discarded', "
                 "discarded_at = ? WHERE source_id = ? AND status = 'authoritative'",
                 (now, source_id),
             )
-        conn.execute(
+        c.execute(
             "UPDATE compiler_generations SET status = 'authoritative', "
             "published_at = ?, audit_json = ? WHERE id = ?",
             (now, audit_json, gen_id),

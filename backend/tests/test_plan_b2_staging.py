@@ -176,6 +176,55 @@ def test_failed_staged_compile_leaves_no_orphan_graph(vault) -> None:
     assert n_auth == 0               # nothing published
 
 
+class _GraphFailClient(_UnitsClient):
+    """Units extract fine, but the graph LLM call fails — the atomicity vector
+    the post-publish design missed."""
+
+    def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+        text = "\n".join(m.content for m in messages)
+        if "Extract entities and relations" in text:
+            return "not valid json — graph extraction failure"
+        return super().chat(messages, json_mode=json_mode, temperature=temperature)
+
+
+def test_graph_extraction_failure_leaves_no_partial_publish(vault) -> None:
+    # The LLM graph extraction must run BEHIND the publish gate: if it fails, the
+    # staged units are discarded and NO generation is published (§26.3). A prior
+    # design that published first and extracted the graph after would leave a
+    # published generation with no graph.
+    result = compile_mod.compile_source_l2(vault, _GraphFailClient(), 1)
+    assert not result.ok  # graph failure aborts the compile
+    with db.connect(vault.state_db) as conn:
+        n_ent = conn.execute("SELECT COUNT(*) FROM graph_entities").fetchone()[0]
+        n_auth = conn.execute(
+            "SELECT COUNT(*) FROM compiler_generations WHERE status = 'authoritative'"
+        ).fetchone()[0]
+        n_units = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_units WHERE retired_at IS NULL"
+        ).fetchone()[0]
+    assert n_ent == 0       # no graph
+    assert n_auth == 0      # nothing published
+    assert n_units == 0     # staged units discarded — no partial state
+    assert db.list_serving_units(vault.state_db) == []
+
+
+def test_graph_extraction_failure_preserves_prior_authoritative(vault) -> None:
+    # A graph failure on a RE-compile must leave the prior authoritative
+    # generation (and its served units + graph) byte-untouched.
+    assert compile_mod.compile_source_l2(vault, _UnitsClient(), 1).ok
+    before = {u["id"] for u in db.list_serving_units(vault.state_db)}
+    with db.connect(vault.state_db) as conn:
+        ent_before = conn.execute("SELECT COUNT(*) FROM graph_entities").fetchone()[0]
+        conn.execute("UPDATE sources SET content_hash = 'edited-gf' WHERE id = 1")
+    result = compile_mod.compile_source_l2(vault, _GraphFailClient(), 1)
+    assert not result.ok
+    after = {u["id"] for u in db.list_serving_units(vault.state_db)}
+    with db.connect(vault.state_db) as conn:
+        ent_after = conn.execute("SELECT COUNT(*) FROM graph_entities").fetchone()[0]
+    assert after == before and after  # prior served set untouched
+    assert ent_after == ent_before    # prior graph untouched
+
+
 def test_zero_unit_recompile_publishes_and_retires_prior(vault) -> None:
     serving = _serving(vault.state_db)
     assert compile_mod.compile_source_l2(vault, _UnitsClient(units=True), 1).ok
@@ -248,3 +297,47 @@ def test_init_db_backfills_legacy_verified_units_to_synthetic_generation(vault) 
         assert conn.execute(
             "SELECT COUNT(*) FROM compiler_generations WHERE id = 'GEN-mig-1'"
         ).fetchone()[0] == 1
+
+
+# --- Atomic publish: failures preserve the prior authoritative generation ----
+
+def test_graph_persistence_failure_preserves_authoritative_state(vault, monkeypatch) -> None:
+    # A persist_graph_data exception (after the gate, before reconcile) must
+    # discard the staged generation cleanly and leave the prior authoritative
+    # generation + its served units perfectly preserved (no catastrophic
+    # discard-of-authoritative).
+    assert compile_mod.compile_source_l2(vault, _UnitsClient(), 1).ok
+    before = {u["id"] for u in db.list_serving_units(vault.state_db)}
+    gen_before = db.get_authoritative_generation(vault.state_db, 1)["id"]
+    with db.connect(vault.state_db) as conn:
+        conn.execute("UPDATE sources SET content_hash = 'edited-pf' WHERE id = 1")
+
+    def _boom(*a, **k):
+        raise RuntimeError("persist_graph_data failed")
+
+    monkeypatch.setattr(compile_mod.graph_index, "persist_graph_data", _boom)
+    result = compile_mod.compile_source_l2(vault, _UnitsClient(), 1)
+    assert not result.ok
+    assert db.get_authoritative_generation(vault.state_db, 1)["id"] == gen_before
+    assert {u["id"] for u in db.list_serving_units(vault.state_db)} == before and before
+
+
+def test_publish_failure_rolls_back_reconcile_to_prior_authoritative(vault, monkeypatch) -> None:
+    # A failure INSIDE the reconcile+publish transaction (here: the generation
+    # flip) must roll back reconcile's prior-id re-tagging, leaving the prior
+    # authoritative generation + served set byte-identical — no reused unit
+    # stranded in a staged/discarded generation, no data loss.
+    assert compile_mod.compile_source_l2(vault, _UnitsClient(), 1).ok
+    before = {u["id"] for u in db.list_serving_units(vault.state_db)}
+    gen_before = db.get_authoritative_generation(vault.state_db, 1)["id"]
+    with db.connect(vault.state_db) as conn:
+        conn.execute("UPDATE sources SET content_hash = 'edited-pf2' WHERE id = 1")
+
+    def _boom(*a, **k):
+        raise RuntimeError("generation flip failed")
+
+    monkeypatch.setattr(compile_mod.db, "publish_compiler_generation", _boom)
+    result = compile_mod.compile_source_l2(vault, _UnitsClient(), 1)
+    assert not result.ok
+    assert db.get_authoritative_generation(vault.state_db, 1)["id"] == gen_before
+    assert {u["id"] for u in db.list_serving_units(vault.state_db)} == before and before
