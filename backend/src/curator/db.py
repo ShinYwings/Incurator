@@ -764,6 +764,71 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
 
 
 
+def _migrate_generation_backfill(
+    conn: sqlite3.Connection, tables: set[str]
+) -> None:
+    """Plan B2 (data-only): attribute legacy verified units that have no
+    `generation_id` to a deterministic synthetic authoritative generation per
+    source, so generation-scoped visibility (§26.3) has no permanent NULL escape
+    hatch. Runs on the explicit ``init_db`` path (not every ``connect``) so it is
+    a one-time cleanup of pre-B2 vaults, never a mid-session side effect; new
+    units are attributed to a generation by the compiler. Idempotent (a no-op
+    once every verified unit is attributed); deterministic ids converge across
+    devices.
+    """
+    if "knowledge_units" not in tables or "compiler_generations" not in tables:
+        return
+    rows = conn.execute(
+        "SELECT source_id, id FROM knowledge_units "
+        "WHERE generation_id IS NULL AND retired_at IS NULL AND support_status = 'verified'"
+    ).fetchall()
+    by_source: dict[Any, list[str]] = {}
+    for r in rows:
+        by_source.setdefault(r[0], []).append(str(r[1]))
+    now = _now_iso()
+    for source_id, unit_ids in by_source.items():
+        # Attribute to an existing authoritative generation for this source if one
+        # exists; otherwise mint the deterministic synthetic migration generation.
+        if source_id is None:
+            existing = conn.execute(
+                "SELECT id FROM compiler_generations "
+                "WHERE source_id IS NULL AND status = 'authoritative' LIMIT 1"
+            ).fetchone()
+            chash = ""
+        else:
+            existing = conn.execute(
+                "SELECT id FROM compiler_generations "
+                "WHERE source_id = ? AND status = 'authoritative' LIMIT 1",
+                (source_id,),
+            ).fetchone()
+            src = conn.execute(
+                "SELECT content_hash FROM sources WHERE id = ?", (source_id,)
+            ).fetchone()
+            chash = src[0] if src else ""
+        if existing is not None:
+            gen_id = str(existing[0])
+        else:
+            gen_id = f"GEN-mig-{source_id if source_id is not None else 'global'}"
+            audit = json.dumps(
+                {"content_hash": chash, "unit_ids": sorted(unit_ids),
+                 "unit_count": len(unit_ids), "migrated": True},
+                sort_keys=True,
+            )
+            conn.execute(
+                "INSERT INTO compiler_generations (id, source_id, status, "
+                "prompt_contract_version, created_at, published_at, audit_json) "
+                "VALUES (?, ?, 'authoritative', 'migrated', ?, ?, ?)",
+                (gen_id, source_id, now, now, audit),
+            )
+        for start in range(0, len(unit_ids), 900):
+            chunk = unit_ids[start:start + 900]
+            placeholders = ",".join("?" for _ in chunk)
+            conn.execute(
+                f"UPDATE knowledge_units SET generation_id = ? WHERE id IN ({placeholders})",
+                (gen_id, *chunk),
+            )
+
+
 def _migrate_v8_compiler_integrity(
     conn: sqlite3.Connection, tables: set[str]
 ) -> None:
@@ -879,6 +944,15 @@ def init_db(db_path: Path) -> None:
         conn.execute("PRAGMA foreign_keys = ON")
         conn.executescript(SCHEMA_SQL)
         _apply_migrations(conn)
+        # One-time data cleanup of pre-B2 vaults (NOT in connect()'s hot path):
+        # attribute legacy verified NULL-generation units to a synthetic
+        # authoritative generation (SYSTEM_BEHAVIOR §26.3).
+        _tables = {
+            str(r[0]) for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        _migrate_generation_backfill(conn, _tables)
         row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
             conn.execute(
@@ -1861,7 +1935,11 @@ def list_eligible_knowledge_units(
 ) -> list[dict]:
     """Active downstream-eligible units: retired_at IS NULL AND
     support_status='verified' (SCHEMA §20.1 eligibility rule). `unchecked`
-    legacy rows are intentionally excluded from compiler inputs."""
+    legacy rows are intentionally excluded from compiler inputs.
+
+    NOTE (Plan B2): generation-agnostic. Serving callers must use
+    :func:`list_serving_units` (authoritative-generation only); the compiler's
+    staged build must use :func:`list_generation_units`."""
     sql = (
         "SELECT * FROM knowledge_units "
         "WHERE retired_at IS NULL AND support_status = 'verified'"
@@ -1873,6 +1951,41 @@ def list_eligible_knowledge_units(
     sql += " ORDER BY created_at"
     with connect(db_path) as conn:
         rows = conn.execute(sql, params).fetchall()
+    return [_decode_unit_row(row) for row in rows]
+
+
+def list_serving_units(db_path: Path, source_id: int | None = None) -> list[dict]:
+    """Units visible to serving surfaces (query / evidence / search materialization)
+    — SYSTEM_BEHAVIOR §26.3. Served = `retired_at IS NULL` ∧
+    `support_status='verified'` ∧ owned by an `authoritative` generation. A staged
+    or discarded generation's units (and any NULL-generation legacy row not yet
+    migrated) are excluded by construction."""
+    sql = (
+        "SELECT ku.* FROM knowledge_units ku "
+        "JOIN compiler_generations g ON g.id = ku.generation_id "
+        "WHERE ku.retired_at IS NULL AND ku.support_status = 'verified' "
+        "AND g.status = 'authoritative'"
+    )
+    params: tuple = ()
+    if source_id is not None:
+        sql += " AND ku.source_id = ?"
+        params = (source_id,)
+    sql += " ORDER BY ku.created_at"
+    with connect(db_path) as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [_decode_unit_row(row) for row in rows]
+
+
+def list_generation_units(db_path: Path, generation_id: str) -> list[dict]:
+    """The compiler-internal view of ONE generation's verified active units
+    (SYSTEM_BEHAVIOR §26.3) — used while building/auditing a staged generation
+    before it publishes. Visible to the compiler only, never to serving."""
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM knowledge_units WHERE generation_id = ? "
+            "AND retired_at IS NULL AND support_status = 'verified' ORDER BY created_at",
+            (generation_id,),
+        ).fetchall()
     return [_decode_unit_row(row) for row in rows]
 
 
