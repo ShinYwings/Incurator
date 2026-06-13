@@ -1405,7 +1405,8 @@ Column semantics (frozen enums):
   statement (normalization algorithm versioned in the prompt contract). Used
   ONLY to propose reconciliation candidates across rebuilds. A matching
   `semantic_hash` never auto-merges two claims whose statement or equation
-  content differs materially (Arena decision 6).
+  content differs materially (Arena decision 6). Stable-id reuse additionally
+  requires exact statement equality after whitespace normalization.
 - `support_status` ∈ `unchecked | verified | failed | stale`.
   - `unchecked` — no support validation has run (the migration backfill state).
   - `verified` — ≥1 minimal `claim_supports` row with `support_status='verified'`

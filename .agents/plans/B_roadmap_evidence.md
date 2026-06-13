@@ -301,11 +301,10 @@ gold fixtures + oracles. Adopted points and the four corrections applied:
   pure NLI/embedding entailment for formulas (`a^2+b^2` vs `a^2-b^2` hole).
 - CORRECTION 1: parse inline `$...$` AND display `$$...$$` LaTeX — every gold
   formula case uses INLINE `$...$`; a `$$`-only parser misses them all.
-- CORRECTION 2: compare formulas by normalized symbol/operator token MULTISET
-  equality (strip whitespace + spacing macros `\,`/`\!`/`\;` + redundant
-  braces), NOT whitespace-strip exact substring. Tolerates commutative reorder,
-  blocks operator/sign change, needs no AST/CAS — so the artifact's "AST
-  equivalent / commutative sorting" suggestion is dropped as over-engineering.
+- CORRECTION 2 (superseded by P4 review fix): the initial implementation used
+  a normalized symbol/operator token multiset. Reviewer counterexamples proved
+  the flat sort erased operation direction/binding (`a^b` vs `b^a`, `a-b` vs
+  `b-a`, `\frac{a}{b}` vs `\frac{b}{a}`), so it is no longer accepted.
 - CORRECTION 3: the gate yields a TRICHOTOMY `verified | failed | uncertain`,
   not fail-only. The SUP01 oracle calls `validate(db, unit_id)` with NO model
   and expects `verified`, so clear matches must verify deterministically; only
@@ -327,8 +326,8 @@ fail via zero entity intersection), and the reconciliation oracle
 
 ### Advanced formula-verification ideas — evaluated (opinion only, not adopted now)
 
-Considered three rigor escalations; only the deterministic token-multiset is
-used now. Recorded so they are not re-litigated:
+Considered three rigor escalations; P4 uses deterministic ordered token
+subsequence matching. Recorded so they are not re-litigated:
 
 - SymPy symbolic equivalence (`A - B = 0`): **benchmark-later**, not the P4
   primary. Stronger on pure algebraic equivalence, but LaTeX→SymPy parsing is
@@ -365,11 +364,11 @@ extended to cover the `fragmented`/garbled-but-present case and the P4→P5
 `backend/src/curator/pipeline/claim_support.py` implements the §26.1 structural
 gate deterministically (no LLM, no gold-fixture lookup):
 
-- `_formula_multiset`: normalized symbol/operator token multiset over inline
-  `$...$` and display `$$...$$` LaTeX. Reorder-tolerant (`c^2=a^2+b^2` ≡
-  `a^2+b^2=c^2`), operator/operand-sensitive (`a^2-b^2` and `a^2+b^2=d^2`
-  differ), spacing/brace-insensitive (`\delta\, x^{T}` ≡ `\delta x^T`). Proven
-  by `test_formula_multiset_*`.
+- `_formula_tokens` + `_is_formula_subsequence`: normalized ordered LaTeX token
+  sequence over inline `$...$` and display `$$...$$`. Spacing macros are
+  ignored, grouping braces and operation order are preserved, and a faithful
+  contiguous sub-formula is accepted. Proven by direction/binding and
+  sub-formula regression tests.
 - `_content_terms` (LaTeX stripped, len≥3, stopwords removed) +
   `_term_coverage`; `normalize_claim` / `semantic_hash` (deterministic
   reconciliation fingerprint).
@@ -420,3 +419,30 @@ P4 final verification:
   anchor; full mypy remains at the known 73 pre-existing errors.
 
 Next phase: P5 selective formula recovery and downstream formula preservation.
+
+## P4 Review Fix — Directionality And Formula Binding
+
+An in-flight review found two release-blocking false-merge/false-verification
+cases in the initial P4 implementation:
+
+- `semantic_hash` and `normalize_claim` both use a lossy term-set
+  normalization, so reversed claims such as `A causes B` / `B causes A` can
+  collide. Reconciliation now uses the hash only to propose a candidate and
+  requires whitespace-normalized exact statement equality before stable-id
+  reuse.
+- Flat sorted formula tokens erased operation direction and grouping. Formula
+  matching now preserves ordered tokens and grouping braces. A claim formula
+  verifies only when it is an exact contiguous token subsequence of a cited
+  span formula, allowing faithful sub-formulas without accepting exponent,
+  subtraction, or fraction reversal.
+
+The reviewer's raw-string substring suggestion was not adopted because it can
+match inside larger LaTeX commands/tokens. Ordered token subsequence matching
+retains token boundaries.
+
+Review-fix verification:
+
+- `uv run --directory backend pytest -q` → 775 passed, 16 xfailed.
+- `uv run --directory backend ruff check src/` → clean.
+- `uv run --directory backend mypy src/curator/pipeline/claim_support.py` →
+  clean.

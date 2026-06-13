@@ -294,7 +294,7 @@ Verify:
   rewrite — is the fix. A VLM routing placeholder already exists at
   `parsers/pdf.py`.)
 - Route P4's `formula_status='uncertain'` verdicts into this classification: an
-  uncertain central formula (a claim-vs-span token-multiset mismatch on a lossy
+  uncertain central formula (a claim-vs-span ordered-token mismatch on a lossy
   source, §26.1) is the upstream signal that the L1 span may be a corrupt
   rendering. Validated recovery re-validates the owning claim (`uncertain` →
   `verified` against the recovered evidence, or `missing` if unrecoverable); it

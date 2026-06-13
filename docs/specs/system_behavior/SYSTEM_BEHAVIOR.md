@@ -1536,13 +1536,16 @@ F3/F4/F5/F11/F12 stay with Program 3.
 - Formula structural rule (deterministic, no CAS): a claim's LaTeX formula —
   inline `$...$` or display `$$...$$` — is "present" in a span iff, after
   normalization (strip whitespace and spacing macros such as `\,`/`\!`/`\;`,
-  collapse redundant braces), its symbol/operator token MULTISET equals that of
-  some formula in the span. Multiset equality tolerates commutative reordering
-  (`c^2 = a^2 + b^2` ≡ `a^2 + b^2 = c^2`) while still failing an operator/sign
-  change (`a^2 - b^2 = c^2` ≠ `a^2 + b^2 = c^2`) — closing the hole a
-  semantic-similarity model would miss. A central formula present in no cited
-  span is `formula_status='missing'`; a structurally altered one is a `failed`
-  support, never silently accepted.
+  while preserving grouping braces), its ordered token sequence is an exact
+  contiguous subsequence of some formula in the span. This admits a faithful
+  extracted sub-formula (`M` from `M = \int \rho dV`) while preserving
+  operation direction and binding: `a^b` ≠ `b^a`, `a-b` ≠ `b-a`, and
+  `\frac{a}{b}` ≠ `\frac{b}{a}`. No commutative reordering is inferred without
+  an AST/CAS. A central formula present in no cited span is
+  `formula_status='missing'`; a structurally altered one is a `failed` support,
+  never silently accepted. For a formula-only atomic unit with no prose terms,
+  an ordered structural match is sufficient support; prose overlap is not
+  required when there is no prose to score.
 - A claim whose cited spans fail minimal-support validation is marked
   `support_status='failed'` with a reason; it is excluded from downstream
   compile stages and flagged by the compiler audit. Wrong-real-span citations
@@ -1577,7 +1580,7 @@ F3/F4/F5/F11/F12 stay with Program 3.
   present-but-corrupt case (e.g. a parser that drops `\nabla`/superscripts or
   splits a `$$` block), distinct from total absence. A P4
   `formula_status='uncertain'` verdict on a central formula (a claim-vs-span
-  token-multiset mismatch on a lossy source, §26.1) is the upstream signal that
+  ordered-token mismatch on a lossy source, §26.1) is the upstream signal that
   routes a region into this classification; validated recovery then re-validates
   the owning claim (`uncertain` → `verified` against the recovered evidence, or
   `missing` if unrecoverable), never a silent flip to verified. Whole-corpus/
@@ -1619,7 +1622,9 @@ F3/F4/F5/F11/F12 stay with Program 3.
   - stale spans of the edited source are reconciled (removed or tombstoned)
     instead of lingering beside their replacements (F7).
 - `semantic_hash` proposes reconciliation candidates only; materially
-  different claims/equations are never auto-merged.
+  different claims/equations are never auto-merged. Stable-id reuse additionally
+  requires exact statement equality after whitespace normalization; the lossy
+  semantic hash or term-set normalization alone can never authorize reuse.
 - One-source mutation regenerates only the expected dependency closure —
   measured and asserted by tests, not assumed.
 

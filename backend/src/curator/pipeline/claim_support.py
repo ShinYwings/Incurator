@@ -10,10 +10,9 @@ overfit — the fixtures are the test-time release oracle that scores this gate)
 It operates structurally on the cited span text:
 
 - Formula claims: every LaTeX formula in the claim must be structurally present
-  in some cited span, compared by a normalized symbol/operator token MULTISET
-  (SCHEMA §20.4 wording). Multiset equality tolerates commutative reordering
-  (`c^2 = a^2 + b^2`) while failing an operator/sign change (`a^2 - b^2`), which
-  a semantic-similarity model would miss.
+  in some cited span, compared as an ordered token sequence. A claim formula may
+  be a contiguous sub-formula of a larger span formula, but operation direction
+  and grouping remain binding (`a^b` != `b^a`; `a-b` != `b-a`).
 - Text claims: the claim's salient content terms must intersect a cited span
   above the support threshold; zero/low overlap is the F6 wrong-real-span case.
 
@@ -80,17 +79,31 @@ def _extract_latex(text: str) -> list[str]:
             for m in _LATEX_RE.finditer(text)]
 
 
-def _formula_multiset(latex: str) -> tuple[str, ...]:
-    """Normalize a LaTeX formula to a sorted symbol/operator token multiset.
+def _formula_tokens(latex: str) -> tuple[str, ...]:
+    """Normalize LaTeX to an ordered token sequence preserving structure.
 
-    Strips whitespace and spacing macros (`\\,`/`\\!`/`\\;`/`\\quad`/`~`) and
-    braces (separators, not symbols), then tokenizes commands and single chars.
-    Sorted so equality is reorder-invariant while operator/sign changes differ.
+    Whitespace and spacing macros (`\\,`/`\\!`/`\\;`/`\\quad`/`~`) are ignored.
+    Commands, operators, operands, and grouping braces retain their exact order
+    so exponent, subtraction, division, and function-argument binding cannot
+    silently reverse.
     """
     s = re.sub(r"\\[,;:!>]", " ", latex)
     s = re.sub(r"\\(quad|qquad)\b", " ", s)
-    s = s.replace("~", " ").replace("{", " ").replace("}", " ")
-    return tuple(sorted(_FORMULA_TOKEN_RE.findall(s)))
+    s = s.replace("~", " ")
+    return tuple(_FORMULA_TOKEN_RE.findall(s))
+
+
+def _is_formula_subsequence(
+    claim_tokens: tuple[str, ...], span_tokens: tuple[str, ...]
+) -> bool:
+    """Whether claim tokens occur contiguously and in order in a span formula."""
+    size = len(claim_tokens)
+    if size == 0 or size > len(span_tokens):
+        return False
+    return any(
+        span_tokens[start:start + size] == claim_tokens
+        for start in range(len(span_tokens) - size + 1)
+    )
 
 
 def _content_terms(text: str) -> set[str]:
@@ -108,17 +121,22 @@ def _term_coverage(claim_terms: set[str], span_terms: set[str]) -> float:
 
 def normalize_claim(statement: str) -> str:
     """Deterministic normalization of a claim statement: salient terms sorted,
-    plus normalized formula multisets. Stable across whitespace/wording noise.
+    plus normalized ordered formula tokens. Stable across whitespace/wording noise.
     Used only to propose reconciliation candidates (SCHEMA §20.1), never to
     auto-merge materially different claims."""
     terms = sorted(_content_terms(statement))
-    formulas = sorted("".join(_formula_multiset(f)) for f in _extract_latex(statement))
+    formulas = sorted("".join(_formula_tokens(f)) for f in _extract_latex(statement))
     return "terms:" + " ".join(terms) + "|formulas:" + " ".join(formulas)
 
 
 def semantic_hash(statement: str) -> str:
     """16-hex deterministic fingerprint of the normalized claim."""
     return hashlib.sha256(normalize_claim(statement).encode("utf-8")).hexdigest()[:16]
+
+
+def _statement_for_stable_id(statement: str) -> str:
+    """Normalize whitespace only for safe stable-id reuse."""
+    return " ".join(statement.split())
 
 
 def _load_unit(db_path: Path, unit_id: str) -> dict | None:
@@ -196,25 +214,34 @@ def validate_claim_support(
     _clear_claim_supports(db_path, unit_id)
 
     claim_terms = _content_terms(statement)
-    claim_formulas = [_formula_multiset(f) for f in _extract_latex(statement)]
+    claim_formulas = [_formula_tokens(f) for f in _extract_latex(statement)]
     has_formula = bool(claim_formulas)
 
     best_id: str | None = None
     best_cov = 0.0
-    span_formula_sets: set[tuple[str, ...]] = set()
+    span_formulas: set[tuple[str, ...]] = set()
     for sid, (text, _chash) in spans.items():
         cov = _term_coverage(claim_terms, _content_terms(text))
-        span_formula_sets.update(_formula_multiset(f) for f in _extract_latex(text))
+        span_formulas.update(_formula_tokens(f) for f in _extract_latex(text))
         if best_id is None or cov > best_cov:
             best_id, best_cov = sid, cov
 
-    formula_ok = all(f in span_formula_sets for f in claim_formulas)
+    formula_ok = all(
+        any(_is_formula_subsequence(formula, span_formula) for span_formula in span_formulas)
+        for formula in claim_formulas
+    )
 
     # --- verdict (SYSTEM_BEHAVIOR §26.1 trichotomy) ---
     if not spans:
         verdict = "failed"
         reason = "claim cites no resolvable source span; does not minimally support the claim"
         formula_status = "missing" if has_formula else "not_applicable"
+    elif has_formula and formula_ok and not claim_terms:
+        # Formula-only atomic units are supported by the ordered structural
+        # match itself; there is no prose overlap to score.
+        verdict = "verified"
+        reason = ""
+        formula_status = "preserved_in_text"
     elif best_cov < _SUPPORT_FAIL:
         verdict = "failed"
         reason = "the cited span does not minimally support the claim (no salient term overlap)"
@@ -338,10 +365,10 @@ def reconcile_source(
     """Reconcile active units after source edit/delete/split.
 
     Units citing spans outside `current_span_ids` retire unless a newly
-    extracted, verified candidate has the same normalized claim. Such a
-    candidate revalidates the old stable id, then retires its temporary id.
-    Semantic hashes only propose candidates; normalized statements are compared
-    again before reuse. Returns every id retired by reconciliation.
+    extracted, verified candidate has the same whitespace-normalized statement.
+    Such a candidate revalidates the old stable id, then retires its temporary
+    id. Semantic hashes only propose candidates and never authorize reuse by
+    themselves. Returns every id retired by reconciliation.
     """
     with db.connect(db_path) as conn:
         existing = {
@@ -380,7 +407,8 @@ def reconcile_source(
                 candidate_id
                 for candidate_id, candidate in candidates.items()
                 if candidate["semantic_hash"] == u.get("semantic_hash")
-                and normalize_claim(candidate["statement"]) == normalize_claim(u["statement"])
+                and _statement_for_stable_id(candidate["statement"])
+                == _statement_for_stable_id(u["statement"])
             ),
             None,
         )

@@ -2,8 +2,8 @@
 
 Exercises the SYSTEM_BEHAVIOR §26.1 structural gate directly (the gold fixtures
 in plan_b_compiler.py are the release oracle; this is the fine-grained unit
-coverage), including the formula token-multiset that closes the
-semantic-similarity hole (`a^2 + b^2` ≠ `a^2 - b^2`).
+coverage), including ordered formula-token matching that preserves operation
+direction and binding.
 """
 
 from __future__ import annotations
@@ -18,7 +18,8 @@ from curator import config as cfg
 from curator import db
 from curator.pipeline.claim_support import (
     _content_terms,
-    _formula_multiset,
+    _formula_tokens,
+    _is_formula_subsequence,
     normalize_claim,
     reconcile_source,
     run_compiler_audit,
@@ -68,21 +69,27 @@ def _seed(paths: cfg.WikiPaths, span_ids: list[str], statement: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Formula token-multiset (the math-integrity core).
+# Ordered formula tokens (the math-integrity core).
 # ---------------------------------------------------------------------------
 
-def test_formula_multiset_tolerates_reorder_blocks_sign_change() -> None:
-    pythag = _formula_multiset("a^2 + b^2 = c^2")
-    assert pythag == _formula_multiset("c^2 = a^2 + b^2")     # commutative reorder OK
-    assert pythag != _formula_multiset("a^2 - b^2 = c^2")     # sign/operator change fails
-    assert pythag != _formula_multiset("a^2 + b^2 = d^2")     # operand change fails
+def test_formula_tokens_preserve_operation_direction_and_binding() -> None:
+    assert _formula_tokens("a^b") != _formula_tokens("b^a")
+    assert _formula_tokens("a - b") != _formula_tokens("b - a")
+    assert _formula_tokens(r"\frac{a}{b}") != _formula_tokens(r"\frac{b}{a}")
+    assert _formula_tokens("a^2 + b^2 = c^2") != \
+        _formula_tokens("c^2 = a^2 + b^2")
 
 
-def test_formula_multiset_normalizes_spacing_and_braces() -> None:
-    # \, thin-space and {T} braces are formatting, not content.
-    assert _formula_multiset(r"\delta\, x^{T}") == _formula_multiset(r"\delta x^T")
-    assert _formula_multiset(r"\nabla_W L = \delta\, x^{T}") == \
-        _formula_multiset(r"\nabla_W  L=\delta x^{T}")
+def test_formula_tokens_normalize_spacing_but_preserve_grouping() -> None:
+    assert _formula_tokens(r"\nabla_W L = \delta\, x^{T}") == \
+        _formula_tokens(r"\nabla_W  L=\delta x^{T}")
+    assert _formula_tokens(r"x^{ab}") != _formula_tokens(r"x^a b")
+
+
+def test_formula_subsequence_requires_contiguous_ordered_tokens() -> None:
+    span = _formula_tokens(r"M = \int \rho dV")
+    assert _is_formula_subsequence(_formula_tokens("M"), span)
+    assert not _is_formula_subsequence(_formula_tokens(r"\rho M"), span)
 
 
 def test_content_terms_strip_latex_and_stopwords() -> None:
@@ -187,6 +194,23 @@ def test_altered_formula_on_right_topic_is_uncertain(vault) -> None:
     assert row["formula_status"] == "uncertain"   # routed to P5 recovery
 
 
+def test_valid_subformula_on_right_topic_is_verified(vault) -> None:
+    span_id = "SPAN-subformula"
+    span_text = r"The mass is $M = \int \rho dV$."
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', 'subformula-hash', ?, '2026-01-01T00:00:00Z')",
+            (span_id, RELPATH, span_text),
+        )
+    unit_id = db.upsert_knowledge_unit(
+        vault.state_db, unit_type="atom", canonical_name="Mass",
+        statement="$M$", source_span_ids=[span_id], source_id=1,
+    )
+    assert validate_claim_support(vault.state_db, unit_id) == "verified"
+
+
 # ---------------------------------------------------------------------------
 # Audit + reconciliation.
 # ---------------------------------------------------------------------------
@@ -254,6 +278,7 @@ def test_reconcile_noop_when_unchanged(vault) -> None:
 
 def test_reconcile_split_reuses_semantically_identical_verified_claim(vault) -> None:
     statement = "Backpropagation computes the weight gradient."
+    candidate_statement = "Backpropagation   computes the weight gradient."
     old_id = _seed(vault, ["SPAN-pb000001"], statement)
     validate_claim_support(vault.state_db, old_id)
 
@@ -267,7 +292,8 @@ def test_reconcile_split_reuses_semantically_identical_verified_claim(vault) -> 
             (new_span, RELPATH, content),
         )
     candidate_id = db.upsert_knowledge_unit(
-        vault.state_db, unit_type="atom", canonical_name="C2", statement=statement,
+        vault.state_db, unit_type="atom", canonical_name="C2",
+        statement=candidate_statement,
         source_span_ids=[new_span], source_id=1,
     )
     validate_claim_support(
@@ -300,3 +326,41 @@ def test_reconcile_split_reuses_semantically_identical_verified_claim(vault) -> 
         row["source_span_id"] == new_span and row["support_status"] == "verified"
         for row in db.list_claim_supports(vault.state_db, old_id)
     )
+
+
+def test_reconcile_does_not_reuse_id_for_reversed_directionality(vault) -> None:
+    old_statement = "Alpha causes beta."
+    candidate_statement = "Beta causes alpha."
+    old_id = _seed(vault, ["SPAN-pb000001"], old_statement)
+
+    new_span = "SPAN-direction"
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', 'direction-hash', ?, '2026-01-02T00:00:00Z')",
+            (new_span, RELPATH, candidate_statement),
+        )
+    candidate_id = db.upsert_knowledge_unit(
+        vault.state_db, unit_type="atom", canonical_name="Direction",
+        statement=candidate_statement, source_span_ids=[new_span], source_id=1,
+    )
+    validate_claim_support(
+        vault.state_db, candidate_id, span_texts={new_span: candidate_statement}
+    )
+
+    assert semantic_hash(old_statement) == semantic_hash(candidate_statement)
+    retired = reconcile_source(
+        vault.state_db, source_id=1, current_span_ids=[new_span],
+        candidate_unit_ids=[candidate_id],
+    )
+
+    assert old_id in retired
+    assert candidate_id not in retired
+    with db.connect(vault.state_db) as conn:
+        assert conn.execute(
+            "SELECT retired_at FROM knowledge_units WHERE id = ?", (old_id,)
+        ).fetchone()[0] is not None
+        assert conn.execute(
+            "SELECT retired_at FROM knowledge_units WHERE id = ?", (candidate_id,)
+        ).fetchone()[0] is None

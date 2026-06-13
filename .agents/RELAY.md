@@ -61,14 +61,15 @@ Integrity release (target v0.8.0).
   mypy errors.
 - [x] P4 — Claim extraction, minimal support, and stable reconciliation.
   `pipeline/claim_support.py` implements the deterministic structural gate
-  (verified|failed|uncertain trichotomy per §26.1), LaTeX token-multiset formula
-  check (reorder-tolerant, operator/sign-sensitive), `normalize_claim`/
+  (verified|failed|uncertain trichotomy per §26.1), ordered LaTeX token-sequence
+  formula check (direction/binding-preserving, contiguous sub-formula aware),
+  `normalize_claim`/
   `semantic_hash`, `run_compiler_audit` (freshness + unsupported), and
   `reconcile_source` (retire on deleted cited span). Exposed via
   `pipeline/compile.py`. Un-xfailed 5 behavior oracles (minimal-support,
   wrong-real-span F6, edited-span-stale, source-delete-retire, audit-flags-
   unsupported); added `tests/test_plan_b_support.py` (12 unit tests incl. the
-  `a^2+b^2` vs `a^2-b^2` multiset proof). Suite 768 passed, 16 xfailed; ruff
+  direction/binding and sub-formula proofs). Suite 768 passed, 16 xfailed; ruff
   src/ clean; 0 new mypy.
   COMPLETE integration: `compile_source_l2` validates with hydrated full span
   text before downstream use; prompt contract is now
@@ -76,12 +77,17 @@ Integrity release (target v0.8.0).
   centrality; proposals persist as unchecked and are replaced by the fresh gate
   verdict; ATM/graph/projection re-emission/knowledge-unit search read only
   verified active units; changed/split reconciliation reuses a prior stable id
-  only for a verified semantic-hash + normalized-statement match and retires the
-  temporary candidate.
+  only for a verified semantic-hash candidate with whitespace-normalized exact
+  statement equality and retires the temporary candidate.
+  REVIEW FIX: semantic hashes now only propose reconciliation candidates;
+  stable-id reuse requires whitespace-normalized exact statement equality.
+  Formula matching now preserves ordered tokens/grouping and admits only exact
+  contiguous sub-formulas, preventing exponent/subtraction/fraction reversal.
 
 ## Verification
 
-- `uv run --directory backend pytest -q` → 772 passed, 16 xfailed (P4 complete;
+- `uv run --directory backend pytest -q` → 775 passed, 16 xfailed (P4 complete
+  plus directionality/formula-binding review fix;
   the 6 remaining Plan B P5/P6 oracles + 10 Program 1 strict-xfail oracles
   remain xfail).
 - `uv run --directory backend ruff check src/` → clean. (`ruff check tests/`
@@ -115,14 +121,15 @@ Executors: P3 (v8 additive schema + lifecycle helpers) committed; suite green.
 The P4 support-validation mechanism is SETTLED (SYSTEM_BEHAVIOR §26.1; rationale
 in `B_roadmap_evidence.md` "P4 Design Decision"): a deterministic STRUCTURAL
 gate (verified|failed|uncertain trichotomy) primary, calibrated model secondary
-for `uncertain` only. Formula check = normalized symbol/operator token-MULTISET
-equality over inline `$...$` AND display `$$...$$` (tolerates reorder, blocks
-operator/sign change, no AST/CAS); text check = salient entity/term intersection
+for `uncertain` only. Formula check = ordered normalized token sequence over
+inline `$...$` AND display `$$...$$` (preserves direction/binding; accepts only
+contiguous sub-formulas; no AST/CAS); text check = salient entity/term intersection
 above threshold (zero overlap → `failed`, the F6 gate). Validate on hydrated
 FULL span text, never the preview. Do NOT lookup the gold YAML at runtime
 (overfitting ban); it is the test-time release oracle only.
 
-P4 is complete and committed as `49eade2`. Continue P5: implement
+P4 is complete; the directionality/formula-binding review fix is validated and
+committed in current HEAD. Continue P5: implement
 provider-free formula loss classification for `fragmented | image_only |
 parser_omitted`, route P4 `formula_status='uncertain'` claims into selective
 recovery candidates, preserve raw evidence, and revalidate only accepted
