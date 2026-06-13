@@ -850,3 +850,57 @@ A post-B2 review raised four findings; verified each against the code before act
   ranking path).
 
 Verification: `pytest -q` → 821 passed, 8 xfailed; ruff clean; mypy 0 introduced.
+
+## P7 — Current Testbed And End-To-End Compiler Audit (Completed; provider-backed)
+
+Active scenario: `gaussian_splatting` (3 sources from PDF papers via Reference
+Mode; 212 L1 spans). Provider: Antigravity CLI (`agy` v1.0.8, gemini-3.5-flash)
+— available (the binary is `agy`, not `antigravity`).
+
+### §26.6 migration rehearsal (on a disposable copy of the backup) — ALL PASS
+- Rehearsed v8 + the B2 generation-backfill on a copy of
+  `.agents/backups/b-pre-implementation-state.sqlite` (never first on the live DB).
+- `PRAGMA integrity_check` = ok; `schema_version` = 8; sources/spans counts
+  unchanged (3 / 212); 0 knowledge_units, 0 claim_supports, 0 compiler_generations;
+  every legacy row conservative (no silent verify/attribute); idempotent
+  (init_db ×2 no-op); restore drill → identical schema fingerprint across two
+  fresh migrations. Live testbed then migrated to v8 (backed up first to
+  `.agents/backups/testbed-pre-p7-v7.sqlite`; integrity ok, counts preserved).
+
+### Deterministic gates
+- `VAULT_ROOT=testbed wiki status` → healthy (the pre-existing "vault schema
+  v0 → v1" warning is unrelated to the DB schema_version and predates Plan B).
+- `VAULT_ROOT=testbed wiki lint` (pre-build, 0 units) → Compiler Integrity clean,
+  exit 0.
+
+### Provider-backed `wiki build` (real Antigravity / agy) — B2 copy-on-stage E2E
+The async daemon (`wiki jobs run`) compiled L2/L3. Final state validated all the
+B2/§26.3 invariants on LIVE data:
+- **Source 1**: the real LLM returned non-conforming graph JSON ("graph
+  extraction failed: output did not parse into the declared model"). The compile
+  aborted BEHIND the publish gate → `_discard_staged_units` removed every staged
+  unit (source 1 ends with **0 units**, generation `discarded`, l2_status=error)
+  — the exact graph-extraction-failure atomicity path, validated on a live
+  failure with **no partial authoritative publish**.
+- **Source 2**: authoritative generation, 2 verified units served, 2 ATM pages.
+- **Source 3**: authoritative generation containing 12 `failed` + 8 `unchecked`
+  units — **stored and audited but NOT served** (§26.3: an authoritative
+  generation may hold non-verified units); 0 ATM pages for them.
+- Invariants: **0 served units in a non-authoritative generation** (no staged
+  leak); at most one authoritative generation per source; **0 NULL-generation
+  units**; claim_supports = 22; graph = 2 entities / 1 relation (source 2).
+- `wiki lint` on the result → **Health 0/100, 11 release-blocking F6 findings**
+  (source 3's wrong-real-span claims) + 9 infos (unchecked, excluded from
+  serving); **exit code 1** (CI/testbed gate fires). Direct audit:
+  failed=11, stale=0, dangling=0, formula_inconsistencies=0, staged_leftovers=[],
+  broad_fallback_plan_c=0.
+- **No source/reference file under `03_Notes/` or `04_Resources/` was modified**
+  during the build.
+
+### Accepted gap
+The only failure is source 1's graph-extraction step: gemini-3.5-flash emitted
+graph JSON that failed the `curator.entity_relation_extract` Pydantic validator
+— a model-output-quality issue, NOT a B2 defect (B2 handled it perfectly: clean
+discard, no partial state). Markdown/PDF/Reference-Mode parsing (L1) and the
+claim-support + copy-on-stage compile path are validated; the testbed is
+disposable and recreatable via `wiki testbed init gaussian_splatting`.

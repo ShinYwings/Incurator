@@ -196,25 +196,30 @@ Integrity release (target v0.8.0).
 
 ## Immediate Next Action
 
-**P0–P6, the P6 review, and Plan B2 (compiler staging/authoritative row
-separation) are all complete and committed; the full backend suite is green
-(817 passed, 8 xfailed), ruff clean, 0 introduced mypy, testbed `wiki
-status|lint` clean, plugin vitest green.** The remaining xfails are Plan-C
+**P0–P6, the P6 review, Plan B2 (+ its two review rounds), and P7 are all
+complete and committed.** Backend suite green (824 passed, 8 xfailed), ruff
+clean, 0 introduced mypy, plugin vitest green. The remaining xfails are Plan-C
 (F6/F8/F9) and Program-3 (F3/F4/F5/F11/F12) targets, not Plan B's. B2 folds into
-the v0.8.0 release; its plan file `.agents/plans/B2_compiler_staging_separation.md`
-is deleted at the P10 workflow step alongside the Plan B plan.
+the v0.8.0 release; both plan files
+(`.agents/plans/B_math_extraction_distillation.md`,
+`.agents/plans/B2_compiler_staging_separation.md`) are deleted at the P10 step.
 
-**Next: P7 — Current Testbed And End-To-End Compiler Audit.** Run
-`VAULT_ROOT=$REPO/testbed wiki status|add|update|lint` against the confirmed
-active `gaussian_splatting` scenario; validate Markdown, local PDF, and
-Reference Mode external PDF paths; the v8 testbed DB migration happens here
-(rehearse on a disposable copy of `.agents/backups/b-pre-implementation-state.sqlite`
-first per §26.6). Run provider-backed extraction/recovery where available;
-otherwise run every deterministic/local-simulator gate and document the exact
-provider blocker (the only accepted gap). Confirm no source/reference file is
-autonomously edited. Then P8 (role reviews), P9 (full local CI incl. plugin
-vitest), P10 (version bump to v0.8.0 + CHANGELOG + plan deletion + release
-commit + PR).
+- [x] **P7 — Testbed + end-to-end compiler audit (provider-backed).** §26.6
+  migration rehearsal on a disposable backup copy passed all criteria; live
+  testbed migrated to v8 (backed up first). A real **Antigravity (`agy`)**
+  `wiki build` validated the B2 copy-on-stage path E2E: source 1's graph LLM
+  returned non-conforming JSON → **atomic discard, 0 partial state**; sources 2,3
+  published authoritative; source 3's authoritative gen holds non-verified
+  stored-not-served units; **0 served units in a non-auth gen** (no leak), one
+  authoritative per source, 0 NULL-gen units; `wiki lint` → 11 release-blocking
+  F6 findings + **exit 1**; ATM pages only for served units; **no source/
+  reference file edited**. Only gap: source 1's model-output graph-JSON failure
+  (not a B2 defect). Full record in `B_roadmap_evidence.md` "P7".
+
+**Next: P8 — Sequential role reviews** (coder_engineer, peer_reviewer,
+schema_guardian, source_pair_analyst, qa_runner, docs_sync_manager,
+legacy_sweeper). Then P9 (full local CI incl. plugin vitest) and P10 (version
+bump to v0.8.0 + CHANGELOG + delete both plan files + release commit + PR).
 
 The P4 support-validation mechanism is SETTLED (SYSTEM_BEHAVIOR §26.1; rationale
 in `B_roadmap_evidence.md` "P4 Design Decision"): a deterministic STRUCTURAL
