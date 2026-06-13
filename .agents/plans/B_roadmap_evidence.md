@@ -632,3 +632,96 @@ PM-review verification:
 - `uv run --directory backend ruff check src/` → clean.
 - `uv run --directory backend mypy src/` → 72 pre-existing errors, 0 in
   `claim_support.py` / `formula_recovery.py` (0 introduced).
+
+## P6 — Staged Atomic Publish, Full-Span Hydration, And Compiler Audit (Completed)
+
+P6 turns the four remaining Plan B strict-xfail oracles green plus two
+Program-1 atlas oracles (F10, F7) it owns. Committed across four phases on
+`feature/plan-b-math-distillation`:
+
+- **P6a — F10 full-span hydration** (`feat(pipeline): F10 full-span evidence
+  hydration`). `pipeline/compile.py` adds `hydrate_span_text` / `hydrate_spans`
+  (+`SpanTextUnavailable`): they re-parse the registered source with the same
+  deterministic parser + `spans_from_sections` that produced the stored spans
+  and select the span whose `content_hash` matches — `content_hash` (SHA-256 of
+  the exact span text) IS the verification key, robust to parser normalization
+  and PDF text extraction. `retrieval/evidence.py` source-section and
+  entity-derived items hydrate full text; an unavailable span is flagged
+  `evidence_status='stale'` (new `EvidenceItem` field) and never has its preview
+  silently substituted. Un-xfailed the Plan B FRM08 oracle and the Program-1
+  F10 oracle (both now materialize the source file, the production
+  precondition); added a drift/unreadable regression. Reconciled
+  `SEARCH_ENGINE_SCHEMA §10.2` to the re-parse + content-hash mechanism. The P1
+  guides already described hash-verified full-span hydration accurately
+  (no guide change).
+
+- **P6b — Compiler audit §20.5 + F7 stale-span reconciliation**
+  (`feat(pipeline): compiler audit §20.5 assertions + F7 stale-span
+  reconciliation`). `AuditReport` gains `dangling_supports` (#3),
+  `formula_inconsistencies` (#5), `staged_leftovers`/multiple-authoritative
+  (#4), `duplicate_candidates` (§20.1 hint), and `broad_fallback_plan_c` (#2,
+  recorded + assigned to Plan C). `release_blocking` (failed/stale/dangling/
+  formula/staged) gates lint/release; `.ok` stays the strict "all verified"
+  check. **User direction (ownership split):** the only broad fallbacks in the
+  codebase — `synthesis.py:110` and `community_reports.py:211` — are
+  community-report/graph-derived, so per §20.5 #2 the audit RECORDS them and
+  assigns them to Plan C; Plan B does NOT modify those modules. The L2/
+  source-pair claim path has no broad fallback, so Plan B's removal scope is
+  vacuously satisfied. `reconcile_source` now removes the edited source's stale
+  spans (§26.4) via new `db.delete_source_spans` (cascades claim_supports +
+  artifact_dependencies); `retire_knowledge_unit` drops its claim_supports
+  (#3). Un-xfailed the Program-1 F7 oracle; reassigned the Program-1 F6
+  oracle's xfail to Plan C (it stays xfail — Plan C removes the synthesis
+  fallback).
+
+- **P6c — Staged compiler generations + atomic publish**
+  (`feat(pipeline): staged compiler generations with atomic publish`).
+  `recompile_source` stages a source's active units in a `GEN-` generation,
+  re-validates them, runs the publish-gate audit, and publishes — or, on any
+  failure (the `_inject_failure` test seam, an audit violation, or a raised
+  error), discards the staged generation and re-raises, leaving the prior
+  authoritative generation untouched (no partial authoritative publish).
+  Unchanged source + same prompt-contract version reuses the authoritative
+  generation (idempotent, no count amplification). `compile_source_l2` publishes
+  via this path on success and discards on a publish-gate failure.
+  `AuditReport.publish_blocking` is the narrower generation gate (dangling /
+  formula-inconsistency / multiple-authoritative): failed/stale claims are
+  excluded from serving and surfaced by lint, so they do not block publishing
+  the sound verified set. Un-xfailed the idempotent-rebuild and
+  failed-compile-no-partial-publish oracles; added a production compile
+  generation/idempotency regression. **D2 holdout re-arm (governance, same
+  basis as the v8 schema re-arm):** P6b's `delete_source_spans` + retire cleanup
+  changed `db.py`'s SHA-256; both are source-pair compiler-lifecycle helpers
+  touching no retrieval/ranking/projection/`materialize_chunks` path, so the
+  lexical FTS5/BM25 Q06 holdout metric is provably unaffected — re-armed the
+  drift tripwire (`plan_b_p6_rearm` provenance recorded in
+  `D2_HOLDOUT_RESULT.yml`).
+
+- **P6d — `wiki lint` Compiler Integrity surface**
+  (`feat(lint): wiki lint Compiler Integrity surface`). `lint.compiler_integrity`
+  runs the read-only audit (§20.5) and maps findings to LintIssues:
+  release-blocking violations are ERRORs (driving the existing non-zero lint
+  exit for CI/testbed gating); not-yet-verified claims + duplicate candidates
+  are INFO; broad-fallback findings are WARNINGs flagged Plan-C-assigned. Wired
+  into `run_lint`'s fast checks (existing checks unchanged); the `wiki lint`
+  summary panel gains a Compiler Integrity line. Un-xfailed the lint-surface
+  oracle. The P1 USER_GUIDE/WORKFLOW_GUIDE already described the section + the
+  non-zero exit accurately (no guide change).
+
+### P6 Verification
+
+```
+uv run --directory backend pytest -q
+  → 808 passed, 8 xfailed (was 794/14; +6 un-xfailed oracles now green +
+    8 new regression tests; the 8 remaining xfails are Program-1 F6/F8/F9 →
+    Plan C and F3/F4/F5/F11/F12 → Program 3. Zero Plan B xfails remain.)
+uv run --directory backend ruff check src/  → All checks passed!
+uv run --directory backend mypy src/  → 72 errors (pre-existing baseline; 0
+  introduced — lint.py/compile.py/claim_support.py clean; the cli.py errors
+  predate Plan B).
+```
+
+Next phase: P7 — current testbed (`gaussian_splatting`) + end-to-end compiler
+audit (`VAULT_ROOT=testbed wiki status|add|update|lint`), Markdown/local-PDF/
+Reference-Mode validation, with the provider-backed extraction/recovery
+blocker documented if the provider is unavailable.

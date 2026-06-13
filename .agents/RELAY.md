@@ -115,17 +115,45 @@ Integrity release (target v0.8.0).
   and Fix 2 loosens §26.2's "exactly match" gate beyond spec (current
   exact-token equality fails safe). Full rationale in `B_roadmap_evidence.md`
   "P5/P4 PM Review — Multi-Span Recovery Fix And F6 Gate Defense".
+- [x] P6 — Staged atomic publish, full-span hydration, and compiler audit
+  (commits `eb59a97`, `e473a05`, `63bfcef`, `52a3b45`). **All four remaining
+  Plan B strict-xfail oracles are green** (F10 hydration, idempotent rebuild,
+  failed-compile-no-partial-publish, wiki-lint Compiler Integrity surface) plus
+  the two Program-1 atlas oracles Plan B owns (F10, F7).
+  - **P6a** — `compile.hydrate_span_text`/`hydrate_spans` re-parse the
+    registered source and verify by `content_hash` (robust to parser
+    normalization / PDF); `evidence.py` source-section + entity items hydrate
+    full text, flagging `evidence_status='stale'` when unavailable (never
+    silently substituting the preview). `SEARCH_ENGINE_SCHEMA §10.2` reconciled.
+  - **P6b** — `run_compiler_audit` extended to the full §20.5 contract
+    (dangling/formula-inconsistency/multiple-authoritative/duplicate-candidate +
+    broad-fallback recording). **Per user direction, the synthesis.py:110 /
+    community_reports.py:211 broad fallbacks are community-report/graph-derived,
+    so the audit RECORDS them as Plan-C-assigned and Plan B does NOT modify
+    those modules** (Program-1 F6 oracle stays xfail, reassigned to Plan C).
+    `reconcile_source` removes the edited source's stale spans (F7, §26.4) via
+    `db.delete_source_spans`.
+  - **P6c** — `recompile_source` is the staged `GEN-` generation orchestrator
+    (publish-gate audit → publish, or discard-on-failure with no partial
+    authoritative publish; unchanged rebuild reuses the authoritative
+    generation). `compile_source_l2` now publishes via it. D2 holdout `db.py`
+    drift fingerprint re-armed (`plan_b_p6_rearm`; additive lifecycle helpers,
+    no ranking path, metric provably unaffected).
+  - **P6d** — `lint.compiler_integrity` + `run_lint` wiring + non-zero exit on
+    release-blocking findings; CLI summary gains a Compiler Integrity line.
 
 ## Verification
 
-- `uv run --directory backend pytest -q` → 794 passed, 14 xfailed (P5 + PM
-  review complete; the 4 remaining Plan B P6 oracles + 10 Program 1
-  strict-xfail oracles remain xfail).
+- `uv run --directory backend pytest -q` → **808 passed, 8 xfailed** (was
+  794/14; +6 un-xfailed oracles now green + 8 new regression tests). The 8
+  remaining xfails are Program-1 F6/F8/F9 (→ Plan C) and F3/F4/F5/F11/F12 (→
+  Program 3). **Zero Plan B xfails remain.**
 - `uv run --directory backend ruff check src/` → clean. (`ruff check tests/`
   shows 6 PRE-EXISTING errors in test_cli_update/test_migrate/test_plugin_cli/
   test_db_sync imports — outside CI scope and outside Plan B's changes.)
-- `uv run --directory backend mypy src/` → 73 pre-existing errors, 0 introduced
-  by P3 (verified by stash-compare on db.py/db_sync.py).
+- `uv run --directory backend mypy src/` → 72 pre-existing errors, 0 introduced
+  by P6 (lint.py / compile.py / claim_support.py clean; the cli.py errors
+  predate Plan B).
 - `VAULT_ROOT=$REPO/testbed wiki status` → gaussian_splatting testbed healthy
   (3 sources, L1 done, L2-L4 pending; pre-existing "vault schema v0 → v1"
   warning predates Plan B). Testbed DB migration to v8 happens at P7.
@@ -148,7 +176,22 @@ Integrity release (target v0.8.0).
 
 ## Immediate Next Action
 
-Executors: P3 (v8 additive schema + lifecycle helpers) committed; suite green.
+**P0–P6 are complete and committed; the full backend suite is green (808
+passed, 8 xfailed) and all Plan B oracles pass.** The remaining xfails are
+Plan-C (F6/F8/F9) and Program-3 (F3/F4/F5/F11/F12) targets, not Plan B's.
+
+**Next: P7 — Current Testbed And End-To-End Compiler Audit.** Run
+`VAULT_ROOT=$REPO/testbed wiki status|add|update|lint` against the confirmed
+active `gaussian_splatting` scenario; validate Markdown, local PDF, and
+Reference Mode external PDF paths; the v8 testbed DB migration happens here
+(rehearse on a disposable copy of `.agents/backups/b-pre-implementation-state.sqlite`
+first per §26.6). Run provider-backed extraction/recovery where available;
+otherwise run every deterministic/local-simulator gate and document the exact
+provider blocker (the only accepted gap). Confirm no source/reference file is
+autonomously edited. Then P8 (role reviews), P9 (full local CI incl. plugin
+vitest), P10 (version bump to v0.8.0 + CHANGELOG + plan deletion + release
+commit + PR).
+
 The P4 support-validation mechanism is SETTLED (SYSTEM_BEHAVIOR §26.1; rationale
 in `B_roadmap_evidence.md` "P4 Design Decision"): a deterministic STRUCTURAL
 gate (verified|failed|uncertain trichotomy) primary, calibrated model secondary
@@ -158,12 +201,6 @@ contiguous sub-formulas; no AST/CAS); text check = salient entity/term intersect
 above threshold (zero overlap → `failed`, the F6 gate). Validate on hydrated
 FULL span text, never the preview. Do NOT lookup the gold YAML at runtime
 (overfitting ban); it is the test-time release oracle only.
-
-P4 review fixes and P5 selective formula recovery are implemented; the
-2026-06-13 PM review has been triaged and resolved (see below). Full
-validation is green. **Next: P6** — staged atomic compiler generations
-(`GEN-`), publish gate / failed-compile rollback, and full dependency
-reconciliation (the 4 remaining strict-xfail Plan B oracles cover this).
 
 ### Update (2026-06-13, PM Review — RESOLVED)
 
