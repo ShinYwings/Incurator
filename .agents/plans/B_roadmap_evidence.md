@@ -287,3 +287,40 @@ uv run --directory backend mypy src/  → 73 pre-existing errors, 0 introduced b
   P3 (verified by stash-compare: identical count with and without the db.py /
   db_sync.py changes)
 ```
+
+## P4 Design Decision — Support-Validation Mechanism (settled, pre-code)
+
+The P4 support-validation fork (content-entailment vs gold-fixture lookup vs
+structural checks) is settled as a HYBRID: a deterministic structural gate
+primary, calibrated model secondary. Frozen into SYSTEM_BEHAVIOR §26.1. Origin:
+user research note `p4_support_validation_research.md`, fact-checked against the
+gold fixtures + oracles. Adopted points and the four corrections applied:
+
+- ADOPT: structural-primary + model-secondary; ban gold-fixture lookup from
+  runtime (overfits — fixtures are the test-time release oracle only); reject
+  pure NLI/embedding entailment for formulas (`a^2+b^2` vs `a^2-b^2` hole).
+- CORRECTION 1: parse inline `$...$` AND display `$$...$$` LaTeX — every gold
+  formula case uses INLINE `$...$`; a `$$`-only parser misses them all.
+- CORRECTION 2: compare formulas by normalized symbol/operator token MULTISET
+  equality (strip whitespace + spacing macros `\,`/`\!`/`\;` + redundant
+  braces), NOT whitespace-strip exact substring. Tolerates commutative reorder,
+  blocks operator/sign change, needs no AST/CAS — so the artifact's "AST
+  equivalent / commutative sorting" suggestion is dropped as over-engineering.
+- CORRECTION 3: the gate yields a TRICHOTOMY `verified | failed | uncertain`,
+  not fail-only. The SUP01 oracle calls `validate(db, unit_id)` with NO model
+  and expects `verified`, so clear matches must verify deterministically; only
+  `uncertain` (ambiguous paraphrase) escalates to the model, and stays
+  `unchecked` when no model is available.
+- CORRECTION 4: validate on hydrated FULL span text, not the 200-char
+  `text_preview` (preview truncation = F10; production correctness couples to
+  the P6 full-span hydration). Short gold spans make preview==full, so the P4
+  oracles pass on preview alone.
+
+Target oracles this turns green (un-xfail in the P4 change):
+`test_oracle_minimal_support_yields_verified_primary_row` (SUP01, deterministic
+verify), `test_oracle_wrong_real_span_marked_failed` (SUP03, deterministic
+fail via zero entity intersection), and the reconciliation oracle
+`test_oracle_source_delete_retires_dependent_claim` (REC03). The
+`test_oracle_edited_span_marks_support_stale` oracle needs a
+`compiler_audit`/`run_compiler_audit` entry point wiring P3's
+`refresh_support_freshness`.

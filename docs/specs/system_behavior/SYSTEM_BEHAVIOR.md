@@ -1512,12 +1512,37 @@ F3/F4/F5/F11/F12 stay with Program 3.
   claim, the minimal span set that entails it, with roles
   `primary | contextual | formula`. The compiler persists these as
   `claim_supports` rows in the `unchecked` state.
-- Support validation promotes a support row to `verified` only via:
-  1. deterministic gold checks (release oracles — exact-match/structural
-     checks against labeled fixtures), and
-  2. secondary calibrated model validation for non-gold claims, recorded with
-     a `PTR-` validator trace.
-  A valid span id alone NEVER proves support (the F6 anti-pattern).
+- Support validation runs a deterministic STRUCTURAL gate first, then a
+  calibrated model only to adjudicate what the gate leaves uncertain. The gate
+  operates on the cited span's full source text (hydrated — never the 200-char
+  `text_preview`), so it generalizes to any production claim. It is NOT a lookup
+  against the labeled gold fixtures: `plan_b_compiler_gold.yml` is the test-time
+  release oracle that scores the gate's accuracy, never a runtime table (a
+  fixture lookup would overfit CI and leave real vaults unprotected). The gate
+  yields one of three verdicts per claim:
+  1. `verified` — the cited span structurally supports the claim. For
+     formula-bearing claims, every claim formula is structurally present in the
+     span (formula rule below). For text claims, the claim's salient
+     content/entity terms intersect the span above the support threshold.
+  2. `failed` — no cited span structurally supports the claim: zero/low entity
+     intersection (the F6 wrong-real-span case) OR a formula that is absent from
+     or altered relative to the span. Recorded with a reason; release-blocking.
+  3. `uncertain` — structurally plausible but ambiguous (heavy paraphrase or
+     logical deduction). Escalated to secondary calibrated model validation,
+     recorded with a `PTR-` validator trace; left `unchecked` when no model is
+     available rather than promoted.
+  A valid span id alone NEVER proves support (the F6 anti-pattern), and a
+  semantic-similarity/NLI score alone NEVER verifies a formula.
+- Formula structural rule (deterministic, no CAS): a claim's LaTeX formula —
+  inline `$...$` or display `$$...$$` — is "present" in a span iff, after
+  normalization (strip whitespace and spacing macros such as `\,`/`\!`/`\;`,
+  collapse redundant braces), its symbol/operator token MULTISET equals that of
+  some formula in the span. Multiset equality tolerates commutative reordering
+  (`c^2 = a^2 + b^2` ≡ `a^2 + b^2 = c^2`) while still failing an operator/sign
+  change (`a^2 - b^2 = c^2` ≠ `a^2 + b^2 = c^2`) — closing the hole a
+  semantic-similarity model would miss. A central formula present in no cited
+  span is `formula_status='missing'`; a structurally altered one is a `failed`
+  support, never silently accepted.
 - A claim whose cited spans fail minimal-support validation is marked
   `support_status='failed'` with a reason; it is excluded from downstream
   compile stages and flagged by the compiler audit. Wrong-real-span citations

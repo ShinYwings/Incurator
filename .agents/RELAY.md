@@ -97,15 +97,25 @@ Integrity release (target v0.8.0).
 ## Immediate Next Action
 
 Executors: P3 (v8 additive schema + lifecycle helpers) committed; suite green.
+The P4 support-validation mechanism is SETTLED (SYSTEM_BEHAVIOR §26.1; rationale
+in `B_roadmap_evidence.md` "P4 Design Decision"): a deterministic STRUCTURAL
+gate (verified|failed|uncertain trichotomy) primary, calibrated model secondary
+for `uncertain` only. Formula check = normalized symbol/operator token-MULTISET
+equality over inline `$...$` AND display `$$...$$` (tolerates reorder, blocks
+operator/sign change, no AST/CAS); text check = salient entity/term intersection
+above threshold (zero overlap → `failed`, the F6 gate). Validate on hydrated
+FULL span text, never the preview. Do NOT lookup the gold YAML at runtime
+(overfitting ban); it is the test-time release oracle only.
+
 Begin P4 — Claim extraction, minimal support, and stable reconciliation:
 version the knowledge-unit prompt contract for minimal support + formula
-centrality, implement deterministic claim normalization/`semantic_hash`,
-support validation (deterministic gold checks primary, calibrated model
-secondary with `PTR-` trace), and source edit/delete/split reconciliation that
-retires stale units. Turn the behavior oracles
-`test_oracle_minimal_support_yields_verified_primary_row`,
-`_wrong_real_span_marked_failed`, `_edited_span_marks_support_stale`, and
-`_source_delete_retires_dependent_claim` green (un-xfail in the same change),
-driving the gold cases SUP01-SUP04 + REC01-REC04 in
-`plan_b_compiler_gold.yml`. Wrong-real-span (F6) is a release-blocking gate:
+centrality, implement deterministic claim normalization/`semantic_hash`, the
+structural support validator above (populating `claim_supports` + setting unit
+`support_status`/`formula_status`), and source edit/delete/split reconciliation
+that retires stale units. Turn green (un-xfail in the same change):
+`test_oracle_minimal_support_yields_verified_primary_row` (SUP01),
+`_wrong_real_span_marked_failed` (SUP03),
+`_source_delete_retires_dependent_claim` (REC03), and — via a
+`run_compiler_audit` entry point wiring P3's `refresh_support_freshness` —
+`_edited_span_marks_support_stale`. Wrong-real-span (F6) is release-blocking:
 0 accepted on gold.
