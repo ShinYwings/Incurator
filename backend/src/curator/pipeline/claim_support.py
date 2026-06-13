@@ -108,9 +108,9 @@ class AuditReport:
 
         Narrower than ``release_blocking``: a generation publishes its sound
         VERIFIED served set even when failed/stale claims exist, because those
-        are excluded from serving (``list_eligible_knowledge_units``) and merely
-        surfaced by `wiki lint`. Only structural breaks of the served set block
-        the publish — dangling references, formula inconsistency, or a violated
+        are excluded from serving (``list_serving_units``) and merely surfaced by
+        `wiki lint`. Only structural breaks of the served set block the publish —
+        dangling references, formula inconsistency, or a violated
         one-authoritative-per-scope invariant.
         """
         return sorted(

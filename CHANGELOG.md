@@ -4,6 +4,77 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.8.0] — 2026-06-14
+
+Evidence Compiler Integrity release (Plan B + Plan B2). Markdown/PDF source
+truth compiles into stable, minimal, claim-level grounded L2 knowledge
+without formula loss, unsupported broad-span grounding, duplicate
+accumulation, stale records, or partial authoritative publishes.
+
+### Added
+
+- **Claim-level minimal support lifecycle (§26.1).** Every extracted claim
+  is validated by a deterministic structural gate (verified/failed/uncertain
+  trichotomy) against hydrated full span text, with ordered LaTeX
+  token-sequence formula matching (direction/binding-preserving, contiguous
+  sub-formula aware). Wrong-real-span citations (F6) are release-blocking.
+  Evidence freshness re-checks detect stale claim supports. No gold-fixture
+  lookup at runtime (overfitting ban).
+- **Formula lifecycle and selective recovery (§26.2).** Provider-free
+  measured-loss classification (`fragmented|image_only|parser_omitted`),
+  additive `source_spans.metadata.formula_recovery` candidates with 0.80
+  acceptance threshold + validator-trace + exact-claim-formula gates, and
+  page-hash invalidation. Formula-bearing graph input is never destructively
+  truncated.
+- **Staged compile generations and atomic publish (§26.3, Plan B2).** Every
+  compile runs inside a `GEN-` generation. Visibility gated at
+  write/materialization time: staged units are never emitted as ATM pages,
+  upserted into the graph, or materialized into search. Atomic publish
+  wraps reconcile + graph persist + generation flip in a single DB
+  transaction. Graph extraction (LLM) runs during staging but persistence
+  is deferred to the publish transaction. A failed gate/error discards the
+  staged generation with the prior authoritative state byte-untouched.
+- **Source edit/delete/split reconciliation (§26.4).** Unchanged claims
+  (per `semantic_hash` + exact statement equality) keep their stable ids
+  and verified supports. Changed claims are re-extracted. Claims whose
+  source basis disappeared are retired. Stale spans are reconciled.
+- **Compiler audit surface (§26.5).** `wiki lint` gains a Compiler
+  Integrity section reporting unsupported/failed/stale claims, dangling
+  supports, formula inconsistencies, staged leftovers, duplicate candidates,
+  and broad-fallback findings (Plan-C-assigned). Exits non-zero on
+  release-blocking findings.
+- **Full-span hydration (F10, SEARCH_ENGINE_SCHEMA §10.2).** Evidence items
+  carry `evidence_status='ok'` when hydrated, `'stale'` when falling back
+  to the 200-char preview.
+- **`list_serving_units` / `list_generation_units` APIs (§26.3).**
+  Serving surfaces read only authoritative-generation ∧ verified ∧
+  not-retired units. Compiler reads its own staged generation.
+- **Legacy NULL-generation backfill.** `init_db` attributes pre-B2 verified
+  units to a deterministic synthetic authoritative generation so
+  generation-scoped visibility has no permanent NULL escape hatch.
+
+### Changed
+
+- `SCHEMA_VERSION` bumped from 7 → 8 (`claim_supports` table,
+  `compiler_generations` table, `knowledge_units` additive columns).
+- `db_sync` exports/imports both new canonical tables (`claim_supports` with
+  LWW, `compiler_generations` with always-upsert).
+- `compile_source_l2` now runs the full copy-on-stage pipeline: stage →
+  validate → gate → reconcile + graph persist + publish (atomic txn) →
+  re-emit ATM/search from the authoritative served set.
+- `materializer` and `reemit_projections` read `list_serving_units`.
+
+### Fixed
+
+- F6 (wrong-real-span citations): release-blocking gate rejects zero-overlap
+  span citations.
+- F7 (stale span accumulation): reconciliation removes the edited source's
+  prior spans instead of lingering beside replacements.
+- F10 (truncated evidence): full-span hydration replaces the 200-char
+  preview in evidence packs.
+
+---
+
 ## [0.7.0] — 2026-06-12
 
 Program 1 D2 quality-observatory release.

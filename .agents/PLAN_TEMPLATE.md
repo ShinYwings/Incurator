@@ -65,23 +65,36 @@ Once the debate is over, copy the skeleton below and write `.agents/plans/[XX]_[
 Date: YYYY-MM-DD
 Status: APPROVED — Arena debate concluded. Specs are authored, tests are spec-first.
 
-## Strict quality condition
-- (e.g. RAG search performance must be equal to or better than the existing engine)
+## 1. Objective
+(Define the exact core goal of this plan. What is the definition of done? Do not use abstract buzzwords.)
 
-## Locked design decisions (Arena Consensus)
-- (Summary of architectures, algorithms, schemas, and backward compatibility rules confirmed in the Arena)
+## 2. Explicit Non-Goals
+(List exactly what this plan will NOT do. Crucial for preventing scope creep and unnecessary abstraction.)
 
-## Evidence Ledger
+## 3. Strict Quality Conditions & Release Gates
+- (Measurable condition, e.g., "RAG search performance must be equal to or better than the existing engine.")
+- (Strict gate, e.g., "100% tests passing, 0 unsupported relations, unchanged rebuild is identical.")
+
+## 4. Locked Design Decisions (Arena Consensus)
+- (Summary of architectures, algorithms, schemas, and backward compatibility rules confirmed in the Arena.)
+
+## 5. Scope Exclusions & Stop Conditions
+- **Exclusions**: (Related items that are explicitly deferred to follow-up milestones.)
+- **Stop Conditions**: (Specific triggers where the agent MUST stop and ask the user for intervention, e.g., "Stop if schema migration fails.")
+
+## 6. Evidence Ledger
 Items collected and verified during the planning phase to ensure documentation, DB migrations, and plugin code do not diverge from the actual repository and vault state.
 - **Current Repository & Schema Reality**: Pre-fact-check whether the current schema (`sources`, `synthesis_nodes`, etc.) accurately reflects the system spec documentation.
 - **Current Dirty Worktree**: Identify uncommitted changes currently being worked on by the user or other agents (to prevent forced overwrites).
 - **Rollback Requirements**: Specify safe backup and rollback points before destructive operations (e.g., DB changes).
 
-## Execution Phases (Follow TDD and CI at each phase)
-- **P1 — [DB Schema]**: Schema update. (Verify: Migrations and DB integrity work normally)
-- **P2 — [Core Logic]**: Backend logic implementation. (Verify: Pass `pytest tests/test_*.py` and `ruff`)
-- **P3 — [Integration]**: Plugin/UI integration, etc.
-- **P4 — [Testbed Smoke]**: E2E Parity verification such as `wiki add/sync/query`.
+## 7. Execution Phases (Follow TDD and CI at each phase)
+- **P0 — Research & Measured Baseline**: (Mandatory measurements, benchmarks, and establishing test beds before writing logic.)
+- **P1 — Contract Specification**: (Docs-first schema/contract definitions. Must stop for approval here if there are schema changes.)
+- **P2 — [DB Schema]**: Schema update. (Verify: Migrations and DB integrity work normally)
+- **P3 — [Core Logic]**: Backend logic implementation. (Verify: Pass `pytest tests/test_*.py` and `ruff`)
+- **P4 — [Integration]**: Plugin/UI integration, etc.
+- **P5 — [Testbed Smoke]**: E2E Parity verification such as `wiki add/sync/query`.
 ```
 
 ---
