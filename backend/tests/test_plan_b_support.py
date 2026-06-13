@@ -773,3 +773,66 @@ def test_lint_compiler_integrity_clean_when_verified(vault) -> None:
         i for i in issues
         if i.severity == lint_mod.Severity.ERROR
     ]  # a verified claim raises no release-blocking integrity error
+
+
+# ---------------------------------------------------------------------------
+# P6 review fixes — TOCTOU publish gate (Flaw 2) and bulk-query chunking (Flaw 4).
+# ---------------------------------------------------------------------------
+
+def test_failed_publish_gate_preserves_prior_generation_attribution(vault) -> None:
+    # Flaw 2: a re-compile whose publish gate fails must not strip the prior
+    # authoritative generation's per-unit generation_id (§26.3 untouched).
+    from curator.pipeline import compile as compile_mod
+
+    unit_id = _seed(vault, ["SPAN-pb000001"], "Backprop computes the gradient.")
+    validate_claim_support(vault.state_db, unit_id)
+    first = compile_mod.recompile_source(vault.state_db, 1)
+    gen = db.get_authoritative_generation(vault.state_db, 1)
+    assert gen is not None
+    with db.connect(vault.state_db) as conn:
+        assert conn.execute(
+            "SELECT generation_id FROM knowledge_units WHERE id = ?", (unit_id,)
+        ).fetchone()[0] == gen["id"]
+
+    # Plant a publish-gate violation that survives re-validation: a dangling
+    # support on a ghost unit (validate_claim_support only rewrites the real
+    # unit's rows, so this lingers → dangling_supports → publish_blocking). Then
+    # force a fresh staged generation by mutating the source fingerprint.
+    db.upsert_claim_support(
+        vault.state_db, knowledge_unit_id="KNU-ghost000", source_span_id="SPAN-missing",
+        support_role="primary", support_status="verified", evidence_hash="x",
+    )
+    with db.connect(vault.state_db) as conn:
+        conn.execute("UPDATE sources SET content_hash = 'edited' WHERE id = 1")
+    with pytest.raises(Exception):
+        compile_mod.recompile_source(vault.state_db, 1)
+
+    # Prior authoritative generation + its unit attribution are intact.
+    assert db.get_authoritative_generation(vault.state_db, 1)["id"] == gen["id"]
+    with db.connect(vault.state_db) as conn:
+        assert conn.execute(
+            "SELECT generation_id FROM knowledge_units WHERE id = ?", (unit_id,)
+        ).fetchone()[0] == gen["id"]
+        authoritative = conn.execute(
+            "SELECT COUNT(*) FROM compiler_generations WHERE status = 'authoritative'"
+        ).fetchone()[0]
+    assert authoritative == 1
+
+
+def test_delete_source_spans_handles_more_than_sqlite_var_limit(vault) -> None:
+    # Flaw 4: bulk span deletion must chunk under SQLITE_MAX_VARIABLE_NUMBER.
+    n = 1500
+    ids = [f"SPAN-bulk{i:05d}" for i in range(n)]
+    with db.connect(vault.state_db) as conn:
+        conn.executemany(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', ?, '', '2026-01-01T00:00:00Z')",
+            [(sid, RELPATH, sid) for sid in ids],
+        )
+    deleted = db.delete_source_spans(vault.state_db, ids)
+    assert deleted == n
+    with db.connect(vault.state_db) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM source_spans WHERE source_id = 1"
+        ).fetchone()[0] == 0

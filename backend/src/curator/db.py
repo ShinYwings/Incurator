@@ -563,6 +563,18 @@ def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# Keep `IN (?, ?, …)` parameter counts well under SQLite's
+# SQLITE_MAX_VARIABLE_NUMBER (999 on older builds) so large sources (many spans)
+# do not crash bulk span queries.
+_SQL_VAR_CHUNK = 900
+
+
+def _chunked(seq: list, size: int = _SQL_VAR_CHUNK):
+    """Yield successive ``size``-length slices of ``seq``."""
+    for start in range(0, len(seq), size):
+        yield seq[start:start + size]
+
+
 def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return {str(row[1]) for row in rows}
@@ -1634,21 +1646,25 @@ def delete_source_spans(db_path: Path, span_ids: list[str]) -> int:
     Returns the number of span rows deleted. Source truth files are untouched."""
     if not span_ids:
         return 0
-    placeholders = ",".join("?" for _ in span_ids)
-    params = tuple(span_ids)
+    deleted = 0
     with connect(db_path) as conn:
-        conn.execute(
-            f"DELETE FROM claim_supports WHERE source_span_id IN ({placeholders})", params
-        )
-        conn.execute(
-            "DELETE FROM artifact_dependencies "
-            f"WHERE depends_on_type = 'source_span' AND depends_on_id IN ({placeholders})",
-            params,
-        )
-        cur = conn.execute(
-            f"DELETE FROM source_spans WHERE id IN ({placeholders})", params
-        )
-        return cur.rowcount
+        for chunk in _chunked(span_ids):
+            placeholders = ",".join("?" for _ in chunk)
+            params = tuple(chunk)
+            conn.execute(
+                f"DELETE FROM claim_supports WHERE source_span_id IN ({placeholders})",
+                params,
+            )
+            conn.execute(
+                "DELETE FROM artifact_dependencies "
+                f"WHERE depends_on_type = 'source_span' AND depends_on_id IN ({placeholders})",
+                params,
+            )
+            cur = conn.execute(
+                f"DELETE FROM source_spans WHERE id IN ({placeholders})", params
+            )
+            deleted += cur.rowcount
+    return deleted
 
 
 # --- knowledge_units -------------------------------------------------

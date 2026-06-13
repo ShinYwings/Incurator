@@ -99,6 +99,12 @@ def _section_dicts(paths: cfg.WikiPaths, relpath: str):
 # ---------------------------------------------------------------------------
 
 
+# Keep `IN (?, …)` parameter counts under SQLite's SQLITE_MAX_VARIABLE_NUMBER
+# (999 on older builds) so a source with thousands of spans cannot crash bulk
+# span queries.
+_SQL_VAR_CHUNK = 900
+
+
 class SpanTextUnavailable(Exception):
     """A source span's full text could not be hydrated and verified (F10)."""
 
@@ -156,12 +162,20 @@ def hydrate_spans(db_path: Path, span_ids: list[str]) -> dict[str, str]:
     """
     if not span_ids:
         return {}
-    placeholders = ",".join("?" for _ in span_ids)
+    # Chunk the IN (...) parameter list under SQLite's variable cap so a source
+    # with thousands of spans does not crash bulk hydration.
+    rows: list[Any] = []
     with db.connect(db_path) as conn:
-        rows = conn.execute(
-            f"SELECT id, relpath, content_hash FROM source_spans WHERE id IN ({placeholders})",
-            tuple(span_ids),
-        ).fetchall()
+        for start in range(0, len(span_ids), _SQL_VAR_CHUNK):
+            chunk = span_ids[start:start + _SQL_VAR_CHUNK]
+            placeholders = ",".join("?" for _ in chunk)
+            rows.extend(
+                conn.execute(
+                    f"SELECT id, relpath, content_hash FROM source_spans "
+                    f"WHERE id IN ({placeholders})",
+                    tuple(chunk),
+                ).fetchall()
+            )
     paths = _paths_from_state_db(db_path)
     by_relpath: dict[str, list[Any]] = {}
     for row in rows:
@@ -409,12 +423,11 @@ def recompile_source(
             ]
         for uid in unit_ids:
             validate_claim_support(db_path, uid)
-        with db.connect(db_path) as conn:
-            conn.execute(
-                "UPDATE knowledge_units SET generation_id = ? "
-                "WHERE source_id = ? AND retired_at IS NULL",
-                (gen_id, source_id),
-            )
+        # Publish gate runs BEFORE any authoritative mutation. A failed audit
+        # must leave the prior authoritative generation — including each unit's
+        # generation_id attribution — completely untouched (§26.3). Only after
+        # the gate clears do we attribute the units to this generation and
+        # publish; on failure the prior served state is never overwritten.
         report = run_compiler_audit(db_path)
         if report.publish_blocking:
             raise RuntimeError(
@@ -424,6 +437,12 @@ def recompile_source(
         verified_ids = sorted(
             str(u["id"]) for u in db.list_eligible_knowledge_units(db_path, source_id)
         )
+        with db.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE knowledge_units SET generation_id = ? "
+                "WHERE source_id = ? AND retired_at IS NULL",
+                (gen_id, source_id),
+            )
         audit_json = json.dumps(
             {"content_hash": fingerprint, "unit_ids": verified_ids,
              "unit_count": len(verified_ids)},

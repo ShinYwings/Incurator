@@ -45,13 +45,17 @@ evaluated_code:
   plan_b_p6_rearm:
     date: '2026-06-13'
     prior_db_sha256: 21554038b3b98e7301a6974151737fbd3767ea4855d5ca465540e05e008cc3de
+    intermediate_db_sha256: b1d8bd830d8fde1c7dcb222a0bbbb62ffcf9adfbae360930d1bc9b6ba012d5cc
     reason: >-
-      Plan B P6 added delete_source_spans (F7 stale-span reconciliation) and a
-      claim_supports cleanup to retire_knowledge_unit. Both are source-pair
-      compiler-lifecycle helpers; neither touches retrieval, ranking, fusion,
-      projection, or materialize_chunks, so the lexical FTS5/BM25 Q06 holdout
-      metric is provably unaffected. Re-armed the drift tripwire (same governance
-      basis as the v8 schema re-arm above).
+      Plan B P6 changed db.py twice: (1) delete_source_spans (F7 stale-span
+      reconciliation) + a claim_supports cleanup in retire_knowledge_unit
+      (sha b1d8bd83), then (2) a P6 review fix adding _chunked / _SQL_VAR_CHUNK
+      and chunking delete_source_spans under SQLITE_MAX_VARIABLE_NUMBER
+      (sha b2735fb, final). All are source-pair compiler-lifecycle / SQL-batching
+      helpers; none touches retrieval, ranking, fusion, projection, or
+      materialize_chunks, so the lexical FTS5/BM25 Q06 holdout metric is provably
+      unaffected. Re-armed the drift tripwire (same governance basis as the v8
+      schema re-arm above).
   file_sha256:
     backend/scripts/failure_atlas_holdout.py: c6afe0307dd3f68fa9902387bb0dc269db6ff9d6b73ad2f3ac1cc6ecc883297a
     backend/src/curator/retrieval/evaluation.py: 0cc9e655142c725dd4bbbabfd2b44d6bf0355265bb2510fbb78cbd47d7d43c17
@@ -60,7 +64,7 @@ evaluated_code:
     backend/src/curator/retrieval/fusion.py: ffed6f90d6b0eb55692dfd9a02526d8e4a220ef6625a3e245175a07fa08eb716
     backend/src/curator/retrieval/embedding.py: a6a7da88af3fc824f1fa2c9a4f4ce0720e870c0584c49e011b865678cb0f8f7e
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
-    backend/src/curator/db.py: b1d8bd830d8fde1c7dcb222a0bbbb62ffcf9adfbae360930d1bc9b6ba012d5cc
+    backend/src/curator/db.py: b2735fb40237d06ac4412cfc939039925360f53a3cdda0200b4fce431b3ea7c3
   preflight_family_metrics:
     direct-factual:
       query_count: 7
