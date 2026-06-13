@@ -5144,6 +5144,17 @@ def _render_lint_report_terminal(report: lint_module.LintReport) -> None:
         f" · [yellow]{len(report.warnings)} warnings[/yellow]"
         f" · [cyan]{len(report.infos)} infos[/cyan]",
     ]
+    ci_issues = [
+        i for i in report.issues
+        if i.check == lint_module.CheckId.COMPILER_INTEGRITY
+    ]
+    if ci_issues:
+        ci_errors = sum(1 for i in ci_issues if i.severity == lint_module.Severity.ERROR)
+        ci_color = "red" if ci_errors else "yellow"
+        summary_lines.append(
+            f"  [bold]Compiler Integrity:[/bold] "
+            f"[{ci_color}]{len(ci_issues)} findings ({ci_errors} release-blocking)[/{ci_color}]"
+        )
     if report.auto_fixed:
         summary_lines.append(f"  [green]auto-fixed: {report.auto_fixed}[/green]")
     console.print(

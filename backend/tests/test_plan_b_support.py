@@ -736,3 +736,40 @@ def test_reconcile_removes_stale_spans_of_edited_source(vault) -> None:
         ).fetchone()[0]
     assert remaining == {new_span}
     assert orphan_supports == 0
+
+
+# ---------------------------------------------------------------------------
+# P6 — `wiki lint` Compiler Integrity surface (§26.5).
+# ---------------------------------------------------------------------------
+
+def test_lint_compiler_integrity_emits_error_for_failed_claim(vault) -> None:
+    from curator import lint as lint_mod
+
+    sup03 = next(c for c in GOLD["support_cases"] if c["id"] == "SUP03")
+    unit_id = _seed(vault, sup03["declared"], sup03["statement"])
+    validate_claim_support(vault.state_db, unit_id)  # wrong-real-span → failed
+    issues = lint_mod.compiler_integrity(vault)
+    ci_errors = [
+        i for i in issues
+        if i.check == lint_mod.CheckId.COMPILER_INTEGRITY
+        and i.severity == lint_mod.Severity.ERROR
+    ]
+    assert any(i.page == unit_id for i in ci_errors)
+    # run_lint surfaces them as report errors → the CLI exits non-zero.
+    report = lint_mod.run_lint(vault)
+    assert any(
+        i.check == lint_mod.CheckId.COMPILER_INTEGRITY for i in report.errors
+    )
+
+
+def test_lint_compiler_integrity_clean_when_verified(vault) -> None:
+    from curator import lint as lint_mod
+
+    sup01 = next(c for c in GOLD["support_cases"] if c["id"] == "SUP01")
+    unit_id = _seed(vault, sup01["declared"], sup01["statement"])
+    validate_claim_support(vault.state_db, unit_id)  # verified
+    issues = lint_mod.compiler_integrity(vault)
+    assert not [
+        i for i in issues
+        if i.severity == lint_mod.Severity.ERROR
+    ]  # a verified claim raises no release-blocking integrity error

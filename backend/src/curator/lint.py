@@ -46,6 +46,7 @@ class CheckId(str, Enum):
     CONTRADICTION = "contradiction"
     MISSING_CROSS_LAYER_LINK = "missing_cross_layer_link"  # ATM missing parent_source wikilink, etc.
     EPHEMERAL_GC = "ephemeral_gc"
+    COMPILER_INTEGRITY = "compiler_integrity"  # Plan B (v0.8.0) §26.5 audit findings
 
 
 @dataclass
@@ -1316,6 +1317,71 @@ def apply_fixes(
 
 
 # ---------------------------------------------------------------------------
+# Compiler Integrity (Plan B, v0.8.0, SYSTEM_BEHAVIOR §26.5)
+# ---------------------------------------------------------------------------
+
+
+def compiler_integrity(paths: cfg.WikiPaths) -> list[LintIssue]:
+    """The on-demand compiler-integrity audit surface for ``wiki lint`` (§26.5).
+
+    Runs the read-only compiler audit (SCHEMA §20.5) and maps its findings to
+    LintIssues. Release-blocking violations are ERRORs (so ``wiki lint`` exits
+    non-zero for CI/testbed gating); excluded-from-serving and Plan-C-assigned
+    findings are reported at lower severity. The audit never edits source truth.
+    """
+    from .pipeline.claim_support import run_compiler_audit
+
+    report = run_compiler_audit(paths.state_db)
+    issues: list[LintIssue] = []
+
+    def _emit(check_page: str, severity: Severity, message: str) -> None:
+        issues.append(
+            LintIssue(
+                check=CheckId.COMPILER_INTEGRITY, severity=severity,
+                page=check_page, message=message,
+            )
+        )
+
+    # Release-blocking (§20.5) — these make `wiki lint` exit non-zero.
+    for uid in report.failed_claims:
+        _emit(uid, Severity.ERROR,
+              "claim cites a source span that does not support it (F6 wrong-real-span)")
+    for uid in report.stale_claims:
+        _emit(uid, Severity.ERROR,
+              "claim support is stale: the cited span content changed or was removed")
+    for uid in report.dangling_supports:
+        _emit(uid, Severity.ERROR,
+              "support row references a missing span, a retired unit, or a discarded generation")
+    for uid in report.formula_inconsistencies:
+        _emit(uid, Severity.ERROR,
+              "formula_status is inconsistent with its evidence (linked_evidence without a "
+              "formula support row, or omitted_incidental without a reason code)")
+    for scope in report.staged_leftovers:
+        _emit(scope, Severity.ERROR,
+              "more than one authoritative compiler generation exists for this source scope")
+
+    # Excluded-from-serving (not yet verified) — informational, not blocking.
+    informational = sorted(
+        set(report.unsupported_claims)
+        - set(report.failed_claims)
+        - set(report.stale_claims)
+    )
+    for uid in informational:
+        _emit(uid, Severity.INFO,
+              "claim is not yet verified (unchecked/uncertain); excluded from serving")
+    for group in report.duplicate_candidates:
+        _emit(group[0], Severity.INFO,
+              f"duplicate-claim candidates share a semantic hash: {', '.join(group)}")
+
+    # Graph/community-report broad fallback — RECORDED and assigned to Plan C.
+    for finding in report.broad_fallback_plan_c:
+        _emit(str(finding.get("id", "")), Severity.WARNING,
+              f"{finding.get('type', 'artifact')} grounds to the broad all-upstream-span set "
+              "(broad fallback) — assigned to Plan C (community-report/graph-derived)")
+    return issues
+
+
+# ---------------------------------------------------------------------------
 # Top-level: run_lint
 # ---------------------------------------------------------------------------
 
@@ -1351,6 +1417,7 @@ def run_lint(
         ("atom_source_paths",   lambda: check_atom_source_paths(inv, paths)),
         ("noise_in_curation",   lambda: check_noise_in_curation_sources(inv)),
         ("cross_layer_links",   lambda: check_cross_layer_links(inv)),
+        ("compiler_integrity",  lambda: compiler_integrity(paths)),
     ]
     for name, fn in fast_check_fns:
         report.issues.extend(fn())

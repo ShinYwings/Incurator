@@ -543,11 +543,6 @@ def test_compiler_audit_flags_unsupported_active_claim(vault) -> None:
     assert unit_id in set(flagged)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SYSTEM_BEHAVIOR §26.5: `wiki lint` Compiler Integrity section + non-zero "
-    "exit on release-blocking findings not implemented; Plan B P6.",
-)
 def test_oracle_wiki_lint_has_compiler_integrity_section(vault) -> None:
     from curator import lint as lint_mod
     report_fn = _resolve("compiler_integrity_report", "audit_compiler_integrity")
