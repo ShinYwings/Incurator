@@ -149,6 +149,18 @@ def test_compile_source_l2_writes_units_atoms_graph(vault) -> None:
     assert _layer_status(paths, 1, "l2") == "done"
     assert any(doc["record_type"] == "knowledge_unit" for doc in db.list_search_documents(paths.state_db))
 
+    # §26.3: the compile published exactly one authoritative generation for the
+    # source, and its units are attributed to it.
+    gen = db.get_authoritative_generation(paths.state_db, 1)
+    assert gen is not None and gen["status"] == "authoritative"
+    assert all(u["generation_id"] == gen["id"] for u in units)
+    # Unchanged rebuild is idempotent: reuses the generation, no count amplification.
+    before = compile_mod.recompile_source(paths.state_db, 1)
+    after = compile_mod.recompile_source(paths.state_db, 1)
+    assert before == after
+    assert db.get_authoritative_generation(paths.state_db, 1)["id"] == gen["id"]
+    assert len(db.list_knowledge_units_for_source(paths.state_db, 1)) == len(units)
+
 
 def test_compile_source_l2_excludes_failed_claim_from_downstream(vault) -> None:
     paths = vault

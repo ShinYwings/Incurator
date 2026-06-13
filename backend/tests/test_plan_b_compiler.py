@@ -480,11 +480,6 @@ def test_hydration_unavailable_raises_and_never_substitutes_preview(vault) -> No
     assert compile_mod.hydrate_spans(vault.state_db, span_ids) == {}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SYSTEM_BEHAVIOR §26.3: staged compiler generations / atomic publish not "
-    "implemented; Plan B P6.",
-)
 def test_oracle_unchanged_rebuild_is_idempotent(vault) -> None:
     unit_id, _ = _seed_gold_claim(vault, "SUP01")
     recompile = _resolve("recompile_source", "compile_source_generation", "rebuild_source")
@@ -500,11 +495,6 @@ def test_oracle_unchanged_rebuild_is_idempotent(vault) -> None:
     assert unit_count == 1  # no duplicate accumulation / count amplification
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SYSTEM_BEHAVIOR §26.3 / F7 atomicity: a failed compile must publish no "
-    "partial authoritative state; Plan B P6.",
-)
 def test_oracle_failed_compile_leaves_no_partial_publish(vault) -> None:
     compile_gen = _resolve("compile_source_generation", "recompile_source")
     assert compile_gen is not None, "staged-generation compile API not implemented"

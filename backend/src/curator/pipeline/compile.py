@@ -15,6 +15,7 @@ exact stored span ids.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -50,7 +51,14 @@ __all__ = [
     "classify_formula_loss", "invalidate_formula_recoveries", "recover_formula",
     # Plan B (v0.8.0) full-span evidence hydration (SEARCH_ENGINE_SCHEMA §10.2 / F10).
     "SpanTextUnavailable", "hydrate_span_text", "hydrate_spans",
+    # Plan B (v0.8.0) staged compiler generations + atomic publish (§26.3).
+    "PROMPT_CONTRACT_VERSION", "recompile_source",
 ]
+
+# The L2 knowledge-unit extraction prompt contract version (Plan B P4). Two
+# compiles of the same source under the same contract version are an unchanged
+# rebuild and must reuse the authoritative generation (§26.3).
+PROMPT_CONTRACT_VERSION = "curator.knowledge_unit_extract@v2"
 
 
 @dataclass
@@ -291,8 +299,29 @@ def compile_source_l2(
         )
 
     materializer.materialize_search_documents(paths.state_db)
-    db.set_source_layer_status(paths.state_db, source_id, "l2", "done")
     trace_ids = [t for t in (ku_result.trace_id, graph.trace_id) if t]
+
+    # Publish this source's compiled claims as one authoritative generation
+    # (§26.3). A publish-gate violation discards the staged generation and leaves
+    # the prior authoritative one untouched; the extracted rows still persist for
+    # the next attempt and the compiler audit. The clean path never raises here.
+    try:
+        recompile_source(paths.state_db, source_id)
+    except Exception as e:
+        db.set_source_layer_status(
+            paths.state_db, source_id, "l2", "error",
+            error=f"generation publish gate failed: {e}",
+        )
+        return CompileResult(
+            source_id=source_id,
+            atom_ids=atom_ids,
+            knowledge_unit_ids=[str(unit["id"]) for unit in units],
+            entity_ids=list(graph.entity_ids.values()),
+            prompt_trace_ids=trace_ids,
+            error=f"generation publish gate failed: {e}",
+        )
+
+    db.set_source_layer_status(paths.state_db, source_id, "l2", "done")
     return CompileResult(
         source_id=source_id,
         atom_ids=atom_ids,
@@ -300,6 +329,114 @@ def compile_source_l2(
         entity_ids=list(graph.entity_ids.values()),
         prompt_trace_ids=trace_ids,
     )
+
+
+# ---------------------------------------------------------------------------
+# Staged compiler generations + atomic publish (SYSTEM_BEHAVIOR §26.3, SCHEMA
+# §20.3). A Plan-B-owned compile stages its claims in a `GEN-` generation that
+# becomes authoritative only after the publish-gate audit passes; a failed
+# compile discards the staged generation and leaves the prior authoritative one
+# (and its served state) untouched — no partial authoritative publish.
+# ---------------------------------------------------------------------------
+
+
+def _source_content_hash(db_path: Path, source_id: int) -> str:
+    with db.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT content_hash FROM sources WHERE id = ?", (source_id,)
+        ).fetchone()
+    return row["content_hash"] if row else ""
+
+
+def _generation_summary(source_id: int, gen: dict) -> dict:
+    """Deterministic, timestamp-free summary of an authoritative generation, so
+    an unchanged rebuild returns a value equal to the prior publish (§26.3)."""
+    audit = json.loads(gen.get("audit_json") or "{}")
+    return {
+        "source_id": source_id,
+        "status": gen["status"],
+        "prompt_contract_version": gen["prompt_contract_version"],
+        "content_hash": audit.get("content_hash", ""),
+        "unit_ids": audit.get("unit_ids", []),
+        "unit_count": audit.get("unit_count", 0),
+    }
+
+
+def recompile_source(
+    db_path: Path, source_id: int, *, _inject_failure: str | None = None
+) -> dict:
+    """Stage, validate, and atomically publish one source's compiled claims as a
+    `GEN-` generation (SYSTEM_BEHAVIOR §26.3).
+
+    Operates on the already-extracted DB state (no LLM): it re-validates the
+    source's active units, attributes them to a staged generation, and publishes
+    only when the compiler audit finds no release-blocking violation for the
+    scope. Behavior:
+
+    - Unchanged rebuild — same source `content_hash` + same prompt contract
+      version — reuses the existing authoritative generation and returns the
+      identical summary (no duplicate accumulation, no count amplification).
+    - A failed compile (`_inject_failure`, an audit violation, or any raised
+      error) discards the staged generation and re-raises; the prior
+      authoritative generation, projections, and search state are untouched.
+
+    `_inject_failure` is a test seam that simulates a failure at the staged
+    compile boundary.
+    """
+    fingerprint = _source_content_hash(db_path, source_id)
+    prior = db.get_authoritative_generation(db_path, source_id)
+    if (
+        prior is not None
+        and _inject_failure is None
+        and prior["prompt_contract_version"] == PROMPT_CONTRACT_VERSION
+        and json.loads(prior.get("audit_json") or "{}").get("content_hash") == fingerprint
+    ):
+        return _generation_summary(source_id, prior)
+
+    gen_id = db.create_compiler_generation(
+        db_path, prompt_contract_version=PROMPT_CONTRACT_VERSION, source_id=source_id
+    )
+    try:
+        if _inject_failure:
+            raise RuntimeError(f"compile failure injected: {_inject_failure}")
+        with db.connect(db_path) as conn:
+            unit_ids = [
+                str(r[0]) for r in conn.execute(
+                    "SELECT id FROM knowledge_units "
+                    "WHERE source_id = ? AND retired_at IS NULL ORDER BY created_at",
+                    (source_id,),
+                ).fetchall()
+            ]
+        for uid in unit_ids:
+            validate_claim_support(db_path, uid)
+        with db.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE knowledge_units SET generation_id = ? "
+                "WHERE source_id = ? AND retired_at IS NULL",
+                (gen_id, source_id),
+            )
+        report = run_compiler_audit(db_path)
+        if report.publish_blocking:
+            raise RuntimeError(
+                f"compiler audit blocked publish for source {source_id}: "
+                f"{report.publish_blocking}"
+            )
+        verified_ids = sorted(
+            str(u["id"]) for u in db.list_eligible_knowledge_units(db_path, source_id)
+        )
+        audit_json = json.dumps(
+            {"content_hash": fingerprint, "unit_ids": verified_ids,
+             "unit_count": len(verified_ids)},
+            sort_keys=True,
+        )
+        db.publish_compiler_generation(db_path, gen_id, audit_json=audit_json)
+    except Exception:
+        db.discard_compiler_generation(db_path, gen_id)
+        raise
+
+    published = db.get_authoritative_generation(db_path, source_id)
+    assert published is not None  # just published above
+    return _generation_summary(source_id, published)
 
 
 def compile_global_l3(

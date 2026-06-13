@@ -87,16 +87,33 @@ class AuditReport:
 
     @property
     def release_blocking(self) -> list[str]:
-        """Findings that block a generation publish / fail `wiki lint` (§20.5).
+        """Findings that fail `wiki lint` / block a release (§20.5, §26.5).
 
         Excludes ``unsupported_claims`` (active ``unchecked``/``uncertain`` units):
         those are legitimately excluded from serving — not wrong, just not yet
-        verified — so they are reported but do not gate a publish or a release.
+        verified — so they are reported but do not gate a release.
         """
         return sorted(
             set(self.failed_claims)
             | set(self.stale_claims)
             | set(self.dangling_supports)
+            | set(self.formula_inconsistencies)
+            | set(self.staged_leftovers)
+        )
+
+    @property
+    def publish_blocking(self) -> list[str]:
+        """Findings that block a staged generation publish (§26.3).
+
+        Narrower than ``release_blocking``: a generation publishes its sound
+        VERIFIED served set even when failed/stale claims exist, because those
+        are excluded from serving (``list_eligible_knowledge_units``) and merely
+        surfaced by `wiki lint`. Only structural breaks of the served set block
+        the publish — dangling references, formula inconsistency, or a violated
+        one-authoritative-per-scope invariant.
+        """
+        return sorted(
+            set(self.dangling_supports)
             | set(self.formula_inconsistencies)
             | set(self.staged_leftovers)
         )
