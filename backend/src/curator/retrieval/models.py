@@ -47,6 +47,11 @@ class EvidenceItem:
     community_report_id: str = ""
     memory_path_id: str = ""
     synthesis_node_id: str = ""
+    # F10 (SEARCH_ENGINE_SCHEMA §10.2): "ok" when ``text`` is the hydrated full
+    # span text; "stale" when hydration was unavailable and ``text`` falls back
+    # to the 200-char preview (an explicit flag, so the preview is never silently
+    # presented as sufficient evidence).
+    evidence_status: str = "ok"
 
 
 @dataclass

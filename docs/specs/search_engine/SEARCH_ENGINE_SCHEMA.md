@@ -365,10 +365,19 @@ and removes the preview-as-evidence defect (Failure Atlas F10).
   longer than the preview.
 - Evidence surfaces (evidence packs, source-section route items,
   entity-derived span items) hydrate the exact span text from the registered
-  source file via `start_char`/`end_char` at evidence-build time, verifying
-  the hydrated text against the span's `content_hash`.
-- Hash mismatch or unreadable source marks the evidence item explicitly
-  `stale`/`unavailable` — the preview is not silently substituted.
+  source file at evidence-build time. Hydration re-parses the registered
+  source with the SAME deterministic parser + span splitter that produced the
+  stored spans, then selects the re-derived span whose `content_hash` matches
+  the stored span's hash. Because `content_hash` is the SHA-256 of the exact
+  span text, the match IS the verification — the returned text is guaranteed to
+  hash to the stored value. (`start_char`/`end_char` remain stored as
+  best-effort locators; the content hash, not the offsets, is the retrieval and
+  verification key, so the contract is robust to parser-normalization and
+  source-format differences such as PDF text extraction.)
+- An unreadable/missing source or a content-hash drift (no re-derived span
+  matches) marks the evidence item explicitly `stale` (`evidence_status` field
+  on the evidence item) — the preview is retained only as a clearly-flagged
+  degraded fallback and is never silently presented as the full evidence.
 - Hydrated long spans may be served in explicitly chunked, expandable form;
   each chunk carries its parent `SPAN-` id so citation provenance is
   unchanged.

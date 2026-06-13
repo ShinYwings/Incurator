@@ -556,14 +556,14 @@ def test_f10_baseline_span_evidence_capped_at_preview(vault) -> None:
     assert "QED-MARKER-END" not in item.text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="F10 reproduced: _PREVIEW_CHARS=200 is the only stored span text; "
-    "assigned to program-2 (long-source evidence, P2.1)",
-)
 def test_f10_oracle_full_span_text_retrievable(vault) -> None:
+    # Plan B P6 / SEARCH_ENGINE §10.2: evidence hydrates full span text from the
+    # registered source file. Materialize the source so hydration can read it.
     paths = vault
     long_text = "Spectral norm derivation. " * 20 + "QED-MARKER-END"
+    src = paths.root / RELPATH
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text(long_text, encoding="utf-8")
     _store_section_spans(paths, long_text, title="Proof")
     pack = evidence_mod.build_evidence(
         paths,
@@ -571,6 +571,8 @@ def test_f10_oracle_full_span_text_retrievable(vault) -> None:
         "source-section",
     )
     assert any("QED-MARKER-END" in item.text for item in pack.items)
+    # Full text is hydrated and flagged ok (not the silently-substituted preview).
+    assert all(it.evidence_status == "ok" for it in pack.items if it.kind == "source_span")
 
 
 # ---------------------------------------------------------------------------

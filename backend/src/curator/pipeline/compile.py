@@ -16,6 +16,7 @@ exact stored span ids.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from .. import config as cfg
@@ -47,6 +48,8 @@ __all__ = [
     # Plan B (v0.8.0) claim-support validation surface (SYSTEM_BEHAVIOR §26).
     "AuditReport", "validate_claim_support", "run_compiler_audit", "reconcile_source",
     "classify_formula_loss", "invalidate_formula_recoveries", "recover_formula",
+    # Plan B (v0.8.0) full-span evidence hydration (SEARCH_ENGINE_SCHEMA §10.2 / F10).
+    "SpanTextUnavailable", "hydrate_span_text", "hydrate_spans",
 ]
 
 
@@ -72,6 +75,100 @@ def _section_dicts(paths: cfg.WikiPaths, relpath: str):
     file_path = paths.root / relpath
     parsed = parsers.parse(_resolve_reference_source(paths, file_path))
     return parsed.title, _extract_structural_sections(parsed)
+
+
+# ---------------------------------------------------------------------------
+# Full-span evidence hydration (F10 / SEARCH_ENGINE_SCHEMA §10.2).
+#
+# The DB stores only a 200-char `text_preview`; the full span text is hydrated
+# on demand from the registered source file. Hydration re-parses the source with
+# the SAME deterministic parser + `spans_from_sections` that produced the stored
+# spans, so every re-derived `content_hash` matches a stored span's hash — which
+# IS the verification key. The preview is never silently substituted: an
+# unreadable source or a content-hash drift raises `SpanTextUnavailable`, and
+# evidence surfaces flag such items rather than passing the preview off as full
+# evidence.
+# ---------------------------------------------------------------------------
+
+
+class SpanTextUnavailable(Exception):
+    """A source span's full text could not be hydrated and verified (F10)."""
+
+
+def _paths_from_state_db(db_path: Path) -> cfg.WikiPaths:
+    """Resolve the vault root from the state DB path (``root/.curator/state.sqlite``)."""
+    return cfg.WikiPaths(Path(db_path).resolve().parent.parent)
+
+
+def _reparse_hash_index(paths: cfg.WikiPaths, relpath: str) -> dict[str, str]:
+    """Map ``content_hash -> exact full span text`` by re-parsing one source."""
+    _title, sections = _section_dicts(paths, relpath)
+    return {
+        record.content_hash: record.text
+        for record in source_spans.spans_from_sections(sections)
+    }
+
+
+def hydrate_span_text(db_path: Path, span_id: str) -> str:
+    """Return a source span's exact full text (SEARCH_ENGINE_SCHEMA §10.2 / F10).
+
+    Re-parses the registered source and returns the span whose ``content_hash``
+    matches the stored hash, verifying the hydrated text against it. The 200-char
+    preview is never substituted. Raises :class:`SpanTextUnavailable` when the
+    source is missing/unreadable or no current span matches the stored hash
+    (content drift).
+    """
+    with db.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT relpath, content_hash FROM source_spans WHERE id = ?",
+            (span_id,),
+        ).fetchone()
+    if row is None:
+        raise SpanTextUnavailable(f"unknown source span: {span_id}")
+    paths = _paths_from_state_db(db_path)
+    try:
+        index = _reparse_hash_index(paths, row["relpath"])
+    except Exception as e:  # missing / unreadable / unparseable source file
+        raise SpanTextUnavailable(f"source unreadable for span {span_id}: {e}") from e
+    text = index.get(row["content_hash"])
+    if text is None:
+        raise SpanTextUnavailable(
+            f"span {span_id} not found in current source (content-hash drift)"
+        )
+    return text
+
+
+def hydrate_spans(db_path: Path, span_ids: list[str]) -> dict[str, str]:
+    """Best-effort batch hydration, re-parsing each cited source only once.
+
+    Returns ``span_id -> full text`` for every span that hydrates and verifies;
+    spans whose source is unavailable or whose hash drifted are omitted, leaving
+    the caller to flag them stale/unavailable (the preview is never silently
+    presented as full evidence).
+    """
+    if not span_ids:
+        return {}
+    placeholders = ",".join("?" for _ in span_ids)
+    with db.connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT id, relpath, content_hash FROM source_spans WHERE id IN ({placeholders})",
+            tuple(span_ids),
+        ).fetchall()
+    paths = _paths_from_state_db(db_path)
+    by_relpath: dict[str, list[Any]] = {}
+    for row in rows:
+        by_relpath.setdefault(row["relpath"], []).append(row)
+    out: dict[str, str] = {}
+    for relpath, group in by_relpath.items():
+        try:
+            index = _reparse_hash_index(paths, relpath)
+        except Exception:
+            continue  # source unavailable → omit; caller flags these spans
+        for row in group:
+            text = index.get(row["content_hash"])
+            if text is not None:
+                out[row["id"]] = text
+    return out
 
 
 def compile_source_l2(

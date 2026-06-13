@@ -424,25 +424,60 @@ def test_oracle_below_threshold_recovery_stays_uncertain(vault) -> None:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEARCH_ENGINE §10.2 / F10: full-span evidence beyond the 200-char preview "
-    "not retrievable; Plan B P6.",
-)
 def test_oracle_long_formula_tail_is_fully_retrievable(vault) -> None:
+    # F10 (SEARCH_ENGINE §10.2): full span text is hydrated from the registered
+    # source file, not the stored 200-char preview. Materialize the source and
+    # store the span through the deterministic L1 path so its content_hash is the
+    # parse-derived hash hydration verifies against.
+    from curator.pipeline import source_spans as l1_spans
+
     frm08 = next(c for c in GOLD["formula_cases"] if c["id"] == "FRM08")
-    span = SPANS[frm08["span"]]
+    content = SPANS[frm08["span"]]["content"]
+    src = vault.root / RELPATH
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text(content, encoding="utf-8")
+    sections = [{"id": "s1", "title": "Proof", "page": None, "text": content}]
+    span_ids = l1_spans.store_source_spans(
+        vault.state_db, 1, RELPATH, l1_spans.spans_from_sections(sections)
+    )
+    assert len(span_ids) == 1
+    # The stored preview must NOT already contain the tail — proves hydration is real.
     with db.connect(vault.state_db) as conn:
-        conn.execute(
-            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
-            "content_hash, text_preview, created_at) "
-            "VALUES (?, 1, ?, 'paragraph', ?, ?, datetime('now'))",
-            (span["id"], RELPATH, span["id"], span["content"][:200]),
-        )
+        preview = conn.execute(
+            "SELECT text_preview FROM source_spans WHERE id = ?", (span_ids[0],)
+        ).fetchone()[0]
+    assert frm08["expected_full_text_marker"] not in preview
+
     hydrate = _resolve("hydrate_span_text", "get_full_span_text", "full_span_text")
     assert hydrate is not None, "full-span hydration API not implemented"
-    text = hydrate(vault.state_db, span["id"])
+    text = hydrate(vault.state_db, span_ids[0])
     assert frm08["expected_full_text_marker"] in text
+
+
+def test_hydration_unavailable_raises_and_never_substitutes_preview(vault) -> None:
+    # F10 / §10.2: an unreadable source or content-hash drift is surfaced as
+    # SpanTextUnavailable, never silently downgraded to the 200-char preview.
+    from curator.pipeline import compile as compile_mod
+    from curator.pipeline import source_spans as l1_spans
+
+    content = SPANS["SPAN-pb000009"]["content"]
+    src = vault.root / RELPATH
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text(content, encoding="utf-8")
+    span_ids = l1_spans.store_source_spans(
+        vault.state_db, 1, RELPATH,
+        l1_spans.spans_from_sections([{"id": "s1", "title": "P", "page": None, "text": content}]),
+    )
+    # 1) content-hash drift: source edited so no current span matches the stored hash.
+    src.write_text("A completely different paragraph with no overlap whatsoever.", "utf-8")
+    with pytest.raises(compile_mod.SpanTextUnavailable):
+        compile_mod.hydrate_span_text(vault.state_db, span_ids[0])
+    # 2) unreadable source: file removed entirely.
+    src.unlink()
+    with pytest.raises(compile_mod.SpanTextUnavailable):
+        compile_mod.hydrate_span_text(vault.state_db, span_ids[0])
+    # Batch hydration omits unavailable spans (caller flags them stale).
+    assert compile_mod.hydrate_spans(vault.state_db, span_ids) == {}
 
 
 @pytest.mark.xfail(
