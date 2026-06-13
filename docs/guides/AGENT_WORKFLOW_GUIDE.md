@@ -156,7 +156,9 @@ span citation rules of §4. Agents consuming or producing knowledge MUST:
     must keep extraction formulas visible or record an explicit
     `omitted_incidental` exception. Silent formula drops are defects. Visual
     recovery candidates are additive, lifecycle-gated, and never overwrite raw
-    parser/source evidence.
+    parser/source evidence. A candidate is not served unless it reaches the
+    `0.80` confidence threshold, carries a validator trace, exactly matches an
+    owning-claim formula, and passes claim-support revalidation.
 *   **Respect generation boundaries**: staged (`GEN-` `status='staged'`)
     compiler output is invisible to query/evidence surfaces by contract. Do
     not read or cite staged rows; a failed compile leaves only the prior

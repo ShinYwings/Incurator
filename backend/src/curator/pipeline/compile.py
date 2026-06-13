@@ -36,11 +36,17 @@ from .claim_support import (
     run_compiler_audit,
     validate_claim_support,
 )
+from .formula_recovery import (
+    classify_formula_loss,
+    invalidate_formula_recoveries,
+    recover_formula,
+)
 
 __all__ = [
     "CompileResult", "compile_source_l2", "compile_global_l3", "reemit_projections",
     # Plan B (v0.8.0) claim-support validation surface (SYSTEM_BEHAVIOR §26).
     "AuditReport", "validate_claim_support", "run_compiler_audit", "reconcile_source",
+    "classify_formula_loss", "invalidate_formula_recoveries", "recover_formula",
 ]
 
 

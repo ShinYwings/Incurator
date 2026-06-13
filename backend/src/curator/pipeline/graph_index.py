@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import db, prompting
+from .claim_support import _extract_latex
 
 __all__ = ["GraphExtractionResult", "extract_entities_and_relations"]
 
@@ -57,16 +58,17 @@ def extract_entities_and_relations(
     except Exception:
         max_chars = 60000
 
-    batches = []
-    current_batch = []
+    batches: list[list[dict]] = []
+    current_batch: list[dict] = []
     current_chars = 0
 
     import copy
-    refined_units = []
+    refined_units: list[dict] = []
     for u in units:
         statement = u.get("statement") or ""
-        # Defensive truncation: units shouldn't be massive, but if they are, truncate to fit context
-        if len(statement) > max_chars - 500:
+        # Formula-bearing units stay intact: truncating their tail can silently
+        # alter the mathematical claim. Oversized prose-only units may truncate.
+        if len(statement) > max_chars - 500 and not _extract_latex(statement):
             u_copy = copy.copy(u)
             u_copy["statement"] = statement[:max_chars - 500] + "... [TRUNCATED]"
             refined_units.append(u_copy)

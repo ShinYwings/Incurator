@@ -123,3 +123,29 @@ def test_chunking_large_unit_is_truncated(dbp: Path) -> None:
         dbp, client, units=units, valid_span_ids=["SPAN-1"]
     )
     assert result.ok
+
+
+def test_chunking_never_truncates_formula_bearing_unit(dbp: Path) -> None:
+    formula = "$" + ("x" * 25000) + "$"
+    units = [
+        {
+            "id": "KNU-formula",
+            "unit_type": "equation",
+            "statement": "Central equation: " + formula,
+            "source_span_ids": ["SPAN-1"],
+        }
+    ]
+
+    class SmallChunkClient:
+        def optimal_chunk_chars(self) -> int:
+            return 20000
+
+        def chat(self, messages, **kwargs):
+            assert formula in messages[-1].content
+            assert "[TRUNCATED]" not in messages[-1].content
+            return _graph_json()
+
+    result = graph_index.extract_entities_and_relations(
+        dbp, SmallChunkClient(), units=units, valid_span_ids=["SPAN-1"]
+    )
+    assert result.ok

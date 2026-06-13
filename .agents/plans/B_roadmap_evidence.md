@@ -538,3 +538,30 @@ Fifth review-fix verification:
   clean.
 - `uv run --directory backend mypy src/curator/pipeline/claim_support.py` →
   clean.
+
+## P5 Selective Formula Recovery And Downstream Preservation
+
+Implemented the provider-free P5 boundary without whole-corpus recovery:
+
+- `classify_formula_loss` emits `fragmented`, `parser_omitted`, or
+  `image_only` only from measured parser/raw/extraction/rendered-region
+  evidence; an expected formula alone schedules nothing.
+- `recover_formula` accepts only P4 `formula_status='uncertain'` claims and
+  appends full-lineage candidates to `source_spans.metadata.formula_recovery`
+  without changing raw `text_preview` or `content_hash`.
+- A candidate becomes reviewed/served only at confidence `>= 0.80`, with a
+  validator trace, an exact ordered-token match to an owning-claim formula,
+  and hash-verified hydrated full raw-span text for every cited span. It then
+  re-runs claim support before creating linked formula evidence.
+- Page-hash drift rejects only stale page candidates and marks previously
+  linked formula support stale. Formula-bearing graph statements are no longer
+  destructively truncated.
+
+P5 verification:
+
+- `uv run --directory backend pytest -q` → 790 passed, 14 xfailed.
+- Focused P5/P4/compiler/entity/spec suite → 65 passed, 4 xfailed.
+- `uv run --directory backend ruff check src/ ...` → clean.
+- `uv run --directory backend mypy` on P5/graph/compile targets → clean.
+- `VAULT_ROOT=$REPO/testbed wiki status` → healthy preflight; L1 complete,
+  L2-L4 pending, existing schema-v0 migration warning unchanged.

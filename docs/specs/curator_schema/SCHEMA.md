@@ -1565,9 +1565,18 @@ Rules (Arena decisions 2-4; Plan E FR05 contract candidates):
   rejected by contract.
 - Parseable LaTeX alone cannot move a candidate to `reviewed`; a validator
   verdict (deterministic gold check or recorded human review) is required, and
-  `validator_trace_id` records it.
-- `confidence` below the acceptance threshold keeps the candidate out of
-  served formulas; the owning claim's `formula_status` stays `uncertain`.
+  `validator_trace_id` records it. The default acceptance threshold is `0.80`,
+  and the recovered ordered token sequence must exactly match a formula in the
+  owning claim. Reviewed promotion also requires hydrated full raw-span text
+  for every cited span; each SHA-256 must match `source_spans.content_hash`,
+  and stored 200-character previews are never used for revalidation.
+- `confidence` below the acceptance threshold, a missing validator trace, or a
+  structural mismatch keeps the candidate out of served formulas; the owning
+  claim's `formula_status` stays `uncertain`.
+- An accepted reviewed candidate re-runs claim support against additive
+  recovered evidence. Only a verified result may create a verified
+  `support_role='formula'` row and move the claim to
+  `formula_status='linked_evidence'`.
 - A changed `page_hash` invalidates exactly that page's candidates: the audit
   marks them stale-by-hash, and they cannot be cited by `support_role='formula'`
   rows until refreshed.

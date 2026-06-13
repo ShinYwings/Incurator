@@ -92,12 +92,20 @@ Integrity release (target v0.8.0).
   maximum cited-span prose coverage independently from formula-aware primary
   attribution; formula hash input preserves token/formula boundaries; and the
   tokenizer preserves non-alphabetic LaTeX escapes.
+- [x] P5 — Selective formula recovery and downstream preservation.
+  `pipeline/formula_recovery.py` adds provider-free measured-loss
+  classification (`fragmented|image_only|parser_omitted`), additive
+  `source_spans.metadata.formula_recovery` candidates, `0.80` +
+  validator-trace + exact-claim-formula acceptance gates, hash-verified full
+  raw-span revalidation, linked formula evidence, and page-hash invalidation.
+  Raw span text/hash remain immutable. Formula-bearing graph input is never
+  destructively truncated. Two P5 strict-xfail oracles are now live green
+  tests.
 
 ## Verification
 
-- `uv run --directory backend pytest -q` → 782 passed, 16 xfailed (P4 complete
-  plus five review-fix rounds;
-  the 6 remaining Plan B P5/P6 oracles + 10 Program 1 strict-xfail oracles
+- `uv run --directory backend pytest -q` → 790 passed, 14 xfailed (P5 complete;
+  the 4 remaining Plan B P6 oracles + 10 Program 1 strict-xfail oracles
   remain xfail).
 - `uv run --directory backend ruff check src/` → clean. (`ruff check tests/`
   shows 6 PRE-EXISTING errors in test_cli_update/test_migrate/test_plugin_cli/
@@ -137,10 +145,6 @@ above threshold (zero overlap → `failed`, the F6 gate). Validate on hydrated
 FULL span text, never the preview. Do NOT lookup the gold YAML at runtime
 (overfitting ban); it is the test-time release oracle only.
 
-P4 review fixes are implemented; full validation is green. Continue P5:
-implement
-provider-free formula loss classification for `fragmented | image_only |
-parser_omitted`, route P4 `formula_status='uncertain'` claims into selective
-recovery candidates, preserve raw evidence, and revalidate only accepted
-recovery output. Then remove destructive central-formula truncation from the
-graph input/search materialization path.
+P4 review fixes and P5 selective formula recovery are implemented; full
+validation is green. Continue P6: staged atomic compiler generations, publish
+gate/failure rollback, and full dependency reconciliation.

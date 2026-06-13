@@ -1586,7 +1586,8 @@ F3/F4/F5/F11/F12 stay with Program 3.
   intact in the concise claim text (`formula_status='preserved_in_text'`), or
   exactly referenced formula evidence (`linked_evidence` + a `formula`
   support row). Destructive central-formula truncation in graph input and
-  search materialization is removed.
+  search materialization is removed. In particular, graph prompt batching may
+  truncate oversized prose-only units, but never a formula-bearing statement.
 - Selective recovery runs only after a measured loss verdict
   (`fragmented | image_only | parser_omitted`) where parser output, raw text,
   and current extraction all either miss the region OR yield a
@@ -1601,10 +1602,18 @@ F3/F4/F5/F11/F12 stay with Program 3.
   every-page VLM processing is rejected. Recovery output is additive
   (`source_spans.metadata.formula_recovery`, SCHEMA §20.4), labeled with full
   lineage, and lifecycle-gated (`candidate | reviewed | rejected`) — parseable
-  LaTeX alone verifies nothing.
-- Below-threshold confidence keeps a claim's `formula_status='uncertain'`
-  and out of served formulas. A changed page hash invalidates exactly that
-  page's candidates.
+  LaTeX alone verifies nothing. The provider-free classifier emits no loss
+  verdict from an expected formula alone: it requires measured corruption,
+  parser/raw-text omission, or a rendered formula-region signal.
+- The default recovery acceptance threshold is `0.80`. Below-threshold
+  confidence, a missing validator trace, or a recovered formula that does not
+  exactly match an owning-claim formula keeps the claim's
+  `formula_status='uncertain'` and out of served formulas. An accepted reviewed
+  candidate must re-run claim support against hydrated full raw-span text for
+  every cited span plus additive recovered evidence before it can create linked
+  formula evidence. Every hydrated text must match its cited span's content
+  hash; stored previews are insufficient. A changed page hash invalidates
+  exactly that page's candidates.
 
 ### 26.3 Staged Compile Generations And Atomic Publish
 

@@ -351,11 +351,6 @@ def test_edited_span_marks_support_stale(vault) -> None:
     assert status == "stale"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SYSTEM_BEHAVIOR §26.2: central-formula preservation status not implemented; "
-    "Plan B P5.",
-)
 def test_oracle_central_formula_preserved_in_text(vault) -> None:
     frm01 = next(c for c in GOLD["formula_cases"] if c["id"] == "FRM01")
     with db.connect(vault.state_db) as conn:
@@ -369,6 +364,9 @@ def test_oracle_central_formula_preserved_in_text(vault) -> None:
         vault.state_db, unit_type="atom", canonical_name="FRM01",
         statement=frm01["statement"], source_span_ids=[frm01["span"]], source_id=1,
     )
+    validate = _resolve("validate_claim_support", "validate_support", "compile_claim_support")
+    assert validate is not None, "support validation API not implemented"
+    validate(vault.state_db, unit_id)
     with db.connect(vault.state_db) as conn:
         status = conn.execute(
             "SELECT formula_status FROM knowledge_units WHERE id = ?", (unit_id,)
@@ -376,19 +374,54 @@ def test_oracle_central_formula_preserved_in_text(vault) -> None:
     assert status == frm01["expected_formula_status"]  # preserved_in_text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SCHEMA §20.4: below-threshold recovery candidate must keep formula_status "
-    "uncertain and stay unserved; recovery lifecycle not implemented; Plan B P5.",
-)
 def test_oracle_below_threshold_recovery_stays_uncertain(vault) -> None:
     frm05 = next(c for c in GOLD["formula_cases"] if c["id"] == "FRM05")
     classify = _resolve("classify_formula_loss", "loss_verdict", "classify_loss")
     recover = _resolve("recover_formula", "run_formula_recovery")
     assert classify is not None and recover is not None, "recovery API not implemented"
-    # A below-threshold candidate must not become served formula evidence.
-    assert frm05["expected_formula_status"] == "uncertain"
-    assert float(frm05["recovery"]["confidence"]) < 0.5
+    span_id = db.upsert_source_span(
+        vault.state_db,
+        source_id=1,
+        relpath=RELPATH,
+        span_type="equation",
+        content_hash="frm05-span-hash",
+        page_number=3,
+        text_preview="Figure 3 contains a Jacobian norm bound.",
+    )
+    unit_id = db.upsert_knowledge_unit(
+        vault.state_db,
+        unit_type="equation",
+        canonical_name="FRM05",
+        statement=r"The bound is $\lVert J \rVert \le L^{d}$.",
+        source_span_ids=[span_id],
+        source_id=1,
+    )
+    db.set_unit_formula_status(vault.state_db, unit_id, "uncertain")
+
+    candidate = recover(
+        vault.state_db,
+        unit_id=unit_id,
+        span_id=span_id,
+        loss_verdict=frm05["loss_verdict"],
+        locator={"source_id": 1, "page": 3, "region": "eq-2"},
+        page_hash="page-v1",
+        crop_hash="crop-v1",
+        provider="mock",
+        model="mock-formula-reader",
+        confidence=float(frm05["recovery"]["confidence"]),
+        latex=frm05["recovery"]["latex"],
+    )
+
+    assert candidate["status"] == frm05["expected_recovery_status"]
+    with db.connect(vault.state_db) as conn:
+        status = conn.execute(
+            "SELECT formula_status FROM knowledge_units WHERE id = ?", (unit_id,)
+        ).fetchone()[0]
+    assert status == frm05["expected_formula_status"]
+    assert not any(
+        row["support_role"] == "formula"
+        for row in db.list_claim_supports(vault.state_db, unit_id)
+    )
 
 
 @pytest.mark.xfail(
