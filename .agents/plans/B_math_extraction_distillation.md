@@ -281,7 +281,27 @@ Verify:
 
 ### P5 — Selective Formula Recovery And Downstream Preservation
 
-- Implement loss-boundary classification.
+- Implement loss-boundary classification covering BOTH absence and corruption:
+  a region is a recovery candidate when parser/raw-text/current-extraction
+  either MISS it entirely (`image_only`, `parser_omitted`) OR extract a
+  STRUCTURALLY-INVALID rendering of it (`fragmented` — present but garbled,
+  e.g. a PDF text-layer that drops `\nabla`/superscripts or splits a `$$`
+  block). The `fragmented` trigger is a structural-validation failure of the
+  extracted formula against the rendered region, NOT total absence. (Parse
+  fidelity is a source-type problem: Markdown `.md` carries true LaTeX and is
+  faithful passthrough; PDFs render math as glyphs and cannot yield LaTeX from
+  the text layer, which is why selective visual recovery — not a base-parser
+  rewrite — is the fix. A VLM routing placeholder already exists at
+  `parsers/pdf.py`.)
+- Route P4's `formula_status='uncertain'` verdicts into this classification: an
+  uncertain central formula (a claim-vs-span token-multiset mismatch on a lossy
+  source, §26.1) is the upstream signal that the L1 span may be a corrupt
+  rendering. Validated recovery re-validates the owning claim (`uncertain` →
+  `verified` against the recovered evidence, or `missing` if unrecoverable); it
+  never silently flips a claim verified without a validator verdict. This is the
+  intended P4→P5 staging: P4 grounding is parse-agnostic and degrades to
+  `uncertain` (never a wrong verify) on lossy sources; P5 recovery is what
+  reduces those uncertains and closes the source-fidelity gap.
 - Implement optional recovery adapter only for approved loss classes.
 - Store locator/crop/model/confidence/validator lineage.
 - Preserve central formulas through graph input and search materialization;

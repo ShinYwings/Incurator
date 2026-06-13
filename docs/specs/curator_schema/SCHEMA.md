@@ -1552,10 +1552,14 @@ Rules (Arena decisions 2-4; Plan E FR05 contract candidates):
 
 - Raw parser/source span text is immutable. A recovery candidate never
   overwrites `text_preview`, `content_hash`, or any source file.
-- Recovery may run ONLY on a region with a measured loss verdict
-  (`fragmented`, `image_only`, or `parser_omitted` — parser AND raw text AND
-  current extraction all missing the region). Whole-corpus/every-page VLM
-  processing is rejected by contract.
+- Recovery may run ONLY on a region with a measured loss verdict where parser
+  AND raw text AND current extraction all either (a) MISS the region entirely
+  (`image_only`, `parser_omitted`) OR (b) yield a STRUCTURALLY-INVALID/garbled
+  rendering of it (`fragmented` — present but corrupt, e.g. a dropped `\nabla`,
+  a lost superscript, or a split `$$` block). `fragmented` is triggered by a
+  structural-validation failure of the extracted formula against the rendered
+  region, not by total absence. Whole-corpus/every-page VLM processing is
+  rejected by contract.
 - Parseable LaTeX alone cannot move a candidate to `reviewed`; a validator
   verdict (deterministic gold check or recorded human review) is required, and
   `validator_trace_id` records it.

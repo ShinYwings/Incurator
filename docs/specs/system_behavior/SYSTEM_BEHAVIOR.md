@@ -1572,8 +1572,16 @@ F3/F4/F5/F11/F12 stay with Program 3.
   search materialization is removed.
 - Selective recovery runs only after a measured loss verdict
   (`fragmented | image_only | parser_omitted`) where parser output, raw text,
-  and current extraction all miss the region. Whole-corpus/every-page VLM
-  processing is rejected. Recovery output is additive
+  and current extraction all either miss the region OR yield a
+  structurally-invalid (garbled) rendering of it — `fragmented` is the
+  present-but-corrupt case (e.g. a parser that drops `\nabla`/superscripts or
+  splits a `$$` block), distinct from total absence. A P4
+  `formula_status='uncertain'` verdict on a central formula (a claim-vs-span
+  token-multiset mismatch on a lossy source, §26.1) is the upstream signal that
+  routes a region into this classification; validated recovery then re-validates
+  the owning claim (`uncertain` → `verified` against the recovered evidence, or
+  `missing` if unrecoverable), never a silent flip to verified. Whole-corpus/
+  every-page VLM processing is rejected. Recovery output is additive
   (`source_spans.metadata.formula_recovery`, SCHEMA §20.4), labeled with full
   lineage, and lifecycle-gated (`candidate | reviewed | rejected`) — parseable
   LaTeX alone verifies nothing.

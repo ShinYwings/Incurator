@@ -324,3 +324,38 @@ fail via zero entity intersection), and the reconciliation oracle
 `test_oracle_edited_span_marks_support_stale` oracle needs a
 `compiler_audit`/`run_compiler_audit` entry point wiring P3's
 `refresh_support_freshness`.
+
+### Advanced formula-verification ideas — evaluated (opinion only, not adopted now)
+
+Considered three rigor escalations; only the deterministic token-multiset is
+used now. Recorded so they are not re-litigated:
+
+- SymPy symbolic equivalence (`A - B = 0`): **benchmark-later**, not the P4
+  primary. Stronger on pure algebraic equivalence, but LaTeX→SymPy parsing is
+  fragile on real notation (the gold formulas alone include a transpose
+  `x^{T}`, a gradient `\nabla_W L`, an outer product, an update rule
+  `\leftarrow` that is not an equation, and a norm `\lVert J \rVert`), and the
+  case it uniquely catches (equivalent restatement) is rare in distillation and
+  already handled by the trichotomy routing a mismatch to `uncertain`→model.
+  Adopt only with a measured win + acceptable real-corpus parse rate, as a
+  stronger `verified` signal when both sides parse to compatible types.
+- Lean/Rocq formal verification: **rejected**. Verifies mathematical TRUTH, not
+  evidence GROUNDING (Plan B's actual goal); most KB units are not formalizable;
+  unbounded per-claim formalization cost. Hard non-goal.
+- Fine-grained PRM / graph-of-verification: **deferred**. Major architecture
+  change that lands on Plan B non-goals (hierarchy/relations = Plan C) and
+  reintroduces model dependence (a PRM is a trained model).
+
+### Parse-fidelity vs P4 grounding (finding)
+
+Verified the parsers: Markdown `.md` is faithful LaTeX passthrough
+(`parsers/text.py`; `normalize_text` only collapses whitespace, which the gate
+also does), so the gate is solid for notes. PDFs are best-effort
+(`pymupdf4llm` + a math-ish raw-text fallback) and cannot recover LaTeX from a
+rendered text layer — a fundamental limit, not a bug; a VLM routing placeholder
+already exists at `parsers/pdf.py`. P4 does NOT block on parse fidelity because
+it is a RELATIVE grounding check (claim vs the same L1 span it came from), and
+on lossy sources it degrades to `uncertain` (never a wrong verify). The
+source-fidelity gap (L1 span vs original paper) is closed by P5, now explicitly
+extended to cover the `fragmented`/garbled-but-present case and the P4→P5
+`uncertain` routing (plan P5, SCHEMA §20.4, SYSTEM_BEHAVIOR §26.2 updated).
