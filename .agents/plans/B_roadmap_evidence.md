@@ -565,3 +565,70 @@ P5 verification:
 - `uv run --directory backend mypy` on P5/graph/compile targets → clean.
 - `VAULT_ROOT=$REPO/testbed wiki status` → healthy preflight; L1 complete,
   L2-L4 pending, existing schema-v0 migration warning unchanged.
+
+## P5/P4 PM Review — Multi-Span Recovery Fix And F6 Gate Defense
+
+The 2026-06-13 PM review (RELAY.md) queued four control-flow fixes plus
+Finding A (TOCTOU) and Finding B (regression tests). Each was verified against
+the authoritative spec (`SYSTEM_BEHAVIOR.md §26.1/§26.2`) and the gold oracle
+(`plan_b_compiler_gold.yml`) before any code change. User direction (this
+session): **"Fix 3 only + reject Fix 4."** Outcome:
+
+- **Finding A — COMMITTED.** `recover_formula` and
+  `invalidate_formula_recoveries` now read-modify-write
+  `source_spans.metadata.formula_recovery` inside a single transaction and
+  defer per-unit support/formula-status updates (each helper opens its own
+  connection) until after that transaction closes — removing the nested-
+  connection deadlock risk under SQLite WAL. `_clear_claim_supports` gained
+  `preserve_formula=True` so a re-validation cycle keeps `formula` evidence
+  rows; the ambiguous-textual-support branch now keeps
+  `formula_status='preserved_in_text'` when the formula is structurally present
+  instead of clobbering it to `not_applicable`. Covered by
+  `test_revalidation_preserves_formula_support_rows` and
+  `test_ambiguous_text_with_verified_formula_preserves_formula_status`.
+
+- **Fix 3 — APPLIED (real bug, spec-aligned).** `recover_formula` re-validated
+  only the single span under recovery, so a multi-span/multi-formula claim
+  whose other formulas were recovered on *different* cited spans would fail
+  re-validation purely because that evidence was dropped — contradicting
+  §26.2's "re-run claim support against hydrated full raw-span text for **every
+  cited span plus additive recovered evidence**." The re-validation now
+  re-hydrates every `reviewed` recovery across all cited spans. Regression:
+  `test_multi_span_recovery_rehydrates_prior_reviewed_evidence` (red before the
+  fix — second recovery returned `uncertain`; green after — `verified` →
+  `linked_evidence`).
+
+- **Fix 4 — REJECTED (would violate the spec).** The proposed swap made
+  `has_formula and not formula_ok` (→ `uncertain`/P5) precede the F6 text-fail
+  gate. That changes exactly one case — *formula absent AND prose overlap fails
+  (F6)* — which §26.1 mandates be `failed`: "zero/low entity intersection (the
+  F6 wrong-real-span case)" is `failed` (lines 1527-1529), an F6 textual
+  failure "**must not be ... routed to P5 recovery**", and "Wrong-real-span
+  citations are a **release-blocking gate**" (lines 1559-1566). The legitimate
+  P5-routing case (right topic, good prose, bad formula → `uncertain`) already
+  works through the existing branch order because `max_cov` is high there, so
+  the F6 condition is false — confirmed by
+  `test_altered_formula_on_right_topic_is_uncertain`. Applying Fix 4 would have
+  funnelled wrong-real-span citations — the exact defect Plan B exists to
+  catch — into recovery. Spec-correct behavior is now pinned by
+  `test_f6_with_absent_formula_fails_and_is_not_routed_to_recovery` (F6 +
+  absent formula → `failed`, `formula_status='missing'`).
+
+- **Fixes 1 & 2 — NOT applied (current code fails safe).** Fix 1 (reorder
+  `classify_formula_loss`) is behavior-neutral: all three loss verdicts
+  (`fragmented | image_only | parser_omitted`) route to recovery identically
+  and the verdict is metadata-only; no oracle pins the ordering, and the
+  current `fragmented`-first label is defensible when the parser cleanly
+  retained the formula. Fix 2 (bidirectional sub-formula acceptance) loosens
+  the §26.2 "**exactly match** an owning-claim formula" gate beyond the spec;
+  the current exact-token equality is conservative (it keeps unmatched
+  recoveries `uncertain` — the safe direction), and the re-validation step
+  backstops acceptance regardless.
+
+PM-review verification:
+
+- `uv run --directory backend pytest -q` → 794 passed, 14 xfailed (the four
+  Plan-B P6 oracles + ten Program 1 strict-xfail oracles remain xfail).
+- `uv run --directory backend ruff check src/` → clean.
+- `uv run --directory backend mypy src/` → 72 pre-existing errors, 0 in
+  `claim_support.py` / `formula_recovery.py` (0 introduced).

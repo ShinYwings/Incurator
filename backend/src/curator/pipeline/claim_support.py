@@ -185,13 +185,27 @@ def _set_semantic_hash(db_path: Path, unit_id: str, value: str) -> None:
         )
 
 
-def _clear_claim_supports(db_path: Path, unit_id: str) -> None:
-    """Remove prior/proposed support rows before writing one fresh verdict."""
+def _clear_claim_supports(
+    db_path: Path, unit_id: str, *, preserve_formula: bool = False
+) -> None:
+    """Remove prior/proposed support rows before writing one fresh verdict.
+
+    When ``preserve_formula`` is True, existing ``formula`` role rows are
+    retained so that evidence links created by ``recover_formula`` survive
+    a re-validation cycle.
+    """
     with db.connect(db_path) as conn:
-        conn.execute(
-            "DELETE FROM claim_supports WHERE knowledge_unit_id = ?",
-            (unit_id,),
-        )
+        if preserve_formula:
+            conn.execute(
+                "DELETE FROM claim_supports "
+                "WHERE knowledge_unit_id = ? AND support_role != 'formula'",
+                (unit_id,),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM claim_supports WHERE knowledge_unit_id = ?",
+                (unit_id,),
+            )
 
 
 def validate_claim_support(
@@ -217,7 +231,7 @@ def validate_claim_support(
     declared: list[str] = unit["source_span_ids"]
     spans = _load_spans(db_path, declared, span_texts)
     _set_semantic_hash(db_path, unit_id, semantic_hash(statement))
-    _clear_claim_supports(db_path, unit_id)
+    _clear_claim_supports(db_path, unit_id, preserve_formula=True)
 
     claim_terms = _content_terms(statement)
     claim_formulas = [_formula_tokens(f) for f in _extract_latex(statement)]
@@ -286,7 +300,9 @@ def validate_claim_support(
         # Ambiguous textual support: secondary calibrated model adjudicates.
         verdict = "uncertain"
         reason = "ambiguous textual support; escalate to calibrated model validation"
-        formula_status = "not_applicable"
+        formula_status = (
+            "preserved_in_text" if has_formula and formula_ok else "not_applicable"
+        )
 
     # --- persist support rows + unit status ---
     if verdict == "verified":

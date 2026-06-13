@@ -515,3 +515,125 @@ def test_reconcile_does_not_reuse_id_for_reversed_directionality(vault) -> None:
         assert conn.execute(
             "SELECT retired_at FROM knowledge_units WHERE id = ?", (candidate_id,)
         ).fetchone()[0] is None
+
+
+def test_ambiguous_text_with_verified_formula_preserves_formula_status(vault) -> None:
+    """Regression: the ambiguous-textual-support else branch must set
+    formula_status='preserved_in_text' when the formula is structurally verified,
+    not unconditional 'not_applicable'."""
+    span_id = "SPAN-ambiguous-formula"
+    # Span text shares moderate term overlap with the claim (between
+    # _SUPPORT_FAIL=0.25 and _SUPPORT_VERIFY=0.5), and contains the exact formula.
+    # claim terms: {gradient, descent, regularization, optimization, penalty, deep, architectures, network, training}
+    # span terms: {gradient, optimization, configurations, loss, certain}
+    # overlap = {gradient, optimization} → 2/9 ≈ 0.22… but we need ≥0.25.
+    # Adjusted: add "descent" to span so overlap = {gradient, descent, optimization} → 3/9 ≈ 0.33.
+    span_text = "Gradient descent optimization uses $x^2$ in certain loss configurations."
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', 'ambiguous-hash', ?, "
+            "'2026-01-01T00:00:00Z')",
+            (span_id, RELPATH, span_text),
+        )
+    # Statement: formula $x^2$ is present in span, but prose overlap is ambiguous.
+    unit_id = db.upsert_knowledge_unit(
+        vault.state_db, unit_type="atom", canonical_name="Ambiguous formula",
+        statement="Gradient descent regularization applies $x^2$ penalty for deep architectures and network training optimization.",
+        source_span_ids=[span_id], source_id=1,
+    )
+
+    verdict = validate_claim_support(vault.state_db, unit_id)
+    assert verdict == "uncertain"
+    with db.connect(vault.state_db) as conn:
+        row = conn.execute(
+            "SELECT formula_status FROM knowledge_units WHERE id = ?",
+            (unit_id,),
+        ).fetchone()
+    assert row["formula_status"] == "preserved_in_text"
+
+
+def test_f6_with_absent_formula_fails_and_is_not_routed_to_recovery(vault) -> None:
+    """Spec-pin (rejects PM Fix 4): a wrong-real-span citation (low/zero prose
+    overlap) MUST be `failed` even when the claim carries a formula that the
+    cited span lacks. SYSTEM_BEHAVIOR §26.1 makes the F6 gate release-blocking
+    and explicitly forbids routing an F6 textual failure to P5 recovery. The
+    formula-uncertain route is reserved for the right-topic case (high prose
+    overlap), which is covered by test_altered_formula_on_right_topic_is_uncertain.
+    Swapping the verdict branches so formula-uncertain preceded the F6 gate would
+    funnel wrong-real-span citations into recovery — the exact defect Plan B
+    exists to catch."""
+    span_id = "SPAN-wrong-real-span-formula"
+    span_text = "The neural network computes weight gradients during backprop."
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', 'wrong-span-hash', ?, "
+            "'2026-01-01T00:00:00Z')",
+            (span_id, RELPATH, span_text),
+        )
+    # Claim is about a different topic (coral) AND carries a formula the span
+    # does not contain: both the prose gate and the formula check miss.
+    unit_id = db.upsert_knowledge_unit(
+        vault.state_db, unit_type="atom", canonical_name="Wrong real span",
+        statement=r"Coral bleaching expels symbiotic algae, bounded by $a^2$.",
+        source_span_ids=[span_id], source_id=1,
+    )
+
+    assert validate_claim_support(vault.state_db, unit_id) == "failed"
+    with db.connect(vault.state_db) as conn:
+        row = conn.execute(
+            "SELECT support_status, formula_status FROM knowledge_units WHERE id = ?",
+            (unit_id,),
+        ).fetchone()
+    assert row["support_status"] == "failed"          # release-blocking, not uncertain
+    assert row["formula_status"] == "missing"          # not routed to P5 recovery
+
+
+def test_revalidation_preserves_formula_support_rows(vault) -> None:
+    """Regression: _clear_claim_supports(preserve_formula=True) must retain
+    formula-role rows so that recover_formula's evidence links survive
+    re-validation via validate_claim_support."""
+    span_id = "SPAN-formula-preserve"
+    span_text = r"The result is $x^2 + y^2$."
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', 'formula-preserve-hash', ?, "
+            "'2026-01-01T00:00:00Z')",
+            (span_id, RELPATH, span_text),
+        )
+    unit_id = db.upsert_knowledge_unit(
+        vault.state_db, unit_type="atom", canonical_name="Formula preserve",
+        statement=r"The result is $x^2 + y^2$.",
+        source_span_ids=[span_id], source_id=1,
+    )
+
+    # First validation creates primary support.
+    validate_claim_support(vault.state_db, unit_id)
+    # Manually insert a formula-role support to simulate recover_formula's output.
+    db.upsert_claim_support(
+        vault.state_db,
+        knowledge_unit_id=unit_id,
+        source_span_id=span_id,
+        support_role="formula",
+        support_status="verified",
+        evidence_hash="formula-preserve-hash",
+        validator_trace_id="PTR-test",
+    )
+    supports_before = db.list_claim_supports(vault.state_db, unit_id)
+    assert any(r["support_role"] == "formula" for r in supports_before)
+
+    # Re-validate: formula-role row must survive.
+    validate_claim_support(vault.state_db, unit_id)
+    supports_after = db.list_claim_supports(vault.state_db, unit_id)
+    assert any(
+        r["support_role"] == "formula"
+        and r["support_status"] == "verified"
+        and r["validator_trace_id"] == "PTR-test"
+        for r in supports_after
+    ), f"formula support lost during revalidation: {supports_after}"
+

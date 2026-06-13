@@ -101,12 +101,26 @@ Integrity release (target v0.8.0).
   Raw span text/hash remain immutable. Formula-bearing graph input is never
   destructively truncated. Two P5 strict-xfail oracles are now live green
   tests.
+- [x] P5/P4 PM REVIEW resolved (user direction "Fix 3 only + reject Fix 4").
+  Finding A (TOCTOU/transaction + `preserve_formula` + ambiguous
+  `formula_status`) committed. **Fix 3 APPLIED** (real bug): `recover_formula`
+  now re-validates against the additive recovered evidence of *every* cited
+  span (§26.2), not just the span under recovery — regression
+  `test_multi_span_recovery_rehydrates_prior_reviewed_evidence`. **Fix 4
+  REJECTED** as a spec violation: its swap would route the F6 wrong-real-span
+  case (formula absent + prose fails) to P5 instead of `failed`, contradicting
+  §26.1's release-blocking F6 gate — spec-correct behavior pinned by
+  `test_f6_with_absent_formula_fails_and_is_not_routed_to_recovery`. **Fixes 1
+  & 2 NOT applied**: Fix 1 is behavior-neutral (loss verdict is metadata-only)
+  and Fix 2 loosens §26.2's "exactly match" gate beyond spec (current
+  exact-token equality fails safe). Full rationale in `B_roadmap_evidence.md`
+  "P5/P4 PM Review — Multi-Span Recovery Fix And F6 Gate Defense".
 
 ## Verification
 
-- `uv run --directory backend pytest -q` → 790 passed, 14 xfailed (P5 complete;
-  the 4 remaining Plan B P6 oracles + 10 Program 1 strict-xfail oracles
-  remain xfail).
+- `uv run --directory backend pytest -q` → 794 passed, 14 xfailed (P5 + PM
+  review complete; the 4 remaining Plan B P6 oracles + 10 Program 1
+  strict-xfail oracles remain xfail).
 - `uv run --directory backend ruff check src/` → clean. (`ruff check tests/`
   shows 6 PRE-EXISTING errors in test_cli_update/test_migrate/test_plugin_cli/
   test_db_sync imports — outside CI scope and outside Plan B's changes.)
@@ -145,6 +159,100 @@ above threshold (zero overlap → `failed`, the F6 gate). Validate on hydrated
 FULL span text, never the preview. Do NOT lookup the gold YAML at runtime
 (overfitting ban); it is the test-time release oracle only.
 
-P4 review fixes and P5 selective formula recovery are implemented; full
-validation is green. Continue P6: staged atomic compiler generations, publish
-gate/failure rollback, and full dependency reconciliation.
+P4 review fixes and P5 selective formula recovery are implemented; the
+2026-06-13 PM review has been triaged and resolved (see below). Full
+validation is green. **Next: P6** — staged atomic compiler generations
+(`GEN-`), publish gate / failed-compile rollback, and full dependency
+reconciliation (the 4 remaining strict-xfail Plan B oracles cover this).
+
+### Update (2026-06-13, PM Review — RESOLVED)
+
+The PM review queued 4 control-flow fixes + Finding A (TOCTOU) + Finding B
+(regression tests). Each was verified against `SYSTEM_BEHAVIOR §26.1/§26.2`
+and the gold oracle before coding. User direction: **"Fix 3 only + reject
+Fix 4."** Resolution (full rationale + spec citations in
+`B_roadmap_evidence.md`):
+
+- **Finding A — committed** (single-transaction metadata RMW, deferred status
+  updates, `preserve_formula`, ambiguous-branch `formula_status`).
+- **Fix 3 — applied.** Multi-span recovery now re-hydrates every `reviewed`
+  recovery across all cited spans before re-validation (§26.2). Regression
+  test added (was red, now green).
+- **Fix 4 — rejected (spec violation).** It would route the F6 wrong-real-span
+  case to P5 instead of `failed`; §26.1 makes F6 a release-blocking gate that
+  "must not be routed to P5 recovery." Spec-correct behavior pinned by a new
+  test. The legitimate P5 route (right topic + bad formula → `uncertain`)
+  already works via the existing branch order.
+- **Fixes 1 & 2 — not applied.** Fix 1 is behavior-neutral (loss verdict is
+  metadata-only); Fix 2 loosens §26.2's "exactly match" gate beyond spec and
+  the current exact-token equality fails safe.
+
+Historical note — the PM review's original directive text (kept for the record):
+
+> **PRIORITY: 4 PM-verified structural flaws in P5/P4 code must be fixed BEFORE P6 work begins.** All 4 are control-flow ordering bugs that cause permanent misclassification under edge permutations not covered by the current test suite.
+
+**Fix 1: Premature Fragmentation Classification** — `pipeline/formula_recovery.py`, `classify_formula_loss`, lines 58-63.
+Move the `parser_omitted` check before the `extracted_formulas` truthiness check:
+```python
+    if _contains_formula(raw_text, expected) or _contains_formula(parser_text, expected):
+        return "parser_omitted"
+    if extracted_formulas or parser_formulas or raw_formulas:
+        return "fragmented"
+```
+
+**Fix 2: Exact Match Rejection** — `pipeline/formula_recovery.py`, `recover_formula`, line 135.
+Replace exact tuple equality with sub-formula matching:
+```python
+    structurally_matches_claim = any(
+        _is_formula_subsequence(claim_formula, recovered_tokens)
+        for claim_formula in claim_formulas
+    )
+```
+
+**Fix 3: Isolated Validation Context** — `pipeline/formula_recovery.py`, `recover_formula`, lines 182-184.
+Re-hydrate all previously reviewed recoveries from all cited span metadata before calling `validate_claim_support`:
+```python
+    assert raw_span_texts is not None
+    augmented_span_texts = dict(raw_span_texts)
+    with db.connect(db_path) as conn:
+        for cid in cited_span_ids:
+            c_span = conn.execute("SELECT metadata FROM source_spans WHERE id = ?", (cid,)).fetchone()
+            c_meta = json.loads(c_span["metadata"] or "{}") if c_span else {}
+            for rec in c_meta.get("formula_recovery", []):
+                if rec.get("status") == "reviewed" and rec.get("latex"):
+                    augmented_span_texts[cid] = f"{augmented_span_texts[cid]}\n${rec['latex']}$"
+    augmented_span_texts[span_id] = f"{augmented_span_texts[span_id]}\n${latex}$"
+```
+
+**Fix 4: Premature Support Failure** — `pipeline/claim_support.py`, `validate_claim_support`, lines 281-294.
+Swap the two `elif` blocks so formula structural checks take precedence over text overlap when formulas are present:
+```python
+    elif has_formula and not formula_ok:
+        verdict = "uncertain"
+        reason = "central formula not structurally present in the cited span (possible parse loss or alteration)"
+        formula_status = "uncertain"
+    elif claim_terms and max_cov < _SUPPORT_FAIL:
+        verdict = "failed"
+        reason = "the cited span does not minimally support the claim (no salient term overlap)"
+        formula_status = (
+            "preserved_in_text"
+            if formula_ok
+            else ("missing" if has_formula else "not_applicable")
+        )
+```
+
+**Fix 2 Correction (Subsequence Direction):** The subsequence direction must be bidirectional. A VLM might recover a sub-formula OR the entire formula where the claim only cites a sub-formula.
+Replace the exact match check with:
+```python
+    structurally_matches_claim = any(
+        _is_formula_subsequence(recovered_tokens, claim_formula)
+        or _is_formula_subsequence(claim_formula, recovered_tokens)
+        for claim_formula in claim_formulas
+    )
+```
+
+**Additional PM Findings to fix:**
+1. **Finding A: Nested connection risk under SQLite WAL.** In `formula_recovery.py`, `invalidate_formula_recoveries` originally called `db.list_claim_supports` inside the outer metadata read-modify-write transaction, risking deadlocks. The uncommitted working-tree diff already addresses this (collecting `reviewed_units` inside the transaction, updating status outside). Commit this TOCTOU/transaction fix along with the other working-tree changes (`preserve_formula`, ambiguous `formula_status`) before or alongside the flaw fixes.
+2. **Finding B: Missing regression tests.** The existing test suite lacks regression coverage for the 4 reported edge permutations. You MUST add 4 specific regression tests (one for each flaw) that exercise these exact failure paths.
+
+**After applying all 4 fixes, the 4 regression tests, and committing the working-tree changes:** Run the full test suite. The existing tests must remain green. Then continue P6.

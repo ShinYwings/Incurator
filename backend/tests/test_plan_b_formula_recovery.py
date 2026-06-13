@@ -241,6 +241,74 @@ def test_recovery_rejects_unmeasured_loss_class(vault) -> None:
         )
 
 
+def test_multi_span_recovery_rehydrates_prior_reviewed_evidence(vault) -> None:
+    """Regression (PM Fix 3): a multi-span/multi-formula claim must re-validate
+    against the additive recovered evidence of EVERY cited span, not only the
+    span being recovered (SYSTEM_BEHAVIOR §26.2: "every cited span plus additive
+    recovered evidence"). Recovering the second formula must re-hydrate the
+    already-reviewed first formula so the owning claim can verify."""
+    text_a = "Region alpha lost its terms equation."
+    text_b = "Region beta lost its terms equation."
+    hash_a = hashlib.sha256(text_a.encode("utf-8")).hexdigest()[:16]
+    hash_b = hashlib.sha256(text_b.encode("utf-8")).hexdigest()[:16]
+    span_a = db.upsert_source_span(
+        vault.state_db, source_id=1, relpath=RELPATH, span_type="equation",
+        content_hash=hash_a, page_number=3, text_preview=text_a,
+    )
+    span_b = db.upsert_source_span(
+        vault.state_db, source_id=1, relpath=RELPATH, span_type="equation",
+        content_hash=hash_b, page_number=4, text_preview=text_b,
+    )
+    unit_id = db.upsert_knowledge_unit(
+        vault.state_db, unit_type="equation", canonical_name="Two formulas",
+        statement=r"The terms are $a^2$ and $b^2$.",
+        source_span_ids=[span_a, span_b], source_id=1,
+    )
+    db.set_unit_formula_status(vault.state_db, unit_id, "uncertain")
+    raw_texts = {span_a: text_a, span_b: text_b}
+
+    # Recover the first formula on span A. Its own claim cannot verify yet
+    # (formula b^2 is still missing from span B), so the unit stays uncertain,
+    # but the candidate is recorded reviewed.
+    first = recover_formula(
+        vault.state_db, unit_id=unit_id, span_id=span_a, loss_verdict="image_only",
+        locator={"source_id": 1, "page": 3}, page_hash="page-a", crop_hash="crop-a",
+        provider="mock", model="mock-formula-reader", confidence=0.96,
+        latex="a^2", validator_trace_id="PTR-a", raw_span_texts=raw_texts,
+    )
+    assert first["status"] == "reviewed"
+    assert first["validation_verdict"] == "uncertain"
+    with db.connect(vault.state_db) as conn:
+        assert conn.execute(
+            "SELECT formula_status FROM knowledge_units WHERE id = ?", (unit_id,)
+        ).fetchone()[0] == "uncertain"
+
+    # Recover the second formula on span B. With Fix 3 the prior reviewed a^2
+    # is re-hydrated, so both claim formulas are now structurally present and
+    # the owning claim verifies into linked_evidence.
+    second = recover_formula(
+        vault.state_db, unit_id=unit_id, span_id=span_b, loss_verdict="image_only",
+        locator={"source_id": 1, "page": 4}, page_hash="page-b", crop_hash="crop-b",
+        provider="mock", model="mock-formula-reader", confidence=0.96,
+        latex="b^2", validator_trace_id="PTR-b", raw_span_texts=raw_texts,
+    )
+    assert second["status"] == "reviewed"
+    assert second["validation_verdict"] == "verified"
+    with db.connect(vault.state_db) as conn:
+        unit = conn.execute(
+            "SELECT support_status, formula_status FROM knowledge_units WHERE id = ?",
+            (unit_id,),
+        ).fetchone()
+    assert unit["support_status"] == "verified"
+    assert unit["formula_status"] == "linked_evidence"
+    assert any(
+        row["source_span_id"] == span_b
+        and row["support_role"] == "formula"
+        and row["support_status"] == "verified"
+        for row in db.list_claim_supports(vault.state_db, unit_id)
+    )
+
+
 def test_page_hash_change_invalidates_only_stale_recovery(vault) -> None:
     span_id, unit_id = _seed_uncertain_claim(vault)
     recover_formula(

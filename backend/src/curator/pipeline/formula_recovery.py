@@ -155,14 +155,21 @@ def recover_formula(
         "created_at": _now_iso(),
     }
 
-    metadata = json.loads(span["metadata"] or "{}")
-    if not isinstance(metadata, dict):
-        raise ValueError(f"source span {span_id} has invalid metadata")
-    recoveries = metadata.setdefault("formula_recovery", [])
-    if not isinstance(recoveries, list):
-        raise ValueError(f"source span {span_id} has invalid formula_recovery metadata")
-    recoveries.append(candidate)
+    # Read-modify-write metadata in a single transaction to prevent TOCTOU
+    # races where concurrent recovery calls silently overwrite each other's
+    # appended candidates.
     with db.connect(db_path) as conn:
+        fresh_span = conn.execute(
+            "SELECT metadata FROM source_spans WHERE id = ?",
+            (span_id,),
+        ).fetchone()
+        metadata = json.loads(fresh_span["metadata"] or "{}")
+        if not isinstance(metadata, dict):
+            raise ValueError(f"source span {span_id} has invalid metadata")
+        recoveries = metadata.setdefault("formula_recovery", [])
+        if not isinstance(recoveries, list):
+            raise ValueError(f"source span {span_id} has invalid formula_recovery metadata")
+        recoveries.append(candidate)
         conn.execute(
             "UPDATE source_spans SET metadata = ? WHERE id = ?",
             (json.dumps(metadata, ensure_ascii=False, sort_keys=True), span_id),
@@ -174,7 +181,31 @@ def recover_formula(
 
     assert raw_span_texts is not None
     augmented_span_texts = dict(raw_span_texts)
-    augmented_span_texts[span_id] = f"{raw_span_texts[span_id]}\n${latex}$"
+    # Re-validate against the additive recovered evidence of EVERY cited span,
+    # not just the one being recovered (SYSTEM_BEHAVIOR §26.2: "every cited span
+    # plus additive recovered evidence"). The candidate written above is already
+    # persisted as 'reviewed', so this loop also re-hydrates it — a multi-span
+    # multi-formula claim whose other formulas were recovered earlier would
+    # otherwise fail re-validation purely because their evidence was dropped.
+    with db.connect(db_path) as conn:
+        for cited_id in cited_span_ids:
+            cited_meta_row = conn.execute(
+                "SELECT metadata FROM source_spans WHERE id = ?", (cited_id,)
+            ).fetchone()
+            if cited_meta_row is None:
+                continue
+            cited_meta = json.loads(cited_meta_row["metadata"] or "{}")
+            if not isinstance(cited_meta, dict):
+                continue
+            for rec in cited_meta.get("formula_recovery", []):
+                if (
+                    isinstance(rec, dict)
+                    and rec.get("status") == "reviewed"
+                    and rec.get("latex")
+                ):
+                    augmented_span_texts[cited_id] = (
+                        f"{augmented_span_texts[cited_id]}\n${rec['latex']}$"
+                    )
     verdict = validate_claim_support(
         db_path,
         unit_id,
@@ -205,43 +236,56 @@ def invalidate_formula_recoveries(
     current_page_hash: str,
 ) -> int:
     """Reject candidates from an older rendered page and stale served evidence."""
+    # Read-modify-write metadata in a single transaction to prevent TOCTOU.
     with db.connect(db_path) as conn:
         span = conn.execute(
             "SELECT metadata FROM source_spans WHERE id = ?",
             (span_id,),
         ).fetchone()
-    if span is None:
-        raise ValueError(f"unknown source span: {span_id}")
+        if span is None:
+            raise ValueError(f"unknown source span: {span_id}")
 
-    metadata = json.loads(span["metadata"] or "{}")
-    if not isinstance(metadata, dict):
-        raise ValueError(f"source span {span_id} has invalid metadata")
-    recoveries = metadata.get("formula_recovery", [])
-    if not isinstance(recoveries, list):
-        raise ValueError(f"source span {span_id} has invalid formula_recovery metadata")
+        metadata = json.loads(span["metadata"] or "{}")
+        if not isinstance(metadata, dict):
+            raise ValueError(f"source span {span_id} has invalid metadata")
+        recoveries = metadata.get("formula_recovery", [])
+        if not isinstance(recoveries, list):
+            raise ValueError(f"source span {span_id} has invalid formula_recovery metadata")
 
-    invalidated = 0
-    for candidate in recoveries:
-        if not isinstance(candidate, dict):
-            continue
-        if candidate.get("status") not in {"candidate", "reviewed"}:
-            continue
-        if candidate.get("page_hash") == current_page_hash:
-            continue
-        prior_status = candidate["status"]
-        candidate["status"] = "rejected"
-        candidate["rejection_reason"] = "stale_page_hash"
-        candidate["invalidated_at"] = _now_iso()
-        invalidated += 1
+        invalidated = 0
+        reviewed_units: list[tuple[str, list[dict]]] = []
+        for candidate in recoveries:
+            if not isinstance(candidate, dict):
+                continue
+            if candidate.get("status") not in {"candidate", "reviewed"}:
+                continue
+            if candidate.get("page_hash") == current_page_hash:
+                continue
+            prior_status = candidate["status"]
+            candidate["status"] = "rejected"
+            candidate["rejection_reason"] = "stale_page_hash"
+            candidate["invalidated_at"] = _now_iso()
+            invalidated += 1
 
-        unit_id = candidate.get("knowledge_unit_id")
-        if prior_status != "reviewed" or not isinstance(unit_id, str):
-            continue
-        formula_supports = [
-            row
-            for row in db.list_claim_supports(db_path, unit_id)
-            if row["source_span_id"] == span_id and row["support_role"] == "formula"
-        ]
+            unit_id = candidate.get("knowledge_unit_id")
+            if prior_status == "reviewed" and isinstance(unit_id, str):
+                formula_supports = [
+                    row
+                    for row in db.list_claim_supports(db_path, unit_id)
+                    if row["source_span_id"] == span_id and row["support_role"] == "formula"
+                ]
+                if formula_supports:
+                    reviewed_units.append((unit_id, formula_supports))
+
+        if invalidated:
+            conn.execute(
+                "UPDATE source_spans SET metadata = ? WHERE id = ?",
+                (json.dumps(metadata, ensure_ascii=False, sort_keys=True), span_id),
+            )
+
+    # Update support/formula status outside the metadata transaction (each
+    # helper opens its own connection).
+    for unit_id, formula_supports in reviewed_units:
         for support in formula_supports:
             db.upsert_claim_support(
                 db_path,
@@ -253,19 +297,12 @@ def invalidate_formula_recoveries(
                 support_reason="formula recovery page hash changed",
                 validator_trace_id=support["validator_trace_id"],
             )
-        if formula_supports:
-            db.set_unit_support_status(
-                db_path,
-                unit_id,
-                "stale",
-                "formula recovery page hash changed",
-            )
-            db.set_unit_formula_status(db_path, unit_id, "uncertain")
+        db.set_unit_support_status(
+            db_path,
+            unit_id,
+            "stale",
+            "formula recovery page hash changed",
+        )
+        db.set_unit_formula_status(db_path, unit_id, "uncertain")
 
-    if invalidated:
-        with db.connect(db_path) as conn:
-            conn.execute(
-                "UPDATE source_spans SET metadata = ? WHERE id = ?",
-                (json.dumps(metadata, ensure_ascii=False, sort_keys=True), span_id),
-            )
     return invalidated
