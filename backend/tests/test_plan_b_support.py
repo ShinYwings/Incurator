@@ -637,3 +637,102 @@ def test_revalidation_preserves_formula_support_rows(vault) -> None:
         for r in supports_after
     ), f"formula support lost during revalidation: {supports_after}"
 
+
+
+# ---------------------------------------------------------------------------
+# P6 — compiler-audit §20.5 assertions (dangling, formula consistency,
+# generation invariant) + broad-fallback Plan-C recording, and F7 stale-span
+# reconciliation.
+# ---------------------------------------------------------------------------
+
+def test_audit_flags_dangling_support_on_missing_span(vault) -> None:
+    sup01 = next(c for c in GOLD["support_cases"] if c["id"] == "SUP01")
+    unit_id = _seed(vault, sup01["declared"], sup01["statement"])
+    validate_claim_support(vault.state_db, unit_id)
+    # Remove the cited span out from under the support row (referential break).
+    with db.connect(vault.state_db) as conn:
+        conn.execute("DELETE FROM source_spans WHERE id = ?", (sup01["declared"][0],))
+    report = run_compiler_audit(vault.state_db)
+    assert unit_id in report.dangling_supports
+    assert unit_id in report.release_blocking
+    assert not report.ok
+
+
+def test_audit_flags_formula_status_inconsistency(vault) -> None:
+    # linked_evidence WITHOUT a verified formula support row is inconsistent (§20.5 #5).
+    unit_id = _seed(vault, ["SPAN-pb000001"], "Backprop computes the gradient.")
+    db.set_unit_formula_status(vault.state_db, unit_id, "linked_evidence")
+    report = run_compiler_audit(vault.state_db)
+    assert unit_id in report.formula_inconsistencies
+    assert unit_id in report.release_blocking
+
+
+def test_audit_flags_multiple_authoritative_generations(vault) -> None:
+    # §20.5 #4: at most one authoritative generation per source scope.
+    now = "2026-01-01T00:00:00Z"
+    with db.connect(vault.state_db) as conn:
+        for gid in ("GEN-aaaa1111", "GEN-bbbb2222"):
+            conn.execute(
+                "INSERT INTO compiler_generations (id, source_id, status, "
+                "prompt_contract_version, created_at, audit_json) "
+                "VALUES (?, 1, 'authoritative', 'v2', ?, '{}')",
+                (gid, now),
+            )
+    report = run_compiler_audit(vault.state_db)
+    assert "source:1" in report.staged_leftovers
+    assert not report.ok
+
+
+def test_audit_records_synthesis_broad_fallback_for_plan_c(vault) -> None:
+    # The synthesis.py:110 broad fallback (community-report-derived) is RECORDED
+    # and assigned to Plan C, never removed by Plan B (§20.5 #2; user direction).
+    spans = ["SPAN-pb000001", "SPAN-pb000002", "SPAN-pb000003"]
+    for sid in spans:
+        with db.connect(vault.state_db) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO source_spans (id, source_id, relpath, span_type, "
+                "content_hash, text_preview, created_at) VALUES (?, 1, ?, 'paragraph', ?, ?, ?)",
+                (sid, RELPATH, sid, SPANS[sid]["content"][:50], "2026-01-01T00:00:00Z"),
+            )
+    rep_id = db.upsert_community_report(
+        vault.state_db, community_key="c1", title="C1", summary="s",
+        full_content="s", dependency_hash="d", entity_ids=[],
+        source_span_ids=spans, rank=0.5,
+    )
+    # Synthesis node grounding to the FULL union of its report's spans = the fallback.
+    db.upsert_synthesis_node(
+        vault.state_db, title="Broad", statement="Everything",
+        community_report_ids=[rep_id], source_span_ids=spans,
+        dependency_hash="d", confidence=0.5,
+    )
+    report = run_compiler_audit(vault.state_db)
+    flagged = {f["id"]: f for f in report.broad_fallback_plan_c}
+    syn_findings = [f for f in report.broad_fallback_plan_c if f["type"] == "synthesis_node"]
+    assert syn_findings and all(f["owner"] == "plan_c" for f in syn_findings)
+    # Plan-C-assigned findings are NOT release-blocking for Plan B.
+    assert not any(fid in report.release_blocking for fid in flagged)
+
+
+def test_reconcile_removes_stale_spans_of_edited_source(vault) -> None:
+    # F7 (§26.4): reconciliation removes the source's stale spans + their
+    # derived support/dependency rows, leaving only the current set.
+    old_unit = _seed(vault, ["SPAN-pb000001"], "Backprop computes the gradient.")
+    validate_claim_support(vault.state_db, old_unit)
+    new_span = "SPAN-edited01"
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', 'edited-hash', 'edited', '2026-01-02T00:00:00Z')",
+            (new_span, RELPATH),
+        )
+    reconcile_source(vault.state_db, source_id=1, current_span_ids=[new_span])
+    with db.connect(vault.state_db) as conn:
+        remaining = {r[0] for r in conn.execute(
+            "SELECT id FROM source_spans WHERE source_id = 1"
+        ).fetchall()}
+        orphan_supports = conn.execute(
+            "SELECT COUNT(*) FROM claim_supports WHERE source_span_id = 'SPAN-pb000001'"
+        ).fetchone()[0]
+    assert remaining == {new_span}
+    assert orphan_supports == 0

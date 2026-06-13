@@ -65,15 +65,53 @@ _FORMULA_TOKEN_RE = re.compile(r"\\[a-zA-Z]+|\\.|[^\s\\]")
 
 @dataclass
 class AuditReport:
-    """Read-only compiler-audit result (SCHEMA §20.5, SYSTEM_BEHAVIOR §26.5)."""
+    """Read-only compiler-audit result (SCHEMA §20.5, SYSTEM_BEHAVIOR §26.5).
+
+    The release-blocking findings (``release_blocking``) gate the staged
+    generation publish (§26.3) and make ``wiki lint`` exit non-zero (§26.5).
+    ``unsupported_claims`` (active ``unchecked``/``uncertain`` units) is reported
+    for visibility but is not release-blocking — those units are excluded from
+    serving, not wrong. ``broad_fallback_plan_c`` is RECORDED and assigned to
+    Plan C (community-report/graph-derived fallback, §20.5 assertion 2); Plan B
+    surfaces it rather than removing it.
+    """
 
     unsupported_claims: list[str] = field(default_factory=list)
     failed_claims: list[str] = field(default_factory=list)
     stale_claims: list[str] = field(default_factory=list)
+    dangling_supports: list[str] = field(default_factory=list)
+    formula_inconsistencies: list[str] = field(default_factory=list)
+    staged_leftovers: list[str] = field(default_factory=list)
+    duplicate_candidates: list[list[str]] = field(default_factory=list)
+    broad_fallback_plan_c: list[dict] = field(default_factory=list)
+
+    @property
+    def release_blocking(self) -> list[str]:
+        """Findings that block a generation publish / fail `wiki lint` (§20.5).
+
+        Excludes ``unsupported_claims`` (active ``unchecked``/``uncertain`` units):
+        those are legitimately excluded from serving — not wrong, just not yet
+        verified — so they are reported but do not gate a publish or a release.
+        """
+        return sorted(
+            set(self.failed_claims)
+            | set(self.stale_claims)
+            | set(self.dangling_supports)
+            | set(self.formula_inconsistencies)
+            | set(self.staged_leftovers)
+        )
 
     @property
     def ok(self) -> bool:
-        return not (self.unsupported_claims or self.failed_claims or self.stale_claims)
+        """Strict integrity: every active source-supported unit is verified and
+        consistent (no unchecked/uncertain/failed/stale/dangling). Used by tests
+        and reporting; the publish gate keys on ``release_blocking`` instead."""
+        return not (
+            self.unsupported_claims
+            or self.dangling_supports
+            or self.formula_inconsistencies
+            or self.staged_leftovers
+        )
 
 
 def _extract_latex(text: str) -> list[str]:
@@ -341,23 +379,108 @@ def validate_claim_support(
     return verdict
 
 
+def _broad_fallback_findings(db_path: Path) -> list[dict]:
+    """Detect generated claims that grounded to the entire upstream span pool —
+    the ``or span_ids`` broad fallback (Failure Atlas F6).
+
+    These are community-report / graph-derived artifacts (synthesis nodes and
+    community reports), NOT Plan-B-owned source-pair/L2 claims, so per SCHEMA
+    §20.5 assertion 2 they are RECORDED and assigned to Plan C rather than
+    removed by Plan B. The signature is exact: the claim cites the full union of
+    its upstream artifacts' spans (>1 span), which is what the fallback produces
+    when an item declares no spans of its own.
+    """
+    findings: list[dict] = []
+    reports = {r["id"]: r for r in db.list_community_reports(db_path)}
+    for node in db.list_synthesis_nodes(db_path):
+        cited = set(node.get("source_span_ids") or [])
+        upstream: set[str] = set()
+        for rid in node.get("community_report_ids") or []:
+            rep = reports.get(rid)
+            if rep:
+                upstream.update(rep.get("source_span_ids") or [])
+        if len(cited) > 1 and cited == upstream:
+            findings.append({"id": node["id"], "type": "synthesis_node", "owner": "plan_c"})
+    for rep in reports.values():
+        cited = set(rep.get("source_span_ids") or [])
+        upstream = set()
+        for eid in rep.get("entity_ids") or []:
+            ent = db.get_graph_entity(db_path, eid)
+            if ent:
+                upstream.update(ent.get("source_span_ids") or [])
+        if len(cited) > 1 and upstream and cited == upstream:
+            findings.append({"id": rep["id"], "type": "community_report", "owner": "plan_c"})
+    return findings
+
+
 def run_compiler_audit(db_path: Path) -> AuditReport:
     """Read-only compiler audit (SCHEMA §20.5, SYSTEM_BEHAVIOR §26.5).
 
     Re-checks evidence freshness (marking hash-drifted support stale), then
-    reports active source-supported units that lack verified minimal support.
+    asserts the §20.5 invariants on the live DB: verified minimal support,
+    no dangling support rows (assertion 3), one authoritative generation per
+    scope (assertion 4), formula-status consistency (assertion 5), and records
+    broad-fallback findings for Plan C (assertion 2).
     """
     db.refresh_support_freshness(db_path)
     with db.connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT id, support_status FROM knowledge_units "
+        active = conn.execute(
+            "SELECT id, support_status, formula_status, support_reason "
+            "FROM knowledge_units "
             "WHERE retired_at IS NULL AND truth_status = 'source_supported'"
         ).fetchall()
-    unsupported = [r["id"] for r in rows if r["support_status"] != "verified"]
-    failed = [r["id"] for r in rows if r["support_status"] == "failed"]
-    stale = [r["id"] for r in rows if r["support_status"] == "stale"]
-    return AuditReport(unsupported_claims=unsupported, failed_claims=failed,
-                       stale_claims=stale)
+        dangling = [
+            r["uid"] for r in conn.execute(
+                """
+                SELECT DISTINCT cs.knowledge_unit_id AS uid
+                FROM claim_supports cs
+                LEFT JOIN source_spans ss ON ss.id = cs.source_span_id
+                LEFT JOIN knowledge_units ku ON ku.id = cs.knowledge_unit_id
+                WHERE ss.id IS NULL OR ku.id IS NULL OR ku.retired_at IS NOT NULL
+                """
+            ).fetchall()
+        ]
+        multi_auth = [
+            f"source:{r['source_id']}" for r in conn.execute(
+                "SELECT source_id, COUNT(*) AS c FROM compiler_generations "
+                "WHERE status = 'authoritative' GROUP BY source_id HAVING c > 1"
+            ).fetchall()
+        ]
+        units_with_formula = {
+            r["uid"] for r in conn.execute(
+                "SELECT DISTINCT knowledge_unit_id AS uid FROM claim_supports "
+                "WHERE support_role = 'formula' AND support_status = 'verified'"
+            ).fetchall()
+        }
+        # Active units sharing a semantic_hash are reconciliation candidates
+        # (§20.1) — reported as a hint, not a release-blocking violation.
+        dup_rows = conn.execute(
+            "SELECT semantic_hash AS h, GROUP_CONCAT(id) AS ids "
+            "FROM knowledge_units "
+            "WHERE retired_at IS NULL AND semantic_hash IS NOT NULL AND semantic_hash != '' "
+            "GROUP BY semantic_hash HAVING COUNT(*) > 1"
+        ).fetchall()
+    duplicate_candidates = [sorted(r["ids"].split(",")) for r in dup_rows]
+    unsupported = [r["id"] for r in active if r["support_status"] != "verified"]
+    failed = [r["id"] for r in active if r["support_status"] == "failed"]
+    stale = [r["id"] for r in active if r["support_status"] == "stale"]
+    formula_inconsistencies: list[str] = []
+    for r in active:
+        fs = r["formula_status"]
+        if fs == "linked_evidence" and r["id"] not in units_with_formula:
+            formula_inconsistencies.append(r["id"])
+        elif fs == "omitted_incidental" and not (r["support_reason"] or "").strip():
+            formula_inconsistencies.append(r["id"])
+    return AuditReport(
+        unsupported_claims=unsupported,
+        failed_claims=failed,
+        stale_claims=stale,
+        dangling_supports=sorted(set(dangling)),
+        formula_inconsistencies=formula_inconsistencies,
+        staged_leftovers=sorted(multi_auth),
+        duplicate_candidates=duplicate_candidates,
+        broad_fallback_plan_c=_broad_fallback_findings(db_path),
+    )
 
 
 def _reuse_verified_candidate(
@@ -462,4 +585,11 @@ def reconcile_source(
 
         db.retire_knowledge_unit(db_path, unit_id)
         retired.append(unit_id)
+
+    # F7 (§26.4): stale spans of the edited source are removed rather than left
+    # lingering beside their replacements. Every active unit citing a stale span
+    # was retired above, so the deletion cannot orphan an active claim.
+    stale_spans = sorted(existing - current)
+    if stale_spans:
+        db.delete_source_spans(db_path, stale_spans)
     return retired

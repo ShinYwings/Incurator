@@ -362,8 +362,9 @@ def test_f6_baseline_synthesis_empty_spans_fall_back_to_all_upstream(vault) -> N
 
 @pytest.mark.xfail(
     strict=True,
-    reason="F6 reproduced: synthesis.py:110 grounds undeclared items to all upstream "
-    "spans; assigned to program-2 (0 broad fallbacks, P2.3)",
+    reason="F6 synthesis.py:110 broad fallback is community-report/graph-derived "
+    "(SCHEMA §20.5 #2). Plan B P6's compiler audit RECORDS it as a Plan-C-assigned "
+    "broad_fallback finding; removing the synthesis fallback is Plan C's scope.",
 )
 def test_f6_oracle_synthesis_spans_match_declared_support(vault) -> None:
     paths = vault
@@ -406,16 +407,16 @@ def test_f7_baseline_no_dependency_invalidation_and_stale_spans_linger(vault) ->
     assert not [n for n in dir(db) if "invalidate" in n.lower()]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="F7 reproduced: source edit leaves stale spans and stale-citing artifacts; "
-    "assigned to program-2 (reconciliation/dependency closure, P2.2)",
-)
 def test_f7_oracle_source_edit_reconciles_stale_spans(vault) -> None:
+    # Plan B P6 (§26.4): an edit re-stores the new span set, then reconciliation
+    # removes the stale spans of that source instead of leaving them lingering.
+    from curator.pipeline.claim_support import reconcile_source
+
     paths = vault
     spans1 = _store_section_spans(paths, "Original derivation of the bound.")
     spans2 = _store_section_spans(paths, "Edited derivation of the bound, corrected.")
     assert set(spans2).isdisjoint(spans1)
+    reconcile_source(paths.state_db, 1, current_span_ids=spans2)
     with db.connect(paths.state_db) as conn:
         count = conn.execute("SELECT COUNT(*) FROM source_spans").fetchone()[0]
     assert count == len(spans2)  # stale rows reconciled away

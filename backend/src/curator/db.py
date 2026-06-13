@@ -1625,6 +1625,32 @@ def get_source_spans_by_ids(db_path: Path, span_ids: list[str]) -> list[dict]:
         return [_decode_span_row(row) for row in rows]
 
 
+def delete_source_spans(db_path: Path, span_ids: list[str]) -> int:
+    """Remove stale source spans and their derived support/dependency rows
+    (SYSTEM_BEHAVIOR §26.4 / F7 reconciliation). The span rows of an edited
+    source are removed rather than left lingering beside their replacements;
+    dependent `claim_supports` and `artifact_dependencies` rows are removed in
+    the same transaction so the compiler audit finds no dangling references.
+    Returns the number of span rows deleted. Source truth files are untouched."""
+    if not span_ids:
+        return 0
+    placeholders = ",".join("?" for _ in span_ids)
+    params = tuple(span_ids)
+    with connect(db_path) as conn:
+        conn.execute(
+            f"DELETE FROM claim_supports WHERE source_span_id IN ({placeholders})", params
+        )
+        conn.execute(
+            "DELETE FROM artifact_dependencies "
+            f"WHERE depends_on_type = 'source_span' AND depends_on_id IN ({placeholders})",
+            params,
+        )
+        cur = conn.execute(
+            f"DELETE FROM source_spans WHERE id IN ({placeholders})", params
+        )
+        return cur.rowcount
+
+
 # --- knowledge_units -------------------------------------------------
 
 
@@ -1801,12 +1827,16 @@ def set_unit_formula_status(
 def retire_knowledge_unit(db_path: Path, unit_id: str) -> None:
     """Tombstone a unit retired by source edit/delete/split reconciliation
     (SCHEMA §20.1). Retired rows are never deleted by the compiler and never
-    feed downstream stages."""
+    feed downstream stages. Its `claim_supports` rows are removed so the
+    compiler audit finds no support row citing a retired unit (§20.5 #3)."""
     with connect(db_path) as conn:
         conn.execute(
             "UPDATE knowledge_units SET retired_at = ?, updated_at = ? "
             "WHERE id = ? AND retired_at IS NULL",
             (_now_iso(), _now_iso(), unit_id),
+        )
+        conn.execute(
+            "DELETE FROM claim_supports WHERE knowledge_unit_id = ?", (unit_id,)
         )
 
 
