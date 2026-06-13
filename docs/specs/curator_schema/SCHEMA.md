@@ -1509,13 +1509,21 @@ Rules (Arena decision 8 — staged atomic publish):
 - A generation becomes `authoritative` ONLY after every required row,
   dependency, projection, and search-derived state for its scope validates.
   Until then its rows are `staged` and invisible to query/evidence/search
-  surfaces.
+  surfaces. Invisibility is enforced at write/materialization time
+  (SYSTEM_BEHAVIOR §26.3): staged units carry TEMPORARY ids and are never
+  emitted as ATM projections, upserted into the graph, or materialized into
+  search; only an authoritative generation's units reach those surfaces. An
+  authoritative generation MAY contain non-verified units — served =
+  authoritative ∧ `support_status='verified'` ∧ `retired_at IS NULL`.
 - At most one `authoritative` generation exists per `source_id` scope. The
   prior authoritative generation is retained until the new one publishes, then
   retired per the reconciliation contract (SYSTEM_BEHAVIOR §26).
-- A failed compile sets `status='discarded'`; discarded staged rows are
-  removed and the prior authoritative generation remains untouched. No partial
-  authoritative publish is representable in this contract.
+- A failed compile sets `status='discarded'`; discarded staged rows (including
+  the temp-id knowledge units and their claim supports) are removed and the
+  prior authoritative generation remains untouched. No graph entity/relation,
+  ATM projection, or search doc is ever written for a staged generation, so a
+  discard leaves no orphan downstream artifact. No partial authoritative
+  publish is representable in this contract.
 - Unchanged-rebuild idempotency: recompiling an unchanged source under the
   same prompt contract version MUST reuse the existing authoritative
   generation's claim ids, hashes, dependency closure, and counts (verified by
@@ -1596,7 +1604,9 @@ authoritative generation:
 3. No `claim_supports` row cites a missing span id, a retired unit, or a
    discarded generation.
 4. Exactly one authoritative generation per compiled source scope; zero
-   staged rows visible to query/search surfaces.
+   staged rows visible to query/search surfaces — no ATM projection, graph
+   entity/relation, or search doc references a unit whose generation is not
+   `authoritative` (staged/discarded rows are never materialized).
 5. Every `formula_status` value is consistent with its evidence: rows with
    `linked_evidence` have a matching `formula` support row;
    `omitted_incidental` rows carry a reason code.

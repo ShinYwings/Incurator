@@ -1628,8 +1628,41 @@ F3/F4/F5/F11/F12 stay with Program 3.
 - Unchanged rebuild is idempotent: same source content + same prompt contract
   version reuses the authoritative generation's claim ids, hashes, dependency
   closure, and counts — no duplicate accumulation, no count amplification.
-- Query, evidence, and search surfaces read only authoritative-generation
-  rows. Staged rows are invisible everywhere outside the compiler.
+- **Visibility is gated at write/materialization time, not read time.** A
+  staged generation's `knowledge_units` carry TEMPORARY ids and are never
+  emitted as ATM projections, upserted into the graph, or materialized into
+  search while staged. Query, evidence, and search surfaces therefore read only
+  authoritative-generation rows by construction (they read what is
+  materialized, and only authoritative generations are ever materialized).
+  Served = authoritative-generation ∧ `support_status='verified'` ∧
+  `retired_at IS NULL`; an authoritative generation MAY contain non-verified
+  (unchecked/uncertain/failed/stale) units — they are stored and audited but
+  never served (visibility no longer keys on `support_status` alone).
+- **Copy-on-stage.** Graph extraction (LLM) runs during staging, but its
+  entities/relations are NOT upserted then — they are serialized and persisted
+  only inside the publish transaction (the `graph_*` tables carry no
+  generation id, so an in-staging upsert would bypass the gate and dangle on
+  discard). Stable-id reconciliation is DEFERRED to the publish transaction:
+  the DB cannot hold both the authoritative `KU-1` and a staged `KU-1` (the id
+  is the primary key), so staged units use temporary ids and the publish
+  transaction merges each unchanged temp unit into its stable id, rewrites
+  every downstream reference (graph entity/relation `knowledge_unit_ids`,
+  `claim_supports`, `artifact_dependencies`, `dag_edges`) from the temp id to
+  the stable id, and deletes the temp row.
+- **Atomic publish order (single DB transaction):** temp→stable reconcile +
+  downstream-reference rewrite → upsert the serialized graph against the final
+  stable ids → flip `gen_S` to `authoritative` and the prior generation to
+  `discarded` (retiring its unmatched units). ONLY after the DB commits are ATM
+  projections re-emitted and search re-materialized from the authoritative DB;
+  projections are disposable, so a materialization/filesystem failure re-emits
+  from the authoritative DB rather than leaving a partial publish.
+- **No zero-unit publish guard.** A SUCCESSFUL extraction that yields zero
+  units is the correct, deterministic representation of an emptied or
+  non-claim-bearing source and MUST publish — retiring the prior authoritative
+  units so the index never serves deleted claims. A FAILED extraction returns
+  an error and never reaches publish, so this introduces no silent loss; a
+  zero-unit publish that retires one or more prior units is recorded as a
+  non-blocking audit note.
 
 ### 26.4 Source Edit/Delete/Split Reconciliation
 

@@ -344,16 +344,19 @@ and removes the preview-as-evidence defect (Failure Atlas F10).
 
 ### 10.1 Generation-Aware Materialization
 
-- Search materialization derived from Plan-B-owned compiled records
-  (knowledge units and their projections) is part of the staged generation:
-  it is built for the staged scope, validated by the publish gate, and
-  becomes visible only when the generation flips to `authoritative`.
-- A discarded generation leaves prior search state untouched; rollback after
-  a failed publish re-emits search-derived state from the prior authoritative
-  generation, never from staged leftovers.
-- Retired (`retired_at` set) and `failed`/`stale` claims are excluded from
-  materialization. The compiler audit asserts zero retired/staged records in
-  the served index.
+- Search materialization derived from Plan-B-owned compiled records (knowledge
+  units and their projections) is gated at MATERIALIZATION time, not query
+  time: it is (re)built ONLY from authoritative-generation units, AFTER the
+  generation publishes. A staged generation's units are never materialized, so
+  the retrieval/query read path needs no generation filter and is unchanged.
+- A discarded generation leaves prior search state untouched (no staged search
+  doc was ever written); rollback after a failed publish re-emits search-derived
+  state from the prior authoritative generation, never from staged leftovers.
+  Because projections and search rows are disposable, a materialization failure
+  re-emits from the authoritative DB rather than leaving partial state.
+- Retired (`retired_at` set), non-`verified`, and non-authoritative-generation
+  claims are excluded from materialization. The compiler audit asserts zero
+  retired/staged records in the served index (SCHEMA §20.5 #4).
 - Unchanged rebuild produces byte-identical search rows for unchanged records
   (the existing `(record_type, record_id)` upsert idempotency is preserved
   and now asserted per generation).
