@@ -52,6 +52,13 @@ def _seed_authoritative_records(db_path: Path) -> dict[str, str]:
         atom_node_id="ATM-resnet",
     )
     db.set_unit_support_status(db_path, unit_id, "verified")
+    # Served units belong to an authoritative compiler generation (§26.3).
+    _gen = db.create_compiler_generation(
+        db_path, prompt_contract_version="v2", source_id=source_id)
+    db.publish_compiler_generation(db_path, _gen)
+    with db.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE knowledge_units SET generation_id = ? WHERE id = ?", (_gen, unit_id))
     ent_a = db.upsert_graph_entity(
         db_path,
         canonical_name="ResNet",

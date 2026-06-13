@@ -26,6 +26,13 @@ class SearchIndexFallbackTests(unittest.TestCase):
             source_span_ids=[],
         )
         db.set_unit_support_status(self.paths.state_db, unit_id, "verified")
+        # Served units belong to an authoritative compiler generation (§26.3).
+        gen = db.create_compiler_generation(
+            self.paths.state_db, prompt_contract_version="v2", source_id=None)
+        db.publish_compiler_generation(self.paths.state_db, gen)
+        with db.connect(self.paths.state_db) as conn:
+            conn.execute(
+                "UPDATE knowledge_units SET generation_id = ? WHERE id = ?", (gen, unit_id))
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

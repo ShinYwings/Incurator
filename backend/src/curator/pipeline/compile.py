@@ -248,22 +248,56 @@ def compile_source_l2(
             error="knowledge unit extraction failed",
         )
 
-    span_texts = {str(item["id"]): str(item["text"]) for item in span_inputs}
-    for unit_id in ku_result.unit_ids:
-        validate_claim_support(paths.state_db, unit_id, span_texts=span_texts)
-    reconcile_source(
-        paths.state_db,
-        source_id,
-        current_span_ids=span_ids,
-        candidate_unit_ids=ku_result.unit_ids,
+    # --- Copy-on-stage staging + atomic publish (SYSTEM_BEHAVIOR §26.3) ------
+    # A fresh staged generation OWNS this compile's extracted units. They are
+    # validated and gated BEFORE any served write: a blocked gate (or any error)
+    # discards the staged units and leaves the prior authoritative generation —
+    # its rows, ATM pages, graph, and search — completely untouched. No ATM page,
+    # graph entity, or search doc is written for a staged generation.
+    gen_id = db.create_compiler_generation(
+        paths.state_db, prompt_contract_version=PROMPT_CONTRACT_VERSION, source_id=source_id
     )
+    try:
+        with db.connect(paths.state_db) as conn:
+            for uid in ku_result.unit_ids:
+                conn.execute(
+                    "UPDATE knowledge_units SET generation_id = ? WHERE id = ?",
+                    (gen_id, uid),
+                )
+        span_texts = {str(item["id"]): str(item["text"]) for item in span_inputs}
+        for unit_id in ku_result.unit_ids:
+            validate_claim_support(paths.state_db, unit_id, span_texts=span_texts)
+        _run_publish_gate(paths.state_db, source_id)
+        # Gate cleared → reconcile stable ids (an unchanged claim's prior stable
+        # id is carried into this generation), then atomically publish: retire the
+        # source's prior-generation units and flip this generation authoritative.
+        reconcile_source(
+            paths.state_db, source_id,
+            current_span_ids=span_ids, candidate_unit_ids=ku_result.unit_ids,
+        )
+        _publish_generation(
+            paths.state_db, source_id, gen_id, _source_content_hash(paths.state_db, source_id)
+        )
+    except Exception as e:
+        _discard_staged_units(paths.state_db, gen_id)
+        db.discard_compiler_generation(paths.state_db, gen_id)
+        db.set_source_layer_status(
+            paths.state_db, source_id, "l2", "error", error=f"staged compile failed: {e}"
+        )
+        return CompileResult(
+            source_id=source_id,
+            prompt_trace_ids=[ku_result.trace_id] if ku_result.trace_id else [],
+            error=f"staged compile failed: {e}",
+        )
 
-    # Emit ATM projection pages from the stored units; link them to the CTX.
+    # --- Post-publish: emit ATM + graph + search ONLY from the now-authoritative
+    # served set (the DB is truth, so these re-emit from it; never from staged
+    # leftovers).
+    units = db.list_serving_units(paths.state_db, source_id)
     atom_ids: list[str] = []
-    units = db.list_eligible_knowledge_units(paths.state_db, source_id)
     paths.atoms.mkdir(parents=True, exist_ok=True)
     for unit in units:
-        atom_id = projection.new_atom_id()
+        atom_id = unit.get("atom_node_id") or projection.new_atom_id()
         page = projection.emit_atom_markdown(unit, atom_id, source_path=relpath)
         (paths.atoms / f"{atom_id}.md").write_text(page, encoding="utf-8")
         db.upsert_knowledge_unit(
@@ -292,7 +326,8 @@ def compile_source_l2(
                 dependency_hash=unit.get("prompt_run_id") or "",
             )
 
-    # Build the graph (entities/relations) from this source's units.
+    # Build the graph from the served units (entities cite stable L1 spans, so
+    # they are generation-agnostic; graph generation-scoping is Plan C).
     graph = graph_index.extract_entities_and_relations(
         paths.state_db,
         client,
@@ -300,6 +335,7 @@ def compile_source_l2(
         valid_span_ids=span_ids,
         curate_spec_hash=curate_spec_hash,
     )
+    trace_ids = [t for t in (ku_result.trace_id, graph.trace_id) if t]
     if not graph.ok:
         materializer.materialize_search_documents(paths.state_db)
         db.set_source_layer_status(
@@ -307,34 +343,12 @@ def compile_source_l2(
             error="; ".join(graph.errors) or "graph extraction failed",
         )
         return CompileResult(
-            source_id=source_id,
-            prompt_trace_ids=[ku_result.trace_id, graph.trace_id] if graph.trace_id else [ku_result.trace_id],
-            error="graph extraction failed",
+            source_id=source_id, atom_ids=atom_ids,
+            knowledge_unit_ids=[str(unit["id"]) for unit in units],
+            prompt_trace_ids=trace_ids, error="graph extraction failed",
         )
 
     materializer.materialize_search_documents(paths.state_db)
-    trace_ids = [t for t in (ku_result.trace_id, graph.trace_id) if t]
-
-    # Publish this source's compiled claims as one authoritative generation
-    # (§26.3). A publish-gate violation discards the staged generation and leaves
-    # the prior authoritative one untouched; the extracted rows still persist for
-    # the next attempt and the compiler audit. The clean path never raises here.
-    try:
-        recompile_source(paths.state_db, source_id)
-    except Exception as e:
-        db.set_source_layer_status(
-            paths.state_db, source_id, "l2", "error",
-            error=f"generation publish gate failed: {e}",
-        )
-        return CompileResult(
-            source_id=source_id,
-            atom_ids=atom_ids,
-            knowledge_unit_ids=[str(unit["id"]) for unit in units],
-            entity_ids=list(graph.entity_ids.values()),
-            prompt_trace_ids=trace_ids,
-            error=f"generation publish gate failed: {e}",
-        )
-
     db.set_source_layer_status(paths.state_db, source_id, "l2", "done")
     return CompileResult(
         source_id=source_id,
@@ -376,23 +390,77 @@ def _generation_summary(source_id: int, gen: dict) -> dict:
     }
 
 
+def _run_publish_gate(db_path: Path, source_id: int) -> None:
+    """The publish gate (§26.3): raise if the compiler audit finds any
+    structural violation that blocks publishing the served set."""
+    report = run_compiler_audit(db_path)
+    if report.publish_blocking:
+        raise RuntimeError(
+            f"compiler audit blocked publish for source {source_id}: "
+            f"{report.publish_blocking}"
+        )
+
+
+def _discard_staged_units(db_path: Path, generation_id: str) -> None:
+    """Delete a staged generation's knowledge_units + their claim_supports
+    (copy-on-stage discard, §26.3). The staged rows are distinct from the prior
+    authoritative generation's rows, so this never touches served state."""
+    with db.connect(db_path) as conn:
+        unit_ids = [
+            str(r[0]) for r in conn.execute(
+                "SELECT id FROM knowledge_units WHERE generation_id = ?",
+                (generation_id,),
+            ).fetchall()
+        ]
+        for uid in unit_ids:
+            conn.execute("DELETE FROM claim_supports WHERE knowledge_unit_id = ?", (uid,))
+        conn.execute("DELETE FROM knowledge_units WHERE generation_id = ?", (generation_id,))
+
+
+def _retire_prior_generation_units(db_path: Path, source_id: int, generation_id: str) -> None:
+    """Retire the source's active units that are NOT part of the generation being
+    published (their generation becomes 'discarded' on publish, so they leave
+    serving; retiring also drops their claim_supports — §26.3, §20.5 #3)."""
+    with db.connect(db_path) as conn:
+        prior = [
+            str(r[0]) for r in conn.execute(
+                "SELECT id FROM knowledge_units WHERE source_id = ? AND retired_at IS NULL "
+                "AND (generation_id IS NULL OR generation_id != ?)",
+                (source_id, generation_id),
+            ).fetchall()
+        ]
+    for uid in prior:
+        db.retire_knowledge_unit(db_path, uid)
+
+
+def _publish_generation(db_path: Path, source_id: int, generation_id: str, fingerprint: str) -> None:
+    """Atomically publish a staged generation: retire the source's prior-generation
+    units, then flip this generation authoritative (prior → discarded). Assumes the
+    generation's units are already attributed and the publish gate has passed."""
+    _retire_prior_generation_units(db_path, source_id, generation_id)
+    verified_ids = sorted(str(u["id"]) for u in db.list_generation_units(db_path, generation_id))
+    audit_json = json.dumps(
+        {"content_hash": fingerprint, "unit_ids": verified_ids, "unit_count": len(verified_ids)},
+        sort_keys=True,
+    )
+    db.publish_compiler_generation(db_path, generation_id, audit_json=audit_json)
+
+
 def recompile_source(
     db_path: Path, source_id: int, *, _inject_failure: str | None = None
 ) -> dict:
     """Stage, validate, and atomically publish one source's compiled claims as a
-    `GEN-` generation (SYSTEM_BEHAVIOR §26.3).
-
-    Operates on the already-extracted DB state (no LLM): it re-validates the
-    source's active units, attributes them to a staged generation, and publishes
-    only when the compiler audit finds no release-blocking violation for the
-    scope. Behavior:
+    `GEN-` generation (SYSTEM_BEHAVIOR §26.3) — the DB-level re-publish path (no
+    LLM). It re-validates the source's active units, and on a passing gate
+    attributes them to a staged generation and publishes.
 
     - Unchanged rebuild — same source `content_hash` + same prompt contract
       version — reuses the existing authoritative generation and returns the
       identical summary (no duplicate accumulation, no count amplification).
     - A failed compile (`_inject_failure`, an audit violation, or any raised
       error) discards the staged generation and re-raises; the prior
-      authoritative generation, projections, and search state are untouched.
+      authoritative generation, projections, and search state are untouched
+      (attribution happens only AFTER the gate clears — Flaw-2-safe).
 
     `_inject_failure` is a test seam that simulates a failure at the staged
     compile boundary.
@@ -423,32 +491,16 @@ def recompile_source(
             ]
         for uid in unit_ids:
             validate_claim_support(db_path, uid)
-        # Publish gate runs BEFORE any authoritative mutation. A failed audit
-        # must leave the prior authoritative generation — including each unit's
-        # generation_id attribution — completely untouched (§26.3). Only after
-        # the gate clears do we attribute the units to this generation and
-        # publish; on failure the prior served state is never overwritten.
-        report = run_compiler_audit(db_path)
-        if report.publish_blocking:
-            raise RuntimeError(
-                f"compiler audit blocked publish for source {source_id}: "
-                f"{report.publish_blocking}"
-            )
-        verified_ids = sorted(
-            str(u["id"]) for u in db.list_eligible_knowledge_units(db_path, source_id)
-        )
+        _run_publish_gate(db_path, source_id)
+        # Gate cleared → attribute the source's units to this generation and
+        # publish. (DB-level re-publish: all current active units belong here.)
         with db.connect(db_path) as conn:
             conn.execute(
                 "UPDATE knowledge_units SET generation_id = ? "
                 "WHERE source_id = ? AND retired_at IS NULL",
                 (gen_id, source_id),
             )
-        audit_json = json.dumps(
-            {"content_hash": fingerprint, "unit_ids": verified_ids,
-             "unit_count": len(verified_ids)},
-            sort_keys=True,
-        )
-        db.publish_compiler_generation(db_path, gen_id, audit_json=audit_json)
+        _publish_generation(db_path, source_id, gen_id, fingerprint)
     except Exception:
         db.discard_compiler_generation(db_path, gen_id)
         raise
@@ -553,7 +605,8 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
     with db.connect(paths.state_db) as conn:
         source_ids = [int(r["id"]) for r in conn.execute("SELECT id FROM sources").fetchall()]
     for sid in source_ids:
-        for unit in db.list_eligible_knowledge_units(paths.state_db, sid):
+        # Serving projection rebuild: only authoritative-generation units (§26.3).
+        for unit in db.list_serving_units(paths.state_db, sid):
             atom_id = unit.get("atom_node_id") or projection.new_atom_id()
             page = projection.emit_atom_markdown(unit, atom_id)
             (paths.atoms / f"{atom_id}.md").write_text(page, encoding="utf-8")

@@ -127,12 +127,16 @@ def materialize_search_documents(
                 "SELECT * FROM source_spans ORDER BY source_id, id"
             ).fetchall()
         ]
+        # Serve only authoritative-generation units (SYSTEM_BEHAVIOR §26.3):
+        # staged/discarded-generation rows are never materialized into search.
         units = [
             dict(row)
             for row in conn.execute(
-                "SELECT * FROM knowledge_units "
-                "WHERE retired_at IS NULL AND support_status = 'verified' "
-                "ORDER BY source_id, id"
+                "SELECT ku.* FROM knowledge_units ku "
+                "JOIN compiler_generations g ON g.id = ku.generation_id "
+                "WHERE ku.retired_at IS NULL AND ku.support_status = 'verified' "
+                "AND g.status = 'authoritative' "
+                "ORDER BY ku.source_id, ku.id"
             ).fetchall()
         ]
         entities = [
