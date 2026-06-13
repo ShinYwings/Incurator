@@ -30,8 +30,18 @@ from . import (
     source_spans,
     synthesis,
 )
+from .claim_support import (
+    AuditReport,
+    reconcile_source,
+    run_compiler_audit,
+    validate_claim_support,
+)
 
-__all__ = ["CompileResult", "compile_source_l2", "compile_global_l3", "reemit_projections"]
+__all__ = [
+    "CompileResult", "compile_source_l2", "compile_global_l3", "reemit_projections",
+    # Plan B (v0.8.0) claim-support validation surface (SYSTEM_BEHAVIOR §26).
+    "AuditReport", "validate_claim_support", "run_compiler_audit", "reconcile_source",
+]
 
 
 @dataclass

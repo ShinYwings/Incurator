@@ -59,16 +59,31 @@ Integrity release (target v0.8.0).
   fingerprint re-armed to HEAD (user-approved; metric provably unaffected,
   additive change). Full suite 750 passed, 21 xfailed; ruff src/ clean; 0 new
   mypy errors.
-- [ ] P4 — Claim extraction, minimal support, and stable reconciliation. Turns
-  the support-validation / wrong-real-span / reconciliation behavior oracles
-  green (`test_oracle_minimal_support_*`, `_wrong_real_span_marked_failed`,
-  `_source_delete_retires_dependent_claim`).
+- [~] P4 — Claim extraction, minimal support, and stable reconciliation.
+  CORE DONE: `pipeline/claim_support.py` — deterministic structural gate
+  (verified|failed|uncertain trichotomy per §26.1), LaTeX token-multiset formula
+  check (reorder-tolerant, operator/sign-sensitive), `normalize_claim`/
+  `semantic_hash`, `run_compiler_audit` (freshness + unsupported), and
+  `reconcile_source` (retire on deleted cited span). Exposed via
+  `pipeline/compile.py`. Un-xfailed 5 behavior oracles (minimal-support,
+  wrong-real-span F6, edited-span-stale, source-delete-retire, audit-flags-
+  unsupported); added `tests/test_plan_b_support.py` (12 unit tests incl. the
+  `a^2+b^2` vs `a^2-b^2` multiset proof). Suite 768 passed, 16 xfailed; ruff
+  src/ clean; 0 new mypy.
+  REMAINING P4: (1) wire `validate_claim_support` into `compile_source_l2`
+  (populate `claim_supports` + set support_status on real compiles, passing full
+  span text); (2) enforce downstream eligibility (exclude retired/unverified
+  from graph/synthesis input) — verify it doesn't starve existing compile/graph
+  tests; (3) version the knowledge-unit prompt contract to DECLARE minimal
+  support roles + formula centrality; (4) extend reconciliation to changed/split
+  (semantic_hash candidate matching), not just delete.
 
 ## Verification
 
-- `uv run --directory backend pytest -q` → 750 passed, 21 xfailed (P3; 5 schema
-  oracles un-xfailed → passing, +13 new P3 migration/helper tests; the 11 Plan B
-  behavior oracles + 10 Program 1 strict-xfail oracles remain xfail).
+- `uv run --directory backend pytest -q` → 768 passed, 16 xfailed (P4 core; 5
+  more behavior oracles un-xfailed → passing, +12 new support unit tests; the 6
+  remaining Plan B P5/P6 oracles + 10 Program 1 strict-xfail oracles remain
+  xfail).
 - `uv run --directory backend ruff check src/` → clean. (`ruff check tests/`
   shows 6 PRE-EXISTING errors in test_cli_update/test_migrate/test_plugin_cli/
   test_db_sync imports — outside CI scope and outside Plan B's changes.)
@@ -107,15 +122,17 @@ above threshold (zero overlap → `failed`, the F6 gate). Validate on hydrated
 FULL span text, never the preview. Do NOT lookup the gold YAML at runtime
 (overfitting ban); it is the test-time release oracle only.
 
-Begin P4 — Claim extraction, minimal support, and stable reconciliation:
-version the knowledge-unit prompt contract for minimal support + formula
-centrality, implement deterministic claim normalization/`semantic_hash`, the
-structural support validator above (populating `claim_supports` + setting unit
-`support_status`/`formula_status`), and source edit/delete/split reconciliation
-that retires stale units. Turn green (un-xfail in the same change):
-`test_oracle_minimal_support_yields_verified_primary_row` (SUP01),
-`_wrong_real_span_marked_failed` (SUP03),
-`_source_delete_retires_dependent_claim` (REC03), and — via a
-`run_compiler_audit` entry point wiring P3's `refresh_support_freshness` —
-`_edited_span_marks_support_stale`. Wrong-real-span (F6) is release-blocking:
-0 accepted on gold.
+Continue P4 — the deterministic validator CORE is done and committed
+(`pipeline/claim_support.py`, 5 oracles green). Remaining P4 increments, in
+order: (1) wire `validate_claim_support` into `compile_source_l2` after
+extraction — pass full span text from `span_inputs`, populate `claim_supports`,
+set `support_status`/`formula_status`/`semantic_hash` on each unit; (2) enforce
+the §20.1 eligibility rule on downstream stages (graph/synthesis read only
+`retired_at IS NULL AND support_status='verified'` units) — FIRST confirm the
+fake-LLM compile/graph/synthesis tests still pass (their claims must lexically
+support their spans; `test_compile_pipeline`'s do); (3) version the
+`curator.knowledge_unit_extract` prompt contract to DECLARE minimal support
+roles + formula centrality (the model proposes, the deterministic gate
+disposes); (4) extend reconciliation to changed/split via `semantic_hash`
+candidate matching. Then P5 (selective formula recovery; the `uncertain`
+formula verdicts from P4 are its input queue).

@@ -298,12 +298,7 @@ def _seed_gold_claim(paths: cfg.WikiPaths, case_id: str) -> tuple[str, dict]:
     return unit_id, case
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SYSTEM_BEHAVIOR §26.1: minimal-support validation not implemented; "
-    "Plan B P4.",
-)
-def test_oracle_minimal_support_yields_verified_primary_row(vault) -> None:
+def test_minimal_support_yields_verified_primary_row(vault) -> None:
     unit_id, _ = _seed_gold_claim(vault, "SUP01")
     validate = _resolve("validate_claim_support", "validate_support", "compile_claim_support")
     assert validate is not None, "support validation API not implemented"
@@ -322,12 +317,7 @@ def test_oracle_minimal_support_yields_verified_primary_row(vault) -> None:
     assert unit_status == "verified"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SYSTEM_BEHAVIOR §26.1 / F6: wrong-real-span citations must be rejected, "
-    "not accepted on a valid id alone; Plan B P4.",
-)
-def test_oracle_wrong_real_span_marked_failed(vault) -> None:
+def test_wrong_real_span_marked_failed(vault) -> None:
     unit_id, case = _seed_gold_claim(vault, "SUP03")
     validate = _resolve("validate_claim_support", "validate_support", "compile_claim_support")
     assert validate is not None, "support validation API not implemented"
@@ -341,12 +331,7 @@ def test_oracle_wrong_real_span_marked_failed(vault) -> None:
     assert case["expected_reason_contains"] in (row["support_reason"] or "")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SYSTEM_BEHAVIOR §26.1: evidence-hash freshness re-check / stale marking "
-    "not implemented; Plan B P3/P4.",
-)
-def test_oracle_edited_span_marks_support_stale(vault) -> None:
+def test_edited_span_marks_support_stale(vault) -> None:
     unit_id, _ = _seed_gold_claim(vault, "SUP01")
     validate = _resolve("validate_claim_support", "validate_support", "compile_claim_support")
     audit = _resolve("compiler_audit", "run_compiler_audit", "audit_claim_supports")
@@ -464,12 +449,7 @@ def test_oracle_failed_compile_leaves_no_partial_publish(vault) -> None:
     assert authoritative == 0  # nothing published
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SYSTEM_BEHAVIOR §26.4: source edit/delete reconciliation + dependency "
-    "closure not implemented; Plan B P4.",
-)
-def test_oracle_source_delete_retires_dependent_claim(vault) -> None:
+def test_source_delete_retires_dependent_claim(vault) -> None:
     rec03 = next(c for c in GOLD["reconciliation_cases"] if c["id"] == "REC03")
     unit_id, _ = _seed_gold_claim(vault, rec03["claims"][0])
     reconcile = _resolve("reconcile_source", "reconcile_source_change", "invalidate_closure")
@@ -491,12 +471,7 @@ def test_oracle_source_delete_retires_dependent_claim(vault) -> None:
 # claim (SUP03) as an unsupported finding.
 # ===========================================================================
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SCHEMA §20.5 / SYSTEM_BEHAVIOR §26.5: read-only compiler audit traversing "
-    "active claims to exact support not implemented; Plan B P6.",
-)
-def test_oracle_compiler_audit_flags_unsupported_active_claim(vault) -> None:
+def test_compiler_audit_flags_unsupported_active_claim(vault) -> None:
     # Plant the F6 anti-pattern: an active claim citing a real-but-unrelated span.
     unit_id, _ = _seed_gold_claim(vault, "SUP03")
     audit = _resolve("compiler_audit", "run_compiler_audit", "audit_compiler_integrity")

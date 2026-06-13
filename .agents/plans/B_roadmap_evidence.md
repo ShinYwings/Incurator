@@ -359,3 +359,40 @@ on lossy sources it degrades to `uncertain` (never a wrong verify). The
 source-fidelity gap (L1 span vs original paper) is closed by P5, now explicitly
 extended to cover the `fragmented`/garbled-but-present case and the P4→P5
 `uncertain` routing (plan P5, SCHEMA §20.4, SYSTEM_BEHAVIOR §26.2 updated).
+
+## P4 — Claim Support Validation Core (Completed; integration remaining)
+
+`backend/src/curator/pipeline/claim_support.py` implements the §26.1 structural
+gate deterministically (no LLM, no gold-fixture lookup):
+
+- `_formula_multiset`: normalized symbol/operator token multiset over inline
+  `$...$` and display `$$...$$` LaTeX. Reorder-tolerant (`c^2=a^2+b^2` ≡
+  `a^2+b^2=c^2`), operator/operand-sensitive (`a^2-b^2` and `a^2+b^2=d^2`
+  differ), spacing/brace-insensitive (`\delta\, x^{T}` ≡ `\delta x^T`). Proven
+  by `test_formula_multiset_*`.
+- `_content_terms` (LaTeX stripped, len≥3, stopwords removed) +
+  `_term_coverage`; `normalize_claim` / `semantic_hash` (deterministic
+  reconciliation fingerprint).
+- `validate_claim_support` trichotomy: `failed` (coverage < 0.25 → F6
+  wrong-real-span, reason contains "does not minimally support"), `uncertain`
+  (right topic but formula absent/altered → `formula_status='uncertain'`,
+  routed to P5; or ambiguous text → model), `verified` (coverage ≥ 0.5 → primary
+  support on the best span, contextual on the rest, `formula_status=
+  'preserved_in_text'` when the formula matches). Writes `claim_supports` +
+  sets unit `support_status`/`formula_status`/`semantic_hash`.
+- `run_compiler_audit` (read-only: freshness re-check via P3
+  `refresh_support_freshness` + active-unverified reporting) and
+  `reconcile_source` (retire active units whose cited spans were deleted).
+- Exposed via `pipeline/compile.py` so the oracle resolver finds them.
+
+Un-xfailed 5 behavior oracles (minimal-support, wrong-real-span, edited-span-
+stale, source-delete-retire, audit-flags-unsupported). Added
+`tests/test_plan_b_support.py` (12 unit tests). Full suite 768 passed, 16
+xfailed; ruff src/ clean; mypy 73 (0 new). The 6 remaining Plan B oracles are
+P5 (central-formula preserved/recovery) and P6 (F10 hydration, staged publish,
+wiki lint surface).
+
+REMAINING P4 (next increments, tracked in RELAY): compile-pipeline wiring +
+downstream eligibility enforcement + prompt-contract role declaration + changed/
+split reconciliation. The validator is intentionally landed and tested in
+isolation first to de-risk the compile integration.
