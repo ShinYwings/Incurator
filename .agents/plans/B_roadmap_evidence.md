@@ -188,3 +188,102 @@ uv run --directory backend pytest -q
 
 Expected red→green gate confirmed: new behavior oracles fail (xfail) for the
 intended reasons; unchanged legacy tests remain green.
+
+## P3 — Additive Schema And Support Lifecycle (Completed)
+
+User approval at the Mandatory Stop authorized application code; P3 ships the
+v8 additive migration and the SCHEMA §20 DB lifecycle helpers. No version bump
+(P10).
+
+### Implementation
+
+- `backend/src/curator/db.py`: `SCHEMA_VERSION` 7 → 8. `SCHEMA_SQL` gains the
+  `knowledge_units` §20.1 additive columns (`semantic_hash`, `support_status`
+  default `unchecked`, `support_reason`, `formula_status` default
+  `not_applicable`, `retired_at`, `generation_id`), the `claim_supports` (§20.2)
+  and `compiler_generations` (§20.3) tables + indexes, and the extended
+  `deleted_records` CHECK (admits the two new canonical tables). New
+  `_migrate_v8_compiler_integrity()` upgrades existing v7 DBs idempotently:
+  `_add_column_if_missing` backfills every legacy `knowledge_units` row as
+  `support_status='unchecked'` / `formula_status='not_applicable'` (nothing
+  silently verified), `CREATE TABLE IF NOT EXISTS` adds the two tables, and the
+  `deleted_records` CHECK is rebuilt (table-swap) when it predates Plan B.
+- Lifecycle helpers (storage mechanics only; validation logic is P4-P6):
+  `upsert_claim_support`, `list_claim_supports`, `set_unit_support_status`
+  (rejects empty reason for failed/stale), `set_unit_formula_status`,
+  `retire_knowledge_unit`, `list_eligible_knowledge_units` (retired_at IS NULL
+  AND support_status='verified' — the §20.1 eligibility rule; excludes legacy
+  `unchecked`), `refresh_support_freshness` (§26.1 evidence-hash re-check →
+  stale), `create_compiler_generation` / `get_authoritative_generation` /
+  `publish_compiler_generation` (enforces one authoritative per source scope) /
+  `discard_compiler_generation`.
+- `backend/src/curator/db_sync.py`: `claim_supports` (composite PK, always-upsert)
+  and `compiler_generations` (PK `id`, always-upsert — no `updated_at` column)
+  added to `SYNC_TABLES`, `_UPDATED_AT_COL`, `_PK_COL`, so both are canonical
+  synced tables with tombstone support (SCHEMA §20.2/§20.3).
+
+### Real upgrade bug caught by the migration test
+
+The two new `knowledge_units` indexes were initially placed in `SCHEMA_SQL` as
+bare `CREATE INDEX` statements. On a pre-existing v7 DB, `executescript(SCHEMA_SQL)`
+runs BEFORE `_apply_migrations`, and `CREATE TABLE IF NOT EXISTS knowledge_units`
+does not add columns to the existing table — so indexing `support_status`/
+`generation_id` failed with "no such column" on every real v7→v8 upgrade. Fixed
+at the root: the support/generation indexes are created only in
+`_apply_migrations` (after the columns are added), valid for both fresh and
+migrated DBs.
+
+### Oracle status changes (red → green, deliberate un-xfail)
+
+The five §20.1-§20.3/§20.6 SCHEMA oracles XPASS under the migration and were
+converted from `xfail(strict)` oracles to live `test_v8_*` regression tests in
+`tests/test_plan_b_compiler.py`. The 11 behavior oracles (support validation,
+formula lifecycle, audit, reconciliation, atomic publish) correctly remain
+xfail — they are P4-P6 targets.
+
+### New P3 tests
+
+`backend/tests/test_plan_b_migration.py` — §26.6 acceptance criteria on a
+synthetic v7 DB (CI-safe; the real backup rehearsal is a P7/manual step):
+additive upgrade + conservative backfill, idempotent re-migration, deterministic
+schema fingerprint, fresh-vs-migrated column-set equivalence, export/import
+round-trip of the new tables, backup/restore integrity; plus unit tests for
+every lifecycle helper (claim-support upsert/list/enum-guards, eligibility
+exclusion of unchecked/retired, freshness→stale, generation publish/discard
+invariants).
+
+### Version-pinned test updates (consequence of the SCHEMA_VERSION bump)
+
+- `tests/test_db_schema.py::test_schema_version_is_7` → `_is_8`.
+- `tests/test_db_sync.py::test_schema_version_bumped_to_7` → `_8`; export header
+  assertion 7 → 8.
+- `docs/specs/curator_schema/SCHEMA.md` §11 header + version-history extended to
+  `SCHEMA_VERSION = 8`.
+- The `test_failure_atlas_d2.py` frozen-holdout values (`db_schema_version: 7`,
+  `package_version: 0.7.0`) are HISTORICAL records of the D2 run and are NOT
+  tied to `db.SCHEMA_VERSION`; left unchanged. `test_research_spikes_wave_b.py`'s
+  inline `schema_version 7` is arbitrary read-only fixture data; left unchanged.
+
+### D2 holdout drift fingerprint re-armed (USER-APPROVED governance call)
+
+The D2 holdout test pins `backend/src/curator/db.py` by SHA-256. Plan B's
+additive v8 change necessarily alters that hash; the single-consumption harness
+(`run_count=3`, max) cannot regenerate the result. The user chose **re-arm the
+fingerprint to HEAD**: `docs/specs/failure_atlas/D2_HOLDOUT_RESULT.yml`'s
+`evaluated_code.file_sha256[db.py]` updated to the new hash, with an inline
+`plan_b_rearm` provenance note recording the prior hash and the rationale (the
+change touches no retrieval/ranking/projection/`materialize_chunks` path the
+lexical FTS5/BM25 holdout exercises, so the frozen Q06 metric is provably
+unaffected; git history + `git_sha` preserve the original provenance).
+
+### Verification
+
+```
+uv run --directory backend pytest tests/test_plan_b_migration.py \
+  tests/test_plan_b_compiler.py -q  → 27 passed, 11 xfailed
+uv run --directory backend pytest -q  → full suite green (see RELAY)
+uv run --directory backend ruff check src/ tests/  → clean
+uv run --directory backend mypy src/  → 73 pre-existing errors, 0 introduced by
+  P3 (verified by stash-compare: identical count with and without the db.py /
+  db_sync.py changes)
+```

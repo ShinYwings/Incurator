@@ -44,10 +44,10 @@ def populated_db(db_path: Path) -> Path:
 
 
 class TestSchemaVersion:
-    def test_schema_version_bumped_to_7(self, db_path: Path) -> None:
+    def test_schema_version_bumped_to_8(self, db_path: Path) -> None:
         with db.connect(db_path) as conn:
             version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 7
+        assert version == 8
 
     def test_deleted_records_table_exists(self, db_path: Path) -> None:
         with db.connect(db_path) as conn:
@@ -95,7 +95,7 @@ class TestExport:
         with out.open() as f:
             header = json.loads(f.readline())
         assert header["type"] == "header"
-        assert header["schema_version"] == 7
+        assert header["schema_version"] == 8
         assert "exported_at" in header
 
     def test_export_excludes_device_tables(self, populated_db: Path, tmp_path: Path) -> None:

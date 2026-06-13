@@ -187,26 +187,18 @@ def test_gold_unchanged_rebuild_case_expects_zero_regeneration() -> None:
 
 
 # ===========================================================================
-# Schema oracles (xfail strict until the v8 additive migration ships, P3).
-# Names are frozen by SCHEMA §20, so these are the reliable XPASS triggers.
+# v8 schema regression (the additive migration shipped at P3 — these flipped
+# from xfail oracles to live green tests, SCHEMA §20.1-§20.3 / §20.6). Names are
+# frozen by SCHEMA §20.
 # ===========================================================================
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SCHEMA §20.6: v8 additive migration not implemented (SCHEMA_VERSION=7); "
-    "Plan B P3.",
-)
-def test_oracle_schema_version_is_8(vault) -> None:
+def test_v8_schema_version_is_8(vault) -> None:
     with db.connect(vault.state_db) as conn:
         version = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()[0]
     assert version == 8
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SCHEMA §20.2: claim_supports table not implemented; Plan B P3.",
-)
-def test_oracle_claim_supports_table_and_columns(vault) -> None:
+def test_v8_claim_supports_table_and_columns(vault) -> None:
     with db.connect(vault.state_db) as conn:
         cols = {
             row[1]
@@ -219,11 +211,7 @@ def test_oracle_claim_supports_table_and_columns(vault) -> None:
     } <= cols
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SCHEMA §20.3: compiler_generations table not implemented; Plan B P3.",
-)
-def test_oracle_compiler_generations_table_and_columns(vault) -> None:
+def test_v8_compiler_generations_table_and_columns(vault) -> None:
     with db.connect(vault.state_db) as conn:
         cols = {
             row[1]
@@ -235,12 +223,7 @@ def test_oracle_compiler_generations_table_and_columns(vault) -> None:
     } <= cols
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SCHEMA §20.1: knowledge_units additive support/formula columns not "
-    "implemented; Plan B P3.",
-)
-def test_oracle_knowledge_units_has_additive_columns(vault) -> None:
+def test_v8_knowledge_units_has_additive_columns(vault) -> None:
     with db.connect(vault.state_db) as conn:
         cols = {
             row[1]
@@ -252,12 +235,7 @@ def test_oracle_knowledge_units_has_additive_columns(vault) -> None:
     } <= cols
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SCHEMA §20.6: migration backfills legacy units as unchecked; not "
-    "implemented; Plan B P3.",
-)
-def test_oracle_migration_backfills_units_as_unchecked(vault) -> None:
+def test_v8_migration_backfills_units_as_unchecked(vault) -> None:
     # A unit created on a migrated DB must read the conservative backfill state:
     # nothing is silently verified.
     unit_id = db.upsert_knowledge_unit(

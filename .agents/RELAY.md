@@ -47,19 +47,36 @@ Integrity release (target v0.8.0).
   human-labeled gold) and `backend/tests/test_plan_b_compiler.py` (9 gold
   structural PASS + 16 `xfail(strict)` schema/support/formula/audit oracles).
   Full suite 732 passed, 26 xfailed; ruff clean. No application code yet.
-- [ ] P3 — Additive schema and support lifecycle (v8 migration: `claim_supports`,
-  `compiler_generations`, `knowledge_units` additive columns; backfill legacy
-  rows `unchecked`). Turns the §20.1-§20.3/§20.6 schema oracles green first.
+- [x] P3 — Additive schema and support lifecycle. `db.py` SCHEMA_VERSION 7→8:
+  `claim_supports` (§20.2), `compiler_generations` (§20.3), `knowledge_units`
+  §20.1 columns (backfill legacy rows `unchecked`/`not_applicable`), tombstone
+  CHECK rebuild, and `db_sync` inclusion of both new canonical tables. Added DB
+  lifecycle helpers (support upsert/list, support/formula status, retire,
+  eligibility, evidence-hash freshness, generation create/publish/discard).
+  The 5 §20.1-§20.3/§20.6 SCHEMA oracles flipped to live `test_v8_*` tests; the
+  11 behavior oracles correctly stay xfail (P4-P6). Caught + root-fixed a real
+  v7→v8 upgrade bug (index on a column not yet added). D2 holdout db.py drift
+  fingerprint re-armed to HEAD (user-approved; metric provably unaffected,
+  additive change). Full suite 750 passed, 21 xfailed; ruff src/ clean; 0 new
+  mypy errors.
+- [ ] P4 — Claim extraction, minimal support, and stable reconciliation. Turns
+  the support-validation / wrong-real-span / reconciliation behavior oracles
+  green (`test_oracle_minimal_support_*`, `_wrong_real_span_marked_failed`,
+  `_source_delete_retires_dependent_claim`).
 
 ## Verification
 
-- `uv run --directory backend pytest -q` → 732 passed, 26 xfailed (P2; baseline
-  723/10 + 9 gold passes + 16 new Plan B oracles; all 10 Program 1 strict-xfail
-  oracles preserved).
-- `uv run --directory backend ruff check src/ tests/test_plan_b_compiler.py` → clean.
+- `uv run --directory backend pytest -q` → 750 passed, 21 xfailed (P3; 5 schema
+  oracles un-xfailed → passing, +13 new P3 migration/helper tests; the 11 Plan B
+  behavior oracles + 10 Program 1 strict-xfail oracles remain xfail).
+- `uv run --directory backend ruff check src/` → clean. (`ruff check tests/`
+  shows 6 PRE-EXISTING errors in test_cli_update/test_migrate/test_plugin_cli/
+  test_db_sync imports — outside CI scope and outside Plan B's changes.)
+- `uv run --directory backend mypy src/` → 73 pre-existing errors, 0 introduced
+  by P3 (verified by stash-compare on db.py/db_sync.py).
 - `VAULT_ROOT=$REPO/testbed wiki status` → gaussian_splatting testbed healthy
   (3 sources, L1 done, L2-L4 pending; pre-existing "vault schema v0 → v1"
-  warning predates Plan B).
+  warning predates Plan B). Testbed DB migration to v8 happens at P7.
 
 ## Critical Context And Blockers
 
@@ -79,12 +96,16 @@ Integrity release (target v0.8.0).
 
 ## Immediate Next Action
 
-Executors: P1 approved and P2 (red TDD state) committed. Begin P3 — implement
-the v8 additive migration in `db.py` (`claim_supports`, `compiler_generations`,
-`knowledge_units` additive columns; `deleted_records` tombstone CHECK + export
-extension), backfilling every legacy `knowledge_units` row as
-`support_status='unchecked'`, `formula_status='not_applicable'`,
-`generation_id=NULL`. Drive the §20.1-§20.3/§20.6 schema oracles in
-`tests/test_plan_b_compiler.py` green (un-xfail them in the same change) and
-rehearse the migration on `.agents/backups/b-pre-implementation-state.sqlite`
-per SYSTEM_BEHAVIOR §26.6 before touching the live testbed DB.
+Executors: P3 (v8 additive schema + lifecycle helpers) committed; suite green.
+Begin P4 — Claim extraction, minimal support, and stable reconciliation:
+version the knowledge-unit prompt contract for minimal support + formula
+centrality, implement deterministic claim normalization/`semantic_hash`,
+support validation (deterministic gold checks primary, calibrated model
+secondary with `PTR-` trace), and source edit/delete/split reconciliation that
+retires stale units. Turn the behavior oracles
+`test_oracle_minimal_support_yields_verified_primary_row`,
+`_wrong_real_span_marked_failed`, `_edited_span_marks_support_stale`, and
+`_source_delete_retires_dependent_claim` green (un-xfail in the same change),
+driving the gold cases SUP01-SUP04 + REC01-REC04 in
+`plan_b_compiler_gold.yml`. Wrong-real-span (F6) is a release-blocking gate:
+0 accepted on gold.

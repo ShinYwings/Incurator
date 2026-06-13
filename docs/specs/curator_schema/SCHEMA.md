@@ -643,12 +643,14 @@ on emitted markdown:
   in the same backend write path. Projection re-emission is an Obsidian
   convenience step, not a retrieval prerequisite.
 
-## 11. SQLite State Schema (`SCHEMA_VERSION = 7`)
+## 11. SQLite State Schema (`SCHEMA_VERSION = 8`)
 
-v0.4.0 sets `db.SCHEMA_VERSION` to `7`. The v0.3.2 tables remain in use.
-v0.4.0 adds the cross-device sync tombstone table (`deleted_records`, §11.17)
-and the `wiki db export/import` pipeline. All ids use typed string prefixes so
-they are self-describing in traces and frontmatter.
+v0.4.0 set `db.SCHEMA_VERSION` to `7`; v0.8.0 (Plan B) bumps it to `8`. The
+v0.3.2 tables remain in use. v0.4.0 added the cross-device sync tombstone table
+(`deleted_records`, §11.17) and the `wiki db export/import` pipeline. v0.8.0
+adds the claim-level support / formula-lifecycle / compiler-generation schema
+(§20), strictly additive over v7. All ids use typed string prefixes so they are
+self-describing in traces and frontmatter.
 
 > **Version history.** `SCHEMA_VERSION = 4` introduced the v0.3.1 curation-native
 > tables. `SCHEMA_VERSION = 5` adds the shared L4 `synthesis_nodes` table (§11.11)
@@ -658,6 +660,12 @@ they are self-describing in traces and frontmatter.
 > chunk embeddings, search index metadata, and durable query traces (§11.12-§11.16).
 > `SCHEMA_VERSION = 7` adds `deleted_records` tombstone table for cross-device
 > knowledge synchronization (§11.17).
+> `SCHEMA_VERSION = 8` adds the Plan B Evidence Compiler Integrity schema —
+> `claim_supports`, `compiler_generations`, and the `knowledge_units`
+> support/formula/generation columns (§20). Forward-only and additive: the
+> support/generation indexes are created in `_apply_migrations` (after the
+> columns exist) so a pre-existing v7 `knowledge_units` table upgrades cleanly,
+> and `deleted_records`'s CHECK list is rebuilt to admit the two new tables.
 
 | Record | Id prefix | Purpose |
 | --- | --- | --- |
