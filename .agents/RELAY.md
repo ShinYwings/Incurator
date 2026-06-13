@@ -141,22 +141,42 @@ Integrity release (target v0.8.0).
     no ranking path, metric provably unaffected).
   - **P6d** — `lint.compiler_integrity` + `run_lint` wiring + non-zero exit on
     release-blocking findings; CLI summary gains a Compiler Integrity line.
+- [x] **P6 review** (commits `56c76aa`, `171ea38`): Flaw 1 rejected (false
+  positive — validate already precedes reconcile); Flaw 2 fixed (defer
+  `generation_id` to after the publish gate — §26.3); Flaw 4 fixed (chunk bulk
+  `IN (…)` under SQLITE_MAX_VARIABLE_NUMBER); Flaw 3 (§26.3 read-visibility gap)
+  routed to plan-first → **Plan B2**.
+- [x] **Plan B2 — Compiler Staging/Authoritative Row Separation** (commits
+  `b0dad45`, `aa9cebc`, B2-P1 docs, `b7942ab`, `890468c`). Enforces §26.3:
+  visibility gated at write/materialization time. A 2nd plan review corrected
+  three fatal flaws (PK paradox → publish-time reconcile; graph leak → graph
+  upsert after the gate; zero-unit guard removed). **All 6 B2 oracles green.**
+  - **B2-P3** — `list_serving_units` (authoritative ∧ verified ∧ not-retired) /
+    `list_generation_units`; one-time `GEN-mig-<source_id>` backfill of legacy
+    NULL-generation units in `init_db` (data-only, no SCHEMA_VERSION bump).
+  - **B2-P4** — `compile_source_l2` copy-on-stage: stage extracted units in a
+    fresh generation, validate + gate before any served write, then publish
+    atomically (retire prior-gen units, flip authoritative) and emit ATM + graph
+    + search ONLY from the authoritative served set; a failed gate/error discards
+    the staged units with the prior generation untouched (no orphan graph).
+    `materializer` + `reemit_projections` read `list_serving_units`. Graph stays
+    span-based (generation-scoping it is Plan C, per user direction).
 
 ## Verification
 
-- `uv run --directory backend pytest -q` → **808 passed, 8 xfailed** (was
-  794/14; +6 un-xfailed oracles now green + 8 new regression tests). The 8
-  remaining xfails are Program-1 F6/F8/F9 (→ Plan C) and F3/F4/F5/F11/F12 (→
-  Program 3). **Zero Plan B xfails remain.**
-- `uv run --directory backend ruff check src/` → clean. (`ruff check tests/`
-  shows 6 PRE-EXISTING errors in test_cli_update/test_migrate/test_plugin_cli/
-  test_db_sync imports — outside CI scope and outside Plan B's changes.)
+- `uv run --directory backend pytest -q` → **817 passed, 8 xfailed** (P6 +
+  P6-review + Plan B2 complete). The 8 remaining xfails are Program-1 F6/F8/F9
+  (→ Plan C) and F3/F4/F5/F11/F12 (→ Program 3). **Zero Plan B / B2 xfails
+  remain.**
+- `uv run --directory backend ruff check src/` → clean.
 - `uv run --directory backend mypy src/` → 72 pre-existing errors, 0 introduced
-  by P6 (lint.py / compile.py / claim_support.py clean; the cli.py errors
-  predate Plan B).
+  (compile.py / claim_support.py / db.py / materializer.py / lint.py clean; the
+  cli.py errors predate Plan B).
 - `VAULT_ROOT=$REPO/testbed wiki status` → gaussian_splatting testbed healthy
   (3 sources, L1 done, L2-L4 pending; pre-existing "vault schema v0 → v1"
-  warning predates Plan B). Testbed DB migration to v8 happens at P7.
+  warning predates Plan B). `wiki lint` → Compiler Integrity clean, exit 0.
+- `npx vitest run` (plugin) → 44 files, 361 tests passed (no plugin change).
+- Testbed DB migration to v8 + provider-backed extraction happen at P7.
 
 ## Critical Context And Blockers
 
@@ -176,9 +196,13 @@ Integrity release (target v0.8.0).
 
 ## Immediate Next Action
 
-**P0–P6 are complete and committed; the full backend suite is green (808
-passed, 8 xfailed) and all Plan B oracles pass.** The remaining xfails are
-Plan-C (F6/F8/F9) and Program-3 (F3/F4/F5/F11/F12) targets, not Plan B's.
+**P0–P6, the P6 review, and Plan B2 (compiler staging/authoritative row
+separation) are all complete and committed; the full backend suite is green
+(817 passed, 8 xfailed), ruff clean, 0 introduced mypy, testbed `wiki
+status|lint` clean, plugin vitest green.** The remaining xfails are Plan-C
+(F6/F8/F9) and Program-3 (F3/F4/F5/F11/F12) targets, not Plan B's. B2 folds into
+the v0.8.0 release; its plan file `.agents/plans/B2_compiler_staging_separation.md`
+is deleted at the P10 workflow step alongside the Plan B plan.
 
 **Next: P7 — Current Testbed And End-To-End Compiler Audit.** Run
 `VAULT_ROOT=$REPO/testbed wiki status|add|update|lint` against the confirmed
@@ -202,94 +226,9 @@ above threshold (zero overlap → `failed`, the F6 gate). Validate on hydrated
 FULL span text, never the preview. Do NOT lookup the gold YAML at runtime
 (overfitting ban); it is the test-time release oracle only.
 
-### Update (2026-06-13, PM Review — RESOLVED)
+### Update (2026-06-13)
 
-The PM review queued 4 control-flow fixes + Finding A (TOCTOU) + Finding B
-(regression tests). Each was verified against `SYSTEM_BEHAVIOR §26.1/§26.2`
-and the gold oracle before coding. User direction: **"Fix 3 only + reject
-Fix 4."** Resolution (full rationale + spec citations in
-`B_roadmap_evidence.md`):
+The `B2_compiler_staging_separation.md` plan (addressing Flaw 3) is structurally sound and mathematically safe. 
 
-- **Finding A — committed** (single-transaction metadata RMW, deferred status
-  updates, `preserve_formula`, ambiguous-branch `formula_status`).
-- **Fix 3 — applied.** Multi-span recovery now re-hydrates every `reviewed`
-  recovery across all cited spans before re-validation (§26.2). Regression
-  test added (was red, now green).
-- **Fix 4 — rejected (spec violation).** It would route the F6 wrong-real-span
-  case to P5 instead of `failed`; §26.1 makes F6 a release-blocking gate that
-  "must not be routed to P5 recovery." Spec-correct behavior pinned by a new
-  test. The legitimate P5 route (right topic + bad formula → `uncertain`)
-  already works via the existing branch order.
-- **Fixes 1 & 2 — not applied.** Fix 1 is behavior-neutral (loss verdict is
-  metadata-only); Fix 2 loosens §26.2's "exactly match" gate beyond spec and
-  the current exact-token equality fails safe.
-
-Historical note — the PM review's original directive text (kept for the record):
-
-> **PRIORITY: 4 PM-verified structural flaws in P5/P4 code must be fixed BEFORE P6 work begins.** All 4 are control-flow ordering bugs that cause permanent misclassification under edge permutations not covered by the current test suite.
-
-**Fix 1: Premature Fragmentation Classification** — `pipeline/formula_recovery.py`, `classify_formula_loss`, lines 58-63.
-Move the `parser_omitted` check before the `extracted_formulas` truthiness check:
-```python
-    if _contains_formula(raw_text, expected) or _contains_formula(parser_text, expected):
-        return "parser_omitted"
-    if extracted_formulas or parser_formulas or raw_formulas:
-        return "fragmented"
-```
-
-**Fix 2: Exact Match Rejection** — `pipeline/formula_recovery.py`, `recover_formula`, line 135.
-Replace exact tuple equality with sub-formula matching:
-```python
-    structurally_matches_claim = any(
-        _is_formula_subsequence(claim_formula, recovered_tokens)
-        for claim_formula in claim_formulas
-    )
-```
-
-**Fix 3: Isolated Validation Context** — `pipeline/formula_recovery.py`, `recover_formula`, lines 182-184.
-Re-hydrate all previously reviewed recoveries from all cited span metadata before calling `validate_claim_support`:
-```python
-    assert raw_span_texts is not None
-    augmented_span_texts = dict(raw_span_texts)
-    with db.connect(db_path) as conn:
-        for cid in cited_span_ids:
-            c_span = conn.execute("SELECT metadata FROM source_spans WHERE id = ?", (cid,)).fetchone()
-            c_meta = json.loads(c_span["metadata"] or "{}") if c_span else {}
-            for rec in c_meta.get("formula_recovery", []):
-                if rec.get("status") == "reviewed" and rec.get("latex"):
-                    augmented_span_texts[cid] = f"{augmented_span_texts[cid]}\n${rec['latex']}$"
-    augmented_span_texts[span_id] = f"{augmented_span_texts[span_id]}\n${latex}$"
-```
-
-**Fix 4: Premature Support Failure** — `pipeline/claim_support.py`, `validate_claim_support`, lines 281-294.
-Swap the two `elif` blocks so formula structural checks take precedence over text overlap when formulas are present:
-```python
-    elif has_formula and not formula_ok:
-        verdict = "uncertain"
-        reason = "central formula not structurally present in the cited span (possible parse loss or alteration)"
-        formula_status = "uncertain"
-    elif claim_terms and max_cov < _SUPPORT_FAIL:
-        verdict = "failed"
-        reason = "the cited span does not minimally support the claim (no salient term overlap)"
-        formula_status = (
-            "preserved_in_text"
-            if formula_ok
-            else ("missing" if has_formula else "not_applicable")
-        )
-```
-
-**Fix 2 Correction (Subsequence Direction):** The subsequence direction must be bidirectional. A VLM might recover a sub-formula OR the entire formula where the claim only cites a sub-formula.
-Replace the exact match check with:
-```python
-    structurally_matches_claim = any(
-        _is_formula_subsequence(recovered_tokens, claim_formula)
-        or _is_formula_subsequence(claim_formula, recovered_tokens)
-        for claim_formula in claim_formulas
-    )
-```
-
-**Additional PM Findings to fix:**
-1. **Finding A: Nested connection risk under SQLite WAL.** In `formula_recovery.py`, `invalidate_formula_recoveries` originally called `db.list_claim_supports` inside the outer metadata read-modify-write transaction, risking deadlocks. The uncommitted working-tree diff already addresses this (collecting `reviewed_units` inside the transaction, updating status outside). Commit this TOCTOU/transaction fix along with the other working-tree changes (`preserve_formula`, ambiguous `formula_status`) before or alongside the flaw fixes.
-2. **Finding B: Missing regression tests.** The existing test suite lacks regression coverage for the 4 reported edge permutations. You MUST add 4 specific regression tests (one for each flaw) that exercise these exact failure paths.
-
-**After applying all 4 fixes, the 4 regression tests, and committing the working-tree changes:** Run the full test suite. The existing tests must remain green. Then continue P6.
+**Next Action**:
+Await final User Approval for the `B2_compiler_staging_separation.md` plan. Once approved, proceed with implementation starting from P1.

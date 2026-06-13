@@ -763,3 +763,59 @@ review's Fix 4 was a spec violation, so findings are not accepted blindly):
   **Known P6 limitation:** §26.3 read-filtering is specified but not yet enforced;
   practical exposure is low in the current single-process compiler (the staged
   window is within one function call, not observable by concurrent queries).
+
+## Plan B2 — Compiler Staging/Authoritative Row Separation (Completed; §26.3 enforcement)
+
+Follow-up to P6 review Flaw 3 (§26.3 read-visibility gap). User chose
+staged-row separation; a 2nd review round corrected three fatal flaws (PK
+paradox → publish-time reconcile; graph leakage → graph upsert after the gate;
+zero-unit guard removed). Implemented Plan-B-bounded (graph generation-scoping
+stays Plan C, per user direction). Commits on `feature/plan-b-math-distillation`:
+
+- **B2-P1 — docs-first**: SYSTEM_BEHAVIOR §26.3 (visibility gated at
+  write/materialization time; copy-on-stage; publish-time reconcile; graph
+  upsert after the gate; no zero-unit guard), SCHEMA §20.3/§20.5 #4 (staged
+  units carry temp ids + are never materialized; discard leaves no orphan
+  downstream artifact; served = authoritative ∧ verified ∧ not-retired),
+  SEARCH_ENGINE §10.1 (materialize authoritative-only → retrieval/query read
+  path unchanged). Guides already accurate.
+- **B2-P2 — 6 failing oracles** (`test_plan_b2_staging.py`): staged units not
+  served but compiler-visible; authoritative-gen-with-unchecked stored-not-served;
+  successful compile persists graph + serves units; failed staged compile leaks
+  no graph; zero-unit recompile publishes + retires prior; edit recompile leaves
+  no dangling graph ref.
+- **B2-P3 — eligibility split + backfill** (`b7942ab`): `list_serving_units`
+  (authoritative ∧ verified ∧ not-retired) + `list_generation_units` (one gen);
+  one-time deterministic `GEN-mig-<source_id>` backfill of legacy verified
+  NULL-generation units, run from `init_db` (not every connect). No
+  SCHEMA_VERSION bump (data-only; reaches existing DBs via init_db). D2 db.py
+  fingerprint re-armed (`plan_b2_rearm`; eligibility/migration helpers, no
+  ranking path).
+- **B2-P4 — copy-on-stage compile** (`890468c`): `compile_source_l2` stages its
+  extracted units in a fresh generation, validates + gates BEFORE any served
+  write, and on a passing gate reconciles (stable ids carried forward), publishes
+  atomically (retire prior-gen units, flip authoritative), then emits ATM + graph
+  + search ONLY from the authoritative served set; a blocked gate / error discards
+  the staged units + claim supports with the prior generation untouched (no orphan
+  graph — graph upsert moved past the gate). `recompile_source` refactored onto
+  shared publish helpers (Flaw-2-safe: attribution after the gate). Graph entities
+  cite stable L1 spans, so no temp→stable graph rewrite is needed; graph
+  generation-scoping remains Plan C. `materializer` + `reemit_projections` read
+  `list_serving_units` (authoritative-only). Updated 3 search/projection test
+  seeders to attribute their seeded units to an authoritative generation.
+
+### B2 Verification (full CI)
+
+```
+uv run --directory backend pytest -q  -> 817 passed, 8 xfailed
+uv run --directory backend ruff check src/  -> All checks passed!
+uv run --directory backend mypy src/  -> 72 pre-existing errors, 0 introduced
+VAULT_ROOT=$REPO/testbed wiki status  -> healthy (L1 done, L2-L4 pending)
+VAULT_ROOT=$REPO/testbed wiki lint    -> Compiler Integrity clean, exit 0
+npx vitest run (plugin)               -> 44 files, 361 tests passed
+```
+
+The 8 remaining xfails are Program-1 F6/F8/F9 (Plan C) and F3/F4/F5/F11/F12
+(Program 3). Next: Plan B P7 — testbed end-to-end compiler audit + provider-backed
+extraction/recovery (or documented blocker), then P8-P10 (role reviews, full CI,
+v0.8.0 release covering B + B2).
