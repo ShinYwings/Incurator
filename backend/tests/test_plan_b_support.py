@@ -217,6 +217,35 @@ def test_valid_subformula_on_right_topic_is_verified(vault) -> None:
     assert validate_claim_support(vault.state_db, unit_id) == "verified"
 
 
+def test_formula_only_multi_span_assigns_correct_primary(vault) -> None:
+    span1 = "SPAN-empty"
+    span2 = "SPAN-formula"
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', 'h1', 'just text', "
+            "'2026-01-01T00:00:00Z')",
+            (span1, RELPATH),
+        )
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', 'h2', 'here is $x^2$', "
+            "'2026-01-01T00:00:00Z')",
+            (span2, RELPATH),
+        )
+    unit_id = db.upsert_knowledge_unit(
+        vault.state_db, unit_type="atom", canonical_name="Math",
+        statement="$x^2$", source_span_ids=[span1, span2], source_id=1,
+    )
+
+    assert validate_claim_support(vault.state_db, unit_id) == "verified"
+    rows = {r["support_role"]: r for r in db.list_claim_supports(vault.state_db, unit_id)}
+    assert rows["primary"]["source_span_id"] == span2
+    assert rows["contextual"]["source_span_id"] == span1
+
+
 def test_formula_only_parse_loss_routes_to_uncertain(vault) -> None:
     span_id = "SPAN-formula-loss"
     span_text = "The PDF parser omitted the equation from this region."

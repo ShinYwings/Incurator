@@ -222,12 +222,23 @@ def validate_claim_support(
 
     best_id: str | None = None
     best_cov = 0.0
+    best_score: tuple[int, float] = (-1, -1.0)
     span_formulas: set[tuple[str, ...]] = set()
     for sid, (text, _chash) in spans.items():
         cov = _term_coverage(claim_terms, _content_terms(text))
-        span_formulas.update(_formula_tokens(f) for f in _extract_latex(text))
-        if best_id is None or cov > best_cov:
-            best_id, best_cov = sid, cov
+        local_span_formulas = [_formula_tokens(f) for f in _extract_latex(text)]
+        span_formulas.update(local_span_formulas)
+        formula_matches = sum(
+            1
+            for formula in claim_formulas
+            if any(
+                _is_formula_subsequence(formula, span_formula)
+                for span_formula in local_span_formulas
+            )
+        )
+        score = (formula_matches, cov)
+        if best_id is None or score > best_score:
+            best_id, best_cov, best_score = sid, cov, score
 
     formula_ok = all(
         any(_is_formula_subsequence(formula, span_formula) for span_formula in span_formulas)

@@ -469,3 +469,26 @@ Second review-fix verification:
 - `uv run --directory backend ruff check src/` → clean.
 - `uv run --directory backend mypy src/curator/pipeline/claim_support.py` →
   clean.
+
+## P4 Review Fix — Primary Formula Span
+
+A third in-flight review found a support-attribution edge:
+
+- Formula-only multi-span claims gave every span prose coverage `0.0`, so the
+  first cited span became `primary` even when another span contained the
+  matching formula. Primary selection now ranks spans by
+  `(matched claim formulas, prose term coverage)`.
+
+The review also proposed dynamically computing missing legacy semantic hashes.
+That proposal was rejected by user direction and the repository's no-backward-
+compatibility-shims invariant. Unvalidated legacy NULL-hash rows are not
+silently reused.
+
+Added regression coverage proving the formula-bearing span becomes primary.
+
+Third review-fix verification:
+
+- `uv run --directory backend pytest -q` → 779 passed, 16 xfailed.
+- `uv run --directory backend ruff check src/` → clean.
+- `uv run --directory backend mypy src/curator/pipeline/claim_support.py` →
+  clean.

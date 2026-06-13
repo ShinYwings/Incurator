@@ -1549,7 +1549,10 @@ F3/F4/F5/F11/F12 stay with Program 3.
   it routes to `uncertain` for P5 selective recovery rather than failing the
   prose-overlap gate. A claim with neither salient prose nor a formula fails as
   invalid/empty. Escaped currency/literal dollars (`\$`) are never formula
-  delimiters.
+  delimiters. When multiple spans are cited, the verified `primary` support is
+  the span with the highest `(matched claim formulas, prose term coverage)`
+  score; this prevents a formula-only claim from binding to an arbitrary
+  non-formula span.
 - A claim whose cited spans fail minimal-support validation is marked
   `support_status='failed'` with a reason; it is excluded from downstream
   compile stages and flagged by the compiler audit. Wrong-real-span citations
