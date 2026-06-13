@@ -60,7 +60,7 @@ _LATEX_RE = re.compile(
     re.DOTALL,
 )
 _TERM_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9]{2,}")
-_FORMULA_TOKEN_RE = re.compile(r"\\[a-zA-Z]+|[^\s\\]")
+_FORMULA_TOKEN_RE = re.compile(r"\\[a-zA-Z]+|\\.|[^\s\\]")
 
 
 @dataclass
@@ -128,7 +128,10 @@ def normalize_claim(statement: str) -> str:
     Used only to propose reconciliation candidates (SCHEMA §20.1), never to
     auto-merge materially different claims."""
     terms = sorted(_content_terms(statement))
-    formulas = sorted("".join(_formula_tokens(f)) for f in _extract_latex(statement))
+    formulas = sorted(
+        json.dumps(_formula_tokens(f), separators=(",", ":"))
+        for f in _extract_latex(statement)
+    )
     return "terms:" + " ".join(terms) + "|formulas:" + " ".join(formulas)
 
 
@@ -221,11 +224,12 @@ def validate_claim_support(
     has_formula = bool(claim_formulas)
 
     best_id: str | None = None
-    best_cov = 0.0
     best_score: tuple[int, float] = (-1, -1.0)
+    max_cov = 0.0
     span_formulas: set[tuple[str, ...]] = set()
     for sid, (text, _chash) in spans.items():
         cov = _term_coverage(claim_terms, _content_terms(text))
+        max_cov = max(max_cov, cov)
         local_span_formulas = [_formula_tokens(f) for f in _extract_latex(text)]
         span_formulas.update(local_span_formulas)
         formula_matches = sum(
@@ -238,7 +242,7 @@ def validate_claim_support(
         )
         score = (formula_matches, cov)
         if best_id is None or score > best_score:
-            best_id, best_cov, best_score = sid, cov, score
+            best_id, best_score = sid, score
 
     formula_ok = all(
         any(_is_formula_subsequence(formula, span_formula) for span_formula in span_formulas)
@@ -260,7 +264,7 @@ def validate_claim_support(
         verdict = "failed"
         reason = "claim has no salient text or formula to validate"
         formula_status = "not_applicable"
-    elif claim_terms and best_cov < _SUPPORT_FAIL:
+    elif claim_terms and max_cov < _SUPPORT_FAIL:
         verdict = "failed"
         reason = "the cited span does not minimally support the claim (no salient term overlap)"
         formula_status = (
@@ -274,7 +278,7 @@ def validate_claim_support(
         verdict = "uncertain"
         reason = "central formula not structurally present in the cited span (possible parse loss or alteration)"
         formula_status = "uncertain"
-    elif best_cov >= _SUPPORT_VERIFY:
+    elif max_cov >= _SUPPORT_VERIFY:
         verdict = "verified"
         reason = ""
         formula_status = "preserved_in_text" if has_formula else "not_applicable"

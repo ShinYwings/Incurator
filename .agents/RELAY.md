@@ -88,12 +88,15 @@ Integrity release (target v0.8.0).
   `primary` support. Legacy NULL-hash fallback was explicitly rejected under
   the no-backward-compatibility-shims invariant. F6 textual support failures now
   preserve `formula_status='preserved_in_text'` when the formula structurally
-  matches, preventing false P5 recovery.
+  matches, preventing false P5 recovery. Multi-span textual verdicts now use
+  maximum cited-span prose coverage independently from formula-aware primary
+  attribution; formula hash input preserves token/formula boundaries; and the
+  tokenizer preserves non-alphabetic LaTeX escapes.
 
 ## Verification
 
-- `uv run --directory backend pytest -q` → 780 passed, 16 xfailed (P4 complete
-  plus four review-fix rounds;
+- `uv run --directory backend pytest -q` → 782 passed, 16 xfailed (P4 complete
+  plus five review-fix rounds;
   the 6 remaining Plan B P5/P6 oracles + 10 Program 1 strict-xfail oracles
   remain xfail).
 - `uv run --directory backend ruff check src/` → clean. (`ruff check tests/`

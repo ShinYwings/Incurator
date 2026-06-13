@@ -511,3 +511,30 @@ Fourth review-fix verification:
 - `uv run --directory backend ruff check src/` → clean.
 - `uv run --directory backend mypy src/curator/pipeline/claim_support.py` →
   clean.
+
+## P4 Review Fix — Decoupled Coverage And Formula Token Fidelity
+
+A fifth in-flight review found three independent structural issues:
+
+- Multi-span verdicts reused the prose coverage of the formula-ranked
+  `primary` span. The gate now evaluates text thresholds against the maximum
+  prose coverage across every cited span while retaining formula-aware primary
+  attribution.
+- Formula tokens were concatenated without a delimiter in the semantic-hash
+  input. Formula token arrays are now structurally serialized, preventing both
+  token collisions such as `\alpha b` / `\alphab` and formula-boundary
+  collisions such as `$a$ $b$` / `$a b$`.
+- The formula tokenizer silently dropped backslashes before non-alphabetic
+  escaped characters. A fallback escape token now preserves distinctions such
+  as `\{x\}` versus `{x}` and matrix row separators (`\\`).
+
+Added regression coverage for split text/formula support, semantic-hash token
+boundaries, and non-alphabetic LaTeX escapes.
+
+Fifth review-fix verification:
+
+- `uv run --directory backend pytest -q` → 782 passed, 16 xfailed.
+- `uv run --directory backend ruff check src/ tests/test_plan_b_support.py` →
+  clean.
+- `uv run --directory backend mypy src/curator/pipeline/claim_support.py` →
+  clean.

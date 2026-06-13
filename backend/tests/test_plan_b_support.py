@@ -87,6 +87,12 @@ def test_formula_tokens_normalize_spacing_but_preserve_grouping() -> None:
     assert _formula_tokens(r"x^{ab}") != _formula_tokens(r"x^a b")
 
 
+def test_formula_tokens_preserve_non_alphabetic_escapes() -> None:
+    assert _formula_tokens(r"\{x\}") == (r"\{", "x", r"\}")
+    assert _formula_tokens(r"\{x\}") != _formula_tokens(r"{x}")
+    assert r"\\" in _formula_tokens(r"a\\b")
+
+
 def test_formula_subsequence_requires_contiguous_ordered_tokens() -> None:
     span = _formula_tokens(r"M = \int \rho dV")
     assert _is_formula_subsequence(_formula_tokens("M"), span)
@@ -110,6 +116,8 @@ def test_semantic_hash_is_deterministic_and_discriminating() -> None:
     assert semantic_hash(a) == semantic_hash(a)
     assert semantic_hash(a) == semantic_hash("backpropagation   computes the WEIGHT gradient.")
     assert semantic_hash(a) != semantic_hash("Coral bleaching expels symbiotic algae.")
+    assert semantic_hash(r"$\alpha b$") != semantic_hash(r"$\alphab$")
+    assert semantic_hash(r"$a$ $b$") != semantic_hash(r"$a b$")
     assert "terms:" in normalize_claim(a)
 
 
@@ -271,6 +279,43 @@ def test_formula_only_multi_span_assigns_correct_primary(vault) -> None:
     rows = {r["support_role"]: r for r in db.list_claim_supports(vault.state_db, unit_id)}
     assert rows["primary"]["source_span_id"] == span2
     assert rows["contextual"]["source_span_id"] == span1
+
+
+def test_multi_span_text_coverage_is_independent_of_formula_primary(vault) -> None:
+    text_span = "SPAN-text-support"
+    formula_span = "SPAN-equation-support"
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', 'text-hash', ?, "
+            "'2026-01-01T00:00:00Z')",
+            (
+                text_span,
+                RELPATH,
+                "Residual connections ease optimization in deep networks.",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'equation', 'formula-hash', 'Equation block: $x^2$.', "
+            "'2026-01-01T00:00:00Z')",
+            (formula_span, RELPATH),
+        )
+    unit_id = db.upsert_knowledge_unit(
+        vault.state_db,
+        unit_type="atom",
+        canonical_name="Residual optimization",
+        statement="Residual connections ease optimization in deep networks with $x^2$.",
+        source_span_ids=[text_span, formula_span],
+        source_id=1,
+    )
+
+    assert validate_claim_support(vault.state_db, unit_id) == "verified"
+    rows = {r["support_role"]: r for r in db.list_claim_supports(vault.state_db, unit_id)}
+    assert rows["primary"]["source_span_id"] == formula_span
+    assert rows["contextual"]["source_span_id"] == text_span
 
 
 def test_formula_only_parse_loss_routes_to_uncertain(vault) -> None:

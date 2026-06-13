@@ -1536,12 +1536,13 @@ F3/F4/F5/F11/F12 stay with Program 3.
 - Formula structural rule (deterministic, no CAS): a claim's LaTeX formula —
   unescaped inline `$...$` or display `$$...$$` — is "present" in a span iff,
   after normalization (strip whitespace and spacing macros such as
-  `\,`/`\!`/`\;`, while preserving grouping braces), its ordered token sequence is an exact
-  contiguous subsequence of some formula in the span. This admits a faithful
-  extracted sub-formula (`M` from `M = \int \rho dV`) while preserving
-  operation direction and binding: `a^b` ≠ `b^a`, `a-b` ≠ `b-a`, and
-  `\frac{a}{b}` ≠ `\frac{b}{a}`. No commutative reordering is inferred without
-  an AST/CAS. A central formula present in no cited span is
+  `\,`/`\!`/`\;`, while preserving grouping braces and non-alphabetic
+  backslash escapes), its ordered token sequence is an exact contiguous
+  subsequence of some formula in the span. This admits a faithful extracted
+  sub-formula (`M` from `M = \int \rho dV`) while preserving operation
+  direction, binding, and escaped-token distinctions: `a^b` ≠ `b^a`, `a-b` ≠
+  `b-a`, `\frac{a}{b}` ≠ `\frac{b}{a}`, and `\{x\}` ≠ `{x}`. No commutative
+  reordering is inferred without an AST/CAS. A central formula present in no cited span is
   `formula_status='missing'`; a structurally altered one is a `failed` support,
   never silently accepted. For a formula-only atomic unit with no prose terms,
   an ordered structural match is sufficient support; prose overlap is not
@@ -1552,11 +1553,13 @@ F3/F4/F5/F11/F12 stay with Program 3.
   delimiters. When multiple spans are cited, the verified `primary` support is
   the span with the highest `(matched claim formulas, prose term coverage)`
   score; this prevents a formula-only claim from binding to an arbitrary
-  non-formula span. Claim support and formula preservation are independent
-  status axes: an F6 textual-grounding failure may still carry
-  `formula_status='preserved_in_text'` when the cited span structurally contains
-  the formula. Such a formula must not be mislabeled `missing` or routed to P5
-  recovery.
+  non-formula span. Textual support thresholds are evaluated independently
+  against the maximum prose term coverage of every cited span, so a formula
+  primary does not hide valid prose support in a contextual span. Claim support
+  and formula preservation are independent status axes: an F6
+  textual-grounding failure may still carry `formula_status='preserved_in_text'`
+  when the cited span structurally contains the formula. Such a formula must not
+  be mislabeled `missing` or routed to P5 recovery.
 - A claim whose cited spans fail minimal-support validation is marked
   `support_status='failed'` with a reason; it is excluded from downstream
   compile stages and flagged by the compiler audit. Wrong-real-span citations
@@ -1636,6 +1639,9 @@ F3/F4/F5/F11/F12 stay with Program 3.
   different claims/equations are never auto-merged. Stable-id reuse additionally
   requires exact statement equality after whitespace normalization; the lossy
   semantic hash or term-set normalization alone can never authorize reuse.
+  Formula token arrays are structurally serialized in the normalized hash
+  input, so adjacent tokens or separate formulas cannot collapse into a
+  different formula structure.
 - One-source mutation regenerates only the expected dependency closure —
   measured and asserted by tests, not assumed.
 
