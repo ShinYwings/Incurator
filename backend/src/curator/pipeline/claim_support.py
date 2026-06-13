@@ -545,19 +545,28 @@ def reconcile_source(
     *,
     current_span_ids: list[str] | None = None,
     candidate_unit_ids: list[str] | None = None,
+    generation_id: str | None = None,
     conn: "object | None" = None,
 ) -> list[str]:
     """Reconcile active units after source edit/delete/split.
 
-    Units citing spans outside `current_span_ids` retire unless a newly
-    extracted, verified candidate has the same whitespace-normalized statement.
-    Such a candidate revalidates the old stable id, then retires its temporary
-    id. Semantic hashes only propose candidates and never authorize reuse by
-    themselves. Returns every id retired by reconciliation.
+    A prior stable unit keeps its id when a newly extracted, verified candidate
+    has the same whitespace-normalized statement (the candidate's data — incl.
+    generation — is copied onto the stable id, the candidate retires). A prior
+    unit whose span basis is UNCHANGED and which no candidate cites (an LLM
+    omission, not an edit) is carried forward into ``generation_id`` so it keeps
+    its id and survives the publish gate (§26.4: unchanged claims keep their
+    ids). A prior unit is retired only when its span basis changed/disappeared OR
+    a candidate supersedes it (cites its span with a different statement —
+    materially different per §26.4). Semantic hashes only propose candidates and
+    never authorize reuse by themselves. Returns every id retired by
+    reconciliation.
 
     Pass ``conn`` to run every mutation inside a caller's transaction, so the
     whole reconcile + publish is atomic (SYSTEM_BEHAVIOR §26.3): any exception
-    rolls the prior authoritative state back unchanged.
+    rolls the prior authoritative state back unchanged. ``generation_id`` is the
+    staged generation being published (None for standalone reconciliation, where
+    unchanged-basis units are simply left untouched).
     """
     with db._maybe_conn(db_path, conn) as c:  # type: ignore[arg-type]
         existing = {
@@ -582,14 +591,21 @@ def reconcile_source(
         and unit["support_status"] == "verified"
         and unit.get("semantic_hash")
     }
+    # Spans cited by any newly-extracted candidate. A prior unit whose span is
+    # cited by a candidate is SUPERSEDED by the fresh extraction — not an
+    # omission — so it must not be carried forward (which would duplicate it).
+    candidate_spans = {
+        sid
+        for cand in candidates.values()
+        for sid in json.loads(cand["source_span_ids"] or "[]")
+    }
     retired: list[str] = []
     for u in units:
         unit_id = str(u["id"])
         if unit_id in candidate_ids:
             continue
         cited = json.loads(u["source_span_ids"] or "[]")
-        if all(sid in current for sid in cited):
-            continue
+        spans_unchanged = all(sid in current for sid in cited)
 
         match = next(
             (
@@ -607,6 +623,23 @@ def reconcile_source(
             candidates.pop(match)
             continue
 
+        if spans_unchanged and not any(sid in candidate_spans for sid in cited):
+            # True omission: span basis unchanged and no candidate cites it, so
+            # the LLM merely did not re-emit this claim (§26.4 keeps it). Carry
+            # the prior stable unit into the generation being published so it
+            # survives the publish gate with its id. Standalone reconciliation
+            # (no generation) leaves it untouched, preserving the old behavior.
+            if generation_id is not None:
+                with db._maybe_conn(db_path, conn) as c:  # type: ignore[arg-type]
+                    c.execute(
+                        "UPDATE knowledge_units SET generation_id = ?, updated_at = ? "
+                        "WHERE id = ?",
+                        (generation_id, db._now_iso(), unit_id),
+                    )
+            continue
+
+        # Span basis changed/disappeared, or a candidate supersedes this claim
+        # (cites its span with a materially different statement) → retire it.
         db.retire_knowledge_unit(db_path, unit_id, conn=conn)  # type: ignore[arg-type]
         retired.append(unit_id)
 

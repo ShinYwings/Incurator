@@ -786,7 +786,7 @@ def test_failed_publish_gate_preserves_prior_generation_attribution(vault) -> No
 
     unit_id = _seed(vault, ["SPAN-pb000001"], "Backprop computes the gradient.")
     validate_claim_support(vault.state_db, unit_id)
-    first = compile_mod.recompile_source(vault.state_db, 1)
+    compile_mod.recompile_source(vault.state_db, 1)
     gen = db.get_authoritative_generation(vault.state_db, 1)
     assert gen is not None
     with db.connect(vault.state_db) as conn:
@@ -836,3 +836,37 @@ def test_delete_source_spans_handles_more_than_sqlite_var_limit(vault) -> None:
         assert conn.execute(
             "SELECT COUNT(*) FROM source_spans WHERE source_id = 1"
         ).fetchone()[0] == 0
+
+
+def test_delete_source_spans_scrubs_dangling_graph_refs(vault) -> None:
+    # Finding 3b: delete_source_spans must remove the deleted span id from graph
+    # entity/relation source_span_ids arrays so no graph record dangles.
+    import json as _json
+
+    e = db.upsert_graph_entity(
+        vault.state_db, canonical_name="E", entity_type="concept",
+        source_span_ids=["SPAN-keep", "SPAN-drop"])
+    e2 = db.upsert_graph_entity(
+        vault.state_db, canonical_name="E2", entity_type="concept",
+        source_span_ids=["SPAN-keep"])
+    db.upsert_graph_relation(
+        vault.state_db, source_entity_id=e, target_entity_id=e2,
+        relation_type="rel", source_span_ids=["SPAN-drop"])
+    for sid in ("SPAN-keep", "SPAN-drop"):
+        with db.connect(vault.state_db) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO source_spans (id, source_id, relpath, span_type, "
+                "content_hash, text_preview, created_at) VALUES (?, 1, ?, 'paragraph', ?, '', ?)",
+                (sid, RELPATH, sid, "2026-01-01T00:00:00Z"))
+
+    db.delete_source_spans(vault.state_db, ["SPAN-drop"])
+
+    with db.connect(vault.state_db) as conn:
+        ent = conn.execute(
+            "SELECT source_span_ids FROM graph_entities WHERE id = ?", (e,)).fetchone()[0]
+        ent2 = conn.execute(
+            "SELECT source_span_ids FROM graph_entities WHERE id = ?", (e2,)).fetchone()[0]
+        rel = conn.execute("SELECT source_span_ids FROM graph_relations").fetchone()[0]
+    assert _json.loads(ent) == ["SPAN-keep"]   # SPAN-drop scrubbed, SPAN-keep retained
+    assert _json.loads(ent2) == ["SPAN-keep"]  # untouched entity unaffected
+    assert _json.loads(rel) == []              # SPAN-drop scrubbed from the relation

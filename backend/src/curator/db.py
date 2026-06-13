@@ -1733,12 +1733,16 @@ def delete_source_spans(
     (SYSTEM_BEHAVIOR §26.4 / F7 reconciliation). The span rows of an edited
     source are removed rather than left lingering beside their replacements;
     dependent `claim_supports` and `artifact_dependencies` rows are removed in
-    the same transaction so the compiler audit finds no dangling references.
-    Returns the number of span rows deleted. Source truth files are untouched.
-    Pass ``conn`` to run inside a caller's transaction (atomic publish)."""
+    the same transaction so the compiler audit finds no dangling references —
+    including stale span ids scrubbed from graph entity/relation
+    `source_span_ids` arrays (those are L1-anchored, so a removed span must not
+    linger there). Returns the number of span rows deleted. Source truth files
+    are untouched. Pass ``conn`` to run inside a caller's transaction (atomic
+    publish)."""
     if not span_ids:
         return 0
     deleted = 0
+    deleted_set = set(span_ids)
     with _maybe_conn(db_path, conn) as c:
         for chunk in _chunked(span_ids):
             placeholders = ",".join("?" for _ in chunk)
@@ -1756,6 +1760,19 @@ def delete_source_spans(
                 f"DELETE FROM source_spans WHERE id IN ({placeholders})", params
             )
             deleted += cur.rowcount
+        # Scrub the deleted span ids out of graph entity/relation source_span_ids
+        # JSON arrays so no graph record carries a dangling span reference.
+        for table in ("graph_entities", "graph_relations"):
+            for row in c.execute(
+                f"SELECT id, source_span_ids FROM {table}"
+            ).fetchall():
+                spans = _loads_list(row["source_span_ids"])
+                kept = [s for s in spans if s not in deleted_set]
+                if len(kept) != len(spans):
+                    c.execute(
+                        f"UPDATE {table} SET source_span_ids = ? WHERE id = ?",
+                        (json.dumps(kept), row["id"]),
+                    )
     return deleted
 
 
@@ -2152,12 +2169,14 @@ def upsert_graph_entity(
     source_span_ids: list[str] | None = None,
     knowledge_unit_ids: list[str] | None = None,
     prompt_run_id: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Insert or merge an entity, deduplicated by (canonical_name, entity_type).
     On merge, span/knowledge-unit references are unioned and a non-empty
-    description replaces an empty one."""
+    description replaces an empty one. Pass ``conn`` to run inside a caller's
+    transaction (atomic publish)."""
     now = _now_iso()
-    with connect(db_path) as conn:
+    with _maybe_conn(db_path, conn) as conn:
         existing = conn.execute(
             "SELECT * FROM graph_entities WHERE canonical_name = ? AND entity_type = ?",
             (canonical_name, entity_type),
@@ -2214,11 +2233,13 @@ def upsert_graph_relation(
     source_span_ids: list[str] | None = None,
     confidence: float = 0.0,
     prompt_run_id: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
-    """Insert a relation. Both endpoints must be declared entities."""
+    """Insert a relation. Both endpoints must be declared entities. Pass ``conn``
+    to run inside a caller's transaction (atomic publish)."""
     if not 0.0 <= confidence <= 1.0:
         raise ValueError(f"relation confidence out of range: {confidence}")
-    with connect(db_path) as conn:
+    with _maybe_conn(db_path, conn) as conn:
         for endpoint in (source_entity_id, target_entity_id):
             found = conn.execute(
                 "SELECT 1 FROM graph_entities WHERE id = ?", (endpoint,)

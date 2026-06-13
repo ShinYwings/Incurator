@@ -139,22 +139,28 @@ def test_authoritative_gen_with_unchecked_unit_is_stored_not_served(vault) -> No
 
 # --- Copy-on-stage compile (P4) ---------------------------------------------
 
-def test_successful_compile_persists_graph_and_serves_units(vault) -> None:
-    serving = _serving(vault.state_db)
+def test_successful_compile_persists_graph_with_live_span_refs(vault) -> None:
+    # The compile path anchors graph entities to L1 SPANS (knowledge_unit_ids is
+    # always [] there), so verify the real invariant: every graph source_span_ids
+    # ref points at a live span — not the vacuous knowledge_unit_ids loop.
     result = compile_mod.compile_source_l2(vault, _UnitsClient(), 1)
     assert result.ok, result.error
-    gen = db.get_authoritative_generation(vault.state_db, 1)
-    assert gen is not None
-    served = serving(vault.state_db)
-    assert served, "verified units must be served after publish"
-    served_ids = {u["id"] for u in served}
+    assert db.get_authoritative_generation(vault.state_db, 1) is not None
+    assert db.list_serving_units(vault.state_db)  # verified units served
     with db.connect(vault.state_db) as conn:
         n_ent = conn.execute("SELECT COUNT(*) FROM graph_entities").fetchone()[0]
-        ent_rows = conn.execute("SELECT knowledge_unit_ids FROM graph_entities").fetchall()
+        live_spans = {r[0] for r in conn.execute("SELECT id FROM source_spans").fetchall()}
+        refs = [
+            s
+            for (j,) in (
+                conn.execute("SELECT source_span_ids FROM graph_entities").fetchall()
+                + conn.execute("SELECT source_span_ids FROM graph_relations").fetchall()
+            )
+            for s in json.loads(j or "[]")
+        ]
     assert n_ent > 0  # graph persisted at publish
-    for (kus_json,) in ent_rows:  # every graph entity references only served units
-        for ku in json.loads(kus_json or "[]"):
-            assert ku in served_ids, "graph references a non-served unit (leak/dangling)"
+    assert refs       # graph actually cites spans (non-vacuous, unlike knowledge_unit_ids)
+    assert all(s in live_spans for s in refs), "graph cites a dropped/dangling span"
 
 
 def test_failed_staged_compile_leaves_no_orphan_graph(vault) -> None:
@@ -225,32 +231,70 @@ def test_graph_extraction_failure_preserves_prior_authoritative(vault) -> None:
     assert ent_after == ent_before    # prior graph untouched
 
 
-def test_zero_unit_recompile_publishes_and_retires_prior(vault) -> None:
-    serving = _serving(vault.state_db)
+def test_emptied_source_recompile_retires_prior(vault) -> None:
+    # A GENUINELY emptied/changed source (its spans disappear) makes the prior
+    # claims lose their basis → retire (§26.4); the zero-unit generation still
+    # publishes (no zero-unit guard). NB: the spans must actually change — an LLM
+    # omission on UNCHANGED spans is handled by the carry-forward test below.
     assert compile_mod.compile_source_l2(vault, _UnitsClient(units=True), 1).ok
-    assert serving(vault.state_db)  # units served
-    # Source emptied of claims → extraction returns zero units → must publish + retire.
+    assert db.list_serving_units(vault.state_db)
+    (vault.root / "04_Resources" / "resnet.md").write_text(
+        "# Unrelated\n\nEntirely different prose with no prior claims.\n", encoding="utf-8")
     with db.connect(vault.state_db) as conn:
         conn.execute("UPDATE sources SET content_hash = 'emptied' WHERE id = 1")
     result = compile_mod.compile_source_l2(vault, _UnitsClient(units=False), 1)
     assert result.ok, result.error  # zero-unit publish is valid
-    assert serving(vault.state_db) == []  # prior claims retired, not served forever
+    assert db.list_serving_units(vault.state_db) == []  # prior retired, not served forever
     assert db.get_authoritative_generation(vault.state_db, 1) is not None
 
 
-def test_edit_recompile_keeps_graph_refs_consistent(vault) -> None:
-    # temp→stable id rewrite at publish: no graph ref dangles after an edit.
-    serving = _serving(vault.state_db)
+def test_llm_omission_on_unchanged_span_carries_claim_forward(vault) -> None:
+    # §26.4: a claim whose SPAN basis is unchanged is KEPT even when a re-extraction
+    # omits it (LLM non-determinism) — it must not be lost, and keeps its stable id.
+    assert compile_mod.compile_source_l2(vault, _UnitsClient(units=True), 1).ok
+    before = {u["id"] for u in db.list_serving_units(vault.state_db)}
+    assert len(before) == 1
+    # Same file (spans unchanged), but the LLM returns zero units this time.
+    with db.connect(vault.state_db) as conn:
+        conn.execute("UPDATE sources SET content_hash = 'omit-v2' WHERE id = 1")
+    assert compile_mod.compile_source_l2(vault, _UnitsClient(units=False), 1).ok
+    after = {u["id"] for u in db.list_serving_units(vault.state_db)}
+    assert after == before, "unchanged-span claim must survive an LLM omission with its id"
+
+
+def test_edit_recompile_preserves_stable_id_and_live_graph_refs(vault) -> None:
+    # §26.4: an unchanged claim keeps its STABLE ID across a re-compile (the early
+    # exit used to lose it → publish gate retired it → new id won); and the graph
+    # cites only live spans after stale-span cleanup.
     assert compile_mod.compile_source_l2(vault, _UnitsClient(), 1).ok
+    before = {u["id"] for u in db.list_serving_units(vault.state_db)}
+    assert len(before) == 1
     with db.connect(vault.state_db) as conn:
         conn.execute("UPDATE sources SET content_hash = 'edited-v2' WHERE id = 1")
     assert compile_mod.compile_source_l2(vault, _UnitsClient(), 1).ok
-    served_ids = {u["id"] for u in serving(vault.state_db)}
+    after = {u["id"] for u in db.list_serving_units(vault.state_db)}
+    assert after == before, "unchanged claim must keep its stable id (§26.4)"
     with db.connect(vault.state_db) as conn:
-        ent_rows = conn.execute("SELECT knowledge_unit_ids FROM graph_entities").fetchall()
-    for (kus_json,) in ent_rows:
-        for ku in json.loads(kus_json or "[]"):
-            assert ku in served_ids, f"dangling graph ref to non-served unit {ku}"
+        live_spans = {r[0] for r in conn.execute("SELECT id FROM source_spans").fetchall()}
+        refs = [
+            s for (j,) in conn.execute("SELECT source_span_ids FROM graph_entities").fetchall()
+            for s in json.loads(j or "[]")
+        ]
+    assert all(s in live_spans for s in refs), "dangling graph span ref after edit"
+
+
+def test_publish_failure_rolls_back_persisted_graph(vault, monkeypatch) -> None:
+    # The graph is persisted INSIDE the publish transaction, so a flip failure
+    # rolls the graph back too — no leaked graph from a failed compile.
+    def _boom(*a, **k):
+        raise RuntimeError("flip failed")
+
+    monkeypatch.setattr(compile_mod.db, "publish_compiler_generation", _boom)
+    result = compile_mod.compile_source_l2(vault, _UnitsClient(), 1)  # first compile, no prior
+    assert not result.ok
+    with db.connect(vault.state_db) as conn:
+        n_ent = conn.execute("SELECT COUNT(*) FROM graph_entities").fetchone()[0]
+    assert n_ent == 0  # graph rolled back with the failed publish (no leak)
 
 
 # --- Legacy NULL-generation backfill migration (P3) -------------------------

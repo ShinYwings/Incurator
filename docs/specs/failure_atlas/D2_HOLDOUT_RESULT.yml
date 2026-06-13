@@ -61,14 +61,17 @@ evaluated_code:
     prior_db_sha256: b2735fb40237d06ac4412cfc939039925360f53a3cdda0200b4fce431b3ea7c3
     intermediate_db_sha256: 16d5a7c95fa2b48da2372f9eb0e64e276b435297b7f569535fd5b4154651992a
     reason: >-
-      Plan B2 changed db.py twice: (1) list_serving_units / list_generation_units
-      (generation-scoped eligibility, §26.3) + a one-time legacy-generation
-      backfill migration in init_db (sha 16d5a7c9); then (2) a B2 review fix adding
-      _maybe_conn and an optional `conn` to retire_knowledge_unit /
-      delete_source_spans / list_generation_units / publish_compiler_generation so
-      the reconcile+publish runs in ONE atomic transaction (sha 1083ecd3, final).
-      All are knowledge-unit eligibility / migration / transaction-plumbing
-      helpers; none touches retrieval, ranking, fusion, projection, or
+      Plan B2 changed db.py three times: (1) list_serving_units /
+      list_generation_units (generation-scoped eligibility, §26.3) + a one-time
+      legacy-generation backfill migration in init_db (sha 16d5a7c9); (2) a B2
+      review fix adding _maybe_conn + optional `conn` on retire_knowledge_unit /
+      delete_source_spans / list_generation_units / publish_compiler_generation
+      for the single-transaction publish (sha 1083ecd3); then (3) a 2nd B2 review
+      fix adding `conn` to upsert_graph_entity / upsert_graph_relation (graph
+      persists in the publish txn) and a dangling-span scrub of graph
+      source_span_ids in delete_source_spans (sha 3868dbcc, final). All are
+      knowledge-unit eligibility / migration / transaction-plumbing / referential-
+      hygiene helpers; none touches retrieval, ranking, fusion, projection, or
       materialize_chunks, so the lexical FTS5/BM25 Q06 holdout metric is provably
       unaffected. Re-armed.
   file_sha256:
@@ -79,7 +82,7 @@ evaluated_code:
     backend/src/curator/retrieval/fusion.py: ffed6f90d6b0eb55692dfd9a02526d8e4a220ef6625a3e245175a07fa08eb716
     backend/src/curator/retrieval/embedding.py: a6a7da88af3fc824f1fa2c9a4f4ce0720e870c0584c49e011b865678cb0f8f7e
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
-    backend/src/curator/db.py: 1083ecd389632c974289af6d8cd3948221b0864367540f3cb71a09870811d255
+    backend/src/curator/db.py: 3868dbcc392b6d6c82e8781cc6ac29645e599987f4f81109b59334f0571f31cc
   preflight_family_metrics:
     direct-factual:
       query_count: 7

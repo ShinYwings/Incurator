@@ -281,22 +281,19 @@ def compile_source_l2(
                 "graph extraction failed: " + ("; ".join(graph_data.errors) or "unknown")
             )
         _run_publish_gate(paths.state_db, source_id)
-        # Persist the in-memory graph FIRST — graph entities are anchored to L1
-        # spans (not unit ids), so this is safe before reconcile and mutates no
-        # prior authoritative state. If it fails, the staged generation is
-        # discarded cleanly and the prior authoritative generation is untouched.
-        graph = graph_index.persist_graph_data(paths.state_db, graph_data)
-        # Reconcile (which re-tags an unchanged claim's prior stable id into this
-        # generation) + publish run in ONE transaction, so ANY exception rolls
-        # the prior authoritative state back unchanged (§26.3 atomic publish);
-        # the outer except then discards only the still-staged candidates.
+        # Reconcile (carrying unchanged claims' stable ids into this generation),
+        # persist the in-memory graph, and publish — ALL in ONE transaction, so
+        # ANY exception (reconcile, graph persist, or the flip) rolls the prior
+        # authoritative state AND the graph back unchanged (§26.3 atomic publish).
+        # The outer except then discards only the still-staged candidates.
         fingerprint = _source_content_hash(paths.state_db, source_id)
         with db.connect(paths.state_db) as conn:
             reconcile_source(
                 paths.state_db, source_id,
                 current_span_ids=span_ids, candidate_unit_ids=ku_result.unit_ids,
-                conn=conn,
+                generation_id=gen_id, conn=conn,
             )
+            graph = graph_index.persist_graph_data(paths.state_db, graph_data, conn=conn)
             _publish_generation(paths.state_db, source_id, gen_id, fingerprint, conn=conn)
     except Exception as e:
         _discard_staged_units(paths.state_db, gen_id)

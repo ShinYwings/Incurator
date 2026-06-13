@@ -162,10 +162,13 @@ def extract_graph_data(
     )
 
 
-def persist_graph_data(db_path: Path, data: GraphData) -> GraphExtractionResult:
+def persist_graph_data(
+    db_path: Path, data: GraphData, *, conn: Any = None
+) -> GraphExtractionResult:
     """Upsert a previously-extracted :class:`GraphData` into graph_entities /
-    graph_relations. No LLM; called after the publish gate clears so a staged
-    generation never writes graph rows."""
+    graph_relations. No LLM; called inside the publish transaction so the graph
+    rows publish — and roll back — atomically with the generation (a publish
+    failure leaves no leaked graph). Pass ``conn`` to join that transaction."""
     name_to_id: dict[str, str] = {}
     relation_ids: list[str] = []
     for entity, trace_id in data.entities:
@@ -176,6 +179,7 @@ def persist_graph_data(db_path: Path, data: GraphData) -> GraphExtractionResult:
             description=entity.description,
             source_span_ids=entity.source_span_ids,
             prompt_run_id=trace_id,
+            conn=conn,
         )
         name_to_id[entity.canonical_name] = ent_id
     for rel, trace_id in data.relations:
@@ -193,6 +197,7 @@ def persist_graph_data(db_path: Path, data: GraphData) -> GraphExtractionResult:
             source_span_ids=rel.source_span_ids,
             confidence=rel.confidence,
             prompt_run_id=trace_id,
+            conn=conn,
         )
         relation_ids.append(rel_id)
     return GraphExtractionResult(
