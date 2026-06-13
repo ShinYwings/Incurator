@@ -725,3 +725,41 @@ Next phase: P7 — current testbed (`gaussian_splatting`) + end-to-end compiler
 audit (`VAULT_ROOT=testbed wiki status|add|update|lint`), Markdown/local-PDF/
 Reference-Mode validation, with the provider-backed extraction/recovery
 blocker documented if the provider is unavailable.
+
+### P6 Review — Findings Triage (2026-06-13)
+
+A post-P6 review raised four flaws. Verified each against the committed code +
+spec before acting (per the Review Feedback Loop rule; precedent: the P5 PM
+review's Fix 4 was a spec violation, so findings are not accepted blindly):
+
+- **Flaw 1 (validate-before-reconcile) — REJECTED, false positive.**
+  `compile_source_l2` already calls `validate_claim_support` for every unit
+  (computing `semantic_hash` + `support_status`) BEFORE `reconcile_source`
+  (compile.py lines 237-240). The reviewer's reconcile-before-validate pseudocode
+  does not match the code; no change.
+- **Flaw 2 (TOCTOU publish gate) — FIXED (commit `56c76aa`).** `recompile_source`
+  set `generation_id` on the units before the publish-gate audit, so a failed
+  audit discarded the generation after overwriting the prior authoritative
+  generation's attribution (§26.3 violation). The `generation_id` UPDATE is now
+  deferred until after the gate clears. Regression:
+  `test_failed_publish_gate_preserves_prior_generation_attribution`.
+- **Flaw 4 (unbounded SQL IN) — FIXED (commit `56c76aa`).** `delete_source_spans`
+  and `hydrate_spans` now chunk their `IN (?, …)` parameter lists under
+  `_SQL_VAR_CHUNK = 900` (SQLITE_MAX_VARIABLE_NUMBER). Regression:
+  `test_delete_source_spans_handles_more_than_sqlite_var_limit` (1500 ids).
+- **Flaw 3 (generation-scoped read visibility) — REAL §26.3 GAP, ROUTED TO
+  PLAN-FIRST (NOT hot-patched).** `list_eligible_knowledge_units` does not filter
+  by `compiler_generations.status`, so §26.3 ("query/evidence/search read only
+  authoritative-generation rows; staged rows invisible outside the compiler")
+  is not enforced. The reviewer's one-line `(authoritative OR generation_id IS
+  NULL)` join is incomplete: it conflicts with the Flaw 2 fix (which keeps units
+  at `generation_id IS NULL` until after the gate, so the NULL escape hatch
+  still serves mid-compile/failed-audit units) and cannot satisfy both the
+  compiler-internal callers (must see units under compile) and the serving
+  callers (authoritative only) with one filter. Root cause: the compiler mutates
+  one row set in place rather than keeping a separate staged row version. Proper
+  fix is architectural (dual-context eligibility, or staged/authoritative row
+  separation) — captured in `.agents/USER_REPORT.md` for a plan + approval.
+  **Known P6 limitation:** §26.3 read-filtering is specified but not yet enforced;
+  practical exposure is low in the current single-process compiler (the staged
+  window is within one function call, not observable by concurrent queries).
