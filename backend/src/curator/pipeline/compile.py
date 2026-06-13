@@ -485,6 +485,15 @@ def recompile_source(
     try:
         if _inject_failure:
             raise RuntimeError(f"compile failure injected: {_inject_failure}")
+        # The publish gate (dangling / formula-inconsistency / multiple-
+        # authoritative) is independent of the validation + attribution we are
+        # about to do, so run it FIRST on the current state — a blocked gate then
+        # never mutates the prior authoritative units at all. Then validate,
+        # attribute, and flip atomically in ONE transaction (DB-level re-publish:
+        # all of the source's active units belong to this generation), so any
+        # failure rolls the whole thing back — no partial publish, no mutated
+        # served state (§26.3).
+        _run_publish_gate(db_path, source_id)
         with db.connect(db_path) as conn:
             unit_ids = [
                 str(r[0]) for r in conn.execute(
@@ -493,18 +502,14 @@ def recompile_source(
                     (source_id,),
                 ).fetchall()
             ]
-        for uid in unit_ids:
-            validate_claim_support(db_path, uid)
-        _run_publish_gate(db_path, source_id)
-        # Gate cleared → attribute the source's units to this generation and
-        # publish. (DB-level re-publish: all current active units belong here.)
-        with db.connect(db_path) as conn:
+            for uid in unit_ids:
+                validate_claim_support(db_path, uid, conn=conn)
             conn.execute(
                 "UPDATE knowledge_units SET generation_id = ? "
                 "WHERE source_id = ? AND retired_at IS NULL",
                 (gen_id, source_id),
             )
-        _publish_generation(db_path, source_id, gen_id, fingerprint)
+            _publish_generation(db_path, source_id, gen_id, fingerprint, conn=conn)
     except Exception:
         db.discard_compiler_generation(db_path, gen_id)
         raise

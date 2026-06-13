@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -232,16 +233,19 @@ def _load_spans(
     return out
 
 
-def _set_semantic_hash(db_path: Path, unit_id: str, value: str) -> None:
-    with db.connect(db_path) as conn:
-        conn.execute(
+def _set_semantic_hash(
+    db_path: Path, unit_id: str, value: str, *, conn: sqlite3.Connection | None = None
+) -> None:
+    with db._maybe_conn(db_path, conn) as c:
+        c.execute(
             "UPDATE knowledge_units SET semantic_hash = ? WHERE id = ?",
             (value, unit_id),
         )
 
 
 def _clear_claim_supports(
-    db_path: Path, unit_id: str, *, preserve_formula: bool = False
+    db_path: Path, unit_id: str, *, preserve_formula: bool = False,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
     """Remove prior/proposed support rows before writing one fresh verdict.
 
@@ -249,15 +253,15 @@ def _clear_claim_supports(
     retained so that evidence links created by ``recover_formula`` survive
     a re-validation cycle.
     """
-    with db.connect(db_path) as conn:
+    with db._maybe_conn(db_path, conn) as c:
         if preserve_formula:
-            conn.execute(
+            c.execute(
                 "DELETE FROM claim_supports "
                 "WHERE knowledge_unit_id = ? AND support_role != 'formula'",
                 (unit_id,),
             )
         else:
-            conn.execute(
+            c.execute(
                 "DELETE FROM claim_supports WHERE knowledge_unit_id = ?",
                 (unit_id,),
             )
@@ -269,6 +273,7 @@ def validate_claim_support(
     *,
     span_texts: dict[str, str] | None = None,
     client: object | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Run the deterministic structural gate on one knowledge unit.
 
@@ -277,6 +282,10 @@ def validate_claim_support(
     (`verified | failed | uncertain`). `client` is reserved for secondary
     calibrated model validation of `uncertain` text claims; with no client an
     `uncertain` unit stays `unchecked` (never promoted).
+
+    Pass ``conn`` to run every write inside a caller's transaction, so a re-publish
+    that validates units rolls back cleanly if the publish gate later fails
+    (SYSTEM_BEHAVIOR §26.3) and never mutates the prior authoritative state.
     """
     unit = _load_unit(db_path, unit_id)
     if unit is None:
@@ -285,8 +294,8 @@ def validate_claim_support(
     statement: str = unit["statement"]
     declared: list[str] = unit["source_span_ids"]
     spans = _load_spans(db_path, declared, span_texts)
-    _set_semantic_hash(db_path, unit_id, semantic_hash(statement))
-    _clear_claim_supports(db_path, unit_id, preserve_formula=True)
+    _set_semantic_hash(db_path, unit_id, semantic_hash(statement), conn=conn)
+    _clear_claim_supports(db_path, unit_id, preserve_formula=True, conn=conn)
 
     claim_terms = _content_terms(statement)
     claim_formulas = [_formula_tokens(f) for f in _extract_latex(statement)]
@@ -365,34 +374,34 @@ def validate_claim_support(
         db.upsert_claim_support(
             db_path, knowledge_unit_id=unit_id, source_span_id=best_id,
             support_role="primary", support_status="verified",
-            evidence_hash=spans[best_id][1],
+            evidence_hash=spans[best_id][1], conn=conn,
         )
         for sid, (_t, chash) in spans.items():
             if sid != best_id:
                 db.upsert_claim_support(
                     db_path, knowledge_unit_id=unit_id, source_span_id=sid,
                     support_role="contextual", support_status="verified",
-                    evidence_hash=chash,
+                    evidence_hash=chash, conn=conn,
                 )
-        db.set_unit_support_status(db_path, unit_id, "verified")
+        db.set_unit_support_status(db_path, unit_id, "verified", conn=conn)
     elif verdict == "failed":
         target = best_id or (declared[0] if declared else None)
         if target and target in spans:
             db.upsert_claim_support(
                 db_path, knowledge_unit_id=unit_id, source_span_id=target,
                 support_role="primary", support_status="failed",
-                evidence_hash=spans[target][1], support_reason=reason,
+                evidence_hash=spans[target][1], support_reason=reason, conn=conn,
             )
-        db.set_unit_support_status(db_path, unit_id, "failed", reason)
+        db.set_unit_support_status(db_path, unit_id, "failed", reason, conn=conn)
     else:  # uncertain — not promoted; left unchecked with an audit-visible note
         if best_id:
             db.upsert_claim_support(
                 db_path, knowledge_unit_id=unit_id, source_span_id=best_id,
                 support_role="primary", support_status="unchecked",
-                evidence_hash=spans[best_id][1], support_reason=reason,
+                evidence_hash=spans[best_id][1], support_reason=reason, conn=conn,
             )
 
-    db.set_unit_formula_status(db_path, unit_id, formula_status)
+    db.set_unit_formula_status(db_path, unit_id, formula_status, conn=conn)
     return verdict
 
 
@@ -502,11 +511,11 @@ def run_compiler_audit(db_path: Path) -> AuditReport:
 
 def _reuse_verified_candidate(
     db_path: Path, old_id: str, candidate_id: str, *,
-    conn: "object | None" = None,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
     """Move a verified semantic-match candidate onto the prior stable id.
     Pass ``conn`` to run inside a caller's transaction (atomic publish)."""
-    with db._maybe_conn(db_path, conn) as c:  # type: ignore[arg-type]
+    with db._maybe_conn(db_path, conn) as c:
         candidate = c.execute(
             "SELECT * FROM knowledge_units WHERE id = ?", (candidate_id,)
         ).fetchone()
@@ -536,7 +545,7 @@ def _reuse_verified_candidate(
             """,
             (old_id, candidate_id),
         )
-    db.retire_knowledge_unit(db_path, candidate_id, conn=conn)  # type: ignore[arg-type]
+    db.retire_knowledge_unit(db_path, candidate_id, conn=conn)
 
 
 def reconcile_source(
@@ -546,7 +555,7 @@ def reconcile_source(
     current_span_ids: list[str] | None = None,
     candidate_unit_ids: list[str] | None = None,
     generation_id: str | None = None,
-    conn: "object | None" = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[str]:
     """Reconcile active units after source edit/delete/split.
 
@@ -568,7 +577,7 @@ def reconcile_source(
     staged generation being published (None for standalone reconciliation, where
     unchanged-basis units are simply left untouched).
     """
-    with db._maybe_conn(db_path, conn) as c:  # type: ignore[arg-type]
+    with db._maybe_conn(db_path, conn) as c:
         existing = {
             str(r[0]) for r in c.execute(
                 "SELECT id FROM source_spans WHERE source_id = ?", (source_id,)
@@ -630,7 +639,7 @@ def reconcile_source(
             # survives the publish gate with its id. Standalone reconciliation
             # (no generation) leaves it untouched, preserving the old behavior.
             if generation_id is not None:
-                with db._maybe_conn(db_path, conn) as c:  # type: ignore[arg-type]
+                with db._maybe_conn(db_path, conn) as c:
                     c.execute(
                         "UPDATE knowledge_units SET generation_id = ?, updated_at = ? "
                         "WHERE id = ?",
@@ -640,7 +649,7 @@ def reconcile_source(
 
         # Span basis changed/disappeared, or a candidate supersedes this claim
         # (cites its span with a materially different statement) → retire it.
-        db.retire_knowledge_unit(db_path, unit_id, conn=conn)  # type: ignore[arg-type]
+        db.retire_knowledge_unit(db_path, unit_id, conn=conn)
         retired.append(unit_id)
 
     # F7 (§26.4): stale spans of the edited source are removed rather than left
@@ -648,5 +657,5 @@ def reconcile_source(
     # was retired above, so the deletion cannot orphan an active claim.
     stale_spans = sorted(existing - current)
     if stale_spans:
-        db.delete_source_spans(db_path, stale_spans, conn=conn)  # type: ignore[arg-type]
+        db.delete_source_spans(db_path, stale_spans, conn=conn)
     return retired

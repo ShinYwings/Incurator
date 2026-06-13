@@ -69,7 +69,10 @@ evaluated_code:
       for the single-transaction publish (sha 1083ecd3); then (3) a 2nd B2 review
       fix adding `conn` to upsert_graph_entity / upsert_graph_relation (graph
       persists in the publish txn) and a dangling-span scrub of graph
-      source_span_ids in delete_source_spans (sha 3868dbcc, final). All are
+      source_span_ids in delete_source_spans (sha 3868dbcc); then (4) a 3rd B2
+      review fix adding `conn` to upsert_claim_support / set_unit_support_status /
+      set_unit_formula_status so recompile_source validates + attributes + flips in
+      ONE atomic transaction (sha a4e1785d, final). All are
       knowledge-unit eligibility / migration / transaction-plumbing / referential-
       hygiene helpers; none touches retrieval, ranking, fusion, projection, or
       materialize_chunks, so the lexical FTS5/BM25 Q06 holdout metric is provably
@@ -82,7 +85,7 @@ evaluated_code:
     backend/src/curator/retrieval/fusion.py: ffed6f90d6b0eb55692dfd9a02526d8e4a220ef6625a3e245175a07fa08eb716
     backend/src/curator/retrieval/embedding.py: a6a7da88af3fc824f1fa2c9a4f4ce0720e870c0584c49e011b865678cb0f8f7e
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
-    backend/src/curator/db.py: 3868dbcc392b6d6c82e8781cc6ac29645e599987f4f81109b59334f0571f31cc
+    backend/src/curator/db.py: a4e1785d4b51fdb3db35bdd11a19d96767d9131ba4df684763247c17f95b5cd4
   preflight_family_metrics:
     direct-factual:
       query_count: 7

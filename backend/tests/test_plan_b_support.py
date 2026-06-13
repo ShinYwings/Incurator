@@ -870,3 +870,41 @@ def test_delete_source_spans_scrubs_dangling_graph_refs(vault) -> None:
     assert _json.loads(ent) == ["SPAN-keep"]   # SPAN-drop scrubbed, SPAN-keep retained
     assert _json.loads(ent2) == ["SPAN-keep"]  # untouched entity unaffected
     assert _json.loads(rel) == []              # SPAN-drop scrubbed from the relation
+
+
+def test_recompile_publish_failure_rolls_back_validation_and_attribution(vault, monkeypatch) -> None:
+    # Atomic re-publish (§26.3): recompile_source validates + attributes + flips
+    # in ONE transaction, so a failure (here the flip) rolls back EVERYTHING —
+    # the prior authoritative generation, the served unit's generation_id, and
+    # its claim_supports are byte-identical (validation never mutates served state).
+    from curator.pipeline import compile as compile_mod
+
+    unit_id = _seed(vault, ["SPAN-pb000001"], "Backprop computes the gradient.")
+    validate_claim_support(vault.state_db, unit_id)
+    compile_mod.recompile_source(vault.state_db, 1)
+    gen_before = db.get_authoritative_generation(vault.state_db, 1)["id"]
+    with db.connect(vault.state_db) as conn:
+        gen_id_before = conn.execute(
+            "SELECT generation_id FROM knowledge_units WHERE id = ?", (unit_id,)).fetchone()[0]
+        supports_before = conn.execute(
+            "SELECT COUNT(*) FROM claim_supports WHERE knowledge_unit_id = ?", (unit_id,)).fetchone()[0]
+        conn.execute("UPDATE sources SET content_hash = 'edited-atomic' WHERE id = 1")
+
+    def _boom(*a, **k):
+        raise RuntimeError("flip failed")
+
+    monkeypatch.setattr(compile_mod.db, "publish_compiler_generation", _boom)
+    with pytest.raises(Exception):
+        compile_mod.recompile_source(vault.state_db, 1)
+
+    assert db.get_authoritative_generation(vault.state_db, 1)["id"] == gen_before
+    with db.connect(vault.state_db) as conn:
+        assert conn.execute(
+            "SELECT generation_id FROM knowledge_units WHERE id = ?", (unit_id,)
+        ).fetchone()[0] == gen_id_before  # attribution rolled back
+        assert conn.execute(
+            "SELECT COUNT(*) FROM claim_supports WHERE knowledge_unit_id = ?", (unit_id,)
+        ).fetchone()[0] == supports_before  # validation rolled back
+        assert conn.execute(
+            "SELECT COUNT(*) FROM compiler_generations WHERE status = 'authoritative'"
+        ).fetchone()[0] == 1  # no partial publish

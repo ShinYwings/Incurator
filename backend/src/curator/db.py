@@ -1873,16 +1873,18 @@ def upsert_claim_support(
     evidence_hash: str,
     support_reason: str = "",
     validator_trace_id: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
     """Insert or update one minimal-support record (SCHEMA §20.2). Storage only:
     callers (P4 validation) decide roles/statuses; a valid span id is never
-    proof of support on its own."""
+    proof of support on its own. Pass ``conn`` to run inside a caller's
+    transaction (atomic re-publish)."""
     if support_role not in SUPPORT_ROLES:
         raise ValueError(f"invalid support_role: {support_role!r}")
     if support_status not in SUPPORT_STATUSES:
         raise ValueError(f"invalid support_status: {support_status!r}")
     now = _now_iso()
-    with connect(db_path) as conn:
+    with _maybe_conn(db_path, conn) as conn:
         conn.execute(
             """
             INSERT INTO claim_supports
@@ -1913,14 +1915,16 @@ def list_claim_supports(db_path: Path, knowledge_unit_id: str) -> list[dict]:
 
 
 def set_unit_support_status(
-    db_path: Path, unit_id: str, status: str, reason: str = ""
+    db_path: Path, unit_id: str, status: str, reason: str = "",
+    *, conn: sqlite3.Connection | None = None,
 ) -> None:
-    """Update a knowledge unit's claim-level support verdict (SCHEMA §20.1)."""
+    """Update a knowledge unit's claim-level support verdict (SCHEMA §20.1).
+    Pass ``conn`` to run inside a caller's transaction (atomic re-publish)."""
     if status not in SUPPORT_STATUSES:
         raise ValueError(f"invalid support_status: {status!r}")
     if status in {"failed", "stale"} and not reason:
         raise ValueError(f"support_status={status!r} requires a non-empty reason")
-    with connect(db_path) as conn:
+    with _maybe_conn(db_path, conn) as conn:
         conn.execute(
             "UPDATE knowledge_units SET support_status = ?, support_reason = ?, "
             "updated_at = ? WHERE id = ?",
@@ -1929,12 +1933,14 @@ def set_unit_support_status(
 
 
 def set_unit_formula_status(
-    db_path: Path, unit_id: str, status: str, reason: str = ""
+    db_path: Path, unit_id: str, status: str, reason: str = "",
+    *, conn: sqlite3.Connection | None = None,
 ) -> None:
-    """Update a knowledge unit's formula lifecycle status (SCHEMA §20.1)."""
+    """Update a knowledge unit's formula lifecycle status (SCHEMA §20.1). Pass
+    ``conn`` to run inside a caller's transaction (atomic re-publish)."""
     if status not in FORMULA_STATUSES:
         raise ValueError(f"invalid formula_status: {status!r}")
-    with connect(db_path) as conn:
+    with _maybe_conn(db_path, conn) as conn:
         if reason:
             conn.execute(
                 "UPDATE knowledge_units SET formula_status = ?, support_reason = ?, "
