@@ -125,3 +125,66 @@ requires measured per-class loss verdicts first.
 - Clean rebuild from source truth is preserved: testbed sources are intact
   under `03_Notes/` and `04_Resources/` (read-only), and L2+ state is empty
   at baseline, so a full recompile is the trivial recovery path.
+
+## P2 — Failing Gold Tests And Compiler Audit Oracles (Completed)
+
+User approval of the P1 contracts was given (the Plan B "Mandatory Stop" is
+cleared); P2 adds tests and labeled fixtures only — no application/behavior
+code, so no version bump (that is P10).
+
+### Deliverables
+
+- `docs/specs/failure_atlas/plan_b_compiler_gold.yml` — deterministic +
+  human-labeled gold oracle fixture (Arena decision 10). Covers: 10 synthetic
+  L1 spans (central/incidental/equation/figure/long-tail), 4 support cases
+  (single-span, multi-span primary+contextual, F6 wrong-real-span, contradiction
+  across source revisions), 8 formula cases (preserved_in_text, linked_evidence,
+  omitted_incidental + reason code, missing on image-only loss, below-threshold
+  uncertain recovery, all three loss verdicts `fragmented`/`image_only`/
+  `parser_omitted`, and the F10 long formula tail), 4 reconciliation cases
+  (unchanged/edit/delete/split with expected closure), and 2 staged-publish
+  failure cases. All enums match SCHEMA §20 exactly.
+- `backend/tests/test_plan_b_compiler.py` — 9 `test_gold_*` structural tests
+  (PASS now: fixture integrity + enum conformance) and 16
+  `test_oracle_* xfail(strict=True)` contract oracles spanning the v8 schema
+  (§20.1-§20.3, §20.6), minimal-support lifecycle (§26.1 / F6), formula
+  lifecycle + selective recovery (§26.2, §20.4), full-span hydration
+  (SEARCH §10.2 / F10), staged atomic publish + idempotent rebuild (§26.3 /
+  F7), edit/delete/split reconciliation (§26.4), and the read-only compiler
+  audit traversing active claims to exact support (§20.5 / §26.5), including a
+  `wiki lint` Compiler Integrity surface oracle.
+
+### Oracle Mechanism
+
+Schema oracles assert name-stable frozen-spec facts (table/column/version), so
+they are the reliable XPASS triggers when P3 ships the additive migration.
+Behavior oracles assert observable DB/audit outcomes of the gold cases and
+resolve the Plan B entry point lazily (`_resolve(...)` over `db` + the compile
+pipeline), so this file does not pre-guess internal symbol names; P3-P6 point
+each oracle at the real API when turning it green. No not-yet-implemented
+symbol is imported at module top — collection never breaks.
+
+### `complex_math_backprop` Scope Note (P2 honest finding)
+
+There is NO `complex_math_backprop` pytest to "rewrite": that scenario is
+absent from `tests/scenarios/` (confirmed in this ledger's baseline). The
+nearest active math scenario is `resnet_neural_ode` (discrete residual blocks
+↔ continuous ODE dynamics). Per Root-Cause-Over-Workarounds, no fake test was
+fabricated to satisfy the checklist item — the math-specific deterministic
+cases were folded into `plan_b_compiler_gold.yml`, and the testbed scenario
+rewrite against DB-native L1-L4 + Reference Mode remains P7 scope.
+
+### Verification
+
+```
+uv run --directory backend pytest tests/test_plan_b_compiler.py -q
+  → 9 passed, 16 xfailed   (no xpass, no collection error)
+uv run --directory backend ruff check tests/test_plan_b_compiler.py
+  → All checks passed!
+uv run --directory backend pytest -q
+  → 732 passed, 26 xfailed   (baseline 723/10 + 9 gold passes + 16 oracles;
+     all 10 Program 1 strict-xfail oracles preserved)
+```
+
+Expected red→green gate confirmed: new behavior oracles fail (xfail) for the
+intended reasons; unchanged legacy tests remain green.

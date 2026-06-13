@@ -1,0 +1,276 @@
+# Plan B (Evidence Compiler Integrity, v0.8.0) deterministic gold fixtures.
+#
+# These are the RELEASE ORACLES for claim-level minimal support, formula
+# lifecycle, staged compile generations, and source reconciliation
+# (SCHEMA.md §20, SYSTEM_BEHAVIOR.md §26). Per Arena decision 10 the
+# deterministic/human-labeled gold fixtures are authoritative; model support
+# judges are secondary. All content here is synthetic — invented for this
+# repository, no live-vault material (privacy contract, FAILURE_ATLAS.md §9).
+#
+# The owning failure-atlas cases are F6 (broad-span fallback), F7 (rebuild
+# idempotency / stale reconciliation / atomic publish), and F10 (preview-only
+# span evidence). F8/F9 stay with Plan C.
+#
+# Editing this file changes a release oracle: bump `version` and re-measure.
+# The frozen enums below MUST match SCHEMA.md §20 exactly.
+#
+#   support_role     : primary | contextual | formula
+#   support_status   : unchecked | verified | failed | stale
+#   formula_status   : not_applicable | preserved_in_text | linked_evidence |
+#                      omitted_incidental | missing | uncertain
+#   loss_verdict     : fragmented | image_only | parser_omitted
+#   recovery_status  : candidate | reviewed | rejected
+#   generation_status: staged | authoritative | discarded
+version: 1
+
+# ---------------------------------------------------------------------------
+# Synthetic L1 source spans (the immutable evidence identity layer).
+# `content` is the FULL span text; `text_preview` truncation (200 chars) is the
+# F10 defect, so spans whose `content` exceeds 200 chars carry `long_tail: true`
+# and a unique end-marker the gold tests assert must remain retrievable.
+# ---------------------------------------------------------------------------
+spans:
+  - id: SPAN-pb000001
+    span_type: equation
+    central: true
+    content: >-
+      The chain rule composes layer Jacobians during backpropagation, giving
+      the weight gradient $\nabla_W L = \delta\, x^{T}$, where $\delta$ is the
+      error signal propagated from the next layer and $x$ is the layer input.
+  - id: SPAN-pb000002
+    span_type: equation
+    central: true
+    content: >-
+      Gradient descent updates each weight matrix by
+      $W \leftarrow W - \eta\, \nabla_W L$ with learning rate $\eta$.
+  - id: SPAN-pb000003
+    span_type: equation
+    central: true
+    content: >-
+      A residual block adds the identity branch, $y = x + F(x)$, so the
+      gradient flows through the skip connection unattenuated.
+  - id: SPAN-pb000004
+    span_type: paragraph
+    central: false
+    content: >-
+      Batch normalization standardizes activations to stabilize training;
+      incidentally its transform is $\hat{x} = (x - \mu)/\sigma$.
+  - id: SPAN-pb000005
+    span_type: paragraph
+    central: false
+    content: >-
+      In the reported experiments the deeper residual networks reached a lower
+      training loss faster than their plain counterparts.
+  - id: SPAN-pb000006
+    span_type: figure
+    central: true
+    content: >-
+      Figure 3 (rendered image only): the parser emitted a caption but no LaTeX
+      for the depicted Jacobian-norm bound.
+  - id: SPAN-pb000007
+    span_type: paragraph
+    central: false
+    content: >-
+      The reported validation error decreased monotonically across every epoch
+      in the first submission.
+  - id: SPAN-pb000008
+    span_type: paragraph
+    central: false
+    content: >-
+      The published erratum corrects the first submission: the validation error
+      plateaued after epoch 40 rather than decreasing monotonically.
+  - id: SPAN-pb000009
+    span_type: paragraph
+    central: false
+    long_tail: true
+    content: >-
+      Lemma 4.2 bounds the spectral norm of the layer-wise Jacobian under
+      residual reparameterization, with constants that depend on depth, width,
+      and the spectral norm of each weight matrix; the proof proceeds by
+      induction over layers, repeatedly applying submultiplicativity of the
+      operator norm and the triangle inequality to the residual decomposition,
+      and the constant is tightened by a careful accounting of the skip
+      branches that would otherwise be discarded by a 200-character preview.
+      QED-MARKER-PB009
+  - id: SPAN-pb000010
+    span_type: paragraph
+    central: false
+    content: >-
+      Coral bleaching occurs when sustained heat stress causes reef-building
+      corals to expel their symbiotic zooxanthellae algae.
+
+# ---------------------------------------------------------------------------
+# Support cases — claim-level minimal support (SCHEMA §20.2, SYSTEM_BEHAVIOR
+# §26.1). `declared` is the citation surface (knowledge_units.source_span_ids);
+# `minimal` is the smallest entailing subset recorded as claim_supports rows.
+# A claim is `verified` only if every minimal `primary` role span entails it
+# AND each evidence_hash matches current span content. Real span ids alone are
+# NOT proof of support — that is the F6 anti-pattern (SUP03).
+# ---------------------------------------------------------------------------
+support_cases:
+  - id: SUP01
+    label: minimal single-span support
+    statement: >-
+      Backpropagation computes the weight gradient as the outer product of the
+      propagated error signal and the layer input.
+    declared: [SPAN-pb000001]
+    minimal:
+      - {span: SPAN-pb000001, role: primary}
+    expected_support_status: verified
+
+  - id: SUP02
+    label: minimal multi-span support (primary + contextual)
+    statement: >-
+      Gradient descent updates the weights by subtracting the learning-rate
+      scaled gradient that backpropagation computed.
+    declared: [SPAN-pb000001, SPAN-pb000002]
+    minimal:
+      - {span: SPAN-pb000002, role: primary}
+      - {span: SPAN-pb000001, role: contextual}
+    expected_support_status: verified
+
+  - id: SUP03
+    label: wrong-real-span citation (F6 anti-pattern)
+    statement: >-
+      Backpropagation computes the weight gradient from the propagated error
+      signal and the layer input.
+    # Cites a REAL span id that does not entail the claim (coral reefs). A valid
+    # id is necessary but not sufficient — this must be rejected, not accepted.
+    declared: [SPAN-pb000010]
+    minimal:
+      - {span: SPAN-pb000010, role: primary}
+    expected_support_status: failed
+    expected_reason_contains: "does not minimally support"
+
+  - id: SUP04
+    label: contradiction across source revisions
+    statement: >-
+      The reported validation error decreased monotonically across every epoch.
+    declared: [SPAN-pb000007]
+    minimal:
+      - {span: SPAN-pb000007, role: primary}
+    # SPAN-pb000008 (the erratum) directly contradicts SPAN-pb000007. The two
+    # claims cannot both be served as verified; the audit flags the conflict.
+    contradicts_span: SPAN-pb000008
+    expected_support_status: verified  # individually entailed by its own span...
+    expected_contradiction: true       # ...but flagged by the contradiction audit
+
+# ---------------------------------------------------------------------------
+# Formula cases — central vs incidental formula handling and loss verdicts
+# (SCHEMA §20.1 formula_status, §20.4 recovery, SYSTEM_BEHAVIOR §26.2).
+# Selective recovery runs ONLY on a measured loss verdict; whole-corpus VLM is
+# rejected by contract. Parseable LaTeX alone never verifies a candidate.
+# ---------------------------------------------------------------------------
+formula_cases:
+  - id: FRM01
+    label: central formula preserved intact in claim text
+    span: SPAN-pb000001
+    statement: >-
+      The backprop weight gradient is $\nabla_W L = \delta\, x^{T}$.
+    expected_formula_status: preserved_in_text
+
+  - id: FRM02
+    label: central formula carried as linked formula evidence
+    span: SPAN-pb000003
+    statement: >-
+      A residual block adds an identity skip branch so gradients flow
+      unattenuated (see linked equation evidence).
+    # The exact equation lives in a `formula` role claim_supports row, not in
+    # the concise statement text.
+    formula_support_span: SPAN-pb000003
+    expected_formula_status: linked_evidence
+
+  - id: FRM03
+    label: incidental formula omitted with reason code
+    span: SPAN-pb000004
+    statement: >-
+      Batch normalization standardizes activations to stabilize training.
+    expected_formula_status: omitted_incidental
+    expected_reason_code: "incidental_omission:auxiliary_transform"
+
+  - id: FRM04
+    label: central formula lost in an image-only region (must not be served)
+    span: SPAN-pb000006
+    statement: >-
+      Figure 3 states a Jacobian-norm bound whose equation the parser dropped.
+    loss_verdict: image_only
+    expected_formula_status: missing
+
+  - id: FRM05
+    label: recovered candidate below threshold stays uncertain
+    span: SPAN-pb000006
+    loss_verdict: image_only
+    recovery:
+      status: candidate
+      confidence: 0.42        # below the acceptance threshold
+      latex: "\\lVert J \\rVert \\le L^{d}"
+    # Below threshold → not promoted, not served, owning claim stays uncertain.
+    expected_formula_status: uncertain
+    expected_recovery_status: candidate
+
+  - id: FRM06
+    label: fragmented parser output loss verdict
+    span: SPAN-pb000006
+    loss_verdict: fragmented
+
+  - id: FRM07
+    label: parser-omitted region loss verdict
+    span: SPAN-pb000006
+    loss_verdict: parser_omitted
+
+  - id: FRM08
+    label: long formula tail must remain fully retrievable (F10)
+    span: SPAN-pb000009
+    # The preview caps at 200 chars; the end marker proves the tail survives.
+    expected_full_text_marker: QED-MARKER-PB009
+
+# ---------------------------------------------------------------------------
+# Reconciliation cases — unchanged rebuild idempotency and edit/delete/split
+# dependency-closure invalidation (SCHEMA §20.3, SYSTEM_BEHAVIOR §26.3/§26.4).
+# `changed_closure` lists the claim ids expected to regenerate; everything else
+# MUST keep its id, hash, and verified support.
+# ---------------------------------------------------------------------------
+reconciliation_cases:
+  - id: REC01
+    label: unchanged rebuild is identity-stable (F7 idempotency)
+    mutation: none
+    claims: [SUP01, SUP02]
+    expected_changed_closure: []        # zero regeneration, zero count amplification
+
+  - id: REC02
+    label: one-source edit regenerates only its closure
+    mutation: edit
+    edited_span: SPAN-pb000002
+    claims: [SUP01, SUP02]
+    expected_changed_closure: [SUP02]   # SUP01 (cites only SPAN-pb000001) untouched
+
+  - id: REC03
+    label: source delete retires dependent claims (never silent-deletes)
+    mutation: delete
+    deleted_span: SPAN-pb000002
+    claims: [SUP02]
+    expected_retired: [SUP02]
+
+  - id: REC04
+    label: source split reconciles spans without duplicate accumulation
+    mutation: split
+    split_span: SPAN-pb000001
+    claims: [SUP01]
+    expected_changed_closure: [SUP01]
+
+# ---------------------------------------------------------------------------
+# Compile-failure cases — staged atomic publish (SCHEMA §20.3,
+# SYSTEM_BEHAVIOR §26.3). A failed compile publishes NO partial authoritative
+# state; the prior authoritative generation keeps serving.
+# ---------------------------------------------------------------------------
+compile_failure_cases:
+  - id: CMP01
+    label: provider/prompt failure discards the staged generation
+    failure_point: extraction_provider_error
+    expected_generation_status: discarded
+    expected_partial_publish: false
+  - id: CMP02
+    label: publish-gate audit failure discards the staged generation
+    failure_point: publish_gate_audit_failed
+    expected_generation_status: discarded
+    expected_partial_publish: false

@@ -40,14 +40,23 @@ Integrity release (target v0.8.0).
 - [x] Review the execution phases (P0 to P10) in `.agents/plans/B_math_extraction_distillation.md`.
 - [x] P0 — Program Setup And Measured Baseline (commit `5a4ea2c`).
 - [x] P1 — Docs-First Contract And Migration Specification (commit `ea244d0`).
-- [ ] **STOPPED — awaiting user approval of the P1 contracts before any
-  application code (Plan B "Mandatory Stop").**
-- [ ] P2 — Failing gold tests and compiler audit oracles (after approval).
+- [x] **APPROVED — user cleared the Plan B "Mandatory Stop" (P1 contracts
+  approved); application code is now authorized from P3 onward.**
+- [x] P2 — Failing gold tests and compiler audit oracles. Added
+  `docs/specs/failure_atlas/plan_b_compiler_gold.yml` (deterministic +
+  human-labeled gold) and `backend/tests/test_plan_b_compiler.py` (9 gold
+  structural PASS + 16 `xfail(strict)` schema/support/formula/audit oracles).
+  Full suite 732 passed, 26 xfailed; ruff clean. No application code yet.
+- [ ] P3 — Additive schema and support lifecycle (v8 migration: `claim_supports`,
+  `compiler_generations`, `knowledge_units` additive columns; backfill legacy
+  rows `unchecked`). Turns the §20.1-§20.3/§20.6 schema oracles green first.
 
 ## Verification
 
-- `uv run --directory backend pytest -q` → 723 passed, 10 xfailed.
-- `uv run --directory backend ruff check src/` → clean.
+- `uv run --directory backend pytest -q` → 732 passed, 26 xfailed (P2; baseline
+  723/10 + 9 gold passes + 16 new Plan B oracles; all 10 Program 1 strict-xfail
+  oracles preserved).
+- `uv run --directory backend ruff check src/ tests/test_plan_b_compiler.py` → clean.
 - `VAULT_ROOT=$REPO/testbed wiki status` → gaussian_splatting testbed healthy
   (3 sources, L1 done, L2-L4 pending; pre-existing "vault schema v0 → v1"
   warning predates Plan B).
@@ -70,7 +79,12 @@ Integrity release (target v0.8.0).
 
 ## Immediate Next Action
 
-USER: review and approve the P1 contracts (SCHEMA.md §20, SYSTEM_BEHAVIOR.md
-§26, SEARCH_ENGINE_SCHEMA.md §10) so implementation can start.
-Executors: after approval, begin P2 (failing gold tests + compiler audit
-oracles) per the master plan; do NOT write application code before then.
+Executors: P1 approved and P2 (red TDD state) committed. Begin P3 — implement
+the v8 additive migration in `db.py` (`claim_supports`, `compiler_generations`,
+`knowledge_units` additive columns; `deleted_records` tombstone CHECK + export
+extension), backfilling every legacy `knowledge_units` row as
+`support_status='unchecked'`, `formula_status='not_applicable'`,
+`generation_id=NULL`. Drive the §20.1-§20.3/§20.6 schema oracles in
+`tests/test_plan_b_compiler.py` green (un-xfail them in the same change) and
+rehearse the migration on `.agents/backups/b-pre-implementation-state.sqlite`
+per SYSTEM_BEHAVIOR §26.6 before touching the live testbed DB.
