@@ -83,11 +83,14 @@ Integrity release (target v0.8.0).
   stable-id reuse requires whitespace-normalized exact statement equality.
   Formula matching now preserves ordered tokens/grouping and admits only exact
   contiguous sub-formulas, preventing exponent/subtraction/fraction reversal.
+- [x] PM Code Review for P4 logic. Fixed formula-only parse-loss shadowing so
+  missing formulas route to P5 as `uncertain`; added an explicit empty/garbage
+  claim failure; escaped `\$` literals no longer parse as formulas.
 
 ## Verification
 
-- `uv run --directory backend pytest -q` → 775 passed, 16 xfailed (P4 complete
-  plus directionality/formula-binding review fix;
+- `uv run --directory backend pytest -q` → 778 passed, 16 xfailed (P4 complete
+  plus both review-fix rounds;
   the 6 remaining Plan B P5/P6 oracles + 10 Program 1 strict-xfail oracles
   remain xfail).
 - `uv run --directory backend ruff check src/` → clean. (`ruff check tests/`
@@ -117,21 +120,9 @@ Integrity release (target v0.8.0).
 
 ## Immediate Next Action
 
-Executors: P3 (v8 additive schema + lifecycle helpers) committed; suite green.
-The P4 support-validation mechanism is SETTLED (SYSTEM_BEHAVIOR §26.1; rationale
-in `B_roadmap_evidence.md` "P4 Design Decision"): a deterministic STRUCTURAL
-gate (verified|failed|uncertain trichotomy) primary, calibrated model secondary
-for `uncertain` only. Formula check = ordered normalized token sequence over
-inline `$...$` AND display `$$...$$` (preserves direction/binding; accepts only
-contiguous sub-formulas; no AST/CAS); text check = salient entity/term intersection
-above threshold (zero overlap → `failed`, the F6 gate). Validate on hydrated
-FULL span text, never the preview. Do NOT lookup the gold YAML at runtime
-(overfitting ban); it is the test-time release oracle only.
-
-P4 is complete; the directionality/formula-binding review fix is validated and
-committed in current HEAD. Continue P5: implement
-provider-free formula loss classification for `fragmented | image_only |
-parser_omitted`, route P4 `formula_status='uncertain'` claims into selective
-recovery candidates, preserve raw evidence, and revalidate only accepted
-recovery output. Then remove destructive central-formula truncation from the
-graph input/search materialization path.
+P4 review fixes are implemented and full validation is green. Continue P5:
+implement provider-free formula loss classification for `fragmented |
+image_only | parser_omitted`, route P4 `formula_status='uncertain'` claims into
+selective recovery candidates, preserve raw evidence, and revalidate only
+accepted recovery output. Then remove destructive central-formula truncation
+from the graph input/search materialization path.

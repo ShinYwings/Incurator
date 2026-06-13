@@ -55,7 +55,10 @@ _STOPWORDS = frozenset({
     "a", "any", "all", "both", "so", "if", "out", "up", "we", "you", "our",
 })
 
-_LATEX_RE = re.compile(r"\$\$(.+?)\$\$|\$(.+?)\$", re.DOTALL)
+_LATEX_RE = re.compile(
+    r"(?<!\\)\$\$(.+?)(?<!\\)\$\$|(?<!\\)\$(.+?)(?<!\\)\$",
+    re.DOTALL,
+)
 _TERM_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9]{2,}")
 _FORMULA_TOKEN_RE = re.compile(r"\\[a-zA-Z]+|[^\s\\]")
 
@@ -242,7 +245,11 @@ def validate_claim_support(
         verdict = "verified"
         reason = ""
         formula_status = "preserved_in_text"
-    elif best_cov < _SUPPORT_FAIL:
+    elif not claim_terms and not has_formula:
+        verdict = "failed"
+        reason = "claim has no salient text or formula to validate"
+        formula_status = "not_applicable"
+    elif claim_terms and best_cov < _SUPPORT_FAIL:
         verdict = "failed"
         reason = "the cited span does not minimally support the claim (no salient term overlap)"
         formula_status = "missing" if has_formula else "not_applicable"

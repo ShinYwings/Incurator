@@ -1534,9 +1534,9 @@ F3/F4/F5/F11/F12 stay with Program 3.
   A valid span id alone NEVER proves support (the F6 anti-pattern), and a
   semantic-similarity/NLI score alone NEVER verifies a formula.
 - Formula structural rule (deterministic, no CAS): a claim's LaTeX formula —
-  inline `$...$` or display `$$...$$` — is "present" in a span iff, after
-  normalization (strip whitespace and spacing macros such as `\,`/`\!`/`\;`,
-  while preserving grouping braces), its ordered token sequence is an exact
+  unescaped inline `$...$` or display `$$...$$` — is "present" in a span iff,
+  after normalization (strip whitespace and spacing macros such as
+  `\,`/`\!`/`\;`, while preserving grouping braces), its ordered token sequence is an exact
   contiguous subsequence of some formula in the span. This admits a faithful
   extracted sub-formula (`M` from `M = \int \rho dV`) while preserving
   operation direction and binding: `a^b` ≠ `b^a`, `a-b` ≠ `b-a`, and
@@ -1545,7 +1545,11 @@ F3/F4/F5/F11/F12 stay with Program 3.
   `formula_status='missing'`; a structurally altered one is a `failed` support,
   never silently accepted. For a formula-only atomic unit with no prose terms,
   an ordered structural match is sufficient support; prose overlap is not
-  required when there is no prose to score.
+  required when there is no prose to score. If its formula is absent or altered,
+  it routes to `uncertain` for P5 selective recovery rather than failing the
+  prose-overlap gate. A claim with neither salient prose nor a formula fails as
+  invalid/empty. Escaped currency/literal dollars (`\$`) are never formula
+  delimiters.
 - A claim whose cited spans fail minimal-support validation is marked
   `support_status='failed'` with a reason; it is excluded from downstream
   compile stages and flagged by the compiler audit. Wrong-real-span citations

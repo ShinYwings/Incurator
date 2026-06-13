@@ -18,6 +18,7 @@ from curator import config as cfg
 from curator import db
 from curator.pipeline.claim_support import (
     _content_terms,
+    _extract_latex,
     _formula_tokens,
     _is_formula_subsequence,
     normalize_claim,
@@ -90,6 +91,11 @@ def test_formula_subsequence_requires_contiguous_ordered_tokens() -> None:
     span = _formula_tokens(r"M = \int \rho dV")
     assert _is_formula_subsequence(_formula_tokens("M"), span)
     assert not _is_formula_subsequence(_formula_tokens(r"\rho M"), span)
+
+
+def test_extract_latex_ignores_escaped_dollars() -> None:
+    assert _extract_latex(r"Price is \$10 only.") == []
+    assert _extract_latex(r"Price is \$10, and $x=5$.") == ["x=5"]
 
 
 def test_content_terms_strip_latex_and_stopwords() -> None:
@@ -209,6 +215,50 @@ def test_valid_subformula_on_right_topic_is_verified(vault) -> None:
         statement="$M$", source_span_ids=[span_id], source_id=1,
     )
     assert validate_claim_support(vault.state_db, unit_id) == "verified"
+
+
+def test_formula_only_parse_loss_routes_to_uncertain(vault) -> None:
+    span_id = "SPAN-formula-loss"
+    span_text = "The PDF parser omitted the equation from this region."
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', 'formula-loss-hash', ?, '2026-01-01T00:00:00Z')",
+            (span_id, RELPATH, span_text),
+        )
+    unit_id = db.upsert_knowledge_unit(
+        vault.state_db, unit_type="equation", canonical_name="Lost formula",
+        statement=r"$\lVert J \rVert \le L^{d}$", source_span_ids=[span_id],
+        source_id=1,
+    )
+
+    assert validate_claim_support(vault.state_db, unit_id) == "uncertain"
+    with db.connect(vault.state_db) as conn:
+        row = conn.execute(
+            "SELECT support_status, formula_status FROM knowledge_units WHERE id = ?",
+            (unit_id,),
+        ).fetchone()
+    assert row["support_status"] == "unchecked"
+    assert row["formula_status"] == "uncertain"
+
+
+def test_claim_without_salient_text_or_formula_fails(vault) -> None:
+    span_id = "SPAN-garbage"
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', 'garbage-hash', 'source text', "
+            "'2026-01-01T00:00:00Z')",
+            (span_id, RELPATH),
+        )
+    unit_id = db.upsert_knowledge_unit(
+        vault.state_db, unit_type="atom", canonical_name="Garbage",
+        statement="the and of", source_span_ids=[span_id], source_id=1,
+    )
+
+    assert validate_claim_support(vault.state_db, unit_id) == "failed"
 
 
 # ---------------------------------------------------------------------------

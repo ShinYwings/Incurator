@@ -446,3 +446,26 @@ Review-fix verification:
 - `uv run --directory backend ruff check src/` → clean.
 - `uv run --directory backend mypy src/curator/pipeline/claim_support.py` →
   clean.
+
+## P4 Review Fix — Formula-Only Parse Loss And Escaped Dollars
+
+A second in-flight review found two release-blocking edge cases:
+
+- Formula-only claims have no prose terms, so their text coverage is `0.0`.
+  The initial verdict order hard-failed a missing/altered formula before it
+  could route to P5. Textual low-overlap failure now applies only when salient
+  prose exists. Formula-only exact matches verify; formula-only mismatches stay
+  `uncertain`; claims with neither salient prose nor a formula fail explicitly.
+- `_LATEX_RE` treated escaped literal/currency dollars (`\$`) as delimiters.
+  Unescaped negative-lookbehind delimiters now parse real inline/display math
+  without consuming escaped dollar text.
+
+Added regression coverage for formula-only parse loss, empty/garbage claims,
+and escaped-dollar text mixed with a real inline formula.
+
+Second review-fix verification:
+
+- `uv run --directory backend pytest -q` → 778 passed, 16 xfailed.
+- `uv run --directory backend ruff check src/` → clean.
+- `uv run --directory backend mypy src/curator/pipeline/claim_support.py` →
+  clean.
