@@ -819,3 +819,34 @@ The 8 remaining xfails are Program-1 F6/F8/F9 (Plan C) and F3/F4/F5/F11/F12
 (Program 3). Next: Plan B P7 — testbed end-to-end compiler audit + provider-backed
 extraction/recovery (or documented blocker), then P8-P10 (role reviews, full CI,
 v0.8.0 release covering B + B2).
+
+### Plan B2 Review Round (2026-06-13) — atomic publish + graph LLM ordering
+
+A post-B2 review raised four findings; verified each against the code before acting:
+
+- **Finding 4 (lost P4/P5 fixes / text-overlap-before-formula) — REJECTED, false.**
+  Fix 3 is in HEAD (`8cc6bac`); both regression tests exist; the working tree is
+  clean; `review_p4_p5_structural_flaws.md` does not exist. The cited
+  "text-before-formula" order IS the previous review's Fix 4, which the user
+  deliberately rejected as a §26.1 F6-gate violation — current order (F6 text
+  fail precedes formula→P5) is pinned by 3 passing tests.
+- **Findings 1+3 (graph LLM outside staging; tautological O2) — FIXED (`8a5b0e0`).**
+  graph_index split into `extract_graph_data` (LLM→memory) + `persist_graph_data`;
+  compile extracts the graph during staging (behind the gate) so a graph LLM
+  failure discards the staged units and publishes nothing. Added a
+  graph-extraction-failure test; updated the Program-1 partial-graph experiment
+  (the split makes multi-batch extraction all-or-nothing).
+- **Atomicity (persist-after-publish + reconcile-exception) — FIXED (`8a5b0e0`).**
+  A `persist_graph_data` exception after `_publish_generation` would have made the
+  except block delete the just-authoritative units (data loss); reconcile's
+  prior-id re-tagging meant any post-reconcile exception corrupted prior state.
+  Fix: persist graph BEFORE reconcile (span-anchored), and run reconcile + publish
+  in ONE transaction (`db._maybe_conn` + optional `conn` on
+  retire_knowledge_unit / delete_source_spans / list_generation_units /
+  publish_compiler_generation / reconcile_source / _reuse_verified_candidate). Any
+  exception rolls the whole publish back; the prior authoritative generation stays
+  byte-identical. Two new tests prove it (graph-persist failure; in-transaction
+  publish failure). D2 db.py fingerprint re-armed (transaction plumbing; no
+  ranking path).
+
+Verification: `pytest -q` → 821 passed, 8 xfailed; ruff clean; mypy 0 introduced.
