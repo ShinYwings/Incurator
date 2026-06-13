@@ -492,3 +492,22 @@ Third review-fix verification:
 - `uv run --directory backend ruff check src/` → clean.
 - `uv run --directory backend mypy src/curator/pipeline/claim_support.py` →
   clean.
+
+## P4 Review Fix — Text Failure Does Not Erase Formula Preservation
+
+A fourth in-flight review found an inconsistent cross-axis status: a
+formula-bearing claim with hallucinated/unsupported prose correctly failed F6
+text grounding, but the same branch marked an exactly matched formula
+`missing`. The text-failure branch now preserves `formula_status=
+'preserved_in_text'` when structural formula matching succeeds. This keeps the
+failed support verdict without falsely routing an existing formula to P5.
+
+Added regression coverage for `support_status='failed'` together with
+`formula_status='preserved_in_text'`.
+
+Fourth review-fix verification:
+
+- `uv run --directory backend pytest -q` → 780 passed, 16 xfailed.
+- `uv run --directory backend ruff check src/` → clean.
+- `uv run --directory backend mypy src/curator/pipeline/claim_support.py` →
+  clean.

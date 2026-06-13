@@ -200,6 +200,33 @@ def test_altered_formula_on_right_topic_is_uncertain(vault) -> None:
     assert row["formula_status"] == "uncertain"   # routed to P5 recovery
 
 
+def test_textual_failure_preserves_matching_formula_status(vault) -> None:
+    span_id = "SPAN-formula-only-support"
+    span_text = r"The equation is $x^2$."
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', 'formula-support-hash', ?, "
+            "'2026-01-01T00:00:00Z')",
+            (span_id, RELPATH, span_text),
+        )
+    unit_id = db.upsert_knowledge_unit(
+        vault.state_db, unit_type="atom", canonical_name="Hallucinated prose",
+        statement=r"Coral bleaching proves symbiotic algae vanish via $x^2$.",
+        source_span_ids=[span_id], source_id=1,
+    )
+
+    assert validate_claim_support(vault.state_db, unit_id) == "failed"
+    with db.connect(vault.state_db) as conn:
+        row = conn.execute(
+            "SELECT support_status, formula_status FROM knowledge_units WHERE id = ?",
+            (unit_id,),
+        ).fetchone()
+    assert row["support_status"] == "failed"
+    assert row["formula_status"] == "preserved_in_text"
+
+
 def test_valid_subformula_on_right_topic_is_verified(vault) -> None:
     span_id = "SPAN-subformula"
     span_text = r"The mass is $M = \int \rho dV$."

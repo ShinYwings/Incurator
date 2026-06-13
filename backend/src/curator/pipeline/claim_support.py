@@ -263,7 +263,11 @@ def validate_claim_support(
     elif claim_terms and best_cov < _SUPPORT_FAIL:
         verdict = "failed"
         reason = "the cited span does not minimally support the claim (no salient term overlap)"
-        formula_status = "missing" if has_formula else "not_applicable"
+        formula_status = (
+            "preserved_in_text"
+            if formula_ok
+            else ("missing" if has_formula else "not_applicable")
+        )
     elif has_formula and not formula_ok:
         # Right topic, but the formula is absent/altered in the span: route to
         # P5 selective recovery rather than hard-fail (could be parse loss).

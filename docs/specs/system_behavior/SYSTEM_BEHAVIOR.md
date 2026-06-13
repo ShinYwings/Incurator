@@ -1552,7 +1552,11 @@ F3/F4/F5/F11/F12 stay with Program 3.
   delimiters. When multiple spans are cited, the verified `primary` support is
   the span with the highest `(matched claim formulas, prose term coverage)`
   score; this prevents a formula-only claim from binding to an arbitrary
-  non-formula span.
+  non-formula span. Claim support and formula preservation are independent
+  status axes: an F6 textual-grounding failure may still carry
+  `formula_status='preserved_in_text'` when the cited span structurally contains
+  the formula. Such a formula must not be mislabeled `missing` or routed to P5
+  recovery.
 - A claim whose cited spans fail minimal-support validation is marked
   `support_status='failed'` with a reason; it is excluded from downstream
   compile stages and flagged by the compiler audit. Wrong-real-span citations

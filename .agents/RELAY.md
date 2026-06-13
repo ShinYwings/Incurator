@@ -86,12 +86,14 @@ Integrity release (target v0.8.0).
   Formula-only parse loss routes to P5 as `uncertain`, escaped `\$` is ignored
   as a delimiter, and formula-bearing spans outrank non-formula spans for
   `primary` support. Legacy NULL-hash fallback was explicitly rejected under
-  the no-backward-compatibility-shims invariant.
+  the no-backward-compatibility-shims invariant. F6 textual support failures now
+  preserve `formula_status='preserved_in_text'` when the formula structurally
+  matches, preventing false P5 recovery.
 
 ## Verification
 
-- `uv run --directory backend pytest -q` → 779 passed, 16 xfailed (P4 complete
-  plus three review-fix rounds;
+- `uv run --directory backend pytest -q` → 780 passed, 16 xfailed (P4 complete
+  plus four review-fix rounds;
   the 6 remaining Plan B P5/P6 oracles + 10 Program 1 strict-xfail oracles
   remain xfail).
 - `uv run --directory backend ruff check src/` → clean. (`ruff check tests/`
