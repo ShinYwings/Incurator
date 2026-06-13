@@ -59,8 +59,8 @@ Integrity release (target v0.8.0).
   fingerprint re-armed to HEAD (user-approved; metric provably unaffected,
   additive change). Full suite 750 passed, 21 xfailed; ruff src/ clean; 0 new
   mypy errors.
-- [~] P4 — Claim extraction, minimal support, and stable reconciliation.
-  CORE DONE: `pipeline/claim_support.py` — deterministic structural gate
+- [x] P4 — Claim extraction, minimal support, and stable reconciliation.
+  `pipeline/claim_support.py` implements the deterministic structural gate
   (verified|failed|uncertain trichotomy per §26.1), LaTeX token-multiset formula
   check (reorder-tolerant, operator/sign-sensitive), `normalize_claim`/
   `semantic_hash`, `run_compiler_audit` (freshness + unsupported), and
@@ -70,20 +70,20 @@ Integrity release (target v0.8.0).
   unsupported); added `tests/test_plan_b_support.py` (12 unit tests incl. the
   `a^2+b^2` vs `a^2-b^2` multiset proof). Suite 768 passed, 16 xfailed; ruff
   src/ clean; 0 new mypy.
-  REMAINING P4: (1) wire `validate_claim_support` into `compile_source_l2`
-  (populate `claim_supports` + set support_status on real compiles, passing full
-  span text); (2) enforce downstream eligibility (exclude retired/unverified
-  from graph/synthesis input) — verify it doesn't starve existing compile/graph
-  tests; (3) version the knowledge-unit prompt contract to DECLARE minimal
-  support roles + formula centrality; (4) extend reconciliation to changed/split
-  (semantic_hash candidate matching), not just delete.
+  COMPLETE integration: `compile_source_l2` validates with hydrated full span
+  text before downstream use; prompt contract is now
+  `curator.knowledge_unit_extract@v2` with proposed support roles/formula
+  centrality; proposals persist as unchecked and are replaced by the fresh gate
+  verdict; ATM/graph/projection re-emission/knowledge-unit search read only
+  verified active units; changed/split reconciliation reuses a prior stable id
+  only for a verified semantic-hash + normalized-statement match and retires the
+  temporary candidate.
 
 ## Verification
 
-- `uv run --directory backend pytest -q` → 768 passed, 16 xfailed (P4 core; 5
-  more behavior oracles un-xfailed → passing, +12 new support unit tests; the 6
-  remaining Plan B P5/P6 oracles + 10 Program 1 strict-xfail oracles remain
-  xfail).
+- `uv run --directory backend pytest -q` → 772 passed, 16 xfailed (P4 complete;
+  the 6 remaining Plan B P5/P6 oracles + 10 Program 1 strict-xfail oracles
+  remain xfail).
 - `uv run --directory backend ruff check src/` → clean. (`ruff check tests/`
   shows 6 PRE-EXISTING errors in test_cli_update/test_migrate/test_plugin_cli/
   test_db_sync imports — outside CI scope and outside Plan B's changes.)
@@ -95,7 +95,7 @@ Integrity release (target v0.8.0).
 
 ## Critical Context And Blockers
 
-- BLOCKER (by design): user approval required before P2+ implementation.
+- No active implementation blocker; the P1 mandatory stop was approved.
 - Frozen P1 design points the user should review: `claim_supports` roles
   (`primary|contextual|formula`), support statuses
   (`unchecked|verified|failed|stale`), `formula_status` enum,
@@ -122,17 +122,9 @@ above threshold (zero overlap → `failed`, the F6 gate). Validate on hydrated
 FULL span text, never the preview. Do NOT lookup the gold YAML at runtime
 (overfitting ban); it is the test-time release oracle only.
 
-Continue P4 — the deterministic validator CORE is done and committed
-(`pipeline/claim_support.py`, 5 oracles green). Remaining P4 increments, in
-order: (1) wire `validate_claim_support` into `compile_source_l2` after
-extraction — pass full span text from `span_inputs`, populate `claim_supports`,
-set `support_status`/`formula_status`/`semantic_hash` on each unit; (2) enforce
-the §20.1 eligibility rule on downstream stages (graph/synthesis read only
-`retired_at IS NULL AND support_status='verified'` units) — FIRST confirm the
-fake-LLM compile/graph/synthesis tests still pass (their claims must lexically
-support their spans; `test_compile_pipeline`'s do); (3) version the
-`curator.knowledge_unit_extract` prompt contract to DECLARE minimal support
-roles + formula centrality (the model proposes, the deterministic gate
-disposes); (4) extend reconciliation to changed/split via `semantic_hash`
-candidate matching. Then P5 (selective formula recovery; the `uncertain`
-formula verdicts from P4 are its input queue).
+P4 is complete and committed as `49eade2`. Continue P5: implement
+provider-free formula loss classification for `fragmented | image_only |
+parser_omitted`, route P4 `formula_status='uncertain'` claims into selective
+recovery candidates, preserve raw evidence, and revalidate only accepted
+recovery output. Then remove destructive central-formula truncation from the
+graph input/search materialization path.

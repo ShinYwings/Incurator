@@ -73,7 +73,7 @@ def test_run_prompt_persists_trace(db_path: Path) -> None:
     run = db.get_prompt_run(db_path, result.trace_id)
     assert run is not None
     assert run["prompt_id"] == "curator.knowledge_unit_extract"
-    assert run["prompt_version"] == "v1"
+    assert run["prompt_version"] == "v2"
     assert run["validator_status"] == "ok"
     assert run["model_name"] == "fake-model"
     assert run["input_hash"]

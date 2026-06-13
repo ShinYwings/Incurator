@@ -161,6 +161,15 @@ def _set_semantic_hash(db_path: Path, unit_id: str, value: str) -> None:
         )
 
 
+def _clear_claim_supports(db_path: Path, unit_id: str) -> None:
+    """Remove prior/proposed support rows before writing one fresh verdict."""
+    with db.connect(db_path) as conn:
+        conn.execute(
+            "DELETE FROM claim_supports WHERE knowledge_unit_id = ?",
+            (unit_id,),
+        )
+
+
 def validate_claim_support(
     db_path: Path,
     unit_id: str,
@@ -184,6 +193,7 @@ def validate_claim_support(
     declared: list[str] = unit["source_span_ids"]
     spans = _load_spans(db_path, declared, span_texts)
     _set_semantic_hash(db_path, unit_id, semantic_hash(statement))
+    _clear_claim_supports(db_path, unit_id)
 
     claim_terms = _content_terms(statement)
     claim_formulas = [_formula_multiset(f) for f in _extract_latex(statement)]
@@ -281,25 +291,105 @@ def run_compiler_audit(db_path: Path) -> AuditReport:
                        stale_claims=stale)
 
 
-def reconcile_source(db_path: Path, source_id: int) -> list[str]:
-    """Retire active units of `source_id` whose cited spans no longer exist
-    (SYSTEM_BEHAVIOR §26.4). Retirement is a tombstone (`retired_at`), never a
-    delete; retired units never feed downstream stages. Returns retired ids."""
+def _reuse_verified_candidate(
+    db_path: Path, old_id: str, candidate_id: str
+) -> None:
+    """Move a verified semantic-match candidate onto the prior stable id."""
+    with db.connect(db_path) as conn:
+        candidate = conn.execute(
+            "SELECT * FROM knowledge_units WHERE id = ?", (candidate_id,)
+        ).fetchone()
+        if candidate is None:
+            return
+        fields = (
+            "unit_type", "canonical_name", "statement", "source_span_ids",
+            "source_id", "confidence", "truth_status", "prompt_run_id",
+            "semantic_hash", "support_status", "support_reason",
+            "formula_status", "generation_id",
+        )
+        assignments = ", ".join(f"{field} = ?" for field in fields)
+        conn.execute(
+            f"UPDATE knowledge_units SET {assignments}, updated_at = ? WHERE id = ?",
+            tuple(candidate[field] for field in fields) + (candidate["updated_at"], old_id),
+        )
+        conn.execute("DELETE FROM claim_supports WHERE knowledge_unit_id = ?", (old_id,))
+        conn.execute(
+            """
+            INSERT INTO claim_supports
+                (knowledge_unit_id, source_span_id, support_role, support_status,
+                 support_reason, evidence_hash, validator_trace_id, created_at, updated_at)
+            SELECT ?, source_span_id, support_role, support_status, support_reason,
+                   evidence_hash, validator_trace_id, created_at, updated_at
+              FROM claim_supports
+             WHERE knowledge_unit_id = ?
+            """,
+            (old_id, candidate_id),
+        )
+    db.retire_knowledge_unit(db_path, candidate_id)
+
+
+def reconcile_source(
+    db_path: Path,
+    source_id: int,
+    *,
+    current_span_ids: list[str] | None = None,
+    candidate_unit_ids: list[str] | None = None,
+) -> list[str]:
+    """Reconcile active units after source edit/delete/split.
+
+    Units citing spans outside `current_span_ids` retire unless a newly
+    extracted, verified candidate has the same normalized claim. Such a
+    candidate revalidates the old stable id, then retires its temporary id.
+    Semantic hashes only propose candidates; normalized statements are compared
+    again before reuse. Returns every id retired by reconciliation.
+    """
     with db.connect(db_path) as conn:
         existing = {
-            r[0] for r in conn.execute(
+            str(r[0]) for r in conn.execute(
                 "SELECT id FROM source_spans WHERE source_id = ?", (source_id,)
             ).fetchall()
         }
-        units = conn.execute(
-            "SELECT id, source_span_ids FROM knowledge_units "
-            "WHERE source_id = ? AND retired_at IS NULL",
-            (source_id,),
-        ).fetchall()
+        current = set(current_span_ids) if current_span_ids is not None else existing
+        units = [
+            dict(row) for row in conn.execute(
+                "SELECT id, statement, source_span_ids, semantic_hash, support_status "
+                "FROM knowledge_units WHERE source_id = ? AND retired_at IS NULL",
+                (source_id,),
+            ).fetchall()
+        ]
+
+    candidate_ids = set(candidate_unit_ids or [])
+    candidates = {
+        str(unit["id"]): unit
+        for unit in units
+        if str(unit["id"]) in candidate_ids
+        and unit["support_status"] == "verified"
+        and unit.get("semantic_hash")
+    }
     retired: list[str] = []
     for u in units:
+        unit_id = str(u["id"])
+        if unit_id in candidate_ids:
+            continue
         cited = json.loads(u["source_span_ids"] or "[]")
-        if any(sid not in existing for sid in cited):
-            db.retire_knowledge_unit(db_path, u["id"])
-            retired.append(u["id"])
+        if all(sid in current for sid in cited):
+            continue
+
+        match = next(
+            (
+                candidate_id
+                for candidate_id, candidate in candidates.items()
+                if candidate["semantic_hash"] == u.get("semantic_hash")
+                and normalize_claim(candidate["statement"]) == normalize_claim(u["statement"])
+            ),
+            None,
+        )
+        if match:
+            _reuse_verified_candidate(db_path, unit_id, match)
+            retired.append(match)
+            candidates.pop(match)
+            continue
+
+        db.retire_knowledge_unit(db_path, unit_id)
+        retired.append(unit_id)
     return retired

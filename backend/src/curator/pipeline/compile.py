@@ -123,13 +123,21 @@ def compile_source_l2(
             error="knowledge unit extraction failed",
         )
 
+    span_texts = {str(item["id"]): str(item["text"]) for item in span_inputs}
+    for unit_id in ku_result.unit_ids:
+        validate_claim_support(paths.state_db, unit_id, span_texts=span_texts)
+    reconcile_source(
+        paths.state_db,
+        source_id,
+        current_span_ids=span_ids,
+        candidate_unit_ids=ku_result.unit_ids,
+    )
+
     # Emit ATM projection pages from the stored units; link them to the CTX.
     atom_ids: list[str] = []
-    units = db.list_knowledge_units_for_source(paths.state_db, source_id)
+    units = db.list_eligible_knowledge_units(paths.state_db, source_id)
     paths.atoms.mkdir(parents=True, exist_ok=True)
     for unit in units:
-        if unit["id"] not in ku_result.unit_ids:
-            continue
         atom_id = projection.new_atom_id()
         page = projection.emit_atom_markdown(unit, atom_id, source_path=relpath)
         (paths.atoms / f"{atom_id}.md").write_text(page, encoding="utf-8")
@@ -185,7 +193,7 @@ def compile_source_l2(
     return CompileResult(
         source_id=source_id,
         atom_ids=atom_ids,
-        knowledge_unit_ids=ku_result.unit_ids,
+        knowledge_unit_ids=[str(unit["id"]) for unit in units],
         entity_ids=list(graph.entity_ids.values()),
         prompt_trace_ids=trace_ids,
     )
@@ -286,7 +294,7 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
     with db.connect(paths.state_db) as conn:
         source_ids = [int(r["id"]) for r in conn.execute("SELECT id FROM sources").fetchall()]
     for sid in source_ids:
-        for unit in db.list_knowledge_units_for_source(paths.state_db, sid):
+        for unit in db.list_eligible_knowledge_units(paths.state_db, sid):
             atom_id = unit.get("atom_node_id") or projection.new_atom_id()
             page = projection.emit_atom_markdown(unit, atom_id)
             (paths.atoms / f"{atom_id}.md").write_text(page, encoding="utf-8")

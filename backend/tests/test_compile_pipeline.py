@@ -123,6 +123,12 @@ def test_compile_source_l2_writes_units_atoms_graph(vault) -> None:
     # Knowledge units persisted, with spans.
     units = db.list_knowledge_units_for_source(paths.state_db, 1)
     assert units and units[0]["source_span_ids"]
+    assert units[0]["support_status"] == "verified"
+    assert units[0]["semantic_hash"]
+    assert any(
+        row["support_status"] == "verified"
+        for row in db.list_claim_supports(paths.state_db, units[0]["id"])
+    )
 
     # ATM projection pages emitted.
     atom_files = list(paths.atoms.glob("ATM-*.md"))
@@ -142,6 +148,47 @@ def test_compile_source_l2_writes_units_atoms_graph(vault) -> None:
     # l2 done.
     assert _layer_status(paths, 1, "l2") == "done"
     assert any(doc["record_type"] == "knowledge_unit" for doc in db.list_search_documents(paths.state_db))
+
+
+def test_compile_source_l2_excludes_failed_claim_from_downstream(vault) -> None:
+    paths = vault
+
+    class WrongSpanClient(DynamicFakeClient):
+        def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+            text = "\n".join(m.content for m in messages)
+            span_ids = re.findall(r"SPAN-[0-9a-f]{8}", text)
+            first = span_ids[0] if span_ids else "SPAN-00000000"
+            if "Extract the knowledge units" in text:
+                return json.dumps(
+                    {
+                        "units": [
+                            {
+                                "canonical_name": "Unrelated coral claim",
+                                "unit_type": "claim",
+                                "statement": "Coral bleaching expels symbiotic algae.",
+                                "source_span_ids": [first],
+                                "confidence": 0.9,
+                                "truth_status": "source_supported",
+                            }
+                        ]
+                    }
+                )
+            if "Extract entities and relations" in text:
+                raise AssertionError("failed claims must not feed graph extraction")
+            return super().chat(messages, json_mode=json_mode, temperature=temperature)
+
+    result = compile_mod.compile_source_l2(paths, WrongSpanClient(), 1)
+    assert result.ok, result.error
+    units = db.list_knowledge_units_for_source(paths.state_db, 1)
+    assert len(units) == 1
+    assert units[0]["support_status"] == "failed"
+    assert not result.atom_ids
+    assert not result.entity_ids
+    assert not list(paths.atoms.glob("ATM-*.md"))
+    assert not any(
+        doc["record_type"] == "knowledge_unit"
+        for doc in db.list_search_documents(paths.state_db)
+    )
 
 
 def test_compile_global_l3_writes_concepts(vault) -> None:

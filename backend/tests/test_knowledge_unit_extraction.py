@@ -76,6 +76,11 @@ def test_extract_persists_units(vault) -> None:
     assert units[0]["truth_status"] == "source_supported"
     assert units[0]["source_span_ids"] == [spans[0]["id"]]
     assert units[0]["prompt_run_id"] == result.trace_id
+    supports = db.list_claim_supports(dbp, units[0]["id"])
+    assert len(supports) == 1
+    assert supports[0]["source_span_id"] == spans[0]["id"]
+    assert supports[0]["support_role"] == "primary"
+    assert supports[0]["support_status"] == "unchecked"
 
 
 def test_invented_span_rejected_and_not_persisted(vault) -> None:

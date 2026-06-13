@@ -23,10 +23,12 @@ def vault():
         span = db.upsert_source_span(paths.state_db, source_id=1, relpath="04_Resources/r.md",
                                      span_type="paragraph", content_hash="c1",
                                      text_preview="Residual connections ease optimization.")
-        db.upsert_knowledge_unit(paths.state_db, unit_type="claim",
-                                 canonical_name="Residual learning", statement="eases optimization",
-                                 source_span_ids=[span], source_id=1, confidence=0.9,
-                                 atom_node_id="ATM-keep0001")
+        unit_id = db.upsert_knowledge_unit(paths.state_db, unit_type="claim",
+                                           canonical_name="Residual learning",
+                                           statement="eases optimization",
+                                           source_span_ids=[span], source_id=1,
+                                           confidence=0.9, atom_node_id="ATM-keep0001")
+        db.set_unit_support_status(paths.state_db, unit_id, "verified")
         db.upsert_community_report(paths.state_db, community_key="comm-1", title="Residual",
                                    summary="s", full_content="f", dependency_hash="d1",
                                    source_span_ids=[span])

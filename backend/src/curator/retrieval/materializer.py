@@ -130,7 +130,9 @@ def materialize_search_documents(
         units = [
             dict(row)
             for row in conn.execute(
-                "SELECT * FROM knowledge_units ORDER BY source_id, id"
+                "SELECT * FROM knowledge_units "
+                "WHERE retired_at IS NULL AND support_status = 'verified' "
+                "ORDER BY source_id, id"
             ).fetchall()
         ]
         entities = [

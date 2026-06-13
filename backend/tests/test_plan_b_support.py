@@ -133,6 +133,22 @@ def test_failed_wrong_real_span(vault) -> None:
     assert "does not minimally support" in row["support_reason"]
 
 
+def test_revalidation_replaces_previous_support_rows(vault) -> None:
+    sup01 = next(c for c in GOLD["support_cases"] if c["id"] == "SUP01")
+    unit_id = _seed(vault, sup01["declared"], sup01["statement"])
+    validate_claim_support(vault.state_db, unit_id)
+
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "UPDATE knowledge_units SET statement = ? WHERE id = ?",
+            ("Coral bleaching expels symbiotic algae.", unit_id),
+        )
+    assert validate_claim_support(vault.state_db, unit_id) == "failed"
+    rows = db.list_claim_supports(vault.state_db, unit_id)
+    assert rows
+    assert all(row["support_status"] == "failed" for row in rows)
+
+
 def test_multi_span_primary_on_best_supporting_span(vault) -> None:
     sup02 = next(c for c in GOLD["support_cases"] if c["id"] == "SUP02")
     unit_id = _seed(vault, sup02["declared"], sup02["statement"])
@@ -234,3 +250,53 @@ def test_reconcile_noop_when_unchanged(vault) -> None:
         assert conn.execute(
             "SELECT retired_at FROM knowledge_units WHERE id = ?", (unit_id,)
         ).fetchone()[0] is None
+
+
+def test_reconcile_split_reuses_semantically_identical_verified_claim(vault) -> None:
+    statement = "Backpropagation computes the weight gradient."
+    old_id = _seed(vault, ["SPAN-pb000001"], statement)
+    validate_claim_support(vault.state_db, old_id)
+
+    new_span = "SPAN-split0001"
+    content = SPANS["SPAN-pb000001"]["content"]
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type, "
+            "content_hash, text_preview, created_at) "
+            "VALUES (?, 1, ?, 'paragraph', 'split-hash', ?, '2026-01-02T00:00:00Z')",
+            (new_span, RELPATH, content),
+        )
+    candidate_id = db.upsert_knowledge_unit(
+        vault.state_db, unit_type="atom", canonical_name="C2", statement=statement,
+        source_span_ids=[new_span], source_id=1,
+    )
+    validate_claim_support(
+        vault.state_db, candidate_id, span_texts={new_span: content}
+    )
+
+    retired = reconcile_source(
+        vault.state_db,
+        source_id=1,
+        current_span_ids=[new_span],
+        candidate_unit_ids=[candidate_id],
+    )
+
+    assert candidate_id in retired
+    with db.connect(vault.state_db) as conn:
+        old = conn.execute(
+            "SELECT source_span_ids, support_status, retired_at "
+            "FROM knowledge_units WHERE id = ?",
+            (old_id,),
+        ).fetchone()
+        candidate_retired = conn.execute(
+            "SELECT retired_at FROM knowledge_units WHERE id = ?",
+            (candidate_id,),
+        ).fetchone()[0]
+    assert old["source_span_ids"] == f'["{new_span}"]'
+    assert old["support_status"] == "verified"
+    assert old["retired_at"] is None
+    assert candidate_retired is not None
+    assert any(
+        row["source_span_id"] == new_span and row["support_status"] == "verified"
+        for row in db.list_claim_supports(vault.state_db, old_id)
+    )

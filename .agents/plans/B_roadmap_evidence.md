@@ -392,7 +392,31 @@ xfailed; ruff src/ clean; mypy 73 (0 new). The 6 remaining Plan B oracles are
 P5 (central-formula preserved/recovery) and P6 (F10 hydration, staged publish,
 wiki lint surface).
 
-REMAINING P4 (next increments, tracked in RELAY): compile-pipeline wiring +
-downstream eligibility enforcement + prompt-contract role declaration + changed/
-split reconciliation. The validator is intentionally landed and tested in
-isolation first to de-risk the compile integration.
+## P4 — Compile Integration, Eligibility, And Stable Reconciliation (Completed)
+
+- `compile_source_l2` now validates every extracted unit against hydrated full
+  span text before any ATM projection or graph input is produced.
+- `curator.knowledge_unit_extract@v2` declares minimal support roles
+  (`primary | contextual | formula`) and formula centrality. Extraction stores
+  the proposed support rows as `unchecked`; deterministic validation replaces
+  prior/proposed rows with one fresh verdict, preventing stale verified support
+  from surviving re-validation.
+- ATM projection, graph input, projection re-emission, and knowledge-unit search
+  materialization now use only active `support_status='verified'` units.
+- `reconcile_source` accepts the current span set and newly extracted candidates.
+  A verified candidate with the same semantic hash and normalized statement may
+  revalidate the prior stable id after an edit/split; materially different
+  claims retire instead. Candidate ids are tombstoned after stable-id reuse.
+- Added compile-path, unsupported-downstream-exclusion, prompt-v2, proposal
+  persistence, re-validation replacement, search/projection eligibility, and
+  split reconciliation coverage.
+
+P4 final verification:
+
+- `uv run --directory backend pytest -q` → 772 passed, 16 xfailed.
+- `uv run --directory backend ruff check src/` → clean.
+- Changed P4 files targeted by mypy are clean except the pre-existing
+  `knowledge_units.py:79` missing annotation already present at the rollback
+  anchor; full mypy remains at the known 73 pre-existing errors.
+
+Next phase: P5 selective formula recovery and downstream formula preservation.

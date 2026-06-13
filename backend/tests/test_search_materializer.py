@@ -51,6 +51,7 @@ def _seed_authoritative_records(db_path: Path) -> dict[str, str]:
         confidence=0.91,
         atom_node_id="ATM-resnet",
     )
+    db.set_unit_support_status(db_path, unit_id, "verified")
     ent_a = db.upsert_graph_entity(
         db_path,
         canonical_name="ResNet",

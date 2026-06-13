@@ -141,6 +141,28 @@ def extract_knowledge_units(
                     truth_status=unit.truth_status,
                     prompt_run_id=result.trace_id,
                 )
+                span_rows = {
+                    str(row["id"]): row
+                    for row in db.get_source_spans_by_ids(db_path, unit.source_span_ids)
+                }
+                proposed_roles = dict(unit.support_roles)
+                if not proposed_roles and unit.source_span_ids:
+                    proposed_roles = {
+                        sid: "primary" if i == 0 else "contextual"
+                        for i, sid in enumerate(unit.source_span_ids)
+                    }
+                for span_id, role in proposed_roles.items():
+                    span = span_rows.get(span_id)
+                    if span is None or span_id not in unit.source_span_ids:
+                        continue
+                    db.upsert_claim_support(
+                        db_path,
+                        knowledge_unit_id=uid,
+                        source_span_id=span_id,
+                        support_role=role,
+                        support_status="unchecked",
+                        evidence_hash=str(span["content_hash"]),
+                    )
                 all_unit_ids.append(uid)
 
     return KnowledgeUnitResult(
