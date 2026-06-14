@@ -155,10 +155,12 @@ def test_graph_audit_flags_active_relation_without_independent_support(
             (rel,),
         )
     # No graph_relation_supports rows: an active edge with zero verified
-    # independent support violates the §21.8 invariant.
+    # independent support is below the §21.8 corroboration floor (it has 0 of the
+    # required ≥2 independent source lineages) and must be flagged.
     assert rel in _subjects(audit(vault)), (
-        "graph audit must flag an active relation lacking >=1 verified "
-        "independent support (§21.8)"
+        "graph audit must flag an active relation that falls below the required "
+        "≥2 independent source lineages of verified support (here it has 0; "
+        "§21.8)"
     )
 
 

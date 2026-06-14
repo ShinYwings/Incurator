@@ -1,12 +1,22 @@
 # Cross-Agent Relay State
 
-## Status: IN PROGRESS (P2 — failing gold tests, TDD pre-implementation)
+## Status: P2 COMPLETE — next action is P3 (entity resolution implementation)
 
 **Branch:** `feature/plan-c-graph-quality`
 **Target Plan:** `.agents/plans/C_graph_quality.md`
 
 ## Goal
 Implement Batch 2: Plan C (Graph Quality) to stabilize the graph layer, establish community reports, and synthesize insights. The previous milestone (Plan B) has been successfully merged and shipped.
+
+## Immediate Next Action
+**P3 — entity resolution implementation.** P0, P1, and P2 are all complete; the
+33 TDD-red gold tests are written and verified. The next phase turns the P3
+resolution subset green by implementing the pinned v9 API hooks
+(`db.RESOLUTION_STATUS_CODES`, `db.MERGE_DECISION_CODES`,
+`db.evaluate_merge_guards`, `db.propose_entity_merge`, `db.accept_entity_merge`,
+`db.reverse_entity_merge`) plus the v9 migration foundation those tests pin.
+(The historical "Next phase = P2" note in the Earlier Progress section below is
+from the P1 stop gate and is now superseded.)
 
 ## Progress Status
 - Workspace prepared: `master` pulled, `feature/plan-c-graph-quality` branched
@@ -44,12 +54,14 @@ before P2. Both corrected in `SCHEMA.md` §21 + `SYSTEM_BEHAVIOR.md` §27 (+ syn
    `endpoint_unresolved`). An edge is either `unsupported` or valid with
    aggregated support. SCHEMA §21.5/§21.6 + SYSTEM_BEHAVIOR §27.2/§27.3.
 
-## P2 IN PROGRESS (2026-06-14, Claude) — failing gold tests
-Four TDD-red modules now in place (33 intended reds total). All fail for the
-intended reason (v9 schema/columns/constants/API not built yet) with
-intention-revealing messages — never via `ImportError`. Full suite after this
-batch: **824 passed, 33 Plan C reds, 8 xfailed**; ruff clean on all four modules;
-no legacy regression. Committed `0f173ec` (module 1) + this batch.
+## P2 COMPLETE (2026-06-14, Claude) — 33 failing gold tests verified
+Four TDD-red modules now in place — **33 intended reds total, all verified red**.
+All fail for the intended reason (v9 schema/columns/constants/API not built yet)
+with intention-revealing messages — never via `ImportError`. Full suite after
+this batch: **824 passed, 33 Plan C reds, 8 xfailed**; ruff clean on all four
+modules; no legacy regression. Committed `0f173ec` (module 1) + the P2 batch.
+P2 (TDD red gold tests) is finished; the only remaining Plan C work is
+implementation, which begins at P3.
 
 - `test_plan_c_graph_quality.py` (9) — v9 migration foundation + both corrected
   flaws: schema-version, new-table/column creation, infer-nothing backfill,
@@ -123,3 +135,49 @@ no legacy regression. Committed `0f173ec` (module 1) + this batch.
   benchmark fixtures). P2 is TDD test-writing (still pre-implementation per plan)
   but is the start of the code-bearing phases; awaiting user go-ahead to begin
   P2 before writing any tests/code.
+
+### Update (2026-06-14, Claude) — P2 review rejection resolved (3 flaws fixed)
+A review rejected the P2 gold tests for two mathematical contradictions and one
+test-cynicism (oracle-leakage) failure. All three are now fixed; specs and tests
+are internally consistent. Still pure TDD-red (no production code): full suite =
+**824 passed, 8 xfailed, 37 failed** (33 intended Plan C reds + 4 pre-existing
+`test_spec_sync` version-gate reds). Every Plan C red still fails via an
+intention-revealing `assert <v9 api> is not None`, never `ImportError`. ruff clean.
+
+1. **Corroboration threshold contradiction (`copied_source_only` vs `active`).**
+   The frozen schema previously said `active` needs `≥1 verified independent
+   support`, yet `copied_source_only` quarantines a relation whose only support
+   is a single source lineage (independent count = exactly **1**). Under `≥1`
+   those two states overlap — a 1-lineage edge would satisfy both. Resolved by
+   **raising the corroboration threshold to ≥2 distinct `source_lineage_hash`**,
+   making the partition total and disjoint: **0 → `unsupported`; exactly 1 →
+   `copied_source_only` (single uncorroborated source); ≥2 → `active`**. Updated
+   `SCHEMA.md` §21.5/§21.6/§21.8 and `SYSTEM_BEHAVIOR.md` §27.2/§27.3/§27.6/§27.8
+   (incl. graph-audit invariant "0 active relations with fewer than 2 independent
+   source lineages" and the reconciliation drop-out rule). Tests now pin the
+   boundary explicitly: `test_copied_source_only...` asserts `distinct_lineages
+   == 1`, `test_fully_supported_canonical_edge_is_active` asserts `== 2`. The
+   stale "≥1" wording in `test_plan_c_hierarchy_audit.py`'s audit message was
+   realigned to the ≥2 floor (its 0-support fixture is below either threshold, so
+   behavior was already correct — only the phrasing was inconsistent).
+
+2. **Tautological reversal illusion (`test_merge_reversal_restores_origin_and_
+   provenance`).** The test did propose → accept → reverse → assert endpoints ==
+   `before_pair`; a no-op `accept` would pass it trivially (endpoints never
+   change, so the post-reverse check is vacuous). Fixed by adding an explicit
+   **intermediate (post-accept, pre-reverse) assertion** that `accept` actually
+   re-pointed the relation endpoint from the redirected origin onto the surviving
+   canonical entity — `mid_pair == (survivor, other)` and `mid_pair !=
+   before_pair` (§27.1 / SCHEMA §21.3 rewrite contract). Now reversal is only
+   meaningful because accept provably mutated the graph first.
+
+3. **Oracle leakage in bridge detection (`test_noisy_bridge_single_edge_is_
+   flagged_bridge_risk`).** Previously the bridge edge alone had confidence 0.25
+   while every intra-cluster edge was 0.9, so a trivial `confidence < 0.5` filter
+   would pass without any topology. Fixed by densifying cluster A to a 4-node
+   2-edge-connected block and adding a **second, equally low-confidence (0.25)
+   edge INSIDE that dense cluster** (`a2→a4`, a redundant chord — not a cut
+   edge). The test asserts only the true structural bridge (`a1→b1`) is flagged
+   and the intra-cluster noisy chord is NOT. Bridge and chord now share the same
+   low confidence, so confidence cannot discriminate — only genuine cut-edge
+   topology passes.

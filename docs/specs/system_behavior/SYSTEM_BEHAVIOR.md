@@ -1836,6 +1836,15 @@ heuristics never compensate for unchecked or broadly grounded claims.
   `verified` supports. Copied/duplicated/forked sources share a
   `source_lineage_hash` and therefore count exactly once. The strict quality
   condition is **0 copied-source rows counted as independent support**.
+- **Corroboration threshold = 2 independent source lineages.** A relation
+  becomes `active` only when this count is **≥ 2** (two genuinely independent
+  sources assert the same proposition). A count of exactly **1** is a single
+  uncorroborated source — however many copied/forked support rows it contributes,
+  they collapse to one lineage — and quarantines as `copied_source_only` (§27.3),
+  never `active`. A count of **0** is `unsupported`. Raising the bar to ≥2 is what
+  makes `copied_source_only` and `active` mutually exclusive: a single-lineage
+  relation can never satisfy `active`, and an `active` relation always carries
+  independent corroboration.
 - **Support eligibility mirrors the B claim lifecycle.** A support is `verified`
   only when its `knowledge_unit_id` is itself eligible (B `support_status =
   'verified'`, `retired_at IS NULL`, §26.1/§20.1) AND its cited spans are fresh
@@ -1851,9 +1860,10 @@ heuristics never compensate for unchecked or broadly grounded claims.
 
 - **Lifecycle (Arena decision 7).** Every relation carries `lifecycle_status ∈
   {active, provisional, quarantined, retired}`:
-  - `active` — has ≥1 `verified` independent support (§27.2), both endpoints
-    resolve to canonical entities, and it passed all quarantine checks. **Only
-    `active`, non-retired relations enter authoritative community construction.**
+  - `active` — has **≥2 independent source lineages** of `verified` support (§27.2
+    corroboration threshold), both endpoints resolve to canonical entities, and it
+    passed all quarantine checks. **Only `active`, non-retired relations enter
+    authoritative community construction.**
   - `provisional` — exists but not yet promotable (unrevalidated after migration,
     or support still pending). The v9 backfill marks every legacy relation
     `provisional`; none is auto-promoted.
@@ -1864,8 +1874,10 @@ heuristics never compensate for unchecked or broadly grounded claims.
   - `retired` — superseded by source edit/delete/split reconciliation; retained
     as a tombstone, never an authoritative input.
 - **Frozen quarantine reason codes** (SCHEMA §21.6): `unsupported` (no eligible
-  support), `self_loop`, `contradiction`, `copied_source_only` (no independent
-  lineage), `bridge_risk` (a single low-confidence edge joining otherwise
+  support — 0 independent source lineages), `self_loop`, `contradiction`,
+  `copied_source_only` (exactly 1 independent source lineage — a single,
+  uncorroborated source, below the ≥2 corroboration threshold of §27.2),
+  `bridge_risk` (a single low-confidence edge joining otherwise
   separate dense components), `endpoint_unresolved`. Detection of self-loops,
   unsupported edges, contradictions, and bridge-risk candidates runs at compile
   time; each routes the relation to `quarantined` with the matching code rather
@@ -1877,12 +1889,12 @@ heuristics never compensate for unchecked or broadly grounded claims.
   produce a second relation row to quarantine. Quarantining a re-assertion as a
   "duplicate" would suppress its supports and corrupt the independent-support
   count — the inverse of the aggregation contract — so the state cannot exist by
-  construction. A relation therefore resolves to exactly one of two support-side
-  outcomes: no eligible independent support → `unsupported` (or
-  `copied_source_only` when its only support shares one source lineage), or
-  aggregated eligible support → `active`. If two physical rows are ever found for
-  the same canonical proposition, reconciliation (§27.8) merges their supports
-  onto the canonical relation; it never quarantines one as a duplicate.
+  construction. A relation's support-side state is therefore a total partition by
+  independent-source-lineage count: **0** → `unsupported`; **exactly 1** →
+  `copied_source_only` (a single, uncorroborated source); **≥2** → `active`. If
+  two physical rows are ever found for the same canonical proposition,
+  reconciliation (§27.8) merges their supports onto the canonical relation; it
+  never quarantines one as a duplicate.
 - **Edge classes stay distinct (Arena decision 9).** `edge_class ∈ {authored,
   extracted}` separates links/topology a human or workspace wrote (wikilinks,
   explicit structure) from LLM-extracted semantic relations. The two classes stay
@@ -1950,7 +1962,7 @@ heuristics never compensate for unchecked or broadly grounded claims.
   **Graph Quality** section alongside the Plan B Compiler Integrity section
   (§26.5). The audit asserts the schema-level invariants frozen in SCHEMA §21.8:
   - 0 authoritative references to `redirected` entities;
-  - 0 `active` relations without ≥1 `verified` independent support;
+  - 0 `active` relations with fewer than 2 independent source lineages of `verified` support;
   - 0 relation endpoints that are not canonical entities;
   - every `quarantined` relation has a reason code AND a re-eval trigger;
   - every served report finding cites eligible active claim support;
@@ -2011,8 +2023,8 @@ migration may touch a real vault DB, encoded as tests in P3:
 - **One-source mutation changes only its closure.** A source edit/delete/split
   reconciles exactly the measured downstream graph/report/synthesis closure (via
   `artifact_dependencies`, extending §26.4): supports whose source basis
-  disappeared are retired, relations that lose their last independent verified
-  support drop out of `active`, communities whose active membership/support
+  disappeared are retired, relations that drop below 2 independent verified
+  source lineages drop out of `active`, communities whose active membership/support
   changed retire and regenerate, and dependent reports/synthesis are invalidated
   and regenerated or retired. The closure is measured and asserted by tests, not
   assumed.

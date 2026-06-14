@@ -1860,6 +1860,15 @@ Rules:
   `verified` supports. Copied/duplicated sources share a `source_lineage_hash`
   and therefore count once (Strict Quality Condition: 0 copied-source rows
   counted as independent support).
+- **Corroboration threshold = 2 independent source lineages.** A relation is
+  `active` only when its independent-support count is **≥ 2** — at least two
+  DISTINCT `source_lineage_hash` values, i.e. two genuinely independent sources
+  assert the same proposition. An independent-support count of exactly **1** is a
+  single uncorroborated source (one source, however many copied/forked rows it
+  contributes) and is NOT promotable; it quarantines as `copied_source_only`
+  (§21.6). A count of **0** is `unsupported`. This is why row count alone can
+  never promote: ten copies of one source are still one lineage, still
+  uncorroborated, still not `active`.
 - `support_status` mirrors `claim_supports` (§20.2): a support is `verified`
   only when its `knowledge_unit_id` is itself eligible (`support_status='verified'`,
   `retired_at IS NULL`, §20.1 eligibility) and its cited spans are fresh.
@@ -1880,10 +1889,10 @@ CREATE INDEX IF NOT EXISTS idx_graph_relations_lifecycle ON graph_relations(life
 
 `lifecycle_status` (frozen enum):
 
-- `active` — has ≥1 `verified` independent support (§21.5), endpoints resolve to
-  canonical entities, and it passed quarantine checks. **Only `active`,
-  non-retired relations enter authoritative community construction** (Arena
-  decision 7).
+- `active` — has **≥2 independent source lineages** of `verified` support (§21.5
+  corroboration threshold), endpoints resolve to canonical entities, and it
+  passed quarantine checks. **Only `active`, non-retired relations enter
+  authoritative community construction** (Arena decision 7).
 - `provisional` — exists but not yet promotable to `active` (e.g., unrevalidated
   after migration, or support pending). The v9 backfill marks every legacy
   relation `provisional`.
@@ -1894,10 +1903,11 @@ CREATE INDEX IF NOT EXISTS idx_graph_relations_lifecycle ON graph_relations(life
 - `retired` — superseded by source edit/delete/split reconciliation; retained as
   a tombstone, never an authoritative input.
 
-`quarantine_reason` frozen codes: `unsupported` (no eligible support),
-`self_loop`, `contradiction`, `copied_source_only` (no independent lineage),
-`bridge_risk` (single low-confidence edge joining otherwise separate dense
-components), `endpoint_unresolved`.
+`quarantine_reason` frozen codes: `unsupported` (no eligible support, i.e. 0
+independent source lineages), `self_loop`, `contradiction`, `copied_source_only`
+(exactly 1 independent source lineage — a single, uncorroborated source, below
+the ≥2 corroboration threshold of §21.5), `bridge_risk` (single low-confidence
+edge joining otherwise separate dense components), `endpoint_unresolved`.
 
 **There is no `duplicate_proposition` reason code — a relation is never a
 "duplicate."** A relation's identity IS its proposition: the canonical triple
@@ -1907,10 +1917,10 @@ relation row to quarantine; it ADDS independent supports to the one canonical
 relation (§21.5). Treating a re-assertion as a "duplicate" and quarantining it
 would HIDE its supports from the independent-support count — the exact opposite
 of the aggregation contract — so the state cannot exist by construction. The
-only support-side outcomes are therefore: the relation has no eligible
-independent support → `unsupported` (or `copied_source_only` when the only
-support shares one source lineage), or it has aggregated eligible support →
-`active`. If two physical rows are ever found describing the same canonical
+support-side outcomes are therefore a total partition by independent-source-
+lineage count: **0** → `unsupported`; **exactly 1** → `copied_source_only` (a
+single, uncorroborated source); **≥2** → `active`. If two physical rows are ever
+found describing the same canonical
 proposition, that is a compile-time defect (the support should have aggregated
 onto one relation), and reconciliation merges their supports onto the canonical
 relation rather than quarantining either row.
@@ -1967,8 +1977,9 @@ Rules:
   from the authoritative B claim generation. Existing `community_reports` keep
   their rows but are recomputed against active topology before being served.
 - **Graph audit (schema-level invariants)** — the read-only audit asserts: 0
-  authoritative references to `redirected` entities; 0 `active` relations without
-  ≥1 `verified` independent support; 0 endpoints that are not canonical entities;
+  authoritative references to `redirected` entities; 0 `active` relations with
+  fewer than 2 independent source lineages of `verified` support; 0 endpoints
+  that are not canonical entities;
   every `quarantined` relation has a reason code + re-eval trigger; every served
   report finding cites eligible active claim support; 0 stale/retired
   aliases/supports/communities feeding authoritative artifacts; 0 mixed claim

@@ -359,6 +359,30 @@ def test_merge_reversal_restores_origin_and_provenance(vault: Path) -> None:
         evidence={"type_match": True, "context_overlap": True},
     )
     accept(vault, decision_id=decision)
+    # Intermediate (post-accept, pre-reverse) assertion — guards against the
+    # tautology where a no-op accept makes the final reversal check pass
+    # trivially. Per §27.1 / SCHEMA §21.3, accepting the merge MUST re-point every
+    # relation reference from the redirected origin onto the surviving canonical
+    # entity. So before reversal the edge endpoints must read (survivor, other),
+    # NOT the pre-merge (origin, other). If accept never rewrote the endpoints,
+    # this fails here instead of silently passing the post-reverse check.
+    with db.connect(vault) as conn:
+        mid = conn.execute(
+            "SELECT source_entity_id, target_entity_id "
+            "FROM graph_relations WHERE id = ?",
+            (rel,),
+        ).fetchone()
+        mid_pair = (mid["source_entity_id"], mid["target_entity_id"])
+    assert mid_pair == (survivor, other), (
+        "accept_entity_merge must re-point the relation endpoint from the "
+        "redirected origin onto the surviving canonical entity (§27.1 rewrite); "
+        f"expected {(survivor, other)}, got {mid_pair}"
+    )
+    assert mid_pair != before_pair, (
+        "the post-accept endpoints must differ from the pre-merge endpoints, "
+        "proving accept actually mutated the graph; only then does the reversal "
+        "restore below carry real meaning"
+    )
     reverse(vault, decision_id=decision)
     with db.connect(vault) as conn:
         origin_state = conn.execute(

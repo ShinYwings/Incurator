@@ -11,12 +11,16 @@ Adversarial fixtures covered (plan P2 list):
   * self-loop -> quarantined ``self_loop``;
   * unsupported edge -> quarantined ``unsupported``;
   * copied-source-only support -> quarantined ``copied_source_only`` (independence
-    is by source lineage, not row count);
+    is by source lineage, not row count; exactly 1 distinct lineage is 1 < 2
+    corroboration);
   * unresolved endpoint (relation pointing at a redirected entity) ->
     quarantined ``endpoint_unresolved``;
-  * a fully supported, canonical-endpoint edge -> ``active``;
+  * a canonical-endpoint edge with >=2 independent source lineages -> ``active``
+    (the §27.2 corroboration threshold that makes ``active`` and
+    ``copied_source_only`` mutually exclusive);
   * noisy bridge (single low-confidence edge joining two dense components) ->
-    ``bridge_risk``;
+    ``bridge_risk``; a low-confidence edge INSIDE a dense cluster is NOT flagged
+    (topology, not a raw-confidence filter);
   * authored vs extracted edge classes stay distinct (§27.3 Arena decision 9).
 
 P4 API hooks these tests pin (documented in RELAY for the implementer):
@@ -132,9 +136,14 @@ def test_unsupported_relation_is_quarantined(vault: Path) -> None:
 
 
 def test_copied_source_only_relation_is_quarantined(vault: Path) -> None:
-    """Two verified supports that share ONE source_lineage_hash give independent
-    count 1 — the edge has support but no INDEPENDENT lineage, so it quarantines
-    as copied_source_only, not active (§27.2 independence by lineage)."""
+    """Two verified supports that share ONE source_lineage_hash give an
+    independent-lineage count of exactly 1 — a single, uncorroborated source.
+    That is BELOW the §27.2 corroboration threshold (active requires ≥2 distinct
+    source lineages), so the edge quarantines as copied_source_only rather than
+    going active (§27.2 independence by lineage, §27.3 lifecycle). The
+    distinguishing assertion below pins that 1 < 2: contrast
+    test_fully_supported_canonical_edge_is_active, which supplies 2 distinct
+    lineages and DOES go active."""
     compile_fn = getattr(db, "compile_relation_lifecycle", None)
     assert compile_fn is not None, (
         "P4 must define db.compile_relation_lifecycle (SYSTEM_BEHAVIOR §27.3)"
@@ -151,13 +160,29 @@ def test_copied_source_only_relation_is_quarantined(vault: Path) -> None:
         }, "v9 graph_relation_supports table must exist"
         _add_support(conn, rel, "KNU-1", "lineage-X", "h1")
         _add_support(conn, rel, "KNU-2", "lineage-X", "h2")  # copied source
+        # Make the contradiction the review flagged impossible by construction:
+        # this fixture has support rows (count 2) but exactly ONE distinct
+        # lineage. Pin that 1 < 2 corroboration threshold explicitly so the
+        # quarantine reason cannot be confused with "no support at all".
+        distinct_lineages = conn.execute(
+            "SELECT COUNT(DISTINCT source_lineage_hash) "
+            "FROM graph_relation_supports WHERE relation_id = ? "
+            "AND support_status = 'verified'",
+            (rel,),
+        ).fetchone()[0]
+    assert distinct_lineages == 1, (
+        "fixture must have exactly one independent source lineage (not zero); the "
+        f"copied_source_only state is 1 < 2 corroboration, not absent support; "
+        f"got {distinct_lineages}"
+    )
     status = compile_fn(vault, relation_id=rel)
     with db.connect(vault) as conn:
         reason = _reason(conn, rel)
     assert status == "quarantined"
     assert reason == "copied_source_only", (
-        "supports sharing one source lineage carry no independent support; the "
-        f"edge must quarantine as copied_source_only; got {reason!r}"
+        "a single independent source lineage (1 < 2 corroboration threshold) is "
+        "uncorroborated; the edge must quarantine as copied_source_only, never "
+        f"active; got {reason!r}"
     )
 
 
@@ -207,10 +232,21 @@ def test_fully_supported_canonical_edge_is_active(vault: Path) -> None:
         }, "v9 graph_relation_supports table must exist"
         _add_support(conn, rel, "KNU-1", "lineage-A", "h1")
         _add_support(conn, rel, "KNU-2", "lineage-B", "h2")  # independent lineage
+        # Two DISTINCT source lineages == meets the ≥2 corroboration threshold;
+        # this is the boundary that separates active from copied_source_only.
+        distinct_lineages = conn.execute(
+            "SELECT COUNT(DISTINCT source_lineage_hash) "
+            "FROM graph_relation_supports WHERE relation_id = ? "
+            "AND support_status = 'verified'",
+            (rel,),
+        ).fetchone()[0]
+    assert distinct_lineages == 2, (
+        f"fixture must supply 2 independent source lineages; got {distinct_lineages}"
+    )
     status = compile_fn(vault, relation_id=rel)
     assert status == "active", (
-        "an edge with >=1 verified independent support and canonical endpoints "
-        f"must become active; got {status!r}"
+        "an edge with >=2 independent source lineages of verified support and "
+        f"canonical endpoints must become active; got {status!r}"
     )
 
 
@@ -220,8 +256,20 @@ def test_fully_supported_canonical_edge_is_active(vault: Path) -> None:
 
 
 def test_noisy_bridge_single_edge_is_flagged_bridge_risk(vault: Path) -> None:
-    """Two dense triangles joined by a single low-confidence edge: only that one
-    bridge edge is flagged bridge_risk; the intra-cluster edges are not."""
+    """A dense 4-node cluster A (complete K4) and a dense triangle cluster B,
+    joined by a SINGLE low-confidence edge. Only that structural bridge — the lone
+    cut edge whose removal disconnects the two dense components — is flagged
+    bridge_risk.
+
+    Oracle-leakage guard: cluster A also contains a SECOND, equally
+    low-confidence edge (a2→a4, confidence 0.25) placed entirely INSIDE the dense
+    cluster. That edge is a redundant chord — a2 and a4 stay connected via a1 or
+    a3 after its removal — so it is structurally NOT a bridge and MUST NOT be
+    flagged. A naive implementation that merely filters ``confidence < 0.5`` would
+    wrongly flag this intra-cluster edge too and fail; only genuine topological
+    (cut-edge between dense components) detection passes. The bridge and the noisy
+    chord share the same low confidence, so confidence cannot be the
+    discriminator — only graph structure can."""
     detect = getattr(db, "detect_bridge_risk_relations", None)
     assert detect is not None, (
         "P4 must define db.detect_bridge_risk_relations (SYSTEM_BEHAVIOR §27.3)"
@@ -229,17 +277,36 @@ def test_noisy_bridge_single_edge_is_flagged_bridge_risk(vault: Path) -> None:
     a1 = _seed_entity(vault, "A1")
     a2 = _seed_entity(vault, "A2")
     a3 = _seed_entity(vault, "A3")
+    a4 = _seed_entity(vault, "A4")
     b1 = _seed_entity(vault, "B1")
     b2 = _seed_entity(vault, "B2")
     b3 = _seed_entity(vault, "B3")
+    # Cluster A: a dense, 2-edge-connected block on {a1,a2,a3,a4}. Every strong
+    # edge below lies on a cycle, so none of them is a cut edge.
     dense = [
         _relate(vault, a1, a2),
         _relate(vault, a2, a3),
         _relate(vault, a3, a1),
+        _relate(vault, a3, a4),
+        _relate(vault, a4, a1),
+        # Cluster B: a dense triangle on {b1,b2,b3}.
         _relate(vault, b1, b2),
         _relate(vault, b2, b3),
         _relate(vault, b3, b1),
     ]
+    # A low-confidence edge INSIDE dense cluster A. Removing it leaves a2 and a4
+    # connected (a2-a1-a4 and a2-a3-a4 both remain), so it is NOT a cut edge
+    # despite its low confidence. It must NOT be flagged — this is the
+    # anti-oracle-leakage assertion.
+    noisy_intra = db.upsert_graph_relation(
+        vault,
+        source_entity_id=a2,
+        target_entity_id=a4,
+        relation_type="rel",
+        confidence=0.25,
+    )
+    # The ONE edge joining cluster A to cluster B: a genuine cut edge whose
+    # removal splits the graph into the two dense components — a true bridge_risk.
     bridge = db.upsert_graph_relation(
         vault,
         source_entity_id=a1,
@@ -249,8 +316,11 @@ def test_noisy_bridge_single_edge_is_flagged_bridge_risk(vault: Path) -> None:
     )
     flagged = set(detect(vault))
     assert flagged == {bridge}, (
-        "only the single low-confidence bridge edge joining two dense components "
-        f"is a bridge_risk; intra-cluster edges {dense} are not; got {flagged}"
+        "only the single low-confidence edge that is a structural cut edge between "
+        "two dense components is bridge_risk; the equally low-confidence "
+        f"intra-cluster chord {noisy_intra} is redundant (not a cut edge) and must "
+        f"NOT be flagged, and none of the dense edges {dense} may be flagged; "
+        f"got {flagged}"
     )
 
 
