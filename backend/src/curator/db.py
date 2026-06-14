@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from collections import defaultdict, deque
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
@@ -36,6 +37,39 @@ RESOLUTION_STATUS_CODES = frozenset(
 )
 # Merge-decision lifecycle (entity_merge_proposals.decision, §21.2).
 MERGE_DECISION_CODES = frozenset({"proposed", "accepted", "rejected", "reversed"})
+# Frozen relation quarantine reason codes (graph_relations.quarantine_reason,
+# §21.6). There is DELIBERATELY no `duplicate_proposition`: a relation's identity
+# IS its canonical proposition, so re-assertion AGGREGATES support (§21.5) rather
+# than creating a duplicate row to quarantine. The support-side outcome is a total
+# partition by independent-source-lineage count (0 -> unsupported, exactly 1 ->
+# copied_source_only, >=2 -> active), plus the structural reasons self_loop,
+# contradiction, bridge_risk, and endpoint_unresolved.
+QUARANTINE_REASON_CODES = frozenset(
+    {
+        "unsupported",
+        "self_loop",
+        "contradiction",
+        "copied_source_only",
+        "bridge_risk",
+        "endpoint_unresolved",
+    }
+)
+# Re-evaluation triggers paired with each quarantine reason (§21.6: every
+# quarantined relation carries a reason code AND a reeval_trigger describing what
+# would re-admit it; quarantine is inspectable and re-evaluable, never an opaque
+# discard pile, Arena decision 8).
+_QUARANTINE_REEVAL_TRIGGERS = {
+    "unsupported": "support_added",
+    "self_loop": "endpoints_distinct",
+    "contradiction": "contradiction_cleared",
+    "copied_source_only": "independent_support_added",
+    "bridge_risk": "topology_corroborated",
+    "endpoint_unresolved": "endpoint_resolved",
+}
+# Corroboration threshold (§21.5/§27.2): a relation is `active` only with >=2
+# DISTINCT verified source lineages. Exactly 1 is a single uncorroborated source
+# (copied_source_only); 0 is unsupported.
+_RELATION_CORROBORATION_THRESHOLD = 2
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -2783,6 +2817,241 @@ def reverse_entity_merge(
             "WHERE id = ?",
             (now, decision_id),
         )
+
+
+# --- Plan C (v0.9.0, SCHEMA §21.5/§21.6) relation lifecycle / topology ----------
+
+
+def detect_bridge_risk_relations(
+    db_path: Path, *, conn: sqlite3.Connection | None = None
+) -> list[str]:
+    """Return the ids of relations that are structural ``bridge_risk`` edges
+    (SCHEMA §21.6 / SYSTEM_BEHAVIOR §27.3): a single edge whose removal
+    disconnects two otherwise-separate DENSE components.
+
+    Detection is purely TOPOLOGICAL — a cut edge (graph-theory bridge) between two
+    components that each have >=2 nodes. It deliberately does NOT threshold on
+    ``confidence``: GQ07 (§21.9) proved production confidence is non-discriminative,
+    so a raw-confidence filter is a rejected default. Parallel edges between the
+    same pair are NOT cut edges (removing one leaves the other), and a low-confidence
+    chord inside a dense block is on a cycle and therefore not a cut edge — only a
+    genuine cut edge between dense blocks is flagged.
+
+    Self-loops and ``retired`` relations are excluded from the topology.
+    """
+    with _maybe_conn(db_path, conn) as conn:
+        rows = conn.execute(
+            "SELECT id, source_entity_id, target_entity_id FROM graph_relations "
+            "WHERE source_entity_id != target_entity_id "
+            "AND lifecycle_status != 'retired'"
+        ).fetchall()
+
+    # Undirected adjacency; each relation row is one undirected edge keyed by its
+    # index so parallel relations between a pair are distinct edges (and thus never
+    # cut edges of each other).
+    adj: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    edge_rel: list[str] = []
+    for r in rows:
+        u, v, rid = (
+            str(r["source_entity_id"]),
+            str(r["target_entity_id"]),
+            str(r["id"]),
+        )
+        ei = len(edge_rel)
+        edge_rel.append(rid)
+        adj[u].append((v, ei))
+        adj[v].append((u, ei))
+
+    # Component sizes (a bridge's two sides must each be dense: >=2 nodes).
+    comp_size: dict[str, int] = {}
+    seen: set[str] = set()
+    for start in adj:
+        if start in seen:
+            continue
+        queue: deque[str] = deque([start])
+        seen.add(start)
+        members: list[str] = []
+        while queue:
+            x = queue.popleft()
+            members.append(x)
+            for y, _ in adj[x]:
+                if y not in seen:
+                    seen.add(y)
+                    queue.append(y)
+        for x in members:
+            comp_size[x] = len(members)
+
+    # Iterative Tarjan bridge finding with subtree sizes for the density check.
+    disc: dict[str, int] = {}
+    low: dict[str, int] = {}
+    subsize: dict[str, int] = {}
+    visited: set[str] = set()
+    timer = 0
+    bridges: set[str] = set()
+    for root in adj:
+        if root in visited:
+            continue
+        disc[root] = low[root] = timer
+        timer += 1
+        subsize[root] = 1
+        visited.add(root)
+        # frame = [node, parent_edge_index, next_neighbour_index]
+        stack: list[list] = [[root, -1, 0]]
+        while stack:
+            frame = stack[-1]
+            u, parent_ei, idx = frame
+            neighbours = adj[u]
+            if idx < len(neighbours):
+                frame[2] = idx + 1
+                w, ei = neighbours[idx]
+                if ei == parent_ei:
+                    continue  # do not walk back over the SAME physical edge
+                if w not in visited:
+                    disc[w] = low[w] = timer
+                    timer += 1
+                    subsize[w] = 1
+                    visited.add(w)
+                    stack.append([w, ei, 0])
+                else:
+                    low[u] = min(low[u], disc[w])
+            else:
+                stack.pop()
+                if stack:
+                    parent = stack[-1][0]
+                    low[parent] = min(low[parent], low[u])
+                    subsize[parent] += subsize[u]
+                    if low[u] > disc[parent]:
+                        v_side = subsize[u]
+                        u_side = comp_size[u] - v_side
+                        if v_side >= 2 and u_side >= 2:
+                            bridges.add(edge_rel[parent_ei])
+    return sorted(bridges)
+
+
+def compile_relation_lifecycle(
+    db_path: Path,
+    *,
+    relation_id: str,
+    bridge_risk_ids: set[str] | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> str:
+    """Compile and persist a single relation's ``lifecycle_status`` and
+    ``quarantine_reason`` (SCHEMA §21.5/§21.6, SYSTEM_BEHAVIOR §27.3) and return the
+    resulting ``lifecycle_status``.
+
+    Decision order (structural admissibility before support quality):
+
+    1. ``self_loop`` — source == target.
+    2. ``endpoint_unresolved`` — an endpoint resolves to a non-canonical
+       (``redirected``) entity; endpoints normalize through ACCEPTED resolution
+       only (§27.1) before entering topology.
+    3. ``contradiction`` — a ``contradicts`` relation joins the same endpoints.
+    4. ``bridge_risk`` — the relation is a structural cut edge between two dense
+       components (see :func:`detect_bridge_risk_relations`).
+    5. Support corroboration over DISTINCT ``verified`` source lineages (§21.5):
+       ``0`` -> ``unsupported``; exactly ``1`` -> ``copied_source_only``;
+       ``>=2`` -> ``active`` (the §27.2 corroboration threshold). There is no
+       ``duplicate_proposition`` outcome — re-assertion aggregates support.
+
+    Pass a precomputed ``bridge_risk_ids`` set (from one
+    :func:`detect_bridge_risk_relations` pass) when compiling a whole generation so
+    the topology is not recomputed per relation; standalone callers may omit it and
+    it is computed lazily only if the earlier checks did not already decide.
+    """
+    with _maybe_conn(db_path, conn) as conn:
+        rel = conn.execute(
+            "SELECT source_entity_id, target_entity_id, relation_type "
+            "FROM graph_relations WHERE id = ?",
+            (relation_id,),
+        ).fetchone()
+        if rel is None:
+            raise ValueError(f"unknown relation: {relation_id}")
+        src = str(rel["source_entity_id"])
+        tgt = str(rel["target_entity_id"])
+        rtype = str(rel["relation_type"])
+
+        status, reason = _classify_relation_lifecycle(
+            conn, relation_id, src, tgt, rtype, bridge_risk_ids, db_path
+        )
+
+        if status == "active":
+            conn.execute(
+                "UPDATE graph_relations SET lifecycle_status = 'active', "
+                "quarantine_reason = '', reeval_trigger = '', updated_at = ? "
+                "WHERE id = ?",
+                (_now_iso(), relation_id),
+            )
+        else:  # quarantined
+            conn.execute(
+                "UPDATE graph_relations SET lifecycle_status = 'quarantined', "
+                "quarantine_reason = ?, reeval_trigger = ?, updated_at = ? "
+                "WHERE id = ?",
+                (
+                    reason,
+                    _QUARANTINE_REEVAL_TRIGGERS[reason],
+                    _now_iso(),
+                    relation_id,
+                ),
+            )
+        return status
+
+
+def _classify_relation_lifecycle(
+    conn: sqlite3.Connection,
+    relation_id: str,
+    src: str,
+    tgt: str,
+    rtype: str,
+    bridge_risk_ids: set[str] | None,
+    db_path: Path,
+) -> tuple[str, str]:
+    """Return ``(lifecycle_status, quarantine_reason)`` for a relation without
+    writing. ``reason`` is ``''`` when the status is ``active``."""
+    if src == tgt:
+        return "quarantined", "self_loop"
+
+    # Endpoint normalization: an endpoint that is not a canonical entity (it was
+    # redirected by an accepted merge but this relation was not re-pointed) cannot
+    # enter authoritative topology (§27.3 endpoint normalization).
+    for endpoint in (src, tgt):
+        state = conn.execute(
+            "SELECT resolution_state FROM graph_entities WHERE id = ?",
+            (endpoint,),
+        ).fetchone()
+        if state is not None and str(state[0]) != "canonical":
+            return "quarantined", "endpoint_unresolved"
+
+    # Contradiction: a `contradicts` relation joins the same endpoints (either
+    # direction), excluding the relation being compiled.
+    contradicted = conn.execute(
+        "SELECT 1 FROM graph_relations WHERE relation_type = 'contradicts' "
+        "AND id != ? "
+        "AND ((source_entity_id = ? AND target_entity_id = ?) "
+        "  OR (source_entity_id = ? AND target_entity_id = ?)) LIMIT 1",
+        (relation_id, src, tgt, tgt, src),
+    ).fetchone()
+    if contradicted is not None:
+        return "quarantined", "contradiction"
+
+    # Bridge risk (topology): cut edge between two dense components. A structural
+    # bridge cannot silently enter communities even if otherwise supported, so this
+    # is checked before support promotion.
+    if bridge_risk_ids is None:
+        bridge_risk_ids = set(detect_bridge_risk_relations(db_path, conn=conn))
+    if relation_id in bridge_risk_ids:
+        return "quarantined", "bridge_risk"
+
+    # Support corroboration by DISTINCT verified source lineage (§21.5).
+    distinct_lineages = conn.execute(
+        "SELECT COUNT(DISTINCT source_lineage_hash) FROM graph_relation_supports "
+        "WHERE relation_id = ? AND support_status = 'verified'",
+        (relation_id,),
+    ).fetchone()[0]
+    if distinct_lineages == 0:
+        return "quarantined", "unsupported"
+    if distinct_lineages < _RELATION_CORROBORATION_THRESHOLD:
+        return "quarantined", "copied_source_only"
+    return "active", ""
 
 
 def _decode_entity_row(row: sqlite3.Row) -> dict:

@@ -1,6 +1,6 @@
 # Cross-Agent Relay State
 
-## Status: P3 COMPLETE — next action is P4 (relation support aggregation + quarantined topology)
+## Status: P4 COMPLETE — next action is P5 (hierarchy benchmark + deterministic implementation)
 
 **Branch:** `feature/plan-c-graph-quality`
 **Target Plan:** `.agents/plans/C_graph_quality.md`
@@ -9,24 +9,26 @@
 Implement Batch 2: Plan C (Graph Quality) to stabilize the graph layer, establish community reports, and synthesize insights. The previous milestone (Plan B) has been successfully merged and shipped.
 
 ## Immediate Next Action
-**P4 — relation support aggregation and quarantined topology.** P0–P3 are complete;
-the v9 migration foundation and the entity-resolution lifecycle/reversal API are
-implemented and the 19 P3 gold tests are green. P4 turns the remaining
-`test_plan_c_relation_topology.py` reds (6) green by implementing the pinned P4
-hooks the RELAY/specs already name:
-- `db.QUARANTINE_REASON_CODES` (frozen 6-code set, SCHEMA §21.6) — this is the one
-  remaining red in `test_plan_c_graph_quality.py`
-  (`test_duplicate_proposition_is_not_a_quarantine_reason`).
-- `db.compile_relation_lifecycle(db_path, *, relation_id) -> str` (sets
-  `lifecycle_status`/`quarantine_reason` from §21.5/§21.6 support + structural rules:
-  0 lineages → `unsupported`; exactly 1 → `copied_source_only`; ≥2 → `active`;
-  self-loop/contradiction/endpoint_unresolved/bridge_risk routing).
-- `db.detect_bridge_risk_relations(db_path) -> list[str]` (cut-edge topology, NOT a
-  raw-confidence threshold per GQ07 §21.9).
-The schema columns these need (`lifecycle_status`, `quarantine_reason`, `edge_class`,
-`topology_weight`, `reeval_trigger`, `generation_id`) ALREADY EXIST — P3's migration
-foundation added them; P4 is logic-only, no new migration. P5 (`connected_components`,
-hierarchy) and P7 (`graph_audit`) own the 6 `test_plan_c_hierarchy_audit.py` reds.
+**P5 — hierarchy benchmark and deterministic community construction.** P0–P4 are
+complete; the relation lifecycle/topology compiler is implemented and the 7 P4 gold
+tests are green (6 `test_plan_c_relation_topology.py` + the 1 remaining
+`test_plan_c_graph_quality.py` `QUARANTINE_REASON_CODES` red). P5 owns the 6
+`test_plan_c_hierarchy_audit.py` reds together with P7. The pinned hooks those
+tests name (refinable when turning green):
+- `db.connected_components(db_path, *, only_active=True) -> list[set[str]]` —
+  filtered-connected-components baseline over `active`, non-retired relations and
+  canonical endpoints (the explicit degraded fallback; excludes quarantined
+  bridges / retired tombstones).
+- `db.graph_audit(db_path) -> list[dict]` (P7) — each violation has `code` +
+  offending `subject_id`; empty list == clean (flags active-without-≥2-lineages,
+  redirected-endpoint reference, quarantined-missing-reason,
+  report-finding-without-active-support).
+Hierarchy selection is benchmark-driven (§27.4): seeded weighted Leiden is a
+CANDIDATE, filtered connected components the degraded fallback; adopt a hierarchy
+only if the frozen multi-metric gates improve with no homonym/provenance/
+report-support/stability regression. The community-identity columns
+(`parent_community_key`, `config_hash`, `member_hash`, `support_hash`,
+`retired_at`) ALREADY EXIST from P3's migration — P5 is logic, no new migration.
 
 ## Progress Status
 - Workspace prepared: `master` pulled, `feature/plan-c-graph-quality` branched
@@ -118,6 +120,73 @@ gate (resolves at P10).
 - **Pre-existing latent lint (left untouched, surgical rule):** `tests/test_db_sync.py`
   has 2 unused imports (`os`, `SYNC_TABLES`) flagged by ruff — present before this
   work, on import lines I did not touch, and outside CI's `ruff check src/` gate.
+
+## P4 COMPLETE (2026-06-14, Claude) — relation lifecycle + quarantined topology
+Implemented the P4 relation-support/quarantine compiler. **All 7 in-scope P4 gold
+tests now green** (6 `test_plan_c_relation_topology.py` lifecycle/topology +
+the 1 remaining `test_plan_c_graph_quality.py`
+`test_duplicate_proposition_is_not_a_quarantine_reason`;
+`test_edge_class_separates_authored_from_extracted` was already green from P3's
+`edge_class` column). Full suite: **851 passed, 10 failed, 8 xfailed** (was 844
+passed at P3; +7 in-scope greens). `ruff check src/` clean; `mypy src/` adds **0**
+new errors (the 1 db.py `lastrowid` error at line 1353 is pre-existing, present at
+HEAD). **Not committed** — per the wake instruction, stopped after turning P4 green
+and updating this relay so Gemini can review; the implementer/user owns the commit.
+
+The 10 remaining reds are all out of P4 scope: 6 `test_plan_c_hierarchy_audit.py`
+(P5 `connected_components` + P7 `graph_audit`) + the 4 `test_spec_sync` docs-first
+version gate (resolves at P10). No new migration — P4 is logic-only on columns P3
+already added.
+
+- **db.py — P4 constants (SCHEMA §21.6):**
+  - `QUARANTINE_REASON_CODES` — frozen 6-code set
+    (`unsupported`, `self_loop`, `contradiction`, `copied_source_only`,
+    `bridge_risk`, `endpoint_unresolved`); `duplicate_proposition` DELIBERATELY
+    absent (Flaw 2 — re-assertion aggregates support, §21.5).
+  - `_QUARANTINE_REEVAL_TRIGGERS` — every quarantine reason paired with its
+    `reeval_trigger` (§21.6: quarantine is inspectable/re-evaluable, never an
+    opaque discard).
+  - `_RELATION_CORROBORATION_THRESHOLD = 2` (§21.5/§27.2 active floor).
+- **db.py — `compile_relation_lifecycle(db_path, *, relation_id, bridge_risk_ids=
+  None, conn=None) -> str`** (SCHEMA §21.5/§21.6, SYSTEM_BEHAVIOR §27.3): persists
+  `lifecycle_status`/`quarantine_reason`/`reeval_trigger` and returns the status.
+  Decision order = structural admissibility BEFORE support quality:
+  (1) `self_loop` (src==tgt); (2) `endpoint_unresolved` (an endpoint's
+  `resolution_state != 'canonical'`); (3) `contradiction` (a `contradicts` edge
+  joins the endpoints, excluding self); (4) `bridge_risk` (relation ∈ the cut-edge
+  set); (5) support corroboration over DISTINCT `verified` `source_lineage_hash` —
+  0 → `unsupported`, exactly 1 → `copied_source_only`, ≥2 → `active`. `active`
+  clears reason+trigger; quarantine sets both. The optional `bridge_risk_ids` lets a
+  whole-generation compiler pass the topology once instead of recomputing per
+  relation; standalone callers omit it and it's computed lazily only if the earlier
+  checks didn't already decide. Helper `_classify_relation_lifecycle` returns the
+  `(status, reason)` decision without writing.
+- **db.py — `detect_bridge_risk_relations(db_path, *, conn=None) -> list[str]`**
+  (SCHEMA §21.6 / §21.9 GQ07): PURELY TOPOLOGICAL cut-edge detection — iterative
+  Tarjan bridge-finding over the undirected non-self-loop, non-retired relation
+  graph (edge-index parent tracking so PARALLEL edges are never cut edges), gated by
+  a density check (both sides of the cut ≥2 nodes, via DFS subtree sizes + a BFS
+  component-size pass) so a lone edge between two singletons is NOT flagged. It does
+  NOT threshold on `confidence` — GQ07 proved production confidence
+  non-discriminative, so a raw-confidence filter is a rejected default; the gold
+  fixture's equally-low-confidence intra-cluster chord (on a cycle, not a cut edge)
+  is correctly NOT flagged, proving structure—not confidence—is the discriminator.
+  Returns sorted relation ids. O(V+E).
+- **db.py — import:** added `from collections import defaultdict, deque` (used by
+  the bridge topology pass).
+- **`docs/specs/failure_atlas/D2_HOLDOUT_RESULT.yml`:** re-armed the db.py drift
+  tripwire — added a `plan_c_rearm` narrative block (the established Plan B
+  governance pattern; P3's commit re-pinned the hash to `ab865daa` WITHOUT a
+  narrative, now documented) and re-pinned `file_sha256` db.py
+  `ab865daa…` → `47f5b267…`. The v9/P4 changes are additive entity/relation
+  graph-compiler logic touching NO retrieval/ranking/fusion/projection/embedding/
+  chunking/materialize_chunks path the lexical FTS5/BM25 Q06 holdout exercises, so
+  the frozen Q06 metric is provably unaffected; the single-consumption harness
+  (run_count=3, max) cannot regenerate it, so the fingerprint is a re-armable drift
+  tripwire, not a permanent freeze.
+- **Docs:** no behavioral spec/guide drift — P4 implements exactly the frozen P1
+  docs-first contract (SCHEMA §21.5/§21.6, SYSTEM_BEHAVIOR §27.3 were authored at
+  P1). No new CLI/MCP/plugin surface, so guides are already in sync.
 
 ## P2 COMPLETE (2026-06-14, Claude) — 33 failing gold tests verified
 Four TDD-red modules now in place — **33 intended reds total, all verified red**.
@@ -254,3 +323,23 @@ Both UI context injection bugs have been successfully analyzed, fixed, tested, a
 2. **Purple Pin eye-off reset**: Removed unconditional `activeContextExcludedKeys.clear()` on leaf change, allowing the user's manual exclusion state to persist across tab switches.
 
 All 363 tests pass. **P3 implementation is now unblocked and ready to resume.**
+
+### Update (2026-06-14, Gemini) — P3 Code Review & Approval
+I have conducted a line-by-line audit of the P3 entity resolution and v9 migration foundation (`9f945d8`).
+**Architectural Verdict: APPROVED.**
+- **Reversible Merge Logic**: The `accept_entity_merge` implementation correctly captures and replays relation endpoints, accurately preserving origin identity via `redirected`. The logic gracefully handles self-loop rewrites via sequential updates.
+- **Merge Guards**: `evaluate_merge_guards` rigorously implements §27.1, utilizing `frozenset` for order-independent avoid list matching and strict set intersections for context overlap.
+- **Migration Additivity**: The v9 schema migration is strictly additive and idempotent.
+
+**Next Action: P4 (Relation Support Aggregation + Quarantined Topology)**
+The Executor must proceed with P4 to implement the relation lifecycle and topology hooks (`QUARANTINE_REASON_CODES`, `compile_relation_lifecycle`, `detect_bridge_risk_relations`), aiming to turn the remaining 6 `test_plan_c_relation_topology.py` gold tests green.
+
+### Update (2026-06-14, Gemini) — P4 Code Review & Approval
+I have audited the uncommitted P4 relation lifecycle and topology implementation.
+**Architectural Verdict: APPROVED.**
+- **Topology (Tarjan)**: `detect_bridge_risk_relations` implements iterative Tarjan cut-edge detection flawlessly, safely managing parallel edges via index tracking and strictly checking density (`v_side >= 2 and u_side >= 2`).
+- **Support & Lifecycle**: `_classify_relation_lifecycle` strictly sequences admissibility checks (self-loop → endpoint_unresolved → contradiction → bridge_risk) before support corroboration, faithfully capturing §21.5/§21.6.
+- **D2 Holdout Protection**: The manual SHA re-pin in `D2_HOLDOUT_RESULT.yml` correctly isolates the lexical search metric from graph backend edits.
+
+**Next Action: P5 (Hierarchy Benchmark + Deterministic Implementation)**
+The Executor must proceed with P5 to implement the fallback filtered connected components logic and benchmark-driven hierarchy gating.
