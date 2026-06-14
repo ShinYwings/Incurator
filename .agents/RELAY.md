@@ -22,7 +22,24 @@ Implement Batch 2: Plan C (Graph Quality) to stabilize the graph layer, establis
   No behavior change.
 
 ## Immediate Next Action
-- **P1 (docs-first specs) — IN PROGRESS:** freeze resolution/relation/hierarchy/
-  report/migration contracts in `SCHEMA.md`, `SYSTEM_BEHAVIOR.md`,
-  `SEARCH_ENGINE_SCHEMA.md` (+ EN→KR guides). **MANDATORY STOP after P1** for
-  user approval before any P2+ application code (plan "Mandatory Stop").
+- **P1 schema gate APPROVED** (2026-06-14, Claude): user approved the locked
+  `SCHEMA.md` §21 design (`SCHEMA_VERSION 8→9`, target v0.9.0) at the plan's
+  mandatory schema gate. Committed `ded3886`.
+- **P1 (docs-first contracts) COMPLETE** (2026-06-14, Claude). All P1
+  deliverables written, committed, no code / no behavior change:
+  - `SCHEMA.md` §21 + §11 version-history narrative (`ded3886`, `e3f33ef`).
+  - `SYSTEM_BEHAVIOR.md` §27 (resolution/support/lifecycle/hierarchy/reports/
+    graph-audit/migration/reconciliation/GQ07/testbed) + `SEARCH_ENGINE_SCHEMA`
+    §11 (graph-quality materialization) + `PLUGIN_SCHEMA` title→v0.9.0, "no
+    plugin contract change" note (`c419c66`).
+  - EN→KR guides: `WORKFLOW_GUIDE(_KR)` §11, `USER_GUIDE(_KR)` Graph Quality
+    section (`cca6d63`).
+  - Three core spec domains synced to v0.9.0 in their titles.
+- **⛔ STOPPED AT MANDATORY GATE (before P2 application code).** Per plan
+  "Mandatory Stop" / Stop Conditions: stop before any application code until P1
+  contracts are approved. The schema design is approved and the full P1 contract
+  set is now frozen. **Next phase = P2** (failing resolution/relation/hierarchy
+  gold tests — adversarial fixtures, graph-audit tests, frozen hierarchy
+  benchmark fixtures). P2 is TDD test-writing (still pre-implementation per plan)
+  but is the start of the code-bearing phases; awaiting user go-ahead to begin
+  P2 before writing any tests/code.
