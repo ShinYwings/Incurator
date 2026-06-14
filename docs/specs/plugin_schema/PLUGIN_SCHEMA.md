@@ -1,7 +1,15 @@
-# Incurator Plugin Schema & API Contract (v0.8.0)
+# Incurator Plugin Schema & API Contract (v0.9.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
+> **v0.9.0 note (Plan C — Graph Quality):** the v0.9.0 release changes no plugin
+> contract. The graph audit is a CLI surface (`wiki lint` Graph Quality section),
+> and the plugin observes Plan C only through better backend evidence (canonical
+> entities, active claim-grounded relations, and claim-grounded community reports
+> on already-returned records). See SYSTEM_BEHAVIOR §27.6. The title version is
+> bumped together with the other spec domains; the binding product version bump
+> lands at the Plan C release step.
+>
 > **v0.8.0 note (Plan B — Evidence Compiler Integrity):** the v0.8.0 release
 > changes no plugin contract. The compiler audit is a CLI surface
 > (`wiki lint`), and the plugin observes Plan B only through better backend
