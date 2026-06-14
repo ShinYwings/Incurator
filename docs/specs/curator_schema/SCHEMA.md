@@ -1611,6 +1611,15 @@ authoritative generation:
    `linked_evidence` have a matching `formula` support row;
    `omitted_incidental` rows carry a reason code.
 
+Re-validation preserves a recovered `formula` support row (the additive
+`recover_formula` evidence link, §20.2) ONLY while it stays relevant: the claim
+must still carry a formula AND the support's `source_span_id` must still be in
+the unit's declared `source_span_ids`. A `formula` support whose claim lost its
+formula, or whose span the claim no longer cites, is stale and is cleared by the
+same re-validation pass — so it can never linger as a dangling row (assertion 3)
+or a status inconsistency (assertion 5). Recovery always attaches to a cited
+span, so a valid link is never dropped.
+
 ### 20.6 v8 Migration And Tombstone Extension
 
 - `SCHEMA_VERSION` 7 → 8 is forward-only and additive: the §20.1 ALTERs, the

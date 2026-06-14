@@ -1663,6 +1663,15 @@ F3/F4/F5/F11/F12 stay with Program 3.
   an error and never reaches publish, so this introduces no silent loss; a
   zero-unit publish that retires one or more prior units is recorded as a
   non-blocking audit note.
+- **Gate audits the to-be-published state.** For the DB-level re-publish
+  (`recompile_source`), re-validation and the publish gate run together in ONE
+  transaction: the gate's compiler audit reads the uncommitted re-validated
+  rows, so it checks exactly the state about to be committed, never a
+  pre-validation snapshot. This lets a re-validation HEAL a transiently-dangling
+  support — it is re-written against the live span before the gate sees it,
+  rather than blocking the republish — while a genuine structural break (an
+  orphaned support no re-validation can fix) still raises and rolls the whole
+  transaction back, leaving the prior authoritative generation byte-identical.
 
 ### 26.4 Source Edit/Delete/Split Reconciliation
 

@@ -72,6 +72,13 @@ accumulation, stale records, or partial authoritative publishes.
   prior spans instead of lingering beside replacements.
 - F10 (truncated evidence): full-span hydration replaces the 200-char
   preview in evidence packs.
+- Re-publish publish gate now audits the uncommitted re-validated state
+  inside the same transaction (§26.3), so it checks exactly what is about to
+  be committed and a re-validation can heal a transiently-dangling support
+  instead of being permanently blocked.
+- Stale `formula` support rows are cleared on re-validation when the claim
+  lost its formula or no longer cites the support's span (§20.5), preventing
+  lingering/dangling formula links; valid recovery links are preserved.
 
 ---
 
