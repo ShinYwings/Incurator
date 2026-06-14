@@ -15,7 +15,7 @@ from ..contracts import PromptContract
 from ..registry import register
 
 PROMPT_ID = "curator.knowledge_unit_extract"
-VERSION = "v1"
+VERSION = "v2"
 
 UnitType = Literal[
     "claim",
@@ -43,6 +43,12 @@ class ExtractedKnowledgeUnit(BaseModel):
     source_span_ids: list[str]
     confidence: float = Field(ge=0.0, le=1.0)
     truth_status: Literal["source_supported", "derived_insight"] = "source_supported"
+    support_roles: dict[str, Literal["primary", "contextual", "formula"]] = Field(
+        default_factory=dict
+    )
+    formula_centrality: Literal["central", "incidental", "not_applicable"] = (
+        "not_applicable"
+    )
 
 
 class KnowledgeUnitExtractOutput(BaseModel):
@@ -60,6 +66,14 @@ Hard rules:
 - unit_type is one of: claim, definition, equation, procedure, method, result,
   observation, constraint.
 - Preserve equations exactly (with $$...$$ / $...$ delimiters) in equation units.
+- Declare the minimal cited-span role for each unit in support_roles. Allowed
+  roles are primary | contextual | formula. Use primary for the smallest span
+  that directly entails the claim, contextual only when needed, and formula
+  for exact formula evidence.
+- Set formula_centrality to central, incidental, or not_applicable. A central
+  formula must remain exact in the statement or have a formula support role.
+- These declarations are proposals; the deterministic support gate validates
+  them before the unit can feed downstream stages.
 - If a statement is your interpretation rather than something the source states,
   set truth_status to "derived_insight". Otherwise "source_supported".
 - confidence is a float in [0,1].
@@ -74,7 +88,9 @@ Return ONLY JSON:
       "statement": "the atomic fact, faithful to the cited span(s)",
       "source_span_ids": ["SPAN-..."],
       "confidence": 0.0,
-      "truth_status": "source_supported"
+      "truth_status": "source_supported",
+      "support_roles": {"SPAN-...": "primary"},
+      "formula_centrality": "not_applicable"
     }
   ]
 }"""

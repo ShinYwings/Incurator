@@ -1,6 +1,13 @@
-# Incurator Plugin Schema & API Contract (v0.7.0)
+# Incurator Plugin Schema & API Contract (v0.8.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
+
+> **v0.8.0 note (Plan B — Evidence Compiler Integrity):** the v0.8.0 release
+> changes no plugin contract. The compiler audit is a CLI surface
+> (`wiki lint`), and the plugin observes Plan B only through better backend
+> evidence (full-span hydration and claim support/formula labels on returned
+> records). See SYSTEM_BEHAVIOR §26.5. The title version is bumped at the
+> release step together with the other spec domains.
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute schema source of truth for the plugin. Backend contracts live in `docs/specs/curator_schema/SCHEMA.md` and `docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`. When there is a conflict, the system behavior spec takes precedence.
 

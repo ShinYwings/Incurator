@@ -119,6 +119,16 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 #### `curator_lint`
 - **Role**: Perform validation and health checks on the workspace DAG to ensure schema and link integrity.
+- **v0.8.0**: the report additionally includes the Compiler Integrity audit —
+  unsupported/failed/stale claim counts, evidence-hash mismatches,
+  broad-fallback findings, and formula-status inconsistencies. The tool's
+  input schema is unchanged; only the report content is richer. Agents should
+  treat release-blocking audit findings the same way as broken links: fix or
+  escalate, never ignore. Evidence returned by query/search tools now hydrates
+  full span text (hash-verified against the source) instead of a
+  200-character preview, and claims carry `support_status`/`formula_status`
+  labels — `unchecked`, `failed`, `stale`, or retired claims must not be
+  presented as verified knowledge.
 
 #### `curator_ingest_source` (Deprecated)
 - **Role**: Legacy combined ingestion. Use `curator_register_source` followed by `curator_build_source` instead.

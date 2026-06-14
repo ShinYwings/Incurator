@@ -20,7 +20,7 @@ from typing import Any, Iterator
 
 from . import constants as consts
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -241,10 +241,50 @@ CREATE TABLE IF NOT EXISTS knowledge_units (
     atom_node_id    TEXT,                    -- linked ATM- page when written
     prompt_run_id   TEXT,                    -- PTR- of extraction run
     created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
+    updated_at      TEXT NOT NULL,
+    -- Plan B (v0.8.0, SCHEMA §20.1) additive claim-level support / formula columns.
+    semantic_hash   TEXT,                    -- normalized-claim fingerprint (reconciliation candidates only)
+    support_status  TEXT NOT NULL DEFAULT 'unchecked',  -- unchecked|verified|failed|stale
+    support_reason  TEXT NOT NULL DEFAULT '',
+    formula_status  TEXT NOT NULL DEFAULT 'not_applicable',
+                                             -- not_applicable|preserved_in_text|linked_evidence|omitted_incidental|missing|uncertain
+    retired_at      TEXT,                    -- ISO 8601 UTC; non-NULL = retired by reconciliation
+    generation_id   TEXT                     -- GEN- compiler generation that last produced/revalidated this row
 );
 CREATE INDEX IF NOT EXISTS idx_knowledge_units_source ON knowledge_units(source_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_units_type   ON knowledge_units(unit_type);
+-- The support/generation indexes are created in _apply_migrations (after the
+-- columns are added), so a pre-existing v7 knowledge_units table — which this
+-- IF NOT EXISTS CREATE TABLE does not alter — is not indexed on a missing column.
+
+-- Plan B (v0.8.0, SCHEMA §20.2) claim-level minimal support records.
+CREATE TABLE IF NOT EXISTS claim_supports (
+    knowledge_unit_id TEXT NOT NULL,
+    source_span_id    TEXT NOT NULL,
+    support_role      TEXT NOT NULL,         -- primary|contextual|formula
+    support_status    TEXT NOT NULL,         -- unchecked|verified|failed|stale
+    support_reason    TEXT NOT NULL DEFAULT '',
+    evidence_hash     TEXT NOT NULL,         -- content_hash of the span text at validation time
+    validator_trace_id TEXT,                 -- PTR- of model validation; NULL for deterministic-only verdicts
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL,
+    PRIMARY KEY (knowledge_unit_id, source_span_id, support_role)
+);
+CREATE INDEX IF NOT EXISTS idx_claim_supports_span ON claim_supports(source_span_id);
+CREATE INDEX IF NOT EXISTS idx_claim_supports_status ON claim_supports(support_status);
+
+-- Plan B (v0.8.0, SCHEMA §20.3) staged compiler generations (atomic publish).
+CREATE TABLE IF NOT EXISTS compiler_generations (
+    id               TEXT PRIMARY KEY,       -- GEN-[UUID8]
+    source_id        INTEGER,                -- per-source scope; NULL = corpus-wide stage set
+    status           TEXT NOT NULL DEFAULT 'staged',  -- staged|authoritative|discarded
+    prompt_contract_version TEXT NOT NULL,
+    created_at       TEXT NOT NULL,
+    published_at     TEXT,
+    discarded_at     TEXT,
+    audit_json       TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_compiler_generations_source ON compiler_generations(source_id, status);
 
 -- Named graph nodes (entry points for local/explore retrieval).
 CREATE TABLE IF NOT EXISTS graph_entities (
@@ -509,7 +549,8 @@ CREATE TABLE IF NOT EXISTS deleted_records (
         'source_spans','knowledge_units','graph_entities','graph_relations',
         'community_reports','memory_paths','prompt_runs','dag_edges',
         'curation_plans','insight_candidates','artifact_dependencies',
-        'synthesis','query_traces','source_pages','source_pdf_pages'
+        'synthesis','query_traces','source_pages','source_pdf_pages',
+        'claim_supports','compiler_generations'
     ))
 );
 CREATE INDEX IF NOT EXISTS idx_deleted_records_at ON deleted_records(deleted_at);
@@ -520,6 +561,18 @@ def _now_iso() -> str:
     import datetime
 
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# Keep `IN (?, ?, …)` parameter counts well under SQLite's
+# SQLITE_MAX_VARIABLE_NUMBER (999 on older builds) so large sources (many spans)
+# do not crash bulk span queries.
+_SQL_VAR_CHUNK = 900
+
+
+def _chunked(seq: list, size: int = _SQL_VAR_CHUNK):
+    """Yield successive ``size``-length slices of ``seq``."""
+    for start in range(0, len(seq), size):
+        yield seq[start:start + size]
 
 
 def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -707,6 +760,176 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
         "ON source_pdf_pages(relpath)"
     )
 
+    _migrate_v8_compiler_integrity(conn, tables)
+
+
+
+def _migrate_generation_backfill(
+    conn: sqlite3.Connection, tables: set[str]
+) -> None:
+    """Plan B2 (data-only): attribute legacy verified units that have no
+    `generation_id` to a deterministic synthetic authoritative generation per
+    source, so generation-scoped visibility (§26.3) has no permanent NULL escape
+    hatch. Runs on the explicit ``init_db`` path (not every ``connect``) so it is
+    a one-time cleanup of pre-B2 vaults, never a mid-session side effect; new
+    units are attributed to a generation by the compiler. Idempotent (a no-op
+    once every verified unit is attributed); deterministic ids converge across
+    devices.
+    """
+    if "knowledge_units" not in tables or "compiler_generations" not in tables:
+        return
+    rows = conn.execute(
+        "SELECT source_id, id FROM knowledge_units "
+        "WHERE generation_id IS NULL AND retired_at IS NULL AND support_status = 'verified'"
+    ).fetchall()
+    by_source: dict[Any, list[str]] = {}
+    for r in rows:
+        by_source.setdefault(r[0], []).append(str(r[1]))
+    now = _now_iso()
+    for source_id, unit_ids in by_source.items():
+        # Attribute to an existing authoritative generation for this source if one
+        # exists; otherwise mint the deterministic synthetic migration generation.
+        if source_id is None:
+            existing = conn.execute(
+                "SELECT id FROM compiler_generations "
+                "WHERE source_id IS NULL AND status = 'authoritative' LIMIT 1"
+            ).fetchone()
+            chash = ""
+        else:
+            existing = conn.execute(
+                "SELECT id FROM compiler_generations "
+                "WHERE source_id = ? AND status = 'authoritative' LIMIT 1",
+                (source_id,),
+            ).fetchone()
+            src = conn.execute(
+                "SELECT content_hash FROM sources WHERE id = ?", (source_id,)
+            ).fetchone()
+            chash = src[0] if src else ""
+        if existing is not None:
+            gen_id = str(existing[0])
+        else:
+            gen_id = f"GEN-mig-{source_id if source_id is not None else 'global'}"
+            audit = json.dumps(
+                {"content_hash": chash, "unit_ids": sorted(unit_ids),
+                 "unit_count": len(unit_ids), "migrated": True},
+                sort_keys=True,
+            )
+            conn.execute(
+                "INSERT INTO compiler_generations (id, source_id, status, "
+                "prompt_contract_version, created_at, published_at, audit_json) "
+                "VALUES (?, ?, 'authoritative', 'migrated', ?, ?, ?)",
+                (gen_id, source_id, now, now, audit),
+            )
+        for start in range(0, len(unit_ids), 900):
+            chunk = unit_ids[start:start + 900]
+            placeholders = ",".join("?" for _ in chunk)
+            conn.execute(
+                f"UPDATE knowledge_units SET generation_id = ? WHERE id IN ({placeholders})",
+                (gen_id, *chunk),
+            )
+
+
+def _migrate_v8_compiler_integrity(
+    conn: sqlite3.Connection, tables: set[str]
+) -> None:
+    """SCHEMA_VERSION 7 -> 8 (Plan B): additive claim-support / formula /
+    compiler-generation schema. Forward-only and idempotent (SCHEMA §20.6).
+
+    The ADD COLUMN ... NOT NULL DEFAULT statements backfill every existing
+    knowledge_units row as ``support_status='unchecked'`` and
+    ``formula_status='not_applicable'`` automatically; no support rows are
+    created and nothing is silently verified.
+    """
+    if "knowledge_units" in tables:
+        _add_column_if_missing(conn, "knowledge_units", "semantic_hash", "semantic_hash TEXT")
+        _add_column_if_missing(
+            conn, "knowledge_units", "support_status",
+            "support_status TEXT NOT NULL DEFAULT 'unchecked'",
+        )
+        _add_column_if_missing(
+            conn, "knowledge_units", "support_reason",
+            "support_reason TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn, "knowledge_units", "formula_status",
+            "formula_status TEXT NOT NULL DEFAULT 'not_applicable'",
+        )
+        _add_column_if_missing(conn, "knowledge_units", "retired_at", "retired_at TEXT")
+        _add_column_if_missing(conn, "knowledge_units", "generation_id", "generation_id TEXT")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_knowledge_units_support "
+            "ON knowledge_units(support_status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_knowledge_units_generation "
+            "ON knowledge_units(generation_id)"
+        )
+
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS claim_supports (
+            knowledge_unit_id TEXT NOT NULL,
+            source_span_id    TEXT NOT NULL,
+            support_role      TEXT NOT NULL,
+            support_status    TEXT NOT NULL,
+            support_reason    TEXT NOT NULL DEFAULT '',
+            evidence_hash     TEXT NOT NULL,
+            validator_trace_id TEXT,
+            created_at        TEXT NOT NULL,
+            updated_at        TEXT NOT NULL,
+            PRIMARY KEY (knowledge_unit_id, source_span_id, support_role)
+        );
+        CREATE INDEX IF NOT EXISTS idx_claim_supports_span ON claim_supports(source_span_id);
+        CREATE INDEX IF NOT EXISTS idx_claim_supports_status ON claim_supports(support_status);
+
+        CREATE TABLE IF NOT EXISTS compiler_generations (
+            id               TEXT PRIMARY KEY,
+            source_id        INTEGER,
+            status           TEXT NOT NULL DEFAULT 'staged',
+            prompt_contract_version TEXT NOT NULL,
+            created_at       TEXT NOT NULL,
+            published_at     TEXT,
+            discarded_at     TEXT,
+            audit_json       TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX IF NOT EXISTS idx_compiler_generations_source
+            ON compiler_generations(source_id, status);
+        """
+    )
+
+    # Extend the deleted_records CHECK list so the two new canonical tables can
+    # be tombstoned on a migrated (old) DB. SQLite cannot ALTER a CHECK in
+    # place, so rebuild the table only when its CHECK predates Plan B.
+    if "deleted_records" in tables:
+        ddl_row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='deleted_records'"
+        ).fetchone()
+        if ddl_row and "claim_supports" not in str(ddl_row[0]):
+            conn.executescript(
+                """
+                CREATE TABLE deleted_records_new (
+                    table_name  TEXT NOT NULL,
+                    record_id   TEXT NOT NULL,
+                    deleted_at  TEXT NOT NULL,
+                    PRIMARY KEY (table_name, record_id),
+                    CHECK (table_name IN (
+                        'sources','atoms','concepts','synthesis_nodes',
+                        'source_spans','knowledge_units','graph_entities','graph_relations',
+                        'community_reports','memory_paths','prompt_runs','dag_edges',
+                        'curation_plans','insight_candidates','artifact_dependencies',
+                        'synthesis','query_traces','source_pages','source_pdf_pages',
+                        'claim_supports','compiler_generations'
+                    ))
+                );
+                INSERT INTO deleted_records_new SELECT table_name, record_id, deleted_at
+                    FROM deleted_records;
+                DROP TABLE deleted_records;
+                ALTER TABLE deleted_records_new RENAME TO deleted_records;
+                CREATE INDEX IF NOT EXISTS idx_deleted_records_at
+                    ON deleted_records(deleted_at);
+                """
+            )
+
 
 
 def init_db(db_path: Path) -> None:
@@ -721,6 +944,15 @@ def init_db(db_path: Path) -> None:
         conn.execute("PRAGMA foreign_keys = ON")
         conn.executescript(SCHEMA_SQL)
         _apply_migrations(conn)
+        # One-time data cleanup of pre-B2 vaults (NOT in connect()'s hot path):
+        # attribute legacy verified NULL-generation units to a synthetic
+        # authoritative generation (SYSTEM_BEHAVIOR §26.3).
+        _tables = {
+            str(r[0]) for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        _migrate_generation_backfill(conn, _tables)
         row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
             conn.execute(
@@ -758,6 +990,21 @@ def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
         conn.commit()
     finally:
         conn.close()
+
+
+@contextmanager
+def _maybe_conn(
+    db_path: Path, conn: sqlite3.Connection | None
+) -> Iterator[sqlite3.Connection]:
+    """Yield ``conn`` when provided (the caller owns the transaction — no commit
+    here), else open a fresh :func:`connect` block. Lets compiler helpers run
+    inside ONE caller-controlled transaction so a multi-step publish is atomic
+    (SYSTEM_BEHAVIOR §26.3): any exception rolls the whole transaction back."""
+    if conn is not None:
+        yield conn
+    else:
+        with connect(db_path) as owned:
+            yield owned
 
 
 def get_stats(db_path: Path) -> dict:
@@ -1479,6 +1726,56 @@ def get_source_spans_by_ids(db_path: Path, span_ids: list[str]) -> list[dict]:
         return [_decode_span_row(row) for row in rows]
 
 
+def delete_source_spans(
+    db_path: Path, span_ids: list[str], *, conn: sqlite3.Connection | None = None
+) -> int:
+    """Remove stale source spans and their derived support/dependency rows
+    (SYSTEM_BEHAVIOR §26.4 / F7 reconciliation). The span rows of an edited
+    source are removed rather than left lingering beside their replacements;
+    dependent `claim_supports` and `artifact_dependencies` rows are removed in
+    the same transaction so the compiler audit finds no dangling references —
+    including stale span ids scrubbed from graph entity/relation
+    `source_span_ids` arrays (those are L1-anchored, so a removed span must not
+    linger there). Returns the number of span rows deleted. Source truth files
+    are untouched. Pass ``conn`` to run inside a caller's transaction (atomic
+    publish)."""
+    if not span_ids:
+        return 0
+    deleted = 0
+    deleted_set = set(span_ids)
+    with _maybe_conn(db_path, conn) as c:
+        for chunk in _chunked(span_ids):
+            placeholders = ",".join("?" for _ in chunk)
+            params = tuple(chunk)
+            c.execute(
+                f"DELETE FROM claim_supports WHERE source_span_id IN ({placeholders})",
+                params,
+            )
+            c.execute(
+                "DELETE FROM artifact_dependencies "
+                f"WHERE depends_on_type = 'source_span' AND depends_on_id IN ({placeholders})",
+                params,
+            )
+            cur = c.execute(
+                f"DELETE FROM source_spans WHERE id IN ({placeholders})", params
+            )
+            deleted += cur.rowcount
+        # Scrub the deleted span ids out of graph entity/relation source_span_ids
+        # JSON arrays so no graph record carries a dangling span reference.
+        for table in ("graph_entities", "graph_relations"):
+            for row in c.execute(
+                f"SELECT id, source_span_ids FROM {table}"
+            ).fetchall():
+                spans = _loads_list(row["source_span_ids"])
+                kept = [s for s in spans if s not in deleted_set]
+                if len(kept) != len(spans):
+                    c.execute(
+                        f"UPDATE {table} SET source_span_ids = ? WHERE id = ?",
+                        (json.dumps(kept), row["id"]),
+                    )
+    return deleted
+
+
 # --- knowledge_units -------------------------------------------------
 
 
@@ -1555,6 +1852,323 @@ def list_knowledge_units_for_source(db_path: Path, source_id: int) -> list[dict]
         return [_decode_unit_row(row) for row in rows]
 
 
+# --- claim_supports / compiler_generations (Plan B, v0.8.0, SCHEMA §20) ------
+
+SUPPORT_ROLES = frozenset({"primary", "contextual", "formula"})
+SUPPORT_STATUSES = frozenset({"unchecked", "verified", "failed", "stale"})
+FORMULA_STATUSES = frozenset({
+    "not_applicable", "preserved_in_text", "linked_evidence",
+    "omitted_incidental", "missing", "uncertain",
+})
+GENERATION_STATUSES = frozenset({"staged", "authoritative", "discarded"})
+
+
+def upsert_claim_support(
+    db_path: Path,
+    *,
+    knowledge_unit_id: str,
+    source_span_id: str,
+    support_role: str,
+    support_status: str,
+    evidence_hash: str,
+    support_reason: str = "",
+    validator_trace_id: str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> None:
+    """Insert or update one minimal-support record (SCHEMA §20.2). Storage only:
+    callers (P4 validation) decide roles/statuses; a valid span id is never
+    proof of support on its own. Pass ``conn`` to run inside a caller's
+    transaction (atomic re-publish)."""
+    if support_role not in SUPPORT_ROLES:
+        raise ValueError(f"invalid support_role: {support_role!r}")
+    if support_status not in SUPPORT_STATUSES:
+        raise ValueError(f"invalid support_status: {support_status!r}")
+    now = _now_iso()
+    with _maybe_conn(db_path, conn) as conn:
+        conn.execute(
+            """
+            INSERT INTO claim_supports
+                (knowledge_unit_id, source_span_id, support_role, support_status,
+                 support_reason, evidence_hash, validator_trace_id,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (knowledge_unit_id, source_span_id, support_role)
+            DO UPDATE SET support_status = excluded.support_status,
+                          support_reason = excluded.support_reason,
+                          evidence_hash  = excluded.evidence_hash,
+                          validator_trace_id = excluded.validator_trace_id,
+                          updated_at = excluded.updated_at
+            """,
+            (knowledge_unit_id, source_span_id, support_role, support_status,
+             support_reason, evidence_hash, validator_trace_id, now, now),
+        )
+
+
+def list_claim_supports(db_path: Path, knowledge_unit_id: str) -> list[dict]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM claim_supports WHERE knowledge_unit_id = ? "
+            "ORDER BY support_role, source_span_id",
+            (knowledge_unit_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def set_unit_support_status(
+    db_path: Path, unit_id: str, status: str, reason: str = "",
+    *, conn: sqlite3.Connection | None = None,
+) -> None:
+    """Update a knowledge unit's claim-level support verdict (SCHEMA §20.1).
+    Pass ``conn`` to run inside a caller's transaction (atomic re-publish)."""
+    if status not in SUPPORT_STATUSES:
+        raise ValueError(f"invalid support_status: {status!r}")
+    if status in {"failed", "stale"} and not reason:
+        raise ValueError(f"support_status={status!r} requires a non-empty reason")
+    with _maybe_conn(db_path, conn) as conn:
+        conn.execute(
+            "UPDATE knowledge_units SET support_status = ?, support_reason = ?, "
+            "updated_at = ? WHERE id = ?",
+            (status, reason, _now_iso(), unit_id),
+        )
+
+
+def set_unit_formula_status(
+    db_path: Path, unit_id: str, status: str, reason: str = "",
+    *, conn: sqlite3.Connection | None = None,
+) -> None:
+    """Update a knowledge unit's formula lifecycle status (SCHEMA §20.1). Pass
+    ``conn`` to run inside a caller's transaction (atomic re-publish)."""
+    if status not in FORMULA_STATUSES:
+        raise ValueError(f"invalid formula_status: {status!r}")
+    with _maybe_conn(db_path, conn) as conn:
+        if reason:
+            conn.execute(
+                "UPDATE knowledge_units SET formula_status = ?, support_reason = ?, "
+                "updated_at = ? WHERE id = ?",
+                (status, reason, _now_iso(), unit_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE knowledge_units SET formula_status = ?, updated_at = ? "
+                "WHERE id = ?",
+                (status, _now_iso(), unit_id),
+            )
+
+
+def retire_knowledge_unit(
+    db_path: Path, unit_id: str, *, conn: sqlite3.Connection | None = None
+) -> None:
+    """Tombstone a unit retired by source edit/delete/split reconciliation
+    (SCHEMA §20.1). Retired rows are never deleted by the compiler and never
+    feed downstream stages. Its `claim_supports` rows are removed so the
+    compiler audit finds no support row citing a retired unit (§20.5 #3).
+    Pass ``conn`` to run inside a caller's transaction (atomic publish)."""
+    with _maybe_conn(db_path, conn) as c:
+        c.execute(
+            "UPDATE knowledge_units SET retired_at = ?, updated_at = ? "
+            "WHERE id = ? AND retired_at IS NULL",
+            (_now_iso(), _now_iso(), unit_id),
+        )
+        c.execute(
+            "DELETE FROM claim_supports WHERE knowledge_unit_id = ?", (unit_id,)
+        )
+
+
+def list_eligible_knowledge_units(
+    db_path: Path, source_id: int | None = None
+) -> list[dict]:
+    """Active downstream-eligible units: retired_at IS NULL AND
+    support_status='verified' (SCHEMA §20.1 eligibility rule). `unchecked`
+    legacy rows are intentionally excluded from compiler inputs.
+
+    NOTE (Plan B2): generation-agnostic. Serving callers must use
+    :func:`list_serving_units` (authoritative-generation only); the compiler's
+    staged build must use :func:`list_generation_units`."""
+    sql = (
+        "SELECT * FROM knowledge_units "
+        "WHERE retired_at IS NULL AND support_status = 'verified'"
+    )
+    params: tuple = ()
+    if source_id is not None:
+        sql += " AND source_id = ?"
+        params = (source_id,)
+    sql += " ORDER BY created_at"
+    with connect(db_path) as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [_decode_unit_row(row) for row in rows]
+
+
+def list_serving_units(db_path: Path, source_id: int | None = None) -> list[dict]:
+    """Units visible to serving surfaces (query / evidence / search materialization)
+    — SYSTEM_BEHAVIOR §26.3. Served = `retired_at IS NULL` ∧
+    `support_status='verified'` ∧ owned by an `authoritative` generation. A staged
+    or discarded generation's units (and any NULL-generation legacy row not yet
+    migrated) are excluded by construction."""
+    sql = (
+        "SELECT ku.* FROM knowledge_units ku "
+        "JOIN compiler_generations g ON g.id = ku.generation_id "
+        "WHERE ku.retired_at IS NULL AND ku.support_status = 'verified' "
+        "AND g.status = 'authoritative'"
+    )
+    params: tuple = ()
+    if source_id is not None:
+        sql += " AND ku.source_id = ?"
+        params = (source_id,)
+    sql += " ORDER BY ku.created_at"
+    with connect(db_path) as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [_decode_unit_row(row) for row in rows]
+
+
+def list_generation_units(
+    db_path: Path, generation_id: str, *, conn: sqlite3.Connection | None = None
+) -> list[dict]:
+    """The compiler-internal view of ONE generation's verified active units
+    (SYSTEM_BEHAVIOR §26.3) — used while building/auditing a staged generation
+    before it publishes. Visible to the compiler only, never to serving.
+    Pass ``conn`` to read within a caller's transaction (atomic publish)."""
+    with _maybe_conn(db_path, conn) as c:
+        rows = c.execute(
+            "SELECT * FROM knowledge_units WHERE generation_id = ? "
+            "AND retired_at IS NULL AND support_status = 'verified' ORDER BY created_at",
+            (generation_id,),
+        ).fetchall()
+    return [_decode_unit_row(row) for row in rows]
+
+
+def refresh_support_freshness(
+    db_path: Path, *, conn: sqlite3.Connection | None = None
+) -> set[str]:
+    """Re-check every verified claim_supports.evidence_hash against the cited
+    span's current content_hash; mark mismatched support rows and their owning
+    units `stale` (SYSTEM_BEHAVIOR §26.1 freshness re-check). Returns the set of
+    unit ids newly marked stale.
+
+    Pass ``conn`` so the freshness writes join a caller's open transaction (the
+    publish gate audits the uncommitted re-validated state — §26.3); without it
+    a second connection would block on the caller's write lock."""
+    now = _now_iso()
+    stale_units: set[str] = set()
+    with _maybe_conn(db_path, conn) as conn:
+        rows = conn.execute(
+            """
+            SELECT cs.knowledge_unit_id AS uid, cs.source_span_id AS span,
+                   cs.support_role AS role, cs.evidence_hash AS hash,
+                   ss.content_hash AS current_hash
+            FROM claim_supports cs
+            LEFT JOIN source_spans ss ON ss.id = cs.source_span_id
+            WHERE cs.support_status = 'verified'
+            """
+        ).fetchall()
+        for r in rows:
+            if r["current_hash"] is None or r["current_hash"] != r["hash"]:
+                conn.execute(
+                    "UPDATE claim_supports SET support_status = 'stale', "
+                    "support_reason = ?, updated_at = ? "
+                    "WHERE knowledge_unit_id = ? AND source_span_id = ? "
+                    "AND support_role = ?",
+                    ("cited span content changed or was removed", now,
+                     r["uid"], r["span"], r["role"]),
+                )
+                stale_units.add(r["uid"])
+        for uid in stale_units:
+            conn.execute(
+                "UPDATE knowledge_units SET support_status = 'stale', "
+                "support_reason = ?, updated_at = ? "
+                "WHERE id = ? AND support_status = 'verified'",
+                ("stale support: cited span content changed or was removed", now, uid),
+            )
+    return stale_units
+
+
+def create_compiler_generation(
+    db_path: Path,
+    *,
+    prompt_contract_version: str,
+    source_id: int | None = None,
+) -> str:
+    """Open a new staged compiler generation (SCHEMA §20.3). Rows attributed to
+    it stay invisible to query/search until it publishes."""
+    gen_id = _new_id("GEN")
+    with connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO compiler_generations "
+            "(id, source_id, status, prompt_contract_version, created_at, audit_json) "
+            "VALUES (?, ?, 'staged', ?, ?, '{}')",
+            (gen_id, source_id, prompt_contract_version, _now_iso()),
+        )
+    return gen_id
+
+
+def get_authoritative_generation(
+    db_path: Path, source_id: int | None
+) -> dict | None:
+    """The single authoritative generation for a source scope, or None."""
+    with connect(db_path) as conn:
+        if source_id is None:
+            row = conn.execute(
+                "SELECT * FROM compiler_generations "
+                "WHERE source_id IS NULL AND status = 'authoritative' LIMIT 1"
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM compiler_generations "
+                "WHERE source_id = ? AND status = 'authoritative' LIMIT 1",
+                (source_id,),
+            ).fetchone()
+    return dict(row) if row else None
+
+
+def publish_compiler_generation(
+    db_path: Path, gen_id: str, *, audit_json: str = "{}",
+    conn: sqlite3.Connection | None = None,
+) -> None:
+    """Flip a staged generation to authoritative (SCHEMA §20.3). Discards the
+    prior authoritative generation for the same source scope so the
+    at-most-one-authoritative invariant holds. The publish GATE (audit
+    validation) is enforced by the compiler in P6, not here. Pass ``conn`` to
+    flip inside a caller's transaction (atomic publish)."""
+    now = _now_iso()
+    with _maybe_conn(db_path, conn) as c:
+        row = c.execute(
+            "SELECT source_id, status FROM compiler_generations WHERE id = ?",
+            (gen_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"unknown compiler generation: {gen_id}")
+        if row["status"] != "staged":
+            raise ValueError(f"generation {gen_id} is not staged (is {row['status']})")
+        source_id = row["source_id"]
+        if source_id is None:
+            c.execute(
+                "UPDATE compiler_generations SET status = 'discarded', "
+                "discarded_at = ? WHERE source_id IS NULL AND status = 'authoritative'",
+                (now,),
+            )
+        else:
+            c.execute(
+                "UPDATE compiler_generations SET status = 'discarded', "
+                "discarded_at = ? WHERE source_id = ? AND status = 'authoritative'",
+                (now, source_id),
+            )
+        c.execute(
+            "UPDATE compiler_generations SET status = 'authoritative', "
+            "published_at = ?, audit_json = ? WHERE id = ?",
+            (now, audit_json, gen_id),
+        )
+
+
+def discard_compiler_generation(db_path: Path, gen_id: str) -> None:
+    """Mark a staged generation discarded after a failed compile (SCHEMA §20.3).
+    No partial authoritative publish is representable."""
+    with connect(db_path) as conn:
+        conn.execute(
+            "UPDATE compiler_generations SET status = 'discarded', discarded_at = ? "
+            "WHERE id = ? AND status = 'staged'",
+            (_now_iso(), gen_id),
+        )
+
+
 # --- graph_entities / graph_relations --------------------------------
 
 
@@ -1567,12 +2181,14 @@ def upsert_graph_entity(
     source_span_ids: list[str] | None = None,
     knowledge_unit_ids: list[str] | None = None,
     prompt_run_id: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Insert or merge an entity, deduplicated by (canonical_name, entity_type).
     On merge, span/knowledge-unit references are unioned and a non-empty
-    description replaces an empty one."""
+    description replaces an empty one. Pass ``conn`` to run inside a caller's
+    transaction (atomic publish)."""
     now = _now_iso()
-    with connect(db_path) as conn:
+    with _maybe_conn(db_path, conn) as conn:
         existing = conn.execute(
             "SELECT * FROM graph_entities WHERE canonical_name = ? AND entity_type = ?",
             (canonical_name, entity_type),
@@ -1629,11 +2245,13 @@ def upsert_graph_relation(
     source_span_ids: list[str] | None = None,
     confidence: float = 0.0,
     prompt_run_id: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
-    """Insert a relation. Both endpoints must be declared entities."""
+    """Insert a relation. Both endpoints must be declared entities. Pass ``conn``
+    to run inside a caller's transaction (atomic publish)."""
     if not 0.0 <= confidence <= 1.0:
         raise ValueError(f"relation confidence out of range: {confidence}")
-    with connect(db_path) as conn:
+    with _maybe_conn(db_path, conn) as conn:
         for endpoint in (source_entity_id, target_entity_id):
             found = conn.execute(
                 "SELECT 1 FROM graph_entities WHERE id = ?", (endpoint,)

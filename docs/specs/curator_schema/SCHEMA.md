@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.7.0)
+# Incurator - Schema & Operating Conventions (v0.8.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -643,12 +643,14 @@ on emitted markdown:
   in the same backend write path. Projection re-emission is an Obsidian
   convenience step, not a retrieval prerequisite.
 
-## 11. SQLite State Schema (`SCHEMA_VERSION = 7`)
+## 11. SQLite State Schema (`SCHEMA_VERSION = 8`)
 
-v0.4.0 sets `db.SCHEMA_VERSION` to `7`. The v0.3.2 tables remain in use.
-v0.4.0 adds the cross-device sync tombstone table (`deleted_records`, §11.17)
-and the `wiki db export/import` pipeline. All ids use typed string prefixes so
-they are self-describing in traces and frontmatter.
+v0.4.0 set `db.SCHEMA_VERSION` to `7`; v0.8.0 (Plan B) bumps it to `8`. The
+v0.3.2 tables remain in use. v0.4.0 added the cross-device sync tombstone table
+(`deleted_records`, §11.17) and the `wiki db export/import` pipeline. v0.8.0
+adds the claim-level support / formula-lifecycle / compiler-generation schema
+(§20), strictly additive over v7. All ids use typed string prefixes so they are
+self-describing in traces and frontmatter.
 
 > **Version history.** `SCHEMA_VERSION = 4` introduced the v0.3.1 curation-native
 > tables. `SCHEMA_VERSION = 5` adds the shared L4 `synthesis_nodes` table (§11.11)
@@ -658,6 +660,12 @@ they are self-describing in traces and frontmatter.
 > chunk embeddings, search index metadata, and durable query traces (§11.12-§11.16).
 > `SCHEMA_VERSION = 7` adds `deleted_records` tombstone table for cross-device
 > knowledge synchronization (§11.17).
+> `SCHEMA_VERSION = 8` adds the Plan B Evidence Compiler Integrity schema —
+> `claim_supports`, `compiler_generations`, and the `knowledge_units`
+> support/formula/generation columns (§20). Forward-only and additive: the
+> support/generation indexes are created in `_apply_migrations` (after the
+> columns exist) so a pre-existing v7 `knowledge_units` table upgrades cleanly,
+> and `deleted_records`'s CHECK list is rebuilt to admit the two new tables.
 
 | Record | Id prefix | Purpose |
 | --- | --- | --- |
@@ -1301,6 +1309,7 @@ PTR-   prompt run / prompt trace
 PLAN-  curation plan
 INS-   insight candidate
 QTR-   query trace
+GEN-   compiler generation (v0.8.0, §20)
 ```
 
 All ids are generated backend-side. Generated content (knowledge units,
@@ -1367,3 +1376,260 @@ Per the clean-rebuild stance stated at the top of this document, v0.3.1 does not
 add migration shims. A vault built under v0.2.x should be rebuilt to populate the
 v0.3.1 records (`wiki reset`, then `wiki add` and `wiki build`). Archived v0.2.2
 pages remain readable, but new generated artifacts use the v0.3.1 schema.
+
+## 20. Claim-Level Support, Formula Lifecycle, And Compiler Generations (`SCHEMA_VERSION = 8`, v0.8.0)
+
+This section freezes the Plan B (Evidence Compiler Integrity) contract names
+before any implementation code is written. It is strictly additive over
+`SCHEMA_VERSION = 7`: no existing column, table, or id prefix changes meaning.
+The owning failure-atlas cases are F6 (broad-span fallback), F7 (rebuild
+idempotency / stale reconciliation / atomic publish), and F10 (preview-only
+span evidence). F8/F9 remain Plan C scope.
+
+### 20.1 `knowledge_units` Additive Columns
+
+```sql
+ALTER TABLE knowledge_units ADD COLUMN semantic_hash TEXT;
+ALTER TABLE knowledge_units ADD COLUMN support_status TEXT NOT NULL DEFAULT 'unchecked';
+ALTER TABLE knowledge_units ADD COLUMN support_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE knowledge_units ADD COLUMN formula_status TEXT NOT NULL DEFAULT 'not_applicable';
+ALTER TABLE knowledge_units ADD COLUMN retired_at TEXT;
+ALTER TABLE knowledge_units ADD COLUMN generation_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_knowledge_units_support ON knowledge_units(support_status);
+CREATE INDEX IF NOT EXISTS idx_knowledge_units_generation ON knowledge_units(generation_id);
+```
+
+Column semantics (frozen enums):
+
+- `semantic_hash` — deterministic fingerprint of the normalized claim
+  statement (normalization algorithm versioned in the prompt contract). Used
+  ONLY to propose reconciliation candidates across rebuilds. A matching
+  `semantic_hash` never auto-merges two claims whose statement or equation
+  content differs materially (Arena decision 6). Stable-id reuse additionally
+  requires exact statement equality after whitespace normalization. Formula
+  token arrays are structurally serialized in the hash input so adjacent tokens
+  or separate formulas cannot collapse into a different formula structure.
+- `support_status` ∈ `unchecked | verified | failed | stale`.
+  - `unchecked` — no support validation has run (the migration backfill state).
+  - `verified` — ≥1 minimal `claim_supports` row with `support_status='verified'`
+    and a fresh `evidence_hash`.
+  - `failed` — validation ran and the claim's cited spans do not minimally
+    support it (wrong-real-span case). Excluded from downstream compile inputs.
+  - `stale` — previously verified, but a cited span's content hash changed or
+    the span was removed. Excluded from downstream compile inputs until
+    re-validated.
+- `support_reason` — human/machine-readable verdict reason. Never empty when
+  `support_status` is `failed` or `stale`.
+- `formula_status` ∈ `not_applicable | preserved_in_text | linked_evidence |
+  omitted_incidental | missing | uncertain`.
+  - `preserved_in_text` — the central formula appears intact in `statement`.
+  - `linked_evidence` — `statement` references an exact formula evidence record
+    (a `claim_supports` row with `support_role='formula'`).
+  - `omitted_incidental` — an incidental formula was omitted; `support_reason`
+    carries an approved reason code (`incidental_omission:<code>`).
+  - `missing` — a central formula could not be preserved or linked; the claim
+    must not be served as formula-grounded.
+  - `uncertain` — recovery produced a candidate below the acceptance
+    threshold; excluded from served formulas.
+- `retired_at` — ISO 8601 UTC. Non-NULL marks the row retired by source
+  edit/delete/split reconciliation. Retired rows are never deleted by the
+  compiler (tombstone-style audit trail) and never feed downstream stages,
+  projections, or search materialization.
+- `generation_id` — the `GEN-` compiler generation that produced or last
+  revalidated this row (§20.3). NULL only for legacy rows backfilled by the
+  v8 migration.
+
+Eligibility rule (schema-level): a `truth_status='source_supported'` row may
+feed downstream compile stages (graph input, reports, synthesis, projections,
+search materialization) ONLY when `retired_at IS NULL` and
+`support_status='verified'`. `unchecked` legacy rows are read-only visible to
+humans/agents but are not valid downstream compiler inputs after the v0.8.0
+compiler ships.
+
+### 20.2 `claim_supports`
+
+```sql
+CREATE TABLE IF NOT EXISTS claim_supports (
+    knowledge_unit_id TEXT NOT NULL,
+    source_span_id TEXT NOT NULL,
+    support_role TEXT NOT NULL,        -- primary | contextual | formula
+    support_status TEXT NOT NULL,      -- unchecked | verified | failed | stale
+    support_reason TEXT NOT NULL DEFAULT '',
+    evidence_hash TEXT NOT NULL,       -- content_hash of the span text at validation time
+    validator_trace_id TEXT,           -- PTR- id of the model validation run, NULL for deterministic-only verdicts
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (knowledge_unit_id, source_span_id, support_role)
+);
+CREATE INDEX IF NOT EXISTS idx_claim_supports_span ON claim_supports(source_span_id);
+CREATE INDEX IF NOT EXISTS idx_claim_supports_status ON claim_supports(support_status);
+```
+
+Rules:
+
+- A `claim_supports` row is a minimal support record: it asserts that this
+  span is part of the smallest span set that entails the claim, in the given
+  role. `support_role='primary'` rows carry the entailment; `contextual` rows
+  disambiguate; `formula` rows bind a claim to exact formula evidence
+  (an `equation` span or an accepted recovery candidate, §20.4).
+- Real span ids are necessary but NOT sufficient: a `knowledge_units` row's
+  `source_span_ids` array remains the citation surface, while `claim_supports`
+  carries the verified minimal subset. Every `verified` unit has ≥1 `verified`
+  `primary` support row.
+- `evidence_hash` MUST equal the cited span's `content_hash` at validation
+  time. The compiler audit (§20.5) marks the support row and its unit `stale`
+  whenever the current span hash differs — freshness is re-checked, never
+  assumed.
+- Migration backfill creates NO `claim_supports` rows. Legacy units stay
+  `unchecked` with an empty support set; nothing is silently verified.
+- `claim_supports` is a canonical synced table: the v8 migration adds it to
+  the `deleted_records` tombstone CHECK list and to `wiki db export`.
+
+### 20.3 `compiler_generations`
+
+```sql
+CREATE TABLE IF NOT EXISTS compiler_generations (
+    id TEXT PRIMARY KEY,               -- GEN-<UUID8>
+    source_id INTEGER,                 -- per-source compile scope; NULL = corpus-wide stage set
+    status TEXT NOT NULL DEFAULT 'staged',  -- staged | authoritative | discarded
+    prompt_contract_version TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    published_at TEXT,
+    discarded_at TEXT,
+    audit_json TEXT NOT NULL DEFAULT '{}'   -- publish-gate audit result snapshot
+);
+CREATE INDEX IF NOT EXISTS idx_compiler_generations_source ON compiler_generations(source_id, status);
+```
+
+Rules (Arena decision 8 — staged atomic publish):
+
+- All Plan-B-owned compiler writes (knowledge units, claim supports, their
+  dependency rows, derived projections, and search materialization) are
+  attributed to exactly one generation.
+- A generation becomes `authoritative` ONLY after every required row,
+  dependency, projection, and search-derived state for its scope validates.
+  Until then its rows are `staged` and invisible to query/evidence/search
+  surfaces. Invisibility is enforced at write/materialization time
+  (SYSTEM_BEHAVIOR §26.3): staged units carry TEMPORARY ids and are never
+  emitted as ATM projections, upserted into the graph, or materialized into
+  search; only an authoritative generation's units reach those surfaces. An
+  authoritative generation MAY contain non-verified units — served =
+  authoritative ∧ `support_status='verified'` ∧ `retired_at IS NULL`.
+- At most one `authoritative` generation exists per `source_id` scope. The
+  prior authoritative generation is retained until the new one publishes, then
+  retired per the reconciliation contract (SYSTEM_BEHAVIOR §26).
+- A failed compile sets `status='discarded'`; discarded staged rows (including
+  the temp-id knowledge units and their claim supports) are removed and the
+  prior authoritative generation remains untouched. No graph entity/relation,
+  ATM projection, or search doc is ever written for a staged generation, so a
+  discard leaves no orphan downstream artifact. No partial authoritative
+  publish is representable in this contract.
+- Unchanged-rebuild idempotency: recompiling an unchanged source under the
+  same prompt contract version MUST reuse the existing authoritative
+  generation's claim ids, hashes, dependency closure, and counts (verified by
+  the compiler audit; F7 oracle).
+- `compiler_generations` is canonical and synced (tombstone CHECK +
+  `wiki db export`), since authoritative-generation identity must agree across
+  devices.
+
+### 20.4 Formula Recovery Candidates (`source_spans.metadata.formula_recovery`)
+
+Per the Arena consensus, recovery candidates are NOT normalized into a new
+table unless Plan B measurements prove a multiple-attempt lifecycle or indexed
+audit need. The frozen default is structured `source_spans.metadata` under the
+reserved key `formula_recovery`:
+
+```json
+{
+  "formula_recovery": [
+    {
+      "status": "candidate",            // candidate | reviewed | rejected
+      "loss_verdict": "image_only",     // fragmented | image_only | parser_omitted
+      "locator": {"source_id": 3, "page": 7, "region": [120, 410, 580, 470]},
+      "page_hash": "<sha256 of the rendered page image>",
+      "crop_hash": "<sha256 of the cropped region image>",
+      "provider": "antigravity",
+      "model": "gemini-3.5-flash",
+      "confidence": 0.91,
+      "latex": "\\\\nabla_W L = \\\\delta x^T",
+      "validator_trace_id": "PTR-...",  // null until reviewed
+      "created_at": "2026-06-13T00:00:00Z"
+    }
+  ]
+}
+```
+
+Rules (Arena decisions 2-4; Plan E FR05 contract candidates):
+
+- Raw parser/source span text is immutable. A recovery candidate never
+  overwrites `text_preview`, `content_hash`, or any source file.
+- Recovery may run ONLY on a region with a measured loss verdict where parser
+  AND raw text AND current extraction all either (a) MISS the region entirely
+  (`image_only`, `parser_omitted`) OR (b) yield a STRUCTURALLY-INVALID/garbled
+  rendering of it (`fragmented` — present but corrupt, e.g. a dropped `\nabla`,
+  a lost superscript, or a split `$$` block). `fragmented` is triggered by a
+  structural-validation failure of the extracted formula against the rendered
+  region, not by total absence. Whole-corpus/every-page VLM processing is
+  rejected by contract.
+- Parseable LaTeX alone cannot move a candidate to `reviewed`; a validator
+  verdict (deterministic gold check or recorded human review) is required, and
+  `validator_trace_id` records it. The default acceptance threshold is `0.80`,
+  and the recovered ordered token sequence must exactly match a formula in the
+  owning claim. Reviewed promotion also requires hydrated full raw-span text
+  for every cited span; each SHA-256 must match `source_spans.content_hash`,
+  and stored 200-character previews are never used for revalidation.
+- `confidence` below the acceptance threshold, a missing validator trace, or a
+  structural mismatch keeps the candidate out of served formulas; the owning
+  claim's `formula_status` stays `uncertain`.
+- An accepted reviewed candidate re-runs claim support against additive
+  recovered evidence. Only a verified result may create a verified
+  `support_role='formula'` row and move the claim to
+  `formula_status='linked_evidence'`.
+- A changed `page_hash` invalidates exactly that page's candidates: the audit
+  marks them stale-by-hash, and they cannot be cited by `support_role='formula'`
+  rows until refreshed.
+
+### 20.5 Compiler Audit Contract (Schema-Level)
+
+The compiler audit is the read-only traversal that proves the §20 invariants
+on a live DB. Its schema-level assertions, all of which must hold for an
+authoritative generation:
+
+1. Every active (`retired_at IS NULL`) `source_supported` unit with
+   `support_status='verified'` has ≥1 `verified` `primary` `claim_supports`
+   row whose `evidence_hash` matches the cited span's current `content_hash`.
+2. No active Plan-B-owned generated claim cites the broad all-upstream-span
+   set in place of claim-level support (F6). Graph/community-report fallback
+   findings are recorded and assigned to Plan C, not silently accepted.
+3. No `claim_supports` row cites a missing span id, a retired unit, or a
+   discarded generation.
+4. Exactly one authoritative generation per compiled source scope; zero
+   staged rows visible to query/search surfaces — no ATM projection, graph
+   entity/relation, or search doc references a unit whose generation is not
+   `authoritative` (staged/discarded rows are never materialized).
+5. Every `formula_status` value is consistent with its evidence: rows with
+   `linked_evidence` have a matching `formula` support row;
+   `omitted_incidental` rows carry a reason code.
+
+Re-validation preserves a recovered `formula` support row (the additive
+`recover_formula` evidence link, §20.2) ONLY while it stays relevant: the claim
+must still carry a formula AND the support's `source_span_id` must still be in
+the unit's declared `source_span_ids`. A `formula` support whose claim lost its
+formula, or whose span the claim no longer cites, is stale and is cleared by the
+same re-validation pass — so it can never linger as a dangling row (assertion 3)
+or a status inconsistency (assertion 5). Recovery always attaches to a cited
+span, so a valid link is never dropped.
+
+### 20.6 v8 Migration And Tombstone Extension
+
+- `SCHEMA_VERSION` 7 → 8 is forward-only and additive: the §20.1 ALTERs, the
+  §20.2/§20.3 CREATEs, and extension of the `deleted_records` CHECK list with
+  `claim_supports` and `compiler_generations`.
+- Backfill: every existing `knowledge_units` row receives
+  `support_status='unchecked'`, `formula_status='not_applicable'`,
+  `generation_id=NULL`. The migration creates no support rows and verifies
+  nothing.
+- `wiki db export` / `wiki db import` include the two new tables; LWW and
+  tombstone-first ordering apply unchanged. No device-local columns are added.
+- Migration rehearsal and rollback acceptance criteria are behavioral and
+  live in SYSTEM_BEHAVIOR §26.6.

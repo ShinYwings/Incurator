@@ -137,3 +137,33 @@ uv run --directory backend pytest tests/test_failure_atlas_eval.py -q
     completeness, provenance resolution, hard-negative outranks, cost, and
     latency separately per query family. Aggregate-only quality claims are not
     release evidence.
+
+## 6. Claim Support & Compiler Integrity Rules (v0.8.0)
+
+Plan B (Evidence Compiler Integrity) adds claim-level grounding on top of the
+span citation rules of §4. Agents consuming or producing knowledge MUST:
+
+*   **Respect support labels**: a knowledge unit's `support_status`
+    (`verified`/`unchecked`/`failed`/`stale`) and `retired_at` are part of its
+    truth contract. Only `verified`, non-retired claims may be presented as
+    grounded knowledge; `unchecked` legacy claims are display-only context and
+    `failed`/`stale`/retired claims must never be served as facts.
+*   **Never equate a span id with support**: minimal support lives in
+    `claim_supports` rows (roles `primary`/`contextual`/`formula`) whose
+    `evidence_hash` must match the current span content. Citing a real but
+    irrelevant span is the F6 anti-pattern and a release-blocking defect.
+*   **Preserve formulas through distillation**: any distillation/summary step
+    must keep extraction formulas visible or record an explicit
+    `omitted_incidental` exception. Silent formula drops are defects. Visual
+    recovery candidates are additive, lifecycle-gated, and never overwrite raw
+    parser/source evidence. A candidate is not served unless it reaches the
+    `0.80` confidence threshold, carries a validator trace, exactly matches an
+    owning-claim formula, and passes claim-support revalidation.
+*   **Respect generation boundaries**: staged (`GEN-` `status='staged'`)
+    compiler output is invisible to query/evidence surfaces by contract. Do
+    not read or cite staged rows; a failed compile leaves only the prior
+    authoritative generation.
+*   **Gate on the audit**: `wiki lint` (or MCP `curator_lint`) reports the
+    Compiler Integrity audit. Treat release-blocking findings (unsupported
+    active claims, evidence-hash mismatches, broad-fallback grounding,
+    formula-status inconsistencies) as CI failures, not warnings.

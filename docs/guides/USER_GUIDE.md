@@ -409,6 +409,40 @@ This circular flow ensures that your knowledge never stays stagnant but keeps ev
 
 ---
 
+## 🧾 Claim-Level Support & Compiler Integrity (v0.8.0)
+
+From v0.8.0, every source-supported knowledge unit (L2 claim) carries an
+explicit **support status** instead of being trusted just because it cites a
+real span id:
+
+| `support_status` | Meaning |
+| :--- | :--- |
+| `verified` | At least one verified minimal support record exists and its evidence hash matches the current source text. |
+| `unchecked` | Built before v0.8.0 (or not yet validated). Visible to you, but no longer fed into new compilation until re-validated. |
+| `failed` | Validation found the cited spans do not actually support the claim. Excluded from downstream knowledge. |
+| `stale` | The source text behind the claim changed since verification. Excluded until re-validated. |
+
+What this means in practice:
+
+- **Upgrading is safe and honest**: the v0.8.0 migration marks all your
+  existing claims `unchecked` — nothing is silently promoted to "verified".
+  A normal `wiki build` re-compiles them under the new contract.
+- **Formulas are first-class**: a claim that depends on a central formula
+  either keeps the formula intact in its text or links the exact formula
+  evidence. Distillation that silently drops a formula present in the source
+  extraction is treated as a defect, not a summary choice.
+- **No partial builds**: a compile that fails midway publishes nothing — your
+  previous knowledge, projections, and search index keep serving untouched.
+  Re-running an unchanged build does not duplicate or mutate anything.
+- **Source edits clean up after themselves**: editing, deleting, or splitting
+  a source retires the claims that lost their basis (they remain auditable but
+  stop appearing in answers) instead of leaving stale duplicates behind.
+- **`wiki lint` audits all of it**: lint gains a Compiler Integrity section
+  reporting unsupported/failed/stale claims, evidence-hash mismatches, and
+  formula-status problems, and exits non-zero on release-blocking findings.
+
+---
+
 ## 🧑‍🎨 Persona Setup
 
 Incurator has two persona layers, each operating at a different level of the system.

@@ -47,6 +47,8 @@ SYNC_TABLES: list[str] = [
     "synthesis_nodes",
     "source_spans",
     "knowledge_units",
+    "claim_supports",
+    "compiler_generations",
     "graph_entities",
     "graph_relations",
     "community_reports",
@@ -83,6 +85,10 @@ _UPDATED_AT_COL: dict[str, str] = {
     "synthesis_nodes": "updated_at",
     "source_spans": "created_at",
     "knowledge_units": "updated_at",
+    "claim_supports": "updated_at",
+    # compiler_generations is intentionally absent: it has no updated_at column
+    # (status transitions in place), so it always-upserts on import — the latest
+    # exported authoritative-generation status wins (SCHEMA §20.3).
     "graph_entities": "updated_at",
     "graph_relations": "updated_at",
     "community_reports": "updated_at",
@@ -107,6 +113,8 @@ _PK_COL: dict[str, str | None] = {
     "synthesis_nodes": "id",
     "source_spans": "id",
     "knowledge_units": "id",
+    "claim_supports": None,          # composite PK — always upsert
+    "compiler_generations": "id",
     "graph_entities": "id",
     "graph_relations": "id",
     "community_reports": "id",

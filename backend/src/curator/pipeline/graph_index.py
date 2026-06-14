@@ -14,8 +14,12 @@ from pathlib import Path
 from typing import Any
 
 from .. import db, prompting
+from .claim_support import _extract_latex
 
-__all__ = ["GraphExtractionResult", "extract_entities_and_relations"]
+__all__ = [
+    "GraphExtractionResult", "GraphData",
+    "extract_graph_data", "persist_graph_data", "extract_entities_and_relations",
+]
 
 
 @dataclass
@@ -24,6 +28,20 @@ class GraphExtractionResult:
     relation_ids: list[str] = field(default_factory=list)
     trace_id: str = ""
     ok: bool = False
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class GraphData:
+    """In-memory graph extraction result (no DB writes) — lets the LLM run during
+    staging (behind the publish gate) and persistence happen only after the gate
+    (SYSTEM_BEHAVIOR §26.3 copy-on-stage). ``entities``/``relations`` are the raw
+    parsed model objects paired with the prompt-run id that produced them."""
+
+    entities: list[tuple[Any, str]] = field(default_factory=list)
+    relations: list[tuple[Any, str]] = field(default_factory=list)
+    trace_id: str = ""
+    ok: bool = True
     errors: list[str] = field(default_factory=list)
 
 
@@ -37,36 +55,41 @@ def _units_block(units: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def extract_entities_and_relations(
+def extract_graph_data(
     db_path: Path,
     client: Any,
     *,
     units: list[dict],
     valid_span_ids: list[str],
     curate_spec_hash: str = "",
-) -> GraphExtractionResult:
-    """Extract and persist entities/relations from knowledge units.
+) -> GraphData:
+    """Run the entity/relation LLM extraction and return the parsed graph IN
+    MEMORY (no DB writes for entities/relations). Persistence is deferred to
+    :func:`persist_graph_data` inside the publish step, so a graph LLM failure
+    occurs behind the publish gate and never leaves a published generation
+    without its graph (SYSTEM_BEHAVIOR §26.3).
 
     ``units`` are ``knowledge_units`` rows (with ``source_span_ids`` decoded).
     """
     if not units:
-        return GraphExtractionResult(ok=True)
+        return GraphData(ok=True)
 
     try:
         max_chars = int(client.optimal_chunk_chars())
     except Exception:
         max_chars = 60000
 
-    batches = []
-    current_batch = []
+    batches: list[list[dict]] = []
+    current_batch: list[dict] = []
     current_chars = 0
 
     import copy
-    refined_units = []
+    refined_units: list[dict] = []
     for u in units:
         statement = u.get("statement") or ""
-        # Defensive truncation: units shouldn't be massive, but if they are, truncate to fit context
-        if len(statement) > max_chars - 500:
+        # Formula-bearing units stay intact: truncating their tail can silently
+        # alter the mathematical claim. Oversized prose-only units may truncate.
+        if len(statement) > max_chars - 500 and not _extract_latex(statement):
             u_copy = copy.copy(u)
             u_copy["statement"] = statement[:max_chars - 500] + "... [TRUNCATED]"
             refined_units.append(u_copy)
@@ -91,10 +114,10 @@ def extract_entities_and_relations(
     if current_batch:
         batches.append(current_batch)
 
-    name_to_id: dict[str, str] = {}
-    all_relation_ids: list[str] = []
+    collected_entities: list[tuple[Any, str]] = []
+    collected_relations: list[tuple[Any, str]] = []
     last_trace_id = ""
-    all_errors = []
+    all_errors: list[str] = []
     all_ok = True
 
     contract = prompting.REGISTRY.get("curator.entity_relation_extract")
@@ -123,41 +146,81 @@ def extract_entities_and_relations(
                 all_errors.extend(result.validation.errors)
             continue
 
-        # Persist entities first so relation endpoints resolve.
+        # Collect parsed objects IN MEMORY (no DB writes); persisted only after
+        # the publish gate clears (copy-on-stage, §26.3).
         for entity in getattr(result.parsed, "entities", []):
-            ent_id = db.upsert_graph_entity(
-                db_path,
-                canonical_name=entity.canonical_name,
-                entity_type=entity.entity_type,
-                description=entity.description,
-                source_span_ids=entity.source_span_ids,
-                prompt_run_id=result.trace_id,
-            )
-            name_to_id[entity.canonical_name] = ent_id
-
+            collected_entities.append((entity, result.trace_id))
         for rel in getattr(result.parsed, "relations", []):
-            src = name_to_id.get(rel.source)
-            tgt = name_to_id.get(rel.target)
-            if not src or not tgt:
-                # Validator should have caught this; skip defensively.
-                continue
-            rel_id = db.upsert_graph_relation(
-                db_path,
-                source_entity_id=src,
-                target_entity_id=tgt,
-                relation_type=rel.relation_type,
-                description=rel.description,
-                assertion_source=rel.assertion_source,
-                source_span_ids=rel.source_span_ids,
-                confidence=rel.confidence,
-                prompt_run_id=result.trace_id,
-            )
-            all_relation_ids.append(rel_id)
+            collected_relations.append((rel, result.trace_id))
 
-    return GraphExtractionResult(
-        entity_ids=name_to_id,
-        relation_ids=all_relation_ids,
+    return GraphData(
+        entities=collected_entities,
+        relations=collected_relations,
         trace_id=last_trace_id,
         ok=all_ok,
         errors=all_errors,
     )
+
+
+def persist_graph_data(
+    db_path: Path, data: GraphData, *, conn: Any = None
+) -> GraphExtractionResult:
+    """Upsert a previously-extracted :class:`GraphData` into graph_entities /
+    graph_relations. No LLM; called inside the publish transaction so the graph
+    rows publish — and roll back — atomically with the generation (a publish
+    failure leaves no leaked graph). Pass ``conn`` to join that transaction."""
+    name_to_id: dict[str, str] = {}
+    relation_ids: list[str] = []
+    for entity, trace_id in data.entities:
+        ent_id = db.upsert_graph_entity(
+            db_path,
+            canonical_name=entity.canonical_name,
+            entity_type=entity.entity_type,
+            description=entity.description,
+            source_span_ids=entity.source_span_ids,
+            prompt_run_id=trace_id,
+            conn=conn,
+        )
+        name_to_id[entity.canonical_name] = ent_id
+    for rel, trace_id in data.relations:
+        src = name_to_id.get(rel.source)
+        tgt = name_to_id.get(rel.target)
+        if not src or not tgt:
+            continue  # validator should have caught this; skip defensively
+        rel_id = db.upsert_graph_relation(
+            db_path,
+            source_entity_id=src,
+            target_entity_id=tgt,
+            relation_type=rel.relation_type,
+            description=rel.description,
+            assertion_source=rel.assertion_source,
+            source_span_ids=rel.source_span_ids,
+            confidence=rel.confidence,
+            prompt_run_id=trace_id,
+            conn=conn,
+        )
+        relation_ids.append(rel_id)
+    return GraphExtractionResult(
+        entity_ids=name_to_id, relation_ids=relation_ids,
+        trace_id=data.trace_id, ok=data.ok, errors=data.errors,
+    )
+
+
+def extract_entities_and_relations(
+    db_path: Path,
+    client: Any,
+    *,
+    units: list[dict],
+    valid_span_ids: list[str],
+    curate_spec_hash: str = "",
+) -> GraphExtractionResult:
+    """Extract AND persist entities/relations (back-compat convenience). New
+    callers that need copy-on-stage atomicity should call ``extract_graph_data``
+    during staging and ``persist_graph_data`` after the publish gate."""
+    data = extract_graph_data(
+        db_path, client, units=units, valid_span_ids=valid_span_ids,
+        curate_spec_hash=curate_spec_hash,
+    )
+    if not data.ok:
+        return GraphExtractionResult(ok=False, errors=data.errors, trace_id=data.trace_id)
+    return persist_graph_data(db_path, data)

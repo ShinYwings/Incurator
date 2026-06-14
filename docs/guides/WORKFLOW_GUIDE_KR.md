@@ -486,6 +486,37 @@ wiki query → 라우트 → typed expansion + FTS5/vector/RRF/rerank + DB 그�
 
 ---
 
+## 10. v0.8.0 증거 컴파일러 무결성 (Evidence Compiler Integrity)
+
+v0.8.0은 §9의 순방향 컴파일 흐름을 클레임 수준 grounding과 원자적 발행으로
+강화합니다 (스펙: SCHEMA.md §20, SYSTEM_BEHAVIOR.md §26):
+
+- **최소 클레임 지지**: `wiki build`는 L2 클레임마다 그 클레임을 entail하는
+  최소 span 집합을 기록하고(`primary`/`contextual`/`formula` 역할의
+  `claim_supports` 행) 이를 검증합니다. 실재하는 span id만으로는 더 이상
+  지지의 증거로 취급되지 않습니다.
+- **스테이징된 generation**: 모든 컴파일은 `GEN-` 컴파일러 generation 안에서
+  실행됩니다. DB 행, 의존성, 마크다운 프로젝션, 검색 행은 감사 게이트를
+  통과한 뒤에만 함께 발행되며, 실패한 컴파일은 스테이징된 generation을
+  폐기하고 이전 generation이 계속 서비스합니다.
+- **멱등한 재빌드**: 변경 없는 소스에 `wiki build`를 다시 실행하면
+  authoritative generation의 id, 해시, 카운트를 재사용합니다 — 중복 누적이
+  없습니다.
+- **편집/삭제/분할 reconciliation**: 소스 변경은 측정된 의존성 클로저만
+  재생성합니다. 근거를 잃은 클레임은 retire 처리되고(감사용으로 보존, 서빙
+  제외), 오래된 span은 방치되지 않고 정리됩니다.
+- **수식 라이프사이클**: 핵심 수식은 증류를 거쳐도 본문에 온전히 유지되거나
+  정확히 링크된 수식 증거로 남습니다. 선택적 시각 복구는 측정된 손실
+  영역(`fragmented`/`image_only`/`parser_omitted`)에서만 실행되고, 원시
+  증거와 분리 저장되며, 파서 출력을 절대 덮어쓰지 않습니다.
+- **전체 span 증거**: evidence pack은 200자 미리보기를 증거로 제시하는 대신
+  소스 파일에서 정확한 span 텍스트를(해시 검증과 함께) 하이드레이션합니다.
+- **lint 감사**: `wiki lint`가 Compiler Integrity 발견 사항을 보고하고
+  릴리스를 막아야 하는 위반에서 실패하므로, CI와 테스트베드가 이를
+  게이트로 사용할 수 있습니다.
+
+---
+
 ## 관련 문서
 
 - [플러그인 가이드](PLUGIN_GUIDE_KR.md) — Obsidian 플러그인 기능 상세

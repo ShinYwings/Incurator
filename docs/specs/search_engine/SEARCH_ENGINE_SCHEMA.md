@@ -1,4 +1,4 @@
-# Incurator Search Engine Schema (v0.7.0)
+# Incurator Search Engine Schema (v0.8.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -335,3 +335,56 @@ Rules:
 - If the query expander or reranker is unavailable, answer-producing retrieval
   still returns ranked candidates from the available stages and records explicit
   warnings.
+
+## 10. Compiler-Generation Publish And Full-Span Evidence Hydration (v0.8.0)
+
+Plan B (Evidence Compiler Integrity) binds search-derived state into the
+staged compiler generation contract (SCHEMA.md §20.3, SYSTEM_BEHAVIOR §26.3)
+and removes the preview-as-evidence defect (Failure Atlas F10).
+
+### 10.1 Generation-Aware Materialization
+
+- Search materialization derived from Plan-B-owned compiled records (knowledge
+  units and their projections) is gated at MATERIALIZATION time, not query
+  time: it is (re)built ONLY from authoritative-generation units, AFTER the
+  generation publishes. A staged generation's units are never materialized, so
+  the retrieval/query read path needs no generation filter and is unchanged.
+- A discarded generation leaves prior search state untouched (no staged search
+  doc was ever written); rollback after a failed publish re-emits search-derived
+  state from the prior authoritative generation, never from staged leftovers.
+  Because projections and search rows are disposable, a materialization failure
+  re-emits from the authoritative DB rather than leaving partial state.
+- Retired (`retired_at` set), non-`verified`, and non-authoritative-generation
+  claims are excluded from materialization. The compiler audit asserts zero
+  retired/staged records in the served index (SCHEMA §20.5 #4).
+- Unchanged rebuild produces byte-identical search rows for unchanged records
+  (the existing `(record_type, record_id)` upsert idempotency is preserved
+  and now asserted per generation).
+
+### 10.2 Full-Span Evidence Hydration (F10)
+
+- `source_spans.text_preview` remains a 200-character display preview in the
+  DB; it is NEVER presented as the sufficient source evidence for a span
+  longer than the preview.
+- Evidence surfaces (evidence packs, source-section route items,
+  entity-derived span items) hydrate the exact span text from the registered
+  source file at evidence-build time. Hydration re-parses the registered
+  source with the SAME deterministic parser + span splitter that produced the
+  stored spans, then selects the re-derived span whose `content_hash` matches
+  the stored span's hash. Because `content_hash` is the SHA-256 of the exact
+  span text, the match IS the verification — the returned text is guaranteed to
+  hash to the stored value. (`start_char`/`end_char` remain stored as
+  best-effort locators; the content hash, not the offsets, is the retrieval and
+  verification key, so the contract is robust to parser-normalization and
+  source-format differences such as PDF text extraction.)
+- An unreadable/missing source or a content-hash drift (no re-derived span
+  matches) marks the evidence item explicitly `stale` (`evidence_status` field
+  on the evidence item) — the preview is retained only as a clearly-flagged
+  degraded fallback and is never silently presented as the full evidence.
+- Hydrated long spans may be served in explicitly chunked, expandable form;
+  each chunk carries its parent `SPAN-` id so citation provenance is
+  unchanged.
+- Central-formula spans (`span_type='equation'`) hydrate with exact source
+  text and delimiters; destructive truncation of formula-bearing statements
+  in graph input and search materialization is removed (SYSTEM_BEHAVIOR
+  §26.2).

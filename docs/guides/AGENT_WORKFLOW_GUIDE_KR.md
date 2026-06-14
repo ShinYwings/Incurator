@@ -139,3 +139,34 @@ uv run --directory backend pytest tests/test_failure_atlas_eval.py -q
     provenance 해소율, hard-negative outrank 수, 비용, 지연 시간을 쿼리
     패밀리별로 각각 보고해야 합니다. 집계 수치만으로는 릴리스 근거가 될 수
     없습니다.
+
+## 6. 클레임 지지 및 컴파일러 무결성 규칙 (v0.8.0)
+
+Plan B(Evidence Compiler Integrity)는 §4의 span 인용 규칙 위에 클레임 수준
+grounding을 추가합니다. 지식을 소비하거나 생산하는 에이전트는 반드시:
+
+*   **support 라벨을 존중해야 합니다**: 지식 유닛의 `support_status`
+    (`verified`/`unchecked`/`failed`/`stale`)와 `retired_at`은 truth 계약의
+    일부입니다. `verified`이면서 retire되지 않은 클레임만 grounded 지식으로
+    제시할 수 있습니다. `unchecked` 레거시 클레임은 표시 전용 컨텍스트이며,
+    `failed`/`stale`/retired 클레임은 절대 사실로 서빙해서는 안 됩니다.
+*   **span id를 지지와 동일시해서는 안 됩니다**: 최소 지지는
+    `claim_supports` 행(역할 `primary`/`contextual`/`formula`)에 존재하며,
+    그 `evidence_hash`는 현재 span 내용과 일치해야 합니다. 실재하지만
+    무관한 span을 인용하는 것은 F6 안티패턴이며 릴리스를 막는 결함입니다.
+*   **증류 과정에서 수식을 보존해야 합니다**: 모든 증류/요약 단계는 추출된
+    수식을 가시적으로 유지하거나 명시적인 `omitted_incidental` 예외를
+    기록해야 합니다. 조용한 수식 누락은 결함입니다. 시각 복구 후보는
+    추가적(additive)이고 라이프사이클로 게이트되며, 원시 파서/소스 증거를
+    절대 덮어쓰지 않습니다. 후보는 신뢰도 `0.80` 임계치를 충족하고
+    validator trace를 가지며 소유 클레임의 수식과 정확히 일치하고
+    claim-support 재검증을 통과하기 전에는 제공되지 않습니다.
+*   **generation 경계를 존중해야 합니다**: 스테이징된(`GEN-`
+    `status='staged'`) 컴파일러 출력은 계약상 query/evidence 표면에 보이지
+    않습니다. 스테이징된 행을 읽거나 인용하지 마세요. 실패한 컴파일은 이전
+    authoritative generation만 남깁니다.
+*   **감사를 게이트로 사용해야 합니다**: `wiki lint`(또는 MCP
+    `curator_lint`)가 Compiler Integrity 감사를 보고합니다. 릴리스를 막아야
+    하는 발견 사항(unsupported 활성 클레임, evidence hash 불일치,
+    broad-fallback grounding, formula status 불일치)은 경고가 아니라 CI
+    실패로 취급하세요.

@@ -25,6 +25,17 @@ _STOP = {
 }
 
 
+def _hydrate_full_texts(db_path: Path, span_ids: list[str]) -> dict[str, str]:
+    """Hydrate exact full span text for evidence items (F10, §10.2).
+
+    Lazy-imports the compile pipeline to avoid a module-level import cycle
+    (``pipeline.compile`` imports ``retrieval.materializer``).
+    """
+    from ..pipeline.compile import hydrate_spans
+
+    return hydrate_spans(db_path, span_ids)
+
+
 def seed_terms(query: str, limit: int = 8) -> list[str]:
     terms: list[str] = []
     for tok in re.findall(r"[A-Za-z][A-Za-z0-9+\-]*", query):
@@ -99,13 +110,16 @@ def _entity_evidence(db_path: Path, query: str) -> tuple[list[EvidenceItem], lis
 
 
 def _span_items(db_path: Path, span_ids: list[str]) -> list[EvidenceItem]:
+    full = _hydrate_full_texts(db_path, span_ids)
     items: list[EvidenceItem] = []
     for span in db.get_source_spans_by_ids(db_path, span_ids):
+        text = full.get(span["id"])
         items.append(
             EvidenceItem(
                 id=span["id"], kind="source_span",
                 title=span.get("section_title") or span.get("relpath", ""),
-                text=span.get("text_preview", ""),
+                text=text if text is not None else span.get("text_preview", ""),
+                evidence_status="ok" if text is not None else "stale",
                 source_span_ids=[span["id"]],
             )
         )
@@ -176,11 +190,15 @@ def build_evidence(
             warnings.append(f"unknown source: {request.source_key}")
         else:
             spans = db.list_source_spans(db_path, sid)
+            full = _hydrate_full_texts(db_path, [s["id"] for s in spans])
             for span in spans:
+                text = full.get(span["id"])
                 pack.items.append(
                     EvidenceItem(
                         id=span["id"], kind="source_span",
-                        title=span.get("section_title") or "", text=span.get("text_preview", ""),
+                        title=span.get("section_title") or "",
+                        text=text if text is not None else span.get("text_preview", ""),
+                        evidence_status="ok" if text is not None else "stale",
                         source_span_ids=[span["id"]],
                     )
                 )
