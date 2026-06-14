@@ -435,11 +435,15 @@ export default class ObsidianAIAgent extends Plugin {
               this.ensureChatOpen().then(() => {
                 const chatView = this.getChatView();
                 if (chatView) {
-                  const pdfCtx = pdfView.getActivePdfContext("text");
+                  // Only capture metadata for the crop ref; do not capture text.
+                  // The full page text is already provided by auto-context.
+                  // Including it here would falsely elevate the entire page text
+                  // to a <primary_focus_selection>.
+                  const pdfCtx = pdfView.getActivePdfContext("image");
                   chatView.addContextRef({
                     type: "pdf-page",
                     label: `${pdfView.getDisplayText()} p.${pageNum} (Crop)`,
-                    content: pdfCtx?.text || "",
+                    content: "", // Crop is purely visual, no intrinsic text
                     imageBase64: base64,
                     pageNum: pageNum,
                     pageLabels: pdfCtx?.pageLabels,
