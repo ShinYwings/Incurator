@@ -157,4 +157,32 @@ describe("chat sidebar context chip source contract", () => {
     );
     expect(addContextRefBlock).toContain("r.imageBase64 === ref.imageBase64");
   });
+
+  it("marks an image-only primary context as primary focus (image crops must not be buried)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // When a primary user ref has an image but no text (e.g. a scanned-PDF crop
+    // or a dragged image), it must still emit a <primary_focus_selection> anchor
+    // so the model treats the attached image as the core subject instead of the
+    // weak, ignorable "(Image context attached below.)" fallback.
+    expect(source).toContain("} else if (ref.imageBase64 && isPrimaryUserContext(ref)) {");
+    expect(source).toContain("The user cropped/attached the image shown below as the primary focus");
+  });
+
+  it("PDF crop (snip-to-chat) attaches region-scoped text as the crop content, not empty or full-page", () => {
+    const dir = fileURLToPath(new URL("../../", import.meta.url));
+    const mainSource = readFileSync(join(dir, "main.ts"), "utf8");
+
+    const snipBlock = mainSource.slice(
+      mainSource.indexOf("pdfView.startSnippingMode((base64: string, pageNum: number, regionText: string)"),
+      mainSource.indexOf("hotkeys: [{ modifiers: [\"Mod\", \"Shift\"], key: \"x\" }]")
+    );
+    expect(snipBlock).toContain("regionText");
+    // The crop content is the region-scoped text, NEVER hard-coded empty again…
+    expect(snipBlock).toContain("content: regionText,");
+    expect(snipBlock).not.toContain('content: "",');
+    // …and the regression of pulling the whole page text must not return.
+    expect(snipBlock).not.toContain('getActivePdfContext("text")');
+  });
 });

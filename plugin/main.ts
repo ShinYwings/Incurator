@@ -431,19 +431,22 @@ export default class ObsidianAIAgent extends Plugin {
         if (view.getViewType() === EXTERNAL_PDF_VIEW_TYPE) {
           if (!checking) {
             const pdfView = view as ExternalPdfView;
-            pdfView.startSnippingMode((base64: string, pageNum: number) => {
+            pdfView.startSnippingMode((base64: string, pageNum: number, regionText: string) => {
               this.ensureChatOpen().then(() => {
                 const chatView = this.getChatView();
                 if (chatView) {
-                  // Only capture metadata for the crop ref; do not capture text.
-                  // The full page text is already provided by auto-context.
-                  // Including it here would falsely elevate the entire page text
-                  // to a <primary_focus_selection>.
+                  // Capture ONLY the text lines inside the cropped rectangle
+                  // (region-scoped), not the whole page. This becomes the crop's
+                  // <primary_focus_selection> content so the model treats the
+                  // snipped region as the core subject instead of burying it
+                  // under the full-page background context — while never
+                  // re-injecting the entire page text + RAG hits. Scanned crops
+                  // yield "" and fall back to an image-only primary reference.
                   const pdfCtx = pdfView.getActivePdfContext("image");
                   chatView.addContextRef({
                     type: "pdf-page",
                     label: `${pdfView.getDisplayText()} p.${pageNum} (Crop)`,
-                    content: "", // Crop is purely visual, no intrinsic text
+                    content: regionText,
                     imageBase64: base64,
                     pageNum: pageNum,
                     pageLabels: pdfCtx?.pageLabels,

@@ -4,6 +4,29 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.8.1] — 2026-06-15
+
+Hotfix for the PDF crop (`Cmd+Shift+X`) context regression.
+
+### Fixed
+
+- **PDF crop now captures region-scoped text as primary focus.** The previous
+  hotfix made the crop image-only with empty text, which caused two regressions:
+  the crop image had no `<primary_focus_selection>` anchor and got buried under
+  the full-page background context, and the crop's text ("line") extraction was
+  lost entirely. The crop now extracts **only the text lines inside the drawn
+  rectangle** (via text-layer span ∩ crop-rect intersection, in reading order)
+  and uses that region text as the crop's primary focus — never the whole page
+  text (the original pollution bug stays fixed) and never empty. Scanned regions
+  with no selectable text fall back to an image-only reference.
+- **Image-only primary context is no longer buried.** A primary user reference
+  that carries an image but no text (a scanned-PDF crop or a dragged image) now
+  emits an explicit `<primary_focus_selection>` anchor naming the attached image
+  as the core subject, instead of the weak, ignorable "(Image context attached
+  below.)" line.
+
+---
+
 ## [0.8.0] — 2026-06-14
 
 Evidence Compiler Integrity release (Plan B + Plan B2). Markdown/PDF source

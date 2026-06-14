@@ -1271,6 +1271,13 @@ export class ChatSidebarView extends ItemView {
               } else {
                 textToPush += ref.content;
               }
+            } else if (ref.imageBase64 && isPrimaryUserContext(ref)) {
+              // Image-only primary focus (e.g. a scanned-PDF crop with no
+              // selectable text, or a dragged image): mark it explicitly so the
+              // model treats the attached image as the core subject instead of
+              // burying it under background page text.
+              textToPush +=
+                "<primary_focus_selection>\nThe user cropped/attached the image shown below as the primary focus of this request. Base your answer on the visual content of that image, not the surrounding background context.\n</primary_focus_selection>";
             } else {
               textToPush += "(Image context attached below.)";
             }
