@@ -229,10 +229,13 @@ export class ChatSidebarView extends ItemView {
     this.inputAreaEl = container.createDiv("ai-agent-chat-input-area");
 
     // Refresh context chips whenever the active leaf changes.
+    // NOTE: Do NOT clear activeContextExcludedKeys here — the user's eye-off
+    // state must persist across tab switches. Keys become stale naturally when
+    // the file they refer to is no longer open (renderContextChips will not
+    // render chips for those keys, so they are harmlessly ignored).
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         setTimeout(() => {
-          this.activeContextExcludedKeys.clear();
           this.renderContextChips();
         }, 0);
       })
@@ -418,7 +421,12 @@ export class ChatSidebarView extends ItemView {
 
   addContextRef(ref: ContextRef): void {
     const existing = this.pendingContextRefs.find(
-      (r) => r.type === ref.type && r.label === ref.label
+      (r) =>
+        r.type === ref.type &&
+        r.label === ref.label &&
+        // Two refs with identical labels but different images are distinct
+        // (e.g. successive crops of the same PDF page).
+        r.imageBase64 === ref.imageBase64
     );
     if (!existing) {
       this.pendingContextRefs.push(ref);

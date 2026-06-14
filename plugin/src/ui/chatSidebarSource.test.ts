@@ -129,4 +129,32 @@ describe("chat sidebar context chip source contract", () => {
     expect(providerContext).toContain("if (useBackendPdfContext && client.available");
     expect(providerContext).not.toContain("const shouldFetchBackendContext");
   });
+  it("preserves eye-off state across tab switches (active-leaf-change must not clear excluded keys)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // The active-leaf-change handler must NOT clear activeContextExcludedKeys.
+    // Previously this bug reset all eye-off state on every tab switch.
+    const leafChangeBlock = source.slice(
+      source.indexOf("// Refresh context chips whenever the active leaf changes."),
+      source.indexOf("this.registerDomEvent(\n      window,\n      EXTERNAL_PDF_CONTEXT_EVENT")
+    );
+    expect(leafChangeBlock).not.toContain("activeContextExcludedKeys.clear()");
+    // The eye-off mechanism itself must still work
+    expect(source).toContain("this.activeContextExcludedKeys.add(activeKey)");
+    expect(source).toContain("this.activeContextExcludedKeys.delete(activeKey)");
+  });
+
+  it("allows distinct crop images from the same PDF page to coexist as separate context refs", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // addContextRef dedup must also compare imageBase64 so that two crops from
+    // the same page (same label, different base64) are both accepted.
+    const addContextRefBlock = source.slice(
+      source.indexOf("addContextRef(ref: ContextRef): void {"),
+      source.indexOf("focusInput(): void {")
+    );
+    expect(addContextRefBlock).toContain("r.imageBase64 === ref.imageBase64");
+  });
 });
