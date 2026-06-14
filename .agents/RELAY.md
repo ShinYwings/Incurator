@@ -44,22 +44,54 @@ before P2. Both corrected in `SCHEMA.md` §21 + `SYSTEM_BEHAVIOR.md` §27 (+ syn
    `endpoint_unresolved`). An edge is either `unsupported` or valid with
    aggregated support. SCHEMA §21.5/§21.6 + SYSTEM_BEHAVIOR §27.2/§27.3.
 
-## P2 STARTED (2026-06-14, Claude) — failing gold tests
-- New module `backend/tests/test_plan_c_graph_quality.py`: 9 TDD-red gold tests
-  covering the v9 migration foundation + both corrected flaws (schema-version,
-  new-table/column creation, infer-nothing backfill, homonym surrogate key,
-  exact-dup rejection, support aggregation/independence-by-lineage, and the
-  `duplicate_proposition`-absent contract). All 9 fail for intended reasons
-  (v9 schema/constants not built yet) with intention-revealing messages; ruff
-  clean. Full suite: 824 passed, 9 new intended reds, 8 xfailed.
-- **P4 API hook the tests pin:** `db.QUARANTINE_REASON_CODES` (frozen 6-code
-  set) must be defined when relation lifecycle lands.
-- **Remaining P2 fixtures to add (follow-on modules):** synonyms, abbreviations,
-  multilingual aliases, type conflicts, `avoid_merges`/contradiction guards,
-  ambiguous-alias non-resolution, merge proposal→accept→reversal lineage,
-  self-loops, noisy bridges, copied-vs-independent support, edit/delete
-  reconciliation, graph-audit assertions, and the frozen hierarchy benchmark +
-  connected-components baseline (plan P2 list).
+## P2 IN PROGRESS (2026-06-14, Claude) — failing gold tests
+Four TDD-red modules now in place (33 intended reds total). All fail for the
+intended reason (v9 schema/columns/constants/API not built yet) with
+intention-revealing messages — never via `ImportError`. Full suite after this
+batch: **824 passed, 33 Plan C reds, 8 xfailed**; ruff clean on all four modules;
+no legacy regression. Committed `0f173ec` (module 1) + this batch.
+
+- `test_plan_c_graph_quality.py` (9) — v9 migration foundation + both corrected
+  flaws: schema-version, new-table/column creation, infer-nothing backfill,
+  homonym surrogate key, exact-dup rejection, support aggregation /
+  independence-by-lineage, `duplicate_proposition`-absent contract.
+- `test_plan_c_resolution.py` (11) — entity resolution adversarial fixtures:
+  resolution/merge-decision frozen enums, synonyms (many surface→one entity),
+  multilingual aliases, abbreviation homonym-risk stays ambiguous, type-conflict
+  /`avoid_merges`/contradiction guards, ambiguous-alias non-resolution, accepted
+  merge→redirect+lineage, and merge reversal (byte-identical restore).
+- `test_plan_c_relation_topology.py` (7) — relation lifecycle: self_loop,
+  unsupported, copied_source_only, endpoint_unresolved, fully-supported→active,
+  noisy-bridge `bridge_risk` detection, authored-vs-extracted edge class.
+- `test_plan_c_hierarchy_audit.py` (6) — connected-components baseline excludes a
+  quarantined bridge; retired-tombstone excluded from active topology; graph
+  audit flags (active-without-support, redirected-reference, quarantined-missing-
+  reason, report-finding-without-active-support).
+
+- **Pinned v9 API hooks the tests pin (the implementer must define these as the
+  phases land; names are the proposed contract, refinable when turning green):**
+  - Constants — `db.SCHEMA_VERSION == 9`; `db.QUARANTINE_REASON_CODES` (frozen
+    6-code set, P4); `db.RESOLUTION_STATUS_CODES` (§21.1, P3);
+    `db.MERGE_DECISION_CODES` (§21.2, P3).
+  - P3 resolution — `db.evaluate_merge_guards(db_path, *, source_entity_id,
+    target_entity_id, avoid_merges=()) -> Mapping` with the four §27.1 guard
+    booleans (`type_match`, `context_overlap`, `no_contradiction`,
+    `not_avoid_listed`) + `verdict ∈ {accept, ambiguous_candidate, rejected}`;
+    `db.propose_entity_merge(... rationale, evidence) -> decision_id`;
+    `db.accept_entity_merge(*, decision_id)`; `db.reverse_entity_merge(*,
+    decision_id)`.
+  - P4 relations — `db.compile_relation_lifecycle(db_path, *, relation_id) -> str`
+    (sets `lifecycle_status`/`quarantine_reason`); `db.detect_bridge_risk_relations
+    (db_path) -> list[str]`.
+  - P5/P7 — `db.connected_components(db_path, *, only_active=True) ->
+    list[set[str]]`; `db.graph_audit(db_path) -> list[dict]` (each violation has
+    `code` + offending `subject_id`; empty list == clean).
+- **Remaining P2 work (later modules / phases):** frozen hierarchy benchmark
+  thresholds + multi-metric comparison fixtures (needs P5 labels), idempotent
+  rebuild no-amplification (§27.8, `db.rebuild_graph_generation`), full
+  `reconcile_source_change` downstream-closure assertions (§27.8), graph-audit
+  wiring into `wiki lint` (§27.6), and the `gaussian_splatting` testbed run
+  (§27.10).
 
 ## ⚠️ Pre-existing red baseline (NOT introduced by this work)
 - `test_spec_sync.py` has 4 failures: P1 bumped the four spec titles to v0.9.0
