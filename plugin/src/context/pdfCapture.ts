@@ -239,6 +239,89 @@ export function extractPdfPageTextFromDom(pageEl: HTMLElement): {
 }
 
 /**
+ * A positioned text-layer span expressed as its bounding box (in any single
+ * consistent coordinate space — client or page-local) plus its text.
+ */
+export interface RegionTextSpan {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  text: string;
+}
+
+/** A crop rectangle, in the SAME coordinate space as the spans it is matched against. */
+export interface RegionRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * Reconstruct the text contained within a cropped region from the positioned
+ * text-layer spans that fall inside it.
+ *
+ * A span is included when it overlaps the crop horizontally AND its vertical
+ * midpoint lies within the crop's vertical band — a "lasso" heuristic that keeps
+ * the lines the user boxed while ignoring lines merely clipped at the top/bottom
+ * edge. Included spans are emitted in reading order (top-to-bottom rows, then
+ * left-to-right within a row), with a line break between visual rows. Row
+ * boundaries use each row's own rendered height as the tolerance, so grouping is
+ * zoom-independent.
+ *
+ * This is the region-scoped counterpart to {@link extractPdfPageTextFromDom}: it
+ * returns ONLY the snipped lines, never the whole page, so a PDF crop never
+ * re-injects the entire page text (and its RAG hits) into the primary focus.
+ * Returns "" when no selectable text falls inside the crop (e.g. a scanned page),
+ * in which case the caller falls back to an image-only reference.
+ */
+export function extractRegionTextFromSpans(
+  spans: RegionTextSpan[],
+  crop: RegionRect
+): string {
+  const hits = spans.filter((s) => {
+    if (!s.text.trim()) return false;
+    const overlapsX = s.left < crop.right && s.right > crop.left;
+    const midY = (s.top + s.bottom) / 2;
+    const insideY = midY >= crop.top && midY <= crop.bottom;
+    return overlapsX && insideY;
+  });
+  if (hits.length === 0) return "";
+
+  hits.sort((a, b) => a.top - b.top || a.left - b.left);
+
+  const lines: string[] = [];
+  let current: RegionTextSpan[] = [];
+  let rowTop = hits[0].top;
+  let rowHeight = Math.max(hits[0].bottom - hits[0].top, 1);
+
+  const flush = () => {
+    if (current.length === 0) return;
+    const rowText = current
+      .slice()
+      .sort((a, b) => a.left - b.left)
+      .map((s) => s.text.trim())
+      .filter(Boolean)
+      .join(" ");
+    if (rowText) lines.push(rowText);
+    current = [];
+  };
+
+  for (const span of hits) {
+    if (current.length > 0 && span.top - rowTop > rowHeight * 0.6) {
+      flush();
+      rowTop = span.top;
+      rowHeight = Math.max(span.bottom - span.top, 1);
+    }
+    current.push(span);
+  }
+  flush();
+
+  return lines.join("\n").trim();
+}
+
+/**
  * Capture the rendered PDF page canvas as a base64-encoded PNG.
  */
 function capturePageCanvas(pageEl: HTMLElement): string | undefined {
