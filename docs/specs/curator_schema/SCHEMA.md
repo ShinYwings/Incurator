@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.8.0)
+# Incurator - Schema & Operating Conventions (v0.9.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -643,7 +643,7 @@ on emitted markdown:
   in the same backend write path. Projection re-emission is an Obsidian
   convenience step, not a retrieval prerequisite.
 
-## 11. SQLite State Schema (`SCHEMA_VERSION = 8`)
+## 11. SQLite State Schema (`SCHEMA_VERSION = 9`)
 
 v0.4.0 set `db.SCHEMA_VERSION` to `7`; v0.8.0 (Plan B) bumps it to `8`. The
 v0.3.2 tables remain in use. v0.4.0 added the cross-device sync tombstone table
@@ -780,6 +780,11 @@ Rules:
   knowledge-unit references into the existing entity rather than duplicating it.
 - `description` is a generated retrieval aid, not human truth. It must remain
   backed by `source_span_ids`.
+- **(v9, §21.1/§21.4)** Exact `(canonical_name, entity_type)` dedup is candidate
+  generation only; synonym/abbreviation/homonym resolution, accepted merges
+  (with reversible lineage), and `resolution_state` redirects are governed by
+  §21. Reads that build authoritative topology resolve `redirected` rows to
+  their canonical survivor.
 
 ### 11.4 `graph_relations`
 
@@ -812,6 +817,13 @@ Rules:
   (`source_states`) from what the Curator infers (`system_infers`) and what a
   workspace derives (`workspace_derives`). Only `source_states` relations may be
   treated as source-grounded evidence.
+- **(v9, §21.5/§21.6)** A relation is a proposition with **independent**
+  claim-level supports (`graph_relation_supports`); re-extraction adds support
+  rows rather than overwriting. `lifecycle_status` (active/provisional/
+  quarantined/retired), `edge_class` (authored/extracted), and lineage-based
+  support independence are governed by §21. Only `active` relations enter
+  authoritative communities. `confidence` is NOT a calibrated noise threshold
+  (§21.9).
 
 ### 11.5 `community_reports`
 
@@ -846,6 +858,11 @@ Rules:
 - `dependency_hash` is computed from the report's input entities/relations/spans.
   When an input changes, the report is stale (see §11.10) and must be regenerated
   before it is used as global evidence.
+- **(v9, §21.7)** Community identity is content/config-derived
+  (`level`, `member_hash`, `support_hash`, `config_hash`); stale communities
+  retire (`retired_at`) rather than being frozen for id stability. Reports are
+  built only from `active` relations over canonical entities and MUST cite exact
+  eligible claim support — the broad community-span fallback is removed (§21.8).
 
 ### 11.6 `memory_paths`
 
@@ -1633,3 +1650,285 @@ span, so a valid link is never dropped.
   tombstone-first ordering apply unchanged. No device-local columns are added.
 - Migration rehearsal and rollback acceptance criteria are behavioral and
   live in SYSTEM_BEHAVIOR §26.6.
+
+## 21. Entity/Relation Resolution And Hierarchical Community Quality (`SCHEMA_VERSION = 9`, v0.9.0)
+
+This section freezes the Plan C (Program 2C — Graph Quality) contract names
+before any implementation code is written. It is strictly additive over
+`SCHEMA_VERSION = 8`: no existing column, table, or id prefix changes meaning,
+and §11.3/§11.4/§11.5 remain valid (this section overlays a resolution/support/
+lifecycle layer onto them). The owning failure-atlas cases are **F8** (graph
+resolution / unsupported topology) and **F9** (hierarchy quality / report
+grounding), explicitly deferred from §20 ("F8/F9 remain Plan C scope").
+
+> **Target version note.** `v0.9.0` is this milestone's planned product version
+> (minor bump after Plan B's `v0.8.0`); the binding bump across
+> `pyproject.toml` / `package.json` / `manifest.json` happens at Plan C P10. The
+> binding schema constant is `SCHEMA_VERSION = 9`.
+
+Locked Arena consensus this section encodes: similarity is candidate generation
+only (no automatic similarity merge); accepted merges preserve origin identity +
+reversible rewrite lineage; relations are propositions with **independent**
+claim-level supports keyed by source lineage (not row count); authored and
+extracted edges stay separate classes; only `active` relations enter
+authoritative communities; community identities are content/config-derived and
+stale records retire; reports cite exact eligible claim support with no
+broad-span fallback.
+
+### 21.1 `entity_aliases`
+
+```sql
+CREATE TABLE IF NOT EXISTS entity_aliases (
+    alias_normalized TEXT NOT NULL,    -- deterministic normalization of the surface form (candidate key)
+    entity_id TEXT,                    -- ENT- this alias resolves to; NULL while only a candidate
+    alias_display TEXT NOT NULL,       -- original surface form as written
+    source_span_ids TEXT NOT NULL DEFAULT '[]',
+    knowledge_unit_ids TEXT NOT NULL DEFAULT '[]',
+    confidence REAL NOT NULL DEFAULT 0.0,
+    resolution_status TEXT NOT NULL,   -- alias | ambiguous_candidate | merge_proposed | accepted | rejected | reversed
+    resolution_reason TEXT NOT NULL DEFAULT '',
+    decision_id TEXT,                  -- entity_merge_proposals.id that decided this alias, when applicable
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (alias_normalized, alias_display, resolution_status)
+);
+CREATE INDEX IF NOT EXISTS idx_entity_aliases_entity ON entity_aliases(entity_id);
+```
+
+`resolution_status` (frozen enum):
+
+- `alias` — a confirmed alternate surface form of exactly one `entity_id`
+  (synonym/abbreviation/translation) that passed the type/context/contradiction/
+  `avoid_merges` guards (§21.6 rules). Resolvable at query/extraction time.
+- `ambiguous_candidate` — a similarity- or normalization-generated candidate that
+  is NOT auto-resolved. It stays unresolved (homonym risk) until an approved
+  decision; it never silently fuses entities. Arena decision 3/4.
+- `merge_proposed` — surfaced into an `entity_merge_proposals` row awaiting
+  decision; `decision_id` is set.
+- `accepted` — the alias/merge was accepted; `entity_id` is the surviving
+  canonical entity and `decision_id` records the reversible decision.
+- `rejected` — an explicit decision recorded that these surface forms are
+  distinct entities (negative knowledge; prevents re-proposal churn).
+- `reversed` — a previously `accepted` decision was reversed; the row is retained
+  for audit and the rewrite is replayed from §21.3 lineage.
+
+Rules:
+
+- `alias_normalized` is candidate-generation input ONLY. A normalization match
+  never auto-creates an `accepted` row; it may at most create an
+  `ambiguous_candidate` (homonym-risk) or `merge_proposed` row.
+- Every `accepted`/`alias`/`rejected`/`reversed` row MUST have a non-empty
+  `resolution_reason` and (for accept/reverse) a `decision_id`.
+
+### 21.2 `entity_merge_proposals`
+
+```sql
+CREATE TABLE IF NOT EXISTS entity_merge_proposals (
+    id TEXT PRIMARY KEY,               -- DEC-<UUID8>
+    source_entity_id TEXT NOT NULL,    -- ENT- being merged away (origin)
+    target_entity_id TEXT NOT NULL,    -- ENT- surviving canonical
+    decision TEXT NOT NULL,            -- proposed | accepted | rejected | reversed
+    rationale TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,       -- JSON: candidate signals, guard checks, span/claim evidence
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_entity_merge_proposals_src ON entity_merge_proposals(source_entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_merge_proposals_tgt ON entity_merge_proposals(target_entity_id);
+```
+
+Rules:
+
+- A merge is only authoritative when `decision='accepted'`. `proposed` proposals
+  do not rewrite the graph.
+- `evidence_json` MUST record which guards (type match, context overlap,
+  contradiction check, `avoid_merges` list) were evaluated and their outcome, so
+  every accepted merge is auditable (Strict Quality Condition).
+- A `rejected` decision is durable negative knowledge: the same `(source,target)`
+  pair is not auto-re-proposed unless new evidence changes the candidate
+  signals.
+
+### 21.3 `entity_resolution_lineage`
+
+```sql
+CREATE TABLE IF NOT EXISTS entity_resolution_lineage (
+    decision_id TEXT NOT NULL,         -- entity_merge_proposals.id
+    origin_entity_id TEXT NOT NULL,    -- ENT- as it existed before the merge
+    canonical_entity_id TEXT NOT NULL, -- ENT- it was redirected into
+    rewrite_json TEXT NOT NULL,        -- JSON: exact pre-merge entity row + every relation/report/synthesis rewrite applied
+    PRIMARY KEY (decision_id, origin_entity_id)
+);
+```
+
+Rules:
+
+- This table is the **reversal contract**. `rewrite_json` MUST contain enough to
+  reconstruct the origin entity row and re-point every relation/community/report/
+  synthesis reference that the merge rewrote (Arena decision 5).
+- Accepted-merge reversal replays `rewrite_json` in reverse and regenerates the
+  affected relations/communities/reports/synthesis (SYSTEM_BEHAVIOR §27). A merge
+  that cannot be represented losslessly here MUST NOT be accepted (plan Stop
+  Condition).
+
+### 21.4 `graph_entities` Additive Columns (Merge Redirects)
+
+```sql
+ALTER TABLE graph_entities ADD COLUMN resolution_state TEXT NOT NULL DEFAULT 'canonical';  -- canonical | redirected
+ALTER TABLE graph_entities ADD COLUMN redirect_to_entity_id TEXT;  -- ENT- canonical survivor when redirected
+ALTER TABLE graph_entities ADD COLUMN decision_id TEXT;            -- DEC- merge decision that redirected this row
+```
+
+Rules:
+
+- Accepted merges **do not delete** the origin entity. The origin row is set
+  `resolution_state='redirected'` with `redirect_to_entity_id` → canonical and
+  `decision_id` → the accepting decision. Origin identity is preserved for
+  reversal; the existing `(canonical_name, entity_type)` UNIQUE index is
+  unaffected (merged forms have distinct names).
+- Only `resolution_state='canonical'` rows are authoritative graph nodes. All
+  reads that build topology, reports, search materialization, or synthesis MUST
+  resolve `redirected` rows through `redirect_to_entity_id` to the canonical
+  entity. No authoritative artifact may reference a redirected entity directly
+  (graph audit, §21.8, asserts 0 such references).
+
+### 21.5 `graph_relation_supports`
+
+```sql
+CREATE TABLE IF NOT EXISTS graph_relation_supports (
+    relation_id TEXT NOT NULL,         -- REL-
+    knowledge_unit_id TEXT NOT NULL,   -- KNU- asserting this relation
+    source_span_ids TEXT NOT NULL,     -- JSON array of SPAN- ids carrying the assertion
+    assertion_source TEXT NOT NULL,    -- source_states | system_infers | workspace_derives
+    confidence REAL NOT NULL,
+    support_status TEXT NOT NULL,      -- unchecked | verified | failed | stale
+    support_hash TEXT NOT NULL,        -- content hash of (relation proposition + cited spans); dedup within a relation
+    source_lineage_hash TEXT NOT NULL, -- hash of the logical source lineage; the INDEPENDENCE key
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (relation_id, knowledge_unit_id, support_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_relation_supports_rel ON graph_relation_supports(relation_id);
+CREATE INDEX IF NOT EXISTS idx_graph_relation_supports_lineage ON graph_relation_supports(source_lineage_hash);
+```
+
+Rules:
+
+- A relation is a **proposition with independent supports** (Arena decision 6).
+  Re-extraction of the same `(src,tgt,type)` triple ADDS support rows; it never
+  overwrites them. This replaces today's destructive `upsert_graph_relation`
+  overwrite (§11.4 reality).
+- **Independence is by source lineage, not row count.** The independent-support
+  count of a relation = number of DISTINCT `source_lineage_hash` among its
+  `verified` supports. Copied/duplicated sources share a `source_lineage_hash`
+  and therefore count once (Strict Quality Condition: 0 copied-source rows
+  counted as independent support).
+- `support_status` mirrors `claim_supports` (§20.2): a support is `verified`
+  only when its `knowledge_unit_id` is itself eligible (`support_status='verified'`,
+  `retired_at IS NULL`, §20.1 eligibility) and its cited spans are fresh.
+- Only supports derived from the **authoritative** B claim generation (§20.3)
+  may be `verified`. Mixed-generation supports are a stop condition.
+
+### 21.6 `graph_relations` Additive Columns (Lifecycle, Edge Class, Topology)
+
+```sql
+ALTER TABLE graph_relations ADD COLUMN lifecycle_status TEXT NOT NULL DEFAULT 'provisional';  -- active | provisional | quarantined | retired
+ALTER TABLE graph_relations ADD COLUMN quarantine_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE graph_relations ADD COLUMN edge_class TEXT NOT NULL DEFAULT 'extracted';          -- authored | extracted
+ALTER TABLE graph_relations ADD COLUMN topology_weight REAL NOT NULL DEFAULT 0.0;
+ALTER TABLE graph_relations ADD COLUMN reeval_trigger TEXT NOT NULL DEFAULT '';
+ALTER TABLE graph_relations ADD COLUMN generation_id TEXT;                                     -- GEN- that produced/revalidated
+CREATE INDEX IF NOT EXISTS idx_graph_relations_lifecycle ON graph_relations(lifecycle_status);
+```
+
+`lifecycle_status` (frozen enum):
+
+- `active` — has ≥1 `verified` independent support (§21.5), endpoints resolve to
+  canonical entities, and it passed quarantine checks. **Only `active`,
+  non-retired relations enter authoritative community construction** (Arena
+  decision 7).
+- `provisional` — exists but not yet promotable to `active` (e.g., unrevalidated
+  after migration, or support pending). The v9 backfill marks every legacy
+  relation `provisional`.
+- `quarantined` — flagged out of authoritative topology with a `quarantine_reason`
+  (frozen reason codes below) and a `reeval_trigger` describing what would
+  re-admit it. Quarantine is inspectable and re-evaluable, never an opaque
+  discard (Arena decision 8).
+- `retired` — superseded by source edit/delete/split reconciliation; retained as
+  a tombstone, never an authoritative input.
+
+`quarantine_reason` frozen codes: `unsupported` (no eligible support),
+`self_loop`, `contradiction`, `copied_source_only` (no independent lineage),
+`bridge_risk` (single low-confidence edge joining otherwise separate dense
+components), `endpoint_unresolved`, `duplicate_proposition`.
+
+`edge_class` (frozen enum): `authored` (links/topology a human or workspace
+wrote — wikilinks, explicit structure) vs `extracted` (LLM-extracted semantic
+relations). The two classes stay distinct through weighting, hierarchy, audit,
+and reports (Arena decision 9). `topology_weight` is the partition-input weight
+and is computed per edge class; authored edges are never silently treated as
+extracted factual evidence and vice versa.
+
+### 21.7 Community Identity, Levels, And Config
+
+```sql
+ALTER TABLE community_reports ADD COLUMN parent_community_key TEXT;                    -- hierarchy parent; NULL at top level
+ALTER TABLE community_reports ADD COLUMN config_hash TEXT NOT NULL DEFAULT '';         -- algorithm+seed+threshold config identity
+ALTER TABLE community_reports ADD COLUMN member_hash TEXT NOT NULL DEFAULT '';         -- hash of sorted active member entity ids
+ALTER TABLE community_reports ADD COLUMN support_hash TEXT NOT NULL DEFAULT '';        -- hash of the eligible active-support set
+ALTER TABLE community_reports ADD COLUMN retired_at TEXT;                              -- ISO 8601 UTC; non-NULL = retired stale community
+CREATE INDEX IF NOT EXISTS idx_community_reports_parent ON community_reports(parent_community_key);
+```
+
+Rules:
+
+- **Community identity is content/config-derived**, not arbitrarily stable:
+  `community_key` is a function of `(level, member_hash, support_hash,
+  config_hash)`. When the active membership or eligible support set changes, the
+  identity changes — a correct restructuring is preferred over artificial id
+  stability, and the superseded community/report is set `retired_at` before
+  synthesis consumes it (Arena decision 11).
+- `level` (existing column, §11.5) now carries the real hierarchy depth (0 =
+  leaf). `parent_community_key` records the hierarchy edge.
+- `config_hash` pins the partition algorithm, seed, and thresholds that produced
+  the community. The **exact set of config inputs is frozen at P5** alongside the
+  hierarchy benchmark (Evidence Ledger "Hierarchy Benchmark Freeze"); until then
+  `config_hash` records the degraded filtered-connected-components fallback
+  identity. No algorithm choice is locked by this schema section — only the
+  identity/provenance contract is.
+- A community built from anything other than `active` (§21.6) relations over
+  canonical (§21.4) entities is invalid.
+
+### 21.8 v9 Migration, Tombstones, And Graph Audit
+
+- `SCHEMA_VERSION` 8 → 9 is forward-only and additive: the §21.1/§21.2/§21.3/
+  §21.5 CREATEs, the §21.4/§21.6/§21.7 ALTERs, and extension of the
+  `deleted_records` CHECK list + `wiki db export`/`import` with the four new
+  tables (`entity_aliases`, `entity_merge_proposals`, `entity_resolution_lineage`,
+  `graph_relation_supports`).
+- Backfill (infers nothing): existing `graph_entities` →
+  `resolution_state='canonical'`, no aliases. Existing `graph_relations` →
+  `lifecycle_status='provisional'`, `edge_class='extracted'`,
+  `generation_id=NULL`; **no** legacy relation is auto-promoted to `active` and
+  **no** support rows are created — relations become `active` only after rebuild
+  from the authoritative B claim generation. Existing `community_reports` keep
+  their rows but are recomputed against active topology before being served.
+- **Graph audit (schema-level invariants)** — the read-only audit asserts: 0
+  authoritative references to `redirected` entities; 0 `active` relations without
+  ≥1 `verified` independent support; 0 endpoints that are not canonical entities;
+  every `quarantined` relation has a reason code + re-eval trigger; every served
+  report finding cites eligible active claim support; 0 stale/retired
+  aliases/supports/communities feeding authoritative artifacts; 0 mixed claim
+  generations. Behavioral acceptance criteria, reconciliation closure, and
+  rollback rehearsal live in SYSTEM_BEHAVIOR §27.
+
+### 21.9 GQ07 — Relation-Confidence Calibration Gate (Schema-Level Note)
+
+Plan E P7 measured production relation `confidence` as non-discriminative (all
+1,180 values in `0.9–1.0`, mean `0.966`). Therefore the existing
+`graph_relations.confidence` and `graph_relation_supports.confidence` columns are
+**NOT** a calibrated noise filter and MUST NOT be used as a serving-time
+threshold until per-relation-type quality labels prove separation (Evidence
+Ledger GQ07). No calibrated-confidence column is frozen here yet; it is
+`benchmark-later` and added only with the P5 labeled relation-quality evidence.
+Quarantine decisions (§21.6) gate on support eligibility and structural signals,
+NOT on a raw-confidence threshold.
