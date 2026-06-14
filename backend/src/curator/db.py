@@ -11,6 +11,7 @@ QMD manages itself in Stage 4). This DB tracks:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import uuid
@@ -3181,40 +3182,88 @@ def upsert_community_report(
     db_path: Path,
     *,
     community_key: str,
-    title: str,
-    summary: str,
-    full_content: str,
-    dependency_hash: str,
-    level: int = 0,
+    title: str | None = None,
+    summary: str | None = None,
+    full_content: str | None = None,
+    dependency_hash: str | None = None,
+    level: int | None = None,
     findings: list | None = None,
     entity_ids: list[str] | None = None,
     relation_ids: list[str] | None = None,
     source_span_ids: list[str] | None = None,
-    rank: float = 0.0,
+    rank: float | None = None,
     prompt_run_id: str | None = None,
+    member_hash: str | None = None,
+    support_hash: str | None = None,
+    config_hash: str | None = None,
+    parent_community_key: str | None = None,
+    clear_retired: bool = True,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
-    """Insert or replace the report for a community key."""
+    """Merge-upsert the report for a community key (SCHEMA §21.7).
+
+    Identity is the ``community_key``: an existing row keeps its ``REP-`` id and
+    ``created_at``. Every column defaults to ``None`` meaning *preserve the existing
+    value* (or the table default on first insert), so the deterministic rebuild
+    skeleton (structural columns + ``member_hash``/``support_hash``/``config_hash``)
+    and the LLM prose pass (``title``/``summary``/``findings``) can write the SAME
+    row without clobbering each other. ``clear_retired`` un-retires a re-emitted
+    community (a present community key is never simultaneously retired). Pass
+    ``conn`` to run inside a caller's atomic publish transaction (§27.8)."""
     now = _now_iso()
-    with connect(db_path) as conn:
+
+    def _pick(provided: Any, column: str, default: Any) -> Any:
+        if provided is not None:
+            return provided
+        if existing is not None and existing[column] is not None:
+            return existing[column]
+        return default
+
+    with _maybe_conn(db_path, conn) as conn:
         existing = conn.execute(
-            "SELECT id, created_at FROM community_reports WHERE community_key = ?",
+            "SELECT * FROM community_reports WHERE community_key = ?",
             (community_key,),
         ).fetchone()
         report_id = str(existing["id"]) if existing else _new_id("REP")
         created_at = str(existing["created_at"]) if existing else now
+        retired_at = None if clear_retired else (
+            existing["retired_at"] if existing is not None else None
+        )
         conn.execute(
             """
             INSERT OR REPLACE INTO community_reports
                 (id, community_key, level, title, summary, full_content,
                  finding_json, entity_ids, relation_ids, source_span_ids, rank,
-                 prompt_run_id, dependency_hash, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 prompt_run_id, dependency_hash, created_at, updated_at,
+                 parent_community_key, config_hash, member_hash, support_hash,
+                 retired_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                report_id, community_key, level, title, summary, full_content,
-                json.dumps(findings or []), json.dumps(entity_ids or []),
-                json.dumps(relation_ids or []), json.dumps(source_span_ids or []),
-                rank, prompt_run_id, dependency_hash, created_at, now,
+                report_id,
+                community_key,
+                _pick(level, "level", 0),
+                _pick(title, "title", ""),
+                _pick(summary, "summary", ""),
+                _pick(full_content, "full_content", ""),
+                json.dumps(findings) if findings is not None
+                else _pick(None, "finding_json", "[]"),
+                json.dumps(entity_ids) if entity_ids is not None
+                else _pick(None, "entity_ids", "[]"),
+                json.dumps(relation_ids) if relation_ids is not None
+                else _pick(None, "relation_ids", "[]"),
+                json.dumps(source_span_ids) if source_span_ids is not None
+                else _pick(None, "source_span_ids", "[]"),
+                _pick(rank, "rank", 0.0),
+                _pick(prompt_run_id, "prompt_run_id", None),
+                _pick(dependency_hash, "dependency_hash", ""),
+                created_at,
+                now,
+                _pick(parent_community_key, "parent_community_key", None),
+                _pick(config_hash, "config_hash", ""),
+                _pick(member_hash, "member_hash", ""),
+                _pick(support_hash, "support_hash", ""),
+                retired_at,
             ),
         )
         return report_id
@@ -3229,17 +3278,24 @@ def _decode_report_row(row: sqlite3.Row) -> dict:
     return data
 
 
-def list_community_reports(db_path: Path, *, level: int | None = None) -> list[dict]:
+def list_community_reports(
+    db_path: Path, *, level: int | None = None, include_retired: bool = False
+) -> list[dict]:
+    """List community reports. By default RETIRED communities are excluded — a
+    retired/stale report never serves and never feeds synthesis (§27.5). Pass
+    ``include_retired=True`` for the audit/diagnostic view."""
+    retired_clause = "" if include_retired else "retired_at IS NULL"
     with connect(db_path) as conn:
-        if level is None:
-            rows = conn.execute(
-                "SELECT * FROM community_reports ORDER BY rank DESC, level"
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM community_reports WHERE level = ? ORDER BY rank DESC",
-                (level,),
-            ).fetchall()
+        clauses = [c for c in (retired_clause,) if c]
+        params: tuple = ()
+        if level is not None:
+            clauses.append("level = ?")
+            params = (level,)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = conn.execute(
+            f"SELECT * FROM community_reports {where} ORDER BY rank DESC, level",
+            params,
+        ).fetchall()
         return [_decode_report_row(row) for row in rows]
 
 
@@ -3249,6 +3305,325 @@ def get_community_report(db_path: Path, report_id: str) -> dict | None:
             "SELECT * FROM community_reports WHERE id = ?", (report_id,)
         ).fetchone()
         return _decode_report_row(row) if row else None
+
+
+# --- Plan C (v0.9.0) graph-generation compiler: claim-grounded reports ----------
+# §27.5/§27.8. The deterministic core that compiles the authoritative graph into
+# content/config-derived community reports and reconciles a one-source change to
+# its measured downstream closure. LLM report PROSE is layered on top (the pipeline
+# fills title/summary/findings by community_key); the GROUNDING, IDENTITY, and
+# CLOSURE computed here are deterministic and need no model.
+
+# Until the P5 hierarchy benchmark freezes a richer config, the shipped partition is
+# the degraded filtered-connected-components fallback (§27.4); its config identity is
+# content-derived from this constant so a fixed (graph, config) is reproducible.
+_GRAPH_FALLBACK_CONFIG = {
+    "algorithm": "connected_components",
+    "only_active": True,
+    "corroboration_threshold": _RELATION_CORROBORATION_THRESHOLD,
+    "seed": 0,
+    "version": 1,
+}
+
+
+def _sha16(payload: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:16]
+
+
+def graph_config_hash() -> str:
+    """Content-derived identity of the active hierarchy/partition config (§21.7)."""
+    return _sha16(_GRAPH_FALLBACK_CONFIG)
+
+
+def rebuild_graph_generation(
+    db_path: Path,
+    *,
+    config_hash: str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict:
+    """Deterministically (re)compile the authoritative graph into claim-grounded
+    community reports (SYSTEM_BEHAVIOR §27.5/§27.8), inside one atomic transaction:
+
+    1. Compile every non-retired relation's lifecycle (§27.3) with one shared
+       bridge-risk topology pass, so the ``active`` set reflects current support.
+    2. Build communities from ``connected_components(only_active=True)`` (§27.4),
+       keeping only multi-node components (a lone node yields no community).
+    3. Derive content/config identity per community (§21.7): ``member_hash`` over the
+       sorted canonical members, ``support_hash`` over the eligible verified
+       active-support set, ``community_key = f(level, member_hash, support_hash,
+       config_hash)``, and ``dependency_hash`` over the active-canonical-support
+       closure.
+    4. Merge-upsert one ``community_reports`` row per ``community_key`` — the
+       structural skeleton citing the EXACT active relations and the eligible-support
+       span closure. There is NO whole-community-span fallback: a community with no
+       eligible active support emits no report (§27.5).
+    5. Retire (set ``retired_at``) every prior non-retired report whose
+       ``community_key`` is absent from the rebuilt set, before synthesis consumes
+       it (§27.5).
+    6. Record precise ``artifact_dependencies`` for each report over its active
+       relations and support spans.
+
+    Idempotent: an unchanged rebuild yields identical keys, so the same ``REP-`` ids
+    are reused and nothing is retired — no count amplification (§27.8). Returns
+    ``{communities, reports, retired, community_keys}``.
+    """
+    cfg_hash = config_hash if config_hash is not None else graph_config_hash()
+    with _maybe_conn(db_path, conn) as conn:
+        # (1) compile lifecycle for all non-retired relations with one bridge pass.
+        bridge_ids = set(detect_bridge_risk_relations(db_path, conn=conn))
+        for r in conn.execute(
+            "SELECT id FROM graph_relations WHERE lifecycle_status != 'retired' "
+            "ORDER BY id"
+        ).fetchall():
+            compile_relation_lifecycle(
+                db_path, relation_id=str(r["id"]),
+                bridge_risk_ids=bridge_ids, conn=conn,
+            )
+
+        # (2) active communities (multi-node only — a singleton is no community).
+        components = [
+            c for c in connected_components(db_path, only_active=True, conn=conn)
+            if len(c) >= 2
+        ]
+        # Bucket the graph with a FIXED number of bulk queries instead of one
+        # per-community `IN (?, …)` query: arbitrary-length member / relation / span
+        # lists would otherwise blow past SQLITE_MAX_VARIABLE_NUMBER for a large
+        # community or source and crash the compiler. One pass each over active
+        # relations, verified supports, and canonical entities; the rest is grouped in
+        # Python. Map every canonical member to its community index first.
+        comp_of: dict[str, int] = {}
+        for idx, members_set in enumerate(components):
+            for m in members_set:
+                comp_of[str(m)] = idx
+
+        comp_rels: dict[int, list[sqlite3.Row]] = defaultdict(list)
+        for r in conn.execute(
+            "SELECT id, source_entity_id, target_entity_id, relation_type, description "
+            "FROM graph_relations WHERE lifecycle_status = 'active' "
+            "AND source_entity_id != target_entity_id ORDER BY id"
+        ).fetchall():
+            si = comp_of.get(str(r["source_entity_id"]))
+            ti = comp_of.get(str(r["target_entity_id"]))
+            if si is not None and si == ti:  # active edges always join one community
+                comp_rels[si].append(r)
+
+        supports_by_rel: dict[str, list[sqlite3.Row]] = defaultdict(list)
+        for s in conn.execute(
+            "SELECT relation_id, support_hash, source_lineage_hash, source_span_ids "
+            "FROM graph_relation_supports WHERE support_status = 'verified' "
+            "ORDER BY relation_id, source_lineage_hash, support_hash"
+        ).fetchall():
+            supports_by_rel[str(s["relation_id"])].append(s)
+
+        entity_content: dict[str, sqlite3.Row] = {}
+        for e in conn.execute(
+            "SELECT id, canonical_name, entity_type, description FROM graph_entities "
+            "WHERE resolution_state = 'canonical'"
+        ).fetchall():
+            entity_content[str(e["id"])] = e
+
+        current_keys: list[str] = []
+        for idx, members_set in enumerate(components):
+            members = sorted(members_set)
+            rel_rows = comp_rels.get(idx, [])  # pre-ordered by id from the bulk query
+            active_rel_ids = [str(r["id"]) for r in rel_rows]
+            if not active_rel_ids:
+                continue  # no eligible active claim support -> no report (§27.5)
+
+            # (3) eligible verified support closure for those active relations —
+            # flattened from the single bulk fetch in (rel_id asc, lineage asc, hash
+            # asc) order, byte-identical to the prior per-community
+            # ORDER BY relation_id, source_lineage_hash, support_hash.
+            support_rows = [
+                s for rid in active_rel_ids for s in supports_by_rel.get(rid, [])
+            ]
+            support_keys = [
+                [str(s["relation_id"]), str(s["source_lineage_hash"]),
+                 str(s["support_hash"])]
+                for s in support_rows
+            ]
+            span_ids = sorted({
+                sid for s in support_rows
+                for sid in _loads_list(s["source_span_ids"])
+            })
+
+            member_hash = _sha16(members)
+            support_hash = _sha16(support_keys)
+            level = 0
+            community_key = "comm-" + hashlib.sha256(
+                f"{level}|{member_hash}|{support_hash}|{cfg_hash}".encode("utf-8")
+            ).hexdigest()[:12]
+            # dependency_hash is over the active-canonical-support closure CONTENT
+            # (entities/relations/spans, §27.5 fresh dependencies) — distinct from the
+            # community_key IDENTITY (membership + support set + config, §21.7). So an
+            # input entity's content edit re-stales the report without changing its
+            # identity, while a membership/support change restructures the community.
+            entity_payload = []
+            for mid in members:
+                e = entity_content.get(mid)
+                if e is None:
+                    entity_payload.append([mid, "", "", ""])
+                else:
+                    entity_payload.append([
+                        mid, str(e["canonical_name"] or ""),
+                        str(e["entity_type"] or ""), str(e["description"] or ""),
+                    ])
+            dependency_hash = _sha16({
+                "entities": entity_payload,
+                "relations": [
+                    [str(r["id"]), str(r["relation_type"]),
+                     str(r["description"] or "")]
+                    for r in rel_rows
+                ],
+                "support": support_keys,
+                "spans": span_ids,
+                "config": cfg_hash,
+            })
+
+            # Skip the write for an UNCHANGED community: a non-retired row already
+            # carrying this content-derived community_key AND the identical
+            # dependency_hash has an unchanged identity and content closure, so
+            # re-emitting it would only churn updated_at and rewrite its dependency
+            # rows (write amplification + spurious downstream sync). The rebuild is a
+            # true no-op for it (§27.8 — unchanged rebuild has no amplification).
+            existing = conn.execute(
+                "SELECT dependency_hash, retired_at FROM community_reports "
+                "WHERE community_key = ?",
+                (community_key,),
+            ).fetchone()
+            if (
+                existing is not None
+                and existing["retired_at"] is None
+                and str(existing["dependency_hash"]) == dependency_hash
+            ):
+                current_keys.append(community_key)
+                continue
+
+            report_id = upsert_community_report(
+                db_path,
+                community_key=community_key,
+                level=level,
+                entity_ids=members,
+                relation_ids=active_rel_ids,
+                source_span_ids=span_ids,
+                member_hash=member_hash,
+                support_hash=support_hash,
+                config_hash=cfg_hash,
+                dependency_hash=dependency_hash,
+                conn=conn,
+            )
+            current_keys.append(community_key)
+
+            # (6) precise dependencies (idempotent: PK is artifact+dep+type).
+            for rid in active_rel_ids:
+                record_artifact_dependency(
+                    db_path, artifact_id=report_id,
+                    artifact_type="community_report", depends_on_id=rid,
+                    depends_on_type="relation", dependency_hash=dependency_hash,
+                    conn=conn,
+                )
+            for sid in span_ids:
+                record_artifact_dependency(
+                    db_path, artifact_id=report_id,
+                    artifact_type="community_report", depends_on_id=sid,
+                    depends_on_type="source_span", dependency_hash=dependency_hash,
+                    conn=conn,
+                )
+
+        # (5) retire stale communities absent from the rebuilt set, before synthesis.
+        keyset = set(current_keys)
+        now = _now_iso()
+        retired = 0
+        for row in conn.execute(
+            "SELECT id, community_key FROM community_reports WHERE retired_at IS NULL"
+        ).fetchall():
+            if str(row["community_key"]) not in keyset:
+                conn.execute(
+                    "UPDATE community_reports SET retired_at = ?, updated_at = ? "
+                    "WHERE id = ?",
+                    (now, now, row["id"]),
+                )
+                retired += 1
+
+    return {
+        "communities": len(current_keys),
+        "reports": len(current_keys),
+        "retired": retired,
+        "community_keys": sorted(current_keys),
+    }
+
+
+def reconcile_source_change(
+    db_path: Path,
+    *,
+    source_id: int,
+    removed_span_ids: list[str] | None = None,
+    config_hash: str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict:
+    """Reconcile the graph/report closure after a source edit/delete (§27.8).
+
+    The closure is MEASURED, not assumed:
+
+    1. Verified relation supports whose span basis intersects ``removed_span_ids``
+       (this source's removed spans) are marked ``stale`` — their source basis
+       disappeared.
+    2. :func:`rebuild_graph_generation` recompiles lifecycle, so a relation dropping
+       below the §21.5 corroboration floor (>=2 independent verified source
+       lineages) leaves the ``active`` set, the communities whose active
+       membership/support changed retire, and dependent reports regenerate or
+       retire.
+
+    A community untouched by the change keeps its content-derived ``community_key``
+    and ``REP-`` id — no collateral churn. Returns the measured closure: the rebuild
+    summary plus ``stale_supports`` and the reconciled ``source_id``."""
+    removed_list = list(dict.fromkeys(removed_span_ids or []))  # dedup, keep order
+    removed = set(removed_list)
+    with _maybe_conn(db_path, conn) as conn:
+        stale_supports = 0
+        if removed:
+            now = _now_iso()
+            # Push the scope filter down into SQLite instead of loading the whole
+            # verified support layer into Python: an OR of `source_span_ids LIKE`
+            # restricts the payload to rows whose JSON span array MIGHT carry a removed
+            # span. The needle is `json.dumps(sid)` (the exact JSON string literal,
+            # incl. quotes and any `\"`/`\\` escaping) so it matches how the array was
+            # serialized — a raw `"%sid%"` would silently MISS a span id containing a
+            # quote/backslash (false negative -> under-staling, which the Python guard
+            # below cannot recover). The quoting keeps prefixes distinct (`"SPAN-1"`
+            # never matches `["SPAN-10"]`). LIKE clauses are CHUNKED under
+            # SQLITE_MAX_VARIABLE_NUMBER so deleting a source with thousands of spans
+            # cannot crash the query. The exact set-intersection then confirms exact
+            # membership, so a LIKE over-match (a `%`/`_` wildcard in an id) never
+            # over-stales; LIKE wildcards only broaden, so the real row is never missed.
+            candidates: dict[tuple, sqlite3.Row] = {}
+            for chunk in _chunked(removed_list):
+                like_clause = " OR ".join("source_span_ids LIKE ?" for _ in chunk)
+                like_params = tuple(f"%{json.dumps(sid)}%" for sid in chunk)
+                for row in conn.execute(
+                    "SELECT relation_id, knowledge_unit_id, support_hash, "
+                    "source_span_ids FROM graph_relation_supports "
+                    f"WHERE support_status = 'verified' AND ({like_clause})",
+                    like_params,
+                ).fetchall():
+                    candidates[
+                        (row["relation_id"], row["knowledge_unit_id"],
+                         row["support_hash"])
+                    ] = row
+            for row in candidates.values():
+                if set(_loads_list(row["source_span_ids"])) & removed:
+                    conn.execute(
+                        "UPDATE graph_relation_supports SET support_status = 'stale', "
+                        "updated_at = ? WHERE relation_id = ? "
+                        "AND knowledge_unit_id = ? AND support_hash = ?",
+                        (now, row["relation_id"], row["knowledge_unit_id"],
+                         row["support_hash"]),
+                    )
+                    stale_supports += 1
+        summary = rebuild_graph_generation(db_path, config_hash=config_hash, conn=conn)
+    return {**summary, "stale_supports": stale_supports, "source_id": source_id}
 
 
 # --- memory_paths ----------------------------------------------------
@@ -3537,8 +3912,9 @@ def record_artifact_dependency(
     depends_on_id: str,
     depends_on_type: str,
     dependency_hash: str,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
-    with connect(db_path) as conn:
+    with _maybe_conn(db_path, conn) as conn:
         conn.execute(
             """
             INSERT OR REPLACE INTO artifact_dependencies
