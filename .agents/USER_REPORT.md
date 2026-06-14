@@ -6,4 +6,4 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
-*(Empty - All items triaged)*
+- *(Empty - All items triaged)*

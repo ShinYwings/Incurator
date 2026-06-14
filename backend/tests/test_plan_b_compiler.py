@@ -192,10 +192,13 @@ def test_gold_unchanged_rebuild_case_expects_zero_regeneration() -> None:
 # frozen by SCHEMA §20.
 # ===========================================================================
 
-def test_v8_schema_version_is_8(vault) -> None:
+def test_schema_version_is_stamped(vault) -> None:
+    # The connect/init path stamps the current SCHEMA_VERSION (bumped 8 -> 9 by
+    # Plan C's additive migration; asserting the code constant keeps this robust
+    # across future additive bumps).
     with db.connect(vault.state_db) as conn:
         version = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()[0]
-    assert version == 8
+    assert version == db.SCHEMA_VERSION
 
 
 def test_v8_claim_supports_table_and_columns(vault) -> None:

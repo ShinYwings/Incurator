@@ -32,8 +32,8 @@ def db_path() -> Path:
         yield path
 
 
-def test_schema_version_is_8() -> None:
-    assert db.SCHEMA_VERSION == 8
+def test_schema_version_is_9() -> None:
+    assert db.SCHEMA_VERSION == 9
 
 
 def test_spec_declares_matching_schema_version() -> None:

@@ -16,11 +16,26 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator, Mapping
 
 from . import constants as consts
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
+
+# --- Plan C (v0.9.0, SCHEMA §21.1/§21.2) frozen resolution enums -------------
+# Entity-resolution lifecycle (entity_aliases.resolution_status, §21.1).
+RESOLUTION_STATUS_CODES = frozenset(
+    {
+        "alias",
+        "ambiguous_candidate",
+        "merge_proposed",
+        "accepted",
+        "rejected",
+        "reversed",
+    }
+)
+# Merge-decision lifecycle (entity_merge_proposals.decision, §21.2).
+MERGE_DECISION_CODES = frozenset({"proposed", "accepted", "rejected", "reversed"})
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -296,7 +311,11 @@ CREATE TABLE IF NOT EXISTS graph_entities (
     knowledge_unit_ids TEXT NOT NULL DEFAULT '[]',
     prompt_run_id      TEXT,
     created_at         TEXT NOT NULL,
-    updated_at         TEXT NOT NULL
+    updated_at         TEXT NOT NULL,
+    -- Plan C (v0.9.0, SCHEMA §21.4) merge-redirect columns.
+    resolution_state      TEXT NOT NULL DEFAULT 'canonical',  -- canonical | redirected
+    redirect_to_entity_id TEXT,                               -- ENT- canonical survivor when redirected
+    decision_id           TEXT                                -- DEC- merge decision that redirected this row
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_entities_name
     ON graph_entities(canonical_name, entity_type);
@@ -314,10 +333,20 @@ CREATE TABLE IF NOT EXISTS graph_relations (
     confidence        REAL NOT NULL DEFAULT 0.0,
     prompt_run_id     TEXT,
     created_at        TEXT NOT NULL,
-    updated_at        TEXT NOT NULL
+    updated_at        TEXT NOT NULL,
+    -- Plan C (v0.9.0, SCHEMA §21.6) lifecycle / edge-class / topology columns.
+    lifecycle_status  TEXT NOT NULL DEFAULT 'provisional',  -- active | provisional | quarantined | retired
+    quarantine_reason TEXT NOT NULL DEFAULT '',
+    edge_class        TEXT NOT NULL DEFAULT 'extracted',    -- authored | extracted
+    topology_weight   REAL NOT NULL DEFAULT 0.0,
+    reeval_trigger    TEXT NOT NULL DEFAULT '',
+    generation_id     TEXT                                  -- GEN- that produced/revalidated
 );
 CREATE INDEX IF NOT EXISTS idx_graph_relations_src ON graph_relations(source_entity_id);
 CREATE INDEX IF NOT EXISTS idx_graph_relations_tgt ON graph_relations(target_entity_id);
+-- idx_graph_relations_lifecycle is created in _migrate_v9_graph_quality (after the
+-- lifecycle_status column is added), so a pre-existing v8 graph_relations table is
+-- not indexed on a column this IF NOT EXISTS CREATE TABLE does not add.
 
 -- GraphRAG-style summaries of graph communities, for global reasoning.
 CREATE TABLE IF NOT EXISTS community_reports (
@@ -335,9 +364,82 @@ CREATE TABLE IF NOT EXISTS community_reports (
     prompt_run_id   TEXT,
     dependency_hash TEXT NOT NULL,
     created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
+    updated_at      TEXT NOT NULL,
+    -- Plan C (v0.9.0, SCHEMA §21.7) community-identity / hierarchy columns.
+    parent_community_key TEXT,                       -- hierarchy parent; NULL at top level
+    config_hash          TEXT NOT NULL DEFAULT '',   -- algorithm+seed+threshold config identity
+    member_hash          TEXT NOT NULL DEFAULT '',   -- hash of sorted active member entity ids
+    support_hash         TEXT NOT NULL DEFAULT '',   -- hash of the eligible active-support set
+    retired_at           TEXT                        -- ISO 8601 UTC; non-NULL = retired stale community
 );
 CREATE INDEX IF NOT EXISTS idx_community_reports_key ON community_reports(community_key);
+-- idx_community_reports_parent is created in _migrate_v9_graph_quality (after the
+-- parent_community_key column is added), for the same reason as the lifecycle index.
+
+-- Plan C (v0.9.0, SCHEMA §21.1) entity surface-form aliases. Surrogate `id` PK so
+-- one normalized surface form may resolve to MANY distinct entities (homonyms).
+CREATE TABLE IF NOT EXISTS entity_aliases (
+    id                 TEXT PRIMARY KEY,     -- ALI-<UUID8> surrogate key
+    alias_normalized   TEXT NOT NULL,        -- deterministic normalization (candidate key, NOT unique alone)
+    entity_id          TEXT,                 -- ENT- this alias resolves to; NULL while only a candidate
+    alias_display      TEXT NOT NULL,        -- original surface form as written
+    source_span_ids    TEXT NOT NULL DEFAULT '[]',
+    knowledge_unit_ids TEXT NOT NULL DEFAULT '[]',
+    confidence         REAL NOT NULL DEFAULT 0.0,
+    resolution_status  TEXT NOT NULL,        -- §21.1 enum (RESOLUTION_STATUS_CODES)
+    resolution_reason  TEXT NOT NULL DEFAULT '',
+    decision_id        TEXT,                 -- entity_merge_proposals.id that decided this alias
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_entity_aliases_entity ON entity_aliases(entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_aliases_normalized ON entity_aliases(alias_normalized);
+-- A RESOLVED alias is unique per (surface form, entity, status): admits one normalized
+-- surface resolving to several entities (homonyms) while blocking an exact duplicate
+-- resolved row. Unresolved candidates (entity_id IS NULL) are keyed only by `id`.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_aliases_resolved
+    ON entity_aliases(alias_normalized, entity_id, resolution_status)
+    WHERE entity_id IS NOT NULL;
+
+-- Plan C (v0.9.0, SCHEMA §21.2) entity merge proposals/decisions.
+CREATE TABLE IF NOT EXISTS entity_merge_proposals (
+    id               TEXT PRIMARY KEY,       -- DEC-<UUID8>
+    source_entity_id TEXT NOT NULL,          -- ENT- being merged away (origin)
+    target_entity_id TEXT NOT NULL,          -- ENT- surviving canonical
+    decision         TEXT NOT NULL,          -- §21.2 enum (MERGE_DECISION_CODES)
+    rationale        TEXT NOT NULL,
+    evidence_json    TEXT NOT NULL,          -- JSON: candidate signals, guard checks, span/claim evidence
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_entity_merge_proposals_src ON entity_merge_proposals(source_entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_merge_proposals_tgt ON entity_merge_proposals(target_entity_id);
+
+-- Plan C (v0.9.0, SCHEMA §21.3) reversible merge rewrite lineage.
+CREATE TABLE IF NOT EXISTS entity_resolution_lineage (
+    decision_id         TEXT NOT NULL,       -- entity_merge_proposals.id
+    origin_entity_id    TEXT NOT NULL,       -- ENT- as it existed before the merge
+    canonical_entity_id TEXT NOT NULL,       -- ENT- it was redirected into
+    rewrite_json        TEXT NOT NULL,       -- JSON: pre-merge entity row + every rewrite applied
+    PRIMARY KEY (decision_id, origin_entity_id)
+);
+
+-- Plan C (v0.9.0, SCHEMA §21.5) independent claim-level relation supports.
+CREATE TABLE IF NOT EXISTS graph_relation_supports (
+    relation_id         TEXT NOT NULL,       -- REL-
+    knowledge_unit_id   TEXT NOT NULL,       -- KNU- asserting this relation
+    source_span_ids     TEXT NOT NULL,       -- JSON array of SPAN- ids carrying the assertion
+    assertion_source    TEXT NOT NULL,       -- source_states | system_infers | workspace_derives
+    confidence          REAL NOT NULL,
+    support_status      TEXT NOT NULL,       -- unchecked | verified | failed | stale
+    support_hash        TEXT NOT NULL,       -- content hash of (proposition + cited spans); dedup within a relation
+    source_lineage_hash TEXT NOT NULL,       -- hash of logical source lineage; the INDEPENDENCE key
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    PRIMARY KEY (relation_id, knowledge_unit_id, support_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_relation_supports_rel ON graph_relation_supports(relation_id);
+CREATE INDEX IF NOT EXISTS idx_graph_relation_supports_lineage ON graph_relation_supports(source_lineage_hash);
 
 -- HippoRAG-style associative walks over the graph, for explore retrieval.
 CREATE TABLE IF NOT EXISTS memory_paths (
@@ -550,7 +652,9 @@ CREATE TABLE IF NOT EXISTS deleted_records (
         'community_reports','memory_paths','prompt_runs','dag_edges',
         'curation_plans','insight_candidates','artifact_dependencies',
         'synthesis','query_traces','source_pages','source_pdf_pages',
-        'claim_supports','compiler_generations'
+        'claim_supports','compiler_generations',
+        'entity_aliases','entity_merge_proposals','entity_resolution_lineage',
+        'graph_relation_supports'
     ))
 );
 CREATE INDEX IF NOT EXISTS idx_deleted_records_at ON deleted_records(deleted_at);
@@ -761,6 +865,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     )
 
     _migrate_v8_compiler_integrity(conn, tables)
+    _migrate_v9_graph_quality(conn, tables)
 
 
 
@@ -919,6 +1024,131 @@ def _migrate_v8_compiler_integrity(
                         'curation_plans','insight_candidates','artifact_dependencies',
                         'synthesis','query_traces','source_pages','source_pdf_pages',
                         'claim_supports','compiler_generations'
+                    ))
+                );
+                INSERT INTO deleted_records_new SELECT table_name, record_id, deleted_at
+                    FROM deleted_records;
+                DROP TABLE deleted_records;
+                ALTER TABLE deleted_records_new RENAME TO deleted_records;
+                CREATE INDEX IF NOT EXISTS idx_deleted_records_at
+                    ON deleted_records(deleted_at);
+                """
+            )
+
+
+
+def _migrate_v9_graph_quality(
+    conn: sqlite3.Connection, tables: set[str]
+) -> None:
+    """SCHEMA_VERSION 8 -> 9 (Plan C): additive entity/relation resolution,
+    independent claim-level support, and community-identity schema (SCHEMA §21.8 /
+    SYSTEM_BEHAVIOR §27.7). Forward-only and idempotent.
+
+    The four new tables (`entity_aliases`, `entity_merge_proposals`,
+    `entity_resolution_lineage`, `graph_relation_supports`) are created by the
+    base ``SCHEMA_SQL`` executescript that always runs before this function. This
+    migration adds the §21.4/§21.6/§21.7 ALTER columns to the pre-existing
+    `graph_entities`/`graph_relations`/`community_reports` tables (which the
+    ``CREATE TABLE IF NOT EXISTS`` in SCHEMA_SQL does NOT alter) and the indexes
+    that depend on those new columns.
+
+    Backfill INFERS NOTHING (§27.7 item 2): the ADD COLUMN ... DEFAULT statements
+    set every legacy `graph_entities` row to `resolution_state='canonical'`
+    (`redirect_to_entity_id` NULL) and every legacy `graph_relations` row to
+    `lifecycle_status='provisional'`, `edge_class='extracted'`, `generation_id`
+    NULL. No alias/proposal/lineage/support rows are created and no relation is
+    auto-promoted to `active` — relations become `active` only after rebuild from
+    the authoritative B claim generation.
+    """
+    if "graph_entities" in tables:
+        _add_column_if_missing(
+            conn, "graph_entities", "resolution_state",
+            "resolution_state TEXT NOT NULL DEFAULT 'canonical'",
+        )
+        _add_column_if_missing(
+            conn, "graph_entities", "redirect_to_entity_id",
+            "redirect_to_entity_id TEXT",
+        )
+        _add_column_if_missing(
+            conn, "graph_entities", "decision_id", "decision_id TEXT"
+        )
+    if "graph_relations" in tables:
+        _add_column_if_missing(
+            conn, "graph_relations", "lifecycle_status",
+            "lifecycle_status TEXT NOT NULL DEFAULT 'provisional'",
+        )
+        _add_column_if_missing(
+            conn, "graph_relations", "quarantine_reason",
+            "quarantine_reason TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn, "graph_relations", "edge_class",
+            "edge_class TEXT NOT NULL DEFAULT 'extracted'",
+        )
+        _add_column_if_missing(
+            conn, "graph_relations", "topology_weight",
+            "topology_weight REAL NOT NULL DEFAULT 0.0",
+        )
+        _add_column_if_missing(
+            conn, "graph_relations", "reeval_trigger",
+            "reeval_trigger TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn, "graph_relations", "generation_id", "generation_id TEXT"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_graph_relations_lifecycle "
+            "ON graph_relations(lifecycle_status)"
+        )
+    if "community_reports" in tables:
+        _add_column_if_missing(
+            conn, "community_reports", "parent_community_key",
+            "parent_community_key TEXT",
+        )
+        _add_column_if_missing(
+            conn, "community_reports", "config_hash",
+            "config_hash TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn, "community_reports", "member_hash",
+            "member_hash TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn, "community_reports", "support_hash",
+            "support_hash TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn, "community_reports", "retired_at", "retired_at TEXT"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_community_reports_parent "
+            "ON community_reports(parent_community_key)"
+        )
+
+    # Extend the deleted_records CHECK list so the four new canonical tables can be
+    # tombstoned on a migrated (old) DB. SQLite cannot ALTER a CHECK in place, so
+    # rebuild the table only when its CHECK predates Plan C.
+    if "deleted_records" in tables:
+        ddl_row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='deleted_records'"
+        ).fetchone()
+        if ddl_row and "entity_aliases" not in str(ddl_row[0]):
+            conn.executescript(
+                """
+                CREATE TABLE deleted_records_new (
+                    table_name  TEXT NOT NULL,
+                    record_id   TEXT NOT NULL,
+                    deleted_at  TEXT NOT NULL,
+                    PRIMARY KEY (table_name, record_id),
+                    CHECK (table_name IN (
+                        'sources','atoms','concepts','synthesis_nodes',
+                        'source_spans','knowledge_units','graph_entities','graph_relations',
+                        'community_reports','memory_paths','prompt_runs','dag_edges',
+                        'curation_plans','insight_candidates','artifact_dependencies',
+                        'synthesis','query_traces','source_pages','source_pdf_pages',
+                        'claim_supports','compiler_generations',
+                        'entity_aliases','entity_merge_proposals',
+                        'entity_resolution_lineage','graph_relation_supports'
                     ))
                 );
                 INSERT INTO deleted_records_new SELECT table_name, record_id, deleted_at
@@ -2297,6 +2527,262 @@ def upsert_graph_relation(
             ),
         )
         return relation_id
+
+
+# --- Plan C (v0.9.0, SCHEMA §21.1-§21.4) entity resolution / reversible merges --
+
+
+def _entity_context(conn: sqlite3.Connection, entity_id: str) -> dict[str, Any]:
+    """Fetch the (entity_type, spans, knowledge units, neighbours) context the
+    §27.1 merge guards compare. Neighbours are the entities directly linked to
+    ``entity_id`` by any relation (either direction)."""
+    row = conn.execute(
+        "SELECT entity_type, source_span_ids, knowledge_unit_ids "
+        "FROM graph_entities WHERE id = ?",
+        (entity_id,),
+    ).fetchone()
+    if row is None:
+        return {"entity_type": None, "spans": set(), "units": set(), "neighbours": set()}
+    neighbours: set[str] = set()
+    for r in conn.execute(
+        "SELECT target_entity_id FROM graph_relations WHERE source_entity_id = ?",
+        (entity_id,),
+    ):
+        neighbours.add(str(r[0]))
+    for r in conn.execute(
+        "SELECT source_entity_id FROM graph_relations WHERE target_entity_id = ?",
+        (entity_id,),
+    ):
+        neighbours.add(str(r[0]))
+    return {
+        "entity_type": row["entity_type"],
+        "spans": set(_loads_list(row["source_span_ids"])),
+        "units": set(_loads_list(row["knowledge_unit_ids"])),
+        "neighbours": neighbours,
+    }
+
+
+def evaluate_merge_guards(
+    db_path: Path,
+    *,
+    source_entity_id: str,
+    target_entity_id: str,
+    avoid_merges: Iterable[tuple[str, str]] = (),
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
+    """Evaluate the four SYSTEM_BEHAVIOR §27.1 merge guards for a candidate pair
+    and return their booleans plus an overall ``verdict``. This is read-only:
+    similarity is candidate generation ONLY (Arena decision 3/4), so even an exact
+    surface-form match is never auto-accepted here.
+
+    Returned keys:
+
+    - ``type_match`` — both entities share the same ``entity_type``.
+    - ``context_overlap`` — they share ≥1 source span, knowledge unit, or graph
+      neighbour (the deterministic "above threshold" floor for the gold fixtures).
+    - ``no_contradiction`` — no ``contradicts`` relation joins the pair (either
+      direction).
+    - ``not_avoid_listed`` — the pair is not on the workspace ``avoid_merges`` list.
+    - ``verdict`` ∈ {``accept``, ``ambiguous_candidate``, ``rejected``}: a pair on
+      ``avoid_merges`` is durable negative knowledge → ``rejected``; ALL four guards
+      passing → ``accept``; any other guard failure downgrades the candidate to
+      ``ambiguous_candidate`` (it may at most PROPOSE, never auto-fuse).
+    """
+    pair = frozenset((source_entity_id, target_entity_id))
+    avoid_pairs = {frozenset((s, t)) for s, t in avoid_merges}
+    not_avoid_listed = pair not in avoid_pairs
+    with _maybe_conn(db_path, conn) as conn:
+        src = _entity_context(conn, source_entity_id)
+        tgt = _entity_context(conn, target_entity_id)
+        type_match = (
+            src["entity_type"] is not None
+            and src["entity_type"] == tgt["entity_type"]
+        )
+        context_overlap = bool(
+            (src["spans"] & tgt["spans"])
+            or (src["units"] & tgt["units"])
+            or (src["neighbours"] & tgt["neighbours"])
+        )
+        no_contradiction = (
+            conn.execute(
+                "SELECT 1 FROM graph_relations WHERE relation_type = 'contradicts' "
+                "AND ((source_entity_id = ? AND target_entity_id = ?) "
+                "  OR (source_entity_id = ? AND target_entity_id = ?)) LIMIT 1",
+                (source_entity_id, target_entity_id,
+                 target_entity_id, source_entity_id),
+            ).fetchone()
+            is None
+        )
+    if not not_avoid_listed:
+        verdict = "rejected"
+    elif type_match and context_overlap and no_contradiction:
+        verdict = "accept"
+    else:
+        verdict = "ambiguous_candidate"
+    return {
+        "type_match": type_match,
+        "context_overlap": context_overlap,
+        "no_contradiction": no_contradiction,
+        "not_avoid_listed": not_avoid_listed,
+        "verdict": verdict,
+    }
+
+
+def propose_entity_merge(
+    db_path: Path,
+    *,
+    source_entity_id: str,
+    target_entity_id: str,
+    rationale: str,
+    evidence: Mapping[str, Any] | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> str:
+    """Record a merge proposal (``decision='proposed'``) of ``source_entity_id``
+    (origin, merged away) into ``target_entity_id`` (surviving canonical) and
+    return the ``DEC-<UUID8>`` decision id. A proposal NEVER rewrites the graph
+    (SCHEMA §21.2); only :func:`accept_entity_merge` does."""
+    now = _now_iso()
+    decision_id = _new_id("DEC")
+    payload = json.dumps(dict(evidence or {}), sort_keys=True)
+    with _maybe_conn(db_path, conn) as conn:
+        conn.execute(
+            "INSERT INTO entity_merge_proposals "
+            "(id, source_entity_id, target_entity_id, decision, rationale, "
+            " evidence_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'proposed', ?, ?, ?, ?)",
+            (decision_id, source_entity_id, target_entity_id, rationale,
+             payload, now, now),
+        )
+    return decision_id
+
+
+def accept_entity_merge(
+    db_path: Path, *, decision_id: str, conn: sqlite3.Connection | None = None
+) -> None:
+    """Accept a proposed merge (§27.1). Redirects the origin entity onto the
+    surviving canonical entity, re-points every relation endpoint that referenced
+    the origin, and persists a complete reversible ``entity_resolution_lineage``
+    row (SCHEMA §21.3). The origin entity is NEVER deleted — its identity is
+    preserved for reversal."""
+    now = _now_iso()
+    with _maybe_conn(db_path, conn) as conn:
+        proposal = conn.execute(
+            "SELECT source_entity_id, target_entity_id "
+            "FROM entity_merge_proposals WHERE id = ?",
+            (decision_id,),
+        ).fetchone()
+        if proposal is None:
+            raise ValueError(f"unknown merge decision: {decision_id}")
+        origin = str(proposal["source_entity_id"])
+        survivor = str(proposal["target_entity_id"])
+        origin_row = conn.execute(
+            "SELECT * FROM graph_entities WHERE id = ?", (origin,)
+        ).fetchone()
+        if origin_row is None:
+            raise ValueError(f"merge origin entity not found: {origin}")
+        # Capture the exact pre-merge origin row + every relation endpoint rewrite
+        # so reversal can reconstruct the prior graph byte-for-byte (SCHEMA §21.3).
+        relation_rewrites: list[dict[str, str]] = []
+        for rel in conn.execute(
+            "SELECT id, source_entity_id, target_entity_id FROM graph_relations "
+            "WHERE source_entity_id = ? OR target_entity_id = ?",
+            (origin, origin),
+        ).fetchall():
+            if str(rel["source_entity_id"]) == origin:
+                relation_rewrites.append(
+                    {"relation_id": str(rel["id"]), "field": "source_entity_id",
+                     "from": origin, "to": survivor}
+                )
+            if str(rel["target_entity_id"]) == origin:
+                relation_rewrites.append(
+                    {"relation_id": str(rel["id"]), "field": "target_entity_id",
+                     "from": origin, "to": survivor}
+                )
+        rewrite_json = json.dumps(
+            {"origin_entity": dict(origin_row),
+             "relation_rewrites": relation_rewrites},
+            sort_keys=True,
+        )
+        # Apply: re-point relation endpoints onto the survivor (explicit per-column
+        # so no column name is interpolated into SQL)...
+        for rw in relation_rewrites:
+            if rw["field"] == "source_entity_id":
+                conn.execute(
+                    "UPDATE graph_relations SET source_entity_id = ?, updated_at = ? "
+                    "WHERE id = ?",
+                    (survivor, now, rw["relation_id"]),
+                )
+            else:
+                conn.execute(
+                    "UPDATE graph_relations SET target_entity_id = ?, updated_at = ? "
+                    "WHERE id = ?",
+                    (survivor, now, rw["relation_id"]),
+                )
+        # ...redirect the origin entity (never delete it)...
+        conn.execute(
+            "UPDATE graph_entities SET resolution_state = 'redirected', "
+            "redirect_to_entity_id = ?, decision_id = ?, updated_at = ? WHERE id = ?",
+            (survivor, decision_id, now, origin),
+        )
+        # ...persist the reversible lineage...
+        conn.execute(
+            "INSERT OR REPLACE INTO entity_resolution_lineage "
+            "(decision_id, origin_entity_id, canonical_entity_id, rewrite_json) "
+            "VALUES (?, ?, ?, ?)",
+            (decision_id, origin, survivor, rewrite_json),
+        )
+        # ...and record the accepted decision.
+        conn.execute(
+            "UPDATE entity_merge_proposals SET decision = 'accepted', updated_at = ? "
+            "WHERE id = ?",
+            (now, decision_id),
+        )
+
+
+def reverse_entity_merge(
+    db_path: Path, *, decision_id: str, conn: sqlite3.Connection | None = None
+) -> None:
+    """Reverse a previously accepted merge (§27.1). Replays the §21.3 rewrite
+    lineage in reverse — restoring the origin entity to ``canonical`` and every
+    relation endpoint to its pre-merge value. The decision row is retained as
+    ``reversed`` audit, never hard-deleted; the acceptance test is that reversal
+    yields endpoints byte-identical to the pre-merge state."""
+    now = _now_iso()
+    with _maybe_conn(db_path, conn) as conn:
+        lineage_rows = conn.execute(
+            "SELECT origin_entity_id, rewrite_json FROM entity_resolution_lineage "
+            "WHERE decision_id = ?",
+            (decision_id,),
+        ).fetchall()
+        if not lineage_rows:
+            raise ValueError(f"no resolution lineage for decision: {decision_id}")
+        for lin in lineage_rows:
+            origin = str(lin["origin_entity_id"])
+            rewrite = _loads_obj(lin["rewrite_json"])
+            for rw in rewrite.get("relation_rewrites", []):
+                if rw["field"] == "source_entity_id":
+                    conn.execute(
+                        "UPDATE graph_relations SET source_entity_id = ?, "
+                        "updated_at = ? WHERE id = ?",
+                        (rw["from"], now, rw["relation_id"]),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE graph_relations SET target_entity_id = ?, "
+                        "updated_at = ? WHERE id = ?",
+                        (rw["from"], now, rw["relation_id"]),
+                    )
+            conn.execute(
+                "UPDATE graph_entities SET resolution_state = 'canonical', "
+                "redirect_to_entity_id = NULL, decision_id = NULL, updated_at = ? "
+                "WHERE id = ?",
+                (now, origin),
+            )
+        conn.execute(
+            "UPDATE entity_merge_proposals SET decision = 'reversed', updated_at = ? "
+            "WHERE id = ?",
+            (now, decision_id),
+        )
 
 
 def _decode_entity_row(row: sqlite3.Row) -> dict:
