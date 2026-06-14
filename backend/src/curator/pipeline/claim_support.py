@@ -201,8 +201,10 @@ def _statement_for_stable_id(statement: str) -> str:
     return " ".join(statement.split())
 
 
-def _load_unit(db_path: Path, unit_id: str) -> dict | None:
-    with db.connect(db_path) as conn:
+def _load_unit(
+    db_path: Path, unit_id: str, *, conn: sqlite3.Connection | None = None
+) -> dict | None:
+    with db._maybe_conn(db_path, conn) as conn:
         row = conn.execute(
             "SELECT id, statement, source_span_ids FROM knowledge_units WHERE id = ?",
             (unit_id,),
@@ -215,12 +217,15 @@ def _load_unit(db_path: Path, unit_id: str) -> dict | None:
 
 
 def _load_spans(
-    db_path: Path, declared: list[str], span_texts: dict[str, str] | None
+    db_path: Path, declared: list[str], span_texts: dict[str, str] | None,
+    *, conn: sqlite3.Connection | None = None,
 ) -> dict[str, tuple[str, str]]:
     """Map cited span id -> (text, content_hash). Uses full `span_texts` when
-    provided (compile path), else the stored preview (short gold spans)."""
+    provided (compile path), else the stored preview (short gold spans). Pass
+    ``conn`` so the read joins a caller's transaction (no second connection
+    inside an open publish gate)."""
     out: dict[str, tuple[str, str]] = {}
-    with db.connect(db_path) as conn:
+    with db._maybe_conn(db_path, conn) as conn:
         for sid in declared:
             row = conn.execute(
                 "SELECT text_preview, content_hash FROM source_spans WHERE id = ?",
@@ -245,22 +250,38 @@ def _set_semantic_hash(
 
 def _clear_claim_supports(
     db_path: Path, unit_id: str, *, preserve_formula: bool = False,
+    has_formula: bool = False, declared: list[str] | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> None:
     """Remove prior/proposed support rows before writing one fresh verdict.
 
-    When ``preserve_formula`` is True, existing ``formula`` role rows are
-    retained so that evidence links created by ``recover_formula`` survive
-    a re-validation cycle.
+    When ``preserve_formula`` is True, a ``formula`` role row created by
+    ``recover_formula`` survives a re-validation cycle — but ONLY while it stays
+    relevant: the claim must still carry a formula (``has_formula``) and the
+    support's span must still be declared (in ``declared``). A formula support
+    for a claim that lost its formula, or that points at a span the claim no
+    longer cites, is stale and is cleared too (would otherwise linger / dangle —
+    SCHEMA §20.5 #3).
     """
     with db._maybe_conn(db_path, conn) as c:
-        if preserve_formula:
+        if not preserve_formula or not has_formula:
             c.execute(
-                "DELETE FROM claim_supports "
-                "WHERE knowledge_unit_id = ? AND support_role != 'formula'",
+                "DELETE FROM claim_supports WHERE knowledge_unit_id = ?",
                 (unit_id,),
             )
+            return
+        kept = list(declared or [])
+        if kept:
+            placeholders = ",".join("?" for _ in kept)
+            c.execute(
+                "DELETE FROM claim_supports "
+                "WHERE knowledge_unit_id = ? "
+                "AND (support_role != 'formula' OR source_span_id NOT IN "
+                f"({placeholders}))",
+                (unit_id, *kept),
+            )
         else:
+            # No declared spans → every formula support is dangling.
             c.execute(
                 "DELETE FROM claim_supports WHERE knowledge_unit_id = ?",
                 (unit_id,),
@@ -287,19 +308,25 @@ def validate_claim_support(
     that validates units rolls back cleanly if the publish gate later fails
     (SYSTEM_BEHAVIOR §26.3) and never mutates the prior authoritative state.
     """
-    unit = _load_unit(db_path, unit_id)
+    unit = _load_unit(db_path, unit_id, conn=conn)
     if unit is None:
         raise ValueError(f"unknown knowledge unit: {unit_id}")
 
     statement: str = unit["statement"]
     declared: list[str] = unit["source_span_ids"]
-    spans = _load_spans(db_path, declared, span_texts)
-    _set_semantic_hash(db_path, unit_id, semantic_hash(statement), conn=conn)
-    _clear_claim_supports(db_path, unit_id, preserve_formula=True, conn=conn)
+    spans = _load_spans(db_path, declared, span_texts, conn=conn)
 
     claim_terms = _content_terms(statement)
     claim_formulas = [_formula_tokens(f) for f in _extract_latex(statement)]
     has_formula = bool(claim_formulas)
+
+    _set_semantic_hash(db_path, unit_id, semantic_hash(statement), conn=conn)
+    # Preserve a recovered formula link only while it stays relevant: the claim
+    # still has a formula and the support's span is still declared (§20.5 #3).
+    _clear_claim_supports(
+        db_path, unit_id, preserve_formula=True,
+        has_formula=has_formula, declared=declared, conn=conn,
+    )
 
     best_id: str | None = None
     best_score: tuple[int, float] = (-1, -1.0)
@@ -439,7 +466,9 @@ def _broad_fallback_findings(db_path: Path) -> list[dict]:
     return findings
 
 
-def run_compiler_audit(db_path: Path) -> AuditReport:
+def run_compiler_audit(
+    db_path: Path, *, conn: sqlite3.Connection | None = None
+) -> AuditReport:
     """Read-only compiler audit (SCHEMA §20.5, SYSTEM_BEHAVIOR §26.5).
 
     Re-checks evidence freshness (marking hash-drifted support stale), then
@@ -447,9 +476,16 @@ def run_compiler_audit(db_path: Path) -> AuditReport:
     no dangling support rows (assertion 3), one authoritative generation per
     scope (assertion 4), formula-status consistency (assertion 5), and records
     broad-fallback findings for Plan C (assertion 2).
+
+    Pass ``conn`` to audit a caller's UNCOMMITTED transaction state, so the
+    publish gate (§26.3) checks the exact re-validated rows about to be
+    published — not a pre-validation snapshot from a second connection (which
+    would also block on the caller's write lock). The broad-fallback scan reads
+    synthesis/report/graph tables the publish transaction never mutates, so it
+    keeps its own read connection (same result either way).
     """
-    db.refresh_support_freshness(db_path)
-    with db.connect(db_path) as conn:
+    db.refresh_support_freshness(db_path, conn=conn)
+    with db._maybe_conn(db_path, conn) as conn:
         active = conn.execute(
             "SELECT id, support_status, formula_status, support_reason "
             "FROM knowledge_units "

@@ -2036,14 +2036,20 @@ def list_generation_units(
     return [_decode_unit_row(row) for row in rows]
 
 
-def refresh_support_freshness(db_path: Path) -> set[str]:
+def refresh_support_freshness(
+    db_path: Path, *, conn: sqlite3.Connection | None = None
+) -> set[str]:
     """Re-check every verified claim_supports.evidence_hash against the cited
     span's current content_hash; mark mismatched support rows and their owning
     units `stale` (SYSTEM_BEHAVIOR §26.1 freshness re-check). Returns the set of
-    unit ids newly marked stale."""
+    unit ids newly marked stale.
+
+    Pass ``conn`` so the freshness writes join a caller's open transaction (the
+    publish gate audits the uncommitted re-validated state — §26.3); without it
+    a second connection would block on the caller's write lock."""
     now = _now_iso()
     stale_units: set[str] = set()
-    with connect(db_path) as conn:
+    with _maybe_conn(db_path, conn) as conn:
         rows = conn.execute(
             """
             SELECT cs.knowledge_unit_id AS uid, cs.source_span_id AS span,

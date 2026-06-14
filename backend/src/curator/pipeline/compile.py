@@ -386,10 +386,14 @@ def _generation_summary(source_id: int, gen: dict) -> dict:
     }
 
 
-def _run_publish_gate(db_path: Path, source_id: int) -> None:
+def _run_publish_gate(
+    db_path: Path, source_id: int, *, conn: Any = None
+) -> None:
     """The publish gate (§26.3): raise if the compiler audit finds any
-    structural violation that blocks publishing the served set."""
-    report = run_compiler_audit(db_path)
+    structural violation that blocks publishing the served set. Pass ``conn`` to
+    audit the caller's uncommitted transaction, so the gate checks the exact
+    re-validated state about to be published."""
+    report = run_compiler_audit(db_path, conn=conn)
     if report.publish_blocking:
         raise RuntimeError(
             f"compiler audit blocked publish for source {source_id}: "
@@ -485,15 +489,15 @@ def recompile_source(
     try:
         if _inject_failure:
             raise RuntimeError(f"compile failure injected: {_inject_failure}")
-        # The publish gate (dangling / formula-inconsistency / multiple-
-        # authoritative) is independent of the validation + attribution we are
-        # about to do, so run it FIRST on the current state — a blocked gate then
-        # never mutates the prior authoritative units at all. Then validate,
-        # attribute, and flip atomically in ONE transaction (DB-level re-publish:
-        # all of the source's active units belong to this generation), so any
-        # failure rolls the whole thing back — no partial publish, no mutated
-        # served state (§26.3).
-        _run_publish_gate(db_path, source_id)
+        # Validate, audit, attribute, and flip atomically in ONE transaction
+        # (DB-level re-publish: all of the source's active units belong to this
+        # generation). The publish gate runs INSIDE the transaction, AFTER
+        # re-validation, so it audits the exact uncommitted state about to be
+        # published — never a pre-validation snapshot. This lets a re-validation
+        # heal a transiently-dangling support (re-write it against the live span)
+        # instead of the gate refusing to republish, while a genuine structural
+        # break still raises and rolls the whole transaction back: no partial
+        # publish, no mutated served state (§26.3).
         with db.connect(db_path) as conn:
             unit_ids = [
                 str(r[0]) for r in conn.execute(
@@ -504,6 +508,7 @@ def recompile_source(
             ]
             for uid in unit_ids:
                 validate_claim_support(db_path, uid, conn=conn)
+            _run_publish_gate(db_path, source_id, conn=conn)
             conn.execute(
                 "UPDATE knowledge_units SET generation_id = ? "
                 "WHERE source_id = ? AND retired_at IS NULL",

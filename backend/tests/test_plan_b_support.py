@@ -908,3 +908,68 @@ def test_recompile_publish_failure_rolls_back_validation_and_attribution(vault, 
         assert conn.execute(
             "SELECT COUNT(*) FROM compiler_generations WHERE status = 'authoritative'"
         ).fetchone()[0] == 1  # no partial publish
+
+
+# ---------------------------------------------------------------------------
+# Review fix — `preserve_formula` must not retain STALE formula support rows.
+# A formula support is kept across re-validation only while the claim still has
+# a formula AND the support's span is still declared; otherwise it is a stale
+# row (a formula link to a claim that lost its formula, or to a span the claim
+# no longer cites) and must be cleared (SCHEMA §20.5 #3 hygiene).
+# ---------------------------------------------------------------------------
+
+def _add_formula_support(paths, unit_id: str, span_id: str) -> None:
+    db.upsert_claim_support(
+        paths.state_db, knowledge_unit_id=unit_id, source_span_id=span_id,
+        support_role="formula", support_status="verified", evidence_hash="f",
+    )
+
+
+def _formula_support_spans(paths, unit_id: str) -> set[str]:
+    return {
+        r["source_span_id"] for r in db.list_claim_supports(paths.state_db, unit_id)
+        if r["support_role"] == "formula"
+    }
+
+
+def test_revalidation_keeps_formula_support_when_formula_and_span_still_declared(vault) -> None:
+    # Positive case: the P5 recovery link survives re-validation untouched while
+    # the claim keeps its formula and still cites the recovered span.
+    unit_id = _seed(vault, ["SPAN-pb000003"],
+                    "A residual block adds the identity branch, $y = x + F(x)$.")
+    _add_formula_support(vault, unit_id, "SPAN-pb000003")
+    validate_claim_support(vault.state_db, unit_id)
+    assert _formula_support_spans(vault, unit_id) == {"SPAN-pb000003"}
+
+
+def test_revalidation_clears_formula_support_when_claim_loses_its_formula(vault) -> None:
+    # The claim is rewritten to pure prose (no formula); the lingering formula
+    # support is stale and must be cleared, not preserved.
+    unit_id = _seed(vault, ["SPAN-pb000003"],
+                    "A residual block adds the identity branch, $y = x + F(x)$.")
+    _add_formula_support(vault, unit_id, "SPAN-pb000003")
+    _seed(vault, ["SPAN-pb000005"], "ignored")  # ensure the prose span exists
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "UPDATE knowledge_units SET statement = ?, source_span_ids = ? WHERE id = ?",
+            ("A residual block adds an identity branch in deep networks.",
+             '["SPAN-pb000005"]', unit_id),
+        )
+    validate_claim_support(vault.state_db, unit_id)
+    assert _formula_support_spans(vault, unit_id) == set()
+
+
+def test_revalidation_clears_formula_support_when_span_no_longer_declared(vault) -> None:
+    # The claim keeps a formula but no longer cites the span the formula support
+    # points at; that support is stale (would dangle on a later span delete).
+    unit_id = _seed(vault, ["SPAN-pb000003"],
+                    "A residual block adds the identity branch, $y = x + F(x)$.")
+    _add_formula_support(vault, unit_id, "SPAN-pb000003")
+    _seed(vault, ["SPAN-pb000002"], "ignored")
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "UPDATE knowledge_units SET source_span_ids = ? WHERE id = ?",
+            ('["SPAN-pb000002"]', unit_id),
+        )
+    validate_claim_support(vault.state_db, unit_id)
+    assert "SPAN-pb000003" not in _formula_support_spans(vault, unit_id)
