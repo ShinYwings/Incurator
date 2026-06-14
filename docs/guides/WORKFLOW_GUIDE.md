@@ -489,6 +489,45 @@ atomic publishes (specs: SCHEMA.md §20, SYSTEM_BEHAVIOR.md §26):
 
 ---
 
+## 11. v0.9.0 Graph Quality
+
+v0.9.0 compiles the trusted v0.8.0 claims into a reversible, support-aware
+knowledge graph and a deterministic community hierarchy (specs: SCHEMA.md §21,
+SYSTEM_BEHAVIOR.md §27). It builds on §10 — graph construction consumes only one
+fully published claim generation:
+
+- **Safe entity merging**: similar names are only ever *candidates*. Synonyms,
+  abbreviations, and translations merge only after type/context/contradiction
+  guards pass; ambiguous homonyms (e.g. "Mercury" planet vs. element) stay
+  unmerged until decided. Every accepted merge keeps the original identity and a
+  complete rewrite record, so it can be reversed exactly.
+- **Relations are propositions with independent support**: re-extracting the same
+  relation *adds* claim-level support instead of overwriting it. Independence is
+  counted by source lineage, so copied/forked sources count once — not as
+  multiple confirmations.
+- **Relation lifecycle**: a relation is `active` only with verified independent
+  support and resolved endpoints; weak edges are `quarantined` with a reason
+  (`unsupported`, `self_loop`, `contradiction`, `copied_source_only`,
+  `bridge_risk`, `endpoint_unresolved`, `duplicate_proposition`) and a re-eval
+  trigger. Authored links and extracted relations stay separate classes. Only
+  `active` relations build communities.
+- **Deterministic hierarchy**: the community algorithm is benchmark-selected;
+  the same graph + config + seed yields the same hierarchy every time, with
+  filtered connected components as an explicit degraded fallback. No unexplained
+  giant component.
+- **Claim-grounded reports**: community reports cite exact eligible claim
+  support — the broad "whole community" fallback is removed. Reports whose inputs
+  change retire and regenerate before synthesis uses them.
+- **Confidence is not a noise dial**: relation `confidence` is *not* used as a
+  serving-time filter (production values were all 0.9–1.0); quarantine decisions
+  use support eligibility and structure, not a raw-confidence cutoff.
+- **Audit in lint**: `wiki lint` gains a Graph Quality section asserting no
+  references to merged-away entities, no unsupported active relations, no
+  unresolved endpoints, claim-grounded reports, and 0 homonym false merges; it
+  exits non-zero on release-blocking violations.
+
+---
+
 ## Related Docs
 
 - [Plugin Guide](PLUGIN_GUIDE.md) — Obsidian plugin features in detail
