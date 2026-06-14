@@ -3102,6 +3102,78 @@ def relation_neighborhood(db_path: Path, entity_ids: list[str]) -> list[dict]:
         return [_decode_relation_row(row) for row in rows]
 
 
+# --- community construction (hierarchy fallback) ---------------------
+
+
+def connected_components(
+    db_path: Path,
+    *,
+    only_active: bool = True,
+    conn: sqlite3.Connection | None = None,
+) -> list[set[str]]:
+    """Return the connected components of the canonical entity graph as a list of
+    entity-id sets — the EXPLICIT degraded hierarchy fallback (SYSTEM_BEHAVIOR §27.4,
+    Arena decision 10).
+
+    Nodes are the ``canonical`` (§27.1) entities; edges are non-self-loop relations
+    between two canonical endpoints. ``only_active=True`` (the default) restricts the
+    edge set to ``active`` (§27.3) relations, so a ``quarantined`` noisy bridge or an
+    ``unsupported`` edge cannot silently fuse two clusters into one giant component.
+    ``only_active=False`` admits every non-``retired`` relation (provisional +
+    quarantined) for diagnostics. A ``retired`` reconciliation tombstone (§27.8) is
+    NEVER a topology input in either mode, so its endpoints fall apart.
+
+    An entity with no qualifying edge is its own singleton component. The result is
+    deterministic — components are sorted by ``(size, sorted members)`` and the
+    union always roots at the smaller id — so a fixed graph yields an identical
+    partition on repeat runs.
+    """
+    edge_filter = (
+        "lifecycle_status = 'active'" if only_active else "lifecycle_status != 'retired'"
+    )
+    with _maybe_conn(db_path, conn) as conn:
+        node_rows = conn.execute(
+            "SELECT id FROM graph_entities WHERE resolution_state = 'canonical' "
+            "ORDER BY id"
+        ).fetchall()
+        edge_rows = conn.execute(
+            "SELECT source_entity_id, target_entity_id FROM graph_relations "
+            f"WHERE source_entity_id != target_entity_id AND {edge_filter} "
+            "ORDER BY id"
+        ).fetchall()
+
+    nodes = [str(r["id"]) for r in node_rows]
+    canonical = set(nodes)
+    parent: dict[str, str] = {n: n for n in nodes}
+
+    def find(x: str) -> str:
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:  # path compression
+            parent[x], x = root, parent[x]
+        return root
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra == rb:
+            return
+        # Root at the smaller id for a deterministic forest shape.
+        parent[max(ra, rb)] = min(ra, rb)
+
+    for r in edge_rows:
+        u, v = str(r["source_entity_id"]), str(r["target_entity_id"])
+        # Both endpoints must be canonical nodes; a relation onto a redirected or
+        # missing entity is not authoritative topology (§27.1/§27.4).
+        if u in canonical and v in canonical:
+            union(u, v)
+
+    groups: dict[str, set[str]] = defaultdict(set)
+    for n in nodes:
+        groups[find(n)].add(n)
+    return sorted(groups.values(), key=lambda c: (len(c), sorted(c)))
+
+
 # --- community_reports -----------------------------------------------
 
 

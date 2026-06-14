@@ -93,19 +93,22 @@ evaluated_code:
     date: '2026-06-14'
     prior_db_sha256: ab865daa13fa5338f4aa72e465e68f77ba6ed6c55cc68ac4790c49592c45343b
     reason: >-
-      Plan C (v0.9.0) edited db.py across two phases. P3 added the additive v9
+      Plan C (v0.9.0) edited db.py across three phases. P3 added the additive v9
       schema migration foundation + the entity-resolution / reversible-merge API
       (SCHEMA_VERSION 8->9, four new graph-quality tables, resolution/lifecycle
       columns, evaluate_merge_guards / propose / accept / reverse merge helpers;
       the P3 commit re-pinned db.py to ab865daa without this narrative block). P4
       then added the relation lifecycle/topology compiler (QUARANTINE_REASON_CODES,
       compile_relation_lifecycle, detect_bridge_risk_relations) and a `collections`
-      import. All of this is additive entity/relation graph-compiler logic; none
-      touches retrieval, ranking, fusion, projection, embedding, chunking, or
-      materialize_chunks — the only paths the lexical FTS5/BM25 Q06 holdout
-      exercises — so the frozen Q06 metric is provably unaffected. The
-      single-consumption harness (run_count=3, max) cannot regenerate the result;
-      this fingerprint is a re-armable drift tripwire, not a permanent code freeze.
+      import, re-pinning db.py to 47f5b267. P5 then added the
+      filtered-connected-components hierarchy fallback (connected_components,
+      SYSTEM_BEHAVIOR §27.4), re-pinning db.py 47f5b267 -> 7a8555e6. All of this is
+      additive entity/relation graph-compiler logic; none touches retrieval,
+      ranking, fusion, projection, embedding, chunking, or materialize_chunks — the
+      only paths the lexical FTS5/BM25 Q06 holdout exercises — so the frozen Q06
+      metric is provably unaffected. The single-consumption harness (run_count=3,
+      max) cannot regenerate the result; this fingerprint is a re-armable drift
+      tripwire, not a permanent code freeze.
   file_sha256:
     backend/scripts/failure_atlas_holdout.py: c6afe0307dd3f68fa9902387bb0dc269db6ff9d6b73ad2f3ac1cc6ecc883297a
     backend/src/curator/retrieval/evaluation.py: 0cc9e655142c725dd4bbbabfd2b44d6bf0355265bb2510fbb78cbd47d7d43c17
@@ -114,7 +117,7 @@ evaluated_code:
     backend/src/curator/retrieval/fusion.py: ffed6f90d6b0eb55692dfd9a02526d8e4a220ef6625a3e245175a07fa08eb716
     backend/src/curator/retrieval/embedding.py: a6a7da88af3fc824f1fa2c9a4f4ce0720e870c0584c49e011b865678cb0f8f7e
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
-    backend/src/curator/db.py: 47f5b2670bcf61c1ace22a74cf2c35fae29535962fe356a3450311eee551560a
+    backend/src/curator/db.py: 7a8555e61745fffd57a346dd674b129536a2e24ec623ed229bfbf1023ae0b555
   preflight_family_metrics:
     direct-factual:
       query_count: 7

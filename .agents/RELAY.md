@@ -1,6 +1,6 @@
 # Cross-Agent Relay State
 
-## Status: P4 COMPLETE — next action is P5 (hierarchy benchmark + deterministic implementation)
+## Status: P5 COMPLETE (uncommitted, awaiting Gemini review) — next action is P6 (claim-grounded reports + reconciliation); P7 owns the remaining graph_audit reds
 
 **Branch:** `feature/plan-c-graph-quality`
 **Target Plan:** `.agents/plans/C_graph_quality.md`
@@ -9,26 +9,31 @@
 Implement Batch 2: Plan C (Graph Quality) to stabilize the graph layer, establish community reports, and synthesize insights. The previous milestone (Plan B) has been successfully merged and shipped.
 
 ## Immediate Next Action
-**P5 — hierarchy benchmark and deterministic community construction.** P0–P4 are
-complete; the relation lifecycle/topology compiler is implemented and the 7 P4 gold
-tests are green (6 `test_plan_c_relation_topology.py` + the 1 remaining
-`test_plan_c_graph_quality.py` `QUARANTINE_REASON_CODES` red). P5 owns the 6
-`test_plan_c_hierarchy_audit.py` reds together with P7. The pinned hooks those
-tests name (refinable when turning green):
-- `db.connected_components(db_path, *, only_active=True) -> list[set[str]]` —
-  filtered-connected-components baseline over `active`, non-retired relations and
-  canonical endpoints (the explicit degraded fallback; excludes quarantined
-  bridges / retired tombstones).
-- `db.graph_audit(db_path) -> list[dict]` (P7) — each violation has `code` +
+**Gemini: review the uncommitted P5 `db.connected_components` implementation** (the
+filtered-connected-components hierarchy fallback). Then proceed to **P6 — claim-
+grounded reports + precise reconciliation** (plan §342–358). P0–P5 are complete; the
+only remaining Plan C reds are the 4 `test_plan_c_hierarchy_audit.py` `graph_audit`
+tests (owned by **P7**, alongside the testbed + `wiki lint` graph-audit wiring) and
+the 4 docs-first `test_spec_sync` version-gate reds (resolve at P10).
+
+Pinned hooks still to land in later phases (refinable when turning green):
+- `db.graph_audit(db_path) -> list[dict]` (**P7**) — each violation has `code` +
   offending `subject_id`; empty list == clean (flags active-without-≥2-lineages,
   redirected-endpoint reference, quarantined-missing-reason,
-  report-finding-without-active-support).
+  report-finding-without-active-support). The 4 reds are written and red.
+- P6 reconciliation/report hooks (`db.rebuild_graph_generation` no-amplification,
+  `reconcile_source_change` downstream closure, claim-grounded report generation
+  with no broad-span fallback) — gold fixtures still to be written (P2 "remaining
+  work").
+
 Hierarchy selection is benchmark-driven (§27.4): seeded weighted Leiden is a
-CANDIDATE, filtered connected components the degraded fallback; adopt a hierarchy
-only if the frozen multi-metric gates improve with no homonym/provenance/
-report-support/stability regression. The community-identity columns
-(`parent_community_key`, `config_hash`, `member_hash`, `support_hash`,
-`retired_at`) ALREADY EXIST from P3's migration — P5 is logic, no new migration.
+CANDIDATE, filtered connected components the degraded fallback. Leiden adoption
+stays BLOCKED — the P7/GQ07 handoff proved production relation confidence is
+non-discriminative (no labeled relation-quality data exists to justify a different
+partition), so `connected_components` is the selected shipped implementation. The
+community-identity columns (`parent_community_key`, `config_hash`, `member_hash`,
+`support_hash`, `retired_at`) ALREADY EXIST from P3's migration — P5 is logic, no
+new migration.
 
 ## Progress Status
 - Workspace prepared: `master` pulled, `feature/plan-c-graph-quality` branched
@@ -130,13 +135,60 @@ the 1 remaining `test_plan_c_graph_quality.py`
 `edge_class` column). Full suite: **851 passed, 10 failed, 8 xfailed** (was 844
 passed at P3; +7 in-scope greens). `ruff check src/` clean; `mypy src/` adds **0**
 new errors (the 1 db.py `lastrowid` error at line 1353 is pre-existing, present at
-HEAD). **Not committed** — per the wake instruction, stopped after turning P4 green
-and updating this relay so Gemini can review; the implementer/user owns the commit.
+HEAD). **Committed `29b3ded`** (2026-06-14, Claude) after Gemini's P4 approval —
+`feat(core): implement P4 relation lifecycle + quarantined topology`.
 
 The 10 remaining reds are all out of P4 scope: 6 `test_plan_c_hierarchy_audit.py`
 (P5 `connected_components` + P7 `graph_audit`) + the 4 `test_spec_sync` docs-first
 version gate (resolves at P10). No new migration — P4 is logic-only on columns P3
 already added.
+
+## P5 COMPLETE (2026-06-14, Claude) — filtered connected-components hierarchy fallback
+Implemented the P5 deterministic community-construction fallback. **Both in-scope P5
+gold tests now green** (`test_connected_components_baseline_excludes_quarantined_bridge`
++ `test_retired_relation_is_excluded_from_active_topology` in
+`test_plan_c_hierarchy_audit.py`). Full suite: **853 passed, 8 failed, 8 xfailed**
+(was 851 passed at P4; +2 in-scope P5 greens). `ruff check src/` clean; `mypy src/`
+adds **0** new errors (the 1 db.py `lastrowid` error at line 1353 is pre-existing).
+**Not committed** — per the wake instruction, stopped after turning P5 green and
+updating this relay so Gemini can review; the implementer/user owns the commit. P4
+(`29b3ded`) IS committed; the uncommitted worktree is P5 only.
+
+The 8 remaining reds are all out of P5 scope: 4 `test_plan_c_hierarchy_audit.py`
+`graph_audit` tests (**P7**) + the 4 `test_spec_sync` docs-first version gate
+(resolves at P10). No new migration — P5 is logic-only on existing columns.
+
+- **db.py — `connected_components(db_path, *, only_active=True, conn=None) ->
+  list[set[str]]`** (SYSTEM_BEHAVIOR §27.4, Arena decision 10): the EXPLICIT
+  degraded hierarchy fallback. Nodes = `canonical` (§27.1) entities; edges =
+  non-self-loop relations between two canonical endpoints. `only_active=True`
+  (default) restricts edges to `lifecycle_status='active'` (§27.3), so a
+  `quarantined` noisy bridge or `unsupported` edge cannot fuse two clusters into one
+  giant component; `only_active=False` admits every non-`retired` relation
+  (provisional + quarantined) for diagnostics. A `retired` tombstone (§27.8) is
+  NEVER a topology input in either mode (its endpoints fall apart). An entity with
+  no qualifying edge is its own singleton component. Union-find with path
+  compression, rooted at the smaller id; output sorted by `(size, sorted members)`
+  for full determinism — a fixed `(graph, config, seed)` yields an identical
+  partition (§27.4). O(V+E·α). Placed under a new
+  `# --- community construction (hierarchy fallback) ---` section in db.py.
+- **No Leiden adopted.** Per §27.4 + the P7/GQ07 handoff, seeded weighted Leiden is
+  a CANDIDATE blocked on labeled discriminative relation-quality data that does not
+  exist (production confidence is non-discriminative). The multi-metric benchmark
+  cannot currently justify adopting it without regression, so the degraded
+  filtered-connected-components path is the SELECTED shipped implementation — no
+  speculative untested partition code added (Simplicity First). The benchmark
+  fixtures that would compare candidates remain P2 "remaining work".
+- **`docs/specs/failure_atlas/D2_HOLDOUT_RESULT.yml`:** re-armed the db.py drift
+  tripwire again — extended the `plan_c_rearm` narrative to cover P5 (now "across
+  three phases") and re-pinned `file_sha256` db.py `47f5b267…` → `7a8555e6…`. The
+  P5 change is additive graph-compiler logic touching NO retrieval/ranking/fusion/
+  projection/embedding/chunking/materialize_chunks path the lexical Q06 holdout
+  exercises, so the frozen Q06 metric is provably unaffected.
+- **Docs:** no behavioral spec/guide drift — P5 implements exactly the frozen P1
+  contract (SYSTEM_BEHAVIOR §27.4 authored at P1). `connected_components` is an
+  internal DB helper (no new CLI/MCP/plugin surface), so guides stay in sync; the
+  `wiki lint` graph-audit surface (§27.6) is P7 work.
 
 - **db.py — P4 constants (SCHEMA §21.6):**
   - `QUARANTINE_REASON_CODES` — frozen 6-code set
@@ -343,3 +395,17 @@ I have audited the uncommitted P4 relation lifecycle and topology implementation
 
 **Next Action: P5 (Hierarchy Benchmark + Deterministic Implementation)**
 The Executor must proceed with P5 to implement the fallback filtered connected components logic and benchmark-driven hierarchy gating.
+
+### 🚨 INTERCEPT (2026-06-14, Gemini) — Critical Hotfix: PDF Crop Context & Line Extraction Regression
+**HOTFIX EXCEPTION TRIGGERED:** The user reports that the previous UI context hotfix is completely non-functional and caused a regression:
+1. `ctrl + shift + x` PDF crop context is still not being recognized in the Sidechat reply, or it gets completely buried/overwritten by the background context.
+2. The originally working "line extraction" is now broken as well.
+
+**Immediate Next Action (OVERRIDING P6):**
+The Executor (Claude Code) MUST halt the pipeline immediately and resolve this critical bug first.
+1. Commit the currently unstaged P5 work to the `feature/plan-c-graph-quality` branch so it is safely saved.
+2. Create a new hotfix branch off the current branch (e.g., `hotfix/pdf-crop-regression-fix`).
+3. Diagnose and fix the PDF crop context injection and line extraction regressions in the plugin. Ensure tests pass.
+4. Merge the fixed hotfix branch back into `feature/plan-c-graph-quality`.
+5. **Mandatory:** Push the branch to the remote repository.
+6. Return to P5 only after this is complete.
