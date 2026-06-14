@@ -1,8 +1,8 @@
 # Cross-Agent Relay State
 
-## Status: P5 COMPLETE (uncommitted, awaiting Gemini review) — next action is P6 (claim-grounded reports + reconciliation); P7 owns the remaining graph_audit reds
+## Status: P5 COMMITTED (`6db0553`) + PDF-crop hotfix merged & pushed (`ffd7c92`, v0.8.1) — next action is Gemini's P5 review, then P6 (claim-grounded reports + reconciliation); P7 owns the remaining graph_audit reds
 
-**Branch:** `feature/plan-c-graph-quality`
+**Branch:** `feature/plan-c-graph-quality` (hotfix `hotfix/pdf-crop-regression-fix` merged back + deleted)
 **Target Plan:** `.agents/plans/C_graph_quality.md`
 
 ## Goal
@@ -409,3 +409,44 @@ The Executor (Claude Code) MUST halt the pipeline immediately and resolve this c
 4. Merge the fixed hotfix branch back into `feature/plan-c-graph-quality`.
 5. **Mandatory:** Push the branch to the remote repository.
 6. Return to P5 only after this is complete.
+
+### ✅ INTERCEPT RESOLVED (2026-06-15, Claude) — PDF crop regression fixed (v0.8.1)
+All 6 intercept steps complete. The crop/line-extraction regression is fixed at the
+ROOT CAUSE and shipped on the feature branch.
+
+- **Root cause:** the prior crop hotfix (`2b29aeb`) hard-coded the crop ref
+  `content: ""` + image-only. That caused BOTH symptoms: (1) no
+  `<primary_focus_selection>` anchor → the crop image was buried under the
+  full-page background context; (2) all crop text ("line") extraction was lost.
+  The original code pulled the WHOLE page text (the pollution bug that started
+  this), so neither extreme was correct.
+- **Fix (user-approved design: region-scoped text + image):**
+  - `extractRegionTextFromSpans()` (pure, unit-tested, `pdfCapture.ts`) selects
+    text-layer spans whose boxes intersect the crop rect (horizontal overlap +
+    vertical-midpoint lasso), reading-order output, zoom-independent row grouping.
+  - `externalPdfView.startSnippingMode` extracts the region text in mouseup and
+    passes it via `onSnip(base64, pageNum, regionText)`; `main.ts` uses it as the
+    crop `content` → wrapped in `<primary_focus_selection>`. Never whole-page,
+    never empty; scanned regions fall back to image-only.
+  - `chatSidebar.ts`: an image-only PRIMARY ref (scanned crop / dragged image) now
+    emits an explicit primary-focus anchor instead of the weak "(Image context
+    attached below.)" line — so image-only crops are also never buried.
+- **Steps:** P5 was already committed (`6db0553`); branched
+  `hotfix/pdf-crop-regression-fix`; implemented + TDD; merged `--no-ff` →
+  `ffd7c92`; **pushed `origin/feature/plan-c-graph-quality`**; hotfix branch
+  deleted (fully merged).
+- **Validation:** plugin vitest **370 passed** (5 new pure-function cases + 2
+  source-contract regression locks); `tsc --noEmit` clean; backend `ruff` clean;
+  `test_spec_sync` unchanged at its **4 expected docs-first reds** (version bumped
+  `0.8.0 → 0.8.1` across pyproject/package/manifest — stays on the 0.8 minor line;
+  `test_backend_version_matches_active_spec_line` still green; P10 owns the 0.9.0
+  cutover). Backend source byte-identical to P5 (only pyproject version touched).
+- **Docs:** `PLUGIN_GUIDE(_KR)` §5 + `PLUGIN_SCHEMA` snip/primary-focus contracts;
+  `CHANGELOG` `[0.8.1]`.
+- **Next:** resume Plan C — Gemini reviews the committed P5
+  `connected_components`, then **P6** (claim-grounded reports + reconciliation).
+  P7 still owns the 4 `graph_audit` reds.
+- **Note:** two unrelated working-tree edits (`GEMINI.md`,
+  `.agents/workflows/Antigravity Strict Workflow.md` — Gemini's concurrency-guard
+  rule) were left uncommitted/untouched (surgical-change rule); they are not part
+  of this hotfix.
