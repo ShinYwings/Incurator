@@ -645,12 +645,14 @@ on emitted markdown:
 
 ## 11. SQLite State Schema (`SCHEMA_VERSION = 9`)
 
-v0.4.0 set `db.SCHEMA_VERSION` to `7`; v0.8.0 (Plan B) bumps it to `8`. The
-v0.3.2 tables remain in use. v0.4.0 added the cross-device sync tombstone table
-(`deleted_records`, §11.17) and the `wiki db export/import` pipeline. v0.8.0
-adds the claim-level support / formula-lifecycle / compiler-generation schema
-(§20), strictly additive over v7. All ids use typed string prefixes so they are
-self-describing in traces and frontmatter.
+v0.4.0 set `db.SCHEMA_VERSION` to `7`; v0.8.0 (Plan B) bumps it to `8`; v0.9.0
+(Plan C — Graph Quality) bumps it to `9`. The v0.3.2 tables remain in use.
+v0.4.0 added the cross-device sync tombstone table (`deleted_records`, §11.17)
+and the `wiki db export/import` pipeline. v0.8.0 adds the claim-level support /
+formula-lifecycle / compiler-generation schema (§20), strictly additive over v7.
+v0.9.0 adds the entity/relation resolution, independent relation support, and
+hierarchical-community-quality schema (§21), strictly additive over v8. All ids
+use typed string prefixes so they are self-describing in traces and frontmatter.
 
 > **Version history.** `SCHEMA_VERSION = 4` introduced the v0.3.1 curation-native
 > tables. `SCHEMA_VERSION = 5` adds the shared L4 `synthesis_nodes` table (§11.11)
@@ -666,6 +668,13 @@ self-describing in traces and frontmatter.
 > support/generation indexes are created in `_apply_migrations` (after the
 > columns exist) so a pre-existing v7 `knowledge_units` table upgrades cleanly,
 > and `deleted_records`'s CHECK list is rebuilt to admit the two new tables.
+> `SCHEMA_VERSION = 9` adds the Plan C Graph Quality schema — `entity_aliases`,
+> `entity_merge_proposals`, `entity_resolution_lineage`, `graph_relation_supports`,
+> and the `graph_entities` redirect / `graph_relations` lifecycle-edge-class /
+> `community_reports` identity columns (§21). Forward-only and additive over v8;
+> indexes are created after their columns exist, `deleted_records`'s CHECK list
+> is rebuilt to admit the four new tables, and the backfill infers nothing
+> (legacy relations become `provisional`, never auto-`active`).
 
 | Record | Id prefix | Purpose |
 | --- | --- | --- |
