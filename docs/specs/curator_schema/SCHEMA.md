@@ -1688,7 +1688,8 @@ broad-span fallback.
 
 ```sql
 CREATE TABLE IF NOT EXISTS entity_aliases (
-    alias_normalized TEXT NOT NULL,    -- deterministic normalization of the surface form (candidate key)
+    id TEXT PRIMARY KEY,               -- ALI-<UUID8> surrogate key; one surface form may resolve to MANY entities (homonyms)
+    alias_normalized TEXT NOT NULL,    -- deterministic normalization of the surface form (candidate key, NOT unique alone)
     entity_id TEXT,                    -- ENT- this alias resolves to; NULL while only a candidate
     alias_display TEXT NOT NULL,       -- original surface form as written
     source_span_ids TEXT NOT NULL DEFAULT '[]',
@@ -1698,10 +1699,17 @@ CREATE TABLE IF NOT EXISTS entity_aliases (
     resolution_reason TEXT NOT NULL DEFAULT '',
     decision_id TEXT,                  -- entity_merge_proposals.id that decided this alias, when applicable
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (alias_normalized, alias_display, resolution_status)
+    updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_entity_aliases_entity ON entity_aliases(entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_aliases_normalized ON entity_aliases(alias_normalized);
+-- A RESOLVED alias is unique per (surface form, entity, status) — this admits a single
+-- normalized surface resolving to several distinct entities (homonyms) while still
+-- blocking an exact duplicate resolved row. Unresolved candidates (entity_id IS NULL)
+-- are keyed only by the surrogate `id` and are excluded from this constraint.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_aliases_resolved
+    ON entity_aliases(alias_normalized, entity_id, resolution_status)
+    WHERE entity_id IS NOT NULL;
 ```
 
 `resolution_status` (frozen enum):
@@ -1723,6 +1731,22 @@ CREATE INDEX IF NOT EXISTS idx_entity_aliases_entity ON entity_aliases(entity_id
 
 Rules:
 
+- **Surrogate key (homonym support).** The primary key is the opaque surrogate
+  `id` (`ALI-<UUID8>`), NOT a composite of the surface form. `alias_normalized`
+  is deliberately NOT unique on its own: a single normalized surface form may
+  legitimately resolve to several DISTINCT entities (homonyms — "Mercury" → the
+  planet, the element, and the mission). The earlier composite key
+  `(alias_normalized, alias_display, resolution_status)` could hold only ONE row
+  per surface form per status, so a second entity claiming the same surface form
+  collided on the key and silently overwrote the first — destroying homonym
+  resolution. With the surrogate key, each `(surface form → entity)` resolution
+  is its own row.
+- **Resolved-row uniqueness.** `idx_entity_aliases_resolved` keys a RESOLVED
+  alias by `(alias_normalized, entity_id, resolution_status)`. This still blocks
+  an exact duplicate resolved row for the same entity, while allowing the same
+  `alias_normalized` to appear once per distinct `entity_id`. Unresolved
+  candidates (`entity_id IS NULL`) are outside the constraint and are
+  distinguished only by their surrogate `id`.
 - `alias_normalized` is candidate-generation input ONLY. A normalization match
   never auto-creates an `accepted` row; it may at most create an
   `ambiguous_candidate` (homonym-risk) or `merge_proposed` row.
@@ -1823,9 +1847,14 @@ CREATE INDEX IF NOT EXISTS idx_graph_relation_supports_lineage ON graph_relation
 Rules:
 
 - A relation is a **proposition with independent supports** (Arena decision 6).
-  Re-extraction of the same `(src,tgt,type)` triple ADDS support rows; it never
-  overwrites them. This replaces today's destructive `upsert_graph_relation`
-  overwrite (§11.4 reality).
+  The relation's identity IS its canonical proposition — the triple
+  `(resolved source entity, resolved target entity, relation_type)` after
+  endpoint resolution (§21.4). Re-extraction of that same triple maps to the
+  SAME canonical relation and ADDS support rows; it never overwrites them and
+  never spawns a parallel "duplicate" relation. This replaces today's
+  destructive `upsert_graph_relation` overwrite (§11.4 reality). Because the same
+  proposition aggregates onto one relation, there is no duplicate-proposition
+  state to quarantine (§21.6).
 - **Independence is by source lineage, not row count.** The independent-support
   count of a relation = number of DISTINCT `source_lineage_hash` among its
   `verified` supports. Copied/duplicated sources share a `source_lineage_hash`
@@ -1868,7 +1897,23 @@ CREATE INDEX IF NOT EXISTS idx_graph_relations_lifecycle ON graph_relations(life
 `quarantine_reason` frozen codes: `unsupported` (no eligible support),
 `self_loop`, `contradiction`, `copied_source_only` (no independent lineage),
 `bridge_risk` (single low-confidence edge joining otherwise separate dense
-components), `endpoint_unresolved`, `duplicate_proposition`.
+components), `endpoint_unresolved`.
+
+**There is no `duplicate_proposition` reason code — a relation is never a
+"duplicate."** A relation's identity IS its proposition: the canonical triple
+`(resolved source entity, resolved target entity, relation_type)` after endpoint
+resolution (§21.4). Re-asserting that proposition does NOT create a second
+relation row to quarantine; it ADDS independent supports to the one canonical
+relation (§21.5). Treating a re-assertion as a "duplicate" and quarantining it
+would HIDE its supports from the independent-support count — the exact opposite
+of the aggregation contract — so the state cannot exist by construction. The
+only support-side outcomes are therefore: the relation has no eligible
+independent support → `unsupported` (or `copied_source_only` when the only
+support shares one source lineage), or it has aggregated eligible support →
+`active`. If two physical rows are ever found describing the same canonical
+proposition, that is a compile-time defect (the support should have aggregated
+onto one relation), and reconciliation merges their supports onto the canonical
+relation rather than quarantining either row.
 
 `edge_class` (frozen enum): `authored` (links/topology a human or workspace
 wrote — wikilinks, explicit structure) vs `extracted` (LLM-extracted semantic

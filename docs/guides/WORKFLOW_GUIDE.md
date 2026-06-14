@@ -508,9 +508,11 @@ fully published claim generation:
 - **Relation lifecycle**: a relation is `active` only with verified independent
   support and resolved endpoints; weak edges are `quarantined` with a reason
   (`unsupported`, `self_loop`, `contradiction`, `copied_source_only`,
-  `bridge_risk`, `endpoint_unresolved`, `duplicate_proposition`) and a re-eval
-  trigger. Authored links and extracted relations stay separate classes. Only
-  `active` relations build communities.
+  `bridge_risk`, `endpoint_unresolved`) and a re-eval trigger. A relation is
+  never a "duplicate": re-asserting the same proposition aggregates support onto
+  the one relation, so an edge is either `unsupported` or valid with aggregated
+  support — there is no duplicate to quarantine. Authored links and extracted
+  relations stay separate classes. Only `active` relations build communities.
 - **Deterministic hierarchy**: the community algorithm is benchmark-selected;
   the same graph + config + seed yields the same hierarchy every time, with
   filtered connected components as an explicit degraded fallback. No unexplained

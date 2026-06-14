@@ -1785,6 +1785,15 @@ heuristics never compensate for unchecked or broadly grounded claims.
   The strict quality condition is **0 homonym false merges** on the adversarial
   gold fixtures; an ambiguous candidate that silently fused entities is a
   release-blocking defect.
+- **Homonyms are stored as separate rows per entity.** A confirmed homonym is not
+  a single ambiguous record — once each meaning is approved, it is its OWN
+  `entity_aliases` row sharing one `alias_normalized` but carrying a distinct
+  `entity_id`. The surrogate primary key (`ALI-`, SCHEMA §21.1) is what makes
+  this representable: the surface form is deliberately not part of the key, so
+  "Mercury → planet" and "Mercury → element" coexist as distinct resolved rows.
+  A surface-form composite key would have collapsed them into one slot — silently
+  overwriting the first resolution and re-introducing the very false merge this
+  lifecycle exists to prevent.
 - **Exact/high-certainty aliasing still requires guards (Arena decision 4).**
   Even an exact normalized match is only accepted as an `alias`/merge when ALL of
   these pass and are recorded in `evidence_json`: entity-type match, context
@@ -1857,11 +1866,23 @@ heuristics never compensate for unchecked or broadly grounded claims.
 - **Frozen quarantine reason codes** (SCHEMA §21.6): `unsupported` (no eligible
   support), `self_loop`, `contradiction`, `copied_source_only` (no independent
   lineage), `bridge_risk` (a single low-confidence edge joining otherwise
-  separate dense components), `endpoint_unresolved`, `duplicate_proposition`.
-  Detection of duplicates, self-loops, unsupported edges, contradictions, and
-  bridge-risk candidates runs at compile time; each routes the relation to
-  `quarantined` with the matching code rather than silently dropping or silently
-  admitting it.
+  separate dense components), `endpoint_unresolved`. Detection of self-loops,
+  unsupported edges, contradictions, and bridge-risk candidates runs at compile
+  time; each routes the relation to `quarantined` with the matching code rather
+  than silently dropping or silently admitting it.
+- **A relation is never a "duplicate" (no `duplicate_proposition` code).** The
+  relation's identity IS its canonical proposition — `(resolved source, resolved
+  target, relation_type)` after endpoint resolution (§27.1). Re-asserting that
+  proposition aggregates supports onto the SAME relation (§27.2); it does not
+  produce a second relation row to quarantine. Quarantining a re-assertion as a
+  "duplicate" would suppress its supports and corrupt the independent-support
+  count — the inverse of the aggregation contract — so the state cannot exist by
+  construction. A relation therefore resolves to exactly one of two support-side
+  outcomes: no eligible independent support → `unsupported` (or
+  `copied_source_only` when its only support shares one source lineage), or
+  aggregated eligible support → `active`. If two physical rows are ever found for
+  the same canonical proposition, reconciliation (§27.8) merges their supports
+  onto the canonical relation; it never quarantines one as a duplicate.
 - **Edge classes stay distinct (Arena decision 9).** `edge_class ∈ {authored,
   extracted}` separates links/topology a human or workspace wrote (wikilinks,
   explicit structure) from LLM-extracted semantic relations. The two classes stay

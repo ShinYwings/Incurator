@@ -534,8 +534,10 @@ SYSTEM_BEHAVIOR.md §27). §10 위에 구축되며, 그래프 구성은 완전�
   계산되므로, 복사/포크된 소스는 여러 번이 아니라 한 번으로 셉니다.
 - **관계 라이프사이클**: 관계는 검증된 독립 지지와 해소된 엔드포인트가 있어야만
   `active`가 됩니다. 약한 엣지는 사유(`unsupported`, `self_loop`,
-  `contradiction`, `copied_source_only`, `bridge_risk`, `endpoint_unresolved`,
-  `duplicate_proposition`)와 재평가 트리거와 함께 `quarantined` 처리됩니다.
+  `contradiction`, `copied_source_only`, `bridge_risk`, `endpoint_unresolved`)와
+  재평가 트리거와 함께 `quarantined` 처리됩니다. 관계는 결코 "중복"이 아닙니다.
+  같은 명제를 다시 단언하면 지지가 그 하나의 관계로 합산되므로, 엣지는
+  `unsupported`이거나 합산된 지지를 갖는 유효한 관계일 뿐 격리할 중복이 없습니다.
   저작(authored) 링크와 추출(extracted) 관계는 별도 클래스로 유지됩니다.
   `active` 관계만 커뮤니티를 구성합니다.
 - **결정론적 계층**: 커뮤니티 알고리즘은 벤치마크로 선택되며, 같은 그래프 +
