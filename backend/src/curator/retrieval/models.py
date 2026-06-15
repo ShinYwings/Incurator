@@ -92,22 +92,46 @@ class EvidencePack:
     omitted_counts: dict = field(default_factory=dict)
 
     def evidence_block(self, *, max_chars: int = 16000) -> str:
-        """Render items up to max_chars; append explicit omission marker (§28.3)."""
-        lines: list[str] = []
-        used = 0
-        rendered = 0
-        for item in self.items:
-            chunk = f"[{item.kind} {item.id}] {item.title}\n{item.text}".strip()
-            if used + len(chunk) > max_chars:
-                break
-            lines.append(chunk)
-            used += len(chunk)
-            rendered += 1
-        omitted = len(self.items) - rendered
+        """Render items within max_chars; append explicit omission marker (§28.3).
+
+        The rendered block — items, ``\\n\\n`` separators, AND the omission marker
+        — never exceeds ``max_chars``. When items are omitted, a marker budget is
+        reserved up front so the marker replaces the last partial item rather than
+        overflowing the budget. A final hard slice guards the degenerate case where
+        ``max_chars`` is smaller than the marker itself.
+        """
+        total = len(self.items)
+        sep = "\n\n"
+
+        def _render(items_budget: int) -> tuple[list[str], int]:
+            lines: list[str] = []
+            used = 0
+            for item in self.items:
+                chunk = f"[{item.kind} {item.id}] {item.title}\n{item.text}".strip()
+                addition = len(chunk) + (len(sep) if lines else 0)
+                if used + addition > items_budget:
+                    break
+                lines.append(chunk)
+                used += addition
+            return lines, used
+
+        # First pass: how many items fit with the full budget?
+        first_lines, _ = _render(max_chars)
+        if len(first_lines) == total:
+            return sep.join(first_lines)
+
+        # Items will be omitted — reserve room for the marker (worst-case count).
+        marker_for = lambda n: (  # noqa: E731
+            f"[{n} item{'s' if n != 1 else ''} omitted — character budget reached]"
+        )
+        marker_budget = len(marker_for(total)) + len(sep)
+        lines, _ = _render(max(0, max_chars - marker_budget))
+        omitted = total - len(lines)
         if omitted > 0:
-            marker = f"[{omitted} item{'s' if omitted != 1 else ''} omitted — character budget reached]"
-            lines.append(marker)
-        return "\n\n".join(lines)
+            lines.append(marker_for(omitted))
+        block = sep.join(lines)
+        # Defensive hard guarantee for pathologically small budgets.
+        return block[:max_chars]
 
 
 @dataclass

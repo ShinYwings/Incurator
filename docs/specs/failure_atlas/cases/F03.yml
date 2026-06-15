@@ -16,7 +16,12 @@ status_history:
     evidence: "FAILURE_ATLAS.md §8 — route policy enforcement is Program 3 ContextService scope"
   - date: "2026-06-15"
     status: retired
-    evidence: "Plan A P3 — build_evidence policy kwarg + orchestrator forwarding (v0.10.0)"
+    evidence: >
+      Plan A review-fix (A2): glob-based source-scope filter implemented in
+      build_evidence via CurationPolicy.allows_source; behavioral oracle
+      test_f3_oracle_build_evidence_filters_out_of_scope_sources asserts an
+      excluded source is omitted from the pack. (The v0.10.0 plumbing-only
+      retirement was corrected within PR #31 before merge.)
 owner: unassigned
 impact: >
   The workspace Knowledge Requirement Spec (curate.yml) is resolved by the
@@ -31,9 +36,9 @@ boundary:
     (orchestrator.py:80,124) but calls build_evidence(self.paths, request,
     route) (:84,:129). The build_evidence signature (evidence.py:144) accepts
     no policy parameter; no callee consults the policy.
-fixture: backend/tests/test_failure_atlas_repro.py::test_f3_oracle_build_evidence_receives_curation_policy
+fixture: backend/tests/test_failure_atlas_repro.py::test_f3_oracle_build_evidence_filters_out_of_scope_sources
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f3_oracle_build_evidence_receives_curation_policy" -q
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f3_oracle_build_evidence_filters_out_of_scope_sources" -q
 oracles:
   deterministic: >
     Evidence assembly receives the resolved CurationPolicy on every route, and
@@ -61,11 +66,19 @@ assignment:
 resolution:
   version: "0.10.0"
   evidence: >
-    feat(retrieval): Plan A P3 — build_evidence() now accepts policy kwarg (§28.1);
-    orchestrator forwards resolved CurationPolicy on both fetch_context and run paths.
-    Baseline test retired; oracle test promoted to live test.
+    Plan A review-fix (A2): build_evidence applies the workspace source-scope
+    globs via CurationPolicy.allows_source. Single-source items (spans, search
+    hits) are kept only when in scope; multi-source items (community reports,
+    synthesis) are kept when any backing source is in scope and have their
+    source_span_ids filtered to in-scope spans. Behavioral oracle
+    test_f3_oracle_build_evidence_filters_out_of_scope_sources.
   after_state: >
-    inspect.signature(build_evidence).parameters contains 'policy'; the orchestrator
-    passes policy=policy to build_evidence on every call path.
+    A strict CurationPolicy (source_exclude=['03_Notes/private/**']) on the global
+    route omits the excluded source's report and its span from
+    EvidencePack.source_span_ids and from every EvidenceItem.source_span_ids,
+    while the in-scope source's evidence is retained.
 notes: >
-  Oracle test: test_f3_oracle_build_evidence_receives_curation_policy (live, v0.10.0).
+  Behavioral oracle: test_f3_oracle_build_evidence_filters_out_of_scope_sources.
+  The v0.10.0 plumbing-only retirement was corrected within PR #31 (the erroneous
+  retired entry was removed before merge); this retirement carries the behavioral
+  glob-scope filter evidence.

@@ -48,12 +48,25 @@ Specs: SCHEMA.md §22, SYSTEM_BEHAVIOR.md §28–§30, SEARCH_ENGINE_SCHEMA.md �
 
 ### Fixed
 
-- **F3 — CurationPolicy not enforced (§28.1).** `build_evidence` lacked a
-  `policy` parameter; the orchestrator never forwarded the resolved policy.
+- **F3 — CurationPolicy not enforced (§28.1).** `build_evidence` now applies the
+  workspace source-scope globs (`source_include`/`source_exclude`) via
+  `CurationPolicy.allows_source`: single-source items (spans, search hits) are
+  kept only when in scope; multi-source items (community reports, synthesis) are
+  kept when any backing source is in scope and have their `source_span_ids`
+  filtered to the in-scope spans. (PR #31 review: the policy kwarg had been
+  plumbed but the filter behavior was missing — the F3 oracle is now behavioral,
+  asserting an excluded source is omitted from the pack.)
 - **F4 — Global evidence query-independent and unbounded (§28.2).** All
   community reports were loaded regardless of query relevance or count.
 - **F5 — Evidence block silent truncation (§28.3).** Character-budget cutoffs
-  dropped items without any indicator; now always emits an explicit marker.
+  dropped items without any indicator; now always emits an explicit marker, and
+  the marker (plus `\n\n` separators) never pushes the block past `max_chars` —
+  it replaces the last partial item to fit. (PR #31 review fix.)
+- **Locator `promoted_wiki` kind (§29.2).** Sources under `02_Wiki/` now classify
+  as `promoted_wiki` instead of `vault_markdown`. (PR #31 review fix.)
+- **Retrieval-trace `candidate_count` (§30.2).** `candidate_count` now reports
+  `selected_count + omitted total` instead of being hardwired equal to
+  `selected_count`. (PR #31 review fix.)
 
 ---
 

@@ -2051,7 +2051,7 @@ After Plan A, `query_traces.retrieval_trace_json` stores:
   "contract_version": "1",
   "retrieval_execution_id": "RTR-xxxxxxxx",
   "route": {"selected": "local", "reason": "..."},
-  "policy": {"applied_filters": [], "excluded_source_ids": []},
+  "policy": {"source_include": [], "source_exclude": []},
   "selection": {
     "candidate_count": 12,
     "selected_count": 8,
@@ -2060,6 +2060,12 @@ After Plan A, `query_traces.retrieval_trace_json` stores:
   "warnings": []
 }
 ```
+
+`selection.candidate_count` is `selected_count + sum(omitted_counts.values())`
+(items considered before bounding/omission), and `selected_count` is the number
+of items actually carried in the pack — the two MUST NOT be hardwired equal.
+`policy` echoes the workspace source-scope globs (`source_include` /
+`source_exclude`) that were enforced; there is no `source_ids` field.
 
 Pre-Plan-A QTR rows retain their existing `retrieval_trace_json` shape; no
 backfill or migration is performed.  Readers MUST handle both the pre-Plan-A
@@ -2085,6 +2091,13 @@ def build_evidence(
 When `policy` is `None`, behavior defaults to the current open policy (no source
 filter, no workspace-specific constraints) — this preserves backward compatibility
 for existing callers that do not yet pass a policy.
+
+Source scope is enforced via the policy's glob patterns
+(`source_include` / `source_exclude`), tested with
+`CurationPolicy.allows_source(relpath)`. Single-source items are kept only when
+in scope; multi-source items (`community_report`, `synthesis`) are kept when any
+backing source is in scope, with their `source_span_ids` filtered to in-scope
+spans. See SYSTEM_BEHAVIOR §28.1 for the per-kind rule.
 
 ### 22.6 Global Route Bounded Selection
 

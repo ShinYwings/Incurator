@@ -41,6 +41,83 @@ def _hydrate_full_texts(db_path: Path, span_ids: list[str]) -> dict[str, str]:
     return hydrate_spans(db_path, span_ids)
 
 
+def _span_relpaths(db_path: Path, span_ids: list[str]) -> dict[str, str]:
+    """Map span_id -> source relpath, for policy source-scope filtering (§28.1)."""
+    if not span_ids:
+        return {}
+    return {
+        row["id"]: row.get("relpath", "")
+        for row in db.get_source_spans_by_ids(db_path, span_ids)
+    }
+
+
+def _scope_filter_spans(
+    db_path: Path,
+    span_ids: list[str],
+    policy: "curate_yml.CurationPolicy | None",
+) -> list[str]:
+    """Return only the span ids whose source relpath is in policy scope (§28.1).
+
+    A ``None`` policy is the open default — all spans pass.
+    """
+    if policy is None or not span_ids:
+        return list(span_ids)
+    relpaths = _span_relpaths(db_path, span_ids)
+    return [s for s in span_ids if policy.allows_source(relpaths.get(s, ""))]
+
+
+def _item_in_scope(
+    db_path: Path,
+    item: EvidenceItem,
+    policy: "curate_yml.CurationPolicy | None",
+) -> bool:
+    """Multi-source rule (§28.1): keep when ANY backing span is in scope; also
+    filter ``item.source_span_ids`` in place to the in-scope spans. Items with no
+    backing spans carry no provenance to judge and are kept."""
+    if policy is None:
+        return True
+    if not item.source_span_ids:
+        return True
+    kept = _scope_filter_spans(db_path, item.source_span_ids, policy)
+    if not kept:
+        return False
+    item.source_span_ids = kept
+    return True
+
+
+def _apply_policy_scope(
+    db_path: Path,
+    pack: EvidencePack,
+    policy: "curate_yml.CurationPolicy | None",
+) -> None:
+    """Drop out-of-scope evidence from the pack and recompute provenance (§28.1).
+
+    Single source of truth for every route: filters items via the per-kind rule,
+    then rebuilds ``source_span_ids`` and the per-kind id lists from the survivors
+    so no excluded span/report/synthesis lingers in the pack.
+    """
+    if policy is None:
+        return
+    pack.items = [it for it in pack.items if _item_in_scope(db_path, it, policy)]
+    spans: set[str] = set()
+    reports: list[str] = []
+    syntheses: list[str] = []
+    mpaths: list[str] = []
+    for it in pack.items:
+        spans.update(it.source_span_ids)
+        if it.community_report_id:
+            reports.append(it.community_report_id)
+        if it.synthesis_node_id:
+            syntheses.append(it.synthesis_node_id)
+        if it.memory_path_id:
+            mpaths.append(it.memory_path_id)
+    pack.source_span_ids = sorted(spans)
+    pack.community_report_ids = sorted(set(reports))
+    pack.synthesis_node_ids = sorted(set(syntheses))
+    if mpaths:
+        pack.memory_path_ids = mpaths
+
+
 def _source_meta_by_ids(db_path: Path, source_ids: list[int]) -> dict[int, dict]:
     """Batch-fetch source metadata for locator resolution (§29.4)."""
     if not source_ids:
@@ -58,13 +135,15 @@ def _source_meta_by_ids(db_path: Path, source_ids: list[int]) -> dict[int, dict]
 def _build_locator(span: dict, src: dict) -> StructuredLocator:
     """Build a StructuredLocator from a span row and its source metadata (§29.4)."""
     ft = src.get("file_type", "md")
+    relpath = span.get("relpath")
     if ft == "pdf":
         source_kind = "vault_pdf"
     elif src.get("is_reference"):
         source_kind = "external_uri"
+    elif relpath and relpath.lstrip("/").startswith("02_Wiki/"):
+        source_kind = "promoted_wiki"  # §29.2: note promoted from L4
     else:
         source_kind = "vault_markdown"
-    relpath = span.get("relpath")
     heading = span.get("section_title")
     toc_id = span.get("toc_id")
     page_number = span.get("page_number")
@@ -293,6 +372,7 @@ def build_evidence(
             span_ids = [s["id"] for s in spans]
             pack.items.extend(_span_items(db_path, span_ids))
             pack.source_span_ids = span_ids
+        _apply_policy_scope(db_path, pack, policy)
         return pack
 
     if route == "global":
@@ -312,6 +392,7 @@ def build_evidence(
             pack.omitted_counts["global_reports"] = report_omitted
         pack.synthesis_node_ids = syn_ids
         pack.community_report_ids = report_ids
+        _apply_policy_scope(db_path, pack, policy)
         return pack
 
     if route == "explore":
@@ -338,6 +419,7 @@ def build_evidence(
         pack.synthesis_node_ids = syn_ids
         pack.community_report_ids = report_ids
         pack.source_span_ids = sorted(set(span_ids) | set(report_spans) | set(syn_spans))
+        _apply_policy_scope(db_path, pack, policy)
         return pack
 
     # local: entities + their spans + search hits.
@@ -346,4 +428,5 @@ def build_evidence(
     pack.items.extend(_span_items(db_path, span_ids))
     pack.source_span_ids = span_ids
     _add_search_hits(pack, paths, q, limit)
+    _apply_policy_scope(db_path, pack, policy)
     return pack

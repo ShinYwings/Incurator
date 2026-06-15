@@ -163,6 +163,23 @@ def test_oracle_evidence_block_omission_count_in_marker() -> None:
     assert re.search(r"\d+\s*items?\s*omitted|\bomitted\b.*\d+", block, re.IGNORECASE)
 
 
+def test_oracle_evidence_block_never_exceeds_max_chars() -> None:
+    """§28.3: evidence_block output (incl. omission marker) must stay ≤ max_chars.
+
+    Sweeps max_chars finely so the budget boundary (where the marker or the
+    uncounted separators would push the block over) is exercised."""
+    items = [
+        EvidenceItem(id=f"X-{i:02d}", kind="source_span", title=f"T{i}", text="a" * 50)
+        for i in range(20)
+    ]
+    pack = EvidencePack(route="local", items=items)
+    for max_chars in range(120, 1200, 3):
+        block = pack.evidence_block(max_chars=max_chars)
+        assert len(block) <= max_chars, (
+            f"block {len(block)} > max_chars {max_chars}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # §22.4 — retrieval_trace_json contract (P2 shipped)
 # ---------------------------------------------------------------------------
@@ -298,3 +315,63 @@ def test_p5_fetch_context_carries_plan_f_handoff_fields(vault) -> None:
             "exact", "fallback_file", "fallback_source",
             "duplicate_anchor", "stale", "unavailable",
         )
+
+
+# ---------------------------------------------------------------------------
+# §29.2 — promoted_wiki source_kind for 02_Wiki/ sources (review fix)
+# ---------------------------------------------------------------------------
+
+def test_oracle_promoted_wiki_locator_kind(vault) -> None:
+    """A span whose source lives under 02_Wiki/ must classify as promoted_wiki (§29.2)."""
+    from curator.retrieval.models import QueryRequest
+    paths = vault
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
+            "VALUES ('02_Wiki/Promoted Insight.md', 'wh', 'md', 1, datetime('now'))"
+        )
+    db.upsert_source_span(
+        paths.state_db, source_id=2, relpath="02_Wiki/Promoted Insight.md",
+        span_type="paragraph", content_hash="w1", section_title="Insight",
+        text_preview="Promoted L4 insight.",
+    )
+    pack = evidence_mod.build_evidence(
+        paths, QueryRequest(question="insight", mode="source-section", source_key="2"),
+        "source-section",
+    )
+    span_items = [it for it in pack.items if it.kind == "source_span"]
+    assert span_items
+    assert all(it.locator.source_kind == "promoted_wiki" for it in span_items)
+
+
+# ---------------------------------------------------------------------------
+# §30.2 — candidate_count must reflect dropped candidates (review fix)
+# ---------------------------------------------------------------------------
+
+def test_oracle_retrieval_trace_candidate_count_includes_omitted(vault) -> None:
+    """candidate_count must equal selected_count + omitted total, not be tautological."""
+    from curator.retrieval import QueryOrchestrator
+    from curator.retrieval.models import QueryRequest
+
+    class _NoClient:
+        model = "fake"
+        def chat(self, *a, **k): raise AssertionError("no LLM in this test")
+
+    paths = vault
+    span = db.upsert_source_span(
+        paths.state_db, source_id=1, relpath=RELPATH, span_type="paragraph",
+        content_hash="cc", section_title="Intro", text_preview="Corpus span.",
+    )
+    for i in range(15):
+        db.upsert_community_report(
+            paths.state_db, community_key=f"cc-{i}", title=f"Report {i}",
+            summary=f"Topic {i} content.", full_content="",
+            dependency_hash=f"dh-{i}", entity_ids=[], source_span_ids=[span], rank=0.5,
+        )
+    orch = QueryOrchestrator(paths, _NoClient())
+    orch.fetch_context(QueryRequest(question="deep learning", mode="global"))
+    traces = db.list_query_traces(paths.state_db, limit=1)
+    sel = (traces[0].get("retrieval_trace") or {}).get("selection") or {}
+    omitted_total = sum((sel.get("omitted_counts") or {}).values())
+    assert omitted_total > 0, "expected some reports omitted by the bound"
+    assert sel["candidate_count"] == sel["selected_count"] + omitted_total

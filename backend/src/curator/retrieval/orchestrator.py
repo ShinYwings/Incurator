@@ -72,7 +72,7 @@ def _build_retrieval_trace(pack: EvidencePack, route: str, reason: str) -> dict:
         "retrieval_execution_id": pack.retrieval_execution_id,
         "route": {"selected": route, "reason": reason},
         "selection": {
-            "candidate_count": len(pack.items),
+            "candidate_count": len(pack.items) + sum(pack.omitted_counts.values()),
             "selected_count": len(pack.items),
             "omitted_counts": pack.omitted_counts,
         },

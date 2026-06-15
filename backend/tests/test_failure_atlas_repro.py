@@ -183,9 +183,63 @@ def test_f2_one_query_persists_one_authoritative_trace(vault, degraded_search) -
 # F3 — CurationPolicy (KRS) not enforced through evidence assembly  [FIXED P3]
 # ---------------------------------------------------------------------------
 
-def test_f3_oracle_build_evidence_receives_curation_policy() -> None:
+def test_f3_structural_build_evidence_receives_curation_policy() -> None:
+    """Plumbing check: the policy kwarg exists (necessary, not sufficient)."""
     params = inspect.signature(evidence_mod.build_evidence).parameters
     assert "policy" in params
+
+
+def _seed_two_scope_sources(paths: cfg.WikiPaths) -> dict:
+    """Two sources — one in scope (03_Notes/public.md), one excluded
+    (03_Notes/private/secret.md) — each with a span and a single-source report."""
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
+            "VALUES ('03_Notes/private/secret.md', 'h2', 'md', 1, datetime('now'))"
+        )
+    pub_span = db.upsert_source_span(
+        paths.state_db, source_id=1, relpath=RELPATH, span_type="paragraph",
+        content_hash="pub", section_title="Public", text_preview="Public content.",
+    )
+    priv_span = db.upsert_source_span(
+        paths.state_db, source_id=2, relpath="03_Notes/private/secret.md",
+        span_type="paragraph", content_hash="priv", section_title="Secret",
+        text_preview="Secret content.",
+    )
+    db.upsert_community_report(
+        paths.state_db, community_key="cr-pub", title="Public report",
+        summary="Public optimization topic.", full_content="",
+        dependency_hash="dp", entity_ids=[], source_span_ids=[pub_span], rank=0.5,
+    )
+    db.upsert_community_report(
+        paths.state_db, community_key="cr-priv", title="Secret report",
+        summary="Secret optimization topic.", full_content="",
+        dependency_hash="ds", entity_ids=[], source_span_ids=[priv_span], rank=0.5,
+    )
+    return {"pub_span": pub_span, "priv_span": priv_span}
+
+
+def test_f3_oracle_build_evidence_filters_out_of_scope_sources(vault) -> None:
+    """§28.1: a strict policy must omit out-of-scope sources from the pack.
+
+    The excluded source's spans MUST NOT appear in EvidencePack.source_span_ids
+    or in any EvidenceItem.source_span_ids (behavioral, not just plumbing)."""
+    from curator import curate_yml
+    paths = vault
+    seeded = _seed_two_scope_sources(paths)
+    spec = curate_yml.CurateSpec(project="scoped")
+    spec.sources.exclude = ["03_Notes/private/**"]
+    policy = curate_yml.compile_curate_policy(spec)
+
+    pack = evidence_mod.build_evidence(
+        paths, QueryRequest(question="optimization", mode="global"), "global",
+        policy=policy,
+    )
+    assert seeded["pub_span"] in pack.source_span_ids
+    assert seeded["priv_span"] not in pack.source_span_ids
+    for item in pack.items:
+        assert seeded["priv_span"] not in item.source_span_ids
+    assert "cr-priv" not in [it.id for it in pack.items]
 
 
 # ---------------------------------------------------------------------------

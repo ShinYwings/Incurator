@@ -2083,13 +2083,32 @@ migration may touch a real vault DB, encoded as tests in P3:
 policy before routing; it MUST forward the same policy object to `build_evidence`
 rather than letting evidence construction apply defaults independently.
 
-**Source-scope enforcement** — if `policy.source_ids` is non-empty, only spans
-and reports whose `source_id` belongs to that set are included as primary
-evidence.  Spans from excluded sources MUST NOT appear in
-`EvidencePack.source_span_ids` or any `EvidenceItem.source_span_ids`.
+**Source-scope enforcement (glob-based)** — `CurationPolicy` carries
+`source_include` / `source_exclude` **glob patterns** (compiled from the
+workspace `curate.yml`; there is no `source_ids` field). A source relpath is
+*in scope* when it matches `source_include` (an empty `source_include` means "all
+sources") and does **not** match `source_exclude` (exclusion always wins). The
+same matcher used by `CurateSpec.matches_sources` applies, exposed as
+`CurationPolicy.allows_source(relpath)`.
 
-**Oracle**: `test_f3_oracle_build_evidence_receives_curation_policy` (F3, Plan A
-P3).
+Evidence assembly MUST drop out-of-scope records on every route before they reach
+the pack:
+
+- **Single-source items** (`source_span`, `search_hit`): included only when their
+  source relpath is in scope. Out-of-scope spans MUST NOT appear in
+  `EvidencePack.source_span_ids` or any `EvidenceItem.source_span_ids`.
+- **Multi-source items** (`community_report`, `synthesis`): an item aggregates
+  spans from several sources. It is included when **at least one** of its source
+  relpaths is in scope, and excluded only when **all** of its sources are
+  out of scope. Its `source_span_ids` are filtered to the in-scope spans.
+- **Entity items**: included when any of their backing spans are in scope.
+
+When `source_include` is empty and `source_exclude` is empty (the default open
+policy), every record is in scope and behavior is unchanged.
+
+**Oracle**: `test_f3_oracle_build_evidence_filters_out_of_scope_sources` (F3, Plan A
+P3) — seeds an in-scope and an out-of-scope source and asserts the out-of-scope
+source's spans are absent from the pack and from every item's `source_span_ids`.
 
 ### 28.2 Bounded Global Route
 
@@ -2250,7 +2269,7 @@ trace) after Plan A:
   "contract_version": "1",
   "retrieval_execution_id": "RTR-...",
   "route": {"selected": "local", "reason": "..."},
-  "policy": {"applied_filters": [], "excluded_source_ids": []},
+  "policy": {"source_include": [], "source_exclude": []},
   "selection": {
     "candidate_count": 12,
     "selected_count": 8,

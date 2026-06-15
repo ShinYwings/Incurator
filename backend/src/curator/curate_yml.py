@@ -469,6 +469,27 @@ class CurationPolicy:
     high_threshold: float
     avoid_merges: tuple[str, ...]
 
+    def allows_source(self, relpath: str) -> bool:
+        """Return True when ``relpath`` is in this policy's source scope (§28.1).
+
+        Mirrors ``CurateSpec.matches_sources``: an empty ``source_include`` means
+        "all sources"; ``source_exclude`` always wins. Used by retrieval evidence
+        assembly to drop out-of-scope records.
+        """
+        path = relpath.lstrip("/").strip("[]").lstrip("/")
+        candidates = {path}
+        if "." not in Path(path).name:
+            candidates.add(f"{path}.md")
+        for pattern in self.source_exclude:
+            if _matches_any(candidates, pattern):
+                return False
+        if not self.source_include:
+            return True
+        for pattern in self.source_include:
+            if _matches_any(candidates, pattern):
+                return True
+        return False
+
 
 def _slug(name: str) -> str:
     return name.strip().replace(" ", "-").lower()
