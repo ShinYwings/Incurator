@@ -206,7 +206,20 @@ def test_compile_source_l2_excludes_failed_claim_from_downstream(vault) -> None:
 def test_compile_global_l3_writes_concepts(vault) -> None:
     paths = vault
     client = DynamicFakeClient()
+    # Plan C (v0.9.0, §27.2): the claim-grounded L3 path grounds a community report
+    # only on `active` relations corroborated by >=2 INDEPENDENT source lineages. A
+    # single source can never reach the floor, so seed a SECOND independent source
+    # (distinct content_hash => distinct lineage) asserting the SAME proposition.
+    src2 = paths.root / "04_Resources" / "resnet2.md"
+    src2.write_text(SOURCE_MD, encoding="utf-8")
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, "
+            "context_id, l1_status) VALUES (?, ?, ?, ?, datetime('now'), ?, 'done')",
+            ("04_Resources/resnet2.md", "h2", "md", len(SOURCE_MD), "CTX-test5678"),
+        )
     compile_mod.compile_source_l2(paths, client, 1)
+    compile_mod.compile_source_l2(paths, client, 2)
     concept_ids = compile_mod.compile_global_l3(paths, client)
     assert concept_ids
 
@@ -215,7 +228,9 @@ def test_compile_global_l3_writes_concepts(vault) -> None:
     assert "community_report_id" in con_files[0].read_text(encoding="utf-8")
 
     with db.connect(paths.state_db) as conn:
-        n_rep = conn.execute("SELECT COUNT(*) FROM community_reports").fetchone()[0]
+        n_rep = conn.execute(
+            "SELECT COUNT(*) FROM community_reports WHERE retired_at IS NULL"
+        ).fetchone()[0]
     assert n_rep >= 1
 
     assert _layer_status(paths, 1, "l3") == "done"

@@ -272,22 +272,31 @@ The last workspace position is stored as a separate snapshot; per-file positions
 
 ## 5. PDF Snipping (`Cmd+Shift+X`)
 
-Drag-select a region of a PDF to capture it as an image.
+Drag-select a region of a PDF to capture both its image and the text it contains.
 
 1. Open a PDF in the Incurator viewer (right-click `.pdf` → Open with Incurator)
 2. Press `Cmd+Shift+X` to enter snipping mode
 3. Drag over the desired area — it is captured as an image
-4. The captured image is automatically attached to the chat sidebar context
+4. The captured crop is automatically attached to the chat sidebar context
 
 > **Note**: Snipping only works in the Incurator PDF viewer (`EXTERNAL_PDF_VIEW_TYPE`).  
 > For Obsidian's built-in PDF viewer, use `Cmd+Shift+L` to reference the whole page.
 
-PDF snips are sent as image context when the selected model supports vision. If
-the active model is text-only, sidechat keeps the snip attached but tells the
-model that image details are unavailable instead of silently ignoring the crop.
-When the latest message already carries a user-selected crop/image, the plugin
-uses that local image context as the fast path and skips backend whole-PDF
-context/RAG calls for that turn.
+A crop captures **only the text lines inside the rectangle you drew** (region-scoped),
+not the whole page. That snipped text becomes the crop's **primary focus** — the
+core subject of your question — so the model answers about the region you boxed
+instead of burying it under the full-page background context. The crop never
+re-injects the entire page text (or its RAG hits) into the primary focus; the
+full page is still available separately as background context.
+
+PDF snips are also sent as image context when the selected model supports vision.
+If the active model is text-only, the snipped region text still grounds the
+answer, and sidechat tells the model that image details are unavailable instead
+of silently ignoring the crop. When a region is a scanned image with no
+selectable text, the crop falls back to an image-only reference that is *still*
+marked as the primary focus, so it is never buried. When the latest message
+already carries a user-selected crop/image, the plugin uses that local context
+as the fast path and skips backend whole-PDF context/RAG calls for that turn.
 
 ---
 

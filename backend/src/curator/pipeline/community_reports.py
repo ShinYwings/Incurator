@@ -21,6 +21,7 @@ __all__ = [
     "CommunityPlan",
     "detect_communities",
     "generate_community_report",
+    "generate_report_prose",
 ]
 
 
@@ -209,6 +210,74 @@ def generate_community_report(
         entity_ids=plan.entity_ids,
         relation_ids=plan.relation_ids,
         source_span_ids=getattr(parsed, "source_span_ids", []) or span_ids,
+        rank=float(getattr(parsed, "rank", 0.0) or 0.0),
+        prompt_run_id=result.trace_id,
+    )
+
+
+def generate_report_prose(
+    db_path: Path,
+    client: Any,
+    report: dict,
+    *,
+    curate_spec_hash: str = "",
+) -> str | None:
+    """Fill a claim-grounded report SKELETON with LLM prose (SYSTEM_BEHAVIOR §27.5).
+
+    The deterministic ``db.rebuild_graph_generation`` already built the report's
+    IDENTITY and GROUNDING (``community_key``, ``entity_ids``, the EXACT ``active``
+    ``relation_ids``, the eligible-support ``source_span_ids``, and every identity/
+    dependency hash). This pass only adds the human-readable prose, merge-upserted
+    by ``community_key`` so the structural/grounding columns are PRESERVED (every
+    omitted column defaults to *preserve existing* in ``upsert_community_report``).
+    The report cites ONLY its active relations' eligible claim spans — there is no
+    whole-community-span fallback (§27.5, F9). Returns the ``REP-`` id, or ``None``
+    when the community has no resolvable entity."""
+    entity_ids = report.get("entity_ids") or []
+    relation_ids = report.get("relation_ids") or []
+    entities = [
+        e for e in (db.get_graph_entity(db_path, eid) for eid in entity_ids) if e
+    ]
+    if not entities:
+        return None
+    rel_block, _rels = _relations_block(db_path, relation_ids)
+    # Ground prose strictly in the report's claim-grounded span closure (computed by
+    # rebuild_graph_generation from the active verified support), never a broad set.
+    span_ids = list(report.get("source_span_ids") or [])
+
+    contract = prompting.REGISTRY.get("curator.community_report_write")
+    input_obj = contract.input_model(
+        community_title=f"Community {report['community_key']}",
+        entities_block=_entities_block(entities),
+        relations_block=rel_block,
+        valid_span_ids_block="\n".join(span_ids),
+    )
+    result = prompting.run_prompt(
+        db_path,
+        client,
+        contract,
+        input_obj,
+        validation_context={"valid_span_ids": set(span_ids)},
+        source_span_ids=span_ids,
+        curate_spec_hash=curate_spec_hash,
+    )
+    if not (result.ok and result.parsed is not None):
+        error_msg = (
+            "; ".join(result.validation.errors)
+            if hasattr(result, "validation") and result.validation
+            else "Unknown LLM error"
+        )
+        raise RuntimeError(f"Community report prose generation failed: {error_msg}")
+
+    parsed = result.parsed
+    findings = [f.model_dump() for f in getattr(parsed, "findings", [])]
+    return db.upsert_community_report(
+        db_path,
+        community_key=report["community_key"],
+        title=getattr(parsed, "title", ""),
+        summary=getattr(parsed, "summary", ""),
+        full_content=getattr(parsed, "full_content", ""),
+        findings=findings,
         rank=float(getattr(parsed, "rank", 0.0) or 0.0),
         prompt_run_id=result.trace_id,
     )

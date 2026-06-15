@@ -1,4 +1,4 @@
-# Incurator Search Engine Schema (v0.8.0)
+# Incurator Search Engine Schema (v0.9.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -388,3 +388,47 @@ and removes the preview-as-evidence defect (Failure Atlas F10).
   text and delimiters; destructive truncation of formula-bearing statements
   in graph input and search materialization is removed (SYSTEM_BEHAVIOR
   §26.2).
+
+## 11. Graph-Quality Materialization (Plan C, v0.9.0)
+
+Plan C (Graph Quality, SCHEMA.md §21, SYSTEM_BEHAVIOR §27) compiles entity
+resolution, support-aware relations, and a deterministic community hierarchy.
+Search-derived state over those records inherits the same generation-gated,
+authoritative-only materialization contract as §10 — the retrieval/query read
+path stays unchanged because only authoritative records are ever materialized.
+
+### 11.1 Canonical-Entity And Active-Relation Materialization
+
+- Graph-derived search materialization (entity-derived span items, relation
+  evidence, community-report documents) is (re)built ONLY from the authoritative
+  graph generation, AFTER it publishes (SYSTEM_BEHAVIOR §27.8). A staged graph/
+  report generation is never materialized.
+- **Redirected entities are resolved before materialization.** A search document
+  or evidence item that would reference a `redirected` `graph_entities` row
+  (SCHEMA §21.4) is materialized against its canonical survivor
+  (`redirect_to_entity_id`) instead. No served search row references a redirected
+  entity directly; the graph audit (SYSTEM_BEHAVIOR §27.6) asserts this.
+- **Only `active` relations and their eligible supports materialize.**
+  `provisional`, `quarantined`, and `retired` relations (SCHEMA §21.6) are
+  excluded from relation evidence materialization, exactly as non-`verified` /
+  retired claims are excluded in §10.1. Relation evidence hydrates the cited
+  span text via the §10.2 full-span hydration contract (no preview-as-evidence).
+- An accepted-merge reversal or a source edit/delete that changes the
+  authoritative graph generation re-emits the affected graph-derived search state
+  from the post-reconciliation authoritative DB; it never leaves materialized
+  rows pointing at a reversed merge or a retired relation.
+
+### 11.2 Community-Report Documents And Retirement
+
+- Community-report search documents materialize ONLY from non-retired
+  (`retired_at IS NULL`, SCHEMA §21.7) reports whose findings cite eligible active
+  claim support. A community whose identity changed (new
+  `member_hash`/`support_hash`/`config_hash`) retires its prior report; the stale
+  report's search document is removed in the same publish, so `global`-route
+  retrieval (SYSTEM_BEHAVIOR §17) never serves a retired community.
+- Unchanged rebuild produces byte-identical graph/report search rows for unchanged
+  records (the §10.1 `(record_type, record_id)` upsert idempotency extends to
+  entity/relation/community documents); no count amplification.
+- The degraded filtered-connected-components hierarchy fallback (SYSTEM_BEHAVIOR
+  §27.4) materializes its reports under its own `config_hash` identity — the
+  fallback is recorded, never a silent mode change in the served index.

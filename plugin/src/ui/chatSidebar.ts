@@ -229,10 +229,13 @@ export class ChatSidebarView extends ItemView {
     this.inputAreaEl = container.createDiv("ai-agent-chat-input-area");
 
     // Refresh context chips whenever the active leaf changes.
+    // NOTE: Do NOT clear activeContextExcludedKeys here — the user's eye-off
+    // state must persist across tab switches. Keys become stale naturally when
+    // the file they refer to is no longer open (renderContextChips will not
+    // render chips for those keys, so they are harmlessly ignored).
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         setTimeout(() => {
-          this.activeContextExcludedKeys.clear();
           this.renderContextChips();
         }, 0);
       })
@@ -418,7 +421,13 @@ export class ChatSidebarView extends ItemView {
 
   addContextRef(ref: ContextRef): void {
     const existing = this.pendingContextRefs.find(
-      (r) => r.type === ref.type && r.label === ref.label
+      (r) =>
+        r.type === ref.type &&
+        r.label === ref.label &&
+        r.content === ref.content &&
+        // Two refs with identical labels but different images are distinct
+        // (e.g. successive crops of the same PDF page).
+        r.imageBase64 === ref.imageBase64
     );
     if (!existing) {
       this.pendingContextRefs.push(ref);
@@ -1263,6 +1272,13 @@ export class ChatSidebarView extends ItemView {
               } else {
                 textToPush += ref.content;
               }
+            } else if (ref.imageBase64 && isPrimaryUserContext(ref)) {
+              // Image-only primary focus (e.g. a scanned-PDF crop with no
+              // selectable text, or a dragged image): mark it explicitly so the
+              // model treats the attached image as the core subject instead of
+              // burying it under background page text.
+              textToPush +=
+                "<primary_focus_selection>\nThe user cropped/attached the image shown below as the primary focus of this request. Base your answer on the visual content of that image, not the surrounding background context.\n</primary_focus_selection>";
             } else {
               textToPush += "(Image context attached below.)";
             }

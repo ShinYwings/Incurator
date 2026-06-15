@@ -11,16 +11,66 @@ QMD manages itself in Stage 4). This DB tracks:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import uuid
+from collections import defaultdict, deque
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator, Mapping
 
 from . import constants as consts
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
+
+# --- Plan C (v0.9.0, SCHEMA §21.1/§21.2) frozen resolution enums -------------
+# Entity-resolution lifecycle (entity_aliases.resolution_status, §21.1).
+RESOLUTION_STATUS_CODES = frozenset(
+    {
+        "alias",
+        "ambiguous_candidate",
+        "merge_proposed",
+        "accepted",
+        "rejected",
+        "reversed",
+    }
+)
+# Merge-decision lifecycle (entity_merge_proposals.decision, §21.2).
+MERGE_DECISION_CODES = frozenset({"proposed", "accepted", "rejected", "reversed"})
+# Frozen relation quarantine reason codes (graph_relations.quarantine_reason,
+# §21.6). There is DELIBERATELY no `duplicate_proposition`: a relation's identity
+# IS its canonical proposition, so re-assertion AGGREGATES support (§21.5) rather
+# than creating a duplicate row to quarantine. The support-side outcome is a total
+# partition by independent-source-lineage count (0 -> unsupported, exactly 1 ->
+# copied_source_only, >=2 -> active), plus the structural reasons self_loop,
+# contradiction, bridge_risk, and endpoint_unresolved.
+QUARANTINE_REASON_CODES = frozenset(
+    {
+        "unsupported",
+        "self_loop",
+        "contradiction",
+        "copied_source_only",
+        "bridge_risk",
+        "endpoint_unresolved",
+    }
+)
+# Re-evaluation triggers paired with each quarantine reason (§21.6: every
+# quarantined relation carries a reason code AND a reeval_trigger describing what
+# would re-admit it; quarantine is inspectable and re-evaluable, never an opaque
+# discard pile, Arena decision 8).
+_QUARANTINE_REEVAL_TRIGGERS = {
+    "unsupported": "support_added",
+    "self_loop": "endpoints_distinct",
+    "contradiction": "contradiction_cleared",
+    "copied_source_only": "independent_support_added",
+    "bridge_risk": "topology_corroborated",
+    "endpoint_unresolved": "endpoint_resolved",
+}
+# Corroboration threshold (§21.5/§27.2): a relation is `active` only with >=2
+# DISTINCT verified source lineages. Exactly 1 is a single uncorroborated source
+# (copied_source_only); 0 is unsupported.
+_RELATION_CORROBORATION_THRESHOLD = 2
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -296,7 +346,11 @@ CREATE TABLE IF NOT EXISTS graph_entities (
     knowledge_unit_ids TEXT NOT NULL DEFAULT '[]',
     prompt_run_id      TEXT,
     created_at         TEXT NOT NULL,
-    updated_at         TEXT NOT NULL
+    updated_at         TEXT NOT NULL,
+    -- Plan C (v0.9.0, SCHEMA §21.4) merge-redirect columns.
+    resolution_state      TEXT NOT NULL DEFAULT 'canonical',  -- canonical | redirected
+    redirect_to_entity_id TEXT,                               -- ENT- canonical survivor when redirected
+    decision_id           TEXT                                -- DEC- merge decision that redirected this row
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_entities_name
     ON graph_entities(canonical_name, entity_type);
@@ -314,10 +368,20 @@ CREATE TABLE IF NOT EXISTS graph_relations (
     confidence        REAL NOT NULL DEFAULT 0.0,
     prompt_run_id     TEXT,
     created_at        TEXT NOT NULL,
-    updated_at        TEXT NOT NULL
+    updated_at        TEXT NOT NULL,
+    -- Plan C (v0.9.0, SCHEMA §21.6) lifecycle / edge-class / topology columns.
+    lifecycle_status  TEXT NOT NULL DEFAULT 'provisional',  -- active | provisional | quarantined | retired
+    quarantine_reason TEXT NOT NULL DEFAULT '',
+    edge_class        TEXT NOT NULL DEFAULT 'extracted',    -- authored | extracted
+    topology_weight   REAL NOT NULL DEFAULT 0.0,
+    reeval_trigger    TEXT NOT NULL DEFAULT '',
+    generation_id     TEXT                                  -- GEN- that produced/revalidated
 );
 CREATE INDEX IF NOT EXISTS idx_graph_relations_src ON graph_relations(source_entity_id);
 CREATE INDEX IF NOT EXISTS idx_graph_relations_tgt ON graph_relations(target_entity_id);
+-- idx_graph_relations_lifecycle is created in _migrate_v9_graph_quality (after the
+-- lifecycle_status column is added), so a pre-existing v8 graph_relations table is
+-- not indexed on a column this IF NOT EXISTS CREATE TABLE does not add.
 
 -- GraphRAG-style summaries of graph communities, for global reasoning.
 CREATE TABLE IF NOT EXISTS community_reports (
@@ -335,9 +399,82 @@ CREATE TABLE IF NOT EXISTS community_reports (
     prompt_run_id   TEXT,
     dependency_hash TEXT NOT NULL,
     created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
+    updated_at      TEXT NOT NULL,
+    -- Plan C (v0.9.0, SCHEMA §21.7) community-identity / hierarchy columns.
+    parent_community_key TEXT,                       -- hierarchy parent; NULL at top level
+    config_hash          TEXT NOT NULL DEFAULT '',   -- algorithm+seed+threshold config identity
+    member_hash          TEXT NOT NULL DEFAULT '',   -- hash of sorted active member entity ids
+    support_hash         TEXT NOT NULL DEFAULT '',   -- hash of the eligible active-support set
+    retired_at           TEXT                        -- ISO 8601 UTC; non-NULL = retired stale community
 );
 CREATE INDEX IF NOT EXISTS idx_community_reports_key ON community_reports(community_key);
+-- idx_community_reports_parent is created in _migrate_v9_graph_quality (after the
+-- parent_community_key column is added), for the same reason as the lifecycle index.
+
+-- Plan C (v0.9.0, SCHEMA §21.1) entity surface-form aliases. Surrogate `id` PK so
+-- one normalized surface form may resolve to MANY distinct entities (homonyms).
+CREATE TABLE IF NOT EXISTS entity_aliases (
+    id                 TEXT PRIMARY KEY,     -- ALI-<UUID8> surrogate key
+    alias_normalized   TEXT NOT NULL,        -- deterministic normalization (candidate key, NOT unique alone)
+    entity_id          TEXT,                 -- ENT- this alias resolves to; NULL while only a candidate
+    alias_display      TEXT NOT NULL,        -- original surface form as written
+    source_span_ids    TEXT NOT NULL DEFAULT '[]',
+    knowledge_unit_ids TEXT NOT NULL DEFAULT '[]',
+    confidence         REAL NOT NULL DEFAULT 0.0,
+    resolution_status  TEXT NOT NULL,        -- §21.1 enum (RESOLUTION_STATUS_CODES)
+    resolution_reason  TEXT NOT NULL DEFAULT '',
+    decision_id        TEXT,                 -- entity_merge_proposals.id that decided this alias
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_entity_aliases_entity ON entity_aliases(entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_aliases_normalized ON entity_aliases(alias_normalized);
+-- A RESOLVED alias is unique per (surface form, entity, status): admits one normalized
+-- surface resolving to several entities (homonyms) while blocking an exact duplicate
+-- resolved row. Unresolved candidates (entity_id IS NULL) are keyed only by `id`.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_aliases_resolved
+    ON entity_aliases(alias_normalized, entity_id, resolution_status)
+    WHERE entity_id IS NOT NULL;
+
+-- Plan C (v0.9.0, SCHEMA §21.2) entity merge proposals/decisions.
+CREATE TABLE IF NOT EXISTS entity_merge_proposals (
+    id               TEXT PRIMARY KEY,       -- DEC-<UUID8>
+    source_entity_id TEXT NOT NULL,          -- ENT- being merged away (origin)
+    target_entity_id TEXT NOT NULL,          -- ENT- surviving canonical
+    decision         TEXT NOT NULL,          -- §21.2 enum (MERGE_DECISION_CODES)
+    rationale        TEXT NOT NULL,
+    evidence_json    TEXT NOT NULL,          -- JSON: candidate signals, guard checks, span/claim evidence
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_entity_merge_proposals_src ON entity_merge_proposals(source_entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_merge_proposals_tgt ON entity_merge_proposals(target_entity_id);
+
+-- Plan C (v0.9.0, SCHEMA §21.3) reversible merge rewrite lineage.
+CREATE TABLE IF NOT EXISTS entity_resolution_lineage (
+    decision_id         TEXT NOT NULL,       -- entity_merge_proposals.id
+    origin_entity_id    TEXT NOT NULL,       -- ENT- as it existed before the merge
+    canonical_entity_id TEXT NOT NULL,       -- ENT- it was redirected into
+    rewrite_json        TEXT NOT NULL,       -- JSON: pre-merge entity row + every rewrite applied
+    PRIMARY KEY (decision_id, origin_entity_id)
+);
+
+-- Plan C (v0.9.0, SCHEMA §21.5) independent claim-level relation supports.
+CREATE TABLE IF NOT EXISTS graph_relation_supports (
+    relation_id         TEXT NOT NULL,       -- REL-
+    knowledge_unit_id   TEXT NOT NULL,       -- KNU- asserting this relation
+    source_span_ids     TEXT NOT NULL,       -- JSON array of SPAN- ids carrying the assertion
+    assertion_source    TEXT NOT NULL,       -- source_states | system_infers | workspace_derives
+    confidence          REAL NOT NULL,
+    support_status      TEXT NOT NULL,       -- unchecked | verified | failed | stale
+    support_hash        TEXT NOT NULL,       -- content hash of (proposition + cited spans); dedup within a relation
+    source_lineage_hash TEXT NOT NULL,       -- hash of logical source lineage; the INDEPENDENCE key
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    PRIMARY KEY (relation_id, knowledge_unit_id, support_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_relation_supports_rel ON graph_relation_supports(relation_id);
+CREATE INDEX IF NOT EXISTS idx_graph_relation_supports_lineage ON graph_relation_supports(source_lineage_hash);
 
 -- HippoRAG-style associative walks over the graph, for explore retrieval.
 CREATE TABLE IF NOT EXISTS memory_paths (
@@ -550,7 +687,9 @@ CREATE TABLE IF NOT EXISTS deleted_records (
         'community_reports','memory_paths','prompt_runs','dag_edges',
         'curation_plans','insight_candidates','artifact_dependencies',
         'synthesis','query_traces','source_pages','source_pdf_pages',
-        'claim_supports','compiler_generations'
+        'claim_supports','compiler_generations',
+        'entity_aliases','entity_merge_proposals','entity_resolution_lineage',
+        'graph_relation_supports'
     ))
 );
 CREATE INDEX IF NOT EXISTS idx_deleted_records_at ON deleted_records(deleted_at);
@@ -761,6 +900,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     )
 
     _migrate_v8_compiler_integrity(conn, tables)
+    _migrate_v9_graph_quality(conn, tables)
 
 
 
@@ -919,6 +1059,131 @@ def _migrate_v8_compiler_integrity(
                         'curation_plans','insight_candidates','artifact_dependencies',
                         'synthesis','query_traces','source_pages','source_pdf_pages',
                         'claim_supports','compiler_generations'
+                    ))
+                );
+                INSERT INTO deleted_records_new SELECT table_name, record_id, deleted_at
+                    FROM deleted_records;
+                DROP TABLE deleted_records;
+                ALTER TABLE deleted_records_new RENAME TO deleted_records;
+                CREATE INDEX IF NOT EXISTS idx_deleted_records_at
+                    ON deleted_records(deleted_at);
+                """
+            )
+
+
+
+def _migrate_v9_graph_quality(
+    conn: sqlite3.Connection, tables: set[str]
+) -> None:
+    """SCHEMA_VERSION 8 -> 9 (Plan C): additive entity/relation resolution,
+    independent claim-level support, and community-identity schema (SCHEMA §21.8 /
+    SYSTEM_BEHAVIOR §27.7). Forward-only and idempotent.
+
+    The four new tables (`entity_aliases`, `entity_merge_proposals`,
+    `entity_resolution_lineage`, `graph_relation_supports`) are created by the
+    base ``SCHEMA_SQL`` executescript that always runs before this function. This
+    migration adds the §21.4/§21.6/§21.7 ALTER columns to the pre-existing
+    `graph_entities`/`graph_relations`/`community_reports` tables (which the
+    ``CREATE TABLE IF NOT EXISTS`` in SCHEMA_SQL does NOT alter) and the indexes
+    that depend on those new columns.
+
+    Backfill INFERS NOTHING (§27.7 item 2): the ADD COLUMN ... DEFAULT statements
+    set every legacy `graph_entities` row to `resolution_state='canonical'`
+    (`redirect_to_entity_id` NULL) and every legacy `graph_relations` row to
+    `lifecycle_status='provisional'`, `edge_class='extracted'`, `generation_id`
+    NULL. No alias/proposal/lineage/support rows are created and no relation is
+    auto-promoted to `active` — relations become `active` only after rebuild from
+    the authoritative B claim generation.
+    """
+    if "graph_entities" in tables:
+        _add_column_if_missing(
+            conn, "graph_entities", "resolution_state",
+            "resolution_state TEXT NOT NULL DEFAULT 'canonical'",
+        )
+        _add_column_if_missing(
+            conn, "graph_entities", "redirect_to_entity_id",
+            "redirect_to_entity_id TEXT",
+        )
+        _add_column_if_missing(
+            conn, "graph_entities", "decision_id", "decision_id TEXT"
+        )
+    if "graph_relations" in tables:
+        _add_column_if_missing(
+            conn, "graph_relations", "lifecycle_status",
+            "lifecycle_status TEXT NOT NULL DEFAULT 'provisional'",
+        )
+        _add_column_if_missing(
+            conn, "graph_relations", "quarantine_reason",
+            "quarantine_reason TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn, "graph_relations", "edge_class",
+            "edge_class TEXT NOT NULL DEFAULT 'extracted'",
+        )
+        _add_column_if_missing(
+            conn, "graph_relations", "topology_weight",
+            "topology_weight REAL NOT NULL DEFAULT 0.0",
+        )
+        _add_column_if_missing(
+            conn, "graph_relations", "reeval_trigger",
+            "reeval_trigger TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn, "graph_relations", "generation_id", "generation_id TEXT"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_graph_relations_lifecycle "
+            "ON graph_relations(lifecycle_status)"
+        )
+    if "community_reports" in tables:
+        _add_column_if_missing(
+            conn, "community_reports", "parent_community_key",
+            "parent_community_key TEXT",
+        )
+        _add_column_if_missing(
+            conn, "community_reports", "config_hash",
+            "config_hash TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn, "community_reports", "member_hash",
+            "member_hash TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn, "community_reports", "support_hash",
+            "support_hash TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn, "community_reports", "retired_at", "retired_at TEXT"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_community_reports_parent "
+            "ON community_reports(parent_community_key)"
+        )
+
+    # Extend the deleted_records CHECK list so the four new canonical tables can be
+    # tombstoned on a migrated (old) DB. SQLite cannot ALTER a CHECK in place, so
+    # rebuild the table only when its CHECK predates Plan C.
+    if "deleted_records" in tables:
+        ddl_row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='deleted_records'"
+        ).fetchone()
+        if ddl_row and "entity_aliases" not in str(ddl_row[0]):
+            conn.executescript(
+                """
+                CREATE TABLE deleted_records_new (
+                    table_name  TEXT NOT NULL,
+                    record_id   TEXT NOT NULL,
+                    deleted_at  TEXT NOT NULL,
+                    PRIMARY KEY (table_name, record_id),
+                    CHECK (table_name IN (
+                        'sources','atoms','concepts','synthesis_nodes',
+                        'source_spans','knowledge_units','graph_entities','graph_relations',
+                        'community_reports','memory_paths','prompt_runs','dag_edges',
+                        'curation_plans','insight_candidates','artifact_dependencies',
+                        'synthesis','query_traces','source_pages','source_pdf_pages',
+                        'claim_supports','compiler_generations',
+                        'entity_aliases','entity_merge_proposals',
+                        'entity_resolution_lineage','graph_relation_supports'
                     ))
                 );
                 INSERT INTO deleted_records_new SELECT table_name, record_id, deleted_at
@@ -2299,6 +2564,576 @@ def upsert_graph_relation(
         return relation_id
 
 
+def upsert_graph_relation_support(
+    db_path: Path,
+    *,
+    relation_id: str,
+    knowledge_unit_id: str,
+    source_span_ids: list[str],
+    source_lineage_hash: str,
+    assertion_source: str = "source_states",
+    confidence: float = 0.0,
+    support_status: str = "verified",
+    conn: sqlite3.Connection | None = None,
+) -> str:
+    """Aggregate ONE independent claim-level support onto a relation (§27.2).
+
+    Re-asserting the same proposition ADDS a support; it never overwrites
+    (SCHEMA §21.5). The PK ``(relation_id, knowledge_unit_id, support_hash)``
+    dedups the SAME unit re-citing the SAME spans — so an idempotent recompile
+    leaves the support count unchanged — while ``source_lineage_hash`` is the
+    INDEPENDENCE key: a relation reaches the ``active`` floor only with **≥2
+    DISTINCT** ``verified`` lineages (§27.2). Copied/forked sources share a
+    lineage and therefore count once. Returns the row's ``support_hash``. Pass
+    ``conn`` to run inside the caller's atomic publish transaction (§27.8)."""
+    if support_status not in SUPPORT_STATUSES:
+        raise ValueError(f"invalid support_status: {support_status!r}")
+    # Canonicalize the cited spans: dedup THEN sort, so a duplicate span id (from a
+    # noisy LLM array or an over-counting caller) cannot make support_hash vary by
+    # multiplicity. Two supports citing the same set of spans must hash identically,
+    # else the ON-CONFLICT idempotency below silently breaks (a "new" duplicate row).
+    spans = sorted(set(source_span_ids or []))
+    # Content hash of (proposition, cited spans): dedups re-assertion of the same
+    # evidence within a relation. The relation_id already encodes the canonical
+    # proposition (upsert_graph_relation dedups on src/tgt/type), so the spans are
+    # what distinguish two supports of one relation.
+    support_hash = _sha16(["relation_support", relation_id, spans])
+    now = _now_iso()
+    with _maybe_conn(db_path, conn) as conn:
+        conn.execute(
+            """
+            INSERT INTO graph_relation_supports
+                (relation_id, knowledge_unit_id, source_span_ids, assertion_source,
+                 confidence, support_status, support_hash, source_lineage_hash,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(relation_id, knowledge_unit_id, support_hash)
+            DO UPDATE SET
+                support_status = excluded.support_status,
+                confidence = excluded.confidence,
+                source_lineage_hash = excluded.source_lineage_hash,
+                source_span_ids = excluded.source_span_ids,
+                assertion_source = excluded.assertion_source,
+                updated_at = excluded.updated_at
+            """,
+            (
+                relation_id, knowledge_unit_id, json.dumps(spans), assertion_source,
+                confidence, support_status, support_hash, source_lineage_hash,
+                now, now,
+            ),
+        )
+    return support_hash
+
+
+# --- Plan C (v0.9.0, SCHEMA §21.1-§21.4) entity resolution / reversible merges --
+
+
+def _entity_context(conn: sqlite3.Connection, entity_id: str) -> dict[str, Any]:
+    """Fetch the (entity_type, spans, knowledge units, neighbours) context the
+    §27.1 merge guards compare. Neighbours are the entities directly linked to
+    ``entity_id`` by any relation (either direction)."""
+    row = conn.execute(
+        "SELECT entity_type, source_span_ids, knowledge_unit_ids "
+        "FROM graph_entities WHERE id = ?",
+        (entity_id,),
+    ).fetchone()
+    if row is None:
+        return {"entity_type": None, "spans": set(), "units": set(), "neighbours": set()}
+    neighbours: set[str] = set()
+    for r in conn.execute(
+        "SELECT target_entity_id FROM graph_relations WHERE source_entity_id = ?",
+        (entity_id,),
+    ):
+        neighbours.add(str(r[0]))
+    for r in conn.execute(
+        "SELECT source_entity_id FROM graph_relations WHERE target_entity_id = ?",
+        (entity_id,),
+    ):
+        neighbours.add(str(r[0]))
+    return {
+        "entity_type": row["entity_type"],
+        "spans": set(_loads_list(row["source_span_ids"])),
+        "units": set(_loads_list(row["knowledge_unit_ids"])),
+        "neighbours": neighbours,
+    }
+
+
+def evaluate_merge_guards(
+    db_path: Path,
+    *,
+    source_entity_id: str,
+    target_entity_id: str,
+    avoid_merges: Iterable[tuple[str, str]] = (),
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
+    """Evaluate the four SYSTEM_BEHAVIOR §27.1 merge guards for a candidate pair
+    and return their booleans plus an overall ``verdict``. This is read-only:
+    similarity is candidate generation ONLY (Arena decision 3/4), so even an exact
+    surface-form match is never auto-accepted here.
+
+    Returned keys:
+
+    - ``type_match`` — both entities share the same ``entity_type``.
+    - ``context_overlap`` — they share ≥1 source span, knowledge unit, or graph
+      neighbour (the deterministic "above threshold" floor for the gold fixtures).
+    - ``no_contradiction`` — no ``contradicts`` relation joins the pair (either
+      direction).
+    - ``not_avoid_listed`` — the pair is not on the workspace ``avoid_merges`` list.
+    - ``verdict`` ∈ {``accept``, ``ambiguous_candidate``, ``rejected``}: a pair on
+      ``avoid_merges`` is durable negative knowledge → ``rejected``; ALL four guards
+      passing → ``accept``; any other guard failure downgrades the candidate to
+      ``ambiguous_candidate`` (it may at most PROPOSE, never auto-fuse).
+    """
+    if source_entity_id == target_entity_id:
+        return {
+            "type_match": True,
+            "context_overlap": True,
+            "no_contradiction": True,
+            "not_avoid_listed": True,
+            "verdict": "rejected",
+        }
+    pair = frozenset((source_entity_id, target_entity_id))
+    avoid_pairs = {frozenset((s, t)) for s, t in avoid_merges}
+    not_avoid_listed = pair not in avoid_pairs
+    with _maybe_conn(db_path, conn) as conn:
+        src = _entity_context(conn, source_entity_id)
+        tgt = _entity_context(conn, target_entity_id)
+        type_match = (
+            src["entity_type"] is not None
+            and src["entity_type"] == tgt["entity_type"]
+        )
+        context_overlap = bool(
+            (src["spans"] & tgt["spans"])
+            or (src["units"] & tgt["units"])
+            or (src["neighbours"] & tgt["neighbours"])
+        )
+        no_contradiction = (
+            conn.execute(
+                "SELECT 1 FROM graph_relations WHERE relation_type = 'contradicts' "
+                "AND ((source_entity_id = ? AND target_entity_id = ?) "
+                "  OR (source_entity_id = ? AND target_entity_id = ?)) LIMIT 1",
+                (source_entity_id, target_entity_id,
+                 target_entity_id, source_entity_id),
+            ).fetchone()
+            is None
+        )
+    if not not_avoid_listed:
+        verdict = "rejected"
+    elif type_match and context_overlap and no_contradiction:
+        verdict = "accept"
+    else:
+        verdict = "ambiguous_candidate"
+    return {
+        "type_match": type_match,
+        "context_overlap": context_overlap,
+        "no_contradiction": no_contradiction,
+        "not_avoid_listed": not_avoid_listed,
+        "verdict": verdict,
+    }
+
+
+def propose_entity_merge(
+    db_path: Path,
+    *,
+    source_entity_id: str,
+    target_entity_id: str,
+    rationale: str,
+    evidence: Mapping[str, Any] | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> str:
+    """Record a merge proposal (``decision='proposed'``) of ``source_entity_id``
+    (origin, merged away) into ``target_entity_id`` (surviving canonical) and
+    return the ``DEC-<UUID8>`` decision id. A proposal NEVER rewrites the graph
+    (SCHEMA §21.2); only :func:`accept_entity_merge` does."""
+    now = _now_iso()
+    decision_id = _new_id("DEC")
+    payload = json.dumps(dict(evidence or {}), sort_keys=True)
+    with _maybe_conn(db_path, conn) as conn:
+        conn.execute(
+            "INSERT INTO entity_merge_proposals "
+            "(id, source_entity_id, target_entity_id, decision, rationale, "
+            " evidence_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'proposed', ?, ?, ?, ?)",
+            (decision_id, source_entity_id, target_entity_id, rationale,
+             payload, now, now),
+        )
+    return decision_id
+
+
+def accept_entity_merge(
+    db_path: Path, *, decision_id: str, conn: sqlite3.Connection | None = None
+) -> None:
+    """Accept a proposed merge (§27.1). Redirects the origin entity onto the
+    surviving canonical entity, re-points every relation endpoint that referenced
+    the origin, and persists a complete reversible ``entity_resolution_lineage``
+    row (SCHEMA §21.3). The origin entity is NEVER deleted — its identity is
+    preserved for reversal."""
+    now = _now_iso()
+    with _maybe_conn(db_path, conn) as conn:
+        proposal = conn.execute(
+            "SELECT source_entity_id, target_entity_id "
+            "FROM entity_merge_proposals WHERE id = ?",
+            (decision_id,),
+        ).fetchone()
+        if proposal is None:
+            raise ValueError(f"unknown merge decision: {decision_id}")
+        origin = str(proposal["source_entity_id"])
+        survivor = str(proposal["target_entity_id"])
+        origin_row = conn.execute(
+            "SELECT * FROM graph_entities WHERE id = ?", (origin,)
+        ).fetchone()
+        if origin_row is None:
+            raise ValueError(f"merge origin entity not found: {origin}")
+        survivor_row = conn.execute(
+            "SELECT 1 FROM graph_entities WHERE id = ?", (survivor,)
+        ).fetchone()
+        if survivor_row is None:
+            raise ValueError(f"merge target entity not found: {survivor}")
+        # Capture the exact pre-merge origin row + every relation endpoint rewrite
+        # so reversal can reconstruct the prior graph byte-for-byte (SCHEMA §21.3).
+        relation_rewrites: list[dict[str, str]] = []
+        for rel in conn.execute(
+            "SELECT id, source_entity_id, target_entity_id FROM graph_relations "
+            "WHERE source_entity_id = ? OR target_entity_id = ?",
+            (origin, origin),
+        ).fetchall():
+            if str(rel["source_entity_id"]) == origin:
+                relation_rewrites.append(
+                    {"relation_id": str(rel["id"]), "field": "source_entity_id",
+                     "from": origin, "to": survivor}
+                )
+            if str(rel["target_entity_id"]) == origin:
+                relation_rewrites.append(
+                    {"relation_id": str(rel["id"]), "field": "target_entity_id",
+                     "from": origin, "to": survivor}
+                )
+        rewrite_json = json.dumps(
+            {"origin_entity": dict(origin_row),
+             "relation_rewrites": relation_rewrites},
+            sort_keys=True,
+        )
+        # Apply: re-point relation endpoints onto the survivor (explicit per-column
+        # so no column name is interpolated into SQL)...
+        for rw in relation_rewrites:
+            if rw["field"] == "source_entity_id":
+                conn.execute(
+                    "UPDATE graph_relations SET source_entity_id = ?, updated_at = ? "
+                    "WHERE id = ?",
+                    (survivor, now, rw["relation_id"]),
+                )
+            else:
+                conn.execute(
+                    "UPDATE graph_relations SET target_entity_id = ?, updated_at = ? "
+                    "WHERE id = ?",
+                    (survivor, now, rw["relation_id"]),
+                )
+        # ...redirect the origin entity (never delete it)...
+        conn.execute(
+            "UPDATE graph_entities SET resolution_state = 'redirected', "
+            "redirect_to_entity_id = ?, decision_id = ?, updated_at = ? WHERE id = ?",
+            (survivor, decision_id, now, origin),
+        )
+        # ...persist the reversible lineage...
+        conn.execute(
+            "INSERT OR REPLACE INTO entity_resolution_lineage "
+            "(decision_id, origin_entity_id, canonical_entity_id, rewrite_json) "
+            "VALUES (?, ?, ?, ?)",
+            (decision_id, origin, survivor, rewrite_json),
+        )
+        # ...and record the accepted decision.
+        conn.execute(
+            "UPDATE entity_merge_proposals SET decision = 'accepted', updated_at = ? "
+            "WHERE id = ?",
+            (now, decision_id),
+        )
+
+
+def reverse_entity_merge(
+    db_path: Path, *, decision_id: str, conn: sqlite3.Connection | None = None
+) -> None:
+    """Reverse a previously accepted merge (§27.1). Replays the §21.3 rewrite
+    lineage in reverse — restoring the origin entity to ``canonical`` and every
+    relation endpoint to its pre-merge value. The decision row is retained as
+    ``reversed`` audit, never hard-deleted; the acceptance test is that reversal
+    yields endpoints byte-identical to the pre-merge state."""
+    now = _now_iso()
+    with _maybe_conn(db_path, conn) as conn:
+        lineage_rows = conn.execute(
+            "SELECT origin_entity_id, rewrite_json FROM entity_resolution_lineage "
+            "WHERE decision_id = ?",
+            (decision_id,),
+        ).fetchall()
+        if not lineage_rows:
+            raise ValueError(f"no resolution lineage for decision: {decision_id}")
+        for lin in lineage_rows:
+            origin = str(lin["origin_entity_id"])
+            rewrite = _loads_obj(lin["rewrite_json"])
+            for rw in rewrite.get("relation_rewrites", []):
+                if rw["field"] == "source_entity_id":
+                    conn.execute(
+                        "UPDATE graph_relations SET source_entity_id = ?, "
+                        "updated_at = ? WHERE id = ?",
+                        (rw["from"], now, rw["relation_id"]),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE graph_relations SET target_entity_id = ?, "
+                        "updated_at = ? WHERE id = ?",
+                        (rw["from"], now, rw["relation_id"]),
+                    )
+            conn.execute(
+                "UPDATE graph_entities SET resolution_state = 'canonical', "
+                "redirect_to_entity_id = NULL, decision_id = NULL, updated_at = ? "
+                "WHERE id = ?",
+                (now, origin),
+            )
+        conn.execute(
+            "UPDATE entity_merge_proposals SET decision = 'reversed', updated_at = ? "
+            "WHERE id = ?",
+            (now, decision_id),
+        )
+
+
+# --- Plan C (v0.9.0, SCHEMA §21.5/§21.6) relation lifecycle / topology ----------
+
+
+def detect_bridge_risk_relations(
+    db_path: Path, *, conn: sqlite3.Connection | None = None
+) -> list[str]:
+    """Return the ids of relations that are structural ``bridge_risk`` edges
+    (SCHEMA §21.6 / SYSTEM_BEHAVIOR §27.3): a single edge whose removal
+    disconnects two otherwise-separate DENSE components.
+
+    Detection is purely TOPOLOGICAL — a cut edge (graph-theory bridge) between two
+    components that each have >=2 nodes. It deliberately does NOT threshold on
+    ``confidence``: GQ07 (§21.9) proved production confidence is non-discriminative,
+    so a raw-confidence filter is a rejected default. Parallel edges between the
+    same pair are NOT cut edges (removing one leaves the other), and a low-confidence
+    chord inside a dense block is on a cycle and therefore not a cut edge — only a
+    genuine cut edge between dense blocks is flagged.
+
+    Self-loops and ``retired`` relations are excluded from the topology.
+    """
+    with _maybe_conn(db_path, conn) as conn:
+        rows = conn.execute(
+            "SELECT id, source_entity_id, target_entity_id FROM graph_relations "
+            "WHERE source_entity_id != target_entity_id "
+            "AND lifecycle_status != 'retired'"
+        ).fetchall()
+
+    # Undirected adjacency; each relation row is one undirected edge keyed by its
+    # index so parallel relations between a pair are distinct edges (and thus never
+    # cut edges of each other).
+    adj: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    edge_rel: list[str] = []
+    for r in rows:
+        u, v, rid = (
+            str(r["source_entity_id"]),
+            str(r["target_entity_id"]),
+            str(r["id"]),
+        )
+        ei = len(edge_rel)
+        edge_rel.append(rid)
+        adj[u].append((v, ei))
+        adj[v].append((u, ei))
+
+    # Component sizes (a bridge's two sides must each be dense: >=2 nodes).
+    comp_size: dict[str, int] = {}
+    seen: set[str] = set()
+    for start in adj:
+        if start in seen:
+            continue
+        queue: deque[str] = deque([start])
+        seen.add(start)
+        members: list[str] = []
+        while queue:
+            x = queue.popleft()
+            members.append(x)
+            for y, _ in adj[x]:
+                if y not in seen:
+                    seen.add(y)
+                    queue.append(y)
+        for x in members:
+            comp_size[x] = len(members)
+
+    # Iterative Tarjan bridge finding with subtree sizes for the density check.
+    disc: dict[str, int] = {}
+    low: dict[str, int] = {}
+    subsize: dict[str, int] = {}
+    visited: set[str] = set()
+    timer = 0
+    bridges: set[str] = set()
+    for root in adj:
+        if root in visited:
+            continue
+        disc[root] = low[root] = timer
+        timer += 1
+        subsize[root] = 1
+        visited.add(root)
+        # frame = [node, parent_edge_index, next_neighbour_index]
+        stack: list[list] = [[root, -1, 0]]
+        while stack:
+            frame = stack[-1]
+            u, parent_ei, idx = frame
+            neighbours = adj[u]
+            if idx < len(neighbours):
+                frame[2] = idx + 1
+                w, ei = neighbours[idx]
+                if ei == parent_ei:
+                    continue  # do not walk back over the SAME physical edge
+                if w not in visited:
+                    disc[w] = low[w] = timer
+                    timer += 1
+                    subsize[w] = 1
+                    visited.add(w)
+                    stack.append([w, ei, 0])
+                else:
+                    low[u] = min(low[u], disc[w])
+            else:
+                stack.pop()
+                if stack:
+                    parent = stack[-1][0]
+                    low[parent] = min(low[parent], low[u])
+                    subsize[parent] += subsize[u]
+                    if low[u] > disc[parent]:
+                        v_side = subsize[u]
+                        u_side = comp_size[u] - v_side
+                        if v_side >= 2 and u_side >= 2:
+                            bridges.add(edge_rel[parent_ei])
+    return sorted(bridges)
+
+
+def compile_relation_lifecycle(
+    db_path: Path,
+    *,
+    relation_id: str,
+    bridge_risk_ids: set[str] | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> str:
+    """Compile and persist a single relation's ``lifecycle_status`` and
+    ``quarantine_reason`` (SCHEMA §21.5/§21.6, SYSTEM_BEHAVIOR §27.3) and return the
+    resulting ``lifecycle_status``.
+
+    Decision order (structural admissibility before support quality):
+
+    1. ``self_loop`` — source == target.
+    2. ``endpoint_unresolved`` — an endpoint resolves to a non-canonical
+       (``redirected``) entity; endpoints normalize through ACCEPTED resolution
+       only (§27.1) before entering topology.
+    3. ``contradiction`` — a ``contradicts`` relation joins the same endpoints.
+    4. ``bridge_risk`` — the relation is a structural cut edge between two dense
+       components (see :func:`detect_bridge_risk_relations`).
+    5. Support corroboration over DISTINCT ``verified`` source lineages (§21.5):
+       ``0`` -> ``unsupported``; exactly ``1`` -> ``copied_source_only``;
+       ``>=2`` -> ``active`` (the §27.2 corroboration threshold). There is no
+       ``duplicate_proposition`` outcome — re-assertion aggregates support.
+
+    Pass a precomputed ``bridge_risk_ids`` set (from one
+    :func:`detect_bridge_risk_relations` pass) when compiling a whole generation so
+    the topology is not recomputed per relation; standalone callers may omit it and
+    it is computed lazily only if the earlier checks did not already decide.
+    """
+    with _maybe_conn(db_path, conn) as conn:
+        rel = conn.execute(
+            "SELECT source_entity_id, target_entity_id, relation_type "
+            "FROM graph_relations WHERE id = ?",
+            (relation_id,),
+        ).fetchone()
+        if rel is None:
+            raise ValueError(f"unknown relation: {relation_id}")
+        src = str(rel["source_entity_id"])
+        tgt = str(rel["target_entity_id"])
+        rtype = str(rel["relation_type"])
+
+        status, reason = _classify_relation_lifecycle(
+            conn, relation_id, src, tgt, rtype, bridge_risk_ids, db_path
+        )
+
+        if status == "active":
+            conn.execute(
+                "UPDATE graph_relations SET lifecycle_status = 'active', "
+                "quarantine_reason = '', reeval_trigger = '', updated_at = ? "
+                "WHERE id = ?",
+                (_now_iso(), relation_id),
+            )
+        else:  # quarantined
+            conn.execute(
+                "UPDATE graph_relations SET lifecycle_status = 'quarantined', "
+                "quarantine_reason = ?, reeval_trigger = ?, updated_at = ? "
+                "WHERE id = ?",
+                (
+                    reason,
+                    _QUARANTINE_REEVAL_TRIGGERS[reason],
+                    _now_iso(),
+                    relation_id,
+                ),
+            )
+        return status
+
+
+def _classify_relation_lifecycle(
+    conn: sqlite3.Connection,
+    relation_id: str,
+    src: str,
+    tgt: str,
+    rtype: str,
+    bridge_risk_ids: set[str] | None,
+    db_path: Path,
+) -> tuple[str, str]:
+    """Return ``(lifecycle_status, quarantine_reason)`` for a relation without
+    writing. ``reason`` is ``''`` when the status is ``active``."""
+    if src == tgt:
+        return "quarantined", "self_loop"
+
+    # Endpoint normalization: an endpoint that is not a canonical entity (it was
+    # redirected by an accepted merge but this relation was not re-pointed) cannot
+    # enter authoritative topology (§27.3 endpoint normalization).
+    for endpoint in (src, tgt):
+        state = conn.execute(
+            "SELECT resolution_state FROM graph_entities WHERE id = ?",
+            (endpoint,),
+        ).fetchone()
+        if state is not None and str(state[0]) != "canonical":
+            return "quarantined", "endpoint_unresolved"
+
+    # Contradiction: a `contradicts` relation joins the same endpoints (either
+    # direction), excluding the relation being compiled. This quarantines a NON-
+    # contradiction relation (e.g. `extends`) when the graph ALSO asserts the
+    # endpoints contradict — an inconsistent pair. A `contradicts` relation is itself
+    # exempt: it must not be quarantined by the very rule it embodies, otherwise two
+    # mutual `contradicts` edges (A→B and B→A) would quarantine each other (§27.3).
+    if rtype != "contradicts":
+        contradicted = conn.execute(
+            "SELECT 1 FROM graph_relations WHERE relation_type = 'contradicts' "
+            "AND id != ? "
+            "AND ((source_entity_id = ? AND target_entity_id = ?) "
+            "  OR (source_entity_id = ? AND target_entity_id = ?)) LIMIT 1",
+            (relation_id, src, tgt, tgt, src),
+        ).fetchone()
+        if contradicted is not None:
+            return "quarantined", "contradiction"
+
+    # Bridge risk (topology): cut edge between two dense components. A structural
+    # bridge cannot silently enter communities even if otherwise supported, so this
+    # is checked before support promotion.
+    if bridge_risk_ids is None:
+        bridge_risk_ids = set(detect_bridge_risk_relations(db_path, conn=conn))
+    if relation_id in bridge_risk_ids:
+        return "quarantined", "bridge_risk"
+
+    # Support corroboration by DISTINCT verified source lineage (§21.5).
+    distinct_lineages = conn.execute(
+        "SELECT COUNT(DISTINCT source_lineage_hash) FROM graph_relation_supports "
+        "WHERE relation_id = ? AND support_status = 'verified'",
+        (relation_id,),
+    ).fetchone()[0]
+    if distinct_lineages == 0:
+        return "quarantined", "unsupported"
+    if distinct_lineages < _RELATION_CORROBORATION_THRESHOLD:
+        return "quarantined", "copied_source_only"
+    return "active", ""
+
+
 def _decode_entity_row(row: sqlite3.Row) -> dict:
     data = dict(row)
     data["source_span_ids"] = _loads_list(data.get("source_span_ids"))
@@ -2347,6 +3182,78 @@ def relation_neighborhood(db_path: Path, entity_ids: list[str]) -> list[dict]:
         return [_decode_relation_row(row) for row in rows]
 
 
+# --- community construction (hierarchy fallback) ---------------------
+
+
+def connected_components(
+    db_path: Path,
+    *,
+    only_active: bool = True,
+    conn: sqlite3.Connection | None = None,
+) -> list[set[str]]:
+    """Return the connected components of the canonical entity graph as a list of
+    entity-id sets — the EXPLICIT degraded hierarchy fallback (SYSTEM_BEHAVIOR §27.4,
+    Arena decision 10).
+
+    Nodes are the ``canonical`` (§27.1) entities; edges are non-self-loop relations
+    between two canonical endpoints. ``only_active=True`` (the default) restricts the
+    edge set to ``active`` (§27.3) relations, so a ``quarantined`` noisy bridge or an
+    ``unsupported`` edge cannot silently fuse two clusters into one giant component.
+    ``only_active=False`` admits every non-``retired`` relation (provisional +
+    quarantined) for diagnostics. A ``retired`` reconciliation tombstone (§27.8) is
+    NEVER a topology input in either mode, so its endpoints fall apart.
+
+    An entity with no qualifying edge is its own singleton component. The result is
+    deterministic — components are sorted by ``(size, sorted members)`` and the
+    union always roots at the smaller id — so a fixed graph yields an identical
+    partition on repeat runs.
+    """
+    edge_filter = (
+        "lifecycle_status = 'active'" if only_active else "lifecycle_status != 'retired'"
+    )
+    with _maybe_conn(db_path, conn) as conn:
+        node_rows = conn.execute(
+            "SELECT id FROM graph_entities WHERE resolution_state = 'canonical' "
+            "ORDER BY id"
+        ).fetchall()
+        edge_rows = conn.execute(
+            "SELECT source_entity_id, target_entity_id FROM graph_relations "
+            f"WHERE source_entity_id != target_entity_id AND {edge_filter} "
+            "ORDER BY id"
+        ).fetchall()
+
+    nodes = [str(r["id"]) for r in node_rows]
+    canonical = set(nodes)
+    parent: dict[str, str] = {n: n for n in nodes}
+
+    def find(x: str) -> str:
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:  # path compression
+            parent[x], x = root, parent[x]
+        return root
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra == rb:
+            return
+        # Root at the smaller id for a deterministic forest shape.
+        parent[max(ra, rb)] = min(ra, rb)
+
+    for r in edge_rows:
+        u, v = str(r["source_entity_id"]), str(r["target_entity_id"])
+        # Both endpoints must be canonical nodes; a relation onto a redirected or
+        # missing entity is not authoritative topology (§27.1/§27.4).
+        if u in canonical and v in canonical:
+            union(u, v)
+
+    groups: dict[str, set[str]] = defaultdict(set)
+    for n in nodes:
+        groups[find(n)].add(n)
+    return sorted(groups.values(), key=lambda c: (len(c), sorted(c)))
+
+
 # --- community_reports -----------------------------------------------
 
 
@@ -2354,40 +3261,88 @@ def upsert_community_report(
     db_path: Path,
     *,
     community_key: str,
-    title: str,
-    summary: str,
-    full_content: str,
-    dependency_hash: str,
-    level: int = 0,
+    title: str | None = None,
+    summary: str | None = None,
+    full_content: str | None = None,
+    dependency_hash: str | None = None,
+    level: int | None = None,
     findings: list | None = None,
     entity_ids: list[str] | None = None,
     relation_ids: list[str] | None = None,
     source_span_ids: list[str] | None = None,
-    rank: float = 0.0,
+    rank: float | None = None,
     prompt_run_id: str | None = None,
+    member_hash: str | None = None,
+    support_hash: str | None = None,
+    config_hash: str | None = None,
+    parent_community_key: str | None = None,
+    clear_retired: bool = True,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
-    """Insert or replace the report for a community key."""
+    """Merge-upsert the report for a community key (SCHEMA §21.7).
+
+    Identity is the ``community_key``: an existing row keeps its ``REP-`` id and
+    ``created_at``. Every column defaults to ``None`` meaning *preserve the existing
+    value* (or the table default on first insert), so the deterministic rebuild
+    skeleton (structural columns + ``member_hash``/``support_hash``/``config_hash``)
+    and the LLM prose pass (``title``/``summary``/``findings``) can write the SAME
+    row without clobbering each other. ``clear_retired`` un-retires a re-emitted
+    community (a present community key is never simultaneously retired). Pass
+    ``conn`` to run inside a caller's atomic publish transaction (§27.8)."""
     now = _now_iso()
-    with connect(db_path) as conn:
+
+    def _pick(provided: Any, column: str, default: Any) -> Any:
+        if provided is not None:
+            return provided
+        if existing is not None and existing[column] is not None:
+            return existing[column]
+        return default
+
+    with _maybe_conn(db_path, conn) as conn:
         existing = conn.execute(
-            "SELECT id, created_at FROM community_reports WHERE community_key = ?",
+            "SELECT * FROM community_reports WHERE community_key = ?",
             (community_key,),
         ).fetchone()
         report_id = str(existing["id"]) if existing else _new_id("REP")
         created_at = str(existing["created_at"]) if existing else now
+        retired_at = None if clear_retired else (
+            existing["retired_at"] if existing is not None else None
+        )
         conn.execute(
             """
             INSERT OR REPLACE INTO community_reports
                 (id, community_key, level, title, summary, full_content,
                  finding_json, entity_ids, relation_ids, source_span_ids, rank,
-                 prompt_run_id, dependency_hash, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 prompt_run_id, dependency_hash, created_at, updated_at,
+                 parent_community_key, config_hash, member_hash, support_hash,
+                 retired_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                report_id, community_key, level, title, summary, full_content,
-                json.dumps(findings or []), json.dumps(entity_ids or []),
-                json.dumps(relation_ids or []), json.dumps(source_span_ids or []),
-                rank, prompt_run_id, dependency_hash, created_at, now,
+                report_id,
+                community_key,
+                _pick(level, "level", 0),
+                _pick(title, "title", ""),
+                _pick(summary, "summary", ""),
+                _pick(full_content, "full_content", ""),
+                json.dumps(findings) if findings is not None
+                else _pick(None, "finding_json", "[]"),
+                json.dumps(entity_ids) if entity_ids is not None
+                else _pick(None, "entity_ids", "[]"),
+                json.dumps(relation_ids) if relation_ids is not None
+                else _pick(None, "relation_ids", "[]"),
+                json.dumps(source_span_ids) if source_span_ids is not None
+                else _pick(None, "source_span_ids", "[]"),
+                _pick(rank, "rank", 0.0),
+                _pick(prompt_run_id, "prompt_run_id", None),
+                _pick(dependency_hash, "dependency_hash", ""),
+                created_at,
+                now,
+                _pick(parent_community_key, "parent_community_key", None),
+                _pick(config_hash, "config_hash", ""),
+                _pick(member_hash, "member_hash", ""),
+                _pick(support_hash, "support_hash", ""),
+                retired_at,
             ),
         )
         return report_id
@@ -2402,17 +3357,24 @@ def _decode_report_row(row: sqlite3.Row) -> dict:
     return data
 
 
-def list_community_reports(db_path: Path, *, level: int | None = None) -> list[dict]:
+def list_community_reports(
+    db_path: Path, *, level: int | None = None, include_retired: bool = False
+) -> list[dict]:
+    """List community reports. By default RETIRED communities are excluded — a
+    retired/stale report never serves and never feeds synthesis (§27.5). Pass
+    ``include_retired=True`` for the audit/diagnostic view."""
+    retired_clause = "" if include_retired else "retired_at IS NULL"
     with connect(db_path) as conn:
-        if level is None:
-            rows = conn.execute(
-                "SELECT * FROM community_reports ORDER BY rank DESC, level"
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM community_reports WHERE level = ? ORDER BY rank DESC",
-                (level,),
-            ).fetchall()
+        clauses = [c for c in (retired_clause,) if c]
+        params: tuple = ()
+        if level is not None:
+            clauses.append("level = ?")
+            params = (level,)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = conn.execute(
+            f"SELECT * FROM community_reports {where} ORDER BY rank DESC, level",
+            params,
+        ).fetchall()
         return [_decode_report_row(row) for row in rows]
 
 
@@ -2422,6 +3384,471 @@ def get_community_report(db_path: Path, report_id: str) -> dict | None:
             "SELECT * FROM community_reports WHERE id = ?", (report_id,)
         ).fetchone()
         return _decode_report_row(row) if row else None
+
+
+# --- Plan C (v0.9.0) graph-generation compiler: claim-grounded reports ----------
+# §27.5/§27.8. The deterministic core that compiles the authoritative graph into
+# content/config-derived community reports and reconciles a one-source change to
+# its measured downstream closure. LLM report PROSE is layered on top (the pipeline
+# fills title/summary/findings by community_key); the GROUNDING, IDENTITY, and
+# CLOSURE computed here are deterministic and need no model.
+
+# Until the P5 hierarchy benchmark freezes a richer config, the shipped partition is
+# the degraded filtered-connected-components fallback (§27.4); its config identity is
+# content-derived from this constant so a fixed (graph, config) is reproducible.
+_GRAPH_FALLBACK_CONFIG = {
+    "algorithm": "connected_components",
+    "only_active": True,
+    "corroboration_threshold": _RELATION_CORROBORATION_THRESHOLD,
+    "seed": 0,
+    "version": 1,
+}
+
+
+def _sha16(payload: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:16]
+
+
+def graph_config_hash() -> str:
+    """Content-derived identity of the active hierarchy/partition config (§21.7)."""
+    return _sha16(_GRAPH_FALLBACK_CONFIG)
+
+
+def rebuild_graph_generation(
+    db_path: Path,
+    *,
+    config_hash: str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict:
+    """Deterministically (re)compile the authoritative graph into claim-grounded
+    community reports (SYSTEM_BEHAVIOR §27.5/§27.8), inside one atomic transaction:
+
+    1. Compile every non-retired relation's lifecycle (§27.3) with one shared
+       bridge-risk topology pass, so the ``active`` set reflects current support.
+    2. Build communities from ``connected_components(only_active=True)`` (§27.4),
+       keeping only multi-node components (a lone node yields no community).
+    3. Derive content/config identity per community (§21.7): ``member_hash`` over the
+       sorted canonical members, ``support_hash`` over the eligible verified
+       active-support set, ``community_key = f(level, member_hash, support_hash,
+       config_hash)``, and ``dependency_hash`` over the active-canonical-support
+       closure.
+    4. Merge-upsert one ``community_reports`` row per ``community_key`` — the
+       structural skeleton citing the EXACT active relations and the eligible-support
+       span closure. There is NO whole-community-span fallback: a community with no
+       eligible active support emits no report (§27.5).
+    5. Retire (set ``retired_at``) every prior non-retired report whose
+       ``community_key`` is absent from the rebuilt set, before synthesis consumes
+       it (§27.5).
+    6. Record precise ``artifact_dependencies`` for each report over its active
+       relations and support spans.
+
+    Idempotent: an unchanged rebuild yields identical keys, so the same ``REP-`` ids
+    are reused and nothing is retired — no count amplification (§27.8). Returns
+    ``{communities, reports, retired, community_keys}``.
+    """
+    cfg_hash = config_hash if config_hash is not None else graph_config_hash()
+    with _maybe_conn(db_path, conn) as conn:
+        # (1) compile lifecycle for all non-retired relations with one bridge pass.
+        bridge_ids = set(detect_bridge_risk_relations(db_path, conn=conn))
+        for r in conn.execute(
+            "SELECT id FROM graph_relations WHERE lifecycle_status != 'retired' "
+            "ORDER BY id"
+        ).fetchall():
+            compile_relation_lifecycle(
+                db_path, relation_id=str(r["id"]),
+                bridge_risk_ids=bridge_ids, conn=conn,
+            )
+
+        # (2) active communities (multi-node only — a singleton is no community).
+        components = [
+            c for c in connected_components(db_path, only_active=True, conn=conn)
+            if len(c) >= 2
+        ]
+        # Bucket the graph with a FIXED number of bulk queries instead of one
+        # per-community `IN (?, …)` query: arbitrary-length member / relation / span
+        # lists would otherwise blow past SQLITE_MAX_VARIABLE_NUMBER for a large
+        # community or source and crash the compiler. One pass each over active
+        # relations, verified supports, and canonical entities; the rest is grouped in
+        # Python. Map every canonical member to its community index first.
+        comp_of: dict[str, int] = {}
+        for idx, members_set in enumerate(components):
+            for m in members_set:
+                comp_of[str(m)] = idx
+
+        comp_rels: dict[int, list[sqlite3.Row]] = defaultdict(list)
+        for r in conn.execute(
+            "SELECT id, source_entity_id, target_entity_id, relation_type, description "
+            "FROM graph_relations WHERE lifecycle_status = 'active' "
+            "AND source_entity_id != target_entity_id ORDER BY id"
+        ).fetchall():
+            si = comp_of.get(str(r["source_entity_id"]))
+            ti = comp_of.get(str(r["target_entity_id"]))
+            if si is not None and si == ti:  # active edges always join one community
+                comp_rels[si].append(r)
+
+        supports_by_rel: dict[str, list[sqlite3.Row]] = defaultdict(list)
+        for s in conn.execute(
+            "SELECT relation_id, support_hash, source_lineage_hash, source_span_ids "
+            "FROM graph_relation_supports WHERE support_status = 'verified' "
+            "ORDER BY relation_id, source_lineage_hash, support_hash"
+        ).fetchall():
+            supports_by_rel[str(s["relation_id"])].append(s)
+
+        entity_content: dict[str, sqlite3.Row] = {}
+        for e in conn.execute(
+            "SELECT id, canonical_name, entity_type, description FROM graph_entities "
+            "WHERE resolution_state = 'canonical'"
+        ).fetchall():
+            entity_content[str(e["id"])] = e
+
+        current_keys: list[str] = []
+        for idx, members_set in enumerate(components):
+            members = sorted(members_set)
+            rel_rows = comp_rels.get(idx, [])  # pre-ordered by id from the bulk query
+            active_rel_ids = [str(r["id"]) for r in rel_rows]
+            if not active_rel_ids:
+                continue  # no eligible active claim support -> no report (§27.5)
+
+            # (3) eligible verified support closure for those active relations —
+            # flattened from the single bulk fetch in (rel_id asc, lineage asc, hash
+            # asc) order, byte-identical to the prior per-community
+            # ORDER BY relation_id, source_lineage_hash, support_hash.
+            support_rows = [
+                s for rid in active_rel_ids for s in supports_by_rel.get(rid, [])
+            ]
+            support_keys = [
+                [str(s["relation_id"]), str(s["source_lineage_hash"]),
+                 str(s["support_hash"])]
+                for s in support_rows
+            ]
+            span_ids = sorted({
+                sid for s in support_rows
+                for sid in _loads_list(s["source_span_ids"])
+            })
+
+            member_hash = _sha16(members)
+            support_hash = _sha16(support_keys)
+            level = 0
+            community_key = "comm-" + hashlib.sha256(
+                f"{level}|{member_hash}|{support_hash}|{cfg_hash}".encode("utf-8")
+            ).hexdigest()[:12]
+            # dependency_hash is over the active-canonical-support closure CONTENT
+            # (entities/relations/spans, §27.5 fresh dependencies) — distinct from the
+            # community_key IDENTITY (membership + support set + config, §21.7). So an
+            # input entity's content edit re-stales the report without changing its
+            # identity, while a membership/support change restructures the community.
+            entity_payload = []
+            for mid in members:
+                e = entity_content.get(mid)
+                if e is None:
+                    entity_payload.append([mid, "", "", ""])
+                else:
+                    entity_payload.append([
+                        mid, str(e["canonical_name"] or ""),
+                        str(e["entity_type"] or ""), str(e["description"] or ""),
+                    ])
+            dependency_hash = _sha16({
+                "entities": entity_payload,
+                "relations": [
+                    [str(r["id"]), str(r["relation_type"]),
+                     str(r["description"] or "")]
+                    for r in rel_rows
+                ],
+                "support": support_keys,
+                "spans": span_ids,
+                "config": cfg_hash,
+            })
+
+            # Skip the write for an UNCHANGED community: a non-retired row already
+            # carrying this content-derived community_key AND the identical
+            # dependency_hash has an unchanged identity and content closure, so
+            # re-emitting it would only churn updated_at and rewrite its dependency
+            # rows (write amplification + spurious downstream sync). The rebuild is a
+            # true no-op for it (§27.8 — unchanged rebuild has no amplification).
+            existing = conn.execute(
+                "SELECT dependency_hash, retired_at FROM community_reports "
+                "WHERE community_key = ?",
+                (community_key,),
+            ).fetchone()
+            if (
+                existing is not None
+                and existing["retired_at"] is None
+                and str(existing["dependency_hash"]) == dependency_hash
+            ):
+                current_keys.append(community_key)
+                continue
+
+            report_id = upsert_community_report(
+                db_path,
+                community_key=community_key,
+                level=level,
+                entity_ids=members,
+                relation_ids=active_rel_ids,
+                source_span_ids=span_ids,
+                member_hash=member_hash,
+                support_hash=support_hash,
+                config_hash=cfg_hash,
+                dependency_hash=dependency_hash,
+                conn=conn,
+            )
+            current_keys.append(community_key)
+
+            # (6) precise dependencies (idempotent: PK is artifact+dep+type).
+            for rid in active_rel_ids:
+                record_artifact_dependency(
+                    db_path, artifact_id=report_id,
+                    artifact_type="community_report", depends_on_id=rid,
+                    depends_on_type="relation", dependency_hash=dependency_hash,
+                    conn=conn,
+                )
+            for sid in span_ids:
+                record_artifact_dependency(
+                    db_path, artifact_id=report_id,
+                    artifact_type="community_report", depends_on_id=sid,
+                    depends_on_type="source_span", dependency_hash=dependency_hash,
+                    conn=conn,
+                )
+
+        # (5) retire stale communities absent from the rebuilt set, before synthesis.
+        keyset = set(current_keys)
+        now = _now_iso()
+        retired = 0
+        for row in conn.execute(
+            "SELECT id, community_key FROM community_reports WHERE retired_at IS NULL"
+        ).fetchall():
+            if str(row["community_key"]) not in keyset:
+                conn.execute(
+                    "UPDATE community_reports SET retired_at = ?, updated_at = ? "
+                    "WHERE id = ?",
+                    (now, now, row["id"]),
+                )
+                retired += 1
+
+    return {
+        "communities": len(current_keys),
+        "reports": len(current_keys),
+        "retired": retired,
+        "community_keys": sorted(current_keys),
+    }
+
+
+def reconcile_source_change(
+    db_path: Path,
+    *,
+    source_id: int,
+    removed_span_ids: list[str] | None = None,
+    config_hash: str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict:
+    """Reconcile the graph/report closure after a source edit/delete (§27.8).
+
+    The closure is MEASURED, not assumed:
+
+    1. Verified relation supports whose span basis intersects ``removed_span_ids``
+       (this source's removed spans) are marked ``stale`` — their source basis
+       disappeared.
+    2. :func:`rebuild_graph_generation` recompiles lifecycle, so a relation dropping
+       below the §21.5 corroboration floor (>=2 independent verified source
+       lineages) leaves the ``active`` set, the communities whose active
+       membership/support changed retire, and dependent reports regenerate or
+       retire.
+
+    A community untouched by the change keeps its content-derived ``community_key``
+    and ``REP-`` id — no collateral churn. Returns the measured closure: the rebuild
+    summary plus ``stale_supports`` and the reconciled ``source_id``."""
+    removed_list = list(dict.fromkeys(removed_span_ids or []))  # dedup, keep order
+    removed = set(removed_list)
+    with _maybe_conn(db_path, conn) as conn:
+        stale_supports = 0
+        if removed:
+            now = _now_iso()
+            # Push the scope filter down into SQLite instead of loading the whole
+            # verified support layer into Python: an OR of `source_span_ids LIKE`
+            # restricts the payload to rows whose JSON span array MIGHT carry a removed
+            # span. The needle is `json.dumps(sid)` (the exact JSON string literal,
+            # incl. quotes and any `\"`/`\\` escaping) so it matches how the array was
+            # serialized — a raw `"%sid%"` would silently MISS a span id containing a
+            # quote/backslash (false negative -> under-staling, which the Python guard
+            # below cannot recover). The quoting keeps prefixes distinct (`"SPAN-1"`
+            # never matches `["SPAN-10"]`). LIKE clauses are CHUNKED under
+            # SQLITE_MAX_VARIABLE_NUMBER so deleting a source with thousands of spans
+            # cannot crash the query. The exact set-intersection then confirms exact
+            # membership, so a LIKE over-match (a `%`/`_` wildcard in an id) never
+            # over-stales; LIKE wildcards only broaden, so the real row is never missed.
+            candidates: dict[tuple, sqlite3.Row] = {}
+            for chunk in _chunked(removed_list):
+                like_clause = " OR ".join("source_span_ids LIKE ?" for _ in chunk)
+                like_params = tuple(f"%{json.dumps(sid)}%" for sid in chunk)
+                for row in conn.execute(
+                    "SELECT relation_id, knowledge_unit_id, support_hash, "
+                    "source_span_ids FROM graph_relation_supports "
+                    f"WHERE support_status = 'verified' AND ({like_clause})",
+                    like_params,
+                ).fetchall():
+                    candidates[
+                        (row["relation_id"], row["knowledge_unit_id"],
+                         row["support_hash"])
+                    ] = row
+            for row in candidates.values():
+                if set(_loads_list(row["source_span_ids"])) & removed:
+                    conn.execute(
+                        "UPDATE graph_relation_supports SET support_status = 'stale', "
+                        "updated_at = ? WHERE relation_id = ? "
+                        "AND knowledge_unit_id = ? AND support_hash = ?",
+                        (now, row["relation_id"], row["knowledge_unit_id"],
+                         row["support_hash"]),
+                    )
+                    stale_supports += 1
+        summary = rebuild_graph_generation(db_path, config_hash=config_hash, conn=conn)
+    return {**summary, "stale_supports": stale_supports, "source_id": source_id}
+
+
+# --- graph audit (read-only invariants) -----------------------------------
+# SYSTEM_BEHAVIOR §27.6 / SCHEMA §21.8. A READ-ONLY assertion pass over the
+# authoritative graph/report state. It NEVER writes — it runs both as the
+# graph/report publish gate inside the rebuild transaction and on demand via
+# `wiki lint` (the Graph Quality section). Each returned mapping carries a `code`
+# (one of GRAPH_AUDIT_CODES) and the offending artifact's `subject_id`; an empty
+# list means the served graph is clean. Output is sorted by (code, subject_id) for
+# deterministic reporting.
+
+# Frozen graph-audit violation codes (the schema-level §21.8 invariants this phase
+# enforces). The broader §27.6 invariants that depend on GQ07 relation-quality
+# labels (homonym false merges, mixed claim generations) remain benchmark-later and
+# are NOT asserted here yet — adding speculative untested checks would risk false
+# positives (§21.9).
+GRAPH_AUDIT_CODES = frozenset(
+    {
+        "active_relation_insufficient_support",
+        "reference_to_redirected_entity",
+        "endpoint_not_canonical",
+        "quarantined_relation_missing_reason",
+        "report_finding_without_active_support",
+    }
+)
+
+
+def graph_audit(
+    db_path: Path, *, conn: sqlite3.Connection | None = None
+) -> list[dict]:
+    """Read-only graph/report invariant audit (SYSTEM_BEHAVIOR §27.6 / SCHEMA §21.8).
+
+    Returns the list of violations (empty == clean). Each violation is a mapping
+    with a frozen ``code``, the offending artifact's ``subject_id``, and a human
+    ``detail``. The four enforced invariants:
+
+    1. ``active_relation_insufficient_support`` — an ``active`` relation backed by
+       fewer than 2 distinct ``verified`` source lineages (below the §21.5
+       corroboration floor).
+    2. ``reference_to_redirected_entity`` / ``endpoint_not_canonical`` — an
+       ``active`` relation whose source/target endpoint is not a canonical entity
+       (specifically ``redirected``, or any other non-canonical state).
+    3. ``quarantined_relation_missing_reason`` — a ``quarantined`` relation missing
+       its reason code and/or re-eval trigger (§27.3: quarantine is never an opaque
+       discard pile).
+    4. ``report_finding_without_active_support`` — a served (non-retired) community
+       report that cites a relation (top-level or per-finding) that is not
+       ``active`` (§27.6 report freshness).
+    """
+    violations: list[dict] = []
+    with _maybe_conn(db_path, conn) as conn:
+        entity_state = {
+            str(r["id"]): str(r["resolution_state"])
+            for r in conn.execute(
+                "SELECT id, resolution_state FROM graph_entities"
+            ).fetchall()
+        }
+        verified_lineages = {
+            str(r["relation_id"]): int(r["n"])
+            for r in conn.execute(
+                "SELECT relation_id, COUNT(DISTINCT source_lineage_hash) AS n "
+                "FROM graph_relation_supports WHERE support_status = 'verified' "
+                "GROUP BY relation_id"
+            ).fetchall()
+        }
+        rel_status: dict[str, str] = {}
+        for r in conn.execute(
+            "SELECT id, source_entity_id, target_entity_id, lifecycle_status, "
+            "quarantine_reason, reeval_trigger FROM graph_relations ORDER BY id"
+        ).fetchall():
+            rid = str(r["id"])
+            status = str(r["lifecycle_status"])
+            rel_status[rid] = status
+            if status == "active":
+                lineages = verified_lineages.get(rid, 0)
+                if lineages < _RELATION_CORROBORATION_THRESHOLD:
+                    violations.append({
+                        "code": "active_relation_insufficient_support",
+                        "subject_id": rid,
+                        "detail": (
+                            f"{lineages} verified independent source lineages "
+                            f"(< {_RELATION_CORROBORATION_THRESHOLD})"
+                        ),
+                    })
+                for endpoint in (
+                    str(r["source_entity_id"]), str(r["target_entity_id"])
+                ):
+                    state = entity_state.get(endpoint)
+                    # ONLY an explicitly-canonical endpoint is admissible. A missing
+                    # endpoint (state is None — a dangling reference to an entity that
+                    # does not exist in graph_entities) is NOT canonical and must be
+                    # flagged: whitelisting None would silently ignore a broken
+                    # authoritative reference (§27.6 "0 endpoints that are not
+                    # canonical entities").
+                    if state == "canonical":
+                        continue
+                    code = (
+                        "reference_to_redirected_entity"
+                        if state == "redirected"
+                        else "endpoint_not_canonical"
+                    )
+                    detail = (
+                        f"endpoint {endpoint} does not exist in graph_entities "
+                        "(dangling reference)"
+                        if state is None
+                        else f"endpoint {endpoint} resolution_state={state}"
+                    )
+                    violations.append({
+                        "code": code,
+                        "subject_id": rid,
+                        "detail": detail,
+                    })
+            elif status == "quarantined":
+                reason = str(r["quarantine_reason"] or "")
+                trigger = str(r["reeval_trigger"] or "")
+                if not reason or not trigger:
+                    violations.append({
+                        "code": "quarantined_relation_missing_reason",
+                        "subject_id": rid,
+                        "detail": (
+                            "quarantined relation missing reason code "
+                            "and/or re-eval trigger"
+                        ),
+                    })
+
+        for rep in conn.execute(
+            "SELECT id, relation_ids, finding_json FROM community_reports "
+            "WHERE retired_at IS NULL ORDER BY id"
+        ).fetchall():
+            cited: set[str] = {str(x) for x in _loads_list(rep["relation_ids"])}
+            for finding in _loads_list(rep["finding_json"]):
+                if isinstance(finding, dict):
+                    cited.update(str(x) for x in (finding.get("relation_ids") or []))
+            # A cited relation that is missing or not `active` is not eligible claim
+            # support. `.get(rid)` defaults to None (missing) so a dangling citation
+            # is flagged too.
+            stale = sorted(c for c in cited if rel_status.get(c) != "active")
+            if stale:
+                violations.append({
+                    "code": "report_finding_without_active_support",
+                    "subject_id": str(rep["id"]),
+                    "detail": f"cites non-active relations: {stale}",
+                })
+
+    violations.sort(key=lambda v: (v["code"], v["subject_id"]))
+    return violations
 
 
 # --- memory_paths ----------------------------------------------------
@@ -2710,8 +4137,9 @@ def record_artifact_dependency(
     depends_on_id: str,
     depends_on_type: str,
     dependency_hash: str,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
-    with connect(db_path) as conn:
+    with _maybe_conn(db_path, conn) as conn:
         conn.execute(
             """
             INSERT OR REPLACE INTO artifact_dependencies

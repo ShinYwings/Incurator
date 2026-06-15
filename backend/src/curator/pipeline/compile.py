@@ -293,7 +293,10 @@ def compile_source_l2(
                 current_span_ids=span_ids, candidate_unit_ids=ku_result.unit_ids,
                 generation_id=gen_id, conn=conn,
             )
-            graph = graph_index.persist_graph_data(paths.state_db, graph_data, conn=conn)
+            graph = graph_index.persist_graph_data(
+                paths.state_db, graph_data, conn=conn,
+                units=staged_units, source_lineage_hash=source["content_hash"],
+            )
             _publish_generation(paths.state_db, source_id, gen_id, fingerprint, conn=conn)
     except Exception as e:
         _discard_staged_units(paths.state_db, gen_id)
@@ -530,41 +533,46 @@ def compile_global_l3(
     *,
     curate_spec_hash: str = "",
 ) -> list[str]:
-    """Global L3: detect communities, generate reports, emit CON pages.
+    """Global L3 (claim-grounded, SYSTEM_BEHAVIOR §27.5/§27.8): deterministically
+    rebuild the authoritative community/report generation from ``active`` relations
+    over canonical entities, fill each served report with LLM prose, and emit CON
+    pages.
+
+    A relation grounds a report only once **≥2 independent sources** corroborate it
+    (§27.2); a single uncorroborated source produces no community report — there is
+    no broad community-span fallback (F9). The deterministic
+    ``db.rebuild_graph_generation`` builds the report identity + grounding and
+    retires stale communities BEFORE this prose pass / synthesis consume them.
 
     Returns the list of concept (CON) page ids written. Sets l3_status='done'
     for sources whose L2 is done.
     """
-    plans = community_reports.detect_communities(paths.state_db)
+    # (1) Deterministic claim-grounded compile: relation lifecycle -> active
+    # topology -> community/report skeletons (identity, exact active relations,
+    # eligible support spans, dependency hashes), retiring stale communities (§27.5).
+    db.rebuild_graph_generation(paths.state_db)
+
     concept_ids: list[str] = []
     paths.concepts.mkdir(parents=True, exist_ok=True)
     errors = []
-    for plan in plans:
+    # (2) Prose pass over each SERVED (non-retired) report, merge-upserted by key.
+    # rebuild_graph_generation already recorded the report's precise artifact
+    # dependencies (report->relation, report->span), so the prose pass adds no
+    # broad dependency rows.
+    for report in db.list_community_reports(paths.state_db):
         try:
-            rep_id = community_reports.generate_community_report(
-                paths.state_db, client, plan, curate_spec_hash=curate_spec_hash
+            rep_id = community_reports.generate_report_prose(
+                paths.state_db, client, report, curate_spec_hash=curate_spec_hash
             )
             if not rep_id:
                 continue
-
-            report = db.get_community_report(paths.state_db, rep_id)
-            if not report:
+            full = db.get_community_report(paths.state_db, rep_id)
+            if not full:
                 continue
             concept_id = projection.new_concept_id()
-            page = projection.emit_concept_markdown(report, concept_id)
+            page = projection.emit_concept_markdown(full, concept_id)
             (paths.concepts / f"{concept_id}.md").write_text(page, encoding="utf-8")
             concept_ids.append(concept_id)
-            # dag_edges: ATM(units of entities) -> CON. Link via knowledge units whose
-            # spans back the community's entities (best-effort traversal aid).
-            for span_id in report.get("source_span_ids") or []:
-                db.record_artifact_dependency(
-                    paths.state_db,
-                    artifact_id=rep_id,
-                    artifact_type="community_report",
-                    depends_on_id=span_id,
-                    depends_on_type="source_span",
-                    dependency_hash=report.get("dependency_hash", ""),
-                )
         except Exception as e:
             errors.append(str(e))
 

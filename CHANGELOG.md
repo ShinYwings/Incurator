@@ -4,6 +4,97 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.9.0] — 2026-06-15
+
+Graph Quality release (Plan C). The trusted v0.8.0 claim layer compiles into a
+reversible, support-aware knowledge graph and deterministic, claim-grounded
+community reports — with a read-only graph audit that gates the serving path.
+Specs: SCHEMA.md §21, SYSTEM_BEHAVIOR.md §27.
+
+### Added
+
+- **Entity resolution and reversible merges (§27.1).** Similar names are only
+  ever *candidates*: synonyms, abbreviations, and translations merge only after
+  type/context/contradiction/`avoid_merges` guards pass; ambiguous homonyms stay
+  unmerged until an explicit decision. Every accepted merge keeps the origin
+  identity (`redirected`) and a complete `entity_resolution_lineage` rewrite
+  record, so it reverses to byte-identical pre-merge endpoints. A homonym
+  surrogate-key alias model (`ALI-` ids) lets one surface form resolve to many
+  distinct entities without collision.
+- **Independent claim-level relation support (§27.2).** A relation is a
+  proposition; re-asserting it *aggregates* `graph_relation_supports` instead of
+  overwriting. Independence is counted by source lineage, so copied/forked
+  sources count once. A relation becomes `active` only with **≥2 independent
+  source lineages** of verified support — so a single source per topic builds no
+  community reports until a second independent source corroborates the same
+  relations.
+- **Relation lifecycle and quarantine (§27.3).** Every relation carries
+  `lifecycle_status ∈ {active, provisional, quarantined, retired}`. Weak edges
+  are quarantined with a frozen reason (`unsupported`, `self_loop`,
+  `contradiction`, `copied_source_only`, `bridge_risk`, `endpoint_unresolved`)
+  and a re-evaluation trigger — never silently dropped or admitted. Purely
+  topological cut-edge (bridge) detection gates on structure, not on the
+  non-discriminative production confidence (GQ07). Authored vs extracted edge
+  classes stay distinct.
+- **Deterministic community construction (§27.4).** Filtered connected components
+  over `active` relations between canonical entities is the explicit degraded
+  fallback; the same `(graph, config, seed)` yields an identical partition, pinned
+  by `config_hash`. Seeded weighted Leiden stays a benchmark-gated candidate
+  (blocked on labeled relation-quality data; modularity alone is insufficient).
+- **Claim-grounded community reports + reconciliation (§27.5/§27.8).**
+  `rebuild_graph_generation` compiles the authoritative graph into reports whose
+  identity is content/config-derived (`community_key = f(level, member_hash,
+  support_hash, config_hash)`); a changed membership/support restructures and
+  retires the superseded community before synthesis consumes it. Reports cite
+  exact eligible active claim support — the broad whole-community-span fallback is
+  removed. An unchanged rebuild is idempotent (no count amplification); a one-source
+  edit/delete reconciles only its measured downstream closure.
+- **Graph audit + `wiki lint` Graph Quality section (§27.6).** A read-only
+  `graph_audit` asserts the §21.8 invariants (no active relation below the
+  ≥2-lineage floor, no endpoint that is not a canonical entity, no reference to a
+  redirected entity, every quarantined relation carries a reason + re-eval
+  trigger, every served report finding cites active support). `wiki lint` gains a
+  Graph Quality section that exits non-zero on release-blocking findings.
+- **Live claim-grounded cutover.** The L2 compile writes one
+  `graph_relation_supports` row per asserting claim, keyed by the source's lineage;
+  `wiki build`/`wiki update`'s L3 (`compile_global_l3`) now grounds community
+  reports on `rebuild_graph_generation`'s corroborated `active` relations, replacing
+  the prior broad-span community path on the serving path.
+
+### Changed
+
+- **Schema v9 (additive, forward-only).** New `entity_aliases`,
+  `entity_merge_proposals`, `entity_resolution_lineage`, `graph_relation_supports`
+  tables + resolution/lifecycle/identity columns on `graph_entities` /
+  `graph_relations` / `community_reports`. The migration infers nothing (legacy
+  entities `canonical`, legacy relations `provisional`, zero alias/support rows).
+- **MCP/plugin contracts unchanged.** Plan C is CLI-side; agents/plugin clients
+  observe it only as better evidence on already-returned records (canonical
+  entities, active relations, claim-grounded reports).
+
+## [0.8.1] — 2026-06-15
+
+Hotfix for the PDF crop (`Cmd+Shift+X`) context regression.
+
+### Fixed
+
+- **PDF crop now captures region-scoped text as primary focus.** The previous
+  hotfix made the crop image-only with empty text, which caused two regressions:
+  the crop image had no `<primary_focus_selection>` anchor and got buried under
+  the full-page background context, and the crop's text ("line") extraction was
+  lost entirely. The crop now extracts **only the text lines inside the drawn
+  rectangle** (via text-layer span ∩ crop-rect intersection, in reading order)
+  and uses that region text as the crop's primary focus — never the whole page
+  text (the original pollution bug stays fixed) and never empty. Scanned regions
+  with no selectable text fall back to an image-only reference.
+- **Image-only primary context is no longer buried.** A primary user reference
+  that carries an image but no text (a scanned-PDF crop or a dragged image) now
+  emits an explicit `<primary_focus_selection>` anchor naming the attached image
+  as the core subject, instead of the weak, ignorable "(Image context attached
+  below.)" line.
+
+---
+
 ## [0.8.0] — 2026-06-14
 
 Evidence Compiler Integrity release (Plan B + Plan B2). Markdown/PDF source

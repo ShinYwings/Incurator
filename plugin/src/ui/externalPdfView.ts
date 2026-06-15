@@ -21,6 +21,8 @@ import { PdfDocumentIndexService } from "../context/pdfDocumentIndex";
 import {
   composePdfContextText,
   extractPdfPageTextFromDom,
+  extractRegionTextFromSpans,
+  type RegionTextSpan,
 } from "../context/pdfCapture";
 import {
   assessPdfTextQuality,
@@ -627,7 +629,9 @@ export class ExternalPdfView extends ItemView {
     overlays.forEach(el => el.remove());
   }
 
-  public startSnippingMode(onSnip: (base64: string, pageNum: number) => void): void {
+  public startSnippingMode(
+    onSnip: (base64: string, pageNum: number, regionText: string) => void
+  ): void {
     if (!this.pagesEl) return;
     this.cancelSnippingMode();
 
@@ -704,12 +708,51 @@ export class ExternalPdfView extends ItemView {
       const height = Math.abs(endY - startY);
 
       document.removeEventListener("keydown", handleKeyDown);
-      this.cancelSnippingMode();
 
       if (width > 5 && height > 5) {
-        this.extractCanvasRegion(pageEl, left, top, width, height, (base64) => onSnip(base64, pageNum));
+        // Extract the text lines WITHIN the cropped rectangle (region-scoped),
+        // not the whole page, before tearing down the overlay. The overlay rect
+        // shares the page's client-coordinate space, so the crop box maps
+        // directly onto the text-layer spans' bounding rects.
+        const regionText = this.extractRegionText(pageEl, {
+          left: rect.left + left,
+          top: rect.top + top,
+          right: rect.left + left + width,
+          bottom: rect.top + top + height,
+        });
+        this.cancelSnippingMode();
+        this.extractCanvasRegion(pageEl, left, top, width, height, (base64) =>
+          onSnip(base64, pageNum, regionText)
+        );
+      } else {
+        this.cancelSnippingMode();
       }
     });
+  }
+
+  /**
+   * Collect the text-layer spans whose bounding boxes fall inside a crop
+   * rectangle (in client coordinates) and reconstruct their text in reading
+   * order. Returns "" when the region has no selectable text (scanned page),
+   * letting the caller fall back to an image-only crop reference.
+   */
+  private extractRegionText(
+    pageEl: HTMLElement,
+    crop: { left: number; top: number; right: number; bottom: number }
+  ): string {
+    const spans: RegionTextSpan[] = Array.from(
+      pageEl.querySelectorAll<HTMLElement>(".ai-agent-pdf-text-span")
+    ).map((el) => {
+      const r = el.getBoundingClientRect();
+      return {
+        left: r.left,
+        top: r.top,
+        right: r.right,
+        bottom: r.bottom,
+        text: el.textContent ?? "",
+      };
+    });
+    return extractRegionTextFromSpans(spans, crop);
   }
 
   private extractCanvasRegion(pageEl: HTMLElement, left: number, top: number, width: number, height: number, onSnip: (base64: string) => void): void {

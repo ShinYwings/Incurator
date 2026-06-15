@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.8.0)
+# Incurator - System Behavior (v0.9.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1752,3 +1752,322 @@ vault DB, and they are encoded as tests in P3:
   otherwise every deterministic/local-simulator gate runs and the exact
   provider blocker is documented (this is the only accepted gap).
 - No source or reference file is autonomously edited at any point.
+
+## 27. Graph Quality: Resolution, Support, Hierarchy, And Grounded Reports (Plan C, v0.9.0)
+
+v0.9.0 is the second Evidence Compiler Integrity release. It compiles the
+trusted claim generation published by Plan B (§26) into a reversible,
+support-aware entity/relation graph and a measured deterministic community
+hierarchy whose reports stay claim-level grounded and incrementally
+maintainable. The frozen schema names live in SCHEMA.md §21; this section
+freezes the behavior. Owned failure-atlas cases: **F8** (graph resolution /
+unsupported topology) and **F9** (hierarchy quality / report grounding),
+explicitly deferred to Plan C by §26. Query-serving algorithms (PPR, DRIFT,
+global serving, retrieval tuning) remain Program 3 work. Vault quota, storage
+meters, admission limits, and auto-cleanup are out of scope (plan Non-Goals).
+
+Plan C consumes ONLY one fully published B claim generation (`GEN-`,
+SCHEMA §20.3) and its approved support-eligibility states. Reading mixed or
+unchecked claim generations into graph construction is a stop condition. Graph
+heuristics never compensate for unchecked or broadly grounded claims.
+
+### 27.1 Entity Resolution Lifecycle And Reversible Merges
+
+- **Similarity is candidate generation only (Arena decision 3).** Deterministic
+  normalization (`alias_normalized`) and similarity signals may PROPOSE that two
+  surface forms are the same entity; they may NEVER auto-create an `accepted`
+  alias or auto-fuse two entities. A normalization match creates at most an
+  `ambiguous_candidate` (homonym risk) or, when the §21.6 guards pass, a
+  `merge_proposed` row routed through `entity_merge_proposals`.
+- **Homonyms stay unresolved.** When the same normalized form plausibly maps to
+  more than one distinct entity (e.g. "Mercury" the planet vs. the element vs.
+  the mission), the alias stays `ambiguous_candidate` until an approved decision.
+  The strict quality condition is **0 homonym false merges** on the adversarial
+  gold fixtures; an ambiguous candidate that silently fused entities is a
+  release-blocking defect.
+- **Homonyms are stored as separate rows per entity.** A confirmed homonym is not
+  a single ambiguous record — once each meaning is approved, it is its OWN
+  `entity_aliases` row sharing one `alias_normalized` but carrying a distinct
+  `entity_id`. The surrogate primary key (`ALI-`, SCHEMA §21.1) is what makes
+  this representable: the surface form is deliberately not part of the key, so
+  "Mercury → planet" and "Mercury → element" coexist as distinct resolved rows.
+  A surface-form composite key would have collapsed them into one slot — silently
+  overwriting the first resolution and re-introducing the very false merge this
+  lifecycle exists to prevent.
+- **Exact/high-certainty aliasing still requires guards (Arena decision 4).**
+  Even an exact normalized match is only accepted as an `alias`/merge when ALL of
+  these pass and are recorded in `evidence_json`: entity-type match, context
+  overlap (shared spans/claims/neighbourhood above threshold), no contradicting
+  claim, and the pair is not on the workspace `avoid_merges` list. Any guard
+  failure downgrades the candidate to `ambiguous_candidate` or `rejected`.
+- **Accepted merges preserve origin identity (Arena decision 5).** An accepted
+  merge does NOT delete the origin entity. The origin `graph_entities` row is set
+  `resolution_state='redirected'`, `redirect_to_entity_id` → the surviving
+  canonical entity, and `decision_id` → the accepting `DEC-`. The merge writes a
+  complete `entity_resolution_lineage` row whose `rewrite_json` captures the exact
+  pre-merge entity row plus every relation/community/report/synthesis reference
+  the merge re-pointed. A merge that cannot be represented losslessly there MUST
+  NOT be accepted.
+- **Reversal reconstructs the prior graph.** Reversing an accepted merge replays
+  `rewrite_json` in reverse — restoring the origin entity to `canonical`,
+  re-pointing every rewritten reference, and regenerating the affected
+  relations/communities/reports/synthesis. The reversed decision row is retained
+  (`resolution_status='reversed'` / `decision='reversed'`) as durable audit, never
+  hard-deleted. The acceptance test: reversal yields endpoints and provenance
+  byte-identical to the pre-merge state.
+- **Rejected decisions are durable negative knowledge.** A `rejected` pair is not
+  auto-re-proposed unless new evidence changes its candidate signals, preventing
+  proposal churn.
+- **Authoritative reads resolve redirects.** Every read that builds topology,
+  community input, reports, search materialization, or synthesis resolves
+  `redirected` rows through `redirect_to_entity_id` to the canonical entity. No
+  authoritative artifact may reference a redirected entity directly (the §27.6
+  audit asserts 0 such references).
+
+### 27.2 Independent Claim-Level Relation Support
+
+- **A relation is a proposition with independent supports (Arena decision 6).**
+  Re-extracting the same `(src, tgt, relation_type)` triple ADDS
+  `graph_relation_supports` rows; it never overwrites them. This replaces the
+  current destructive `upsert_graph_relation` overwrite (SCHEMA §11.4 reality),
+  which loses every prior support on the latest write.
+- **Independence is by source lineage, not row count.** A relation's independent
+  support count = the number of DISTINCT `source_lineage_hash` among its
+  `verified` supports. Copied/duplicated/forked sources share a
+  `source_lineage_hash` and therefore count exactly once. The strict quality
+  condition is **0 copied-source rows counted as independent support**.
+- **Corroboration threshold = 2 independent source lineages.** A relation
+  becomes `active` only when this count is **≥ 2** (two genuinely independent
+  sources assert the same proposition). A count of exactly **1** is a single
+  uncorroborated source — however many copied/forked support rows it contributes,
+  they collapse to one lineage — and quarantines as `copied_source_only` (§27.3),
+  never `active`. A count of **0** is `unsupported`. Raising the bar to ≥2 is what
+  makes `copied_source_only` and `active` mutually exclusive: a single-lineage
+  relation can never satisfy `active`, and an `active` relation always carries
+  independent corroboration.
+- **Support eligibility mirrors the B claim lifecycle.** A support is `verified`
+  only when its `knowledge_unit_id` is itself eligible (B `support_status =
+  'verified'`, `retired_at IS NULL`, §26.1/§20.1) AND its cited spans are fresh
+  (the support's evidence hash still matches the span `content_hash`; a drift
+  marks the support `stale`). Only supports derived from the authoritative B
+  generation may be `verified`; a mixed-generation support is a stop condition.
+- **No broad-span fallback (F9).** No graph or report path may substitute an
+  all-upstream-span set for missing claim-level support. The broad-community-span
+  fallback that B's compiler audit measured and handed to Plan C (§26.1) is
+  removed here, not merely reported.
+
+### 27.3 Relation Lifecycle, Edge Classes, And Quarantine
+
+- **Lifecycle (Arena decision 7).** Every relation carries `lifecycle_status ∈
+  {active, provisional, quarantined, retired}`:
+  - `active` — has **≥2 independent source lineages** of `verified` support (§27.2
+    corroboration threshold), both endpoints resolve to canonical entities, and it
+    passed all quarantine checks. **Only `active`, non-retired relations enter
+    authoritative community construction.**
+  - `provisional` — exists but not yet promotable (unrevalidated after migration,
+    or support still pending). The v9 backfill marks every legacy relation
+    `provisional`; none is auto-promoted.
+  - `quarantined` — flagged OUT of authoritative topology with a frozen
+    `quarantine_reason` code AND a `reeval_trigger` describing what would re-admit
+    it. Quarantine is inspectable and re-evaluable — never an opaque discard pile
+    (Arena decision 8).
+  - `retired` — superseded by source edit/delete/split reconciliation; retained
+    as a tombstone, never an authoritative input.
+- **Frozen quarantine reason codes** (SCHEMA §21.6): `unsupported` (no eligible
+  support — 0 independent source lineages), `self_loop`, `contradiction`,
+  `copied_source_only` (exactly 1 independent source lineage — a single,
+  uncorroborated source, below the ≥2 corroboration threshold of §27.2),
+  `bridge_risk` (a single low-confidence edge joining otherwise
+  separate dense components), `endpoint_unresolved`. Detection of self-loops,
+  unsupported edges, contradictions, and bridge-risk candidates runs at compile
+  time; each routes the relation to `quarantined` with the matching code rather
+  than silently dropping or silently admitting it.
+- **A relation is never a "duplicate" (no `duplicate_proposition` code).** The
+  relation's identity IS its canonical proposition — `(resolved source, resolved
+  target, relation_type)` after endpoint resolution (§27.1). Re-asserting that
+  proposition aggregates supports onto the SAME relation (§27.2); it does not
+  produce a second relation row to quarantine. Quarantining a re-assertion as a
+  "duplicate" would suppress its supports and corrupt the independent-support
+  count — the inverse of the aggregation contract — so the state cannot exist by
+  construction. A relation's support-side state is therefore a total partition by
+  independent-source-lineage count: **0** → `unsupported`; **exactly 1** →
+  `copied_source_only` (a single, uncorroborated source); **≥2** → `active`. If
+  two physical rows are ever found for the same canonical proposition,
+  reconciliation (§27.8) merges their supports onto the canonical relation; it
+  never quarantines one as a duplicate.
+- **Edge classes stay distinct (Arena decision 9).** `edge_class ∈ {authored,
+  extracted}` separates links/topology a human or workspace wrote (wikilinks,
+  explicit structure) from LLM-extracted semantic relations. The two classes stay
+  distinct through weighting, hierarchy, audit, and reports. `topology_weight` is
+  computed per edge class; authored edges are NEVER silently treated as extracted
+  factual evidence, and extracted relations never inherit authored structural
+  weight. This preserves the existing `assertion_source` distinction (§11.4) at
+  the topology layer.
+- **Endpoint normalization.** Endpoints are normalized through ACCEPTED
+  resolution only (§27.1) before lifecycle evaluation; an unresolved endpoint
+  quarantines the relation with `endpoint_unresolved` rather than entering
+  topology with a redirected node.
+
+### 27.4 Deterministic Hierarchical Community Construction
+
+- **Benchmark-driven, multi-metric selection (Arena decision 10).** The hierarchy
+  algorithm is chosen by the frozen multi-metric benchmark (P0 Evidence Ledger
+  "Hierarchy Benchmark Freeze"), not assumed. Filtered connected components is the
+  EXPLICIT degraded fallback; seeded weighted Leiden (or an approved alternative)
+  is a CANDIDATE that is adopted only if it improves the approved metric gates
+  WITHOUT any homonym, provenance, report-support, or stability regression.
+  Modularity alone is insufficient.
+- **Deterministic under fixed inputs.** Construction takes a stable sorted input
+  (relations ordered by a deterministic key), an explicit seed, and an explicit
+  threshold/config set. The triple `(graph content, config, seed)` produces an
+  IDENTICAL hierarchy — same members, same levels, same identities — on repeat
+  runs. `config_hash` pins the algorithm + seed + thresholds that produced each
+  community.
+- **Real hierarchy levels.** The existing `community_reports.level` column now
+  carries the real depth (0 = leaf); `parent_community_key` records the hierarchy
+  edge. The current level-0-only behavior (SCHEMA §11.5 reality) is replaced.
+- **No unexplained giant component.** A single component spanning more than the
+  approved threshold of the graph is a benchmark failure unless explained by the
+  authored-topology structure; it blocks hierarchy adoption.
+- **Active-canonical input only.** A community built from anything other than
+  `active` (§27.3) relations over canonical (§27.1) entities is invalid. The
+  fallback never silently changes serving mode: when the degraded
+  filtered-connected-components path runs, it is recorded in `config_hash` and
+  surfaced by the audit, not hidden.
+
+### 27.5 Claim-Grounded Community Reports
+
+- **Content/config-derived identity (Arena decision 11).** `community_key` is a
+  function of `(level, member_hash, support_hash, config_hash)`. When the active
+  membership or eligible support set changes, the identity changes — a correct
+  restructuring is preferred over artificial id stability. The superseded
+  community/report is set `retired_at` BEFORE synthesis (§ L4) consumes it, so no
+  stale report feeds a downstream artifact.
+- **Exact eligible claim support, no fallback (Arena decision 12, F9).** Every
+  report finding cites exact eligible claim support drawn from the `active`
+  relations over canonical entities in the community. The whole-community-span
+  fallback is removed: a finding that cannot cite eligible claim-level support is
+  not emitted. 100% of served report findings carry eligible active claim
+  support; 0 broad-span findings.
+- **Fresh dependencies.** A report records precise dependency hashes over its
+  input entities/relations/spans (the existing `dependency_hash`, §11.5, now
+  computed over the active-canonical-support closure). When an input changes the
+  report is stale and is regenerated before it is used as global evidence; a stale
+  or retired report never serves.
+
+### 27.6 Graph Audit Surface (`wiki lint` Extension)
+
+- The graph audit is READ-ONLY and runs (a) as the graph/report publish gate
+  inside the publish transaction and (b) on demand via `wiki lint`, which gains a
+  **Graph Quality** section alongside the Plan B Compiler Integrity section
+  (§26.5). The audit asserts the schema-level invariants frozen in SCHEMA §21.8:
+  - 0 authoritative references to `redirected` entities;
+  - 0 `active` relations with fewer than 2 independent source lineages of `verified` support;
+  - 0 relation endpoints that are not canonical entities;
+  - every `quarantined` relation has a reason code AND a re-eval trigger;
+  - every served report finding cites eligible active claim support;
+  - 0 stale/retired aliases, supports, communities, or reports feeding an
+    authoritative artifact;
+  - 0 mixed claim generations in graph/report input;
+  - resolution safety: 0 homonym false merges; every accepted alias/merge has a
+    reason, evidence, source/claim lineage, and reversible rewrite lineage;
+  - 100% provisional/quarantined edges have a reason and re-evaluation trigger.
+- `wiki lint` exits non-zero when a release-blocking graph-audit assertion fails,
+  so CI and the testbed gate on it. Existing lint checks and the Plan B Compiler
+  Integrity section are unchanged.
+- **Surface scope: CLI only in v0.9.0.** No MCP tool schema changes and no plugin
+  contract changes (PLUGIN_SCHEMA.md is intentionally untouched apart from the
+  synchronized version title). MCP/plugin clients observe Plan C only through
+  better evidence on already-returned records (canonical entities, active
+  relations, claim-grounded reports).
+
+### 27.7 v9 Migration Rehearsal And Rollback Acceptance Criteria
+
+The v9 migration (SCHEMA §21.8) is forward-only and additive and ships only with
+a rehearsed rollback path. Acceptance criteria — ALL must pass before the
+migration may touch a real vault DB, encoded as tests in P3:
+
+1. Rehearsal runs on a disposable copy of the pre-implementation backup
+   (`state.sqlite.C-baseline.bak`, P0 Evidence Ledger) — never first on the live
+   testbed DB.
+2. Post-migration: `PRAGMA integrity_check` = ok; `schema_version` row = 9; all
+   pre-existing row counts unchanged; every legacy `graph_entities` row reads
+   `resolution_state='canonical'`, `redirect_to_entity_id IS NULL`; every legacy
+   `graph_relations` row reads `lifecycle_status='provisional'`,
+   `edge_class='extracted'`, `generation_id IS NULL`; zero `entity_aliases`,
+   `entity_merge_proposals`, `entity_resolution_lineage`, and
+   `graph_relation_supports` rows exist (the migration INFERS nothing).
+3. Idempotency: running the migration twice is a no-op the second time.
+4. Round-trip: `wiki db export` → `wiki db import` on a migrated DB preserves the
+   four new tables and the new columns; the `deleted_records` CHECK list and
+   tombstone deletion-before-upsert (§13.1) cover the four new tables.
+5. Restore drill: replacing the migrated DB with the backup and re-running the
+   migration reproduces an identical schema fingerprint (SHA-256 over ordered
+   `sqlite_master` DDL).
+6. Failure rollback: if migration, the post-migration graph audit, or a hierarchy
+   gate fails, restore the DB backup, discard the staged graph/report generation,
+   re-emit projections/search from the prior authoritative graph generation, and
+   (after three repeated QA failures) return to planning via the rollback
+   strategist.
+7. Old graph/report generation and merge/rewrite lineage are preserved until the
+   new graph audit passes; source truth under `03_Notes/` / `04_Resources/` is
+   never modified by migration, compile, or rollback.
+
+### 27.8 Source Edit/Delete Reconciliation And Idempotent Rebuild
+
+- **Unchanged rebuild is idempotent (compiler integrity).** Re-running graph
+  construction on the same authoritative B generation + same config/seed reuses
+  the existing entity/relation/community/report identities, hashes, and counts —
+  **no entity/relation/report count amplification**. Duplicate amplification is
+  the measured artifact-growth signal (quota stays out of scope).
+- **One-source mutation changes only its closure.** A source edit/delete/split
+  reconciles exactly the measured downstream graph/report/synthesis closure (via
+  `artifact_dependencies`, extending §26.4): supports whose source basis
+  disappeared are retired, relations that drop below 2 independent verified
+  source lineages drop out of `active`, communities whose active membership/support
+  changed retire and regenerate, and dependent reports/synthesis are invalidated
+  and regenerated or retired. The closure is measured and asserted by tests, not
+  assumed.
+- **Atomic graph/report publish.** Graph resolution, support aggregation,
+  community construction, and report generation for a scope publish together or
+  not at all, inside the publish transaction (extending §26.3). A failed graph
+  audit discards the staged graph/report generation; the prior authoritative
+  graph generation, its projections, and its search materialization remain
+  untouched and continue serving. Disposable projections/search re-emit from the
+  authoritative DB after commit.
+
+### 27.9 GQ07 Relation-Confidence Calibration Gate
+
+- Plan E P7 measured production relation `confidence` as non-discriminative (all
+  1,180 values in `0.9–1.0`, mean `0.966`). Therefore
+  `graph_relations.confidence` and `graph_relation_supports.confidence` are **NOT
+  a calibrated noise threshold** and MUST NOT be used as a serving-time filter
+  until per-relation-type quality labels prove separation (P0 Evidence Ledger
+  GQ07; SCHEMA §21.9).
+- Quarantine and active-promotion decisions (§27.3) gate on support ELIGIBILITY
+  and STRUCTURAL signals (independent verified support, endpoint resolution,
+  self-loop/bridge/duplicate detection), never on a raw-confidence cutoff. The
+  P7 holdout showed a fixed `0.5` filter simultaneously blocked a noisy bridge
+  AND lost a true `0.25`-confidence edge — a rejected default.
+- Any calibrated-confidence mechanism is `benchmark-later`: no calibrated column
+  is frozen until P5 produces labeled relation-quality evidence. Changing the
+  partition algorithm cannot repair untrustworthy edge scores, so hierarchy
+  benchmarking compares raw connected components, confidence-denoised components,
+  authored topology, and seeded Leiden ONLY after relation-quality labels exist.
+
+### 27.10 Testbed Validation (Plan C)
+
+- The confirmed active scenario (`gaussian_splatting`, P0 Evidence Ledger) is
+  initialized and exercised with `VAULT_ROOT=testbed wiki status|add|update|lint`,
+  plus the approved graph-audit, resolution, relation-support, hierarchy, and
+  report scenario commands.
+- DB-native graph adversarial fixtures (synonyms, homonyms, abbreviations,
+  multilingual aliases, copied-source support, contradictions, self-loops, noisy
+  bridges, ambiguous aliases, merge reversal, edit/delete) are added and run.
+- Local Markdown/PDF and Reference Mode external sources are all validated.
+  Hierarchy/report generation runs with the configured provider where available;
+  otherwise every deterministic/local-simulator gate runs and the exact provider
+  blocker is documented (the only accepted gap).
+- Graph metrics are reported separately; no quota UI, limits, admission control,
+  or auto-deletion is implemented. No source or reference file is autonomously
+  edited at any point.

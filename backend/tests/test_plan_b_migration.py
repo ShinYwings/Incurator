@@ -119,8 +119,13 @@ def test_migration_upgrades_v7_db_additively() -> None:
         db.init_db(path)  # runs SCHEMA_SQL (IF NOT EXISTS) + _apply_migrations
 
         with db.connect(path) as conn:
-            # §26.6.2: schema_version stamped to 8.
-            assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == 8
+            # §26.6.2: schema_version stamped to the current SCHEMA_VERSION (Plan C
+            # bumped this 8 -> 9; the v7→v8 additive migration behavior below is
+            # unchanged — the DB now also runs through the additive v9 migration).
+            assert (
+                conn.execute("SELECT version FROM schema_version").fetchone()[0]
+                == db.SCHEMA_VERSION
+            )
             # integrity preserved.
             assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
             # Pre-existing legacy row preserved AND backfilled conservatively.
@@ -163,7 +168,10 @@ def test_migration_is_idempotent() -> None:
         assert fp1 == fp2
         with db.connect(path) as conn:
             assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-            assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == 8
+            assert (
+                conn.execute("SELECT version FROM schema_version").fetchone()[0]
+                == db.SCHEMA_VERSION
+            )
 
 
 def test_migration_schema_fingerprint_is_deterministic() -> None:

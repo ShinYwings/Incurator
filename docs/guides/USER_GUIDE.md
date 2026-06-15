@@ -443,6 +443,46 @@ What this means in practice:
 
 ---
 
+## 🕸️ Graph Quality (v0.9.0)
+
+v0.9.0 turns your verified claims into a trustworthy knowledge graph. It
+distinguishes when two names are really the same thing, tracks how independently
+a relationship is supported, and builds community summaries that stay grounded in
+exact claims (specs: SCHEMA.md §21, SYSTEM_BEHAVIOR.md §27).
+
+What this means in practice:
+
+- **Merges are careful and reversible**: the system never silently fuses two
+  entities because their names look alike. Synonyms and abbreviations merge only
+  after safety checks; ambiguous names (homonyms) are left separate until
+  decided. Any accepted merge can be undone exactly, restoring the original
+  entities and every relationship.
+- **Support is counted honestly**: a relationship backed by ten copies of the
+  same source counts as one independent confirmation, not ten. Re-running a build
+  accumulates genuine support instead of overwriting it.
+- **Community reports need corroboration (≥2 independent sources)**: a
+  relationship becomes *active* — eligible to ground a community report — only
+  once **two genuinely independent sources** assert it. A claim found in just one
+  source (however many times it is re-stated there) stays uncorroborated and does
+  not yet build a community. In practice this means a vault with a single source
+  per topic produces few or no community reports until a second independent source
+  corroborates the same relationships; this is intentional — Plan C reports are
+  grounded only on cross-source–confirmed facts.
+- **Weak edges are quarantined, not hidden**: self-loops, contradictions,
+  unsupported edges, and risky "bridge" links are set aside with a stated reason
+  and a condition for re-admission — they never quietly shape your community
+  summaries. Only fully supported relations build communities.
+- **Stable, explainable communities**: the same graph produces the same
+  community hierarchy every time. Community reports cite exact supporting claims;
+  the old "summarize the whole cluster" fallback is gone, and outdated reports
+  retire and regenerate when their inputs change.
+- **`wiki lint` audits the graph too**: lint gains a Graph Quality section that
+  flags references to merged-away entities, unsupported active relations,
+  unresolved endpoints, ungrounded report findings, and any homonym false merge,
+  exiting non-zero on release-blocking findings.
+
+---
+
 ## 🧑‍🎨 Persona Setup
 
 Incurator has two persona layers, each operating at a different level of the system.

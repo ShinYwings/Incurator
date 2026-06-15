@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { extractPdfPageTextFromDom, withVisionFallback } from "./pdfCapture";
+import {
+  extractPdfPageTextFromDom,
+  extractRegionTextFromSpans,
+  withVisionFallback,
+  type RegionTextSpan,
+} from "./pdfCapture";
 import type { PdfPageContext } from "../types";
 
 function makeCtx(overrides: Partial<PdfPageContext> = {}): PdfPageContext {
@@ -99,5 +104,66 @@ describe("extractPdfPageTextFromDom", () => {
     expect(result.textQuality.source).toBe("obsidian-text-layer");
     expect(result.textQuality.isScannedLike).toBe(false);
     warningSpy.mockRestore();
+  });
+});
+
+describe("extractRegionTextFromSpans", () => {
+  // A 200x200 crop box at the page origin.
+  const crop = { left: 0, top: 0, right: 200, bottom: 200 };
+
+  function span(
+    text: string,
+    left: number,
+    top: number,
+    width = 40,
+    height = 12
+  ): RegionTextSpan {
+    return { text, left, top, right: left + width, bottom: top + height };
+  }
+
+  it("returns only the text inside the crop, in reading order", () => {
+    const spans = [
+      span("world", 60, 10),
+      span("hello", 10, 10),
+      span("second", 10, 40),
+      span("line", 60, 40),
+    ];
+    expect(extractRegionTextFromSpans(spans, crop)).toBe("hello world\nsecond line");
+  });
+
+  it("excludes spans whose vertical midpoint is outside the crop band", () => {
+    const spans = [
+      span("inside", 10, 100),
+      // top:300 — entirely below a 200-tall crop; midpoint 306 is outside.
+      span("below", 10, 300),
+      // a line clipped at the bottom edge: top 196, midpoint 202 > 200 → excluded.
+      span("clipped", 10, 196),
+    ];
+    expect(extractRegionTextFromSpans(spans, crop)).toBe("inside");
+  });
+
+  it("excludes spans that do not overlap horizontally", () => {
+    const spans = [
+      span("keep", 10, 10),
+      // left:400 — to the right of the 200-wide crop.
+      span("faraway", 400, 10),
+    ];
+    expect(extractRegionTextFromSpans(spans, crop)).toBe("keep");
+  });
+
+  it("returns an empty string when the region has no selectable text (scanned page)", () => {
+    expect(extractRegionTextFromSpans([], crop)).toBe("");
+    expect(extractRegionTextFromSpans([span("   ", 10, 10)], crop)).toBe("");
+    expect(extractRegionTextFromSpans([span("offscreen", 999, 999)], crop)).toBe("");
+  });
+
+  it("groups rows by their own rendered height (zoom-independent)", () => {
+    // Larger spans (height 40) at a high zoom: a 20px top delta must NOT break a row.
+    const spans = [
+      span("BIG", 10, 10, 80, 40),
+      span("ROW", 100, 18, 80, 40), // same visual row, 8px lower
+      span("NEXT", 10, 70, 80, 40), // clearly a new row
+    ];
+    expect(extractRegionTextFromSpans(spans, crop)).toBe("BIG ROW\nNEXT");
   });
 });

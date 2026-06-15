@@ -51,6 +51,10 @@ SYNC_TABLES: list[str] = [
     "compiler_generations",
     "graph_entities",
     "graph_relations",
+    "graph_relation_supports",
+    "entity_aliases",
+    "entity_merge_proposals",
+    "entity_resolution_lineage",
     "community_reports",
     "dag_edges",
     "artifact_dependencies",
@@ -91,6 +95,11 @@ _UPDATED_AT_COL: dict[str, str] = {
     # exported authoritative-generation status wins (SCHEMA §20.3).
     "graph_entities": "updated_at",
     "graph_relations": "updated_at",
+    "graph_relation_supports": "updated_at",
+    "entity_aliases": "updated_at",
+    "entity_merge_proposals": "updated_at",
+    # entity_resolution_lineage is intentionally absent: it has no updated_at
+    # column (immutable reversal lineage), so it always-upserts on import.
     "community_reports": "updated_at",
     "memory_paths": "created_at",
     "prompt_runs": "created_at",
@@ -117,6 +126,10 @@ _PK_COL: dict[str, str | None] = {
     "compiler_generations": "id",
     "graph_entities": "id",
     "graph_relations": "id",
+    "graph_relation_supports": None,  # composite PK — always upsert
+    "entity_aliases": "id",
+    "entity_merge_proposals": "id",
+    "entity_resolution_lineage": None,  # composite PK — always upsert
     "community_reports": "id",
     "memory_paths": "id",
     "prompt_runs": "trace_id",

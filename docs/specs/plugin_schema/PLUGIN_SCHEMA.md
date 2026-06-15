@@ -1,7 +1,15 @@
-# Incurator Plugin Schema & API Contract (v0.8.0)
+# Incurator Plugin Schema & API Contract (v0.9.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
+> **v0.9.0 note (Plan C — Graph Quality):** the v0.9.0 release changes no plugin
+> contract. The graph audit is a CLI surface (`wiki lint` Graph Quality section),
+> and the plugin observes Plan C only through better backend evidence (canonical
+> entities, active claim-grounded relations, and claim-grounded community reports
+> on already-returned records). See SYSTEM_BEHAVIOR §27.6. The title version is
+> bumped together with the other spec domains; the binding product version bump
+> lands at the Plan C release step.
+>
 > **v0.8.0 note (Plan B — Evidence Compiler Integrity):** the v0.8.0 release
 > changes no plugin contract. The compiler audit is a CLI surface
 > (`wiki lint`), and the plugin observes Plan B only through better backend
@@ -665,6 +673,13 @@ Rules:
   Context chips may be toggled invisible/excluded; excluded chips remain visible
   in the UI but must not be included in model prompts, continuity summaries, or
   primary-context detection.
+- A PDF snip (`Cmd+Shift+X`) must capture the text **scoped to the cropped
+  rectangle** — the text-layer lines whose boxes fall inside the snip — and use
+  that region text as the crop's primary-focus content. It must not inject the
+  whole page text (or its RAG hits) into the primary focus, and it must not
+  discard the region text entirely. When the cropped region has no selectable
+  text (e.g. a scanned page), the crop falls back to an image-only reference that
+  is still marked as primary focus.
 - Selected-context sidechat turns should include current page/document structure
   as supplementary grounding when available: Markdown headings as a compact
   outline and PDF outline/window context for PDF tabs. These outline/page blocks
@@ -680,7 +695,10 @@ Rules:
   could not be located.
 - Attached PDF/image snips must be sent to vision-capable models as image parts.
   For non-vision models, the prompt must explicitly state that image details are
-  unavailable instead of silently dropping the crop.
+  unavailable instead of silently dropping the crop. A primary-focus reference
+  that carries an image but no text (an image-only crop or dragged image) must
+  still emit a `<primary_focus_selection>` anchor naming the attached image as
+  the core subject, so the image is never buried under background page context.
 - When the active PDF viewer already provides local page text, nearby window
   text, or image/crop context, provider context assembly must skip backend
   whole-PDF context and PDF RAG calls for that turn. Local PDF.js text/image

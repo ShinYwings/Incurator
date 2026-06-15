@@ -89,6 +89,54 @@ evaluated_code:
       plumbing on the claim-support freshness helper; it touches NO retrieval,
       ranking, fusion, projection, or materialize_chunks path, so the lexical
       FTS5/BM25 Q06 holdout metric is provably unaffected. Re-armed.
+  plan_c_rearm:
+    date: '2026-06-15'
+    prior_db_sha256: ab865daa13fa5338f4aa72e465e68f77ba6ed6c55cc68ac4790c49592c45343b
+    reason: >-
+      Plan C (v0.9.0) edited db.py across six phases. P3 added the additive v9
+      schema migration foundation + the entity-resolution / reversible-merge API
+      (SCHEMA_VERSION 8->9, four new graph-quality tables, resolution/lifecycle
+      columns, evaluate_merge_guards / propose / accept / reverse merge helpers;
+      the P3 commit re-pinned db.py to ab865daa without this narrative block). P4
+      then added the relation lifecycle/topology compiler (QUARANTINE_REASON_CODES,
+      compile_relation_lifecycle, detect_bridge_risk_relations) and a `collections`
+      import, re-pinning db.py to 47f5b267. P5 then added the
+      filtered-connected-components hierarchy fallback (connected_components,
+      SYSTEM_BEHAVIOR §27.4), re-pinning db.py 47f5b267 -> 7a8555e6. P6 then added
+      the deterministic claim-grounded graph-generation compiler
+      (rebuild_graph_generation, reconcile_source_change, graph_config_hash, a
+      `hashlib` import, and a merge-upsert / retired-filter extension to
+      upsert_community_report / list_community_reports / record_artifact_dependency;
+      SYSTEM_BEHAVIOR §27.5/§27.8), re-pinning db.py 7a8555e6 -> f126c5af; a P6 review
+      then pushed the reconcile span scan down into a SQLite LIKE pre-filter and made
+      rebuild skip the write for unchanged communities (no write amplification),
+      re-pinning db.py f126c5af -> 87517ee3; a second review round then made the LIKE
+      needle `json.dumps(sid)` (correct quote/backslash escaping), chunked the LIKE
+      clause under SQLITE_MAX_VARIABLE_NUMBER, and replaced rebuild's per-community
+      `IN (?, …)` queries with fixed bulk fetches grouped in Python (var-limit-safe),
+      re-pinning db.py 87517ee3 -> 8c4d6e3a. P7 then added the read-only graph audit
+      surface (graph_audit + the frozen GRAPH_AUDIT_CODES set; SYSTEM_BEHAVIOR §27.6 /
+      SCHEMA §21.8) — a pure assertion pass over graph/report state that NEVER writes —
+      re-pinning db.py 8c4d6e3a -> 4a89f193. P7 then landed the live-pipeline cutover:
+      a graph_relation_supports WRITER (upsert_graph_relation_support — aggregates one
+      independent claim-level support per asserting unit, the ON-CONFLICT-idempotent
+      ≥2-lineage corroboration source) consumed by persist_graph_data, swapping the
+      live compile_global_l3 onto the claim-grounded rebuild_graph_generation path
+      (SYSTEM_BEHAVIOR §27.2/§27.5), re-pinning db.py 4a89f193 -> 5220ac73. A P7
+      re-review then hardened graph_audit so a dangling (non-existent) active-relation
+      endpoint is flagged endpoint_not_canonical instead of being silently whitelisted
+      as a None state, re-pinning db.py 5220ac73 -> f5e4382c. A second P7 re-review
+      then exempted a `contradicts` relation from the contradiction quarantine rule (so
+      two mutual contradicts edges no longer quarantine each other) and made
+      upsert_graph_relation_support canonicalize (dedup+sort) its cited spans so a
+      duplicate span id cannot vary support_hash, re-pinning db.py f5e4382c -> 46053788.
+      All of
+      this is additive entity/relation graph-compiler + community-report logic; none
+      touches retrieval, ranking, fusion, projection, embedding, chunking, or
+      materialize_chunks — the only paths the lexical FTS5/BM25 Q06 holdout
+      exercises — so the frozen Q06 metric is provably unaffected. The
+      single-consumption harness (run_count=3, max) cannot regenerate the result;
+      this fingerprint is a re-armable drift tripwire, not a permanent code freeze.
   file_sha256:
     backend/scripts/failure_atlas_holdout.py: c6afe0307dd3f68fa9902387bb0dc269db6ff9d6b73ad2f3ac1cc6ecc883297a
     backend/src/curator/retrieval/evaluation.py: 0cc9e655142c725dd4bbbabfd2b44d6bf0355265bb2510fbb78cbd47d7d43c17
@@ -97,7 +145,7 @@ evaluated_code:
     backend/src/curator/retrieval/fusion.py: ffed6f90d6b0eb55692dfd9a02526d8e4a220ef6625a3e245175a07fa08eb716
     backend/src/curator/retrieval/embedding.py: a6a7da88af3fc824f1fa2c9a4f4ce0720e870c0584c49e011b865678cb0f8f7e
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
-    backend/src/curator/db.py: 1afc2c9ee81f17a02f5d50a02d4aaede468584c5e6da376e0be3dc3edc84fb0c
+    backend/src/curator/db.py: 071138e92ef2571b53f0c4f8a6254aacea641aa6c87b0eccd15ae38593d927ec
   preflight_family_metrics:
     direct-factual:
       query_count: 7
