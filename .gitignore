@@ -42,3 +42,7 @@ uv.lock
 
 # Plan E disposable research inputs/results (may contain private vault snapshots)
 backend/research_spikes/local/
+
+# Build Manifests
+build_manifest.json
+backend/src/curator/data/build_manifest.json
