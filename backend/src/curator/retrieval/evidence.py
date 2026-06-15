@@ -15,7 +15,7 @@ from pathlib import Path
 from .. import config as cfg
 from .. import curate_yml, db
 from ..pipeline import memory_paths as mp
-from .models import EvidenceItem, EvidencePack, QueryRequest
+from .models import EvidenceItem, EvidencePack, QueryRequest, StructuredLocator
 
 __all__ = ["build_evidence", "seed_terms"]
 
@@ -39,6 +39,56 @@ def _hydrate_full_texts(db_path: Path, span_ids: list[str]) -> dict[str, str]:
     from ..pipeline.compile import hydrate_spans
 
     return hydrate_spans(db_path, span_ids)
+
+
+def _source_meta_by_ids(db_path: Path, source_ids: list[int]) -> dict[int, dict]:
+    """Batch-fetch source metadata for locator resolution (§29.4)."""
+    if not source_ids:
+        return {}
+    with db.connect(db_path) as conn:
+        ph = ",".join("?" for _ in source_ids)
+        rows = conn.execute(
+            f"SELECT id, file_type, external_path, import_origin, is_reference "
+            f"FROM sources WHERE id IN ({ph})",
+            tuple(source_ids),
+        ).fetchall()
+    return {row["id"]: dict(row) for row in rows}
+
+
+def _build_locator(span: dict, src: dict) -> StructuredLocator:
+    """Build a StructuredLocator from a span row and its source metadata (§29.4)."""
+    ft = src.get("file_type", "md")
+    if ft == "pdf":
+        source_kind = "vault_pdf"
+    elif src.get("is_reference"):
+        source_kind = "external_uri"
+    else:
+        source_kind = "vault_markdown"
+    relpath = span.get("relpath")
+    heading = span.get("section_title")
+    toc_id = span.get("toc_id")
+    page_number = span.get("page_number")
+    external_uri = (
+        (src.get("external_path") or src.get("import_origin"))
+        if src.get("is_reference") else None
+    )
+    if not relpath:
+        locator_status = "fallback_source"
+    elif heading or toc_id or page_number:
+        locator_status = "exact"
+    else:
+        locator_status = "fallback_file"
+    return StructuredLocator(
+        source_id=span.get("source_id"),
+        source_kind=source_kind,
+        relpath=relpath,
+        heading=heading,
+        block_id=None,
+        page_number=page_number,
+        toc_id=toc_id,
+        external_uri=external_uri,
+        locator_status=locator_status,
+    )
 
 
 def seed_terms(query: str, limit: int = 8) -> list[str]:
@@ -115,10 +165,16 @@ def _entity_evidence(db_path: Path, query: str) -> tuple[list[EvidenceItem], lis
 
 
 def _span_items(db_path: Path, span_ids: list[str]) -> list[EvidenceItem]:
+    if not span_ids:
+        return []
     full = _hydrate_full_texts(db_path, span_ids)
+    spans = db.get_source_spans_by_ids(db_path, span_ids)
+    src_ids = [s["source_id"] for s in spans if s.get("source_id") is not None]
+    src_meta = _source_meta_by_ids(db_path, list(set(src_ids)))
     items: list[EvidenceItem] = []
-    for span in db.get_source_spans_by_ids(db_path, span_ids):
+    for span in spans:
         text = full.get(span["id"])
+        locator = _build_locator(span, src_meta.get(span.get("source_id"), {}))
         items.append(
             EvidenceItem(
                 id=span["id"], kind="source_span",
@@ -126,6 +182,7 @@ def _span_items(db_path: Path, span_ids: list[str]) -> list[EvidenceItem]:
                 text=text if text is not None else span.get("text_preview", ""),
                 evidence_status="ok" if text is not None else "stale",
                 source_span_ids=[span["id"]],
+                locator=locator,
             )
         )
     return items
@@ -232,19 +289,9 @@ def build_evidence(
             warnings.append(f"unknown source: {request.source_key}")
         else:
             spans = db.list_source_spans(db_path, sid)
-            full = _hydrate_full_texts(db_path, [s["id"] for s in spans])
-            for span in spans:
-                text = full.get(span["id"])
-                pack.items.append(
-                    EvidenceItem(
-                        id=span["id"], kind="source_span",
-                        title=span.get("section_title") or "",
-                        text=text if text is not None else span.get("text_preview", ""),
-                        evidence_status="ok" if text is not None else "stale",
-                        source_span_ids=[span["id"]],
-                    )
-                )
-            pack.source_span_ids = [s["id"] for s in spans]
+            span_ids = [s["id"] for s in spans]
+            pack.items.extend(_span_items(db_path, span_ids))
+            pack.source_span_ids = span_ids
         return pack
 
     if route == "global":

@@ -250,25 +250,13 @@ def test_oracle_orchestrator_forwards_policy_to_build_evidence(vault) -> None:
 # §29 — StructuredLocator resolution oracle (P4)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="§29.4: build_evidence does not yet resolve StructuredLocator for "
-    "evidence items. Assigned to Plan A P4.",
-)
-def test_oracle_evidence_items_have_locators(vault, tmp_path) -> None:
+def test_oracle_evidence_items_have_locators(vault) -> None:
     """Each source-span-backed EvidenceItem must carry a StructuredLocator (§29.5)."""
-    paths = vault
-    note_dir = tmp_path / "04_Resources"
-    note_dir.mkdir()
-    note_file = note_dir / "pa.md"
-    note_file.write_text("# Intro\n\nSpan content.\n")
-    with db.connect(paths.state_db) as conn:
-        conn.execute("UPDATE sources SET relpath = ? WHERE id = 1",
-                     (str(note_file.relative_to(tmp_path)),))
-    _seed_spans(paths)
     from curator.retrieval.models import QueryRequest
-    request = QueryRequest(question="span content query")
-    pack = evidence_mod.build_evidence(paths, request, "local")
+    paths = vault
+    _seed_spans(paths)
+    request = QueryRequest(question="span content query", mode="source-section", source_key="1")
+    pack = evidence_mod.build_evidence(paths, request, "source-section")
     span_items = [it for it in pack.items if it.kind == "source_span"]
     assert span_items, "expected at least one source_span item"
     for item in span_items:
