@@ -125,7 +125,12 @@ evaluated_code:
       (SYSTEM_BEHAVIOR §27.2/§27.5), re-pinning db.py 4a89f193 -> 5220ac73. A P7
       re-review then hardened graph_audit so a dangling (non-existent) active-relation
       endpoint is flagged endpoint_not_canonical instead of being silently whitelisted
-      as a None state, re-pinning db.py 5220ac73 -> f5e4382c. All of
+      as a None state, re-pinning db.py 5220ac73 -> f5e4382c. A second P7 re-review
+      then exempted a `contradicts` relation from the contradiction quarantine rule (so
+      two mutual contradicts edges no longer quarantine each other) and made
+      upsert_graph_relation_support canonicalize (dedup+sort) its cited spans so a
+      duplicate span id cannot vary support_hash, re-pinning db.py f5e4382c -> 46053788.
+      All of
       this is additive entity/relation graph-compiler + community-report logic; none
       touches retrieval, ranking, fusion, projection, embedding, chunking, or
       materialize_chunks — the only paths the lexical FTS5/BM25 Q06 holdout
@@ -140,7 +145,7 @@ evaluated_code:
     backend/src/curator/retrieval/fusion.py: ffed6f90d6b0eb55692dfd9a02526d8e4a220ef6625a3e245175a07fa08eb716
     backend/src/curator/retrieval/embedding.py: a6a7da88af3fc824f1fa2c9a4f4ce0720e870c0584c49e011b865678cb0f8f7e
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
-    backend/src/curator/db.py: f5e4382cc200d0f6615e02ede854208526c6dd09533a9688c31961f076412881
+    backend/src/curator/db.py: 46053788f5bece38aa4cef84130686454f36d8fc6ac0df2fc9f0db2ce8a3999d
   preflight_family_metrics:
     direct-factual:
       query_count: 7

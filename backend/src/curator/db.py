@@ -2588,7 +2588,11 @@ def upsert_graph_relation_support(
     ``conn`` to run inside the caller's atomic publish transaction (§27.8)."""
     if support_status not in SUPPORT_STATUSES:
         raise ValueError(f"invalid support_status: {support_status!r}")
-    spans = sorted(source_span_ids or [])
+    # Canonicalize the cited spans: dedup THEN sort, so a duplicate span id (from a
+    # noisy LLM array or an over-counting caller) cannot make support_hash vary by
+    # multiplicity. Two supports citing the same set of spans must hash identically,
+    # else the ON-CONFLICT idempotency below silently breaks (a "new" duplicate row).
+    spans = sorted(set(source_span_ids or []))
     # Content hash of (proposition, cited spans): dedups re-assertion of the same
     # evidence within a relation. The relation_id already encodes the canonical
     # proposition (upsert_graph_relation dedups on src/tgt/type), so the spans are
@@ -3080,16 +3084,21 @@ def _classify_relation_lifecycle(
             return "quarantined", "endpoint_unresolved"
 
     # Contradiction: a `contradicts` relation joins the same endpoints (either
-    # direction), excluding the relation being compiled.
-    contradicted = conn.execute(
-        "SELECT 1 FROM graph_relations WHERE relation_type = 'contradicts' "
-        "AND id != ? "
-        "AND ((source_entity_id = ? AND target_entity_id = ?) "
-        "  OR (source_entity_id = ? AND target_entity_id = ?)) LIMIT 1",
-        (relation_id, src, tgt, tgt, src),
-    ).fetchone()
-    if contradicted is not None:
-        return "quarantined", "contradiction"
+    # direction), excluding the relation being compiled. This quarantines a NON-
+    # contradiction relation (e.g. `extends`) when the graph ALSO asserts the
+    # endpoints contradict — an inconsistent pair. A `contradicts` relation is itself
+    # exempt: it must not be quarantined by the very rule it embodies, otherwise two
+    # mutual `contradicts` edges (A→B and B→A) would quarantine each other (§27.3).
+    if rtype != "contradicts":
+        contradicted = conn.execute(
+            "SELECT 1 FROM graph_relations WHERE relation_type = 'contradicts' "
+            "AND id != ? "
+            "AND ((source_entity_id = ? AND target_entity_id = ?) "
+            "  OR (source_entity_id = ? AND target_entity_id = ?)) LIMIT 1",
+            (relation_id, src, tgt, tgt, src),
+        ).fetchone()
+        if contradicted is not None:
+            return "quarantined", "contradiction"
 
     # Bridge risk (topology): cut edge between two dense components. A structural
     # bridge cannot silently enter communities even if otherwise supported, so this

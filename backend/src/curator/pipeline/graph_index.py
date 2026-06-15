@@ -262,7 +262,10 @@ def _write_relation_supports(
             db_path,
             relation_id=rel_id,
             knowledge_unit_id=unit_id,
-            source_span_ids=spans,
+            # Dedup the intersecting spans: a span id repeated in the relation's
+            # cited array would otherwise be appended twice (the writer also
+            # canonicalizes defensively, so support_hash stays stable either way).
+            source_span_ids=sorted(set(spans)),
             source_lineage_hash=source_lineage_hash,
             assertion_source=getattr(rel, "assertion_source", "source_states"),
             confidence=getattr(rel, "confidence", 0.0),

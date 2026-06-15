@@ -348,3 +348,78 @@ def test_edge_class_separates_authored_from_extracted(vault: Path) -> None:
         "authored and extracted edge classes stay distinct; an authored link is "
         "never silently counted as extracted factual evidence (§27.3)"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Contradiction-rule exemption (review fix)
+# --------------------------------------------------------------------------- #
+
+
+def test_contradicts_relation_is_not_self_quarantined_by_contradiction(
+    vault: Path,
+) -> None:
+    """A `contradicts` relation must NOT be quarantined by the contradiction rule
+    it embodies. Two mutual `contradicts` edges (A->B and B->A) would otherwise
+    quarantine each other; instead each is evaluated on its own support, so a
+    `contradicts` edge with >=2 independent verified lineages goes active (§27.3)."""
+    a = _seed_entity(vault, "Claim A")
+    b = _seed_entity(vault, "Claim B")
+    forward = _relate(vault, a, b, rtype="contradicts")
+    _relate(vault, b, a, rtype="contradicts")  # mutual reverse contradiction
+    with db.connect(vault) as conn:
+        _add_support(conn, forward, "KNU-1", "lin-A", "h1")
+        _add_support(conn, forward, "KNU-2", "lin-B", "h2")  # 2nd independent lineage
+    status = db.compile_relation_lifecycle(vault, relation_id=forward)
+    assert status == "active", (
+        "a corroborated `contradicts` relation must not be quarantined by the "
+        "contradiction rule (which exists to flag NON-contradiction edges)"
+    )
+
+
+def test_non_contradicts_edge_is_quarantined_when_contradiction_joins_endpoints(
+    vault: Path,
+) -> None:
+    """The contradiction rule still fires for a NON-`contradicts` relation: the
+    graph asserting both `A extends B` and `A contradicts B` is inconsistent, so
+    the `extends` edge quarantines as `contradiction` even with full support, and
+    BEFORE support promotion (§27.3 admissibility-before-support)."""
+    a = _seed_entity(vault, "Method A")
+    b = _seed_entity(vault, "Method B")
+    extends = _relate(vault, a, b, rtype="extends")
+    _relate(vault, a, b, rtype="contradicts")  # contradicts the same endpoints
+    with db.connect(vault) as conn:
+        _add_support(conn, extends, "KNU-1", "lin-A", "h1")
+        _add_support(conn, extends, "KNU-2", "lin-B", "h2")  # would be active otherwise
+    status = db.compile_relation_lifecycle(vault, relation_id=extends)
+    with db.connect(vault) as conn:
+        reason = _reason(conn, extends)
+    assert (status, reason) == ("quarantined", "contradiction"), (
+        "a non-contradicts edge whose endpoints also carry a contradicts edge must "
+        "quarantine as contradiction, even with >=2 lineages of support"
+    )
+
+
+def test_relation_support_span_ids_are_deduped_in_hash(vault: Path) -> None:
+    """upsert_graph_relation_support canonicalizes (dedup + sort) the cited spans,
+    so a duplicated span id cannot vary support_hash by multiplicity — keeping the
+    ON-CONFLICT idempotency intact (§21.5 aggregation)."""
+    a = _seed_entity(vault, "A")
+    b = _seed_entity(vault, "B")
+    rel = _relate(vault, a, b)
+    h_dup = db.upsert_graph_relation_support(
+        vault, relation_id=rel, knowledge_unit_id="KNU-1",
+        source_span_ids=["SPAN-1", "SPAN-1", "SPAN-2"], source_lineage_hash="lin",
+    )
+    h_clean = db.upsert_graph_relation_support(
+        vault, relation_id=rel, knowledge_unit_id="KNU-1",
+        source_span_ids=["SPAN-2", "SPAN-1"], source_lineage_hash="lin",
+    )
+    assert h_dup == h_clean, "duplicate/unordered spans must hash identically"
+    with db.connect(vault) as conn:
+        rows = conn.execute(
+            "SELECT source_span_ids FROM graph_relation_supports WHERE relation_id = ?",
+            (rel,),
+        ).fetchall()
+    assert len(rows) == 1, "the same canonical span set is one row (ON CONFLICT)"
+    import json as _json
+    assert _json.loads(rows[0][0]) == ["SPAN-1", "SPAN-2"], "spans stored deduped + sorted"
