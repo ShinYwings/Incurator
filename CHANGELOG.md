@@ -4,6 +4,16 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.11.0] - 2026-06-16
+### Fixed
+- **Complete overhaul of Diff Viewer UI (resolving 34 known bugs)**:
+  - Implemented Inverted Decoration Model (projects diffs virtually without pre-mutating the buffer).
+  - Prevented OOM crashes by setting hard limits on the LCS diffing algorithm.
+  - Stabilized UI layout (floating toolbar now maintains correct viewport coordinates during scroll).
+  - Enforced strict state synchronization (buffer is only modified upon explicit 'Accept').
+  - Prevented DOM and event memory leaks via strict singleton enforcement and layout-change listener cleanup.
+  - Added robust support for multi-file edit proposals and target-isolated routing.
+
 ## [0.10.0] — 2026-06-15
 
 RAG Retrieval Provenance release (Plan A, Program 3). Builds the trusted
