@@ -35,7 +35,9 @@ ALLOWED_TRANSITIONS = {
     ("reproduced", "assigned"),
     ("reproduced", "accepted"),
     ("assigned", "retired"),
+    ("retired", "assigned"),
 }
+
 _GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 

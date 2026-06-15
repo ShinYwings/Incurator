@@ -17,11 +17,24 @@ status_history:
   - date: "2026-06-15"
     status: retired
     evidence: >
-      Plan A review-fix (A2): glob-based source-scope filter implemented in
-      build_evidence via CurationPolicy.allows_source; behavioral oracle
+      Plan A v0.10.0 marked F3 retired on the strength of the build_evidence
+      policy kwarg + orchestrator forwarding (plumbing only).
+  - date: "2026-06-16"
+    status: assigned
+    evidence: >
+      PR #31 review re-opened F3: the policy kwarg was plumbed but evidence
+      assembly never filtered by it, so two workspaces with opposite scope still
+      received identical packs. Re-assigned to the Plan A review-fix for the
+      behavioral glob-scope filter.
+  - date: "2026-06-16"
+    status: retired
+    evidence: >
+      Plan A review-fix: glob-based source-scope filter implemented in
+      build_evidence via CurationPolicy.allows_source (centralized in
+      _apply_policy_scope on every route); behavioral oracle
       test_f3_oracle_build_evidence_filters_out_of_scope_sources asserts an
-      excluded source is omitted from the pack. (The v0.10.0 plumbing-only
-      retirement was corrected within PR #31 before merge.)
+      excluded source is omitted from the pack and from every item's
+      source_span_ids.
 owner: unassigned
 impact: >
   The workspace Knowledge Requirement Spec (curate.yml) is resolved by the
@@ -79,6 +92,6 @@ resolution:
     while the in-scope source's evidence is retained.
 notes: >
   Behavioral oracle: test_f3_oracle_build_evidence_filters_out_of_scope_sources.
-  The v0.10.0 plumbing-only retirement was corrected within PR #31 (the erroneous
-  retired entry was removed before merge); this retirement carries the behavioral
-  glob-scope filter evidence.
+  F3 was prematurely retired on plumbing alone in v0.10.0, re-opened by the PR #31
+  review, and re-retired here with the behavioral glob-scope filter — the full
+  re-open audit trail is preserved in status_history (retired → assigned → retired).
