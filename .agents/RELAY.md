@@ -1,6 +1,44 @@
 # Cross-Agent Relay State
 
-## Status: P7 COMPLETE + re-review fix applied (graph_audit dangling-endpoint blind spot). Ready for re-review → P8.
+## Status: P8 COMPLETE (sequential role reviews — PASS, 0 blocking). Pushed `7ddd252`. Next: P9 full CI → P10 release.
+
+### P8 — Sequential Role Reviews (2026-06-15, Claude) — VERDICT: PASS (0 blocking)
+Ran the 7 review personas over the P7 cutover (`cd4216f` + `7ddd252`). All pass;
+findings are non-blocking observations (no capture→plan→approve re-entry needed).
+1. **coder_engineer** — scope matches plan §360–379 + the user's full-cutover
+   decision. graph_audit, support writer, compile_global_l3 swap, lint surface all
+   present; no scope creep. PASS.
+2. **peer_reviewer** — coupling/runtime: `_write_relation_supports` O(spans×units),
+   `graph_audit` O(V+E+supports+reports), `persist_graph_data` support write is
+   ON-CONFLICT idempotent. OBSERVATION (non-blocking): a full `compile_source_l2`
+   re-run can add a second support row for the same evidence under a new KNU id, but
+   it shares the source lineage so the independent count stays 1 — NO false active
+   (the ≥2 floor needs 2 distinct SOURCES). The status-precedence branch in
+   `_write_relation_supports` is dead-but-defensive (a unit's status is constant).
+3. **schema_guardian** — no new migration (logic-only on v9 columns). Support PK
+   `(relation_id, knowledge_unit_id, support_hash)`; `support_hash =
+   _sha16([... relation_id, sorted spans])` deterministic; per-source SPAN ids keep
+   cross-source support_hashes distinct (no collision). Endpoint/lineage integrity
+   correct after the dangling-endpoint fix. PASS.
+4. **source_pair_analyst** — B claim-support consumption: supports attributed by
+   span intersection to the asserting unit, `support_status` mirrors KNU eligibility;
+   prose grounds strictly in `report.source_span_ids` (eligible verified active
+   closure). No broad-span fallback. PASS.
+5. **qa_runner** — backend 870 passed (4 docs-first reds only), ruff clean, mypy 0
+   new (70 pre-existing), plugin vitest 370; testbed graph_audit clean post-update,
+   correctly flagged the legacy report pre-update. PASS.
+6. **docs_sync_manager** — EN→KR parity: USER_GUIDE(+_KR) + WORKFLOW_GUIDE(+_KR)
+   both gained the matching ≥2-source bullet; SYSTEM_BEHAVIOR §27.6 line 1966 already
+   covers "0 endpoints that are not canonical entities" (so the dangling-endpoint
+   flag needs no spec change). PASS.
+7. **legacy_sweeper** — F401/F811/F841 clean; old broad-span
+   `detect_communities`/`generate_community_report` are off the serving path,
+   referenced ONLY by `test_community_reports.py` + the frozen
+   `test_failure_atlas_repro.py` (so intentionally retained, not orphaned). No stale
+   qmd/EXH refs introduced. OBSERVATION: their full excision is deferrable to a later
+   cleanup once the failure-atlas repro is re-pinned. PASS.
+
+### Re-review fix (2026-06-15, Claude) — graph_audit dangling-endpoint false negative
 
 ### Re-review fix (2026-06-15, Claude) — graph_audit dangling-endpoint false negative
 Reviewer caught a blind spot: `graph_audit` whitelisted `state is None` (an
