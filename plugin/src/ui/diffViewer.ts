@@ -443,8 +443,11 @@ export class DiffViewer {
     const newOriginalText = this.applyChunkToText(this.originalText, hunk);
     // Reviewer fix 2: suppress editor-change abort while we programmatically write the buffer
     this.isInternalChange = true;
-    this.view.editor.replaceRange(newOriginalText, this.selectionStart!, this.originalEndPos);
-    this.isInternalChange = false;
+    try {
+      this.view.editor.replaceRange(newOriginalText, this.selectionStart!, this.originalEndPos);
+    } finally {
+      this.isInternalChange = false;
+    }
 
     // modifiedText is unchanged — computeDiff will drop the resolved hunk naturally
     this.show(this.view, newOriginalText, this.modifiedText, this.selectionStart!, this.originalEndPos, preserveIdx);
@@ -468,7 +471,12 @@ export class DiffViewer {
   // Bug 18: acceptAll must actively write modifiedText (in Inverted Model buffer = originalText)
   private acceptAll(): void {
     if (this.view && this.selectionStart && this.originalEndPos) {
-      this.view.editor.replaceRange(this.modifiedText, this.selectionStart, this.originalEndPos);
+      this.isInternalChange = true;
+      try {
+        this.view.editor.replaceRange(this.modifiedText, this.selectionStart, this.originalEndPos);
+      } finally {
+        this.isInternalChange = false;
+      }
       const modifiedSplit = this.modifiedText.split("\n");
       const finalEndPos = {
         line: this.selectionStart.line + modifiedSplit.length - 1,
