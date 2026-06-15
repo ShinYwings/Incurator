@@ -3,7 +3,7 @@ id: F5
 title: Context packing is a fixed 16,000-character cutoff with silent omission
 query_family: cross-route
 execution_mode: deterministic
-status: assigned
+status: retired
 status_history:
   - date: "2026-06-11"
     status: suspected
@@ -14,7 +14,10 @@ status_history:
   - date: "2026-06-12"
     status: assigned
     evidence: "FAILURE_ATLAS.md §8 — token budgets / progressive disclosure are Program 3 scope"
-owner: program-3
+  - date: "2026-06-15"
+    status: retired
+    evidence: "Plan A P3 — evidence_block() explicit omission marker (v0.10.0)"
+owner: unassigned
 impact: >
   Evidence beyond the character budget is dropped with no record: the consuming
   LLM and the trace both believe the full pack was used. Character counts are
@@ -28,9 +31,9 @@ boundary:
     evidence_block(max_chars=16000) (models.py:62-71) breaks out of the item
     loop when the next chunk would exceed max_chars and returns the joined
     prefix; dropped items leave no marker in the block, the pack, or the trace.
-fixture: backend/tests/test_failure_atlas_repro.py::test_f5_baseline_evidence_block_truncates_silently
+fixture: backend/tests/test_failure_atlas_repro.py::test_f5_oracle_evidence_block_reports_explicit_omissions
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f5_baseline_evidence_block_truncates_silently" -q
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f5_oracle_evidence_block_reports_explicit_omissions" -q
 oracles:
   deterministic: >
     Context packing enforces an explicit model-aware token budget; items that
@@ -55,6 +58,13 @@ assignment:
   gate: >
     Every route passes token-budget, snapshot, provenance, locator, and
     degraded-mode fixtures (Program 3 release gate; umbrella P3.2).
+resolution:
+  version: "0.10.0"
+  evidence: >
+    feat(retrieval): Plan A P3 — evidence_block() appends explicit "[N items omitted —
+    character budget reached]" marker (§28.3). Baseline test retired; oracle promoted.
+  after_state: >
+    A 20-item pack rendered at 16,000 chars produces a block ending with an
+    explicit omission marker containing the integer count of dropped items.
 notes: >
-  Oracle test: test_f5_oracle_evidence_block_reports_explicit_omissions
-  (strict xfail).
+  Oracle test: test_f5_oracle_evidence_block_reports_explicit_omissions (live, v0.10.0).

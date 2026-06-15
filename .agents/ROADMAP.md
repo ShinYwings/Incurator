@@ -65,6 +65,10 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
      `.agents/plans/C_graph_quality.md`
    - Batch 3: `.agents/plans/A_rag_retrieval_provenance.md` →
      `.agents/plans/F_agent_context_service.md`
+     - **Plan A shipped as v0.10.0** (2026-06-15): RTR-* retrieval execution ID,
+       bounded/query-relevant global route, CurationPolicy forwarding (F3), explicit
+       omission markers (F5), StructuredLocator resolution (§29), Plan-F handoff
+       contract. F03/F04/F05 retired in Failure Atlas.
 
 2. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative/derived/cache/external storage accounting, capacity
@@ -78,6 +82,11 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 4. **[Minor Update] Minor Quick Wins**
    - Web search integration review, `[[wikilink]]` conflict validation, Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`), Zotero profile import sorted by recently accessed.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
+
+4.5. **[Minor Update] Diff Viewer Plugin Overhaul & Sync Fixes**
+   - Address 7 critical bugs in the plugin's Diff Viewer (UI/UX redesign to inline unified view, race conditions, multi-file diff selection).
+   - Detailed analysis: `.agents/drafts/diff_viewer_plugin.md`
+
 
 5. **[Major Update] Native PDF Annotation & Asset System**
    - Remove external Zotero dependency, build a native annotation (highlight/memo) synchronization system utilizing Obsidian's built-in PDF Viewer. In-PDF full-text search (with strict-spelling mode) and native highlight/memo sync remain here.
@@ -98,8 +107,7 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Active Milestone**: **none active** — **Batch 2: Plan C (Graph Quality)
-  v0.9.0** is implemented, validated (P0–P9), and released (PR open). Batch 1
-  (D1, E, D2) and Batch 2 (Plan B) were previously merged and shipped.
-- **Next in Queue**: Batch 3 (Plan A).
+- **Active Milestone**: **Batch 3: Plan A (RAG Retrieval Provenance)**.
+  Batch 2 (Plan C) is implemented, validated, and shipped.
+- **Next in Queue**: Batch 3 (Plan F).
   Execution order: Batch 3 `A → F`. Implementation starts only on explicit user approval.

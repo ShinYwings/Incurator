@@ -1,6 +1,6 @@
 """Retrieval data models for the v0.3.1 query orchestrator.
 
-See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`` §17.
+See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`` §17, §28–§30.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ __all__ = [
     "EvidencePack",
     "GraphStatus",
     "QueryResultV031",
+    "StructuredLocator",
     "ROUTES",
 ]
 
@@ -36,6 +37,25 @@ class QueryRequest:
 
 
 @dataclass
+class StructuredLocator:
+    """Resolved sub-document target for an evidence item (SYSTEM_BEHAVIOR §29.2).
+
+    Supplements (never replaces) the authoritative source_span_id.
+    Rendering clients read locator_status before making a link clickable.
+    """
+    source_id: int | None          # FK to sources.id; None for external-only
+    source_kind: str               # vault_markdown | vault_pdf | external_uri | promoted_wiki
+    relpath: str | None            # vault-relative path (None for external_uri)
+    heading: str | None            # nearest heading above the span (Markdown)
+    block_id: str | None           # Obsidian block anchor ^block-id (Markdown)
+    page_number: int | None        # verified printed page number (PDF)
+    toc_id: str | None             # PDF table-of-contents section id
+    external_uri: str | None       # reference-mode external URI
+    # exact | fallback_file | fallback_source | duplicate_anchor | stale | unavailable
+    locator_status: str
+
+
+@dataclass
 class EvidenceItem:
     id: str
     # source_span | knowledge_unit | community_report | synthesis | memory_path | qmd_hit | entity
@@ -52,6 +72,8 @@ class EvidenceItem:
     # to the 200-char preview (an explicit flag, so the preview is never silently
     # presented as sufficient evidence).
     evidence_status: str = "ok"
+    # §29.5: resolved sub-document locator; None when no backing source_span_id.
+    locator: StructuredLocator | None = None
 
 
 @dataclass
@@ -64,17 +86,52 @@ class EvidencePack:
     memory_path_ids: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     retrieval_trace: dict = field(default_factory=dict)
+    # §30.1: RTR-* retrieval execution id; set by build_evidence.
+    retrieval_execution_id: str = ""
+    # §28.4: per-route omission counts (e.g. {"global_reports": 5}).
+    omitted_counts: dict = field(default_factory=dict)
 
     def evidence_block(self, *, max_chars: int = 16000) -> str:
-        lines: list[str] = []
-        used = 0
-        for item in self.items:
-            chunk = f"[{item.kind} {item.id}] {item.title}\n{item.text}".strip()
-            if used + len(chunk) > max_chars:
-                break
-            lines.append(chunk)
-            used += len(chunk)
-        return "\n\n".join(lines)
+        """Render items within max_chars; append explicit omission marker (§28.3).
+
+        The rendered block — items, ``\\n\\n`` separators, AND the omission marker
+        — never exceeds ``max_chars``. When items are omitted, a marker budget is
+        reserved up front so the marker replaces the last partial item rather than
+        overflowing the budget. A final hard slice guards the degenerate case where
+        ``max_chars`` is smaller than the marker itself.
+        """
+        total = len(self.items)
+        sep = "\n\n"
+
+        def _render(items_budget: int) -> tuple[list[str], int]:
+            lines: list[str] = []
+            used = 0
+            for item in self.items:
+                chunk = f"[{item.kind} {item.id}] {item.title}\n{item.text}".strip()
+                addition = len(chunk) + (len(sep) if lines else 0)
+                if used + addition > items_budget:
+                    break
+                lines.append(chunk)
+                used += addition
+            return lines, used
+
+        # First pass: how many items fit with the full budget?
+        first_lines, _ = _render(max_chars)
+        if len(first_lines) == total:
+            return sep.join(first_lines)
+
+        # Items will be omitted — reserve room for the marker (worst-case count).
+        marker_for = lambda n: (  # noqa: E731
+            f"[{n} item{'s' if n != 1 else ''} omitted — character budget reached]"
+        )
+        marker_budget = len(marker_for(total)) + len(sep)
+        lines, _ = _render(max(0, max_chars - marker_budget))
+        omitted = total - len(lines)
+        if omitted > 0:
+            lines.append(marker_for(omitted))
+        block = sep.join(lines)
+        # Defensive hard guarantee for pathologically small budgets.
+        return block[:max_chars]
 
 
 @dataclass

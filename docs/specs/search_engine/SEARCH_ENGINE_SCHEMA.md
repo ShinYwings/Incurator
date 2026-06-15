@@ -1,4 +1,4 @@
-# Incurator Search Engine Schema (v0.9.0)
+# Incurator Search Engine Schema (v0.10.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -432,3 +432,47 @@ path stays unchanged because only authoritative records are ever materialized.
 - The degraded filtered-connected-components hierarchy fallback (SYSTEM_BEHAVIOR
   §27.4) materializes its reports under its own `config_hash` identity — the
   fallback is recorded, never a silent mode change in the served index.
+
+---
+
+## 12. Plan-A Retrieval Result Boundary (v0.10.0)
+
+### 12.1 Internal Retrieval Result
+
+The internal retrieval result produced by `build_evidence` (SYSTEM_BEHAVIOR §28–
+§30) is a transport-neutral `EvidencePack`.  Its Plan-A contract fields are:
+
+| Field | Source | Plan-F handoff |
+|-------|--------|---------------|
+| `retrieval_execution_id` | generated in `build_evidence` | MUST be forwarded unchanged |
+| `items` | route-selected, policy-filtered `EvidenceItem` list | MUST NOT be replaced |
+| `source_span_ids` | union of all selected item `source_span_ids` | MUST be forwarded |
+| `omitted_counts` | per-route omission counts | MUST be surfaced in public pack |
+| `warnings` | degradation / policy / locator warnings | MUST be forwarded |
+| `retrieval_trace` | serializable dict for `retrieval_trace_json` | MUST be stored in QTR |
+
+Plan F MUST NOT initiate a second `build_evidence` call to enrich the pack.
+Progressive expansion handles and client budgeting added by Plan F are stored
+alongside (not replacing) the Plan-A fields.
+
+### 12.2 EvidenceItem Locator Contract
+
+Every `EvidenceItem` backed by at least one `source_span_id` MUST carry a
+`StructuredLocator` (SYSTEM_BEHAVIOR §29.2) with a resolved `locator_status`.
+Items without a backing span (standalone community reports, synthesis nodes with
+`source_span_ids=[]`) carry `locator=None`.
+
+Plan F navigation (vault link, PDF jump, external URI) reads `item.locator` and
+MUST NOT fabricate its own locator from item metadata.  Rendering a non-`exact`
+or non-`fallback_file` locator as a clickable link is a Plan F release-blocking
+violation (see SYSTEM_BEHAVIOR §29.3).
+
+### 12.3 RTR-* Persistence
+
+`build_evidence` stores the RTR-* ID and retrieval metadata into the caller-
+provided `EvidencePack`.  The orchestrator then serializes
+`pack.retrieval_trace` to `query_traces.retrieval_trace_json` via
+`db.insert_query_trace`.  No separate persistence call is needed.
+
+Pre-Plan-A `query_traces` rows retain their pre-existing `retrieval_trace_json`
+shape.  A reader MUST check `"contract_version"` before accessing Plan-A fields.

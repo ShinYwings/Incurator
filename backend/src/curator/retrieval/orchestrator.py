@@ -1,7 +1,7 @@
 """Query orchestrator (v0.3.1).
 
 Single entry point for the curation-native query path: resolve the workspace's
-CurationPolicy, choose a route, build an evidence pack (DB graph + qmd corpus),
+CurationPolicy, choose a route, build an evidence pack (DB graph + hybrid search),
 run the route's registered query prompt with tracing, and return a result with
 the full QTR trace (route, evidence ids, prompt trace ids).
 """
@@ -64,6 +64,23 @@ def _evidence_json(pack: EvidencePack) -> list[dict]:
     ]
 
 
+def _build_retrieval_trace(pack: EvidencePack, route: str, reason: str) -> dict:
+    """Build the Plan A retrieval_trace_json contract (SCHEMA §22.4 / §30.2)."""
+    base = pack.retrieval_trace.copy() if pack.retrieval_trace else {}
+    base.update({
+        "contract_version": "1",
+        "retrieval_execution_id": pack.retrieval_execution_id,
+        "route": {"selected": route, "reason": reason},
+        "selection": {
+            "candidate_count": len(pack.items) + sum(pack.omitted_counts.values()),
+            "selected_count": len(pack.items),
+            "omitted_counts": pack.omitted_counts,
+        },
+        "warnings": pack.warnings,
+    })
+    return base
+
+
 class QueryOrchestrator:
     def __init__(self, paths: cfg.WikiPaths, client: Any) -> None:
         self.paths = paths
@@ -81,7 +98,8 @@ class QueryOrchestrator:
         status = router.graph_status(self.paths.state_db)
         route, reason = router.choose_route(request, policy, status)
         trace_id = f"QTR-{uuid.uuid4().hex[:8]}"
-        pack = evidence_mod.build_evidence(self.paths, request, route)
+        pack = evidence_mod.build_evidence(self.paths, request, route, policy=policy)
+        retrieval_trace = _build_retrieval_trace(pack, route, reason)
         db.insert_query_trace(
             self.paths.state_db,
             trace_id=trace_id,
@@ -94,13 +112,14 @@ class QueryOrchestrator:
             community_report_ids=pack.community_report_ids,
             synthesis_node_ids=pack.synthesis_node_ids,
             memory_path_ids=pack.memory_path_ids,
-            retrieval_trace=pack.retrieval_trace,
+            retrieval_trace=retrieval_trace,
             warnings=pack.warnings,
         )
         return {
             "ok": True,
             "route": route,
             "trace_id": trace_id,
+            "retrieval_execution_id": pack.retrieval_execution_id,  # §30.2 / Plan F handoff
             "workspace_id": policy.workspace_id,
             "evidence": [
                 {
@@ -109,6 +128,19 @@ class QueryOrchestrator:
                     "community_report_id": it.community_report_id,
                     "synthesis_node_id": it.synthesis_node_id,
                     "memory_path_id": it.memory_path_id,
+                    "locator": (
+                        {
+                            "source_id": it.locator.source_id,
+                            "source_kind": it.locator.source_kind,
+                            "relpath": it.locator.relpath,
+                            "heading": it.locator.heading,
+                            "block_id": it.locator.block_id,
+                            "page_number": it.locator.page_number,
+                            "toc_id": it.locator.toc_id,
+                            "external_uri": it.locator.external_uri,
+                            "locator_status": it.locator.locator_status,
+                        } if it.locator is not None else None
+                    ),
                 }
                 for it in pack.items
             ],
@@ -127,7 +159,7 @@ class QueryOrchestrator:
         route, reason = router.choose_route(request, policy, status)
         trace_id = f"QTR-{uuid.uuid4().hex[:8]}"
 
-        pack = evidence_mod.build_evidence(self.paths, request, route)
+        pack = evidence_mod.build_evidence(self.paths, request, route, policy=policy)
         result = QueryResultV031(
             question=request.question,
             route=route,
@@ -146,6 +178,7 @@ class QueryOrchestrator:
             self._run_explore(request, pack, spec_hash, result)
         else:
             self._run_answer(request, route, pack, spec_hash, result)
+        retrieval_trace = _build_retrieval_trace(pack, result.route, reason)
         db.insert_query_trace(
             self.paths.state_db,
             trace_id=result.trace_id,
@@ -160,7 +193,7 @@ class QueryOrchestrator:
             memory_path_ids=result.memory_path_ids,
             prompt_trace_ids=result.prompt_trace_ids,
             insight_candidate_ids=result.insight_candidate_ids,
-            retrieval_trace=pack.retrieval_trace,
+            retrieval_trace=retrieval_trace,
             warnings=result.warnings,
             latency_ms=int((time.monotonic() - started) * 1000),
         )

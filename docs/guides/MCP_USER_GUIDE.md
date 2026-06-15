@@ -355,13 +355,16 @@ and plugin, and they never edit read-only source truth (`03_Notes/`,
   Obsidian agent) that do their own synthesis. For broad questions the pack leads
   with the shared **L4 Synthesis** nodes.
 - **Parameters**: `query`, `workspace_path` (optional).
-- **Returns**: `route`, `trace_id` (`QTR-…`), `workspace_id`, `evidence` (each item
-  has `kind` — `synthesis` | `community_report` | `entity` | `source_span` |
-  `memory_path` | `search_hit` — plus `id`/`title`/`text`/`score` and provenance ids),
+- **Returns**: `route`, `trace_id` (`QTR-…`), `retrieval_execution_id` (`RTR-…`),
+  `workspace_id`, `evidence` (each item has `kind` — `synthesis` |
+  `community_report` | `entity` | `source_span` | `memory_path` | `search_hit`
+  — plus `id`/`title`/`text`/`score`, provenance ids, and a `locator` dict with
+  `source_kind`/`relpath`/`heading`/`locator_status` for span-backed items),
   `source_span_ids`, `community_report_ids`, `synthesis_node_ids`,
   `memory_path_ids`, `warnings`. Search-hit evidence preserves hydrated
-  `source_span_ids`, and `trace_id` identifies the single authoritative
-  orchestrated query trace. There is intentionally **no** `answer` field.
+  `source_span_ids`. `trace_id` identifies the single authoritative orchestrated
+  query trace; `retrieval_execution_id` is the child RTR-* consumed by Plan F.
+  There is intentionally **no** `answer` field.
 
 #### `curator_explore`
 

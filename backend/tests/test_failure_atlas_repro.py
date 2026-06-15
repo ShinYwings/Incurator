@@ -180,27 +180,99 @@ def test_f2_one_query_persists_one_authoritative_trace(vault, degraded_search) -
 
 
 # ---------------------------------------------------------------------------
-# F3 — CurationPolicy (KRS) not enforced through evidence assembly
+# F3 — CurationPolicy (KRS) not enforced through evidence assembly  [FIXED P3]
 # ---------------------------------------------------------------------------
 
-def test_f3_baseline_build_evidence_accepts_no_policy() -> None:
-    params = inspect.signature(evidence_mod.build_evidence).parameters
-    assert "policy" not in params
-    assert "CurationPolicy" not in inspect.getsource(evidence_mod)
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="F3 reproduced: build_evidence(paths, request, route) takes no policy; "
-    "assigned to program-3 (P3.1 route policy enforcement)",
-)
-def test_f3_oracle_build_evidence_receives_curation_policy() -> None:
+def test_f3_structural_build_evidence_receives_curation_policy() -> None:
+    """Plumbing check: the policy kwarg exists (necessary, not sufficient)."""
     params = inspect.signature(evidence_mod.build_evidence).parameters
     assert "policy" in params
 
 
+def _seed_two_scope_sources(paths: cfg.WikiPaths) -> dict:
+    """Three reports over an in-scope (03_Notes/public.md) and an excluded
+    (03_Notes/private/secret.md) source: a pure-public report, a pure-private
+    report, and a MIXED report backed by both — to prove strict exclusion."""
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
+            "VALUES ('03_Notes/private/secret.md', 'h2', 'md', 1, datetime('now'))"
+        )
+    pub_span = db.upsert_source_span(
+        paths.state_db, source_id=1, relpath=RELPATH, span_type="paragraph",
+        content_hash="pub", section_title="Public", text_preview="Public content.",
+    )
+    priv_span = db.upsert_source_span(
+        paths.state_db, source_id=2, relpath="03_Notes/private/secret.md",
+        span_type="paragraph", content_hash="priv", section_title="Secret",
+        text_preview="Secret content.",
+    )
+    rep_pub = db.upsert_community_report(
+        paths.state_db, community_key="cr-pub", title="Public report",
+        summary="Public optimization topic.", full_content="",
+        dependency_hash="dp", entity_ids=[], source_span_ids=[pub_span], rank=0.5,
+    )
+    rep_priv = db.upsert_community_report(
+        paths.state_db, community_key="cr-priv", title="Secret report",
+        summary="Secret optimization topic.", full_content="",
+        dependency_hash="ds", entity_ids=[], source_span_ids=[priv_span], rank=0.5,
+    )
+    rep_mixed = db.upsert_community_report(
+        paths.state_db, community_key="cr-mixed", title="Mixed report",
+        summary="Optimization topic synthesizing public and secret notes.",
+        full_content="", dependency_hash="dm", entity_ids=[],
+        source_span_ids=[pub_span, priv_span], rank=0.9,
+    )
+    return {
+        "pub_span": pub_span, "priv_span": priv_span,
+        "rep_pub": rep_pub, "rep_priv": rep_priv, "rep_mixed": rep_mixed,
+    }
+
+
+def test_f3_oracle_build_evidence_filters_out_of_scope_sources(vault) -> None:
+    """§28.1 strict exclusion: an out-of-scope source — including a MIXED report
+    that merely touches it — is omitted entirely, with no span-id mutation.
+
+    Guards the data-leak/provenance bug: a public+private report must NOT be
+    included with its private span trimmed away (that would leak private text and
+    misattribute it to the public source)."""
+    from curator import curate_yml
+    paths = vault
+    seeded = _seed_two_scope_sources(paths)
+    spec = curate_yml.CurateSpec(project="scoped")
+    spec.sources.exclude = ["03_Notes/private/**"]
+    policy = curate_yml.compile_curate_policy(spec)
+
+    pack = evidence_mod.build_evidence(
+        paths, QueryRequest(question="optimization", mode="global"), "global",
+        policy=policy,
+    )
+    item_ids = {it.id for it in pack.items}
+    report_ids = set(pack.community_report_ids)
+
+    # In-scope pure-public report survives, intact (no provenance mutation).
+    assert seeded["rep_pub"] in item_ids
+    assert seeded["rep_pub"] in report_ids
+    pub_item = next(it for it in pack.items if it.id == seeded["rep_pub"])
+    assert pub_item.source_span_ids == [seeded["pub_span"]]
+
+    # Pure-private AND mixed reports are excluded ENTIRELY (strict all-spans rule).
+    assert seeded["rep_priv"] not in item_ids
+    assert seeded["rep_mixed"] not in item_ids
+    assert seeded["rep_priv"] not in report_ids
+    assert seeded["rep_mixed"] not in report_ids
+
+    # The private span never leaks — not in the pack nor in any surviving item.
+    assert seeded["priv_span"] not in pack.source_span_ids
+    for item in pack.items:
+        assert seeded["priv_span"] not in item.source_span_ids
+
+    # Conservation: 2 of 3 reports dropped by policy are recorded.
+    assert pack.omitted_counts.get("policy_excluded") == 2
+
+
 # ---------------------------------------------------------------------------
-# F4 — global evidence query-independent and unbounded
+# F4 — global evidence query-independent and unbounded  [FIXED P3]
 # ---------------------------------------------------------------------------
 
 def _seed_two_topic_reports(paths: cfg.WikiPaths, count_per_topic: int = 15) -> str:
@@ -225,28 +297,6 @@ def _seed_two_topic_reports(paths: cfg.WikiPaths, count_per_topic: int = 15) -> 
     return span
 
 
-def test_f4_baseline_global_evidence_query_independent_and_unbounded(vault) -> None:
-    paths = vault
-    _seed_two_topic_reports(paths)
-    orch = QueryOrchestrator(paths, _NoChatClient())
-    out_a = orch.fetch_context(
-        QueryRequest(question="deep learning optimization convergence", mode="global")
-    )
-    out_b = orch.fetch_context(
-        QueryRequest(question="marine biology of coral reefs", mode="global")
-    )
-    ids_a = [it["id"] for it in out_a["evidence"]]
-    ids_b = [it["id"] for it in out_b["evidence"]]
-    # Defect: selection never consults the query, and every report is loaded.
-    assert ids_a == ids_b
-    assert len(ids_a) >= 30
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="F4 reproduced: _report_items loads all reports query-independently; "
-    "assigned to program-3 (bounded query-relevant routes)",
-)
 def test_f4_oracle_global_evidence_bounded_and_query_dependent(vault) -> None:
     paths = vault
     _seed_two_topic_reports(paths)
@@ -264,7 +314,7 @@ def test_f4_oracle_global_evidence_bounded_and_query_dependent(vault) -> None:
 
 
 # ---------------------------------------------------------------------------
-# F5 — fixed 16,000-char cutoff with silent omission
+# F5 — fixed 16,000-char cutoff with silent omission  [FIXED P3]
 # ---------------------------------------------------------------------------
 
 def _twenty_item_pack() -> EvidencePack:
@@ -278,21 +328,6 @@ def _twenty_item_pack() -> EvidencePack:
     return EvidencePack(route="global", items=items)
 
 
-def test_f5_baseline_evidence_block_truncates_silently() -> None:
-    pack = _twenty_item_pack()
-    block = pack.evidence_block()
-    rendered = [i for i in range(20) if f"RPT-{i:02d}]" in block]
-    assert len(block) <= 16000
-    assert len(rendered) < 20  # items dropped...
-    low = block.lower()
-    assert "omit" not in low and "truncat" not in low  # ...with no marker
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="F5 reproduced: evidence_block silently drops items at a char budget; "
-    "assigned to program-3 (token budgets / explicit omissions, P3.2)",
-)
 def test_f5_oracle_evidence_block_reports_explicit_omissions() -> None:
     pack = _twenty_item_pack()
     block = pack.evidence_block()

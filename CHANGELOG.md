@@ -4,6 +4,77 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.10.0] — 2026-06-15
+
+RAG Retrieval Provenance release (Plan A, Program 3). Builds the trusted
+retrieval and evidence-selection substrate consumed by the forthcoming Plan F
+ContextService. Every retrieval call now carries one authoritative RTR-*
+execution ID, bounded and query-relevant evidence, explicit omission counts,
+CurationPolicy enforcement, and resolvable structured source locators.
+Specs: SCHEMA.md §22, SYSTEM_BEHAVIOR.md §28–§30, SEARCH_ENGINE_SCHEMA.md §12.
+
+### Added
+
+- **Authoritative RTR-\* retrieval execution ID (§30.1).** Each `build_evidence`
+  call generates a unique `RTR-<8hex>` ID stamped on the `EvidencePack`, stored
+  inside `query_traces.retrieval_trace_json` with `contract_version: "1"` for
+  Plan F consumption (§22.4).
+- **CurationPolicy forwarded through evidence assembly (§28.1 / F3).** The
+  orchestrator now passes the resolved `CurationPolicy` to `build_evidence` on
+  both the `fetch_context` and `run` paths, enabling workspace-scoped retrieval
+  filtering.
+- **Bounded, query-relevant global route (§28.2 / F4).** Community reports are
+  scored by query-term overlap and capped at 10 (`_MAX_GLOBAL_REPORTS`);
+  synthesis nodes capped at 6. Omitted report counts are recorded in
+  `pack.omitted_counts["global_reports"]`.
+- **Explicit evidence-block omission marker (§28.3 / F5).** `evidence_block()`
+  appends `[N items omitted — character budget reached]` when the character
+  budget causes items to be dropped. Previously items were silently truncated.
+- **StructuredLocator dataclass (§29.2).** A transport-neutral, in-memory
+  locator providing `source_id`, `source_kind` (vault_markdown/vault_pdf/
+  external_uri/promoted_wiki), `relpath`, `heading`, `block_id`, `page_number`,
+  `toc_id`, `external_uri`, and `locator_status` (exact/fallback_file/
+  fallback_source/duplicate_anchor/stale/unavailable).
+- **Locator resolution on source-span evidence items (§29.4).** `_span_items()`
+  batch-fetches source metadata and resolves a `StructuredLocator` for every
+  span-backed `EvidenceItem`. The `source-section` route is refactored to use
+  the same path, gaining locators for free.
+- **Plan-F handoff contract in `fetch_context` (§30.2).** The response now
+  includes `retrieval_execution_id` at the top level, and each evidence item
+  carries a serialized `locator` dict for Plan F to consume without re-querying.
+- **`EvidencePack` extended fields (§22.3).** Added `retrieval_execution_id`
+  (str) and `omitted_counts` (dict) to `EvidencePack`. Added `locator`
+  (StructuredLocator | None) to `EvidenceItem`.
+
+### Fixed
+
+- **F3 — CurationPolicy not enforced (§28.1).** `build_evidence` now applies the
+  workspace source-scope globs (`source_include`/`source_exclude`) via
+  `CurationPolicy.allows_source` with a **strict all-spans rule**: an item is kept
+  only when *every* backing span is in scope. Multi-source artifacts (community
+  reports, synthesis, entities) are excluded entirely if any backing span is out
+  of scope — their text commingles all sources, so partial inclusion would leak
+  excluded content and trimming `source_span_ids` would corrupt provenance;
+  `source_span_ids` is never mutated. Items dropped by scope are counted in
+  `omitted_counts["policy_excluded"]`. (PR #31 review: the policy kwarg had been
+  plumbed but the filter was missing; a follow-up review then tightened the
+  initial "any-in-scope" rule to strict exclusion to close a private-data leak.
+  The F3 oracle is behavioral — it seeds a mixed public+private report and asserts
+  it is excluded whole.)
+- **F4 — Global evidence query-independent and unbounded (§28.2).** All
+  community reports were loaded regardless of query relevance or count.
+- **F5 — Evidence block silent truncation (§28.3).** Character-budget cutoffs
+  dropped items without any indicator; now always emits an explicit marker, and
+  the marker (plus `\n\n` separators) never pushes the block past `max_chars` —
+  it replaces the last partial item to fit. (PR #31 review fix.)
+- **Locator `promoted_wiki` kind (§29.2).** Sources under `02_Wiki/` now classify
+  as `promoted_wiki` instead of `vault_markdown`. (PR #31 review fix.)
+- **Retrieval-trace `candidate_count` (§30.2).** `candidate_count` now reports
+  `selected_count + omitted total` instead of being hardwired equal to
+  `selected_count`. (PR #31 review fix.)
+
+---
+
 ## [0.9.0] — 2026-06-15
 
 Graph Quality release (Plan C). The trusted v0.8.0 claim layer compiles into a
