@@ -98,7 +98,8 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Active Milestone**: **Batch 2: Plan C (Graph Quality)** —
-  Batch 1 (D1, E, D2) and Batch 2 (Plan B) are fully merged and shipped.
+- **Active Milestone**: **none active** — **Batch 2: Plan C (Graph Quality)
+  v0.9.0** is implemented, validated (P0–P9), and released (PR open). Batch 1
+  (D1, E, D2) and Batch 2 (Plan B) were previously merged and shipped.
 - **Next in Queue**: Batch 3 (Plan A).
-  Execution order: Batch 2 `C`, Batch 3 `A → F`. Implementation starts only on explicit user approval.
+  Execution order: Batch 3 `A → F`. Implementation starts only on explicit user approval.
