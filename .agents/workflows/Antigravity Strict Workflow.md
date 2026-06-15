@@ -34,6 +34,7 @@ Every task flows strictly through: `User Report → Draft → Plan → Implement
 - **State 3 (Plans Exist):** Review. Audit the drafted plans or code implementations.
 - **State Transitions:** Post-merge, checkout `master`, pull, delete the merged branch, and branch for the next milestone. Wipe and set the new target in `.agents/RELAY.md`.
 - **Autonomous Review-Fix Loop:** When running Claude in the background to fix flaws, you MUST pass the review feedback directly as a string prompt argument, instead of writing it to a file. Crucially, when Claude finishes a fix, you MUST perform the Audit step AGAIN using your file-reading tools (e.g., `git show`). NEVER trust Claude's stdout/logs as proof of a successful fix. You must continuously loop (Audit -> Reject -> Fix -> Re-Audit) until you independently verify the code is flawless.
+- **Mandatory Concurrency Check:** Before launching Claude Code autonomously, you MUST run `ps aux | grep -i claude` to verify no other session is running. Duplicate concurrent sessions are STRICTLY FORBIDDEN as they corrupt the workspace.
 
 ## 4. Codebase-First Analysis & Deliberate Excavation
 - **Deep Tracing Before Action:** NEVER jump to implementation or propose a fix based on assumptions. You MUST deeply trace the code call stack (e.g., using `grep_search` and `view_file`) before establishing any hypothesis. Do not rely solely on `grep_search`; actively open and read files directly.

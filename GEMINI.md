@@ -70,6 +70,7 @@ When you are instructed to launch Claude Code autonomously in the background (e.
 3. **Mandatory Remote Control syntax**: If the `--remote-control` flag is requested, you MUST explicitly provide a session name string immediately after the flag, BEFORE the prompt argument. Otherwise, Claude will mistakenly parse your prompt as the session name and drop into an empty interactive shell.
    - **Incorrect**: `claude --permission-mode auto --remote-control "Read RELAY.md..."` (Hangs)
    - **Correct**: `claude --permission-mode auto --remote-control rc-session "Read RELAY.md..."` (Executes immediately)
+4. **Mandatory Concurrency Check (No Duplicate Sessions)**: Before launching Claude Code autonomously (via `run_command` or `schedule`), you MUST explicitly verify if another Claude Code instance is already running by using the `run_command` tool with `ps aux | grep -i claude` (ignoring your own grep process). If a Claude Code session is already active (e.g., launched by the user or an external script), you MUST NOT launch a new one. Launching duplicate sessions will collide and corrupt the workspace. You must either wait, manually kill the conflicting session if it's safe/appropriate, or notify the user.
 
 ### D. Autonomous Review-Fix Loop (Schedule-Driven)
 When triggered by a schedule to autonomously drive the Executor to completion (e.g., until a PR is merged or a milestone is finished), you MUST execute the following continuous loop:
