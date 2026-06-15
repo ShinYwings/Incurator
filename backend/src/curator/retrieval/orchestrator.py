@@ -64,6 +64,23 @@ def _evidence_json(pack: EvidencePack) -> list[dict]:
     ]
 
 
+def _build_retrieval_trace(pack: EvidencePack, route: str, reason: str) -> dict:
+    """Build the Plan A retrieval_trace_json contract (SCHEMA §22.4 / §30.2)."""
+    base = pack.retrieval_trace.copy() if pack.retrieval_trace else {}
+    base.update({
+        "contract_version": "1",
+        "retrieval_execution_id": pack.retrieval_execution_id,
+        "route": {"selected": route, "reason": reason},
+        "selection": {
+            "candidate_count": len(pack.items),
+            "selected_count": len(pack.items),
+            "omitted_counts": pack.omitted_counts,
+        },
+        "warnings": pack.warnings,
+    })
+    return base
+
+
 class QueryOrchestrator:
     def __init__(self, paths: cfg.WikiPaths, client: Any) -> None:
         self.paths = paths
@@ -82,6 +99,7 @@ class QueryOrchestrator:
         route, reason = router.choose_route(request, policy, status)
         trace_id = f"QTR-{uuid.uuid4().hex[:8]}"
         pack = evidence_mod.build_evidence(self.paths, request, route)
+        retrieval_trace = _build_retrieval_trace(pack, route, reason)
         db.insert_query_trace(
             self.paths.state_db,
             trace_id=trace_id,
@@ -94,7 +112,7 @@ class QueryOrchestrator:
             community_report_ids=pack.community_report_ids,
             synthesis_node_ids=pack.synthesis_node_ids,
             memory_path_ids=pack.memory_path_ids,
-            retrieval_trace=pack.retrieval_trace,
+            retrieval_trace=retrieval_trace,
             warnings=pack.warnings,
         )
         return {
@@ -146,6 +164,7 @@ class QueryOrchestrator:
             self._run_explore(request, pack, spec_hash, result)
         else:
             self._run_answer(request, route, pack, spec_hash, result)
+        retrieval_trace = _build_retrieval_trace(pack, result.route, reason)
         db.insert_query_trace(
             self.paths.state_db,
             trace_id=result.trace_id,
@@ -160,7 +179,7 @@ class QueryOrchestrator:
             memory_path_ids=result.memory_path_ids,
             prompt_trace_ids=result.prompt_trace_ids,
             insight_candidate_ids=result.insight_candidate_ids,
-            retrieval_trace=pack.retrieval_trace,
+            retrieval_trace=retrieval_trace,
             warnings=result.warnings,
             latency_ms=int((time.monotonic() - started) * 1000),
         )

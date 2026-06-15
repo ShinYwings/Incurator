@@ -9,6 +9,7 @@ unavailable or the graph is incomplete, evidence degrades with a warning.
 from __future__ import annotations
 
 import re
+import uuid
 from pathlib import Path
 
 from .. import config as cfg
@@ -183,6 +184,8 @@ def build_evidence(
     q = request.working_query
     warnings: list[str] = []
     pack = EvidencePack(route=route, warnings=warnings)
+    # §30.1: generate a unique retrieval execution ID for this call.
+    pack.retrieval_execution_id = f"RTR-{uuid.uuid4().hex[:8]}"
 
     if route == "source-section":
         sid = _resolve_source_id(db_path, request.source_key)
