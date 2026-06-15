@@ -190,8 +190,9 @@ def test_f3_structural_build_evidence_receives_curation_policy() -> None:
 
 
 def _seed_two_scope_sources(paths: cfg.WikiPaths) -> dict:
-    """Two sources — one in scope (03_Notes/public.md), one excluded
-    (03_Notes/private/secret.md) — each with a span and a single-source report."""
+    """Three reports over an in-scope (03_Notes/public.md) and an excluded
+    (03_Notes/private/secret.md) source: a pure-public report, a pure-private
+    report, and a MIXED report backed by both — to prove strict exclusion."""
     with db.connect(paths.state_db) as conn:
         conn.execute(
             "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
@@ -206,24 +207,35 @@ def _seed_two_scope_sources(paths: cfg.WikiPaths) -> dict:
         span_type="paragraph", content_hash="priv", section_title="Secret",
         text_preview="Secret content.",
     )
-    db.upsert_community_report(
+    rep_pub = db.upsert_community_report(
         paths.state_db, community_key="cr-pub", title="Public report",
         summary="Public optimization topic.", full_content="",
         dependency_hash="dp", entity_ids=[], source_span_ids=[pub_span], rank=0.5,
     )
-    db.upsert_community_report(
+    rep_priv = db.upsert_community_report(
         paths.state_db, community_key="cr-priv", title="Secret report",
         summary="Secret optimization topic.", full_content="",
         dependency_hash="ds", entity_ids=[], source_span_ids=[priv_span], rank=0.5,
     )
-    return {"pub_span": pub_span, "priv_span": priv_span}
+    rep_mixed = db.upsert_community_report(
+        paths.state_db, community_key="cr-mixed", title="Mixed report",
+        summary="Optimization topic synthesizing public and secret notes.",
+        full_content="", dependency_hash="dm", entity_ids=[],
+        source_span_ids=[pub_span, priv_span], rank=0.9,
+    )
+    return {
+        "pub_span": pub_span, "priv_span": priv_span,
+        "rep_pub": rep_pub, "rep_priv": rep_priv, "rep_mixed": rep_mixed,
+    }
 
 
 def test_f3_oracle_build_evidence_filters_out_of_scope_sources(vault) -> None:
-    """§28.1: a strict policy must omit out-of-scope sources from the pack.
+    """§28.1 strict exclusion: an out-of-scope source — including a MIXED report
+    that merely touches it — is omitted entirely, with no span-id mutation.
 
-    The excluded source's spans MUST NOT appear in EvidencePack.source_span_ids
-    or in any EvidenceItem.source_span_ids (behavioral, not just plumbing)."""
+    Guards the data-leak/provenance bug: a public+private report must NOT be
+    included with its private span trimmed away (that would leak private text and
+    misattribute it to the public source)."""
     from curator import curate_yml
     paths = vault
     seeded = _seed_two_scope_sources(paths)
@@ -235,11 +247,28 @@ def test_f3_oracle_build_evidence_filters_out_of_scope_sources(vault) -> None:
         paths, QueryRequest(question="optimization", mode="global"), "global",
         policy=policy,
     )
-    assert seeded["pub_span"] in pack.source_span_ids
+    item_ids = {it.id for it in pack.items}
+    report_ids = set(pack.community_report_ids)
+
+    # In-scope pure-public report survives, intact (no provenance mutation).
+    assert seeded["rep_pub"] in item_ids
+    assert seeded["rep_pub"] in report_ids
+    pub_item = next(it for it in pack.items if it.id == seeded["rep_pub"])
+    assert pub_item.source_span_ids == [seeded["pub_span"]]
+
+    # Pure-private AND mixed reports are excluded ENTIRELY (strict all-spans rule).
+    assert seeded["rep_priv"] not in item_ids
+    assert seeded["rep_mixed"] not in item_ids
+    assert seeded["rep_priv"] not in report_ids
+    assert seeded["rep_mixed"] not in report_ids
+
+    # The private span never leaks — not in the pack nor in any surviving item.
     assert seeded["priv_span"] not in pack.source_span_ids
     for item in pack.items:
         assert seeded["priv_span"] not in item.source_span_ids
-    assert "cr-priv" not in [it.id for it in pack.items]
+
+    # Conservation: 2 of 3 reports dropped by policy are recorded.
+    assert pack.omitted_counts.get("policy_excluded") == 2
 
 
 # ---------------------------------------------------------------------------

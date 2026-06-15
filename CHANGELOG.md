@@ -50,12 +50,17 @@ Specs: SCHEMA.md §22, SYSTEM_BEHAVIOR.md §28–§30, SEARCH_ENGINE_SCHEMA.md �
 
 - **F3 — CurationPolicy not enforced (§28.1).** `build_evidence` now applies the
   workspace source-scope globs (`source_include`/`source_exclude`) via
-  `CurationPolicy.allows_source`: single-source items (spans, search hits) are
-  kept only when in scope; multi-source items (community reports, synthesis) are
-  kept when any backing source is in scope and have their `source_span_ids`
-  filtered to the in-scope spans. (PR #31 review: the policy kwarg had been
-  plumbed but the filter behavior was missing — the F3 oracle is now behavioral,
-  asserting an excluded source is omitted from the pack.)
+  `CurationPolicy.allows_source` with a **strict all-spans rule**: an item is kept
+  only when *every* backing span is in scope. Multi-source artifacts (community
+  reports, synthesis, entities) are excluded entirely if any backing span is out
+  of scope — their text commingles all sources, so partial inclusion would leak
+  excluded content and trimming `source_span_ids` would corrupt provenance;
+  `source_span_ids` is never mutated. Items dropped by scope are counted in
+  `omitted_counts["policy_excluded"]`. (PR #31 review: the policy kwarg had been
+  plumbed but the filter was missing; a follow-up review then tightened the
+  initial "any-in-scope" rule to strict exclusion to close a private-data leak.
+  The F3 oracle is behavioral — it seeds a mixed public+private report and asserts
+  it is excluded whole.)
 - **F4 — Global evidence query-independent and unbounded (§28.2).** All
   community reports were loaded regardless of query relevance or count.
 - **F5 — Evidence block silent truncation (§28.3).** Character-budget cutoffs

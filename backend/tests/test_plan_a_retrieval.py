@@ -348,8 +348,13 @@ def test_oracle_promoted_wiki_locator_kind(vault) -> None:
 # §30.2 — candidate_count must reflect dropped candidates (review fix)
 # ---------------------------------------------------------------------------
 
-def test_oracle_retrieval_trace_candidate_count_includes_omitted(vault) -> None:
-    """candidate_count must equal selected_count + omitted total, not be tautological."""
+def test_oracle_retrieval_trace_candidate_count_conserves_seeded_total(vault) -> None:
+    """candidate_count must equal the absolute number of seeded candidates (16).
+
+    Anchored to the seeded DB count, not to ``selected + omitted`` arithmetic
+    (which would mirror the trace formula and pass tautologically). 16 reports
+    are seeded; the global bound selects 10 and omits 6, so candidate_count==16
+    iff no candidate has silently vanished between pipeline stages."""
     from curator.retrieval import QueryOrchestrator
     from curator.retrieval.models import QueryRequest
 
@@ -362,7 +367,8 @@ def test_oracle_retrieval_trace_candidate_count_includes_omitted(vault) -> None:
         paths.state_db, source_id=1, relpath=RELPATH, span_type="paragraph",
         content_hash="cc", section_title="Intro", text_preview="Corpus span.",
     )
-    for i in range(15):
+    seeded = 16
+    for i in range(seeded):
         db.upsert_community_report(
             paths.state_db, community_key=f"cc-{i}", title=f"Report {i}",
             summary=f"Topic {i} content.", full_content="",
@@ -372,6 +378,7 @@ def test_oracle_retrieval_trace_candidate_count_includes_omitted(vault) -> None:
     orch.fetch_context(QueryRequest(question="deep learning", mode="global"))
     traces = db.list_query_traces(paths.state_db, limit=1)
     sel = (traces[0].get("retrieval_trace") or {}).get("selection") or {}
-    omitted_total = sum((sel.get("omitted_counts") or {}).values())
-    assert omitted_total > 0, "expected some reports omitted by the bound"
-    assert sel["candidate_count"] == sel["selected_count"] + omitted_total
+    bound = evidence_mod._MAX_GLOBAL_REPORTS
+    assert sel["candidate_count"] == seeded
+    assert sel["selected_count"] == bound  # global route bounded to 10
+    assert sum((sel.get("omitted_counts") or {}).values()) == seeded - bound

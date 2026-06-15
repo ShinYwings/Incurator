@@ -2092,23 +2092,33 @@ same matcher used by `CurateSpec.matches_sources` applies, exposed as
 `CurationPolicy.allows_source(relpath)`.
 
 Evidence assembly MUST drop out-of-scope records on every route before they reach
-the pack:
+the pack, using a **strict all-spans rule**: an evidence item is kept only when
+**every** backing span is in scope. A single out-of-scope span excludes the whole
+item.
 
 - **Single-source items** (`source_span`, `search_hit`): included only when their
-  source relpath is in scope. Out-of-scope spans MUST NOT appear in
-  `EvidencePack.source_span_ids` or any `EvidenceItem.source_span_ids`.
-- **Multi-source items** (`community_report`, `synthesis`): an item aggregates
-  spans from several sources. It is included when **at least one** of its source
-  relpaths is in scope, and excluded only when **all** of its sources are
-  out of scope. Its `source_span_ids` are filtered to the in-scope spans.
-- **Entity items**: included when any of their backing spans are in scope.
+  source relpath is in scope.
+- **Multi-source items** (`community_report`, `synthesis`) and **entity items**:
+  these aggregate spans from several sources, and their rendered *text* already
+  commingles content from all of them. They are **excluded entirely if ANY backing
+  span is out of scope** — keeping a partially-in-scope artifact would leak
+  excluded source content through its text, and trimming `source_span_ids` would
+  corrupt provenance (the consumer would cite an in-scope source for
+  out-of-scope-derived claims). `source_span_ids` is therefore **never mutated**
+  by scope enforcement: an item is kept whole or dropped whole.
+
+Out-of-scope spans MUST NOT appear in `EvidencePack.source_span_ids` or any
+surviving `EvidenceItem.source_span_ids`. The number of items dropped by scope
+enforcement is recorded in `EvidencePack.omitted_counts["policy_excluded"]` so the
+retrieval trace's `candidate_count` conserves the full candidate set (§30.2).
 
 When `source_include` is empty and `source_exclude` is empty (the default open
 policy), every record is in scope and behavior is unchanged.
 
 **Oracle**: `test_f3_oracle_build_evidence_filters_out_of_scope_sources` (F3, Plan A
-P3) — seeds an in-scope and an out-of-scope source and asserts the out-of-scope
-source's spans are absent from the pack and from every item's `source_span_ids`.
+P3) — seeds an in-scope source, an out-of-scope source, and a **mixed** report
+backed by both, then asserts the out-of-scope source *and the mixed report* are
+entirely absent from the pack (no partial inclusion, no span-id mutation).
 
 ### 28.2 Bounded Global Route
 

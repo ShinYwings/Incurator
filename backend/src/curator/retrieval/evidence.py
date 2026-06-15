@@ -71,18 +71,20 @@ def _item_in_scope(
     item: EvidenceItem,
     policy: "curate_yml.CurationPolicy | None",
 ) -> bool:
-    """Multi-source rule (§28.1): keep when ANY backing span is in scope; also
-    filter ``item.source_span_ids`` in place to the in-scope spans. Items with no
-    backing spans carry no provenance to judge and are kept."""
-    if policy is None:
-        return True
-    if not item.source_span_ids:
+    """Strict source-scope rule (§28.1).
+
+    An item is kept only when **every** backing span is in scope. A single
+    out-of-scope span drops the whole item — for a multi-source L2/L3 artifact
+    (community report, synthesis) the rendered *text* already commingles all its
+    sources, so keeping it would leak excluded content and trimming
+    ``source_span_ids`` would corrupt provenance. ``source_span_ids`` is therefore
+    never mutated here. Items with no backing spans carry no provenance to judge
+    and are kept.
+    """
+    if policy is None or not item.source_span_ids:
         return True
     kept = _scope_filter_spans(db_path, item.source_span_ids, policy)
-    if not kept:
-        return False
-    item.source_span_ids = kept
-    return True
+    return len(kept) == len(item.source_span_ids)
 
 
 def _apply_policy_scope(
@@ -92,13 +94,21 @@ def _apply_policy_scope(
 ) -> None:
     """Drop out-of-scope evidence from the pack and recompute provenance (§28.1).
 
-    Single source of truth for every route: filters items via the per-kind rule,
-    then rebuilds ``source_span_ids`` and the per-kind id lists from the survivors
-    so no excluded span/report/synthesis lingers in the pack.
+    Single source of truth for every route: strictly excludes any item with an
+    out-of-scope backing span, records the number dropped in
+    ``omitted_counts['policy_excluded']`` (conservation of candidate mass), then
+    rebuilds ``source_span_ids`` and the per-kind id lists from the survivors so
+    no excluded span/report/synthesis lingers in the pack.
     """
     if policy is None:
         return
+    original_count = len(pack.items)
     pack.items = [it for it in pack.items if _item_in_scope(db_path, it, policy)]
+    dropped = original_count - len(pack.items)
+    if dropped:
+        pack.omitted_counts["policy_excluded"] = (
+            pack.omitted_counts.get("policy_excluded", 0) + dropped
+        )
     spans: set[str] = set()
     reports: list[str] = []
     syntheses: list[str] = []

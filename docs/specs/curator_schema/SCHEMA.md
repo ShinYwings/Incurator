@@ -2094,10 +2094,13 @@ for existing callers that do not yet pass a policy.
 
 Source scope is enforced via the policy's glob patterns
 (`source_include` / `source_exclude`), tested with
-`CurationPolicy.allows_source(relpath)`. Single-source items are kept only when
-in scope; multi-source items (`community_report`, `synthesis`) are kept when any
-backing source is in scope, with their `source_span_ids` filtered to in-scope
-spans. See SYSTEM_BEHAVIOR §28.1 for the per-kind rule.
+`CurationPolicy.allows_source(relpath)`, using a **strict all-spans rule**: an
+item is kept only when *every* backing span is in scope. Multi-source artifacts
+(`community_report`, `synthesis`, entities) are excluded entirely if any backing
+span is out of scope — their text commingles all sources, so partial inclusion
+would leak excluded content and trimming `source_span_ids` would corrupt
+provenance. `source_span_ids` is never mutated; items dropped by scope are counted
+in `omitted_counts["policy_excluded"]`. See SYSTEM_BEHAVIOR §28.1.
 
 ### 22.6 Global Route Bounded Selection
 
