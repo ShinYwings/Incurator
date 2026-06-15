@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.9.0)
+# Incurator - Schema & Operating Conventions (v0.10.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -1997,3 +1997,113 @@ Ledger GQ07). No calibrated-confidence column is frozen here yet; it is
 `benchmark-later` and added only with the P5 labeled relation-quality evidence.
 Quarantine decisions (§21.6) gate on support eligibility and structural signals,
 NOT on a raw-confidence threshold.
+
+---
+
+## 22. Retrieval Contracts (Plan A, v0.10.0)
+
+No schema migration — Plan A changes are transport-level (in-memory + JSONB
+column) only.  `SCHEMA_VERSION` remains `9`.
+
+### 22.1 Retrieval Execution Identity (RTR-*)
+
+A `RTR-<8 hex chars>` retrieval execution identifier is generated once per
+`build_evidence` call.  It is stored inside the existing
+`query_traces.retrieval_trace_json` JSONB column under the key
+`"retrieval_execution_id"`.  No new DB table is introduced.
+
+Prefix `RTR-` is added to the Id And Prefix Registry (§17):
+
+| Prefix | Owner | Table / location |
+|--------|-------|-----------------|
+| `RTR-` | `retrieval/evidence.py::build_evidence` | `query_traces.retrieval_trace_json` |
+
+### 22.2 StructuredLocator (In-Memory Only)
+
+`StructuredLocator` is a Python dataclass defined in
+`retrieval/models.py` (§17 SYSTEM_BEHAVIOR).  It is NOT persisted as its own DB
+row; it is computed at retrieval time and returned in `EvidenceItem.locator`.
+Plan F may later choose to cache resolved locators; Plan A does not.
+
+Fields and resolution states are defined in SYSTEM_BEHAVIOR §29.
+
+### 22.3 EvidencePack Extended Fields
+
+`EvidencePack` gains two new fields (no DB migration):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `retrieval_execution_id` | `str` | `RTR-*` ID for this retrieval; empty string before Plan A ships |
+| `omitted_counts` | `dict[str, int]` | route-specific omission counts (e.g. `{"global_reports": 5}`) |
+
+`EvidenceItem` gains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `locator` | `StructuredLocator \| None` | resolved source locator; `None` when no backing span |
+
+### 22.4 retrieval_trace_json Contract
+
+After Plan A, `query_traces.retrieval_trace_json` stores:
+
+```json
+{
+  "contract_version": "1",
+  "retrieval_execution_id": "RTR-xxxxxxxx",
+  "route": {"selected": "local", "reason": "..."},
+  "policy": {"applied_filters": [], "excluded_source_ids": []},
+  "selection": {
+    "candidate_count": 12,
+    "selected_count": 8,
+    "omitted_counts": {}
+  },
+  "warnings": []
+}
+```
+
+Pre-Plan-A QTR rows retain their existing `retrieval_trace_json` shape; no
+backfill or migration is performed.  Readers MUST handle both the pre-Plan-A
+`{}` / engine-raw shape and the Plan-A contract shape by checking for
+`"contract_version"`.
+
+### 22.5 CurationPolicy Forwarding Contract
+
+`build_evidence` MUST receive the `CurationPolicy` resolved by the orchestrator.
+The policy is forwarded via the new `policy` keyword argument:
+
+```python
+def build_evidence(
+    paths: cfg.WikiPaths,
+    request: QueryRequest,
+    route: str,
+    *,
+    policy: curate_yml.CurationPolicy | None = None,
+    limit: int = 8,
+) -> EvidencePack: ...
+```
+
+When `policy` is `None`, behavior defaults to the current open policy (no source
+filter, no workspace-specific constraints) — this preserves backward compatibility
+for existing callers that do not yet pass a policy.
+
+### 22.6 Global Route Bounded Selection
+
+`_report_items` is replaced by a query-aware variant that accepts the query text
+and returns at most `MAX_GLOBAL_REPORTS` (default 10) reports ranked by lexical
+overlap.  The exact ranking algorithm: compute a score for each report as
+`|query_terms ∩ (title_terms ∪ summary_terms)| / |query_terms|`; select top-N by
+score, break ties by `rank DESC`.  The omitted count is stored in
+`pack.omitted_counts["global_reports"]`.
+
+### 22.7 Evidence Block Omission Contract
+
+`EvidencePack.evidence_block(*, max_chars)` appends an omission marker when
+`len(items) > rendered_count`:
+
+```
+[N items omitted — character budget reached]
+```
+
+This line is appended AFTER the last fully-rendered item, ensuring `max_chars` is
+respected by the rendered content + marker together.  The marker MUST contain the
+word `"omitted"` (case-insensitive match used by tests).

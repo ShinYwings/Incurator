@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.9.0)
+# Incurator - System Behavior (v0.10.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -2071,3 +2071,217 @@ migration may touch a real vault DB, encoded as tests in P3:
 - Graph metrics are reported separately; no quota UI, limits, admission control,
   or auto-deletion is implemented. No source or reference file is autonomously
   edited at any point.
+
+---
+
+## 28. Retrieval Policy Enforcement (Plan A, v0.10.0)
+
+### 28.1 CurationPolicy Forwarded To Evidence Building
+
+`build_evidence(paths, request, route, *, policy)` receives the resolved
+`CurationPolicy` from the orchestrator.  The orchestrator already resolves the
+policy before routing; it MUST forward the same policy object to `build_evidence`
+rather than letting evidence construction apply defaults independently.
+
+**Source-scope enforcement** — if `policy.source_ids` is non-empty, only spans
+and reports whose `source_id` belongs to that set are included as primary
+evidence.  Spans from excluded sources MUST NOT appear in
+`EvidencePack.source_span_ids` or any `EvidenceItem.source_span_ids`.
+
+**Oracle**: `test_f3_oracle_build_evidence_receives_curation_policy` (F3, Plan A
+P3).
+
+### 28.2 Bounded Global Route
+
+Global evidence MUST rank community reports by query relevance and select at
+most `MAX_GLOBAL_REPORTS = 10` (configurable by policy in future; hard default
+today).  Loading every report for every global query is a **rejected default**.
+
+Query-relevance ranking: score each report by lexical overlap between the query
+terms and the report `title + summary` text.  The top-N reports (by score, ties
+broken by `rank DESC`) are selected; remaining reports are omitted with a count
+recorded in `pack.omitted_counts["global_reports"]`.
+
+L4 Synthesis nodes are similarly bounded to `MAX_GLOBAL_SYNTHESIS = 6` (current
+limit is already in `_synthesis_items`; ensure it is also applied when policy is
+present).
+
+Two queries with different topics MUST select different report subsets.  The
+baseline defect (F4) loads all reports query-independently; the oracle asserts
+that two queries with non-overlapping topics produce non-overlapping top-10
+selections and that each selection contains ≤ 10 items.
+
+**Oracle**: `test_f4_oracle_global_evidence_bounded_and_query_dependent` (F4, Plan
+A P3).
+
+### 28.3 Explicit Evidence Omission Reporting
+
+`EvidencePack.evidence_block(*, max_chars)` MUST append an omission summary line
+when any items were excluded by the character budget.  The summary MUST contain
+the word "omitted" and the count of excluded items, e.g.:
+
+```
+[2 items omitted — character budget reached]
+```
+
+Silent truncation is a **rejected default** (F5).  The omission line itself MUST
+NOT cause `evidence_block` to exceed `max_chars`; it replaces the last partial
+item if needed to fit.
+
+**Oracle**: `test_f5_oracle_evidence_block_reports_explicit_omissions` (F5, Plan A
+P3).
+
+### 28.4 Route Candidate And Evidence Limits
+
+Every route enforces explicit per-route limits:
+
+| Route          | Candidate limit                          | Selected limit |
+|----------------|------------------------------------------|---------------|
+| `local`        | `limit` (default 8) search hits          | same as hits  |
+| `global`       | all reports scored; top-N selected       | 10 reports + 6 synthesis |
+| `explore`      | entity seed + memory paths               | per-policy    |
+| `source-section` | all spans of that source               | unbounded (full source) |
+
+Omissions for every route that drops candidates are recorded in
+`pack.omitted_counts` (a new dict field on `EvidencePack`); Plan F exposes these
+in the public context pack.
+
+---
+
+## 29. Structured Source Locators (Plan A, v0.10.0)
+
+### 29.1 Purpose
+
+A structured locator supplements (never replaces) the authoritative
+`source_span_id` on an evidence item.  It encodes the precise sub-document
+target — heading, block anchor, PDF page — needed by rendering clients and Plan F
+navigation.  The locator is resolved at retrieval time and attached to every
+`EvidenceItem`; rendering clients consume it at their own interface boundary.
+
+### 29.2 StructuredLocator Schema
+
+```python
+@dataclass
+class StructuredLocator:
+    source_id: int | None          # FK to sources.id; None for external-only
+    source_kind: str               # vault_markdown | vault_pdf | external_uri | promoted_wiki
+    relpath: str | None            # vault-relative path (None for external_uri)
+    heading: str | None            # nearest heading above the span (Markdown only)
+    block_id: str | None           # Obsidian block anchor `^block-id` (Markdown)
+    page_number: int | None        # verified printed page number (PDF only)
+    toc_id: str | None             # PDF table-of-contents section id (PDF only)
+    external_uri: str | None       # reference-mode external URI
+    locator_status: str            # see §29.3
+```
+
+`source_kind` values:
+- `vault_markdown` — a `.md` file in `03_Notes/`, `02_Wiki/`, or
+  `.curator/Collections/`
+- `vault_pdf` — a PDF file in `04_Resources/` or `06_Archives/` (Reference Mode)
+- `external_uri` — a URI-only external reference (no local copy)
+- `promoted_wiki` — a note in `02_Wiki/` promoted from L4
+
+### 29.3 Locator Resolution States
+
+| Status              | Meaning |
+|---------------------|---------|
+| `exact`             | heading and/or block_id confirmed present in the file |
+| `fallback_file`     | heading/block not found; locator resolves to the file root |
+| `fallback_source`   | file not found; locator resolves to the source record only |
+| `duplicate_anchor`  | block_id appears more than once in the file; not a unique target |
+| `stale`             | file exists but content hash has changed since the span was stored |
+| `unavailable`       | source record exists but the file cannot be read |
+
+A locator MUST NOT be rendered as a clickable link unless its status is `exact` or
+`fallback_file`.  Degraded statuses (`duplicate_anchor`, `stale`, `unavailable`,
+`fallback_source`) MUST be surfaced as a warning.
+
+### 29.4 Resolution Rules
+
+1. Read `sources.relpath` and `source_spans.relpath` from the DB.
+2. For Markdown: scan the file for the heading text (case-insensitive) and the
+   block anchor `^block-id`.  Set `heading` / `block_id` when found; set
+   `locator_status='exact'`.  If neither is found but the file exists, set
+   `locator_status='fallback_file'`.  If the file does not exist, set
+   `locator_status='unavailable'`.
+3. For PDF: use `source_spans.metadata['page_number']` when stored; verify the
+   page count via `source_pages` if the table is populated.
+4. Duplicate anchor check: if the same `block_id` appears more than once in the
+   file, set `locator_status='duplicate_anchor'` — do not guess the target row.
+5. User notes in `03_Notes/` and `04_Resources/` are NEVER modified to add block
+   anchors.  If an anchor is absent, the locator degrades to `fallback_file`.
+
+### 29.5 EvidenceItem Extension
+
+`EvidenceItem` gains one optional field:
+
+```python
+locator: StructuredLocator | None = None
+```
+
+The locator is populated by `_resolve_locator(db_path, item)` called inside
+`build_evidence` for each item that has a backing `source_span_id`.  Items with no
+backing span (community reports, synthesis nodes without spans) carry
+`locator=None`.
+
+---
+
+## 30. Retrieval Execution (RTR-*, Plan A, v0.10.0)
+
+### 30.1 RTR-* Identifier
+
+A retrieval execution identifier (`RTR-<8 hex chars>`) is generated once per
+`build_evidence` call and attached to the returned `EvidencePack` as
+`pack.retrieval_execution_id`.  The orchestrator records it in
+`query_traces.retrieval_trace_json` alongside the existing route/ranking trace.
+
+The RTR-* ID is the stable handle Plan F uses to reference the retrieval
+execution without a second retrieval root.  It is transport-neutral and does not
+create a new DB table; it is carried inside the existing `retrieval_trace_json`
+JSONB column.
+
+### 30.2 Retrieval Result Contract (Internal, Transport-Neutral)
+
+The internal retrieval result carried on `EvidencePack` (and persisted in the QTR
+trace) after Plan A:
+
+```json
+{
+  "contract_version": "1",
+  "retrieval_execution_id": "RTR-...",
+  "route": {"selected": "local", "reason": "..."},
+  "policy": {"applied_filters": [], "excluded_source_ids": []},
+  "selection": {
+    "candidate_count": 12,
+    "selected_count": 8,
+    "omitted_counts": {}
+  },
+  "warnings": []
+}
+```
+
+This is stored in `query_traces.retrieval_trace_json` and is the only
+authoritative record of the retrieval execution for Plan F consumption.  It does
+NOT expose MCP-format pack structures, plugin navigation handles, or progressive
+context expansion — those are Plan F responsibilities.
+
+### 30.3 Plan-F Handoff Contract
+
+Plan F (`F_agent_context_service.md`) consumes the Plan A retrieval result
+without a second retrieval operation.  The Plan F ContextService:
+
+- MUST use the `EvidencePack` returned by Plan A's `build_evidence` as its
+  primary evidence source.
+- MUST NOT re-run retrieval to supplement or replace Plan A's selection.
+- MUST NOT drop `source_span_ids`, `locator`, `evidence_status`, or
+  `omitted_counts` fields when constructing the public context pack.
+- MAY add progressive expansion handles, client budgeting metadata, and feedback
+  lineage ATOP the Plan A result — it MUST NOT mutate the Plan A result object.
+
+### 30.4 Diagnostic Retrieval (No Orphan QTR)
+
+Diagnostic / raw-search surfaces that call `build_evidence` outside the
+`QueryOrchestrator` (e.g. CLI `wiki query --context-only`, MCP
+`curator_fetch_context`) MUST create an explicit parent QTR through
+`db.insert_query_trace` before returning.  A retrieval execution MUST NOT produce
+a disconnected `RTR-*` with no parent `QTR-*` in the trace record.
