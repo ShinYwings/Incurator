@@ -193,6 +193,37 @@ def test_graph_audit_flags_reference_to_redirected_entity(vault: Path) -> None:
     )
 
 
+def test_graph_audit_flags_active_relation_with_dangling_endpoint(vault: Path) -> None:
+    """A missing endpoint (id absent from graph_entities — a dangling reference) is
+    NOT canonical and must be flagged endpoint_not_canonical. Whitelisting the
+    None state would silently ignore a broken authoritative reference (§27.6:
+    0 endpoints that are not canonical entities)."""
+    audit = getattr(db, "graph_audit", None)
+    assert audit is not None, (
+        "P7 must define db.graph_audit (SYSTEM_BEHAVIOR §27.6 / SCHEMA §21.8)"
+    )
+    src = _seed_entity(vault, "Alpha")
+    tgt = _seed_entity(vault, "Beta")
+    rel = _relate(vault, src, tgt)
+    with db.connect(vault) as conn:
+        conn.execute(
+            "UPDATE graph_relations SET lifecycle_status = 'active' WHERE id = ?",
+            (rel,),
+        )
+        # Drop the target entity row, leaving the active relation with a dangling
+        # (non-existent) endpoint — a broken reference the audit must surface.
+        conn.execute("DELETE FROM graph_entities WHERE id = ?", (tgt,))
+    report = audit(vault)
+    assert rel in _subjects(report), (
+        "graph audit must flag an active relation whose endpoint does not exist "
+        "in graph_entities (a dangling reference is not canonical)"
+    )
+    assert any(
+        v["subject_id"] == rel and v["code"] == "endpoint_not_canonical"
+        for v in report
+    ), "a missing endpoint must be coded endpoint_not_canonical, not silently ignored"
+
+
 def test_graph_audit_flags_quarantined_relation_missing_reason(
     vault: Path,
 ) -> None:

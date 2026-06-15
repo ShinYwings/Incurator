@@ -3769,17 +3769,29 @@ def graph_audit(
                     str(r["source_entity_id"]), str(r["target_entity_id"])
                 ):
                     state = entity_state.get(endpoint)
-                    if state is None or state == "canonical":
+                    # ONLY an explicitly-canonical endpoint is admissible. A missing
+                    # endpoint (state is None — a dangling reference to an entity that
+                    # does not exist in graph_entities) is NOT canonical and must be
+                    # flagged: whitelisting None would silently ignore a broken
+                    # authoritative reference (§27.6 "0 endpoints that are not
+                    # canonical entities").
+                    if state == "canonical":
                         continue
                     code = (
                         "reference_to_redirected_entity"
                         if state == "redirected"
                         else "endpoint_not_canonical"
                     )
+                    detail = (
+                        f"endpoint {endpoint} does not exist in graph_entities "
+                        "(dangling reference)"
+                        if state is None
+                        else f"endpoint {endpoint} resolution_state={state}"
+                    )
                     violations.append({
                         "code": code,
                         "subject_id": rid,
-                        "detail": f"endpoint {endpoint} resolution_state={state}",
+                        "detail": detail,
                     })
             elif status == "quarantined":
                 reason = str(r["quarantine_reason"] or "")

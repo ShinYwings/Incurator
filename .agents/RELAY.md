@@ -1,6 +1,16 @@
 # Cross-Agent Relay State
 
-## Status: P7 COMPLETE (graph_audit + live claim-grounded cutover + testbed). Ready for Gemini review → P8.
+## Status: P7 COMPLETE + re-review fix applied (graph_audit dangling-endpoint blind spot). Ready for re-review → P8.
+
+### Re-review fix (2026-06-15, Claude) — graph_audit dangling-endpoint false negative
+Reviewer caught a blind spot: `graph_audit` whitelisted `state is None` (an
+endpoint id absent from `graph_entities` — a dangling reference), silently
+ignoring a broken authoritative reference. A non-existent endpoint is NOT
+canonical. **Fixed at root cause:** only an explicitly `"canonical"` state
+continues; `None` now flags `endpoint_not_canonical` with a "dangling reference"
+detail. New regression lock `test_graph_audit_flags_active_relation_with_dangling_endpoint`.
+Suite **870 passed** (4 docs-first reds only); ruff clean; mypy 0 new. D2 db.py
+re-pinned `5220ac73 → f5e4382c`.
 
 **Branch:** `feature/plan-c-graph-quality`
 **Target Plan:** `.agents/plans/C_graph_quality.md`
