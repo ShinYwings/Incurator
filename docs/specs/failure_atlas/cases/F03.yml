@@ -3,7 +3,7 @@ id: F3
 title: CurationPolicy (KRS) is not enforced through evidence assembly
 query_family: cross-route
 execution_mode: deterministic
-status: assigned
+status: retired
 status_history:
   - date: "2026-06-11"
     status: suspected
@@ -14,7 +14,10 @@ status_history:
   - date: "2026-06-12"
     status: assigned
     evidence: "FAILURE_ATLAS.md §8 — route policy enforcement is Program 3 ContextService scope"
-owner: program-3
+  - date: "2026-06-15"
+    status: retired
+    evidence: "Plan A P3 — build_evidence policy kwarg + orchestrator forwarding (v0.10.0)"
+owner: unassigned
 impact: >
   The workspace Knowledge Requirement Spec (curate.yml) is resolved by the
   orchestrator but cannot influence which evidence is assembled: KRS bias,
@@ -28,9 +31,9 @@ boundary:
     (orchestrator.py:80,124) but calls build_evidence(self.paths, request,
     route) (:84,:129). The build_evidence signature (evidence.py:144) accepts
     no policy parameter; no callee consults the policy.
-fixture: backend/tests/test_failure_atlas_repro.py::test_f3_baseline_build_evidence_accepts_no_policy
+fixture: backend/tests/test_failure_atlas_repro.py::test_f3_oracle_build_evidence_receives_curation_policy
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f3_baseline_build_evidence_accepts_no_policy" -q
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f3_oracle_build_evidence_receives_curation_policy" -q
 oracles:
   deterministic: >
     Evidence assembly receives the resolved CurationPolicy on every route, and
@@ -55,6 +58,14 @@ assignment:
   gate: >
     Enforce KRS policy, source scope, truth/freshness rules, and explicit
     degradation on every route (umbrella P3.1).
+resolution:
+  version: "0.10.0"
+  evidence: >
+    feat(retrieval): Plan A P3 — build_evidence() now accepts policy kwarg (§28.1);
+    orchestrator forwards resolved CurationPolicy on both fetch_context and run paths.
+    Baseline test retired; oracle test promoted to live test.
+  after_state: >
+    inspect.signature(build_evidence).parameters contains 'policy'; the orchestrator
+    passes policy=policy to build_evidence on every call path.
 notes: >
-  Oracle test: test_f3_oracle_build_evidence_receives_curation_policy
-  (strict xfail).
+  Oracle test: test_f3_oracle_build_evidence_receives_curation_policy (live, v0.10.0).

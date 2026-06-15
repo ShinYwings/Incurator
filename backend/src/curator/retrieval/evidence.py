@@ -1,9 +1,9 @@
 """Evidence-pack construction per route (v0.3.1).
 
 Combines the DB graph (entities/relations/community_reports/memory_paths/
-source_spans — the source of truth) with qmd search over the derived
-``.curator/Collections`` corpus. qmd is the fallback retrieval engine; when it is
-unavailable or the graph is incomplete, evidence degrades with a warning.
+source_spans — the source of truth) with DB-native hybrid search (FTS5 + vector
++ RRF + reranking). Search is the fallback path; when unavailable or the graph
+is incomplete, evidence degrades with a warning.
 """
 
 from __future__ import annotations
@@ -174,7 +174,8 @@ def _span_items(db_path: Path, span_ids: list[str]) -> list[EvidenceItem]:
     items: list[EvidenceItem] = []
     for span in spans:
         text = full.get(span["id"])
-        locator = _build_locator(span, src_meta.get(span.get("source_id"), {}))
+        sid = span.get("source_id")
+        locator = _build_locator(span, src_meta.get(sid, {}) if sid is not None else {})
         items.append(
             EvidenceItem(
                 id=span["id"], kind="source_span",
@@ -302,7 +303,7 @@ def build_evidence(
         )
         items = syn_items + report_items
         if not items:
-            warnings.append("no synthesis or community reports; falling back to qmd")
+            warnings.append("no synthesis or community reports; falling back to search")
             _add_search_hits(pack, paths, q, limit)
         else:
             pack.items = items

@@ -1,7 +1,7 @@
 """Query orchestrator (v0.3.1).
 
 Single entry point for the curation-native query path: resolve the workspace's
-CurationPolicy, choose a route, build an evidence pack (DB graph + qmd corpus),
+CurationPolicy, choose a route, build an evidence pack (DB graph + hybrid search),
 run the route's registered query prompt with tracing, and return a result with
 the full QTR trace (route, evidence ids, prompt trace ids).
 """

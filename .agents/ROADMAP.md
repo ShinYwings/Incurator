@@ -65,6 +65,10 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
      `.agents/plans/C_graph_quality.md`
    - Batch 3: `.agents/plans/A_rag_retrieval_provenance.md` →
      `.agents/plans/F_agent_context_service.md`
+     - **Plan A shipped as v0.10.0** (2026-06-15): RTR-* retrieval execution ID,
+       bounded/query-relevant global route, CurationPolicy forwarding (F3), explicit
+       omission markers (F5), StructuredLocator resolution (§29), Plan-F handoff
+       contract. F03/F04/F05 retired in Failure Atlas.
 
 2. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative/derived/cache/external storage accounting, capacity

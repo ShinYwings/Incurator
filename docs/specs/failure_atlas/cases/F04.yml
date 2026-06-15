@@ -3,7 +3,7 @@ id: F4
 title: Global evidence is query-independent; source-scoped evidence is unbounded
 query_family: global
 execution_mode: deterministic
-status: assigned
+status: retired
 status_history:
   - date: "2026-06-11"
     status: suspected
@@ -14,7 +14,10 @@ status_history:
   - date: "2026-06-12"
     status: assigned
     evidence: "FAILURE_ATLAS.md §8 — bounded query-relevant routes are Program 3 scope"
-owner: program-3
+  - date: "2026-06-15"
+    status: retired
+    evidence: "Plan A P3 — bounded query-relevant global route via _report_score scoring (v0.10.0)"
+owner: unassigned
 impact: >
   Global queries load every community report regardless of the question, so
   cost grows linearly with corpus size and irrelevant material dilutes the
@@ -29,9 +32,9 @@ boundary:
     (first 6) with _report_items(db_path) which iterates
     db.list_community_reports with no query argument and no limit; route ==
     "source-section" (evidence.py:152-167) appends every span of the source.
-fixture: backend/tests/test_failure_atlas_repro.py::test_f4_baseline_global_evidence_query_independent_and_unbounded
+fixture: backend/tests/test_failure_atlas_repro.py::test_f4_oracle_global_evidence_bounded_and_query_dependent
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f4_baseline_global_evidence_query_independent_and_unbounded" -q
+  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f4_oracle_global_evidence_bounded_and_query_dependent" -q
 oracles:
   deterministic: >
     Global-route evidence selection is bounded (item count respects an
@@ -54,6 +57,14 @@ snapshot:
 assignment:
   program: program-3
   gate: "Global/source routes are bounded and query-relevant (Program 3 release gate)."
+resolution:
+  version: "0.10.0"
+  evidence: >
+    feat(retrieval): Plan A P3 — _report_items() now scores reports by query-term overlap
+    and caps at _MAX_GLOBAL_REPORTS=10 (§28.2). Baseline test retired; oracle promoted.
+  after_state: >
+    On a 30-report, two-topic corpus, orthogonal queries select differing report sets
+    each bounded to ≤10 items; omitted counts recorded in pack.omitted_counts.
 notes: >
   Secondary family: source-scoped. Oracle test:
-  test_f4_oracle_global_evidence_bounded_and_query_dependent (strict xfail).
+  test_f4_oracle_global_evidence_bounded_and_query_dependent (live, v0.10.0).
