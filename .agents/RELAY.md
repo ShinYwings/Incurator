@@ -1,31 +1,25 @@
 # Cross-Agent Relay State
 
-## Status: IDLE — Plan A shipped, awaiting PR merge
+## Status: ACTIVE — Plan Approved, Final Polish & Release (P5)
 
-**Branch:** `feature/plan-a-rag-retrieval-provenance`
+**Branch:** `feature/diff-viewer-overhaul`
 
-Plan A (RAG Retrieval Provenance, v0.10.0) is complete and staged for PR.
+The Brain (PM) has completed an exhaustive, line-by-line code review of the `diffViewer.ts` and `chatSidebar.ts` implementation against the Master Plan.
 
-## Summary of Work Done
-- P2: RTR-* retrieval execution ID, EvidencePack/EvidenceItem new fields
-- P3: CurationPolicy forwarding (F3 fixed), bounded global route (F4 fixed), explicit omission marker (F5 fixed)
-- P4: StructuredLocator resolution on source-span evidence items
-- P5: Plan-F handoff contract in fetch_context (RTR-* + locator data)
-- P7: Sequential roles, full CI, version bump 0.9.0→0.10.0, CHANGELOG, Failure Atlas F03/F04/F05 retired
+**Architectural Verdict:** APPROVED.
+1. The Inverted Pure-Decoration Model is mathematically sound. The `relativeLine` computation for projecting `AddedWidget` successfully resolves the Double-Addition crash (Bug 20).
+2. The asynchronous `editor-change` race condition is resolved via exact sub-range string matching.
+3. The `layout-change` hook safely guards against tab closures and destroyed view dispatches.
+4. The `chatSidebar.ts` target-isolated routing accurately mounts source-mode leaves and proxies all multi-edits to the `DiffViewer` singleton.
+5. The `resolveVaultFile` method accurately strips absolute path leakage.
+
+**Actionable Code Review Finding:**
+- **Orphaned Dead Code:** In `chatSidebar.ts` (around line 2728), the `applyInlineMultiEdit` method is now completely unreferenced because its caller (`autoApplyProposals`) was successfully deleted in Phase P4. Per `AGENTS.md` Rule 3 (Surgical Changes), you must clean up dead code orphaned by your own edits. Delete this method.
 
 ## Immediate Next Action
-For the Brain (PM): Review PR #31 when updated.
-For the Executor: Read `.agents/drafts/diff_viewer_plugin.md` and create a `PLAN_TEMPLATE.md` in `.agents/plans/` for the Diff Viewer Overhaul milestone.
-
-### Update (2026-06-16, Claude Code) — PR #31 review fixes pushed
-Addressed the 5 PR #31 review findings on the same branch before merge (plan-first;
-plan `A2_plan_a_review_fixes.md` approved, implemented via TDD, then deleted):
-- F3 (§28.1) now **behaviorally** enforced — glob source-scope filter via
-  `CurationPolicy.allows_source`, centralized in `_apply_policy_scope` on every route.
-  The premature v0.10.0 "retired" status was corrected, then re-retired with a
-  behavioral oracle.
-- `evidence_block` budget-safe omission marker (§28.3); `promoted_wiki` locator
-  kind (§29.2); `candidate_count = selected + omitted` (§30.2).
-- Spec §28.1 + SCHEMA §22 reconciled to the real glob policy surface (no `source_ids`).
-- Full CI green: 894 passed, 5 xfailed (F6/F8/F9/F11/F12 = Plan C/F scope).
-Diff Viewer Overhaul (ROADMAP 4.5) remains the next milestone and is untouched.
+For the Executor:
+1. Delete the orphaned `applyInlineMultiEdit` method from `chatSidebar.ts`.
+2. Proceed to **Phase P5 (Verification & Release)**.
+3. Bump the version to `v0.11.0` in `manifest.json`, `package.json`, and `pyproject.toml`.
+4. Update `CHANGELOG.md` with the release notes for the 34 Diff Viewer bug fixes.
+5. Create the release commit (`chore(release): v0.11.0`), push, and open the final Pull Request.

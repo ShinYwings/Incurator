@@ -1,4 +1,4 @@
-import { EditorPosition, MarkdownView, Notice } from "obsidian";
+import { EditorPosition, EventRef, MarkdownView, Notice } from "obsidian";
 import { StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import type ObsidianAIAgent from "../../main";
@@ -15,39 +15,66 @@ interface DiffChunk {
 
 interface InlineHunk {
   chunkIndex: number;
-  lineNum: number; // 1-based editor line to scroll to (in the new text)
+  lineNum: number; // 1-based CM6 line number in the original buffer
 }
 
+// Renders removed text as a visual widget (kept for CSS class compatibility)
 class RemovedWidget extends WidgetType {
   constructor(public text: string) {
     super();
   }
-  
+
   eq(other: RemovedWidget) { return this.text === other.text; }
-  
+
   toDOM() {
     const div = document.createElement("div");
     div.className = "ai-agent-diff-inline-removed-block";
-    const lines = this.text.split("\n");
-    for (const line of lines) {
+    for (const line of this.text.split("\n")) {
       const lineDiv = document.createElement("div");
       lineDiv.className = "ai-agent-diff-inline-removed-line ai-agent-inline-diff-line-removed";
-      
       const prefix = document.createElement("span");
       prefix.className = "ai-agent-inline-diff-gutter";
       prefix.textContent = "- ";
       lineDiv.appendChild(prefix);
-      
       const textSpan = document.createElement("span");
       textSpan.className = "ai-agent-inline-diff-text";
       textSpan.textContent = line;
       lineDiv.appendChild(textSpan);
-      
       div.appendChild(lineDiv);
     }
     return div;
   }
-  
+
+  ignoreEvent() { return true; }
+}
+
+// Bug 13: Projects added lines as virtual block widgets (Inverted Model)
+class AddedWidget extends WidgetType {
+  constructor(public text: string) {
+    super();
+  }
+
+  eq(other: AddedWidget) { return this.text === other.text; }
+
+  toDOM() {
+    const div = document.createElement("div");
+    div.className = "ai-agent-diff-inline-added-block";
+    for (const line of this.text.split("\n")) {
+      const lineDiv = document.createElement("div");
+      lineDiv.className = "ai-agent-diff-inline-added-line ai-agent-inline-diff-line-added";
+      const prefix = document.createElement("span");
+      prefix.className = "ai-agent-inline-diff-gutter";
+      prefix.textContent = "+ ";
+      lineDiv.appendChild(prefix);
+      const textSpan = document.createElement("span");
+      textSpan.className = "ai-agent-inline-diff-text";
+      textSpan.textContent = line;
+      lineDiv.appendChild(textSpan);
+      div.appendChild(lineDiv);
+    }
+    return div;
+  }
+
   ignoreEvent() { return true; }
 }
 
@@ -68,13 +95,24 @@ const diffDecosField = StateField.define<DecorationSet>({
 });
 
 /**
- * Cursor-style inline diff:
- *  - Replaces text buffer with the NEW text.
- *  - Renders old (removed) text as virtual block widgets above the changes.
- *  - Adds line decorations for new (added) text.
+ * Inverted Pure-Decoration inline diff:
+ *  - Keeps originalText in the buffer. NEVER writes modifiedText on open (Bug 4).
+ *  - Highlights removed lines in-buffer with a CSS line decoration.
+ *  - Projects added lines as virtual AddedWidget block widgets (Bug 13).
  *  - Supports accepting/rejecting changes hunk-by-hunk.
+ *  - Singleton pattern prevents DOM/listener leaks (Bug 16).
  */
 export class DiffViewer {
+  // Bug 16: Strict Singleton — prevents multiple DOM/listener instances
+  private static instance: DiffViewer | null = null;
+
+  public static getInstance(plugin: ObsidianAIAgent): DiffViewer {
+    if (!DiffViewer.instance) {
+      DiffViewer.instance = new DiffViewer(plugin);
+    }
+    return DiffViewer.instance;
+  }
+
   private plugin: ObsidianAIAgent;
   private toolbarEl: HTMLElement | null = null;
   private hunkCountEl: HTMLElement | null = null;
@@ -82,12 +120,18 @@ export class DiffViewer {
   private originalText = "";
   private modifiedText = "";
   private selectionStart: EditorPosition | null = null;
-  private currentEndPos: EditorPosition | null = null;
-  
+  // Bug 19: Tracks end of the *original* text range, not modified
+  private originalEndPos: EditorPosition | null = null;
+
   private chunks: DiffChunk[] = [];
   private hunks: InlineHunk[] = [];
   private currentHunk = 0;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+  // Bug 23, 31: Typed event refs for proper cleanup via offref()
+  private layoutChangeRef: EventRef | null = null;
+  private changeRef: EventRef | null = null;
+  // Reviewer fix 2: prevents editor-change from aborting review on programmatic edits
+  private isInternalChange = false;
 
   constructor(plugin: ObsidianAIAgent) {
     this.plugin = plugin;
@@ -98,87 +142,122 @@ export class DiffViewer {
     originalText: string,
     modifiedText: string,
     selectionStart: EditorPosition,
-    selectionEnd: EditorPosition
+    _selectionEnd: EditorPosition,  // Bug 21: kept for API compatibility, unused in Inverted Model
+    preserveHunkIndex?: number
   ): void {
-    this.close(); // Cleans up previous UI and event listeners
+    this.close(); // Clean up any previous UI and all event listeners
 
     this.view = view;
     this.originalText = originalText;
     this.modifiedText = modifiedText;
     this.selectionStart = selectionStart;
 
-    const editor = view.editor;
+    // Bug 19: Calculate originalEndPos from the original text, not modified
+    const originalSplit = originalText.split("\n");
+    this.originalEndPos = {
+      line: selectionStart.line + originalSplit.length - 1,
+      ch: originalSplit.length === 1
+        ? selectionStart.ch + originalText.length
+        : originalSplit[originalSplit.length - 1].length,
+    };
+
     const diffLines = this.computeDiff(originalText, modifiedText);
     this.chunks = this.groupIntoChunks(diffLines);
 
-    // If there are no changes, just close and exit
+    // Bug 10: If there are no changes, return silently without touching the buffer
     if (this.chunks.filter(c => c.type === "change").length === 0) {
-      editor.replaceRange(modifiedText, selectionStart, selectionEnd);
-      // new Notice("All changes resolved.");
       return;
     }
 
-    // ── 1. Replace selection with NEW text ─────────────────────────────
-    editor.replaceRange(modifiedText, selectionStart, selectionEnd);
+    const cmView = this.getCmView();
+    if (!cmView) return;
 
-    const modifiedSplit = modifiedText.split("\n");
-    this.currentEndPos = {
-      line: selectionStart.line + modifiedSplit.length - 1,
-      ch: modifiedSplit.length === 1
-          ? selectionStart.ch + modifiedText.length
-          : modifiedSplit[modifiedSplit.length - 1].length,
-    };
-
-    // ── 2. Compute Decorations based on Chunks ─────────────────────────────
-    let currentLineIdx = selectionStart.line + 1; // 1-based CM6 line number
-    
+    // Bug 20: Use relativeLine counter (not absolute lines) to place decorations
     this.hunks = [];
-    const decos: { pos: number, deco: Decoration }[] = [];
-    const addedDeco = Decoration.line({ class: "ai-agent-diff-inline-added" });
+    const decos: { pos: number; deco: Decoration }[] = [];
 
+    let relativeLine = 0;
     for (let chunkIdx = 0; chunkIdx < this.chunks.length; chunkIdx++) {
       const chunk = this.chunks[chunkIdx];
       if (chunk.type === "unchanged") {
-        currentLineIdx += chunk.lines.length;
+        relativeLine += chunk.lines.length;
       } else {
         const removedLines = chunk.lines.filter(l => l.type === "removed").map(l => l.text);
         const addedLines = chunk.lines.filter(l => l.type === "added").map(l => l.text);
 
-        if (removedLines.length > 0) {
-          decos.push({
-            pos: currentLineIdx,
-            deco: Decoration.widget({
-              widget: new RemovedWidget(removedLines.join("\n")),
-              block: true,
-              side: -1
-            })
-          });
-        }
-        
-        this.hunks.push({ chunkIndex: chunkIdx, lineNum: currentLineIdx });
+        const startLineNum = selectionStart.line + 1 + relativeLine; // 1-based CM6
+        this.hunks.push({ chunkIndex: chunkIdx, lineNum: startLineNum });
 
-        for (let i = 0; i < addedLines.length; i++) {
-          decos.push({ pos: currentLineIdx, deco: addedDeco });
-          currentLineIdx++;
+        if (removedLines.length > 0) {
+          const endLineNum = startLineNum + removedLines.length - 1;
+          // Removed lines exist in the buffer — highlight with CSS line decoration
+          for (let i = startLineNum; i <= endLineNum; i++) {
+            const safeLineNum = Math.min(i, cmView.state.doc.lines);
+            decos.push({ pos: cmView.state.doc.line(safeLineNum).from, deco: Decoration.line({ class: "ai-agent-diff-inline-removed" }) });
+          }
+          if (addedLines.length > 0) {
+            // Project added lines as a virtual widget after the last removed line
+            const safeEnd = Math.min(endLineNum, cmView.state.doc.lines);
+            const insertPos = cmView.state.doc.line(safeEnd).to;
+            decos.push({ pos: insertPos, deco: Decoration.widget({ widget: new AddedWidget(addedLines.join("\n")), block: true, side: 1 }) });
+          }
+          relativeLine += removedLines.length;
+        } else if (addedLines.length > 0) {
+          // Pure insertion: insert widget before the next unchanged line
+          const targetLine = selectionStart.line + 1 + relativeLine;
+          let insertPos: number;
+          let side: number;
+          if (targetLine <= cmView.state.doc.lines) {
+            insertPos = cmView.state.doc.line(targetLine).from;
+            side = -1;
+          } else {
+            insertPos = cmView.state.doc.line(targetLine - 1).to;
+            side = 1;
+          }
+          decos.push({ pos: insertPos, deco: Decoration.widget({ widget: new AddedWidget(addedLines.join("\n")), block: true, side }) });
         }
-        
-        // If it was purely a deletion (no added lines), currentLineIdx didn't advance, 
-        // but the widget is placed at currentLineIdx.
       }
     }
-    
-    this.currentHunk = 0;
 
-    // ── 3. Apply CM6 decorations ────────────────────────────────────────────
+    // Bug 3: Preserve the user's current hunk index across re-renders
+    this.currentHunk = preserveHunkIndex !== undefined
+      ? Math.min(preserveHunkIndex, Math.max(0, this.hunks.length - 1))
+      : 0;
+
+    // Bug 31: layout-change listener — closes if the hosting tab is destroyed
+    this.layoutChangeRef = this.plugin.app.workspace.on("layout-change", () => {
+      if (this.view && !this.view.contentEl.isConnected) {
+        this.close();
+      }
+    });
+
+    // Bugs 24, 29: editor-change listener — exact sub-range match, not full doc
+    this.changeRef = this.plugin.app.workspace.on("editor-change", (editor, info) => {
+      // Reviewer fix 3: skip abort check when we caused the change ourselves
+      if (this.isInternalChange) return;
+      if (
+        info.file?.path === this.view?.file?.path &&
+        this.selectionStart &&
+        this.originalEndPos
+      ) {
+        // Bug 33: guard against accessing a destroyed view
+        if (!this.view?.contentEl.isConnected) { this.close(); return; }
+        const currentRange = editor.getRange(this.selectionStart, this.originalEndPos);
+        if (currentRange !== this.originalText) {
+          new Notice("Diff review aborted due to manual document edit.");
+          this.close();
+        }
+      }
+    });
+
     requestAnimationFrame(() => {
       this.applyDecorations(decos);
 
-      // ── 4. Position and show floating toolbar ────────────────────────────
       const firstChangedLine = this.hunks[0]?.lineNum ? this.hunks[0].lineNum - 1 : selectionStart.line;
       const coords = this.getScreenCoordsAt(view, { line: firstChangedLine, ch: 0 });
       this.buildToolbar(coords);
 
-      editor.scrollIntoView({ from: selectionStart, to: this.currentEndPos! });
+      this.refreshHunkUI();
     });
   }
 
@@ -186,6 +265,15 @@ export class DiffViewer {
     if (this.keyHandler) {
       document.removeEventListener("keydown", this.keyHandler);
       this.keyHandler = null;
+    }
+    // Bug 23, 31: offref both workspace listeners to prevent leaks
+    if (this.layoutChangeRef) {
+      this.plugin.app.workspace.offref(this.layoutChangeRef);
+      this.layoutChangeRef = null;
+    }
+    if (this.changeRef) {
+      this.plugin.app.workspace.offref(this.changeRef);
+      this.changeRef = null;
     }
     this.toolbarEl?.remove();
     this.toolbarEl = null;
@@ -208,7 +296,7 @@ export class DiffViewer {
     }
   }
 
-  private applyDecorations(decos: { pos: number, deco: Decoration }[]): void {
+  private applyDecorations(decos: { pos: number; deco: Decoration }[]): void {
     const cmView = this.getCmView();
     if (!cmView) return;
     this.ensureFieldRegistered(cmView);
@@ -216,31 +304,33 @@ export class DiffViewer {
     const builder = new RangeSetBuilder<Decoration>();
     decos.sort((a, b) => a.pos - b.pos);
 
-    for (let i = 0; i < decos.length; i++) {
-      const d = decos[i];
-      const lineNum = Math.max(1, Math.min(d.pos, cmView.state.doc.lines));
-      const linePos = cmView.state.doc.line(lineNum).from;
-      builder.add(linePos, linePos, d.deco);
+    for (const d of decos) {
+      builder.add(d.pos, d.pos, d.deco);
     }
 
     cmView.dispatch({ effects: setDiffDecos.of(builder.finish()) });
   }
 
+  // Bug 33: Safe clearDecorations — guards against dispatching to a destroyed view
   private clearDecorations(): void {
-    const cmView = this.getCmView();
-    if (!cmView) return;
     try {
-      cmView.state.field(diffDecosField);
-      cmView.dispatch({ effects: clearDiffDecos.of() });
+      if (this.view && this.view.contentEl?.isConnected && (this.view.editor as any)?.cm) {
+        const cmView = this.getCmView();
+        if (cmView) {
+          cmView.state.field(diffDecosField);
+          cmView.dispatch({ effects: clearDiffDecos.of() });
+        }
+      }
     } catch {
-      // field not registered yet, nothing to clear
+      // Field not registered or view destroyed — nothing to clear
     }
   }
 
   // ── Floating toolbar ───────────────────────────────────────────────────────
 
   private buildToolbar(coords: { top: number; left: number }): void {
-    const top = Math.min(coords.top - 68, window.innerHeight - 80); // Adjusted height for more buttons
+    // Bug 14: Clamp top with minimum bound so off-screen hunks don't lock the keyboard
+    const top = Math.max(20, Math.min(coords.top - 68, window.innerHeight - 80));
     const left = Math.max(8, Math.min(coords.left, window.innerWidth - 320));
 
     this.toolbarEl = document.createElement("div");
@@ -259,8 +349,7 @@ export class DiffViewer {
     hunkRow.style.display = "flex";
     hunkRow.style.gap = "8px";
     hunkRow.style.justifyContent = "center";
-    
-    // Counter is always shown (e.g. "1/1"); arrows appear only with >1 hunk.
+
     const navGroup = hunkRow.createDiv("ai-agent-diff-toolbar-group");
     const multiHunk = this.hunks.length > 1;
     if (multiHunk) {
@@ -291,7 +380,7 @@ export class DiffViewer {
     globalRow.style.width = "100%";
     globalRow.style.borderTop = "1px solid var(--background-modifier-border)";
     globalRow.style.paddingTop = "4px";
-    
+
     const globalGroup = globalRow.createDiv("ai-agent-diff-toolbar-group");
     globalGroup
       .createEl("button", { cls: "ai-agent-diff-toolbar-accept-all", text: "✓ Accept All", attr: { title: "Accept all remaining changes (Enter)" } })
@@ -322,88 +411,135 @@ export class DiffViewer {
     this.refreshHunkUI();
   }
 
+  // Bug 1: Use CM6 EditorView.scrollIntoView dispatch instead of zero-length range no-op
   private refreshHunkUI(): void {
     if (this.hunkCountEl && this.hunks.length >= 1) {
       this.hunkCountEl.setText(`${this.currentHunk + 1}/${this.hunks.length}`);
     }
     const hunk = this.hunks[this.currentHunk];
     if (hunk && this.view) {
-      const firstLine = hunk.lineNum - 1; // 0-based
-      if (firstLine >= 0) {
-        this.view.editor.scrollIntoView({ from: { line: firstLine, ch: 0 }, to: { line: firstLine, ch: 0 } });
+      const cmView = this.getCmView();
+      if (cmView) {
+        const lineNum = Math.max(1, Math.min(hunk.lineNum, cmView.state.doc.lines));
+        const pos = cmView.state.doc.line(lineNum).from;
+        cmView.dispatch({ effects: EditorView.scrollIntoView(pos, { y: "center" }) });
       }
     }
   }
 
   // ── Accept / Reject Logic ──────────────────────────────────────────────────
 
+  // Bug 17: Use helpers to reconstruct both texts; pass to show() for re-render
   private acceptCurrentHunk(): void {
-    if (!this.view || !this.currentEndPos || this.hunks.length === 0) return;
-    
-    const hunk = this.hunks[this.currentHunk];
-    const targetChunkIndex = hunk.chunkIndex;
+    if (!this.view || !this.originalEndPos || this.hunks.length === 0) return;
 
-    const newOriginalLines: string[] = [];
-    for (let i = 0; i < this.chunks.length; i++) {
-      const chunk = this.chunks[i];
-      if (chunk.type === "unchanged") {
-        newOriginalLines.push(...chunk.lines.map(l => l.text));
-      } else {
-        if (i === targetChunkIndex) {
-          // Accepted: baseline now includes added lines
-          newOriginalLines.push(...chunk.lines.filter(l => l.type === "added").map(l => l.text));
-        } else {
-          // Other hunks: baseline keeps removed lines
-          newOriginalLines.push(...chunk.lines.filter(l => l.type === "removed").map(l => l.text));
-        }
-      }
+    const hunk = this.hunks[this.currentHunk];
+    // Bug 3: Preserve position — advance index if not at last hunk, else go back
+    const preserveIdx = this.currentHunk < this.hunks.length - 1
+      ? this.currentHunk
+      : Math.max(0, this.currentHunk - 1);
+
+    // New baseline: original with hunk N's added lines merged in
+    const newOriginalText = this.applyChunkToText(this.originalText, hunk);
+    // Reviewer fix 2: suppress editor-change abort while we programmatically write the buffer
+    this.isInternalChange = true;
+    try {
+      this.view.editor.replaceRange(newOriginalText, this.selectionStart!, this.originalEndPos);
+    } finally {
+      this.isInternalChange = false;
     }
 
-    const newOriginalText = newOriginalLines.join("\n");
-    this.show(this.view, newOriginalText, this.modifiedText, this.selectionStart!, this.currentEndPos);
+    // modifiedText is unchanged — computeDiff will drop the resolved hunk naturally
+    this.show(this.view, newOriginalText, this.modifiedText, this.selectionStart!, this.originalEndPos, preserveIdx);
   }
 
+  // Bug 25: Dedicated state-builder for reject — only removes rejected hunk from proposal
   private rejectCurrentHunk(): void {
-    if (!this.view || !this.currentEndPos || this.hunks.length === 0) return;
-    
+    if (!this.view || !this.originalEndPos || this.hunks.length === 0) return;
+
     const hunk = this.hunks[this.currentHunk];
-    const targetChunkIndex = hunk.chunkIndex;
+    const preserveIdx = this.currentHunk < this.hunks.length - 1
+      ? this.currentHunk
+      : Math.max(0, this.currentHunk - 1);
 
-    const newModifiedLines: string[] = [];
-    for (let i = 0; i < this.chunks.length; i++) {
-      const chunk = this.chunks[i];
-      if (chunk.type === "unchanged") {
-        newModifiedLines.push(...chunk.lines.map(l => l.text));
-      } else {
-        if (i === targetChunkIndex) {
-          // Rejected: modified text reverts to removed lines
-          newModifiedLines.push(...chunk.lines.filter(l => l.type === "removed").map(l => l.text));
-        } else {
-          // Other hunks: modified text keeps added lines
-          newModifiedLines.push(...chunk.lines.filter(l => l.type === "added").map(l => l.text));
-        }
-      }
-    }
-
-    const newModifiedText = newModifiedLines.join("\n");
-    this.show(this.view, this.originalText, newModifiedText, this.selectionStart!, this.currentEndPos);
+    // New modifiedText: drop hunk N's additions, keep all others
+    const newModifiedText = this.applyChunkToModifiedText(hunk);
+    // Buffer keeps originalText (no replaceRange needed in Inverted Model)
+    this.show(this.view, this.originalText, newModifiedText, this.selectionStart!, this.originalEndPos, preserveIdx);
   }
 
+  // Bug 18: acceptAll must actively write modifiedText (in Inverted Model buffer = originalText)
   private acceptAll(): void {
-    if (this.view && this.currentEndPos) {
-      this.view.editor.setCursor(this.currentEndPos);
+    if (this.view && this.selectionStart && this.originalEndPos) {
+      this.isInternalChange = true;
+      try {
+        this.view.editor.replaceRange(this.modifiedText, this.selectionStart, this.originalEndPos);
+      } finally {
+        this.isInternalChange = false;
+      }
+      const modifiedSplit = this.modifiedText.split("\n");
+      const finalEndPos = {
+        line: this.selectionStart.line + modifiedSplit.length - 1,
+        ch: modifiedSplit.length === 1
+          ? this.selectionStart.ch + this.modifiedText.length
+          : modifiedSplit[modifiedSplit.length - 1].length,
+      };
+      this.view.editor.setCursor(finalEndPos);
     }
     new Notice("All remaining edits accepted");
     this.close();
   }
 
+  // Bug 9: rejectAll requires no replaceRange — buffer already holds originalText
   private rejectAll(): void {
-    if (this.view && this.selectionStart && this.currentEndPos) {
-      this.view.editor.replaceRange(this.originalText, this.selectionStart, this.currentEndPos);
+    if (this.view && this.selectionStart) {
       this.view.editor.setCursor(this.selectionStart);
     }
     new Notice("All remaining edits rejected");
     this.close();
+  }
+
+  // ── Hunk state-builder helpers ─────────────────────────────────────────────
+
+  // For acceptCurrentHunk: emit added lines for the target chunk, removed for others
+  private applyChunkToText(baseText: string, targetHunk: InlineHunk): string {
+    void baseText; // unused — chunks already hold the line state
+    const lines: string[] = [];
+    for (let i = 0; i < this.chunks.length; i++) {
+      const chunk = this.chunks[i];
+      if (chunk.type === "unchanged") {
+        lines.push(...chunk.lines.map(l => l.text));
+      } else {
+        if (i === targetHunk.chunkIndex) {
+          // Accept this hunk: take the added lines
+          lines.push(...chunk.lines.filter(l => l.type === "added").map(l => l.text));
+        } else {
+          // Other hunks: keep original (removed) lines as baseline
+          lines.push(...chunk.lines.filter(l => l.type === "removed").map(l => l.text));
+        }
+      }
+    }
+    return lines.join("\n");
+  }
+
+  // For rejectCurrentHunk: emit removed lines for target (revert), added for others (keep)
+  private applyChunkToModifiedText(targetHunk: InlineHunk): string {
+    const lines: string[] = [];
+    for (let i = 0; i < this.chunks.length; i++) {
+      const chunk = this.chunks[i];
+      if (chunk.type === "unchanged") {
+        lines.push(...chunk.lines.map(l => l.text));
+      } else {
+        if (i === targetHunk.chunkIndex) {
+          // Reject this hunk: revert to original (removed) lines
+          lines.push(...chunk.lines.filter(l => l.type === "removed").map(l => l.text));
+        } else {
+          // Other hunks: keep the added lines in the proposal
+          lines.push(...chunk.lines.filter(l => l.type === "added").map(l => l.text));
+        }
+      }
+    }
+    return lines.join("\n");
   }
 
   // ── Screen coordinate helper ───────────────────────────────────────────────
@@ -427,7 +563,7 @@ export class DiffViewer {
     return { top: rect.top + 80, left: rect.left + 40 };
   }
 
-  // ── Diff algorithm (LCS) ───────────────────────────────────────────────────
+  // ── Diff algorithm (LCS with OOM guard) ───────────────────────────────────
 
   private computeDiff(original: string, modified: string): DiffLine[] {
     const origLines = original.split("\n");
@@ -447,10 +583,17 @@ export class DiffViewer {
 
     const midOrig = origLines.slice(start, endOrig + 1);
     const midMod = modLines.slice(start, endMod + 1);
-    const lcs = this.lcs(midOrig, midMod);
+
+    // Bug 8: OOM guard — if the LCS matrix would exceed 500k cells, fallback to a single chunk
+    let lcs: Array<[number, number]>;
+    if (midOrig.length * midMod.length > 500_000) {
+      lcs = []; // Treat as pure delete + add for the entire middle section
+    } else {
+      lcs = this.lcs(midOrig, midMod);
+    }
 
     const result: DiffLine[] = [];
-    
+
     // 1. Unchanged prefix
     for (let i = 0; i < start; i++) {
       result.push({ type: "unchanged", text: origLines[i] });

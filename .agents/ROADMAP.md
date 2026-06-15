@@ -107,7 +107,7 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Active Milestone**: **Batch 3: Plan A (RAG Retrieval Provenance)**.
-  Batch 2 (Plan C) is implemented, validated, and shipped.
+- **Active Milestone**: **4.5 Diff Viewer Overhaul**.
+  Batch 3 (Plan A) is implemented, validated, and shipped.
 - **Next in Queue**: Batch 3 (Plan F).
   Execution order: Batch 3 `A → F`. Implementation starts only on explicit user approval.

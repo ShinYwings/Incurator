@@ -9,6 +9,7 @@ import {
   Menu,
   App,
   MarkdownView,
+  FileSystemAdapter,
 } from "obsidian";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
@@ -2400,7 +2401,7 @@ export class ChatSidebarView extends ItemView {
       }
       
       for (const prop of multiProposals) {
-        this.renderInlineMultiDiff(contentEl, prop, msg);
+        this.renderInlineMultiDiff(contentEl, prop, msg, multiProposals);
       }
     } else {
       const editProposal = this.extractEditProposal(msg.content);
@@ -2565,16 +2566,19 @@ export class ChatSidebarView extends ItemView {
     rejectBtn.addEventListener("click", (e) => { e.stopPropagation(); rejectEdit(); });
   }
 
+  // Bug 27: resolveVaultFile decodes path before checking; Bug 2: each pill routes to its own target
   private renderInlineMultiDiff(
     container: HTMLElement,
     prop: MultiEditProposal,
-    msg: ChatMessage
+    msg: ChatMessage,
+    allProposals: MultiEditProposal[]
   ): void {
-    const file = this.app.vault.getAbstractFileByPath(prop.filepath);
+    // Bug 27: Use resolveVaultFile to handle URL-encoded or leading-slash paths
+    const file = this.resolveVaultFile(prop.filepath);
     const wrapper = container.createDiv("ai-agent-applied-change");
 
     let isNewFile = false;
-    if (!(file instanceof TFile)) {
+    if (!file) {
       if (prop.search.includes("<<< NEW FILE >>>") || prop.search.trim() === "") {
         isNewFile = true;
       } else {
@@ -2585,18 +2589,14 @@ export class ChatSidebarView extends ItemView {
     }
 
     const header = wrapper.createDiv("ai-agent-applied-change-header");
-
-    const icon = header.createSpan({ cls: "ai-agent-applied-change-icon", text: isNewFile ? "📄" : "✏️" });
+    header.createSpan({ cls: "ai-agent-applied-change-icon", text: isNewFile ? "📄" : "✏️" });
     const nameEl = header.createSpan({ cls: "ai-agent-applied-change-name" });
     nameEl.setText(prop.filepath);
     nameEl.title = "Review edit in editor";
-    
-    // Instead of auto-applying or showing diffs in chat, we just provide a button
-    // (or click the filename) to open the DiffViewer in the editor.
+
+    // Bug 2: Wire "Review in file" directly to reviewFileEditProposals for this target
     const reviewInEditor = async () => {
-      await this.reviewAssistantEdit(msg);
-      // Since DiffViewer doesn't have a callback to update this pill, we just 
-      // let the user know they are reviewing it.
+      await this.reviewFileEditProposals(prop.filepath, allProposals);
       statusBtn.setText("🔍 Opened Diff");
       statusBtn.style.color = "var(--text-accent)";
       statusBtn.style.borderColor = "var(--text-accent)";
@@ -2611,80 +2611,20 @@ export class ChatSidebarView extends ItemView {
 
     const statusBtn = header.createEl("button", {
       cls: "ai-agent-applied-status",
-      text: "🔍 Review Diff",
+      text: "🔍 Review in file",
       attr: { title: "Click to open Diff Viewer" },
     });
-    // Style as pending
     statusBtn.style.color = "var(--text-muted)";
     statusBtn.style.borderColor = "var(--background-modifier-border)";
     statusBtn.style.background = "transparent";
     statusBtn.style.cursor = "pointer";
+    statusBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await reviewInEditor();
+    });
   }
 
-  private async autoApplyProposals(msg: ChatMessage, proposals: MultiEditProposal[]): Promise<void> {
-    if (msg.appliedEdits) return;
-    msg.appliedEdits = true;
-    msg.revertData = [];
-
-    const changelogLines: string[] = [
-      `## AI Changes — ${new Date().toLocaleString()}`,
-      "",
-    ];
-
-    for (const prop of proposals) {
-      const file = this.app.vault.getAbstractFileByPath(prop.filepath);
-      let isNewFile = false;
-      if (!(file instanceof TFile)) {
-        if (prop.search.includes("<<< NEW FILE >>>") || prop.search.trim() === "") {
-          isNewFile = true;
-        } else {
-          continue;
-        }
-      }
-
-      if (isNewFile) {
-        msg.revertData.push({ filepath: prop.filepath, originalContent: null });
-        await this.createNewFile(prop.filepath, prop.replace);
-        changelogLines.push(`### ✓ Created: \`${prop.filepath}\``);
-        changelogLines.push("");
-        changelogLines.push("```");
-        changelogLines.push(prop.replace.slice(0, 2000) + (prop.replace.length > 2000 ? "\n...[truncated]" : ""));
-        changelogLines.push("```");
-        changelogLines.push("");
-      } else if (file instanceof TFile) {
-        const originalContent = await this.app.vault.read(file);
-        msg.revertData.push({ filepath: prop.filepath, originalContent });
-        await this.applyInlineMultiEdit(prop, file);
-        changelogLines.push(`### ✓ Modified: \`${prop.filepath}\``);
-        changelogLines.push("");
-        changelogLines.push("**Removed:**");
-        changelogLines.push("```");
-        changelogLines.push(prop.search.slice(0, 1000) + (prop.search.length > 1000 ? "\n...[truncated]" : ""));
-        changelogLines.push("```");
-        changelogLines.push("");
-        changelogLines.push("**Added:**");
-        changelogLines.push("```");
-        changelogLines.push(prop.replace.slice(0, 1000) + (prop.replace.length > 1000 ? "\n...[truncated]" : ""));
-        changelogLines.push("```");
-        changelogLines.push("");
-      }
-    }
-
-    // Append changelog to .ai-agent-changes.md in vault root
-    try {
-      const logPath = ".ai-agent-changes.md";
-      const logFile = this.app.vault.getAbstractFileByPath(logPath);
-      const entry = changelogLines.join("\n") + "\n---\n\n";
-      if (logFile instanceof TFile) {
-        const existing = await this.app.vault.read(logFile);
-        await this.app.vault.modify(logFile, entry + existing);
-      } else {
-        await this.app.vault.create(logPath, entry);
-      }
-    } catch {
-      // fail silently — changelog is optional
-    }
-  }
+  // Bug 15: autoApplyProposals deleted — was a workaround that bypassed DiffViewer
 
   private computeSimpleDiff(
     original: string,
@@ -2783,51 +2723,6 @@ export class ChatSidebarView extends ItemView {
       await this.app.vault.create(filepath, content);
     }
     new Notice(`Created ${filepath}`);
-  }
-
-  private async applyInlineMultiEdit(prop: MultiEditProposal, file: TFile): Promise<void> {
-    // 1. Try modifying in an active editor if the file is open
-    let leaf: WorkspaceLeaf | null = null;
-    this.app.workspace.iterateAllLeaves((l) => {
-      if (leaf || l === this.leaf) return;
-      const v = l.view;
-      const vs = l.getViewState();
-      if (v instanceof MarkdownView && v.file?.path === file.path && vs.state?.mode === "source") {
-        leaf = l;
-      }
-    });
-
-    if (leaf) {
-      const view = (leaf as WorkspaceLeaf).view as MarkdownView;
-      const editor = view.editor;
-      const content = editor.getValue();
-
-      const match = findSearchBlock(content, prop.search);
-      if (match) {
-        this.warnIfLargeReplacement(match.matchedText, prop.replace, file.basename);
-        editor.replaceRange(
-          prop.replace,
-          editor.offsetToPos(match.start),
-          editor.offsetToPos(match.end)
-        );
-        new Notice(`Applied edit to ${file.basename}`);
-      } else {
-        new Notice(`Could not find the SEARCH block in ${file.basename}`);
-      }
-    } else {
-      // 2. Modify via vault API if file is closed
-      const content = await this.app.vault.read(file);
-      const match = findSearchBlock(content, prop.search);
-      if (match) {
-        this.warnIfLargeReplacement(match.matchedText, prop.replace, file.basename);
-        const newContent =
-          content.slice(0, match.start) + prop.replace + content.slice(match.end);
-        await this.app.vault.modify(file, newContent);
-        new Notice(`Applied edit to ${file.basename}`);
-      } else {
-        new Notice(`Could not find the SEARCH block in ${file.basename}`);
-      }
-    }
   }
 
   /**
@@ -3002,15 +2897,20 @@ export class ChatSidebarView extends ItemView {
       return;
     }
 
-    const file = this.app.vault.getAbstractFileByPath(ref.filePath);
-    if (!(file instanceof TFile)) {
+    // Bug 30: Use resolveVaultFile for path normalization; proxy multi-edits to reviewFileEditProposals
+    const file = this.resolveVaultFile(ref.filePath);
+    if (!file) {
       new Notice(`Could not find ${ref.filePath}`);
       return;
     }
 
-    // Look for an existing leaf that already has the file open IN SOURCE mode.
-    // Do NOT reuse reading-mode leaves — switching them to source mode destroys
-    // rendered figures and the user's view state.
+    if (multiProposals.length > 0) {
+      // Bug 2, 30: Route all multi-edit proposals through the target-isolated router
+      await this.reviewFileEditProposals(ref.filePath, multiProposals);
+      return;
+    }
+
+    // Legacy single-range edit path (unchanged)
     let leaf: WorkspaceLeaf | null = null;
     this.app.workspace.iterateAllLeaves((l) => {
       if (leaf || l === this.leaf) return;
@@ -3026,7 +2926,6 @@ export class ChatSidebarView extends ItemView {
     });
 
     if (!leaf) {
-      // Open a brand-new tab in source mode — existing reading-mode leaves are untouched.
       leaf = this.app.workspace.getLeaf("tab");
       await (leaf as WorkspaceLeaf).openFile(file, { active: true });
       const newVs = (leaf as WorkspaceLeaf).getViewState();
@@ -3034,7 +2933,6 @@ export class ChatSidebarView extends ItemView {
         ...newVs,
         state: { ...newVs.state, mode: "source" },
       });
-      // Wait two frames for Obsidian to apply the view state and for CM6 to mount.
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => { requestAnimationFrame(() => resolve()); })
       );
@@ -3044,61 +2942,21 @@ export class ChatSidebarView extends ItemView {
     }
 
     const targetLeaf = leaf as WorkspaceLeaf;
-
     if (!(targetLeaf.view instanceof MarkdownView)) {
       new Notice("Open the target file as Markdown to review this edit.");
       return;
     }
 
     const editor = targetLeaf.view.editor;
-    let start = { line: Math.max(0, (ref.lineStart ?? 1) - 1), ch: 0 };
-    let endLine = Math.max(0, (ref.lineEnd ?? ref.lineStart ?? 1) - 1);
-    let lineText = editor.getLine(endLine);
-    let end = { line: endLine, ch: lineText?.length ?? 0 };
-    let originalText = editor.getRange(start, end);
-    let replacementText = modifiedText || "";
+    const start = { line: Math.max(0, (ref.lineStart ?? 1) - 1), ch: 0 };
+    const endLine = Math.max(0, (ref.lineEnd ?? ref.lineStart ?? 1) - 1);
+    const lineText = editor.getLine(endLine);
+    const end = { line: endLine, ch: lineText?.length ?? 0 };
+    const originalText = editor.getRange(start, end);
+    const replacementText = modifiedText || "";
 
-    if (multiProposals.length > 0) {
-      const originalFullText = editor.getValue();
-      let modifiedFullText = originalFullText;
-      let replacementCount = 0;
-
-      for (const proposal of multiProposals) {
-        if (!proposal.search) continue;
-        // Use the same matcher as apply so the previewed diff equals what would
-        // actually be written. Splice one (the matcher's) span per proposal; if
-        // the agent emitted N blocks for N identical occurrences, each block
-        // resolves against the progressively-mutated text and hits a fresh one.
-        const match = findSearchBlock(modifiedFullText, proposal.search);
-        if (!match) continue;
-        replacementCount += 1;
-        modifiedFullText =
-          modifiedFullText.slice(0, match.start) +
-          proposal.replace +
-          modifiedFullText.slice(match.end);
-      }
-
-      if (replacementCount === 0 || modifiedFullText === originalFullText) {
-        new Notice("Could not find SEARCH text in the target Markdown file.");
-        return;
-      }
-
-      const lastLine = Math.max(0, editor.lineCount() - 1);
-      const lastLineText = editor.getLine(lastLine);
-      const diffViewer = new DiffViewer(this.plugin);
-      diffViewer.show(
-        targetLeaf.view,
-        originalFullText,
-        modifiedFullText,
-        { line: 0, ch: 0 },
-        { line: lastLine, ch: lastLineText?.length ?? 0 }
-      );
-      new Notice(`Reviewing ${replacementCount} proposed change${replacementCount === 1 ? "" : "s"} in ${file.basename}`);
-      return;
-    }
-
-    const diffViewer = new DiffViewer(this.plugin);
-    diffViewer.show(targetLeaf.view, originalText, replacementText, start, end);
+    // Bug 30: Use Singleton instead of new DiffViewer()
+    DiffViewer.getInstance(this.plugin).show(targetLeaf.view, originalText, replacementText, start, end);
   }
 
   private readEditBlockFilepath(infoText: string, fallbackFilepath = ""): string {
@@ -3126,16 +2984,140 @@ export class ChatSidebarView extends ItemView {
     const proposals = this.extractMultiEditProposals(msg.content, editRef?.filePath);
     if (proposals.length === 0) return;
 
-    const files = new Set(proposals.map((p) => p.filepath));
+    const files = new Set(proposals.map((p) => {
+      const f = this.resolveVaultFile(p.filepath);
+      return f ? f.path : p.filepath;
+    }));
     if (files.size !== 1) return;
     const target = proposals[0].filepath;
-    if (!(this.app.vault.getAbstractFileByPath(target) instanceof TFile)) return;
+    // Bug 28: use resolveVaultFile for consistent path normalization
+    const file = this.resolveVaultFile(target);
+    const isNewFile = proposals.some(p => p.search.includes("<<< NEW FILE >>>") || p.search.trim() === "");
+    if (!file && !isNewFile) return;
 
     const active = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (active && active.file?.path !== target) return; // different note focused → keep pill
 
     msg.diffAutoOpened = true;
-    await this.reviewAssistantEdit(msg);
+    // Bug 28: route through reviewFileEditProposals, not the broken reviewAssistantEdit
+    await this.reviewFileEditProposals(target, proposals);
+  }
+
+  // Bug 32: Strips absolute filesystem paths and URL-encoding before vault lookup
+  private resolveVaultFile(raw: string): TFile | null {
+    // Reviewer fix 3: Normalize backslashes to forward slashes for Windows paths
+    let normalized = raw.replace(/\\/g, "/");
+    const adapter = this.app.vault.adapter;
+    if (adapter instanceof FileSystemAdapter) {
+      const basePath = adapter.getBasePath().replace(/\\/g, "/");
+      if (normalized.startsWith(basePath)) {
+        normalized = normalized.slice(basePath.length);
+        if (normalized.startsWith("/")) normalized = normalized.slice(1);
+      }
+    }
+    const candidates = [
+      normalized,
+      normalized.trim(),
+      normalized.startsWith("/") ? normalized.slice(1) : normalized,
+    ];
+    try {
+      candidates.push(decodeURIComponent(normalized), decodeURIComponent(normalized.trim()));
+    } catch { /* safely ignore URIError */ }
+    for (const path of candidates) {
+      const f = this.app.vault.getAbstractFileByPath(path);
+      if (f instanceof TFile) return f;
+    }
+    return null;
+  }
+
+  // Bugs 26, 34: Target-isolated routing with Source-Mode Mounting and failure tracking
+  private async reviewFileEditProposals(targetFilepath: string, allProposals: MultiEditProposal[]): Promise<void> {
+    let file = this.resolveVaultFile(targetFilepath);
+
+    // Reviewer fix 4: Filter proposals by canonical vault path
+    const fileProposals = allProposals.filter(p => {
+      const pFile = this.resolveVaultFile(p.filepath);
+      return (pFile && file) ? (pFile.path === file.path) : (p.filepath === targetFilepath);
+    });
+
+    // Reviewer fix 1: Detect new file proposal and initialize it as empty
+    if (!file) {
+      const isNewFile = fileProposals.some(p => p.search.includes("<<< NEW FILE >>>") || p.search.trim() === "");
+      if (isNewFile) {
+        try {
+          file = await this.app.vault.create(targetFilepath, "");
+          new Notice(`Created new file for review: ${targetFilepath}`);
+        } catch (e) {
+          new Notice(`Failed to create new file: ${targetFilepath}`);
+          return;
+        }
+      } else {
+        new Notice(`File not found: ${targetFilepath}`);
+        return;
+      }
+    }
+
+    // Bug 26: Find an existing source-mode leaf or open one with 2-frame CM6 mount delay
+    let leaf: WorkspaceLeaf | null = null;
+    this.app.workspace.iterateAllLeaves((l) => {
+      if (leaf || l === this.leaf) return;
+      const v = l.view;
+      const vs = l.getViewState();
+      if (v instanceof MarkdownView && v.file?.path === file.path && vs.state?.mode === "source") {
+        leaf = l;
+      }
+    });
+
+    if (!leaf) {
+      leaf = this.app.workspace.getLeaf("tab");
+      await (leaf as WorkspaceLeaf).openFile(file, { active: true });
+      const newVs = (leaf as WorkspaceLeaf).getViewState();
+      await (leaf as WorkspaceLeaf).setViewState({ ...newVs, state: { ...newVs.state, mode: "source" } });
+      await new Promise<void>((resolve) => requestAnimationFrame(() => { requestAnimationFrame(() => resolve()); }));
+    } else {
+      this.app.workspace.setActiveLeaf(leaf as WorkspaceLeaf, { focus: false });
+      this.app.workspace.revealLeaf(leaf as WorkspaceLeaf);
+    }
+
+    const targetLeaf = leaf as WorkspaceLeaf;
+    if (!(targetLeaf.view instanceof MarkdownView)) return;
+    const editor = targetLeaf.view.editor;
+
+    const originalFullText = editor.getValue();
+    let modifiedFullText = originalFullText;
+
+    let appliedCount = 0;
+    let failedCount = 0;
+    // Bug 34: Track partial failures and warn the user
+    for (const proposal of fileProposals) {
+      const match = findSearchBlock(modifiedFullText, proposal.search);
+      if (!match) {
+        failedCount++;
+        continue;
+      }
+      modifiedFullText = modifiedFullText.slice(0, match.start) + proposal.replace + modifiedFullText.slice(match.end);
+      appliedCount++;
+    }
+
+    if (appliedCount > 0) {
+      if (failedCount > 0) {
+        new Notice(`Warning: ${failedCount} proposed edit(s) could not be matched in the file.`, 8000);
+      }
+      // Bug 21: Provide correct selectionEnd for API compatibility
+      const lastLine = Math.max(0, editor.lineCount() - 1);
+      const selectionEnd = { line: lastLine, ch: editor.getLine(lastLine)?.length ?? 0 };
+      // Bug 30: Singleton prevents DOM/listener leaks
+      DiffViewer.getInstance(this.plugin).show(
+        targetLeaf.view,
+        originalFullText,
+        modifiedFullText,
+        { line: 0, ch: 0 },
+        selectionEnd
+      );
+      new Notice(`Reviewing ${appliedCount} proposed change${appliedCount === 1 ? "" : "s"} in ${file.basename}`);
+    } else {
+      new Notice("Could not find SEARCH text in the target Markdown file.");
+    }
   }
 
   private extractMultiEditProposals(content: string, fallbackFilepath = ""): MultiEditProposal[] {
