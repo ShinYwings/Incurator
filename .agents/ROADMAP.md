@@ -108,6 +108,6 @@ The specific To-Do list for the roadmap is migrated from the user's Inbox (`.age
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
 - **Active Milestone**: **Batch 3 (Plan F) - Agent Context Service**.
-  (Batch 3 Plan A and Milestone 4.5 Diff Viewer Overhaul are shipped).
+- **Shipped**: **4.5 Diff Viewer Overhaul** (Merged in v0.11.0).
 - **Next in Queue**: TBD.
   Implementation starts only on explicit user approval.
