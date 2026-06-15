@@ -1,7 +1,7 @@
 {
-  "backend_version": "0.8.0",
-  "git_commit": "ef15dc84b0f0",
+  "backend_version": "0.11.0",
+  "git_commit": "949b436301a3",
   "git_dirty": true,
-  "plugin_version": "0.8.0",
+  "plugin_version": "0.11.0",
   "schema": 1
 }
