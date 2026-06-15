@@ -265,3 +265,36 @@ def test_oracle_evidence_items_have_locators(vault) -> None:
             "exact", "fallback_file", "fallback_source",
             "duplicate_anchor", "stale", "unavailable",
         )
+
+
+# ---------------------------------------------------------------------------
+# §30.2 — Plan-F handoff: fetch_context carries RTR-* id and locator data (P5)
+# ---------------------------------------------------------------------------
+
+def test_p5_fetch_context_carries_plan_f_handoff_fields(vault) -> None:
+    """fetch_context must expose retrieval_execution_id and locator data for Plan F (§30.2)."""
+    from curator.retrieval import QueryOrchestrator
+    from curator.retrieval.models import QueryRequest
+
+    class _NoClient:
+        model = "fake"
+        def chat(self, *a, **k): raise AssertionError("no LLM in this test")
+
+    paths = vault
+    _seed_spans(paths)
+    orch = QueryOrchestrator(paths, _NoClient())
+    result = orch.fetch_context(
+        QueryRequest(question="test", mode="source-section", source_key="1")
+    )
+    assert result.get("retrieval_execution_id", "").startswith("RTR-")
+    evidence = result.get("evidence", [])
+    span_items = [e for e in evidence if e["kind"] == "source_span"]
+    assert span_items, "expected source_span items from source-section route"
+    for item in span_items:
+        assert "locator" in item
+        loc = item["locator"]
+        assert loc is not None
+        assert loc["locator_status"] in (
+            "exact", "fallback_file", "fallback_source",
+            "duplicate_anchor", "stale", "unavailable",
+        )

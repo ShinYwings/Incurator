@@ -119,6 +119,7 @@ class QueryOrchestrator:
             "ok": True,
             "route": route,
             "trace_id": trace_id,
+            "retrieval_execution_id": pack.retrieval_execution_id,  # §30.2 / Plan F handoff
             "workspace_id": policy.workspace_id,
             "evidence": [
                 {
@@ -127,6 +128,19 @@ class QueryOrchestrator:
                     "community_report_id": it.community_report_id,
                     "synthesis_node_id": it.synthesis_node_id,
                     "memory_path_id": it.memory_path_id,
+                    "locator": (
+                        {
+                            "source_id": it.locator.source_id,
+                            "source_kind": it.locator.source_kind,
+                            "relpath": it.locator.relpath,
+                            "heading": it.locator.heading,
+                            "block_id": it.locator.block_id,
+                            "page_number": it.locator.page_number,
+                            "toc_id": it.locator.toc_id,
+                            "external_uri": it.locator.external_uri,
+                            "locator_status": it.locator.locator_status,
+                        } if it.locator is not None else None
+                    ),
                 }
                 for it in pack.items
             ],
