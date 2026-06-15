@@ -424,6 +424,7 @@ export class ChatSidebarView extends ItemView {
       (r) =>
         r.type === ref.type &&
         r.label === ref.label &&
+        r.content === ref.content &&
         // Two refs with identical labels but different images are distinct
         // (e.g. successive crops of the same PDF page).
         r.imageBase64 === ref.imageBase64

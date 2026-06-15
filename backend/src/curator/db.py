@@ -2684,6 +2684,14 @@ def evaluate_merge_guards(
       passing → ``accept``; any other guard failure downgrades the candidate to
       ``ambiguous_candidate`` (it may at most PROPOSE, never auto-fuse).
     """
+    if source_entity_id == target_entity_id:
+        return {
+            "type_match": True,
+            "context_overlap": True,
+            "no_contradiction": True,
+            "not_avoid_listed": True,
+            "verdict": "rejected",
+        }
     pair = frozenset((source_entity_id, target_entity_id))
     avoid_pairs = {frozenset((s, t)) for s, t in avoid_merges}
     not_avoid_listed = pair not in avoid_pairs
@@ -2776,6 +2784,11 @@ def accept_entity_merge(
         ).fetchone()
         if origin_row is None:
             raise ValueError(f"merge origin entity not found: {origin}")
+        survivor_row = conn.execute(
+            "SELECT 1 FROM graph_entities WHERE id = ?", (survivor,)
+        ).fetchone()
+        if survivor_row is None:
+            raise ValueError(f"merge target entity not found: {survivor}")
         # Capture the exact pre-merge origin row + every relation endpoint rewrite
         # so reversal can reconstruct the prior graph byte-for-byte (SCHEMA §21.3).
         relation_rewrites: list[dict[str, str]] = []
