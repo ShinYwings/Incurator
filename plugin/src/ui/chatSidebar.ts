@@ -2988,7 +2988,9 @@ export class ChatSidebarView extends ItemView {
     if (files.size !== 1) return;
     const target = proposals[0].filepath;
     // Bug 28: use resolveVaultFile for consistent path normalization
-    if (!this.resolveVaultFile(target)) return;
+    const file = this.resolveVaultFile(target);
+    const isNewFile = proposals.some(p => p.filepath === target && (p.search.includes("<<< NEW FILE >>>") || p.search.trim() === ""));
+    if (!file && !isNewFile) return;
 
     const active = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (active && active.file?.path !== target) return; // different note focused → keep pill
@@ -3026,10 +3028,23 @@ export class ChatSidebarView extends ItemView {
 
   // Bugs 26, 34: Target-isolated routing with Source-Mode Mounting and failure tracking
   private async reviewFileEditProposals(targetFilepath: string, allProposals: MultiEditProposal[]): Promise<void> {
-    const file = this.resolveVaultFile(targetFilepath);
+    let file = this.resolveVaultFile(targetFilepath);
+
+    // Reviewer fix 1: Detect new file proposal and initialize it as empty
     if (!file) {
-      new Notice(`File not found: ${targetFilepath}`);
-      return;
+      const isNewFile = allProposals.some(p => p.filepath === targetFilepath && (p.search.includes("<<< NEW FILE >>>") || p.search.trim() === ""));
+      if (isNewFile) {
+        try {
+          file = await this.app.vault.create(targetFilepath, "");
+          new Notice(`Created new file for review: ${targetFilepath}`);
+        } catch (e) {
+          new Notice(`Failed to create new file: ${targetFilepath}`);
+          return;
+        }
+      } else {
+        new Notice(`File not found: ${targetFilepath}`);
+        return;
+      }
     }
 
     // Bug 26: Find an existing source-mode leaf or open one with 2-frame CM6 mount delay

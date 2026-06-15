@@ -130,6 +130,8 @@ export class DiffViewer {
   // Bug 23, 31: Typed event refs for proper cleanup via offref()
   private layoutChangeRef: EventRef | null = null;
   private changeRef: EventRef | null = null;
+  // Reviewer fix 2: prevents editor-change from aborting review on programmatic edits
+  private isInternalChange = false;
 
   constructor(plugin: ObsidianAIAgent) {
     this.plugin = plugin;
@@ -231,6 +233,8 @@ export class DiffViewer {
 
     // Bugs 24, 29: editor-change listener — exact sub-range match, not full doc
     this.changeRef = this.plugin.app.workspace.on("editor-change", (editor, info) => {
+      // Reviewer fix 3: skip abort check when we caused the change ourselves
+      if (this.isInternalChange) return;
       if (
         info.file?.path === this.view?.file?.path &&
         this.selectionStart &&
@@ -437,8 +441,10 @@ export class DiffViewer {
 
     // New baseline: original with hunk N's added lines merged in
     const newOriginalText = this.applyChunkToText(this.originalText, hunk);
-    // Write accepted state to buffer before calling show()
+    // Reviewer fix 2: suppress editor-change abort while we programmatically write the buffer
+    this.isInternalChange = true;
     this.view.editor.replaceRange(newOriginalText, this.selectionStart!, this.originalEndPos);
+    this.isInternalChange = false;
 
     // modifiedText is unchanged — computeDiff will drop the resolved hunk naturally
     this.show(this.view, newOriginalText, this.modifiedText, this.selectionStart!, this.originalEndPos, preserveIdx);
