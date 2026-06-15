@@ -2984,12 +2984,15 @@ export class ChatSidebarView extends ItemView {
     const proposals = this.extractMultiEditProposals(msg.content, editRef?.filePath);
     if (proposals.length === 0) return;
 
-    const files = new Set(proposals.map((p) => p.filepath));
+    const files = new Set(proposals.map((p) => {
+      const f = this.resolveVaultFile(p.filepath);
+      return f ? f.path : p.filepath;
+    }));
     if (files.size !== 1) return;
     const target = proposals[0].filepath;
     // Bug 28: use resolveVaultFile for consistent path normalization
     const file = this.resolveVaultFile(target);
-    const isNewFile = proposals.some(p => p.filepath === target && (p.search.includes("<<< NEW FILE >>>") || p.search.trim() === ""));
+    const isNewFile = proposals.some(p => p.search.includes("<<< NEW FILE >>>") || p.search.trim() === "");
     if (!file && !isNewFile) return;
 
     const active = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -3002,13 +3005,14 @@ export class ChatSidebarView extends ItemView {
 
   // Bug 32: Strips absolute filesystem paths and URL-encoding before vault lookup
   private resolveVaultFile(raw: string): TFile | null {
-    let normalized = raw;
+    // Reviewer fix 3: Normalize backslashes to forward slashes for Windows paths
+    let normalized = raw.replace(/\\/g, "/");
     const adapter = this.app.vault.adapter;
     if (adapter instanceof FileSystemAdapter) {
-      const basePath = adapter.getBasePath();
-      if (raw.startsWith(basePath)) {
-        normalized = raw.slice(basePath.length);
-        if (normalized.startsWith("/") || normalized.startsWith("\\")) normalized = normalized.slice(1);
+      const basePath = adapter.getBasePath().replace(/\\/g, "/");
+      if (normalized.startsWith(basePath)) {
+        normalized = normalized.slice(basePath.length);
+        if (normalized.startsWith("/")) normalized = normalized.slice(1);
       }
     }
     const candidates = [
@@ -3030,9 +3034,15 @@ export class ChatSidebarView extends ItemView {
   private async reviewFileEditProposals(targetFilepath: string, allProposals: MultiEditProposal[]): Promise<void> {
     let file = this.resolveVaultFile(targetFilepath);
 
+    // Reviewer fix 4: Filter proposals by canonical vault path
+    const fileProposals = allProposals.filter(p => {
+      const pFile = this.resolveVaultFile(p.filepath);
+      return (pFile && file) ? (pFile.path === file.path) : (p.filepath === targetFilepath);
+    });
+
     // Reviewer fix 1: Detect new file proposal and initialize it as empty
     if (!file) {
-      const isNewFile = allProposals.some(p => p.filepath === targetFilepath && (p.search.includes("<<< NEW FILE >>>") || p.search.trim() === ""));
+      const isNewFile = fileProposals.some(p => p.search.includes("<<< NEW FILE >>>") || p.search.trim() === "");
       if (isNewFile) {
         try {
           file = await this.app.vault.create(targetFilepath, "");
@@ -3079,7 +3089,7 @@ export class ChatSidebarView extends ItemView {
     let appliedCount = 0;
     let failedCount = 0;
     // Bug 34: Track partial failures and warn the user
-    for (const proposal of allProposals.filter(p => p.filepath === targetFilepath)) {
+    for (const proposal of fileProposals) {
       const match = findSearchBlock(modifiedFullText, proposal.search);
       if (!match) {
         failedCount++;
