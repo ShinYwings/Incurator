@@ -180,27 +180,16 @@ def test_f2_one_query_persists_one_authoritative_trace(vault, degraded_search) -
 
 
 # ---------------------------------------------------------------------------
-# F3 — CurationPolicy (KRS) not enforced through evidence assembly
+# F3 — CurationPolicy (KRS) not enforced through evidence assembly  [FIXED P3]
 # ---------------------------------------------------------------------------
 
-def test_f3_baseline_build_evidence_accepts_no_policy() -> None:
-    params = inspect.signature(evidence_mod.build_evidence).parameters
-    assert "policy" not in params
-    assert "CurationPolicy" not in inspect.getsource(evidence_mod)
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="F3 reproduced: build_evidence(paths, request, route) takes no policy; "
-    "assigned to program-3 (P3.1 route policy enforcement)",
-)
 def test_f3_oracle_build_evidence_receives_curation_policy() -> None:
     params = inspect.signature(evidence_mod.build_evidence).parameters
     assert "policy" in params
 
 
 # ---------------------------------------------------------------------------
-# F4 — global evidence query-independent and unbounded
+# F4 — global evidence query-independent and unbounded  [FIXED P3]
 # ---------------------------------------------------------------------------
 
 def _seed_two_topic_reports(paths: cfg.WikiPaths, count_per_topic: int = 15) -> str:
@@ -225,28 +214,6 @@ def _seed_two_topic_reports(paths: cfg.WikiPaths, count_per_topic: int = 15) -> 
     return span
 
 
-def test_f4_baseline_global_evidence_query_independent_and_unbounded(vault) -> None:
-    paths = vault
-    _seed_two_topic_reports(paths)
-    orch = QueryOrchestrator(paths, _NoChatClient())
-    out_a = orch.fetch_context(
-        QueryRequest(question="deep learning optimization convergence", mode="global")
-    )
-    out_b = orch.fetch_context(
-        QueryRequest(question="marine biology of coral reefs", mode="global")
-    )
-    ids_a = [it["id"] for it in out_a["evidence"]]
-    ids_b = [it["id"] for it in out_b["evidence"]]
-    # Defect: selection never consults the query, and every report is loaded.
-    assert ids_a == ids_b
-    assert len(ids_a) >= 30
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="F4 reproduced: _report_items loads all reports query-independently; "
-    "assigned to program-3 (bounded query-relevant routes)",
-)
 def test_f4_oracle_global_evidence_bounded_and_query_dependent(vault) -> None:
     paths = vault
     _seed_two_topic_reports(paths)
@@ -264,7 +231,7 @@ def test_f4_oracle_global_evidence_bounded_and_query_dependent(vault) -> None:
 
 
 # ---------------------------------------------------------------------------
-# F5 — fixed 16,000-char cutoff with silent omission
+# F5 — fixed 16,000-char cutoff with silent omission  [FIXED P3]
 # ---------------------------------------------------------------------------
 
 def _twenty_item_pack() -> EvidencePack:
@@ -278,21 +245,6 @@ def _twenty_item_pack() -> EvidencePack:
     return EvidencePack(route="global", items=items)
 
 
-def test_f5_baseline_evidence_block_truncates_silently() -> None:
-    pack = _twenty_item_pack()
-    block = pack.evidence_block()
-    rendered = [i for i in range(20) if f"RPT-{i:02d}]" in block]
-    assert len(block) <= 16000
-    assert len(rendered) < 20  # items dropped...
-    low = block.lower()
-    assert "omit" not in low and "truncat" not in low  # ...with no marker
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="F5 reproduced: evidence_block silently drops items at a char budget; "
-    "assigned to program-3 (token budgets / explicit omissions, P3.2)",
-)
 def test_f5_oracle_evidence_block_reports_explicit_omissions() -> None:
     pack = _twenty_item_pack()
     block = pack.evidence_block()

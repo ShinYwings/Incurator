@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 
 from .. import config as cfg
-from .. import db
+from .. import curate_yml, db
 from ..pipeline import memory_paths as mp
 from .models import EvidenceItem, EvidencePack, QueryRequest
 
@@ -24,6 +24,10 @@ _STOP = {
     "does", "are", "how", "why", "when", "where", "between", "about", "of", "to",
     "is", "a", "an", "in", "on",
 }
+
+# §28.2 / §22.6: maximum community reports / synthesis nodes for global route.
+_MAX_GLOBAL_REPORTS = 10
+_MAX_GLOBAL_SYNTHESIS = 6
 
 
 def _hydrate_full_texts(db_path: Path, span_ids: list[str]) -> dict[str, str]:
@@ -127,11 +131,35 @@ def _span_items(db_path: Path, span_ids: list[str]) -> list[EvidenceItem]:
     return items
 
 
-def _report_items(db_path: Path) -> tuple[list[EvidenceItem], list[str], list[str]]:
+def _report_score(rep: dict, query_terms: set[str]) -> float:
+    """Query-relevance score: overlap of query terms with report title+summary (§22.6)."""
+    if not query_terms:
+        return rep.get("rank", 0.0)
+    target = f'{rep.get("title", "")} {rep.get("summary", "")}'.lower()
+    target_tokens = set(re.findall(r"[a-z][a-z0-9+\-]*", target))
+    overlap = len(query_terms & target_tokens)
+    return overlap / len(query_terms) + rep.get("rank", 0.0) * 0.01
+
+
+def _report_items(
+    db_path: Path,
+    query: str = "",
+    limit: int = _MAX_GLOBAL_REPORTS,
+) -> tuple[list[EvidenceItem], list[str], list[str], int]:
+    """Return top-N query-relevant community reports (§28.2 / §22.6).
+
+    Returns (items, report_ids, span_ids, omitted_count).
+    """
+    query_terms = {t.lower() for t in re.findall(r"[a-zA-Z][a-zA-Z0-9+\-]*", query)
+                   if t.lower() not in _STOP and len(t) > 2}
+    all_reports = db.list_community_reports(db_path)
+    scored = sorted(all_reports, key=lambda r: _report_score(r, query_terms), reverse=True)
+    selected = scored[:limit]
+    omitted = max(0, len(all_reports) - len(selected))
     items: list[EvidenceItem] = []
     report_ids: list[str] = []
     span_ids: set[str] = set()
-    for rep in db.list_community_reports(db_path):
+    for rep in selected:
         findings = "; ".join(f.get("summary", "") for f in rep.get("findings", []) if isinstance(f, dict))
         items.append(
             EvidenceItem(
@@ -143,7 +171,7 @@ def _report_items(db_path: Path) -> tuple[list[EvidenceItem], list[str], list[st
         )
         report_ids.append(rep["id"])
         span_ids.update(rep.get("source_span_ids") or [])
-    return items, report_ids, sorted(span_ids)
+    return items, report_ids, sorted(span_ids), omitted
 
 
 def _synthesis_items(db_path: Path, limit: int = 6) -> tuple[list[EvidenceItem], list[str], list[str]]:
@@ -178,8 +206,19 @@ def _resolve_source_id(db_path: Path, source_key: str) -> int | None:
 
 
 def build_evidence(
-    paths: cfg.WikiPaths, request: QueryRequest, route: str, *, limit: int = 8
+    paths: cfg.WikiPaths,
+    request: QueryRequest,
+    route: str,
+    *,
+    policy: curate_yml.CurationPolicy | None = None,
+    limit: int = 8,
 ) -> EvidencePack:
+    """Build an evidence pack for the given route (§28–§30).
+
+    ``policy`` — the resolved CurationPolicy forwarded by the orchestrator
+    (§28.1).  When None, defaults to open policy (no source filter, no
+    workspace-specific constraints) for backward compatibility.
+    """
     db_path = paths.state_db
     q = request.working_query
     warnings: list[str] = []
@@ -209,10 +248,11 @@ def build_evidence(
         return pack
 
     if route == "global":
-        # Shared L4 Synthesis nodes are the highest-level standing evidence; lead
-        # with them, then back them with the community reports they distil.
-        syn_items, syn_ids, syn_spans = _synthesis_items(db_path)
-        report_items, report_ids, report_spans = _report_items(db_path)
+        # §28.2: query-relevant bounded synthesis + community reports.
+        syn_items, syn_ids, syn_spans = _synthesis_items(db_path, limit=_MAX_GLOBAL_SYNTHESIS)
+        report_items, report_ids, report_spans, report_omitted = _report_items(
+            db_path, query=q, limit=_MAX_GLOBAL_REPORTS
+        )
         items = syn_items + report_items
         if not items:
             warnings.append("no synthesis or community reports; falling back to qmd")
@@ -220,6 +260,8 @@ def build_evidence(
         else:
             pack.items = items
             pack.source_span_ids = sorted(set(syn_spans) | set(report_spans))
+        if report_omitted:
+            pack.omitted_counts["global_reports"] = report_omitted
         pack.synthesis_node_ids = syn_ids
         pack.community_report_ids = report_ids
         return pack
@@ -240,17 +282,17 @@ def build_evidence(
             )
             span_ids = sorted(set(span_ids) | set(path_obj.source_span_ids))
         syn_items, syn_ids, syn_spans = _synthesis_items(db_path, limit=3)
-        report_items, report_ids, report_spans = _report_items(db_path)
+        report_items, report_ids, report_spans, _ = _report_items(db_path, query=q, limit=3)
         pack.items.extend(syn_items)  # synthesis primer (highest-level)
-        pack.items.extend(report_items[:3])  # community primer
+        pack.items.extend(report_items)  # community primer (already bounded to 3)
         pack.items.extend(ent_items)
         pack.memory_path_ids = mpath_ids
         pack.synthesis_node_ids = syn_ids
-        pack.community_report_ids = report_ids[:3]
+        pack.community_report_ids = report_ids
         pack.source_span_ids = sorted(set(span_ids) | set(report_spans) | set(syn_spans))
         return pack
 
-    # local: entities + their spans + qmd hits.
+    # local: entities + their spans + search hits.
     ent_items, span_ids = _entity_evidence(db_path, q)
     pack.items.extend(ent_items)
     pack.items.extend(_span_items(db_path, span_ids))

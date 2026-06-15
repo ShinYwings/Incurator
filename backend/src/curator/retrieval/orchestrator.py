@@ -98,7 +98,7 @@ class QueryOrchestrator:
         status = router.graph_status(self.paths.state_db)
         route, reason = router.choose_route(request, policy, status)
         trace_id = f"QTR-{uuid.uuid4().hex[:8]}"
-        pack = evidence_mod.build_evidence(self.paths, request, route)
+        pack = evidence_mod.build_evidence(self.paths, request, route, policy=policy)
         retrieval_trace = _build_retrieval_trace(pack, route, reason)
         db.insert_query_trace(
             self.paths.state_db,
@@ -145,7 +145,7 @@ class QueryOrchestrator:
         route, reason = router.choose_route(request, policy, status)
         trace_id = f"QTR-{uuid.uuid4().hex[:8]}"
 
-        pack = evidence_mod.build_evidence(self.paths, request, route)
+        pack = evidence_mod.build_evidence(self.paths, request, route, policy=policy)
         result = QueryResultV031(
             question=request.question,
             route=route,

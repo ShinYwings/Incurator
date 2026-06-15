@@ -76,11 +76,6 @@ def _seed_spans(paths: cfg.WikiPaths, n: int = 3) -> list[str]:
 # §28.1 — policy parameter: structural shape (P3)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="§28.1: build_evidence does not yet have a 'policy' parameter. "
-    "Assigned to Plan A P3.",
-)
 def test_struct_build_evidence_accepts_policy_kwarg() -> None:
     """SYSTEM_BEHAVIOR §28.1: build_evidence must accept a 'policy' keyword arg."""
     params = inspect.signature(evidence_mod.build_evidence).parameters
@@ -199,11 +194,6 @@ def test_oracle_retrieval_trace_has_contract_version(vault) -> None:
 # (F4 canonical oracle lives in test_failure_atlas_repro.py)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="§28.2: build_evidence global route does not record omitted_counts "
-    "for dropped community reports. Assigned to Plan A P3.",
-)
 def test_oracle_global_omissions_recorded(vault) -> None:
     """Dropped reports in global route must appear in omitted_counts (§28.2 / §22.6)."""
     from curator.retrieval.models import QueryRequest
@@ -231,11 +221,6 @@ def test_oracle_global_omissions_recorded(vault) -> None:
 # (F3 canonical oracle lives in test_failure_atlas_repro.py)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="§28.1: orchestrator does not yet forward CurationPolicy to "
-    "build_evidence. Assigned to Plan A P3.",
-)
 def test_oracle_orchestrator_forwards_policy_to_build_evidence(vault) -> None:
     """Orchestrator must forward policy; build_evidence must use it (§28.1)."""
     from unittest.mock import patch
