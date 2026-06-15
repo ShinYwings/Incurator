@@ -5155,6 +5155,17 @@ def _render_lint_report_terminal(report: lint_module.LintReport) -> None:
             f"  [bold]Compiler Integrity:[/bold] "
             f"[{ci_color}]{len(ci_issues)} findings ({ci_errors} release-blocking)[/{ci_color}]"
         )
+    gq_issues = [
+        i for i in report.issues
+        if i.check == lint_module.CheckId.GRAPH_QUALITY
+    ]
+    if gq_issues:
+        gq_errors = sum(1 for i in gq_issues if i.severity == lint_module.Severity.ERROR)
+        gq_color = "red" if gq_errors else "yellow"
+        summary_lines.append(
+            f"  [bold]Graph Quality:[/bold] "
+            f"[{gq_color}]{len(gq_issues)} findings ({gq_errors} release-blocking)[/{gq_color}]"
+        )
     if report.auto_fixed:
         summary_lines.append(f"  [green]auto-fixed: {report.auto_fixed}[/green]")
     console.print(

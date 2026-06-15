@@ -47,6 +47,7 @@ class CheckId(str, Enum):
     MISSING_CROSS_LAYER_LINK = "missing_cross_layer_link"  # ATM missing parent_source wikilink, etc.
     EPHEMERAL_GC = "ephemeral_gc"
     COMPILER_INTEGRITY = "compiler_integrity"  # Plan B (v0.8.0) §26.5 audit findings
+    GRAPH_QUALITY = "graph_quality"  # Plan C (v0.9.0) §27.6 graph-audit findings
 
 
 @dataclass
@@ -1381,6 +1382,32 @@ def compiler_integrity(paths: cfg.WikiPaths) -> list[LintIssue]:
     return issues
 
 
+def graph_quality(paths: cfg.WikiPaths) -> list[LintIssue]:
+    """The on-demand graph-audit surface for ``wiki lint`` (SYSTEM_BEHAVIOR §27.6).
+
+    Runs the read-only ``db.graph_audit`` (SCHEMA §21.8) and maps each violation
+    to a release-blocking ERROR ``LintIssue``, so ``wiki lint`` exits non-zero for
+    CI/testbed gating when the served graph/report state breaks a frozen invariant
+    (active relation under the ≥2-lineage floor, an endpoint that is not canonical /
+    is redirected, a quarantined relation missing its reason, or a served report
+    citing a non-active relation). The audit NEVER edits state. An empty audit
+    means the served graph is clean and no Graph Quality issues are emitted."""
+    issues: list[LintIssue] = []
+    for violation in db.graph_audit(paths.state_db):
+        code = str(violation.get("code", ""))
+        detail = str(violation.get("detail", ""))
+        issues.append(
+            LintIssue(
+                check=CheckId.GRAPH_QUALITY,
+                severity=Severity.ERROR,
+                page=str(violation.get("subject_id", "")),
+                message=f"[{code}] {detail}" if detail else f"[{code}]",
+                context={"code": code, "detail": detail},
+            )
+        )
+    return issues
+
+
 # ---------------------------------------------------------------------------
 # Top-level: run_lint
 # ---------------------------------------------------------------------------
@@ -1418,6 +1445,7 @@ def run_lint(
         ("noise_in_curation",   lambda: check_noise_in_curation_sources(inv)),
         ("cross_layer_links",   lambda: check_cross_layer_links(inv)),
         ("compiler_integrity",  lambda: compiler_integrity(paths)),
+        ("graph_quality",       lambda: graph_quality(paths)),
     ]
     for name, fn in fast_check_fns:
         report.issues.extend(fn())

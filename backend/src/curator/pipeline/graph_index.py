@@ -163,12 +163,25 @@ def extract_graph_data(
 
 
 def persist_graph_data(
-    db_path: Path, data: GraphData, *, conn: Any = None
+    db_path: Path,
+    data: GraphData,
+    *,
+    conn: Any = None,
+    units: list[dict] | None = None,
+    source_lineage_hash: str = "",
 ) -> GraphExtractionResult:
     """Upsert a previously-extracted :class:`GraphData` into graph_entities /
     graph_relations. No LLM; called inside the publish transaction so the graph
     rows publish — and roll back — atomically with the generation (a publish
-    failure leaves no leaked graph). Pass ``conn`` to join that transaction."""
+    failure leaves no leaked graph). Pass ``conn`` to join that transaction.
+
+    When ``units`` and ``source_lineage_hash`` are supplied (the live compile
+    path), each persisted relation also AGGREGATES one ``graph_relation_supports``
+    row per asserting knowledge unit, keyed by the source's lineage (§27.2). A
+    relation is mapped to its asserting unit by span intersection — never by a
+    broad all-span fallback (F9). One source contributes exactly one independent
+    lineage, so a relation reaches the ``active`` floor only once a SECOND
+    independent source corroborates the same proposition (§27.2 ≥2 lineages)."""
     name_to_id: dict[str, str] = {}
     relation_ids: list[str] = []
     for entity, trace_id in data.entities:
@@ -182,6 +195,16 @@ def persist_graph_data(
             conn=conn,
         )
         name_to_id[entity.canonical_name] = ent_id
+
+    # span -> [(unit_id, support_status)] index, used to attribute relation support
+    # to the exact knowledge unit(s) whose evidence carries the relation's spans.
+    span_units: dict[str, list[tuple[str, str]]] = {}
+    if units and source_lineage_hash:
+        for u in units:
+            status = "verified" if u.get("support_status") == "verified" else "unchecked"
+            for sid in u.get("source_span_ids") or []:
+                span_units.setdefault(str(sid), []).append((str(u["id"]), status))
+
     for rel, trace_id in data.relations:
         src = name_to_id.get(rel.source)
         tgt = name_to_id.get(rel.target)
@@ -200,10 +223,52 @@ def persist_graph_data(
             conn=conn,
         )
         relation_ids.append(rel_id)
+        if span_units:
+            _write_relation_supports(
+                db_path, rel, rel_id, span_units, source_lineage_hash, conn=conn
+            )
     return GraphExtractionResult(
         entity_ids=name_to_id, relation_ids=relation_ids,
         trace_id=data.trace_id, ok=data.ok, errors=data.errors,
     )
+
+
+def _write_relation_supports(
+    db_path: Path,
+    rel: Any,
+    rel_id: str,
+    span_units: dict[str, list[tuple[str, str]]],
+    source_lineage_hash: str,
+    *,
+    conn: Any = None,
+) -> None:
+    """Aggregate one support row per asserting unit for ``rel`` (§27.2). The
+    asserting units are those whose evidence spans intersect the relation's cited
+    spans; each contributes a support carrying the intersecting spans and this
+    source's lineage. No matching unit → no support (correctly unsupported — never
+    a broad-span fallback)."""
+    rel_spans = [str(s) for s in (rel.source_span_ids or [])]
+    # unit_id -> (status, intersecting spans) for the units that assert this relation
+    per_unit: dict[str, tuple[str, list[str]]] = {}
+    for sid in rel_spans:
+        for unit_id, status in span_units.get(sid, []):
+            cur = per_unit.setdefault(unit_id, (status, []))
+            cur[1].append(sid)
+            # a verified attribution wins over an unchecked one for the same unit
+            if status == "verified" and cur[0] != "verified":
+                per_unit[unit_id] = ("verified", cur[1])
+    for unit_id, (status, spans) in per_unit.items():
+        db.upsert_graph_relation_support(
+            db_path,
+            relation_id=rel_id,
+            knowledge_unit_id=unit_id,
+            source_span_ids=spans,
+            source_lineage_hash=source_lineage_hash,
+            assertion_source=getattr(rel, "assertion_source", "source_states"),
+            confidence=getattr(rel, "confidence", 0.0),
+            support_status=status,
+            conn=conn,
+        )
 
 
 def extract_entities_and_relations(

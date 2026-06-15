@@ -2564,6 +2564,63 @@ def upsert_graph_relation(
         return relation_id
 
 
+def upsert_graph_relation_support(
+    db_path: Path,
+    *,
+    relation_id: str,
+    knowledge_unit_id: str,
+    source_span_ids: list[str],
+    source_lineage_hash: str,
+    assertion_source: str = "source_states",
+    confidence: float = 0.0,
+    support_status: str = "verified",
+    conn: sqlite3.Connection | None = None,
+) -> str:
+    """Aggregate ONE independent claim-level support onto a relation (§27.2).
+
+    Re-asserting the same proposition ADDS a support; it never overwrites
+    (SCHEMA §21.5). The PK ``(relation_id, knowledge_unit_id, support_hash)``
+    dedups the SAME unit re-citing the SAME spans — so an idempotent recompile
+    leaves the support count unchanged — while ``source_lineage_hash`` is the
+    INDEPENDENCE key: a relation reaches the ``active`` floor only with **≥2
+    DISTINCT** ``verified`` lineages (§27.2). Copied/forked sources share a
+    lineage and therefore count once. Returns the row's ``support_hash``. Pass
+    ``conn`` to run inside the caller's atomic publish transaction (§27.8)."""
+    if support_status not in SUPPORT_STATUSES:
+        raise ValueError(f"invalid support_status: {support_status!r}")
+    spans = sorted(source_span_ids or [])
+    # Content hash of (proposition, cited spans): dedups re-assertion of the same
+    # evidence within a relation. The relation_id already encodes the canonical
+    # proposition (upsert_graph_relation dedups on src/tgt/type), so the spans are
+    # what distinguish two supports of one relation.
+    support_hash = _sha16(["relation_support", relation_id, spans])
+    now = _now_iso()
+    with _maybe_conn(db_path, conn) as conn:
+        conn.execute(
+            """
+            INSERT INTO graph_relation_supports
+                (relation_id, knowledge_unit_id, source_span_ids, assertion_source,
+                 confidence, support_status, support_hash, source_lineage_hash,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(relation_id, knowledge_unit_id, support_hash)
+            DO UPDATE SET
+                support_status = excluded.support_status,
+                confidence = excluded.confidence,
+                source_lineage_hash = excluded.source_lineage_hash,
+                source_span_ids = excluded.source_span_ids,
+                assertion_source = excluded.assertion_source,
+                updated_at = excluded.updated_at
+            """,
+            (
+                relation_id, knowledge_unit_id, json.dumps(spans), assertion_source,
+                confidence, support_status, support_hash, source_lineage_hash,
+                now, now,
+            ),
+        )
+    return support_hash
+
+
 # --- Plan C (v0.9.0, SCHEMA §21.1-§21.4) entity resolution / reversible merges --
 
 
@@ -3624,6 +3681,140 @@ def reconcile_source_change(
                     stale_supports += 1
         summary = rebuild_graph_generation(db_path, config_hash=config_hash, conn=conn)
     return {**summary, "stale_supports": stale_supports, "source_id": source_id}
+
+
+# --- graph audit (read-only invariants) -----------------------------------
+# SYSTEM_BEHAVIOR §27.6 / SCHEMA §21.8. A READ-ONLY assertion pass over the
+# authoritative graph/report state. It NEVER writes — it runs both as the
+# graph/report publish gate inside the rebuild transaction and on demand via
+# `wiki lint` (the Graph Quality section). Each returned mapping carries a `code`
+# (one of GRAPH_AUDIT_CODES) and the offending artifact's `subject_id`; an empty
+# list means the served graph is clean. Output is sorted by (code, subject_id) for
+# deterministic reporting.
+
+# Frozen graph-audit violation codes (the schema-level §21.8 invariants this phase
+# enforces). The broader §27.6 invariants that depend on GQ07 relation-quality
+# labels (homonym false merges, mixed claim generations) remain benchmark-later and
+# are NOT asserted here yet — adding speculative untested checks would risk false
+# positives (§21.9).
+GRAPH_AUDIT_CODES = frozenset(
+    {
+        "active_relation_insufficient_support",
+        "reference_to_redirected_entity",
+        "endpoint_not_canonical",
+        "quarantined_relation_missing_reason",
+        "report_finding_without_active_support",
+    }
+)
+
+
+def graph_audit(
+    db_path: Path, *, conn: sqlite3.Connection | None = None
+) -> list[dict]:
+    """Read-only graph/report invariant audit (SYSTEM_BEHAVIOR §27.6 / SCHEMA §21.8).
+
+    Returns the list of violations (empty == clean). Each violation is a mapping
+    with a frozen ``code``, the offending artifact's ``subject_id``, and a human
+    ``detail``. The four enforced invariants:
+
+    1. ``active_relation_insufficient_support`` — an ``active`` relation backed by
+       fewer than 2 distinct ``verified`` source lineages (below the §21.5
+       corroboration floor).
+    2. ``reference_to_redirected_entity`` / ``endpoint_not_canonical`` — an
+       ``active`` relation whose source/target endpoint is not a canonical entity
+       (specifically ``redirected``, or any other non-canonical state).
+    3. ``quarantined_relation_missing_reason`` — a ``quarantined`` relation missing
+       its reason code and/or re-eval trigger (§27.3: quarantine is never an opaque
+       discard pile).
+    4. ``report_finding_without_active_support`` — a served (non-retired) community
+       report that cites a relation (top-level or per-finding) that is not
+       ``active`` (§27.6 report freshness).
+    """
+    violations: list[dict] = []
+    with _maybe_conn(db_path, conn) as conn:
+        entity_state = {
+            str(r["id"]): str(r["resolution_state"])
+            for r in conn.execute(
+                "SELECT id, resolution_state FROM graph_entities"
+            ).fetchall()
+        }
+        verified_lineages = {
+            str(r["relation_id"]): int(r["n"])
+            for r in conn.execute(
+                "SELECT relation_id, COUNT(DISTINCT source_lineage_hash) AS n "
+                "FROM graph_relation_supports WHERE support_status = 'verified' "
+                "GROUP BY relation_id"
+            ).fetchall()
+        }
+        rel_status: dict[str, str] = {}
+        for r in conn.execute(
+            "SELECT id, source_entity_id, target_entity_id, lifecycle_status, "
+            "quarantine_reason, reeval_trigger FROM graph_relations ORDER BY id"
+        ).fetchall():
+            rid = str(r["id"])
+            status = str(r["lifecycle_status"])
+            rel_status[rid] = status
+            if status == "active":
+                lineages = verified_lineages.get(rid, 0)
+                if lineages < _RELATION_CORROBORATION_THRESHOLD:
+                    violations.append({
+                        "code": "active_relation_insufficient_support",
+                        "subject_id": rid,
+                        "detail": (
+                            f"{lineages} verified independent source lineages "
+                            f"(< {_RELATION_CORROBORATION_THRESHOLD})"
+                        ),
+                    })
+                for endpoint in (
+                    str(r["source_entity_id"]), str(r["target_entity_id"])
+                ):
+                    state = entity_state.get(endpoint)
+                    if state is None or state == "canonical":
+                        continue
+                    code = (
+                        "reference_to_redirected_entity"
+                        if state == "redirected"
+                        else "endpoint_not_canonical"
+                    )
+                    violations.append({
+                        "code": code,
+                        "subject_id": rid,
+                        "detail": f"endpoint {endpoint} resolution_state={state}",
+                    })
+            elif status == "quarantined":
+                reason = str(r["quarantine_reason"] or "")
+                trigger = str(r["reeval_trigger"] or "")
+                if not reason or not trigger:
+                    violations.append({
+                        "code": "quarantined_relation_missing_reason",
+                        "subject_id": rid,
+                        "detail": (
+                            "quarantined relation missing reason code "
+                            "and/or re-eval trigger"
+                        ),
+                    })
+
+        for rep in conn.execute(
+            "SELECT id, relation_ids, finding_json FROM community_reports "
+            "WHERE retired_at IS NULL ORDER BY id"
+        ).fetchall():
+            cited: set[str] = {str(x) for x in _loads_list(rep["relation_ids"])}
+            for finding in _loads_list(rep["finding_json"]):
+                if isinstance(finding, dict):
+                    cited.update(str(x) for x in (finding.get("relation_ids") or []))
+            # A cited relation that is missing or not `active` is not eligible claim
+            # support. `.get(rid)` defaults to None (missing) so a dangling citation
+            # is flagged too.
+            stale = sorted(c for c in cited if rel_status.get(c) != "active")
+            if stale:
+                violations.append({
+                    "code": "report_finding_without_active_support",
+                    "subject_id": str(rep["id"]),
+                    "detail": f"cites non-active relations: {stale}",
+                })
+
+    violations.sort(key=lambda v: (v["code"], v["subject_id"]))
+    return violations
 
 
 # --- memory_paths ----------------------------------------------------

@@ -215,3 +215,44 @@ without a silent mode change at all times.
   rollback is required.
 - After three repeated QA failures: activate `rollback_strategist`, restore the
   last stable state, return to planning.
+
+## P7 Post-Validation (2026-06-15) — Live Claim-Grounded Cutover
+
+**Scope decision:** user chose the FULL authoritative cutover (vs §27.8
+staged-publish). The live L3 serving path is swapped onto the claim-grounded
+compiler; single-source vaults no longer ground community reports (§27.2 ≥2
+independent-lineage floor).
+
+**Pre-validation (graph audit on the existing testbed DB):** `wiki lint`
+surfaced one Graph Quality violation — legacy broad-span report `REP-5b7bde01`
+cites the non-`active` relation `REL-b6d5b9fc` (the P0-recorded live unsupported
+relation). The new read-only audit correctly flags the pre-cutover artifact.
+
+**Post-validation (after the new-path `wiki update`, real LLM AntigravityCli
+gemini-3.5-flash):**
+- `graph_audit(testbed) == []` — CLEAN.
+- 42 `graph_relation_supports` rows written (all `verified`) by the new
+  `persist_graph_data` writer; 17 entities all `canonical`.
+- 18 relations, all `quarantined`/`copied_source_only` — 0 reached ≥2 independent
+  lineages (the note + PDF sources don't extract byte-identical propositions), so
+  the conservative §27.2 behavior holds on real data.
+- Legacy report retired (served community_reports 1 → 0); no spurious broad-span
+  report regenerated.
+- Remaining 20 `wiki lint` errors are ALL pre-existing Plan B
+  `compiler_integrity` (F6 wrong-real-span) scenario data-quality issues — ZERO
+  `graph_quality`.
+
+**Test/CI evidence:** backend `869 passed, 8 xfailed, 4 failed` (the 4 reds are
+ONLY the `test_spec_sync` docs-first version gate → P10); `ruff` clean; `mypy` 0
+new errors (70 pre-existing); plugin vitest `370 passed`. New gold module
+`tests/test_plan_c_live_integration.py` (3) + rewritten
+`test_compile_global_l3_writes_concepts` (2 independent sources).
+
+**D2 holdout:** db.py re-pinned `8c4d6e3a → 4a89f193 → 5220ac73` (graph_audit,
+then support writer). Additive graph/report/support logic only; no
+retrieval/ranking/fusion/projection/embedding/chunking/materialize_chunks path
+touched, so the frozen lexical Q06 metric is provably unaffected.
+
+**Env note:** a stray `backend/testbed` was created by `uv run --directory
+backend wiki` (VAULT_ROOT resolves relative to backend/) and removed; the CLI
+must run from repo root with an absolute `VAULT_ROOT=<repo>/testbed`.

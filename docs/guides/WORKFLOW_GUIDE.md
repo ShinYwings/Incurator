@@ -504,7 +504,12 @@ fully published claim generation:
 - **Relations are propositions with independent support**: re-extracting the same
   relation *adds* claim-level support instead of overwriting it. Independence is
   counted by source lineage, so copied/forked sources count once — not as
-  multiple confirmations.
+  multiple confirmations. A relation needs **≥2 independent source lineages** to
+  become `active`, so a single source per topic builds no community reports until a
+  second independent source corroborates the same relations (live wiring: the L2
+  compile writes one `graph_relation_supports` row per asserting claim keyed by the
+  source's lineage; `wiki build`/`wiki update`'s L3 then grounds reports only on the
+  corroborated `active` relations).
 - **Relation lifecycle**: a relation is `active` only with verified independent
   support and resolved endpoints; weak edges are `quarantined` with a reason
   (`unsupported`, `self_loop`, `contradiction`, `copied_source_only`,

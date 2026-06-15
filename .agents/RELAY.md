@@ -1,30 +1,34 @@
 # Cross-Agent Relay State
 
-## Status: P5 COMMITTED (`6db0553`) + PDF-crop hotfix merged & pushed (`ffd7c92`, v0.8.1) — next action is Gemini's P5 review, then P6 (claim-grounded reports + reconciliation); P7 owns the remaining graph_audit reds
+## Status: P7 COMPLETE (graph_audit + live claim-grounded cutover + testbed). Ready for Gemini review → P8.
 
-**Branch:** `feature/plan-c-graph-quality` (hotfix `hotfix/pdf-crop-regression-fix` merged back + deleted)
+**Branch:** `feature/plan-c-graph-quality`
 **Target Plan:** `.agents/plans/C_graph_quality.md`
 
 ## Goal
 Implement Batch 2: Plan C (Graph Quality) to stabilize the graph layer, establish community reports, and synthesize insights. The previous milestone (Plan B) has been successfully merged and shipped.
 
 ## Immediate Next Action
-**Gemini: review the uncommitted P5 `db.connected_components` implementation** (the
-filtered-connected-components hierarchy fallback). Then proceed to **P6 — claim-
-grounded reports + precise reconciliation** (plan §342–358). P0–P5 are complete; the
-only remaining Plan C reds are the 4 `test_plan_c_hierarchy_audit.py` `graph_audit`
-tests (owned by **P7**, alongside the testbed + `wiki lint` graph-audit wiring) and
-the 4 docs-first `test_spec_sync` version-gate reds (resolve at P10).
+**Claude**: 
+1. **Commit and push** the validated P6 work on the `feature/plan-c-graph-quality` branch (as requested by the user).
+2. Proceed to **P7 — graph audit + live integration + testbed** (plan §360–379).
+P0–P6 are now approved. Execute the pipeline swap and ensure the `wiki lint` graph quality surfaces are connected.
 
-Pinned hooks still to land in later phases (refinable when turning green):
-- `db.graph_audit(db_path) -> list[dict]` (**P7**) — each violation has `code` +
-  offending `subject_id`; empty list == clean (flags active-without-≥2-lineages,
+Pinned hooks still to land in **P7**:
+- `db.graph_audit(db_path) -> list[dict]` — each violation has `code` + offending
+  `subject_id`; empty list == clean (flags active-without-≥2-lineages,
   redirected-endpoint reference, quarantined-missing-reason,
-  report-finding-without-active-support). The 4 reds are written and red.
-- P6 reconciliation/report hooks (`db.rebuild_graph_generation` no-amplification,
-  `reconcile_source_change` downstream closure, claim-grounded report generation
-  with no broad-span fallback) — gold fixtures still to be written (P2 "remaining
-  work").
+  report-finding-without-active-support). The 4 `test_plan_c_hierarchy_audit.py`
+  reds are written and stay red until P7.
+- **Live pipeline integration** (deliberately deferred to P7 per §27.8 staged
+  publish — the prior graph generation keeps serving until the new graph audit
+  passes): a `graph_relation_supports` **writer** (wire `graph_index.persist_graph_data`
+  → support rows so relations can reach the ≥2-independent-lineage `active` floor),
+  swap `compile_global_l3` / `detect_communities` from the broad-span CC path onto
+  `db.rebuild_graph_generation`, and the `wiki lint` Graph Quality section (§27.6).
+  Until then the OLD broad-span `community_reports.generate_community_report` path
+  remains the serving path (untouched, surgical-change rule). The NEW P6 compiler
+  is the staged claim-grounded path and is proven fallback-free by its gold tests.
 
 Hierarchy selection is benchmark-driven (§27.4): seeded weighted Leiden is a
 CANDIDATE, filtered connected components the degraded fallback. Leiden adoption
@@ -396,11 +400,6 @@ I have audited the uncommitted P4 relation lifecycle and topology implementation
 **Next Action: P5 (Hierarchy Benchmark + Deterministic Implementation)**
 The Executor must proceed with P5 to implement the fallback filtered connected components logic and benchmark-driven hierarchy gating.
 
-### 🚨 INTERCEPT (2026-06-14, Gemini) — Critical Hotfix: PDF Crop Context & Line Extraction Regression
-**HOTFIX EXCEPTION TRIGGERED:** The user reports that the previous UI context hotfix is completely non-functional and caused a regression:
-1. `ctrl + shift + x` PDF crop context is still not being recognized in the Sidechat reply, or it gets completely buried/overwritten by the background context.
-2. The originally working "line extraction" is now broken as well.
-
 **Immediate Next Action (OVERRIDING P6):**
 The Executor (Claude Code) MUST halt the pipeline immediately and resolve this critical bug first.
 1. Commit the currently unstaged P5 work to the `feature/plan-c-graph-quality` branch so it is safely saved.
@@ -450,3 +449,219 @@ ROOT CAUSE and shipped on the feature branch.
   `.agents/workflows/Antigravity Strict Workflow.md` — Gemini's concurrency-guard
   rule) were left uncommitted/untouched (surgical-change rule); they are not part
   of this hotfix.
+
+### Update (2026-06-15, Gemini) — P5 Code Review & Approval
+I have conducted a line-by-line audit of the P5 deterministic hierarchy fallback (`6db0553`).
+**Architectural Verdict: APPROVED.**
+- **Determinism:** The `connected_components` union-find algorithm properly enforces a deterministic forest shape by rooting at `min(ra, rb)` and sorting the output components by `(size, sorted members)`.
+- **Integrity Guard:** The python-side `if u in canonical and v in canonical:` successfully shields the active topology from redirected or phantom endpoints.
+- **Holdout Protection:** `D2_HOLDOUT_RESULT.yml` narrative update correctly justifies the additive graph-compiler logic and successfully re-pins the tripwire.
+
+**Next Action: P6 (Claim-Grounded Reports & Reconciliation)**
+The Executor must proceed with P6 to implement the claim-grounded reports generation (`db.rebuild_graph_generation`, `reconcile_source_change`) and the reconciliation hooks, aiming to establish the gold fixtures and finalize the core synthesis path.
+
+## P7 COMPLETE (2026-06-15, Claude) — graph audit + live claim-grounded cutover + testbed
+**User chose the FULL AUTHORITATIVE CUTOVER** (vs §27.8 staged-publish). All P7
+deliverables landed. Full suite: **869 passed, 8 xfailed, 4 failed** (was 859 at
+P6; the only reds are the expected `test_spec_sync` docs-first version gate →
+P10). `ruff` clean; `mypy` **0** new errors (70 pre-existing); plugin vitest
+**370 passed** (P7 is backend-only). **Uncommitted** worktree (P6 `f3db15d` IS
+committed; this worktree is P7 only + the two pre-existing unrelated Gemini files).
+
+The "stuck" symptom was the D2 holdout tripwire firing (db.py SHA changed but
+`D2_HOLDOUT_RESULT.yml` not re-pinned). Re-pinned twice as db.py grew:
+`8c4d6e3a → 4a89f193` (graph_audit) → `5220ac73` (support writer), with a P7
+narrative covering both ("across six phases").
+
+**1. `db.graph_audit(db_path, *, conn=None) -> list[dict]` + frozen
+`GRAPH_AUDIT_CODES`** (SYSTEM_BEHAVIOR §27.6 / SCHEMA §21.8): READ-ONLY assertion
+pass (never writes). 4 schema-level §21.8 invariants —
+active-relation-insufficient-support (<2 verified lineages),
+reference-to-redirected / endpoint-not-canonical, quarantined-missing-reason,
+report-finding-without-active-support. Sorted `(code, subject_id)`; `[] == clean`.
+GQ07-dependent invariants (homonym false merge, mixed generations) stay
+benchmark-later (no speculative checks, §21.9). All 4 `graph_audit` reds GREEN
+(`test_plan_c_hierarchy_audit.py` fully green 6/6).
+
+**2. `db.upsert_graph_relation_support(...)` + `persist_graph_data` wiring**
+(§27.2): the graph_relation_supports WRITER. Aggregates ONE independent
+claim-level support per asserting knowledge unit, keyed by the SOURCE'S LINEAGE
+(`sources.content_hash`). `persist_graph_data` now takes `units` +
+`source_lineage_hash` (threaded from `compile_source_l2` via the staged units +
+`source["content_hash"]`); `_write_relation_supports` maps a relation to its
+asserting unit(s) by SPAN INTERSECTION (never a broad-span fallback, F9). PK
+`(relation_id, knowledge_unit_id, support_hash)` + `ON CONFLICT` ⇒ idempotent
+recompile; one source = one lineage ⇒ a relation reaches `active` only when a
+SECOND independent source corroborates the same proposition.
+
+**3. Live `compile_global_l3` swap** (§27.5/§27.8): now calls
+`db.rebuild_graph_generation` (deterministic claim-grounded skeleton + lifecycle
+compile + stale-community retire) then `community_reports.generate_report_prose`
+(NEW — fills prose by `community_key` via the merge-upsert, preserving the
+skeleton's identity/grounding/dependency columns). The OLD broad-span
+`detect_communities`/`generate_community_report` are NO LONGER on the serving
+path (kept only as non-serving utilities — still referenced by
+`test_failure_atlas_repro.py`, so not deleted; P8 legacy_sweeper can decide).
+`rebuild_graph_generation` records the precise report→relation/report→span
+dependencies, so the prose pass adds no broad dependency rows.
+
+**4. `wiki lint` Graph Quality section** (§27.6): `lint.graph_quality(paths)` maps
+each `db.graph_audit` violation to a release-blocking ERROR `LintIssue`
+(`CheckId.GRAPH_QUALITY`), wired into `run_lint`'s fast checks; `cli.py` prints a
+"Graph Quality: N findings (M release-blocking)" summary line beside Compiler
+Integrity. Exits non-zero on a violation.
+
+- **TDD — `tests/test_plan_c_live_integration.py` (3, all green):** support writer
+  writes a verified lineage-keyed row + a single source quarantines
+  `copied_source_only`; two INDEPENDENT sources corroborate ONE relation to
+  `active` and `compile_global_l3` grounds a report citing that exact relation; a
+  hand-forced active-without-support relation surfaces via `lint.graph_quality`.
+- **`test_compile_global_l3_writes_concepts` rewritten** for 2 independent sources
+  (distinct content_hash) — single-source can no longer ground a report (§27.2).
+
+- **Testbed (gaussian_splatting, real LLM = AntigravityCli gemini-3.5-flash):**
+  `VAULT_ROOT=<repo>/testbed wiki status|update|lint` all run. BEFORE update the
+  Graph Quality audit correctly FLAGGED the legacy broad-span report
+  `REP-5b7bde01` citing the known unsupported `REL-b6d5b9fc`; AFTER the new
+  claim-grounded `wiki update` the audit is **CLEAN (`graph_audit == []`)** — 42
+  verified supports written, 17 canonical entities, 18 relations all
+  `quarantined`/`copied_source_only` (0 reached ≥2 independent lineages because the
+  note/PDF sources don't extract byte-identical propositions), legacy report
+  retired (served 1→0). The 20 remaining lint errors are ALL pre-existing Plan B
+  `compiler_integrity` (F6 wrong-real-span) scenario data-quality issues, ZERO
+  `graph_quality`. NOTE: a stray `backend/testbed` was accidentally created by
+  `uv run --directory backend wiki` (VAULT_ROOT resolves relative to backend/) and
+  REMOVED (Environment Integrity); always run the CLI from repo root with an
+  absolute `VAULT_ROOT` to hit `<repo>/testbed`.
+
+- **Docs:** `USER_GUIDE`(+`_KR`) Graph Quality + `WORKFLOW_GUIDE`(+`_KR`) §11 gained
+  an explicit "community reports need ≥2 independent sources" bullet (the
+  user-facing cutover consequence). SYSTEM_BEHAVIOR §27.6 / SCHEMA §21.8 already
+  described the audit surface (authored at P1) and match the implementation.
+- **D2:** re-pinned db.py `8c4d6e3a → 4a89f193 → 5220ac73`; additive
+  graph-compiler/community-report/support-writer logic, NO retrieval/ranking/
+  fusion/projection/embedding/chunking/materialize_chunks path → frozen Q06
+  unaffected.
+- **Next:** Gemini reviews P7, then **P8** (sequential role reviews) → P9 (full CI)
+  → P10 (version bump 0.8.1 → 0.9.0, changelog, release).
+
+## P6 IMPLEMENTED & VALIDATED (2026-06-15, Claude) — claim-grounded reports + precise reconciliation
+**APPROVED by Gemini.**
+
+Implemented the P6 deterministic claim-grounded graph-generation compiler and the
+source-change reconciliation closure. **All 6 new in-scope P6 gold tests green**
+(`test_plan_c_reports_reconciliation.py`). Full suite: **859 passed, 8 failed, 8
+xfailed** (was 853 passed at P5; +6 = exactly the 6 new P6 gold tests, **zero
+regressions**). `ruff check src/` clean; `mypy src/` adds **0** new errors (HEAD and
+worktree both report the identical 70 pre-existing errors; the single db.py
+`lastrowid` error just shifted 1353→1354 from the new `import hashlib`). **Not
+committed** — per the P3/P5 cadence, stopped after turning green + updating this
+relay so Gemini can review; the implementer/user owns the commit. P4 (`29b3ded`)
+and P5 (`6db0553`) ARE committed; the uncommitted worktree is P6 only (plus the two
+pre-existing unrelated Gemini files).
+
+The 8 remaining reds are ALL out of P6 scope: 4 `test_plan_c_hierarchy_audit.py`
+`graph_audit` tests (**P7**) + the 4 `test_spec_sync` docs-first version gate
+(resolves at P10). **No new migration** — P6 is logic-only on the columns P3 already
+added (`community_reports.member_hash/support_hash/config_hash/parent_community_key/
+retired_at`).
+
+- **TDD gold fixtures — `tests/test_plan_c_reports_reconciliation.py` (6):**
+  claim-grounded report cites ONLY active relations (quarantined edge's far
+  endpoint + spans excluded; no broad-span fallback); content/config-derived
+  `community_key = f(level, member_hash, support_hash, config_hash)` (§21.7 — a
+  changed active membership/support yields a NEW key, old community RETIRED);
+  a component with no eligible active support emits no report; idempotent rebuild
+  reuses the same `REP-` ids/keys with no count amplification (§27.8); a changed
+  active-support closure changes `dependency_hash` (§27.5 fresh deps); and a
+  one-source delete reconciles ONLY its closure (its supports → stale, its relation
+  drops out of `active`, its community retires) while an unrelated community's report
+  id/key is byte-identical.
+
+- **db.py — `rebuild_graph_generation(db_path, *, config_hash=None, conn=None) ->
+  dict`** (SYSTEM_BEHAVIOR §27.5/§27.8): the deterministic claim-grounded compiler,
+  all inside one atomic transaction. (1) compiles every non-retired relation's
+  lifecycle (P4) with ONE shared `detect_bridge_risk_relations` pass; (2) partitions
+  active topology via `connected_components(only_active=True)` (P5), keeping only
+  multi-node components; (3) derives content/config identity per community
+  (`member_hash` over sorted canonical members, `support_hash` over the eligible
+  verified active-support set, `community_key`, `dependency_hash` over the
+  active-canonical-support **content** closure incl. entity content for §27.5
+  freshness); (4) merge-upserts one `community_reports` skeleton per `community_key`
+  citing the EXACT active relations + eligible-support span closure (NO whole-span
+  fallback); (5) sets `retired_at` on every prior non-retired report whose key is
+  absent from the rebuilt set (retire-before-synthesis); (6) records precise
+  `artifact_dependencies` (report→relation, report→span). Idempotent by construction
+  (content-derived keys → same ids reused → 0 amplification). Returns
+  `{communities, reports, retired, community_keys}`.
+- **db.py — `reconcile_source_change(db_path, *, source_id, removed_span_ids=None,
+  config_hash=None, conn=None) -> dict`** (§27.8): marks verified relation supports
+  whose span basis intersects `removed_span_ids` as `stale`, then re-runs
+  `rebuild_graph_generation` so relations dropping below the §21.5 ≥2-lineage floor
+  leave `active`, affected communities retire, and untouched communities keep their
+  key + `REP-` id (no collateral churn). Returns the measured closure
+  (`stale_supports`, `source_id`, + rebuild summary).
+- **P6 review fixes — round 1 (2026-06-15, Claude — applied + TDD-covered):** a
+  reviewer flagged two defects in the just-written P6 code; both fixed with new gold
+  assertions that go red against the pre-fix code. (1) **O(N) support scan** in
+  `reconcile_source_change` — replaced the full-table load with a SQLite
+  `source_span_ids LIKE` OR pre-filter (pushes scope into SQL) while KEEPING the
+  Python exact set-intersection as a correctness guard (LIKE wildcards only broaden
+  the match, so no false negatives; the exact check kills any over-match). New
+  `test_reconcile_span_prefix_does_not_over_stale` locks that removing `SPAN-1` never
+  stales `SPAN-10`. (2) **Write amplification** — `rebuild_graph_generation` now
+  SKIPS the report upsert + dependency rewrite for any community whose non-retired
+  row already carries the identical `dependency_hash` (a true no-op), so an unchanged
+  rebuild / unrelated-source reconcile never churns `updated_at` or the dep rows. The
+  two no-amplification tests now use a sentinel `updated_at` (live-timestamp compares
+  were unreliable: same-second rebuilds share `_now_iso()` even when the row IS
+  rewritten). db.py re-pinned `f126c5af` → `87517ee3` in D2.
+- **P6 review fixes — round 2 (2026-06-15, Claude — applied + TDD-covered):** the
+  reviewer caught two more. (3) **Unsafe LIKE needle** — `json.dumps` stores a span
+  id's `"` as `\"`, so the raw `%"sid"%` needle silently MISSED quote/backslash-bearing
+  spans (a false-negative the Python guard can't recover → under-staling). Needle is
+  now `f"%{json.dumps(sid)}%"` (exact JSON literal, matching how the array is stored).
+  New `test_reconcile_matches_span_id_with_double_quote` locks it. (4) **SQL var-limit
+  crash** — unbounded `IN (?, …)` / `OR` clauses would exceed SQLITE_MAX_VARIABLE_NUMBER
+  on a large community/source. `reconcile_source_change` now CHUNKS the LIKE clause via
+  the existing `_chunked` (size 900), and `rebuild_graph_generation` was rewritten to
+  use a FIXED set of bulk fetches (all active relations / verified supports / canonical
+  entities once) grouped in Python by a `comp_of` member→community map — eliminating
+  ALL per-community `IN` clauses, byte-identical hashes preserved (same sort order).
+  New `test_reconcile_handles_more_removed_spans_than_var_limit` (1501 removed spans)
+  proves the chunk boundary. db.py re-pinned `87517ee3` → `8c4d6e3a` in D2. P6 gold
+  tests now **9** (6 original + prefix + quote + chunk).
+- **db.py — `graph_config_hash()` / `_GRAPH_FALLBACK_CONFIG` / `_sha16`**: the
+  degraded filtered-connected-components config identity (§27.4), content-hashed so a
+  fixed (graph, config) reproduces the same `community_key`. No Leiden (still BLOCKED
+  on GQ07 labels).
+- **db.py — extensions (additive, all existing callers green):**
+  `upsert_community_report` is now a MERGE-upsert (every column defaults to None =
+  *preserve existing*, so the rebuild skeleton's structure/identity and the LLM
+  prose pass can write the SAME `community_key` row without clobbering each other;
+  `clear_retired` un-retires a re-emitted community) + accepts `member_hash/
+  support_hash/config_hash/parent_community_key` + `conn`. `list_community_reports`
+  now excludes retired by default (`include_retired=False` — a retired/stale report
+  never serves/feeds synthesis, §27.5). `record_artifact_dependency` accepts `conn`
+  for the atomic publish. Added `import hashlib`.
+- **`docs/specs/failure_atlas/D2_HOLDOUT_RESULT.yml`:** re-armed the db.py drift
+  tripwire — extended the `plan_c_rearm` narrative to cover P6 ("across four phases")
+  and re-pinned `file_sha256` db.py `7a8555e6…` → `f126c5af…`. P6 is additive
+  graph-compiler + community-report logic touching NO retrieval/ranking/fusion/
+  projection/embedding/chunking/materialize_chunks path the lexical Q06 holdout
+  exercises, so the frozen Q06 metric is provably unaffected.
+- **Docs:** no behavioral spec/guide drift — P6 implements exactly the frozen P1
+  contracts (SCHEMA §21.7, SYSTEM_BEHAVIOR §27.5/§27.8 authored at P1). The new
+  functions are internal DB helpers (no new CLI/MCP/plugin surface), so guides stay
+  in sync; the `wiki lint` graph-audit surface (§27.6) + live pipeline integration
+  remain P7.
+- **Scope boundary (P6 vs P7):** the LIVE LLM pipeline swap (`compile_global_l3` →
+  `rebuild_graph_generation`) needs a `graph_relation_supports` writer that does not
+  exist yet (relations currently have zero support rows, so the ≥2-lineage `active`
+  floor would yield zero reports and break `test_compile_global_l3_writes_concepts`).
+  Per §27.8 staged-publish (the prior generation keeps serving until the new graph
+  audit passes), that writer + the pipeline swap + the `wiki lint` Graph Quality
+  surface + the `gaussian_splatting` testbed are P7 work — the same pattern as P5,
+  which shipped `connected_components` as an internal helper and deferred its lint
+  surface to P7. The OLD broad-span path is therefore intentionally left untouched
+  (surgical-change rule).

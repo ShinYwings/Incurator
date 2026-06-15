@@ -460,6 +460,14 @@ What this means in practice:
 - **Support is counted honestly**: a relationship backed by ten copies of the
   same source counts as one independent confirmation, not ten. Re-running a build
   accumulates genuine support instead of overwriting it.
+- **Community reports need corroboration (≥2 independent sources)**: a
+  relationship becomes *active* — eligible to ground a community report — only
+  once **two genuinely independent sources** assert it. A claim found in just one
+  source (however many times it is re-stated there) stays uncorroborated and does
+  not yet build a community. In practice this means a vault with a single source
+  per topic produces few or no community reports until a second independent source
+  corroborates the same relationships; this is intentional — Plan C reports are
+  grounded only on cross-source–confirmed facts.
 - **Weak edges are quarantined, not hidden**: self-loops, contradictions,
   unsupported edges, and risky "bridge" links are set aside with a stated reason
   and a condition for re-admission — they never quietly shape your community
