@@ -107,6 +107,33 @@ Plugin suite after P0: **389 passed** (was 385, +4). Backend source-tools: 16.
 - Validation: focused 46 passed; `ruff` clean; `mypy` no issues in 96 files;
       **full backend suite 933 passed, 6 skipped, 5 xfailed, 0 failed**.
 
+## 4c. P2 Review Hardening (recorded 2026-06-19)
+
+Reviewer findings on `asset_identity.py`, all addressed with tests:
+- [x] **Stale-path trust** — `from_source_row(..., verify_exists=True)` stats the
+      external file; a Reference Mode source whose file moved/was deleted is
+      downgraded to `path_unresolved` with `abs_path=None`. `resolve()` uses
+      `verify_exists=True`. (`from_source_row` default stays no-I/O for the
+      locator hot path.) Tests: `test_verify_exists_downgrades_phantom_external_path`,
+      `test_resolve_downgrades_tracked_reference_with_deleted_file`.
+- [x] **Ambiguous param / collision** — `resolve()` now does a strict, isolated
+      `WHERE logical_source_id = ?` query instead of smuggling the logical id
+      through `db.get_source_row`'s `relpath` OR clause. The isolated query is
+      kept LOCAL to `asset_identity` rather than added to `db.get_source_row`,
+      because `db.py`'s whole-file SHA256 is pinned by the frozen Plan D2 holdout
+      (`docs/specs/failure_atlas/D2_HOLDOUT_RESULT.yml`); editing `db.py` for an
+      unrelated refactor would break that consume-once integrity artifact. The
+      reviewer's intent (isolated matching, no collision) is fully satisfied.
+      Test: `test_logical_source_id_lookup_is_isolated_from_relpath_collision`.
+- [x] **State leakage via `replace()`** — a matched vault (non-reference) row no
+      longer inherits caller-provided Zotero/reference identity; only
+      `content_hash` is backfilled. Reference rows still merge same-entity fields.
+      Test: `test_vault_row_does_not_inherit_caller_zotero_identity`.
+- [x] **UNTRACKED `is_reference` inconsistency** — effective Zotero key derived
+      from `zotero_key` OR a `zotero:<key>` logical id, so `is_reference` and
+      `zotero_key` are consistent even when only `logical_source_id` is passed.
+      Test: `test_untracked_zotero_logical_id_implies_reference_and_key`.
+
 ## 5. Rollback Requirements
 
 - No destructive op before P4 (deletions). Each P4 deletion is its own commit so
