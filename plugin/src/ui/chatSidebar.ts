@@ -20,8 +20,11 @@ import {
   EXTERNAL_PDF_CONTEXT_EVENT,
   EXTERNAL_PDF_VIEW_TYPE,
   ExternalPdfView,
-  registerExternalPdf,
 } from "./externalPdfView";
+import {
+  registerExternalPdf,
+  resolveZoteroAttachmentPath,
+} from "./externalPdfRegistry";
 import {
   assetStatusKey,
   resolveAssetSource,
@@ -29,7 +32,6 @@ import {
   ZoteroPathCache,
 } from "../context/assetSource";
 import { isAddedState } from "../context/sourceStatus";
-import { resolveZoteroAttachmentPath } from "./externalPdfView";
 import { IngestDestinationModal } from "./ingestDestinationModal";
 import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
 import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, stampMathSourceData, stripDanglingEditMarkers, truncateToLength } from "../utils/textUtils";

@@ -779,6 +779,14 @@ Plugin data is split into two files.
 
 In v0.2.1, the plugin re-reads the latest on-disk `sessions.json` before saving and merges by session id. This preserves distinct sessions created on Linux and macOS. Deleted sessions are recorded in `deletedSessionIds` tombstones so an older synced file does not resurrect them later. If the same session is edited on both devices concurrently, the copy with the newer `updatedAt` timestamp wins.
 
+Session sync does not make absolute PDF/Zotero paths portable. Context attached
+to chat messages may preserve portable identity such as a Zotero attachment key,
+file hash, vault-relative path, and page number, but device-local absolute paths
+from macOS or Linux are verified or re-resolved on the current device before
+being used. If a synced session references a Zotero PDF, the current device's
+local Zotero database and linked-attachment roots are used to recover the real
+PDF path.
+
 The sidebar conversation list derives each chat title from the first assistant
 answer after the first user question. Reasoning-model `<think>…</think>` blocks
 are stripped first so the title summarizes the actual answer rather than showing

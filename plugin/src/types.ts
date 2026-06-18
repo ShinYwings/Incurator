@@ -52,7 +52,7 @@ export interface ModelOption {
 
 export type ModelCatalogue = Partial<Record<LLMProvider, ModelOption[]>>;
 
-// ─── Session Data (device-local, stored in sessions.json) ───────
+// ─── Session Data (sync-safe, stored in .curator/sessions.json) ───────
 export interface SessionData {
   chatSessions: ChatSession[];
   activeChatSessionId?: string;

@@ -25,8 +25,14 @@ slimming the `externalPdfView.ts` god class. Close audit items 3/4/5.
    (`getActivePdfContext`) is moved out into a decoupled `PdfCaptureService`
    (review finding 5, added to scope per user 2026-06-19) so capture logic is
    unit-testable without instantiating an Obsidian `ItemView`.
-4. Audit items 3 (repro-or-close), 4 (fixed), 5 (clarified) resolved with tests.
-5. Measured **net LOC decrease** across PDF modules, zero test regressions, all
+4. Synced chat session state (`.curator/sessions.json`) never treats
+   device-specific absolute PDF/Zotero paths or `backendStatus.*Path` fields as
+   durable truth. Persisted context refs keep portable identity
+   (`zoteroAttachmentKey`, `fileHash`, vault-relative relpath/page) and re-resolve
+   paths on the current device; stale synced absolute paths are verified or
+   stripped before use.
+5. Audit items 3 (repro-or-close), 4 (fixed), 5 (clarified) resolved with tests.
+6. Measured **net LOC decrease** across PDF modules, zero test regressions, all
    three flows verified in the testbed.
 
 ## 1a. Folded-in Scope from ROADMAP Item 5 (non-annotation only)
@@ -93,6 +99,11 @@ bug items from ROADMAP item 5 / `.agents/drafts/pdf_annotation_system.md`
   path whose file is gone is treated as a miss. Specified in PLUGIN_SCHEMA §1.2.
 - `external_uri` is authoritative for opening whenever present (already specified
   in SYSTEM_BEHAVIOR §29.2 this session); all consumers must honor it.
+- `.curator/sessions.json` may sync between macOS/Linux, so session-stored
+  `ContextRef` objects are NOT allowed to preserve device-local absolute paths as
+  identity. They must either keep vault-relative paths, or keep portable
+  identifiers and ask `AssetSource`/backend resolution to recover the current
+  device's real path.
 - Renderer extraction is last and incremental (registry first), preserving
   module-load timing for persisted-doc rehydration.
 
@@ -139,8 +150,12 @@ reality, dirty-worktree state, pre/post validation). Created before P0 coding.
   stale persisted path across restarts). **Device-portability:** persisted /
   synced absolute paths are device-specific (macOS vs Linux, `~` expansion) and
   MUST be re-resolved per device via the backend resolver / Reference Mode
-  rebind, never trusted verbatim (PLUGIN_SCHEMA §1.2). Verify: net-LOC gate + all
-  tests.
+  rebind, never trusted verbatim (PLUGIN_SCHEMA §1.2). Add the session-sync
+  guard: sanitize persisted `ContextRef` / `backendStatus` path fields so
+  `.curator/sessions.json` can sync safely between
+  `/Users/shin/shinywings/second_brain` and `/home/shin/Workspace/second_brain`
+  while Zotero paths re-resolve via the local `~/Zotero` database / ZotMoov
+  roots. Verify: net-LOC gate + all tests.
 - **P4b — Extract `PdfCaptureService` (review finding 5).** Move
   `externalPdfView.getActivePdfContext` data-extraction / RAG-composition /
   Canvas-image extraction out of the view into a decoupled service that receives

@@ -3,9 +3,9 @@ import { basename } from "path";
 import type { CuratorContextItem, CuratorContextPack, CuratorQueryResult } from "../types";
 import {
   EXTERNAL_PDF_VIEW_TYPE,
-  registerExternalPdfByPath,
   type ExternalPdfState,
 } from "./externalPdfView";
+import { registerExternalPdfByPath } from "./externalPdfRegistry";
 
 /**
  * Renders the "Sources & Trace" collapsible panel below a curator_query answer.

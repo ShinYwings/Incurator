@@ -8,8 +8,7 @@ import {
   type ViewStateResult,
 } from "obsidian";
 import type { LLMMessage } from "../types";
-import { existsSync, readFileSync, readdirSync } from "fs";
-import { basename, join } from "path";
+import { existsSync, readFileSync } from "fs";
 import type {
   PdfOutlineItem as ContextPdfOutlineItem,
   PdfPageContext,
@@ -32,9 +31,17 @@ import {
 import { buildZoteroAnnotationBoxStyle } from "./externalPdfAnnotationStyle";
 import {
   buildSyncedExternalPdfState,
-  isRetainablePersistedDoc,
   resolveExternalPdfPath,
 } from "./externalPdfState";
+import {
+  getExternalPdfDoc,
+  getExternalPdfDocName,
+  getExternalPdfDocPath,
+  putExternalPdfDoc,
+  replaceExternalPdfDocPath,
+  resolveCachedExternalPdfPath,
+  type ExternalPdfDoc,
+} from "./externalPdfRegistry";
 
 export const EXTERNAL_PDF_VIEW_TYPE = "ai-agent-external-pdf";
 export const EXTERNAL_PDF_CONTEXT_EVENT = "ai-agent-external-pdf-context";
@@ -49,13 +56,6 @@ export interface ExternalPdfState extends Record<string, unknown> {
   currentPage?: number;
   zoteroAttachmentKey?: string;
   targetAnnotationKey?: string;
-}
-
-interface ExternalPdfDoc {
-  id: string;
-  name: string;
-  path?: string;
-  file?: File;
 }
 
 interface PdfJsOutlineItem {
@@ -99,117 +99,6 @@ interface PdfPage {
 
 const RENDER_RADIUS = 5;
 const CONTEXT_RAG_TOP_K = 4;
-
-const STORAGE_KEY = "incurator-obsidian-agent-external-pdfs";
-
-function loadPersistedDocs(): Map<string, ExternalPdfDoc> {
-  const map = new Map<string, ExternalPdfDoc>();
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Array<[string, ExternalPdfDoc]>;
-      for (const [id, doc] of parsed) {
-        // Retain any path-bearing entry. Do NOT existsSync here — module load
-        // races Obsidian startup (a not-yet-mounted volume would wrongly drop a
-        // valid doc, causing "no path in docState or cache"). A genuinely missing
-        // file is reported distinctly at resolveDoc() time.
-        if (isRetainablePersistedDoc(doc)) {
-          map.set(id, doc);
-        }
-      }
-    }
-  } catch (err) {
-    console.warn("Failed to load persisted PDF docs:", err);
-  }
-  return map;
-}
-
-function persistDocs(map: Map<string, ExternalPdfDoc>): void {
-  try {
-    const toPersist = Array.from(map.entries()).map(([id, doc]) => {
-      return [
-        id,
-        {
-          id: doc.id,
-          name: doc.name,
-          path: doc.path,
-        },
-      ];
-    });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toPersist));
-  } catch (err) {
-    console.warn("Failed to persist PDF docs:", err);
-  }
-}
-
-const externalPdfDocs = loadPersistedDocs();
-
-export function registerExternalPdf(
-  file: File,
-  explicitPath?: string
-): ExternalPdfState {
-  const id = `${Date.now().toString(36)}${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
-  const rawPath = explicitPath || (file as unknown as { path?: string }).path;
-  // Filter out empty strings — an empty path is worse than no path
-  const path = typeof rawPath === "string" && rawPath.length > 0 ? rawPath : undefined;
-  const doc: ExternalPdfDoc = {
-    id,
-    name: file.name || "External PDF",
-    path,
-    file,
-  };
-  externalPdfDocs.set(id, doc);
-  persistDocs(externalPdfDocs);
-
-  if (path) {
-    new Notice(`Registered PDF: ${file.name}\nPath: ${path}`);
-  } else {
-    new Notice(`Registered PDF: ${file.name}\nWarning: No absolute path captured!`);
-  }
-
-  return { docId: id, name: doc.name, path };
-}
-
-/**
- * Register an external PDF by filesystem path only (no File object required).
- * Used for Zotero integration where the absolute path is known but no drag-drop occurred.
- */
-export function registerExternalPdfByPath(filePath: string, attachmentKey?: string): ExternalPdfState {
-  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-  const name = basename(filePath);
-  const doc: ExternalPdfDoc = { id, name, path: filePath };
-  externalPdfDocs.set(id, doc);
-  persistDocs(externalPdfDocs);
-  return { docId: id, name, path: filePath, zoteroAttachmentKey: attachmentKey };
-}
-
-/**
- * Resolve a Zotero attachment key to its PDF file path.
- * Scans `<zoteroBasePath>/storage/<attachmentKey>/` for the first *.pdf file.
- * Returns undefined if the key cannot be resolved.
- */
-import { homedir } from "os";
-
-export function resolveZoteroAttachmentPath(
-  zoteroBasePath: string,
-  attachmentKey: string
-): string | undefined {
-  try {
-    let basePath = zoteroBasePath;
-    if (basePath.startsWith("~")) {
-      basePath = join(homedir(), basePath.slice(1));
-    }
-    const storageDir = join(basePath, "storage", attachmentKey);
-    if (!existsSync(storageDir)) return undefined;
-    const files = readdirSync(storageDir);
-    const pdf = files.find((f) => f.toLowerCase().endsWith(".pdf"));
-    return pdf ? join(storageDir, pdf) : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 export class ExternalPdfView extends ItemView {
   private docId = "";
@@ -284,7 +173,7 @@ export class ExternalPdfView extends ItemView {
 
   getDisplayText(): string {
     return (
-      externalPdfDocs.get(this.docId)?.name ||
+      getExternalPdfDocName(this.docId, "") ||
       this.docState?.name ||
       "External PDF"
     );
@@ -303,7 +192,7 @@ export class ExternalPdfView extends ItemView {
     // restored state — and backfill path/name from the persisted cache. Previously
     // a name-less restore nulled docState, which then made getState() persist a
     // path-less state and permanently lose the document identity.
-    const cached = state.docId ? externalPdfDocs.get(state.docId) : undefined;
+    const cached = state.docId ? getExternalPdfDoc(state.docId) : undefined;
     this.docState = state.docId
       ? {
           docId: state.docId,
@@ -330,13 +219,13 @@ export class ExternalPdfView extends ItemView {
     // Always persist the path (from docState OR the cache) so a restored view is
     // self-sufficient. The previous fallback branch omitted `path`, so once
     // docState was null the path was lost permanently across restarts.
-    const cachePath = externalPdfDocs.get(this.docId)?.path;
+    const cachePath = getExternalPdfDocPath(this.docId);
     if (this.docState) {
       return { ...this.docState, path: resolveExternalPdfPath(this.docState.path, cachePath) };
     }
     return {
       docId: this.docId,
-      name: externalPdfDocs.get(this.docId)?.name || "External PDF",
+      name: getExternalPdfDocName(this.docId),
       path: cachePath,
       zoom: this.zoom,
       darkMode: this.darkMode,
@@ -507,13 +396,12 @@ export class ExternalPdfView extends ItemView {
           .slice(2, 8)}`;
       }
 
-      externalPdfDocs.set(this.docId, {
+      putExternalPdfDoc({
         id: this.docId,
         name,
         path,
         file,
       });
-      persistDocs(externalPdfDocs);
 
       if (path) {
         new Notice(`Opened PDF: ${name}\nPath: ${path}`);
@@ -616,7 +504,7 @@ export class ExternalPdfView extends ItemView {
       isScannedLike: textQuality.isScannedLike,
       documentId: this.docId,
       documentName: this.getDisplayText(),
-      filePath: this.docState?.path || externalPdfDocs.get(this.docId)?.path,
+      filePath: resolveCachedExternalPdfPath(this.docId, this.docState?.path),
       zoteroAttachmentKey: this.docState?.zoteroAttachmentKey,
     };
   }
@@ -828,13 +716,12 @@ export class ExternalPdfView extends ItemView {
         const rawPath = (file as unknown as { path?: string }).path;
         const path = typeof rawPath === "string" && rawPath.length > 0 ? rawPath : undefined;
 
-        externalPdfDocs.set(this.docId, {
+        putExternalPdfDoc({
           id: this.docId,
           name: file.name,
           path,
           file,
         });
-        persistDocs(externalPdfDocs);
 
         this.docState = {
           docId: this.docId,
@@ -854,7 +741,11 @@ export class ExternalPdfView extends ItemView {
   }
 
   private resolveDoc(): ExternalPdfDoc | null {
-    const cached = externalPdfDocs.get(this.docId);
+    let cached = getExternalPdfDoc(this.docId);
+    const resolvedStatePath = resolveExternalPdfPath(this.docState?.path, cached?.path);
+    if (cached && resolvedStatePath && cached.path !== resolvedStatePath) {
+      cached = replaceExternalPdfDocPath(this.docId, resolvedStatePath) || cached;
+    }
     if (cached) {
       if (cached.path && !this.docState?.path) {
         this.docState = {
@@ -879,8 +770,7 @@ export class ExternalPdfView extends ItemView {
       name: this.docState.name,
       path: this.docState.path,
     };
-    externalPdfDocs.set(doc.id, doc);
-    persistDocs(externalPdfDocs);
+    putExternalPdfDoc(doc);
     return doc;
   }
 
@@ -2032,7 +1922,7 @@ export class ExternalPdfView extends ItemView {
     this.docState = buildSyncedExternalPdfState({
       docId: this.docId,
       name: this.docState?.name,
-      fallbackName: externalPdfDocs.get(this.docId)?.name || "External PDF",
+      fallbackName: getExternalPdfDocName(this.docId),
       path: this.docState?.path,
       zoom: this.zoom,
       darkMode: this.darkMode,

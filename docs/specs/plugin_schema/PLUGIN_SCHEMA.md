@@ -188,9 +188,15 @@ Contract:
     is in-memory and per-device, and the epoch folds in the platform and the
     OS-resolved base path, so a path resolved on one device/OS can never be
     served on another. Absolute paths that arrive via settings/state sync
-    (persisted `externalPdfDocs` localStorage, backend `external_path`) are
-    treated as hints only and MUST be re-resolved on the current device via the
-    backend Zotero resolver / Reference Mode rebind — never trusted verbatim.
+    (persisted `externalPdfDocs` localStorage, backend `external_path`, or
+    synced `.curator/sessions.json` context refs) are treated as hints only and
+    MUST be re-resolved on the current device via the backend Zotero resolver /
+    Reference Mode rebind — never trusted verbatim. Persisted session context
+    refs MUST NOT rely on `ContextRef.filePath` or
+    `backendStatus.sourcePath/currentPath/candidatePath` as durable identity when
+    those fields are absolute paths from another device; keep portable identity
+    (`zoteroAttachmentKey`, `fileHash`, vault-relative relpath, page number) and
+    re-resolve the physical path locally.
 
 This is a plugin-internal model/refactor — no change to the backend wire
 protocol or persisted `data.json` settings shape.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatSession, SessionData } from "../types";
-import { mergeSessionData, normalizeSessionData } from "./sessionData";
+import { mergeSessionData, normalizeSessionData, sanitizeSessionDataForSync } from "./sessionData";
 
 function session(id: string, updatedAt: number, messages = 1): ChatSession {
   return {
@@ -62,5 +62,64 @@ describe("sessionData", () => {
     expect(merged.chatSessions).toHaveLength(1);
     expect(merged.chatSessions[0].updatedAt).toBe(200);
     expect(merged.chatSessions[0].messages).toHaveLength(2);
+  });
+
+  it("strips device-local PDF paths from synced context refs", () => {
+    const raw = sanitizeSessionDataForSync({
+      chatSessions: [{
+        ...session("shared", 100),
+        messages: [{
+          id: "m1",
+          role: "user",
+          content: "explain this pdf",
+          timestamp: 100,
+          contextRefs: [{
+            type: "pdf-page",
+            label: "Paper p.3",
+            content: "text",
+            filePath: "/Users/shin/Library/Mobile Documents/com~apple~CloudDocs/Zotero/Paper.pdf",
+            fileHash: "abc123",
+            zoteroAttachmentKey: "ZOTKEY",
+            pageNum: 3,
+            backendStatus: {
+              state: "l3_ready",
+              sourcePath: "/Users/shin/Library/Mobile Documents/com~apple~CloudDocs/Zotero/Paper.pdf",
+              currentPath: "/Users/shin/old/Paper.pdf",
+              candidatePath: "/home/shin/Documents/Zotero/Paper.pdf",
+            },
+          }],
+        }],
+      }],
+      activeChatSessionId: "shared",
+    });
+
+    const ref = raw.chatSessions[0].messages[0].contextRefs?.[0];
+    expect(ref?.filePath).toBeUndefined();
+    expect(ref?.backendStatus).toBeUndefined();
+    expect(ref?.fileHash).toBe("abc123");
+    expect(ref?.zoteroAttachmentKey).toBe("ZOTKEY");
+    expect(ref?.pageNum).toBe(3);
+  });
+
+  it("keeps vault-relative context paths in synced sessions", () => {
+    const raw = normalizeSessionData({
+      chatSessions: [{
+        ...session("vault", 100),
+        messages: [{
+          id: "m1",
+          role: "user",
+          content: "use note",
+          timestamp: 100,
+          contextRefs: [{
+            type: "file",
+            label: "Note.md",
+            content: "note",
+            filePath: "03_Notes/Note.md",
+          }],
+        }],
+      }],
+    });
+
+    expect(raw.chatSessions[0].messages[0].contextRefs?.[0].filePath).toBe("03_Notes/Note.md");
   });
 });

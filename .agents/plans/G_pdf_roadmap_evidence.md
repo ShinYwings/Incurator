@@ -171,6 +171,33 @@ Vault and Zotero locations differ per device/OS (macOS `/Users/...` vs Linux
   backend resolver / Reference Mode rebind — enforced in P4. Documented in
   PLUGIN_SCHEMA §1.2.
 
+### Device-sync audit addendum (recorded 2026-06-19)
+
+User asked to re-check Plan G against the actual macOS/Linux sync topology before
+continuing P4. Facts verified:
+- Active vault `.stignore` ignores `.obsidian/workspace.json`,
+  `.obsidian/plugins/incurator-obsidian-agent/data.json`, `.curator/state.sqlite`,
+  `.curator/runtime/`, and `testbed/`. It does **not** ignore
+  `.curator/sessions.json`; plugin docs explicitly allow session sync.
+- Backend `sources.external_path` lives in ignored `state.sqlite`, so it is
+  device-local. Reference stubs and Zotero logical ids are the portable shared
+  surface.
+- Plugin `data.json` is ignored, so `zoteroBasePath` and backend launcher paths
+  are device-local.
+- `externalPdfDocs` is Obsidian/Electron localStorage, not a vault file, so it is
+  local to the current Obsidian profile; nevertheless P4 still treats it as a
+  stale local hint and re-resolves paths when possible.
+- **Gap found:** `.curator/sessions.json` stores `ChatMessage.contextRefs`.
+  `ContextRef.filePath` and `ContextRef.backendStatus.sourcePath/currentPath/
+  candidatePath` can contain absolute paths captured from external PDF tabs.
+  Because sessions can sync, a macOS path could land on Linux or vice versa.
+
+Plan adjustment: P4 must add a session-sync guard before finalization. Persisted
+context refs must strip or verify device-local absolute path fields and keep
+portable identifiers (`zoteroAttachmentKey`, `fileHash`, vault-relative relpath,
+page number) so the current device re-resolves via `AssetSource` / backend
+resolution instead of trusting another device's path.
+
 ## 4e. P3 c/d/e (recorded 2026-06-19)
 
 - [x] **(c) ZoteroPathCache wired into the live path.** `resolvePdfRefSourcePath`
@@ -191,6 +218,31 @@ Vault and Zotero locations differ per device/OS (macOS `/Users/...` vs Linux
       5 tests covering layer-ready states, in-progress states, empty/fallback/
       drifted strings, and case-sensitivity (re-ingest gatekeeper, schema drift).
 - Validation: plugin suite 407 passed (+5); tsc clean. (No backend changes.)
+
+## 4f. P4 Registry Extraction + Device Sync Guard (recorded 2026-06-19)
+
+- [x] **`externalPdfRegistry.ts` extracted.** `externalPdfView.ts` no longer owns
+      `STORAGE_KEY`, `loadPersistedDocs`, `persistDocs`,
+      `registerExternalPdf`, `registerExternalPdfByPath`, or local
+      `resolveZoteroAttachmentPath`; callers import those from the registry
+      boundary.
+- [x] **Stale `docId -> path` replacement added.** Zotero URL open now reuses an
+      existing external PDF leaf by `zoteroAttachmentKey` as well as by path, and
+      updates the persisted doc path when the backend resolves the same
+      attachment to a new physical path.
+- [x] **Session sync guard added.** `normalizeSessionData`/`mergeSessionData`
+      sanitize persisted message `contextRefs`: absolute device paths are
+      stripped from `ContextRef.filePath`, volatile `backendStatus` is removed,
+      and portable identity (`zoteroAttachmentKey`, `fileHash`, vault-relative
+      path, page) is preserved.
+- [x] Docs/specs updated: PLUGIN_SCHEMA §1.2, EN/KR plugin guide session sync,
+      EN/KR sync ignore guide, and this Plan G/evidence note.
+- Validation: `npx tsc --noEmit` passed; full plugin `npx vitest run -c
+      ./vitest.config.ts` passed (**47 files / 411 tests**); `git diff --check`
+      passed.
+- LOC gate status: **not yet satisfied**. Current measured PDF module total is
+      4649 vs P0 baseline 4601 (+48). P4b/P4 follow-up must reduce below 4601
+      before Plan G can close.
 
 ## 5. Rollback Requirements
 

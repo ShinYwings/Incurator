@@ -695,6 +695,13 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
 
 v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 읽고 세션 id 단위로 병합합니다. 따라서 Linux와 macOS에서 서로 다른 채팅 세션을 만들면 두 세션이 함께 보존됩니다. 삭제된 세션은 `deletedSessionIds` tombstone에 남아 Syncthing 지연으로 오래된 파일이 도착해도 되살아나지 않습니다. 단, 같은 세션을 양쪽에서 동시에 편집한 경우에는 더 최신 `updatedAt`을 가진 세션이 이깁니다.
 
+세션 동기화가 PDF/Zotero의 절대경로까지 portable하게 만드는 것은 아닙니다. 채팅
+메시지에 붙은 context는 Zotero attachment key, file hash, vault-relative path,
+page number 같은 portable identity를 보존할 수 있지만, macOS나 Linux에서 캡처된
+기기별 절대경로는 사용 전에 현재 기기 기준으로 검증하거나 다시 해석합니다. 동기화된
+세션이 Zotero PDF를 가리키는 경우에는 현재 기기의 로컬 Zotero database와 linked
+attachment root를 사용해 실제 PDF 경로를 복구합니다.
+
 사이드바 대화 목록의 채팅 제목은 첫 사용자 질문 뒤에 나온 첫 assistant 답변에서
 생성합니다. 이때 추론 모델의 `<think>…</think>` 블록을 먼저 제거해, 제목이
 `<think>`/`<thinking>` 같은 글자가 아니라 실제 답변을 요약하도록 합니다(닫히지
