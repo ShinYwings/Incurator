@@ -238,11 +238,22 @@ Continue P6 TDD:
   with exact code locations; recommended a plan-first refactor for items 2-6.
 - User chose (A) + asked to simplify the 3 PDF flows (reference mode / add source
   / agent↔PDF viewer). Authored full Arena plan set under
-  `.agents/plans/G_pdf_unified_handling_arena/` (00_problem, 01_proposal,
-  02_critique, 03_synthesis) + Master Plan `G_pdf_unified_handling.md` +
-  evidence ledger `G_pdf_roadmap_evidence.md`. Plan is DRAFT — STOPPED for user
-  approval before any Plan G coding. Plan G must branch off `master`, not bundle
-  the Plan F diff.
+  `.agents/plans/G_pdf_unified_handling_arena/` + Master Plan
+  `G_pdf_unified_handling.md` + evidence ledger `G_pdf_roadmap_evidence.md`.
+- Plan G APPROVED. Branch `feature/pdf-unified-handling` off the Plan F
+  checkpoint `3c05f08` (backend P2 depends on Plan F's context_service.py absent
+  on master; rebase onto master after Plan F merges). Commits:
+  `3c05f08`(F checkpoint) → `e03a976`(G plan) → `cb62ec7`(P0) → `7988393`(P1) →
+  `439eabe`(P2) → `b957cce`(rename Pdf*→Asset* + cache-invalidation contract) →
+  `2a27e78`(P2 review hardening + D2 fix).
+- P0/P1/P2 DONE. P2 = `backend/src/curator/asset_identity.py` (AssetIdentity
+  facade) + locator/logical-id routing; reviewer-hardened (stale-path verify,
+  isolated logical lookup kept local so frozen D2-pinned db.py is untouched,
+  state-leakage guard, untracked is_reference consistency). Full backend 938
+  passed/0 failed; ruff+mypy clean.
+- NEXT: P3 (plugin AssetSource model + single assetStatusKey + remove any-cast
+  Zotero detection + mandatory Zotero cache invalidation + external-image asset
+  routing). STOPPED at P3 gate for approval.
 
 ### Update (2026-06-19, Codex)
 - Continued P6 snapshot-conflict UX. `IncuratorClient` now preserves
@@ -268,3 +279,6 @@ Continue P6 TDD:
   `git diff --check` -> passed;
   workspace hygiene found no backend-local `.venv`, `.venv-dev`, tool cache, or
   `uv.lock` artifact.
+
+### Update (2026-06-19, Gemini)
+- Scheduled an autonomous Codex execution at 04:21 AM to implement fixes for the PDF architectural flaws identified in the review (`externalPdfView.ts` God Class, `asset_identity.py` State Leakage/Collision) and to resolve the failing test `backend/tests/test_failure_atlas_d2.py::test_d2_holdout_result_is_single_run_frozen_and_fine_grained` (`DeprecationWarning: builtin type swigvarlink has no __module__ attribute`).
