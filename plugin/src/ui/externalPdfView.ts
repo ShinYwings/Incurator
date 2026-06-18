@@ -12,19 +12,14 @@ import { existsSync, readFileSync } from "fs";
 import type {
   PdfOutlineItem as ContextPdfOutlineItem,
   PdfPageContext,
-  PdfRagHit,
-  PdfTextQuality,
   PdfWindowPage,
 } from "../types";
 import { PdfDocumentIndexService } from "../context/pdfDocumentIndex";
 import {
-  composePdfContextText,
-  extractPdfPageTextFromDom,
   extractRegionTextFromSpans,
   type RegionTextSpan,
 } from "../context/pdfCapture";
 import {
-  assessPdfTextQuality,
   layoutPdfJsTextItems,
   type RawPdfTextItem,
 } from "../context/pdfTextLayout";
@@ -42,6 +37,7 @@ import {
   resolveCachedExternalPdfPath,
   type ExternalPdfDoc,
 } from "./externalPdfRegistry";
+import { PdfCaptureService } from "./pdfCaptureService";
 
 export const EXTERNAL_PDF_VIEW_TYPE = "ai-agent-external-pdf";
 export const EXTERNAL_PDF_CONTEXT_EVENT = "ai-agent-external-pdf-context";
@@ -98,8 +94,6 @@ interface PdfPage {
 }
 
 const RENDER_RADIUS = 5;
-const CONTEXT_RAG_TOP_K = 4;
-
 export class ExternalPdfView extends ItemView {
   private docId = "";
   private docState: ExternalPdfState | null = null;
@@ -135,6 +129,7 @@ export class ExternalPdfView extends ItemView {
   // Per-page base dimensions at scale=1 (stored to avoid re-calling getPage on zoom)
   private pageBaseDims: Array<{ width: number; height: number }> = [];
   private documentIndex = new PdfDocumentIndexService();
+  private pdfCaptureService = new PdfCaptureService();
   private pageTextCache = new Map<number, PdfWindowPage>();
   private pageTextPromises = new Map<number, Promise<PdfWindowPage | null>>();
   private currentOutlineItems: ContextPdfOutlineItem[] = [];
@@ -439,74 +434,21 @@ export class ExternalPdfView extends ItemView {
   getActivePdfContext(
     captureMode: "text" | "image" | "both"
   ): PdfPageContext | null {
-    if (!this.pagesEl || this.totalPages === 0) return null;
-    const pageEl = this.pagesEl.querySelector<HTMLElement>(
-      `.pdf-page[data-page-number="${this.currentPage}"]`
-    );
-    if (!pageEl) return null;
-
-    let text = "";
-    let imageBase64: string | undefined;
-    let textQuality: PdfTextQuality = assessPdfTextQuality(
-      "",
-      "none",
-      "Text capture was not requested."
-    );
-    let windowPages: PdfWindowPage[] = [];
-    let ragHits: PdfRagHit[] = [];
-
-    if (captureMode === "text" || captureMode === "both") {
-      const cached = this.pageTextCache.get(this.currentPage);
-      if (cached) {
-        text = cached.text;
-        textQuality =
-          cached.textQuality || assessPdfTextQuality(cached.text, "pdfjs");
-      } else {
-        const extracted = extractPdfPageTextFromDom(pageEl);
-        text = extracted.text;
-        textQuality = extracted.textQuality;
-      }
-
-      // Window expansion is done server-side via curator_get_pdf_context.
-      // Provide only the current page here as a lightweight fallback for when
-      // the backend is unavailable.
-      const currentCached = this.pageTextCache.get(this.currentPage);
-      windowPages = currentCached ? [currentCached] : [];
-      const query = this.getSelectionTextWithinView() || text;
-      ragHits = this.documentIndex.search(this.docId, query, {
-        topK: CONTEXT_RAG_TOP_K,
-        excludePages: [this.currentPage],
-      });
-      text = composePdfContextText(this.currentPage, text, windowPages, ragHits);
-    }
-    if (captureMode === "image" || captureMode === "both") {
-      const canvas = pageEl.querySelector("canvas");
-      if (canvas) {
-        try {
-          imageBase64 = canvas
-            .toDataURL("image/png")
-            .replace(/^data:image\/png;base64,/, "");
-        } catch {
-          // tainted canvas – skip
-        }
-      }
-    }
-    return {
-      pageNum: this.currentPage,
-      pageCount: this.totalPages,
+    return this.pdfCaptureService.capture({
+      captureMode,
+      pagesEl: this.pagesEl,
+      currentPage: this.currentPage,
+      totalPages: this.totalPages,
       pageLabels: this.pageLabels ?? undefined,
-      text,
-      imageBase64,
-      windowPages,
+      pageTextCache: this.pageTextCache,
       outline: this.currentOutlineItems,
-      textQuality,
-      ragHits,
-      isScannedLike: textQuality.isScannedLike,
       documentId: this.docId,
       documentName: this.getDisplayText(),
       filePath: resolveCachedExternalPdfPath(this.docId, this.docState?.path),
       zoteroAttachmentKey: this.docState?.zoteroAttachmentKey,
-    };
+      getSelectionText: () => this.getSelectionTextWithinView(),
+      searchIndex: this.documentIndex,
+    });
   }
 
   // ── Snipping Mode ─────────────────────────────────────────────

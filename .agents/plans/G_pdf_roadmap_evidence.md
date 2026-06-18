@@ -244,6 +244,24 @@ resolution instead of trusting another device's path.
       4649 vs P0 baseline 4601 (+48). P4b/P4 follow-up must reduce below 4601
       before Plan G can close.
 
+## 4g. P4b PdfCaptureService Extraction (recorded 2026-06-19)
+
+- [x] **`PdfCaptureService` extracted.** `externalPdfView.getActivePdfContext`
+      now delegates to `plugin/src/ui/pdfCaptureService.ts`, passing only DOM
+      nodes, page cache, current page state, document metadata, selection getter,
+      and search index. Capture/RAG/canvas-image composition is unit-testable
+      without instantiating an Obsidian `ItemView`.
+- [x] **Service tests added.** `pdfCaptureService.test.ts` covers cached text +
+      RAG composition and null page-element handling using fake DOM/search
+      dependencies.
+- Validation: `npx tsc --noEmit` passed; full plugin `npx vitest run -c
+      ./vitest.config.ts` passed (**48 files / 413 tests**); `git diff --check`
+      passed.
+- LOC gate status: **still not satisfied**. Current measured PDF module total is
+      4704 vs P0 baseline 4601 (+103). `externalPdfView.ts` dropped to 1889
+      lines, but new service/registry modules mean Plan G still needs additional
+      deletion/slimming before final closure.
+
 ## 5. Rollback Requirements
 
 - No destructive op before P4 (deletions). Each P4 deletion is its own commit so
