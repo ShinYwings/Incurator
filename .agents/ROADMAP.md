@@ -94,6 +94,12 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 4.1. **[Minor Update] Persistent Quick Query Popover**
    - Upgrade the in-line copilot popover to be immune to outside clicks, freely draggable, and minimizable, acting as a persistent reference window during document analysis.
    - Detailed analysis: `.agents/drafts/persistent_popover.md`
+   - **Code-review findings (2026-06-19)** to fold into this plan's briefing: 5
+     items on `quickQueryPopover.ts` captured in `USER_REPORT.md` (zombie-listener
+     teardown order; text-node-click crash; scroll-pin coupling vs fixed palette;
+     missing `titleEl` capture; missing drag/minimize state). Also bundle the
+     separate `.agents/drafts/popover_tool_scope.md` concern (MCP tool injection /
+     prompt duplication / path sandboxing) when planning. Queued after Plan G.
 
 4.5. **[Minor Update] Diff Viewer Plugin Overhaul & Sync Fixes**
    - Address 7 critical bugs in the plugin's Diff Viewer (UI/UX redesign to inline unified view, race conditions, multi-file diff selection).
