@@ -2301,6 +2301,55 @@ The locator is populated by `_resolve_locator(db_path, item)` called inside
 backing span (community reports, synthesis nodes without spans) carry
 `locator=None`.
 
+### 29.6 PdfIdentity Resolution Authority (Plan G target, vNEXT)
+
+A PDF/source is referred to by up to five identifiers that the system currently
+converts between ad hoc in many places (vault `relpath`, absolute filesystem
+path, Zotero `attachment_key`, content `hash`, `logical_source_id`). Plan G
+introduces **one resolution authority** so the conversion happens once, at the
+boundary, and every flow (Reference Mode ingest, add-source, locator building)
+consumes the same result.
+
+```python
+@dataclass(frozen=True)
+class PdfIdentity:
+    resolution_status: str         # resolved | path_unresolved | untracked
+    source_id: int | None          # canonical sources.id when tracked
+    abs_path: str | None           # resolved absolute path of the real file
+    relpath: str | None            # in-vault path (the STUB for Reference Mode)
+    logical_source_id: str | None  # e.g. "zotero:<key>" or "ref-<hash>"
+    zotero_key: str | None
+    content_hash: str | None
+    is_reference: bool             # True when the file is external (not copied)
+```
+
+`resolution_status` values (mirrors `locator_status` discipline; callers branch
+on status, never guess from `None`):
+- `resolved` — a canonical row and a usable `abs_path` are both known.
+- `path_unresolved` — the source is tracked (row/logical id known) but the real
+  file path could not be resolved on this device (e.g. moved Zotero attachment).
+- `untracked` — no `sources` row matches any provided identifier.
+
+Resolution authority: `pdf_identity.resolve(paths, *, relpath="", abs_path="",
+zotero_key="", content_hash="", logical_source_id="") -> PdfIdentity`. It is the
+ONLY place that:
+1. expands a Reference Mode stub `.md` to its real external file (absorbs
+   `_resolve_reference_source`);
+2. resolves a Zotero attachment key via `zotero_tools.resolve_pdf` (the single
+   backend Zotero resolver);
+3. derives/looks up `logical_source_id` (absorbs `_default_logical_source_id`);
+4. matches an existing `sources` row by id / relpath / external_path / hash.
+
+**Open-target rule (consistent with §29.2):** when `is_reference` is true the
+`abs_path` (external file) is authoritative for opening; the in-vault `relpath`
+stub is never the open target. This is the contract the Sources & Trace locator
+fix already honors; no other consumer opens by `relpath` (audited 2026-06-19:
+`providerContextFormat` formats text only; the dashboard modal uses `relpath` as
+a display label only).
+
+This is a **resolution data structure and facade, not a DB schema change** — no
+new tables or columns; `PdfIdentity` is computed from existing `sources` fields.
+
 ---
 
 ## 30. Retrieval Execution (RTR-*, Plan A, v0.10.0)

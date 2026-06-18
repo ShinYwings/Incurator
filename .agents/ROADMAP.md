@@ -102,8 +102,13 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 
 5. **[Major Update] Native PDF Annotation & Asset System**
    - Remove external Zotero dependency, build a native annotation (highlight/memo) synchronization system utilizing Obsidian's built-in PDF Viewer. In-PDF full-text search (with strict-spelling mode) and native highlight/memo sync remain here.
-   - **Split out (2026-06-11):** PDF add-source asset-location routing + "Added" button state → **shipped in v0.5.6** (2026-06-12); the Zotero reload relativepath bug was already fixed in v0.5.5. External-image-attachment-to-`.md` routing rides v0.5.6's `--asset-dir` mechanism as a follow-up.
+   - **Split out (2026-06-11):** PDF add-source asset-location routing + "Added" button state → **shipped in v0.5.6** (2026-06-12); the Zotero reload relativepath bug was already fixed in v0.5.5.
+   - **Moved into Plan G (2026-06-19):** the remaining non-annotation follow-up — external-image-attachment-to-`.md` asset routing (riding v0.5.6's `--asset-dir`) — is folded into `.agents/plans/G_pdf_unified_handling.md` §1a. The annotation system + in-PDF full-text search remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
+
+7.5. **[Active] PDF Handling Unification & Simplification (Plan G)**
+   - Unify the 3 PDF flows (Reference Mode / add-source / agent↔PDF viewer) behind a single PDF-identity resolver; slim the `externalPdfView.ts` god class; close audit items 3/4/5; absorb the non-annotation asset-routing follow-up. Excludes annotation.
+   - Plan: `.agents/plans/G_pdf_unified_handling.md` (branch `feature/pdf-unified-handling`, off Plan F checkpoint). P0 done; P1 contract in progress.
 
 6. **[Minor Update] Purge Legacy QMD References**
    - The `qmd` binary has been retired since v0.3.2, but over 50 references still exist across the codebase (`cli.py`, `search.py`, `lint.py`, tests, etc.). These references must be completely purged to prevent hallucination or regressions before removing the tombstone warnings from the agent contracts.

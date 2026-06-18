@@ -26,8 +26,29 @@ slimming the `externalPdfView.ts` god class. Close audit items 3/4/5.
 5. Measured **net LOC decrease** across PDF modules, zero test regressions, all
    three flows verified in the testbed.
 
+## 1a. Folded-in Scope from ROADMAP Item 5 (non-annotation only)
+
+Per user direction (2026-06-19), Plan G also absorbs the **non-annotation** PDF
+bug items from ROADMAP item 5 / `.agents/drafts/pdf_annotation_system.md`
+("PDF / Zotero Asset Location Management"). Triage of that section:
+- asset-location routing for extracted PDF images → SHIPPED v0.5.6 (no-op here);
+- "Added" add-source button state → SHIPPED v0.5.6 (no-op here);
+- Zotero reload relativepath bug → FIXED v0.5.5 (no-op here);
+- **OPEN → in scope for Plan G**: external-image-attachment-to-`.md` routing —
+  when a user attaches an external image to a markdown note, route it to the
+  source's profile-matched asset location with `05_Assets` as the fallback,
+  reusing the v0.5.6 `--asset-dir` mechanism. This shares Plan G's asset/path
+  resolution concern (D1) and the add-source flow, so it rides the unified
+  resolver rather than getting a separate ad-hoc path. **Verify-or-implement**
+  during P3/P5 (confirm whether any partial handling already exists first).
+
 ## 2. Explicit Non-Goals
 
+- NOT building the native PDF annotation system (`pdf_annotations` table,
+  highlight/memo, Canvas integration, source_spans promotion) — that stays in
+  ROADMAP item 5's annotation track, explicitly EXCLUDED per user.
+- NOT adding in-PDF full-text search or strict-spelling mode (annotation-track
+  features, not bugs).
 - NOT refactoring `crossReferenceResolver.ts` or `pdfCapture.ts` internals
   (boundary-adapt only).
 - NOT changing the storage model or Reference Mode semantics (no hard-copy).
@@ -91,8 +112,10 @@ reality, dirty-worktree state, pre/post validation). Created before P0 coding.
   change. Verify: `pytest`/`ruff`/`mypy` + dedup parity gate.
 - **P3 — Plugin resolver + state machine.** Add `pdfSource.ts`; route badge/source
   call sites; single `pdfStatusKey`; remove `as any` Zotero detection (item 4);
-  resolve/close item 3; clarify `isAddedState` states (item 5). Verify: `vitest`
-  + `tsc`.
+  resolve/close item 3 (single key + regression test); clarify `isAddedState`
+  states (item 5). Verify-or-implement the folded external-image-attachment-to-
+  `.md` asset routing (§1a) through the unified resolver / `--asset-dir`. Verify:
+  `vitest` + `tsc`.
 - **P4 — Delete dead resolvers + slim renderer.** Remove now-unused private
   resolvers; extract `externalPdfRegistry.ts` (registry/persistence) from
   `externalPdfView.ts`, one move per commit. Verify: net-LOC gate + all tests.

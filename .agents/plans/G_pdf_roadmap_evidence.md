@@ -66,6 +66,26 @@ session's locator fix (`incuratorQueryTrace.ts` + 3 tests), the SYSTEM_BEHAVIOR
 
 Plugin suite after P0: **389 passed** (was 385, +4). Backend source-tools: 16.
 
+## 4a. P1 Contract Specification (recorded 2026-06-19)
+
+- [x] **Backend `PdfIdentity` contract** added as SYSTEM_BEHAVIOR §29.6 (resolution
+      authority absorbing `_resolve_reference_source`, `_default_logical_source_id`,
+      `zotero_tools.resolve_pdf`; `resolution_status` enum; open-target rule). No
+      DB schema change.
+- [x] **Plugin `PdfSource` + `pdfStatusKey` contract** added as PLUGIN_SCHEMA §1.2
+      (single resolver/key; `as any` removal; item-5 badge states documented as
+      intended). No wire/settings change.
+- [x] **relpath-first consumer audit (items 1/2 follow-up)** — CLEAN. Only the
+      Sources & Trace locator opened by relpath (fixed in P6). `providerContextFormat`
+      formats text only; `incuratorDashboardModal` uses relpath as a display label
+      only; other `getAbstractFileByPath` calls operate on open-note `ref.filePath`,
+      not query-result locators. No further open-by-stub bug exists.
+- [x] **Folded-in scope**: ROADMAP item 5's non-annotation follow-up
+      (external-image-attachment-to-`.md` asset routing) recorded in master plan
+      §1a; annotation system + in-PDF full-text search explicitly EXCLUDED.
+- Spec-sync test: 9 passed (version headers intact; "Plan G target, vNEXT"
+  sections follow the Plan F convention).
+
 ## 5. Rollback Requirements
 
 - No destructive op before P4 (deletions). Each P4 deletion is its own commit so
