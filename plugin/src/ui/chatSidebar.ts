@@ -21,7 +21,14 @@ import {
   ExternalPdfView,
   registerExternalPdf,
 } from "./externalPdfView";
-import { assetStatusKey } from "../context/assetSource";
+import {
+  assetStatusKey,
+  resolveAssetSource,
+  zoteroConfigEpoch,
+  ZoteroPathCache,
+} from "../context/assetSource";
+import { isAddedState } from "../context/sourceStatus";
+import { resolveZoteroAttachmentPath } from "./externalPdfView";
 import { IngestDestinationModal } from "./ingestDestinationModal";
 import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
 import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, stampMathSourceData, stripDanglingEditMarkers, truncateToLength } from "../utils/textUtils";
@@ -99,10 +106,6 @@ const CUSTOM_MODEL_VALUE = "__custom__";
 const RULES_CONTEXT_LIMIT = 12000;
 const CONTINUITY_MESSAGE_LIMIT = 6;
 
-/** Built sources show an inert "Added" badge (PLUGIN_SCHEMA §4.1.1). */
-function isAddedState(state: string): boolean {
-  return state === "l1_ready" || state === "l2_ready" || state === "l3_ready" || state === "l4_ready";
-}
 
 export class ChatSidebarView extends ItemView {
   private plugin: ObsidianAIAgent;
@@ -132,6 +135,9 @@ export class ChatSidebarView extends ItemView {
   private splitDropTarget: WorkspaceLeaf | null = null;
   private incuratorClient: IncuratorClient | null = null;
   private incuratorStatusByPath = new Map<string, IncuratorSourceStatus>();
+  // In-memory Zotero attachment_key -> absPath cache (Plan G item c). Invalidated
+  // by config epoch + missing file; cleared on view unload (never persisted).
+  private zoteroPathCache = new ZoteroPathCache({ fileExists: (p) => existsSync(p) });
   private incuratorStatusInFlight = new Set<string>();
   private fileHashByPath = new Map<string, string>();
   private prepareStatusText = "";
@@ -482,6 +488,10 @@ export class ChatSidebarView extends ItemView {
         label: `🖼️ ${file.name}`,
         content: "",
         imageBase64: base64,
+        // Preserve the physical asset identity (Plan G item d): an external image
+        // must keep its OS/vault path so backend asset routing is not severed.
+        // Electron's File carries `.path` at runtime though the DOM type omits it.
+        filePath: explicitPath ?? (file as { path?: string }).path,
       };
       this.addContextRef(ref);
       new Notice(`Attached image: ${file.name}`);
@@ -2012,14 +2022,49 @@ export class ChatSidebarView extends ItemView {
     });
   }
 
+  /** Config epoch for the Zotero path cache (Plan G item c). Any change to the
+   * Zotero data dir, active vault, or profile asset roots invalidates the cache. */
+  private zoteroCacheEpoch(): string {
+    return zoteroConfigEpoch({
+      zoteroBasePath: this.plugin.settings.zoteroBasePath || "",
+      workspaceId: this.app.vault.getName(),
+      profileRoots: (this.plugin.settings.zoteroProfiles || []).map((p) => p.assetFolder || ""),
+    });
+  }
+
   private async resolvePdfRefSourcePath(ref: ContextRef, status?: IncuratorSourceStatus): Promise<string | undefined> {
     const direct = this.getPdfRefSourcePath(ref) || status?.sourcePath || status?.currentPath;
     if (direct) return direct;
     if (!ref.zoteroAttachmentKey) return undefined;
-    const resolved = await this.getIncuratorClient().resolveZoteroPdf(ref.zoteroAttachmentKey);
-    if (resolved.ok && resolved.path) return resolved.path;
-    this.plugin.openZoteroRepairModal({ attachmentKey: ref.zoteroAttachmentKey, resolution: resolved });
-    new Notice(`Zotero PDF unavailable: ${resolved.error || resolved.state || "backend could not resolve attachment"}`);
+    const client = this.getIncuratorClient();
+    // Route Zotero resolution through the cached resolver (item c): a cache hit
+    // skips the backend round-trip; the local resolver is used only offline.
+    let lastResolution: Awaited<ReturnType<typeof client.resolveZoteroPdf>> | undefined;
+    const resolved = await resolveAssetSource(
+      {
+        zoteroKey: ref.zoteroAttachmentKey,
+        displayName: (ref.label || "source").replace(/ p\.\d+$/, ""),
+      },
+      {
+        backendAvailable: client.available,
+        resolveZoteroViaBackend: async (key) => {
+          lastResolution = await client.resolveZoteroPdf(key);
+          return lastResolution.ok && lastResolution.path ? lastResolution.path : undefined;
+        },
+        resolveZoteroLocally: (key) =>
+          resolveZoteroAttachmentPath(this.plugin.settings.zoteroBasePath || "~/Zotero", key),
+        cache: this.zoteroPathCache,
+        epoch: this.zoteroCacheEpoch(),
+        fileExists: (p) => existsSync(p),
+      }
+    );
+    if (resolved.absPath) return resolved.absPath;
+    if (lastResolution) {
+      this.plugin.openZoteroRepairModal({ attachmentKey: ref.zoteroAttachmentKey, resolution: lastResolution });
+      new Notice(`Zotero PDF unavailable: ${lastResolution.error || lastResolution.state || "backend could not resolve attachment"}`);
+    } else {
+      new Notice("Zotero PDF unavailable: backend offline and no local copy found.");
+    }
     return undefined;
   }
 

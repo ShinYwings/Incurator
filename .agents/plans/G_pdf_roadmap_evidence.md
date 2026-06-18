@@ -159,6 +159,27 @@ Reviewer re-sent findings; fact-checked against committed code:
   capture-service extraction. Flagged for user; not in Plan G unless scope
   is expanded.
 
+## 4e. P3 c/d/e (recorded 2026-06-19)
+
+- [x] **(c) ZoteroPathCache wired into the live path.** `resolvePdfRefSourcePath`
+      now routes Zotero resolution through `resolveAssetSource` + the view's
+      `ZoteroPathCache` (cache hit skips the backend round-trip; local resolver
+      only when offline). Epoch derived from settings via `zoteroCacheEpoch()`
+      (zoteroBasePath + vault name + profile asset roots). The structured error
+      resolution is captured by closure for the repair modal (no double call).
+- [x] **(d) External-image identity preserved.** `attachNativeFile` injects
+      `filePath: explicitPath ?? file.path` into the image ContextRef so the
+      physical asset identity survives the UI boundary (was dropped → base64
+      only). NOTE: the broader §1a backend routing of *editor-attached* note
+      images to the profile asset location is a DISTINCT flow (not chat attach);
+      verify separately in P5 — not claimed done here.
+- [x] **(e) isAddedState unit-tested.** Extracted to pure
+      `plugin/src/context/sourceStatus.ts` (no Obsidian deps) + `ADDED_STATES`
+      single source of truth; chatSidebar imports it. `sourceStatus.test.ts`:
+      5 tests covering layer-ready states, in-progress states, empty/fallback/
+      drifted strings, and case-sensitivity (re-ingest gatekeeper, schema drift).
+- Validation: plugin suite 407 passed (+5); tsc clean. (No backend changes.)
+
 ## 5. Rollback Requirements
 
 - No destructive op before P4 (deletions). Each P4 deletion is its own commit so
