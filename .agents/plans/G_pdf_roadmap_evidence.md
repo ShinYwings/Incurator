@@ -154,10 +154,22 @@ Reviewer re-sent findings; fact-checked against committed code:
   backend AssetIdentity resolves a NEW physical path, the persisted
   `externalPdfDocs`/localStorage entry must be overwritten/invalidated (extends
   the §1.2 cache-invalidation contract to the docId→path map). Pending P4.
-- **externalPdfView getActivePdfContext capture/RAG coupling (551)** — OUT OF
-  CURRENT SCOPE: Plan G non-goals explicitly exclude `pdfCapture` internals /
-  capture-service extraction. Flagged for user; not in Plan G unless scope
-  is expanded.
+- **externalPdfView getActivePdfContext capture/RAG coupling (551)** — ADDED TO
+  SCOPE per user (2026-06-19) as **P4b**: extract a decoupled `PdfCaptureService`
+  from the view (capture/RAG/Canvas extraction) so it is unit-testable without an
+  Obsidian `ItemView`. Distinct from `pdfCapture.ts` module internals (still a
+  non-goal).
+
+### Device-portability (user note 2026-06-19)
+Vault and Zotero locations differ per device/OS (macOS `/Users/...` vs Linux
+`/home/...`; `~` expands per home dir). Handling:
+- `zoteroCacheEpoch()` now folds in `process.platform` + the OS-resolved
+  (`~`-expanded) base path, so the in-memory per-device cache can never serve a
+  path resolved for another device/OS (committed in P3 c follow-up).
+- Persisted / synced absolute paths (`externalPdfDocs` localStorage, backend
+  `external_path`) are hints only and MUST be re-resolved per device via the
+  backend resolver / Reference Mode rebind — enforced in P4. Documented in
+  PLUGIN_SCHEMA §1.2.
 
 ## 4e. P3 c/d/e (recorded 2026-06-19)
 

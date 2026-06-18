@@ -21,7 +21,10 @@ slimming the `externalPdfView.ts` god class. Close audit items 3/4/5.
 2. Plugin: one `AssetSource` model + `resolveAssetSource()` + `assetStatusKey()`; badge
    status map keyed by exactly one canonical key; `as any` Zotero detection gone.
 3. `externalPdfView.ts` reduced to render + view-state (registry/persistence
-   extracted), target < ~1200 LOC.
+   extracted), target < ~1200 LOC. Its data-extraction / RAG-composition
+   (`getActivePdfContext`) is moved out into a decoupled `PdfCaptureService`
+   (review finding 5, added to scope per user 2026-06-19) so capture logic is
+   unit-testable without instantiating an Obsidian `ItemView`.
 4. Audit items 3 (repro-or-close), 4 (fixed), 5 (clarified) resolved with tests.
 5. Measured **net LOC decrease** across PDF modules, zero test regressions, all
    three flows verified in the testbed.
@@ -50,7 +53,9 @@ bug items from ROADMAP item 5 / `.agents/drafts/pdf_annotation_system.md`
 - NOT adding in-PDF full-text search or strict-spelling mode (annotation-track
   features, not bugs).
 - NOT refactoring `crossReferenceResolver.ts` or `pdfCapture.ts` internals
-  (boundary-adapt only).
+  (boundary-adapt only). NOTE: `externalPdfView.getActivePdfContext` capture/RAG
+  extraction into a `PdfCaptureService` IS in scope (finding 5, P4b) — distinct
+  from the `pdfCapture.ts` module internals.
 - NOT changing the storage model or Reference Mode semantics (no hard-copy).
 - NOT merging the dedup SQL of the reference vs copy ingest branches.
 - NOT changing PDF.js rendering behavior, zoom/scroll/snipping UX.
@@ -131,7 +136,16 @@ reality, dirty-worktree state, pre/post validation). Created before P0 coding.
   traversal) from `externalPdfView.ts`, one move per commit. Also: when backend
   `AssetIdentity` resolution yields a NEW physical path, overwrite/invalidate the
   persisted `externalPdfDocs` localStorage entry for that docId (review finding —
-  stale persisted path across restarts). Verify: net-LOC gate + all tests.
+  stale persisted path across restarts). **Device-portability:** persisted /
+  synced absolute paths are device-specific (macOS vs Linux, `~` expansion) and
+  MUST be re-resolved per device via the backend resolver / Reference Mode
+  rebind, never trusted verbatim (PLUGIN_SCHEMA §1.2). Verify: net-LOC gate + all
+  tests.
+- **P4b — Extract `PdfCaptureService` (review finding 5).** Move
+  `externalPdfView.getActivePdfContext` data-extraction / RAG-composition /
+  Canvas-image extraction out of the view into a decoupled service that receives
+  the view's DOM/Canvas nodes, so capture is unit-testable without an Obsidian
+  `ItemView`. Verify: new unit tests for the service + `vitest`/`tsc`.
 - **P5 — Testbed E2E + docs sync.** Run reference/add-source/agent-PDF scenarios
   in the testbed; confirm behavior parity; finalize EN/KR docs; version bump +
   changelog per Universal Strict Workflow.

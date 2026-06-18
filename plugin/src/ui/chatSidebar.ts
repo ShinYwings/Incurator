@@ -13,6 +13,7 @@ import {
 } from "obsidian";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
 import type ObsidianAIAgent from "../../main";
 import { IncuratorClient } from "../agent/incuratorClient";
 import {
@@ -2023,10 +2024,18 @@ export class ChatSidebarView extends ItemView {
   }
 
   /** Config epoch for the Zotero path cache (Plan G item c). Any change to the
-   * Zotero data dir, active vault, or profile asset roots invalidates the cache. */
+   * Zotero data dir, active vault, or profile asset roots invalidates the cache.
+   *
+   * Device-aware: absolute paths differ per machine/OS (macOS `/Users/...` vs
+   * Linux `/home/...`, and `~` expands per home dir). The epoch folds in the
+   * platform and the OS-resolved base path so a cache (in-memory and per-device
+   * already) can never serve a path resolved for a different device/OS. Synced
+   * absolute paths are never trusted — they are re-resolved here per device. */
   private zoteroCacheEpoch(): string {
+    const base = this.plugin.settings.zoteroBasePath || "";
+    const resolvedBase = base.startsWith("~") ? join(homedir(), base.slice(1)) : base;
     return zoteroConfigEpoch({
-      zoteroBasePath: this.plugin.settings.zoteroBasePath || "",
+      zoteroBasePath: `${process.platform}:${resolvedBase}`,
       workspaceId: this.app.vault.getName(),
       profileRoots: (this.plugin.settings.zoteroProfiles || []).map((p) => p.assetFolder || ""),
     });

@@ -182,7 +182,15 @@ Contract:
   - it is fully cleared on plugin reload / `onunload`→`onload` (the cache is
     in-memory only, never persisted to `data.json`);
   - a cached `absPath` whose file no longer exists at resolve time is treated as
-    a miss and re-resolved (never returned as-is).
+    a miss and re-resolved (never returned as-is);
+  - **device-portable**: absolute paths differ per machine/OS (macOS
+    `/Users/...` vs Linux `/home/...`; `~` expands per home directory). The cache
+    is in-memory and per-device, and the epoch folds in the platform and the
+    OS-resolved base path, so a path resolved on one device/OS can never be
+    served on another. Absolute paths that arrive via settings/state sync
+    (persisted `externalPdfDocs` localStorage, backend `external_path`) are
+    treated as hints only and MUST be re-resolved on the current device via the
+    backend Zotero resolver / Reference Mode rebind — never trusted verbatim.
 
 This is a plugin-internal model/refactor — no change to the backend wire
 protocol or persisted `data.json` settings shape.
