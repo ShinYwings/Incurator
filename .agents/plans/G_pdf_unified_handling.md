@@ -127,8 +127,11 @@ reality, dirty-worktree state, pre/post validation). Created before P0 coding.
   external-image-attachment-to-`.md` asset routing (§1a) through the unified
   resolver / `--asset-dir`. Verify: `vitest` + `tsc`.
 - **P4 — Delete dead resolvers + slim renderer.** Remove now-unused private
-  resolvers; extract `externalPdfRegistry.ts` (registry/persistence) from
-  `externalPdfView.ts`, one move per commit. Verify: net-LOC gate + all tests.
+  resolvers; extract `externalPdfRegistry.ts` (registry/persistence + Zotero
+  traversal) from `externalPdfView.ts`, one move per commit. Also: when backend
+  `AssetIdentity` resolution yields a NEW physical path, overwrite/invalidate the
+  persisted `externalPdfDocs` localStorage entry for that docId (review finding —
+  stale persisted path across restarts). Verify: net-LOC gate + all tests.
 - **P5 — Testbed E2E + docs sync.** Run reference/add-source/agent-PDF scenarios
   in the testbed; confirm behavior parity; finalize EN/KR docs; version bump +
   changelog per Universal Strict Workflow.

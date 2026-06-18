@@ -134,6 +134,31 @@ Reviewer findings on `asset_identity.py`, all addressed with tests:
       `zotero_key` are consistent even when only `logical_source_id` is passed.
       Test: `test_untracked_zotero_logical_id_implies_reference_and_key`.
 
+## 4d. P3 Review Round 2 — fact-check verdicts (recorded 2026-06-19)
+
+Reviewer re-sent findings; fact-checked against committed code:
+- **Popover (quickQueryPopover.ts) 5 findings** — DUPLICATE of the earlier
+  message; already captured in `USER_REPORT.md` + folded into ROADMAP 4.1,
+  queued AFTER Plan G. No action.
+- **chatSidebar status-key collision (old 2049 vs 2147)** — ALREADY FIXED in P3
+  `49da211` (single `refStatusKey`/`assetStatusKey` for read+write). Reviewer
+  cited pre-P3 lines.
+- **chatSidebar `as any` Zotero probe** — ALREADY FIXED in P3 (typed). The new
+  sub-point (identity coupled to open UI leaves via `getLeavesOfType`) is VALID
+  and now FIXED: `isZoteroPdf = Boolean(ref.zoteroAttachmentKey)` — durable ref
+  identity, tab-scan removed entirely. Contract test updated.
+- **externalPdfView god-class (147-212): registry/persistence/Zotero traversal
+  in UI module** — matches Plan G **P4** (extract `externalPdfRegistry.ts`;
+  delegate Zotero to backend). Pending P4.
+- **externalPdfView stale localStorage path cache (330)** — folded into P4: when
+  backend AssetIdentity resolves a NEW physical path, the persisted
+  `externalPdfDocs`/localStorage entry must be overwritten/invalidated (extends
+  the §1.2 cache-invalidation contract to the docId→path map). Pending P4.
+- **externalPdfView getActivePdfContext capture/RAG coupling (551)** — OUT OF
+  CURRENT SCOPE: Plan G non-goals explicitly exclude `pdfCapture` internals /
+  capture-service extraction. Flagged for user; not in Plan G unless scope
+  is expanded.
+
 ## 5. Rollback Requirements
 
 - No destructive op before P4 (deletions). Each P4 deletion is its own commit so

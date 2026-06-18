@@ -112,11 +112,14 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).not.toContain('`zotero:${ref.zoteroAttachmentKey}` : "")');
   });
 
-  it("detects Zotero PDFs via typed view state, not `as any` (Plan G item 4)", () => {
+  it("detects Zotero PDFs via durable ref identity, not UI leaves or `as any` (Plan G item 4)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
-    expect(source).toContain("leaf.view.getState() as ExternalPdfState");
+    // Zotero identity is a durable property of the context ref, not inferred by
+    // scanning open external-PDF leaves (which breaks when the tab is closed).
+    expect(source).toContain("const isZoteroPdf = Boolean(ref.zoteroAttachmentKey);");
     expect(source).not.toContain("(leaf.view.getState() as any)?.zoteroAttachmentKey");
+    expect(source).not.toContain("leaf.view.getState() as ExternalPdfState");
   });
 
   it("shows an inert Added badge for built sources (PLUGIN_SCHEMA §4.1.1)", () => {

@@ -18,7 +18,6 @@ import { IncuratorClient } from "../agent/incuratorClient";
 import {
   EXTERNAL_PDF_CONTEXT_EVENT,
   EXTERNAL_PDF_VIEW_TYPE,
-  type ExternalPdfState,
   ExternalPdfView,
   registerExternalPdf,
 } from "./externalPdfView";
@@ -2211,14 +2210,11 @@ export class ChatSidebarView extends ItemView {
       return;
     }
 
-    // Zotero-managed PDFs: skip modal, auto-register as reference. Detect via the
-    // typed external-PDF view state (Plan G item 4: no `as any` casts).
-    const isZoteroPdf = Boolean(ref.zoteroAttachmentKey) ||
-      this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE)
-        .some((leaf) => {
-          const st = leaf.view.getState() as ExternalPdfState;
-          return Boolean(st?.zoteroAttachmentKey) && st?.path === sourcePath;
-        });
+    // Zotero-managed PDFs: skip modal, auto-register as reference. Zotero identity
+    // is a DURABLE property of the context ref (AssetSource.zoteroKey), never
+    // inferred by scanning open UI leaves — so it still resolves after the PDF
+    // tab is closed, and there is no `as any` view-state probing (Plan G item 4).
+    const isZoteroPdf = Boolean(ref.zoteroAttachmentKey);
     if (isZoteroPdf) {
       const pendingStatus: IncuratorSourceStatus = {
         state: "running",
