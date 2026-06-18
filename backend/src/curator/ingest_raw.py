@@ -87,9 +87,9 @@ def _default_logical_source_id(source: Path) -> str:
     it with the external system's stable item key when available. Delegates to
     the single identity authority (SYSTEM_BEHAVIOR §29.6) so the two cannot drift.
     """
-    from . import pdf_identity
+    from . import asset_identity
 
-    return pdf_identity.default_logical_source_id(str(source))
+    return asset_identity.default_logical_source_id(str(source))
 
 
 

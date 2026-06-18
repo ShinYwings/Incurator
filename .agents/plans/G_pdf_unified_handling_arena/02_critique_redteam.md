@@ -19,7 +19,7 @@ strands those users. → Keep the local resolver as an explicit fallback, do not
 delete; "single resolver" means "single *entry point*," not "single
 implementation."
 
-**C3 — `PdfIdentity` frozen dataclass hides partial-resolution states.** Many
+**C3 — `AssetIdentity` frozen dataclass hides partial-resolution states.** Many
 real inputs resolve only partially (key but no path when the file moved; hash but
 no row). A frozen all-fields dataclass invites callers to assume non-null. →
 Every field stays `Optional`; add an explicit `resolution_status` enum
@@ -35,7 +35,7 @@ The resolver may *feed* the existing branches but must not merge their dedup
 SQL in the same phase. Add dedup regression tests FIRST.
 
 **C5 — Cross-reference resolver (511 LOC) and pdfCapture (439 LOC) are out of
-scope but coupled.** They read PDF identity indirectly. If `PdfSource` changes
+scope but coupled.** They read PDF identity indirectly. If `AssetSource` changes
 the shape they consume, they break. → Freeze their public inputs; this plan does
 NOT refactor them, only ensures the new model is adapted at their boundary.
 
@@ -46,8 +46,8 @@ it cannot reproduce, close item 3 as wontfix and only land the unified key as a
 
 ## 2. Suggested Alternatives
 
-- **Sequence**: P0 measure + characterization tests → P1 contract (PdfIdentity /
-  PdfSource + resolution_status, docs-first) → P2 backend resolver as a *facade*
+- **Sequence**: P0 measure + characterization tests → P1 contract (AssetIdentity /
+  AssetSource + resolution_status, docs-first) → P2 backend resolver as a *facade*
   over existing functions (no dedup SQL changes) → P3 plugin resolver + single
   status key + remove `as any` → P4 incremental renderer extraction (registry
   first, one move per commit) → P5 testbed E2E for all three flows.

@@ -128,16 +128,19 @@ under that folder instead of the default `05_Assets/<slug>/`. Contract:
   set, otherwise omits the flag. The per-source subfolder prevents generic
   extracted image filenames from colliding across differently named PDFs.
 
-### 1.2 PdfSource model & status key (Plan G target, vNEXT)
+### 1.2 AssetSource model & status key (Plan G target, vNEXT)
 
-The plugin currently resolves a PDF's path/identity ad hoc across many call sites
-(`getPdfRefSourcePath`, `resolvePdfRefSourcePath`, `resolveExternalPdfPath`,
-`resolveZoteroAttachmentPath`, `toAbsolutePath`, `buildSyncedExternalPdfState`)
-and keys backend source-status inconsistently (sometimes by `sourcePath`,
-sometimes by `zotero:<key>`). Plan G introduces ONE model and ONE resolver.
+The plugin currently resolves a source asset's path/identity ad hoc across many
+call sites (`getPdfRefSourcePath`, `resolvePdfRefSourcePath`,
+`resolveExternalPdfPath`, `resolveZoteroAttachmentPath`, `toAbsolutePath`,
+`buildSyncedExternalPdfState`) and keys backend source-status inconsistently
+(sometimes by `sourcePath`, sometimes by `zotero:<key>`). `AssetSource` (not
+`PdfSource`) is the generic model — it covers PDFs, markdown notes, and external
+image attachments (the asset-routing scope folded into Plan G). Plan G introduces
+ONE model and ONE resolver.
 
 ```typescript
-interface PdfSource {
+interface AssetSource {
   absPath?: string;      // resolved real file on disk
   relpath?: string;      // in-vault path/stub (Reference Mode)
   zoteroKey?: string;
@@ -148,26 +151,38 @@ interface PdfSource {
 
 // Single resolver. Prefers backend resolution (IncuratorClient) when available;
 // keeps a thin local Zotero fallback ONLY when the backend command is offline.
-function resolvePdfSource(input, deps): Promise<PdfSource>;
+function resolveAssetSource(input, deps): Promise<AssetSource>;
 
 // Single canonical cache key for the backend source-status map. Used by BOTH
 // the writer (post-ingest) and the badge reader, eliminating the
 // path-vs-zotero:key mismatch (audit item 3).
-function pdfStatusKey(s: PdfSource): string;
+function assetStatusKey(s: AssetSource): string;
 ```
 
 Contract:
-- `pdfStatusKey` is derived deterministically from a `PdfSource` and is the only
+- `assetStatusKey` is derived deterministically from a `AssetSource` and is the only
   key used to read and write `incuratorStatusByPath`; the writer and reader MUST
   use the same key for the same logical source so the "Added"/"Queued" badge
   never desyncs (item 3).
 - Zotero detection MUST NOT rely on `leaf.view.getState()` `as any` casts
-  (item 4); the `PdfSource.zoteroKey` field is the discriminator.
+  (item 4); the `AssetSource.zoteroKey` field is the discriminator.
 - "Added" badge states: `isAddedState` recognizes `l1_ready..l4_ready`;
   `queued`/`running` keep their own labels and stay actionable until built
   (item 5 — documented as intended).
 - `external_uri`/`absPath` is authoritative for opening a Reference Mode source
   (see SYSTEM_BEHAVIOR §29.2 / §29.6).
+- **Zotero fallback cache invalidation (required).** When the backend command is
+  offline, `resolveAssetSource` may cache a Zotero `attachment_key → absPath`
+  result to avoid re-scanning on the hot path. That cache MUST be invalidated
+  whenever the resolution inputs can change, so it never serves a stale/broken
+  absolute path:
+  - it is keyed by, and tied to, the workspace **configuration epoch** (the
+    Zotero data-directory / linked-attachment-root settings + active workspace);
+    a change to any of those clears the cache;
+  - it is fully cleared on plugin reload / `onunload`→`onload` (the cache is
+    in-memory only, never persisted to `data.json`);
+  - a cached `absPath` whose file no longer exists at resolve time is treated as
+    a miss and re-resolved (never returned as-is).
 
 This is a plugin-internal model/refactor — no change to the backend wire
 protocol or persisted `data.json` settings shape.

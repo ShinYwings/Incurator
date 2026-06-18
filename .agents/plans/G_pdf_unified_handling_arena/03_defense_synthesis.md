@@ -10,7 +10,7 @@ safe strangler refactor. Consensus resolutions:
   rehydration is written in P0 before any move.
 - **C2 → accepted.** "Single entry point, not single implementation." The plugin
   keeps a local Zotero fallback used only when `client.available === false`.
-- **C3 → accepted.** All `PdfIdentity` / `PdfSource` fields optional; add
+- **C3 → accepted.** All `AssetIdentity` / `AssetSource` fields optional; add
   `resolution_status` mirroring `locator_status`.
 - **C4 → accepted, hard gate.** The resolver is a *facade* feeding the existing
   dedup branches. No dedup SQL is merged in this milestone. Dedup regression

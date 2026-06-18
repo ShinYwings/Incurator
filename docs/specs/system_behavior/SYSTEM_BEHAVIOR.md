@@ -2301,18 +2301,21 @@ The locator is populated by `_resolve_locator(db_path, item)` called inside
 backing span (community reports, synthesis nodes without spans) carry
 `locator=None`.
 
-### 29.6 PdfIdentity Resolution Authority (Plan G target, vNEXT)
+### 29.6 AssetIdentity Resolution Authority (Plan G target, vNEXT)
 
-A PDF/source is referred to by up to five identifiers that the system currently
-converts between ad hoc in many places (vault `relpath`, absolute filesystem
-path, Zotero `attachment_key`, content `hash`, `logical_source_id`). Plan G
-introduces **one resolution authority** so the conversion happens once, at the
-boundary, and every flow (Reference Mode ingest, add-source, locator building)
-consumes the same result.
+A source asset — a PDF, a markdown note, or an external image attachment — is
+referred to by up to five identifiers that the system currently converts between
+ad hoc in many places (vault `relpath`, absolute filesystem path, Zotero
+`attachment_key`, content `hash`, `logical_source_id`). The abstraction is named
+`AssetIdentity` (not `PdfIdentity`) precisely because it resolves any source
+asset, including the external-image-attachment routing folded into Plan G — not
+PDFs alone. Plan G introduces **one resolution authority** so the conversion
+happens once, at the boundary, and every flow (Reference Mode ingest, add-source,
+external-image asset routing, locator building) consumes the same result.
 
 ```python
 @dataclass(frozen=True)
-class PdfIdentity:
+class AssetIdentity:
     resolution_status: str         # resolved | path_unresolved | untracked
     source_id: int | None          # canonical sources.id when tracked
     abs_path: str | None           # resolved absolute path of the real file
@@ -2330,8 +2333,8 @@ on status, never guess from `None`):
   file path could not be resolved on this device (e.g. moved Zotero attachment).
 - `untracked` — no `sources` row matches any provided identifier.
 
-Resolution authority: `pdf_identity.resolve(paths, *, relpath="", abs_path="",
-zotero_key="", content_hash="", logical_source_id="") -> PdfIdentity`. It is the
+Resolution authority: `asset_identity.resolve(paths, *, relpath="", abs_path="",
+zotero_key="", content_hash="", logical_source_id="") -> AssetIdentity`. It is the
 ONLY place that:
 1. expands a Reference Mode stub `.md` to its real external file (absorbs
    `_resolve_reference_source`);
@@ -2348,7 +2351,7 @@ fix already honors; no other consumer opens by `relpath` (audited 2026-06-19:
 a display label only).
 
 This is a **resolution data structure and facade, not a DB schema change** — no
-new tables or columns; `PdfIdentity` is computed from existing `sources` fields.
+new tables or columns; `AssetIdentity` is computed from existing `sources` fields.
 
 ---
 

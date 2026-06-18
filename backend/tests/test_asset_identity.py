@@ -1,6 +1,6 @@
 """Plan G P2 — tests for the single PDF-identity resolution authority.
 
-`pdf_identity` is a facade over existing helpers (Reference Mode stub expansion,
+`asset_identity` is a facade over existing helpers (Reference Mode stub expansion,
 Zotero resolution, logical-id derivation, sources-row lookup). It performs NO DB
 mutation and does NOT change dedup semantics.
 """
@@ -9,18 +9,18 @@ import unittest
 from pathlib import Path
 
 from curator import config as cfg
-from curator import db, ingest_raw, pdf_identity
+from curator import db, ingest_raw, asset_identity
 
 
 class FromSourceRowTests(unittest.TestCase):
     def test_none_row_is_untracked(self) -> None:
-        ident = pdf_identity.from_source_row(None)
+        ident = asset_identity.from_source_row(None)
         self.assertEqual(ident.resolution_status, "untracked")
         self.assertIsNone(ident.source_id)
         self.assertFalse(ident.is_reference)
 
     def test_vault_source_has_no_external_abs_path(self) -> None:
-        ident = pdf_identity.from_source_row(
+        ident = asset_identity.from_source_row(
             {
                 "id": 7,
                 "relpath": "04_Resources/Imports/a.md",
@@ -36,7 +36,7 @@ class FromSourceRowTests(unittest.TestCase):
         self.assertEqual(ident.relpath, "04_Resources/Imports/a.md")
 
     def test_reference_source_exposes_external_file_as_abs_path(self) -> None:
-        ident = pdf_identity.from_source_row(
+        ident = asset_identity.from_source_row(
             {
                 "id": 9,
                 "relpath": "04_Resources/References/paper.md",
@@ -66,14 +66,14 @@ class ResolveTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_unknown_input_is_untracked(self) -> None:
-        ident = pdf_identity.resolve(self.paths, abs_path="/nope/missing.pdf")
+        ident = asset_identity.resolve(self.paths, abs_path="/nope/missing.pdf")
         self.assertEqual(ident.resolution_status, "untracked")
         self.assertIsNone(ident.source_id)
 
     def test_zotero_key_derives_logical_id_even_without_path(self) -> None:
         # No Zotero DB configured -> path unresolved, but the logical id is still
         # derived deterministically as zotero:<key>.
-        ident = pdf_identity.resolve(self.paths, zotero_key="ZKEY99")
+        ident = asset_identity.resolve(self.paths, zotero_key="ZKEY99")
         self.assertEqual(ident.logical_source_id, "zotero:ZKEY99")
         self.assertEqual(ident.zotero_key, "ZKEY99")
         self.assertIsNone(ident.abs_path)
@@ -88,7 +88,7 @@ class ResolveTests(unittest.TestCase):
         )
         outcome = ingest_raw.import_source_file(self.paths, external, policy="reference")
 
-        ident = pdf_identity.resolve(self.paths, abs_path=str(external.resolve()))
+        ident = asset_identity.resolve(self.paths, abs_path=str(external.resolve()))
         self.assertEqual(ident.resolution_status, "resolved")
         self.assertEqual(ident.source_id, outcome.source_id)
         self.assertTrue(ident.is_reference)

@@ -16,9 +16,9 @@ all call sites through it, and then deleting the redundant private resolvers and
 slimming the `externalPdfView.ts` god class. Close audit items 3/4/5.
 
 **Definition of done:**
-1. Backend: one `pdf_identity.resolve()` facade; `_resolve_reference_source`,
+1. Backend: one `asset_identity.resolve()` facade; `_resolve_reference_source`,
    `_default_logical_source_id`, and Zotero resolution reachable only through it.
-2. Plugin: one `PdfSource` model + `resolvePdfSource()` + `pdfStatusKey()`; badge
+2. Plugin: one `AssetSource` model + `resolveAssetSource()` + `assetStatusKey()`; badge
    status map keyed by exactly one canonical key; `as any` Zotero detection gone.
 3. `externalPdfView.ts` reduced to render + view-state (registry/persistence
    extracted), target < ~1200 LOC.
@@ -73,11 +73,19 @@ bug items from ROADMAP item 5 / `.agents/drafts/pdf_annotation_system.md`
 - Strangler pattern, not rewrite. Resolver introduced as a **facade** over
   existing functions; callers routed one at a time; dead resolvers deleted only
   when caller count hits zero.
-- `PdfIdentity` (backend) / `PdfSource` (plugin): all fields optional + an
+- **Generic naming, not PDF-specific.** Because Plan G folds in external-image
+  asset routing (§1a), the abstractions are named `AssetIdentity` /
+  `asset_identity.py` (backend) and `AssetSource` / `assetSource.ts` (plugin) —
+  NOT `Pdf*` — so they accurately cover PDFs, markdown, and images.
+- `AssetIdentity` (backend) / `AssetSource` (plugin): all fields optional + an
   explicit `resolution_status` enum (`resolved | path_unresolved | untracked`),
   mirroring `locator_status`.
 - "Single entry point, not single implementation": plugin keeps a local Zotero
   fallback used only when the backend command is unavailable.
+- **Zotero fallback cache invalidation is mandatory** (per review): the plugin's
+  optional `attachment_key → absPath` hot-path cache is tied to the workspace
+  configuration epoch, cleared on plugin reload, in-memory only, and a cached
+  path whose file is gone is treated as a miss. Specified in PLUGIN_SCHEMA §1.2.
 - `external_uri` is authoritative for opening whenever present (already specified
   in SYSTEM_BEHAVIOR §29.2 this session); all consumers must honor it.
 - Renderer extraction is last and incremental (registry first), preserving
@@ -105,17 +113,19 @@ reality, dirty-worktree state, pre/post validation). Created before P0 coding.
   testbed snapshot. Record baseline LOC. Attempt an item-3 repro test.
   Verify: new tests pass and pin current behavior.
 - **P1 — Contract Specification (docs-first; STOP for approval).** Define
-  `PdfIdentity` / `PdfSource` + `resolution_status` in `docs/specs/` (+ EN/KR
+  `AssetIdentity` / `AssetSource` + `resolution_status` in `docs/specs/` (+ EN/KR
   guides). Audit & list every relpath-first consumer (items 1/2 follow-up).
-- **P2 — Backend resolver facade.** Add `pdf_identity.resolve()` wrapping existing
+- **P2 — Backend resolver facade.** Add `asset_identity.resolve()` wrapping existing
   functions; route `import_source` + `_locator_from_span` through it. No dedup SQL
   change. Verify: `pytest`/`ruff`/`mypy` + dedup parity gate.
-- **P3 — Plugin resolver + state machine.** Add `pdfSource.ts`; route badge/source
-  call sites; single `pdfStatusKey`; remove `as any` Zotero detection (item 4);
+- **P3 — Plugin resolver + state machine.** Add `assetSource.ts`; route badge/source
+  call sites; single `assetStatusKey`; remove `as any` Zotero detection (item 4);
   resolve/close item 3 (single key + regression test); clarify `isAddedState`
-  states (item 5). Verify-or-implement the folded external-image-attachment-to-
-  `.md` asset routing (§1a) through the unified resolver / `--asset-dir`. Verify:
-  `vitest` + `tsc`.
+  states (item 5). Implement the mandatory Zotero-fallback **cache invalidation**
+  (config-epoch tied + reload-cleared + missing-file = miss; PLUGIN_SCHEMA §1.2)
+  with a regression test. Verify-or-implement the folded
+  external-image-attachment-to-`.md` asset routing (§1a) through the unified
+  resolver / `--asset-dir`. Verify: `vitest` + `tsc`.
 - **P4 — Delete dead resolvers + slim renderer.** Remove now-unused private
   resolvers; extract `externalPdfRegistry.ts` (registry/persistence) from
   `externalPdfView.ts`, one move per commit. Verify: net-LOC gate + all tests.

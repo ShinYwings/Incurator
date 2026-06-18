@@ -8,7 +8,7 @@ Status: PRE-CODING. Populated during planning; P0 will append measured baselines
 - Branch base: **`feature/agent-context-service`** (Plan F, committed checkpoint
   `3c05f08`). Plan G runs on `feature/pdf-unified-handling` branched OFF the F
   branch — a deliberate exception to the no-nesting convention, because Plan G's
-  backend P2 (`pdf_identity.resolve()` routing `_locator_from_span`) depends on
+  backend P2 (`asset_identity.resolve()` routing `_locator_from_span`) depends on
   Plan F's `context_service.py`, which does not exist on `master`
   (verified 2026-06-19: `git cat-file -e master:.../context_service.py` → MISSING).
 - Consequence: Plan G CANNOT be merged before Plan F merges. When Plan F merges
@@ -60,7 +60,7 @@ session's locator fix (`incuratorQueryTrace.ts` + 3 tests), the SYSTEM_BEHAVIOR
       `zotero:<key>`; after add, `nextStatus.sourcePath` becomes truthy, so the
       re-render reads `incuratorStatusByPath.get(sourcePath)` and MISSES the
       `zotero:<key>` entry → badge shows `unknown`. Not unit-testable without DOM
-      scaffolding; the single-`pdfStatusKey` fix + regression test lands in P3.
+      scaffolding; the single-`assetStatusKey` fix + regression test lands in P3.
 - [ ] Testbed E2E snapshot for the three flows — deferred to P5 (no testbed init
       yet; consistent with Plan F deferral).
 
@@ -68,11 +68,11 @@ Plugin suite after P0: **389 passed** (was 385, +4). Backend source-tools: 16.
 
 ## 4a. P1 Contract Specification (recorded 2026-06-19)
 
-- [x] **Backend `PdfIdentity` contract** added as SYSTEM_BEHAVIOR §29.6 (resolution
+- [x] **Backend `AssetIdentity` contract** added as SYSTEM_BEHAVIOR §29.6 (resolution
       authority absorbing `_resolve_reference_source`, `_default_logical_source_id`,
       `zotero_tools.resolve_pdf`; `resolution_status` enum; open-target rule). No
       DB schema change.
-- [x] **Plugin `PdfSource` + `pdfStatusKey` contract** added as PLUGIN_SCHEMA §1.2
+- [x] **Plugin `AssetSource` + `assetStatusKey` contract** added as PLUGIN_SCHEMA §1.2
       (single resolver/key; `as any` removal; item-5 badge states documented as
       intended). No wire/settings change.
 - [x] **relpath-first consumer audit (items 1/2 follow-up)** — CLEAN. Only the
@@ -88,16 +88,16 @@ Plugin suite after P0: **389 passed** (was 385, +4). Backend source-tools: 16.
 
 ## 4b. P2 Backend Resolver Facade (recorded 2026-06-19)
 
-- [x] **`backend/src/curator/pdf_identity.py`** added: `PdfIdentity` dataclass +
+- [x] **`backend/src/curator/asset_identity.py`** added: `AssetIdentity` dataclass +
       `from_source_row()` (cheap, no I/O) + `resolve()` (facade over Zotero
       resolution / logical-id derivation / sources-row lookup). No DB mutation,
       no dedup SQL change.
 - [x] `_locator_from_span` (context_service.py) routed through
-      `pdf_identity.from_source_row` — is_reference + external open-target now
+      `asset_identity.from_source_row` — is_reference + external open-target now
       come from the single authority. Behavior-preserving (P6 locator tests +
       Plan F contract tests stay green).
 - [x] `ingest_raw._default_logical_source_id` delegates to
-      `pdf_identity.default_logical_source_id` (single source of truth; identical
+      `asset_identity.default_logical_source_id` (single source of truth; identical
       hash, no behavior change).
 - [x] Backend Zotero resolution stays on the single `zotero_tools.resolve_pdf`;
       `plugin_api.import_source` keeps its direct call to preserve its structured

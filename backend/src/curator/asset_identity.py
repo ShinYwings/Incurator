@@ -26,7 +26,7 @@ UNTRACKED = "untracked"
 
 
 @dataclass(frozen=True)
-class PdfIdentity:
+class AssetIdentity:
     resolution_status: str
     source_id: int | None = None
     abs_path: str | None = None
@@ -54,22 +54,22 @@ def _zotero_key_from_logical(logical: Any) -> str | None:
     return None
 
 
-def from_source_row(source: dict[str, Any] | None) -> PdfIdentity:
-    """Construct a PdfIdentity from an already-fetched ``sources`` row.
+def from_source_row(source: dict[str, Any] | None) -> AssetIdentity:
+    """Construct a AssetIdentity from an already-fetched ``sources`` row.
 
     Cheap (no I/O). Used by locator building, which already holds the row. For a
     Reference Mode row the external file path is exposed as ``abs_path`` and is
     authoritative for opening; the in-vault ``relpath`` is only the stub.
     """
     if not source:
-        return PdfIdentity(resolution_status=UNTRACKED)
+        return AssetIdentity(resolution_status=UNTRACKED)
     is_reference = bool(source.get("is_reference"))
     external = source.get("external_path") or source.get("import_origin")
     abs_path = str(external) if (is_reference and external) else None
     relpath = source.get("relpath") or None
     status = RESOLVED if (relpath or abs_path) else PATH_UNRESOLVED
     logical = source.get("logical_source_id") or None
-    return PdfIdentity(
+    return AssetIdentity(
         resolution_status=status,
         source_id=int(source["id"]) if source.get("id") is not None else None,
         abs_path=abs_path,
@@ -90,8 +90,8 @@ def resolve(
     content_hash: str = "",
     logical_source_id: str = "",
     zotero_custom_paths: str = "",
-) -> PdfIdentity:
-    """Resolve whatever identifiers are provided into a canonical PdfIdentity.
+) -> AssetIdentity:
+    """Resolve whatever identifiers are provided into a canonical AssetIdentity.
 
     1. A Zotero key derives ``zotero:<key>`` and (via the single backend Zotero
        resolver) its local file path.
@@ -134,7 +134,7 @@ def resolve(
         )
 
     abs_exists = bool(resolved_abs) and Path(resolved_abs).expanduser().exists()
-    return PdfIdentity(
+    return AssetIdentity(
         resolution_status=UNTRACKED,
         source_id=None,
         abs_path=resolved_abs if abs_exists else None,

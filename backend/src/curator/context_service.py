@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config as cfg
-from . import curate_yml, db, pdf_identity
+from . import curate_yml, db, asset_identity
 from .retrieval import evidence as evidence_mod
 from .retrieval import router
 from .retrieval.models import EvidenceItem, EvidencePack, QueryRequest, StructuredLocator
@@ -268,7 +268,7 @@ def _source_meta_by_ids(db_path: Path, source_ids: list[int]) -> dict[int, dict[
 def _locator_from_span(span: dict[str, Any], source: dict[str, Any] | None) -> StructuredLocator:
     # Single identity authority (SYSTEM_BEHAVIOR §29.6): is_reference and the
     # authoritative external open target (abs_path) come from one place.
-    ident = pdf_identity.from_source_row(source)
+    ident = asset_identity.from_source_row(source)
     relpath = span.get("relpath") or ident.relpath
     file_type = (source or {}).get("file_type", "md")
     if file_type == "pdf":

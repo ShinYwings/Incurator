@@ -7,14 +7,14 @@ Date: 2026-06-19 | Agent Persona: lead_architect
 The unifying idea: **a PDF is one canonical `source` row; everything else is a
 key into it.** Stop converting identifiers ad hoc; resolve once, at the boundary.
 
-### 1.1 Backend — one resolver: `pdf_identity.resolve(...)`
+### 1.1 Backend — one resolver: `asset_identity.resolve(...)`
 
-New thin module `backend/src/curator/pdf_identity.py` (pure, no I/O beyond DB +
+New thin module `backend/src/curator/asset_identity.py` (pure, no I/O beyond DB +
 the existing Zotero helpers) exposing:
 
 ```python
 @dataclass(frozen=True)
-class PdfIdentity:
+class AssetIdentity:
     source_id: int | None          # canonical sources.id if tracked
     abs_path: str | None           # resolved absolute file path (real PDF)
     relpath: str | None            # in-vault path (stub for Reference Mode)
@@ -26,7 +26,7 @@ class PdfIdentity:
 def resolve(
     paths, *,
     relpath="", abs_path="", zotero_key="", content_hash="", logical_source_id="",
-) -> PdfIdentity: ...
+) -> AssetIdentity: ...
 ```
 
 `resolve()` is the *only* place that:
@@ -42,10 +42,10 @@ open target from the same identity (external file authoritative when present).
 
 ### 1.2 Plugin — one model + one resolver
 
-New `plugin/src/context/pdfSource.ts`:
+New `plugin/src/context/assetSource.ts`:
 
 ```ts
-export interface PdfSource {
+export interface AssetSource {
   absPath?: string;      // real file on disk
   relpath?: string;      // in-vault path/stub
   zoteroKey?: string;
@@ -53,14 +53,14 @@ export interface PdfSource {
   displayName: string;
 }
 // single resolver; prefers backend resolution when available, thin local fallback
-export async function resolvePdfSource(input, deps): Promise<PdfSource>;
-export function pdfStatusKey(s: PdfSource): string; // one canonical cache key
+export async function resolveAssetSource(input, deps): Promise<AssetSource>;
+export function assetStatusKey(s: AssetSource): string; // one canonical cache key
 ```
 
 All call sites (`getPdfRefSourcePath`, `resolvePdfRefSourcePath`,
 `ensureIncuratorStatusForRef`, `onIncuratorStatusClick`, the locator opener,
-`buildSyncedExternalPdfState`) consume `PdfSource` + `pdfStatusKey`. The badge
-status map is keyed only by `pdfStatusKey`.
+`buildSyncedExternalPdfState`) consume `AssetSource` + `assetStatusKey`. The badge
+status map is keyed only by `assetStatusKey`.
 
 ### 1.3 Slim `externalPdfView.ts`
 
@@ -92,4 +92,9 @@ Removes D2 divergence.
 - `externalPdfView.ts` extraction is large surface for merge conflicts with the
   in-flight diff-viewer work; must sequence after current branch settles.
 - Backend-delegated Zotero resolution adds a round-trip on the hot path; cache
-  the resolved path per key in the plugin to keep it fast.
+  the resolved `attachment_key → absPath` per key in the plugin to keep it fast.
+  **Cache invalidation is mandatory** (red-team follow-up): the cache is tied to
+  the workspace configuration epoch (Zotero data-dir / linked-attachment-root
+  settings + active workspace), cleared on plugin reload, in-memory only, and a
+  cached path whose file no longer exists is treated as a miss. Without this the
+  hot-path cache serves stale/broken paths after a settings change.
