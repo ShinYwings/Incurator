@@ -416,6 +416,17 @@ span id를 인용한다는 이유만으로 신뢰되지 않고, 명시적인 **s
 
 ---
 
+## 🧭 에이전트 컨텍스트 팩 (Plan F target)
+
+자체 추론을 수행하는 에이전트는 답변 대신 `curator_fetch_context`의 normalized
+context pack을 사용할 수 있습니다. 이 pack은 하나의 `QTR-*` root trace, 여기에
+연결된 하나의 `RTR-*` retrieval execution, 재현 가능한 snapshot id, 명시적인
+budget accounting, source locator, omission reason, expansion/verification handle을
+포함합니다. 향후 `wiki query` 합성은 별도의 retrieval path를 다시 실행하지 않고
+동일한 pack 위에서만 수행됩니다.
+
+---
+
 ## 🕸️ 그래프 품질 (v0.9.0)
 
 v0.9.0은 검증된 클레임을 신뢰할 수 있는 지식 그래프로 바꿉니다. 두 이름이

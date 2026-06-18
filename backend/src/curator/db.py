@@ -1351,6 +1351,8 @@ def enqueue_job(
                 _now_iso(),
             ),
         )
+        if cur.lastrowid is None:
+            raise RuntimeError("failed to create ingest job")
         return int(cur.lastrowid)
 
 

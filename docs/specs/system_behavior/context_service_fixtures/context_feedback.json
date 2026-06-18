@@ -1,0 +1,27 @@
+{
+  "contract_version": "1",
+  "operation": "context_feedback",
+  "request": {
+    "feedback_type": "incorrect",
+    "trace_id": "QTR-example",
+    "pack_id": "PACK-example",
+    "snapshot_id": "SNAP-example",
+    "client": "obsidian",
+    "purpose": "ground",
+    "target": {
+      "item_id": "ITEM-example",
+      "record_id": "SPAN-example",
+      "claim_id": null
+    },
+    "reviewed_source_span_ids": [
+      "SPAN-example"
+    ],
+    "statement": "The answer overstates what the cited paragraph supports.",
+    "review_status": "pending"
+  },
+  "response": {
+    "ok": true,
+    "feedback_id": "FBK-example",
+    "ranking_or_truth_mutated": false
+  }
+}

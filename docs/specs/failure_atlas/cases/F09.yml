@@ -33,7 +33,7 @@ boundary:
     topology record.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f9_baseline_authored_wikilinks_not_compiled
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f9_baseline_authored_wikilinks_not_compiled" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f9_baseline_authored_wikilinks_not_compiled" -q
 oracles:
   deterministic: >
     Compiling a note containing authored [[wikilinks]] produces distinct

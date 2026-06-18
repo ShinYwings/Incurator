@@ -39,6 +39,19 @@
     1.  에이전트가 증거 체인을 거슬러 올라갑니다: `SYN -> CON/REP -> ATM/source spans`.
     2.  작업 결과물에 정보를 인용하기 전에 특정 주장과 출처를 검증합니다.
 
+### 2.2.1 컨텍스트 팩 grounding (`curator_fetch_context`)
+*   **상황**: 에이전트가 backend가 작성한 답변이 아니라, 자체 추론에 사용할 bounded
+    and traceable prior knowledge가 필요한 경우.
+*   **논리 흐름**:
+    1.  에이전트는 workspace path, query, scope, budget과 함께
+        `curator_fetch_context`를 호출합니다.
+    2.  backend는 `QTR-*` root, 연결된 `RTR-*`, snapshot id, policy filter,
+        budget accounting, evidence item, omission, expansion/verification handle을
+        포함하는 normalized pack 하나를 반환합니다.
+    3.  에이전트는 그 pack 또는 같은 snapshot에 묶인 후속 expansion의 근거만
+        인용합니다. snapshot conflict가 발생하면 새 근거를 사용하기 전에
+        refetch/rebase가 필요합니다.
+
 ### 2.3 외부 리소스 통합 및 해시 복구
 *   **상황**: 파일을 Vault에 복사하지 않고 Zotero PDF와 같은 외부 참조를 연결하거나, Vault 외부에서 파일이 수정되었을 때 끊어진 링크를 복구하는 경우.
 *   **논리 흐름**:
@@ -104,15 +117,17 @@ Failure Atlas(`docs/specs/failure_atlas/FAILURE_ATLAS.md`)는 RAG/DAG 시스템�
 ### 5.1 진단 스위트 실행
 
 ```bash
-export UV_PROJECT_ENVIRONMENT="$(git rev-parse --show-toplevel)/.venv"
+uv venv "$(git rev-parse --show-toplevel)/.venv-dev"
+uv pip install --python "$(git rev-parse --show-toplevel)/.venv-dev/bin/python" \
+  -e "$(git rev-parse --show-toplevel)/backend[dev,mcp]"
 # Atlas 레코드 무결성 (스키마, 라이프사이클, 스냅샷 식별자)
-uv run --directory backend pytest tests/test_failure_atlas_contract.py -q
+scripts/backend-check pytest backend/tests/test_failure_atlas_contract.py -q
 # 결정론적 재현 (baseline + strict-xfail 오라클)
-uv run --directory backend pytest tests/test_failure_atlas_repro.py -q
+scripts/backend-check pytest backend/tests/test_failure_atlas_repro.py -q
 # 변이/성능저하/원자성 실험
-uv run --directory backend pytest tests/test_failure_atlas_experiments.py -q
+scripts/backend-check pytest backend/tests/test_failure_atlas_experiments.py -q
 # 동결된 검색 베이스라인 (CI는 D2에서 소비한 holdout을 다시 실행하지 않음)
-uv run --directory backend pytest tests/test_failure_atlas_eval.py -q
+scripts/backend-check pytest backend/tests/test_failure_atlas_eval.py -q
 ```
 
 ### 5.2 변경 사항이 Atlas 케이스에 닿을 때의 규칙

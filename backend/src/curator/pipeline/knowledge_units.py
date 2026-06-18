@@ -76,7 +76,7 @@ def extract_knowledge_units(
             refined_spans.append(s)
 
     batches = []
-    current_batch = []
+    current_batch: list[dict] = []
     current_chars = 0
 
     for s in refined_spans:

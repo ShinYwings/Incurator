@@ -30,7 +30,6 @@ import os
 import re
 import subprocess
 import sys
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -613,7 +612,7 @@ Instructions:
         "min_confidence": ["0.60", "0.70", "0.80", "0.85", "0.90"]
     }
     return fallbacks.get(field_id, ["Option 1", "Option 2", "Option 3", "Option 4", "Option 5"])[:5]
-def _build_wizard_questions(workspace_path: str, provided: dict = None) -> dict[str, Any]:
+def _build_wizard_questions(workspace_path: str, provided: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build a dynamic one-question-at-a-time interview for workspace init."""
     provided = provided or {}
     fields = [
@@ -713,7 +712,7 @@ def build_server() -> FastMCP:
                 poll_seconds=10.0,
             )
             worker.start()
-            mcp._incurator_ingest_worker = worker  # keep a strong reference
+            setattr(mcp, "_incurator_ingest_worker", worker)  # keep a strong reference
     except Exception:
         pass
 
@@ -1733,7 +1732,7 @@ def build_server() -> FastMCP:
         `body`), `count`. For an answer (not raw hits) use `curator_query`; for the
         curated evidence pack use `curator_fetch_context`.
         """
-        ws_path_str = workspace_path or os.environ.get("WORKSPACE_PATH")
+        ws_path_str = workspace_path or os.environ.get("WORKSPACE_PATH") or ""
         paths = _resolve_paths(ws_path_str)
 
         # Load curate.yml if workspace_path or WORKSPACE_PATH is set
@@ -1859,26 +1858,9 @@ def build_server() -> FastMCP:
         ws_path_str = workspace_path or os.environ.get("WORKSPACE_PATH", "")
         paths = _resolve_paths(ws_path_str)
 
-        # Resolve workspace persona retrieval boost (KRS lens) when configured.
-        query_boost_terms: list[str] | None = None
-        if ws_path_str:
-            ws_p = Path(ws_path_str).expanduser().resolve()
-            from . import curate_yml as _cym
-            try:
-                spec = _cym.load_curate_spec(ws_p)
-                if spec.persona:
-                    persona_terms = [
-                        spec.persona.domain,
-                        spec.persona.subdomain,
-                        *spec.persona.disambiguation_keywords,
-                    ]
-                    query_boost_terms = [term for term in persona_terms if term]
-            except Exception:
-                pass
-
         # Build LLM client and run query pipeline
         from . import llm as _llm
-        from . import query as _query
+        from .retrieval import QueryOrchestrator, QueryRequest
 
         try:
             config = cfg.load_config(paths)
@@ -1925,29 +1907,14 @@ def build_server() -> FastMCP:
                 },
             }
 
-        session_id = f"QRY-{uuid.uuid4().hex[:8]}"
-
-        class _SilentCallbacks(_query.QueryCallbacks):
-            pass
-
         try:
             with _llm.build_client(config) as client:
-                result = _query.run_query(
-                    paths,
-                    client,
-                    question,
-                    _SilentCallbacks(),
-                    mode="hybrid",
-                    limit=12,
-                    min_score=0.35,
-                    rerank=False,
-                    temperature=0.3,
-                    scope="all",
-                    classify_intent_first=False,
-                    session_id=session_id,
-                    workspace_path=ws_path_str or None,
-                    query_boost_terms=query_boost_terms,
-                    route="auto",
+                result = QueryOrchestrator(paths, client).run(
+                    QueryRequest(
+                        question=question,
+                        workspace_path=ws_path_str,
+                        mode="auto",
+                    )
                 )
         except Exception as e:
             return {"ok": False, "question": question, "error": f"Query pipeline error: {e}"}
@@ -1961,29 +1928,39 @@ def build_server() -> FastMCP:
                 "error": result.error or "Query returned no answer",
             }
 
-        # Extract provenance from hits (sessionless: no Exhibition file is written).
-        matched_concepts: list[str] = []
+        trace = db.get_query_trace(paths.state_db, result.trace_id)
+        context_trace = {}
+        if trace is not None:
+            context_trace = (trace.get("retrieval_trace") or {}).get("context_service", {})
+        context_pack_id = context_trace.get("pack_id", None) or None
+        context_snapshot = context_trace.get("snapshot", None) if context_pack_id is not None else None
+        context_budget = context_trace.get("budget", None) if context_pack_id is not None else None
         source_paths: list[str] = []
-        for hit in result.hits:
-            if hit.full_path.startswith(f"{consts.LAYER_L3}/"):
-                con_id = Path(hit.full_path).stem
-                if con_id not in matched_concepts:
-                    matched_concepts.append(con_id)
-            if hit.full_path not in source_paths:
-                source_paths.append(hit.full_path)
+        if result.source_span_ids:
+            for span in db.get_source_spans_by_ids(paths.state_db, result.source_span_ids):
+                relpath = span.get("relpath", "")
+                if relpath and relpath not in source_paths:
+                    source_paths.append(relpath)
 
         return {
             "ok": True,
             "answer": result.answer,
             "question": question,
             "trace": {
-                "matched_concepts": matched_concepts,
+                "matched_concepts": [],
                 "source_ids": [],
                 "source_paths": source_paths,
                 "synthesis_node_ids": result.synthesis_node_ids,
                 "community_report_ids": result.community_report_ids,
+                "memory_path_ids": result.memory_path_ids,
+                "insight_candidate_ids": result.insight_candidate_ids,
+                "prompt_trace_ids": result.prompt_trace_ids,
+                "source_span_ids": result.source_span_ids,
                 "trace_id": result.trace_id,
                 "route": result.route,
+                "pack_id": context_pack_id,
+                "snapshot": context_snapshot,
+                "budget": context_budget,
                 "latency_ms": latency_ms,
                 "l3_complete": l3_complete,
             },
@@ -2050,7 +2027,7 @@ def build_server() -> FastMCP:
     @mcp.tool()
     def curator_check_workspace(
         workspace_path: str = "",
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Check workspace configuration health and return setup guidance.
 
@@ -2178,7 +2155,7 @@ def build_server() -> FastMCP:
         include_patterns: Optional[list[str]] = None,
         exclude_patterns: Optional[list[str]] = None,
         min_confidence: Optional[float] = None,
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Initialize a new Curator workspace with curate.yml, agent rules, and an
         auto-generated Artist persona.
@@ -2413,7 +2390,7 @@ def build_server() -> FastMCP:
         # have evidence to ground on.
         curation_error: str | None = None
         try:
-            result = subprocess.run(
+            build_result = subprocess.run(
                 [sys.executable, "-m", "curator.cli", "build", "--no-sync"],
                 cwd=str(paths.root),
                 capture_output=True,
@@ -2422,8 +2399,12 @@ def build_server() -> FastMCP:
                 timeout=300,
                 env={**os.environ, "VAULT_ROOT": str(paths.root)},
             )
-            if result.returncode != 0:
-                curation_error = result.stderr.strip() or result.stdout.strip() or f"Exit code {result.returncode}"
+            if build_result.returncode != 0:
+                curation_error = (
+                    build_result.stderr.strip()
+                    or build_result.stdout.strip()
+                    or f"Exit code {build_result.returncode}"
+                )
         except Exception as e:
             curation_error = str(e)
 
@@ -2874,7 +2855,7 @@ def build_server() -> FastMCP:
                     layer_counts["synthesis"] = count
 
         # Discover Zotero roots (attachment paths)
-        zotero_roots = []
+        zotero_roots: list[str] = []
         try:
             _discover_zotero_base_attachment_path(zotero_roots)
         except Exception:

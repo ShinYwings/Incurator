@@ -81,6 +81,18 @@ def _build_retrieval_trace(pack: EvidencePack, route: str, reason: str) -> dict:
     return base
 
 
+def _context_evidence_block(items: list[dict[str, Any]]) -> str:
+    chunks: list[str] = []
+    sep = "\n\n"
+    for item in items:
+        chunk = (
+            f"[{item.get('kind') or ''} {item.get('record_id') or item.get('item_id') or ''}] "
+            f"{item.get('summary') or ''}\n{item.get('detail') or ''}"
+        ).strip()
+        chunks.append(chunk)
+    return sep.join(chunks)
+
+
 class QueryOrchestrator:
     def __init__(self, paths: cfg.WikiPaths, client: Any) -> None:
         self.paths = paths
@@ -94,69 +106,40 @@ class QueryOrchestrator:
         This is curation as a *dynamic lens over the live DAG*, not a frozen
         Exhibition.
         """
-        policy, _spec_hash = _resolve_policy(request.workspace_path)
-        status = router.graph_status(self.paths.state_db)
-        route, reason = router.choose_route(request, policy, status)
-        trace_id = f"QTR-{uuid.uuid4().hex[:8]}"
-        pack = evidence_mod.build_evidence(self.paths, request, route, policy=policy)
-        retrieval_trace = _build_retrieval_trace(pack, route, reason)
-        db.insert_query_trace(
-            self.paths.state_db,
-            trace_id=trace_id,
-            workspace_id=policy.workspace_id,
-            question_hash=_question_hash(request.question, request.working_query),
-            route=route,
-            route_reason=reason,
-            evidence=_evidence_json(pack),
-            source_span_ids=pack.source_span_ids,
-            community_report_ids=pack.community_report_ids,
-            synthesis_node_ids=pack.synthesis_node_ids,
-            memory_path_ids=pack.memory_path_ids,
-            retrieval_trace=retrieval_trace,
-            warnings=pack.warnings,
-        )
-        return {
-            "ok": True,
-            "route": route,
-            "trace_id": trace_id,
-            "retrieval_execution_id": pack.retrieval_execution_id,  # §30.2 / Plan F handoff
-            "workspace_id": policy.workspace_id,
-            "evidence": [
-                {
-                    "id": it.id, "kind": it.kind, "title": it.title, "text": it.text,
-                    "score": it.score, "source_span_ids": it.source_span_ids,
-                    "community_report_id": it.community_report_id,
-                    "synthesis_node_id": it.synthesis_node_id,
-                    "memory_path_id": it.memory_path_id,
-                    "locator": (
-                        {
-                            "source_id": it.locator.source_id,
-                            "source_kind": it.locator.source_kind,
-                            "relpath": it.locator.relpath,
-                            "heading": it.locator.heading,
-                            "block_id": it.locator.block_id,
-                            "page_number": it.locator.page_number,
-                            "toc_id": it.locator.toc_id,
-                            "external_uri": it.locator.external_uri,
-                            "locator_status": it.locator.locator_status,
-                        } if it.locator is not None else None
-                    ),
-                }
-                for it in pack.items
-            ],
-            "source_span_ids": pack.source_span_ids,
-            "community_report_ids": pack.community_report_ids,
-            "synthesis_node_ids": pack.synthesis_node_ids,
-            "memory_path_ids": pack.memory_path_ids,
-            "route_reason": reason,
-            "warnings": pack.warnings,
-        }
+        from ..context_service import ContextService
+
+        return ContextService(self.paths, self.client).context_fetch(request)
 
     def run(self, request: QueryRequest) -> QueryResultV031:
         started = time.monotonic()
         policy, spec_hash = _resolve_policy(request.workspace_path)
         status = router.graph_status(self.paths.state_db)
         route, reason = router.choose_route(request, policy, status)
+
+        if route != "explore":
+            from ..context_service import ContextService
+
+            context_pack = ContextService(self.paths, self.client).context_fetch(request)
+            result = QueryResultV031(
+                question=request.question,
+                route=context_pack["route"],
+                trace_id=context_pack["trace_id"],
+                input_language=request.input_language,
+                english_query=request.working_query,
+                final_output_language=request.final_output_language,
+                source_span_ids=context_pack["source_span_ids"],
+                community_report_ids=context_pack["community_report_ids"],
+                synthesis_node_ids=context_pack["synthesis_node_ids"],
+                memory_path_ids=context_pack["memory_path_ids"],
+                warnings=[context_pack["route_reason"], *context_pack["warnings"]],
+            )
+            self._run_answer_from_context(request, context_pack, spec_hash, result)
+            self._update_context_trace_after_synthesis(
+                result,
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
+            return result
+
         trace_id = f"QTR-{uuid.uuid4().hex[:8]}"
 
         pack = evidence_mod.build_evidence(self.paths, request, route, policy=policy)
@@ -174,10 +157,7 @@ class QueryOrchestrator:
             warnings=[reason, *pack.warnings],
         )
 
-        if route == "explore":
-            self._run_explore(request, pack, spec_hash, result)
-        else:
-            self._run_answer(request, route, pack, spec_hash, result)
+        self._run_explore(request, pack, spec_hash, result)
         retrieval_trace = _build_retrieval_trace(pack, result.route, reason)
         db.insert_query_trace(
             self.paths.state_db,
@@ -199,29 +179,32 @@ class QueryOrchestrator:
         )
         return result
 
-    # -- answer routes (local / global / source-section) -----------------------
-    def _run_answer(
-        self, request: QueryRequest, route: str, pack: EvidencePack,
-        spec_hash: str, result: QueryResultV031,
+    def _run_answer_from_context(
+        self,
+        request: QueryRequest,
+        context_pack: dict[str, Any],
+        spec_hash: str,
+        result: QueryResultV031,
     ) -> None:
         prompt_id = (
-            "curator.query_global_reduce" if route == "global"
+            "curator.query_global_reduce" if context_pack["route"] == "global"
             else "curator.query_local_answer"
         )
         contract = prompting.REGISTRY.get(prompt_id)
-        valid_spans = set(pack.source_span_ids)
-        if route == "global":
+        valid_spans = set(context_pack["source_span_ids"])
+        evidence_block = _context_evidence_block(context_pack["items"])
+        if context_pack["route"] == "global":
             input_obj = contract.input_model(
                 question=request.question,
-                report_points_block=pack.evidence_block(),
-                valid_span_ids_block="\n".join(pack.source_span_ids),
+                report_points_block=evidence_block,
+                valid_span_ids_block="\n".join(context_pack["source_span_ids"]),
                 final_output_language=request.final_output_language,
             )
         else:
             input_obj = contract.input_model(
                 question=request.question,
-                evidence_block=pack.evidence_block(),
-                valid_span_ids_block="\n".join(pack.source_span_ids),
+                evidence_block=evidence_block,
+                valid_span_ids_block="\n".join(context_pack["source_span_ids"]),
                 final_output_language=request.final_output_language,
             )
         run = prompting.run_prompt(
@@ -230,14 +213,68 @@ class QueryOrchestrator:
             curate_spec_hash=spec_hash, query_trace_id=result.trace_id,
         )
         result.prompt_trace_ids.append(run.trace_id)
-        if run.parsed is not None:
+        if run.ok and run.parsed is not None:
             result.answer = getattr(run.parsed, "answer", "")
             result.community_report_ids = sorted(
                 set(result.community_report_ids) | set(getattr(run.parsed, "used_report_ids", []))
             )
+            if hasattr(run.parsed, "source_span_ids"):
+                result.source_span_ids = getattr(run.parsed, "source_span_ids")
         else:
             result.error = "answer synthesis failed validation"
+            result.source_span_ids = []
+            result.community_report_ids = []
+            result.synthesis_node_ids = []
+            result.memory_path_ids = []
+            result.insight_candidate_ids = []
             result.warnings.extend(run.validation.errors)
+
+    def _update_context_trace_after_synthesis(
+        self,
+        result: QueryResultV031,
+        *,
+        latency_ms: int,
+    ) -> None:
+        trace = db.get_query_trace(self.paths.state_db, result.trace_id)
+        if trace is None:
+            return
+        retrieval_trace = dict(trace.get("retrieval_trace") or {})
+        context = dict(retrieval_trace.get("context_service", {}))
+        actions = list(context.get("actions", []))
+        for prompt_trace_id in result.prompt_trace_ids:
+            order = len(actions) + 1
+            synthesis_failed = result.error is not None
+            actions.append({
+                "action_id": f"CTXA-{uuid.uuid4().hex[:8]}",
+                "trace_id": result.trace_id,
+                "order": order,
+                "action_type": "synthesis",
+                "child_id": prompt_trace_id,
+                "payload": {
+                    "synthesis_status": "failed" if synthesis_failed else "ok",
+                    "cited_source_span_ids": [] if synthesis_failed else result.source_span_ids,
+                },
+            })
+        context["actions"] = actions
+        retrieval_trace["context_service"] = context
+        db.insert_query_trace(
+            self.paths.state_db,
+            trace_id=result.trace_id,
+            workspace_id=trace["workspace_id"],
+            question_hash=trace["question_hash"],
+            route=result.route,
+            route_reason=trace["route_reason"],
+            evidence=trace["evidence"],
+            source_span_ids=result.source_span_ids,
+            community_report_ids=result.community_report_ids,
+            synthesis_node_ids=result.synthesis_node_ids,
+            memory_path_ids=result.memory_path_ids,
+            prompt_trace_ids=result.prompt_trace_ids,
+            insight_candidate_ids=result.insight_candidate_ids,
+            retrieval_trace=retrieval_trace,
+            warnings=result.warnings,
+            latency_ms=latency_ms,
+        )
 
     # -- explore route ---------------------------------------------------------
     def _run_explore(

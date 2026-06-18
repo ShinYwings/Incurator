@@ -241,8 +241,8 @@ wiki mcp install
   - `question` (자연어 질문, 필수)
   - `workspace_path` (워크스페이스 절대 경로, 없으면 `WORKSPACE_PATH` 환경변수 또는 `"default"`)
 - **반환값**: `ok`, `answer` (마크다운 답변), `question`, `trace`.
-  - `trace`: `matched_concepts` (CON-ID 목록), `source_paths`, `synthesis_node_ids`, `community_report_ids`, `trace_id`(`QTR-`), `route`, `latency_ms`, `l3_complete`.
-- **컨텍스트 상한**: 합성 단계는 scope가 제한된 L3/L4 context를 사용하고, oversized source body는 LLM 호출 전에 잘라냅니다. 큰 L1 source recap이나 raw PDF text는 `curator_query`에 통째로 넣지 않고 source/PDF tool로 명시적으로 가져와야 합니다.
+  - `trace`: `matched_concepts` (CON-ID 목록), `source_paths`, `synthesis_node_ids`, `community_report_ids`, `source_span_ids`, `prompt_trace_ids`, `trace_id`(`QTR-`), `route`, `pack_id`, `snapshot`, `budget`, `latency_ms`, `l3_complete`. 합성 답변의 `source_span_ids`는 전체 검색 pack이 아니라 검증된 답변 출력이 실제 인용했다고 보고한 span입니다. `pack_id`, `snapshot`, `budget`은 ContextService-backed route에서만 값이 채워지며, 아직 ContextService로 이전되지 않은 route는 이 필드를 `null`로 반환합니다.
+- **컨텍스트 상한**: ContextService가 합성 전에 context budget을 적용하고, synthesizer는 이미 budget 처리된 pack 전체를 받습니다. 큰 L1 source recap이나 raw PDF text는 `curator_query`에 통째로 넣지 않고 source/PDF tool로 명시적으로 가져와야 합니다.
 - **구현 상태**: v0.3.2. L3 미완성 소스의 경우 degraded trace를 남기고 가능한
   DB-native lexical/vector retrieval을 사용합니다. 합성 없는 증거 팩이 필요하면
   `curator_fetch_context`를 사용하세요.
@@ -343,6 +343,15 @@ v0.3.2 큐레이션-네이티브 컴파일러를 노출하는 도구들입니다
 - **역할**: **큐레이션된 증거 팩**을 반환합니다 — 에이전트 자신의 추론 LLM이 근거로 삼아야 할, 워크스페이스 KRS로 편향된 증거 선택을 **합성된 답변 없이** 제공합니다. 이는 고정 파일이 아니라 *라이브 DAG 위의 동적 렌즈*로서의 큐레이션이며, 자체 합성을 수행하는 추론 에이전트(예: Obsidian 에이전트)의 1차 surface입니다. 광범위한 질문의 경우 팩은 공유 **L4 Synthesis** 노드를 앞세웁니다.
 - **파라미터**: `query`, `workspace_path`(선택).
 - **반환**: `route`, `trace_id`(`QTR-…`), `retrieval_execution_id`(`RTR-…`), `workspace_id`, `evidence`(각 항목은 `kind` — `synthesis` | `community_report` | `entity` | `source_span` | `memory_path` | `search_hit` — 와 `id`/`title`/`text`/`score`, 출처 id, 그리고 span 기반 항목의 경우 `source_kind`/`relpath`/`heading`/`locator_status`를 포함하는 `locator` 딕셔너리 포함), `source_span_ids`, `community_report_ids`, `synthesis_node_ids`, `memory_path_ids`, `warnings`. 검색 hit 근거는 hydrate된 `source_span_ids`를 보존하며, `trace_id`는 하나의 authoritative orchestrated query trace를 식별하고, `retrieval_execution_id`는 Plan F가 소비하는 자식 RTR-* ID입니다. 의도적으로 `answer` 필드는 **없습니다**.
+
+Plan F에서는 이 surface가 통합 ContextService의 `context_fetch` 계약으로
+업그레이드됩니다. 반환 pack은 versioned, budget-bounded, snapshot-stamped
+형태이며 omission을 명시합니다. 확장과 정확 검증은 pack의 stable handle을
+사용하고, snapshot이 바뀌면 backend는 오래된 근거와 새 근거를 섞지 않고
+typed conflict를 반환합니다. 확장된 handle은 같은 pack snapshot 안에서 한 번만
+소비됩니다. 요청 budget으로 handle을 담을 수 없으면 backend는 그 handle을
+`next`에 다시 넣지 않고 `expansion_refused`에 표시하므로 agent가 같은 불가능한
+확장을 반복하지 않습니다.
 
 #### `curator_explore`
 

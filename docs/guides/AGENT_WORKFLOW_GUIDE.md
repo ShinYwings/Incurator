@@ -37,6 +37,19 @@ This document defines the official operational scenarios and tool interaction pa
     1.  The Agent walks down the evidence chain: `SYN -> CON/REP -> ATM/source spans`.
     2.  Verifies the specific claims and source provenance before citing the information in a task output.
 
+### 2.2.1 Context Pack Grounding (`curator_fetch_context`)
+*   **Situation**: The agent will perform its own reasoning and needs bounded,
+    traceable prior knowledge instead of a backend-written answer.
+*   **Logic Flow**:
+    1.  The agent calls `curator_fetch_context` with a workspace path, query,
+        scope, and budget.
+    2.  The backend returns one normalized pack with a `QTR-*` root,
+        attached `RTR-*`, snapshot id, policy filters, budget accounting,
+        evidence items, omissions, and expansion/verification handles.
+    3.  The agent cites only evidence from that pack or from later expansions
+        that match the same snapshot. A snapshot conflict requires refetch/rebase
+        before using new evidence.
+
 ### 2.3 External Resource Integration & Hash Healing
 *   **Situation**: Connecting external references like Zotero PDFs without duplicating files into the vault, or repairing broken links when those files are modified outside the vault.
 *   **Logic Flow**:
@@ -102,15 +115,17 @@ before changing behavior in those areas.
 ### 5.1 Running the diagnostic suite
 
 ```bash
-export UV_PROJECT_ENVIRONMENT="$(git rev-parse --show-toplevel)/.venv"
+uv venv "$(git rev-parse --show-toplevel)/.venv-dev"
+uv pip install --python "$(git rev-parse --show-toplevel)/.venv-dev/bin/python" \
+  -e "$(git rev-parse --show-toplevel)/backend[dev,mcp]"
 # Atlas record integrity (schema, lifecycle, snapshot identities)
-uv run --directory backend pytest tests/test_failure_atlas_contract.py -q
+scripts/backend-check pytest backend/tests/test_failure_atlas_contract.py -q
 # Deterministic reproductions (baseline + strict-xfail oracles)
-uv run --directory backend pytest tests/test_failure_atlas_repro.py -q
+scripts/backend-check pytest backend/tests/test_failure_atlas_repro.py -q
 # Mutation/degradation/atomicity experiments
-uv run --directory backend pytest tests/test_failure_atlas_experiments.py -q
+scripts/backend-check pytest backend/tests/test_failure_atlas_experiments.py -q
 # Frozen retrieval baseline (CI never reruns the consumed D2 holdout)
-uv run --directory backend pytest tests/test_failure_atlas_eval.py -q
+scripts/backend-check pytest backend/tests/test_failure_atlas_eval.py -q
 ```
 
 ### 5.2 Rules when your change touches an atlas case

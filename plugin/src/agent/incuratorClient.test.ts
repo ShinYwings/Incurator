@@ -389,10 +389,22 @@ describe("IncuratorClient", () => {
         answer: "It implies a geometric constraint.",
         route: "local",
         trace_id: "QTR-1234abcd",
+        pack_id: "PACK-1234abcd",
+        snapshot: { snapshot_id: "SNAP-1234abcd" },
+        budget: { used_tokens: 20, limit_tokens: 100 },
+        prompt_trace_ids: ["PTR-1234abcd"],
+        source_span_ids: ["SPAN-1234abcd"],
         trace: {
           matched_concepts: ["CON-1234abcd"],
           source_ids: [7],
           source_paths: ["03_Concepts/CON-1234abcd.md"],
+          trace_id: "QTR-1234abcd",
+          route: "local",
+          pack_id: "PACK-1234abcd",
+          snapshot: { snapshot_id: "SNAP-1234abcd" },
+          budget: { used_tokens: 20, limit_tokens: 100 },
+          prompt_trace_ids: ["PTR-1234abcd"],
+          source_span_ids: ["SPAN-1234abcd"],
           latency_ms: 42,
           l3_complete: true,
         },
@@ -425,8 +437,151 @@ describe("IncuratorClient", () => {
     expect(result.english_query).toBe("What does CON-1 imply?");
     expect(result.final_output_language).toBe("English");
     expect(result.trace_id).toBe("QTR-1234abcd");
+    expect(result.pack_id).toBe("PACK-1234abcd");
+    expect(result.snapshot?.snapshot_id).toBe("SNAP-1234abcd");
+    expect(result.budget?.used_tokens).toBe(20);
+    expect(result.prompt_trace_ids).toEqual(["PTR-1234abcd"]);
+    expect(result.source_span_ids).toEqual(["SPAN-1234abcd"]);
     expect(result.trace?.matched_concepts).toEqual(["CON-1234abcd"]);
+    expect(result.trace?.pack_id).toBe("PACK-1234abcd");
     expect(result.trace?.l3_complete).toBe(true);
+  });
+
+  it("fetchContext requests a backend evidence pack without synthesis", async () => {
+    const calls: string[][] = [];
+    const client = new IncuratorClient(settings(), "0.3.1", async (args: string[]) => {
+      calls.push(args);
+      return {
+        ok: true,
+        operation: "context_fetch",
+        contract_version: "1",
+        pack_id: "PACK-1234abcd",
+        trace_id: "QTR-1234abcd",
+        retrieval_execution_id: "RTR-1234abcd",
+        route: "local",
+        snapshot: { snapshot_id: "SNAP-1234abcd" },
+        budget: { used_tokens: 20, limit_tokens: 128 },
+        items: [
+          {
+            kind: "source_span",
+            record_id: "SPAN-1234abcd",
+            summary: "Residual learning",
+            detail: "Residual connections ease optimization.",
+            expansion_handle: "EXP-1234abcd",
+            verification_handle: "VER-1234abcd",
+          },
+        ],
+        evidence: [
+          {
+            id: "SPAN-1234abcd",
+            kind: "source_span",
+            title: "Residual learning",
+            text: "Residual connections ease optimization.",
+          },
+        ],
+        source_span_ids: ["SPAN-1234abcd"],
+        warnings: [],
+        next: [],
+      };
+    });
+
+    const result = await client.fetchContext("What does residual learning do?", {
+      workspacePath: "/tmp/workspace",
+      limitTokens: 128,
+    });
+
+    expect(calls[0]).toEqual([
+      "plugin",
+      "context",
+      "fetch",
+      "--query",
+      "What does residual learning do?",
+      "--workspace-path",
+      "/tmp/workspace",
+      "--limit-tokens",
+      "128",
+    ]);
+    expect(result.ok).toBe(true);
+    expect(result.operation).toBe("context_fetch");
+    expect(result.pack_id).toBe("PACK-1234abcd");
+    expect(result.items?.[0]?.record_id).toBe("SPAN-1234abcd");
+    expect((result as any).answer).toBeUndefined();
+  });
+
+  it("expandContext and verifyContext call hidden context commands", async () => {
+    const calls: string[][] = [];
+    const client = new IncuratorClient(settings(), "0.3.1", async (args: string[]) => {
+      calls.push(args);
+      return { ok: true, operation: args[2] === "expand" ? "context_expand" : "context_verify" };
+    });
+
+    await client.expandContext({
+      packId: "PACK-1",
+      handles: ["EXP-1", "EXP-2"],
+      expectedSnapshotId: "SNAP-1",
+      workspacePath: "/tmp/workspace",
+      limitTokens: 512,
+    });
+    await client.verifyContext({
+      packId: "PACK-1",
+      verificationHandle: "VER-1",
+      expectedSnapshotId: "SNAP-1",
+      workspacePath: "/tmp/workspace",
+    });
+
+    expect(calls[0]).toEqual([
+      "plugin",
+      "context",
+      "expand",
+      "--pack-id",
+      "PACK-1",
+      "--expected-snapshot-id",
+      "SNAP-1",
+      "--limit-tokens",
+      "512",
+      "--workspace-path",
+      "/tmp/workspace",
+      "--handle",
+      "EXP-1",
+      "--handle",
+      "EXP-2",
+    ]);
+    expect(calls[1]).toEqual([
+      "plugin",
+      "context",
+      "verify",
+      "--pack-id",
+      "PACK-1",
+      "--verification-handle",
+      "VER-1",
+      "--expected-snapshot-id",
+      "SNAP-1",
+      "--workspace-path",
+      "/tmp/workspace",
+    ]);
+  });
+
+  it("preserves snapshot conflict metadata from context commands", async () => {
+    const client = new IncuratorClient(settings(), "0.3.1", async () => ({
+      ok: false,
+      operation: "context_expand",
+      error_type: "snapshot_conflict",
+      expected_snapshot_id: "SNAP-old",
+      current_snapshot_id: "SNAP-new",
+      resolution: "refetch_or_rebase",
+    }));
+
+    const result = await client.expandContext({
+      packId: "PACK-1",
+      handles: ["EXP-1"],
+      expectedSnapshotId: "SNAP-old",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error_type).toBe("snapshot_conflict");
+    expect(result.expected_snapshot_id).toBe("SNAP-old");
+    expect(result.current_snapshot_id).toBe("SNAP-new");
+    expect(result.resolution).toBe("refetch_or_rebase");
   });
 
   it("routes Zotero status, init, search, metadata, annotations, and PDF resolve through backend plugin commands", async () => {

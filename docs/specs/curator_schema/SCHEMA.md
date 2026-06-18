@@ -2123,3 +2123,67 @@ score, break ties by `rank DESC`.  The omitted count is stored in
 This line is appended AFTER the last fully-rendered item, ensuring `max_chars` is
 respected by the rendered content + marker together.  The marker MUST contain the
 word `"omitted"` (case-insensitive match used by tests).
+
+## 23. Context Service Contracts (Plan F target, v0.12.0)
+
+Plan F adds the schema contract for a unified `ContextService`. The initial
+schema is additive; `SCHEMA_VERSION` remains unchanged until the physical
+migration is implemented and rehearsed.
+
+### 23.1 Prefix Registry Additions
+
+The following logical ids are reserved for the context service:
+
+| Prefix | Owner | Table / location |
+|---|---|---|
+| `PACK-` | ContextService pack assembler | context pack record or `query_traces` child payload |
+| `SNAP-` | ContextService snapshot resolver | context snapshot record or root trace payload |
+| `CTXA-` | ContextService child action recorder | ordered context action record |
+| `EXP-` | ContextService expansion handle issuer | pack `next[]` handle payload |
+| `VER-` | ContextService verification handle issuer | evidence item verification payload |
+| `FBK-` | ContextService feedback recorder | append-only feedback record |
+
+These prefixes do not replace existing `QTR-`, `RTR-`, `PTR-`, `SPAN-`, `ATM-`,
+`CON-`, or `SYN-` ids. A `QTR-*` remains the root request id, and a Plan A
+`RTR-*` remains the retrieval execution child id.
+
+### 23.2 Logical Records
+
+The physical migration may choose normalized tables or explicit JSON payload
+columns, but it must preserve these logical records:
+
+- **Context root**: one `QTR-*` root per logical context/query request, including
+  request identity, workspace, purpose, policy hash, route decision, final pack,
+  warnings, and optional synthesis references.
+- **Context snapshot**: one `SNAP-*` closure per root request, including source
+  epoch, DB epoch, search/index epoch, dependency epoch, policy hash,
+  model/tokenizer/config hash, and creation time.
+- **Context action**: ordered `CTXA-*` child actions for retrieval, pack assembly,
+  budget decisions, omissions, expansion, verification, synthesis, degradation,
+  and stop reason.
+- **Context pack**: one or more `PACK-*` payloads containing version, snapshot,
+  route, policy, budget, coverage, evidence items, expansion handles, and
+  warnings.
+- **Context feedback**: append-only `FBK-*` events linked to `QTR-*`, `PACK-*`,
+  `SNAP-*`, client, purpose, target item/record/claim, reviewed evidence, review
+  status, and resulting lineage.
+
+### 23.3 Migration Rules
+
+Existing `query_traces` rows remain readable without backfill. The migration must
+be additive and must pass forward/rollback rehearsal on a copied DB before
+release. Compatibility adapters may emit legacy transport fields, but the
+canonical context record must not duplicate retrieval selection or create a
+second source of truth.
+
+### 23.4 Canonical Fixtures
+
+The canonical JSON fixtures for this contract live under:
+
+```text
+docs/specs/system_behavior/context_service_fixtures/
+```
+
+They define the minimum wire shape for `context_manifest`, `context_fetch`,
+successful `context_expand`, `context_expand` snapshot conflict responses,
+`context_verify`, and `context_feedback`.

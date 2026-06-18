@@ -33,7 +33,7 @@ boundary:
     start_char/end_char offsets — no evidence route does so.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f10_baseline_span_evidence_capped_at_preview
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f10_baseline_span_evidence_capped_at_preview" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f10_baseline_span_evidence_capped_at_preview" -q
 oracles:
   deterministic: >
     Long-source span evidence is retrievable in full (or in explicitly

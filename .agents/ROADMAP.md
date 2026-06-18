@@ -23,7 +23,15 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 
 ### 🚀 Unresolved Items to be Addressed in the Future (To-Do)
 
-1. **[Major Update] RAG & Knowledge Quality Stabilization** — *IN PROGRESS*
+1. **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul**
+   - A unified "Big Plan" refactoring to resolve systemic agent attention failures, prompt duplication, and UI state desyncs.
+   - Component Drafts to be merged into the Master Plan:
+     - Context Decay & Cmd+Shift+L Failure (`.agents/drafts/chat_context_decay.md`)
+     - Popover Tool Scope & Prompt Unification (`.agents/drafts/popover_tool_scope.md`)
+     - Diff Viewer Overhaul & Model Consistency (`.agents/drafts/diff_viewer_plugin.md`)
+     - Prompt Architecture Refactoring (`.agents/drafts/prompt_architecture_refactoring.md`)
+
+2. **[Major Update] RAG & Knowledge Quality Stabilization** — *IN PROGRESS*
    - Heart-of-system three-program initiative for using the notes vault like a
      codebase: first establish the truth contract, deep diagnosis, external
      research, and quality observatory; then make the note-to-L1-L4 evidence
@@ -83,6 +91,10 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
    - Web search integration review, `[[wikilink]]` conflict validation, Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`), Zotero profile import sorted by recently accessed.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
 
+4.1. **[Minor Update] Persistent Quick Query Popover**
+   - Upgrade the in-line copilot popover to be immune to outside clicks, freely draggable, and minimizable, acting as a persistent reference window during document analysis.
+   - Detailed analysis: `.agents/drafts/persistent_popover.md`
+
 4.5. **[Minor Update] Diff Viewer Plugin Overhaul & Sync Fixes**
    - Address 7 critical bugs in the plugin's Diff Viewer (UI/UX redesign to inline unified view, race conditions, multi-file diff selection).
    - Detailed analysis: `.agents/drafts/diff_viewer_plugin.md`
@@ -107,7 +119,15 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Active Milestone**: **Batch 3 (Plan F) - Agent Context Service**.
+- **Active Milestone**: **Batch 3 (Plan F) - Agent Context Service** (Resumed at P5).
+  - (Batch 1~3 Systemic Remediation & Code Fixes successfully hotfixed).
+  - Deferred Plan F follow-up requirements from the Batch 1~3 audit:
+    - Systemic design/evaluation gates:
+      `01_systemic_oracle_overfitting.md`,
+      `02_systemic_graph_fragmentation.md`,
+      `03_systemic_pipeline_fragility.md`
+    - Explore route ContextService migration:
+      `06_arch_explore_bypass.md`
 - **Shipped**: **4.5 Diff Viewer Overhaul** (Merged in v0.11.0).
 - **Next in Queue**: TBD.
   Implementation starts only on explicit user approval.

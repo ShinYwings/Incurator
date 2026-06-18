@@ -41,7 +41,7 @@ describe("chat sidebar context chip source contract", () => {
     // Must not default to the first curate.yml found in the vault.
     expect(source).not.toContain("let targetCurate = curateFiles[0]");
     expect(source).toContain("a conversational chat never binds an unrelated workspace");
-    expect(source).toContain("const language = inferQueryLanguageMetadata(query)");
+    expect(source).toContain("client.fetchContext(query");
   });
 
   it("injects full open Markdown files as edit targets for global similar replacements", () => {
@@ -129,6 +129,49 @@ describe("chat sidebar context chip source contract", () => {
     expect(providerContext).toContain("if (useBackendPdfContext && client.available");
     expect(providerContext).not.toContain("const shouldFetchBackendContext");
   });
+
+  it("grounds default Incurator sidechat context with evidence packs, not backend answers", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const providerContext = source.slice(
+      source.indexOf("private async buildIncuratorProviderContext"),
+      source.indexOf("private async timedContextCall")
+    );
+
+    expect(providerContext).toContain("client.fetchContext(query");
+    expect(providerContext).toContain("formatCuratorContextPack");
+    expect(providerContext).not.toContain("client.curatorQuery(query");
+    expect(providerContext).not.toContain("formatCuratorQueryResult(queryResult, query)");
+  });
+
+  it("handles Sources & Trace expansion and verification events through IncuratorClient", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    expect(source).toContain("attachContextTraceActionHandlers");
+    expect(source).toContain("handleContextTraceAction");
+    expect(source).toContain("context:expand");
+    expect(source).toContain("context:verify");
+    expect(source).toContain("client.expandContext");
+    expect(source).toContain("client.verifyContext");
+    expect(source).toContain("mergeContextExpansion");
+  });
+
+  it("handles snapshot-conflict refetch from Sources & Trace", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    expect(source).toContain("context:refetch");
+    expect(source).toContain("handleContextTraceRefetch");
+    expect(source).toContain("markContextSnapshotConflict");
+    expect(source).toContain("contextActionError");
+    expect(source).toContain("Context snapshot changed. Refetch the evidence pack.");
+    expect(source).toContain('operation: "snapshot_conflict"');
+    expect(source).toContain("client.fetchContext(query");
+    expect(source).toContain("replaceContextPack");
+    expect(source).toContain("snapshot_conflict: refetch required before expanding or verifying this pack");
+  });
+
   it("preserves eye-off state across tab switches (active-leaf-change must not clear excluded keys)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");

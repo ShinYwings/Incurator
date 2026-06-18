@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
+from typing import Any
 
 from .base import ParsedDocument, ParserError
 
@@ -54,19 +56,10 @@ def parse(path: Path) -> ParsedDocument:
         )
 
     module_name = _PARSERS[ext]
-    # Lazy import so unused parsers don't force their heavy deps
-    if module_name == "text":
-        from . import text as parser_module
-    elif module_name == "pdf":
-        from . import pdf as parser_module
-    elif module_name == "docx":
-        from . import docx as parser_module
-    elif module_name == "html":
-        from . import html as parser_module
-    elif module_name == "image":
-        from . import image as parser_module
-    else:
+    if module_name not in {"text", "pdf", "docx", "html", "image"}:
         raise ParserError(f"Internal error: unknown parser '{module_name}'")
+    # Lazy import so unused parsers don't force their heavy deps.
+    parser_module: Any = importlib.import_module(f"{__name__}.{module_name}")
 
     return parser_module.parse(path)
 

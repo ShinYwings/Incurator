@@ -63,7 +63,9 @@ class ConceptClusteringAgent:
     """Re-clusters existing and new Atoms into L3 Concepts."""
     @staticmethod
     def recluster(paths: cfg.WikiPaths, client, atom_ids: list[str]) -> None:
-        ingest_llm.run_l3_from_existing_atoms(paths, client, atom_ids)
+        ingest_llm.run_l3_from_existing_atoms(
+            paths, client, lambda: ingest_llm.IngestCallbacks()
+        )
 
 
 # ---------------------------------------------------------------------------

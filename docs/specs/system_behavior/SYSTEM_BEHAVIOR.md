@@ -423,11 +423,13 @@ Expected behavior:
    answer. `curator_fetch_context` returns the evidence pack without synthesis.
 4. Return answer/evidence plus trace. No Exhibition is created or cached.
 
-The Obsidian sidechat uses `wiki plugin query` (JSON) for ordinary
-workspace/domain questions; it must not wait for an external MCP server. If the
-latest turn is centered on selected Markdown, a line-range edit, a PDF page
-reference, or a selected PDF/image crop, sidechat treats that selected context as
-primary.
+The Obsidian sidechat uses `wiki plugin context fetch` (JSON) for ordinary
+workspace/domain questions; it must not wait for an external MCP server. The
+provider is grounded with the returned evidence pack, not a backend synthesized
+answer. `wiki plugin query` remains available only for explicit backend
+synthesis. If the latest turn is centered on selected Markdown, a line-range
+edit, a PDF page reference, or a selected PDF/image crop, sidechat treats that
+selected context as primary.
 
 For PDF selected-context turns, a selected phrase that is itself a pointer
 (`Section A4.2`, `p580`, `Figure 19.1`, `Eq. (19.6)`, etc.) changes the target
@@ -643,7 +645,10 @@ Rules:
   `repo_path` → none. When none, the plugin hides the update banner instead of
   showing a dead button. `repo_path` is a machine-local value and must only be
   carried in vault-independent JSON / the device-local `devices.json`, never in a
-  synced artifact.
+  synced artifact. The command also always returns `build.backend_version`,
+  `build.plugin_version`, `build.git_commit`, and `build.schema`; if the packaged
+  `build_manifest.json` is absent, these fields fall back to the installed
+  backend version and current schema constants rather than an empty object.
 - The plugin update action copies the freshly built `main.js` and
   `manifest.json` from `<repo>/plugin/` into the currently open vault's plugin
   directory only. It must not run `git pull` or `setup.sh`; building is the
@@ -1098,9 +1103,28 @@ Rules:
   `QueryOrchestrator` run, including CLI, MCP, plugin query, plugin quick-query,
   and explore surfaces. These fields are returned in the query JSON (CLI
   `--trace`, plugin, MCP).
-- The `fetch_context` surface (MCP `curator_fetch_context`) returns the same
-  curated evidence pack — including `synthesis` items and `synthesis_node_ids` —
-  WITHOUT a synthesized answer, for reasoning agents that have their own LLM.
+- For ContextService-backed answer routes, plugin and MCP query JSON also
+  return the selected `pack_id`, `snapshot`, and `budget` used for synthesis;
+  degraded routes that have not migrated to ContextService return `null` or omit
+  those fields instead of fabricating empty placeholders.
+- The `fetch_context` surfaces (MCP `curator_fetch_context` and hidden
+  `wiki plugin context fetch`) return the same curated evidence pack — including
+  `synthesis` items and `synthesis_node_ids` — WITHOUT a synthesized answer, for
+  reasoning agents and the Obsidian provider path that have their own LLM.
+- For Obsidian sidechat, the fetched pack is retained on the local trace payload
+  as `context_pack`. Sources & Trace renders this exact pack's route, pack id,
+  snapshot id, budget, coverage/degraded state, evidence item summaries,
+  locators, expansion handles, verification handles, and omitted `next[]`
+  handles instead of reconstructing provenance from ids alone.
+- Sources & Trace locator rows are actionable: vault locators open the target
+  `relpath` plus heading or block anchor when present, and external locators open
+  `external_uri`. Expansion and verification buttons call hidden plugin JSON
+  operations (`wiki plugin context expand` / `wiki plugin context verify`) with
+  the displayed pack id and snapshot id. Snapshot conflicts remain visible as
+  degraded/refetch-required state. The plugin preserves the conflict metadata,
+  offers a refetch action, and replaces the displayed pack with a fresh
+  `context_fetch` result for the original question; it must not merge evidence
+  from different snapshots.
 - The v0.2.2 language bridge (§11 inherited) is unchanged: detect latest-input
   language, reason in English, answer in the detected language; bridge fields stay
   response/trace-only and are never persisted.
@@ -1207,7 +1231,24 @@ directly edits read-only source truth.
 
 `curator_query` returns the v0.3.1 trace fields additively: `route`, `trace_id`,
 `prompt_trace_ids`, `source_span_ids`, `community_report_ids`, `memory_path_ids`,
-`insight_candidate_ids`, and the existing `answer`/`trace`.
+`insight_candidate_ids`, and the existing `answer`/`trace`. Under the Plan F
+ContextService contract, L3-complete synthesized answers also expose the exact
+ContextService `pack_id`, `snapshot`, and `budget` used for synthesis inside the
+returned trace, while the root `QTR-*` stores the same pack/snapshot and a
+`synthesis` child action. Routes that have not yet migrated to ContextService
+return `null` for `pack_id`, `snapshot`, and `budget` rather than empty
+placeholder structures.
+For successful synthesized answers, result-level and query-trace
+`source_span_ids` are the spans the validated prompt output reports as cited by
+the answer. The full retrieved ContextService pack remains available under
+`retrieval_trace.context_service` and, for plugin-backed calls, `context_pack`.
+
+If answer synthesis fails validation after a ContextService pack is selected,
+result-level and root query-trace answer provenance arrays are cleared because no
+validated answer cited those references. The retrieved pack provenance remains
+available under `retrieval_trace.context_service`. The failure is recorded on the
+`synthesis` child action as `synthesis_status=failed` with empty cited span ids,
+so evaluation can distinguish retrieval success from synthesis failure.
 
 ### 20.1 Synthesis Audit Reports
 
@@ -2206,7 +2247,14 @@ class StructuredLocator:
 `source_kind` values:
 - `vault_markdown` — a `.md` file in `03_Notes/`, `02_Wiki/`, or
   `.curator/Collections/`
-- `vault_pdf` — a PDF file in `04_Resources/` or `06_Archives/` (Reference Mode)
+- `vault_pdf` — a PDF source. This covers both a PDF copied into the vault and a
+  Reference Mode PDF. For Reference Mode the PDF is *not* in the vault: `relpath`
+  points to an in-vault markdown *stub* under `04_Resources/`, while
+  `external_uri` carries the real file path. `external_uri` is therefore
+  authoritative for opening — whenever it is present, clients MUST open the
+  external file (a reference PDF in the client's PDF viewer at `page_number`),
+  never the stub `relpath`. `relpath` is the open target only when `external_uri`
+  is absent (a true in-vault PDF).
 - `external_uri` — a URI-only external reference (no local copy)
 - `promoted_wiki` — a note in `02_Wiki/` promoted from L4
 
@@ -2314,3 +2362,166 @@ Diagnostic / raw-search surfaces that call `build_evidence` outside the
 `curator_fetch_context`) MUST create an explicit parent QTR through
 `db.insert_query_trace` before returning.  A retrieval execution MUST NOT produce
 a disconnected `RTR-*` with no parent `QTR-*` in the trace record.
+
+## 31. Unified Agent Context Service (Plan F target, v0.12.0)
+
+Plan F introduces a single backend `ContextService` as the authoritative
+transaction boundary for external MCP agents and the Obsidian agent. Existing
+query, context, plugin, and MCP adapters remain transport surfaces only; when
+they serve agent context, they delegate to this service instead of assembling a
+second retrieval path.
+
+### 31.1 Operations
+
+The service exposes five logical operations:
+
+| Operation | Purpose |
+|---|---|
+| `context_manifest` | Return a bounded summary of available context families and expansion handles. |
+| `context_fetch` | Return the initial normalized evidence pack for a query/scope/budget. |
+| `context_expand` | Expand a prior pack by handle within the same snapshot or return a typed conflict. |
+| `context_verify` | Resolve an item/claim handle to exact source evidence, dependencies, locator state, and contradictions. |
+| `context_feedback` | Append a reviewed or pending feedback event against a pack/item/claim without mutating source truth. |
+
+`curator_fetch_context` maps to `context_fetch`. For ContextService-backed
+routes, `curator_query` first obtains a pack through `context_fetch` and may
+synthesize only over the full already-budgeted pack under the same root trace.
+Raw search remains diagnostic; if a client uses it as agent context, it must
+share the same policy, snapshot, trace, and provenance primitives.
+
+### 31.2 Request Contract
+
+Every request carries an explicit purpose, route preference, scope, budget, and
+freshness policy:
+
+```json
+{
+  "contract_version": "1",
+  "query": "How is residual learning interpreted?",
+  "workspace_path": "/absolute/workspace",
+  "purpose": "ground",
+  "route": "auto",
+  "scope": {"source_ids": [], "active_paths": []},
+  "budget": {
+    "max_tokens": 6000,
+    "max_items": 12,
+    "max_tokens_per_item": 700,
+    "reserve_for_expansion": 1500
+  },
+  "detail": "index",
+  "freshness_policy": "current_only",
+  "expected_snapshot_id": null
+}
+```
+
+Allowed `purpose` values are `ground`, `verify`, `synthesize`, and `discover`.
+Allowed detail levels are `manifest`, `index`, `excerpt`, and `source`.
+
+### 31.3 Root Trace And Snapshot Contract
+
+Exactly one `QTR-*` root owns the logical context request. All retrieval,
+packing, expansion, verification, synthesis, degradation, and feedback actions
+are ordered child actions of that root. Plan A `RTR-*` retrieval executions are
+attached to the caller-owned `QTR-*`; they must not create an orphan root.
+
+The service resolves one immutable snapshot per request. The snapshot closure
+includes source/corpus identity, DB epoch, search/index epoch, dependency or
+derived-state epoch, `curate.yml` policy hash, model/tokenizer/config identity,
+and creation time. `context_expand` requires `pack_id`, expansion handles, a new
+budget, and `expected_snapshot_id`. If any snapshot component changed, the
+service returns a typed conflict with `current_snapshot_id` and does not mix
+epochs silently.
+
+### 31.4 Context Pack Contract
+
+The normalized pack is versioned and budget bounded:
+
+```json
+{
+  "contract_version": "1",
+  "pack_id": "PACK-...",
+  "trace_id": "QTR-...",
+  "snapshot": {"snapshot_id": "SNAP-...", "created_at": "..."},
+  "route": {"selected": "local", "reason": "...", "stop_reason": "sufficient"},
+  "policy": {"applied_filters": [], "excluded": []},
+  "budget": {
+    "limit_tokens": 6000,
+    "used_tokens": 4310,
+    "reserved_tokens": 1500,
+    "omitted_items": 7,
+    "estimation_mode": "tokenizer"
+  },
+  "coverage": {
+    "sufficiency": "sufficient",
+    "contradictions_present": false,
+    "omission_categories": []
+  },
+  "items": [],
+  "next": [],
+  "warnings": []
+}
+```
+
+Budget enforcement covers total tokens, item count, per-item tokens, route caps,
+and reserved expansion budget. Token accounting uses the selected model tokenizer
+when available; otherwise it uses a conservative estimator and exposes
+`estimation_mode`. The fallback estimator must be conservative for CJK and other
+multi-byte text; it must not use an English-only characters-per-token divisor
+that underestimates Korean, Chinese, or Japanese evidence. Truncation is never
+silent: omitted items, omission categories, insufficiency warnings, and
+expansion handles are explicit.
+
+Selected provenance arrays preserve the selected pack order. Implementations
+must deduplicate `source_span_ids`, report ids, synthesis ids, and memory-path
+ids by first occurrence while iterating selected evidence items; they must not
+sort those ids lexicographically after ranking.
+
+### 31.5 Evidence Item Contract
+
+Each selected evidence item carries stable identity and source validity:
+
+- `item_id`, stable `record_id`, `record_hash`, `kind`, and DAG `layer`;
+- compact `summary` or `claim` distinct from raw source text;
+- authority, truth/support, and freshness state;
+- ranking contributions and route/expansion reason;
+- structured locator, locator status, and minimal supporting `source_span_ids`;
+- immediate dependency ids;
+- token cost and detail level;
+- contradiction/uncertainty state;
+- `expansion_handle` and `verification_handle`.
+
+For source-supported items, all minimal support ids and locators must resolve or
+the item is either excluded or returned with an explicit degraded/provisional
+state. If an item still carries `source_span_ids` but no backing span/locator can
+be resolved, it is returned as `truth_state=orphaned_support` with stale
+freshness and an `unavailable` locator; it must not be labeled
+`source_supported`. A working-looking link must never be fabricated.
+
+`context_expand` consumes successfully expanded handles from the root pack state.
+Repeating the same handle in the same snapshot returns no duplicate item and
+does not append another expansion action. Handles requested under an insufficient
+budget are returned in `expansion_refused` with `reason=budget_exhausted` and
+are not requeued in `next`; clients must raise the budget or refetch rather than
+looping over the same handle.
+
+### 31.6 Feedback Contract
+
+`context_feedback` records append-only events with one of these types:
+`relevant`, `irrelevant`, `incorrect`, `stale`, `insufficient`, `duplicate`,
+`new_insight`, `correction`, or `promotion_request`.
+
+Every event stores the root trace, pack, snapshot, client/purpose, target item or
+claim, reviewed evidence/source span ids, user statement, classification, review
+status, review actor/time, and any resulting insight, correction, or promotion
+lineage. Feedback cannot alter ranking, truth status, source files, or generated
+records until a separate reviewed policy explicitly applies it.
+
+### 31.7 Migration And Retention Plan
+
+The physical implementation is additive. Existing `query_traces` remain readable.
+New context roots may continue to use `query_traces` for the root row while child
+actions, snapshots, packs, and feedback are stored in new versioned records or in
+explicit JSON columns/tables chosen during the migration phase. The migration
+must be forward/rollback rehearsed on a copied DB before release. No permanent
+dual retrieval implementation is allowed: compatibility adapters may preserve old
+transport shapes, but retrieval and packing logic live in `ContextService`.

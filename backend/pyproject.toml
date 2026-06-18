@@ -40,6 +40,8 @@ dev = [
     "pytest>=8.0.0",
     "ruff>=0.11.0",
     "mypy>=1.8.0",
+    "types-PyYAML>=6.0.12",
+    "mcp>=1.0.0",
 ]
 # Local search GGUF runtime: Qwen3 embedding + reranker via llama-cpp-python.
 # Install with: uv pip install -e './backend[rerank]' (or run ./setup.sh
@@ -48,6 +50,13 @@ dev = [
 rerank = [
     "llama-cpp-python>=0.3.0",
 ]
+
+[tool.uv]
+# The backend package is intentionally unmanaged by uv so validation never asks
+# uv to create `backend/.venv` or `backend/uv.lock`. Use repo-root `.venv` for
+# service/runtime (`./setup.sh`) and repo-root `.venv-dev` for local validation
+# via `scripts/backend-check`.
+managed = false
 
 [project.scripts]
 wiki = "curator.cli:app"
@@ -65,4 +74,11 @@ packages = ["src/curator"]
 "src/curator/data" = "curator/data"
 
 [tool.pytest.ini_options]
-cache_dir = "../.cache/pytest_cache"
+cache_dir = "../.pytest_cache"
+
+[tool.ruff]
+cache-dir = "../.ruff_cache"
+
+[tool.mypy]
+mypy_path = "stubs"
+cache_dir = "../.mypy_cache"

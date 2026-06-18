@@ -957,7 +957,7 @@ def fix_gaps(
 
 def apply_generative_backprop(paths, client, gaps, callbacks=None) -> list[str]:
     """Run generative backprop using the Multi-Agent architecture to extract insights and generate Atoms."""
-    import backend.src.curator.backprop_agents as b_agents
+    from . import backprop_agents as b_agents
 
     evaluator = b_agents.TimePerformanceEvaluator()
     extractor = b_agents.InsightExtractor()

@@ -1,5 +1,11 @@
 import type { App } from "obsidian";
-import type { CuratorQueryResult } from "../types";
+import { basename } from "path";
+import type { CuratorContextItem, CuratorContextPack, CuratorQueryResult } from "../types";
+import {
+  EXTERNAL_PDF_VIEW_TYPE,
+  registerExternalPdfByPath,
+  type ExternalPdfState,
+} from "./externalPdfView";
 
 /**
  * Renders the "Sources & Trace" collapsible panel below a curator_query answer.
@@ -19,7 +25,8 @@ export function renderCuratorQueryTrace(
       result.synthesis_node_ids?.length ||
       result.memory_path_ids?.length ||
       result.prompt_trace_ids?.length ||
-      result.insight_candidate_ids?.length
+      result.insight_candidate_ids?.length ||
+      result.context_pack
   );
   if (!trace && !hasV031) return;
 
@@ -88,12 +95,12 @@ export function renderCuratorQueryTrace(
   }
 
   // ── v0.3.1 curation-native trace (route, evidence ids, prompt traces) ──
-  renderV031Trace(body, result);
+  renderV031Trace(body, result, app);
 }
 
 /** Render the v0.3.1 route + evidence + prompt-trace rows. Degrades gracefully:
  * each row renders only when its field is present. */
-function renderV031Trace(body: HTMLElement, result: CuratorQueryResult): void {
+function renderV031Trace(body: HTMLElement, result: CuratorQueryResult, app: App): void {
   if (result.route) {
     const routeRow = body.createDiv("incurator-trace-route");
     routeRow.createSpan({ text: "Route: ", cls: "incurator-trace-label" });
@@ -132,4 +139,263 @@ function renderV031Trace(body: HTMLElement, result: CuratorQueryResult): void {
       row.createDiv({ text: `⚠ ${w}`, cls: "incurator-trace-warning" });
     }
   }
+
+  if (result.context_pack) {
+    renderContextPack(body, result.context_pack, app);
+  }
+}
+
+function renderContextPack(body: HTMLElement, pack: CuratorContextPack, app: App): void {
+  const box = body.createDiv("incurator-trace-pack");
+  const snapshotId = typeof pack.snapshot?.snapshot_id === "string" ? pack.snapshot.snapshot_id : "";
+  const budget = pack.budget || {};
+  const used = typeof budget.used_tokens === "number" ? budget.used_tokens : undefined;
+  const limit = typeof budget.limit_tokens === "number" ? budget.limit_tokens : undefined;
+  const coverage = pack.coverage || {};
+  const sufficiency =
+    typeof coverage.sufficiency === "string" ? coverage.sufficiency : undefined;
+
+  const title = box.createDiv("incurator-trace-pack-title");
+  title.createSpan({ text: "Context pack", cls: "incurator-trace-label" });
+  if (pack.pack_id) title.createSpan({ text: ` ${pack.pack_id}`, cls: "incurator-trace-pack-id" });
+  if (snapshotId) title.createSpan({ text: ` ${snapshotId}`, cls: "incurator-trace-snapshot-id" });
+  if (used !== undefined && limit !== undefined) {
+    title.createSpan({ text: ` budget ${used}/${limit}`, cls: "incurator-trace-budget" });
+  }
+  if (sufficiency) {
+    title.createSpan({ text: ` ${sufficiency}`, cls: "incurator-trace-coverage" });
+  }
+
+  const degraded =
+    pack.ok === false ||
+    pack.operation === "snapshot_conflict" ||
+    pack.error_type === "snapshot_conflict" ||
+    pack.error === "snapshot_conflict" ||
+    pack.error?.includes("snapshot_conflict");
+  if (degraded) {
+    const reason = pack.error_type || pack.error || "snapshot_conflict";
+    box.createDiv({
+      text: snapshotConflictText(pack, reason),
+      cls: "incurator-trace-pack-degraded",
+    });
+    if (reason === "snapshot_conflict" || pack.resolution === "refetch_or_rebase") {
+      const staleRow = box.createDiv("incurator-trace-pack-stale-actions");
+      const refetch = staleRow.createEl("button", {
+        text: "Refetch",
+        cls: "incurator-trace-pack-refetch-btn",
+      });
+      refetch.addEventListener("click", () => {
+        dispatchContextRefetch(staleRow, pack);
+      });
+    }
+  }
+
+  const items = pack.items || [];
+  if (items.length) {
+    const itemList = box.createDiv("incurator-trace-pack-items");
+    for (const item of items.slice(0, 10)) {
+      renderContextPackItem(itemList, item, app, pack);
+    }
+    if (items.length > 10) {
+      itemList.createDiv({
+        text: `${items.length - 10} more pack items omitted from panel`,
+        cls: "incurator-trace-pack-more",
+      });
+    }
+  }
+
+  if (pack.next?.length) {
+    const next = box.createDiv("incurator-trace-pack-next");
+    next.createSpan({ text: `Omitted expansion handles (${pack.next.length}): `, cls: "incurator-trace-label" });
+    next.createSpan({
+      text: pack.next
+        .slice(0, 8)
+        .map((entry) => String(entry.handle || ""))
+        .filter(Boolean)
+        .join(", "),
+      cls: "incurator-trace-ids",
+    });
+  }
+}
+
+function renderContextPackItem(
+  parent: HTMLElement,
+  item: CuratorContextItem,
+  app: App,
+  pack: CuratorContextPack
+): void {
+  const row = parent.createDiv("incurator-trace-pack-item");
+  const heading = row.createDiv("incurator-trace-pack-item-heading");
+  heading.createSpan({
+    text: `${item.kind || "item"} ${item.record_id || ""}`.trim(),
+    cls: "incurator-trace-pack-item-id",
+  });
+  if (item.truth_state || item.freshness_state) {
+    heading.createSpan({
+      text: ` truth=${item.truth_state || "unknown"} freshness=${item.freshness_state || "unknown"}`,
+      cls: "incurator-trace-pack-state",
+    });
+  }
+
+  const summary = item.summary || item.title || item.claim;
+  if (summary) {
+    row.createDiv({ text: summary, cls: "incurator-trace-pack-summary" });
+  }
+
+  if (item.locator) {
+    const locatorRow = row.createDiv("incurator-trace-pack-locator");
+    const target = locatorTarget(item.locator);
+    if (target) {
+      const link = locatorRow.createEl("a", {
+        text: `Locator: ${target.label}`,
+        cls: "incurator-trace-pack-locator-link",
+      });
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        openLocator(app, item.locator!);
+      });
+    } else {
+      locatorRow.setText(`Locator: ${compactJson(item.locator)}`);
+    }
+  }
+
+  if (item.expansion_handle || item.verification_handle) {
+    const handleRow = row.createDiv("incurator-trace-pack-handles");
+    if (item.expansion_handle) {
+      const expand = handleRow.createEl("button", {
+        text: "Expand",
+        cls: "incurator-trace-pack-expand-btn",
+      });
+      expand.addEventListener("click", () => {
+        dispatchContextAction(handleRow, "context:expand", pack, item.expansion_handle!);
+      });
+    }
+    if (item.verification_handle) {
+      const verify = handleRow.createEl("button", {
+        text: "Verify",
+        cls: "incurator-trace-pack-verify-btn",
+      });
+      verify.addEventListener("click", () => {
+        dispatchContextAction(handleRow, "context:verify", pack, item.verification_handle!);
+      });
+    }
+  }
+}
+
+function compactJson(value: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function locatorTarget(
+  locator: Record<string, unknown>
+):
+  | { kind: "vault" | "external" | "external_pdf"; label: string; linkpath: string; page?: number }
+  | null {
+  if (locator.locator_status === "unavailable") return null;
+  const relpath = typeof locator.relpath === "string" ? locator.relpath : "";
+  const externalUri = typeof locator.external_uri === "string" ? locator.external_uri : "";
+  const sourceKind = typeof locator.source_kind === "string" ? locator.source_kind : "";
+  const page = typeof locator.page_number === "number" ? locator.page_number : undefined;
+  const pageLabel = page ? ` p.${page}` : "";
+
+  // External Reference Mode sources are NOT in the vault: the file lives at
+  // external_uri while relpath only points to an in-vault stub. Resolve the real
+  // file first so a non-null stub path can't shadow it. PDFs open in the
+  // plugin's own external PDF viewer at the cited page; other external
+  // references open through the system handler.
+  if (externalUri) {
+    const isFilePath = !/^[a-z][a-z0-9+.-]*:\/\//i.test(externalUri);
+    const isPdf = sourceKind === "vault_pdf" || /\.pdf($|[?#])/i.test(externalUri);
+    if (isPdf && isFilePath) {
+      return {
+        kind: "external_pdf",
+        label: `${basename(externalUri)}${pageLabel}`,
+        linkpath: externalUri,
+        page,
+      };
+    }
+    return { kind: "external", label: externalUri, linkpath: externalUri };
+  }
+
+  if (relpath) {
+    const heading = typeof locator.heading === "string" && locator.heading ? locator.heading : "";
+    const blockId = typeof locator.block_id === "string" && locator.block_id ? locator.block_id : "";
+    // Registered/vault PDFs jump to the cited page through Obsidian's native
+    // viewer via the #page=N anchor; other notes use heading/block anchors.
+    const anchor =
+      sourceKind === "vault_pdf" && page
+        ? `#page=${page}`
+        : blockId
+          ? `#^${blockId}`
+          : heading
+            ? `#${heading}`
+            : "";
+    return { kind: "vault", label: `${relpath}${pageLabel}${anchor}`, linkpath: `${relpath}${anchor}` };
+  }
+  return null;
+}
+
+function openLocator(app: App, locator: Record<string, unknown>): void {
+  const target = locatorTarget(locator);
+  if (!target) return;
+  if (target.kind === "external_pdf") {
+    void openExternalPdfLocator(app, target.linkpath, target.page);
+    return;
+  }
+  if (target.kind === "external") {
+    window.open(target.linkpath, "_blank", "noopener");
+    return;
+  }
+  app.workspace.openLinkText(target.linkpath, "", false);
+}
+
+async function openExternalPdfLocator(
+  app: App,
+  filePath: string,
+  page?: number
+): Promise<void> {
+  const base = registerExternalPdfByPath(filePath);
+  const state: ExternalPdfState = page ? { ...base, currentPage: page } : base;
+  const leaf = app.workspace.getLeaf("tab");
+  await leaf.setViewState({ type: EXTERNAL_PDF_VIEW_TYPE, active: true, state });
+  app.workspace.revealLeaf(leaf);
+}
+
+function dispatchContextAction(
+  source: HTMLElement,
+  action: "context:expand" | "context:verify",
+  pack: CuratorContextPack,
+  handle: string
+): void {
+  source.dispatchEvent(new CustomEvent(action, {
+    bubbles: true,
+    detail: {
+      pack_id: pack.pack_id,
+      snapshot_id: pack.snapshot?.snapshot_id,
+      handle,
+    },
+  }));
+}
+
+function dispatchContextRefetch(source: HTMLElement, pack: CuratorContextPack): void {
+  source.dispatchEvent(new CustomEvent("context:refetch", {
+    bubbles: true,
+    detail: {
+      pack_id: pack.pack_id,
+      expected_snapshot_id: pack.expected_snapshot_id,
+      current_snapshot_id: pack.current_snapshot_id,
+      resolution: pack.resolution,
+    },
+  }));
+}
+
+function snapshotConflictText(pack: CuratorContextPack, reason: string): string {
+  if (reason !== "snapshot_conflict") return reason;
+  const expected = pack.expected_snapshot_id ? ` expected=${pack.expected_snapshot_id}` : "";
+  const current = pack.current_snapshot_id ? ` current=${pack.current_snapshot_id}` : "";
+  return `snapshot_conflict${expected}${current}`;
 }

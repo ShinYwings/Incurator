@@ -31,14 +31,14 @@ import { DiffViewer } from "./diffViewer";
 import { renderCuratorQueryTrace } from "./incuratorQueryTrace";
 import {
   escapeAttribute,
-  formatCuratorQueryResult,
+  formatCuratorContextPack,
   formatIncuratorHits,
   formatOutline,
   formatPdfWindow,
   formatRagHits,
 } from "../context/providerContextFormat";
 import { buildBaseSystemPrompt, editableSelectionInstruction, wrapLatestUserMessageForLanguageBridge } from "../context/systemPrompt";
-import { detectLanguage, inferQueryLanguageMetadata } from "../context/languageBridge";
+import { detectLanguage } from "../context/languageBridge";
 import {
   deriveChatSessionTitle,
   formatRelativeSessionTime,
@@ -1599,23 +1599,50 @@ export class ChatSidebarView extends ItemView {
       // so a conversational chat never binds an unrelated workspace.
       const pdfFocused = pdfTabs.some((tab) => tab.isActive);
       if (shouldRunCuratorDomainQuery({ query, userContextRefs, pdfFocused, pdfSourceStatuses })) {
-        this.setPrepareStatus("Querying Incurator knowledge graph...");
-        const language = inferQueryLanguageMetadata(query);
-        const queryResult = await this.timedContextCall(
-          "curator_query",
+        this.setPrepareStatus("Fetching Incurator evidence pack...");
+        const packLimit = Math.max(
+          1000,
+          Math.min(16000, Math.floor((this.plugin.settings.maxContextLength || 128000) * 0.18))
+        );
+        const contextPack = await this.timedContextCall(
+          "curator_context_fetch",
           wsPath || "default",
-          () => client.curatorQuery(query, {
+          () => client.fetchContext(query, {
             workspacePath: wsPath,
-            inputLanguage: language.inputLanguage,
-            englishQuery: language.englishQuery,
-            finalOutputLanguage: language.finalOutputLanguage,
+            limitTokens: packLimit,
           })
         );
-        if (queryResult.ok) {
-          sections.push(formatCuratorQueryResult(queryResult, query));
-          if (queryResult.trace || queryResult.trace_id) {
-            this.lastQueryTrace = queryResult;
-          }
+        if (contextPack.ok) {
+          sections.push(formatCuratorContextPack(contextPack, query));
+          this.lastQueryTrace = {
+            ok: true,
+            question: query,
+            route: contextPack.route as CuratorQueryResult["route"],
+            trace_id: contextPack.trace_id,
+            pack_id: contextPack.pack_id,
+            snapshot: contextPack.snapshot,
+            budget: contextPack.budget,
+            source_span_ids: contextPack.source_span_ids,
+            community_report_ids: contextPack.community_report_ids,
+            synthesis_node_ids: contextPack.synthesis_node_ids,
+            memory_path_ids: contextPack.memory_path_ids,
+            warnings: contextPack.warnings,
+            context_pack: contextPack,
+            trace: {
+              matched_concepts: [],
+              source_ids: [],
+              source_paths: [],
+              trace_id: contextPack.trace_id,
+              route: contextPack.route,
+              pack_id: contextPack.pack_id,
+              snapshot: contextPack.snapshot,
+              budget: contextPack.budget,
+              prompt_trace_ids: [],
+              source_span_ids: contextPack.source_span_ids,
+              latency_ms: 0,
+              l3_complete: true,
+            },
+          };
         }
       }
     }
@@ -2436,12 +2463,180 @@ export class ChatSidebarView extends ItemView {
       const thoughtBlock = contentEl.querySelector("details.ai-agent-thought-block");
       if (thoughtBlock) {
         renderCuratorQueryTrace(thoughtBlock as HTMLElement, traceToRender as any, this.app);
+        this.attachContextTraceActionHandlers(thoughtBlock as HTMLElement);
       } else {
         renderCuratorQueryTrace(contentEl, traceToRender as any, this.app);
+        this.attachContextTraceActionHandlers(contentEl);
       }
     }
     window.setTimeout(() => this.attachAssistantAnswerLinkNavigation(contentEl), 0);
     attachLatexCopyHandler(contentEl, htmlToMarkdown);
+  }
+
+  private attachContextTraceActionHandlers(container: HTMLElement): void {
+    const marked = container as HTMLElement & { __incuratorTraceActionsBound?: boolean };
+    if (marked.__incuratorTraceActionsBound) return;
+    marked.__incuratorTraceActionsBound = true;
+    container.addEventListener("context:expand", (event) => {
+      this.handleContextTraceAction("context:expand", event as CustomEvent);
+    });
+    container.addEventListener("context:verify", (event) => {
+      this.handleContextTraceAction("context:verify", event as CustomEvent);
+    });
+    container.addEventListener("context:refetch", (event) => {
+      this.handleContextTraceRefetch(event as CustomEvent);
+    });
+  }
+
+  private async handleContextTraceAction(
+    action: "context:expand" | "context:verify",
+    event: CustomEvent
+  ): Promise<void> {
+    event.stopPropagation();
+    const detail = (event.detail || {}) as {
+      pack_id?: string;
+      snapshot_id?: string;
+      handle?: string;
+    };
+    if (!detail.pack_id || !detail.snapshot_id || !detail.handle) {
+      new Notice("Context action is missing pack, snapshot, or handle metadata.");
+      return;
+    }
+
+    const client = this.getIncuratorClient();
+    if (!client.available) {
+      new Notice("Incurator backend is not available.");
+      return;
+    }
+
+    const workspacePath = (this.app.vault.adapter as any).getBasePath?.() || "";
+    const packLimit = Math.max(
+      1000,
+      Math.min(16000, Math.floor((this.plugin.settings.maxContextLength || 128000) * 0.18))
+    );
+    if (action === "context:expand") {
+      const expanded = await client.expandContext({
+        packId: detail.pack_id,
+        handles: [detail.handle],
+        expectedSnapshotId: detail.snapshot_id,
+        workspacePath,
+        limitTokens: packLimit,
+      });
+      this.mergeContextExpansion(expanded, detail.handle);
+      this.markContextSnapshotConflict(expanded);
+      new Notice(expanded.ok ? "Context evidence expanded." : this.contextActionError(expanded, "Context expansion failed."));
+    } else {
+      const verified = await client.verifyContext({
+        packId: detail.pack_id,
+        verificationHandle: detail.handle,
+        expectedSnapshotId: detail.snapshot_id,
+        workspacePath,
+      });
+      this.markContextSnapshotConflict(verified);
+      new Notice(verified.ok ? "Context evidence verified." : this.contextActionError(verified, "Context verification failed."));
+    }
+    this.renderMessages(false);
+  }
+
+  private async handleContextTraceRefetch(event: CustomEvent): Promise<void> {
+    event.stopPropagation();
+    const query = this.lastQueryTrace?.question || "";
+    if (!query.trim()) {
+      new Notice("Context refetch needs the original question.");
+      return;
+    }
+    const client = this.getIncuratorClient();
+    if (!client.available) {
+      new Notice("Incurator backend is not available.");
+      return;
+    }
+    const workspacePath = (this.app.vault.adapter as any).getBasePath?.() || "";
+    const packLimit = Math.max(
+      1000,
+      Math.min(16000, Math.floor((this.plugin.settings.maxContextLength || 128000) * 0.18))
+    );
+    const refreshed = await client.fetchContext(query, {
+      workspacePath,
+      limitTokens: packLimit,
+    });
+    if (!refreshed.ok) {
+      new Notice(refreshed.error || "Context refetch failed.");
+      return;
+    }
+    this.replaceContextPack(refreshed);
+    new Notice("Context evidence refreshed.");
+    this.renderMessages(false);
+  }
+
+  private mergeContextExpansion(expanded: Awaited<ReturnType<IncuratorClient["expandContext"]>>, handle: string): void {
+    const pack = this.lastQueryTrace?.context_pack;
+    if (!pack || !expanded.ok) return;
+    const existing = new Set((pack.items || []).map((item) => item.record_id));
+    pack.items = [
+      ...(pack.items || []),
+      ...((expanded.items || []).filter((item) => !existing.has(item.record_id))),
+    ];
+    pack.next = (pack.next || []).filter((entry) => entry.handle !== handle);
+    pack.warnings = [...(pack.warnings || []), ...(expanded.warnings || [])];
+  }
+
+  private contextActionError(pack: Awaited<ReturnType<IncuratorClient["expandContext"]>>, fallback: string): string {
+    if (pack.error_type === "snapshot_conflict" || pack.operation === "snapshot_conflict") {
+      return "Context snapshot changed. Refetch the evidence pack.";
+    }
+    return pack.error || fallback;
+  }
+
+  private markContextSnapshotConflict(pack: Awaited<ReturnType<IncuratorClient["expandContext"]>>): void {
+    if (pack.error_type !== "snapshot_conflict" && pack.operation !== "snapshot_conflict") return;
+    const current = this.lastQueryTrace?.context_pack;
+    if (!current || !this.lastQueryTrace) return;
+    this.lastQueryTrace.context_pack = {
+      ...current,
+      ...pack,
+      ok: false,
+      operation: "snapshot_conflict",
+      pack_id: current.pack_id,
+      snapshot: current.snapshot,
+      budget: current.budget,
+      items: current.items,
+      next: current.next,
+      warnings: [
+        ...(current.warnings || []),
+        ...(pack.warnings || []),
+        "snapshot_conflict: refetch required before expanding or verifying this pack",
+      ],
+    };
+  }
+
+  private replaceContextPack(pack: Awaited<ReturnType<IncuratorClient["fetchContext"]>>): void {
+    if (!this.lastQueryTrace) return;
+    this.lastQueryTrace.context_pack = pack;
+    this.lastQueryTrace.route = pack.route as CuratorQueryResult["route"];
+    this.lastQueryTrace.trace_id = pack.trace_id;
+    this.lastQueryTrace.pack_id = pack.pack_id;
+    this.lastQueryTrace.snapshot = pack.snapshot;
+    this.lastQueryTrace.budget = pack.budget;
+    this.lastQueryTrace.source_span_ids = pack.source_span_ids;
+    this.lastQueryTrace.community_report_ids = pack.community_report_ids;
+    this.lastQueryTrace.synthesis_node_ids = pack.synthesis_node_ids;
+    this.lastQueryTrace.memory_path_ids = pack.memory_path_ids;
+    this.lastQueryTrace.warnings = pack.warnings;
+    this.lastQueryTrace.trace = {
+      ...(this.lastQueryTrace.trace || {
+        matched_concepts: [],
+        source_ids: [],
+        source_paths: [],
+        latency_ms: 0,
+        l3_complete: true,
+      }),
+      trace_id: pack.trace_id,
+      route: pack.route,
+      pack_id: pack.pack_id,
+      snapshot: pack.snapshot,
+      budget: pack.budget,
+      source_span_ids: pack.source_span_ids,
+    };
   }
 
   private attachAssistantAnswerLinkNavigation(container: HTMLElement): void {

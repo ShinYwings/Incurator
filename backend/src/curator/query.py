@@ -17,6 +17,7 @@ from . import constants as consts
 
 import re
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from . import config as cfg
 from . import page_writer
@@ -25,11 +26,20 @@ from . import search
 from .llm import (
     LLMError,
     ModelNotFound,
-    OllamaClient,
     OllamaNotRunning,
 )
 
 MAX_SYNTHESIS_SOURCE_CHARS = 24_000
+
+
+class ChatClient(Protocol):
+    def chat(
+        self,
+        messages: list[prompts.ChatMessage],
+        *,
+        json_mode: bool = False,
+        temperature: float = 0.3,
+    ) -> str: ...
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +206,7 @@ def _node_path_from_target(target: str) -> str:
     return _re.sub(r"^/?qmd://[^/]+/", "", cleaned).lstrip("/")
 
 
-def translate_to_english(client: OllamaClient, question: str) -> str:
+def translate_to_english(client: ChatClient, question: str) -> str:
     """Translate the question to English for BM25/vector search.
 
     Returns the original question unchanged if translation fails or if
@@ -226,7 +236,7 @@ def translate_to_english(client: OllamaClient, question: str) -> str:
 
 
 def classify_wiki_topic(
-    client: OllamaClient,
+    client: ChatClient,
     question: str,
     answer: str,
 ) -> tuple[str, str]:
@@ -365,7 +375,7 @@ def _run_query_orchestrated(
 
 def run_query(
     paths: cfg.WikiPaths,
-    client: OllamaClient,
+    client: ChatClient,
     question: str,
     callbacks: QueryCallbacks,
     *,

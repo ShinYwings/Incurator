@@ -292,12 +292,12 @@ def _hydrate(
     unit_rows = _collect_knowledge_units(db_path, source_span_ids=span_ids, knowledge_unit_ids=unit_ids)
     payload["knowledge_units"] = unit_rows
 
-    prompt_ids = _dedupe([
-        *(prompt_trace_ids or []),
-        *([synthesis.get("prompt_run_id")] if synthesis and synthesis.get("prompt_run_id") else []),
-        *[report.get("prompt_run_id") for report in reports if report.get("prompt_run_id")],
-        *[unit.get("prompt_run_id") for unit in unit_rows if unit.get("prompt_run_id")],
-    ])
+    prompt_candidates: list[str] = list(prompt_trace_ids or [])
+    if synthesis and synthesis.get("prompt_run_id"):
+        prompt_candidates.append(str(synthesis["prompt_run_id"]))
+    prompt_candidates.extend(str(report["prompt_run_id"]) for report in reports if report.get("prompt_run_id"))
+    prompt_candidates.extend(str(unit["prompt_run_id"]) for unit in unit_rows if unit.get("prompt_run_id"))
+    prompt_ids = _dedupe(prompt_candidates)
     prompt_rows: list[dict] = []
     for prompt_id in prompt_ids:
         row = db.get_prompt_run(db_path, prompt_id)

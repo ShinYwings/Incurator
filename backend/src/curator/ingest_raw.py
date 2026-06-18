@@ -2037,6 +2037,8 @@ def import_source_file(
                         "reference",
                     ),
                 )
+                if cur.lastrowid is None:
+                    raise RuntimeError("failed to create source row")
                 source_id = int(cur.lastrowid)
 
             _record_pdf_pages_conn(conn, source_id, relpath, parsed)

@@ -82,6 +82,9 @@ wiki plugin source register
 wiki plugin source rebind
 wiki plugin pdf context
 wiki plugin pdf search
+wiki plugin context fetch
+wiki plugin context expand
+wiki plugin context verify
 wiki plugin version
 wiki plugin query
 wiki plugin promote
@@ -234,7 +237,10 @@ Rules:
   banner only when those fingerprints are missing or mismatched. Semantic
   backend/plugin version labels alone are not enough to show an update banner
   when the fingerprints prove both sides came from the same local setup run. If
-  `incuratorRepoPath` is set, clicking the banner executes
+  the backend package has no generated build manifest, `wiki plugin version`
+  still returns `build.backend_version`, `build.plugin_version`,
+  `build.git_commit`, and `build.schema` fallback fields so the update check has
+  a stable JSON shape. If `incuratorRepoPath` is set, clicking the banner executes
   `cd <incuratorRepoPath> && ./setup.sh`; it must not force `git pull`.
 - `mcpServers` entries are for external/non-Incurator MCP servers. Incurator's
   own plugin integration must not require MCP tool discovery for static
@@ -521,6 +527,17 @@ interface CuratorQueryTrace {
   source_ids: number[];
   source_paths: string[];
   section_ids?: string[];        // toc sN IDs when section provenance exists
+  synthesis_node_ids?: string[];
+  community_report_ids?: string[];
+  memory_path_ids?: string[];
+  insight_candidate_ids?: string[];
+  prompt_trace_ids?: string[];
+  source_span_ids?: string[];
+  trace_id?: string;             // QTR-<UUID8>
+  route?: "local" | "global" | "explore" | "source-section";
+  pack_id?: string | null;       // PACK-<UUID8> for ContextService-backed routes
+  snapshot?: Record<string, unknown> | null;
+  budget?: Record<string, unknown> | null;
   latency_ms: number;
   l3_complete: boolean;          // whether full concept graph was available
 }
@@ -529,8 +546,17 @@ interface CuratorQueryTrace {
 Rules:
 
 - For ordinary workspace/domain questions without a primary selected context on
-  the latest user turn, the Obsidian sidechat must call `wiki plugin query`
-  directly and inject the formatted answer/trace into provider context.
+  the latest user turn, the Obsidian sidechat must call
+  `wiki plugin context fetch` by default and inject the formatted evidence pack
+  into provider context. It must not inject the backend synthesized answer by
+  default.
+- For L3-complete ContextService-backed answers, `wiki plugin query` MUST return
+  the same `pack_id`, `snapshot`, `budget`, prompt trace ids, and provenance
+  arrays at the additive result level and inside `trace`. L3-incomplete degraded
+  fallback may omit these fields until it is migrated to ContextService.
+- `wiki plugin query` remains the explicit backend-synthesis JSON surface. It is
+  not the default sidechat grounding path once `wiki plugin context fetch` is
+  available.
 - The Obsidian sidechat must send structured language metadata with plugin
   queries: `input_language`, `english_query` when already known, and
   `final_output_language`. For non-English input, the backend may compute
@@ -937,6 +963,9 @@ interface CuratorQueryResult {
   // final_output_language, trace, error ...
   route?: "auto" | "local" | "global" | "explore" | "source-section";
   trace_id?: string;              // QTR-<UUID8>
+  pack_id?: string | null;        // PACK-<UUID8> for ContextService-backed routes
+  snapshot?: Record<string, unknown> | null;
+  budget?: Record<string, unknown> | null;
   prompt_trace_ids?: string[];    // PTR-<UUID8>
   source_span_ids?: string[];     // SPAN-<UUID8>
   community_report_ids?: string[];// REP-<UUID8>
@@ -1300,3 +1329,90 @@ View) and copying it (`Cmd/Ctrl+C`, or `Cmd/Ctrl+X`) places the formulas' LaTeX
   (`selectionToMarkdownWithLatex` via Obsidian's `htmlToMarkdown`) and written to
   `text/plain`. Reading View is read-only, so `cut` writes the clipboard but deletes
   nothing; Live Preview's native cut already removes the source.
+
+## 15. Context Pack Client Contract (Plan F target, v0.12.0)
+
+The Obsidian plugin consumes the same normalized backend context pack that
+external MCP agents receive for equivalent request and snapshot inputs. The local
+plugin path still uses hidden `wiki plugin ...` JSON commands; it does not start
+or depend on `wiki mcp`.
+
+The default local JSON command is:
+
+```bash
+wiki plugin context fetch --query "<question>" --workspace-path "<vault-or-workspace>" --limit-tokens <n>
+```
+
+It returns the `context_fetch` pack without an `answer` field. `wiki plugin
+query` remains available for explicit backend synthesis, but ordinary provider
+grounding uses the pack command.
+
+Follow-up operations use the same root pack and snapshot:
+
+```bash
+wiki plugin context expand --pack-id PACK-... --handle EXP-... --expected-snapshot-id SNAP-...
+wiki plugin context verify --pack-id PACK-... --verification-handle VER-... --expected-snapshot-id SNAP-...
+```
+
+The plugin must pass the snapshot id from the displayed pack and must surface
+`snapshot_conflict` responses as degraded/refetch-required state instead of
+mixing evidence across snapshots.
+
+### 15.1 Normalized Pack Shape
+
+`IncuratorClient` must accept a versioned context pack with:
+
+- `pack_id`, `trace_id` (`QTR-*`), and `retrieval_execution_id` (`RTR-*`);
+- `snapshot.snapshot_id` plus source/DB/search/dependency/policy/model/tokenizer
+  identity fields;
+- selected route, stop reason, applied policy filters, budget accounting,
+  coverage state, warnings, and explicit omissions;
+- evidence items with record id/hash, kind, layer, summary/claim, support and
+  freshness state, `source_span_ids`, structured locator, token cost, expansion
+  handle, and verification handle;
+- `next[]` expansion handles for omitted or lower-detail evidence.
+
+Older query result fields remain additive compatibility fields. When sidechat
+uses `wiki plugin context fetch`, it preserves the returned pack on the trace
+payload as `context_pack`. Sources & Trace renders the exact pack used for
+provider grounding, including pack id, snapshot, budget, coverage/degraded
+state, evidence item summaries, locators, expansion handles, verification
+handles, and omitted `next[]` handles, rather than reconstructing a separate
+trace view from partial ids.
+Locators are clickable and resolve their open target by source kind:
+- An external Reference Mode source (`external_uri` present) is not in the vault;
+  its `relpath` is only an in-vault stub. The panel opens the real file at
+  `external_uri`, never the stub. A reference **PDF** (`source_kind` `vault_pdf`
+  or an `external_uri` ending in `.pdf`) opens in the plugin's external PDF
+  viewer at the cited `page_number`; other external references open through the
+  system handler.
+- A vault source (no `external_uri`) opens its `relpath`. A registered/vault PDF
+  jumps to the cited page via Obsidian's native viewer using the `#page=N`
+  anchor; other notes use their heading/block anchor when present.
+If an expansion or verification operation returns `snapshot_conflict`, the
+client must retain the conflict metadata (`expected_snapshot_id`,
+`current_snapshot_id`, `resolution`) on the displayed pack, mark the pack as
+stale/refetch-required, and offer a refetch action. Refetch re-runs
+`wiki plugin context fetch` for the original question and replaces the displayed
+pack; it must not merge old and new snapshot evidence.
+
+### 15.2 Provider Context Budgeting
+
+The plugin calculates the provider-side remaining budget after system prompt,
+chat history, selected/pinned/local Markdown context, PDF text/image context,
+attachments, and tool overhead. It requests the backend pack with only that
+remaining backend-evidence budget. Client-local selected/open-note/PDF/image
+context keeps priority over backend evidence.
+
+### 15.3 Default Grounding Behavior
+
+For normal sidechat turns, the plugin grounds the selected provider with evidence
+items from the pack. It must not inject a backend synthesized answer by default.
+Backend synthesis may be requested only as an explicit mode and must cite the
+same `pack_id`/`trace_id` snapshot.
+
+### 15.4 Snapshot Conflict UX
+
+If backend expansion or verification returns `snapshot_conflict`, the plugin
+must not display mixed-epoch evidence. It should keep the stale pack visibly
+degraded and request a refetch/rebase before using expanded evidence.

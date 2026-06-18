@@ -71,8 +71,8 @@ environment:
   distro: Ubuntu 24.04
   memory_gib: 64
 commands:
-  - uv run --directory backend pytest -q tests/test_research_spikes_p7.py
-  - uv run --directory backend python research_spikes/p7_holdout.py
+  - scripts/backend-check pytest -q backend/tests/test_research_spikes_p7.py
+  - scripts/backend-check python backend/research_spikes/p7_holdout.py
 raw_results:
   path: backend/research_spikes/local/results/p7_holdout.json
   sha256_at_recording: d95b9a05f7e98ebf1ea6967bd40de97628dd67b63e7f1975dd2ece5ad72b9603

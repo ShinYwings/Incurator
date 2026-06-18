@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, cast
 
 from .. import config as cfg
 
@@ -154,7 +154,8 @@ class LlamaCppExpander:
         except Exception:
             return {}
         try:
-            text = str(result["choices"][0]["text"])
+            completion = cast(dict[str, Any], result)
+            text = str(completion["choices"][0]["text"])
         except Exception:
             return {}
         return _parse_qmd_lines(text, raw)

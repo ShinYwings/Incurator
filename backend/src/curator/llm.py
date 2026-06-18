@@ -1344,6 +1344,7 @@ class FailoverClient:
                 if offset == len(self.providers) - 1:
                     raise LLMError(f"All providers failed during stream: {str(e)[:200]}") from e
                 # mid-stream errors (after first chunk) propagate — partial output delivered
+        raise LLMError("Unreachable")
 
     def ping(self) -> bool:
         return any(p.ping() for p in self.providers)

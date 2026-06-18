@@ -34,7 +34,7 @@ boundary:
     "source-section" (evidence.py:152-167) appends every span of the source.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f4_oracle_global_evidence_bounded_and_query_dependent
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f4_oracle_global_evidence_bounded_and_query_dependent" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f4_oracle_global_evidence_bounded_and_query_dependent" -q
 oracles:
   deterministic: >
     Global-route evidence selection is bounded (item count respects an

@@ -244,8 +244,8 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
   shared L4 Synthesis layer) and synthesize an LLM answer. **Sessionless**:
   returns an answer + trace and writes no vault file.
 - **Parameters**: `question` (natural-language query string), `workspace_path` (absolute path to the workspace directory, defaults to `""`).
-- **Returns**: `ok`, `answer` (synthesized answer text), `question` (echoed back), `trace` object containing: `matched_concepts` (list of CON IDs), `source_paths`, `synthesis_node_ids`, `community_report_ids`, `trace_id` (`QTR-`), `route`, `latency_ms`, `l3_complete` (whether L3 DAG is fully built for related sources).
-- **Context bounds**: Synthesis uses scoped L3/L4 context and caps oversized source bodies before invoking the LLM. Large L1 source recaps and raw PDF text should be fetched explicitly with source/PDF tools instead of being pushed wholesale through `curator_query`.
+- **Returns**: `ok`, `answer` (synthesized answer text), `question` (echoed back), `trace` object containing: `matched_concepts` (list of CON IDs), `source_paths`, `synthesis_node_ids`, `community_report_ids`, `source_span_ids`, `prompt_trace_ids`, `trace_id` (`QTR-`), `route`, `pack_id`, `snapshot`, `budget`, `latency_ms`, `l3_complete` (whether L3 DAG is fully built for related sources). For synthesized answers, `source_span_ids` are the spans cited by the validated answer output, not the full retrieved pack. `pack_id`, `snapshot`, and `budget` are populated only for ContextService-backed routes; routes that have not been migrated to ContextService return `null` for those fields.
+- **Context bounds**: ContextService applies the context budget before synthesis, and the synthesizer receives the full already-budgeted pack. Large L1 source recaps and raw PDF text should be fetched explicitly with source/PDF tools instead of being pushed wholesale through `curator_query`.
 - **Implementation status**: v0.3.2. Requires `l3_complete=true` for full
   concept-graph answers. If L3 is incomplete, the tool returns a degraded trace
   and uses DB-native lexical/vector retrieval where possible; clients can still
@@ -365,6 +365,15 @@ and plugin, and they never edit read-only source truth (`03_Notes/`,
   `source_span_ids`. `trace_id` identifies the single authoritative orchestrated
   query trace; `retrieval_execution_id` is the child RTR-* consumed by Plan F.
   There is intentionally **no** `answer` field.
+
+Plan F upgrades this surface to the unified ContextService `context_fetch`
+contract. The returned pack is versioned, budget bounded, snapshot-stamped, and
+explicit about omissions. Expansions and exact verification use stable handles
+from the pack; if the snapshot changes, the backend returns a typed conflict
+instead of mixing old and new evidence. Expanded handles are consumed once per
+pack snapshot. If the requested budget cannot fit a handle, the backend reports
+that handle in `expansion_refused` instead of requeueing it in `next`, so agents
+do not loop on the same impossible expansion.
 
 #### `curator_explore`
 

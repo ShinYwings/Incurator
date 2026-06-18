@@ -51,7 +51,7 @@ boundary:
     no policy parameter; no callee consults the policy.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f3_oracle_build_evidence_filters_out_of_scope_sources
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f3_oracle_build_evidence_filters_out_of_scope_sources" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f3_oracle_build_evidence_filters_out_of_scope_sources" -q
 oracles:
   deterministic: >
     Evidence assembly receives the resolved CurationPolicy on every route, and
