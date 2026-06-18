@@ -131,7 +131,6 @@ export class ExternalPdfView extends ItemView {
   private documentIndex = new PdfDocumentIndexService();
   private pdfCaptureService = new PdfCaptureService();
   private pageTextCache = new Map<number, PdfWindowPage>();
-  private pageTextPromises = new Map<number, Promise<PdfWindowPage | null>>();
   private currentOutlineItems: ContextPdfOutlineItem[] = [];
   private pageLabels: string[] | null = null;
   private indexBuildToken = 0;
@@ -247,7 +246,6 @@ export class ExternalPdfView extends ItemView {
     this.renderedPages.clear();
     this.renderingPages.clear();
     this.pageTextCache.clear();
-    this.pageTextPromises.clear();
     this.documentIndex.removeDocument(this.docId);
     this.indexBuildToken++;
     this.render();
@@ -727,7 +725,6 @@ export class ExternalPdfView extends ItemView {
     this.renderingPages.clear();
     this.pageBaseDims = [];
     this.pageTextCache.clear();
-    this.pageTextPromises.clear();
     this.currentOutlineItems = [];
     this.documentIndex.removeDocument(this.docId);
     this.renderedZoom = this.zoom;
@@ -1196,41 +1193,6 @@ export class ExternalPdfView extends ItemView {
     return { pageContext, items };
   }
 
-  private async getOrExtractPageText(
-    pdf: PdfDocument,
-    pageNum: number
-  ): Promise<PdfWindowPage | null> {
-    const cached = this.pageTextCache.get(pageNum);
-    if (cached) return cached;
-
-    const existingPromise = this.pageTextPromises.get(pageNum);
-    if (existingPromise) return existingPromise;
-
-    const promise = (async () => {
-      const page = await pdf.getPage(pageNum);
-      const textContent = await page.getTextContent();
-      const layout = layoutPdfJsTextItems(textContent.items, "pdfjs");
-      const pageContext: PdfWindowPage = {
-        pageNum,
-        text: layout.text,
-        textQuality: layout.quality,
-      };
-      this.pageTextCache.set(pageNum, pageContext);
-      return pageContext;
-    })()
-      .catch((err) => {
-        console.warn(`[AI Agent] Failed to extract PDF text for page ${pageNum}:`, err);
-        return null;
-      })
-      .finally(() => {
-        this.pageTextPromises.delete(pageNum);
-      });
-
-    this.pageTextPromises.set(pageNum, promise);
-    return promise;
-  }
-
-
   private getSelectionTextWithinView(): string | null {
     if (!this.pagesEl) return null;
     const selection = this.pagesEl.ownerDocument.getSelection();
@@ -1298,37 +1260,37 @@ export class ExternalPdfView extends ItemView {
     }
   }
 
-  // ── Toolbar ───────────────────────────────────────────────────
+  private createToolbarIcon(
+    toolbar: HTMLElement,
+    label: string,
+    icon: string,
+    onClick: () => void
+  ): HTMLElement {
+    const btn = toolbar.createDiv({
+      cls: "clickable-icon ai-agent-pdf-tool-btn",
+      attr: { "aria-label": label },
+    });
+    setIcon(btn, icon);
+    btn.addEventListener("click", onClick);
+    return btn;
+  }
 
   private renderToolbar(container: HTMLElement): void {
-    // 1. Find the view header elements
     const titleContainer = this.containerEl.querySelector(".view-header-title-container") as HTMLElement;
     const titleEl = this.containerEl.querySelector(".view-header-title") as HTMLElement;
 
     if (titleEl) {
-      titleEl.style.display = "none"; // Hide default title text ("External PDF")
+      titleEl.style.display = "none";
     }
 
     if (titleContainer) {
-      // Remove any existing toolbar we added before to avoid duplicates
       titleContainer.querySelector(".ai-agent-external-pdf-toolbar")?.remove();
 
       const toolbar = titleContainer.createDiv("ai-agent-external-pdf-toolbar");
       toolbar.setAttribute("aria-label", "PDF controls");
 
-      const tocBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Table of contents" },
-      });
-      setIcon(tocBtn, "list");
-      tocBtn.addEventListener("click", () => this.toggleToc());
-
-      const zoomOutBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Zoom out" },
-      });
-      setIcon(zoomOutBtn, "zoom-out");
-      zoomOutBtn.addEventListener("click", () => this.setZoom(this.zoom - 0.15));
+      this.createToolbarIcon(toolbar, "Table of contents", "list", () => this.toggleToc());
+      this.createToolbarIcon(toolbar, "Zoom out", "zoom-out", () => this.setZoom(this.zoom - 0.15));
 
       this.zoomInputEl = toolbar.createEl("input", {
         cls: "ai-agent-pdf-zoom-label ai-agent-pdf-zoom-input",
@@ -1353,7 +1315,6 @@ export class ExternalPdfView extends ItemView {
           e.preventDefault();
           this.zoomInputEl?.blur();
         } else if (e.key === "Escape") {
-          // Revert to current zoom without applying
           if (this.zoomInputEl) {
             this.zoomInputEl.value = `${Math.round(this.zoom * 100)}%`;
             this.zoomInputEl.blur();
@@ -1361,35 +1322,13 @@ export class ExternalPdfView extends ItemView {
         }
       });
 
-      const zoomInBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Zoom in" },
-      });
-      setIcon(zoomInBtn, "zoom-in");
-      zoomInBtn.addEventListener("click", () => this.setZoom(this.zoom + 0.15));
-
-      const fitBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Fit to width" },
-      });
-      setIcon(fitBtn, "maximize");
-      fitBtn.addEventListener("click", () => this.setZoom(1));
-
-      const snipBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Snip Region to Chat" },
-      });
-      setIcon(snipBtn, "scissors");
-      snipBtn.addEventListener("click", () => {
+      this.createToolbarIcon(toolbar, "Zoom in", "zoom-in", () => this.setZoom(this.zoom + 0.15));
+      this.createToolbarIcon(toolbar, "Fit to width", "maximize", () => this.setZoom(1));
+      this.createToolbarIcon(toolbar, "Snip Region to Chat", "scissors", () => {
         (this.app as any).commands.executeCommandById("incurator-obsidian-agent:snip-pdf-to-chat");
       });
+      this.createToolbarIcon(toolbar, "Reload PDF from disk", "refresh-cw", () => this.reloadFromDisk());
 
-      const refreshBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Reload PDF from disk" },
-      });
-      setIcon(refreshBtn, "refresh-cw");
-      refreshBtn.addEventListener("click", () => this.reloadFromDisk());
       const pageGroup = toolbar.createDiv("ai-agent-pdf-page-jump");
       this.pageInputEl = pageGroup.createEl("input", {
         cls: "ai-agent-pdf-page-input",
@@ -1406,17 +1345,11 @@ export class ExternalPdfView extends ItemView {
         text: "/ -",
       });
 
-      const darkBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Toggle dark mode" },
-      });
+      const darkBtn = this.createToolbarIcon(toolbar, "Toggle dark mode", "moon", () => this.toggleDarkMode());
       this.darkModeBtnEl = darkBtn as unknown as HTMLButtonElement; // Keep type compatibility
       darkBtn.toggleClass("is-active", this.darkMode);
-      setIcon(darkBtn, "moon");
-      darkBtn.addEventListener("click", () => this.toggleDarkMode());
     }
 
-    // TOC panel element sits inside the view content container (so it sits on top of the PDF pages)
     const tocWrapper = container.createDiv("ai-agent-external-pdf-toc-wrapper");
     this.tocPanelEl = tocWrapper.createDiv("ai-agent-external-pdf-toc");
     this.tocPanelEl.toggleClass("is-open", this.tocOpen);

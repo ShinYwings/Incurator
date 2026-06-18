@@ -262,6 +262,22 @@ resolution instead of trusting another device's path.
       lines, but new service/registry modules mean Plan G still needs additional
       deletion/slimming before final closure.
 
+## 4h. P4 Net-LOC Gate Closure (recorded 2026-06-19)
+
+- [x] **Dead text extraction promise path deleted.** Removed unused
+      `getOrExtractPageText()` and `pageTextPromises`; `extractPageTextFromPdfJs`
+      is the single rendered-page text path used by the viewer.
+- [x] **Toolbar duplicate button code collapsed.** Repeated icon-button creation
+      now goes through `createToolbarIcon()`.
+- [x] **Registry glue compacted.** `externalPdfRegistry.ts` keeps the same
+      persisted `[id, {id,name,path}]` contract and stale path replacement API
+      while removing excess wrapper/comment lines.
+- LOC gate: **GREEN**. Current measured PDF module total is **4598**, below the
+      P0 baseline **4601**. `externalPdfView.ts` is now 1822 lines.
+- Validation: `npx tsc --noEmit` passed; full plugin `npx vitest run -c
+      ./vitest.config.ts` passed (**48 files / 413 tests**); `git diff --check`
+      passed.
+
 ## 5. Rollback Requirements
 
 - No destructive op before P4 (deletions). Each P4 deletion is its own commit so

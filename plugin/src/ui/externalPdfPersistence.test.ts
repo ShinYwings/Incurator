@@ -24,7 +24,7 @@ describe("external-PDF persisted state format (P0 characterization)", () => {
     // must carry exactly these three fields (no view/render state leaks in).
     expect(source).toContain("id: doc.id,");
     expect(source).toContain("name: doc.name,");
-    expect(source).toContain("path: doc.path,");
+    expect(source).toContain("path: doc.path");
     expect(source).toContain("JSON.stringify(toPersist)");
   });
 

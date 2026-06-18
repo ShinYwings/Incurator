@@ -7,8 +7,8 @@ Plan G — PDF handling unification and simplification on
 ## Plan Reference
 - Active plan: `.agents/plans/G_pdf_unified_handling.md`
 - Evidence ledger: `.agents/plans/G_pdf_roadmap_evidence.md`
-- Current phase: P4/P4b complete structurally; additional P4 slimming still
-  required before Plan G can close because the net-LOC gate is not yet met.
+- Current phase: P4/P4b complete and net-LOC gate closed. Next phase is P5
+  testbed E2E/docs finalization/version bump.
 
 ## Analysis & Reasoning
 - User explicitly asked to re-check macOS/Linux device sync before continuing.
@@ -31,11 +31,14 @@ Plan G — PDF handling unification and simplification on
   doc path when the backend resolves the same attachment to a new physical path.
 - P4b capture extraction is done: `getActivePdfContext` delegates to
   `PdfCaptureService`, which is unit-testable without an Obsidian `ItemView`.
+- P4 net-LOC gate is now green after deleting unused text-extraction promise
+  code, collapsing toolbar button duplication, and compacting registry glue.
 
 ## Progress Status
 - Latest commits:
   - `01a13d5` — `feat(plan-g): P4 registry extraction and session path sync guard`
   - `e05db49` — `feat(plan-g): extract PdfCaptureService from external PDF view`
+  - `HEAD` — `refactor(plan-g): close P4 PDF module LOC gate`
 - Docs/specs updated for device-safe session sync:
   `PLUGIN_SCHEMA.md`, `PLUGIN_GUIDE.md`, `PLUGIN_GUIDE_KR.md`,
   `SYNC_IGNORE_GUIDE.md`, `SYNC_IGNORE_GUIDE_KR.md`, Plan G, and evidence ledger.
@@ -49,20 +52,16 @@ Plan G — PDF handling unification and simplification on
 - `npx tsc --noEmit` from `plugin/` -> passed.
 - Full plugin suite: `npx vitest run -c ./vitest.config.ts` ->
   `48` files / `413` tests passed.
-- `git diff --check` -> passed before both P4 commits.
+- `git diff --check` -> passed.
+- PDF module LOC: P0 baseline 4601, current 4598.
 
 ## Critical Context / Blockers
-- Net-LOC gate is still open. P0 baseline: 4601 PDF-module LOC. After P4/P4b:
-  4704 LOC. `externalPdfView.ts` is down to 1889 lines, but new registry/service
-  modules add enough lines that total LOC is +103. Plan G cannot close until
-  additional deletion/slimming brings the total below 4601.
 - Testbed E2E is still pending for P5. Active scenario remains unconfirmed.
 - Popover review findings remain queued after Plan G in ROADMAP item 4.1; do not
   mix them into this branch unless explicitly reprioritized.
 
 ## Immediate Next Action
-Continue P4 slimming:
-1. Identify and delete or simplify dead/excess PDF-view logic after registry and
-   capture extraction.
-2. Re-measure PDF-module LOC and keep iterating until total < 4601.
-3. Then run full plugin validation again and proceed to P5 testbed E2E/docs sync.
+Proceed to P5:
+1. Confirm or select the active `tests/scenarios/` testbed scenario.
+2. Run reference/add-source/agent-PDF E2E smoke validation in `testbed/`.
+3. Finalize changelog/version bump and release commit after validation.
