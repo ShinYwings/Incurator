@@ -99,6 +99,26 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("this.renderMessages(false);");
   });
 
+  it("keys the source-status map by one canonical assetStatusKey (Plan G item 3)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    // A single refStatusKey()/assetStatusKey is used for read + write so the
+    // badge never desyncs (e.g. Zotero PDF whose path resolves only after add).
+    expect(source).toContain("private refStatusKey(ref: ContextRef): string");
+    expect(source).toContain("assetStatusKey({");
+    expect(source).toContain("this.incuratorStatusByPath.get(this.refStatusKey(");
+    expect(source).toContain("const statusKey = this.refStatusKey(ref);");
+    // The old path-vs-zotero:key inconsistency is gone.
+    expect(source).not.toContain('`zotero:${ref.zoteroAttachmentKey}` : "")');
+  });
+
+  it("detects Zotero PDFs via typed view state, not `as any` (Plan G item 4)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    expect(source).toContain("leaf.view.getState() as ExternalPdfState");
+    expect(source).not.toContain("(leaf.view.getState() as any)?.zoteroAttachmentKey");
+  });
+
   it("shows an inert Added badge for built sources (PLUGIN_SCHEMA §4.1.1)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");

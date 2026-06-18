@@ -18,9 +18,11 @@ import { IncuratorClient } from "../agent/incuratorClient";
 import {
   EXTERNAL_PDF_CONTEXT_EVENT,
   EXTERNAL_PDF_VIEW_TYPE,
+  type ExternalPdfState,
   ExternalPdfView,
   registerExternalPdf,
 } from "./externalPdfView";
+import { assetStatusKey } from "../context/assetSource";
 import { IngestDestinationModal } from "./ingestDestinationModal";
 import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
 import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, stampMathSourceData, stripDanglingEditMarkers, truncateToLength } from "../utils/textUtils";
@@ -1480,7 +1482,7 @@ export class ChatSidebarView extends ItemView {
         pageNum: pdf.pageNum,
         zoteroAttachmentKey: pdf.zoteroAttachmentKey,
       };
-      let sourceStatus = sourcePath ? this.incuratorStatusByPath.get(sourcePath) : undefined;
+      let sourceStatus = this.incuratorStatusByPath.get(this.refStatusKey(statusRef));
       if (useBackendPdfContext && client.available && (sourcePath || pdf.fileHash || pdf.zoteroAttachmentKey)) {
         sourceStatus = await this.ensureIncuratorStatusForRef(statusRef);
       }
@@ -1994,6 +1996,23 @@ export class ChatSidebarView extends ItemView {
     return ref.backendStatus?.sourcePath || this.toAbsolutePath(ref.filePath);
   }
 
+  /**
+   * Single canonical key for the backend source-status map (Plan G, audit
+   * item 3). Identity-first (Zotero key before any resolved path) so the badge
+   * reader and the post-ingest writer always agree, even when a Zotero PDF's
+   * local path only becomes known after the add completes.
+   */
+  private refStatusKey(ref: ContextRef): string {
+    return assetStatusKey({
+      absPath: this.getPdfRefSourcePath(ref),
+      relpath: ref.filePath,
+      zoteroKey: ref.zoteroAttachmentKey,
+      fileHash: ref.fileHash,
+      displayName: (ref.label || "source").replace(/ p\.\d+$/, ""),
+      resolutionStatus: "resolved",
+    });
+  }
+
   private async resolvePdfRefSourcePath(ref: ContextRef, status?: IncuratorSourceStatus): Promise<string | undefined> {
     const direct = this.getPdfRefSourcePath(ref) || status?.sourcePath || status?.currentPath;
     if (direct) return direct;
@@ -2034,7 +2053,7 @@ export class ChatSidebarView extends ItemView {
       return status;
     }
     const status = await this.getIncuratorClient().getSourceStatus({ sourcePath, fileHash });
-    if (sourcePath) this.incuratorStatusByPath.set(sourcePath, status);
+    this.incuratorStatusByPath.set(this.refStatusKey(ref), status);
     ref.backendStatus = status;
     return status;
   }
@@ -2046,23 +2065,29 @@ export class ChatSidebarView extends ItemView {
     if (ref.type !== "pdf-page" || this.plugin.settings.incuratorEnabled === false) return;
 
     const sourcePath = this.getPdfRefSourcePath(ref);
-    const cached = sourcePath ? this.incuratorStatusByPath.get(sourcePath) : ref.backendStatus;
+    const statusKey = this.refStatusKey(ref);
+    const cached = this.incuratorStatusByPath.get(statusKey) || ref.backendStatus;
     const badge = chip.createSpan("ai-agent-context-chip-status");
-    this.updateIncuratorStatusBadge(badge, cached || { state: sourcePath ? "unknown" : "untracked" });
+    this.updateIncuratorStatusBadge(
+      badge,
+      cached || { state: sourcePath || ref.zoteroAttachmentKey ? "unknown" : "untracked" }
+    );
 
     badge.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       const fallback: IncuratorSourceStatus = { state: "unknown", sourcePath };
       const latest =
-        (sourcePath ? this.incuratorStatusByPath.get(sourcePath) : undefined) ||
+        this.incuratorStatusByPath.get(statusKey) ||
         ref.backendStatus ||
         cached ||
         fallback;
       this.onIncuratorStatusClick(ref, latest);
     });
 
-    if (sourcePath) {
+    // Refresh for any resolvable identity — including a Zotero PDF whose local
+    // path is not yet known (audit item 3: badge must not stay stale).
+    if (sourcePath || ref.zoteroAttachmentKey) {
       this.refreshIncuratorStatus(ref, badge);
     }
   }
@@ -2112,13 +2137,13 @@ export class ChatSidebarView extends ItemView {
     ref: ContextRef,
     badge?: HTMLElement
   ): Promise<void> {
-    const sourcePath = this.getPdfRefSourcePath(ref);
-    if (!sourcePath || this.incuratorStatusInFlight.has(sourcePath)) return;
+    const statusKey = this.refStatusKey(ref);
+    if (this.incuratorStatusInFlight.has(statusKey)) return;
 
-    this.incuratorStatusInFlight.add(sourcePath);
+    this.incuratorStatusInFlight.add(statusKey);
     try {
       const status = await this.ensureIncuratorStatusForRef(ref);
-      this.incuratorStatusByPath.set(sourcePath, status);
+      this.incuratorStatusByPath.set(statusKey, status);
       ref.backendStatus = status;
       if (badge?.isConnected) {
         this.updateIncuratorStatusBadge(badge, status);
@@ -2132,7 +2157,7 @@ export class ChatSidebarView extends ItemView {
         }, 5000);
       }
     } finally {
-      this.incuratorStatusInFlight.delete(sourcePath);
+      this.incuratorStatusInFlight.delete(statusKey);
     }
   }
 
@@ -2144,7 +2169,9 @@ export class ChatSidebarView extends ItemView {
     // re-ingest (PLUGIN_SCHEMA §4.1.1).
     if (isAddedState(status.state)) return;
     const sourcePath = this.getPdfRefSourcePath(ref) || status.sourcePath || status.currentPath;
-    const statusKey = sourcePath || (ref.zoteroAttachmentKey ? `zotero:${ref.zoteroAttachmentKey}` : "");
+    // Single canonical key (Plan G item 3): same key as the badge reader, stable
+    // for a Zotero source whether or not its local path is resolved yet.
+    const statusKey = this.refStatusKey(ref);
     if (!sourcePath && !ref.zoteroAttachmentKey) {
       new Notice("This PDF does not expose a filesystem path and backend resolution did not find one.");
       return;
@@ -2173,7 +2200,7 @@ export class ChatSidebarView extends ItemView {
         newPath: status.candidatePath,
         apply: true,
       });
-      this.incuratorStatusByPath.set(statusKey || rebindSourcePath, nextStatus);
+      this.incuratorStatusByPath.set(statusKey, nextStatus);
       ref.backendStatus = nextStatus;
       this.renderContextChips();
       if (nextStatus.state === "error" || nextStatus.state === "unknown") {
@@ -2184,18 +2211,21 @@ export class ChatSidebarView extends ItemView {
       return;
     }
 
-    // Zotero-managed PDFs: skip modal, auto-register as reference
-    const isZoteroPdf = ref.zoteroAttachmentKey ||
-      this.app.workspace.getLeavesOfType("ai-agent-external-pdf")
-        .some(leaf => (leaf.view.getState() as any)?.zoteroAttachmentKey &&
-                      (leaf.view.getState() as any)?.path === sourcePath);
+    // Zotero-managed PDFs: skip modal, auto-register as reference. Detect via the
+    // typed external-PDF view state (Plan G item 4: no `as any` casts).
+    const isZoteroPdf = Boolean(ref.zoteroAttachmentKey) ||
+      this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE)
+        .some((leaf) => {
+          const st = leaf.view.getState() as ExternalPdfState;
+          return Boolean(st?.zoteroAttachmentKey) && st?.path === sourcePath;
+        });
     if (isZoteroPdf) {
       const pendingStatus: IncuratorSourceStatus = {
         state: "running",
         sourcePath,
         message: "Adding Zotero PDF as an Incurator reference source...",
       };
-      if (statusKey) this.incuratorStatusByPath.set(statusKey, pendingStatus);
+      this.incuratorStatusByPath.set(statusKey, pendingStatus);
       ref.backendStatus = pendingStatus;
       this.renderContextChips();
       new Notice("Adding Zotero PDF as an Incurator reference source...");
@@ -2206,7 +2236,7 @@ export class ChatSidebarView extends ItemView {
         destinationRelpath: "",
         importMode: "reference",
       });
-      if (statusKey) this.incuratorStatusByPath.set(statusKey, nextStatus);
+      this.incuratorStatusByPath.set(statusKey, nextStatus);
       ref.backendStatus = nextStatus;
       this.renderContextChips();
       if (nextStatus.state === "error" || nextStatus.state === "unknown") {
@@ -2232,7 +2262,7 @@ export class ChatSidebarView extends ItemView {
           sourcePath: nonZoteroSourcePath,
           message: importMode === "copy" ? "Copying and adding PDF source..." : "Adding PDF as a reference source...",
         };
-        this.incuratorStatusByPath.set(nonZoteroSourcePath, pendingStatus);
+        this.incuratorStatusByPath.set(statusKey, pendingStatus);
         ref.backendStatus = pendingStatus;
         this.renderContextChips();
         const nextStatus = await this.getIncuratorClient().ingestPdf({
@@ -2241,7 +2271,7 @@ export class ChatSidebarView extends ItemView {
           destinationRelpath,
           importMode,
         });
-        this.incuratorStatusByPath.set(nonZoteroSourcePath, nextStatus);
+        this.incuratorStatusByPath.set(statusKey, nextStatus);
         ref.backendStatus = nextStatus;
         this.renderContextChips();
         if (nextStatus.state === "error" || nextStatus.state === "unknown") {
