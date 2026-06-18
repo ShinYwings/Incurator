@@ -251,9 +251,19 @@ Continue P6 TDD:
   isolated logical lookup kept local so frozen D2-pinned db.py is untouched,
   state-leakage guard, untracked is_reference consistency). Full backend 938
   passed/0 failed; ruff+mypy clean.
-- NEXT: P3 (plugin AssetSource model + single assetStatusKey + remove any-cast
-  Zotero detection + mandatory Zotero cache invalidation + external-image asset
-  routing). STOPPED at P3 gate for approval.
+- P3 IN PROGRESS (approved). Committed `49da211`: `plugin/src/context/assetSource.ts`
+  (AssetSource + identity-first `assetStatusKey` + `ZoteroPathCache` with
+  epoch/missing-file invalidation + `resolveAssetSource`; 11 unit tests) and
+  chatSidebar wiring — single `refStatusKey()` keys the status map for read+write
+  (item 3 badge desync FIXED) and typed `getState() as ExternalPdfState` (item 4
+  any-cast removed). Plugin suite 402 passed; tsc clean.
+- P3 REMAINING: (c) wire ZoteroPathCache into the live resolution path
+  (`resolvePdfRefSourcePath`) + compute epoch from settings; (d) verify-or-
+  implement external-image-attachment-to-`.md` asset routing (§1a); (e) item-5
+  isAddedState test. Then P4 (delete dead resolvers + slim externalPdfView) + P5
+  (testbed E2E + version bump).
+- Popover review (5 findings on quickQueryPopover.ts) captured in USER_REPORT +
+  folded into ROADMAP 4.1 (Persistent Quick Query Popover); queued AFTER Plan G.
 
 ### Update (2026-06-19, Codex)
 - Continued P6 snapshot-conflict UX. `IncuratorClient` now preserves
