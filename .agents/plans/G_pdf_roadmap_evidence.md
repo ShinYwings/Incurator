@@ -86,6 +86,27 @@ Plugin suite after P0: **389 passed** (was 385, +4). Backend source-tools: 16.
 - Spec-sync test: 9 passed (version headers intact; "Plan G target, vNEXT"
   sections follow the Plan F convention).
 
+## 4b. P2 Backend Resolver Facade (recorded 2026-06-19)
+
+- [x] **`backend/src/curator/pdf_identity.py`** added: `PdfIdentity` dataclass +
+      `from_source_row()` (cheap, no I/O) + `resolve()` (facade over Zotero
+      resolution / logical-id derivation / sources-row lookup). No DB mutation,
+      no dedup SQL change.
+- [x] `_locator_from_span` (context_service.py) routed through
+      `pdf_identity.from_source_row` — is_reference + external open-target now
+      come from the single authority. Behavior-preserving (P6 locator tests +
+      Plan F contract tests stay green).
+- [x] `ingest_raw._default_logical_source_id` delegates to
+      `pdf_identity.default_logical_source_id` (single source of truth; identical
+      hash, no behavior change).
+- [x] Backend Zotero resolution stays on the single `zotero_tools.resolve_pdf`;
+      `plugin_api.import_source` keeps its direct call to preserve its structured
+      error payload (same single implementation — C2 honored).
+- **dedup-parity gate: GREEN.** `test_copy_and_reference_of_same_file_stay_distinct_rows`
+      still passes; no dedup branch merged (schema_guardian C4 satisfied).
+- Validation: focused 46 passed; `ruff` clean; `mypy` no issues in 96 files;
+      **full backend suite 933 passed, 6 skipped, 5 xfailed, 0 failed**.
+
 ## 5. Rollback Requirements
 
 - No destructive op before P4 (deletions). Each P4 deletion is its own commit so

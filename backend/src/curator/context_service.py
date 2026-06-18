@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config as cfg
-from . import curate_yml, db
+from . import curate_yml, db, pdf_identity
 from .retrieval import evidence as evidence_mod
 from .retrieval import router
 from .retrieval.models import EvidenceItem, EvidencePack, QueryRequest, StructuredLocator
@@ -266,20 +266,21 @@ def _source_meta_by_ids(db_path: Path, source_ids: list[int]) -> dict[int, dict[
 
 
 def _locator_from_span(span: dict[str, Any], source: dict[str, Any] | None) -> StructuredLocator:
-    relpath = span.get("relpath") or (source or {}).get("relpath")
+    # Single identity authority (SYSTEM_BEHAVIOR §29.6): is_reference and the
+    # authoritative external open target (abs_path) come from one place.
+    ident = pdf_identity.from_source_row(source)
+    relpath = span.get("relpath") or ident.relpath
     file_type = (source or {}).get("file_type", "md")
     if file_type == "pdf":
         source_kind = "vault_pdf"
-    elif (source or {}).get("is_reference"):
+    elif ident.is_reference:
         source_kind = "external_uri"
     elif relpath and str(relpath).lstrip("/").startswith("02_Wiki/"):
         source_kind = "promoted_wiki"
     else:
         source_kind = "vault_markdown"
 
-    external_uri = None
-    if (source or {}).get("is_reference"):
-        external_uri = (source or {}).get("external_path") or (source or {}).get("import_origin")
+    external_uri = ident.abs_path if ident.is_reference else None
 
     heading = span.get("section_title")
     toc_id = span.get("toc_id")
