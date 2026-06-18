@@ -37,14 +37,34 @@ session's locator fix (`incuratorQueryTrace.ts` + 3 tests), the SYSTEM_BEHAVIOR
 §29.2 / PLUGIN_SCHEMA / EN+KR guide clarifications, and the audit entry in
 `USER_REPORT.md`. Plan G must branch off `master`, not bundle Plan F's diff.
 
-## 4. Baseline Measurements (to be filled in P0)
+## 4. Baseline Measurements (P0 — recorded 2026-06-19)
 
-- [ ] PDF module LOC total (baseline from 00_problem table = ~4570 plugin+backend
-      PDF/Zotero LOC; record exact `wc -l` set).
-- [ ] Backend dedup parity snapshot (reference/copy/zotero → `sources` rows).
-- [ ] Persisted-doc rehydration characterization snapshot.
-- [ ] Testbed E2E snapshot for the three flows.
-- [ ] Item-3 repro attempt result (repro / cannot-repro → wontfix).
+- [x] **PDF module LOC baseline = 4601** (`wc -l` total of: externalPdfView,
+      externalPdfState, pdfCapture, pdfReferenceContext, pdfTextLayout,
+      crossReferenceResolver, quickQueryContext, providerContextFormat,
+      utils/zoteroUtils + backend zotero{,_tools,_integration}). Net-LOC gate
+      target: final total < 4601.
+- [x] **Backend dedup-parity characterization pinned.** New test
+      `test_copy_and_reference_of_same_file_stay_distinct_rows`
+      (`backend/tests/test_mcp_source_tools.py`) confirms copy mode (dedup by
+      relpath) and reference mode (dedup by logical_source_id/external_path)
+      yield two distinct `sources` rows for the same file. P2 facade must keep
+      this green (schema_guardian C4 gate). Suite: 16 passed.
+- [x] **Persisted-doc format characterization pinned.** New test file
+      `plugin/src/ui/externalPdfPersistence.test.ts` (4 tests) pins
+      `STORAGE_KEY = "incurator-obsidian-agent-external-pdfs"`, the
+      `[id, {id,name,path}]` serialized shape, and load-time retention via
+      `isRetainablePersistedDoc`. P4 registry extraction must keep this green.
+- [x] **Item-3 repro: ANALYTICALLY CONFIRMED, fix deferred to P3.** Repro path:
+      a Zotero PDF with no initial local path caches its status under
+      `zotero:<key>`; after add, `nextStatus.sourcePath` becomes truthy, so the
+      re-render reads `incuratorStatusByPath.get(sourcePath)` and MISSES the
+      `zotero:<key>` entry → badge shows `unknown`. Not unit-testable without DOM
+      scaffolding; the single-`pdfStatusKey` fix + regression test lands in P3.
+- [ ] Testbed E2E snapshot for the three flows — deferred to P5 (no testbed init
+      yet; consistent with Plan F deferral).
+
+Plugin suite after P0: **389 passed** (was 385, +4). Backend source-tools: 16.
 
 ## 5. Rollback Requirements
 
