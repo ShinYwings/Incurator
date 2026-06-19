@@ -4,6 +4,22 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.15.0] - 2026-06-19
+### Changed
+- **Quick Query popover is now persistent.** Outside clicks and background
+  scrolling no longer close or drag the popover away from the user's chosen
+  context; close it explicitly with **×** or `Esc`.
+- **Quick Query popover can be moved and minimized.** Drag the header to place it
+  anywhere in the current window, and collapse it to a header-only state without
+  losing the answer, input, or follow-up state.
+- **Quick Query title follows the latest question.** The header updates on each
+  submit so minimized popovers remain identifiable.
+
+### Fixed
+- Fixed old quick-query teardown order so popout-window scroll/resize listeners
+  are removed before switching the active document.
+- Fixed text-node outside-click handling in the quick-query document listener.
+
 ## [0.14.1] - 2026-06-19
 ### Fixed
 - **Diff Viewer — Accept All cursor.** Accepting all changes now leaves the
