@@ -59,6 +59,7 @@ Source of Truth to identify unresolved items.
    - This is fix-like cleanup because stale code/docs can mislead agents into
      reintroducing a retired dependency.
    - Detailed analysis: `.agents/drafts/purge_qmd_legacy.md`
+   - Active plan: `.agents/plans/04_purge_legacy_qmd_references.md`
 
 5. **[Fix/Validation] `[[wikilink]]` Architecture Validation**
    - Validate whether current backend link parsing intentionally avoids
@@ -144,8 +145,9 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Persistent Quick Query Popover shipped and merged in
-  v0.15.0 / PR #37.
-- **Next actionable item**: item 4. Purge Legacy QMD References.
+- **Roadmap state**: Planning item 4, Purge Legacy QMD References, on
+  `fix/purge-legacy-qmd-references`.
+- **Next actionable item**: approve and execute
+  `.agents/plans/04_purge_legacy_qmd_references.md`.
 - **Priority order**: fix-like items 4 → 5, then RAG hardening and remaining
   feature work.
