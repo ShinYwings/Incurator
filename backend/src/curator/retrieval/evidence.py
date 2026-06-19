@@ -194,11 +194,11 @@ def seed_terms(query: str, limit: int = 8) -> list[str]:
 def _search_hits(
     paths: cfg.WikiPaths, query: str, limit: int, warnings: list[str]
 ) -> tuple[list[EvidenceItem], dict]:
-    """DB-native hybrid search hits (v0.3.2; replaces the qmd fallback)."""
+    """DB-native hybrid search hits."""
     try:
         from .. import search
 
-        # min_score=0 — native RRF/rerank scores are not on qmd's 0–1 scale, so the
+        # min_score=0 — native RRF/rerank scores are not on a fixed 0–1 scale, so the
         # engine ranks and caps by `limit` rather than hard-thresholding.
         results = search.query(
             paths, query, mode="hybrid", limit=limit, min_score=0.0,

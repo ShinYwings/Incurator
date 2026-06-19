@@ -3176,7 +3176,7 @@
   max-width: 340px;
 }
 
-.ai-agent-qmd-badge {
+.ai-agent-search-badge {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -3190,12 +3190,12 @@
   flex-shrink: 0;
 }
 
-.ai-agent-qmd-badge.is-ready {
+.ai-agent-search-badge.is-ready {
   border-color: color-mix(in srgb, var(--text-success) 40%, transparent);
   background: color-mix(in srgb, var(--text-success) 8%, var(--background-secondary));
 }
 
-.ai-agent-qmd-badge.is-error {
+.ai-agent-search-badge.is-error {
   border-color: color-mix(in srgb, var(--text-error) 40%, transparent);
   background: color-mix(in srgb, var(--text-error) 8%, var(--background-secondary));
 }

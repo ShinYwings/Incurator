@@ -75,5 +75,5 @@ def choose_route(
 
     # 5. Default: local entity/fact answer.
     if not status.has_entities:
-        return _pick("local", "graph incomplete → local with qmd fallback")
+        return _pick("local", "graph incomplete → local DB-native retrieval")
     return _pick("local", "entity/fact question")

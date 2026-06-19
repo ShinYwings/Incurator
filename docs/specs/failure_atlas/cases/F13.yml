@@ -1,6 +1,6 @@
 # Failure Atlas case record — see docs/specs/failure_atlas/FAILURE_ATLAS.md §2
 id: F13
-title: Active testbed scenario validates retired EXH/qmd-era architecture
+title: Active testbed scenario validates retired EXH/search-era architecture
 query_family: evaluation-infra
 execution_mode: deterministic
 status: retired
@@ -20,7 +20,7 @@ status_history:
 owner: unassigned
 impact: >
   The only rich validation scenario asserts behavior of the retired static
-  Exhibition (EXH-*) layer and qmd-era flows, so "testbed passes" measures the
+  Exhibition (EXH-*) layer and retired search-era flows, so "testbed passes" measures the
   wrong architecture: current truth/retrieval/agent-reuse/incremental
   correctness has no scenario coverage at all.
 boundary:
@@ -39,7 +39,7 @@ oracles:
   deterministic: >
     The active validation scenario's oracles reference only current
     architecture (CTX-/ATM-/CON-/SYN- layers, DB-native search, dynamic
-    curation lens) — zero retired EXH-/qmd-era oracle terms — and cover
+    curation lens) — zero retired EXH-/search-era oracle terms — and cover
     truth, retrieval, agent reuse, and incremental correctness of the current
     system.
   semantic: null

@@ -73,7 +73,7 @@ def test_expander_integrates_with_expand():
     assert eq.hyde_text == "hypothetical answer"
 
 
-def test_llama_cpp_expander_parses_qmd_lines():
+def test_llama_cpp_expander_parses_structured_lines():
     class _FakeLlama:
         def create_completion(self, **kwargs):
             return {
@@ -87,7 +87,7 @@ def test_llama_cpp_expander_parses_qmd_lines():
             }
 
     exp = query_expander.LlamaCppExpander(
-        "qmd-query-expansion-1.7b",
+        "structured-query-expansion-1.7b",
         "/unused/model.gguf",
         _llm=_FakeLlama(),
     )
@@ -103,7 +103,7 @@ def test_llama_cpp_expander_filters_off_topic_and_falls_back():
             return {"choices": [{"text": "lex: unrelated weather\nvec: another topic\n"}]}
 
     exp = query_expander.LlamaCppExpander(
-        "qmd-query-expansion-1.7b",
+        "structured-query-expansion-1.7b",
         "/unused/model.gguf",
         _llm=_FakeLlama(),
     )

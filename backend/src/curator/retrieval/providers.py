@@ -226,7 +226,7 @@ class LlamaCppReranker:
 
     # Qwen3-Reranker instruction template. The instruction-formatted input gives
     # markedly sharper relevant/irrelevant separation than a bare "query\tpassage"
-    # (≈2x the score gap in practice), which is what brings ranking to qmd parity.
+    # (about 2x the score gap in practice), which keeps ranking stable.
     _INSTRUCTION = "Given a web search query, retrieve relevant passages that answer the query"
 
     def __init__(self, model: str, model_path: str, *, n_ctx: int = 2048) -> None:

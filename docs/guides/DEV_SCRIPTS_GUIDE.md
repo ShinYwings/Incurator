@@ -66,14 +66,9 @@ Dialogues automate the verification.
 
 ## 4. Benchmark Scripts
 
-Repository-tracked benchmark harnesses live in `scripts/benchmarks/`. They are
-not testbed scenarios and do not appear in `wiki testbed list`.
-
-- `scripts/benchmarks/search_parity_bench.py` reproduces the v0.3.2 DB-native
-  search vs qmd parity measurements documented in
-  `docs/benchmarks/SEARCH_PARITY_v0.3.2.md`.
-- Run benchmark rows separately when they load different llama-cpp model stacks;
-  the all-in-one wrapper can be less stable on some hosts.
+No repository-tracked benchmark harness is currently active. Add future
+benchmarks under `scripts/benchmarks/` only when they run against supported
+runtime paths and document them here.
 
 ## 5. Best Practices
 - **Minimize State**: Only include the files strictly necessary for the test.

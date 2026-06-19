@@ -29,7 +29,7 @@ def test_jobs_run_embeds_even_with_empty_queue(tmp_path: Path) -> None:
     vault = _init_vault(runner, tmp_path)
 
     with patch("curator.ingest_worker.run_queued_jobs", return_value=[]) as run_jobs, patch(
-        "curator.cli._refresh_qmd_index"
+        "curator.cli._refresh_search_index"
     ) as refresh:
         result = runner.invoke(app, ["jobs", "run"], env={"VAULT_ROOT": str(vault)})
 
@@ -46,7 +46,7 @@ def test_jobs_run_embeds_after_processing_jobs(tmp_path: Path) -> None:
 
     fake_results = [{"ok": True, "job": {"id": 1}}]
     with patch("curator.ingest_worker.run_queued_jobs", return_value=fake_results), patch(
-        "curator.cli._refresh_qmd_index"
+        "curator.cli._refresh_search_index"
     ) as refresh:
         result = runner.invoke(app, ["jobs", "run"], env={"VAULT_ROOT": str(vault)})
 

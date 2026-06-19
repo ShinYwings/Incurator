@@ -1,14 +1,14 @@
-# Incurator - System Behavior (v0.15.0)
+# Incurator - System Behavior (v0.16.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
 Implementation plans under `.agents/plans/` are transient and strictly subordinate to this document. If a plan conflicts with this behavior contract, update the plan or bring the conflict back to review before coding.
 
-Sections 1-22 below define the behavior contract. The system retires qmd as an external search backend and replaces it with DB-native search, query expansion, chunk vectors, RRF, configured reranking, and durable query traces. Historical behavior definitions are tracked via git history.
+Sections 1-22 below define the behavior contract. The system uses DB-native search, query expansion, chunk vectors, RRF, configured reranking, and durable query traces. Historical behavior definitions are tracked via git history.
 
 The current path is the only supported behavior contract. It has no
 prompt-function wrappers, legacy-query fallback path, `curate.yml`
-persona-to-KRS auto-mapping, or qmd runtime fallback.
+persona-to-KRS auto-mapping, or external search runtime fallback.
 
 ## 1. System Goal
 
@@ -1404,7 +1404,7 @@ The default v0.3.2 search model profile is local-first and llama-cpp based:
 `llama-cpp::qwen3-reranker-0.6b` for answer-path reranking. Implementations must
 validate installed GGUFs with a live smoke check before using them for parity
 claims; if validation fails, search degrades to FTS5/RRF with explicit warnings.
-The optional local query-expansion GGUF provider uses qmd-compatible structured
+The optional local query-expansion GGUF provider uses structured
 lines (`lex:`, `vec:`, `hyde:`) and must remain fail-safe; if it is absent or too
 slow, the chat-client expander or deterministic Tier-1 expansion remains valid.
 Before loading llama-cpp search GGUFs, Incurator should issue a best-effort

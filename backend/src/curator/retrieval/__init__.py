@@ -2,7 +2,7 @@
 
 The query path: resolve curate.yml policy -> route
 (auto/local/global/explore/source-section) -> evidence pack
-(DB graph + qmd derived corpus) ->
+(DB graph + DB-native search) ->
 registered query prompt with tracing → QueryResultV031 with the full QTR trace.
 
 See ``docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`` §17.

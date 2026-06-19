@@ -1,7 +1,6 @@
-"""P6: typed query expansion (lex / vec / hyde) for v0.3.2 DB-native search.
+"""P6: typed query expansion (lex / vec / hyde) for DB-native search.
 
-Two tiers, per the qmd-parity requirement that a naive single-vector probe is
-below parity:
+Two tiers are used because a naive single-vector probe is not enough:
 
 - **Tier 1 (deterministic, always runs):** parse the question (phrases, negation,
   identifiers, CJK), derive an ``intent``, seed the lexical MATCH + the raw vector

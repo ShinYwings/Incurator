@@ -88,7 +88,7 @@ def test_generate_synthesis_writes_nodes_and_projection(vault) -> None:
     assert node["community_report_ids"]  # grounded in the report corpus
     assert node["prompt_run_id"]  # prompt trace recorded
 
-    # Projection emitted to the disposable qmd corpus.
+    # Projection emitted to the disposable search projection.
     page = (paths.synthesis / f"{node['id']}.md").read_text(encoding="utf-8")
     assert "type: synthesis" in page
     assert "Residual learning as discretized dynamics" in page

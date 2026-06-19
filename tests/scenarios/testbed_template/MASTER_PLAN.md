@@ -46,7 +46,7 @@ VAULT_ROOT=testbed wiki status
 ### G5: DB-Native Search
 
 - `wiki query "sample"` returns results backed by SQLite FTS5/BM25 index.
-- No external `qmd` binary is required.
+- No external search binary is required.
 
 ### G6: DAG Integrity
 

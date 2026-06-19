@@ -3,7 +3,7 @@
 RRF fuses the per-variant ranked lists (lexical raw/expansion, vector raw/
 expansion/HyDE) using **ranks only**, which is exactly why it tolerates the
 BM25-negated vs cosine score-scale mismatch with zero normalization. Defaults
-mirror qmd parity: ``k=60``, original-query weighting (raw lists outweigh
+preserve the v0.3.2 search tuning: ``k=60``, original-query weighting (raw lists outweigh
 expansions), a candidate cap per list, and a small top-rank bonus. Every
 candidate carries a full per-list contribution trace for the dashboard.
 """

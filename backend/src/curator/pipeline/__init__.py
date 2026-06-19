@@ -8,7 +8,7 @@ Stage modules for the curation-native compile model (see
 - ``projection`` — emit derived ``.curator/Collections`` markdown from DB records.
 
 The DB is the single source of truth; markdown pages are a derived, disposable
-qmd corpus emitted from these records.
+derived search projection emitted from these records.
 
 Submodules are imported explicitly (``from .pipeline import source_spans``) rather
 than eagerly here, so the LLM-free instant-L1 path (``source_spans``) does not pull

@@ -160,11 +160,11 @@ def _build_synthesis_user_prompt(
     for i, hit in enumerate(results.hits, start=1):
         lines.append(f"--- Source {i} ---")
         # Use the full hit path so the LLM sees how to wikilink it.
-        # Strip the qmd:// URI prefix and collection name so the link is
+        # Strip any legacy scheme prefix and collection name so the link is
         # clean and Obsidian-friendly.
         import re as _re
         raw_path = hit.full_path.removesuffix(".md")
-        page_link = _re.sub(r"^/?qmd://[^/]+/", "", raw_path).lstrip("/")
+        page_link = _re.sub(r"^/?[A-Za-z][A-Za-z0-9+.-]*://[^/]+/", "", raw_path).lstrip("/")
         lines.append(f"Wikilink path: [[{page_link}]]")
         if hit.title:
             lines.append(f"Title: {hit.title}")
@@ -203,7 +203,7 @@ def _node_path_from_target(target: str) -> str:
         cleaned = cleaned[2:-2]
     cleaned = cleaned.split("|", 1)[0].strip()
     import re as _re
-    return _re.sub(r"^/?qmd://[^/]+/", "", cleaned).lstrip("/")
+    return _re.sub(r"^/?[A-Za-z][A-Za-z0-9+.-]*://[^/]+/", "", cleaned).lstrip("/")
 
 
 def translate_to_english(client: ChatClient, question: str) -> str:
@@ -396,8 +396,8 @@ def run_query(
 ) -> QueryResult:
     """Run a full query → answer pipeline.
 
-    ``route`` is answered by the v0.3.1 QueryOrchestrator (DB graph + qmd
-    derived corpus, with a QTR trace). Empty route is normalized to ``auto``.
+    ``route`` is answered by the QueryOrchestrator (DB graph + DB-native
+    search, with a QTR trace). Empty route is normalized to ``auto``.
 
     scope filters retrieval by Curator layer (path prefix inside
     `.curator/Collections/`):
@@ -497,9 +497,7 @@ def run_query(
             callbacks.on_complete(result)
             return result
 
-    # 0c. Unload Ollama model from VRAM before qmd runs.
-    #     qmd's local llama-cpp model needs GPU memory for query expansion;
-    #     if Ollama is still loaded the two models compete for the same VRAM.
+    # 0c. Unload Ollama model from VRAM before local search GGUFs are loaded.
     #     Ollama will auto-reload when synthesis begins in step 2.
     if hasattr(client, "unload"):
         client.unload()
@@ -524,9 +522,8 @@ def run_query(
             hydrate=True,
             rerank=rerank,
         )
-        # Apply layer-prefix filter post-hoc — qmd has no native path filter,
-        # and over-fetching a few extra hits is cheaper than splitting into
-        # multiple collections.
+        # Apply layer-prefix filter post-hoc; over-fetching a few extra hits is
+        # cheaper than splitting the DB-native query into multiple passes.
         if layer_prefix:
             found.hits = [h for h in found.hits if h.full_path.startswith(layer_prefix)]
         return found

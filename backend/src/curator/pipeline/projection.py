@@ -1,6 +1,6 @@
 """Emit derived ``.curator/Collections`` markdown from DB records.
 
-These markdown pages are the disposable qmd search corpus, projected from the
+These markdown pages are the disposable search projection, projected from the
 authoritative DB records. They are emitted, never edited as truth, so there is no
 DB↔file drift (SYSTEM_BEHAVIOR.md §22).
 """
@@ -68,7 +68,7 @@ def emit_concept_markdown(report: dict, concept_id: str) -> str:
     """Render a CON page (the projection of one community_report).
 
     ``report`` is a ``community_reports`` row (with id lists decoded). The page is
-    a derived qmd-corpus rendering of the community summary plus its graph/source
+    a derived rendering of the community summary plus its graph/source
     provenance per SCHEMA §14.
     """
     fm: dict = {
@@ -106,7 +106,7 @@ def emit_synthesis_markdown(node: dict) -> str:
     """Render a SYN page (the projection of one synthesis_node).
 
     ``node`` is a ``synthesis_nodes`` row (with id lists decoded). The page is a
-    derived qmd-corpus rendering of a shared, corpus-wide synthesized insight plus
+    derived rendering of a shared, corpus-wide synthesized insight plus
     its concept/report/source provenance per SCHEMA §15.
     """
     fm: dict = {

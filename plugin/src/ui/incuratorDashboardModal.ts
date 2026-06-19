@@ -705,7 +705,7 @@ export class IncuratorDashboardModal extends Modal {
       row.createDiv({ cls: "ai-agent-ov-path-label", text: label });
       return row.createDiv({ cls: "ai-agent-ov-path-value", text: val ?? "…" });
     };
-    const qmdEl   = searchRow("Engine");
+    const searchEl = searchRow("Engine");
     const embedEl = searchRow("Embed model");
     const rerankEl = searchRow("Reranker");
 
@@ -732,14 +732,13 @@ export class IncuratorDashboardModal extends Modal {
       wikiEl.setText(st?.wiki_binary || "Not found");
       wikiEl.toggleClass("is-ok", !!st?.wiki_binary);
       wikiEl.toggleClass("is-warn", !st?.wiki_binary);
-      // v0.3.2: native in-DB search engine; fall back to legacy qmd_* keys.
-      const searchReady = st?.search_ready ?? !!st?.qmd_ready;
+      const searchReady = !!st?.search_ready;
       const searchLabel = st?.search_version
         ? `${st.search_version}${st?.vector_ready ? " · vector" : " · FTS5-only (Models missing)"}`
-        : (st?.qmd_binary || "Not found");
-      qmdEl.setText(searchLabel);
-      qmdEl.toggleClass("is-ok", !!searchReady);
-      qmdEl.toggleClass("is-warn", !searchReady);
+        : "Not found";
+      searchEl.setText(searchLabel);
+      searchEl.toggleClass("is-ok", !!searchReady);
+      searchEl.toggleClass("is-warn", !searchReady);
 
       // v0.3.2: search model identity + health (embed / reranker)
       const sm = st?.search_models;
@@ -767,7 +766,7 @@ export class IncuratorDashboardModal extends Modal {
     }).catch(() => {
       vaultEl.setText(this.vaultBase() || "offline");
       wikiEl.setText("offline"); wikiEl.addClass("is-warn");
-      qmdEl.setText("offline");  qmdEl.addClass("is-warn");
+      searchEl.setText("offline");  searchEl.addClass("is-warn");
       embedEl.setText("offline"); embedEl.addClass("is-warn");
       rerankEl.setText("offline"); rerankEl.addClass("is-warn");
     });

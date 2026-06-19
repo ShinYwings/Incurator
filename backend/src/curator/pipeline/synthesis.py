@@ -10,7 +10,7 @@ selects/recombines synthesis nodes per workspace/query (never stored).
 Synthesis is generated wholesale from all community reports and is content-
 addressed by a corpus ``dependency_hash`` so it is skipped when nothing changed.
 Synthesis nodes are stored in the ``synthesis_nodes`` DB table (authoritative) and
-projected to ``.curator/Collections/04_Synthesis/SYN-*.md`` as disposable qmd
+projected to ``.curator/Collections/04_Synthesis/SYN-*.md`` as disposable
 corpus.
 """
 
@@ -139,7 +139,7 @@ def reemit_synthesis(paths: cfg.WikiPaths) -> int:
     """Re-emit the derived SYN markdown corpus from authoritative DB rows.
 
     Deletes existing SYN-*.md projections, then re-emits from ``synthesis_nodes``
-    so the qmd corpus always reflects the DB. Returns the count emitted.
+    so the derived projection always reflects the DB. Returns the count emitted.
     """
     out_dir: Path = paths.synthesis
     out_dir.mkdir(parents=True, exist_ok=True)

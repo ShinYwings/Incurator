@@ -199,7 +199,7 @@ def test_materializer_rebuild_is_deterministic_and_removes_stale_fts(tmp_path: P
     ]
 
 
-def test_cli_reindex_rebuilds_native_search_without_qmd(tmp_path: Path) -> None:
+def test_cli_reindex_rebuilds_native_search_without_external_backend(tmp_path: Path) -> None:
     vault = tmp_path / "vault"
     paths = cfg.WikiPaths(vault)
     cfg.save_config(paths, {})

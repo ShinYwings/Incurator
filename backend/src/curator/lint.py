@@ -236,13 +236,13 @@ def _build_inventory(paths: cfg.WikiPaths, progress_callback: Optional[Callable[
 def _normalize_link(link: str) -> str:
     """Normalize a wikilink target for comparison.
 
-    Strips .md suffix, qmd:// prefix, pipe-based aliases, and leading/trailing
-    slashes. So all these become the same thing:
+    Strips .md suffix, legacy URI prefixes, pipe-based aliases, and
+    leading/trailing slashes. So all these become the same thing:
 
         02_Atoms/ATM-abc12345
         02_Atoms/ATM-abc12345.md
-        qmd://curator/02_Atoms/ATM-abc12345
-        /qmd://curator/02_Atoms/ATM-abc12345
+        legacy://curator/02_Atoms/ATM-abc12345
+        /legacy://curator/02_Atoms/ATM-abc12345
         02_Atoms/ATM-abc12345.md
         02_Atoms/ATM-abc12345|Atom alias
     """
@@ -257,8 +257,8 @@ def _normalize_link(link: str) -> str:
     # Strip .md suffix
     if link.endswith(".md"):
         link = link[:-3]
-    # Strip qmd:// URI prefix with optional collection name
-    link = re.sub(r"^/?qmd://[^/]+/", "", link)
+    # Strip legacy scheme URI prefix with optional collection name.
+    link = re.sub(r"^/?[A-Za-z][A-Za-z0-9+.-]*://[^/]+/", "", link)
     # Strip leading slashes
     link = link.lstrip("/")
     return link
@@ -568,9 +568,9 @@ def check_malformed_wikilinks(inv: PageInventory, paths: cfg.WikiPaths) -> list[
     """Find wikilinks with fixable formatting problems:
 
     - [[foo.md]] instead of [[foo]]
-    - [[qmd://curator/02_Atoms/ATM-abc12345]] instead of [[02_Atoms/ATM-abc12345]]
+    - [[legacy://curator/02_Atoms/ATM-abc12345]] instead of [[02_Atoms/ATM-abc12345]]
     - [[/foo]] with leading slash
-    - frontmatter source entries with qmd:// URI prefixes
+    - frontmatter source entries with legacy URI prefixes
     """
     issues: list[LintIssue] = []
 
@@ -1305,7 +1305,7 @@ def apply_fixes(
         new_report = run_lint(paths, deep=False, client=None)
         current_issues = new_report.issues
 
-    # Refresh the QMD search index so modified pages are reflected in queries.
+    # Refresh DB-native search so modified pages are reflected in queries.
     # Only runs if we actually modified anything. Non-fatal on failure.
     if total_modified > 0:
         try:

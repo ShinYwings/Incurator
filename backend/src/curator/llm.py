@@ -212,7 +212,7 @@ class OllamaClient:
         """Ask Ollama to immediately evict this model from VRAM (keep_alive=0).
 
         Called automatically by close() so any finally-block close() also
-        frees GPU memory for other consumers (e.g. qmd's llama-cpp model).
+        frees GPU memory for other local llama-cpp search models.
         Best-effort: silently ignored if Ollama is unreachable.
         """
         try:

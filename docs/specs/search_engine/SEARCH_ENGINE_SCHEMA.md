@@ -1,4 +1,4 @@
-# Incurator Search Engine Schema (v0.15.0)
+# Incurator Search Engine Schema (v0.16.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -55,9 +55,9 @@ Query expansion is a separate provider concern from embeddings and reranking:
   similarity is below `expansion_vector_confidence_floor`.
 - `query_expander` is optional. Empty means "use the configured chat LLM client
   when Tier-2 expansion is enabled." `llama-cpp::<model-name>` means a local GGUF
-  expander that emits qmd-compatible structured lines.
+  expander that emits structured expansion lines.
 - `query_expander_model_path` is machine-local and must not be required in synced
-  vault config. The qmd-compatible GGUF parser accepts only `lex:`, `vec:`, and
+  vault config. The structured GGUF parser accepts only `lex:`, `vec:`, and
   `hyde:` lines and remains fail-safe to deterministic Tier-1 expansion.
 - Query traces must record whether expansion was recovery-gated, whether it ran,
   lexical hit count, vector confidence, thresholds, and whether HyDE was used.
@@ -118,7 +118,7 @@ Rules:
 ## 4. `search_chunks`
 
 Vector retrieval and reranking operate on chunks, not whole documents only.
-Whole-record embeddings may exist as a cache, but they are below the qmd parity
+Whole-record embeddings may exist as a cache, but they are below the search quality
 target if used as the only vector unit.
 
 ```sql
