@@ -491,6 +491,58 @@ def test_plugin_context_expand_and_verify_use_existing_pack(tmp_path: Path) -> N
     assert verified["item"]["record_id"] == expanded["items"][0]["record_id"]
     assert verified["locator"]
 
+    feedback = runner.invoke(
+        app,
+        [
+            "plugin",
+            "context",
+            "feedback",
+            "--pack-id",
+            pack["pack_id"],
+            "--feedback-type",
+            "incorrect",
+            "--statement",
+            "Cited span does not support the claim.",
+            "--client",
+            "obsidian",
+            "--purpose",
+            "ground",
+            "--target-item-id",
+            expanded["items"][0]["record_id"],
+            "--reviewed-span-id",
+            str(span),
+            "--workspace-path",
+            str(vault),
+        ],
+    )
+    recorded = _json_output(feedback.output)
+    assert feedback.exit_code == 0
+    assert recorded["ok"] is True
+    assert recorded["operation"] == "context_feedback"
+    assert recorded["feedback_id"].startswith("FBK-")
+    assert recorded["review_status"] == "pending"
+    assert recorded["ranking_or_truth_mutated"] is False
+
+    bad = runner.invoke(
+        app,
+        [
+            "plugin",
+            "context",
+            "feedback",
+            "--pack-id",
+            pack["pack_id"],
+            "--feedback-type",
+            "not_a_type",
+            "--statement",
+            "x",
+            "--workspace-path",
+            str(vault),
+        ],
+    )
+    rejected = _json_output(bad.output)
+    assert rejected["ok"] is False
+    assert rejected["error_type"] == "invalid_feedback_type"
+
 
 def test_devices_default_status_lists_syncthing_only_profiles(tmp_path: Path) -> None:
     runner = CliRunner()

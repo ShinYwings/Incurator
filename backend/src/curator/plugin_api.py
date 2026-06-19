@@ -788,6 +788,54 @@ def verify_context(
         }
 
 
+def feedback_context(
+    paths: cfg.WikiPaths,
+    *,
+    pack_id: str,
+    feedback_type: str,
+    statement: str,
+    client: str = "",
+    purpose: str = "",
+    target: dict[str, Any] | None = None,
+    reviewed_source_span_ids: list[str] | None = None,
+    review_status: str = "pending",
+) -> dict[str, Any]:
+    if not pack_id:
+        return {"ok": False, "operation": "context_feedback", "error": "pack_id is required"}
+    if not feedback_type:
+        return {
+            "ok": False,
+            "operation": "context_feedback",
+            "error": "feedback_type is required",
+        }
+    if not statement:
+        return {
+            "ok": False,
+            "operation": "context_feedback",
+            "error": "statement is required",
+        }
+
+    try:
+        from .context_service import ContextService
+
+        return ContextService(paths).context_feedback(
+            pack_id=pack_id,
+            feedback_type=feedback_type,
+            statement=statement,
+            client=client,
+            purpose=purpose,
+            target=target,
+            reviewed_source_span_ids=reviewed_source_span_ids,
+            review_status=review_status,
+        )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "operation": "context_feedback",
+            "error": f"Context feedback error: {exc}",
+        }
+
+
 def curator_query(
     paths: cfg.WikiPaths,
     *,

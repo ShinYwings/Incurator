@@ -85,6 +85,7 @@ wiki plugin pdf search
 wiki plugin context fetch
 wiki plugin context expand
 wiki plugin context verify
+wiki plugin context feedback
 wiki plugin version
 wiki plugin query
 wiki plugin promote
@@ -1430,6 +1431,23 @@ wiki plugin context verify --pack-id PACK-... --verification-handle VER-... --ex
 The plugin must pass the snapshot id from the displayed pack and must surface
 `snapshot_conflict` responses as degraded/refetch-required state instead of
 mixing evidence across snapshots.
+
+Reviewed or pending feedback against a served pack is appended with:
+
+```bash
+wiki plugin context feedback --pack-id PACK-... --feedback-type incorrect \
+  --statement "<observation>" --client obsidian --purpose ground \
+  --target-item-id <record-id> --reviewed-span-id SPAN-...
+```
+
+`--feedback-type` is one of `relevant`, `irrelevant`, `incorrect`, `stale`,
+`insufficient`, `duplicate`, `new_insight`, `correction`, or
+`promotion_request`. The command returns an append-only `FBK-*` event id, the
+`review_status`, and `ranking_or_truth_mutated: false`. Feedback never mutates
+ranking, truth status, source files, or generated records; the event is
+quarantined until a separately reviewed policy applies it (SYSTEM_BEHAVIOR
+§31.6). An unknown `--feedback-type` returns `ok: false` with
+`error_type: invalid_feedback_type` and appends nothing.
 
 ### 15.1 Normalized Pack Shape
 

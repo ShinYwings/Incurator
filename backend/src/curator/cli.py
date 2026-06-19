@@ -6500,6 +6500,44 @@ def plugin_context_verify(
         raise typer.Exit(code=1)
 
 
+@plugin_context_app.command("feedback")
+def plugin_context_feedback(
+    pack_id: str = typer.Option(..., "--pack-id", help="Root ContextService pack id."),
+    feedback_type: str = typer.Option(..., "--feedback-type", help="One of relevant|irrelevant|incorrect|stale|insufficient|duplicate|new_insight|correction|promotion_request."),
+    statement: str = typer.Option(..., "--statement", help="User statement describing the feedback."),
+    client: str = typer.Option("", "--client", help="Originating client (e.g. obsidian, mcp)."),
+    purpose: str = typer.Option("", "--purpose", help="Request purpose (ground|verify|synthesize|discover)."),
+    target_item_id: str = typer.Option("", "--target-item-id", help="Targeted evidence item record id."),
+    target_record_id: str = typer.Option("", "--target-record-id", help="Targeted source/record id."),
+    reviewed_span_id: list[str] = typer.Option([], "--reviewed-span-id", help="Reviewed source span id. Repeatable."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
+) -> None:
+    """Append an append-only ContextService feedback event for the local plugin."""
+    from . import plugin_api
+
+    target = {
+        "item_id": target_item_id or None,
+        "record_id": target_record_id or None,
+        "claim_id": None,
+    }
+    try:
+        _print_json(
+            plugin_api.feedback_context(
+                _plugin_paths(workspace_path),
+                pack_id=pack_id,
+                feedback_type=feedback_type,
+                statement=statement,
+                client=client,
+                purpose=purpose,
+                target=target,
+                reviewed_source_span_ids=list(reviewed_span_id),
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "operation": "context_feedback", "pack_id": pack_id, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
 @plugin_app.command("promote")
 def plugin_promote(
     question: str = typer.Option(..., "--question", help="The question that produced the answer."),

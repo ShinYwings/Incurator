@@ -545,7 +545,8 @@ User types a chat message
       ▼
 IncuratorClient calls hidden backend JSON commands
 (`wiki plugin source ...`, `wiki plugin pdf ...`, `wiki plugin context fetch`,
-`wiki plugin context expand`, `wiki plugin context verify`, `wiki plugin query`)
+`wiki plugin context expand`, `wiki plugin context verify`,
+`wiki plugin context feedback`, `wiki plugin query`)
       │
       ▼
 Traceable DAG evidence injected as system context
@@ -1094,6 +1095,13 @@ marks the displayed pack as stale, shows the expected/current snapshot ids, and
 offers **Refetch**; refetch runs `wiki plugin context fetch` for the original
 question and replaces the displayed pack instead of merging evidence across
 snapshots. A backend synthesized answer is not injected by default.
+
+Feedback on a served pack (e.g. marking an evidence item incorrect, stale, or
+requesting promotion) is appended through `wiki plugin context feedback` against
+the displayed pack id. The backend records an append-only `FBK-*` event tied to
+the pack/snapshot and returns `ranking_or_truth_mutated: false`: feedback never
+edits source files, generated records, ranking, or truth state, and stays
+quarantined until a separately reviewed policy applies it.
 
 Rules:
 - Insight-candidate promotion is an explicit user action; the plugin must confirm

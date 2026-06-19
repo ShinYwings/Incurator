@@ -481,7 +481,8 @@ provider 중립적입니다. 플러그인이 HTTP provider(DeepSeek·Ollama)를 
       ▼
 IncuratorClient가 숨겨진 backend JSON command 호출
 (`wiki plugin source ...`, `wiki plugin pdf ...`, `wiki plugin context fetch`,
-`wiki plugin context expand`, `wiki plugin context verify`, `wiki plugin query`)
+`wiki plugin context expand`, `wiki plugin context verify`,
+`wiki plugin context feedback`, `wiki plugin query`)
       │
       ▼
 추적 가능한 DAG 근거를 시스템 컨텍스트로 주입
@@ -929,6 +930,13 @@ expected/current snapshot id를 보여주며 **Refetch**를 제공합니다. Ref
 질문으로 `wiki plugin context fetch`를 다시 실행해 표시 pack을 교체하며, 서로 다른
 snapshot의 evidence를 병합하지 않습니다. backend synthesized answer는 기본적으로
 주입하지 않습니다.
+
+제공된 pack에 대한 피드백(예: evidence item을 incorrect/stale로 표시하거나 승격을
+요청)은 표시된 pack id에 대해 `wiki plugin context feedback`로 추가합니다. backend는
+pack/snapshot에 연결된 append-only `FBK-*` 이벤트를 기록하고
+`ranking_or_truth_mutated: false`를 반환합니다. 피드백은 소스 파일, 생성 레코드,
+ranking, truth 상태를 절대 수정하지 않으며, 별도로 검토된 정책이 적용하기 전까지
+격리(quarantine) 상태로 유지됩니다.
 
 규칙:
 - 인사이트 후보 승격은 명시적 사용자 동작입니다. 플러그인은 `promoteInsight`

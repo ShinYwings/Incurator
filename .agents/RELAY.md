@@ -6,7 +6,8 @@ Batch 3 / Plan F — Unified Agent Context Service on
 
 ## Plan Reference
 - Active plan: `.agents/plans/F_agent_context_service.md`
-- Current phase: **P6 — Obsidian Agent Grounding And Sources & Trace** (in flight).
+- Current phase: **P7 — Feedback And Promotion Lineage** (in flight). P6 grounding/
+  Sources & Trace is done except headless-impossible visual QA.
 - Plan G (PDF unification) was branched off this branch and merged back via PR #33
   (`f53306c`); v0.12.0 shipped. That merge restored the Plan G RELAY snapshot, so
   this file has been rewritten to the accurate Plan F live state.
@@ -39,11 +40,33 @@ Batch 3 / Plan F — Unified Agent Context Service on
   `incuratorQueryTraceV031.test.ts` now asserts the trace module *delegates* + wires the
   Obsidian/Electron side-effects, instead of grepping the moved pure logic.
 
+## Progress Status (P7 — Feedback, slice 1)
+- Implemented the append-only `context_feedback` ContextService operation:
+  `FBK-*` event recorded as a `feedback` child action on the root `QTR-*`, linked
+  to pack/snapshot, with locked feedback-type validation, target/reviewed-evidence
+  capture, and a hard quarantine (`ranking_or_truth_mutated: false`; lineage fields
+  present but unresolved). No schema migration — reuses the `query_traces`
+  `retrieval_trace.context_service.actions` append store.
+- Added public adapters for parity: `plugin_api.feedback_context` and the hidden
+  `wiki plugin context feedback` CLI command.
+- Docs: PLUGIN_SCHEMA command list + §15 feedback usage; EN then KR PLUGIN_GUIDE.
+  SYSTEM_BEHAVIOR §31.6 and SCHEMA §23.2 FBK-* already specced this at P1.
+- NOT yet done in P7: lifecycle integration (classification via backprop_classifier
+  + insight-candidate / 02_Wiki promotion creation for correction/new_insight/
+  promotion_request). That is the next P7 slice (needs an LLM client; resulting
+  lineage fields are wired but stay null until then). Plugin-side feedback UI wiring
+  also pending.
+
 ## Validation
 - `scripts/backend-check pytest backend/tests/test_plan_f_context_service_contract.py`
-  -> `24 passed`.
-- `npx tsc --noEmit` from `plugin/` -> passed.
-- `npx vitest run` from `plugin/` -> `50` files / `426` tests passed (was 49/417).
+  -> `29 passed` (24 prior + 5 new feedback tests).
+- `scripts/backend-check pytest backend/tests/test_plugin_cli.py test_spec_sync.py`
+  -> `20 passed` (feedback CLI happy-path + invalid-type rejection).
+- `scripts/backend-check ruff/mypy` on context_service/plugin_api/cli -> clean.
+- Refreshed `.venv-dev` editable install (stale 0.11.0 metadata -> 0.12.0) so
+  `test_spec_sync` passes; env-only, no code change.
+- `npx tsc --noEmit` + `npx vitest run` from `plugin/` -> `50` files / `426` passed
+  (from the prior P6 locator slice; plugin untouched this slice).
 
 ## Critical Context / Blockers
 - Items `01`-`03` and `06` from the Batch 1~3 audit (`.agents/drafts/batch_1_to_3_audit/`)
@@ -56,9 +79,13 @@ Batch 3 / Plan F — Unified Agent Context Service on
   requirement unless the user directs otherwise.
 
 ## Immediate Next Action
-Continue P6, then advance to remaining phases:
-1. P6: visual QA of pack/refetch/action controls (needs a human/Obsidian pass).
-2. **P7 — Feedback And Promotion Lineage**: append-only `context_feedback`, all locked
-   feedback types, lineage attachment, quarantine from ranking/truth. Begin TDD.
-3. P8 — Plan-A route admission; P9 — cross-client E2E, testbed, migration, release
+1. **P7 slice 2** — lifecycle integration: route `correction`/`new_insight`/
+   `promotion_request` feedback through `backprop_classifier` + `insight_lifecycle`
+   so a reviewed event can yield an insight candidate / `02_Wiki/` promotion, filling
+   `resulting_lineage`. Keep the quarantine: nothing applies until reviewed. Needs an
+   LLM client (TDD with a stubbed/seam client).
+2. P7 plugin-side: send feedback from Sources & Trace item controls via
+   `IncuratorClient` -> `wiki plugin context feedback`.
+3. P6 visual QA of pack/refetch/action controls (needs a human/Obsidian pass).
+4. P8 — Plan-A route admission; P9 — cross-client E2E, testbed, migration, release
    (version bump + changelog at the P9 release gate per Universal Strict Workflow).

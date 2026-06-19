@@ -729,3 +729,153 @@ def test_context_verify_resolves_exact_support_and_appends_child_action(tmp_path
     actions = trace["retrieval_trace"]["context_service"]["actions"]
     assert actions[-1]["action_type"] == "verification"
     assert actions[-1]["child_id"] == item["verification_handle"]
+
+
+# ---------------------------------------------------------------------------
+# P7 — Feedback And Promotion Lineage (SYSTEM_BEHAVIOR §31.6, SCHEMA §23.2 FBK-*)
+# ---------------------------------------------------------------------------
+
+_FEEDBACK_TYPES = (
+    "relevant",
+    "irrelevant",
+    "incorrect",
+    "stale",
+    "insufficient",
+    "duplicate",
+    "new_insight",
+    "correction",
+    "promotion_request",
+)
+
+
+def test_context_service_feedback_operation_exists_for_p7() -> None:
+    from curator.context_service import ContextService
+
+    assert hasattr(ContextService, "context_feedback")
+
+
+def test_context_feedback_records_append_only_event_without_mutation(tmp_path: Path) -> None:
+    from curator.context_service import ContextService
+
+    paths, span_id = _seed_context_vault(tmp_path)
+    service = ContextService(paths)
+    pack = service.context_fetch(QueryRequest(question="residual connection", mode="local"))
+    item = next(item for item in pack["items"] if span_id in item["source_span_ids"])
+    trace_before = db.get_query_trace(paths.state_db, pack["trace_id"])
+    assert trace_before is not None
+    selected_before = trace_before["retrieval_trace"]["context_service"]["selected_items"]
+
+    response = service.context_feedback(
+        pack_id=pack["pack_id"],
+        feedback_type="incorrect",
+        statement="The cited paragraph does not support this claim.",
+        client="obsidian",
+        purpose="ground",
+        target={"item_id": item["record_id"], "record_id": span_id, "claim_id": None},
+        reviewed_source_span_ids=[span_id],
+    )
+
+    assert response["ok"] is True
+    assert response["operation"] == "context_feedback"
+    assert response["feedback_id"].startswith("FBK-")
+    assert response["feedback_type"] == "incorrect"
+    assert response["trace_id"] == pack["trace_id"]
+    assert response["pack_id"] == pack["pack_id"]
+    assert response["snapshot"]["snapshot_id"] == pack["snapshot"]["snapshot_id"]
+    assert response["review_status"] == "pending"
+    # Quarantine guarantee: feedback never mutates ranking or truth.
+    assert response["ranking_or_truth_mutated"] is False
+
+    trace = db.get_query_trace(paths.state_db, pack["trace_id"])
+    assert trace is not None
+    context = trace["retrieval_trace"]["context_service"]
+    event_action = context["actions"][-1]
+    assert event_action["action_type"] == "feedback"
+    assert event_action["child_id"] == response["feedback_id"]
+    event = event_action["payload"]
+    assert event["feedback_type"] == "incorrect"
+    assert event["pack_id"] == pack["pack_id"]
+    assert event["snapshot_id"] == pack["snapshot"]["snapshot_id"]
+    assert event["client"] == "obsidian"
+    assert event["purpose"] == "ground"
+    assert event["target"] == {"item_id": item["record_id"], "record_id": span_id, "claim_id": None}
+    assert event["reviewed_source_span_ids"] == [span_id]
+    assert event["statement"]
+    # Lineage fields exist but are unresolved until a reviewed policy applies them.
+    assert event["classification"] is None
+    assert event["review_actor"] is None
+    assert event["review_time"] is None
+    assert event["resulting_lineage"] == {
+        "insight_candidate_id": None,
+        "promotion_relpath": None,
+        "correction_node_ids": [],
+    }
+    # Source-supported selected evidence is untouched by feedback.
+    assert context["selected_items"] == selected_before
+
+
+def test_context_feedback_rejects_unknown_type_without_appending(tmp_path: Path) -> None:
+    from curator.context_service import ContextService
+
+    paths, _ = _seed_context_vault(tmp_path)
+    service = ContextService(paths)
+    pack = service.context_fetch(QueryRequest(question="residual connection", mode="local"))
+    before = db.get_query_trace(paths.state_db, pack["trace_id"])
+    assert before is not None
+    actions_before = len(before["retrieval_trace"]["context_service"]["actions"])
+
+    response = service.context_feedback(
+        pack_id=pack["pack_id"],
+        feedback_type="not_a_real_type",
+        statement="bogus",
+    )
+
+    assert response["ok"] is False
+    assert response["error_type"] == "invalid_feedback_type"
+    after = db.get_query_trace(paths.state_db, pack["trace_id"])
+    assert after is not None
+    assert len(after["retrieval_trace"]["context_service"]["actions"]) == actions_before
+
+
+def test_context_feedback_unknown_pack_is_reported(tmp_path: Path) -> None:
+    from curator.context_service import ContextService
+
+    paths, _ = _seed_context_vault(tmp_path)
+    response = ContextService(paths).context_feedback(
+        pack_id="PACK-does-not-exist",
+        feedback_type="relevant",
+        statement="n/a",
+    )
+    assert response["ok"] is False
+    assert response["error_type"] == "pack_not_found"
+
+
+def test_context_feedback_is_append_only_across_repeated_events(tmp_path: Path) -> None:
+    from curator.context_service import ContextService
+
+    paths, span_id = _seed_context_vault(tmp_path)
+    service = ContextService(paths)
+    pack = service.context_fetch(QueryRequest(question="residual connection", mode="local"))
+
+    first = service.context_feedback(
+        pack_id=pack["pack_id"], feedback_type="relevant", statement="useful evidence"
+    )
+    second = service.context_feedback(
+        pack_id=pack["pack_id"], feedback_type="stale", statement="evidence is now stale"
+    )
+
+    assert first["feedback_id"] != second["feedback_id"]
+    trace = db.get_query_trace(paths.state_db, pack["trace_id"])
+    assert trace is not None
+    feedback_actions = [
+        a
+        for a in trace["retrieval_trace"]["context_service"]["actions"]
+        if a["action_type"] == "feedback"
+    ]
+    assert [a["child_id"] for a in feedback_actions] == [
+        first["feedback_id"],
+        second["feedback_id"],
+    ]
+    orders = [a["order"] for a in feedback_actions]
+    assert orders == sorted(orders)
+    assert all(t in _FEEDBACK_TYPES for t in ("relevant", "stale"))

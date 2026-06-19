@@ -20,6 +20,21 @@ _DEFAULT_POLICY_PROJECT = "default"
 _DEFAULT_BUDGET_LIMIT = 16000
 _DEFAULT_RESERVED_TOKENS = 1000
 
+# Locked feedback types (SYSTEM_BEHAVIOR §31.6). Append-only `FBK-*` events.
+_FEEDBACK_TYPES = frozenset(
+    {
+        "relevant",
+        "irrelevant",
+        "incorrect",
+        "stale",
+        "insufficient",
+        "duplicate",
+        "new_insight",
+        "correction",
+        "promotion_request",
+    }
+)
+
 
 def _new_prefixed_id(prefix: str, payload: str) -> str:
     return f"{prefix}-{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:12]}"
@@ -831,6 +846,96 @@ class ContextService:
             "locator": item.get("locator"),
             "dependencies": [],
             "contradictions": [],
+        }
+
+    def context_feedback(
+        self,
+        *,
+        pack_id: str,
+        feedback_type: str,
+        statement: str,
+        client: str = "",
+        purpose: str = "",
+        target: dict[str, Any] | None = None,
+        reviewed_source_span_ids: list[str] | None = None,
+        review_status: str = "pending",
+    ) -> dict[str, Any]:
+        """Append a single append-only ``FBK-*`` feedback event to a pack's root.
+
+        SYSTEM_BEHAVIOR §31.6 / SCHEMA §23.2: every event links to the root
+        ``QTR-*``, ``PACK-*``, and ``SNAP-*`` and records client/purpose, target,
+        reviewed evidence, statement, classification, review status, and any
+        resulting lineage. Feedback is quarantined: it never mutates ranking,
+        truth status, source files, or generated records here. The lineage fields
+        stay unresolved until a separately specified reviewed policy applies them.
+        """
+        if feedback_type not in _FEEDBACK_TYPES:
+            return {
+                "ok": False,
+                "error_type": "invalid_feedback_type",
+                "feedback_type": feedback_type,
+                "allowed": sorted(_FEEDBACK_TYPES),
+            }
+        trace, context = self._find_context_pack(pack_id)
+        if trace is None or context is None:
+            return {"ok": False, "error_type": "pack_not_found", "pack_id": pack_id}
+
+        snapshot = context["snapshot"]
+        snapshot_id = str(snapshot["snapshot_id"])
+        order = len(context.get("actions", [])) + 1
+        feedback_id = _new_prefixed_id(
+            "FBK",
+            f"{trace['trace_id']}:{pack_id}:{feedback_type}:{order}:{statement}",
+        )
+        normalized_target = {
+            "item_id": (target or {}).get("item_id"),
+            "record_id": (target or {}).get("record_id"),
+            "claim_id": (target or {}).get("claim_id"),
+        }
+        event = {
+            "feedback_id": feedback_id,
+            "feedback_type": feedback_type,
+            "trace_id": trace["trace_id"],
+            "pack_id": pack_id,
+            "snapshot_id": snapshot_id,
+            "client": client,
+            "purpose": purpose,
+            "target": normalized_target,
+            "reviewed_source_span_ids": list(reviewed_source_span_ids or []),
+            "statement": statement,
+            "review_status": review_status,
+            # Quarantined: resolved only when a reviewed policy explicitly applies
+            # the feedback (classification, insight candidate, promotion, or
+            # correction). Recording feedback alone changes nothing downstream.
+            "classification": None,
+            "review_actor": None,
+            "review_time": None,
+            "resulting_lineage": {
+                "insight_candidate_id": None,
+                "promotion_relpath": None,
+                "correction_node_ids": [],
+            },
+        }
+        self._append_context_action(
+            trace,
+            context,
+            action_type="feedback",
+            child_id=feedback_id,
+            payload=event,
+        )
+        return {
+            "ok": True,
+            "contract_version": "1",
+            "operation": "context_feedback",
+            "feedback_id": feedback_id,
+            "feedback_type": feedback_type,
+            "trace_id": trace["trace_id"],
+            "pack_id": pack_id,
+            "snapshot": snapshot,
+            "target": normalized_target,
+            "reviewed_source_span_ids": list(reviewed_source_span_ids or []),
+            "review_status": review_status,
+            "ranking_or_truth_mutated": False,
         }
 
     def _find_context_pack(
