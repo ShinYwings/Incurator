@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildBaseSystemPrompt, editableSelectionInstruction, wrapLatestUserMessageForLanguageBridge } from "./systemPrompt";
+import { buildBaseSystemPrompt, editableSelectionInstruction, getEditLoopContract, wrapLatestUserMessageForLanguageBridge } from "./systemPrompt";
 
 describe("buildBaseSystemPrompt", () => {
   it("always includes the base Obsidian assistant instructions and edit-block format", () => {
@@ -73,5 +73,34 @@ describe("buildBaseSystemPrompt", () => {
     const text = editableSelectionInstruction(false, true);
     expect(text).toContain("open Markdown file as the edit target");
     expect(text).toContain("ai-agent-edit");
+  });
+});
+
+describe("getEditLoopContract", () => {
+  it("instructs the agent to emit the four canonical phase markers in order", () => {
+    const text = getEditLoopContract();
+    expect(text).toContain("[[PHASE:ANALYSED]]");
+    expect(text).toContain("[[PHASE:REVIEWED]]");
+    expect(text).toContain("[[PHASE:UPDATED]]");
+    // The contract must name the loop and tie it to ai-agent-edit proposals.
+    expect(text).toContain("Analysed");
+    expect(text).toContain("Reviewed");
+    expect(text).toContain("Updated");
+    expect(text).toContain("ai-agent-edit");
+  });
+
+  it("places the first REVIEWED before UPDATED and a second REVIEWED after it", () => {
+    const text = getEditLoopContract();
+    const firstReviewed = text.indexOf("[[PHASE:REVIEWED]]");
+    const updated = text.indexOf("[[PHASE:UPDATED]]");
+    const lastReviewed = text.lastIndexOf("[[PHASE:REVIEWED]]");
+    expect(firstReviewed).toBeGreaterThanOrEqual(0);
+    expect(firstReviewed).toBeLessThan(updated);
+    expect(updated).toBeLessThan(lastReviewed);
+  });
+
+  it("does not require the loop for pure question answering", () => {
+    const text = getEditLoopContract();
+    expect(text.toLowerCase()).toContain("only when you propose");
   });
 });

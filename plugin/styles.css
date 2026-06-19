@@ -1899,6 +1899,47 @@
 
 /* ── Applied Change Pill (compact, replaces full diff in chat) ── */
 
+/* Edit-loop state machine (v0.14.0) */
+.ai-agent-edit-phase {
+  margin: 6px 0;
+  border-left: 2px solid var(--background-modifier-border);
+  padding-left: 8px;
+}
+.ai-agent-edit-phase > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  list-style: none;
+}
+.ai-agent-edit-phase[data-phase="UPDATED"] {
+  border-left-color: var(--text-accent);
+}
+.ai-agent-edit-phase-body {
+  padding: 4px 0 2px 2px;
+}
+.ai-agent-edit-loop-blocked {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-error-border, var(--text-error));
+  background: color-mix(in srgb, var(--background-modifier-error) 18%, transparent);
+  font-size: 12px;
+}
+.ai-agent-edit-loop-blocked-text {
+  margin-bottom: 6px;
+  color: var(--text-error);
+}
+.ai-agent-edit-loop-blocked-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ai-agent-edit-loop-blocked-actions button {
+  cursor: pointer;
+  font-size: 12px;
+}
+
 .ai-agent-applied-change {
   display: flex;
   flex-direction: column;

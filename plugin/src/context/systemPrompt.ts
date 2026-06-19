@@ -89,6 +89,33 @@ export function wrapLatestUserMessageForLanguageBridge(content: string, inputLan
   );
 }
 
+/**
+ * Edit-loop state-machine contract (v0.14.0).
+ *
+ * A composable system-prompt block that forces edit proposals through an
+ * observable four-phase loop: Analysed -> Reviewed -> Updated -> Reviewed. The
+ * caller appends this LAST in the system prompt (strongest LLM attention) and
+ * only for edit-likely turns. Phase markers are stable English sentinels so the
+ * runtime validator/renderer stays language-independent; the body text under
+ * each marker follows the user's language.
+ */
+export function getEditLoopContract(): string {
+  return (
+    "EDIT REVIEW LOOP (mandatory for file changes): ONLY when you propose one or " +
+    "more `ai-agent-edit` blocks in this turn, you MUST first walk a visible " +
+    "four-phase loop — Analysed -> Reviewed -> Updated -> Reviewed — and emit " +
+    "each phase on its own line using these exact English sentinel markers, in " +
+    "this order:\n" +
+    "[[PHASE:ANALYSED]] — State what the user wants and the concrete gap the edit must close.\n" +
+    "[[PHASE:REVIEWED]] — Critique your own plan BEFORE editing: what could go wrong, what stays untouched.\n" +
+    "[[PHASE:UPDATED]] — Output the `ai-agent-edit` SEARCH/REPLACE block(s) here, and nowhere else.\n" +
+    "[[PHASE:REVIEWED]] — Self-check AFTER editing: confirm the change closes the gap and nothing else broke.\n" +
+    "Keep the marker tokens verbatim (do not translate or reformat them); write the body under each marker in the user's language. " +
+    "Do NOT place any `ai-agent-edit` block outside the UPDATED phase. " +
+    "If this turn only answers a question and proposes no edits, do NOT emit these markers."
+  );
+}
+
 export function editableSelectionInstruction(hasEditableSelection: boolean, hasOpenMarkdownEditTarget = false): string {
   if (!hasEditableSelection && !hasOpenMarkdownEditTarget) return "";
   return (

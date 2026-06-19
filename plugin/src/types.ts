@@ -278,6 +278,14 @@ export interface ChatMessage {
   appliedEdits?: boolean;
   /** True once this message's edit diff was auto-opened, so it never re-opens. */
   diffAutoOpened?: boolean;
+  /**
+   * Set when an edit-bearing answer skipped the required Analysed→Reviewed→
+   * Updated→Reviewed loop (v0.14.0). The render path shows a blocked banner and
+   * suppresses auto-open until the user explicitly overrides.
+   */
+  editLoopBlocked?: boolean;
+  /** True once the user clicked "Override & review anyway" on a blocked edit. */
+  editLoopOverridden?: boolean;
   revertData?: { filepath: string; originalContent: string | null }[];
 }
 
