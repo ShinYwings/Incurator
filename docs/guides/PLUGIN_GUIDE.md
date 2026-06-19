@@ -283,6 +283,28 @@ native PageLabels map when the Incurator PDF viewer exposes one, so front-matter
 offsets do not force `p.580` to mean physical page 580. Ordinary web and vault
 links keep their normal behavior.
 
+### Curator DAG Wikilinks
+
+The Curator knowledge DAG (L1–L4 nodes: `CTX-`, `ATM-`, `CON-`, `SYN-`) is stored
+under the hidden `.curator/Collections/` folder. Obsidian does not index files in
+hidden (dot-) folders, so a curator wikilink such as `[[02_Atoms/ATM-9f8e7d6c]]`
+would otherwise render as a dead, unresolved link with no click, hover, graph, or
+backlink behavior.
+
+The plugin closes this gap: any rendered curator-layer wikilink
+(`[[01_Contexts/CTX-…]]`, `[[02_Atoms/ATM-…]]`, `[[03_Concepts/CON-…]]`,
+`[[04_Synthesis/SYN-…]]`, with or without the `.curator/Collections/` prefix or a
+trailing `.md`) becomes a **clickable link that opens the hidden DAG page**. This
+works in the chat sidebar answer, the quick-query popover answer, and the reading
+view of an opened DAG page. When the target file exists it renders as a normal,
+resolved link; when it is missing it is marked with a `is-missing` style so a
+stale citation is visible rather than silently broken.
+
+Because the DAG lives in a hidden folder, these nodes still do not appear in
+Obsidian's native Graph view or core Backlinks pane — use the chat **Sources &
+Trace** panel for backlink-style provenance. Ordinary web and vault links keep
+their normal behavior; only curator-layer link targets are rewritten.
+
 When a selected Markdown line range is attached and the user asks to fix,
 rewrite, polish, translate, or otherwise modify that selected text, the
 assistant should return an `ai-agent-edit` SEARCH/REPLACE proposal. If the user

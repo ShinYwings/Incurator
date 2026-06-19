@@ -4,6 +4,24 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.17.0] - 2026-06-20
+### Fixed
+- Curator DAG wikilinks are now clickable. The L1–L4 knowledge DAG lives under
+  the hidden `.curator/Collections/` folder, which Obsidian's metadataCache never
+  indexes — so curator-layer links such as `[[02_Atoms/ATM-9f8e7d6c]]` previously
+  rendered as dead, unresolved links (no click, hover, graph, or backlinks) in the
+  chat sidebar, the quick-query popover, and opened DAG pages. The plugin now
+  registers a single markdown post-processor that rewrites these rendered links
+  into clickable links which open the hidden page via `openLinkText`. The rewrite
+  accepts an optional `.curator/Collections/` prefix, an optional `.md` suffix, and
+  a `#heading`/`#^block` subpath; marks a missing target with an `is-missing`
+  style instead of opening a nonexistent page; and leaves non-curator internal
+  links, external links, real-vault embeds, and `[[PHASE:…]]` markers untouched.
+### Notes
+- Because the DAG stays hidden, curator nodes still do not appear in Obsidian's
+  native Graph view or core Backlinks pane; use the chat Sources & Trace panel for
+  backlink-style provenance. The backend `[[LAYER/ID]]` link format is unchanged.
+
 ## [0.16.1] - 2026-06-20
 ### Fixed
 - Narrowed wikilink target normalization so it strips only the retired curator
