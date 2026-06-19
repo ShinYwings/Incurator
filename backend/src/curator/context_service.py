@@ -892,6 +892,11 @@ class ContextService:
             "record_id": (target or {}).get("record_id"),
             "claim_id": (target or {}).get("claim_id"),
         }
+        resulting_lineage: dict[str, Any] = {
+            "insight_candidate_id": None,
+            "promotion_relpath": None,
+            "correction_node_ids": [],
+        }
         event = {
             "feedback_id": feedback_id,
             "feedback_type": feedback_type,
@@ -910,12 +915,35 @@ class ContextService:
             "classification": None,
             "review_actor": None,
             "review_time": None,
-            "resulting_lineage": {
-                "insight_candidate_id": None,
-                "promotion_relpath": None,
-                "correction_node_ids": [],
-            },
+            "resulting_lineage": resulting_lineage,
         }
+        # Lifecycle integration (quarantined): a `new_insight` event records a
+        # provisional `pending` insight candidate for later human review. This
+        # never edits source truth, generated records, or ranking — it only
+        # enqueues a candidate, exactly like `curator_propose_correction`.
+        # `correction` patching and `02_Wiki/` promotion stay behind their
+        # existing explicit human-approval tools.
+        if feedback_type == "new_insight":
+            from . import insight_lifecycle
+            from .backprop_classifier import BackpropClassification
+
+            record_id = normalized_target.get("record_id")
+            classification = BackpropClassification(
+                classification="derived_insight",
+                affected_nodes=[str(record_id)] if record_id is not None else [],
+                recommended_action="create_insight_candidate",
+                reason="context_feedback new_insight",
+                trace_id=feedback_id,
+                ok=True,
+            )
+            candidate_id = insight_lifecycle.create_insight_from_classification(
+                self.paths.state_db,
+                classification,
+                statement=statement,
+                source_event_id=feedback_id,
+                evidence=list(reviewed_source_span_ids or []),
+            )
+            event["resulting_lineage"]["insight_candidate_id"] = candidate_id
         self._append_context_action(
             trace,
             context,
@@ -935,6 +963,7 @@ class ContextService:
             "target": normalized_target,
             "reviewed_source_span_ids": list(reviewed_source_span_ids or []),
             "review_status": review_status,
+            "resulting_lineage": event["resulting_lineage"],
             "ranking_or_truth_mutated": False,
         }
 

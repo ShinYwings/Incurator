@@ -879,3 +879,57 @@ def test_context_feedback_is_append_only_across_repeated_events(tmp_path: Path) 
     orders = [a["order"] for a in feedback_actions]
     assert orders == sorted(orders)
     assert all(t in _FEEDBACK_TYPES for t in ("relevant", "stale"))
+
+
+def test_context_feedback_new_insight_creates_provisional_candidate(tmp_path: Path) -> None:
+    from curator.context_service import ContextService
+
+    paths, span_id = _seed_context_vault(tmp_path)
+    service = ContextService(paths)
+    pack = service.context_fetch(QueryRequest(question="residual connection", mode="local"))
+
+    response = service.context_feedback(
+        pack_id=pack["pack_id"],
+        feedback_type="new_insight",
+        statement="Residual connections also stabilize very deep training.",
+        client="obsidian",
+        purpose="discover",
+        reviewed_source_span_ids=[span_id],
+    )
+
+    assert response["ok"] is True
+    # Quarantine holds: a provisional candidate for review is not a truth/ranking change.
+    assert response["ranking_or_truth_mutated"] is False
+    candidate_id = response["resulting_lineage"]["insight_candidate_id"]
+    assert candidate_id is not None
+    assert candidate_id.startswith("INS-")
+
+    candidate = db.get_insight_candidate(paths.state_db, candidate_id)
+    assert candidate is not None
+    # Provisional: pending review, never applied to source/ranking.
+    assert candidate["status"] == "pending"
+    assert candidate["classification"] == "derived_insight"
+    assert candidate["statement"] == "Residual connections also stabilize very deep training."
+
+    # The stored feedback event carries the same lineage.
+    trace = db.get_query_trace(paths.state_db, pack["trace_id"])
+    assert trace is not None
+    event = trace["retrieval_trace"]["context_service"]["actions"][-1]["payload"]
+    assert event["resulting_lineage"]["insight_candidate_id"] == candidate_id
+
+
+def test_context_feedback_non_insight_type_creates_no_candidate(tmp_path: Path) -> None:
+    from curator.context_service import ContextService
+
+    paths, _ = _seed_context_vault(tmp_path)
+    service = ContextService(paths)
+    pack = service.context_fetch(QueryRequest(question="residual connection", mode="local"))
+
+    response = service.context_feedback(
+        pack_id=pack["pack_id"],
+        feedback_type="incorrect",
+        statement="The cited span does not support this.",
+    )
+
+    assert response["resulting_lineage"]["insight_candidate_id"] is None
+    assert db.list_insight_candidates(paths.state_db) == []

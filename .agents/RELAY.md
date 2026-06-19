@@ -51,11 +51,15 @@ Batch 3 / Plan F — Unified Agent Context Service on
   `wiki plugin context feedback` CLI command.
 - Docs: PLUGIN_SCHEMA command list + §15 feedback usage; EN then KR PLUGIN_GUIDE.
   SYSTEM_BEHAVIOR §31.6 and SCHEMA §23.2 FBK-* already specced this at P1.
-- NOT yet done in P7: lifecycle integration (classification via backprop_classifier
-  + insight-candidate / 02_Wiki promotion creation for correction/new_insight/
-  promotion_request). That is the next P7 slice (needs an LLM client; resulting
-  lineage fields are wired but stay null until then). Plugin-side feedback UI wiring
-  also pending.
+- Slice 2 done: `new_insight` feedback now records a provisional `pending` insight
+  candidate (reuses `insight_lifecycle`, deterministic, no LLM) and reports it in
+  `resulting_lineage.insight_candidate_id`. Quarantine preserved: candidate is never
+  applied to source/generated/ranking/truth until a human promotes it. `correction`
+  patching and `02_Wiki/` promotion stay behind the existing explicit tools
+  (`curator_propose_correction`, `curator_promote_insight`/`promote_answer`).
+  SYSTEM_BEHAVIOR §31.6 documents this.
+- NOT yet done in P7: plugin-side feedback UI wiring (send feedback from Sources &
+  Trace item controls via `IncuratorClient` -> `wiki plugin context feedback`).
 
 ## Validation
 - `scripts/backend-check pytest backend/tests/test_plan_f_context_service_contract.py`
@@ -79,13 +83,9 @@ Batch 3 / Plan F — Unified Agent Context Service on
   requirement unless the user directs otherwise.
 
 ## Immediate Next Action
-1. **P7 slice 2** — lifecycle integration: route `correction`/`new_insight`/
-   `promotion_request` feedback through `backprop_classifier` + `insight_lifecycle`
-   so a reviewed event can yield an insight candidate / `02_Wiki/` promotion, filling
-   `resulting_lineage`. Keep the quarantine: nothing applies until reviewed. Needs an
-   LLM client (TDD with a stubbed/seam client).
-2. P7 plugin-side: send feedback from Sources & Trace item controls via
-   `IncuratorClient` -> `wiki plugin context feedback`.
-3. P6 visual QA of pack/refetch/action controls (needs a human/Obsidian pass).
-4. P8 — Plan-A route admission; P9 — cross-client E2E, testbed, migration, release
+1. **P7 plugin-side** — send feedback from Sources & Trace item controls via
+   `IncuratorClient.feedbackContext()` -> `wiki plugin context feedback`; add Vitest
+   coverage. (Backend + CLI + docs for feedback are complete.)
+2. P6 visual QA of pack/refetch/action controls (needs a human/Obsidian pass).
+3. P8 — Plan-A route admission; P9 — cross-client E2E, testbed, migration, release
    (version bump + changelog at the P9 release gate per Universal Strict Workflow).

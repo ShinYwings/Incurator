@@ -2570,7 +2570,19 @@ Every event stores the root trace, pack, snapshot, client/purpose, target item o
 claim, reviewed evidence/source span ids, user statement, classification, review
 status, review actor/time, and any resulting insight, correction, or promotion
 lineage. Feedback cannot alter ranking, truth status, source files, or generated
-records until a separate reviewed policy explicitly applies it.
+records until a separate reviewed policy explicitly applies it. The operation
+returns `ranking_or_truth_mutated: false`; an unknown feedback type returns
+`error_type: invalid_feedback_type` and appends nothing. Each `FBK-*` event is
+stored append-only as an ordered `feedback` child action on the root `QTR-*`.
+
+Lifecycle integration stays within the quarantine. A `new_insight` event records a
+provisional `pending` insight candidate (the same review queue used by
+`curator_propose_correction`) and reports its id in
+`resulting_lineage.insight_candidate_id`; the candidate is never applied to
+source, generated records, or ranking until a human promotes it. `correction`
+patching of generated nodes and explicit `02_Wiki/` promotion remain behind their
+existing human-approval tools (`curator_propose_correction`,
+`curator_promote_insight` / `promote_answer`) and are not auto-applied by feedback.
 
 ### 31.7 Migration And Retention Plan
 
