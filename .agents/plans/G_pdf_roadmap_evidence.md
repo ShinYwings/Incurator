@@ -278,6 +278,59 @@ resolution instead of trusting another device's path.
       ./vitest.config.ts` passed (**48 files / 413 tests**); `git diff --check`
       passed.
 
+## 4i. P5 Testbed E2E + Final Local Gates (recorded 2026-06-19)
+
+- [x] **Existing testbed preserved, not force-reinitialized.** Active scenario
+      was not explicitly confirmed; the existing `testbed/` already contained
+      Plan G smoke sources/assets, so P5 used it in place to avoid destroying
+      useful stale-path evidence.
+- [x] **Reference/add-source flow verified.** Imported the ResNet PDF from
+      `tests/scenarios/complex_math_backprop/stage/04_Resources/` with
+      `--policy reference --logical-source-id ref-plan-g-resnet-smoke`, then
+      registered source `3` with `--asset-dir '05_Assets/PlanG Smoke/resnet'
+      --no-build`. Backend created/updated the reference stub at
+      `04_Resources/References/Deep_Residual_Learning_for_Image_Recognition.md`
+      and generated L1 `CTX-d617d779`.
+- [x] **Agent-PDF context verified.** `wiki plugin pdf context --source-id 3
+      --page-num 2 --radius 0 --max-pages 1 --query residual` returned
+      `ok: true`, `context_source: durable_l1_projection`,
+      `degraded_reason: null`, and page-2 residual-learning text from the PDF
+      rather than the reference stub.
+- [x] **Source-span/page provenance verified.** `source_spans` for source `3`
+      contains page-numbered paragraph rows with ResNet text previews; source
+      status reports `state: l1_ready`, `is_reference: 1`,
+      `logical_source_id: ref-plan-g-resnet-smoke`, `pdf_page_count: 9`,
+      `requires_rebind: false`, and matching `current_hash` / `content_hash`.
+- [x] **Device-stale absolute path behavior verified.** Existing smoke sources
+      `1` and `2` still pointed at missing `/private/tmp/*.pdf` paths. Source
+      status downgraded both to `state: missing` with `requires_rebind: true`
+      instead of trusting the stale absolute path. This matches the macOS/Linux
+      device-sync contract: synced identity is portable, absolute paths are
+      current-device hints only.
+- [x] **PDF asset routing evidence checked.** Existing testbed assets remain
+      under routed/default folders:
+      `05_Assets/Smoke Review/paper item/p01_img01.png`,
+      `05_Assets/Smoke Routed/paper item/p01_img01.png`, and
+      `05_Assets/smoke_images_paper/p01_img01.png`. The new ResNet smoke did
+      not emit durable extracted image files for the requested asset dir (the L1
+      uses parser picture-text / omitted-image markers for that fixture), so the
+      live smoke does not add a new routed image artifact. The code path remains
+      covered by backend `test_pdf_asset_dir_routing.py` and plugin
+      `incuratorClient.test.ts` asset-dir tests in the full gates below.
+- [x] **Testbed health verified.** `VAULT_ROOT=testbed wiki migrate` reported
+      schema up to date; `VAULT_ROOT=testbed wiki status` showed 3 tracked
+      sources and 3 L1-done sources; `VAULT_ROOT=testbed wiki lint` passed with
+      health `100/100`, 0 errors, 0 warnings.
+- Final validation:
+  - `scripts/backend-check pytest` passed:
+        **938 passed, 6 skipped, 5 xfailed, 7 warnings**.
+  - `scripts/backend-check ruff` passed.
+  - `scripts/backend-check mypy` passed: no issues in 96 files.
+  - `cd plugin && npx tsc --noEmit` passed.
+  - `cd plugin && npx vitest run -c ./vitest.config.ts` passed:
+        **48 files / 413 tests**.
+  - `git diff --check` passed.
+
 ## 5. Rollback Requirements
 
 - No destructive op before P4 (deletions). Each P4 deletion is its own commit so

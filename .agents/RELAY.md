@@ -7,8 +7,8 @@ Plan G — PDF handling unification and simplification on
 ## Plan Reference
 - Active plan: `.agents/plans/G_pdf_unified_handling.md`
 - Evidence ledger: `.agents/plans/G_pdf_roadmap_evidence.md`
-- Current phase: P4/P4b complete and net-LOC gate closed. Next phase is P5
-  testbed E2E/docs finalization/version bump.
+- Current phase: P5 testbed E2E and final local gates complete. Remaining work:
+  final release docs/metadata pass, version bump, changelog, release commit.
 
 ## Analysis & Reasoning
 - User explicitly asked to re-check macOS/Linux device sync before continuing.
@@ -33,12 +33,16 @@ Plan G — PDF handling unification and simplification on
   `PdfCaptureService`, which is unit-testable without an Obsidian `ItemView`.
 - P4 net-LOC gate is now green after deleting unused text-extraction promise
   code, collapsing toolbar button duplication, and compacting registry glue.
+- P5 testbed confirmed the device-portability contract: a fresh reference PDF
+  resolved on the current macOS path without rebind, while older smoke sources
+  pointing at missing `/private/tmp/*.pdf` paths downgraded to `state: missing`
+  / `requires_rebind: true` instead of treating stale absolute paths as truth.
 
 ## Progress Status
 - Latest commits:
   - `01a13d5` — `feat(plan-g): P4 registry extraction and session path sync guard`
   - `e05db49` — `feat(plan-g): extract PdfCaptureService from external PDF view`
-  - `HEAD` — `refactor(plan-g): close P4 PDF module LOC gate`
+  - `669176f` — `refactor(plan-g): close P4 PDF module LOC gate`
 - Docs/specs updated for device-safe session sync:
   `PLUGIN_SCHEMA.md`, `PLUGIN_GUIDE.md`, `PLUGIN_GUIDE_KR.md`,
   `SYNC_IGNORE_GUIDE.md`, `SYNC_IGNORE_GUIDE_KR.md`, Plan G, and evidence ledger.
@@ -49,19 +53,27 @@ Plan G — PDF handling unification and simplification on
   - `plugin/src/ui/pdfCaptureService.test.ts` for capture service behavior.
 
 ## Validation
+- `scripts/backend-check pytest` -> `938 passed, 6 skipped, 5 xfailed`.
+- `scripts/backend-check ruff` -> passed.
+- `scripts/backend-check mypy` -> passed, no issues in 96 files.
 - `npx tsc --noEmit` from `plugin/` -> passed.
-- Full plugin suite: `npx vitest run -c ./vitest.config.ts` ->
+- Full plugin suite from `plugin/`: `npx vitest run -c ./vitest.config.ts` ->
   `48` files / `413` tests passed.
 - `git diff --check` -> passed.
 - PDF module LOC: P0 baseline 4601, current 4598.
+- Testbed: ResNet Reference Mode import/register generated L1
+  `CTX-d617d779`; `wiki plugin pdf context --source-id 3` returned durable L1
+  page text; `wiki lint` health `100/100`.
 
 ## Critical Context / Blockers
-- Testbed E2E is still pending for P5. Active scenario remains unconfirmed.
+- Active scenario was not explicitly confirmed; P5 therefore reused the existing
+  Plan G smoke `testbed/` instead of force reinitializing it. This preserved
+  useful stale-path evidence for `/private/tmp` reference rows.
 - Popover review findings remain queued after Plan G in ROADMAP item 4.1; do not
   mix them into this branch unless explicitly reprioritized.
 
 ## Immediate Next Action
-Proceed to P5:
-1. Confirm or select the active `tests/scenarios/` testbed scenario.
-2. Run reference/add-source/agent-PDF E2E smoke validation in `testbed/`.
-3. Finalize changelog/version bump and release commit after validation.
+Proceed to finalization:
+1. Commit the P5 evidence/relay update.
+2. Do final docs delta check, version bump, and `CHANGELOG.md`.
+3. Create `chore(release): vX.Y.Z` after metadata is consistent.
