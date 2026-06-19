@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findSearchBlock } from "./editMatch";
+import { classifyProposalStatus, findSearchBlock } from "./editMatch";
 
 const file = [
   "# Title",
@@ -93,5 +93,42 @@ describe("findSearchBlock", () => {
 
   it("returns null for empty search", () => {
     expect(findSearchBlock(file, "")).toBeNull();
+  });
+});
+
+describe("classifyProposalStatus", () => {
+  it("treats a new-file proposal (null content) as reviewable", () => {
+    expect(classifyProposalStatus(null, "anything", "new body")).toBe("reviewable");
+  });
+
+  it("is reviewable while the SEARCH block still matches the file", () => {
+    expect(classifyProposalStatus(file, "## Section B\nMore text here.", "## Section B\nEdited.")).toBe("reviewable");
+  });
+
+  it("is applied once the SEARCH is gone but the REPLACE text is present", () => {
+    const after = file.replace("More text here.", "Edited text now.");
+    expect(classifyProposalStatus(after, "More text here.", "Edited text now.")).toBe("applied");
+  });
+
+  it("is applied once a deletion proposal's SEARCH is gone and REPLACE is empty", () => {
+    const after = file.replace("More text here.", "");
+    expect(classifyProposalStatus(after, "More text here.", "")).toBe("applied");
+    expect(classifyProposalStatus(after, "More text here.", "   \n")).toBe("applied");
+  });
+
+  it("is not_found when neither SEARCH nor REPLACE is present", () => {
+    expect(classifyProposalStatus(file, "nonexistent search line", "unrelated replacement")).toBe("not_found");
+  });
+
+  it("ignores trailing-whitespace drift when detecting an applied REPLACE", () => {
+    const after = file.replace("More text here.", "Edited text now.");
+    expect(classifyProposalStatus(after, "gone search", "  Edited text now.  ")).toBe("applied");
+  });
+
+  it("does NOT report 'applied' when the REPLACE text occurs in 2+ places (ambiguous)", () => {
+    // A short/common replacement that already appears twice must not be a false
+    // 'applied' just because the string exists somewhere.
+    const dup = ["## Notes", "body", "## Notes", "more"].join("\n");
+    expect(classifyProposalStatus(dup, "nonexistent search", "## Notes")).toBe("not_found");
   });
 });

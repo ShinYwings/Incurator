@@ -103,4 +103,11 @@ describe("getEditLoopContract", () => {
     const text = getEditLoopContract();
     expect(text.toLowerCase()).toContain("only when you propose");
   });
+
+  it("instructs the agent that edits are proposed, not applied (Bug 4 framing)", () => {
+    const text = getEditLoopContract();
+    expect(text).toContain("PROPOSED");
+    expect(text.toLowerCase()).toContain("pending the user's review");
+    expect(text.toLowerCase()).toContain("do not claim they are already applied");
+  });
 });

@@ -91,6 +91,22 @@ if you want a shortcut.
 - **Diff Viewer navigation**: the floating toolbar shows a hunk counter (e.g.
   `1/1`, `2/8`); with more than one change, ↑/↓ (or Tab / Shift+Tab) move between
   hunks and Y/N accept/reject the current one (Enter = accept all, Esc = reject all).
+- **Accept All keeps your place (v0.14.1)**: accepting all changes leaves the
+  cursor at the first changed line, not the bottom of the document.
+- **Toolbar anchors to the change (v0.14.1)**: when a diff opens off-screen, the
+  editor scrolls the first change into view first, so the Accept/Reject toolbar
+  appears next to the change instead of jumping to the top of the screen.
+- **Honest edit-proposal pills (v0.14.1)**: each `✏️ <file>` review pill reflects
+  the live file — it shows **✓ Applied** if the edit already appears in the file
+  and **⚠ Not found** if the SEARCH text no longer matches, so you don't get a
+  confusing "could not find" only after clicking. Reviews open one at a time, so
+  clicking a second pill never hijacks the first file's diff. Path matching also
+  falls back to a case-insensitive full-path match, fixing spurious "file not
+  found" on existing notes without retargeting same-named notes in other folders.
+  **✓ Applied** is shown when the replacement block is unambiguous, or when a
+  deletion proposal's SEARCH text is already gone and the replacement is empty.
+  Applied/not-found pills do not re-run review. The agent describes its edits as
+  *proposed and pending your Accept* — nothing is written to disk until you accept.
 - **Diff mode**: Choose `inline` or `side-by-side` in settings.
 
 ```text

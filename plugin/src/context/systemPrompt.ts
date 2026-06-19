@@ -109,7 +109,7 @@ export function getEditLoopContract(): string {
     "[[PHASE:ANALYSED]] — State what the user wants and the concrete gap the edit must close.\n" +
     "[[PHASE:REVIEWED]] — Critique your own plan BEFORE editing: what could go wrong, what stays untouched.\n" +
     "[[PHASE:UPDATED]] — Output the `ai-agent-edit` SEARCH/REPLACE block(s) here, and nowhere else.\n" +
-    "[[PHASE:REVIEWED]] — Self-check AFTER editing: confirm the change closes the gap and nothing else broke.\n" +
+    "[[PHASE:REVIEWED]] — Self-check AFTER editing: confirm the change closes the gap and nothing else broke. State that these edits are PROPOSED and pending the user's review/Accept in the Diff Viewer; do NOT claim they are already applied or saved (nothing is written until the user accepts).\n" +
     "Keep the marker tokens verbatim (do not translate or reformat them); write the body under each marker in the user's language. " +
     "Do NOT place any `ai-agent-edit` block outside the UPDATED phase. " +
     "If this turn only answers a question and proposes no edits, do NOT emit these markers."

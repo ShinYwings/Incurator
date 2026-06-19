@@ -126,6 +126,9 @@ export class DiffViewer {
   private chunks: DiffChunk[] = [];
   private hunks: InlineHunk[] = [];
   private currentHunk = 0;
+  // Bug 3 (v0.14.1): 0-based line of the first change, cached at show() so
+  // Accept-All restores the caret here instead of teleporting to the doc bottom.
+  private firstChangedLine = 0;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   // Bug 23, 31: Typed event refs for proper cleanup via offref()
   private layoutChangeRef: EventRef | null = null;
@@ -224,6 +227,11 @@ export class DiffViewer {
       ? Math.min(preserveHunkIndex, Math.max(0, this.hunks.length - 1))
       : 0;
 
+    // Bug 3 (v0.14.1): cache the first change's 0-based line for Accept-All caret.
+    this.firstChangedLine = this.hunks[0]?.lineNum
+      ? this.hunks[0].lineNum - 1
+      : selectionStart.line;
+
     // Bug 31: layout-change listener — closes if the hosting tab is destroyed
     this.layoutChangeRef = this.plugin.app.workspace.on("layout-change", () => {
       if (this.view && !this.view.contentEl.isConnected) {
@@ -253,11 +261,24 @@ export class DiffViewer {
     requestAnimationFrame(() => {
       this.applyDecorations(decos);
 
+      // Bug 11 (v0.14.1): scroll the first hunk into view BEFORE measuring its
+      // screen coords. If the hunk opened off-screen, coordsAtPos would return
+      // null and the toolbar would dump to the screen-top fallback; scrolling
+      // first makes the position resolvable so the bar anchors near the hunk.
       const firstChangedLine = this.hunks[0]?.lineNum ? this.hunks[0].lineNum - 1 : selectionStart.line;
-      const coords = this.getScreenCoordsAt(view, { line: firstChangedLine, ch: 0 });
-      this.buildToolbar(coords);
+      const cmView = this.getCmView();
+      if (cmView) {
+        const lineNum = Math.max(1, Math.min(firstChangedLine + 1, cmView.state.doc.lines));
+        const pos = cmView.state.doc.line(lineNum).from;
+        cmView.dispatch({ effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+      }
 
-      this.refreshHunkUI();
+      // Recompute coords on the next frame, after the scroll has settled.
+      requestAnimationFrame(() => {
+        const coords = this.getScreenCoordsAt(view, { line: firstChangedLine, ch: 0 });
+        this.buildToolbar(coords);
+        this.refreshHunkUI();
+      });
     });
   }
 
@@ -477,14 +498,12 @@ export class DiffViewer {
       } finally {
         this.isInternalChange = false;
       }
-      const modifiedSplit = this.modifiedText.split("\n");
-      const finalEndPos = {
-        line: this.selectionStart.line + modifiedSplit.length - 1,
-        ch: modifiedSplit.length === 1
-          ? this.selectionStart.ch + this.modifiedText.length
-          : modifiedSplit[modifiedSplit.length - 1].length,
-      };
-      this.view.editor.setCursor(finalEndPos);
+      // Bug 3 (v0.14.1): restore the caret to the first changed line instead of
+      // the end of the rewritten region, so Accept-All on a whole-file review
+      // does not teleport the cursor to the bottom of the document.
+      const lineCount = this.view.editor.lineCount();
+      const caretLine = Math.max(0, Math.min(this.firstChangedLine, lineCount - 1));
+      this.view.editor.setCursor({ line: caretLine, ch: 0 });
     }
     new Notice("All remaining edits accepted");
     this.close();

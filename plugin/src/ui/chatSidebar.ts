@@ -37,7 +37,7 @@ import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
 import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, stampMathSourceData, stripDanglingEditMarkers, truncateToLength } from "../utils/textUtils";
 import { inferIngestDestination } from "../utils/pathUtils";
 import { hashFileSha256 } from "../utils/fileHash";
-import { findSearchBlock } from "../utils/editMatch";
+import { classifyProposalStatus, findSearchBlock } from "../utils/editMatch";
 import { DiffViewer } from "./diffViewer";
 import { renderCuratorQueryTrace } from "./incuratorQueryTrace";
 import {
@@ -147,6 +147,9 @@ export class ChatSidebarView extends ItemView {
   private fileHashByPath = new Map<string, string>();
   private prepareStatusText = "";
   private lastQueryTrace: CuratorQueryResult | null = null;
+  // Bug 2 (v0.14.1): serialize diff-review opens so a second pill click cannot
+  // re-point the singleton DiffViewer mid-open (file-switch race).
+  private reviewInFlight = false;
   private sessionDrawerVisible = false;
   private sessionQuery = "";
   private statusBarEl!: HTMLElement;
@@ -2954,10 +2957,12 @@ export class ChatSidebarView extends ItemView {
     const nameEl = header.createSpan({ cls: "ai-agent-applied-change-name" });
     nameEl.setText(prop.filepath);
     nameEl.title = "Review edit in editor";
+    let proposalStatus: "reviewable" | "applied" | "not_found" = "reviewable";
 
     // Bug 2: Wire "Review in file" directly to reviewFileEditProposals for this target
     const reviewInEditor = async () => {
-      await this.reviewFileEditProposals(prop.filepath, allProposals);
+      const opened = await this.reviewFileEditProposals(prop.filepath, allProposals);
+      if (!opened) return;
       statusBtn.setText("🔍 Opened Diff");
       statusBtn.style.color = "var(--text-accent)";
       statusBtn.style.borderColor = "var(--text-accent)";
@@ -2965,6 +2970,13 @@ export class ChatSidebarView extends ItemView {
     };
 
     wrapper.style.cursor = "pointer";
+    // Bug 9 follow-up: once live status says applied/not_found, suppress the
+    // wrapper and button click handlers before they can run a doomed SEARCH.
+    wrapper.addEventListener("click", (e) => {
+      if (proposalStatus === "reviewable") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }, { capture: true });
     wrapper.addEventListener("click", async (e) => {
       e.stopPropagation();
       await reviewInEditor();
@@ -2983,6 +2995,26 @@ export class ChatSidebarView extends ItemView {
       e.stopPropagation();
       await reviewInEditor();
     });
+
+    // Bug 9 (v0.14.1): derive the pill status from the LIVE file so a proposal
+    // that was already accepted (or never matched) reads honestly instead of
+    // surfacing "could not find" only after a wasted click.
+    if (!isNewFile && file) {
+      void this.app.vault.cachedRead(file).then((content) => {
+        if (!wrapper.isConnected) return;
+        const status = classifyProposalStatus(content, prop.search, prop.replace);
+        proposalStatus = status;
+        if (status === "applied") {
+          statusBtn.setText("✓ Applied");
+          statusBtn.style.color = "var(--text-success, var(--text-accent))";
+          statusBtn.title = "This edit already appears in the file";
+        } else if (status === "not_found") {
+          statusBtn.setText("⚠ Not found");
+          statusBtn.style.color = "var(--text-error)";
+          statusBtn.title = "The SEARCH text no longer matches this file";
+        }
+      });
+    }
   }
 
   /** Remove `ai-agent-edit` proposal blocks from prose so they never render raw. */
@@ -3490,9 +3522,8 @@ export class ChatSidebarView extends ItemView {
     const active = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (active && active.file?.path !== target) return; // different note focused → keep pill
 
-    msg.diffAutoOpened = true;
     // Bug 28: route through reviewFileEditProposals, not the broken reviewAssistantEdit
-    await this.reviewFileEditProposals(target, proposals);
+    msg.diffAutoOpened = await this.reviewFileEditProposals(target, proposals);
   }
 
   // Bug 32: Strips absolute filesystem paths and URL-encoding before vault lookup
@@ -3519,11 +3550,36 @@ export class ChatSidebarView extends ItemView {
       const f = this.app.vault.getAbstractFileByPath(path);
       if (f instanceof TFile) return f;
     }
-    return null;
+
+    // Bug 7 (v0.14.1): final fallback — case-insensitive, whitespace-trimmed
+    // match by FULL path over the vault's Markdown files. This covers case drift
+    // and trailing spaces that exact path lookup misses. We deliberately do NOT
+    // fall back to a basename-only match: a same-named file in a different folder
+    // is a different note, and resolving to it would silently retarget the edit.
+    const wantPath = normalized.trim().toLowerCase().replace(/^\/+/, "");
+    const byPath = this.app.vault.getMarkdownFiles().find((f) => f.path.toLowerCase() === wantPath);
+    return byPath ?? null;
+  }
+
+  // Bug 2 (v0.14.1): serialize opens so a second pill click cannot re-point the
+  // singleton DiffViewer while the first open is still awaiting (file-switch race).
+  // Returns true only when a diff was actually opened, so callers don't mislabel
+  // a guard-dropped or unmatched click as "opened".
+  private async reviewFileEditProposals(targetFilepath: string, allProposals: MultiEditProposal[]): Promise<boolean> {
+    if (this.reviewInFlight) {
+      new Notice("A diff review is already opening — try again in a moment.");
+      return false;
+    }
+    this.reviewInFlight = true;
+    try {
+      return await this.reviewFileEditProposalsImpl(targetFilepath, allProposals);
+    } finally {
+      this.reviewInFlight = false;
+    }
   }
 
   // Bugs 26, 34: Target-isolated routing with Source-Mode Mounting and failure tracking
-  private async reviewFileEditProposals(targetFilepath: string, allProposals: MultiEditProposal[]): Promise<void> {
+  private async reviewFileEditProposalsImpl(targetFilepath: string, allProposals: MultiEditProposal[]): Promise<boolean> {
     let file = this.resolveVaultFile(targetFilepath);
 
     // Reviewer fix 4: Filter proposals by canonical vault path
@@ -3541,11 +3597,11 @@ export class ChatSidebarView extends ItemView {
           new Notice(`Created new file for review: ${targetFilepath}`);
         } catch (e) {
           new Notice(`Failed to create new file: ${targetFilepath}`);
-          return;
+          return false;
         }
       } else {
         new Notice(`File not found: ${targetFilepath}`);
-        return;
+        return false;
       }
     }
 
@@ -3572,7 +3628,7 @@ export class ChatSidebarView extends ItemView {
     }
 
     const targetLeaf = leaf as WorkspaceLeaf;
-    if (!(targetLeaf.view instanceof MarkdownView)) return;
+    if (!(targetLeaf.view instanceof MarkdownView)) return false;
     const editor = targetLeaf.view.editor;
 
     const originalFullText = editor.getValue();
@@ -3607,8 +3663,10 @@ export class ChatSidebarView extends ItemView {
         selectionEnd
       );
       new Notice(`Reviewing ${appliedCount} proposed change${appliedCount === 1 ? "" : "s"} in ${file.basename}`);
+      return true;
     } else {
       new Notice("Could not find SEARCH text in the target Markdown file.");
+      return false;
     }
   }
 

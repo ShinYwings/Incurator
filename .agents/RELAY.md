@@ -1,23 +1,42 @@
 # Cross-Agent Relay State
 
 ## Status
-RAG & Knowledge Quality Stabilization is complete. Plan F / PR #34
-(`feature/agent-context-service`, v0.13.0) has been merged into `master`.
-Roadmap cleanup is complete: `.agents/plans/` has been cleared of shipped RAG
-planning residue, and active follow-up priorities are ordered in
-`.agents/ROADMAP.md`. Fix-like regressions and cleanup/validation tasks are
-intentionally queued before the larger RAG post-stabilization hardening program.
+Milestone 2 (Diff Viewer Tier A) is published on
+`feature/diff-viewer-plugin-overhaul` as PR #36:
+https://github.com/ShinYwings/Incurator/pull/36
 
-## Active Plan
-- Branch: `feature/edit-loop-state-machine` (from origin/master, v0.14.0)
-- Sidechat Edit Loop — Enforced & Observable State Machine: IMPLEMENTED.
-  Plan + arena deleted (Git history is the archive).
-- Done: docs/specs + EN/KR guides, `getEditLoopContract()` prompt block (wider
-  triggers, anchored last), `editLoopContract.ts` validator, Diff Viewer hard
-  gate, observable phase UI + blocked banner (Re-run / Override). Versions
-  bumped to 0.14.0; CHANGELOG updated. tsc clean; 441 plugin tests pass.
+Branch version: v0.14.1. Release commit remains the branch tip.
+
+## Done This Milestone
+- P0 triage of 11 reported Diff Viewer defects: 2 fixed, 2 live, 7 partial.
+- Tier A fixes shipped: Accept-All caret restore (#3), toolbar scroll-anchor
+  (#11), review-in-flight serialization (#2), case-insensitive full-path
+  fallback without basename retargeting (#7), derived pill status
+  reviewable/applied/not_found with ambiguity-safe applied detection (#9), and
+  "edits proposed not applied" wording (#4).
+- Review follow-up applied: deletion proposals with empty/whitespace REPLACE now
+  show applied once SEARCH is gone, and applied/not-found pills suppress click
+  propagation so they do not re-run doomed SEARCH matches.
+- Proposal status remains derived from live file state; no ChatMessage schema
+  change.
+- Docs synchronized: PLUGIN_SCHEMA §6 plus EN/KR PLUGIN_GUIDE.
+- Version and changelog updated for v0.14.1.
+- Plan, arena, and draft files deleted from the active workspace; Git history is
+  the archive.
+
+## Validation
+- `npx vitest run -c ./vitest.config.ts` from `plugin/`: 52 files, 456 tests
+  passed.
+- `npx tsc -p tsconfig.json --noEmit` from `plugin/`: passed.
+- `npm run build` from `plugin/`: passed.
+- Version consistency checked locally: backend pyproject, plugin package, and
+  plugin manifest are all 0.14.1.
+
+## Deferred
+Folded into roadmap item 6: unified-view CSS gutter polish (#5),
+cross-model output determinism (#8), token-truncation hard guard (#10; existing
+`warnIfLargeReplacement` warning remains).
 
 ## Immediate Next Action
-PR #35 is open against `master` (https://github.com/ShinYwings/Incurator/pull/35).
-The user reviews/merges on GitHub. After merge, next roadmap item is #2 (Diff
-Viewer Plugin Overhaul & Sync Fixes).
+User reviews/merges PR #36 on GitHub. After merge, next roadmap item is 3
+(Persistent Quick Query Popover).

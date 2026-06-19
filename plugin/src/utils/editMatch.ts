@@ -24,6 +24,51 @@ export interface MatchResult {
   strategy: "exact" | "line-trim" | "anchored";
 }
 
+/** Lifecycle of a single `ai-agent-edit` proposal, derived from the live file. */
+export type ProposalStatus = "reviewable" | "applied" | "not_found";
+
+/**
+ * Classify an edit proposal against the CURRENT file content (v0.14.1, Bug 9).
+ *
+ * Derived — never persisted — so it self-heals across re-render, session reload,
+ * and the propose→accept→next-turn cycle:
+ *  - `fileContent === null` → a new-file proposal: always reviewable.
+ *  - SEARCH still matches (via the tolerant matcher) → reviewable.
+ *  - SEARCH gone and REPLACE is empty/whitespace-only → deletion already applied.
+ *  - SEARCH gone but the REPLACE block is present → already applied.
+ *  - neither → not_found (reported honestly on the pill, not only after a click).
+ *
+ * `applied` is detected with the same tolerant, ambiguity-safe matcher used for
+ * SEARCH (`findSearchBlock`) — NOT a bare substring test. This means the full
+ * REPLACE block must appear as contiguous lines (whitespace-drift tolerant), and
+ * a REPLACE string that also occurs elsewhere (≥2 places) is ambiguous and is
+ * NOT reported as applied. A bare `includes` would falsely flag a short/common
+ * replacement (e.g. a heading) that merely appears somewhere in the file.
+ */
+export function classifyProposalStatus(
+  fileContent: string | null,
+  search: string,
+  replace: string
+): ProposalStatus {
+  if (fileContent === null) return "reviewable";
+  if (findSearchBlock(fileContent, search)) return "reviewable";
+  if (replace.trim().length === 0) return "applied";
+  if (replace.trim().length > 0 && findUniqueStatusBlock(fileContent, replace)) return "applied";
+  return "not_found";
+}
+
+function findUniqueStatusBlock(haystack: string, search: string): MatchResult | null {
+  const match = findSearchBlock(haystack, search);
+  if (!match) return null;
+
+  if (match.strategy === "exact") {
+    const second = haystack.indexOf(search, match.start + Math.max(search.length, 1));
+    if (second !== -1) return null;
+  }
+
+  return match;
+}
+
 export function findSearchBlock(haystack: string, search: string): MatchResult | null {
   if (search.length === 0) return null;
 

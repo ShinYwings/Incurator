@@ -105,6 +105,30 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain('attr: { open: "", "data-phase": phases[i].label }');
   });
 
+  it("v0.14.1 Diff Viewer fixes: review serialization, path fallback, derived pill status", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // Bug 2: a single in-flight guard serializes diff-review opens.
+    expect(source).toContain("private reviewInFlight = false;");
+    expect(source).toContain("if (this.reviewInFlight) {");
+    expect(source).toContain("return false;");
+    expect(source).toContain("reviewFileEditProposalsImpl");
+
+    // Bug 7: path resolution falls back to a case-insensitive full-path scan.
+    expect(source).toContain("getMarkdownFiles()");
+    expect(source).toContain("f.path.toLowerCase() === wantPath");
+    expect(source).not.toContain("f.name.toLowerCase() === wantBase");
+
+    // Bug 9: pill status is derived from the live file via classifyProposalStatus.
+    expect(source).toContain("classifyProposalStatus");
+    expect(source).toContain("this.app.vault.cachedRead(file)");
+    expect(source).toContain("✓ Applied");
+    expect(source).toContain("⚠ Not found");
+    expect(source).toContain("proposalStatus === \"reviewable\"");
+    expect(source).toContain("stopImmediatePropagation");
+  });
+
   it("does not yank the chat view to the bottom when generation completes", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
