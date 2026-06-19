@@ -257,16 +257,325 @@ Verified starting defects to reproduce:
 
 ### Current Dirty Worktree
 
-- Record exact `git status --short --branch` at execution start.
+- Execution-start status recorded 2026-06-18 (Codex):
+  `## feature/agent-context-service...origin/feature/agent-context-service`;
+  modified: `.agents/ROADMAP.md`, `.agents/USER_REPORT.md`,
+  `.agents/drafts/diff_viewer_plugin.md`; untracked:
+  `.agents/drafts/chat_context_decay.md`,
+  `.agents/drafts/popover_tool_scope.md`,
+  `.agents/drafts/prompt_architecture_refactoring.md`.
 - Work from a new Program-3 branch created from merged `master`.
 - Do not revert, stage, or include unrelated user/agent changes.
 - Update `RELAY.md` only when the approved workflow begins; this planning task
   does not modify it.
 
+### P2 Implementation Evidence (2026-06-18, Codex)
+
+- Added `backend/src/curator/context_service.py` as the first concrete
+  `ContextService` boundary. `context_fetch` now owns the root `QTR-*`,
+  deterministic `SNAP-*`, ordered `CTXA-*` child actions, `PACK-*` id,
+  conservative budget accounting, and typed `snapshot_conflict` response.
+- Updated `QueryOrchestrator.fetch_context` to delegate to `ContextService`
+  while preserving legacy additive transport fields for existing MCP/plugin
+  callers.
+- Added strict P2 tests in
+  `backend/tests/test_plan_f_context_service_contract.py` for module existence,
+  exactly-one-root trace, ordered child actions, stable unchanged snapshot id,
+  and no mixed-epoch conflict behavior.
+- Added backend workspace hygiene guard in
+  `backend/tests/test_workspace_hygiene.py` and test global-config isolation in
+  `backend/tests/conftest.py`; `setup.sh` remains the service/runtime updater
+  for repo-root `.venv`, while checks use repo-root `.venv-dev` through
+  `scripts/backend-check`.
+- Validation:
+  - `scripts/backend-check pytest backend/tests/test_plan_f_context_service_contract.py backend/tests/test_query_orchestrator.py backend/tests/test_plan_a_retrieval.py -q`
+    -> `30 passed`
+  - `scripts/backend-check mypy`
+    -> no issues in 95 source files
+  - `scripts/backend-check ruff ...`
+    -> passed
+  - `scripts/backend-check pytest`
+    -> `903 passed, 5 xfailed, 7 warnings`
+  - `npx tsc --noEmit` and `npx vitest run` in `plugin/`
+    -> passed (`44` files / `370` tests)
+
 ### Active Testbed And External References
 
-- Confirm the user-selected active scenario under `tests/scenarios/`; do not
-  assume `testbed_template`.
+- Available scenarios discovered 2026-06-18: `complex_math_backprop` and
+  `testbed_template`. Active scenario remains unconfirmed; defer destructive
+  `wiki testbed init --force` until P9 or an explicit scenario selection.
+
+### P3 Pack/Budget Hardening Evidence (2026-06-18, Codex)
+
+- Added `scripts/backend-check` as the canonical backend validation helper.
+  It calls repo-root `.venv-dev/bin/{pytest,ruff,mypy,python}` directly, pins
+  `mypy` stubs/cache to repo-root paths, and avoids `VIRTUAL_ENV` exports,
+  `uv run --active`, `cd backend`, `backend/.venv`, and `backend/uv.lock`.
+- Updated CI, PR template, AGENTS/CLAUDE rules, EN/KR agent workflow and
+  contribution guides, Failure Atlas command references, and research-spike
+  manifests to use `scripts/backend-check`.
+- Extended workspace hygiene tests to forbid `backend/uv.lock`, require the
+  helper, and reject reintroduced active-uv/export validation examples in the
+  canonical agent and guide files.
+- Extended `backend/tests/test_plan_f_context_service_contract.py` with P3
+  pack contract tests for source-supported locator resolution, explicit budget
+  omissions, trace/response selected-pack parity, and deterministic pack order.
+- Hardened `ContextService.context_fetch` so selected pack items are budget
+  bounded, omitted items are surfaced via `coverage.omitted_counts["budget"]`
+  and `next` expansion handles, source-supported generated records inherit
+  locators from their backing source spans, and the stored `QTR-*` trace matches
+  the selected response pack.
+- Added a source-section boundary fixture that preserves formula, code, and
+  citation spans as separate pack items. The fixture exposed that
+  `_span_items()` lost caller order after `WHERE id IN (...)`; retrieval now
+  restores the original `span_ids` order before assembling items.
+- Added global/source-section route tests that pin route-specific omissions:
+  global packs now preserve both retrieval-level `global_reports` omissions and
+  ContextService `budget` omissions, while source-section budget truncation
+  keeps selected `source_span_ids` and the stored trace from mixing omitted
+  spans back into the pack.
+- Validation:
+  - `bash -n scripts/backend-check` -> passed
+  - `scripts/backend-check ruff` -> passed
+  - `scripts/backend-check mypy` -> no issues in 95 source files
+  - `scripts/backend-check pytest backend/tests/test_plan_f_context_service_contract.py backend/tests/test_workspace_hygiene.py -q`
+    -> `16 passed`
+  - `scripts/backend-check pytest` -> `904 passed, 6 skipped, 5 xfailed, 7 warnings`
+
+### P4 Progressive Operations Evidence (2026-06-18, Codex)
+
+- Added canonical P4 operation fixtures:
+  `context_manifest.json`, `context_expand.json`, and `context_verify.json`
+  under `docs/specs/system_behavior/context_service_fixtures/`, and updated the
+  schema fixture registry text to include manifest, successful expand, and
+  verify shapes.
+- Extended `backend/tests/test_plan_f_context_service_contract.py` with P4
+  tests for operation availability, manifest family summaries, stale snapshot
+  conflict without trace mutation, expansion handle resolution, verification
+  handle resolution, and `CTXA-*` child action append semantics.
+- Implemented `ContextService.context_manifest`, `context_expand`, and
+  `context_verify`. Progressive operations reuse the root `QTR-*`, enforce the
+  stored `SNAP-*` id, return typed snapshot conflicts without mutation, and
+  append ordered child actions only on successful expansion/verification.
+- `context_fetch` now stores selected and omitted item payloads in the root
+  context trace so later expansion/verification resolves the exact same
+  pack/snapshot payload without re-running retrieval or mixing epochs.
+- Validation:
+  - `scripts/backend-check pytest backend/tests/test_plan_f_context_service_contract.py -q`
+    -> `19 passed`
+  - `scripts/backend-check ruff` -> passed
+  - `scripts/backend-check mypy` -> no issues in 95 source files
+  - `scripts/backend-check pytest` -> `910 passed, 6 skipped, 5 xfailed, 7 warnings`
+
+### P5 Public Adapter Parity Evidence (2026-06-18, Codex)
+
+- Extended `backend/tests/test_mcp_tools.py` so the public
+  `curator_fetch_context` MCP tool must return the normalized ContextService
+  pack shape (`operation=context_fetch`, `contract_version`, `PACK-*`,
+  `SNAP-*`, `RTR-*`, item expansion/verification handles) while still omitting
+  backend-synthesized `answer`.
+- The MCP test also verifies that the returned `QTR-*` root trace contains the
+  same `retrieval_trace.context_service.pack_id` and snapshot id as the public
+  response, proving the MCP adapter is not assembling a second context path.
+- No implementation change was needed for this slice because
+  `curator_fetch_context` already delegates through `QueryOrchestrator`, and
+  `QueryOrchestrator.fetch_context` delegates to `ContextService`.
+- Refactored `QueryOrchestrator.run` for non-explore answer routes so
+  `curator_query`/`wiki query` first obtain a ContextService pack, synthesize
+  only over that exact selected pack, and append a `synthesis` child action to
+  the same root `QTR-*` trace instead of building an independent answer
+  evidence path. Explore mode remains on the existing explore pipeline pending
+  its later bounded-followup work.
+- Extended `backend/tests/test_query_orchestrator.py` to require synthesized
+  local answers to keep the ContextService `PACK-*`/`SNAP-*` trace payload and
+  record the prompt run as a `synthesis` `CTXA-*` child action.
+- Migrated the MCP `curator_query` L3-complete path from legacy
+  `query.run_query` to `QueryOrchestrator.run`, preserving legacy
+  `ok`/`answer`/`question`/`trace` fields while adding `trace.pack_id`,
+  `trace.snapshot`, `trace.budget`, `trace.source_span_ids`, and
+  `trace.prompt_trace_ids`. The L3-incomplete degraded fallback remains
+  unchanged for now.
+- Updated `SYSTEM_BEHAVIOR.md` and EN/KR MCP guides so the public
+  `curator_query` trace contract documents the Plan F additive fields.
+- Validation:
+  - `scripts/backend-check pytest backend/tests/test_mcp_tools.py::V031McpToolsTests::test_fetch_context_evidence_only -q`
+    -> `1 passed`
+  - `scripts/backend-check pytest backend/tests/test_query_orchestrator.py -q`
+    -> `7 passed`
+  - `scripts/backend-check pytest backend/tests/test_mcp_tools.py backend/tests/test_query_orchestrator.py -q`
+    -> `14 passed`
+  - `scripts/backend-check ruff` -> passed
+  - `scripts/backend-check mypy` -> no issues in 95 source files
+  - `scripts/backend-check pytest` -> `911 passed, 6 skipped, 5 xfailed, 7 warnings`
+
+### P5 Plugin JSON Adapter Evidence (2026-06-18, Codex)
+
+- Migrated `plugin_api.curator_query` L3-complete path from the legacy
+  `query.run_query` side path to `QueryOrchestrator.run`, so hidden
+  `wiki plugin query` now shares the same ContextService-backed `QTR-*`,
+  `PACK-*`, `SNAP-*`, selected pack budget, prompt trace ids, and source span
+  provenance as MCP `curator_query`.
+- Preserved the existing L3-incomplete degraded fallback for now; F12's oracle
+  for normalized fallback parity remains explicitly xfailed until that degraded
+  route is migrated.
+- Added backend tests requiring plugin query language bridge and hidden CLI JSON
+  responses to expose ContextService trace fields at both the additive result
+  level and inside `trace`.
+- Extended plugin `CuratorQueryResult`/`CuratorQueryTrace` types and
+  `IncuratorClient` normalization so `pack_id`, `snapshot`, and `budget` are
+  retained for the later Sources & Trace rendering slice.
+- Updated plugin schema plus EN/KR plugin guides and system behavior docs for
+  L3-complete plugin query ContextService parity.
+- Validation:
+  - `scripts/backend-check pytest backend/tests/test_plugin_query_language.py backend/tests/test_plugin_cli.py::test_plugin_query_returns_context_service_trace_fields backend/tests/test_mcp_tools.py backend/tests/test_query_orchestrator.py -q`
+    -> `20 passed`
+  - `npx tsc --noEmit` from `plugin/` -> passed
+  - `npx vitest run src/agent/incuratorClient.test.ts` from `plugin/`
+    -> `24 passed`
+  - `scripts/backend-check ruff` -> passed
+  - `scripts/backend-check mypy` -> no issues in 95 source files
+  - `npx vitest run` from `plugin/` -> `44` files / `370` tests passed
+  - `scripts/backend-check pytest -q` -> `915 passed, 6 skipped, 5 xfailed, 7 warnings`
+
+### P5 Adapter Parity Tightening (2026-06-18, Codex)
+
+- Added a plugin API parity regression proving L3-complete
+  `plugin_api.curator_query` does not call the legacy `search.query` fallback,
+  emits identical `pack_id`/`snapshot`/`budget`/`prompt_trace_ids` at the
+  result and nested trace levels, and stores exactly one root `QTR-*` with a
+  ContextService synthesis child action.
+- Tightened the hidden `wiki plugin query` JSON regression with the same
+  result-level/nested-trace parity and stored root trace checks.
+- Kept explore mode explicitly out of P5 ContextService migration. Current tests
+  require explore routes to return `null` pack metadata until the deferred
+  explore migration phase is planned.
+- Validation:
+  - `scripts/backend-check pytest backend/tests/test_plugin_query_language.py::test_curator_query_l3_complete_uses_single_context_service_root backend/tests/test_plugin_cli.py::test_plugin_query_returns_context_service_trace_fields -q`
+    -> `2 passed`
+  - `scripts/backend-check pytest backend/tests/test_plugin_query_language.py backend/tests/test_plugin_cli.py::test_plugin_query_returns_context_service_trace_fields backend/tests/test_mcp_tools.py backend/tests/test_query_orchestrator.py -q`
+    -> `21 passed`
+  - `scripts/backend-check ruff` -> passed
+  - `scripts/backend-check mypy` -> no issues in 95 source files
+
+### P6 Provider Evidence-Pack Grounding Slice (2026-06-18, Codex)
+
+- Added hidden plugin JSON command
+  `wiki plugin context fetch --query ... --workspace-path ... --limit-tokens ...`
+  as the local Obsidian equivalent of MCP `curator_fetch_context`. It returns
+  the normalized `context_fetch` pack and does not synthesize or return an
+  `answer`.
+- Added `IncuratorClient.fetchContext()` plus normalized pack/item/evidence
+  TypeScript contracts.
+- Changed the default sidechat provider-context path from backend
+  `curatorQuery` answer injection to ContextService evidence-pack grounding via
+  `client.fetchContext()` and `formatCuratorContextPack()`.
+- Preserved Sources & Trace metadata by adapting the fetched pack into the
+  existing trace panel shape (`trace_id`, `pack_id`, `snapshot`, `budget`,
+  provenance ids, warnings) without adding prompt trace ids for non-synthesis
+  fetches.
+- Kept `curatorQuery` available for explicit backend synthesis and compatibility,
+  but it is no longer the ordinary provider-grounding path.
+- Updated plugin schema, system behavior spec, and EN/KR plugin guides for the
+  hidden context fetch command and no-default-backend-answer rule.
+- Validation:
+  - `scripts/backend-check pytest backend/tests/test_plugin_cli.py::test_plugin_context_fetch_returns_evidence_pack_without_answer -q`
+    -> `1 passed`
+  - `scripts/backend-check pytest backend/tests/test_plugin_cli.py::test_plugin_context_fetch_returns_evidence_pack_without_answer backend/tests/test_plugin_query_language.py backend/tests/test_plugin_cli.py::test_plugin_query_returns_context_service_trace_fields backend/tests/test_mcp_tools.py backend/tests/test_query_orchestrator.py -q`
+    -> `22 passed`
+  - `npx tsc --noEmit` from `plugin/` -> passed
+  - `npx vitest run` from `plugin/` -> `44` files / `373` tests passed
+  - `scripts/backend-check ruff` -> passed
+  - `scripts/backend-check mypy` -> no issues in 95 source files
+  - `scripts/backend-check pytest -q` ->
+    `922 passed, 6 skipped, 5 xfailed, 7 warnings`
+  - Workspace hygiene check found no backend-local `.venv`, `.venv-dev`,
+    backend-local tool cache, or `uv.lock` artifact.
+
+### P6 Sources & Trace Exact-Pack Rendering Slice (2026-06-19, Codex)
+
+- Preserved the fetched ContextService pack on the local plugin trace payload as
+  `context_pack` so Sources & Trace can render the exact pack used for provider
+  grounding instead of reconstructing provenance from partial id arrays.
+- Extended `renderCuratorQueryTrace()` with pack rendering for `pack_id`,
+  snapshot id, budget, coverage/degraded state, item summaries, truth/freshness
+  state, locators, expansion handles, verification handles, and omitted `next[]`
+  expansion handles.
+- Added source-contract UI tests for pack rendering and explicit degraded /
+  `snapshot_conflict` display.
+- Updated plugin schema, system behavior spec, and EN/KR plugin guides to
+  document `context_pack` and exact-pack Sources & Trace rendering.
+- Validation:
+  - `npx vitest run src/ui/incuratorQueryTraceV031.test.ts src/ui/chatSidebarSource.test.ts src/context/providerContextFormat.test.ts src/agent/incuratorClient.test.ts`
+    -> `4` files / `56` tests passed
+  - `npx tsc --noEmit` from `plugin/` -> passed
+  - `npx vitest run` from `plugin/` -> `44` files / `375` tests passed
+  - Workspace hygiene check found no backend-local `.venv`, `.venv-dev`,
+    backend-local tool cache, or `uv.lock` artifact.
+
+### P6 Locator And Follow-Up Operation Slice (2026-06-19, Codex)
+
+- Made Sources & Trace locators actionable. Vault locators render as clickable
+  links and open `relpath` plus heading or block anchor when available; external
+  locators open `external_uri`; unavailable locators remain inert/degraded text.
+- Added hidden plugin JSON commands for follow-up ContextService operations:
+  `wiki plugin context expand` and `wiki plugin context verify`. Both require
+  the displayed root `PACK-*` and `SNAP-*` to avoid mixed-snapshot evidence.
+- Added `IncuratorClient.expandContext()` and `IncuratorClient.verifyContext()`.
+- Added Sources & Trace `Expand` and `Verify` controls for item handles. The
+  trace panel dispatches explicit `context:expand` / `context:verify` events,
+  and `chatSidebar` handles them through `IncuratorClient`, merges successful
+  expansion items into the displayed `context_pack`, removes consumed expansion
+  handles, and re-renders without forcing the chat to the bottom.
+- Updated plugin schema, system behavior spec, and EN/KR plugin guides for
+  clickable locators plus context expand/verify operations.
+- Validation:
+  - `scripts/backend-check pytest backend/tests/test_plugin_cli.py::test_plugin_context_fetch_returns_evidence_pack_without_answer backend/tests/test_plugin_cli.py::test_plugin_context_expand_and_verify_use_existing_pack -q`
+    -> `2 passed`
+  - `scripts/backend-check pytest backend/tests/test_plugin_cli.py::test_plugin_context_fetch_returns_evidence_pack_without_answer backend/tests/test_plugin_cli.py::test_plugin_context_expand_and_verify_use_existing_pack backend/tests/test_plugin_query_language.py backend/tests/test_mcp_tools.py backend/tests/test_query_orchestrator.py -q`
+    -> `22 passed`
+  - `npx vitest run src/agent/incuratorClient.test.ts src/ui/incuratorQueryTraceV031.test.ts src/ui/chatSidebarSource.test.ts`
+    -> `3` files / `51` tests passed
+  - `npx vitest run` from `plugin/` -> `44` files / `379` tests passed
+  - `npx tsc --noEmit` from `plugin/` -> passed
+  - `scripts/backend-check ruff` -> passed
+  - `scripts/backend-check mypy` -> no issues in 95 source files
+  - `scripts/backend-check pytest -q` ->
+    `923 passed, 6 skipped, 5 xfailed, 7 warnings`
+  - Workspace hygiene check found no backend-local `.venv`, `.venv-dev`,
+    backend-local tool cache, or `uv.lock` artifact.
+
+### P6 Snapshot-Conflict Refetch UX Slice (2026-06-19, Codex)
+
+- Preserved `snapshot_conflict` metadata from backend context expand/verify
+  responses in `IncuratorClient.normalizeContextPack()`: `error_type`,
+  `expected_snapshot_id`, `current_snapshot_id`, and `resolution`.
+- Extended Sources & Trace degraded-state rendering with a stale-pack
+  **Refetch** control. The panel shows expected/current snapshot ids for
+  conflicts and dispatches `context:refetch`.
+- Extended `chatSidebar` context action handling so expand/verify snapshot
+  conflicts mark the currently displayed pack stale instead of merging any
+  returned evidence. Refetch re-runs `client.fetchContext()` for the original
+  question and replaces the displayed `context_pack`, result ids, trace pack id,
+  snapshot, and budget.
+- Added trace panel CSS for pack rows, action buttons, stale/refetch controls,
+  and long id wrapping so pack controls stay stable in compact Sources & Trace
+  layouts.
+- Updated plugin schema, system behavior spec, and EN/KR plugin guides for the
+  stale/refetch-required snapshot conflict UX and the no mixed-snapshot merge
+  rule.
+- Validation:
+  - `npx tsc --noEmit` from `plugin/` -> passed
+  - `npx vitest run src/agent/incuratorClient.test.ts src/ui/incuratorQueryTraceV031.test.ts src/ui/chatSidebarSource.test.ts -c ./vitest.config.ts` from `plugin/`
+    -> `3` files / `54` tests passed
+  - `npx vitest run -c ./vitest.config.ts` from `plugin/` ->
+    `44` files / `382` tests passed
+  - `scripts/backend-check ruff` -> passed
+  - `scripts/backend-check mypy` -> no issues in 95 source files
+  - `scripts/backend-check pytest backend/tests/test_spec_sync.py backend/tests/test_workspace_hygiene.py -q`
+    -> `12 passed`
+  - `git diff --check` -> passed
+  - Workspace hygiene check found no backend-local `.venv`, `.venv-dev`,
+    backend-local tool cache, or `uv.lock` artifact.
 - Preserve and explicitly validate external Reference Mode source locators and
   freshness without hard-copying sources into the vault.
 - Record testbed DB/source/search/policy epochs and hashes.
@@ -684,10 +993,12 @@ coder_engineer
 Local CI:
 
 ```bash
-export UV_PROJECT_ENVIRONMENT="$(git rev-parse --show-toplevel)/.venv"
-uv run --directory backend pytest -q
-uv run --directory backend ruff check src/
-uv run --directory backend mypy src/
+uv venv "$(git rev-parse --show-toplevel)/.venv-dev"
+uv pip install --python "$(git rev-parse --show-toplevel)/.venv-dev/bin/python" \
+  -e "$(git rev-parse --show-toplevel)/backend[dev,mcp]"
+scripts/backend-check pytest
+scripts/backend-check ruff
+scripts/backend-check mypy
 npx vitest run -c ./plugin/vitest.config.ts
 ```
 
@@ -865,3 +1176,116 @@ Consume `docs/specs/failure_atlas/PROGRAM_HANDOFFS.md`, especially F3/F4/F5/
 F11/F12. Progressive disclosure and client parity must preserve the
 authoritative QTR, exact source-span provenance, explicit omissions, and
 per-family fine-grained evaluation.
+
+---
+
+## Batch 1-3 Audit Remediation Evidence (2026-06-18)
+
+Source drafts: `.agents/drafts/batch_1_to_3_audit/00_overview.md` through
+`10_micro_expansion_state_leak.md`.
+
+### Fact-Check Classification
+
+- `01_systemic_oracle_overfitting.md`: confirmed as a systemic evaluation
+  risk, not a directly patchable implementation bug in this slice. It remains
+  a planning requirement for real-world sampling, noise injection, and
+  independent quality gates.
+- `02_systemic_graph_fragmentation.md`: confirmed as a systemic graph-quality
+  risk. It remains a planning requirement for soft-link strategy and graph
+  density alerts.
+- `03_systemic_pipeline_fragility.md`: confirmed as a systemic durability and
+  conflict-UX risk. It remains a planning requirement for soft snapshots and
+  integrity-worker behavior.
+- `04_arch_locator_coupling.md`: confirmed as a code defect. Payload truth
+  state now distinguishes orphaned support from source-supported evidence when
+  the locator is unavailable.
+- `05_arch_budget_thrashing.md`: confirmed as a code defect. Expansion
+  refusals now return in `expansion_refused` and are not requeued as retryable
+  `next` handles under the same budget.
+- `06_arch_explore_bypass.md`: confirmed as a larger architectural migration
+  gap. Explore route unification with ContextService is deferred to a planned
+  route-migration phase, not hot-patched here.
+- `07_arch_trace_mutation.md`: confirmed as a nuanced trace/provenance bug.
+  Retrieval pack provenance is preserved under `retrieval_trace.context_service`;
+  answer/result provenance is restricted to spans actually cited by validated
+  synthesis output, and is cleared when synthesis validation fails.
+- `08_micro_token_cjk_overflow.md`: confirmed as a code defect. The token
+  estimator now uses a conservative max of character and UTF-8 byte estimates.
+- `09_micro_deterministic_reordering.md`: confirmed as a code defect. Selected
+  provenance arrays preserve pack first-occurrence order instead of sorting.
+- `10_micro_expansion_state_leak.md`: confirmed as a code defect. Successful
+  expansion consumes handles once, and already-selected handles do not append
+  duplicate child actions.
+
+### Implemented Contract Updates
+
+- `ContextService.context_fetch` and expansion payloads preserve deterministic
+  pack order for selected source spans, reports, synthesis nodes, and memory
+  paths.
+- Missing/unavailable locators with declared support are represented as
+  `truth_state="orphaned_support"` and stale evidence instead of falsely
+  marking the item source-supported.
+- `context_expand` no longer leaks state across repeated requests: selected
+  handles move from omitted to selected state, already-selected handles return a
+  warning without adding trace actions, and budget-blocked handles are reported
+  as refused rather than requeued.
+- Successful synthesis records only validated prompt-output cited spans at the
+  result/root-trace level; the full selected pack remains under
+  `retrieval_trace.context_service`.
+- Synthesis validation failure clears result/root-trace answer reference arrays.
+  Failed synthesis is represented on the synthesis child action with empty cited
+  spans while the retrieved pack remains inspectable under ContextService trace.
+- ContextService-backed trace readers tolerate legacy `retrieval_trace = null`.
+- `_context_evidence_block` joins the full already-budgeted pack without a
+  secondary character cap and does not render JSON null values as literal
+  `"None"`.
+- English and Korean MCP guides document one-shot expansion handles and
+  `expansion_refused`; system behavior spec documents CJK budgeting, ordering,
+  orphaned support, expansion state, and failed synthesis trace semantics.
+
+### Validation
+
+- `scripts/backend-check pytest backend/tests/test_plan_f_context_service_contract.py::test_context_service_cjk_budget_estimator_is_conservative backend/tests/test_plan_f_context_service_contract.py::test_context_service_selected_refs_preserve_pack_order backend/tests/test_plan_f_context_service_contract.py::test_context_service_marks_orphaned_support_without_false_truth_state backend/tests/test_plan_f_context_service_contract.py::test_context_expand_reports_budget_refusals_without_requeueing_same_handles backend/tests/test_plan_f_context_service_contract.py::test_context_expand_consumes_successful_handles_once backend/tests/test_query_orchestrator.py::test_failed_answer_validation_preserves_retrieval_provenance -q`
+  -> `6 passed`
+- `scripts/backend-check pytest backend/tests/test_plan_f_context_service_contract.py backend/tests/test_query_orchestrator.py backend/tests/test_mcp_tools.py -q`
+  -> `41 passed`
+- `scripts/backend-check ruff` -> passed
+- `scripts/backend-check mypy` -> no issues in 95 source files
+- `scripts/backend-check pytest -q` ->
+  `920 passed, 6 skipped, 5 xfailed, 7 warnings`
+- Workspace hygiene check: `find backend -maxdepth 2 ...` found no forbidden
+  backend-local `.venv`, `.venv-dev`, tool cache, or `uv.lock` artifact.
+
+### Reviewer Provenance Remediation (2026-06-19, Codex)
+
+- Removed the remaining synthesis evidence-block hazards: no hardcoded 16k
+  truncation, no dropped budgeted items, and no literal `"None"` output for null
+  pack fields.
+- Hardened `curator_query`, plugin query, ContextService, and synthesis trace
+  update code against persisted `retrieval_trace_json = null`.
+- Fixed successful answer provenance so `result.source_span_ids` and root
+  `QTR-*` `source_span_ids` reflect the validated prompt output's cited spans
+  instead of the full retrieved pack.
+- Fixed failed synthesis provenance so result/root answer reference arrays are
+  cleared, while the full retrieved pack remains in
+  `retrieval_trace.context_service.selected_items` and the synthesis child action
+  records `synthesis_status=failed` with empty cited spans.
+- Updated `SYSTEM_BEHAVIOR.md` plus EN/KR MCP guides to document cited-answer
+  provenance versus full pack provenance.
+
+Validation:
+
+- `scripts/backend-check pytest backend/tests/test_query_orchestrator.py::test_context_evidence_block_does_not_render_none_values backend/tests/test_query_orchestrator.py::test_context_evidence_block_joins_all_budgeted_items_without_truncation backend/tests/test_query_orchestrator.py::test_successful_answer_records_only_parsed_cited_spans backend/tests/test_query_orchestrator.py::test_failed_answer_validation_clears_answer_provenance backend/tests/test_query_orchestrator.py::test_synthesis_trace_update_tolerates_null_retrieval_trace -q`
+  -> `5 passed`
+- `scripts/backend-check pytest backend/tests/test_query_orchestrator.py backend/tests/test_mcp_tools.py backend/tests/test_plugin_query_language.py backend/tests/test_plugin_cli.py::test_plugin_query_returns_context_service_trace_fields -q`
+  -> `24 passed`
+- `scripts/backend-check ruff` -> passed
+- `scripts/backend-check mypy` -> no issues in 95 source files
+- `scripts/backend-check pytest -q` ->
+  `926 passed, 6 skipped, 5 xfailed, 7 warnings`
+- `npx tsc --noEmit` from `plugin/` -> passed
+- `npx vitest run -c ./vitest.config.ts` from `plugin/` ->
+  `44` files / `379` tests passed
+- `git diff --check` -> passed
+- Workspace hygiene check found no backend-local `.venv`, `.venv-dev`, tool
+  cache, or `uv.lock` artifact.

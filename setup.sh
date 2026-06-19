@@ -49,13 +49,13 @@ else
 fi
 echo ""
 
-echo "=== Installing Incurator backend ==="
+echo "=== Installing Incurator backend into the repo-root service/runtime venv ==="
 cd "$ROOT_DIR"
 echo "=== Installing dependencies via uv or pip ==="
 if command -v uv &> /dev/null; then
-    uv pip install -e ./backend
+    uv pip install --python "$VIRTUAL_ENV/bin/python" -e "$ROOT_DIR/backend"
 else
-    pip install -e ./backend
+    pip install -e "$ROOT_DIR/backend"
 fi
 
 echo ""

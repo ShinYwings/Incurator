@@ -34,7 +34,7 @@ boundary:
     must not be modified by D1.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f13_scenario_targets_current_architecture
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f13_scenario_targets_current_architecture" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f13_scenario_targets_current_architecture" -q
 oracles:
   deterministic: >
     The active validation scenario's oracles reference only current

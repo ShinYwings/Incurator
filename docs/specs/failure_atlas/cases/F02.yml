@@ -34,7 +34,7 @@ boundary:
     transaction-id column linking them.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f2_one_query_persists_one_authoritative_trace
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f2_one_query_persists_one_authoritative_trace" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f2_one_query_persists_one_authoritative_trace" -q
 oracles:
   deterministic: >
     One logical query surface call persists exactly one authoritative QTR-

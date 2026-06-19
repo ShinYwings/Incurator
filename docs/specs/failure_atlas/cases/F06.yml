@@ -34,7 +34,7 @@ boundary:
     validation.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f6_baseline_synthesis_empty_spans_fall_back_to_all_upstream
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f6_baseline_synthesis_empty_spans_fall_back_to_all_upstream" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f6_baseline_synthesis_empty_spans_fall_back_to_all_upstream" -q
 oracles:
   deterministic: >
     A stored synthesis node's source_span_ids equal exactly the spans the

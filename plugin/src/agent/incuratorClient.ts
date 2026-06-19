@@ -1,5 +1,8 @@
 import type {
   CuratorQueryResult,
+  CuratorContextPack,
+  CuratorContextFeedbackResult,
+  CuratorFeedbackType,
   IncuratorCuratePlan,
   IncuratorInsightListResult,
   IncuratorInsightPromoteResult,
@@ -481,6 +484,118 @@ export class IncuratorClient {
     return this.normalizeCuratorQueryResult(result, question, empty);
   }
 
+  async fetchContext(
+    query: string,
+    opts: {
+      workspacePath?: string;
+      limitTokens?: number;
+    } = {}
+  ): Promise<CuratorContextPack> {
+    const empty: CuratorContextPack = {
+      ok: false,
+      operation: "context_fetch",
+      error: "Incurator backend context command is not available",
+    };
+    if (!query.trim() || this.settings.incuratorEnabled === false) return empty;
+
+    const result = await this.callBackendJson([
+      "plugin", "context", "fetch",
+      "--query", query,
+      ...(opts.workspacePath ? ["--workspace-path", opts.workspacePath] : []),
+      ...(opts.limitTokens ? ["--limit-tokens", String(opts.limitTokens)] : []),
+    ]);
+    return this.normalizeContextPack(result, empty);
+  }
+
+  async expandContext(args: {
+    packId: string;
+    handles: string[];
+    expectedSnapshotId: string;
+    workspacePath?: string;
+    limitTokens?: number;
+  }): Promise<CuratorContextPack> {
+    const empty: CuratorContextPack = {
+      ok: false,
+      operation: "context_expand",
+      error: "Incurator backend context command is not available",
+    };
+    if (!args.packId || !args.handles.length || !args.expectedSnapshotId || this.settings.incuratorEnabled === false) {
+      return empty;
+    }
+
+    const result = await this.callBackendJson([
+      "plugin", "context", "expand",
+      "--pack-id", args.packId,
+      "--expected-snapshot-id", args.expectedSnapshotId,
+      ...(args.limitTokens ? ["--limit-tokens", String(args.limitTokens)] : []),
+      ...(args.workspacePath ? ["--workspace-path", args.workspacePath] : []),
+      ...args.handles.flatMap((handle) => ["--handle", handle]),
+    ]);
+    return this.normalizeContextPack(result, empty);
+  }
+
+  async verifyContext(args: {
+    packId: string;
+    verificationHandle: string;
+    expectedSnapshotId: string;
+    workspacePath?: string;
+  }): Promise<CuratorContextPack> {
+    const empty: CuratorContextPack = {
+      ok: false,
+      operation: "context_verify",
+      error: "Incurator backend context command is not available",
+    };
+    if (!args.packId || !args.verificationHandle || !args.expectedSnapshotId || this.settings.incuratorEnabled === false) {
+      return empty;
+    }
+
+    const result = await this.callBackendJson([
+      "plugin", "context", "verify",
+      "--pack-id", args.packId,
+      "--verification-handle", args.verificationHandle,
+      "--expected-snapshot-id", args.expectedSnapshotId,
+      ...(args.workspacePath ? ["--workspace-path", args.workspacePath] : []),
+    ]);
+    return this.normalizeContextPack(result, empty);
+  }
+
+  async feedbackContext(args: {
+    traceId: string;
+    packId: string;
+    feedbackType: CuratorFeedbackType;
+    statement: string;
+    client?: string;
+    purpose?: string;
+    targetItemId?: string;
+    targetRecordId?: string;
+    reviewedSpanIds?: string[];
+    workspacePath?: string;
+  }): Promise<CuratorContextFeedbackResult> {
+    const empty: CuratorContextFeedbackResult = {
+      ok: false,
+      operation: "context_feedback",
+      error: "Incurator backend context command is not available",
+    };
+    if (!args.traceId || !args.packId || !args.feedbackType || !args.statement.trim() || this.settings.incuratorEnabled === false) {
+      return empty;
+    }
+
+    const result = await this.callBackendJson([
+      "plugin", "context", "feedback",
+      "--trace-id", args.traceId,
+      "--pack-id", args.packId,
+      "--feedback-type", args.feedbackType,
+      "--statement", args.statement,
+      ...(args.client ? ["--client", args.client] : []),
+      ...(args.purpose ? ["--purpose", args.purpose] : []),
+      ...(args.targetItemId ? ["--target-item-id", args.targetItemId] : []),
+      ...(args.targetRecordId ? ["--target-record-id", args.targetRecordId] : []),
+      ...(args.workspacePath ? ["--workspace-path", args.workspacePath] : []),
+      ...(args.reviewedSpanIds ?? []).flatMap((id) => ["--reviewed-span-id", id]),
+    ]);
+    return (result as CuratorContextFeedbackResult) ?? empty;
+  }
+
   async promoteAnswer(
     question: string,
     answer: string,
@@ -681,6 +796,19 @@ export class IncuratorClient {
       error: typeof r.error === "string" ? r.error : undefined,
       route: typeof r.route === "string" ? (r.route as CuratorQueryResult["route"]) : undefined,
       trace_id: typeof r.trace_id === "string" ? r.trace_id : undefined,
+      pack_id: typeof r.pack_id === "string" || r.pack_id === null ? r.pack_id : undefined,
+      snapshot:
+        r.snapshot && typeof r.snapshot === "object" && !Array.isArray(r.snapshot)
+          ? (r.snapshot as Record<string, unknown>)
+          : r.snapshot === null
+            ? null
+            : undefined,
+      budget:
+        r.budget && typeof r.budget === "object" && !Array.isArray(r.budget)
+          ? (r.budget as Record<string, unknown>)
+          : r.budget === null
+            ? null
+            : undefined,
       prompt_trace_ids: Array.isArray(r.prompt_trace_ids) ? (r.prompt_trace_ids as string[]) : undefined,
       source_span_ids: Array.isArray(r.source_span_ids) ? (r.source_span_ids as string[]) : undefined,
       community_report_ids: Array.isArray(r.community_report_ids) ? (r.community_report_ids as string[]) : undefined,
@@ -688,6 +816,56 @@ export class IncuratorClient {
       memory_path_ids: Array.isArray(r.memory_path_ids) ? (r.memory_path_ids as string[]) : undefined,
       insight_candidate_ids: Array.isArray(r.insight_candidate_ids) ? (r.insight_candidate_ids as string[]) : undefined,
       warnings: Array.isArray(r.warnings) ? (r.warnings as string[]) : undefined,
+    };
+  }
+
+  private normalizeContextPack(
+    result: unknown,
+    empty: CuratorContextPack
+  ): CuratorContextPack {
+    if (!result || typeof result !== "object") return empty;
+    const r = result as Record<string, unknown>;
+    return {
+      ok: r.ok === true,
+      operation: typeof r.operation === "string" ? r.operation : undefined,
+      contract_version: typeof r.contract_version === "string" ? r.contract_version : undefined,
+      pack_id: typeof r.pack_id === "string" ? r.pack_id : undefined,
+      trace_id: typeof r.trace_id === "string" ? r.trace_id : undefined,
+      retrieval_execution_id:
+        typeof r.retrieval_execution_id === "string" ? r.retrieval_execution_id : undefined,
+      route: typeof r.route === "string" ? r.route : undefined,
+      route_reason: typeof r.route_reason === "string" ? r.route_reason : undefined,
+      workspace_id: typeof r.workspace_id === "string" ? r.workspace_id : undefined,
+      snapshot:
+        r.snapshot && typeof r.snapshot === "object" && !Array.isArray(r.snapshot)
+          ? (r.snapshot as Record<string, unknown>)
+          : undefined,
+      budget:
+        r.budget && typeof r.budget === "object" && !Array.isArray(r.budget)
+          ? (r.budget as Record<string, unknown>)
+          : undefined,
+      coverage:
+        r.coverage && typeof r.coverage === "object" && !Array.isArray(r.coverage)
+          ? (r.coverage as Record<string, unknown>)
+          : undefined,
+      actions: Array.isArray(r.actions) ? (r.actions as Array<Record<string, unknown>>) : undefined,
+      items: Array.isArray(r.items) ? (r.items as CuratorContextPack["items"]) : undefined,
+      evidence: Array.isArray(r.evidence) ? (r.evidence as CuratorContextPack["evidence"]) : undefined,
+      source_span_ids: Array.isArray(r.source_span_ids) ? (r.source_span_ids as string[]) : undefined,
+      community_report_ids: Array.isArray(r.community_report_ids)
+        ? (r.community_report_ids as string[])
+        : undefined,
+      synthesis_node_ids: Array.isArray(r.synthesis_node_ids) ? (r.synthesis_node_ids as string[]) : undefined,
+      memory_path_ids: Array.isArray(r.memory_path_ids) ? (r.memory_path_ids as string[]) : undefined,
+      warnings: Array.isArray(r.warnings) ? (r.warnings as string[]) : undefined,
+      next: Array.isArray(r.next) ? (r.next as Array<Record<string, unknown>>) : undefined,
+      error: typeof r.error === "string" ? r.error : undefined,
+      error_type: typeof r.error_type === "string" ? r.error_type : undefined,
+      expected_snapshot_id:
+        typeof r.expected_snapshot_id === "string" ? r.expected_snapshot_id : undefined,
+      current_snapshot_id:
+        typeof r.current_snapshot_id === "string" ? r.current_snapshot_id : undefined,
+      resolution: typeof r.resolution === "string" ? r.resolution : undefined,
     };
   }
 

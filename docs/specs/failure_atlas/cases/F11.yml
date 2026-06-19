@@ -30,7 +30,7 @@ boundary:
     code path issues the follow-ups as queries or evaluates sufficiency.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f11_baseline_explore_single_pass
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f11_baseline_explore_single_pass" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f11_baseline_explore_single_pass" -q
 oracles:
   deterministic: >
     Explore executes a measured, bounded iterative loop: follow-up retrieval

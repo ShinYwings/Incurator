@@ -544,7 +544,9 @@ User types a chat message
       │ (Incurator integration active)
       ▼
 IncuratorClient calls hidden backend JSON commands
-(`wiki plugin source ...`, `wiki plugin pdf ...`, `wiki plugin query`)
+(`wiki plugin source ...`, `wiki plugin pdf ...`, `wiki plugin context fetch`,
+`wiki plugin context expand`, `wiki plugin context verify`,
+`wiki plugin context feedback`, `wiki plugin query`)
       │
       ▼
 Traceable DAG evidence injected as system context
@@ -580,6 +582,9 @@ The Incurator backend and the Obsidian plugin may be rebuilt at different times
 on different devices. `./setup.sh` writes a shared backend/plugin build
 fingerprint. When the plugin checks `wiki plugin version`, it compares the
 backend fingerprint with the fingerprint bundled into the installed plugin.
+If the generated backend manifest is missing, `wiki plugin version` still returns
+a stable `build` object with backend/plugin version, git commit key, and schema
+metadata so the update check does not crash on an empty object.
 
 If the fingerprints are missing or do not match, the chat window shows a
 setup/rebuild banner — but only when a repo path is available to update from.
@@ -649,11 +654,14 @@ program, not by this asset-routing feature.
 
 For ordinary workspace/domain questions with no primary selected text, line
 range, PDF page, or crop image attached to the latest user turn, sidechat calls
-`wiki plugin query` directly. If the backend has L3 grounding, the response
-includes a compact trace so the Sources & Trace panel can link the supporting
-evidence. If the latest turn is focused on a
-selected crop or editable Markdown region, sidechat skips `wiki plugin query`
-and answers from that selected context instead.
+`wiki plugin context fetch` by default. The returned ContextService pack is
+inserted into provider context as evidence items, with `pack_id`, snapshot,
+budget, omissions, locators, expansion handles, and verification handles
+available to Sources & Trace. Sidechat does not inject the backend synthesized
+answer by default. `wiki plugin query` remains available for explicit backend
+synthesis and still returns additive trace/provenance fields for compatibility.
+If the latest turn is focused on a selected crop or editable Markdown region,
+sidechat skips the workspace pack and answers from that selected context instead.
 
 For PDFs opened from Zotero or another external location, **Add to Incurator**
 uses Reference Mode by default. The backend leaves the PDF in place, creates a
@@ -771,6 +779,14 @@ Plugin data is split into two files.
 | `.curator/runtime/*.json` | Backend-written dashboard/status snapshots | Local cache only |
 
 In v0.2.1, the plugin re-reads the latest on-disk `sessions.json` before saving and merges by session id. This preserves distinct sessions created on Linux and macOS. Deleted sessions are recorded in `deletedSessionIds` tombstones so an older synced file does not resurrect them later. If the same session is edited on both devices concurrently, the copy with the newer `updatedAt` timestamp wins.
+
+Session sync does not make absolute PDF/Zotero paths portable. Context attached
+to chat messages may preserve portable identity such as a Zotero attachment key,
+file hash, vault-relative path, and page number, but device-local absolute paths
+from macOS or Linux are verified or re-resolved on the current device before
+being used. If a synced session references a Zotero PDF, the current device's
+local Zotero database and linked-attachment roots are used to recover the real
+PDF path.
 
 The sidebar conversation list derives each chat title from the first assistant
 answer after the first user question. Reasoning-model `<think>…</think>` blocks
@@ -1051,8 +1067,46 @@ instead of attempting a merge, rebase, or unsafe push.
 Query results (`CuratorQueryResult`) and the Sources & Trace panel carry the
 v0.3.2 fields additively: `route`, `trace_id` (`QTR-`), `prompt_trace_ids`
 (`PTR-`), `source_span_ids` (`SPAN-`), `community_report_ids` (`REP-`),
-`memory_path_ids` (`MPATH-`), and `insight_candidate_ids` (`INS-`). Older/partial
-backend responses simply omit them, so the panel degrades gracefully.
+`memory_path_ids` (`MPATH-`), `insight_candidate_ids` (`INS-`), `pack_id`,
+`snapshot`, and `budget`. The hidden `wiki plugin query` command returns these
+fields both at the additive result level and inside `trace` for L3-complete
+ContextService-backed answers. Older/partial backend responses simply omit them,
+so the panel degrades gracefully.
+
+Plan F adds normalized context packs to this flow. The plugin calculates the
+provider's remaining context budget after local selected/pinned/open-note/PDF/
+image context, requests a backend pack within that budget, and grounds the
+provider with the pack evidence items. Sources & Trace renders the exact
+`pack_id`, snapshot, budget, coverage/degraded state, evidence item summaries,
+locators, expansion handles, verification handles, and omitted expansion handles
+used for the turn. The fetched pack is retained on the trace payload as
+`context_pack`; locators are clickable and resolve their target by source kind.
+External Reference Mode sources (with an `external_uri`) open the real external
+file rather than the in-vault stub: reference PDFs open in the plugin's external
+PDF viewer at the cited page, while other external references open through the
+system handler (local files use the desktop shell opener on desktop). Vault
+sources open their relpath; a registered/vault PDF jumps to
+the cited page via Obsidian's viewer (`#page=N`) and other notes use their
+heading/block anchor when present. Expansion and verification buttons use
+`wiki plugin context expand` and `wiki plugin context verify` with the displayed
+pack id and snapshot id. Successful verification updates the displayed evidence
+item in place. If the backend reports `snapshot_conflict`, the panel
+marks the displayed pack as stale, shows the expected/current snapshot ids, and
+offers **Refetch**; refetch runs `wiki plugin context fetch` for the original
+question and replaces the displayed pack instead of merging evidence across
+snapshots. A backend synthesized answer is not injected by default.
+
+Each evidence item in Sources & Trace carries a feedback affordance: 👍
+(relevant) / 👎 (irrelevant) plus a **Report…** menu for incorrect, stale,
+insufficient, or duplicate. Choosing one appends an event through
+`wiki plugin context feedback` against the displayed trace id and pack id. The
+backend looks up the root `QTR-*` directly, verifies that the `PACK-*` belongs to
+that trace, records an append-only `FBK-*` event tied to the pack/snapshot, and
+returns `ranking_or_truth_mutated: false`: feedback never edits source files,
+generated records, ranking, or truth state, and stays quarantined until a
+separately reviewed policy applies it. A `new_insight` event enqueues a
+provisional insight candidate for later human review rather than changing
+anything immediately.
 
 Rules:
 - Insight-candidate promotion is an explicit user action; the plugin must confirm

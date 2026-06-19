@@ -52,7 +52,7 @@ export interface ModelOption {
 
 export type ModelCatalogue = Partial<Record<LLMProvider, ModelOption[]>>;
 
-// ─── Session Data (device-local, stored in sessions.json) ───────
+// ─── Session Data (sync-safe, stored in .curator/sessions.json) ───────
 export interface SessionData {
   chatSessions: ChatSession[];
   activeChatSessionId?: string;
@@ -430,6 +430,17 @@ export interface CuratorQueryTrace {
   source_ids: number[];
   source_paths: string[];
   section_ids?: string[];
+  synthesis_node_ids?: string[];
+  community_report_ids?: string[];
+  memory_path_ids?: string[];
+  insight_candidate_ids?: string[];
+  prompt_trace_ids?: string[];
+  source_span_ids?: string[];
+  trace_id?: string;
+  route?: string;
+  pack_id?: string | null;
+  snapshot?: Record<string, unknown> | null;
+  budget?: Record<string, unknown> | null;
   latency_ms: number;
   l3_complete: boolean;
 }
@@ -449,6 +460,9 @@ export interface CuratorQueryResult {
   // v0.3.1 curation-native trace fields (additive; omitted by legacy responses).
   route?: "local" | "global" | "explore" | "source-section";
   trace_id?: string;
+  pack_id?: string | null;
+  snapshot?: Record<string, unknown> | null;
+  budget?: Record<string, unknown> | null;
   prompt_trace_ids?: string[];
   source_span_ids?: string[];
   community_report_ids?: string[];
@@ -456,6 +470,93 @@ export interface CuratorQueryResult {
   memory_path_ids?: string[];
   insight_candidate_ids?: string[];
   warnings?: string[];
+  context_pack?: CuratorContextPack;
+}
+
+export interface CuratorContextItem {
+  kind: string;
+  record_id: string;
+  layer?: string;
+  title?: string;
+  summary?: string;
+  detail?: string;
+  claim?: string;
+  truth_state?: string;
+  freshness_state?: string;
+  source_span_ids?: string[];
+  locator?: Record<string, unknown> | null;
+  token_cost?: number;
+  expansion_handle?: string;
+  verification_handle?: string;
+}
+
+export interface CuratorContextEvidence {
+  id: string;
+  kind: string;
+  title?: string;
+  text?: string;
+  score?: number;
+  source_span_ids?: string[];
+  community_report_id?: string | null;
+  synthesis_node_id?: string | null;
+  memory_path_id?: string | null;
+  locator?: Record<string, unknown> | null;
+}
+
+export interface CuratorContextPack {
+  ok: boolean;
+  operation?: "context_fetch" | "context_expand" | "context_verify" | string;
+  contract_version?: string;
+  pack_id?: string;
+  trace_id?: string;
+  retrieval_execution_id?: string;
+  route?: "local" | "global" | "explore" | "source-section" | string;
+  route_reason?: string;
+  workspace_id?: string;
+  snapshot?: Record<string, unknown>;
+  budget?: Record<string, unknown>;
+  coverage?: Record<string, unknown>;
+  actions?: Array<Record<string, unknown>>;
+  items?: CuratorContextItem[];
+  item?: CuratorContextItem;
+  evidence?: CuratorContextEvidence[];
+  source_span_ids?: string[];
+  community_report_ids?: string[];
+  synthesis_node_ids?: string[];
+  memory_path_ids?: string[];
+  warnings?: string[];
+  next?: Array<Record<string, unknown>>;
+  error?: string;
+  error_type?: string;
+  expected_snapshot_id?: string;
+  current_snapshot_id?: string;
+  resolution?: string;
+}
+
+// Plan F P7: locked ContextService feedback types (SYSTEM_BEHAVIOR §31.6).
+export type CuratorFeedbackType =
+  | "relevant"
+  | "irrelevant"
+  | "incorrect"
+  | "stale"
+  | "insufficient"
+  | "duplicate"
+  | "new_insight"
+  | "correction"
+  | "promotion_request";
+
+// Plan F P7: append-only feedback event result. Feedback never mutates source
+// truth, generated records, or ranking; the backend returns this acknowledgement.
+export interface CuratorContextFeedbackResult {
+  ok: boolean;
+  operation?: "context_feedback" | string;
+  feedback_id?: string;
+  feedback_type?: CuratorFeedbackType | string;
+  review_status?: string;
+  ranking_or_truth_mutated?: boolean;
+  resulting_lineage?: Record<string, unknown>;
+  error?: string;
+  error_type?: string;
 }
 
 // v0.3.1: sessionless promotion of a Q&A answer into 02_Wiki (no Exhibition file).

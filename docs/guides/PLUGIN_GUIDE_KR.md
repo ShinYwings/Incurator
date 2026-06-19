@@ -480,7 +480,9 @@ provider 중립적입니다. 플러그인이 HTTP provider(DeepSeek·Ollama)를 
       │ (Incurator 연동 활성화 시)
       ▼
 IncuratorClient가 숨겨진 backend JSON command 호출
-(`wiki plugin source ...`, `wiki plugin pdf ...`, `wiki plugin query`)
+(`wiki plugin source ...`, `wiki plugin pdf ...`, `wiki plugin context fetch`,
+`wiki plugin context expand`, `wiki plugin context verify`,
+`wiki plugin context feedback`, `wiki plugin query`)
       │
       ▼
 추적 가능한 DAG 근거를 시스템 컨텍스트로 주입
@@ -522,6 +524,9 @@ Incurator 백엔드와 Obsidian 플러그인은 기기마다 다른 시점에 re
 `./setup.sh`는 backend/plugin 공통 build fingerprint를 기록합니다. 플러그인은
 `wiki plugin version`을 확인할 때 backend fingerprint와 설치된 plugin bundle에
 포함된 fingerprint를 비교합니다.
+생성된 backend manifest가 없더라도 `wiki plugin version`은 backend/plugin version,
+git commit key, schema metadata를 담은 안정적인 `build` 객체를 반환하므로 update
+check가 빈 객체 때문에 실패하지 않습니다.
 
 fingerprint가 없거나 서로 다르면 채팅 창 상단에 setup/rebuild 배너를 표시합니다.
 단, 업데이트할 저장소 경로가 있을 때만 표시됩니다. 플러그인은 저장소 경로를 다음
@@ -588,11 +593,15 @@ L1 페이지는 항상 이미지가 실제로 기록된 폴더를 링크하므�
 Quality Stabilization 프로그램에서 별도로 추적합니다.
 
 최신 사용자 턴에 primary selected text, line range, PDF page, crop image가
-첨부되어 있지 않은 일반 workspace/domain 질문에서는 sidechat이 `wiki plugin
-query`를 직접 호출합니다. backend에 L3 grounding이 있으면 응답에 compact trace가
-포함되어 Sources & Trace 패널이 지원 근거를 링크할 수 있습니다. 최신 턴이 선택 crop이나 editable
-Markdown 영역에 집중된 경우에는 `wiki plugin query`를 건너뛰고 해당 선택
-context에서 답합니다.
+첨부되어 있지 않은 일반 workspace/domain 질문에서는 sidechat이 기본적으로
+`wiki plugin context fetch`를 호출합니다. 반환된 ContextService pack은 provider
+context에 evidence item으로 들어가며, Sources & Trace는 `pack_id`, snapshot,
+budget, omission, locator, expansion handle, verification handle을 표시할 수
+있습니다. sidechat은 backend synthesized answer를 기본적으로 주입하지 않습니다.
+`wiki plugin query`는 명시적 backend synthesis 경로로 남아 있으며 compatibility를
+위해 trace/provenance 필드를 계속 반환합니다. 최신 턴이 선택 crop이나 editable
+Markdown 영역에 집중된 경우에는 workspace pack을 건너뛰고 해당 선택 context에서
+답합니다.
 
 Zotero PDF는 기본적으로 Reference Mode로 등록됩니다. 생성되는
 `04_Resources` reference stub은 로컬 PDF 절대경로를 쓰지 않고 Zotero
@@ -686,6 +695,13 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
 | `.curator/runtime/*.json` | backend가 쓰는 dashboard/status snapshot | 로컬 cache only |
 
 v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 읽고 세션 id 단위로 병합합니다. 따라서 Linux와 macOS에서 서로 다른 채팅 세션을 만들면 두 세션이 함께 보존됩니다. 삭제된 세션은 `deletedSessionIds` tombstone에 남아 Syncthing 지연으로 오래된 파일이 도착해도 되살아나지 않습니다. 단, 같은 세션을 양쪽에서 동시에 편집한 경우에는 더 최신 `updatedAt`을 가진 세션이 이깁니다.
+
+세션 동기화가 PDF/Zotero의 절대경로까지 portable하게 만드는 것은 아닙니다. 채팅
+메시지에 붙은 context는 Zotero attachment key, file hash, vault-relative path,
+page number 같은 portable identity를 보존할 수 있지만, macOS나 Linux에서 캡처된
+기기별 절대경로는 사용 전에 현재 기기 기준으로 검증하거나 다시 해석합니다. 동기화된
+세션이 Zotero PDF를 가리키는 경우에는 현재 기기의 로컬 Zotero database와 linked
+attachment root를 사용해 실제 PDF 경로를 복구합니다.
 
 사이드바 대화 목록의 채팅 제목은 첫 사용자 질문 뒤에 나온 첫 assistant 답변에서
 생성합니다. 이때 추론 모델의 `<think>…</think>` 블록을 먼저 제거해, 제목이
@@ -888,8 +904,43 @@ merge/rebase/unsafe push를 시도하지 않고 그 blocker를 보고합니다.
 쿼리 결과(`CuratorQueryResult`)와 Sources & Trace 패널은 v0.3.1 필드를 추가로
 담습니다: `route`, `trace_id`(`QTR-`), `prompt_trace_ids`(`PTR-`),
 `source_span_ids`(`SPAN-`), `community_report_ids`(`REP-`),
-`memory_path_ids`(`MPATH-`), `insight_candidate_ids`(`INS-`). 구버전/부분 응답은
-이 필드를 생략하므로 패널은 우아하게 축소 렌더링됩니다.
+`memory_path_ids`(`MPATH-`), `insight_candidate_ids`(`INS-`), `pack_id`,
+`snapshot`, `budget`. L3-complete ContextService-backed 답변에서는 hidden
+`wiki plugin query` 명령이 이 필드를 additive result level과 `trace` 내부에 모두
+반환합니다. 구버전/부분 응답은 이 필드를 생략하므로 패널은 우아하게 축소
+렌더링됩니다.
+
+Plan F는 이 흐름에 normalized context pack을 추가합니다. 플러그인은 local
+selected/pinned/open-note/PDF/image context 이후 provider에 남은 context budget을
+계산하고, 그 budget 안에서 backend pack을 요청한 뒤 pack의 evidence item으로
+provider를 grounding합니다. Sources & Trace는 해당 turn에 실제 사용된
+`pack_id`, snapshot, budget, coverage/degraded state, evidence item summary,
+locator, expansion handle, verification handle, omitted expansion handle을
+렌더링합니다. 가져온 pack은 trace payload의 `context_pack`에 유지됩니다.
+locator는 클릭 가능하며 source kind에 따라 열기 대상이 결정됩니다. 외부 Reference
+Mode 소스(`external_uri` 존재)는 vault에 없으며 `relpath`는 vault 내부 stub일
+뿐이므로, stub이 아니라 실제 외부 파일(`external_uri`)을 엽니다. 레퍼런스 **PDF**는
+플러그인 내장 외부 PDF 뷰어에서 인용된 페이지로 열고, 그 외 외부 레퍼런스는 시스템
+핸들러로 엽니다(데스크톱의 로컬 파일은 desktop shell opener를 사용). vault 소스는 relpath를 열며, 등록된/vault PDF는 `#page=N` 앵커로
+Obsidian 기본 뷰어에서 해당 페이지로 점프하고 그 외 노트는 heading/block anchor가
+있으면 그 위치로 엽니다. Expansion/verification 버튼은 표시된 pack id와 snapshot id로
+`wiki plugin context expand`, `wiki plugin context verify`를 호출합니다. Verification이 성공하면 표시 중인 evidence item을 제자리에서 갱신합니다. backend가
+`snapshot_conflict`를 반환하면 패널은 표시 중인 pack을 stale 상태로 표시하고
+expected/current snapshot id를 보여주며 **Refetch**를 제공합니다. Refetch는 원래
+질문으로 `wiki plugin context fetch`를 다시 실행해 표시 pack을 교체하며, 서로 다른
+snapshot의 evidence를 병합하지 않습니다. backend synthesized answer는 기본적으로
+주입하지 않습니다.
+
+Sources & Trace의 각 evidence item에는 피드백 컨트롤이 있습니다: 👍(relevant) /
+👎(irrelevant) 버튼과 incorrect/stale/insufficient/duplicate를 위한 **Report…**
+메뉴입니다. 하나를 선택하면 표시된 trace id와 pack id에 대해
+`wiki plugin context feedback`로 이벤트를 추가합니다. backend는 root `QTR-*`를
+직접 조회하고 해당 `PACK-*`가 그 trace에 속하는지 검증한 뒤, pack/snapshot에
+연결된 append-only `FBK-*` 이벤트를 기록하고 `ranking_or_truth_mutated: false`를
+반환합니다. 피드백은 소스 파일, 생성 레코드, ranking, truth 상태를 절대 수정하지
+않으며, 별도로 검토된 정책이 적용하기 전까지 격리(quarantine) 상태로 유지됩니다.
+`new_insight` 이벤트는 즉시 무언가를 변경하지 않고, 나중의 사람 검토를 위한
+provisional insight candidate를 큐에 넣습니다.
 
 규칙:
 - 인사이트 후보 승격은 명시적 사용자 동작입니다. 플러그인은 `promoteInsight`

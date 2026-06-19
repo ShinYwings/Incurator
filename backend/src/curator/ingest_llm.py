@@ -686,6 +686,30 @@ def add_atom_from_insight(
         shutil.rmtree(tmp_staging, ignore_errors=True)
 
 
+def read_recent_domains(paths: cfg.WikiPaths, limit: int = 8) -> list[str]:
+    """Return recent top-level source folders as lightweight persona hints."""
+    if not paths.state_db.exists():
+        return []
+    domains: list[str] = []
+    with db.connect(paths.state_db) as conn:
+        rows = conn.execute(
+            "SELECT relpath FROM sources ORDER BY added_at DESC LIMIT ?",
+            (max(1, limit * 3),),
+        ).fetchall()
+    for row in rows:
+        relpath = str(row["relpath"] or "")
+        if not relpath:
+            continue
+        parts = Path(relpath).parts
+        domain = parts[1] if len(parts) > 1 and parts[0].startswith("0") else parts[0]
+        domain = domain.strip()
+        if domain and domain not in domains:
+            domains.append(domain)
+        if len(domains) >= limit:
+            break
+    return domains
+
+
 def find_workspace_exhibition(paths: cfg.WikiPaths, project: str) -> Optional[Path]:
     """Return any existing Exhibition tagged for this workspace project.
 

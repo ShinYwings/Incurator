@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV_DIR="$ROOT_DIR/.venv-dev"
+
+if [ ! -x "$VENV_DIR/bin/python" ]; then
+    cat >&2 <<EOF
+Missing repo-root .venv-dev.
+Create it with:
+  uv venv .venv-dev
+  uv pip install --python .venv-dev/bin/python -e './backend[dev,mcp]'
+EOF
+    exit 1
+fi
+
+run_ruff() {
+    if [ "$#" -eq 0 ]; then
+        set -- "$ROOT_DIR/backend/src/"
+    fi
+    "$VENV_DIR/bin/ruff" check "$@"
+}
+
+run_mypy() {
+    if [ "$#" -eq 0 ]; then
+        set -- "$ROOT_DIR/backend/src/"
+    fi
+    MYPYPATH="$ROOT_DIR/backend/stubs" "$VENV_DIR/bin/mypy" \
+        --config-file "$ROOT_DIR/backend/pyproject.toml" \
+        --cache-dir "$ROOT_DIR/.mypy_cache" \
+        "$@"
+}
+
+run_pytest() {
+    if [ "$#" -eq 0 ]; then
+        set -- "$ROOT_DIR/backend/tests" -q
+    fi
+    "$VENV_DIR/bin/pytest" "$@"
+}
+
+run_python() {
+    "$VENV_DIR/bin/python" "$@"
+}
+
+command="${1:-all}"
+if [ "$#" -gt 0 ]; then
+    shift
+fi
+
+case "$command" in
+    ruff)
+        run_ruff "$@"
+        ;;
+    mypy)
+        run_mypy "$@"
+        ;;
+    pytest)
+        run_pytest "$@"
+        ;;
+    python)
+        run_python "$@"
+        ;;
+    all)
+        run_ruff
+        run_mypy
+        run_pytest
+        ;;
+    *)
+        echo "Usage: scripts/backend-check [ruff|mypy|pytest|python|all] [tool args...]" >&2
+        exit 2
+        ;;
+esac

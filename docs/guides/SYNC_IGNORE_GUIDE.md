@@ -61,7 +61,7 @@ testbed/
 > **synced**; only `.curator/state.sqlite` and `.curator/sync_state.json` are
 > device-local. See USER_GUIDE "Cross-Device Knowledge Sync" and SYSTEM_BEHAVIOR §13.1.
 
-> **Note**: `sessions.json` may be synchronized in v0.2.1 because the plugin merges by session id before saving and records delete tombstones in `deletedSessionIds`. Keep `data.json` local if settings contain per-device paths such as MCP commands, backend executable paths, or Zotero paths.
+> **Note**: `sessions.json` may be synchronized in v0.2.1 because the plugin merges by session id before saving and records delete tombstones in `deletedSessionIds`. Keep `data.json` local if settings contain per-device paths such as MCP commands, backend executable paths, or Zotero paths. Synced sessions may carry portable PDF identity (Zotero attachment key, file hash, vault-relative path, page), but absolute PDF/Zotero paths are verified or re-resolved on each device before use.
 
 ### Obsidian Plugin Deployment Across macOS/Linux
 

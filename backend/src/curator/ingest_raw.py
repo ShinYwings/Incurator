@@ -84,10 +84,12 @@ def _default_logical_source_id(source: Path) -> str:
     """Create a deterministic logical id from the source path.
 
     This is a v1 fallback. Dedicated integrations such as Zotero should replace
-    it with the external system's stable item key when available.
+    it with the external system's stable item key when available. Delegates to
+    the single identity authority (SYSTEM_BEHAVIOR §29.6) so the two cannot drift.
     """
-    digest = hashlib.sha256(str(source.expanduser().resolve()).encode("utf-8")).hexdigest()
-    return f"ref-{digest[:16]}"
+    from . import asset_identity
+
+    return asset_identity.default_logical_source_id(str(source))
 
 
 
@@ -2037,6 +2039,8 @@ def import_source_file(
                         "reference",
                     ),
                 )
+                if cur.lastrowid is None:
+                    raise RuntimeError("failed to create source row")
                 source_id = int(cur.lastrowid)
 
             _record_pdf_pages_conn(conn, source_id, relpath, parsed)

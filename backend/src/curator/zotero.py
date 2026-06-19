@@ -120,7 +120,7 @@ def get_zotero_annotations(
                 "annotatedText": raw.get('text') or "",
                 "comment": raw.get('comment') or "",
                 "color": raw.get('color') or "",
-                "colorCategory": _hex_to_color_category(raw.get('color')),
+                "colorCategory": _hex_to_color_category(str(raw.get('color') or "")),
                 "pageLabel": raw.get('pageLabel') or str(page_index + 1),
                 "pageIndex": page_index,
                 "sortIndex": raw.get('sortIndex') or "",

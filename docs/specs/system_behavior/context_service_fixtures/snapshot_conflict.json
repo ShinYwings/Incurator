@@ -1,0 +1,24 @@
+{
+  "contract_version": "1",
+  "operation": "context_expand",
+  "request": {
+    "pack_id": "PACK-example",
+    "handles": [
+      "EXP-example"
+    ],
+    "budget": {
+      "max_tokens": 2000,
+      "max_items": 4,
+      "max_tokens_per_item": 1000,
+      "reserve_for_expansion": 0
+    },
+    "expected_snapshot_id": "SNAP-old"
+  },
+  "response": {
+    "ok": false,
+    "error_type": "snapshot_conflict",
+    "expected_snapshot_id": "SNAP-old",
+    "current_snapshot_id": "SNAP-new",
+    "resolution": "refetch_or_rebase"
+  }
+}

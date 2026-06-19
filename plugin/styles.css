@@ -2171,6 +2171,115 @@
   font-size: 0.85em;
 }
 
+.incurator-trace-route,
+.incurator-trace-idrow,
+.incurator-trace-insights,
+.incurator-trace-warnings,
+.incurator-trace-pack-title,
+.incurator-trace-pack-next,
+.incurator-trace-pack-handles,
+.incurator-trace-pack-feedback,
+.incurator-trace-pack-stale-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.incurator-trace-pack-feedback {
+  margin-top: 4px;
+  min-height: 24px;
+}
+
+.incurator-trace-pack-feedback-btn {
+  padding: 0 6px;
+  line-height: 20px;
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.incurator-trace-pack-feedback-report {
+  font-size: 0.85em;
+}
+
+.incurator-trace-route-badge,
+.incurator-trace-pack-id,
+.incurator-trace-snapshot-id,
+.incurator-trace-budget,
+.incurator-trace-coverage,
+.incurator-trace-qtr,
+.incurator-trace-ids {
+  font-family: var(--font-monospace);
+  font-size: 0.88em;
+}
+
+.incurator-trace-pack {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.incurator-trace-pack-degraded {
+  margin: 6px 0;
+  color: var(--text-warning);
+  font-family: var(--font-monospace);
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
+}
+
+.incurator-trace-pack-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.incurator-trace-pack-item {
+  padding: 6px 0;
+  border-top: 1px solid var(--background-modifier-border-hover);
+}
+
+.incurator-trace-pack-item:first-child {
+  border-top: 0;
+}
+
+.incurator-trace-pack-item-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.incurator-trace-pack-item-id,
+.incurator-trace-pack-state {
+  font-family: var(--font-monospace);
+  font-size: 0.86em;
+}
+
+.incurator-trace-pack-summary,
+.incurator-trace-pack-locator,
+.incurator-trace-pack-more {
+  margin-top: 3px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.incurator-trace-pack-locator-link {
+  color: var(--link-color);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.incurator-trace-pack-expand-btn,
+.incurator-trace-pack-verify-btn,
+.incurator-trace-pack-refetch-btn {
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 0.86em;
+}
+
 /* ── Incurator Dashboard Modal (Premium UI) ── */
 /* ── Incurator Dashboard Modal (Premium UI) ── */
 .ai-agent-dashboard-modal-wrapper {

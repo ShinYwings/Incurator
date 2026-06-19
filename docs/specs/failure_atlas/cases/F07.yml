@@ -34,8 +34,8 @@ boundary:
     failed-batch behavior.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f7_baseline_no_dependency_invalidation_and_stale_spans_linger
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f7_baseline_no_dependency_invalidation_and_stale_spans_linger" -q
-  - uv run --directory backend pytest "tests/test_failure_atlas_experiments.py" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f7_baseline_no_dependency_invalidation_and_stale_spans_linger" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_experiments.py" -q
 oracles:
   deterministic: >
     Unchanged rebuild produces identical authoritative records and dependency

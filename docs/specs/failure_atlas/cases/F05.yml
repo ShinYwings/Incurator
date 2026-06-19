@@ -33,7 +33,7 @@ boundary:
     prefix; dropped items leave no marker in the block, the pack, or the trace.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f5_oracle_evidence_block_reports_explicit_omissions
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f5_oracle_evidence_block_reports_explicit_omissions" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f5_oracle_evidence_block_reports_explicit_omissions" -q
 oracles:
   deterministic: >
     Context packing enforces an explicit model-aware token budget; items that

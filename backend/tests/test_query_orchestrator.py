@@ -11,8 +11,10 @@ import pytest
 
 from curator import config as cfg
 from curator import db
+from curator import prompting
 from curator.llm import ChatMessage
-from curator.retrieval import QueryOrchestrator, QueryRequest
+from curator.retrieval import QueryOrchestrator, QueryRequest, QueryResultV031
+from curator.retrieval.orchestrator import _context_evidence_block
 
 
 class DynamicFakeClient:
@@ -40,6 +42,37 @@ class DynamicFakeClient:
         # local answer
         return json.dumps({"answer": "Residual connections ease optimization.",
                            "source_span_ids": [first], "used_report_ids": [], "confidence": 0.8})
+
+
+class InvalidCitationClient:
+    model = "fake"
+
+    def chat(self, messages: list[ChatMessage], *, json_mode=False, temperature=0.3) -> str:
+        return json.dumps({
+            "answer": "Unsupported answer.",
+            "source_span_ids": ["SPAN-deadbeef"],
+            "used_report_ids": ["REP-deadbeef"],
+            "confidence": 0.8,
+        })
+
+
+class LastCitationClient:
+    model = "fake"
+
+    def __init__(self) -> None:
+        self.cited_spans: list[str] = []
+
+    def chat(self, messages: list[ChatMessage], *, json_mode=False, temperature=0.3) -> str:
+        text = "\n".join(m.content for m in messages)
+        spans = re.findall(r"SPAN-[0-9a-f]{8}", text)
+        cited = spans[-1:] if spans else []
+        self.cited_spans = cited
+        return json.dumps({
+            "answer": "Only the last provided span was needed.",
+            "source_span_ids": cited,
+            "used_report_ids": [],
+            "confidence": 0.8,
+        })
 
 
 @pytest.fixture()
@@ -92,7 +125,208 @@ def test_local_route_answers_with_spans(vault) -> None:
     assert trace["source_span_ids"] == [span]
     assert trace["prompt_trace_ids"] == res.prompt_trace_ids
     assert trace["retrieval_trace"]["mode"] == "hybrid"
+    context_trace = trace["retrieval_trace"]["context_service"]
+    assert context_trace["pack_id"].startswith("PACK-")
+    assert context_trace["snapshot"]["snapshot_id"].startswith("SNAP-")
+    assert any(
+        action["action_type"] == "synthesis"
+        and action["child_id"] in res.prompt_trace_ids
+        for action in context_trace["actions"]
+    )
     assert len(db.list_query_traces(paths.state_db)) == 1
+
+
+def test_context_evidence_block_joins_all_budgeted_items_without_truncation() -> None:
+    items = [
+        {
+            "kind": "source_span",
+            "record_id": "SPAN-a",
+            "summary": "first",
+            "detail": "A" * 12_000,
+        },
+        {
+            "kind": "source_span",
+            "record_id": "SPAN-b",
+            "summary": "second",
+            "detail": "B" * 12_000,
+        },
+    ]
+
+    block = _context_evidence_block(items)
+
+    assert "SPAN-a" in block
+    assert "SPAN-b" in block
+    assert "A" * 12_000 in block
+    assert "B" * 12_000 in block
+
+
+def test_context_evidence_block_does_not_render_none_values() -> None:
+    block = _context_evidence_block([
+        {
+            "kind": None,
+            "record_id": None,
+            "item_id": "ITEM-1",
+            "summary": None,
+            "detail": None,
+        }
+    ])
+
+    assert "None" not in block
+    assert "ITEM-1" in block
+
+
+def test_successful_answer_records_only_parsed_cited_spans(vault) -> None:
+    paths, first_span = vault
+    second_span = "SPAN-1234abcd"
+    context_pack = {
+        "route": "local",
+        "source_span_ids": [first_span, second_span],
+        "items": [
+            {
+                "kind": "source_span",
+                "record_id": first_span,
+                "summary": "First support.",
+                "detail": "First detail.",
+            },
+            {
+                "kind": "source_span",
+                "record_id": second_span,
+                "summary": "Second support.",
+                "detail": "Second detail.",
+            },
+        ],
+    }
+    result = QueryResultV031(
+        question="What does residual learning do?",
+        route="local",
+        trace_id="QTR-cited",
+        source_span_ids=list(context_pack["source_span_ids"]),
+    )
+    client = LastCitationClient()
+
+    QueryOrchestrator(paths, client)._run_answer_from_context(
+        QueryRequest(question="What does residual learning do?", mode="local"),
+        context_pack,
+        "",
+        result,
+    )
+
+    assert result.ok
+    assert client.cited_spans
+    assert result.source_span_ids == client.cited_spans
+    assert result.source_span_ids != context_pack["source_span_ids"]
+
+
+def test_failed_answer_validation_clears_answer_provenance(vault) -> None:
+    paths, span = vault
+    db.upsert_synthesis_node(
+        paths.state_db,
+        title="Cross-cutting insight",
+        statement="Residual learning ~ discretized dynamics.",
+        dependency_hash="d1",
+        source_span_ids=[span],
+        confidence=0.6,
+    )
+
+    res = QueryOrchestrator(paths, InvalidCitationClient()).run(
+        QueryRequest(question="overall summary of themes", mode="global")
+    )
+
+    assert not res.ok
+    assert res.error == "answer synthesis failed validation"
+    assert res.source_span_ids == []
+    assert res.community_report_ids == []
+    assert res.synthesis_node_ids == []
+    assert res.memory_path_ids == []
+    assert res.insight_candidate_ids == []
+    assert any("unknown source span ids" in warning for warning in res.warnings)
+
+    trace = db.get_query_trace(paths.state_db, res.trace_id)
+    assert trace is not None
+    assert trace["source_span_ids"] == []
+    assert trace["community_report_ids"] == []
+    assert trace["synthesis_node_ids"] == []
+    context_trace = trace["retrieval_trace"]["context_service"]
+    selected_items = context_trace["selected_items"]
+    assert span in [
+        source_span_id
+        for item in selected_items
+        for source_span_id in item.get("source_span_ids", [])
+    ]
+    assert any(item.get("kind") == "community_report" for item in selected_items)
+    assert any(item.get("kind") == "synthesis" for item in selected_items)
+    assert trace["insight_candidate_ids"] == []
+    actions = context_trace["actions"]
+    synthesis_action = actions[-1]
+    assert synthesis_action["action_type"] == "synthesis"
+    assert synthesis_action["payload"]["synthesis_status"] == "failed"
+    assert synthesis_action["payload"]["cited_source_span_ids"] == []
+
+
+def test_synthesis_none_source_span_ids_falls_back_to_empty_list(vault, monkeypatch) -> None:
+    paths, _span = vault
+
+    class Parsed:
+        answer = "Answer with no cited spans."
+        source_span_ids = None
+        used_report_ids: list[str] = []
+
+    class Run:
+        ok = True
+        parsed = Parsed()
+        trace_id = "PTR-none"
+        validation = type("Validation", (), {"errors": []})()
+
+    monkeypatch.setattr(prompting, "run_prompt", lambda *args, **kwargs: Run())
+    result = QueryResultV031(question="q", route="local")
+    QueryOrchestrator(paths, DynamicFakeClient())._run_answer_from_context(
+        QueryRequest(question="q"),
+        {
+            "route": "local",
+            "source_span_ids": [],
+            "items": [],
+        },
+        "",
+        result,
+    )
+
+    assert result.answer == "Answer with no cited spans."
+    assert result.source_span_ids == []
+
+
+def test_synthesis_trace_update_tolerates_null_retrieval_trace(vault) -> None:
+    paths, span = vault
+    trace_id = db.insert_query_trace(
+        paths.state_db,
+        trace_id="QTR-nullrt",
+        route="local",
+        question_hash="q",
+        source_span_ids=[span],
+        retrieval_trace={},
+    )
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE query_traces SET retrieval_trace_json = 'null' WHERE trace_id = ?",
+            (trace_id,),
+        )
+
+    result = QueryResultV031(
+        question="q",
+        route="local",
+        trace_id=trace_id,
+        answer="a",
+        prompt_trace_ids=["PTR-1"],
+        source_span_ids=[span],
+    )
+
+    QueryOrchestrator(paths, DynamicFakeClient())._update_context_trace_after_synthesis(
+        result,
+        latency_ms=1,
+    )
+
+    trace = db.get_query_trace(paths.state_db, trace_id)
+    assert trace is not None
+    assert trace["retrieval_trace"]["context_service"]["actions"][0]["child_id"] == "PTR-1"
 
 
 def test_global_route_uses_reports(vault) -> None:

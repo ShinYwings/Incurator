@@ -1,0 +1,112 @@
+{
+  "contract_version": "1",
+  "operation": "context_fetch",
+  "request": {
+    "contract_version": "1",
+    "query": "How is residual learning interpreted?",
+    "workspace_path": "/vault/Workspace",
+    "purpose": "ground",
+    "route": "auto",
+    "scope": {
+      "source_ids": [],
+      "active_paths": []
+    },
+    "budget": {
+      "max_tokens": 6000,
+      "max_items": 12,
+      "max_tokens_per_item": 700,
+      "reserve_for_expansion": 1500
+    },
+    "detail": "index",
+    "freshness_policy": "current_only",
+    "expected_snapshot_id": null
+  },
+  "response": {
+    "contract_version": "1",
+    "pack_id": "PACK-example",
+    "trace_id": "QTR-example",
+    "retrieval_execution_id": "RTR-example",
+    "snapshot": {
+      "snapshot_id": "SNAP-example",
+      "source_epoch": "SRC-example",
+      "db_epoch": "DB-example",
+      "search_epoch": "IDX-example",
+      "dependency_epoch": "DEP-example",
+      "policy_hash": "POL-example",
+      "model_config_hash": "MODEL-example",
+      "tokenizer_id": "cl100k_base",
+      "created_at": "2026-06-18T00:00:00Z"
+    },
+    "route": {
+      "selected": "local",
+      "reason": "query matched source-supported evidence",
+      "stop_reason": "sufficient"
+    },
+    "policy": {
+      "applied_filters": [],
+      "excluded": []
+    },
+    "budget": {
+      "limit_tokens": 6000,
+      "used_tokens": 420,
+      "reserved_tokens": 1500,
+      "omitted_items": 1,
+      "estimation_mode": "conservative"
+    },
+    "coverage": {
+      "sufficiency": "sufficient",
+      "contradictions_present": false,
+      "omission_categories": [
+        "budget"
+      ]
+    },
+    "items": [
+      {
+        "item_id": "ITEM-example",
+        "record_id": "SPAN-example",
+        "record_hash": "hash-example",
+        "kind": "source_span",
+        "layer": "L1",
+        "summary": "Residual learning fits a residual mapping around an identity path.",
+        "authority_state": "source_supported",
+        "truth_state": "verified",
+        "freshness_state": "current",
+        "score": 0.91,
+        "ranking": {
+          "route_rank": 1,
+          "rrf_score": 0.91
+        },
+        "route_reason": "direct lexical/vector match",
+        "source_span_ids": [
+          "SPAN-example"
+        ],
+        "dependency_ids": [],
+        "locator": {
+          "source_id": 1,
+          "source_kind": "vault_pdf",
+          "relpath": "04_Resources/resnet.pdf",
+          "heading": "Residual Learning",
+          "block_id": null,
+          "page_number": 2,
+          "toc_id": "s1",
+          "external_uri": null,
+          "locator_status": "exact"
+        },
+        "token_cost": 96,
+        "detail": "index",
+        "contradiction_state": "none",
+        "expansion_handle": "EXP-example",
+        "verification_handle": "VER-example"
+      }
+    ],
+    "next": [
+      {
+        "handle": "EXP-example",
+        "detail": "excerpt",
+        "reason": "full source excerpt omitted by budget",
+        "estimated_tokens": 350
+      }
+    ],
+    "warnings": []
+  }
+}

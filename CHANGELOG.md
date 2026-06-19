@@ -4,6 +4,67 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.13.0] - 2026-06-19
+### Added
+- **Unified Agent ContextService feedback (Plan F P7).** New append-only
+  `context_feedback` operation records `FBK-*` events against the exact served
+  pack/snapshot with the nine locked feedback types (relevant, irrelevant,
+  incorrect, stale, insufficient, duplicate, new_insight, correction,
+  promotion_request). Feedback is hard-quarantined: it never edits source files,
+  generated records, ranking, or truth state. A `new_insight` event enqueues a
+  provisional `pending` insight candidate for human review. Exposed through
+  `plugin_api.feedback_context` and the hidden `wiki plugin context feedback`
+  command.
+- **Sources & Trace feedback UI (Plan F P7).** Each evidence item shows
+  relevant/irrelevant controls and a "Report..." menu
+  (incorrect/stale/insufficient/duplicate) that records feedback through the
+  backend without mutating the pack.
+- **ContextService route admission and rollback (Plan F P8).** The service serves
+  only Plan-A pack-integrated routes (`local`, `source-section`, `global`).
+  `explore` and unknown routes degrade to `local` before retrieval runs; the
+  experimental `global` route is independently disableable via
+  `INCURATOR_DISABLED_ROUTES` for rollback. The decision is recorded as
+  `route_admission` on the response and root trace.
+
+### Changed
+- **Sources & Trace locator resolution extracted (Plan F P6).** The pure
+  open-target decision moved to `incuratorQueryTraceLocator.ts` with behavioral
+  unit tests; the vault PDF locator label no longer repeats the `#page=N` anchor.
+
+## [0.12.0] - 2026-06-19
+### Added
+- **Unified PDF asset identity resolution (Plan G).** Backend Reference Mode,
+  Zotero-backed PDFs, add-source registration, and PDF viewer context now route
+  through shared AssetIdentity/AssetSource contracts instead of ad hoc path
+  conversion.
+- **Device-safe PDF session sync.** Synced chat sessions no longer persist
+  macOS/Linux absolute PDF paths or volatile backend path status as durable
+  identity; portable identifiers are kept so each device re-resolves local paths.
+
+### Changed
+- **External PDF viewer slimmed.** Persistence/registry behavior and capture/RAG
+  composition were extracted from `externalPdfView.ts`, with the PDF module LOC
+  total reduced below the Plan G baseline.
+- **Zotero PDF handling hardened.** Status keys, durable attachment identity,
+  cache epoch invalidation, and stale localStorage path replacement now use the
+  same resolver model.
+
+### Fixed
+- **Reference PDFs open the real file, not the stub.** Locator consumers now
+  honor `external_uri` for Reference Mode PDFs while keeping vault stubs as
+  portable metadata. Non-PDF local external references now use the desktop system
+  opener instead of relying on Chromium `window.open`.
+- **Add-source badge state regressions.** Zotero identity no longer depends on
+  currently open PDF tabs, and added/building states are covered by contract
+  tests.
+- **PR review hardening.** Fresh Zotero/current-device path resolution now
+  overrides stale DB/layout path hints, Reference Mode stubs no longer mark
+  unresolved assets as resolved, Sources & Trace verification updates the
+  displayed item, and synthesis output cannot overwrite `source_span_ids` with
+  `None`.
+
+---
+
 ## [0.11.0] - 2026-06-16
 ### Fixed
 - **Complete overhaul of Diff Viewer UI (resolving 34 known bugs)**:

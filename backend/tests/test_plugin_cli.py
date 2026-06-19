@@ -1,11 +1,14 @@
 import json
 import re
 from pathlib import Path
+from unittest.mock import patch
 
+import click
 from typer.testing import CliRunner
 
 from curator import config as cfg
 from curator import db
+from curator import llm
 from curator.cli import app
 
 
@@ -65,8 +68,6 @@ def test_plugin_zotero_namespace_is_hidden_but_callable(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "ok" in payload
 
-
-import click
 
 def test_advanced_command_groups_are_hidden_but_callable() -> None:
     runner = CliRunner()
@@ -233,7 +234,317 @@ def test_plugin_query_returns_sessionless_trace(monkeypatch, tmp_path: Path) -> 
     assert payload["input_language"] == "English"
     assert payload["english_query"] == "What does this concept imply?"
     assert payload["final_output_language"] == "English"
-    assert payload["trace"]["matched_concepts"] == ["CON-1234abcd"]
+
+
+def test_plugin_query_returns_context_service_trace_fields(tmp_path: Path) -> None:
+    runner = CliRunner()
+    vault = tmp_path / "vault"
+    paths = cfg.WikiPaths(vault)
+    cfg.save_config(paths, {})
+    db.init_db(paths.state_db)
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath,content_hash,file_type,bytes,added_at) "
+            "VALUES ('04_Resources/context.md','c1','md',1,datetime('now'))"
+        )
+    span = db.upsert_source_span(
+        paths.state_db,
+        source_id=1,
+        relpath="04_Resources/context.md",
+        span_type="paragraph",
+        content_hash="c1",
+        section_title="Context",
+        text_preview="residual learning",
+    )
+    db.upsert_graph_entity(
+        paths.state_db,
+        canonical_name="residual learning",
+        entity_type="concept",
+        source_span_ids=[span],
+    )
+    paths.concepts.mkdir(parents=True, exist_ok=True)
+    (paths.concepts / "CON-test.md").write_text(
+        "---\nname: residual learning\n---\n",
+        encoding="utf-8",
+    )
+
+    class AnswerClient:
+        model = "fake"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def chat(self, *args, **kwargs):
+            return json.dumps({
+                "answer": "Residual learning eases optimization.",
+                "source_span_ids": [span],
+                "used_report_ids": [],
+                "confidence": 0.8,
+            })
+
+    with patch.object(llm, "build_client", return_value=AnswerClient()):
+        result = runner.invoke(
+            app,
+            [
+                "plugin",
+                "query",
+                "--question",
+                "What does residual learning do?",
+                "--workspace-path",
+                str(vault),
+            ],
+        )
+
+    payload = _json_output(result.output)
+    assert result.exit_code == 0
+    assert payload["ok"] is True
+    assert payload["answer"] == "Residual learning eases optimization."
+    assert payload["route"] == "local"
+    assert payload["trace_id"].startswith("QTR-")
+    assert payload["pack_id"].startswith("PACK-")
+    assert payload["snapshot"]["snapshot_id"].startswith("SNAP-")
+    assert payload["budget"]["used_tokens"] <= payload["budget"]["limit_tokens"]
+    assert payload["source_span_ids"] == [span]
+    assert payload["prompt_trace_ids"]
+    assert payload["pack_id"] == payload["trace"]["pack_id"]
+    assert payload["snapshot"] == payload["trace"]["snapshot"]
+    assert payload["budget"] == payload["trace"]["budget"]
+    assert payload["prompt_trace_ids"] == payload["trace"]["prompt_trace_ids"]
+    assert payload["trace"]["pack_id"].startswith("PACK-")
+    assert payload["trace"]["snapshot"]["snapshot_id"].startswith("SNAP-")
+    assert payload["trace"]["budget"]["used_tokens"] <= payload["trace"]["budget"]["limit_tokens"]
+    assert payload["trace"]["source_span_ids"] == [span]
+    assert payload["trace"]["prompt_trace_ids"]
+    assert payload["trace"]["matched_concepts"] == []
+    traces = db.list_query_traces(paths.state_db)
+    assert len(traces) == 1
+    trace = db.get_query_trace(paths.state_db, payload["trace_id"])
+    assert trace is not None
+    assert trace["retrieval_trace"]["context_service"]["pack_id"] == payload["pack_id"]
+
+
+def test_plugin_context_fetch_returns_evidence_pack_without_answer(tmp_path: Path) -> None:
+    runner = CliRunner()
+    vault = tmp_path / "vault"
+    paths = cfg.WikiPaths(vault)
+    cfg.save_config(paths, {})
+    db.init_db(paths.state_db)
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath,content_hash,file_type,bytes,added_at) "
+            "VALUES ('x.md','c1','md',1,datetime('now'))"
+        )
+    span = db.upsert_source_span(
+        paths.state_db,
+        source_id=1,
+        relpath="x.md",
+        span_type="paragraph",
+        content_hash="c1",
+        section_title="Context",
+        text_preview="residual learning",
+    )
+    db.upsert_graph_entity(
+        paths.state_db,
+        canonical_name="residual learning",
+        entity_type="concept",
+        source_span_ids=[span],
+    )
+
+    class NoAnswerClient:
+        model = "fake"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def chat(self, *args, **kwargs):
+            raise AssertionError("plugin context fetch must not synthesize")
+
+    with patch.object(llm, "build_client", return_value=NoAnswerClient()):
+        result = runner.invoke(
+            app,
+            [
+                "plugin",
+                "context",
+                "fetch",
+                "--query",
+                "What does residual learning do?",
+                "--workspace-path",
+                str(vault),
+                "--limit-tokens",
+                "512",
+            ],
+        )
+
+    payload = _json_output(result.output)
+    assert result.exit_code == 0
+    assert payload["ok"] is True
+    assert payload["operation"] == "context_fetch"
+    assert "answer" not in payload
+    assert payload["pack_id"].startswith("PACK-")
+    assert payload["trace_id"].startswith("QTR-")
+    assert payload["snapshot"]["snapshot_id"].startswith("SNAP-")
+    assert payload["budget"]["limit_tokens"] == 512
+    assert payload["items"]
+    assert payload["evidence"]
+    assert payload["source_span_ids"] == [span]
+
+
+def test_plugin_context_expand_and_verify_use_existing_pack(tmp_path: Path) -> None:
+    runner = CliRunner()
+    vault = tmp_path / "vault"
+    paths = cfg.WikiPaths(vault)
+    cfg.save_config(paths, {})
+    db.init_db(paths.state_db)
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath,content_hash,file_type,bytes,added_at) "
+            "VALUES ('x.md','c1','md',1,datetime('now'))"
+        )
+    span = db.upsert_source_span(
+        paths.state_db,
+        source_id=1,
+        relpath="x.md",
+        span_type="paragraph",
+        content_hash="c1",
+        section_title="Context",
+        text_preview="Context budget evidence 1.",
+    )
+    for idx in range(1, 7):
+        db.upsert_graph_entity(
+            paths.state_db,
+            canonical_name=f"context budget evidence {idx}",
+            entity_type="concept",
+            description="Compact grounded evidence for budget packing.",
+            source_span_ids=[span],
+        )
+
+    fetch = runner.invoke(
+        app,
+        [
+            "plugin",
+            "context",
+            "fetch",
+            "--query",
+            "context budget evidence",
+            "--workspace-path",
+            str(vault),
+            "--limit-tokens",
+            "20",
+        ],
+    )
+    pack = _json_output(fetch.output)
+    assert fetch.exit_code == 0
+    assert pack["next"]
+
+    expand = runner.invoke(
+        app,
+        [
+            "plugin",
+            "context",
+            "expand",
+            "--pack-id",
+            pack["pack_id"],
+            "--handle",
+            pack["next"][0]["handle"],
+            "--expected-snapshot-id",
+            pack["snapshot"]["snapshot_id"],
+            "--limit-tokens",
+            "80",
+            "--workspace-path",
+            str(vault),
+        ],
+    )
+    expanded = _json_output(expand.output)
+    assert expand.exit_code == 0
+    assert expanded["ok"] is True
+    assert expanded["operation"] == "context_expand"
+    assert expanded["root_pack_id"] == pack["pack_id"]
+    assert expanded["items"]
+
+    verify = runner.invoke(
+        app,
+        [
+            "plugin",
+            "context",
+            "verify",
+            "--pack-id",
+            pack["pack_id"],
+            "--verification-handle",
+            expanded["items"][0]["verification_handle"],
+            "--expected-snapshot-id",
+            pack["snapshot"]["snapshot_id"],
+            "--workspace-path",
+            str(vault),
+        ],
+    )
+    verified = _json_output(verify.output)
+    assert verify.exit_code == 0
+    assert verified["ok"] is True
+    assert verified["operation"] == "context_verify"
+    assert verified["item"]["record_id"] == expanded["items"][0]["record_id"]
+    assert verified["locator"]
+
+    feedback = runner.invoke(
+        app,
+        [
+            "plugin",
+            "context",
+            "feedback",
+            "--trace-id",
+            pack["trace_id"],
+            "--pack-id",
+            pack["pack_id"],
+            "--feedback-type",
+            "incorrect",
+            "--statement",
+            "Cited span does not support the claim.",
+            "--client",
+            "obsidian",
+            "--purpose",
+            "ground",
+            "--target-item-id",
+            expanded["items"][0]["record_id"],
+            "--reviewed-span-id",
+            str(span),
+            "--workspace-path",
+            str(vault),
+        ],
+    )
+    recorded = _json_output(feedback.output)
+    assert feedback.exit_code == 0
+    assert recorded["ok"] is True
+    assert recorded["operation"] == "context_feedback"
+    assert recorded["feedback_id"].startswith("FBK-")
+    assert recorded["review_status"] == "pending"
+    assert recorded["ranking_or_truth_mutated"] is False
+
+    bad = runner.invoke(
+        app,
+        [
+            "plugin",
+            "context",
+            "feedback",
+            "--trace-id",
+            pack["trace_id"],
+            "--pack-id",
+            pack["pack_id"],
+            "--feedback-type",
+            "not_a_type",
+            "--statement",
+            "x",
+            "--workspace-path",
+            str(vault),
+        ],
+    )
+    rejected = _json_output(bad.output)
+    assert rejected["ok"] is False
+    assert rejected["error_type"] == "invalid_feedback_type"
 
 
 def test_devices_default_status_lists_syncthing_only_profiles(tmp_path: Path) -> None:

@@ -16,8 +16,9 @@
 
 ## ✅ Checklist
 ### CI & Local Tests
-- [ ] Tests pass: `uv run --directory backend pytest -q`
-- [ ] Ruff clean: `uv run --directory backend ruff check src/`
+- [ ] Tests pass: `scripts/backend-check pytest`
+- [ ] Ruff clean: `scripts/backend-check ruff`
+- [ ] Mypy clean: `scripts/backend-check mypy`
 - [ ] Plugin tests pass: `npx vitest run -c ./plugin/vitest.config.ts`
 
 ### Testbed Validation (MANDATORY)

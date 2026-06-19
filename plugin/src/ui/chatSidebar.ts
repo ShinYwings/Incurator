@@ -13,14 +13,25 @@ import {
 } from "obsidian";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
 import type ObsidianAIAgent from "../../main";
 import { IncuratorClient } from "../agent/incuratorClient";
 import {
   EXTERNAL_PDF_CONTEXT_EVENT,
   EXTERNAL_PDF_VIEW_TYPE,
   ExternalPdfView,
-  registerExternalPdf,
 } from "./externalPdfView";
+import {
+  registerExternalPdf,
+  resolveZoteroAttachmentPath,
+} from "./externalPdfRegistry";
+import {
+  assetStatusKey,
+  resolveAssetSource,
+  zoteroConfigEpoch,
+  ZoteroPathCache,
+} from "../context/assetSource";
+import { isAddedState } from "../context/sourceStatus";
 import { IngestDestinationModal } from "./ingestDestinationModal";
 import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
 import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, stampMathSourceData, stripDanglingEditMarkers, truncateToLength } from "../utils/textUtils";
@@ -31,14 +42,14 @@ import { DiffViewer } from "./diffViewer";
 import { renderCuratorQueryTrace } from "./incuratorQueryTrace";
 import {
   escapeAttribute,
-  formatCuratorQueryResult,
+  formatCuratorContextPack,
   formatIncuratorHits,
   formatOutline,
   formatPdfWindow,
   formatRagHits,
 } from "../context/providerContextFormat";
 import { buildBaseSystemPrompt, editableSelectionInstruction, wrapLatestUserMessageForLanguageBridge } from "../context/systemPrompt";
-import { detectLanguage, inferQueryLanguageMetadata } from "../context/languageBridge";
+import { detectLanguage } from "../context/languageBridge";
 import {
   deriveChatSessionTitle,
   formatRelativeSessionTime,
@@ -69,6 +80,7 @@ import {
   type CodexReasoningEffort,
   type ContextRef,
   type CuratorQueryResult,
+  type CuratorFeedbackType,
   type IncuratorSourceStatus,
   type LLMMessage,
   type LLMContentPart,
@@ -98,10 +110,6 @@ const CUSTOM_MODEL_VALUE = "__custom__";
 const RULES_CONTEXT_LIMIT = 12000;
 const CONTINUITY_MESSAGE_LIMIT = 6;
 
-/** Built sources show an inert "Added" badge (PLUGIN_SCHEMA §4.1.1). */
-function isAddedState(state: string): boolean {
-  return state === "l1_ready" || state === "l2_ready" || state === "l3_ready" || state === "l4_ready";
-}
 
 export class ChatSidebarView extends ItemView {
   private plugin: ObsidianAIAgent;
@@ -131,6 +139,9 @@ export class ChatSidebarView extends ItemView {
   private splitDropTarget: WorkspaceLeaf | null = null;
   private incuratorClient: IncuratorClient | null = null;
   private incuratorStatusByPath = new Map<string, IncuratorSourceStatus>();
+  // In-memory Zotero attachment_key -> absPath cache (Plan G item c). Invalidated
+  // by config epoch + missing file; cleared on view unload (never persisted).
+  private zoteroPathCache = new ZoteroPathCache({ fileExists: (p) => existsSync(p) });
   private incuratorStatusInFlight = new Set<string>();
   private fileHashByPath = new Map<string, string>();
   private prepareStatusText = "";
@@ -481,6 +492,10 @@ export class ChatSidebarView extends ItemView {
         label: `🖼️ ${file.name}`,
         content: "",
         imageBase64: base64,
+        // Preserve the physical asset identity (Plan G item d): an external image
+        // must keep its OS/vault path so backend asset routing is not severed.
+        // Electron's File carries `.path` at runtime though the DOM type omits it.
+        filePath: explicitPath ?? (file as { path?: string }).path,
       };
       this.addContextRef(ref);
       new Notice(`Attached image: ${file.name}`);
@@ -1480,7 +1495,7 @@ export class ChatSidebarView extends ItemView {
         pageNum: pdf.pageNum,
         zoteroAttachmentKey: pdf.zoteroAttachmentKey,
       };
-      let sourceStatus = sourcePath ? this.incuratorStatusByPath.get(sourcePath) : undefined;
+      let sourceStatus = this.incuratorStatusByPath.get(this.refStatusKey(statusRef));
       if (useBackendPdfContext && client.available && (sourcePath || pdf.fileHash || pdf.zoteroAttachmentKey)) {
         sourceStatus = await this.ensureIncuratorStatusForRef(statusRef);
       }
@@ -1599,23 +1614,50 @@ export class ChatSidebarView extends ItemView {
       // so a conversational chat never binds an unrelated workspace.
       const pdfFocused = pdfTabs.some((tab) => tab.isActive);
       if (shouldRunCuratorDomainQuery({ query, userContextRefs, pdfFocused, pdfSourceStatuses })) {
-        this.setPrepareStatus("Querying Incurator knowledge graph...");
-        const language = inferQueryLanguageMetadata(query);
-        const queryResult = await this.timedContextCall(
-          "curator_query",
+        this.setPrepareStatus("Fetching Incurator evidence pack...");
+        const packLimit = Math.max(
+          1000,
+          Math.min(16000, Math.floor((this.plugin.settings.maxContextLength || 128000) * 0.18))
+        );
+        const contextPack = await this.timedContextCall(
+          "curator_context_fetch",
           wsPath || "default",
-          () => client.curatorQuery(query, {
+          () => client.fetchContext(query, {
             workspacePath: wsPath,
-            inputLanguage: language.inputLanguage,
-            englishQuery: language.englishQuery,
-            finalOutputLanguage: language.finalOutputLanguage,
+            limitTokens: packLimit,
           })
         );
-        if (queryResult.ok) {
-          sections.push(formatCuratorQueryResult(queryResult, query));
-          if (queryResult.trace || queryResult.trace_id) {
-            this.lastQueryTrace = queryResult;
-          }
+        if (contextPack.ok) {
+          sections.push(formatCuratorContextPack(contextPack, query));
+          this.lastQueryTrace = {
+            ok: true,
+            question: query,
+            route: contextPack.route as CuratorQueryResult["route"],
+            trace_id: contextPack.trace_id,
+            pack_id: contextPack.pack_id,
+            snapshot: contextPack.snapshot,
+            budget: contextPack.budget,
+            source_span_ids: contextPack.source_span_ids,
+            community_report_ids: contextPack.community_report_ids,
+            synthesis_node_ids: contextPack.synthesis_node_ids,
+            memory_path_ids: contextPack.memory_path_ids,
+            warnings: contextPack.warnings,
+            context_pack: contextPack,
+            trace: {
+              matched_concepts: [],
+              source_ids: [],
+              source_paths: [],
+              trace_id: contextPack.trace_id,
+              route: contextPack.route,
+              pack_id: contextPack.pack_id,
+              snapshot: contextPack.snapshot,
+              budget: contextPack.budget,
+              prompt_trace_ids: [],
+              source_span_ids: contextPack.source_span_ids,
+              latency_ms: 0,
+              l3_complete: true,
+            },
+          };
         }
       }
     }
@@ -1967,14 +2009,74 @@ export class ChatSidebarView extends ItemView {
     return ref.backendStatus?.sourcePath || this.toAbsolutePath(ref.filePath);
   }
 
+  /**
+   * Single canonical key for the backend source-status map (Plan G, audit
+   * item 3). Identity-first (Zotero key before any resolved path) so the badge
+   * reader and the post-ingest writer always agree, even when a Zotero PDF's
+   * local path only becomes known after the add completes.
+   */
+  private refStatusKey(ref: ContextRef): string {
+    return assetStatusKey({
+      absPath: this.getPdfRefSourcePath(ref),
+      relpath: ref.filePath,
+      zoteroKey: ref.zoteroAttachmentKey,
+      fileHash: ref.fileHash,
+      displayName: (ref.label || "source").replace(/ p\.\d+$/, ""),
+      resolutionStatus: "resolved",
+    });
+  }
+
+  /** Config epoch for the Zotero path cache (Plan G item c). Any change to the
+   * Zotero data dir, active vault, or profile asset roots invalidates the cache.
+   *
+   * Device-aware: absolute paths differ per machine/OS (macOS `/Users/...` vs
+   * Linux `/home/...`, and `~` expands per home dir). The epoch folds in the
+   * platform and the OS-resolved base path so a cache (in-memory and per-device
+   * already) can never serve a path resolved for a different device/OS. Synced
+   * absolute paths are never trusted — they are re-resolved here per device. */
+  private zoteroCacheEpoch(): string {
+    const base = this.plugin.settings.zoteroBasePath || "";
+    const resolvedBase = base.startsWith("~") ? join(homedir(), base.slice(1)) : base;
+    return zoteroConfigEpoch({
+      zoteroBasePath: `${process.platform}:${resolvedBase}`,
+      workspaceId: this.app.vault.getName(),
+      profileRoots: (this.plugin.settings.zoteroProfiles || []).map((p) => p.assetFolder || ""),
+    });
+  }
+
   private async resolvePdfRefSourcePath(ref: ContextRef, status?: IncuratorSourceStatus): Promise<string | undefined> {
     const direct = this.getPdfRefSourcePath(ref) || status?.sourcePath || status?.currentPath;
     if (direct) return direct;
     if (!ref.zoteroAttachmentKey) return undefined;
-    const resolved = await this.getIncuratorClient().resolveZoteroPdf(ref.zoteroAttachmentKey);
-    if (resolved.ok && resolved.path) return resolved.path;
-    this.plugin.openZoteroRepairModal({ attachmentKey: ref.zoteroAttachmentKey, resolution: resolved });
-    new Notice(`Zotero PDF unavailable: ${resolved.error || resolved.state || "backend could not resolve attachment"}`);
+    const client = this.getIncuratorClient();
+    // Route Zotero resolution through the cached resolver (item c): a cache hit
+    // skips the backend round-trip; the local resolver is used only offline.
+    let lastResolution: Awaited<ReturnType<typeof client.resolveZoteroPdf>> | undefined;
+    const resolved = await resolveAssetSource(
+      {
+        zoteroKey: ref.zoteroAttachmentKey,
+        displayName: (ref.label || "source").replace(/ p\.\d+$/, ""),
+      },
+      {
+        backendAvailable: client.available,
+        resolveZoteroViaBackend: async (key) => {
+          lastResolution = await client.resolveZoteroPdf(key);
+          return lastResolution.ok && lastResolution.path ? lastResolution.path : undefined;
+        },
+        resolveZoteroLocally: (key) =>
+          resolveZoteroAttachmentPath(this.plugin.settings.zoteroBasePath || "~/Zotero", key),
+        cache: this.zoteroPathCache,
+        epoch: this.zoteroCacheEpoch(),
+        fileExists: (p) => existsSync(p),
+      }
+    );
+    if (resolved.absPath) return resolved.absPath;
+    if (lastResolution) {
+      this.plugin.openZoteroRepairModal({ attachmentKey: ref.zoteroAttachmentKey, resolution: lastResolution });
+      new Notice(`Zotero PDF unavailable: ${lastResolution.error || lastResolution.state || "backend could not resolve attachment"}`);
+    } else {
+      new Notice("Zotero PDF unavailable: backend offline and no local copy found.");
+    }
     return undefined;
   }
 
@@ -2007,7 +2109,7 @@ export class ChatSidebarView extends ItemView {
       return status;
     }
     const status = await this.getIncuratorClient().getSourceStatus({ sourcePath, fileHash });
-    if (sourcePath) this.incuratorStatusByPath.set(sourcePath, status);
+    this.incuratorStatusByPath.set(this.refStatusKey(ref), status);
     ref.backendStatus = status;
     return status;
   }
@@ -2019,23 +2121,29 @@ export class ChatSidebarView extends ItemView {
     if (ref.type !== "pdf-page" || this.plugin.settings.incuratorEnabled === false) return;
 
     const sourcePath = this.getPdfRefSourcePath(ref);
-    const cached = sourcePath ? this.incuratorStatusByPath.get(sourcePath) : ref.backendStatus;
+    const statusKey = this.refStatusKey(ref);
+    const cached = this.incuratorStatusByPath.get(statusKey) || ref.backendStatus;
     const badge = chip.createSpan("ai-agent-context-chip-status");
-    this.updateIncuratorStatusBadge(badge, cached || { state: sourcePath ? "unknown" : "untracked" });
+    this.updateIncuratorStatusBadge(
+      badge,
+      cached || { state: sourcePath || ref.zoteroAttachmentKey ? "unknown" : "untracked" }
+    );
 
     badge.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       const fallback: IncuratorSourceStatus = { state: "unknown", sourcePath };
       const latest =
-        (sourcePath ? this.incuratorStatusByPath.get(sourcePath) : undefined) ||
+        this.incuratorStatusByPath.get(statusKey) ||
         ref.backendStatus ||
         cached ||
         fallback;
       this.onIncuratorStatusClick(ref, latest);
     });
 
-    if (sourcePath) {
+    // Refresh for any resolvable identity — including a Zotero PDF whose local
+    // path is not yet known (audit item 3: badge must not stay stale).
+    if (sourcePath || ref.zoteroAttachmentKey) {
       this.refreshIncuratorStatus(ref, badge);
     }
   }
@@ -2085,13 +2193,13 @@ export class ChatSidebarView extends ItemView {
     ref: ContextRef,
     badge?: HTMLElement
   ): Promise<void> {
-    const sourcePath = this.getPdfRefSourcePath(ref);
-    if (!sourcePath || this.incuratorStatusInFlight.has(sourcePath)) return;
+    const statusKey = this.refStatusKey(ref);
+    if (this.incuratorStatusInFlight.has(statusKey)) return;
 
-    this.incuratorStatusInFlight.add(sourcePath);
+    this.incuratorStatusInFlight.add(statusKey);
     try {
       const status = await this.ensureIncuratorStatusForRef(ref);
-      this.incuratorStatusByPath.set(sourcePath, status);
+      this.incuratorStatusByPath.set(statusKey, status);
       ref.backendStatus = status;
       if (badge?.isConnected) {
         this.updateIncuratorStatusBadge(badge, status);
@@ -2105,7 +2213,7 @@ export class ChatSidebarView extends ItemView {
         }, 5000);
       }
     } finally {
-      this.incuratorStatusInFlight.delete(sourcePath);
+      this.incuratorStatusInFlight.delete(statusKey);
     }
   }
 
@@ -2117,7 +2225,9 @@ export class ChatSidebarView extends ItemView {
     // re-ingest (PLUGIN_SCHEMA §4.1.1).
     if (isAddedState(status.state)) return;
     const sourcePath = this.getPdfRefSourcePath(ref) || status.sourcePath || status.currentPath;
-    const statusKey = sourcePath || (ref.zoteroAttachmentKey ? `zotero:${ref.zoteroAttachmentKey}` : "");
+    // Single canonical key (Plan G item 3): same key as the badge reader, stable
+    // for a Zotero source whether or not its local path is resolved yet.
+    const statusKey = this.refStatusKey(ref);
     if (!sourcePath && !ref.zoteroAttachmentKey) {
       new Notice("This PDF does not expose a filesystem path and backend resolution did not find one.");
       return;
@@ -2146,7 +2256,7 @@ export class ChatSidebarView extends ItemView {
         newPath: status.candidatePath,
         apply: true,
       });
-      this.incuratorStatusByPath.set(statusKey || rebindSourcePath, nextStatus);
+      this.incuratorStatusByPath.set(statusKey, nextStatus);
       ref.backendStatus = nextStatus;
       this.renderContextChips();
       if (nextStatus.state === "error" || nextStatus.state === "unknown") {
@@ -2157,18 +2267,18 @@ export class ChatSidebarView extends ItemView {
       return;
     }
 
-    // Zotero-managed PDFs: skip modal, auto-register as reference
-    const isZoteroPdf = ref.zoteroAttachmentKey ||
-      this.app.workspace.getLeavesOfType("ai-agent-external-pdf")
-        .some(leaf => (leaf.view.getState() as any)?.zoteroAttachmentKey &&
-                      (leaf.view.getState() as any)?.path === sourcePath);
+    // Zotero-managed PDFs: skip modal, auto-register as reference. Zotero identity
+    // is a DURABLE property of the context ref (AssetSource.zoteroKey), never
+    // inferred by scanning open UI leaves — so it still resolves after the PDF
+    // tab is closed, and there is no `as any` view-state probing (Plan G item 4).
+    const isZoteroPdf = Boolean(ref.zoteroAttachmentKey);
     if (isZoteroPdf) {
       const pendingStatus: IncuratorSourceStatus = {
         state: "running",
         sourcePath,
         message: "Adding Zotero PDF as an Incurator reference source...",
       };
-      if (statusKey) this.incuratorStatusByPath.set(statusKey, pendingStatus);
+      this.incuratorStatusByPath.set(statusKey, pendingStatus);
       ref.backendStatus = pendingStatus;
       this.renderContextChips();
       new Notice("Adding Zotero PDF as an Incurator reference source...");
@@ -2179,7 +2289,7 @@ export class ChatSidebarView extends ItemView {
         destinationRelpath: "",
         importMode: "reference",
       });
-      if (statusKey) this.incuratorStatusByPath.set(statusKey, nextStatus);
+      this.incuratorStatusByPath.set(statusKey, nextStatus);
       ref.backendStatus = nextStatus;
       this.renderContextChips();
       if (nextStatus.state === "error" || nextStatus.state === "unknown") {
@@ -2205,7 +2315,7 @@ export class ChatSidebarView extends ItemView {
           sourcePath: nonZoteroSourcePath,
           message: importMode === "copy" ? "Copying and adding PDF source..." : "Adding PDF as a reference source...",
         };
-        this.incuratorStatusByPath.set(nonZoteroSourcePath, pendingStatus);
+        this.incuratorStatusByPath.set(statusKey, pendingStatus);
         ref.backendStatus = pendingStatus;
         this.renderContextChips();
         const nextStatus = await this.getIncuratorClient().ingestPdf({
@@ -2214,7 +2324,7 @@ export class ChatSidebarView extends ItemView {
           destinationRelpath,
           importMode,
         });
-        this.incuratorStatusByPath.set(nonZoteroSourcePath, nextStatus);
+        this.incuratorStatusByPath.set(statusKey, nextStatus);
         ref.backendStatus = nextStatus;
         this.renderContextChips();
         if (nextStatus.state === "error" || nextStatus.state === "unknown") {
@@ -2436,12 +2546,235 @@ export class ChatSidebarView extends ItemView {
       const thoughtBlock = contentEl.querySelector("details.ai-agent-thought-block");
       if (thoughtBlock) {
         renderCuratorQueryTrace(thoughtBlock as HTMLElement, traceToRender as any, this.app);
+        this.attachContextTraceActionHandlers(thoughtBlock as HTMLElement);
       } else {
         renderCuratorQueryTrace(contentEl, traceToRender as any, this.app);
+        this.attachContextTraceActionHandlers(contentEl);
       }
     }
     window.setTimeout(() => this.attachAssistantAnswerLinkNavigation(contentEl), 0);
     attachLatexCopyHandler(contentEl, htmlToMarkdown);
+  }
+
+  private attachContextTraceActionHandlers(container: HTMLElement): void {
+    const marked = container as HTMLElement & { __incuratorTraceActionsBound?: boolean };
+    if (marked.__incuratorTraceActionsBound) return;
+    marked.__incuratorTraceActionsBound = true;
+    container.addEventListener("context:expand", (event) => {
+      this.handleContextTraceAction("context:expand", event as CustomEvent);
+    });
+    container.addEventListener("context:verify", (event) => {
+      this.handleContextTraceAction("context:verify", event as CustomEvent);
+    });
+    container.addEventListener("context:refetch", (event) => {
+      this.handleContextTraceRefetch(event as CustomEvent);
+    });
+    container.addEventListener("context:feedback", (event) => {
+      this.handleContextTraceFeedback(event as CustomEvent);
+    });
+  }
+
+  private async handleContextTraceFeedback(event: CustomEvent): Promise<void> {
+    event.stopPropagation();
+    const detail = (event.detail || {}) as {
+      trace_id?: string;
+      pack_id?: string;
+      feedback_type?: CuratorFeedbackType;
+      item_id?: string;
+      reviewed_span_ids?: string[];
+    };
+    if (!detail.trace_id || !detail.pack_id || !detail.feedback_type) {
+      new Notice("Feedback is missing trace, pack, or type metadata.");
+      return;
+    }
+
+    const client = this.getIncuratorClient();
+    if (!client.available) {
+      new Notice("Incurator backend is not available.");
+      return;
+    }
+
+    const workspacePath = (this.app.vault.adapter as any).getBasePath?.() || "";
+    const recorded = await client.feedbackContext({
+      traceId: detail.trace_id,
+      packId: detail.pack_id,
+      feedbackType: detail.feedback_type,
+      statement: `User marked evidence ${detail.item_id ?? ""} as ${detail.feedback_type}.`,
+      client: "obsidian",
+      purpose: "ground",
+      targetItemId: detail.item_id,
+      targetRecordId: detail.item_id,
+      reviewedSpanIds: detail.reviewed_span_ids,
+      workspacePath,
+    });
+    new Notice(
+      recorded.ok
+        ? "Feedback recorded."
+        : recorded.error || "Recording feedback failed."
+    );
+  }
+
+  private async handleContextTraceAction(
+    action: "context:expand" | "context:verify",
+    event: CustomEvent
+  ): Promise<void> {
+    event.stopPropagation();
+    const detail = (event.detail || {}) as {
+      pack_id?: string;
+      snapshot_id?: string;
+      handle?: string;
+    };
+    if (!detail.pack_id || !detail.snapshot_id || !detail.handle) {
+      new Notice("Context action is missing pack, snapshot, or handle metadata.");
+      return;
+    }
+
+    const client = this.getIncuratorClient();
+    if (!client.available) {
+      new Notice("Incurator backend is not available.");
+      return;
+    }
+
+    const workspacePath = (this.app.vault.adapter as any).getBasePath?.() || "";
+    const packLimit = Math.max(
+      1000,
+      Math.min(16000, Math.floor((this.plugin.settings.maxContextLength || 128000) * 0.18))
+    );
+    if (action === "context:expand") {
+      const expanded = await client.expandContext({
+        packId: detail.pack_id,
+        handles: [detail.handle],
+        expectedSnapshotId: detail.snapshot_id,
+        workspacePath,
+        limitTokens: packLimit,
+      });
+      this.mergeContextExpansion(expanded, detail.handle);
+      this.markContextSnapshotConflict(expanded);
+      new Notice(expanded.ok ? "Context evidence expanded." : this.contextActionError(expanded, "Context expansion failed."));
+    } else {
+      const verified = await client.verifyContext({
+        packId: detail.pack_id,
+        verificationHandle: detail.handle,
+        expectedSnapshotId: detail.snapshot_id,
+        workspacePath,
+      });
+      this.mergeContextVerification(verified, detail.handle);
+      this.markContextSnapshotConflict(verified);
+      new Notice(verified.ok ? "Context evidence verified." : this.contextActionError(verified, "Context verification failed."));
+    }
+    this.renderMessages(false);
+  }
+
+  private async handleContextTraceRefetch(event: CustomEvent): Promise<void> {
+    event.stopPropagation();
+    const query = this.lastQueryTrace?.question || "";
+    if (!query.trim()) {
+      new Notice("Context refetch needs the original question.");
+      return;
+    }
+    const client = this.getIncuratorClient();
+    if (!client.available) {
+      new Notice("Incurator backend is not available.");
+      return;
+    }
+    const workspacePath = (this.app.vault.adapter as any).getBasePath?.() || "";
+    const packLimit = Math.max(
+      1000,
+      Math.min(16000, Math.floor((this.plugin.settings.maxContextLength || 128000) * 0.18))
+    );
+    const refreshed = await client.fetchContext(query, {
+      workspacePath,
+      limitTokens: packLimit,
+    });
+    if (!refreshed.ok) {
+      new Notice(refreshed.error || "Context refetch failed.");
+      return;
+    }
+    this.replaceContextPack(refreshed);
+    new Notice("Context evidence refreshed.");
+    this.renderMessages(false);
+  }
+
+  private mergeContextExpansion(expanded: Awaited<ReturnType<IncuratorClient["expandContext"]>>, handle: string): void {
+    const pack = this.lastQueryTrace?.context_pack;
+    if (!pack || !expanded.ok) return;
+    const existing = new Set((pack.items || []).map((item) => item.record_id));
+    pack.items = [
+      ...(pack.items || []),
+      ...((expanded.items || []).filter((item) => !existing.has(item.record_id))),
+    ];
+    pack.next = (pack.next || []).filter((entry) => entry.handle !== handle);
+    pack.warnings = [...(pack.warnings || []), ...(expanded.warnings || [])];
+  }
+
+  private mergeContextVerification(verified: Awaited<ReturnType<IncuratorClient["verifyContext"]>>, handle: string): void {
+    const pack = this.lastQueryTrace?.context_pack;
+    if (!pack || !verified.ok || !verified.item) return;
+    pack.items = (pack.items || []).map((item) => {
+      if (item.verification_handle === handle) {
+        return { ...item, ...verified.item };
+      }
+      return item;
+    });
+  }
+
+  private contextActionError(pack: Awaited<ReturnType<IncuratorClient["expandContext"]>>, fallback: string): string {
+    if (pack.error_type === "snapshot_conflict" || pack.operation === "snapshot_conflict") {
+      return "Context snapshot changed. Refetch the evidence pack.";
+    }
+    return pack.error || fallback;
+  }
+
+  private markContextSnapshotConflict(pack: Awaited<ReturnType<IncuratorClient["expandContext"]>>): void {
+    if (pack.error_type !== "snapshot_conflict" && pack.operation !== "snapshot_conflict") return;
+    const current = this.lastQueryTrace?.context_pack;
+    if (!current || !this.lastQueryTrace) return;
+    this.lastQueryTrace.context_pack = {
+      ...current,
+      ...pack,
+      ok: false,
+      operation: "snapshot_conflict",
+      pack_id: current.pack_id,
+      snapshot: current.snapshot,
+      budget: current.budget,
+      items: current.items,
+      next: current.next,
+      warnings: [
+        ...(current.warnings || []),
+        ...(pack.warnings || []),
+        "snapshot_conflict: refetch required before expanding or verifying this pack",
+      ],
+    };
+  }
+
+  private replaceContextPack(pack: Awaited<ReturnType<IncuratorClient["fetchContext"]>>): void {
+    if (!this.lastQueryTrace) return;
+    this.lastQueryTrace.context_pack = pack;
+    this.lastQueryTrace.route = pack.route as CuratorQueryResult["route"];
+    this.lastQueryTrace.trace_id = pack.trace_id;
+    this.lastQueryTrace.pack_id = pack.pack_id;
+    this.lastQueryTrace.snapshot = pack.snapshot;
+    this.lastQueryTrace.budget = pack.budget;
+    this.lastQueryTrace.source_span_ids = pack.source_span_ids;
+    this.lastQueryTrace.community_report_ids = pack.community_report_ids;
+    this.lastQueryTrace.synthesis_node_ids = pack.synthesis_node_ids;
+    this.lastQueryTrace.memory_path_ids = pack.memory_path_ids;
+    this.lastQueryTrace.warnings = pack.warnings;
+    this.lastQueryTrace.trace = {
+      ...(this.lastQueryTrace.trace || {
+        matched_concepts: [],
+        source_ids: [],
+        source_paths: [],
+        latency_ms: 0,
+        l3_complete: true,
+      }),
+      trace_id: pack.trace_id,
+      route: pack.route,
+      pack_id: pack.pack_id,
+      snapshot: pack.snapshot,
+      budget: pack.budget,
+      source_span_ids: pack.source_span_ids,
+    };
   }
 
   private attachAssistantAnswerLinkNavigation(container: HTMLElement): void {

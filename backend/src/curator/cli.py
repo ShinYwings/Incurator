@@ -189,6 +189,8 @@ plugin_pdf_app = typer.Typer(
 )
 plugin_app.add_typer(plugin_pdf_app, name="pdf")
 
+plugin_context_app = typer.Typer(name="context", no_args_is_help=True, add_completion=False)
+plugin_app.add_typer(plugin_context_app, name="context")
 plugin_curate_app = typer.Typer(name="curate", no_args_is_help=True, add_completion=False)
 plugin_app.add_typer(plugin_curate_app, name="curate")
 plugin_prompt_app = typer.Typer(name="prompt", no_args_is_help=True, add_completion=False)
@@ -549,12 +551,13 @@ def _show_recommended_models(host: str) -> None:
     table.add_column("Installed",       style="green",   min_width=4,  no_wrap=True, justify="center")
 
     for m in _RECOMMENDED_MODELS:
-        vision_badge = " [magenta]👁[/magenta]" if m["vision"] else ""
-        installed_mark = "✓" if _is_installed(m["tag"]) else ""
+        tag = str(m["tag"])
+        vision_badge = " [magenta]👁[/magenta]" if bool(m["vision"]) else ""
+        installed_mark = "✓" if _is_installed(tag) else ""
         desc = f"{m['why']} [dim]({m['tip']})[/dim]"
         table.add_row(
-            m["tag"] + vision_badge,
-            m["size"],
+            tag + vision_badge,
+            str(m["size"]),
             desc,
             installed_mark,
         )
@@ -923,7 +926,7 @@ def _render_latest_sync_report_summary(paths: cfg.WikiPaths) -> None:
 
 
 def _layer_status_counts(paths: cfg.WikiPaths) -> dict[str, dict[str, int]]:
-    counts = {layer: {} for layer in ("l1", "l2", "l3", "l4")}
+    counts: dict[str, dict[str, int]] = {layer: {} for layer in ("l1", "l2", "l3", "l4")}
     if not paths.state_db.exists():
         return counts
     with db.connect(paths.state_db) as conn:
@@ -966,7 +969,7 @@ def _run_sync_report_only(paths: cfg.WikiPaths, config: dict, *, reason: str) ->
         def on_node_check(self, node_id: str):
             console.print(f"  [dim]Verifying {node_id}...[/dim]", end="\r")
 
-        def on_node_repair(self, node_id: str, rebuilt_count: int = 0):
+        def on_node_repair(self, node_id: str, rebuilt_count: int = 0, message: str | None = None):
             # Clear the progress line and show repair
             console.print(" " * 60, end="\r")
             console.print(f"  [green]✓[/green] [bold]{node_id}[/bold] repaired.")
@@ -986,7 +989,7 @@ def _run_sync_report_only(paths: cfg.WikiPaths, config: dict, *, reason: str) ->
     structural_report = lint_module.run_lint(paths, deep=False, client=None, progress_callback=cb.on_node_check)
 
     client = None
-    logic_gaps = []
+    logic_gaps: list = []
     repaired = 0
     rebuilt = 0
     try:
@@ -1223,14 +1226,14 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = F
     models = _CLOUD_MODELS.get(cloud_provider)
     if not models:
         _err(f"Unknown cloud provider '{cloud_provider}'. Use: antigravity-cli, claude-code, codex-cli, deepseek-api.")
-        return
+        return False
 
     # Determine currently active model tags from primary/fallback values
     active_tags: set[str] = set()
     for slot in ("primary", "fallback"):
-        p, m = cfg.split_provider_model(llm_cfg.get(slot, ""))
-        if p == cloud_provider and m:
-            active_tags.add(m)
+        provider_name, model_name = cfg.split_provider_model(llm_cfg.get(slot, ""))
+        if provider_name == cloud_provider and model_name:
+            active_tags.add(model_name)
 
     table = RichTable(
         show_header=True,
@@ -1245,11 +1248,12 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = F
 
     shown_tags = set()
     any_shown = False
-    for m in models:
+    for model_info in models:
+        model_tag = str(model_info["tag"])
         # Flexible match: exact or version-prefixed
         active_mark = ""
         for tag in active_tags:
-            if m["tag"] == tag or (tag and tag.startswith(m["tag"])):
+            if model_tag == tag or (tag and tag.startswith(model_tag)):
                 active_mark = "✓"
                 break
         
@@ -1258,15 +1262,15 @@ def _show_cloud_models(cloud_provider: str, llm_cfg: dict, active_only: bool = F
         # requested provider, but the caller will skip OTHER providers.
         any_shown = True
         if active_mark:
-            shown_tags.add(m["tag"])
+            shown_tags.add(model_tag)
         
-        table.add_row(m["tag"], m["desc"], active_mark)
+        table.add_row(model_tag, str(model_info["desc"]), active_mark)
 
     # If active_only and some active tags weren't in our curated list, show them anyway
     if active_only:
         for tag in active_tags:
             if tag and tag not in shown_tags:
-                table.add_row(tag, "[dim]custom[/dim]", "[dim]User-defined model[/dim]", "✓")
+                table.add_row(tag, "[dim]User-defined model[/dim]", "✓")
                 any_shown = True
 
     if active_only and not any_shown:
@@ -1368,11 +1372,11 @@ def _pick_ollama_model(host: str) -> str:
 
     # Build a merged option list: curated first (with Installed badge for local ones),
     # then any locally-installed models not in the curated list.
-    curated_names = [m["tag"] for m in _RECOMMENDED_MODELS]
+    curated_names = [str(m["tag"]) for m in _RECOMMENDED_MODELS]
     extra_live = [m for m in live_models if m not in curated_names]
     options = curated_names + extra_live
 
-    _curated_desc = {m["tag"]: f"{m['size']} · {m['tip']}" for m in _RECOMMENDED_MODELS}
+    _curated_desc = {str(m["tag"]): f"{m['size']} · {m['tip']}" for m in _RECOMMENDED_MODELS}
     console.print()
     for i, m in enumerate(options, 1):
         desc = _curated_desc.get(m, "")
@@ -1701,8 +1705,6 @@ def _run_init_wizard() -> dict:
     # Step 1: Primary backend
     console.print("Which do you [bold]primarily[/bold] use for LLM inference?")
     primary = _pick_backend_menu(prompt="Primary backend")
-    overrides: dict = {}
-
     # Step 2: Configure the primary backend (model selected inside)
     console.print(f"[dim]--- {primary} (primary) ---[/dim]")
     _configure_backend(primary, overrides)
@@ -6055,7 +6057,15 @@ def _print_json(payload: dict) -> None:
 @plugin_app.command("version")
 def plugin_version() -> None:
     """Return backend version JSON for the local plugin."""
-    build: dict[str, object] = {}
+    build: dict[str, object] = {
+        "backend_version": __version__,
+        "plugin_version": __version__,
+        "git_commit": "",
+        "schema": {
+            "state_db": db.SCHEMA_VERSION,
+            "vault": consts.VAULT_SCHEMA_VERSION,
+        },
+    }
     try:
         text = (
             resources.files("curator.data")
@@ -6064,9 +6074,9 @@ def plugin_version() -> None:
         )
         parsed = json.loads(text)
         if isinstance(parsed, dict):
-            build = parsed
+            build.update(parsed)
     except Exception:
-        build = {}
+        pass
     from . import device_registry
     _print_json({
         "ok": True,
@@ -6414,6 +6424,119 @@ def plugin_query(
         )
     except Exception as exc:
         _print_json({"ok": False, "question": question, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_context_app.command("fetch")
+def plugin_context_fetch(
+    query: str = typer.Option(..., "--query", "-q", help="Question/query to fetch context for."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
+    limit_tokens: int = typer.Option(8000, "--limit-tokens", min=1, help="Maximum backend evidence tokens."),
+) -> None:
+    """Return a ContextService evidence pack for local plugin provider grounding."""
+    from . import plugin_api
+
+    try:
+        _print_json(
+            plugin_api.fetch_context(
+                _plugin_paths(workspace_path),
+                query_text=query,
+                workspace_path=workspace_path,
+                limit_tokens=limit_tokens,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "operation": "context_fetch", "query": query, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_context_app.command("expand")
+def plugin_context_expand(
+    pack_id: str = typer.Option(..., "--pack-id", help="Root ContextService pack id."),
+    handle: list[str] = typer.Option(..., "--handle", help="Expansion handle to request. Repeatable."),
+    expected_snapshot_id: str = typer.Option(..., "--expected-snapshot-id", help="Snapshot id from the root pack."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
+    limit_tokens: int = typer.Option(8000, "--limit-tokens", min=1, help="Maximum expansion tokens."),
+) -> None:
+    """Expand a ContextService pack handle for the local plugin."""
+    from . import plugin_api
+
+    try:
+        _print_json(
+            plugin_api.expand_context(
+                _plugin_paths(workspace_path),
+                pack_id=pack_id,
+                handles=list(handle),
+                expected_snapshot_id=expected_snapshot_id,
+                limit_tokens=limit_tokens,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "operation": "context_expand", "pack_id": pack_id, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_context_app.command("verify")
+def plugin_context_verify(
+    pack_id: str = typer.Option(..., "--pack-id", help="Root ContextService pack id."),
+    verification_handle: str = typer.Option(..., "--verification-handle", help="Verification handle from a pack item."),
+    expected_snapshot_id: str = typer.Option(..., "--expected-snapshot-id", help="Snapshot id from the root pack."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
+) -> None:
+    """Verify a ContextService pack item for the local plugin."""
+    from . import plugin_api
+
+    try:
+        _print_json(
+            plugin_api.verify_context(
+                _plugin_paths(workspace_path),
+                pack_id=pack_id,
+                verification_handle=verification_handle,
+                expected_snapshot_id=expected_snapshot_id,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "operation": "context_verify", "pack_id": pack_id, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_context_app.command("feedback")
+def plugin_context_feedback(
+    trace_id: str = typer.Option(..., "--trace-id", help="Root ContextService trace id."),
+    pack_id: str = typer.Option(..., "--pack-id", help="Root ContextService pack id."),
+    feedback_type: str = typer.Option(..., "--feedback-type", help="One of relevant|irrelevant|incorrect|stale|insufficient|duplicate|new_insight|correction|promotion_request."),
+    statement: str = typer.Option(..., "--statement", help="User statement describing the feedback."),
+    client: str = typer.Option("", "--client", help="Originating client (e.g. obsidian, mcp)."),
+    purpose: str = typer.Option("", "--purpose", help="Request purpose (ground|verify|synthesize|discover)."),
+    target_item_id: str = typer.Option("", "--target-item-id", help="Targeted evidence item record id."),
+    target_record_id: str = typer.Option("", "--target-record-id", help="Targeted source/record id."),
+    reviewed_span_id: list[str] = typer.Option([], "--reviewed-span-id", help="Reviewed source span id. Repeatable."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
+) -> None:
+    """Append an append-only ContextService feedback event for the local plugin."""
+    from . import plugin_api
+
+    target = {
+        "item_id": target_item_id or None,
+        "record_id": target_record_id or None,
+        "claim_id": None,
+    }
+    try:
+        _print_json(
+            plugin_api.feedback_context(
+                _plugin_paths(workspace_path),
+                trace_id=trace_id,
+                pack_id=pack_id,
+                feedback_type=feedback_type,
+                statement=statement,
+                client=client,
+                purpose=purpose,
+                target=target,
+                reviewed_source_span_ids=list(reviewed_span_id),
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "operation": "context_feedback", "trace_id": trace_id, "pack_id": pack_id, "error": str(exc)})
         raise typer.Exit(code=1)
 
 
@@ -6917,7 +7040,7 @@ def zotero_annotations(
 
     paths = _plugin_paths(workspace_path)
     try:
-        _print_json(zotero_tools.annotations(attachment_key, paths, custom_paths))
+        _print_json(zotero_tools.get_annotations(attachment_key, paths, custom_paths))
     except Exception as exc:
         _print_json({"ok": False, "error": str(exc)})
         raise typer.Exit(code=1)

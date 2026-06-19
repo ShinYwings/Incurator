@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.11.0)
+# Incurator Plugin Schema & API Contract (v0.13.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -82,6 +82,10 @@ wiki plugin source register
 wiki plugin source rebind
 wiki plugin pdf context
 wiki plugin pdf search
+wiki plugin context fetch
+wiki plugin context expand
+wiki plugin context verify
+wiki plugin context feedback
 wiki plugin version
 wiki plugin query
 wiki plugin promote
@@ -124,6 +128,79 @@ under that folder instead of the default `05_Assets/<slug>/`. Contract:
   sanitized PDF filename stem to the `incuratorPdfAssetFolder` base folder when
   set, otherwise omits the flag. The per-source subfolder prevents generic
   extracted image filenames from colliding across differently named PDFs.
+
+### 1.2 AssetSource model & status key (Plan G target, vNEXT)
+
+The plugin currently resolves a source asset's path/identity ad hoc across many
+call sites (`getPdfRefSourcePath`, `resolvePdfRefSourcePath`,
+`resolveExternalPdfPath`, `resolveZoteroAttachmentPath`, `toAbsolutePath`,
+`buildSyncedExternalPdfState`) and keys backend source-status inconsistently
+(sometimes by `sourcePath`, sometimes by `zotero:<key>`). `AssetSource` (not
+`PdfSource`) is the generic model — it covers PDFs, markdown notes, and external
+image attachments (the asset-routing scope folded into Plan G). Plan G introduces
+ONE model and ONE resolver.
+
+```typescript
+interface AssetSource {
+  absPath?: string;      // resolved real file on disk
+  relpath?: string;      // in-vault path/stub (Reference Mode)
+  zoteroKey?: string;
+  fileHash?: string;
+  displayName: string;
+  resolutionStatus: "resolved" | "path_unresolved" | "untracked";
+}
+
+// Single resolver. Prefers backend resolution (IncuratorClient) when available;
+// keeps a thin local Zotero fallback ONLY when the backend command is offline.
+function resolveAssetSource(input, deps): Promise<AssetSource>;
+
+// Single canonical cache key for the backend source-status map. Used by BOTH
+// the writer (post-ingest) and the badge reader, eliminating the
+// path-vs-zotero:key mismatch (audit item 3).
+function assetStatusKey(s: AssetSource): string;
+```
+
+Contract:
+- `assetStatusKey` is derived deterministically from a `AssetSource` and is the only
+  key used to read and write `incuratorStatusByPath`; the writer and reader MUST
+  use the same key for the same logical source so the "Added"/"Queued" badge
+  never desyncs (item 3).
+- Zotero detection MUST NOT rely on `leaf.view.getState()` `as any` casts
+  (item 4); the `AssetSource.zoteroKey` field is the discriminator.
+- "Added" badge states: `isAddedState` recognizes `l1_ready..l4_ready`;
+  `queued`/`running` keep their own labels and stay actionable until built
+  (item 5 — documented as intended).
+- `external_uri`/`absPath` is authoritative for opening a Reference Mode source
+  (see SYSTEM_BEHAVIOR §29.2 / §29.6).
+- **Zotero fallback cache invalidation (required).** When the backend command is
+  offline, `resolveAssetSource` may cache a Zotero `attachment_key → absPath`
+  result to avoid re-scanning on the hot path. That cache MUST be invalidated
+  whenever the resolution inputs can change, so it never serves a stale/broken
+  absolute path:
+  - it is keyed by, and tied to, the workspace **configuration epoch** (the
+    Zotero data-directory / linked-attachment-root settings + active workspace);
+    a change to any of those clears the cache;
+  - it is fully cleared on plugin reload / `onunload`→`onload` (the cache is
+    in-memory only, never persisted to `data.json`);
+  - a cached `absPath` whose file no longer exists at resolve time is treated as
+    a miss and re-resolved (never returned as-is);
+  - **device-portable**: absolute paths differ per machine/OS (macOS
+    `/Users/...` vs Linux `/home/...`; `~` expands per home directory). The cache
+    is in-memory and per-device, and the epoch folds in the platform and the
+    OS-resolved base path, so a path resolved on one device/OS can never be
+    served on another. Absolute paths that arrive via settings/state sync
+    (persisted `externalPdfDocs` localStorage, backend `external_path`, or
+    synced `.curator/sessions.json` context refs) are treated as hints only and
+    MUST be re-resolved on the current device via the backend Zotero resolver /
+    Reference Mode rebind — never trusted verbatim. Persisted session context
+    refs MUST NOT rely on `ContextRef.filePath` or
+    `backendStatus.sourcePath/currentPath/candidatePath` as durable identity when
+    those fields are absolute paths from another device; keep portable identity
+    (`zoteroAttachmentKey`, `fileHash`, vault-relative relpath, page number) and
+    re-resolve the physical path locally.
+
+This is a plugin-internal model/refactor — no change to the backend wire
+protocol or persisted `data.json` settings shape.
 
 ## 2. Persisted Settings Schema
 
@@ -234,7 +311,10 @@ Rules:
   banner only when those fingerprints are missing or mismatched. Semantic
   backend/plugin version labels alone are not enough to show an update banner
   when the fingerprints prove both sides came from the same local setup run. If
-  `incuratorRepoPath` is set, clicking the banner executes
+  the backend package has no generated build manifest, `wiki plugin version`
+  still returns `build.backend_version`, `build.plugin_version`,
+  `build.git_commit`, and `build.schema` fallback fields so the update check has
+  a stable JSON shape. If `incuratorRepoPath` is set, clicking the banner executes
   `cd <incuratorRepoPath> && ./setup.sh`; it must not force `git pull`.
 - `mcpServers` entries are for external/non-Incurator MCP servers. Incurator's
   own plugin integration must not require MCP tool discovery for static
@@ -521,6 +601,17 @@ interface CuratorQueryTrace {
   source_ids: number[];
   source_paths: string[];
   section_ids?: string[];        // toc sN IDs when section provenance exists
+  synthesis_node_ids?: string[];
+  community_report_ids?: string[];
+  memory_path_ids?: string[];
+  insight_candidate_ids?: string[];
+  prompt_trace_ids?: string[];
+  source_span_ids?: string[];
+  trace_id?: string;             // QTR-<UUID8>
+  route?: "local" | "global" | "explore" | "source-section";
+  pack_id?: string | null;       // PACK-<UUID8> for ContextService-backed routes
+  snapshot?: Record<string, unknown> | null;
+  budget?: Record<string, unknown> | null;
   latency_ms: number;
   l3_complete: boolean;          // whether full concept graph was available
 }
@@ -529,8 +620,17 @@ interface CuratorQueryTrace {
 Rules:
 
 - For ordinary workspace/domain questions without a primary selected context on
-  the latest user turn, the Obsidian sidechat must call `wiki plugin query`
-  directly and inject the formatted answer/trace into provider context.
+  the latest user turn, the Obsidian sidechat must call
+  `wiki plugin context fetch` by default and inject the formatted evidence pack
+  into provider context. It must not inject the backend synthesized answer by
+  default.
+- For L3-complete ContextService-backed answers, `wiki plugin query` MUST return
+  the same `pack_id`, `snapshot`, `budget`, prompt trace ids, and provenance
+  arrays at the additive result level and inside `trace`. L3-incomplete degraded
+  fallback may omit these fields until it is migrated to ContextService.
+- `wiki plugin query` remains the explicit backend-synthesis JSON surface. It is
+  not the default sidechat grounding path once `wiki plugin context fetch` is
+  available.
 - The Obsidian sidechat must send structured language metadata with plugin
   queries: `input_language`, `english_query` when already known, and
   `final_output_language`. For non-English input, the backend may compute
@@ -937,6 +1037,9 @@ interface CuratorQueryResult {
   // final_output_language, trace, error ...
   route?: "auto" | "local" | "global" | "explore" | "source-section";
   trace_id?: string;              // QTR-<UUID8>
+  pack_id?: string | null;        // PACK-<UUID8> for ContextService-backed routes
+  snapshot?: Record<string, unknown> | null;
+  budget?: Record<string, unknown> | null;
   prompt_trace_ids?: string[];    // PTR-<UUID8>
   source_span_ids?: string[];     // SPAN-<UUID8>
   community_report_ids?: string[];// REP-<UUID8>
@@ -1300,3 +1403,123 @@ View) and copying it (`Cmd/Ctrl+C`, or `Cmd/Ctrl+X`) places the formulas' LaTeX
   (`selectionToMarkdownWithLatex` via Obsidian's `htmlToMarkdown`) and written to
   `text/plain`. Reading View is read-only, so `cut` writes the clipboard but deletes
   nothing; Live Preview's native cut already removes the source.
+
+## 15. Context Pack Client Contract (Plan F target, v0.13.0)
+
+The Obsidian plugin consumes the same normalized backend context pack that
+external MCP agents receive for equivalent request and snapshot inputs. The local
+plugin path still uses hidden `wiki plugin ...` JSON commands; it does not start
+or depend on `wiki mcp`.
+
+The default local JSON command is:
+
+```bash
+wiki plugin context fetch --query "<question>" --workspace-path "<vault-or-workspace>" --limit-tokens <n>
+```
+
+It returns the `context_fetch` pack without an `answer` field. `wiki plugin
+query` remains available for explicit backend synthesis, but ordinary provider
+grounding uses the pack command.
+
+Follow-up operations use the same root pack and snapshot:
+
+```bash
+wiki plugin context expand --pack-id PACK-... --handle EXP-... --expected-snapshot-id SNAP-...
+wiki plugin context verify --pack-id PACK-... --verification-handle VER-... --expected-snapshot-id SNAP-...
+```
+
+The plugin must pass the snapshot id from the displayed pack and must surface
+`snapshot_conflict` responses as degraded/refetch-required state instead of
+mixing evidence across snapshots.
+
+Reviewed or pending feedback against a served pack is appended with:
+
+```bash
+wiki plugin context feedback --trace-id QTR-... --pack-id PACK-... \
+  --feedback-type incorrect --statement "<observation>" \
+  --client obsidian --purpose ground --target-item-id <record-id> \
+  --reviewed-span-id SPAN-...
+```
+
+`--feedback-type` is one of `relevant`, `irrelevant`, `incorrect`, `stale`,
+`insufficient`, `duplicate`, `new_insight`, `correction`, or
+`promotion_request`. `--trace-id` is required alongside `--pack-id`; the backend
+looks up the root `QTR-*` directly and then verifies that the requested `PACK-*`
+belongs to that trace. The command returns an append-only `FBK-*` event id, the
+`review_status`, and `ranking_or_truth_mutated: false`. Feedback never mutates
+ranking, truth status, source files, or generated records; the event is
+quarantined until a separately reviewed policy applies it (SYSTEM_BEHAVIOR
+§31.6). An unknown `--feedback-type` returns `ok: false` with
+`error_type: invalid_feedback_type` and appends nothing.
+
+### 15.1 Normalized Pack Shape
+
+`IncuratorClient` must accept a versioned context pack with:
+
+- `pack_id`, `trace_id` (`QTR-*`), and `retrieval_execution_id` (`RTR-*`);
+- `snapshot.snapshot_id` plus source/DB/search/dependency/policy/model/tokenizer
+  identity fields;
+- selected route, stop reason, applied policy filters, budget accounting,
+  coverage state, warnings, and explicit omissions;
+- evidence items with record id/hash, kind, layer, summary/claim, support and
+  freshness state, `source_span_ids`, structured locator, token cost, expansion
+  handle, and verification handle;
+- `next[]` expansion handles for omitted or lower-detail evidence.
+
+Older query result fields remain additive compatibility fields. When sidechat
+uses `wiki plugin context fetch`, it preserves the returned pack on the trace
+payload as `context_pack`. Sources & Trace renders the exact pack used for
+provider grounding, including pack id, snapshot, budget, coverage/degraded
+state, evidence item summaries, locators, expansion handles, verification
+handles, and omitted `next[]` handles, rather than reconstructing a separate
+trace view from partial ids.
+Locators are clickable and resolve their open target by source kind:
+- An external Reference Mode source (`external_uri` present) is not in the vault;
+  its `relpath` is only an in-vault stub. The panel opens the real file at
+  `external_uri`, never the stub. A reference **PDF** (`source_kind` `vault_pdf`
+  or an `external_uri` ending in `.pdf`) opens in the plugin's external PDF
+  viewer at the cited `page_number`; other external references open through the
+  system handler. On desktop, local filesystem references MUST use Electron
+  `shell.openPath` (or `shell.openExternal` for URLs) rather than raw
+  `window.open`, with `window.open` only as a compatibility fallback.
+- A vault source (no `external_uri`) opens its `relpath`. A registered/vault PDF
+  jumps to the cited page via Obsidian's native viewer using the `#page=N`
+  anchor; other notes use their heading/block anchor when present.
+If verification succeeds, the returned verified item replaces the matching
+displayed item (`verification_handle`) in the retained context pack before the
+trace panel re-renders. If an expansion or verification operation returns
+`snapshot_conflict`, the
+client must retain the conflict metadata (`expected_snapshot_id`,
+`current_snapshot_id`, `resolution`) on the displayed pack, mark the pack as
+stale/refetch-required, and offer a refetch action. Refetch re-runs
+`wiki plugin context fetch` for the original question and replaces the displayed
+pack; it must not merge old and new snapshot evidence.
+
+Each evidence item also exposes a feedback affordance: 👍 (`relevant`) / 👎
+(`irrelevant`) buttons plus a "Report…" menu for `incorrect`, `stale`,
+`insufficient`, and `duplicate`. Selecting one dispatches a single
+`context:feedback` event carrying the trace id, pack id, snapshot id, targeted
+item `record_id`, and reviewed `source_span_ids`; the client calls
+`wiki plugin context feedback`. Feedback is acknowledgement-only — it never
+mutates the displayed pack, ranking, or truth state.
+
+### 15.2 Provider Context Budgeting
+
+The plugin calculates the provider-side remaining budget after system prompt,
+chat history, selected/pinned/local Markdown context, PDF text/image context,
+attachments, and tool overhead. It requests the backend pack with only that
+remaining backend-evidence budget. Client-local selected/open-note/PDF/image
+context keeps priority over backend evidence.
+
+### 15.3 Default Grounding Behavior
+
+For normal sidechat turns, the plugin grounds the selected provider with evidence
+items from the pack. It must not inject a backend synthesized answer by default.
+Backend synthesis may be requested only as an explicit mode and must cite the
+same `pack_id`/`trace_id` snapshot.
+
+### 15.4 Snapshot Conflict UX
+
+If backend expansion or verification returns `snapshot_conflict`, the plugin
+must not display mixed-epoch evidence. It should keep the stale pack visibly
+degraded and request a refetch/rebase before using expanded evidence.

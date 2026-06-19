@@ -116,7 +116,168 @@ class V031McpToolsTests(unittest.TestCase):
             out = self._tool("curator_fetch_context")(query="residual learning", workspace_path=str(self.ws))
         self.assertTrue(out["ok"])
         self.assertNotIn("answer", out)
+        self.assertEqual(out["operation"], "context_fetch")
+        self.assertEqual(out["contract_version"], "1")
+        self.assertTrue(out["pack_id"].startswith("PACK-"))
         self.assertTrue(out["trace_id"].startswith("QTR-"))
+        self.assertTrue(out["retrieval_execution_id"].startswith("RTR-"))
+        self.assertTrue(out["snapshot"]["snapshot_id"].startswith("SNAP-"))
+        self.assertLessEqual(out["budget"]["used_tokens"], out["budget"]["limit_tokens"])
+        self.assertTrue(out["items"])
+        self.assertTrue(out["items"][0]["expansion_handle"].startswith("EXP-"))
+        self.assertTrue(out["items"][0]["verification_handle"].startswith("VER-"))
+
+        trace = db.get_query_trace(self.paths.state_db, out["trace_id"])
+        self.assertIsNotNone(trace)
+        context_trace = trace["retrieval_trace"]["context_service"]
+        self.assertEqual(context_trace["pack_id"], out["pack_id"])
+        self.assertEqual(
+            context_trace["snapshot"]["snapshot_id"],
+            out["snapshot"]["snapshot_id"],
+        )
+
+    def test_curator_query_uses_context_service_trace_additively(self) -> None:
+        with db.connect(self.paths.state_db) as conn:
+            conn.execute(
+                "INSERT INTO sources (relpath,content_hash,file_type,bytes,added_at) "
+                "VALUES ('x.md','c1','md',1,datetime('now'))"
+            )
+        sp = db.upsert_source_span(
+            self.paths.state_db,
+            source_id=1,
+            relpath="x.md",
+            span_type="paragraph",
+            content_hash="c1",
+            section_title="Context",
+            text_preview="residual learning",
+        )
+        db.upsert_graph_entity(
+            self.paths.state_db,
+            canonical_name="residual learning",
+            entity_type="concept",
+            source_span_ids=[sp],
+        )
+        con_dir = self.paths.collections / "03_Concepts"
+        con_dir.mkdir(parents=True, exist_ok=True)
+        (con_dir / "CON-test.md").write_text("---\nname: residual learning\n---\n", encoding="utf-8")
+
+        class AnswerClient:
+            model = "fake"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def chat(self, *args, **kwargs):
+                return json.dumps({
+                    "answer": "Residual learning eases optimization.",
+                    "source_span_ids": [sp],
+                    "used_report_ids": [],
+                    "confidence": 0.8,
+                })
+
+        with patch("curator.llm.build_client", return_value=AnswerClient()):
+            out = self._tool("curator_query")(
+                question="What does residual learning do?",
+                workspace_path=str(self.ws),
+            )
+
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["answer"], "Residual learning eases optimization.")
+        self.assertTrue(out["trace"]["trace_id"].startswith("QTR-"))
+        self.assertTrue(out["trace"]["pack_id"].startswith("PACK-"))
+        self.assertTrue(out["trace"]["snapshot"]["snapshot_id"].startswith("SNAP-"))
+        self.assertLessEqual(out["trace"]["budget"]["used_tokens"], out["trace"]["budget"]["limit_tokens"])
+        self.assertEqual(out["trace"]["source_span_ids"], [sp])
+        trace = db.get_query_trace(self.paths.state_db, out["trace"]["trace_id"])
+        self.assertIsNotNone(trace)
+        context_trace = trace["retrieval_trace"]["context_service"]
+        self.assertEqual(context_trace["pack_id"], out["trace"]["pack_id"])
+        self.assertTrue(any(
+            action["action_type"] == "synthesis"
+            and action["child_id"] in trace["prompt_trace_ids"]
+            for action in context_trace["actions"]
+        ))
+
+    def test_curator_query_explore_without_context_service_uses_null_pack_metadata(self) -> None:
+        with db.connect(self.paths.state_db) as conn:
+            conn.execute(
+                "INSERT INTO sources (relpath,content_hash,file_type,bytes,added_at) "
+                "VALUES ('x.md','c1','md',1,datetime('now'))"
+            )
+        sp = db.upsert_source_span(
+            self.paths.state_db,
+            source_id=1,
+            relpath="x.md",
+            span_type="paragraph",
+            content_hash="c1",
+            section_title="Context",
+            text_preview="residual learning",
+        )
+        left = db.upsert_graph_entity(
+            self.paths.state_db,
+            canonical_name="residual learning",
+            entity_type="concept",
+            source_span_ids=[sp],
+        )
+        right = db.upsert_graph_entity(
+            self.paths.state_db,
+            canonical_name="Euler discretization",
+            entity_type="concept",
+            source_span_ids=[sp],
+        )
+        db.upsert_graph_relation(
+            self.paths.state_db,
+            source_entity_id=left,
+            target_entity_id=right,
+            relation_type="reinterpreted_as",
+            confidence=0.8,
+            source_span_ids=[sp],
+            assertion_source="system_infers",
+        )
+        con_dir = self.paths.collections / "03_Concepts"
+        con_dir.mkdir(parents=True, exist_ok=True)
+        (con_dir / "CON-test.md").write_text("---\nname: residual learning\n---\n", encoding="utf-8")
+
+        class ExploreClient:
+            model = "fake"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def chat(self, *args, **kwargs):
+                return json.dumps({
+                    "followup_questions": ["How does residual learning connect to ODEs?"],
+                    "insight_candidates": [
+                        {
+                            "statement": "Residual blocks resemble Euler steps.",
+                            "rationale": "The relation links residual learning and discretization.",
+                            "source_span_ids": [sp],
+                            "confidence": 0.8,
+                            "needs_human_review": True,
+                        }
+                    ],
+                })
+
+        with patch("curator.llm.build_client", return_value=ExploreClient()):
+            out = self._tool("curator_query")(
+                question="what else connects residual learning?",
+                workspace_path=str(self.ws),
+            )
+
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["trace"]["route"], "explore")
+        self.assertIsNone(out["trace"]["pack_id"])
+        self.assertIsNone(out["trace"]["snapshot"])
+        self.assertIsNone(out["trace"]["budget"])
+        trace = db.get_query_trace(self.paths.state_db, out["trace"]["trace_id"])
+        self.assertIsNotNone(trace)
+        self.assertNotIn("context_service", trace["retrieval_trace"])
 
     def test_get_prompt_trace(self) -> None:
         trace_id = db.record_prompt_run(

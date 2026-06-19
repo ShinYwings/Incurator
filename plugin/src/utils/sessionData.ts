@@ -1,11 +1,11 @@
-import type { ChatSession, SessionData } from "../types";
+import type { ChatMessage, ChatSession, ContextRef, SessionData } from "../types";
 
 export function normalizeSessionData(raw: Partial<SessionData> | null | undefined): SessionData {
-  return {
+  return sanitizeSessionDataForSync({
     chatSessions: Array.isArray(raw?.chatSessions) ? raw.chatSessions : [],
     activeChatSessionId: raw?.activeChatSessionId,
     deletedSessionIds: Array.isArray(raw?.deletedSessionIds) ? raw.deletedSessionIds : [],
-  };
+  });
 }
 
 function sessionSortValue(session: ChatSession): number {
@@ -49,5 +49,41 @@ export function mergeSessionData(local: SessionData, remote: SessionData): Sessi
       : undefined) ||
     chatSessions[0]?.id;
 
-  return { chatSessions, activeChatSessionId, deletedSessionIds };
+  return sanitizeSessionDataForSync({ chatSessions, activeChatSessionId, deletedSessionIds });
+}
+
+function isDeviceAbsolutePath(value: string): boolean {
+  return (
+    value.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(value) ||
+    value.startsWith("\\\\")
+  );
+}
+
+function sanitizeContextRefForSync(ref: ContextRef): ContextRef {
+  const next: ContextRef = { ...ref };
+  if (typeof next.filePath === "string" && isDeviceAbsolutePath(next.filePath)) {
+    delete next.filePath;
+  }
+  // Backend status is runtime-local and often carries absolute source/current/
+  // candidate paths. Persist portable identity on the ContextRef instead.
+  delete next.backendStatus;
+  return next;
+}
+
+function sanitizeMessageForSync(message: ChatMessage): ChatMessage {
+  return {
+    ...message,
+    contextRefs: message.contextRefs?.map(sanitizeContextRefForSync),
+  };
+}
+
+export function sanitizeSessionDataForSync(data: SessionData): SessionData {
+  return {
+    ...data,
+    chatSessions: data.chatSessions.map((session) => ({
+      ...session,
+      messages: session.messages.map(sanitizeMessageForSync),
+    })),
+  };
 }

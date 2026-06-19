@@ -12,7 +12,7 @@ from typing import Any
 
 from . import config as cfg
 from . import constants as consts
-from . import zotero
+from . import zotero as zotero_backend
 
 
 def zotero_db_candidates(custom_paths: str) -> list[str]:
@@ -232,7 +232,7 @@ def item_metadata(
     return {"ok": True, "metadata": metadata}
 
 
-def annotations(attachment_key: str, paths: cfg.WikiPaths, custom_paths: str = "") -> dict[str, Any]:
+def get_annotations(attachment_key: str, paths: cfg.WikiPaths, custom_paths: str = "") -> dict[str, Any]:
     config = cfg.load_config(paths)
     zotero_db = config.get("zotero", {}).get("db_path", os.path.expanduser("~/Zotero/zotero.sqlite"))
     for db_cand in _db_candidates(custom_paths, config):
@@ -240,7 +240,7 @@ def annotations(attachment_key: str, paths: cfg.WikiPaths, custom_paths: str = "
             zotero_db = db_cand
             break
     data_dir = str(Path(zotero_db).parent) if zotero_db else ""
-    return {"ok": True, "annotations": zotero.get_zotero_annotations(zotero_db, attachment_key, data_dir)}
+    return {"ok": True, "annotations": zotero_backend.get_zotero_annotations(zotero_db, attachment_key, data_dir)}
 
 
 def _first_existing_zotero_db(custom_paths: str, config: dict[str, Any]) -> str:
@@ -304,7 +304,7 @@ def resolve_pdf(attachment_key: str, paths: cfg.WikiPaths, custom_paths: str = "
     # Accept either an attachment key OR a parent item key (zotero_app_url carries
     # the parent item key; the PDF lives on a child attachment). The effective
     # attachment key drives the storage subdirectory lookup.
-    resolved = zotero.resolve_pdf_attachment_for_key(zotero_db, attachment_key)
+    resolved = zotero_backend.resolve_pdf_attachment_for_key(zotero_db, attachment_key)
     effective_key = resolved[0] if resolved else attachment_key
     db_path = resolved[1] if resolved else None
     checked_paths: list[str] = []
