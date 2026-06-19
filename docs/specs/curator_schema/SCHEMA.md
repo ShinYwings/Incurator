@@ -2157,13 +2157,18 @@ columns, but it must preserve these logical records:
   warnings, and optional synthesis references.
 - **Context snapshot**: one `SNAP-*` closure per root request, including source
   epoch, DB epoch, search/index epoch, dependency epoch, policy hash,
-  model/tokenizer/config hash, and creation time.
+  model/tokenizer/config hash, and creation time. The source epoch is a compact
+  deterministic representation: source/span counts plus ordered
+  `(id, content_hash)` hashes. It must not embed full `sources` or
+  `source_spans` row payloads in each snapshot.
 - **Context action**: ordered `CTXA-*` child actions for retrieval, pack assembly,
   budget decisions, omissions, expansion, verification, synthesis, degradation,
   and stop reason.
 - **Context pack**: one or more `PACK-*` payloads containing version, snapshot,
   route, policy, budget, coverage, evidence items, expansion handles, and
-  warnings.
+  warnings. Pack-only operations such as expansion and verification resolve the
+  owning `QTR-*` through a database-side ContextService pack-id lookup, not by
+  decoding a bounded list of recent query traces in Python.
 - **Context feedback**: append-only `FBK-*` events linked to `QTR-*`, `PACK-*`,
   `SNAP-*`, client, purpose, target item/record/claim, reviewed evidence, review
   status, and resulting lineage. Feedback calls use the explicit `(trace_id,

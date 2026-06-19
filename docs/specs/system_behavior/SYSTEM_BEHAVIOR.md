@@ -2483,10 +2483,14 @@ attached to the caller-owned `QTR-*`; they must not create an orphan root.
 The service resolves one immutable snapshot per request. The snapshot closure
 includes source/corpus identity, DB epoch, search/index epoch, dependency or
 derived-state epoch, `curate.yml` policy hash, model/tokenizer/config identity,
-and creation time. `context_expand` requires `pack_id`, expansion handles, a new
-budget, and `expected_snapshot_id`. If any snapshot component changed, the
-service returns a typed conflict with `current_snapshot_id` and does not mix
-epochs silently.
+and creation time. The source/corpus epoch is represented as compact deterministic
+counts plus ordered `(id, content_hash)` hashes, not as a serialized copy of all
+source/span rows. `context_fetch` preallocates the root `QTR-*` id and persists
+the completed root trace once. `context_expand` requires `pack_id`, expansion
+handles, a new budget, and `expected_snapshot_id`; pack-only lookups are resolved
+with a database-side ContextService pack-id query rather than a Python scan of
+recent traces. If any snapshot component changed, the service returns a typed
+conflict with `current_snapshot_id` and does not mix epochs silently.
 
 ### 31.4 Context Pack Contract
 

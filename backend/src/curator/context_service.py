@@ -138,25 +138,34 @@ def _build_retrieval_trace(
     return base
 
 
+def _hash_epoch_rows(conn, sql: str) -> tuple[int, str]:
+    hasher = hashlib.sha256()
+    count = 0
+    for row in conn.execute(sql):
+        count += 1
+        hasher.update(str(row[0]).encode("utf-8"))
+        hasher.update(b"\0")
+        hasher.update(str(row[1] or "").encode("utf-8"))
+        hasher.update(b"\n")
+    return count, hasher.hexdigest()
+
+
 def _source_epoch(paths: cfg.WikiPaths) -> dict[str, Any]:
     with db.connect(paths.state_db) as conn:
-        sources = [
-            dict(row)
-            for row in conn.execute(
-                "SELECT id, relpath, content_hash FROM sources ORDER BY id"
-            ).fetchall()
-        ]
-        spans = [
-            dict(row)
-            for row in conn.execute(
-                "SELECT id, source_id, content_hash FROM source_spans ORDER BY id"
-            ).fetchall()
-        ]
+        source_count, source_hash = _hash_epoch_rows(
+            conn,
+            "SELECT id, content_hash FROM sources ORDER BY id",
+        )
+        span_count, span_hash = _hash_epoch_rows(
+            conn,
+            "SELECT id, content_hash FROM source_spans ORDER BY id",
+        )
     return {
-        "source_count": len(sources),
-        "span_count": len(spans),
-        "sources": sources,
-        "spans": spans,
+        "algorithm": "id_content_hash_v1",
+        "source_count": source_count,
+        "span_count": span_count,
+        "source_content_hash": source_hash,
+        "span_content_hash": span_hash,
     }
 
 
@@ -563,21 +572,7 @@ class ContextService:
         omitted_payloads = [
             _item_payload(item, locators_by_span) for item in budget_omitted_items
         ]
-        trace_id = db.insert_query_trace(
-            self.paths.state_db,
-            workspace_id=policy.workspace_id,
-            question_hash=_question_hash(request),
-            route=route,
-            route_reason=reason,
-            evidence=_evidence_json(selected_items),
-            source_span_ids=selected_refs["source_span_ids"],
-            community_report_ids=selected_refs["community_report_ids"],
-            synthesis_node_ids=selected_refs["synthesis_node_ids"],
-            memory_path_ids=selected_refs["memory_path_ids"],
-            retrieval_trace={},
-            warnings=pack.warnings,
-            latency_ms=int((time.monotonic() - started) * 1000),
-        )
+        trace_id = db.new_query_trace_id()
         pack_id = _new_prefixed_id("PACK", f"{trace_id}:{snapshot['snapshot_id']}")
         actions = [
             {
@@ -1050,11 +1045,13 @@ class ContextService:
         self,
         pack_id: str,
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        for trace in db.list_query_traces(self.paths.state_db, limit=1000):
-            context = (trace.get("retrieval_trace") or {}).get("context_service")
-            if isinstance(context, dict) and context.get("pack_id") == pack_id:
-                return trace, context
-        return None, None
+        trace = db.get_query_trace_by_context_pack(self.paths.state_db, pack_id)
+        if not trace:
+            return None, None
+        context = (trace.get("retrieval_trace") or {}).get("context_service")
+        if isinstance(context, dict) and context.get("pack_id") == pack_id:
+            return trace, context
+        return trace, None
 
     def _append_context_action(
         self,

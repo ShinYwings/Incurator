@@ -148,6 +148,19 @@ evaluated_code:
       retrieval, ranking, fusion, projection, embedding, chunking, or
       materialize_chunks path, so the lexical FTS5/BM25 Q06 holdout metric is
       provably unaffected. Re-armed the drift tripwire.
+  plan_f_hot_path_rearm:
+    date: '2026-06-19'
+    prior_db_sha256: 725baf09e82f4da9ee898708a0278ec7385e9dac43b98685a48d4a26e1a5cfa9
+    reason: >-
+      PR #34 review hardening added `new_query_trace_id` and
+      `get_query_trace_by_context_pack` so ContextService can preallocate a
+      QTR-* id, persist the completed root trace once, and resolve PACK-* owners
+      through a database-side retrieval_trace_json filter instead of decoding a
+      bounded list of recent query traces in Python. These helpers affect query
+      trace bookkeeping and ContextService progressive pack operations only; they
+      touch no retrieval ranking, fusion, projection, embedding, chunking, or
+      materialize_chunks path. The lexical FTS5/BM25 Q06 holdout metric is
+      therefore provably unaffected. Re-armed the drift tripwire.
   file_sha256:
     backend/scripts/failure_atlas_holdout.py: c6afe0307dd3f68fa9902387bb0dc269db6ff9d6b73ad2f3ac1cc6ecc883297a
     backend/src/curator/retrieval/evaluation.py: 0cc9e655142c725dd4bbbabfd2b44d6bf0355265bb2510fbb78cbd47d7d43c17
@@ -156,7 +169,7 @@ evaluated_code:
     backend/src/curator/retrieval/fusion.py: ffed6f90d6b0eb55692dfd9a02526d8e4a220ef6625a3e245175a07fa08eb716
     backend/src/curator/retrieval/embedding.py: a6a7da88af3fc824f1fa2c9a4f4ce0720e870c0584c49e011b865678cb0f8f7e
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
-    backend/src/curator/db.py: 725baf09e82f4da9ee898708a0278ec7385e9dac43b98685a48d4a26e1a5cfa9
+    backend/src/curator/db.py: 2243fecc20c762bc28e13bda324e4dff67fc17eed81bc94b1cd726ef52d339ab
   preflight_family_metrics:
     direct-factual:
       query_count: 7

@@ -195,6 +195,54 @@ def test_context_service_snapshot_id_is_stable_when_corpus_is_unchanged(tmp_path
     assert first["snapshot"]["snapshot_id"] == second["snapshot"]["snapshot_id"]
 
 
+def test_context_service_source_epoch_is_compact_and_content_sensitive(tmp_path: Path) -> None:
+    from curator import context_service as cs
+
+    paths, _span_id = _seed_context_vault(tmp_path)
+    first_epoch = cs._source_epoch(paths)  # noqa: SLF001 - contract oracle for compact epoch
+
+    assert first_epoch["source_count"] == 1
+    assert first_epoch["span_count"] == 1
+    assert "sources" not in first_epoch
+    assert "spans" not in first_epoch
+    assert first_epoch["source_content_hash"]
+    assert first_epoch["span_content_hash"]
+
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE source_spans SET content_hash = ? WHERE id = ?",
+            ("span-hash-updated", _span_id),
+        )
+    second_epoch = cs._source_epoch(paths)  # noqa: SLF001 - contract oracle for compact epoch
+
+    assert second_epoch["source_count"] == first_epoch["source_count"]
+    assert second_epoch["span_count"] == first_epoch["span_count"]
+    assert second_epoch["source_content_hash"] == first_epoch["source_content_hash"]
+    assert second_epoch["span_content_hash"] != first_epoch["span_content_hash"]
+
+
+def test_context_fetch_persists_query_trace_once(tmp_path: Path, monkeypatch) -> None:
+    from curator import context_service as cs
+
+    paths, _span_id = _seed_context_vault(tmp_path)
+    calls = 0
+    real_insert = cs.db.insert_query_trace
+
+    def counted_insert(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return real_insert(*args, **kwargs)
+
+    monkeypatch.setattr(cs.db, "insert_query_trace", counted_insert)
+    response = cs.ContextService(paths).context_fetch(
+        QueryRequest(question="residual connection", mode="local")
+    )
+
+    assert response["ok"] is True
+    assert calls == 1
+    assert db.get_query_trace(paths.state_db, response["trace_id"]) is not None
+
+
 def test_context_service_expected_snapshot_conflict_does_not_mix_epochs(tmp_path: Path) -> None:
     from curator.context_service import ContextService
 
@@ -700,6 +748,31 @@ def test_context_expand_returns_bound_items_and_appends_child_action(tmp_path: P
     assert actions[-1]["child_id"] == response["pack_id"]
 
 
+def test_context_expand_finds_pack_without_recent_trace_scan(tmp_path: Path, monkeypatch) -> None:
+    from curator import context_service as cs
+
+    paths = _seed_budget_vault(tmp_path)
+    service = cs.ContextService(paths)
+    pack = service.context_fetch(
+        QueryRequest(question="context budget evidence", mode="local"),
+        limit_tokens=20,
+    )
+
+    def fail_scan(*_args, **_kwargs):
+        raise AssertionError("context_expand must not scan recent query traces")
+
+    monkeypatch.setattr(cs.db, "list_query_traces", fail_scan)
+    response = service.context_expand(
+        pack_id=pack["pack_id"],
+        handles=[pack["next"][0]["handle"]],
+        expected_snapshot_id=pack["snapshot"]["snapshot_id"],
+        limit_tokens=20,
+    )
+
+    assert response["ok"] is True
+    assert response["trace_id"] == pack["trace_id"]
+
+
 def test_context_verify_resolves_exact_support_and_appends_child_action(tmp_path: Path) -> None:
     from curator.context_service import ContextService
 
@@ -729,6 +802,28 @@ def test_context_verify_resolves_exact_support_and_appends_child_action(tmp_path
     actions = trace["retrieval_trace"]["context_service"]["actions"]
     assert actions[-1]["action_type"] == "verification"
     assert actions[-1]["child_id"] == item["verification_handle"]
+
+
+def test_context_verify_finds_pack_without_recent_trace_scan(tmp_path: Path, monkeypatch) -> None:
+    from curator import context_service as cs
+
+    paths, span_id = _seed_context_vault(tmp_path)
+    service = cs.ContextService(paths)
+    pack = service.context_fetch(QueryRequest(question="residual connection", mode="local"))
+    item = next(item for item in pack["items"] if span_id in item["source_span_ids"])
+
+    def fail_scan(*_args, **_kwargs):
+        raise AssertionError("context_verify must not scan recent query traces")
+
+    monkeypatch.setattr(cs.db, "list_query_traces", fail_scan)
+    response = service.context_verify(
+        pack_id=pack["pack_id"],
+        verification_handle=item["verification_handle"],
+        expected_snapshot_id=pack["snapshot"]["snapshot_id"],
+    )
+
+    assert response["ok"] is True
+    assert response["trace_id"] == pack["trace_id"]
 
 
 # ---------------------------------------------------------------------------

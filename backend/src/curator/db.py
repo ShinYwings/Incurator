@@ -4468,6 +4468,11 @@ def set_index_meta(db_path: Path, key: str, value: str) -> None:
         )
 
 
+def new_query_trace_id() -> str:
+    """Generate a durable QTR- query trace id without writing a row."""
+    return _new_id("QTR")
+
+
 def insert_query_trace(
     db_path: Path,
     *,
@@ -4548,3 +4553,46 @@ def get_query_trace(db_path: Path, trace_id: str) -> dict | None:
             "SELECT * FROM query_traces WHERE trace_id = ?", (trace_id,)
         ).fetchone()
         return _decode_query_trace(row) if row else None
+
+
+def get_query_trace_by_context_pack(db_path: Path, pack_id: str) -> dict | None:
+    """Fetch the query trace whose ContextService root pack id matches ``pack_id``.
+
+    Prefer SQLite JSON extraction so filtering happens in the database. Some
+    SQLite builds may omit JSON1, so fall back to a narrow LIKE candidate query
+    followed by exact decoded validation. The fallback avoids the old recent-trace
+    scan and only decodes rows whose JSON contains the requested pack id string.
+    """
+    if not pack_id:
+        return None
+    with connect(db_path) as conn:
+        try:
+            row = conn.execute(
+                """
+                SELECT * FROM query_traces
+                WHERE json_extract(retrieval_trace_json, '$.context_service.pack_id') = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (pack_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            row = None
+        if row is not None:
+            return _decode_query_trace(row)
+
+        candidates = conn.execute(
+            """
+            SELECT * FROM query_traces
+            WHERE retrieval_trace_json LIKE ?
+            ORDER BY created_at DESC
+            LIMIT 20
+            """,
+            (f"%{pack_id}%",),
+        ).fetchall()
+    for candidate in candidates:
+        decoded = _decode_query_trace(candidate)
+        context = (decoded.get("retrieval_trace") or {}).get("context_service")
+        if isinstance(context, dict) and context.get("pack_id") == pack_id:
+            return decoded
+    return None
