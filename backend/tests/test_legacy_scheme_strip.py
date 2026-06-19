@@ -22,6 +22,10 @@ _STRIPPED = [
     ("/legacy://curator/02_Atoms/ATM-abc12345", "02_Atoms/ATM-abc12345"),
     (f"{_RETIRED}://curator/02_Atoms/ATM-abc12345", "02_Atoms/ATM-abc12345"),
     (f"/{_RETIRED}://curator/02_Atoms/ATM-abc12345", "02_Atoms/ATM-abc12345"),
+    # Bracket-wrapped wikilinks must lose the .md suffix even though it sits
+    # before the closing ]] (suffix stripped after unwrapping, not before).
+    ("[[legacy://curator/02_Atoms/ATM-abc12345.md]]", "02_Atoms/ATM-abc12345"),
+    (f"[[{_RETIRED}://curator/02_Atoms/ATM-abc12345.md|Atom alias]]", "02_Atoms/ATM-abc12345"),
 ]
 
 _PRESERVED = [

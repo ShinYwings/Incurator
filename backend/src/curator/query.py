@@ -204,10 +204,12 @@ def _build_synthesis_user_prompt(
 
 
 def _node_path_from_target(target: str) -> str:
-    cleaned = target.removesuffix(".md")
+    cleaned = target.strip()
     if cleaned.startswith("[[") and cleaned.endswith("]]"):
         cleaned = cleaned[2:-2]
-    cleaned = cleaned.split("|", 1)[0].strip()
+    # Strip pipe aliases and the .md suffix only after unwrapping brackets, so a
+    # wrapped wikilink like ``[[…/ATM-abc.md]]`` still loses its suffix.
+    cleaned = cleaned.split("|", 1)[0].strip().removesuffix(".md")
     return _LEGACY_SCHEME_RE.sub("", cleaned).lstrip("/")
 
 
