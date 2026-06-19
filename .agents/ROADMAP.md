@@ -25,7 +25,7 @@ Source of Truth to identify unresolved items.
 ### 🚀 Priority Order
 
 1. ✅ **[Minor Update] Sidechat Edit Loop — Enforced & Observable State Machine**
-   — IMPLEMENTED on `feature/edit-loop-state-machine` (v0.14.0), pending PR merge.
+   — SHIPPED in v0.14.0.
    - Prompt contract + runtime validator hard-gate + visible UI phases + wider
      triggers shipped. Plan artifacts deleted (see Git history); see CHANGELOG
      `[0.14.0]`.
@@ -133,8 +133,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: RAG stabilization is closed; shipped RAG plan artifacts have
-  been removed from `.agents/plans/`.
-- **Next actionable item**: 1. Sidechat Analyse/Review/Update Loop Regression.
-- **Priority order**: fix-like items 1 → 5, then RAG hardening and remaining
+- **Roadmap state**: Sidechat Edit Loop shipped.
+- **Next actionable item**: None (System IDLE)
+- **Priority order**: fix-like items 2 → 5, then RAG hardening and remaining
   feature work.
