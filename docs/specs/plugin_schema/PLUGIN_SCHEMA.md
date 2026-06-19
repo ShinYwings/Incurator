@@ -845,6 +845,36 @@ Rules:
   feature and its `editArtifactEnabled` setting were removed in v0.5.0; the
   in-editor `DiffViewer` is the single source of truth. (Pre-existing artifact
   files in users' vaults are left untouched.)
+- **Accept-All cursor (v0.14.1)**: after `Accept All`, the cursor is restored to
+  the FIRST changed hunk's line (cached when the diff opened), not the end of the
+  rewritten region. A whole-file review must not teleport the caret to the bottom
+  of the document.
+- **Toolbar anchoring (v0.14.1)**: before computing the floating toolbar
+  position, the DiffViewer scrolls the first hunk into view and recomputes
+  `coordsAtPos` on the next frame, so the Accept/Reject bar anchors near the hunk
+  even when it opened off-screen. The screen-top fallback is only used when
+  coordinates remain unavailable after the scroll.
+- **Review serialization (v0.14.1)**: opening a diff for an edit proposal is
+  serialized behind a single in-flight guard. Because the `DiffViewer` is a
+  singleton, a second review click cannot re-point it mid-open; concurrent
+  review requests are ignored until the current open settles.
+- **Derived proposal status (v0.14.1)**: each edit-proposal pill shows a status
+  derived at render time from the LIVE file content via the shared
+  `findSearchBlock` matcher — never from persisted state:
+  - `reviewable` — the SEARCH block still matches the file (or it is a new-file
+    proposal); the pill opens the Diff Viewer.
+  - `applied` — the SEARCH no longer matches and either the REPLACE block has one
+    unambiguous match in the file, or the proposal is a deletion with an empty /
+    whitespace-only REPLACE block; the pill is shown as already applied (clicking
+    will not re-run a doomed match).
+  - `not_found` — neither matches; the pill reports it honestly instead of
+    surfacing a confusing "could not find" only after a click.
+  This is self-healing across re-render, session reload, and the
+  propose→accept→next-turn cycle (no `ChatMessage` schema field is added).
+- **Path resolution fallback (v0.14.1)**: `resolveVaultFile` adds a final
+  case-insensitive, whitespace-trimmed full-path scan over the vault's Markdown
+  files before reporting a file as not found. It does not fall back to basename
+  matching, because a same-named note in another folder is a different target.
 
 ### 6.1 Edit-Loop State Machine Contract (v0.14.0)
 
@@ -857,7 +887,10 @@ cannot silently jump from tool selection to file mutation ("vibe-coding").
   - `[[PHASE:ANALYSED]]` — what the agent understood and the concrete gap to close.
   - `[[PHASE:REVIEWED]]` — critique of its own plan *before* editing.
   - `[[PHASE:UPDATED]]` — the `ai-agent-edit` SEARCH/REPLACE block(s).
-  - `[[PHASE:REVIEWED]]` — self-check that the edit closes the gap.
+  - `[[PHASE:REVIEWED]]` — self-check that the edit closes the gap, and a clear
+    statement that the edits are **proposed and pending the user's review/Accept
+    in the Diff Viewer** (v0.14.1). The agent MUST NOT claim the edits are already
+    applied or saved — nothing is written to disk until the user accepts.
   Markers are English and machine-parseable; phase *body* text follows the user's
   language. The sentinel form (`[[PHASE:LABEL]]`) is chosen so it cannot collide
   with note content or model headings and survives the existing thought-block and
