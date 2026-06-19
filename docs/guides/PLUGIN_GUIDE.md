@@ -139,8 +139,14 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   SVG — so dragging across a formula no longer drops it, regardless of Live
   Preview's render timing.
 - **Single button**: A selection only ever shows one button — no toolbar.
-- **Minimal popover**: The popover has just a query input and an **Ask** button.
-  There are no preset/quick buttons.
+- **Persistent popover**: The popover has just a query input and an **Ask**
+  button. There are no preset/quick buttons. Once opened, it stays open while
+  you click or scroll elsewhere; close it with **×** or `Esc`.
+- **Move and minimize**: Drag the popover header to place it anywhere in the
+  current window. Use the minimize control to collapse it to the header without
+  losing the answer or follow-up state.
+- **Question title**: After each submission, the header title updates to the
+  latest question so a minimized popover stays identifiable.
 - **Focused answer display**: After you submit, the input row hides while the
   answer streams (no chat-bubble layout). Once the answer completes, a compact
   follow-up input returns in the same popover.

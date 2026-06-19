@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.14.0)
+# Incurator Plugin Schema & API Contract (v0.15.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -1362,9 +1362,14 @@ one-off questions about a selected passage. It is gated by
   reading view, or PDF), the plugin shows exactly one floating trigger button next
   to the selection. No toolbar or multi-button cluster is rendered.
 - Activating the button — or invoking the `quick-query-selection` command
-  (default hotkey `Cmd+Shift+K`) while text is selected — opens a single popover
-  containing only a free-text query input and a submit control. No preset/quick-
-  action buttons are present.
+  (default hotkey `Cmd+Shift+K`) while text is selected — opens a single
+  persistent popover containing only a free-text query input and a submit
+  control. No preset/quick-action buttons are present.
+- Once spawned, the popover is detached from selection scroll tracking. It is
+  positioned once near the selection, then remains fixed relative to its owner
+  window unless the user drags the header.
+- The header title updates to the latest submitted question. A minimize control
+  collapses the body while preserving the answer, input, and follow-up state.
 - Selections made inside the plugin's own button/popover must not re-trigger the
   surface.
 
@@ -1409,9 +1414,10 @@ one-off questions about a selected passage. It is gated by
 
 ### 13.4 Ephemerality And Boundaries
 
-- The popover is a temporary surface. Closing it (close button, `Escape`, or an
-  outside click once the answer is complete) discards the exchange. It must never
-  be written into `SessionData` or the chat sidebar history.
+- The popover is a temporary session-local surface. Closing it (close button or
+  `Escape`) discards the exchange. Outside clicks must not close an open
+  popover. It must never be written into `SessionData` or the chat sidebar
+  history and must not persist across Obsidian restarts.
 - The query is issued through the standard `LLMClient` using the active
   provider/model. No prior chat-sidebar turns are appended.
 - An in-flight quick query is aborted when its popover is dismissed.

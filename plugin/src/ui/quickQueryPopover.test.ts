@@ -1,9 +1,15 @@
+import { readFileSync } from "fs";
+import { join } from "path";
+import { fileURLToPath } from "url";
 import { describe, it, expect } from "vitest";
 import {
   buildQuickQueryMessages,
   computeFloatingPosition,
   stripThinkingForDisplay,
 } from "./quickQueryPopover";
+
+const dir = fileURLToPath(new URL(".", import.meta.url));
+const source = readFileSync(join(dir, "quickQueryPopover.ts"), "utf8");
 
 describe("quick query: message building", () => {
   it("includes the selected passage and question as separate roles", () => {
@@ -94,12 +100,6 @@ describe("quick query: thinking strip", () => {
 
 describe("quick query: latex normalization (item 17)", () => {
   it("normalizes LaTeX delimiters before markdown rendering", async () => {
-    const { readFileSync } = await import("fs");
-    const { fileURLToPath } = await import("url");
-    const { join } = await import("path");
-    const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "quickQueryPopover.ts"), "utf8");
-
     expect(source).toContain(
       'import { attachLatexCopyHandler, normalizeLatexDelimiters, selectionToTextWithLatex } from "../utils/textUtils"'
     );
@@ -109,14 +109,81 @@ describe("quick query: latex normalization (item 17)", () => {
   });
 
   it("captures the selection via the LaTeX-preserving extractor, not selection.toString()", async () => {
-    const { readFileSync } = await import("fs");
-    const { fileURLToPath } = await import("url");
-    const { join } = await import("path");
-    const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "quickQueryPopover.ts"), "utf8");
-
     // Both capture sites must read MathJax LaTeX, not the SVG-empty toString().
     expect(source).toContain("selectionToTextWithLatex(selection).trim()");
     expect(source).not.toContain("selection?.toString().trim()");
+  });
+});
+
+describe("quick query: persistent popover lifecycle (v0.15.0)", () => {
+  it("tears down old surfaces before switching owner document in openForCurrentSelection", () => {
+    const body = source.slice(
+      source.indexOf("openForCurrentSelection"),
+      source.indexOf("private isInsideOwnUi")
+    );
+
+    expect(body.indexOf("this.removeButton();")).toBeGreaterThanOrEqual(0);
+    expect(body.indexOf("this.removePopover();")).toBeGreaterThanOrEqual(0);
+    expect(body.indexOf("this.removeButton();")).toBeLessThan(body.indexOf("this.activeDoc = ownerDoc"));
+    expect(body.indexOf("this.removePopover();")).toBeLessThan(body.indexOf("this.activeDoc = ownerDoc"));
+  });
+
+  it("keeps open popovers immune to outside clicks and handles text-node targets", () => {
+    const body = source.slice(
+      source.indexOf("handleDocumentClick"),
+      source.indexOf("\n}", source.indexOf("handleDocumentClick"))
+    );
+
+    expect(body).toContain("target instanceof Node");
+    expect(body).toContain("node?.parentElement");
+    expect(body).toContain("this.removeButton();");
+    expect(body).not.toContain("this.removePopover()");
+  });
+
+  it("keeps scroll/resize tracking limited to the trigger button", () => {
+    const body = source.slice(
+      source.indexOf("private attachRepositionListeners"),
+      source.indexOf("private detachRepositionListeners")
+    );
+
+    expect(body).toContain("if (!this.buttonEl)");
+    expect(body).toContain("this.detachRepositionListeners();");
+    expect(body).toContain("this.applyFloatingPosition(this.buttonEl, rect, BUTTON_SIZE)");
+    expect(body).not.toContain("this.applyFloatingPosition(this.popoverEl");
+  });
+
+  it("always detaches trigger tracking when the trigger button is removed", () => {
+    const body = source.slice(
+      source.indexOf("private removeButton"),
+      source.indexOf("// ── Popover")
+    );
+
+    expect(body).toContain("this.buttonEl = null;");
+    expect(body).toContain("this.detachRepositionListeners();");
+    expect(body).not.toContain("if (!this.popoverEl) this.detachRepositionListeners()");
+  });
+
+  it("only lets the capturing Escape handler close when focus is inside the popover", () => {
+    const body = source.slice(
+      source.indexOf("this.popoverKeyHandler ="),
+      source.indexOf("doc.addEventListener(\"keydown\"")
+    );
+
+    expect(body).toContain("e.key !== \"Escape\"");
+    expect(body).toContain("e.target instanceof Node");
+    expect(body).toContain("this.popoverEl.contains(target)");
+    expect(body.indexOf("this.popoverEl.contains(target)")).toBeLessThan(body.indexOf("e.stopPropagation()"));
+  });
+
+  it("captures title/minimize/drag state and updates the title on submit", () => {
+    expect(source).toContain("private titleEl: HTMLElement | null = null;");
+    expect(source).toContain("private isMinimized = false;");
+    expect(source).toContain("private dragState:");
+    expect(source).toContain("this.titleEl = header.createSpan");
+    expect(source).toContain("this.titleEl.setText(question)");
+    expect(source).toContain("toggleMinimized");
+    expect(source).toContain("is-minimized");
+    expect(source).toContain("startDrag");
+    expect(source).toContain("detachDragListeners");
   });
 });

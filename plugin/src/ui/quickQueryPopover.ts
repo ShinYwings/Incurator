@@ -99,9 +99,22 @@ export class QuickQueryPopover {
   private capturedSelection = "";
   private isProcessing = false;
   private turns: QuickQueryTurn[] = [];
+  private titleEl: HTMLElement | null = null;
+  private minimizeBtnEl: HTMLElement | null = null;
+  private isMinimized = false;
+  private popoverKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private dragState: {
+    win: Window;
+    startX: number;
+    startY: number;
+    startLeft: number;
+    startTop: number;
+    move: (e: MouseEvent) => void;
+    up: (e: MouseEvent) => void;
+  } | null = null;
   /** Document that owns the current selection (main window or a popout). */
   private activeDoc: Document = document;
-  /** Live selection range, kept so the button/popover track PDF scrolling. */
+  /** Live selection range, kept so the trigger button tracks PDF scrolling. */
   private anchorRange: Range | null = null;
   private repositionHandler: (() => void) | null = null;
 
@@ -178,10 +191,13 @@ export class QuickQueryPopover {
       return;
     }
     const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    this.removeButton();
+    this.removePopover();
     this.activeDoc = ownerDoc;
     this.anchorRange = range.cloneRange();
     this.capturedSelection = text.slice(0, MAX_SELECTION_LENGTH);
-    this.openPopover(range.getBoundingClientRect());
+    this.openPopover(rect);
   }
 
   private isInsideOwnUi(selection: Selection): boolean {
@@ -209,7 +225,7 @@ export class QuickQueryPopover {
     btn.addEventListener("mousedown", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this.openPopover(rect);
+      this.openPopover(this.anchorRange?.getBoundingClientRect() ?? rect);
     });
 
     doc.body.appendChild(btn);
@@ -229,17 +245,17 @@ export class QuickQueryPopover {
     el.style.left = `${pos.left}px`;
   }
 
-  /**
-   * Keep the trigger button / popover pinned to the live selection as the PDF
-   * (or note) scrolls or the window resizes (report item 5). Detached on close.
-   */
+  /** Keep the trigger button pinned to the live selection while the document scrolls. */
   private attachRepositionListeners(): void {
     if (this.repositionHandler) return;
     const handler = () => {
+      if (!this.buttonEl) {
+        this.detachRepositionListeners();
+        return;
+      }
       const rect = this.anchorRange?.getBoundingClientRect();
       if (!rect || (rect.width === 0 && rect.height === 0)) return;
-      if (this.buttonEl) this.applyFloatingPosition(this.buttonEl, rect, BUTTON_SIZE);
-      if (this.popoverEl) this.applyFloatingPosition(this.popoverEl, rect, POPOVER_SIZE);
+      this.applyFloatingPosition(this.buttonEl, rect, BUTTON_SIZE);
     };
     this.repositionHandler = handler;
     this.activeWin.addEventListener("scroll", handler, true);
@@ -256,7 +272,7 @@ export class QuickQueryPopover {
   private removeButton(): void {
     this.buttonEl?.remove();
     this.buttonEl = null;
-    if (!this.popoverEl) this.detachRepositionListeners();
+    this.detachRepositionListeners();
   }
 
   // ── Popover ───────────────────────────────────────────────────
@@ -265,24 +281,51 @@ export class QuickQueryPopover {
     this.removeButton();
     this.removePopover();
     this.turns = [];
+    this.isMinimized = false;
 
     const doc = this.activeDoc;
     const popover = doc.createElement("div");
     popover.className = "ai-agent-quick-query-popover";
+    this.popoverKeyHandler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !this.popoverEl) return;
+      const target = e.target instanceof Node ? e.target : null;
+      if (!target || !this.popoverEl.contains(target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.removePopover();
+    };
+    doc.addEventListener("keydown", this.popoverKeyHandler, true);
 
     this.applyFloatingPosition(popover, rect, POPOVER_SIZE);
 
-    // Header (label + close)
+    // Header (drag handle + minimize + close)
     const header = popover.createDiv("ai-agent-quick-query-header");
-    header.createSpan({
+    header.addEventListener("mousedown", (e) => this.startDrag(e));
+    this.titleEl = header.createSpan({
       cls: "ai-agent-quick-query-title",
       text: "Quick query",
+    });
+    const controls = header.createSpan({ cls: "ai-agent-quick-query-controls" });
+    this.minimizeBtnEl = controls.createSpan({
+      cls: "ai-agent-quick-query-minimize",
+      text: "−",
+      attr: { role: "button", "aria-label": "Minimize quick query", title: "Minimize" },
+    });
+    this.minimizeBtnEl.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.toggleMinimized();
     });
     const closeBtn = header.createSpan({
       cls: "ai-agent-quick-query-close",
       text: "×",
+      attr: { role: "button", "aria-label": "Close quick query", title: "Close" },
     });
-    closeBtn.addEventListener("click", () => this.removePopover());
+    closeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.removePopover();
+    });
 
     // Input row (hidden after submit)
     const inputRow = popover.createDiv("ai-agent-quick-query-input-row");
@@ -301,6 +344,10 @@ export class QuickQueryPopover {
     const submit = () => {
       const question = input.value.trim();
       if (!question || this.isProcessing) return;
+      if (this.titleEl) {
+        this.titleEl.setText(question);
+        this.titleEl.title = question;
+      }
       inputRow.hide();
       answerEl.show();
       void this.runQuery(question, answerEl, inputRow, input);
@@ -319,8 +366,64 @@ export class QuickQueryPopover {
 
     doc.body.appendChild(popover);
     this.popoverEl = popover;
-    this.attachRepositionListeners();
     (this.activeWin.requestAnimationFrame ?? requestAnimationFrame)(() => input.focus());
+  }
+
+  private toggleMinimized(): void {
+    if (!this.popoverEl) return;
+    this.isMinimized = !this.isMinimized;
+    this.popoverEl.classList.toggle("is-minimized", this.isMinimized);
+    if (this.minimizeBtnEl) {
+      this.minimizeBtnEl.setText(this.isMinimized ? "+" : "−");
+      this.minimizeBtnEl.setAttr("aria-label", this.isMinimized ? "Restore quick query" : "Minimize quick query");
+      this.minimizeBtnEl.title = this.isMinimized ? "Restore" : "Minimize";
+    }
+  }
+
+  private startDrag(e: MouseEvent): void {
+    if (e.button !== 0 || !this.popoverEl) return;
+    const target = e.target instanceof Element ? e.target : null;
+    if (target?.closest(".ai-agent-quick-query-minimize, .ai-agent-quick-query-close")) return;
+
+    e.preventDefault();
+    const rect = this.popoverEl.getBoundingClientRect();
+    const win = this.activeWin;
+    this.detachDragListeners();
+    const move = (event: MouseEvent) => this.moveDrag(event);
+    const up = (_event: MouseEvent) => this.detachDragListeners();
+    this.dragState = {
+      win,
+      startX: e.clientX,
+      startY: e.clientY,
+      startLeft: rect.left,
+      startTop: rect.top,
+      move,
+      up,
+    };
+    this.popoverEl.classList.add("is-dragging");
+    win.addEventListener("mousemove", move);
+    win.addEventListener("mouseup", up);
+  }
+
+  private moveDrag(e: MouseEvent): void {
+    if (!this.dragState || !this.popoverEl) return;
+    const left = this.dragState.startLeft + e.clientX - this.dragState.startX;
+    const top = this.dragState.startTop + e.clientY - this.dragState.startY;
+    const margin = 8;
+    const width = this.popoverEl.offsetWidth || POPOVER_SIZE.width;
+    const height = this.popoverEl.offsetHeight || 40;
+    const maxLeft = Math.max(margin, this.dragState.win.innerWidth - width - margin);
+    const maxTop = Math.max(margin, this.dragState.win.innerHeight - height - margin);
+    this.popoverEl.style.left = `${Math.min(Math.max(margin, left), maxLeft)}px`;
+    this.popoverEl.style.top = `${Math.min(Math.max(margin, top), maxTop)}px`;
+  }
+
+  private detachDragListeners(): void {
+    if (!this.dragState) return;
+    this.dragState.win.removeEventListener("mousemove", this.dragState.move);
+    this.dragState.win.removeEventListener("mouseup", this.dragState.up);
+    this.popoverEl?.classList.remove("is-dragging");
+    this.dragState = null;
   }
 
   private async runQuery(
@@ -419,31 +522,36 @@ export class QuickQueryPopover {
   }
 
   private removePopover(): void {
+    this.detachDragListeners();
+    if (this.popoverKeyHandler) {
+      this.activeDoc.removeEventListener("keydown", this.popoverKeyHandler, true);
+      this.popoverKeyHandler = null;
+    }
     if (this.isProcessing) {
       this.plugin.llmClient.abort();
       this.isProcessing = false;
     }
     this.popoverEl?.remove();
     this.popoverEl = null;
+    this.titleEl = null;
+    this.minimizeBtnEl = null;
+    this.isMinimized = false;
     this.anchorRange = null;
     if (!this.buttonEl) this.detachRepositionListeners();
   }
 
   /**
-   * Dismiss the button/popover when the user clicks outside of them.
+   * Dismiss the trigger button when the user clicks outside of our UI.
+   * Open popovers are persistent and close only via close button or Escape.
    */
   handleDocumentClick(target: EventTarget | null): void {
-    const el = target instanceof Element ? target : null;
+    const node = target instanceof Node ? target : null;
+    const el = node instanceof Element ? node : node?.parentElement ?? null;
     if (
       el?.closest(".ai-agent-quick-query-popover, .ai-agent-quick-query-button")
     ) {
       return;
     }
     this.removeButton();
-    // Keep an open popover alive while a query is streaming; only the close
-    // button or Escape should dismiss it mid-answer.
-    if (this.popoverEl && !this.isProcessing) {
-      this.removePopover();
-    }
   }
 }

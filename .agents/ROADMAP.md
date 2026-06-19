@@ -39,13 +39,17 @@ Source of Truth to identify unresolved items.
      determinism (#8), token-truncation hard guard (#10). Existing
      `warnIfLargeReplacement` warning remains for #10.
 
-3. **[Fix/Minor Update] Persistent Quick Query Popover**
+3. ✅ **[Fix/Minor Update] Persistent Quick Query Popover** — SHIPPED in v0.15.0
+   (pending PR merge).
    - Upgrade the inline copilot popover to be immune to outside clicks, freely
      draggable, minimizable, and usable as a persistent reference window.
-   - Detailed analysis: `.agents/drafts/persistent_popover.md`
-   - Code-review findings are already folded into the draft: teardown order,
+   - Code-review findings addressed: teardown order,
      text-node click crash, fixed palette scroll behavior, dynamic title ref,
      drag state, and minimize state.
+   - PR #37 follow-up review fixes addressed: trigger scroll listeners detach
+     when the persistent popover remains open, global Escape handling is scoped
+     to popover focus, and active spec headers/tests are synchronized to v0.15.0.
+   - Plan/draft artifacts deleted on ship; use Git history for details.
    - Keep separate from `.agents/drafts/popover_tool_scope.md` unless planning
      the broader UI/UX architecture overhaul.
 
@@ -140,8 +144,9 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: IDLE after Milestone 2 (Diff Viewer Tier A) merged in
-  v0.14.1. Deferred Diff Viewer polish folded into item 6.
-- **Next actionable item**: 3. Persistent Quick Query Popover.
+- **Roadmap state**: Persistent Quick Query Popover shipped in v0.15.0 on
+  `feature/persistent-quick-query-popover`, pending PR merge.
+- **Next actionable item**: push branch and open PR; after merge, continue with
+  item 4. Purge Legacy QMD References.
 - **Priority order**: fix-like items 3 → 5, then RAG hardening and remaining
   feature work.
