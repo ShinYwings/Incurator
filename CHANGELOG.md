@@ -4,6 +4,38 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.14.1] - 2026-06-19
+### Fixed
+- **Diff Viewer — Accept All cursor.** Accepting all changes now leaves the
+  cursor at the first changed line instead of teleporting to the bottom of the
+  document.
+- **Diff Viewer — toolbar anchoring.** When a diff opens off-screen, the editor
+  scrolls the first change into view before measuring, so the Accept/Reject
+  toolbar anchors next to the change instead of jumping to the top of the screen.
+- **Diff Viewer — multi-file review race.** Opening a diff is serialized behind a
+  single in-flight guard, so clicking a second proposal pill can no longer
+  re-point the singleton Diff Viewer to the wrong file mid-open.
+- **Edit-proposal pills show honest, live status.** Each review pill is derived
+  from the current file via the shared matcher: **✓ Applied** when the edit
+  already appears, or when an empty-replacement deletion has already removed the
+  SEARCH text; **⚠ Not found** when neither side matches. Applied/not-found pills
+  no longer re-run doomed matches on click, so no "could not find" appears after
+  a status pill already reported the state. Self-healing across re-render and
+  session reload (no schema change).
+- **Path resolution fallback.** `resolveVaultFile` adds a case-insensitive,
+  whitespace-trimmed full-path scan, fixing spurious "file not found" on existing
+  notes whose path differs only by case without retargeting same-named notes in
+  other folders.
+- **Agent no longer claims edits are applied.** The edit-loop post-edit phase now
+  states edits are *proposed and pending your Accept in the Diff Viewer*; nothing
+  is written to disk until you accept.
+
+### Notes
+- Triaged against the v0.11.0 Diff Viewer overhaul: navigation scroll and
+  premature-disk-write were confirmed already fixed and are now pinned by
+  regression tests. Unified-view polish and cross-model output determinism remain
+  deferred to the Agent UI/UX & Context Architecture milestone.
+
 ## [0.14.0] - 2026-06-19
 ### Added
 - **Enforced & observable sidechat edit-loop state machine.** Edit proposals

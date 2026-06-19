@@ -30,16 +30,14 @@ Source of Truth to identify unresolved items.
      triggers shipped. Plan artifacts deleted (see Git history); see CHANGELOG
      `[0.14.0]`.
 
-2. **[Fix/Minor Update] Diff Viewer Plugin Overhaul & Sync Fixes** — PLAN DRAFTED,
-   awaiting approval.
-   - Address critical Diff Viewer bugs: unified inline view, race conditions,
-     multi-file selection, path resolution, state desync, hover placement,
-     output consistency, and token-limit truncation.
-   - Detailed analysis: `.agents/drafts/diff_viewer_plugin.md`
-   - Arena: `.agents/plans/diff_viewer_overhaul_arena/`
-   - Master plan: `.agents/plans/02_diff_viewer_overhaul.md` (triage-first;
-     Tier A surgical fixes → v0.14.1, Tier B gated. Many draft bugs predate the
-     v0.11.0/v0.14.0 work — P0 reproduction is a hard gate.)
+2. ✅ **[Fix] Diff Viewer Plugin Overhaul & Sync Fixes** — Tier A SHIPPED in
+   v0.14.1 (pending PR merge).
+   - P0 triage: 2 FIXED (nav, premature-write), 2 LIVE (Accept-All cursor, hover),
+     7 PARTIAL. Tier A fixes shipped: cursor restore, toolbar anchor, review
+     race guard, path fallback, derived pill status, "proposed not applied".
+   - **Deferred to item 6**: unified-view CSS polish (#5), cross-model output
+     determinism (#8), token-truncation hard guard (#10). Existing
+     `warnIfLargeReplacement` warning remains for #10.
 
 3. **[Fix/Minor Update] Persistent Quick Query Popover**
    - Upgrade the inline copilot popover to be immune to outside clicks, freely
@@ -67,10 +65,14 @@ Source of Truth to identify unresolved items.
 6. **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul**
    - Unified refactor for systemic agent attention failures, prompt duplication,
      and UI state desyncs.
+   - **Deferred Diff Viewer polish (from v0.14.1 P0 triage)**: unified-view CSS
+     gutter alignment (#5), cross-model `reviewInEditor` output determinism (#8),
+     and a token-truncation hard-reject guard (#10). The original
+     `diff_viewer_plugin.md` draft was deleted on ship; see Git history (v0.14.1)
+     for the full bug list.
    - Component drafts:
      - `.agents/drafts/chat_context_decay.md`
      - `.agents/drafts/popover_tool_scope.md`
-     - `.agents/drafts/diff_viewer_plugin.md`
      - `.agents/drafts/prompt_architecture_refactoring.md`
 
 7. **[Major/Minor Follow-Up] RAG Post-Stabilization Hardening**
@@ -138,8 +140,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Milestone 2 plan drafted (`02_diff_viewer_overhaul.md`),
-  awaiting user approval before implementation (P0 triage is the first gate).
-- **Next actionable item**: 2. Diff Viewer Plugin Overhaul & Sync Fixes.
-- **Priority order**: fix-like items 2 → 5, then RAG hardening and remaining
+- **Roadmap state**: Milestone 2 (Diff Viewer Tier A) shipped in v0.14.1, pending
+  PR merge. Deferred Diff Viewer polish folded into item 6.
+- **Next actionable item**: 3. Persistent Quick Query Popover.
+- **Priority order**: fix-like items 3 → 5, then RAG hardening and remaining
   feature work.
