@@ -54,26 +54,24 @@ describe("incuratorQueryTrace v0.3.1 rendering", () => {
     expect(source).toContain("pack.next");
   });
 
-  it("wires locator navigation for vault relpaths and external URIs", () => {
-    expect(source).toContain("function locatorTarget(");
+  // The pure open-target decision (vault/external/external_pdf, page anchors,
+  // external_uri-over-stub precedence) is behaviorally covered in
+  // incuratorQueryTraceLocator.test.ts. Here we only assert the trace panel
+  // delegates to that module and wires the Obsidian/Electron open side-effects
+  // that cannot render under the node vitest environment.
+  it("delegates locator resolution to the pure locatorTarget module", () => {
+    expect(source).toContain('from "./incuratorQueryTraceLocator"');
+    expect(source).toContain("locatorTarget(locator)");
     expect(source).toContain("function openLocator(");
+    expect(source).toContain("incurator-trace-pack-locator-link");
+  });
+
+  it("wires the vault/external/external-pdf open side-effects", () => {
     expect(source).toContain("app.workspace.openLinkText");
     expect(source).toContain("shell.openPath");
     expect(source).toContain("shell.openExternal");
     expect(source).toContain("window.open");
-    expect(source).toContain("incurator-trace-pack-locator-link");
-    expect(source).toContain("locator.locator_status === \"unavailable\"");
-    expect(source).toContain("#^${blockId}");
-    expect(source).toContain("linkpath");
-  });
-
-  it("jumps to the cited page for registered/vault PDFs via Obsidian's viewer", () => {
-    // A vault PDF (source_kind === "vault_pdf", in-vault relpath, no external_uri)
-    // opens in Obsidian and jumps to the cited page with the #page=N anchor.
-    expect(source).toContain("source_kind");
-    expect(source).toContain("vault_pdf");
-    expect(source).toContain("#page=${page}");
-    expect(source).toContain("app.workspace.openLinkText");
+    expect(source).toContain("openExternalReference");
   });
 
   it("opens external Reference Mode PDFs in the plugin's external PDF viewer at the cited page", () => {
@@ -83,18 +81,7 @@ describe("incuratorQueryTrace v0.3.1 rendering", () => {
     expect(source).toContain("EXTERNAL_PDF_VIEW_TYPE");
     expect(source).toContain("registerExternalPdfByPath");
     expect(source).toContain("currentPage");
-    expect(source).toContain("external_pdf");
-  });
-
-  it("prefers external_uri over the in-vault stub for non-PDF references", () => {
-    // For a non-PDF external reference, the system handler opens the real file;
-    // the relpath stub must not win just because it is non-null.
-    expect(source).toContain("locator.external_uri");
-    expect(source).toContain("openExternalReference");
-    // external_uri branch is evaluated before the relpath/vault branch.
-    expect(source.indexOf("const externalUri")).toBeLessThan(
-      source.indexOf("if (relpath)")
-    );
+    expect(source).toContain('target.kind === "external_pdf"');
   });
 
   it("renders explicit expansion and verification handle controls", () => {

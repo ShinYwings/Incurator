@@ -1,87 +1,64 @@
 # Cross-Agent Relay State
 
 ## Goal
-Plan G — PDF handling unification and simplification on
-`feature/pdf-unified-handling`.
+Batch 3 / Plan F — Unified Agent Context Service on
+`feature/agent-context-service`.
 
 ## Plan Reference
-- Plan G implementation/evidence artifacts were completed and removed from the
-  active workspace during v0.12.0 finalization; historical copies remain in Git.
-- Current phase: v0.12.0 release commit pushed and draft PR opened.
+- Active plan: `.agents/plans/F_agent_context_service.md`
+- Current phase: **P6 — Obsidian Agent Grounding And Sources & Trace** (in flight).
+- Plan G (PDF unification) was branched off this branch and merged back via PR #33
+  (`f53306c`); v0.12.0 shipped. That merge restored the Plan G RELAY snapshot, so
+  this file has been rewritten to the accurate Plan F live state.
 
-## Analysis & Reasoning
-- User explicitly asked to re-check macOS/Linux device sync before continuing.
-  Audit found the original Plan G resolver/cache design was mostly device-safe:
-  plugin `data.json`, backend `state.sqlite`, runtime state, and Obsidian
-  workspace state are ignored by the active vault `.stignore`; Zotero paths are
-  device-local and resolved from each machine's local `~/Zotero` database and
-  ZotMoov roots.
-- Gap found and fixed: `.curator/sessions.json` is sync-supported and can store
-  `ChatMessage.contextRefs`. Those refs could carry absolute external PDF paths
-  and `backendStatus.*Path` from macOS or Linux. P4 now sanitizes synced session
-  data: absolute `ContextRef.filePath` values are stripped, volatile
-  `backendStatus` is removed, and portable identity (`zoteroAttachmentKey`,
-  `fileHash`, vault-relative path, page) is preserved for local re-resolution.
-- P4 registry extraction is done: `externalPdfView.ts` no longer owns
-  persistence/register/Zotero local traversal helpers. New boundary:
-  `plugin/src/ui/externalPdfRegistry.ts`.
-- Stale persisted path handling is done: Zotero URL open reuses existing external
-  PDF leaves by `zoteroAttachmentKey` as well as path and updates the persisted
-  doc path when the backend resolves the same attachment to a new physical path.
-- P4b capture extraction is done: `getActivePdfContext` delegates to
-  `PdfCaptureService`, which is unit-testable without an Obsidian `ItemView`.
-- P4 net-LOC gate is now green after deleting unused text-extraction promise
-  code, collapsing toolbar button duplication, and compacting registry glue.
-- P5 testbed confirmed the device-portability contract: a fresh reference PDF
-  resolved on the current macOS path without rebind, while older smoke sources
-  pointing at missing `/private/tmp/*.pdf` paths downgraded to `state: missing`
-  / `requires_rebind: true` instead of treating stale absolute paths as truth.
+## Analysis & Reasoning (Phase boundary)
+- **P0–P5 complete.** ContextService owns root `QTR-*`, deterministic `SNAP-*`,
+  ordered `CTXA-*` child actions, `PACK-*`, typed `snapshot_conflict`. Budget-bounded
+  pack selection, explicit omissions, `next[]` expansion handles, locator resolution,
+  and trace/response selected-pack parity all landed. Public adapters
+  (`curator_fetch_context`, `curator_query`/`wiki query`, plugin JSON) delegate to the
+  service and expose normalized pack/snapshot/budget/prompt-trace parity against the
+  stored root `QTR-*`. `context_manifest`/`context_expand`/`context_verify` exist and
+  reuse the root QTR + stored SNAP.
+- **P6 in flight.** Provider grounding (hidden `wiki plugin context fetch` →
+  `IncuratorClient.fetchContext()` → sidechat `formatCuratorContextPack`, no default
+  backend-synthesized answer), exact-pack Sources & Trace rendering, clickable locators,
+  and `context:expand`/`context:verify` controls are done. Snapshot-conflict refetch UX
+  is implemented at source-contract level.
 
 ## Progress Status
-- Latest commits:
-  - `01a13d5` — `feat(plan-g): P4 registry extraction and session path sync guard`
-  - `e05db49` — `feat(plan-g): extract PdfCaptureService from external PDF view`
-  - `669176f` — `refactor(plan-g): close P4 PDF module LOC gate`
-  - `300c861` — `chore(plan-g): record P5 testbed validation`
-  - `4910e60` — `chore(release): v0.12.0`
-- Draft PR: https://github.com/ShinYwings/Incurator/pull/33
-- Docs/specs updated for device-safe session sync:
-  `PLUGIN_SCHEMA.md`, `PLUGIN_GUIDE.md`, `PLUGIN_GUIDE_KR.md`,
-  `SYNC_IGNORE_GUIDE.md`, `SYNC_IGNORE_GUIDE_KR.md`, Plan G, and evidence ledger.
-- Tests added/updated:
-  - `plugin/src/utils/sessionData.test.ts` for synced-session path sanitization.
-  - `plugin/src/ui/externalPdfPersistence.test.ts` for registry persistence,
-    stale path replacement, and Zotero attachment-key reuse.
-  - `plugin/src/ui/pdfCaptureService.test.ts` for capture service behavior.
+- Baseline after Plan G merge re-verified green (see Validation).
+- This session (Claude, 2026-06-19): hardened the P6 Sources & Trace locator slice.
+  Extracted the pure open-target decision out of the Obsidian-coupled trace module into
+  `plugin/src/ui/incuratorQueryTraceLocator.ts` (mirrors Plan G's `PdfCaptureService` /
+  `externalPdfRegistry` testability extractions) and replaced weak source-grep coverage
+  with real behavioral tests in `incuratorQueryTraceLocator.test.ts`: registered/vault
+  PDF (`#page=N`), unregistered external Reference Mode PDF (plugin viewer at page),
+  PDF-by-extension, non-PDF external (system handler, stub-loses-to-external_uri),
+  URL-scheme `.pdf` (system handler), and vault note block/heading anchors.
+  `incuratorQueryTraceV031.test.ts` now asserts the trace module *delegates* + wires the
+  Obsidian/Electron side-effects, instead of grepping the moved pure logic.
 
 ## Validation
-- `scripts/backend-check pytest` -> `938 passed, 6 skipped, 5 xfailed`.
-- `scripts/backend-check ruff` -> passed.
-- `scripts/backend-check mypy` -> passed, no issues in 96 files.
+- `scripts/backend-check pytest backend/tests/test_plan_f_context_service_contract.py`
+  -> `24 passed`.
 - `npx tsc --noEmit` from `plugin/` -> passed.
-- Full plugin suite from `plugin/`: `npx vitest run -c ./vitest.config.ts` ->
-  `48` files / `413` tests passed.
-- `git diff --check` -> passed.
-- PDF module LOC: P0 baseline 4601, current 4598.
-- Testbed: ResNet Reference Mode import/register generated L1
-  `CTX-d617d779`; `wiki plugin pdf context --source-id 3` returned durable L1
-  page text; `wiki lint` health `100/100`.
-- Release metadata: backend/plugin versions set to `0.12.0`; changelog updated.
-- PR #33 review follow-up applied: stale backend DB paths no longer override
-  fresh resolved paths; ExternalPdfView re-resolves Zotero layout state on the
-  current device; non-PDF external locators use Electron shell openers; unresolved
-  Reference Mode stubs do not read as resolved; context verification merges the
-  verified item into Sources & Trace; synthesis `source_span_ids=None` falls back
-  to `[]`.
+- `npx vitest run` from `plugin/` -> `50` files / `426` tests passed (was 49/417).
 
 ## Critical Context / Blockers
-- Active scenario was not explicitly confirmed; P5 therefore reused the existing
-  Plan G smoke `testbed/` instead of force reinitializing it. This preserved
-  useful stale-path evidence for `/private/tmp` reference rows.
-- Popover review findings remain queued after Plan G in ROADMAP item 4.1; do not
-  mix them into this branch unless explicitly reprioritized.
+- Items `01`-`03` and `06` from the Batch 1~3 audit (`.agents/drafts/batch_1_to_3_audit/`)
+  are real follow-up risks tracked in `.agents/ROADMAP.md`.
+- P6 browser/Obsidian *visual* QA (pack/refetch/action control styling) cannot be done
+  headlessly; still pending a human/visual pass.
+- Active testbed scenario is unconfirmed; Plan F defers destructive
+  `wiki testbed init --force` until P9 or explicit selection.
+- Explore-mode ContextService migration is deferred to the explicit follow-up
+  requirement unless the user directs otherwise.
 
 ## Immediate Next Action
-Push the PR #33 review-follow-up commit, then review PR #33 after Plan F
-merge/rebase ordering is decided. Persistent Quick Query Popover findings remain
-queued in ROADMAP 4.1 for the next plan.
+Continue P6, then advance to remaining phases:
+1. P6: visual QA of pack/refetch/action controls (needs a human/Obsidian pass).
+2. **P7 — Feedback And Promotion Lineage**: append-only `context_feedback`, all locked
+   feedback types, lineage attachment, quarantine from ranking/truth. Begin TDD.
+3. P8 — Plan-A route admission; P9 — cross-client E2E, testbed, migration, release
+   (version bump + changelog at the P9 release gate per Universal Strict Workflow).
