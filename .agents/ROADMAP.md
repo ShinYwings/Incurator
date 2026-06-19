@@ -30,11 +30,16 @@ Source of Truth to identify unresolved items.
      triggers shipped. Plan artifacts deleted (see Git history); see CHANGELOG
      `[0.14.0]`.
 
-2. **[Fix/Minor Update] Diff Viewer Plugin Overhaul & Sync Fixes**
+2. **[Fix/Minor Update] Diff Viewer Plugin Overhaul & Sync Fixes** — PLAN DRAFTED,
+   awaiting approval.
    - Address critical Diff Viewer bugs: unified inline view, race conditions,
      multi-file selection, path resolution, state desync, hover placement,
      output consistency, and token-limit truncation.
    - Detailed analysis: `.agents/drafts/diff_viewer_plugin.md`
+   - Arena: `.agents/plans/diff_viewer_overhaul_arena/`
+   - Master plan: `.agents/plans/02_diff_viewer_overhaul.md` (triage-first;
+     Tier A surgical fixes → v0.14.1, Tier B gated. Many draft bugs predate the
+     v0.11.0/v0.14.0 work — P0 reproduction is a hard gate.)
 
 3. **[Fix/Minor Update] Persistent Quick Query Popover**
    - Upgrade the inline copilot popover to be immune to outside clicks, freely
@@ -133,7 +138,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Initializing Milestone 2.
+- **Roadmap state**: Milestone 2 plan drafted (`02_diff_viewer_overhaul.md`),
+  awaiting user approval before implementation (P0 triage is the first gate).
 - **Next actionable item**: 2. Diff Viewer Plugin Overhaul & Sync Fixes.
 - **Priority order**: fix-like items 2 → 5, then RAG hardening and remaining
   feature work.
