@@ -78,6 +78,32 @@ describe("validateEditLoop", () => {
     expect(result.missing).toContain("REVIEWED (post-edit)");
   });
 
+  it("passes when a stray REVIEWED precedes ANALYSED but a valid one sits before UPDATED", () => {
+    const withStray = [
+      "[[PHASE:REVIEWED]]", // stray/duplicate ahead of ANALYSED
+      "premature note",
+      "[[PHASE:ANALYSED]]",
+      "the real gap",
+      "[[PHASE:REVIEWED]]", // the valid pre-edit review
+      "plan critique",
+      "[[PHASE:UPDATED]]",
+      EDIT_BLOCK,
+      "[[PHASE:REVIEWED]]",
+      "post-edit check",
+    ].join("\n\n");
+    const result = validateEditLoop(withStray);
+    expect(result.ok).toBe(true);
+  });
+
+  it("ignores an inline-quoted marker that is not at a line start", () => {
+    const inlineQuote =
+      "You should emit `[[PHASE:ANALYSED]]` as a marker.\n\n" + EDIT_BLOCK;
+    const parse = parseEditLoopPhases(inlineQuote);
+    expect(parse.phases).toHaveLength(0);
+    // Edits present but no real phase markers → gated.
+    expect(validateEditLoop(inlineQuote).ok).toBe(false);
+  });
+
   it("fails when UPDATED appears before the first REVIEWED (out of order)", () => {
     const outOfOrder = [
       "[[PHASE:ANALYSED]]",

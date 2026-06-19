@@ -1255,10 +1255,11 @@ export class ChatSidebarView extends ItemView {
     // edit request, an editable selection, an open Markdown edit target, or a
     // multi-turn continuation of an edit loop the previous answer already opened.
     const priorAnswerOpenedEditLoop = (() => {
-      const lastAssistant = [...this.messages]
-        .reverse()
-        .find((msg) => msg.role === "assistant");
-      return lastAssistant ? validateEditLoop(lastAssistant.content).hasEdits : false;
+      for (let i = this.messages.length - 1; i >= 0; i--) {
+        const msg = this.messages[i];
+        if (msg.role === "assistant") return validateEditLoop(msg.content).hasEdits;
+      }
+      return false;
     })();
     const editLoopLikely =
       latestIsMarkdownEditRequest ||
@@ -3020,6 +3021,7 @@ export class ChatSidebarView extends ItemView {
     }
 
     let reviewSeen = 0;
+    let diffsRendered = false;
     for (let i = 0; i < phases.length; i++) {
       const marker = `[[PHASE:${phases[i].label}]]`;
       const bodyStart = phases[i].index + marker.length;
@@ -3042,7 +3044,10 @@ export class ChatSidebarView extends ItemView {
       if (prose) {
         this.renderAssistantMarkdown(this.processMarkdownForThoughts(prose, false), sectionBody);
       }
-      if (phases[i].label === "UPDATED") {
+      // Render the diff pills once, under the first UPDATED phase only — a
+      // model emitting multiple UPDATED markers must not duplicate the pills.
+      if (phases[i].label === "UPDATED" && !diffsRendered) {
+        diffsRendered = true;
         for (const prop of multiProposals) {
           this.renderInlineMultiDiff(sectionBody, prop, msg, multiProposals);
         }

@@ -32,7 +32,10 @@ export interface EditLoopValidation {
   missing: string[];
 }
 
-const PHASE_MARKER_RE = /\[\[PHASE:(ANALYSED|REVIEWED|UPDATED)\]\]/g;
+// Anchored to a line start (leading whitespace tolerated) so an inline quote of
+// the instruction (e.g. `[[PHASE:ANALYSED]]` mid-sentence) is NOT treated as a
+// real phase boundary — that would fracture the prose-slicing in the renderer.
+const PHASE_MARKER_RE = /^\s*\[\[PHASE:(ANALYSED|REVIEWED|UPDATED)\]\]/gm;
 const EDIT_BLOCK_RE = /```ai-agent-edit\b/gi;
 
 /** Parse phase markers (in document order) and count `ai-agent-edit` blocks. */
@@ -40,7 +43,10 @@ export function parseEditLoopPhases(content: string): EditLoopParse {
   const text = content ?? "";
   const phases: PhaseMarker[] = [];
   for (const m of text.matchAll(PHASE_MARKER_RE)) {
-    phases.push({ label: m[1] as PhaseLabel, index: m.index ?? 0 });
+    // m[0] may include leading whitespace (`^\s*`); point index at the real
+    // `[[` so renderer slicing (index + marker.length) stays exact.
+    const markerStart = (m.index ?? 0) + m[0].indexOf("[[");
+    phases.push({ label: m[1] as PhaseLabel, index: markerStart });
   }
   const editBlocks = (text.match(EDIT_BLOCK_RE) || []).length;
   return { phases, editBlocks };
@@ -63,10 +69,18 @@ export function validateEditLoop(content: string): EditLoopValidation {
 
   const analysedIdx = labels.indexOf("ANALYSED");
   const updatedIdx = labels.indexOf("UPDATED");
-  // First REVIEWED that comes before UPDATED, and one that comes after it.
-  const preReviewIdx = labels.findIndex(
-    (l, i) => l === "REVIEWED" && updatedIdx >= 0 && i < updatedIdx
-  );
+  // The LAST REVIEWED before UPDATED (the real pre-edit review), not the first —
+  // a stray/duplicate REVIEWED ahead of ANALYSED must not mask the valid one
+  // that sits between ANALYSED and UPDATED.
+  let preReviewIdx = -1;
+  if (updatedIdx >= 0) {
+    for (let i = updatedIdx - 1; i >= 0; i--) {
+      if (labels[i] === "REVIEWED") {
+        preReviewIdx = i;
+        break;
+      }
+    }
+  }
   const postReviewIdx =
     updatedIdx >= 0
       ? labels.findIndex((l, i) => l === "REVIEWED" && i > updatedIdx)
