@@ -39,8 +39,8 @@ Source of Truth to identify unresolved items.
      determinism (#8), token-truncation hard guard (#10). Existing
      `warnIfLargeReplacement` warning remains for #10.
 
-3. ✅ **[Fix/Minor Update] Persistent Quick Query Popover** — SHIPPED in v0.15.0
-   (pending PR merge).
+3. ✅ **[Fix/Minor Update] Persistent Quick Query Popover** — SHIPPED and
+   merged in v0.15.0 / PR #37.
    - Upgrade the inline copilot popover to be immune to outside clicks, freely
      draggable, minimizable, and usable as a persistent reference window.
    - Code-review findings addressed: teardown order,
@@ -144,9 +144,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Persistent Quick Query Popover shipped in v0.15.0 on
-  `feature/persistent-quick-query-popover`, pending PR merge.
-- **Next actionable item**: push branch and open PR; after merge, continue with
-  item 4. Purge Legacy QMD References.
-- **Priority order**: fix-like items 3 → 5, then RAG hardening and remaining
+- **Roadmap state**: Persistent Quick Query Popover shipped and merged in
+  v0.15.0 / PR #37.
+- **Next actionable item**: item 4. Purge Legacy QMD References.
+- **Priority order**: fix-like items 4 → 5, then RAG hardening and remaining
   feature work.
