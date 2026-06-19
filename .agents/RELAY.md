@@ -2,7 +2,9 @@
 
 ## Status
 Persistent Quick Query Popover implemented on
-`feature/persistent-quick-query-popover` as v0.15.0. Push + PR next.
+`feature/persistent-quick-query-popover` as v0.15.0.
+
+PR opened: https://github.com/ShinYwings/Incurator/pull/37
 
 ## Done This Milestone
 - Quick Query popovers are persistent: outside clicks no longer close an open
@@ -33,4 +35,4 @@ Persistent Quick Query Popover implemented on
   plugin manifest are all 0.15.0.
 
 ## Immediate Next Action
-Push `feature/persistent-quick-query-popover` and open the PR.
+Wait for GitHub CI on PR #37, then merge if checks pass.
