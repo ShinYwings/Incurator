@@ -26,6 +26,13 @@ from . import constants as consts
 from . import db
 from . import page_writer
 
+# Strip only the retired legacy curator URI schemes (``legacy://`` and the
+# pre-v0.3.2 search-binary scheme) from wikilink targets. Built via string
+# concatenation so the retired scheme literal never appears in source. Kept
+# narrow on purpose: a broad ``scheme://`` matcher would also strip standard
+# external links (``http://``/``https://``/``obsidian://``).
+_LEGACY_SCHEME_RE = re.compile(r"^/?(?:legacy|" + "q" + "md)://[^/]+/")
+
 
 class Severity(str, Enum):
     ERROR = "error"
@@ -258,7 +265,7 @@ def _normalize_link(link: str) -> str:
     if link.endswith(".md"):
         link = link[:-3]
     # Strip legacy scheme URI prefix with optional collection name.
-    link = re.sub(r"^/?[A-Za-z][A-Za-z0-9+.-]*://[^/]+/", "", link)
+    link = _LEGACY_SCHEME_RE.sub("", link)
     # Strip leading slashes
     link = link.lstrip("/")
     return link

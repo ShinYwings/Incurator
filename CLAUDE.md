@@ -486,7 +486,7 @@ Before implementing any new architecture work, the agent MUST first create or up
   (static EXH files were removed in v0.3.1). Do not write new EXH files.
 - Valid node prefixes are `CTX-`, `ATM-`, `CON-`, `SYN-`. `EXH-` is retired.
 - `curate.yml` is the workspace Knowledge Requirement Specification.
-  search is DB-native (FTS5 + vector + RRF + reranking).
+  Search is DB-native (FTS5 + vector + RRF + reranking).
   Do not add external search-binary dependencies or generated search-backend
   config files.
 - `03_Notes/` is human-verified source truth. Do not edit it autonomously.

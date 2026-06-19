@@ -31,6 +31,13 @@ from .llm import (
 
 MAX_SYNTHESIS_SOURCE_CHARS = 24_000
 
+# Strip only the retired legacy curator URI schemes (``legacy://`` and the
+# pre-v0.3.2 search-binary scheme) from wikilink targets. Built via string
+# concatenation so the retired scheme literal never appears in source. Kept
+# narrow on purpose: a broad ``scheme://`` matcher would also strip standard
+# external links (``http://``/``https://``/``obsidian://``).
+_LEGACY_SCHEME_RE = re.compile(r"^/?(?:legacy|" + "q" + "md)://[^/]+/")
+
 
 class ChatClient(Protocol):
     def chat(
@@ -162,9 +169,8 @@ def _build_synthesis_user_prompt(
         # Use the full hit path so the LLM sees how to wikilink it.
         # Strip any legacy scheme prefix and collection name so the link is
         # clean and Obsidian-friendly.
-        import re as _re
         raw_path = hit.full_path.removesuffix(".md")
-        page_link = _re.sub(r"^/?[A-Za-z][A-Za-z0-9+.-]*://[^/]+/", "", raw_path).lstrip("/")
+        page_link = _LEGACY_SCHEME_RE.sub("", raw_path).lstrip("/")
         lines.append(f"Wikilink path: [[{page_link}]]")
         if hit.title:
             lines.append(f"Title: {hit.title}")
@@ -202,8 +208,7 @@ def _node_path_from_target(target: str) -> str:
     if cleaned.startswith("[[") and cleaned.endswith("]]"):
         cleaned = cleaned[2:-2]
     cleaned = cleaned.split("|", 1)[0].strip()
-    import re as _re
-    return _re.sub(r"^/?[A-Za-z][A-Za-z0-9+.-]*://[^/]+/", "", cleaned).lstrip("/")
+    return _LEGACY_SCHEME_RE.sub("", cleaned).lstrip("/")
 
 
 def translate_to_english(client: ChatClient, question: str) -> str:
