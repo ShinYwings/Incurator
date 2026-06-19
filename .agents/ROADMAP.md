@@ -24,51 +24,13 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-1. ✅ **[Minor Update] Sidechat Edit Loop — Enforced & Observable State Machine**
-   — SHIPPED in v0.14.0.
-   - Prompt contract + runtime validator hard-gate + visible UI phases + wider
-     triggers shipped. Plan artifacts deleted (see Git history); see CHANGELOG
-     `[0.14.0]`.
-
-2. ✅ **[Fix] Diff Viewer Plugin Overhaul & Sync Fixes** — Tier A SHIPPED and
-   merged in v0.14.1.
-   - P0 triage: 2 FIXED (nav, premature-write), 2 LIVE (Accept-All cursor, hover),
-     7 PARTIAL. Tier A fixes shipped: cursor restore, toolbar anchor, review
-     race guard, path fallback, derived pill status, "proposed not applied".
-   - **Deferred to item 6**: unified-view CSS polish (#5), cross-model output
-     determinism (#8), token-truncation hard guard (#10). Existing
-     `warnIfLargeReplacement` warning remains for #10.
-
-3. ✅ **[Fix/Minor Update] Persistent Quick Query Popover** — SHIPPED and
-   merged in v0.15.0 / PR #37.
-   - Upgrade the inline copilot popover to be immune to outside clicks, freely
-     draggable, minimizable, and usable as a persistent reference window.
-   - Code-review findings addressed: teardown order,
-     text-node click crash, fixed palette scroll behavior, dynamic title ref,
-     drag state, and minimize state.
-   - PR #37 follow-up review fixes addressed: trigger scroll listeners detach
-     when the persistent popover remains open, global Escape handling is scoped
-     to popover focus, and active spec headers/tests are synchronized to v0.15.0.
-   - Plan/draft artifacts deleted on ship; use Git history for details.
-   - Keep separate from `.agents/drafts/popover_tool_scope.md` unless planning
-     the broader UI/UX architecture overhaul.
-
-4. ✅ **[Fix/Chore] Purge Legacy Search Binary References** — SHIPPED in
-   v0.16.0.
-   - Removed stale retired-search-binary references from active runtime, build,
-     plugin status, docs/specs, and guard-tested source surfaces.
-   - Backend/MCP/plugin status now expose DB-native `search_*` readiness only.
-   - Obsolete search parity benchmark artifacts were deleted; use DB-native
-     reindex/status/testbed smoke as the active validation path.
-   - Plan/draft artifacts deleted on ship; use Git history for details.
-
-5. **[Fix/Validation] `[[wikilink]]` Architecture Validation**
+1. **[Fix/Validation] `[[wikilink]]` Architecture Validation**
    - Validate whether current backend link parsing intentionally avoids
      `[[wikilink]]` syntax or whether missing wikilinks are a real conflict.
    - Keep coding minimal unless validation proves a concrete parser/sync bug.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
 
-6. **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul**
+2. **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul**
    - Unified refactor for systemic agent attention failures, prompt duplication,
      and UI state desyncs.
    - **Deferred Diff Viewer polish (from v0.14.1 P0 triage)**: unified-view CSS
@@ -81,7 +43,7 @@ Source of Truth to identify unresolved items.
      - `.agents/drafts/popover_tool_scope.md`
      - `.agents/drafts/prompt_architecture_refactoring.md`
 
-7. **[Major/Minor Follow-Up] RAG Post-Stabilization Hardening**
+3. **[Major/Minor Follow-Up] RAG Post-Stabilization Hardening**
    - RAG & Knowledge Quality Stabilization itself is complete, but the audit
      drafts identify follow-up hardening work that has **not** been implemented
      as a unified follow-up yet.
@@ -95,25 +57,25 @@ Source of Truth to identify unresolved items.
      - expansion state-machine hardening;
      - trace mutation / retrieval metric integrity.
 
-8. **[Minor Update] Chat Session Context Compaction**
+4. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a
      click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-9. **[Minor Update] Minor Quick Wins**
+5. **[Minor Update] Minor Quick Wins**
    - Web search integration review.
    - Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`).
    - Zotero import profile/item checkbox lists sorted by most recently accessed
      or imported items.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
 
-10. **[Minor Update] Vault Storage Governance & Quota Visibility**
+6. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-11. **[Major Update] Native PDF Annotation & Asset System**
+7. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in
      PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
@@ -123,6 +85,9 @@ Source of Truth to identify unresolved items.
 
 ## ✅ Completed Milestones
 
+- **Purge Legacy Search Binary References** — shipped in v0.16.0.
+- **Persistent Quick Query Popover** — shipped in v0.15.0.
+- **Sidechat Edit Loop & Diff Viewer Tier A Fixes** — shipped in v0.14.0 and v0.14.1.
 - **RAG & Knowledge Quality Stabilization** — complete through v0.13.0 / PR #34.
   - Batch 1: D1 v0.6.0, Plan E complete, D2 v0.7.0.
   - Batch 2: Plan B v0.8.0, Plan C v0.9.0.
@@ -146,6 +111,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Item 5 active on `feature/wikilink-architecture-validation`.
-- **Next actionable item**: Implement/Validate item 5 (`[[wikilink]]` Architecture Validation).
-- **Priority order**: item 5, then RAG hardening and remaining feature work.
+- **Roadmap state**: Item 1 active on `feature/wikilink-architecture-validation`.
+- **Next actionable item**: Implement/Validate item 1 (`[[wikilink]]` Architecture Validation).
+- **Priority order**: item 1, then UI/UX architecture overhaul and RAG hardening.
