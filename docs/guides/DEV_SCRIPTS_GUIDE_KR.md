@@ -68,14 +68,9 @@ tests/scenarios/<scenario_name>/
 
 ## 4. 벤치마크 스크립트
 
-저장소에서 추적되는 benchmark harness는 `scripts/benchmarks/`에 둡니다. 이는
-testbed scenario가 아니며 `wiki testbed list`에 표시되지 않습니다.
-
-- `scripts/benchmarks/search_parity_bench.py`는
-  `docs/benchmarks/SEARCH_PARITY_v0.3.2.md`에 문서화된 v0.3.2 DB-native search
-  vs qmd parity 측정을 재현합니다.
-- 서로 다른 llama-cpp model stack을 로드하는 benchmark row는 분리 실행하세요.
-  일부 host에서는 all-in-one wrapper가 덜 안정적일 수 있습니다.
+현재 활성 상태로 저장소에서 추적되는 benchmark harness는 없습니다. 향후
+benchmark는 지원되는 runtime path만 실행할 때 `scripts/benchmarks/` 아래에
+추가하고 이 문서에 함께 기록하세요.
 
 ## 5. 모범 사례
 - **상태 최소화**: 테스트에 엄격하게 필요한 파일만 포함하세요.

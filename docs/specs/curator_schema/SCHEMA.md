@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.15.0)
+# Incurator - Schema & Operating Conventions (v0.16.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -6,11 +6,11 @@ This document represents the most concrete layer (`spec`) of the documentation h
 
 Implementation plans under `.agents/plans/` are transient and strictly subordinate to this spec. They may explain sequencing and alternatives, but code must conform to this file when it writes `.curator/` state, Curator DAG pages, MCP payloads, or provider/model configuration.
 
-Sections 1-17 below define the schema contract. The database engine retires qmd as a search backend and internalizes search/query traces inside `state.sqlite`. Historical schema definitions are tracked via git history.
+Sections 1-17 below define the schema contract. The database engine internalizes search/query traces inside `state.sqlite`. Historical schema definitions are tracked via git history.
 
 The shapes below are the only supported schema contract. There are no
 prompt-function wrapper layers, legacy-query fallback path, `curate.yml`
-persona-to-KRS auto-mapping, or qmd runtime fallback.
+persona-to-KRS auto-mapping, or external search runtime fallback.
 
 ## 1. Topology Additions
 

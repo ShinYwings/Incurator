@@ -1,4 +1,4 @@
-"""P7: the v0.3.2 hybrid search engine (DB-native, retires qmd).
+"""P7: the DB-native hybrid search engine.
 
 Ties the P4–P6 stages into one answer path:
 

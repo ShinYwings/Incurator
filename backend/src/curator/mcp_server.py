@@ -5,10 +5,9 @@ Install:    wiki mcp install   # prints a config snippet for Claude / Antigravit
 
 The server combines two responsibility layers:
 
-1. **Search delegation** — the `search` tool shells out to the globally installed
-   `qmd` binary to leverage qmd's BM25 + vector + LLM-rerank pipeline.
-   No HTTP daemon required; qmd is invoked per-call and qmd's own model
-   caching keeps latency low.
+1. **Search delegation** — the `search` tool uses the DB-native hybrid search
+   engine in `state.sqlite`: FTS5, chunk vectors, RRF fusion, reranking, and
+   durable query traces.
 
 2. **Curator-specific traversal** — tools like `curator_traverse_evidence`,
    `curator_get_node`, `curator_find_contradictions` walk the DAG by ID
@@ -1707,7 +1706,7 @@ def build_server() -> FastMCP:
         }
 
     # ------------------------------------------------------------------
-    # search — qmd-backed retrieval, with optional layer filter
+    # search — DB-native retrieval, with optional layer filter
     # ------------------------------------------------------------------
 
     @mcp.tool()
@@ -1718,7 +1717,7 @@ def build_server() -> FastMCP:
         min_score: float = 0.6,
         workspace_path: str = "",
     ) -> dict[str, Any]:
-        """Search the Curator DAG (derived qmd corpus over L1–L4 + synthesis).
+        """Search the Curator DAG over authoritative DB-native search rows.
 
         Args:
             query: Natural-language query.
@@ -2779,7 +2778,7 @@ def build_server() -> FastMCP:
         return out
 
     # ------------------------------------------------------------------
-    # curator_status — vault info + qmd readiness
+    # curator_status — vault info + search readiness
     # ------------------------------------------------------------------
 
     @mcp.tool()
@@ -2804,7 +2803,7 @@ def build_server() -> FastMCP:
 
     @mcp.tool()
     def curator_status(workspace_path: str = "") -> dict[str, Any]:
-        """Return vault root, qmd binary readiness, and total page counts.
+        """Return vault root, DB-native search readiness, and total page counts.
 
         Args:
             workspace_path: Optional workspace path to help resolve the vault.
@@ -2870,10 +2869,6 @@ def build_server() -> FastMCP:
             "search_engine": "native",
             "search_ready": True,
             "search_version": search_version,
-            # back-compat shim for the current plugin UI (migrated in P10)
-            "qmd_binary":   "native (in-DB FTS5+vector)",
-            "qmd_ready":    True,
-            "qmd_version":  search_version,
             "zotero_roots": zotero_roots,
         }
 
@@ -3012,12 +3007,12 @@ def build_server() -> FastMCP:
         }
 
     # ------------------------------------------------------------------
-    # curator_reindex — rebuild the QMD search index
+    # curator_reindex — rebuild the DB-native search index
     # ------------------------------------------------------------------
 
     @mcp.tool()
     def curator_reindex(workspace_path: str = "") -> dict[str, Any]:
-        """Rebuild the QMD search index over all Collections pages.
+        """Rebuild DB-native search rows, FTS tables, chunks, and embeddings.
 
         Call this after manually editing wiki pages or after a bulk import so
         that `search_curator` picks up the new content.

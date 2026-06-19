@@ -1343,7 +1343,7 @@ def generate_l1_structural_context(
     _record_pdf_pages_for_parsed(paths, source_id, relpath, parsed)
 
     # v0.3.1: deterministically extract source_spans into the DB (no LLM). The
-    # DB is the source of truth; the CTX page above is the derived qmd projection.
+    # DB is the source of truth; the CTX page above is the derived projection.
     try:
         from .pipeline import source_spans as _source_spans
 

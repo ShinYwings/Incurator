@@ -45,7 +45,7 @@ def _coerce_list(value: object, limit: int) -> list[str]:
     return out[:limit]
 
 
-_QMD_GRAMMAR = r"""
+_STRUCTURED_EXPANSION_GRAMMAR = r"""
 root ::= line+
 line ::= type ": " content "\n"
 type ::= "lex" | "vec" | "hyde"
@@ -64,13 +64,12 @@ def _contains_query_term(text: str, terms: list[str]) -> bool:
     return any(term in low for term in terms)
 
 
-def _parse_qmd_lines(raw: str, query: str) -> dict:
-    """Parse qmd's structured ``type: text`` expansion format.
+def _parse_structured_expansion_lines(raw: str, query: str) -> dict:
+    """Parse the structured ``type: text`` expansion format.
 
-    qmd filters generated lines that contain none of the original ASCII query
-    terms, then falls back to original-query probes if the model produced no
-    usable structured lines. This mirrors that behavior so the benchmark is an
-    apples-to-apples expander comparison.
+    The parser filters generated lines that contain none of the original ASCII
+    query terms, then falls back to original-query probes if the model produced
+    no usable structured lines.
     """
     terms = _query_terms(query)
     lex: list[str] = []
@@ -106,12 +105,11 @@ def _parse_qmd_lines(raw: str, query: str) -> dict:
 
 
 class LlamaCppExpander:
-    """qmd-compatible local GGUF query expander via llama-cpp-python.
+    """Structured local GGUF query expander via llama-cpp-python.
 
-    qmd's fine-tuned expander emits grammar-constrained lines:
-    ``lex: ...``, ``vec: ...``, and ``hyde: ...``. This class uses the same prompt,
-    decoding shape, parser, and fallback policy closely enough for parity
-    measurement while staying optional for product runtime.
+    The expander emits grammar-constrained lines: ``lex: ...``, ``vec: ...``,
+    and ``hyde: ...``. This class keeps that parser and fallback policy while
+    staying optional for product runtime.
     """
 
     provider = "llama-cpp"
@@ -131,7 +129,7 @@ class LlamaCppExpander:
             from llama_cpp import Llama, LlamaGrammar  # lazy optional dependency
 
             self._llm = Llama(model_path=model_path, n_ctx=n_ctx, verbose=False)
-            self._grammar = LlamaGrammar.from_string(_QMD_GRAMMAR)
+            self._grammar = LlamaGrammar.from_string(_STRUCTURED_EXPANSION_GRAMMAR)
         else:
             self._llm = _llm
 
@@ -158,7 +156,7 @@ class LlamaCppExpander:
             text = str(completion["choices"][0]["text"])
         except Exception:
             return {}
-        return _parse_qmd_lines(text, raw)
+        return _parse_structured_expansion_lines(text, raw)
 
 
 def build_query_expander(config: dict, *, want_hyde: bool = True) -> Callable[[str], dict] | None:

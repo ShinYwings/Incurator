@@ -64,7 +64,7 @@ def test_build_wait_always_embeds_even_with_no_atom_changes(tmp_path: Path) -> N
     # Build produces zero atom changes; the embed refresh must still run.
     with patch("curator.cli._start_client", return_value=MagicMock()), patch(
         "curator.ingest_llm.run_l1_to_l3", return_value=[]
-    ), patch("curator.cli._refresh_qmd_index") as refresh:
+    ), patch("curator.cli._refresh_search_index") as refresh:
         result = runner.invoke(
             app, ["build", "--wait", "--no-sync"], env={"VAULT_ROOT": str(vault)}
         )
@@ -86,7 +86,7 @@ def test_build_wait_with_no_pending_sources_runs_global_l3_and_embeds(
     client = MagicMock()
     with patch("curator.cli._start_client", return_value=client) as start, patch(
         "curator.ingest_llm.run_l3_from_existing_atoms"
-    ) as run_l3, patch("curator.cli._refresh_qmd_index") as refresh:
+    ) as run_l3, patch("curator.cli._refresh_search_index") as refresh:
         result = runner.invoke(
             app, ["build", "--wait", "--no-sync"], env={"VAULT_ROOT": str(vault)}
         )

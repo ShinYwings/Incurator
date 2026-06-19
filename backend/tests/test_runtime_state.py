@@ -134,6 +134,17 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
         self.assertEqual(jobs["failed"][0]["source_name"], "failed.pdf")
         self.assertEqual(jobs["cancelled"][0]["source_name"], "cancelled.pdf")
 
+    def test_status_snapshot_uses_search_contract_only(self) -> None:
+        status = runtime_state.build_status_snapshot(self.paths, {"search": {}})
+        forbidden_prefix = "q" + "md"
+
+        self.assertEqual(status["search_engine"], "native")
+        self.assertTrue(status["search_ready"])
+        self.assertIn("search_version", status)
+        self.assertFalse(
+            [key for key in status if key.startswith(f"{forbidden_prefix}_")]
+        )
+
     def test_zotero_source_snapshot_uses_portable_source_path(self) -> None:
         with db.connect(self.paths.state_db) as conn:
             conn.execute("DELETE FROM sources")

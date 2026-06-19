@@ -1836,8 +1836,7 @@ export default class ObsidianAIAgent extends Plugin {
         
         try {
           const status = await this.readRuntimeJson("status");
-          // v0.3.2: native search engine; fall back to legacy qmd_ready.
-          if (status && (status.search_ready ?? status.qmd_ready)) {
+          if (status && status.search_ready) {
             this.incuratorStatusBar?.setText("🟢 Incurator");
           } else if (status && !status.error) {
             this.incuratorStatusBar?.setText("🟡 Incurator: Starting...");

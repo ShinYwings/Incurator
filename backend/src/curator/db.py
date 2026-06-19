@@ -1,7 +1,6 @@
 """SQLite state database for ingest history, dedupe, and metadata.
 
-This is the *internal* state DB. It's separate from the QMD search index (which
-QMD manages itself in Stage 4). This DB tracks:
+This is the *internal* state DB. It also owns DB-native search state. This DB tracks:
 
 - which files have been ingested (by content hash, for dedupe)
 - when they were ingested
@@ -581,7 +580,7 @@ CREATE TABLE IF NOT EXISTS synthesis_nodes (
 );
 CREATE INDEX IF NOT EXISTS idx_synthesis_nodes_conf ON synthesis_nodes(confidence);
 
--- v0.3.2 DB-native search (retires the external qmd binary). See SCHEMA §11.12–§11.16.
+-- v0.3.2 DB-native search. See SCHEMA §11.12–§11.16.
 CREATE TABLE IF NOT EXISTS search_documents (
     doc_id TEXT PRIMARY KEY,
     record_type TEXT NOT NULL,       -- source_span | knowledge_unit | graph_entity | graph_relation | community_report | synthesis_node

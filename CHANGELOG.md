@@ -4,6 +4,21 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.16.0] - 2026-06-20
+### Changed
+- Removed legacy external-search-binary runtime/build/status surfaces. The
+  backend and MCP status payloads now expose the DB-native `search_*` contract
+  only.
+- Updated plugin dashboard/status handling to read `search_ready`,
+  `search_version`, and related DB-native search fields without legacy fallback
+  keys.
+- Removed the obsolete benchmark harness and archived parity writeups that still
+  invoked the retired external search path.
+
+### Fixed
+- Added a guard test that prevents active source, tests, plugin, scripts, specs,
+  guides, and agent rules from reintroducing retired search-binary references.
+
 ## [0.15.0] - 2026-06-19
 ### Changed
 - **Quick Query popover is now persistent.** Outside clicks and background

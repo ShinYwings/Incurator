@@ -8,7 +8,7 @@ Drives the curation-native compile for sources whose L1 (source_spans) exists:
                  -> emit CON projection pages, set l3_status
 
 The DB is the source of truth; ATM/CON markdown pages are derived projections
-emitted for qmd indexing (SYSTEM_BEHAVIOR.md §22). Source spans are
+emitted for DB-native indexing (SYSTEM_BEHAVIOR.md §22). Source spans are
 re-derived from the source here (the DB stores only previews) so units cite the
 exact stored span ids.
 """
@@ -610,7 +610,7 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
     Realizes the compile-model invariant: the DB is the source of truth and the
     ``.curator/Collections`` markdown is a disposable projection. Existing ATM/CON
     projection files are deleted first, then re-emitted from current
-    ``knowledge_units`` / ``community_reports`` rows — so the qmd corpus always
+    ``knowledge_units`` / ``community_reports`` rows — so the search projection always
     reflects the DB after any correction. Source truth (CTX/spans, 03_Notes,
     04_Resources) is never touched.
 

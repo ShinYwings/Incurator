@@ -162,7 +162,7 @@ green baseline test and an XFAILing oracle test, and the full suite passes.
 | F10 | Searchable span evidence capped at a 200-char preview | source-scoped | assigned | program-2 |
 | F11 | Explore is a single prompt pass — follow-ups are rendered, never executed | associative | assigned | program-3 |
 | F12 | External MCP and Obsidian plugin do not share one normalized context contract | client-parity | assigned | program-3 |
-| F13 | Active testbed scenario validates retired EXH/qmd-era architecture | evaluation-infra | retired | unassigned |
+| F13 | Active testbed scenario validates retired EXH/search-era architecture | evaluation-infra | retired | unassigned |
 
 All thirteen cases were reproduced deterministically at the v0.6.0 baseline.
 D2 retires F1, F2, and F13 by satisfying their frozen oracles; F3-F12 remain

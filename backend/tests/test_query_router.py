@@ -76,4 +76,4 @@ def test_incomplete_graph_routes_local_with_warning() -> None:
     empty = GraphStatus()
     route, reason = choose_route(QueryRequest(question="anything"), _policy(), empty)
     assert route == "local"
-    assert "qmd fallback" in reason
+    assert "DB-native retrieval" in reason

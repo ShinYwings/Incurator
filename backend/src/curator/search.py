@@ -1,4 +1,4 @@
-"""Search backend — DB-native hybrid search (v0.3.2; qmd retired).
+"""Search backend — DB-native hybrid search.
 
 Search runs entirely inside `state.sqlite`: FTS5 (BM25) lexical retrieval +
 chunk-level vector cosine KNN, fused with RRF and optionally reranked. The
@@ -55,7 +55,7 @@ class SearchHit:
     score: float = 0.0
     snippet: str = ""
     full_content: str = ""   # populated when hydrate=True
-    docid: str = ""          # qmd's content-hash short id (#abc123)
+    docid: str = ""          # legacy content-hash short id (#abc123)
     source_span_ids: list[str] = field(default_factory=list)
 
 
@@ -91,7 +91,7 @@ class SourcePageHit:
 
 @dataclass
 class IndexUpdateResult:
-    """Outcome of a qmd index refresh."""
+    """Outcome of a DB-native search index refresh."""
 
     updated: bool = False
     embedded: bool = False
@@ -110,14 +110,14 @@ class SearchBackendError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Engine capability probes (qmd binary retired in v0.3.2)
+# Engine capability probes
 # ---------------------------------------------------------------------------
 
 
 def is_available() -> bool:
     """True — the DB-native search engine (FTS5, bundled in SQLite) is always available.
 
-    Kept for caller/status compatibility after the qmd retirement (v0.3.2).
+    Kept for caller/status compatibility after the DB-native search migration.
     Vector/rerank availability is a separate, gracefully-degrading concern.
     """
     return True
@@ -136,7 +136,7 @@ def get_version() -> str | None:
 
 
 def update_index(paths: cfg.WikiPaths, *, embed: bool = False) -> IndexUpdateResult:
-    """Rebuild the DB-native search index (v0.3.2; retires qmd).
+    """Rebuild the DB-native search index.
 
     Materializes `search_documents`/FTS/`search_chunks` from the authoritative
     `state.sqlite` rows and, when `embed=True`, generates chunk embeddings via the
@@ -185,7 +185,7 @@ def query(
     """Run a DB-native hybrid search and return ranked, hydrated hits (v0.3.2).
 
     Searches `state.sqlite` directly (FTS5 + chunked vector + RRF + optional
-    rerank), retiring the external qmd binary. The `SearchHit`/`SearchResults`
+    rerank). The `SearchHit`/`SearchResults`
     field shapes are preserved so callers (`query.py`, `evidence.py`, MCP, plugin)
     are unchanged.
 
@@ -196,10 +196,10 @@ def query(
                       'vec' (vector only).
         limit:        Max number of hits returned.
         min_score:    Advisory filter on the blended score. Native scores are not
-                      on qmd's 0–1 scale; defaults to 0 (no hard filter) so RRF-only
+                      on a fixed 0–1 scale; defaults to 0 (no hard filter) so RRF-only
                       results are not discarded. The engine never returns empty on
                       a borderline single hit.
-        collections:  Legacy qmd collection names — ignored (single corpus now).
+        collections:  Legacy collection names — ignored (single corpus now).
         hydrate:      Populate `full_content` from the authoritative DB row.
         rerank:       Apply rerank in hybrid mode when a reranker is configured.
         families:     Optional record-type filter (route-scoped retrieval).
@@ -304,7 +304,8 @@ def search_source_pages(
     """Lexically search tracked raw sources, preserving PDF page numbers.
 
     This is intentionally simple and local. Curator DAG search still goes
-    through qmd; this helper is for provenance lookups against original files.
+    through the DB-native index; this helper is for provenance lookups against
+    original files.
     """
     from . import db, parsers
 

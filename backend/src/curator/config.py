@@ -154,7 +154,7 @@ class WikiPaths:
 
     # ------------------------------------------------------------------
     # v0.3.2: search-engine state lives inside `state.sqlite` (FTS5 + vector).
-    # The former `.curator/qmd/` config + sqlite index were removed with qmd.
+    # The former external search config + sqlite index were removed.
     # ------------------------------------------------------------------
 
     def is_initialized(self) -> bool:
@@ -196,7 +196,7 @@ DEFAULT_CONFIG: dict = {
     },
     "search": {
         # v0.3.2: DB-native hybrid search (FTS5 + chunked vector + RRF + rerank).
-        # "qmd" remains accepted during migration but the native engine is default.
+        # The native engine is the only supported search backend.
         "backend": "native",
         "rerank": True,
         # Tier-2 LLM query expansion (lex/vec/hyde) on the answer path. Uses the
@@ -207,7 +207,7 @@ DEFAULT_CONFIG: dict = {
         "expansion_recovery_only": True,
         "expansion_vector_confidence_floor": 0.35,
         "expansion_min_lex_hits": 5,
-        # Optional qmd-compatible local GGUF query expander. Empty -> use the
+        # Optional local GGUF query expander. Empty -> use the
         # configured chat LLM when query_expansion is enabled.
         "query_expander": "",
         "query_expander_model_path": "",

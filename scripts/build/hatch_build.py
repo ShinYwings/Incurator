@@ -1,4 +1,4 @@
-"""Hatchling build hook: auto-install Ollama and qmd after pip install."""
+"""Hatchling build hook: auto-install local runtime helpers after pip install."""
 
 from __future__ import annotations
 
@@ -29,9 +29,7 @@ class CustomBuildHook(BuildHookInterface):
 
     def initialize(self, version: str, build_data: dict) -> None:
         _install_ollama()
-        _install_sqlite_macos()
         _install_node()
-        _install_qmd()
         _install_agy()
         _install_codex()
 
@@ -72,21 +70,7 @@ def _install_ollama() -> None:
 
 
 # ---------------------------------------------------------------------------
-# SQLite with extension support (macOS only — required by qmd for sqlite-vec)
-# ---------------------------------------------------------------------------
-
-def _install_sqlite_macos() -> None:
-    if sys.platform != "darwin":
-        return
-    if not shutil.which("brew"):
-        print("[incurator] Homebrew not found - skipping sqlite install.", flush=True)
-        return
-    print("[incurator] Installing Homebrew SQLite (required for qmd on macOS)...", flush=True)
-    subprocess.run(["brew", "install", "sqlite"], check=False)
-
-
-# ---------------------------------------------------------------------------
-# Node.js >= 22 (required to run qmd)
+# Node.js >= 22 (required by plugin and CLI helper tooling)
 # ---------------------------------------------------------------------------
 
 def _node_version() -> tuple[int, int] | None:
@@ -151,40 +135,6 @@ def _install_node() -> None:
 
 
 # ---------------------------------------------------------------------------
-# qmd — installed globally via npm (pre-built, no local source compilation)
-# The bundled source in backend/src/qmd/ is a snapshot kept for reference;
-# search.py falls back to the global PATH binary when dist/ is not built.
-# ---------------------------------------------------------------------------
-
-def _install_qmd() -> None:
-    if shutil.which("qmd"):
-        print(f"[incurator] qmd already available: {shutil.which('qmd')}", flush=True)
-        return
-
-    npm = shutil.which("npm")
-    if not npm:
-        print("[incurator] npm not found - skipping qmd install.", flush=True)
-        return
-
-    print("[incurator] ⏳ Installing qmd globally via npm...", flush=True)
-    
-    # [OOM/Freeze Fix] Prevent node-llama-cpp from compiling/downloading heavy binaries on macOS
-    env = os.environ.copy()
-    env["NODE_LLAMA_CPP_SKIP_DOWNLOAD"] = "true"
-    env["LLAMA_CPP_SKIP_DOWNLOAD"] = "true"
-    
-    res = subprocess.run([npm, "install", "-g", "@tobilu/qmd"], env=env, check=False)
-    if res.returncode == 0:
-        print("[incurator] ✅ qmd installed.", flush=True)
-    else:
-        print(
-            "[incurator] ❌ qmd install failed. "
-            "Try manually: npm install -g @tobilu/qmd",
-            flush=True,
-        )
-
-
-# ---------------------------------------------------------------------------
 # Antigravity CLI (agy) - Official Google CLI
 # ---------------------------------------------------------------------------
 
@@ -242,8 +192,6 @@ def _prepend_path(bin_dir: str) -> None:
 
 if __name__ == "__main__":
     _install_ollama()
-    _install_sqlite_macos()
     _install_node()
-    _install_qmd()
     _install_agy()
     _install_codex()

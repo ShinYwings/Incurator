@@ -97,7 +97,7 @@ DEFAULT_CODEX_MODEL = "gpt-5.5"
 DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.5-flash"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 
-# v0.3.2 DB-native search providers (retires qmd). Qwen3 0.6B GGUFs are chosen
+# v0.3.2 DB-native search providers. Qwen3 0.6B GGUFs are chosen
 # to keep embedding + reranking under the local ~2.5 GB VRAM target while using
 # one llama-cpp runtime. Ollama remains available as a chat backend and fallback
 # embedding profile (e.g. ollama::bge-m3).

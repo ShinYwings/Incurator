@@ -157,4 +157,16 @@ describe("Incurator dashboard backend boundary", () => {
     expect(source).toMatch(/if \(this\._lastStatusOk && status\?\.backend_version\)/);
     expect(source).toContain('"backend unavailable"');
   });
+
+  it("uses only the DB-native search status contract", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const dashboard = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+    const main = readFileSync(join(dir, "../../main.ts"), "utf8");
+    const retired = "q" + "md";
+
+    expect(dashboard).toContain("search_ready");
+    expect(dashboard).toContain("search_version");
+    expect(dashboard.toLowerCase()).not.toContain(retired);
+    expect(main.toLowerCase()).not.toContain(retired);
+  });
 });

@@ -455,7 +455,7 @@ _RECOMMENDED_MODELS = [
     {
         "tag": "qwen3.6:35b",
         "size": "35B",
-        "why": "[#1 in Structuring & Directory Assembly] Outstanding at reassembling extracted knowledge into QMD, JSON, or Markdown tables. Flawless at creating hierarchical directory tree structures.",
+        "why": "[#1 in Structuring & Directory Assembly] Outstanding at reassembling extracted knowledge into structured JSON or Markdown tables. Flawless at creating hierarchical directory tree structures.",
         "tip": "Ideal for large-scale text synthesis and formatting tasks.",
         "vision": False,
     },
@@ -593,7 +593,7 @@ def _warn(text: str) -> None:
     console.print(f"[bold yellow]![/bold yellow] {text}")
 
 
-def _refresh_qmd_index(paths: cfg.WikiPaths, *, embed: bool = True) -> None:
+def _refresh_search_index(paths: cfg.WikiPaths, *, embed: bool = True) -> None:
     """Rebuild the DB-native search index for this project (v0.3.2).
 
     Friendly: emits hints instead of raising. Callers (sync/ingest/lint --fix)
@@ -2416,9 +2416,9 @@ def init(
         )
         _ok(f"Log:       {paths.log.relative_to(root)}")
 
-    # v0.3.2: search is DB-native (FTS5 + vector inside state.sqlite). No external
-    # qmd config/index is written; `wiki build`/`wiki reindex` materialize the
-    # search corpus directly from the DB.
+    # v0.3.2+: search is DB-native (FTS5 + vector inside state.sqlite). No
+    # external search backend config/index is written; `wiki build` and
+    # `wiki reindex` materialize the search corpus directly from the DB.
 
     # 6. Curator persona interview (requires LLM to be configured)
     if interactive and config.get("llm", {}).get("primary"):
@@ -3183,7 +3183,7 @@ def add(
             _warn(f"  Summary failed for {row['relpath']}")
 
     if summarized > 0:
-        _refresh_qmd_index(paths, embed=False)
+        _refresh_search_index(paths, embed=False)
         _invalidate_latest_sync_report(paths, reason="add changed L1")
         if not no_sync:
             _run_sync_report_only(paths, config, reason="add")
@@ -3275,7 +3275,7 @@ def build(
             finally:
                 client.close()
             # Ensure embeddings are current even when nothing new was built (item 14).
-            _refresh_qmd_index(paths, embed=True)
+            _refresh_search_index(paths, embed=True)
         return
 
     # Default: enqueue to the background worker (non-blocking).
@@ -3313,7 +3313,7 @@ def build(
         # fingerprinted/idempotent, so this is cheap when embeddings are already
         # current, but it guarantees an already-built vault with stale/missing
         # embeddings never silently stays FTS5-only.
-        _refresh_qmd_index(paths, embed=True)
+        _refresh_search_index(paths, embed=True)
 
         if atoms_created or atoms_updated:
             _invalidate_latest_sync_report(paths, reason="build changed L2-L3")
@@ -3467,7 +3467,7 @@ def jobs_run(
     # no automatic path to vectors and degrades to FTS5-only until a manual
     # `wiki reindex --embed`. update_index is fingerprinted/idempotent, so this
     # is cheap when embeddings are already current.
-    _refresh_qmd_index(paths, embed=True)
+    _refresh_search_index(paths, embed=True)
 
 
 @jobs_app.command("cancel")
@@ -3657,7 +3657,7 @@ def db_import(
 
     if not dry_run and not skip_reindex:
         console.print("[dim]Running wiki reindex…[/dim]")
-        _refresh_qmd_index(paths)
+        _refresh_search_index(paths)
 
 
 @db_app.command("autosync")
@@ -3702,7 +3702,7 @@ def db_autosync(
 
     if not dry_run and not skip_reindex and total:
         console.print("[dim]Running wiki reindex…[/dim]")
-        _refresh_qmd_index(paths)
+        _refresh_search_index(paths)
 
 
 @source_app.command("ls")
@@ -4181,7 +4181,7 @@ def sync(
         False,
         "--reemit",
         help="Re-emit the derived L2/L3 markdown corpus (ATM/CON) from the "
-             "authoritative DB records and re-index qmd. Use after DB corrections.",
+             "authoritative DB records and refresh DB-native search. Use after DB corrections.",
     ),
     no_fix: bool = typer.Option(
         False,
@@ -4258,9 +4258,9 @@ def sync(
         from .pipeline import compile as _compile
 
         counts = _compile.reemit_projections(paths)
-        _refresh_qmd_index(paths)
+        _refresh_search_index(paths)
         _ok(f"Re-emitted derived corpus from DB: {counts['atoms']} atoms, "
-            f"{counts['concepts']} concepts; qmd re-indexed.")
+            f"{counts['concepts']} concepts; search refreshed.")
         return
 
     if not any([node_id, dry_run, no_fix, deep, no_deep, no_interactive, full, backward]):
@@ -4756,7 +4756,7 @@ def query(
         "--route",
         help="v0.3.1 curation-native route: auto | local | global | explore | "
              "source-section. Routes through the QueryOrchestrator "
-             "(DB graph + qmd) with a QTR trace.",
+             "(DB graph + DB-native search) with a QTR trace.",
     ),
     no_intent_classify: bool = typer.Option(
         False,
@@ -4788,7 +4788,7 @@ def query(
 
     The query pipeline:
       1. Translate question to English (for non-English input)
-      2. QueryOrchestrator routing over DB graph + qmd search
+      2. QueryOrchestrator routing over DB graph + DB-native search
       3. Synthesize a cited answer with a QTR trace
       4. Optionally promote to 02_Wiki
     """

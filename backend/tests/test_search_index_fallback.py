@@ -1,4 +1,4 @@
-"""v0.3.2: native `update_index` rebuild + embedding degradation (qmd retired)."""
+"""Native `update_index` rebuild + embedding degradation."""
 
 import tempfile
 import unittest

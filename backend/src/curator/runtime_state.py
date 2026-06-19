@@ -252,9 +252,6 @@ def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = 
         "concepts": _count_md(paths.concepts),
         "synthesis": _count_md(paths.synthesis),
     }
-    # v0.3.2: DB-native search engine (qmd retired). The legacy qmd_* keys are
-    # kept as a back-compat shim for the current plugin UI until it migrates to
-    # the search_* keys; they now report the native engine.
     search_version = search.get_version()
     search_config = (config or {}).get("search", {})
     embed_spec = str(search_config.get("embedding") or "")
@@ -307,10 +304,6 @@ def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = 
         "search_version": search_version,
         "vector_ready": vector_ready,
         "search_models": search_models,
-        # back-compat shim for the current plugin UI (migrated in P10)
-        "qmd_binary": "native (in-DB FTS5+vector)",
-        "qmd_ready": True,
-        "qmd_version": search_version,
         "total_pages": sum(layer_counts.values()),
         "layer_counts": layer_counts,
         "raw_source_files": _count_raw_files(paths),

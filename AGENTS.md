@@ -215,7 +215,7 @@ All agents (Claude Code, Codex) MUST treat the following decisions as locked unl
 ### Storage Model
 - **`state.sqlite` = single source of truth.** Holds source_spans, knowledge_units, graph entities/relations, community_reports, synthesis_nodes, dag_edges, job queue.
 - **`.curator/Collections/` markdown = derived disposable search corpus.** Regenerated from DB at any time. Not authoritative. Do not treat stale markdown as ground truth — re-emit from DB if in doubt.
-- **Search is DB-native (v0.3.2+).** SQLite FTS5/BM25 + chunk vector + RRF fusion + LLM reranking. The external `qmd` binary is retired. Do not add new qmd dependencies.
+- **Search is DB-native (v0.3.2+).** SQLite FTS5/BM25 + chunk vector + RRF fusion + LLM reranking. Do not add external search-binary dependencies.
 - **No backward-compat shims.** New runs use the current code path directly.
 
 ### Curation Model
@@ -299,7 +299,7 @@ Agents should refer to the specific scenario's `MASTER_PLAN.md` to understand th
 - **After Action**: After changing behavior, run the same scenario again and report the result.
 - **External Reference Validation**: Any testbed validation must explicitly consider and verify the behavior of Zotero or other external resource directories imported via Reference Mode (without hard copying files into the vault).
 - **Blockers**: If a dependency is unavailable, report the exact blocker and run every lower-level validation that does not need that dependency.
-- **Completion Criteria**: Do not treat a query/search change as complete until it has been checked with the testbed, or until the qmd/LLM blocker is documented.
+- **Completion Criteria**: Do not treat a query/search change as complete until it has been checked with the testbed, or until the search/LLM blocker is documented.
 
 Recommended baseline:
 
@@ -382,8 +382,9 @@ Before implementing any new architecture work, the agent MUST first create or up
   (static EXH files were removed in v0.3.1). Do not write new EXH files.
 - Valid node prefixes are `CTX-`, `ATM-`, `CON-`, `SYN-`. `EXH-` is retired.
 - `curate.yml` is the workspace Knowledge Requirement Specification.
-  `qmd` is retired — search is DB-native (FTS5 + vector + RRF + reranking).
-  Do not add new `qmd` dependencies or reference `qmd.yml`.
+  search is DB-native (FTS5 + vector + RRF + reranking).
+  Do not add external search-binary dependencies or generated search-backend
+  config files.
 - `03_Notes/` is human-verified source truth. Do not edit it autonomously.
 - `04_Resources/` and `06_Archives/` are read-only source/reference spaces.
 - `.curator/` is machine-readable Curator state. Modify it only through the
@@ -400,7 +401,7 @@ During the execution phase (after the Arena Master Plan is approved), the implem
 - **`qa_runner` (CI/Testbed)**: Executes the E2E verification. Runs `pytest`, `ruff check`, `mypy`, and `wiki testbed init`. Simulates edge cases (e.g., `local_slm_simulator` for LLM failure, verifying topic boundary isolation).
 - **`rollback_strategist`**: Activates if the `qa_runner` fails more than 3 times in a row. Analyzes the failure loop, cleanly reverts the Git branch to the last stable state, and forces a return to the planning phase (prevents LLM infinite-looping).
 - **`docs_sync_manager`**: Ensures that `docs/specs/` and `docs/guides/` are faithfully updated immediately after the code passes QA, maintaining the English -> Korean `_KR.md` translation sync.
-- **`legacy_sweeper`**: Performs cleanup before finalizing the PR. Searches for unused imports, deleted API references (like the retired `qmd`), orphaned test functions, and stale comments left behind by the new implementation.
+- **`legacy_sweeper`**: Performs cleanup before finalizing the PR. Searches for unused imports, deleted API references, orphaned test functions, and stale comments left behind by the new implementation.
 
 As the orchestrator, you must route the workflow through these execution roles sequentially, ensuring code passes through the `peer_reviewer`, `schema_guardian`, and `qa_runner` validations before considering the implementation phase complete.
 

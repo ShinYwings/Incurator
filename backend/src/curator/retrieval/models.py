@@ -58,7 +58,7 @@ class StructuredLocator:
 @dataclass
 class EvidenceItem:
     id: str
-    # source_span | knowledge_unit | community_report | synthesis | memory_path | qmd_hit | entity
+    # source_span | knowledge_unit | community_report | synthesis | memory_path | search_hit | entity
     kind: str
     title: str
     text: str
