@@ -1,32 +1,28 @@
 # Cross-Agent Relay State
 
 ## Status
-Initializing Roadmap item 1: `[[wikilink]]` Architecture Validation.
+Roadmap item 1 (Curator Wikilink Native Resolution) IMPLEMENTED on
+`feature/wikilink-architecture-validation` (v0.17.0). Local CI green. PR pending.
 
-## Plan Reference
-Awaiting investigation and draft plan. See `.agents/drafts/minor_quick_wins.md` for context.
+## What shipped
+Root cause: L1–L4 DAG lives in hidden `.curator/Collections/`; Obsidian never
+indexes dot-folders → all `[[LAYER/ID]]` links were dead. Fix (Option A, plugin
+owns navigation): one `registerMarkdownPostProcessor` in `plugin/main.ts` calls
+`rewriteCuratorLinks` (`plugin/src/utils/curatorWikilinks.ts`) to convert
+curator-layer anchors into clickable `openLinkText('.curator/…')` links across
+sidechat, quick-query popover, and opened DAG pages; missing targets get
+`is-missing`. No backend logic change; native Graph/Backlinks still excluded by
+design. Docs: PLUGIN_GUIDE(+KR), PLUGIN_SCHEMA. Version bumped 0.16.1 → 0.17.0
+across all three manifests. CHANGELOG updated.
 
-## Immediate Next Action
-Read `.agents/drafts/minor_quick_wins.md` and the `lint.py`/`query.py` parser logic. Draft a plan for the wikilink architecture validation or immediately prove/disprove the hypothesis.
-
-## Finding
-Hypothesis (the draft's worry) was that `[[wikilink]]` syntax may have been
-removed in favor of `()` standard-markdown-link parsing, causing a conflict.
-**Disproven.** `[[wikilink]]` is the native and *exclusive* cross-layer link
-format across the entire pipeline:
-- Write: relations emitted as `[[layer/ID]]` (sync.py:583, 679).
-- Parse: every extractor is `[[...]]`-based (page_writer.py extract_wikilink_targets,
-  extract_wikilinks/WIKILINK_RE, extract_relation_targets).
-- DAG rebuild: _body_atom_ids/_body_context_ids/_body_concept_paths (sync.py:532-562).
-- Lint: broken/malformed/empty wikilink checks (lint.py:279+).
-- Query: LLM instructed to cite with `[[wikilinks]]` (query.py:127, 195).
-- Negative check: no `]( )`-style relation/backlink parser exists in the backend.
-
-No `()` parser exists to conflict with `[[...]]`. No parser/sync bug. Coding stays
-at zero per the draft's minimal-coding instruction.
+## Validation
+- `curatorWikilinks.test.ts` (12) + `curatorWikilinkWiring.test.ts` (3) pass;
+  full plugin suite 478/478; tsc clean; production build OK; backend ruff clean.
+- Testbed is L1-only (no L2–L4 cross-links to click through); parser verified to
+  ignore real `04_Resources/`/`05_Assets/` links. Full DAG click-through needs
+  Obsidian runtime — covered by unit tests.
 
 ## Immediate Next Action
-Await user decision: close milestone 5 (mark roadmap item 5 validated/done) and
-either retire `feature/wikilink-architecture-validation` or advance to roadmap
-item 6 (Obsidian Agent UI/UX & Context Architecture Overhaul). No version bump is
-required — this branch made no code changes (chore-exempt).
+Push `feature/wikilink-architecture-validation` and open the PR (Universal Strict
+Workflow Step 13). Backend pytest not re-run (no backend logic changed; only the
+pyproject version string).

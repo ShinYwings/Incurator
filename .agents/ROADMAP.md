@@ -24,11 +24,19 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-1. **[Fix/Validation] `[[wikilink]]` Architecture Validation**
-   - Validate whether current backend link parsing intentionally avoids
-     `[[wikilink]]` syntax or whether missing wikilinks are a real conflict.
-   - Keep coding minimal unless validation proves a concrete parser/sync bug.
-   - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
+1. ✅ **[Fix/Minor Update] Curator Wikilink Native Resolution** — IMPLEMENTED in
+   v0.17.0 (PR pending).
+   - **Validated root cause**: DAG lives in hidden `.curator/Collections/`;
+     Obsidian never indexes dot-folders, so all `[[LAYER/ID]]` links were dead
+     (no click/graph/backlinks/hover) in sidechat, popover, and DAG pages.
+   - **Shipped (Option A — plugin owns navigation, keep hidden)**: one markdown
+     post-processor (`plugin/main.ts` → `rewriteCuratorLinks`,
+     `plugin/src/utils/curatorWikilinks.ts`) rewrites curator-layer links into
+     clickable `openLinkText('.curator/…')` links across sidechat, popover, and
+     opened DAG pages; missing targets marked `is-missing`. Native Graph/Backlinks
+     still excluded by design (hidden folder).
+   - Plan deleted on ship; see Git history (v0.17.0). Tests:
+     `curatorWikilinks.test.ts` + `curatorWikilinkWiring.test.ts`.
 
 2. **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul**
    - Unified refactor for systemic agent attention failures, prompt duplication,
