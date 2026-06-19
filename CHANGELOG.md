@@ -4,6 +4,14 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.16.1] - 2026-06-20
+### Fixed
+- Narrowed wikilink target normalization so it strips only the retired curator
+  URI schemes (`legacy://` and the pre-v0.3.2 search-binary scheme) instead of
+  any `scheme://` prefix. Standard external links (`http://`, `https://`,
+  `obsidian://`, `zotero://`) in source paths are now preserved instead of
+  having their scheme and authority mangled.
+
 ## [0.16.0] - 2026-06-20
 ### Changed
 - Removed legacy external-search-binary runtime/build/status surfaces. The
