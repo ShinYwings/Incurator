@@ -23,9 +23,11 @@ describe("locatorTarget", () => {
       relpath: "05_Assets/resnet.pdf",
       page_number: 7,
     });
+    // The page is shown once as " p.7"; the "#page=7" nav anchor stays in the
+    // linkpath but is not repeated in the user-facing label.
     expect(target).toEqual({
       kind: "vault",
-      label: "05_Assets/resnet.pdf p.7#page=7",
+      label: "05_Assets/resnet.pdf p.7",
       linkpath: "05_Assets/resnet.pdf#page=7",
     });
   });

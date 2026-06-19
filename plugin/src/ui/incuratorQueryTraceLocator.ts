@@ -52,7 +52,13 @@ export function locatorTarget(locator: Record<string, unknown>): LocatorTarget |
           : heading
             ? `#${heading}`
             : "";
-    return { kind: "vault", label: `${relpath}${pageLabel}${anchor}`, linkpath: `${relpath}${anchor}` };
+    // Don't repeat the page in the user-facing label: when a page label is
+    // shown (" p.N") the raw "#page=N" anchor is redundant and leaks an internal
+    // hash. The linkpath still carries the anchor for navigation. page and
+    // heading/block anchors are mutually exclusive in practice (page => PDF,
+    // heading/block => markdown), so this only affects the vault PDF case.
+    const labelAnchor = pageLabel ? "" : anchor;
+    return { kind: "vault", label: `${relpath}${pageLabel}${labelAnchor}`, linkpath: `${relpath}${anchor}` };
   }
   return null;
 }
