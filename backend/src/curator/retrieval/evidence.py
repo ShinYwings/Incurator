@@ -257,7 +257,8 @@ def _span_items(db_path: Path, span_ids: list[str]) -> list[EvidenceItem]:
     if not span_ids:
         return []
     full = _hydrate_full_texts(db_path, span_ids)
-    spans = db.get_source_spans_by_ids(db_path, span_ids)
+    span_by_id = {span["id"]: span for span in db.get_source_spans_by_ids(db_path, span_ids)}
+    spans = [span_by_id[span_id] for span_id in span_ids if span_id in span_by_id]
     src_ids = [s["source_id"] for s in spans if s.get("source_id") is not None]
     src_meta = _source_meta_by_ids(db_path, list(set(src_ids)))
     items: list[EvidenceItem] = []

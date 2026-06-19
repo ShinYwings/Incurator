@@ -55,8 +55,8 @@ environment:
   cpu: Apple M1
   python: 3.14.5
 commands:
-  - uv run --directory backend pytest -q tests/test_research_spikes_wave_b.py
-  - uv run --directory backend python research_spikes/wave_b.py
+  - scripts/backend-check pytest -q backend/tests/test_research_spikes_wave_b.py
+  - scripts/backend-check python backend/research_spikes/wave_b.py
 raw_results:
   path: backend/research_spikes/local/results/wave_b.json
   sha256_at_recording: a38ddef45f852ac6a22ca20479ef227df65ccc604c4e606f4a5d20d13c53bea4

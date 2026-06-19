@@ -8,33 +8,44 @@ import {
   type ViewStateResult,
 } from "obsidian";
 import type { LLMMessage } from "../types";
-import { existsSync, readFileSync, readdirSync } from "fs";
-import { basename, join } from "path";
+import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import type {
   PdfOutlineItem as ContextPdfOutlineItem,
   PdfPageContext,
-  PdfRagHit,
-  PdfTextQuality,
   PdfWindowPage,
 } from "../types";
 import { PdfDocumentIndexService } from "../context/pdfDocumentIndex";
 import {
-  composePdfContextText,
-  extractPdfPageTextFromDom,
   extractRegionTextFromSpans,
   type RegionTextSpan,
 } from "../context/pdfCapture";
 import {
-  assessPdfTextQuality,
   layoutPdfJsTextItems,
   type RawPdfTextItem,
 } from "../context/pdfTextLayout";
 import { buildZoteroAnnotationBoxStyle } from "./externalPdfAnnotationStyle";
 import {
   buildSyncedExternalPdfState,
-  isRetainablePersistedDoc,
   resolveExternalPdfPath,
 } from "./externalPdfState";
+import {
+  getExternalPdfDoc,
+  getExternalPdfDocName,
+  getExternalPdfDocPath,
+  putExternalPdfDoc,
+  replaceExternalPdfDocPath,
+  resolveCachedExternalPdfPath,
+  resolveZoteroAttachmentPath,
+  type ExternalPdfDoc,
+} from "./externalPdfRegistry";
+import { PdfCaptureService } from "./pdfCaptureService";
+import {
+  resolveAssetSource,
+  ZoteroPathCache,
+  zoteroConfigEpoch,
+} from "../context/assetSource";
 
 export const EXTERNAL_PDF_VIEW_TYPE = "ai-agent-external-pdf";
 export const EXTERNAL_PDF_CONTEXT_EVENT = "ai-agent-external-pdf-context";
@@ -49,13 +60,6 @@ export interface ExternalPdfState extends Record<string, unknown> {
   currentPage?: number;
   zoteroAttachmentKey?: string;
   targetAnnotationKey?: string;
-}
-
-interface ExternalPdfDoc {
-  id: string;
-  name: string;
-  path?: string;
-  file?: File;
 }
 
 interface PdfJsOutlineItem {
@@ -98,119 +102,6 @@ interface PdfPage {
 }
 
 const RENDER_RADIUS = 5;
-const CONTEXT_RAG_TOP_K = 4;
-
-const STORAGE_KEY = "incurator-obsidian-agent-external-pdfs";
-
-function loadPersistedDocs(): Map<string, ExternalPdfDoc> {
-  const map = new Map<string, ExternalPdfDoc>();
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Array<[string, ExternalPdfDoc]>;
-      for (const [id, doc] of parsed) {
-        // Retain any path-bearing entry. Do NOT existsSync here — module load
-        // races Obsidian startup (a not-yet-mounted volume would wrongly drop a
-        // valid doc, causing "no path in docState or cache"). A genuinely missing
-        // file is reported distinctly at resolveDoc() time.
-        if (isRetainablePersistedDoc(doc)) {
-          map.set(id, doc);
-        }
-      }
-    }
-  } catch (err) {
-    console.warn("Failed to load persisted PDF docs:", err);
-  }
-  return map;
-}
-
-function persistDocs(map: Map<string, ExternalPdfDoc>): void {
-  try {
-    const toPersist = Array.from(map.entries()).map(([id, doc]) => {
-      return [
-        id,
-        {
-          id: doc.id,
-          name: doc.name,
-          path: doc.path,
-        },
-      ];
-    });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toPersist));
-  } catch (err) {
-    console.warn("Failed to persist PDF docs:", err);
-  }
-}
-
-const externalPdfDocs = loadPersistedDocs();
-
-export function registerExternalPdf(
-  file: File,
-  explicitPath?: string
-): ExternalPdfState {
-  const id = `${Date.now().toString(36)}${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
-  const rawPath = explicitPath || (file as unknown as { path?: string }).path;
-  // Filter out empty strings — an empty path is worse than no path
-  const path = typeof rawPath === "string" && rawPath.length > 0 ? rawPath : undefined;
-  const doc: ExternalPdfDoc = {
-    id,
-    name: file.name || "External PDF",
-    path,
-    file,
-  };
-  externalPdfDocs.set(id, doc);
-  persistDocs(externalPdfDocs);
-
-  if (path) {
-    new Notice(`Registered PDF: ${file.name}\nPath: ${path}`);
-  } else {
-    new Notice(`Registered PDF: ${file.name}\nWarning: No absolute path captured!`);
-  }
-
-  return { docId: id, name: doc.name, path };
-}
-
-/**
- * Register an external PDF by filesystem path only (no File object required).
- * Used for Zotero integration where the absolute path is known but no drag-drop occurred.
- */
-export function registerExternalPdfByPath(filePath: string, attachmentKey?: string): ExternalPdfState {
-  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-  const name = basename(filePath);
-  const doc: ExternalPdfDoc = { id, name, path: filePath };
-  externalPdfDocs.set(id, doc);
-  persistDocs(externalPdfDocs);
-  return { docId: id, name, path: filePath, zoteroAttachmentKey: attachmentKey };
-}
-
-/**
- * Resolve a Zotero attachment key to its PDF file path.
- * Scans `<zoteroBasePath>/storage/<attachmentKey>/` for the first *.pdf file.
- * Returns undefined if the key cannot be resolved.
- */
-import { homedir } from "os";
-
-export function resolveZoteroAttachmentPath(
-  zoteroBasePath: string,
-  attachmentKey: string
-): string | undefined {
-  try {
-    let basePath = zoteroBasePath;
-    if (basePath.startsWith("~")) {
-      basePath = join(homedir(), basePath.slice(1));
-    }
-    const storageDir = join(basePath, "storage", attachmentKey);
-    if (!existsSync(storageDir)) return undefined;
-    const files = readdirSync(storageDir);
-    const pdf = files.find((f) => f.toLowerCase().endsWith(".pdf"));
-    return pdf ? join(storageDir, pdf) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 export class ExternalPdfView extends ItemView {
   private docId = "";
   private docState: ExternalPdfState | null = null;
@@ -246,8 +137,9 @@ export class ExternalPdfView extends ItemView {
   // Per-page base dimensions at scale=1 (stored to avoid re-calling getPage on zoom)
   private pageBaseDims: Array<{ width: number; height: number }> = [];
   private documentIndex = new PdfDocumentIndexService();
+  private pdfCaptureService = new PdfCaptureService();
+  private zoteroPathCache = new ZoteroPathCache({ fileExists: (p) => existsSync(p) });
   private pageTextCache = new Map<number, PdfWindowPage>();
-  private pageTextPromises = new Map<number, Promise<PdfWindowPage | null>>();
   private currentOutlineItems: ContextPdfOutlineItem[] = [];
   private pageLabels: string[] | null = null;
   private indexBuildToken = 0;
@@ -284,7 +176,7 @@ export class ExternalPdfView extends ItemView {
 
   getDisplayText(): string {
     return (
-      externalPdfDocs.get(this.docId)?.name ||
+      getExternalPdfDocName(this.docId, "") ||
       this.docState?.name ||
       "External PDF"
     );
@@ -303,12 +195,18 @@ export class ExternalPdfView extends ItemView {
     // restored state — and backfill path/name from the persisted cache. Previously
     // a name-less restore nulled docState, which then made getState() persist a
     // path-less state and permanently lose the document identity.
-    const cached = state.docId ? externalPdfDocs.get(state.docId) : undefined;
+    const cached = state.docId ? getExternalPdfDoc(state.docId) : undefined;
+    const resolvedPath = state.docId
+      ? await this.resolvePortableStatePath(state, cached)
+      : undefined;
+    if (state.docId && cached && resolvedPath && cached.path !== resolvedPath) {
+      replaceExternalPdfDocPath(state.docId, resolvedPath);
+    }
     this.docState = state.docId
       ? {
           docId: state.docId,
           name: state.name || cached?.name || "External PDF",
-          path: resolveExternalPdfPath(state.path, cached?.path),
+          path: resolvedPath,
           zoom: this.readNumberState(state.zoom, 1),
           darkMode: state.darkMode === true,
           tocOpen: state.tocOpen === true,
@@ -326,17 +224,60 @@ export class ExternalPdfView extends ItemView {
     this.render();
   }
 
+  private zoteroCacheEpoch(): string {
+    const base = this.plugin?.settings?.zoteroBasePath || "";
+    const resolvedBase = base.startsWith("~") ? join(homedir(), base.slice(1)) : base;
+    return zoteroConfigEpoch({
+      zoteroBasePath: `${process.platform}:${resolvedBase}`,
+      workspaceId: this.app.vault.getName(),
+      profileRoots: (this.plugin?.settings?.zoteroProfiles || []).map((p: { assetFolder?: string }) => p.assetFolder || ""),
+    });
+  }
+
+  private async resolvePortableStatePath(
+    state: Partial<ExternalPdfState>,
+    cached?: ExternalPdfDoc
+  ): Promise<string | undefined> {
+    const hintedPath = resolveExternalPdfPath(state.path, cached?.path);
+    const zoteroKey = state.zoteroAttachmentKey;
+    if (!zoteroKey) return hintedPath;
+    try {
+      const resolved = await resolveAssetSource(
+        {
+          zoteroKey,
+          displayName: state.name || cached?.name || "External PDF",
+        },
+        {
+          backendAvailable: Boolean(this.plugin?.incuratorClient?.available),
+          resolveZoteroViaBackend: async (key) => {
+            const result = await this.plugin.incuratorClient.resolveZoteroPdf(key);
+            return result.ok && result.path ? result.path : undefined;
+          },
+          resolveZoteroLocally: (key) =>
+            resolveZoteroAttachmentPath(this.plugin?.settings?.zoteroBasePath || "~/Zotero", key),
+          cache: this.zoteroPathCache,
+          epoch: this.zoteroCacheEpoch(),
+          fileExists: (p) => existsSync(p),
+        }
+      );
+      return resolved.absPath || hintedPath;
+    } catch (err) {
+      console.warn("Failed to re-resolve Zotero PDF path for restored external PDF view", err);
+      return hintedPath;
+    }
+  }
+
   getState(): ExternalPdfState {
     // Always persist the path (from docState OR the cache) so a restored view is
     // self-sufficient. The previous fallback branch omitted `path`, so once
     // docState was null the path was lost permanently across restarts.
-    const cachePath = externalPdfDocs.get(this.docId)?.path;
+    const cachePath = getExternalPdfDocPath(this.docId);
     if (this.docState) {
       return { ...this.docState, path: resolveExternalPdfPath(this.docState.path, cachePath) };
     }
     return {
       docId: this.docId,
-      name: externalPdfDocs.get(this.docId)?.name || "External PDF",
+      name: getExternalPdfDocName(this.docId),
       path: cachePath,
       zoom: this.zoom,
       darkMode: this.darkMode,
@@ -363,7 +304,6 @@ export class ExternalPdfView extends ItemView {
     this.renderedPages.clear();
     this.renderingPages.clear();
     this.pageTextCache.clear();
-    this.pageTextPromises.clear();
     this.documentIndex.removeDocument(this.docId);
     this.indexBuildToken++;
     this.render();
@@ -507,13 +447,12 @@ export class ExternalPdfView extends ItemView {
           .slice(2, 8)}`;
       }
 
-      externalPdfDocs.set(this.docId, {
+      putExternalPdfDoc({
         id: this.docId,
         name,
         path,
         file,
       });
-      persistDocs(externalPdfDocs);
 
       if (path) {
         new Notice(`Opened PDF: ${name}\nPath: ${path}`);
@@ -551,74 +490,21 @@ export class ExternalPdfView extends ItemView {
   getActivePdfContext(
     captureMode: "text" | "image" | "both"
   ): PdfPageContext | null {
-    if (!this.pagesEl || this.totalPages === 0) return null;
-    const pageEl = this.pagesEl.querySelector<HTMLElement>(
-      `.pdf-page[data-page-number="${this.currentPage}"]`
-    );
-    if (!pageEl) return null;
-
-    let text = "";
-    let imageBase64: string | undefined;
-    let textQuality: PdfTextQuality = assessPdfTextQuality(
-      "",
-      "none",
-      "Text capture was not requested."
-    );
-    let windowPages: PdfWindowPage[] = [];
-    let ragHits: PdfRagHit[] = [];
-
-    if (captureMode === "text" || captureMode === "both") {
-      const cached = this.pageTextCache.get(this.currentPage);
-      if (cached) {
-        text = cached.text;
-        textQuality =
-          cached.textQuality || assessPdfTextQuality(cached.text, "pdfjs");
-      } else {
-        const extracted = extractPdfPageTextFromDom(pageEl);
-        text = extracted.text;
-        textQuality = extracted.textQuality;
-      }
-
-      // Window expansion is done server-side via curator_get_pdf_context.
-      // Provide only the current page here as a lightweight fallback for when
-      // the backend is unavailable.
-      const currentCached = this.pageTextCache.get(this.currentPage);
-      windowPages = currentCached ? [currentCached] : [];
-      const query = this.getSelectionTextWithinView() || text;
-      ragHits = this.documentIndex.search(this.docId, query, {
-        topK: CONTEXT_RAG_TOP_K,
-        excludePages: [this.currentPage],
-      });
-      text = composePdfContextText(this.currentPage, text, windowPages, ragHits);
-    }
-    if (captureMode === "image" || captureMode === "both") {
-      const canvas = pageEl.querySelector("canvas");
-      if (canvas) {
-        try {
-          imageBase64 = canvas
-            .toDataURL("image/png")
-            .replace(/^data:image\/png;base64,/, "");
-        } catch {
-          // tainted canvas – skip
-        }
-      }
-    }
-    return {
-      pageNum: this.currentPage,
-      pageCount: this.totalPages,
+    return this.pdfCaptureService.capture({
+      captureMode,
+      pagesEl: this.pagesEl,
+      currentPage: this.currentPage,
+      totalPages: this.totalPages,
       pageLabels: this.pageLabels ?? undefined,
-      text,
-      imageBase64,
-      windowPages,
+      pageTextCache: this.pageTextCache,
       outline: this.currentOutlineItems,
-      textQuality,
-      ragHits,
-      isScannedLike: textQuality.isScannedLike,
       documentId: this.docId,
       documentName: this.getDisplayText(),
-      filePath: this.docState?.path || externalPdfDocs.get(this.docId)?.path,
+      filePath: resolveCachedExternalPdfPath(this.docId, this.docState?.path),
       zoteroAttachmentKey: this.docState?.zoteroAttachmentKey,
-    };
+      getSelectionText: () => this.getSelectionTextWithinView(),
+      searchIndex: this.documentIndex,
+    });
   }
 
   // ── Snipping Mode ─────────────────────────────────────────────
@@ -828,13 +714,12 @@ export class ExternalPdfView extends ItemView {
         const rawPath = (file as unknown as { path?: string }).path;
         const path = typeof rawPath === "string" && rawPath.length > 0 ? rawPath : undefined;
 
-        externalPdfDocs.set(this.docId, {
+        putExternalPdfDoc({
           id: this.docId,
           name: file.name,
           path,
           file,
         });
-        persistDocs(externalPdfDocs);
 
         this.docState = {
           docId: this.docId,
@@ -854,7 +739,11 @@ export class ExternalPdfView extends ItemView {
   }
 
   private resolveDoc(): ExternalPdfDoc | null {
-    const cached = externalPdfDocs.get(this.docId);
+    let cached = getExternalPdfDoc(this.docId);
+    const resolvedStatePath = resolveExternalPdfPath(this.docState?.path, cached?.path);
+    if (cached && resolvedStatePath && cached.path !== resolvedStatePath) {
+      cached = replaceExternalPdfDocPath(this.docId, resolvedStatePath) || cached;
+    }
     if (cached) {
       if (cached.path && !this.docState?.path) {
         this.docState = {
@@ -879,8 +768,7 @@ export class ExternalPdfView extends ItemView {
       name: this.docState.name,
       path: this.docState.path,
     };
-    externalPdfDocs.set(doc.id, doc);
-    persistDocs(externalPdfDocs);
+    putExternalPdfDoc(doc);
     return doc;
   }
 
@@ -895,7 +783,6 @@ export class ExternalPdfView extends ItemView {
     this.renderingPages.clear();
     this.pageBaseDims = [];
     this.pageTextCache.clear();
-    this.pageTextPromises.clear();
     this.currentOutlineItems = [];
     this.documentIndex.removeDocument(this.docId);
     this.renderedZoom = this.zoom;
@@ -1364,41 +1251,6 @@ export class ExternalPdfView extends ItemView {
     return { pageContext, items };
   }
 
-  private async getOrExtractPageText(
-    pdf: PdfDocument,
-    pageNum: number
-  ): Promise<PdfWindowPage | null> {
-    const cached = this.pageTextCache.get(pageNum);
-    if (cached) return cached;
-
-    const existingPromise = this.pageTextPromises.get(pageNum);
-    if (existingPromise) return existingPromise;
-
-    const promise = (async () => {
-      const page = await pdf.getPage(pageNum);
-      const textContent = await page.getTextContent();
-      const layout = layoutPdfJsTextItems(textContent.items, "pdfjs");
-      const pageContext: PdfWindowPage = {
-        pageNum,
-        text: layout.text,
-        textQuality: layout.quality,
-      };
-      this.pageTextCache.set(pageNum, pageContext);
-      return pageContext;
-    })()
-      .catch((err) => {
-        console.warn(`[AI Agent] Failed to extract PDF text for page ${pageNum}:`, err);
-        return null;
-      })
-      .finally(() => {
-        this.pageTextPromises.delete(pageNum);
-      });
-
-    this.pageTextPromises.set(pageNum, promise);
-    return promise;
-  }
-
-
   private getSelectionTextWithinView(): string | null {
     if (!this.pagesEl) return null;
     const selection = this.pagesEl.ownerDocument.getSelection();
@@ -1466,37 +1318,37 @@ export class ExternalPdfView extends ItemView {
     }
   }
 
-  // ── Toolbar ───────────────────────────────────────────────────
+  private createToolbarIcon(
+    toolbar: HTMLElement,
+    label: string,
+    icon: string,
+    onClick: () => void
+  ): HTMLElement {
+    const btn = toolbar.createDiv({
+      cls: "clickable-icon ai-agent-pdf-tool-btn",
+      attr: { "aria-label": label },
+    });
+    setIcon(btn, icon);
+    btn.addEventListener("click", onClick);
+    return btn;
+  }
 
   private renderToolbar(container: HTMLElement): void {
-    // 1. Find the view header elements
     const titleContainer = this.containerEl.querySelector(".view-header-title-container") as HTMLElement;
     const titleEl = this.containerEl.querySelector(".view-header-title") as HTMLElement;
 
     if (titleEl) {
-      titleEl.style.display = "none"; // Hide default title text ("External PDF")
+      titleEl.style.display = "none";
     }
 
     if (titleContainer) {
-      // Remove any existing toolbar we added before to avoid duplicates
       titleContainer.querySelector(".ai-agent-external-pdf-toolbar")?.remove();
 
       const toolbar = titleContainer.createDiv("ai-agent-external-pdf-toolbar");
       toolbar.setAttribute("aria-label", "PDF controls");
 
-      const tocBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Table of contents" },
-      });
-      setIcon(tocBtn, "list");
-      tocBtn.addEventListener("click", () => this.toggleToc());
-
-      const zoomOutBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Zoom out" },
-      });
-      setIcon(zoomOutBtn, "zoom-out");
-      zoomOutBtn.addEventListener("click", () => this.setZoom(this.zoom - 0.15));
+      this.createToolbarIcon(toolbar, "Table of contents", "list", () => this.toggleToc());
+      this.createToolbarIcon(toolbar, "Zoom out", "zoom-out", () => this.setZoom(this.zoom - 0.15));
 
       this.zoomInputEl = toolbar.createEl("input", {
         cls: "ai-agent-pdf-zoom-label ai-agent-pdf-zoom-input",
@@ -1521,7 +1373,6 @@ export class ExternalPdfView extends ItemView {
           e.preventDefault();
           this.zoomInputEl?.blur();
         } else if (e.key === "Escape") {
-          // Revert to current zoom without applying
           if (this.zoomInputEl) {
             this.zoomInputEl.value = `${Math.round(this.zoom * 100)}%`;
             this.zoomInputEl.blur();
@@ -1529,35 +1380,13 @@ export class ExternalPdfView extends ItemView {
         }
       });
 
-      const zoomInBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Zoom in" },
-      });
-      setIcon(zoomInBtn, "zoom-in");
-      zoomInBtn.addEventListener("click", () => this.setZoom(this.zoom + 0.15));
-
-      const fitBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Fit to width" },
-      });
-      setIcon(fitBtn, "maximize");
-      fitBtn.addEventListener("click", () => this.setZoom(1));
-
-      const snipBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Snip Region to Chat" },
-      });
-      setIcon(snipBtn, "scissors");
-      snipBtn.addEventListener("click", () => {
+      this.createToolbarIcon(toolbar, "Zoom in", "zoom-in", () => this.setZoom(this.zoom + 0.15));
+      this.createToolbarIcon(toolbar, "Fit to width", "maximize", () => this.setZoom(1));
+      this.createToolbarIcon(toolbar, "Snip Region to Chat", "scissors", () => {
         (this.app as any).commands.executeCommandById("incurator-obsidian-agent:snip-pdf-to-chat");
       });
+      this.createToolbarIcon(toolbar, "Reload PDF from disk", "refresh-cw", () => this.reloadFromDisk());
 
-      const refreshBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Reload PDF from disk" },
-      });
-      setIcon(refreshBtn, "refresh-cw");
-      refreshBtn.addEventListener("click", () => this.reloadFromDisk());
       const pageGroup = toolbar.createDiv("ai-agent-pdf-page-jump");
       this.pageInputEl = pageGroup.createEl("input", {
         cls: "ai-agent-pdf-page-input",
@@ -1574,17 +1403,11 @@ export class ExternalPdfView extends ItemView {
         text: "/ -",
       });
 
-      const darkBtn = toolbar.createDiv({
-        cls: "clickable-icon ai-agent-pdf-tool-btn",
-        attr: { "aria-label": "Toggle dark mode" },
-      });
+      const darkBtn = this.createToolbarIcon(toolbar, "Toggle dark mode", "moon", () => this.toggleDarkMode());
       this.darkModeBtnEl = darkBtn as unknown as HTMLButtonElement; // Keep type compatibility
       darkBtn.toggleClass("is-active", this.darkMode);
-      setIcon(darkBtn, "moon");
-      darkBtn.addEventListener("click", () => this.toggleDarkMode());
     }
 
-    // TOC panel element sits inside the view content container (so it sits on top of the PDF pages)
     const tocWrapper = container.createDiv("ai-agent-external-pdf-toc-wrapper");
     this.tocPanelEl = tocWrapper.createDiv("ai-agent-external-pdf-toc");
     this.tocPanelEl.toggleClass("is-open", this.tocOpen);
@@ -2032,7 +1855,7 @@ export class ExternalPdfView extends ItemView {
     this.docState = buildSyncedExternalPdfState({
       docId: this.docId,
       name: this.docState?.name,
-      fallbackName: externalPdfDocs.get(this.docId)?.name || "External PDF",
+      fallbackName: getExternalPdfDocName(this.docId),
       path: this.docState?.path,
       zoom: this.zoom,
       darkMode: this.darkMode,

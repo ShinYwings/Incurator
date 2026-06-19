@@ -36,7 +36,7 @@ boundary:
     EvidenceItem without span ids — it could not recover them even if it tried.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f1_search_hit_items_carry_source_span_ids
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f1_search_hit_items_carry_source_span_ids" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f1_search_hit_items_carry_source_span_ids" -q
 oracles:
   deterministic: >
     Every EvidenceItem of kind "search_hit" must carry the source_span_ids that

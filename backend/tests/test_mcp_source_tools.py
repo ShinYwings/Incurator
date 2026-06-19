@@ -122,6 +122,47 @@ class ImportSourceTests(unittest.TestCase):
         stubs = list((self.root / "04_Resources" / "References").glob("*.md"))
         self.assertEqual(len(stubs), 1)
 
+    def test_copy_and_reference_of_same_file_stay_distinct_rows(self) -> None:
+        """Plan G P0 dedup-parity characterization (Arena red-team C4).
+
+        Copy mode and Reference mode dedup on DIFFERENT keys (relpath vs
+        logical_source_id/external_path). Importing the same external file once
+        as a copy and once as a reference MUST yield two distinct source rows.
+        This pins current behavior so the P2 identity facade cannot silently
+        merge the two dedup branches.
+        """
+        external_root = self.root.parent / f"{self.root.name}_lib"
+        external_root.mkdir(parents=True, exist_ok=True)
+        external = external_root / "paper.md"
+        external.write_text(
+            "# Shared Source\n\nSame bytes imported two different ways for parity.",
+            encoding="utf-8",
+        )
+
+        copied = ingest_raw.import_source_file(
+            self.paths, external, policy="into_04_resources"
+        )
+        referenced = ingest_raw.import_source_file(
+            self.paths, external, policy="reference"
+        )
+
+        self.assertIn(
+            copied.result,
+            {ingest_raw.AddResult.ADDED, ingest_raw.AddResult.DEDUPED},
+        )
+        self.assertEqual(referenced.result, ingest_raw.AddResult.ADDED)
+        self.assertNotEqual(copied.source_id, referenced.source_id)
+        self.assertNotEqual(copied.relpath, referenced.relpath)
+
+        copy_row = ingest_raw.get_source(self.paths, copied.source_id or -1)
+        ref_row = ingest_raw.get_source(self.paths, referenced.source_id or -1)
+        self.assertIsNotNone(copy_row)
+        self.assertIsNotNone(ref_row)
+        assert copy_row is not None and ref_row is not None
+        self.assertEqual(copy_row["is_reference"], 0)
+        self.assertEqual(ref_row["is_reference"], 1)
+        self.assertEqual(ref_row["external_path"], str(external.resolve()))
+
     def test_reference_status_detects_hash_drift_without_mutation(self) -> None:
         external_root = self.root.parent / f"{self.root.name}_zotero_library"
         external_root.mkdir(parents=True, exist_ok=True)

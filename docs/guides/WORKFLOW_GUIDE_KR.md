@@ -314,9 +314,9 @@ VAULT_ROOT=/path/to/vault wiki mcp
      ▼
 도메인 질의 발생
      │
-     │ 2. curator_query(query, workspace_path)
-     │    → local/global/explore/source-section 근거 라우팅
-     │    → Sources & Trace가 포함된 답변 반환
+     │ 2. curator_fetch_context(query, workspace_path)
+     │    → 에이전트 grounding용 bounded ContextService pack 반환
+     │    → curator_query는 동일 pack 위에서만 합성 가능
      ▼
 답변 생성 (검색 결과 인용)
      │
@@ -332,11 +332,16 @@ VAULT_ROOT=/path/to/vault wiki mcp
 | 도구 | 용도 |
 |------|------|
 | `curator_check_workspace` | 세션 시작 시 Workspace 상태 점검 및 룰 설치 |
+| `curator_fetch_context` | 에이전트 grounding용 bounded normalized context pack 반환 |
 | `curator_query` | Sources & Trace가 포함된 자연어 답변 |
 | `curator_workspace_init` | 새 Workspace 생성 (인터뷰 방식) |
 | `curator_add_knowledge` | 검토된 대화 지식을 `02_Wiki/`로 승격 |
 | `curator_propose_correction` | 생성 노드에 대한 검토된 correction 제안 |
 | `curator_get_node` | 특정 노드(CTX/ATM/CON/SYN) 내용 조회 |
+
+Plan F는 외부 MCP 에이전트와 Obsidian 에이전트를 같은 ContextService pack
+계약으로 라우팅합니다. 요청, scope, budget, snapshot 입력이 같으면 최종 provider
+prompt 형식은 달라도 normalized backend pack은 동등해야 합니다.
 
 ---
 

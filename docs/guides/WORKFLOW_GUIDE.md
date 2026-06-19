@@ -325,9 +325,9 @@ Agent session starts
      ▼
 Domain query occurs
      │
-     │ 2. curator_query(query, workspace_path)
-     │    → Route through local/global/explore/source-section evidence
-     │    → Return answer plus Sources & Trace
+     │ 2. curator_fetch_context(query, workspace_path)
+     │    → Return a bounded ContextService pack for agent grounding
+     │    → curator_query may synthesize only over that exact pack
      ▼
 Answer generated (with citations from search results)
      │
@@ -343,11 +343,17 @@ Session ends
 | Tool | Purpose |
 |------|---------|
 | `curator_check_workspace` | Verify Workspace state and install rules at session start |
+| `curator_fetch_context` | Return a bounded normalized context pack for agent grounding |
 | `curator_query` | Natural language answer with Sources & Trace |
 | `curator_workspace_init` | Create a new Workspace (interview-style wizard) |
 | `curator_add_knowledge` | Promote reviewed conversational knowledge to `02_Wiki/` |
 | `curator_propose_correction` | Propose a reviewed correction over generated nodes |
 | `curator_get_node` | Retrieve content of a specific node (CTX/ATM/CON/SYN) |
+
+Plan F routes both external MCP agents and the Obsidian agent through the same
+ContextService pack contract. Equivalent request, scope, budget, and snapshot
+inputs must produce equivalent normalized backend packs even though each client
+formats its final provider prompt differently.
 
 ---
 

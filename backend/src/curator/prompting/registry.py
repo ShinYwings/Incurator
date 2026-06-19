@@ -7,6 +7,8 @@ duplicate registration of the same ``prompt_id@version`` is a defect.
 
 from __future__ import annotations
 
+from typing import List
+
 from .contracts import PromptContract
 
 __all__ = ["PromptRegistry", "REGISTRY", "register"]
@@ -38,7 +40,7 @@ class PromptRegistry:
             raise KeyError(f"unknown prompt version: {prompt_id}@{version}")
         return versions[version]
 
-    def list(self, family: str | None = None) -> list[PromptContract]:
+    def list(self, family: str | None = None) -> List[PromptContract]:
         out = []
         for versions in self._by_id.values():
             for contract in versions.values():
@@ -46,7 +48,7 @@ class PromptRegistry:
                     out.append(contract)
         return sorted(out, key=lambda c: c.key)
 
-    def ids(self) -> list[str]:
+    def ids(self) -> List[str]:
         return sorted(self._by_id)
 
     def assert_unique(self) -> None:

@@ -34,7 +34,7 @@ boundary:
     support.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f8_baseline_exact_name_merge_and_giant_component
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f8_baseline_exact_name_merge_and_giant_component" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f8_baseline_exact_name_merge_and_giant_component" -q
 oracles:
   deterministic: >
     On the adversarial homonym fixture (same surface name, unrelated

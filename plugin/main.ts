@@ -34,8 +34,12 @@ import { ChatSidebarView, CHAT_VIEW_TYPE } from "./src/ui/chatSidebar";
 import {
   ExternalPdfView,
   EXTERNAL_PDF_VIEW_TYPE,
-  registerExternalPdfByPath
+  type ExternalPdfState,
 } from "./src/ui/externalPdfView";
+import {
+  registerExternalPdfByPath,
+  replaceExternalPdfDocPath,
+} from "./src/ui/externalPdfRegistry";
 import { parseZoteroLink } from "./src/utils/zoteroUtils";
 
 import { ZoteroSearchModal, ZoteroWizardModal } from "./src/ui/zoteroWizardModal";
@@ -692,12 +696,19 @@ export default class ObsidianAIAgent extends Plugin {
 
       let leaf = this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE).find(l => {
         return l.view.getState()?.path === pdfPath;
+      }) || this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE).find(l => {
+        return l.view.getState()?.zoteroAttachmentKey === effectiveKey;
       });
 
       let pdfState: any;
       if (leaf) {
+        const existingState = leaf.view.getState() as Partial<ExternalPdfState>;
+        if (existingState?.docId) {
+          replaceExternalPdfDocPath(existingState.docId, pdfPath);
+        }
         pdfState = {
-          ...leaf.view.getState(),
+          ...existingState,
+          path: pdfPath,
           zoteroAttachmentKey: effectiveKey,
         };
       } else {

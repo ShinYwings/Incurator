@@ -137,6 +137,17 @@ evaluated_code:
       exercises — so the frozen Q06 metric is provably unaffected. The
       single-consumption harness (run_count=3, max) cannot regenerate the result;
       this fingerprint is a re-armable drift tripwire, not a permanent code freeze.
+  plan_f_mypy_rearm:
+    date: '2026-06-18'
+    prior_db_sha256: 071138e92ef2571b53f0c4f8a6254aacea641aa6c87b0eccd15ae38593d927ec
+    reason: >-
+      Plan F mypy hardening added an explicit `lastrowid is None` guard after
+      the ingest_jobs INSERT in enqueue_job, raising RuntimeError only if SQLite
+      fails to report the inserted queue row id. This is type-safety and
+      impossible-state hardening for ingest job creation; it touches no
+      retrieval, ranking, fusion, projection, embedding, chunking, or
+      materialize_chunks path, so the lexical FTS5/BM25 Q06 holdout metric is
+      provably unaffected. Re-armed the drift tripwire.
   file_sha256:
     backend/scripts/failure_atlas_holdout.py: c6afe0307dd3f68fa9902387bb0dc269db6ff9d6b73ad2f3ac1cc6ecc883297a
     backend/src/curator/retrieval/evaluation.py: 0cc9e655142c725dd4bbbabfd2b44d6bf0355265bb2510fbb78cbd47d7d43c17
@@ -145,7 +156,7 @@ evaluated_code:
     backend/src/curator/retrieval/fusion.py: ffed6f90d6b0eb55692dfd9a02526d8e4a220ef6625a3e245175a07fa08eb716
     backend/src/curator/retrieval/embedding.py: a6a7da88af3fc824f1fa2c9a4f4ce0720e870c0584c49e011b865678cb0f8f7e
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
-    backend/src/curator/db.py: 071138e92ef2571b53f0c4f8a6254aacea641aa6c87b0eccd15ae38593d927ec
+    backend/src/curator/db.py: 725baf09e82f4da9ee898708a0278ec7385e9dac43b98685a48d4a26e1a5cfa9
   preflight_family_metrics:
     direct-factual:
       query_count: 7

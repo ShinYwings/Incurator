@@ -34,7 +34,7 @@ boundary:
     schema. No shared normalized evidence-pack model exists.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f12_baseline_mcp_plugin_shapes_diverge
 commands:
-  - uv run --directory backend pytest "tests/test_failure_atlas_repro.py::test_f12_baseline_mcp_plugin_shapes_diverge" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f12_baseline_mcp_plugin_shapes_diverge" -q
 oracles:
   deterministic: >
     For an equivalent request, the backend evidence delivered to external MCP

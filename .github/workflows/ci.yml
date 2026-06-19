@@ -32,11 +32,6 @@ jobs:
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest
-    # Keep the uv project environment OUT of backend/ (repo policy: the backend
-    # venv lives at the repo root, never backend/.venv). Without this, `uv sync`
-    # run from ./backend would create backend/.venv.
-    env:
-      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/.venv
 
     steps:
       - uses: actions/checkout@v4
@@ -52,16 +47,18 @@ jobs:
           version: "latest"
 
       - name: Install backend dependencies
-        working-directory: ./backend
-        run: uv sync --extra dev --extra mcp
+        run: |
+          uv venv .venv-dev
+          uv pip install --python .venv-dev/bin/python -e './backend[dev,mcp]'
 
       - name: Run ruff
-        working-directory: ./backend
-        run: uv run ruff check src/
+        run: scripts/backend-check ruff
+
+      - name: Run mypy
+        run: scripts/backend-check mypy
 
       - name: Run pytest
-        working-directory: ./backend
-        run: uv run pytest -q
+        run: scripts/backend-check pytest
 
   plugin-tests:
     name: Plugin Tests

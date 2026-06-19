@@ -23,7 +23,15 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 
 ### 🚀 Unresolved Items to be Addressed in the Future (To-Do)
 
-1. **[Major Update] RAG & Knowledge Quality Stabilization** — *IN PROGRESS*
+1. **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul**
+   - A unified "Big Plan" refactoring to resolve systemic agent attention failures, prompt duplication, and UI state desyncs.
+   - Component Drafts to be merged into the Master Plan:
+     - Context Decay & Cmd+Shift+L Failure (`.agents/drafts/chat_context_decay.md`)
+     - Popover Tool Scope & Prompt Unification (`.agents/drafts/popover_tool_scope.md`)
+     - Diff Viewer Overhaul & Model Consistency (`.agents/drafts/diff_viewer_plugin.md`)
+     - Prompt Architecture Refactoring (`.agents/drafts/prompt_architecture_refactoring.md`)
+
+2. **[Major Update] RAG & Knowledge Quality Stabilization** — *IN PROGRESS*
    - Heart-of-system three-program initiative for using the notes vault like a
      codebase: first establish the truth contract, deep diagnosis, external
      research, and quality observatory; then make the note-to-L1-L4 evidence
@@ -83,6 +91,16 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
    - Web search integration review, `[[wikilink]]` conflict validation, Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`), Zotero profile import sorted by recently accessed.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
 
+4.1. **[Minor Update] Persistent Quick Query Popover**
+   - Upgrade the in-line copilot popover to be immune to outside clicks, freely draggable, and minimizable, acting as a persistent reference window during document analysis.
+   - Detailed analysis: `.agents/drafts/persistent_popover.md`
+   - **Code-review findings (2026-06-19)** to fold into this plan's briefing: 5
+     items on `quickQueryPopover.ts` captured in `USER_REPORT.md` (zombie-listener
+     teardown order; text-node-click crash; scroll-pin coupling vs fixed palette;
+     missing `titleEl` capture; missing drag/minimize state). Also bundle the
+     separate `.agents/drafts/popover_tool_scope.md` concern (MCP tool injection /
+     prompt duplication / path sandboxing) when planning. Queued after Plan G.
+
 4.5. **[Minor Update] Diff Viewer Plugin Overhaul & Sync Fixes**
    - Address 7 critical bugs in the plugin's Diff Viewer (UI/UX redesign to inline unified view, race conditions, multi-file diff selection).
    - Detailed analysis: `.agents/drafts/diff_viewer_plugin.md`
@@ -90,8 +108,13 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 
 5. **[Major Update] Native PDF Annotation & Asset System**
    - Remove external Zotero dependency, build a native annotation (highlight/memo) synchronization system utilizing Obsidian's built-in PDF Viewer. In-PDF full-text search (with strict-spelling mode) and native highlight/memo sync remain here.
-   - **Split out (2026-06-11):** PDF add-source asset-location routing + "Added" button state → **shipped in v0.5.6** (2026-06-12); the Zotero reload relativepath bug was already fixed in v0.5.5. External-image-attachment-to-`.md` routing rides v0.5.6's `--asset-dir` mechanism as a follow-up.
+   - **Split out (2026-06-11):** PDF add-source asset-location routing + "Added" button state → **shipped in v0.5.6** (2026-06-12); the Zotero reload relativepath bug was already fixed in v0.5.5.
+   - **Moved into Plan G (2026-06-19):** the remaining non-annotation follow-up — external-image-attachment-to-`.md` asset routing (riding v0.5.6's `--asset-dir`) — is folded into `.agents/plans/G_pdf_unified_handling.md` §1a. The annotation system + in-PDF full-text search remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
+
+7.5. **[Release Finalizing] PDF Handling Unification & Simplification (Plan G)**
+   - Unify the 3 PDF flows (Reference Mode / add-source / agent↔PDF viewer) behind a single PDF-identity resolver; slim the `externalPdfView.ts` god class; close audit items 3/4/5; absorb the non-annotation asset-routing follow-up. Excludes annotation.
+   - P0-P5 complete on `feature/pdf-unified-handling`; active plan artifacts removed for v0.12.0 release finalization. Historical plan/evidence remain in Git.
 
 6. **[Minor Update] Purge Legacy QMD References**
    - The `qmd` binary has been retired since v0.3.2, but over 50 references still exist across the codebase (`cli.py`, `search.py`, `lint.py`, tests, etc.). These references must be completely purged to prevent hallucination or regressions before removing the tombstone warnings from the agent contracts.
@@ -107,7 +130,11 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Active Milestone**: **Batch 3 (Plan F) - Agent Context Service**.
+- **Active Milestone**: **Plan G - PDF Handling Unification & Simplification** (v0.12.0 release commit/PR handoff).
+  - P0-P5 implementation and validation are complete on `feature/pdf-unified-handling`.
+  - Draft PR: https://github.com/ShinYwings/Incurator/pull/33
+  - Branch is intentionally based on the Plan F checkpoint and must be rebased
+    after Plan F merges.
 - **Shipped**: **4.5 Diff Viewer Overhaul** (Merged in v0.11.0).
 - **Next in Queue**: TBD.
   Implementation starts only on explicit user approval.

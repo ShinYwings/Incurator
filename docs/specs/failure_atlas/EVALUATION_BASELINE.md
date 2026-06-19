@@ -108,7 +108,7 @@ D2 evaluation specification.
 
 The D1 baseline is exactly reproducible: deterministic engine, frozen corpus,
 no providers, `persist=False`. Re-running
-`uv run --directory backend pytest tests/test_failure_atlas_eval.py -q`
+`scripts/backend-check pytest backend/tests/test_failure_atlas_eval.py -q`
 on the same snapshot yields identical metrics. LLM-sensitive variance
 measurement (temperature, provider drift) is deferred to provider-mode
 benchmarks in Plan E / D2 and must be reported separately per

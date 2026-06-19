@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import re
 import time
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -675,6 +674,120 @@ def _normalize_link(value: str) -> str:
     return value.strip().strip("[]").removeprefix(".curator/Collections/").removesuffix(".md")
 
 
+def fetch_context(
+    paths: cfg.WikiPaths,
+    *,
+    query_text: str,
+    workspace_path: str = "",
+    limit_tokens: int = 8000,
+) -> dict[str, Any]:
+    if not query_text.strip():
+        return {
+            "ok": False,
+            "operation": "context_fetch",
+            "error": "query is required",
+        }
+
+    try:
+        config = cfg.load_config(paths)
+    except Exception as exc:
+        return {"ok": False, "operation": "context_fetch", "error": f"Config error: {exc}"}
+
+    try:
+        from .context_service import ContextService
+        from .retrieval import QueryRequest
+
+        with llm.build_client(config) as client:
+            return ContextService(paths, client).context_fetch(
+                QueryRequest(
+                    question=query_text,
+                    workspace_path=workspace_path,
+                    mode="auto",
+                ),
+                limit_tokens=max(1, int(limit_tokens)),
+            )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "operation": "context_fetch",
+            "error": f"Context fetch error: {exc}",
+        }
+
+
+def expand_context(
+    paths: cfg.WikiPaths,
+    *,
+    pack_id: str,
+    handles: list[str],
+    expected_snapshot_id: str,
+    limit_tokens: int = 8000,
+) -> dict[str, Any]:
+    if not pack_id:
+        return {"ok": False, "operation": "context_expand", "error": "pack_id is required"}
+    if not handles:
+        return {"ok": False, "operation": "context_expand", "error": "at least one handle is required"}
+    if not expected_snapshot_id:
+        return {
+            "ok": False,
+            "operation": "context_expand",
+            "error": "expected_snapshot_id is required",
+        }
+
+    try:
+        from .context_service import ContextService
+
+        return ContextService(paths).context_expand(
+            pack_id=pack_id,
+            handles=handles,
+            expected_snapshot_id=expected_snapshot_id,
+            limit_tokens=max(1, int(limit_tokens)),
+        )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "operation": "context_expand",
+            "error": f"Context expand error: {exc}",
+        }
+
+
+def verify_context(
+    paths: cfg.WikiPaths,
+    *,
+    pack_id: str,
+    verification_handle: str,
+    expected_snapshot_id: str,
+) -> dict[str, Any]:
+    if not pack_id:
+        return {"ok": False, "operation": "context_verify", "error": "pack_id is required"}
+    if not verification_handle:
+        return {
+            "ok": False,
+            "operation": "context_verify",
+            "error": "verification_handle is required",
+        }
+    if not expected_snapshot_id:
+        return {
+            "ok": False,
+            "operation": "context_verify",
+            "error": "expected_snapshot_id is required",
+        }
+
+    try:
+        from .context_service import ContextService
+
+        return ContextService(paths).context_verify(
+            pack_id=pack_id,
+            verification_handle=verification_handle,
+            expected_snapshot_id=expected_snapshot_id,
+        )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "operation": "context_verify",
+            "error": f"Context verify error: {exc}",
+        }
+
+
 def curator_query(
     paths: cfg.WikiPaths,
     *,
@@ -687,28 +800,6 @@ def curator_query(
 ) -> dict[str, Any]:
     start = time.monotonic()
     effective_final_output_language = final_output_language or input_language or "same_as_input"
-
-    query_boost_terms: list[str] | None = None
-    if workspace_path:
-        from . import curate_yml
-
-        try:
-            spec = curate_yml.load_curate_spec(Path(workspace_path).expanduser().resolve())
-        except Exception:
-            spec = None
-        if spec is not None and spec.persona:
-            # A real workspace with curate.yml: apply its persona retrieval boost.
-            query_boost_terms = [
-                term
-                for term in [
-                    spec.persona.domain,
-                    spec.persona.subdomain,
-                    *spec.persona.disambiguation_keywords,
-                ]
-                if term
-            ]
-        # Vault-wide chat (no curate.yml) resolves to default with no boost — never
-        # error (SYSTEM_BEHAVIOR §9: no ancestor curate.yml → workspace_id=default).
 
     try:
         config = cfg.load_config(paths)
@@ -744,32 +835,19 @@ def curator_query(
             },
         }
 
-    session_id = f"QRY-{uuid.uuid4().hex[:8]}"
-
-    class _SilentCallbacks(query.QueryCallbacks):
-        pass
-
     try:
+        from .retrieval import QueryOrchestrator, QueryRequest
+
         with llm.build_client(config) as client:
-            result = query.run_query(
-                paths,
-                client,
-                question,
-                _SilentCallbacks(),
-                mode="hybrid",
-                limit=12,
-                min_score=0.35,
-                rerank=False,
-                temperature=0.3,
-                scope="all",
-                classify_intent_first=False,
-                session_id=session_id,
-                workspace_path=workspace_path or None,
-                query_boost_terms=query_boost_terms,
-                english_query=english_query or None,
-                input_language=input_language,
-                final_output_language=effective_final_output_language,
-                route="auto",
+            result = QueryOrchestrator(paths, client).run(
+                QueryRequest(
+                    question=question,
+                    english_query=english_query,
+                    input_language=input_language,
+                    final_output_language=effective_final_output_language,
+                    workspace_path=workspace_path,
+                    mode="auto",
+                )
             )
     except Exception as exc:
         return {
@@ -791,15 +869,19 @@ def curator_query(
             "error": result.error or "Query returned no answer",
         }
 
-    matched_concepts: list[str] = []
+    trace = db.get_query_trace(paths.state_db, result.trace_id)
+    context_trace = {}
+    if trace is not None:
+        context_trace = (trace.get("retrieval_trace") or {}).get("context_service", {})
+    context_pack_id = context_trace.get("pack_id", None) or None
+    context_snapshot = context_trace.get("snapshot", None) if context_pack_id is not None else None
+    context_budget = context_trace.get("budget", None) if context_pack_id is not None else None
     source_paths: list[str] = []
-    for hit in result.hits:
-        if hit.full_path.startswith(f"{consts.LAYER_L3}/"):
-            con_id = Path(hit.full_path).stem
-            if con_id not in matched_concepts:
-                matched_concepts.append(con_id)
-        if hit.full_path not in source_paths:
-            source_paths.append(hit.full_path)
+    if result.source_span_ids:
+        for span in db.get_source_spans_by_ids(paths.state_db, result.source_span_ids):
+            relpath = span.get("relpath", "")
+            if relpath and relpath not in source_paths:
+                source_paths.append(relpath)
 
     # Sessionless: no generated L4 file is written; return the answer + trace only.
     return {
@@ -807,16 +889,35 @@ def curator_query(
         "answer": result.answer,
         "question": question,
         "input_language": input_language,
-        "english_query": result.english_query,
+        "english_query": result.english_query or english_query,
         "final_output_language": result.final_output_language or effective_final_output_language,
+        "route": result.route,
+        "trace_id": result.trace_id,
+        "pack_id": context_pack_id,
+        "snapshot": context_snapshot,
+        "budget": context_budget,
+        "prompt_trace_ids": result.prompt_trace_ids,
+        "source_span_ids": result.source_span_ids,
+        "synthesis_node_ids": result.synthesis_node_ids,
+        "community_report_ids": result.community_report_ids,
+        "memory_path_ids": result.memory_path_ids,
+        "insight_candidate_ids": result.insight_candidate_ids,
+        "warnings": result.warnings,
         "trace": {
-            "matched_concepts": matched_concepts,
+            "matched_concepts": [],
             "source_ids": [],
             "source_paths": source_paths,
             "synthesis_node_ids": result.synthesis_node_ids,
             "community_report_ids": result.community_report_ids,
+            "memory_path_ids": result.memory_path_ids,
+            "insight_candidate_ids": result.insight_candidate_ids,
+            "prompt_trace_ids": result.prompt_trace_ids,
+            "source_span_ids": result.source_span_ids,
             "trace_id": result.trace_id,
             "route": result.route,
+            "pack_id": context_pack_id,
+            "snapshot": context_snapshot,
+            "budget": context_budget,
             "latency_ms": int((time.monotonic() - start) * 1000),
             "l3_complete": l3_complete,
         },

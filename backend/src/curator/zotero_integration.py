@@ -40,7 +40,7 @@ def search_zotero_items(zotero_db_path: str, query: str, limit: int = 20) -> Lis
                   WHERE c.firstName LIKE ? OR c.lastName LIKE ?
               )
             """
-            params = (f"%{term}%", f"%{term}%", f"%{term}%", max(1, min(int(limit), 100)))
+            params: tuple[Any, ...] = (f"%{term}%", f"%{term}%", f"%{term}%", max(1, min(int(limit), 100)))
         else:
             item_filter = ""
             params = (max(1, min(int(limit), 100)),)

@@ -387,6 +387,15 @@ Vault — it returns an answer + a `QTR-` trace and writes **no** vault file:
 > The active workspace path determines whether a `curate.yml` KRS biases the
 > query. Outside a workspace, the query uses the `default` vault scope.
 
+### Agent Context Packs (Plan F target)
+
+For agents that perform their own reasoning, `curator_fetch_context` returns a
+normalized context pack instead of an answer. The pack has one `QTR-*` root trace,
+one attached `RTR-*` retrieval execution, a reproducible snapshot id, explicit
+budget accounting, source locators, omission reasons, and expansion/verification
+handles. Future `wiki query` synthesis uses the exact same pack rather than
+running a separate retrieval path.
+
 ### Promoting an answer to durable knowledge
 A query answer is not stored. To keep one, promote it into `02_Wiki/` (the
 human-curated space) — via the plugin's promote action or the MCP

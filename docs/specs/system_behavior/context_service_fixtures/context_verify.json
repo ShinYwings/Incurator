@@ -1,0 +1,31 @@
+{
+  "contract_version": "1",
+  "operation": "context_verify",
+  "request": {
+    "pack_id": "PACK-example",
+    "verification_handle": "VER-example",
+    "expected_snapshot_id": "SNAP-example"
+  },
+  "response": {
+    "ok": true,
+    "contract_version": "1",
+    "operation": "context_verify",
+    "pack_id": "PACK-example",
+    "trace_id": "QTR-example",
+    "snapshot": {
+      "snapshot_id": "SNAP-example"
+    },
+    "item": {
+      "item_id": "SPAN-example",
+      "record_id": "SPAN-example",
+      "verification_handle": "VER-example",
+      "source_span_ids": ["SPAN-example"]
+    },
+    "source_span_ids": ["SPAN-example"],
+    "locator": {
+      "locator_status": "exact"
+    },
+    "dependencies": [],
+    "contradictions": []
+  }
+}

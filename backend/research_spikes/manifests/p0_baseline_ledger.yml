@@ -44,7 +44,7 @@ active_scenario:
   eligible_as_comparison_corpus: false
   reason: Scenario plan contains retired EXH-era behavior and its DB is one schema behind current code; use only as copied diagnostic input.
 baseline_repeatability:
-  command: uv run --directory backend pytest -q tests/test_failure_atlas_eval.py tests/test_failure_atlas_repro.py
+  command: scripts/backend-check pytest -q backend/tests/test_failure_atlas_eval.py backend/tests/test_failure_atlas_repro.py
   run_1: 21-passed-13-xfailed
   run_2: 21-passed-13-xfailed
   source_state_unchanged: true

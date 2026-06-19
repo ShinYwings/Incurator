@@ -1,0 +1,46 @@
+{
+  "contract_version": "1",
+  "operation": "context_expand",
+  "request": {
+    "pack_id": "PACK-root",
+    "handles": ["EXP-example"],
+    "budget": {
+      "max_tokens": 2000,
+      "max_items": 4,
+      "max_tokens_per_item": 1000,
+      "reserve_for_expansion": 0
+    },
+    "expected_snapshot_id": "SNAP-example"
+  },
+  "response": {
+    "ok": true,
+    "contract_version": "1",
+    "operation": "context_expand",
+    "root_pack_id": "PACK-root",
+    "pack_id": "PACK-expanded",
+    "trace_id": "QTR-example",
+    "snapshot": {
+      "snapshot_id": "SNAP-example"
+    },
+    "budget": {
+      "limit_tokens": 2000,
+      "used_tokens": 320,
+      "reserved_tokens": 0,
+      "omitted_items": 0,
+      "estimation_mode": "conservative"
+    },
+    "items": [
+      {
+        "item_id": "SPAN-example",
+        "record_id": "SPAN-example",
+        "expansion_handle": "EXP-example",
+        "verification_handle": "VER-example",
+        "source_span_ids": ["SPAN-example"],
+        "locator": {"locator_status": "exact"}
+      }
+    ],
+    "source_span_ids": ["SPAN-example"],
+    "warnings": [],
+    "next": []
+  }
+}

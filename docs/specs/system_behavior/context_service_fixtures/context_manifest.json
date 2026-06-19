@@ -1,0 +1,28 @@
+{
+  "contract_version": "1",
+  "operation": "context_manifest",
+  "request": {
+    "limit_families": 4
+  },
+  "response": {
+    "ok": true,
+    "contract_version": "1",
+    "operation": "context_manifest",
+    "snapshot": {
+      "snapshot_id": "SNAP-example",
+      "source_epoch_hash": "SRC-example",
+      "db_schema_version": 9,
+      "policy_hash": "POL-example",
+      "tokenizer": "conservative"
+    },
+    "families": [
+      {"family": "sources", "count": 12},
+      {"family": "source_spans", "count": 48},
+      {"family": "entities", "count": 24},
+      {"family": "community_reports", "count": 4}
+    ],
+    "next": [
+      {"handle": "EXP-example", "family": "sources", "detail": "index"}
+    ]
+  }
+}

@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .. import config as cfg
 from .. import constants as consts
@@ -106,7 +106,8 @@ def generate_synthesis(
     # Regenerated wholesale: drop the stale layer, then write the fresh one.
     db.clear_synthesis_nodes(paths.state_db)
     node_ids: list[str] = []
-    for item in result.parsed.syntheses:
+    parsed = cast(Any, result.parsed)
+    for item in parsed.syntheses:
         item_spans = list(item.source_span_ids) or span_ids
         syn_id = db.upsert_synthesis_node(
             paths.state_db,

@@ -190,7 +190,7 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
 5. **Docs Update**: Update `docs/specs/` and `docs/guides/` to define the target behavior. (Crucial: Update the English guides first, then faithfully synchronize the matching `_KR.md` Korean guides).
 6. **Test-Driven Development (TDD)**: Write failing tests before writing application logic.
 7. **Implementation & Incremental Commits**: Write code to make tests pass. Commit work incrementally using Conventional Commits (e.g., `feat(core): ...`, `fix(plugin): ...`).
-8. **Local CI Validation**: Before finalizing, you MUST run all local checks. Keep the backend venv at the repo root (`export UV_PROJECT_ENVIRONMENT="$(git rev-parse --show-toplevel)/.venv"` — resolves the repo root from any cwd, unlike `$PWD`; never `backend/.venv`) and use `uv run --directory backend` (never `cd backend`, which leaves your shell inside backend and risks stray artifacts): `uv run --directory backend pytest -q`, `uv run --directory backend ruff check src/`, `uv run --directory backend mypy src/`, and the plugin's `npx vitest run -c ./plugin/vitest.config.ts`. Ensure the entire system is intact.
+8. **Local CI Validation**: Before finalizing, you MUST run all local checks. Keep the service/runtime venv at the repo root as `.venv`; `./setup.sh` updates this environment for real backend/plugin service deployment and MUST NOT install dev-only check tools into it. Keep the backend development/validation venv at the repo root as `.venv-dev`; install `backend[dev,mcp]` there. Run backend checks through the repo-root helper, which calls `.venv-dev/bin` directly and never creates backend-local artifacts: `scripts/backend-check pytest`, `scripts/backend-check ruff`, `scripts/backend-check mypy`, and the plugin's `npx vitest run -c ./plugin/vitest.config.ts`. Never create `backend/.venv`, `backend/.venv-dev`, `backend/uv.lock`, or backend-local tool caches. Ensure the entire system is intact.
 9. **Report Cleanup**: Once an item is verified, ensure it is marked as completed or removed from `.agents/ROADMAP.md` (since it was already deleted from USER_REPORT.md during planning).
 10. **Version Bump & Changelog**: Update the version strings in all relevant configuration files (`pyproject.toml`, `package.json`, `manifest.json`) AND update `CHANGELOG.md` with the release notes for this version.
 11. **Plan Deletion**: **Delete** the implemented plan file(s) from the workspace. The plan's historical context will be statically preserved in the Git history for this version.
@@ -313,27 +313,24 @@ Agents should refer to the specific scenario's `MASTER_PLAN.md` to understand th
 ## Development Commands
 
 ```bash
-# Backend venv policy: it lives at the REPO ROOT (<repo>/.venv), never backend/.venv.
-# `git rev-parse --show-toplevel` resolves the repo root from ANY working directory
-# (using `$PWD` would point at backend/.venv if run from inside backend/). Mirrors
-# the CI `UV_PROJECT_ENVIRONMENT` setting:
-export UV_PROJECT_ENVIRONMENT="$(git rev-parse --show-toplevel)/.venv"
-
-# Install backend (+dev) and plugin dependencies
+# Runtime/service venv policy: ./setup.sh updates <repo>/.venv for the real
+# backend/plugin service deployment. Do not install dev-only check tools there.
 ./setup.sh
-# Or, to mirror CI exactly (populates <repo>/.venv with backend + dev/mcp deps):
-uv sync --directory backend --extra dev --extra mcp
 
-# Lint / type-check / test. Use `uv run --directory backend` (NOT `cd backend`):
-# uv runs the command with its cwd in backend/ — needed for correct pytest/mypy
-# package resolution — WITHOUT moving your shell, so nothing accumulates in
-# backend/ and there is no `cd ..` to forget. The venv stays at the repo root.
-uv run --directory backend ruff check src/
-uv run --directory backend mypy src/
-uv run --directory backend pytest -q
+# Backend dev/validation venv policy: checks use <repo>/.venv-dev directly,
+# never backend/.venv, backend/uv.lock, or backend-local caches.
+uv venv "$(git rev-parse --show-toplevel)/.venv-dev"
+uv pip install --python "$(git rev-parse --show-toplevel)/.venv-dev/bin/python" \
+  -e "$(git rev-parse --show-toplevel)/backend[dev,mcp]"
+
+# Lint / type-check / test. Use the root helper; it calls .venv-dev/bin
+# directly and pins mypy stubs/cache without exporting VIRTUAL_ENV.
+scripts/backend-check ruff
+scripts/backend-check mypy
+scripts/backend-check pytest
 
 # Run a single test
-uv run --directory backend pytest tests/test_db.py::test_source_deduplication -v
+scripts/backend-check pytest backend/tests/test_db.py::test_source_deduplication -v
 
 # Build package
 hatch backend/build

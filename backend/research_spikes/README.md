@@ -53,8 +53,8 @@ Never commit `local/`. It may contain private database copies and raw results.
 Create a copied snapshot with:
 
 ```bash
-uv run --directory backend python research_spikes/prepare_inputs.py \
-  --source ../testbed/.curator/state.sqlite \
+scripts/backend-check python backend/research_spikes/prepare_inputs.py \
+  --source testbed/.curator/state.sqlite \
   --label testbed-complex-math-backprop
 ```
 
@@ -65,7 +65,7 @@ source changed during the operation.
 Validate P0/P1 contracts with:
 
 ```bash
-uv run --directory backend pytest -q tests/test_research_spikes_contract.py
+scripts/backend-check pytest -q backend/tests/test_research_spikes_contract.py
 ```
 
 Spikes must use `dev`, `regression`, or `adversarial` partitions until Plan E

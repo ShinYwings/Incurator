@@ -1,0 +1,13 @@
+from typing import Any
+
+LLAMA_POOLING_TYPE_LAST: int
+LLAMA_POOLING_TYPE_RANK: int
+
+class Llama:
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+    def embed(self, input: str | list[str], *args: Any, **kwargs: Any) -> Any: ...
+    def create_completion(self, *args: Any, **kwargs: Any) -> Any: ...
+
+class LlamaGrammar:
+    @classmethod
+    def from_string(cls, grammar: str) -> "LlamaGrammar": ...
