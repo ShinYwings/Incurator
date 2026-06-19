@@ -15,6 +15,7 @@ version bump no longer requires a reinstall to validate locally.
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 from pathlib import Path
@@ -25,15 +26,20 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SPECS_ROOT = REPO_ROOT / "docs" / "specs"
 
 
-def _pyproject_version() -> str:
-    text = (REPO_ROOT / "backend" / "pyproject.toml").read_text(encoding="utf-8")
+def _parse_project_version(text: str) -> str:
     # Scope to the [project] table so a tool-section `version =` can't shadow it
     # (Python 3.10 has no stdlib tomllib, so parse the relevant block directly).
     block = re.search(r"(?ms)^\[project\]\s*\n(.*?)(?=^\[|\Z)", text)
     assert block, "pyproject.toml missing a [project] table"
-    m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', block.group(1))
+    # Accept both single- and double-quoted version strings (valid TOML variants).
+    m = re.search(r"""(?m)^version\s*=\s*["']([^"']+)["']""", block.group(1))
     assert m, "pyproject.toml [project] table missing a version"
     return m.group(1)
+
+
+def _pyproject_version() -> str:
+    text = (REPO_ROOT / "backend" / "pyproject.toml").read_text(encoding="utf-8")
+    return _parse_project_version(text)
 
 
 def _json_version(relpath: str) -> str:
@@ -41,15 +47,28 @@ def _json_version(relpath: str) -> str:
     return data["version"]
 
 
-# Single source of truth: the build manifests.
-BUILD_MANIFEST_VERSIONS = {
-    "backend/pyproject.toml": _pyproject_version(),
-    "plugin/package.json": _json_version("plugin/package.json"),
-    "plugin/manifest.json": _json_version("plugin/manifest.json"),
-}
-ACTIVE_VERSION = BUILD_MANIFEST_VERSIONS["backend/pyproject.toml"]
-# Specs declare the MAJOR.MINOR line, so patch bumps don't require spec edits.
-ACTIVE_LINE = ".".join(ACTIVE_VERSION.split(".")[:2])
+# Single source of truth: the build manifests. Resolved lazily (cached) so the
+# file I/O happens at test-run time, not at import/collection time — a missing or
+# unavailable manifest fails the specific test, never the whole collection phase.
+# (PEP 562 module __getattr__ would not help here: the tests reference these as
+# bare globals, which compile to LOAD_GLOBAL and never trigger module __getattr__.)
+@functools.lru_cache(maxsize=1)
+def _build_manifest_versions() -> dict[str, str]:
+    return {
+        "backend/pyproject.toml": _pyproject_version(),
+        "plugin/package.json": _json_version("plugin/package.json"),
+        "plugin/manifest.json": _json_version("plugin/manifest.json"),
+    }
+
+
+def _active_version() -> str:
+    return _build_manifest_versions()["backend/pyproject.toml"]
+
+
+def _active_line() -> str:
+    # Specs declare the MAJOR.MINOR line, so patch bumps don't require spec edits.
+    return ".".join(_active_version().split(".")[:2])
+
 
 DOMAINS = {
     "curator_schema": "SCHEMA",
@@ -79,18 +98,30 @@ def test_static_spec_file_exists_and_no_versioned_specs(domain: str, stem: str) 
 def test_active_spec_declares_active_line(domain: str, stem: str) -> None:
     # The spec title must declare the active MAJOR.MINOR line from the build
     # manifest, e.g. a title `(v0.17.0)` satisfies the `0.17` line for any 0.17.x.
+    active_line = _active_line()
+    active_version = _active_version()
     spec = SPECS_ROOT / domain / f"{stem}.md"
     title = spec.read_text(encoding="utf-8").splitlines()[0]
-    assert f"v{ACTIVE_LINE}" in title, (
-        f"{spec.name} title must declare the active spec line v{ACTIVE_LINE}.x "
-        f"(build-manifest version {ACTIVE_VERSION}): {title!r}"
+    assert f"v{active_line}" in title, (
+        f"{spec.name} title must declare the active spec line v{active_line}.x "
+        f"(build-manifest version {active_version}): {title!r}"
     )
+
+
+def test_pyproject_version_accepts_both_quote_styles() -> None:
+    double = '[project]\nname = "x"\nversion = "1.2.3"\n\n[tool.foo]\nversion = "9.9.9"\n'
+    single = "[project]\nname = 'x'\nversion = '1.2.3'\n"
+    # The [tool.foo] version must not shadow the [project] one.
+    assert _parse_project_version(double) == "1.2.3"
+    assert _parse_project_version(single) == "1.2.3"
 
 
 def test_build_manifests_agree_on_version() -> None:
     # All three build manifests are the single source of truth and must agree.
-    assert re.match(r"^\d+\.\d+\.\d+$", ACTIVE_VERSION), ACTIVE_VERSION
-    mismatched = {k: v for k, v in BUILD_MANIFEST_VERSIONS.items() if v != ACTIVE_VERSION}
+    versions = _build_manifest_versions()
+    active_version = versions["backend/pyproject.toml"]
+    assert re.match(r"^\d+\.\d+\.\d+$", active_version), active_version
+    mismatched = {k: v for k, v in versions.items() if v != active_version}
     assert not mismatched, (
-        f"All build manifests must agree on version {ACTIVE_VERSION}; mismatched: {mismatched}"
+        f"All build manifests must agree on version {active_version}; mismatched: {mismatched}"
     )
