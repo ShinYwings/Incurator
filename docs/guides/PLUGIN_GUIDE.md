@@ -64,6 +64,18 @@ if you want a shortcut.
   that note is the one you're already looking at (or no note is focused). If a
   different note is focused, a compact `✏️ <filepath> · Review Diff` pill is
   shown instead so the diff never steals your editor; click it to open the diff.
+- **Edit-loop review (v0.14.0)**: Before the agent proposes any file change it
+  must walk a visible, four-phase loop — **Analysed → Reviewed → Updated →
+  Reviewed**. Each phase appears as its own labeled, collapsible section in the
+  chat answer (the proposed diff lives under *Updated*), so you can see the agent
+  understand the gap, critique its plan, make the change, and check its own work
+  before you accept anything. This prevents the agent from jumping straight to a
+  file edit without thinking it through. If a provider skips the loop but still
+  produces edits, the answer shows a **"Agent skipped the review loop"** banner
+  instead of auto-opening the diff, with two buttons: **Re-run with loop** (asks
+  the model to redo the answer with the phases) and **Override & review anyway**
+  (open the diff regardless). Pure questions that propose no edits are never
+  gated and show no phases.
 - **Resilient SEARCH matching**: the agent's SEARCH text no longer has to match
   the file byte-for-byte. Leading/trailing whitespace and indentation-level drift
   are tolerated, so a correct edit applies even when the model re-indents. The

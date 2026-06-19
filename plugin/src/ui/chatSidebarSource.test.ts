@@ -84,6 +84,27 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("await this.maybeAutoOpenDiff(assistantMsg);");
   });
 
+  it("wires the edit-loop state machine: contract trigger, hard gate, and observable phases", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // Contract appended (last) for any edit-likely turn, incl. multi-turn carry.
+    expect(source).toContain("getEditLoopContract()");
+    expect(source).toContain("<edit_review_loop>");
+    expect(source).toContain("priorAnswerOpenedEditLoop");
+    expect(source).toContain("const editLoopLikely =");
+
+    // Hard gate: an edit answer that skipped the loop does not auto-open.
+    expect(source).toContain("if (loop.hasEdits && !loop.ok && !msg.editLoopOverridden)");
+    expect(source).toContain("msg.editLoopBlocked = true;");
+
+    // Observable phases + blocked banner with Re-run / Override actions.
+    expect(source).toContain("renderEditLoopPhases");
+    expect(source).toContain("renderEditLoopBlockedBanner");
+    expect(source).toContain("Override & review anyway");
+    expect(source).toContain('attr: { open: "", "data-phase": phases[i].label }');
+  });
+
   it("does not yank the chat view to the bottom when generation completes", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");

@@ -4,6 +4,27 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.14.0] - 2026-06-19
+### Added
+- **Enforced & observable sidechat edit-loop state machine.** Edit proposals
+  now must walk a visible four-phase loop — **Analysed → Reviewed → Updated →
+  Reviewed** — before any change can be accepted. A new composable
+  `getEditLoopContract()` system-prompt block (anchored last, at strongest LLM
+  attention) instructs the agent to emit canonical `[[PHASE:...]]` markers, and
+  is appended for any edit-likely turn: a Markdown edit request, an editable
+  selection, an open Markdown edit target, or a multi-turn continuation of an
+  edit loop a previous answer already opened.
+- **Runtime hard gate (`context/editLoopContract.ts`).** A pure validator parses
+  the response; an edit-bearing answer that skips or mis-orders the loop no
+  longer auto-opens the Diff Viewer. Instead the chat shows a **"Agent skipped
+  the review loop"** banner with **Re-run with loop** (re-prompt) and **Override
+  & review anyway** (open the diff regardless) actions. Pure Q&A with no edits is
+  never gated.
+- **Observable phase UI.** Conforming answers render each phase as a labeled,
+  collapsible section (`.ai-agent-edit-phase[data-phase]`), with the inline diff
+  review pill anchored inside the **Updated** phase. Phase markers never leak as
+  raw text in any render path.
+
 ## [0.13.0] - 2026-06-19
 ### Added
 - **Unified Agent ContextService feedback (Plan F P7).** New append-only

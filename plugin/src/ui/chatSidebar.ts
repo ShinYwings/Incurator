@@ -48,7 +48,8 @@ import {
   formatPdfWindow,
   formatRagHits,
 } from "../context/providerContextFormat";
-import { buildBaseSystemPrompt, editableSelectionInstruction, wrapLatestUserMessageForLanguageBridge } from "../context/systemPrompt";
+import { buildBaseSystemPrompt, editableSelectionInstruction, getEditLoopContract, wrapLatestUserMessageForLanguageBridge } from "../context/systemPrompt";
+import { parseEditLoopPhases, validateEditLoop, type EditLoopParse } from "../context/editLoopContract";
 import { detectLanguage } from "../context/languageBridge";
 import {
   deriveChatSessionTitle,
@@ -1247,6 +1248,26 @@ export class ChatSidebarView extends ItemView {
     }
     if (activeCtx?.viewType === "pdf" && activeCtx.pdfPage) {
       systemText += `\n\nThe user is viewing a PDF. Current page: ${activeCtx.pdfPage.pageNum}`;
+    }
+
+    // Edit-loop contract (v0.14.0): append LAST so it sits at the position of
+    // strongest LLM attention. Triggered for any edit-likely turn — a Markdown
+    // edit request, an editable selection, an open Markdown edit target, or a
+    // multi-turn continuation of an edit loop the previous answer already opened.
+    const priorAnswerOpenedEditLoop = (() => {
+      for (let i = this.messages.length - 1; i >= 0; i--) {
+        const msg = this.messages[i];
+        if (msg.role === "assistant") return validateEditLoop(msg.content).hasEdits;
+      }
+      return false;
+    })();
+    const editLoopLikely =
+      latestIsMarkdownEditRequest ||
+      editableRefs.length > 0 ||
+      Boolean(openMarkdownEditTargets) ||
+      priorAnswerOpenedEditLoop;
+    if (editLoopLikely) {
+      systemText += `\n\n<edit_review_loop>\n${getEditLoopContract()}\n</edit_review_loop>`;
     }
 
     llmMessages.push({ role: "system", content: this.truncateContext(systemText) });
@@ -2493,25 +2514,32 @@ export class ChatSidebarView extends ItemView {
     let remainingContent = msg.content;
 
     if (multiProposals.length > 0) {
-      for (const prop of multiProposals) {
-        const escaped = prop.originalBlock.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const withTicks = new RegExp(`\`\`\`(?:\\w+)?\\n?${escaped}\\n?\`\`\``, "g");
-        if (withTicks.test(remainingContent)) {
-          remainingContent = remainingContent.replace(withTicks, "");
-        } else {
-          remainingContent = remainingContent.replace(prop.originalBlock, "");
+      // Edit-loop state machine (v0.14.0): a conforming edit answer renders as
+      // observable Analysed/Reviewed/Updated/Reviewed phase sections with the
+      // diff anchored under UPDATED. A non-conforming (loop-skipping) answer is
+      // hard-gated: prose + a blocked banner, no auto-review pills.
+      const loop = validateEditLoop(msg.content);
+      const phaseParse = parseEditLoopPhases(msg.content);
+      const blocked = loop.hasEdits && !loop.ok && !msg.editLoopOverridden;
+
+      if (phaseParse.phases.length > 0 && loop.ok) {
+        this.renderEditLoopPhases(contentEl, msg, multiProposals, phaseParse);
+      } else {
+        remainingContent = this.stripEditBlocksFromText(remainingContent, multiProposals).trim();
+
+        const mdWrapper = contentEl.createDiv("ai-agent-markdown-wrapper");
+        if (remainingContent) {
+          const processedContent = this.processMarkdownForThoughts(remainingContent, false);
+          this.renderAssistantMarkdown(processedContent, mdWrapper);
         }
-      }
-      remainingContent = remainingContent.trim();
-      
-      const mdWrapper = contentEl.createDiv("ai-agent-markdown-wrapper");
-      if (remainingContent) {
-        const processedContent = this.processMarkdownForThoughts(remainingContent, false);
-        this.renderAssistantMarkdown(processedContent, mdWrapper);
-      }
-      
-      for (const prop of multiProposals) {
-        this.renderInlineMultiDiff(contentEl, prop, msg, multiProposals);
+
+        if (blocked) {
+          this.renderEditLoopBlockedBanner(contentEl, msg, multiProposals);
+        } else {
+          for (const prop of multiProposals) {
+            this.renderInlineMultiDiff(contentEl, prop, msg, multiProposals);
+          }
+        }
       }
     } else {
       const editProposal = this.extractEditProposal(msg.content);
@@ -2957,6 +2985,123 @@ export class ChatSidebarView extends ItemView {
     });
   }
 
+  /** Remove `ai-agent-edit` proposal blocks from prose so they never render raw. */
+  private stripEditBlocksFromText(text: string, proposals: MultiEditProposal[]): string {
+    let out = text;
+    for (const prop of proposals) {
+      const escaped = prop.originalBlock.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const withTicks = new RegExp(`\`\`\`(?:\\w+)?\\n?${escaped}\\n?\`\`\``, "g");
+      if (withTicks.test(out)) {
+        out = out.replace(withTicks, "");
+      } else {
+        out = out.replace(prop.originalBlock, "");
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Render a conforming edit answer as observable phase sections (v0.14.0).
+   * Each `[[PHASE:...]]` segment becomes a labeled collapsible block; the diff
+   * review pills are anchored inside the UPDATED phase.
+   */
+  private renderEditLoopPhases(
+    contentEl: HTMLElement,
+    msg: ChatMessage,
+    multiProposals: MultiEditProposal[],
+    phaseParse: EditLoopParse
+  ): void {
+    const content = msg.content;
+    const phases = phaseParse.phases;
+
+    const preamble = content.slice(0, phases[0].index).trim();
+    if (preamble) {
+      const pre = contentEl.createDiv("ai-agent-markdown-wrapper");
+      this.renderAssistantMarkdown(this.processMarkdownForThoughts(preamble, false), pre);
+    }
+
+    let reviewSeen = 0;
+    let diffsRendered = false;
+    for (let i = 0; i < phases.length; i++) {
+      const marker = `[[PHASE:${phases[i].label}]]`;
+      const bodyStart = phases[i].index + marker.length;
+      const bodyEnd = i + 1 < phases.length ? phases[i + 1].index : content.length;
+      const body = content.slice(bodyStart, bodyEnd);
+
+      let labelText: string;
+      if (phases[i].label === "ANALYSED") labelText = "🔍 Analysed";
+      else if (phases[i].label === "UPDATED") labelText = "✏️ Updated";
+      else labelText = ++reviewSeen === 1 ? "🪞 Reviewed (plan)" : "✅ Reviewed (result)";
+
+      const section = contentEl.createEl("details", {
+        cls: "ai-agent-edit-phase",
+        attr: { open: "", "data-phase": phases[i].label },
+      });
+      section.createEl("summary", { text: labelText });
+      const sectionBody = section.createDiv("ai-agent-edit-phase-body");
+
+      const prose = this.stripEditBlocksFromText(body, multiProposals).trim();
+      if (prose) {
+        this.renderAssistantMarkdown(this.processMarkdownForThoughts(prose, false), sectionBody);
+      }
+      // Render the diff pills once, under the first UPDATED phase only — a
+      // model emitting multiple UPDATED markers must not duplicate the pills.
+      if (phases[i].label === "UPDATED" && !diffsRendered) {
+        diffsRendered = true;
+        for (const prop of multiProposals) {
+          this.renderInlineMultiDiff(sectionBody, prop, msg, multiProposals);
+        }
+      }
+    }
+  }
+
+  /**
+   * Render the hard-gate banner shown when an edit answer skipped the review
+   * loop (v0.14.0). Offers "Re-run with loop" (re-prompt) and "Override &
+   * review anyway" (open the diff despite the missing loop).
+   */
+  private renderEditLoopBlockedBanner(
+    contentEl: HTMLElement,
+    msg: ChatMessage,
+    multiProposals: MultiEditProposal[]
+  ): void {
+    const banner = contentEl.createDiv("ai-agent-edit-loop-blocked");
+    banner.createDiv({
+      cls: "ai-agent-edit-loop-blocked-text",
+      text: "⚠️ Agent skipped the review loop — the proposed edits were not auto-opened.",
+    });
+    const actions = banner.createDiv("ai-agent-edit-loop-blocked-actions");
+
+    const rerunBtn = actions.createEl("button", {
+      cls: "ai-agent-edit-loop-rerun",
+      text: "Re-run with loop",
+      attr: { title: "Ask the model to redo the answer following Analysed → Reviewed → Updated → Reviewed" },
+    });
+    rerunBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this.isGenerating) return;
+      this.inputEl.value =
+        "Redo your previous answer following the required edit-review loop: " +
+        "emit [[PHASE:ANALYSED]], [[PHASE:REVIEWED]], [[PHASE:UPDATED]] (with the ai-agent-edit blocks), then [[PHASE:REVIEWED]].";
+      void this.handleSend();
+    });
+
+    const overrideBtn = actions.createEl("button", {
+      cls: "ai-agent-edit-loop-override",
+      text: "Override & review anyway",
+      attr: { title: "Open the Diff Viewer despite the missing review loop" },
+    });
+    overrideBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      msg.editLoopOverridden = true;
+      msg.editLoopBlocked = false;
+      await this.persistCurrentSession();
+      const target = multiProposals[0]?.filepath;
+      if (target) await this.reviewFileEditProposals(target, multiProposals);
+      this.renderMessages(false);
+    });
+  }
+
   // Bug 15: autoApplyProposals deleted — was a workaround that bypassed DiffViewer
 
   private computeSimpleDiff(
@@ -3078,7 +3223,10 @@ export class ChatSidebarView extends ItemView {
     // Drop any orphan ai-agent-edit markers left by a failed parse so they never
     // render as note text. Operates on the display string only — stored
     // msg.content is untouched, keeping "Copy as Markdown" faithful.
-    let processed = stripDanglingEditMarkers(this.normalizeLatexDelimiters(content));
+    // Strip edit-loop phase sentinels (v0.14.0) so a marker never renders as raw
+    // text in fallback paths; conforming answers render them as phase sections.
+    let processed = stripDanglingEditMarkers(this.normalizeLatexDelimiters(content))
+      .replace(/\[\[PHASE:(?:ANALYSED|REVIEWED|UPDATED)\]\]/g, "");
     const openTag = isStreaming 
         ? `<details class="ai-agent-thought-block" open><summary>🧠 Thinking Process...</summary>\n\n`
         : `<details class="ai-agent-thought-block"><summary>🧠 Thinking Process</summary>\n\n`;
@@ -3316,6 +3464,17 @@ export class ChatSidebarView extends ItemView {
     const editRef = this.getEditTargetContextForMessage(msg);
     const proposals = this.extractMultiEditProposals(msg.content, editRef?.filePath);
     if (proposals.length === 0) return;
+
+    // Edit-loop hard gate (v0.14.0): an edit-bearing answer that skipped the
+    // Analysed→Reviewed→Updated→Reviewed loop must not auto-open the Diff
+    // Viewer. The render path shows a blocked banner with explicit Re-run /
+    // Override actions instead. An explicit user override clears the gate.
+    const loop = validateEditLoop(msg.content);
+    if (loop.hasEdits && !loop.ok && !msg.editLoopOverridden) {
+      msg.editLoopBlocked = true;
+      return;
+    }
+    msg.editLoopBlocked = false;
 
     const files = new Set(proposals.map((p) => {
       const f = this.resolveVaultFile(p.filepath);
