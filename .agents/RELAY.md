@@ -7,8 +7,7 @@ Plan G — PDF handling unification and simplification on
 ## Plan Reference
 - Plan G implementation/evidence artifacts were completed and removed from the
   active workspace during v0.12.0 finalization; historical copies remain in Git.
-- Current phase: release metadata pass complete. Remaining work: release commit
-  and PR handoff.
+- Current phase: v0.12.0 release commit pushed and draft PR opened.
 
 ## Analysis & Reasoning
 - User explicitly asked to re-check macOS/Linux device sync before continuing.
@@ -44,6 +43,8 @@ Plan G — PDF handling unification and simplification on
   - `e05db49` — `feat(plan-g): extract PdfCaptureService from external PDF view`
   - `669176f` — `refactor(plan-g): close P4 PDF module LOC gate`
   - `300c861` — `chore(plan-g): record P5 testbed validation`
+  - `4910e60` — `chore(release): v0.12.0`
+- Draft PR: https://github.com/ShinYwings/Incurator/pull/33
 - Docs/specs updated for device-safe session sync:
   `PLUGIN_SCHEMA.md`, `PLUGIN_GUIDE.md`, `PLUGIN_GUIDE_KR.md`,
   `SYNC_IGNORE_GUIDE.md`, `SYNC_IGNORE_GUIDE_KR.md`, Plan G, and evidence ledger.
@@ -75,7 +76,5 @@ Plan G — PDF handling unification and simplification on
   mix them into this branch unless explicitly reprioritized.
 
 ## Immediate Next Action
-Proceed to finalization:
-1. Run the final lightweight metadata checks.
-2. Commit `chore(release): v0.12.0`.
-3. Push/open PR when ready; note Plan F base dependency in the PR.
+Review PR #33 after Plan F merge/rebase ordering is decided. Persistent Quick
+Query Popover findings remain queued in ROADMAP 4.1 for the next plan.

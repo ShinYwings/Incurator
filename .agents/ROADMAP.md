@@ -132,6 +132,7 @@ The specific To-Do list for the roadmap is migrated from the user's Inbox (`.age
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
 - **Active Milestone**: **Plan G - PDF Handling Unification & Simplification** (v0.12.0 release commit/PR handoff).
   - P0-P5 implementation and validation are complete on `feature/pdf-unified-handling`.
+  - Draft PR: https://github.com/ShinYwings/Incurator/pull/33
   - Branch is intentionally based on the Plan F checkpoint and must be rebased
     after Plan F merges.
 - **Shipped**: **4.5 Diff Viewer Overhaul** (Merged in v0.11.0).
