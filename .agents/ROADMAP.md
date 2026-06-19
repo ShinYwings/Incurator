@@ -133,7 +133,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Sidechat Edit Loop shipped.
-- **Next actionable item**: None (System IDLE)
+- **Roadmap state**: Initializing Milestone 2.
+- **Next actionable item**: 2. Diff Viewer Plugin Overhaul & Sync Fixes.
 - **Priority order**: fix-like items 2 → 5, then RAG hardening and remaining
   feature work.
