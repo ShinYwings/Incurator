@@ -146,8 +146,33 @@ describe("quick query: persistent popover lifecycle (v0.15.0)", () => {
       source.indexOf("private detachRepositionListeners")
     );
 
-    expect(body).toContain("if (this.buttonEl) this.applyFloatingPosition(this.buttonEl, rect, BUTTON_SIZE)");
+    expect(body).toContain("if (!this.buttonEl)");
+    expect(body).toContain("this.detachRepositionListeners();");
+    expect(body).toContain("this.applyFloatingPosition(this.buttonEl, rect, BUTTON_SIZE)");
     expect(body).not.toContain("this.applyFloatingPosition(this.popoverEl");
+  });
+
+  it("always detaches trigger tracking when the trigger button is removed", () => {
+    const body = source.slice(
+      source.indexOf("private removeButton"),
+      source.indexOf("// ── Popover")
+    );
+
+    expect(body).toContain("this.buttonEl = null;");
+    expect(body).toContain("this.detachRepositionListeners();");
+    expect(body).not.toContain("if (!this.popoverEl) this.detachRepositionListeners()");
+  });
+
+  it("only lets the capturing Escape handler close when focus is inside the popover", () => {
+    const body = source.slice(
+      source.indexOf("this.popoverKeyHandler ="),
+      source.indexOf("doc.addEventListener(\"keydown\"")
+    );
+
+    expect(body).toContain("e.key !== \"Escape\"");
+    expect(body).toContain("e.target instanceof Node");
+    expect(body).toContain("this.popoverEl.contains(target)");
+    expect(body.indexOf("this.popoverEl.contains(target)")).toBeLessThan(body.indexOf("e.stopPropagation()"));
   });
 
   it("captures title/minimize/drag state and updates the title on submit", () => {

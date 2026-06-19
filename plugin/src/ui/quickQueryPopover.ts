@@ -249,9 +249,13 @@ export class QuickQueryPopover {
   private attachRepositionListeners(): void {
     if (this.repositionHandler) return;
     const handler = () => {
+      if (!this.buttonEl) {
+        this.detachRepositionListeners();
+        return;
+      }
       const rect = this.anchorRange?.getBoundingClientRect();
       if (!rect || (rect.width === 0 && rect.height === 0)) return;
-      if (this.buttonEl) this.applyFloatingPosition(this.buttonEl, rect, BUTTON_SIZE);
+      this.applyFloatingPosition(this.buttonEl, rect, BUTTON_SIZE);
     };
     this.repositionHandler = handler;
     this.activeWin.addEventListener("scroll", handler, true);
@@ -268,7 +272,7 @@ export class QuickQueryPopover {
   private removeButton(): void {
     this.buttonEl?.remove();
     this.buttonEl = null;
-    if (!this.popoverEl) this.detachRepositionListeners();
+    this.detachRepositionListeners();
   }
 
   // ── Popover ───────────────────────────────────────────────────
@@ -284,6 +288,8 @@ export class QuickQueryPopover {
     popover.className = "ai-agent-quick-query-popover";
     this.popoverKeyHandler = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || !this.popoverEl) return;
+      const target = e.target instanceof Node ? e.target : null;
+      if (!target || !this.popoverEl.contains(target)) return;
       e.preventDefault();
       e.stopPropagation();
       this.removePopover();

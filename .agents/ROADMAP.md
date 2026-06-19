@@ -46,6 +46,9 @@ Source of Truth to identify unresolved items.
    - Code-review findings addressed: teardown order,
      text-node click crash, fixed palette scroll behavior, dynamic title ref,
      drag state, and minimize state.
+   - PR #37 follow-up review fixes addressed: trigger scroll listeners detach
+     when the persistent popover remains open, global Escape handling is scoped
+     to popover focus, and active spec headers/tests are synchronized to v0.15.0.
    - Plan/draft artifacts deleted on ship; use Git history for details.
    - Keep separate from `.agents/drafts/popover_tool_scope.md` unless planning
      the broader UI/UX architecture overhaul.
