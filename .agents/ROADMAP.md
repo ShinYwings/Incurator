@@ -112,9 +112,9 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
    - **Moved into Plan G (2026-06-19):** the remaining non-annotation follow-up — external-image-attachment-to-`.md` asset routing (riding v0.5.6's `--asset-dir`) — is folded into `.agents/plans/G_pdf_unified_handling.md` §1a. The annotation system + in-PDF full-text search remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
-7.5. **[Active] PDF Handling Unification & Simplification (Plan G)**
+7.5. **[Release Finalizing] PDF Handling Unification & Simplification (Plan G)**
    - Unify the 3 PDF flows (Reference Mode / add-source / agent↔PDF viewer) behind a single PDF-identity resolver; slim the `externalPdfView.ts` god class; close audit items 3/4/5; absorb the non-annotation asset-routing follow-up. Excludes annotation.
-   - Plan: `.agents/plans/G_pdf_unified_handling.md` (branch `feature/pdf-unified-handling`, off Plan F checkpoint). P0 done; P1 contract in progress.
+   - P0-P5 complete on `feature/pdf-unified-handling`; active plan artifacts removed for v0.12.0 release finalization. Historical plan/evidence remain in Git.
 
 6. **[Minor Update] Purge Legacy QMD References**
    - The `qmd` binary has been retired since v0.3.2, but over 50 references still exist across the codebase (`cli.py`, `search.py`, `lint.py`, tests, etc.). These references must be completely purged to prevent hallucination or regressions before removing the tombstone warnings from the agent contracts.
@@ -130,15 +130,10 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Active Milestone**: **Batch 3 (Plan F) - Agent Context Service** (Resumed at P5).
-  - (Batch 1~3 Systemic Remediation & Code Fixes successfully hotfixed).
-  - Deferred Plan F follow-up requirements from the Batch 1~3 audit:
-    - Systemic design/evaluation gates:
-      `01_systemic_oracle_overfitting.md`,
-      `02_systemic_graph_fragmentation.md`,
-      `03_systemic_pipeline_fragility.md`
-    - Explore route ContextService migration:
-      `06_arch_explore_bypass.md`
+- **Active Milestone**: **Plan G - PDF Handling Unification & Simplification** (v0.12.0 release commit/PR handoff).
+  - P0-P5 implementation and validation are complete on `feature/pdf-unified-handling`.
+  - Branch is intentionally based on the Plan F checkpoint and must be rebased
+    after Plan F merges.
 - **Shipped**: **4.5 Diff Viewer Overhaul** (Merged in v0.11.0).
 - **Next in Queue**: TBD.
   Implementation starts only on explicit user approval.

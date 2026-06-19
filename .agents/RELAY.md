@@ -5,10 +5,10 @@ Plan G — PDF handling unification and simplification on
 `feature/pdf-unified-handling`.
 
 ## Plan Reference
-- Active plan: `.agents/plans/G_pdf_unified_handling.md`
-- Evidence ledger: `.agents/plans/G_pdf_roadmap_evidence.md`
-- Current phase: P5 testbed E2E and final local gates complete. Remaining work:
-  final release docs/metadata pass, version bump, changelog, release commit.
+- Plan G implementation/evidence artifacts were completed and removed from the
+  active workspace during v0.12.0 finalization; historical copies remain in Git.
+- Current phase: release metadata pass complete. Remaining work: release commit
+  and PR handoff.
 
 ## Analysis & Reasoning
 - User explicitly asked to re-check macOS/Linux device sync before continuing.
@@ -43,6 +43,7 @@ Plan G — PDF handling unification and simplification on
   - `01a13d5` — `feat(plan-g): P4 registry extraction and session path sync guard`
   - `e05db49` — `feat(plan-g): extract PdfCaptureService from external PDF view`
   - `669176f` — `refactor(plan-g): close P4 PDF module LOC gate`
+  - `300c861` — `chore(plan-g): record P5 testbed validation`
 - Docs/specs updated for device-safe session sync:
   `PLUGIN_SCHEMA.md`, `PLUGIN_GUIDE.md`, `PLUGIN_GUIDE_KR.md`,
   `SYNC_IGNORE_GUIDE.md`, `SYNC_IGNORE_GUIDE_KR.md`, Plan G, and evidence ledger.
@@ -64,6 +65,7 @@ Plan G — PDF handling unification and simplification on
 - Testbed: ResNet Reference Mode import/register generated L1
   `CTX-d617d779`; `wiki plugin pdf context --source-id 3` returned durable L1
   page text; `wiki lint` health `100/100`.
+- Release metadata: backend/plugin versions set to `0.12.0`; changelog updated.
 
 ## Critical Context / Blockers
 - Active scenario was not explicitly confirmed; P5 therefore reused the existing
@@ -74,6 +76,6 @@ Plan G — PDF handling unification and simplification on
 
 ## Immediate Next Action
 Proceed to finalization:
-1. Commit the P5 evidence/relay update.
-2. Do final docs delta check, version bump, and `CHANGELOG.md`.
-3. Create `chore(release): vX.Y.Z` after metadata is consistent.
+1. Run the final lightweight metadata checks.
+2. Commit `chore(release): v0.12.0`.
+3. Push/open PR when ready; note Plan F base dependency in the PR.

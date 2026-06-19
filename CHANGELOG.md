@@ -4,6 +4,34 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.12.0] - 2026-06-19
+### Added
+- **Unified PDF asset identity resolution (Plan G).** Backend Reference Mode,
+  Zotero-backed PDFs, add-source registration, and PDF viewer context now route
+  through shared AssetIdentity/AssetSource contracts instead of ad hoc path
+  conversion.
+- **Device-safe PDF session sync.** Synced chat sessions no longer persist
+  macOS/Linux absolute PDF paths or volatile backend path status as durable
+  identity; portable identifiers are kept so each device re-resolves local paths.
+
+### Changed
+- **External PDF viewer slimmed.** Persistence/registry behavior and capture/RAG
+  composition were extracted from `externalPdfView.ts`, with the PDF module LOC
+  total reduced below the Plan G baseline.
+- **Zotero PDF handling hardened.** Status keys, durable attachment identity,
+  cache epoch invalidation, and stale localStorage path replacement now use the
+  same resolver model.
+
+### Fixed
+- **Reference PDFs open the real file, not the stub.** Locator consumers now
+  honor `external_uri` for Reference Mode PDFs while keeping vault stubs as
+  portable metadata.
+- **Add-source badge state regressions.** Zotero identity no longer depends on
+  currently open PDF tabs, and added/building states are covered by contract
+  tests.
+
+---
+
 ## [0.11.0] - 2026-06-16
 ### Fixed
 - **Complete overhaul of Diff Viewer UI (resolving 34 known bugs)**:
