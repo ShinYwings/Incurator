@@ -18,5 +18,6 @@ intentionally queued before the larger RAG post-stabilization hardening program.
   bumped to 0.14.0; CHANGELOG updated. tsc clean; 441 plugin tests pass.
 
 ## Immediate Next Action
-Push `feature/edit-loop-state-machine` and open the PR (final release commit
-already pending below). The user reviews/merges on GitHub.
+PR #35 is open against `master` (https://github.com/ShinYwings/Incurator/pull/35).
+The user reviews/merges on GitHub. After merge, next roadmap item is #2 (Diff
+Viewer Plugin Overhaul & Sync Fixes).
