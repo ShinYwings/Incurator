@@ -37,5 +37,5 @@ with a live token-usage indicator.
 ## Notes
 - Plugin-heavy TS work, possibly with a backend compaction/summarize call →
   needs `.test.ts` (and `pytest` if backend summarize endpoint added).
-- The circular-progress UI overlaps conceptually with the Vault Quota circle bar
-  in `stabilization.md` — share the component if practical.
+- The circular-progress UI overlaps conceptually with Vault Storage Governance &
+  Quota Visibility — share the component if practical.

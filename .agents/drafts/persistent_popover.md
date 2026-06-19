@@ -19,3 +19,11 @@ Users analyzing long documents (e.g., PDFs or extensive markdown files) often ne
 - **Minimize Toggle:** A new minimize button in the header collapses the popover's body, and clicking it again restores the previous dimensions and visibility.
 - **Dynamic Header Title:** The `.ai-agent-quick-query-title` text updates dynamically to match the latest submitted question string.
 - **No Side-Effects:** The original Quick Query context injection and Markdown rendering logic remain strictly intact.
+
+## Triage Review Findings (2026-06-19)
+The following code review findings must be addressed during implementation:
+1. **Memory leak / state-mutation order (`openForCurrentSelection`):** Mutating `activeDoc`/`anchorRange` before running `openPopover` cleanup causes zombie listeners. Teardown must happen strictly before reassignment.
+2. **Event-target text-node crash (`handleDocumentClick`):** Clicking a raw text node yields `null`, bypassing the `.closest()` check. Use `target instanceof Node ? target.parentElement : null`. `handleDocumentClick` must stop dismissing the popover entirely (per click-away immunity).
+3. **Scroll-pinning coupling violation (`attachRepositionListeners`):** The scroll/resize handler repositions BOTH the trigger button and the popover. The handler must only update the button; the popover must ignore background scroll.
+4. **Missing DOM ref for dynamic title:** Title span is created inline without capture. Capture `this.titleEl` and call `this.titleEl.setText(question)` on submit.
+5. **Missing drag & minimize state:** Require `mousedown`/`mousemove`/`mouseup` listeners on the header for absolute positioning, plus a `.minimized` toggle state.

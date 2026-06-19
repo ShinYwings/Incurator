@@ -1,139 +1,143 @@
 # Incurator Master Roadmap & Todo List
 
 This is the master roadmap for major architectural overhauls and future updates.
-This document provides key guidelines on how agents should plan and execute future milestones.
+It tracks only live priorities and active follow-up references. Completed plan
+artifacts are removed from `.agents/plans/`; use Git history for old plans.
 
 ## 🚨 Update Classification & Planning Rule
 
-Before starting work, all agents MUST use `.agents/USER_REPORT.md` as the Single Source of Truth to identify unresolved items (To-Do).
-Depending on the scale of the update, you MUST follow these planning rules:
+Before starting work, all agents MUST use `.agents/USER_REPORT.md` as the Single
+Source of Truth to identify unresolved items.
 
-- **Major and Minor Updates** (Architecture/feature changes where X or Y increases in version `v.X.Y.Z`):
-  - **NEVER write code immediately.**
-  - Based on the items in `USER_REPORT.md`, you MUST write a milestone specification and detailed plan in strict compliance with the `.agents/PLAN_TEMPLATE.md` template before starting implementation.
-  - The written plan must be merged and managed under the corresponding milestone item in this document (`ROADMAP.md`) to prevent fragmentation.
-- **Hotfix and Simple Bug Fix (Fix)** (Bug fixes on a scale where Z increases in version `v.X.Y.Z`):
-  - These are exempted from the heavy template writing procedure, and you can immediately analyze the cause and apply the fix.
+- **Major and Minor Updates**: do not write code immediately. Write or update a
+  milestone plan using `.agents/PLAN_TEMPLATE.md` first, then implement.
+- **Hotfix and Simple Bug Fixes**: may skip heavy planning only when the change is
+  small, isolated, and does not alter public contracts, schemas, or architecture.
+- **Completed plans**: delete active `.agents/plans/` artifacts after shipping.
+  The Git history is the archive.
 
 ---
 
-## 📥 Triage & Queuing (To-Do Queue)
+## 📥 Triage & Queuing
 
-This is the holding area where user requests received from `.agents/USER_REPORT.md` wait before being planned/incorporated into actual milestones. Writing a PLAN_TEMPLATE is mandatory when proceeding.
+`USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-### 🚀 Unresolved Items to be Addressed in the Future (To-Do)
+### 🚀 Priority Order
 
-1. **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul**
-   - A unified "Big Plan" refactoring to resolve systemic agent attention failures, prompt duplication, and UI state desyncs.
-   - Component Drafts to be merged into the Master Plan:
-     - Context Decay & Cmd+Shift+L Failure (`.agents/drafts/chat_context_decay.md`)
-     - Popover Tool Scope & Prompt Unification (`.agents/drafts/popover_tool_scope.md`)
-     - Diff Viewer Overhaul & Model Consistency (`.agents/drafts/diff_viewer_plugin.md`)
-     - Prompt Architecture Refactoring (`.agents/drafts/prompt_architecture_refactoring.md`)
+1. **[Minor Update] Sidechat Edit Loop — Enforced & Observable State Machine**
+   - The sidechat agent bypasses the expected `analysed → reviewed → updated →
+     reviewed` loop when editing files. Per user scope override, the fix is now
+     a Minor feature (v0.14.0): prompt contract + runtime validator hard-gate +
+     visible UI phases + wider triggers — a vertical slice of item 6.
+   - Detailed analysis: `.agents/drafts/sidechat_loop_regression.md`
+   - Active plan: `.agents/plans/01_sidechat_loop_regression.md` (REVISED)
+   - Scope override record: `.agents/plans/sidechat_loop_regression_arena/04_scope_override.md`
 
-2. **[Major Update] RAG & Knowledge Quality Stabilization** — *IN PROGRESS*
-   - Heart-of-system three-program initiative for using the notes vault like a
-     codebase: first establish the truth contract, deep diagnosis, external
-     research, and quality observatory; then make the note-to-L1-L4 evidence
-     compiler faithful and incremental; finally serve the trusted prior knowledge
-     to external and Obsidian agents through one bounded agentic context runtime.
-     External techniques are benchmarked and adopted selectively, never wholesale.
-   - Scope analysis: `.agents/drafts/stabilization.md`
-   - Umbrella program plan:
-     `.agents/plans/03_rag_knowledge_quality_stabilization.md`
-   - Six component plans (`A-F`) each have their own Arena and Master Plan; they
-     are executed in three ordered batches after the current PR merges.
-   - Batch 1: `.agents/plans/D_current_system_failure_atlas.md` D1 →
-     `.agents/plans/E_external_research_design_matrix.md` →
-     `.agents/plans/D_current_system_failure_atlas.md` D2
-     - **D1 shipped as v0.6.0** (2026-06-12): Failure Atlas spec + case
-       records F1–F13 (all reproduced & assigned), deterministic
-       repro/oracle/contract/experiment/eval suites, frozen fixture corpus +
-       qrels + baseline.
-     - **Plan E COMPLETE (P0-P8)** (2026-06-12): PM approved the P7 decision
-       package; P8 validated artifact completeness/link integrity and handed
-       the accepted contracts off as "Plan E P7 Research Handoff" sections in
-       the five downstream plan documents (D/B/C/A/F). PR #26 awaits final
-       review/merge. P7 consumed the four research-spike
-       holdout items (RUQ05/GQ07/HQ01/FR05) exactly once under frozen
-       configurations, passed all five red teams (provenance, leakage,
-       framework bias, cost, update/delete), and issued final scoped
-       decisions: 4 `adopt-contract` (fine-grained diagnostics → Plan D2;
-       query-relevant-global and progressive-context-disclosure → Program 3;
-       formula-preserving-distillation → Program 2), 2 `reject-default`
-       (unfiltered PPR, whole-corpus heavy recovery), rest `benchmark-later`.
-       The Failure Atlas qrels holdout (Q06) remains reserved for D2. See
-       `backend/research_spikes/reports/p7.md`. No decision authorizes
-       production implementation.
-       Earlier phases: P0/P1 established immutable multi-tier inputs and
-       primary-source dossiers; P2 froze the evaluation protocol; Waves A-D
-       (retrieval units, graph/hierarchy/global/expansion, serving policies,
-       conditional formula recovery) all completed and were approved.
-   - Batch 2: `.agents/plans/B_math_extraction_distillation.md` →
-     `.agents/plans/C_graph_quality.md`
-   - Batch 3: `.agents/plans/A_rag_retrieval_provenance.md` →
-     `.agents/plans/F_agent_context_service.md`
-     - **Plan A shipped as v0.10.0** (2026-06-15): RTR-* retrieval execution ID,
-       bounded/query-relevant global route, CurationPolicy forwarding (F3), explicit
-       omission markers (F5), StructuredLocator resolution (§29), Plan-F handoff
-       contract. F03/F04/F05 retired in Failure Atlas.
-
-2. **[Minor Update] Vault Storage Governance & Quota Visibility**
-   - Separate authoritative/derived/cache/external storage accounting, capacity
-     guidance, safe admission control, and CLI/plugin visibility from RAG quality.
-   - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
-
-3. **[Minor Update] Chat Session Context Compaction**
-   - Confirm/ensure full-session history usage; add a Claude-Code-style circular token-usage meter under the query box and a click-to-compact action for the session.
-   - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
-
-4. **[Minor Update] Minor Quick Wins**
-   - Web search integration review, `[[wikilink]]` conflict validation, Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`), Zotero profile import sorted by recently accessed.
-   - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
-
-4.1. **[Minor Update] Persistent Quick Query Popover**
-   - Upgrade the in-line copilot popover to be immune to outside clicks, freely draggable, and minimizable, acting as a persistent reference window during document analysis.
-   - Detailed analysis: `.agents/drafts/persistent_popover.md`
-   - **Code-review findings (2026-06-19)** to fold into this plan's briefing: 5
-     items on `quickQueryPopover.ts` captured in `USER_REPORT.md` (zombie-listener
-     teardown order; text-node-click crash; scroll-pin coupling vs fixed palette;
-     missing `titleEl` capture; missing drag/minimize state). Also bundle the
-     separate `.agents/drafts/popover_tool_scope.md` concern (MCP tool injection /
-     prompt duplication / path sandboxing) when planning. Queued after Plan G.
-
-4.5. **[Minor Update] Diff Viewer Plugin Overhaul & Sync Fixes**
-   - Address 7 critical bugs in the plugin's Diff Viewer (UI/UX redesign to inline unified view, race conditions, multi-file diff selection).
+2. **[Fix/Minor Update] Diff Viewer Plugin Overhaul & Sync Fixes**
+   - Address critical Diff Viewer bugs: unified inline view, race conditions,
+     multi-file selection, path resolution, state desync, hover placement,
+     output consistency, and token-limit truncation.
    - Detailed analysis: `.agents/drafts/diff_viewer_plugin.md`
 
+3. **[Fix/Minor Update] Persistent Quick Query Popover**
+   - Upgrade the inline copilot popover to be immune to outside clicks, freely
+     draggable, minimizable, and usable as a persistent reference window.
+   - Detailed analysis: `.agents/drafts/persistent_popover.md`
+   - Code-review findings are already folded into the draft: teardown order,
+     text-node click crash, fixed palette scroll behavior, dynamic title ref,
+     drag state, and minimize state.
+   - Keep separate from `.agents/drafts/popover_tool_scope.md` unless planning
+     the broader UI/UX architecture overhaul.
 
-5. **[Major Update] Native PDF Annotation & Asset System**
-   - Remove external Zotero dependency, build a native annotation (highlight/memo) synchronization system utilizing Obsidian's built-in PDF Viewer. In-PDF full-text search (with strict-spelling mode) and native highlight/memo sync remain here.
-   - **Split out (2026-06-11):** PDF add-source asset-location routing + "Added" button state → **shipped in v0.5.6** (2026-06-12); the Zotero reload relativepath bug was already fixed in v0.5.5.
-   - **Moved into Plan G (2026-06-19):** the remaining non-annotation follow-up — external-image-attachment-to-`.md` asset routing (riding v0.5.6's `--asset-dir`) — is folded into `.agents/plans/G_pdf_unified_handling.md` §1a. The annotation system + in-PDF full-text search remain here.
-   - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
-
-7.5. **[Release Finalizing] PDF Handling Unification & Simplification (Plan G)**
-   - Unify the 3 PDF flows (Reference Mode / add-source / agent↔PDF viewer) behind a single PDF-identity resolver; slim the `externalPdfView.ts` god class; close audit items 3/4/5; absorb the non-annotation asset-routing follow-up. Excludes annotation.
-   - P0-P5 complete on `feature/pdf-unified-handling`; active plan artifacts removed for v0.12.0 release finalization. Historical plan/evidence remain in Git.
-
-6. **[Minor Update] Purge Legacy QMD References**
-   - The `qmd` binary has been retired since v0.3.2, but over 50 references still exist across the codebase (`cli.py`, `search.py`, `lint.py`, tests, etc.). These references must be completely purged to prevent hallucination or regressions before removing the tombstone warnings from the agent contracts.
+4. **[Fix/Chore] Purge Legacy QMD References**
+   - Remove stale `qmd` references now that DB-native search has been the
+     architecture since v0.3.2.
+   - This is fix-like cleanup because stale code/docs can mislead agents into
+     reintroducing a retired dependency.
    - Detailed analysis: `.agents/drafts/purge_qmd_legacy.md`
 
-### 🧊 Blocked / Icebox (Pending Items)
-- Items that cannot be resolved immediately due to external dependencies (library updates, etc.) are stored here.
-- (Note: Items in this section are treated as exceptions to the agent's top-priority resolution duty.)
+5. **[Fix/Validation] `[[wikilink]]` Architecture Validation**
+   - Validate whether current backend link parsing intentionally avoids
+     `[[wikilink]]` syntax or whether missing wikilinks are a real conflict.
+   - Keep coding minimal unless validation proves a concrete parser/sync bug.
+   - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
+
+6. **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul**
+   - Unified refactor for systemic agent attention failures, prompt duplication,
+     and UI state desyncs.
+   - Component drafts:
+     - `.agents/drafts/chat_context_decay.md`
+     - `.agents/drafts/popover_tool_scope.md`
+     - `.agents/drafts/diff_viewer_plugin.md`
+     - `.agents/drafts/prompt_architecture_refactoring.md`
+
+7. **[Major/Minor Follow-Up] RAG Post-Stabilization Hardening**
+   - RAG & Knowledge Quality Stabilization itself is complete, but the audit
+     drafts identify follow-up hardening work that has **not** been implemented
+     as a unified follow-up yet.
+   - Inputs: `.agents/drafts/batch_1_to_3_audit/`
+   - Main themes:
+     - real-world oracle sampling and noisy fixture coverage;
+     - graph fragmentation / soft-link proposal strategy;
+     - pipeline healing for broken locators and orphaned spans;
+     - explore-route ContextService unification as a measured research loop;
+     - CJK-safe token estimation;
+     - expansion state-machine hardening;
+     - trace mutation / retrieval metric integrity.
+
+8. **[Minor Update] Chat Session Context Compaction**
+   - Confirm full-session history behavior.
+   - Add a Claude-Code-style circular token usage meter under the query box and a
+     click-to-compact action.
+   - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
+
+9. **[Minor Update] Minor Quick Wins**
+   - Web search integration review.
+   - Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`).
+   - Zotero import profile/item checkbox lists sorted by most recently accessed
+     or imported items.
+   - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
+
+10. **[Minor Update] Vault Storage Governance & Quota Visibility**
+   - Separate authoritative, derived, cache, and external storage accounting.
+   - Add capacity guidance, safe admission control, and CLI/plugin visibility.
+   - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
+
+11. **[Major Update] Native PDF Annotation & Asset System**
+   - Native annotation highlight/memo synchronization using Obsidian's built-in
+     PDF viewer.
+   - In-PDF full-text search and strict-spelling mode remain here.
+   - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
+
+---
+
+## ✅ Completed Milestones
+
+- **RAG & Knowledge Quality Stabilization** — complete through v0.13.0 / PR #34.
+  - Batch 1: D1 v0.6.0, Plan E complete, D2 v0.7.0.
+  - Batch 2: Plan B v0.8.0, Plan C v0.9.0.
+  - Batch 3: Plan A v0.10.0, Plan F v0.13.0.
+  - Active `.agents/plans/` artifacts should remain deleted; use Git history for
+    plan details.
+- **Diff Viewer Overhaul** — merged in v0.11.0, but follow-up fixes remain queued
+  under item 2.
+- **PDF Handling Unification & Simplification (Plan G)** — shipped in v0.12.0.
+  - Unified PDF identity resolver for Reference Mode / add-source / agent↔PDF
+    viewer and moved non-annotation asset routing into the shipped PDF flow.
+  - Native annotation and in-PDF full-text search remain queued separately.
+
+---
+
+## 🧊 Blocked / Icebox
+
+No blocked items currently tracked.
+
 ---
 
 ## 📌 Current Focus & Active Milestone
 
-The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
-
-### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Active Milestone**: **Plan F - Unified Agent Context Service** (v0.13.0 release finalization).
-  - P6-P8 implementation and validation are complete on `feature/agent-context-service`.
-  - Release metadata, changelog, and spec title synchronization are being finalized
-    for the v0.13.0 PR handoff.
-- **Shipped**: **4.5 Diff Viewer Overhaul** (Merged in v0.11.0).
-- **Next in Queue**: TBD.
-  Implementation starts only on explicit user approval.
+- **Roadmap state**: RAG stabilization is closed; shipped RAG plan artifacts have
+  been removed from `.agents/plans/`.
+- **Next actionable item**: 1. Sidechat Analyse/Review/Update Loop Regression.
+- **Priority order**: fix-like items 1 → 5, then RAG hardening and remaining
+  feature work.
