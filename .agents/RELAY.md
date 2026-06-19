@@ -9,14 +9,14 @@ planning residue, and active follow-up priorities are ordered in
 intentionally queued before the larger RAG post-stabilization hardening program.
 
 ## Active Plan
-- Branch: `feature/edit-loop-state-machine` (from origin/master, target v0.14.0)
-- `.agents/plans/01_sidechat_loop_regression.md` (REVISED — scope expanded)
-- Arena: `.agents/plans/sidechat_loop_regression_arena/` (round 04 = scope override)
-- Status: DRAFT (REVISED). User rejected the minimal prompt-only plan and
-  requested all four expansions (parser/hard-enforcement, wider triggers,
-  visible UI phases, re-scope). Now a Minor feature → v0.14.0. Awaiting user
-  approval of the revised plan before implementation.
+- Branch: `feature/edit-loop-state-machine` (from origin/master, v0.14.0)
+- Sidechat Edit Loop — Enforced & Observable State Machine: IMPLEMENTED.
+  Plan + arena deleted (Git history is the archive).
+- Done: docs/specs + EN/KR guides, `getEditLoopContract()` prompt block (wider
+  triggers, anchored last), `editLoopContract.ts` validator, Diff Viewer hard
+  gate, observable phase UI + blocked banner (Re-run / Override). Versions
+  bumped to 0.14.0; CHANGELOG updated. tsc clean; 441 plugin tests pass.
 
 ## Immediate Next Action
-Get user approval of the REVISED enforced-state-machine plan, then implement
-P1–P7 (spec/guide → TDD → prompt block → validator → UI+gate → CI → release).
+Push `feature/edit-loop-state-machine` and open the PR (final release commit
+already pending below). The user reviews/merges on GitHub.

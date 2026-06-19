@@ -24,14 +24,11 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-1. **[Minor Update] Sidechat Edit Loop — Enforced & Observable State Machine**
-   - The sidechat agent bypasses the expected `analysed → reviewed → updated →
-     reviewed` loop when editing files. Per user scope override, the fix is now
-     a Minor feature (v0.14.0): prompt contract + runtime validator hard-gate +
-     visible UI phases + wider triggers — a vertical slice of item 6.
-   - Detailed analysis: `.agents/drafts/sidechat_loop_regression.md`
-   - Active plan: `.agents/plans/01_sidechat_loop_regression.md` (REVISED)
-   - Scope override record: `.agents/plans/sidechat_loop_regression_arena/04_scope_override.md`
+1. ✅ **[Minor Update] Sidechat Edit Loop — Enforced & Observable State Machine**
+   — IMPLEMENTED on `feature/edit-loop-state-machine` (v0.14.0), pending PR merge.
+   - Prompt contract + runtime validator hard-gate + visible UI phases + wider
+     triggers shipped. Plan artifacts deleted (see Git history); see CHANGELOG
+     `[0.14.0]`.
 
 2. **[Fix/Minor Update] Diff Viewer Plugin Overhaul & Sync Fixes**
    - Address critical Diff Viewer bugs: unified inline view, race conditions,
