@@ -130,11 +130,10 @@ This is the holding area where user requests received from `.agents/USER_REPORT.
 The specific To-Do list for the roadmap is migrated from the user's Inbox (`.agents/USER_REPORT.md`) to the `Triage & Queuing` section of this document for integrated management.
 
 ### 🟢 Currently Ongoing Work (Current Active Milestone)
-- **Active Milestone**: **Plan G - PDF Handling Unification & Simplification** (v0.12.0 release commit/PR handoff).
-  - P0-P5 implementation and validation are complete on `feature/pdf-unified-handling`.
-  - Draft PR: https://github.com/ShinYwings/Incurator/pull/33
-  - Branch is intentionally based on the Plan F checkpoint and must be rebased
-    after Plan F merges.
+- **Active Milestone**: **Plan F - Unified Agent Context Service** (v0.13.0 release finalization).
+  - P6-P8 implementation and validation are complete on `feature/agent-context-service`.
+  - Release metadata, changelog, and spec title synchronization are being finalized
+    for the v0.13.0 PR handoff.
 - **Shipped**: **4.5 Diff Viewer Overhaul** (Merged in v0.11.0).
 - **Next in Queue**: TBD.
   Implementation starts only on explicit user approval.

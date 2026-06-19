@@ -4,6 +4,33 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.13.0] - 2026-06-19
+### Added
+- **Unified Agent ContextService feedback (Plan F P7).** New append-only
+  `context_feedback` operation records `FBK-*` events against the exact served
+  pack/snapshot with the nine locked feedback types (relevant, irrelevant,
+  incorrect, stale, insufficient, duplicate, new_insight, correction,
+  promotion_request). Feedback is hard-quarantined: it never edits source files,
+  generated records, ranking, or truth state. A `new_insight` event enqueues a
+  provisional `pending` insight candidate for human review. Exposed through
+  `plugin_api.feedback_context` and the hidden `wiki plugin context feedback`
+  command.
+- **Sources & Trace feedback UI (Plan F P7).** Each evidence item shows
+  relevant/irrelevant controls and a "Report..." menu
+  (incorrect/stale/insufficient/duplicate) that records feedback through the
+  backend without mutating the pack.
+- **ContextService route admission and rollback (Plan F P8).** The service serves
+  only Plan-A pack-integrated routes (`local`, `source-section`, `global`).
+  `explore` and unknown routes degrade to `local` before retrieval runs; the
+  experimental `global` route is independently disableable via
+  `INCURATOR_DISABLED_ROUTES` for rollback. The decision is recorded as
+  `route_admission` on the response and root trace.
+
+### Changed
+- **Sources & Trace locator resolution extracted (Plan F P6).** The pure
+  open-target decision moved to `incuratorQueryTraceLocator.ts` with behavioral
+  unit tests; the vault PDF locator label no longer repeats the `#page=N` anchor.
+
 ## [0.12.0] - 2026-06-19
 ### Added
 - **Unified PDF asset identity resolution (Plan G).** Backend Reference Mode,

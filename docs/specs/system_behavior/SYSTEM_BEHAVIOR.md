@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.12.0)
+# Incurator - System Behavior (v0.13.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -2419,7 +2419,7 @@ Diagnostic / raw-search surfaces that call `build_evidence` outside the
 `db.insert_query_trace` before returning.  A retrieval execution MUST NOT produce
 a disconnected `RTR-*` with no parent `QTR-*` in the trace record.
 
-## 31. Unified Agent Context Service (Plan F target, v0.12.0)
+## 31. Unified Agent Context Service (Plan F target, v0.13.0)
 
 Plan F introduces a single backend `ContextService` as the authoritative
 transaction boundary for external MCP agents and the Obsidian agent. Existing

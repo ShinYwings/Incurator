@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.12.0)
+# Incurator - Schema & Operating Conventions (v0.13.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -2124,7 +2124,7 @@ This line is appended AFTER the last fully-rendered item, ensuring `max_chars` i
 respected by the rendered content + marker together.  The marker MUST contain the
 word `"omitted"` (case-insensitive match used by tests).
 
-## 23. Context Service Contracts (Plan F target, v0.12.0)
+## 23. Context Service Contracts (Plan F target, v0.13.0)
 
 Plan F adds the schema contract for a unified `ContextService`. The initial
 schema is additive; `SCHEMA_VERSION` remains unchanged until the physical

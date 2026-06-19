@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.12.0)
+# Incurator Plugin Schema & API Contract (v0.13.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -1404,7 +1404,7 @@ View) and copying it (`Cmd/Ctrl+C`, or `Cmd/Ctrl+X`) places the formulas' LaTeX
   `text/plain`. Reading View is read-only, so `cut` writes the clipboard but deletes
   nothing; Live Preview's native cut already removes the source.
 
-## 15. Context Pack Client Contract (Plan F target, v0.12.0)
+## 15. Context Pack Client Contract (Plan F target, v0.13.0)
 
 The Obsidian plugin consumes the same normalized backend context pack that
 external MCP agents receive for equivalent request and snapshot inputs. The local
