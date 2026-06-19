@@ -53,13 +53,14 @@ Source of Truth to identify unresolved items.
    - Keep separate from `.agents/drafts/popover_tool_scope.md` unless planning
      the broader UI/UX architecture overhaul.
 
-4. **[Fix/Chore] Purge Legacy QMD References**
-   - Remove stale `qmd` references now that DB-native search has been the
-     architecture since v0.3.2.
-   - This is fix-like cleanup because stale code/docs can mislead agents into
-     reintroducing a retired dependency.
-   - Detailed analysis: `.agents/drafts/purge_qmd_legacy.md`
-   - Active plan: `.agents/plans/04_purge_legacy_qmd_references.md`
+4. ✅ **[Fix/Chore] Purge Legacy Search Binary References** — SHIPPED in
+   v0.16.0.
+   - Removed stale retired-search-binary references from active runtime, build,
+     plugin status, docs/specs, and guard-tested source surfaces.
+   - Backend/MCP/plugin status now expose DB-native `search_*` readiness only.
+   - Obsolete search parity benchmark artifacts were deleted; use DB-native
+     reindex/status/testbed smoke as the active validation path.
+   - Plan/draft artifacts deleted on ship; use Git history for details.
 
 5. **[Fix/Validation] `[[wikilink]]` Architecture Validation**
    - Validate whether current backend link parsing intentionally avoids
@@ -145,9 +146,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Planning item 4, Purge Legacy QMD References, on
-  `fix/purge-legacy-qmd-references`.
-- **Next actionable item**: approve and execute
-  `.agents/plans/04_purge_legacy_qmd_references.md`.
-- **Priority order**: fix-like items 4 → 5, then RAG hardening and remaining
-  feature work.
+- **Roadmap state**: Item 4 shipped in v0.16.0 on
+  `fix/purge-legacy-qmd-references`; PR is ready to open.
+- **Next actionable item**: item 5,
+  `[[wikilink]]` Architecture Validation.
+- **Priority order**: item 5, then RAG hardening and remaining feature work.

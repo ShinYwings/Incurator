@@ -1,21 +1,34 @@
 # Cross-Agent Relay State
 
 ## Status
-Planning roadmap item 4, Purge Legacy QMD References, on
-`fix/purge-legacy-qmd-references`.
+Roadmap item 4 is implemented and validated on
+`fix/purge-legacy-qmd-references` as v0.16.0. PR publication is the next step.
 
 ## Plan Reference
-`.agents/plans/04_purge_legacy_qmd_references.md`
+Implemented plan artifacts were deleted after ship cleanup. Use Git history for
+`.agents/plans/04_purge_legacy_qmd_references.md`.
 
 ## Analysis & Reasoning
-- Baseline active match count is 202 case-insensitive `qmd` matches across active
-  source/tests/plugin/scripts/docs/agent-rule files.
-- The cleanup touches runtime/build/API/plugin surfaces, so this is a v0.16.0
-  fix release, not a branch-exempt chore.
-- Plan decision: remove active qmd runtime/build/status references and migrate
-  plugin consumers to `search_*`; preserve useful legacy behavior only by
-  generalizing it without qmd naming.
+- Active runtime/build/API/plugin surfaces were migrated to DB-native
+  `search_*` status naming.
+- The retired external search-binary installer/build path and obsolete search
+  parity benchmark artifacts were removed.
+- Guard coverage now scans active source, plugin, scripts/build, guides, specs,
+  and agent-rule files for the retired dependency name.
+- Version is synchronized at 0.16.0 across backend, plugin package/lockfile, and
+  manifest; CHANGELOG documents the release.
+
+## Validation
+- `scripts/backend-check pytest` -> 961 passed, 6 skipped, 5 xfailed.
+- `scripts/backend-check ruff` -> passed.
+- `scripts/backend-check mypy` -> passed.
+- `npx vitest run -c ./vitest.config.ts` -> 463 passed.
+- `npx tsc -p tsconfig.json --noEmit` -> passed.
+- `npm run build` -> passed.
+- `VAULT_ROOT=testbed .venv-dev/bin/wiki status` -> native-0.16.0.
+- `VAULT_ROOT=testbed .venv-dev/bin/wiki reindex` -> 409 documents/chunks.
+- `VAULT_ROOT=testbed .venv-dev/bin/wiki lint` -> clean.
+- `VAULT_ROOT=testbed .venv-dev/bin/wiki plugin zotero resolve-pdf --attachment-key TESTKEY1 --custom-paths tests/scenarios/testbed_template/mock_zotero_env` -> mock PDF resolved.
 
 ## Immediate Next Action
-Wait for approval to implement
-`.agents/plans/04_purge_legacy_qmd_references.md`.
+Commit release cleanup, push the branch, and open the v0.16.0 PR.
