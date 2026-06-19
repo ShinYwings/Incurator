@@ -146,6 +146,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: None (System IDLE).
-- **Next actionable item**: item 5, `[[wikilink]]` Architecture Validation.
+- **Roadmap state**: Item 5 active on `feature/wikilink-architecture-validation`.
+- **Next actionable item**: Implement/Validate item 5 (`[[wikilink]]` Architecture Validation).
 - **Priority order**: item 5, then RAG hardening and remaining feature work.
