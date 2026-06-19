@@ -3665,7 +3665,9 @@
 }
 
 .incurator-curator-link.is-missing {
-  color: var(--text-error);
+  /* !important so community themes with highly specific link-color rules can't
+     override the missing-state cue and hide that a curator citation is broken. */
+  color: var(--text-error) !important;
   text-decoration-style: dashed;
   text-decoration-line: underline;
 }

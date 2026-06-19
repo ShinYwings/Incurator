@@ -23,8 +23,10 @@ const COLLECTIONS_DIR = ".curator/Collections";
 // Matches a curator-layer link target with an optional `.curator/Collections/`
 // prefix, an optional `.md` suffix, and an optional `#heading` / `#^block`
 // subpath. The layer/prefix pairing is validated separately in parseCuratorTarget.
+// Greedy `[\w-]+` (not lazy): the ID charset (`\w`, `-`) cannot overlap the `.md`
+// suffix (`.`) or `#` subpath separator, so a greedy match never has to backtrack.
 const CURATOR_LINK_RE =
-  /^(?:\.curator\/Collections\/)?(01_Contexts|02_Atoms|03_Concepts|04_Synthesis)\/((?:CTX|ATM|CON|SYN)-[\w-]+?)(?:\.md)?(#.*)?$/;
+  /^(?:\.curator\/Collections\/)?(01_Contexts|02_Atoms|03_Concepts|04_Synthesis)\/((?:CTX|ATM|CON|SYN)-[\w-]+)(?:\.md)?(#.*)?$/;
 
 export interface CuratorTarget {
   /** Layer folder, e.g. "02_Atoms". */
