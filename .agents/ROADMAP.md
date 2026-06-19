@@ -30,8 +30,8 @@ Source of Truth to identify unresolved items.
      triggers shipped. Plan artifacts deleted (see Git history); see CHANGELOG
      `[0.14.0]`.
 
-2. ✅ **[Fix] Diff Viewer Plugin Overhaul & Sync Fixes** — Tier A SHIPPED in
-   v0.14.1 (pending PR merge).
+2. ✅ **[Fix] Diff Viewer Plugin Overhaul & Sync Fixes** — Tier A SHIPPED and
+   merged in v0.14.1.
    - P0 triage: 2 FIXED (nav, premature-write), 2 LIVE (Accept-All cursor, hover),
      7 PARTIAL. Tier A fixes shipped: cursor restore, toolbar anchor, review
      race guard, path fallback, derived pill status, "proposed not applied".
@@ -140,8 +140,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Milestone 2 (Diff Viewer Tier A) shipped in v0.14.1, pending
-  PR merge. Deferred Diff Viewer polish folded into item 6.
+- **Roadmap state**: IDLE after Milestone 2 (Diff Viewer Tier A) merged in
+  v0.14.1. Deferred Diff Viewer polish folded into item 6.
 - **Next actionable item**: 3. Persistent Quick Query Popover.
 - **Priority order**: fix-like items 3 → 5, then RAG hardening and remaining
   feature work.
