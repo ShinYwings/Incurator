@@ -2593,3 +2593,26 @@ explicit JSON columns/tables chosen during the migration phase. The migration
 must be forward/rollback rehearsed on a copied DB before release. No permanent
 dual retrieval implementation is allowed: compatibility adapters may preserve old
 transport shapes, but retrieval and packing logic live in `ContextService`.
+
+### 31.8 Route Admission And Rollback
+
+`ContextService` serves only Plan-A retrieval routes whose evidence is mapped into
+the progressive pack path: `local`, `source-section`, and `global`. `local` and
+`source-section` are always-available safe baselines. The `explore` route keeps
+its own divergent associative pipeline and is **not** admitted into the pack path;
+its ContextService migration is deferred.
+
+After the router chooses a route, ContextService applies an admission gate
+**before any retrieval runs**, so a rejected route never produces a second or
+divergent retrieval execution:
+
+- A route that is not in the admitted set (e.g. `explore`) degrades to `local`.
+- An admitted experimental route (currently `global`) may be independently
+  disabled for rollback via the `INCURATOR_DISABLED_ROUTES` environment variable
+  (comma-separated) or a programmatic `disabled_routes` argument; a disabled route
+  degrades to `local`. Safe baseline routes are never disabled.
+
+The decision is recorded as `route_admission` on both the response and the root
+trace's `context_service` payload: `{requested, served, admitted_routes,
+disabled_routes, downgraded}`. Exactly one `RTR-*` retrieval execution attaches to
+the one root `QTR-*`; admission changes which route runs, never how many.

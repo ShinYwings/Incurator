@@ -933,3 +933,110 @@ def test_context_feedback_non_insight_type_creates_no_candidate(tmp_path: Path) 
 
     assert response["resulting_lineage"]["insight_candidate_id"] is None
     assert db.list_insight_candidates(paths.state_db) == []
+
+
+# ---------------------------------------------------------------------------
+# P8 — Plan-A Route Admission And Context-Service Integration
+# ---------------------------------------------------------------------------
+
+
+def test_admit_route_gates_experimental_and_disabled_routes() -> None:
+    from curator import context_service as cs
+
+    # Plan-A-gated, pack-integrated routes pass through untouched.
+    assert cs._admit_route("local", "r", frozenset()) == ("local", "r", None)
+    assert cs._admit_route("global", "r", frozenset()) == ("global", "r", None)
+    assert cs._admit_route("source-section", "r", frozenset()) == (
+        "source-section",
+        "r",
+        None,
+    )
+
+    # `explore` is not admitted into the ContextService pack path -> degrade to local.
+    served, reason, downgraded = cs._admit_route("explore", "discovery", frozenset())
+    assert served == "local"
+    assert downgraded == "explore"
+    assert "not admitted" in reason
+
+    # An admitted experimental route can be rolled back independently -> degrade.
+    served, reason, downgraded = cs._admit_route("global", "broad", frozenset({"global"}))
+    assert served == "local"
+    assert downgraded == "global"
+    assert "disabled (rollback)" in reason
+
+    # Safe baseline routes are never disabled even if named.
+    assert cs._admit_route("local", "r", frozenset({"local"})) == ("local", "r", None)
+
+
+def test_disabled_routes_parsed_from_env(monkeypatch) -> None:
+    from curator import context_service as cs
+
+    monkeypatch.setenv("INCURATOR_DISABLED_ROUTES", " global , explore ,")
+    paths = cfg.WikiPaths(Path("/tmp/does-not-matter"))
+    service = cs.ContextService(paths)
+    assert service.disabled_routes == frozenset({"global", "explore"})
+
+
+def test_context_fetch_does_not_admit_explore_route(tmp_path: Path, monkeypatch) -> None:
+    from curator import context_service as cs
+    from curator.retrieval import router
+
+    paths, span_id = _seed_context_vault(tmp_path)
+    monkeypatch.setattr(router, "choose_route", lambda *a, **k: ("explore", "discovery signal"))
+
+    # Query matches the seeded entity so the degraded local route still retrieves it.
+    response = cs.ContextService(paths).context_fetch(
+        QueryRequest(question="residual connection", mode="auto")
+    )
+
+    # explore is rejected before retrieval; the served route is the safe local baseline.
+    assert response["ok"] is True
+    assert response["route"] == "local"
+    admission = response["route_admission"]
+    assert admission["requested"] == "explore"
+    assert admission["served"] == "local"
+    assert admission["downgraded"] is True
+    assert "explore" not in admission["admitted_routes"]
+
+    # No second retrieval / no second root: exactly one RTR child and one QTR trace.
+    retrieval_actions = [a for a in response["actions"] if a["action_type"] == "retrieval"]
+    assert len(retrieval_actions) == 1
+    assert retrieval_actions[0]["child_id"] == response["retrieval_execution_id"]
+    traces = db.list_query_traces(paths.state_db)
+    assert [t["trace_id"] for t in traces] == [response["trace_id"]]
+    # The served local pack still resolves real evidence.
+    assert span_id in response["source_span_ids"]
+
+
+def test_context_fetch_route_rollback_degrades_disabled_route(tmp_path: Path, monkeypatch) -> None:
+    from curator import context_service as cs
+    from curator.retrieval import router
+
+    paths, _ = _seed_context_vault(tmp_path)
+    monkeypatch.setattr(router, "choose_route", lambda *a, **k: ("global", "broad-synthesis signal"))
+
+    service = cs.ContextService(paths, disabled_routes={"global"})
+    response = service.context_fetch(QueryRequest(question="overview of the field", mode="auto"))
+
+    assert response["route"] == "local"
+    admission = response["route_admission"]
+    assert admission["requested"] == "global"
+    assert admission["served"] == "local"
+    assert admission["disabled_routes"] == ["global"]
+    # Admission is persisted on the root trace for inspection.
+    trace = db.get_query_trace(paths.state_db, response["trace_id"])
+    assert trace is not None
+    assert trace["retrieval_trace"]["context_service"]["route_admission"]["requested"] == "global"
+
+
+def test_context_fetch_admits_plan_a_route_without_downgrade(tmp_path: Path) -> None:
+    from curator import context_service as cs
+
+    paths, _ = _seed_context_vault(tmp_path)
+    # Default seed routes to the admitted local route; it is served unchanged.
+    response = cs.ContextService(paths).context_fetch(
+        QueryRequest(question="residual connection", mode="local")
+    )
+    assert response["route"] == "local"
+    assert response["route_admission"]["downgraded"] is False
+    assert response["route_admission"]["requested"] == "local"

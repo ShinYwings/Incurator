@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +21,40 @@ __all__ = ["ContextService"]
 _DEFAULT_POLICY_PROJECT = "default"
 _DEFAULT_BUDGET_LIMIT = 16000
 _DEFAULT_RESERVED_TOKENS = 1000
+
+# Plan F P8 route admission (SYSTEM_BEHAVIOR §31.8). ContextService serves only the
+# Plan-A routes whose evidence is mapped into the progressive pack path. `explore`
+# keeps its own divergent pipeline (Plan F defers its migration) and is NOT admitted
+# here; any non-admitted or operationally disabled route degrades to `local`.
+_ADMITTED_ROUTES = frozenset({"local", "source-section", "global"})
+# Always-available safe baselines; never subject to rollback disabling.
+_SAFE_ROUTES = frozenset({"local", "source-section"})
+_DEGRADE_ROUTE = "local"
+_DISABLED_ROUTES_ENV = "INCURATOR_DISABLED_ROUTES"
+
+
+def _disabled_routes_from_env() -> frozenset[str]:
+    raw = os.environ.get(_DISABLED_ROUTES_ENV, "")
+    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+
+
+def _admit_route(
+    route: str, reason: str, disabled_routes: frozenset[str]
+) -> tuple[str, str, str | None]:
+    """Gate the chosen route to the ContextService-admitted set.
+
+    Returns ``(served_route, reason, downgraded_from)``. ``downgraded_from`` is the
+    originally chosen route when it was rejected (experimental/unadmitted or rolled
+    back), else ``None``. Safe baseline routes are never disabled. No retrieval runs
+    for a rejected route — admission happens before `build_evidence`, so a rejected
+    route never produces a second/divergent retrieval path.
+    """
+    if route not in _SAFE_ROUTES and route in disabled_routes:
+        return _DEGRADE_ROUTE, f"{reason}; route '{route}' disabled (rollback) → local", route
+    if route not in _ADMITTED_ROUTES:
+        return _DEGRADE_ROUTE, f"{reason}; route '{route}' not admitted to ContextService → local", route
+    return route, reason, None
+
 
 # Locked feedback types (SYSTEM_BEHAVIOR §31.6). Append-only `FBK-*` events.
 _FEEDBACK_TYPES = frozenset(
@@ -462,9 +498,22 @@ def _conflict_response(expected_snapshot_id: str, current_snapshot_id: str) -> d
 class ContextService:
     """Application façade for normalized context-pack operations."""
 
-    def __init__(self, paths: cfg.WikiPaths, client: Any | None = None) -> None:
+    def __init__(
+        self,
+        paths: cfg.WikiPaths,
+        client: Any | None = None,
+        *,
+        disabled_routes: Iterable[str] | None = None,
+    ) -> None:
         self.paths = paths
         self.client = client
+        # P8 rollback seam: a route can be disabled here (tests/programmatic) or via
+        # the INCURATOR_DISABLED_ROUTES env var, degrading it to the safe local route.
+        self.disabled_routes: frozenset[str] = (
+            frozenset(disabled_routes)
+            if disabled_routes is not None
+            else _disabled_routes_from_env()
+        )
 
     def context_fetch(
         self,
@@ -481,6 +530,14 @@ class ContextService:
 
         status = router.graph_status(self.paths.state_db)
         route, reason = router.choose_route(request, policy, status)
+        route, reason, downgraded_from = _admit_route(route, reason, self.disabled_routes)
+        route_admission = {
+            "requested": downgraded_from or route,
+            "served": route,
+            "admitted_routes": sorted(_ADMITTED_ROUTES),
+            "disabled_routes": sorted(self.disabled_routes),
+            "downgraded": downgraded_from is not None,
+        }
         pack = evidence_mod.build_evidence(self.paths, request, route, policy=policy)
         selected_items, budget_omitted_items, budget = _apply_budget(
             pack.items,
@@ -558,6 +615,7 @@ class ContextService:
             "snapshot": snapshot,
             "actions": actions,
             "budget": budget,
+            "route_admission": route_admission,
             "selected_items": selected_payloads,
             "omitted_items": omitted_payloads,
         }
@@ -600,6 +658,7 @@ class ContextService:
             "actions": actions,
             "route": route,
             "route_reason": reason,
+            "route_admission": route_admission,
             "workspace_id": policy.workspace_id,
             "budget": budget,
             "coverage": {

@@ -6,8 +6,8 @@ Batch 3 / Plan F — Unified Agent Context Service on
 
 ## Plan Reference
 - Active plan: `.agents/plans/F_agent_context_service.md`
-- Current phase: **P7 — Feedback And Promotion Lineage** (in flight). P6 grounding/
-  Sources & Trace is done except headless-impossible visual QA.
+- Current phase: **P8 — Plan-A Route Admission** (in flight). P6 + P7 are done
+  except headless-impossible visual QA.
 - Plan G (PDF unification) was branched off this branch and merged back via PR #33
   (`f53306c`); v0.12.0 shipped. That merge restored the Plan G RELAY snapshot, so
   this file has been rewritten to the accurate Plan F live state.
@@ -89,11 +89,21 @@ Batch 3 / Plan F — Unified Agent Context Service on
 - Explore-mode ContextService migration is deferred to the explicit follow-up
   requirement unless the user directs otherwise.
 
+## P8 — Route Admission (done)
+- Added a ContextService admission gate (`_admit_route`, SYSTEM_BEHAVIOR §31.8):
+  only Plan-A pack-integrated routes are served — `local`, `source-section`,
+  `global`. `explore` (deferred) and any unknown route degrade to `local` BEFORE
+  retrieval runs, so no second/divergent retrieval path is created.
+- Rollback seam: an admitted experimental route (`global`) is independently
+  disableable via `INCURATOR_DISABLED_ROUTES` env (comma-sep) or a programmatic
+  `disabled_routes=` constructor arg; degrades to `local`. Safe baselines never
+  disabled. Decision recorded as `route_admission` on the response + root trace.
+- Tests: `_admit_route` unit cases, env parsing, forced-explore degrade (asserts
+  one RTR / one QTR — no second retrieval/root), global rollback degrade, admitted
+  pass-through. Contract suite green (running full sweep to confirm).
+
 ## Immediate Next Action
-1. P6/P7 visual QA in Obsidian: pack/refetch/action controls + new feedback
-   buttons (needs a human pass; cannot run headless).
-2. **P8 — Plan-A route admission**: integrate only Plan-A routes that passed their
-   quality gates; map `RTR-*` results into progressive packs without rerunning
-   retrieval; no-second-retrieval / no-second-root assertions. Begin TDD.
-3. P9 — cross-client E2E, testbed, migration rehearsal, release (version bump +
-   changelog at the P9 release gate per Universal Strict Workflow).
+1. P9 — cross-client E2E, testbed, migration rehearsal, then release (version bump
+   + changelog + PR at the P9 release gate per Universal Strict Workflow).
+2. P6/P7/P8 visual QA in Obsidian (feedback buttons, pack/refetch controls) —
+   needs a human pass; cannot run headless.
