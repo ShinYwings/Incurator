@@ -846,6 +846,46 @@ Rules:
   in-editor `DiffViewer` is the single source of truth. (Pre-existing artifact
   files in users' vaults are left untouched.)
 
+### 6.1 Edit-Loop State Machine Contract (v0.14.0)
+
+Edit proposals must follow an observable, enforced four-phase loop so the agent
+cannot silently jump from tool selection to file mutation ("vibe-coding").
+
+- **Canonical phase markers.** When the agent proposes any `ai-agent-edit`
+  block, the response MUST contain the four phases, in order, each introduced by
+  a stable sentinel token on its own line:
+  - `[[PHASE:ANALYSED]]` — what the agent understood and the concrete gap to close.
+  - `[[PHASE:REVIEWED]]` — critique of its own plan *before* editing.
+  - `[[PHASE:UPDATED]]` — the `ai-agent-edit` SEARCH/REPLACE block(s).
+  - `[[PHASE:REVIEWED]]` — self-check that the edit closes the gap.
+  Markers are English and machine-parseable; phase *body* text follows the user's
+  language. The sentinel form (`[[PHASE:LABEL]]`) is chosen so it cannot collide
+  with note content or model headings and survives the existing thought-block and
+  `ai-agent-edit` stripping passes. The first `REVIEWED` precedes `UPDATED`; the
+  second follows it.
+- **Prompt contract (`getEditLoopContract()`).** A single composable system-prompt
+  block instructs the agent to emit the markers. It is anchored as the LAST system
+  block (strongest attention) and is appended whenever a turn is likely to produce
+  a mutation: the latest message is a Markdown edit request, OR an editable
+  line-range selection exists, OR an open Markdown edit target exists, OR the
+  prior assistant turn already opened an edit loop (multi-turn edit continuation).
+- **Runtime validator (`context/editLoopContract.ts`).** `validateEditLoop(content)`
+  returns `{ ok, missing, hasEdits }`. The contract is required ONLY when
+  `hasEdits` is true (the content contains at least one `ai-agent-edit` block). A
+  response containing edit blocks but missing or mis-ordering the four phases is
+  `ok: false`. A pure Q&A response with no edit blocks is never gated.
+- **Hard gate.** When `validateEditLoop` returns `ok: false` for an edit-bearing
+  response, the default Review/Apply entry point (`DiffViewer.show`) MUST NOT
+  auto-open. The message renders a blocked-state banner with two explicit actions:
+  **Re-run with loop** (re-prompts the model with a one-line reminder) and
+  **Override & review anyway** (a conscious user escape hatch that opens the diff
+  despite the missing loop, so a non-compliant provider is never a dead end).
+- **Observable UI.** A conforming response renders each phase as a distinct,
+  labeled, collapsible section (`.ai-agent-edit-phase[data-phase]`), reusing the
+  thought-block styling vocabulary; the inline diff/review pill is anchored inside
+  the `UPDATED` section. The contract does not expose private chain-of-thought —
+  the phases are deliberate, user-facing work products.
+
 ## 7. Backend Access Contract
 
 Static metadata such as the model catalogue must not go through MCP; it is
