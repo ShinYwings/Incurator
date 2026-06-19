@@ -3656,3 +3656,16 @@
   color: var(--text-error);
   white-space: pre-wrap;
 }
+
+/* Curator DAG wikilinks (hidden .curator/Collections/ targets the plugin resolves
+   itself). A resolved curator link uses the normal internal-link accent; a missing
+   target is marked so a stale citation is visible rather than silently broken. */
+.incurator-curator-link {
+  cursor: pointer;
+}
+
+.incurator-curator-link.is-missing {
+  color: var(--text-error);
+  text-decoration-style: dashed;
+  text-decoration-line: underline;
+}

@@ -256,6 +256,27 @@ section 링크가 포함되면, 사이드바에서 클릭했을 때 열린 Incur
 제공하는 경우 이를 사용하므로, front-matter offset 때문에 `p.580`이 물리적 580쪽으로
 잘못 이동하지 않습니다. 일반 웹 링크와 vault 링크는 기존 동작을 유지합니다.
 
+### Curator DAG 위키링크
+
+Curator 지식 DAG(L1–L4 노드: `CTX-`, `ATM-`, `CON-`, `SYN-`)는 숨김 폴더인
+`.curator/Collections/` 아래에 저장됩니다. Obsidian은 숨김(점으로 시작하는) 폴더의
+파일을 인덱싱하지 않으므로, `[[02_Atoms/ATM-9f8e7d6c]]` 같은 curator 위키링크는
+원래 클릭·hover·그래프·백링크가 전혀 동작하지 않는 죽은(unresolved) 링크로
+렌더링됩니다.
+
+플러그인은 이 간극을 메웁니다. 렌더링된 curator 레이어 위키링크
+(`[[01_Contexts/CTX-…]]`, `[[02_Atoms/ATM-…]]`, `[[03_Concepts/CON-…]]`,
+`[[04_Synthesis/SYN-…]]`. `.curator/Collections/` 접두사나 끝의 `.md` 유무와
+무관)는 **숨겨진 DAG 페이지를 여는 클릭 가능한 링크**로 변환됩니다. 이 동작은 채팅
+사이드바 답변, 빠른 질의 popover 답변, 그리고 열린 DAG 페이지의 읽기 모드에서
+모두 적용됩니다. 대상 파일이 존재하면 정상적인 resolved 링크로 렌더링되고, 없으면
+`is-missing` 스타일로 표시되어 끊어진 인용이 조용히 묻히지 않고 드러납니다.
+
+DAG가 숨김 폴더에 있으므로 이 노드들은 여전히 Obsidian의 기본 그래프 뷰나 코어
+백링크 패널에는 나타나지 않습니다. 백링크 성격의 출처 추적은 채팅의 **Sources &
+Trace** 패널을 사용하세요. 일반 웹 링크와 vault 링크는 기존 동작을 유지하며,
+curator 레이어 링크 대상만 재작성됩니다.
+
 선택한 Markdown line range가 첨부된 상태에서 사용자가 해당 텍스트를 고치거나, 다시 쓰거나, 다듬거나, 번역하라고 요청하면 assistant는 `ai-agent-edit` SEARCH/REPLACE 제안을 반환해야 합니다. 선택 영역에 대한 단순 질문이면 파일 수정 제안 없이 답변만 합니다.
 
 최신 요청이 선택한 PDF/text 영역을 예시로 삼아 Markdown 파일 안의 모든 비슷한 부분을 바꾸라고 요청하면, 선택 영역은 유일한 수정 대상이 아니라 pattern을 이해하기 위한 단서로 취급합니다. 플러그인은 열린 Markdown 탭의 전체 내용을 edit-target context로 보내므로 assistant가 파일 전체에서 같은 HTML/Markdown line 형태를 찾고, 기존 문법 형식을 보존한 SEARCH/REPLACE hunk를 Markdown 편집기 안에서 review할 수 있게 제안해야 합니다.

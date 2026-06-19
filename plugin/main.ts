@@ -72,6 +72,7 @@ import {
   sliceLinesByIndex,
   stampMathSourceData,
 } from "./src/utils/textUtils";
+import { rewriteCuratorLinks } from "./src/utils/curatorWikilinks";
 import { mergeSessionData, normalizeSessionData } from "./src/utils/sessionData";
 import {
   mergeDeviceRegistry,
@@ -194,6 +195,20 @@ export default class ObsidianAIAgent extends Plugin {
       // runs per math block on every render).
       const source = sliceLinesByIndex(info.text, info.lineStart, info.lineEnd);
       stampMathSourceData(el, source);
+    });
+
+    // ── Curator DAG wikilink resolution ──
+    // The L1–L4 DAG lives under the hidden `.curator/Collections/` folder, which
+    // Obsidian's metadataCache never indexes, so `[[02_Atoms/ATM-…]]` renders as a
+    // dead, unresolved link. Rewrite curator-layer links into clickable links that
+    // open the hidden page. `MarkdownRenderer.render` runs registered post-processors,
+    // so this single hook covers the chat sidebar answer, the quick-query popover
+    // answer, and the reading view of an opened DAG page (DRY).
+    this.registerMarkdownPostProcessor((el) => {
+      rewriteCuratorLinks(el, {
+        open: (linktext) => void this.app.workspace.openLinkText(linktext, "", false),
+        exists: (path) => this.app.vault.getAbstractFileByPath(path) != null,
+      });
     });
 
     // ── Note reading-view LaTeX-preserving copy / cut ──

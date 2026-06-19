@@ -372,6 +372,21 @@ Rules:
   the plugin may compact the visible tool-result block, but it must preserve
   parseable `fallback`, `error`, and `trace` fields so the Sources & Trace panel
   can link the answer to its source evidence and query trace.
+- Curator DAG pages live under the hidden `.curator/Collections/` folder, which
+  Obsidian's `metadataCache` never indexes, so curator-layer wikilinks
+  (`[[<layer>/<ID>]]` for `01_Contexts/CTX-`, `02_Atoms/ATM-`, `03_Concepts/CON-`,
+  `04_Synthesis/SYN-`) are not natively resolvable. The plugin MUST register a
+  single markdown post-processor that rewrites these rendered links — accepting an
+  optional `.curator/Collections/` prefix and an optional `.md` suffix, and
+  preserving any `#` subpath — into clickable links that call
+  `workspace.openLinkText(".curator/Collections/<layer>/<ID>.md", "", false)`. The
+  rewrite MUST apply on every surface that renders curator markdown (chat sidebar
+  answer, quick-query popover answer, and the reading view of an opened DAG page),
+  MUST mark a link whose target file does not exist with an `is-missing` class
+  instead of opening a nonexistent page, and MUST NOT alter non-curator internal
+  links, external links, real-vault embeds, or `[[PHASE:…]]` edit-loop markers.
+  The rewrite is navigation-only: it does not register these hidden nodes in the
+  native Graph view or Backlinks pane.
 
 ### 2.1.1 Zotero Import Profiles
 
