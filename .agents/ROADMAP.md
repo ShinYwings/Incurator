@@ -147,7 +147,7 @@ No blocked items currently tracked.
 ## 📌 Current Focus & Active Milestone
 
 - **Roadmap state**: Item 4 shipped in v0.16.0 on
-  `fix/purge-legacy-qmd-references`; PR is ready to open.
+  `fix/purge-legacy-qmd-references`; draft PR #38 is open.
 - **Next actionable item**: item 5,
   `[[wikilink]]` Architecture Validation.
 - **Priority order**: item 5, then RAG hardening and remaining feature work.

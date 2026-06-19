@@ -2,7 +2,8 @@
 
 ## Status
 Roadmap item 4 is implemented and validated on
-`fix/purge-legacy-qmd-references` as v0.16.0. PR publication is the next step.
+`fix/purge-legacy-qmd-references` as v0.16.0. Draft PR #38 is open:
+https://github.com/ShinYwings/Incurator/pull/38
 
 ## Plan Reference
 Implemented plan artifacts were deleted after ship cleanup. Use Git history for
@@ -31,4 +32,5 @@ Implemented plan artifacts were deleted after ship cleanup. Use Git history for
 - `VAULT_ROOT=testbed .venv-dev/bin/wiki plugin zotero resolve-pdf --attachment-key TESTKEY1 --custom-paths tests/scenarios/testbed_template/mock_zotero_env` -> mock PDF resolved.
 
 ## Immediate Next Action
-Commit release cleanup, push the branch, and open the v0.16.0 PR.
+Monitor PR #38 CI/review. Next roadmap implementation item is item 5,
+`[[wikilink]]` Architecture Validation.
