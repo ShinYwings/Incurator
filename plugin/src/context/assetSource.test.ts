@@ -115,6 +115,50 @@ describe("resolveAssetSource", () => {
     expect(out.resolutionStatus).toBe("path_unresolved");
   });
 
+  it("does not let a Reference Mode relpath stub mark an unresolved Zotero PDF as resolved", async () => {
+    const deps = {
+      ...baseDeps(),
+      resolveZoteroViaBackend: async () => undefined,
+      resolveZoteroLocally: () => undefined,
+      fileExists: () => false,
+    };
+    const out = await resolveAssetSource(
+      {
+        relpath: "04_Resources/References/paper.md",
+        zoteroKey: "GONE",
+        displayName: "Paper",
+      },
+      deps
+    );
+    expect(out.resolutionStatus).toBe("path_unresolved");
+  });
+
+  it("uses a freshly resolved Zotero path before a stale absolute hint", async () => {
+    const deps = baseDeps();
+    const out = await resolveAssetSource(
+      {
+        absPath: "/stale/synced/mac/path.pdf",
+        zoteroKey: "ABC",
+        displayName: "Paper",
+      },
+      deps
+    );
+    expect(out.absPath).toBe("/backend/resolved.pdf");
+    expect(out.resolutionStatus).toBe("resolved");
+  });
+
+  it("does not treat an external reference stub relpath as a resolved local file", async () => {
+    const out = await resolveAssetSource(
+      {
+        relpath: "04_Resources/References/external.md",
+        isReference: true,
+        displayName: "External",
+      },
+      baseDeps()
+    );
+    expect(out.resolutionStatus).toBe("path_unresolved");
+  });
+
   it("resolves a plain vault relpath as resolved without Zotero work", async () => {
     const out = await resolveAssetSource(
       { relpath: "04_Resources/x.md", displayName: "x" },

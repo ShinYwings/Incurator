@@ -1,5 +1,6 @@
 import type { App } from "obsidian";
 import { basename } from "path";
+import { fileURLToPath } from "url";
 import type { CuratorContextItem, CuratorContextPack, CuratorQueryResult } from "../types";
 import {
   EXTERNAL_PDF_VIEW_TYPE,
@@ -347,10 +348,56 @@ function openLocator(app: App, locator: Record<string, unknown>): void {
     return;
   }
   if (target.kind === "external") {
-    window.open(target.linkpath, "_blank", "noopener");
+    void openExternalReference(target.linkpath);
     return;
   }
   app.workspace.openLinkText(target.linkpath, "", false);
+}
+
+async function openExternalReference(linkpath: string): Promise<void> {
+  const shell = getElectronShell();
+  const localPath = localFilePath(linkpath);
+  try {
+    if (shell && localPath && shell.openPath) {
+      const err = await shell.openPath(localPath);
+      if (!err) return;
+      console.warn("Electron shell.openPath failed; falling back to window.open", err);
+    } else if (shell?.openExternal) {
+      await shell.openExternal(linkpath);
+      return;
+    }
+  } catch (err) {
+    console.warn("Electron shell opener failed; falling back to window.open", err);
+  }
+  window.open(linkpath, "_blank", "noopener");
+}
+
+function localFilePath(linkpath: string): string | null {
+  if (linkpath.startsWith("file://")) {
+    try {
+      return fileURLToPath(linkpath);
+    } catch {
+      return null;
+    }
+  }
+  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(linkpath);
+  const isWindowsDrive = /^[a-zA-Z]:[\\/]/.test(linkpath);
+  return hasScheme && !isWindowsDrive ? null : linkpath;
+}
+
+function getElectronShell(): {
+  openPath?: (path: string) => Promise<string>;
+  openExternal?: (url: string) => Promise<void>;
+} | null {
+  try {
+    const electron = require("electron");
+    if (electron?.shell) return electron.shell;
+  } catch { /* noop */ }
+  try {
+    const remote = require("@electron/remote");
+    if (remote?.shell) return remote.shell;
+  } catch { /* noop */ }
+  return null;
 }
 
 async function openExternalPdfLocator(

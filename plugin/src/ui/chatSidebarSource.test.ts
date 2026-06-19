@@ -178,6 +178,8 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("client.expandContext");
     expect(source).toContain("client.verifyContext");
     expect(source).toContain("mergeContextExpansion");
+    expect(source).toContain("mergeContextVerification");
+    expect(source).toContain("this.mergeContextVerification(verified, detail.handle)");
   });
 
   it("handles snapshot-conflict refetch from Sources & Trace", () => {

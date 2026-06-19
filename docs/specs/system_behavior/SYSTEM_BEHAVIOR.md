@@ -1118,11 +1118,15 @@ Rules:
   handles instead of reconstructing provenance from ids alone.
 - Sources & Trace locator rows are actionable: vault locators open the target
   `relpath` plus heading or block anchor when present, and external locators open
-  `external_uri`. Expansion and verification buttons call hidden plugin JSON
-  operations (`wiki plugin context expand` / `wiki plugin context verify`) with
-  the displayed pack id and snapshot id. Snapshot conflicts remain visible as
-  degraded/refetch-required state. The plugin preserves the conflict metadata,
-  offers a refetch action, and replaces the displayed pack with a fresh
+  `external_uri`. Desktop clients open local external files through the system
+  handler (Electron `shell.openPath`) rather than browser `window.open`.
+  Expansion and verification buttons call hidden plugin JSON operations
+  (`wiki plugin context expand` / `wiki plugin context verify`) with the
+  displayed pack id and snapshot id. Successful verification replaces the
+  matching displayed item in the retained context pack before re-render.
+  Snapshot conflicts remain visible as degraded/refetch-required state. The
+  plugin preserves the conflict metadata, offers a refetch action, and replaces
+  the displayed pack with a fresh
   `context_fetch` result for the original question; it must not merge evidence
   from different snapshots.
 - The v0.2.2 language bridge (§11 inherited) is unchanged: detect latest-input

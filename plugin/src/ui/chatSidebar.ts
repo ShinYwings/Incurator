@@ -2614,6 +2614,7 @@ export class ChatSidebarView extends ItemView {
         expectedSnapshotId: detail.snapshot_id,
         workspacePath,
       });
+      this.mergeContextVerification(verified, detail.handle);
       this.markContextSnapshotConflict(verified);
       new Notice(verified.ok ? "Context evidence verified." : this.contextActionError(verified, "Context verification failed."));
     }
@@ -2660,6 +2661,17 @@ export class ChatSidebarView extends ItemView {
     ];
     pack.next = (pack.next || []).filter((entry) => entry.handle !== handle);
     pack.warnings = [...(pack.warnings || []), ...(expanded.warnings || [])];
+  }
+
+  private mergeContextVerification(verified: Awaited<ReturnType<IncuratorClient["verifyContext"]>>, handle: string): void {
+    const pack = this.lastQueryTrace?.context_pack;
+    if (!pack || !verified.ok || !verified.item) return;
+    pack.items = (pack.items || []).map((item) => {
+      if (item.verification_handle === handle) {
+        return { ...item, ...verified.item };
+      }
+      return item;
+    });
   }
 
   private contextActionError(pack: Awaited<ReturnType<IncuratorClient["expandContext"]>>, fallback: string): string {

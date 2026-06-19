@@ -11,6 +11,7 @@ import pytest
 
 from curator import config as cfg
 from curator import db
+from curator import prompting
 from curator.llm import ChatMessage
 from curator.retrieval import QueryOrchestrator, QueryRequest, QueryResultV031
 from curator.retrieval.orchestrator import _context_evidence_block
@@ -260,6 +261,37 @@ def test_failed_answer_validation_clears_answer_provenance(vault) -> None:
     assert synthesis_action["action_type"] == "synthesis"
     assert synthesis_action["payload"]["synthesis_status"] == "failed"
     assert synthesis_action["payload"]["cited_source_span_ids"] == []
+
+
+def test_synthesis_none_source_span_ids_falls_back_to_empty_list(vault, monkeypatch) -> None:
+    paths, _span = vault
+
+    class Parsed:
+        answer = "Answer with no cited spans."
+        source_span_ids = None
+        used_report_ids: list[str] = []
+
+    class Run:
+        ok = True
+        parsed = Parsed()
+        trace_id = "PTR-none"
+        validation = type("Validation", (), {"errors": []})()
+
+    monkeypatch.setattr(prompting, "run_prompt", lambda *args, **kwargs: Run())
+    result = QueryResultV031(question="q", route="local")
+    QueryOrchestrator(paths, DynamicFakeClient())._run_answer_from_context(
+        QueryRequest(question="q"),
+        {
+            "route": "local",
+            "source_span_ids": [],
+            "items": [],
+        },
+        "",
+        result,
+    )
+
+    assert result.answer == "Answer with no cited spans."
+    assert result.source_span_ids == []
 
 
 def test_synthesis_trace_update_tolerates_null_retrieval_trace(vault) -> None:

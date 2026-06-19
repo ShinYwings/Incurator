@@ -1458,11 +1458,16 @@ Locators are clickable and resolve their open target by source kind:
   `external_uri`, never the stub. A reference **PDF** (`source_kind` `vault_pdf`
   or an `external_uri` ending in `.pdf`) opens in the plugin's external PDF
   viewer at the cited `page_number`; other external references open through the
-  system handler.
+  system handler. On desktop, local filesystem references MUST use Electron
+  `shell.openPath` (or `shell.openExternal` for URLs) rather than raw
+  `window.open`, with `window.open` only as a compatibility fallback.
 - A vault source (no `external_uri`) opens its `relpath`. A registered/vault PDF
   jumps to the cited page via Obsidian's native viewer using the `#page=N`
   anchor; other notes use their heading/block anchor when present.
-If an expansion or verification operation returns `snapshot_conflict`, the
+If verification succeeds, the returned verified item replaces the matching
+displayed item (`verification_handle`) in the retained context pack before the
+trace panel re-renders. If an expansion or verification operation returns
+`snapshot_conflict`, the
 client must retain the conflict metadata (`expected_snapshot_id`,
 `current_snapshot_id`, `resolution`) on the displayed pack, mark the pack as
 stale/refetch-required, and offer a refetch action. Refetch re-runs

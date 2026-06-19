@@ -920,10 +920,10 @@ locator는 클릭 가능하며 source kind에 따라 열기 대상이 결정됩�
 Mode 소스(`external_uri` 존재)는 vault에 없으며 `relpath`는 vault 내부 stub일
 뿐이므로, stub이 아니라 실제 외부 파일(`external_uri`)을 엽니다. 레퍼런스 **PDF**는
 플러그인 내장 외부 PDF 뷰어에서 인용된 페이지로 열고, 그 외 외부 레퍼런스는 시스템
-핸들러로 엽니다. vault 소스는 relpath를 열며, 등록된/vault PDF는 `#page=N` 앵커로
+핸들러로 엽니다(데스크톱의 로컬 파일은 desktop shell opener를 사용). vault 소스는 relpath를 열며, 등록된/vault PDF는 `#page=N` 앵커로
 Obsidian 기본 뷰어에서 해당 페이지로 점프하고 그 외 노트는 heading/block anchor가
 있으면 그 위치로 엽니다. Expansion/verification 버튼은 표시된 pack id와 snapshot id로
-`wiki plugin context expand`, `wiki plugin context verify`를 호출합니다. backend가
+`wiki plugin context expand`, `wiki plugin context verify`를 호출합니다. Verification이 성공하면 표시 중인 evidence item을 제자리에서 갱신합니다. backend가
 `snapshot_conflict`를 반환하면 패널은 표시 중인 pack을 stale 상태로 표시하고
 expected/current snapshot id를 보여주며 **Refetch**를 제공합니다. Refetch는 원래
 질문으로 `wiki plugin context fetch`를 다시 실행해 표시 pack을 교체하며, 서로 다른

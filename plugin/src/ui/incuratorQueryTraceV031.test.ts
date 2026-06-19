@@ -58,6 +58,8 @@ describe("incuratorQueryTrace v0.3.1 rendering", () => {
     expect(source).toContain("function locatorTarget(");
     expect(source).toContain("function openLocator(");
     expect(source).toContain("app.workspace.openLinkText");
+    expect(source).toContain("shell.openPath");
+    expect(source).toContain("shell.openExternal");
     expect(source).toContain("window.open");
     expect(source).toContain("incurator-trace-pack-locator-link");
     expect(source).toContain("locator.locator_status === \"unavailable\"");
@@ -88,7 +90,7 @@ describe("incuratorQueryTrace v0.3.1 rendering", () => {
     // For a non-PDF external reference, the system handler opens the real file;
     // the relpath stub must not win just because it is non-null.
     expect(source).toContain("locator.external_uri");
-    expect(source).toContain("window.open");
+    expect(source).toContain("openExternalReference");
     // external_uri branch is evaluated before the relpath/vault branch.
     expect(source.indexOf("const externalUri")).toBeLessThan(
       source.indexOf("if (relpath)")

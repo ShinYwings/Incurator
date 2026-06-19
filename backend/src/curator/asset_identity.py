@@ -166,7 +166,7 @@ def resolve(
             if (resolved_abs and Path(resolved_abs).expanduser().exists())
             else None
         )
-        abs_final = ident.abs_path or recovered
+        abs_final = recovered or ident.abs_path
         status = ident.resolution_status
         if status == PATH_UNRESOLVED and abs_final:
             status = RESOLVED

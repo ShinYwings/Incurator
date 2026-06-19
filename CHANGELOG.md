@@ -25,10 +25,16 @@ All notable changes to Incurator are documented here.
 ### Fixed
 - **Reference PDFs open the real file, not the stub.** Locator consumers now
   honor `external_uri` for Reference Mode PDFs while keeping vault stubs as
-  portable metadata.
+  portable metadata. Non-PDF local external references now use the desktop system
+  opener instead of relying on Chromium `window.open`.
 - **Add-source badge state regressions.** Zotero identity no longer depends on
   currently open PDF tabs, and added/building states are covered by contract
   tests.
+- **PR review hardening.** Fresh Zotero/current-device path resolution now
+  overrides stale DB/layout path hints, Reference Mode stubs no longer mark
+  unresolved assets as resolved, Sources & Trace verification updates the
+  displayed item, and synthesis output cannot overwrite `source_span_ids` with
+  `None`.
 
 ---
 

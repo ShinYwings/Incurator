@@ -219,7 +219,7 @@ class QueryOrchestrator:
                 set(result.community_report_ids) | set(getattr(run.parsed, "used_report_ids", []))
             )
             if hasattr(run.parsed, "source_span_ids"):
-                result.source_span_ids = getattr(run.parsed, "source_span_ids")
+                result.source_span_ids = getattr(run.parsed, "source_span_ids") or []
         else:
             result.error = "answer synthesis failed validation"
             result.source_span_ids = []

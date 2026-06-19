@@ -98,6 +98,7 @@ export class ZoteroPathCache {
 export interface ResolveAssetSourceInput {
   absPath?: string;
   relpath?: string;
+  isReference?: boolean;
   zoteroKey?: string;
   fileHash?: string;
   displayName: string;
@@ -123,7 +124,7 @@ export async function resolveAssetSource(
   deps: ResolveAssetSourceDeps
 ): Promise<AssetSource> {
   let resolvedAbs: string | undefined;
-  if (input.zoteroKey && !input.absPath) {
+  if (input.zoteroKey) {
     resolvedAbs = deps.cache.get(input.zoteroKey, deps.epoch);
     if (!resolvedAbs) {
       resolvedAbs = deps.backendAvailable
@@ -133,13 +134,13 @@ export async function resolveAssetSource(
     }
   }
 
-  const finalAbs = input.absPath ?? resolvedAbs;
+  const finalAbs = resolvedAbs ?? input.absPath;
   let resolutionStatus: AssetSource["resolutionStatus"];
   if (finalAbs && deps.fileExists(finalAbs)) {
     resolutionStatus = "resolved";
-  } else if (input.relpath) {
+  } else if (input.relpath && !input.zoteroKey && !input.isReference) {
     resolutionStatus = "resolved";
-  } else if (input.zoteroKey || input.fileHash || finalAbs) {
+  } else if (input.zoteroKey || input.fileHash || finalAbs || input.isReference) {
     resolutionStatus = "path_unresolved";
   } else {
     resolutionStatus = "untracked";

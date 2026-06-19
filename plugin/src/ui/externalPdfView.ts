@@ -9,6 +9,8 @@ import {
 } from "obsidian";
 import type { LLMMessage } from "../types";
 import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import type {
   PdfOutlineItem as ContextPdfOutlineItem,
   PdfPageContext,
@@ -35,9 +37,15 @@ import {
   putExternalPdfDoc,
   replaceExternalPdfDocPath,
   resolveCachedExternalPdfPath,
+  resolveZoteroAttachmentPath,
   type ExternalPdfDoc,
 } from "./externalPdfRegistry";
 import { PdfCaptureService } from "./pdfCaptureService";
+import {
+  resolveAssetSource,
+  ZoteroPathCache,
+  zoteroConfigEpoch,
+} from "../context/assetSource";
 
 export const EXTERNAL_PDF_VIEW_TYPE = "ai-agent-external-pdf";
 export const EXTERNAL_PDF_CONTEXT_EVENT = "ai-agent-external-pdf-context";
@@ -130,6 +138,7 @@ export class ExternalPdfView extends ItemView {
   private pageBaseDims: Array<{ width: number; height: number }> = [];
   private documentIndex = new PdfDocumentIndexService();
   private pdfCaptureService = new PdfCaptureService();
+  private zoteroPathCache = new ZoteroPathCache({ fileExists: (p) => existsSync(p) });
   private pageTextCache = new Map<number, PdfWindowPage>();
   private currentOutlineItems: ContextPdfOutlineItem[] = [];
   private pageLabels: string[] | null = null;
@@ -187,11 +196,17 @@ export class ExternalPdfView extends ItemView {
     // a name-less restore nulled docState, which then made getState() persist a
     // path-less state and permanently lose the document identity.
     const cached = state.docId ? getExternalPdfDoc(state.docId) : undefined;
+    const resolvedPath = state.docId
+      ? await this.resolvePortableStatePath(state, cached)
+      : undefined;
+    if (state.docId && cached && resolvedPath && cached.path !== resolvedPath) {
+      replaceExternalPdfDocPath(state.docId, resolvedPath);
+    }
     this.docState = state.docId
       ? {
           docId: state.docId,
           name: state.name || cached?.name || "External PDF",
-          path: resolveExternalPdfPath(state.path, cached?.path),
+          path: resolvedPath,
           zoom: this.readNumberState(state.zoom, 1),
           darkMode: state.darkMode === true,
           tocOpen: state.tocOpen === true,
@@ -207,6 +222,49 @@ export class ExternalPdfView extends ItemView {
     this.currentPage = this.docState?.currentPage ?? 1;
     await super.setState(state, result);
     this.render();
+  }
+
+  private zoteroCacheEpoch(): string {
+    const base = this.plugin?.settings?.zoteroBasePath || "";
+    const resolvedBase = base.startsWith("~") ? join(homedir(), base.slice(1)) : base;
+    return zoteroConfigEpoch({
+      zoteroBasePath: `${process.platform}:${resolvedBase}`,
+      workspaceId: this.app.vault.getName(),
+      profileRoots: (this.plugin?.settings?.zoteroProfiles || []).map((p: { assetFolder?: string }) => p.assetFolder || ""),
+    });
+  }
+
+  private async resolvePortableStatePath(
+    state: Partial<ExternalPdfState>,
+    cached?: ExternalPdfDoc
+  ): Promise<string | undefined> {
+    const hintedPath = resolveExternalPdfPath(state.path, cached?.path);
+    const zoteroKey = state.zoteroAttachmentKey;
+    if (!zoteroKey) return hintedPath;
+    try {
+      const resolved = await resolveAssetSource(
+        {
+          zoteroKey,
+          displayName: state.name || cached?.name || "External PDF",
+        },
+        {
+          backendAvailable: Boolean(this.plugin?.incuratorClient?.available),
+          resolveZoteroViaBackend: async (key) => {
+            const result = await this.plugin.incuratorClient.resolveZoteroPdf(key);
+            return result.ok && result.path ? result.path : undefined;
+          },
+          resolveZoteroLocally: (key) =>
+            resolveZoteroAttachmentPath(this.plugin?.settings?.zoteroBasePath || "~/Zotero", key),
+          cache: this.zoteroPathCache,
+          epoch: this.zoteroCacheEpoch(),
+          fileExists: (p) => existsSync(p),
+        }
+      );
+      return resolved.absPath || hintedPath;
+    } catch (err) {
+      console.warn("Failed to re-resolve Zotero PDF path for restored external PDF view", err);
+      return hintedPath;
+    }
   }
 
   getState(): ExternalPdfState {

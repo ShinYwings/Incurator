@@ -132,6 +132,38 @@ class ResolveTests(unittest.TestCase):
         self.assertIsNone(ident.abs_path)
         self.assertTrue(ident.is_reference)
 
+    def test_fresh_resolved_path_overrides_stale_existing_external_path(self) -> None:
+        old = self.root.parent / f"{self.root.name}_old" / "paper.pdf"
+        new = self.root.parent / f"{self.root.name}_new" / "paper.pdf"
+        old.parent.mkdir(parents=True, exist_ok=True)
+        new.parent.mkdir(parents=True, exist_ok=True)
+        old.write_text("old stale backup", encoding="utf-8")
+        new.write_text("new current file", encoding="utf-8")
+        now = "2026-06-19T00:00:00Z"
+        with db.connect(self.paths.state_db) as conn:
+            conn.execute(
+                "INSERT INTO sources (relpath, content_hash, file_type, bytes, "
+                "added_at, external_path, logical_source_id, is_reference) "
+                "VALUES (?, ?, ?, 0, ?, ?, ?, 1)",
+                (
+                    "04_Resources/References/paper.md",
+                    "h1",
+                    "pdf",
+                    now,
+                    str(old),
+                    "zotero:MOVE1",
+                ),
+            )
+
+        ident = asset_identity.resolve(
+            self.paths,
+            logical_source_id="zotero:MOVE1",
+            abs_path=str(new),
+        )
+        self.assertEqual(ident.resolution_status, "resolved")
+        self.assertEqual(ident.abs_path, str(new))
+        self.assertEqual(ident.logical_source_id, "zotero:MOVE1")
+
     def test_untracked_zotero_logical_id_implies_reference_and_key(self) -> None:
         # logical_source_id="zotero:123" with NO explicit zotero_key must not
         # produce a structurally inconsistent identity (zotero logical but

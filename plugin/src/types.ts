@@ -518,6 +518,7 @@ export interface CuratorContextPack {
   coverage?: Record<string, unknown>;
   actions?: Array<Record<string, unknown>>;
   items?: CuratorContextItem[];
+  item?: CuratorContextItem;
   evidence?: CuratorContextEvidence[];
   source_span_ids?: string[];
   community_report_ids?: string[];

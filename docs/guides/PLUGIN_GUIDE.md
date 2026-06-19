@@ -1083,11 +1083,13 @@ used for the turn. The fetched pack is retained on the trace payload as
 External Reference Mode sources (with an `external_uri`) open the real external
 file rather than the in-vault stub: reference PDFs open in the plugin's external
 PDF viewer at the cited page, while other external references open through the
-system handler. Vault sources open their relpath; a registered/vault PDF jumps to
+system handler (local files use the desktop shell opener on desktop). Vault
+sources open their relpath; a registered/vault PDF jumps to
 the cited page via Obsidian's viewer (`#page=N`) and other notes use their
 heading/block anchor when present. Expansion and verification buttons use
 `wiki plugin context expand` and `wiki plugin context verify` with the displayed
-pack id and snapshot id. If the backend reports `snapshot_conflict`, the panel
+pack id and snapshot id. Successful verification updates the displayed evidence
+item in place. If the backend reports `snapshot_conflict`, the panel
 marks the displayed pack as stale, shows the expected/current snapshot ids, and
 offers **Refetch**; refetch runs `wiki plugin context fetch` for the original
 question and replaces the displayed pack instead of merging evidence across

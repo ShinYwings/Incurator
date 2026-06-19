@@ -67,6 +67,12 @@ Plan G — PDF handling unification and simplification on
   `CTX-d617d779`; `wiki plugin pdf context --source-id 3` returned durable L1
   page text; `wiki lint` health `100/100`.
 - Release metadata: backend/plugin versions set to `0.12.0`; changelog updated.
+- PR #33 review follow-up applied: stale backend DB paths no longer override
+  fresh resolved paths; ExternalPdfView re-resolves Zotero layout state on the
+  current device; non-PDF external locators use Electron shell openers; unresolved
+  Reference Mode stubs do not read as resolved; context verification merges the
+  verified item into Sources & Trace; synthesis `source_span_ids=None` falls back
+  to `[]`.
 
 ## Critical Context / Blockers
 - Active scenario was not explicitly confirmed; P5 therefore reused the existing
@@ -76,5 +82,6 @@ Plan G — PDF handling unification and simplification on
   mix them into this branch unless explicitly reprioritized.
 
 ## Immediate Next Action
-Review PR #33 after Plan F merge/rebase ordering is decided. Persistent Quick
-Query Popover findings remain queued in ROADMAP 4.1 for the next plan.
+Push the PR #33 review-follow-up commit, then review PR #33 after Plan F
+merge/rebase ordering is decided. Persistent Quick Query Popover findings remain
+queued in ROADMAP 4.1 for the next plan.
