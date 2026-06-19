@@ -58,8 +58,15 @@ Batch 3 / Plan F — Unified Agent Context Service on
   patching and `02_Wiki/` promotion stay behind the existing explicit tools
   (`curator_propose_correction`, `curator_promote_insight`/`promote_answer`).
   SYSTEM_BEHAVIOR §31.6 documents this.
-- NOT yet done in P7: plugin-side feedback UI wiring (send feedback from Sources &
-  Trace item controls via `IncuratorClient` -> `wiki plugin context feedback`).
+- Slice 3 (plugin-side) done: per-item feedback affordance in Sources & Trace —
+  👍 relevant / 👎 irrelevant + a Report… menu (incorrect/stale/insufficient/
+  duplicate) — dispatches one `context:feedback` event; `chatSidebar`
+  `handleContextTraceFeedback` calls `IncuratorClient.feedbackContext()` ->
+  `wiki plugin context feedback`. Acknowledgement-only; never mutates the displayed
+  pack/ranking/truth. PLUGIN_SCHEMA §15.1 + EN/KR PLUGIN_GUIDE updated.
+- **P7 is functionally complete** (backend + CLI + plugin + docs). Remaining: review/
+  promotion-lifecycle UI for `new_insight` candidates is out of scope here (handled by
+  existing insight-candidate review surfaces).
 
 ## Validation
 - `scripts/backend-check pytest backend/tests/test_plan_f_context_service_contract.py`
@@ -83,9 +90,10 @@ Batch 3 / Plan F — Unified Agent Context Service on
   requirement unless the user directs otherwise.
 
 ## Immediate Next Action
-1. **P7 plugin-side** — send feedback from Sources & Trace item controls via
-   `IncuratorClient.feedbackContext()` -> `wiki plugin context feedback`; add Vitest
-   coverage. (Backend + CLI + docs for feedback are complete.)
-2. P6 visual QA of pack/refetch/action controls (needs a human/Obsidian pass).
-3. P8 — Plan-A route admission; P9 — cross-client E2E, testbed, migration, release
-   (version bump + changelog at the P9 release gate per Universal Strict Workflow).
+1. P6/P7 visual QA in Obsidian: pack/refetch/action controls + new feedback
+   buttons (needs a human pass; cannot run headless).
+2. **P8 — Plan-A route admission**: integrate only Plan-A routes that passed their
+   quality gates; map `RTR-*` results into progressive packs without rerunning
+   retrieval; no-second-retrieval / no-second-root assertions. Begin TDD.
+3. P9 — cross-client E2E, testbed, migration rehearsal, release (version bump +
+   changelog at the P9 release gate per Universal Strict Workflow).

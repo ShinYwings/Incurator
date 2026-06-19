@@ -1,6 +1,11 @@
 import type { App } from "obsidian";
 import { fileURLToPath } from "url";
-import type { CuratorContextItem, CuratorContextPack, CuratorQueryResult } from "../types";
+import type {
+  CuratorContextItem,
+  CuratorContextPack,
+  CuratorFeedbackType,
+  CuratorQueryResult,
+} from "../types";
 import {
   EXTERNAL_PDF_VIEW_TYPE,
   type ExternalPdfState,
@@ -281,6 +286,75 @@ function renderContextPackItem(
       });
     }
   }
+
+  renderItemFeedback(row, item, pack);
+}
+
+// Per-item feedback affordance (Plan F P7): 👍 relevant / 👎 irrelevant plus a
+// "Report…" menu for the remaining single-item quality signals. Each choice
+// dispatches one append-only `context:feedback` event; the backend records it
+// without mutating ranking or truth.
+const REPORT_FEEDBACK_TYPES: ReadonlyArray<{ value: CuratorFeedbackType; label: string }> = [
+  { value: "incorrect", label: "Incorrect" },
+  { value: "stale", label: "Stale" },
+  { value: "insufficient", label: "Insufficient" },
+  { value: "duplicate", label: "Duplicate" },
+];
+
+function renderItemFeedback(
+  row: HTMLElement,
+  item: CuratorContextItem,
+  pack: CuratorContextPack
+): void {
+  const feedbackRow = row.createDiv("incurator-trace-pack-feedback");
+  const up = feedbackRow.createEl("button", {
+    text: "👍",
+    cls: "incurator-trace-pack-feedback-btn",
+    attr: { "aria-label": "Mark relevant", title: "Relevant" },
+  });
+  up.addEventListener("click", () => {
+    dispatchContextFeedback(feedbackRow, pack, item, "relevant");
+  });
+  const down = feedbackRow.createEl("button", {
+    text: "👎",
+    cls: "incurator-trace-pack-feedback-btn",
+    attr: { "aria-label": "Mark irrelevant", title: "Irrelevant" },
+  });
+  down.addEventListener("click", () => {
+    dispatchContextFeedback(feedbackRow, pack, item, "irrelevant");
+  });
+  const report = feedbackRow.createEl("select", {
+    cls: "incurator-trace-pack-feedback-report",
+    attr: { "aria-label": "Report a problem with this evidence" },
+  });
+  report.createEl("option", { text: "Report…", value: "" });
+  for (const choice of REPORT_FEEDBACK_TYPES) {
+    report.createEl("option", { text: choice.label, value: choice.value });
+  }
+  report.addEventListener("change", () => {
+    const value = report.value as CuratorFeedbackType | "";
+    if (!value) return;
+    dispatchContextFeedback(feedbackRow, pack, item, value);
+    report.value = "";
+  });
+}
+
+function dispatchContextFeedback(
+  source: HTMLElement,
+  pack: CuratorContextPack,
+  item: CuratorContextItem,
+  feedbackType: CuratorFeedbackType
+): void {
+  source.dispatchEvent(new CustomEvent("context:feedback", {
+    bubbles: true,
+    detail: {
+      pack_id: pack.pack_id,
+      snapshot_id: pack.snapshot?.snapshot_id,
+      feedback_type: feedbackType,
+      item_id: item.record_id,
+      reviewed_span_ids: item.source_span_ids ?? [],
+    },
+  }));
 }
 
 function compactJson(value: Record<string, unknown>): string {

@@ -931,12 +931,14 @@ expected/current snapshot id를 보여주며 **Refetch**를 제공합니다. Ref
 snapshot의 evidence를 병합하지 않습니다. backend synthesized answer는 기본적으로
 주입하지 않습니다.
 
-제공된 pack에 대한 피드백(예: evidence item을 incorrect/stale로 표시하거나 승격을
-요청)은 표시된 pack id에 대해 `wiki plugin context feedback`로 추가합니다. backend는
-pack/snapshot에 연결된 append-only `FBK-*` 이벤트를 기록하고
-`ranking_or_truth_mutated: false`를 반환합니다. 피드백은 소스 파일, 생성 레코드,
-ranking, truth 상태를 절대 수정하지 않으며, 별도로 검토된 정책이 적용하기 전까지
-격리(quarantine) 상태로 유지됩니다.
+Sources & Trace의 각 evidence item에는 피드백 컨트롤이 있습니다: 👍(relevant) /
+👎(irrelevant) 버튼과 incorrect/stale/insufficient/duplicate를 위한 **Report…**
+메뉴입니다. 하나를 선택하면 표시된 pack id에 대해 `wiki plugin context feedback`로
+이벤트를 추가합니다. backend는 pack/snapshot에 연결된 append-only `FBK-*` 이벤트를
+기록하고 `ranking_or_truth_mutated: false`를 반환합니다. 피드백은 소스 파일, 생성
+레코드, ranking, truth 상태를 절대 수정하지 않으며, 별도로 검토된 정책이 적용하기
+전까지 격리(quarantine) 상태로 유지됩니다. `new_insight` 이벤트는 즉시 무언가를
+변경하지 않고, 나중의 사람 검토를 위한 provisional insight candidate를 큐에 넣습니다.
 
 규칙:
 - 인사이트 후보 승격은 명시적 사용자 동작입니다. 플러그인은 `promoteInsight`

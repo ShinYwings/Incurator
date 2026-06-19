@@ -2178,11 +2178,30 @@
 .incurator-trace-pack-title,
 .incurator-trace-pack-next,
 .incurator-trace-pack-handles,
+.incurator-trace-pack-feedback,
 .incurator-trace-pack-stale-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.incurator-trace-pack-feedback {
+  margin-top: 4px;
+  min-height: 24px;
+}
+
+.incurator-trace-pack-feedback-btn {
+  padding: 0 6px;
+  line-height: 20px;
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.incurator-trace-pack-feedback-report {
+  font-size: 0.85em;
 }
 
 .incurator-trace-route-badge,

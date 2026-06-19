@@ -80,6 +80,7 @@ import {
   type CodexReasoningEffort,
   type ContextRef,
   type CuratorQueryResult,
+  type CuratorFeedbackType,
   type IncuratorSourceStatus,
   type LLMMessage,
   type LLMContentPart,
@@ -2568,6 +2569,47 @@ export class ChatSidebarView extends ItemView {
     container.addEventListener("context:refetch", (event) => {
       this.handleContextTraceRefetch(event as CustomEvent);
     });
+    container.addEventListener("context:feedback", (event) => {
+      this.handleContextTraceFeedback(event as CustomEvent);
+    });
+  }
+
+  private async handleContextTraceFeedback(event: CustomEvent): Promise<void> {
+    event.stopPropagation();
+    const detail = (event.detail || {}) as {
+      pack_id?: string;
+      feedback_type?: CuratorFeedbackType;
+      item_id?: string;
+      reviewed_span_ids?: string[];
+    };
+    if (!detail.pack_id || !detail.feedback_type) {
+      new Notice("Feedback is missing pack or type metadata.");
+      return;
+    }
+
+    const client = this.getIncuratorClient();
+    if (!client.available) {
+      new Notice("Incurator backend is not available.");
+      return;
+    }
+
+    const workspacePath = (this.app.vault.adapter as any).getBasePath?.() || "";
+    const recorded = await client.feedbackContext({
+      packId: detail.pack_id,
+      feedbackType: detail.feedback_type,
+      statement: `User marked evidence ${detail.item_id ?? ""} as ${detail.feedback_type}.`,
+      client: "obsidian",
+      purpose: "ground",
+      targetItemId: detail.item_id,
+      targetRecordId: detail.item_id,
+      reviewedSpanIds: detail.reviewed_span_ids,
+      workspacePath,
+    });
+    new Notice(
+      recorded.ok
+        ? "Feedback recorded."
+        : recorded.error || "Recording feedback failed."
+    );
   }
 
   private async handleContextTraceAction(

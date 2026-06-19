@@ -1492,6 +1492,14 @@ stale/refetch-required, and offer a refetch action. Refetch re-runs
 `wiki plugin context fetch` for the original question and replaces the displayed
 pack; it must not merge old and new snapshot evidence.
 
+Each evidence item also exposes a feedback affordance: 👍 (`relevant`) / 👎
+(`irrelevant`) buttons plus a "Report…" menu for `incorrect`, `stale`,
+`insufficient`, and `duplicate`. Selecting one dispatches a single
+`context:feedback` event carrying the pack id, snapshot id, targeted item
+`record_id`, and reviewed `source_span_ids`; the client calls
+`wiki plugin context feedback`. Feedback is acknowledgement-only — it never
+mutates the displayed pack, ranking, or truth state.
+
 ### 15.2 Provider Context Budgeting
 
 The plugin calculates the provider-side remaining budget after system prompt,

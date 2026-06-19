@@ -182,6 +182,16 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("this.mergeContextVerification(verified, detail.handle)");
   });
 
+  it("records Sources & Trace feedback through IncuratorClient without mutating truth", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    expect(source).toContain("context:feedback");
+    expect(source).toContain("handleContextTraceFeedback");
+    expect(source).toContain("client.feedbackContext");
+    expect(source).toContain("Feedback recorded.");
+  });
+
   it("handles snapshot-conflict refetch from Sources & Trace", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");

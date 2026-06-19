@@ -533,6 +533,32 @@ export interface CuratorContextPack {
   resolution?: string;
 }
 
+// Plan F P7: locked ContextService feedback types (SYSTEM_BEHAVIOR §31.6).
+export type CuratorFeedbackType =
+  | "relevant"
+  | "irrelevant"
+  | "incorrect"
+  | "stale"
+  | "insufficient"
+  | "duplicate"
+  | "new_insight"
+  | "correction"
+  | "promotion_request";
+
+// Plan F P7: append-only feedback event result. Feedback never mutates source
+// truth, generated records, or ranking; the backend returns this acknowledgement.
+export interface CuratorContextFeedbackResult {
+  ok: boolean;
+  operation?: "context_feedback" | string;
+  feedback_id?: string;
+  feedback_type?: CuratorFeedbackType | string;
+  review_status?: string;
+  ranking_or_truth_mutated?: boolean;
+  resulting_lineage?: Record<string, unknown>;
+  error?: string;
+  error_type?: string;
+}
+
 // v0.3.1: sessionless promotion of a Q&A answer into 02_Wiki (no Exhibition file).
 export interface PromoteAnswerResult {
   ok: boolean;

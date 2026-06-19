@@ -1096,12 +1096,15 @@ offers **Refetch**; refetch runs `wiki plugin context fetch` for the original
 question and replaces the displayed pack instead of merging evidence across
 snapshots. A backend synthesized answer is not injected by default.
 
-Feedback on a served pack (e.g. marking an evidence item incorrect, stale, or
-requesting promotion) is appended through `wiki plugin context feedback` against
-the displayed pack id. The backend records an append-only `FBK-*` event tied to
-the pack/snapshot and returns `ranking_or_truth_mutated: false`: feedback never
-edits source files, generated records, ranking, or truth state, and stays
-quarantined until a separately reviewed policy applies it.
+Each evidence item in Sources & Trace carries a feedback affordance: 👍
+(relevant) / 👎 (irrelevant) plus a **Report…** menu for incorrect, stale,
+insufficient, or duplicate. Choosing one appends an event through
+`wiki plugin context feedback` against the displayed pack id. The backend records
+an append-only `FBK-*` event tied to the pack/snapshot and returns
+`ranking_or_truth_mutated: false`: feedback never edits source files, generated
+records, ranking, or truth state, and stays quarantined until a separately
+reviewed policy applies it. A `new_insight` event enqueues a provisional insight
+candidate for later human review rather than changing anything immediately.
 
 Rules:
 - Insight-candidate promotion is an explicit user action; the plugin must confirm

@@ -1,6 +1,8 @@
 import type {
   CuratorQueryResult,
   CuratorContextPack,
+  CuratorContextFeedbackResult,
+  CuratorFeedbackType,
   IncuratorCuratePlan,
   IncuratorInsightListResult,
   IncuratorInsightPromoteResult,
@@ -555,6 +557,41 @@ export class IncuratorClient {
       ...(args.workspacePath ? ["--workspace-path", args.workspacePath] : []),
     ]);
     return this.normalizeContextPack(result, empty);
+  }
+
+  async feedbackContext(args: {
+    packId: string;
+    feedbackType: CuratorFeedbackType;
+    statement: string;
+    client?: string;
+    purpose?: string;
+    targetItemId?: string;
+    targetRecordId?: string;
+    reviewedSpanIds?: string[];
+    workspacePath?: string;
+  }): Promise<CuratorContextFeedbackResult> {
+    const empty: CuratorContextFeedbackResult = {
+      ok: false,
+      operation: "context_feedback",
+      error: "Incurator backend context command is not available",
+    };
+    if (!args.packId || !args.feedbackType || !args.statement.trim() || this.settings.incuratorEnabled === false) {
+      return empty;
+    }
+
+    const result = await this.callBackendJson([
+      "plugin", "context", "feedback",
+      "--pack-id", args.packId,
+      "--feedback-type", args.feedbackType,
+      "--statement", args.statement,
+      ...(args.client ? ["--client", args.client] : []),
+      ...(args.purpose ? ["--purpose", args.purpose] : []),
+      ...(args.targetItemId ? ["--target-item-id", args.targetItemId] : []),
+      ...(args.targetRecordId ? ["--target-record-id", args.targetRecordId] : []),
+      ...(args.workspacePath ? ["--workspace-path", args.workspacePath] : []),
+      ...(args.reviewedSpanIds ?? []).flatMap((id) => ["--reviewed-span-id", id]),
+    ]);
+    return (result as CuratorContextFeedbackResult) ?? empty;
   }
 
   async promoteAnswer(

@@ -93,6 +93,25 @@ describe("incuratorQueryTrace v0.3.1 rendering", () => {
     expect(source).toContain("context:verify");
   });
 
+  it("renders per-item feedback controls (thumbs + report menu) that dispatch context:feedback", () => {
+    expect(source).toContain("function renderItemFeedback(");
+    expect(source).toContain("incurator-trace-pack-feedback-btn");
+    expect(source).toContain("incurator-trace-pack-feedback-report");
+    expect(source).toContain("👍");
+    expect(source).toContain("👎");
+    expect(source).toContain('"relevant"');
+    expect(source).toContain('"irrelevant"');
+    // The report menu carries the remaining single-item quality signals.
+    expect(source).toContain('value: "incorrect"');
+    expect(source).toContain('value: "stale"');
+    expect(source).toContain('value: "insufficient"');
+    expect(source).toContain('value: "duplicate"');
+    expect(source).toContain("context:feedback");
+    // Feedback carries the targeted item + reviewed spans, never mutating truth.
+    expect(source).toContain("item_id: item.record_id");
+    expect(source).toContain("reviewed_span_ids: item.source_span_ids");
+  });
+
   it("shows degraded or snapshot-conflict pack states explicitly", () => {
     expect(source).toContain("snapshot_conflict");
     expect(source).toContain("incurator-trace-pack-degraded");

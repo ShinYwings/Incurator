@@ -561,6 +561,74 @@ describe("IncuratorClient", () => {
     ]);
   });
 
+  it("feedbackContext calls the hidden append-only feedback command", async () => {
+    const calls: string[][] = [];
+    const client = new IncuratorClient(settings(), "0.3.1", async (args: string[]) => {
+      calls.push(args);
+      return {
+        ok: true,
+        operation: "context_feedback",
+        feedback_id: "FBK-1",
+        review_status: "pending",
+        ranking_or_truth_mutated: false,
+      };
+    });
+
+    const result = await client.feedbackContext({
+      packId: "PACK-1",
+      feedbackType: "incorrect",
+      statement: "Cited span does not support the claim.",
+      client: "obsidian",
+      purpose: "ground",
+      targetItemId: "SPAN-9",
+      targetRecordId: "SPAN-9",
+      reviewedSpanIds: ["SPAN-9"],
+      workspacePath: "/tmp/workspace",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.feedback_id).toBe("FBK-1");
+    expect(result.ranking_or_truth_mutated).toBe(false);
+    expect(calls[0]).toEqual([
+      "plugin",
+      "context",
+      "feedback",
+      "--pack-id",
+      "PACK-1",
+      "--feedback-type",
+      "incorrect",
+      "--statement",
+      "Cited span does not support the claim.",
+      "--client",
+      "obsidian",
+      "--purpose",
+      "ground",
+      "--target-item-id",
+      "SPAN-9",
+      "--target-record-id",
+      "SPAN-9",
+      "--workspace-path",
+      "/tmp/workspace",
+      "--reviewed-span-id",
+      "SPAN-9",
+    ]);
+  });
+
+  it("feedbackContext is a no-op without pack id, type, or statement", async () => {
+    let called = false;
+    const client = new IncuratorClient(settings(), "0.3.1", async () => {
+      called = true;
+      return { ok: true };
+    });
+    const result = await client.feedbackContext({
+      packId: "",
+      feedbackType: "relevant",
+      statement: "x",
+    });
+    expect(called).toBe(false);
+    expect(result.ok).toBe(false);
+  });
+
   it("preserves snapshot conflict metadata from context commands", async () => {
     const client = new IncuratorClient(settings(), "0.3.1", async () => ({
       ok: false,
