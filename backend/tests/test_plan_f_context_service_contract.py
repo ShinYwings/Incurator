@@ -766,6 +766,7 @@ def test_context_feedback_records_append_only_event_without_mutation(tmp_path: P
     selected_before = trace_before["retrieval_trace"]["context_service"]["selected_items"]
 
     response = service.context_feedback(
+        trace_id=pack["trace_id"],
         pack_id=pack["pack_id"],
         feedback_type="incorrect",
         statement="The cited paragraph does not support this claim.",
@@ -825,6 +826,7 @@ def test_context_feedback_rejects_unknown_type_without_appending(tmp_path: Path)
     actions_before = len(before["retrieval_trace"]["context_service"]["actions"])
 
     response = service.context_feedback(
+        trace_id=pack["trace_id"],
         pack_id=pack["pack_id"],
         feedback_type="not_a_real_type",
         statement="bogus",
@@ -842,6 +844,7 @@ def test_context_feedback_unknown_pack_is_reported(tmp_path: Path) -> None:
 
     paths, _ = _seed_context_vault(tmp_path)
     response = ContextService(paths).context_feedback(
+        trace_id="QTR-does-not-exist",
         pack_id="PACK-does-not-exist",
         feedback_type="relevant",
         statement="n/a",
@@ -858,10 +861,16 @@ def test_context_feedback_is_append_only_across_repeated_events(tmp_path: Path) 
     pack = service.context_fetch(QueryRequest(question="residual connection", mode="local"))
 
     first = service.context_feedback(
-        pack_id=pack["pack_id"], feedback_type="relevant", statement="useful evidence"
+        trace_id=pack["trace_id"],
+        pack_id=pack["pack_id"],
+        feedback_type="relevant",
+        statement="useful evidence",
     )
     second = service.context_feedback(
-        pack_id=pack["pack_id"], feedback_type="stale", statement="evidence is now stale"
+        trace_id=pack["trace_id"],
+        pack_id=pack["pack_id"],
+        feedback_type="stale",
+        statement="evidence is now stale",
     )
 
     assert first["feedback_id"] != second["feedback_id"]
@@ -889,6 +898,7 @@ def test_context_feedback_new_insight_creates_provisional_candidate(tmp_path: Pa
     pack = service.context_fetch(QueryRequest(question="residual connection", mode="local"))
 
     response = service.context_feedback(
+        trace_id=pack["trace_id"],
         pack_id=pack["pack_id"],
         feedback_type="new_insight",
         statement="Residual connections also stabilize very deep training.",
@@ -926,6 +936,7 @@ def test_context_feedback_non_insight_type_creates_no_candidate(tmp_path: Path) 
     pack = service.context_fetch(QueryRequest(question="residual connection", mode="local"))
 
     response = service.context_feedback(
+        trace_id=pack["trace_id"],
         pack_id=pack["pack_id"],
         feedback_type="incorrect",
         statement="The cited span does not support this.",
@@ -933,6 +944,82 @@ def test_context_feedback_non_insight_type_creates_no_candidate(tmp_path: Path) 
 
     assert response["resulting_lineage"]["insight_candidate_id"] is None
     assert db.list_insight_candidates(paths.state_db) == []
+
+
+def test_context_feedback_uses_explicit_trace_lookup_not_recent_scan(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from curator.context_service import ContextService
+    from curator import context_service as context_service_module
+
+    paths, _ = _seed_context_vault(tmp_path)
+    service = ContextService(paths)
+    pack = service.context_fetch(QueryRequest(question="residual connection", mode="local"))
+
+    def fail_scan(*_args, **_kwargs):
+        raise AssertionError("context_feedback must not scan recent query traces")
+
+    monkeypatch.setattr(context_service_module.db, "list_query_traces", fail_scan)
+    response = service.context_feedback(
+        trace_id=pack["trace_id"],
+        pack_id=pack["pack_id"],
+        feedback_type="relevant",
+        statement="This evidence is useful.",
+    )
+
+    assert response["ok"] is True
+    assert response["trace_id"] == pack["trace_id"]
+
+
+def test_context_feedback_rejects_pack_not_owned_by_trace_without_appending(tmp_path: Path) -> None:
+    from curator.context_service import ContextService
+
+    paths, _ = _seed_context_vault(tmp_path)
+    service = ContextService(paths)
+    first_pack = service.context_fetch(QueryRequest(question="residual connection", mode="local"))
+    second_pack = service.context_fetch(QueryRequest(question="residual connection", mode="local"))
+    before = db.get_query_trace(paths.state_db, first_pack["trace_id"])
+    assert before is not None
+    actions_before = len(before["retrieval_trace"]["context_service"]["actions"])
+
+    response = service.context_feedback(
+        trace_id=first_pack["trace_id"],
+        pack_id=second_pack["pack_id"],
+        feedback_type="relevant",
+        statement="wrong trace/pack pair",
+    )
+
+    assert response["ok"] is False
+    assert response["error_type"] == "pack_not_found"
+    assert response["trace_id"] == first_pack["trace_id"]
+    assert response["pack_id"] == second_pack["pack_id"]
+    after = db.get_query_trace(paths.state_db, first_pack["trace_id"])
+    assert after is not None
+    assert len(after["retrieval_trace"]["context_service"]["actions"]) == actions_before
+
+
+def test_context_feedback_new_insight_drops_empty_record_id(tmp_path: Path) -> None:
+    from curator.context_service import ContextService
+
+    paths, span_id = _seed_context_vault(tmp_path)
+    service = ContextService(paths)
+    pack = service.context_fetch(QueryRequest(question="residual connection", mode="local"))
+
+    response = service.context_feedback(
+        trace_id=pack["trace_id"],
+        pack_id=pack["pack_id"],
+        feedback_type="new_insight",
+        statement="Residual connections are also a stability prior.",
+        target={"item_id": "", "record_id": "", "claim_id": None},
+        reviewed_source_span_ids=[span_id],
+    )
+
+    assert response["ok"] is True
+    candidate_id = response["resulting_lineage"]["insight_candidate_id"]
+    candidate = db.get_insight_candidate(paths.state_db, candidate_id)
+    assert candidate is not None
+    assert candidate["affected_node_ids"] == []
 
 
 # ---------------------------------------------------------------------------

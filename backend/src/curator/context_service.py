@@ -740,7 +740,7 @@ class ContextService:
         expected_snapshot_id: str,
         limit_tokens: int = _DEFAULT_BUDGET_LIMIT,
     ) -> dict[str, Any]:
-        trace, context = self._find_context_pack(pack_id)
+        trace, context = self._find_context_pack_by_pack_id(pack_id)
         if trace is None or context is None:
             return {"ok": False, "error_type": "pack_not_found", "pack_id": pack_id}
         snapshot = context["snapshot"]
@@ -859,7 +859,7 @@ class ContextService:
         verification_handle: str,
         expected_snapshot_id: str,
     ) -> dict[str, Any]:
-        trace, context = self._find_context_pack(pack_id)
+        trace, context = self._find_context_pack_by_pack_id(pack_id)
         if trace is None or context is None:
             return {"ok": False, "error_type": "pack_not_found", "pack_id": pack_id}
         snapshot = context["snapshot"]
@@ -910,6 +910,7 @@ class ContextService:
     def context_feedback(
         self,
         *,
+        trace_id: str,
         pack_id: str,
         feedback_type: str,
         statement: str,
@@ -935,9 +936,14 @@ class ContextService:
                 "feedback_type": feedback_type,
                 "allowed": sorted(_FEEDBACK_TYPES),
             }
-        trace, context = self._find_context_pack(pack_id)
+        trace, context = self._find_context_pack(trace_id, pack_id)
         if trace is None or context is None:
-            return {"ok": False, "error_type": "pack_not_found", "pack_id": pack_id}
+            return {
+                "ok": False,
+                "error_type": "pack_not_found",
+                "trace_id": trace_id,
+                "pack_id": pack_id,
+            }
 
         snapshot = context["snapshot"]
         snapshot_id = str(snapshot["snapshot_id"])
@@ -987,9 +993,10 @@ class ContextService:
             from .backprop_classifier import BackpropClassification
 
             record_id = normalized_target.get("record_id")
+            affected_nodes = [str(record_id)] if record_id else []
             classification = BackpropClassification(
                 classification="derived_insight",
-                affected_nodes=[str(record_id)] if record_id is not None else [],
+                affected_nodes=affected_nodes,
                 recommended_action="create_insight_candidate",
                 reason="context_feedback new_insight",
                 trace_id=feedback_id,
@@ -1027,6 +1034,19 @@ class ContextService:
         }
 
     def _find_context_pack(
+        self,
+        trace_id: str,
+        pack_id: str,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        trace = db.get_query_trace(self.paths.state_db, trace_id)
+        if not trace:
+            return None, None
+        context = (trace.get("retrieval_trace") or {}).get("context_service")
+        if isinstance(context, dict) and context.get("pack_id") == pack_id:
+            return trace, context
+        return trace, None
+
+    def _find_context_pack_by_pack_id(
         self,
         pack_id: str,
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:

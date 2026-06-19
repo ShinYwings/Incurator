@@ -560,6 +560,7 @@ export class IncuratorClient {
   }
 
   async feedbackContext(args: {
+    traceId: string;
     packId: string;
     feedbackType: CuratorFeedbackType;
     statement: string;
@@ -575,12 +576,13 @@ export class IncuratorClient {
       operation: "context_feedback",
       error: "Incurator backend context command is not available",
     };
-    if (!args.packId || !args.feedbackType || !args.statement.trim() || this.settings.incuratorEnabled === false) {
+    if (!args.traceId || !args.packId || !args.feedbackType || !args.statement.trim() || this.settings.incuratorEnabled === false) {
       return empty;
     }
 
     const result = await this.callBackendJson([
       "plugin", "context", "feedback",
+      "--trace-id", args.traceId,
       "--pack-id", args.packId,
       "--feedback-type", args.feedbackType,
       "--statement", args.statement,

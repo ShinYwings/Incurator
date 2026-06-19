@@ -108,6 +108,7 @@ describe("incuratorQueryTrace v0.3.1 rendering", () => {
     expect(source).toContain('value: "duplicate"');
     expect(source).toContain("context:feedback");
     // Feedback carries the targeted item + reviewed spans, never mutating truth.
+    expect(source).toContain("trace_id: pack.trace_id");
     expect(source).toContain("item_id: item.record_id");
     expect(source).toContain("reviewed_span_ids: item.source_span_ids");
   });

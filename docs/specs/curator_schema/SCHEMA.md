@@ -2166,7 +2166,9 @@ columns, but it must preserve these logical records:
   warnings.
 - **Context feedback**: append-only `FBK-*` events linked to `QTR-*`, `PACK-*`,
   `SNAP-*`, client, purpose, target item/record/claim, reviewed evidence, review
-  status, and resulting lineage.
+  status, and resulting lineage. Feedback calls use the explicit `(trace_id,
+  pack_id)` pair: the service looks up the `QTR-*` directly and verifies the
+  `PACK-*` belongs to that trace before appending an action.
 
 ### 23.3 Migration Rules
 

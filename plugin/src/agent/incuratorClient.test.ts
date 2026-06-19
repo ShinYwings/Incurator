@@ -575,6 +575,7 @@ describe("IncuratorClient", () => {
     });
 
     const result = await client.feedbackContext({
+      traceId: "QTR-1",
       packId: "PACK-1",
       feedbackType: "incorrect",
       statement: "Cited span does not support the claim.",
@@ -593,6 +594,8 @@ describe("IncuratorClient", () => {
       "plugin",
       "context",
       "feedback",
+      "--trace-id",
+      "QTR-1",
       "--pack-id",
       "PACK-1",
       "--feedback-type",
@@ -621,6 +624,7 @@ describe("IncuratorClient", () => {
       return { ok: true };
     });
     const result = await client.feedbackContext({
+      traceId: "QTR-1",
       packId: "",
       feedbackType: "relevant",
       statement: "x",

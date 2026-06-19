@@ -791,6 +791,7 @@ def verify_context(
 def feedback_context(
     paths: cfg.WikiPaths,
     *,
+    trace_id: str,
     pack_id: str,
     feedback_type: str,
     statement: str,
@@ -800,6 +801,8 @@ def feedback_context(
     reviewed_source_span_ids: list[str] | None = None,
     review_status: str = "pending",
 ) -> dict[str, Any]:
+    if not trace_id:
+        return {"ok": False, "operation": "context_feedback", "error": "trace_id is required"}
     if not pack_id:
         return {"ok": False, "operation": "context_feedback", "error": "pack_id is required"}
     if not feedback_type:
@@ -819,6 +822,7 @@ def feedback_context(
         from .context_service import ContextService
 
         return ContextService(paths).context_feedback(
+            trace_id=trace_id,
             pack_id=pack_id,
             feedback_type=feedback_type,
             statement=statement,

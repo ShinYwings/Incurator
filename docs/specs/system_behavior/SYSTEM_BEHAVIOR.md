@@ -2569,9 +2569,12 @@ looping over the same handle.
 Every event stores the root trace, pack, snapshot, client/purpose, target item or
 claim, reviewed evidence/source span ids, user statement, classification, review
 status, review actor/time, and any resulting insight, correction, or promotion
-lineage. Feedback cannot alter ranking, truth status, source files, or generated
-records until a separate reviewed policy explicitly applies it. The operation
-returns `ranking_or_truth_mutated: false`; an unknown feedback type returns
+lineage. Feedback requests MUST provide both the root `trace_id` (`QTR-*`) and
+`pack_id` (`PACK-*`); the backend looks up the trace directly and verifies the
+pack belongs to that trace before appending the event. Feedback cannot alter
+ranking, truth status, source files, or generated records until a separate
+reviewed policy explicitly applies it. The operation returns
+`ranking_or_truth_mutated: false`; an unknown feedback type returns
 `error_type: invalid_feedback_type` and appends nothing. Each `FBK-*` event is
 stored append-only as an ordered `feedback` child action on the root `QTR-*`.
 

@@ -348,6 +348,7 @@ function dispatchContextFeedback(
   source.dispatchEvent(new CustomEvent("context:feedback", {
     bubbles: true,
     detail: {
+      trace_id: pack.trace_id,
       pack_id: pack.pack_id,
       snapshot_id: pack.snapshot?.snapshot_id,
       feedback_type: feedbackType,

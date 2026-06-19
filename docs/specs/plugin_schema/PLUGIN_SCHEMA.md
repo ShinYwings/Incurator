@@ -1435,14 +1435,17 @@ mixing evidence across snapshots.
 Reviewed or pending feedback against a served pack is appended with:
 
 ```bash
-wiki plugin context feedback --pack-id PACK-... --feedback-type incorrect \
-  --statement "<observation>" --client obsidian --purpose ground \
-  --target-item-id <record-id> --reviewed-span-id SPAN-...
+wiki plugin context feedback --trace-id QTR-... --pack-id PACK-... \
+  --feedback-type incorrect --statement "<observation>" \
+  --client obsidian --purpose ground --target-item-id <record-id> \
+  --reviewed-span-id SPAN-...
 ```
 
 `--feedback-type` is one of `relevant`, `irrelevant`, `incorrect`, `stale`,
 `insufficient`, `duplicate`, `new_insight`, `correction`, or
-`promotion_request`. The command returns an append-only `FBK-*` event id, the
+`promotion_request`. `--trace-id` is required alongside `--pack-id`; the backend
+looks up the root `QTR-*` directly and then verifies that the requested `PACK-*`
+belongs to that trace. The command returns an append-only `FBK-*` event id, the
 `review_status`, and `ranking_or_truth_mutated: false`. Feedback never mutates
 ranking, truth status, source files, or generated records; the event is
 quarantined until a separately reviewed policy applies it (SYSTEM_BEHAVIOR
@@ -1495,8 +1498,8 @@ pack; it must not merge old and new snapshot evidence.
 Each evidence item also exposes a feedback affordance: 👍 (`relevant`) / 👎
 (`irrelevant`) buttons plus a "Report…" menu for `incorrect`, `stale`,
 `insufficient`, and `duplicate`. Selecting one dispatches a single
-`context:feedback` event carrying the pack id, snapshot id, targeted item
-`record_id`, and reviewed `source_span_ids`; the client calls
+`context:feedback` event carrying the trace id, pack id, snapshot id, targeted
+item `record_id`, and reviewed `source_span_ids`; the client calls
 `wiki plugin context feedback`. Feedback is acknowledgement-only — it never
 mutates the displayed pack, ranking, or truth state.
 

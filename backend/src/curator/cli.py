@@ -6502,6 +6502,7 @@ def plugin_context_verify(
 
 @plugin_context_app.command("feedback")
 def plugin_context_feedback(
+    trace_id: str = typer.Option(..., "--trace-id", help="Root ContextService trace id."),
     pack_id: str = typer.Option(..., "--pack-id", help="Root ContextService pack id."),
     feedback_type: str = typer.Option(..., "--feedback-type", help="One of relevant|irrelevant|incorrect|stale|insufficient|duplicate|new_insight|correction|promotion_request."),
     statement: str = typer.Option(..., "--statement", help="User statement describing the feedback."),
@@ -6524,6 +6525,7 @@ def plugin_context_feedback(
         _print_json(
             plugin_api.feedback_context(
                 _plugin_paths(workspace_path),
+                trace_id=trace_id,
                 pack_id=pack_id,
                 feedback_type=feedback_type,
                 statement=statement,
@@ -6534,7 +6536,7 @@ def plugin_context_feedback(
             )
         )
     except Exception as exc:
-        _print_json({"ok": False, "operation": "context_feedback", "pack_id": pack_id, "error": str(exc)})
+        _print_json({"ok": False, "operation": "context_feedback", "trace_id": trace_id, "pack_id": pack_id, "error": str(exc)})
         raise typer.Exit(code=1)
 
 

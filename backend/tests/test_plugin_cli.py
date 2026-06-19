@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 from unittest.mock import patch
 
+import click
 from typer.testing import CliRunner
 
 from curator import config as cfg
@@ -67,8 +68,6 @@ def test_plugin_zotero_namespace_is_hidden_but_callable(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "ok" in payload
 
-
-import click
 
 def test_advanced_command_groups_are_hidden_but_callable() -> None:
     runner = CliRunner()
@@ -497,6 +496,8 @@ def test_plugin_context_expand_and_verify_use_existing_pack(tmp_path: Path) -> N
             "plugin",
             "context",
             "feedback",
+            "--trace-id",
+            pack["trace_id"],
             "--pack-id",
             pack["pack_id"],
             "--feedback-type",
@@ -529,6 +530,8 @@ def test_plugin_context_expand_and_verify_use_existing_pack(tmp_path: Path) -> N
             "plugin",
             "context",
             "feedback",
+            "--trace-id",
+            pack["trace_id"],
             "--pack-id",
             pack["pack_id"],
             "--feedback-type",

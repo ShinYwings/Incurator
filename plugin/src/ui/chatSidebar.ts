@@ -2577,13 +2577,14 @@ export class ChatSidebarView extends ItemView {
   private async handleContextTraceFeedback(event: CustomEvent): Promise<void> {
     event.stopPropagation();
     const detail = (event.detail || {}) as {
+      trace_id?: string;
       pack_id?: string;
       feedback_type?: CuratorFeedbackType;
       item_id?: string;
       reviewed_span_ids?: string[];
     };
-    if (!detail.pack_id || !detail.feedback_type) {
-      new Notice("Feedback is missing pack or type metadata.");
+    if (!detail.trace_id || !detail.pack_id || !detail.feedback_type) {
+      new Notice("Feedback is missing trace, pack, or type metadata.");
       return;
     }
 
@@ -2595,6 +2596,7 @@ export class ChatSidebarView extends ItemView {
 
     const workspacePath = (this.app.vault.adapter as any).getBasePath?.() || "";
     const recorded = await client.feedbackContext({
+      traceId: detail.trace_id,
       packId: detail.pack_id,
       feedbackType: detail.feedback_type,
       statement: `User marked evidence ${detail.item_id ?? ""} as ${detail.feedback_type}.`,
