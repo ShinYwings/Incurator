@@ -30,6 +30,20 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("hasPrimarySelection: lastUserHasPrimaryContext");
   });
 
+  it("suppresses edit affordances for a localized question turn (v0.21.0)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // The shared pure predicate gates both the editable-selection affordance and
+    // the edit-review-loop contract on the same flag, so a primary-focus question
+    // turn carries the recency anchor unopposed.
+    expect(source).toContain("shouldSuppressEditAffordances({");
+    expect(source).toContain("hasPrimarySelection: lastUserHasPrimaryContext");
+    expect(source).toContain("isEditRequest: latestIsMarkdownEditRequest");
+    expect(source).toContain("const editInstruction = suppressEditAffordances");
+    expect(source).toContain("!suppressEditAffordances &&");
+  });
+
   it("recognizes bare SEARCH/REPLACE edits against whole-file Markdown context", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");

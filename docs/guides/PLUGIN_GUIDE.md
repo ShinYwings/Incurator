@@ -290,6 +290,18 @@ position of strongest model attention) that re-asserts "answer only about the
 current selection; do not edit the whole document unless explicitly asked." So a
 localized question late in a long session is honored regardless of earlier turns.
 
+**Edit-affordance suppression for localized questions (v0.21.0):** The v0.19.0
+anchor was still being fought by the edit machinery: a `Cmd+Shift+L` line range is
+also an *editable* range, so the same request carried both "answer only" (the
+anchor) and "you may edit these lines / you are in an edit-review loop." In long,
+edit-heavy sessions the edit signal sometimes won and the agent proposed a
+whole-file edit to a simple question. Now, when your latest turn is a **question**
+about a selection (a primary-focus selection is present and the message is not an
+edit request), the plugin omits the editable-selection affordance and the
+edit-review-loop contract entirely, so the answer-only anchor is unopposed. Asking
+for an edit ("rewrite this line…", "fix the grammar here") still gives you the full
+edit/diff flow as before.
+
 When an assistant answer contains a page or section link such as `#page=604`,
 `p.604`, `#section=A4.2`, or `§19.3`, clicking that link in the chat sidebar
 jumps the open Incurator PDF viewer to the resolved page. Section links resolve
@@ -439,6 +451,17 @@ The plugin supports Antigravity, Claude, OpenAI Codex, Ollama, and DeepSeek. In 
 
 The Settings page shows the selected model's context window on the **Model**
 row instead of as a separate setting.
+
+**Convert-to-LaTeX model (fast/light) (v0.21.0):** Selecting text in the Incurator
+PDF viewer and choosing **Convert to LaTeX (Copy)** from the right-click menu (or
+the LaTeX hotkey) transcribes the raw text into clean Markdown with `$…$`/`$$…$$`
+math. This is a simple transcription task that does not need your heavy chat
+model. The **Convert-to-LaTeX model** field lets you point it at a small, fast
+model — recommended Ollama default `qwen2.5:0.5b`. Leave it blank to reuse your
+main model. The override is applied only when the field is set **and** your
+provider is **Ollama**; on any other provider the action falls back to the main
+model. If the conversion fails because the model is not installed, the notice
+names the model so you can run `ollama pull <model>` (or clear the field).
 
 > [!NOTE]
 > The **Incurator Dashboard → Overview → LLM Provider** card edits the current
@@ -955,10 +978,13 @@ failures so repair logic stays in one UI path.
 
 Leaving the `Import Zotero Item` search box blank shows recently modified Zotero items ordered by `dateModified`. The Zotero directory setting may contain multiple comma-separated data directories; the plugin checks each path's `zotero.sqlite` in order.
 
-When the import wizard opens and saved profiles exist, the first saved profile
-is loaded automatically. Successfully imported items are remembered locally in a
-`recentZoteroItems` LRU list so they appear before other matches in later Zotero
-searches.
+When the import wizard opens and saved profiles exist, the **most recently used
+profile is loaded automatically** and the Import Profile dropdown lists profiles
+most-recently-used first (v0.21.0), so the profile you are actively working with
+sits at the top instead of being buried under older ones. A profile's recency is
+updated whenever you apply or save it. Successfully imported items are remembered
+locally in a `recentZoteroItems` LRU list so they appear before other matches in
+later Zotero searches.
 
 Output subfolders, filenames, and asset subfolders use the same Nunjucks
 templating engine as Zotero note templates. Examples:

@@ -63,6 +63,7 @@ import {
   includedContextRefs,
   isPrimaryUserContext,
   shouldIncludeContext,
+  shouldSuppressEditAffordances,
 } from "../context/chatContextPriority";
 import { buildMarkdownOutline } from "../context/quickQueryContext";
 import { parseAnswerLinkTarget, type AnswerLinkTarget } from "../context/answerLinkNavigation";
@@ -1183,10 +1184,20 @@ export class ChatSidebarView extends ItemView {
     const openMarkdownEditTargets = latestIsMarkdownEditRequest
       ? this.buildOpenMarkdownEditTargetContext(activeCtx)
       : "";
-    const editInstruction = editableSelectionInstruction(
-      editableRefs.length > 0,
-      Boolean(openMarkdownEditTargets)
-    );
+    // Localized-question edit-affordance suppression (v0.21.0): when the latest
+    // turn is a primary-focus selection asked as a question (not an edit request),
+    // omit BOTH the editable-selection affordance and the edit-review-loop contract
+    // so the recency anchor's "answer only, do not modify the document" is unopposed.
+    const suppressEditAffordances = shouldSuppressEditAffordances({
+      hasPrimarySelection: lastUserHasPrimaryContext,
+      isEditRequest: latestIsMarkdownEditRequest,
+    });
+    const editInstruction = suppressEditAffordances
+      ? ""
+      : editableSelectionInstruction(
+          editableRefs.length > 0,
+          Boolean(openMarkdownEditTargets)
+        );
     if (editInstruction) {
       systemText += `\n\n<editable_selection>\n${editInstruction}\n</editable_selection>`;
     }
@@ -1266,10 +1277,11 @@ export class ChatSidebarView extends ItemView {
       return false;
     })();
     const editLoopLikely =
-      latestIsMarkdownEditRequest ||
-      editableRefs.length > 0 ||
-      Boolean(openMarkdownEditTargets) ||
-      priorAnswerOpenedEditLoop;
+      !suppressEditAffordances &&
+      (latestIsMarkdownEditRequest ||
+        editableRefs.length > 0 ||
+        Boolean(openMarkdownEditTargets) ||
+        priorAnswerOpenedEditLoop);
     if (editLoopLikely) {
       systemText += `\n\n<edit_review_loop>\n${getEditLoopContract()}\n</edit_review_loop>`;
     }

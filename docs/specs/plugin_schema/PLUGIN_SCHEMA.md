@@ -213,6 +213,7 @@ interface PluginSettings {
   // LLM provider selection
   provider: LLMProvider;           // "antigravity" | "claude" | "openai" | "ollama" | "deepseek"
   model: string;                   // model ID, validated against backend catalogue
+  latexModel?: string;             // optional fast/light model for Convert-to-LaTeX; empty/unset = reuse `model` (v0.21.0)
   chatMode: ChatMode;              // "chat" | "plan"
   codexReasoningEffort: CodexReasoningEffort;  // "low"|"medium"|"high"|"xhigh"
   claudeEffort: ClaudeEffort;      // "low"|"medium"|"high"|"xhigh"|"max"
@@ -265,6 +266,14 @@ Rules:
 
 - `provider` and `model` must be consistent. If the backend catalogue changes a model ID,
   the plugin should fall back to the provider default rather than breaking settings.
+- `latexModel` (v0.21.0) is an optional task-specialized light model used ONLY by
+  the PDF right-click **Convert to LaTeX** action. When empty/unset, that action
+  reuses the main `model`. The model override is applied at the call site only
+  when `latexModel` is non-empty AND `provider === "ollama"` (the Ollama HTTP path
+  honors a per-call model); for every other provider the action falls back to the
+  main `model`. The recommended Ollama default shown as the field placeholder is
+  `qwen2.5:0.5b`. `LLMClient.complete(messages, opts?: { model?: string })` carries
+  the override; omitting `opts` preserves the prior behavior (uses `model`).
 - `deepseekApiKey` is device-local secret material. It must not be written into
   shared vault config; backend config may instead reference `DEEPSEEK_API_KEY`
   through `llm.deepseek-api.api_key_env` or a local encrypted backend secret
@@ -392,9 +401,14 @@ Rules:
 
 Saved Zotero import profiles define the note template, output folder,
 subfolder, filename, asset folder, and bibliography style used by the import
-wizard. When one or more profiles exist, the wizard opens with the first saved
-profile loaded so edits made in settings are reflected without manually
-re-selecting the profile.
+wizard. Each profile carries an optional `lastUsedAt` epoch-ms timestamp
+(v0.21.0), stamped whenever the profile is applied (loaded) or saved. The wizard
+presents profiles **most-recently-used first**: the Import Profile dropdown is
+ordered by `lastUsedAt` descending (profiles never used sort last, ties stable),
+and the wizard opens with the most-recently-used profile loaded so the user's
+current working profile is at the top without manual re-selection. Sorting
+operates on a copy; the persisted `zoteroProfiles` insertion order is not mutated
+by rendering.
 
 The Zotero item search modal must request empty-query suggestions when it opens.
 Empty-query suggestions come from the backend's recent Zotero results; returned
@@ -826,6 +840,21 @@ Rules:
   to fix, rewrite, polish, translate, or otherwise modify the selected text, the
   assistant must propose an `ai-agent-edit` SEARCH/REPLACE block. Ordinary
   questions about selected text must answer normally without proposing edits.
+- **Localized-question edit-affordance suppression (v0.21.0).** A `Cmd+Shift+L`
+  line-range (and any other primary-focus selection) is BOTH a primary-context
+  ref and an editable ref, which previously injected the `<editable_selection>`
+  affordance and the `<edit_review_loop>` contract into the very same payload that
+  the recency anchor told to "answer only, do not modify the document" — a direct
+  contradiction that let long, edit-heavy sessions drift back to whole-file edits.
+  The contract is now: when the latest turn carries a primary-focus selection AND
+  is NOT itself a Markdown edit request (`shouldSuppressEditAffordances`), the
+  plugin MUST omit both the `<editable_selection>` block and the
+  `<edit_review_loop>` contract so the recency anchor is unopposed. The suppression
+  is UNCONDITIONAL with respect to prior turns — it does not consult
+  `priorAnswerOpenedEditLoop`, because the reported failure case is exactly a fresh
+  localized question following an earlier whole-document edit. Genuine edit turns
+  are unaffected: any edit-phrased request flips the latest turn back to an edit
+  request and restores both affordances.
 - If the latest request uses selected PDF/text context as an example for a
   Markdown-file edit, the selected region is a pattern clue, not the sole edit
   target. Provider context must include the full content of open Markdown edit
@@ -917,6 +946,10 @@ cannot silently jump from tool selection to file mutation ("vibe-coding").
   a mutation: the latest message is a Markdown edit request, OR an editable
   line-range selection exists, OR an open Markdown edit target exists, OR the
   prior assistant turn already opened an edit loop (multi-turn edit continuation).
+  **Override (v0.21.0):** none of these conditions apply when the latest turn is a
+  localized question (a primary-focus selection present and the turn is not a
+  Markdown edit request). In that case `shouldSuppressEditAffordances` is true and
+  the contract block is NOT appended, regardless of `priorAnswerOpenedEditLoop`.
 - **Runtime validator (`context/editLoopContract.ts`).** `validateEditLoop(content)`
   returns `{ ok, missing, hasEdits }`. The contract is required ONLY when
   `hasEdits` is true (the content contains at least one `ai-agent-edit` block). A

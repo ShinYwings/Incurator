@@ -69,7 +69,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Chat Context Decay & Minor Quick Wins initialized.
-- **Active Milestone**: **Chat Context Decay & Minor Quick Wins**.
-- **Next actionable item**: Read drafts and run Arena Workflow to generate `PLAN_TEMPLATE.md`.
+- **Roadmap state**: Chat Context Decay & Minor Quick Wins — Master Plan authored.
+- **Active Milestone**: **Chat Context Decay & Minor Quick Wins** (target `v0.21.0`).
+- **Next actionable item**: AWAITING human approval of `.agents/plans/01_chat_decay_quick_wins.md`, then TDD implementation (P0→P5).
 - **Priority order**: Chat Context Decay & Minor Quick Wins, then Prompt Architecture Overhaul.
