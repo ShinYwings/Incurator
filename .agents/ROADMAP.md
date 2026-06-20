@@ -24,31 +24,7 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-1. ✅ **[Fix/Minor Update] Curator Wikilink Native Resolution** — SHIPPED v0.17.0
-   (PR #40/#41 merged) + **External-Source Link Resolution** SHIPPED v0.18.0.
-   - **v0.17.0 root cause**: DAG lives in hidden `.curator/Collections/`; Obsidian
-     never indexes dot-folders, so all `[[LAYER/ID]]` links were dead. Fixed
-     (Option A): a markdown post-processor (`rewriteCuratorLinks`) makes curator
-     links clickable across sidechat, popover, and opened DAG pages.
-   - **v0.18.0 external sources**: synthesized answers cite the real source
-     documents (`[[04_Resources/…]]`) via `db.sources_for_spans`; `02_Wiki/`
-     promotions append a `## Sources` section so sources show in native Graph/
-     Backlinks (c3 hybrid); abstraction→source provenance verified; plugin-TS
-     `source_span_ids` pass-through plumbed. (b) opened-page body link skipped.
-   - Plans deleted on ship; see Git history. Tests: curatorWikilinks*,
-     test_abstraction_source_trace, test_query_source_links.
-
-2. ✅ **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul** — SHIPPED v0.19.0 (PR #43 merged)
-   - Unified refactor for systemic agent attention failures, prompt duplication,
-     and UI state desyncs.
-   - **Deferred Diff Viewer polish (from v0.14.1 P0 triage)**: unified-view CSS
-     gutter alignment (#5), cross-model `reviewInEditor` output determinism (#8),
-     and a token-truncation hard-reject guard (#10). The original
-     `diff_viewer_plugin.md` draft was deleted on ship; see Git history (v0.14.1)
-     for the full bug list.
-   - Component drafts and plans deleted on ship; see Git history.
-
-3. **[Major/Minor Follow-Up] RAG Post-Stabilization Hardening**
+1. **[Major/Minor Follow-Up] RAG Post-Stabilization Hardening**
    - RAG & Knowledge Quality Stabilization itself is complete, but the audit
      drafts identify follow-up hardening work that has **not** been implemented
      as a unified follow-up yet.
@@ -62,25 +38,25 @@ Source of Truth to identify unresolved items.
      - expansion state-machine hardening;
      - trace mutation / retrieval metric integrity.
 
-4. **[Minor Update] Chat Session Context Compaction**
+2. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a
      click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-5. **[Minor Update] Minor Quick Wins**
+3. **[Minor Update] Minor Quick Wins**
    - Web search integration review.
    - Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`).
    - Zotero import profile/item checkbox lists sorted by most recently accessed
      or imported items.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
 
-6. **[Minor Update] Vault Storage Governance & Quota Visibility**
+4. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-7. **[Major Update] Native PDF Annotation & Asset System**
+5. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in
      PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
@@ -90,6 +66,8 @@ Source of Truth to identify unresolved items.
 
 ## ✅ Completed Milestones
 
+- **Obsidian Agent UI/UX & Context Architecture Overhaul** — shipped in v0.19.0.
+- **Curator Wikilink Native Resolution & External-Source Links** — shipped in v0.17.0 and v0.18.0.
 - **Purge Legacy Search Binary References** — shipped in v0.16.0.
 - **Persistent Quick Query Popover** — shipped in v0.15.0.
 - **Sidechat Edit Loop & Diff Viewer Tier A Fixes** — shipped in v0.14.0 and v0.14.1.
@@ -116,7 +94,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Item 2 shipped as v0.19.0 on `release/v0.19.0`; PR #43 merged.
-- **Active Milestone**: Item 3 (RAG Post-Stabilization Hardening).
+- **Roadmap state**: Previous milestone shipped as v0.19.0.
+- **Active Milestone**: Item 1 (RAG Post-Stabilization Hardening).
 - **Next actionable item**: Executors must read `.agents/drafts/batch_1_to_3_audit/` to create `PLAN_TEMPLATE.md`, then execute TDD.
-- **Priority order**: RAG hardening (item 3), then Chat Session Context Compaction (item 4).
+- **Priority order**: RAG hardening (item 1), then Chat Session Context Compaction (item 2).
