@@ -17,6 +17,8 @@ from curator.query import (
 def _vault_with_source(tmp_path: Path, relpath: str = "04_Resources/a.md") -> tuple[cfg.WikiPaths, str]:
     paths = cfg.WikiPaths(tmp_path)
     paths.state_db.parent.mkdir(parents=True, exist_ok=True)
+    # Minimal vault-root marker so VAULT_ROOT resolution recognizes this project.
+    (tmp_path / ".curator" / "config.yml").write_text("testbed: false\n", encoding="utf-8")
     db.init_db(paths.state_db)
     with db.connect(paths.state_db) as conn:
         sid = conn.execute(
@@ -124,5 +126,35 @@ def test_promote_answer_writes_source_graph_links(tmp_path: Path) -> None:
     )
     assert out["ok"], out
     text = (tmp_path / out["promoted_to"]).read_text(encoding="utf-8")
+    assert "## Sources" in text
+    assert "[[04_Resources/a]]" in text
+
+
+def test_cli_plugin_promote_accepts_source_span_ids_json(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The plugin-facing `plugin promote --source-span-ids '[...]'` JSON pass-through
+    must reach the 02_Wiki page as a ## Sources section."""
+    import json
+
+    from typer.testing import CliRunner
+
+    from curator.cli import app
+
+    paths, span = _vault_with_source(tmp_path, "04_Resources/a.md")
+    monkeypatch.setenv("VAULT_ROOT", str(tmp_path))
+    result = CliRunner().invoke(
+        app,
+        [
+            "plugin", "promote",
+            "--question", "What is X?",
+            "--answer", "X is Y.",
+            "--source-span-ids", json.dumps([span]),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["ok"], payload
+    text = (tmp_path / payload["promoted_to"]).read_text(encoding="utf-8")
     assert "## Sources" in text
     assert "[[04_Resources/a]]" in text

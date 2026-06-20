@@ -6553,14 +6553,30 @@ def plugin_promote(
     question: str = typer.Option(..., "--question", help="The question that produced the answer."),
     answer: str = typer.Option(..., "--answer", help="The answer text to promote to 02_Wiki."),
     workspace_path: str = typer.Option("", "--workspace-path", help="Workspace/vault path."),
+    source_span_ids: str = typer.Option(
+        "", "--source-span-ids",
+        help="JSON array of source_span_ids from the answer's query trace. When "
+        "given, a ## Sources section linking the original source documents is appended.",
+    ),
 ) -> None:
     """Promote a sessionless Q&A answer into 02_Wiki after explicit plugin user approval."""
+    import json as _json
+
     from . import plugin_api
+
+    span_ids: list[str] = []
+    if source_span_ids.strip():
+        try:
+            parsed = _json.loads(source_span_ids)
+            if isinstance(parsed, list):
+                span_ids = [str(s) for s in parsed]
+        except (ValueError, TypeError):
+            span_ids = []
 
     try:
         _print_json(plugin_api.promote_answer(
             _plugin_paths(workspace_path), question=question, answer=answer,
-            workspace_path=workspace_path,
+            workspace_path=workspace_path, source_span_ids=span_ids,
         ))
     except Exception as exc:
         _print_json({"ok": False, "error": str(exc)})

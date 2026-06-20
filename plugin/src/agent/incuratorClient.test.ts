@@ -875,4 +875,34 @@ describe("IncuratorClient", () => {
     );
   });
 
+  it("promoteAnswer passes source_span_ids as a JSON array when provided", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      return { ok: true, promoted_to: "02_Wiki/General/x.md" };
+    };
+    const client = new IncuratorClient(settings(), "0.2.2", backendJson);
+
+    await client.promoteAnswer("Q?", "A.", "/v", ["SPAN-a", "SPAN-b"]);
+
+    const args = calls[0];
+    expect(args.slice(0, 6)).toEqual([
+      "plugin", "promote", "--question", "Q?", "--answer", "A.",
+    ]);
+    expect(args[args.indexOf("--source-span-ids") + 1]).toBe('["SPAN-a","SPAN-b"]');
+  });
+
+  it("promoteAnswer omits --source-span-ids when none are given", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      return { ok: true, promoted_to: "02_Wiki/General/x.md" };
+    };
+    const client = new IncuratorClient(settings(), "0.2.2", backendJson);
+
+    await client.promoteAnswer("Q?", "A.");
+
+    expect(calls[0]).not.toContain("--source-span-ids");
+  });
+
 });

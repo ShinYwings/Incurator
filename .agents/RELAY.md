@@ -69,9 +69,16 @@ On `feature/external-source-links` (from master; PR #40 + #41 merged).
 - Obsidian block-ref syntax confirmed via docs: `[[file#^blockid]]` (caret after #);
   curator-link parser already preserves `#heading`/`#^block` subpaths (tested).
 
+## Plugin-TS pass-through — DONE
+- CLI `plugin promote --source-span-ids '[...]'` (JSON) → plugin_api.promote_answer.
+- `incuratorClient.promoteAnswer(q, a, ws?, sourceSpanIds?)` sends `--source-span-ids`
+  JSON when provided. NOTE: promoteAnswer has no production UI caller yet (plumbing
+  is ready; a future "save to wiki" action would pass `lastQueryTrace.source_span_ids`).
+- Tests: backend CLI passthrough (test_query_source_links) + 2 plugin client tests.
+  Plugin 480 passed, tsc/build OK; backend CLI 9 passed; ruff/mypy clean.
+
 ## Immediate Next Action
-Milestone-6 backend (a)+(c3)+verification complete. Remaining: (b) opened-DAG-page
-body `## Source` link is OPTIONAL (user deprioritized GUI link-checking; chat +
-promotion formats done) — likely skip. Plugin TS: pass trace `source_span_ids` to
-the promote_answer MCP call to activate the footer from the sidechat (follow-up).
-Then version bump v0.18.0 + CHANGELOG + spec titles → PR.
+Milestone-6 complete: (a) chat source citation, abstraction-tracing verification,
+(c3) 02_Wiki graph/backlinks, plugin-TS pass-through. (b) opened-page body link
+SKIPPED (deprioritized). Next: version bump v0.18.0 across 3 manifests + spec
+titles (test_spec_sync) + CHANGELOG, then PR.

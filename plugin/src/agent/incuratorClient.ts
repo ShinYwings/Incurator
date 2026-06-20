@@ -599,16 +599,23 @@ export class IncuratorClient {
   async promoteAnswer(
     question: string,
     answer: string,
-    workspacePath?: string
+    workspacePath?: string,
+    sourceSpanIds?: string[]
   ): Promise<PromoteAnswerResult> {
     const empty: PromoteAnswerResult = { ok: false, error: "Incurator backend promote command is not available" };
     if (!question || !answer || this.settings.incuratorEnabled === false) return empty;
 
+    // Pass the answer's query-trace source_span_ids so the promoted 02_Wiki/ note
+    // gets a `## Sources` section linking the original source documents — making
+    // them visible in Obsidian's Graph view / Backlinks (the hidden DAG can't).
     const result = await this.callBackendJson([
       "plugin", "promote",
       "--question", question,
       "--answer", answer,
       ...(workspacePath ? ["--workspace-path", workspacePath] : []),
+      ...(sourceSpanIds && sourceSpanIds.length
+        ? ["--source-span-ids", JSON.stringify(sourceSpanIds)]
+        : []),
     ]);
     return this.normalizePromoteResult(result, empty);
   }
