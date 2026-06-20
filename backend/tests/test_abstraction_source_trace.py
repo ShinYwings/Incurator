@@ -10,8 +10,10 @@ abstraction record traces to ALL of its origin documents.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 from pathlib import Path
+from typing import Any, Iterator
 
 from curator import db
 
@@ -70,6 +72,46 @@ def test_sources_for_spans_dedups_and_preserves_order(tmp_path: Path) -> None:
         {"source_id": sid_b, "relpath": "04_Resources/b.md"},
         {"source_id": sid_a, "relpath": "04_Resources/a.md"},
     ]
+
+
+def test_sources_for_spans_batches_source_relpath_lookup(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "state.sqlite"
+    db.init_db(db_path)
+    sid_a = _insert_source(db_path, "04_Resources/a.md")
+    sid_b = _insert_source(db_path, "04_Resources/b.md")
+    a1 = _span(db_path, sid_a, "04_Resources/a.md", "a1")
+    a2 = _span(db_path, sid_a, "04_Resources/a.md", "a2")
+    b1 = _span(db_path, sid_b, "04_Resources/b.md", "b1")
+
+    source_relpath_selects: list[str] = []
+    original_connect = db.connect
+
+    class CountingConnection:
+        def __init__(self, conn: Any) -> None:
+            self._conn = conn
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._conn, name)
+
+        def execute(self, sql: str, *args: Any, **kwargs: Any) -> Any:
+            normalized = f" {sql.lower()} "
+            if " from sources " in normalized:
+                source_relpath_selects.append(sql)
+            return self._conn.execute(sql, *args, **kwargs)
+
+    @contextmanager
+    def counting_connect(path: Path) -> Iterator[CountingConnection]:
+        with original_connect(path) as conn:
+            yield CountingConnection(conn)
+
+    monkeypatch.setattr(db, "connect", counting_connect)
+
+    assert db.sources_for_spans(db_path, [a1, a2, b1]) == [
+        {"source_id": sid_a, "relpath": "04_Resources/a.md"},
+        {"source_id": sid_b, "relpath": "04_Resources/b.md"},
+    ]
+    assert len(source_relpath_selects) == 1
+    assert " IN " in source_relpath_selects[0]
 
 
 def test_multi_source_synthesis_node_traces_to_all_origins(tmp_path: Path) -> None:

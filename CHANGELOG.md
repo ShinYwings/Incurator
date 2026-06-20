@@ -31,6 +31,12 @@ All notable changes to Incurator are documented here.
   `_first_source_id` kept only a single source. `db.sources_for_spans` now returns
   every distinct origin in span order, pinned by `test_abstraction_source_trace`
   (including a multi-source synthesis node tracing back to both papers).
+- `db.sources_for_spans` now resolves all distinct source relpaths with one
+  batched `IN` query instead of one query per source.
+- Promoting a historical chat answer now uses that answer's own trace and the
+  immediately preceding user question. Older trace panels keep source navigation
+  and Save to 02_Wiki available, but hide mutating context-pack actions so they
+  cannot affect the active query state.
 
 ## [0.17.0] - 2026-06-20
 ### Fixed

@@ -119,6 +119,11 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Item 1 active on `feature/wikilink-architecture-validation`.
-- **Next actionable item**: Implement/Validate item 1 (`[[wikilink]]` Architecture Validation).
-- **Priority order**: item 1, then UI/UX architecture overhaul and RAG hardening.
+- **Roadmap state**: Item 1 shipped as v0.18.0 on
+  `feature/external-source-links`; PR #42 is open and awaiting final review /
+  merge.
+- **Next actionable item**: Finish PR #42 review follow-up and push the branch.
+  After merge, move to item 2 (Obsidian Agent UI/UX & Context Architecture
+  Overhaul).
+- **Priority order**: finish PR #42, then UI/UX architecture overhaul and RAG
+  hardening.

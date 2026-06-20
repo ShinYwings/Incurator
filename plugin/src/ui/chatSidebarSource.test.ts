@@ -313,16 +313,20 @@ describe("chat sidebar context chip source contract", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
 
-    // The trace panel gets an onPromote callback bound to the current answer msg.
-    expect(source).toContain(
-      "onPromote: () => void this.promoteAnswerToWiki(traceToRender as any, msg)"
-    );
+    // The trace panel gets an onPromote callback bound to this answer's own trace
+    // and message, not a mutable global trace reused across history.
+    expect(source).toContain("const boundTrace = traceToRender;");
+    expect(source).toContain("onPromote: () => void this.promoteAnswerToWiki(boundTrace, msg)");
+    expect(source).toContain("interactive: isLastMessage");
     // The handler promotes the answer with the trace's source_span_ids so the
     // 02_Wiki page lists its source documents.
     expect(source).toContain("private async promoteAnswerToWiki(");
     expect(source).toContain("this.getIncuratorClient().promoteAnswer(");
     expect(source).toContain("result.source_span_ids");
-    // Falls back to the last user message for the question and reports outcome.
+    // Falls back to the user message immediately preceding this answer and
+    // reports outcome.
+    expect(source).toContain("const msgIndex = this.messages.indexOf(msg);");
+    expect(source).toContain("const searchSlice = msgIndex >= 0 ? this.messages.slice(0, msgIndex) : this.messages;");
     expect(source).toContain('m) => m.role === "user"');
     expect(source).toContain("res.promoted_to");
   });

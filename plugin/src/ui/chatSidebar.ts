@@ -2023,7 +2023,12 @@ export class ChatSidebarView extends ItemView {
     result: CuratorQueryResult,
     msg: ChatMessage
   ): Promise<void> {
-    const lastUser = [...this.messages].reverse().find((m) => m.role === "user");
+    // Resolve the question from the user message immediately preceding THIS
+    // answer, never the newest one globally — otherwise promoting a historical
+    // answer would pair it with an unrelated later question.
+    const msgIndex = this.messages.indexOf(msg);
+    const searchSlice = msgIndex >= 0 ? this.messages.slice(0, msgIndex) : this.messages;
+    const lastUser = [...searchSlice].reverse().find((m) => m.role === "user");
     const question = (result.question || lastUser?.content || "").trim();
     const answer = (msg.content || "").trim();
     if (!question || !answer) {
@@ -2595,25 +2600,44 @@ export class ChatSidebarView extends ItemView {
       }
     }
 
+    // Resolve THIS message's trace from its own embedded curator_query result, so
+    // re-rendering history never reuses one global trace for every message. The
+    // live singleton (this.lastQueryTrace) is only the streaming fallback for the
+    // active/terminal message (whose trace isn't embedded yet while it streams).
+    let traceToRender: CuratorQueryResult | null = null;
     const toolMatch = msg.content.match(/✅ \*\*mcp_[^*]*curator_query\*\* result:\n```(?:json)?\n([\s\S]*?)\n```/);
-    if (toolMatch && !this.lastQueryTrace) {
+    if (toolMatch) {
       try {
         const parsed = JSON.parse(toolMatch[1]);
         if (parsed.trace || parsed.trace_id) {
-          this.lastQueryTrace = parsed;
+          traceToRender = parsed;
         }
       } catch { }
     }
-    const traceToRender = this.lastQueryTrace;
-    if (traceToRender) {
-      const promoteOpts = { onPromote: () => void this.promoteAnswerToWiki(traceToRender as any, msg) };
-      const thoughtBlock = contentEl.querySelector("details.ai-agent-thought-block");
-      if (thoughtBlock) {
-        renderCuratorQueryTrace(thoughtBlock as HTMLElement, traceToRender as any, this.app, promoteOpts);
-        this.attachContextTraceActionHandlers(thoughtBlock as HTMLElement);
+    const isLastMessage =
+      this.messages.length > 0 && msg === this.messages[this.messages.length - 1];
+    if (isLastMessage) {
+      if (traceToRender) {
+        this.lastQueryTrace = traceToRender;
       } else {
-        renderCuratorQueryTrace(contentEl, traceToRender as any, this.app, promoteOpts);
-        this.attachContextTraceActionHandlers(contentEl);
+        traceToRender = this.lastQueryTrace;
+      }
+    }
+    if (traceToRender) {
+      // Promote is safe on any message (it reads this message's own trace). The
+      // mutating pack actions (expand/verify/refetch/feedback) are gated to the
+      // active message only — historical panels are inert so they cannot corrupt
+      // the live query state via the singleton.
+      const boundTrace = traceToRender;
+      const promoteOpts = {
+        onPromote: () => void this.promoteAnswerToWiki(boundTrace, msg),
+        interactive: isLastMessage,
+      };
+      const thoughtBlock = contentEl.querySelector("details.ai-agent-thought-block");
+      const panelEl = (thoughtBlock as HTMLElement) ?? contentEl;
+      renderCuratorQueryTrace(panelEl, boundTrace as any, this.app, promoteOpts);
+      if (isLastMessage) {
+        this.attachContextTraceActionHandlers(panelEl);
       }
     }
     window.setTimeout(() => this.attachAssistantAnswerLinkNavigation(contentEl), 0);

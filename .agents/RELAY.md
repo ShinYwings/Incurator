@@ -2,7 +2,8 @@
 
 ## Status
 Milestone 6 (External-Source Link Resolution) SHIPPED as v0.18.0 on
-`feature/external-source-links`. Release commit done; PR pending.
+`feature/external-source-links`. PR #42 review follow-up implemented and pushed;
+awaiting merge.
 
 ## What shipped (v0.18.0)
 - Chat/query answers cite real source docs `[[04_Resources/…]]` via
@@ -27,11 +28,32 @@ needed — build-manifest driven). Versions consistent 0.18.0.
   "💾 Save to 02_Wiki" button in the Sources & Trace panel.
 - chatSidebar `promoteAnswerToWiki(result, msg)` promotes the answer via
   `getIncuratorClient().promoteAnswer(question, answer, ws, result.source_span_ids)`,
-  question falls back to last user msg; Notice on success/failure.
+  question falls back to the user msg immediately preceding that answer; Notice
+  on success/failure.
 - Activates the `## Sources` footer end-to-end (no more dormant plumbing).
 - Tests: incuratorQueryTraceV031 (button render) + chatSidebarSource (wiring).
   Plugin 482 pass, tsc/build OK. Docs: PLUGIN_GUIDE EN/KR; CHANGELOG [0.18.0].
 
+## PR #42 Review Follow-up — DONE
+- Gemini review thread: resolved. Fixed `db.sources_for_spans` N+1 relpath lookup
+  by collecting distinct source ids in first-seen span order and resolving them
+  with one batched `IN` query.
+- Added pytest coverage that the `sources` relpath lookup is batched once.
+- Hardened Save to 02_Wiki history behavior: promotion uses the answer's embedded
+  trace and the immediately preceding user question; historical trace panels keep
+  navigation/promotion but hide mutating pack actions (expand/verify/refetch/
+  feedback) so old panels cannot mutate live query state.
+- Updated PLUGIN_SCHEMA, PLUGIN_GUIDE EN/KR, CHANGELOG, D2 holdout re-arm, ROADMAP,
+  and cleaned stale USER_REPORT inbox item.
+
+## Review Validation
+- `scripts/backend-check pytest` → 985 passed, 6 skipped, 5 xfailed.
+- `scripts/backend-check ruff` → pass.
+- `scripts/backend-check mypy` → pass (96 source files).
+- `npx vitest run -c ./vitest.config.ts` from `plugin/` → 483 passed.
+- `npm run build` from `plugin/` → pass.
+- `npx tsc --noEmit` from `plugin/` → pass.
+
 ## Immediate Next Action
-PR #42 already open — push these follow-up commits to it. After merge: IDLE /
-next roadmap item 2 (Obsidian Agent UI/UX & Context Architecture Overhaul).
+PR #42 is ready for human merge. After merge: IDLE / next roadmap item 2
+(Obsidian Agent UI/UX & Context Architecture Overhaul).

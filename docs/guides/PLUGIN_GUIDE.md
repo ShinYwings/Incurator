@@ -1176,7 +1176,13 @@ an explicit promotion of that answer into a durable `02_Wiki/` page, and it pass
 the trace's `source_span_ids` so the page gets a `## Sources` section linking the
 original source documents — those then appear in Obsidian's Graph view and
 Backlinks. The plugin never promotes automatically; only this button (or the
-equivalent backend command) writes the page.
+equivalent backend command) writes the page. The button is bound to that answer's
+own trace; when promoting a historical answer and the trace has no explicit
+question, the plugin falls back to the user message immediately preceding that
+answer, not the newest user message in the chat. Historical trace panels remain
+navigable and promotable, but mutating context-pack actions (expand, verify,
+refetch, and feedback) are shown only for the latest active answer so old panels
+cannot mutate the live query state.
 
 Rules:
 - Insight-candidate promotion is an explicit user action; the plugin must confirm

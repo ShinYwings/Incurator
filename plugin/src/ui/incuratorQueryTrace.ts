@@ -21,8 +21,12 @@ export function renderCuratorQueryTrace(
   container: HTMLElement,
   result: CuratorQueryResult,
   app: App,
-  opts?: { onPromote?: () => void }
+  opts?: { onPromote?: () => void; interactive?: boolean }
 ): void {
+  // Historical (non-active) panels render inert: the mutating pack actions
+  // (expand/verify/refetch/feedback) are omitted so a click can't corrupt the
+  // live query state. Navigation (locator links) and promote stay available.
+  const interactive = opts?.interactive !== false;
   const trace = result.trace;
   const hasV031 = Boolean(
     result.route ||
@@ -119,12 +123,17 @@ export function renderCuratorQueryTrace(
   }
 
   // ── v0.3.1 curation-native trace (route, evidence ids, prompt traces) ──
-  renderV031Trace(body, result, app);
+  renderV031Trace(body, result, app, interactive);
 }
 
 /** Render the v0.3.1 route + evidence + prompt-trace rows. Degrades gracefully:
  * each row renders only when its field is present. */
-function renderV031Trace(body: HTMLElement, result: CuratorQueryResult, app: App): void {
+function renderV031Trace(
+  body: HTMLElement,
+  result: CuratorQueryResult,
+  app: App,
+  interactive: boolean
+): void {
   if (result.route) {
     const routeRow = body.createDiv("incurator-trace-route");
     routeRow.createSpan({ text: "Route: ", cls: "incurator-trace-label" });
@@ -165,11 +174,16 @@ function renderV031Trace(body: HTMLElement, result: CuratorQueryResult, app: App
   }
 
   if (result.context_pack) {
-    renderContextPack(body, result.context_pack, app);
+    renderContextPack(body, result.context_pack, app, interactive);
   }
 }
 
-function renderContextPack(body: HTMLElement, pack: CuratorContextPack, app: App): void {
+function renderContextPack(
+  body: HTMLElement,
+  pack: CuratorContextPack,
+  app: App,
+  interactive: boolean
+): void {
   const box = body.createDiv("incurator-trace-pack");
   const snapshotId = typeof pack.snapshot?.snapshot_id === "string" ? pack.snapshot.snapshot_id : "";
   const budget = pack.budget || {};
@@ -202,7 +216,7 @@ function renderContextPack(body: HTMLElement, pack: CuratorContextPack, app: App
       text: snapshotConflictText(pack, reason),
       cls: "incurator-trace-pack-degraded",
     });
-    if (reason === "snapshot_conflict" || pack.resolution === "refetch_or_rebase") {
+    if (interactive && (reason === "snapshot_conflict" || pack.resolution === "refetch_or_rebase")) {
       const staleRow = box.createDiv("incurator-trace-pack-stale-actions");
       const refetch = staleRow.createEl("button", {
         text: "Refetch",
@@ -218,7 +232,7 @@ function renderContextPack(body: HTMLElement, pack: CuratorContextPack, app: App
   if (items.length) {
     const itemList = box.createDiv("incurator-trace-pack-items");
     for (const item of items.slice(0, 10)) {
-      renderContextPackItem(itemList, item, app, pack);
+      renderContextPackItem(itemList, item, app, pack, interactive);
     }
     if (items.length > 10) {
       itemList.createDiv({
@@ -246,7 +260,8 @@ function renderContextPackItem(
   parent: HTMLElement,
   item: CuratorContextItem,
   app: App,
-  pack: CuratorContextPack
+  pack: CuratorContextPack,
+  interactive: boolean
 ): void {
   const row = parent.createDiv("incurator-trace-pack-item");
   const heading = row.createDiv("incurator-trace-pack-item-heading");
@@ -283,7 +298,7 @@ function renderContextPackItem(
     }
   }
 
-  if (item.expansion_handle || item.verification_handle) {
+  if (interactive && (item.expansion_handle || item.verification_handle)) {
     const handleRow = row.createDiv("incurator-trace-pack-handles");
     if (item.expansion_handle) {
       const expand = handleRow.createEl("button", {
@@ -305,7 +320,9 @@ function renderContextPackItem(
     }
   }
 
-  renderItemFeedback(row, item, pack);
+  if (interactive) {
+    renderItemFeedback(row, item, pack);
+  }
 }
 
 // Per-item feedback affordance (Plan F P7): 👍 relevant / 👎 irrelevant plus a

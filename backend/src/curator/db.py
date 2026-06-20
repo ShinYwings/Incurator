@@ -2006,24 +2006,32 @@ def sources_for_spans(db_path: Path, span_ids: list[str]) -> list[dict]:
     if not span_ids:
         return []
     spans = {str(span["id"]): span for span in get_source_spans_by_ids(db_path, span_ids)}
-    result: list[dict] = []
+    # Collect unique source_ids in first-seen span order, then resolve all their
+    # relpaths in a single batched IN query (avoids an N+1 per-source lookup).
+    ordered_source_ids: list[int] = []
     seen: set[int] = set()
-    with connect(db_path) as conn:
-        for span_id in span_ids:  # preserve caller order; dedup by source
-            span = spans.get(str(span_id))
-            if span is None or span.get("source_id") is None:
-                continue
-            source_id = int(span["source_id"])
-            if source_id in seen:
-                continue
+    for span_id in span_ids:
+        span = spans.get(str(span_id))
+        if span is None or span.get("source_id") is None:
+            continue
+        source_id = int(span["source_id"])
+        if source_id not in seen:
             seen.add(source_id)
-            row = conn.execute(
-                "SELECT relpath FROM sources WHERE id = ?", (source_id,)
-            ).fetchone()
-            if row is None:
-                continue
-            result.append({"source_id": source_id, "relpath": str(row["relpath"])})
-    return result
+            ordered_source_ids.append(source_id)
+    if not ordered_source_ids:
+        return []
+    placeholders = ",".join("?" for _ in ordered_source_ids)
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT id, relpath FROM sources WHERE id IN ({placeholders})",
+            tuple(ordered_source_ids),
+        ).fetchall()
+    relpath_by_id = {int(row["id"]): str(row["relpath"]) for row in rows}
+    return [
+        {"source_id": source_id, "relpath": relpath_by_id[source_id]}
+        for source_id in ordered_source_ids
+        if source_id in relpath_by_id
+    ]
 
 
 def delete_source_spans(
