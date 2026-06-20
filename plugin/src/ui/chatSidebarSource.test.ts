@@ -18,6 +18,18 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("this.activeContextExcludedKeys.delete(activeKey)");
   });
 
+  it("appends the recency anchor to the latest user turn for attention against context decay (v0.19.0)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // The anchor is built from the shared registry with the sidechat profile and
+    // gated on the latest turn's primary-selection state. Appended to the last
+    // user message so it sits at the strongest-attention recency position.
+    expect(source).toContain('import { buildRecencyAnchor, SIDECHAT_PROFILE } from "../context/promptRegistry"');
+    expect(source).toContain("buildRecencyAnchor(SIDECHAT_PROFILE, {");
+    expect(source).toContain("hasPrimarySelection: lastUserHasPrimaryContext");
+  });
+
   it("recognizes bare SEARCH/REPLACE edits against whole-file Markdown context", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");

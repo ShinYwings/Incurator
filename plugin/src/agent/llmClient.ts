@@ -20,6 +20,25 @@ import type {
   StreamChunk,
   ProviderUsage,
 } from "../types";
+import type { ToolPolicy } from "../context/promptRegistry";
+
+// ─── MCP tool injection policy ──────────────────────────────────
+
+/**
+ * The single decision for whether `streamChat` injects MCP tools into a request.
+ * `toolPolicy: "none"` (ephemeral surfaces like the Quick Query popover) and the
+ * existing no-tools conditions (CLI providers, absent MCP manager) all resolve
+ * here so the tool-free paths can never diverge. Pure for unit testing.
+ */
+export function shouldInjectMcpTools(
+  toolPolicy: ToolPolicy,
+  hasMcpManager: boolean,
+  useCli: boolean
+): boolean {
+  if (toolPolicy === "none") return false;
+  if (useCli) return false;
+  return hasMcpManager;
+}
 
 // ─── Message sanitization (OpenAI-compatible providers) ─────────
 
@@ -643,15 +662,20 @@ export class LLMClient {
    */
   async streamChat(
     messages: LLMMessage[],
-    onChunk: (chunk: StreamChunk) => void
+    onChunk: (chunk: StreamChunk) => void,
+    opts?: { toolPolicy?: ToolPolicy }
   ): Promise<string> {
-    const provider = this.settings.provider;
-    if (this.shouldUseCli(messages) || !this.mcpManager) {
+    const toolPolicy: ToolPolicy = opts?.toolPolicy ?? "auto";
+    // Single decision point for tool injection. `toolPolicy: "none"` (ephemeral
+    // surfaces such as the Quick Query popover) funnels into the SAME no-tools
+    // single-turn path as CLI providers and the no-mcpManager case, so the two
+    // tool-free paths can never diverge.
+    if (!shouldInjectMcpTools(toolPolicy, Boolean(this.mcpManager), this.shouldUseCli(messages))) {
       const { text } = await this._streamChatSingleTurn(messages, onChunk);
       return text;
     }
 
-    const rawTools = this.mcpManager.getAllTools();
+    const rawTools = this.mcpManager!.getAllTools();
     const tools = rawTools.map((t) => ({
       type: "function",
       function: {
@@ -703,7 +727,7 @@ export class LLMClient {
             throw new Error(`Invalid JSON arguments: ${tc.function.arguments}`);
           }
 
-          const result = await this.mcpManager.callTool(serverName, toolName, args);
+          const result = await this.mcpManager!.callTool(serverName, toolName, args);
           const resultContent = result.content.map(c => c.text).join("\n");
           
           currentMessages.push({

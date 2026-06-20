@@ -8,6 +8,7 @@ import {
   isQuotaErrorMessage,
   sanitizeOpenAIMessages,
   normalizeOpenAIContent,
+  shouldInjectMcpTools,
 } from "./llmClient";
 import type { LLMMessage } from "../types";
 
@@ -64,6 +65,24 @@ describe("MCP tool result display", () => {
 
     expect(display.length).toBeLessThan(650);
     expect(display.endsWith("…")).toBe(true);
+  });
+});
+
+describe("shouldInjectMcpTools (popover tool isolation, v0.19.0)", () => {
+  it("never injects tools when the surface declares toolPolicy 'none'", () => {
+    // Even with an MCP manager present and an OpenAI-compat provider (not CLI),
+    // an ephemeral surface (popover) gets ZERO tools.
+    expect(shouldInjectMcpTools("none", true, false)).toBe(false);
+    expect(shouldInjectMcpTools("none", true, true)).toBe(false);
+    expect(shouldInjectMcpTools("none", false, false)).toBe(false);
+  });
+
+  it("injects tools for the auto sidechat path only when an MCP manager exists and not on CLI", () => {
+    expect(shouldInjectMcpTools("auto", true, false)).toBe(true);
+    // No MCP manager → no tools.
+    expect(shouldInjectMcpTools("auto", false, false)).toBe(false);
+    // CLI providers route tools through the CLI, not the request body.
+    expect(shouldInjectMcpTools("auto", true, true)).toBe(false);
   });
 });
 

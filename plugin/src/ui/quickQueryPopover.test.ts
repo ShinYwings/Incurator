@@ -31,6 +31,15 @@ describe("quick query: message building", () => {
     );
     expect(String(messages[1].content)).not.toContain("<quick_query_followups>");
   });
+
+  it("isolates the popover from MCP tools by passing toolPolicy 'none' to streamChat (v0.19.0)", () => {
+    // Source-level guard: the popover's streaming call MUST opt out of tool
+    // injection so it can never run scripts or traverse the filesystem.
+    const callStart = source.indexOf("this.plugin.llmClient.streamChat(");
+    expect(callStart).toBeGreaterThanOrEqual(0);
+    const callBody = source.slice(callStart, source.indexOf("} else {", callStart));
+    expect(callBody).toContain('{ toolPolicy: "none" }');
+  });
 });
 
 describe("quick query: floating position (item 5)", () => {

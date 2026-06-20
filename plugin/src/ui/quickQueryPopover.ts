@@ -461,7 +461,11 @@ export class QuickQueryPopover {
               cls: "ai-agent-quick-query-stream",
               text: display || "⏳ Thinking…",
             });
-          }
+          },
+          // Tool isolation (v0.19.0): the popover is an ephemeral, read-only
+          // reading assistant — never inject MCP tools, so it cannot run scripts
+          // or traverse the filesystem.
+          { toolPolicy: "none" }
         );
       } else {
         raw = await this.plugin.llmClient.complete(messages);
