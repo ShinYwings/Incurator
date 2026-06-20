@@ -1002,6 +1002,12 @@ Sources & Trace의 각 evidence item에는 피드백 컨트롤이 있습니다: 
 `new_insight` 이벤트는 즉시 무언가를 변경하지 않고, 나중의 사람 검토를 위한
 provisional insight candidate를 큐에 넣습니다.
 
+Sources & Trace 패널에는 **💾 Save to 02_Wiki** 버튼도 있습니다. 이 버튼을 누르면
+해당 답변을 명시적으로 `02_Wiki/` 페이지로 승격하며, trace의 `source_span_ids`를
+함께 전달해 페이지에 원본 소스 문서를 링크하는 `## Sources` 섹션이 추가됩니다 —
+이 소스들은 Obsidian의 그래프 뷰·백링크에 나타납니다. 플러그인은 자동으로
+승격하지 않으며, 이 버튼(또는 동등한 backend 명령)만 페이지를 기록합니다.
+
 규칙:
 - 인사이트 후보 승격은 명시적 사용자 동작입니다. 플러그인은 `promoteInsight`
   호출 전 확인을 받아야 하며, 이는 `02_Wiki/`에만 기록합니다.

@@ -133,4 +133,12 @@ describe("incuratorQueryTrace v0.3.1 rendering", () => {
   it("degrades gracefully: each id row guards on presence", () => {
     expect(source).toContain("if (!ids?.length) return;");
   });
+
+  it("renders a 'Save to 02_Wiki' promote button only when onPromote is provided", () => {
+    expect(source).toContain("opts?: { onPromote?: () => void }");
+    expect(source).toContain("if (opts?.onPromote) {");
+    expect(source).toContain("Save to 02_Wiki");
+    expect(source).toContain('promoteBtn.addEventListener("click", () => opts.onPromote?.())');
+    expect(styles).toContain(".incurator-trace-promote-btn");
+  });
 });

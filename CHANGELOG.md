@@ -20,6 +20,10 @@ All notable changes to Incurator are documented here.
   visible vault file, those sources appear in Obsidian's native Graph view and
   Backlinks pane — the hidden DAG cannot contribute such edges (the c3 hybrid).
   Multi-source syntheses list all contributing papers, not just the first.
+- A **💾 Save to 02_Wiki** button in the chat **Sources & Trace** panel promotes the
+  current answer to a durable `02_Wiki/` page, passing the trace's
+  `source_span_ids` so the page's `## Sources` section (and thus native Graph /
+  Backlinks) is populated. Promotion stays an explicit, human-approved action.
 ### Fixed
 - Verified a gap left by RAG stabilization: the search materializer aggregates
   source provenance up to abstraction records (entities, relations, community

@@ -1171,6 +1171,13 @@ separately reviewed policy applies it. A `new_insight` event enqueues a
 provisional insight candidate for later human review rather than changing
 anything immediately.
 
+The Sources & Trace panel also has a **💾 Save to 02_Wiki** button. Clicking it is
+an explicit promotion of that answer into a durable `02_Wiki/` page, and it passes
+the trace's `source_span_ids` so the page gets a `## Sources` section linking the
+original source documents — those then appear in Obsidian's Graph view and
+Backlinks. The plugin never promotes automatically; only this button (or the
+equivalent backend command) writes the page.
+
 Rules:
 - Insight-candidate promotion is an explicit user action; the plugin must confirm
   before calling `promoteInsight`, which writes only to `02_Wiki/`.

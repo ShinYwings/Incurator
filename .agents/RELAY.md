@@ -22,6 +22,16 @@ documented in D2_HOLDOUT_RESULT.yml external_source_links_rearm). Plugin 480 pas
 tsc/build OK. ruff/mypy clean (96 files). spec-sync 10 pass at v0.18.0 (no reinstall
 needed — build-manifest driven). Versions consistent 0.18.0.
 
+## Follow-up: "Save to 02_Wiki" UI action — DONE (on same v0.18.0 branch/PR #42)
+- `incuratorQueryTrace.renderCuratorQueryTrace(..., { onPromote })` renders a
+  "💾 Save to 02_Wiki" button in the Sources & Trace panel.
+- chatSidebar `promoteAnswerToWiki(result, msg)` promotes the answer via
+  `getIncuratorClient().promoteAnswer(question, answer, ws, result.source_span_ids)`,
+  question falls back to last user msg; Notice on success/failure.
+- Activates the `## Sources` footer end-to-end (no more dormant plumbing).
+- Tests: incuratorQueryTraceV031 (button render) + chatSidebarSource (wiring).
+  Plugin 482 pass, tsc/build OK. Docs: PLUGIN_GUIDE EN/KR; CHANGELOG [0.18.0].
+
 ## Immediate Next Action
-Push `feature/external-source-links` and open the PR. After merge: IDLE / next
-roadmap item (item 2: Obsidian Agent UI/UX & Context Architecture Overhaul).
+PR #42 already open — push these follow-up commits to it. After merge: IDLE /
+next roadmap item 2 (Obsidian Agent UI/UX & Context Architecture Overhaul).

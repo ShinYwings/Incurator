@@ -2013,6 +2013,38 @@ export class ChatSidebarView extends ItemView {
     return this.incuratorClient;
   }
 
+  /**
+   * Promote the given answer into a durable 02_Wiki/ page (explicit user action
+   * from the Sources & Trace panel). Passes the trace's source_span_ids so the
+   * promoted page lists its source documents, making them appear in Obsidian's
+   * Graph view / Backlinks.
+   */
+  private async promoteAnswerToWiki(
+    result: CuratorQueryResult,
+    msg: ChatMessage
+  ): Promise<void> {
+    const lastUser = [...this.messages].reverse().find((m) => m.role === "user");
+    const question = (result.question || lastUser?.content || "").trim();
+    const answer = (msg.content || "").trim();
+    if (!question || !answer) {
+      new Notice("Nothing to promote yet — ask a question first.");
+      return;
+    }
+    const workspacePath = (this.app.vault.adapter as any).getBasePath?.() || "";
+    new Notice("Saving answer to 02_Wiki…");
+    const res = await this.getIncuratorClient().promoteAnswer(
+      question,
+      answer,
+      workspacePath,
+      result.source_span_ids
+    );
+    if (res.ok) {
+      new Notice(`Saved to ${res.promoted_to || "02_Wiki"}.`);
+    } else {
+      new Notice(`Save to 02_Wiki failed: ${res.error || "unknown error"}`);
+    }
+  }
+
   private toAbsolutePath(vaultRelPath: string | undefined): string | undefined {
     if (!vaultRelPath) return undefined;
     if (vaultRelPath.startsWith("/")) return vaultRelPath;
@@ -2574,12 +2606,13 @@ export class ChatSidebarView extends ItemView {
     }
     const traceToRender = this.lastQueryTrace;
     if (traceToRender) {
+      const promoteOpts = { onPromote: () => void this.promoteAnswerToWiki(traceToRender as any, msg) };
       const thoughtBlock = contentEl.querySelector("details.ai-agent-thought-block");
       if (thoughtBlock) {
-        renderCuratorQueryTrace(thoughtBlock as HTMLElement, traceToRender as any, this.app);
+        renderCuratorQueryTrace(thoughtBlock as HTMLElement, traceToRender as any, this.app, promoteOpts);
         this.attachContextTraceActionHandlers(thoughtBlock as HTMLElement);
       } else {
-        renderCuratorQueryTrace(contentEl, traceToRender as any, this.app);
+        renderCuratorQueryTrace(contentEl, traceToRender as any, this.app, promoteOpts);
         this.attachContextTraceActionHandlers(contentEl);
       }
     }

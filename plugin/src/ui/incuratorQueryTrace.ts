@@ -20,7 +20,8 @@ import { locatorTarget } from "./incuratorQueryTraceLocator";
 export function renderCuratorQueryTrace(
   container: HTMLElement,
   result: CuratorQueryResult,
-  app: App
+  app: App,
+  opts?: { onPromote?: () => void }
 ): void {
   const trace = result.trace;
   const hasV031 = Boolean(
@@ -58,6 +59,23 @@ export function renderCuratorQueryTrace(
     header.setText(`${expanded ? "▶" : "▼"} Sources & Trace${latencyText}`);
     body.style.display = expanded ? "none" : "block";
   });
+
+  // ── Promote to 02_Wiki ──
+  // Explicit, human-approved promotion of this answer into a durable 02_Wiki/
+  // page. Passes the trace's source_span_ids so the page gets a ## Sources
+  // section linking the original source documents (native Graph/backlinks).
+  if (opts?.onPromote) {
+    const promoteRow = body.createDiv("incurator-trace-promote");
+    const promoteBtn = promoteRow.createEl("button", {
+      cls: "incurator-trace-promote-btn",
+      text: "💾 Save to 02_Wiki",
+    });
+    promoteBtn.setAttribute(
+      "aria-label",
+      "Promote this answer to 02_Wiki with its source documents"
+    );
+    promoteBtn.addEventListener("click", () => opts.onPromote?.());
+  }
 
   // ── Matched concepts ──
   if (trace?.matched_concepts?.length) {
