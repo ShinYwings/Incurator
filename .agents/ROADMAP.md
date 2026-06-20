@@ -38,13 +38,7 @@ Source of Truth to identify unresolved items.
    - Plans deleted on ship; see Git history. Tests: curatorWikilinks*,
      test_abstraction_source_trace, test_query_source_links.
 
-2. **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul** —
-   🟡 PLAN AUTHORED, AWAITING APPROVAL (v0.19.0).
-   - Active plan: `.agents/plans/19_agent_prompt_overhaul.md` (+ evidence ledger
-     `19_roadmap_evidence.md`, Arena debate `agent_prompt_overhaul_arena/`).
-   - Scope locked to the three prompt drafts: composable prompt registry shared by
-     sidechat + popover, popover hard tool-isolation (zero side effects), and an
-     end-of-payload recency anchor for `Cmd+Shift+L` localized context.
+2. ✅ **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul** — SHIPPED v0.19.0 (PR #43 merged)
    - Unified refactor for systemic agent attention failures, prompt duplication,
      and UI state desyncs.
    - **Deferred Diff Viewer polish (from v0.14.1 P0 triage)**: unified-view CSS
@@ -52,10 +46,7 @@ Source of Truth to identify unresolved items.
      and a token-truncation hard-reject guard (#10). The original
      `diff_viewer_plugin.md` draft was deleted on ship; see Git history (v0.14.1)
      for the full bug list.
-   - Component drafts:
-     - `.agents/drafts/chat_context_decay.md`
-     - `.agents/drafts/popover_tool_scope.md`
-     - `.agents/drafts/prompt_architecture_refactoring.md`
+   - Component drafts and plans deleted on ship; see Git history.
 
 3. **[Major/Minor Follow-Up] RAG Post-Stabilization Hardening**
    - RAG & Knowledge Quality Stabilization itself is complete, but the audit
@@ -125,9 +116,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Item 1 is merged through PR #42 as v0.18.0. Item 2 is the
-  active milestone on `release/v0.19.0` — **plan authored, awaiting user
-  approval before coding** (`.agents/plans/19_agent_prompt_overhaul.md`).
-- **Next actionable item**: User approval of the v0.19.0 plan; then execute P0→P5
-  (TDD + CI) per the master plan.
-- **Priority order**: UI/UX architecture overhaul, then RAG hardening.
+- **Roadmap state**: Item 2 shipped as v0.19.0 on `release/v0.19.0`; PR #43 merged.
+- **Active Milestone**: None (System IDLE).
+- **Next actionable item**: Move to item 3 (RAG Post-Stabilization Hardening) when initialized.
+- **Priority order**: RAG hardening (item 3), then Chat Session Context Compaction (item 4).
