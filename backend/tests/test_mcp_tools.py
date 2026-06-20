@@ -201,7 +201,7 @@ class V031McpToolsTests(unittest.TestCase):
             for action in context_trace["actions"]
         ))
 
-    def test_curator_query_explore_without_context_service_uses_null_pack_metadata(self) -> None:
+    def test_curator_query_explore_grounds_on_unified_context_pack(self) -> None:
         with db.connect(self.paths.state_db) as conn:
             conn.execute(
                 "INSERT INTO sources (relpath,content_hash,file_type,bytes,added_at) "
@@ -272,12 +272,19 @@ class V031McpToolsTests(unittest.TestCase):
 
         self.assertTrue(out["ok"])
         self.assertEqual(out["trace"]["route"], "explore")
-        self.assertIsNone(out["trace"]["pack_id"])
-        self.assertIsNone(out["trace"]["snapshot"])
-        self.assertIsNone(out["trace"]["budget"])
+        # §31.8 unification: explore now grounds on the shared ContextService pack,
+        # so it carries the same PACK-*/SNAP-*/budget metadata as the other routes.
+        self.assertTrue(str(out["trace"]["pack_id"]).startswith("PACK-"))
+        self.assertIsNotNone(out["trace"]["snapshot"])
+        self.assertIsNotNone(out["trace"]["budget"])
         trace = db.get_query_trace(self.paths.state_db, out["trace"]["trace_id"])
         self.assertIsNotNone(trace)
-        self.assertNotIn("context_service", trace["retrieval_trace"])
+        self.assertIn("context_service", trace["retrieval_trace"])
+        explore_actions = [
+            a for a in trace["retrieval_trace"]["context_service"]["actions"]
+            if a["action_type"] == "explore"
+        ]
+        self.assertEqual(len(explore_actions), 1)
 
     def test_get_prompt_trace(self) -> None:
         trace_id = db.record_prompt_run(

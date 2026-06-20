@@ -4,6 +4,34 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.20.0] - 2026-06-20
+### Changed
+- **Explore route unified through `ContextService` (SYSTEM_BEHAVIOR §31.8).** The
+  `explore` route no longer runs a divergent associative retrieval pipeline. It now
+  grounds on the same `context_fetch` pack path as every other route — producing a
+  `PACK-*`/`SNAP-*` snapshot, obeying the shared token budget, and recording ordered
+  `CTXA-*` actions under a single `QTR-*` root. The explore-specific behavior
+  (follow-up questions + provisional insight candidates) became a synthesis-phase
+  consumer of that normalized pack rather than a second retrieval path.
+  `explore` is admitted to `_ADMITTED_ROUTES` (not a safe baseline — it can still be
+  rolled back to `local` via `INCURATOR_DISABLED_ROUTES`). `curator_fetch_context`
+  now returns explore-route grounding for discovery-signal questions instead of
+  silently degrading them to `local`.
+- Removed the orphaned legacy explore branch in `QueryOrchestrator.run` and its
+  dead helpers (`_evidence_json`, `_build_retrieval_trace`, `_question_hash`).
+
+### Notes
+- This release closes the RAG-hardening milestone's one genuinely-unimplemented
+  systemic gap (explore unification). A grounding audit of the remaining
+  `batch_1_to_3_audit` findings confirmed they were already shipped by the Plan A–G
+  stabilization (orphaned-support truth state, CJK-safe token estimation, rank-order
+  preservation, expansion state machine + budget-exhausted signal, graph
+  giant-component `bridge_risk` quarantine + entity-alias resolution, degraded-mode
+  eval fixtures) and are pinned by regression tests.
+- Verified end-to-end on two testbed scenarios (`complex_math_backprop`,
+  `testbed_template`) against a live LLM backend: `add` → `build` → `sync` →
+  query (`local`/`global`/`explore`) → Mode B backprop.
+
 ## [0.19.0] - 2026-06-20
 ### Added
 - **Shared prompt registry** (`plugin/src/context/promptRegistry.ts`). The chat

@@ -24,25 +24,7 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-1. **[Minor] RAG Post-Stabilization Hardening — re-scoped to systemic group**
-   - Grounding (2026-06-20) found the `batch_1_to_3_audit` drafts were written
-     against a pre-stabilization tree: **6 of 10 findings already shipped** and are
-     pinned by regression tests, so they are settled, NOT pending:
-     - 04 locator false-truth → `orphaned_support` (FIXED);
-     - 05 budget thrashing → `budget_exhausted` signal (FIXED);
-     - 07 trace mutation → intentional & tested (`selected_items` + `synthesis_status`);
-     - 08 CJK-safe token estimation → byte-aware estimator (FIXED);
-     - 09 rank order preservation (FIXED);
-     - 10 expansion state-machine hardening (FIXED).
-   - Active scope = the genuinely unimplemented **systemic** items only:
-     - 06 explore-route ContextService unification (concrete; first);
-     - 03 pipeline healing + soft-snapshot auto-rebase;
-     - 02 graph fragmentation / soft-link proposal + giant-component quarantine;
-     - 01 real-world oracle sampling + noisy fixture coverage.
-   - Plan: `.agents/plans/01_rag_systemic_hardening.md` (Arena debate concluded,
-     **awaiting user approval**). Inputs: `.agents/drafts/batch_1_to_3_audit/`.
-
-2. **[Minor Update] Chat Session Context Compaction**
+1. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a
      click-to-compact action.
@@ -70,6 +52,19 @@ Source of Truth to identify unresolved items.
 
 ## ✅ Completed Milestones
 
+- **RAG Post-Stabilization Hardening (explore unification)** — shipped in v0.20.0.
+  - Grounding the `batch_1_to_3_audit` drafts against the live tree proved they
+    predate the Plan A–G stabilization: **9 of 10 findings were already implemented**
+    and test-pinned (04 orphaned-support, 05/10 budget+expansion state, 07 trace
+    semantics, 08 CJK tokens, 09 rank order, 02 graph `bridge_risk`/entity-alias,
+    01 degraded-mode fixtures; 03(a) snapshot-rebase is moot under the frozen-pack
+    design). The ONE genuine gap — **06 explore→ContextService unification
+    (§31.8)** — was implemented, tested, documented EN+KR, and verified end-to-end
+    on two testbed scenarios.
+  - **Optional follow-up slivers (NOT built — not bugs, pure enhancements)**: FBK→Failure-Atlas
+    candidate promotion; explicit noise-injection eval profiles beyond `execution_mode: degraded`;
+    soft-alias *traversal*-with-penalty on top of the existing `entity_aliases`. Pull
+    into a future milestone only if desired.
 - **Obsidian Agent UI/UX & Context Architecture Overhaul** — shipped in v0.19.0.
 - **Curator Wikilink Native Resolution & External-Source Links** — shipped in v0.17.0 and v0.18.0.
 - **Purge Legacy Search Binary References** — shipped in v0.16.0.
@@ -98,7 +93,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Previous milestone shipped as v0.19.0.
-- **Active Milestone**: Item 1 (RAG Post-Stabilization Hardening, re-scoped to systemic group).
-- **Next actionable item**: Human approval of `.agents/plans/01_rag_systemic_hardening.md`; then executors run P0 (measured baseline) → P1 (docs-first specs). The bug-batch (04,05,07,08,09,10) is already shipped — do not re-plan it.
-- **Priority order**: RAG hardening systemic group (item 1), then Chat Session Context Compaction (item 2).
+- **Roadmap state**: RAG hardening (explore unification) shipped as v0.20.0.
+- **Active Milestone**: none in flight. Next queued item is Chat Session Context Compaction.
+- **Next actionable item**: Chat Session Context Compaction (`.agents/drafts/chat_context_compaction.md`).
+- **Priority order**: Chat Session Context Compaction, then Minor Quick Wins, then Vault Storage Governance.
