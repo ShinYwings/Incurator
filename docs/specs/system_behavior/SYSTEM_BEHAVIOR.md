@@ -423,6 +423,18 @@ Expected behavior:
    answer. `curator_fetch_context` returns the evidence pack without synthesis.
 4. Return answer/evidence plus trace. No Exhibition is created or cached.
 
+Synthesized answers must cite the **original source documents outside `.curator/`**,
+not only the hidden DAG node. For each retrieved hit, the synthesis prompt resolves
+the forward provenance trace `hit.source_span_ids → source_spans.source_id →
+sources.relpath` (via `db.sources_for_spans`) and surfaces every distinct source
+document as a resolvable wikilink (`[[04_Resources/…]]`, `.md` suffix stripped,
+other extensions kept). High-level abstraction hits (concepts, synthesis nodes,
+community reports) aggregate spans from one or MORE sources, so the trace returns
+ALL distinct origin documents — not just the first. The model is instructed to
+cite that source-document link alongside the curator-node link wherever a claim
+derives from a hit that lists `Source document(s)`. When a hit has no resolvable
+source span, the answer falls back to the curator-node citation only.
+
 The Obsidian sidechat uses `wiki plugin context fetch` (JSON) for ordinary
 workspace/domain questions; it must not wait for an external MCP server. The
 provider is grounded with the returned evidence pack, not a backend synthesized

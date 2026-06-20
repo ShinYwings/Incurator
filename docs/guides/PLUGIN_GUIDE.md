@@ -305,6 +305,13 @@ Obsidian's native Graph view or core Backlinks pane — use the chat **Sources &
 Trace** panel for backlink-style provenance. Ordinary web and vault links keep
 their normal behavior; only curator-layer link targets are rewritten.
 
+Synthesized answers also cite the **original source documents** behind each
+claim — e.g. `[[04_Resources/Some Paper]]` — in addition to the curator node.
+Those source files are normal, visible vault files, so their links resolve and
+click through natively (and DO appear in Graph view / backlinks). When an answer
+draws on a high-level synthesis that spans several papers, every contributing
+source document is cited, not just the first.
+
 When a selected Markdown line range is attached and the user asks to fix,
 rewrite, polish, translate, or otherwise modify that selected text, the
 assistant should return an `ai-agent-edit` SEARCH/REPLACE proposal. If the user

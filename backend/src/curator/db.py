@@ -1992,6 +1992,40 @@ def get_source_spans_by_ids(db_path: Path, span_ids: list[str]) -> list[dict]:
         return [_decode_span_row(row) for row in rows]
 
 
+def sources_for_spans(db_path: Path, span_ids: list[str]) -> list[dict]:
+    """Distinct source documents backing the given spans, in first-seen span order.
+
+    Forward provenance trace: ``span_id -> source_spans.source_id ->
+    sources.relpath`` (the authoritative source path). High-level abstraction
+    records (graph entities/relations, community reports, synthesis nodes)
+    aggregate spans from one or MORE sources; this returns every distinct source,
+    not just the first, so a multi-source record traces back to all of its
+    origins. Unknown span ids and spans whose source row is gone are skipped.
+    Returns dicts ``{"source_id": int, "relpath": str}``.
+    """
+    if not span_ids:
+        return []
+    spans = {str(span["id"]): span for span in get_source_spans_by_ids(db_path, span_ids)}
+    result: list[dict] = []
+    seen: set[int] = set()
+    with connect(db_path) as conn:
+        for span_id in span_ids:  # preserve caller order; dedup by source
+            span = spans.get(str(span_id))
+            if span is None or span.get("source_id") is None:
+                continue
+            source_id = int(span["source_id"])
+            if source_id in seen:
+                continue
+            seen.add(source_id)
+            row = conn.execute(
+                "SELECT relpath FROM sources WHERE id = ?", (source_id,)
+            ).fetchone()
+            if row is None:
+                continue
+            result.append({"source_id": source_id, "relpath": str(row["relpath"])})
+    return result
+
+
 def delete_source_spans(
     db_path: Path, span_ids: list[str], *, conn: sqlite3.Connection | None = None
 ) -> int:
