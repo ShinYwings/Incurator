@@ -4,6 +4,30 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.18.0] - 2026-06-20
+### Added
+- Synthesized chat/query answers now cite the **original source documents**
+  outside `.curator/` (e.g. `[[04_Resources/Paper]]`), not only the hidden DAG
+  node. Each retrieved hit's spans are resolved to their real, visible source
+  files via the new forward provenance trace `db.sources_for_spans` (span →
+  `source_spans.source_id` → `sources.relpath`), and the synthesis prompt
+  instructs the model to cite them. Only the `.md` suffix is stripped, so `.pdf`
+  and other source links still resolve.
+- `02_Wiki/` promotions (`promote_answer` / `wiki query` "save to wiki" / the MCP
+  `promote_answer` tool / CLI `plugin promote`) accept the answer's
+  `source_span_ids` and append a deterministic `## Sources` section linking every
+  distinct source document behind the answer. Because the promoted note is a
+  visible vault file, those sources appear in Obsidian's native Graph view and
+  Backlinks pane — the hidden DAG cannot contribute such edges (the c3 hybrid).
+  Multi-source syntheses list all contributing papers, not just the first.
+### Fixed
+- Verified a gap left by RAG stabilization: the search materializer aggregates
+  source provenance up to abstraction records (entities, relations, community
+  reports, synthesis nodes) via `source_span_ids`, but this was never asserted and
+  `_first_source_id` kept only a single source. `db.sources_for_spans` now returns
+  every distinct origin in span order, pinned by `test_abstraction_source_trace`
+  (including a multi-source synthesis node tracing back to both papers).
+
 ## [0.17.0] - 2026-06-20
 ### Fixed
 - Curator DAG wikilinks are now clickable. The L1–L4 knowledge DAG lives under
