@@ -217,7 +217,7 @@ def test_successful_answer_records_only_parsed_cited_spans(vault) -> None:
     assert result.source_span_ids != context_pack["source_span_ids"]
 
 
-def test_failed_answer_validation_clears_answer_provenance(vault) -> None:
+def test_failed_answer_synthesis_preserves_retrieval_provenance(vault) -> None:
     paths, span = vault
     db.upsert_synthesis_node(
         paths.state_db,
@@ -234,18 +234,19 @@ def test_failed_answer_validation_clears_answer_provenance(vault) -> None:
 
     assert not res.ok
     assert res.error == "answer synthesis failed validation"
-    assert res.source_span_ids == []
-    assert res.community_report_ids == []
-    assert res.synthesis_node_ids == []
-    assert res.memory_path_ids == []
-    assert res.insight_candidate_ids == []
     assert any("unknown source span ids" in warning for warning in res.warnings)
+
+    # A synthesis failure must NOT erase the retrieval provenance — the evidence
+    # was retrieved and packed. Clearing it would misclassify the failure as a
+    # recall=0 retrieval failure and overwrite the root trace. Mirrors the explore
+    # route's preserve-on-failure behavior (SYSTEM_BEHAVIOR §31.8).
+    assert span in res.source_span_ids
+    assert res.synthesis_node_ids != []
 
     trace = db.get_query_trace(paths.state_db, res.trace_id)
     assert trace is not None
-    assert trace["source_span_ids"] == []
-    assert trace["community_report_ids"] == []
-    assert trace["synthesis_node_ids"] == []
+    assert span in trace["source_span_ids"]
+    assert trace["synthesis_node_ids"] != []
     context_trace = trace["retrieval_trace"]["context_service"]
     selected_items = context_trace["selected_items"]
     assert span in [
@@ -255,7 +256,8 @@ def test_failed_answer_validation_clears_answer_provenance(vault) -> None:
     ]
     assert any(item.get("kind") == "community_report" for item in selected_items)
     assert any(item.get("kind") == "synthesis" for item in selected_items)
-    assert trace["insight_candidate_ids"] == []
+    # The synthesis action still records the failure; the ANSWER cited nothing
+    # (cited_source_span_ids empty) even though retrieval provenance is preserved.
     actions = context_trace["actions"]
     synthesis_action = actions[-1]
     assert synthesis_action["action_type"] == "synthesis"
@@ -386,6 +388,39 @@ def test_explore_route_creates_insight_candidates(vault) -> None:
     pending = db.list_insight_candidates(paths.state_db, status="pending")
     assert len(pending) == len(res.insight_candidate_ids)
     assert "Insight candidates" in res.answer
+
+
+def test_explore_route_grounds_on_unified_context_pack(vault) -> None:
+    """§31.8 unification: explore is no longer a divergent retrieval pipeline.
+
+    It produces the same PACK-*/SNAP-* context-service trace as local/global, with
+    exactly one QTR root, an explore synthesis action, and intact retrieval
+    provenance (no second/legacy trace path).
+    """
+    paths, span = vault
+    res = QueryOrchestrator(paths, DynamicFakeClient()).run(
+        QueryRequest(question="what else connects residual learning?", mode="explore")
+    )
+    assert res.route == "explore"
+    assert res.trace_id.startswith("QTR-")
+    # Exactly one root trace — no parallel legacy explore trace.
+    traces = db.list_query_traces(paths.state_db)
+    assert [t["trace_id"] for t in traces] == [res.trace_id]
+
+    trace = db.get_query_trace(paths.state_db, res.trace_id)
+    assert trace is not None
+    context = trace["retrieval_trace"]["context_service"]
+    # Normalized pack contract: a PACK id and a frozen snapshot, identical in shape
+    # to the local/global routes.
+    assert context["pack_id"].startswith("PACK-")
+    assert context["snapshot"]["snapshot_id"].startswith("SNAP-")
+    # Retrieval evidence is preserved on the root trace (explore synthesis is a
+    # downstream consumer, it never erases the pack).
+    assert span in trace["source_span_ids"]
+    # The explore synthesis is recorded as an ordered child action on the same root.
+    explore_actions = [a for a in context["actions"] if a["action_type"] == "explore"]
+    assert len(explore_actions) == 1
+    assert explore_actions[0]["child_id"] in res.prompt_trace_ids
 
 
 def test_fetch_context_returns_evidence_without_synthesis(vault) -> None:

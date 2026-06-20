@@ -383,6 +383,13 @@ do not loop on the same impossible expansion.
   provisional insight candidates. Builds a primer from the shared L4 synthesis
   nodes + community reports, and combines the DB graph with DB-native hybrid
   search over authoritative records.
+- **Unified pack path (v0.20.0)**: explore now grounds on the same
+  `ContextService` pack as the other routes — it produces a `PACK-*`/`SNAP-*`
+  snapshot and obeys the shared token budget, with the follow-up/insight
+  generation running as a synthesis step over that normalized pack rather than a
+  separate retrieval pipeline (SYSTEM_BEHAVIOR §31.8). `curator_fetch_context`
+  now also returns explore-route grounding for discovery-signal questions instead
+  of degrading them to `local`.
 - **Parameters**: `query`, `workspace_path` (optional).
 - **Returns**: `answer`, `route`, `trace_id` (`QTR-…`), `synthesis_node_ids`,
   `memory_path_ids`, `insight_candidate_ids`, `prompt_trace_ids`, `warnings`.

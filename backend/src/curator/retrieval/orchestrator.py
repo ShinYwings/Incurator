@@ -8,7 +8,6 @@ the full QTR trace (route, evidence ids, prompt trace ids).
 
 from __future__ import annotations
 
-import hashlib
 import time
 import uuid
 from pathlib import Path
@@ -16,9 +15,7 @@ from typing import Any
 
 from .. import config as cfg
 from .. import curate_yml, db, prompting
-from . import evidence as evidence_mod
-from . import router
-from .models import EvidencePack, QueryRequest, QueryResultV031
+from .models import QueryRequest, QueryResultV031
 
 __all__ = ["QueryOrchestrator"]
 
@@ -41,44 +38,6 @@ def _resolve_policy(workspace_path: str) -> tuple[curate_yml.CurationPolicy, str
             policy = curate_yml.compile_curate_policy(spec, ws)
             return policy, curate_yml.curate_spec_hash(ws)
     return _default_policy(), ""
-
-
-def _question_hash(question: str, working_query: str = "") -> str:
-    raw = (working_query or question).strip()
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _evidence_json(pack: EvidencePack) -> list[dict]:
-    return [
-        {
-            "id": item.id,
-            "kind": item.kind,
-            "title": item.title,
-            "score": item.score,
-            "source_span_ids": item.source_span_ids,
-            "community_report_id": item.community_report_id,
-            "synthesis_node_id": item.synthesis_node_id,
-            "memory_path_id": item.memory_path_id,
-        }
-        for item in pack.items
-    ]
-
-
-def _build_retrieval_trace(pack: EvidencePack, route: str, reason: str) -> dict:
-    """Build the Plan A retrieval_trace_json contract (SCHEMA §22.4 / §30.2)."""
-    base = pack.retrieval_trace.copy() if pack.retrieval_trace else {}
-    base.update({
-        "contract_version": "1",
-        "retrieval_execution_id": pack.retrieval_execution_id,
-        "route": {"selected": route, "reason": reason},
-        "selection": {
-            "candidate_count": len(pack.items) + sum(pack.omitted_counts.values()),
-            "selected_count": len(pack.items),
-            "omitted_counts": pack.omitted_counts,
-        },
-        "warnings": pack.warnings,
-    })
-    return base
 
 
 def _context_evidence_block(items: list[dict[str, Any]]) -> str:
@@ -112,69 +71,34 @@ class QueryOrchestrator:
 
     def run(self, request: QueryRequest) -> QueryResultV031:
         started = time.monotonic()
-        policy, spec_hash = _resolve_policy(request.workspace_path)
-        status = router.graph_status(self.paths.state_db)
-        route, reason = router.choose_route(request, policy, status)
+        from ..context_service import ContextService
 
-        if route != "explore":
-            from ..context_service import ContextService
-
-            context_pack = ContextService(self.paths, self.client).context_fetch(request)
-            result = QueryResultV031(
-                question=request.question,
-                route=context_pack["route"],
-                trace_id=context_pack["trace_id"],
-                input_language=request.input_language,
-                english_query=request.working_query,
-                final_output_language=request.final_output_language,
-                source_span_ids=context_pack["source_span_ids"],
-                community_report_ids=context_pack["community_report_ids"],
-                synthesis_node_ids=context_pack["synthesis_node_ids"],
-                memory_path_ids=context_pack["memory_path_ids"],
-                warnings=[context_pack["route_reason"], *context_pack["warnings"]],
-            )
-            self._run_answer_from_context(request, context_pack, spec_hash, result)
-            self._update_context_trace_after_synthesis(
-                result,
-                latency_ms=int((time.monotonic() - started) * 1000),
-            )
-            return result
-
-        trace_id = f"QTR-{uuid.uuid4().hex[:8]}"
-
-        pack = evidence_mod.build_evidence(self.paths, request, route, policy=policy)
+        # Every route — including `explore` — grounds on the unified pack path
+        # (SYSTEM_BEHAVIOR §31.8). The synthesis phase below branches on the
+        # *served* route; explore is a pack consumer, not a divergent pipeline.
+        context_pack = ContextService(self.paths, self.client).context_fetch(request)
+        # Reuse the policy hash context_fetch already resolved (in the snapshot)
+        # instead of re-parsing curate.yml a second time.
+        spec_hash = str(context_pack["snapshot"]["policy_hash"])
         result = QueryResultV031(
             question=request.question,
-            route=route,
-            trace_id=trace_id,
+            route=context_pack["route"],
+            trace_id=context_pack["trace_id"],
             input_language=request.input_language,
             english_query=request.working_query,
             final_output_language=request.final_output_language,
-            source_span_ids=pack.source_span_ids,
-            community_report_ids=pack.community_report_ids,
-            synthesis_node_ids=pack.synthesis_node_ids,
-            memory_path_ids=pack.memory_path_ids,
-            warnings=[reason, *pack.warnings],
+            source_span_ids=context_pack["source_span_ids"],
+            community_report_ids=context_pack["community_report_ids"],
+            synthesis_node_ids=context_pack["synthesis_node_ids"],
+            memory_path_ids=context_pack["memory_path_ids"],
+            warnings=[context_pack["route_reason"], *context_pack["warnings"]],
         )
-
-        self._run_explore(request, pack, spec_hash, result)
-        retrieval_trace = _build_retrieval_trace(pack, result.route, reason)
-        db.insert_query_trace(
-            self.paths.state_db,
-            trace_id=result.trace_id,
-            workspace_id=policy.workspace_id,
-            question_hash=_question_hash(request.question, request.working_query),
-            route=result.route,
-            route_reason=reason,
-            evidence=_evidence_json(pack),
-            source_span_ids=result.source_span_ids,
-            community_report_ids=result.community_report_ids,
-            synthesis_node_ids=result.synthesis_node_ids,
-            memory_path_ids=result.memory_path_ids,
-            prompt_trace_ids=result.prompt_trace_ids,
-            insight_candidate_ids=result.insight_candidate_ids,
-            retrieval_trace=retrieval_trace,
-            warnings=result.warnings,
+        if context_pack["route"] == "explore":
+            self._run_explore_from_context(request, context_pack, spec_hash, result)
+        else:
+            self._run_answer_from_context(request, context_pack, spec_hash, result)
+        self._update_context_trace_after_synthesis(
+            result,
             latency_ms=int((time.monotonic() - started) * 1000),
         )
         return result
@@ -221,12 +145,14 @@ class QueryOrchestrator:
             if hasattr(run.parsed, "source_span_ids"):
                 result.source_span_ids = getattr(run.parsed, "source_span_ids") or []
         else:
+            # Synthesis failed, but the evidence WAS retrieved and packed by
+            # ContextService. Preserve the retrieval provenance exactly as the
+            # explore route does — clearing it here would overwrite the root QTR-*
+            # trace during _update_context_trace_after_synthesis and misclassify a
+            # synthesis failure as a retrieval failure (recall=0). The synthesis
+            # failure is recorded separately via the synthesis action's
+            # synthesis_status="failed" (SYSTEM_BEHAVIOR §31.8).
             result.error = "answer synthesis failed validation"
-            result.source_span_ids = []
-            result.community_report_ids = []
-            result.synthesis_node_ids = []
-            result.memory_path_ids = []
-            result.insight_candidate_ids = []
             result.warnings.extend(run.validation.errors)
 
     def _update_context_trace_after_synthesis(
@@ -241,6 +167,7 @@ class QueryOrchestrator:
         retrieval_trace = dict(trace.get("retrieval_trace") or {})
         context = dict(retrieval_trace.get("context_service", {}))
         actions = list(context.get("actions", []))
+        action_type = "explore" if result.route == "explore" else "synthesis"
         for prompt_trace_id in result.prompt_trace_ids:
             order = len(actions) + 1
             synthesis_failed = result.error is not None
@@ -248,7 +175,7 @@ class QueryOrchestrator:
                 "action_id": f"CTXA-{uuid.uuid4().hex[:8]}",
                 "trace_id": result.trace_id,
                 "order": order,
-                "action_type": "synthesis",
+                "action_type": action_type,
                 "child_id": prompt_trace_id,
                 "payload": {
                     "synthesis_status": "failed" if synthesis_failed else "ok",
@@ -277,21 +204,30 @@ class QueryOrchestrator:
         )
 
     # -- explore route ---------------------------------------------------------
-    def _run_explore(
-        self, request: QueryRequest, pack: EvidencePack, spec_hash: str,
+    def _run_explore_from_context(
+        self, request: QueryRequest, context_pack: dict[str, Any], spec_hash: str,
         result: QueryResultV031,
     ) -> None:
+        """Explore synthesis as a consumer of the unified ContextService pack.
+
+        Grounding evidence (entities, associative memory paths, primers) is already
+        budgeted and traced by ``context_fetch``; this phase only generates the
+        explore-specific follow-up questions and provisional insight candidates from
+        that normalized pack (SYSTEM_BEHAVIOR §31.8). Provenance arrays on ``result``
+        are left intact — a synthesis failure never erases retrieved evidence.
+        """
         contract = prompting.REGISTRY.get("curator.query_explore_expand")
         policy, _ = _resolve_policy(request.workspace_path)
+        valid_spans = set(context_pack["source_span_ids"])
         input_obj = contract.input_model(
             question=request.question,
-            primer_block=pack.evidence_block(),
-            valid_span_ids_block="\n".join(pack.source_span_ids),
+            primer_block=_context_evidence_block(context_pack["items"]),
+            valid_span_ids_block="\n".join(context_pack["source_span_ids"]),
             max_followups=policy.max_explore_followups,
         )
         run = prompting.run_prompt(
             self.paths.state_db, self.client, contract, input_obj,
-            validation_context={"valid_span_ids": set(pack.source_span_ids)},
+            validation_context={"valid_span_ids": valid_spans},
             curate_spec_hash=spec_hash, query_trace_id=result.trace_id,
         )
         result.prompt_trace_ids.append(run.trace_id)

@@ -4,6 +4,53 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.20.0] - 2026-06-20
+### Fixed
+- **`context_expand` token-budget inflation.** Expansion now budgets against the
+  *cumulative* pack — the tokens already consumed by the pack's selected items seed
+  the budget, so a newly expanded item is admitted only if it fits within
+  `limit_tokens` alongside everything already selected. Previously each expansion
+  was granted a fresh full budget, so a near-full pack plus an expansion could
+  overflow the model context window. Items that no longer fit return as
+  `expansion_refused` (increase `limit_tokens` or refetch).
+- **Retrieval provenance erased on answer-synthesis failure.** A failed
+  `query_local_answer`/`query_global_reduce` validation no longer clears the
+  result/trace `source_span_ids` (and sibling provenance arrays); the retrieved
+  evidence is preserved exactly as the `explore` route already preserves it, so a
+  synthesis failure is no longer misclassified as a recall=0 retrieval failure. The
+  answer-cited spans on the `synthesis_status=failed` action remain empty.
+- **Token estimate charged literal `"None"`.** A payload whose `detail` is JSON
+  `null` is now costed as an empty string (1 token) instead of the 4-char `"None"`.
+- Dropped a redundant `curate.yml` re-parse in `QueryOrchestrator.run` — the policy
+  hash is now reused from the snapshot `context_fetch` already resolved.
+
+### Changed
+- **Explore route unified through `ContextService` (SYSTEM_BEHAVIOR §31.8).** The
+  `explore` route no longer runs a divergent associative retrieval pipeline. It now
+  grounds on the same `context_fetch` pack path as every other route — producing a
+  `PACK-*`/`SNAP-*` snapshot, obeying the shared token budget, and recording ordered
+  `CTXA-*` actions under a single `QTR-*` root. The explore-specific behavior
+  (follow-up questions + provisional insight candidates) became a synthesis-phase
+  consumer of that normalized pack rather than a second retrieval path.
+  `explore` is admitted to `_ADMITTED_ROUTES` (not a safe baseline — it can still be
+  rolled back to `local` via `INCURATOR_DISABLED_ROUTES`). `curator_fetch_context`
+  now returns explore-route grounding for discovery-signal questions instead of
+  silently degrading them to `local`.
+- Removed the orphaned legacy explore branch in `QueryOrchestrator.run` and its
+  dead helpers (`_evidence_json`, `_build_retrieval_trace`, `_question_hash`).
+
+### Notes
+- This release closes the RAG-hardening milestone's one genuinely-unimplemented
+  systemic gap (explore unification). A grounding audit of the remaining
+  `batch_1_to_3_audit` findings confirmed they were already shipped by the Plan A–G
+  stabilization (orphaned-support truth state, CJK-safe token estimation, rank-order
+  preservation, expansion state machine + budget-exhausted signal, graph
+  giant-component `bridge_risk` quarantine + entity-alias resolution, degraded-mode
+  eval fixtures) and are pinned by regression tests.
+- Verified end-to-end on two testbed scenarios (`complex_math_backprop`,
+  `testbed_template`) against a live LLM backend: `add` → `build` → `sync` →
+  query (`local`/`global`/`explore`) → Mode B backprop.
+
 ## [0.19.0] - 2026-06-20
 ### Added
 - **Shared prompt registry** (`plugin/src/context/promptRegistry.ts`). The chat

@@ -467,7 +467,10 @@ wiki query → 라우트 → typed expansion + FTS5/vector/RRF/rerank + DB 그�
 `local`(엔티티/사실), `global`(커뮤니티 리포트), `explore`(메모리 경로 + 인사이트
 후보), `source-section`(특정 원본), `auto`(orchestrator 선택)를 지원합니다.
 `--route`가 없으면 `auto`가 실행됩니다. 동일 라우팅이 MCP `curator_query` /
-`curator_explore`로 에이전트에도 제공됩니다.
+`curator_explore`로 에이전트에도 제공됩니다. v0.20.0부터는 explore를 포함한 모든
+라우트가 통합 `ContextService` 팩(`PACK-*`/`SNAP-*` 스냅샷 + 공유 토큰 예산) 위에서
+grounding하며, explore의 후속 질문/인사이트 생성은 별도 검색 경로가 아니라 그 팩을
+소비하는 synthesis 단계로 수행됩니다(SYSTEM_BEHAVIOR §31.8).
 
 ### 9.2 백프롭 & 인사이트 라이프사이클 (역방향 패스)
 

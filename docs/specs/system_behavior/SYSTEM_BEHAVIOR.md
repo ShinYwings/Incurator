@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.19.0)
+# Incurator - System Behavior (v0.20.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1260,20 +1260,23 @@ directly edits read-only source truth.
 ContextService contract, L3-complete synthesized answers also expose the exact
 ContextService `pack_id`, `snapshot`, and `budget` used for synthesis inside the
 returned trace, while the root `QTR-*` stores the same pack/snapshot and a
-`synthesis` child action. Routes that have not yet migrated to ContextService
-return `null` for `pack_id`, `snapshot`, and `budget` rather than empty
-placeholder structures.
+`synthesis` child action. As of v0.20.0 every served route — including `explore`
+(§31.8) — grounds on the ContextService pack path, so `pack_id`, `snapshot`, and
+`budget` are always populated; the `null`-metadata path for un-migrated routes is
+retired.
 For successful synthesized answers, result-level and query-trace
 `source_span_ids` are the spans the validated prompt output reports as cited by
 the answer. The full retrieved ContextService pack remains available under
 `retrieval_trace.context_service` and, for plugin-backed calls, `context_pack`.
 
-If answer synthesis fails validation after a ContextService pack is selected,
-result-level and root query-trace answer provenance arrays are cleared because no
-validated answer cited those references. The retrieved pack provenance remains
-available under `retrieval_trace.context_service`. The failure is recorded on the
-`synthesis` child action as `synthesis_status=failed` with empty cited span ids,
-so evaluation can distinguish retrieval success from synthesis failure.
+If answer synthesis fails validation after a ContextService pack is selected, the
+result-level and root query-trace **retrieval provenance arrays are preserved**
+(the evidence was retrieved and packed), exactly as the `explore` route preserves
+them on its own synthesis failure. Only the answer itself is absent. The failure
+is recorded on the `synthesis` child action as `synthesis_status=failed` with
+empty `cited_source_span_ids` (the answer cited nothing), so evaluation can
+distinguish a synthesis failure from a recall=0 retrieval failure without the
+retrieval provenance being erased.
 
 ### 20.1 Synthesis Audit Reports
 
@@ -2466,6 +2469,13 @@ synthesize only over the full already-budgeted pack under the same root trace.
 Raw search remains diagnostic; if a client uses it as agent context, it must
 share the same policy, snapshot, trace, and provenance primitives.
 
+`context_expand` budgets against the **cumulative** pack: the tokens already
+consumed by the pack's selected items seed the budget, so a newly expanded item is
+admitted only if it fits within `limit_tokens` alongside everything already
+selected. Expansion never grants a fresh full budget — that would let the combined
+pack overflow the model window. Items that no longer fit are returned as
+`expansion_refused` with the `increase_limit_tokens_or_refetch` retry hint.
+
 ### 31.2 Request Contract
 
 Every request carries an explicit purpose, route preference, scope, budget, and
@@ -2624,21 +2634,35 @@ transport shapes, but retrieval and packing logic live in `ContextService`.
 
 ### 31.8 Route Admission And Rollback
 
-`ContextService` serves only Plan-A retrieval routes whose evidence is mapped into
-the progressive pack path: `local`, `source-section`, and `global`. `local` and
-`source-section` are always-available safe baselines. The `explore` route keeps
-its own divergent associative pipeline and is **not** admitted into the pack path;
-its ContextService migration is deferred.
+`ContextService` serves every Plan-A retrieval route whose evidence is mapped into
+the progressive pack path: `local`, `source-section`, `global`, and `explore`.
+`local` and `source-section` are always-available safe baselines.
+
+**Explore unification (v0.20.0).** The `explore` route no longer keeps a divergent
+associative pipeline. Its *grounding evidence* is built through the same
+`context_fetch` pack path as every other route — it produces a `PACK-*`/`SNAP-*`
+snapshot, enforces `limit_tokens` via the shared budget, and records ordered
+`CTXA-*` actions on the one root `QTR-*`. The behavior unique to explore —
+generating follow-up questions and provisional insight candidates — is a
+**synthesis-phase consumer** of that normalized pack (`QueryOrchestrator`), not a
+second retrieval path. `explore` is admitted into the pack path but is **not** a
+safe baseline: it may be disabled for rollback like `global`, in which case it
+degrades to `local`. Because explore is now a normal admitted route, the public
+`fetch_context` (MCP grounding) surface returns explore-route grounding for
+discovery-signal questions instead of silently degrading them to `local`; the
+follow-up/insight synthesis still only runs through the answer path, never through
+`fetch_context`.
 
 After the router chooses a route, ContextService applies an admission gate
 **before any retrieval runs**, so a rejected route never produces a second or
 divergent retrieval execution:
 
-- A route that is not in the admitted set (e.g. `explore`) degrades to `local`.
-- An admitted experimental route (currently `global`) may be independently
-  disabled for rollback via the `INCURATOR_DISABLED_ROUTES` environment variable
-  (comma-separated) or a programmatic `disabled_routes` argument; a disabled route
-  degrades to `local`. Safe baseline routes are never disabled.
+- A route that is not in the admitted set degrades to `local`.
+- An admitted experimental route (currently `global` and `explore`) may be
+  independently disabled for rollback via the `INCURATOR_DISABLED_ROUTES`
+  environment variable (comma-separated) or a programmatic `disabled_routes`
+  argument; a disabled route degrades to `local`. Safe baseline routes
+  (`local`, `source-section`) are never disabled.
 
 The decision is recorded as `route_admission` on both the response and the root
 trace's `context_service` payload: `{requested, served, admitted_routes,

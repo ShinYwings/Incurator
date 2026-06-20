@@ -363,6 +363,7 @@ typed conflict를 반환합니다. 확장된 handle은 같은 pack snapshot 안�
 #### `curator_explore`
 
 - **역할**: 쿼리 오케스트레이터의 **explore** 라우트 실행. 비자명한 연결을 발견하고 HippoRAG식 메모리 경로를 기록하며 잠정 인사이트 후보를 생성합니다. 공유 L4 synthesis 노드 + 커뮤니티 리포트로 primer를 구성하고, DB 그래프와 authoritative record에 대한 DB-native hybrid search를 결합합니다.
+- **통합 팩 경로(v0.20.0)**: 이제 explore는 다른 라우트와 동일한 `ContextService` 팩 위에서 grounding합니다 — `PACK-*`/`SNAP-*` 스냅샷을 생성하고 공유 토큰 예산을 따르며, 후속 질문/인사이트 생성은 별도의 검색 파이프라인이 아니라 그 정규화된 팩을 소비하는 synthesis 단계로 수행됩니다(SYSTEM_BEHAVIOR §31.8). `curator_fetch_context`도 이제 discovery 신호 질문을 `local`로 강등하지 않고 explore 라우트 grounding을 반환합니다.
 - **파라미터**: `query`, `workspace_path`(선택).
 - **반환**: `answer`, `route`, `trace_id`(`QTR-…`), `synthesis_node_ids`, `memory_path_ids`, `insight_candidate_ids`, `prompt_trace_ids`, `warnings`.
 
