@@ -1974,6 +1974,7 @@ def build_server() -> FastMCP:
         question: str,
         answer: str,
         workspace_path: str = "",
+        source_span_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Promote a sessionless Q&A answer into 02_Wiki/ as a human-verified artifact.
 
@@ -1986,6 +1987,11 @@ def build_server() -> FastMCP:
             question: The question that produced the answer.
             answer: The answer text to promote.
             workspace_path: Optional workspace path to resolve the vault.
+            source_span_ids: Optional `source_span_ids` from the answer's query
+                trace. When provided, a deterministic `## Sources` section of
+                `[[04_Resources/…]]` links to the original source documents is
+                appended, so those sources appear in Obsidian's Graph view and
+                Backlinks pane via the visible `02_Wiki/` note.
 
         Returns:
             ok: Whether promotion succeeded.
@@ -2012,8 +2018,11 @@ def build_server() -> FastMCP:
             slug = _re.sub(r"[^\w\s-]", "", question).strip()
             slug = _re.sub(r"\s+", "-", slug)[:60].strip("-") or "note"
 
+        source_links = _query.resolve_source_links(paths, source_span_ids or [])
         try:
-            wiki_path = _query.save_wiki_page(paths, question, answer, category, slug)
+            wiki_path = _query.save_wiki_page(
+                paths, question, answer, category, slug, source_links=source_links
+            )
         except Exception as e:
             return {"ok": False, "error": f"Failed to write wiki page: {e}"}
 

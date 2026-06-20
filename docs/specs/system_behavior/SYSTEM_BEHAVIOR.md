@@ -467,6 +467,15 @@ Rules:
 
 - Generated answers/insights are not automatically human truth.
 - Promotion writes only `02_Wiki/`; it must not edit `03_Notes/`/`04_Resources/`.
+- When promotion is given the answer's `source_span_ids` (from the query trace),
+  the written `02_Wiki/` page appends a deterministic `## Sources` section listing
+  the distinct original source documents (`[[04_Resources/…]]`, resolved via
+  `db.sources_for_spans`). Because the `02_Wiki/` note is a visible vault file,
+  these links make the sources appear in Obsidian's native Graph view and
+  Backlinks pane — the hidden `.curator/` DAG cannot contribute such edges, so this
+  visible-promotion path is the only place native source graph/backlinks exist
+  (the c3 hybrid). Promotions without provenance still write the answer verbatim
+  (any inline source citations it already carries remain).
 
 ## 10. MCP Tools
 

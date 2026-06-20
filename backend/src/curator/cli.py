@@ -4887,6 +4887,7 @@ def _run_query_repl(
 
     last_question: str | None = None
     last_answer: str | None = None
+    last_source_span_ids: list[str] = []
     session_id = f"QRY-{uuid.uuid4().hex[:8]}"
 
     console.print()
@@ -4934,7 +4935,10 @@ def _run_query_repl(
                             client, last_question, last_answer
                         )
                         saved = query_module.save_wiki_page(
-                            paths, last_question, last_answer, category, slug
+                            paths, last_question, last_answer, category, slug,
+                            source_links=query_module.resolve_source_links(
+                                paths, last_source_span_ids
+                            ),
                         )
                         callbacks.on_wiki_saved(saved, category)
                     except OSError as e:
@@ -4954,6 +4958,7 @@ def _run_query_repl(
         if result.answer:
             last_question = user_input
             last_answer = result.answer
+            last_source_span_ids = result.source_span_ids
 
             if update_knowledge:
                 today = ingest_llm._now_iso()
@@ -4975,7 +4980,10 @@ def _run_query_repl(
                     client, last_question, last_answer
                 )
                 saved = query_module.save_wiki_page(
-                    paths, last_question, last_answer, category, slug
+                    paths, last_question, last_answer, category, slug,
+                    source_links=query_module.resolve_source_links(
+                        paths, last_source_span_ids
+                    ),
                 )
                 callbacks.on_wiki_saved(saved, category)
             except OSError as e:

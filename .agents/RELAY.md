@@ -57,9 +57,21 @@ On `feature/external-source-links` (from master; PR #40 + #41 merged).
   in synthesis/query suites).
 - Docs: SYSTEM_BEHAVIOR (source-citation contract) + PLUGIN_GUIDE/KR.
 
+## (c3) done — 02_Wiki promotions carry source graph/backlinks
+- `query.resolve_source_links(paths, span_ids)` + `_sources_footer`; `save_wiki_page`
+  gains `source_links=` → deterministic `## Sources` footer (deduped).
+- Threaded optional `source_span_ids` through `plugin_api.promote_answer`, the MCP
+  `promote_answer` tool, and both CLI promotion sites (track `last_source_span_ids`).
+- Visible `02_Wiki/` note → source `[[04_Resources/…]]` links → native Graph/backlinks.
+- Tests: test_query_source_links.py (footer dedup, promote end-to-end, resolve).
+  44 passed across query/mcp/synthesis suites. ruff+mypy clean.
+- Docs: SYSTEM_BEHAVIOR + MCP_USER_GUIDE (+KR).
+- Obsidian block-ref syntax confirmed via docs: `[[file#^blockid]]` (caret after #);
+  curator-link parser already preserves `#heading`/`#^block` subpaths (tested).
+
 ## Immediate Next Action
-Commit this chunk. Remaining milestone-6 phases: (b) opened-DAG-page body
-`## Source` link if needed (user said don't fret GUI link-checking, just keep
-format right — chat format done); (c3) promotion-to-`02_Wiki` source links for
-native graph/backlinks; then version bump v0.18.0 + PR. Decide with user whether
-(a)+verification is the priority deliverable or continue (b)/(c3).
+Milestone-6 backend (a)+(c3)+verification complete. Remaining: (b) opened-DAG-page
+body `## Source` link is OPTIONAL (user deprioritized GUI link-checking; chat +
+promotion formats done) — likely skip. Plugin TS: pass trace `source_span_ids` to
+the promote_answer MCP call to activate the footer from the sidechat (follow-up).
+Then version bump v0.18.0 + CHANGELOG + spec titles → PR.

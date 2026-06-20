@@ -153,6 +153,33 @@ def _source_wikilink(relpath: str) -> str:
     return f"[[{relpath.removesuffix('.md')}]]"
 
 
+def resolve_source_links(paths: cfg.WikiPaths, source_span_ids: list[str]) -> list[str]:
+    """Distinct source-document wikilinks backing the given spans, in span order.
+
+    Forward provenance: spans → source documents outside `.curator/` → wikilinks
+    that resolve to real, visible vault files (so they appear in Graph/backlinks
+    when written into a visible `02_Wiki/` note).
+    """
+    if not source_span_ids:
+        return []
+    return [
+        _source_wikilink(src["relpath"])
+        for src in db.sources_for_spans(paths.state_db, source_span_ids)
+    ]
+
+
+def _sources_footer(source_links: list[str]) -> str:
+    """A `## Sources` markdown section listing distinct source-document links."""
+    seen: list[str] = []
+    for link in source_links:
+        if link not in seen:
+            seen.append(link)
+    if not seen:
+        return ""
+    body = "\n".join(f"- {link}" for link in seen)
+    return f"\n## Sources\n\n{body}\n"
+
+
 def _build_synthesis_user_prompt(
     question: str,
     results: search.SearchResults,
@@ -321,11 +348,17 @@ def save_wiki_page(
     answer: str,
     category: str,
     slug: str,
+    source_links: list[str] | None = None,
 ) -> str:
     """Write answer to `<vault_root>/02_Wiki/<category>/<slug>.md`.
 
     Creates the category directory if it doesn't exist.
     Returns the path relative to the vault root.
+
+    ``source_links`` (pre-formatted `[[04_Resources/…]]` wikilinks) is appended as
+    a deterministic ``## Sources`` section. Because the `02_Wiki/` note is a
+    visible vault file, these links make the original source documents appear in
+    Obsidian's Graph view and Backlinks pane — the hidden DAG can't (c3 hybrid).
     """
     from datetime import date
 
@@ -338,6 +371,7 @@ def save_wiki_page(
         f"> Date: {today}\n\n"
         f"{answer.strip()}\n"
     )
+    content += _sources_footer(source_links or [])
 
     wiki_dir = paths.root / consts.DIR_WIKI / category
     wiki_dir.mkdir(parents=True, exist_ok=True)
@@ -625,8 +659,7 @@ def run_query(
     # hidden DAG node. Abstraction hits (concepts/synthesis) aggregate spans from
     # one or more sources; sources_for_spans returns every distinct origin.
     source_links_per_hit = [
-        [_source_wikilink(src["relpath"]) for src in db.sources_for_spans(paths.state_db, hit.source_span_ids)]
-        for hit in results.hits
+        resolve_source_links(paths, hit.source_span_ids) for hit in results.hits
     ]
 
     synthesis_user_content = _build_synthesis_user_prompt(
