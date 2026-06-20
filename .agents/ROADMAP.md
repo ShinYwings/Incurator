@@ -24,19 +24,23 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-1. **[Major/Minor Follow-Up] RAG Post-Stabilization Hardening**
-   - RAG & Knowledge Quality Stabilization itself is complete, but the audit
-     drafts identify follow-up hardening work that has **not** been implemented
-     as a unified follow-up yet.
-   - Inputs: `.agents/drafts/batch_1_to_3_audit/`
-   - Main themes:
-     - real-world oracle sampling and noisy fixture coverage;
-     - graph fragmentation / soft-link proposal strategy;
-     - pipeline healing for broken locators and orphaned spans;
-     - explore-route ContextService unification as a measured research loop;
-     - CJK-safe token estimation;
-     - expansion state-machine hardening;
-     - trace mutation / retrieval metric integrity.
+1. **[Minor] RAG Post-Stabilization Hardening — re-scoped to systemic group**
+   - Grounding (2026-06-20) found the `batch_1_to_3_audit` drafts were written
+     against a pre-stabilization tree: **6 of 10 findings already shipped** and are
+     pinned by regression tests, so they are settled, NOT pending:
+     - 04 locator false-truth → `orphaned_support` (FIXED);
+     - 05 budget thrashing → `budget_exhausted` signal (FIXED);
+     - 07 trace mutation → intentional & tested (`selected_items` + `synthesis_status`);
+     - 08 CJK-safe token estimation → byte-aware estimator (FIXED);
+     - 09 rank order preservation (FIXED);
+     - 10 expansion state-machine hardening (FIXED).
+   - Active scope = the genuinely unimplemented **systemic** items only:
+     - 06 explore-route ContextService unification (concrete; first);
+     - 03 pipeline healing + soft-snapshot auto-rebase;
+     - 02 graph fragmentation / soft-link proposal + giant-component quarantine;
+     - 01 real-world oracle sampling + noisy fixture coverage.
+   - Plan: `.agents/plans/01_rag_systemic_hardening.md` (Arena debate concluded,
+     **awaiting user approval**). Inputs: `.agents/drafts/batch_1_to_3_audit/`.
 
 2. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
@@ -95,6 +99,6 @@ No blocked items currently tracked.
 ## 📌 Current Focus & Active Milestone
 
 - **Roadmap state**: Previous milestone shipped as v0.19.0.
-- **Active Milestone**: Item 1 (RAG Post-Stabilization Hardening).
-- **Next actionable item**: Executors must read `.agents/drafts/batch_1_to_3_audit/` to create `PLAN_TEMPLATE.md`, then execute TDD.
-- **Priority order**: RAG hardening (item 1), then Chat Session Context Compaction (item 2).
+- **Active Milestone**: Item 1 (RAG Post-Stabilization Hardening, re-scoped to systemic group).
+- **Next actionable item**: Human approval of `.agents/plans/01_rag_systemic_hardening.md`; then executors run P0 (measured baseline) → P1 (docs-first specs). The bug-batch (04,05,07,08,09,10) is already shipped — do not re-plan it.
+- **Priority order**: RAG hardening systemic group (item 1), then Chat Session Context Compaction (item 2).
