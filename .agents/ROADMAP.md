@@ -24,18 +24,19 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-1. **[Minor Update] Chat Session Context Compaction**
-   - Confirm full-session history behavior.
-   - Add a Claude-Code-style circular token usage meter under the query box and a
-     click-to-compact action.
-   - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
+1. **[Minor Update] Chat Context Decay & Minor Quick Wins**
+   - Chat context decay: Fix `Cmd+Shift+L` attention failure and recency anchoring.
+   - Minor Quick Wins: LaTeX fast model (`qwen2.5:0.5b`), Zotero profile checkbox sorting. (Web Search excluded per user instruction).
+   - Detailed analysis: `.agents/drafts/chat_context_decay.md`, `.agents/drafts/minor_quick_wins.md`
 
-3. **[Minor Update] Minor Quick Wins**
-   - Web search integration review.
-   - Convert-to-LaTeX fast/light model option (`qwen2.5:0.5b`).
-   - Zotero import profile/item checkbox lists sorted by most recently accessed
-     or imported items.
-   - Detailed analysis: `.agents/drafts/minor_quick_wins.md`
+2. **[Major Update] Prompt Architecture Overhaul & Refactoring**
+   - Centralized prompt registry, componentized generation, and dynamic anchoring.
+   - Detailed analysis: `.agents/drafts/prompt_architecture_refactoring.md`
+
+3. **[Minor Update] Chat Session Context Compaction**
+   - Confirm full-session history behavior.
+   - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
+   - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
 4. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
@@ -43,8 +44,7 @@ Source of Truth to identify unresolved items.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
 5. **[Major Update] Native PDF Annotation & Asset System**
-   - Native annotation highlight/memo synchronization using Obsidian's built-in
-     PDF viewer.
+   - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
@@ -93,7 +93,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: RAG hardening (explore unification) shipped as v0.20.0.
-- **Active Milestone**: none in flight. Next queued item is Chat Session Context Compaction.
-- **Next actionable item**: Chat Session Context Compaction (`.agents/drafts/chat_context_compaction.md`).
-- **Priority order**: Chat Session Context Compaction, then Minor Quick Wins, then Vault Storage Governance.
+- **Roadmap state**: Chat Context Decay & Minor Quick Wins initialized.
+- **Active Milestone**: **Chat Context Decay & Minor Quick Wins**.
+- **Next actionable item**: Read drafts and run Arena Workflow to generate `PLAN_TEMPLATE.md`.
+- **Priority order**: Chat Context Decay & Minor Quick Wins, then Prompt Architecture Overhaul.
