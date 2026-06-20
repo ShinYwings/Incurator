@@ -77,6 +77,9 @@ export interface MCPServerConfig {
 export interface PluginSettings {
   provider: LLMProvider;
   model: string;
+  /** Optional fast/light model for the Convert-to-LaTeX action; empty/unset =
+   *  reuse `model`. Applied only when set AND provider is Ollama (v0.21.0). */
+  latexModel?: string;
   chatMode: ChatMode;
   codexReasoningEffort: CodexReasoningEffort;
   claudeEffort: ClaudeEffort;
@@ -127,6 +130,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   recentZoteroItems: [],
   provider: "antigravity",
   model: "",
+  latexModel: "",
   chatMode: "chat",
   codexReasoningEffort: "medium",
   claudeEffort: "medium",

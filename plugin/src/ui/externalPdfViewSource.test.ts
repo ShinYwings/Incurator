@@ -15,3 +15,17 @@ describe("ExternalPdfView device-portable restore contract", () => {
     expect(source).toContain("path: resolvedPath");
   });
 });
+
+describe("Convert-to-LaTeX fast/light model (v0.21.0)", () => {
+  it("overrides the model only for Ollama with a non-empty latexModel", () => {
+    expect(source).toContain("this.plugin.settings.latexModel?.trim()");
+    expect(source).toContain('this.plugin.settings.provider === "ollama"');
+    expect(source).toContain("complete(messages, { model: latexModel })");
+    // Non-Ollama / unset falls back to the plain main-model call.
+    expect(source).toContain("await this.plugin.llmClient.complete(messages)");
+  });
+
+  it("names the resolved model in the failure notice for an actionable ollama pull hint", () => {
+    expect(source).toContain("ollama pull ${resolvedModel");
+  });
+});

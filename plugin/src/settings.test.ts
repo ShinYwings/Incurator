@@ -41,4 +41,13 @@ describe("settings UI source contract", () => {
     expect(source).not.toContain("editArtifactEnabled");
     expect(DEFAULT_SETTINGS).not.toHaveProperty("editArtifactEnabled");
   });
+
+  it("exposes the Convert-to-LaTeX fast/light model field (v0.21.0)", () => {
+    const source = settingsSource();
+
+    expect(source).toContain("Convert-to-LaTeX model (fast/light)");
+    expect(source).toContain("qwen2.5:0.5b");
+    expect(source).toContain("this.plugin.settings.latexModel");
+    expect(DEFAULT_SETTINGS).toHaveProperty("latexModel");
+  });
 });

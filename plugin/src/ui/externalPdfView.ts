@@ -1308,13 +1308,26 @@ export class ExternalPdfView extends ItemView {
         content: rawText,
       },
     ];
+    // Convert-to-LaTeX fast/light model (v0.21.0): override only when a model is
+    // set AND the provider is Ollama (the Ollama HTTP path honors a per-call
+    // model); every other provider falls back to the main model.
+    const latexModel = this.plugin.settings.latexModel?.trim();
+    const useFastModel =
+      Boolean(latexModel) && this.plugin.settings.provider === "ollama";
+    const resolvedModel = useFastModel
+      ? latexModel
+      : this.plugin.settings.model;
     try {
-      const result = await this.plugin.llmClient.complete(messages);
+      const result = useFastModel
+        ? await this.plugin.llmClient.complete(messages, { model: latexModel })
+        : await this.plugin.llmClient.complete(messages);
       await navigator.clipboard.writeText(result.trim());
       new Notice("LaTeX copied to clipboard.");
     } catch (err) {
       console.error("LaTeX conversion failed:", err);
-      new Notice("Conversion failed. Check the console for details.");
+      new Notice(
+        `Conversion failed (model: ${resolvedModel || "default"}). If it is not installed, run: ollama pull ${resolvedModel || "<model>"} — or clear the Convert-to-LaTeX model setting.`
+      );
     }
   }
 
