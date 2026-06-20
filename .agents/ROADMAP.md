@@ -119,11 +119,11 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Item 1 shipped as v0.18.0 on
-  `feature/external-source-links`; PR #42 is open and awaiting final review /
-  merge.
-- **Next actionable item**: Finish PR #42 review follow-up and push the branch.
-  After merge, move to item 2 (Obsidian Agent UI/UX & Context Architecture
-  Overhaul).
-- **Priority order**: finish PR #42, then UI/UX architecture overhaul and RAG
-  hardening.
+- **Roadmap state**: Item 1 is merged through PR #42 as v0.18.0. Item 2 is the
+  active next milestone on `release/v0.19.0`.
+- **Next actionable item**: Plan item 2 (Obsidian Agent UI/UX & Context
+  Architecture Overhaul) from the existing drafts:
+  `.agents/drafts/chat_context_decay.md`,
+  `.agents/drafts/popover_tool_scope.md`, and
+  `.agents/drafts/prompt_architecture_refactoring.md`.
+- **Priority order**: UI/UX architecture overhaul, then RAG hardening.
