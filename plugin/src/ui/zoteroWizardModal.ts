@@ -31,6 +31,29 @@ export function prioritizeZoteroItems(
   });
 }
 
+/**
+ * Order Zotero import profiles most-recently-used first (v0.21.0). Profiles with
+ * a `lastUsedAt` sort newest→oldest; profiles never used sort last, preserving
+ * their existing relative (insertion) order for a stable result. Operates on a
+ * copy so the persisted `zoteroProfiles` insertion order is never mutated.
+ */
+export function sortProfilesByRecency(
+  profiles: ZoteroImportProfile[]
+): ZoteroImportProfile[] {
+  return profiles
+    .map((profile, index) => ({ profile, index }))
+    .sort((a, b) => {
+      const aTime = a.profile.lastUsedAt;
+      const bTime = b.profile.lastUsedAt;
+      if (aTime === undefined && bTime === undefined) return a.index - b.index;
+      if (aTime === undefined) return 1;
+      if (bTime === undefined) return -1;
+      if (bTime !== aTime) return bTime - aTime;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.profile);
+}
+
 export function rememberRecentZoteroItem(
   settings: Pick<PluginSettings, "recentZoteroItems">,
   itemKey: string,
@@ -192,7 +215,9 @@ export class ZoteroWizardModal extends Modal {
     this.settings = settings;
     this.saveSettings = saveSettings;
 
-    const firstProfile = this.settings.zoteroProfiles?.[0];
+    // Auto-load the most-recently-used profile (v0.21.0), not merely the first
+    // saved one, so the user's current working profile is selected on open.
+    const firstProfile = sortProfilesByRecency(this.settings.zoteroProfiles || [])[0];
     if (firstProfile) {
       this.selectedProfile = firstProfile.name;
       this.loadProfile(firstProfile);
@@ -209,6 +234,7 @@ export class ZoteroWizardModal extends Modal {
     contentEl.createEl("p", { text: this.item.title, attr: { style: "font-weight: bold; margin-bottom: 20px;" } });
 
     const profiles = this.settings.zoteroProfiles || [];
+    const orderedProfiles = sortProfilesByRecency(profiles);
 
     if (profiles.length > 0) {
       new Setting(contentEl)
@@ -216,7 +242,7 @@ export class ZoteroWizardModal extends Modal {
         .setDesc("Select a saved profile or create a new one.")
         .addDropdown(drop => {
           drop.addOption("new", "Create New Custom Setup...");
-          profiles.forEach(p => drop.addOption(p.name, p.name));
+          orderedProfiles.forEach(p => drop.addOption(p.name, p.name));
           drop.setValue(this.selectedProfile);
           drop.onChange(value => {
             this.selectedProfile = value;
@@ -390,11 +416,19 @@ export class ZoteroWizardModal extends Modal {
           outputFilename: this.outputFilename,
           assetFolder: this.assetFolder,
           assetSubfolder: this.assetSubfolder,
+          lastUsedAt: Date.now(),
         });
         if (this.settings.zoteroProfiles.length > 20) {
           this.settings.zoteroProfiles = this.settings.zoteroProfiles.slice(0, 20);
         }
         await this.saveSettings(this.settings);
+      } else if (this.selectedProfile !== "new") {
+        // Stamp the existing profile used for this import so it floats to the top
+        // of the wizard's most-recently-used ordering next time (v0.21.0).
+        const used = (this.settings.zoteroProfiles || []).find(
+          p => p.name === this.selectedProfile
+        );
+        if (used) used.lastUsedAt = Date.now();
       }
 
       const metadata = await this.backend.getZoteroItemMetadata(this.item.key, this.bibliographyStyle || "");

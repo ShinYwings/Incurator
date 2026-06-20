@@ -402,13 +402,14 @@ Rules:
 Saved Zotero import profiles define the note template, output folder,
 subfolder, filename, asset folder, and bibliography style used by the import
 wizard. Each profile carries an optional `lastUsedAt` epoch-ms timestamp
-(v0.21.0), stamped whenever the profile is applied (loaded) or saved. The wizard
-presents profiles **most-recently-used first**: the Import Profile dropdown is
-ordered by `lastUsedAt` descending (profiles never used sort last, ties stable),
-and the wizard opens with the most-recently-used profile loaded so the user's
-current working profile is at the top without manual re-selection. Sorting
-operates on a copy; the persisted `zoteroProfiles` insertion order is not mutated
-by rendering.
+(v0.21.0), stamped when the profile is used for an import or when a new profile is
+created. The wizard presents profiles **most-recently-used first**: the Import
+Profile dropdown is ordered by `lastUsedAt` descending (profiles never used sort
+last, preserving their insertion order; ties stable), and the wizard opens with
+the most-recently-used profile loaded so the user's current working profile is at
+the top without manual re-selection. Sorting operates on a copy
+(`sortProfilesByRecency`); the persisted `zoteroProfiles` insertion order is not
+mutated by rendering.
 
 The Zotero item search modal must request empty-query suggestions when it opens.
 Empty-query suggestions come from the backend's recent Zotero results; returned

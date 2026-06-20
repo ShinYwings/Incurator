@@ -982,7 +982,7 @@ When the import wizard opens and saved profiles exist, the **most recently used
 profile is loaded automatically** and the Import Profile dropdown lists profiles
 most-recently-used first (v0.21.0), so the profile you are actively working with
 sits at the top instead of being buried under older ones. A profile's recency is
-updated whenever you apply or save it. Successfully imported items are remembered
+updated whenever you import an item with it (or create it). Successfully imported items are remembered
 locally in a `recentZoteroItems` LRU list so they appear before other matches in
 later Zotero searches.
 

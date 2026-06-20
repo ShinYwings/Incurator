@@ -847,7 +847,7 @@ Zotero 링크나 Add-to-Incurator 작업에서 PDF를 해석하지 못하면 bac
 
 `Import Zotero Item` 검색창을 비워두면 최근 수정된 Zotero 항목을 `dateModified` 최신순으로 표시합니다. 설정값에는 여러 Zotero 데이터 디렉토리를 쉼표로 입력할 수 있으며, 플러그인은 각 경로의 `zotero.sqlite`를 순서대로 확인합니다.
 
-저장된 import profile이 있으면 wizard가 열릴 때 **가장 최근에 사용한 profile이 자동으로 로드되며**, Import Profile 드롭다운도 최근 사용 순으로 정렬됩니다(v0.21.0). 따라서 지금 작업 중인 profile이 오래된 것들에 묻히지 않고 맨 위에 옵니다. profile의 최근 사용 시각은 해당 profile을 적용하거나 저장할 때마다 갱신됩니다. 성공적으로 가져온 Zotero 항목은 로컬 `recentZoteroItems` LRU 목록에 기록되어 이후 Zotero 검색 결과에서 다른 항목보다 먼저 표시됩니다.
+저장된 import profile이 있으면 wizard가 열릴 때 **가장 최근에 사용한 profile이 자동으로 로드되며**, Import Profile 드롭다운도 최근 사용 순으로 정렬됩니다(v0.21.0). 따라서 지금 작업 중인 profile이 오래된 것들에 묻히지 않고 맨 위에 옵니다. profile의 최근 사용 시각은 해당 profile로 항목을 가져올 때(또는 새로 만들 때) 갱신됩니다. 성공적으로 가져온 Zotero 항목은 로컬 `recentZoteroItems` LRU 목록에 기록되어 이후 Zotero 검색 결과에서 다른 항목보다 먼저 표시됩니다.
 
 출력 subfolder, filename, asset subfolder는 Zotero note template과 같은 Nunjucks 템플릿 엔진을 사용합니다. 예:
 
