@@ -666,16 +666,22 @@ export class LLMClient {
     opts?: { toolPolicy?: ToolPolicy }
   ): Promise<string> {
     const toolPolicy: ToolPolicy = opts?.toolPolicy ?? "auto";
+    // Capture the manager once so its presence is stable across the async tool
+    // loop below (no state drift if this.mcpManager is swapped mid-flight) and so
+    // TypeScript narrows it to non-null after the early return — no `!` needed.
+    const mcpManager = this.mcpManager;
     // Single decision point for tool injection. `toolPolicy: "none"` (ephemeral
     // surfaces such as the Quick Query popover) funnels into the SAME no-tools
     // single-turn path as CLI providers and the no-mcpManager case, so the two
-    // tool-free paths can never diverge.
-    if (!shouldInjectMcpTools(toolPolicy, Boolean(this.mcpManager), this.shouldUseCli(messages))) {
+    // tool-free paths can never diverge. The explicit `!mcpManager` lets
+    // TypeScript narrow it to non-null below without a `!` assertion.
+    const injectTools = shouldInjectMcpTools(toolPolicy, Boolean(mcpManager), this.shouldUseCli(messages));
+    if (!injectTools || !mcpManager) {
       const { text } = await this._streamChatSingleTurn(messages, onChunk);
       return text;
     }
 
-    const rawTools = this.mcpManager!.getAllTools();
+    const rawTools = mcpManager.getAllTools();
     const tools = rawTools.map((t) => ({
       type: "function",
       function: {
@@ -727,7 +733,7 @@ export class LLMClient {
             throw new Error(`Invalid JSON arguments: ${tc.function.arguments}`);
           }
 
-          const result = await this.mcpManager!.callTool(serverName, toolName, args);
+          const result = await mcpManager.callTool(serverName, toolName, args);
           const resultContent = result.content.map(c => c.text).join("\n");
           
           currentMessages.push({
