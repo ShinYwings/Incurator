@@ -38,7 +38,13 @@ Source of Truth to identify unresolved items.
    - Plans deleted on ship; see Git history. Tests: curatorWikilinks*,
      test_abstraction_source_trace, test_query_source_links.
 
-2. **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul**
+2. **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul** —
+   🟡 PLAN AUTHORED, AWAITING APPROVAL (v0.19.0).
+   - Active plan: `.agents/plans/19_agent_prompt_overhaul.md` (+ evidence ledger
+     `19_roadmap_evidence.md`, Arena debate `agent_prompt_overhaul_arena/`).
+   - Scope locked to the three prompt drafts: composable prompt registry shared by
+     sidechat + popover, popover hard tool-isolation (zero side effects), and an
+     end-of-payload recency anchor for `Cmd+Shift+L` localized context.
    - Unified refactor for systemic agent attention failures, prompt duplication,
      and UI state desyncs.
    - **Deferred Diff Viewer polish (from v0.14.1 P0 triage)**: unified-view CSS
@@ -120,10 +126,8 @@ No blocked items currently tracked.
 ## 📌 Current Focus & Active Milestone
 
 - **Roadmap state**: Item 1 is merged through PR #42 as v0.18.0. Item 2 is the
-  active next milestone on `release/v0.19.0`.
-- **Next actionable item**: Plan item 2 (Obsidian Agent UI/UX & Context
-  Architecture Overhaul) from the existing drafts:
-  `.agents/drafts/chat_context_decay.md`,
-  `.agents/drafts/popover_tool_scope.md`, and
-  `.agents/drafts/prompt_architecture_refactoring.md`.
+  active milestone on `release/v0.19.0` — **plan authored, awaiting user
+  approval before coding** (`.agents/plans/19_agent_prompt_overhaul.md`).
+- **Next actionable item**: User approval of the v0.19.0 plan; then execute P0→P5
+  (TDD + CI) per the master plan.
 - **Priority order**: UI/UX architecture overhaul, then RAG hardening.
