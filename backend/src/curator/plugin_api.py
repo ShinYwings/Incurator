@@ -977,13 +977,21 @@ def curator_query(
 
 
 def promote_answer(
-    paths: cfg.WikiPaths, *, question: str, answer: str, workspace_path: str = ""
+    paths: cfg.WikiPaths,
+    *,
+    question: str,
+    answer: str,
+    workspace_path: str = "",
+    source_span_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Promote a sessionless Q&A answer into a durable `02_Wiki/` page.
 
     v0.3.1: queries are sessionless (no generated L4 file), so promotion takes the
     question + answer text directly and writes only `02_Wiki/` (source truth is
-    never touched).
+    never touched). When ``source_span_ids`` from the answer's trace are provided,
+    a deterministic ``## Sources`` section of `[[04_Resources/…]]` links is
+    appended so the original source documents appear in Obsidian's Graph view and
+    Backlinks pane (c3 hybrid: native links only via the visible `02_Wiki/` note).
     """
     if not (question.strip() and answer.strip()):
         return {"ok": False, "error": "question and answer are required"}
@@ -1003,8 +1011,11 @@ def promote_answer(
         slug = re.sub(r"[^\w\s-]", "", question).strip()
         slug = re.sub(r"\s+", "-", slug)[:60].strip("-") or "note"
 
+    source_links = query.resolve_source_links(paths, source_span_ids or [])
     try:
-        wiki_path = query.save_wiki_page(paths, question, answer, category, slug)
+        wiki_path = query.save_wiki_page(
+            paths, question, answer, category, slug, source_links=source_links
+        )
     except Exception as exc:
         return {"ok": False, "error": f"Failed to write wiki page: {exc}"}
 

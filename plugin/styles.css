@@ -3671,3 +3671,22 @@
   text-decoration-style: dashed;
   text-decoration-line: underline;
 }
+
+/* "Save to 02_Wiki" action in the chat Sources & Trace panel. */
+.incurator-trace-promote {
+  margin: 6px 0 10px;
+}
+
+.incurator-trace-promote-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+}
+
+.incurator-trace-promote-btn:hover {
+  background: var(--interactive-accent-hover);
+}

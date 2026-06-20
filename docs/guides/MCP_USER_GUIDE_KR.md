@@ -253,7 +253,14 @@ wiki mcp install
 - **파라미터**:
   - `question`, `answer` (승격할 텍스트)
   - `workspace_path` (선택)
+  - `source_span_ids` (선택 — 답변 쿼리 trace의 `source_span_ids`)
 - **반환값**: `ok`, `promoted_to` (02_Wiki/ 상대 경로).
+- **소스 문서**: `source_span_ids`가 전달되면 승격된 페이지에 `## Sources` 섹션이
+  결정적으로(deterministic) 추가되어, 답변의 근거가 된 모든 원본 소스 문서를
+  `[[04_Resources/…]]` 링크로 나열합니다(여러 소스를 합성한 경우 첫 번째뿐 아니라
+  기여한 모든 소스 포함). `02_Wiki/` 노트는 숨김이 아닌 일반 vault 파일이므로 이
+  소스들이 Obsidian의 그래프 뷰·백링크 패널에 나타납니다 — 숨겨진 DAG는 불가능.
+  이 기능을 켜려면 trace의 `source_span_ids`를 넘기세요.
 - **구현 상태**: v0.3.1. LLM이 카테고리/슬러그를 자동 분류합니다. (검토된 인사이트 후보를 승격하려면 `curator_promote_insight`를 사용하세요.)
 
 #### `check_ingest_status`

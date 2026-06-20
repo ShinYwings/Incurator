@@ -24,19 +24,19 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-1. ✅ **[Fix/Minor Update] Curator Wikilink Native Resolution** — IMPLEMENTED in
-   v0.17.0 (PR pending).
-   - **Validated root cause**: DAG lives in hidden `.curator/Collections/`;
-     Obsidian never indexes dot-folders, so all `[[LAYER/ID]]` links were dead
-     (no click/graph/backlinks/hover) in sidechat, popover, and DAG pages.
-   - **Shipped (Option A — plugin owns navigation, keep hidden)**: one markdown
-     post-processor (`plugin/main.ts` → `rewriteCuratorLinks`,
-     `plugin/src/utils/curatorWikilinks.ts`) rewrites curator-layer links into
-     clickable `openLinkText('.curator/…')` links across sidechat, popover, and
-     opened DAG pages; missing targets marked `is-missing`. Native Graph/Backlinks
-     still excluded by design (hidden folder).
-   - Plan deleted on ship; see Git history (v0.17.0). Tests:
-     `curatorWikilinks.test.ts` + `curatorWikilinkWiring.test.ts`.
+1. ✅ **[Fix/Minor Update] Curator Wikilink Native Resolution** — SHIPPED v0.17.0
+   (PR #40/#41 merged) + **External-Source Link Resolution** SHIPPED v0.18.0.
+   - **v0.17.0 root cause**: DAG lives in hidden `.curator/Collections/`; Obsidian
+     never indexes dot-folders, so all `[[LAYER/ID]]` links were dead. Fixed
+     (Option A): a markdown post-processor (`rewriteCuratorLinks`) makes curator
+     links clickable across sidechat, popover, and opened DAG pages.
+   - **v0.18.0 external sources**: synthesized answers cite the real source
+     documents (`[[04_Resources/…]]`) via `db.sources_for_spans`; `02_Wiki/`
+     promotions append a `## Sources` section so sources show in native Graph/
+     Backlinks (c3 hybrid); abstraction→source provenance verified; plugin-TS
+     `source_span_ids` pass-through plumbed. (b) opened-page body link skipped.
+   - Plans deleted on ship; see Git history. Tests: curatorWikilinks*,
+     test_abstraction_source_trace, test_query_source_links.
 
 2. **[Minor Update] Obsidian Agent UI/UX & Context Architecture Overhaul**
    - Unified refactor for systemic agent attention failures, prompt duplication,
@@ -119,6 +119,11 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Item 1 active on `feature/wikilink-architecture-validation`.
-- **Next actionable item**: Implement/Validate item 1 (`[[wikilink]]` Architecture Validation).
-- **Priority order**: item 1, then UI/UX architecture overhaul and RAG hardening.
+- **Roadmap state**: Item 1 shipped as v0.18.0 on
+  `feature/external-source-links`; PR #42 is open and awaiting final review /
+  merge.
+- **Next actionable item**: Finish PR #42 review follow-up and push the branch.
+  After merge, move to item 2 (Obsidian Agent UI/UX & Context Architecture
+  Overhaul).
+- **Priority order**: finish PR #42, then UI/UX architecture overhaul and RAG
+  hardening.

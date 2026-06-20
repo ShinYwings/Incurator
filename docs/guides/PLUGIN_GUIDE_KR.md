@@ -277,6 +277,12 @@ DAG가 숨김 폴더에 있으므로 이 노드들은 여전히 Obsidian의 기�
 Trace** 패널을 사용하세요. 일반 웹 링크와 vault 링크는 기존 동작을 유지하며,
 curator 레이어 링크 대상만 재작성됩니다.
 
+합성된 답변은 각 주장의 근거가 된 **원본 소스 문서**도 curator 노드와 함께
+인용합니다 — 예: `[[04_Resources/Some Paper]]`. 이 소스 파일들은 숨김이 아닌
+일반 vault 파일이므로 링크가 네이티브로 resolve되어 클릭 이동이 되고, 그래프
+뷰·백링크에도 나타납니다. 답변이 여러 논문에 걸친 상위 수준 synthesis에
+기반한 경우, 첫 번째 소스뿐 아니라 기여한 모든 소스 문서를 인용합니다.
+
 선택한 Markdown line range가 첨부된 상태에서 사용자가 해당 텍스트를 고치거나, 다시 쓰거나, 다듬거나, 번역하라고 요청하면 assistant는 `ai-agent-edit` SEARCH/REPLACE 제안을 반환해야 합니다. 선택 영역에 대한 단순 질문이면 파일 수정 제안 없이 답변만 합니다.
 
 최신 요청이 선택한 PDF/text 영역을 예시로 삼아 Markdown 파일 안의 모든 비슷한 부분을 바꾸라고 요청하면, 선택 영역은 유일한 수정 대상이 아니라 pattern을 이해하기 위한 단서로 취급합니다. 플러그인은 열린 Markdown 탭의 전체 내용을 edit-target context로 보내므로 assistant가 파일 전체에서 같은 HTML/Markdown line 형태를 찾고, 기존 문법 형식을 보존한 SEARCH/REPLACE hunk를 Markdown 편집기 안에서 review할 수 있게 제안해야 합니다.
@@ -995,6 +1001,18 @@ Sources & Trace의 각 evidence item에는 피드백 컨트롤이 있습니다: 
 않으며, 별도로 검토된 정책이 적용하기 전까지 격리(quarantine) 상태로 유지됩니다.
 `new_insight` 이벤트는 즉시 무언가를 변경하지 않고, 나중의 사람 검토를 위한
 provisional insight candidate를 큐에 넣습니다.
+
+Sources & Trace 패널에는 **💾 Save to 02_Wiki** 버튼도 있습니다. 이 버튼을 누르면
+해당 답변을 명시적으로 `02_Wiki/` 페이지로 승격하며, trace의 `source_span_ids`를
+함께 전달해 페이지에 원본 소스 문서를 링크하는 `## Sources` 섹션이 추가됩니다 —
+이 소스들은 Obsidian의 그래프 뷰·백링크에 나타납니다. 플러그인은 자동으로
+승격하지 않으며, 이 버튼(또는 동등한 backend 명령)만 페이지를 기록합니다. 버튼은
+해당 답변 자체의 trace에 바인딩됩니다. 과거 답변을 승격할 때 trace에 명시적인
+질문이 없으면, 플러그인은 채팅에서 가장 최신 사용자 메시지가 아니라 그 답변 바로
+앞의 사용자 메시지를 질문으로 사용합니다. 과거 trace 패널에서도 navigation과
+승격은 가능하지만, context-pack을 변경하는 expand, verify, refetch, feedback
+액션은 최신 활성 답변에만 표시되어 오래된 패널이 live query 상태를 변경하지
+못합니다.
 
 규칙:
 - 인사이트 후보 승격은 명시적 사용자 동작입니다. 플러그인은 `promoteInsight`

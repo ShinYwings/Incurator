@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.17.0)
+# Incurator - System Behavior (v0.18.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -423,6 +423,18 @@ Expected behavior:
    answer. `curator_fetch_context` returns the evidence pack without synthesis.
 4. Return answer/evidence plus trace. No Exhibition is created or cached.
 
+Synthesized answers must cite the **original source documents outside `.curator/`**,
+not only the hidden DAG node. For each retrieved hit, the synthesis prompt resolves
+the forward provenance trace `hit.source_span_ids → source_spans.source_id →
+sources.relpath` (via `db.sources_for_spans`) and surfaces every distinct source
+document as a resolvable wikilink (`[[04_Resources/…]]`, `.md` suffix stripped,
+other extensions kept). High-level abstraction hits (concepts, synthesis nodes,
+community reports) aggregate spans from one or MORE sources, so the trace returns
+ALL distinct origin documents — not just the first. The model is instructed to
+cite that source-document link alongside the curator-node link wherever a claim
+derives from a hit that lists `Source document(s)`. When a hit has no resolvable
+source span, the answer falls back to the curator-node citation only.
+
 The Obsidian sidechat uses `wiki plugin context fetch` (JSON) for ordinary
 workspace/domain questions; it must not wait for an external MCP server. The
 provider is grounded with the returned evidence pack, not a backend synthesized
@@ -455,6 +467,15 @@ Rules:
 
 - Generated answers/insights are not automatically human truth.
 - Promotion writes only `02_Wiki/`; it must not edit `03_Notes/`/`04_Resources/`.
+- When promotion is given the answer's `source_span_ids` (from the query trace),
+  the written `02_Wiki/` page appends a deterministic `## Sources` section listing
+  the distinct original source documents (`[[04_Resources/…]]`, resolved via
+  `db.sources_for_spans`). Because the `02_Wiki/` note is a visible vault file,
+  these links make the sources appear in Obsidian's native Graph view and
+  Backlinks pane — the hidden `.curator/` DAG cannot contribute such edges, so this
+  visible-promotion path is the only place native source graph/backlinks exist
+  (the c3 hybrid). Promotions without provenance still write the answer verbatim
+  (any inline source citations it already carries remain).
 
 ## 10. MCP Tools
 

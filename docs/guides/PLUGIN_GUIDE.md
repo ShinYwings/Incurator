@@ -305,6 +305,13 @@ Obsidian's native Graph view or core Backlinks pane — use the chat **Sources &
 Trace** panel for backlink-style provenance. Ordinary web and vault links keep
 their normal behavior; only curator-layer link targets are rewritten.
 
+Synthesized answers also cite the **original source documents** behind each
+claim — e.g. `[[04_Resources/Some Paper]]` — in addition to the curator node.
+Those source files are normal, visible vault files, so their links resolve and
+click through natively (and DO appear in Graph view / backlinks). When an answer
+draws on a high-level synthesis that spans several papers, every contributing
+source document is cited, not just the first.
+
 When a selected Markdown line range is attached and the user asks to fix,
 rewrite, polish, translate, or otherwise modify that selected text, the
 assistant should return an `ai-agent-edit` SEARCH/REPLACE proposal. If the user
@@ -1163,6 +1170,19 @@ generated records, ranking, or truth state, and stays quarantined until a
 separately reviewed policy applies it. A `new_insight` event enqueues a
 provisional insight candidate for later human review rather than changing
 anything immediately.
+
+The Sources & Trace panel also has a **💾 Save to 02_Wiki** button. Clicking it is
+an explicit promotion of that answer into a durable `02_Wiki/` page, and it passes
+the trace's `source_span_ids` so the page gets a `## Sources` section linking the
+original source documents — those then appear in Obsidian's Graph view and
+Backlinks. The plugin never promotes automatically; only this button (or the
+equivalent backend command) writes the page. The button is bound to that answer's
+own trace; when promoting a historical answer and the trace has no explicit
+question, the plugin falls back to the user message immediately preceding that
+answer, not the newest user message in the chat. Historical trace panels remain
+navigable and promotable, but mutating context-pack actions (expand, verify,
+refetch, and feedback) are shown only for the latest active answer so old panels
+cannot mutate the live query state.
 
 Rules:
 - Insight-candidate promotion is an explicit user action; the plugin must confirm

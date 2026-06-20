@@ -16,7 +16,7 @@ describe("incuratorQueryTrace v0.3.1 rendering", () => {
   });
 
   it("has a dedicated v0.3.1 renderer invoked from the panel", () => {
-    expect(source).toContain("renderV031Trace(body, result, app)");
+    expect(source).toContain("renderV031Trace(body, result, app, interactive)");
     expect(source).toContain("function renderV031Trace(");
   });
 
@@ -132,5 +132,24 @@ describe("incuratorQueryTrace v0.3.1 rendering", () => {
 
   it("degrades gracefully: each id row guards on presence", () => {
     expect(source).toContain("if (!ids?.length) return;");
+  });
+
+  it("renders a 'Save to 02_Wiki' promote button only when onPromote is provided", () => {
+    expect(source).toContain("opts?: { onPromote?: () => void; interactive?: boolean }");
+    expect(source).toContain("if (opts?.onPromote) {");
+    expect(source).toContain("Save to 02_Wiki");
+    expect(source).toContain('promoteBtn.addEventListener("click", () => opts.onPromote?.())');
+    expect(styles).toContain(".incurator-trace-promote-btn");
+  });
+
+  it("can render historical trace panels without mutating pack actions", () => {
+    expect(source).toContain("const interactive = opts?.interactive !== false;");
+    expect(source).toContain("renderContextPack(body, result.context_pack, app, interactive)");
+    expect(source).toContain(
+      'if (interactive && (reason === "snapshot_conflict" || pack.resolution === "refetch_or_rebase"))'
+    );
+    expect(source).toContain("if (interactive && (item.expansion_handle || item.verification_handle))");
+    expect(source).toContain("if (interactive) {");
+    expect(source).toContain("renderItemFeedback(row, item, pack);");
   });
 });

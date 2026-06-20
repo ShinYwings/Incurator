@@ -2013,6 +2013,43 @@ export class ChatSidebarView extends ItemView {
     return this.incuratorClient;
   }
 
+  /**
+   * Promote the given answer into a durable 02_Wiki/ page (explicit user action
+   * from the Sources & Trace panel). Passes the trace's source_span_ids so the
+   * promoted page lists its source documents, making them appear in Obsidian's
+   * Graph view / Backlinks.
+   */
+  private async promoteAnswerToWiki(
+    result: CuratorQueryResult,
+    msg: ChatMessage
+  ): Promise<void> {
+    // Resolve the question from the user message immediately preceding THIS
+    // answer, never the newest one globally — otherwise promoting a historical
+    // answer would pair it with an unrelated later question.
+    const msgIndex = this.messages.indexOf(msg);
+    const searchSlice = msgIndex >= 0 ? this.messages.slice(0, msgIndex) : this.messages;
+    const lastUser = [...searchSlice].reverse().find((m) => m.role === "user");
+    const question = (result.question || lastUser?.content || "").trim();
+    const answer = (msg.content || "").trim();
+    if (!question || !answer) {
+      new Notice("Nothing to promote yet — ask a question first.");
+      return;
+    }
+    const workspacePath = (this.app.vault.adapter as any).getBasePath?.() || "";
+    new Notice("Saving answer to 02_Wiki…");
+    const res = await this.getIncuratorClient().promoteAnswer(
+      question,
+      answer,
+      workspacePath,
+      result.source_span_ids
+    );
+    if (res.ok) {
+      new Notice(`Saved to ${res.promoted_to || "02_Wiki"}.`);
+    } else {
+      new Notice(`Save to 02_Wiki failed: ${res.error || "unknown error"}`);
+    }
+  }
+
   private toAbsolutePath(vaultRelPath: string | undefined): string | undefined {
     if (!vaultRelPath) return undefined;
     if (vaultRelPath.startsWith("/")) return vaultRelPath;
@@ -2563,24 +2600,44 @@ export class ChatSidebarView extends ItemView {
       }
     }
 
+    // Resolve THIS message's trace from its own embedded curator_query result, so
+    // re-rendering history never reuses one global trace for every message. The
+    // live singleton (this.lastQueryTrace) is only the streaming fallback for the
+    // active/terminal message (whose trace isn't embedded yet while it streams).
+    let traceToRender: CuratorQueryResult | null = null;
     const toolMatch = msg.content.match(/✅ \*\*mcp_[^*]*curator_query\*\* result:\n```(?:json)?\n([\s\S]*?)\n```/);
-    if (toolMatch && !this.lastQueryTrace) {
+    if (toolMatch) {
       try {
         const parsed = JSON.parse(toolMatch[1]);
         if (parsed.trace || parsed.trace_id) {
-          this.lastQueryTrace = parsed;
+          traceToRender = parsed;
         }
       } catch { }
     }
-    const traceToRender = this.lastQueryTrace;
-    if (traceToRender) {
-      const thoughtBlock = contentEl.querySelector("details.ai-agent-thought-block");
-      if (thoughtBlock) {
-        renderCuratorQueryTrace(thoughtBlock as HTMLElement, traceToRender as any, this.app);
-        this.attachContextTraceActionHandlers(thoughtBlock as HTMLElement);
+    const isLastMessage =
+      this.messages.length > 0 && msg === this.messages[this.messages.length - 1];
+    if (isLastMessage) {
+      if (traceToRender) {
+        this.lastQueryTrace = traceToRender;
       } else {
-        renderCuratorQueryTrace(contentEl, traceToRender as any, this.app);
-        this.attachContextTraceActionHandlers(contentEl);
+        traceToRender = this.lastQueryTrace;
+      }
+    }
+    if (traceToRender) {
+      // Promote is safe on any message (it reads this message's own trace). The
+      // mutating pack actions (expand/verify/refetch/feedback) are gated to the
+      // active message only — historical panels are inert so they cannot corrupt
+      // the live query state via the singleton.
+      const boundTrace = traceToRender;
+      const promoteOpts = {
+        onPromote: () => void this.promoteAnswerToWiki(boundTrace, msg),
+        interactive: isLastMessage,
+      };
+      const thoughtBlock = contentEl.querySelector("details.ai-agent-thought-block");
+      const panelEl = (thoughtBlock as HTMLElement) ?? contentEl;
+      renderCuratorQueryTrace(panelEl, boundTrace as any, this.app, promoteOpts);
+      if (isLastMessage) {
+        this.attachContextTraceActionHandlers(panelEl);
       }
     }
     window.setTimeout(() => this.attachAssistantAnswerLinkNavigation(contentEl), 0);

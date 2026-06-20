@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from . import config as cfg
+from . import db
 from . import page_writer
 from . import prompts
 from . import search
@@ -143,6 +144,42 @@ Rules:
 """
 
 
+def _source_wikilink(relpath: str) -> str:
+    """Format a source-document vault relpath as an Obsidian wikilink.
+
+    Strips only the `.md` suffix (Obsidian convention); other extensions such as
+    `.pdf` are kept so the link resolves to the real source file.
+    """
+    return f"[[{relpath.removesuffix('.md')}]]"
+
+
+def resolve_source_links(paths: cfg.WikiPaths, source_span_ids: list[str]) -> list[str]:
+    """Distinct source-document wikilinks backing the given spans, in span order.
+
+    Forward provenance: spans → source documents outside `.curator/` → wikilinks
+    that resolve to real, visible vault files (so they appear in Graph/backlinks
+    when written into a visible `02_Wiki/` note).
+    """
+    if not source_span_ids:
+        return []
+    return [
+        _source_wikilink(src["relpath"])
+        for src in db.sources_for_spans(paths.state_db, source_span_ids)
+    ]
+
+
+def _sources_footer(source_links: list[str]) -> str:
+    """A `## Sources` markdown section listing distinct source-document links."""
+    seen: list[str] = []
+    for link in source_links:
+        if link not in seen:
+            seen.append(link)
+    if not seen:
+        return ""
+    body = "\n".join(f"- {link}" for link in seen)
+    return f"\n## Sources\n\n{body}\n"
+
+
 def _build_synthesis_user_prompt(
     question: str,
     results: search.SearchResults,
@@ -150,8 +187,14 @@ def _build_synthesis_user_prompt(
     english_query: str = "",
     input_language: str = "",
     final_output_language: str = "",
+    source_links: list[list[str]] | None = None,
 ) -> str:
-    """Construct the user message for Qwen3 with the search results as context."""
+    """Construct the user message for Qwen3 with the search results as context.
+
+    ``source_links`` is an optional per-hit list (aligned with ``results.hits``)
+    of pre-formatted source-document wikilinks, so the answer can cite the real
+    source files outside `.curator/` rather than only the hidden DAG node.
+    """
     lines: list[str] = []
     lines.append(f"Original user question: {question}")
     if input_language:
@@ -164,6 +207,7 @@ def _build_synthesis_user_prompt(
     lines.append(f"Here are the {len(results)} most relevant wiki pages:")
     lines.append("")
 
+    cited_source_links = False
     for i, hit in enumerate(results.hits, start=1):
         lines.append(f"--- Source {i} ---")
         # Use the full hit path so the LLM sees how to wikilink it.
@@ -172,6 +216,11 @@ def _build_synthesis_user_prompt(
         raw_path = hit.full_path.removesuffix(".md")
         page_link = _LEGACY_SCHEME_RE.sub("", raw_path).lstrip("/")
         lines.append(f"Wikilink path: [[{page_link}]]")
+        hit_sources = source_links[i - 1] if source_links and i - 1 < len(source_links) else []
+        if hit_sources:
+            cited_source_links = True
+            # The original source document(s) this page was distilled from.
+            lines.append(f"Source document(s): {', '.join(hit_sources)}")
         if hit.title:
             lines.append(f"Title: {hit.title}")
         lines.append(f"Relevance score: {hit.score:.2f}")
@@ -190,11 +239,18 @@ def _build_synthesis_user_prompt(
 
     lines.append("--- End of sources ---")
     lines.append("")
-    lines.append(
+    final_instruction = (
         "Now write a clear, well-structured markdown answer to the question. "
         "Cite each claim with [[wikilinks]] using the paths shown above. "
-        "If a claim is not supported by the sources, say so."
     )
+    if cited_source_links:
+        final_instruction += (
+            "When a claim comes from a page that lists 'Source document(s)', also "
+            "cite that source-document [[wikilink]] so the reader can open the "
+            "original source. "
+        )
+    final_instruction += "If a claim is not supported by the sources, say so."
+    lines.append(final_instruction)
     return "\n".join(lines)
 
 
@@ -292,11 +348,17 @@ def save_wiki_page(
     answer: str,
     category: str,
     slug: str,
+    source_links: list[str] | None = None,
 ) -> str:
     """Write answer to `<vault_root>/02_Wiki/<category>/<slug>.md`.
 
     Creates the category directory if it doesn't exist.
     Returns the path relative to the vault root.
+
+    ``source_links`` (pre-formatted `[[04_Resources/…]]` wikilinks) is appended as
+    a deterministic ``## Sources`` section. Because the `02_Wiki/` note is a
+    visible vault file, these links make the original source documents appear in
+    Obsidian's Graph view and Backlinks pane — the hidden DAG can't (c3 hybrid).
     """
     from datetime import date
 
@@ -309,6 +371,7 @@ def save_wiki_page(
         f"> Date: {today}\n\n"
         f"{answer.strip()}\n"
     )
+    content += _sources_footer(source_links or [])
 
     wiki_dir = paths.root / consts.DIR_WIKI / category
     wiki_dir.mkdir(parents=True, exist_ok=True)
@@ -591,12 +654,21 @@ def run_query(
     callbacks.on_synthesizing()
     agent_context = curator_persona.get("text", "")
 
+    # Resolve each hit's original source document(s) outside `.curator/` so the
+    # answer can cite real, visible source files (04_Resources/…) — not only the
+    # hidden DAG node. Abstraction hits (concepts/synthesis) aggregate spans from
+    # one or more sources; sources_for_spans returns every distinct origin.
+    source_links_per_hit = [
+        resolve_source_links(paths, hit.source_span_ids) for hit in results.hits
+    ]
+
     synthesis_user_content = _build_synthesis_user_prompt(
         question,
         results,
         english_query=base_search_question,
         input_language=input_language,
         final_output_language=resolved_final_output_language,
+        source_links=source_links_per_hit,
     )
 
     if agent_context:

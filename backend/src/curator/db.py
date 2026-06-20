@@ -1992,6 +1992,48 @@ def get_source_spans_by_ids(db_path: Path, span_ids: list[str]) -> list[dict]:
         return [_decode_span_row(row) for row in rows]
 
 
+def sources_for_spans(db_path: Path, span_ids: list[str]) -> list[dict]:
+    """Distinct source documents backing the given spans, in first-seen span order.
+
+    Forward provenance trace: ``span_id -> source_spans.source_id ->
+    sources.relpath`` (the authoritative source path). High-level abstraction
+    records (graph entities/relations, community reports, synthesis nodes)
+    aggregate spans from one or MORE sources; this returns every distinct source,
+    not just the first, so a multi-source record traces back to all of its
+    origins. Unknown span ids and spans whose source row is gone are skipped.
+    Returns dicts ``{"source_id": int, "relpath": str}``.
+    """
+    if not span_ids:
+        return []
+    spans = {str(span["id"]): span for span in get_source_spans_by_ids(db_path, span_ids)}
+    # Collect unique source_ids in first-seen span order, then resolve all their
+    # relpaths in a single batched IN query (avoids an N+1 per-source lookup).
+    ordered_source_ids: list[int] = []
+    seen: set[int] = set()
+    for span_id in span_ids:
+        span = spans.get(str(span_id))
+        if span is None or span.get("source_id") is None:
+            continue
+        source_id = int(span["source_id"])
+        if source_id not in seen:
+            seen.add(source_id)
+            ordered_source_ids.append(source_id)
+    if not ordered_source_ids:
+        return []
+    placeholders = ",".join("?" for _ in ordered_source_ids)
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT id, relpath FROM sources WHERE id IN ({placeholders})",
+            tuple(ordered_source_ids),
+        ).fetchall()
+    relpath_by_id = {int(row["id"]): str(row["relpath"]) for row in rows}
+    return [
+        {"source_id": source_id, "relpath": relpath_by_id[source_id]}
+        for source_id in ordered_source_ids
+        if source_id in relpath_by_id
+    ]
+
+
 def delete_source_spans(
     db_path: Path, span_ids: list[str], *, conn: sqlite3.Connection | None = None
 ) -> int:

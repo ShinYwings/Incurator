@@ -255,8 +255,9 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 #### `promote_answer`
 
 - **Role**: Promote a sessionless Q&A answer into `02_Wiki/` after human review. Writes only `02_Wiki/`; source truth is never touched.
-- **Parameters**: `question`, `answer` (the text to promote), `workspace_path` (optional).
+- **Parameters**: `question`, `answer` (the text to promote), `workspace_path` (optional), `source_span_ids` (optional — the answer's `source_span_ids` from its query trace).
 - **Returns**: `ok`, `promoted_to` (vault-relative path of the new page inside `02_Wiki/`).
+- **Source documents**: when `source_span_ids` is supplied, the promoted page gets a deterministic `## Sources` section of `[[04_Resources/…]]` links to the original source documents (every distinct source backing the answer, including multi-source syntheses). Because the `02_Wiki/` note is a visible vault file, those sources then appear in Obsidian's Graph view and Backlinks pane — the hidden DAG can't. Pass the trace's `source_span_ids` to enable this.
 - **Implementation status**: v0.3.1. Calls `classify_wiki_topic` + `save_wiki_page` internally. (To promote a reviewed insight candidate instead, use `curator_promote_insight`.)
 
 #### `check_ingest_status`

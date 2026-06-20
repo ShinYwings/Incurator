@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.17.0)
+# Incurator Plugin Schema & API Contract (v0.18.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -1199,6 +1199,8 @@ when the fields are present:
 - a **memory-path summary** for explore answers (the hop chain);
 - **insight candidates** with their classification and a promote action that calls
   `promoteInsight` after explicit user confirmation.
+- a **Save to 02_Wiki** action, when the caller provides an `onPromote` callback,
+  bound to the answer's own trace and `source_span_ids`.
 
 Rules:
 
@@ -1206,6 +1208,13 @@ Rules:
   than erroring, so an older/partial backend response still shows the v0.2.2 trace.
 - Insight-candidate promotion and any backprop action are explicit user actions;
   the panel must not auto-promote or auto-patch.
+- Promoting a historical answer must use that answer's embedded trace. If the
+  trace has no explicit question, the chat sidebar falls back to the user message
+  immediately preceding that answer rather than the newest user message globally.
+- Historical trace panels may keep locator navigation and Save to 02_Wiki
+  promotion available, but mutating context-pack controls (expand, verify,
+  refetch, feedback) must render only for the latest active answer so old panels
+  cannot mutate the live query state.
 - The curation panel surfaces `IncuratorCuratePlan.validationErrors` and
   `excludedSources` so the user sees why sources were dropped, rather than the
   plugin silently inventing workspace scope (the §5.1 no-arbitrary-workspace rule
