@@ -4,6 +4,33 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.19.0] - 2026-06-20
+### Added
+- **Shared prompt registry** (`plugin/src/context/promptRegistry.ts`). The chat
+  sidebar and the Quick Query popover now assemble their security-critical prompt
+  rules from one set of composable blocks (`boundaryConstraints`,
+  `buildRecencyAnchor`, `SurfaceProfile`/`SIDECHAT_PROFILE`/`POPOVER_PROFILE`), so
+  filesystem/tool boundaries can no longer drift between the two surfaces. The
+  popover's "no filesystem access" rule is now sourced from the registry instead
+  of a hardcoded duplicate.
+- **Recency anchor against long-session context decay.** A `<critical_invariants>`
+  block is appended LAST in each request (the strongest-attention position),
+  re-asserting "answer only about the current `<primary_focus_selection>`; do not
+  edit the whole document unless explicitly asked" — deferring to the existing
+  pointer / `<resolved_cross_references>` rule. Fixes the case where a localized
+  `Cmd+Shift+L` selection added late in a long chat was ignored and the agent
+  reverted to whole-file modification.
+### Fixed
+- **Quick Query popover is now hard-isolated from MCP tools.** `LLMClient.streamChat`
+  gained an optional `{ toolPolicy: "auto" | "none" }`; the popover passes
+  `"none"` so `mcpManager.getAllTools()` is never invoked on its path. The popover
+  can no longer run scripts (e.g. a hallucinated `find_mvg_text.py`), create
+  files, or traverse the filesystem — it answers only from the selected passage
+  and current page. The single `shouldInjectMcpTools` helper funnels the
+  toolPolicy-none, CLI-provider, and no-MCP-manager cases into one no-tools path
+  so they cannot diverge. The chat sidebar's tool behavior is unchanged
+  (default `"auto"`).
+
 ## [0.18.0] - 2026-06-20
 ### Added
 - Synthesized chat/query answers now cite the **original source documents**

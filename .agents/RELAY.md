@@ -1,59 +1,36 @@
 # Cross-Agent Relay State
 
 ## Goal
-Prepare the next roadmap milestone after PR #42 merge:
-**Obsidian Agent UI/UX & Context Architecture Overhaul**.
+Ship v0.19.0 — Agent Prompt Architecture & Context Overhaul (roadmap item 2).
 
 ## Branch
-`release/v0.19.0` from `master` at merge commit
-`87906047696f69c23f5b04610797166ce4e18f6b`.
+`release/v0.19.0` from `master`.
 
 ## Current State
-- PR #42 (`feature/external-source-links`, v0.18.0) is merged into `master`.
-- Local `master` was fast-forwarded to `origin/master`.
-- `git push origin master` returned `Everything up-to-date`.
-- `USER_REPORT.md` is empty.
-- Active roadmap focus is item 2: Obsidian Agent UI/UX & Context Architecture
-  Overhaul.
+- **Implementation complete; full local CI green.**
+  - Plugin: tsc clean, 495 vitest tests pass.
+  - Backend: ruff + mypy clean, 985 passed / 6 skipped / 5 xfailed.
+  - Spec sync: all manifests + 4 spec titles at v0.19; `test_spec_sync` green.
+  - Testbed smoke: `VAULT_ROOT=testbed wiki status` OK.
+- Shipped in this release:
+  - `promptRegistry.ts` — shared, surface-aware prompt blocks (sidechat + popover).
+  - Popover MCP tool isolation via `streamChat({ toolPolicy: "none" })` +
+    `shouldInjectMcpTools` single decision point.
+  - Recency anchor (`<critical_invariants>`) appended last on both surfaces;
+    fixes long-session `Cmd+Shift+L` context decay.
+  - Also: explicit 0.x SemVer version-bump criteria added to AGENTS.md/CLAUDE.md.
+- Plan artifacts deleted on release (Step 11); Arena reasoning preserved in Git
+  history (commit `docs(plans): v0.19.0 agent prompt overhaul Arena plan`).
 
 ## Plan Reference
-**Plan authored — awaiting user approval (do NOT code yet).**
-- Master plan: `.agents/plans/19_agent_prompt_overhaul.md`
-- Evidence ledger: `.agents/plans/19_roadmap_evidence.md`
-- Arena debate: `.agents/plans/agent_prompt_overhaul_arena/` (00_problem,
-  01_proposal_lead_architect, 02_critique_redteam, 02_critique_domain_specialists)
-
-Briefing drafts (now synthesized into the plan):
-- `.agents/drafts/chat_context_decay.md`
-- `.agents/drafts/popover_tool_scope.md`
-- `.agents/drafts/prompt_architecture_refactoring.md`
+Deleted on ship — see Git history for the Arena debate + master plan + evidence
+ledger.
 
 ## Immediate Next Action
-**STOP — waiting for user approval of `19_agent_prompt_overhaul.md`.**
-On approval, execute phases P0→P5 (TDD + CI each phase): golden-master baseline +
-decay fixture → spec/docs (PLUGIN_SCHEMA + spec-title bump to v0.19) → registry
-module → behavior-preserving sidechat re-route → popover unify + tool-policy gate
-+ recency anchor → testbed smoke. Then bump to v0.19.0 and open the PR.
+Push `release/v0.19.0` and open the PR. Human reviews and merges. After merge,
+truncate this file to an IDLE stub.
 
----
-
-### Update (2026-06-20, Claude Code) — Versioning policy clarified
-
-User flagged that nearly every release bumped Minor (Y) regardless of content,
-and asked when Major (X) should ever move. Confirmed correct: Step 2 of the
-Universal Strict Workflow said only "decide Patch/Minor/Major" with **no
-criteria**, so Minor became the default. Concrete precedent: v0.17.0 was a pure
-`### Fixed` batch (clickable DAG wikilinks) and should have been `0.16.2`.
-
-Fix applied (rule edit, no code, no version bump): added explicit **0.x SemVer
-criteria** to Step 2 in BOTH canonical rule files, kept in sync per the Agent
-Rule Synchronization contract:
-- `AGENTS.md` (line ~179) and `CLAUDE.md` (line ~187).
-- Patch = backward-compatible fixes / perf / internal refactor, no new
-  capability or schema change (Fixed-only batch → Patch).
-- Minor = any new feature / CLI / MCP tool / plugin setting / config field /
-  schema change; in 0.x breaking changes also ride Minor.
-- Major = first stable 1.0 public release; deliberate product decision, X stays
-  `0` until the user calls it.
-
-No follow-up needed; main v0.19.0 goal above is unaffected.
+## Known Validation Gap
+The end-to-end LLM attention behavior (F1 recency fix) cannot be deterministically
+smoke-tested without a live model; covered at the unit level (prompt-assembly
+assertions) per the testbed-blocker policy.
