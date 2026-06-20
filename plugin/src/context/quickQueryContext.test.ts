@@ -4,6 +4,7 @@ import {
   buildPrimarySelectionBlock,
   buildQuickQueryMessages,
 } from "./quickQueryContext";
+import { boundaryConstraints, POPOVER_PROFILE } from "./promptRegistry";
 import type { ActiveContext } from "../types";
 
 describe("quick query context builder", () => {
@@ -125,7 +126,9 @@ describe("quick query context builder", () => {
       selectedText: "The fundamental matrix has rank 2.",
       question: "무슨 뜻이야?",
     });
-    expect(String(messages[1].content)).not.toContain("<resolved_cross_references>");
+    // The recency anchor mentions the tag name in prose, so assert the actual
+    // resolved block (identified by its closing tag) is not injected.
+    expect(String(messages[1].content)).not.toContain("</resolved_cross_references>");
   });
 
   it("teaches that positional words mean within-document and forbids filesystem listing (item 19)", () => {
@@ -138,7 +141,33 @@ describe("quick query context builder", () => {
     expect(system).toContain("위쪽");
     expect(system).toContain("WITHIN the current document");
     // No filesystem access → must not list/invent folder or file names.
-    expect(system).toContain("never list, browse, or invent folder names");
+    // (v0.19.0: boundary text now sourced from the shared prompt registry.)
+    expect(system).toContain("NO filesystem access");
+    expect(system).toContain("Never list, browse, create, or execute files");
+    expect(system).toContain("never invent folder, file, or directory names");
+  });
+
+  it("sources the popover boundary from the shared registry, not a hardcoded duplicate (v0.19.0)", () => {
+    const messages = buildQuickQueryMessages({
+      selectedText: "anything",
+      question: "what?",
+    });
+    const system = String(messages[0].content);
+    // The exact boundary string must match promptRegistry.boundaryConstraints
+    // for the popover profile, proving both surfaces share one source of truth.
+    expect(system).toContain(boundaryConstraints(POPOVER_PROFILE));
+  });
+
+  it("appends a read-only recency anchor LAST so its invariants get strongest attention (v0.19.0)", () => {
+    const messages = buildQuickQueryMessages({
+      selectedText: "Result 19.4",
+      question: "summarize",
+    });
+    const user = String(messages[1].content);
+    expect(user).toContain("<critical_invariants>");
+    expect(user).toContain("read-only: do NOT output any ai-agent-edit blocks");
+    // The anchor sits after the question (recency position).
+    expect(user.indexOf("<critical_invariants>")).toBeGreaterThan(user.indexOf("Question:"));
   });
 
   it("adds ephemeral popover follow-up turns without chat-sidebar history", () => {

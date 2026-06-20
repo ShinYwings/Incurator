@@ -168,6 +168,13 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   The popover has no filesystem access, so it never lists or invents folder/file
   names — asking for the "top of the document" summarizes that region's text
   instead of browsing the parent directory.
+- **Tool-isolated (v0.19.0)**: The popover is hard-isolated from MCP tools — even
+  if you have MCP servers (including Incurator) enabled for the chat sidebar, the
+  popover injects **zero** tools. It can never run a script, create a file, or
+  search outside the current selection and page. It answers only from the text
+  you selected plus the current page/outline. If you want full agent capabilities
+  (RAG over the knowledge base, file edits, MCP tools), use the chat sidebar
+  instead of the popover.
 - **Markdown rendering**: The answer renders as Markdown (math/LaTeX included)
   once the stream completes. Math is normalized before rendering — backtick-wrapped
   spans such as `` `$x^2$` `` are unwrapped to `$x^2$` so LaTeX renders as a
@@ -274,6 +281,14 @@ as background grounding: Markdown headings are sent as a compact outline, and
 PDF outline/window context is included when available. These outline/page blocks
 are supplementary; the selected text, line range, or crop remains the answer's
 target.
+
+**Localized focus in long sessions (v0.19.0):** In a long chat — especially after
+earlier whole-document edits — a freshly added `Cmd+Shift+L` selection used to be
+ignored, with the agent reverting to modifying the whole file. The plugin now
+appends a high-priority invariant block at the very end of each request (the
+position of strongest model attention) that re-asserts "answer only about the
+current selection; do not edit the whole document unless explicitly asked." So a
+localized question late in a long session is honored regardless of earlier turns.
 
 When an assistant answer contains a page or section link such as `#page=604`,
 `p.604`, `#section=A4.2`, or `§19.3`, clicking that link in the chat sidebar

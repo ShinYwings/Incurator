@@ -49,6 +49,7 @@ import {
   formatRagHits,
 } from "../context/providerContextFormat";
 import { buildBaseSystemPrompt, editableSelectionInstruction, getEditLoopContract, wrapLatestUserMessageForLanguageBridge } from "../context/systemPrompt";
+import { buildRecencyAnchor, SIDECHAT_PROFILE } from "../context/promptRegistry";
 import { parseEditLoopPhases, validateEditLoop, type EditLoopParse } from "../context/editLoopContract";
 import { detectLanguage } from "../context/languageBridge";
 import {
@@ -1342,10 +1343,22 @@ export class ChatSidebarView extends ItemView {
         }
       }
 
-      const textContent =
+      let textContent =
         msg === lastUserMessage
           ? wrapLatestUserMessageForLanguageBridge(msg.content, detectLanguage(msg.content))
           : msg.content;
+      if (msg === lastUserMessage) {
+        // Recency anchor (v0.19.0): re-assert the surface invariants at the very
+        // end of the payload so a localized selection (e.g. Cmd+Shift+L) asked
+        // about late in a long session is not overridden by earlier whole-file
+        // tasks. Appended to the latest user turn, which always survives the
+        // CONTINUITY_MESSAGE_LIMIT history slice.
+        textContent +=
+          "\n\n" +
+          buildRecencyAnchor(SIDECHAT_PROFILE, {
+            hasPrimarySelection: lastUserHasPrimaryContext,
+          });
+      }
       contentParts.push({ type: "text", text: textContent });
 
       llmMessages.push({

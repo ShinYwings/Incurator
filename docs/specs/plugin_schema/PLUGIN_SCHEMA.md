@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.18.0)
+# Incurator Plugin Schema & API Contract (v0.19.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -1445,6 +1445,41 @@ one-off questions about a selected passage. It is gated by
 - The query is issued through the standard `LLMClient` using the active
   provider/model. No prior chat-sidebar turns are appended.
 - An in-flight quick query is aborted when its popover is dismissed.
+
+### 13.5 Tool Isolation & Shared Prompt Registry (v0.19.0)
+
+The popover is a read-only reading assistant. It MUST NOT be able to run scripts,
+create files, or traverse the filesystem.
+
+- **Tool policy on the wire.** `LLMClient.streamChat(messages, onChunk, opts?)`
+  accepts an optional `{ toolPolicy: "auto" | "none" }`. The default is `"auto"`
+  (the chat sidebar's behavior, unchanged). The popover MUST call it with
+  `{ toolPolicy: "none" }`. The single decision helper `shouldInjectMcpTools(toolPolicy,
+  hasMcpManager, useCli)` governs injection: it returns `false` whenever
+  `toolPolicy === "none"`, when the provider routes through a CLI, or when no MCP
+  manager is present. When `toolPolicy === "none"` the request body carries **no**
+  `tools` array — `mcpManager.getAllTools()` is never invoked on that path. The
+  non-streaming `complete()` path already injects no tools.
+- **Shared prompt registry (`src/context/promptRegistry.ts`).** Security-critical
+  prompt blocks are defined once and consumed by both surfaces so they cannot
+  drift:
+  - `SurfaceProfile` = `{ surface: "sidechat" | "popover", toolPolicy, allowEdits }`,
+    with exported `SIDECHAT_PROFILE` (`auto` / edits-on) and `POPOVER_PROFILE`
+    (`none` / edits-off).
+  - `boundaryConstraints(profile)` — the canonical filesystem/tool boundary text.
+    For `toolPolicy: "none"` it declares zero tools and zero filesystem access;
+    for `"auto"` it limits access to the allowed roots (vault, configured Zotero
+    folder, Zotero library). The popover's system prompt sources its boundary line
+    from this function — it MUST NOT re-declare a hardcoded duplicate.
+  - `buildRecencyAnchor(profile, { hasPrimarySelection })` — a `<critical_invariants>`
+    block appended LAST in the payload (recency-effect position) that re-asserts:
+    answer only about `<primary_focus_selection>` (deferring to the existing
+    pointer / `<resolved_cross_references>` rule), the read-only edit ban for
+    surfaces with `allowEdits: false`, and the surface boundary. The chat sidebar
+    appends this to the latest user turn (which always survives the
+    `CONTINUITY_MESSAGE_LIMIT` history slice); the popover appends it after the
+    question. This fixes long-session attention decay where a localized
+    `Cmd+Shift+L` selection was overridden by earlier whole-document tasks.
 
 ---
 

@@ -6,6 +6,7 @@ import {
 } from "./providerContextFormat";
 import { contextPriorityInstruction } from "./chatContextPriority";
 import { resolveSelectionReferencesBlock } from "./pdfReferenceContext";
+import { boundaryConstraints, buildRecencyAnchor, POPOVER_PROFILE } from "./promptRegistry";
 import type { ActiveContext, LLMMessage } from "../types";
 
 export interface QuickQueryTurn {
@@ -140,11 +141,10 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
     "\"앞부분\", \"뒷부분\", \"상단\", \"하단\", \"top\", \"above\", \"beginning\", " +
     "\"start\", \"end\", \"below\", \"later in the document\") refer to positions " +
     "WITHIN the current document's content and outline, NOT to the file system " +
-    "or surrounding folders. You have no filesystem access: never list, browse, " +
-    "or invent folder names, file names, or directory contents. Answer only from " +
-    "the selection, the provided document content, and its outline; when asked " +
-    "about a region of the document, summarize or quote that region's actual " +
-    "content. Do not add " +
+    "or surrounding folders. " +
+    boundaryConstraints(POPOVER_PROFILE) +
+    " When asked about a region of the document, summarize or quote that " +
+    "region's actual content. Do not add " +
     "preamble, sign-off, or restate the question.\n\n<context_priority>\n" +
     contextPriorityInstruction(true) +
     "\n</context_priority>";
@@ -155,6 +155,9 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
     background ? `<quick_query_background>\n${background}\n</quick_query_background>` : "",
     followups,
     `Question: ${args.question}`,
+    // Recency anchor emitted LAST so the read-only / selection-focus invariants
+    // sit at the position of strongest LLM attention.
+    buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true }),
   ]
     .filter(Boolean)
     .join("\n\n");
