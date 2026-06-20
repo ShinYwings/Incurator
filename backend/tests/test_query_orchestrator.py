@@ -388,6 +388,39 @@ def test_explore_route_creates_insight_candidates(vault) -> None:
     assert "Insight candidates" in res.answer
 
 
+def test_explore_route_grounds_on_unified_context_pack(vault) -> None:
+    """§31.8 unification: explore is no longer a divergent retrieval pipeline.
+
+    It produces the same PACK-*/SNAP-* context-service trace as local/global, with
+    exactly one QTR root, an explore synthesis action, and intact retrieval
+    provenance (no second/legacy trace path).
+    """
+    paths, span = vault
+    res = QueryOrchestrator(paths, DynamicFakeClient()).run(
+        QueryRequest(question="what else connects residual learning?", mode="explore")
+    )
+    assert res.route == "explore"
+    assert res.trace_id.startswith("QTR-")
+    # Exactly one root trace — no parallel legacy explore trace.
+    traces = db.list_query_traces(paths.state_db)
+    assert [t["trace_id"] for t in traces] == [res.trace_id]
+
+    trace = db.get_query_trace(paths.state_db, res.trace_id)
+    assert trace is not None
+    context = trace["retrieval_trace"]["context_service"]
+    # Normalized pack contract: a PACK id and a frozen snapshot, identical in shape
+    # to the local/global routes.
+    assert context["pack_id"].startswith("PACK-")
+    assert context["snapshot"]["snapshot_id"].startswith("SNAP-")
+    # Retrieval evidence is preserved on the root trace (explore synthesis is a
+    # downstream consumer, it never erases the pack).
+    assert span in trace["source_span_ids"]
+    # The explore synthesis is recorded as an ordered child action on the same root.
+    explore_actions = [a for a in context["actions"] if a["action_type"] == "explore"]
+    assert len(explore_actions) == 1
+    assert explore_actions[0]["child_id"] in res.prompt_trace_ids
+
+
 def test_fetch_context_returns_evidence_without_synthesis(vault) -> None:
     paths, span = vault
     # No LLM synthesis should run; a client that errors on chat proves it.

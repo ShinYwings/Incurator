@@ -2624,21 +2624,35 @@ transport shapes, but retrieval and packing logic live in `ContextService`.
 
 ### 31.8 Route Admission And Rollback
 
-`ContextService` serves only Plan-A retrieval routes whose evidence is mapped into
-the progressive pack path: `local`, `source-section`, and `global`. `local` and
-`source-section` are always-available safe baselines. The `explore` route keeps
-its own divergent associative pipeline and is **not** admitted into the pack path;
-its ContextService migration is deferred.
+`ContextService` serves every Plan-A retrieval route whose evidence is mapped into
+the progressive pack path: `local`, `source-section`, `global`, and `explore`.
+`local` and `source-section` are always-available safe baselines.
+
+**Explore unification (v0.20.0).** The `explore` route no longer keeps a divergent
+associative pipeline. Its *grounding evidence* is built through the same
+`context_fetch` pack path as every other route — it produces a `PACK-*`/`SNAP-*`
+snapshot, enforces `limit_tokens` via the shared budget, and records ordered
+`CTXA-*` actions on the one root `QTR-*`. The behavior unique to explore —
+generating follow-up questions and provisional insight candidates — is a
+**synthesis-phase consumer** of that normalized pack (`QueryOrchestrator`), not a
+second retrieval path. `explore` is admitted into the pack path but is **not** a
+safe baseline: it may be disabled for rollback like `global`, in which case it
+degrades to `local`. Because explore is now a normal admitted route, the public
+`fetch_context` (MCP grounding) surface returns explore-route grounding for
+discovery-signal questions instead of silently degrading them to `local`; the
+follow-up/insight synthesis still only runs through the answer path, never through
+`fetch_context`.
 
 After the router chooses a route, ContextService applies an admission gate
 **before any retrieval runs**, so a rejected route never produces a second or
 divergent retrieval execution:
 
-- A route that is not in the admitted set (e.g. `explore`) degrades to `local`.
-- An admitted experimental route (currently `global`) may be independently
-  disabled for rollback via the `INCURATOR_DISABLED_ROUTES` environment variable
-  (comma-separated) or a programmatic `disabled_routes` argument; a disabled route
-  degrades to `local`. Safe baseline routes are never disabled.
+- A route that is not in the admitted set degrades to `local`.
+- An admitted experimental route (currently `global` and `explore`) may be
+  independently disabled for rollback via the `INCURATOR_DISABLED_ROUTES`
+  environment variable (comma-separated) or a programmatic `disabled_routes`
+  argument; a disabled route degrades to `local`. Safe baseline routes
+  (`local`, `source-section`) are never disabled.
 
 The decision is recorded as `route_admission` on both the response and the root
 trace's `context_service` payload: `{requested, served, admitted_routes,

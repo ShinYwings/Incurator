@@ -22,11 +22,13 @@ _DEFAULT_POLICY_PROJECT = "default"
 _DEFAULT_BUDGET_LIMIT = 16000
 _DEFAULT_RESERVED_TOKENS = 1000
 
-# Plan F P8 route admission (SYSTEM_BEHAVIOR §31.8). ContextService serves only the
-# Plan-A routes whose evidence is mapped into the progressive pack path. `explore`
-# keeps its own divergent pipeline (Plan F defers its migration) and is NOT admitted
-# here; any non-admitted or operationally disabled route degrades to `local`.
-_ADMITTED_ROUTES = frozenset({"local", "source-section", "global"})
+# Plan F P8 route admission (SYSTEM_BEHAVIOR §31.8). ContextService serves every
+# Plan-A route whose evidence is mapped into the progressive pack path. As of the
+# explore-unification work (v0.20.0) `explore` is admitted: its grounding evidence
+# flows through the shared pack path and its follow-up/insight generation is a
+# synthesis-phase consumer (QueryOrchestrator), not a divergent retrieval pipeline.
+# Any non-admitted or operationally disabled route degrades to `local`.
+_ADMITTED_ROUTES = frozenset({"local", "source-section", "global", "explore"})
 # Always-available safe baselines; never subject to rollback disabling.
 _SAFE_ROUTES = frozenset({"local", "source-section"})
 _DEGRADE_ROUTE = "local"

@@ -1125,7 +1125,8 @@ def test_context_feedback_new_insight_drops_empty_record_id(tmp_path: Path) -> N
 def test_admit_route_gates_experimental_and_disabled_routes() -> None:
     from curator import context_service as cs
 
-    # Plan-A-gated, pack-integrated routes pass through untouched.
+    # Plan-A-gated, pack-integrated routes pass through untouched — `explore` is
+    # now admitted into the ContextService pack path (SYSTEM_BEHAVIOR §31.8).
     assert cs._admit_route("local", "r", frozenset()) == ("local", "r", None)
     assert cs._admit_route("global", "r", frozenset()) == ("global", "r", None)
     assert cs._admit_route("source-section", "r", frozenset()) == (
@@ -1133,18 +1134,26 @@ def test_admit_route_gates_experimental_and_disabled_routes() -> None:
         "r",
         None,
     )
+    assert cs._admit_route("explore", "discovery", frozenset()) == (
+        "explore",
+        "discovery",
+        None,
+    )
 
-    # `explore` is not admitted into the ContextService pack path -> degrade to local.
-    served, reason, downgraded = cs._admit_route("explore", "discovery", frozenset())
+    # A genuinely unknown route still degrades to the local baseline.
+    served, reason, downgraded = cs._admit_route("teleport", "weird", frozenset())
     assert served == "local"
-    assert downgraded == "explore"
+    assert downgraded == "teleport"
     assert "not admitted" in reason
 
-    # An admitted experimental route can be rolled back independently -> degrade.
-    served, reason, downgraded = cs._admit_route("global", "broad", frozenset({"global"}))
-    assert served == "local"
-    assert downgraded == "global"
-    assert "disabled (rollback)" in reason
+    # Admitted experimental routes can be rolled back independently -> degrade.
+    for experimental in ("global", "explore"):
+        served, reason, downgraded = cs._admit_route(
+            experimental, "broad", frozenset({experimental})
+        )
+        assert served == "local"
+        assert downgraded == experimental
+        assert "disabled (rollback)" in reason
 
     # Safe baseline routes are never disabled even if named.
     assert cs._admit_route("local", "r", frozenset({"local"})) == ("local", "r", None)
@@ -1159,34 +1168,54 @@ def test_disabled_routes_parsed_from_env(monkeypatch) -> None:
     assert service.disabled_routes == frozenset({"global", "explore"})
 
 
-def test_context_fetch_does_not_admit_explore_route(tmp_path: Path, monkeypatch) -> None:
+def test_context_fetch_admits_explore_route(tmp_path: Path, monkeypatch) -> None:
     from curator import context_service as cs
     from curator.retrieval import router
 
     paths, span_id = _seed_context_vault(tmp_path)
     monkeypatch.setattr(router, "choose_route", lambda *a, **k: ("explore", "discovery signal"))
 
-    # Query matches the seeded entity so the degraded local route still retrieves it.
     response = cs.ContextService(paths).context_fetch(
         QueryRequest(question="residual connection", mode="auto")
     )
 
-    # explore is rejected before retrieval; the served route is the safe local baseline.
+    # explore now grounds on the unified pack path (SYSTEM_BEHAVIOR §31.8): it is
+    # served as explore, not degraded, and exposed in the admitted set.
     assert response["ok"] is True
-    assert response["route"] == "local"
+    assert response["route"] == "explore"
     admission = response["route_admission"]
     assert admission["requested"] == "explore"
-    assert admission["served"] == "local"
-    assert admission["downgraded"] is True
-    assert "explore" not in admission["admitted_routes"]
+    assert admission["served"] == "explore"
+    assert admission["downgraded"] is False
+    assert "explore" in admission["admitted_routes"]
 
-    # No second retrieval / no second root: exactly one RTR child and one QTR trace.
+    # Still exactly one RTR retrieval execution under the one QTR root — admission
+    # changes which route runs, never how many.
     retrieval_actions = [a for a in response["actions"] if a["action_type"] == "retrieval"]
     assert len(retrieval_actions) == 1
     assert retrieval_actions[0]["child_id"] == response["retrieval_execution_id"]
     traces = db.list_query_traces(paths.state_db)
     assert [t["trace_id"] for t in traces] == [response["trace_id"]]
-    # The served local pack still resolves real evidence.
+    # The explore pack resolves real evidence through the normalized path.
+    assert span_id in response["source_span_ids"]
+
+
+def test_context_fetch_can_disable_explore_route_for_rollback(tmp_path: Path, monkeypatch) -> None:
+    from curator import context_service as cs
+    from curator.retrieval import router
+
+    paths, span_id = _seed_context_vault(tmp_path)
+    monkeypatch.setattr(router, "choose_route", lambda *a, **k: ("explore", "discovery signal"))
+
+    # explore is admitted but NOT a safe baseline: it can be rolled back to local.
+    service = cs.ContextService(paths, disabled_routes={"explore"})
+    response = service.context_fetch(QueryRequest(question="residual connection", mode="auto"))
+
+    assert response["route"] == "local"
+    admission = response["route_admission"]
+    assert admission["requested"] == "explore"
+    assert admission["served"] == "local"
+    assert admission["downgraded"] is True
     assert span_id in response["source_span_ids"]
 
 

@@ -439,7 +439,11 @@ wiki query → route → typed expansion + FTS5/vector/RRF/rerank + DB graph tra
 `local` (entity/fact), `global` (community reports), `explore` (memory paths +
 insight candidates), `source-section` (one source), or `auto` (orchestrator
 selection). Without `--route`, `auto` runs. The same routing is available to
-agents via MCP `curator_query` / `curator_explore`.
+agents via MCP `curator_query` / `curator_explore`. As of v0.20.0 every route —
+explore included — grounds on the unified `ContextService` pack (`PACK-*`/`SNAP-*`
+snapshot + shared token budget); explore's follow-up/insight generation runs as a
+synthesis step over that pack rather than a separate retrieval path
+(SYSTEM_BEHAVIOR §31.8).
 
 ### 9.2 Backprop & Insight Lifecycle (Backward Pass)
 
