@@ -117,6 +117,6 @@ No blocked items currently tracked.
 ## 📌 Current Focus & Active Milestone
 
 - **Roadmap state**: Item 2 shipped as v0.19.0 on `release/v0.19.0`; PR #43 merged.
-- **Active Milestone**: None (System IDLE).
-- **Next actionable item**: Move to item 3 (RAG Post-Stabilization Hardening) when initialized.
+- **Active Milestone**: Item 3 (RAG Post-Stabilization Hardening).
+- **Next actionable item**: Executors must read `.agents/drafts/batch_1_to_3_audit/` to create `PLAN_TEMPLATE.md`, then execute TDD.
 - **Priority order**: RAG hardening (item 3), then Chat Session Context Compaction (item 4).
