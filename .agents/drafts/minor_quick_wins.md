@@ -11,15 +11,11 @@ These are small improvement items independent of the major backend overhauls (Kn
   `00_System/Agent Diffs/` cleanup, grew substantial and were promoted to a
   dedicated milestone: `.agents/drafts/diff_viewer_plugin.md`.
 
-### Convert-to-LaTeX Fast/Light Model Option (triaged 2026-06-11)
-- **Current Status**: The right-click "Convert to LaTeX" PDF feature reuses the
-  main model. Simple conversion doesn't need the heavy model.
-- **Requirements**: Add a settings option to pick a separate "Fast/Light model"
-  for LaTeX conversion. Recommended Ollama default `qwen2.5:0.5b`; investigate
-  whether an even smaller usable model exists.
-- **Note**: Architecturally this is a "task-specialized light model" setting.
-  Implement the config plumbing once and reuse it for other fast/cheap model
-  surfaces; this entry is the quick plugin-settings surface for it.
+### Convert-to-LaTeX Fast/Light Model Option — ✅ SHIPPED v0.21.0
+- Added the **Convert-to-LaTeX model (fast/light)** setting (`latexModel`,
+  placeholder `qwen2.5:0.5b`). `LLMClient.complete()` gained an optional
+  `opts.model`; the call site overrides only for Ollama, else falls back to the
+  main model. See CHANGELOG v0.21.0.
 
 ### `[[wikilink]]` Architecture Validation — FIX/VALIDATION MOVED TO ROADMAP ITEM 5
 - **Current Status**: Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
@@ -35,16 +31,8 @@ These are small improvement items independent of the major backend overhauls (Kn
   - Design discussion needed: Which web search API (Brave, SerpAPI, etc.) to integrate with.
   - Review `backend/src/curator/llm.py` or a new `web_search.py` module.
 
-### Zotero Profile/Item Checkbox Ordering
-- **Current Status**: Zotero import/search UI has recent-item support in the
-  plugin settings model, but the user-facing checkbox/list ordering must be
-  verified and fixed where needed.
-- **Requirement**: When listing Zotero profiles or importable Zotero items with
-  checkboxes, sort the list by most recently accessed/imported first so the
-  user's current working papers appear at the top.
-- **Execution Plan**:
-  - Inspect `plugin/src/ui/zoteroWizardModal.ts` and related tests for
-    `recentZoteroItems` / profile ordering behavior.
-  - Ensure empty-query suggestions and checkbox lists preserve recent-first
-    ordering without dropping non-recent results.
-  - Add or update plugin tests for recent-first checkbox/list rendering.
+### Zotero Profile/Item Checkbox Ordering — ✅ SHIPPED v0.21.0
+- Items were already recent-first via `prioritizeZoteroItems`. Added
+  `ZoteroImportProfile.lastUsedAt` + `sortProfilesByRecency`; the wizard now
+  auto-loads the most-recently-used profile and orders the Import Profile
+  dropdown recent-first. See CHANGELOG v0.21.0.

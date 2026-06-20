@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.20.0)
+# Incurator Plugin Schema & API Contract (v0.21.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 

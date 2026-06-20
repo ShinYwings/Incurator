@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.20.0)
+# Incurator - System Behavior (v0.21.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -2638,7 +2638,7 @@ transport shapes, but retrieval and packing logic live in `ContextService`.
 the progressive pack path: `local`, `source-section`, `global`, and `explore`.
 `local` and `source-section` are always-available safe baselines.
 
-**Explore unification (v0.20.0).** The `explore` route no longer keeps a divergent
+**Explore unification (v0.21.0).** The `explore` route no longer keeps a divergent
 associative pipeline. Its *grounding evidence* is built through the same
 `context_fetch` pack path as every other route — it produces a `PACK-*`/`SNAP-*`
 snapshot, enforces `limit_tokens` via the shared budget, and records ordered
