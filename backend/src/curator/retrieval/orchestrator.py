@@ -71,13 +71,15 @@ class QueryOrchestrator:
 
     def run(self, request: QueryRequest) -> QueryResultV031:
         started = time.monotonic()
-        spec_hash = _resolve_policy(request.workspace_path)[1]
         from ..context_service import ContextService
 
         # Every route — including `explore` — grounds on the unified pack path
         # (SYSTEM_BEHAVIOR §31.8). The synthesis phase below branches on the
         # *served* route; explore is a pack consumer, not a divergent pipeline.
         context_pack = ContextService(self.paths, self.client).context_fetch(request)
+        # Reuse the policy hash context_fetch already resolved (in the snapshot)
+        # instead of re-parsing curate.yml a second time.
+        spec_hash = str(context_pack["snapshot"]["policy_hash"])
         result = QueryResultV031(
             question=request.question,
             route=context_pack["route"],
@@ -143,12 +145,14 @@ class QueryOrchestrator:
             if hasattr(run.parsed, "source_span_ids"):
                 result.source_span_ids = getattr(run.parsed, "source_span_ids") or []
         else:
+            # Synthesis failed, but the evidence WAS retrieved and packed by
+            # ContextService. Preserve the retrieval provenance exactly as the
+            # explore route does — clearing it here would overwrite the root QTR-*
+            # trace during _update_context_trace_after_synthesis and misclassify a
+            # synthesis failure as a retrieval failure (recall=0). The synthesis
+            # failure is recorded separately via the synthesis action's
+            # synthesis_status="failed" (SYSTEM_BEHAVIOR §31.8).
             result.error = "answer synthesis failed validation"
-            result.source_span_ids = []
-            result.community_report_ids = []
-            result.synthesis_node_ids = []
-            result.memory_path_ids = []
-            result.insight_candidate_ids = []
             result.warnings.extend(run.validation.errors)
 
     def _update_context_trace_after_synthesis(

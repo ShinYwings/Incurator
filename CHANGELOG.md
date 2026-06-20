@@ -5,6 +5,25 @@ All notable changes to Incurator are documented here.
 ---
 
 ## [0.20.0] - 2026-06-20
+### Fixed
+- **`context_expand` token-budget inflation.** Expansion now budgets against the
+  *cumulative* pack — the tokens already consumed by the pack's selected items seed
+  the budget, so a newly expanded item is admitted only if it fits within
+  `limit_tokens` alongside everything already selected. Previously each expansion
+  was granted a fresh full budget, so a near-full pack plus an expansion could
+  overflow the model context window. Items that no longer fit return as
+  `expansion_refused` (increase `limit_tokens` or refetch).
+- **Retrieval provenance erased on answer-synthesis failure.** A failed
+  `query_local_answer`/`query_global_reduce` validation no longer clears the
+  result/trace `source_span_ids` (and sibling provenance arrays); the retrieved
+  evidence is preserved exactly as the `explore` route already preserves it, so a
+  synthesis failure is no longer misclassified as a recall=0 retrieval failure. The
+  answer-cited spans on the `synthesis_status=failed` action remain empty.
+- **Token estimate charged literal `"None"`.** A payload whose `detail` is JSON
+  `null` is now costed as an empty string (1 token) instead of the 4-char `"None"`.
+- Dropped a redundant `curate.yml` re-parse in `QueryOrchestrator.run` — the policy
+  hash is now reused from the snapshot `context_fetch` already resolved.
+
 ### Changed
 - **Explore route unified through `ContextService` (SYSTEM_BEHAVIOR §31.8).** The
   `explore` route no longer runs a divergent associative retrieval pipeline. It now

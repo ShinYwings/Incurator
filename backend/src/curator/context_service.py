@@ -468,19 +468,32 @@ def _item_payload(
     }
 
 
+def _payload_token_cost(item: dict[str, Any]) -> int:
+    return int(item.get("token_cost", _estimate_tokens(str(item.get("detail") or ""))))
+
+
 def _budget_payloads(
     items: list[dict[str, Any]],
     *,
     limit_tokens: int,
+    already_used: int = 0,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int | str]]:
+    """Pack ``items`` into the remaining budget.
+
+    ``already_used`` is the token cost already consumed by items selected in prior
+    operations on the same pack (e.g. a ``context_fetch`` selection that a later
+    ``context_expand`` adds to). Seeding ``used`` with it keeps the *cumulative*
+    selected set within ``limit_tokens`` instead of granting each expansion a fresh
+    full budget, which would let the combined pack overflow the LLM window.
+    """
     limit = max(0, limit_tokens)
     reserved = min(_DEFAULT_RESERVED_TOKENS, max(0, limit // 4))
     available = max(0, limit - reserved)
     selected: list[dict[str, Any]] = []
     omitted: list[dict[str, Any]] = []
-    used = 0
+    used = max(0, already_used)
     for item in items:
-        cost = int(item.get("token_cost", _estimate_tokens(str(item.get("detail", "")))))
+        cost = _payload_token_cost(item)
         if used + cost <= available:
             selected.append(item)
             used += cost
@@ -758,7 +771,10 @@ class ContextService:
                 item.get("expansion_handle") == handle for item in selected_candidates
             )
         ]
-        selected, omitted, budget = _budget_payloads(matched, limit_tokens=limit_tokens)
+        already_used = sum(_payload_token_cost(item) for item in selected_candidates)
+        selected, omitted, budget = _budget_payloads(
+            matched, limit_tokens=limit_tokens, already_used=already_used
+        )
         if not selected and not omitted:
             warning = (
                 "expansion handles already selected"

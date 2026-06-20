@@ -217,7 +217,7 @@ def test_successful_answer_records_only_parsed_cited_spans(vault) -> None:
     assert result.source_span_ids != context_pack["source_span_ids"]
 
 
-def test_failed_answer_validation_clears_answer_provenance(vault) -> None:
+def test_failed_answer_synthesis_preserves_retrieval_provenance(vault) -> None:
     paths, span = vault
     db.upsert_synthesis_node(
         paths.state_db,
@@ -234,18 +234,19 @@ def test_failed_answer_validation_clears_answer_provenance(vault) -> None:
 
     assert not res.ok
     assert res.error == "answer synthesis failed validation"
-    assert res.source_span_ids == []
-    assert res.community_report_ids == []
-    assert res.synthesis_node_ids == []
-    assert res.memory_path_ids == []
-    assert res.insight_candidate_ids == []
     assert any("unknown source span ids" in warning for warning in res.warnings)
+
+    # A synthesis failure must NOT erase the retrieval provenance — the evidence
+    # was retrieved and packed. Clearing it would misclassify the failure as a
+    # recall=0 retrieval failure and overwrite the root trace. Mirrors the explore
+    # route's preserve-on-failure behavior (SYSTEM_BEHAVIOR §31.8).
+    assert span in res.source_span_ids
+    assert res.synthesis_node_ids != []
 
     trace = db.get_query_trace(paths.state_db, res.trace_id)
     assert trace is not None
-    assert trace["source_span_ids"] == []
-    assert trace["community_report_ids"] == []
-    assert trace["synthesis_node_ids"] == []
+    assert span in trace["source_span_ids"]
+    assert trace["synthesis_node_ids"] != []
     context_trace = trace["retrieval_trace"]["context_service"]
     selected_items = context_trace["selected_items"]
     assert span in [
@@ -255,7 +256,8 @@ def test_failed_answer_validation_clears_answer_provenance(vault) -> None:
     ]
     assert any(item.get("kind") == "community_report" for item in selected_items)
     assert any(item.get("kind") == "synthesis" for item in selected_items)
-    assert trace["insight_candidate_ids"] == []
+    # The synthesis action still records the failure; the ANSWER cited nothing
+    # (cited_source_span_ids empty) even though retrieval provenance is preserved.
     actions = context_trace["actions"]
     synthesis_action = actions[-1]
     assert synthesis_action["action_type"] == "synthesis"

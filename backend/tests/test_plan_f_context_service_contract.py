@@ -633,17 +633,18 @@ def test_context_expand_consumes_successful_handles_once(tmp_path: Path) -> None
     )
     handle = pack["next"][0]["handle"]
 
+    # A budget large enough for the cumulative pack so the first expansion lands.
     first = service.context_expand(
         pack_id=pack["pack_id"],
         handles=[handle],
         expected_snapshot_id=pack["snapshot"]["snapshot_id"],
-        limit_tokens=20,
+        limit_tokens=400,
     )
     second = service.context_expand(
         pack_id=pack["pack_id"],
         handles=[handle],
         expected_snapshot_id=pack["snapshot"]["snapshot_id"],
-        limit_tokens=20,
+        limit_tokens=400,
     )
 
     assert first["ok"] is True
@@ -724,11 +725,13 @@ def test_context_expand_returns_bound_items_and_appends_child_action(tmp_path: P
     )
     handle = pack["next"][0]["handle"]
 
+    # Expand with a larger budget so the cumulative pack (already-selected fetch
+    # items + this expansion) fits — the realistic `increase_limit_tokens` retry.
     response = service.context_expand(
         pack_id=pack["pack_id"],
         handles=[handle],
         expected_snapshot_id=pack["snapshot"]["snapshot_id"],
-        limit_tokens=20,
+        limit_tokens=400,
     )
 
     assert response["ok"] is True
@@ -746,6 +749,59 @@ def test_context_expand_returns_bound_items_and_appends_child_action(tmp_path: P
     actions = trace["retrieval_trace"]["context_service"]["actions"]
     assert actions[-1]["action_type"] == "expansion"
     assert actions[-1]["child_id"] == response["pack_id"]
+
+
+def test_budget_payloads_accounts_for_already_used_tokens() -> None:
+    from curator import context_service as cs
+
+    items = [{"token_cost": 100, "expansion_handle": "EXP-a"}]
+    # Fresh budget: the 100-token item fits under a 200-limit (minus reserve).
+    selected, omitted, budget = cs._budget_payloads(items, limit_tokens=200)
+    assert [i["expansion_handle"] for i in selected] == ["EXP-a"]
+    assert omitted == []
+
+    # With the budget already (nearly) consumed by prior selections, the SAME item
+    # no longer fits — it is omitted instead of granted a fresh full budget.
+    selected2, omitted2, budget2 = cs._budget_payloads(
+        items, limit_tokens=200, already_used=190
+    )
+    assert selected2 == []
+    assert [i["expansion_handle"] for i in omitted2] == ["EXP-a"]
+    assert budget2["used_tokens"] == 190  # seeded, not reset to 0
+
+
+def test_budget_payloads_handles_null_detail_without_charging_literal_none() -> None:
+    from curator import context_service as cs
+
+    # detail explicitly None (valid JSON) must cost 1 token, not the 4-char "None".
+    assert cs._payload_token_cost({"detail": None}) == 1
+    assert cs._payload_token_cost({"detail": ""}) == 1
+
+
+def test_context_expand_keeps_cumulative_pack_within_budget(tmp_path: Path) -> None:
+    from curator.context_service import ContextService
+
+    paths = _seed_budget_vault(tmp_path)
+    service = ContextService(paths)
+    pack = service.context_fetch(
+        QueryRequest(question="context budget evidence", mode="local"),
+        limit_tokens=20,
+    )
+    already_used = pack["budget"]["used_tokens"]
+    handle = pack["next"][0]["handle"]
+
+    response = service.context_expand(
+        pack_id=pack["pack_id"],
+        handles=[handle],
+        expected_snapshot_id=pack["snapshot"]["snapshot_id"],
+        limit_tokens=20,
+    )
+
+    # The expansion budget is seeded with the fetch's already-used tokens, so the
+    # cumulative selected set never exceeds limit_tokens (no fresh full budget).
+    assert response["ok"] is True
+    assert response["budget"]["used_tokens"] >= already_used
+    assert response["budget"]["used_tokens"] <= response["budget"]["limit_tokens"]
 
 
 def test_context_expand_finds_pack_without_recent_trace_scan(tmp_path: Path, monkeypatch) -> None:
