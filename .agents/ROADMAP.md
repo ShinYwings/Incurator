@@ -33,25 +33,35 @@ Source of Truth to identify unresolved items.
    - Centralized prompt registry, componentized generation, and dynamic anchoring.
    - Detailed analysis: `.agents/drafts/prompt_architecture_refactoring.md`
 
-3. **[Minor Update] Web Search Integration**
-   - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
-   - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
-   - Detailed analysis: `.agents/drafts/minor_quick_wins.md` (Web Search Section)
+3. **[Major Update] Diff Viewer UI/UX**
+   - UI/UX work including `ai-agent-edit` SEARCH-match failures, edit-scope bug, immediate-diff rendering, and hunk navigation.
+   - Cleanup of `00_System/Agent Diffs/`.
+   - Detailed analysis: `.agents/drafts/diff_viewer_plugin.md`
 
-4. **[Minor Update] Chat Session Context Compaction**
+4. **[Validation] `[[wikilink]]` Architecture Validation**
+   - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
+   - Validate `backend/src/curator/page_writer.py` and `sync.py` backlink parsing logic against `[[wikilink]]` syntax.
+   - Detailed analysis: `.agents/drafts/minor_quick_wins.md` (Wikilink section)
+
+5. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-5. **[Minor Update] Vault Storage Governance & Quota Visibility**
+6. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-6. **[Major Update] Native PDF Annotation & Asset System**
+7. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
+
+8. **[Minor Update] Web Search Integration**
+   - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
+   - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
+   - Detailed analysis: `.agents/drafts/minor_quick_wins.md` (Web Search Section)
 
 ---
 
