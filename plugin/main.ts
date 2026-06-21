@@ -874,14 +874,7 @@ export default class ObsidianAIAgent extends Plugin {
   }
 
   private formatPdfExtractionFailure(error: string): string {
-    const detail = this.settings.provider === "ollama"
-      ? error
-      : error
-          .replace(/(?:Run|Pull it with|After starting it run)[^\n]*ollama pull[^\n]*/gi, "")
-          .replace(/ollama pull\s+\S+/gi, "")
-          .replace(/\s+/g, " ")
-          .trim();
-    return `PDF extraction model failed${detail ? `: ${detail}` : ""}. Attached crop fallback.`;
+    return `PDF extraction model failed${error ? `: ${error}` : ""}. Attached crop fallback.`;
   }
 
   async readRuntimeJson(name: "status" | "jobs" | "sources"): Promise<any | null> {

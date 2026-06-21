@@ -121,6 +121,10 @@ def normalize_vision_latex(text: str) -> str:
         out.append(line)
     result = "\n".join(out).strip()
     # Unwrap a single fully-$$-wrapped block if the whole thing is one wrapper.
+    if result.startswith("$$") and result.endswith("$$"):
+        inner = result[2:-2].strip()
+        if "$$" not in inner:
+            return inner
     return result
 
 

@@ -116,3 +116,14 @@ def test_normalize_strips_fences_and_cli_noise() -> None:
     # Valid LaTeX (including display $$) is preserved.
     assert "E = mc^2" in out
     assert "q_{47} = \\sqrt{1337}" in out
+
+
+def test_normalize_unwraps_single_dollar_dollar_wrapper() -> None:
+    # A single fully-$$-wrapped block is unwrapped to avoid nested math delimiters.
+    assert vision.normalize_vision_latex("$$E = mc^2$$") == "E = mc^2"
+    assert vision.normalize_vision_latex("  $$  x + y  $$  ") == "x + y"
+    # Mixed content with internal $$ is NOT unwrapped (would break the math).
+    mixed = "$$a = 1$$ and $$b = 2$$"
+    assert vision.normalize_vision_latex(mixed) == mixed
+    # Multi-line wrapped block is unwrapped.
+    assert vision.normalize_vision_latex("$$\nF = ma\n$$") == "F = ma"

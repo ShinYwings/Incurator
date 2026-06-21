@@ -340,12 +340,13 @@ describe("chat sidebar context chip source contract", () => {
     expect(snipBlock).not.toContain('getActivePdfContext("text")');
   });
 
-  it("keeps the PDF extraction failure pull hint scoped to active Ollama provider", () => {
+  it("passes through PDF extraction failure messages without provider-coupled stripping", () => {
     const dir = fileURLToPath(new URL("../../", import.meta.url));
     const mainSource = readFileSync(join(dir, "main.ts"), "utf8");
 
-    expect(mainSource).toContain('this.settings.provider === "ollama"');
-    expect(mainSource).toContain(".replace(/ollama pull\\s+\\S+/gi, \"\")");
+    // The method must NOT inspect this.settings.provider to decide what to strip.
+    expect(mainSource).not.toContain('this.settings.provider === "ollama"');
+    expect(mainSource).not.toContain(".replace(/ollama pull\\s+\\S+/gi, \"\")");
     expect(mainSource).toContain("PDF extraction model failed");
   });
 
