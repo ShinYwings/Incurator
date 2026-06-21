@@ -1923,8 +1923,20 @@ export class LLMClient {
     return this.wrapWithOsSandbox(base, p);
   }
 
+  /**
+   * Device-local cache base for plugin CLI byproducts (codex output, generated MCP
+   * config, temp images). Lives in the project's gitignored `.cache/` — matching the
+   * backend's `<repo>/.cache/vision_render` — NOT under `~/`. Falls back to the OS
+   * temp dir when the repo path isn't configured. (Synced config stays in the CLI
+   * tools' own dirs / the plugin data dir; this is cache only.)
+   */
+  private cliCacheBase(): string {
+    const repo = (this.settings.incuratorRepoPath || "").trim().replace(/^~(?=$|\/)/, homedir());
+    return repo ? join(repo, ".cache", "cli") : join(tmpdir(), "incurator-cli");
+  }
+
   private getCliCwd(): string {
-    const dir = join(homedir(), ".incurator-obsidian-agent-cli");
+    const dir = this.cliCacheBase();
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
@@ -2118,7 +2130,7 @@ export class LLMClient {
         if (part.type === "text") return part.text;
         
         try {
-          const tmpDir = join(homedir(), ".incurator", "tmp_images");
+          const tmpDir = join(this.getCliCwd(), "tmp_images");
           if (!existsSync(tmpDir)) {
             mkdirSync(tmpDir, { recursive: true });
           }

@@ -280,4 +280,12 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
     expect(source).toContain("if (!p) continue;");
     expect(source).toContain("realpathSync");
   });
+
+  it("stores device-local CLI caches in the project .cache/, not ~/.incurator", () => {
+    // getCliCwd() now resolves to <repo>/.cache/cli (or the OS tmpdir), never ~/.
+    expect(source).toContain('join(repo, ".cache", "cli")');
+    expect(source).toContain('join(tmpdir(), "incurator-cli")');
+    expect(source).not.toContain('join(homedir(), ".incurator-obsidian-agent-cli")');
+    expect(source).not.toContain('join(homedir(), ".incurator", "tmp_images")');
+  });
 });
