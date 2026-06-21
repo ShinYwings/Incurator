@@ -72,7 +72,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.22.0 implemented on `feature/chat-decay-quick-wins` (PR #45), in review.
-- **Active Milestone**: none (v0.22.0 shipped to PR; awaiting merge).
-- **Next actionable item**: Prompt Architecture Overhaul (priority 1) after merge.
+- **Roadmap state**: v0.22.0 merged to master.
+- **Active Milestone**: None (System IDLE).
+- **Next actionable item**: Prompt Architecture Overhaul (priority 1).
 - **Priority order**: Prompt Architecture Overhaul, then Web Search Integration.
