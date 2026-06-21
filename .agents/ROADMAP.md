@@ -24,26 +24,31 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-1. **[Major Update] Prompt Architecture Overhaul & Refactoring**
+1. **[Bugfix / Architecture] Popover Tool Execution & Sandbox Scope Violation**
+   - The popover feature currently injects global MCP tools, leading to unexpected file-system traversal.
+   - Refactor `quickQueryContext.ts` to share `systemPrompt.ts` rules and implement a `disableTools` flag in `llmClient.ts`.
+   - Detailed analysis: `.agents/drafts/popover_tool_scope.md`
+
+2. **[Major Update] Prompt Architecture Overhaul & Refactoring**
    - Centralized prompt registry, componentized generation, and dynamic anchoring.
    - Detailed analysis: `.agents/drafts/prompt_architecture_refactoring.md`
 
-2. **[Minor Update] Web Search Integration**
+3. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md` (Web Search Section)
 
-3. **[Minor Update] Chat Session Context Compaction**
+4. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-4. **[Minor Update] Vault Storage Governance & Quota Visibility**
+5. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-5. **[Major Update] Native PDF Annotation & Asset System**
+6. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
@@ -72,7 +77,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.22.0 merged to master.
-- **Active Milestone**: None (System IDLE).
-- **Next actionable item**: Prompt Architecture Overhaul (priority 1).
-- **Priority order**: Prompt Architecture Overhaul, then Web Search Integration.
+- **Roadmap state**: Transitioning to Popover Tool Execution Bugfix.
+- **Active Milestone**: [Bugfix / Architecture] Popover Tool Execution & Sandbox Scope Violation.
+- **Next actionable item**: Read `.agents/drafts/popover_tool_scope.md` and create a `PLAN_TEMPLATE.md` in `.agents/plans/` to fix the tool injection boundary.
+- **Priority order**: Popover Tool Scope bug, then Prompt Architecture Overhaul.
