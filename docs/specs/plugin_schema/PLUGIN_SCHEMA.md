@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.21.0)
+# Incurator Plugin Schema & API Contract (v0.22.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -406,7 +406,7 @@ Rules:
 Saved Zotero import profiles define the note template, output folder,
 subfolder, filename, asset folder, and bibliography style used by the import
 wizard. Each profile carries an optional `lastUsedAt` epoch-ms timestamp
-(v0.21.0), stamped when the profile is used for an import or when a new profile is
+(v0.22.0), stamped when the profile is used for an import or when a new profile is
 created. The wizard presents profiles **most-recently-used first**: the Import
 Profile dropdown is ordered by `lastUsedAt` descending (profiles never used sort
 last, preserving their insertion order; ties stable), and the wizard opens with
@@ -867,7 +867,7 @@ Rules:
   to fix, rewrite, polish, translate, or otherwise modify the selected text, the
   assistant must propose an `ai-agent-edit` SEARCH/REPLACE block. Ordinary
   questions about selected text must answer normally without proposing edits.
-- **Localized-question edit-affordance suppression (v0.21.0).** A `Cmd+Shift+L`
+- **Localized-question edit-affordance suppression (v0.22.0).** A `Cmd+Shift+L`
   line-range (and any other primary-focus selection) is BOTH a primary-context
   ref and an editable ref, which previously injected the `<editable_selection>`
   affordance and the `<edit_review_loop>` contract into the very same payload that
@@ -973,7 +973,7 @@ cannot silently jump from tool selection to file mutation ("vibe-coding").
   a mutation: the latest message is a Markdown edit request, OR an editable
   line-range selection exists, OR an open Markdown edit target exists, OR the
   prior assistant turn already opened an edit loop (multi-turn edit continuation).
-  **Override (v0.21.0):** none of these conditions apply when the latest turn is a
+  **Override (v0.22.0):** none of these conditions apply when the latest turn is a
   localized question (a primary-focus selection present and the turn is not a
   Markdown edit request). In that case `shouldSuppressEditAffordances` is true and
   the contract block is NOT appended, regardless of `priorAnswerOpenedEditLoop`.

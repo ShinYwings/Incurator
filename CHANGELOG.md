@@ -4,7 +4,24 @@ All notable changes to Incurator are documented here.
 
 ---
 
-## [0.21.0] - 2026-06-21
+## [0.22.0] - 2026-06-21
+### Added
+- **Dedicated PDF-extraction vision models (`vision_model` / `latex_extract_model`).**
+  PDF text-layer extraction (pymupdf4llm) cannot reliably reconstruct LaTeX for math.
+  You can now elect a **vision model**, configured in the **Dashboard → LLM Provider**
+  card and decoupled from the main chat model, to read rendered pages. When
+  `llm.vision_model` is set, every `add source` PDF page is rendered (PyMuPDF
+  `get_pixmap`, bounded DPI + longest-edge cap) and transcribed to Markdown + LaTeX,
+  becoming L1 with `parser_used="vlm"`. The pymupdf4llm text is retained per page as
+  `parser_text`; a transient per-page VLM failure falls back to it (never aborts).
+  A `vision_max_pages_per_run` rail bounds a single run. Cloud vision runs on your
+  existing **CLI subscription** (Ollama in-memory, or the `claude`/`agy`/`codex` CLIs
+  reading a temp PNG under `.cache/vision_render/` that is always cleaned up) — **no
+  provider API keys**. Per-page transcriptions are cached by
+  `(rendered-image hash, model)` so a Dashboard model switch invalidates stale L1.
+  A second light slot, `llm.latex_extract_model` (empty → falls back to
+  `vision_model`), is reserved for interactive region OCR. (SYSTEM_BEHAVIOR §26.2a.)
+
 ### Fixed
 - **Chat context decay on `Cmd+Shift+L` localized questions.** In long, edit-heavy
   sessions, a freshly referenced line range asked about as a *question* could be
@@ -17,17 +34,6 @@ All notable changes to Incurator are documented here.
   request), so the recency anchor is unopposed. The decision is unconditional with
   respect to prior turns — a fresh question after an earlier whole-document edit is
   still honored. Genuine edit requests keep the full edit/diff flow.
-
-### Added
-- **Convert-to-LaTeX fast/light model setting.** The PDF right-click "Convert to
-  LaTeX" action no longer has to use the heavy chat model. A new
-  **Convert-to-LaTeX model (fast/light)** setting (recommended Ollama default
-  `qwen2.5:0.5b`) runs that simple transcription on a small model. Empty = reuse the
-  main model. The override applies only when set and the provider is Ollama; other
-  providers fall back to the main model. `LLMClient.complete()` gained an optional
-  `opts.model` to carry the per-call override (backward compatible — omitting it
-  uses the configured model). A failed conversion now names the resolved model with
-  an `ollama pull` hint.
 
 ### Changed
 - **Zotero import profiles are ordered most-recently-used first.** The import

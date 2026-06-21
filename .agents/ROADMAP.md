@@ -24,12 +24,7 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-1. **[Minor Update] Dedicated PDF-extraction (VLM) models** — Master Plan authored, awaiting approval
-   - TWO Dashboard-selectable models decoupled from the main LLM: `vision_model` (heavy, full-page ingest) + `latex_extract_model` (light region OCR for snip/Convert; empty → falls back to `vision_model` → main vision).
-   - Always-on PDF ingest → page-VLM → LaTeX L1; Cmd+Shift+X + Convert-to-LaTeX use the light model; reshapes the unreleased v0.21.0 `latexModel` in place.
-   - Plan: `.agents/plans/01_pdf_vlm_extraction.md`. Same branch `feature/chat-decay-quick-wins`, one combined `v0.22.0` (no merge-first). P1 (§26 spec) STOPs for approval.
-
-2. **[Major Update] Prompt Architecture Overhaul & Refactoring**
+1. **[Major Update] Prompt Architecture Overhaul & Refactoring**
    - Centralized prompt registry, componentized generation, and dynamic anchoring.
    - Detailed analysis: `.agents/drafts/prompt_architecture_refactoring.md`
 
@@ -57,9 +52,13 @@ Source of Truth to identify unresolved items.
 
 ## ✅ Completed Milestones
 
-- **v0.21.0 — Chat Context Decay & Minor Quick Wins** (shipped 2026-06-21):
-  localized-question edit-affordance suppression (`Cmd+Shift+L`), Convert-to-LaTeX
-  fast/light model setting, Zotero import-profile recent-first ordering.
+- **v0.22.0 — PDF Vision Extraction + Chat Decay & Quick Wins** (shipped 2026-06-21,
+  one combined release on `feature/chat-decay-quick-wins`): dedicated PDF-extraction
+  vision models (`llm.vision_model` always-on `add source` page-VLM → LaTeX L1,
+  `latex_extract_model` light slot; CLI-subscription cloud vision, no API keys;
+  Dashboard rows); plus localized-question edit-affordance suppression (`Cmd+Shift+L`)
+  and Zotero import-profile recent-first ordering. (The unreleased v0.21.0 `latexModel`
+  was reshaped into the vision slots — never shipped standalone.)
 
 *(All previous milestones up to v0.20.0 have been successfully shipped and archived in the Git history. No active follow-ups remain.)*
 
@@ -73,7 +72,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.21.0 in review (PR #45). PDF VLM extraction Master Plan authored, awaiting approval.
-- **Active Milestone**: **Dedicated PDF-extraction (VLM) model** (target `v0.22.0`) — plan-approval gate.
-- **Next actionable item**: Approve `.agents/plans/01_pdf_vlm_extraction.md`; merge PR #45; then branch + implement.
-- **Priority order**: PDF VLM extraction, then Prompt Architecture Overhaul.
+- **Roadmap state**: v0.22.0 implemented on `feature/chat-decay-quick-wins` (PR #45), in review.
+- **Active Milestone**: none (v0.22.0 shipped to PR; awaiting merge).
+- **Next actionable item**: Prompt Architecture Overhaul (priority 1) after merge.
+- **Priority order**: Prompt Architecture Overhaul, then Web Search Integration.
