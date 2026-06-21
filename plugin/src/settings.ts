@@ -192,6 +192,10 @@ export class AIAgentSettingTab extends PluginSettingTab {
       }
     }
 
+    // v0.22.0: PDF/region vision-extraction models are configured in the
+    // Incurator Dashboard → LLM Provider card (llm.vision_model /
+    // llm.latex_extract_model), not in plugin settings. (Supersedes latexModel.)
+
     // Show only the parameter for the CURRENT provider + model
     const modelThinks = currentProvider === "claude" || currentProvider === "openai";
 

@@ -6,6 +6,7 @@ import {
   includedContextRefs,
   isPrimaryUserContext,
   shouldIncludeContext,
+  shouldSuppressEditAffordances,
 } from "./chatContextPriority";
 import type { ContextRef } from "../types";
 
@@ -91,5 +92,37 @@ describe("chat context priority", () => {
     expect(includedContextRefs([hidden, selected])).toEqual([selected]);
     expect(hasPrimaryUserContext([hidden])).toBe(false);
     expect(contextPromptLabel(hidden)).toBe("Excluded context: Hidden paper p.4");
+  });
+});
+
+describe("shouldSuppressEditAffordances (v0.21.0 localized-question suppression)", () => {
+  it("suppresses when a primary selection is present and the turn is not an edit request", () => {
+    expect(
+      shouldSuppressEditAffordances({ hasPrimarySelection: true, isEditRequest: false })
+    ).toBe(true);
+  });
+
+  it("does NOT suppress when the latest turn is itself an edit request", () => {
+    expect(
+      shouldSuppressEditAffordances({ hasPrimarySelection: true, isEditRequest: true })
+    ).toBe(false);
+  });
+
+  it("does NOT suppress when there is no primary selection", () => {
+    expect(
+      shouldSuppressEditAffordances({ hasPrimarySelection: false, isEditRequest: false })
+    ).toBe(false);
+    expect(
+      shouldSuppressEditAffordances({ hasPrimarySelection: false, isEditRequest: true })
+    ).toBe(false);
+  });
+
+  it("is unconditional w.r.t. prior turns — a fresh localized question after an edit still suppresses", () => {
+    // The reported failure: an earlier whole-document edit set priorAnswerOpenedEditLoop
+    // true, but the predicate intentionally does not consider it, so a later
+    // Cmd+Shift+L question still suppresses edit affordances.
+    expect(
+      shouldSuppressEditAffordances({ hasPrimarySelection: true, isEditRequest: false })
+    ).toBe(true);
   });
 });

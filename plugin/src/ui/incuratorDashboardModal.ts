@@ -906,6 +906,23 @@ export class IncuratorDashboardModal extends Modal {
     fallbackSel = fRow.createEl("select", { cls: "ai-agent-model-select-full dropdown" });
     const fallbackEffortSel = fRow.createEl("select", { cls: "ai-agent-effort-select dropdown" });
 
+    // ── Vision extraction rows (v0.22.0; SCHEMA §2.5, SYSTEM_BEHAVIOR §26.2a) ──
+    const visionCur = this.toCatalogueValue((llm.vision_model as string) || "");
+    const extractCur = this.toCatalogueValue((llm.latex_extract_model as string) || "");
+    const vRow = container.createDiv("ai-agent-llm-row");
+    vRow.createSpan({ cls: "ai-agent-llm-label", text: "PDF ingest (vision)" });
+    const visionSel = vRow.createEl("select", { cls: "ai-agent-model-select-full dropdown" });
+    const eRow = container.createDiv("ai-agent-llm-row");
+    eRow.createSpan({ cls: "ai-agent-llm-label", text: "LaTeX/region (light)" });
+    const extractSel = eRow.createEl("select", { cls: "ai-agent-model-select-full dropdown" });
+    const extractHint = eRow.createSpan({ cls: "ai-agent-llm-fallback-hint" });
+    // Light row empty → show the effective resolved model so the fallback is visible.
+    const refreshExtractHint = () => {
+      extractHint.setText(
+        extractSel.value ? "" : `↳ using ${visionSel.value || "(disabled / pymupdf4llm)"}`,
+      );
+    };
+
     // Repopulate an effort dropdown from the model currently chosen in its select.
     const refreshEffort = (modelSel: HTMLSelectElement, effortSel: HTMLSelectElement, preferred: string) => {
       const opt = this.getModelOption(modelSel.value);
@@ -922,6 +939,23 @@ export class IncuratorDashboardModal extends Modal {
       effortSel.value = want;
     };
 
+    // Vision-only model dropdown: only models with supportsVision, plus a leading
+    // "disabled / fall back" option. Mirrors the catalogue value scheme.
+    const populateVisionSelect = (sel: HTMLSelectElement, cat: any, current: string, emptyLabel: string) => {
+      sel.empty();
+      sel.createEl("option", { value: "", text: emptyLabel });
+      for (const provKey of Object.keys(cat) as LLMProvider[]) {
+        const models: ModelOption[] = cat[provKey] || [];
+        const vision = models.filter((m) => m.supportsVision);
+        if (!vision.length) continue;
+        const grp = sel.createEl("optgroup", { attr: { label: PROVIDER_LABELS[provKey] } });
+        for (const m of vision) {
+          grp.createEl("option", { value: `${provKey}::${m.id}`, text: `${PROVIDER_LABELS[provKey]} · ${m.label || m.id}` });
+        }
+      }
+      sel.value = Array.from(sel.options).some((o) => o.value === current) ? current : "";
+    };
+
     const populate = (cat: any) => {
       primarySel.empty();
       fallbackSel.empty();
@@ -929,10 +963,15 @@ export class IncuratorDashboardModal extends Modal {
       this.populateModelSelect(fallbackSel, cat, fallbackCur, true);
       refreshEffort(primarySel, primaryEffortSel, primaryEffCur);
       refreshEffort(fallbackSel, fallbackEffortSel, fallbackEffCur);
+      populateVisionSelect(visionSel, cat, visionCur, "— (disabled, use pymupdf4llm)");
+      populateVisionSelect(extractSel, cat, extractCur, "— (use PDF ingest model)");
+      refreshExtractHint();
     };
     // Changing a model resets its effort to that model's default.
     primarySel.onchange  = () => refreshEffort(primarySel, primaryEffortSel, "");
     fallbackSel.onchange = () => refreshEffort(fallbackSel, fallbackEffortSel, "");
+    visionSel.onchange = refreshExtractHint;
+    extractSel.onchange = refreshExtractHint;
 
     const cat = this.plugin.availableModels;
     if (Object.keys(cat).length === 0) {
@@ -982,6 +1021,19 @@ export class IncuratorDashboardModal extends Modal {
         r = await this.runWikiCommand(["config", "set", "llm.fallback_effort", fallbackEffort || ""]);
         if (!r.ok) {
           new Notice(`Fallback effort save failed: ${r.error}`);
+          return;
+        }
+        // Vision extraction models (v0.22.0). Empty value = disabled / fall back.
+        const visionModel = visionSel.value ? this.toStoredValue(visionSel.value) : "";
+        const extractModel = extractSel.value ? this.toStoredValue(extractSel.value) : "";
+        r = await this.runWikiCommand(["config", "set", "llm.vision_model", visionModel]);
+        if (!r.ok) {
+          new Notice(`Vision model save failed: ${r.error}`);
+          return;
+        }
+        r = await this.runWikiCommand(["config", "set", "llm.latex_extract_model", extractModel]);
+        if (!r.ok) {
+          new Notice(`Region model save failed: ${r.error}`);
           return;
         }
         await this.refreshRuntimeSnapshots();

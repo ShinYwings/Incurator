@@ -6374,6 +6374,72 @@ def plugin_pdf_toc(
         raise typer.Exit(code=1)
 
 
+@plugin_pdf_app.command("transcribe")
+def plugin_pdf_transcribe(
+    image_file: str = typer.Option("", "--image-file", help="Path to a PNG to transcribe to LaTeX."),
+    text: str = typer.Option("", "--text", help="Raw PDF-selection text to clean up as LaTeX."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Transcribe interactive PDF content to LaTeX via the dedicated extract model.
+
+    Resolves ``llm.latex_extract_model → llm.vision_model → main-if-vision``
+    (SYSTEM_BEHAVIOR §26.2a); a configured-but-non-vision model raises. Used by the
+    plugin's interactive PDF surfaces so they run on the selected PDF extraction
+    model, not the plugin main chat model. JSON: ``{ok, latex, model}`` or
+    ``{ok:false, error}``.
+    """
+    from pathlib import Path as _P
+
+    from . import config as _cfg
+    from . import ingest_raw as _ing
+    from . import llm as _llm
+    from . import vision as _vision
+
+    try:
+        if not image_file and not text.strip():
+            _print_json({"ok": False, "error": "Provide --image-file or --text."})
+            raise typer.Exit(code=1)
+        paths = _plugin_paths(workspace_path)
+        config = _cfg.load_config(paths)
+        client = _ing._resolve_extract_client(config, _llm.build_client(config))
+        if client is None:
+            _print_json({
+                "ok": False,
+                "error": "No vision model configured. Set a PDF ingest or LaTeX/region "
+                         "model in the Incurator Dashboard → LLM Provider card.",
+            })
+            raise typer.Exit(code=1)
+        if image_file:
+            data = _P(image_file).read_bytes()
+            latex = _vision.normalize_vision_latex(
+                client.describe_image(data, prompt=_vision.PDF_LATEX_TRANSCRIBE_PROMPT)
+            )
+        else:
+            latex = _vision.normalize_vision_latex(
+                client.chat(
+                    [
+                        _llm.ChatMessage(
+                            "system",
+                            "You are a LaTeX transcription assistant. The user will "
+                            "give you raw text extracted from a PDF, which may contain "
+                            "garbled or missing math. Convert it to clean Markdown with "
+                            "proper LaTeX delimiters: inline math as $...$, display math "
+                            "as $$...$$. Output only the converted text — no explanations, "
+                            "no code fences.",
+                        ),
+                        _llm.ChatMessage("user", text),
+                    ],
+                    temperature=0.0,
+                )
+            )
+        _print_json({"ok": True, "latex": latex, "model": getattr(client, "model", "?")})
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
 @plugin_pdf_app.command("search")
 def plugin_pdf_search(
     query: str = typer.Option(..., "--query", help="Search query."),

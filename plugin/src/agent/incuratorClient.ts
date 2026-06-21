@@ -86,6 +86,13 @@ export interface ZoteroPdfResolution {
   pathsChecked: string[];
 }
 
+export interface PdfTranscribeResult {
+  ok: boolean;
+  latex?: string;
+  model?: string;
+  error?: string;
+}
+
 export interface IncuratorStatusEvent {
   type: "status";
   status: IncuratorSourceStatus;
@@ -457,6 +464,23 @@ export class IncuratorClient {
       "--limit", String(args.topK),
     ]);
     return this.normalizeRagHits(result);
+  }
+
+  async transcribePdfRegion(args: {
+    imageFile?: string;
+    text?: string;
+    workspacePath?: string;
+  }): Promise<PdfTranscribeResult> {
+    if (this.settings.incuratorEnabled === false) {
+      return { ok: false, error: "backend_disabled" };
+    }
+    const result = await this.callBackendJson([
+      "plugin", "pdf", "transcribe",
+      ...(args.imageFile ? ["--image-file", args.imageFile] : []),
+      ...(args.text ? ["--text", args.text] : []),
+      ...(args.workspacePath ? ["--workspace-path", args.workspacePath] : []),
+    ]);
+    return this.normalizePdfTranscribeResult(result);
   }
 
   async curatorQuery(
@@ -1011,6 +1035,19 @@ export class IncuratorClient {
         sectionTitle: this.readString(record, ["sectionTitle", "section_title", "section"]),
       };
     }).filter((hit) => hit.pageNum > 0 && hit.snippet.trim());
+  }
+
+  private normalizePdfTranscribeResult(value: unknown): PdfTranscribeResult {
+    if (!value || typeof value !== "object") {
+      return { ok: false, error: "Empty response from backend" };
+    }
+    const record = this.pickRecord(value);
+    return {
+      ok: record.ok === true,
+      latex: this.readString(record, ["latex"]) || undefined,
+      model: this.readString(record, ["model"]) || undefined,
+      error: this.readString(record, ["error"]) || undefined,
+    };
   }
 
   private readArray(value: unknown): unknown[] {

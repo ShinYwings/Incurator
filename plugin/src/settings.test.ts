@@ -41,4 +41,12 @@ describe("settings UI source contract", () => {
     expect(source).not.toContain("editArtifactEnabled");
     expect(DEFAULT_SETTINGS).not.toHaveProperty("editArtifactEnabled");
   });
+
+  it("no longer exposes the v0.21.0 latexModel setting (moved to Dashboard, v0.22.0)", () => {
+    const source = settingsSource();
+
+    expect(source).not.toContain("Convert-to-LaTeX model (fast/light)");
+    expect(source).not.toContain("this.plugin.settings.latexModel");
+    expect(DEFAULT_SETTINGS).not.toHaveProperty("latexModel");
+  });
 });

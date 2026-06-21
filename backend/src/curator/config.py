@@ -183,6 +183,13 @@ DEFAULT_CONFIG: dict = {
         "temperature": 0.3,
         "instant_l1": True,
         "probe_interval": 60,
+        # Vision extraction models (v0.22.0; SYSTEM_BEHAVIOR §26.2a, SCHEMA §2.5).
+        # 'provider::model'. Empty = disabled. Decoupled from primary/fallback.
+        "vision_model": "",            # heavy full-page model for `add source` ingest
+        "latex_extract_model": "",     # light region OCR; empty → vision_model
+        "vision_render_dpi": 170,      # PyMuPDF get_pixmap target DPI (~150-200)
+        "vision_max_image_px": 1600,   # hard cap on a rendered page's longest edge
+        "vision_max_pages_per_run": 300,  # total-spend rail for one `add` run
         # ollama only needs connection settings (model lives in primary/fallback value)
         consts.BACKEND_OLLAMA: {
             "host":    consts.DEFAULT_OLLAMA_HOST,
@@ -443,8 +450,10 @@ def _migrate_llm_config(config: dict) -> None:
         return
     llm = config["llm"]
     ollama = llm.setdefault(consts.BACKEND_OLLAMA, {})
-    # Remove obsolete keys
-    for key in ("vision_model", "remote_ollama_host", "model",
+    # Remove obsolete keys. NOTE: `vision_model` is NO LONGER stripped here — it is a
+    # canonical top-level llm key as of v0.22.0 (SCHEMA §2.5). Only the legacy
+    # *nested* `ollama.vision_model` location is still cleared below.
+    for key in ("remote_ollama_host", "model",
                 "antigravity_model", "claude_model", "codex_model",
                 consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CLAUDE_CODE, consts.BACKEND_CODEX_CLI,
                 "host", "timeout", "provider", "cloud_provider"):

@@ -959,8 +959,15 @@ export class LLMClient {
   /**
    * Non-streaming request (for inline edits where we need the full result).
    */
-  async complete(messages: LLMMessage[]): Promise<string> {
+  async complete(
+    messages: LLMMessage[],
+    opts?: { model?: string }
+  ): Promise<string> {
     const provider = this.settings.provider;
+    // Per-call model override (v0.21.0): a task-specialized light model (e.g.
+    // Convert-to-LaTeX) may run on a smaller model than the main chat `model`.
+    // Empty/unset falls back to the configured model, preserving prior behavior.
+    const model = opts?.model?.trim() || this.settings.model;
 
     if (this.shouldUseCli(messages)) {
       return this.completeViaCli(messages);
@@ -971,9 +978,9 @@ export class LLMClient {
       ADAPTERS.ollama = new OllamaAdapter(this.settings.ollamaHost || "http://localhost:11434");
       const adapter = ADAPTERS.ollama;
       const body = adapter.buildBody(messages, false);
-      (body as Record<string, unknown>).model = this.settings.model;
+      (body as Record<string, unknown>).model = model;
       try {
-        const res = await fetch(adapter.buildUrl(this.settings.model), {
+        const res = await fetch(adapter.buildUrl(model), {
           method: "POST",
           headers: adapter.buildHeaders({ type: "bearer", token: "" }),
           body: JSON.stringify(body),
@@ -994,16 +1001,16 @@ export class LLMClient {
       ? { type: "bearer" as const, token: this.settings.deepseekApiKey || process.env.DEEPSEEK_API_KEY || "" }
       : await this.auth.resolveCredential(provider);
 
-    let url = adapter.buildUrl(this.settings.model);
+    let url = adapter.buildUrl(model);
     const headers = adapter.buildHeaders(credential);
     const body = adapter.buildBody(messages, false);
 
     // For Antigravity non-streaming, use generateContent instead of streamGenerateContent
     if (provider === "antigravity") {
-      url = `https://generativelanguage.googleapis.com/v1beta/models/${this.settings.model}:generateContent`;
+      url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
     }
 
-    (body as Record<string, unknown>).model = this.settings.model;
+    (body as Record<string, unknown>).model = model;
 
     try {
       const response = await requestUrl({

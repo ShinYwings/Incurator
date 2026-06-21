@@ -9,8 +9,10 @@ import {
   sanitizeOpenAIMessages,
   normalizeOpenAIContent,
   shouldInjectMcpTools,
+  LLMClient,
 } from "./llmClient";
-import type { LLMMessage } from "../types";
+import { DEFAULT_SETTINGS } from "../types";
+import type { LLMMessage, PluginSettings } from "../types";
 
 vi.mock("obsidian", () => ({
   Notice: class Notice {
@@ -186,5 +188,50 @@ describe("Antigravity CLI stderr recovery", () => {
     expect(
       extractAntigravityAnswerFromStderr("Thinking...\nProcessing request\n")
     ).toBe("");
+  });
+});
+
+describe("complete() per-call model override (v0.21.0 Convert-to-LaTeX fast model)", () => {
+  function ollamaClient(model: string): LLMClient {
+    const settings: PluginSettings = {
+      ...DEFAULT_SETTINGS,
+      provider: "ollama",
+      model,
+      ollamaHost: "http://localhost:11434",
+    };
+    // The Ollama non-streaming path uses global fetch and never touches `auth`.
+    return new LLMClient(settings, {} as never);
+  }
+
+  function mockOllamaFetch(): ReturnType<typeof vi.fn> {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: "x" } }] }),
+    }));
+    globalThis.fetch = fetchMock as never;
+    return fetchMock;
+  }
+
+  const messages: LLMMessage[] = [{ role: "user", content: "hi" }];
+
+  it("sends the override model when opts.model is provided", async () => {
+    const fetchMock = mockOllamaFetch();
+    await ollamaClient("main-model").complete(messages, { model: "qwen2.5:0.5b" });
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body);
+    expect(body.model).toBe("qwen2.5:0.5b");
+  });
+
+  it("falls back to the main model when no opts are given (backward compatible)", async () => {
+    const fetchMock = mockOllamaFetch();
+    await ollamaClient("main-model").complete(messages);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body);
+    expect(body.model).toBe("main-model");
+  });
+
+  it("falls back to the main model when the override is blank/whitespace", async () => {
+    const fetchMock = mockOllamaFetch();
+    await ollamaClient("main-model").complete(messages, { model: "   " });
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body);
+    expect(body.model).toBe("main-model");
   });
 });

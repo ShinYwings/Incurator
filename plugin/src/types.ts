@@ -8,6 +8,9 @@ export interface ZoteroImportProfile {
   assetFolder: string;
   assetSubfolder: string;
   bibliographyStyle: string;
+  /** Epoch ms of the last time this profile was used for an import or created.
+   *  Drives most-recently-used-first ordering in the wizard (v0.21.0). */
+  lastUsedAt?: number;
   /** @deprecated use assetFolder + assetSubfolder */
   imageFolder?: string;
 }

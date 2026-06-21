@@ -1309,6 +1309,16 @@ def generate_l1_structural_context(
     try:
         resolved_source = _resolve_reference_source(paths, file_path)
         parsed = parsers.parse(resolved_source)
+        # v0.22.0: user-elected vision_model transcribes PDF pages to LaTeX L1
+        # (SYSTEM_BEHAVIOR §26.2a). Only for PDFs; only when vision_model is set.
+        # A configured-but-bad vision model raises here (R13) → l1 error below.
+        if parsed.file_type == "pdf":
+            _vcfg = cfg.load_config(paths)
+            _vclient = _resolve_vision_client(_vcfg, None)
+            if _vclient is not None:
+                _apply_vlm_pdf_extraction(
+                    parsed, resolved_source, _vclient, _vcfg, paths.state_db
+                )
     except Exception as e:
         print(f"  [Error] Parsing file failed for {relpath}: {e}")
         db.set_source_layer_status(paths.state_db, source_id, "l1", "error", error=str(e))
@@ -1362,17 +1372,140 @@ def generate_l1_structural_context(
     return context_id
 
 
-def _build_vision_client(_config: dict, main_client):
-    """Return a vision-capable client for image inference.
+def _require_vision(client, slot: str):
+    """Return a vision-capable client for a CONFIGURED slot, else RAISE (v0.22.0).
 
-    Resolution order:
-    1. main_client supports vision → reuse main_client
-    2. ollama configured and primary=ollama → reuse main_client if vision-capable
-    3. None (image inference disabled)
+    A configured-but-bad model never silently falls through to a heavier model
+    (SYSTEM_BEHAVIOR §26.2a, R13) — that would spike latency/cost and hide broken
+    config. Only an EMPTY slot is allowed to fall through (handled by the callers).
     """
+    if client is None:
+        raise LLMError(f"llm.{slot} is set but its provider/model could not be built")
+    if not getattr(client, "supports_vision", False):
+        model = getattr(client, "model", "?")
+        raise LLMError(
+            f"llm.{slot} model '{model}' is not vision-capable; choose a vision model "
+            f"or clear the slot"
+        )
+    return client
+
+
+def _resolve_vision_client(config: dict, main_client):
+    """Heavy ingest/image vision model: ``vision_model`` → main-if-vision → None.
+
+    Used by `add source` PDF ingest and standalone/markdown image description. NEVER
+    consults ``latex_extract_model`` (R10). Empty → fall through; configured-bad → raise.
+    """
+    from . import llm
+
+    vm = (config.get("llm", {}).get("vision_model") or "").strip()
+    if vm:
+        return _require_vision(llm.make_client_for(vm, config), "vision_model")
     if getattr(main_client, "supports_vision", False):
         return main_client
     return None
+
+
+def _resolve_extract_client(config: dict, main_client):
+    """Light interactive region model: ``latex_extract_model`` → vision chain.
+
+    Empty → fall through to the vision chain; configured-bad → raise. (Provided for
+    completeness / future server-side region tasks; ingest does NOT use this.)
+    """
+    from . import llm
+
+    lm = (config.get("llm", {}).get("latex_extract_model") or "").strip()
+    if lm:
+        return _require_vision(llm.make_client_for(lm, config), "latex_extract_model")
+    return _resolve_vision_client(config, main_client)
+
+
+# Backwards-compatible alias: ingest image-description path resolves the heavy model.
+def _build_vision_client(config: dict, main_client):
+    return _resolve_vision_client(config, main_client)
+
+
+def _apply_vlm_pdf_extraction(parsed, file_path, vision_client, config, db_path) -> None:
+    """Replace L1 page text with vision-model transcription (SYSTEM_BEHAVIOR §26.2a).
+
+    Mutates ``parsed`` in place: per page keep the pymupdf4llm text as ``parser_text``,
+    set ``text`` to the VLM transcription (cache-keyed by rendered-image hash + model,
+    per-page fallback to ``parser_text`` on failure), rebuild ``parsed.text``, and set
+    ``parser_used="vlm"``. Enforces the ``vision_max_pages_per_run`` rail.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from . import vision
+
+    llm_cfg = config.get("llm", {})
+    dpi = int(llm_cfg.get("vision_render_dpi", 170))
+    max_px = int(llm_cfg.get("vision_max_image_px", 1600))
+    max_pages = int(llm_cfg.get("vision_max_pages_per_run", 300))
+    model = getattr(vision_client, "model", "?") or "?"
+
+    pdf_pages = parsed.metadata.get("pdf_pages") or []
+    if not pdf_pages:
+        return
+    images = vision.render_pdf_pages(file_path, dpi=dpi, max_px=max_px)
+    n = min(len(images), len(pdf_pages))
+    transcribe_n = min(n, max_pages)
+    skipped = n - transcribe_n
+    if skipped > 0:
+        print(
+            f"  [Info] vision: transcribing {transcribe_n}/{n} pages; {skipped} "
+            f"skipped (vision_max_pages_per_run={max_pages}, vision_skipped) — those "
+            f"pages keep pymupdf4llm text."
+        )
+
+    # SQLite has no concurrent writers, so keep all DB access on the main thread:
+    # (1) serial cache lookup, (2) concurrent transcription of misses with NO DB
+    # access in worker threads, (3) serial cache write.
+    hashes = [hashlib.sha256(images[i]).hexdigest()[:16] for i in range(transcribe_n)]
+    results: dict[int, str | None] = {}
+    misses: list[int] = []
+    for i in range(transcribe_n):
+        cached = db.vision_cache_get(db_path, hashes[i], model)
+        if cached is not None:
+            results[i] = cached
+        else:
+            misses.append(i)
+
+    def _transcribe(i: int):
+        try:
+            raw = vision_client.describe_image(
+                images[i], prompt=vision.PDF_LATEX_TRANSCRIBE_PROMPT
+            )
+            return i, (vision.normalize_vision_latex(raw) or None)
+        except Exception as e:  # transient per-page failure → fall back, never abort
+            print(f"  [Warn] vision page {i + 1} failed ({e}); using pymupdf4llm text.")
+            return i, None
+
+    if misses:
+        # Parallelize only HTTP-based vision (Ollama). Agentic CLI clients
+        # (claude/agy/codex) spawn subprocesses and are NOT safe to invoke
+        # concurrently (rate limits / lock contention) → run them serially.
+        concurrent_ok = getattr(vision_client, "supports_concurrent_calls", False)
+        workers = max(1, min(vision.VISION_CONCURRENCY, len(misses))) if concurrent_ok else 1
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for i, latex in ex.map(_transcribe, misses):
+                results[i] = latex
+        for i in misses:  # serial cache write
+            latex = results.get(i)
+            if latex:
+                db.vision_cache_put(db_path, hashes[i], model, latex)
+
+    new_texts: list[str] = []
+    for i, page in enumerate(pdf_pages):
+        parser_text = page.get("text", "") or ""
+        page["parser_text"] = parser_text  # retain for audit / formula cross-check
+        vlm_text = results.get(i)
+        chosen = vlm_text if vlm_text else parser_text
+        page["text"] = chosen
+        if chosen.strip():
+            new_texts.append(chosen)
+
+    parsed.text = "\n\n".join(new_texts)
+    parsed.metadata["parser_used"] = "vlm"
 
 
 def register_and_generate_l1(

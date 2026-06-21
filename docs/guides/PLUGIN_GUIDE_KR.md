@@ -257,6 +257,8 @@ Incurator PDF 뷰어의 텍스트 선택은 실제 텍스트 span 위에서만 �
 
 **긴 세션에서의 국소적 초점 (v0.19.0):** 긴 대화에서 — 특히 앞서 문서 전체를 편집한 뒤 — 새로 추가한 `Cmd+Shift+L` 선택이 무시되고 에이전트가 다시 파일 전체를 수정하려는 문제가 있었습니다. 이제 플러그인은 각 요청의 맨 끝(모델 attention이 가장 강한 위치)에 고우선순위 invariant 블록을 덧붙여 "현재 선택 영역에 대해서만 답하고, 명시적으로 요청하지 않는 한 문서 전체를 편집하지 말 것"을 재확인합니다. 따라서 긴 세션 후반의 국소적 질문도 앞선 턴과 무관하게 존중됩니다.
 
+**국소적 질문에 대한 편집 권한 억제 (v0.21.0):** v0.19.0 앵커는 여전히 편집 메커니즘과 충돌하고 있었습니다. `Cmd+Shift+L` 라인 범위는 *편집 가능한* 범위이기도 하므로, 같은 요청에 "선택 영역에 대해서만 답하라"(앵커)와 "이 라인들을 편집해도 된다 / 편집 검토 루프에 있다"가 동시에 실렸습니다. 길고 편집이 잦은 세션에서는 편집 신호가 이겨, 단순 질문에도 에이전트가 파일 전체 편집을 제안하기도 했습니다. 이제 최신 턴이 선택 영역에 대한 **질문**일 때(중심 초점 선택이 존재하고 메시지가 편집 요청이 아닐 때) 플러그인은 편집 가능 선택 권한 블록과 편집 검토 루프 계약을 아예 생략하므로, 답변 전용 앵커가 방해받지 않습니다. 편집을 요청하면("이 줄을 다시 써줘…", "여기 문법 고쳐줘") 이전처럼 전체 편집/Diff 흐름이 그대로 제공됩니다.
+
 assistant 답변에 `#page=604`, `p.604`, `#section=A4.2`, `§19.3` 같은 page 또는
 section 링크가 포함되면, 사이드바에서 클릭했을 때 열린 Incurator PDF 뷰어가
 해당 page로 이동합니다. section 링크는 활성 PDF outline으로 해석합니다. `p.580`
@@ -391,6 +393,21 @@ PDF 채팅과 PDF 지식 정제는 별도 workflow로 취급합니다.
 
 Settings 화면에서는 선택된 model의 context window를 별도 항목으로 만들지 않고
 **Model** 행의 설명에 함께 표시합니다.
+
+**비전 추출 모델 (v0.22.0):** PDF 수식 추출은 메인 채팅 모델과 별개의 전용 **비전**
+모델을 쓰며, **Incurator Dashboard → LLM Provider** 카드에서 설정합니다. 두 개의 행:
+
+- **PDF ingest 모델(전체 페이지)** — 설정하면 `wiki add`/Add Source가 각 PDF 페이지를
+  이 비전 모델로 전사해 L1에 제대로 된 LaTeX가 들어갑니다(텍스트레이어의 근사 추출
+  대신). 비우면 빠른 pymupdf4llm 경로 유지.
+- **LaTeX/영역 추출 모델(경량)** — interactive 스닙용 소형 영역-OCR 모델. 비우면 PDF
+  ingest 모델로 폴백. 우클릭 **Convert to LaTeX**와 **Cmd+Shift+X** 스닙 경로는
+  backend extractor를 호출하므로, crop 전사가 성공하면 이미지를 메인 채팅 모델의
+  vision 경로로 다시 해석시키지 않고 전사 텍스트를 채팅에 보냅니다.
+
+ingest 비전은 기존 제공자의 **CLI 구독**(Ollama, 또는 `claude`/`agy`/`codex` CLI)으로
+동작 — **추가 API 키 불필요**. 드롭다운에는 비전 가능 모델만 표시됩니다. v0.21.0의
+`latexModel` 플러그인 설정을 대체합니다.
 
 플러그인은 Antigravity, Claude, OpenAI Codex, Ollama, DeepSeek를 지원합니다. 설정 탭에서는 제공자와 모델을 따로 조정할 수 있고, 채팅 사이드바 하단에서는 하나의 모델 선택 메뉴에서 `Provider · Model` 형식으로 함께 전환합니다. reasoning/effort 메뉴는 백엔드 카탈로그에서 effort 단계가 선언된 모델에만 표시됩니다.
 
@@ -835,7 +852,7 @@ Zotero 링크나 Add-to-Incurator 작업에서 PDF를 해석하지 못하면 bac
 
 `Import Zotero Item` 검색창을 비워두면 최근 수정된 Zotero 항목을 `dateModified` 최신순으로 표시합니다. 설정값에는 여러 Zotero 데이터 디렉토리를 쉼표로 입력할 수 있으며, 플러그인은 각 경로의 `zotero.sqlite`를 순서대로 확인합니다.
 
-저장된 import profile이 있으면 wizard가 열릴 때 첫 번째 profile이 자동으로 로드됩니다. 성공적으로 가져온 Zotero 항목은 로컬 `recentZoteroItems` LRU 목록에 기록되어 이후 Zotero 검색 결과에서 다른 항목보다 먼저 표시됩니다.
+저장된 import profile이 있으면 wizard가 열릴 때 **가장 최근에 사용한 profile이 자동으로 로드되며**, Import Profile 드롭다운도 최근 사용 순으로 정렬됩니다(v0.21.0). 따라서 지금 작업 중인 profile이 오래된 것들에 묻히지 않고 맨 위에 옵니다. profile의 최근 사용 시각은 해당 profile로 항목을 가져올 때(또는 새로 만들 때) 갱신됩니다. 성공적으로 가져온 Zotero 항목은 로컬 `recentZoteroItems` LRU 목록에 기록되어 이후 Zotero 검색 결과에서 다른 항목보다 먼저 표시됩니다.
 
 출력 subfolder, filename, asset subfolder는 Zotero note template과 같은 Nunjucks 템플릿 엔진을 사용합니다. 예:
 

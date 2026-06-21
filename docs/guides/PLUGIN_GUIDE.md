@@ -290,6 +290,18 @@ position of strongest model attention) that re-asserts "answer only about the
 current selection; do not edit the whole document unless explicitly asked." So a
 localized question late in a long session is honored regardless of earlier turns.
 
+**Edit-affordance suppression for localized questions (v0.21.0):** The v0.19.0
+anchor was still being fought by the edit machinery: a `Cmd+Shift+L` line range is
+also an *editable* range, so the same request carried both "answer only" (the
+anchor) and "you may edit these lines / you are in an edit-review loop." In long,
+edit-heavy sessions the edit signal sometimes won and the agent proposed a
+whole-file edit to a simple question. Now, when your latest turn is a **question**
+about a selection (a primary-focus selection is present and the message is not an
+edit request), the plugin omits the editable-selection affordance and the
+edit-review-loop contract entirely, so the answer-only anchor is unopposed. Asking
+for an edit ("rewrite this line…", "fix the grammar here") still gives you the full
+edit/diff flow as before.
+
 When an assistant answer contains a page or section link such as `#page=604`,
 `p.604`, `#section=A4.2`, or `§19.3`, clicking that link in the chat sidebar
 jumps the open Incurator PDF viewer to the resolved page. Section links resolve
@@ -439,6 +451,23 @@ The plugin supports Antigravity, Claude, OpenAI Codex, Ollama, and DeepSeek. In 
 
 The Settings page shows the selected model's context window on the **Model**
 row instead of as a separate setting.
+
+**Vision extraction models (v0.22.0):** PDF math extraction uses dedicated
+**vision** models, configured in the **Incurator Dashboard → LLM Provider** card,
+separate from your main chat model. Two rows:
+
+- **PDF ingest model (full-page)** — when set, `wiki add`/Add Source transcribes
+  each PDF page with this vision model so L1 gets proper LaTeX (instead of the
+  approximate text-layer extraction). Leave empty to keep the fast pymupdf4llm path.
+- **LaTeX/region extract model (light)** — a small region-OCR model reserved for
+  interactive snips. Leave empty to fall back to the PDF ingest model. The
+  right-click **Convert to LaTeX** and **Cmd+Shift+X** snip paths call the backend
+  extractor, so a successful crop transcription is sent to chat as text instead of
+  being reinterpreted by the main chat model's vision path.
+
+Ingest vision runs on your existing provider's **CLI subscription** (Ollama, or the
+`claude`/`agy`/`codex` CLIs) — **no extra API keys**. Only vision-capable models
+appear in the dropdowns. This replaces the v0.21.0 `latexModel` plugin setting.
 
 > [!NOTE]
 > The **Incurator Dashboard → Overview → LLM Provider** card edits the current
@@ -955,10 +984,13 @@ failures so repair logic stays in one UI path.
 
 Leaving the `Import Zotero Item` search box blank shows recently modified Zotero items ordered by `dateModified`. The Zotero directory setting may contain multiple comma-separated data directories; the plugin checks each path's `zotero.sqlite` in order.
 
-When the import wizard opens and saved profiles exist, the first saved profile
-is loaded automatically. Successfully imported items are remembered locally in a
-`recentZoteroItems` LRU list so they appear before other matches in later Zotero
-searches.
+When the import wizard opens and saved profiles exist, the **most recently used
+profile is loaded automatically** and the Import Profile dropdown lists profiles
+most-recently-used first (v0.21.0), so the profile you are actively working with
+sits at the top instead of being buried under older ones. A profile's recency is
+updated whenever you import an item with it (or create it). Successfully imported items are remembered
+locally in a `recentZoteroItems` LRU list so they appear before other matches in
+later Zotero searches.
 
 Output subfolders, filenames, and asset subfolders use the same Nunjucks
 templating engine as Zotero note templates. Examples:

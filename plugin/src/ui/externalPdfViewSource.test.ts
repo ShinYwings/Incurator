@@ -15,3 +15,15 @@ describe("ExternalPdfView device-portable restore contract", () => {
     expect(source).toContain("path: resolvedPath");
   });
 });
+
+describe("Convert-to-LaTeX (v0.22.0: latexModel setting removed)", () => {
+  it("no longer references the removed latexModel plugin setting", () => {
+    expect(source).not.toContain("settings.latexModel");
+    expect(source).not.toContain("ollama pull ${resolvedModel");
+  });
+
+  it("routes the conversion through the backend PDF extraction model", () => {
+    expect(source).toContain("this.plugin.incuratorClient.transcribePdfRegion({ text: rawText })");
+    expect(source).not.toContain("this.plugin.llmClient.complete");
+  });
+});

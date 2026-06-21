@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.20.0)
+# Incurator - System Behavior (v0.22.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1668,7 +1668,11 @@ F3/F4/F5/F11/F12 stay with Program 3.
   routes a region into this classification; validated recovery then re-validates
   the owning claim (`uncertain` → `verified` against the recovered evidence, or
   `missing` if unrecoverable), never a silent flip to verified. Whole-corpus/
-  every-page VLM processing is rejected. Recovery output is additive
+  every-page VLM processing is rejected **as an automatic recovery action**: the
+  selective-recovery mechanism MUST NOT escalate to blanket page-VLM; it recovers
+  only measured-loss regions. This constraint scopes the *recovery* path and does
+  NOT govern a user-elected `vision_model` L1 extractor, which is a separate,
+  upstream, opt-in extraction choice (§26.2a). Recovery output is additive
   (`source_spans.metadata.formula_recovery`, SCHEMA §20.4), labeled with full
   lineage, and lifecycle-gated (`candidate | reviewed | rejected`) — parseable
   LaTeX alone verifies nothing. The provider-free classifier emits no loss
@@ -1683,6 +1687,61 @@ F3/F4/F5/F11/F12 stay with Program 3.
   formula evidence. Every hydrated text must match its cited span's content
   hash; stored previews are insufficient. A changed page hash invalidates
   exactly that page's candidates.
+
+### 26.2a User-Elected Vision Extraction — `vision_model` / `latex_extract_model` (v0.22.0)
+
+This is an **upstream, opt-in L1 extraction** path, distinct from §26.2's downstream
+measured-loss recovery. It exists because pymupdf4llm text-layer extraction cannot
+reliably reconstruct LaTeX for math; a user may elect a vision model to read the
+rendered page instead.
+
+- **Two optional config slots** (`llm`, `provider::model`, empty = disabled):
+  - `vision_model` — heavy, layout-aware full-page model. Used by `add source` PDF
+    ingest and standalone/markdown-linked image description.
+  - `latex_extract_model` — light region-OCR model for the plugin's interactive
+    surfaces (Cmd+Shift+X snip, Convert-to-LaTeX). Resolution is
+    `latex_extract_model → vision_model → (main chat model if vision-capable)`.
+  - Both empty = pre-v0.22.0 behavior (pymupdf4llm ingest, main-model snip vision).
+- **Interactive routing.** The plugin's right-click Convert-to-LaTeX and
+  Cmd+Shift+X crop paths MUST call the backend `plugin pdf transcribe` resolver
+  instead of `LLMClient.complete` on the plugin main chat model. When a crop is
+  successfully transcribed, the chat context carries the transcription text and
+  MUST NOT also attach the crop image to the main chat model's vision path.
+- **Always-on when configured (per source).** When `vision_model` is set, each
+  `add source` PDF page is rendered (PyMuPDF `get_pixmap`, bounded `vision_render_dpi`
+  default 170 + `vision_max_image_px` default 1600 longest-edge with downscale) and
+  transcribed to Markdown+LaTeX by the vision model; that becomes L1, recorded with
+  `parser_used="vlm"` (SCHEMA). This is NOT a heuristic gate and NOT the §26.2
+  recovery mechanism. Ingest uses `vision_model` ONLY — never `latex_extract_model`.
+- **Resolver discipline (fallback only on empty, raise on failure).** The resolution
+  chain advances ONLY when a slot is empty/unconfigured. A *configured* slot whose
+  model is non-vision / unreachable / auth-failing **RAISES and HALTS** — it MUST NOT
+  silently fall through to a heavier model (which would spike latency/cost and mask
+  broken config). A configured-but-broken `vision_model` raises upfront and halts the
+  `add` run (the user fixes config); it does not silently degrade the whole document
+  to pymupdf4llm.
+- **VLM L1 is not unconditional ground truth.** Per page, the pymupdf4llm text is
+  retained as `parser_text` for audit, and a *transient* per-page VLM failure/timeout
+  falls back to that page's parser text (logged + provenance-visible, never silent).
+  The formula token cross-check (§26.1) still applies to VLM-authored L1; a VLM-only
+  formula is never auto-promoted to `verified` outside the §26.2 evidence gate.
+- **Cloud vision uses CLI subscription auth — NO provider API keys.** Transport:
+  Ollama sends in-memory base64 (no disk); the agentic CLIs (claude, agy, codex —
+  all live-verified) transcribe a temp PNG written under
+  `.cache/vision_render/<run-id>/` and referenced by path to the CLI's vision-capable
+  Read tool, then the output is normalized to clean LaTeX (strip `$$` wrappers, CLI
+  banners, fences, commentary). Temp PNGs are removed in a `finally` (guaranteed on
+  success, exception, and timeout; per-run subdir wiped; stale dirs swept on startup;
+  no leaks). Unsafe auto-approve CLI flags MUST NOT be passed.
+- **Cost rail.** `vision_max_pages_per_run` (default ~300) bounds a single `add`
+  run; beyond it requires explicit opt-in, with the remainder logged
+  `vision_skipped` (never silently truncated).
+- **Cache invalidation.** Per-page transcription is cached by
+  `(page_content_hash, resolved_vision_model)`; switching the model in the Dashboard
+  invalidates stale extractions and forces re-extraction on the next `add`/build.
+- The §26.2 selective formula-recovery mechanism still runs on top of whichever L1
+  was produced (VLM or pymupdf4llm) and still never performs blanket whole-corpus VLM
+  as a recovery action.
 
 ### 26.3 Staged Compile Generations And Atomic Publish
 
@@ -2638,7 +2697,7 @@ transport shapes, but retrieval and packing logic live in `ContextService`.
 the progressive pack path: `local`, `source-section`, `global`, and `explore`.
 `local` and `source-section` are always-available safe baselines.
 
-**Explore unification (v0.20.0).** The `explore` route no longer keeps a divergent
+**Explore unification (v0.22.0).** The `explore` route no longer keeps a divergent
 associative pipeline. Its *grounding evidence* is built through the same
 `context_fetch` pack path as every other route — it produces a `PACK-*`/`SNAP-*`
 snapshot, enforces `limit_tokens` via the shared budget, and records ordered

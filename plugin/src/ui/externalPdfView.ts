@@ -7,7 +7,6 @@ import {
   Notice,
   type ViewStateResult,
 } from "obsidian";
-import type { LLMMessage } from "../types";
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -1292,29 +1291,22 @@ export class ExternalPdfView extends ItemView {
   }
 
   private async convertSelectionToLatex(rawText: string): Promise<void> {
-    if (!this.plugin?.llmClient) {
-      new Notice("LLM client not available.");
+    if (!this.plugin?.incuratorClient) {
+      new Notice("Incurator backend not available.");
       return;
     }
     new Notice("Converting to LaTeX…");
-    const messages: LLMMessage[] = [
-      {
-        role: "system",
-        content:
-          "You are a LaTeX transcription assistant. The user will give you raw text extracted from a PDF, which may contain garbled or missing math. Convert it to clean Markdown with proper LaTeX delimiters: inline math as $...$, display math as $$...$$. Output only the converted text — no explanations, no code fences.",
-      },
-      {
-        role: "user",
-        content: rawText,
-      },
-    ];
     try {
-      const result = await this.plugin.llmClient.complete(messages);
-      await navigator.clipboard.writeText(result.trim());
+      const result = await this.plugin.incuratorClient.transcribePdfRegion({ text: rawText });
+      const latex = result.latex?.trim() || "";
+      if (!result.ok || !latex) {
+        throw new Error(result.error || "No transcription returned");
+      }
+      await navigator.clipboard.writeText(latex);
       new Notice("LaTeX copied to clipboard.");
     } catch (err) {
       console.error("LaTeX conversion failed:", err);
-      new Notice("Conversion failed. Check the console for details.");
+      new Notice("LaTeX conversion failed. Check Incurator Dashboard → LLM Provider.");
     }
   }
 

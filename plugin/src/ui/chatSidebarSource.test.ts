@@ -30,6 +30,20 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("hasPrimarySelection: lastUserHasPrimaryContext");
   });
 
+  it("suppresses edit affordances for a localized question turn (v0.21.0)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // The shared pure predicate gates both the editable-selection affordance and
+    // the edit-review-loop contract on the same flag, so a primary-focus question
+    // turn carries the recency anchor unopposed.
+    expect(source).toContain("shouldSuppressEditAffordances({");
+    expect(source).toContain("hasPrimarySelection: lastUserHasPrimaryContext");
+    expect(source).toContain("isEditRequest: latestIsMarkdownEditRequest");
+    expect(source).toContain("const editInstruction = suppressEditAffordances");
+    expect(source).toContain("!suppressEditAffordances &&");
+  });
+
   it("recognizes bare SEARCH/REPLACE edits against whole-file Markdown context", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
@@ -310,15 +324,30 @@ describe("chat sidebar context chip source contract", () => {
     const mainSource = readFileSync(join(dir, "main.ts"), "utf8");
 
     const snipBlock = mainSource.slice(
-      mainSource.indexOf("pdfView.startSnippingMode((base64: string, pageNum: number, regionText: string)"),
+      mainSource.indexOf("pdfView.startSnippingMode(async (base64: string, pageNum: number, regionText: string)"),
       mainSource.indexOf("hotkeys: [{ modifiers: [\"Mod\", \"Shift\"], key: \"x\" }]")
     );
     expect(snipBlock).toContain("regionText");
-    // The crop content is the region-scoped text, NEVER hard-coded empty again…
-    expect(snipBlock).toContain("content: regionText,");
+    expect(snipBlock).toContain("transcribePdfCrop(base64)");
+    // The crop content prefers the dedicated PDF extraction model output, then
+    // falls back to region-scoped text, NEVER hard-coded empty again.
+    expect(snipBlock).toContain("content: extracted?.latex || regionText,");
     expect(snipBlock).not.toContain('content: "",');
+    // Successful extraction must not forward the crop image to the main chat
+    // model's vision path.
+    expect(snipBlock).toContain("imageBase64: extracted?.latex ? undefined : base64,");
     // …and the regression of pulling the whole page text must not return.
     expect(snipBlock).not.toContain('getActivePdfContext("text")');
+  });
+
+  it("passes through PDF extraction failure messages without provider-coupled stripping", () => {
+    const dir = fileURLToPath(new URL("../../", import.meta.url));
+    const mainSource = readFileSync(join(dir, "main.ts"), "utf8");
+
+    // The method must NOT inspect this.settings.provider to decide what to strip.
+    expect(mainSource).not.toContain('this.settings.provider === "ollama"');
+    expect(mainSource).not.toContain(".replace(/ollama pull\\s+\\S+/gi, \"\")");
+    expect(mainSource).toContain("PDF extraction model failed");
   });
 
   it("wires the 'Save to 02_Wiki' promote action with the trace source_span_ids", () => {

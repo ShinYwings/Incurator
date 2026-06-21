@@ -4,6 +4,53 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.22.0] - 2026-06-21
+### Added
+- **Dedicated PDF-extraction vision models (`vision_model` / `latex_extract_model`).**
+  PDF text-layer extraction (pymupdf4llm) cannot reliably reconstruct LaTeX for math.
+  You can now elect a **vision model**, configured in the **Dashboard → LLM Provider**
+  card and decoupled from the main chat model, to read rendered pages. When
+  `llm.vision_model` is set, every `add source` PDF page is rendered (PyMuPDF
+  `get_pixmap`, bounded DPI + longest-edge cap) and transcribed to Markdown + LaTeX,
+  becoming L1 with `parser_used="vlm"`. The pymupdf4llm text is retained per page as
+  `parser_text`; a transient per-page VLM failure falls back to it (never aborts).
+  A `vision_max_pages_per_run` rail bounds a single run. Cloud vision runs on your
+  existing **CLI subscription** (Ollama in-memory, or the `claude`/`agy`/`codex` CLIs
+  reading a temp PNG under `.cache/vision_render/` that is always cleaned up) — **no
+  provider API keys**. Per-page transcriptions are cached by
+  `(rendered-image hash, model)` so a Dashboard model switch invalidates stale L1.
+  A second light slot, `llm.latex_extract_model` (empty → falls back to
+  `vision_model`), powers interactive region OCR for right-click **Convert to
+  LaTeX** and **Cmd+Shift+X** crop transcription. (SYSTEM_BEHAVIOR §26.2a.)
+
+### Fixed
+- **Interactive PDF snippets now use the selected PDF extraction model.**
+  Right-click **Convert to LaTeX** and **Cmd+Shift+X** route through the backend
+  `plugin pdf transcribe` resolver instead of the plugin main chat model. When a
+  crop is successfully transcribed, the chat context carries the transcription
+  text without forwarding the crop image to the main chat model's vision path.
+- **Chat context decay on `Cmd+Shift+L` localized questions.** In long, edit-heavy
+  sessions, a freshly referenced line range asked about as a *question* could be
+  ignored while the agent proposed a whole-file edit. The root cause was a payload
+  self-contradiction: a `Cmd+Shift+L` line range is both a primary-focus selection
+  (recency anchor: "answer only, do not modify the document") and an editable range
+  (`<editable_selection>` + the `<edit_review_loop>` contract: "you may edit these
+  lines"). The plugin now suppresses both edit affordances when the latest turn is a
+  localized question (a primary-focus selection present and the turn is not an edit
+  request), so the recency anchor is unopposed. The decision is unconditional with
+  respect to prior turns — a fresh question after an earlier whole-document edit is
+  still honored. Genuine edit requests keep the full edit/diff flow.
+
+### Changed
+- **Zotero import profiles are ordered most-recently-used first.** The import
+  wizard now auto-loads the most-recently-used profile (not merely the first saved)
+  and orders the Import Profile dropdown recent-first via a new optional
+  `lastUsedAt` timestamp, stamped when a profile is used for an import or created.
+  Profiles never used keep their insertion order; the persisted profile order is
+  not mutated by rendering.
+
+---
+
 ## [0.20.0] - 2026-06-20
 ### Fixed
 - **`context_expand` token-budget inflation.** Expansion now budgets against the

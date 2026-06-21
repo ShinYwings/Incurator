@@ -29,6 +29,31 @@ export function hasPrimaryUserContext(refs: ContextRef[] | undefined): boolean {
   return includedContextRefs(refs).some(isPrimaryUserContext);
 }
 
+/**
+ * Localized-question edit-affordance suppression (v0.21.0).
+ *
+ * A `Cmd+Shift+L` line-range (and any other primary-focus selection) is BOTH a
+ * primary-context ref (recency anchor: "answer only, do not modify the document")
+ * AND an editable ref (which injects `<editable_selection>` + the
+ * `<edit_review_loop>` contract: "you may edit these lines"). Emitting both into
+ * the same payload is a direct contradiction that let long, edit-heavy sessions
+ * drift back to whole-file edits on a simple localized question.
+ *
+ * When the latest turn carries a primary-focus selection AND is not itself a
+ * Markdown edit request, suppress both edit affordances so the recency anchor is
+ * unopposed. The decision is UNCONDITIONAL with respect to prior turns — it must
+ * NOT consult `priorAnswerOpenedEditLoop`, because the reported failure case is a
+ * fresh localized question that immediately follows an earlier whole-document
+ * edit (where `priorAnswerOpenedEditLoop` is true). Any edit-phrased turn flips
+ * `isEditRequest` true and restores the affordances.
+ */
+export function shouldSuppressEditAffordances(args: {
+  hasPrimarySelection: boolean;
+  isEditRequest: boolean;
+}): boolean {
+  return args.hasPrimarySelection && !args.isEditRequest;
+}
+
 export function contextPromptLabel(ref: ContextRef): string {
   if (!shouldIncludeContext(ref)) return `Excluded context: ${ref.label}`;
   if (ref.sourceViewType === "auto") return `Visible background context: ${ref.label}`;

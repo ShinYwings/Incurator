@@ -20,10 +20,12 @@ vi.mock("obsidian", () => ({
 import {
   prioritizeZoteroItems,
   rememberRecentZoteroItem,
+  sortProfilesByRecency,
   ZoteroSearchModal,
   type ZoteroSearchResult,
   ZoteroWizardModal,
 } from "./zoteroWizardModal";
+import type { ZoteroImportProfile } from "../types";
 
 function item(key: string): ZoteroSearchResult {
   return {
@@ -54,6 +56,42 @@ describe("Zotero wizard helpers", () => {
     rememberRecentZoteroItem(settings, "D", 3);
     expect(settings.recentZoteroItems).toEqual(["D", "B", "A"]);
   });
+
+  it("orders import profiles most-recently-used first, unused last, stable (v0.21.0)", () => {
+    const profile = (name: string, lastUsedAt?: number): ZoteroImportProfile => ({
+      name,
+      templatePath: "",
+      outputFolder: "",
+      outputSubfolder: "",
+      outputFilename: "",
+      assetFolder: "",
+      assetSubfolder: "",
+      bibliographyStyle: "",
+      lastUsedAt,
+    });
+    const input = [
+      profile("never-A"),
+      profile("older", 100),
+      profile("never-B"),
+      profile("newest", 300),
+    ];
+    const sorted = sortProfilesByRecency(input);
+
+    // used profiles newest→oldest, then unused profiles in their original order.
+    expect(sorted.map((p) => p.name)).toEqual([
+      "newest",
+      "older",
+      "never-A",
+      "never-B",
+    ]);
+    // Operates on a copy: the input array order is not mutated.
+    expect(input.map((p) => p.name)).toEqual([
+      "never-A",
+      "older",
+      "never-B",
+      "newest",
+    ]);
+  });
 });
 
 describe("Zotero import modals", () => {
@@ -82,6 +120,34 @@ describe("Zotero import modals", () => {
     expect(wizard.selectedProfile).toBe("Papers");
     expect(wizard.templatePath).toBe("Templates/Paper.md");
     expect(wizard.outputFolder).toBe("03_Notes");
+  });
+
+  it("auto-loads the most-recently-used profile, not merely the first saved (v0.21.0)", () => {
+    const baseProfile = (name: string, lastUsedAt?: number) => ({
+      name,
+      templatePath: `Templates/${name}.md`,
+      bibliographyStyle: "APA",
+      outputFolder: "03_Notes",
+      outputSubfolder: "",
+      outputFilename: "{{ title }}",
+      assetFolder: "05_Assets",
+      assetSubfolder: "{{ citekey }}",
+      lastUsedAt,
+    });
+    const wizard = new ZoteroWizardModal(
+      {} as any,
+      item("ITEM"),
+      {} as any,
+      {
+        // Stored insertion order puts "First" at index 0, but "Recent" was used
+        // more recently, so the wizard must auto-select "Recent".
+        zoteroProfiles: [baseProfile("First", 100), baseProfile("Recent", 999)],
+      } as any,
+      async () => {}
+    ) as any;
+
+    expect(wizard.selectedProfile).toBe("Recent");
+    expect(wizard.templatePath).toBe("Templates/Recent.md");
   });
 
   it("requests empty-query suggestions when the search modal opens", () => {

@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.20.0)
+# Incurator Plugin Schema & API Contract (v0.22.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -213,6 +213,10 @@ interface PluginSettings {
   // LLM provider selection
   provider: LLMProvider;           // "antigravity" | "claude" | "openai" | "ollama" | "deepseek"
   model: string;                   // model ID, validated against backend catalogue
+                                   // (v0.22.0) NO `latexModel` plugin setting: the
+                                   // region-extraction model is sourced from the
+                                   // backend `llm.latex_extract_model`/`vision_model`
+                                   // via the Dashboard runtime snapshot — see §2.6.
   chatMode: ChatMode;              // "chat" | "plan"
   codexReasoningEffort: CodexReasoningEffort;  // "low"|"medium"|"high"|"xhigh"
   claudeEffort: ClaudeEffort;      // "low"|"medium"|"high"|"xhigh"|"max"
@@ -265,6 +269,16 @@ Rules:
 
 - `provider` and `model` must be consistent. If the backend catalogue changes a model ID,
   the plugin should fall back to the provider default rather than breaking settings.
+- **Region extraction (v0.22.0, supersedes the v0.21.0 `latexModel` plugin setting)**:
+  the dedicated vision models (`llm.vision_model` / `llm.latex_extract_model`) are
+  configured in the Dashboard (§2.1.2) and are honored at the **backend `add source`
+  ingest layer** and the plugin's interactive PDF extraction surfaces
+  (SYSTEM_BEHAVIOR §26.2a). The plugin no longer persists a `latexModel` setting.
+  The interactive PDF right-click **Convert to LaTeX** and **Cmd+Shift+X** crop
+  paths call `wiki plugin pdf transcribe`, which resolves
+  `latex_extract_model → vision_model → (main chat model if vision-capable)` in the
+  backend. A successful crop transcription MUST be sent to chat as text without
+  forwarding the crop image to the main chat model's vision path.
 - `deepseekApiKey` is device-local secret material. It must not be written into
   shared vault config; backend config may instead reference `DEEPSEEK_API_KEY`
   through `llm.deepseek-api.api_key_env` or a local encrypted backend secret
@@ -392,9 +406,15 @@ Rules:
 
 Saved Zotero import profiles define the note template, output folder,
 subfolder, filename, asset folder, and bibliography style used by the import
-wizard. When one or more profiles exist, the wizard opens with the first saved
-profile loaded so edits made in settings are reflected without manually
-re-selecting the profile.
+wizard. Each profile carries an optional `lastUsedAt` epoch-ms timestamp
+(v0.22.0), stamped when the profile is used for an import or when a new profile is
+created. The wizard presents profiles **most-recently-used first**: the Import
+Profile dropdown is ordered by `lastUsedAt` descending (profiles never used sort
+last, preserving their insertion order; ties stable), and the wizard opens with
+the most-recently-used profile loaded so the user's current working profile is at
+the top without manual re-selection. Sorting operates on a copy
+(`sortProfilesByRecency`); the persisted `zoteroProfiles` insertion order is not
+mutated by rendering.
 
 The Zotero item search modal must request empty-query suggestions when it opens.
 Empty-query suggestions come from the backend's recent Zotero results; returned
@@ -406,6 +426,28 @@ plugin's Nunjucks `TemplateRenderer`. The renderer supports the same base item
 metadata used by note templates plus path-oriented filters such as `pathSafe`,
 `firstAuthorLast`, `authorLast`, and `joinTags`. Rendered path segments must be
 sanitized before writing files into the vault.
+
+### 2.1.2 Vision/PDF Extraction Model Rows (Dashboard, v0.22.0)
+
+The Dashboard **LLM Provider** card exposes TWO rows for the backend vision
+extraction models (SCHEMA §2.5; SYSTEM_BEHAVIOR §26.2a), mirroring the
+Primary/Fallback rows and persisting through `wiki config set llm.<key>`:
+
+- **PDF ingest model (full-page)** → `llm.vision_model`. A dropdown of
+  **vision-capable** catalogue models (`supportsVision === true`) plus
+  "— (disabled, use pymupdf4llm)". Status shows the model + health (installed/
+  exceeds-RAM for Ollama; reachable for cloud).
+- **LaTeX/region extract model (light)** → `llm.latex_extract_model`. The same
+  vision-only dropdown plus "— (use PDF ingest model)". When empty, the row's
+  status MUST show the EFFECTIVE resolved model (e.g. "↳ using <vision_model>") so
+  the fallback is visible, never implicit.
+
+These are backend config values, set in the Dashboard and consumed by the backend
+`add source` ingest path. Both rows filter to vision-capable models so a text-only
+model cannot be selected via the UI; the backend additionally validates vision at
+use and raises on a configured-but-non-vision model. (The plugin's interactive
+region surfaces consuming these values is a planned follow-up — see the §2.1
+region-extraction rule.)
 
 ### 2.2 `SessionData`
 
@@ -792,7 +834,10 @@ Rules:
   rectangle** — the text-layer lines whose boxes fall inside the snip — and use
   that region text as the crop's primary-focus content. It must not inject the
   whole page text (or its RAG hits) into the primary focus, and it must not
-  discard the region text entirely. When the cropped region has no selectable
+  discard the region text entirely. The crop image is first transcribed through
+  the backend-resolved PDF extraction model; when that succeeds, the transcription
+  replaces the text-layer region text and the crop image is not forwarded to the
+  main chat model. When extraction fails and the cropped region has no selectable
   text (e.g. a scanned page), the crop falls back to an image-only reference that
   is still marked as primary focus.
 - Selected-context sidechat turns should include current page/document structure
@@ -826,6 +871,21 @@ Rules:
   to fix, rewrite, polish, translate, or otherwise modify the selected text, the
   assistant must propose an `ai-agent-edit` SEARCH/REPLACE block. Ordinary
   questions about selected text must answer normally without proposing edits.
+- **Localized-question edit-affordance suppression (v0.22.0).** A `Cmd+Shift+L`
+  line-range (and any other primary-focus selection) is BOTH a primary-context
+  ref and an editable ref, which previously injected the `<editable_selection>`
+  affordance and the `<edit_review_loop>` contract into the very same payload that
+  the recency anchor told to "answer only, do not modify the document" — a direct
+  contradiction that let long, edit-heavy sessions drift back to whole-file edits.
+  The contract is now: when the latest turn carries a primary-focus selection AND
+  is NOT itself a Markdown edit request (`shouldSuppressEditAffordances`), the
+  plugin MUST omit both the `<editable_selection>` block and the
+  `<edit_review_loop>` contract so the recency anchor is unopposed. The suppression
+  is UNCONDITIONAL with respect to prior turns — it does not consult
+  `priorAnswerOpenedEditLoop`, because the reported failure case is exactly a fresh
+  localized question following an earlier whole-document edit. Genuine edit turns
+  are unaffected: any edit-phrased request flips the latest turn back to an edit
+  request and restores both affordances.
 - If the latest request uses selected PDF/text context as an example for a
   Markdown-file edit, the selected region is a pattern clue, not the sole edit
   target. Provider context must include the full content of open Markdown edit
@@ -917,6 +977,10 @@ cannot silently jump from tool selection to file mutation ("vibe-coding").
   a mutation: the latest message is a Markdown edit request, OR an editable
   line-range selection exists, OR an open Markdown edit target exists, OR the
   prior assistant turn already opened an edit loop (multi-turn edit continuation).
+  **Override (v0.22.0):** none of these conditions apply when the latest turn is a
+  localized question (a primary-focus selection present and the turn is not a
+  Markdown edit request). In that case `shouldSuppressEditAffordances` is true and
+  the contract block is NOT appended, regardless of `priorAnswerOpenedEditLoop`.
 - **Runtime validator (`context/editLoopContract.ts`).** `validateEditLoop(content)`
   returns `{ ok, missing, hasEdits }`. The contract is required ONLY when
   `hasEdits` is true (the content contains at least one `ai-agent-edit` block). A
