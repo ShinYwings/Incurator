@@ -699,6 +699,46 @@ class ClaudeCodeClient:
     def get_and_reset_token_usage(self) -> tuple[int, int]:
         return (0, 0)
 
+    # --- Vision (v0.22.0) -------------------------------------------------
+    @property
+    def supports_vision(self) -> bool:
+        # Claude frontier models are vision-capable; the live P0 test confirmed
+        # `claude -p` reads PNG files via its Read tool. (CLI subscription auth.)
+        return True
+
+    def _run_with_image_path(self, prompt: str, _image_path: str) -> str:
+        from . import vision
+
+        # The image path is embedded in `prompt` by describe_image_via_cli.
+        # NO unsafe auto-approve flags. Allow ONLY the Read tool + the .cache dir so
+        # the CLI can read the rendered page PNG and nothing else.
+        cmd = [
+            self.CLI, "-p", "Follow the instructions in the provided input.",
+            "--allowedTools", "Read",
+            "--add-dir", str(vision.vision_render_dir()),
+        ]
+        if self.model:
+            cmd += ["--model", self.model]
+        try:
+            result = subprocess.run(
+                cmd, input=prompt, capture_output=True, text=True, timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            raise ClaudeCodeError("claude CLI vision call timed out after 300 s")
+        if result.returncode != 0:
+            raise ClaudeCodeError(
+                f"claude CLI vision call exited {result.returncode}: {result.stderr.strip()}"
+            )
+        return result.stdout
+
+    def describe_image(
+        self, image_data: bytes,
+        prompt: str = "Describe this image in detail for a knowledge base.",
+    ) -> str:
+        from . import vision
+
+        return vision.describe_image_via_cli(image_data, prompt, self._run_with_image_path)
+
 
 
 
@@ -864,6 +904,25 @@ class AntigravityCliClient:
     def get_and_reset_token_usage(self) -> tuple[int, int]:
         return (0, 0)
 
+    # --- Vision (v0.22.0) -------------------------------------------------
+    @property
+    def supports_vision(self) -> bool:
+        # Gemini (via agy) is vision-capable; the live P0 test confirmed `agy
+        # --print` reads PNG files. (CLI subscription auth, trust-workspace env.)
+        return True
+
+    def describe_image(
+        self, image_data: bytes,
+        prompt: str = "Describe this image in detail for a knowledge base.",
+    ) -> str:
+        from . import vision
+
+        # agy's _run already reads files (trust-workspace) and the path is embedded
+        # in the prompt; no unsafe flags. Reuse it for capacity/error handling.
+        return vision.describe_image_via_cli(
+            image_data, prompt, lambda fp, _p: self._run(fp)
+        )
+
 
 
 
@@ -1011,6 +1070,24 @@ class CodexCliClient:
 
     def get_and_reset_token_usage(self) -> tuple[int, int]:
         return (0, 0)
+
+    # --- Vision (v0.22.0) -------------------------------------------------
+    @property
+    def supports_vision(self) -> bool:
+        # GPT (via codex) is vision-capable; the live P0 test confirmed `codex exec`
+        # reads PNG files. _run uses --output-last-message so output is clean (avoids
+        # the agentic cwd-echo) and --sandbox read-only allows reading the PNG.
+        return True
+
+    def describe_image(
+        self, image_data: bytes,
+        prompt: str = "Describe this image in detail for a knowledge base.",
+    ) -> str:
+        from . import vision
+
+        return vision.describe_image_via_cli(
+            image_data, prompt, lambda fp, _p: self._run(fp)
+        )
 
 
 class DeepSeekApiClient:
@@ -1461,6 +1538,29 @@ def _make_by_key(key: str, backend_cfg: dict):
     if key == consts.BACKEND_DEEPSEEK_API:
         return _make_deepseek_api(backend_cfg)
     return None
+
+
+def make_client_for(provider_model: str, config: dict):
+    """Build an INDEPENDENT client for an explicit ``provider::model`` value.
+
+    Unlike ``make_client_by_key`` (which derives the model from primary/fallback),
+    this uses the model embedded in ``provider_model`` — used for the decoupled
+    ``vision_model`` / ``latex_extract_model`` slots (v0.22.0). Returns None for an
+    empty/unparseable value.
+    """
+    from .config import split_provider_model
+
+    provider, model = split_provider_model(provider_model)
+    if not provider:
+        return None
+    llm_cfg = config.get("llm", {})
+    if provider == consts.BACKEND_OLLAMA:
+        backend_cfg = {**llm_cfg.get(consts.BACKEND_OLLAMA, {}), "model": model}
+    elif provider == consts.BACKEND_DEEPSEEK_API:
+        backend_cfg = {**llm_cfg.get(consts.BACKEND_DEEPSEEK_API, {}), "model": model}
+    else:
+        backend_cfg = {"model": model}
+    return _make_by_key(provider, backend_cfg)
 
 
 def make_client_by_key(key: str, config: dict):

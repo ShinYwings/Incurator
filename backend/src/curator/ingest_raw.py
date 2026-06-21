@@ -1362,17 +1362,57 @@ def generate_l1_structural_context(
     return context_id
 
 
-def _build_vision_client(_config: dict, main_client):
-    """Return a vision-capable client for image inference.
+def _require_vision(client, slot: str):
+    """Return a vision-capable client for a CONFIGURED slot, else RAISE (v0.22.0).
 
-    Resolution order:
-    1. main_client supports vision → reuse main_client
-    2. ollama configured and primary=ollama → reuse main_client if vision-capable
-    3. None (image inference disabled)
+    A configured-but-bad model never silently falls through to a heavier model
+    (SYSTEM_BEHAVIOR §26.2a, R13) — that would spike latency/cost and hide broken
+    config. Only an EMPTY slot is allowed to fall through (handled by the callers).
     """
+    if client is None:
+        raise LLMError(f"llm.{slot} is set but its provider/model could not be built")
+    if not getattr(client, "supports_vision", False):
+        model = getattr(client, "model", "?")
+        raise LLMError(
+            f"llm.{slot} model '{model}' is not vision-capable; choose a vision model "
+            f"or clear the slot"
+        )
+    return client
+
+
+def _resolve_vision_client(config: dict, main_client):
+    """Heavy ingest/image vision model: ``vision_model`` → main-if-vision → None.
+
+    Used by `add source` PDF ingest and standalone/markdown image description. NEVER
+    consults ``latex_extract_model`` (R10). Empty → fall through; configured-bad → raise.
+    """
+    from . import llm
+
+    vm = (config.get("llm", {}).get("vision_model") or "").strip()
+    if vm:
+        return _require_vision(llm.make_client_for(vm, config), "vision_model")
     if getattr(main_client, "supports_vision", False):
         return main_client
     return None
+
+
+def _resolve_extract_client(config: dict, main_client):
+    """Light interactive region model: ``latex_extract_model`` → vision chain.
+
+    Empty → fall through to the vision chain; configured-bad → raise. (Provided for
+    completeness / future server-side region tasks; ingest does NOT use this.)
+    """
+    from . import llm
+
+    lm = (config.get("llm", {}).get("latex_extract_model") or "").strip()
+    if lm:
+        return _require_vision(llm.make_client_for(lm, config), "latex_extract_model")
+    return _resolve_vision_client(config, main_client)
+
+
+# Backwards-compatible alias: ingest image-description path resolves the heavy model.
+def _build_vision_client(config: dict, main_client):
+    return _resolve_vision_client(config, main_client)
 
 
 def register_and_generate_l1(
