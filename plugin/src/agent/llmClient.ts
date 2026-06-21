@@ -1,14 +1,16 @@
 import { requestUrl, Notice } from "obsidian";
-import { execFile, spawn } from "child_process";
+import { execFile, execFileSync, spawn } from "child_process";
 import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   unlinkSync,
   writeFileSync,
 } from "fs";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 import { join } from "path";
+import { buildSandboxPlan } from "./sandboxWrapper";
 import { promisify, TextDecoder } from "util";
 import type { MCPManager } from "./mcpClient";
 import { buildGuiCliSearchPaths, type CLICredential, type CLIAuthResolver } from "../auth/cliAuth";
@@ -677,7 +679,7 @@ export class LLMClient {
     // TypeScript narrow it to non-null below without a `!` assertion.
     const injectTools = shouldInjectMcpTools(toolPolicy, Boolean(mcpManager), this.shouldUseCli(messages));
     if (!injectTools || !mcpManager) {
-      const { text } = await this._streamChatSingleTurn(messages, onChunk);
+      const { text } = await this._streamChatSingleTurn(messages, onChunk, undefined, toolPolicy);
       return text;
     }
 
@@ -702,7 +704,7 @@ export class LLMClient {
       // Don't pass tools if it's the last turn to force a final answer
       const activeTools = isLastTurn ? undefined : (tools.length > 0 ? tools : undefined);
 
-      const { text, tool_calls } = await this._streamChatSingleTurn(currentMessages, onChunk, activeTools);
+      const { text, tool_calls } = await this._streamChatSingleTurn(currentMessages, onChunk, activeTools, toolPolicy);
       fullFinalText += text;
 
       if (!tool_calls || tool_calls.length === 0) {
@@ -760,13 +762,14 @@ export class LLMClient {
   private async _streamChatSingleTurn(
     messages: LLMMessage[],
     onChunk: (chunk: StreamChunk) => void,
-    tools?: any[]
+    tools?: any[],
+    toolPolicy: ToolPolicy = "auto"
   ): Promise<{ text: string; tool_calls?: any[] }> {
     this.abortController = new AbortController();
     const provider = this.settings.provider;
 
     if (this.shouldUseCli(messages)) {
-      const text = await this.streamChatViaCli(messages, onChunk);
+      const text = await this.streamChatViaCli(messages, onChunk, toolPolicy);
       return { text };
     }
 
@@ -834,7 +837,7 @@ export class LLMClient {
           }
           this.auth.invalidate(provider);
           new Notice(`${provider} HTTP auth failed. Retrying through the provider CLI login session.`);
-          const text = await this.streamChatViaCli(messages, onChunk);
+          const text = await this.streamChatViaCli(messages, onChunk, toolPolicy);
           return { text };
         }
         throw new Error(`LLM API error ${response.status}: ${errorText.slice(0, 200)}`);
@@ -961,16 +964,17 @@ export class LLMClient {
    */
   async complete(
     messages: LLMMessage[],
-    opts?: { model?: string }
+    opts?: { model?: string; toolPolicy?: ToolPolicy }
   ): Promise<string> {
     const provider = this.settings.provider;
     // Per-call model override (v0.21.0): a task-specialized light model (e.g.
     // Convert-to-LaTeX) may run on a smaller model than the main chat `model`.
     // Empty/unset falls back to the configured model, preserving prior behavior.
     const model = opts?.model?.trim() || this.settings.model;
+    const toolPolicy: ToolPolicy = opts?.toolPolicy ?? "auto";
 
     if (this.shouldUseCli(messages)) {
-      return this.completeViaCli(messages);
+      return this.completeViaCli(messages, toolPolicy);
     }
 
     // Ollama uses fetch for non-streaming too (requestUrl may not reach localhost in all envs)
@@ -1030,7 +1034,7 @@ export class LLMClient {
         }
         this.auth.invalidate(provider);
         new Notice(`${provider} HTTP auth failed. Retrying through the provider CLI login session.`);
-        return this.completeViaCli(messages);
+        return this.completeViaCli(messages, toolPolicy);
       }
       if (isQuotaErrorMessage(msg)) {
         throw new Error(formatQuotaErrorMessage(provider, msg));
@@ -1046,7 +1050,8 @@ export class LLMClient {
 
   private streamChatViaCli(
     messages: LLMMessage[],
-    onChunk: (chunk: StreamChunk) => void
+    onChunk: (chunk: StreamChunk) => void,
+    toolPolicy: ToolPolicy = "auto"
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const provider = this.settings.provider;
@@ -1063,7 +1068,8 @@ export class LLMClient {
         prompt,
         outputFile,
         provider,
-        true
+        true,
+        toolPolicy
       );
 
       let fullOutput = "";
@@ -1615,7 +1621,10 @@ export class LLMClient {
     return null;
   }
 
-  private async completeViaCli(messages: LLMMessage[]): Promise<string> {
+  private async completeViaCli(
+    messages: LLMMessage[],
+    toolPolicy: ToolPolicy = "auto"
+  ): Promise<string> {
     const provider = this.settings.provider;
     const prompt = this.messagesToCliPrompt(messages);
     const cwd = this.getCliCwd();
@@ -1626,7 +1635,7 @@ export class LLMClient {
             `codex-output-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`
           )
         : undefined;
-    const { command, args, env } = this.buildCliCommand(prompt, outputFile, provider);
+    const { command, args, env } = this.buildCliCommand(prompt, outputFile, provider, false, toolPolicy);
 
     try {
       const { stdout, stderr } = await execFileAsync(command, args, {
@@ -1815,7 +1824,8 @@ export class LLMClient {
     prompt: string,
     outputFile?: string,
     provider?: LLMProvider,
-    preferStdin = false
+    preferStdin = false,
+    toolPolicy: ToolPolicy = "auto"
   ): {
     command: string;
     args: string[];
@@ -1823,42 +1833,55 @@ export class LLMClient {
     stdin?: string;
   } {
     const model = this.settings.model;
-    switch (provider ?? this.settings.provider) {
+    const p = provider ?? this.settings.provider;
+    const ephemeral = toolPolicy === "none"; // popover / read-only surface
+    const addDirs = this.allowedRoots().flatMap((r) => ["--add-dir", r]);
+    let base: { command: string; args: string[]; env?: Record<string, string>; stdin?: string };
+    switch (p) {
       case "antigravity": {
         this.syncAgyMcpConfig();
-        return {
+        // v0.23.0: NO blanket permission-skip / trust-workspace bypass. agy ignores
+        // its own --sandbox (P0), so containment is the OS sandbox (wrapWithOsSandbox).
+        base = {
           command: "agy",
           args: [
             "--print-timeout", `${Math.max(30, this.settings.antigravityPrintTimeoutSec || 300)}s`,
-            "--dangerously-skip-permissions",
+            ...(ephemeral ? [] : addDirs),
             "-p", prompt,
           ],
-          env: {
-            GEMINI_CLI_TRUST_WORKSPACE: "true",
-            ANTIGRAVITY_TRUST_WORKSPACE: "true",
-          },
+          env: {},
         };
+        break;
       }
       case "claude": {
         const claudeMcpPath = this.syncClaudeMcpConfig();
-        return {
+        // claude has no deny-without-prompt dir sandbox → control via the TOOL SURFACE.
+        // Popover: --tools "" (no tools). Sidechat: disable native fs/shell tools, keep
+        // only the DB-scoped MCP curator tools (the plugin edit-loop handles vault edits).
+        const toolArgs = ephemeral
+          ? ["--tools", ""]
+          : ["--disallowedTools", "Bash", "Read", "Write", "Edit", "WebFetch"];
+        base = {
           command: "claude",
           args: [
             "--mcp-config", claudeMcpPath,
             "-p", prompt,
             "--model", model,
             "--effort", this.settings.claudeEffort,
+            ...toolArgs,
+            ...addDirs,
             "--output-format", "stream-json",
             "--verbose",
             "--include-partial-messages",
           ],
         };
+        break;
       }
       case "openai":
       case "deepseek":
       case "ollama": {
         this.syncCodexMcpConfig();
-        
+
         const extraEnv: Record<string, string> = {};
         if (provider === "deepseek") {
           extraEnv["OPENAI_API_BASE"] = "https://api.deepseek.com/v1";
@@ -1869,15 +1892,15 @@ export class LLMClient {
           extraEnv["OPENAI_API_KEY"] = "ollama";
         }
 
-        return {
+        // Popover: read-only. Sidechat: workspace-write scoped to the allowed roots.
+        base = {
           command: "codex",
           args: [
             "--profile", "obsidian",
             "exec",
-            "-m",
-            model,
-            "--sandbox",
-            "read-only",
+            "-m", model,
+            "--sandbox", ephemeral ? "read-only" : "workspace-write",
+            ...(ephemeral ? [] : addDirs),
             "--skip-git-repo-check",
             "--json",
             "-c",
@@ -1888,10 +1911,12 @@ export class LLMClient {
           env: extraEnv,
           stdin: preferStdin ? prompt : undefined,
         };
+        break;
       }
       default:
-        throw new Error(`Provider "${provider ?? this.settings.provider}" does not support CLI mode.`);
+        throw new Error(`Provider "${p}" does not support CLI mode.`);
     }
+    return this.wrapWithOsSandbox(base, p);
   }
 
   private getCliCwd(): string {
@@ -1900,6 +1925,88 @@ export class LLMClient {
       mkdirSync(dir, { recursive: true });
     }
     return dir;
+  }
+
+  // --- CLI tool-scope sandbox (v0.23.0; SYSTEM_BEHAVIOR §… popover tool scope) ---
+
+  /** Realpath-resolved allowed roots (vault + Zotero) the CLI tools may touch. */
+  private allowedRoots(): string[] {
+    const z = (this.settings.zoteroBasePath || "").trim();
+    const candidates = [
+      this.vaultRoot,
+      z,
+      z ? join(z.replace(/^~(?=$|\/)/, homedir()), "storage") : "",
+    ];
+    const out: string[] = [];
+    for (const raw of candidates) {
+      const p = (raw || "").trim().replace(/^~(?=$|\/)/, homedir());
+      if (!p) continue; // SECURITY: drop empty/undefined BEFORE use (never --add-dir "")
+      try {
+        out.push(realpathSync(p));
+      } catch {
+        out.push(p); // path may not exist yet; pass the literal (still scoped)
+      }
+    }
+    return Array.from(new Set(out));
+  }
+
+  private _bwrapPath: string | null | undefined;
+  private resolveBwrap(): string {
+    if (this._bwrapPath !== undefined) return this._bwrapPath || "";
+    try {
+      this._bwrapPath = execFileSync("sh", ["-c", "command -v bwrap"], {
+        encoding: "utf8",
+      }).trim();
+    } catch {
+      this._bwrapPath = null;
+    }
+    return this._bwrapPath || "";
+  }
+
+  /**
+   * OS-sandbox the CLI command. agy MUST be contained this way (its own --sandbox is
+   * ineffective); claude/codex use it as defense-in-depth on top of their flags.
+   * Returns the wrapped command, or refuses (throws) when agy can't be sandboxed.
+   */
+  private wrapWithOsSandbox(
+    base: { command: string; args: string[]; env?: Record<string, string>; stdin?: string },
+    provider: LLMProvider,
+  ): { command: string; args: string[]; env?: Record<string, string>; stdin?: string } {
+    // The sandbox must also allow the CLI's own operational dir (logs/output files).
+    const roots = [...this.allowedRoots(), this.getCliCwd()];
+    const plan = buildSandboxPlan({
+      platform: process.platform,
+      allowedRoots: roots,
+      home: homedir(),
+      tmpdir: tmpdir(),
+      sandboxExecPath: process.platform === "darwin" ? "/usr/bin/sandbox-exec" : "",
+      bwrapPath: process.platform === "linux" ? this.resolveBwrap() : "",
+      profilePath: process.platform === "darwin"
+        ? join(this.getCliCwd(), "vision_sandbox.sb")
+        : undefined,
+    });
+
+    if (plan.unavailable) {
+      // agy is unsafe without the OS sandbox → refuse with guidance. claude/codex are
+      // already constrained by their flags, so let them proceed unwrapped.
+      if (provider === "antigravity") {
+        throw new Error(
+          `Antigravity (agy) cannot be safely sandboxed here, so it is blocked from tool ` +
+          `use. ${plan.reason ?? ""} Switch the provider to Claude/Codex/Ollama, or install ` +
+          `the sandbox tool.`
+        );
+      }
+      return base;
+    }
+    if (plan.profile && process.platform === "darwin") {
+      writeFileSync(join(this.getCliCwd(), "vision_sandbox.sb"), plan.profile);
+    }
+    return {
+      command: plan.prefix[0],
+      args: [...plan.prefix.slice(1), base.command, ...base.args],
+      env: base.env,
+      stdin: base.stdin,
+    };
   }
 
   private processMcpServer(server: any): any {

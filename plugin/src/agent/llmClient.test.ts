@@ -235,3 +235,40 @@ describe("complete() per-call model override (v0.21.0 Convert-to-LaTeX fast mode
     expect(body.model).toBe("main-model");
   });
 });
+
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { join } from "path";
+
+describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
+  const source = readFileSync(
+    join(fileURLToPath(new URL(".", import.meta.url)), "llmClient.ts"),
+    "utf8",
+  );
+
+  it("drops the dangerous agy blanket-skip + trust-workspace bypass", () => {
+    expect(source).not.toContain("--dangerously-skip-permissions");
+    expect(source).not.toContain('GEMINI_CLI_TRUST_WORKSPACE: "true"');
+    expect(source).not.toContain('ANTIGRAVITY_TRUST_WORKSPACE: "true"');
+  });
+
+  it("controls claude via the tool surface (--tools '' popover / --disallowedTools sidechat)", () => {
+    expect(source).toContain('["--tools", ""]');
+    expect(source).toContain('"--disallowedTools", "Bash", "Read", "Write", "Edit", "WebFetch"');
+  });
+
+  it("scopes codex by toolPolicy (read-only popover / workspace-write sidechat)", () => {
+    expect(source).toContain('ephemeral ? "read-only" : "workspace-write"');
+  });
+
+  it("threads toolPolicy and OS-sandbox-wraps every CLI command", () => {
+    expect(source).toContain("toolPolicy: ToolPolicy = \"auto\"");
+    expect(source).toContain("return this.wrapWithOsSandbox(base, p);");
+    expect(source).toContain("buildSandboxPlan({");
+  });
+
+  it("filters empty allowed roots before use (never --add-dir \"\")", () => {
+    expect(source).toContain("if (!p) continue;");
+    expect(source).toContain("realpathSync");
+  });
+});
