@@ -452,16 +452,22 @@ The plugin supports Antigravity, Claude, OpenAI Codex, Ollama, and DeepSeek. In 
 The Settings page shows the selected model's context window on the **Model**
 row instead of as a separate setting.
 
-**Convert-to-LaTeX model (fast/light) (v0.21.0):** Selecting text in the Incurator
-PDF viewer and choosing **Convert to LaTeX (Copy)** from the right-click menu (or
-the LaTeX hotkey) transcribes the raw text into clean Markdown with `$…$`/`$$…$$`
-math. This is a simple transcription task that does not need your heavy chat
-model. The **Convert-to-LaTeX model** field lets you point it at a small, fast
-model — recommended Ollama default `qwen2.5:0.5b`. Leave it blank to reuse your
-main model. The override is applied only when the field is set **and** your
-provider is **Ollama**; on any other provider the action falls back to the main
-model. If the conversion fails because the model is not installed, the notice
-names the model so you can run `ollama pull <model>` (or clear the field).
+**Vision extraction models (v0.22.0):** PDF math extraction uses dedicated
+**vision** models, configured in the **Incurator Dashboard → LLM Provider** card,
+separate from your main chat model. Two rows:
+
+- **PDF ingest model (full-page)** — when set, `wiki add`/Add Source transcribes
+  each PDF page with this vision model so L1 gets proper LaTeX (instead of the
+  approximate text-layer extraction). Leave empty to keep the fast pymupdf4llm path.
+- **LaTeX/region extract model (light)** — used by the right-click **Convert to
+  LaTeX** and the **Cmd+Shift+X** snip. It transcribes the selected *region image*
+  to LaTeX (robust to scanned/garbled text). Leave empty to fall back to the PDF
+  ingest model, then to your main model. A small model is recommended here so
+  interactive snips stay fast.
+
+Both run on your existing provider's **CLI subscription** (Ollama, or the
+`claude`/`agy`/`codex` CLIs) — **no extra API keys**. Only vision-capable models
+appear in the dropdowns. This replaces the v0.21.0 `latexModel` plugin setting.
 
 > [!NOTE]
 > The **Incurator Dashboard → Overview → LLM Provider** card edits the current

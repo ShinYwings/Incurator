@@ -116,6 +116,40 @@ Rules:
 - The canonical Windows PowerShell Antigravity installer command is
   `irm https://antigravity.google/cli/install.ps1 | iex`.
 
+### 2.5 Vision Extraction Models (v0.22.0)
+
+Two optional, independently-selectable extraction models, decoupled from
+`llm.primary`/`fallback`. See SYSTEM_BEHAVIOR §26.2a for behavior.
+
+```yaml
+llm:
+  vision_model: ""          # "" = disabled (pymupdf4llm). provider::model — heavy,
+                            #   full-page model for `add source` PDF ingest +
+                            #   standalone/markdown image description.
+  latex_extract_model: ""   # "" = fall back to vision_model. provider::model —
+                            #   light region-OCR model for the plugin's interactive
+                            #   surfaces (Cmd+Shift+X snip, Convert-to-LaTeX).
+  vision_render_dpi: 170    # PyMuPDF get_pixmap target DPI (range ~150-200).
+  vision_max_image_px: 1600 # hard cap on a rendered page's longest edge (downscale).
+  vision_max_pages_per_run: 300  # total-spend rail for a single `add` run.
+```
+
+Rules:
+
+- Both slots empty = pre-v0.22.0 behavior (pymupdf4llm ingest, main-model snip vision).
+- Resolution: ingest uses `vision_model` ONLY; interactive surfaces resolve
+  `latex_extract_model → vision_model → (main chat model if vision-capable)`. The
+  chain advances ONLY on an empty slot; a configured-but-failing model raises and
+  halts (no silent fall-through). (SYSTEM_BEHAVIOR §26.2a.)
+- A configured model MUST be vision-capable; the value reuses the `provider::model`
+  form parsed by `split_provider_model`.
+- Cloud vision uses CLI **subscription** auth (no provider API keys): Ollama via
+  in-memory base64; agentic CLIs (claude/agy/codex) via a temp PNG under
+  `.cache/vision_render/<run-id>/` read by the CLI's vision tool, output normalized
+  to clean LaTeX, temp files removed in `finally` (no leaks).
+- Per-page transcription cache key = `(page_content_hash, resolved_vision_model)`;
+  a model switch invalidates stale L1.
+
 ## 3. L1 Context Schema
 
 v0.2.2 L1 Contexts preserve structural source recall in Markdown (including LaTeX math `$$...$$` and tables) for immediate RAG and section-aware extraction. Small and medium sources may inline raw source text in `Source Sections`. Large sources MUST use a compact on-demand policy: keep section markers, page/section previews, hashes, and provenance in L1, but fetch exact raw evidence from the original source through `fetch_document_section` or page-window parsing instead of duplicating the whole document into CTX.
@@ -142,13 +176,24 @@ source_page_count: 12          # PDF only, optional
 source_sections_inline: true | false
 source_text_policy: inline | on_demand
 source_char_count: 12345
-parser_used: pymupdf4llm       # v0.2.2: specifies which parser (e.g. pymupdf4llm, vlm, text)
+parser_used: pymupdf4llm       # v0.2.2: which parser produced L1 (pymupdf4llm | vlm | text)
+                               # v0.22.0: "vlm" when a user-elected vision_model
+                               # transcribed the rendered pages (SYSTEM_BEHAVIOR §26.2a).
 source_pages:                  # PDF only, optional
   - page: 1
     hash: 16-char-page-hash
     chars: 1024
     words: 180
+    parser_text: "…"           # v0.22.0, PDF+vlm only: the pymupdf4llm text-layer
+                               # extraction for this page, retained for audit/cross-
+                               # check even when the VLM transcription became L1. A
+                               # transient per-page VLM failure falls back to this.
 ```
+
+- When `parser_used: vlm`, L1 page text is the vision-model transcription, but each
+  page's `parser_text` preserves the pymupdf4llm extraction so a VLM hallucination is
+  auditable (formula token cross-check, §26.1) and a transient per-page VLM failure
+  degrades to `parser_text` for that page (logged, never silent).
 
 Rules:
 

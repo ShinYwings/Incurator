@@ -213,7 +213,10 @@ interface PluginSettings {
   // LLM provider selection
   provider: LLMProvider;           // "antigravity" | "claude" | "openai" | "ollama" | "deepseek"
   model: string;                   // model ID, validated against backend catalogue
-  latexModel?: string;             // optional fast/light model for Convert-to-LaTeX; empty/unset = reuse `model` (v0.21.0)
+                                   // (v0.22.0) NO `latexModel` plugin setting: the
+                                   // region-extraction model is sourced from the
+                                   // backend `llm.latex_extract_model`/`vision_model`
+                                   // via the Dashboard runtime snapshot — see §2.6.
   chatMode: ChatMode;              // "chat" | "plan"
   codexReasoningEffort: CodexReasoningEffort;  // "low"|"medium"|"high"|"xhigh"
   claudeEffort: ClaudeEffort;      // "low"|"medium"|"high"|"xhigh"|"max"
@@ -266,14 +269,17 @@ Rules:
 
 - `provider` and `model` must be consistent. If the backend catalogue changes a model ID,
   the plugin should fall back to the provider default rather than breaking settings.
-- `latexModel` (v0.21.0) is an optional task-specialized light model used ONLY by
-  the PDF right-click **Convert to LaTeX** action. When empty/unset, that action
-  reuses the main `model`. The model override is applied at the call site only
-  when `latexModel` is non-empty AND `provider === "ollama"` (the Ollama HTTP path
-  honors a per-call model); for every other provider the action falls back to the
-  main `model`. The recommended Ollama default shown as the field placeholder is
-  `qwen2.5:0.5b`. `LLMClient.complete(messages, opts?: { model?: string })` carries
-  the override; omitting `opts` preserves the prior behavior (uses `model`).
+- **Region-extraction model (v0.22.0, supersedes the v0.21.0 `latexModel`)**: the
+  PDF right-click **Convert to LaTeX** and **Cmd+Shift+X** snip transcription run on
+  the backend-configured `llm.latex_extract_model` (falling back to `llm.vision_model`,
+  then the main chat model if vision-capable). The plugin does NOT persist its own
+  model setting for this — it READS the resolved id from the Dashboard runtime
+  snapshot (single source of truth) and passes it via
+  `LLMClient.complete(messages, opts?: { model?: string })` (the general per-call
+  override; omitting `opts` uses `model`). Region transcription is **image-based**:
+  the selected region/page is rendered and sent as an image part, so it is robust to
+  scanned/garbled text layers. Configuration is done in the Dashboard (§2.6), not in
+  plugin settings.
 - `deepseekApiKey` is device-local secret material. It must not be written into
   shared vault config; backend config may instead reference `DEEPSEEK_API_KEY`
   through `llm.deepseek-api.api_key_env` or a local encrypted backend secret
@@ -421,6 +427,27 @@ plugin's Nunjucks `TemplateRenderer`. The renderer supports the same base item
 metadata used by note templates plus path-oriented filters such as `pathSafe`,
 `firstAuthorLast`, `authorLast`, and `joinTags`. Rendered path segments must be
 sanitized before writing files into the vault.
+
+### 2.1.2 Vision/PDF Extraction Model Rows (Dashboard, v0.22.0)
+
+The Dashboard **LLM Provider** card exposes TWO rows for the backend vision
+extraction models (SCHEMA §2.5; SYSTEM_BEHAVIOR §26.2a), mirroring the
+Primary/Fallback rows and persisting through `wiki config set llm.<key>`:
+
+- **PDF ingest model (full-page)** → `llm.vision_model`. A dropdown of
+  **vision-capable** catalogue models (`supportsVision === true`) plus
+  "— (disabled, use pymupdf4llm)". Status shows the model + health (installed/
+  exceeds-RAM for Ollama; reachable for cloud).
+- **LaTeX/region extract model (light)** → `llm.latex_extract_model`. The same
+  vision-only dropdown plus "— (use PDF ingest model)". When empty, the row's
+  status MUST show the EFFECTIVE resolved model (e.g. "↳ using <vision_model>") so
+  the fallback is visible, never implicit.
+
+These are backend config values; the plugin's interactive region surfaces (§2.1
+region-extraction rule) READ the resolved id from the runtime snapshot rather than
+keeping a parallel setting. Both rows filter to vision-capable models so a text-only
+model cannot be selected via the UI; the backend additionally validates vision at
+use and raises on a configured-but-non-vision model.
 
 ### 2.2 `SessionData`
 

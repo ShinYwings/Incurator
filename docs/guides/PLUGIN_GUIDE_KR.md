@@ -394,15 +394,19 @@ PDF 채팅과 PDF 지식 정제는 별도 workflow로 취급합니다.
 Settings 화면에서는 선택된 model의 context window를 별도 항목으로 만들지 않고
 **Model** 행의 설명에 함께 표시합니다.
 
-**Convert-to-LaTeX 모델(빠른/경량) (v0.21.0):** Incurator PDF 뷰어에서 텍스트를
-선택한 뒤 우클릭 메뉴의 **Convert to LaTeX (Copy)**(또는 LaTeX 단축키)를 고르면
-원본 텍스트를 `$…$`/`$$…$$` 수식이 포함된 깔끔한 마크다운으로 변환합니다. 이는
-무거운 채팅 모델이 필요 없는 단순 전사 작업입니다. **Convert-to-LaTeX 모델** 필드에
-작고 빠른 모델을 지정할 수 있으며, 권장 Ollama 기본값은 `qwen2.5:0.5b`입니다. 비워
-두면 메인 모델을 그대로 사용합니다. 이 오버라이드는 필드가 설정되어 있고 **그리고**
-제공자가 **Ollama**일 때만 적용되며, 다른 제공자에서는 메인 모델로 폴백합니다.
-모델이 설치되어 있지 않아 변환이 실패하면 알림에 모델 이름이 표시되므로
-`ollama pull <model>`을 실행하거나 필드를 비우면 됩니다.
+**비전 추출 모델 (v0.22.0):** PDF 수식 추출은 메인 채팅 모델과 별개의 전용 **비전**
+모델을 쓰며, **Incurator Dashboard → LLM Provider** 카드에서 설정합니다. 두 개의 행:
+
+- **PDF ingest 모델(전체 페이지)** — 설정하면 `wiki add`/Add Source가 각 PDF 페이지를
+  이 비전 모델로 전사해 L1에 제대로 된 LaTeX가 들어갑니다(텍스트레이어의 근사 추출
+  대신). 비우면 빠른 pymupdf4llm 경로 유지.
+- **LaTeX/영역 추출 모델(경량)** — 우클릭 **Convert to LaTeX**와 **Cmd+Shift+X** 스닙이
+  사용. 선택한 *영역 이미지*를 LaTeX로 전사(스캔/깨진 텍스트레이어에도 견고). 비우면
+  PDF ingest 모델 → 메인 모델 순으로 폴백. interactive 스닙이 빠르도록 작은 모델 권장.
+
+둘 다 기존 제공자의 **CLI 구독**(Ollama, 또는 `claude`/`agy`/`codex` CLI)으로 동작 —
+**추가 API 키 불필요**. 드롭다운에는 비전 가능 모델만 표시됩니다. v0.21.0의 `latexModel`
+플러그인 설정을 대체합니다.
 
 플러그인은 Antigravity, Claude, OpenAI Codex, Ollama, DeepSeek를 지원합니다. 설정 탭에서는 제공자와 모델을 따로 조정할 수 있고, 채팅 사이드바 하단에서는 하나의 모델 선택 메뉴에서 `Provider · Model` 형식으로 함께 전환합니다. reasoning/effort 메뉴는 백엔드 카탈로그에서 effort 단계가 선언된 모델에만 표시됩니다.
 
