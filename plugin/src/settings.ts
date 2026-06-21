@@ -192,23 +192,9 @@ export class AIAgentSettingTab extends PluginSettingTab {
       }
     }
 
-    // Convert-to-LaTeX fast/light model (v0.21.0): a small model for the simple
-    // PDF "Convert to LaTeX" transcription task. Empty = reuse the main model.
-    // Applied only on Ollama (the call site enforces the provider gate).
-    new Setting(providerSection)
-      .setName("Convert-to-LaTeX model (fast/light)")
-      .setDesc(
-        "Optional small model for the PDF 'Convert to LaTeX' action. Empty = use the main model. Applied only when set and provider is Ollama."
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("qwen2.5:0.5b")
-          .setValue(this.plugin.settings.latexModel || "")
-          .onChange(async (value) => {
-            this.plugin.settings.latexModel = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
+    // v0.22.0: PDF/region vision-extraction models are configured in the
+    // Incurator Dashboard → LLM Provider card (llm.vision_model /
+    // llm.latex_extract_model), not in plugin settings. (Supersedes latexModel.)
 
     // Show only the parameter for the CURRENT provider + model
     const modelThinks = currentProvider === "claude" || currentProvider === "openai";

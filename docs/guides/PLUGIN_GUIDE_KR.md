@@ -400,13 +400,13 @@ Settings 화면에서는 선택된 model의 context window를 별도 항목으�
 - **PDF ingest 모델(전체 페이지)** — 설정하면 `wiki add`/Add Source가 각 PDF 페이지를
   이 비전 모델로 전사해 L1에 제대로 된 LaTeX가 들어갑니다(텍스트레이어의 근사 추출
   대신). 비우면 빠른 pymupdf4llm 경로 유지.
-- **LaTeX/영역 추출 모델(경량)** — 우클릭 **Convert to LaTeX**와 **Cmd+Shift+X** 스닙이
-  사용. 선택한 *영역 이미지*를 LaTeX로 전사(스캔/깨진 텍스트레이어에도 견고). 비우면
-  PDF ingest 모델 → 메인 모델 순으로 폴백. interactive 스닙이 빠르도록 작은 모델 권장.
+- **LaTeX/영역 추출 모델(경량)** — interactive 스닙용 소형 영역-OCR 모델. 비우면 PDF
+  ingest 모델로 폴백. (우클릭 **Convert to LaTeX** / **Cmd+Shift+X** 스닙을 이 모델로
+  태우는 것은 후속 작업이며, 현재는 메인 채팅 모델로 동작합니다.)
 
-둘 다 기존 제공자의 **CLI 구독**(Ollama, 또는 `claude`/`agy`/`codex` CLI)으로 동작 —
-**추가 API 키 불필요**. 드롭다운에는 비전 가능 모델만 표시됩니다. v0.21.0의 `latexModel`
-플러그인 설정을 대체합니다.
+ingest 비전은 기존 제공자의 **CLI 구독**(Ollama, 또는 `claude`/`agy`/`codex` CLI)으로
+동작 — **추가 API 키 불필요**. 드롭다운에는 비전 가능 모델만 표시됩니다. v0.21.0의
+`latexModel` 플러그인 설정을 대체합니다.
 
 플러그인은 Antigravity, Claude, OpenAI Codex, Ollama, DeepSeek를 지원합니다. 설정 탭에서는 제공자와 모델을 따로 조정할 수 있고, 채팅 사이드바 하단에서는 하나의 모델 선택 메뉴에서 `Provider · Model` 형식으로 함께 전환합니다. reasoning/effort 메뉴는 백엔드 카탈로그에서 effort 단계가 선언된 모델에만 표시됩니다.
 

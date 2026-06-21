@@ -459,13 +459,12 @@ separate from your main chat model. Two rows:
 - **PDF ingest model (full-page)** — when set, `wiki add`/Add Source transcribes
   each PDF page with this vision model so L1 gets proper LaTeX (instead of the
   approximate text-layer extraction). Leave empty to keep the fast pymupdf4llm path.
-- **LaTeX/region extract model (light)** — used by the right-click **Convert to
-  LaTeX** and the **Cmd+Shift+X** snip. It transcribes the selected *region image*
-  to LaTeX (robust to scanned/garbled text). Leave empty to fall back to the PDF
-  ingest model, then to your main model. A small model is recommended here so
-  interactive snips stay fast.
+- **LaTeX/region extract model (light)** — a small region-OCR model reserved for
+  interactive snips. Leave empty to fall back to the PDF ingest model. (Routing the
+  right-click **Convert to LaTeX** / **Cmd+Shift+X** snip through this model is a
+  planned follow-up; today those run on your main chat model.)
 
-Both run on your existing provider's **CLI subscription** (Ollama, or the
+Ingest vision runs on your existing provider's **CLI subscription** (Ollama, or the
 `claude`/`agy`/`codex` CLIs) — **no extra API keys**. Only vision-capable models
 appear in the dropdowns. This replaces the v0.21.0 `latexModel` plugin setting.
 

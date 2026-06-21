@@ -16,16 +16,13 @@ describe("ExternalPdfView device-portable restore contract", () => {
   });
 });
 
-describe("Convert-to-LaTeX fast/light model (v0.21.0)", () => {
-  it("overrides the model only for Ollama with a non-empty latexModel", () => {
-    expect(source).toContain("this.plugin.settings.latexModel?.trim()");
-    expect(source).toContain('this.plugin.settings.provider === "ollama"');
-    expect(source).toContain("complete(messages, { model: latexModel })");
-    // Non-Ollama / unset falls back to the plain main-model call.
-    expect(source).toContain("await this.plugin.llmClient.complete(messages)");
+describe("Convert-to-LaTeX (v0.22.0: latexModel setting removed)", () => {
+  it("no longer references the removed latexModel plugin setting", () => {
+    expect(source).not.toContain("settings.latexModel");
+    expect(source).not.toContain("ollama pull ${resolvedModel");
   });
 
-  it("names the resolved model in the failure notice for an actionable ollama pull hint", () => {
-    expect(source).toContain("ollama pull ${resolvedModel");
+  it("runs the conversion on the main chat model", () => {
+    expect(source).toContain("await this.plugin.llmClient.complete(messages)");
   });
 });

@@ -1308,26 +1308,17 @@ export class ExternalPdfView extends ItemView {
         content: rawText,
       },
     ];
-    // Convert-to-LaTeX fast/light model (v0.21.0): override only when a model is
-    // set AND the provider is Ollama (the Ollama HTTP path honors a per-call
-    // model); every other provider falls back to the main model.
-    const latexModel = this.plugin.settings.latexModel?.trim();
-    const useFastModel =
-      Boolean(latexModel) && this.plugin.settings.provider === "ollama";
-    const resolvedModel = useFastModel
-      ? latexModel
-      : this.plugin.settings.model;
+    // v0.22.0: uses the main chat model. The dedicated PDF vision models
+    // (llm.vision_model / llm.latex_extract_model, configured in the Dashboard) are
+    // applied at the backend `add source` ingest layer; routing this interactive
+    // action through `latex_extract_model` is a planned follow-up.
     try {
-      const result = useFastModel
-        ? await this.plugin.llmClient.complete(messages, { model: latexModel })
-        : await this.plugin.llmClient.complete(messages);
+      const result = await this.plugin.llmClient.complete(messages);
       await navigator.clipboard.writeText(result.trim());
       new Notice("LaTeX copied to clipboard.");
     } catch (err) {
       console.error("LaTeX conversion failed:", err);
-      new Notice(
-        `Conversion failed (model: ${resolvedModel || "default"}). If it is not installed, run: ollama pull ${resolvedModel || "<model>"} — or clear the Convert-to-LaTeX model setting.`
-      );
+      new Notice("LaTeX conversion failed. Check the console for details.");
     }
   }
 

@@ -269,17 +269,15 @@ Rules:
 
 - `provider` and `model` must be consistent. If the backend catalogue changes a model ID,
   the plugin should fall back to the provider default rather than breaking settings.
-- **Region-extraction model (v0.22.0, supersedes the v0.21.0 `latexModel`)**: the
-  PDF right-click **Convert to LaTeX** and **Cmd+Shift+X** snip transcription run on
-  the backend-configured `llm.latex_extract_model` (falling back to `llm.vision_model`,
-  then the main chat model if vision-capable). The plugin does NOT persist its own
-  model setting for this — it READS the resolved id from the Dashboard runtime
-  snapshot (single source of truth) and passes it via
-  `LLMClient.complete(messages, opts?: { model?: string })` (the general per-call
-  override; omitting `opts` uses `model`). Region transcription is **image-based**:
-  the selected region/page is rendered and sent as an image part, so it is robust to
-  scanned/garbled text layers. Configuration is done in the Dashboard (§2.6), not in
-  plugin settings.
+- **Region extraction (v0.22.0, supersedes the v0.21.0 `latexModel` plugin setting)**:
+  the dedicated vision models (`llm.vision_model` / `llm.latex_extract_model`) are
+  configured in the Dashboard (§2.1.2) and are honored at the **backend `add source`
+  ingest layer** (SYSTEM_BEHAVIOR §26.2a). The plugin no longer persists a
+  `latexModel` setting. The interactive PDF right-click **Convert to LaTeX** runs on
+  the **main chat model** for now; routing the interactive surfaces through the
+  backend-resolved `latex_extract_model` is a planned follow-up. `LLMClient.complete`
+  retains its optional `{ model }` override (used elsewhere), so the follow-up needs
+  no new client plumbing.
 - `deepseekApiKey` is device-local secret material. It must not be written into
   shared vault config; backend config may instead reference `DEEPSEEK_API_KEY`
   through `llm.deepseek-api.api_key_env` or a local encrypted backend secret
@@ -443,11 +441,12 @@ Primary/Fallback rows and persisting through `wiki config set llm.<key>`:
   status MUST show the EFFECTIVE resolved model (e.g. "↳ using <vision_model>") so
   the fallback is visible, never implicit.
 
-These are backend config values; the plugin's interactive region surfaces (§2.1
-region-extraction rule) READ the resolved id from the runtime snapshot rather than
-keeping a parallel setting. Both rows filter to vision-capable models so a text-only
+These are backend config values, set in the Dashboard and consumed by the backend
+`add source` ingest path. Both rows filter to vision-capable models so a text-only
 model cannot be selected via the UI; the backend additionally validates vision at
-use and raises on a configured-but-non-vision model.
+use and raises on a configured-but-non-vision model. (The plugin's interactive
+region surfaces consuming these values is a planned follow-up — see the §2.1
+region-extraction rule.)
 
 ### 2.2 `SessionData`
 

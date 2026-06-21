@@ -85,6 +85,20 @@ describe("Incurator dashboard backend boundary", () => {
     expect(source).toContain("Models are still loading");
   });
 
+  it("exposes two vision-extraction model rows persisted via wiki config (v0.22.0)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    // Two rows read the backend vision slots and persist via wiki config set.
+    expect(source).toContain('["config", "set", "llm.vision_model"');
+    expect(source).toContain('["config", "set", "llm.latex_extract_model"');
+    expect(source).toContain("llm.vision_model as string");
+    expect(source).toContain("llm.latex_extract_model as string");
+    // Vision-only dropdown + effective-fallback hint for the light row.
+    expect(source).toContain("m.supportsVision");
+    expect(source).toContain("↳ using");
+  });
+
   it("refreshes local runtime snapshots before reading status or sources", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
