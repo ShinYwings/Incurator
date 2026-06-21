@@ -233,6 +233,17 @@ CREATE TABLE IF NOT EXISTS page_hashes (
     last_synced     TEXT NOT NULL            -- ISO timestamp
 );
 
+-- v0.22.0: device-local cache of VLM page transcriptions (SYSTEM_BEHAVIOR §26.2a).
+-- Keyed by (rendered-image hash, resolved model) so switching vision_model in the
+-- Dashboard invalidates stale extractions (R12). Never exported (device-local).
+CREATE TABLE IF NOT EXISTS vision_page_cache (
+    image_hash      TEXT NOT NULL,           -- sha256[:16] of the rendered page PNG
+    model           TEXT NOT NULL,           -- resolved provider::model
+    latex           TEXT NOT NULL,           -- normalized transcription
+    created_at      TEXT NOT NULL,
+    PRIMARY KEY (image_hash, model)
+);
+
 -- DAG edge index for SQL-based traversal (spec 04/08/09)
 -- Enables incremental sync downstream expansion and Canvas generation
 -- without filesystem scanning.
@@ -1674,6 +1685,35 @@ def get_dag_edges_for_atoms(db_path: str | Path, atom_ids: list[str]) -> list[di
             tuple(atom_ids),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def vision_cache_get(db_path: Path, image_hash: str, model: str) -> str | None:
+    """Return a cached VLM transcription for (rendered-image hash, model), or None.
+
+    Keyed by model so a Dashboard model switch never serves a prior model's L1 (R12).
+    """
+    if not db_path.exists():
+        return None
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT latex FROM vision_page_cache WHERE image_hash = ? AND model = ?",
+            (image_hash, model),
+        ).fetchone()
+        return row["latex"] if row else None
+
+
+def vision_cache_put(db_path: Path, image_hash: str, model: str, latex: str) -> None:
+    """Upsert a VLM page transcription keyed by (image hash, model)."""
+    import datetime
+    now = datetime.datetime.now().isoformat()
+    with connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO vision_page_cache (image_hash, model, latex, created_at) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(image_hash, model) DO UPDATE SET "
+            "latex = excluded.latex, created_at = excluded.created_at",
+            (image_hash, model, latex, now),
+        )
 
 
 def get_page_hashes(db_path: Path) -> dict[str, str]:

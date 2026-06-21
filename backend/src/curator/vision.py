@@ -29,8 +29,12 @@ __all__ = [
     "vision_temp_png",
     "normalize_vision_latex",
     "describe_image_via_cli",
+    "render_pdf_pages",
     "PDF_LATEX_TRANSCRIBE_PROMPT",
 ]
+
+# Bounded concurrency for page transcription (subprocess/httpx calls are blocking).
+VISION_CONCURRENCY = 4
 
 # Strict, output-only prompt. Region/page-scoped (NOT "parse the whole page").
 PDF_LATEX_TRANSCRIBE_PROMPT = (
@@ -118,6 +122,34 @@ def normalize_vision_latex(text: str) -> str:
     result = "\n".join(out).strip()
     # Unwrap a single fully-$$-wrapped block if the whole thing is one wrapper.
     return result
+
+
+def render_pdf_pages(
+    file_path, *, dpi: int = 170, max_px: int = 1600
+) -> list[bytes]:
+    """Render each PDF page to bounded PNG bytes via PyMuPDF (in-memory, no disk).
+
+    Renders at ``dpi``; if a page's longest edge would exceed ``max_px`` px, the zoom
+    is lowered so the longest edge is capped (R14) — dense/large pages never exceed
+    the vision model's image-payload/token limits. PyMuPDF (`fitz`) is already a dep.
+    """
+    import fitz
+
+    out: list[bytes] = []
+    doc = fitz.open(str(file_path))
+    try:
+        for i in range(doc.page_count):
+            page = doc.load_page(i)
+            zoom = dpi / 72.0
+            rect = page.rect
+            longest_pt = max(rect.width, rect.height) or 1.0
+            if longest_pt * zoom > max_px:
+                zoom = max_px / longest_pt
+            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+            out.append(pix.tobytes("png"))
+    finally:
+        doc.close()
+    return out
 
 
 def describe_image_via_cli(
