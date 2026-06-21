@@ -1569,13 +1569,26 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
 - **OS-level sandbox (`src/agent/sandboxWrapper.ts`)** wraps EVERY CLI subprocess,
   generated from the allowed roots — REQUIRED for agy (its flags don't contain it),
   defense-in-depth for the rest:
-  - macOS: `sandbox-exec -f <profile>` (Seatbelt) — deny `file-write*` outside the
-    vault + Zotero roots + the CLI's runtime dirs (`$TMPDIR`, caches, the plugin's
-    own CLI dir). Validated to block nested-child writes. Reads are allowed
-    (security-critical harm is creation/writes; read-restriction breaks the CLI).
-  - Linux: `bwrap` — `--ro-bind / /` + `--bind <root> <root>` per allowed root. If
-    `bwrap` is absent the plugin REFUSES the agentic CLI with a one-line install hint
-    (`apt/dnf install bubblewrap`). Windows: out of scope.
+  - macOS: `sandbox-exec -p <profile>` (Seatbelt) — the profile is passed INLINE on
+    the command line (no temp file → no multi-vault / concurrent-call collision). It
+    denies `file-write*` everywhere, then re-allows ONLY: the vault + Zotero roots,
+    the plugin's own CLI dir (`<repo>/.cache/cli/`, see below), the CLIs' OWN narrow
+    state dirs (`~/.gemini`, `~/.antigravity`, `~/.claude`, `~/.codex`), and the
+    user's SPECIFIC `$TMPDIR`. It does NOT grant the broad `~/.config`, `~/.cache`,
+    `~/Library/Caches`, or the `/private/var/folders`/`/private/tmp` roots — those
+    would let the agent drop a `~/.config/autostart` script or overwrite another
+    app's config. Validated to block nested-child writes + the `~/.config/autostart`
+    persistence attack. Reads are allowed (security-critical harm is creation/writes;
+    read-restriction breaks the CLI).
+  - Linux: `bwrap` — `--ro-bind / /` + `--tmpfs /tmp` + `--bind-try <root> <root>`
+    per allowed root and per CLI state dir. `/tmp` is NEVER re-bound over the tmpfs
+    (that would expose the host `/tmp` read-write). If `bwrap` is absent the plugin
+    REFUSES the agentic CLI with a one-line install hint (`apt/dnf install
+    bubblewrap`). Windows: out of scope.
+  - **Plugin CLI dir** — device-local CLI byproducts (codex output, generated
+    `claude_mcp.json`, temp images) live in `<incuratorRepoPath>/.cache/cli/`
+    (gitignored, never synced into the vault), falling back to the OS temp dir when
+    the repo path is unset — NEVER under `~/.incurator`.
   - **Automatic** — the plugin generates the profile/binds from `allowedRoots()`
     (realpath-resolved vault + Zotero + `storage/`, empty/undefined dropped before
     use — never `--add-dir ""`); no manual user setup.

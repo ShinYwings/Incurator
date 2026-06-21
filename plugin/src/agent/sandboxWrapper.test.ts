@@ -6,7 +6,7 @@ import {
 } from "./sandboxWrapper";
 
 describe("macOS seatbelt profile (v0.23.0)", () => {
-  it("denies all writes then re-allows roots + CLI state/runtime dirs", () => {
+  it("denies all writes then re-allows roots + the CLIs' OWN dirs + the temp dir", () => {
     const p = buildMacosSeatbeltProfile(["/Vault", "/Zotero"], "/home/u", "/tmpx");
     expect(p).toContain("(deny file-write*)");
     expect(p).toContain('(allow file-write* (subpath "/Vault"))');
@@ -15,16 +15,19 @@ describe("macOS seatbelt profile (v0.23.0)", () => {
     expect(p).toContain('(allow file-write* (subpath "/home/u/.gemini"))');
     expect(p).toContain('(allow file-write* (subpath "/home/u/.claude"))');
     expect(p).toContain('(allow file-write* (subpath "/home/u/.codex"))');
-    expect(p).toContain('(allow file-write* (subpath "/home/u/.config"))');
-    expect(p).toContain('(allow file-write* (subpath "/home/u/.cache"))');
-    expect(p).toContain('(allow file-write* (subpath "/private/var/folders"))');
+    // The user's specific temp dir, passed in (for libs that hit it directly).
     expect(p).toContain('(allow file-write* (subpath "/tmpx"))');
     // deny appears BEFORE the allow re-grants (order matters in seatbelt).
     expect(p.indexOf("(deny file-write*)")).toBeLessThan(p.indexOf('(subpath "/Vault")'));
   });
 
-  it("does NOT allow ~/.incurator (plugin caches belong in the project .cache/)", () => {
+  it("does NOT grant broad ~/.config, ~/.cache, ~/Library/Caches, or /private roots", () => {
     const p = buildMacosSeatbeltProfile(["/Vault"], "/home/u", "/tmpx");
+    expect(p).not.toContain('(subpath "/home/u/.config")'); // whole ~/.config
+    expect(p).not.toContain('(subpath "/home/u/.cache")');  // whole ~/.cache
+    expect(p).not.toContain('(subpath "/home/u/Library/Caches")');
+    expect(p).not.toContain('(subpath "/private/var/folders")'); // every app/user temp
+    expect(p).not.toContain('(subpath "/private/tmp")');
     expect(p).not.toContain('"/home/u/.incurator"');
   });
 
@@ -37,20 +40,26 @@ describe("macOS seatbelt profile (v0.23.0)", () => {
 });
 
 describe("Linux bwrap args (v0.23.0)", () => {
-  it("read-only FS, rw-binds the allowed roots AND the CLI config/cache dirs", () => {
-    const a = buildBwrapArgs(["/Vault", "/Zotero"], "/home/u");
+  it("read-only FS, rw-binds the allowed roots + the CLIs' own dirs + temp dir", () => {
+    const a = buildBwrapArgs(["/Vault", "/Zotero"], "/home/u", "/tmpx");
     expect(a.slice(0, 3)).toEqual(["--ro-bind", "/", "/"]);
     expect(a).toContain("--die-with-parent");
     const joined = a.join(" ");
-    expect(joined).toContain("--bind /Vault /Vault");
-    expect(joined).toContain("--bind /Zotero /Zotero");
-    // CLI dirs use --bind-try (may not exist) so the CLI can write its own state.
+    expect(joined).toContain("--bind-try /Vault /Vault");
+    expect(joined).toContain("--bind-try /Zotero /Zotero");
+    expect(joined).toContain("--bind-try /tmpx /tmpx");
     expect(joined).toContain("--bind-try /home/u/.gemini /home/u/.gemini");
-    expect(joined).toContain("--bind-try /home/u/.config /home/u/.config");
-    expect(joined).toContain("--bind-try /home/u/.cache /home/u/.cache");
-    // macOS-only runtime paths are not bound on Linux.
+    // Scoped to the CLIs' own dirs — never the whole ~/.config / ~/.cache.
+    expect(joined).not.toContain("--bind-try /home/u/.config /home/u/.config");
     expect(joined).not.toContain("/private/var/folders");
     expect(a[a.length - 1]).toBe("--"); // terminator before the CLI command
+  });
+
+  it("never re-binds /tmp (would destroy the tmpfs isolation)", () => {
+    const a = buildBwrapArgs(["/Vault"], "/home/u", "/tmp");
+    expect(a).toContain("--tmpfs");
+    // /tmp is the host tmpdir here, but must NOT be --bind-try'd over the tmpfs.
+    expect(a.join(" ")).not.toContain("--bind-try /tmp /tmp");
   });
 });
 

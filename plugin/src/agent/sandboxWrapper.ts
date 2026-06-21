@@ -47,20 +47,19 @@ function sbQuote(p: string): string {
 function cliRuntimeWriteDirs(home: string, tmpdir: string): string[] {
   const h = (d: string) => (home ? `${home}/${d}` : "");
   return [
-    "/private/var/folders",
-    "/private/tmp",
+    // The user's SPECIFIC temp dir only — NOT the broad /private/var/folders or
+    // /private/tmp roots (those would grant every app/user's temp space).
     tmpdir,
-    // Agent CLI state/config dirs (agy→.gemini/.antigravity, claude→.claude,
-    // codex→.codex) + XDG defaults. NOT ~/.incurator — plugin caches belong in the
-    // project .cache/, and the plugin (not the sandboxed CLI) writes temp images,
-    // which the CLI only READS (reads are allowed).
+    // The agent CLIs' OWN dirs ONLY (they store config+auth+state here, and these
+    // dirs already exist). NEVER the whole ~/.config, ~/.cache, or ~/Library/Caches —
+    // that would let the agent drop a ~/.config/autostart script or overwrite another
+    // app's config (persistence / escalation). NOT ~/.incurator: plugin caches live
+    // in the project .cache/, and the plugin (not the sandboxed CLI) writes temp
+    // images, which the CLI only READS.
     h(".gemini"),
     h(".antigravity"),
     h(".claude"),
     h(".codex"),
-    h(".config"),
-    h(".cache"),
-    h("Library/Caches"),
   ].filter(nonEmpty);
 }
 
@@ -105,10 +104,14 @@ export function buildBwrapArgs(allowedRoots: string[], home: string = "", tmpdir
     "--die-with-parent",
   ];
   for (const r of roots) {
-    args.push("--bind", r, r); // allowed roots MUST exist → hard bind (read-write)
+    args.push("--bind-try", r, r); // allowed roots (read-write); skip if missing
   }
   for (const d of cliRuntimeWriteDirs(home, tmpdir)) {
     if (d.startsWith("/private/")) continue; // macOS-only paths
+    // Do NOT bind /tmp — `--tmpfs /tmp` above isolates it; re-binding the host /tmp
+    // (the common Linux tmpdir) would mount the host's /tmp read-write into the
+    // sandbox, destroying that isolation.
+    if (d === "/tmp") continue;
     args.push("--bind-try", d, d); // CLI dirs may or may not exist → bind-try
   }
   args.push("--"); // end of bwrap args; the CLI command follows
@@ -150,7 +153,10 @@ export function buildSandboxPlan(args: {
         reason: "bubblewrap (bwrap) is required to sandbox the agentic CLI on Linux. Install it: `sudo apt install bubblewrap` (or `sudo dnf install bubblewrap`).",
       };
     }
-    return { prefix: [args.bwrapPath, ...buildBwrapArgs(roots, args.home, args.tmpdir)], unavailable: false };
+    return {
+      prefix: [args.bwrapPath, ...buildBwrapArgs(roots, args.home, args.tmpdir)],
+      unavailable: false,
+    };
   }
 
   // Windows / other: out of scope for this milestone.
