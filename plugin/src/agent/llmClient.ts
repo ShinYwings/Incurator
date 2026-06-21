@@ -1,5 +1,5 @@
 import { requestUrl, Notice } from "obsidian";
-import { execFile, execFileSync, spawn } from "child_process";
+import { execFile, spawn } from "child_process";
 import {
   existsSync,
   mkdirSync,
@@ -1846,6 +1846,10 @@ export class LLMClient {
           command: "agy",
           args: [
             "--print-timeout", `${Math.max(30, this.settings.antigravityPrintTimeoutSec || 300)}s`,
+            // Keep --sandbox: in -p mode it auto-proceeds without the permission
+            // prompt that would otherwise HANG (P0). It does NOT actually contain agy
+            // (P0) — the OS sandbox (wrapWithOsSandbox) does. NO blanket skip / trust.
+            "--sandbox",
             ...(ephemeral ? [] : addDirs),
             "-p", prompt,
           ],
@@ -1869,7 +1873,7 @@ export class LLMClient {
             "--model", model,
             "--effort", this.settings.claudeEffort,
             ...toolArgs,
-            ...addDirs,
+            ...(ephemeral ? [] : addDirs), // no point granting dirs to a tool-free popover
             "--output-format", "stream-json",
             "--verbose",
             "--include-partial-messages",
@@ -1951,22 +1955,27 @@ export class LLMClient {
   }
 
   private _bwrapPath: string | null | undefined;
+  /** In-process PATH lookup for `bwrap` — no subprocess (never blocks the UI). */
   private resolveBwrap(): string {
     if (this._bwrapPath !== undefined) return this._bwrapPath || "";
-    try {
-      this._bwrapPath = execFileSync("sh", ["-c", "command -v bwrap"], {
-        encoding: "utf8",
-      }).trim();
-    } catch {
-      this._bwrapPath = null;
+    this._bwrapPath = null;
+    for (const dir of (process.env.PATH || "").split(":")) {
+      if (!dir) continue;
+      const candidate = join(dir, "bwrap");
+      if (existsSync(candidate)) {
+        this._bwrapPath = candidate;
+        break;
+      }
     }
     return this._bwrapPath || "";
   }
 
   /**
    * OS-sandbox the CLI command. agy MUST be contained this way (its own --sandbox is
-   * ineffective); claude/codex use it as defense-in-depth on top of their flags.
-   * Returns the wrapped command, or refuses (throws) when agy can't be sandboxed.
+   * ineffective); claude/codex use it as defense-in-depth on top of their flags. The
+   * macOS profile is passed INLINE via `sandbox-exec -p` (no temp file → no
+   * multi-vault / concurrent-call collision). Returns the wrapped command, or refuses
+   * (throws) when agy can't be sandboxed.
    */
   private wrapWithOsSandbox(
     base: { command: string; args: string[]; env?: Record<string, string>; stdin?: string },
@@ -1981,9 +1990,6 @@ export class LLMClient {
       tmpdir: tmpdir(),
       sandboxExecPath: process.platform === "darwin" ? "/usr/bin/sandbox-exec" : "",
       bwrapPath: process.platform === "linux" ? this.resolveBwrap() : "",
-      profilePath: process.platform === "darwin"
-        ? join(this.getCliCwd(), "vision_sandbox.sb")
-        : undefined,
     });
 
     if (plan.unavailable) {
@@ -1997,9 +2003,6 @@ export class LLMClient {
         );
       }
       return base;
-    }
-    if (plan.profile && process.platform === "darwin") {
-      writeFileSync(join(this.getCliCwd(), "vision_sandbox.sb"), plan.profile);
     }
     return {
       command: plan.prefix[0],

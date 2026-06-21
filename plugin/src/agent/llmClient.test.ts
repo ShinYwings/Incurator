@@ -252,6 +252,15 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
     expect(source).not.toContain('ANTIGRAVITY_TRUST_WORKSPACE: "true"');
   });
 
+  it("keeps agy --sandbox so -p mode never hangs on a permission prompt", () => {
+    // agy --sandbox auto-proceeds (no prompt → no hang); the OS sandbox does the
+    // actual containment. Dropping both would reintroduce the original hang.
+    expect(source).toContain('"--sandbox",');
+    // bwrap availability is an in-process PATH lookup, NOT a synchronous sh spawn.
+    expect(source).not.toContain('execFileSync("sh"');
+    expect(source).toContain('existsSync(candidate)');
+  });
+
   it("controls claude via the tool surface (--tools '' popover / --disallowedTools sidechat)", () => {
     expect(source).toContain('["--tools", ""]');
     expect(source).toContain('"--disallowedTools", "Bash", "Read", "Write", "Edit", "WebFetch"');
