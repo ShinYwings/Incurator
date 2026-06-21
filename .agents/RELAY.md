@@ -23,7 +23,18 @@ to <incuratorRepoPath>/.cache/cli/ (OS-tmpdir fallback). Live-validated the real
 profile: vault write allowed, out-of-vault denied, ~/.gemini allowed, nested children
 contained.
 
-CI: plugin tsc + vitest (527) green; spec_sync/ruff/mypy green. Backend unchanged.
+Security hardening round (PR #46): dropped the broad ~/.config / ~/.cache /
+~/Library/Caches writes + /private/var/folders + /private/tmp roots from the sandbox
+allow-list (autostart/other-app-config escalation). Scoped to the CLIs' OWN dirs only
+(~/.gemini/.antigravity/.claude/.codex) + specific $TMPDIR + roots. bwrap no longer
+re-binds /tmp over its tmpfs; roots use --bind-try. Live-validated: ~/.config/autostart
+write DENIED, vault + ~/.gemini ALLOWED. Considered a full HOME/CODEX_HOME redirect
+into <repo>/.cache (zero home exceptions) but BACKED IT OUT — cascades into config.toml
+/ settings.json relocation + OAuth-secret mirroring for 3 CLIs, unverifiable headless,
+high risk of breaking login. USER DECISION: keep the scoped version (safe). PLUGIN_SCHEMA
+§13.6 updated (inline -p, scoped list, tmpfs /tmp, .cache/cli relocation).
+
+CI: plugin tsc + vitest (528) green; spec_sync/ruff/mypy green. Backend unchanged.
 
 Only remaining: in-Obsidian end-to-end smoke (real agy/claude popover + sidechat
 write-outside-vault attempt) — needs the running app; user to verify.
