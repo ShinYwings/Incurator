@@ -67,6 +67,12 @@ Source of Truth to identify unresolved items.
 
 ## ✅ Completed Milestones
 
+- **v0.23.0 — CLI Provider Tool-Scope Sandbox** (shipped 2026-06-22): closed the
+  CLI-native-tool escape the v0.19.0 MCP isolation left open. `toolPolicy` now reaches
+  the CLI command builder — popover runs tool-free, sidechat scopes tools to the
+  allowed roots (vault + Zotero); dropped `agy --dangerously-skip-permissions`. agy's
+  own `--sandbox` proved ineffective (P0 created files), so every CLI subprocess is
+  wrapped in an OS sandbox (macOS `sandbox-exec`, Linux `bwrap`; Windows out of scope).
 - **v0.22.0 — PDF Vision Extraction + Chat Decay & Quick Wins** (shipped 2026-06-21,
   one combined release on `feature/chat-decay-quick-wins`): dedicated PDF-extraction
   vision models (`llm.vision_model` always-on `add source` page-VLM → LaTeX L1,
@@ -87,7 +93,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Transitioning to Popover Tool Execution Bugfix.
-- **Active Milestone**: [Bugfix / Architecture] Popover Tool Execution & Sandbox Scope Violation.
-- **Next actionable item**: Read `.agents/drafts/popover_tool_scope.md` and create a `PLAN_TEMPLATE.md` in `.agents/plans/` to fix the tool injection boundary.
-- **Priority order**: Popover Tool Scope bug, then Prompt Architecture Overhaul.
+- **Roadmap state**: v0.23.0 (Popover/CLI tool-scope sandbox) implemented on `feature/popover-tool-scope`; PR pending.
+- **Active Milestone**: none (v0.23.0 shipped to PR; awaiting merge).
+- **Next actionable item**: Prompt Architecture Overhaul & Refactoring after merge.
+- **Priority order**: Prompt Architecture Overhaul, then Web Search Integration.

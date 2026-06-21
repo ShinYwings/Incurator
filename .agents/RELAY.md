@@ -1,29 +1,25 @@
 # Active Relay State
 
-**STATUS: PLANNING (awaiting human review)**
+**STATUS: IDLE (v0.23.0 implemented; PR pending)**
 
-**Active Branch**: `feature/popover-tool-scope`
-**Milestone**: Popover Tool Scope & CLI Sandbox Violation → target `v0.23.0`
-**Plan**: `.agents/plans/01_popover_tool_scope.md` (Arena: `.agents/plans/popover_tool_scope_arena/`)
+**Branch**: `feature/popover-tool-scope`
 
-## Analysis & Reasoning (key finding — corrects the draft)
-The draft's concerns #1 (unconditional MCP injection) and #2 (prompt duplication)
-were ALREADY fixed in v0.19.0 — but only on the HTTP path. The REAL open vector is
-the **CLI providers**: `toolPolicy` never reaches `buildCliCommand` (`llmClient.ts:1826`),
-so a CLI-backed popover/sidechat inherits the CLI agent's NATIVE tools. `agy` uses
-`--dangerously-skip-permissions` (the `find_mvg_text.py` exploit). The Incurator MCP
-server exposes no fs/exec tool — the escape is CLI-native.
+v0.23.0 — **CLI provider tool-scope sandbox** — implemented:
+- `toolPolicy` threaded into the CLI command builder; popover runs CLI tool-free,
+  sidechat scopes tools to allowed roots (vault + Zotero). Dropped
+  `agy --dangerously-skip-permissions` / trust-workspace.
+- Per-provider: claude `--tools ""`/`--disallowedTools`; codex `read-only`/
+  `workspace-write`+`--add-dir`. agy ineffective at self-sandboxing → wrapped in an
+  OS sandbox (macOS `sandbox-exec` validated; Linux `bwrap`, refuse+guide if missing;
+  Windows out of scope). Reads allowed; writes/exec contained.
+- `src/agent/sandboxWrapper.ts` (pure, unit-tested) + llmClient integration +
+  source-contract tests. PLUGIN_SCHEMA §13.6 + PLUGIN_GUIDE EN/KR. v0.23.0 bump.
 
-## Locked decisions (user, 2026-06-21)
-- Scope (a): BOTH (1) thread toolPolicy into the CLI path → popover tool-free, and
-  (2) sidechat tools scoped to allowed roots (vault + Zotero) via each CLI's native
-  sandbox/`--add-dir`, replacing `--dangerously-skip-permissions`.
-- `agy --dangerously-skip-permissions` was a hang workaround; replace with
-  `--sandbox` + `--add-dir` (deny-not-prompt). No interactive-approval UI this round.
+CI: spec_sync, ruff, mypy, plugin tsc, plugin vitest (524) all green. Backend
+unchanged (plugin-only milestone).
 
-## Progress
-Arena debate + Master Plan authored. P0 is a HARD empirical gate (per-CLI
-deny-not-hang validation).
+Manual smoke for the user: trigger a popover query on PDF text + a sidechat agy
+request that tries to write outside the vault → confirm no out-of-root file is
+created.
 
-## Immediate Next Action
-AWAITING human review of the Master Plan before implementation (P0 → P5).
+Next roadmap priority: Prompt Architecture Overhaul & Refactoring.
