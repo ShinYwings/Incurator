@@ -1702,6 +1702,11 @@ rendered page instead.
     surfaces (Cmd+Shift+X snip, Convert-to-LaTeX). Resolution is
     `latex_extract_model → vision_model → (main chat model if vision-capable)`.
   - Both empty = pre-v0.22.0 behavior (pymupdf4llm ingest, main-model snip vision).
+- **Interactive routing.** The plugin's right-click Convert-to-LaTeX and
+  Cmd+Shift+X crop paths MUST call the backend `plugin pdf transcribe` resolver
+  instead of `LLMClient.complete` on the plugin main chat model. When a crop is
+  successfully transcribed, the chat context carries the transcription text and
+  MUST NOT also attach the crop image to the main chat model's vision path.
 - **Always-on when configured (per source).** When `vision_model` is set, each
   `add source` PDF page is rendered (PyMuPDF `get_pixmap`, bounded `vision_render_dpi`
   default 170 + `vision_max_image_px` default 1600 longest-edge with downscale) and

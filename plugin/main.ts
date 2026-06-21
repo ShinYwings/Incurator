@@ -1,6 +1,8 @@
 
 import { promises as fs } from "fs";
 import { spawn } from "child_process";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   Plugin,
   WorkspaceLeaf,
@@ -450,7 +452,8 @@ export default class ObsidianAIAgent extends Plugin {
         if (view.getViewType() === EXTERNAL_PDF_VIEW_TYPE) {
           if (!checking) {
             const pdfView = view as ExternalPdfView;
-            pdfView.startSnippingMode((base64: string, pageNum: number, regionText: string) => {
+            pdfView.startSnippingMode(async (base64: string, pageNum: number, regionText: string) => {
+              const extracted = await this.transcribePdfCrop(base64);
               this.ensureChatOpen().then(() => {
                 const chatView = this.getChatView();
                 if (chatView) {
@@ -458,15 +461,16 @@ export default class ObsidianAIAgent extends Plugin {
                   // (region-scoped), not the whole page. This becomes the crop's
                   // <primary_focus_selection> content so the model treats the
                   // snipped region as the core subject instead of burying it
-                  // under the full-page background context — while never
-                  // re-injecting the entire page text + RAG hits. Scanned crops
-                  // yield "" and fall back to an image-only primary reference.
+                  // under the full-page background context. When the backend
+                  // selected PDF extraction model returns LaTeX, omit imageBase64
+                  // so the main chat model's vision does not reinterpret the crop.
+                  // If extraction fails, retain the old image fallback.
                   const pdfCtx = pdfView.getActivePdfContext("image");
                   chatView.addContextRef({
                     type: "pdf-page",
                     label: `${pdfView.getDisplayText()} p.${pageNum} (Crop)`,
-                    content: regionText,
-                    imageBase64: base64,
+                    content: extracted?.latex || regionText,
+                    imageBase64: extracted?.latex ? undefined : base64,
                     pageNum: pageNum,
                     pageLabels: pdfCtx?.pageLabels,
                     filePath: pdfView.getState()?.path,
@@ -847,6 +851,37 @@ export default class ObsidianAIAgent extends Plugin {
     } catch {
       // Runtime snapshot not available yet — keep last text.
     }
+  }
+
+  private async transcribePdfCrop(base64: string): Promise<{ latex: string; model?: string } | null> {
+    const tmpDir = await fs.mkdtemp(join(tmpdir(), "incurator-pdf-crop-"));
+    const imageFile = join(tmpDir, "crop.png");
+    try {
+      await fs.writeFile(imageFile, Buffer.from(base64, "base64"));
+      const result = await this.incuratorClient.transcribePdfRegion({ imageFile });
+      const latex = result.latex?.trim() || "";
+      if (result.ok && latex) {
+        return { latex, model: result.model };
+      }
+      new Notice(this.formatPdfExtractionFailure(result.error || "No transcription returned"));
+      return null;
+    } catch (err) {
+      new Notice(this.formatPdfExtractionFailure(err instanceof Error ? err.message : String(err)));
+      return null;
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  }
+
+  private formatPdfExtractionFailure(error: string): string {
+    const detail = this.settings.provider === "ollama"
+      ? error
+      : error
+          .replace(/(?:Run|Pull it with|After starting it run)[^\n]*ollama pull[^\n]*/gi, "")
+          .replace(/ollama pull\s+\S+/gi, "")
+          .replace(/\s+/g, " ")
+          .trim();
+    return `PDF extraction model failed${detail ? `: ${detail}` : ""}. Attached crop fallback.`;
   }
 
   async readRuntimeJson(name: "status" | "jobs" | "sources"): Promise<any | null> {

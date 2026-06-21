@@ -1481,7 +1481,11 @@ def _apply_vlm_pdf_extraction(parsed, file_path, vision_client, config, db_path)
             return i, None
 
     if misses:
-        workers = max(1, min(vision.VISION_CONCURRENCY, len(misses)))
+        # Parallelize only HTTP-based vision (Ollama). Agentic CLI clients
+        # (claude/agy/codex) spawn subprocesses and are NOT safe to invoke
+        # concurrently (rate limits / lock contention) → run them serially.
+        concurrent_ok = getattr(vision_client, "supports_concurrent_calls", False)
+        workers = max(1, min(vision.VISION_CONCURRENCY, len(misses))) if concurrent_ok else 1
         with ThreadPoolExecutor(max_workers=workers) as ex:
             for i, latex in ex.map(_transcribe, misses):
                 results[i] = latex

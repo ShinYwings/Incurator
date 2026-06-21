@@ -195,6 +195,10 @@ class ChatMessage:
 class OllamaClient:
     """Minimal, synchronous Ollama client tuned for the incurator use case."""
 
+    # HTTP server: safe to call concurrently (used to parallelize page vision).
+    # Agentic CLI clients (claude/agy/codex) leave this False and run serially.
+    supports_concurrent_calls = True
+
     def __init__(
         self,
         host: str = consts.DEFAULT_OLLAMA_HOST,

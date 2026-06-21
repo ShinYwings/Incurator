@@ -22,7 +22,8 @@ describe("Convert-to-LaTeX (v0.22.0: latexModel setting removed)", () => {
     expect(source).not.toContain("ollama pull ${resolvedModel");
   });
 
-  it("runs the conversion on the main chat model", () => {
-    expect(source).toContain("await this.plugin.llmClient.complete(messages)");
+  it("routes the conversion through the backend PDF extraction model", () => {
+    expect(source).toContain("this.plugin.incuratorClient.transcribePdfRegion({ text: rawText })");
+    expect(source).not.toContain("this.plugin.llmClient.complete");
   });
 });

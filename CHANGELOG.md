@@ -20,9 +20,15 @@ All notable changes to Incurator are documented here.
   provider API keys**. Per-page transcriptions are cached by
   `(rendered-image hash, model)` so a Dashboard model switch invalidates stale L1.
   A second light slot, `llm.latex_extract_model` (empty → falls back to
-  `vision_model`), is reserved for interactive region OCR. (SYSTEM_BEHAVIOR §26.2a.)
+  `vision_model`), powers interactive region OCR for right-click **Convert to
+  LaTeX** and **Cmd+Shift+X** crop transcription. (SYSTEM_BEHAVIOR §26.2a.)
 
 ### Fixed
+- **Interactive PDF snippets now use the selected PDF extraction model.**
+  Right-click **Convert to LaTeX** and **Cmd+Shift+X** route through the backend
+  `plugin pdf transcribe` resolver instead of the plugin main chat model. When a
+  crop is successfully transcribed, the chat context carries the transcription
+  text without forwarding the crop image to the main chat model's vision path.
 - **Chat context decay on `Cmd+Shift+L` localized questions.** In long, edit-heavy
   sessions, a freshly referenced line range asked about as a *question* could be
   ignored while the agent proposed a whole-file edit. The root cause was a payload

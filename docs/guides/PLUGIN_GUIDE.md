@@ -460,9 +460,10 @@ separate from your main chat model. Two rows:
   each PDF page with this vision model so L1 gets proper LaTeX (instead of the
   approximate text-layer extraction). Leave empty to keep the fast pymupdf4llm path.
 - **LaTeX/region extract model (light)** — a small region-OCR model reserved for
-  interactive snips. Leave empty to fall back to the PDF ingest model. (Routing the
-  right-click **Convert to LaTeX** / **Cmd+Shift+X** snip through this model is a
-  planned follow-up; today those run on your main chat model.)
+  interactive snips. Leave empty to fall back to the PDF ingest model. The
+  right-click **Convert to LaTeX** and **Cmd+Shift+X** snip paths call the backend
+  extractor, so a successful crop transcription is sent to chat as text instead of
+  being reinterpreted by the main chat model's vision path.
 
 Ingest vision runs on your existing provider's **CLI subscription** (Ollama, or the
 `claude`/`agy`/`codex` CLIs) — **no extra API keys**. Only vision-capable models

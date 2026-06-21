@@ -424,11 +424,15 @@ export class ZoteroWizardModal extends Modal {
         await this.saveSettings(this.settings);
       } else if (this.selectedProfile !== "new") {
         // Stamp the existing profile used for this import so it floats to the top
-        // of the wizard's most-recently-used ordering next time (v0.21.0).
+        // of the wizard's most-recently-used ordering next time. Persist
+        // immediately — a later import failure must not lose the ordering update.
         const used = (this.settings.zoteroProfiles || []).find(
           p => p.name === this.selectedProfile
         );
-        if (used) used.lastUsedAt = Date.now();
+        if (used) {
+          used.lastUsedAt = Date.now();
+          await this.saveSettings(this.settings);
+        }
       }
 
       const metadata = await this.backend.getZoteroItemMetadata(this.item.key, this.bibliographyStyle || "");

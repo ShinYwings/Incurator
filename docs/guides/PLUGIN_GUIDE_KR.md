@@ -401,8 +401,9 @@ Settings 화면에서는 선택된 model의 context window를 별도 항목으�
   이 비전 모델로 전사해 L1에 제대로 된 LaTeX가 들어갑니다(텍스트레이어의 근사 추출
   대신). 비우면 빠른 pymupdf4llm 경로 유지.
 - **LaTeX/영역 추출 모델(경량)** — interactive 스닙용 소형 영역-OCR 모델. 비우면 PDF
-  ingest 모델로 폴백. (우클릭 **Convert to LaTeX** / **Cmd+Shift+X** 스닙을 이 모델로
-  태우는 것은 후속 작업이며, 현재는 메인 채팅 모델로 동작합니다.)
+  ingest 모델로 폴백. 우클릭 **Convert to LaTeX**와 **Cmd+Shift+X** 스닙 경로는
+  backend extractor를 호출하므로, crop 전사가 성공하면 이미지를 메인 채팅 모델의
+  vision 경로로 다시 해석시키지 않고 전사 텍스트를 채팅에 보냅니다.
 
 ingest 비전은 기존 제공자의 **CLI 구독**(Ollama, 또는 `claude`/`agy`/`codex` CLI)으로
 동작 — **추가 API 키 불필요**. 드롭다운에는 비전 가능 모델만 표시됩니다. v0.21.0의

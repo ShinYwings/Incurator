@@ -86,6 +86,31 @@ describe("IncuratorClient", () => {
     expect(status.state).toBe("queued");
   });
 
+  it("routes interactive PDF transcription through the backend transcribe command", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      return { ok: true, latex: "Clean $x^2$", model: "claude-code::sonnet" };
+    };
+    const client = new IncuratorClient(settings(), "0.2.2", backendJson);
+
+    const result = await client.transcribePdfRegion({
+      imageFile: "/tmp/crop.png",
+      text: "garbled x2",
+    });
+
+    expect(calls[0]).toEqual([
+      "plugin",
+      "pdf",
+      "transcribe",
+      "--image-file",
+      "/tmp/crop.png",
+      "--text",
+      "garbled x2",
+    ]);
+    expect(result).toEqual({ ok: true, latex: "Clean $x^2$", model: "claude-code::sonnet", error: undefined });
+  });
+
   it("normalizes layer status progressively and lets errors win", async () => {
     const client = new IncuratorClient(settings());
     const normalize = (value: unknown) => (client as any).normalizeStatus(value);

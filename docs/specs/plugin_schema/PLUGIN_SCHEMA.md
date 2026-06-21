@@ -272,12 +272,13 @@ Rules:
 - **Region extraction (v0.22.0, supersedes the v0.21.0 `latexModel` plugin setting)**:
   the dedicated vision models (`llm.vision_model` / `llm.latex_extract_model`) are
   configured in the Dashboard (§2.1.2) and are honored at the **backend `add source`
-  ingest layer** (SYSTEM_BEHAVIOR §26.2a). The plugin no longer persists a
-  `latexModel` setting. The interactive PDF right-click **Convert to LaTeX** runs on
-  the **main chat model** for now; routing the interactive surfaces through the
-  backend-resolved `latex_extract_model` is a planned follow-up. `LLMClient.complete`
-  retains its optional `{ model }` override (used elsewhere), so the follow-up needs
-  no new client plumbing.
+  ingest layer** and the plugin's interactive PDF extraction surfaces
+  (SYSTEM_BEHAVIOR §26.2a). The plugin no longer persists a `latexModel` setting.
+  The interactive PDF right-click **Convert to LaTeX** and **Cmd+Shift+X** crop
+  paths call `wiki plugin pdf transcribe`, which resolves
+  `latex_extract_model → vision_model → (main chat model if vision-capable)` in the
+  backend. A successful crop transcription MUST be sent to chat as text without
+  forwarding the crop image to the main chat model's vision path.
 - `deepseekApiKey` is device-local secret material. It must not be written into
   shared vault config; backend config may instead reference `DEEPSEEK_API_KEY`
   through `llm.deepseek-api.api_key_env` or a local encrypted backend secret
@@ -833,7 +834,10 @@ Rules:
   rectangle** — the text-layer lines whose boxes fall inside the snip — and use
   that region text as the crop's primary-focus content. It must not inject the
   whole page text (or its RAG hits) into the primary focus, and it must not
-  discard the region text entirely. When the cropped region has no selectable
+  discard the region text entirely. The crop image is first transcribed through
+  the backend-resolved PDF extraction model; when that succeeds, the transcription
+  replaces the text-layer region text and the crop image is not forwarded to the
+  main chat model. When extraction fails and the cropped region has no selectable
   text (e.g. a scanned page), the crop falls back to an image-only reference that
   is still marked as primary focus.
 - Selected-context sidechat turns should include current page/document structure
