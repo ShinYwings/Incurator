@@ -285,9 +285,10 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
     // Writable set = vault + getCliCwd only; Zotero is never writable (corruption risk).
     expect(source).toContain("private sandboxWriteRoots()");
     expect(source).toContain("this.resolveRoots([this.vaultRoot])");
-    expect(source).toContain("const roots = [...this.sandboxWriteRoots(), this.getCliCwd()]");
-    // The OLD code granted Zotero write by feeding allowedRoots() to the sandbox.
-    expect(source).not.toContain("const roots = [...this.allowedRoots(), this.getCliCwd()]");
+    // The sandbox write-roots are built from sandboxWriteRoots() (vault-only), NOT
+    // allowedRoots() (which still includes Zotero, for --add-dir read visibility).
+    expect(source).toContain("const roots = [...this.sandboxWriteRoots(),");
+    expect(source).not.toMatch(/const roots = \[\.\.\.this\.allowedRoots\(\)/);
   });
 
   it("reuses the shared expandPath helper (no duplicated ~-expansion regex)", () => {
@@ -302,6 +303,16 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
 
   it("resolves --add-dir lazily — skipped on the tool-free ephemeral path", () => {
     expect(source).toContain("ephemeral ? [] : this.allowedRoots().flatMap");
+  });
+
+  it("realpaths home/tmpdir/getCliCwd so macOS firmlink (/var→/private/var) rules match", () => {
+    // Seatbelt (subpath ...) only matches the REAL resolved path; an unresolved
+    // /var/folders rule would NOT match the kernel's /private/var/folders write, so a
+    // tmpdir-based getCliCwd (the default when incuratorRepoPath is unset) would have
+    // its output-file/mcp-config writes silently denied.
+    expect(source).toContain("realOr(homedir())");
+    expect(source).toContain("realOr(tmpdir())");
+    expect(source).toContain("realOr(this.getCliCwd())");
   });
 
   it("stores device-local CLI caches in the project .cache/, not ~/.incurator", () => {

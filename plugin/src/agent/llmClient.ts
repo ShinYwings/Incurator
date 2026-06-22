@@ -2021,14 +2021,22 @@ export class LLMClient {
     base: { command: string; args: string[]; env?: Record<string, string>; stdin?: string },
     provider: LLMProvider,
   ): { command: string; args: string[]; env?: Record<string, string>; stdin?: string } {
+    // macOS firmlinks `/var`→`/private/var` (and `/tmp`→`/private/tmp`), so a Seatbelt
+    // `(subpath ...)` only matches if it is the REAL resolved path. realpath home,
+    // tmpdir, and the CLI dir — otherwise a `tmpdir`-based getCliCwd (the default when
+    // incuratorRepoPath is unset) gets an unmatched `/var/folders/...` rule and the
+    // CLI's output file / mcp config / temp-image writes are silently DENIED.
+    const realOr = (p: string): string => {
+      try { return realpathSync(p); } catch { return p; }
+    };
     // Writable set = the vault + the CLI's own operational dir (logs/output files).
     // Zotero is deliberately NOT here (read-only reference; reads are allowed anyway).
-    const roots = [...this.sandboxWriteRoots(), this.getCliCwd()];
+    const roots = [...this.sandboxWriteRoots(), realOr(this.getCliCwd())];
     const plan = buildSandboxPlan({
       platform: process.platform,
       allowedRoots: roots,
-      home: homedir(),
-      tmpdir: tmpdir(),
+      home: realOr(homedir()),
+      tmpdir: realOr(tmpdir()),
       sandboxExecPath: process.platform === "darwin" ? "/usr/bin/sandbox-exec" : "",
       bwrapPath: process.platform === "linux" ? this.resolveBwrap() : "",
     });
