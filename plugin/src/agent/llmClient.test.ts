@@ -305,14 +305,16 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
     expect(source).toContain("ephemeral ? [] : this.allowedRoots().flatMap");
   });
 
-  it("realpaths home/tmpdir/getCliCwd so macOS firmlink (/var→/private/var) rules match", () => {
+  it("realpaths sandbox paths so macOS firmlink (/var→/private/var) rules match", () => {
     // Seatbelt (subpath ...) only matches the REAL resolved path; an unresolved
     // /var/folders rule would NOT match the kernel's /private/var/folders write, so a
     // tmpdir-based getCliCwd (the default when incuratorRepoPath is unset) would have
     // its output-file/mcp-config writes silently denied.
     expect(source).toContain("realOr(homedir())");
     expect(source).toContain("realOr(tmpdir())");
-    expect(source).toContain("realOr(this.getCliCwd())");
+    // getCliCwd() returns the canonical (realpath'd) path at the source, so cwd,
+    // output files, and the sandbox rule all agree without per-call-site resolving.
+    expect(source).toContain("realpathSync(dir)");
   });
 
   it("stores device-local CLI caches in the project .cache/, not ~/.incurator", () => {

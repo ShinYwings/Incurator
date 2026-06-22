@@ -1942,14 +1942,19 @@ export class LLMClient {
   }
 
   private _cliCwdCreated: string | null = null;
+  private _cliCwdResolved = "";
   private getCliCwd(): string {
     const dir = this.cliCacheBase();
     if (this._cliCwdCreated !== dir) {
       // Only stat/mkdir when the resolved path changes (settings edit), not every call.
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      // Return the REAL path: macOS firmlinks /var→/private/var and a repo may sit
+      // under a symlink, so the cwd/output-file/sandbox-rule all need the canonical
+      // form to agree (otherwise Seatbelt's subpath rule won't match the write).
+      try { this._cliCwdResolved = realpathSync(dir); } catch { this._cliCwdResolved = dir; }
       this._cliCwdCreated = dir;
     }
-    return dir;
+    return this._cliCwdResolved;
   }
 
   // --- CLI tool-scope sandbox (v0.23.0; SYSTEM_BEHAVIOR §… popover tool scope) ---
@@ -2021,17 +2026,16 @@ export class LLMClient {
     base: { command: string; args: string[]; env?: Record<string, string>; stdin?: string },
     provider: LLMProvider,
   ): { command: string; args: string[]; env?: Record<string, string>; stdin?: string } {
-    // macOS firmlinks `/var`→`/private/var` (and `/tmp`→`/private/tmp`), so a Seatbelt
-    // `(subpath ...)` only matches if it is the REAL resolved path. realpath home,
-    // tmpdir, and the CLI dir — otherwise a `tmpdir`-based getCliCwd (the default when
-    // incuratorRepoPath is unset) gets an unmatched `/var/folders/...` rule and the
-    // CLI's output file / mcp config / temp-image writes are silently DENIED.
+    // macOS firmlinks `/var`→`/private/var`, so a Seatbelt `(subpath ...)` only matches
+    // the REAL resolved path. getCliCwd() and sandboxWriteRoots() already return
+    // realpath'd paths; home/tmpdir do not, so resolve them here (the `$TMPDIR` allow
+    // would otherwise never match a `/private/var/folders/...` write).
     const realOr = (p: string): string => {
       try { return realpathSync(p); } catch { return p; }
     };
     // Writable set = the vault + the CLI's own operational dir (logs/output files).
     // Zotero is deliberately NOT here (read-only reference; reads are allowed anyway).
-    const roots = [...this.sandboxWriteRoots(), realOr(this.getCliCwd())];
+    const roots = [...this.sandboxWriteRoots(), this.getCliCwd()];
     const plan = buildSandboxPlan({
       platform: process.platform,
       allowedRoots: roots,
