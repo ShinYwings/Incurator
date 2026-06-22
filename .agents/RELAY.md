@@ -1,6 +1,7 @@
 # Active Relay State
 
-**STATUS: ACTIVE — Urgent hotfix SHIPPED (commit b9a49a1, unpushed). System
+**STATUS: ACTIVE — Urgent hotfix SHIPPED & PUSHED (v0.25.0; commits b9a49a1 +
+e3bee56; PR #48 open against master, awaiting user review/merge). System
 Stability Overhaul RESUMES: Phase A diagnosis (G01–G06 done-unmerged; G07–G19 +
 merge remain — see PHASE A RESUMPTION PROTOCOL below).**
 
