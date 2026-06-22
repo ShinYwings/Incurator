@@ -94,8 +94,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.24.0 Diff Viewer robustness implemented on
-  `feature/diff-viewer-ui-ux`; PR pending merge.
-- **Active Milestone**: Diff Viewer UI/UX (v0.24.0) — done, awaiting merge.
-- **Next actionable item**: After merge, Prompt Architecture Overhaul & Refactoring.
-- **Priority order**: (merge v0.24.0) → Prompt Architecture Overhaul.
+- **Roadmap state**: System IDLE.
+- **Active Milestone**: None (System IDLE).
+- **Next actionable item**: Awaiting new roadmap initialization.
