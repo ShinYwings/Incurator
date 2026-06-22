@@ -281,6 +281,29 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
     expect(source).toContain("realpathSync");
   });
 
+  it("excludes the Zotero library from the sandbox WRITE roots (read-only reference)", () => {
+    // Writable set = vault + getCliCwd only; Zotero is never writable (corruption risk).
+    expect(source).toContain("private sandboxWriteRoots()");
+    expect(source).toContain("this.resolveRoots([this.vaultRoot])");
+    expect(source).toContain("const roots = [...this.sandboxWriteRoots(), this.getCliCwd()]");
+    // The OLD code granted Zotero write by feeding allowedRoots() to the sandbox.
+    expect(source).not.toContain("const roots = [...this.allowedRoots(), this.getCliCwd()]");
+  });
+
+  it("reuses the shared expandPath helper (no duplicated ~-expansion regex)", () => {
+    expect(source).toContain('from "../utils/deviceRegistry"');
+    expect(source).not.toContain("replace(/^~");
+  });
+
+  it("warns (not silently) when a non-agy CLI runs without the OS sandbox", () => {
+    expect(source).toContain("OS sandbox unavailable");
+    expect(source).toContain("console.warn");
+  });
+
+  it("resolves --add-dir lazily — skipped on the tool-free ephemeral path", () => {
+    expect(source).toContain("ephemeral ? [] : this.allowedRoots().flatMap");
+  });
+
   it("stores device-local CLI caches in the project .cache/, not ~/.incurator", () => {
     // getCliCwd() now resolves to <repo>/.cache/cli (or the OS tmpdir), never ~/.
     expect(source).toContain('join(repo, ".cache", "cli")');

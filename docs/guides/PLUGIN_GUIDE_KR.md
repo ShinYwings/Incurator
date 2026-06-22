@@ -171,13 +171,16 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
 - **CLI 제공자 샌드박싱 (v0.23.0)**: 제공자가 CLI 에이전트(Antigravity `agy`,
   Claude, Codex)이면 그 에이전트는 v0.19.0의 MCP 격리가 통제하지 못하는 자체 내장
   도구를 가집니다. 이제 플러그인이 이를 가둡니다: 팝오버는 CLI를 **도구 없이**
-  실행하고, 채팅 사이드바의 도구는 **허용된 루트**(vault, 설정된 Zotero 폴더,
-  Zotero 라이브러리)로 **범위가 제한**되어 그 밖에서 파일을 만들거나 스크립트를
-  실행할 수 없습니다. Antigravity의 자체 `--sandbox`는 효과가 없어서 플러그인이 OS
-  샌드박스로 감쌉니다(macOS 내장; **Linux는 `bubblewrap`이 필요 —
-  `sudo apt install bubblewrap` 또는 `sudo dnf install bubblewrap`으로 설치**,
-  없으면 에이전트 CLI가 차단되고 안내가 표시됨). Windows CLI 샌드박싱은 아직
-  미지원입니다.
+  실행하고, 채팅 사이드바의 도구는 **당신의 데이터로 범위가 제한**됩니다 — 에이전트는
+  vault와 설정된 Zotero 라이브러리를 **읽을** 수 있지만 **쓰기는 vault 안에서만**
+  가능합니다. Zotero 라이브러리는 읽기 전용으로 취급되어 에이전트가 수정·삭제할 수
+  없고, vault 밖 어디에서도 파일을 만들거나 스크립트를 실행할 수 없습니다.
+  Antigravity의 자체 `--sandbox`는 효과가 없어서 플러그인이 OS 샌드박스로
+  감쌉니다(macOS 내장; **Linux는 `bubblewrap`이 필요 —
+  `sudo apt install bubblewrap` 또는 `sudo dnf install bubblewrap`으로 설치**).
+  OS 샌드박스를 쓸 수 없으면 **Antigravity는 차단**되고(컨테인먼트가 전혀 없으므로),
+  **Claude와 Codex는** 자체 내장 제한(더 약함) 하에서 계속 실행됩니다. Windows CLI
+  샌드박싱은 아직 미지원입니다.
 - **Markdown 렌더링**: 스트림이 끝나면 답변은 Markdown(수식/LaTeX 포함)으로
   렌더링됩니다. 렌더링 전에 수식이 정규화되어, `` `$x^2$` `` 처럼 백틱으로 감싼
   수식은 `$x^2$` 로 풀려 모노스페이스 텍스트가 아니라 실제 수식으로 표시됩니다

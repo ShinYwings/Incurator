@@ -12,6 +12,7 @@ import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { buildSandboxPlan } from "./sandboxWrapper";
 import { promisify, TextDecoder } from "util";
+import { expandPath } from "../utils/deviceRegistry";
 import type { MCPManager } from "./mcpClient";
 import { buildGuiCliSearchPaths, type CLICredential, type CLIAuthResolver } from "../auth/cliAuth";
 import type {
@@ -1834,8 +1835,13 @@ export class LLMClient {
   } {
     const model = this.settings.model;
     const p = provider ?? this.settings.provider;
+    // FAIL-OPEN GUARD: toolPolicy defaults to "auto" (full tools). Any EPHEMERAL surface
+    // (popover, inline preview, …) MUST pass toolPolicy:"none" — a call site that omits
+    // it silently gets the full tool surface. New read-only surfaces: pass "none".
     const ephemeral = toolPolicy === "none"; // popover / read-only surface
-    const addDirs = this.allowedRoots().flatMap((r) => ["--add-dir", r]);
+    // Only resolve allowed roots when they'll actually be used (non-ephemeral); the
+    // tool-free popover path discards --add-dir, so skip the realpath I/O there.
+    const addDirs = ephemeral ? [] : this.allowedRoots().flatMap((r) => ["--add-dir", r]);
     let base: { command: string; args: string[]; env?: Record<string, string>; stdin?: string };
     switch (p) {
       case "antigravity": {
@@ -1850,7 +1856,7 @@ export class LLMClient {
             // prompt that would otherwise HANG (P0). It does NOT actually contain agy
             // (P0) — the OS sandbox (wrapWithOsSandbox) does. NO blanket skip / trust.
             "--sandbox",
-            ...(ephemeral ? [] : addDirs),
+            ...addDirs, // empty in ephemeral (tool-free popover) mode
             "-p", prompt,
           ],
           env: {},
@@ -1873,7 +1879,7 @@ export class LLMClient {
             "--model", model,
             "--effort", this.settings.claudeEffort,
             ...toolArgs,
-            ...(ephemeral ? [] : addDirs), // no point granting dirs to a tool-free popover
+            ...addDirs, // empty in ephemeral (tool-free popover) mode
             "--output-format", "stream-json",
             "--verbose",
             "--include-partial-messages",
@@ -1904,7 +1910,7 @@ export class LLMClient {
             "exec",
             "-m", model,
             "--sandbox", ephemeral ? "read-only" : "workspace-write",
-            ...(ephemeral ? [] : addDirs),
+            ...addDirs, // empty in ephemeral (read-only popover) mode
             "--skip-git-repo-check",
             "--json",
             "-c",
@@ -1931,31 +1937,28 @@ export class LLMClient {
    * tools' own dirs / the plugin data dir; this is cache only.)
    */
   private cliCacheBase(): string {
-    const repo = (this.settings.incuratorRepoPath || "").trim().replace(/^~(?=$|\/)/, homedir());
+    const repo = expandPath((this.settings.incuratorRepoPath || "").trim());
     return repo ? join(repo, ".cache", "cli") : join(tmpdir(), "incurator-cli");
   }
 
+  private _cliCwdCreated: string | null = null;
   private getCliCwd(): string {
     const dir = this.cliCacheBase();
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
+    if (this._cliCwdCreated !== dir) {
+      // Only stat/mkdir when the resolved path changes (settings edit), not every call.
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      this._cliCwdCreated = dir;
     }
     return dir;
   }
 
   // --- CLI tool-scope sandbox (v0.23.0; SYSTEM_BEHAVIOR §… popover tool scope) ---
 
-  /** Realpath-resolved allowed roots (vault + Zotero) the CLI tools may touch. */
-  private allowedRoots(): string[] {
-    const z = (this.settings.zoteroBasePath || "").trim();
-    const candidates = [
-      this.vaultRoot,
-      z,
-      z ? join(z.replace(/^~(?=$|\/)/, homedir()), "storage") : "",
-    ];
+  /** Realpath-resolve + dedupe a set of path candidates, dropping empties. */
+  private resolveRoots(candidates: string[]): string[] {
     const out: string[] = [];
     for (const raw of candidates) {
-      const p = (raw || "").trim().replace(/^~(?=$|\/)/, homedir());
+      const p = expandPath((raw || "").trim());
       if (!p) continue; // SECURITY: drop empty/undefined BEFORE use (never --add-dir "")
       try {
         out.push(realpathSync(p));
@@ -1964,6 +1967,31 @@ export class LLMClient {
       }
     }
     return Array.from(new Set(out));
+  }
+
+  /**
+   * Roots the CLI tools may READ/reference (vault + Zotero library + its `storage/`),
+   * surfaced to the agent via `--add-dir`. Reads are allowed broadly by the OS sandbox
+   * regardless; this is the visibility set, NOT the writable set.
+   */
+  private allowedRoots(): string[] {
+    const z = (this.settings.zoteroBasePath || "").trim();
+    return this.resolveRoots([
+      this.vaultRoot,
+      z,
+      z ? join(expandPath(z), "storage") : "",
+    ]);
+  }
+
+  /**
+   * Roots the sandboxed CLI may WRITE to: the vault (the agent's editable knowledge
+   * space) only. The Zotero library is an EXTERNAL read-only reference — granting it
+   * write would let a prompt-injected agent corrupt/delete the user's research data,
+   * and it's unnecessary (the agent only reads PDFs). `getCliCwd()` is added by the
+   * caller for the CLI's own operational files.
+   */
+  private sandboxWriteRoots(): string[] {
+    return this.resolveRoots([this.vaultRoot]);
   }
 
   private _bwrapPath: string | null | undefined;
@@ -1993,8 +2021,9 @@ export class LLMClient {
     base: { command: string; args: string[]; env?: Record<string, string>; stdin?: string },
     provider: LLMProvider,
   ): { command: string; args: string[]; env?: Record<string, string>; stdin?: string } {
-    // The sandbox must also allow the CLI's own operational dir (logs/output files).
-    const roots = [...this.allowedRoots(), this.getCliCwd()];
+    // Writable set = the vault + the CLI's own operational dir (logs/output files).
+    // Zotero is deliberately NOT here (read-only reference; reads are allowed anyway).
+    const roots = [...this.sandboxWriteRoots(), this.getCliCwd()];
     const plan = buildSandboxPlan({
       platform: process.platform,
       allowedRoots: roots,
@@ -2005,8 +2034,10 @@ export class LLMClient {
     });
 
     if (plan.unavailable) {
-      // agy is unsafe without the OS sandbox → refuse with guidance. claude/codex are
-      // already constrained by their flags, so let them proceed unwrapped.
+      // agy's own --sandbox is INEFFECTIVE (P0), so without the OS sandbox it has no
+      // containment → refuse. claude/codex DO self-contain via their flags (claude's
+      // tool denylist / codex's workspace-write), so they degrade to that weaker
+      // flag-based posture rather than being refused — but warn so the drop is visible.
       if (provider === "antigravity") {
         throw new Error(
           `Antigravity (agy) cannot be safely sandboxed here, so it is blocked from tool ` +
@@ -2014,6 +2045,10 @@ export class LLMClient {
           `the sandbox tool.`
         );
       }
+      console.warn(
+        `[incurator] OS sandbox unavailable (${plan.reason ?? process.platform}); ` +
+        `${provider} runs under its own flag-based containment only (weaker posture).`
+      );
       return base;
     }
     return {

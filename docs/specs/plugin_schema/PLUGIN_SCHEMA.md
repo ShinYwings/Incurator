@@ -1571,30 +1571,44 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
   defense-in-depth for the rest:
   - macOS: `sandbox-exec -p <profile>` (Seatbelt) — the profile is passed INLINE on
     the command line (no temp file → no multi-vault / concurrent-call collision). It
-    denies `file-write*` everywhere, then re-allows ONLY: the vault + Zotero roots,
-    the plugin's own CLI dir (`<repo>/.cache/cli/`, see below), the CLIs' OWN narrow
-    state dirs (`~/.gemini`, `~/.antigravity`, `~/.claude`, `~/.codex`), and the
-    user's SPECIFIC `$TMPDIR`. It does NOT grant the broad `~/.config`, `~/.cache`,
+    denies `file-write*` everywhere, then re-allows write ONLY to: the **vault**, the
+    plugin's own CLI dir (`<repo>/.cache/cli/`, see below), the CLIs' OWN narrow state
+    dirs (`~/.gemini`, `~/.antigravity`, `~/.claude`, `~/.codex`), and the user's
+    SPECIFIC `$TMPDIR`. The **Zotero library is NOT writable** — it is an external
+    read-only reference, so granting write would let a prompt-injected agent corrupt
+    or delete the user's research data; it stays readable (reads are allowed) but
+    never writable. The profile does NOT grant the broad `~/.config`, `~/.cache`,
     `~/Library/Caches`, or the `/private/var/folders`/`/private/tmp` roots — those
     would let the agent drop a `~/.config/autostart` script or overwrite another
     app's config. Validated to block nested-child writes + the `~/.config/autostart`
     persistence attack. Reads are allowed (security-critical harm is creation/writes;
     read-restriction breaks the CLI).
-  - Linux: `bwrap` — `--ro-bind / /` + `--tmpfs /tmp` + `--bind-try <root> <root>`
-    per allowed root and per CLI state dir. `/tmp` is NEVER re-bound over the tmpfs
-    (that would expose the host `/tmp` read-write). If `bwrap` is absent the plugin
-    REFUSES the agentic CLI with a one-line install hint (`apt/dnf install
-    bubblewrap`). Windows: out of scope.
+  - Linux: `bwrap` — `--ro-bind / /` + `--tmpfs /tmp` + `--bind-try <write-root>` per
+    writable root (vault + CLI dirs; NOT Zotero). `/tmp` is NEVER re-bound over the
+    tmpfs (that would expose the host `/tmp` read-write). If `bwrap` is absent, **agy
+    is REFUSED** with a one-line install hint (`apt/dnf install bubblewrap`); Claude
+    and Codex are NOT refused — see the degradation rule below. Windows: out of scope.
+  - **Unavailable-sandbox degradation** — when no OS sandbox is available (Linux
+    without `bwrap`, macOS without `sandbox-exec`, Windows/other): **agy is refused**
+    (its own `--sandbox` is ineffective, so it would have ZERO containment), but
+    **Claude/Codex proceed under their own flag-based containment** (Claude's tool
+    denylist / `--tools ""`; Codex's `--sandbox read-only|workspace-write`). This is a
+    WEAKER posture than the OS write-deny floor (notably Claude's denylist can be
+    bypassed by a tool not on the list), so the plugin emits a `console.warn` when it
+    drops the OS layer. This degradation is the explicit trade-off for keeping
+    Claude/Codex usable on platforms without an OS sandbox.
   - **Plugin CLI dir** — device-local CLI byproducts (codex output, generated
     `claude_mcp.json`, temp images) live in `<incuratorRepoPath>/.cache/cli/`
     (gitignored, never synced into the vault), falling back to the OS temp dir when
     the repo path is unset — NEVER under `~/.incurator`.
-  - **Automatic** — the plugin generates the profile/binds from `allowedRoots()`
-    (realpath-resolved vault + Zotero + `storage/`, empty/undefined dropped before
-    use — never `--add-dir ""`); no manual user setup.
-- **Allowed roots** = vault + configured Zotero folder + its `storage/`. CLI tools
-  may read/write only within these (writes) and cannot create files or run scripts
-  outside them.
+  - **Automatic** — the plugin generates the profile/binds with no manual user setup.
+    The READ/visibility set (`--add-dir`) is `allowedRoots()` = realpath-resolved
+    vault + Zotero + `storage/` (empty/undefined dropped — never `--add-dir ""`); the
+    WRITE set (`sandboxWriteRoots()`) is the vault only, plus the plugin CLI dir.
+- **Roots** — READ/visibility = vault + configured Zotero folder + its `storage/`
+  (CLI tools may read these). WRITE = the vault only (+ the plugin CLI dir for the
+  CLI's own output). The agent cannot create files or run scripts outside the write
+  set, and cannot modify the Zotero library at all.
 - External user-configured `mcpServers` are the user's own trust boundary and are
   NOT sandboxed by this mechanism (documented limitation).
 

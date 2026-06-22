@@ -178,13 +178,16 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
 - **Sandboxed CLI providers (v0.23.0)**: when your provider is a CLI agent
   (Antigravity `agy`, Claude, or Codex), that agent has its own built-in tools the
   v0.19.0 MCP isolation doesn't govern. The plugin now contains them: the popover
-  runs the CLI **tool-free**, and the chat sidebar's tools are **scoped to the
-  allowed roots** (your vault, the configured Zotero folder, and Zotero's library) —
-  it can't create files or run scripts outside them. Antigravity's own `--sandbox`
-  is ineffective, so the plugin wraps it in an OS sandbox (macOS built-in;
-  **Linux requires `bubblewrap` — install it with `sudo apt install bubblewrap` or
-  `sudo dnf install bubblewrap`**, otherwise the agentic CLI is blocked with a
-  reminder). Windows CLI sandboxing is not yet supported.
+  runs the CLI **tool-free**, and the chat sidebar's tools are **scoped to your
+  data** — the agent can **read** your vault and the configured Zotero library, but
+  can only **write inside your vault**. Your Zotero library is treated as read-only,
+  so the agent can't modify or delete it, and it can't create files or run scripts
+  anywhere outside your vault. Antigravity's own `--sandbox` is ineffective, so the
+  plugin wraps it in an OS sandbox (macOS built-in; **Linux requires `bubblewrap` —
+  install it with `sudo apt install bubblewrap` or `sudo dnf install bubblewrap`**).
+  If no OS sandbox is available, **Antigravity is blocked** (it would have no
+  containment at all), while **Claude and Codex still run** under their own weaker
+  built-in limits. Windows CLI sandboxing is not yet supported.
 - **Markdown rendering**: The answer renders as Markdown (math/LaTeX included)
   once the stream completes. Math is normalized before rendering — backtick-wrapped
   spans such as `` `$x^2$` `` are unwrapped to `$x^2$` so LaTeX renders as a
