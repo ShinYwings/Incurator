@@ -12,7 +12,6 @@ import {
   Notice,
   Editor,
   htmlToMarkdown,
-  TFolder,
 } from "obsidian";
 import {
   type PluginSettings,
@@ -129,10 +128,6 @@ export default class ObsidianAIAgent extends Plugin {
     // ── Load settings and session data ──
     await this.loadSettings();
     await this.loadSessionData();
-
-    // One-shot: trash the legacy 00_System/Agent Diffs/ artifact folder whose
-    // writer was removed in 944271b but whose cleanup path went with it (v0.24.0).
-    void this.cleanupLegacyAgentDiffs();
 
     // ── Initialize core services ──
     this.vaultRoot = (this.app.vault.adapter as any).getBasePath?.() || "";
@@ -1148,28 +1143,6 @@ export default class ObsidianAIAgent extends Plugin {
     };
     if (this.migrateUnavailableModelDefaults()) {
       await this.saveData(this.settings);
-    }
-  }
-
-  /**
-   * One-shot migration (v0.24.0): trash the legacy `00_System/Agent Diffs/`
-   * folder. Its writer + cleanup path were removed in 944271b, leaving orphaned
-   * folders in vaults that ran older builds. Runs once (guarded by
-   * `legacyAgentDiffsCleaned`), moves the folder to system trash (never a hard
-   * delete), and only ever touches that exact path.
-   */
-  async cleanupLegacyAgentDiffs(): Promise<void> {
-    if (this.settings.legacyAgentDiffsCleaned) return;
-    try {
-      const folder = this.app.vault.getAbstractFileByPath("00_System/Agent Diffs");
-      if (folder instanceof TFolder) {
-        await this.app.vault.trash(folder, true);
-        new Notice("Removed the legacy '00_System/Agent Diffs' review folder.");
-      }
-      this.settings.legacyAgentDiffsCleaned = true;
-      await this.saveData(this.settings);
-    } catch (e) {
-      console.warn("Legacy Agent Diffs cleanup skipped:", e);
     }
   }
 

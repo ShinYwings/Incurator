@@ -16,6 +16,5 @@ spec_sync 10 green. Plan artifacts deleted (history in Git). PR opened; awaiting
 - Diff Viewer keyboard shortcuts focus-gated (chat-Enter no longer Accept-Alls); `show()` focuses
   the editor; typed `{opened,reason}` return → no silent failures.
 - Multi-edit matched against original text (order-independent) + same-file review coalesce.
-- One-shot legacy `00_System/Agent Diffs/` trash-on-load.
 
 **Next Action**: User reviews/merges the PR. After merge, truncate RELAY to IDLE.

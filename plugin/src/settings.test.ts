@@ -50,24 +50,3 @@ describe("settings UI source contract", () => {
     expect(DEFAULT_SETTINGS).not.toHaveProperty("latexModel");
   });
 });
-
-describe("legacy Agent Diffs cleanup migration (v0.24.0)", () => {
-  function mainSource(): string {
-    const dir = fileURLToPath(new URL(".", import.meta.url));
-    return readFileSync(join(dir, "..", "main.ts"), "utf8");
-  }
-
-  it("runs once, trashes only the legacy folder, and never hard-deletes", () => {
-    const source = mainSource();
-
-    // Guarded one-shot.
-    expect(source).toContain("if (this.settings.legacyAgentDiffsCleaned) return;");
-    expect(source).toContain("this.settings.legacyAgentDiffsCleaned = true;");
-    expect(source).toContain("void this.cleanupLegacyAgentDiffs();");
-
-    // Targets exactly the legacy path; moves to system trash, not adapter.remove.
-    expect(source).toContain('getAbstractFileByPath("00_System/Agent Diffs")');
-    expect(source).toContain("this.app.vault.trash(folder, true)");
-    expect(source).toContain("instanceof TFolder");
-  });
-});

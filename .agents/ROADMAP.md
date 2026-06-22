@@ -67,8 +67,7 @@ Source of Truth to identify unresolved items.
   the Diff Viewer keyboard shortcuts are focus-gated (chat-Enter no longer Accept-Alls)
   with `show()` focusing the editor and returning a typed `{opened,reason}`; multi-edit
   proposals match against the original text (order-independent) with same-file review
-  coalesce; and a one-shot load-time migration trashes the legacy `00_System/Agent Diffs/`
-  folder.
+  coalesce.
 - **v0.23.0 — CLI Provider Tool-Scope Sandbox** (shipped 2026-06-22): closed the
   CLI-native-tool escape the v0.19.0 MCP isolation left open. `toolPolicy` now reaches
   the CLI command builder — popover runs tool-free, sidechat scopes tools to the

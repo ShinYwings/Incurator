@@ -34,8 +34,6 @@ All notable changes to Incurator are documented here.
   instead of raising "a diff review is already opening".
 - **No more silent open failures.** `DiffViewer.show` returns a typed result and
   callers surface the exact reason (nothing changed / editor not ready).
-- **Legacy `00_System/Agent Diffs/` folder** is trashed once on load (its writer
-  was removed earlier but the cleanup path went with it).
 
 ---
 

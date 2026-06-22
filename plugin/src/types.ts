@@ -122,12 +122,6 @@ export interface PluginSettings {
   recentZoteroItems: string[];
   lastMarkdownScrollPosition?: LastMarkdownScrollPosition;
   fileScrollPositions?: Record<string, FileScrollPosition>;
-  /**
-   * Internal one-shot migration flag (v0.24.0): set once the legacy
-   * `00_System/Agent Diffs/` artifact folder (removed in 944271b) has been
-   * trashed from this vault. Not a user-facing setting.
-   */
-  legacyAgentDiffsCleaned?: boolean;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {

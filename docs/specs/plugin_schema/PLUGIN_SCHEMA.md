@@ -918,9 +918,8 @@ Rules:
   region (model-independent guard against whole-answer-as-one-REPLACE scope drift).
 - There is NO on-disk diff artifact. The previous `00_System/Agent Diffs/` note
   feature and its `editArtifactEnabled` setting were removed in v0.5.0; the
-  in-editor `DiffViewer` is the single source of truth. (v0.24.0: a one-shot
-  load-time migration trashes any leftover `00_System/Agent Diffs/` folder, since
-  the earlier removal also dropped the cleanup path — see §6.3.)
+  in-editor `DiffViewer` is the single source of truth. (Pre-existing artifact
+  files in users' vaults are left untouched.)
 - **Accept-All cursor (v0.14.1)**: after `Accept All`, the cursor is restored to
   the FIRST changed hunk's line (cached when the diff opened), not the end of the
   rewritten region. A whole-file review must not teleport the caret to the bottom
@@ -1056,10 +1055,6 @@ Token-limited providers (Gemini's `MAX_TOKENS`, OpenAI/Ollama `length`, Claude
   SEARCH. Skipped proposals are reported as either "not found" or "overlapping",
   and a same-target re-entrant Review request coalesces silently instead of
   raising "a diff review is already opening".
-- **Legacy artifact cleanup.** On load the plugin trashes a leftover
-  `00_System/Agent Diffs/` folder once (guarded by `legacyAgentDiffsCleaned`),
-  moving it to system trash. The on-disk diff artifact writer itself remains
-  removed (there is no writer).
 
 ## 7. Backend Access Contract
 
