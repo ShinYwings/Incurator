@@ -2582,6 +2582,16 @@ def config_set(
     console.print(f"[green]✓[/green] {scope} config updated: [bold]{key}[/bold] = {_json.dumps(parsed_value, ensure_ascii=False)}")
     console.print(f"[dim]  {config_file}[/dim]")
 
+    # Refresh runtime snapshots so the plugin dashboard picks up the change
+    # immediately without an extra `wiki status` round-trip.
+    try:
+        root = cfg.find_wiki_root()
+        if root:
+            paths = cfg.paths_from_config(root)
+            runtime_state.write_runtime_snapshots(paths)
+    except Exception:
+        pass  # best-effort; CLI-only users don't need this
+
 
 @config_app.command("provider")
 def config_provider(
@@ -2724,6 +2734,12 @@ def config_provider(
     console.print("[bold green]Provider settings saved.[/bold green]")
     console.print(f"[dim]Backend: {describe_backend(current_config)}[/dim]")
     console.print()
+
+    # Refresh runtime snapshots so the plugin dashboard picks up the change.
+    try:
+        runtime_state.write_runtime_snapshots(paths)
+    except Exception:
+        pass
 
 
 @config_secret_app.command("list")

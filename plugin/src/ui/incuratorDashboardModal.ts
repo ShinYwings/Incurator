@@ -578,9 +578,15 @@ export class IncuratorDashboardModal extends Modal {
     const grid = el.createDiv("ai-agent-ov-grid");
 
     // ── LLM (hero card, spans full width) ────────────────────────────────────
+    // The plugin reads ALL config from runtime/status.json (merged by the backend
+    // from .cache/config/ + .curator/config.yml).  This avoids the class of bugs
+    // where machine-local keys (llm, search, external) are absent from the
+    // synced project config.
+    const status = await this.readRuntimeStatus();
     const llmCard = this.ovCard(grid, "span-full", null);
     llmCard.createDiv({ cls: "ai-agent-ov-card-title", text: "LLM Provider" });
-    if (cfg) this.renderLLMSelector(llmCard, cfg);
+    const effectiveCfg = status || cfg || {};
+    if (effectiveCfg) this.renderLLMSelector(llmCard, effectiveCfg);
 
     // ── Knowledge-graph counts (one compact strip — secondary info) ──────────
     const statDefs: [string, string, string][] = [
@@ -632,7 +638,7 @@ export class IncuratorDashboardModal extends Modal {
 
 
     // Determine Zotero initial fallback path for System card
-    const z = cfg?.external?.zotero ?? {};
+    const z = status?.external?.zotero ?? {};
     const zRoots = z.roots ?? [];
     let rootsText = "no roots";
     if (zRoots.length > 0) {
@@ -775,8 +781,8 @@ export class IncuratorDashboardModal extends Modal {
     const syncCard = this.ovCard(grid, "span-2", null);
     syncCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Pipeline" });
     const syncTable = this.makeInfoTable(syncCard);
-    syncTable("Sync workers",  String(cfg?.sync?.max_parallel_verifications ?? 4));
-    syncTable("Log retention", `${cfg?.curate?.log_retention_days ?? 30} days`);
+    syncTable("Sync workers",  String((status?.sync ?? cfg?.sync)?.max_parallel_verifications ?? 4));
+    syncTable("Log retention", `${(status?.curate ?? cfg?.curate)?.log_retention_days ?? 30} days`);
 
     // ── Syncthing device-folder card ────────────────────────────────────────
     const deviceCard = this.ovCard(grid, "span-2", null);
@@ -1036,21 +1042,42 @@ export class IncuratorDashboardModal extends Modal {
           new Notice(`Region model save failed: ${r.error}`);
           return;
         }
-        await this.refreshRuntimeSnapshots();
-        this.vaultConfig = await this.readVaultConfig();
         const eff = primaryEffort ? ` (${primaryEffort})` : "";
         new Notice(`LLM saved · primary ${primary}${eff}${fallback ? `  fallback ${fallback}` : ""}`);
       } finally { applyBtn.disabled = false; applyBtn.setText("Apply"); }
     };
 
-    // ── Ollama settings (only relevant if ollama is selected anywhere) ──
+    // ── Ollama settings (only shown when Ollama is primary or fallback) ──
     const ollama = llm.ollama ?? {};
     const ollamaRow = container.createDiv("ai-agent-llm-ollama-hint");
     ollamaRow.setText(`Ollama: ${ollama.host || "http://localhost:11434"} · ${ollama.timeout ?? 120}s`);
 
     // ── Ollama recommendations: install status + RAM fit + one-click Pull ──
+    // Show when Ollama is selected in ANY slot (primary, fallback, vision, extract).
     const ollamaModelsEl = container.createDiv("ai-agent-llm-ollama-models");
-    void this.renderOllamaRecommendations(ollamaModelsEl);
+    const isOllamaSelected = () =>
+      primarySel.value.startsWith("ollama::") || fallbackSel.value.startsWith("ollama::") ||
+      visionSel.value.startsWith("ollama::") || extractSel.value.startsWith("ollama::");
+    const refreshOllamaSection = () => {
+      const show = isOllamaSelected();
+      ollamaRow.style.display = show ? "" : "none";
+      ollamaModelsEl.style.display = show ? "" : "none";
+      if (show && ollamaModelsEl.childElementCount === 0) {
+        void this.renderOllamaRecommendations(ollamaModelsEl);
+      }
+    };
+    for (const sel of [primarySel, fallbackSel, visionSel, extractSel]) {
+      sel.addEventListener("change", refreshOllamaSection);
+    }
+    // Initial visibility from config values (dropdowns may still be loading).
+    const cfgUsesOllama =
+      (llm.primary || "").includes("ollama") || (llm.fallback || "").includes("ollama") ||
+      (llm.vision_model || "").includes("ollama") || (llm.latex_extract_model || "").includes("ollama");
+    ollamaRow.style.display = cfgUsesOllama ? "" : "none";
+    ollamaModelsEl.style.display = cfgUsesOllama ? "" : "none";
+    if (cfgUsesOllama) {
+      void this.renderOllamaRecommendations(ollamaModelsEl);
+    }
   }
 
   /** Render the models.json Ollama recommendations with install/RAM-fit status. */
@@ -1414,14 +1441,12 @@ export class IncuratorDashboardModal extends Modal {
           ["persona.updated_at", new Date().toISOString()],
         ];
         for (const [key, value] of updates) {
-          const r = await this.runWikiCommand(["config", "set", key, value]);
+          const r = await this.runWikiCommand(["config", "set", "--local", key, value]);
           if (!r.ok) {
             new Notice(`Save failed: ${r.error}`);
             return;
           }
         }
-        await this.refreshRuntimeSnapshots();
-        this.vaultConfig = await this.readVaultConfig();
         new Notice("Persona saved.");
       } catch (e) { new Notice(`Save failed: ${e}`); }
       finally { saveBtn.disabled = false; saveBtn.setText("Save Persona"); }
