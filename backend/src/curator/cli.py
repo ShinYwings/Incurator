@@ -2588,7 +2588,7 @@ def config_set(
         root = cfg.find_wiki_root()
         if root:
             paths = cfg.paths_from_config(root)
-            runtime_state.write_runtime_snapshots(paths)
+            runtime_state.write_runtime_snapshots(paths, cfg.load_config(paths))
     except Exception:
         pass  # best-effort; CLI-only users don't need this
 
@@ -2737,7 +2737,7 @@ def config_provider(
 
     # Refresh runtime snapshots so the plugin dashboard picks up the change.
     try:
-        runtime_state.write_runtime_snapshots(paths)
+        runtime_state.write_runtime_snapshots(paths, current_config)
     except Exception:
         pass
 
