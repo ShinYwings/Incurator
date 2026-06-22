@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.22.0)
+# Incurator - Schema & Operating Conventions (v0.23.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -116,7 +116,7 @@ Rules:
 - The canonical Windows PowerShell Antigravity installer command is
   `irm https://antigravity.google/cli/install.ps1 | iex`.
 
-### 2.5 Vision Extraction Models (v0.22.0)
+### 2.5 Vision Extraction Models (v0.23.0)
 
 Two optional, independently-selectable extraction models, decoupled from
 `llm.primary`/`fallback`. See SYSTEM_BEHAVIOR §26.2a for behavior.

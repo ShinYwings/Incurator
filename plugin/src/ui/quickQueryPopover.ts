@@ -468,7 +468,8 @@ export class QuickQueryPopover {
           { toolPolicy: "none" }
         );
       } else {
-        raw = await this.plugin.llmClient.complete(messages);
+        // Ephemeral popover: no tools / OS-sandboxed CLI (v0.23.0).
+        raw = await this.plugin.llmClient.complete(messages, { toolPolicy: "none" });
       }
     } catch (err: unknown) {
       this.isProcessing = false;

@@ -235,3 +235,93 @@ describe("complete() per-call model override (v0.21.0 Convert-to-LaTeX fast mode
     expect(body.model).toBe("main-model");
   });
 });
+
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { join } from "path";
+
+describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
+  const source = readFileSync(
+    join(fileURLToPath(new URL(".", import.meta.url)), "llmClient.ts"),
+    "utf8",
+  );
+
+  it("drops the dangerous agy blanket-skip + trust-workspace bypass", () => {
+    expect(source).not.toContain("--dangerously-skip-permissions");
+    expect(source).not.toContain('GEMINI_CLI_TRUST_WORKSPACE: "true"');
+    expect(source).not.toContain('ANTIGRAVITY_TRUST_WORKSPACE: "true"');
+  });
+
+  it("keeps agy --sandbox so -p mode never hangs on a permission prompt", () => {
+    // agy --sandbox auto-proceeds (no prompt → no hang); the OS sandbox does the
+    // actual containment. Dropping both would reintroduce the original hang.
+    expect(source).toContain('"--sandbox",');
+    // bwrap availability is an in-process PATH lookup, NOT a synchronous sh spawn.
+    expect(source).not.toContain('execFileSync("sh"');
+    expect(source).toContain('existsSync(candidate)');
+  });
+
+  it("controls claude via the tool surface (--tools '' popover / --disallowedTools sidechat)", () => {
+    expect(source).toContain('["--tools", ""]');
+    expect(source).toContain('"--disallowedTools", "Bash", "Read", "Write", "Edit", "WebFetch"');
+  });
+
+  it("scopes codex by toolPolicy (read-only popover / workspace-write sidechat)", () => {
+    expect(source).toContain('ephemeral ? "read-only" : "workspace-write"');
+  });
+
+  it("threads toolPolicy and OS-sandbox-wraps every CLI command", () => {
+    expect(source).toContain("toolPolicy: ToolPolicy = \"auto\"");
+    expect(source).toContain("return this.wrapWithOsSandbox(base, p);");
+    expect(source).toContain("buildSandboxPlan({");
+  });
+
+  it("filters empty allowed roots before use (never --add-dir \"\")", () => {
+    expect(source).toContain("if (!p) continue;");
+    expect(source).toContain("realpathSync");
+  });
+
+  it("excludes the Zotero library from the sandbox WRITE roots (read-only reference)", () => {
+    // Writable set = vault + getCliCwd only; Zotero is never writable (corruption risk).
+    expect(source).toContain("private sandboxWriteRoots()");
+    expect(source).toContain("this.resolveRoots([this.vaultRoot])");
+    // The sandbox write-roots are built from sandboxWriteRoots() (vault-only), NOT
+    // allowedRoots() (which still includes Zotero, for --add-dir read visibility).
+    expect(source).toContain("const roots = [...this.sandboxWriteRoots(),");
+    expect(source).not.toMatch(/const roots = \[\.\.\.this\.allowedRoots\(\)/);
+  });
+
+  it("reuses the shared expandPath helper (no duplicated ~-expansion regex)", () => {
+    expect(source).toContain('from "../utils/deviceRegistry"');
+    expect(source).not.toContain("replace(/^~");
+  });
+
+  it("warns (not silently) when a non-agy CLI runs without the OS sandbox", () => {
+    expect(source).toContain("OS sandbox unavailable");
+    expect(source).toContain("console.warn");
+  });
+
+  it("resolves --add-dir lazily — skipped on the tool-free ephemeral path", () => {
+    expect(source).toContain("ephemeral ? [] : this.allowedRoots().flatMap");
+  });
+
+  it("realpaths sandbox paths so macOS firmlink (/var→/private/var) rules match", () => {
+    // Seatbelt (subpath ...) only matches the REAL resolved path; an unresolved
+    // /var/folders rule would NOT match the kernel's /private/var/folders write, so a
+    // tmpdir-based getCliCwd (the default when incuratorRepoPath is unset) would have
+    // its output-file/mcp-config writes silently denied.
+    expect(source).toContain("realOr(homedir())");
+    expect(source).toContain("realOr(tmpdir())");
+    // getCliCwd() returns the canonical (realpath'd) path at the source, so cwd,
+    // output files, and the sandbox rule all agree without per-call-site resolving.
+    expect(source).toContain("realpathSync(dir)");
+  });
+
+  it("stores device-local CLI caches in the project .cache/, not ~/.incurator", () => {
+    // getCliCwd() now resolves to <repo>/.cache/cli (or the OS tmpdir), never ~/.
+    expect(source).toContain('join(repo, ".cache", "cli")');
+    expect(source).toContain('join(tmpdir(), "incurator-cli")');
+    expect(source).not.toContain('join(homedir(), ".incurator-obsidian-agent-cli")');
+    expect(source).not.toContain('join(homedir(), ".incurator", "tmp_images")');
+  });
+});

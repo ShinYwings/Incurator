@@ -4,12 +4,15 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   unlinkSync,
   writeFileSync,
 } from "fs";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 import { join } from "path";
+import { buildSandboxPlan } from "./sandboxWrapper";
 import { promisify, TextDecoder } from "util";
+import { expandPath } from "../utils/deviceRegistry";
 import type { MCPManager } from "./mcpClient";
 import { buildGuiCliSearchPaths, type CLICredential, type CLIAuthResolver } from "../auth/cliAuth";
 import type {
@@ -677,7 +680,7 @@ export class LLMClient {
     // TypeScript narrow it to non-null below without a `!` assertion.
     const injectTools = shouldInjectMcpTools(toolPolicy, Boolean(mcpManager), this.shouldUseCli(messages));
     if (!injectTools || !mcpManager) {
-      const { text } = await this._streamChatSingleTurn(messages, onChunk);
+      const { text } = await this._streamChatSingleTurn(messages, onChunk, undefined, toolPolicy);
       return text;
     }
 
@@ -702,7 +705,7 @@ export class LLMClient {
       // Don't pass tools if it's the last turn to force a final answer
       const activeTools = isLastTurn ? undefined : (tools.length > 0 ? tools : undefined);
 
-      const { text, tool_calls } = await this._streamChatSingleTurn(currentMessages, onChunk, activeTools);
+      const { text, tool_calls } = await this._streamChatSingleTurn(currentMessages, onChunk, activeTools, toolPolicy);
       fullFinalText += text;
 
       if (!tool_calls || tool_calls.length === 0) {
@@ -760,13 +763,14 @@ export class LLMClient {
   private async _streamChatSingleTurn(
     messages: LLMMessage[],
     onChunk: (chunk: StreamChunk) => void,
-    tools?: any[]
+    tools?: any[],
+    toolPolicy: ToolPolicy = "auto"
   ): Promise<{ text: string; tool_calls?: any[] }> {
     this.abortController = new AbortController();
     const provider = this.settings.provider;
 
     if (this.shouldUseCli(messages)) {
-      const text = await this.streamChatViaCli(messages, onChunk);
+      const text = await this.streamChatViaCli(messages, onChunk, toolPolicy);
       return { text };
     }
 
@@ -834,7 +838,7 @@ export class LLMClient {
           }
           this.auth.invalidate(provider);
           new Notice(`${provider} HTTP auth failed. Retrying through the provider CLI login session.`);
-          const text = await this.streamChatViaCli(messages, onChunk);
+          const text = await this.streamChatViaCli(messages, onChunk, toolPolicy);
           return { text };
         }
         throw new Error(`LLM API error ${response.status}: ${errorText.slice(0, 200)}`);
@@ -961,16 +965,17 @@ export class LLMClient {
    */
   async complete(
     messages: LLMMessage[],
-    opts?: { model?: string }
+    opts?: { model?: string; toolPolicy?: ToolPolicy }
   ): Promise<string> {
     const provider = this.settings.provider;
     // Per-call model override (v0.21.0): a task-specialized light model (e.g.
     // Convert-to-LaTeX) may run on a smaller model than the main chat `model`.
     // Empty/unset falls back to the configured model, preserving prior behavior.
     const model = opts?.model?.trim() || this.settings.model;
+    const toolPolicy: ToolPolicy = opts?.toolPolicy ?? "auto";
 
     if (this.shouldUseCli(messages)) {
-      return this.completeViaCli(messages);
+      return this.completeViaCli(messages, toolPolicy);
     }
 
     // Ollama uses fetch for non-streaming too (requestUrl may not reach localhost in all envs)
@@ -1030,7 +1035,7 @@ export class LLMClient {
         }
         this.auth.invalidate(provider);
         new Notice(`${provider} HTTP auth failed. Retrying through the provider CLI login session.`);
-        return this.completeViaCli(messages);
+        return this.completeViaCli(messages, toolPolicy);
       }
       if (isQuotaErrorMessage(msg)) {
         throw new Error(formatQuotaErrorMessage(provider, msg));
@@ -1046,7 +1051,8 @@ export class LLMClient {
 
   private streamChatViaCli(
     messages: LLMMessage[],
-    onChunk: (chunk: StreamChunk) => void
+    onChunk: (chunk: StreamChunk) => void,
+    toolPolicy: ToolPolicy = "auto"
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const provider = this.settings.provider;
@@ -1063,7 +1069,8 @@ export class LLMClient {
         prompt,
         outputFile,
         provider,
-        true
+        true,
+        toolPolicy
       );
 
       let fullOutput = "";
@@ -1615,7 +1622,10 @@ export class LLMClient {
     return null;
   }
 
-  private async completeViaCli(messages: LLMMessage[]): Promise<string> {
+  private async completeViaCli(
+    messages: LLMMessage[],
+    toolPolicy: ToolPolicy = "auto"
+  ): Promise<string> {
     const provider = this.settings.provider;
     const prompt = this.messagesToCliPrompt(messages);
     const cwd = this.getCliCwd();
@@ -1626,7 +1636,7 @@ export class LLMClient {
             `codex-output-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`
           )
         : undefined;
-    const { command, args, env } = this.buildCliCommand(prompt, outputFile, provider);
+    const { command, args, env } = this.buildCliCommand(prompt, outputFile, provider, false, toolPolicy);
 
     try {
       const { stdout, stderr } = await execFileAsync(command, args, {
@@ -1815,7 +1825,8 @@ export class LLMClient {
     prompt: string,
     outputFile?: string,
     provider?: LLMProvider,
-    preferStdin = false
+    preferStdin = false,
+    toolPolicy: ToolPolicy = "auto"
   ): {
     command: string;
     args: string[];
@@ -1823,42 +1834,64 @@ export class LLMClient {
     stdin?: string;
   } {
     const model = this.settings.model;
-    switch (provider ?? this.settings.provider) {
+    const p = provider ?? this.settings.provider;
+    // FAIL-OPEN GUARD: toolPolicy defaults to "auto" (full tools). Any EPHEMERAL surface
+    // (popover, inline preview, …) MUST pass toolPolicy:"none" — a call site that omits
+    // it silently gets the full tool surface. New read-only surfaces: pass "none".
+    const ephemeral = toolPolicy === "none"; // popover / read-only surface
+    // Only resolve allowed roots when they'll actually be used (non-ephemeral); the
+    // tool-free popover path discards --add-dir, so skip the realpath I/O there.
+    const addDirs = ephemeral ? [] : this.allowedRoots().flatMap((r) => ["--add-dir", r]);
+    let base: { command: string; args: string[]; env?: Record<string, string>; stdin?: string };
+    switch (p) {
       case "antigravity": {
         this.syncAgyMcpConfig();
-        return {
+        // v0.23.0: NO blanket permission-skip / trust-workspace bypass. agy ignores
+        // its own --sandbox (P0), so containment is the OS sandbox (wrapWithOsSandbox).
+        base = {
           command: "agy",
           args: [
             "--print-timeout", `${Math.max(30, this.settings.antigravityPrintTimeoutSec || 300)}s`,
-            "--dangerously-skip-permissions",
+            // Keep --sandbox: in -p mode it auto-proceeds without the permission
+            // prompt that would otherwise HANG (P0). It does NOT actually contain agy
+            // (P0) — the OS sandbox (wrapWithOsSandbox) does. NO blanket skip / trust.
+            "--sandbox",
+            ...addDirs, // empty in ephemeral (tool-free popover) mode
             "-p", prompt,
           ],
-          env: {
-            GEMINI_CLI_TRUST_WORKSPACE: "true",
-            ANTIGRAVITY_TRUST_WORKSPACE: "true",
-          },
+          env: {},
         };
+        break;
       }
       case "claude": {
         const claudeMcpPath = this.syncClaudeMcpConfig();
-        return {
+        // claude has no deny-without-prompt dir sandbox → control via the TOOL SURFACE.
+        // Popover: --tools "" (no tools). Sidechat: disable native fs/shell tools, keep
+        // only the DB-scoped MCP curator tools (the plugin edit-loop handles vault edits).
+        const toolArgs = ephemeral
+          ? ["--tools", ""]
+          : ["--disallowedTools", "Bash", "Read", "Write", "Edit", "WebFetch"];
+        base = {
           command: "claude",
           args: [
             "--mcp-config", claudeMcpPath,
             "-p", prompt,
             "--model", model,
             "--effort", this.settings.claudeEffort,
+            ...toolArgs,
+            ...addDirs, // empty in ephemeral (tool-free popover) mode
             "--output-format", "stream-json",
             "--verbose",
             "--include-partial-messages",
           ],
         };
+        break;
       }
       case "openai":
       case "deepseek":
       case "ollama": {
         this.syncCodexMcpConfig();
-        
+
         const extraEnv: Record<string, string> = {};
         if (provider === "deepseek") {
           extraEnv["OPENAI_API_BASE"] = "https://api.deepseek.com/v1";
@@ -1869,15 +1902,15 @@ export class LLMClient {
           extraEnv["OPENAI_API_KEY"] = "ollama";
         }
 
-        return {
+        // Popover: read-only. Sidechat: workspace-write scoped to the allowed roots.
+        base = {
           command: "codex",
           args: [
             "--profile", "obsidian",
             "exec",
-            "-m",
-            model,
-            "--sandbox",
-            "read-only",
+            "-m", model,
+            "--sandbox", ephemeral ? "read-only" : "workspace-write",
+            ...addDirs, // empty in ephemeral (read-only popover) mode
             "--skip-git-repo-check",
             "--json",
             "-c",
@@ -1888,18 +1921,154 @@ export class LLMClient {
           env: extraEnv,
           stdin: preferStdin ? prompt : undefined,
         };
+        break;
       }
       default:
-        throw new Error(`Provider "${provider ?? this.settings.provider}" does not support CLI mode.`);
+        throw new Error(`Provider "${p}" does not support CLI mode.`);
     }
+    return this.wrapWithOsSandbox(base, p);
   }
 
+  /**
+   * Device-local cache base for plugin CLI byproducts (codex output, generated MCP
+   * config, temp images). Lives in the project's gitignored `.cache/` — matching the
+   * backend's `<repo>/.cache/vision_render` — NOT under `~/`. Falls back to the OS
+   * temp dir when the repo path isn't configured. (Synced config stays in the CLI
+   * tools' own dirs / the plugin data dir; this is cache only.)
+   */
+  private cliCacheBase(): string {
+    const repo = expandPath((this.settings.incuratorRepoPath || "").trim());
+    return repo ? join(repo, ".cache", "cli") : join(tmpdir(), "incurator-cli");
+  }
+
+  private _cliCwdCreated: string | null = null;
+  private _cliCwdResolved = "";
   private getCliCwd(): string {
-    const dir = join(homedir(), ".incurator-obsidian-agent-cli");
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
+    const dir = this.cliCacheBase();
+    if (this._cliCwdCreated !== dir) {
+      // Only stat/mkdir when the resolved path changes (settings edit), not every call.
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      // Return the REAL path: macOS firmlinks /var→/private/var and a repo may sit
+      // under a symlink, so the cwd/output-file/sandbox-rule all need the canonical
+      // form to agree (otherwise Seatbelt's subpath rule won't match the write).
+      try { this._cliCwdResolved = realpathSync(dir); } catch { this._cliCwdResolved = dir; }
+      this._cliCwdCreated = dir;
     }
-    return dir;
+    return this._cliCwdResolved;
+  }
+
+  // --- CLI tool-scope sandbox (v0.23.0; SYSTEM_BEHAVIOR §… popover tool scope) ---
+
+  /** Realpath-resolve + dedupe a set of path candidates, dropping empties. */
+  private resolveRoots(candidates: string[]): string[] {
+    const out: string[] = [];
+    for (const raw of candidates) {
+      const p = expandPath((raw || "").trim());
+      if (!p) continue; // SECURITY: drop empty/undefined BEFORE use (never --add-dir "")
+      try {
+        out.push(realpathSync(p));
+      } catch {
+        out.push(p); // path may not exist yet; pass the literal (still scoped)
+      }
+    }
+    return Array.from(new Set(out));
+  }
+
+  /**
+   * Roots the CLI tools may READ/reference (vault + Zotero library + its `storage/`),
+   * surfaced to the agent via `--add-dir`. Reads are allowed broadly by the OS sandbox
+   * regardless; this is the visibility set, NOT the writable set.
+   */
+  private allowedRoots(): string[] {
+    const z = (this.settings.zoteroBasePath || "").trim();
+    return this.resolveRoots([
+      this.vaultRoot,
+      z,
+      z ? join(expandPath(z), "storage") : "",
+    ]);
+  }
+
+  /**
+   * Roots the sandboxed CLI may WRITE to: the vault (the agent's editable knowledge
+   * space) only. The Zotero library is an EXTERNAL read-only reference — granting it
+   * write would let a prompt-injected agent corrupt/delete the user's research data,
+   * and it's unnecessary (the agent only reads PDFs). `getCliCwd()` is added by the
+   * caller for the CLI's own operational files.
+   */
+  private sandboxWriteRoots(): string[] {
+    return this.resolveRoots([this.vaultRoot]);
+  }
+
+  private _bwrapPath: string | null | undefined;
+  /** In-process PATH lookup for `bwrap` — no subprocess (never blocks the UI). */
+  private resolveBwrap(): string {
+    if (this._bwrapPath !== undefined) return this._bwrapPath || "";
+    this._bwrapPath = null;
+    for (const dir of (process.env.PATH || "").split(":")) {
+      if (!dir) continue;
+      const candidate = join(dir, "bwrap");
+      if (existsSync(candidate)) {
+        this._bwrapPath = candidate;
+        break;
+      }
+    }
+    return this._bwrapPath || "";
+  }
+
+  /**
+   * OS-sandbox the CLI command. agy MUST be contained this way (its own --sandbox is
+   * ineffective); claude/codex use it as defense-in-depth on top of their flags. The
+   * macOS profile is passed INLINE via `sandbox-exec -p` (no temp file → no
+   * multi-vault / concurrent-call collision). Returns the wrapped command, or refuses
+   * (throws) when agy can't be sandboxed.
+   */
+  private wrapWithOsSandbox(
+    base: { command: string; args: string[]; env?: Record<string, string>; stdin?: string },
+    provider: LLMProvider,
+  ): { command: string; args: string[]; env?: Record<string, string>; stdin?: string } {
+    // macOS firmlinks `/var`→`/private/var`, so a Seatbelt `(subpath ...)` only matches
+    // the REAL resolved path. getCliCwd() and sandboxWriteRoots() already return
+    // realpath'd paths; home/tmpdir do not, so resolve them here (the `$TMPDIR` allow
+    // would otherwise never match a `/private/var/folders/...` write).
+    const realOr = (p: string): string => {
+      try { return realpathSync(p); } catch { return p; }
+    };
+    // Writable set = the vault + the CLI's own operational dir (logs/output files).
+    // Zotero is deliberately NOT here (read-only reference; reads are allowed anyway).
+    const roots = [...this.sandboxWriteRoots(), this.getCliCwd()];
+    const plan = buildSandboxPlan({
+      platform: process.platform,
+      allowedRoots: roots,
+      home: realOr(homedir()),
+      tmpdir: realOr(tmpdir()),
+      sandboxExecPath: process.platform === "darwin" ? "/usr/bin/sandbox-exec" : "",
+      bwrapPath: process.platform === "linux" ? this.resolveBwrap() : "",
+    });
+
+    if (plan.unavailable) {
+      // agy's own --sandbox is INEFFECTIVE (P0), so without the OS sandbox it has no
+      // containment → refuse. claude/codex DO self-contain via their flags (claude's
+      // tool denylist / codex's workspace-write), so they degrade to that weaker
+      // flag-based posture rather than being refused — but warn so the drop is visible.
+      if (provider === "antigravity") {
+        throw new Error(
+          `Antigravity (agy) cannot be safely sandboxed here, so it is blocked from tool ` +
+          `use. ${plan.reason ?? ""} Switch the provider to Claude/Codex/Ollama, or install ` +
+          `the sandbox tool.`
+        );
+      }
+      console.warn(
+        `[incurator] OS sandbox unavailable (${plan.reason ?? process.platform}); ` +
+        `${provider} runs under its own flag-based containment only (weaker posture).`
+      );
+      return base;
+    }
+    return {
+      command: plan.prefix[0],
+      args: [...plan.prefix.slice(1), base.command, ...base.args],
+      env: base.env,
+      stdin: base.stdin,
+    };
   }
 
   private processMcpServer(server: any): any {
@@ -2008,7 +2177,7 @@ export class LLMClient {
         if (part.type === "text") return part.text;
         
         try {
-          const tmpDir = join(homedir(), ".incurator", "tmp_images");
+          const tmpDir = join(this.getCliCwd(), "tmp_images");
           if (!existsSync(tmpDir)) {
             mkdirSync(tmpDir, { recursive: true });
           }

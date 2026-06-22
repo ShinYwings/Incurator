@@ -67,7 +67,7 @@ function tagTexts(block: string, tag: string): string[] {
     .filter(Boolean);
 }
 
-function expandPath(path: string, home = homedir()): string {
+export function expandPath(path: string, home = homedir()): string {
   const expandedHome = path.startsWith("~/") ? `${home}/${path.slice(2)}` : path;
   return expandedHome.replace(/\$HOME/g, home);
 }

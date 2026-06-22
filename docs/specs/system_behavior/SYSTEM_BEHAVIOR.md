@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.22.0)
+# Incurator - System Behavior (v0.23.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1688,7 +1688,7 @@ F3/F4/F5/F11/F12 stay with Program 3.
   hash; stored previews are insufficient. A changed page hash invalidates
   exactly that page's candidates.
 
-### 26.2a User-Elected Vision Extraction — `vision_model` / `latex_extract_model` (v0.22.0)
+### 26.2a User-Elected Vision Extraction — `vision_model` / `latex_extract_model` (v0.23.0)
 
 This is an **upstream, opt-in L1 extraction** path, distinct from §26.2's downstream
 measured-loss recovery. It exists because pymupdf4llm text-layer extraction cannot
@@ -2697,7 +2697,7 @@ transport shapes, but retrieval and packing logic live in `ContextService`.
 the progressive pack path: `local`, `source-section`, `global`, and `explore`.
 `local` and `source-section` are always-available safe baselines.
 
-**Explore unification (v0.22.0).** The `explore` route no longer keeps a divergent
+**Explore unification (v0.23.0).** The `explore` route no longer keeps a divergent
 associative pipeline. Its *grounding evidence* is built through the same
 `context_fetch` pack path as every other route — it produces a `PACK-*`/`SNAP-*`
 snapshot, enforces `limit_tokens` via the shared budget, and records ordered

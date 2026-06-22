@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.22.0)
+# Incurator Plugin Schema & API Contract (v0.23.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -213,7 +213,7 @@ interface PluginSettings {
   // LLM provider selection
   provider: LLMProvider;           // "antigravity" | "claude" | "openai" | "ollama" | "deepseek"
   model: string;                   // model ID, validated against backend catalogue
-                                   // (v0.22.0) NO `latexModel` plugin setting: the
+                                   // (v0.23.0) NO `latexModel` plugin setting: the
                                    // region-extraction model is sourced from the
                                    // backend `llm.latex_extract_model`/`vision_model`
                                    // via the Dashboard runtime snapshot — see §2.6.
@@ -407,7 +407,7 @@ Rules:
 Saved Zotero import profiles define the note template, output folder,
 subfolder, filename, asset folder, and bibliography style used by the import
 wizard. Each profile carries an optional `lastUsedAt` epoch-ms timestamp
-(v0.22.0), stamped when the profile is used for an import or when a new profile is
+(v0.23.0), stamped when the profile is used for an import or when a new profile is
 created. The wizard presents profiles **most-recently-used first**: the Import
 Profile dropdown is ordered by `lastUsedAt` descending (profiles never used sort
 last, preserving their insertion order; ties stable), and the wizard opens with
@@ -871,7 +871,7 @@ Rules:
   to fix, rewrite, polish, translate, or otherwise modify the selected text, the
   assistant must propose an `ai-agent-edit` SEARCH/REPLACE block. Ordinary
   questions about selected text must answer normally without proposing edits.
-- **Localized-question edit-affordance suppression (v0.22.0).** A `Cmd+Shift+L`
+- **Localized-question edit-affordance suppression (v0.23.0).** A `Cmd+Shift+L`
   line-range (and any other primary-focus selection) is BOTH a primary-context
   ref and an editable ref, which previously injected the `<editable_selection>`
   affordance and the `<edit_review_loop>` contract into the very same payload that
@@ -977,7 +977,7 @@ cannot silently jump from tool selection to file mutation ("vibe-coding").
   a mutation: the latest message is a Markdown edit request, OR an editable
   line-range selection exists, OR an open Markdown edit target exists, OR the
   prior assistant turn already opened an edit loop (multi-turn edit continuation).
-  **Override (v0.22.0):** none of these conditions apply when the latest turn is a
+  **Override (v0.23.0):** none of these conditions apply when the latest turn is a
   localized question (a primary-focus selection present and the turn is not a
   Markdown edit request). In that case `shouldSuppressEditAffordances` is true and
   the contract block is NOT appended, regardless of `priorAnswerOpenedEditLoop`.
@@ -1544,6 +1544,73 @@ create files, or traverse the filesystem.
     `CONTINUITY_MESSAGE_LIMIT` history slice); the popover appends it after the
     question. This fixes long-session attention decay where a localized
     `Cmd+Shift+L` selection was overridden by earlier whole-document tasks.
+
+### 13.6 CLI Tool-Scope Sandbox (v0.23.0)
+
+§13.5 closed the HTTP/MCP-injection path, but **CLI providers were uncontrolled**:
+`toolPolicy` never reached `buildCliCommand`, so a CLI-backed popover/sidechat
+inherited the CLI agent's NATIVE tools (agy ran `--dangerously-skip-permissions`,
+the `find_mvg_text.py`-style exploit). This section governs the CLI path.
+
+- **`toolPolicy` threads into the CLI builder.** `streamChat`/`complete` pass
+  `toolPolicy` through `streamChatViaCli`/`completeViaCli` into `buildCliCommand`.
+  The popover's CLI calls run with `toolPolicy: "none"`.
+- **Per-provider tool control (verified flags; NEVER a blanket permission-skip):**
+  - **agy** — its own `--sandbox` is INEFFECTIVE (it still creates files) and it
+    has no tool-disable flag. `--dangerously-skip-permissions` + `*_TRUST_WORKSPACE`
+    are REMOVED. Containment is the OS sandbox (below); agy is REFUSED if it cannot
+    be OS-sandboxed.
+  - **claude** — controlled by its tool surface (no deny-without-prompt dir sandbox):
+    popover `--tools ""` (no tools); sidechat `--disallowedTools Bash Read Write Edit
+    WebFetch` (only the DB-scoped MCP curator tools remain; the plugin's
+    `ai-agent-edit` loop performs vault edits, so native fs tools are unnecessary).
+  - **codex** — `--sandbox read-only` (popover) / `workspace-write` + `--add-dir
+    <root>` per allowed root (sidechat).
+- **OS-level sandbox (`src/agent/sandboxWrapper.ts`)** wraps EVERY CLI subprocess,
+  generated from the allowed roots — REQUIRED for agy (its flags don't contain it),
+  defense-in-depth for the rest:
+  - macOS: `sandbox-exec -p <profile>` (Seatbelt) — the profile is passed INLINE on
+    the command line (no temp file → no multi-vault / concurrent-call collision). It
+    denies `file-write*` everywhere, then re-allows write ONLY to: the **vault**, the
+    plugin's own CLI dir (`<repo>/.cache/cli/`, see below), the CLIs' OWN narrow state
+    dirs (`~/.gemini`, `~/.antigravity`, `~/.claude`, `~/.codex`), and the user's
+    SPECIFIC `$TMPDIR`. The **Zotero library is NOT writable** — it is an external
+    read-only reference, so granting write would let a prompt-injected agent corrupt
+    or delete the user's research data; it stays readable (reads are allowed) but
+    never writable. The profile does NOT grant the broad `~/.config`, `~/.cache`,
+    `~/Library/Caches`, or the `/private/var/folders`/`/private/tmp` roots — those
+    would let the agent drop a `~/.config/autostart` script or overwrite another
+    app's config. Validated to block nested-child writes + the `~/.config/autostart`
+    persistence attack. Reads are allowed (security-critical harm is creation/writes;
+    read-restriction breaks the CLI).
+  - Linux: `bwrap` — `--ro-bind / /` + `--tmpfs /tmp` + `--bind-try <write-root>` per
+    writable root (vault + CLI dirs; NOT Zotero). `/tmp` is NEVER re-bound over the
+    tmpfs (that would expose the host `/tmp` read-write). If `bwrap` is absent, **agy
+    is REFUSED** with a one-line install hint (`apt/dnf install bubblewrap`); Claude
+    and Codex are NOT refused — see the degradation rule below. Windows: out of scope.
+  - **Unavailable-sandbox degradation** — when no OS sandbox is available (Linux
+    without `bwrap`, macOS without `sandbox-exec`, Windows/other): **agy is refused**
+    (its own `--sandbox` is ineffective, so it would have ZERO containment), but
+    **Claude/Codex proceed under their own flag-based containment** (Claude's tool
+    denylist / `--tools ""`; Codex's `--sandbox read-only|workspace-write`). This is a
+    WEAKER posture than the OS write-deny floor (notably Claude's denylist can be
+    bypassed by a tool not on the list), so the plugin emits a `console.warn` when it
+    drops the OS layer. This degradation is the explicit trade-off for keeping
+    Claude/Codex usable on platforms without an OS sandbox.
+  - **Plugin CLI dir** — device-local CLI byproducts (codex output, generated
+    `claude_mcp.json`, temp images) live in `<incuratorRepoPath>/.cache/cli/`
+    (gitignored, never synced into the vault), falling back to the OS temp dir when
+    the repo path is unset — NEVER under `~/.incurator`.
+  - **Automatic** — the plugin generates the profile/binds with no manual user setup.
+    The READ/visibility set (`--add-dir`) is `allowedRoots()` = realpath-resolved
+    vault + Zotero + `storage/` (empty/undefined dropped — never `--add-dir ""`); the
+    WRITE set (`sandboxWriteRoots()`) is the vault only, plus the plugin CLI dir.
+- **Roots** — READ/visibility = vault + configured Zotero folder + its `storage/`
+  (CLI tools may read these). WRITE = the vault only (+ the plugin CLI dir for the
+  CLI's own output). The agent cannot create files or run scripts outside the write
+  set, and cannot modify the Zotero library at all.
+- External user-configured `mcpServers` are the user's own trust boundary and are
+  NOT sandboxed by this mechanism (documented limitation).
 
 ---
 

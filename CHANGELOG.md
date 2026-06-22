@@ -4,6 +4,31 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.23.0] - 2026-06-22
+### Security
+- **CLI provider tool-scope sandbox.** The Quick Query popover and chat sidebar use
+  CLI agents (Antigravity `agy`, Claude, Codex) that have their own built-in tools —
+  which the v0.19.0 MCP isolation did not govern, so the agent could run scripts,
+  create files, and search the whole filesystem (e.g. a hallucinated
+  `find_mvg_text.py`). Now `toolPolicy` reaches the CLI command builder:
+  - **Popover runs the CLI tool-free** (claude `--tools ""`; codex `--sandbox
+    read-only`); the **sidechat scopes tools to the allowed roots** (vault +
+    configured Zotero folder + Zotero library) — claude `--disallowedTools`
+    (keeping only the DB-scoped Incurator MCP tools), codex `workspace-write` +
+    `--add-dir`. The dangerous `agy --dangerously-skip-permissions` /
+    trust-workspace bypass is removed.
+  - Antigravity's own `--sandbox` is ineffective (it still created files in testing),
+    so every CLI subprocess is wrapped in an **OS sandbox** generated from the allowed
+    roots — macOS `sandbox-exec` (Seatbelt, deny writes outside the roots; validated
+    to contain nested child processes) and Linux `bubblewrap` (`bwrap`). On Linux,
+    install `bubblewrap` (`sudo apt install bubblewrap`); without it the agentic CLI
+    is blocked with a reminder. Windows CLI sandboxing is not yet supported. Setup is
+    automatic — no manual profile configuration. Reads remain allowed (the contained
+    harm is file creation / script execution); external user-configured `mcpServers`
+    remain the user's own trust boundary.
+
+---
+
 ## [0.22.0] - 2026-06-21
 ### Added
 - **Dedicated PDF-extraction vision models (`vision_model` / `latex_extract_model`).**
