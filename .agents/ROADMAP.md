@@ -24,14 +24,14 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-2. **[Major Update] Prompt Architecture Overhaul & Refactoring**
-   - Centralized prompt registry, componentized generation, and dynamic anchoring.
-   - Detailed analysis: `.agents/drafts/prompt_architecture_refactoring.md`
-
-3. **[Major Update] Diff Viewer UI/UX**
+2. **[Major Update] Diff Viewer UI/UX**
    - UI/UX work including `ai-agent-edit` SEARCH-match failures, edit-scope bug, immediate-diff rendering, and hunk navigation.
    - Cleanup of `00_System/Agent Diffs/`.
    - Detailed analysis: `.agents/drafts/diff_viewer_plugin.md`
+
+3. **[Major Update] Prompt Architecture Overhaul & Refactoring**
+   - Centralized prompt registry, componentized generation, and dynamic anchoring.
+   - Detailed analysis: `.agents/drafts/prompt_architecture_refactoring.md`
 
 4. **[Validation] `[[wikilink]]` Architecture Validation**
    - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
@@ -88,7 +88,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: IDLE. v0.23.0 shipped to master.
-- **Active Milestone**: None (System IDLE).
-- **Next actionable item**: Initialize Prompt Architecture Overhaul & Refactoring.
-- **Priority order**: Prompt Architecture Overhaul, then Diff Viewer UI/UX.
+- **Roadmap state**: Implementing Diff Viewer UI/UX on `feature/diff-viewer-ui-ux`.
+- **Active Milestone**: Diff Viewer UI/UX.
+- **Next actionable item**: Implement the Diff Viewer UI/UX.
+- **Priority order**: Diff Viewer UI/UX, then Prompt Architecture Overhaul.

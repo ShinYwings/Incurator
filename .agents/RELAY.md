@@ -1,9 +1,9 @@
 # Active Relay State
 
-**STATUS: IDLE**
+**STATUS: ACTIVE**
 
-**Branch**: `master`
+**Branch**: `feature/diff-viewer-ui-ux`
 
-**System State**: The previous milestone (v0.23.0 CLI sandbox) has been successfully merged into master. The workspace is clean and ready for the next milestone in the roadmap.
+**Active Task**: Diff Viewer UI/UX
 
-**Next Action**: Initialize the next priority from `.agents/ROADMAP.md`.
+**Next Action**: Executors (Claude/Codex) to read `.agents/ROADMAP.md` and `.agents/drafts/diff_viewer_plugin.md` to begin the Arena planning phase.
