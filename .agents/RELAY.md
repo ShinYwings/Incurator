@@ -45,12 +45,21 @@ expandPath() (3 dup regexes gone), lazy --add-dir, cached getCliCwd mkdir.
 Refuted (verified): claude tool-hang (claude never had skip-permissions), symlink
 escape (seatbelt resolves realpath → denied), firmlink mismatch (empirically ok).
 
-CI: plugin tsc + vitest (532) green; spec_sync/ruff/mypy green. Backend unchanged.
+Second review round (re-ran the 3 finder angles that had hit the session limit):
+caught + fixed a REAL macOS bug — the Seatbelt profile got home/tmpdir/getCliCwd
+UNRESOLVED, but macOS firmlinks /var→/private/var and Seatbelt (subpath) only matches
+the real path. So a tmpdir-based getCliCwd (DEFAULT when incuratorRepoPath unset) had
+an unmatched /var/folders rule → codex output/mcp-config/temp-image writes silently
+DENIED → broken answers. Fix: realpath home/tmpdir/getCliCwd before building the plan.
+Live-validated (denied before, allowed after). Also de-brittled the Zotero test.
 
-Review coverage caveat: 3/8 finder angles (line-by-line, cross-file, test-quality)
-hit the session limit and returned empty — a re-run would complete the pass.
-Remaining: in-Obsidian smoke (real agy/claude popover + sidechat write-outside-vault
-attempt; also confirm codex read-only popover still returns its --output-last-message
-answer) — needs the running app; user to verify.
+CI: plugin tsc + vitest (533) green; spec_sync/ruff/mypy green. Backend unchanged.
+
+Left as low/accepted (verified, not bugs): codex --add-dir Zotero vs OS-deny is benign
+defense-in-depth (agent only reads Zotero); bare-`~` in repoPath edge (expandPath
+handles `~/` not bare `~`); vaultRoot-empty silent-no-write edge (vault always set in
+practice). Remaining: in-Obsidian smoke (real agy/claude popover + sidechat
+write-outside-vault attempt; confirm codex read-only popover still returns its
+--output-last-message answer) — needs the running app; user to verify.
 
 Next roadmap priority: Prompt Architecture Overhaul & Refactoring.
