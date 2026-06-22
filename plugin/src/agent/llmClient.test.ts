@@ -355,6 +355,11 @@ describe("output-token truncation detection (v0.24.0)", () => {
       expect(mapOpenAIFinishReason(null)).toEqual({ done: false });
       expect(mapOpenAIFinishReason(undefined)).toEqual({ done: false });
     });
+
+    it("ends the stream on any other truthy finish_reason (no hang)", () => {
+      expect(mapOpenAIFinishReason("function_call")).toEqual({ done: true, finishReason: "stop" });
+      expect(mapOpenAIFinishReason("")).toEqual({ done: false });
+    });
   });
 
   describe("Antigravity (Gemini) adapter", () => {
@@ -373,12 +378,14 @@ describe("output-token truncation detection (v0.24.0)", () => {
       expect(chunk?.truncated).toBeUndefined();
     });
 
-    it("does NOT auto-continue a SAFETY stop (terminal, non-truncation)", () => {
-      const chunk = ADAPTERS.antigravity.parseStreamChunk(
-        sse({ candidates: [{ content: { parts: [{ text: "" }] }, finishReason: "SAFETY" }] })
-      );
-      expect(chunk).toMatchObject({ done: true, finishReason: "stop" });
-      expect(chunk?.truncated).toBeUndefined();
+    it("maps a SAFETY/RECITATION block to content_filter, never truncated", () => {
+      for (const reason of ["SAFETY", "RECITATION"]) {
+        const chunk = ADAPTERS.antigravity.parseStreamChunk(
+          sse({ candidates: [{ content: { parts: [{ text: "" }] }, finishReason: reason }] })
+        );
+        expect(chunk, reason).toMatchObject({ done: true, finishReason: "content_filter" });
+        expect(chunk?.truncated).toBeUndefined();
+      }
     });
   });
 

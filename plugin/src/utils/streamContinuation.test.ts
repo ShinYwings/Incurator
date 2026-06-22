@@ -62,6 +62,20 @@ describe("hasUnterminatedEditFence", () => {
   it("returns false when there is no edit block at all", () => {
     expect(hasUnterminatedEditFence("just prose, no edits")).toBe(false);
   });
+
+  it("stays unterminated when a NESTED code block closes but >>>> has not arrived", () => {
+    // The REPLACE body contains a fenced python snippet; a fence-only check would
+    // wrongly see the inner ``` and call the edit block closed.
+    const partial =
+      '```ai-agent-edit filepath="a.md"\n<<<< SEARCH\nx\n==== REPLACE\n```python\nprint(1)\n```\n';
+    expect(hasUnterminatedEditFence(partial)).toBe(true);
+  });
+
+  it("is terminated when >>>> AND the outer fence both close (with nested code)", () => {
+    const full =
+      '```ai-agent-edit filepath="a.md"\n<<<< SEARCH\nx\n==== REPLACE\n```python\nprint(1)\n```\n>>>>\n```';
+    expect(hasUnterminatedEditFence(full)).toBe(false);
+  });
 });
 
 describe("buildContinuationPrompt", () => {

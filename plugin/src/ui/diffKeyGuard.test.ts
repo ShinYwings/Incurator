@@ -7,9 +7,12 @@ const node = (children: unknown[]) => ({
 });
 
 describe("shouldHandleDiffShortcut", () => {
-  const focusInEditor = {};
-  const focusInToolbar = {};
-  const focusInChat = {};
+  // Real body satisfies body.ownerDocument.body === body; mirror that here.
+  const body: { ownerDocument?: { body: unknown } } = {};
+  body.ownerDocument = { body };
+  const focusInEditor = { ownerDocument: { body } };
+  const focusInToolbar = { ownerDocument: { body } };
+  const focusInChat = { ownerDocument: { body } }; // an <input>, not <body>
   const cmEditor = node([focusInEditor]);
   const toolbar = node([focusInToolbar]);
 
@@ -22,11 +25,17 @@ describe("shouldHandleDiffShortcut", () => {
   });
 
   it("does NOT fire when focus is in the chat input (the core bug)", () => {
-    expect(shouldHandleDiffShortcut(focusInChat, cmEditor, toolbar)).toBe(false);
+    expect(shouldHandleDiffShortcut(focusInChat, cmEditor, toolbar, true)).toBe(false);
   });
 
-  it("does NOT fire when there is no focused element", () => {
-    expect(shouldHandleDiffShortcut(null, cmEditor, toolbar)).toBe(false);
+  it("does NOT fire on body focus when the diff leaf is NOT active", () => {
+    expect(shouldHandleDiffShortcut(body, cmEditor, toolbar, false)).toBe(false);
+    expect(shouldHandleDiffShortcut(null, cmEditor, toolbar, false)).toBe(false);
+  });
+
+  it("DOES fire on body focus when the diff leaf is active (clicked a non-focusable region)", () => {
+    expect(shouldHandleDiffShortcut(body, cmEditor, toolbar, true)).toBe(true);
+    expect(shouldHandleDiffShortcut(null, cmEditor, toolbar, true)).toBe(true);
   });
 
   it("is safe when editor/toolbar refs are missing", () => {

@@ -37,7 +37,7 @@ import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
 import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, stampMathSourceData, stripDanglingEditMarkers, truncateToLength } from "../utils/textUtils";
 import { inferIngestDestination } from "../utils/pathUtils";
 import { hashFileSha256 } from "../utils/fileHash";
-import { classifyProposalStatus, findSearchBlock } from "../utils/editMatch";
+import { classifyProposalStatus, findSearchBlock, findSearchBlockAvoiding } from "../utils/editMatch";
 import { buildContinuationPrompt, stitchContinuation } from "../utils/streamContinuation";
 import { DiffViewer } from "./diffViewer";
 import { renderCuratorQueryTrace } from "./incuratorQueryTrace";
@@ -1125,6 +1125,9 @@ export class ChatSidebarView extends ItemView {
     let rounds = startRounds;
     let truncated = true;
     while (truncated && rounds < ChatSidebarView.MAX_CONTINUATIONS) {
+      // Stop spawning continuation requests if the user hit "Stop generating"
+      // (isGenerating cleared) — otherwise an aborted turn keeps burning tokens.
+      if (!this.isGenerating) break;
       rounds++;
       const base = assistantMsg.content;
       const continuationMessages: LLMMessage[] = [
@@ -1155,7 +1158,20 @@ export class ChatSidebarView extends ItemView {
     assistantMsg.isStreaming = true;
     assistantMsg.truncated = false;
     try {
-      const built = await this.buildLLMMessages(this.plugin.refreshActiveContext());
+      // buildLLMMessages serializes the WHOLE active session. If the user clicked
+      // Continue on an OLD truncated message, everything after it would leak into
+      // the prompt out of order. Temporarily slice the history to end at this
+      // message, then restore it (the object ref is shared, so streamed deltas
+      // still land on the right message).
+      const allMessages = this.messages;
+      const idx = allMessages.indexOf(assistantMsg);
+      let built: LLMMessage[];
+      try {
+        if (idx >= 0) this.messages = allMessages.slice(0, idx + 1);
+        built = await this.buildLLMMessages(this.plugin.refreshActiveContext());
+      } finally {
+        this.messages = allMessages;
+      }
       // buildLLMMessages includes the truncated assistant as the final turn;
       // drop it so runContinuationRounds re-adds it as the continuation base.
       const last = built[built.length - 1];
@@ -3779,20 +3795,20 @@ export class ChatSidebarView extends ItemView {
   // Returns true only when a diff was actually opened, so callers don't mislabel
   // a guard-dropped or unmatched click as "opened".
   private async reviewFileEditProposals(targetFilepath: string, allProposals: MultiEditProposal[]): Promise<boolean> {
+    const resolvedTarget = this.resolveVaultFile(targetFilepath)?.path ?? targetFilepath;
     if (this.reviewInFlight) {
       // v0.24.0 (P4b): auto-open (at stream end) holds this mutex through the
       // 2-frame CM6 mount; a pill click for the SAME file in that window used to
       // pop a scary "already opening" error. Coalesce same-target races silently
       // — the in-flight open is already doing exactly what the click wanted. Only
       // a genuinely different target gets the advisory notice.
-      const resolved = this.resolveVaultFile(targetFilepath)?.path ?? targetFilepath;
-      if (resolved !== this.reviewInFlightTarget) {
+      if (resolvedTarget !== this.reviewInFlightTarget) {
         new Notice("A diff review is already opening — try again in a moment.");
       }
       return false;
     }
     this.reviewInFlight = true;
-    this.reviewInFlightTarget = this.resolveVaultFile(targetFilepath)?.path ?? targetFilepath;
+    this.reviewInFlightTarget = resolvedTarget;
     try {
       return await this.reviewFileEditProposalsImpl(targetFilepath, allProposals);
     } finally {
@@ -3866,18 +3882,18 @@ export class ChatSidebarView extends ItemView {
     let notFoundCount = 0;
     let conflictCount = 0;
     for (const proposal of fileProposals) {
-      const match = findSearchBlock(originalFullText, proposal.search);
-      if (!match) {
-        notFoundCount++;
+      // Skip spans already claimed by earlier proposals, so two edits targeting
+      // different occurrences of the same SEARCH string both resolve (the second
+      // advances past the first occurrence instead of self-overlapping).
+      const match = findSearchBlockAvoiding(originalFullText, proposal.search, spans);
+      if (match) {
+        spans.push({ start: match.start, end: match.end, replace: proposal.replace });
         continue;
       }
-      // True conflict: this proposal's span overlaps one already accepted.
-      const overlaps = spans.some((s) => match.start < s.end && match.end > s.start);
-      if (overlaps) {
-        conflictCount++;
-        continue;
-      }
-      spans.push({ start: match.start, end: match.end, replace: proposal.replace });
+      // Distinguish a genuine miss (SEARCH not in the file) from a true overlap
+      // conflict (every occurrence is already claimed by another edit).
+      if (findSearchBlock(originalFullText, proposal.search)) conflictCount++;
+      else notFoundCount++;
     }
 
     const appliedCount = spans.length;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyProposalStatus, findSearchBlock } from "./editMatch";
+import { classifyProposalStatus, findSearchBlock, findSearchBlockAvoiding } from "./editMatch";
 
 const file = [
   "# Title",
@@ -130,5 +130,31 @@ describe("classifyProposalStatus", () => {
     // 'applied' just because the string exists somewhere.
     const dup = ["## Notes", "body", "## Notes", "more"].join("\n");
     expect(classifyProposalStatus(dup, "nonexistent search", "## Notes")).toBe("not_found");
+  });
+});
+
+describe("findSearchBlockAvoiding", () => {
+  const text = "foo\nbar\nfoo\nbaz";
+
+  it("returns the first occurrence when nothing is claimed", () => {
+    const m = findSearchBlockAvoiding(text, "foo", []);
+    expect(m).toMatchObject({ start: 0, end: 3, strategy: "exact" });
+  });
+
+  it("advances to the next occurrence when the first is already claimed", () => {
+    const first = findSearchBlockAvoiding(text, "foo", [])!;
+    const second = findSearchBlockAvoiding(text, "foo", [first]);
+    // second "foo" begins at index 8 (foo\nbar\n = 8 chars)
+    expect(second).toMatchObject({ start: 8, end: 11 });
+  });
+
+  it("returns null when every occurrence is claimed (true conflict)", () => {
+    const a = findSearchBlockAvoiding(text, "foo", [])!;
+    const b = findSearchBlockAvoiding(text, "foo", [a])!;
+    expect(findSearchBlockAvoiding(text, "foo", [a, b])).toBeNull();
+  });
+
+  it("returns null when the search is absent", () => {
+    expect(findSearchBlockAvoiding(text, "qux", [])).toBeNull();
   });
 });

@@ -59,11 +59,18 @@ export function stitchContinuation(existing: string, continuation: string): stri
  * edit block, so the continuation must resume and close it.
  */
 export function hasUnterminatedEditFence(text: string): boolean {
-  const lastOpen = text.lastIndexOf("```ai-agent-edit");
+  const marker = "```ai-agent-edit";
+  const lastOpen = text.lastIndexOf(marker);
   if (lastOpen === -1) return false;
-  const after = text.slice(lastOpen + "```ai-agent-edit".length);
-  // A closing fence is a ``` at the start of a line after the opener.
-  return !/\n\s*```/.test(after);
+  const after = text.slice(lastOpen + marker.length);
+  // Anchor on the `>>>>` REPLACE terminator, NOT a bare ``` fence: a nested
+  // markdown code block inside the REPLACE body (e.g. a Python snippet) would
+  // fool a fence-only check into thinking the edit block already closed. The
+  // edit block is complete only once `>>>>` appears AND the surrounding code
+  // fence closes after it.
+  const closer = after.search(/\n>{3,}/);
+  if (closer === -1) return true;
+  return !/\n\s*```/.test(after.slice(closer));
 }
 
 /**

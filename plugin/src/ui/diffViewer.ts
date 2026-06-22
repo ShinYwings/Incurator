@@ -431,8 +431,12 @@ export class DiffViewer {
       // v0.24.0 (reviewer #1, red_teamer #4): focus-gate the shortcuts. The old
       // unguarded document-global handler fired Accept-All when the user pressed
       // Enter in the chat input while a diff was open — applying the edit with no
-      // explicit Accept. Only act when focus is inside the diff editor/toolbar.
-      if (!shouldHandleDiffShortcut(document.activeElement, this.getCmView()?.dom ?? null, this.toolbarEl)) {
+      // explicit Accept. Act when focus is inside the diff editor/toolbar, or when
+      // the diff's own leaf is active and focus fell back to <body> (clicked a
+      // non-focusable diff region) — never when the chat input holds focus.
+      const diffLeafActive =
+        this.plugin.app.workspace.getActiveViewOfType(MarkdownView) === this.view;
+      if (!shouldHandleDiffShortcut(document.activeElement, this.getCmView()?.dom ?? null, this.toolbarEl, diffLeafActive)) {
         return;
       }
       if (e.key === "Enter") { e.preventDefault(); this.acceptAll(); }

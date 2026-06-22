@@ -110,6 +110,9 @@ export function mapOpenAIFinishReason(
   if (finish_reason === "stop") return { done: true, finishReason: "stop" };
   if (finish_reason === "tool_calls") return { done: true, finishReason: "tool_calls" };
   if (finish_reason === "content_filter") return { done: true, finishReason: "content_filter" };
+  // Any other truthy finish_reason (custom/legacy provider value) still means the
+  // stream has terminated — end it rather than hang waiting for a `[DONE]`.
+  if (finish_reason) return { done: true, finishReason: "stop" };
   return { done: false };
 }
 
@@ -211,14 +214,16 @@ class AntigravityAdapter extends BaseProviderAdapter {
     const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text || "";
     const reason = parsed?.candidates?.[0]?.finishReason as string | undefined;
     // Gemini ends a complete answer with "STOP"; an output-cap cut-off is
-    // "MAX_TOKENS". Any non-empty finishReason terminates the stream, but only
-    // MAX_TOKENS is a recoverable truncation (auto-continue). SAFETY/RECITATION
-    // terminate too but must NOT be continued.
-    const done = !!reason;
+    // "MAX_TOKENS" (a recoverable truncation → auto-continue). SAFETY/RECITATION
+    // are content-filter blocks that terminate the stream but must NOT be
+    // continued. Any non-empty finishReason terminates the stream.
     if (reason === "MAX_TOKENS") {
       return { text, done: true, finishReason: "length", truncated: true };
     }
-    return done ? { text, done: true, finishReason: "stop" } : { text, done: false };
+    if (reason === "SAFETY" || reason === "RECITATION") {
+      return { text, done: true, finishReason: "content_filter" };
+    }
+    return reason ? { text, done: true, finishReason: "stop" } : { text, done: false };
   }
 
   parseFullResponse(json: unknown): string {

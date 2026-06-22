@@ -15,17 +15,26 @@ interface ContainsNode {
 
 /**
  * Should a Diff Viewer keyboard shortcut (Accept/Reject/navigate) fire for this
- * focused element? Strict allowlist: only when the focus is inside the diff's
- * own CodeMirror editor or the floating toolbar. No focus, or focus anywhere
- * else (notably the chat input), returns false.
+ * focused element?
+ *
+ * Allowlist: focus inside the diff's own CodeMirror editor or the floating
+ * toolbar always passes. Clicking a non-focusable region of the diff (the
+ * toolbar background, a header) drops `document.activeElement` to `<body>`;
+ * without a fallback the shortcuts would silently die until the user clicks the
+ * editor text again. So a body/no-focus state ALSO passes, but ONLY when
+ * `diffLeafActive` (the diff's editor is the active workspace leaf). That keeps
+ * the chat input excluded — focusing it puts `activeElement` on the input
+ * element, not `<body>`, so the body branch never fires for it.
  */
 export function shouldHandleDiffShortcut(
   activeEl: unknown,
   cmEditorEl: ContainsNode | null,
-  toolbarEl: ContainsNode | null
+  toolbarEl: ContainsNode | null,
+  diffLeafActive = false
 ): boolean {
-  if (!activeEl) return false;
   if (cmEditorEl && cmEditorEl.contains(activeEl)) return true;
   if (toolbarEl && toolbarEl.contains(activeEl)) return true;
-  return false;
+  const doc = (activeEl as { ownerDocument?: Document } | null)?.ownerDocument;
+  const isBodyOrNull = !activeEl || activeEl === doc?.body;
+  return isBodyOrNull && diffLeafActive;
 }
