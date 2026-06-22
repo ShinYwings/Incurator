@@ -113,6 +113,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Urgent config-isolation hotfix shipped (v0.25.0, commit `b9a49a1`, unpushed). Branch `feature/prompt-architecture-refactoring` resumes the System Stability Overhaul.
+- **Roadmap state**: Urgent config-isolation hotfix shipped (v0.25.0, commit `b9a49a1`, unpushed). Branch `feature/system-stability-overhaul` resumes the System Stability Overhaul.
 - **Active Milestone**: System Stability Overhaul — Exhaustive Diagnosis & Refactoring (Phase A diagnosis in progress).
 - **Next actionable item**: Resume Phase A diagnosis — merge G01–G06 (`.agents/plans/diagnosis/`) into the ledger, then run G07–G19 (multi-agent fan-out resets at session limit). See `.agents/RELAY.md` PHASE A RESUMPTION PROTOCOL.
