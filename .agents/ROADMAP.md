@@ -24,11 +24,6 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-1. **[Bugfix / Architecture] Popover Tool Execution & Sandbox Scope Violation**
-   - The popover feature currently injects global MCP tools, leading to unexpected file-system traversal.
-   - Refactor `quickQueryContext.ts` to share `systemPrompt.ts` rules and implement a `disableTools` flag in `llmClient.ts`.
-   - Detailed analysis: `.agents/drafts/popover_tool_scope.md`
-
 2. **[Major Update] Prompt Architecture Overhaul & Refactoring**
    - Centralized prompt registry, componentized generation, and dynamic anchoring.
    - Detailed analysis: `.agents/drafts/prompt_architecture_refactoring.md`
@@ -93,7 +88,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.23.0 (Popover/CLI tool-scope sandbox) implemented on `feature/popover-tool-scope`; PR pending.
-- **Active Milestone**: none (v0.23.0 shipped to PR; awaiting merge).
-- **Next actionable item**: Prompt Architecture Overhaul & Refactoring after merge.
-- **Priority order**: Prompt Architecture Overhaul, then Web Search Integration.
+- **Roadmap state**: IDLE. v0.23.0 shipped to master.
+- **Active Milestone**: None (System IDLE).
+- **Next actionable item**: Initialize Prompt Architecture Overhaul & Refactoring.
+- **Priority order**: Prompt Architecture Overhaul, then Diff Viewer UI/UX.
