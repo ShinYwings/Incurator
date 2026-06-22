@@ -1,65 +1,20 @@
 # Active Relay State
 
-**STATUS: IDLE (v0.23.0 implemented; PR pending)**
+**STATUS: ACTIVE — PR pending merge**
 
-**Branch**: `feature/popover-tool-scope`
+**Branch**: `feature/diff-viewer-ui-ux`
 
-v0.23.0 — **CLI provider tool-scope sandbox** — implemented:
-- `toolPolicy` threaded into the CLI command builder; popover runs CLI tool-free,
-  sidechat scopes tools to allowed roots (vault + Zotero). Dropped
-  `agy --dangerously-skip-permissions` / trust-workspace.
-- Per-provider: claude `--tools ""`/`--disallowedTools`; codex `read-only`/
-  `workspace-write`+`--add-dir`. agy ineffective at self-sandboxing → wrapped in an
-  OS sandbox (macOS `sandbox-exec` validated; Linux `bwrap`, refuse+guide if missing;
-  Windows out of scope). Reads allowed; writes/exec contained.
-- `src/agent/sandboxWrapper.ts` (pure, unit-tested) + llmClient integration +
-  source-contract tests. PLUGIN_SCHEMA §13.6 + PLUGIN_GUIDE EN/KR. v0.23.0 bump.
+**Active Task**: Diff Viewer UI/UX — Multi-Model Robustness (v0.24.0)
 
-Review round landed (PR #46 updated): re-added `agy --sandbox` (no-hang), allowed the
-CLI agents' own state dirs (~/.gemini/.codex/.claude) so they don't crash, switched
-macOS to inline `sandbox-exec -p` (no temp-file race), in-process bwrap PATH lookup,
-gated --add-dir on !ephemeral. Relocated device-local plugin caches off ~/.incurator
-to <incuratorRepoPath>/.cache/cli/ (OS-tmpdir fallback). Live-validated the real
-profile: vault write allowed, out-of-vault denied, ~/.gemini allowed, nested children
-contained.
+**Progress**: Implemented and validated. Plugin tests 560 green, tsc clean, build OK,
+spec_sync 10 green. Plan artifacts deleted (history in Git). PR opened; awaiting user merge.
 
-Security hardening round (PR #46): dropped the broad ~/.config / ~/.cache /
-~/Library/Caches writes + /private/var/folders + /private/tmp roots from the sandbox
-allow-list (autostart/other-app-config escalation). Scoped to the CLIs' OWN dirs only
-(~/.gemini/.antigravity/.claude/.codex) + specific $TMPDIR + roots. bwrap no longer
-re-binds /tmp over its tmpfs; roots use --bind-try. Live-validated: ~/.config/autostart
-write DENIED, vault + ~/.gemini ALLOWED. Considered a full HOME/CODEX_HOME redirect
-into <repo>/.cache (zero home exceptions) but BACKED IT OUT — cascades into config.toml
-/ settings.json relocation + OAuth-secret mirroring for 3 CLIs, unverifiable headless,
-high risk of breaking login. USER DECISION: keep the scoped version (safe). PLUGIN_SCHEMA
-§13.6 updated (inline -p, scoped list, tmpfs /tmp, .cache/cli relocation).
+**What shipped (v0.24.0)**:
+- Edit-review 4-phase loop demoted from hard gate → quality hint (valid edit always reviewable).
+- Output-token truncation detected (`StreamChunk.finishReason`/`truncated`, all 4 adapters) +
+  auto-continue ≤3 with fence-safe overlap stitch; no premature finalization; manual Continue.
+- Diff Viewer keyboard shortcuts focus-gated (chat-Enter no longer Accept-Alls); `show()` focuses
+  the editor; typed `{opened,reason}` return → no silent failures.
+- Multi-edit matched against original text (order-independent) + same-file review coalesce.
 
-Code-review round (PR #46): fixed (1) Zotero now READ-ONLY in the sandbox — split
-allowedRoots() [read/--add-dir: vault+Zotero+storage] from sandboxWriteRoots()
-[write: vault only] so a prompt-injected agent can't corrupt the user's Zotero
-library; live-validated (vault write allowed, Zotero write denied, Zotero read ok).
-(2) Reconciled spec/impl: sandbox-unavailable → agy refused, claude/codex degrade to
-flag-based containment + console.warn; PLUGIN_SCHEMA §13.6 + PLUGIN_GUIDE EN/KR
-rewritten to match. (3) Documented fail-open toolPolicy default. Cleanups: reuse
-expandPath() (3 dup regexes gone), lazy --add-dir, cached getCliCwd mkdir.
-Refuted (verified): claude tool-hang (claude never had skip-permissions), symlink
-escape (seatbelt resolves realpath → denied), firmlink mismatch (empirically ok).
-
-Second review round (re-ran the 3 finder angles that had hit the session limit):
-caught + fixed a REAL macOS bug — the Seatbelt profile got home/tmpdir/getCliCwd
-UNRESOLVED, but macOS firmlinks /var→/private/var and Seatbelt (subpath) only matches
-the real path. So a tmpdir-based getCliCwd (DEFAULT when incuratorRepoPath unset) had
-an unmatched /var/folders rule → codex output/mcp-config/temp-image writes silently
-DENIED → broken answers. Fix: realpath home/tmpdir/getCliCwd before building the plan.
-Live-validated (denied before, allowed after). Also de-brittled the Zotero test.
-
-CI: plugin tsc + vitest (533) green; spec_sync/ruff/mypy green. Backend unchanged.
-
-Left as low/accepted (verified, not bugs): codex --add-dir Zotero vs OS-deny is benign
-defense-in-depth (agent only reads Zotero); bare-`~` in repoPath edge (expandPath
-handles `~/` not bare `~`); vaultRoot-empty silent-no-write edge (vault always set in
-practice). Remaining: in-Obsidian smoke (real agy/claude popover + sidechat
-write-outside-vault attempt; confirm codex read-only popover still returns its
---output-last-message answer) — needs the running app; user to verify.
-
-Next roadmap priority: Prompt Architecture Overhaul & Refactoring.
+**Next Action**: User reviews/merges the PR. After merge, truncate RELAY to IDLE.

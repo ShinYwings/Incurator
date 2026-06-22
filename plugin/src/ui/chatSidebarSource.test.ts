@@ -55,7 +55,9 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("multiProposals.length > 0");
     // Preview is built with the same ambiguity-safe matcher as apply, so the
     // shown diff equals what would be written (no exact-only split/join).
-    expect(source).toContain("findSearchBlock(modifiedFullText, proposal.search)");
+    // v0.24.0 (P4b): proposals match against the ORIGINAL text (order-independent),
+    // not the running result, so applying edit 1 can't break edit 2's SEARCH.
+    expect(source).toContain("findSearchBlock(originalFullText, proposal.search)");
     expect(source).toContain("editor.lineCount() - 1");
     expect(source).not.toContain("fullText.indexOf(multiProposal.search)");
   });
@@ -110,24 +112,26 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("await this.maybeAutoOpenDiff(assistantMsg);");
   });
 
-  it("wires the edit-loop state machine: contract trigger, hard gate, and observable phases", () => {
+  it("keeps the edit-loop contract as a hint, not a hard gate (v0.24.0 demotion)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
 
-    // Contract appended (last) for any edit-likely turn, incl. multi-turn carry.
+    // Contract still appended (last) for any edit-likely turn, incl. multi-turn carry.
     expect(source).toContain("getEditLoopContract()");
     expect(source).toContain("<edit_review_loop>");
     expect(source).toContain("priorAnswerOpenedEditLoop");
     expect(source).toContain("const editLoopLikely =");
 
-    // Hard gate: an edit answer that skipped the loop does not auto-open.
-    expect(source).toContain("if (loop.hasEdits && !loop.ok && !msg.editLoopOverridden)");
-    expect(source).toContain("msg.editLoopBlocked = true;");
+    // v0.24.0: the hard gate and blocked banner are GONE — a valid edit is always
+    // reviewable regardless of phase markers. The override path is removed too.
+    expect(source).not.toContain("if (loop.hasEdits && !loop.ok && !msg.editLoopOverridden)");
+    expect(source).not.toContain("msg.editLoopBlocked = true;");
+    expect(source).not.toContain("renderEditLoopBlockedBanner");
+    expect(source).not.toContain("Override & review anyway");
 
-    // Observable phases + blocked banner with Re-run / Override actions.
+    // Observable phases stay when markers are present + valid; otherwise a soft hint.
     expect(source).toContain("renderEditLoopPhases");
-    expect(source).toContain("renderEditLoopBlockedBanner");
-    expect(source).toContain("Override & review anyway");
+    expect(source).toContain("renderEditLoopHint");
     expect(source).toContain('attr: { open: "", "data-phase": phases[i].label }');
   });
 

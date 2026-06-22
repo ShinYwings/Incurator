@@ -64,18 +64,24 @@ if you want a shortcut.
   that note is the one you're already looking at (or no note is focused). If a
   different note is focused, a compact `✏️ <filepath> · Review Diff` pill is
   shown instead so the diff never steals your editor; click it to open the diff.
-- **Edit-loop review (v0.14.0)**: Before the agent proposes any file change it
-  must walk a visible, four-phase loop — **Analysed → Reviewed → Updated →
-  Reviewed**. Each phase appears as its own labeled, collapsible section in the
-  chat answer (the proposed diff lives under *Updated*), so you can see the agent
-  understand the gap, critique its plan, make the change, and check its own work
-  before you accept anything. This prevents the agent from jumping straight to a
-  file edit without thinking it through. If a provider skips the loop but still
-  produces edits, the answer shows a **"Agent skipped the review loop"** banner
-  instead of auto-opening the diff, with two buttons: **Re-run with loop** (asks
-  the model to redo the answer with the phases) and **Override & review anyway**
-  (open the diff regardless). Pure questions that propose no edits are never
-  gated and show no phases.
+- **Edit-loop review (v0.14.0, relaxed in v0.24.0)**: When the agent proposes a
+  file change it is *asked* to walk a visible, four-phase loop — **Analysed →
+  Reviewed → Updated → Reviewed**. When it does, each phase appears as its own
+  labeled, collapsible section in the chat answer (the proposed diff lives under
+  *Updated*), so you can see the agent understand the gap, critique its plan, make
+  the change, and check its own work before you accept anything. **As of v0.24.0
+  this is a quality hint, not a hard gate:** if a model (especially a small or
+  token-limited one) skips the phases but still produces a valid edit, the diff is
+  **still fully reviewable** — the answer shows the edit pills plus a small
+  *"the model skipped its self-review steps"* note with an optional **Re-run with
+  review** button. You no longer get stuck with "I made an edit" but no diff. Pure
+  questions that propose no edits show no phases and no note.
+- **Cut-off answers auto-continue (v0.24.0)**: models with an output-token cap
+  (notably Gemini) sometimes stop mid-answer — often in the middle of an edit
+  block. The plugin now detects this and automatically asks the model to continue
+  from exactly where it stopped (up to three times), stitching the pieces together
+  without duplicating text or breaking the edit block. If it's still cut off after
+  that, a **↪ Continue** button appears so you can resume it manually.
 - **Resilient SEARCH matching**: the agent's SEARCH text no longer has to match
   the file byte-for-byte. Leading/trailing whitespace and indentation-level drift
   are tolerated, so a correct edit applies even when the model re-indents. The
@@ -91,6 +97,14 @@ if you want a shortcut.
 - **Diff Viewer navigation**: the floating toolbar shows a hunk counter (e.g.
   `1/1`, `2/8`); with more than one change, ↑/↓ (or Tab / Shift+Tab) move between
   hunks and Y/N accept/reject the current one (Enter = accept all, Esc = reject all).
+  **Focus-safe shortcuts (v0.24.0)**: these keys only act while the diff editor or
+  its toolbar is focused — pressing Enter in the chat box no longer accidentally
+  applies an open diff. Opening a diff focuses it for you, so the keys work right away.
+- **Order-independent multi-edit (v0.24.0)**: when one answer proposes several
+  edits to the same file, accepting one can no longer break another's match —
+  every edit is located against the original file. If some edits can't be placed,
+  you get a clear "skipped N (not found / overlapping)" note instead of a vague
+  warning, and the rest still open for review.
 - **Accept All keeps your place (v0.14.1)**: accepting all changes leaves the
   cursor at the first changed line, not the bottom of the document.
 - **Toolbar anchors to the change (v0.14.1)**: when a diff opens off-screen, the

@@ -1918,24 +1918,44 @@
 .ai-agent-edit-phase-body {
   padding: 4px 0 2px 2px;
 }
-.ai-agent-edit-loop-blocked {
+/* v0.24.0: soft, non-blocking hint (loop demoted from hard gate). */
+.ai-agent-edit-loop-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   margin: 6px 0;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border-radius: 6px;
-  border: 1px solid var(--background-modifier-error-border, var(--text-error));
-  background: color-mix(in srgb, var(--background-modifier-error) 18%, transparent);
+  border: 1px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--background-secondary) 88%, transparent);
   font-size: 12px;
 }
-.ai-agent-edit-loop-blocked-text {
-  margin-bottom: 6px;
-  color: var(--text-error);
+.ai-agent-edit-loop-hint-text {
+  color: var(--text-muted);
 }
-.ai-agent-edit-loop-blocked-actions {
+.ai-agent-edit-loop-rerun {
+  cursor: pointer;
+  font-size: 12px;
+}
+
+/* v0.24.0: output-token truncation notice + manual Continue. */
+.ai-agent-truncation-continue {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border, var(--text-warning, var(--text-muted)));
+  background: color-mix(in srgb, var(--background-modifier-warning, var(--background-secondary)) 18%, transparent);
+  font-size: 12px;
 }
-.ai-agent-edit-loop-blocked-actions button {
+.ai-agent-truncation-continue-text {
+  color: var(--text-muted);
+}
+.ai-agent-truncation-continue-btn {
   cursor: pointer;
   font-size: 12px;
 }

@@ -69,6 +69,39 @@ function findUniqueStatusBlock(haystack: string, search: string): MatchResult | 
   return match;
 }
 
+/**
+ * Like `findSearchBlock`, but skips any match that overlaps an already-claimed
+ * span (v0.24.0). When one answer proposes edits for the 1st AND 2nd occurrence
+ * of an identical SEARCH string, the plain matcher returns the 1st occurrence for
+ * both — the second then looks like a self-overlap and gets dropped. This scans
+ * exact occurrences left-to-right for the first one that is free; if no exact
+ * match exists it falls back to the tolerant matcher (which is already
+ * ambiguity-safe, so it never silently picks a wrong duplicate).
+ */
+export function findSearchBlockAvoiding(
+  haystack: string,
+  search: string,
+  taken: ReadonlyArray<{ start: number; end: number }>
+): MatchResult | null {
+  const overlaps = (start: number, end: number) =>
+    taken.some((t) => start < t.end && end > t.start);
+
+  if (search.length > 0) {
+    let from = haystack.indexOf(search);
+    while (from !== -1) {
+      const end = from + search.length;
+      if (!overlaps(from, end)) {
+        return { start: from, end, matchedText: search, strategy: "exact" };
+      }
+      from = haystack.indexOf(search, from + Math.max(search.length, 1));
+    }
+  }
+
+  const tolerant = findSearchBlock(haystack, search);
+  if (tolerant && !overlaps(tolerant.start, tolerant.end)) return tolerant;
+  return null;
+}
+
 export function findSearchBlock(haystack: string, search: string): MatchResult | null {
   if (search.length === 0) return null;
 

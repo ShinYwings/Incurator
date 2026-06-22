@@ -96,6 +96,26 @@ interface ProviderAdapter {
   parseFullResponse(json: unknown): string;
 }
 
+/**
+ * Map an OpenAI-compatible `finish_reason` (shared by OpenAI, DeepSeek, Ollama)
+ * to the normalized StreamChunk terminal fields. `length` = output-token cap →
+ * `truncated` so the chat layer can auto-continue; `stop`/`tool_calls` end the
+ * stream cleanly; anything else (e.g. `content_filter`) terminates without a
+ * truncation recovery.
+ */
+export function mapOpenAIFinishReason(
+  finish_reason: string | null | undefined
+): Pick<StreamChunk, "done" | "finishReason" | "truncated"> {
+  if (finish_reason === "length") return { done: true, finishReason: "length", truncated: true };
+  if (finish_reason === "stop") return { done: true, finishReason: "stop" };
+  if (finish_reason === "tool_calls") return { done: true, finishReason: "tool_calls" };
+  if (finish_reason === "content_filter") return { done: true, finishReason: "content_filter" };
+  // Any other truthy finish_reason (custom/legacy provider value) still means the
+  // stream has terminated — end it rather than hang waiting for a `[DONE]`.
+  if (finish_reason) return { done: true, finishReason: "stop" };
+  return { done: false };
+}
+
 // ─── Base Adapter (shared SSE envelope + default headers) ────────
 
 /**
@@ -192,8 +212,18 @@ class AntigravityAdapter extends BaseProviderAdapter {
 
   protected extractDelta(parsed: any): StreamChunk | null {
     const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const done = parsed?.candidates?.[0]?.finishReason === "STOP" || false;
-    return { text, done };
+    const reason = parsed?.candidates?.[0]?.finishReason as string | undefined;
+    // Gemini ends a complete answer with "STOP"; an output-cap cut-off is
+    // "MAX_TOKENS" (a recoverable truncation → auto-continue). SAFETY/RECITATION
+    // are content-filter blocks that terminate the stream but must NOT be
+    // continued. Any non-empty finishReason terminates the stream.
+    if (reason === "MAX_TOKENS") {
+      return { text, done: true, finishReason: "length", truncated: true };
+    }
+    if (reason === "SAFETY" || reason === "RECITATION") {
+      return { text, done: true, finishReason: "content_filter" };
+    }
+    return reason ? { text, done: true, finishReason: "stop" } : { text, done: false };
   }
 
   parseFullResponse(json: unknown): string {
@@ -276,6 +306,12 @@ class ClaudeAdapter extends BaseProviderAdapter {
     if (parsed.type === "content_block_delta") {
       return { text: parsed.delta?.text || "", done: false };
     }
+    // Claude reports the terminal reason on `message_delta` (stop_reason:
+    // "end_turn" | "max_tokens" | "tool_use" | ...) just before `message_stop`.
+    // Surface a truncation flag here so the chat layer can auto-continue.
+    if (parsed.type === "message_delta" && parsed.delta?.stop_reason === "max_tokens") {
+      return { text: "", done: false, finishReason: "length", truncated: true };
+    }
     if (parsed.type === "message_stop") {
       return { text: "", done: true };
     }
@@ -344,14 +380,11 @@ class OpenAIAdapter extends BaseProviderAdapter {
 
   protected extractDelta(parsed: any): StreamChunk | null {
     const delta = parsed.choices?.[0]?.delta;
-    const finish_reason = parsed.choices?.[0]?.finish_reason;
-    const done = finish_reason === "stop" || finish_reason === "tool_calls";
-
     return {
       text: delta?.content || "",
       reasoning_content: delta?.reasoning_content,
-      done,
-      tool_calls: delta?.tool_calls
+      tool_calls: delta?.tool_calls,
+      ...mapOpenAIFinishReason(parsed.choices?.[0]?.finish_reason),
     };
   }
 
@@ -415,14 +448,11 @@ class OllamaAdapter extends BaseProviderAdapter {
 
   protected extractDelta(parsed: any): StreamChunk | null {
     const delta = parsed.choices?.[0]?.delta;
-    const finish_reason = parsed.choices?.[0]?.finish_reason;
-    const done = finish_reason === "stop" || finish_reason === "tool_calls";
-    
-    return { 
-      text: delta?.content || "", 
+    return {
+      text: delta?.content || "",
       reasoning_content: delta?.reasoning_content,
-      done,
-      tool_calls: delta?.tool_calls 
+      tool_calls: delta?.tool_calls,
+      ...mapOpenAIFinishReason(parsed.choices?.[0]?.finish_reason),
     };
   }
 
@@ -434,7 +464,7 @@ class OllamaAdapter extends BaseProviderAdapter {
 
 // ─── Main LLM Client ────────────────────────────────────────────
 
-const ADAPTERS: Record<LLMProvider, ProviderAdapter> = {
+export const ADAPTERS: Record<LLMProvider, ProviderAdapter> = {
   antigravity: new AntigravityAdapter(),
   claude: new ClaudeAdapter(),
   openai: new OpenAIAdapter(),

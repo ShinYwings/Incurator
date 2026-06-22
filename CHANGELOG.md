@@ -4,6 +4,39 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.24.0] - 2026-06-22
+### Changed
+- **Edit-review loop demoted from hard gate to a hint.** A valid `ai-agent-edit`
+  proposal now always opens a reviewable diff, even when the model skips the
+  `[[PHASE:…]]` review markers. The old gate suppressed the diff entirely on
+  token-limited / low-instruction-following models, producing "I made an edit"
+  with no diff. Non-conforming answers now show the edit pills plus a soft,
+  non-blocking note with an optional **Re-run with review** button; the blocked
+  banner and the "Override & review anyway" escape hatch are removed.
+### Added
+- **Output-token truncation recovery.** Cut-off answers (Gemini `MAX_TOKENS`,
+  OpenAI/Ollama `length`, Claude `max_tokens`) are detected via a normalized
+  `StreamChunk.finishReason`/`truncated` mapped in every provider adapter, and
+  auto-continued up to 3 times. Continuations resume mid-edit-block, are stitched
+  with overlap de-dup (no duplicated text, no mangled `ai-agent-edit` fence), and
+  the message stays streaming until truncation fully resolves — so edit pills /
+  auto-open never fire on an in-flight partial. A manual **↪ Continue** button
+  appears if it's still cut off after the cap.
+### Fixed
+- **Diff Viewer keyboard hijack.** Accept/Reject/navigate shortcuts now fire only
+  when the diff editor or its toolbar is focused — pressing Enter in the chat box
+  no longer silently applies an open diff. Opening a diff focuses it so the keys
+  work immediately.
+- **Multi-edit "could not be matched" / "already opening" errors.** Proposals are
+  matched against the original file (order-independent), so accepting one edit can
+  no longer break another's SEARCH; skipped edits are reported as not-found vs
+  overlapping. A same-file re-entrant Review request now coalesces silently
+  instead of raising "a diff review is already opening".
+- **No more silent open failures.** `DiffViewer.show` returns a typed result and
+  callers surface the exact reason (nothing changed / editor not ready).
+
+---
+
 ## [0.23.0] - 2026-06-22
 ### Security
 - **CLI provider tool-scope sandbox.** The Quick Query popover and chat sidebar use

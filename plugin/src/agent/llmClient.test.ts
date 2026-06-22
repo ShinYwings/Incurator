@@ -10,6 +10,8 @@ import {
   normalizeOpenAIContent,
   shouldInjectMcpTools,
   LLMClient,
+  ADAPTERS,
+  mapOpenAIFinishReason,
 } from "./llmClient";
 import { DEFAULT_SETTINGS } from "../types";
 import type { LLMMessage, PluginSettings } from "../types";
@@ -323,5 +325,87 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
     expect(source).toContain('join(tmpdir(), "incurator-cli")');
     expect(source).not.toContain('join(homedir(), ".incurator-obsidian-agent-cli")');
     expect(source).not.toContain('join(homedir(), ".incurator", "tmp_images")');
+  });
+});
+
+describe("output-token truncation detection (v0.24.0)", () => {
+  const sse = (obj: unknown) => `data: ${JSON.stringify(obj)}`;
+
+  describe("mapOpenAIFinishReason", () => {
+    it("maps `length` to a truncated terminal chunk", () => {
+      expect(mapOpenAIFinishReason("length")).toEqual({
+        done: true,
+        finishReason: "length",
+        truncated: true,
+      });
+    });
+
+    it("maps `stop` / `tool_calls` to a clean (non-truncated) end", () => {
+      expect(mapOpenAIFinishReason("stop")).toEqual({ done: true, finishReason: "stop" });
+      expect(mapOpenAIFinishReason("tool_calls")).toEqual({ done: true, finishReason: "tool_calls" });
+    });
+
+    it("treats `content_filter` as a terminal but non-truncation reason", () => {
+      const r = mapOpenAIFinishReason("content_filter");
+      expect(r.done).toBe(true);
+      expect(r.truncated).toBeUndefined();
+    });
+
+    it("keeps mid-stream deltas open (null finish_reason)", () => {
+      expect(mapOpenAIFinishReason(null)).toEqual({ done: false });
+      expect(mapOpenAIFinishReason(undefined)).toEqual({ done: false });
+    });
+
+    it("ends the stream on any other truthy finish_reason (no hang)", () => {
+      expect(mapOpenAIFinishReason("function_call")).toEqual({ done: true, finishReason: "stop" });
+      expect(mapOpenAIFinishReason("")).toEqual({ done: false });
+    });
+  });
+
+  describe("Antigravity (Gemini) adapter", () => {
+    it("flags MAX_TOKENS as truncated while still keeping the partial text", () => {
+      const chunk = ADAPTERS.antigravity.parseStreamChunk(
+        sse({ candidates: [{ content: { parts: [{ text: "partial" }] }, finishReason: "MAX_TOKENS" }] })
+      );
+      expect(chunk).toMatchObject({ text: "partial", done: true, finishReason: "length", truncated: true });
+    });
+
+    it("treats STOP as a clean finish (not truncated)", () => {
+      const chunk = ADAPTERS.antigravity.parseStreamChunk(
+        sse({ candidates: [{ content: { parts: [{ text: "done" }] }, finishReason: "STOP" }] })
+      );
+      expect(chunk).toMatchObject({ done: true, finishReason: "stop" });
+      expect(chunk?.truncated).toBeUndefined();
+    });
+
+    it("maps a SAFETY/RECITATION block to content_filter, never truncated", () => {
+      for (const reason of ["SAFETY", "RECITATION"]) {
+        const chunk = ADAPTERS.antigravity.parseStreamChunk(
+          sse({ candidates: [{ content: { parts: [{ text: "" }] }, finishReason: reason }] })
+        );
+        expect(chunk, reason).toMatchObject({ done: true, finishReason: "content_filter" });
+        expect(chunk?.truncated).toBeUndefined();
+      }
+    });
+  });
+
+  describe("OpenAI / Ollama adapters", () => {
+    it("flag finish_reason `length` as truncated", () => {
+      for (const provider of ["openai", "ollama", "deepseek"] as const) {
+        const chunk = ADAPTERS[provider].parseStreamChunk(
+          sse({ choices: [{ delta: { content: "x" }, finish_reason: "length" }] })
+        );
+        expect(chunk, provider).toMatchObject({ done: true, finishReason: "length", truncated: true });
+      }
+    });
+  });
+
+  describe("Claude adapter", () => {
+    it("flags message_delta stop_reason max_tokens as truncated", () => {
+      const chunk = ADAPTERS.claude.parseStreamChunk(
+        sse({ type: "message_delta", delta: { stop_reason: "max_tokens" } })
+      );
+      expect(chunk).toMatchObject({ finishReason: "length", truncated: true });
+    });
   });
 });

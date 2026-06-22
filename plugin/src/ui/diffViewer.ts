@@ -2,6 +2,14 @@ import { EditorPosition, EventRef, MarkdownView, Notice } from "obsidian";
 import { StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import type ObsidianAIAgent from "../../main";
+import { shouldHandleDiffShortcut } from "./diffKeyGuard";
+
+/** Result of attempting to open the Diff Viewer, so callers can report WHY it didn't. */
+export interface DiffOpenResult {
+  opened: boolean;
+  /** Machine-readable reason when `opened` is false. */
+  reason?: "no_changes" | "editor_not_ready";
+}
 
 interface DiffLine {
   type: "unchanged" | "added" | "removed";
@@ -147,7 +155,7 @@ export class DiffViewer {
     selectionStart: EditorPosition,
     _selectionEnd: EditorPosition,  // Bug 21: kept for API compatibility, unused in Inverted Model
     preserveHunkIndex?: number
-  ): void {
+  ): DiffOpenResult {
     this.close(); // Clean up any previous UI and all event listeners
 
     this.view = view;
@@ -167,13 +175,14 @@ export class DiffViewer {
     const diffLines = this.computeDiff(originalText, modifiedText);
     this.chunks = this.groupIntoChunks(diffLines);
 
-    // Bug 10: If there are no changes, return silently without touching the buffer
+    // v0.24.0: report no-change instead of returning silently — the caller now
+    // surfaces the reason ("the proposed edit matches the file as-is").
     if (this.chunks.filter(c => c.type === "change").length === 0) {
-      return;
+      return { opened: false, reason: "no_changes" };
     }
 
     const cmView = this.getCmView();
-    if (!cmView) return;
+    if (!cmView) return { opened: false, reason: "editor_not_ready" };
 
     // Bug 20: Use relativeLine counter (not absolute lines) to place decorations
     this.hunks = [];
@@ -271,6 +280,10 @@ export class DiffViewer {
         const lineNum = Math.max(1, Math.min(firstChangedLine + 1, cmView.state.doc.lines));
         const pos = cmView.state.doc.line(lineNum).from;
         cmView.dispatch({ effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+        // v0.24.0 (reviewer #1): focus the diff editor so the keyboard shortcuts —
+        // now focus-gated to the editor/toolbar — work immediately when the user
+        // opened the diff by clicking a sidebar pill (focus was in the sidebar).
+        cmView.focus();
       }
 
       // Recompute coords on the next frame, after the scroll has settled.
@@ -280,6 +293,8 @@ export class DiffViewer {
         this.refreshHunkUI();
       });
     });
+
+    return { opened: true };
   }
 
   close(): void {
@@ -413,6 +428,17 @@ export class DiffViewer {
     this.refreshHunkUI();
 
     this.keyHandler = (e: KeyboardEvent) => {
+      // v0.24.0 (reviewer #1, red_teamer #4): focus-gate the shortcuts. The old
+      // unguarded document-global handler fired Accept-All when the user pressed
+      // Enter in the chat input while a diff was open — applying the edit with no
+      // explicit Accept. Act when focus is inside the diff editor/toolbar, or when
+      // the diff's own leaf is active and focus fell back to <body> (clicked a
+      // non-focusable diff region) — never when the chat input holds focus.
+      const diffLeafActive =
+        this.plugin.app.workspace.getActiveViewOfType(MarkdownView) === this.view;
+      if (!shouldHandleDiffShortcut(document.activeElement, this.getCmView()?.dom ?? null, this.toolbarEl, diffLeafActive)) {
+        return;
+      }
       if (e.key === "Enter") { e.preventDefault(); this.acceptAll(); }
       else if (e.key === "Escape") { e.preventDefault(); this.rejectAll(); }
       else if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); this.goHunk(1); }

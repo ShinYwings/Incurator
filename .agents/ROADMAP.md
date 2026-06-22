@@ -24,19 +24,9 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-1. **[Bugfix / Architecture] Popover Tool Execution & Sandbox Scope Violation**
-   - The popover feature currently injects global MCP tools, leading to unexpected file-system traversal.
-   - Refactor `quickQueryContext.ts` to share `systemPrompt.ts` rules and implement a `disableTools` flag in `llmClient.ts`.
-   - Detailed analysis: `.agents/drafts/popover_tool_scope.md`
-
-2. **[Major Update] Prompt Architecture Overhaul & Refactoring**
+3. **[Major Update] Prompt Architecture Overhaul & Refactoring**
    - Centralized prompt registry, componentized generation, and dynamic anchoring.
    - Detailed analysis: `.agents/drafts/prompt_architecture_refactoring.md`
-
-3. **[Major Update] Diff Viewer UI/UX**
-   - UI/UX work including `ai-agent-edit` SEARCH-match failures, edit-scope bug, immediate-diff rendering, and hunk navigation.
-   - Cleanup of `00_System/Agent Diffs/`.
-   - Detailed analysis: `.agents/drafts/diff_viewer_plugin.md`
 
 4. **[Validation] `[[wikilink]]` Architecture Validation**
    - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
@@ -67,6 +57,17 @@ Source of Truth to identify unresolved items.
 
 ## ✅ Completed Milestones
 
+- **v0.24.0 — Diff Viewer Multi-Model Robustness** (shipped 2026-06-22): the
+  `ai-agent-edit` → Diff Viewer flow now works across model tiers. The four-phase
+  review loop was demoted from a hard gate to a hint (a valid SEARCH/REPLACE is always
+  reviewable, even when a weak/token-limited model skips the `[[PHASE:…]]` markers);
+  output-token truncation (Gemini `MAX_TOKENS`, OpenAI/Ollama `length`, Claude
+  `max_tokens`) is detected via `StreamChunk.finishReason`/`truncated` and auto-continued
+  (≤3, fence-safe overlap stitch, no premature finalization, manual Continue fallback);
+  the Diff Viewer keyboard shortcuts are focus-gated (chat-Enter no longer Accept-Alls)
+  with `show()` focusing the editor and returning a typed `{opened,reason}`; multi-edit
+  proposals match against the original text (order-independent) with same-file review
+  coalesce.
 - **v0.23.0 — CLI Provider Tool-Scope Sandbox** (shipped 2026-06-22): closed the
   CLI-native-tool escape the v0.19.0 MCP isolation left open. `toolPolicy` now reaches
   the CLI command builder — popover runs tool-free, sidechat scopes tools to the
@@ -93,7 +94,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.23.0 (Popover/CLI tool-scope sandbox) implemented on `feature/popover-tool-scope`; PR pending.
-- **Active Milestone**: none (v0.23.0 shipped to PR; awaiting merge).
-- **Next actionable item**: Prompt Architecture Overhaul & Refactoring after merge.
-- **Priority order**: Prompt Architecture Overhaul, then Web Search Integration.
+- **Roadmap state**: v0.24.0 Diff Viewer robustness implemented on
+  `feature/diff-viewer-ui-ux`; PR pending merge.
+- **Active Milestone**: Diff Viewer UI/UX (v0.24.0) — done, awaiting merge.
+- **Next actionable item**: After merge, Prompt Architecture Overhaul & Refactoring.
+- **Priority order**: (merge v0.24.0) → Prompt Architecture Overhaul.

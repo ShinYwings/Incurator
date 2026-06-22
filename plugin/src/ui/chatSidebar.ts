@@ -37,7 +37,8 @@ import { getPdfContext, withVisionFallback } from "../context/pdfCapture";
 import { attachLatexCopyHandler, collapseStreamingEditBlocks, normalizeLatexDelimiters, stampMathSourceData, stripDanglingEditMarkers, truncateToLength } from "../utils/textUtils";
 import { inferIngestDestination } from "../utils/pathUtils";
 import { hashFileSha256 } from "../utils/fileHash";
-import { classifyProposalStatus, findSearchBlock } from "../utils/editMatch";
+import { classifyProposalStatus, findSearchBlock, findSearchBlockAvoiding } from "../utils/editMatch";
+import { buildContinuationPrompt, stitchContinuation } from "../utils/streamContinuation";
 import { DiffViewer } from "./diffViewer";
 import { renderCuratorQueryTrace } from "./incuratorQueryTrace";
 import {
@@ -152,6 +153,8 @@ export class ChatSidebarView extends ItemView {
   // Bug 2 (v0.14.1): serialize diff-review opens so a second pill click cannot
   // re-point the singleton DiffViewer mid-open (file-switch race).
   private reviewInFlight = false;
+  /** Canonical path of the file whose review is currently opening (P4b coalesce). */
+  private reviewInFlightTarget: string | null = null;
   private sessionDrawerVisible = false;
   private sessionQuery = "";
   private statusBarEl!: HTMLElement;
@@ -1049,16 +1052,7 @@ export class ChatSidebarView extends ItemView {
     this.sendBtn.setAttribute("aria-label", "Stop generating");
 
     try {
-      await this.plugin.llmClient.streamChat(
-        llmMessages,
-        (chunk: StreamChunk) => {
-          assistantMsg.content += chunk.text;
-          if (chunk.done) {
-            assistantMsg.isStreaming = false;
-          }
-          this.renderAssistantMessage(assistantMsg);
-        }
-      );
+      await this.streamAssistantWithContinuation(llmMessages, assistantMsg);
     } catch (err: unknown) {
       assistantMsg.isStreaming = false;
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -1084,6 +1078,147 @@ export class ChatSidebarView extends ItemView {
       await this.persistCurrentSession();
     }
 
+  }
+
+  /** Max auto-continuation rounds for an output-token-truncated answer (v0.24.0). */
+  private static readonly MAX_CONTINUATIONS = 3;
+
+  /**
+   * Stream the assistant answer, auto-continuing when the provider stops on its
+   * output-token cap (`finish_reason: "length"` / Gemini `MAX_TOKENS`). The
+   * message stays `isStreaming` across every round so the edit pills and
+   * `maybeAutoOpenDiff` only fire AFTER truncation is fully resolved — never on
+   * an in-flight partial (reviewer #5). Continuations are spliced with overlap
+   * de-dup so the model re-emitting its tail does not corrupt the edit block.
+   */
+  private async streamAssistantWithContinuation(
+    llmMessages: LLMMessage[],
+    assistantMsg: ChatMessage
+  ): Promise<void> {
+    let truncated = await this.streamOneRound(llmMessages, assistantMsg, true, "");
+    if (truncated) {
+      truncated = await this.runContinuationRounds(
+        llmMessages,
+        assistantMsg,
+        assistantMsg.continuationsDone ?? 0
+      );
+    }
+    // Still truncated after the cap → leave the flag set so the render path can
+    // offer a manual "Continue" button. A fully-resolved answer clears it.
+    assistantMsg.truncated = truncated;
+    assistantMsg.isStreaming = false;
+    this.renderAssistantMessage(assistantMsg);
+  }
+
+  /**
+   * Issue continuation requests until the answer stops truncating, the round cap
+   * is hit, or a round adds zero new text (stuck-model guard). Each round appends
+   * the current partial as an assistant turn + a continuation user turn, then
+   * splices the new stream onto the partial with overlap de-dup. Returns whether
+   * the answer is STILL truncated after the loop.
+   */
+  private async runContinuationRounds(
+    llmMessages: LLMMessage[],
+    assistantMsg: ChatMessage,
+    startRounds: number
+  ): Promise<boolean> {
+    let rounds = startRounds;
+    let truncated = true;
+    while (truncated && rounds < ChatSidebarView.MAX_CONTINUATIONS) {
+      // Stop spawning continuation requests if the user hit "Stop generating"
+      // (isGenerating cleared) — otherwise an aborted turn keeps burning tokens.
+      if (!this.isGenerating) break;
+      rounds++;
+      const base = assistantMsg.content;
+      const continuationMessages: LLMMessage[] = [
+        ...llmMessages,
+        { role: "assistant", content: base },
+        { role: "user", content: buildContinuationPrompt(base) },
+      ];
+      truncated = await this.streamOneRound(continuationMessages, assistantMsg, false, base);
+      assistantMsg.continuationsDone = rounds;
+      // Zero-delta guard: a continuation that added nothing new means the model
+      // is stuck — stop rather than spin to the cap (red_teamer #1).
+      if (assistantMsg.content === base) break;
+    }
+    return truncated;
+  }
+
+  /**
+   * Manual "Continue" fallback used when auto-continue exhausted its rounds and
+   * the answer is still cut off. Rebuilds the conversation, drops the trailing
+   * assistant turn (re-added as the continuation base), and resumes with a fresh
+   * round budget. Never runs while another generation is in flight.
+   */
+  private async continueTruncatedMessage(assistantMsg: ChatMessage): Promise<void> {
+    if (this.isGenerating || assistantMsg.isStreaming) return;
+    this.isGenerating = true;
+    setIcon(this.sendBtn, "square");
+    this.sendBtn.setAttribute("aria-label", "Stop generating");
+    assistantMsg.isStreaming = true;
+    assistantMsg.truncated = false;
+    try {
+      // buildLLMMessages serializes the WHOLE active session. If the user clicked
+      // Continue on an OLD truncated message, everything after it would leak into
+      // the prompt out of order. Temporarily slice the history to end at this
+      // message, then restore it (the object ref is shared, so streamed deltas
+      // still land on the right message).
+      const allMessages = this.messages;
+      const idx = allMessages.indexOf(assistantMsg);
+      let built: LLMMessage[];
+      try {
+        if (idx >= 0) this.messages = allMessages.slice(0, idx + 1);
+        built = await this.buildLLMMessages(this.plugin.refreshActiveContext());
+      } finally {
+        this.messages = allMessages;
+      }
+      // buildLLMMessages includes the truncated assistant as the final turn;
+      // drop it so runContinuationRounds re-adds it as the continuation base.
+      const last = built[built.length - 1];
+      const llmMessages =
+        last && last.role === "assistant" ? built.slice(0, -1) : built;
+      const truncated = await this.runContinuationRounds(llmMessages, assistantMsg, 0);
+      assistantMsg.truncated = truncated;
+    } catch (err) {
+      assistantMsg.content += `\n\n❌ Continue failed: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      assistantMsg.isStreaming = false;
+      this.isGenerating = false;
+      setIcon(this.sendBtn, "send");
+      this.sendBtn.setAttribute("aria-label", "Send message");
+      this.renderMessages(false);
+      await this.maybeAutoOpenDiff(assistantMsg);
+      await this.persistCurrentSession();
+    }
+  }
+
+  /**
+   * One streaming pass. The first round appends deltas directly; continuation
+   * rounds accumulate into a local buffer and splice onto `base` each tick so
+   * the live view de-duplicates the seam. Returns whether THIS round ended on a
+   * truncation. Never flips `isStreaming` (the caller owns finalization).
+   */
+  private async streamOneRound(
+    messages: LLMMessage[],
+    assistantMsg: ChatMessage,
+    isFirstRound: boolean,
+    base: string
+  ): Promise<boolean> {
+    let truncated = false;
+    let continuationBuf = "";
+    await this.plugin.llmClient.streamChat(messages, (chunk: StreamChunk) => {
+      if (chunk.truncated) truncated = true;
+      if (chunk.text) {
+        if (isFirstRound) {
+          assistantMsg.content += chunk.text;
+        } else {
+          continuationBuf += chunk.text;
+          assistantMsg.content = stitchContinuation(base, continuationBuf);
+        }
+      }
+      this.renderAssistantMessage(assistantMsg);
+    });
+    return truncated;
   }
 
   private async runGitSidechatCommand(command: GitSidechatCommand): Promise<string> {
@@ -2585,7 +2720,6 @@ export class ChatSidebarView extends ItemView {
       // hard-gated: prose + a blocked banner, no auto-review pills.
       const loop = validateEditLoop(msg.content);
       const phaseParse = parseEditLoopPhases(msg.content);
-      const blocked = loop.hasEdits && !loop.ok && !msg.editLoopOverridden;
 
       if (phaseParse.phases.length > 0 && loop.ok) {
         this.renderEditLoopPhases(contentEl, msg, multiProposals, phaseParse);
@@ -2598,12 +2732,14 @@ export class ChatSidebarView extends ItemView {
           this.renderAssistantMarkdown(processedContent, mdWrapper);
         }
 
-        if (blocked) {
-          this.renderEditLoopBlockedBanner(contentEl, msg, multiProposals);
-        } else {
-          for (const prop of multiProposals) {
-            this.renderInlineMultiDiff(contentEl, prop, msg, multiProposals);
-          }
+        // v0.24.0: loop demoted to a hint. When the model skipped the review
+        // loop we show a soft, non-blocking note (with an optional re-run), but
+        // the edit pills ALWAYS render so the diff is reviewable.
+        if (loop.hasEdits && !loop.ok) {
+          this.renderEditLoopHint(contentEl);
+        }
+        for (const prop of multiProposals) {
+          this.renderInlineMultiDiff(contentEl, prop, msg, multiProposals);
         }
       }
     } else {
@@ -2667,6 +2803,34 @@ export class ChatSidebarView extends ItemView {
     }
     window.setTimeout(() => this.attachAssistantAnswerLinkNavigation(contentEl), 0);
     attachLatexCopyHandler(contentEl, htmlToMarkdown);
+
+    // v0.24.0: answer still cut off by the output-token cap after auto-continue
+    // exhausted its rounds — offer an explicit manual Continue.
+    if (!msg.isStreaming && msg.truncated) {
+      this.renderTruncationContinue(contentEl, msg);
+    }
+  }
+
+  /** Render the "answer was cut off" notice + manual Continue button (v0.24.0). */
+  private renderTruncationContinue(contentEl: HTMLElement, msg: ChatMessage): void {
+    const banner = contentEl.createDiv("ai-agent-truncation-continue");
+    banner.createSpan({
+      cls: "ai-agent-truncation-continue-text",
+      text: "⚠️ The model hit its output-token limit and the answer is still cut off.",
+    });
+    const btn = banner.createEl("button", {
+      cls: "ai-agent-truncation-continue-btn",
+      text: "↪ Continue",
+      attr: { title: "Ask the model to resume from where it stopped" },
+    });
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this.isGenerating) {
+        new Notice("Already generating — wait for the current turn to finish.");
+        return;
+      }
+      void this.continueTruncatedMessage(msg);
+    });
   }
 
   private attachContextTraceActionHandlers(container: HTMLElement): void {
@@ -3170,49 +3334,30 @@ export class ChatSidebarView extends ItemView {
   }
 
   /**
-   * Render the hard-gate banner shown when an edit answer skipped the review
-   * loop (v0.14.0). Offers "Re-run with loop" (re-prompt) and "Override &
-   * review anyway" (open the diff despite the missing loop).
+   * Render a soft, non-blocking hint shown when an edit answer skipped the
+   * Analysed→Reviewed→Updated→Reviewed loop (v0.24.0). The edits are still fully
+   * reviewable (pills render below); this only offers an optional re-run for
+   * users who want the model's self-review. Replaces the old hard-gate banner
+   * that suppressed the diff entirely.
    */
-  private renderEditLoopBlockedBanner(
-    contentEl: HTMLElement,
-    msg: ChatMessage,
-    multiProposals: MultiEditProposal[]
-  ): void {
-    const banner = contentEl.createDiv("ai-agent-edit-loop-blocked");
-    banner.createDiv({
-      cls: "ai-agent-edit-loop-blocked-text",
-      text: "⚠️ Agent skipped the review loop — the proposed edits were not auto-opened.",
+  private renderEditLoopHint(contentEl: HTMLElement): void {
+    const hint = contentEl.createDiv("ai-agent-edit-loop-hint");
+    hint.createSpan({
+      cls: "ai-agent-edit-loop-hint-text",
+      text: "ℹ️ The model skipped its self-review steps. The edits below are still reviewable.",
     });
-    const actions = banner.createDiv("ai-agent-edit-loop-blocked-actions");
-
-    const rerunBtn = actions.createEl("button", {
+    const rerunBtn = hint.createEl("button", {
       cls: "ai-agent-edit-loop-rerun",
-      text: "Re-run with loop",
-      attr: { title: "Ask the model to redo the answer following Analysed → Reviewed → Updated → Reviewed" },
+      text: "Re-run with review",
+      attr: { title: "Ask the model to redo the answer with Analysed → Reviewed → Updated → Reviewed" },
     });
     rerunBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       if (this.isGenerating) return;
       this.inputEl.value =
-        "Redo your previous answer following the required edit-review loop: " +
+        "Redo your previous answer following the edit-review loop: " +
         "emit [[PHASE:ANALYSED]], [[PHASE:REVIEWED]], [[PHASE:UPDATED]] (with the ai-agent-edit blocks), then [[PHASE:REVIEWED]].";
       void this.handleSend();
-    });
-
-    const overrideBtn = actions.createEl("button", {
-      cls: "ai-agent-edit-loop-override",
-      text: "Override & review anyway",
-      attr: { title: "Open the Diff Viewer despite the missing review loop" },
-    });
-    overrideBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      msg.editLoopOverridden = true;
-      msg.editLoopBlocked = false;
-      await this.persistCurrentSession();
-      const target = multiProposals[0]?.filepath;
-      if (target) await this.reviewFileEditProposals(target, multiProposals);
-      this.renderMessages(false);
     });
   }
 
@@ -3551,7 +3696,15 @@ export class ChatSidebarView extends ItemView {
     const replacementText = modifiedText || "";
 
     // Bug 30: Use Singleton instead of new DiffViewer()
-    DiffViewer.getInstance(this.plugin).show(targetLeaf.view, originalText, replacementText, start, end);
+    const result = DiffViewer.getInstance(this.plugin).show(targetLeaf.view, originalText, replacementText, start, end);
+    if (!result.opened) {
+      new Notice(
+        result.reason === "no_changes"
+          ? "The proposed edit already matches the file — nothing to review."
+          : "The editor was not ready to show the diff. Try clicking Review again.",
+        8000
+      );
+    }
   }
 
   private readEditBlockFilepath(infoText: string, fallbackFilepath = ""): string {
@@ -3579,16 +3732,10 @@ export class ChatSidebarView extends ItemView {
     const proposals = this.extractMultiEditProposals(msg.content, editRef?.filePath);
     if (proposals.length === 0) return;
 
-    // Edit-loop hard gate (v0.14.0): an edit-bearing answer that skipped the
-    // Analysed→Reviewed→Updated→Reviewed loop must not auto-open the Diff
-    // Viewer. The render path shows a blocked banner with explicit Re-run /
-    // Override actions instead. An explicit user override clears the gate.
-    const loop = validateEditLoop(msg.content);
-    if (loop.hasEdits && !loop.ok && !msg.editLoopOverridden) {
-      msg.editLoopBlocked = true;
-      return;
-    }
-    msg.editLoopBlocked = false;
+    // v0.24.0: the four-phase review loop is now a QUALITY HINT, not a hard gate.
+    // A valid, matchable edit is always reviewable regardless of whether a weak
+    // model emitted the [[PHASE:...]] markers — the old gate left token-limited
+    // and low-instruction-following models with "I made an edit" but no diff.
 
     const files = new Set(proposals.map((p) => {
       const f = this.resolveVaultFile(p.filepath);
@@ -3648,15 +3795,25 @@ export class ChatSidebarView extends ItemView {
   // Returns true only when a diff was actually opened, so callers don't mislabel
   // a guard-dropped or unmatched click as "opened".
   private async reviewFileEditProposals(targetFilepath: string, allProposals: MultiEditProposal[]): Promise<boolean> {
+    const resolvedTarget = this.resolveVaultFile(targetFilepath)?.path ?? targetFilepath;
     if (this.reviewInFlight) {
-      new Notice("A diff review is already opening — try again in a moment.");
+      // v0.24.0 (P4b): auto-open (at stream end) holds this mutex through the
+      // 2-frame CM6 mount; a pill click for the SAME file in that window used to
+      // pop a scary "already opening" error. Coalesce same-target races silently
+      // — the in-flight open is already doing exactly what the click wanted. Only
+      // a genuinely different target gets the advisory notice.
+      if (resolvedTarget !== this.reviewInFlightTarget) {
+        new Notice("A diff review is already opening — try again in a moment.");
+      }
       return false;
     }
     this.reviewInFlight = true;
+    this.reviewInFlightTarget = resolvedTarget;
     try {
       return await this.reviewFileEditProposalsImpl(targetFilepath, allProposals);
     } finally {
       this.reviewInFlight = false;
+      this.reviewInFlightTarget = null;
     }
   }
 
@@ -3714,40 +3871,80 @@ export class ChatSidebarView extends ItemView {
     const editor = targetLeaf.view.editor;
 
     const originalFullText = editor.getValue();
-    let modifiedFullText = originalFullText;
 
-    let appliedCount = 0;
-    let failedCount = 0;
-    // Bug 34: Track partial failures and warn the user
+    // v0.24.0 (P4b): match every proposal against the ORIGINAL text (not the
+    // running result), so applying edit 1 can no longer break edit 2's SEARCH —
+    // the old order-dependent cascade that surfaced spurious "could not be
+    // matched" warnings on multi-edit answers. We then compose non-overlapping
+    // splices and distinguish three outcomes: applied, true overlap-conflict,
+    // and genuine not-found.
+    const spans: Array<{ start: number; end: number; replace: string }> = [];
+    let notFoundCount = 0;
+    let conflictCount = 0;
     for (const proposal of fileProposals) {
-      const match = findSearchBlock(modifiedFullText, proposal.search);
-      if (!match) {
-        failedCount++;
+      // Skip spans already claimed by earlier proposals, so two edits targeting
+      // different occurrences of the same SEARCH string both resolve (the second
+      // advances past the first occurrence instead of self-overlapping).
+      const match = findSearchBlockAvoiding(originalFullText, proposal.search, spans);
+      if (match) {
+        spans.push({ start: match.start, end: match.end, replace: proposal.replace });
         continue;
       }
-      modifiedFullText = modifiedFullText.slice(0, match.start) + proposal.replace + modifiedFullText.slice(match.end);
-      appliedCount++;
+      // Distinguish a genuine miss (SEARCH not in the file) from a true overlap
+      // conflict (every occurrence is already claimed by another edit).
+      if (findSearchBlock(originalFullText, proposal.search)) conflictCount++;
+      else notFoundCount++;
     }
 
+    const appliedCount = spans.length;
     if (appliedCount > 0) {
-      if (failedCount > 0) {
-        new Notice(`Warning: ${failedCount} proposed edit(s) could not be matched in the file.`, 8000);
+      // Splice right-to-left so earlier offsets stay valid.
+      spans.sort((a, b) => b.start - a.start);
+      let modifiedFullText = originalFullText;
+      for (const s of spans) {
+        modifiedFullText = modifiedFullText.slice(0, s.start) + s.replace + modifiedFullText.slice(s.end);
       }
+
+      const skipped = notFoundCount + conflictCount;
+      if (skipped > 0) {
+        const parts: string[] = [];
+        if (notFoundCount > 0) parts.push(`${notFoundCount} not found in the file`);
+        if (conflictCount > 0) parts.push(`${conflictCount} overlapping another edit`);
+        new Notice(`Reviewing ${appliedCount} change(s); skipped ${skipped} (${parts.join(", ")}).`, 8000);
+      }
+
       // Bug 21: Provide correct selectionEnd for API compatibility
       const lastLine = Math.max(0, editor.lineCount() - 1);
       const selectionEnd = { line: lastLine, ch: editor.getLine(lastLine)?.length ?? 0 };
       // Bug 30: Singleton prevents DOM/listener leaks
-      DiffViewer.getInstance(this.plugin).show(
+      const result = DiffViewer.getInstance(this.plugin).show(
         targetLeaf.view,
         originalFullText,
         modifiedFullText,
         { line: 0, ch: 0 },
         selectionEnd
       );
-      new Notice(`Reviewing ${appliedCount} proposed change${appliedCount === 1 ? "" : "s"} in ${file.basename}`);
+      if (!result.opened) {
+        // v0.24.0: no more silent failure — surface exactly why nothing opened.
+        new Notice(
+          result.reason === "no_changes"
+            ? "The proposed edit already matches the file — nothing to review."
+            : "The editor was not ready to show the diff. Try clicking Review again.",
+          8000
+        );
+        return false;
+      }
+      if (skipped === 0) {
+        new Notice(`Reviewing ${appliedCount} proposed change${appliedCount === 1 ? "" : "s"} in ${file.basename}`);
+      }
       return true;
     } else {
-      new Notice("Could not find SEARCH text in the target Markdown file.");
+      new Notice(
+        conflictCount > 0
+          ? "All proposed edits overlapped each other — none could be applied."
+          : "Could not find the SEARCH text in the target Markdown file (the model's quoted lines did not match).",
+        8000
+      );
       return false;
     }
   }
