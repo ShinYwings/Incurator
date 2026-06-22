@@ -33,7 +33,7 @@ def test_wiki_reset_removes_generated_state_and_keeps_config(tmp_path: Path) -> 
     )
 
     assert reset_result.exit_code == 0, reset_result.output
-    assert (curator / "config.yml").exists()
+    assert (curator / "settings.yml").exists()
     for path in generated_files:
         assert not path.exists(), f"{path} should be removed by reset"
     assert not (curator / "Collections").exists()

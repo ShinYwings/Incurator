@@ -144,18 +144,24 @@ describe("Incurator dashboard backend boundary", () => {
     expect(source).toContain('this.runWikiCommand(["build"])');
   });
 
-  it("reads runtime status fresh-first so backend version/provider are never stale", () => {
+  it("reads runtime status live via `wiki status --json`, never from a stale snapshot file", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
 
-    // readRuntimeStatus must force a fresh `wiki status` snapshot, not read the
-    // cached runtime/status.json first (the stale-version / stale-provider bug).
+    // The dashboard reads ALL backend info live from `wiki status --json` (status
+    // + sources + jobs), so a backend change that forgets to regenerate the
+    // on-disk snapshot can never surface stale data here. The snapshot FILE is no
+    // longer the dashboard's source of truth — only the chat status bar uses it.
     expect(source).toMatch(
-      /readRuntimeStatus\(\)[\s\S]*?return this\.readFreshRuntimeJson\("status"\)/
+      /fetchLiveStatus[\s\S]*?runWikiCommand\(\["status", "--json"\]\)/
     );
-    expect(source).not.toMatch(
-      /readRuntimeStatus\(\)[\s\S]*?let status = await this\.readRuntimeJson\("status"\);\s*\n\s*if \(status\) return status;/
-    );
+    expect(source).toMatch(/readRuntimeStatus\(\)[\s\S]*?fetchLiveStatus\(\)/);
+    expect(source).toMatch(/readRuntimeJson[\s\S]*?fetchLiveStatus\(\)/);
+    // The dashboard must NOT read the on-disk runtime/*.json snapshot directly.
+    expect(source).not.toMatch(/adapter\.read\(`\.curator\/runtime\//);
+    // One render = one CLI call: the parsed payload is cached and invalidated on
+    // tab switch / forced-refreshed after mutations.
+    expect(source).toContain("this._liveStatus = null");
   });
 
   it("reports the backend as unavailable instead of trusting a stale snapshot", () => {

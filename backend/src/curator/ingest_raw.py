@@ -1583,7 +1583,7 @@ def generate_l1_summary(
             print(
                 f"  [Info] Skipping image inference for {relpath}: "
                 f"model '{getattr(client, 'model', '?')}' does not support vision. "
-                f"Configure a vision model via llm.vision_model in config.yml "
+                f"Configure a vision model via llm.vision_model in settings.yml "
                 f"(e.g. gemma4:31b-it, gemma3:12b, llava:latest, qwen2.5-vl:7b)."
             )
             source_text = f"[Image: {file_path.name}] — no vision model configured"

@@ -65,7 +65,7 @@ Incurator의 강력한 성능을 유지하고 지식을 안전하게 관리하�
 wiki init <path/to/your/obsidian-vault>
 ```
 
-초기화 중 짧은 인터뷰를 통해 **Curator 페르소나**(vault 전역 전문가 정체성)가 설정됩니다. 결과는 `.curator/config.yml`에 저장되며 `wiki sync`, `wiki query` 전반에 자동으로 적용됩니다.
+초기화 중 짧은 인터뷰를 통해 **Curator 페르소나**(vault 전역 전문가 정체성)가 설정됩니다. 결과는 `.curator/settings.yml`에 저장되며 `wiki sync`, `wiki query` 전반에 자동으로 적용됩니다.
 
 #### 📂 저장소(Vault) 디렉토리 구조
 `wiki init` 명령을 실행하면 Incurator는 지식 관리를 위해 다음과 같은 구조를 초기화합니다. 인큐레이터는 지식이 기계와 인간에게 각각 다른 형태로 존재할 때 가장 효율적이라는 철학에 따라, 인간을 위한 공간(Root)과 기계 및 에이전트를 위한 AI 전용 공간(`.curator/`)을 실제 디렉토리 구조로 분리하여 관리합니다.
@@ -472,7 +472,7 @@ Incurator에는 두 가지 페르소나 레이어가 있으며, 각각 다른 �
 
 ### Curator 페르소나 — Vault 수준
 
-`wiki init` 실행 시 짧은 인터뷰를 통해 설정됩니다. wizard는 첫 질문을 바로 표시하고, 각 질문이 단일 선택인지 다중 선택인지 표시하며, verification source와 artifact type 같은 다중 선택 질문에서는 `1,4`처럼 쉼표로 구분한 번호를 받을 수 있습니다. 마지막 persona JSON이 저장되면 인터뷰는 즉시 종료됩니다. 결과는 `.curator/config.yml`에 저장되며, `wiki sync`와 `wiki query` 전반에 전역으로 적용됩니다.
+`wiki init` 실행 시 짧은 인터뷰를 통해 설정됩니다. wizard는 첫 질문을 바로 표시하고, 각 질문이 단일 선택인지 다중 선택인지 표시하며, verification source와 artifact type 같은 다중 선택 질문에서는 `1,4`처럼 쉼표로 구분한 번호를 받을 수 있습니다. 마지막 persona JSON이 저장되면 인터뷰는 즉시 종료됩니다. 결과는 `.curator/settings.yml`에 저장되며, `wiki sync`와 `wiki query` 전반에 전역으로 적용됩니다.
 
 ```bash
 wiki persona              # 현재 Curator 페르소나 확인
@@ -571,7 +571,7 @@ status/history/push입니다.
 | `wiki models ensure` | 로컬 검색 모델 의존성과 GGUF 파일을 설치/갱신합니다. `setup.sh`는 `INCURATOR_SKIP_MODELS=1`이 설정되지 않은 한 이 명령을 자동 실행합니다. |
 | `wiki models status` | 로컬 검색 모델 상태, 캐시 경로, 의존성 상태를 JSON으로 표시합니다. |
 | `wiki config get <key>` | 특정 설정 값을 조회합니다. (예: `wiki config get llm.primary`) |
-| `wiki config set <key> <value>` | 특정 설정 값을 변경합니다. `llm.*`, `search.*`, `external.*` 같은 기기별 key는 `.cache/config/config.yml`에 기록합니다. `--local`은 `.curator/config.yml`에 속하는 portable vault-scoped key에만 사용하세요. |
+| `wiki config set <key> <value>` | 특정 설정 값을 변경합니다. `llm.*`, `search.*`, `external.*` 같은 기기별 key는 `.cache/config/config.yml`에 기록합니다. `--local`은 `.curator/settings.yml`에 속하는 portable vault-scoped key에만 사용하세요. |
 
 ### 3. 고도화 및 최적화 (Curation)
 | 명령어 | 설명 | 사용 시점 |
@@ -698,13 +698,13 @@ wiki db autosync --dry-run   # 실제 변경 없이 미리 보기
 - **무한 루프 없음** — 취약한 해시 가드 없이. 기기는 자기 파일을 가져오지 않고, 실제로 변경이 있을 때만 다시 내보냅니다.
 - **Syncthing 충돌 파일**(`*.sync-conflict-*`)은 일반 피어로 가져와(항상 데이터 안전) `.curator/runtime/sync_conflicts/`에 보관됩니다.
 
-`.curator/state.sqlite`와 `.curator/sync_state.json`은 기기 로컬로 유지되며(`.stignore` 제외), `.curator/sync/`의 JSONL 파일만 기기 간 이동합니다. CLI 전용 워크플로에서 `wiki update`가 자동으로 내보내게 하려면 `.curator/config.yml`에 `auto_sync.enabled: true`를 설정하세요. Obsidian 플러그인은 `wiki db autosync`를 자동으로 실행해 줍니다 — 플러그인 가이드 참고.
+`.curator/state.sqlite`와 `.curator/sync_state.json`은 기기 로컬로 유지되며(`.stignore` 제외), `.curator/sync/`의 JSONL 파일만 기기 간 이동합니다. CLI 전용 워크플로에서 `wiki update`가 자동으로 내보내게 하려면 `.curator/settings.yml`에 `auto_sync.enabled: true`를 설정하세요. Obsidian 플러그인은 `wiki db autosync`를 자동으로 실행해 줍니다 — 플러그인 가이드 참고.
 
 ---
 
 ## 🧩 설정 관리 (Configuration)
 
-Incurator는 YAML 파일을 직접 수정하지 않아도 `wiki config` 명령어를 통해 설정을 안전하고 편리하게 관리할 수 있습니다. `llm`, `search`, `external` 같은 기기별 block은 `.cache/config/config.yml`에 저장되고, portable vault 동작은 `.curator/config.yml`에 남습니다.
+Incurator는 YAML 파일을 직접 수정하지 않아도 `wiki config` 명령어를 통해 설정을 안전하고 편리하게 관리할 수 있습니다. `llm`, `search`, `external` 같은 기기별 block은 `.cache/config/config.yml`에 저장되고, portable vault 동작은 `.curator/settings.yml`에 남습니다.
 
 ### 1. 프로바이더 설정 (`wiki config provider`)
 Incurator의 지능을 담당하는 LLM 백엔드를 설정합니다. 시스템은 두 개의 백엔드 계층을 가집니다.
@@ -753,7 +753,7 @@ DeepSeek에서 `--api-key-env`에는 실제 `sk-...` 키 값이 아니라 환경
 (`DEEPSEEK_API_KEY` 같은 값)을 넣어야 합니다.
 `--api-key sk-...`를 넘기면 키는 shared vault 밖 backend encrypted local secret store에 저장되고, config에는 secret reference만 기록됩니다.
 
-선택한 강도는 `.curator/config.yml` 의 `llm.primary_effort` / `llm.fallback_effort` 에 저장되며, 비워 두면 각 CLI의 기본 강도를 사용합니다.
+선택한 강도는 `.curator/settings.yml` 의 `llm.primary_effort` / `llm.fallback_effort` 에 저장되며, 비워 두면 각 CLI의 기본 강도를 사용합니다.
 
 CLI 기반 provider(`antigravity-cli`, `claude-code`, `codex-cli`)는 backend가 실행되는 머신에서 해당 CLI에 현재 로그인된 계정을 사용합니다. 다른 계정을 쓰려면 provider CLI 자체(`agy`, `claude`, `codex login`)에서 계정을 전환하세요. DeepSeek는 다릅니다. `DEEPSEEK_API_KEY`, 암호화된 로컬 `llm.deepseek-api.api_key_secret`, 또는 legacy plaintext `llm.deepseek-api.api_key`의 API 키를 사용하므로 계정 선택은 브라우저 로그인 세션이 아니라 키로 결정됩니다. 새로 저장하는 키는 vault sync로 유출되지 않도록 encrypted local secret path를 사용해야 합니다.
 
@@ -802,6 +802,14 @@ wiki status
 최신 sync report에 확인할 항목이 있으면 `wiki status`가 review 세부사항을 표시할지 물어볼 수 있습니다. 이 세부사항은 점검하거나 수리해야 할 무결성 진단 결과이며, status 명령 자체가 실패했다는 뜻은 아닙니다.
 state DB 파일은 존재하지만 기본 테이블이 빠진 상태라면, 이제 `wiki status`가 통계를 읽기 전에 스키마를 자동으로 보정합니다.
 
+`--json`을 붙이면 포맷된 표 대신 기계 판독용 라이브 페이로드(`{status, sources, jobs}`)를 출력합니다:
+
+```bash
+wiki status --json
+```
+
+Obsidian 플러그인 대시보드는 이 라이브 `--json` 출력을 직접 읽으므로, 캐시된 스냅샷 파일이 아니라 항상 현재 백엔드 상태를 반영합니다.
+
 ### 3-1. 생성 상태 초기화 (`wiki reset`)
 
 ```bash
@@ -809,7 +817,7 @@ wiki reset
 wiki reset --force
 ```
 
-`.curator/config.yml`과 vault의 source folder는 보존하면서 생성된 Curator
+`.curator/settings.yml`과 vault의 source folder는 보존하면서 생성된 Curator
 상태를 초기화합니다. tracking database (DB 내장 검색 인덱스 포함), generated Collections,
 dashboard/index/overview/ledger/log 파일, sync report, transient staging 파일,
 build trace canvas, device registry, sidechat session state를 제거합니다. 오래된

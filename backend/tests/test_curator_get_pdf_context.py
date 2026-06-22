@@ -109,7 +109,7 @@ class CuratorGetPdfContextTests(unittest.TestCase):
         from curator import constants as consts
         curator_dir = self.root / consts.INTERNAL_DIR
         curator_dir.mkdir(parents=True, exist_ok=True)
-        (curator_dir / consts.CONFIG_FILE).write_text("llm:\n  provider: ollama\n", encoding="utf-8")
+        (curator_dir / consts.SETTINGS_FILE).write_text("llm:\n  provider: ollama\n", encoding="utf-8")
         paths = cfg.WikiPaths(self.root)
         for d in paths.raw_dirs:
             d.mkdir(parents=True, exist_ok=True)

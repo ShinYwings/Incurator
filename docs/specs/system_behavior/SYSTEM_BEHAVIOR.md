@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.24.0)
+# Incurator - System Behavior (v0.25.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -773,7 +773,7 @@ Status rules:
 
 ## 12.1 Reset Behavior
 
-`wiki reset` preserves `.curator/config.yml` and source folders, but clears
+`wiki reset` preserves `.curator/settings.yml` and source folders, but clears
 generated and device-local Curator state that can make a fresh vault run appear
 stale:
 
@@ -928,10 +928,10 @@ The machine-local config blocks are:
 These blocks may contain provider choices, model cache paths, Ollama/DeepSeek
 connection settings, embedding/reranker model paths, external roots, and Zotero
 data/attachment roots. They must not be persisted as shared vault truth in
-`.curator/config.yml` because each device can have different local paths and
+`.curator/settings.yml` because each device can have different local paths and
 model availability.
 
-`.curator/config.yml` remains vault-scoped and portable. It may hold values such
+`.curator/settings.yml` remains vault-scoped and portable. It may hold values such
 as `version`, `paths`, `persona`, `sync`, `auto_sync`, and `curate`.
 
 When a backend loads a vault config that still contains `llm`, `search`, or

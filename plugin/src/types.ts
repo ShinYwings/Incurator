@@ -81,8 +81,8 @@ export interface PluginSettings {
   provider: LLMProvider;
   model: string;
   chatMode: ChatMode;
-  codexReasoningEffort: CodexReasoningEffort;
-  claudeEffort: ClaudeEffort;
+  codexReasoningEffort: string;
+  claudeEffort: string;
   agentEffort: string;
   antigravityPrintTimeoutSec: number;
   providerUsage: Record<LLMProvider, ProviderUsage>;

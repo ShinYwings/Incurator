@@ -4,7 +4,39 @@ All notable changes to Incurator are documented here.
 
 ---
 
-## [0.24.0] - 2026-06-22
+## [0.25.0] - 2026-06-23
+### Changed
+- **Backend ↔ plugin config isolation + rename.** The vault-scoped config file is
+  renamed `.curator/config.yml` → `.curator/settings.yml` so it no longer collides
+  by name with the per-device backend config `<repo>/.cache/config/config.yml`.
+  Rule: per-device backend settings (`llm`, `search`, `external`) and
+  `devices.json` live only in the repo's `.cache/config/` (never synced); only
+  device-portable, syncable settings live in the vault's `.curator/settings.yml`.
+  No backward-compat: existing vaults must re-init or rename their config file.
+### Added
+- **`wiki status --json`.** Prints the live consolidated `{status, sources, jobs}`
+  payload to stdout. The Obsidian dashboard now reads this live output directly
+  (one CLI call per render, cached across panels) instead of the on-disk
+  `.curator/runtime/*.json` snapshot — so it can never show stale data when a
+  backend change forgets to regenerate the snapshot. The snapshot file remains a
+  best-effort cache for the lightweight chat status bar only.
+### Fixed
+- **Dashboard ↔ `wiki status` desync ("Apply reverts after visiting Jobs").**
+  `wiki config set --global` wrote `settings.yml` while the loader read
+  `config.yml`, so global LLM changes (fallback / PDF-vision / LaTeX-region
+  models, set via `config set`) silently reverted while the primary (set via
+  `config provider`) stuck. Both `config get/set --global` now use the backend
+  global `config.yml`.
+- **Dashboard LLM Apply did nothing on fresh vaults.** Apply was gated on a
+  successful `.curator/settings.yml` read, but LLM is a machine-local key that
+  never lives there — the gate is removed (model-selected is the only precondition).
+- **Dashboard changes appeared to revert.** The LLM Apply and Persona Save
+  handlers did not refresh the backend snapshot after writing, so re-rendering
+  showed the stale pre-save values; both now regenerate + re-read like every other
+  mutation handler.
+- **Dashboard model-load timer leak.** Closing the dashboard before the model
+  catalogue loaded left a 400 ms `setInterval` polling a detached DOM; it is now
+  tracked and cleared in `onClose()`.
 ### Changed
 - **Edit-review loop demoted from hard gate to a hint.** A valid `ai-agent-edit`
   proposal now always opens a reviewable diff, even when the model skips the

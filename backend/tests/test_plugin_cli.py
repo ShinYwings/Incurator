@@ -552,7 +552,7 @@ def test_devices_default_status_lists_syncthing_only_profiles(tmp_path: Path) ->
     vault = tmp_path / "vault"
     curator_dir = vault / ".curator"
     curator_dir.mkdir(parents=True)
-    (curator_dir / "config.yml").write_text("version: 1\n", encoding="utf-8")
+    (curator_dir / "settings.yml").write_text("version: 1\n", encoding="utf-8")
     
     from curator import device_registry
     registry_path = device_registry.registry_path(vault)

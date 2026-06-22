@@ -12,7 +12,8 @@ DIR_GLOBAL_CACHE = ".cache/config"
 
 # System Files
 FILE_CURATE_YML = "curate.yml"
-FILE_CONFIG_YML = "config.yml"
+FILE_SETTINGS_YML = "settings.yml"
+FILE_GLOBAL_CONFIG_YML = "config.yml"
 FILE_DEVICES_JSON = "devices.json"
 FILE_OVERVIEW_MD = "overview.md"
 FILE_LEDGER_MD = "ledger.md"
@@ -59,7 +60,7 @@ INDEX_FILE = "index.md"
 OVERVIEW_FILE = "overview.md"
 LOG_FILE = "log.md"
 LEDGER_FILE = "ledger.md"
-CONFIG_FILE = "config.yml"
+SETTINGS_FILE = "settings.yml"
 STAGING_DIR = ".curator/staging"
 DEFAULT_COLLECTIONS_DIR = ".curator/Collections"
 

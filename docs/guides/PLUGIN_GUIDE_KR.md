@@ -437,7 +437,7 @@ ingest 비전은 기존 제공자의 **CLI 구독**(Ollama, 또는 `claude`/`agy
 플러그인은 Antigravity, Claude, OpenAI Codex, Ollama, DeepSeek를 지원합니다. 설정 탭에서는 제공자와 모델을 따로 조정할 수 있고, 채팅 사이드바 하단에서는 하나의 모델 선택 메뉴에서 `Provider · Model` 형식으로 함께 전환합니다. reasoning/effort 메뉴는 백엔드 카탈로그에서 effort 단계가 선언된 모델에만 표시됩니다.
 
 > [!NOTE]
-> **Incurator Dashboard → Overview → LLM Provider** 카드는 현재 기기의 캐시 설정(`.cache/config/config.yml`)에 Primary/Fallback 모델을 저장합니다. 각 모델 드롭다운 옆에는 **effort 드롭다운**이 함께 표시되며, 선택한 모델이 노출하는 강도만 보여줍니다(강도가 없는 모델은 `—`). Apply 시 Primary/Fallback과 effort 값은 `wiki config`를 통해 저장되므로, 기기별 모델 선택이 동기화되는 vault의 `.curator/config.yml`로 새지 않습니다. 모델 목록은 플러그인 빌드 시 백엔드의 `data/models.json` 카탈로그(단일 소스)에서 번들링되므로, 모델 이름 표시가 MCP 시작 여부에 의존하지 않습니다.
+> **Incurator Dashboard → Overview → LLM Provider** 카드는 현재 기기의 캐시 설정(`.cache/config/config.yml`)에 Primary/Fallback 모델을 저장합니다. 각 모델 드롭다운 옆에는 **effort 드롭다운**이 함께 표시되며, 선택한 모델이 노출하는 강도만 보여줍니다(강도가 없는 모델은 `—`). Apply 시 Primary/Fallback과 effort 값은 `wiki config`를 통해 저장되므로, 기기별 모델 선택이 동기화되는 vault의 `.curator/settings.yml`로 새지 않습니다. 모델 목록은 플러그인 빌드 시 백엔드의 `data/models.json` 카탈로그(단일 소스)에서 번들링되므로, 모델 이름 표시가 MCP 시작 여부에 의존하지 않습니다.
 >
 > 모델 드롭다운 아래의 **Ollama models** 섹션은 `data/models.json`의 추천 Ollama 모델을 이 머신 기준으로 보여줍니다. 이미 받은 모델에는 **installed** 배지, `vram_gb`가 감지된 RAM보다 큰 모델에는 **exceeds RAM** 배지가 붙고, 아직 설치되지 않은 모델에는 **Pull** 버튼(`wiki plugin models pull`)이 표시되어 `ollama pull`을 실행하고 새로고침합니다. 덕분에 "로컬 모델로 전환 → 빌드 재개"(Sources 탭의 **Retry errored sources** 버튼 참고) 흐름이 처음부터 끝까지 동작합니다.
 

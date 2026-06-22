@@ -1,7 +1,7 @@
 """Vault schema migration helpers.
 
 Bump VAULT_SCHEMA_VERSION in constants.py and add a step to _MIGRATION_STEPS
-whenever Collections/*.md or .curator/config.yml structure changes in a way
+whenever Collections/*.md or .curator/settings.yml structure changes in a way
 that requires existing vaults to be updated.
 
 Usage:

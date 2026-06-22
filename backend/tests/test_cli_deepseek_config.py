@@ -76,7 +76,7 @@ def test_config_provider_deepseek_api_key_uses_local_secret(tmp_path: Path, monk
     assert config_result.exit_code == 0, config_result.output
 
     # Raw key must NOT appear anywhere in the synced vault config
-    vault_text = (vault / ".curator" / "config.yml").read_text(encoding="utf-8")
+    vault_text = (vault / ".curator" / "settings.yml").read_text(encoding="utf-8")
     assert "sk-test-secret" not in vault_text
     # llm is machine-local → key reference goes to global cache, not vault
     assert "api_key_secret" not in vault_text

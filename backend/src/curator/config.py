@@ -19,7 +19,7 @@ import yaml
 from . import constants as consts
 
 # ---------------------------------------------------------------------------
-# Defaults (used when no config.yml has been written yet)
+# Defaults (used when no settings.yml has been written yet)
 # ---------------------------------------------------------------------------
 
 # Source directories the Curator monitors (READ-ONLY).
@@ -52,7 +52,7 @@ class WikiPaths:
     """Resolved absolute paths for a Curator project.
 
     ``raw_dirs_override`` and ``collections_dir_override`` allow per-project
-    customisation via ``config.yml`` (written during ``wiki init``).
+    customisation via ``settings.yml`` (written during ``wiki init``).
     """
 
     root: Path
@@ -142,8 +142,8 @@ class WikiPaths:
 
     @property
     def config_file(self) -> Path:
-        """`.curator/config.yml`"""
-        return self.internal / consts.CONFIG_FILE
+        """`.curator/settings.yml`"""
+        return self.internal / consts.SETTINGS_FILE
 
     @property
     def state_db(self) -> Path:
@@ -316,7 +316,7 @@ def save_global_config(config: dict) -> None:
     """Write config to the global cache config directory, merging with existing."""
     global_dir = get_global_config_dir()
     global_dir.mkdir(parents=True, exist_ok=True)
-    config_file = global_dir / consts.FILE_CONFIG_YML
+    config_file = global_dir / consts.FILE_GLOBAL_CONFIG_YML
 
     existing = {}
     if config_file.exists():
@@ -389,13 +389,13 @@ def _migrate_vault_machine_local_to_global(paths: WikiPaths, vault_cfg: dict) ->
 
 
 def load_config(paths: WikiPaths) -> dict:
-    """Load the Curator's config.yml, falling back to defaults for missing keys."""
+    """Load the Curator's settings.yml, falling back to defaults for missing keys."""
     import copy
 
     merged = copy.deepcopy(DEFAULT_CONFIG)
 
     # 1. Load from global config file if it exists
-    global_cfg_file = get_global_config_dir() / consts.FILE_CONFIG_YML
+    global_cfg_file = get_global_config_dir() / consts.FILE_GLOBAL_CONFIG_YML
     if global_cfg_file.exists():
         try:
             with global_cfg_file.open("r", encoding="utf-8") as f:
@@ -483,7 +483,7 @@ def save_config(paths: WikiPaths, config: dict) -> None:
 
     Keys in MACHINE_LOCAL_CONFIG_KEYS (llm, search, external) are written to
     the global cache config instead of the synced vault config.  All other
-    keys go to .curator/config.yml as before.
+    keys go to .curator/settings.yml as before.
     """
     machine_local = {k: v for k, v in config.items() if k in MACHINE_LOCAL_CONFIG_KEYS}
     vault_only = {k: v for k, v in config.items() if k not in MACHINE_LOCAL_CONFIG_KEYS}
@@ -495,7 +495,7 @@ def save_config(paths: WikiPaths, config: dict) -> None:
 
 
 def find_wiki_root(start: Path | None = None) -> Path | None:
-    """Walk upward from ``start`` looking for a ``.curator/config.yml``.
+    """Walk upward from ``start`` looking for a ``.curator/settings.yml``.
 
     Vaults marked with ``testbed: true`` in their config are skipped so that
     development testbeds are never auto-selected for production commands.
@@ -505,7 +505,7 @@ def find_wiki_root(start: Path | None = None) -> Path | None:
     import yaml as _yaml
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
-        cfg_file = candidate / consts.INTERNAL_DIR / consts.CONFIG_FILE
+        cfg_file = candidate / consts.INTERNAL_DIR / consts.SETTINGS_FILE
         if cfg_file.exists():
             try:
                 data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}

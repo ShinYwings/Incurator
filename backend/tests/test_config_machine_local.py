@@ -43,7 +43,7 @@ def test_load_config_migrates_machine_local_blocks_to_global_cache(
     assert "external" not in local
     assert local["persona"]["area"] == "STEM"
 
-    global_cfg = yaml.safe_load((global_dir / consts.FILE_CONFIG_YML).read_text(encoding="utf-8"))
+    global_cfg = yaml.safe_load((global_dir / consts.FILE_GLOBAL_CONFIG_YML).read_text(encoding="utf-8"))
     assert global_cfg["llm"]["primary"] == "codex-cli::gpt-5.5"
     assert global_cfg["search"]["embedding_model_path"] == "/machine/a/embed.gguf"
     assert global_cfg["external"]["zotero"]["roots"] == ["/machine/a/Zotero"]
