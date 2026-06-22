@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.23.0)
+# Incurator Plugin Schema & API Contract (v0.24.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -918,8 +918,9 @@ Rules:
   region (model-independent guard against whole-answer-as-one-REPLACE scope drift).
 - There is NO on-disk diff artifact. The previous `00_System/Agent Diffs/` note
   feature and its `editArtifactEnabled` setting were removed in v0.5.0; the
-  in-editor `DiffViewer` is the single source of truth. (Pre-existing artifact
-  files in users' vaults are left untouched.)
+  in-editor `DiffViewer` is the single source of truth. (v0.24.0: a one-shot
+  load-time migration trashes any leftover `00_System/Agent Diffs/` folder, since
+  the earlier removal also dropped the cleanup path — see §6.3.)
 - **Accept-All cursor (v0.14.1)**: after `Accept All`, the cursor is restored to
   the FIRST changed hunk's line (cached when the diff opened), not the end of the
   rewritten region. A whole-file review must not teleport the caret to the bottom
@@ -951,10 +952,16 @@ Rules:
   files before reporting a file as not found. It does not fall back to basename
   matching, because a same-named note in another folder is a different target.
 
-### 6.1 Edit-Loop State Machine Contract (v0.14.0)
+### 6.1 Edit-Loop State Machine Contract (v0.14.0, demoted to a hint in v0.24.0)
 
-Edit proposals must follow an observable, enforced four-phase loop so the agent
-cannot silently jump from tool selection to file mutation ("vibe-coding").
+The four-phase loop is an **observable quality hint, not a hard gate** (v0.24.0).
+A valid, matchable `ai-agent-edit` proposal is ALWAYS reviewable regardless of
+whether the model emitted the `[[PHASE:…]]` markers. The earlier hard gate
+suppressed the diff entirely when the markers were missing or mis-ordered, which
+made the feature unusable on token-limited and low-instruction-following models
+(they would describe an edit, emit a valid SEARCH/REPLACE block, but get no
+diff). The contract below still shapes a *conforming* answer's presentation; a
+non-conforming answer now renders the diff pills plus a soft, non-blocking hint.
 
 - **Canonical phase markers.** When the agent proposes any `ai-agent-edit`
   block, the response MUST contain the four phases, in order, each introduced by
@@ -986,17 +993,73 @@ cannot silently jump from tool selection to file mutation ("vibe-coding").
   `hasEdits` is true (the content contains at least one `ai-agent-edit` block). A
   response containing edit blocks but missing or mis-ordering the four phases is
   `ok: false`. A pure Q&A response with no edit blocks is never gated.
-- **Hard gate.** When `validateEditLoop` returns `ok: false` for an edit-bearing
-  response, the default Review/Apply entry point (`DiffViewer.show`) MUST NOT
-  auto-open. The message renders a blocked-state banner with two explicit actions:
-  **Re-run with loop** (re-prompts the model with a one-line reminder) and
-  **Override & review anyway** (a conscious user escape hatch that opens the diff
-  despite the missing loop, so a non-compliant provider is never a dead end).
-- **Observable UI.** A conforming response renders each phase as a distinct,
-  labeled, collapsible section (`.ai-agent-edit-phase[data-phase]`), reusing the
-  thought-block styling vocabulary; the inline diff/review pill is anchored inside
-  the `UPDATED` section. The contract does not expose private chain-of-thought —
-  the phases are deliberate, user-facing work products.
+- **Soft hint (v0.24.0, replaces the old hard gate).** When `validateEditLoop`
+  returns `ok: false` for an edit-bearing response, the diff is STILL reviewable:
+  `maybeAutoOpenDiff` proceeds under its normal safe-focus gate, and the render
+  path shows the edit pills plus a non-blocking note
+  (`.ai-agent-edit-loop-hint`) with an optional **Re-run with review** button.
+  There is no longer a blocked banner, no "Override & review anyway" escape
+  hatch, and no `editLoopBlocked`/`editLoopOverridden` message state — a valid
+  edit is never a dead end on any model.
+- **Observable UI.** A conforming response (markers present AND valid) renders each
+  phase as a distinct, labeled, collapsible section
+  (`.ai-agent-edit-phase[data-phase]`), reusing the thought-block styling
+  vocabulary; the inline diff/review pill is anchored inside the `UPDATED`
+  section. The contract does not expose private chain-of-thought — the phases are
+  deliberate, user-facing work products.
+
+### 6.2 Output-Token Truncation Recovery (v0.24.0)
+
+Token-limited providers (Gemini's `MAX_TOKENS`, OpenAI/Ollama `length`, Claude
+`max_tokens`) frequently cut an answer off mid-stream — often inside an
+`ai-agent-edit` block, leaving a broken proposal and no diff.
+
+- **Normalized signal.** `StreamChunk` carries `finishReason`
+  (`stop | length | tool_calls | content_filter | error`) and a derived
+  `truncated` boolean. Each provider adapter's `extractDelta` maps its native
+  field: Antigravity `finishReason==="MAX_TOKENS"`, OpenAI/DeepSeek/Ollama
+  `finish_reason==="length"`, Claude `message_delta.stop_reason==="max_tokens"`.
+  `SAFETY`/`RECITATION`/`content_filter` terminate the stream but are NOT
+  treated as truncation (continuing cannot help).
+- **Auto-continue.** On a truncated finish the chat layer issues up to **3**
+  continuation requests (`buildContinuationPrompt`), each appending the partial
+  as an assistant turn + a "resume exactly where you stopped" user turn. When the
+  cut happened inside an edit block, the prompt tells the model to finish the
+  SEARCH/REPLACE body and close the fence rather than re-open a new block. The
+  loop stops on a clean finish, the cap, or a zero-delta round (stuck model).
+- **Fence-safe stitch.** Continuations are spliced with longest-overlap
+  suffix/prefix de-duplication (minimum overlap `MIN_STITCH_OVERLAP` so a lone
+  backtick/newline is never trusted) and a repair pass that collapses a doubled
+  ` ```ai-agent-edit ` marker created at the seam.
+- **No premature finalization.** A `done && truncated` chunk does NOT flip the
+  message out of `isStreaming`; the edit pills and `maybeAutoOpenDiff` fire only
+  after truncation is fully resolved (or the cap is hit), never on an in-flight
+  partial. If still truncated after the cap, the message persists `truncated`
+  and renders a manual **Continue** affordance (`.ai-agent-truncation-continue`);
+  reloading an old session never re-triggers auto-continue.
+
+### 6.3 Diff Viewer Robustness (v0.24.0)
+
+- **Focus-gated shortcuts.** The Diff Viewer's keyboard shortcuts
+  (Enter=Accept-All, Y/N, Tab/Esc) fire ONLY when focus is inside the diff's own
+  CodeMirror editor or its floating toolbar (`shouldHandleDiffShortcut`). The
+  previous document-global handler applied edits when the user pressed Enter in
+  the chat input while a diff was open. `DiffViewer.show` calls `cmView.focus()`
+  on open so a pill-click review (focus in the sidebar) still gets working
+  shortcuts.
+- **Typed open result.** `DiffViewer.show` returns `{ opened, reason }`
+  (`no_changes | editor_not_ready`); callers surface the exact reason as a Notice
+  instead of returning silently.
+- **Order-independent multi-edit.** Multiple proposals for one file are matched
+  against the ORIGINAL text (not the running result) and composed as
+  non-overlapping splices, so applying one edit can no longer break another's
+  SEARCH. Skipped proposals are reported as either "not found" or "overlapping",
+  and a same-target re-entrant Review request coalesces silently instead of
+  raising "a diff review is already opening".
+- **Legacy artifact cleanup.** On load the plugin trashes a leftover
+  `00_System/Agent Diffs/` folder once (guarded by `legacyAgentDiffsCleaned`),
+  moving it to system trash. The on-disk diff artifact writer itself remains
+  removed (there is no writer).
 
 ## 7. Backend Access Contract
 

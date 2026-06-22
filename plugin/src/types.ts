@@ -122,6 +122,12 @@ export interface PluginSettings {
   recentZoteroItems: string[];
   lastMarkdownScrollPosition?: LastMarkdownScrollPosition;
   fileScrollPositions?: Record<string, FileScrollPosition>;
+  /**
+   * Internal one-shot migration flag (v0.24.0): set once the legacy
+   * `00_System/Agent Diffs/` artifact folder (removed in 944271b) has been
+   * trashed from this vault. Not a user-facing setting.
+   */
+  legacyAgentDiffsCleaned?: boolean;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -282,13 +288,13 @@ export interface ChatMessage {
   /** True once this message's edit diff was auto-opened, so it never re-opens. */
   diffAutoOpened?: boolean;
   /**
-   * Set when an edit-bearing answer skipped the required Analysed→Reviewed→
-   * Updated→Reviewed loop (v0.14.0). The render path shows a blocked banner and
-   * suppresses auto-open until the user explicitly overrides.
+   * Set when the model hit its output-token cap and the answer is still cut off
+   * AFTER auto-continue exhausted its retries (v0.24.0). Surfaces a manual
+   * "Continue" affordance. Persisted; never re-triggers auto-continue on reload.
    */
-  editLoopBlocked?: boolean;
-  /** True once the user clicked "Override & review anyway" on a blocked edit. */
-  editLoopOverridden?: boolean;
+  truncated?: boolean;
+  /** Number of auto-continuation rounds already spent on this message (cap 3). */
+  continuationsDone?: number;
   revertData?: { filepath: string; originalContent: string | null }[];
 }
 
@@ -766,9 +772,26 @@ export type LLMContentPart =
 
 export type StreamEventType = "text" | "thinking" | "status" | "tool" | "done";
 
+/**
+ * Normalized stream terminal reason, mapped from each provider's own field
+ * (Gemini `finishReason`, OpenAI/Ollama `finish_reason`, Claude `stop_reason`).
+ * `length` means the model hit its output-token cap and the answer is cut off —
+ * the chat layer treats this as `truncated` and may auto-continue.
+ */
+export type StreamFinishReason =
+  | "stop"
+  | "length"
+  | "tool_calls"
+  | "content_filter"
+  | "error";
+
 export interface StreamChunk {
   text: string;
   done: boolean;
+  /** Normalized terminal reason; only meaningful on a `done` (or terminal) chunk. */
+  finishReason?: StreamFinishReason;
+  /** True when the provider stopped due to its output-token cap (`length`). */
+  truncated?: boolean;
   reasoning_content?: string;
   eventType?: StreamEventType;
   status?: string;
