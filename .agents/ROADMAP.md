@@ -24,11 +24,6 @@ Source of Truth to identify unresolved items.
 
 ### 🚀 Priority Order
 
-2. **[Major Update] Diff Viewer UI/UX**
-   - UI/UX work including `ai-agent-edit` SEARCH-match failures, edit-scope bug, immediate-diff rendering, and hunk navigation.
-   - Cleanup of `00_System/Agent Diffs/`.
-   - Detailed analysis: `.agents/drafts/diff_viewer_plugin.md`
-
 3. **[Major Update] Prompt Architecture Overhaul & Refactoring**
    - Centralized prompt registry, componentized generation, and dynamic anchoring.
    - Detailed analysis: `.agents/drafts/prompt_architecture_refactoring.md`
@@ -62,6 +57,18 @@ Source of Truth to identify unresolved items.
 
 ## ✅ Completed Milestones
 
+- **v0.24.0 — Diff Viewer Multi-Model Robustness** (shipped 2026-06-22): the
+  `ai-agent-edit` → Diff Viewer flow now works across model tiers. The four-phase
+  review loop was demoted from a hard gate to a hint (a valid SEARCH/REPLACE is always
+  reviewable, even when a weak/token-limited model skips the `[[PHASE:…]]` markers);
+  output-token truncation (Gemini `MAX_TOKENS`, OpenAI/Ollama `length`, Claude
+  `max_tokens`) is detected via `StreamChunk.finishReason`/`truncated` and auto-continued
+  (≤3, fence-safe overlap stitch, no premature finalization, manual Continue fallback);
+  the Diff Viewer keyboard shortcuts are focus-gated (chat-Enter no longer Accept-Alls)
+  with `show()` focusing the editor and returning a typed `{opened,reason}`; multi-edit
+  proposals match against the original text (order-independent) with same-file review
+  coalesce; and a one-shot load-time migration trashes the legacy `00_System/Agent Diffs/`
+  folder.
 - **v0.23.0 — CLI Provider Tool-Scope Sandbox** (shipped 2026-06-22): closed the
   CLI-native-tool escape the v0.19.0 MCP isolation left open. `toolPolicy` now reaches
   the CLI command builder — popover runs tool-free, sidechat scopes tools to the
@@ -88,7 +95,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Implementing Diff Viewer UI/UX on `feature/diff-viewer-ui-ux`.
-- **Active Milestone**: Diff Viewer UI/UX.
-- **Next actionable item**: Implement the Diff Viewer UI/UX.
-- **Priority order**: Diff Viewer UI/UX, then Prompt Architecture Overhaul.
+- **Roadmap state**: v0.24.0 Diff Viewer robustness implemented on
+  `feature/diff-viewer-ui-ux`; PR pending merge.
+- **Active Milestone**: Diff Viewer UI/UX (v0.24.0) — done, awaiting merge.
+- **Next actionable item**: After merge, Prompt Architecture Overhaul & Refactoring.
+- **Priority order**: (merge v0.24.0) → Prompt Architecture Overhaul.
