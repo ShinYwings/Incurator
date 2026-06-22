@@ -502,7 +502,7 @@ appear in the dropdowns. This replaces the v0.21.0 `latexModel` plugin setting.
 > dropdown is paired with an **effort dropdown** that shows only the levels the
 > selected model exposes (models with no effort show `—`). Applying saves
 > Primary/Fallback and their effort values through `wiki config`, so these
-> machine-local choices do not leak into the synced vault `.curator/config.yml`.
+> machine-local choices do not leak into the synced vault `.curator/settings.yml`.
 > The model list is bundled from the backend's single-source `data/models.json`
 > catalogue when the plugin is built, so model names do not depend on MCP startup.
 >

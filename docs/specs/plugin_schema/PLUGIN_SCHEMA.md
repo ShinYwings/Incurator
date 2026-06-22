@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.24.0)
+# Incurator Plugin Schema & API Contract (v0.25.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -58,7 +58,7 @@ polling.
 
 Dashboard controls that change backend state must execute backend commands or
 backend-owned APIs. The plugin must not implement those controls by directly
-editing `.curator/config.yml`, `.curator/state.sqlite`, generated Collections,
+editing `.curator/settings.yml`, `.curator/state.sqlite`, generated Collections,
 or runtime snapshots.
 
 Zotero plugin flows must use backend commands for Zotero database access. The
@@ -953,7 +953,7 @@ Rules:
 
 ### 6.1 Edit-Loop State Machine Contract (v0.14.0, demoted to a hint in v0.24.0)
 
-The four-phase loop is an **observable quality hint, not a hard gate** (v0.24.0).
+The four-phase loop is an **observable quality hint, not a hard gate** (v0.25.0).
 A valid, matchable `ai-agent-edit` proposal is ALWAYS reviewable regardless of
 whether the model emitted the `[[PHASE:…]]` markers. The earlier hard gate
 suppressed the diff entirely when the markers were missing or mis-ordered, which
@@ -1007,7 +1007,7 @@ non-conforming answer now renders the diff pills plus a soft, non-blocking hint.
   section. The contract does not expose private chain-of-thought — the phases are
   deliberate, user-facing work products.
 
-### 6.2 Output-Token Truncation Recovery (v0.24.0)
+### 6.2 Output-Token Truncation Recovery (v0.25.0)
 
 Token-limited providers (Gemini's `MAX_TOKENS`, OpenAI/Ollama `length`, Claude
 `max_tokens`) frequently cut an answer off mid-stream — often inside an
@@ -1037,7 +1037,7 @@ Token-limited providers (Gemini's `MAX_TOKENS`, OpenAI/Ollama `length`, Claude
   and renders a manual **Continue** affordance (`.ai-agent-truncation-continue`);
   reloading an old session never re-triggers auto-continue.
 
-### 6.3 Diff Viewer Robustness (v0.24.0)
+### 6.3 Diff Viewer Robustness (v0.25.0)
 
 - **Focus-gated shortcuts.** The Diff Viewer's keyboard shortcuts
   (Enter=Accept-All, Y/N, Tab/Esc) fire ONLY when focus is inside the diff's own

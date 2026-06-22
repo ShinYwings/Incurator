@@ -22,11 +22,18 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
+### 🚨 URGENT HOTFIX QUEUE
+_(empty — config-isolation hotfix shipped as v0.25.0, commit `b9a49a1`; see Completed.)_
+
 ### 🚀 Priority Order
 
-3. **[Major Update] Prompt Architecture Overhaul & Refactoring**
-   - Centralized prompt registry, componentized generation, and dynamic anchoring.
-   - Detailed analysis: `.agents/drafts/prompt_architecture_refactoring.md`
+3. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
+   - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
+     redundancy, architectural debt) + refactoring with architectural redesign
+     allowed; prompt-v2 for cross-model output consistency; legacy/dead-code sweep.
+   - Master Plan: `.agents/plans/01_system_stability_overhaul.md`
+   - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
+   - Delivered as a chain of minor-release PRs (0.25.0 → 0.26.0 → …).
 
 4. **[Validation] `[[wikilink]]` Architecture Validation**
    - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
@@ -57,6 +64,18 @@ Source of Truth to identify unresolved items.
 
 ## ✅ Completed Milestones
 
+- **v0.25.0 — Backend/Plugin Config Isolation + Dashboard Live-Read** (shipped
+  2026-06-23, commit `b9a49a1`, unpushed): vault config renamed
+  `.curator/config.yml` → `.curator/settings.yml` to end the name collision with
+  the per-device backend `<repo>/.cache/config/config.yml` (per-device keys +
+  devices.json stay out of the synced `.curator/`). Fixed the dashboard ↔
+  `wiki status` desync (the "Apply reverts after Jobs" bug — `config set --global`
+  wrote settings.yml while the loader read config.yml), plus the LLM-Apply
+  read-gate, missing post-mutation refresh on LLM/Persona, and a model-load timer
+  leak. New `wiki status --json` live payload: the dashboard reads ALL backend
+  info live from it (one cached CLI call/render) instead of a stale-prone snapshot
+  file; the runtime snapshot stays at `.curator/runtime/` (device-local) purely as
+  a chat-status-bar cache.
 - **v0.24.0 — Diff Viewer Multi-Model Robustness** (shipped 2026-06-22): the
   `ai-agent-edit` → Diff Viewer flow now works across model tiers. The four-phase
   review loop was demoted from a hard gate to a hint (a valid SEARCH/REPLACE is always
@@ -94,8 +113,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.24.0 Diff Viewer robustness implemented on
-  `feature/diff-viewer-ui-ux`; PR pending merge.
-- **Active Milestone**: Diff Viewer UI/UX (v0.24.0) — done, awaiting merge.
-- **Next actionable item**: After merge, Prompt Architecture Overhaul & Refactoring.
-- **Priority order**: (merge v0.24.0) → Prompt Architecture Overhaul.
+- **Roadmap state**: Urgent config-isolation hotfix shipped (v0.25.0, commit `b9a49a1`, unpushed). Branch `feature/prompt-architecture-refactoring` resumes the System Stability Overhaul.
+- **Active Milestone**: System Stability Overhaul — Exhaustive Diagnosis & Refactoring (Phase A diagnosis in progress).
+- **Next actionable item**: Resume Phase A diagnosis — merge G01–G06 (`.agents/plans/diagnosis/`) into the ledger, then run G07–G19 (multi-agent fan-out resets at session limit). See `.agents/RELAY.md` PHASE A RESUMPTION PROTOCOL.

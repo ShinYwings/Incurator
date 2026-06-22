@@ -621,12 +621,12 @@ def _resolve_root_or_die(hint_path: Path | None = None) -> cfg.WikiPaths:
     env_root = os.environ.get("VAULT_ROOT")
     if env_root:
         root_path = Path(env_root).resolve()
-        if (root_path / consts.INTERNAL_DIR / consts.CONFIG_FILE).exists():
+        if (root_path / consts.INTERNAL_DIR / consts.SETTINGS_FILE).exists():
             # Don't persist testbed vaults to global last_root
             try:
                 import yaml as _yaml
                 _d = _yaml.safe_load(
-                    (root_path / consts.INTERNAL_DIR / consts.CONFIG_FILE).read_text(encoding="utf-8")
+                    (root_path / consts.INTERNAL_DIR / consts.SETTINGS_FILE).read_text(encoding="utf-8")
                 ) or {}
                 if not _d.get("testbed", False):
                     cfg.set_last_root(root_path)
@@ -641,11 +641,11 @@ def _resolve_root_or_die(hint_path: Path | None = None) -> cfg.WikiPaths:
     # (e.g. running a global command from a neutral directory)
     if root is None and hint_path is None:
         last_root = cfg.get_last_root()
-        if last_root and (last_root / consts.INTERNAL_DIR / consts.CONFIG_FILE).exists():
+        if last_root and (last_root / consts.INTERNAL_DIR / consts.SETTINGS_FILE).exists():
             import yaml as _yaml
             try:
                 _cfg_data = _yaml.safe_load(
-                    (last_root / consts.INTERNAL_DIR / consts.CONFIG_FILE).read_text(encoding="utf-8")
+                    (last_root / consts.INTERNAL_DIR / consts.SETTINGS_FILE).read_text(encoding="utf-8")
                 ) or {}
             except Exception:
                 _cfg_data = {}
@@ -1831,7 +1831,7 @@ def _maybe_auto_evolve_curator_persona(
 ) -> None:
     """Silently update Curator persona if new_domains are outside its current scope.
 
-    Makes a single non-interactive LLM call. Updates config.yml in-place.
+    Makes a single non-interactive LLM call. Updates settings.yml in-place.
     Failures are silently swallowed — never blocks wiki add.
     """
     if not new_domains:
@@ -2122,7 +2122,7 @@ def reset(
         help="Do not prompt for confirmation.",
     )
 ) -> None:
-    """Reset the Curator vault state while preserving config.yml.
+    """Reset the Curator vault state while preserving settings.yml.
     
     This deletes the tracking database (state.sqlite) including the native
     search index, the ingest log, overview/index/ledger files, and clears 
@@ -2208,7 +2208,7 @@ def init(
     Creates:
       .obsidian/                 — Obsidian vault marker (created if absent)
       00_System/ … 06_Archives/ — Vault topology (created if absent)
-      .curator/config.yml        — project configuration
+      .curator/settings.yml        — project configuration
       .curator/state.sqlite      — tracking database
       .curator/Collections/      — 01_Contexts/ 02_Atoms/ 03_Concepts/ 04_Synthesis/
       .curator/overview.md       — domain manifest
@@ -2357,7 +2357,7 @@ def init(
     for layer in cfg.COLLECTION_LAYERS:
         (paths.collections / layer).mkdir(parents=True, exist_ok=True)
 
-    # 3. Write config.yml
+    # 3. Write settings.yml
     cfg.save_config(paths, config)
     _ok(f"Config:    {paths.config_file.relative_to(root)}")
 
@@ -2478,7 +2478,7 @@ def config_get(
 
     if global_only:
         raw: dict = {}
-        global_cfg_file = cfg.get_global_config_dir() / consts.FILE_CONFIG_YML
+        global_cfg_file = cfg.get_global_config_dir() / consts.FILE_GLOBAL_CONFIG_YML
         if global_cfg_file.exists():
             import yaml as _yaml
             with global_cfg_file.open("r", encoding="utf-8") as f:
@@ -2489,7 +2489,7 @@ def config_get(
             raw = cfg.load_config(paths)
         except SystemExit:
             raw = {}
-            global_cfg_file = cfg.get_global_config_dir() / consts.FILE_CONFIG_YML
+            global_cfg_file = cfg.get_global_config_dir() / consts.FILE_GLOBAL_CONFIG_YML
             if global_cfg_file.exists():
                 import yaml as _yaml
                 with global_cfg_file.open("r", encoding="utf-8") as f:
@@ -2534,7 +2534,7 @@ def config_set(
     if global_cfg:
         config_dir = cfg.get_global_config_dir()
         config_dir.mkdir(parents=True, exist_ok=True)
-        config_file = config_dir / consts.FILE_CONFIG_YML
+        config_file = config_dir / consts.FILE_GLOBAL_CONFIG_YML
     else:
         paths = _resolve_root_or_die()
         config_file = paths.config_file
@@ -2581,6 +2581,16 @@ def config_set(
     scope = "global" if global_cfg else "project"
     console.print(f"[green]✓[/green] {scope} config updated: [bold]{key}[/bold] = {_json.dumps(parsed_value, ensure_ascii=False)}")
     console.print(f"[dim]  {config_file}[/dim]")
+
+    # Refresh runtime snapshots so the plugin dashboard picks up the change
+    # immediately without an extra `wiki status` round-trip.
+    try:
+        root = cfg.find_wiki_root()
+        if root:
+            paths = cfg.paths_from_config(root)
+            runtime_state.write_runtime_snapshots(paths, cfg.load_config(paths))
+    except Exception:
+        pass  # best-effort; CLI-only users don't need this
 
 
 @config_app.command("provider")
@@ -2725,6 +2735,12 @@ def config_provider(
     console.print(f"[dim]Backend: {describe_backend(current_config)}[/dim]")
     console.print()
 
+    # Refresh runtime snapshots so the plugin dashboard picks up the change.
+    try:
+        runtime_state.write_runtime_snapshots(paths, current_config)
+    except Exception:
+        pass
+
 
 @config_secret_app.command("list")
 def config_secret_list() -> None:
@@ -2753,12 +2769,24 @@ def config_secret_delete(
 
 
 @app.command()
-def status() -> None:
+def status(
+    json_output: bool = typer.Option(False, "--json", help="Print the live status/sources/jobs payload as machine-readable JSON (used by the plugin dashboard)."),
+) -> None:
     """Show the current wiki's stats, paths, and config."""
     paths = _resolve_root_or_die()
     ingest_llm._mark_existing_l3_done_if_present(paths)
     config = cfg.load_config(paths)
+    # Always refresh the on-disk runtime snapshot cache (the lightweight chat
+    # status bar reads it without spawning a CLI). The dashboard instead consumes
+    # the live --json payload below so it never depends on a possibly-stale file.
     runtime_state.write_runtime_snapshots(paths, config)
+    if json_output:
+        _print_json({
+            "status": runtime_state.build_status_snapshot(paths, config),
+            "sources": runtime_state.build_sources_snapshot(paths),
+            "jobs": runtime_state.build_jobs_snapshot(paths),
+        })
+        return
     stats = db.get_stats(paths.state_db)
 
     def _count_md(folder: Path) -> int:
@@ -2946,7 +2974,7 @@ def migrate_vault(
     """Upgrade vault schema to the current backend version.
 
     Run this after updating the incurator backend to apply any structural
-    changes to .curator/config.yml or Collections/*.md.
+    changes to .curator/settings.yml or Collections/*.md.
     """
     from . import migrate as _migrate
 
@@ -6011,7 +6039,7 @@ def _show_curator_persona() -> None:
 def persona_update(
     workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="Workspace name under 01_Workspaces/"),
 ) -> None:
-    """Re-run the persona interview and update config.yml or curate.yml."""
+    """Re-run the persona interview and update settings.yml or curate.yml."""
     paths = _resolve_root_or_die()
     config = cfg.load_config(paths)
     client = _start_client(config)
@@ -6048,7 +6076,7 @@ def persona_update(
             persona["updated_at"] = _dt.datetime.now().isoformat()
             config["persona"] = persona
             cfg.save_config(paths, config)
-            typer.echo("Curator persona updated in config.yml")
+            typer.echo("Curator persona updated in settings.yml")
         else:
             typer.echo("Persona update skipped.")
 

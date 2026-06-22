@@ -45,10 +45,10 @@ def test_init_testbed_seeds_from_stage_and_marks_testbed(tmp_path: Path, monkeyp
 
     assert root == repo / "testbed"
     assert (root / "03_Notes" / "note.md").read_text(encoding="utf-8") == "hello\n"
-    assert (root / ".curator" / "config.yml").exists()
+    assert (root / ".curator" / "settings.yml").exists()
     # Testbed must be flagged so production code never auto-selects it.
     import yaml
-    cfg_data = yaml.safe_load((root / ".curator" / "config.yml").read_text(encoding="utf-8"))
+    cfg_data = yaml.safe_load((root / ".curator" / "settings.yml").read_text(encoding="utf-8"))
     assert cfg_data.get("testbed") is True
 
 

@@ -319,7 +319,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 #### `curator_update_curator_persona`
 
-- **Role**: Updates the Curator `persona:` block in `.curator/config.yml` using a natural-language request.
+- **Role**: Updates the Curator `persona:` block in `.curator/settings.yml` using a natural-language request.
 - **Parameters**: `request` (natural-language instruction string).
 - **Example**: `"I am a STEM researcher focused on machine learning and systems design. I prioritize rigor and only work with high-confidence (0.85+) knowledge."`
 

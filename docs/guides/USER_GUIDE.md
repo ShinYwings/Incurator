@@ -63,7 +63,7 @@ Choose a directory to serve as your knowledge vault and initialize it:
 wiki init <path/to/your/obsidian-vault>
 ```
 
-During init, a short interview sets up the **Curator persona** — the vault-wide expert identity that governs how knowledge is synthesized and verified. The wizard asks the first question immediately, labels single-select and multi-select questions, accepts comma-separated numbers on multi-select questions such as verification sources and artifact types, and exits as soon as the final persona JSON is saved. The result is saved to `.curator/config.yml` and applied automatically on every `wiki sync` and `wiki query`.
+During init, a short interview sets up the **Curator persona** — the vault-wide expert identity that governs how knowledge is synthesized and verified. The wizard asks the first question immediately, labels single-select and multi-select questions, accepts comma-separated numbers on multi-select questions such as verification sources and artifact types, and exits as soon as the final persona JSON is saved. The result is saved to `.curator/settings.yml` and applied automatically on every `wiki sync` and `wiki query`.
 
 #### 📂 Vault Directory Structure
 Running the `wiki init` command initializes the following structure for knowledge management. Following the philosophy that knowledge is most effective when stored in different forms for machines and humans, Incurator strictly separates human-readable spaces (Root) from the AI-only spaces (`.curator/`) via physical directory separation.
@@ -498,7 +498,7 @@ Incurator has two persona layers, each operating at a different level of the sys
 
 ### Curator Persona — Vault Level
 
-Set during `wiki init` through a short interview. Stored in `.curator/config.yml` and applied globally across `wiki sync` and `wiki query`.
+Set during `wiki init` through a short interview. Stored in `.curator/settings.yml` and applied globally across `wiki sync` and `wiki query`.
 The interview labels whether each question is single-select or multi-select.
 Verification sources and artifact types may be answered with comma-separated
 numbers; the saved persona keeps canonical English fields.
@@ -599,7 +599,7 @@ Summary of major commands following the user workflow.
 | `wiki models ensure` | Install/refresh local search model dependencies and GGUF files. `setup.sh` runs this automatically unless `INCURATOR_SKIP_MODELS=1` is set. |
 | `wiki models status` | Show local search model health, cache paths, and dependency status as JSON. |
 | `wiki config get <key>` | Read a specific config value. (e.g. `wiki config get llm.primary`) |
-| `wiki config set <key> <value>` | Update a specific config value. Machine-local keys such as `llm.*`, `search.*`, and `external.*` write to `.cache/config/config.yml`; pass `--local` only for portable vault-scoped keys that belong in `.curator/config.yml`. |
+| `wiki config set <key> <value>` | Update a specific config value. Machine-local keys such as `llm.*`, `search.*`, and `external.*` write to `.cache/config/config.yml`; pass `--local` only for portable vault-scoped keys that belong in `.curator/settings.yml`. |
 | `wiki config secret list/delete` | Inspect masked local encrypted backend secrets or delete a stored secret. |
 
 ### 3. Refinement & Optimization
@@ -727,7 +727,7 @@ How it stays safe across devices:
 - **No infinite loops** — without any fragile hash guard. A device never imports its own file, and it re-exports only when something actually changed.
 - **Syncthing conflict files** (`*.sync-conflict-*`) are imported as ordinary peers (always data-safe) and archived under `.curator/runtime/sync_conflicts/`.
 
-`.curator/state.sqlite` and `.curator/sync_state.json` stay device-local (excluded in `.stignore`); only the `.curator/sync/` JSONL files travel between devices. To have `wiki update` export automatically for CLI-only workflows, set `auto_sync.enabled: true` in `.curator/config.yml`. The Obsidian plugin drives `wiki db autosync` for you — see the Plugin Guide.
+`.curator/state.sqlite` and `.curator/sync_state.json` stay device-local (excluded in `.stignore`); only the `.curator/sync/` JSONL files travel between devices. To have `wiki update` export automatically for CLI-only workflows, set `auto_sync.enabled: true` in `.curator/settings.yml`. The Obsidian plugin drives `wiki db autosync` for you — see the Plugin Guide.
 
 ---
 
@@ -736,7 +736,7 @@ How it stays safe across devices:
 Incurator allows you to safely and conveniently manage settings via the
 `wiki config` command without manually editing YAML files. Machine-local blocks
 such as `llm`, `search`, and `external` are stored in `.cache/config/config.yml`;
-portable vault behavior remains in `.curator/config.yml`.
+portable vault behavior remains in `.curator/settings.yml`.
 
 ### 1. Provider Configuration (`wiki config provider`)
 Configure the LLM backends that power Incurator's intelligence. The system maintains two backend layers.
@@ -787,7 +787,7 @@ Passing `--api-key sk-...` stores the key in the backend's encrypted local
 secret store outside the shared vault and writes only a secret reference into
 config.
 
-The choice is stored as `llm.primary_effort` / `llm.fallback_effort` in `.curator/config.yml`; leaving it empty uses each CLI's default effort.
+The choice is stored as `llm.primary_effort` / `llm.fallback_effort` in `.curator/settings.yml`; leaving it empty uses each CLI's default effort.
 
 CLI-backed providers (`antigravity-cli`, `claude-code`, `codex-cli`) use the
 account currently logged into that CLI on the machine running the backend.
@@ -846,6 +846,16 @@ are not a runtime error from the status command itself.
 If the state DB file exists but is missing base tables, `wiki status` now
 bootstraps the schema automatically before reading stats.
 
+Pass `--json` to print the machine-readable live payload (`{status, sources, jobs}`)
+instead of the formatted table:
+
+```bash
+wiki status --json
+```
+
+The Obsidian plugin dashboard reads this live `--json` output directly, so it
+always reflects the current backend state rather than a cached snapshot file.
+
 This command aggregates and outputs data from three main areas in real-time. Here is the meaning and practical use of each item:
 
 ### 3-1. Reset Generated State (`wiki reset`)
@@ -855,7 +865,7 @@ wiki reset
 wiki reset --force
 ```
 
-Resets generated Curator state while preserving `.curator/config.yml` and the
+Resets generated Curator state while preserving `.curator/settings.yml` and the
 vault's source folders. It removes the tracking database (which includes the native search index), generated Collections,
 dashboard/index/overview/ledger/log files, sync reports, transient staging files,
 build trace canvases, device registry, and sidechat session state. Use this when

@@ -40,7 +40,7 @@ def git_vault(tmp_path: Path) -> Path:
     _git(vault, "config", "user.email", "test@example.com")
     _git(vault, "config", "user.name", "Test User")
     (vault / "note.md").write_text("first version\nstable selected phrase\n", encoding="utf-8")
-    _git(vault, "add", "note.md", ".curator/config.yml")
+    _git(vault, "add", "note.md", ".curator/settings.yml")
     _git(vault, "commit", "-m", "Initial note")
     return vault
 

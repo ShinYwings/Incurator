@@ -1,7 +1,7 @@
 """P5: Embedder / Reranker provider family for v0.3.2 DB-native search.
 
 Mirrors ``llm.build_client``: duck-typed provider interfaces plus
-``build_embedder()`` / ``build_reranker()`` factories driven by ``config.yml``
+``build_embedder()`` / ``build_reranker()`` factories driven by ``settings.yml``
 ``search.embedding`` / ``search.reranker`` (``provider::model``). Providers are
 optional — a missing/unreachable provider returns ``None`` so the engine degrades
 to FTS5-only (no embeddings) or RRF order (no rerank) rather than hard-failing.

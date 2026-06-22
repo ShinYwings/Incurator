@@ -322,7 +322,7 @@ wiki mcp install
 
 #### `curator_update_curator_persona`
 
-- **역할**: `.curator/config.yml` 내 Curator `persona:` 블록을 자연어 요청으로 업데이트합니다.
+- **역할**: `.curator/settings.yml` 내 Curator `persona:` 블록을 자연어 요청으로 업데이트합니다.
 - **파라미터**: `request` (자연어 요청 문자열).
 - **예시 요청**: `"나는 STEM 분야의 연구자로, 주로 머신러닝과 시스템 설계를 다룹니다. 지식의 엄밀성을 중시하며 고신뢰도(0.85 이상) 정보만 활용합니다."`
 

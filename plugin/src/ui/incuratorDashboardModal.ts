@@ -44,11 +44,17 @@ export class IncuratorDashboardModal extends Modal {
   private tabEls  = new Map<TabId, HTMLElement>();
   private viewEls = new Map<TabId, HTMLElement>();
   private jobsTimer: number | null = null;
+  private modelLoadTimer: number | null = null;
 
-  private _refreshPromise: Promise<void> | null = null;
-  // Whether the most recent `wiki status` snapshot refresh succeeded. When false,
-  // the on-disk runtime/status.json may be stale, so the dashboard reports the
-  // backend as unavailable instead of trusting the last good snapshot.
+  // Live status payload from `wiki status --json` (status + sources + jobs).
+  // The dashboard reads ALL backend info live from this command — never from the
+  // possibly-stale on-disk snapshot file (that file is now only a best-effort
+  // cache for the lightweight chat status bar). Cached per render so a single
+  // tab render makes exactly ONE `wiki status --json` call shared by every panel;
+  // invalidated on tab switch and forced-refreshed after every mutation.
+  private _liveStatus: { status: any; sources: any; jobs: any } | null = null;
+  private _liveStatusPromise: Promise<{ status: any; sources: any; jobs: any } | null> | null = null;
+  // Whether the most recent `wiki status --json` call succeeded + parsed.
   private _lastStatusOk = false;
   private dragState = { isDragging: false, startX: 0, startY: 0, initialLeft: 0, initialTop: 0 };
   private onMouseMove = (e: MouseEvent) => {
@@ -126,6 +132,7 @@ export class IncuratorDashboardModal extends Modal {
   onClose() {
     this.contentEl.empty();
     if (this.jobsTimer !== null) window.clearInterval(this.jobsTimer);
+    if (this.modelLoadTimer !== null) window.clearInterval(this.modelLoadTimer);
     document.removeEventListener("mousemove", this.onMouseMove);
     document.removeEventListener("mouseup",   this.onMouseUp);
   }
@@ -136,6 +143,8 @@ export class IncuratorDashboardModal extends Modal {
 
   private switchTab(id: TabId, cfgP?: Promise<any>) {
     this.activeTab = id;
+    // Invalidate the cached live payload so each tab render fetches once, fresh.
+    this._liveStatus = null;
     this.tabEls.forEach((el, tid) => el.toggleClass("is-active", tid === id));
     this.viewEls.forEach((el, vid) => el.toggleClass("is-active", vid === id));
     if (id !== "jobs" && this.jobsTimer !== null) {
@@ -162,7 +171,7 @@ export class IncuratorDashboardModal extends Modal {
 
   private async readVaultConfig(): Promise<any> {
     try {
-      const raw = await this.plugin.app.vault.adapter.read(".curator/config.yml");
+      const raw = await this.plugin.app.vault.adapter.read(".curator/settings.yml");
       this.vaultConfig = parseYaml(raw);
     } catch { this.vaultConfig = null; }
     return this.vaultConfig;
@@ -185,37 +194,54 @@ export class IncuratorDashboardModal extends Modal {
   }
 
 
-  private async readRuntimeJson<T = any>(name: "status" | "jobs" | "sources"): Promise<T | null> {
-    try {
-      return JSON.parse(await this.plugin.app.vault.adapter.read(`.curator/runtime/${name}.json`)) as T;
-    } catch {
-      return null;
-    }
-  }
-
-  private async refreshRuntimeSnapshots(): Promise<void> {
-    if (!this._refreshPromise) {
-      this._refreshPromise = this.runWikiCommand(["status"]).then(
-        (r) => { this._lastStatusOk = r.ok === true; this._refreshPromise = null; },
-        () => { this._lastStatusOk = false; this._refreshPromise = null; },
+  /**
+   * Fetch the live `wiki status --json` payload (status + sources + jobs),
+   * memoized for the current render. The dashboard reads ALL backend info from
+   * this — never from the on-disk snapshot file — so it can never show stale
+   * data left behind when a backend change forgets to regenerate the snapshot.
+   * One render makes exactly one CLI call (shared by every panel); pass
+   * force=true to invalidate and re-fetch after a mutation.
+   */
+  private async fetchLiveStatus(force = false): Promise<{ status: any; sources: any; jobs: any } | null> {
+    if (force) { this._liveStatus = null; this._liveStatusPromise = null; }
+    if (this._liveStatus) return this._liveStatus;
+    if (!this._liveStatusPromise) {
+      this._liveStatusPromise = this.runWikiCommand(["status", "--json"]).then(
+        (r) => {
+          this._liveStatusPromise = null;
+          this._lastStatusOk = r.ok === true;
+          if (!r.ok) return null;
+          try {
+            const text = r.output || "";
+            const s = text.indexOf("{");
+            const e = text.lastIndexOf("}");
+            if (s < 0 || e <= s) { this._lastStatusOk = false; return null; }
+            this._liveStatus = JSON.parse(text.slice(s, e + 1));
+            return this._liveStatus;
+          } catch { this._lastStatusOk = false; return null; }
+        },
+        () => { this._liveStatusPromise = null; this._lastStatusOk = false; return null; },
       );
     }
-    return this._refreshPromise;
+    return this._liveStatusPromise;
+  }
+
+  private async readRuntimeJson<T = any>(name: "status" | "jobs" | "sources"): Promise<T | null> {
+    const live = await this.fetchLiveStatus();
+    return (live ? (live as any)[name] ?? null : null) as T | null;
+  }
+
+  /** Force a fresh live fetch — call after any mutation so the next read is current. */
+  private async refreshRuntimeSnapshots(): Promise<void> {
+    await this.fetchLiveStatus(true);
   }
 
   private async readFreshRuntimeJson<T = any>(name: "status" | "jobs" | "sources"): Promise<T | null> {
-    await this.refreshRuntimeSnapshots();
     return this.readRuntimeJson<T>(name);
   }
 
   private async readRuntimeStatus(): Promise<any | null> {
-    // Fresh-first: force a `wiki status` snapshot refresh before reading, so the
-    // dashboard reflects the CURRENT backend version/provider rather than a stale
-    // runtime/status.json (the reported "backend shows 0.4.3 while it is 0.5.3" /
-    // "wiki config provider change not reflected" bug). refreshRuntimeSnapshots()
-    // dedups concurrent callers via _refreshPromise, so one render burst triggers
-    // at most one `wiki status`.
-    return this.readFreshRuntimeJson("status");
+    return (await this.fetchLiveStatus())?.status ?? null;
   }
 
   private async renderBackendVersion(el: HTMLElement): Promise<void> {
@@ -578,9 +604,15 @@ export class IncuratorDashboardModal extends Modal {
     const grid = el.createDiv("ai-agent-ov-grid");
 
     // ── LLM (hero card, spans full width) ────────────────────────────────────
+    // The plugin reads ALL config from runtime/status.json (merged by the backend
+    // from .cache/config/ + .curator/settings.yml).  This avoids the class of bugs
+    // where machine-local keys (llm, search, external) are absent from the
+    // synced project config.
+    const status = await this.readRuntimeStatus();
     const llmCard = this.ovCard(grid, "span-full", null);
     llmCard.createDiv({ cls: "ai-agent-ov-card-title", text: "LLM Provider" });
-    if (cfg) this.renderLLMSelector(llmCard, cfg);
+    const effectiveCfg = status || cfg || {};
+    if (effectiveCfg) this.renderLLMSelector(llmCard, effectiveCfg);
 
     // ── Knowledge-graph counts (one compact strip — secondary info) ──────────
     const statDefs: [string, string, string][] = [
@@ -632,7 +664,7 @@ export class IncuratorDashboardModal extends Modal {
 
 
     // Determine Zotero initial fallback path for System card
-    const z = cfg?.external?.zotero ?? {};
+    const z = status?.external?.zotero ?? {};
     const zRoots = z.roots ?? [];
     let rootsText = "no roots";
     if (zRoots.length > 0) {
@@ -644,7 +676,7 @@ export class IncuratorDashboardModal extends Modal {
     }
 
     // ── Persona card ─────────────────────────────────────────────────────────
-    // persona lives in config.yml under 'persona' key, populated via load_config
+    // persona lives in settings.yml under 'persona' key, populated via load_config
     // defaults, and is already included in runtime/status.json by build_status_snapshot()
     const personaCard = this.ovCard(grid, "span-2", "persona");
     personaCard.createDiv({ cls: "ai-agent-ov-card-title", text: "PERSONA" });
@@ -775,8 +807,8 @@ export class IncuratorDashboardModal extends Modal {
     const syncCard = this.ovCard(grid, "span-2", null);
     syncCard.createDiv({ cls: "ai-agent-ov-card-title", text: "Pipeline" });
     const syncTable = this.makeInfoTable(syncCard);
-    syncTable("Sync workers",  String(cfg?.sync?.max_parallel_verifications ?? 4));
-    syncTable("Log retention", `${cfg?.curate?.log_retention_days ?? 30} days`);
+    syncTable("Sync workers",  String((status?.sync ?? cfg?.sync)?.max_parallel_verifications ?? 4));
+    syncTable("Log retention", `${(status?.curate ?? cfg?.curate)?.log_retention_days ?? 30} days`);
 
     // ── Syncthing device-folder card ────────────────────────────────────────
     const deviceCard = this.ovCard(grid, "span-2", null);
@@ -978,9 +1010,16 @@ export class IncuratorDashboardModal extends Modal {
       primarySel.createEl("option", { value: "", text: "Loading models…" });
       fallbackSel.createEl("option", { value: "", text: "Loading models…" });
       this.plugin.refreshAvailableModels().catch(() => {});
-      const iv = window.setInterval(() => {
+      // Tracked so onClose() can clear it — otherwise closing the dashboard before
+      // the model catalogue loads leaks a 400ms poll that writes to a detached DOM.
+      if (this.modelLoadTimer !== null) window.clearInterval(this.modelLoadTimer);
+      this.modelLoadTimer = window.setInterval(() => {
         const c2 = this.plugin.availableModels;
-        if (Object.keys(c2).length > 0) { window.clearInterval(iv); populate(c2); }
+        if (Object.keys(c2).length > 0) {
+          if (this.modelLoadTimer !== null) window.clearInterval(this.modelLoadTimer);
+          this.modelLoadTimer = null;
+          populate(c2);
+        }
       }, 400);
     } else {
       populate(cat);
@@ -990,7 +1029,11 @@ export class IncuratorDashboardModal extends Modal {
     const applyRow = container.createDiv("ai-agent-llm-row");
     const applyBtn = applyRow.createEl("button", { cls: "ai-agent-llm-apply-btn mod-cta", text: "Apply" });
     applyBtn.onclick = async () => {
-      if (!this.vaultConfig) return;
+      // NOTE: do NOT gate on this.vaultConfig (.curator/settings.yml). LLM is a
+      // machine-local backend key that lives in .cache/config/config.yml, never in
+      // the synced settings.yml — gating here silently no-opped Apply on fresh
+      // vaults / settings.yml read failures. The only real precondition is that a
+      // model is selected, enforced just below.
       const primary = this.toStoredValue(primarySel.value);
       // Guard against applying before the model catalogue has loaded — an empty
       // primary would otherwise send `config provider --primary ""`, which the
@@ -1036,21 +1079,47 @@ export class IncuratorDashboardModal extends Modal {
           new Notice(`Region model save failed: ${r.error}`);
           return;
         }
-        await this.refreshRuntimeSnapshots();
-        this.vaultConfig = await this.readVaultConfig();
         const eff = primaryEffort ? ` (${primaryEffort})` : "";
         new Notice(`LLM saved · primary ${primary}${eff}${fallback ? `  fallback ${fallback}` : ""}`);
+        // Re-read the freshly-regenerated backend snapshot and re-render so the
+        // saved values are reflected immediately and never appear to "revert"
+        // after navigating away (matches every other mutation handler here).
+        await this.refreshRuntimeSnapshots();
+        this.switchTab(this.activeTab);
       } finally { applyBtn.disabled = false; applyBtn.setText("Apply"); }
     };
 
-    // ── Ollama settings (only relevant if ollama is selected anywhere) ──
+    // ── Ollama settings (only shown when Ollama is primary or fallback) ──
     const ollama = llm.ollama ?? {};
     const ollamaRow = container.createDiv("ai-agent-llm-ollama-hint");
     ollamaRow.setText(`Ollama: ${ollama.host || "http://localhost:11434"} · ${ollama.timeout ?? 120}s`);
 
     // ── Ollama recommendations: install status + RAM fit + one-click Pull ──
+    // Show when Ollama is selected in ANY slot (primary, fallback, vision, extract).
     const ollamaModelsEl = container.createDiv("ai-agent-llm-ollama-models");
-    void this.renderOllamaRecommendations(ollamaModelsEl);
+    const isOllamaSelected = () =>
+      primarySel.value.startsWith("ollama::") || fallbackSel.value.startsWith("ollama::") ||
+      visionSel.value.startsWith("ollama::") || extractSel.value.startsWith("ollama::");
+    const refreshOllamaSection = () => {
+      const show = isOllamaSelected();
+      ollamaRow.style.display = show ? "" : "none";
+      ollamaModelsEl.style.display = show ? "" : "none";
+      if (show && ollamaModelsEl.childElementCount === 0) {
+        void this.renderOllamaRecommendations(ollamaModelsEl);
+      }
+    };
+    for (const sel of [primarySel, fallbackSel, visionSel, extractSel]) {
+      sel.addEventListener("change", refreshOllamaSection);
+    }
+    // Initial visibility from config values (dropdowns may still be loading).
+    const cfgUsesOllama =
+      (llm.primary || "").includes("ollama") || (llm.fallback || "").includes("ollama") ||
+      (llm.vision_model || "").includes("ollama") || (llm.latex_extract_model || "").includes("ollama");
+    ollamaRow.style.display = cfgUsesOllama ? "" : "none";
+    ollamaModelsEl.style.display = cfgUsesOllama ? "" : "none";
+    if (cfgUsesOllama) {
+      void this.renderOllamaRecommendations(ollamaModelsEl);
+    }
   }
 
   /** Render the models.json Ollama recommendations with install/RAM-fit status. */
@@ -1362,7 +1431,7 @@ export class IncuratorDashboardModal extends Modal {
     const cfg = await cfgP;
     const status = await this.readRuntimeStatus();
     if (!cfg && !status) {
-      const errDiv = el.createDiv({ cls: "ai-agent-dashboard-error", text: "Could not read .curator/config.yml — run \"wiki init\" first." });
+      const errDiv = el.createDiv({ cls: "ai-agent-dashboard-error", text: "Could not read .curator/settings.yml — run \"wiki init\" first." });
       const retryBtn = el.createEl("button", { cls: "ai-agent-dashboard-btn", text: "Retry" });
       retryBtn.style.marginTop = "12px";
       retryBtn.onclick = () => this.switchTab("persona");
@@ -1414,15 +1483,16 @@ export class IncuratorDashboardModal extends Modal {
           ["persona.updated_at", new Date().toISOString()],
         ];
         for (const [key, value] of updates) {
-          const r = await this.runWikiCommand(["config", "set", key, value]);
+          const r = await this.runWikiCommand(["config", "set", "--local", key, value]);
           if (!r.ok) {
             new Notice(`Save failed: ${r.error}`);
             return;
           }
         }
-        await this.refreshRuntimeSnapshots();
-        this.vaultConfig = await this.readVaultConfig();
         new Notice("Persona saved.");
+        // Regenerate the backend snapshot so the Overview persona card reflects
+        // the change instead of showing the stale pre-save value.
+        await this.refreshRuntimeSnapshots();
       } catch (e) { new Notice(`Save failed: ${e}`); }
       finally { saveBtn.disabled = false; saveBtn.setText("Save Persona"); }
     };

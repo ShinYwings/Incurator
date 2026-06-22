@@ -172,11 +172,11 @@ def _resolve_paths(hint_path: str = "") -> cfg.WikiPaths:
     env_root = os.environ.get("VAULT_ROOT")
     if env_root:
         candidate = Path(env_root).expanduser().resolve()
-        if (candidate / consts.INTERNAL_DIR / consts.CONFIG_FILE).exists():
+        if (candidate / consts.INTERNAL_DIR / consts.SETTINGS_FILE).exists():
             return cfg.paths_from_config(candidate)
         raise RuntimeError(
             f"VAULT_ROOT is set to '{env_root}' but no vault was found there "
-            f"(missing {consts.INTERNAL_DIR}/{consts.CONFIG_FILE}). "
+            f"(missing {consts.INTERNAL_DIR}/{consts.SETTINGS_FILE}). "
             "Re-run `wiki mcp` from inside an initialised vault."
         )
 
@@ -190,7 +190,7 @@ def _resolve_paths(hint_path: str = "") -> cfg.WikiPaths:
             spec = _cym.load_curate_spec(ws_path)
             if spec and spec.vault_root:
                 vroot = Path(spec.vault_root).expanduser().resolve()
-                if (vroot / consts.INTERNAL_DIR / consts.CONFIG_FILE).exists():
+                if (vroot / consts.INTERNAL_DIR / consts.SETTINGS_FILE).exists():
                     return cfg.paths_from_config(vroot)
                 raise RuntimeError(
                     f"curate.yml vault_root='{spec.vault_root}' does not contain a valid vault. "
@@ -1223,7 +1223,7 @@ def build_server() -> FastMCP:
         """Return machine-local external roots used for reference sources.
 
         These roots come from config, typically the global
-        ~/.config/curator/config.yml file. They are not written to the vault by
+        ~/.config/curator/settings.yml file. They are not written to the vault by
         this tool.
         """
         paths = _resolve_paths(workspace_path)

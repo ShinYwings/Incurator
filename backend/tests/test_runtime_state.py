@@ -111,7 +111,7 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
     def test_write_runtime_snapshots(self) -> None:
         status = runtime_state.write_runtime_snapshots(self.paths, {"llm": {"primary": "codex-cli::gpt-5.5"}})
 
-        runtime_dir = self.paths.internal / "runtime"
+        runtime_dir = runtime_state.runtime_dir(self.paths)
         self.assertEqual(status["layer_counts"]["contexts"], 1)
         self.assertEqual(status["sources"]["total"], 1)
         self.assertEqual(status["jobs"]["queued"], 1)
@@ -133,6 +133,25 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
         self.assertEqual(jobs["queued"][0]["source_name"], "paper.pdf")
         self.assertEqual(jobs["failed"][0]["source_name"], "failed.pdf")
         self.assertEqual(jobs["cancelled"][0]["source_name"], "cancelled.pdf")
+
+    def test_status_json_payload_shape(self) -> None:
+        # `wiki status --json` emits exactly this consolidated payload, which the
+        # plugin dashboard reads LIVE (instead of the on-disk snapshot file). The
+        # three sub-objects must be present, JSON-serialisable, and carry the keys
+        # the dashboard depends on.
+        payload = {
+            "status": runtime_state.build_status_snapshot(
+                self.paths, {"llm": {"primary": "codex-cli::gpt-5.5"}}
+            ),
+            "sources": runtime_state.build_sources_snapshot(self.paths),
+            "jobs": runtime_state.build_jobs_snapshot(self.paths),
+        }
+        reparsed = json.loads(json.dumps(payload, ensure_ascii=False))
+        self.assertEqual(set(reparsed.keys()), {"status", "sources", "jobs"})
+        self.assertIn("layer_counts", reparsed["status"])
+        self.assertEqual(reparsed["status"]["llm"]["primary"], "codex-cli::gpt-5.5")
+        self.assertIsInstance(reparsed["sources"].get("sources"), list)
+        self.assertIn("queued", reparsed["jobs"])
 
     def test_status_snapshot_uses_search_contract_only(self) -> None:
         status = runtime_state.build_status_snapshot(self.paths, {"search": {}})
