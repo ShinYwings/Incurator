@@ -94,6 +94,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System IDLE.
-- **Active Milestone**: None (System IDLE).
-- **Next actionable item**: Awaiting new roadmap initialization.
+- **Roadmap state**: Branch `feature/prompt-architecture-refactoring` initialized.
+- **Active Milestone**: Prompt Architecture Overhaul & Refactoring
+- **Next actionable item**: Executors (Claude Code) to read `.agents/drafts/prompt_architecture_refactoring.md` and author the `PLAN_TEMPLATE.md` via the Arena workflow.
