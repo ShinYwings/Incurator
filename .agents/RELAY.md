@@ -34,9 +34,23 @@ into <repo>/.cache (zero home exceptions) but BACKED IT OUT — cascades into co
 high risk of breaking login. USER DECISION: keep the scoped version (safe). PLUGIN_SCHEMA
 §13.6 updated (inline -p, scoped list, tmpfs /tmp, .cache/cli relocation).
 
-CI: plugin tsc + vitest (528) green; spec_sync/ruff/mypy green. Backend unchanged.
+Code-review round (PR #46): fixed (1) Zotero now READ-ONLY in the sandbox — split
+allowedRoots() [read/--add-dir: vault+Zotero+storage] from sandboxWriteRoots()
+[write: vault only] so a prompt-injected agent can't corrupt the user's Zotero
+library; live-validated (vault write allowed, Zotero write denied, Zotero read ok).
+(2) Reconciled spec/impl: sandbox-unavailable → agy refused, claude/codex degrade to
+flag-based containment + console.warn; PLUGIN_SCHEMA §13.6 + PLUGIN_GUIDE EN/KR
+rewritten to match. (3) Documented fail-open toolPolicy default. Cleanups: reuse
+expandPath() (3 dup regexes gone), lazy --add-dir, cached getCliCwd mkdir.
+Refuted (verified): claude tool-hang (claude never had skip-permissions), symlink
+escape (seatbelt resolves realpath → denied), firmlink mismatch (empirically ok).
 
-Only remaining: in-Obsidian end-to-end smoke (real agy/claude popover + sidechat
-write-outside-vault attempt) — needs the running app; user to verify.
+CI: plugin tsc + vitest (532) green; spec_sync/ruff/mypy green. Backend unchanged.
+
+Review coverage caveat: 3/8 finder angles (line-by-line, cross-file, test-quality)
+hit the session limit and returned empty — a re-run would complete the pass.
+Remaining: in-Obsidian smoke (real agy/claude popover + sidechat write-outside-vault
+attempt; also confirm codex read-only popover still returns its --output-last-message
+answer) — needs the running app; user to verify.
 
 Next roadmap priority: Prompt Architecture Overhaul & Refactoring.
