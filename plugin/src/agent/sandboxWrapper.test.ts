@@ -154,4 +154,20 @@ describe("provider-scoped sandbox dirs (G13-4)", () => {
     expect(joined).not.toContain("--bind-try /home/u/.gemini");
     expect(joined).not.toContain("--bind-try /home/u/.codex");
   });
+
+  it("ollama: no home dirs (principle of least privilege — ollama has no CLI home dir)", () => {
+    const p = buildMacosSeatbeltProfile(["/Vault"], "/home/u", "/tmpx", "ollama");
+    expect(p).not.toContain('(subpath "/home/u/.gemini")');
+    expect(p).not.toContain('(subpath "/home/u/.claude")');
+    expect(p).not.toContain('(subpath "/home/u/.codex")');
+    expect(p).not.toContain('(subpath "/home/u/.antigravity")');
+  });
+
+  it("deepseek: no home dirs (principle of least privilege — deepseek has no CLI home dir)", () => {
+    const p = buildMacosSeatbeltProfile(["/Vault"], "/home/u", "/tmpx", "deepseek");
+    expect(p).not.toContain('(subpath "/home/u/.gemini")');
+    expect(p).not.toContain('(subpath "/home/u/.claude")');
+    expect(p).not.toContain('(subpath "/home/u/.codex")');
+    expect(p).not.toContain('(subpath "/home/u/.antigravity")');
+  });
 });

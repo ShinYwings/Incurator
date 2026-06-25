@@ -57,9 +57,9 @@ const PROVIDER_HOME_DIRS: Record<string, string[]> = {
  */
 function cliRuntimeWriteDirs(home: string, tmpdir: string, provider?: string): string[] {
   const h = (d: string) => (home ? `${home}/${d}` : "");
-  const providerDirs = provider && PROVIDER_HOME_DIRS[provider]
-    ? PROVIDER_HOME_DIRS[provider]
-    : [".gemini", ".antigravity", ".claude", ".codex"]; // fallback: all known dirs
+  const providerDirs = provider !== undefined
+    ? (PROVIDER_HOME_DIRS[provider] ?? [])   // unknown provider = no home dirs
+    : [".gemini", ".antigravity", ".claude", ".codex"]; // no provider = safe fallback
   return [
     // The user's SPECIFIC temp dir only — NOT the broad /private/var/folders or
     // /private/tmp roots (those would grant every app/user's temp space).
