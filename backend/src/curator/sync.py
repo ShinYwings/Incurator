@@ -96,19 +96,6 @@ def calculate_hash(path: Path) -> str:
     return h.hexdigest()
 
 
-def _body_without_frontmatter(text: str) -> str:
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) >= 3:
-            return parts[2].lstrip("\n")
-    return text
-
-
-def _hash_file_content(path: Path) -> str:
-    """Hash markdown body content, excluding YAML frontmatter."""
-    body = _body_without_frontmatter(path.read_text(encoding="utf-8"))
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
-
 
 def _find_changed_nodes(paths: cfg.WikiPaths) -> list[str]:
     """Return DAG node IDs whose file hash differs from the DB page-hash store."""
