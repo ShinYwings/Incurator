@@ -1222,9 +1222,9 @@ def build_server() -> FastMCP:
     def curator_list_external_resources(workspace_path: str = "") -> dict[str, Any]:
         """Return machine-local external roots used for reference sources.
 
-        These roots come from config, typically the global
-        ~/.config/curator/settings.yml file. They are not written to the vault by
-        this tool.
+        These roots come from config, typically the machine-local
+        .cache/config/config.yml file at the repository root. They are not
+        written to the vault by this tool.
         """
         paths = _resolve_paths(workspace_path)
         config = cfg.load_config(paths)
