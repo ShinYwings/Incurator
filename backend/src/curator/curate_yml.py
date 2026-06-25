@@ -273,8 +273,8 @@ def load_curate_spec(workspace_path: Path) -> Optional[CurateSpec]:
     ref_raw = sources_raw.get("reference_mode", {}) if isinstance(sources_raw, dict) else {}
     if isinstance(ref_raw, dict):
         reference_mode = CurateReferenceMode(
-            allow_external=bool(ref_raw.get("allow_external", True)),
-            require_rebind_approval=bool(ref_raw.get("require_rebind_approval", True)),
+            allow_external=_bool_from("allow_external", ref_raw, True),
+            require_rebind_approval=_bool_from("require_rebind_approval", ref_raw, True),
         )
     else:
         reference_mode = CurateReferenceMode()
@@ -337,9 +337,9 @@ def _parse_reasoning(raw: object) -> "CurateReasoning":
     return CurateReasoning(
         default_mode=str(d.get("default_mode", "auto") or "auto"),
         allowed_modes=allowed or ["local", "global", "explore"],
-        exploration_enabled=bool(d.get("exploration_enabled", True)),
+        exploration_enabled=_bool_from("exploration_enabled", d, True),
         max_followups=int(d.get("max_followups", 5) or 5),
-        require_insight_candidates=bool(d.get("require_insight_candidates", False)),
+        require_insight_candidates=_bool_from("require_insight_candidates", d, False),
     )
 
 
@@ -348,8 +348,8 @@ def _parse_verification(raw: object, fallback_min_conf: float) -> "CurateVerific
     return CurateVerification(
         min_confidence=float(d.get("min_confidence", fallback_min_conf)),
         high_threshold=float(d.get("high_threshold", 0.85)),
-        require_source_spans=bool(d.get("require_source_spans", True)),
-        allow_general_knowledge=bool(d.get("allow_general_knowledge", False)),
+        require_source_spans=_bool_from("require_source_spans", d, True),
+        allow_general_knowledge=_bool_from("allow_general_knowledge", d, False),
         contradiction_policy=str(d.get("contradiction_policy", "surface-and-flag") or "surface-and-flag"),
     )
 
@@ -357,7 +357,7 @@ def _parse_verification(raw: object, fallback_min_conf: float) -> "CurateVerific
 def _parse_backprop(raw: object) -> "CurateBackprop":
     d = _as_dict(raw)
     return CurateBackprop(
-        enabled=bool(d.get("enabled", True)),
+        enabled=_bool_from("enabled", d, True),
         source_truth_policy=str(d.get("source_truth_policy", "never_rewrite_original_source") or "never_rewrite_original_source"),
         derived_insight_policy=str(d.get("derived_insight_policy", "record_then_promote_or_patch_generated") or "record_then_promote_or_patch_generated"),
         ambiguous_merge_policy=str(d.get("ambiguous_merge_policy", "needs_review") or "needs_review"),
@@ -375,8 +375,33 @@ def _parse_prompts(raw: object) -> "CuratePrompts":
     )
 
 
+_YAML_FALSE = frozenset({"false", "no", "off", "0"})
+_YAML_TRUE = frozenset({"true", "yes", "on", "1"})
+
+
+def _bool_from(key: str, d: dict, default: bool) -> bool:
+    """Read a boolean field, accepting both Python bool and YAML string literals.
+
+    Prevents ``bool("false") == True`` when users write the value as a quoted
+    string in curate.yml.  Unknown strings fall back to the default.
+    """
+    val = d.get(key, default)
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, int):
+        return val != 0
+    s = str(val).strip().lower()
+    if s in _YAML_TRUE:
+        return True
+    if s in _YAML_FALSE:
+        return False
+    return default
+
+
 def _str_list_from(key: str, d: dict) -> list[str]:
     val = d.get(key, []) or []
+    if isinstance(val, str):
+        return [val] if val.strip() else []
     if not isinstance(val, list):
         return []
     return [str(v) for v in val if v]

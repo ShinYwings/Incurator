@@ -4,6 +4,21 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.25.4] - 2026-06-26
+### Fixed
+- **`curate.yml` boolean strings no longer invert policy** (`curate_yml.py`):
+  Python's `bool("false") == True` caused any quoted boolean in `curate.yml`
+  (e.g. `allow_general_knowledge: "false"`) to be read as the opposite of the
+  user's intent. A new `_bool_from` helper accepts both Python booleans and
+  YAML-style string literals (`"true"/"yes"/"on"`, `"false"/"no"/"off"`).
+  Affects: `allow_general_knowledge`, `require_source_spans`,
+  `exploration_enabled`, `require_insight_candidates`, `allow_external`,
+  `require_rebind_approval`, `backprop.enabled`.
+- **Scalar `include` pattern no longer silently drops the filter** (`curate_yml.py`):
+  Writing `include: "03_Notes/**"` (a bare string) returned an empty list,
+  which the source-matching logic interprets as "include all". Now wrapped in a
+  one-item list so the filter is honoured.
+
 ## [0.25.3] - 2026-06-26
 ### Fixed
 - **`resolveCredential` exhaustiveness** (`cliAuth.ts`): Added a `default` case
