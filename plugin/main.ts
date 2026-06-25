@@ -1195,6 +1195,7 @@ export default class ObsidianAIAgent extends Plugin {
   }
 
   async updateSettings(updates: Partial<PluginSettings>): Promise<void> {
+    Object.assign(this.settings, updates);
     await this.saveData(this.settings);
     // Update LLM client with new settings
     this.llmClient?.updateSettings(this.settings);
@@ -1325,7 +1326,6 @@ export default class ObsidianAIAgent extends Plugin {
       "gpt-5.1-codex-mini",
       "gpt-5-codex",
       "claude-opus-4-7",
-      "claude-sonnet-4-6",
       "claude-sonnet-4-6-20260101",
       "claude-haiku-4-5-20251001-old",
     ]);

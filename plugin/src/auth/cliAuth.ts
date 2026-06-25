@@ -120,6 +120,11 @@ export class CLIAuthResolver {
           expiresAt: this.getCacheExpiry(credential, 30 * 60 * 1000),
         };
         break;
+
+      default: {
+        const _exhaustive: never = provider;
+        throw new Error(`resolveCredential: unsupported provider "${_exhaustive}"`);
+      }
     }
 
     return credential;
