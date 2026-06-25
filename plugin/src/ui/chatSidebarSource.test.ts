@@ -384,4 +384,30 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain('if (target.kind === "vault")');
     expect(source).toContain('this.app.workspace.openLinkText(target.linkpath, "", false)');
   });
+
+  it("G14-1: buildLLMMessages is inside the try block so a context-build failure clears isStreaming (never stuck)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // buildLLMMessages must be inside the try block that catches streaming errors,
+    // so any context-build failure reaches the catch that sets isStreaming = false.
+    // Regression guard: the version that placed buildLLMMessages BEFORE the try block
+    // left the assistant bubble in a permanent spinning state on context failure.
+    const tryIdx = source.indexOf("try {\n      const llmMessages = await this.buildLLMMessages(capturedActiveCtx);");
+    expect(tryIdx).toBeGreaterThan(-1);
+    // The old pre-try call site must not exist.
+    expect(source).not.toContain("const llmMessages = await this.buildLLMMessages(capturedActiveCtx);\n    this.prepareStatusText");
+  });
+
+  it("G14-2: renderAssistantMessage targets message by data-msg-id, not always the last bubble", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // renderMessage stamps data-msg-id only when msg.id is defined (never "undefined").
+    expect(source).toContain("if (msg.id !== undefined) msgEl.dataset.msgId = msg.id");
+    // renderAssistantMessage guards the query on msg.id being defined before querying.
+    expect(source).toContain("msg.id !== undefined");
+    expect(source).toContain('`[data-msg-id="${msg.id}"]`');
+    expect(source).toContain("byId ?? allMsgEls[allMsgEls.length - 1]");
+  });
 });

@@ -133,7 +133,7 @@ wiki mcp install
 - **역할**: 기존의 통합된 ingestion 도구입니다. 대신 `curator_register_source`와 `curator_build_source`를 사용하세요.
 
 #### `curator_list_external_resources`
-- **역할**: 플랫폼별 글로벌 설정(`~/.config/curator/config.yml`)에 정의된 외부 라이브러리(예: Zotero) 목록과 현재 활성화된 절대 경로를 반환합니다.
+- **역할**: 기기별 로컬 설정(저장소 루트의 `.cache/config/config.yml`)에 정의된 외부 라이브러리(예: Zotero) 목록과 현재 활성화된 절대 경로를 반환합니다.
 
 
 

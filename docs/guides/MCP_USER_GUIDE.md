@@ -134,7 +134,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 - **Role**: Legacy combined ingestion. Use `curator_register_source` followed by `curator_build_source` instead.
 
 #### `curator_list_external_resources`
-- **Role**: Return the list of external libraries (e.g., Zotero) configured in the platform-aware global settings (`~/.config/curator/config.yml`) along with their active absolute paths.
+- **Role**: Return the list of external libraries (e.g., Zotero) configured in the machine-local settings (`.cache/config/config.yml` at the repository root) along with their active absolute paths.
 
 
 #### `curator_rebind_source`

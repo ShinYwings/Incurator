@@ -1044,14 +1044,14 @@ export class ChatSidebarView extends ItemView {
     }
 
     this.setPrepareStatus("Preparing context...");
-    const llmMessages = await this.buildLLMMessages(capturedActiveCtx);
-    this.prepareStatusText = "";
 
     this.isGenerating = true;
     setIcon(this.sendBtn, "square");
     this.sendBtn.setAttribute("aria-label", "Stop generating");
 
     try {
+      const llmMessages = await this.buildLLMMessages(capturedActiveCtx);
+      this.prepareStatusText = "";
       await this.streamAssistantWithContinuation(llmMessages, assistantMsg);
     } catch (err: unknown) {
       assistantMsg.isStreaming = false;
@@ -2646,6 +2646,7 @@ export class ChatSidebarView extends ItemView {
     const msgEl = this.messagesContainer.createDiv(
       `ai-agent-chat-msg ai-agent-chat-msg-${msg.role}`
     );
+    if (msg.id !== undefined) msgEl.dataset.msgId = msg.id;
 
     const roleEl = msgEl.createDiv("ai-agent-chat-msg-role");
     roleEl.setText(msg.role === "user" ? "You" : "AI Agent");
@@ -4019,17 +4020,20 @@ export class ChatSidebarView extends ItemView {
   }
 
   private renderAssistantMessage(msg: ChatMessage): void {
+    const byId = msg.id !== undefined
+      ? this.messagesContainer.querySelector<HTMLElement>(`[data-msg-id="${msg.id}"]`)
+      : null;
     const allMsgEls = this.messagesContainer.querySelectorAll(
       ".ai-agent-chat-msg-assistant"
     );
-    const lastEl = allMsgEls[allMsgEls.length - 1];
+    const targetEl = byId ?? allMsgEls[allMsgEls.length - 1];
 
-    if (lastEl) {
-      const roleEl = lastEl.querySelector(".ai-agent-chat-msg-role");
+    if (targetEl) {
+      const roleEl = targetEl.querySelector(".ai-agent-chat-msg-role");
       if (roleEl) {
         this.renderAssistantMessageActions(roleEl, msg);
       }
-      const contentEl = lastEl.querySelector(".ai-agent-chat-msg-content");
+      const contentEl = targetEl.querySelector(".ai-agent-chat-msg-content");
       if (contentEl) {
         this.stopThinkingTimer();
         if (msg.content) {

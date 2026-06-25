@@ -42,6 +42,75 @@ All notable changes to Incurator are documented here.
   the last assistant element in the DOM.
 
 ---
+## [0.25.6] - 2026-06-26
+### Fixed
+- **chatSidebar streaming never stuck on context-build failure (G14-1).** `buildLLMMessages`
+  was called outside the try/catch that clears `isStreaming`; a context-build failure
+  (e.g. vault read error) left the assistant bubble permanently spinning. Moved the
+  call inside the try block so all failures — context or streaming — go through the
+  same catch that resets `isStreaming = false`.
+- **Manual continuation renders into correct assistant bubble (G14-2).** `renderAssistantMessage`
+  previously selected `querySelectorAll(".ai-agent-chat-msg-assistant")[last]`, so
+  clicking "Continue" on an old truncated answer updated the wrong (newest) bubble.
+  Fixed by stamping each message element with `data-msg-id` in `renderMessage` and
+  looking up by ID first, with last-element fallback for backward compatibility.
+
+---
+## [0.25.5] - 2026-06-26
+### Security
+- **OS sandbox write scope narrowed to active provider only** (`sandboxWrapper.ts`):
+  The v0.23.0 sandbox allowed write access to ALL four provider state directories
+  (`~/.gemini`, `~/.antigravity`, `~/.claude`, `~/.codex`) regardless of which
+  CLI was actually running. Antigravity now only gets `~/.gemini` + `~/.antigravity`,
+  Claude CLI gets `~/.claude`, and Codex gets `~/.codex`. A cross-provider agent
+  could no longer overwrite another CLI's auth state. When `provider` is not
+  specified, the safe fallback grants all four dirs for backward compatibility.
+  5 regression tests added.
+## [0.25.4] - 2026-06-26
+### Fixed
+- **`curate.yml` boolean strings no longer invert policy** (`curate_yml.py`):
+  Python's `bool("false") == True` caused any quoted boolean in `curate.yml`
+  (e.g. `allow_general_knowledge: "false"`) to be read as the opposite of the
+  user's intent. A new `_bool_from` helper accepts both Python booleans and
+  YAML-style string literals (`"true"/"yes"/"on"`, `"false"/"no"/"off"`).
+  Affects: `allow_general_knowledge`, `require_source_spans`,
+  `exploration_enabled`, `require_insight_candidates`, `allow_external`,
+  `require_rebind_approval`, `backprop.enabled`.
+- **Scalar `include` pattern no longer silently drops the filter** (`curate_yml.py`):
+  Writing `include: "03_Notes/**"` (a bare string) returned an empty list,
+  which the source-matching logic interprets as "include all". Now wrapped in a
+  one-item list so the filter is honoured.
+
+## [0.25.3] - 2026-06-26
+### Fixed
+- **`resolveCredential` exhaustiveness** (`cliAuth.ts`): Added a `default` case
+  to the provider switch that throws an explicit error with a `never`-typed guard.
+  Without it, an unrecognised provider silently returned `undefined` as the
+  credential, causing opaque call-site crashes.
+- **`updateSettings` drops its argument** (`main.ts`): `Object.assign` now merges
+  `updates` into `this.settings` before the data is saved. Previously every caller
+  was saving the unchanged current settings, so settings-panel mutations were
+  discarded on navigation.
+- **`claude-sonnet-4-6` wrongly in unavailable-model blocklist** (`main.ts`):
+  Removed from `unavailableDefaults`; it is a live, valid model ID. Its presence
+  caused the plugin to force-reset users whose active model was
+  `claude-sonnet-4-6` to the provider's default (Gemini) on every load.
+
+## [0.25.2] - 2026-06-26
+### Fixed
+- **Stale config path references removed from docs.** All references to the
+  retired `~/.config/curator/config.yml` global path and the renamed
+  `.curator/config.yml` vault file have been corrected to reflect the actual
+  paths used since v0.25.0: vault-scoped settings are in `.curator/settings.yml`
+  and machine-local settings are in `.cache/config/config.yml` at the repo root.
+- **False auto-processing callout removed from USER_GUIDE.** The `[!IMPORTANT]`
+  callout that incorrectly claimed `wiki query` / `search_curator` auto-ingest
+  pending sources has been replaced with an accurate note describing the manual
+  pipeline (`wiki add` → `wiki build` → `wiki sync` → `wiki query`).
+- **CLAUDE.md spec paths made explicit.** The `SEARCH_ENGINE_SCHEMA.md` glob in
+  the version-bump instructions now lists its actual subdirectory
+  (`docs/specs/search_engine/`) instead of relying on an ambiguous wildcard that
+  agents misread as `docs/specs/system_behavior/`.
 
 ## [0.25.1] - 2026-06-25
 ### Fixed
