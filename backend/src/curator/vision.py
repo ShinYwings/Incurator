@@ -186,9 +186,6 @@ def normalize_interactive_latex_transcription(text: str) -> str:
     return normalize_vision_latex("\n".join(lines))
 
 
-_MD_LINK_START_RE = re.compile(r"!?\[[^\]\n]*\]\(")
-
-
 def _markdown_destination(raw: str) -> str:
     text = raw.strip()
     if not text:
@@ -205,9 +202,10 @@ def _is_transient_vision_destination(destination: str) -> bool:
     if not dest:
         return False
     parsed = urlparse(dest)
-    if parsed.scheme and parsed.scheme.lower() != "file":
+    is_file_scheme = bool(parsed.scheme) and parsed.scheme.lower() == "file"
+    if parsed.scheme and not is_file_scheme:
         return False
-    raw_path = parsed.path if parsed.scheme.lower() == "file" else dest
+    raw_path = parsed.path if is_file_scheme else dest
     raw_path = unquote(raw_path).split("#", 1)[0].split("?", 1)[0]
     normalized = raw_path.replace("\\", "/")
     if "/.cache/vision_render/" in normalized or normalized.endswith("/.cache/vision_render"):
@@ -220,6 +218,24 @@ def _is_transient_vision_destination(destination: str) -> bool:
         return False
 
 
+def _find_balanced_close(text: str, start: int, open_ch: str, close_ch: str) -> int:
+    """Find balanced closing character, returning -1 on newline or EOF."""
+    depth = 1
+    i = start
+    while i < len(text):
+        ch = text[i]
+        if ch == "\n":
+            return -1
+        if ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
 def sanitize_transient_vision_artifacts(text: str) -> str:
     """Strip markdown destinations that point at transient vision render PNGs.
 
@@ -228,37 +244,63 @@ def sanitize_transient_vision_artifacts(text: str) -> str:
     persisted in extracted Markdown. Valid external URLs and vault-relative asset
     links are preserved; only destinations that resolve to the vision render temp
     area are replaced by their visible label/alt text.
+
+    Uses a character-level scanner to correctly handle nested brackets in labels
+    and balanced parentheses in URL destinations.
     """
     if not text:
         return ""
 
     out: list[str] = []
     pos = 0
-    while True:
-        match = _MD_LINK_START_RE.search(text, pos)
-        if match is None:
-            out.append(text[pos:])
-            break
-        close = text.find(")", match.end())
-        if close < 0:
-            out.append(text[pos:])
-            break
-        marker = match.group(0)
-        is_image = marker.startswith("!")
-        label_start = match.start() + (2 if is_image else 1)
-        label_end = text.find("]", label_start)
-        if label_end < 0 or label_end > match.end():
-            out.append(text[pos:close + 1])
-            pos = close + 1
+    length = len(text)
+    while pos < length:
+        # Detect link start: ![ or [
+        is_image = False
+        if text[pos] == "!" and pos + 1 < length and text[pos + 1] == "[":
+            is_image = True
+        elif text[pos] != "[":
+            out.append(text[pos])
+            pos += 1
             continue
-        label = text[label_start:label_end].strip()
-        destination = text[match.end():close]
-        out.append(text[pos:match.start()])
+
+        bracket_open = pos + (1 if not is_image else 2)
+        if bracket_open >= length:
+            out.append(text[pos])
+            pos += 1
+            continue
+
+        # Find balanced ] for the label, handling nested brackets.
+        label_close = _find_balanced_close(text, bracket_open, "[", "]")
+        if label_close < 0:
+            out.append(text[pos])
+            pos += 1
+            continue
+
+        # Must be followed by ( immediately.
+        if label_close + 1 >= length or text[label_close + 1] != "(":
+            out.append(text[pos])
+            pos += 1
+            continue
+
+        dest_open = label_close + 2
+        # Find balanced ) for the destination, handling parentheses in URLs.
+        dest_close = _find_balanced_close(text, dest_open, "(", ")")
+        if dest_close < 0:
+            out.append(text[pos])
+            pos += 1
+            continue
+
+        full_end = dest_close + 1
+        label = text[bracket_open:label_close].strip()
+        destination = text[dest_open:dest_close]
+
         if _is_transient_vision_destination(destination):
             out.append(label)
         else:
-            out.append(text[match.start():close + 1])
-        pos = close + 1
+            out.append(text[pos:full_end])
+        pos = full_end
+
     return "".join(out)
 
 

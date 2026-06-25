@@ -777,12 +777,20 @@ _LOCAL_HEADING_WIKILINK_RE = re.compile(
 )
 
 
-def _plain_local_heading_wikilinks(text: str) -> str:
-    """Plaintext parser-generated same-document heading wikilinks in CTX output."""
+def _plain_local_heading_wikilinks(text: str, source_stems: frozenset[str] = frozenset()) -> str:
+    """Plaintext parser-generated same-document heading wikilinks in CTX output.
+
+    When ``source_stems`` is provided (e.g. ``frozenset({"mvg", "multipleviewgeometry"})``),
+    only wikilinks whose target note name matches one of the stems are converted
+    to plain text; cross-document heading links are preserved.
+    """
     if not text:
         return ""
 
     def _replace(match: re.Match) -> str:
+        target = match.group(1).strip()
+        if source_stems and target.lower() not in source_stems:
+            return match.group(0)  # preserve cross-document links
         alias = (match.group(3) or "").strip()
         heading = (match.group(2) or "").strip()
         return alias or heading
@@ -980,14 +988,14 @@ def _extract_structural_sections(parsed) -> list[dict]:
     return _extract_markdown_sections(parsed.text, default_title=parsed.title)
 
 
-def _structural_atom_candidates(sections: list[dict], title: str) -> list[dict]:
+def _structural_atom_candidates(sections: list[dict], title: str, *, source_stems: frozenset[str] = frozenset()) -> list[dict]:
     candidates: list[dict] = []
     for section in sections[:24]:
         section_title = _plain_local_heading_wikilinks(
-            _clean_section_title(str(section.get("title") or ""), title)
+            _clean_section_title(str(section.get("title") or ""), title), source_stems
         )
         page = int(section.get("page") or 1)
-        preview = _section_preview(_plain_local_heading_wikilinks(str(section.get("text") or "")))
+        preview = _section_preview(_plain_local_heading_wikilinks(str(section.get("text") or ""), source_stems))
         candidates.append(
             {
                 "name": section_title,
@@ -1003,7 +1011,7 @@ def _structural_atom_candidates(sections: list[dict], title: str) -> list[dict]:
         return candidates
     return [
         {
-            "name": _plain_local_heading_wikilinks(_clean_section_title(title, "Document")),
+            "name": _plain_local_heading_wikilinks(_clean_section_title(title, "Document"), source_stems),
             "type": consts.CLAIM_TYPE_FACT,
             "one_liner": "Extract the atomic claims, methods, entities, and constraints from this source.",
         }
@@ -1062,6 +1070,7 @@ def _build_structural_source_guide(
     sections: list[dict],
     *,
     inline_source_sections: bool,
+    source_stems: frozenset[str] = frozenset(),
 ) -> tuple[str, str, str]:
     """Build English L1 retrieval scaffolding while preserving source recall."""
     section_count = len(sections)
@@ -1071,7 +1080,7 @@ def _build_structural_source_guide(
         if inline_source_sections
         else "large-document raw text is kept in the original source and fetched on demand"
     )
-    display_title = _plain_local_heading_wikilinks(str(parsed.title or "Untitled"))
+    display_title = _plain_local_heading_wikilinks(str(parsed.title or "Untitled"), source_stems)
 
     summary = (
         f"Structural L1 context for **{display_title}**. "
@@ -1096,10 +1105,10 @@ def _build_structural_source_guide(
     for idx, section in enumerate(sections[:24], 1):
         sid = str(section.get("id") or _section_id(idx))
         title = _plain_local_heading_wikilinks(
-            _clean_section_title(str(section.get("title") or ""), f"Section {idx}")
+            _clean_section_title(str(section.get("title") or ""), f"Section {idx}"), source_stems
         )
         page = int(section.get("page") or 1)
-        preview = _section_preview(_plain_local_heading_wikilinks(str(section.get("text") or "")))
+        preview = _section_preview(_plain_local_heading_wikilinks(str(section.get("text") or ""), source_stems))
         if preview:
             guide_lines.append(f"- `{sid}` p.{page} — **{title}**: {preview}")
             claim_lines.append(
@@ -1189,7 +1198,20 @@ def _build_structural_context_page(
     import yaml
 
     sections = _extract_structural_sections(parsed)
-    candidates = _structural_atom_candidates(sections, parsed.title)
+    source_stem = Path(relpath).stem if relpath else ""
+    # Build a set of stems for self-reference detection: the filename stem
+    # AND the parsed title (stripped of extensions). This handles common cases
+    # like mvg.md containing [[MultipleViewGeometry#...]] heading links.
+    stem_candidates = {source_stem.lower()} if source_stem else set()
+    raw_title = str(parsed.title or "").strip()
+    # If the title is itself a wikilink, extract the target note name.
+    wl_match = _LOCAL_HEADING_WIKILINK_RE.search(raw_title)
+    if wl_match:
+        stem_candidates.add(wl_match.group(1).strip().lower())
+    elif raw_title:
+        stem_candidates.add(raw_title.lower())
+    source_stems = frozenset(stem_candidates - {""})
+    candidates = _structural_atom_candidates(sections, parsed.title, source_stems=source_stems)
     compact_pages: list[dict] = []
     pdf_pages = parsed.metadata.get("pdf_pages") or []
     if parsed.file_type == "pdf" and isinstance(pdf_pages, list):
@@ -1217,7 +1239,7 @@ def _build_structural_context_page(
             {
                 "id": str(section.get("id") or _section_id(idx)),
                 "level": int(section.get("level") or 2),
-                "title": _plain_local_heading_wikilinks(str(section.get("title") or f"Section {idx}")),
+                "title": _plain_local_heading_wikilinks(str(section.get("title") or f"Section {idx}"), source_stems),
                 "page": int(section.get("page") or 1),
             }
             for idx, section in enumerate(sections, 1)
@@ -1242,6 +1264,7 @@ def _build_structural_context_page(
         parsed,
         sections,
         inline_source_sections=inline_source_sections,
+        source_stems=source_stems,
     )
     candidates_text = "\n".join(
         f"- [{candidate['type']}] {candidate['name']}: {candidate['one_liner']}"
@@ -1263,8 +1286,8 @@ def _build_structural_context_page(
         level = max(2, min(int(section.get("level") or 2), 6))
         sid = str(section.get("id") or _section_id(idx))
         page_num = int(section.get("page") or 1)
-        title = _plain_local_heading_wikilinks(str(section.get("title") or f"Section {idx}"))
-        body = _plain_local_heading_wikilinks(str(section.get("text") or "")).strip()
+        title = _plain_local_heading_wikilinks(str(section.get("title") or f"Section {idx}"), source_stems)
+        body = _plain_local_heading_wikilinks(str(section.get("text") or ""), source_stems).strip()
         if not inline_source_sections:
             preview = _section_preview(body, max_chars=420)
             body = (

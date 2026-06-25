@@ -387,3 +387,38 @@ def test_compile_source_l2_failed_extraction_sets_error(vault) -> None:
     docs = db.list_search_documents(paths.state_db)
     assert {doc["record_type"] for doc in docs} == {"source_span"}
     assert len(docs) == len(db.list_source_spans(paths.state_db, 1))
+
+
+def test_compile_global_l3_failure_sets_l4_skipped_not_error(vault) -> None:
+    """When synthesis errors, L4 should be 'skipped' with its own message, not 'error'."""
+    paths = vault
+
+    class SynthesisFailClient(DynamicFakeClient):
+        def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+            text = "\n".join(m.content for m in messages)
+            if "cross-cutting synthes" in text.lower() or "Write the cross-cutting" in text:
+                raise RuntimeError("synthetic synthesis failure")
+            return super().chat(messages, json_mode=json_mode, temperature=temperature)
+
+    client = SynthesisFailClient()
+    # Need 2 sources for community reports to be generated.
+    src2 = paths.root / "04_Resources" / "resnet2.md"
+    src2.write_text(SOURCE_MD, encoding="utf-8")
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, "
+            "context_id, l1_status) VALUES (?, ?, ?, ?, datetime('now'), ?, 'done')",
+            ("04_Resources/resnet2.md", "h2", "md", len(SOURCE_MD), "CTX-test5678"),
+        )
+
+    compile_mod.compile_source_l2(paths, client, 1)
+    compile_mod.compile_source_l2(paths, client, 2)
+
+    with pytest.raises(RuntimeError, match="L3 global clustering"):
+        compile_mod.compile_global_l3(paths, client)
+
+    assert _layer_status(paths, 1, "l3") == "error"
+    assert _layer_status(paths, 2, "l3") == "error"
+    # L4 must NOT be "error" — synthesis was the failure, and L4 was never completed.
+    assert _layer_status(paths, 1, "l4") == "skipped"
+    assert _layer_status(paths, 2, "l4") == "skipped"
