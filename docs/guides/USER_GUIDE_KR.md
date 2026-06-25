@@ -81,7 +81,7 @@ wiki init <path/to/your/obsidian-vault>
 ├── 05_Assets/         # 이미지, PDF 첨부파일 등 미디어 자산
 ├── 06_Archives/       # 더 이상 사용하지 않는 소스 보관소
 ├── .curator/          # [AI Space] 시스템 핵심 데이터 및 SQLite DB (AI 전용 공간)
-│   ├── config.yml     # LLM 백엔드, 모델, 경로 설정
+│   ├── settings.yml   # Vault 범위의 portable 설정 (페르소나, 동기화 정책 등)
 │   ├── state.sqlite   # 중복 방지 해시, 소스Provenance, 인계 기록
 │   ├── index.md       # DAG 라우팅 테이블 (L1~L4 노드 ID 목록)
 │   ├── ledger.md      # HITL(인간 개입) 수정 및 승격 이력
@@ -870,4 +870,4 @@ Incurator는 Zotero 등의 외부 PDF 파일들을 보관소로 복사하지 않
 ### 5. OS 환경별 경로 분리 (Platform-aware Config)
 Linux와 macOS 환경을 번갈아 사용하는 경우, Syncthing 동기화로 인한 절대 경로 충돌을 방지하기 위해 플랫폼별 설정이 철저히 분리됩니다.
 - **플러그인 설정**: 옵시디언 플러그인 설정 메뉴에서 `Linux Binary Path`와 `macOS Binary Path`를 각각 별도로 입력합니다. 에이전트는 실행 중인 운영체제(`process.platform`)에 맞춰 올바른 백엔드 실행 파일을 자동 호출합니다.
-- **글로벌 설정 (`~/.config/curator/config.yml`)**: Zotero 라이브러리 경로 등 기기 종속적인 로컬 설정은 Vault 내부가 아닌 OS 사용자 홈 디렉토리의 전역 설정 파일에서 관리됩니다.
+- **기기별 설정 (`.cache/config/config.yml`)**: Zotero 라이브러리 경로 등 기기 종속적인 로컬 설정은 Vault 내부가 아닌 저장소 루트의 `.cache/config/config.yml` 파일에서 관리됩니다. Vault-scoped 이식 가능 설정은 `.curator/settings.yml`에 저장됩니다.
