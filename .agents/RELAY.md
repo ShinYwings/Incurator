@@ -1,6 +1,6 @@
 # Active Relay State
 
-**STATUS: ACTIVE — v0.25.1 User Report Stability Bug Batch completed locally; System Stability Phase A diagnosis can resume (G01–G06 done-unmerged; G07–G19 + merge remain).**
+**STATUS: ACTIVE — v0.25.1 User Report Stability Bug Batch pushed as draft PR #49; System Stability Phase A diagnosis can resume after review/merge (G01–G06 done-unmerged; G07–G19 + merge remain).**
 
 **Branch**: `feature/system-stability-overhaul`
 
@@ -53,8 +53,9 @@ categories (a)–(i): bugs, redundancy, error-handling smells, legacy/dead code,
 architectural debt, docs drift, performance hotspots, robustness/weaknesses,
 UI/UX friction. Dedicated refactor phases exist for each axis.
 
-**Immediate Next Action**: finalize/push the v0.25.1 release commit/PR, then
-resume Phase A diagnosis from `.agents/plans/diagnosis/INDEX.md`.
+**Immediate Next Action**: review/merge draft PR #49
+(`https://github.com/ShinYwings/Incurator/pull/49`), then resume Phase A
+diagnosis from `.agents/plans/diagnosis/INDEX.md`.
 
 ---
 
@@ -139,3 +140,5 @@ Implemented and validated v0.25.1 User Report Stability Bug Batch:
   mypy passed; full plugin vitest passed (58 files / 576 tests); testbed
   `complex_math_backprop` was regenerated and `VAULT_ROOT=testbed wiki status`
   resolves to `/Users/shin/shinywings/Incurator/testbed`.
+- Branch pushed and draft PR opened:
+  `https://github.com/ShinYwings/Incurator/pull/49`.

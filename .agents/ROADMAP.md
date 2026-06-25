@@ -122,8 +122,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: User Report Stability Bug Batch (`v0.25.1`) completed
-  locally on `feature/system-stability-overhaul`; urgent queue is clear.
+- **Roadmap state**: User Report Stability Bug Batch (`v0.25.1`) pushed as draft
+  PR #49 on `feature/system-stability-overhaul`; urgent queue is clear.
 - **Active Milestone**: System Stability Overhaul — Exhaustive Diagnosis &
   Refactoring.
 - **Next actionable item**: resume Phase A diagnosis at the next unfinished
