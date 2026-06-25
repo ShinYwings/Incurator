@@ -4,6 +4,21 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.25.6] - 2026-06-26
+### Fixed
+- **chatSidebar streaming never stuck on context-build failure (G14-1).** `buildLLMMessages`
+  was called outside the try/catch that clears `isStreaming`; a context-build failure
+  (e.g. vault read error) left the assistant bubble permanently spinning. Moved the
+  call inside the try block so all failures — context or streaming — go through the
+  same catch that resets `isStreaming = false`.
+- **Manual continuation renders into correct assistant bubble (G14-2).** `renderAssistantMessage`
+  previously selected `querySelectorAll(".ai-agent-chat-msg-assistant")[last]`, so
+  clicking "Continue" on an old truncated answer updated the wrong (newest) bubble.
+  Fixed by stamping each message element with `data-msg-id` in `renderMessage` and
+  looking up by ID first, with last-element fallback for backward compatibility.
+
+---
+
 ## [0.25.1] - 2026-06-25
 ### Fixed
 - **Safer source/job recovery.** `wiki source rm` now keeps source files unless
