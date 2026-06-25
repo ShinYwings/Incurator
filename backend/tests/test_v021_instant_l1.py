@@ -119,6 +119,31 @@ class InstantL1Tests(unittest.TestCase):
         self.assertIn("Preview: Short preview sentence.", parsed.body)
         self.assertNotIn(deep_evidence, parsed.body)
 
+    def test_structural_l1_plaintexts_parser_generated_heading_wikilinks(self) -> None:
+        relpath = "03_Notes/mvg.md"
+        source = self.root / relpath
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(
+            "# [[MultipleViewGeometry#1 Introduction|1 Introduction]]\n\n"
+            "See [[MultipleViewGeometry#Equation 19.11]] for the epipolar constraint.\n",
+            encoding="utf-8",
+        )
+        source_id, content_hash = self._insert_source(relpath)
+
+        context_id = ingest_raw.generate_l1_structural_context(
+            self.paths,
+            source_id=source_id,
+            relpath=relpath,
+            content_hash=content_hash,
+        )
+
+        parsed = page_writer.read_page(self.paths.contexts / f"{context_id}.md")
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.frontmatter["toc"][0]["title"], "1 Introduction")
+        self.assertNotIn("[[MultipleViewGeometry#", parsed.body)
+        self.assertIn("Equation 19.11", parsed.body)
+
 
 if __name__ == "__main__":
     unittest.main()

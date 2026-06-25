@@ -127,3 +127,25 @@ def test_normalize_unwraps_single_dollar_dollar_wrapper() -> None:
     assert vision.normalize_vision_latex(mixed) == mixed
     # Multi-line wrapped block is unwrapped.
     assert vision.normalize_vision_latex("$$\nF = ma\n$$") == "F = ma"
+
+
+def test_sanitize_transient_vision_artifacts_preserves_valid_image_links() -> None:
+    raw = "\n".join(
+        [
+            "![tmp page](file:///Users/shin/.cache/vision_render/run/page.png)",
+            "[tmp link](/Users/shin/.cache/vision_render/run/page-2.png)",
+            "![web](https://example.com/page.png)",
+            "![vault](05_Assets/page.png)",
+            "[paper](https://example.com/paper)",
+        ]
+    )
+
+    out = vision.sanitize_transient_vision_artifacts(raw)
+
+    assert "file://" not in out
+    assert "vision_render" not in out
+    assert "tmp page" in out
+    assert "tmp link" in out
+    assert "![web](https://example.com/page.png)" in out
+    assert "![vault](05_Assets/page.png)" in out
+    assert "[paper](https://example.com/paper)" in out

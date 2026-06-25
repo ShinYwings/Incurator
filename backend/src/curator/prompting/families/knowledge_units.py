@@ -15,7 +15,7 @@ from ..contracts import PromptContract
 from ..registry import register
 
 PROMPT_ID = "curator.knowledge_unit_extract"
-VERSION = "v2"
+VERSION = "v3"
 
 UnitType = Literal[
     "claim",
@@ -65,6 +65,9 @@ Hard rules:
 - One unit = one atomic fact/definition/equation/etc. Do not bundle.
 - unit_type is one of: claim, definition, equation, procedure, method, result,
   observation, constraint.
+- All generated fields (`canonical_name`, `statement`) MUST be in English. If
+  the source span is Korean or another non-English language, translate the
+  generated knowledge unit to English while preserving cited evidence ids.
 - Preserve equations exactly (with $$...$$ / $...$ delimiters) in equation units.
 - Declare the minimal cited-span role for each unit in support_roles. Allowed
   roles are primary | contextual | formula. Use primary for the smallest span
@@ -121,7 +124,7 @@ CONTRACT = register(
         system_template=SYSTEM_TEMPLATE,
         user_template=USER_TEMPLATE,
         validators=("source_span_ids", "requires_source_spans", "confidence_range",
-                    "no_source_truth_pollution"),
+                    "generated_english", "no_source_truth_pollution"),
         trace_fields=("source_title",),
         temperature=0.2,
         requires_source_spans=True,

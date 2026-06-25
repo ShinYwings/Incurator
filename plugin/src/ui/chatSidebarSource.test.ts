@@ -375,4 +375,13 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain('m) => m.role === "user"');
     expect(source).toContain("res.promoted_to");
   });
+
+  it("opens generated vault block links from assistant answers through Obsidian", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    expect(source).toContain('link.getAttribute("data-href") ?? link.getAttribute("href")');
+    expect(source).toContain('if (target.kind === "vault")');
+    expect(source).toContain('this.app.workspace.openLinkText(target.linkpath, "", false)');
+  });
 });

@@ -53,11 +53,12 @@ def test_extraction_contracts_require_source_spans_flag() -> None:
         assert prompting.REGISTRY.get(pid).requires_source_spans
 
 
-def test_knowledge_unit_v2_declares_minimal_support_and_formula_centrality() -> None:
+def test_knowledge_unit_v3_declares_minimal_support_formula_centrality_and_english() -> None:
     contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
-    assert contract.version == "v2"
+    assert contract.version == "v3"
     assert "primary | contextual | formula" in contract.system_template
     assert "formula_centrality" in contract.system_template
+    assert "English" in contract.system_template
 
 
 def test_backprop_classify_contract_has_classification_model() -> None:

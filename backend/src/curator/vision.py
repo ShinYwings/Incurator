@@ -20,6 +20,7 @@ import uuid
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 from . import config as cfg
 
@@ -28,9 +29,12 @@ __all__ = [
     "sweep_stale_vision_dirs",
     "vision_temp_png",
     "normalize_vision_latex",
+    "normalize_interactive_latex_transcription",
+    "sanitize_transient_vision_artifacts",
     "describe_image_via_cli",
     "render_pdf_pages",
     "PDF_LATEX_TRANSCRIBE_PROMPT",
+    "PDF_INTERACTIVE_LATEX_TRANSCRIBE_PROMPT",
 ]
 
 # Bounded concurrency for page transcription (subprocess/httpx calls are blocking).
@@ -42,6 +46,14 @@ PDF_LATEX_TRANSCRIBE_PROMPT = (
     "Render every formula as LaTeX: inline math as $...$, display math as $$...$$. "
     "Preserve reading order. Output ONLY the transcription — no commentary, no "
     "explanations, no code fences, no summaries."
+)
+
+PDF_INTERACTIVE_LATEX_TRANSCRIBE_PROMPT = (
+    "Transcribe ONLY the selected PDF region to clean Markdown. Render every "
+    "formula as LaTeX: inline math as $...$, display math as $$...$$. Preserve "
+    "the selected text and reading order faithfully. Return exactly one "
+    "<transcription>...</transcription> block and no commentary, explanations, "
+    "code fences, summaries, or labels outside that block."
 )
 
 
@@ -126,6 +138,128 @@ def normalize_vision_latex(text: str) -> str:
         if "$$" not in inner:
             return inner
     return result
+
+
+_TRANSCRIPTION_TAG_RE = re.compile(
+    r"<transcription>\s*(.*?)\s*</transcription>",
+    re.IGNORECASE | re.DOTALL,
+)
+_TRANSCRIPTION_INTRO_RE = re.compile(
+    r"^\s*(?:sure[,.]?\s*)?(?:here(?:'s| is)|below is|the)\b.*"
+    r"\b(?:transcription|converted|conversion|latex|markdown)\b.*:?\s*$",
+    re.IGNORECASE,
+)
+_TRANSCRIPTION_OUTRO_RE = re.compile(
+    r"^\s*(?:this|it|i)\b.*\b(?:preserves?|transcribed|converted|latex|markdown|formula|equation)\b.*\.?\s*$",
+    re.IGNORECASE,
+)
+
+
+def normalize_interactive_latex_transcription(text: str) -> str:
+    """Normalize interactive region output to only faithful LaTeX-bearing text.
+
+    The full-page VLM ingest path uses :func:`normalize_vision_latex` directly
+    because it must preserve arbitrary page prose. Interactive copy uses a
+    stricter contract: the model should return a ``<transcription>`` block, and
+    common noncompliant intro/outro prose is stripped before the clipboard sees it.
+    """
+    if not text:
+        return ""
+    normalized = normalize_vision_latex(text)
+    tagged = _TRANSCRIPTION_TAG_RE.search(normalized)
+    if tagged:
+        normalized = tagged.group(1)
+
+    lines = normalized.replace("\r\n", "\n").split("\n")
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    while lines and _TRANSCRIPTION_INTRO_RE.match(lines[0].strip()):
+        lines.pop(0)
+        while lines and not lines[0].strip():
+            lines.pop(0)
+    while lines and _TRANSCRIPTION_OUTRO_RE.match(lines[-1].strip()):
+        lines.pop()
+        while lines and not lines[-1].strip():
+            lines.pop()
+    return normalize_vision_latex("\n".join(lines))
+
+
+_MD_LINK_START_RE = re.compile(r"!?\[[^\]\n]*\]\(")
+
+
+def _markdown_destination(raw: str) -> str:
+    text = raw.strip()
+    if not text:
+        return ""
+    if text.startswith("<"):
+        end = text.find(">")
+        if end > 0:
+            return text[1:end].strip()
+    return text.split(maxsplit=1)[0].strip()
+
+
+def _is_transient_vision_destination(destination: str) -> bool:
+    dest = _markdown_destination(destination)
+    if not dest:
+        return False
+    parsed = urlparse(dest)
+    if parsed.scheme and parsed.scheme.lower() != "file":
+        return False
+    raw_path = parsed.path if parsed.scheme.lower() == "file" else dest
+    raw_path = unquote(raw_path).split("#", 1)[0].split("?", 1)[0]
+    normalized = raw_path.replace("\\", "/")
+    if "/.cache/vision_render/" in normalized or normalized.endswith("/.cache/vision_render"):
+        return True
+    try:
+        target = Path(raw_path).expanduser().resolve()
+        target.relative_to(vision_render_dir().resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def sanitize_transient_vision_artifacts(text: str) -> str:
+    """Strip markdown destinations that point at transient vision render PNGs.
+
+    Vision prompts for CLI-backed models include a local temp PNG path. If the
+    model echoes that path as an image/link, the destination must not be cached or
+    persisted in extracted Markdown. Valid external URLs and vault-relative asset
+    links are preserved; only destinations that resolve to the vision render temp
+    area are replaced by their visible label/alt text.
+    """
+    if not text:
+        return ""
+
+    out: list[str] = []
+    pos = 0
+    while True:
+        match = _MD_LINK_START_RE.search(text, pos)
+        if match is None:
+            out.append(text[pos:])
+            break
+        close = text.find(")", match.end())
+        if close < 0:
+            out.append(text[pos:])
+            break
+        marker = match.group(0)
+        is_image = marker.startswith("!")
+        label_start = match.start() + (2 if is_image else 1)
+        label_end = text.find("]", label_start)
+        if label_end < 0 or label_end > match.end():
+            out.append(text[pos:close + 1])
+            pos = close + 1
+            continue
+        label = text[label_start:label_end].strip()
+        destination = text[match.end():close]
+        out.append(text[pos:match.start()])
+        if _is_transient_vision_destination(destination):
+            out.append(label)
+        else:
+            out.append(text[match.start():close + 1])
+        pos = close + 1
+    return "".join(out)
 
 
 def render_pdf_pages(

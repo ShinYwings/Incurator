@@ -28,6 +28,14 @@ _SOURCE_MUTATION = re.compile(
     r"(03_Notes|04_Resources|06_Archives)",
     re.IGNORECASE,
 )
+_NON_ENGLISH_SCRIPT = re.compile(
+    r"[\u1100-\u11ff\u3130-\u318f\uac00-\ud7a3"  # Hangul
+    r"\u3040-\u30ff"  # Japanese kana
+    r"\u3400-\u4dbf\u4e00-\u9fff"  # CJK ideographs
+    r"\u0400-\u04ff"  # Cyrillic
+    r"\u0600-\u06ff]"  # Arabic
+)
+_LATIN_LETTER = re.compile(r"[A-Za-z]")
 
 
 def _as_dict(parsed: BaseModel | None) -> dict[str, Any]:
@@ -139,6 +147,34 @@ def validate_confidence_range(raw: str, parsed: BaseModel | None, ctx: Mapping[s
     return ValidationResult.passed() if not errors else ValidationResult(ok=False, errors=errors)
 
 
+def _looks_non_english_generated(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    non_english_chars = _NON_ENGLISH_SCRIPT.findall(stripped)
+    if not non_english_chars:
+        return False
+    latin_chars = _LATIN_LETTER.findall(stripped)
+    # A single symbol/name can appear in math or a proper noun; sustained
+    # non-Latin script in generated L2 fields violates the English contract.
+    if len(non_english_chars) >= 2:
+        return True
+    return not latin_chars
+
+
+def validate_generated_english(raw: str, parsed: BaseModel | None, ctx: Mapping[str, Any]) -> ValidationResult:
+    """Generated L2 fields must be English; raw source-span text is not checked."""
+    fields = tuple(ctx.get("generated_english_fields") or ("canonical_name", "statement"))
+    errors: list[str] = []
+    for node in _iter_dicts(_as_dict(parsed)):
+        for field in fields:
+            value = node.get(field)
+            if isinstance(value, str) and _looks_non_english_generated(value):
+                label = node.get("canonical_name") or node.get("id") or "<generated>"
+                errors.append(f"non-English generated field {field!r} in {label!r}")
+    return ValidationResult.passed() if not errors else ValidationResult(ok=False, errors=errors)
+
+
 def validate_relation_endpoints(raw: str, parsed: BaseModel | None, ctx: Mapping[str, Any]) -> ValidationResult:
     """Relation endpoints must be among declared entity names/ids in this output."""
     data = _as_dict(parsed)
@@ -164,6 +200,7 @@ VALIDATORS: dict[str, Validator] = {
     "no_unknown_wikilinks": validate_no_unknown_wikilinks,
     "no_source_truth_pollution": validate_no_source_truth_pollution,
     "confidence_range": validate_confidence_range,
+    "generated_english": validate_generated_english,
     "relation_endpoints": validate_relation_endpoints,
 }
 

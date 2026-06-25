@@ -148,6 +148,8 @@ export class ExternalPdfView extends ItemView {
   private renderingPages = new Set<number>();
   private isLazyRendering = false;
   private lazyRenderDirty = false;
+  private scrollFrame: number | null = null;
+  private scrollFrameToken = 0;
 
   // Zoom debounce
   private zoomDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -910,11 +912,7 @@ export class ExternalPdfView extends ItemView {
 
         setTimeout(() => {
           if (token !== this.renderToken) return;
-          container.onscroll = () => {
-            if (this.isZooming) return;
-            this.updateCurrentPage();
-            this.onScrollLazyRender(token);
-          };
+          container.onscroll = () => this.scheduleScrollWork(token);
         }, 200);
       }, 300);
     } catch (err: unknown) {
@@ -1222,6 +1220,18 @@ export class ExternalPdfView extends ItemView {
         this.onScrollLazyRender(token);
       }
     }
+  }
+
+  private scheduleScrollWork(token: number): void {
+    if (this.isZooming || token !== this.renderToken) return;
+    this.scrollFrameToken = token;
+    if (this.scrollFrame !== null) return;
+    this.scrollFrame = requestAnimationFrame(() => {
+      this.scrollFrame = null;
+      if (this.scrollFrameToken !== this.renderToken) return;
+      this.updateCurrentPage();
+      void this.onScrollLazyRender(token);
+    });
   }
 
   private async loadPdfData(doc: ExternalPdfDoc): Promise<Uint8Array> {
@@ -1863,6 +1873,10 @@ export class ExternalPdfView extends ItemView {
     if (this.zoomDebounceTimer !== null) {
       clearTimeout(this.zoomDebounceTimer);
       this.zoomDebounceTimer = null;
+    }
+    if (this.scrollFrame !== null) {
+      cancelAnimationFrame(this.scrollFrame);
+      this.scrollFrame = null;
     }
   }
 

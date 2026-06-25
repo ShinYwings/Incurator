@@ -1,6 +1,7 @@
 export type AnswerLinkTarget =
   | { kind: "page"; pageNum: number; pageKind: "physical" | "printed" }
-  | { kind: "section"; sectionNumber: string };
+  | { kind: "section"; sectionNumber: string }
+  | { kind: "vault"; linkpath: string };
 
 const PAGE_PATTERNS = [
   { re: /(?:^|[#?&])page=(\d{1,5})(?:$|[&#])/i, pageKind: "physical" as const },
@@ -12,6 +13,9 @@ const SECTION_PATTERNS = [
   /\b(?:section|sec)\.?\s*([A-Z]?\d+(?:\.\d+)*)\b/i,
   /§\s*([A-Z]?\d+(?:\.\d+)*)/i,
 ];
+
+const VAULT_BLOCK_LINK_RE = /^([^#\n]+)#\^([A-Za-z0-9_-]+)$/;
+const VAULT_BLOCK_LABEL_RE = /^(.+?)\s*>\s*\^([A-Za-z0-9_-]+)$/;
 
 export function parseAnswerLinkTarget(
   hrefOrText: string | null | undefined,
@@ -32,6 +36,37 @@ export function parseAnswerLinkTarget(
         return { kind: "section", sectionNumber: match[1].toUpperCase() };
       }
     }
+    const vaultTarget = parseVaultBlockTarget(value);
+    if (vaultTarget) return vaultTarget;
   }
   return null;
+}
+
+function parseVaultBlockTarget(value: string): AnswerLinkTarget | null {
+  const decoded = decodeHref(value).trim();
+  if (!decoded || /^[a-z][a-z0-9+.-]*:/i.test(decoded)) return null;
+
+  const direct = VAULT_BLOCK_LINK_RE.exec(decoded);
+  if (direct?.[1] && direct[2]) {
+    const note = direct[1].trim();
+    if (note) return { kind: "vault", linkpath: `${note}#^${direct[2]}` };
+  }
+
+  const label = VAULT_BLOCK_LABEL_RE.exec(decoded);
+  if (label?.[1] && label[2]) {
+    const note = label[1].trim();
+    if (note && !note.includes("://")) {
+      return { kind: "vault", linkpath: `${note}#^${label[2]}` };
+    }
+  }
+
+  return null;
+}
+
+function decodeHref(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }

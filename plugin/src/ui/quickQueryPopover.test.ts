@@ -109,9 +109,8 @@ describe("quick query: thinking strip", () => {
 
 describe("quick query: latex normalization (item 17)", () => {
   it("normalizes LaTeX delimiters before markdown rendering", async () => {
-    expect(source).toContain(
-      'import { attachLatexCopyHandler, normalizeLatexDelimiters, selectionToTextWithLatex } from "../utils/textUtils"'
-    );
+    expect(source).toContain("normalizeLatexDelimiters");
+    expect(source).toContain("selectionToTextWithLatex");
     expect(source).toContain(
       "normalizeLatexDelimiters(stripThinkingForDisplay(raw))"
     );
@@ -122,19 +121,41 @@ describe("quick query: latex normalization (item 17)", () => {
     expect(source).toContain("selectionToTextWithLatex(selection).trim()");
     expect(source).not.toContain("selection?.toString().trim()");
   });
+
+  it("stamps rendered math source before installing the popover copy handler", async () => {
+    expect(source).toContain("stampMathSourceData");
+    const renderStart = source.indexOf("await MarkdownRenderer.render(");
+    const stamp = source.indexOf("stampMathSourceData(answerEl, finalText)", renderStart);
+    const attach = source.indexOf("attachLatexCopyHandler(answerEl, htmlToMarkdown)", renderStart);
+    expect(renderStart).toBeGreaterThanOrEqual(0);
+    expect(stamp).toBeGreaterThan(renderStart);
+    expect(attach).toBeGreaterThan(stamp);
+  });
 });
 
 describe("quick query: persistent popover lifecycle (v0.15.0)", () => {
-  it("tears down old surfaces before switching owner document in openForCurrentSelection", () => {
+  it("keeps existing popovers when opening another current selection", () => {
     const body = source.slice(
       source.indexOf("openForCurrentSelection"),
       source.indexOf("private isInsideOwnUi")
     );
 
     expect(body.indexOf("this.removeButton();")).toBeGreaterThanOrEqual(0);
-    expect(body.indexOf("this.removePopover();")).toBeGreaterThanOrEqual(0);
     expect(body.indexOf("this.removeButton();")).toBeLessThan(body.indexOf("this.activeDoc = ownerDoc"));
-    expect(body.indexOf("this.removePopover();")).toBeLessThan(body.indexOf("this.activeDoc = ownerDoc"));
+    expect(body).not.toContain("this.removePopover();");
+  });
+
+  it("spawns one independent popover session per selection", () => {
+    expect(source).toContain("private childPopovers = new Set<QuickQueryPopover>();");
+    const body = source.slice(
+      source.indexOf("private openPopover"),
+      source.indexOf("private openSinglePopover")
+    );
+
+    expect(body).toContain("new QuickQueryPopover(this.plugin)");
+    expect(body).toContain("this.childPopovers.add(session)");
+    expect(body).toContain("session.openSinglePopover(rect)");
+    expect(body).toContain("this.childPopovers.delete(popover)");
   });
 
   it("keeps open popovers immune to outside clicks and handles text-node targets", () => {

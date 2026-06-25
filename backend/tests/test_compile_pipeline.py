@@ -15,6 +15,7 @@ import pytest
 
 from curator import config as cfg
 from curator import db
+from curator import ingest_llm
 from curator.llm import ChatMessage
 from curator.pipeline import compile as compile_mod
 
@@ -82,6 +83,20 @@ class DynamicFakeClient:
                     "contradictions": [],
                     "source_span_ids": [first],
                     "rank": 0.7,
+                }
+            )
+        if "Write the cross-cutting syntheses" in text:
+            return json.dumps(
+                {
+                    "syntheses": [
+                        {
+                            "title": "Residual learning as dynamics",
+                            "statement": "Residual blocks behave like discretized dynamics.",
+                            "full_content": "Cross-cutting synthesis.",
+                            "source_span_ids": [first],
+                            "confidence": 0.7,
+                        }
+                    ]
                 }
             )
         return "{}"
@@ -203,6 +218,79 @@ def test_compile_source_l2_excludes_failed_claim_from_downstream(vault) -> None:
     )
 
 
+def test_compile_source_l2_repairs_non_english_generated_units(vault) -> None:
+    paths = vault
+
+    class KoreanThenEnglishClient(DynamicFakeClient):
+        def __init__(self) -> None:
+            self.knowledge_unit_calls = 0
+
+        def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+            text = "\n".join(m.content for m in messages)
+            span_ids = re.findall(r"SPAN-[0-9a-f]{8}", text)
+            first = span_ids[0] if span_ids else "SPAN-00000000"
+            if "Extract the knowledge units" in text:
+                self.knowledge_unit_calls += 1
+                if self.knowledge_unit_calls == 1:
+                    return json.dumps(
+                        {
+                            "units": [
+                                {
+                                    "canonical_name": "잔차 학습",
+                                    "unit_type": "claim",
+                                    "statement": "잔차 연결은 깊은 네트워크 최적화를 쉽게 한다.",
+                                    "source_span_ids": [first],
+                                    "confidence": 0.9,
+                                    "truth_status": "source_supported",
+                                }
+                            ]
+                        }
+                    )
+            return super().chat(messages, json_mode=json_mode, temperature=temperature)
+
+    client = KoreanThenEnglishClient()
+    result = compile_mod.compile_source_l2(paths, client, 1)
+
+    assert result.ok, result.error
+    assert client.knowledge_unit_calls == 2
+    units = db.list_knowledge_units_for_source(paths.state_db, 1)
+    assert units[0]["canonical_name"] == "Residual learning eases optimization"
+    assert "잔차" not in units[0]["statement"]
+
+
+def test_compile_source_l2_rejects_persistently_non_english_generated_units(vault) -> None:
+    paths = vault
+
+    class AlwaysKoreanClient(DynamicFakeClient):
+        def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+            text = "\n".join(m.content for m in messages)
+            span_ids = re.findall(r"SPAN-[0-9a-f]{8}", text)
+            first = span_ids[0] if span_ids else "SPAN-00000000"
+            if "Extract the knowledge units" in text:
+                return json.dumps(
+                    {
+                        "units": [
+                            {
+                                "canonical_name": "잔차 학습",
+                                "unit_type": "claim",
+                                "statement": "잔차 연결은 깊은 네트워크 최적화를 쉽게 한다.",
+                                "source_span_ids": [first],
+                                "confidence": 0.9,
+                                "truth_status": "source_supported",
+                            }
+                        ]
+                    }
+                )
+            return super().chat(messages, json_mode=json_mode, temperature=temperature)
+
+    result = compile_mod.compile_source_l2(paths, AlwaysKoreanClient(), 1)
+
+    assert not result.ok
+    assert _layer_status(paths, 1, "l2") == "error"
+    assert db.list_knowledge_units_for_source(paths.state_db, 1) == []
+    assert not list(paths.atoms.glob("ATM-*.md"))
+
+
 def test_compile_global_l3_writes_concepts(vault) -> None:
     paths = vault
     client = DynamicFakeClient()
@@ -234,6 +322,53 @@ def test_compile_global_l3_writes_concepts(vault) -> None:
     assert n_rep >= 1
 
     assert _layer_status(paths, 1, "l3") == "done"
+
+
+def test_compile_global_l3_marks_l4_done_when_synthesis_is_generated(vault) -> None:
+    paths = vault
+    client = DynamicFakeClient()
+    src2 = paths.root / "04_Resources" / "resnet2.md"
+    src2.write_text(SOURCE_MD, encoding="utf-8")
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, "
+            "context_id, l1_status) VALUES (?, ?, ?, ?, datetime('now'), ?, 'done')",
+            ("04_Resources/resnet2.md", "h2", "md", len(SOURCE_MD), "CTX-test5678"),
+        )
+
+    compile_mod.compile_source_l2(paths, client, 1)
+    compile_mod.compile_source_l2(paths, client, 2)
+    compile_mod.compile_global_l3(paths, client)
+
+    assert db.list_synthesis_nodes(paths.state_db)
+    assert _layer_status(paths, 1, "l4") == "done"
+    assert _layer_status(paths, 2, "l4") == "done"
+
+
+def test_compile_global_l3_marks_l4_skipped_when_no_reports_exist(vault) -> None:
+    paths = vault
+    client = DynamicFakeClient()
+
+    compile_mod.compile_source_l2(paths, client, 1)
+    concept_ids = compile_mod.compile_global_l3(paths, client)
+
+    assert concept_ids == []
+    assert db.list_community_reports(paths.state_db) == []
+    assert db.list_synthesis_nodes(paths.state_db) == []
+    assert _layer_status(paths, 1, "l3") == "done"
+    assert _layer_status(paths, 1, "l4") == "skipped"
+
+
+def test_l3_regeneration_preserves_l4_terminal_status(vault) -> None:
+    paths = vault
+    client = DynamicFakeClient()
+
+    compile_mod.compile_source_l2(paths, client, 1)
+    ingest_llm.run_l3_from_existing_atoms(paths, client, lambda: ingest_llm.IngestCallbacks)
+
+    assert db.list_synthesis_nodes(paths.state_db) == []
+    assert _layer_status(paths, 1, "l3") == "done"
+    assert _layer_status(paths, 1, "l4") == "skipped"
 
 
 def test_compile_source_l2_failed_extraction_sets_error(vault) -> None:

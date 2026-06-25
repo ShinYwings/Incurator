@@ -74,6 +74,9 @@ def generate_synthesis(
     """
     reports = db.list_community_reports(paths.state_db)
     if not reports:
+        if db.list_synthesis_nodes(paths.state_db):
+            db.clear_synthesis_nodes(paths.state_db)
+        reemit_synthesis(paths)
         return []
 
     dep_hash = corpus_dependency_hash(reports)

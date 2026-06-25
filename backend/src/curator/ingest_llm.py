@@ -586,24 +586,18 @@ def run_l3_from_existing_atoms(
     """Regenerate L3 Concepts from existing L2 Atoms without touching L1/L2.
 
     L3 clustering is global, so this replaces the current Concept set. Existing
-    L4 Exhibitions are invalidated because their Concept inputs may disappear.
+    L4 Synthesis status/projections are updated by ``compile_global_l3``.
     """
     today = _now_iso()
     from .pipeline import compile as _compile
 
-    # L3 clustering is global; replace the current Concept set. Existing L4
-    # Exhibitions are invalidated because their Concept inputs may disappear.
+    # L3 clustering is global; replace the current Concept set. Shared L4
+    # synthesis is regenerated/skipped by compile_global_l3 after reports settle.
     if paths.concepts.exists():
         for md_path in paths.concepts.glob(f"{consts.PREFIX_L3}-*.md"):
             md_path.unlink()
-    if paths.synthesis.exists():
-        for md_path in paths.synthesis.glob(f"{consts.PREFIX_L4}-*.md"):
-            md_path.unlink()
 
     concept_ids = _compile.compile_global_l3(paths, client)
-    source_ids = _source_ids_with_l2_done(paths)
-    if source_ids:
-        db.set_sources_layer_status(paths.state_db, source_ids, "l4", "pending")
 
     changes = [
         PageChange(

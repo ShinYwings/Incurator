@@ -151,6 +151,9 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
 - **지속되는 팝업**: 팝업에는 질문 입력칸과 **Ask** 버튼만 있습니다. 프리셋·퀵버튼은
   없습니다. 한 번 열리면 다른 곳을 클릭하거나 스크롤해도 닫히지 않으며, **×** 또는
   `Esc`로 직접 닫습니다.
+- **여러 팝업**: 다른 선택 영역에서 빠른 질의를 새로 열면 이전 팝업을 대체하지 않고
+  별도 팝업이 만들어집니다. 각 팝업은 자기 답변, 위치, 최소화 상태, 짧은 후속 질문
+  메모리를 독립적으로 유지합니다.
 - **이동 및 최소화**: 팝업 헤더를 드래그해 현재 창 안에서 원하는 위치로 옮길 수
   있습니다. 최소화 컨트롤을 누르면 답변과 후속 질문 상태를 유지한 채 헤더만 남깁니다.
 - **질문 제목**: 질문을 제출할 때마다 헤더 제목이 최신 질문으로 바뀌므로, 최소화한
@@ -163,12 +166,13 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   절대 저장되지 않습니다.
 - **현재 페이지 + ToC 컨텍스트**: 선택한 구절은 항상 1차 초점입니다. 활성
   Markdown/PDF 페이지, 주변 PDF window 텍스트, 사용 가능한 Markdown/PDF outline을
-  배경 컨텍스트로 함께 보내므로 "section 4.2", "Eq. (3)", 현재 페이지 heading 같은
-  참조를 해석할 수 있으면서도 전체 문서가 선택 영역을 압도하지 않습니다.
-- **참조 따라가기**: 선택한 텍스트 자체가 "see Section A4.2 (p580)" 또는
-  "Figure 19.1"처럼 다른 위치를 가리키는 pointer라면, 플러그인은 먼저 PDF
-  outline/window 텍스트에서 해당 target을 찾아 `<resolved_cross_references>`로
-  넣고, 그 뒤에 일반 페이지 배경을 보냅니다.
+  배경 컨텍스트로 함께 보내므로 "section 4.2", "Eq. (3)", "(19.11)" 같은 bare equation
+  label, 현재 페이지 heading 같은 참조를 해석할 수 있으면서도 전체 문서가 선택 영역을
+  압도하지 않습니다.
+- **참조 따라가기**: 선택한 텍스트 자체가 "see Section A4.2 (p580)",
+  "Figure 19.1", "(19.11)"처럼 다른 위치를 가리키는 pointer라면, 플러그인은 먼저
+  PDF outline/window 텍스트와 search hit에서 해당 target을 찾아
+  `<resolved_cross_references>`로 넣고, 그 뒤에 일반 페이지 배경을 보냅니다.
 - **문서 내 위치이지 폴더가 아님**: "문서 위쪽", "앞부분", "top of the document",
   "end of the page" 같은 위치 표현은 파일 시스템이 아니라 **현재 문서의
   내용/outline 안에서의 위치**로 해석됩니다. 팝오버는 파일 시스템에 접근하지
@@ -198,10 +202,13 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   수식은 `$x^2$` 로 풀려 모노스페이스 텍스트가 아니라 실제 수식으로 표시됩니다
   (채팅 사이드바와 동일한 동작).
 - **복사 가능**: 답변 텍스트는 드래그로 복사할 수 있도록 선택 가능 상태를 유지합니다.
+  렌더링된 수식은 복사 핸들러가 실행되기 전에 LaTeX 소스로 stamp되어 채팅
+  사이드바와 동일하게 복사됩니다.
 - **스크롤·최대 크기**: 팝업은 `max-height`/`max-width`로 크기가 제한되며, 내용이 길면
   팝업 내부에서 스크롤됩니다.
-- **1회성(Temp)**: 임시 창이므로 닫으면(`×` 버튼, `Esc`, 또는 답변 완료 후 바깥 클릭)
-  데이터는 소멸하며 사이드바 대화 기록을 오염시키지 않습니다.
+- **1회성(Temp)**: 임시 창이므로 `×` 버튼이나 `Esc`로 닫으면 해당 팝업의 데이터만
+  소멸하며 사이드바 대화 기록을 오염시키지 않습니다. 열린 팝업 바깥을 클릭하면
+  떠 있던 트리거 버튼만 사라지고 기존 팝업은 닫히지 않습니다.
 
 선택한 구절은 질문과 함께 1차 컨텍스트로 전달되고, 현재 페이지/outline은 배경으로
 전달됩니다. 현재 설정된 AI 제공자/모델을 사용합니다. 버튼이 뜨지 않게 하려면
@@ -226,12 +233,12 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
 
 ---
 
-## 3.6 AI 챗에서 LaTeX 복사 (`Cmd/Ctrl+C`)
+## 3.6 AI 챗과 popover에서 LaTeX 복사 (`Cmd/Ctrl+C`)
 
-**챗 사이드바**의 어시스턴트 답변에서 일부를 드래그로 선택하고 **Cmd/Ctrl+C**를
-누르면, 선택 영역 안의 렌더링된 수식이 빈 MathJax SVG가 아니라 **LaTeX
-소스**(인라인 `$...$`, 블록 `$$...$$`)로 클립보드에 담깁니다 — 그래서 유도 과정을
-노트에 편집 가능한 LaTeX로 바로 붙여넣을 수 있습니다.
+**챗 사이드바**나 빠른 질의 popover의 어시스턴트 답변에서 일부를 드래그로 선택하고
+**Cmd/Ctrl+C**를 누르면, 선택 영역 안의 렌더링된 수식이 빈 MathJax SVG가 아니라
+**LaTeX 소스**(인라인 `$...$`, 블록 `$$...$$`)로 클립보드에 담깁니다 — 그래서
+유도 과정을 노트에 편집 가능한 LaTeX로 바로 붙여넣을 수 있습니다.
 
 - **선택 영역만**: 선택한 영역만 복사됩니다 — 메시지 전체가 아닙니다.
 - **수식 없는 복사는 그대로**: 수식이 없는 선택은 이전과 똑같이 복사됩니다.
@@ -290,6 +297,9 @@ section 링크가 포함되면, 사이드바에서 클릭했을 때 열린 Incur
 같은 printed page 링크는 Incurator PDF 뷰어가 PDF의 native PageLabels map을
 제공하는 경우 이를 사용하므로, front-matter offset 때문에 `p.580`이 물리적 580쪽으로
 잘못 이동하지 않습니다. 일반 웹 링크와 vault 링크는 기존 동작을 유지합니다.
+`Auto Calibration#^8f735d`처럼 명확한 block anchor가 있는 생성 vault locator나
+`Auto Calibration > ^8f735d`처럼 렌더링된 label은 Obsidian의 일반 vault-link
+navigation으로 열립니다.
 
 ### Curator DAG 위키링크
 
@@ -341,6 +351,10 @@ PDF 뷰어에서 특정 영역을 마우스로 드래그해 이미지와 그 안
 
 > **참고**: 스니핑은 Incurator 전용 PDF 뷰어(`EXTERNAL_PDF_VIEW_TYPE`)에서만 동작합니다.  
 > Obsidian 기본 PDF 뷰어에서는 `Cmd+Shift+L`로 페이지 전체를 참조하세요.
+
+Incurator PDF 뷰어는 주변 페이지만 lazy-render하고 scroll 작업을 animation frame당
+한 번으로 합칩니다. 따라서 page number 판정과 lazy rendering이 원시 scroll 이벤트마다
+반복 실행되지 않습니다.
 
 crop은 페이지 전체가 아니라 **드래그한 사각형 안의 텍스트 라인만**(영역 한정)
 캡처합니다. 그 영역 텍스트는 crop의 **primary focus**(질문의 핵심 주제)가 되어,
@@ -428,7 +442,9 @@ Settings 화면에서는 선택된 model의 context window를 별도 항목으�
 - **LaTeX/영역 추출 모델(경량)** — interactive 스닙용 소형 영역-OCR 모델. 비우면 PDF
   ingest 모델로 폴백. 우클릭 **Convert to LaTeX**와 **Cmd+Shift+X** 스닙 경로는
   backend extractor를 호출하므로, crop 전사가 성공하면 이미지를 메인 채팅 모델의
-  vision 경로로 다시 해석시키지 않고 전사 텍스트를 채팅에 보냅니다.
+  vision 경로로 다시 해석시키지 않고 전사 텍스트를 채팅에 보냅니다. backend는 엄격한
+  `<transcription>...</transcription>` 블록을 요청하고, 복사하거나 주입하기 전에 흔한
+  설명 문구를 제거합니다.
 
 ingest 비전은 기존 제공자의 **CLI 구독**(Ollama, 또는 `claude`/`agy`/`codex` CLI)으로
 동작 — **추가 API 키 불필요**. 드롭다운에는 비전 가능 모델만 표시됩니다. v0.21.0의
@@ -619,14 +635,15 @@ metadata로 저장합니다. 자동 생성 stub에는 기본적으로 PDF 절대
 Zotero나 외부 PDF의 로컬 위치가 다른 기기에도 안전하게 동기화할 수 있습니다. PDF를
 vault 안으로 복사하는 동작은 기본값이 아니라 명시적 예외입니다.
 
-성공적으로 추적 중인 소스 — L1 ready부터 전체 L4 Synthesis까지의 모든 상태 —
-는 단일 **Added** badge로 표시됩니다(v0.5.6). 이 badge는 비활성입니다: 클릭해도
-아무 동작이 없으므로 이미 추가된 소스를 실수로 다시 import할 수 없습니다.
-badge에 마우스를 올리면 tooltip에서 정확한 layer 상태를 확인할 수 있습니다.
-이후 상태 갱신에서 소스가 `stale`, `moved`, `changed`, `missing`, `error`로
-재판정되면 badge는 해당 actionable 라벨로 돌아가 다시 클릭 가능해집니다.
-`Queued`와 `Building...`은 백그라운드 build가 도는 동안 기존 라벨을 유지합니다.
-어떤 layer라도 error이면 정상 badge 대신 error를 표시합니다.
+성공적으로 등록된 소스 — `Queued`, `Building...`, L1 ready부터 전체 L4 Synthesis까지의
+모든 상태 — 는 import가 아닌 badge로 표시됩니다. ready 상태는 단일 **Added** badge로
+접힙니다(v0.5.6). `Queued`와 `Building...`은 백그라운드 build가 도는 동안 기존
+라벨을 유지합니다. 이 등록된 상태들의 badge는 모두 비활성입니다: 클릭해도 아무 동작이
+없으므로 이미 등록된 소스를 실수로 다시 import할 수 없습니다. badge에 마우스를
+올리면 tooltip에서 정확한 layer 상태를 확인할 수 있습니다. 이후 상태 갱신에서 소스가
+`stale`, `moved`, `changed`, `missing`, `error`로 재판정되면 badge는 해당 actionable
+라벨로 돌아가 다시 클릭 가능해집니다. 어떤 layer라도 error이면 정상 badge 대신 error를
+표시합니다.
 
 ### Setup/Rebuild 배너
 
@@ -757,7 +774,9 @@ dashboard 버튼은 상태 변경이 필요할 때 backend command를 실행하�
   LLM Provider, 또는 Overview의 LLM Provider 카드) 이 버튼을 누르면 재개됩니다.
   내부적으로 `wiki build`를 실행하여 L2/L3가 아직 `pending`이거나 `error`인 모든
   소스를 현재 provider로 다시 시도하므로, 지식 정제 그래프가 멈춘 지점부터 이어집니다.
-  진행 상황은 **Jobs** 탭에서 확인합니다.
+  L4 **Skipped** badge는 실패가 아닌 terminal 상태입니다. global L3/L4가 끝났지만
+  현재 community-report corpus에 eligible shared synthesis가 없다는 뜻입니다. 진행
+  상황은 **Jobs** 탭에서 확인합니다.
 - **Insights** 탭은 현재 Obsidian vault의 대기 중인 파생 insight 후보 목록을
   보여줍니다 (`wiki plugin insight list`). 항목을 선택하면 먼저 backend detail
   payload를 로드한 뒤(`wiki plugin insight show`) **Promote**(`insight promote`,

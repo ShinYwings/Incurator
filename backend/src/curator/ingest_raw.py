@@ -772,6 +772,24 @@ def _clean_section_title(title: str, fallback: str) -> str:
     return title[:120] or fallback
 
 
+_LOCAL_HEADING_WIKILINK_RE = re.compile(
+    r"\[\[([^/\]|#\n]+)#([^\]|#\n]+)(?:\|([^\]\n]+))?\]\]"
+)
+
+
+def _plain_local_heading_wikilinks(text: str) -> str:
+    """Plaintext parser-generated same-document heading wikilinks in CTX output."""
+    if not text:
+        return ""
+
+    def _replace(match: re.Match) -> str:
+        alias = (match.group(3) or "").strip()
+        heading = (match.group(2) or "").strip()
+        return alias or heading
+
+    return _LOCAL_HEADING_WIKILINK_RE.sub(_replace, text)
+
+
 def _extract_markdown_sections(text: str, *, default_title: str) -> list[dict]:
     """Split text into structural sections without using an LLM."""
     matches = list(re.finditer(r"(?m)^(#{1,6})\s+(.+?)\s*$", text or ""))
@@ -965,9 +983,11 @@ def _extract_structural_sections(parsed) -> list[dict]:
 def _structural_atom_candidates(sections: list[dict], title: str) -> list[dict]:
     candidates: list[dict] = []
     for section in sections[:24]:
-        section_title = _clean_section_title(str(section.get("title") or ""), title)
+        section_title = _plain_local_heading_wikilinks(
+            _clean_section_title(str(section.get("title") or ""), title)
+        )
         page = int(section.get("page") or 1)
-        preview = _section_preview(str(section.get("text") or ""))
+        preview = _section_preview(_plain_local_heading_wikilinks(str(section.get("text") or "")))
         candidates.append(
             {
                 "name": section_title,
@@ -983,7 +1003,7 @@ def _structural_atom_candidates(sections: list[dict], title: str) -> list[dict]:
         return candidates
     return [
         {
-            "name": _clean_section_title(title, "Document"),
+            "name": _plain_local_heading_wikilinks(_clean_section_title(title, "Document")),
             "type": consts.CLAIM_TYPE_FACT,
             "one_liner": "Extract the atomic claims, methods, entities, and constraints from this source.",
         }
@@ -1051,9 +1071,10 @@ def _build_structural_source_guide(
         if inline_source_sections
         else "large-document raw text is kept in the original source and fetched on demand"
     )
+    display_title = _plain_local_heading_wikilinks(str(parsed.title or "Untitled"))
 
     summary = (
-        f"Structural L1 context for **{parsed.title}**. "
+        f"Structural L1 context for **{display_title}**. "
         f"The parser found {section_count} source section(s)"
         f" across {page_count} page(s). "
         f"Use the section ids and page numbers below for recall; {source_policy} "
@@ -1074,9 +1095,11 @@ def _build_structural_source_guide(
     claim_lines: list[str] = []
     for idx, section in enumerate(sections[:24], 1):
         sid = str(section.get("id") or _section_id(idx))
-        title = _clean_section_title(str(section.get("title") or ""), f"Section {idx}")
+        title = _plain_local_heading_wikilinks(
+            _clean_section_title(str(section.get("title") or ""), f"Section {idx}")
+        )
         page = int(section.get("page") or 1)
-        preview = _section_preview(str(section.get("text") or ""))
+        preview = _section_preview(_plain_local_heading_wikilinks(str(section.get("text") or "")))
         if preview:
             guide_lines.append(f"- `{sid}` p.{page} — **{title}**: {preview}")
             claim_lines.append(
@@ -1194,7 +1217,7 @@ def _build_structural_context_page(
             {
                 "id": str(section.get("id") or _section_id(idx)),
                 "level": int(section.get("level") or 2),
-                "title": str(section.get("title") or f"Section {idx}"),
+                "title": _plain_local_heading_wikilinks(str(section.get("title") or f"Section {idx}")),
                 "page": int(section.get("page") or 1),
             }
             for idx, section in enumerate(sections, 1)
@@ -1240,8 +1263,8 @@ def _build_structural_context_page(
         level = max(2, min(int(section.get("level") or 2), 6))
         sid = str(section.get("id") or _section_id(idx))
         page_num = int(section.get("page") or 1)
-        title = str(section.get("title") or f"Section {idx}")
-        body = str(section.get("text") or "").strip()
+        title = _plain_local_heading_wikilinks(str(section.get("title") or f"Section {idx}"))
+        body = _plain_local_heading_wikilinks(str(section.get("text") or "")).strip()
         if not inline_source_sections:
             preview = _section_preview(body, max_chars=420)
             body = (
@@ -1475,7 +1498,9 @@ def _apply_vlm_pdf_extraction(parsed, file_path, vision_client, config, db_path)
             raw = vision_client.describe_image(
                 images[i], prompt=vision.PDF_LATEX_TRANSCRIBE_PROMPT
             )
-            return i, (vision.normalize_vision_latex(raw) or None)
+            latex = vision.normalize_vision_latex(raw)
+            latex = vision.sanitize_transient_vision_artifacts(latex)
+            return i, (latex or None)
         except Exception as e:  # transient per-page failure → fall back, never abort
             print(f"  [Warn] vision page {i + 1} failed ({e}); using pymupdf4llm text.")
             return i, None
@@ -2316,7 +2341,7 @@ def mark_source_pending(
 
 
 def remove_source(
-    paths: cfg.WikiPaths, source_id: int, delete_file: bool = True
+    paths: cfg.WikiPaths, source_id: int, delete_file: bool = False
 ) -> tuple[bool, str]:
     """Remove a source from tracking."""
     row = get_source(paths, source_id)

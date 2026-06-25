@@ -138,7 +138,9 @@ wiki update
 > batches according to the active LLM client's prompt budget, so CLI-backed
 > providers receive smaller prompts than local high-context models. Monitor via `wiki status` or
 > `.curator/dashboard.md`. L4 Synthesis is produced by `wiki build`; workspace
-> curation is a dynamic query lens rather than a separate staging pass.
+> curation is a dynamic query lens rather than a separate staging pass. If no
+> eligible community reports exist, the L4 pass ends as `skipped` instead of
+> leaving sources pending.
 
 ### 4-2. Advanced Workspace Curation
 
@@ -177,7 +179,7 @@ wiki lint
 wiki jobs list
 wiki jobs run          # process queued L2/L3 background jobs now
 wiki jobs cancel <id>  # cancel a queued job before a worker claims it
-wiki jobs rerun <id>   # requeue a completed, failed, or cancelled job
+wiki jobs rerun <id>   # requeue a completed/failed/cancelled job; queued is a no-op
 ```
 
 The default `wiki --help` surface is intentionally limited to daily user
@@ -203,13 +205,16 @@ fixtures, and `wiki devices ...` for launcher diagnostics.
 > queued jobs automatically. During tests or offline CLI use, `wiki jobs run` drains the
 > same queue in the foreground. Use `wiki jobs cancel <id>` for a queued job that
 > should not run, and `wiki jobs rerun <id>` to retry a completed, failed, or
-> cancelled job.
+> cancelled job. Running `wiki jobs rerun <id>` against an already queued job
+> succeeds without creating a duplicate.
 
 > **Instant L1 / L2·L3 Separation**: `wiki add` always creates the CTX, ToC,
 > section markers, and coarse Atom Candidates instantly from parser structure
 > without an LLM call (structural L1). Starting in v0.2.2, this step uses
 > **AST-based chunking** to preserve math formula blocks such as `$$...$$`
-> during text splitting. Deep L2/L3 extraction is separated from `wiki add`
+> during text splitting. Same-document parser heading wikilinks are rendered as
+> plain text in CTX projections so generated files do not create broken links.
+> Deep L2/L3 extraction is separated from `wiki add`
 > and performed by the distinct `wiki build` command. By default this queues
 > background work; `--wait` requests synchronous execution. In MCP flows,
 > `curator_register_source` maps to L1 registration and `curator_build_source`
@@ -476,6 +481,9 @@ atomic publishes (specs: SCHEMA.md §20, SYSTEM_BEHAVIOR.md §26):
   span set that entails it (`claim_supports` rows with roles
   `primary`/`contextual`/`formula`) and validates it. A real span id alone is
   no longer treated as proof of support.
+- **English generated L2 fields**: generated Atom names and statements are
+  validated as English. Non-English generated output triggers one repair retry
+  and is not published if it still fails.
 - **Staged generations**: each compile runs inside a `GEN-` compiler
   generation. DB rows, dependencies, markdown projections, and search rows
   publish together only after the audit gate passes; a failed compile

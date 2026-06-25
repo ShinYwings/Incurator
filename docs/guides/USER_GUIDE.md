@@ -151,7 +151,7 @@ wiki add 03_Notes/my_note.md
 wiki add
 ```
 
-With this command, the Curator parses the raw data and immediately records structural L1 state in `state.sqlite`. L1 adds an English `Source Guide` with section/page previews for quick recall, inlines raw `Source Sections` for small/medium documents, and uses on-demand raw-source reads for large documents. It also emits a derived CTX Markdown projection under `.curator/Collections/01_Contexts/` for inspection. That projection is disposable; the DB remains authoritative. Run `wiki build` separately to queue or compile L2 Atomic Facts and L3 Concepts.
+With this command, the Curator parses the raw data and immediately records structural L1 state in `state.sqlite`. L1 adds an English `Source Guide` with section/page previews for quick recall, inlines raw `Source Sections` for small/medium documents, and uses on-demand raw-source reads for large documents. It also emits a derived CTX Markdown projection under `.curator/Collections/01_Contexts/` for inspection; parser-generated same-document heading links are rendered as plain text there so generated CTX pages do not create broken wikilinks. That projection is disposable; the DB remains authoritative. Run `wiki build` separately to queue or compile L2 Atomic Facts and L3 Concepts.
 
 > [!TIP]
 > If no file or directory path is specified for `wiki add`, the Curator scans all configured source directories (e.g., `03_Notes`, `04_Resources`) to automatically find and batch-process new or changed files.
@@ -443,6 +443,10 @@ What this means in practice:
 - **No partial builds**: a compile that fails midway publishes nothing — your
   previous knowledge, projections, and search index keep serving untouched.
   Re-running an unchanged build does not duplicate or mutate anything.
+- **Generated L2 stays English**: `wiki build` validates generated Atom names and
+  statements programmatically. If a model writes Korean or another non-English
+  language in generated L2 fields, the runner retries once and then marks L2
+  failed instead of publishing those Atoms.
 - **Source edits clean up after themselves**: editing, deleting, or splitting
   a source retires the claims that lost their basis (they remain auditable but
   stop appearing in answers) instead of leaving stale duplicates behind.
@@ -586,8 +590,8 @@ Summary of major commands following the user workflow.
 | `wiki build` | Compiles L2 Atoms + L3 Concepts from registered L1 Contexts into the database. Uses the configured LLM for high-quality extraction and can fall back to deterministic L3 Concepts if the provider fails. By default it queues jobs and starts a detached background daemon; `--wait` runs synchronously. Build **always (re)generates vector embeddings** when it finishes — even when no atoms changed or the queue was already empty — so search converges to vector-ready without a separate `wiki reindex --embed`. (The queue is drained internally; the `jobs` command group still exists for the background worker but is hidden from `wiki --help`.) | Deep knowledge-graph construction |
 | `wiki source ls` | Lists all registered sources. | Checking collected data inventory |
 | `wiki source show <id>` | Shows details and processing status for a specific source. | Diagnosing source errors |
-| `wiki source rm <id>` | Removes a source registration and its generated L1 nodes. | Removing an incorrect source |
-| `wiki source retry <id>` | Reprocesses a failed source. | Retrying after a processing failure |
+| `wiki source rm <id>` | Removes a source registration and generated derived records while keeping the original file. Add `--delete-file` only when you also want to delete a vault source file. | Removing an incorrect source |
+| `wiki source retry <id>` | Reprocesses a failed source, including layer-scoped L1/L2/L3/L4 errors. | Retrying after a processing failure |
 
 ### 2-1. Settings & LLM Backend Management
 
@@ -887,7 +891,7 @@ Checks the 'entrance of the pipeline' where raw data is turned into knowledge.
 -   **Ingest runs**: The total number of ingestion runs performed. A higher number indicates that the knowledge base has been updated frequently.
 
 #### 🧠 Knowledge Density (Collections)
-Shows the processing status at each pipeline stage. L1 is created immediately; L2/L3 and the shared L4 Synthesis layer are processed by the MCP background worker, `wiki jobs run`, or `wiki build`. Use `wiki jobs cancel <id>` to cancel a queued job before a worker claims it, and `wiki jobs rerun <id>` to requeue a completed, failed, or cancelled job.
+Shows the processing status at each pipeline stage. L1 is created immediately; L2/L3 and the shared L4 Synthesis layer are processed by the MCP background worker, `wiki jobs run`, or `wiki build`. Use `wiki jobs cancel <id>` to cancel a queued job before a worker claims it, and `wiki jobs rerun <id>` to requeue a completed, failed, or cancelled job. Re-running an already queued job is a successful no-op.
 
 -   **L1 Contexts**: One source context record per source in the DB.
 -   **L2 Atoms**: Atomic facts extracted from each source in the DB.
@@ -896,4 +900,8 @@ Shows the processing status at each pipeline stage. L1 is created immediately; L
 -   **L4 Synthesis**: Shared corpus-wide cross-cutting insights distilled from the community reports (DB `synthesis_nodes`, projected to `04_Synthesis/SYN-*.md`).
 
 > [!TIP]
-> **Pipeline Status Diagnosis**: If L4 is 0, the shared Synthesis layer hasn't been built yet. Run `wiki build` (or let the background worker finish L3) to generate it.
+> **Pipeline Status Diagnosis**: If L4 is 0, check the source L4 column. `pending`
+> means the build/worker has not finished global L3/L4 yet; `skipped` means the
+> build completed but no eligible community reports/syntheses exist for this
+> corpus. Run `wiki build` (or let the background worker finish L3) only for the
+> pending case.

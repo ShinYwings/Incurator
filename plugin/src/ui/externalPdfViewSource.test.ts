@@ -27,3 +27,17 @@ describe("Convert-to-LaTeX (v0.22.0: latexModel setting removed)", () => {
     expect(source).not.toContain("this.plugin.llmClient.complete");
   });
 });
+
+describe("ExternalPdfView scroll performance", () => {
+  it("coalesces scroll work through requestAnimationFrame", () => {
+    expect(source).toContain("private scrollFrame: number | null = null");
+    expect(source).toContain("scheduleScrollWork(token)");
+    expect(source).toContain("requestAnimationFrame(() =>");
+    expect(source).toContain("this.updateCurrentPage()");
+    expect(source).toContain("void this.onScrollLazyRender(token)");
+  });
+
+  it("cancels pending scroll frames on close", () => {
+    expect(source).toContain("cancelAnimationFrame(this.scrollFrame)");
+  });
+});

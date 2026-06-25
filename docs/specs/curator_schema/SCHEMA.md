@@ -146,7 +146,8 @@ Rules:
 - Cloud vision uses CLI **subscription** auth (no provider API keys): Ollama via
   in-memory base64; agentic CLIs (claude/agy/codex) via a temp PNG under
   `.cache/vision_render/<run-id>/` read by the CLI's vision tool, output normalized
-  to clean LaTeX, temp files removed in `finally` (no leaks).
+  to clean LaTeX, transient `.cache/vision_render` Markdown link destinations
+  sanitized before cache/persistence, temp files removed in `finally` (no leaks).
 - Per-page transcription cache key = `(page_content_hash, resolved_vision_model)`;
   a model switch invalidates stale L1.
 
@@ -254,6 +255,10 @@ Rules:
 - When `source_sections_inline=true`, the original source text remains
   unmodified under `Source Sections`, even when the source language is Korean or
   another non-English language.
+- Parser-generated same-document heading wikilinks such as `[[Paper#Section]]`
+  are not source truth and must be rendered as plain text in generated CTX
+  projections so lint does not see broken/malformed links. The original source
+  file and DB source spans remain untouched.
 - When `source_sections_inline=false`, `Source Sections` keeps durable section
   markers, headings, page numbers, and compact previews only. Exact raw evidence
   must be retrieved from the original source by `fetch_document_section`.
@@ -312,6 +317,9 @@ Rules:
   `source_section_id`/`source_page` when available, and a low
   `confidence_score` so they are searchable but clearly weaker than LLM- or
   human-verified extraction.
+- Generated L2 text fields must be English. Non-English `canonical_name` or
+  `statement` output fails contract validation, triggers the capped repair retry,
+  and is not persisted if the repair also fails.
 
 ## 5. L3 Concept Schema Additions (Frozen L4 Artifacts Removed)
 
@@ -377,6 +385,9 @@ Rules:
 - `l4_status='done'` is the source-level signal that shared L4 Synthesis has been
   produced. L2/L3 completion must not be labelled as L4-ready in user-facing
   status surfaces.
+- `l4_status='skipped'` is a terminal non-error state after global L3 when no
+  eligible community reports/syntheses exist for the current corpus. It must be
+  shown distinctly from `pending`, not treated as still-running L4 work.
 - Layer `error` states must remain visible until retried or reset; later layers
   must not mask an earlier failed layer with a healthy color.
 - The `moved` and `hash_drift` states are dynamically computed and returned over MCP. They are NOT stored in the `status` column enum in SQLite to avoid destructive mutations.
@@ -1240,6 +1251,9 @@ Rules:
 - `unit_type` mirrors `knowledge_units.unit_type` and supersedes the looser
   v0.2.2 `claim_type` for v0.3.1 extraction (v0.2.2 `claim_type` values remain
   readable on archived pages).
+- ATM titles and bodies are projected from English `knowledge_units.canonical_name`
+  and `knowledge_units.statement`; source-span evidence may remain in the original
+  source language.
 
 ## 14. L3 Concept, Entity, And Community Layer
 

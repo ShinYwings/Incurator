@@ -170,6 +170,26 @@ BUILTIN_EVAL_CASES: list[PromptEvalCase] = [
         expect_valid=False,
     ),
     PromptEvalCase(
+        name="knowledge_units: non-English generated fields are rejected",
+        prompt_id="curator.knowledge_unit_extract",
+        raw_output=json.dumps(
+            {
+                "units": [
+                    {
+                        "canonical_name": "잔차 학습",
+                        "unit_type": "claim",
+                        "statement": "잔차 연결은 깊은 네트워크 최적화를 쉽게 한다.",
+                        "source_span_ids": ["SPAN-aaaa1111"],
+                        "confidence": 0.9,
+                        "truth_status": "source_supported",
+                    }
+                ]
+            }
+        ),
+        validation_context={"valid_span_ids": ["SPAN-aaaa1111"]},
+        expect_valid=False,
+    ),
+    PromptEvalCase(
         name="entity_relation: relation endpoint must be a declared entity",
         prompt_id="curator.entity_relation_extract",
         raw_output=json.dumps(

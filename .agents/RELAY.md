@@ -1,6 +1,6 @@
 # Active Relay State
 
-**STATUS: ACTIVE — System Stability Overhaul RESUMES: Phase A diagnosis (G01–G06 done-unmerged; G07–G19 + merge remain — see PHASE A RESUMPTION PROTOCOL below).**
+**STATUS: ACTIVE — v0.25.1 User Report Stability Bug Batch completed locally; System Stability Phase A diagnosis can resume (G01–G06 done-unmerged; G07–G19 + merge remain).**
 
 **Branch**: `feature/system-stability-overhaul`
 
@@ -33,7 +33,9 @@ shipped as many small PRs.
 tests. God-files: cli.py 7389, db.py 4679, mcp_server.py 3362, chatSidebar.ts 4828,
 llmClient.ts 2282. 264 broad-except (backend), 83 any/@ts-ignore (plugin).
 
-**Progress Status**: Master Plan DRAFTED. No implementation code written.
+**Progress Status**: System Stability master plan drafted; urgent user-report
+stability hotfix batch completed as v0.25.1 on this branch. The hotfix plan was
+committed for history, then removed from active `.agents/plans/` per workflow.
 
 **Critical Context / Blockers**:
 - Plan-first: STOP for user approval of the Master Plan before any code.
@@ -51,9 +53,8 @@ categories (a)–(i): bugs, redundancy, error-handling smells, legacy/dead code,
 architectural debt, docs drift, performance hotspots, robustness/weaknesses,
 UI/UX friction. Dedicated refactor phases exist for each axis.
 
-**Immediate Next Action**: Phase A is RUNNING — exhaustive (A) deep diagnosis via
-multi-agent fan-out (user authorized multi-agent 2026-06-23; speed not a concern,
-quality is). Durable artifacts below survive rate-limit interruptions.
+**Immediate Next Action**: finalize/push the v0.25.1 release commit/PR, then
+resume Phase A diagnosis from `.agents/plans/diagnosis/INDEX.md`.
 
 ---
 
@@ -94,3 +95,47 @@ anchor (record pass/fail in the ledger §0 once known).
 `registry.py`, `contracts.py`, `validators.py`, `render.py`, `families/` — the
 prompt-v2 cross-model work must reconcile plugin `promptRegistry.ts` WITH this
 backend layer, not duplicate it.
+
+### Update (2026-06-25, Codex)
+
+User asked to handle `.agents/USER_REPORT.md` bug reports before continuing the
+System Stability Overhaul. Triaged urgent stability reports into:
+
+- Briefing: `.agents/plans/user_report_stability_hotfix_arena/00_problem.md`
+- Domain analysis: `.agents/plans/user_report_stability_hotfix_arena/A_backend_cli_pipeline.md`
+- Domain analysis: `.agents/plans/user_report_stability_hotfix_arena/B_plugin_pdf_popover.md`
+- Review critique: `.agents/plans/user_report_stability_hotfix_arena/02_critique_plan_review.md`
+- Revision response: `.agents/plans/user_report_stability_hotfix_arena/03_defense_revision.md`
+- Master plan: `.agents/plans/02_user_report_stability_hotfixes.md`
+- Evidence ledger: `.agents/plans/02_user_report_stability_evidence.md`
+
+Updated `.agents/ROADMAP.md` urgent hotfix queue and emptied
+`.agents/USER_REPORT.md` per triage rules.
+User clarified: source badge may keep `Queued`/`Building...` but must not show
+actionable Add Source after registration; Convert-to-LaTeX must remain LLM-backed
+through the dedicated extractor; PDF reference lookup should follow sidechat's
+local-first/backend-fallback policy. Plan was revised to address reviewer findings
+on sanitizer placement, L2 English validation, `source rm` caller audit, L4 build
+contract, and Arena file placement.
+
+### Update (2026-06-25, Codex)
+
+Implemented and validated v0.25.1 User Report Stability Bug Batch:
+
+- Backend: `source rm` keeps files by default; `source retry` sees layer errors;
+  queued `jobs rerun` is idempotent; VLM temp-path sanitizer runs
+  post-generation/pre-persistence; generated L2 fields have a programmatic
+  English guard; parser-generated CTX heading wikilinks are plain text.
+- Plugin: registered source badges are inert for queued/running/ready states;
+  quick-query popover uses sidechat LaTeX stamping and now supports multiple
+  independent popovers; generated vault block links open through Obsidian; bare
+  `(19.11)` equation references resolve through local PDF context/search hits;
+  Convert-to-LaTeX uses a dedicated output-only transcription path; dashboard
+  renders L4 `Skipped`; PDF scroll work is requestAnimationFrame-coalesced.
+- Docs/specs/guides updated in EN/KR where paired, versions bumped to `0.25.1`,
+  and `CHANGELOG.md` updated.
+- Validation: full backend pytest passed after backend changes (1027 passed,
+  6 skipped, 5 xfailed); `test_spec_sync.py` passed after version bump; ruff and
+  mypy passed; full plugin vitest passed (58 files / 576 tests); testbed
+  `complex_math_backprop` was regenerated and `VAULT_ROOT=testbed wiki status`
+  resolves to `/Users/shin/shinywings/Incurator/testbed`.
