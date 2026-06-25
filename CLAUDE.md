@@ -420,7 +420,7 @@ wiki sources list|show|rm  # Manage tracked source files
 ├── 05_Assets/         Media assets (images, PDF attachments, etc.)
 ├── 06_Archives/       Archives for deprecated or old sources
 └── .curator/          [Machine Space] Hidden core (managed by wiki CLI)
-    ├── config.yml     LLM backend, model, raw_dirs, collections_dir
+    ├── settings.yml   Vault-scoped portable settings (persona, sync policy, etc.)
     ├── state.sqlite   Dedup hashes, run history, provenance
     ├── index.md       DAG routing table (all L1-L4 node IDs)
     ├── overview.md    Domain manifest

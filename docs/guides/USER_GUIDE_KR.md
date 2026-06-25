@@ -124,6 +124,9 @@ wiki add
 
 이 명령을 통해 Curator는 원본 데이터를 파싱하고 L1 권위 상태를 `state.sqlite`에 즉시 기록합니다. 작은/중간 문서는 CTX projection의 `Source Sections`에 원문을 inline으로 포함하고, 책이나 긴 PDF 같은 대형 문서는 원본 파일에서 필요한 구간만 on-demand로 읽습니다. 점검용 CTX 마크다운은 `.curator/Collections/01_Contexts/`에 emit되며, parser가 만든 같은 문서 heading 링크는 broken wikilink가 되지 않도록 평문으로 렌더링합니다. 이 projection은 폐기 가능하며 DB가 권위 상태입니다. L2 원자적 사실과 L3 개념을 queue에 넣거나 컴파일하려면 `wiki build`를 별도로 실행합니다.
 
+> [!NOTE]
+> **수동 파이프라인 실행**: `wiki query`와 `search_curator`는 검색 전용 작업으로, pending 소스를 자동으로 등록하거나 처리하지 않습니다. 새 파일을 등록하려면 `wiki add`를, L2~L4 레이어를 구축하려면 `wiki build`를, 쿼리 전 DAG 무결성을 확인하려면 `wiki sync`를 실행합니다.
+
 > [!TIP]
 > `wiki add`에 파일이나 폴더 경로를 지정하지 않으면, Curator는 설정된 모든 소스 디렉토리(`03_Notes`, `04_Resources` 등)를 훑어 새로 추가되거나 변경된 파일을 자동으로 찾아내어 일괄 처리합니다.
 
