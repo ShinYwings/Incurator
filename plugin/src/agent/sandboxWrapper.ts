@@ -37,29 +37,37 @@ function sbQuote(p: string): string {
   return JSON.stringify(p); // valid for Seatbelt string literals
 }
 
+/** Provider-to-home-dirs mapping: only the dirs each CLI actually needs. */
+const PROVIDER_HOME_DIRS: Record<string, string[]> = {
+  antigravity: [".gemini", ".antigravity"],
+  claude:      [".claude"],
+  openai:      [".codex"],
+  // ollama and deepseek have no home-dir state managed by these CLIs
+};
+
 /**
  * Writable dirs the CLI agents legitimately use (their own config/state/cache, plus
  * generic runtime/temp). Without these the CLI crashes trying to write its session
  * token / logs / state. These are CLI-internal locations, not the user's documents,
  * so allowing them does not enable the reported exploit (creating files in/around
  * the vault and searching the user's data).
+ *
+ * When `provider` is known, only that provider's dirs are included (principle of
+ * least privilege). Without a provider, all known dirs are included as a safe fallback.
  */
-function cliRuntimeWriteDirs(home: string, tmpdir: string): string[] {
+function cliRuntimeWriteDirs(home: string, tmpdir: string, provider?: string): string[] {
   const h = (d: string) => (home ? `${home}/${d}` : "");
+  const providerDirs = provider && PROVIDER_HOME_DIRS[provider]
+    ? PROVIDER_HOME_DIRS[provider]
+    : [".gemini", ".antigravity", ".claude", ".codex"]; // fallback: all known dirs
   return [
     // The user's SPECIFIC temp dir only — NOT the broad /private/var/folders or
     // /private/tmp roots (those would grant every app/user's temp space).
     tmpdir,
-    // The agent CLIs' OWN dirs ONLY (they store config+auth+state here, and these
-    // dirs already exist). NEVER the whole ~/.config, ~/.cache, or ~/Library/Caches —
-    // that would let the agent drop a ~/.config/autostart script or overwrite another
-    // app's config (persistence / escalation). NOT ~/.incurator: plugin caches live
-    // in the project .cache/, and the plugin (not the sandboxed CLI) writes temp
-    // images, which the CLI only READS.
-    h(".gemini"),
-    h(".antigravity"),
-    h(".claude"),
-    h(".codex"),
+    // The active CLI's OWN dirs only. NEVER the whole ~/.config, ~/.cache, or
+    // ~/Library/Caches — that would let the agent drop a ~/.config/autostart script
+    // or overwrite another app's config (persistence / escalation).
+    ...providerDirs.map(h),
   ].filter(nonEmpty);
 }
 
@@ -71,9 +79,10 @@ export function buildMacosSeatbeltProfile(
   allowedRoots: string[],
   home: string = "",
   tmpdir: string = "",
+  provider?: string,
 ): string {
   const roots = dedupe(allowedRoots.filter(nonEmpty));
-  const writeRules = dedupe([...roots, ...cliRuntimeWriteDirs(home, tmpdir)]).map(
+  const writeRules = dedupe([...roots, ...cliRuntimeWriteDirs(home, tmpdir, provider)]).map(
     (r) => `  (allow file-write* (subpath ${sbQuote(r)}))`,
   );
   return [
@@ -92,7 +101,7 @@ export function buildMacosSeatbeltProfile(
  * CLI's own config/cache dirs (else "Read-only file system" crashes). `--bind-try`
  * skips a source that doesn't exist instead of failing.
  */
-export function buildBwrapArgs(allowedRoots: string[], home: string = "", tmpdir: string = ""): string[] {
+export function buildBwrapArgs(allowedRoots: string[], home: string = "", tmpdir: string = "", provider?: string): string[] {
   const roots = dedupe(allowedRoots.filter(nonEmpty));
   const args = [
     "--ro-bind", "/", "/",
@@ -106,7 +115,7 @@ export function buildBwrapArgs(allowedRoots: string[], home: string = "", tmpdir
   for (const r of roots) {
     args.push("--bind-try", r, r); // allowed roots (read-write); skip if missing
   }
-  for (const d of cliRuntimeWriteDirs(home, tmpdir)) {
+  for (const d of cliRuntimeWriteDirs(home, tmpdir, provider)) {
     if (d.startsWith("/private/")) continue; // macOS-only paths
     // Do NOT bind /tmp — `--tmpfs /tmp` above isolates it; re-binding the host /tmp
     // (the common Linux tmpdir) would mount the host's /tmp read-write into the
@@ -130,6 +139,7 @@ export function buildSandboxPlan(args: {
   tmpdir?: string;
   sandboxExecPath?: string; // resolved `sandbox-exec` path (macOS), or ""
   bwrapPath?: string;       // resolved `bwrap` path (linux), or ""
+  provider?: string;        // active LLM provider — scopes writable dirs to only that CLI's dirs
 }): SandboxPlan {
   const roots = dedupe((args.allowedRoots || []).filter(nonEmpty));
   if (roots.length === 0) {
@@ -141,7 +151,7 @@ export function buildSandboxPlan(args: {
     if (!args.sandboxExecPath) {
       return { prefix: [], unavailable: true, reason: "sandbox-exec unavailable on macOS." };
     }
-    const profile = buildMacosSeatbeltProfile(roots, args.home, args.tmpdir);
+    const profile = buildMacosSeatbeltProfile(roots, args.home, args.tmpdir, args.provider);
     return { prefix: [args.sandboxExecPath, "-p", profile], unavailable: false };
   }
 
@@ -154,7 +164,7 @@ export function buildSandboxPlan(args: {
       };
     }
     return {
-      prefix: [args.bwrapPath, ...buildBwrapArgs(roots, args.home, args.tmpdir)],
+      prefix: [args.bwrapPath, ...buildBwrapArgs(roots, args.home, args.tmpdir, args.provider)],
       unavailable: false,
     };
   }

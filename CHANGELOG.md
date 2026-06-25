@@ -4,6 +4,17 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.25.5] - 2026-06-26
+### Security
+- **OS sandbox write scope narrowed to active provider only** (`sandboxWrapper.ts`):
+  The v0.23.0 sandbox allowed write access to ALL four provider state directories
+  (`~/.gemini`, `~/.antigravity`, `~/.claude`, `~/.codex`) regardless of which
+  CLI was actually running. Antigravity now only gets `~/.gemini` + `~/.antigravity`,
+  Claude CLI gets `~/.claude`, and Codex gets `~/.codex`. A cross-provider agent
+  could no longer overwrite another CLI's auth state. When `provider` is not
+  specified, the safe fallback grants all four dirs for backward compatibility.
+  5 regression tests added.
+
 ## [0.25.1] - 2026-06-25
 ### Fixed
 - **Safer source/job recovery.** `wiki source rm` now keeps source files unless
