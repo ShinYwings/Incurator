@@ -4,6 +4,21 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.25.3] - 2026-06-26
+### Fixed
+- **`resolveCredential` exhaustiveness** (`cliAuth.ts`): Added a `default` case
+  to the provider switch that throws an explicit error with a `never`-typed guard.
+  Without it, an unrecognised provider silently returned `undefined` as the
+  credential, causing opaque call-site crashes.
+- **`updateSettings` drops its argument** (`main.ts`): `Object.assign` now merges
+  `updates` into `this.settings` before the data is saved. Previously every caller
+  was saving the unchanged current settings, so settings-panel mutations were
+  discarded on navigation.
+- **`claude-sonnet-4-6` wrongly in unavailable-model blocklist** (`main.ts`):
+  Removed from `unavailableDefaults`; it is a live, valid model ID. Its presence
+  caused the plugin to force-reset users whose active model was
+  `claude-sonnet-4-6` to the provider's default (Gemini) on every load.
+
 ## [0.25.1] - 2026-06-25
 ### Fixed
 - **Safer source/job recovery.** `wiki source rm` now keeps source files unless
