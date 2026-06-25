@@ -4,6 +4,22 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.25.2] - 2026-06-26
+### Fixed
+- **Stale config path references removed from docs.** All references to the
+  retired `~/.config/curator/config.yml` global path and the renamed
+  `.curator/config.yml` vault file have been corrected to reflect the actual
+  paths used since v0.25.0: vault-scoped settings are in `.curator/settings.yml`
+  and machine-local settings are in `.cache/config/config.yml` at the repo root.
+- **False auto-processing callout removed from USER_GUIDE.** The `[!IMPORTANT]`
+  callout that incorrectly claimed `wiki query` / `search_curator` auto-ingest
+  pending sources has been replaced with an accurate note describing the manual
+  pipeline (`wiki add` → `wiki build` → `wiki sync` → `wiki query`).
+- **CLAUDE.md spec paths made explicit.** The `SEARCH_ENGINE_SCHEMA.md` glob in
+  the version-bump instructions now lists its actual subdirectory
+  (`docs/specs/search_engine/`) instead of relying on an ambiguous wildcard that
+  agents misread as `docs/specs/system_behavior/`.
+
 ## [0.25.1] - 2026-06-25
 ### Fixed
 - **Safer source/job recovery.** `wiki source rm` now keeps source files unless
