@@ -112,3 +112,62 @@ describe("buildSandboxPlan (v0.23.0)", () => {
     expect(plan.unavailable).toBe(true);
   });
 });
+
+// G13-4 regression: provider-scoped write dirs
+describe("provider-scoped sandbox dirs (G13-4)", () => {
+  it("antigravity: only .gemini + .antigravity are writable, not .claude or .codex", () => {
+    const p = buildMacosSeatbeltProfile(["/Vault"], "/home/u", "/tmpx", "antigravity");
+    expect(p).toContain('(allow file-write* (subpath "/home/u/.gemini"))');
+    expect(p).toContain('(allow file-write* (subpath "/home/u/.antigravity"))');
+    expect(p).not.toContain('(subpath "/home/u/.claude")');
+    expect(p).not.toContain('(subpath "/home/u/.codex")');
+  });
+
+  it("claude: only .claude is writable, not .gemini / .codex / .antigravity", () => {
+    const p = buildMacosSeatbeltProfile(["/Vault"], "/home/u", "/tmpx", "claude");
+    expect(p).toContain('(allow file-write* (subpath "/home/u/.claude"))');
+    expect(p).not.toContain('(subpath "/home/u/.gemini")');
+    expect(p).not.toContain('(subpath "/home/u/.codex")');
+    expect(p).not.toContain('(subpath "/home/u/.antigravity")');
+  });
+
+  it("openai: only .codex is writable, not .gemini / .claude / .antigravity", () => {
+    const p = buildMacosSeatbeltProfile(["/Vault"], "/home/u", "/tmpx", "openai");
+    expect(p).toContain('(allow file-write* (subpath "/home/u/.codex"))');
+    expect(p).not.toContain('(subpath "/home/u/.gemini")');
+    expect(p).not.toContain('(subpath "/home/u/.claude")');
+    expect(p).not.toContain('(subpath "/home/u/.antigravity")');
+  });
+
+  it("no provider → fallback includes all known dirs (backward compat)", () => {
+    const p = buildMacosSeatbeltProfile(["/Vault"], "/home/u", "/tmpx");
+    expect(p).toContain('(subpath "/home/u/.gemini")');
+    expect(p).toContain('(subpath "/home/u/.claude")');
+    expect(p).toContain('(subpath "/home/u/.codex")');
+    expect(p).toContain('(subpath "/home/u/.antigravity")');
+  });
+
+  it("bwrap: claude provider scopes to only .claude", () => {
+    const a = buildBwrapArgs(["/Vault"], "/home/u", "/tmpx", "claude");
+    const joined = a.join(" ");
+    expect(joined).toContain("--bind-try /home/u/.claude /home/u/.claude");
+    expect(joined).not.toContain("--bind-try /home/u/.gemini");
+    expect(joined).not.toContain("--bind-try /home/u/.codex");
+  });
+
+  it("ollama: no home dirs (principle of least privilege — ollama has no CLI home dir)", () => {
+    const p = buildMacosSeatbeltProfile(["/Vault"], "/home/u", "/tmpx", "ollama");
+    expect(p).not.toContain('(subpath "/home/u/.gemini")');
+    expect(p).not.toContain('(subpath "/home/u/.claude")');
+    expect(p).not.toContain('(subpath "/home/u/.codex")');
+    expect(p).not.toContain('(subpath "/home/u/.antigravity")');
+  });
+
+  it("deepseek: no home dirs (principle of least privilege — deepseek has no CLI home dir)", () => {
+    const p = buildMacosSeatbeltProfile(["/Vault"], "/home/u", "/tmpx", "deepseek");
+    expect(p).not.toContain('(subpath "/home/u/.gemini")');
+    expect(p).not.toContain('(subpath "/home/u/.claude")');
+    expect(p).not.toContain('(subpath "/home/u/.codex")');
+    expect(p).not.toContain('(subpath "/home/u/.antigravity")');
+  });
+});

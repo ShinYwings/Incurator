@@ -2073,6 +2073,7 @@ export class LLMClient {
       tmpdir: realOr(tmpdir()),
       sandboxExecPath: process.platform === "darwin" ? "/usr/bin/sandbox-exec" : "",
       bwrapPath: process.platform === "linux" ? this.resolveBwrap() : "",
+      provider,
     });
 
     if (plan.unavailable) {
