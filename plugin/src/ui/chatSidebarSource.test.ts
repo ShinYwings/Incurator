@@ -403,10 +403,10 @@ describe("chat sidebar context chip source contract", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
 
-    // renderMessage must stamp data-msg-id so renderAssistantMessage can find the
-    // correct bubble by ID, not blindly use the last assistant element (which breaks
-    // manual continuation on old, non-last truncated messages).
-    expect(source).toContain("msgEl.dataset.msgId = msg.id");
+    // renderMessage stamps data-msg-id only when msg.id is defined (never "undefined").
+    expect(source).toContain("if (msg.id !== undefined) msgEl.dataset.msgId = msg.id");
+    // renderAssistantMessage guards the query on msg.id being defined before querying.
+    expect(source).toContain("msg.id !== undefined");
     expect(source).toContain('`[data-msg-id="${msg.id}"]`');
     expect(source).toContain("byId ?? allMsgEls[allMsgEls.length - 1]");
   });

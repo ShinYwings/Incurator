@@ -2646,7 +2646,7 @@ export class ChatSidebarView extends ItemView {
     const msgEl = this.messagesContainer.createDiv(
       `ai-agent-chat-msg ai-agent-chat-msg-${msg.role}`
     );
-    msgEl.dataset.msgId = msg.id;
+    if (msg.id !== undefined) msgEl.dataset.msgId = msg.id;
 
     const roleEl = msgEl.createDiv("ai-agent-chat-msg-role");
     roleEl.setText(msg.role === "user" ? "You" : "AI Agent");
@@ -4020,9 +4020,9 @@ export class ChatSidebarView extends ItemView {
   }
 
   private renderAssistantMessage(msg: ChatMessage): void {
-    const byId = this.messagesContainer.querySelector<HTMLElement>(
-      `[data-msg-id="${msg.id}"]`
-    );
+    const byId = msg.id !== undefined
+      ? this.messagesContainer.querySelector<HTMLElement>(`[data-msg-id="${msg.id}"]`)
+      : null;
     const allMsgEls = this.messagesContainer.querySelectorAll(
       ".ai-agent-chat-msg-assistant"
     );
