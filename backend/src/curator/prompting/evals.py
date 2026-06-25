@@ -190,6 +190,26 @@ BUILTIN_EVAL_CASES: list[PromptEvalCase] = [
         expect_valid=False,
     ),
     PromptEvalCase(
+        name="knowledge_units: English fields with parenthetical foreign term are accepted",
+        prompt_id="curator.knowledge_unit_extract",
+        raw_output=json.dumps(
+            {
+                "units": [
+                    {
+                        "canonical_name": "Residual learning (잔차)",
+                        "unit_type": "claim",
+                        "statement": "The residual (잔차) connection eases deep network optimization.",
+                        "source_span_ids": ["SPAN-aaaa1111"],
+                        "confidence": 0.9,
+                        "truth_status": "source_supported",
+                    }
+                ]
+            }
+        ),
+        validation_context={"valid_span_ids": ["SPAN-aaaa1111"]},
+        expect_valid=True,
+    ),
+    PromptEvalCase(
         name="entity_relation: relation endpoint must be a declared entity",
         prompt_id="curator.entity_relation_extract",
         raw_output=json.dumps(

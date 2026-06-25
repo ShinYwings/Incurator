@@ -3985,7 +3985,9 @@ def sources_rm_cmd(
         _err(f"No source with id {source_id}")
         raise typer.Exit(code=1)
 
-    effective_delete = delete_file and not keep_file
+    if keep_file:
+        console.print("[yellow]Warning:[/yellow] --keep-file is deprecated (files are kept by default). This flag is ignored.")
+    effective_delete = delete_file
     if not yes:
         action = "remove from tracking AND delete file" if effective_delete else "remove from tracking"
         confirm = typer.confirm(

@@ -149,3 +149,25 @@ def test_sanitize_transient_vision_artifacts_preserves_valid_image_links() -> No
     assert "![web](https://example.com/page.png)" in out
     assert "![vault](05_Assets/page.png)" in out
     assert "[paper](https://example.com/paper)" in out
+
+
+def test_sanitize_handles_balanced_parentheses_in_urls() -> None:
+    """URLs with balanced parens (e.g. Wikipedia) must not be truncated."""
+    raw = "[Residual](https://en.wikipedia.org/wiki/Residual_(mathematics))"
+    out = vision.sanitize_transient_vision_artifacts(raw)
+    assert out == raw
+
+
+def test_sanitize_handles_nested_brackets_in_labels() -> None:
+    """Labels with nested brackets must still be parsed correctly."""
+    raw = "![label with [nested] brackets](file:///Users/shin/.cache/vision_render/run/page.png)"
+    out = vision.sanitize_transient_vision_artifacts(raw)
+    assert "vision_render" not in out
+    assert "label with [nested] brackets" in out
+
+
+def test_sanitize_handles_nested_brackets_and_balanced_parens() -> None:
+    """Combined: nested brackets in label + balanced parens in valid URL."""
+    raw = "[label [inner]](https://example.com/path_(suffix))"
+    out = vision.sanitize_transient_vision_artifacts(raw)
+    assert out == raw

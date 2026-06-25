@@ -596,11 +596,12 @@ def compile_global_l3(
     
     status = "error" if errors else "done"
     error_msg = "; ".join(errors) if errors else None
-    l4_status = "error" if errors else ("done" if synthesis_ids else "skipped")
+    l4_status = "skipped" if errors else ("done" if synthesis_ids else "skipped")
+    l4_error = "L3 prerequisite failed; synthesis not attempted" if errors else None
 
     for sid in l2_done_ids:
         db.set_source_layer_status(paths.state_db, sid, "l3", status, error=error_msg)
-        db.set_source_layer_status(paths.state_db, sid, "l4", l4_status, error=error_msg)
+        db.set_source_layer_status(paths.state_db, sid, "l4", l4_status, error=l4_error)
         
     if errors:
         raise RuntimeError(f"L3 global clustering encountered errors: {error_msg}")

@@ -155,11 +155,13 @@ def _looks_non_english_generated(text: str) -> bool:
     if not non_english_chars:
         return False
     latin_chars = _LATIN_LETTER.findall(stripped)
-    # A single symbol/name can appear in math or a proper noun; sustained
-    # non-Latin script in generated L2 fields violates the English contract.
-    if len(non_english_chars) >= 2:
-        return True
-    return not latin_chars
+    total_script = len(non_english_chars) + len(latin_chars)
+    if total_script == 0:
+        return False
+    # Ratio-based: a parenthetical foreign term like "The 잔차 (residual)..."
+    # has a low ratio and is acceptable. Fully non-English output like
+    # "잔차 학습" dominates and is rejected.
+    return len(non_english_chars) / total_script > 0.3
 
 
 def validate_generated_english(raw: str, parsed: BaseModel | None, ctx: Mapping[str, Any]) -> ValidationResult:

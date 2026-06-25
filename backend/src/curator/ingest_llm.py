@@ -591,11 +591,18 @@ def run_l3_from_existing_atoms(
     today = _now_iso()
     from .pipeline import compile as _compile
 
-    # L3 clustering is global; replace the current Concept set. Shared L4
-    # synthesis is regenerated/skipped by compile_global_l3 after reports settle.
+    # L3 clustering is global; replace the current Concept set. Invalidate stale
+    # L4 synthesis: delete SYN markdown and reset l4_status so compile_global_l3
+    # can set the correct terminal status after its own synthesis attempt.
     if paths.concepts.exists():
         for md_path in paths.concepts.glob(f"{consts.PREFIX_L3}-*.md"):
             md_path.unlink()
+    if paths.synthesis.exists():
+        for md_path in paths.synthesis.glob(f"{consts.PREFIX_L4}-*.md"):
+            md_path.unlink()
+    source_ids = _source_ids_with_l2_done(paths)
+    if source_ids:
+        db.set_sources_layer_status(paths.state_db, source_ids, "l4", "pending")
 
     concept_ids = _compile.compile_global_l3(paths, client)
 
