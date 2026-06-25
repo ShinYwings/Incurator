@@ -96,30 +96,10 @@ def calculate_hash(path: Path) -> str:
     return h.hexdigest()
 
 
-def _body_without_frontmatter(text: str) -> str:
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) >= 3:
-            return parts[2].lstrip("\n")
-    return text
-
-
-def _hash_file_content(path: Path) -> str:
-    """Hash markdown body content, excluding YAML frontmatter."""
-    body = _body_without_frontmatter(path.read_text(encoding="utf-8"))
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
-
-
-def _frontmatter_content_hash(path: Path) -> str | None:
-    page = page_writer.read_page(path)
-    if not page:
-        return None
-    value = page.frontmatter.get("content_hash")
-    return str(value).strip() if value else None
-
 
 def _find_changed_nodes(paths: cfg.WikiPaths) -> list[str]:
-    """Return DAG node IDs whose body hash differs from frontmatter content_hash."""
+    """Return DAG node IDs whose file hash differs from the DB page-hash store."""
+    db_hashes = db.get_page_hashes(paths.state_db)
     changed: list[str] = []
     for layer_dir, prefix in (
         (paths.contexts, f"{consts.PREFIX_L1}-"),
@@ -129,9 +109,11 @@ def _find_changed_nodes(paths: cfg.WikiPaths) -> list[str]:
     ):
         if not layer_dir.exists():
             continue
+        layer_name = layer_dir.name
         for md_path in sorted(layer_dir.glob(f"{prefix}*.md")):
-            expected = _frontmatter_content_hash(md_path)
-            if not expected or expected != _hash_file_content(md_path):
+            rel_path = f"{layer_name}/{md_path.name}"
+            stored = db_hashes.get(rel_path)
+            if stored is None or stored != calculate_hash(md_path):
                 changed.append(md_path.stem)
     return changed
 

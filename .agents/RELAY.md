@@ -53,9 +53,11 @@ categories (a)–(i): bugs, redundancy, error-handling smells, legacy/dead code,
 architectural debt, docs drift, performance hotspots, robustness/weaknesses,
 UI/UX friction. Dedicated refactor phases exist for each axis.
 
-**Immediate Next Action**: review/merge draft PR #49
-(`https://github.com/ShinYwings/Incurator/pull/49`), then resume Phase A
-diagnosis from `.agents/plans/diagnosis/INDEX.md`.
+**Immediate Next Action**: Review and merge open PRs in order:
+- PR #53 (`fix/docs-s1-stale-content`, v0.25.3) — docs S1 fixes
+- PR #54 (`fix/chatsidebar-s1-streaming`, v0.25.6) — G14-1 spinner + G14-2 bubble targeting
+- PR #55 (`fix/backend-s1-correctness`, v0.25.7) — G01-1/G03-1/G04-1/G06-1/G06-3 backend fixes
+Then resume Phase A implementation for remaining S1/S2 items per the roadmap.
 
 ---
 

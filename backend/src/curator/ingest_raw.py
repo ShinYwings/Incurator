@@ -2376,6 +2376,15 @@ def remove_source(
     with db.connect(paths.state_db) as conn:
         conn.execute("DELETE FROM source_pages WHERE source_id = ?", (source_id,))
         conn.execute("DELETE FROM ingest_runs WHERE source_id = ?", (source_id,))
+        # job_events FK → ingest_jobs FK → sources; dag_edges FK → sources.
+        # Must delete dependents before sources or PRAGMA foreign_keys raises IntegrityError.
+        conn.execute(
+            "DELETE FROM job_events WHERE job_id IN "
+            "(SELECT id FROM ingest_jobs WHERE source_id = ?)",
+            (source_id,),
+        )
+        conn.execute("DELETE FROM ingest_jobs WHERE source_id = ?", (source_id,))
+        conn.execute("DELETE FROM dag_edges WHERE source_id = ?", (source_id,))
         conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
 
     deleted_file = False

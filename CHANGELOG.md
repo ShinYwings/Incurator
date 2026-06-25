@@ -4,6 +4,44 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.25.7] - 2026-06-26
+### Fixed
+- **G01-1: `remove_source` cascade.** `wiki source rm` now deletes `job_events`,
+  `ingest_jobs`, and `dag_edges` referencing the source before removing the source
+  row, preventing `sqlite3.IntegrityError` on compiled sources with FK constraints
+  active.
+- **G03-1: Sources LWW coalesce.** `db_sync` now uses `COALESCE(last_ingested,
+  added_at)` as the LWW timestamp for `sources` — both in the SQL `SELECT`/`WHERE`
+  clause and in the Python row-dict comparison — so pending sources (where
+  `last_ingested IS NULL`) are included in since-filtered exports and resolve LWW
+  conflicts correctly.
+- **G04-1: Incremental sync DB-hash fast path.** `_find_changed_nodes` now
+  compares full-file SHA-256 hashes against the DB page-hash store (via
+  `db.get_page_hashes` / `calculate_hash`) instead of reading a `content_hash`
+  frontmatter field that was never written, making the incremental sync fast path
+  actually functional.
+- **G06-1: Dead code removal in `run_query`.** ~230 lines of unreachable legacy
+  search/synthesize pipeline (after an unconditional `return`) and their orphaned
+  constants, helper function, and test cases were removed from `query.py`.
+- **G06-3: `insert_query_trace` preserves `created_at`.** `_append_context_action`
+  now passes the original trace `created_at` through to `db.insert_query_trace`,
+  preventing the timestamp from being clobbered to `_now_iso()` on every action
+  append.
+
+---
+
+## [0.25.6] - 2026-06-26
+### Fixed
+- **G14-1: Streaming spinner cleared on context-build failure.** `buildLLMMessages`
+  is now inside the try/catch block so any failure during context preparation
+  correctly clears `assistantMsg.isStreaming`, preventing the spinner from getting
+  stuck forever.
+- **G14-2: Manual continuation targets correct bubble.** `renderMessage` now stamps
+  `data-msg-id` on each message element; `renderAssistantMessage` uses a CSS
+  attribute selector to target the correct bubble by ID rather than always selecting
+  the last assistant element in the DOM.
+
+---
 ## [0.25.6] - 2026-06-26
 ### Fixed
 - **chatSidebar streaming never stuck on context-build failure (G14-1).** `buildLLMMessages`
