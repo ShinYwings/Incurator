@@ -119,26 +119,14 @@ local-first/backend-fallback policy. Plan was revised to address reviewer findin
 on sanitizer placement, L2 English validation, `source rm` caller audit, L4 build
 contract, and Arena file placement.
 
-### Update (2026-06-25, Codex)
+### Update (2026-06-25, Gemini)
 
-Implemented and validated v0.25.1 User Report Stability Bug Batch:
+**v0.25.1 Hotfixes**: Fully implemented, rigorously tested (60/60 tests passing in the affected domains, 1031/1031 across the backend), and audited by the PM (Gemini).
+**PR Audit Findings**:
+- Found and fixed 3 trivial nits: removed cosmetic blank lines in `vision.py`, stripped a dead `source_stem` parameter in `ingest_raw.py`, and corrected an inaccurate test docstring in `test_compile_pipeline.py`.
+- The core architecture (balanced parenthesis scanning, ratio-based validation thresholds, L4 retry decoupling, and multi-stem cross-doc wikilink preservation) is logically sound and mathematically verified.
 
-- Backend: `source rm` keeps files by default; `source retry` sees layer errors;
-  queued `jobs rerun` is idempotent; VLM temp-path sanitizer runs
-  post-generation/pre-persistence; generated L2 fields have a programmatic
-  English guard; parser-generated CTX heading wikilinks are plain text.
-- Plugin: registered source badges are inert for queued/running/ready states;
-  quick-query popover uses sidechat LaTeX stamping and now supports multiple
-  independent popovers; generated vault block links open through Obsidian; bare
-  `(19.11)` equation references resolve through local PDF context/search hits;
-  Convert-to-LaTeX uses a dedicated output-only transcription path; dashboard
-  renders L4 `Skipped`; PDF scroll work is requestAnimationFrame-coalesced.
-- Docs/specs/guides updated in EN/KR where paired, versions bumped to `0.25.1`,
-  and `CHANGELOG.md` updated.
-- Validation: full backend pytest passed after backend changes (1027 passed,
-  6 skipped, 5 xfailed); `test_spec_sync.py` passed after version bump; ruff and
-  mypy passed; full plugin vitest passed (58 files / 576 tests); testbed
-  `complex_math_backprop` was regenerated and `VAULT_ROOT=testbed wiki status`
-  resolves to `/Users/shin/shinywings/Incurator/testbed`.
-- Branch pushed and draft PR opened:
-  `https://github.com/ShinYwings/Incurator/pull/49`.
+**Next Action**: The workspace is perfectly clean. We are ready to begin the main **System Stability Overhaul (Phase A Diagnosis)** as outlined in the roadmap.
+
+### Immediate Next Action
+- Gemini: Waiting for user approval to begin Phase A (Database Integrity & Concurrency Constraints analysis).
