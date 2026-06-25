@@ -79,7 +79,7 @@ Running the `wiki init` command initializes the following structure for knowledg
 ├── 05_Assets/         # Media assets (images, PDF attachments, etc.)
 ├── 06_Archives/       # Archives for deprecated or old sources
 ├── .curator/          # [AI Space] Core system data and SQLite DB (AI-only Space)
-│   ├── config.yml     # LLM backends, models, and path configurations
+│   ├── settings.yml   # Vault-scoped portable settings (persona, sync policy, etc.)
 │   ├── state.sqlite   # Deduplication hashes, provenance, run history
 │   ├── index.md       # DAG routing table (Mapping of all node IDs)
 │   ├── ledger.md      # History of HITL corrections and promotions
@@ -108,9 +108,8 @@ over the refined DAG (L1–L4). There is no per-workspace Exhibition file to
 generate; the shared **L4 Synthesis** layer is built automatically by `wiki build`,
 and curation selects/recombines L3/L4 nodes at query time (never stored).
 
-> [!IMPORTANT]
-> **Trigger-based Auto-sync**:
-> This automation is not a persistent background service. It is triggered at the **moment** you interact with an agent (`search_curator`) or run `wiki query` from a **registered workspace directory** (see [Initialization](#🏗️-creating-and-initializing-a-workspace)). The system checks for pending sources and processes them immediately when it detects your "intent" to use knowledge. This ensures the pipeline works organically without manual execution. See the [MCP User Guide](./MCP_USER_GUIDE.md) for details.
+> [!NOTE]
+> **Manual pipeline execution**: `wiki query` and `search_curator` are retrieval-only operations — they do not automatically ingest or process pending sources. Run `wiki add` to register new files, `wiki build` to construct L2–L4 layers, and `wiki sync` to verify DAG integrity before querying.
 
 To refine the knowledge graph (L2 Atoms → L3 Concepts → shared L4 Synthesis):
 ```bash

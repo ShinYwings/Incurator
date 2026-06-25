@@ -14,11 +14,11 @@ persona-to-KRS auto-mapping, or external search runtime fallback.
 
 ## 1. Topology Additions
 
-The v0.2.0 vault topology remains unchanged, with these `.curator/` additions:
+Current `.curator/` layout (as of v0.25.0):
 
 ```text
 .curator/
-├── config.yml
+├── settings.yml              # vault-scoped portable settings (persona, sync policy, etc.)
 ├── state.sqlite
 ├── dashboard.md              # generated observability dashboard, optional
 ├── sync-report.json
@@ -30,6 +30,9 @@ The v0.2.0 vault topology remains unchanged, with these `.curator/` additions:
     ├── 03_Concepts/
     └── 04_Synthesis/            # SYN-*.md projection of the shared L4 Synthesis layer (§11.11)
 ```
+
+Machine-local settings (LLM backend, Zotero paths, etc.) are stored in
+`.cache/config/config.yml` at the repository root — never inside the vault.
 
 Rules:
 
