@@ -20,7 +20,7 @@ from curator import db
 # Graceful imports
 # ---------------------------------------------------------------------------
 try:
-    from curator.sync import _find_changed_nodes, _hash_file_content
+    from curator.sync import _find_changed_nodes, _hash_file_content, update_all_page_hashes
     SYNC_HELPERS_AVAILABLE = True
 except ImportError:
     SYNC_HELPERS_AVAILABLE = False
@@ -134,16 +134,20 @@ class TestFindChangedNodes(unittest.TestCase):
         return path
 
     def test_unchanged_node_not_in_changed_list(self) -> None:
+        # G04-1 fix: changed detection uses DB page hashes, not frontmatter content_hash.
+        # Must stamp the DB hash first; a file with no DB hash is always "changed".
         self._write_atom("ATM-abc00001", "Unchanged body.")
+        update_all_page_hashes(self.paths)  # stamp current file hashes into DB
         changed = _find_changed_nodes(self.paths)
         self.assertNotIn("ATM-abc00001", changed)
 
     def test_modified_body_detected_as_changed(self) -> None:
         path = self._write_atom("ATM-abc00002", "Original body.")
-        # Overwrite body but keep stale hash in frontmatter
+        update_all_page_hashes(self.paths)  # stamp original hash into DB
+        # Now overwrite the body — DB hash is now stale
         path.write_text(
-            "---\nid: ATM-abc00002\ntype: atom\ncontent_hash: stale0000000000\n"
-            "last_updated: 2026-05-29\n---\n\n# ATM-abc00002\n\nModified body.\n",
+            "---\nid: ATM-abc00002\ntype: atom\nlast_updated: 2026-05-29\n---\n\n"
+            "# ATM-abc00002\n\nModified body.\n",
             encoding="utf-8",
         )
         changed = _find_changed_nodes(self.paths)

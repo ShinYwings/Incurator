@@ -4582,9 +4582,11 @@ def insert_query_trace(
     warnings: list[str] | None = None,
     latency_ms: int | None = None,
     trace_id: str | None = None,
+    created_at: str | None = None,
 ) -> str:
     """Persist a durable QTR- query trace. Returns the trace_id."""
     tid = trace_id or _new_id("QTR")
+    ts = created_at or _now_iso()
     with connect(db_path) as conn:
         conn.execute(
             """
@@ -4602,7 +4604,7 @@ def insert_query_trace(
                 json.dumps(community_report_ids or []), json.dumps(synthesis_node_ids or []),
                 json.dumps(memory_path_ids or []), json.dumps(prompt_trace_ids or []),
                 json.dumps(insight_candidate_ids or []), json.dumps(retrieval_trace or {}),
-                json.dumps(warnings or []), latency_ms, _now_iso(),
+                json.dumps(warnings or []), latency_ms, ts,
             ),
         )
     return tid

@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import IO
+from typing import IO, Callable as _Callable
 
 from . import db
 
@@ -83,7 +83,9 @@ EXCLUDE_TABLES: frozenset[str] = frozenset([
 
 # Column used per table to determine which version is newer (LWW).
 _UPDATED_AT_COL: dict[str, str] = {
-    "sources": "last_ingested",
+    # Pending/errored sources have NULL last_ingested. Use COALESCE so LWW and
+    # incremental-since export include them rather than silently skipping them.
+    "sources": "COALESCE(last_ingested, added_at)",
     "atoms": "last_updated",
     "concepts": "last_updated",
     "synthesis_nodes": "updated_at",
@@ -112,6 +114,14 @@ _UPDATED_AT_COL: dict[str, str] = {
     "source_pages": "at",
     "source_pdf_pages": "extracted_at",
     "deleted_records": "deleted_at",
+}
+
+# Per-table overrides for computing the remote timestamp from an exported row dict.
+# Needed when the SQL-side LWW expression (in _UPDATED_AT_COL) is a COALESCE/expression
+# rather than a plain column name, so row.get(updated_col) would return None.
+# Each callable receives the row dict and returns the effective timestamp string.
+_REMOTE_TS_FN: dict[str, _Callable[[dict], str]] = {
+    "sources": lambda row: row.get("last_ingested") or row.get("added_at") or "",
 }
 
 # Primary key column per table. None = composite/handled-separately (always upsert).
@@ -423,7 +433,8 @@ def _lw_upsert(conn: "db.sqlite3.Connection", table_name: str, row: dict, dry_ru
 
         if updated_col:
             local_ts = existing[0] or ""
-            remote_ts = row.get(updated_col) or ""
+            remote_ts_fn = _REMOTE_TS_FN.get(table_name)
+            remote_ts = remote_ts_fn(row) if remote_ts_fn else (row.get(updated_col) or "")
             if remote_ts > local_ts:
                 if not dry_run:
                     _preserve_device_local(conn, table_name, row)

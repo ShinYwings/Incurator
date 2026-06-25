@@ -1118,4 +1118,5 @@ class ContextService:
             retrieval_trace=retrieval_trace,
             warnings=trace["warnings"],
             latency_ms=trace["latency_ms"],
+            created_at=trace.get("created_at"),
         )
