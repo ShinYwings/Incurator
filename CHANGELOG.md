@@ -4,6 +4,27 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.25.1] - 2026-06-25
+### Fixed
+- **Safer source/job recovery.** `wiki source rm` now keeps source files unless
+  `--delete-file` is explicit, `wiki source retry` sees layer-scoped failures,
+  and `wiki jobs rerun` is idempotent for already queued jobs.
+- **Portable PDF/VLM ingest and L2 generation.** VLM markdown strips transient
+  `.cache/vision_render` temp links before persistence; generated L2 Atom/KNU
+  fields now pass an English-output guard with retry/failure behavior; generated
+  CTX projections no longer expose parser-made same-document heading wikilinks.
+- **Plugin source/PDF/quick-query stability.** Registered source chips stay
+  inert while queued/running, generated vault block links are clickable, quick
+  query preserves LaTeX copy data and now supports multiple independent popovers,
+  bare PDF equation references like `(19.11)` resolve through local PDF context,
+  and Convert-to-LaTeX uses an output-only dedicated transcription path.
+- **L4 and PDF viewer clarity.** Completed builds now mark L4 `done`, `skipped`,
+  or `error` instead of leaving eligible sources indefinitely `pending`; the
+  dashboard renders `Skipped`, and PDF scroll work is coalesced per animation
+  frame to reduce long-document jank.
+
+---
+
 ## [0.25.0] - 2026-06-23
 ### Changed
 - **Backend ↔ plugin config isolation + rename.** The vault-scoped config file is

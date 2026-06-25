@@ -168,6 +168,12 @@ const PATTERNS: PatternSpec[] = [
     re: /\b(?:equations?|eqs?|eqn)\.?\s*\(?(\d+(?:\.\d+)*)\)?/gi,
     build: (m) => ({ label: `Equation ${m[1]}`, objectNumber: m[1] }),
   },
+  // Bare equation label such as "(19.11)" in math prose.
+  {
+    kind: "equation",
+    re: /(^|[\s,;:])\((\d+(?:\.\d+)+)\)/g,
+    build: (m) => ({ label: `Equation ${m[2]}`, objectNumber: m[2] }),
+  },
   // Theorem 2 / Lemma 5.1 / Corollary 1 / Result 19.4
   {
     kind: "theorem",

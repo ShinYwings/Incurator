@@ -23,7 +23,8 @@ Source of Truth to identify unresolved items.
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
 ### 🚨 URGENT HOTFIX QUEUE
-_(empty — config-isolation hotfix shipped as v0.25.0, commit `b9a49a1`; see Completed.)_
+
+No active urgent hotfixes.
 
 ### 🚀 Priority Order
 
@@ -64,6 +65,14 @@ _(empty — config-isolation hotfix shipped as v0.25.0, commit `b9a49a1`; see Co
 
 ## ✅ Completed Milestones
 
+- **v0.25.1 — User Report Stability Bug Batch** (completed 2026-06-25): fixed
+  the 14 urgent reports triaged from `.agents/USER_REPORT.md`: source-file
+  deletion safety, layer-error retry, queued job rerun UX, VLM temp-path
+  leakage, generated L2 English enforcement, malformed generated wikilinks,
+  registered source badge state, popover LaTeX copy, Convert-to-LaTeX
+  output-only transcription, bare PDF equation lookup, generated vault block
+  links, Add Resource/L4 status clarity, PDF scroll jank, and multiple
+  independent quick-query popovers.
 - **v0.25.0 — Backend/Plugin Config Isolation + Dashboard Live-Read** (shipped
   2026-06-23, commit `b9a49a1`, unpushed): vault config renamed
   `.curator/config.yml` → `.curator/settings.yml` to end the name collision with
@@ -113,6 +122,9 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: Urgent config-isolation hotfix shipped (v0.25.0, commit `b9a49a1`, unpushed). Branch `feature/prompt-architecture-refactoring` resumes the System Stability Overhaul.
-- **Active Milestone**: System Stability Overhaul — Exhaustive Diagnosis & Refactoring (Phase A diagnosis in progress).
-- **Next actionable item**: Resume Phase A diagnosis — merge G01–G06 (`.agents/plans/diagnosis/`) into the ledger, then run G07–G19 (multi-agent fan-out resets at session limit). See `.agents/RELAY.md` PHASE A RESUMPTION PROTOCOL.
+- **Roadmap state**: User Report Stability Bug Batch (`v0.25.1`) pushed as draft
+  PR #49 on `feature/system-stability-overhaul`; urgent queue is clear.
+- **Active Milestone**: System Stability Overhaul — Exhaustive Diagnosis &
+  Refactoring.
+- **Next actionable item**: resume Phase A diagnosis at the next unfinished
+  group in `.agents/plans/diagnosis/INDEX.md`.

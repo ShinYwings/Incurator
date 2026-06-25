@@ -175,7 +175,9 @@ Rules:
 ## 4.1 `wiki build` Behavior
 
 `wiki build` triggers L2 (Atoms) and L3 (Concepts) extraction for sources whose
-L1 is complete but L2/L3 are still pending.
+L1 is complete but L2/L3 are still pending. The global L3 stage automatically
+attempts shared L4 Synthesis after community reports settle; L4 is not a manual
+post-build step.
 
 ```text
 wiki build [path]
@@ -194,6 +196,11 @@ Rules:
 - `wiki build --wait` runs L2/L3 synchronously before returning.
 - Without `--wait`, jobs are queued to the persistent `ingest_jobs` table and
   processed by the MCP server's IngestWorker or `wiki jobs run`.
+- After global L3 completes, sources whose L2 is done must receive a terminal
+  `l4_status`: `done` when shared synthesis nodes exist for the current report
+  corpus, `skipped` when no eligible community reports/syntheses exist, or
+  `error` when report/synthesis generation fails. They must not remain
+  indefinitely `pending` after a completed build.
 - After processing, `wiki jobs run` (which `wiki build` spawns as a detached
   background daemon) **always refreshes the DB-native search index with
   embeddings** (`search.update_index(..., embed=True)`), **even when the queue was
@@ -210,7 +217,20 @@ Rules:
   change-dependent side effects (persona reinforcement, sync-report
   invalidation) remain gated on real L2/L3 changes.
 
-## 4.2 `wiki update` Behavior
+## 4.2 Source Management Commands
+
+`wiki source rm <id>` removes backend tracking and generated derived records for
+a source. It must keep the original source file by default. Deleting a file is a
+separate destructive action that requires `--delete-file`, and even then only
+vault raw/source directories may be unlinked.
+
+`wiki source retry [id]` must consider both aggregate source failures
+(`sources.status='error'`) and layer-scoped failures (`l1_status` through
+`l4_status` or `layer_error`). L1-layer errors rerun L1 generation; L2/L3/L4
+layer errors rerun the build path after resetting the failed downstream layer
+state to pending.
+
+## 4.3 `wiki update` Behavior
 
 `wiki update` is the one-shot ingest pipeline. It runs the full sequence
 **synchronously** so the vault is fully current when the command returns:
@@ -260,6 +280,11 @@ The backend parser must generate a CTX with:
 - `## Source Sections` preserving text recall inline for small/medium sources,
   or preserving section markers/previews with on-demand raw-source fetch for
   large sources
+- Generated CTX projections must not introduce lint-visible same-document
+  parser heading wikilinks such as `[[Paper#Section]]`. If a parser emits these
+  links in generated CTX titles, previews, atom-candidate scaffolding, or source
+  section projection text, the projection writer must convert them to plain text
+  while leaving the original source file untouched.
 
 Parser priority:
 
@@ -287,7 +312,9 @@ Workers:
 - CLI users may cancel a queued job with `wiki jobs cancel <id>` before a worker
   claims it.
 - CLI users may requeue a completed, failed, or cancelled job with
-  `wiki jobs rerun <id>`.
+  `wiki jobs rerun <id>`. Running the same command for an already queued job is
+  an idempotent success/no-op; running jobs remain non-rerunnable while a worker
+  owns them.
 - Both consume the same persistent queue.
 
 Job behavior:
@@ -340,6 +367,13 @@ Batch Atom extraction (`_extract_atoms_from_chunk`) relies on the LLM adhering t
    candidate-by-candidate LLM calls, but they must not be the only resilience
    mechanism for provider failures because they multiply the same failing LLM
    dependency.
+
+L2 knowledge-unit extraction has an additional language contract: generated
+fields (`canonical_name`, `statement`, and the ATM projection title/body derived
+from them) must be English. Raw source spans may remain Korean or any other
+source language. Non-English generated L2 output fails validation and triggers
+the prompt runner's capped repair retry; repeated failure marks the source L2
+layer as `error` and publishes no new ATM projection.
 
 ## 7. Section-Aware Extraction
 
@@ -757,7 +791,8 @@ Status surfaces:
 - `wiki jobs list` shows queued/running jobs.
 - `wiki jobs run` drains queued jobs in foreground.
 - `wiki jobs cancel <id>` cancels a queued job.
-- `wiki jobs rerun <id>` requeues a completed, failed, or cancelled job.
+- `wiki jobs rerun <id>` requeues a completed, failed, or cancelled job and is
+  a success/no-op for an already queued job.
 - `.curator/dashboard.md` may summarize job and DAG state for Obsidian viewing.
 
 Status rules:
@@ -1706,7 +1741,11 @@ rendered page instead.
   Cmd+Shift+X crop paths MUST call the backend `plugin pdf transcribe` resolver
   instead of `LLMClient.complete` on the plugin main chat model. When a crop is
   successfully transcribed, the chat context carries the transcription text and
-  MUST NOT also attach the crop image to the main chat model's vision path.
+  MUST NOT also attach the crop image to the main chat model's vision path. The
+  interactive transcribe prompt asks for exactly one
+  `<transcription>...</transcription>` block; the backend normalizes the result
+  by extracting that block when present and stripping common explanatory prose,
+  labels, and fences before returning JSON to the plugin.
 - **Always-on when configured (per source).** When `vision_model` is set, each
   `add source` PDF page is rendered (PyMuPDF `get_pixmap`, bounded `vision_render_dpi`
   default 170 + `vision_max_image_px` default 1600 longest-edge with downscale) and
@@ -1730,9 +1769,13 @@ rendered page instead.
   all live-verified) transcribe a temp PNG written under
   `.cache/vision_render/<run-id>/` and referenced by path to the CLI's vision-capable
   Read tool, then the output is normalized to clean LaTeX (strip `$$` wrappers, CLI
-  banners, fences, commentary). Temp PNGs are removed in a `finally` (guaranteed on
-  success, exception, and timeout; per-run subdir wiped; stale dirs swept on startup;
-  no leaks). Unsafe auto-approve CLI flags MUST NOT be passed.
+  banners, fences, commentary). Before any VLM transcription is cached or
+  persisted as page/source text, Markdown image/link destinations that point to
+  `.cache/vision_render` temp files are sanitized away while valid external URLs
+  and vault-relative asset links are preserved. Temp PNGs are removed in a
+  `finally` (guaranteed on success, exception, and timeout; per-run subdir wiped;
+  stale dirs swept on startup; no leaks). Unsafe auto-approve CLI flags MUST NOT
+  be passed.
 - **Cost rail.** `vision_max_pages_per_run` (default ~300) bounds a single `add`
   run; beyond it requires explicit opt-in, with the remainder logged
   `vision_skipped` (never silently truncated).

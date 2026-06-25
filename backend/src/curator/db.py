@@ -1401,6 +1401,16 @@ def list_ingest_jobs(
         return [dict(row) for row in rows]
 
 
+def get_ingest_job(db_path: Path, job_id: int) -> dict | None:
+    """Return one ingest job by id."""
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM ingest_jobs WHERE id = ?",
+            (job_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def claim_next_job(db_path: Path) -> dict | None:
     """Atomically claim the oldest queued job."""
     with connect(db_path) as conn:

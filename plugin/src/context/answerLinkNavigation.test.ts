@@ -35,8 +35,20 @@ describe("parseAnswerLinkTarget", () => {
     });
   });
 
+  it("parses vault note block links from href or rendered locator text", () => {
+    expect(parseAnswerLinkTarget("Auto%20Calibration#%5E8f735d")).toEqual({
+      kind: "vault",
+      linkpath: "Auto Calibration#^8f735d",
+    });
+    expect(parseAnswerLinkTarget("", "Auto Calibration > ^8f735d")).toEqual({
+      kind: "vault",
+      linkpath: "Auto Calibration#^8f735d",
+    });
+  });
+
   it("ignores ordinary links", () => {
     expect(parseAnswerLinkTarget("https://example.com")).toBeNull();
     expect(parseAnswerLinkTarget("", "Hartley and Zisserman")).toBeNull();
+    expect(parseAnswerLinkTarget("Auto Calibration")).toBeNull();
   });
 });

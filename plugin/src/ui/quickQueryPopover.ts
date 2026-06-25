@@ -5,7 +5,12 @@ import {
   buildQuickQueryMessages as buildQuickQueryContextMessages,
   type QuickQueryTurn,
 } from "../context/quickQueryContext";
-import { attachLatexCopyHandler, normalizeLatexDelimiters, selectionToTextWithLatex } from "../utils/textUtils";
+import {
+  attachLatexCopyHandler,
+  normalizeLatexDelimiters,
+  selectionToTextWithLatex,
+  stampMathSourceData,
+} from "../utils/textUtils";
 
 /**
  * In-line Copilot — drag-to-select quick query popover.
@@ -92,6 +97,16 @@ const MAX_SELECTION_LENGTH = 8000;
 const BUTTON_SIZE: FloatingSize = { width: 120, height: 40 };
 const POPOVER_SIZE: FloatingSize = { width: 380, height: 320 };
 
+interface QuickQueryDragState {
+  win: Window;
+  startX: number;
+  startY: number;
+  startLeft: number;
+  startTop: number;
+  move: (e: MouseEvent) => void;
+  up: (e: MouseEvent) => void;
+}
+
 export class QuickQueryPopover {
   private plugin: ObsidianAIAgent;
   private buttonEl: HTMLElement | null = null;
@@ -103,20 +118,14 @@ export class QuickQueryPopover {
   private minimizeBtnEl: HTMLElement | null = null;
   private isMinimized = false;
   private popoverKeyHandler: ((e: KeyboardEvent) => void) | null = null;
-  private dragState: {
-    win: Window;
-    startX: number;
-    startY: number;
-    startLeft: number;
-    startTop: number;
-    move: (e: MouseEvent) => void;
-    up: (e: MouseEvent) => void;
-  } | null = null;
+  private dragState: QuickQueryDragState | null = null;
   /** Document that owns the current selection (main window or a popout). */
   private activeDoc: Document = document;
   /** Live selection range, kept so the trigger button tracks PDF scrolling. */
   private anchorRange: Range | null = null;
   private repositionHandler: (() => void) | null = null;
+  private childPopovers = new Set<QuickQueryPopover>();
+  private onPopoverRemoved: ((popover: QuickQueryPopover) => void) | null = null;
 
   constructor(plugin: ObsidianAIAgent) {
     this.plugin = plugin;
@@ -129,6 +138,10 @@ export class QuickQueryPopover {
   /** Hide the trigger button and any open popover, discarding the exchange. */
   close(): void {
     this.removeButton();
+    for (const popover of Array.from(this.childPopovers)) {
+      popover.removePopover();
+    }
+    this.childPopovers.clear();
     this.removePopover();
   }
 
@@ -147,9 +160,6 @@ export class QuickQueryPopover {
       this.removeButton();
       return;
     }
-    // Don't react to selections the user makes inside our own answer popover.
-    if (this.popoverEl) return;
-
     const selection = doc.getSelection();
     const text = selectionToTextWithLatex(selection).trim();
     if (!text || !selection || selection.rangeCount === 0) {
@@ -193,7 +203,6 @@ export class QuickQueryPopover {
     const range = selection.getRangeAt(0);
     const rect = range.getBoundingClientRect();
     this.removeButton();
-    this.removePopover();
     this.activeDoc = ownerDoc;
     this.anchorRange = range.cloneRange();
     this.capturedSelection = text.slice(0, MAX_SELECTION_LENGTH);
@@ -278,6 +287,19 @@ export class QuickQueryPopover {
   // ── Popover ───────────────────────────────────────────────────
 
   private openPopover(rect: DOMRect): void {
+    this.removeButton();
+    const session = new QuickQueryPopover(this.plugin);
+    session.activeDoc = this.activeDoc;
+    session.anchorRange = this.anchorRange?.cloneRange() ?? null;
+    session.capturedSelection = this.capturedSelection;
+    session.onPopoverRemoved = (popover) => {
+      this.childPopovers.delete(popover);
+    };
+    this.childPopovers.add(session);
+    session.openSinglePopover(rect);
+  }
+
+  private openSinglePopover(rect: DOMRect): void {
     this.removeButton();
     this.removePopover();
     this.turns = [];
@@ -512,6 +534,7 @@ export class QuickQueryPopover {
         "",
         this.plugin
       );
+      stampMathSourceData(answerEl, finalText);
       attachLatexCopyHandler(answerEl, htmlToMarkdown);
     } catch {
       answerEl.createEl("div", {
@@ -527,6 +550,7 @@ export class QuickQueryPopover {
   }
 
   private removePopover(): void {
+    const hadPopover = Boolean(this.popoverEl);
     this.detachDragListeners();
     if (this.popoverKeyHandler) {
       this.activeDoc.removeEventListener("keydown", this.popoverKeyHandler, true);
@@ -543,6 +567,11 @@ export class QuickQueryPopover {
     this.isMinimized = false;
     this.anchorRange = null;
     if (!this.buttonEl) this.detachRepositionListeners();
+    if (hadPopover) {
+      const onRemoved = this.onPopoverRemoved;
+      this.onPopoverRemoved = null;
+      onRemoved?.(this);
+    }
   }
 
   /**

@@ -122,7 +122,7 @@ wiki add 03_Notes/my_note.md
 wiki add
 ```
 
-이 명령을 통해 Curator는 원본 데이터를 파싱하고 L1 권위 상태를 `state.sqlite`에 즉시 기록합니다. 작은/중간 문서는 CTX projection의 `Source Sections`에 원문을 inline으로 포함하고, 책이나 긴 PDF 같은 대형 문서는 원본 파일에서 필요한 구간만 on-demand로 읽습니다. 점검용 CTX 마크다운은 `.curator/Collections/01_Contexts/`에 emit되지만 폐기 가능하며 DB가 권위 상태입니다. L2 원자적 사실과 L3 개념을 queue에 넣거나 컴파일하려면 `wiki build`를 별도로 실행합니다.
+이 명령을 통해 Curator는 원본 데이터를 파싱하고 L1 권위 상태를 `state.sqlite`에 즉시 기록합니다. 작은/중간 문서는 CTX projection의 `Source Sections`에 원문을 inline으로 포함하고, 책이나 긴 PDF 같은 대형 문서는 원본 파일에서 필요한 구간만 on-demand로 읽습니다. 점검용 CTX 마크다운은 `.curator/Collections/01_Contexts/`에 emit되며, parser가 만든 같은 문서 heading 링크는 broken wikilink가 되지 않도록 평문으로 렌더링합니다. 이 projection은 폐기 가능하며 DB가 권위 상태입니다. L2 원자적 사실과 L3 개념을 queue에 넣거나 컴파일하려면 `wiki build`를 별도로 실행합니다.
 
 > [!TIP]
 > `wiki add`에 파일이나 폴더 경로를 지정하지 않으면, Curator는 설정된 모든 소스 디렉토리(`03_Notes`, `04_Resources` 등)를 훑어 새로 추가되거나 변경된 파일을 자동으로 찾아내어 일괄 처리합니다.
@@ -406,6 +406,10 @@ span id를 인용한다는 이유만으로 신뢰되지 않고, 명시적인 **s
 - **부분 빌드는 없습니다**: 중간에 실패한 컴파일은 아무것도 발행하지
   않습니다 — 기존 지식, 프로젝션, 검색 인덱스는 그대로 서비스를 계속합니다.
   변경 없는 빌드를 다시 실행해도 중복이나 변형이 생기지 않습니다.
+- **생성된 L2는 영어로 유지됩니다**: `wiki build`는 생성된 Atom 이름과
+  statement를 프로그램으로 검증합니다. 모델이 생성 L2 필드에 한국어 등
+  비영어를 쓰면 한 번 repair retry를 수행하고, 그래도 실패하면 해당 Atom을
+  발행하지 않고 L2를 실패 상태로 표시합니다.
 - **소스 편집은 스스로 정리합니다**: 소스를 편집/삭제/분할하면 근거를 잃은
   클레임은 retire 처리되어(감사 가능하게 보존되지만 답변에는 더 이상
   나타나지 않음) 오래된 중복이 남지 않습니다.
@@ -558,8 +562,8 @@ status/history/push입니다.
 | `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 데이터베이스 레코드로 추출/컴파일합니다. 기본은 백그라운드 워커에 큐잉 후 자동으로 데몬 프로세스를 분리 실행하며, `--wait`는 즉시 동기 실행합니다. Build는 완료 시 **항상 벡터 임베딩을 (재)생성**합니다 — atom 변경이 없거나 큐가 비어 있어도 실행되므로, 별도의 `wiki reindex --embed` 없이 검색이 벡터까지 수렴합니다. (큐는 내부적으로 drain되며, `jobs` 명령 그룹은 백그라운드 워커용으로 남아 있지만 `wiki --help`에서는 숨겨집니다.) | 지식 그래프 심층 구축 시 |
 | `wiki source ls` | 등록된 소스 목록을 확인합니다. | 수집된 데이터 현황 파악 시 |
 | `wiki source show <id>` | 특정 소스의 상세 정보와 처리 상태를 확인합니다. | 소스 오류 진단 시 |
-| `wiki source rm <id>` | 소스 등록을 해제하고 생성된 L1 노드를 삭제합니다. | 잘못된 소스를 제거할 때 |
-| `wiki source retry <id>` | 오류 상태 소스를 재처리합니다. | 소스 처리 실패 후 재시도 시 |
+| `wiki source rm <id>` | 원본 파일은 보존한 채 소스 등록과 생성된 파생 레코드를 제거합니다. vault 소스 파일까지 지우려면 `--delete-file`을 명시합니다. | 잘못된 소스를 제거할 때 |
+| `wiki source retry <id>` | aggregate 오류뿐 아니라 L1/L2/L3/L4 layer 오류가 있는 소스를 재처리합니다. | 소스 처리 실패 후 재시도 시 |
 
 ### 2-1. 설정 및 LLM 백엔드 관리
 
@@ -841,7 +845,7 @@ generated state, device metadata, chat context 때문에 backend와 plugin 상�
 -   **Ingest runs**: 지금까지 수행된 총 수집 횟수입니다. 이 수치가 높을수록 지식 베이스가 빈번하게 업데이트되었음을 의미합니다.
 
 #### 🧠 지식 밀도 (Collections)
-파이프라인의 각 단계별 처리 현황을 나타냅니다. L1은 즉시 생성되고, L2·L3와 공유 L4 Synthesis 레이어는 MCP background worker, `wiki jobs run`, 또는 `wiki build`로 처리됩니다. worker가 claim하기 전의 queued job은 `wiki jobs cancel <id>`로 취소하고, 완료/실패/취소된 job은 `wiki jobs rerun <id>`로 다시 queue에 넣을 수 있습니다.
+파이프라인의 각 단계별 처리 현황을 나타냅니다. L1은 즉시 생성되고, L2·L3와 공유 L4 Synthesis 레이어는 MCP background worker, `wiki jobs run`, 또는 `wiki build`로 처리됩니다. worker가 claim하기 전의 queued job은 `wiki jobs cancel <id>`로 취소하고, 완료/실패/취소된 job은 `wiki jobs rerun <id>`로 다시 queue에 넣을 수 있습니다. 이미 queued 상태인 job에 `wiki jobs rerun <id>`를 실행하면 중복을 만들지 않고 성공 no-op으로 처리됩니다.
 
 -   **L1 Contexts**: DB에 저장된 소스 요약 레코드 개수입니다.
 -   **L2 Atoms**: DB에 저장된 원자적 사실 레코드 개수입니다.
@@ -850,7 +854,11 @@ generated state, device metadata, chat context 때문에 backend와 plugin 상�
 -   **L4 Synthesis**: 커뮤니티 리포트에서 증류된 공유 코퍼스 전역 교차 인사이트입니다(DB `synthesis_nodes`, `04_Synthesis/SYN-*.md`로 투영).
 
 > [!TIP]
-> **파이프라인 현황 진단**: L4가 0이라면 공유 Synthesis 레이어가 아직 빌드되지 않은 것입니다. `wiki build`를 실행하거나(또는 백그라운드 worker가 L3를 끝내도록) 두면 생성됩니다.
+> **파이프라인 현황 진단**: L4가 0이면 source의 L4 열을 확인하세요.
+> `pending`은 build/worker가 아직 global L3/L4를 끝내지 않았다는 뜻이고,
+> `skipped`는 build는 끝났지만 현재 corpus에 eligible community report/synthesis가
+> 없다는 terminal 상태입니다. `wiki build`를 실행하거나 백그라운드 worker가 L3를
+> 끝내도록 기다리는 것은 `pending`인 경우에만 필요합니다.
 
 ### 4. 외부 리소스 연동 (Zotero & Reference Mode)
 Incurator는 Zotero 등의 외부 PDF 파일들을 보관소로 복사하지 않고 원본 그대로 참조(Reference Mode)할 수 있으며, 원할 경우 사용자가 승인한 `04_Resources/` 목적지로 안전하게 복사할 수도 있습니다.

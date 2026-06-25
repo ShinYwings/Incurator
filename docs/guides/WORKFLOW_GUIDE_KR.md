@@ -139,7 +139,9 @@ wiki update
 > 클라이언트의 prompt budget에 맞춰 section batch 크기를 정하므로, CLI 기반 provider에는
 > local high-context 모델보다 작은 prompt가 전달된다. 진행률은 `wiki status`나
 > `.curator/dashboard.md`로 확인한다. L4 Synthesis는 `wiki build`가 생성하며,
-> workspace curation은 별도의 staging 패스가 아니라 동적 query 렌즈입니다.
+> workspace curation은 별도의 staging 패스가 아니라 동적 query 렌즈입니다. eligible
+> community report가 없으면 L4 pass는 source를 pending으로 남기지 않고 `skipped`로
+> 끝납니다.
 
 ### 4-2. 고급 Workspace 큐레이션
 
@@ -178,7 +180,7 @@ wiki lint
 wiki jobs list
 wiki jobs run          # queued L2/L3 background jobs를 foreground로 처리
 wiki jobs cancel <id>  # worker가 claim하기 전 queued job 취소
-wiki jobs rerun <id>   # 완료/실패/취소된 job을 다시 queue에 넣기
+wiki jobs rerun <id>   # 완료/실패/취소된 job 재queue; queued는 no-op
 ```
 
 기본 `wiki --help` 화면은 일상적인 사용자 워크플로우 중심으로 제한됩니다.
@@ -201,11 +203,13 @@ Obsidian plugin JSON 호출용 `wiki plugin ...`, 외부 에이전트용 `wiki m
 > **백그라운드 워커 폴백**: MCP 서버가 실행 중일 때 IngestWorker가 대기 중인 작업을 자동으로 처리합니다.
 > 테스트나 오프라인 CLI 사용 시에는 `wiki jobs run` 명령으로 큐를 전경(foreground)에서 처리할 수 있습니다.
 > 실행하지 않을 queued job은 `wiki jobs cancel <id>`로 취소하고, 완료/실패/취소된 job은
-> `wiki jobs rerun <id>`로 다시 queue에 넣을 수 있습니다.
+> `wiki jobs rerun <id>`로 다시 queue에 넣을 수 있습니다. 이미 queued 상태인 job에 같은 명령을 실행하면
+> 중복을 만들지 않고 성공 no-op으로 처리됩니다.
 
 > **즉각적인 L1 / L2·L3 분리**: `wiki add`는 LLM 호출 없이 파서 구조로부터 즉시 CTX, ToC, 섹션 마커 및
 > 대략적인 Atom 후보를 생성합니다(구조적 L1). v0.2.2부터 이 단계는 **AST 기반 청킹**을 사용해
-> `$$...$$` 같은 수학 수식 블록을 텍스트 분할 중에도 보존합니다. 깊은 L2/L3 추출은 `wiki add`와
+> `$$...$$` 같은 수학 수식 블록을 텍스트 분할 중에도 보존합니다. 같은 문서 heading을 가리키는 parser-generated
+> wikilink는 CTX projection에서 평문으로 렌더링하여 generated 파일이 broken link를 만들지 않게 합니다. 깊은 L2/L3 추출은 `wiki add`와
 > 분리되어 별도의 `wiki build` 명령으로 수행됩니다. 기본 동작은 백그라운드 작업 큐에 넣는 것이고,
 > `--wait`는 동기 실행을 요청합니다. MCP에서는 `curator_register_source`가 L1 등록을 담당하고
 > `curator_build_source`가 L2/L3 빌드에 대응합니다.
@@ -503,6 +507,9 @@ v0.8.0은 §9의 순방향 컴파일 흐름을 클레임 수준 grounding과 원
   최소 span 집합을 기록하고(`primary`/`contextual`/`formula` 역할의
   `claim_supports` 행) 이를 검증합니다. 실재하는 span id만으로는 더 이상
   지지의 증거로 취급되지 않습니다.
+- **생성된 L2 필드는 영어**: 생성된 Atom 이름과 statement는 영어로 검증됩니다.
+  비영어 생성 출력은 한 번 repair retry를 거치며, 그래도 실패하면 발행되지
+  않습니다.
 - **스테이징된 generation**: 모든 컴파일은 `GEN-` 컴파일러 generation 안에서
   실행됩니다. DB 행, 의존성, 마크다운 프로젝션, 검색 행은 감사 게이트를
   통과한 뒤에만 함께 발행되며, 실패한 컴파일은 스테이징된 generation을

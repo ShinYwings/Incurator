@@ -3514,11 +3514,22 @@ def jobs_cancel(job_id: int = typer.Argument(..., help="Queued job id to cancel.
 def jobs_rerun(job_id: int = typer.Argument(..., help="Completed, failed, or cancelled job id to rerun.")) -> None:
     """Requeue a completed, failed, or cancelled background job."""
     paths = _resolve_root_or_die()
+    existing = db.get_ingest_job(paths.state_db, job_id)
+    if existing is None:
+        _err(f"Job #{job_id} does not exist.")
+        raise typer.Exit(1)
+    if existing["state"] == consts.STATUS_QUEUED:
+        runtime_state.write_runtime_snapshots(paths)
+        _ok(f"Job #{job_id} is already queued.")
+        return
+    if existing["state"] == consts.STATUS_RUNNING:
+        _err(f"Job #{job_id} is currently running and cannot be rerun.")
+        raise typer.Exit(1)
     if db.rerun_job(paths.state_db, job_id):
         runtime_state.write_runtime_snapshots(paths)
         _ok(f"Requeued job #{job_id}.")
         return
-    _err(f"Job #{job_id} is not done, failed, cancelled, or does not exist.")
+    _err(f"Job #{job_id} is not done, failed, or cancelled.")
     raise typer.Exit(1)
 
 
@@ -3949,10 +3960,16 @@ def sources_show_cmd(
 @source_app.command("rm")
 def sources_rm_cmd(
     source_id: int = typer.Argument(..., help="The source ID to remove."),
+    delete_file: bool = typer.Option(
+        False,
+        "--delete-file",
+        help="Also delete the source file from raw directories.",
+    ),
     keep_file: bool = typer.Option(
         False,
         "--keep-file",
-        help="Only remove from tracking; don't delete the file from raw/.",
+        help="Deprecated no-op: source files are kept by default.",
+        hidden=True,
     ),
     yes: bool = typer.Option(
         False,
@@ -3968,8 +3985,11 @@ def sources_rm_cmd(
         _err(f"No source with id {source_id}")
         raise typer.Exit(code=1)
 
+    if keep_file:
+        console.print("[yellow]Warning:[/yellow] --keep-file is deprecated (files are kept by default). This flag is ignored.")
+    effective_delete = delete_file
     if not yes:
-        action = "remove from tracking" if keep_file else "remove from tracking AND delete file"
+        action = "remove from tracking AND delete file" if effective_delete else "remove from tracking"
         confirm = typer.confirm(
             f"About to {action}: #{source_id} {row['relpath']}. Proceed?"
         )
@@ -3977,7 +3997,7 @@ def sources_rm_cmd(
             console.print("[dim]Cancelled.[/dim]")
             raise typer.Exit(code=0)
 
-    ok, msg = ingest_raw.remove_source(paths, source_id, delete_file=not keep_file)
+    ok, msg = ingest_raw.remove_source(paths, source_id, delete_file=effective_delete)
     if ok:
         _ok(msg)
     else:
@@ -3985,11 +4005,69 @@ def sources_rm_cmd(
         raise typer.Exit(code=1)
 
 
+_SOURCE_RETRY_LAYER_COLUMNS = ("l1_status", "l2_status", "l3_status", "l4_status")
+_SOURCE_RETRY_ADD_REASONS = {"empty_file", "missing_context"}
+_SOURCE_RETRY_BUILD_REASONS = {"parse_error", "llm_error", "invalid_atom_output"}
+
+
+def _source_has_layer_error(row) -> bool:
+    return bool(row["layer_error"]) or any(
+        (row[column] or "") == "error" for column in _SOURCE_RETRY_LAYER_COLUMNS
+    )
+
+
+def _source_retry_is_l1(row) -> bool:
+    return (row["error_reason"] or "") in _SOURCE_RETRY_ADD_REASONS or (
+        row["l1_status"] or ""
+    ) == "error"
+
+
+def _source_retry_is_build(row) -> bool:
+    if (row["error_reason"] or "") in _SOURCE_RETRY_BUILD_REASONS:
+        return True
+    return any((row[column] or "") == "error" for column in ("l2_status", "l3_status", "l4_status")) or (
+        _source_has_layer_error(row) and not _source_retry_is_l1(row)
+    )
+
+
+def _load_retryable_source_rows(paths: cfg.WikiPaths, source_id: int | None):
+    retryable_where = """
+        (
+            status = 'error'
+            OR COALESCE(l1_status, '') = 'error'
+            OR COALESCE(l2_status, '') = 'error'
+            OR COALESCE(l3_status, '') = 'error'
+            OR COALESCE(l4_status, '') = 'error'
+            OR COALESCE(layer_error, '') <> ''
+        )
+    """
+    with db.connect(paths.state_db) as conn:
+        if source_id is not None:
+            rows = conn.execute(
+                f"SELECT * FROM sources WHERE id = ? AND {retryable_where}",
+                (source_id,),
+            ).fetchall()
+            if rows:
+                return rows
+            exists = conn.execute(
+                "SELECT id FROM sources WHERE id = ?",
+                (source_id,),
+            ).fetchone()
+            if exists:
+                _err(f"Source #{source_id} has no retryable error or layer error.")
+            else:
+                _err(f"No source with id {source_id}.")
+            raise typer.Exit(code=1)
+        return conn.execute(
+            f"SELECT * FROM sources WHERE {retryable_where} ORDER BY id ASC"
+        ).fetchall()
+
+
 @source_app.command("retry")
 def sources_retry_cmd(
     source_id: Optional[int] = typer.Argument(
         None,
-        help="Specific source ID to retry. If omitted, retries all sources with status='error'.",
+        help="Specific source ID to retry. If omitted, retries all sources with aggregate or layer errors.",
     ),
 ) -> None:
     """Retry errored sources: re-runs wiki add depending on error type.
@@ -4002,26 +4080,16 @@ def sources_retry_cmd(
     paths = _resolve_root_or_die()
     config = cfg.load_config(paths)
 
-    with db.connect(paths.state_db) as conn:
-        if source_id is not None:
-            rows = conn.execute(
-                "SELECT * FROM sources WHERE id = ? AND status = 'error'", (source_id,)
-            ).fetchall()
-            if not rows:
-                _err(f"Source #{source_id} is not in error state.")
-                raise typer.Exit(code=1)
-        else:
-            rows = conn.execute(
-                "SELECT * FROM sources WHERE status = 'error' ORDER BY id ASC"
-            ).fetchall()
+    rows = _load_retryable_source_rows(paths, source_id)
 
     if not rows:
-        _ok("No errored sources found.")
+        _ok("No errored sources or layer errors found.")
         return
 
-    add_rows    = [r for r in rows if (r["error_reason"] or "") in ("empty_file", "missing_context")]
-    curate_rows = [r for r in rows if (r["error_reason"] or "") in ("parse_error", "llm_error")]
-    unknown_rows = [r for r in rows if (r["error_reason"] or "") not in ("empty_file", "missing_context", "parse_error", "llm_error")]
+    add_rows = [r for r in rows if _source_retry_is_l1(r)]
+    curate_rows = [r for r in rows if _source_retry_is_build(r)]
+    known_ids = {int(r["id"]) for r in add_rows + curate_rows}
+    unknown_rows = [r for r in rows if int(r["id"]) not in known_ids]
 
     console.print()
     console.print(f"[bold]Retrying {len(rows)} errored source(s)…[/bold]")
@@ -6439,11 +6507,11 @@ def plugin_pdf_transcribe(
             raise typer.Exit(code=1)
         if image_file:
             data = _P(image_file).read_bytes()
-            latex = _vision.normalize_vision_latex(
-                client.describe_image(data, prompt=_vision.PDF_LATEX_TRANSCRIBE_PROMPT)
+            latex = _vision.normalize_interactive_latex_transcription(
+                client.describe_image(data, prompt=_vision.PDF_INTERACTIVE_LATEX_TRANSCRIBE_PROMPT)
             )
         else:
-            latex = _vision.normalize_vision_latex(
+            latex = _vision.normalize_interactive_latex_transcription(
                 client.chat(
                     [
                         _llm.ChatMessage(
@@ -6452,8 +6520,10 @@ def plugin_pdf_transcribe(
                             "give you raw text extracted from a PDF, which may contain "
                             "garbled or missing math. Convert it to clean Markdown with "
                             "proper LaTeX delimiters: inline math as $...$, display math "
-                            "as $$...$$. Output only the converted text — no explanations, "
-                            "no code fences.",
+                            "as $$...$$. Preserve the user's selected text faithfully. "
+                            "Return exactly one <transcription>...</transcription> block "
+                            "and no explanations, summaries, labels, or code fences "
+                            "outside that block.",
                         ),
                         _llm.ChatMessage("user", text),
                     ],

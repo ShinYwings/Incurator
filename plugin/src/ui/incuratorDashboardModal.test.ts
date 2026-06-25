@@ -144,6 +144,13 @@ describe("Incurator dashboard backend boundary", () => {
     expect(source).toContain('this.runWikiCommand(["build"])');
   });
 
+  it("shows skipped layer statuses explicitly in the Sources tab", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    expect(source).toContain('if (s === "skipped") return { str: "Skipped", cls: "badge-ready" };');
+  });
+
   it("reads runtime status live via `wiki status --json`, never from a stale snapshot file", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");

@@ -1,120 +1,8 @@
 # Active Relay State
 
-**STATUS: ACTIVE — Urgent hotfix SHIPPED & PUSHED (v0.25.0; commits b9a49a1 +
-e3bee56; PR #48 open against master, awaiting user review/merge). System
-Stability Overhaul RESUMES: Phase A diagnosis (G01–G06 done-unmerged; G07–G19 +
-merge remain — see PHASE A RESUMPTION PROTOCOL below).**
+**STATUS: ACTIVE — v0.25.1 User Report Stability Bug Batch pushed as draft PR #49; System Stability Phase A diagnosis can resume after review/merge (G01–G06 done-unmerged; G07–G19 + merge remain).**
 
-**Branch**: `feature/prompt-architecture-refactoring` (user ordered the hotfix on
-THIS branch, not a separate hotfix branch — log #1. User override of CLAUDE.md
-hotfix-branch rule.)
-
----
-
-## 🚨 URGENT HOTFIX — Backend/Plugin Config Isolation & Runtime Collision
-
-Source: `.agents/drafts/urgent_hotfix_backend_plugin_config.md` (raw user log).
-A prior PM (Gemini) botched this; its half-done edits are in the working tree.
-User is BLOCKED from using the product → fix immediately, no Arena plan (user
-explicitly said "draft 말고 당장", log #10).
-
-### Locked architecture (the thing the PM kept missing)
-- 1 Incurator backend (per device) ↔ MANY vaults. 1 vault ↔ MANY plugins.
-- Backend config is PER-DEVICE (paths differ per machine) → must NOT live in the
-  synced `.curator/`, must NOT be shared via the plugin.
-- `.curator/settings.yml` = vault/plugin settings (synced). `FILE_SETTINGS_YML`.
-- `.cache/config/config.yml` = backend global config, per-device, shared across
-  vaults (`get_global_config_dir()` = `<incurator-install>/.cache/config`).
-  `FILE_GLOBAL_CONFIG_YML`. **Location LOCKED by user (#14) — do not move.**
-- devices.json already lives in `.cache/config/` (per-device) ✓ no change.
-
-### Root causes found (verified)
-1. **runtime path collision**: `runtime_state.runtime_dir` = `<vault>/.cache/plugin/
-   runtime` — REJECTED by user (#16: every plugin shares one json). Must be
-   Incurator-namespaced → `<vault>/.cache/incurator/runtime`.
-2. **plugin readers disagree** (desync): `dashboardModal.ts:190` reads
-   `.cache/plugin/runtime/`, but `chatSidebar.ts:418-419` still reads OLD
-   `.curator/runtime/`. Backend writes a third-ish path. All three must agree.
-3. **global-config Apply-revert (smoking gun)**: `cli.py` `config get/set --global`
-   (lines 2481, 2492, 2537) use `FILE_SETTINGS_YML` (settings.yml) but
-   `config.save_global_config`/`load_config` use `FILE_GLOBAL_CONFIG_YML`
-   (config.yml). So `wiki config set --global` writes settings.yml while the
-   system reads config.yml → the change is invisible → "Apply reverts after Jobs".
-4. **stale test**: `test_runtime_state.py:114` still expects `.curator/runtime`.
-
-### Already-correct (PM did these right — do NOT redo)
-- `config.yml`↔`settings.yml` split in constants/config.py (mostly).
-- Ollama recommendation conditional (dashboard ~1049-1068): already shows only
-  when ollama is in any slot incl. vision/extract (covers "pdf도 ollama", #5/#6) ✓.
-- devices.json in `.cache/config/` ✓.
-
-### Exact fix list (execute in order; resume here if interrupted)
-1. `constants.py`: add `DIR_PLUGIN_RUNTIME = ".cache/incurator/runtime"` (vault-root-
-   relative, Incurator-namespaced).
-2. `runtime_state.py:33`: `runtime_dir` → `paths.root / consts.DIR_PLUGIN_RUNTIME`.
-3. `cli.py` 2481, 2492, 2537: `FILE_SETTINGS_YML` → `FILE_GLOBAL_CONFIG_YML`.
-4. `plugin/src/ui/incuratorDashboardModal.ts:190`: `.cache/plugin/runtime/` →
-   `.cache/incurator/runtime/`.
-5. `plugin/src/ui/chatSidebar.ts:418-419`: `.curator/runtime/` →
-   `.cache/incurator/runtime/`.
-6. `backend/tests/test_runtime_state.py:114`: expect `.cache/incurator/runtime`.
-7. Validate + version + commit. ← see status below.
-- Out of scope (do NOT touch): `db_sync.py:615 .curator/runtime/sync_conflicts`
-  (separate backend-internal archive), `.agents/.../curator/runtime` (agent rules).
-
-### STATUS (2026-06-23) — UPDATED after deeper untangle; finishing release
-**Architecture clarified with user (untangled together):**
-- Backend per-device settings → `<repo>/.cache/config/config.yml` (+ devices.json).
-  NOT synced. Location LOCKED.
-- Vault syncable settings → `<vault>/.curator/settings.yml` (renamed from
-  config.yml to kill the two-`config.yml` name collision that kept confusing
-  edits). This rename is WANTED (user point #2).
-- runtime snapshot → REVERTED to original `<vault>/.curator/runtime/` (device-local,
-  already in `.stignore`). PM's `.cache/plugin/runtime` was wrong (new `.cache` in
-  vault + broke sync-exclusion). My `.cache/incurator` was also wrong. All reverted.
-- **NEW principle (user): dashboard reads ALL info LIVE via `wiki status --json`,
-  not via the stale-prone snapshot file ("중간다리").** Implemented:
-  - Backend `wiki status --json` emits live `{status,sources,jobs}` (cli.py status).
-  - Dashboard `fetchLiveStatus()` runs it once per render (cached across panels,
-    invalidated on tab switch, force-refreshed after mutations). No perf regression
-    (dashboard already spawned `wiki status` per render; same call count).
-  - Snapshot file kept ONLY as best-effort cache for the high-freq chat status bar.
-
-**Bugs fixed (verified):** (1) `wiki config set --global` wrote settings.yml but
-loader read config.yml → Apply-revert; both now config.yml. (2) Dashboard Apply
-gated on settings.yml read (removed). (3) LLM Apply + Persona Save didn't refresh
-after write (added). (4) model-load setInterval leaked on close (tracked+cleared).
-
-**Validation:** ruff ✅ mypy ✅ · plugin tsc ✅ vitest 567 ✅ · runtime_state tests
-✅ (incl. new status --json payload test). Full pytest running (`bssiy5453`).
-Version 0.25.0 (Minor: new `--json` CLI surface + config-file contract rename),
-3 manifests + 4 spec titles + spec_sync ✅. Docs: USER_GUIDE EN/KR (status --json)
-+ `.curator/config.yml`→`settings.yml` sweep. CHANGELOG 0.25.0.
-
-**SHIPPED:** hotfix committed as `b9a49a1` on `feature/prompt-architecture-refactoring`
-(full pytest 1014 passed). NOT pushed (awaiting user). Planning artifacts in a
-follow-up `chore(agents)` commit.
-**Open follow-up (NOT this hotfix): types.ts loosened `codexReasoningEffort`/
-`claudeEffort` to `string` (PM change, type-safety regression) — flag for review.**
-
-### (prior status, superseded)
-- ✅ Fixes 1–6 applied (constants, runtime_state, cli ×3, dashboardModal,
-  chatSidebar, test_runtime_state uses `runtime_dir()` helper).
-- ✅ Version bumped 0.24.0 → **0.25.0** (Minor: config-file contract rename) in
-  3 manifests + 4 spec titles. `test_spec_sync` ✅. ruff ✅ mypy ✅ tsc ✅.
-  Targeted pytest (runtime/config/deepseek/zotero) ✅.
-- ✅ Docs drift fixed: `.curator/config.yml` → `.curator/settings.yml` across
-  specs+guides (global `.cache/config/config.yml` left intact). CHANGELOG 0.25.0 added.
-- ⏳ REMAINING: (a) full pytest `bfyxbjiio` must be green; (b) commit in TWO
-  commits on this branch:
-    1. `fix(config): backend/plugin config isolation + runtime collision + Apply desync (v0.25.0)`
-       — backend/src, backend/tests, plugin/, docs/, CHANGELOG, 3 version manifests.
-    2. `chore(agents): system-stability milestone plan + paused for hotfix`
-       — `.agents/RELAY.md`, ROADMAP.md, drafts/urgent_hotfix*, plans/*, diagnosis/*.
-  (Everything is currently `git add -A` staged together — UNSTAGE the `.agents/`
-  group for commit 1, or just split via pathspec.) NO push/PR unless user asks.
-- After hotfix ships: set ROADMAP active milestone back to System Stability
-  Overhaul; resume Phase A diagnosis (G01–G06 files already on disk).
+**Branch**: `feature/system-stability-overhaul`
 
 ---
 
@@ -145,7 +33,9 @@ shipped as many small PRs.
 tests. God-files: cli.py 7389, db.py 4679, mcp_server.py 3362, chatSidebar.ts 4828,
 llmClient.ts 2282. 264 broad-except (backend), 83 any/@ts-ignore (plugin).
 
-**Progress Status**: Master Plan DRAFTED. No implementation code written.
+**Progress Status**: System Stability master plan drafted; urgent user-report
+stability hotfix batch completed as v0.25.1 on this branch. The hotfix plan was
+committed for history, then removed from active `.agents/plans/` per workflow.
 
 **Critical Context / Blockers**:
 - Plan-first: STOP for user approval of the Master Plan before any code.
@@ -163,9 +53,9 @@ categories (a)–(i): bugs, redundancy, error-handling smells, legacy/dead code,
 architectural debt, docs drift, performance hotspots, robustness/weaknesses,
 UI/UX friction. Dedicated refactor phases exist for each axis.
 
-**Immediate Next Action**: Phase A is RUNNING — exhaustive (A) deep diagnosis via
-multi-agent fan-out (user authorized multi-agent 2026-06-23; speed not a concern,
-quality is). Durable artifacts below survive rate-limit interruptions.
+**Immediate Next Action**: review/merge draft PR #49
+(`https://github.com/ShinYwings/Incurator/pull/49`), then resume Phase A
+diagnosis from `.agents/plans/diagnosis/INDEX.md`.
 
 ---
 
@@ -206,3 +96,37 @@ anchor (record pass/fail in the ledger §0 once known).
 `registry.py`, `contracts.py`, `validators.py`, `render.py`, `families/` — the
 prompt-v2 cross-model work must reconcile plugin `promptRegistry.ts` WITH this
 backend layer, not duplicate it.
+
+### Update (2026-06-25, Codex)
+
+User asked to handle `.agents/USER_REPORT.md` bug reports before continuing the
+System Stability Overhaul. Triaged urgent stability reports into:
+
+- Briefing: `.agents/plans/user_report_stability_hotfix_arena/00_problem.md`
+- Domain analysis: `.agents/plans/user_report_stability_hotfix_arena/A_backend_cli_pipeline.md`
+- Domain analysis: `.agents/plans/user_report_stability_hotfix_arena/B_plugin_pdf_popover.md`
+- Review critique: `.agents/plans/user_report_stability_hotfix_arena/02_critique_plan_review.md`
+- Revision response: `.agents/plans/user_report_stability_hotfix_arena/03_defense_revision.md`
+- Master plan: `.agents/plans/02_user_report_stability_hotfixes.md`
+- Evidence ledger: `.agents/plans/02_user_report_stability_evidence.md`
+
+Updated `.agents/ROADMAP.md` urgent hotfix queue and emptied
+`.agents/USER_REPORT.md` per triage rules.
+User clarified: source badge may keep `Queued`/`Building...` but must not show
+actionable Add Source after registration; Convert-to-LaTeX must remain LLM-backed
+through the dedicated extractor; PDF reference lookup should follow sidechat's
+local-first/backend-fallback policy. Plan was revised to address reviewer findings
+on sanitizer placement, L2 English validation, `source rm` caller audit, L4 build
+contract, and Arena file placement.
+
+### Update (2026-06-25, Gemini)
+
+**v0.25.1 Hotfixes**: Fully implemented, rigorously tested (60/60 tests passing in the affected domains, 1031/1031 across the backend), and audited by the PM (Gemini).
+**PR Audit Findings**:
+- Found and fixed 3 trivial nits: removed cosmetic blank lines in `vision.py`, stripped a dead `source_stem` parameter in `ingest_raw.py`, and corrected an inaccurate test docstring in `test_compile_pipeline.py`.
+- The core architecture (balanced parenthesis scanning, ratio-based validation thresholds, L4 retry decoupling, and multi-stem cross-doc wikilink preservation) is logically sound and mathematically verified.
+
+**Next Action**: The workspace is perfectly clean. We are ready to begin the main **System Stability Overhaul (Phase A Diagnosis)** as outlined in the roadmap.
+
+### Immediate Next Action
+- Gemini: Waiting for user approval to begin Phase A (Database Integrity & Concurrency Constraints analysis).

@@ -1,6 +1,7 @@
 import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import click
@@ -171,6 +172,110 @@ def test_jobs_cancel_and_rerun_commands_mutate_queue(tmp_path: Path) -> None:
     assert rerun.exit_code == 0
     with db.connect(paths.state_db) as conn:
         assert conn.execute("SELECT state FROM ingest_jobs WHERE id = ?", (job_id,)).fetchone()["state"] == "queued"
+
+
+def test_jobs_rerun_is_successful_when_job_is_already_queued(tmp_path: Path) -> None:
+    runner = CliRunner()
+    vault = tmp_path / "vault"
+    paths = cfg.WikiPaths(vault)
+    cfg.save_config(paths, {})
+    db.init_db(paths.state_db)
+    with db.connect(paths.state_db) as conn:
+        source_id = conn.execute(
+            """
+            INSERT INTO sources
+                (relpath, content_hash, file_type, bytes, added_at,
+                 l1_status, l2_status, l3_status)
+            VALUES ('04_Resources/paper.md', 'queued123queued1', 'md', 12,
+                    datetime('now'), 'done', 'pending', 'pending')
+            """
+        ).lastrowid
+    job_id = db.enqueue_job(paths.state_db, int(source_id), "l2_atoms")
+
+    rerun = runner.invoke(app, ["jobs", "rerun", str(job_id)], env={"VAULT_ROOT": str(vault)})
+
+    assert rerun.exit_code == 0
+    assert "already queued" in rerun.output
+    with db.connect(paths.state_db) as conn:
+        row = conn.execute("SELECT state, phase FROM ingest_jobs WHERE id = ?", (job_id,)).fetchone()
+    assert row["state"] == "queued"
+    assert row["phase"] == "queued"
+
+
+def test_source_rm_keeps_source_file_by_default(tmp_path: Path) -> None:
+    runner = CliRunner()
+    vault = tmp_path / "vault"
+    paths = cfg.WikiPaths(vault)
+    cfg.save_config(paths, {})
+    db.init_db(paths.state_db)
+    source_file = vault / "04_Resources" / "paper.md"
+    source_file.parent.mkdir(parents=True, exist_ok=True)
+    source_file.write_text("# Paper\n\nbody\n", encoding="utf-8")
+    with db.connect(paths.state_db) as conn:
+        source_id = conn.execute(
+            """
+            INSERT INTO sources
+                (relpath, content_hash, file_type, bytes, added_at,
+                 status, l1_status, l2_status, l3_status)
+            VALUES ('04_Resources/paper.md', 'keeppaper1234567', 'md', 12,
+                    datetime('now'), 'pending', 'done', 'pending', 'pending')
+            """
+        ).lastrowid
+
+    result = runner.invoke(app, ["source", "rm", str(source_id), "--yes"], env={"VAULT_ROOT": str(vault)})
+
+    assert result.exit_code == 0
+    assert source_file.exists()
+    with db.connect(paths.state_db) as conn:
+        row = conn.execute("SELECT id FROM sources WHERE id = ?", (source_id,)).fetchone()
+    assert row is None
+
+
+def test_source_retry_accepts_layer_error_without_aggregate_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runner = CliRunner()
+    vault = tmp_path / "vault"
+    paths = cfg.WikiPaths(vault)
+    cfg.save_config(paths, {})
+    db.init_db(paths.state_db)
+    with db.connect(paths.state_db) as conn:
+        source_id = conn.execute(
+            """
+            INSERT INTO sources
+                (relpath, content_hash, file_type, bytes, added_at,
+                 status, context_id, l1_status, l2_status, l3_status, l4_status,
+                 layer_error)
+            VALUES ('04_Resources/paper.md', 'layererr12345678', 'md', 12,
+                    datetime('now'), 'pending', 'CTX-layer1', 'done', 'error',
+                    'pending', 'pending', 'L2 failed')
+            """
+        ).lastrowid
+    calls = []
+
+    fake_client = SimpleNamespace(close=lambda: None)
+    monkeypatch.setattr("curator.cli._start_client", lambda config: fake_client)
+
+    def fake_run_l1_to_l3(paths_arg, client, callbacks, *, mode, auto_discover):
+        calls.append((paths_arg, client, mode, auto_discover))
+        return [SimpleNamespace(ok=True, source_id=int(source_id), error=None)]
+
+    monkeypatch.setattr("curator.cli.ingest_llm.run_l1_to_l3", fake_run_l1_to_l3)
+
+    result = runner.invoke(app, ["source", "retry", str(source_id)], env={"VAULT_ROOT": str(vault)})
+
+    assert result.exit_code == 0
+    assert calls
+    with db.connect(paths.state_db) as conn:
+        row = conn.execute(
+            "SELECT status, l2_status, l3_status, l4_status, layer_error FROM sources WHERE id = ?",
+            (source_id,),
+        ).fetchone()
+    assert row["status"] == "force_pending"
+    assert row["l2_status"] == "pending"
+    assert row["l3_status"] == "pending"
+    assert row["l4_status"] == "pending"
+    assert row["layer_error"] is None
 
 
 def test_plugin_query_returns_sessionless_trace(monkeypatch, tmp_path: Path) -> None:

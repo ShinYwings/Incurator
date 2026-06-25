@@ -58,7 +58,7 @@ __all__ = [
 # The L2 knowledge-unit extraction prompt contract version (Plan B P4). Two
 # compiles of the same source under the same contract version are an unchanged
 # rebuild and must reuse the authoritative generation (§26.3).
-PROMPT_CONTRACT_VERSION = "curator.knowledge_unit_extract@v2"
+PROMPT_CONTRACT_VERSION = "curator.knowledge_unit_extract@v3"
 
 
 @dataclass
@@ -578,9 +578,12 @@ def compile_global_l3(
 
     # L4 Synthesis: distill all community reports into shared corpus-wide insights.
     # Skipped automatically when the report corpus is unchanged.
+    synthesis_ids: list[str] = []
     if not errors:
         try:
-            synthesis.generate_synthesis(paths, client, curate_spec_hash=curate_spec_hash)
+            synthesis_ids = synthesis.generate_synthesis(
+                paths, client, curate_spec_hash=curate_spec_hash
+            )
         except Exception as e:
             errors.append(str(e))
 
@@ -593,9 +596,12 @@ def compile_global_l3(
     
     status = "error" if errors else "done"
     error_msg = "; ".join(errors) if errors else None
-    
+    l4_status = "skipped" if errors else ("done" if synthesis_ids else "skipped")
+    l4_error = "L3 prerequisite failed; synthesis not attempted" if errors else None
+
     for sid in l2_done_ids:
         db.set_source_layer_status(paths.state_db, sid, "l3", status, error=error_msg)
+        db.set_source_layer_status(paths.state_db, sid, "l4", l4_status, error=l4_error)
         
     if errors:
         raise RuntimeError(f"L3 global clustering encountered errors: {error_msg}")

@@ -127,3 +127,47 @@ def test_normalize_unwraps_single_dollar_dollar_wrapper() -> None:
     assert vision.normalize_vision_latex(mixed) == mixed
     # Multi-line wrapped block is unwrapped.
     assert vision.normalize_vision_latex("$$\nF = ma\n$$") == "F = ma"
+
+
+def test_sanitize_transient_vision_artifacts_preserves_valid_image_links() -> None:
+    raw = "\n".join(
+        [
+            "![tmp page](file:///Users/shin/.cache/vision_render/run/page.png)",
+            "[tmp link](/Users/shin/.cache/vision_render/run/page-2.png)",
+            "![web](https://example.com/page.png)",
+            "![vault](05_Assets/page.png)",
+            "[paper](https://example.com/paper)",
+        ]
+    )
+
+    out = vision.sanitize_transient_vision_artifacts(raw)
+
+    assert "file://" not in out
+    assert "vision_render" not in out
+    assert "tmp page" in out
+    assert "tmp link" in out
+    assert "![web](https://example.com/page.png)" in out
+    assert "![vault](05_Assets/page.png)" in out
+    assert "[paper](https://example.com/paper)" in out
+
+
+def test_sanitize_handles_balanced_parentheses_in_urls() -> None:
+    """URLs with balanced parens (e.g. Wikipedia) must not be truncated."""
+    raw = "[Residual](https://en.wikipedia.org/wiki/Residual_(mathematics))"
+    out = vision.sanitize_transient_vision_artifacts(raw)
+    assert out == raw
+
+
+def test_sanitize_handles_nested_brackets_in_labels() -> None:
+    """Labels with nested brackets must still be parsed correctly."""
+    raw = "![label with [nested] brackets](file:///Users/shin/.cache/vision_render/run/page.png)"
+    out = vision.sanitize_transient_vision_artifacts(raw)
+    assert "vision_render" not in out
+    assert "label with [nested] brackets" in out
+
+
+def test_sanitize_handles_nested_brackets_and_balanced_parens() -> None:
+    """Combined: nested brackets in label + balanced parens in valid URL."""
+    raw = "[label [inner]](https://example.com/path_(suffix))"
+    out = vision.sanitize_transient_vision_artifacts(raw)
+    assert out == raw

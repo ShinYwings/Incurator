@@ -156,6 +156,9 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
 - **Persistent popover**: The popover has just a query input and an **Ask**
   button. There are no preset/quick buttons. Once opened, it stays open while
   you click or scroll elsewhere; close it with **×** or `Esc`.
+- **Multiple popovers**: Opening a quick query for another selection creates a
+  separate popover instead of replacing the previous one. Each popover keeps its
+  own answer, position, minimized state, and short follow-up trace.
 - **Move and minimize**: Drag the popover header to place it anywhere in the
   current window. Use the minimize control to collapse it to the header without
   losing the answer or follow-up state.
@@ -170,12 +173,14 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
 - **Current page + ToC context**: The selected passage is always the primary
   focus. The active Markdown/PDF page, nearby PDF window text, and available
   Markdown/PDF outline are sent as background context so references like
-  "section 4.2", "Eq. (3)", or the current page's heading can be resolved
-  without letting the full document overpower the selection.
+  "section 4.2", "Eq. (3)", bare equation labels like "(19.11)", or the current
+  page's heading can be resolved without letting the full document overpower the
+  selection.
 - **Reference following**: If the selected text is itself a pointer such as
-  "see Section A4.2 (p580)" or "Figure 19.1", the plugin first tries to resolve
-  the referenced target from the PDF outline/window text and sends that target
-  as `<resolved_cross_references>` before the generic page background.
+  "see Section A4.2 (p580)", "Figure 19.1", or "(19.11)", the plugin first tries
+  to resolve the referenced target from the PDF outline/window text/search hits
+  and sends that target as `<resolved_cross_references>` before the generic page
+  background.
 - **In-document positions, not folders**: Positional phrases like "문서 위쪽",
   "앞부분", "top of the document", or "end of the page" are treated as positions
   **within the current document's content/outline**, never as the file system.
@@ -206,12 +211,15 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   once the stream completes. Math is normalized before rendering — backtick-wrapped
   spans such as `` `$x^2$` `` are unwrapped to `$x^2$` so LaTeX renders as a
   formula instead of monospace text (matching the chat sidebar behavior).
-- **Copyable**: The answer text stays selectable so you can drag-copy it.
+- **Copyable**: The answer text stays selectable so you can drag-copy it. Rendered
+  math is stamped with its LaTeX source before the copy handler runs, matching the
+  chat sidebar behavior.
 - **Scrollable & capped**: The popover is size-capped (`max-height`/`max-width`);
   long answers scroll inside it.
-- **Ephemeral**: It is a temporary window. Closing it (the `×` button, `Esc`, or
-  clicking outside once the answer is done) discards the exchange — it never
-  pollutes the chat sidebar history.
+- **Ephemeral**: It is a temporary window. Closing it with the `×` button or
+  `Esc` discards that popover's exchange only — it never pollutes the chat
+  sidebar history. Clicking outside an open popover only clears the floating
+  trigger button; it does not close existing popovers.
 
 The passage you selected is sent as the primary context together with your
 question and the current page/outline as background, using the currently
@@ -237,11 +245,12 @@ Discarded — chat history untouched
 
 ---
 
-## 3.6 Copy as Markdown from the AI chat (`Cmd/Ctrl+C`)
+## 3.6 Copy as Markdown from the AI chat and popover (`Cmd/Ctrl+C`)
 
-When you drag-select part of an assistant reply in the **chat sidebar** and press
-**Cmd/Ctrl+C**, the selection is copied as **Markdown** — formatting *and* math —
-instead of the browser's flattened plain text:
+When you drag-select part of an assistant reply in the **chat sidebar** or
+quick-query popover and press **Cmd/Ctrl+C**, the selection is copied as
+**Markdown** — formatting *and* math — instead of the browser's flattened plain
+text:
 
 - **Formatting is preserved**: bold, italics, headings, bullet/numbered lists,
   links, and tables come back as Markdown (`**bold**`, `## heading`, `- item`,
@@ -335,7 +344,10 @@ jumps the open Incurator PDF viewer to the resolved page. Section links resolve
 through the active PDF outline. Printed page links such as `p.580` use the PDF's
 native PageLabels map when the Incurator PDF viewer exposes one, so front-matter
 offsets do not force `p.580` to mean physical page 580. Ordinary web and vault
-links keep their normal behavior.
+links keep their normal behavior. Generated vault block locators with an explicit
+block anchor, such as `Auto Calibration#^8f735d` or a rendered label like
+`Auto Calibration > ^8f735d`, open through Obsidian's normal vault-link
+navigation.
 
 ### Curator DAG Wikilinks
 
@@ -398,6 +410,10 @@ Drag-select a region of a PDF to capture both its image and the text it contains
 
 > **Note**: Snipping only works in the Incurator PDF viewer (`EXTERNAL_PDF_VIEW_TYPE`).  
 > For Obsidian's built-in PDF viewer, use `Cmd+Shift+L` to reference the whole page.
+
+The Incurator PDF viewer lazy-renders nearby pages and coalesces scroll work to
+one animation frame, so page-number detection and lazy rendering do not run once
+per raw scroll event.
 
 A crop captures **only the text lines inside the rectangle you drew** (region-scoped),
 not the whole page. That snipped text becomes the crop's **primary focus** — the
@@ -490,7 +506,9 @@ separate from your main chat model. Two rows:
   interactive snips. Leave empty to fall back to the PDF ingest model. The
   right-click **Convert to LaTeX** and **Cmd+Shift+X** snip paths call the backend
   extractor, so a successful crop transcription is sent to chat as text instead of
-  being reinterpreted by the main chat model's vision path.
+  being reinterpreted by the main chat model's vision path. The backend requests a
+  strict `<transcription>...</transcription>` block and strips common explanatory
+  prose before copying or injecting the result.
 
 Ingest vision runs on your existing provider's **CLI subscription** (Ollama, or the
 `claude`/`agy`/`codex` CLIs) — **no extra API keys**. Only vision-capable models
@@ -700,14 +718,15 @@ LLM generates answer grounded in retrieved evidence
 | `incuratorPdfAssetFolder` | `""` (empty) | Base vault folder for images extracted from non-Zotero add-source PDFs. Each PDF uses a sanitized source-name subfolder. Empty means the backend default `05_Assets/<source-name>/`. Zotero PDFs ignore this and use their import profile's asset folder. |
 | `incuratorStatusPolling` | `true` | Poll for source processing status updates |
 
-A successfully tracked source — any state from L1 ready through full L4
-Synthesis — shows a single **Added** badge (v0.5.6). The badge is inert:
-clicking it does nothing, so an already-added source can never be re-imported
-by accident. Hover the badge to see the exact layer state in the tooltip. If a
-later status refresh finds the source `stale`, `moved`, `changed`, `missing`,
-or in `error`, the badge switches back to that actionable label and becomes
-clickable again. `Queued` and `Building...` keep their own labels while the
-background build runs. Any layer error is shown as an error instead of a
+A successfully registered source — `Queued`, `Building...`, or any state from
+L1 ready through full L4 Synthesis — shows a non-import badge. The ready states
+collapse to **Added** (v0.5.6); `Queued` and `Building...` keep their own labels
+while the background build runs. All of these registered states are inert:
+clicking them does nothing, so an already-registered source can never be
+re-imported by accident. Hover the badge to see the exact layer state in the
+tooltip. If a later status refresh finds the source `stale`, `moved`, `changed`,
+`missing`, or in `error`, the badge switches back to that actionable label and
+becomes clickable again. Any layer error is shown as an error instead of a
 healthy badge.
 
 ### Setup/Rebuild Banner
@@ -852,7 +871,9 @@ under an **Advanced** disclosure. LLM Apply and Persona Save persist config.
   switching to a working model (Settings → LLM Provider, or the Overview LLM
   Provider card), click it to resume: it runs `wiki build`, which re-attempts
   every source whose L2/L3 is still `pending` or `error` with the now-current
-  provider, continuing the knowledge-refinement graph from where it stopped.
+  provider, continuing the knowledge-refinement graph from where it stopped. An
+  L4 **Skipped** badge is terminal and non-error: global L3/L4 finished, but no
+  eligible shared synthesis exists for the current community-report corpus.
   Watch progress in the **Jobs** tab.
 - **Insights** tab lists pending derived insight candidates
   from the current Obsidian vault (`wiki plugin insight list`). Selecting one

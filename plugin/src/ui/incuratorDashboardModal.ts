@@ -1390,6 +1390,7 @@ export class IncuratorDashboardModal extends Modal {
       const badge = (s: string) => {
         if (s === "error") return { str: "Error", cls: "badge-error" };
         if (["done","complete"].includes(s)) return { str: "Done", cls: "badge-curated" };
+        if (s === "skipped") return { str: "Skipped", cls: "badge-ready" };
         if (s === "running") return { str: "Run", cls: "badge-indexed" };
         return { str: "—", cls: "badge-ready" };
       };

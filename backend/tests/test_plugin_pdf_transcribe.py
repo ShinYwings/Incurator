@@ -3,6 +3,7 @@ dedicated vision model; CLI vision clients run serially (v0.22.0 review fixes)."
 
 import typer
 import pytest
+import json
 
 from curator import cli, config as cfg, ingest_raw, llm
 from curator.llm import OllamaClient
@@ -17,6 +18,26 @@ class _FakeVision:
 
     def chat(self, _messages, *, json_mode: bool = False, temperature: float = 0.3) -> str:
         return "Clean $x^2$ text"
+
+
+class _VerboseFakeVision(_FakeVision):
+    def describe_image(self, _data: bytes, prompt: str = "") -> str:
+        return (
+            "Here is the converted LaTeX:\n"
+            "<transcription>\n"
+            "Clean $E = mc^2$ text\n"
+            "</transcription>\n"
+            "This preserves the formula."
+        )
+
+    def chat(self, _messages, *, json_mode: bool = False, temperature: float = 0.3) -> str:
+        return (
+            "Here is the converted LaTeX:\n"
+            "<transcription>\n"
+            "Clean $x^2$ text\n"
+            "</transcription>\n"
+            "This preserves the formula."
+        )
 
 
 def _patch_common(monkeypatch) -> None:
@@ -45,6 +66,28 @@ def test_transcribe_text_routes_to_dedicated_extract_model(monkeypatch, capsys) 
     out = capsys.readouterr().out
     assert '"ok"' in out and "true" in out.split('"ok"')[1][:8]
     assert "x^2" in out
+
+
+def test_transcribe_text_strips_explanatory_prose(monkeypatch, capsys) -> None:
+    _patch_common(monkeypatch)
+    monkeypatch.setattr(ingest_raw, "_resolve_extract_client", lambda c, m: _VerboseFakeVision())
+
+    cli.plugin_pdf_transcribe(image_file="", text="garbled x2 text", workspace_path="")
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is True
+    assert out["latex"] == "Clean $x^2$ text"
+
+
+def test_transcribe_image_strips_explanatory_prose(tmp_path, monkeypatch, capsys) -> None:
+    png = tmp_path / "region.png"
+    png.write_bytes(b"\x89PNG\r\n")
+    _patch_common(monkeypatch)
+    monkeypatch.setattr(ingest_raw, "_resolve_extract_client", lambda c, m: _VerboseFakeVision())
+
+    cli.plugin_pdf_transcribe(image_file=str(png), workspace_path="")
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is True
+    assert out["latex"] == "Clean $E = mc^2$ text"
 
 
 def test_transcribe_errors_when_no_vision_model(tmp_path, monkeypatch, capsys) -> None:

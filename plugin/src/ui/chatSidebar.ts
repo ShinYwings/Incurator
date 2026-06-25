@@ -3057,7 +3057,8 @@ export class ChatSidebarView extends ItemView {
   private attachAssistantAnswerLinkNavigation(container: HTMLElement): void {
     const links = Array.from(container.querySelectorAll<HTMLAnchorElement>("a"));
     for (const link of links) {
-      const target = parseAnswerLinkTarget(link.getAttribute("href"), link.textContent || "");
+      const href = link.getAttribute("data-href") ?? link.getAttribute("href");
+      const target = parseAnswerLinkTarget(href, link.textContent || "");
       if (!target) continue;
       link.addClass("ai-agent-answer-target-link");
       link.addEventListener("click", (event) => {
@@ -3069,6 +3070,11 @@ export class ChatSidebarView extends ItemView {
   }
 
   private navigateAssistantAnswerTarget(target: AnswerLinkTarget): void {
+    if (target.kind === "vault") {
+      this.app.workspace.openLinkText(target.linkpath, "", false);
+      return;
+    }
+
     const view = this.findNavigablePdfView();
     if (!view) {
       new Notice("Open the PDF in Incurator's PDF view to jump to answer links.");

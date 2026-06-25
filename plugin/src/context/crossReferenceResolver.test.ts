@@ -47,6 +47,14 @@ describe("extractReferences", () => {
     });
   });
 
+  it("detects bare parenthesized dotted equation references", () => {
+    expect(extractReferences("This follows from (19.11).")[0]).toMatchObject({
+      kind: "equation",
+      objectNumber: "19.11",
+      label: "Equation 19.11",
+    });
+  });
+
   it("detects §-style and chapter/appendix references", () => {
     expect(extractReferences("as shown in §19.3")[0]).toMatchObject({
       kind: "section",
@@ -153,6 +161,29 @@ describe("resolveReferences", () => {
     const figure = resolved.find((r) => r.query.kind === "figure");
     expect(figure?.targetPage).toBe(458);
     expect(figure?.snippet).toContain("Figure 19.1");
+  });
+
+  it("resolves a bare parenthesized equation reference via available PDF search hits", () => {
+    const refs = extractReferences("This follows from (19.11).");
+    const ctx = makeCtx({
+      currentPage: 490,
+      searchPages: (query: string): PdfRagHit[] => {
+        expect(query).toBe("Equation 19.11");
+        return [
+          {
+            pageNum: 462,
+            score: 7,
+            snippet: "Equation 19.11 defines the Kruppa constraints.",
+          },
+        ];
+      },
+      getPageText: (n) =>
+        n === 462 ? "Equation 19.11 defines the Kruppa constraints." : undefined,
+    });
+    const equation = resolveReferences(refs, ctx).find((r) => r.query.kind === "equation");
+    expect(equation?.method).toBe("bm25-object");
+    expect(equation?.targetPage).toBe(462);
+    expect(equation?.snippet).toContain("Kruppa constraints");
   });
 
   it("prefers the caption-index page over a mere-mention page for objects", () => {

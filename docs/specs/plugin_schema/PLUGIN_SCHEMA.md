@@ -167,9 +167,11 @@ Contract:
   never desyncs (item 3).
 - Zotero detection MUST NOT rely on `leaf.view.getState()` `as any` casts
   (item 4); the `AssetSource.zoteroKey` field is the discriminator.
-- "Added" badge states: `isAddedState` recognizes `l1_ready..l4_ready`;
-  `queued`/`running` keep their own labels and stay actionable until built
-  (item 5 — documented as intended).
+- Registered source badge states: `isAddedState` recognizes `queued`, `running`,
+  and `l1_ready..l4_ready` as already registered. `l1_ready..l4_ready` collapse
+  to the **Added** label; `queued`/`running` keep their own labels
+  (`Queued`/`Building...`) while remaining inert so they cannot re-trigger Add
+  Source before the background build completes.
 - `external_uri`/`absPath` is authoritative for opening a Reference Mode source
   (see SYSTEM_BEHAVIOR §29.2 / §29.6).
 - **Zotero fallback cache invalidation (required).** When the backend command is
@@ -278,7 +280,10 @@ Rules:
   paths call `wiki plugin pdf transcribe`, which resolves
   `latex_extract_model → vision_model → (main chat model if vision-capable)` in the
   backend. A successful crop transcription MUST be sent to chat as text without
-  forwarding the crop image to the main chat model's vision path.
+  forwarding the crop image to the main chat model's vision path. The backend
+  transcription prompt requests one `<transcription>...</transcription>` block;
+  the returned text MUST be normalized so common explanatory prose, labels, and
+  fences are stripped before the plugin copies or injects it.
 - `deepseekApiKey` is device-local secret material. It must not be written into
   shared vault config; backend config may instead reference `DEEPSEEK_API_KEY`
   through `llm.deepseek-api.api_key_env` or a local encrypted backend secret
@@ -401,6 +406,12 @@ Rules:
   links, external links, real-vault embeds, or `[[PHASE:…]]` edit-loop markers.
   The rewrite is navigation-only: it does not register these hidden nodes in the
   native Graph view or Backlinks pane.
+- Chat-sidebar assistant answer links that encode an explicit vault block target
+  (`<note>#^<block_id>`) or render as a source locator label
+  (`<note> > ^<block_id>`) MUST open through
+  `workspace.openLinkText("<note>#^<block_id>", "", false)`. The parser MUST be
+  conservative: ordinary local links without a block anchor and external URLs
+  keep their normal behavior.
 
 ### 2.1.1 Zotero Import Profiles
 
@@ -576,11 +587,14 @@ Rules:
 
 - `"l1_ready"` corresponds to `l1_status='done'` while L2/L3 are incomplete.
 - `"l2_ready"` corresponds to `l2_status='done'` while L3 is incomplete.
-- `"l3_ready"` corresponds to `l3_status='done'` while L4 is incomplete.
+- `"l3_ready"` corresponds to `l3_status='done'` while L4 is incomplete or
+  `l4_status='skipped'` because no eligible shared synthesis exists.
 - `"l4_ready"` corresponds to `l4_status='done'`.
 - `"error"` wins over all ready states when any active layer reports `error`.
 - `"running"` must expose `runningLayer` ("l1"|"l2"|"l3"|"l4") to show progress.
 - `"untracked"` must trigger the "Add to Incurator" action prompt, not silent import.
+- Dashboard layer badges must render `l4_status='skipped'` explicitly as
+  `Skipped`, not as an empty/unknown status.
 
 ### 4.1.1 "Added" badge for built sources (v0.5.6)
 
@@ -811,6 +825,10 @@ Rules:
   first and must not require source registration. Purple context chips and
   `Add to Incurator` are the durable refinement controls: they register the
   source, create instant L1, and queue L2/L3 build jobs.
+- The Incurator PDF viewer must keep scroll work lightweight: lazy page rendering
+  and current-page detection are coalesced through `requestAnimationFrame` so a
+  burst of raw scroll events schedules at most one page calculation/render trigger
+  per frame. Pending scroll frames are cancelled when the view closes.
 - Provider-context assembly must never import/register an untracked PDF as a
   side effect. Passive viewing and read-only backend fallback leave source rows,
   reference stubs, CTX pages, assets, and ingest jobs unchanged.
@@ -846,13 +864,16 @@ Rules:
   must not replace the selected text, line range, or crop as the primary answer
   target.
 - If a selected PDF text/crop is itself a cross-reference pointer (for example
-  `Section A4.2`, `p580`, `Figure 19.1`, or `Eq. (19.6)`), the plugin may add a
-  `<resolved_cross_references>` block ahead of generic page background. Each
-  reference entry should identify the label, resolved target page when known,
-  section title when known, confidence, and the fetched target text/snippet.
-  Pointer resolution failures must not silently turn the current page into the
-  answer target; the prompt must tell the provider when the referenced target
-  could not be located.
+  `Section A4.2`, `p580`, `Figure 19.1`, `Eq. (19.6)`, or a bare dotted equation
+  label such as `(19.11)`), the plugin may add a `<resolved_cross_references>`
+  block ahead of generic page background. Each reference entry should identify
+  the label, resolved target page when known, section title when known,
+  confidence, and the fetched target text/snippet. Pointer resolution first uses
+  local PDF outline/window/index/search evidence; backend read-only PDF context
+  may be used only when local evidence is insufficient and a resolvable tracked
+  identity exists. Pointer resolution failures must not silently turn the current
+  page into the answer target; the prompt must tell the provider when the
+  referenced target could not be located.
 - Attached PDF/image snips must be sent to vision-capable models as image parts.
   For non-vision models, the prompt must explicitly state that image details are
   unavailable instead of silently dropping the crop. A primary-focus reference
@@ -1508,9 +1529,13 @@ one-off questions about a selected passage. It is gated by
   reading view, or PDF), the plugin shows exactly one floating trigger button next
   to the selection. No toolbar or multi-button cluster is rendered.
 - Activating the button — or invoking the `quick-query-selection` command
-  (default hotkey `Cmd+Shift+K`) while text is selected — opens a single
-  persistent popover containing only a free-text query input and a submit
-  control. No preset/quick-action buttons are present.
+  (default hotkey `Cmd+Shift+K`) while text is selected — opens one persistent
+  popover containing only a free-text query input and a submit control. No
+  preset/quick-action buttons are present.
+- Multiple quick-query popovers may coexist. Opening a new quick query for a new
+  selection must not remove existing popovers; each popover owns its own
+  selected passage, answer, title/minimized state, drag position, and follow-up
+  memory.
 - Once spawned, the popover is detached from selection scroll tracking. It is
   positioned once near the selection, then remains fixed relative to its owner
   window unless the user drags the header.
@@ -1528,8 +1553,9 @@ one-off questions about a selected passage. It is gated by
   and available Markdown/PDF outline as background context. Background context
   must be marked as supplementary and must not override the selected passage.
 - Follow-up questions asked in the same popover may include a short in-memory
-  trace of prior quick-query turns from that popover only. These turns are
-  ephemeral and are not the chat-sidebar session history.
+  trace of prior quick-query turns from that popover only. Coexisting popovers
+  must not share this trace. These turns are ephemeral and are not the
+  chat-sidebar session history.
 - Quick query must not run workspace-wide `wiki plugin query` merely because
   background context is present; it answers from the selected passage plus
   current page/outline background.
@@ -1561,9 +1587,10 @@ one-off questions about a selected passage. It is gated by
 ### 13.4 Ephemerality And Boundaries
 
 - The popover is a temporary session-local surface. Closing it (close button or
-  `Escape`) discards the exchange. Outside clicks must not close an open
-  popover. It must never be written into `SessionData` or the chat sidebar
-  history and must not persist across Obsidian restarts.
+  `Escape`) discards that popover's exchange. Outside clicks must not close an
+  open popover; they may only dismiss the floating trigger button. It must never
+  be written into `SessionData` or the chat sidebar history and must not persist
+  across Obsidian restarts.
 - The query is issued through the standard `LLMClient` using the active
   provider/model. No prior chat-sidebar turns are appended.
 - An in-flight quick query is aborted when its popover is dismissed.
@@ -1672,11 +1699,12 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
 
 ---
 
-## 14. LaTeX-preserving copy (chat sidebar + note Reading View) (v0.5.4)
+## 14. LaTeX-preserving copy (chat sidebar + quick-query popover + note Reading View) (v0.5.4)
 
-Selecting part of a rendered assistant reply (chat sidebar) or a note (Reading
-View) and copying it (`Cmd/Ctrl+C`, or `Cmd/Ctrl+X`) places the formulas' LaTeX
-**source** (`$...$` / `$$...$$`) on the clipboard instead of the empty MathJax SVG.
+Selecting part of a rendered assistant reply (chat sidebar or quick-query
+popover) or a note (Reading View) and copying it (`Cmd/Ctrl+C`, or `Cmd/Ctrl+X`)
+places the formulas' LaTeX **source** (`$...$` / `$$...$$`) on the clipboard
+instead of the empty MathJax SVG.
 
 ### 14.1 Renderer constraint (why this needs render-time stamping)
 
@@ -1696,10 +1724,11 @@ View) and copying it (`Cmd/Ctrl+C`, or `Cmd/Ctrl+X`) places the formulas' LaTeX
 
 ### 14.2 Behavior contract
 
-- The chat sidebar renders each assistant reply from a source string the plugin
-  holds. Immediately after each `MarkdownRenderer.render(...)` resolves, the plugin
-  stamps every rendered `.math` element with its source as `data-tex` and its kind
-  as `data-tex-display` = `"inline" | "block"`, in document order.
+- The chat sidebar and quick-query popover render each assistant reply from a
+  source string the plugin holds. Immediately after each
+  `MarkdownRenderer.render(...)` resolves, the plugin stamps every rendered
+  `.math` element with its source as `data-tex` and its kind as
+  `data-tex-display` = `"inline" | "block"`, in document order.
 - **Correctness guard:** the source is parsed for `$...$` / `$$...$$` (code-span,
   fenced-code, and escaped-`\$` aware) and the stamp is applied **only when the
   parsed formula count exactly equals the rendered `.math` count**. On any mismatch
