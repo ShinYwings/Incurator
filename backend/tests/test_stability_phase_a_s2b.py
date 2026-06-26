@@ -190,6 +190,40 @@ class TestDeepLintReadOnly:
                 f"{atom_file.name} must be flagged when apply_flags=True"
             )
 
+    def test_apply_flags_true_ignores_malformed_frontmatter(self, tmp_path: Path, monkeypatch) -> None:
+        from curator.lint import check_contradictions_deep
+        from curator import config as cfg, constants as consts, page_writer
+
+        atoms_dir = tmp_path / consts.DEFAULT_COLLECTIONS_DIR / consts.LAYER_L2
+        atoms_dir.mkdir(parents=True)
+
+        for atom_id, body in [
+            ("ATM-bad-a", "Claim A. [[SYN-shared]]"),
+            ("ATM-bad-b", "Contradicts Claim A. [[SYN-shared]]"),
+        ]:
+            (atoms_dir / f"{atom_id}.md").write_text(
+                f"---\nid: {atom_id}\ntype: atom\n---\n\n{body}\n",
+                encoding="utf-8",
+            )
+
+        paths = cfg.WikiPaths(root=tmp_path)
+        from curator.lint import _build_inventory
+        inv = _build_inventory(paths)
+
+        mock_client = MagicMock()
+        mock_client.chat.return_value = "Contradiction: claim A vs not-A."
+
+        malformed_page = MagicMock()
+        malformed_page.frontmatter = None
+        monkeypatch.setattr(page_writer, "read_page", lambda _: malformed_page)
+        write_page = MagicMock()
+        monkeypatch.setattr(page_writer, "write_page", write_page)
+
+        issues = check_contradictions_deep(inv, paths, mock_client, apply_flags=True)
+
+        assert len(issues) == 1
+        write_page.assert_not_called()
+
 
 # ─── run_lint apply_flags threading ──────────────────────────────────────────
 

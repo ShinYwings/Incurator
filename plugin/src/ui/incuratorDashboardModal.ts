@@ -131,8 +131,14 @@ export class IncuratorDashboardModal extends Modal {
 
   onClose() {
     this.contentEl.empty();
-    if (this.jobsTimer !== null) window.clearInterval(this.jobsTimer);
-    if (this.modelLoadTimer !== null) window.clearInterval(this.modelLoadTimer);
+    if (this.jobsTimer) {
+      window.clearInterval(this.jobsTimer);
+      this.jobsTimer = null;
+    }
+    if (this.modelLoadTimer) {
+      window.clearInterval(this.modelLoadTimer);
+      this.modelLoadTimer = null;
+    }
     document.removeEventListener("mousemove", this.onMouseMove);
     document.removeEventListener("mouseup",   this.onMouseUp);
   }
@@ -147,7 +153,7 @@ export class IncuratorDashboardModal extends Modal {
     this._liveStatus = null;
     this.tabEls.forEach((el, tid) => el.toggleClass("is-active", tid === id));
     this.viewEls.forEach((el, vid) => el.toggleClass("is-active", vid === id));
-    if (id !== "jobs" && this.jobsTimer !== null) {
+    if (id !== "jobs" && this.jobsTimer) {
       window.clearInterval(this.jobsTimer);
       this.jobsTimer = null;
     }
@@ -1012,11 +1018,11 @@ export class IncuratorDashboardModal extends Modal {
       this.plugin.refreshAvailableModels().catch(() => {});
       // Tracked so onClose() can clear it — otherwise closing the dashboard before
       // the model catalogue loads leaks a 400ms poll that writes to a detached DOM.
-      if (this.modelLoadTimer !== null) window.clearInterval(this.modelLoadTimer);
+      if (this.modelLoadTimer) window.clearInterval(this.modelLoadTimer);
       this.modelLoadTimer = window.setInterval(() => {
         const c2 = this.plugin.availableModels;
         if (Object.keys(c2).length > 0) {
-          if (this.modelLoadTimer !== null) window.clearInterval(this.modelLoadTimer);
+          if (this.modelLoadTimer) window.clearInterval(this.modelLoadTimer);
           this.modelLoadTimer = null;
           populate(c2);
         }
@@ -1199,7 +1205,7 @@ export class IncuratorDashboardModal extends Modal {
   // ---------------------------------------------------------------------------
 
   private async renderJobs(el: HTMLElement) {
-    if (this.jobsTimer !== null) { window.clearInterval(this.jobsTimer); this.jobsTimer = null; }
+    if (this.jobsTimer) { window.clearInterval(this.jobsTimer); this.jobsTimer = null; }
     const hdr = el.createDiv("ai-agent-jobs-header");
     hdr.createEl("h3", { text: "Build Jobs", cls: "ai-agent-dashboard-section-title" });
     const runBtn = hdr.createEl("button", { cls: "ai-agent-dashboard-btn" });

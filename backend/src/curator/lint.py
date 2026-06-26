@@ -1005,7 +1005,11 @@ def check_contradictions_deep(
                 atom_path = paths.atoms / f"{atom_id}.md"
                 if atom_path.exists():
                     atom_page = page_writer.read_page(atom_path)
-                    if atom_page and not atom_page.frontmatter.get("is_flagged_for_agent"):
+                    if (
+                        atom_page
+                        and isinstance(atom_page.frontmatter, dict)
+                        and not atom_page.frontmatter.get("is_flagged_for_agent")
+                    ):
                         atom_page.frontmatter["is_flagged_for_agent"] = True
                         page_writer.write_page(atom_path, atom_page.to_markdown())
 
