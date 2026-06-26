@@ -366,9 +366,10 @@ Batch Atom extraction (`_extract_atoms_from_chunk`) relies on the LLM adhering t
    be persisted only after every batch, including retry slices, validates. If any
    slice remains invalid, the source L2 layer is marked `error` with failed
    batch/span/trace context and no newly extracted units from that run are
-   published. A fresh L2 extraction for a source must discard generation-less
-   knowledge units left by older failed runs before prompting, because those rows
-   were never authoritative and must not block the new publish gate.
+   published. A fresh L2 extraction for a source must discard active
+   generation-less knowledge units left by older failed runs before prompting,
+   because those rows were never authoritative and must not block the new
+   publish gate. Retired generation-less rows remain audit history.
 4. **Deterministic L1-Candidate Fallback**: If batch extraction ultimately
    fails with an `LLMError`, the orchestrator may create low-confidence L2 Atoms
    directly from the English L1 `Atom Candidates` and `Source Guide` provenance.

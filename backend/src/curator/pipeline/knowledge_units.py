@@ -71,6 +71,8 @@ def _unique_span_ids(spans: list[dict]) -> list[str]:
 
 def _split_batch_for_retry(batch: list[dict]) -> tuple[list[dict], list[dict]] | None:
     """Split a failed batch without changing its source-span provenance."""
+    if not batch:
+        return None
     if len(batch) > 1:
         total = sum(_span_len(span) for span in batch)
         midpoint = max(1, total // 2)
@@ -129,12 +131,13 @@ def _discard_unpublished_units(db_path: Path, source_id: int) -> None:
         conn.execute(
             "DELETE FROM claim_supports WHERE knowledge_unit_id IN ("
             "SELECT id FROM knowledge_units WHERE source_id = ? "
-            "AND generation_id IS NULL"
+            "AND generation_id IS NULL AND retired_at IS NULL"
             ")",
             (source_id,),
         )
         conn.execute(
-            "DELETE FROM knowledge_units WHERE source_id = ? AND generation_id IS NULL",
+            "DELETE FROM knowledge_units WHERE source_id = ? "
+            "AND generation_id IS NULL AND retired_at IS NULL",
             (source_id,),
         )
 
@@ -202,6 +205,11 @@ def _run_batch_with_retry(
                 curate_spec_hash=curate_spec_hash,
                 depth=depth + 1,
             )
+            if left_result.errors:
+                return _BatchResult(
+                    trace_id=left_result.trace_id or trace_id,
+                    errors=left_result.errors,
+                )
             right_result = _run_batch_with_retry(
                 db_path,
                 client,

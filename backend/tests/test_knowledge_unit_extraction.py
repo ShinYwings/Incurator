@@ -177,6 +177,30 @@ def test_extraction_discards_previous_unpublished_units(vault) -> None:
     assert stale_id not in result.unit_ids
 
 
+def test_extraction_preserves_retired_unpublished_units(vault) -> None:
+    dbp, spans = vault
+    retired_id = db.upsert_knowledge_unit(
+        dbp,
+        unit_type="claim",
+        canonical_name="Retired unpublished unit",
+        statement="A retired generation-less unit remains audit history.",
+        source_span_ids=[spans[0]["id"]],
+        source_id=1,
+        confidence=0.1,
+        truth_status="source_supported",
+    )
+    db.retire_knowledge_unit(dbp, retired_id)
+
+    client = FakeClient([_units_json(spans[0]["id"])])
+    result = ku.extract_knowledge_units(
+        dbp, client, source_id=1, source_title="ResNet", spans=spans
+    )
+    assert result.ok
+    units = db.list_knowledge_units_for_source(dbp, 1)
+    assert retired_id in {unit["id"] for unit in units}
+    assert retired_id not in result.unit_ids
+
+
 def test_failed_combined_batch_retries_smaller_batches(vault) -> None:
     dbp, spans = vault
     spans.append(_add_span(dbp, "Residual blocks can be stacked deeply.", "Depth"))
@@ -200,6 +224,26 @@ def test_failed_combined_batch_retries_smaller_batches(vault) -> None:
         (spans[0]["id"],),
         (spans[1]["id"],),
     }
+
+
+def test_failed_left_retry_slice_skips_right_slice(vault) -> None:
+    dbp, spans = vault
+    spans.append(_add_span(dbp, "Right slice would succeed but should not run.", "Depth"))
+    client = FakeClient(
+        ["not json", "still not json", "left not json", "left still not json"],
+        optimal_chars=60000,
+    )
+    result = ku.extract_knowledge_units(
+        dbp, client, source_id=1, source_title="ResNet", spans=spans
+    )
+    assert not result.ok
+    assert result.errors
+    assert client.calls == 4
+    assert db.list_knowledge_units_for_source(dbp, 1) == []
+
+
+def test_split_batch_for_retry_empty_batch_is_noop() -> None:
+    assert ku._split_batch_for_retry([]) is None
 
 
 def test_empty_spans_is_noop(vault) -> None:

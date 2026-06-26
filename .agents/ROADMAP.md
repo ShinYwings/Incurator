@@ -24,7 +24,16 @@ Source of Truth to identify unresolved items.
 
 ### 🚨 URGENT HOTFIX QUEUE
 
-No active urgent hotfixes.
+1. **[Hotfix] L2 knowledge-unit extraction fails for large/equation-heavy MD/PDF sources**
+   - User report (2026-06-26): `wiki add`/`wiki build` on large many-page Markdown
+     and referenced PDF sources can run for 2-3 hours and then fail L2 with
+     `knowledge unit extraction failed`.
+   - Repro source: `/Users/shin/shinywings/second_brain/03_Notes/Vision/MultipleViewGeometry.md`
+     with Zotero PDF reference `FTW7QHWY`.
+   - Branch: `hotfix/v0.27.1-l2-extraction-failure`.
+   - Goal: root-cause and fix the L2 extraction failure without editing
+     `03_Notes/` source truth.
+   - Status: implemented and locally validated; PR #59 open for `v0.27.1`.
 
 ### 🚀 Priority Order
 
@@ -122,8 +131,9 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: User Report Stability Bug Batch (`v0.25.1`) pushed as draft
-  PR #49 on `feature/system-stability-overhaul`; urgent queue is clear.
+- **Roadmap state**: urgent L2 extraction hotfix active on
+  `hotfix/v0.27.1-l2-extraction-failure`; PR #59 is open and System Stability
+  Phase A resumes after this hotfix.
 - **Active Milestone**: System Stability Overhaul — Exhaustive Diagnosis &
   Refactoring.
 - **Next actionable item**: resume Phase A diagnosis at the next unfinished
