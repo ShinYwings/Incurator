@@ -23,6 +23,13 @@ export interface PdfReferenceSource {
   windowPages?: PdfWindowPage[];
   pageNum?: number;
   pageLabels?: string[];
+  /** Full document BM25 index — all pages seen so far ("fog of war"). When
+   *  provided, the resolver uses it instead of building a fresh index from
+   *  windowPages only, enabling cross-page lookups into already-seen pages. */
+  searchIndex?: PdfDocumentIndexService;
+  /** Document ID used when the pages were upserted into searchIndex.
+   *  Must be provided alongside searchIndex; defaults to "selection". */
+  searchDocumentId?: string;
 }
 
 function mapPrintedPageLabel(pageLabels: string[] | undefined, printed: number): number | undefined {
@@ -47,8 +54,10 @@ export function resolveSelectionReferences(
   const pageText = new Map<number, string>();
   for (const page of pages) pageText.set(page.pageNum, page.text);
 
-  const index = new PdfDocumentIndexService();
-  if (pages.length) index.upsertDocument("selection", pages, outline);
+  // Prefer the full document index if available; otherwise build from window only.
+  const searchDocId = source.searchDocumentId ?? "selection";
+  const index = source.searchIndex ?? new PdfDocumentIndexService();
+  if (!source.searchIndex && pages.length) index.upsertDocument("selection", pages, outline);
 
   const ctx: ResolveContext = {
     outline,
@@ -57,7 +66,7 @@ export function resolveSelectionReferences(
       pages.map((page) => ({ pageNum: page.pageNum, text: page.text }))
     ),
     searchPages: (query, topK) =>
-      pages.length ? index.search("selection", query, { topK }) : [],
+      index.search(searchDocId, query, { topK }),
     getPageText: (pageNum) => pageText.get(pageNum),
     printedToPdf: (printed) => mapPrintedPageLabel(source.pageLabels, printed),
   };
@@ -70,4 +79,97 @@ export function resolveSelectionReferencesBlock(
   source: PdfReferenceSource | undefined
 ): string {
   return buildResolvedReferencesBlock(resolveSelectionReferences(selectedText, source));
+}
+
+/**
+ * Async variant: same as {@link resolveSelectionReferences} but when a
+ * resolved reference points to a page whose text is not yet in the window,
+ * it fetches that page via {@link fetchPageText}, upserts it into the index,
+ * and re-resolves so the LLM gets the actual equation/section content.
+ *
+ * Two-pass approach keeps all resolvers synchronous; only the outer wrapper is async.
+ */
+export async function resolveSelectionReferencesAsync(
+  selectedText: string,
+  source: PdfReferenceSource | undefined,
+  fetchPageText: (pageNum: number) => Promise<string | undefined>
+): Promise<ResolvedReference[]> {
+  if (!selectedText || !source) return [];
+  const refs = extractReferences(selectedText);
+  if (refs.length === 0) return [];
+
+  const pages = source.windowPages ?? [];
+  const outline = source.outline ?? [];
+
+  const pageTextMap = new Map<number, string>();
+  for (const page of pages) pageTextMap.set(page.pageNum, page.text);
+
+  const searchDocId = source.searchDocumentId ?? "selection";
+  const index = source.searchIndex ?? new PdfDocumentIndexService();
+  if (!source.searchIndex && pages.length) index.upsertDocument("selection", pages, outline);
+
+  const buildCtx = (): ResolveContext => ({
+    outline,
+    currentPage: source.pageNum ?? 1,
+    captionIndex: buildCaptionIndex(
+      Array.from(pageTextMap.entries()).map(([pageNum, text]) => ({ pageNum, text }))
+    ),
+    searchPages: (query, topK) => index.search(searchDocId, query, { topK }),
+    getPageText: (pageNum) => pageTextMap.get(pageNum),
+    printedToPdf: (printed) => mapPrintedPageLabel(source.pageLabels, printed),
+  });
+
+  // Pass 1: sync resolve
+  const pass1 = resolveReferences(refs, buildCtx());
+
+  // Collect resolved references whose target page text is missing
+  const missingPages = new Set<number>();
+  for (const r of pass1) {
+    if (r.method !== "unresolved" && r.targetPage !== undefined && !pageTextMap.has(r.targetPage)) {
+      missingPages.add(r.targetPage);
+    }
+  }
+
+  if (missingPages.size === 0) return pass1;
+
+  // Fetch missing pages in parallel; individual failures yield null, not a rejection.
+  const fetched = await Promise.all(
+    Array.from(missingPages).map((pageNum) =>
+      fetchPageText(pageNum)
+        .then((text) => (text ? { pageNum, text } : null))
+        .catch(() => null)
+    )
+  );
+
+  let changed = false;
+  for (const result of fetched) {
+    if (!result) continue;
+    pageTextMap.set(result.pageNum, result.text);
+    const page: PdfWindowPage = { pageNum: result.pageNum, text: result.text };
+    index.upsertPage(searchDocId, page, outline);
+    changed = true;
+  }
+
+  if (!changed) {
+    // No page text was fetched; suppress any refs whose snippet is empty so the
+    // LLM doesn't receive a resolved-looking reference with no content.
+    return pass1.map((r) =>
+      r.method !== "unresolved" && r.targetPage !== undefined && !pageTextMap.has(r.targetPage)
+        ? { ...r, method: "unresolved" as const }
+        : r
+    );
+  }
+
+  // Pass 2: re-resolve with enriched index + page text
+  return resolveReferences(refs, buildCtx());
+}
+
+/** Async convenience wrapper: resolve, fetch missing pages, format. Returns "" when nothing resolves. */
+export async function resolveSelectionReferencesBlockAsync(
+  selectedText: string,
+  source: PdfReferenceSource | undefined,
+  fetchPageText: (pageNum: number) => Promise<string | undefined>
+): Promise<string> {
+  const resolved = await resolveSelectionReferencesAsync(selectedText, source, fetchPageText);
+  return buildResolvedReferencesBlock(resolved);
 }

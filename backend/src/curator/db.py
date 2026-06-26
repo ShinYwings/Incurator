@@ -1892,12 +1892,14 @@ def get_source_row(
     source_id: int | None = None,
     relpath: str = "",
     source_path: str = "",
+    content_hash: str = "",
 ) -> dict[str, Any] | None:
     """Unified source lookup by id, relpath, external_path, import_origin,
-    or logical_source_id.
+    logical_source_id, or content_hash (G08-1).
 
     When ``source_path`` is given and ``relpath`` is empty, the path is
     resolved against ``root`` to produce a relpath first.
+    ``content_hash`` is tried last when no other key matches.
     """
     lookup = relpath or source_path
     relpath = relpath or source_path_to_relpath(root, source_path)
@@ -1923,6 +1925,17 @@ def get_source_row(
                    OR logical_source_id = ?
                 """,
                 (relpath, relpath, resolved_lookup, relpath, resolved_lookup, relpath),
+            ).fetchone()
+            # Fall back to content_hash when relpath is provided but unmatched.
+            if row is None and content_hash:
+                row = conn.execute(
+                    "SELECT * FROM sources WHERE content_hash = ? LIMIT 1",
+                    (content_hash,),
+                ).fetchone()
+        elif content_hash:
+            row = conn.execute(
+                "SELECT * FROM sources WHERE content_hash = ? LIMIT 1",
+                (content_hash,),
             ).fetchone()
         else:
             row = None

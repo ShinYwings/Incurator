@@ -1390,6 +1390,27 @@ export default class ObsidianAIAgent extends Plugin {
     return this.activeContext;
   }
 
+  /** Fetch any page's text from the currently open ExternalPdfView on demand.
+   *  Used by the async cross-reference resolver as a fallback for pages not yet in the window. */
+  async fetchActivePdfPage(pageNum: number): Promise<string | undefined> {
+    const pdfView = this.app.workspace.getActiveViewOfType(ExternalPdfView);
+    if (!pdfView) return undefined;
+    const page = await pdfView.fetchPage(pageNum);
+    return page?.text ?? undefined;
+  }
+
+  /** Return the full document BM25 index from the active ExternalPdfView (all seen pages). */
+  getActivePdfDocumentIndex() {
+    const pdfView = this.app.workspace.getActiveViewOfType(ExternalPdfView);
+    return pdfView?.getDocumentIndex();
+  }
+
+  /** Return the document ID used when indexing the active PDF (needed to search the full index). */
+  getActivePdfDocumentId(): string | undefined {
+    const pdfView = this.app.workspace.getActiveViewOfType(ExternalPdfView);
+    return pdfView?.getDocumentId();
+  }
+
   private toAbsolutePath(vaultRelPath: string | undefined): string | undefined {
     if (!vaultRelPath) return undefined;
     const adapter = this.app.vault.adapter as unknown as {

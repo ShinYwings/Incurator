@@ -20,6 +20,9 @@ export interface QuickQueryMessageArgs {
   activeContext?: ActiveContext;
   previousTurns?: QuickQueryTurn[];
   maxBackgroundLength?: number;
+  /** Pre-resolved cross-references block (from async resolution with page fetch).
+   *  When provided, skips the synchronous inline resolution so the async result is used. */
+  resolvedReferencesBlock?: string;
 }
 
 const DEFAULT_BACKGROUND_LIMIT = 12000;
@@ -121,10 +124,9 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
   });
   const followups = buildEphemeralFollowupContext(args.previousTurns);
 
-  const resolvedReferencesBlock = resolveSelectionReferencesBlock(
-    args.selectedText,
-    args.activeContext?.pdfPage
-  );
+  const resolvedReferencesBlock =
+    args.resolvedReferencesBlock ??
+    resolveSelectionReferencesBlock(args.selectedText, args.activeContext?.pdfPage);
 
   const systemText =
     "You are a reading assistant embedded in Obsidian. The user selected a " +
