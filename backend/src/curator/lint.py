@@ -1430,6 +1430,7 @@ def run_lint(
     client=None,  # OllamaClient, required if deep=True
     progress_callback: Optional[Callable[[str], None]] = None,
     limit_to: Optional[list[str]] = None,
+    apply_flags: bool = False,
 ) -> LintReport:
     """Run all fast checks, plus deep checks if requested.
 
@@ -1464,7 +1465,7 @@ def run_lint(
     # Deep check (LLM-powered)
     if deep and client is not None:
         report.deep_check_run = True
-        report.issues.extend(check_contradictions_deep(inv, paths, client, limit_to=limit_to))
+        report.issues.extend(check_contradictions_deep(inv, paths, client, limit_to=limit_to, apply_flags=apply_flags))
 
     # Sort: errors first, then warnings, then infos. Within each, by page.
     severity_order = {

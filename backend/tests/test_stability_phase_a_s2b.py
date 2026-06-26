@@ -189,3 +189,58 @@ class TestDeepLintReadOnly:
             assert "is_flagged_for_agent: true" in content, (
                 f"{atom_file.name} must be flagged when apply_flags=True"
             )
+
+
+# ─── run_lint apply_flags threading ──────────────────────────────────────────
+
+class TestRunLintApplyFlagsThreading:
+    """run_lint must forward apply_flags to check_contradictions_deep."""
+
+    def _setup_vault(self, tmp_path: Path) -> None:
+        from curator import constants as consts
+
+        atoms_dir = tmp_path / consts.DEFAULT_COLLECTIONS_DIR / consts.LAYER_L2
+        atoms_dir.mkdir(parents=True)
+        for atom_id, body in [
+            ("ATM-p", "Sky is blue. [[SYN-sky]]"),
+            ("ATM-q", "Sky is red. [[SYN-sky]]"),
+        ]:
+            (atoms_dir / f"{atom_id}.md").write_text(
+                f"---\nid: {atom_id}\ntype: atom\n---\n\n{body}\n",
+                encoding="utf-8",
+            )
+
+    def test_run_lint_apply_flags_false_does_not_write(self, tmp_path: Path) -> None:
+        from curator import config as cfg, constants as consts
+        from curator.lint import run_lint
+
+        self._setup_vault(tmp_path)
+        atoms_dir = tmp_path / consts.DEFAULT_COLLECTIONS_DIR / consts.LAYER_L2
+        paths = cfg.WikiPaths(root=tmp_path)
+
+        mock_client = MagicMock()
+        mock_client.chat.return_value = "Contradiction: blue vs red."
+
+        before = {p.name: p.stat().st_mtime for p in atoms_dir.glob("*.md")}
+        run_lint(paths, deep=True, client=mock_client, apply_flags=False)
+        after = {p.name: p.stat().st_mtime for p in atoms_dir.glob("*.md")}
+
+        assert before == after, "run_lint with apply_flags=False must not write atom files"
+
+    def test_run_lint_apply_flags_true_writes(self, tmp_path: Path) -> None:
+        from curator import config as cfg, constants as consts
+        from curator.lint import run_lint
+
+        self._setup_vault(tmp_path)
+        atoms_dir = tmp_path / consts.DEFAULT_COLLECTIONS_DIR / consts.LAYER_L2
+        paths = cfg.WikiPaths(root=tmp_path)
+
+        mock_client = MagicMock()
+        mock_client.chat.return_value = "Contradiction: blue vs red."
+
+        run_lint(paths, deep=True, client=mock_client, apply_flags=True)
+
+        for atom_file in atoms_dir.glob("*.md"):
+            assert "is_flagged_for_agent: true" in atom_file.read_text(), (
+                f"{atom_file.name} must be flagged when run_lint apply_flags=True"
+            )

@@ -4687,8 +4687,9 @@ export class ChatSidebarView extends ItemView {
       this.plugin.settings.model =
         value || getDefaultModel(catalogue, this.plugin.settings.provider);
     }
+    // Normalize effort in-memory first so both model + effort are saved together.
+    this.syncModelControls(true);
     await this.plugin.saveSettings();
-    this.syncModelControls();
     this.restoreInputFocus();
   }
 
@@ -4696,12 +4697,12 @@ export class ChatSidebarView extends ItemView {
     const catalogue = this.plugin.getAvailableModels();
     this.plugin.settings.model =
       model || getDefaultModel(catalogue, this.plugin.settings.provider);
+    this.syncModelControls(true);
     await this.plugin.saveSettings();
-    this.syncModelControls();
     this.restoreInputFocus();
   }
 
-  public syncModelControls(): void {
+  public syncModelControls(persist: boolean = false): void {
     if (!this.modelSelectEl || !this.customModelInputEl) return;
 
     const provider = this.plugin.settings.provider;
@@ -4741,10 +4742,10 @@ export class ChatSidebarView extends ItemView {
       this.customModelInputEl.show();
     }
 
-    this.syncReasoningControl();
+    this.syncReasoningControl(persist);
   }
 
-  public syncReasoningControl(): void {
+  public syncReasoningControl(persist: boolean = false): void {
     if (!this.reasoningSelectEl) return;
     
     this.reasoningSelectEl.empty();
@@ -4772,13 +4773,12 @@ export class ChatSidebarView extends ItemView {
       const rawVal = getOldVal();
       const val = currentModelOption.efforts.includes(rawVal) ? rawVal : (currentModelOption.defaultEffort || currentModelOption.efforts[0]);
 
-      // Persist the normalized effort so the LLM client uses the correct value
-      // after a model change that invalidated the previous effort setting.
-      if (val !== rawVal) {
+      // On explicit model change (persist=true), normalize the stored effort so
+      // the caller's saveSettings() captures both model and effort together.
+      if (persist && val !== rawVal) {
         if (provider === "openai") this.plugin.settings.codexReasoningEffort = val as any;
         else if (provider === "claude") this.plugin.settings.claudeEffort = val as any;
         else this.plugin.settings.agentEffort = val;
-        this.plugin.saveSettings();
       }
 
       this.reasoningSelectEl.value = val;

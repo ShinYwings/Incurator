@@ -5424,7 +5424,7 @@ def lint(
         def _lint_cb(node_id: str):
             console.print(f"  [dim]Linting {node_id}...[/dim]", end="\r")
 
-        report = lint_module.run_lint(paths, deep=deep, client=client, progress_callback=_lint_cb)
+        report = lint_module.run_lint(paths, deep=deep, client=client, progress_callback=_lint_cb, apply_flags=fix)
         console.print(" " * 60, end="\r")
 
         # Auto-fix: LLM relinking first, then deterministic non-destructive fixes.
