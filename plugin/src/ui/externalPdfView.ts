@@ -487,6 +487,31 @@ export class ExternalPdfView extends ItemView {
     this.documentIndex.removeDocument(this.docId);
   }
 
+  /** Expose the full document BM25 index (all pages seen so far) for cross-page resolution. */
+  getDocumentIndex(): PdfDocumentIndexService {
+    return this.documentIndex;
+  }
+
+  /** Expose the document ID used when indexing pages, needed to search the full index. */
+  getDocumentId(): string {
+    return this.docId;
+  }
+
+  /** Fetch any page's text on demand via pdf.js and cache it in the in-memory index.
+   *  Used by the cross-reference resolver to fetch pages the user hasn't yet scrolled to. */
+  async fetchPage(pageNum: number): Promise<PdfWindowPage | null> {
+    const cached = this.pageTextCache.get(pageNum);
+    if (cached) return cached;
+    if (!this.cachedPdf || pageNum < 1 || pageNum > this.totalPages) return null;
+    try {
+      const page = await this.cachedPdf.getPage(pageNum);
+      const { pageContext } = await this.extractPageTextFromPdfJs(page, pageNum);
+      return pageContext;
+    } catch {
+      return null;
+    }
+  }
+
   /** Called by main plugin to capture current page for LLM context. */
   getActivePdfContext(
     captureMode: "text" | "image" | "both"

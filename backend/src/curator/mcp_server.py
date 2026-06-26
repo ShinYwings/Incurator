@@ -758,6 +758,7 @@ def build_server() -> FastMCP:
         source_id: int | None = None,
         relpath: str = "",
         source_path: str = "",
+        content_hash: str = "",
     ) -> dict[str, Any] | None:
         """Thin wrapper — canonical logic is in db.get_source_row."""
         return db.get_source_row(
@@ -766,6 +767,7 @@ def build_server() -> FastMCP:
             source_id=source_id,
             relpath=relpath,
             source_path=source_path,
+            content_hash=content_hash,
         )
 
     class _McpIngestCallbacks(ingest_llm.IngestCallbacks):
@@ -1030,12 +1032,27 @@ def build_server() -> FastMCP:
         path: str = "",
         relpath: str = "",
         workspace_path: str = "",
+        content_hash: str = "",
     ) -> dict[str, Any]:
-        """Fetch a raw source section for instant L1/ephemeral RAG."""
+        """Fetch a raw source section for instant L1/ephemeral RAG.
+
+        ``content_hash`` (SHA-256 hex) can be used instead of a path to identify
+        the source — useful when the plugin knows the file hash but not its vault
+        path (G08-1).  When ``page`` / ``page_start`` / ``page_end`` are given for
+        a PDF, per-page text is cached at
+        ``.cache/pdf_pages/<content_hash>/<pagenum>.txt`` so repeated cross-page
+        lookups skip re-parsing the PDF (fog-of-war page cache).
+        """
         paths = _resolve_paths(workspace_path)
         lookup_path = relpath or source_path or file_path or path
         lookup_key = source_key or lookup_path
-        row = _get_source_row(paths, source_id=source_id, relpath=relpath, source_path=lookup_key)
+        row = _get_source_row(
+            paths,
+            source_id=source_id,
+            relpath=relpath,
+            source_path=lookup_key,
+            content_hash=content_hash,
+        )
         source_path_obj = Path(lookup_key).expanduser() if lookup_key else Path()
         if row is not None:
             source_path_obj = source_tools._row_path(paths, row)
@@ -1052,6 +1069,63 @@ def build_server() -> FastMCP:
                 return durable
         if not source_path_obj.exists():
             return {"ok": False, "error": f"Source not found: {lookup_key}"}
+
+        # Fast path for PDF page requests: use per-page cache + bounded parse (G12-2).
+        # Keyed on content_hash so the cache is stable across path moves.
+        hash_for_cache = content_hash or (str(row.get("content_hash") or "") if row else "")
+        req_page = page or page_start or 0
+        req_end = page_end or req_page or 0
+        if (
+            hash_for_cache
+            and source_path_obj.suffix.lower() == ".pdf"
+            and req_page > 0
+            and not (section_id or toc_id)
+        ):
+            pages_needed: set[int] = (
+                set(range(req_page, req_end + 1)) if req_end >= req_page else {req_page}
+            )
+            cache_dir = paths.root / ".cache" / "pdf_pages" / hash_for_cache
+            cached_pages: dict[int, str] = {}
+            missing_pages: set[int] = set()
+            for pn in pages_needed:
+                cache_file = cache_dir / f"{pn}.txt"
+                if cache_file.exists():
+                    cached_pages[pn] = cache_file.read_text(encoding="utf-8")
+                else:
+                    missing_pages.add(pn)
+            if missing_pages:
+                from .parsers.pdf import parse_page_window
+                fetched_pages = parse_page_window(source_path_obj, missing_pages)
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                for pn, txt in fetched_pages.items():
+                    (cache_dir / f"{pn}.txt").write_text(txt, encoding="utf-8")
+                    cached_pages[pn] = txt
+            pages_text = [cached_pages.get(pn, "") for pn in sorted(pages_needed)]
+            combined = "\n\n".join(t for t in pages_text if t)
+            return {
+                "ok": True,
+                "source_id": int(row["id"]) if row else None,
+                "source_key": lookup_key,
+                "relpath": row.get("relpath") if row else None,
+                "toc_id": None,
+                "page": req_page,
+                "page_start": req_page,
+                "page_end": req_end or req_page,
+                "page_count": None,
+                "title": source_path_obj.stem,
+                "file_type": "pdf",
+                "metadata": {"pages": sorted(pages_needed)},
+                "text": combined,
+                "char_count": len(combined),
+                "context_source": (
+                    "pdf_page_cache"
+                    if not missing_pages
+                    else "pdf_page_cache_partial"
+                ),
+                "cache_hits": sorted(cached_pages.keys() - missing_pages),
+                "cache_misses": sorted(missing_pages),
+            }
+
         try:
             from .ingest_raw import _extract_structural_sections, _resolve_reference_source
             resolved_path = _resolve_reference_source(paths, source_path_obj)

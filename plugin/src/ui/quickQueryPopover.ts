@@ -11,6 +11,7 @@ import {
   selectionToTextWithLatex,
   stampMathSourceData,
 } from "../utils/textUtils";
+import { resolveSelectionReferencesBlockAsync } from "../context/pdfReferenceContext";
 
 /**
  * In-line Copilot — drag-to-select quick query popover.
@@ -461,11 +462,28 @@ export class QuickQueryPopover {
       text: "⏳ Thinking…",
     });
 
+    const activeContext = this.plugin.refreshActiveContext();
+    // Async cross-page resolution: fetch any pages not yet in the window before
+    // building the LLM messages. Falls back to sync inline resolution when the
+    // PDF is not open or the fetch returns nothing.
+    const resolvedReferencesBlock = activeContext?.pdfPage
+      ? await resolveSelectionReferencesBlockAsync(
+          this.capturedSelection,
+          {
+            ...activeContext.pdfPage,
+            searchIndex: this.plugin.getActivePdfDocumentIndex(),
+            searchDocumentId: this.plugin.getActivePdfDocumentId(),
+          },
+          (pageNum) => this.plugin.fetchActivePdfPage(pageNum)
+        )
+      : undefined;
+
     const messages = buildQuickQueryContextMessages({
       selectedText: this.capturedSelection,
       question,
-      activeContext: this.plugin.refreshActiveContext(),
+      activeContext,
       previousTurns: this.turns,
+      resolvedReferencesBlock,
     });
     let raw = "";
 

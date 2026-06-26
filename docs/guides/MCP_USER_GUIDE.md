@@ -233,9 +233,10 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
   `source_text_policy: on_demand`, the backend reads the original source instead
   of relying on inline CTX text. `curator_query` becomes available after L3
   completes.
-- **Parameters**: `source_key` (logical_source_id or file_hash), `toc_id` (section id from the CTX frontmatter `toc` array), `page_start`/`page_end` (page-range fallback for PDFs without a ToC).
-- **Implementation status**: When `source_key` resolves to a tracked source or file path, the backend returns text by CTX section marker, source heading, or PDF page. With the v0.2.1 default (`llm.instant_l1: true`), the L1 CTX is generated without an LLM call, so section reads become available quickly.
-- **Agent usage**: The agent reads the ToC minimap in its system prompt, then calls this tool with the relevant `toc_id`.
+- **Parameters**: `source_key` (logical_source_id or file path), `content_hash` (SHA-256 hex of the source file — alternative lookup key when the vault path is unknown, e.g. from the plugin's `fileHash` field), `toc_id` (section id from the CTX frontmatter `toc` array), `page_start`/`page_end` (page-range fallback for PDFs without a ToC).
+- **Page cache (v0.26.0)**: For PDF page-range requests (`page` / `page_start` / `page_end`) combined with a `content_hash`, the backend uses a persistent per-page cache at `.cache/pdf_pages/<hash>/<pagenum>.txt`.  Cache hits are served without re-parsing the PDF; misses trigger a bounded parse of only the requested pages (not the entire document) and the result is written to cache for future sessions.  The response includes `context_source` (`pdf_page_cache` / `pdf_page_cache_partial`), `cache_hits`, and `cache_misses` fields.
+- **Implementation status**: When `source_key` or `content_hash` resolves to a tracked source or file path, the backend returns text by CTX section marker, source heading, or PDF page. With the v0.2.1 default (`llm.instant_l1: true`), the L1 CTX is generated without an LLM call, so section reads become available quickly.
+- **Agent usage**: The agent reads the ToC minimap in its system prompt, then calls this tool with the relevant `toc_id`.  For cross-page equation lookups from the popover, the plugin calls this tool with `content_hash` + `page` when the PDF is not open in the viewer.
 
 #### `curator_query`
 

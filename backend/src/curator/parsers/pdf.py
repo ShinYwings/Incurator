@@ -234,21 +234,28 @@ def get_page_count(path: Path) -> int:
 
 
 def parse_page_window(path: Path, page_nums: set[int]) -> dict[int, str]:
-    """Extract Markdown text from specific pages only (1-based page numbers)."""
+    """Extract Markdown text from specific pages only (1-based page numbers).
+
+    Passes the ``pages`` argument to pymupdf4llm so only the requested pages
+    are decoded — avoids loading the entire PDF when only a few pages are needed
+    (G12-2 bounded-parse fix).
+    """
     try:
         import pymupdf4llm
     except ImportError:
         return {}
-    
+
     result: dict[int, str] = {}
     try:
-        page_chunks = pymupdf4llm.to_markdown(str(path), page_chunks=True)
+        # pymupdf4llm uses 0-based page indices; page_nums is 1-based.
+        zero_based = [n - 1 for n in page_nums if n >= 1]
+        page_chunks = pymupdf4llm.to_markdown(
+            str(path), pages=zero_based, page_chunks=True
+        )
         for chunk in page_chunks:
             pn = _chunk_page_number(chunk)
             if pn in page_nums:
                 result[pn] = normalize_text(chunk.get("text", ""))
-            if len(result) == len(page_nums):
-                break
     except Exception:
         pass
     return result

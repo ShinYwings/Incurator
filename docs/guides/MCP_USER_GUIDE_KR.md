@@ -228,9 +228,10 @@ wiki mcp install
   fallback을 사용합니다. L1이 `source_text_policy: on_demand`인 대형 문서는 inline
   CTX 텍스트가 아니라 원본 파일에서 필요한 구간을 읽습니다. `curator_query`는 L3
   완료 후 사용합니다.
-- **파라미터**: `source_key` (logical_source_id 또는 file_hash), `toc_id` (CTX frontmatter의 toc 배열 id), `page_start`/`page_end` (ToC 없는 PDF fallback).
-- **구현 상태**: `source_key`가 등록 source 또는 파일 경로일 때 CTX section marker, 원문 heading, PDF page 단위 텍스트를 반환합니다. v0.2.1 기본 설정(`llm.instant_l1: true`)에서는 L1 CTX가 LLM 없이 생성되므로 섹션 조회가 빠르게 가능해집니다.
-- **에이전트 활용 패턴**: 시스템 프롬프트에 주입된 ToC 미니맵을 보고 필요한 `toc_id`를 직접 호출.
+- **파라미터**: `source_key` (logical_source_id 또는 파일 경로), `content_hash` (소스 파일 SHA-256 hex — vault 경로를 모를 때 대체 조회 키, 플러그인의 `fileHash` 필드에서 제공), `toc_id` (CTX frontmatter의 toc 배열 id), `page_start`/`page_end` (ToC 없는 PDF fallback).
+- **페이지 캐시 (v0.26.0)**: `content_hash`와 함께 PDF 페이지 범위 요청(`page` / `page_start` / `page_end`)이 들어오면, `.cache/pdf_pages/<hash>/<pagenum>.txt` 경로의 영구 캐시를 활용합니다. 캐시 히트 시 PDF 재파싱 없이 즉시 반환하고, 미스 시 요청된 페이지만 선택적으로 파싱한 뒤 결과를 캐시에 저장합니다. 응답에는 `context_source` (`pdf_page_cache` / `pdf_page_cache_partial`), `cache_hits`, `cache_misses` 필드가 포함됩니다.
+- **구현 상태**: `source_key` 또는 `content_hash`가 등록 source 또는 파일 경로로 해석될 때 CTX section marker, 원문 heading, PDF page 단위 텍스트를 반환합니다. v0.2.1 기본 설정(`llm.instant_l1: true`)에서는 L1 CTX가 LLM 없이 생성되므로 섹션 조회가 빠르게 가능해집니다.
+- **에이전트 활용 패턴**: 시스템 프롬프트에 주입된 ToC 미니맵을 보고 필요한 `toc_id`를 직접 호출. 팝오버의 수식 교차 페이지 조회 시, 뷰어에 PDF가 열려 있지 않으면 플러그인이 `content_hash` + `page`로 이 도구를 호출합니다.
 
 #### `curator_query`
 

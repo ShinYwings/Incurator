@@ -4,6 +4,32 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.26.0] - 2026-06-26
+### Added
+- **Cross-page PDF equation lookup (P1 — plugin).** The quick-query popover now
+  resolves equation, figure, section, and theorem references that point to pages
+  the user has not yet scrolled to. When the synchronous resolver finds a target
+  page whose text is absent from the in-memory window, `resolveSelectionReferencesBlockAsync`
+  fetches that page directly from pdf.js via the new `ExternalPdfView.fetchPage()`
+  API, upserts it into the BM25 index, and re-resolves — so the LLM receives the
+  actual LaTeX/prose regardless of which page is currently displayed.
+  `PdfReferenceSource` gains an optional `searchIndex` field so the full
+  document BM25 index (all previously-viewed pages, not just the visible window)
+  is used for cross-document search.
+- **Per-PDF page cache (P2 — backend).** `fetch_document_section` now accepts
+  `content_hash` for source lookup (G08-1) and serves PDF page requests from a
+  persistent `.cache/pdf_pages/<hash>/<pagenum>.txt` cache.  Cache hits skip PDF
+  parsing entirely; misses trigger a bounded `parse_page_window()` call and write
+  the result to disk for future sessions.
+### Fixed
+- **G08-1: `fetch_document_section` hash dispatch.** `db.get_source_row` now
+  accepts a `content_hash` parameter and queries `WHERE content_hash = ?` when
+  no `source_id` or `relpath` is provided — enabling the plugin to look up a PDF
+  by its SHA-256 content hash instead of its vault path.
+- **G12-2: `parse_page_window` bounded parse.** `pymupdf4llm.to_markdown` is now
+  called with `pages=[n-1 for n in page_nums]` so only the requested pages are
+  decoded, avoiding a full-document load for single-page cross-reference lookups.
+
 ## [0.25.7] - 2026-06-26
 ### Fixed
 - **G01-1: `remove_source` cascade.** `wiki source rm` now deletes `job_events`,
