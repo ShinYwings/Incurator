@@ -139,8 +139,7 @@ contract, and Arena file placement.
 - P2 Backend: G08-1 `content_hash` lookup in `db.get_source_row`; G12-2 bounded `parse_page_window`; `.cache/pdf_pages/<hash>/<pagenum>.txt` persistent cache in `fetch_document_section`.
 - 9 backend + 9 plugin new tests, all passing. ruff/mypy clean.
 
-**ROADMAP item #7** is now implemented and open as PR #57.
+**ROADMAP item #7** implemented and merged as PR #57. Master is now at v0.26.0.
 
 ### Immediate Next Action
-- Resume System Stability Phase A S2 batch (remaining items: G08-G19 S2 items per diagnosis ledger).
-- PRs to review/merge in order: #56 (v0.25.8 S2 batch), #57 (v0.26.0 cross-page PDF).
+- Resume System Stability Phase A — S2 batch (remaining G08-G19 items from diagnosis ledger).
