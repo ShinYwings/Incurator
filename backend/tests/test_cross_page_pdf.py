@@ -46,18 +46,19 @@ class TestGetSourceRowByHash:
         )
         assert row is None
 
-    def test_relpath_takes_precedence_over_hash(self, tmp_path: Path) -> None:
-        """When relpath is given, it is used and content_hash is ignored."""
+    def test_relpath_tried_first_then_hash_fallback(self, tmp_path: Path) -> None:
+        """Relpath is tried first; if it doesn't match, content_hash is used as fallback."""
         chash = "aabbcc" * 8
         self._seed_source(tmp_path, chash)
-        # relpath for a nonexistent file — returns None despite correct hash
+        # relpath doesn't exist in DB, so hash fallback should find the row
         row = db.get_source_row(
             tmp_path / "state.sqlite",
             tmp_path,
             relpath="nonexistent/path.pdf",
             content_hash=chash,
         )
-        assert row is None
+        assert row is not None
+        assert row["relpath"] == "docs/paper.pdf"
 
     def test_source_id_lookup_unchanged(self, tmp_path: Path) -> None:
         """Existing source_id lookup still works after G08-1 change."""

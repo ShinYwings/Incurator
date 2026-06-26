@@ -1926,6 +1926,12 @@ def get_source_row(
                 """,
                 (relpath, relpath, resolved_lookup, relpath, resolved_lookup, relpath),
             ).fetchone()
+            # Fall back to content_hash when relpath is provided but unmatched.
+            if row is None and content_hash:
+                row = conn.execute(
+                    "SELECT * FROM sources WHERE content_hash = ? LIMIT 1",
+                    (content_hash,),
+                ).fetchone()
         elif content_hash:
             row = conn.execute(
                 "SELECT * FROM sources WHERE content_hash = ? LIMIT 1",

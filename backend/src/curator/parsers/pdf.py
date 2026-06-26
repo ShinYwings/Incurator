@@ -246,9 +246,13 @@ def parse_page_window(path: Path, page_nums: set[int]) -> dict[int, str]:
         return {}
 
     result: dict[int, str] = {}
+    if not page_nums:
+        return result
     try:
         # pymupdf4llm uses 0-based page indices; page_nums is 1-based.
         zero_based = [n - 1 for n in page_nums if n >= 1]
+        if not zero_based:
+            return result
         page_chunks = pymupdf4llm.to_markdown(
             str(path), pages=zero_based, page_chunks=True
         )

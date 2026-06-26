@@ -1073,8 +1073,8 @@ def build_server() -> FastMCP:
         # Fast path for PDF page requests: use per-page cache + bounded parse (G12-2).
         # Keyed on content_hash so the cache is stable across path moves.
         hash_for_cache = content_hash or (str(row.get("content_hash") or "") if row else "")
-        # Sanitize: a valid SHA-256 hex digest is alphanumeric only.
-        if hash_for_cache and not hash_for_cache.isalnum():
+        # Reject non-hex values to prevent path traversal via a crafted hash.
+        if hash_for_cache and not all(c in "0123456789abcdefABCDEF" for c in hash_for_cache):
             hash_for_cache = ""
         req_page = page or page_start or 0
         req_end = page_end or req_page or 0
@@ -1090,18 +1090,26 @@ def build_server() -> FastMCP:
             cache_dir = paths.root / ".cache" / "pdf_pages" / hash_for_cache
             cached_pages: dict[int, str] = {}
             missing_pages: set[int] = set()
-            for pn in pages_needed:
-                cache_file = cache_dir / f"{pn}.txt"
-                if cache_file.exists():
-                    cached_pages[pn] = cache_file.read_text(encoding="utf-8")
-                else:
-                    missing_pages.add(pn)
+            try:
+                for pn in pages_needed:
+                    cache_file = cache_dir / f"{pn}.txt"
+                    if cache_file.exists():
+                        cached_pages[pn] = cache_file.read_text(encoding="utf-8")
+                    else:
+                        missing_pages.add(pn)
+            except OSError:
+                missing_pages = pages_needed
+                cached_pages = {}
             if missing_pages:
                 from .parsers.pdf import parse_page_window
                 fetched_pages = parse_page_window(source_path_obj, missing_pages)
-                cache_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    for pn, txt in fetched_pages.items():
+                        (cache_dir / f"{pn}.txt").write_text(txt, encoding="utf-8")
+                except OSError:
+                    pass
                 for pn, txt in fetched_pages.items():
-                    (cache_dir / f"{pn}.txt").write_text(txt, encoding="utf-8")
                     cached_pages[pn] = txt
             pages_text = [cached_pages.get(pn, "") for pn in sorted(pages_needed)]
             combined = "\n\n".join(t for t in pages_text if t)
