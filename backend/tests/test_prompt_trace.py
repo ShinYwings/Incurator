@@ -165,3 +165,30 @@ def test_run_prompt_marks_trace_failed_when_client_raises(db_path: Path) -> None
     assert rows[0]["validator_status"] == "failed"
     assert "RuntimeError: provider unavailable" in rows[0]["validator_errors"]
     assert rows[0]["finished_at"]
+
+
+def test_run_prompt_original_exception_survives_trace_write_failure(
+    db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """finish_prompt_run failure must never mask the original provider error."""
+    contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
+    client = FakeClient([RuntimeError("capacity exhausted")])
+    input_obj = contract.input_model(
+        source_title="t", spans_block="s", valid_span_ids_block="SPAN-aaaa1111"
+    )
+
+    import curator.prompting.runner as runner_mod
+
+    def _bad_finish(*args, **kwargs) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(runner_mod, "finish_prompt_run", _bad_finish)
+
+    with pytest.raises(RuntimeError, match="capacity exhausted"):
+        prompting.run_prompt(
+            db_path,
+            client,
+            contract,
+            input_obj,
+            validation_context={"valid_span_ids": ["SPAN-aaaa1111"]},
+        )

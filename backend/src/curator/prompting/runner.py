@@ -172,14 +172,17 @@ def run_prompt(
             raw, parsed, validation = raw2, parsed2, validation2
     except Exception as exc:
         latency_ms = int((time.monotonic() - started) * 1000)
-        finish_prompt_run(
-            db_path,
-            trace_id,
-            output="",
-            validation=ValidationResult.failed(f"{type(exc).__name__}: {exc}"),
-            retry_count=retry_count,
-            latency_ms=latency_ms,
-        )
+        try:
+            finish_prompt_run(
+                db_path,
+                trace_id,
+                output="",
+                validation=ValidationResult.failed(f"{type(exc).__name__}: {exc}"),
+                retry_count=retry_count,
+                latency_ms=latency_ms,
+            )
+        except Exception:
+            pass  # DB write failure must not mask the original provider error
         raise
 
     latency_ms = int((time.monotonic() - started) * 1000)
