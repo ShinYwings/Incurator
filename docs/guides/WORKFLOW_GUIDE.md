@@ -136,7 +136,10 @@ wiki update
 > L2/L3 extraction; by default it queues to the MCP server's background
 > IngestWorker, or use `--wait` to run now. L2 extraction sizes its section
 > batches according to the active LLM client's prompt budget, so CLI-backed
-> providers receive smaller prompts than local high-context models. Monitor via `wiki status` or
+> providers receive smaller prompts than local high-context models. If a large
+> PDF or Markdown batch fails validation, L2 retries it as smaller
+> source-span-preserving batches before marking the source failed, and a failed
+> run publishes no partial L2 units. Monitor via `wiki status` or
 > `.curator/dashboard.md`. L4 Synthesis is produced by `wiki build`; workspace
 > curation is a dynamic query lens rather than a separate staging pass. If no
 > eligible community reports exist, the L4 pass ends as `skipped` instead of

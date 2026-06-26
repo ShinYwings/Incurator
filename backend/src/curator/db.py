@@ -2163,18 +2163,19 @@ def upsert_knowledge_unit(
     atom_node_id: str | None = None,
     prompt_run_id: str | None = None,
     unit_id: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Insert a typed knowledge unit, or update it in place when `unit_id` is
     given and already exists."""
     now = _now_iso()
     spans_json = json.dumps(source_span_ids)
-    with connect(db_path) as conn:
+    with _maybe_conn(db_path, conn) as c:
         if unit_id:
-            existing = conn.execute(
+            existing = c.execute(
                 "SELECT id FROM knowledge_units WHERE id = ?", (unit_id,)
             ).fetchone()
             if existing:
-                conn.execute(
+                c.execute(
                     """
                     UPDATE knowledge_units
                        SET unit_type = ?, canonical_name = ?, statement = ?,
@@ -2191,7 +2192,7 @@ def upsert_knowledge_unit(
                 )
                 return unit_id
         new_unit_id = unit_id or _new_id("KNU")
-        conn.execute(
+        c.execute(
             """
             INSERT INTO knowledge_units
                 (id, unit_type, canonical_name, statement, source_span_ids,
