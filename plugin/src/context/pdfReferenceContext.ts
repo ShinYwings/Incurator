@@ -145,7 +145,7 @@ export async function resolveSelectionReferencesAsync(
     if (!result) continue;
     pageTextMap.set(result.pageNum, result.text);
     const page: PdfWindowPage = { pageNum: result.pageNum, text: result.text };
-    index.upsertPage("selection", page, outline);
+    index.upsertPage(searchDocId, page, outline);
     changed = true;
   }
 

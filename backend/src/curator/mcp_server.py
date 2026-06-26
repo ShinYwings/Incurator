@@ -1053,13 +1053,13 @@ def build_server() -> FastMCP:
             source_path=lookup_key,
             content_hash=content_hash,
         )
+        if not lookup_key and row is None:
+            return {"ok": False, "error": "Source not found: missing source_key, source_id, or path"}
         source_path_obj = Path(lookup_key).expanduser() if lookup_key else Path()
         if row is not None:
             source_path_obj = source_tools._row_path(paths, row)
         elif lookup_key and not source_path_obj.is_absolute():
             source_path_obj = paths.root / lookup_key
-        if not lookup_key and row is None:
-            return {"ok": False, "error": "Source not found: missing source_key, source_id, or path"}
         wanted = section_id or toc_id
         if row is not None and wanted:
             from . import plugin_api
@@ -1073,6 +1073,9 @@ def build_server() -> FastMCP:
         # Fast path for PDF page requests: use per-page cache + bounded parse (G12-2).
         # Keyed on content_hash so the cache is stable across path moves.
         hash_for_cache = content_hash or (str(row.get("content_hash") or "") if row else "")
+        # Sanitize: a valid SHA-256 hex digest is alphanumeric only.
+        if hash_for_cache and not hash_for_cache.isalnum():
+            hash_for_cache = ""
         req_page = page or page_start or 0
         req_end = page_end or req_page or 0
         if (
