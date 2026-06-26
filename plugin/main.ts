@@ -136,7 +136,7 @@ export default class ObsidianAIAgent extends Plugin {
       this.settings,
       this.authResolver,
       this.vaultRoot,
-      () => this.saveData(this.settings),
+      () => this.saveData(this._persistableSettings()),
       this.mcpManager
     );
     this.incuratorClient = new IncuratorClient(
@@ -831,7 +831,7 @@ export default class ObsidianAIAgent extends Plugin {
     this.app.workspace.detachLeavesOfType(CHAT_VIEW_TYPE);
 
     // Save final settings and session data
-    await this.saveData(this.settings);
+    await this.saveData(this._persistableSettings());
     await this.saveSessionData();
   }
 
@@ -1024,7 +1024,7 @@ export default class ObsidianAIAgent extends Plugin {
     if (this.scrollPositionSaveTimer !== null) return;
     this.scrollPositionSaveTimer = window.setTimeout(async () => {
       this.scrollPositionSaveTimer = null;
-      await this.saveData(this.settings);
+      await this.saveData(this._persistableSettings());
     }, 500);
   }
 
@@ -1122,6 +1122,9 @@ export default class ObsidianAIAgent extends Plugin {
   async loadSettings(): Promise<void> {
     const raw = (await this.loadData()) || {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, raw);
+    // Restore deepseekApiKey from env (never persisted per PLUGIN_SCHEMA §2.4)
+    const envKey = (typeof process !== "undefined" && process.env?.DEEPSEEK_API_KEY) || "";
+    if (envKey) this.settings.deepseekApiKey = envKey;
     try {
       const configPath = getGlobalRegistryPath(this.settings.incuratorRepoPath);
       if (configPath) {
@@ -1142,7 +1145,7 @@ export default class ObsidianAIAgent extends Plugin {
       ...(this.settings.providerUsage || {}),
     };
     if (this.migrateUnavailableModelDefaults()) {
-      await this.saveData(this.settings);
+      await this.saveData(this._persistableSettings());
     }
   }
 
@@ -1194,15 +1197,23 @@ export default class ObsidianAIAgent extends Plugin {
     }
   }
 
+  /** Return a copy of settings safe to persist — strips secrets not allowed in data.json (PLUGIN_SCHEMA §2.4). */
+  private _persistableSettings(): Omit<PluginSettings, "deepseekApiKey"> & { deepseekApiKey: "" } {
+    // deepseekApiKey MUST NOT be persisted: it would be leaked to Obsidian Sync
+    // and any git-tracked vault. Restore from env DEEPSEEK_API_KEY at load time.
+    const { deepseekApiKey: _stripped, ...rest } = this.settings;
+    return { ...rest, deepseekApiKey: "" };
+  }
+
   async updateSettings(updates: Partial<PluginSettings>): Promise<void> {
     Object.assign(this.settings, updates);
-    await this.saveData(this.settings);
+    await this.saveData(this._persistableSettings());
     // Update LLM client with new settings
     this.llmClient?.updateSettings(this.settings);
   }
 
   async saveSettings(): Promise<void> {
-    await this.saveData(this.settings);
+    await this.saveData(this._persistableSettings());
     await this.syncDeviceRegistryFromSyncthing();
     // Update LLM client with new settings
     this.llmClient?.updateSettings(this.settings);
@@ -1250,7 +1261,7 @@ export default class ObsidianAIAgent extends Plugin {
         await this.saveSessionData();
         delete (this.settings as unknown as Record<string, unknown>).chatSessions;
         delete (this.settings as unknown as Record<string, unknown>).activeChatSessionId;
-        await this.saveData(this.settings);
+        await this.saveData(this._persistableSettings());
       } else {
         this.sessionData = { ...DEFAULT_SESSION_DATA };
       }
