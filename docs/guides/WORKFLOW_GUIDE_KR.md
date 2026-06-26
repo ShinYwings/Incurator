@@ -495,8 +495,10 @@ grounding하며, explore의 후속 질문/인사이트 생성은 별도 검색 �
 
 모든 LLM 호출은 등록된 버전 있는 프롬프트 계약이며 `prompt_runs`(`PTR-`) 트레이스
 (모델, 검증자 상태, 입출력 해시)를 남깁니다. `wiki prompt list|show|trace|eval`
-또는 MCP `curator_get_prompt_trace`로 검사합니다. 모든 쿼리는 라우트·증거·프롬프트
-실행을 잇는 `QTR-` 트레이스를 기록합니다.
+또는 MCP `curator_get_prompt_trace`로 검사합니다. provider 호출이 trace 생성 후
+예외를 내면 해당 trace는 `pending`으로 남지 않고 예외 내용과 함께 `failed`로
+닫힙니다. 모든 쿼리는 라우트·증거·프롬프트 실행을 잇는 `QTR-` 트레이스를
+기록합니다.
 
 ---
 

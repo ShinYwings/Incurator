@@ -997,6 +997,10 @@ Rules:
 - `validator_status` records the outcome of the prompt's declared validators:
   `ok` (passed first try), `repaired` (passed after a JSON-repair retry),
   `failed` (no valid output). Failed runs must not silently write artifacts.
+- If the provider call or JSON-repair call raises after the row is opened, the
+  row must be closed as `validator_status='failed'`, with the exception
+  class/message recorded in `validator_errors`, so production failures do not
+  leave active `pending` traces.
 
 ### 11.8 `curation_plans`
 

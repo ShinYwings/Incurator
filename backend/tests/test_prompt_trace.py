@@ -15,14 +15,17 @@ from curator.llm import ChatMessage
 class FakeClient:
     """Minimal LLM client double. Returns queued responses in order."""
 
-    def __init__(self, responses: list[str], model: str = "fake-model") -> None:
+    def __init__(self, responses: list[str | Exception], model: str = "fake-model") -> None:
         self._responses = list(responses)
         self.model = model
         self.calls: list[list[ChatMessage]] = []
 
     def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
         self.calls.append(list(messages))
-        return self._responses.pop(0)
+        response = self._responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 @pytest.fixture()
@@ -138,3 +141,27 @@ def test_run_prompt_marks_failed_when_invented_span(db_path: Path) -> None:
     run = db.get_prompt_run(db_path, result.trace_id)
     assert run["validator_status"] == "failed"
     assert run["validator_errors"]
+
+
+def test_run_prompt_marks_trace_failed_when_client_raises(db_path: Path) -> None:
+    contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
+    client = FakeClient([RuntimeError("provider unavailable")])
+    input_obj = contract.input_model(
+        source_title="t", spans_block="s", valid_span_ids_block="SPAN-aaaa1111"
+    )
+
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        prompting.run_prompt(
+            db_path,
+            client,
+            contract,
+            input_obj,
+            validation_context={"valid_span_ids": ["SPAN-aaaa1111"]},
+        )
+
+    with db.connect(db_path) as conn:
+        rows = [dict(row) for row in conn.execute("SELECT * FROM prompt_runs")]
+    assert len(rows) == 1
+    assert rows[0]["validator_status"] == "failed"
+    assert "RuntimeError: provider unavailable" in rows[0]["validator_errors"]
+    assert rows[0]["finished_at"]

@@ -30,10 +30,12 @@ Source of Truth to identify unresolved items.
      `knowledge unit extraction failed`.
    - Repro source: `/Users/shin/shinywings/second_brain/03_Notes/Vision/MultipleViewGeometry.md`
      with Zotero PDF reference `FTW7QHWY`.
-   - Branch: `hotfix/v0.27.1-l2-extraction-failure`.
+   - Branch: `hotfix/v0.27.2-l2-terminal-pending-traces`.
    - Goal: root-cause and fix the L2 extraction failure without editing
      `03_Notes/` source truth.
-   - Status: implemented and locally validated; PR #59 open for `v0.27.1`.
+   - Status: v0.27.1 was merged but production retry still failed. v0.27.2
+     follow-up is active: fix real CLI chunk-budget fallback, close provider
+     exception prompt traces, and fail fast after terminal L2 batch errors.
 
 ### 🚀 Priority Order
 
@@ -131,9 +133,9 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: urgent L2 extraction hotfix active on
-  `hotfix/v0.27.1-l2-extraction-failure`; PR #59 is open and System Stability
-  Phase A resumes after this hotfix.
+- **Roadmap state**: urgent L2 extraction follow-up hotfix active on
+  `hotfix/v0.27.2-l2-terminal-pending-traces`; System Stability Phase A resumes
+  after this hotfix.
 - **Active Milestone**: System Stability Overhaul — Exhaustive Diagnosis &
   Refactoring.
 - **Next actionable item**: resume Phase A diagnosis at the next unfinished

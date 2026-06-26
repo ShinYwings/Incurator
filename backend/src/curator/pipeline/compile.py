@@ -237,15 +237,16 @@ def compile_source_l2(
         curate_spec_hash=curate_spec_hash,
     )
     if not ku_result.ok:
+        error_msg = "; ".join(ku_result.errors) or "knowledge unit extraction failed"
         materializer.materialize_search_documents(paths.state_db)
         db.set_source_layer_status(
             paths.state_db, source_id, "l2", "error",
-            error="; ".join(ku_result.errors) or "knowledge unit extraction failed",
+            error=error_msg,
         )
         return CompileResult(
             source_id=source_id,
             prompt_trace_ids=[ku_result.trace_id] if ku_result.trace_id else [],
-            error="knowledge unit extraction failed",
+            error=error_msg,
         )
 
     # --- Copy-on-stage staging + atomic publish (SYSTEM_BEHAVIOR §26.3) ------
