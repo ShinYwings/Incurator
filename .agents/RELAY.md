@@ -130,5 +130,17 @@ contract, and Arena file placement.
 
 **Next Action**: The workspace is perfectly clean. We are ready to begin the main **System Stability Overhaul (Phase A Diagnosis)** as outlined in the roadmap.
 
+### Update (2026-06-26, Claude Code — session 4)
+
+**v0.25.8 (PR #56)**: S2 batch fixes shipped (G07-1 ollama model selection, G07-3 no-op flag warning, G07-7 wiki status read-only, G07-8 wiki lint read-only, G17-6 deepseekApiKey security). Reviewer nit fixed: `--lex`/`--vec` now reported correctly instead of `--mode`.
+
+**v0.26.0 (PR #57)**: Cross-page PDF equation lookup + per-PDF page cache.
+- P1 Plugin: `resolveSelectionReferencesAsync` two-pass resolver — fetches unseen pages via pdf.js, upserts into BM25 index, re-resolves. `searchIndex` + `searchDocumentId` passthrough for full fog-of-war index.
+- P2 Backend: G08-1 `content_hash` lookup in `db.get_source_row`; G12-2 bounded `parse_page_window`; `.cache/pdf_pages/<hash>/<pagenum>.txt` persistent cache in `fetch_document_section`.
+- 9 backend + 9 plugin new tests, all passing. ruff/mypy clean.
+
+**ROADMAP item #7** is now implemented and open as PR #57.
+
 ### Immediate Next Action
-- Gemini: Waiting for user approval to begin Phase A (Database Integrity & Concurrency Constraints analysis).
+- Resume System Stability Phase A S2 batch (remaining items: G08-G19 S2 items per diagnosis ledger).
+- PRs to review/merge in order: #56 (v0.25.8 S2 batch), #57 (v0.26.0 cross-page PDF).
