@@ -2771,15 +2771,14 @@ def config_secret_delete(
 @app.command()
 def status(
     json_output: bool = typer.Option(False, "--json", help="Print the live status/sources/jobs payload as machine-readable JSON (used by the plugin dashboard)."),
+    refresh: bool = typer.Option(False, "--refresh", help="Re-mark completed L3 jobs and refresh the on-disk runtime snapshot cache before displaying (side-effects the vault)."),
 ) -> None:
     """Show the current wiki's stats, paths, and config."""
     paths = _resolve_root_or_die()
-    ingest_llm._mark_existing_l3_done_if_present(paths)
     config = cfg.load_config(paths)
-    # Always refresh the on-disk runtime snapshot cache (the lightweight chat
-    # status bar reads it without spawning a CLI). The dashboard instead consumes
-    # the live --json payload below so it never depends on a possibly-stale file.
-    runtime_state.write_runtime_snapshots(paths, config)
+    if refresh:
+        ingest_llm._mark_existing_l3_done_if_present(paths)
+        runtime_state.write_runtime_snapshots(paths, config)
     if json_output:
         _print_json({
             "status": runtime_state.build_status_snapshot(paths, config),
@@ -4919,6 +4918,22 @@ def query(
         _err(f"Invalid mode '{mode}'. Use hybrid, lex, or vec.")
         raise typer.Exit(code=1)
 
+    # Warn on flags that are not yet wired to the QueryOrchestrator.
+    _ORCHESTRATOR_NOOP: list[tuple[str, object]] = [
+        ("mode", "hybrid"), ("limit", 8), ("min_score", 0.6),
+        ("scope", "all"), ("no_rerank", False), ("no_intent_classify", False),
+    ]
+    _noop_used = [
+        f"--{n.replace('_', '-')}"
+        for n, default in _ORCHESTRATOR_NOOP
+        if locals().get(n) != default
+    ]
+    if _noop_used:
+        _warn(
+            f"{', '.join(_noop_used)}: these flags are not yet wired to the "
+            "QueryOrchestrator and will have no effect on retrieval."
+        )
+
     if scope not in ("all", "contexts", "atoms", "concepts", "synthesis"):
         _err(
             f"Invalid scope '{scope}'. Use all, contexts, atoms, concepts, or synthesis."
@@ -5348,28 +5363,34 @@ def lint(
         "--max-pairs",
         help="Max page pairs to check in --deep mode.",
     ),
+    refresh_manifests: bool = typer.Option(
+        False,
+        "--refresh-manifests",
+        help="Rebuild index/overview/ledger and append a log entry before linting (writes to the vault).",
+    ),
 ) -> None:
     """Lint the wiki for broken links, orphans, missing pages, and more.
 
     Fast checks (default) run entirely in Python and finish in seconds.
     Use --deep to also scan page pairs for contradictions (requires LLM).
+    Plain lint is read-only; use --fix/--save/--refresh-manifests for mutations.
     """
     paths = _resolve_root_or_die()
 
-    # Automatically refresh all manifest and log files during lint
-    from . import page_writer as _pw
-    from . import ingest_llm as _ingest
-    today = _pw.today_iso()
-    _pw.rebuild_index(paths, today)
-    _ingest._update_overview(paths)
-    _ingest._update_ledger(paths)
-    _pw.append_log_entry(
-        paths,
-        today,
-        "lint",
-        "system",
-        ["Ran wiki lint and updated all manifests"],
-    )
+    if fix or save or refresh_manifests:
+        from . import page_writer as _pw
+        from . import ingest_llm as _ingest
+        today = _pw.today_iso()
+        _pw.rebuild_index(paths, today)
+        _ingest._update_overview(paths)
+        _ingest._update_ledger(paths)
+        _pw.append_log_entry(
+            paths,
+            today,
+            "lint",
+            "system",
+            ["Ran wiki lint and updated all manifests"],
+        )
 
     # Start LLM client for --deep and/or --fix
     client = None
@@ -5681,7 +5702,8 @@ def models_use(
     else:
         _warn(f"Ollama unreachable at {target_host} — saving model without verification.")
 
-    config.setdefault("llm", {}).setdefault(consts.BACKEND_OLLAMA, {})["model"] = model
+    config.setdefault("llm", {})["primary"] = cfg.join_provider_model(consts.BACKEND_OLLAMA, model)
+    config["llm"]["primary_effort"] = ""
     cfg.save_config(paths, config)
     _ok(f"Model set to [bold]{model}[/bold] in {paths.config_file.relative_to(paths.root)}")
     _hint("Run [bold]wiki add[/bold] to start using the new model.")
