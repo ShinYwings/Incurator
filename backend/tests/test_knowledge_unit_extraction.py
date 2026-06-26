@@ -138,11 +138,35 @@ def test_failed_late_batch_leaves_no_partial_units(vault) -> None:
     assert db.list_knowledge_units_for_source(dbp, 1) == []
 
 
+def test_property_chunk_budget_is_respected(vault) -> None:
+    dbp, spans = vault
+    spans.append(_add_span(dbp, "Batch two content should be extracted separately.", "Second"))
+
+    class PropertyChunkClient(FakeClient):
+        @property
+        def optimal_chunk_chars(self) -> int:
+            return 160
+
+    client = PropertyChunkClient([_units_json(spans[0]["id"]), _units_json(spans[1]["id"])])
+    result = ku.extract_knowledge_units(
+        dbp, client, source_id=1, source_title="ResNet", spans=spans
+    )
+
+    assert result.ok, result.errors
+    assert client.calls == 2
+    assert len(db.list_knowledge_units_for_source(dbp, 1)) == 2
+
+
 def test_provider_exception_leaves_no_partial_units(vault) -> None:
     dbp, spans = vault
     spans.append(_add_span(dbp, "The provider fails on the second batch.", "Second"))
+    spans.append(_add_span(dbp, "This later batch must not be called.", "Third"))
     client = FakeClient(
-        [_units_json(spans[0]["id"]), RuntimeError("capacity exhausted")],
+        [
+            _units_json(spans[0]["id"]),
+            RuntimeError("capacity exhausted"),
+            _units_json(spans[2]["id"]),
+        ],
         optimal_chars=160,
     )
     result = ku.extract_knowledge_units(
@@ -150,7 +174,16 @@ def test_provider_exception_leaves_no_partial_units(vault) -> None:
     )
     assert not result.ok
     assert "capacity exhausted" in result.errors[0]
+    assert client.calls == 2
     assert db.list_knowledge_units_for_source(dbp, 1) == []
+    with db.connect(dbp) as conn:
+        statuses = [
+            row[0]
+            for row in conn.execute(
+                "SELECT validator_status FROM prompt_runs ORDER BY created_at"
+            )
+        ]
+    assert statuses == ["ok", "failed"]
 
 
 def test_extraction_discards_previous_unpublished_units(vault) -> None:

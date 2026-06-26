@@ -15,6 +15,7 @@ from typing import Any
 
 from .. import db, prompting
 from .claim_support import _extract_latex
+from .chunking import client_optimal_chunk_chars
 
 __all__ = [
     "GraphExtractionResult", "GraphData",
@@ -74,10 +75,7 @@ def extract_graph_data(
     if not units:
         return GraphData(ok=True)
 
-    try:
-        max_chars = int(client.optimal_chunk_chars())
-    except Exception:
-        max_chars = 60000
+    max_chars = client_optimal_chunk_chars(client)
 
     batches: list[list[dict]] = []
     current_batch: list[dict] = []

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import db, prompting
+from .chunking import client_optimal_chunk_chars
 
 __all__ = ["KnowledgeUnitResult", "extract_knowledge_units"]
 
@@ -307,10 +308,7 @@ def extract_knowledge_units(
     if not spans:
         return KnowledgeUnitResult(ok=True)
 
-    try:
-        max_chars = int(client.optimal_chunk_chars())
-    except Exception:
-        max_chars = 60000
+    max_chars = client_optimal_chunk_chars(client)
 
     from ..ingest_raw import _chunk_text
     refined_spans = []
@@ -369,8 +367,10 @@ def extract_knowledge_units(
         )
         if result.trace_id:
             last_trace_id = result.trace_id
+        if result.errors:
+            all_errors.extend(result.errors)
+            break
         pending_units.extend(result.units)
-        all_errors.extend(result.errors)
 
     if all_errors:
         return KnowledgeUnitResult(

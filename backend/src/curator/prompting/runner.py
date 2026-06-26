@@ -148,27 +148,43 @@ def run_prompt(
     )
 
     started = time.monotonic()
-    raw = client.chat(
-        rendered.messages,
-        json_mode=contract.supports_json_mode,
-        temperature=contract.temperature,
-    )
-    parsed = _parse(contract, raw)
-    validation = _validate(contract, raw, parsed, vctx)
+    raw = ""
     retry_count = 0
-
-    if not validation.ok and contract.retry_policy == "json_repair_once":
-        retry_count = 1
-        repair_messages = [*rendered.messages, *_repair_message(raw, validation.errors)]
-        raw2 = client.chat(
-            repair_messages,
+    try:
+        raw = client.chat(
+            rendered.messages,
             json_mode=contract.supports_json_mode,
             temperature=contract.temperature,
         )
-        parsed2 = _parse(contract, raw2)
-        validation2 = _validate(contract, raw2, parsed2, vctx)
-        # Keep the repair attempt; it is the model's best/last word.
-        raw, parsed, validation = raw2, parsed2, validation2
+        parsed = _parse(contract, raw)
+        validation = _validate(contract, raw, parsed, vctx)
+
+        if not validation.ok and contract.retry_policy == "json_repair_once":
+            retry_count = 1
+            repair_messages = [*rendered.messages, *_repair_message(raw, validation.errors)]
+            raw2 = client.chat(
+                repair_messages,
+                json_mode=contract.supports_json_mode,
+                temperature=contract.temperature,
+            )
+            parsed2 = _parse(contract, raw2)
+            validation2 = _validate(contract, raw2, parsed2, vctx)
+            # Keep the repair attempt; it is the model's best/last word.
+            raw, parsed, validation = raw2, parsed2, validation2
+    except Exception as exc:
+        latency_ms = int((time.monotonic() - started) * 1000)
+        try:
+            finish_prompt_run(
+                db_path,
+                trace_id,
+                output=raw,
+                validation=ValidationResult.failed(f"{type(exc).__name__}: {exc}"),
+                retry_count=retry_count,
+                latency_ms=latency_ms,
+            )
+        except Exception:
+            pass  # DB write failure must not mask the original provider error
+        raise
 
     latency_ms = int((time.monotonic() - started) * 1000)
     finish_prompt_run(

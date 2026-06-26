@@ -382,6 +382,9 @@ def test_compile_source_l2_failed_extraction_sets_error(vault) -> None:
 
     result = compile_mod.compile_source_l2(paths, BadClient(), 1)
     assert not result.ok
+    assert result.error is not None
+    assert "L2 extraction batch 1/1" in result.error
+    assert "output did not parse into the declared model" in result.error
     assert _layer_status(paths, 1, "l2") == "error"
     assert db.list_knowledge_units_for_source(paths.state_db, 1) == []
     docs = db.list_search_documents(paths.state_db)

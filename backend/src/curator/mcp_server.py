@@ -3278,6 +3278,8 @@ def build_server() -> FastMCP:
             res = QueryOrchestrator(paths, client).run(
                 QueryRequest(question=query, workspace_path=workspace_path, mode="explore")
             )
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         finally:
             try:
                 client.close()
@@ -3342,6 +3344,8 @@ def build_server() -> FastMCP:
                 workspace_id=Path(workspace_path).name if workspace_path else "",
             )
             classification = bpc.classify_feedback(paths.state_db, event, client)
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         finally:
             try:
                 client.close()

@@ -334,8 +334,9 @@ Sub-agent model:
 - L2 sub-agent extracts Atoms section-by-section or batch-by-batch. When a CTX
   exceeds one section-aware batch and the client can be cloned safely, batches may
   run in parallel with independent client instances. Batch size must respect the
-  active LLM client's `optimal_chunk_chars` cap, bounded by the system maximum,
-  so CLI-backed models are not given oversized extraction prompts. Codex CLI is
+  active LLM client's `optimal_chunk_chars` cap, whether the client exposes that
+  budget as a property or as a method, bounded by the system maximum, so
+  CLI-backed models are not given oversized extraction prompts. Codex CLI is
   clone-safe for independent batch calls and uses a conservative chunk budget so
   large PDFs do not enter one long `codex exec` request. If a large-source L2
   batch fails prompt validation after the prompt runner's repair retry, the L2
@@ -361,7 +362,9 @@ Batch Atom extraction (`_extract_atoms_from_chunk`) relies on the LLM adhering t
    batches split by approximate character weight; a single very large span may
    split into overlapping text slices that still cite the same source span.
    Successfully validated retry slices are held in memory until the whole source
-   extraction succeeds.
+   extraction succeeds. If a top-level L2 batch returns an unrecoverable error,
+   the extractor stops immediately instead of running later batches whose output
+   cannot be published.
 3. **No Partial L2 Publish**: L2 knowledge-unit rows and claim-support rows must
    be persisted only after every batch, including retry slices, validates. If any
    slice remains invalid, the source L2 layer is marked `error` with failed
@@ -370,18 +373,23 @@ Batch Atom extraction (`_extract_atoms_from_chunk`) relies on the LLM adhering t
    generation-less knowledge units left by older failed runs before prompting,
    because those rows were never authoritative and must not block the new
    publish gate. Retired generation-less rows remain audit history.
-4. **Deterministic L1-Candidate Fallback**: If batch extraction ultimately
+4. **Closed Prompt Traces on Provider Exceptions**: Once a prompt run row is
+   opened, any provider exception, timeout, capacity error, or repair-call
+   exception must close that `PTR-` as `validator_status='failed'` with the
+   exception class/message in `validator_errors`. L2 must not leave active
+   `pending` prompt traces for failed provider calls.
+5. **Deterministic L1-Candidate Fallback**: If batch extraction ultimately
    fails with an `LLMError`, the orchestrator may create low-confidence L2 Atoms
    directly from the English L1 `Atom Candidates` and `Source Guide` provenance.
    These fallback Atoms must include the closest section id/page when available
    and must use low confidence so later LLM-backed retries or human review can
    supersede them.
-5. **Deterministic L3 Fallback Concepts**: If L3 clustering or L3 Concept
+6. **Deterministic L3 Fallback Concepts**: If L3 clustering or L3 Concept
    drafting fails after L2 Atoms exist, the build may create low-confidence
    deterministic fallback Concepts that group related Atoms by source context.
    This keeps L3 coverage and provenance available while clearly marking the
    Concept as needing later LLM or human review.
-6. **Legacy Sequential Fallback**: Older extraction paths may still attempt
+7. **Legacy Sequential Fallback**: Older extraction paths may still attempt
    candidate-by-candidate LLM calls, but they must not be the only resilience
    mechanism for provider failures because they multiply the same failing LLM
    dependency.

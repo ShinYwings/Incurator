@@ -17,8 +17,10 @@ class FakeClient:
     def __init__(self, responses: list[str], model: str = "fake") -> None:
         self._responses = list(responses)
         self.model = model
+        self.calls = 0
 
     def chat(self, messages: list[ChatMessage], *, json_mode=False, temperature=0.3) -> str:
+        self.calls += 1
         return self._responses.pop(0)
 
 
@@ -102,6 +104,37 @@ def test_empty_units_is_noop(dbp: Path) -> None:
     )
     assert result.ok
     assert result.entity_ids == {}
+
+
+def test_property_chunk_budget_is_respected(dbp: Path) -> None:
+    units = [
+        {
+            "id": "KNU-1",
+            "unit_type": "claim",
+            "statement": "A" * 480,
+            "source_span_ids": ["SPAN-1"],
+        },
+        {
+            "id": "KNU-2",
+            "unit_type": "claim",
+            "statement": "B" * 480,
+            "source_span_ids": ["SPAN-1"],
+        },
+    ]
+
+    class PropertyChunkClient(FakeClient):
+        @property
+        def optimal_chunk_chars(self) -> int:
+            return 1000
+
+    client = PropertyChunkClient([_graph_json(), _graph_json()])
+    result = graph_index.extract_graph_data(
+        dbp, client, units=units, valid_span_ids=["SPAN-1"]
+    )
+
+    assert result.ok
+    assert client.calls == 2
+
 
 def test_chunking_large_unit_is_truncated(dbp: Path) -> None:
     from copy import deepcopy

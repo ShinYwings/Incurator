@@ -442,8 +442,12 @@ What this means in practice:
 - **No partial builds**: a compile that fails midway publishes nothing — your
   previous knowledge, projections, and search index keep serving untouched.
   For large PDFs or long Markdown files, L2 retries failed extraction batches as
-  smaller source-span-preserving batches before giving up. If any narrowed batch
-  still fails validation, the run publishes no newly extracted L2 units.
+  smaller source-span-preserving batches before giving up. L2 uses the active
+  model's declared safe chunk budget for these batches, including CLI models
+  that expose that budget as a property. If any narrowed batch still fails
+  validation or the provider raises a capacity/timeout error, the run stops at
+  that batch, records the failed prompt trace, and publishes no newly extracted
+  L2 units.
   Re-running an unchanged build does not duplicate or mutate anything.
 - **Generated L2 stays English**: `wiki build` validates generated Atom names and
   statements programmatically. If a model writes Korean or another non-English

@@ -470,6 +470,8 @@ before any patch and protects source truth:
 
 Every LLM call is a registered, versioned prompt contract that records a
 `prompt_runs` (`PTR-`) trace (model, validator status, input/output hashes).
+If the provider call raises after the trace is opened, the trace is closed as
+`failed` with the exception recorded instead of remaining `pending`.
 Inspect with `wiki prompt list|show|trace|eval` or MCP `curator_get_prompt_trace`.
 Every query records a `QTR-` trace linking its route, evidence, and prompt runs.
 
