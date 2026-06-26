@@ -29,6 +29,31 @@ All notable changes to Incurator are documented here.
 - **G12-2: `parse_page_window` bounded parse.** `pymupdf4llm.to_markdown` is now
   called with `pages=[n-1 for n in page_nums]` so only the requested pages are
   decoded, avoiding a full-document load for single-page cross-reference lookups.
+## [0.25.8] - 2026-06-26
+### Fixed
+- **G07-1: `wiki config models use` for Ollama.** The command now writes
+  `llm.primary = "ollama::<tag>"` (the canonical format read by all code paths)
+  instead of the nested `llm.ollama.model` key that is stripped by
+  `_migrate_llm_config` on every load — meaning the selection previously had no
+  effect.
+- **G07-3: `wiki query` no-op flags now warn.** `--mode`, `--lex`, `--vec`,
+  `--limit`, `--min-score`, `--no-rerank`, `--scope`, and `--no-intent-classify`
+  are not yet wired to the QueryOrchestrator. Passing any of them now prints a
+  yellow warning instead of silently accepting a flag that has no effect on
+  retrieval.
+- **G07-7: `wiki status` is now read-only by default.** The command no longer
+  calls `_mark_existing_l3_done_if_present` or `write_runtime_snapshots` on a
+  plain diagnostic invocation. Pass `--refresh` to run those side-effects
+  (re-marks stale L3 jobs and refreshes the on-disk runtime snapshot cache).
+- **G07-8: `wiki lint` is now read-only by default.** The command no longer
+  rebuilds the index, overview, ledger, or appends a log entry unless `--fix`,
+  `--save`, or the new `--refresh-manifests` flag is passed.
+- **G17-6: `deepseekApiKey` no longer persisted in `data.json`.** The key was
+  being saved wholesale with all plugin settings, leaking it to Obsidian Sync and
+  any git-tracked vault (PLUGIN_SCHEMA §2.4). All `saveData` call sites now route
+  through `_persistableSettings()`, which strips `deepseekApiKey` before
+  persisting. On load, the key is restored from the `DEEPSEEK_API_KEY` environment
+  variable if present.
 
 ## [0.25.7] - 2026-06-26
 ### Fixed
