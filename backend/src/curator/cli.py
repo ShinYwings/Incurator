@@ -5424,7 +5424,7 @@ def lint(
         def _lint_cb(node_id: str):
             console.print(f"  [dim]Linting {node_id}...[/dim]", end="\r")
 
-        report = lint_module.run_lint(paths, deep=deep, client=client, progress_callback=_lint_cb)
+        report = lint_module.run_lint(paths, deep=deep, client=client, progress_callback=_lint_cb, apply_flags=fix)
         console.print(" " * 60, end="\r")
 
         # Auto-fix: LLM relinking first, then deterministic non-destructive fixes.
@@ -5455,13 +5455,14 @@ def lint(
     if save:
         import uuid as _uuid
         today = lint_module.page_writer.today_iso()
-        cur_id = f"SYN-lint-{today}-{_uuid.uuid4().hex[:4]}"
-        target_path = paths.synthesis / f"{cur_id}.md"
+        cur_id = f"lint-{today}-{_uuid.uuid4().hex[:4]}"
+        reports_dir = paths.internal / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        target_path = reports_dir / f"{cur_id}.md"
         content = lint_module.render_report_markdown(report, paths)
-        lint_module.page_writer.write_page(target_path, content)
-        lint_module.page_writer.rebuild_index(paths, today)
+        target_path.write_text(content, encoding="utf-8")
         console.print()
-        _ok(f"Saved report to [cyan]{consts.LAYER_L4}/{cur_id}.md[/cyan]")
+        _ok(f"Saved report to [cyan].curator/reports/{cur_id}.md[/cyan]")
 
     # Exit code: 1 if there are errors, 0 otherwise (for CI use)
     if report.errors:

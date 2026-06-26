@@ -40,6 +40,18 @@ describe("Incurator dashboard backend boundary", () => {
     expect(source).toContain("runWikiCommand([\"jobs\", \"rerun\"");
   });
 
+  it("clears the Jobs poller on close and before replacing it", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    expect(source).toMatch(
+      /onClose\(\)[\s\S]*?if \(this\.jobsTimer\) \{[\s\S]*?window\.clearInterval\(this\.jobsTimer\);[\s\S]*?this\.jobsTimer = null;[\s\S]*?\}/
+    );
+    expect(source).toContain('if (id !== "jobs" && this.jobsTimer)');
+    expect(source).toContain('if (this.jobsTimer) { window.clearInterval(this.jobsTimer); this.jobsTimer = null; }');
+    expect(source).not.toContain("if (this.jobsTimer !== null)");
+  });
+
   it("does not hide Syncthing-only remote devices in the dashboard", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
