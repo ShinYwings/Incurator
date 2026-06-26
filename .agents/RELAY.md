@@ -141,5 +141,17 @@ contract, and Arena file placement.
 
 **ROADMAP item #7** implemented and merged as PR #57. Master is now at v0.26.0.
 
+### Update (2026-06-26, Claude Code — session 5)
+
+**v0.27.0 (PR #58)**: S2 correctness batch — lint, MCP, model effort, dashboard poller.
+- G08-6: `curator_build_all`/`curator_sync` now use `with build_client()` (client leak)
+- G11-8: `check_cross_layer_links` emitted `dataclasses.field` fn instead of field name string
+- G11-9: `wiki lint --save` wrote invalid L4 pages → now `type: lint_report` to `.curator/reports/`
+- G11-10: `check_contradictions_deep` was not read-only by default → gated on `apply_flags=False`
+- G14-5: `syncReasoningControl` computed valid effort but didn't persist it → now saves setting
+- G15-6: Dashboard Jobs tab stacked `setInterval` pollers → cleared before re-entry
+- 7 new backend tests. ruff/mypy/pytest(1066)/vitest(597) green.
+
 ### Immediate Next Action
-- Resume System Stability Phase A — S2 batch (remaining G08-G19 items from diagnosis ledger).
+- Await PR #58 merge, then continue Phase A S2 batch (remaining G09-G19 items from diagnosis ledger).
+- Next candidates: G09 (llm/prompts), G10 (config/runtime), G13 (plugin-agent), G14 remaining.
