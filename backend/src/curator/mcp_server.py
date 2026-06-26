@@ -1100,6 +1100,8 @@ def build_server() -> FastMCP:
             except OSError:
                 missing_pages = pages_needed
                 cached_pages = {}
+            # Snapshot pages that were already in cache before any fetch.
+            hit_pages: set[int] = set(cached_pages.keys())
             if missing_pages:
                 from .parsers.pdf import parse_page_window
                 fetched_pages = parse_page_window(source_path_obj, missing_pages)
@@ -1133,7 +1135,7 @@ def build_server() -> FastMCP:
                     if not missing_pages
                     else "pdf_page_cache_partial"
                 ),
-                "cache_hits": sorted(cached_pages.keys() - missing_pages),
+                "cache_hits": sorted(hit_pages),
                 "cache_misses": sorted(missing_pages),
             }
 

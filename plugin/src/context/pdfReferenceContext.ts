@@ -132,12 +132,13 @@ export async function resolveSelectionReferencesAsync(
 
   if (missingPages.size === 0) return pass1;
 
-  // Fetch missing pages in parallel
+  // Fetch missing pages in parallel; individual failures yield null, not a rejection.
   const fetched = await Promise.all(
-    Array.from(missingPages).map(async (pageNum) => {
-      const text = await fetchPageText(pageNum);
-      return text ? { pageNum, text } : null;
-    })
+    Array.from(missingPages).map((pageNum) =>
+      fetchPageText(pageNum)
+        .then((text) => (text ? { pageNum, text } : null))
+        .catch(() => null)
+    )
   );
 
   let changed = false;
@@ -149,7 +150,15 @@ export async function resolveSelectionReferencesAsync(
     changed = true;
   }
 
-  if (!changed) return pass1;
+  if (!changed) {
+    // No page text was fetched; suppress any refs whose snippet is empty so the
+    // LLM doesn't receive a resolved-looking reference with no content.
+    return pass1.map((r) =>
+      r.method !== "unresolved" && r.targetPage !== undefined && !pageTextMap.has(r.targetPage)
+        ? { ...r, method: "unresolved" as const }
+        : r
+    );
+  }
 
   // Pass 2: re-resolve with enriched index + page text
   return resolveReferences(refs, buildCtx());

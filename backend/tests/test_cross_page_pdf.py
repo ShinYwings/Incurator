@@ -105,6 +105,35 @@ class TestParsePageWindowBounded:
             result = parse_page_window(Path("nonexistent.pdf"), {1})
         assert result == {}
 
+    def test_out_of_range_pages_clamped_before_pymupdf(self) -> None:
+        """Out-of-range page numbers are dropped before calling pymupdf4llm so a
+        valid page in the same batch is not silently lost due to an exception."""
+        fake_chunks = [{"metadata": {"page_number": 2}, "text": "valid page text"}]
+        mock_pymupdf = self._make_fake_pymupdf(fake_chunks)
+        # Fake fitz to report 3 pages; request pages {2, 999}.
+        mock_doc = MagicMock()
+        mock_doc.__enter__ = lambda s: s
+        mock_doc.__exit__ = MagicMock(return_value=False)
+        mock_doc.page_count = 3
+        mock_fitz = MagicMock()
+        mock_fitz.open.return_value = mock_doc
+        with (
+            patch.dict("sys.modules", {"pymupdf4llm": mock_pymupdf, "fitz": mock_fitz}),
+            patch("curator.parsers.pdf._chunk_page_number", return_value=2),
+        ):
+            from curator.parsers import pdf as pdf_mod
+            import importlib
+            importlib.reload(pdf_mod)
+            result = pdf_mod.parse_page_window(Path("dummy.pdf"), {2, 999})
+
+        # Only page 2 (valid) should be passed to pymupdf4llm; page 999 must be excluded.
+        call_kwargs = mock_pymupdf.to_markdown.call_args
+        passed_pages = call_kwargs.kwargs.get("pages") or []
+        assert 998 not in passed_pages, "page 999 (0-based 998) must be excluded by clamping"
+        assert 1 in passed_pages, "page 2 (0-based 1) must be included"
+        assert len(passed_pages) == 1, "only one valid page forwarded"
+        assert 2 in result
+
 
 # ─── Page cache: standalone cache logic ──────────────────────────────────────
 

@@ -466,8 +466,10 @@ export class QuickQueryPopover {
     // Async cross-page resolution: fetch any pages not yet in the window before
     // building the LLM messages. Falls back to sync inline resolution when the
     // PDF is not open or the fetch returns nothing.
-    const resolvedReferencesBlock = activeContext?.pdfPage
-      ? await resolveSelectionReferencesBlockAsync(
+    let resolvedReferencesBlock: string | undefined;
+    if (activeContext?.pdfPage) {
+      try {
+        resolvedReferencesBlock = await resolveSelectionReferencesBlockAsync(
           this.capturedSelection,
           {
             ...activeContext.pdfPage,
@@ -475,8 +477,12 @@ export class QuickQueryPopover {
             searchDocumentId: this.plugin.getActivePdfDocumentId(),
           },
           (pageNum) => this.plugin.fetchActivePdfPage(pageNum)
-        )
-      : undefined;
+        );
+      } catch {
+        // Cross-page resolution failed; fall back to sync inline resolution via buildQuickQueryContextMessages.
+        resolvedReferencesBlock = undefined;
+      }
+    }
 
     const messages = buildQuickQueryContextMessages({
       selectedText: this.capturedSelection,
