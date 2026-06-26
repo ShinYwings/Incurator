@@ -4,6 +4,23 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.27.2] - 2026-06-26
+### Fixed
+- **Large PDF L2 extraction could still use unsafe 60k prompt batches with CLI
+  providers.** L2 and graph extraction now accept `optimal_chunk_chars` whether
+  a client exposes it as a property or a method, so CLI providers such as
+  Antigravity use their conservative chunk budgets instead of silently falling
+  back to 60k-character batches.
+- **Provider exceptions left `prompt_runs` rows stuck in `pending`.** Prompt
+  traces now close as `failed` with the provider exception recorded when the
+  initial call or JSON-repair call raises, making capacity/timeouts diagnosable.
+- **L2 continued running later batches after a fatal batch error.** The
+  top-level L2 loop now fails fast after the first unrecoverable batch, avoiding
+  wasted LLM calls and preserving the detailed batch/span/provider error in the
+  source and job state.
+
+---
+
 ## [0.27.1] - 2026-06-26
 ### Fixed
 - **Large PDF/Markdown L2 extraction could run for hours and then fail with

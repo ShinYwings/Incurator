@@ -34,8 +34,9 @@ Source of Truth to identify unresolved items.
    - Goal: root-cause and fix the L2 extraction failure without editing
      `03_Notes/` source truth.
    - Status: v0.27.1 was merged but production retry still failed. v0.27.2
-     follow-up is active: fix real CLI chunk-budget fallback, close provider
-     exception prompt traces, and fail fast after terminal L2 batch errors.
+     follow-up fixes real CLI chunk-budget fallback, closes provider exception
+     prompt traces, and fails fast after terminal L2 batch errors. Draft PR #60
+     is open for review.
 
 ### 🚀 Priority Order
 
@@ -133,9 +134,9 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: urgent L2 extraction follow-up hotfix active on
-  `hotfix/v0.27.2-l2-terminal-pending-traces`; System Stability Phase A resumes
-  after this hotfix.
+- **Roadmap state**: urgent L2 extraction follow-up hotfix open as draft PR #60
+  on `hotfix/v0.27.2-l2-terminal-pending-traces`; System Stability Phase A
+  resumes after this hotfix.
 - **Active Milestone**: System Stability Overhaul — Exhaustive Diagnosis &
   Refactoring.
 - **Next actionable item**: resume Phase A diagnosis at the next unfinished

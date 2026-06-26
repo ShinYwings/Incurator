@@ -3,6 +3,7 @@
 **STATUS: ACTIVE HOTFIX - v0.27.2 follow-up for large PDF L2 extraction.**
 
 **Branch**: `hotfix/v0.27.2-l2-terminal-pending-traces`
+**PR**: https://github.com/ShinYwings/Incurator/pull/60
 **Previous PR**: #59 (`v0.27.1`) was merged but did not fully resolve the
 production PDF.
 
@@ -54,10 +55,15 @@ the Zotero-backed PDF referenced from
 - `compile_source_l2()` now returns the detailed extraction error instead of
   collapsing it to `knowledge unit extraction failed`.
 - Updated tests, docs, changelog, versions, and roadmap for `v0.27.2`.
+- Pushed branch and opened draft PR #60.
 
 ## Validation So Far
 
-- `scripts/backend-check pytest backend/tests/test_knowledge_unit_extraction.py backend/tests/test_prompt_trace.py backend/tests/test_compile_pipeline.py backend/tests/test_entity_relation_extraction.py`: 32 passed.
+- `scripts/backend-check ruff`: passed.
+- `scripts/backend-check mypy`: passed, 98 source files.
+- `scripts/backend-check pytest`: 1079 passed, 6 skipped, 5 xfailed, 7 warnings.
+- `npx vitest run -c ./vitest.config.ts` from `plugin/`: 60 files / 598 tests passed.
+- `VAULT_ROOT=testbed PYTHONPATH=backend/src .venv-dev/bin/python -m curator.cli status`: passed.
 - Production diagnostic retry with patched local code:
   - source id 27 remains L2 error due external Antigravity 429 capacity.
   - job #37 is queued for retry with retry_count=1 and detailed error.
@@ -77,6 +83,6 @@ the Zotero-backed PDF referenced from
 
 ## Immediate Next Action
 
-Run full local validation (`pytest`, `ruff`, `mypy`, plugin vitest, testbed
-status), commit as `fix(pipeline): close failed prompt traces and honor chunk budgets`,
-then release commit `chore(release): v0.27.2`, push, and open PR.
+Human review/merge PR #60. After v0.27.2 is installed and Antigravity capacity
+is available or a fallback LLM is configured, retry production job #37/source
+#27 with the patched backend.
