@@ -4919,15 +4919,25 @@ def query(
         raise typer.Exit(code=1)
 
     # Warn on flags that are not yet wired to the QueryOrchestrator.
-    _ORCHESTRATOR_NOOP: list[tuple[str, object]] = [
-        ("mode", "hybrid"), ("limit", 8), ("min_score", 0.6),
-        ("scope", "all"), ("no_rerank", False), ("no_intent_classify", False),
-    ]
-    _noop_used = [
-        f"--{n.replace('_', '-')}"
-        for n, default in _ORCHESTRATOR_NOOP
-        if locals().get(n) != default
-    ]
+    # --lex/--vec mutate `mode` before this point, so check them explicitly
+    # and only report --mode when neither shortcut was used.
+    _noop_used: list[str] = []
+    if lex:
+        _noop_used.append("--lex")
+    elif vec:
+        _noop_used.append("--vec")
+    elif mode != "hybrid":
+        _noop_used.append("--mode")
+    if limit != 8:
+        _noop_used.append("--limit")
+    if min_score != 0.6:
+        _noop_used.append("--min-score")
+    if no_rerank:
+        _noop_used.append("--no-rerank")
+    if scope != "all":
+        _noop_used.append("--scope")
+    if no_intent_classify:
+        _noop_used.append("--no-intent-classify")
     if _noop_used:
         _warn(
             f"{', '.join(_noop_used)}: these flags are not yet wired to the "

@@ -89,8 +89,10 @@ class TestQueryNoopFlagWarning:
 
     def test_noop_flag_check_present_in_query_source(self) -> None:
         src = self._query_command_source()
-        assert "_ORCHESTRATOR_NOOP" in src, "G07-3: _ORCHESTRATOR_NOOP check must exist in query command"
         assert "_noop_used" in src
+        # --lex/--vec reported explicitly, not via mode mutation
+        assert '"--lex"' in src or "'--lex'" in src
+        assert '"--vec"' in src or "'--vec'" in src
         assert "not yet wired" in src or "no effect" in src
 
 
