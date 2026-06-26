@@ -148,6 +148,7 @@ def run_prompt(
     )
 
     started = time.monotonic()
+    raw = ""
     retry_count = 0
     try:
         raw = client.chat(
@@ -176,7 +177,7 @@ def run_prompt(
             finish_prompt_run(
                 db_path,
                 trace_id,
-                output="",
+                output=raw,
                 validation=ValidationResult.failed(f"{type(exc).__name__}: {exc}"),
                 retry_count=retry_count,
                 latency_ms=latency_ms,

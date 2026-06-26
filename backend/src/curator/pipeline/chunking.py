@@ -6,10 +6,9 @@ from typing import Any
 
 
 def client_optimal_chunk_chars(client: Any, default: int = 60000) -> int:
-    """Return a client's chunk budget whether exposed as a method or property."""
-    try:
-        value = getattr(client, "optimal_chunk_chars")
-    except Exception:
+    # Accept both @property (production clients) and regular method (test doubles).
+    value: Any = getattr(client, "optimal_chunk_chars", None)
+    if value is None:
         return default
     try:
         return int(value() if callable(value) else value)

@@ -10,6 +10,7 @@ import pytest
 
 from curator import db, prompting
 from curator.llm import ChatMessage
+from curator.prompting.trace import hash_prompt_output
 
 
 class FakeClient:
@@ -192,3 +193,31 @@ def test_run_prompt_original_exception_survives_trace_write_failure(
             input_obj,
             validation_context={"valid_span_ids": ["SPAN-aaaa1111"]},
         )
+
+
+def test_run_prompt_trace_records_first_response_when_repair_call_raises(
+    db_path: Path,
+) -> None:
+    """When the repair call raises, the trace must record the first response, not empty."""
+    contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
+    first_raw = "NOT_JSON_BUT_REAL_RESPONSE"
+    # First call returns invalid JSON → triggers repair; second call raises.
+    client = FakeClient([first_raw, RuntimeError("repair call failed")])
+    input_obj = contract.input_model(
+        source_title="t", spans_block="s", valid_span_ids_block="SPAN-aaaa1111"
+    )
+
+    with pytest.raises(RuntimeError, match="repair call failed"):
+        prompting.run_prompt(
+            db_path,
+            client,
+            contract,
+            input_obj,
+            validation_context={"valid_span_ids": ["SPAN-aaaa1111"]},
+        )
+
+    with db.connect(db_path) as conn:
+        rows = [dict(row) for row in conn.execute("SELECT * FROM prompt_runs")]
+    assert len(rows) == 1
+    assert rows[0]["validator_status"] == "failed"
+    assert rows[0]["output_hash"] == hash_prompt_output(first_raw)
