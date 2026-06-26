@@ -1,7 +1,7 @@
 # Active Relay State
 
 **STATUS: ACTIVE - System Stability Phase A is in progress. PR #58 (`v0.27.0`)
-has review follow-up edits validated locally and ready to commit/push.**
+review follow-ups are locally validated and ready for human review after push/CI.**
 
 **Branch**: `feature/system-stability-phase-a`
 
@@ -49,20 +49,17 @@ Already shipped before this handoff:
   leaks, lint field-name output, `wiki lint --save`, deep contradiction
   read-only behavior, model effort persistence, and dashboard Jobs poller cleanup.
 
-Current local uncommitted review follow-up for PR #58:
+PR #58 review follow-ups addressed:
 
-- `.agents/RELAY.md` rewritten by this handoff.
-- `backend/src/curator/lint.py`: `run_lint(..., apply_flags=False)` now threads
-  `apply_flags` into `check_contradictions_deep`.
-- `backend/src/curator/cli.py`: `wiki lint --fix` passes `apply_flags=fix`, so
-  contradiction flag write-back is enabled only for explicit fix runs.
-- `backend/tests/test_stability_phase_a_s2b.py`: adds two regression tests for
-  `run_lint` apply-flag threading.
-- `plugin/src/ui/chatSidebar.ts`: model/effort normalization now persists only on
-  explicit model/provider changes, saving model and effort together without an
-  unawaited `saveSettings()` from display sync.
+- `9f67fd7`: threaded `run_lint(..., apply_flags=...)` into
+  `check_contradictions_deep`, made `wiki lint --fix` the only CLI path that
+  writes contradiction flags, and fixed ChatSidebar model/effort persistence so
+  display sync does not call unawaited `saveSettings()`.
+- `5d4b191`: changed dashboard Jobs/model-load timer cleanup to truthy guards
+  with null reset on close/re-entry, and guarded contradiction flag writes
+  against missing or malformed Atom frontmatter.
 
-Validation completed on 2026-06-26:
+Validation completed on 2026-06-26 after the first review follow-up:
 
 - `scripts/backend-check pytest backend/tests/test_stability_phase_a_s2b.py`:
   9 passed.
@@ -74,10 +71,20 @@ Validation completed on 2026-06-26:
   passed.
 - `scripts/backend-check pytest`: 1068 passed, 6 skipped, 5 xfailed, 7 warnings.
 
+Validation completed on 2026-06-26 after `5d4b191`:
+
+- `scripts/backend-check pytest backend/tests/test_stability_phase_a_s2b.py`:
+  10 passed.
+- `scripts/backend-check ruff`: passed.
+- `scripts/backend-check mypy`: passed, 97 source files.
+- `npx vitest run -c ./vitest.config.ts src/ui/incuratorDashboardModal.test.ts`
+  from `plugin/`: 1 file / 18 tests passed.
+- `npx vitest run -c ./vitest.config.ts` from `plugin/`: 60 files / 598 tests
+  passed.
+- `scripts/backend-check pytest`: 1069 passed, 6 skipped, 5 xfailed, 7 warnings.
+
 ## Critical Context / Blockers
 
-- Do not revert the uncommitted code changes; they predate this relay update and
-  are part of the PR #58 review follow-up.
 - Because code changed after the existing `chore(release): v0.27.0` commit,
   preserve the workflow expectation that the final release commit is last before
   opening/updating the PR. Use a deliberate commit strategy rather than leaving a
@@ -88,8 +95,9 @@ Validation completed on 2026-06-26:
 
 ## Immediate Next Action
 
-1. Commit/push the review follow-up to PR #58 while keeping release-commit order
-   compliant.
-2. After PR #58 merges, reconcile `.agents/plans/diagnosis/INDEX.md` with the
+1. Add/push final `chore(release): v0.27.0` marker at the branch tip if not
+   already present after this relay update.
+2. Human reviews PR #58; merge when GitHub CI is green.
+3. After PR #58 merges, reconcile `.agents/plans/diagnosis/INDEX.md` with the
    shipped Phase A batches, then continue remaining S2 work from G09/G10/G13/G14
    and later groups.
