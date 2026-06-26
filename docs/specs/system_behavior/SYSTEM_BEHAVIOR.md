@@ -337,7 +337,10 @@ Sub-agent model:
   active LLM client's `optimal_chunk_chars` cap, bounded by the system maximum,
   so CLI-backed models are not given oversized extraction prompts. Codex CLI is
   clone-safe for independent batch calls and uses a conservative chunk budget so
-  large PDFs do not enter one long `codex exec` request.
+  large PDFs do not enter one long `codex exec` request. If a large-source L2
+  batch fails prompt validation after the prompt runner's repair retry, the L2
+  extractor must retry that batch as smaller provenance-preserving sub-batches
+  before marking the source L2 layer failed.
 - L3 sub-agent clusters Atoms into Concepts. It should prefer the configured
   local embedding provider when available (for v0.3.2 search this defaults to
   llama-cpp Qwen3 embedding; Ollama and sentence-transformers/sklearn remain
@@ -352,18 +355,33 @@ Sub-agent model:
 Batch Atom extraction (`_extract_atoms_from_chunk`) relies on the LLM adhering to a strict JSON array schema. To prevent silent failures when using lightweight or unreliable models:
 
 1. **Self-Correction Loop**: If the LLM generates malformed JSON, the orchestrator catches the `JSONDecodeError` (via `LLMError`) and automatically resubmits the request to the LLM up to 2 times, appending the exact error message to prompt self-correction.
-2. **Deterministic L1-Candidate Fallback**: If batch extraction ultimately
+2. **Recursive Batch Narrowing**: If an L2 knowledge-unit batch still fails
+   validation after the prompt runner's repair retry, the extractor retries it
+   as smaller batches while preserving the original source-span ids. Multi-span
+   batches split by approximate character weight; a single very large span may
+   split into overlapping text slices that still cite the same source span.
+   Successfully validated retry slices are held in memory until the whole source
+   extraction succeeds.
+3. **No Partial L2 Publish**: L2 knowledge-unit rows and claim-support rows must
+   be persisted only after every batch, including retry slices, validates. If any
+   slice remains invalid, the source L2 layer is marked `error` with failed
+   batch/span/trace context and no newly extracted units from that run are
+   published. A fresh L2 extraction for a source must discard active
+   generation-less knowledge units left by older failed runs before prompting,
+   because those rows were never authoritative and must not block the new
+   publish gate. Retired generation-less rows remain audit history.
+4. **Deterministic L1-Candidate Fallback**: If batch extraction ultimately
    fails with an `LLMError`, the orchestrator may create low-confidence L2 Atoms
    directly from the English L1 `Atom Candidates` and `Source Guide` provenance.
    These fallback Atoms must include the closest section id/page when available
    and must use low confidence so later LLM-backed retries or human review can
    supersede them.
-3. **Deterministic L3 Fallback Concepts**: If L3 clustering or L3 Concept
+5. **Deterministic L3 Fallback Concepts**: If L3 clustering or L3 Concept
    drafting fails after L2 Atoms exist, the build may create low-confidence
    deterministic fallback Concepts that group related Atoms by source context.
    This keeps L3 coverage and provenance available while clearly marking the
    Concept as needing later LLM or human review.
-4. **Legacy Sequential Fallback**: Older extraction paths may still attempt
+6. **Legacy Sequential Fallback**: Older extraction paths may still attempt
    candidate-by-candidate LLM calls, but they must not be the only resilience
    mechanism for provider failures because they multiply the same failing LLM
    dependency.
@@ -372,8 +390,9 @@ L2 knowledge-unit extraction has an additional language contract: generated
 fields (`canonical_name`, `statement`, and the ATM projection title/body derived
 from them) must be English. Raw source spans may remain Korean or any other
 source language. Non-English generated L2 output fails validation and triggers
-the prompt runner's capped repair retry; repeated failure marks the source L2
-layer as `error` and publishes no new ATM projection.
+the prompt runner's capped repair retry and recursive batch narrowing where
+applicable; repeated failure marks the source L2 layer as `error` and publishes
+no new ATM projection.
 
 ## 7. Section-Aware Extraction
 

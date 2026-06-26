@@ -4,6 +4,19 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.27.1] - 2026-06-26
+### Fixed
+- **Large PDF/Markdown L2 extraction could run for hours and then fail with
+  `knowledge unit extraction failed`.** L2 knowledge-unit extraction now retries
+  a failed validation batch as smaller source-span-preserving batches before
+  failing the source. Validated units are held in memory until every batch and
+  retry slice succeeds, then written in one transaction with claim supports, so
+  a hard failure no longer leaves orphan or unpublished partial L2 rows behind.
+  A fresh retry also discards active generation-less units left by older failed
+  runs for that source before prompting while preserving retired audit history.
+
+---
+
 ## [0.27.0] - 2026-06-26
 ### Fixed
 - **G08-6: LLM client leak in `curator_build_all` / `curator_sync` MCP tools.**

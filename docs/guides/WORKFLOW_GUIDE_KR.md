@@ -137,7 +137,9 @@ wiki update
 > 빠르고 오프라인에서도 동작한다. `wiki build`는 깊은 L2/L3 추출을 수행하며, 기본은 MCP 서버의
 > 백그라운드 IngestWorker에 큐잉하고 `--wait`로 즉시 실행할 수 있다. L2 추출은 활성 LLM
 > 클라이언트의 prompt budget에 맞춰 section batch 크기를 정하므로, CLI 기반 provider에는
-> local high-context 모델보다 작은 prompt가 전달된다. 진행률은 `wiki status`나
+> local high-context 모델보다 작은 prompt가 전달된다. 큰 PDF나 Markdown 배치가 검증에
+> 실패하면, L2는 source-span provenance를 보존하는 더 작은 배치로 다시 시도한 뒤에
+> 소스를 실패 처리하며, 실패한 실행은 부분 L2 unit을 발행하지 않는다. 진행률은 `wiki status`나
 > `.curator/dashboard.md`로 확인한다. L4 Synthesis는 `wiki build`가 생성하며,
 > workspace curation은 별도의 staging 패스가 아니라 동적 query 렌즈입니다. eligible
 > community report가 없으면 L4 pass는 source를 pending으로 남기지 않고 `skipped`로

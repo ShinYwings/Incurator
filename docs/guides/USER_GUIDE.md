@@ -441,6 +441,9 @@ What this means in practice:
   extraction is treated as a defect, not a summary choice.
 - **No partial builds**: a compile that fails midway publishes nothing — your
   previous knowledge, projections, and search index keep serving untouched.
+  For large PDFs or long Markdown files, L2 retries failed extraction batches as
+  smaller source-span-preserving batches before giving up. If any narrowed batch
+  still fails validation, the run publishes no newly extracted L2 units.
   Re-running an unchanged build does not duplicate or mutate anything.
 - **Generated L2 stays English**: `wiki build` validates generated Atom names and
   statements programmatically. If a model writes Korean or another non-English
