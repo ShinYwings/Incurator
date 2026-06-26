@@ -893,12 +893,12 @@ def check_cross_layer_links(inv: PageInventory) -> list[LintIssue]:
                                 f"{expected_prefix} (expected {expected_id_prefix}* IDs)."
                             ),
                             suggestion=(
-                                f"Update `{field}` to reference a "
+                                f"Update `{fm_field}` to reference a "
                                 f"{expected_prefix}{expected_id_prefix}*.md page."
                             ),
                             fixable=False,
                             context={
-                                "field": field,
+                                "field": fm_field,
                                 "value": normalized,
                                 "expected_prefix": expected_prefix,
                             },
@@ -918,6 +918,7 @@ def check_contradictions_deep(
     client,  # OllamaClient
     max_pairs: int = 10,
     limit_to: Optional[list[str]] = None,
+    apply_flags: bool = False,
 ) -> list[LintIssue]:
     """Use the configured LLM to scan pairs of L2 Atom pages that share
     related concepts and flag potentially contradictory claims.
@@ -927,8 +928,10 @@ def check_contradictions_deep(
     L2 holds the irreducible factual claims; L3 Concepts and L4 Exhibitions
     derive from L2, so contradictions originate there.
 
-    When a new contradiction is found, both Atom files are updated with
-    `is_flagged_for_agent: true` so the flag persists across runs.
+    When ``apply_flags`` is True, both Atom files are updated with
+    ``is_flagged_for_agent: true`` so the flag persists across runs.
+    By default (``apply_flags=False``) the check is read-only; call with
+    ``apply_flags=True`` only through an explicit fix/apply command.
     Pairs listed in `.curator/contradiction_dismissed.json` are skipped.
     """
     from .llm import ChatMessage, LLMError
@@ -997,14 +1000,14 @@ def check_contradictions_deep(
         if not response or response.upper().startswith("NONE"):
             continue
 
-        # Write-back: persist is_flagged_for_agent to both atom files
-        for atom_id in [atom_a_id, atom_b_id]:
-            atom_path = paths.atoms / f"{atom_id}.md"
-            if atom_path.exists():
-                atom_page = page_writer.read_page(atom_path)
-                if atom_page and not atom_page.frontmatter.get("is_flagged_for_agent"):
-                    atom_page.frontmatter["is_flagged_for_agent"] = True
-                    page_writer.write_page(atom_path, atom_page.to_markdown())
+        if apply_flags:
+            for atom_id in [atom_a_id, atom_b_id]:
+                atom_path = paths.atoms / f"{atom_id}.md"
+                if atom_path.exists():
+                    atom_page = page_writer.read_page(atom_path)
+                    if atom_page and not atom_page.frontmatter.get("is_flagged_for_agent"):
+                        atom_page.frontmatter["is_flagged_for_agent"] = True
+                        page_writer.write_page(atom_path, atom_page.to_markdown())
 
         issues.append(
             LintIssue(
@@ -1486,9 +1489,7 @@ def render_report_markdown(report: LintReport, paths: cfg.WikiPaths) -> str:
     lines: list[str] = []
     lines.append("---")
     lines.append(f"title: Lint Report {today}")
-    lines.append("type: synthesis")
-    lines.append("concept_ids: []")
-    lines.append("confidence_score: 1.00")
+    lines.append("type: lint_report")
     lines.append(f"last_updated: '{today}'")
     lines.append("tags: [lint, health-check]")
     lines.append(f"health_score: {report.health_score}")

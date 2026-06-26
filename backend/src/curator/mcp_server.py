@@ -3022,11 +3022,11 @@ def build_server() -> FastMCP:
         from .llm import build_client
         paths = _resolve_paths(workspace_path)
         config_dict = cfg.load_config(paths)
-        client = build_client(config_dict)
         try:
-            results = ingest_llm.run_l1_to_l3(
-                paths, client, ingest_llm.IngestCallbacks, mode="batch"
-            )
+            with build_client(config_dict) as client:
+                results = ingest_llm.run_l1_to_l3(
+                    paths, client, ingest_llm.IngestCallbacks, mode="batch"
+                )
             return {
                 "ok": True,
                 "sources": len(results),
@@ -3044,10 +3044,9 @@ def build_server() -> FastMCP:
 
         paths = _resolve_paths(workspace_path)
         config_dict = cfg.load_config(paths)
-        client = build_client(config_dict)
-        
         try:
-            res = sync_mod.run_incremental_sync(paths, client, config_dict)
+            with build_client(config_dict) as client:
+                res = sync_mod.run_incremental_sync(paths, client, config_dict)
             return {
                 "ok": True,
                 "repaired": res.get("repaired", 0),

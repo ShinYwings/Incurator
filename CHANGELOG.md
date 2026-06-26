@@ -4,6 +4,41 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.27.0] - 2026-06-26
+### Fixed
+- **G08-6: LLM client leak in `curator_build_all` / `curator_sync` MCP tools.**
+  Both tools now use `with build_client(...) as client:` so the underlying HTTP
+  session / CLI process is always released, even when the build or sync raises.
+- **G11-8: `wiki lint` cross-layer suggestion emitted `dataclasses.field` instead
+  of the field name.** `check_cross_layer_links` used the loop variable `field`
+  (the imported function) in `suggestion` and `context["field"]`; fixed to use
+  `fm_field` (the string frontmatter key), so lint output and machine consumers
+  receive the actual field name (e.g. `concept_ids`).
+- **G11-9: `wiki lint --save` wrote reports as invalid L4 synthesis pages.**
+  Reports used `type: synthesis` with missing required L4 fields (`id`,
+  `community_report_ids`, `source_span_ids`), causing future lint runs to flag
+  their own saved reports.  Reports now use `type: lint_report` with a minimal
+  header and are written to `.curator/reports/` instead of
+  `.curator/Collections/04_Synthesis/`, so the lint inventory never ingests them.
+- **G11-10: `wiki lint --deep` mutated atom files without `--fix`.**
+  `check_contradictions_deep` wrote `is_flagged_for_agent: true` to both atom
+  files on every detected contradiction, even during a read-only audit pass.
+  The write-back is now gated on an `apply_flags=False` parameter (default
+  read-only); the flag will only be persisted when called from an explicit
+  fix/apply command.
+- **G14-5: Model change did not persist the spec-required reasoning-effort reset.**
+  `syncReasoningControl()` computed the valid effort for the newly selected model
+  but only assigned it to the UI control, leaving the persisted setting stale.
+  When the normalized value differs from the stored one it is now written back to
+  the provider-specific effort setting and `saveSettings()` is called.
+- **G15-6: Dashboard Jobs tab stacked polling intervals on re-entry.**
+  `renderJobs()` installed a new `setInterval` every time it was called (e.g.
+  cancel then re-run, repeated tab switches) without clearing any prior timer.
+  An explicit `clearInterval` guard at the start of `renderJobs()` ensures only
+  one 2-second poller is ever active.
+
+---
+
 ## [0.26.0] - 2026-06-26
 ### Added
 - **Cross-page PDF equation lookup (P1 — plugin).** The quick-query popover now

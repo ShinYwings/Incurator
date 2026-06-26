@@ -4771,7 +4771,16 @@ export class ChatSidebarView extends ItemView {
       };
       const rawVal = getOldVal();
       const val = currentModelOption.efforts.includes(rawVal) ? rawVal : (currentModelOption.defaultEffort || currentModelOption.efforts[0]);
-      
+
+      // Persist the normalized effort so the LLM client uses the correct value
+      // after a model change that invalidated the previous effort setting.
+      if (val !== rawVal) {
+        if (provider === "openai") this.plugin.settings.codexReasoningEffort = val as any;
+        else if (provider === "claude") this.plugin.settings.claudeEffort = val as any;
+        else this.plugin.settings.agentEffort = val;
+        this.plugin.saveSettings();
+      }
+
       this.reasoningSelectEl.value = val;
       this.reasoningSelectEl.show();
     } else {

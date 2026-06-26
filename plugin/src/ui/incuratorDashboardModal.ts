@@ -1199,6 +1199,7 @@ export class IncuratorDashboardModal extends Modal {
   // ---------------------------------------------------------------------------
 
   private async renderJobs(el: HTMLElement) {
+    if (this.jobsTimer !== null) { window.clearInterval(this.jobsTimer); this.jobsTimer = null; }
     const hdr = el.createDiv("ai-agent-jobs-header");
     hdr.createEl("h3", { text: "Build Jobs", cls: "ai-agent-dashboard-section-title" });
     const runBtn = hdr.createEl("button", { cls: "ai-agent-dashboard-btn" });
