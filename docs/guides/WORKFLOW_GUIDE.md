@@ -104,6 +104,10 @@ Incurator processes source documents through four levels of abstraction.
 
 ## 4. Core Workflows
 
+For exact command flags and command-by-command definitions, use the canonical
+[CLI Reference](USER_GUIDE.md#cli-reference). This guide keeps the workflow
+sequence and operational context only.
+
 ### 4-1. Source Ingestion and DAG Construction
 
 ```bash
@@ -149,10 +153,8 @@ wiki update
 
 ```bash
 # Create curate.yml in a Workspace folder (manually or via wiki workspace init)
-# Key fields in curate.yml:
-#   vault_root: /path/to/vault   ← Vault path
-#   sources.include: ["03_Notes/**", "04_Resources/**"]
-#   min_confidence: 0.70
+# Full field reference:
+#   USER_GUIDE.md#curateyml--workspace-configuration-reference
 
 # Generate a workspace-biased dynamic answer via query
 wiki query "Your query here" --workspace 01_Workspaces/MyProject

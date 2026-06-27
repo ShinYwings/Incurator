@@ -629,7 +629,9 @@ Each provider's **Authentication** row shows its current state:
   (saved in plugin)`) from one provided by the environment (`✓ Using
   DEEPSEEK_API_KEY from environment`). The saved key lives in the plugin's
   `data.json`, **not** in `.curator`, so deleting `.curator` or running
-  `wiki reset` does not clear it — use **Sign out** to remove it.
+  `wiki reset` does not clear it — use **Sign out** to remove it. The command
+  palette action **Check DeepSeek API Key** checks for either the saved plugin
+  key or `DEEPSEEK_API_KEY`; it does not launch a browser login flow.
 - **CLI providers** (Antigravity, Claude, Codex) authenticate through their own
   CLI. The plugin reports an account email only when it can read one from the
   CLI's files (Codex). Antigravity `agy` 1.0.5 keeps its session in the OS
@@ -845,7 +847,9 @@ Dashboard buttons run backend commands for mutations; the plugin does not
 directly edit backend-owned `.curator` state for those actions. The primary
 Overview action is **Update** (the one-shot `wiki update`: add → build → embed →
 sync); the granular **Add / Build / Sync / Lint / Reindex / Reset** steps live
-under an **Advanced** disclosure. LLM Apply and Persona Save persist config.
+under an **Advanced** disclosure. For exact CLI behavior and flags, use the
+canonical [CLI Reference](USER_GUIDE.md#cli-reference). LLM Apply and Persona
+Save persist config.
 
 ### Dashboard tabs (v0.3.3)
 
@@ -1038,7 +1042,9 @@ most-recently-used first (v0.21.0), so the profile you are actively working with
 sits at the top instead of being buried under older ones. A profile's recency is
 updated whenever you import an item with it (or create it). Successfully imported items are remembered
 locally in a `recentZoteroItems` LRU list so they appear before other matches in
-later Zotero searches.
+later Zotero searches. Created or updated Zotero notes also store the originating
+profile name in frontmatter as `zotero_profile`, so reload can use the same
+template and asset folder even when multiple profiles exist.
 
 Output subfolders, filenames, and asset subfolders use the same Nunjucks
 templating engine as Zotero note templates. Examples:
@@ -1058,9 +1064,11 @@ external PDF view active, **`Cmd+Shift+R`** reloads it — the same action as th
 PDF viewer's toolbar Reload button:
 
 - **Zotero note**: re-fetches the item's metadata and re-renders the note from its
-  template. Annotation region images are localized into the vault asset folder
-  using the **same** path resolution as the import wizard (`assetFolder` /
-  `assetSubfolder`, e.g. `05_Assets/.../{{citekey}}`), so reload writes
+  stamped `zotero_profile` template when present, falling back to the first saved
+  profile only for older notes without that stamp. Annotation region images are
+  localized into the vault asset folder using the **same** path resolution as the
+  selected import profile (`assetFolder` / `assetSubfolder`, e.g.
+  `05_Assets/.../{{citekey}}`), so reload writes
   **vault-relative** embeds (`![[05_Assets/...]]`) — never absolute
   `![[/Users/.../Zotero/cache/...]]` paths. If an annotation region changed in
   Zotero, its asset file is **overwritten** so the note shows the current image.
@@ -1149,6 +1157,10 @@ Falls through to the Zotero app
       ▼
 Use Cmd+Shift+L to add to chat context or trigger Incurator ingest
 ```
+
+The global `window.open` / Electron `openExternal` fallbacks are only restored on
+plugin unload if Incurator still owns those patches, so another plugin that
+patches the same openers later is preserved.
 
 ### Generating Zotero links
 
