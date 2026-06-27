@@ -106,6 +106,10 @@ Incurator는 소스 문서를 4단계 추상화 레이어로 처리합니다.
 
 ## 4. 핵심 워크플로우
 
+정확한 command flag와 명령별 정의는 canonical
+[CLI Reference](USER_GUIDE_KR.md#cli-reference)를 기준으로 합니다. 이 가이드는
+workflow 순서와 운영 맥락만 유지합니다.
+
 ### 4-1. 소스 수집 및 DAG 구축
 
 ```bash
@@ -149,10 +153,8 @@ wiki update
 
 ```bash
 # Workspace 폴더에 curate.yml 생성 (직접 또는 wiki workspace init)
-# curate.yml 핵심 필드:
-#   vault_root: /path/to/vault   ← Vault 경로
-#   sources.include: ["03_Notes/**", "04_Resources/**"]
-#   min_confidence: 0.70
+# 전체 필드 레퍼런스:
+#   USER_GUIDE_KR.md#curateyml--워크스페이스-설정-레퍼런스
 
 # 워크스페이스 KRS가 반영된 동적 답변 질의
 wiki query "질문" --workspace 01_Workspaces/MyProject

@@ -547,7 +547,7 @@ Antigravity `agy` print mode는 일반적으로 최종 답변을 stdout에 쓰�
 
 각 provider의 **Authentication** 행은 현재 상태를 보여줍니다.
 
-- **DeepSeek**은 플러그인에 저장된 키(`✓ API key configured (saved in plugin)`)와 환경 변수로 제공된 키(`✓ Using DEEPSEEK_API_KEY from environment`)를 구분합니다. 저장된 키는 플러그인 `data.json`에 있고 `.curator`에 있지 **않으므로**, `.curator` 삭제나 `wiki reset`으로는 지워지지 않습니다 — **Sign out**으로 제거하세요.
+- **DeepSeek**은 플러그인에 저장된 키(`✓ API key configured (saved in plugin)`)와 환경 변수로 제공된 키(`✓ Using DEEPSEEK_API_KEY from environment`)를 구분합니다. 저장된 키는 플러그인 `data.json`에 있고 `.curator`에 있지 **않으므로**, `.curator` 삭제나 `wiki reset`으로는 지워지지 않습니다 — **Sign out**으로 제거하세요. 명령 팔레트의 **Check DeepSeek API Key**는 저장된 플러그인 키 또는 `DEEPSEEK_API_KEY`가 보이는지 확인하며, 브라우저 로그인 흐름을 실행하지 않습니다.
 - **CLI provider**(Antigravity, Claude, Codex)는 각자의 CLI로 인증합니다. 플러그인은 CLI 파일에서 읽을 수 있을 때만(Codex) 계정 이메일을 표시합니다. Antigravity `agy` 1.0.5는 세션을 OS 키체인에 보관하고 계정 조회 명령이 없어, 플러그인은 계정을 추측하지 않고 중립적인 `agy CLI session`으로 표시합니다.
 - **Sign out**은 플러그인이 제어할 수 있는 것(캐시된 자격증명, 저장된 DeepSeek 키, 플러그인이 읽을 수 있는 자격증명 파일)을 정리합니다. CLI provider는 실제 세션을 자체 키체인/설정에 보관하므로, 완전한 로그아웃은 provider CLI(`agy`, `claude`, `codex`) 실행이 추가로 필요할 수 있습니다 — 해당되는 경우 Sign out 알림이 안내합니다.
 
@@ -748,7 +748,9 @@ dashboard 버튼은 상태 변경이 필요할 때 backend command를 실행하�
 작업을 위해 backend-owned `.curator` 상태를 직접 수정하지 않습니다. Overview의 주
 액션은 **Update**(한 번에 처리하는 `wiki update`: add → build → embed → sync)이고,
 세부 단계인 **Add / Build / Sync / Lint / Reindex / Reset**은 **Advanced** 접이식
-영역으로 옮겼습니다. LLM Apply와 Persona Save는 설정을 저장합니다.
+영역으로 옮겼습니다. 정확한 CLI 동작과 flag는 canonical
+[CLI Reference](USER_GUIDE_KR.md#cli-reference)를 기준으로 합니다. LLM Apply와
+Persona Save는 설정을 저장합니다.
 
 ### 대시보드 탭 (v0.3.3)
 
@@ -896,7 +898,7 @@ Zotero 링크나 Add-to-Incurator 작업에서 PDF를 해석하지 못하면 bac
 
 `Import Zotero Item` 검색창을 비워두면 최근 수정된 Zotero 항목을 `dateModified` 최신순으로 표시합니다. 설정값에는 여러 Zotero 데이터 디렉토리를 쉼표로 입력할 수 있으며, 플러그인은 각 경로의 `zotero.sqlite`를 순서대로 확인합니다.
 
-저장된 import profile이 있으면 wizard가 열릴 때 **가장 최근에 사용한 profile이 자동으로 로드되며**, Import Profile 드롭다운도 최근 사용 순으로 정렬됩니다(v0.21.0). 따라서 지금 작업 중인 profile이 오래된 것들에 묻히지 않고 맨 위에 옵니다. profile의 최근 사용 시각은 해당 profile로 항목을 가져올 때(또는 새로 만들 때) 갱신됩니다. 성공적으로 가져온 Zotero 항목은 로컬 `recentZoteroItems` LRU 목록에 기록되어 이후 Zotero 검색 결과에서 다른 항목보다 먼저 표시됩니다.
+저장된 import profile이 있으면 wizard가 열릴 때 **가장 최근에 사용한 profile이 자동으로 로드되며**, Import Profile 드롭다운도 최근 사용 순으로 정렬됩니다(v0.21.0). 따라서 지금 작업 중인 profile이 오래된 것들에 묻히지 않고 맨 위에 옵니다. profile의 최근 사용 시각은 해당 profile로 항목을 가져올 때(또는 새로 만들 때) 갱신됩니다. 성공적으로 가져온 Zotero 항목은 로컬 `recentZoteroItems` LRU 목록에 기록되어 이후 Zotero 검색 결과에서 다른 항목보다 먼저 표시됩니다. 생성 또는 업데이트된 Zotero 노트는 사용한 profile 이름을 frontmatter의 `zotero_profile`에 저장하므로, 여러 profile이 있어도 리로드가 같은 템플릿과 자산 폴더를 사용할 수 있습니다.
 
 출력 subfolder, filename, asset subfolder는 Zotero note template과 같은 Nunjucks 템플릿 엔진을 사용합니다. 예:
 
@@ -914,10 +916,12 @@ Zotero 노트(frontmatter에 `citekey` 또는 `zotero_app_url`이 있는 노트)
 뷰가 활성화된 상태에서 **`Cmd+Shift+R`**을 누르면 리로드됩니다 — PDF 뷰어 툴바의
 리로드 버튼과 동일한 동작입니다:
 
-- **Zotero 노트**: 항목 메타데이터를 다시 가져와 템플릿으로 노트를 다시 렌더링합니다.
-  주석(annotation) 영역 이미지는 Import Wizard와 **동일한** 경로 해석(`assetFolder` /
-  `assetSubfolder`, 예: `05_Assets/.../{{citekey}}`)으로 Vault 자산 폴더에
-  로컬라이즈되어, 리로드 시 **Vault 상대경로** 임베드(`![[05_Assets/...]]`)를
+- **Zotero 노트**: 항목 메타데이터를 다시 가져와, 가능한 경우 노트에 찍힌
+  `zotero_profile`의 템플릿으로 다시 렌더링합니다. 이 stamp가 없는 오래된 노트만 첫
+  번째 저장 profile로 fallback합니다. 주석(annotation) 영역 이미지는 선택된 import
+  profile과 **동일한** 경로 해석(`assetFolder` / `assetSubfolder`, 예:
+  `05_Assets/.../{{citekey}}`)으로 Vault 자산 폴더에 로컬라이즈되어, 리로드 시
+  **Vault 상대경로** 임베드(`![[05_Assets/...]]`)를
   씁니다 — 절대경로 `![[/Users/.../Zotero/cache/...]]`가 아닙니다. Zotero에서 주석
   영역이 바뀌었다면 해당 자산 파일을 **덮어써서** 최신 이미지를 반영합니다.
 - **외부 PDF 뷰**: 캐시된 문서를 버리고 디스크에서 PDF를 다시 읽습니다.
@@ -959,6 +963,10 @@ Zotero 앱으로 넘김
       ▼
 Cmd+Shift+L로 채팅 컨텍스트 참조, Incurator 인제스트 가능
 ```
+
+전역 `window.open` / Electron `openExternal` fallback은 플러그인 unload 시점에
+Incurator가 아직 해당 patch를 소유하고 있을 때만 복원합니다. 따라서 더 늦게 같은
+opener를 patch한 다른 플러그인의 변경은 보존됩니다.
 
 ### Zotero 링크 생성 방법
 

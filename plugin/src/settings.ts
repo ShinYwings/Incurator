@@ -28,13 +28,20 @@ function parseCommandArgs(value: string): string[] {
 
 export class AIAgentSettingTab extends PluginSettingTab {
   plugin: ObsidianAIAgent;
+  private authPollTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(app: App, plugin: ObsidianAIAgent) {
     super(app, plugin);
     this.plugin = plugin;
   }
 
+  hide(): void {
+    this.stopAuthPoll();
+    super.hide();
+  }
+
   display(): void {
+    this.stopAuthPoll();
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass("ai-agent-settings-root");
@@ -315,16 +322,11 @@ export class AIAgentSettingTab extends PluginSettingTab {
       const authBadge = authRow.settingEl.createSpan("ai-agent-auth-inline-badge");
 
       let loginBtn: HTMLButtonElement;
-      let authPollTimer: ReturnType<typeof setInterval> | null = null;
-
-      const stopAuthPoll = () => {
-        if (authPollTimer !== null) { clearInterval(authPollTimer); authPollTimer = null; }
-      };
 
       authRow.addButton((button) => {
         loginBtn = button.buttonEl;
         button.setButtonText("Login").setCta().onClick(() => {
-          stopAuthPoll();
+          this.stopAuthPoll();
           try {
             this.plugin.authResolver.startLogin(this.plugin.settings.provider);
           } catch (err: unknown) {
@@ -336,11 +338,11 @@ export class AIAgentSettingTab extends PluginSettingTab {
           authBadge.empty();
           authBadge.createSpan({ text: "⏳ Waiting for login..." });
           let tries = 0;
-          authPollTimer = setInterval(() => {
+          this.authPollTimer = setInterval(() => {
             tries++;
             this.plugin.authResolver.invalidate(this.plugin.settings.provider);
             this.renderAuthStatusInline(authBadge, loginBtn).then((ok) => {
-              if (ok || tries >= 22) stopAuthPoll();
+              if (ok || tries >= 22) this.stopAuthPoll();
             });
           }, 4000);
         });
@@ -354,7 +356,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
           .setButtonText("Sign out")
           .setWarning()
           .onClick(() => {
-            stopAuthPoll();
+            this.stopAuthPoll();
             const { note } = this.plugin.authResolver.signOut(this.plugin.settings.provider);
             new Notice(note);
             this.renderAuthStatusInline(authBadge, loginBtn);
@@ -782,6 +784,13 @@ export class AIAgentSettingTab extends PluginSettingTab {
     });
   }
 
+  private stopAuthPoll(): void {
+    if (this.authPollTimer !== null) {
+      clearInterval(this.authPollTimer);
+      this.authPollTimer = null;
+    }
+  }
+
   private renderZoteroProfile(containerEl: HTMLElement, index: number): void {
     const profile = this.plugin.settings.zoteroProfiles[index];
 
@@ -1046,31 +1055,4 @@ export class AIAgentSettingTab extends PluginSettingTab {
     return false;
   }
 
-
-  private startProviderLogin(provider: LLMProvider): void {
-    try {
-      this.plugin.authResolver.startLogin(provider);
-      new Notice(
-        `Opened ${this.providerLabel(provider)} login in your terminal.`
-      );
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      new Notice(message);
-    }
-  }
-
-  private providerLabel(provider: LLMProvider): string {
-    switch (provider) {
-      case "antigravity":
-        return "Antigravity";
-      case "claude":
-        return "Claude";
-      case "openai":
-        return "Codex";
-      case "ollama":
-        return "Ollama";
-      case "deepseek":
-        return "DeepSeek";
-    }
-  }
 }

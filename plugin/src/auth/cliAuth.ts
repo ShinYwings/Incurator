@@ -401,21 +401,6 @@ export class CLIAuthResolver {
     }
   }
 
-  private normalizeExpiry(value: number | string | undefined): number | undefined {
-    if (typeof value === "number") {
-      return value < 10_000_000_000 ? value * 1000 : value;
-    }
-    if (typeof value === "string" && value.length > 0) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) {
-        return parsed < 10_000_000_000 ? parsed * 1000 : parsed;
-      }
-      const dateMs = Date.parse(value);
-      if (Number.isFinite(dateMs)) return dateMs;
-    }
-    return undefined;
-  }
-
   private decodeJwtExpiry(token: string): number | undefined {
     const claims = this.decodeJwtClaims(token);
     return claims && typeof claims.exp === "number" ? claims.exp * 1000 : undefined;

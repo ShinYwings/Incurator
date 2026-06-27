@@ -285,46 +285,87 @@ MCP 툴은 연결된 에이전트 런타임을 자동 감지하고 동일한 세
 project: "my-project"
 description: "my-project 지식 워크스페이스"
 
-# Artist 페르소나 — wiki workspace init 마법사가 자동 생성.
-# Curator가 이 프로젝트용 동적 curation을 준비하는 방식을 제어합니다.
-persona:
-  domain: ""               # 예: "computer-vision", "biochemistry"
-  subdomain: ""            # 더 구체적인 세부 분야
-  goal: ""                 # 이 워크스페이스의 큐레이션 목표 (2~4문장)
-  output_intent: "engineer"      # researcher | engineer | learner
-  disambiguation_keywords: []    # 이 워크스페이스 특화 검색 키워드
-  confidence:
-    high_threshold: 0.85   # 이 이상 → 고신뢰도 근거
-    low_threshold: 0.55    # 이 이하 → HITL 검토 큐
-  updated_at: ""
+goal:
+  primary: "이 프로젝트 지식을 설명하고 확장합니다."
+  audience: "engineer"      # researcher | engineer | learner | writer | generalist
+  deliverables: ["curated-context"]
+  success_criteria:
+    - "모든 사실 주장은 소스 근거를 인용합니다."
 
-# 소스 선택 — vault root 기준 fnmatch 글로브.
-# include 목록이 비어 있으면 전체 소스에서 지식을 가져옵니다.
 sources:
   include: []
   #  - "03_Notes/**"
   #  - "02_Wiki/my-topic/**"
   exclude: []
+  reference_mode:
+    allow_external: true
+    require_rebind_approval: true
 
-# curation/search 결과의 최소 신뢰도 하한선.
-min_confidence: 0.60
+knowledge:
+  domains: []
+  topics: []
+  disambiguation_keywords: []
+  avoid_merges: []
+
+output:
+  format: "context-pack"
+  style: "dense-technical"
+  citation_style: "curator-source-spans"
+  include_sections: ["Evidence Map", "Synthesis", "Open Questions"]
+
+reasoning:
+  default_mode: "auto"      # auto | local | global | explore | source-section
+  allowed_modes: ["local", "global", "explore"]
+  exploration_enabled: true
+  max_followups: 5
+  require_insight_candidates: false
+
+verification:
+  min_confidence: 0.60
+  high_threshold: 0.85
+  require_source_spans: true
+  allow_general_knowledge: false
+  contradiction_policy: "surface-and-flag"
+
+backprop:
+  enabled: true
+  source_truth_policy: "never_rewrite_original_source"
+  derived_insight_policy: "record_then_promote_or_patch_generated"
+  ambiguous_merge_policy: "needs_review"
+
+prompts:
+  profile: "default"
+  output_language: "same_as_latest_request"
+  prompt_overrides: {}
 ```
 
 > **v0.3.1**: 이전 anchor 필드는 제거되었습니다 — 고정된 워크스페이스별
 > 생성 파일은 더 이상 없습니다. `curate.yml`은 이제 공유 DAG 위에서 쿼리 시점
 > 검색을 편향시키는 동적 Curation 렌즈를 구동합니다.
+>
+> 워크스페이스 Artist 페르소나 도구는 prompt 편집을 위해 여전히 `persona:` 블록을
+> 관리할 수 있지만, 실행 가능한 curation policy는 위의 구조화된 KRS 섹션에서
+> 컴파일됩니다.
 
 **주요 필드:**
 
 | 필드 | 설명 |
 | ---- | ---- |
-| `persona.output_intent` | `researcher` — 검증할 가설; `engineer` — 구현 단계; `learner` — 복습할 개념 |
-| `persona.confidence` | 워크스페이스별 신뢰도 임계값 (vault 전역 설정을 덮어씀) |
-| `sources.include` | 이 워크스페이스에 공급할 vault 파일 범위 (비어 있으면 전체) |
-| `min_confidence` | curation lens / `search_curator`에 적용되는 신뢰도 하한 |
+| `goal.audience` | curation 출력의 대상: `researcher`, `engineer`, `learner`, `writer`, `generalist` |
+| `sources.include` / `sources.exclude` | vault 상대 경로 기준 source scope. `include`가 비어 있으면 전체 tracked source가 대상이며, exclude가 항상 우선합니다. |
+| `sources.reference_mode` | Zotero/linked resource 같은 외부 reference 정책 |
+| `knowledge.domains` / `knowledge.topics` | curation과 plan에 사용하는 workspace relevance 용어 |
+| `knowledge.avoid_merges` | 서로 구분되어야 하는 concept의 false-merge guard |
+| `reasoning.allowed_modes` / `reasoning.default_mode` | workspace가 사용할 수 있는 retrieval route와 기본 route 선호 |
+| `verification.min_confidence` | curation lens에 적용되는 신뢰도 하한 |
+| `verification.allow_general_knowledge` | 근거가 없을 때 저장되지 않은 일반 지식을 사용할 수 있는지 여부 |
+| `backprop.*` | feedback 및 derived insight writeback 정책 |
+| `prompts.*` | prompt profile, 출력 언어, prompt-family override |
 
 > [!TIP]
-> `persona:` 블록은 `wiki workspace init` 시 Artist 페르소나 마법사가 자동으로 생성합니다. 이후 `wiki persona update --workspace <name>` 또는 `curator_update_artist_persona` MCP 툴로 업데이트할 수 있습니다.
+> `wiki workspace init`이 초기 `curate.yml`을 작성합니다. 이후 workspace Artist
+> 페르소나는 `wiki persona update --workspace <name>` 또는
+> `curator_update_artist_persona` MCP 툴로 업데이트할 수 있습니다.
 
 보관소와 워크스페이스가 모두 준비되었습니다. 이제 Curator가 당신의 질문에 어떻게 답변하고, 에이전트와 어떻게 협업하는지 확인해 보세요.
 
@@ -551,6 +592,8 @@ status/history/push입니다.
 > SQLite DB와 vector/search index를 담으므로 ignore하는 것이 좋습니다. `.curator/`가
 > ignore되어 있지 않으면 Git status 결과가 경고만 표시하고 `.gitignore`를 조용히
 > 수정하지 않습니다.
+
+<a id="cli-reference"></a>
 
 ## 🛠️ 핵심 명령어 (CLI Reference)
 

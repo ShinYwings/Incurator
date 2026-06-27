@@ -15,19 +15,19 @@ Findings categories: (a) bugs (b) redundancy (c) error-handling smells
 | G04 | sync-migrate | `sync.py`, `migrate.py` | done |
 | G05 | retrieval | `retrieval/*.py` (engine, fusion, vector, lexical, chunking, embedding, expansion, query_expander, router, orchestrator, materializer, evidence, evaluation, providers, models) | done |
 | G06 | query-search-context | `query.py`, `search.py`, `context_service.py` | done |
-| G07 | cli | `cli.py` (7389 LOC — god-file) | pending |
-| G08 | mcp-tools | `mcp_server.py`, `plugin_api.py`, `source_tools.py`, `zotero_tools.py` | pending |
-| G09 | llm-prompts | `llm.py`, `llm_identity.py`, `model_setup.py`, `vision.py`, `prompts.py`, `prompting/*.py` | pending |
-| G10 | config-runtime | `config.py`, `constants.py`, `runtime_state.py`, `secret_store.py`, `device_registry.py`, `git_manager.py` | pending |
-| G11 | quality-analysis | `lint.py`, `contradiction.py`, `backprop_classifier.py`, `backprop_agents.py`, `insight_lifecycle.py`, `intent.py`, `curate_yml.py`, `inspection/synthesis_audit.py` | pending |
-| G12 | sources-parsers-misc | `zotero.py`, `zotero_integration.py`, `parsers/*.py`, `asset_identity.py`, `testbed_manager.py`, `workspace/provisioner.py` | pending |
-| G13 | plugin-agent | `plugin/src/agent/*.ts` (llmClient, incuratorClient, mcpClient, sandboxWrapper) | pending |
-| G14 | plugin-chatsidebar | `plugin/src/ui/chatSidebar.ts` (4828 LOC — god-file) | pending |
-| G15 | plugin-ui | `plugin/src/ui/*.ts` (diffViewer, quickQueryPopover, inlinePrompt, incuratorDashboardModal, incuratorQueryTrace, externalPdfView, zotero*Modal) | pending |
-| G16 | plugin-context | `plugin/src/context/*.ts` (systemPrompt, promptRegistry, quickQueryContext, crossReferenceResolver, pdf*), `plugin/src/utils/*.ts` | pending |
-| G17 | plugin-rest | `plugin/src/auth/*`, `plugin/src/zotero/*`, `plugin/src/types.ts`, `plugin/src/settings.ts`, `main.ts` | pending |
-| G18 | docs-code-parity | specs/guides surfaces vs code (CLI cmds, MCP tools, config fields, plugin settings) | pending |
-| G19 | docs-redundancy | cross-doc duplication, stale/useless docs, EN↔KR drift (anti-compression guardrail) | pending |
+| G07 | cli | `cli.py` (7389 LOC — god-file) | done |
+| G08 | mcp-tools | `mcp_server.py`, `plugin_api.py`, `source_tools.py`, `zotero_tools.py` | done |
+| G09 | llm-prompts | `llm.py`, `llm_identity.py`, `model_setup.py`, `vision.py`, `prompts.py`, `prompting/*.py` | done |
+| G10 | config-runtime | `config.py`, `constants.py`, `runtime_state.py`, `secret_store.py`, `device_registry.py`, `git_manager.py` | done |
+| G11 | quality-analysis | `lint.py`, `contradiction.py`, `backprop_classifier.py`, `backprop_agents.py`, `insight_lifecycle.py`, `intent.py`, `curate_yml.py`, `inspection/synthesis_audit.py` | done |
+| G12 | sources-parsers-misc | `zotero.py`, `zotero_integration.py`, `parsers/*.py`, `asset_identity.py`, `testbed_manager.py`, `workspace/provisioner.py` | done |
+| G13 | plugin-agent | `plugin/src/agent/*.ts` (llmClient, incuratorClient, mcpClient, sandboxWrapper) | done |
+| G14 | plugin-chatsidebar | `plugin/src/ui/chatSidebar.ts` (4828 LOC — god-file) | done |
+| G15 | plugin-ui | `plugin/src/ui/*.ts` (diffViewer, quickQueryPopover, inlinePrompt, incuratorDashboardModal, incuratorQueryTrace, externalPdfView, zotero*Modal) | done |
+| G16 | plugin-context | `plugin/src/context/*.ts` (systemPrompt, promptRegistry, quickQueryContext, crossReferenceResolver, pdf*), `plugin/src/utils/*.ts` | done |
+| G17 | plugin-rest | `plugin/src/auth/*`, `plugin/src/zotero/*`, `plugin/src/types.ts`, `plugin/src/settings.ts`, `main.ts` | done |
+| G18 | docs-code-parity | specs/guides surfaces vs code (CLI cmds, MCP tools, config fields, plugin settings) | done |
+| G19 | docs-redundancy | cross-doc duplication, stale/useless docs, EN↔KR drift (anti-compression guardrail) | done |
 
 ## Per-group output file format (`<group>.md`)
 

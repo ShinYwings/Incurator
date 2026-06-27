@@ -1,5 +1,13 @@
 import { describe, expect, it, beforeEach } from "vitest";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { join } from "path";
 import { buildGuiCliSearchPaths, CLIAuthResolver } from "./cliAuth";
+
+function cliAuthSource(): string {
+  const dir = fileURLToPath(new URL(".", import.meta.url));
+  return readFileSync(join(dir, "cliAuth.ts"), "utf8");
+}
 
 describe("buildGuiCliSearchPaths", () => {
   it("includes common macOS GUI and Node manager binary locations", () => {
@@ -56,5 +64,11 @@ describe("signOut", () => {
     expect(resolver.signOut("openai").note).toMatch(/codex/i);
     expect(resolver.signOut("claude").note).toMatch(/claude/i);
     expect(resolver.signOut("deepseek").note).toMatch(/key/i);
+  });
+});
+
+describe("cliAuth source contract", () => {
+  it("does not keep the unused normalizeExpiry helper (G17-3)", () => {
+    expect(cliAuthSource()).not.toContain("normalizeExpiry(");
   });
 });

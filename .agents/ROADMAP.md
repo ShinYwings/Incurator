@@ -24,19 +24,7 @@ Source of Truth to identify unresolved items.
 
 ### 🚨 URGENT HOTFIX QUEUE
 
-1. **[Hotfix] L2 knowledge-unit extraction fails for large/equation-heavy MD/PDF sources**
-   - User report (2026-06-26): `wiki add`/`wiki build` on large many-page Markdown
-     and referenced PDF sources can run for 2-3 hours and then fail L2 with
-     `knowledge unit extraction failed`.
-   - Repro source: `/Users/shin/shinywings/second_brain/03_Notes/Vision/MultipleViewGeometry.md`
-     with Zotero PDF reference `FTW7QHWY`.
-   - Branch: `hotfix/v0.27.2-l2-terminal-pending-traces`.
-   - Goal: root-cause and fix the L2 extraction failure without editing
-     `03_Notes/` source truth.
-   - Status: v0.27.1 was merged but production retry still failed. v0.27.2
-     follow-up fixes real CLI chunk-budget fallback, closes provider exception
-     prompt traces, and fails fast after terminal L2 batch errors. Draft PR #60
-     is open for review.
+_(empty — L2 extraction hotfix shipped in v0.27.2, see Completed Milestones.)_
 
 ### 🚀 Priority Order
 
@@ -77,6 +65,18 @@ Source of Truth to identify unresolved items.
 
 ## ✅ Completed Milestones
 
+- **v0.27.2 — L2 Extraction Hardening + Checkpoint-Resume** (shipped 2026-06-27,
+  PRs #59/#60/#61): root-caused the large-source L2 failure. Closed unclosed
+  prompt traces on provider exceptions (guarded `finish_prompt_run` so a DB write
+  failure can't mask the original provider error), added the missing `except`
+  clause to `curator_explore`/`curator_backprop_correct` MCP handlers, real CLI
+  chunk-budget fallback, and fail-fast after terminal L2 batch errors. Added
+  checkpoint-resume: each completed L2 batch is recorded in a new `l2_checkpoints`
+  table keyed by `(span_id, section_title)` content hash, so a 429 mid-run on a
+  277-batch PDF resumes from the last finished batch instead of restarting from
+  batch 1 and re-burning quota. `compile_source_l2` auto-detects resume via
+  `db.has_l2_checkpoints()` (immune to callers that reset `l2_status` before
+  dispatch). Production follow-up: source #27 still needs one clean retry run.
 - **v0.25.1 — User Report Stability Bug Batch** (completed 2026-06-25): fixed
   the 14 urgent reports triaged from `.agents/USER_REPORT.md`: source-file
   deletion safety, layer-error retry, queued job rerun UX, VLM temp-path
@@ -134,10 +134,19 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: urgent L2 extraction follow-up hotfix open as draft PR #60
-  on `hotfix/v0.27.2-l2-terminal-pending-traces`; System Stability Phase A
-  resumes after this hotfix.
+- **Roadmap state**: v0.27.2 L2 hotfix shipped (PR #61 merged). Urgent hotfix
+  queue is clear. System Stability Phase B is in progress.
 - **Active Milestone**: System Stability Overhaul — Exhaustive Diagnosis &
   Refactoring.
-- **Next actionable item**: resume Phase A diagnosis at the next unfinished
-  group in `.agents/plans/diagnosis/INDEX.md`.
+- **Phase A diagnosis state**: ✅ COMPLETE (2026-06-27). All 19 groups (G01–G19)
+  diagnosed; findings merged into `01_roadmap_evidence.md`. Tally: **10 S1, 118
+  S2, 97 S3**.
+- **Phase B status**: S1 queue verified complete in the 0.25.4–0.25.8 release
+  chain. Current branch `fix/phase-b-plugin-rest-cleanup` handles G18 docs-code
+  parity, G19 docs single-source cleanup, G17-1 settings auth-poll cleanup, and
+  G17-2/G17-3/G17-4/G17-5/G17-6/G17-8/G17-9/G17-11 plugin cleanup. Version
+  bumped to v0.27.3 for the plugin code fixes.
+- **Next actionable item**: validate the latest G17-4/G17-8/G17-11 additions on
+  `fix/phase-b-plugin-rest-cleanup`, then continue remaining S2 groups
+  (XC-1 broad-except narrowing, CM-1/PL-1/DB-2 god-file decomposition) or
+  remaining G17 S3 cleanup.

@@ -348,10 +348,17 @@ describe("chat sidebar context chip source contract", () => {
     const dir = fileURLToPath(new URL("../../", import.meta.url));
     const mainSource = readFileSync(join(dir, "main.ts"), "utf8");
 
+    // Scope the guard to the PDF extraction failure path; unrelated provider
+    // checks elsewhere in main.ts must not trip this regression test.
+    const pdfBlock = mainSource.slice(
+      mainSource.indexOf("private async transcribePdfCrop("),
+      mainSource.indexOf("async readRuntimeJson(")
+    );
+
     // The method must NOT inspect this.settings.provider to decide what to strip.
-    expect(mainSource).not.toContain('this.settings.provider === "ollama"');
-    expect(mainSource).not.toContain(".replace(/ollama pull\\s+\\S+/gi, \"\")");
-    expect(mainSource).toContain("PDF extraction model failed");
+    expect(pdfBlock).not.toContain('this.settings.provider === "ollama"');
+    expect(pdfBlock).not.toContain(".replace(/ollama pull\\s+\\S+/gi, \"\")");
+    expect(pdfBlock).toContain("PDF extraction model failed");
   });
 
   it("wires the 'Save to 02_Wiki' promote action with the trace source_span_ids", () => {

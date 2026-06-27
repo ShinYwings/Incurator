@@ -222,8 +222,10 @@ interface PluginSettings {
   chatMode: ChatMode;              // "chat" | "plan"
   codexReasoningEffort: CodexReasoningEffort;  // "low"|"medium"|"high"|"xhigh"
   claudeEffort: ClaudeEffort;      // "low"|"medium"|"high"|"xhigh"|"max"
+  agentEffort: string;             // Ollama/Antigravity reasoning-effort slot; empty = provider default
   antigravityPrintTimeoutSec: number;
   deepseekApiKey: string;          // device-local optional key; empty = use DEEPSEEK_API_KEY
+  ollamaHost: string;              // default "http://localhost:11434"
 
   // Usage tracking (device-local)
   providerUsage: Record<LLMProvider, ProviderUsage>;
@@ -256,6 +258,12 @@ interface PluginSettings {
   incuratorPdfAssetFolder: string;       // vault-relative base folder for extracted PDF images of non-Zotero sources; each PDF gets a filename subfolder; "" = backend default 05_Assets/<slug>/
   incuratorStatusPolling: boolean;
 
+  // Cross-device knowledge auto-sync over Syncthing (optional; undefined = enabled for older data.json)
+  autoSyncEnabled?: boolean;       // master switch for all auto-sync behavior
+  autoSyncOnLoad?: boolean;        // run autosync once when Obsidian opens
+  autoSyncWatch?: boolean;         // watch .curator/sync for peer files (desktop only)
+  autoSyncNotify?: boolean;        // toast only when peers actually delivered changes
+
   // Zotero integration
   zoteroBasePath: string;          // default "~/Zotero"
   zoteroProfiles: ZoteroImportProfile[];
@@ -271,6 +279,11 @@ Rules:
 
 - `provider` and `model` must be consistent. If the backend catalogue changes a model ID,
   the plugin should fall back to the provider default rather than breaking settings.
+- `codexReasoningEffort`, `claudeEffort`, and `agentEffort` are persisted
+  provider-specific effort slots. Empty `agentEffort` means the active
+  Ollama/Antigravity backend should use its provider default.
+- `ollamaHost` is the plugin-side Ollama base URL. Empty or missing values fall
+  back to `http://localhost:11434`.
 - **Region extraction (v0.22.0, supersedes the v0.21.0 `latexModel` plugin setting)**:
   the dedicated vision models (`llm.vision_model` / `llm.latex_extract_model`) are
   configured in the Dashboard (§2.1.2) and are honored at the **backend `add source`
@@ -289,6 +302,16 @@ Rules:
   through `llm.deepseek-api.api_key_env` or a local encrypted backend secret
   through `llm.deepseek-api.api_key_secret`.
 - `providerUsage` is device-local and must not sync across Obsidian Sync.
+- All plugin `data.json` writes MUST flow through one serialized settings
+  writer (`persistSettings`). Direct call sites must not each invoke
+  `saveData(_persistableSettings())`; scroll-position debounces, usage
+  accounting, migrations, `saveSettings`, `updateSettings`, and unload all share
+  the same writer so concurrent saves cannot clobber each other with stale whole
+  settings snapshots.
+- `autoSyncEnabled`, `autoSyncOnLoad`, `autoSyncWatch`, and `autoSyncNotify` are
+  optional for older `data.json` files. Runtime reads use the `!== false`
+  convention, so absent values are treated as enabled and only explicit `false`
+  disables that auto-sync behavior.
 - The chat sidebar footer may expose provider/model as one compact selector.
   Selecting a model from another provider must update both `provider` and `model`.
 - AI Provider settings must show model context-window information on the
@@ -426,6 +449,11 @@ the most-recently-used profile loaded so the user's current working profile is a
 the top without manual re-selection. Sorting operates on a copy
 (`sortProfilesByRecency`); the persisted `zoteroProfiles` insertion order is not
 mutated by rendering.
+
+Successful Zotero note imports MUST stamp the originating profile name into note
+frontmatter as `zotero_profile`. The reload command MUST prefer the matching
+profile by that stamp for template rendering and annotation asset localization,
+falling back to `zoteroProfiles[0]` only for older notes without a valid stamp.
 
 The Zotero item search modal must request empty-query suggestions when it opens.
 Empty-query suggestions come from the backend's recent Zotero results; returned

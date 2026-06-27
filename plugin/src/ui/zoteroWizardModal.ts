@@ -2,6 +2,7 @@ import { App, Modal, Setting, Notice, SuggestModal, AbstractInputSuggest, TFolde
 import { PluginSettings, ZoteroImportProfile } from "../types";
 import { sanitizePathSegment, TemplateRenderer } from "../zotero/templateRenderer";
 import { localizeAnnotationImages } from "../zotero/assetLocalization";
+import { stampZoteroProfile } from "../zotero/profileBinding";
 
 export interface ZoteroBackendApi {
   searchZoteroItems(query: string, limit?: number): Promise<ZoteroSearchResult[]>;
@@ -405,10 +406,15 @@ export class ZoteroWizardModal extends Modal {
 
   async doImport() {
     try {
-      if (this.selectedProfile === "new" && this.saveAsProfile && this.profileName) {
+      const profileNameForNote =
+        this.selectedProfile === "new"
+          ? (this.saveAsProfile ? this.profileName.trim() : "")
+          : this.selectedProfile;
+
+      if (this.selectedProfile === "new" && this.saveAsProfile && this.profileName.trim()) {
         if (!this.settings.zoteroProfiles) this.settings.zoteroProfiles = [];
         this.settings.zoteroProfiles.unshift({
-          name: this.profileName,
+          name: this.profileName.trim(),
           templatePath: this.templatePath,
           bibliographyStyle: this.bibliographyStyle,
           outputFolder: this.outputFolder,
@@ -470,7 +476,10 @@ export class ZoteroWizardModal extends Modal {
         existingContent = await this.app.vault.read(existingFile as any);
       }
 
-      const markdown = await renderer.renderTemplate(this.templatePath, metadata, existingContent);
+      const markdown = stampZoteroProfile(
+        await renderer.renderTemplate(this.templatePath, metadata, existingContent),
+        profileNameForNote
+      );
 
       if (existingFile && "stat" in existingFile) {
         await this.app.vault.modify(existingFile as any, markdown);

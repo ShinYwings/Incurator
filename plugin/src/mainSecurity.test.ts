@@ -16,17 +16,83 @@ describe("G17-6: deepseekApiKey must never be persisted in data.json", () => {
     expect(src).toContain("deepseekApiKey: \"\"");
   });
 
-  it("all saveData calls route through _persistableSettings (no raw saveData(this.settings))", () => {
+  it("settings data.json writes go through a single serialized writer (G17-11)", () => {
     const src = mainSource();
+
     expect(src).not.toContain("saveData(this.settings)");
-    const persistableCalls = (src.match(/_persistableSettings\(\)/g) || []).length;
-    // At least 5 call sites: onunload, updateSettings, saveSettings, scheduleScrollPositionSave, migrateUnavailableModelDefaults, session migration
-    expect(persistableCalls).toBeGreaterThanOrEqual(5);
+    expect(src).toContain("private settingsPersistPromise");
+    expect(src).toContain("private persistSettings(): Promise<void>");
+    expect(src).toContain("this.settingsPersistPromise = this.settingsPersistPromise");
+    expect(src.match(/saveData\(this\._persistableSettings\(\)\)/g) || []).toHaveLength(1);
   });
 
   it("loadSettings restores deepseekApiKey from env DEEPSEEK_API_KEY", () => {
     const src = mainSource();
     expect(src).toContain("DEEPSEEK_API_KEY");
     expect(src).toContain("settings.deepseekApiKey = envKey");
+  });
+});
+
+describe("G17-5: Check DeepSeek API Key command must check credentials", () => {
+  it("routes the command through a DeepSeek key check instead of login help", () => {
+    const src = mainSource();
+
+    expect(src).toContain('id: "login-deepseek"');
+    expect(src).toContain("this.checkDeepSeekApiKey();");
+    expect(src).toContain("private async checkDeepSeekApiKey()");
+    expect(src).toContain("this.settings.deepseekApiKey?.trim()");
+    expect(src).toContain('this.authResolver.resolveToken("deepseek")');
+    expect(src).not.toContain('this.startProviderLogin("deepseek")');
+  });
+});
+
+describe("G17-9: global external-link patch teardown must preserve later patches", () => {
+  it("restores window.open and shell.openExternal only when this plugin still owns the patch", () => {
+    const src = mainSource();
+
+    expect(src).toContain("const patchedWindowOpen");
+    expect(src).toContain("if (window.open === patchedWindowOpen)");
+    expect(src).toContain("if (mod.shell.openExternal === patched)");
+  });
+});
+
+describe("G17-6: Zotero refresh must use the note's stamped import profile", () => {
+  it("selects the refresh profile from frontmatter instead of always profiles[0]", () => {
+    const src = mainSource();
+
+    expect(src).toContain("resolveZoteroRefreshProfile(profiles, cache.frontmatter)");
+    expect(src).not.toContain("const p = profiles[0]; // use first profile as default");
+  });
+});
+
+describe("G17-4: model default migration must be catalogue-based", () => {
+  it("does not keep an unbounded stale model denylist", () => {
+    const src = mainSource();
+
+    expect(src).toContain("private migrateUnavailableModelDefaults()");
+    expect(src).toContain("const knownModel = getModelOption(");
+    expect(src).toContain("if (this.settings.model && knownModel) return false;");
+    expect(src).not.toContain("unavailableDefaults");
+    expect(src).not.toContain("claude-opus-4-7");
+  });
+
+  it("never resets a non-empty custom model for providers with open-ended ids (Ollama)", () => {
+    const src = mainSource();
+
+    expect(src).toContain(
+      'if (this.settings.model && this.settings.provider === "ollama") return false;'
+    );
+  });
+});
+
+describe("G17-8: device registry writes use one async helper", () => {
+  it("does not inline sync mkdir/write sequences in each devices.json writer", () => {
+    const src = mainSource();
+
+    expect(src).toContain('import { dirname, join } from "path";');
+    expect(src).toContain("private async writeDeviceRegistry(");
+    expect(src).toContain("await fs.mkdir(dirname(configPath), { recursive: true });");
+    expect(src).not.toContain('const path = require("path");');
+    expect(src).not.toContain("fsSync.existsSync(dir)");
   });
 });
