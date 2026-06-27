@@ -213,6 +213,10 @@ def compile_source_l2(
         source = dict(row)
     relpath = source["relpath"]
     context_id = source.get("context_id") or ""
+    # Resume from checkpoint when interrupted batches were already persisted —
+    # check DB directly so callers that reset l2_status before dispatching still
+    # trigger resume correctly (e.g. `wiki sources retry` sets l2_status='pending').
+    resume_ku = db.has_l2_checkpoints(paths.state_db, source_id)
 
     db.set_source_layer_status(paths.state_db, source_id, "l2", "running")
     try:
@@ -235,6 +239,7 @@ def compile_source_l2(
         source_title=title,
         spans=span_inputs,
         curate_spec_hash=curate_spec_hash,
+        resume=resume_ku,
     )
     if not ku_result.ok:
         error_msg = "; ".join(ku_result.errors) or "knowledge unit extraction failed"

@@ -235,7 +235,7 @@ evaluated_code:
     backend/src/curator/retrieval/fusion.py: bbaf138a2903019733722915c8b2ff1e21e53157e4cb53360f7fb5de0a219ad2
     backend/src/curator/retrieval/embedding.py: a6a7da88af3fc824f1fa2c9a4f4ce0720e870c0584c49e011b865678cb0f8f7e
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
-    backend/src/curator/db.py: f1e8d7f310cb37ff4cfb804349470667cf81488230d8e53739e3d5516d016e9b
+    backend/src/curator/db.py: 995ab9ed08123198a4aa9d580437818bb9a9d8166708cf4d843efd1c69bef6c3
   preflight_family_metrics:
     direct-factual:
       query_count: 7
