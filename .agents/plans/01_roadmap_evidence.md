@@ -1,8 +1,14 @@
 # System Stability Overhaul — Diagnosis Evidence Ledger
 
-Date: 2026-06-23
-Status: IN PROGRESS — Phase A diagnosis (diagnosis-only, NO refactoring)
+Date: 2026-06-23 (started) · 2026-06-27 (Phase A diagnosis complete)
+Status: PHASE A COMPLETE — all 19 module groups diagnosed (G01–G19). Ready for
+user triage (fix-now vs. defer) to sequence Phase B fix PRs. Diagnosis-only; NO
+refactoring performed.
 Master Plan: `.agents/plans/01_system_stability_overhaul.md`
+Per-group detail: `.agents/plans/diagnosis/G01..G19-*.md` (the authoritative,
+deep record). The sections below are the FIRST scan-pass (2026-06-23); the Phase
+A Completion section at the bottom consolidates the full per-group results and
+supersedes scan-pass estimates where they differ (e.g. DC-1).
 
 This ledger records every diagnosis finding across the nine categories. It is
 built incrementally with loop-until-dry per module (a module is "closed" only
@@ -157,3 +163,73 @@ Smell counts: 264 broad-`except` (backend) · 83 `any`/`as any`/`@ts-ignore` (pl
 - 15.6k LOC docs; `SYSTEM_BEHAVIOR.md` 2729, `SCHEMA.md` 2241, `PLUGIN_SCHEMA.md`
   1852. Section-by-section drift + cross-doc duplication audit pending (detailed
   pass). Anti-compression guardrail applies (CLAUDE.md #6).
+
+---
+
+## Phase A Completion (2026-06-27)
+
+All 19 module groups are diagnosed. Each has a deep per-group report under
+`.agents/plans/diagnosis/Gxx-*.md` (that is the authoritative record — the
+scan-pass findings above remain for history). `INDEX.md` tracks per-group status;
+every row is now `done`.
+
+### Consolidated severity tally (G01–G19)
+- **S1 (must-fix): 10** · **S2 (should-fix): 118** · **S3 (nice-to-fix): 97**
+- Source: `grep '### \[' .agents/plans/diagnosis/G*.md` by severity.
+
+### S1 must-fix queue (Phase B P1) — completed before this handoff
+1. **[G01-1]** (a/h) `remove_source` leaves orphans — never deletes `dag_edges`, `ingest_jobs`, `job_events` (IntegrityError / orphan rows).
+2. **[G03-1]** (a) LWW/`since` uses `sources.last_ingested` (NULL for pending) → pending-source edits never sync / never export incrementally.
+3. **[G04-1]** (a) Incremental-sync fast path is dead — DAG pages never carry a `content_hash` frontmatter key.
+4. **[G06-1]** (d) ~230 lines of dead, unreachable code after an unconditional `return` in `run_query`.
+5. **[G06-3]** (h) `_append_context_action` resets trace `created_at` on every expand/verify/feedback (timestamp + ordering corruption).
+6. **[G07-1]** (a) `wiki config models use <ollama-model>` writes a legacy key stripped on load → active Ollama model never changes.
+7. **[G11-4]** (a,h) `curate.yml` parser silently changes boolean and source-scope policy.
+8. **[G13-4]** (h) OS sandbox grants every provider write access to every CLI state dir (cross-provider write).
+9. **[G14-1]** (a,c,h) Context-build failure can leave a stuck streaming assistant turn.
+10. **[G14-2]** (a,h,i) Manual continuation on an old assistant message renders into the last assistant bubble.
+
+These 10 were verified against `CHANGELOG.md` and current tests/code on
+2026-06-27. They are already fixed in the 0.25.4–0.25.8 release chain:
+
+- 0.25.4: G11-4
+- 0.25.5: G13-4
+- 0.25.6: G14-1, G14-2
+- 0.25.7: G01-1, G03-1, G04-1, G06-1, G06-3
+- 0.25.8: G07-1
+
+### New groups merged this session (G17–G19)
+
+**G17 plugin-rest** (`auth/`, `zotero/`, `types.ts`, `settings.ts`, `main.ts`) —
+12 findings, 0 S1. Highlights:
+- (S2) Auth-status poll `setInterval` never cleared on settings-tab close → detached-DOM writes + repeated CLI probes (`fix/settings-auth-poll-cleanup`). **Fixed in `fix/phase-b-plugin-rest-cleanup`: auth poll timer is instance-owned and cleared on `hide()`/`display()`; settings source guard added.**
+- (S2) Zotero "Reload Source" always uses `profiles[0]` → corrupts notes imported with another profile (`fix/zotero-refresh-profile-binding`). **Fixed in `fix/phase-b-plugin-rest-cleanup`: imports stamp `zotero_profile` in note frontmatter, reload resolves the matching profile first, and guide/spec docs describe the binding.**
+- (S2) Global `window.open`/`shell.openExternal` monkeypatch teardown clobbers later plugins' patches (`fix/zotero-open-patch-identity-guard`). **Fixed in `fix/phase-b-plugin-rest-cleanup`: unload restores only when Incurator still owns the patched function, with source guard and guide updates.**
+- (S2) `data.json` written from ~7 uncoordinated `saveData` call sites — no single writer (`refactor/plugin-settings-single-writer`). **Fixed in `fix/phase-b-plugin-rest-cleanup`: all settings `data.json` writes now flow through serialized `persistSettings()`, with a source guard and schema invariant.**
+- (S3) Dead code: `startProviderLogin`/`providerLabel` (settings.ts), `normalizeExpiry` (cliAuth.ts). **Fixed in `fix/phase-b-plugin-rest-cleanup`: helpers removed with source guards.**
+- (S3) `migrateUnavailableModelDefaults` hardcodes an unbounded model denylist already subsumed by the catalogue check. **Fixed in `fix/phase-b-plugin-rest-cleanup`: migration now resets unavailable models from the bundled catalogue check without a stale literal denylist.**
+- (S3) Device-registry writers duplicate inline `require("path")`/sync mkdir logic. **Fixed in `fix/phase-b-plugin-rest-cleanup`: backend-command caching and Syncthing registry refresh share one async `writeDeviceRegistry` helper.**
+- (S3) "Check DeepSeek API Key" command never checks — always throws the help notice. **Fixed in `fix/phase-b-plugin-rest-cleanup`: command now checks a saved plugin key or `DEEPSEEK_API_KEY`, with source guard and guide updates.**
+
+**G18 docs-code-parity** — 4 findings, all docs-drift:
+- (S2) **DC-1 CORRECTION**: the scan-pass "~47 MCP tools undocumented (92 vs 45)" is **stale/wrong**. Re-counted: 50 MCP tools are registered (48 `@mcp.tool()` + 2 `mcp.tool()(fn)`), and **all 50 are documented** in `MCP_USER_GUIDE.md`; EN/KR both list 45 `curator_*` names. MCP doc parity is healthy — close DC-1.
+- (S2) `PLUGIN_SCHEMA §2.1 PluginSettings` interface omits 6 live persisted fields: `agentEffort`, `ollamaHost`, `autoSyncEnabled/OnLoad/Watch/Notify` (`docs/plugin-schema-settings-parity`). **Fixed in `chore/docs-surface-parity-guards`: schema interface/rules updated.**
+- (S3) `wiki migrate` is a non-hidden CLI command absent from USER_GUIDE — document or mark `hidden=True`.
+- (S3) No automated guard ties MCP-tool / plugin-settings surfaces to their docs (`test/docs-surface-parity-guards`). **Fixed in `chore/docs-surface-parity-guards`: `backend/tests/test_docs_surface_parity.py`.**
+
+**G19 docs-redundancy** — 4 findings, no S1:
+- (S2) `curate.yml` field reference duplicated across 6 guides + 2 specs, no canonical home (`docs/curate-yml-single-source`). **Fixed in `chore/docs-surface-parity-guards`: USER_GUIDE/USER_GUIDE_KR are the canonical usage reference with the structured KRS shape; WORKFLOW_GUIDE/WORKFLOW_GUIDE_KR now link to that reference instead of re-listing fields; parity guard added.**
+- (S3) `wiki` lifecycle / CLI command reference triplicated (USER_GUIDE / WORKFLOW_GUIDE / PLUGIN_GUIDE) (`docs/cli-reference-single-source`). **Fixed in `chore/docs-surface-parity-guards`: USER_GUIDE/USER_GUIDE_KR now expose a stable `#cli-reference` anchor; WORKFLOW_GUIDE/WORKFLOW_GUIDE_KR and PLUGIN_GUIDE/PLUGIN_GUIDE_KR link to it for exact CLI flags/definitions instead of owning separate command contracts; parity guard added.**
+- (S3) `failure_atlas/` mixes frozen test fixtures + a historical v0.7.0 handoff doc under `docs/specs/`, none linked from any index (`docs/failure-atlas-index-and-roles`). **Fixed in `chore/docs-surface-parity-guards`: added `docs/specs/failure_atlas/README.md` and a docs parity guard.**
+- **Positive (verified)**: EN↔KR structural parity is healthy (PLUGIN_GUIDE H2 18/18, H3 25/26, code-fences 26/26; MCP H3 10/10) — the anti-compression guardrail is being honored, not violated.
+
+### Next step (Phase B)
+Continue S2 groups. `fix/phase-b-plugin-rest-cleanup` handles the G18
+plugin-settings schema drift, MCP/plugin-settings docs parity guard, the G19
+docs single-source cleanup items, G17-1 settings auth-poll cleanup, G17-5
+DeepSeek key-check command cleanup, G17-6 Zotero refresh profile binding, and
+G17-9 Zotero opener teardown cleanup, and G17-11 plugin settings single-writer.
+Remaining S2 candidates include error-handling narrowing XC-1 and god-file
+decomposition CM-1/PL-1/DB-2; remaining G17 items are S3 cleanup. Per the Master
+Plan, each fix PR is delivered TDD-first with `pytest`+`ruff` green before the
+next.
