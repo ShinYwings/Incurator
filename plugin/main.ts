@@ -316,6 +316,14 @@ export default class ObsidianAIAgent extends Plugin {
             }
             if (!itemKey && citekey) itemKey = citekey; // last-resort lookup; a citekey is NOT a Zotero item key, so this may not resolve.
 
+            // Skip the backend round-trip entirely when nothing resolved (e.g. a
+            // malformed zotero_app_url and no citekey).
+            if (!itemKey) {
+              throw new Error(
+                "This note has no resolvable Zotero item key (missing or malformed zotero_app_url and no citekey). Re-import it from the Zotero wizard."
+              );
+            }
+
             const metadata = await this.getZoteroItemMetadata(itemKey);
             // A citekey passed as an item key (or a missing item) yields empty
             // metadata. Abort before re-rendering so the note is never rewritten

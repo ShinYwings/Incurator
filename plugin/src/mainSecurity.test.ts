@@ -93,6 +93,12 @@ describe("G17-7: Zotero reload must not rewrite a note from empty metadata", () 
     // An empty-object metadata result (citekey passed as item key, or item not
     // found) must abort before renderTemplate/modify.
     expect(src).toContain("Object.keys(metadata as Record<string, unknown>).length === 0");
+    // …and an unresolved (empty) item key must short-circuit before the backend
+    // round-trip entirely.
+    expect(src).toContain("This note has no resolvable Zotero item key");
+    expect(
+      src.indexOf("if (!itemKey) {") < src.indexOf("await this.getZoteroItemMetadata(itemKey)")
+    ).toBe(true);
   });
 });
 
