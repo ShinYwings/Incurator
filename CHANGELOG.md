@@ -4,6 +4,25 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.27.4] - 2026-06-27
+### Fixed
+- **G17-7: Zotero "Reload Source" no longer rewrites a note from empty
+  metadata.** A note that has only a `citekey` and no `zotero_app_url` passed the
+  citekey where a Zotero item key was expected; the backend queries `items.key`,
+  so the lookup returned empty metadata and the note was re-rendered with blanks.
+  Reload now aborts with a clear error and leaves the note unchanged when the
+  item cannot be resolved. (Full citekey → item-key resolution requires new
+  backend support and is deferred.)
+
+### Maintenance
+- **G17-12: the deprecated `imageFolder` profile field is retired from stored
+  profiles.** A one-time load-time migration normalizes any profile still
+  carrying `imageFolder` to `assetFolder`/`assetSubfolder` and deletes
+  `imageFolder`, then persists settings. The runtime fallback in
+  `resolveProfileAssetSpec` is retained (the migration reuses it).
+
+---
+
 ## [0.27.3] - 2026-06-27
 ### Fixed
 - **G17-1: Settings auth polling stops on close/re-render.** The plugin settings

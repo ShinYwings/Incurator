@@ -1072,6 +1072,11 @@ PDF viewer's toolbar Reload button:
   **vault-relative** embeds (`![[05_Assets/...]]`) — never absolute
   `![[/Users/.../Zotero/cache/...]]` paths. If an annotation region changed in
   Zotero, its asset file is **overwritten** so the note shows the current image.
+  If the item cannot be resolved — for example a note that has only a `citekey`
+  and no `zotero_app_url` (a citekey is not a Zotero item key) — reload **aborts
+  with a clear error and leaves the note unchanged** instead of rewriting it with
+  empty metadata. Re-import the note from the Zotero wizard so it records a
+  `zotero_app_url`.
 - **External PDF view**: drops the cached document and re-reads the PDF from disk.
 
 ### Annotation links and parent-item resolution

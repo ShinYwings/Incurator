@@ -50,7 +50,7 @@ import {
   type ZoteroRepairInitialState,
 } from "./src/ui/zoteroRepairModal";
 import { TemplateRenderer } from "./src/zotero/templateRenderer";
-import { localizeAnnotationImages } from "./src/zotero/assetLocalization";
+import { localizeAnnotationImages, migrateZoteroProfileAssetFolders } from "./src/zotero/assetLocalization";
 import { resolveZoteroRefreshProfile } from "./src/zotero/profileBinding";
 import { IncuratorDashboardModal } from "./src/ui/incuratorDashboardModal";
 
@@ -314,9 +314,31 @@ export default class ObsidianAIAgent extends Plugin {
                 const match = zoteroUrl.match(/items\/([A-Z0-9]+)/i);
                 if (match) itemKey = match[1];
             }
-            if (!itemKey && citekey) itemKey = citekey; // fallback to citekey if URL missing (backend will need to handle this)
+            if (!itemKey && citekey) itemKey = citekey; // last-resort lookup; a citekey is NOT a Zotero item key, so this may not resolve.
+
+            // Skip the backend round-trip entirely when nothing resolved (e.g. a
+            // malformed zotero_app_url and no citekey).
+            if (!itemKey) {
+              throw new Error(
+                "This note has no resolvable Zotero item key (missing or malformed zotero_app_url and no citekey). Re-import it from the Zotero wizard."
+              );
+            }
 
             const metadata = await this.getZoteroItemMetadata(itemKey);
+            // A citekey passed as an item key (or a missing item) yields empty
+            // metadata. Abort before re-rendering so the note is never rewritten
+            // with blanks.
+            if (
+              !metadata ||
+              typeof metadata !== "object" ||
+              Object.keys(metadata as Record<string, unknown>).length === 0
+            ) {
+              throw new Error(
+                itemKey === citekey
+                  ? `Could not resolve this note's Zotero item from its citekey ("${citekey}"). Re-import it from the Zotero wizard so it records a zotero_app_url.`
+                  : `Zotero item "${itemKey}" was not found in your Zotero library.`
+              );
+            }
 
             const renderer = new TemplateRenderer(this.app);
             const profiles = this.settings.zoteroProfiles || [];
@@ -1147,7 +1169,8 @@ export default class ObsidianAIAgent extends Plugin {
       ...DEFAULT_SETTINGS.providerUsage,
       ...(this.settings.providerUsage || {}),
     };
-    if (this.migrateUnavailableModelDefaults()) {
+    const assetFoldersMigrated = migrateZoteroProfileAssetFolders(this.settings.zoteroProfiles);
+    if (this.migrateUnavailableModelDefaults() || assetFoldersMigrated) {
       await this.persistSettings();
     }
   }
