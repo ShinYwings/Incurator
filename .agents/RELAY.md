@@ -59,5 +59,7 @@ no new user-facing capability, no schema/contract change.
 
 ## Immediate Next Action
 
-Docs-first → TDD → implement G17-7 + G17-12 → version bump 0.27.4 → local CI →
-PR.
+- Shipped as **v0.27.4** in PR #63 (https://github.com/ShinYwings/Incurator/pull/63) — awaiting human review/merge.
+- After merge, remaining Phase B work is the larger S2 architectural items
+  (XC-1 broad-except narrowing; CM-1/PL-1/DB-2 god-file decomposition), each
+  warranting its own Arena plan + Minor version. Start on a fresh branch.
