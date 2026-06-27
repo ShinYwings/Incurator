@@ -18,8 +18,10 @@ All notable changes to Incurator are documented here.
   profile for the template and annotation asset folder instead of always using
   `zoteroProfiles[0]`. The frontmatter stamp now detects the closing `---` by
   line (so a `---` inside a value or body no longer truncates the note, and
-  empty rendered frontmatter no longer produces a duplicate fence), and new
-  profiles are saved under their trimmed name so the stamp round-trips.
+  empty rendered frontmatter no longer produces a duplicate fence), handles both
+  LF and CRLF line endings (Windows notes are no longer given a duplicate
+  frontmatter block), and new profiles are saved under their trimmed name so the
+  stamp round-trips.
 - **G17-9: Zotero open-link fallbacks preserve later plugin patches.** The
   global `window.open` / Electron `openExternal` fallbacks now restore their
   originals on unload only if Incurator still owns the patched function.

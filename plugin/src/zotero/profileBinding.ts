@@ -12,9 +12,14 @@ export function stampZoteroProfile(markdown: string, profileName: string): strin
 
   const fieldLine = `${ZOTERO_PROFILE_FIELD}: ${quoteYamlString(name)}`;
   const fieldPattern = new RegExp(`^${ZOTERO_PROFILE_FIELD}\\s*:`);
-  const prepend = `---\n${fieldLine}\n---\n\n${markdown}`;
+  // Preserve the document's existing line-ending style so CRLF notes (Windows)
+  // are not silently rewritten to LF.
+  const eol = markdown.includes("\r\n") ? "\r\n" : "\n";
+  const prepend = `---${eol}${fieldLine}${eol}---${eol}${eol}${markdown}`;
 
-  const lines = markdown.split("\n");
+  // Split on either LF or CRLF so frontmatter detection works regardless of the
+  // note's line endings; rejoin with the detected EOL to round-trip exactly.
+  const lines = markdown.split(/\r?\n/);
   // A YAML frontmatter block must open with a lone '---' on the first line.
   if (lines[0] !== "---") return prepend;
 
@@ -28,9 +33,9 @@ export function stampZoteroProfile(markdown: string, profileName: string): strin
     .slice(1, closeIndex)
     .filter((line) => !fieldPattern.test(line));
   frontmatter.push(fieldLine);
-  // lines.slice(closeIndex) keeps the closing '---' and everything after it
-  // verbatim, preserving body content exactly.
-  return ["---", ...frontmatter, ...lines.slice(closeIndex)].join("\n");
+  // lines.slice(closeIndex) keeps the closing '---' and everything after it,
+  // preserving body content exactly.
+  return ["---", ...frontmatter, ...lines.slice(closeIndex)].join(eol);
 }
 
 export function resolveZoteroRefreshProfile(

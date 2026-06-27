@@ -50,6 +50,12 @@ describe("Zotero profile binding", () => {
     );
   });
 
+  it("stamps CRLF frontmatter in place without prepending a duplicate block", () => {
+    expect(
+      stampZoteroProfile("---\r\ntitle: Paper\r\n---\r\n\r\nBody\r\n", "Books")
+    ).toBe("---\r\ntitle: Paper\r\nzotero_profile: \"Books\"\r\n---\r\n\r\nBody\r\n");
+  });
+
   it("uses the stamped profile for refresh and falls back to the first profile", () => {
     const profiles = [profile("Papers"), profile("Books", "book-template.md")];
 
