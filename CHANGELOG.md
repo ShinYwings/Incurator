@@ -4,6 +4,46 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.27.3] - 2026-06-27
+### Fixed
+- **G17-1: Settings auth polling stops on close/re-render.** The plugin settings
+  tab now owns the login auth-poll timer on the tab instance and clears it when
+  the tab hides or re-renders, preventing detached-DOM auth badge updates and
+  repeated CLI probes after the settings UI is closed.
+- **G17-5: Check DeepSeek API Key now checks key configuration.** The command
+  palette action now reports a saved plugin key or `DEEPSEEK_API_KEY` instead of
+  calling the login helper and always showing setup help.
+- **G17-6: Zotero note reload uses the originating import profile.** Imported
+  Zotero notes now store `zotero_profile` in frontmatter, and reload uses that
+  profile for the template and annotation asset folder instead of always using
+  `zoteroProfiles[0]`.
+- **G17-9: Zotero open-link fallbacks preserve later plugin patches.** The
+  global `window.open` / Electron `openExternal` fallbacks now restore their
+  originals on unload only if Incurator still owns the patched function.
+- **G17-11: Plugin `data.json` writes now use a single serialized settings
+  writer.** Scroll-position saves, usage accounting, migrations, explicit
+  settings saves, and unload now share `persistSettings()` instead of racing
+  direct whole-settings `saveData` calls.
+
+### Documentation
+- **G18/G19 docs-surface guards.** `PLUGIN_SCHEMA §2.1` now includes the live
+  persisted `PluginSettings` fields (`agentEffort`, `ollamaHost`, and the
+  `autoSync*` group), Failure Atlas files have a role index, and USER_GUIDE is
+  the canonical reference for `curate.yml` and CLI command definitions. Added
+  guard tests for MCP/tool docs, plugin settings docs, Failure Atlas indexing,
+  `curate.yml` single-sourcing, and CLI-reference links.
+
+### Maintenance
+- Removed dead plugin auth helpers from the settings tab and the unused
+  `CLIAuthResolver.normalizeExpiry` helper.
+- Removed the stale hardcoded model-default denylist; model migration now resets
+  unavailable models by checking the live bundled catalogue.
+- Consolidated duplicate device-registry writers into one async helper so
+  backend-command caching and Syncthing registry refresh no longer repeat inline
+  synchronous mkdir/write setup.
+
+---
+
 ## [0.27.2] - 2026-06-26
 ### Fixed
 - **Large PDF L2 extraction could still use unsafe 60k prompt batches with CLI
