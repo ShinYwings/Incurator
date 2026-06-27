@@ -23,7 +23,12 @@ docs-code parity. Complete and validated; shipped as **v0.27.3** in PR #62.
   documented, and version-bumped to 0.27.3 (all three manifests + CHANGELOG).
 - Validation green: backend pytest (1090 passed / 6 skipped / 5 xfailed),
   ruff, mypy, vitest (611 tests), `tsc --noEmit`, `git diff --check`.
-- Committed in 4 commits and pushed; PR #62 open against `master`.
+- Committed and pushed; PR #62 open against `master`.
+- Post-push `/code-review` (high) found 4 plugin bugs; all fixed on this branch
+  (commit `0470728`) with tests: Ollama custom-model wipe in
+  `migrateUnavailableModelDefaults`, fragile `---` frontmatter-fence detection
+  and empty-frontmatter double-fence in `stampZoteroProfile`, and a new-profile
+  name trim mismatch. Full plugin suite green (615 tests), `tsc` clean.
 
 ## Immediate Next Action
 
