@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { join } from "path";
 
 vi.mock("obsidian", () => ({
   AbstractInputSuggest: class {},
@@ -26,6 +29,11 @@ import {
   ZoteroWizardModal,
 } from "./zoteroWizardModal";
 import type { ZoteroImportProfile } from "../types";
+
+function wizardSource(): string {
+  const dir = fileURLToPath(new URL(".", import.meta.url));
+  return readFileSync(join(dir, "zoteroWizardModal.ts"), "utf8");
+}
 
 function item(key: string): ZoteroSearchResult {
   return {
@@ -169,5 +177,12 @@ describe("Zotero import modals", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("stamps the selected import profile into created/updated notes (G17-6)", () => {
+    const source = wizardSource();
+
+    expect(source).toContain("profileNameForNote");
+    expect(source).toContain("stampZoteroProfile(");
   });
 });

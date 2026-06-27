@@ -2,7 +2,7 @@
 import { promises as fs } from "fs";
 import { spawn } from "child_process";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import {
   Plugin,
   WorkspaceLeaf,
@@ -51,6 +51,7 @@ import {
 } from "./src/ui/zoteroRepairModal";
 import { TemplateRenderer } from "./src/zotero/templateRenderer";
 import { localizeAnnotationImages } from "./src/zotero/assetLocalization";
+import { resolveZoteroRefreshProfile } from "./src/zotero/profileBinding";
 import { IncuratorDashboardModal } from "./src/ui/incuratorDashboardModal";
 
 import { InlinePromptWidget } from "./src/ui/inlinePrompt";
@@ -120,6 +121,7 @@ export default class ObsidianAIAgent extends Plugin {
   private syncScheduler: SyncScheduler | null = null;
   private syncWatcher: { close: () => void } | null = null;
   private syncStatusBar: HTMLElement | null = null;
+  private settingsPersistPromise: Promise<void> = Promise.resolve();
 
   async onload(): Promise<void> {
     console.log("Loading Obsidian AI Agent plugin");
@@ -136,7 +138,7 @@ export default class ObsidianAIAgent extends Plugin {
       this.settings,
       this.authResolver,
       this.vaultRoot,
-      () => this.saveData(this._persistableSettings()),
+      () => this.persistSettings(),
       this.mcpManager
     );
     this.incuratorClient = new IncuratorClient(
@@ -319,7 +321,8 @@ export default class ObsidianAIAgent extends Plugin {
             const renderer = new TemplateRenderer(this.app);
             const profiles = this.settings.zoteroProfiles || [];
             if (profiles.length === 0) throw new Error("No Zotero profile found. Please run the Import Wizard once first.");
-            const p = profiles[0]; // use first profile as default
+            const p = resolveZoteroRefreshProfile(profiles, cache.frontmatter);
+            if (!p) throw new Error("No Zotero profile found. Please run the Import Wizard once first.");
 
             // Localize annotation region images into the vault asset folder using
             // the SAME path resolution as the import wizard (assetFolder/
@@ -548,7 +551,7 @@ export default class ObsidianAIAgent extends Plugin {
       id: "login-deepseek",
       name: "Check DeepSeek API Key",
       callback: () => {
-        this.startProviderLogin("deepseek");
+        void this.checkDeepSeekApiKey();
       },
     });
 
@@ -766,11 +769,7 @@ export default class ObsidianAIAgent extends Plugin {
 
     // On macOS, Obsidian/Electron may send zotero:// directly to the OS via
     // electron.shell.openExternal instead of window.open. Patch both.
-    this.register(() => {
-      window.open = originalWindowOpen;
-    });
-
-    window.open = (url?: string | URL, target?: string, features?: string) => {
+    const patchedWindowOpen = (url?: string | URL, target?: string, features?: string) => {
       if (typeof url === "string" && parseZoteroLink(url)) {
         void handleZoteroUrl(url).then((handled) => {
           if (!handled) void openZoteroExternally(url);
@@ -779,11 +778,19 @@ export default class ObsidianAIAgent extends Plugin {
       }
       return originalWindowOpen.call(window, url, target, features);
     };
+    this.register(() => {
+      if (window.open === patchedWindowOpen) {
+        window.open = originalWindowOpen;
+      }
+    });
+
+    window.open = patchedWindowOpen;
 
     // Patch electron.shell.openExternal — Obsidian uses @electron/remote on desktop
     const patchShellModule = (mod: any, label: string) => {
       if (!mod?.shell?.openExternal) return;
-      const orig = mod.shell.openExternal.bind(mod.shell);
+      const originalOpenExternal = mod.shell.openExternal;
+      const orig = originalOpenExternal.bind(mod.shell);
       const patched = async (url: string, options?: any): Promise<void> => {
         if (typeof url === "string" && url.toLowerCase().startsWith("zotero://")) {
           const handled = await handleZoteroUrl(url);
@@ -793,7 +800,9 @@ export default class ObsidianAIAgent extends Plugin {
       };
       mod.shell.openExternal = patched;
       this.register(() => {
-        mod.shell.openExternal = orig;
+        if (mod.shell.openExternal === patched) {
+          mod.shell.openExternal = originalOpenExternal;
+        }
       });
     };
 
@@ -831,7 +840,7 @@ export default class ObsidianAIAgent extends Plugin {
     this.app.workspace.detachLeavesOfType(CHAT_VIEW_TYPE);
 
     // Save final settings and session data
-    await this.saveData(this._persistableSettings());
+    await this.persistSettings();
     await this.saveSessionData();
   }
 
@@ -1024,7 +1033,7 @@ export default class ObsidianAIAgent extends Plugin {
     if (this.scrollPositionSaveTimer !== null) return;
     this.scrollPositionSaveTimer = window.setTimeout(async () => {
       this.scrollPositionSaveTimer = null;
-      await this.saveData(this._persistableSettings());
+      await this.persistSettings();
     }, 500);
   }
 
@@ -1101,14 +1110,8 @@ export default class ObsidianAIAgent extends Plugin {
             command,
           };
           registry.updated_at = Math.floor(Date.now() / 1000);
-          
-          // Ensure parent dir exists
-          const path = require("path");
-          const fsSync = require("fs");
-          const dir = path.dirname(configPath);
-          if (!fsSync.existsSync(dir)) fsSync.mkdirSync(dir, { recursive: true });
-          
-          await fs.writeFile(configPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
+
+          await this.writeDeviceRegistry(configPath, registry);
           console.log(`[Incurator] Cached backend command in devices.json: ${command}`);
         }
       }
@@ -1145,7 +1148,7 @@ export default class ObsidianAIAgent extends Plugin {
       ...(this.settings.providerUsage || {}),
     };
     if (this.migrateUnavailableModelDefaults()) {
-      await this.saveData(this._persistableSettings());
+      await this.persistSettings();
     }
   }
 
@@ -1205,15 +1208,22 @@ export default class ObsidianAIAgent extends Plugin {
     return { ...rest, deepseekApiKey: "" };
   }
 
+  private persistSettings(): Promise<void> {
+    this.settingsPersistPromise = this.settingsPersistPromise
+      .catch(() => undefined)
+      .then(() => this.saveData(this._persistableSettings()));
+    return this.settingsPersistPromise;
+  }
+
   async updateSettings(updates: Partial<PluginSettings>): Promise<void> {
     Object.assign(this.settings, updates);
-    await this.saveData(this._persistableSettings());
+    await this.persistSettings();
     // Update LLM client with new settings
     this.llmClient?.updateSettings(this.settings);
   }
 
   async saveSettings(): Promise<void> {
-    await this.saveData(this._persistableSettings());
+    await this.persistSettings();
     await this.syncDeviceRegistryFromSyncthing();
     // Update LLM client with new settings
     this.llmClient?.updateSettings(this.settings);
@@ -1261,7 +1271,7 @@ export default class ObsidianAIAgent extends Plugin {
         await this.saveSessionData();
         delete (this.settings as unknown as Record<string, unknown>).chatSessions;
         delete (this.settings as unknown as Record<string, unknown>).activeChatSessionId;
-        await this.saveData(this._persistableSettings());
+        await this.persistSettings();
       } else {
         this.sessionData = { ...DEFAULT_SESSION_DATA };
       }
@@ -1311,47 +1321,33 @@ export default class ObsidianAIAgent extends Plugin {
       const registry = mergeDeviceRegistry(existing, snapshot, this.settings);
       
       if (configPath) {
-        const path = require("path");
-        const fsSync = require("fs");
-        const dir = path.dirname(configPath);
-        if (!fsSync.existsSync(dir)) fsSync.mkdirSync(dir, { recursive: true });
-        
-        await fs.writeFile(configPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
+        await this.writeDeviceRegistry(configPath, registry);
       }
     } catch (err) {
       console.warn("[Incurator] Device registry auto-sync failed:", err);
     }
   }
 
-  private migrateUnavailableModelDefaults(): boolean {
-    const unavailableDefaults = new Set([
-      "gpt-5.4-nano",
-      "gpt-5.1",
-      "gpt-5",
-      "gpt-5-mini",
-      "gpt-5-nano",
-      "codex-mini-latest",
-      "gpt-5.2-codex",
-      "gpt-5.1-codex",
-      "gpt-5.1-codex-max",
-      "gpt-5.1-codex-mini",
-      "gpt-5-codex",
-      "claude-opus-4-7",
-      "claude-sonnet-4-6-20260101",
-      "claude-haiku-4-5-20251001-old",
-    ]);
+  private async writeDeviceRegistry(
+    configPath: string,
+    registry: Partial<DeviceRegistry>
+  ): Promise<void> {
+    await fs.mkdir(dirname(configPath), { recursive: true });
+    await fs.writeFile(configPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
+  }
 
+  private migrateUnavailableModelDefaults(): boolean {
     const knownModel = getModelOption(
       this.availableModels,
       this.settings.provider,
       this.settings.model
     );
-    if (unavailableDefaults.has(this.settings.model) || (!this.settings.model && !knownModel)) {
-      const backendDefault = getDefaultModel(this.availableModels, this.settings.provider);
-      this.settings.model = backendDefault || "";
-      return true;
-    }
-    return false;
+    if (this.settings.model && knownModel) return false;
+
+    const backendDefault = getDefaultModel(this.availableModels, this.settings.provider) || "";
+    if (this.settings.model === backendDefault) return false;
+    this.settings.model = backendDefault;
+    return true;
   }
 
   getAvailableModels(): ModelCatalogue {
@@ -1754,6 +1750,20 @@ export default class ObsidianAIAgent extends Plugin {
     try {
       this.authResolver.startLogin(provider);
       new Notice(`Opened ${provider} login in your terminal`);
+    } catch (err: unknown) {
+      new Notice(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  private async checkDeepSeekApiKey(): Promise<void> {
+    if (this.settings.deepseekApiKey?.trim()) {
+      new Notice("DeepSeek API key is configured in plugin settings.");
+      return;
+    }
+
+    try {
+      await this.authResolver.resolveToken("deepseek");
+      new Notice("DeepSeek API key is configured in the environment.");
     } catch (err: unknown) {
       new Notice(err instanceof Error ? err.message : String(err));
     }

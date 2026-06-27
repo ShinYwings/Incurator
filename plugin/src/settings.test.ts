@@ -49,4 +49,21 @@ describe("settings UI source contract", () => {
     expect(source).not.toContain("this.plugin.settings.latexModel");
     expect(DEFAULT_SETTINGS).not.toHaveProperty("latexModel");
   });
+
+  it("clears auth polling when the settings tab closes or re-renders (G17-1)", () => {
+    const source = settingsSource();
+
+    expect(source).toContain("private authPollTimer");
+    expect(source).toContain("hide(): void");
+    expect(source).toContain("this.stopAuthPoll();");
+    expect(source).toContain("this.authPollTimer = setInterval");
+    expect(source).not.toContain("let authPollTimer");
+  });
+
+  it("does not keep the dead settings-tab login helper layer (G17-2)", () => {
+    const source = settingsSource();
+
+    expect(source).not.toContain("private startProviderLogin(");
+    expect(source).not.toContain("private providerLabel(");
+  });
 });
