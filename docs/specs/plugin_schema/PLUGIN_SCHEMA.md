@@ -455,6 +455,19 @@ frontmatter as `zotero_profile`. The reload command MUST prefer the matching
 profile by that stamp for template rendering and annotation asset localization,
 falling back to `zoteroProfiles[0]` only for older notes without a valid stamp.
 
+The reload command MUST resolve the Zotero **item key** before re-rendering. A
+`citekey` is not a Zotero item key (`get_zotero_item_metadata` queries
+`items.key`), so when no item key can be parsed from `zotero_app_url` the reload
+MUST NOT rewrite the note from a citekey-derived empty-metadata result: if the
+backend returns empty metadata, reload MUST abort with a clear error and leave
+the note unchanged.
+
+The deprecated `imageFolder` profile field is retired from stored profiles by a
+one-time load-time migration: on load, any profile still carrying `imageFolder`
+is normalized to `assetFolder`/`assetSubfolder` (same mapping as
+`resolveProfileAssetSpec`) and `imageFolder` is deleted, then settings are
+persisted. New code MUST read `assetFolder`/`assetSubfolder`.
+
 The Zotero item search modal must request empty-query suggestions when it opens.
 Empty-query suggestions come from the backend's recent Zotero results; returned
 results may then be re-ranked by `recentZoteroItems` so recently imported items

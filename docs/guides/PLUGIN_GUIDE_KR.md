@@ -924,6 +924,10 @@ Zotero 노트(frontmatter에 `citekey` 또는 `zotero_app_url`이 있는 노트)
   **Vault 상대경로** 임베드(`![[05_Assets/...]]`)를
   씁니다 — 절대경로 `![[/Users/.../Zotero/cache/...]]`가 아닙니다. Zotero에서 주석
   영역이 바뀌었다면 해당 자산 파일을 **덮어써서** 최신 이미지를 반영합니다.
+  항목을 해석할 수 없는 경우 — 예를 들어 `zotero_app_url` 없이 `citekey`만 있는
+  노트(citekey는 Zotero item key가 아닙니다) — 리로드는 빈 메타데이터로 노트를
+  덮어쓰지 않고 **명확한 오류와 함께 중단하며 노트를 그대로 둡니다**. 이런 노트는
+  Zotero wizard로 다시 가져와 `zotero_app_url`이 기록되도록 하세요.
 - **외부 PDF 뷰**: 캐시된 문서를 버리고 디스크에서 PDF를 다시 읽습니다.
 
 ### 주석 링크와 부모 항목 해석
