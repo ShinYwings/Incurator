@@ -2215,6 +2215,33 @@ def _decode_unit_row(row: sqlite3.Row) -> dict:
     return data
 
 
+def get_staged_span_ids_for_source(db_path: Path, source_id: int) -> set[str]:
+    """Return span IDs that already have staged (unpublished) units for this source.
+
+    Used by the checkpoint-resume path in extract_knowledge_units to skip batches
+    that were fully persisted by a previous interrupted extraction run.
+    """
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT value FROM knowledge_units, json_each(source_span_ids) "
+            "WHERE source_id = ? AND generation_id IS NULL AND retired_at IS NULL",
+            (source_id,),
+        ).fetchall()
+    return {row[0] for row in rows}
+
+
+def list_staged_unit_ids_for_source(db_path: Path, source_id: int) -> list[str]:
+    """Return IDs of all staged (unpublished, non-retired) units for this source."""
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT id FROM knowledge_units "
+            "WHERE source_id = ? AND generation_id IS NULL AND retired_at IS NULL "
+            "ORDER BY created_at",
+            (source_id,),
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
 def list_knowledge_units_for_source(db_path: Path, source_id: int) -> list[dict]:
     with connect(db_path) as conn:
         rows = conn.execute(

@@ -289,6 +289,91 @@ def test_empty_spans_is_noop(vault) -> None:
     assert result.unit_ids == []
 
 
+def test_resume_skips_already_staged_batches(vault) -> None:
+    """resume=True skips batches whose spans are already staged; only new batches run."""
+    dbp, spans = vault
+    spans.append(_add_span(dbp, "Second batch content.", "Second"))
+
+    # First partial run: batch 1 succeeds, batch 2 fails.
+    client_first = FakeClient(
+        [_units_json(spans[0]["id"]), RuntimeError("429 capacity")],
+        optimal_chars=160,
+    )
+    result = ku.extract_knowledge_units(
+        dbp, client_first, source_id=1, source_title="ResNet", spans=spans, resume=True
+    )
+    assert not result.ok
+    assert "capacity" in result.errors[0]
+    # Batch 1 units are staged in DB despite the overall failure.
+    staged = db.list_staged_unit_ids_for_source(dbp, 1)
+    assert len(staged) == 1
+
+    # Second run (resume): batch 1 is skipped, only batch 2 is called.
+    client_resume = FakeClient([_units_json(spans[1]["id"])], optimal_chars=160)
+    result2 = ku.extract_knowledge_units(
+        dbp, client_resume, source_id=1, source_title="ResNet", spans=spans, resume=True
+    )
+    assert result2.ok, result2.errors
+    assert client_resume.calls == 1  # only 1 call — batch 1 was skipped
+    assert len(result2.unit_ids) == 2  # both units present
+
+
+def test_resume_false_discards_staged_units_and_reruns_all(vault) -> None:
+    """resume=False (default) always discards staged units and runs from scratch."""
+    dbp, spans = vault
+    spans.append(_add_span(dbp, "Second batch content.", "Second"))
+
+    # Seed a staged unit for span 0 to simulate a leftover from a previous run.
+    db.upsert_knowledge_unit(
+        dbp,
+        unit_type="claim",
+        canonical_name="Stale checkpoint unit",
+        statement="Left over from a previous partial run.",
+        source_span_ids=[spans[0]["id"]],
+        source_id=1,
+        confidence=0.5,
+        truth_status="source_supported",
+    )
+    assert len(db.list_staged_unit_ids_for_source(dbp, 1)) == 1
+
+    # Non-resume call: staged units are discarded, all batches re-run.
+    client = FakeClient(
+        [_units_json(spans[0]["id"]), _units_json(spans[1]["id"])],
+        optimal_chars=160,
+    )
+    result = ku.extract_knowledge_units(
+        dbp, client, source_id=1, source_title="ResNet", spans=spans
+    )
+    assert result.ok, result.errors
+    assert client.calls == 2  # both batches ran
+    assert len(result.unit_ids) == 2
+
+
+def test_resume_all_batches_already_staged_returns_ok(vault) -> None:
+    """resume=True with all spans already staged completes without any LLM calls."""
+    dbp, spans = vault
+
+    # Seed staged unit covering the only span.
+    db.upsert_knowledge_unit(
+        dbp,
+        unit_type="claim",
+        canonical_name="Fully staged unit",
+        statement="Already extracted in a previous run.",
+        source_span_ids=[spans[0]["id"]],
+        source_id=1,
+        confidence=0.9,
+        truth_status="source_supported",
+    )
+
+    client = FakeClient([], optimal_chars=160)
+    result = ku.extract_knowledge_units(
+        dbp, client, source_id=1, source_title="ResNet", spans=spans, resume=True
+    )
+    assert result.ok, result.errors
+    assert client.calls == 0  # no LLM calls needed
+    assert len(result.unit_ids) == 1
+
+
 def test_chunking_large_span_is_split(vault) -> None:
     dbp, spans = vault
     huge_text = "A" * 60000

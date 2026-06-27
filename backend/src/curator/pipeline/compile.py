@@ -213,6 +213,9 @@ def compile_source_l2(
         source = dict(row)
     relpath = source["relpath"]
     context_id = source.get("context_id") or ""
+    # Resume from checkpoint when retrying a previously errored source so that
+    # completed batches are not re-sent to the LLM (saves quota on large PDFs).
+    resume_ku = source.get("l2_status") == "error"
 
     db.set_source_layer_status(paths.state_db, source_id, "l2", "running")
     try:
@@ -235,6 +238,7 @@ def compile_source_l2(
         source_title=title,
         spans=span_inputs,
         curate_spec_hash=curate_spec_hash,
+        resume=resume_ku,
     )
     if not ku_result.ok:
         error_msg = "; ".join(ku_result.errors) or "knowledge unit extraction failed"

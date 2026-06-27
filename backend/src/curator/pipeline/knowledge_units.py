@@ -296,14 +296,23 @@ def extract_knowledge_units(
     source_title: str,
     spans: list[dict],
     curate_spec_hash: str = "",
+    resume: bool = False,
 ) -> KnowledgeUnitResult:
     """Extract and persist knowledge units from in-memory spans.
 
     ``spans`` items are dicts with keys ``id``, ``text``, and optional
     ``section_title`` — the just-stored spans carrying their full text (DB stores
     only previews, so the caller passes full text here).
+
+    When ``resume=True`` the extractor checks which span IDs already have staged
+    (unpublished) units from a previous interrupted run and skips those batches.
+    Each newly completed batch is persisted immediately so that the next retry
+    only needs to process the remaining batches rather than starting from scratch.
+    When ``resume=False`` (default) the extractor discards any staged units first
+    and uses the original all-or-nothing bulk-persist strategy.
     """
-    _discard_unpublished_units(db_path, source_id)
+    if not resume:
+        _discard_unpublished_units(db_path, source_id)
 
     if not spans:
         return KnowledgeUnitResult(ok=True)
@@ -331,7 +340,7 @@ def extract_knowledge_units(
         else:
             refined_spans.append(s)
 
-    batches = []
+    batches: list[list[dict]] = []
     current_batch: list[dict] = []
     current_chars = 0
 
@@ -350,10 +359,48 @@ def extract_knowledge_units(
         batches.append(current_batch)
 
     contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
-    pending_units: list[_PendingKnowledgeUnit] = []
     last_trace_id = ""
     all_errors: list[str] = []
 
+    if resume:
+        # Checkpoint-resume: skip already-staged batches, persist each new batch immediately.
+        staged_span_ids = db.get_staged_span_ids_for_source(db_path, source_id)
+        for index, batch in enumerate(batches, start=1):
+            if all(s["id"] in staged_span_ids for s in batch):
+                continue  # fully covered by a previous run's checkpoint
+            result = _run_batch_with_retry(
+                db_path,
+                client,
+                contract,
+                source_id=source_id,
+                source_title=source_title,
+                batch=batch,
+                label=f"batch {index}/{len(batches)}",
+                curate_spec_hash=curate_spec_hash,
+            )
+            if result.trace_id:
+                last_trace_id = result.trace_id
+            if result.errors:
+                all_errors.extend(result.errors)
+                break
+            _persist_units(db_path, source_id=source_id, pending_units=result.units)
+
+        if all_errors:
+            return KnowledgeUnitResult(
+                trace_id=last_trace_id,
+                ok=False,
+                errors=all_errors,
+            )
+
+        all_unit_ids = db.list_staged_unit_ids_for_source(db_path, source_id)
+        return KnowledgeUnitResult(
+            unit_ids=all_unit_ids,
+            trace_id=last_trace_id,
+            ok=True,
+        )
+
+    # Default (non-resume): accumulate in memory, bulk-persist on full success.
+    pending_units: list[_PendingKnowledgeUnit] = []
     for index, batch in enumerate(batches, start=1):
         result = _run_batch_with_retry(
             db_path,
