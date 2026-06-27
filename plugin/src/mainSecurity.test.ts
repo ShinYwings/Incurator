@@ -85,6 +85,25 @@ describe("G17-4: model default migration must be catalogue-based", () => {
   });
 });
 
+describe("G17-7: Zotero reload must not rewrite a note from empty metadata", () => {
+  it("guards the resolved item metadata before re-rendering the note", () => {
+    const src = mainSource();
+
+    expect(src).toContain("const metadata = await this.getZoteroItemMetadata(itemKey);");
+    // An empty-object metadata result (citekey passed as item key, or item not
+    // found) must abort before renderTemplate/modify.
+    expect(src).toContain("Object.keys(metadata as Record<string, unknown>).length === 0");
+  });
+});
+
+describe("G17-12: deprecated imageFolder is migrated out of stored profiles", () => {
+  it("loadSettings runs the one-time asset-folder migration and persists changes", () => {
+    const src = mainSource();
+
+    expect(src).toContain("migrateZoteroProfileAssetFolders(this.settings.zoteroProfiles)");
+  });
+});
+
 describe("G17-8: device registry writes use one async helper", () => {
   it("does not inline sync mkdir/write sequences in each devices.json writer", () => {
     const src = mainSource();

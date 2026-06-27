@@ -46,6 +46,28 @@ export function resolveProfileAssetSpec(profile: ZoteroImportProfile): ResolvedA
   return { assetFolder: DEFAULT_ASSET_FOLDER, assetSubfolder: DEFAULT_ASSET_SUBFOLDER };
 }
 
+/**
+ * One-time retirement of the deprecated `imageFolder` profile field: normalize
+ * any profile still carrying `imageFolder` to `assetFolder`/`assetSubfolder`
+ * (same mapping as `resolveProfileAssetSpec`) and delete `imageFolder`. Returns
+ * true when any profile changed so the caller can persist settings.
+ */
+export function migrateZoteroProfileAssetFolders(
+  profiles: ZoteroImportProfile[] | undefined
+): boolean {
+  let changed = false;
+  for (const profile of profiles || []) {
+    const legacy = profile as { imageFolder?: string };
+    if (legacy.imageFolder === undefined) continue;
+    const spec = resolveProfileAssetSpec(profile);
+    profile.assetFolder = spec.assetFolder;
+    profile.assetSubfolder = spec.assetSubfolder;
+    delete legacy.imageFolder;
+    changed = true;
+  }
+  return changed;
+}
+
 /** Join vault path parts, dropping empties and collapsing duplicate slashes. */
 export function joinVaultPath(...parts: string[]): string {
   return parts.filter(Boolean).join("/").replace(/\/+/g, "/");
