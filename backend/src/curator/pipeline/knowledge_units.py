@@ -9,6 +9,8 @@ artifact.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -126,8 +128,14 @@ def _batch_failure_errors(label: str, batch: list[dict], result: Any) -> list[st
     ]
 
 
+def _batch_hash(batch: list[dict]) -> str:
+    """Deterministic hash of a batch by its (span_id, section_title) pairs."""
+    key = sorted((str(s["id"]), s.get("section_title") or "") for s in batch)
+    return hashlib.sha256(json.dumps(key, separators=(",", ":")).encode()).hexdigest()[:16]
+
+
 def _discard_unpublished_units(db_path: Path, source_id: int) -> None:
-    """Remove source-local units from failed runs that never reached a generation."""
+    """Remove source-local units and checkpoints from runs that never reached a generation."""
     with db.connect(db_path) as conn:
         conn.execute(
             "DELETE FROM claim_supports WHERE knowledge_unit_id IN ("
@@ -141,6 +149,7 @@ def _discard_unpublished_units(db_path: Path, source_id: int) -> None:
             "AND generation_id IS NULL AND retired_at IS NULL",
             (source_id,),
         )
+    db.clear_l2_checkpoints(db_path, source_id)
 
 
 def _run_batch_with_retry(
@@ -304,12 +313,13 @@ def extract_knowledge_units(
     ``section_title`` — the just-stored spans carrying their full text (DB stores
     only previews, so the caller passes full text here).
 
-    When ``resume=True`` the extractor checks which span IDs already have staged
-    (unpublished) units from a previous interrupted run and skips those batches.
-    Each newly completed batch is persisted immediately so that the next retry
-    only needs to process the remaining batches rather than starting from scratch.
-    When ``resume=False`` (default) the extractor discards any staged units first
-    and uses the original all-or-nothing bulk-persist strategy.
+    When ``resume=True`` the extractor skips batches already recorded in the
+    ``l2_checkpoints`` table (identified by a deterministic content hash of each
+    batch's span-id/section-title pairs). Each newly completed batch is persisted
+    immediately and its checkpoint hash inserted, so the next retry only processes
+    the remaining batches rather than starting from scratch.
+    When ``resume=False`` (default) the extractor discards any staged units and
+    checkpoint records first, then uses the original all-or-nothing bulk-persist.
     """
     if not resume:
         _discard_unpublished_units(db_path, source_id)
@@ -363,11 +373,13 @@ def extract_knowledge_units(
     all_errors: list[str] = []
 
     if resume:
-        # Checkpoint-resume: skip already-staged batches, persist each new batch immediately.
-        staged_span_ids = db.get_staged_span_ids_for_source(db_path, source_id)
+        # Checkpoint-resume: skip batches already persisted by a previous interrupted run.
+        # Keyed by (span_id, section_title) hash so that sub-spans produced by large-span
+        # refinement (same id, different section_title) are tracked independently.
+        done_hashes = db.get_l2_checkpoint_hashes(db_path, source_id)
         for index, batch in enumerate(batches, start=1):
-            if all(s["id"] in staged_span_ids for s in batch):
-                continue  # fully covered by a previous run's checkpoint
+            if _batch_hash(batch) in done_hashes:
+                continue  # fully persisted by a previous run
             result = _run_batch_with_retry(
                 db_path,
                 client,
@@ -384,6 +396,7 @@ def extract_knowledge_units(
                 all_errors.extend(result.errors)
                 break
             _persist_units(db_path, source_id=source_id, pending_units=result.units)
+            db.insert_l2_checkpoint(db_path, source_id, _batch_hash(batch))
 
         if all_errors:
             return KnowledgeUnitResult(

@@ -350,28 +350,57 @@ def test_resume_false_discards_staged_units_and_reruns_all(vault) -> None:
 
 
 def test_resume_all_batches_already_staged_returns_ok(vault) -> None:
-    """resume=True with all spans already staged completes without any LLM calls."""
+    """resume=True after a full successful run makes zero LLM calls on second invocation."""
     dbp, spans = vault
 
-    # Seed staged unit covering the only span.
-    db.upsert_knowledge_unit(
-        dbp,
-        unit_type="claim",
-        canonical_name="Fully staged unit",
-        statement="Already extracted in a previous run.",
-        source_span_ids=[spans[0]["id"]],
-        source_id=1,
-        confidence=0.9,
-        truth_status="source_supported",
+    # First run: succeeds and records checkpoint for the only batch.
+    client_first = FakeClient([_units_json(spans[0]["id"])], optimal_chars=160)
+    result_first = ku.extract_knowledge_units(
+        dbp, client_first, source_id=1, source_title="ResNet", spans=spans, resume=True
     )
+    assert result_first.ok, result_first.errors
+    assert client_first.calls == 1
 
-    client = FakeClient([], optimal_chars=160)
+    # Second run: checkpoint is present, no LLM calls needed.
+    client_second = FakeClient([], optimal_chars=160)
     result = ku.extract_knowledge_units(
-        dbp, client, source_id=1, source_title="ResNet", spans=spans, resume=True
+        dbp, client_second, source_id=1, source_title="ResNet", spans=spans, resume=True
     )
     assert result.ok, result.errors
-    assert client.calls == 0  # no LLM calls needed
+    assert client_second.calls == 0  # batch skipped via checkpoint hash
     assert len(result.unit_ids) == 1
+
+
+def test_resume_checkpoint_tracks_section_title_not_just_span_id(vault) -> None:
+    """Checkpoint key includes section_title so large-span sub-parts are tracked independently."""
+    dbp, spans = vault
+
+    # Simulate a span that gets refined into two sub-parts sharing the same id.
+    part1 = {"id": spans[0]["id"], "section_title": "Intro (Part 1)", "text": "Part one text."}
+    part2 = {"id": spans[0]["id"], "section_title": "Intro (Part 2)", "text": "Part two text."}
+    # Put each part in its own batch.
+    two_part_spans = [part1, part2]
+
+    # First partial run: part1 batch succeeds, part2 batch fails.
+    client_first = FakeClient(
+        [_units_json(spans[0]["id"]), RuntimeError("429 capacity")],
+        optimal_chars=160,
+    )
+    result = ku.extract_knowledge_units(
+        dbp, client_first, source_id=1, source_title="ResNet",
+        spans=two_part_spans, resume=True,
+    )
+    assert not result.ok
+    assert "capacity" in result.errors[0]
+
+    # Second run (resume): part1 hash is in checkpoints, only part2 runs.
+    client_resume = FakeClient([_units_json(spans[0]["id"])], optimal_chars=160)
+    result2 = ku.extract_knowledge_units(
+        dbp, client_resume, source_id=1, source_title="ResNet",
+        spans=two_part_spans, resume=True,
+    )
+    assert result2.ok, result2.errors
+    assert client_resume.calls == 1  # only part2 ran — part1 correctly skipped
 
 
 def test_chunking_large_span_is_split(vault) -> None:

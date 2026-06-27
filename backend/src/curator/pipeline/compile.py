@@ -213,9 +213,10 @@ def compile_source_l2(
         source = dict(row)
     relpath = source["relpath"]
     context_id = source.get("context_id") or ""
-    # Resume from checkpoint when retrying a previously errored source so that
-    # completed batches are not re-sent to the LLM (saves quota on large PDFs).
-    resume_ku = source.get("l2_status") == "error"
+    # Resume from checkpoint when interrupted batches were already persisted —
+    # check DB directly so callers that reset l2_status before dispatching still
+    # trigger resume correctly (e.g. `wiki sources retry` sets l2_status='pending').
+    resume_ku = db.has_l2_checkpoints(paths.state_db, source_id)
 
     db.set_source_layer_status(paths.state_db, source_id, "l2", "running")
     try:

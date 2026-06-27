@@ -703,6 +703,15 @@ CREATE TABLE IF NOT EXISTS deleted_records (
     ))
 );
 CREATE INDEX IF NOT EXISTS idx_deleted_records_at ON deleted_records(deleted_at);
+
+-- Checkpoint records for L2 extraction resume. Each row records one
+-- successfully persisted batch (by its deterministic content hash) so that
+-- on retry only unfinished batches are re-sent to the LLM.
+CREATE TABLE IF NOT EXISTS l2_checkpoints (
+    source_id  INTEGER NOT NULL,
+    batch_hash TEXT    NOT NULL,
+    PRIMARY KEY (source_id, batch_hash)
+);
 """
 
 
@@ -2215,19 +2224,37 @@ def _decode_unit_row(row: sqlite3.Row) -> dict:
     return data
 
 
-def get_staged_span_ids_for_source(db_path: Path, source_id: int) -> set[str]:
-    """Return span IDs that already have staged (unpublished) units for this source.
+def insert_l2_checkpoint(db_path: Path, source_id: int, batch_hash: str) -> None:
+    """Record that a batch (identified by its content hash) was successfully persisted."""
+    with connect(db_path) as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO l2_checkpoints (source_id, batch_hash) VALUES (?, ?)",
+            (source_id, batch_hash),
+        )
 
-    Used by the checkpoint-resume path in extract_knowledge_units to skip batches
-    that were fully persisted by a previous interrupted extraction run.
-    """
+
+def get_l2_checkpoint_hashes(db_path: Path, source_id: int) -> set[str]:
+    """Return the set of batch hashes already checkpointed for this source."""
     with connect(db_path) as conn:
         rows = conn.execute(
-            "SELECT DISTINCT value FROM knowledge_units, json_each(source_span_ids) "
-            "WHERE source_id = ? AND generation_id IS NULL AND retired_at IS NULL",
-            (source_id,),
+            "SELECT batch_hash FROM l2_checkpoints WHERE source_id = ?", (source_id,)
         ).fetchall()
-    return {row[0] for row in rows}
+    return {row["batch_hash"] for row in rows}
+
+
+def clear_l2_checkpoints(db_path: Path, source_id: int) -> None:
+    """Remove all checkpoint records for a source (called when starting fresh)."""
+    with connect(db_path) as conn:
+        conn.execute("DELETE FROM l2_checkpoints WHERE source_id = ?", (source_id,))
+
+
+def has_l2_checkpoints(db_path: Path, source_id: int) -> bool:
+    """Return True if any checkpoint batches are recorded for this source."""
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM l2_checkpoints WHERE source_id = ? LIMIT 1", (source_id,)
+        ).fetchone()
+    return row is not None
 
 
 def list_staged_unit_ids_for_source(db_path: Path, source_id: int) -> list[str]:
@@ -2239,7 +2266,7 @@ def list_staged_unit_ids_for_source(db_path: Path, source_id: int) -> list[str]:
             "ORDER BY created_at",
             (source_id,),
         ).fetchall()
-    return [row[0] for row in rows]
+    return [row["id"] for row in rows]
 
 
 def list_knowledge_units_for_source(db_path: Path, source_id: int) -> list[dict]:
