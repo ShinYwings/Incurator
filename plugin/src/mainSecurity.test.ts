@@ -75,6 +75,14 @@ describe("G17-4: model default migration must be catalogue-based", () => {
     expect(src).not.toContain("unavailableDefaults");
     expect(src).not.toContain("claude-opus-4-7");
   });
+
+  it("never resets a non-empty custom model for providers with open-ended ids (Ollama)", () => {
+    const src = mainSource();
+
+    expect(src).toContain(
+      'if (this.settings.model && this.settings.provider === "ollama") return false;'
+    );
+  });
 });
 
 describe("G17-8: device registry writes use one async helper", () => {

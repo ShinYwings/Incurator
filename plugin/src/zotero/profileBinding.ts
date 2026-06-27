@@ -11,21 +11,26 @@ export function stampZoteroProfile(markdown: string, profileName: string): strin
   if (!name) return markdown;
 
   const fieldLine = `${ZOTERO_PROFILE_FIELD}: ${quoteYamlString(name)}`;
-  if (!markdown.startsWith("---\n")) {
-    return `---\n${fieldLine}\n---\n\n${markdown}`;
-  }
+  const fieldPattern = new RegExp(`^${ZOTERO_PROFILE_FIELD}\\s*:`);
+  const prepend = `---\n${fieldLine}\n---\n\n${markdown}`;
 
-  const closingIndex = markdown.indexOf("\n---", 4);
-  if (closingIndex < 0) {
-    return `---\n${fieldLine}\n---\n\n${markdown}`;
-  }
+  const lines = markdown.split("\n");
+  // A YAML frontmatter block must open with a lone '---' on the first line.
+  if (lines[0] !== "---") return prepend;
 
-  const frontmatter = markdown
-    .slice(4, closingIndex)
-    .split("\n")
-    .filter((line) => !line.match(new RegExp(`^${ZOTERO_PROFILE_FIELD}\\s*:`)));
+  // The close is the first *lone* '---' line — never a '---' that merely appears
+  // inside a value or a body horizontal rule (which is what naive substring
+  // scanning would wrongly match).
+  const closeIndex = lines.indexOf("---", 1);
+  if (closeIndex < 0) return prepend;
+
+  const frontmatter = lines
+    .slice(1, closeIndex)
+    .filter((line) => !fieldPattern.test(line));
   frontmatter.push(fieldLine);
-  return `---\n${frontmatter.join("\n")}${markdown.slice(closingIndex)}`;
+  // lines.slice(closeIndex) keeps the closing '---' and everything after it
+  // verbatim, preserving body content exactly.
+  return ["---", ...frontmatter, ...lines.slice(closeIndex)].join("\n");
 }
 
 export function resolveZoteroRefreshProfile(

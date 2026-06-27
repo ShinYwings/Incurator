@@ -185,4 +185,11 @@ describe("Zotero import modals", () => {
     expect(source).toContain("profileNameForNote");
     expect(source).toContain("stampZoteroProfile(");
   });
+
+  it("saves new profiles under the trimmed name so the note stamp round-trips (G17-6)", () => {
+    const source = wizardSource();
+
+    expect(source).toContain("name: this.profileName.trim()");
+    expect(source).not.toContain("name: this.profileName,");
+  });
 });

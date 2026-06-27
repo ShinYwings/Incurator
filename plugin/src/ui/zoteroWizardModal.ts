@@ -411,10 +411,10 @@ export class ZoteroWizardModal extends Modal {
           ? (this.saveAsProfile ? this.profileName.trim() : "")
           : this.selectedProfile;
 
-      if (this.selectedProfile === "new" && this.saveAsProfile && this.profileName) {
+      if (this.selectedProfile === "new" && this.saveAsProfile && this.profileName.trim()) {
         if (!this.settings.zoteroProfiles) this.settings.zoteroProfiles = [];
         this.settings.zoteroProfiles.unshift({
-          name: this.profileName,
+          name: this.profileName.trim(),
           templatePath: this.templatePath,
           bibliographyStyle: this.bibliographyStyle,
           outputFolder: this.outputFolder,

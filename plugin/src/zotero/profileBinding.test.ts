@@ -37,6 +37,19 @@ describe("Zotero profile binding", () => {
     );
   });
 
+  it("stamps empty rendered frontmatter without producing a duplicate fence", () => {
+    expect(stampZoteroProfile("---\n---\n\nBody\n", "Books")).toBe(
+      "---\nzotero_profile: \"Books\"\n---\n\nBody\n"
+    );
+  });
+
+  it("closes frontmatter at a lone --- line, ignoring --- rules inside values/body", () => {
+    const input = "---\ntitle: Paper\nsummary: a - b - c\n---\nBody\n---\nFooter\n";
+    expect(stampZoteroProfile(input, "Books")).toBe(
+      "---\ntitle: Paper\nsummary: a - b - c\nzotero_profile: \"Books\"\n---\nBody\n---\nFooter\n"
+    );
+  });
+
   it("uses the stamped profile for refresh and falls back to the first profile", () => {
     const profiles = [profile("Papers"), profile("Books", "book-template.md")];
 

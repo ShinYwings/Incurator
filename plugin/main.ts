@@ -1343,6 +1343,9 @@ export default class ObsidianAIAgent extends Plugin {
       this.settings.model
     );
     if (this.settings.model && knownModel) return false;
+    // Ollama serves arbitrary user-pulled model ids the bundled catalogue
+    // cannot enumerate; never reset a non-empty custom Ollama model.
+    if (this.settings.model && this.settings.provider === "ollama") return false;
 
     const backendDefault = getDefaultModel(this.availableModels, this.settings.provider) || "";
     if (this.settings.model === backendDefault) return false;

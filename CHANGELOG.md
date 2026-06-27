@@ -16,7 +16,10 @@ All notable changes to Incurator are documented here.
 - **G17-6: Zotero note reload uses the originating import profile.** Imported
   Zotero notes now store `zotero_profile` in frontmatter, and reload uses that
   profile for the template and annotation asset folder instead of always using
-  `zoteroProfiles[0]`.
+  `zoteroProfiles[0]`. The frontmatter stamp now detects the closing `---` by
+  line (so a `---` inside a value or body no longer truncates the note, and
+  empty rendered frontmatter no longer produces a duplicate fence), and new
+  profiles are saved under their trimmed name so the stamp round-trips.
 - **G17-9: Zotero open-link fallbacks preserve later plugin patches.** The
   global `window.open` / Electron `openExternal` fallbacks now restore their
   originals on unload only if Incurator still owns the patched function.
@@ -37,7 +40,8 @@ All notable changes to Incurator are documented here.
 - Removed dead plugin auth helpers from the settings tab and the unused
   `CLIAuthResolver.normalizeExpiry` helper.
 - Removed the stale hardcoded model-default denylist; model migration now resets
-  unavailable models by checking the live bundled catalogue.
+  unavailable models by checking the live bundled catalogue, while exempting
+  non-empty custom Ollama model ids the bundled catalogue cannot enumerate.
 - Consolidated duplicate device-registry writers into one async helper so
   backend-command caching and Syncthing registry refresh no longer repeat inline
   synchronous mkdir/write setup.
