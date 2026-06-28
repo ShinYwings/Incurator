@@ -390,7 +390,7 @@ wiki sources list|show|rm  # Manage tracked source files
 | Module | Role |
 |--------|------|
 | `cli.py` | Typer CLI; auto-selects LLM backend by available RAM (<16 GB → Antigravity cloud, ≥16 GB → Ollama local) |
-| `db.py` | SQLite state (`state.sqlite`): source deduplication (SHA256 hash), ingest run history, source→page provenance |
+| `db/` | SQLite state (`state.sqlite`): source deduplication (SHA256 hash), ingest run history, source→page provenance. Package (decomposed from the former `db.py`, DB-2): `db/schema.py` (DDL, migrations, `connect`, `init_db`), `db/_entities.py` (entity repository queries), `db/__init__.py` re-export facade — still imported as `from . import db` and used via `db.<name>` |
 | `ingest_raw.py` | File discovery, hash-based dedup, parser dispatch, L1 Context generation |
 | `ingest_llm.py` | Three-phase DAG construction: Phase A (atoms), Phase B (concepts/communities), Phase C (synthesis) |
 | `sync.py` | DAG integrity verification; Mode A (global reverse L4→L1) and Mode B (targeted bidirectional) |
