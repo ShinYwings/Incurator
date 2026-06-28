@@ -7,7 +7,7 @@ Date: 2026-06-28 | Branch: `fix/db-decomposition` (off `master` post-#65)
 - Per-phase commits (git mv preserves history) → single-phase revert.
 
 ## Baselines
-- Backend `pytest`: (branch-base background run — recorded on completion).
+- Backend `pytest` (branch base): **1119 passed**.
 - Public `db.*` API: 128 names (118 package-owned functions + 10 public
   constants), captured in `backend/tests/test_db_public_api.py` (P0). Test green
   pre-refactor.
@@ -25,6 +25,24 @@ Date: 2026-06-28 | Branch: `fix/db-decomposition` (off `master` post-#65)
 | 1330–~1600 | ingest job queue | jobs.py (P2) |
 | ~1600–4759 | sources + all entity repositories | _entities.py (holding; carved in follow-ups) |
 
-## P1 — package + schema.py — pending
+## P1 — package + schema.py — DONE (pending full-suite gate)
+- `git mv db.py db/_entities.py` (history preserved); split header (lines 1-1329)
+  into `db/schema.py`; facade `db/__init__.py`.
+- schema.py = enums/constants (SCHEMA_VERSION, RESOLUTION/MERGE/QUARANTINE codes,
+  SCHEMA_SQL), helpers, migrations, init_db, connect, _maybe_conn, get_stats.
+- `_entities.py` imports downward: `from .schema import (connect, _now_iso,
+  _chunked, _maybe_conn, _QUARANTINE_REEVAL_TRIGGERS,
+  _RELATION_CORROBORATION_THRESHOLD)`. (SUPPORT_*/FORMULA_*/GENERATION_*/
+  GRAPH_AUDIT_CODES are defined in `_entities.py` itself.)
+- Relative import lifted: `from . import constants` → `from .. import constants`.
+- Facade re-exports `import *` over schema + _entities, PLUS explicit
+  `_maybe_conn`/`_now_iso` — external callers use `db._maybe_conn`/`db._now_iso`
+  (claim_support, compile). Snapshot test extended to guard these underscore
+  externals (lesson: the public-only snapshot missed them).
+- ruff --fix removed 8 split-artifact stdlib imports; mypy clean.
+- Test fix (module move, not behavior): `test_db_schema.py` patches
+  `curator.db.schema._apply_migrations` at its real location.
+
+## P2 — jobs.py — pending
 ## P2 — jobs.py — pending
 ## P3 — verify + docs + release — pending

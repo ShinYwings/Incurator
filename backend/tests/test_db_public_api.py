@@ -23,6 +23,11 @@ _ALLOWLIST_CONSTANTS = {
     "SUPPORT_ROLES", "SUPPORT_STATUSES", "SCHEMA_SQL", "SCHEMA_VERSION",
 }
 
+# Underscore helpers that external modules reach via ``db._<name>`` (e.g.
+# claim_support / compile use ``db._maybe_conn`` / ``db._now_iso``). These are
+# part of the de-facto surface and MUST stay re-exported by the facade.
+_UNDERSCORE_EXTERNALS = {"_maybe_conn", "_now_iso"}
+
 # Captured 2026-06-28 from the pre-refactor db.py (128 names). Do not shrink.
 EXPECTED_PUBLIC_API = frozenset({
     "FORMULA_STATUSES", "GENERATION_STATUSES", "GRAPH_AUDIT_CODES",
@@ -85,3 +90,9 @@ def _current_public_api() -> set[str]:
 def test_db_public_api_superset_preserved():
     missing = EXPECTED_PUBLIC_API - _current_public_api()
     assert not missing, f"db facade dropped public symbols after DB-2 split: {sorted(missing)}"
+
+
+def test_db_underscore_externals_still_exported():
+    # Helpers reached via db._<name> by other modules must remain accessible.
+    missing = {n for n in _UNDERSCORE_EXTERNALS if not hasattr(db, n)}
+    assert not missing, f"db facade dropped underscore helpers used externally: {sorted(missing)}"
