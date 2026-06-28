@@ -58,7 +58,28 @@ Tests: `backend/tests/test_error_handling_pdf.py` (4) — fallback preserved + l
 | 1477 `list_models_on_host` | NARROW (httpx.HTTPError, ValueError)+log | [] |
 Tests: `backend/tests/test_error_handling_llm.py` (4) — empty+log on transport
 error; unexpected error propagates (NARROW).
-### ingest_raw.py / ingest_worker.py — pending (P3)
+### ingest_raw.py — DONE (12 sites)
+- 155 `_resolve_reference_source` → **KEEP+log(warning)** (review-corrected: NOT
+  SURFACE; multi-subsystem best-effort resolver, fall back to `return source`).
+- 265 reference-candidate scan → NARROW (OSError, yaml.YAMLError)+log → continue.
+- 1144 `_safe_vault_subdir` → NARROW (OSError, ValueError, RuntimeError)+log → None.
+- 1184 `_save_pdf_images` → NARROW OSError+log(warn) → partial saved.
+- 490, 1368, 1612, 1627, 2068, 2255 → KEEP+comment (already surface via print /
+  DB l1 status / ERROR AddOutcome).
+- 1409, 1527 → KEEP, already documented+printed (untouched).
+- Removed an unused `sqlite3` import added during drafting (KEEP chosen over NARROW).
+Tests: `backend/tests/test_error_handling_ingest.py` (2) — transient-DB-lock
+fallback (reviewer scenario) + `_safe_vault_subdir` None+log.
+
+### ingest_worker.py — DONE (9 sites)
+- 198, 212 runtime snapshots → KEEP+log(debug)+comment (best-effort dashboard).
+- 233 token accounting → KEEP+log(debug)+comment.
+- 271 finally client.close → KEEP+log(debug)+comment.
+- 171 global-L3, 253 job boundary → KEEP+comment (already surface: re-raise /
+  retry+mark-failed; central to v0.27.2 resilience).
+- 220, 359, 452 → already log with non-fatal rationale (untouched).
+Regression: existing `test_prompt_trace`, `test_compile_pipeline`,
+`test_knowledge_unit_extraction` still green (32).
 ### pipeline/compile.py — pending (P4)
 
 ## Validation log

@@ -16,6 +16,7 @@ import os
 from . import constants as consts
 
 import json
+import logging
 import re
 import shutil
 import uuid
@@ -30,6 +31,8 @@ from . import config as cfg
 from . import db
 from . import parsers
 from .llm import LLMError
+
+logger = logging.getLogger(__name__)
 
 
 class AddResult(str, Enum):
@@ -152,9 +155,13 @@ def _resolve_reference_source(paths: cfg.WikiPaths, source: Path) -> Path:
             target_p = Path(target_path)
             if target_p.exists():
                 return target_p
-    except Exception:
-        pass
-        
+    except Exception as e:
+        # KEEP broad: best-effort external-path resolver spanning file read,
+        # config load, Zotero lookup, and a DB query — ANY failure must degrade
+        # to the original source path below, never crash the caller. Previously
+        # silent; now logged so transient DB locks / IO errors are visible.
+        logger.warning("External source path resolution failed for '%s' — using original: %s", source, e)
+
     return source
 
 
@@ -262,7 +269,8 @@ def _find_existing_reference_stub(directory: Path, logical_id: str) -> Path | No
             if end_idx == -1:
                 continue
             fm = yaml.safe_load(content[3:end_idx])
-        except Exception:
+        except (OSError, yaml.YAMLError) as e:
+            logger.debug("Skipping unreadable reference candidate '%s': %s", candidate, e)
             continue
         if (
             isinstance(fm, dict)
@@ -488,6 +496,8 @@ def _describe_images_with_vision(
             if desc:
                 descriptions.append(desc)
         except Exception as e:
+            # KEEP broad: vision providers raise heterogeneous errors; a single
+            # image's failure must not drop the rest. Already surfaced (warning).
             print(f"    [Warn] Vision inference failed: {e}")
     return descriptions
 
@@ -1141,7 +1151,8 @@ def _safe_vault_subdir(paths: cfg.WikiPaths, candidate: str) -> str | None:
         if resolved == root or not resolved.is_relative_to(root):
             return None
         return resolved.relative_to(root).as_posix()
-    except Exception:
+    except (OSError, ValueError, RuntimeError) as e:
+        logger.debug("Vault subdir validation failed for '%s': %s", candidate, e)
         return None
 
 
@@ -1181,8 +1192,8 @@ def _save_pdf_images(
             dest = assets_dir / filename
             dest.write_bytes(img["data"])
             saved.append({"obsidian_path": f"{obsidian_prefix}/{filename}", "page": page})
-    except Exception:
-        pass
+    except OSError as e:
+        logger.warning("Saving PDF images to '%s' failed — keeping %d saved: %s", assets_dir, len(saved), e)
     return saved
 
 
@@ -1366,6 +1377,9 @@ def generate_l1_structural_context(
                     parsed, resolved_source, _vclient, _vcfg, paths.state_db
                 )
     except Exception as e:
+        # KEEP broad: this is the L1 parse error boundary — parser + vision can
+        # raise anything; the error IS surfaced (recorded to source l1 status and
+        # printed) and the source is marked failed rather than silently skipped.
         print(f"  [Error] Parsing file failed for {relpath}: {e}")
         db.set_source_layer_status(paths.state_db, source_id, "l1", "error", error=str(e))
         return None
@@ -1610,6 +1624,8 @@ def generate_l1_summary(
     try:
         parsed = parsers.parse(file_path)
     except Exception as e:
+        # KEEP broad: L1 parse error boundary — the failure is surfaced (l1 status
+        # set to error + printed) rather than silently swallowed.
         print(f"  [Error] Parsing file failed for {relpath}: {e}")
         db.set_source_layer_status(paths.state_db, source_id, "l1", "error", error=str(e))
         return None
@@ -1625,6 +1641,9 @@ def generate_l1_summary(
                 descs = _describe_images_with_vision(vision_client, [img_data], context=parsed.title)
                 source_text = f"[Image: {file_path.name}]\n\n" + (descs[0] if descs else "")
             except Exception as e:
+                # KEEP broad: image read + vision inference; on any failure fall
+                # back to a placeholder so the source still ingests (surfaced via
+                # warning).
                 print(f"  [Warn] Could not describe image {relpath}: {e}")
                 source_text = f"[Image: {file_path.name}] — vision inference unavailable"
         else:
@@ -2066,6 +2085,8 @@ def import_source_file(
             try:
                 stub_path = _reference_stub_destination(paths, source, destination)
             except Exception as exc:
+                # KEEP broad: add boundary — any destination-planning failure is
+                # surfaced to the caller as an ERROR outcome, not swallowed.
                 return AddOutcome(
                     result=AddResult.ERROR,
                     source_path=source,
@@ -2253,6 +2274,8 @@ def import_source_file(
             destination=destination,
         )
     except Exception as exc:
+        # KEEP broad: add boundary — import-destination planning errors are
+        # surfaced as an ERROR outcome with the message, never swallowed.
         return AddOutcome(
             result=AddResult.ERROR,
             source_path=source,
