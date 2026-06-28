@@ -298,13 +298,3 @@ def get_jobs_done_today(db_path: Path) -> list[dict]:
         ).fetchall()
         return [dict(r) for r in rows]
 
-
-def get_pending_count(db_path: Path) -> int:
-    """Count sources with status 'pending' or 'force_pending'."""
-    if not db_path.exists():
-        return 0
-    with connect(db_path) as conn:
-        return conn.execute(
-            f"SELECT COUNT(*) FROM sources WHERE status IN ('{consts.STATUS_PENDING}', 'force_pending')"
-        ).fetchone()[0]
-

@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .. import constants as consts
 from .schema import (
     _now_iso,
     connect,
@@ -217,8 +218,6 @@ def list_source_pdf_pages(db_path: Path, source_id: int) -> list[dict]:
             metadata_raw = item.get("metadata")
             if metadata_raw:
                 try:
-                    import json
-
                     item["metadata"] = json.loads(metadata_raw)
                 except Exception:
                     item["metadata"] = {}
@@ -339,4 +338,14 @@ def get_source_row(
         else:
             row = None
     return dict(row) if row else None
+
+
+def get_pending_count(db_path: Path) -> int:
+    """Count sources with status 'pending' or 'force_pending'."""
+    if not db_path.exists():
+        return 0
+    with connect(db_path) as conn:
+        return conn.execute(
+            f"SELECT COUNT(*) FROM sources WHERE status IN ('{consts.STATUS_PENDING}', 'force_pending')"
+        ).fetchone()[0]
 

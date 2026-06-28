@@ -266,8 +266,8 @@ evaluated_code:
     backend/src/curator/db/__init__.py: 9d9b18355372e1f77534aef353a07c3ee1f3e9ce3413ffec7d8030da86a4a16c
     backend/src/curator/db/schema.py: d04d694735e74a68f6bba98ab91b7c802c6452649281cca3671728a3d9aac8bb
     backend/src/curator/db/_entities.py: c34156c88311a27834068f17ab7ab9a46efc28ed26a154554796db8963849df0
-    backend/src/curator/db/jobs.py: f1c35007f18e65aa133d9e0358ffc6dfb8600cade0867fb8ee8e82d50928d21d
-    backend/src/curator/db/sources.py: 7014c703ead0c75dfcf3c846275fc6dd8decfe16b4de14ba6f02be8029c54ae6
+    backend/src/curator/db/jobs.py: 46163fb2350eeeca3915da8e539028a7ef0a4b89f546827fc28ca4a9c44157ae
+    backend/src/curator/db/sources.py: 63eca4b0c5c77f2efc46b025690e16d702ba9edaedfb8f0e32bba5d7ae70fbf9
   preflight_family_metrics:
     direct-factual:
       query_count: 7
