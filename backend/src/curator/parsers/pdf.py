@@ -7,6 +7,7 @@ skip or still register them.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from .base import (
@@ -16,6 +17,8 @@ from .base import (
     fallback_title_from_path,
     normalize_text,
 )
+
+logger = logging.getLogger(__name__)
 
 _MAX_PDF_IMAGES = 10  # cap per document to avoid memory blow-up
 
@@ -35,7 +38,10 @@ def _extract_pdf_toc(path: Path) -> list[dict]:
         ]
         doc.close()
         return toc
-    except Exception:
+    except Exception as e:
+        # KEEP broad: PyMuPDF's failure surface is opaque/version-dependent and
+        # the TOC is optional enrichment — degrade to no outline, but log it.
+        logger.debug("PDF outline extraction failed for '%s': %s", path, e)
         return []
 
 
@@ -70,11 +76,16 @@ def _extract_pdf_images(path: Path) -> list[dict]:
                             "data": data,
                             "ext": base_img.get("ext", "png"),
                         })
-                except Exception:
+                except Exception as e:
+                    # KEEP broad: a single bad XREF must not abort image
+                    # extraction; skip it (opaque PyMuPDF surface) and continue.
+                    logger.debug("Skipping PDF image xref %s in '%s': %s", xref, path, e)
                     continue
         doc.close()
-    except Exception:
-        pass
+    except Exception as e:
+        # KEEP broad: image extraction is optional enrichment; degrade to
+        # whatever was collected so far rather than failing the parse.
+        logger.debug("PDF image extraction failed for '%s': %s", path, e)
     return images
 
 
@@ -185,8 +196,10 @@ def parse(path: Path) -> ParsedDocument:
             meta_title = str(meta.get("title")).strip()
             if meta_title:
                 title = meta_title
-    except Exception:
-        pass
+    except Exception as e:
+        # KEEP broad: metadata title is best-effort; fall through to the
+        # first-line / filename title below.
+        logger.debug("PDF metadata title read failed for '%s': %s", path, e)
     if not title:
         title = _first_nonempty_line(text)
     if not title:
@@ -206,8 +219,9 @@ def parse(path: Path) -> ParsedDocument:
                 metadata["author"] = str(meta.get("author"))
             if meta.get("creationDate"):
                 metadata["creation_date"] = str(meta.get("creationDate"))
-    except Exception:
-        pass
+    except Exception as e:
+        # KEEP broad: author/date metadata is optional enrichment.
+        logger.debug("PDF author/date metadata read failed for '%s': %s", path, e)
 
     metadata["pdf_images"] = _extract_pdf_images(path)
     doc.close()
@@ -229,7 +243,10 @@ def get_page_count(path: Path) -> int:
         import fitz
         with fitz.open(str(path)) as doc:
             return doc.page_count
-    except Exception:
+    except Exception as e:
+        # KEEP broad: callers treat 0 as "unknown page count" and clamp
+        # accordingly; PyMuPDF's open/error surface is opaque.
+        logger.debug("PDF page-count probe failed for '%s': %s", path, e)
         return 0
 
 
@@ -264,6 +281,9 @@ def parse_page_window(path: Path, page_nums: set[int]) -> dict[int, str]:
             pn = _chunk_page_number(chunk)
             if pn in valid_nums:
                 result[pn] = normalize_text(chunk.get("text", ""))
-    except Exception:
-        pass
+    except Exception as e:
+        # KEEP broad: a windowed-parse failure must degrade to whatever pages
+        # were decoded (never abort the L2 batch), but it is load-bearing for
+        # content completeness, so log at warning — not silently.
+        logger.warning("Windowed PDF parse failed for '%s' (pages %s): %s", path, sorted(page_nums), e)
     return result

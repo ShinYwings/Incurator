@@ -30,11 +30,25 @@ Date: 2026-06-28 | Branch: `fix/error-handling-pipeline` (off `master` post-#63)
 Tests: `backend/tests/test_error_handling_config.py` (3) — malformed-settings
 fallback preserved; unexpected error propagates (NARROW); bad-read logs+None.
 
-### parsers/pdf.py — pending (P1)
+### parsers/pdf.py — DONE
+All 8 sites are best-effort wrappers over PyMuPDF/pymupdf4llm (opaque,
+version-dependent surface → R2 KEEP+log+comment, no NARROW):
+| line | disposition | note |
+|---|---|---|
+| 38 `_extract_pdf_toc` | KEEP+log(debug) | optional outline |
+| 73 per-image xref | KEEP+log(debug) | skip one bad image, continue |
+| 76 `_extract_pdf_images` outer | KEEP+log(debug) | partial images |
+| 139 `parse` main | unchanged | already SURFACE-correct (`raise ParserError … from e`) |
+| 188 title metadata | KEEP+log(debug) | falls through to first-line/filename |
+| 209 author/date metadata | KEEP+log(debug) | optional enrichment |
+| 232 `get_page_count` | KEEP+log(debug) | callers treat 0 as unknown |
+| 267 `parse_page_window` | KEEP+log(**warning**) | load-bearing for L2 completeness |
+Tests: `backend/tests/test_error_handling_pdf.py` (4) — fallback preserved + logged.
 ### llm.py — pending (P2)
 ### ingest_raw.py / ingest_worker.py — pending (P3)
 ### pipeline/compile.py — pending (P4)
 
 ## Validation log
 - config.py: ruff ✓, mypy ✓, `test_error_handling_config.py` 3 passed.
-- Baseline full pytest count: (recorded from branch-base background run).
+- Baseline full pytest count (branch base): **1090 passed, 6 skipped, 5 xfailed**
+  (400s). Gate: post-change full pytest must keep ≥ 1090 passed (+ new tests).
