@@ -1,3 +1,4 @@
+import { logger } from "./logger";
 import { existsSync, readFileSync } from "fs";
 import { homedir, hostname, platform, release, arch } from "os";
 import { resolve } from "path";
@@ -289,7 +290,7 @@ export function getLocalBackendCommand(
   const command = backend?.command;
   
   if (command && command.startsWith("/") && !existsSync(command)) {
-    console.warn(`[Incurator] Cached backend command not found: ${command}. Falling back to auto-discovery.`);
+    logger.warn(`Cached backend command not found: ${command}. Falling back to auto-discovery.`);
     return undefined;
   }
   

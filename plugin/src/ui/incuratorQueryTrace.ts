@@ -1,3 +1,4 @@
+import { logger } from "../utils/logger";
 import type { App } from "obsidian";
 import { fileURLToPath } from "url";
 import type {
@@ -422,13 +423,13 @@ async function openExternalReference(linkpath: string): Promise<void> {
     if (shell && localPath && shell.openPath) {
       const err = await shell.openPath(localPath);
       if (!err) return;
-      console.warn("Electron shell.openPath failed; falling back to window.open", err);
+      logger.warn("Electron shell.openPath failed; falling back to window.open", err);
     } else if (shell?.openExternal) {
       await shell.openExternal(linkpath);
       return;
     }
   } catch (err) {
-    console.warn("Electron shell opener failed; falling back to window.open", err);
+    logger.warn("Electron shell opener failed; falling back to window.open", err);
   }
   window.open(linkpath, "_blank", "noopener");
 }

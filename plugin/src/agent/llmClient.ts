@@ -1,3 +1,4 @@
+import { logger } from "../utils/logger";
 import { requestUrl, Notice } from "obsidian";
 import { execFile, spawn } from "child_process";
 import {
@@ -2088,7 +2089,7 @@ export class LLMClient {
           `the sandbox tool.`
         );
       }
-      console.warn(
+      logger.warn(
         `[incurator] OS sandbox unavailable (${plan.reason ?? process.platform}); ` +
         `${provider} runs under its own flag-based containment only (weaker posture).`
       );

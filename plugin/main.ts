@@ -1,4 +1,5 @@
 
+import { logger } from "./src/utils/logger";
 import { promises as fs } from "fs";
 import { spawn } from "child_process";
 import { tmpdir } from "os";
@@ -124,7 +125,7 @@ export default class ObsidianAIAgent extends Plugin {
   private settingsPersistPromise: Promise<void> = Promise.resolve();
 
   async onload(): Promise<void> {
-    console.log("Loading Obsidian AI Agent plugin");
+    logger.debug("Loading Obsidian AI Agent plugin");
     this.startupRestoreUntilMs = Date.now() + 15000;
 
     // ── Load settings and session data ──
@@ -843,11 +844,11 @@ export default class ObsidianAIAgent extends Plugin {
       }, 2000);
     }
 
-    console.log("Obsidian AI Agent plugin loaded");
+    logger.debug("Obsidian AI Agent plugin loaded");
   }
 
   async onunload(): Promise<void> {
-    console.log("Unloading Obsidian AI Agent plugin");
+    logger.debug("Unloading Obsidian AI Agent plugin");
     if (this.scrollPositionSaveTimer !== null) {
       window.clearTimeout(this.scrollPositionSaveTimer);
     }
@@ -1104,7 +1105,7 @@ export default class ObsidianAIAgent extends Plugin {
         const discovered = resolveWikiBinary(this.settings.incuratorRepoPath);
         if (discovered) {
           command = discovered;
-          console.log(`[Incurator] Auto-discovered wiki binary: ${command}`);
+          logger.debug(`Auto-discovered wiki binary: ${command}`);
         }
       }
     }
@@ -1134,11 +1135,11 @@ export default class ObsidianAIAgent extends Plugin {
           registry.updated_at = Math.floor(Date.now() / 1000);
 
           await this.writeDeviceRegistry(configPath, registry);
-          console.log(`[Incurator] Cached backend command in devices.json: ${command}`);
+          logger.debug(`Cached backend command in devices.json: ${command}`);
         }
       }
     } catch (err) {
-      console.warn("[Incurator] Failed to cache backend command:", err);
+      logger.warn("Failed to cache backend command:", err);
     }
   }
 
@@ -1218,7 +1219,7 @@ export default class ObsidianAIAgent extends Plugin {
       }
       new Notice("Plugin updated. Reload Obsidian to apply the changes.");
     } catch (e: any) {
-      console.error("Failed to update Incurator backend:", e);
+      logger.error("Failed to update Incurator backend:", e);
       new Notice("Failed to update Incurator backend: " + (e.message || "Unknown error"));
     }
   }
@@ -1347,7 +1348,7 @@ export default class ObsidianAIAgent extends Plugin {
         await this.writeDeviceRegistry(configPath, registry);
       }
     } catch (err) {
-      console.warn("[Incurator] Device registry auto-sync failed:", err);
+      logger.warn("Device registry auto-sync failed:", err);
     }
   }
 
@@ -1496,7 +1497,7 @@ export default class ObsidianAIAgent extends Plugin {
         );
         if (pdfCtx) this.activeContext.pdfPage = pdfCtx;
       } catch (err) {
-        console.warn("[AI Agent] Failed to capture external PDF context:", err);
+        logger.warn("Failed to capture external PDF context:", err);
       }
     } else if (viewType === "pdf") {
       this.activeContext = {
@@ -1523,7 +1524,7 @@ export default class ObsidianAIAgent extends Plugin {
           }
         }
       } catch (err) {
-        console.warn("[AI Agent] Failed to capture PDF context:", err);
+        logger.warn("Failed to capture PDF context:", err);
       }
     } else if (viewType === "canvas") {
       this.activeContext = {
@@ -1591,7 +1592,7 @@ export default class ObsidianAIAgent extends Plugin {
             }
           }
         } catch (err) {
-          console.warn("[AI Agent] Failed to capture open external PDF context:", err);
+          logger.warn("Failed to capture open external PDF context:", err);
         }
       } else if (viewType === "pdf") {
         try {
@@ -1612,7 +1613,7 @@ export default class ObsidianAIAgent extends Plugin {
             }
           }
         } catch (err) {
-          console.warn("[AI Agent] Failed to capture open PDF context:", err);
+          logger.warn("Failed to capture open PDF context:", err);
         }
       }
 
@@ -1889,7 +1890,7 @@ export default class ObsidianAIAgent extends Plugin {
         this.syncScheduler?.schedule();
       });
     } catch (e) {
-      console.warn("[Incurator] sync watcher unavailable:", e);
+      logger.warn("sync watcher unavailable:", e);
     }
   }
 
@@ -1918,7 +1919,7 @@ export default class ObsidianAIAgent extends Plugin {
       }
       this.syncStatusBar?.setText(changes > 0 ? `✓ Sync ${changes}` : "");
     } catch (e) {
-      console.error("[Incurator] auto-sync failed:", e);
+      logger.error("auto-sync failed:", e);
       this.syncStatusBar?.setText("");
     }
   }

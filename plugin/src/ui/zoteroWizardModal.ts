@@ -1,3 +1,4 @@
+import { logger } from "../utils/logger";
 import { App, Modal, Setting, Notice, SuggestModal, AbstractInputSuggest, TFolder } from "obsidian";
 import { PluginSettings, ZoteroImportProfile } from "../types";
 import { sanitizePathSegment, TemplateRenderer } from "../zotero/templateRenderer";
@@ -154,7 +155,7 @@ export class ZoteroSearchModal extends SuggestModal<ZoteroSearchResult> {
         try {
           this.recentCache = await this.backend.searchZoteroItems("", 20);
         } catch (e) {
-          console.error("Failed to load recent Zotero items:", e);
+          logger.error("Failed to load recent Zotero items:", e);
         }
       }
       return prioritizeZoteroItems(this.recentCache, this.settings.recentZoteroItems);
@@ -163,7 +164,7 @@ export class ZoteroSearchModal extends SuggestModal<ZoteroSearchResult> {
       const items = await this.backend.searchZoteroItems(query, 20);
       return prioritizeZoteroItems(items, this.settings.recentZoteroItems);
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
     return [];
   }
@@ -498,7 +499,7 @@ export class ZoteroWizardModal extends Modal {
       await this.saveSettings(this.settings);
 
     } catch (e) {
-      console.error(e);
+      logger.error(e);
       new Notice("Import failed: " + (e as Error).message);
     }
   }
