@@ -1,3 +1,4 @@
+import { logger } from "../utils/logger";
 import {
   ItemView,
   WorkspaceLeaf,
@@ -1863,7 +1864,7 @@ export class ChatSidebarView extends ItemView {
   private logContextTiming(label: string, startedAt: number, subject: string): void {
     const elapsedMs = Math.round(performance.now() - startedAt);
     // eslint-disable-next-line no-console
-    console.debug(`[Incurator] ${label} ${elapsedMs}ms`, subject);
+    logger.debug(`${label} ${elapsedMs}ms`, subject);
   }
 
   private loadCursorStyleRules(): string {

@@ -206,6 +206,12 @@ protocol or persisted `data.json` settings shape.
 
 ## 2. Persisted Settings Schema
 
+> **Logging is not a setting.** Plugin logs go through a namespaced logger
+> (`src/utils/logger.ts`): `warn`/`error` always emit (prefixed `[Incurator]`),
+> while verbose `debug`/`info` are gated by the per-device dev flag
+> `localStorage["incurator-debug"]` (read once at load). There is **no**
+> `PluginSettings` field for logging and it is never synced.
+
 ### 2.1 `PluginSettings`
 
 Stored in `data.json` (Obsidian plugin storage). All fields required unless marked optional.

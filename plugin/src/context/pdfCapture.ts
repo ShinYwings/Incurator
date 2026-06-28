@@ -1,3 +1,4 @@
+import { logger } from "../utils/logger";
 import { WorkspaceLeaf } from "obsidian";
 import type { PdfPageContext, PdfRagHit, PdfWindowPage } from "../types";
 import {
@@ -204,7 +205,7 @@ export function extractPdfPageTextFromDom(pageEl: HTMLElement): {
       };
     }
   } catch (err) {
-    console.warn("[AI Agent] Failed to layout PDF text layer:", err);
+    logger.warn("Failed to layout PDF text layer:", err);
   }
 
   // Fallback: If DOM is unrendered (rects are 0), layout extraction mashes text.
@@ -334,7 +335,7 @@ function capturePageCanvas(pageEl: HTMLElement): string | undefined {
     const base64 = dataUrl.replace(/^data:image\/png;base64,/, "");
     return base64;
   } catch (err) {
-    console.warn("[AI Agent] Failed to capture PDF canvas:", err);
+    logger.warn("Failed to capture PDF canvas:", err);
     return undefined;
   }
 }

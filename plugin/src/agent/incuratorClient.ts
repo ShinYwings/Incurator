@@ -1,3 +1,4 @@
+import { logger } from "../utils/logger";
 import type {
   CuratorQueryResult,
   CuratorContextPack,
@@ -799,7 +800,7 @@ export class IncuratorClient {
     try {
       return await this.backendJson(cmdArgs);
     } catch (err) {
-      console.warn("[Incurator] Backend JSON command failed:", err);
+      logger.warn("Backend JSON command failed:", err);
       return null;
     }
   }

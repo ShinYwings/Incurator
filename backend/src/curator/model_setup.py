@@ -19,6 +19,7 @@ engine's documented degradation matrix.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -32,6 +33,8 @@ import httpx
 from . import config as cfg
 from . import constants as consts
 from .llm import list_models_on_host
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "ModelStep",
@@ -84,7 +87,9 @@ def _ollama_reachable(host: str, *, timeout: float = 2.0) -> bool:
     try:
         with httpx.Client(timeout=timeout) as client:
             return client.get(f"{host.rstrip('/')}/api/tags").status_code == 200
-    except Exception:
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
+        # InvalidURL/ValueError guard a malformed configured host (bad scheme/port).
+        logger.debug("Ollama reachability probe failed for '%s': %s", host, e)
         return False
 
 
@@ -104,7 +109,7 @@ def ensure_ollama_serving(host: str, *, wait_seconds: int = 10) -> ModelStep:
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         return ModelStep("ollama-serving", False, f"failed to start: {exc}")
     for _ in range(max(1, wait_seconds)):
         time.sleep(1)
@@ -127,7 +132,7 @@ def ensure_ollama_model(host: str, model: str) -> ModelStep:
         return ModelStep(f"ollama:{model}", False, "ollama CLI not found; pull manually")
     try:
         res = subprocess.run([consts.BACKEND_OLLAMA, "pull", model])
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         return ModelStep(f"ollama:{model}", False, f"pull error: {exc}")
     if res.returncode == 0:
         return ModelStep(f"ollama:{model}", True, "pulled")
@@ -153,7 +158,8 @@ def unload_ollama_model(host: str, model: str, *, timeout: float = 5.0) -> Model
         if resp.status_code == 404:
             return ModelStep(f"ollama-unload:{model}", True, "model not loaded/present")
         return ModelStep(f"ollama-unload:{model}", False, f"HTTP {resp.status_code}")
-    except Exception as exc:
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
+        # InvalidURL/ValueError guard a malformed configured host (bad scheme/port).
         return ModelStep(f"ollama-unload:{model}", False, f"unload skipped: {exc}")
 
 
@@ -196,7 +202,11 @@ def llama_cpp_installed() -> bool:
     try:
         import llama_cpp  # noqa: F401
         return True
-    except Exception:
+    except Exception as e:
+        # KEEP broad: importing a native extension has an opaque failure surface
+        # (ImportError, OSError, or a C-level error from a broken build); any
+        # failure means "not usable here".
+        logger.debug("llama_cpp import failed (treated as not installed): %s", e)
         return False
 
 
@@ -219,7 +229,7 @@ def install_llama_cpp(*, metal: bool = True) -> ModelStep:
         cmd = [sys.executable, "-m", "pip", "install", "llama-cpp-python"]
     try:
         res = subprocess.run(cmd, env=env)
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         return ModelStep("llama-cpp-python", False, f"install error: {exc}")
     if res.returncode == 0:
         # Python caches failed imports in sys.modules. After the subprocess
@@ -261,9 +271,14 @@ def download_gguf(repo: str, filename: str, dest_dir: Path, *, force: bool = Fal
                     fh.write(chunk)
         tmp.replace(dest)
         return dest, "downloaded"
-    except Exception as exc:
+    except (httpx.HTTPError, OSError) as exc:
         tmp.unlink(missing_ok=True)
         return None, f"download error: {exc}"
+    except BaseException:
+        # Any other failure (e.g. KeyboardInterrupt) must still remove the
+        # partial .part file before propagating, so it is never orphaned.
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -300,6 +315,8 @@ def smoke_test_search_models(config: dict | None = None) -> ModelReport:
             ok = _cosine(qv, docs[0]) > _cosine(qv, docs[1])
             report.add("embedding-smoke", ok, "relevant document ranked above unrelated" if ok else "relevant document did not rank higher")
         except Exception as exc:
+            # KEEP broad: a smoke test must catch ANY provider/runtime failure and
+            # report it as a failed step — that is the purpose of the check.
             report.add("embedding-smoke", False, f"error: {exc}")
 
     reranker = providers.build_reranker(search_cfg)
@@ -317,6 +334,7 @@ def smoke_test_search_models(config: dict | None = None) -> ModelReport:
             ok = len(scores) == 2 and scores[0] > scores[1]
             report.add("reranker-smoke", ok, "relevant document scored higher" if ok else f"bad ordering: {scores}")
         except Exception as exc:
+            # KEEP broad: smoke test must catch any provider/runtime failure.
             report.add("reranker-smoke", False, f"error: {exc}")
     return report
 
@@ -374,7 +392,7 @@ def ensure_search_models(
             try:
                 cfg.save_global_config({"search": {"embedding_model_path": str(path)}})
                 report.add("embedding-config", True, f"set embedding_model_path={path}")
-            except Exception as exc:
+            except OSError as exc:
                 report.add("embedding-config", False, f"could not persist path: {exc}")
 
     if download_reranker and search_cfg.get("rerank", True):
@@ -388,7 +406,7 @@ def ensure_search_models(
             try:
                 cfg.save_global_config({"search": {"reranker_model_path": str(path)}})
                 report.add("reranker-config", True, f"set reranker_model_path={path}")
-            except Exception as exc:
+            except OSError as exc:
                 report.add("reranker-config", False, f"could not persist path: {exc}")
 
     return report

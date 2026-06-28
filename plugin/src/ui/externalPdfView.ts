@@ -1,3 +1,4 @@
+import { logger } from "../utils/logger";
 import {
   ItemView,
   Menu,
@@ -263,7 +264,7 @@ export class ExternalPdfView extends ItemView {
       );
       return resolved.absPath || hintedPath;
     } catch (err) {
-      console.warn("Failed to re-resolve Zotero PDF path for restored external PDF view", err);
+      logger.warn("Failed to re-resolve Zotero PDF path for restored external PDF view", err);
       return hintedPath;
     }
   }
@@ -418,7 +419,7 @@ export class ExternalPdfView extends ItemView {
           }
         }
       } catch (err) {
-        console.warn("Failed to extract path from dataTransfer URIs:", err);
+        logger.warn("Failed to extract path from dataTransfer URIs:", err);
       }
 
       // 2. Fall back to standard file.path if we didn't get path or if it's a standard drop
@@ -782,11 +783,11 @@ export class ExternalPdfView extends ItemView {
       return cached;
     }
     if (!this.docState?.path) {
-      console.warn("[AI Agent] resolveDoc failed: no path in docState or cache for ID", this.docId);
+      logger.warn("resolveDoc failed: no path in docState or cache for ID", this.docId);
       return null;
     }
     if (!existsSync(this.docState.path)) {
-      console.warn("[AI Agent] resolveDoc failed: file does not exist at path", this.docState.path);
+      logger.warn("resolveDoc failed: file does not exist at path", this.docState.path);
       return null;
     }
     const doc: ExternalPdfDoc = {
@@ -863,7 +864,7 @@ export class ExternalPdfView extends ItemView {
           try {
             this.zoteroAnnotations = await this.plugin.getZoteroAnnotations(this.docState.zoteroAttachmentKey);
           } catch (e) {
-            console.warn("Failed to fetch Zotero annotations", e);
+            logger.warn("Failed to fetch Zotero annotations", e);
           }
         }
 
@@ -975,7 +976,7 @@ export class ExternalPdfView extends ItemView {
         if (token !== this.renderToken) { this.renderingPages.delete(i); return; }
         this.renderedPages.add(i);
       } catch (err) {
-        console.error(`[AI Agent] Failed to render PDF page ${i}:`, err);
+        logger.error(`Failed to render PDF page ${i}:`, err);
         this.renderedPages.add(i);
       } finally {
         this.renderingPages.delete(i);
@@ -1132,7 +1133,7 @@ export class ExternalPdfView extends ItemView {
         }
       }
     }).catch((err) => {
-      console.warn("[AI Agent] Text content extraction failed:", err);
+      logger.warn("Text content extraction failed:", err);
     });
   }
 
@@ -1237,7 +1238,7 @@ export class ExternalPdfView extends ItemView {
         this.currentPage + RENDER_RADIUS
       );
     } catch (err) {
-      console.error("[AI Agent] Lazy render batch failed:", err);
+      logger.error("Lazy render batch failed:", err);
     } finally {
       this.isLazyRendering = false;
       if (this.lazyRenderDirty && token === this.renderToken) {
@@ -1340,7 +1341,7 @@ export class ExternalPdfView extends ItemView {
       await navigator.clipboard.writeText(latex);
       new Notice("LaTeX copied to clipboard.");
     } catch (err) {
-      console.error("LaTeX conversion failed:", err);
+      logger.error("LaTeX conversion failed:", err);
       new Notice("LaTeX conversion failed. Check Incurator Dashboard → LLM Provider.");
     }
   }

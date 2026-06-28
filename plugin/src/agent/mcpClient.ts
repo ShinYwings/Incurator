@@ -1,3 +1,4 @@
+import { logger } from "../utils/logger";
 import { spawn, ChildProcess } from "child_process";
 import { Notice } from "obsidian";
 import type { MCPServerConfig, MCPTool, MCPToolResult } from "../types";
@@ -71,17 +72,23 @@ export class MCPClient {
         });
 
         this.process.stderr?.on("data", (data: Buffer) => {
-          console.warn(`[MCP:${this.config.name}] stderr:`, data.toString());
+          logger.warn(`[MCP:${this.config.name}] stderr:`, data.toString());
         });
 
         this.process.on("error", (err) => {
-          console.error(`[MCP:${this.config.name}] process error:`, err);
+          logger.error(`[MCP:${this.config.name}] process error:`, err);
           this._ready = false;
           reject(err);
         });
 
         this.process.on("exit", (code) => {
-          console.log(`[MCP:${this.config.name}] exited with code ${code}`);
+          // A non-zero exit means the MCP server crashed — keep it visible
+          // (warn) for troubleshooting; a clean exit stays gated (debug).
+          if (code) {
+            logger.warn(`[MCP:${this.config.name}] exited with code ${code}`);
+          } else {
+            logger.debug(`[MCP:${this.config.name}] exited with code ${code}`);
+          }
           this._ready = false;
           this.process = null;
           // Reject all pending requests
@@ -274,7 +281,7 @@ export class MCPManager {
       new Notice(`MCP server "${config.name}" started`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Failed to start MCP server ${config.name}:`, msg);
+      logger.error(`Failed to start MCP server ${config.name}:`, msg);
       new Notice(`MCP server "${config.name}" failed: ${msg}`);
     }
   }

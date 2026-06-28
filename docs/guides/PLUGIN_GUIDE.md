@@ -1310,6 +1310,20 @@ Rules:
 
 ---
 
+## Debug logging
+
+By default the plugin keeps the developer console quiet: only warnings and errors
+(prefixed `[Incurator]`) are printed. To see verbose diagnostic logs (e.g. when
+filing a bug report), open the developer console (**Ctrl/Cmd+Shift+I**) and run:
+
+```js
+localStorage.setItem("incurator-debug", "1")
+```
+
+then reload Obsidian (the flag is read once at plugin load). Set it back to `"0"`
+(or remove it) and reload to silence verbose logs again. This is a developer
+affordance, not a plugin setting — it is per-device and never synced.
+
 ## Related Docs
 
 - [Full Workflow](WORKFLOW_GUIDE.md) — How the entire system fits together

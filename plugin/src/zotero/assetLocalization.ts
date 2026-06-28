@@ -1,3 +1,4 @@
+import { logger } from "../utils/logger";
 import type { App, TFile } from "obsidian";
 import { promises as fs } from "fs";
 import type { ZoteroImportProfile } from "../types";
@@ -146,7 +147,7 @@ export async function localizeAnnotationImages(
       }
       ann.imageRelativePath = destPath;
     } catch (e) {
-      console.error("Failed to localize annotation image", ann.key, e);
+      logger.error("Failed to localize annotation image", ann.key, e);
     }
   }
 }

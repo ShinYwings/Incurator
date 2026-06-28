@@ -1,3 +1,4 @@
+import { logger } from "../utils/logger";
 import { Notice } from "obsidian";
 import { existsSync, readdirSync } from "fs";
 import { basename, join } from "path";
@@ -17,7 +18,7 @@ function loadPersistedDocs(): Map<string, ExternalPdfDoc> {
       if (isRetainablePersistedDoc(doc)) map.set(id, doc);
     }
   } catch (err) {
-    console.warn("Failed to load persisted PDF docs:", err);
+    logger.warn("Failed to load persisted PDF docs:", err);
   }
   return map;
 }
@@ -30,7 +31,7 @@ function persistDocs(map: Map<string, ExternalPdfDoc>): void {
     ]);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toPersist));
   } catch (err) {
-    console.warn("Failed to persist PDF docs:", err);
+    logger.warn("Failed to persist PDF docs:", err);
   }
 }
 
