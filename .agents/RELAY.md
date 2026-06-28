@@ -1,35 +1,24 @@
 # Active Relay State
 
-**STATUS: DB-2 slice 1 shipped to PR #66 — awaiting merge.**
+**STATUS: IDLE.**
 
-**Current branch**: `fix/db-decomposition`
+No active goal. v0.27.7 (System Stability Overhaul Phase C — DB-2 slice 1:
+`db.py` → `db/` package with `schema.py` + facade) shipped and merged via PR #66.
 
-**Last refreshed**: 2026-06-29 by Claude Code.
+## Next candidates (not started)
 
----
+Remaining S2 god-file decomposition — each on a fresh branch with its own plan
+(plan approval before coding):
 
-## Goal
+- **DB-2 slice 2**: carve `db/_entities.py` further — extract `jobs.py` (job
+  queue, deferred from slice 1) and per-entity modules (sources, spans,
+  knowledge_units, claims, graph, resolution, relations, community, audit, leaf
+  entities). Each a small verbatim-move PR re-pinning the D2 frozen oracle. The
+  package + facade + snapshot test from slice 1 are the foundation.
+- **CM-1**: decompose `cli.py` (7389 LOC) + `mcp_server.py` (3362 LOC) into
+  sub-apps / tool modules (also folds in their XC-1 broad-except cleanup).
+- **PL-1**: decompose plugin god-files (`chatSidebar.ts` 4828 LOC, etc.);
+  replace `any`/`@ts-ignore` with real types.
 
-System Stability Overhaul Phase C, S2 god-file decomposition **DB-2**: convert
-`db.py` (4759 LOC) into a `db/` package with a re-export facade — zero caller
-changes, behavior-preserving. Shipped as **v0.27.7** in PR #66.
-
-## Progress
-- `db.py` → `db/` package: `schema.py` (DDL/migrations/connect/init/enums) +
-  `_entities.py` (repositories, via `git mv` so history preserved) + `__init__.py`
-  facade. Public `db.*` surface intact; facade also re-exports `db._maybe_conn`/
-  `db._now_iso` (external callers).
-- New `test_db_public_api.py` snapshot (128 public + 2 underscore externals).
-- Module-move fixups: D2 frozen oracle re-pinned (`db.py` → 3 `db/` files +
-  re-arm note); 2 white-box monkeypatch tests repointed to real lookup locations.
-- **jobs.py + per-entity carving DEFERRED to slice 2** (plan §5).
-- Full pytest 1121 passed; ruff/mypy clean; vitest 626 + tsc clean; spec-sync at
-  0.27.7. CLAUDE.md table + CHANGELOG updated.
-
-## Immediate Next Action
-- Human: review and merge PR #66.
-- After merge, **DB-2 slice 2** (fresh branch, own plan): carve `_entities.py`
-  into `jobs.py` + per-entity modules (sources, spans, knowledge_units, claims,
-  graph, resolution, relations, community, audit, leaf entities), each a small
-  verbatim-move PR re-pinning the D2 oracle. Then CM-1 (cli/mcp) and PL-1 (plugin)
-  remain as the other S2 god-files.
+Shipped in the overhaul chain: G17/G18/G19 (v0.27.3), G17 S3 (v0.27.4),
+XC-1 slice 1 (v0.27.5), Robustness Slice 2 (v0.27.6), DB-2 slice 1 (v0.27.7).
