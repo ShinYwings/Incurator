@@ -4,6 +4,19 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.27.8] - 2026-06-29
+### Changed
+- **DB-2 (slice 2): `jobs.py` + `sources.py` carved out of `db/_entities.py`.**
+  Continuing the `db/` package decomposition, the ingest job queue moved to
+  `db/jobs.py` and the sources / layer-status / DAG-edge / source-page functions
+  to `db/sources.py` — byte-for-byte verbatim moves. Both are dependency-leaves
+  (import only `db.schema`; no import cycles), and the public `db.*` surface is
+  unchanged (guarded by `test_db_public_api.py`). Internal-only; no SQL, schema,
+  contract, or behavior change. (The graph/community/knowledge cluster and the
+  leaf entity modules remain in `db/_entities.py` for a later slice.)
+
+---
+
 ## [0.27.7] - 2026-06-28
 ### Changed
 - **DB-2 (slice 1): `db.py` decomposed into a `db/` package.** The 4759-LOC
