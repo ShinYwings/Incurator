@@ -4,6 +4,16 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.27.9] - 2026-06-29
+### Fixed
+- **PDF crop (Cmd+Shift+X) now shows the context chip instantly.** VLM
+  transcription was blocking at capture-time, delaying the chip appearance and
+  prematurely showing the "Add source" badge. The VLM call is now deferred to
+  send-time (`materializeContextRefs`), so the crop image thumbnail and region
+  text appear in the sidebar immediately after snipping.
+
+---
+
 ## [0.27.8] - 2026-06-29
 ### Changed
 - **DB-2 (slice 2): `jobs.py` + `sources.py` carved out of `db/_entities.py`.**
