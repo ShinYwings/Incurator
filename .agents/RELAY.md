@@ -1,35 +1,35 @@
 # Active Relay State
 
-**STATUS: Planning — DB-2 db.py decomposition plan drafted, AWAITING USER APPROVAL. No code yet.**
+**STATUS: DB-2 slice 1 shipped to PR #66 — awaiting merge.**
 
-**Current branch**: `master` (feature branch created only after approval)
+**Current branch**: `fix/db-decomposition`
 
-**Last refreshed**: 2026-06-28 by Claude Code.
+**Last refreshed**: 2026-06-29 by Claude Code.
 
 ---
 
 ## Goal
 
-System Stability Overhaul Phase C, S2 god-file decomposition **DB-2**:
-convert `backend/src/curator/db.py` (4759 LOC) into a `db/` package with a
-re-export facade — **zero caller changes** (all callers use `db.<name>` module
-access; verified zero name-imports) and **zero behavior change** (verbatim moves).
-Slice 1 extracts `schema.py` + `jobs.py`; the rest moves to a holding
-`db/_entities.py` re-exported by the facade, carved per-entity in follow-ups.
-Target **v0.27.7** (Patch — internal refactor).
+System Stability Overhaul Phase C, S2 god-file decomposition **DB-2**: convert
+`db.py` (4759 LOC) into a `db/` package with a re-export facade — zero caller
+changes, behavior-preserving. Shipped as **v0.27.7** in PR #66.
 
-## Plan Reference (DRAFT — needs approval before coding)
-- Master plan: `.agents/plans/04_db_decomposition.md`
-- Domain analysis: `.agents/plans/C_db_package_layout.md`
-- Arena: `.agents/plans/db2_decomp_arena/` (00_problem, 01_proposal, 02_critique)
-
-## Progress Status
-- v0.27.6 (Robustness Slice 2) merged via PR #65; repo synced; was IDLE.
-- Authored the DB-2 slice-1 Arena plan + domain analysis + master plan.
-- **STOPPED for user approval (Universal Strict Workflow Step 4).**
+## Progress
+- `db.py` → `db/` package: `schema.py` (DDL/migrations/connect/init/enums) +
+  `_entities.py` (repositories, via `git mv` so history preserved) + `__init__.py`
+  facade. Public `db.*` surface intact; facade also re-exports `db._maybe_conn`/
+  `db._now_iso` (external callers).
+- New `test_db_public_api.py` snapshot (128 public + 2 underscore externals).
+- Module-move fixups: D2 frozen oracle re-pinned (`db.py` → 3 `db/` files +
+  re-arm note); 2 white-box monkeypatch tests repointed to real lookup locations.
+- **jobs.py + per-entity carving DEFERRED to slice 2** (plan §5).
+- Full pytest 1121 passed; ruff/mypy clean; vitest 626 + tsc clean; spec-sync at
+  0.27.7. CLAUDE.md table + CHANGELOG updated.
 
 ## Immediate Next Action
-WAIT for approval of `04_db_decomposition.md`. On approval: branch
-`fix/db-decomposition`, write `04_roadmap_evidence.md`, then P0 (API snapshot
-test + baseline) → P1 (package + schema.py + _entities.py + facade) → P2
-(jobs.py) → P3 (verify + docs + release). Full pytest + mypy after each move.
+- Human: review and merge PR #66.
+- After merge, **DB-2 slice 2** (fresh branch, own plan): carve `_entities.py`
+  into `jobs.py` + per-entity modules (sources, spans, knowledge_units, claims,
+  graph, resolution, relations, community, audit, leaf entities), each a small
+  verbatim-move PR re-pinning the D2 oracle. Then CM-1 (cli/mcp) and PL-1 (plugin)
+  remain as the other S2 god-files.
