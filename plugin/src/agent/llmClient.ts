@@ -2090,7 +2090,7 @@ export class LLMClient {
         );
       }
       logger.warn(
-        `[incurator] OS sandbox unavailable (${plan.reason ?? process.platform}); ` +
+        `OS sandbox unavailable (${plan.reason ?? process.platform}); ` +
         `${provider} runs under its own flag-based containment only (weaker posture).`
       );
       return base;

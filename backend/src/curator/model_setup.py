@@ -87,7 +87,8 @@ def _ollama_reachable(host: str, *, timeout: float = 2.0) -> bool:
     try:
         with httpx.Client(timeout=timeout) as client:
             return client.get(f"{host.rstrip('/')}/api/tags").status_code == 200
-    except httpx.HTTPError as e:
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
+        # InvalidURL/ValueError guard a malformed configured host (bad scheme/port).
         logger.debug("Ollama reachability probe failed for '%s': %s", host, e)
         return False
 
@@ -157,7 +158,8 @@ def unload_ollama_model(host: str, model: str, *, timeout: float = 5.0) -> Model
         if resp.status_code == 404:
             return ModelStep(f"ollama-unload:{model}", True, "model not loaded/present")
         return ModelStep(f"ollama-unload:{model}", False, f"HTTP {resp.status_code}")
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
+        # InvalidURL/ValueError guard a malformed configured host (bad scheme/port).
         return ModelStep(f"ollama-unload:{model}", False, f"unload skipped: {exc}")
 
 
@@ -272,6 +274,11 @@ def download_gguf(repo: str, filename: str, dest_dir: Path, *, force: bool = Fal
     except (httpx.HTTPError, OSError) as exc:
         tmp.unlink(missing_ok=True)
         return None, f"download error: {exc}"
+    except BaseException:
+        # Any other failure (e.g. KeyboardInterrupt) must still remove the
+        # partial .part file before propagating, so it is never orphaned.
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _cosine(a: list[float], b: list[float]) -> float:

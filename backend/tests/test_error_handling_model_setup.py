@@ -52,6 +52,26 @@ def test_ensure_ollama_serving_reports_os_error(monkeypatch):
     assert "failed to start" in step.detail
 
 
+def test_ollama_reachable_false_on_malformed_url():
+    # A malformed configured host raises httpx.InvalidURL (a bare Exception, not
+    # an HTTPError); the probe must still degrade to False, not crash.
+    assert ms._ollama_reachable("http://host:notaport/") is False
+
+
+def test_download_gguf_removes_tmp_on_unexpected_error(monkeypatch, tmp_path):
+    part = tmp_path / "model.gguf.part"
+    part.write_bytes(b"partial")  # simulate a leftover partial temp file
+
+    def boom(*args, **kwargs):
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(ms.httpx, "stream", boom)
+    with pytest.raises(KeyboardInterrupt):
+        ms.download_gguf("repo/x", "model.gguf", tmp_path)
+    # BaseException cleanup must remove the .part file before propagating.
+    assert not part.exists()
+
+
 def test_download_gguf_reports_http_error(monkeypatch, tmp_path):
     def boom(*args, **kwargs):
         raise httpx.ConnectError("no network")

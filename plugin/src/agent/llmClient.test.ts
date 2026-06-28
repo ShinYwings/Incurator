@@ -301,6 +301,9 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
   it("warns (not silently) when a non-agy CLI runs without the OS sandbox", () => {
     expect(source).toContain("OS sandbox unavailable");
     expect(source).toContain("logger.warn");
+    // logger.warn already prepends [Incurator]; the legacy prefix must be gone
+    // (no double-prefixing).
+    expect(source).not.toContain("[incurator]");
   });
 
   it("resolves --add-dir lazily — skipped on the tool-free ephemeral path", () => {

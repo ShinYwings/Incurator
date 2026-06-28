@@ -82,7 +82,13 @@ export class MCPClient {
         });
 
         this.process.on("exit", (code) => {
-          logger.debug(`[MCP:${this.config.name}] exited with code ${code}`);
+          // A non-zero exit means the MCP server crashed — keep it visible
+          // (warn) for troubleshooting; a clean exit stays gated (debug).
+          if (code) {
+            logger.warn(`[MCP:${this.config.name}] exited with code ${code}`);
+          } else {
+            logger.debug(`[MCP:${this.config.name}] exited with code ${code}`);
+          }
           this._ready = false;
           this.process = null;
           // Reject all pending requests
