@@ -4,6 +4,30 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.27.6] - 2026-06-28
+### Fixed
+- **XC-1 (slice 2): bug-masking broad-`except` narrowed in `model_setup.py`.**
+  Ollama serve/pull/reachability/unload, llama-cpp install, and GGUF download now
+  catch the specific expected exceptions (`OSError`/`subprocess.SubprocessError`/
+  `httpx.HTTPError`) so unexpected errors propagate instead of being hidden, while
+  genuinely best-effort steps (native `llama_cpp` import, embed/rerank smoke
+  tests) keep a broad catch with a justifying comment + log.
+
+### Changed
+- **XC-4: plugin logs now go through a namespaced, level-gated logger**
+  (`src/utils/logger.ts`). `warn`/`error` always print (prefixed `[Incurator]`);
+  verbose `debug`/`info` are off by default and enabled per-device via
+  `localStorage["incurator-debug"] = "1"` (+ reload). All 42 `console.*` calls
+  across the plugin were routed through it, so a user's developer console stays
+  quiet unless they opt in. No new plugin setting; nothing synced.
+
+### Notes
+- XC-4 plugin timer audit: all 39 `setTimeout`/`setInterval` were reviewed; every
+  interval and stored timeout is already cleared on teardown and fire-once UI
+  deferrals are benign — no timer changes were needed.
+
+---
+
 ## [0.27.5] - 2026-06-28
 ### Fixed
 - **XC-1 (slice 1): bug-masking broad-`except` narrowed across the backend data
