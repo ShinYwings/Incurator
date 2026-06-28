@@ -44,7 +44,20 @@ version-dependent surface → R2 KEEP+log+comment, no NARROW):
 | 232 `get_page_count` | KEEP+log(debug) | callers treat 0 as unknown |
 | 267 `parse_page_window` | KEEP+log(**warning**) | load-bearing for L2 completeness |
 Tests: `backend/tests/test_error_handling_pdf.py` (4) — fallback preserved + logged.
-### llm.py — pending (P2)
+### llm.py — DONE (handlers only; no prompt/identity logic touched)
+| line | disposition | note |
+|---|---|---|
+| 70 `detect_ram_gb` | NARROW (OSError, ValueError, SubprocessError)+log | default 32GB |
+| 113 `get_ollama_model_capabilities` | NARROW (httpx.HTTPError, ValueError)+log | [] |
+| 228 `OllamaClient.unload` | NARROW httpx.HTTPError+log | best-effort VRAM free |
+| 1062 Codex auth read | NARROW (OSError, ValueError)+log | falls through to CodexCliError |
+| 1322 failover ping | KEEP+comment | provider ping may raise anything → "down" |
+| 1346 `ensure_ready` failover | KEEP+log+comment | the failover mechanism; surfaces LLMError |
+| 1449 `unload` loop | KEEP+log+comment | best-effort cross-provider cleanup |
+| 1456 `close` loop | KEEP+log+comment | best-effort teardown |
+| 1477 `list_models_on_host` | NARROW (httpx.HTTPError, ValueError)+log | [] |
+Tests: `backend/tests/test_error_handling_llm.py` (4) — empty+log on transport
+error; unexpected error propagates (NARROW).
 ### ingest_raw.py / ingest_worker.py — pending (P3)
 ### pipeline/compile.py — pending (P4)
 
