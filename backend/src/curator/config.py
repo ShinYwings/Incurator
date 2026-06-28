@@ -10,6 +10,7 @@ All Curator state lives exclusively in `.curator/`.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -17,6 +18,8 @@ from typing import Optional
 import yaml
 
 from . import constants as consts
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Defaults (used when no settings.yml has been written yet)
@@ -325,8 +328,11 @@ def save_global_config(config: dict) -> None:
                 data = yaml.safe_load(f)
                 if isinstance(data, dict):
                     existing = data
-        except Exception:
-            pass
+        except (OSError, yaml.YAMLError) as e:
+            logger.warning(
+                "Could not read existing global config '%s' (%s) — overwriting with merged values.",
+                config_file, e,
+            )
 
     def merge_dict(a: dict, b: dict) -> dict:
         for k, v in b.items():
@@ -349,8 +355,8 @@ def get_last_root() -> Optional[Path]:
             val = last_root_file.read_text(encoding="utf-8").strip()
             if val:
                 return Path(val).resolve()
-        except Exception:
-            pass
+        except (OSError, ValueError) as e:
+            logger.debug("Could not read last-root file '%s': %s", last_root_file, e)
     return None
 
 
@@ -360,8 +366,8 @@ def set_last_root(root: Path) -> None:
         cache_dir = get_global_config_dir()
         cache_dir.mkdir(parents=True, exist_ok=True)
         (cache_dir / consts.FILE_LAST_ROOT).write_text(str(root.resolve()), encoding="utf-8")
-    except Exception:
-        pass
+    except OSError as e:
+        logger.warning("Could not persist last-root marker: %s", e)
 
 
 MACHINE_LOCAL_CONFIG_KEYS = frozenset({"llm", "search", "external"})
@@ -411,8 +417,8 @@ def load_config(paths: WikiPaths) -> dict:
                 "Global config '%s' has invalid YAML — using defaults. Error: %s",
                 global_cfg_file, e,
             )
-        except Exception:
-            pass
+        except OSError as e:
+            logger.warning("Could not read global config '%s' — using defaults: %s", global_cfg_file, e)
 
     # 2. Merge with the local project's config file
     if paths.config_file.exists():
@@ -434,8 +440,10 @@ def load_config(paths: WikiPaths) -> dict:
                 paths.config_file, e,
             )
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(
+            # KEEP broad: config loading must never hard-fail the CLI over a
+            # best-effort machine-local migration; the merged values above are
+            # already applied, so we log and continue.
+            logger.warning(
                 "Vault config migration failed for '%s' — machine-local keys may remain in vault config: %s",
                 paths.config_file, e,
             )
@@ -511,8 +519,8 @@ def find_wiki_root(start: Path | None = None) -> Path | None:
                 data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
                 if data.get("testbed"):
                     continue
-            except Exception:
-                pass
+            except (OSError, _yaml.YAMLError) as e:
+                logger.debug("Could not read settings '%s' while scanning for project root: %s", cfg_file, e)
             return candidate
     return None
 
