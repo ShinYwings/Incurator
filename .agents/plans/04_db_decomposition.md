@@ -9,17 +9,25 @@ Parent milestone: `.agents/plans/01_system_stability_overhaul.md`
 ## 1. Objective
 Convert the 4759-LOC `db.py` god-file into a `db/` package with a re-export
 facade, **with zero caller changes and zero behavior change**. Slice 1 extracts
-the foundational layers (schema/migrations/connect + job queue) into their own
-modules and moves the rest verbatim into a holding module; follow-up slices carve
-the holding module into per-entity repositories.
+the foundational schema/migrations/connect layer into its own module and moves
+the rest verbatim into a holding module; follow-up slices carve the holding
+module into the job queue (`jobs.py`) and per-entity repositories.
 
-**Definition of done (slice 1)**: `curator/db` is a package; `db.*` public surface
-is identical (snapshot test passes); `schema.py` + `jobs.py` exist; remaining repo
-code lives in `db/_entities.py` re-exported by the facade; full `pytest` ≥ prior
-pass count, `ruff`/`mypy` clean, testbed `wiki add/sync` unaffected.
+> **Scope adjustment (as shipped):** `jobs.py` extraction was deferred to slice 2
+> (plan §5 permits splitting when it keeps the diff reviewable and re-pins the
+> frozen D2 oracle only once). Slice 1 shipped the package + `schema.py` + facade,
+> with the job queue remaining in `db/_entities.py`.
+
+**Definition of done (slice 1, as shipped)**: `curator/db` is a package; `db.*`
+public surface is identical (snapshot test passes); `schema.py` exists; the job
+queue and remaining repo code live in `db/_entities.py` re-exported by the facade;
+full `pytest` ≥ prior pass count, `ruff`/`mypy` clean, testbed `wiki add/sync`
+unaffected.
 
 ## 2. Explicit Non-Goals
 - NO behavior/SQL/schema change (verbatim moves only).
+- NO `jobs.py` extraction in slice 1 — deferred to slice 2 (the job queue stays in
+  `db/_entities.py`).
 - NO carving `_entities.py` into per-entity modules in slice 1 (follow-ups).
 - NO caller edits (the facade preserves `db.<name>`).
 - NO query "improvements" (preserve `_chunked` batching — DB-1).
@@ -84,9 +92,10 @@ the section line-range → module mapping (audit trail of the move).
   into it (`_entities.py` imports them back via `from .schema import …`). Add
   `db/__init__.py` facade (`from .schema import *`; `from ._entities import *`).
   Run full pytest + mypy + the P0 snapshot test.
-- **P2 — jobs.py.** Carve the job queue out of `_entities.py` into `jobs.py`
-  (`from .schema import connect, _now_iso, …`); facade adds `from .jobs import *`.
-  Full pytest + mypy + snapshot.
+- **P2 — jobs.py. [DEFERRED to slice 2]** Carve the job queue out of
+  `_entities.py` into `jobs.py` (`from .schema import connect, _now_iso, …`);
+  facade adds `from .jobs import *`. Full pytest + mypy + snapshot. (Not done in
+  slice 1 — see §2 / §5; the job queue remains in `db/_entities.py` for now.)
 - **P3 — Verify + docs + release.** Snapshot test green; testbed smoke; update
   CLAUDE.md module table; version 0.27.7; CHANGELOG; PR.
 

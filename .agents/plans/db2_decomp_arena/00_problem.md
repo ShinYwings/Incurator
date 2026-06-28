@@ -36,7 +36,8 @@ in the codebase. Therefore converting `db.py` → a `db/` **package** whose
 ## Definition of done (slice 1)
 
 `db` is a package with an `__init__.py` facade; the public `db.*` surface is
-identical (asserted by a snapshot test); schema/migrations + job queue (+ the
-chosen first repository group) live in their own modules; the rest sits in a
-holding module re-exported by the facade; full `pytest`/`ruff`/`mypy` green and
-testbed `wiki add/sync` unaffected.
+identical (asserted by a snapshot test); schema/migrations + connect live in
+`schema.py`; the rest (including the job queue) sits in a holding `_entities.py`
+re-exported by the facade; full `pytest`/`ruff`/`mypy` green and testbed
+`wiki add/sync` unaffected. (`jobs.py` and per-entity carving are deferred to
+slice 2.)

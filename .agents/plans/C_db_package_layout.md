@@ -14,22 +14,24 @@ Date: 2026-06-28
 |---|---|---|
 | 26–~120 | frozen resolution enums | schema.py |
 | 718–1330 | helpers, migrations, init_db, connect, get_stats | schema.py |
-| 1330–~1600 | ingest job queue | jobs.py |
+| 1330–~1600 | ingest job queue | _entities.py (→ jobs.py in slice 2) |
 | ~1600–1953 | sources / ingest runs / source pages | _entities.py (→ sources.py later) |
 | 1954–2280 | source_spans, knowledge_units | _entities.py (→ spans/knowledge_units) |
 | 2281–3417 | claim_supports, graph_*, resolution, relations, community | _entities.py (→ later) |
 | 3418–3868 | community_reports, graph-generation compiler | _entities.py (→ community) |
 | 3869–4759 | audit, memory_paths, prompt_runs, curation_plans, insights, artifact_deps, synthesis | _entities.py (→ leaf modules) |
 
-## Slice-1 layout (this PR)
+## Slice-1 layout (as shipped)
 ```
-curator/db/__init__.py   # facade: from .schema import *; from .jobs import *; from ._entities import *
+curator/db/__init__.py   # facade: from .schema import *; from ._entities import *
+                         #   (+ explicit re-export of _maybe_conn / _now_iso)
 curator/db/schema.py     # helpers + migrations + DDL + connect + init_db + get_stats + enums
-curator/db/jobs.py       # job queue (imports connect/_helpers from .schema)
-curator/db/_entities.py  # everything else, verbatim (imports from .schema)
+curator/db/_entities.py  # everything else verbatim — INCLUDING the job queue
+                         #   (jobs.py deferred to slice 2); imports from .schema
 ```
-Follow-up slices carve `_entities.py` into sources/spans/knowledge_units/claims/
-graph/resolution/relations/community/audit + leaf modules.
+Follow-up slices carve `_entities.py` into `jobs.py` (the job queue, deferred from
+slice 1) and per-entity modules sources/spans/knowledge_units/claims/graph/
+resolution/relations/community/audit + leaf modules.
 
 ## Invariants / guards
 - Public `db.*` names: SUPERSET-preserved, asserted by `test_db_public_api.py`
@@ -43,7 +45,8 @@ graph/resolution/relations/community/audit + leaf modules.
   public names; underscore helpers live in `schema.py`, imported explicitly. Avoids
   enumerating `_entities.py`'s ~100 functions by hand.
 - Package conversion via `git mv db.py db/_entities.py` (history-preserving; no
-  db.py/db-package import ambiguity), then carve `schema.py`/`jobs.py` out of it.
+  db.py/db-package import ambiguity), then carve `schema.py` out of it
+  (`jobs.py` deferred to slice 2).
 
 ## Docs / version
 - No schema/contract/behavior change → **Patch 0.27.7**; spec titles untouched.
