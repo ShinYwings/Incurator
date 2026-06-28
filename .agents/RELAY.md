@@ -1,24 +1,33 @@
 # Active Relay State
 
-**STATUS: IDLE.**
+**STATUS: DB-2 slice 2 shipped to PR #67 — awaiting merge.**
 
-No active goal. v0.27.7 (System Stability Overhaul Phase C — DB-2 slice 1:
-`db.py` → `db/` package with `schema.py` + facade) shipped and merged via PR #66.
+**Current branch**: `fix/db-decomposition-slice2`
 
-## Next candidates (not started)
+**Last refreshed**: 2026-06-29 by Claude Code.
 
-Remaining S2 god-file decomposition — each on a fresh branch with its own plan
-(plan approval before coding):
+---
 
-- **DB-2 slice 2**: carve `db/_entities.py` further — extract `jobs.py` (job
-  queue, deferred from slice 1) and per-entity modules (sources, spans,
-  knowledge_units, claims, graph, resolution, relations, community, audit, leaf
-  entities). Each a small verbatim-move PR re-pinning the D2 frozen oracle. The
-  package + facade + snapshot test from slice 1 are the foundation.
-- **CM-1**: decompose `cli.py` (7389 LOC) + `mcp_server.py` (3362 LOC) into
-  sub-apps / tool modules (also folds in their XC-1 broad-except cleanup).
-- **PL-1**: decompose plugin god-files (`chatSidebar.ts` 4828 LOC, etc.);
-  replace `any`/`@ts-ignore` with real types.
+## Goal
+DB-2 god-file decomposition, slice 2: carve `db/jobs.py` + `db/sources.py` out of
+`db/_entities.py` (verbatim, behavior-preserving, zero import cycles). Shipped as
+**v0.27.8** in PR #67.
 
-Shipped in the overhaul chain: G17/G18/G19 (v0.27.3), G17 S3 (v0.27.4),
-XC-1 slice 1 (v0.27.5), Robustness Slice 2 (v0.27.6), DB-2 slice 1 (v0.27.7).
+## Progress
+- `jobs.py` (job queue) + `sources.py` (sources/layer-status/DAG-edges/pages +
+  json_dumps) carved out; facade re-exports; public `db.*` surface unchanged.
+- D2 oracle re-pinned (re-hashed __init__/_entities, added jobs/sources +
+  re-arm note). No monkeypatch tests needed repointing.
+- Full pytest 1121 passed; ruff/mypy clean (102 files); vitest 626 + tsc clean;
+  spec-sync at 0.27.8.
+
+## Immediate Next Action
+- Human: review and merge PR #67.
+- After merge, remaining DB-2 work (fresh branch, own plan): the **graph/
+  community/knowledge/claim cluster** and the **leaf entity modules**
+  (synthesis/memory_paths/prompt_runs/curation_plans/insights/artifact_deps) —
+  these are bidirectionally coupled, so the next slice must relocate the shared
+  helper(s) (e.g. `record_artifact_dependency`) to break cycles before carving.
+  Then CM-1 (cli/mcp) and PL-1 (plugin) remain as the other S2 god-files.
+
+Overhaul chain: v0.27.3 → v0.27.4 → v0.27.5 → v0.27.6 → v0.27.7 → v0.27.8.

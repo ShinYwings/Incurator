@@ -6,6 +6,8 @@ then ``db.<name>``) are unchanged.
 
 from .schema import *  # noqa: F401,F403
 from ._entities import *  # noqa: F401,F403
+from .jobs import *  # noqa: F401,F403
+from .sources import *  # noqa: F401,F403
 
 # Underscore helpers that external callers reach via db._<name> (claim_support,
 # compile) — not re-exported by ``import *``, so re-export them explicitly to
