@@ -16,6 +16,7 @@ exact stored span ids.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -43,6 +44,8 @@ from .formula_recovery import (
     invalidate_formula_recoveries,
     recover_formula,
 )
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "CompileResult", "compile_source_l2", "compile_global_l3", "reemit_projections",
@@ -184,8 +187,12 @@ def hydrate_spans(db_path: Path, span_ids: list[str]) -> dict[str, str]:
     for relpath, group in by_relpath.items():
         try:
             index = _reparse_hash_index(paths, relpath)
-        except Exception:
-            continue  # source unavailable → omit; caller flags these spans
+        except Exception as e:
+            # KEEP broad: best-effort batch hydration — a source that is missing
+            # or unparseable just omits its spans (caller flags them); now logged
+            # instead of swallowed silently.
+            logger.debug("Span hydration skipped for '%s' (source unavailable): %s", relpath, e)
+            continue
         for row in group:
             text = index.get(row["content_hash"])
             if text is not None:
@@ -222,6 +229,8 @@ def compile_source_l2(
     try:
         title, sections = _section_dicts(paths, relpath)
     except Exception as e:
+        # KEEP broad: L2 parse boundary — any parse failure is surfaced (l2 status
+        # set to error + returned as a CompileResult error), never swallowed.
         db.set_source_layer_status(paths.state_db, source_id, "l2", "error", error=str(e))
         return CompileResult(source_id=source_id, error=f"parse failed: {e}")
 
@@ -305,6 +314,9 @@ def compile_source_l2(
             )
             _publish_generation(paths.state_db, source_id, gen_id, fingerprint, conn=conn)
     except Exception as e:
+        # KEEP broad: transactional rollback boundary — ANY staged-compile failure
+        # must discard the staged generation and surface (l2 error), so a partial
+        # generation is never published.
         _discard_staged_units(paths.state_db, gen_id)
         db.discard_compiler_generation(paths.state_db, gen_id)
         db.set_source_layer_status(
@@ -525,6 +537,8 @@ def recompile_source(
             )
             _publish_generation(db_path, source_id, gen_id, fingerprint, conn=conn)
     except Exception:
+        # KEEP broad: transactional rollback — discard the staged generation on
+        # any failure and re-raise so the caller sees the real error.
         db.discard_compiler_generation(db_path, gen_id)
         raise
 
@@ -580,6 +594,10 @@ def compile_global_l3(
             (paths.concepts / f"{concept_id}.md").write_text(page, encoding="utf-8")
             concept_ids.append(concept_id)
         except Exception as e:
+            # KEEP broad: per-report prose is best-effort — collect the error and
+            # continue so one bad report does not abort the whole L3 pass; the
+            # aggregated errors gate the synthesis step below.
+            logger.warning("Community report prose failed: %s", e)
             errors.append(str(e))
 
     # L4 Synthesis: distill all community reports into shared corpus-wide insights.
@@ -591,6 +609,9 @@ def compile_global_l3(
                 paths, client, curate_spec_hash=curate_spec_hash
             )
         except Exception as e:
+            # KEEP broad: synthesis is the final best-effort L4 step; record the
+            # error (surfaced via the errors list) rather than crashing L3.
+            logger.warning("L4 synthesis failed: %s", e)
             errors.append(str(e))
 
     # Mark L3 done for sources whose L2 is complete.

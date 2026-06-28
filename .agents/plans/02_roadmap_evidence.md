@@ -80,7 +80,21 @@ fallback (reviewer scenario) + `_safe_vault_subdir` None+log.
 - 220, 359, 452 → already log with non-fatal rationale (untouched).
 Regression: existing `test_prompt_trace`, `test_compile_pipeline`,
 `test_knowledge_unit_extraction` still green (32).
-### pipeline/compile.py — pending (P4)
+### pipeline/compile.py — DONE (7 sites)
+- 145 `_resolve_span_text` → KEEP (already raises SpanTextUnavailable; commented).
+- 187 `hydrate_spans` → KEEP+log(debug)+comment (omit unavailable source, now logged).
+- 224 L2 parse boundary → KEEP+comment (surfaces l2 error + CompileResult error).
+- 307 staged-compile rollback, 527 transactional rollback → KEEP+comment (discard
+  staged generation + surface/re-raise; never publish a partial generation).
+- 582 per-report prose, 593 L4 synthesis → KEEP+log(warning)+comment (collect to
+  errors list which gates synthesis; now also logged).
+Tests: `backend/tests/test_error_handling_compile.py` (1) — hydrate_spans omits
+unavailable source + logs. Regression: `test_compile_pipeline` 10 passed.
+
+## Final disposition summary (slice 1)
+6 modules, 51 sites: NARROW 12 · KEEP+log/comment 35 · already-compliant
+(untouched) 4. SURFACE forced: 0 (every candidate had a valid fallback or already
+surfaced — consistent with the R1 "KEEP/NARROW-first" bias). New tests: 14.
 
 ## Validation log
 - config.py: ruff ✓, mypy ✓, `test_error_handling_config.py` 3 passed.
