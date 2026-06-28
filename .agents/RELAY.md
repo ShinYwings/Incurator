@@ -1,9 +1,22 @@
 # Active Relay State
 
-**STATUS: IDLE.**
+**STATUS: Planning — DB-2 slice 2 plan drafted, AWAITING USER APPROVAL. No code yet.**
 
-No active goal. v0.27.7 (System Stability Overhaul Phase C — DB-2 slice 1:
-`db.py` → `db/` package with `schema.py` + facade) shipped and merged via PR #66.
+**Current branch**: `master` (feature branch created only after approval)
+
+Prior: v0.27.7 (DB-2 slice 1: `db.py` → `db/` package + `schema.py` + facade)
+shipped and merged via PR #66.
+
+## DB-2 slice 2 plan (DRAFT — needs approval)
+- Carve `db/_entities.py` (3457 LOC) → extract `db/jobs.py` (job queue, deferred
+  from slice 1) + `db/sources.py` (sources/layer-status/DAG-edges/source-pages).
+- Chosen because dependency analysis shows lines 31–651 call **0** cluster
+  functions → zero import-cycle risk. Leaf modules + graph/community cluster are
+  bidirectionally coupled → deferred to later slices.
+- Reuses slice-1 locked architecture (facade, downward imports, snapshot test,
+  oracle re-pin, monkeypatch-repoint). Target **v0.27.8** (Patch).
+- Plan: `.agents/plans/05_db_decomposition_slice2.md`
+- **STOPPED for user approval (Universal Strict Workflow Step 4).**
 
 ## Next candidates (not started)
 
