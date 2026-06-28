@@ -1,8 +1,8 @@
 # Active Relay State
 
-**STATUS: Planning — Robustness Slice 2 plan drafted, AWAITING USER APPROVAL. No code yet.**
+**STATUS: Robustness Slice 2 shipped to PR #65 — awaiting merge.**
 
-**Current branch**: `master` (feature branch created only after approval)
+**Current branch**: `fix/robustness-slice2`
 
 **Last refreshed**: 2026-06-28 by Claude Code.
 
@@ -28,8 +28,15 @@ Target **v0.27.6** (Patch — no new capability/setting/contract).
 - Authored the Robustness Slice 2 Arena plan + domain analysis + master plan.
 - **STOPPED for user approval (Universal Strict Workflow Step 4).**
 
+## Progress
+- Shipped as **v0.27.6** in PR #65 (https://github.com/ShinYwings/Incurator/pull/65).
+- model_setup: 11 excepts resolved (+4 tests). timers: 39 audited, 0 fixes
+  (all managed/benign). console: 42 routed through gated `logger.ts` (+4 tests).
+- Full pytest 1117 passed; vitest 625; ruff/mypy/tsc clean; spec-sync + docs
+  parity green at 0.27.6.
+
 ## Immediate Next Action
-WAIT for approval of `03_robustness_slice2.md`. On approval: branch
-`fix/robustness-slice2`, write `03_roadmap_evidence.md` (P0 inventory), execute
-P1 (model_setup) → P2 (timers) → P3 (console→logger) → P4 (docs + release).
-Note: P3 may split to a follow-up PR (v0.27.7) if the combined diff is too large.
+- Human: review and merge PR #65.
+- After merge, remaining overhaul work (own plans, fresh branches): S2 god-file
+  decomposition — CM-1 (cli.py + mcp_server.py, also folds in their XC-1 excepts),
+  DB-2 (db.py), PL-1 (plugin chatSidebar.ts et al.).
