@@ -255,6 +255,16 @@ evaluated_code:
       the lexical FTS5/BM25 Q06 holdout exercises, so the frozen metric is provably
       unaffected. Re-hashed db/_entities.py and added db/jobs.py + db/sources.py
       fingerprints below; drift tripwire re-armed.
+      REVIEW FOLLOW-UP (same PR): besides the verbatim carve, three small
+      pre-existing bugs in the moved sources functions were fixed — get_pending_count
+      relocated jobs.py -> sources.py (it queries the sources table); two
+      timezone-naive datetime.now().isoformat() timestamps in vision_cache_put /
+      update_page_hash switched to the UTC _now_iso() helper; and get_source_row's
+      resolved_lookup default changed "" -> None so a relative lookup binds NULL
+      (no accidental empty-field match). These touch source-bookkeeping timestamps
+      and the source-row lookup only — NOT retrieval/ranking/fusion/projection/
+      embedding/chunking/materialize_chunks — so the frozen Q06 metric remains
+      provably unaffected. db/sources.py re-hashed accordingly.
   file_sha256:
     backend/scripts/failure_atlas_holdout.py: c6afe0307dd3f68fa9902387bb0dc269db6ff9d6b73ad2f3ac1cc6ecc883297a
     backend/src/curator/retrieval/evaluation.py: 0cc9e655142c725dd4bbbabfd2b44d6bf0355265bb2510fbb78cbd47d7d43c17
@@ -267,7 +277,7 @@ evaluated_code:
     backend/src/curator/db/schema.py: d04d694735e74a68f6bba98ab91b7c802c6452649281cca3671728a3d9aac8bb
     backend/src/curator/db/_entities.py: c34156c88311a27834068f17ab7ab9a46efc28ed26a154554796db8963849df0
     backend/src/curator/db/jobs.py: 46163fb2350eeeca3915da8e539028a7ef0a4b89f546827fc28ca4a9c44157ae
-    backend/src/curator/db/sources.py: 63eca4b0c5c77f2efc46b025690e16d702ba9edaedfb8f0e32bba5d7ae70fbf9
+    backend/src/curator/db/sources.py: 98d8a9960555ceb40241754674e352157beace4e3a4f0e8577cec8e60f42bb76
   preflight_family_metrics:
     direct-factual:
       query_count: 7

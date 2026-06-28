@@ -15,6 +15,16 @@ All notable changes to Incurator are documented here.
   contract, or behavior change. (The graph/community/knowledge cluster and the
   leaf entity modules remain in `db/_entities.py` for a later slice.)
 
+### Fixed
+- **Small pre-existing bugs in the carved `db/sources.py` functions** (surfaced in
+  review of the moved code): `get_pending_count` (which queries the `sources`
+  table) moved from `jobs.py` to `sources.py`; `vision_cache_put` /
+  `update_page_hash` now write UTC timestamps via `_now_iso()` instead of
+  timezone-naive `datetime.now().isoformat()`; and `get_source_row`'s
+  `resolved_lookup` defaults to `None` (binds SQL `NULL`) instead of `""`, so a
+  relative-path lookup can no longer accidentally match empty `external_path` /
+  `import_origin` rows.
+
 ---
 
 ## [0.27.7] - 2026-06-28

@@ -115,8 +115,7 @@ def vision_cache_get(db_path: Path, image_hash: str, model: str) -> str | None:
 
 def vision_cache_put(db_path: Path, image_hash: str, model: str, latex: str) -> None:
     """Upsert a VLM page transcription keyed by (image hash, model)."""
-    import datetime
-    now = datetime.datetime.now().isoformat()
+    now = _now_iso()
     with connect(db_path) as conn:
         conn.execute(
             "INSERT INTO vision_page_cache (image_hash, model, latex, created_at) "
@@ -138,8 +137,7 @@ def get_page_hashes(db_path: Path) -> dict[str, str]:
 
 def update_page_hash(db_path: Path, wiki_path: str, content_hash: str) -> None:
     """Upsert the hash for a specific wiki page."""
-    import datetime
-    now = datetime.datetime.now().isoformat()
+    now = _now_iso()
     with connect(db_path) as conn:
         conn.execute(
             "INSERT INTO page_hashes (wiki_path, content_hash, last_synced) "
@@ -301,7 +299,7 @@ def get_source_row(
     """
     lookup = relpath or source_path
     relpath = relpath or source_path_to_relpath(root, source_path)
-    resolved_lookup = ""
+    resolved_lookup: str | None = None
     if lookup:
         path = Path(lookup).expanduser()
         if path.is_absolute():
