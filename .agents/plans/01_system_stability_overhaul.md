@@ -181,7 +181,8 @@ green + testbed parity for backend) and starts with prior-art research.
   - Decompose `chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts`; reduce
     `any`/`@ts-ignore`. Verify: vitest green + manual plugin smoke (`/verify`).
 
-- **Error-handling root-cause pass** (grouped PRs, `refactor/error-handling-*`)
+- **Error-handling root-cause pass** (grouped PRs, `fix/error-handling-*` /
+  `chore/error-handling-*` — AGENTS.md prefixes only; not `refactor/`)
   - Triage the 264 broad-excepts: narrow to specific exceptions, surface real
     failures, remove bug-masking try/excepts. Prior-art: established
     exception-handling guidance. Verify: pytest green; no swallowed-error regress.

@@ -1,23 +1,39 @@
 # Active Relay State
 
-**STATUS: IDLE.**
+**STATUS: Planning — XC-1 error-handling narrowing plan drafted, AWAITING USER APPROVAL. No code yet.**
 
-No active goal. v0.27.4 (System Stability Overhaul Phase B — G17 S3 cleanup:
-Zotero reload empty-metadata/no-item-key guard + legacy `imageFolder`
-retirement) shipped and merged via PR #63.
+**Current branch**: `master` (no feature branch created until plan approved)
 
-## Next candidates (not started)
+**Last refreshed**: 2026-06-28 by Claude Code.
 
-Remaining Phase B work — start each on a fresh branch with its own Arena plan
-(these are larger, Minor-sized, and warrant plan approval before coding):
+---
 
-- S2 architectural: XC-1 broad-except narrowing.
-- S2 architectural: CM-1/PL-1/DB-2 god-file decomposition.
+## Goal
 
-## Deferred / Icebox
+Phase C of the System Stability Overhaul: XC-1 broad-`except` narrowing,
+**slice 1** — the backend data-pipeline core (`config.py`, `parsers/pdf.py`,
+`llm.py` handlers only, `ingest_raw.py`, `ingest_worker.py`,
+`pipeline/compile.py`; ~51 of 270 backend broad-excepts). Classify each into
+{KEEP, NARROW, SURFACE, DELETE} and resolve, surfacing masked failures without
+regressing the pipeline's intentional fault-tolerance. Target **v0.27.5** (Patch
+— internal error-handling only; no schema/contract change, so spec titles stay on
+the 0.27 line).
 
-- **G17-7 full fix**: citekey → Zotero item-key resolution needs a backend
-  resolver (citekeys are derived, not stored in `items.key`). Minor with its own
-  plan if multi-profile users need refresh of notes lacking `zotero_app_url`.
-- **G17-10**: Zotero passthrough consistency — low priority, only when a wrapper
-  cleanup PR already touches those methods.
+## Plan Reference (DRAFT — needs approval before coding)
+
+- Master plan: `.agents/plans/02_error_handling_narrowing.md`
+- Domain analysis: `.agents/plans/A_exception_taxonomy.md`
+- Arena: `.agents/plans/xc1_error_handling_arena/` (00_problem, 01_proposal, 02_critique)
+
+## Progress Status
+
+- v0.27.4 (G17 S3) merged via PR #63; repo synced; was IDLE.
+- Authored the XC-1 slice-1 Arena plan + Domain Analysis + Master Plan.
+- Updated ROADMAP active-plan note.
+- **STOPPED for user approval per Universal Strict Workflow Step 4.**
+
+## Immediate Next Action
+
+WAIT for user approval of `02_error_handling_narrowing.md`. On approval:
+create branch `fix/error-handling-pipeline`, write the evidence ledger
+`02_roadmap_evidence.md` (P0 inventory), then execute P1→P5 (TDD per site).
