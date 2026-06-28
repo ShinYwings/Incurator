@@ -124,6 +124,22 @@ def test_codex_ensure_ready_non_dict_auth_raises_codex_error(monkeypatch):
         client.ensure_ready()
 
 
+def test_ollama_unload_on_closed_client_does_not_raise():
+    # POSTing on an already-closed httpx client raises RuntimeError (not an
+    # httpx error), e.g. on a double close()/close() inside a `with` block.
+    # unload() must short-circuit on a closed client instead of crashing teardown.
+    client = llm.OllamaClient(host="http://127.0.0.1:1", model="m")
+    client._client.close()
+    client.unload()  # without the is_closed guard this raises RuntimeError
+    assert client._client.is_closed
+
+
+def test_ollama_close_is_idempotent():
+    client = llm.OllamaClient(host="http://127.0.0.1:1", model="m")
+    client._client.close()  # simulate the transport already being torn down
+    client.close()  # close() -> unload() (guarded) + _client.close() must not raise
+
+
 def test_detect_ram_gb_returns_default_on_malformed_meminfo(monkeypatch, caplog):
     import io
 

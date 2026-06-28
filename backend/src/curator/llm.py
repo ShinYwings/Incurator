@@ -224,6 +224,10 @@ class OllamaClient:
         frees GPU memory for other local llama-cpp search models.
         Best-effort: silently ignored if Ollama is unreachable.
         """
+        # Posting on an already-closed client raises RuntimeError (not an
+        # httpx error), e.g. on a double close() / close() inside a `with` block.
+        if self._client.is_closed:
+            return
         try:
             self._client.post(
                 f"{self.host}/api/generate",
