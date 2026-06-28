@@ -104,7 +104,9 @@ def test_sources_for_spans_batches_source_relpath_lookup(tmp_path: Path, monkeyp
         with original_connect(path) as conn:
             yield CountingConnection(conn)
 
-    monkeypatch.setattr(db, "connect", counting_connect)
+    # sources_for_spans resolves `connect` from curator.db._entities (DB-2 split),
+    # so patch it at its real lookup location, not the db facade attribute.
+    monkeypatch.setattr("curator.db._entities.connect", counting_connect)
 
     assert db.sources_for_spans(db_path, [a1, a2, b1]) == [
         {"source_id": sid_a, "relpath": "04_Resources/a.md"},

@@ -23,11 +23,13 @@ impact: >
   so any chain of weak relations collapses the graph into one giant
   community, making "community" reports corpus-wide mush.
 boundary:
-  module: backend/src/curator/db.py
+  module: backend/src/curator/db/_entities.py
   symbol: upsert_graph_entity
   detail: >
     Entities are deduplicated by exact (canonical_name, entity_type) string
-    match (db.py:1553-1573) — no alias handling, no homonym protection.
+    match (the canonical_name/entity_type SELECT in upsert_graph_entity, in
+    db/_entities.py since the v0.27.7 DB-2 package split; originally db.py) — no
+    alias handling, no homonym protection.
     pipeline/graph_index.py:136 keys name_to_id on canonical_name alone.
     pipeline/community_reports.py:58-76 detects communities as connected
     components (union-find) over all relations regardless of weight or

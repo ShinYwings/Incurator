@@ -4,6 +4,19 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.27.7] - 2026-06-28
+### Changed
+- **DB-2 (slice 1): `db.py` decomposed into a `db/` package.** The 4759-LOC
+  `db.py` god-file was split — byte-for-byte behavior-preserving — into
+  `db/schema.py` (DDL, migrations, `connect`, `init_db`, `get_stats`, enums) and
+  `db/_entities.py` (entity repository queries), with a `db/__init__.py`
+  re-export facade. The public `db.*` surface is unchanged (callers use
+  `from . import db` → `db.<name>`), guarded by a new `test_db_public_api.py`
+  snapshot. Internal-only; no SQL, schema, contract, or behavior change. (Job
+  queue and per-entity module carving follow in slice 2.)
+
+---
+
 ## [0.27.6] - 2026-06-28
 ### Fixed
 - **XC-1 (slice 2): bug-masking broad-`except` narrowed in `model_setup.py`.**

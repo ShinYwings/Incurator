@@ -299,7 +299,9 @@ def test_connect_closes_connection_when_schema_setup_fails(monkeypatch) -> None:
         captured["conn"] = conn
         raise RuntimeError("simulated migration failure")
 
-    monkeypatch.setattr(db, "_apply_migrations", boom)
+    # _apply_migrations now lives in curator.db.schema (DB-2 split); connect()
+    # resolves it as a module global there, so patch it at its real location.
+    monkeypatch.setattr("curator.db.schema._apply_migrations", boom)
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "state.sqlite"
         with pytest.raises(RuntimeError, match="simulated migration failure"):
