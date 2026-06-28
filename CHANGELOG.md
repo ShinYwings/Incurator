@@ -4,6 +4,29 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.27.5] - 2026-06-28
+### Fixed
+- **XC-1 (slice 1): bug-masking broad-`except` narrowed across the backend data
+  pipeline.** Previously several `except Exception: pass` handlers in
+  `config.py`, `parsers/pdf.py`, `llm.py`, `ingest_raw.py`, `ingest_worker.py`,
+  and `pipeline/compile.py` swallowed real failures silently. They are now either
+  narrowed to the specific expected exceptions (so unexpected errors propagate
+  instead of being hidden) or kept broad **with a justifying comment and a log
+  line** for genuine best-effort steps. Notably, the Zotero/external source-path
+  resolver (`_resolve_reference_source`) now logs and degrades to the original
+  source on a transient DB lock / IO error instead of failing silently, and the
+  windowed PDF parse logs at warning when a page batch fails. The pipeline's
+  intentional fault-tolerance (instant-L1 guards, per-page fallback, provider
+  failover, checkpoint-resume) is unchanged — no previously-tolerated degradation
+  was turned into a hard abort.
+
+### Maintenance
+- Added module-level loggers to `config.py`, `parsers/pdf.py`, `llm.py`,
+  `ingest_raw.py`, and `pipeline/compile.py` for the above; removed an orphaned
+  import. No public CLI / MCP / plugin contract or schema change.
+
+---
+
 ## [0.27.4] - 2026-06-27
 ### Fixed
 - **G17-7: Zotero "Reload Source" no longer rewrites a note from empty

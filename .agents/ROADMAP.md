@@ -35,6 +35,11 @@ _(empty — L2 extraction hotfix shipped in v0.27.2, see Completed Milestones.)_
    - Master Plan: `.agents/plans/01_system_stability_overhaul.md`
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of minor-release PRs (0.25.0 → 0.26.0 → …).
+   - Shipped so far: G17/G18/G19 (v0.27.3), G17 S3 (v0.27.4), **XC-1 error-handling
+     slice 1 (data-pipeline, v0.27.5, PR #64)**.
+     Remaining S2: god-file decomposition CM-1/PL-1/DB-2; XC-1 slices 2+ (god-file
+     excepts in cli.py/mcp_server.py/plugin_api.py, `model_setup.py`); XC-4 plugin
+     timers/logging.
 
 4. **[Validation] `[[wikilink]]` Architecture Validation**
    - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.

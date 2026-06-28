@@ -14,6 +14,7 @@ from __future__ import annotations
 from . import constants as consts
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -26,6 +27,8 @@ from dataclasses import dataclass
 from typing import Generator
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Global PATH Augmentation for GUI Environments
@@ -67,8 +70,9 @@ def detect_ram_gb() -> float:
                 for line in f:
                     if line.startswith("MemTotal:"):
                         return int(line.split()[1]) / (1024 ** 2)
-    except Exception:
-        pass
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError) as e:
+        # IndexError guards a malformed /proc/meminfo line (no second field).
+        logger.debug("RAM detection failed (%s) — assuming default 32GB.", e)
     return 32.0
 
 
@@ -110,8 +114,9 @@ def get_ollama_model_capabilities(
             )
             if r.status_code == 200:
                 return r.json().get("capabilities", [])
-    except Exception:
-        pass
+    except (httpx.HTTPError, ValueError, AttributeError) as e:
+        # AttributeError guards a valid-but-non-dict JSON body (.get() on a list).
+        logger.debug("Ollama capability probe failed for '%s': %s", model, e)
     return []
 
 
@@ -219,14 +224,18 @@ class OllamaClient:
         frees GPU memory for other local llama-cpp search models.
         Best-effort: silently ignored if Ollama is unreachable.
         """
+        # Posting on an already-closed client raises RuntimeError (not an
+        # httpx error), e.g. on a double close() / close() inside a `with` block.
+        if self._client.is_closed:
+            return
         try:
             self._client.post(
                 f"{self.host}/api/generate",
                 json={"model": self.model, "prompt": "", "keep_alive": 0},
                 timeout=10.0,
             )
-        except Exception:
-            pass
+        except httpx.HTTPError as e:
+            logger.debug("Ollama VRAM-unload ping failed (best-effort): %s", e)
 
     def clone(self) -> "OllamaClient":
         """Return a new independent OllamaClient with the same config.
@@ -1059,8 +1068,10 @@ class CodexCliClient:
                         data = _json.load(f)
                     if data.get("tokens", {}).get("access_token"):
                         return
-                except Exception:
-                    pass
+                except (OSError, ValueError, AttributeError) as e:
+                    # AttributeError guards valid-but-non-dict JSON (.get() on a
+                    # list / non-dict "tokens"); falls through to CodexCliError.
+                    logger.debug("Could not read Codex auth file '%s': %s", auth_path, e)
         raise CodexCliError(
             "Codex CLI is not authenticated. Run: codex login"
         )
@@ -1320,6 +1331,8 @@ class FailoverClient:
             try:
                 alive = primary.ping()
             except Exception:
+                # KEEP broad: a provider ping may raise any network/SDK error;
+                # any failure simply means "still down", keep using the fallback.
                 alive = False
             if alive:
                 with self._lock:
@@ -1344,6 +1357,10 @@ class FailoverClient:
                     )
                 return
             except Exception as e:
+                # KEEP broad: this IS the failover mechanism — any provider error
+                # must fall through to the next provider; the aggregate is
+                # surfaced as LLMError below if every provider fails.
+                logger.debug("Provider %d (%s) not ready: %s", idx, type(provider).__name__, e)
                 last_error = e
         raise LLMError(
             f"All LLM providers failed. Last error: {last_error}"
@@ -1446,15 +1463,19 @@ class FailoverClient:
             if hasattr(p, "unload"):
                 try:
                     p.unload()
-                except Exception:
-                    pass
+                except Exception as e:
+                    # KEEP broad: best-effort VRAM cleanup across heterogeneous
+                    # providers; one provider's failure must not block the rest.
+                    logger.debug("Provider %s unload failed: %s", type(p).__name__, e)
 
     def close(self) -> None:
         for p in self.providers:
             try:
                 p.close()
-            except Exception:
-                pass
+            except Exception as e:
+                # KEEP broad: best-effort teardown; one provider's close error
+                # must not prevent closing the others.
+                logger.debug("Provider %s close failed: %s", type(p).__name__, e)
 
 
 # ---------------------------------------------------------------------------
@@ -1474,7 +1495,10 @@ def list_models_on_host(host: str, timeout: float = 5.0) -> list[str]:
             r = client.get(f"{host.rstrip('/')}/api/tags")
             r.raise_for_status()
             return [m.get("name", "") for m in r.json().get("models", [])]
-    except Exception:
+    except (httpx.HTTPError, ValueError, AttributeError) as e:
+        # AttributeError guards a valid-but-non-dict JSON body or non-dict
+        # elements in "models" (.get() on a list / string).
+        logger.debug("Listing models on host '%s' failed: %s", host, e)
         return []
 
 

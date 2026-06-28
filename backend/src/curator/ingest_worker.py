@@ -169,6 +169,8 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
                     "source_id": 0,
                 }
             except Exception as l3_err:
+                # KEEP broad: clustering can fail many ways; surface (log + re-raise
+                # as RuntimeError) so the outer job handler records the failure.
                 _log.error("Global L3 clustering failed: %s", l3_err)
                 raise RuntimeError(str(l3_err))
 
@@ -195,8 +197,10 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
         # Write snapshot so the plugin dashboard sees the L2-done state immediately.
         try:
             runtime_state.write_runtime_snapshots(paths)
-        except Exception:
-            pass
+        except Exception as e:
+            # KEEP broad: the dashboard snapshot is best-effort observability and
+            # must never fail the committed L2 job; log instead of swallowing.
+            _log.debug("Runtime snapshot write failed after L2 (non-fatal): %s", e)
 
         pages_updated = 0
 
@@ -209,8 +213,9 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
             db.update_job_progress(paths.state_db, job_id, phase=consts.PHASE_L3, progress=0.75)
             try:
                 runtime_state.write_runtime_snapshots(paths)
-            except Exception:
-                pass
+            except Exception as e:
+                # KEEP broad: best-effort dashboard snapshot before L3; non-fatal.
+                _log.debug("Runtime snapshot write failed before L3 (non-fatal): %s", e)
             try:
                 l3_changes = ingest_llm.run_l3_from_existing_atoms(
                     paths, client, lambda: WorkerCallbacks(paths, job_id, source_id)
@@ -230,8 +235,10 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
             if callable(get_usage):
                 result_usage = get_usage()
                 in_tok, out_tok = int(result_usage[0]), int(result_usage[1])
-        except Exception:
-            pass
+        except Exception as e:
+            # KEEP broad: token accounting is best-effort telemetry across
+            # heterogeneous clients; never fail the job over usage parsing.
+            _log.debug("Token usage accounting failed (non-fatal): %s", e)
 
         db.mark_job_done(
             paths.state_db,
@@ -251,6 +258,9 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
 
 
     except Exception as exc:
+        # KEEP broad: this is the job error boundary — any failure is surfaced
+        # (logged, requeued if transient or marked failed, returned as ok=False);
+        # never silently swallowed. Central to the v0.27.2 fail-fast resilience.
         error_str = str(exc)
         if retry_count < MAX_RETRIES and _is_transient(error_str):
             _log.warning(
@@ -268,8 +278,10 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
     finally:
         try:
             client.close()
-        except Exception:
-            pass
+        except Exception as e:
+            # KEEP broad: best-effort client teardown in finally; must not mask
+            # the job's real result/exception.
+            _log.debug("Client close failed (non-fatal): %s", e)
 
 
 def run_queued_jobs(
