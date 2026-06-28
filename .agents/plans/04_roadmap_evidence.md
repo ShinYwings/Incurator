@@ -43,6 +43,18 @@ Date: 2026-06-28 | Branch: `fix/db-decomposition` (off `master` post-#65)
 - Test fix (module move, not behavior): `test_db_schema.py` patches
   `curator.db.schema._apply_migrations` at its real location.
 
-## P2 — jobs.py — pending
-## P2 — jobs.py — pending
-## P3 — verify + docs + release — pending
+## P2 — jobs.py — DEFERRED to slice 2 (plan §5 scope trim)
+Keeps slice 1 reviewable and re-pins the D2 frozen oracle only once.
+
+## Frozen-oracle + monkeypatch fixups (module-move consequences)
+- D2 holdout oracle re-pinned: `db.py` fingerprint → `db/__init__.py` +
+  `db/schema.py` + `db/_entities.py`, with a `db2_package_decomposition_rearm`
+  narrative note (behavior-preserving).
+- 2 white-box tests repointed to the helper's real lookup location after the
+  split: `test_db_schema.py` → `curator.db.schema._apply_migrations`;
+  `test_abstraction_source_trace.py` → `curator.db._entities.connect`.
+
+## P3 — verify + docs + release — DONE
+- CLAUDE.md architecture table: `db.py` → `db/` package.
+- Version 0.27.7 (Patch; spec titles untouched); CHANGELOG entry.
+- Final full pytest gate: see Validation.
