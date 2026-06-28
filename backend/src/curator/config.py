@@ -417,7 +417,8 @@ def load_config(paths: WikiPaths) -> dict:
                 "Global config '%s' has invalid YAML — using defaults. Error: %s",
                 global_cfg_file, e,
             )
-        except OSError as e:
+        except (OSError, AttributeError) as e:
+            # AttributeError guards valid-but-non-dict YAML (.items() on a list).
             logger.warning("Could not read global config '%s' — using defaults: %s", global_cfg_file, e)
 
     # 2. Merge with the local project's config file
@@ -519,7 +520,8 @@ def find_wiki_root(start: Path | None = None) -> Path | None:
                 data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
                 if data.get("testbed"):
                     continue
-            except (OSError, _yaml.YAMLError) as e:
+            except (OSError, _yaml.YAMLError, AttributeError) as e:
+                # AttributeError guards valid-but-non-dict YAML (.get() on a list).
                 logger.debug("Could not read settings '%s' while scanning for project root: %s", cfg_file, e)
             return candidate
     return None

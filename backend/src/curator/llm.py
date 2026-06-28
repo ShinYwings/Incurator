@@ -70,7 +70,8 @@ def detect_ram_gb() -> float:
                 for line in f:
                     if line.startswith("MemTotal:"):
                         return int(line.split()[1]) / (1024 ** 2)
-    except (OSError, ValueError, subprocess.SubprocessError) as e:
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError) as e:
+        # IndexError guards a malformed /proc/meminfo line (no second field).
         logger.debug("RAM detection failed (%s) — assuming default 32GB.", e)
     return 32.0
 
@@ -113,7 +114,8 @@ def get_ollama_model_capabilities(
             )
             if r.status_code == 200:
                 return r.json().get("capabilities", [])
-    except (httpx.HTTPError, ValueError) as e:
+    except (httpx.HTTPError, ValueError, AttributeError) as e:
+        # AttributeError guards a valid-but-non-dict JSON body (.get() on a list).
         logger.debug("Ollama capability probe failed for '%s': %s", model, e)
     return []
 
@@ -1062,7 +1064,9 @@ class CodexCliClient:
                         data = _json.load(f)
                     if data.get("tokens", {}).get("access_token"):
                         return
-                except (OSError, ValueError) as e:
+                except (OSError, ValueError, AttributeError) as e:
+                    # AttributeError guards valid-but-non-dict JSON (.get() on a
+                    # list / non-dict "tokens"); falls through to CodexCliError.
                     logger.debug("Could not read Codex auth file '%s': %s", auth_path, e)
         raise CodexCliError(
             "Codex CLI is not authenticated. Run: codex login"
@@ -1487,7 +1491,9 @@ def list_models_on_host(host: str, timeout: float = 5.0) -> list[str]:
             r = client.get(f"{host.rstrip('/')}/api/tags")
             r.raise_for_status()
             return [m.get("name", "") for m in r.json().get("models", [])]
-    except (httpx.HTTPError, ValueError) as e:
+    except (httpx.HTTPError, ValueError, AttributeError) as e:
+        # AttributeError guards a valid-but-non-dict JSON body or non-dict
+        # elements in "models" (.get() on a list / string).
         logger.debug("Listing models on host '%s' failed: %s", host, e)
         return []
 

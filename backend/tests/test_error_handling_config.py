@@ -35,6 +35,15 @@ def test_find_wiki_root_tolerates_malformed_settings(tmp_path, caplog):
     assert any("scanning for project root" in r.message for r in caplog.records)
 
 
+def test_find_wiki_root_tolerates_non_dict_settings(tmp_path, caplog):
+    # Valid YAML that is a list (not a dict) → .get() would AttributeError; the
+    # scan must still return the candidate, treating it as non-testbed.
+    vault = _make_vault(tmp_path, "- a\n- b\n")
+
+    with caplog.at_level(logging.DEBUG, logger="curator.config"):
+        assert cfg.find_wiki_root(start=vault) == vault
+
+
 def test_find_wiki_root_propagates_unexpected_errors(tmp_path, monkeypatch):
     # A non-(OSError/YAMLError) failure while reading settings must propagate now
     # rather than being swallowed by the old broad ``except Exception: pass``.
@@ -50,6 +59,24 @@ def test_find_wiki_root_propagates_unexpected_errors(tmp_path, monkeypatch):
 
     with pytest.raises(RecursionError):
         cfg.find_wiki_root(start=vault)
+
+
+def test_load_config_tolerates_non_dict_global_config(tmp_path, monkeypatch, caplog):
+    # A global config.yml that is valid YAML but a list (not a dict) → .items()
+    # would AttributeError on startup; load_config must degrade to defaults.
+    global_dir = tmp_path / "global"
+    global_dir.mkdir()
+    (global_dir / consts.FILE_GLOBAL_CONFIG_YML).write_text("- one\n- two\n", encoding="utf-8")
+    monkeypatch.setattr(cfg, "get_global_config_dir", lambda: global_dir)
+
+    vault = tmp_path / "vault"
+    (vault / consts.INTERNAL_DIR).mkdir(parents=True)
+    paths = cfg.WikiPaths(vault)
+
+    with caplog.at_level(logging.WARNING, logger="curator.config"):
+        merged = cfg.load_config(paths)  # must not raise
+    assert isinstance(merged, dict)
+    assert any("using defaults" in r.message for r in caplog.records)
 
 
 def test_get_last_root_logs_and_returns_none_on_bad_read(tmp_path, monkeypatch, caplog):
