@@ -261,6 +261,13 @@ export interface ContextRef {
   lineEnd?: number;
   pageNum?: number;
   zoteroAttachmentKey?: string;
+  /**
+   * When set, this crop image still needs VLM transcription. The base64 data
+   * is consumed by materializeContextRefs at send-time, which calls
+   * transcribePdfCrop and then clears this field.  This defers the expensive
+   * VLM call from capture-time to query-send-time.
+   */
+  pendingCropBase64?: string;
 }
 
 export interface ChatMessage {

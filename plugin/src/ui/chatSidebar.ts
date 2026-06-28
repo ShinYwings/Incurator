@@ -2083,7 +2083,26 @@ export class ChatSidebarView extends ItemView {
   private async materializeContextRefs(refs: ContextRef[]): Promise<ContextRef[]> {
     const materialized: ContextRef[] = [];
     for (const ref of refs) {
-      materialized.push(ref.isPinned ? await this.refreshPinnedContextRef(ref) : { ...ref });
+      let out = ref.isPinned ? await this.refreshPinnedContextRef(ref) : { ...ref };
+
+      // Deferred VLM transcription for PDF crops: the crop was captured
+      // instantly (Cmd+Shift+X) and the VLM call is deferred to here so
+      // the user sees the chip immediately instead of waiting.
+      if (out.pendingCropBase64) {
+        const extracted = await this.plugin.transcribePdfCrop(out.pendingCropBase64);
+        if (extracted?.latex) {
+          out.content = extracted.latex;
+          // When LaTeX is available, drop the image so the main chat model
+          // does not re-interpret the crop visually.
+          out.imageBase64 = undefined;
+        }
+        // Clear the pending flag on the source ref so it won't re-run if
+        // the ref is pinned and sent again.
+        ref.pendingCropBase64 = undefined;
+        delete out.pendingCropBase64;
+      }
+
+      materialized.push(out);
     }
     return materialized;
   }

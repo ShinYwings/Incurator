@@ -479,27 +479,23 @@ export default class ObsidianAIAgent extends Plugin {
           if (!checking) {
             const pdfView = view as ExternalPdfView;
             pdfView.startSnippingMode(async (base64: string, pageNum: number, regionText: string) => {
-              const extracted = await this.transcribePdfCrop(base64);
               this.ensureChatOpen().then(() => {
                 const chatView = this.getChatView();
                 if (chatView) {
-                  // Capture ONLY the text lines inside the cropped rectangle
-                  // (region-scoped), not the whole page. This becomes the crop's
-                  // <primary_focus_selection> content so the model treats the
-                  // snipped region as the core subject instead of burying it
-                  // under the full-page background context. When the backend
-                  // selected PDF extraction model returns LaTeX, omit imageBase64
-                  // so the main chat model's vision does not reinterpret the crop.
-                  // If extraction fails, retain the old image fallback.
                   const pdfCtx = pdfView.getActivePdfContext("image");
+                  // Add the crop immediately with the image thumbnail so the
+                  // user sees the "Selected Area" chip right away.  VLM
+                  // transcription is deferred to send-time (handleSend →
+                  // materializeContextRefs) via the pendingCropBase64 field.
                   chatView.addContextRef({
                     type: "pdf-page",
                     label: `${pdfView.getDisplayText()} p.${pageNum} (Crop)`,
-                    content: extracted?.latex || regionText,
-                    imageBase64: extracted?.latex ? undefined : base64,
+                    content: regionText,
+                    imageBase64: base64,
                     pageNum: pageNum,
                     pageLabels: pdfCtx?.pageLabels,
                     filePath: pdfView.getState()?.path,
+                    pendingCropBase64: base64,
                   });
                 }
               });
@@ -885,7 +881,7 @@ export default class ObsidianAIAgent extends Plugin {
     }
   }
 
-  private async transcribePdfCrop(base64: string): Promise<{ latex: string; model?: string } | null> {
+  async transcribePdfCrop(base64: string): Promise<{ latex: string; model?: string } | null> {
     const tmpDir = await fs.mkdtemp(join(tmpdir(), "incurator-pdf-crop-"));
     const imageFile = join(tmpDir, "crop.png");
     try {
