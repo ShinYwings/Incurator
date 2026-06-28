@@ -1,23 +1,35 @@
 # Active Relay State
 
-**STATUS: IDLE.**
+**STATUS: Planning — DB-2 db.py decomposition plan drafted, AWAITING USER APPROVAL. No code yet.**
 
-No active goal. v0.27.6 (System Stability Overhaul Phase C — Robustness Slice 2:
-model_setup error-handling XC-1 + plugin timer audit & gated logger XC-4) shipped
-and merged via PR #65.
+**Current branch**: `master` (feature branch created only after approval)
 
-## Next candidates (not started)
+**Last refreshed**: 2026-06-28 by Claude Code.
 
-Remaining overhaul work — the big structural S2 refactors. Start each on a fresh
-branch with its own Arena plan (plan approval before coding):
+---
 
-- **CM-1**: decompose `cli.py` (7389 LOC) + `mcp_server.py` (3362 LOC) into
-  sub-apps / tool modules. Also folds in the god-file XC-1 broad-except cleanup
-  for those files.
-- **DB-2**: decompose `db.py` (4679 LOC) into schema/migrations + per-entity
-  repositories (very wide blast radius; characterization tests first).
-- **PL-1**: decompose plugin god-files (`chatSidebar.ts` 4828 LOC, etc.);
-  replace `any`/`@ts-ignore` with real types.
+## Goal
 
-Shipped in the overhaul chain: G17/G18/G19 (v0.27.3), G17 S3 (v0.27.4),
-XC-1 slice 1 (v0.27.5), Robustness Slice 2 / XC-1 model_setup + XC-4 (v0.27.6).
+System Stability Overhaul Phase C, S2 god-file decomposition **DB-2**:
+convert `backend/src/curator/db.py` (4759 LOC) into a `db/` package with a
+re-export facade — **zero caller changes** (all callers use `db.<name>` module
+access; verified zero name-imports) and **zero behavior change** (verbatim moves).
+Slice 1 extracts `schema.py` + `jobs.py`; the rest moves to a holding
+`db/_entities.py` re-exported by the facade, carved per-entity in follow-ups.
+Target **v0.27.7** (Patch — internal refactor).
+
+## Plan Reference (DRAFT — needs approval before coding)
+- Master plan: `.agents/plans/04_db_decomposition.md`
+- Domain analysis: `.agents/plans/C_db_package_layout.md`
+- Arena: `.agents/plans/db2_decomp_arena/` (00_problem, 01_proposal, 02_critique)
+
+## Progress Status
+- v0.27.6 (Robustness Slice 2) merged via PR #65; repo synced; was IDLE.
+- Authored the DB-2 slice-1 Arena plan + domain analysis + master plan.
+- **STOPPED for user approval (Universal Strict Workflow Step 4).**
+
+## Immediate Next Action
+WAIT for approval of `04_db_decomposition.md`. On approval: branch
+`fix/db-decomposition`, write `04_roadmap_evidence.md`, then P0 (API snapshot
+test + baseline) → P1 (package + schema.py + _entities.py + facade) → P2
+(jobs.py) → P3 (verify + docs + release). Full pytest + mypy after each move.
