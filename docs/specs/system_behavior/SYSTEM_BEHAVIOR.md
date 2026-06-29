@@ -270,6 +270,12 @@ Rules:
 | `wiki build` for pending sources | `curator_build_all` |
 | (legacy) | `curator_ingest_source` (deprecated — calls register + build internally) |
 
+`curator_register_source` returns `warnings` on successful registration. If the
+best-effort post-registration search refresh cannot run because the index or
+database is temporarily unavailable, the MCP tool must keep the L1 registration
+successful and report the skipped refresh in `warnings`; unexpected refresh
+exceptions remain visible as tool failures.
+
 ## 5. Instant L1 Generation
 
 The backend parser must generate a CTX with:

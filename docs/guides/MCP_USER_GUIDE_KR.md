@@ -100,6 +100,9 @@ wiki mcp install
 #### `curator_register_source`
 - **역할**: 깊은 LLM 처리 없이 구조 기반으로 소스를 빠르게 등록(L1 생성)합니다.
 - **파라미터**: `file_path` 또는 `source_path`.
+- **반환**: 성공 시 `warnings`를 포함합니다. best-effort search index
+  refresh가 index/database의 일시적 사용 불가 상태 때문에 건너뛰어지면,
+  등록은 성공으로 유지되고 건너뛴 refresh가 이 필드에 보고됩니다.
 - **참고**: deprecated된 `curator_ingest_source`의 동기적 실행 부분을 대체합니다.
 
 #### `curator_build_source`

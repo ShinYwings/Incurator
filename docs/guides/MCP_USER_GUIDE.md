@@ -101,6 +101,9 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 #### `curator_register_source`
 - **Role**: Fast structural registration of a source (L1 generation) without deep LLM processing.
 - **Parameters**: `file_path` or `source_path`.
+- **Return**: On success, includes `warnings`. If the best-effort search index
+  refresh is skipped because the index/database is temporarily unavailable,
+  registration still succeeds and the skipped refresh is reported there.
 - **Note**: Replaces the synchronous part of the deprecated `curator_ingest_source`.
 
 #### `curator_build_source`

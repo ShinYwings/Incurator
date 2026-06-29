@@ -4,6 +4,15 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.28.3] - 2026-06-29
+### Fixed
+- **MCP source registration no longer hides skipped search-index refreshes.**
+  `curator_register_source` now returns a success `warnings` array when L1
+  registration succeeds but the non-fatal DB-native search-index refresh is
+  skipped, and unexpected refresh errors are no longer swallowed.
+
+---
+
 ## [0.28.2] - 2026-06-29
 ### Fixed
 - **Plugin source registration no longer hides skipped search-index refreshes.**
