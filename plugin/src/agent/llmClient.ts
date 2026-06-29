@@ -10,7 +10,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "fs";
-import { homedir, tmpdir } from "os";
+import { homedir } from "os";
 import { join } from "path";
 import { buildSandboxPlan } from "./sandboxWrapper";
 import { promisify, TextDecoder } from "util";
@@ -561,10 +561,18 @@ export class LLMClient {
 
     const currentPath = process.env.PATH || "";
     const newPath = currentPath ? `${customPaths}:${currentPath}` : customPaths;
+    let tempEnv: Record<string, string> = {};
+    try {
+      const tempDir = this.cliTempDir();
+      tempEnv = { TMPDIR: tempDir, TEMP: tempDir, TMP: tempDir };
+    } catch {
+      tempEnv = {};
+    }
 
     return {
       ...process.env,
       ...extraEnv,
+      ...tempEnv,
       PATH: newPath,
     };
   }
@@ -1987,13 +1995,19 @@ export class LLMClient {
   /**
    * Device-local cache base for plugin CLI byproducts (codex output, generated MCP
    * config, temp images). Lives in the project's gitignored `.cache/` — matching the
-   * backend's `<repo>/.cache/vision_render` — NOT under `~/`. Falls back to the OS
-   * temp dir when the repo path isn't configured. (Synced config stays in the CLI
-   * tools' own dirs / the plugin data dir; this is cache only.)
+   * backend's `<repo>/.cache/vision_render` — NOT under `~/` or the OS temp dir.
    */
   private cliCacheBase(): string {
-    const repo = expandPath((this.settings.incuratorRepoPath || "").trim());
-    return repo ? join(repo, ".cache", "cli") : join(tmpdir(), "incurator-cli");
+    const configured = expandPath((this.settings.incuratorRepoPath || "").trim());
+    if (configured) return join(configured, ".cache", "cli");
+    if (this.vaultRoot) return join(this.vaultRoot, ".curator", "runtime", "cli");
+    throw new Error("Incurator CLI cache requires either incuratorRepoPath or vault root.");
+  }
+
+  private cliTempDir(): string {
+    const dir = join(this.cliCacheBase(), "tmp");
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    return dir;
   }
 
   /**
@@ -2109,8 +2123,7 @@ export class LLMClient {
   ): { command: string; args: string[]; env?: Record<string, string>; stdin?: string } {
     // macOS firmlinks `/var`→`/private/var`, so a Seatbelt `(subpath ...)` only matches
     // the REAL resolved path. getCliCwd() and sandboxWriteRoots() already return
-    // realpath'd paths; home/tmpdir do not, so resolve them here (the `$TMPDIR` allow
-    // would otherwise never match a `/private/var/folders/...` write).
+    // realpath'd paths; home and the CLI temp dir are resolved here too.
     const realOr = (p: string): string => {
       try { return realpathSync(p); } catch { return p; }
     };
@@ -2121,7 +2134,7 @@ export class LLMClient {
       platform: process.platform,
       allowedRoots: roots,
       home: realOr(homedir()),
-      tmpdir: realOr(tmpdir()),
+      tmpdir: realOr(this.cliTempDir()),
       sandboxExecPath: process.platform === "darwin" ? "/usr/bin/sandbox-exec" : "",
       bwrapPath: process.platform === "linux" ? this.resolveBwrap() : "",
       provider,

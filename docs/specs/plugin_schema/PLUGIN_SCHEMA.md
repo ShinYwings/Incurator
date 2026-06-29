@@ -518,7 +518,9 @@ capture) and the active provider runs via CLI (`shouldUseCli` → antigravity,
 claude, codex; Ollama/DeepSeek use the HTTP image-block path), `LLMClient` MUST:
 
 - **Write** each image content part to `<repo>/.cache/cli/chat_images/<run-id>/`
-  (a gitignored, OS-sandbox-covered dir under `cliCacheBase()`) and reference it in
+  when `incuratorRepoPath` is known, otherwise to
+  `<vault>/.curator/runtime/cli/chat_images/<run-id>/`. These are the only
+  allowed temp/cache roots for plugin-created chat images. Reference the image in
   the CLI prompt by absolute path (e.g. "Read the image file at <path> …"),
   mirroring the backend `vision.describe_image_via_cli` pattern. The OS sandbox
   (§ v0.23.0) still wraps every invocation.
@@ -599,6 +601,10 @@ Rules:
 - Sessions containing pinned `ContextRef` items with `backendStatus` must not
   assume that status is still current on next load; re-poll via
   `wiki plugin source status`.
+- Every `sessions.json` write, including first-write and legacy-migration
+  paths where no previous file can be merged, must pass through the sync
+  sanitizer. Device absolute paths in `ContextRef.filePath` and runtime-local
+  `backendStatus` fields must not be persisted as durable session identity.
 
 ### 2.3 `MCPServerConfig`
 
@@ -1210,7 +1216,9 @@ answer language.
 
 PDF crop images are temporary chat context. They may be sent as image parts to
 vision-capable models or represented as text fallback for non-vision models, but
-chat crop context must not leave durable images under `05_Assets`.
+chat crop context must not leave durable images under `05_Assets`. Any temporary
+crop file used for backend transcription must live under
+`<vault>/.curator/runtime/pdf_crops/` and be removed in a `finally` block.
 
 The Zotero linked attachment root is only the base path for Zotero
 `attachments:` linked-attachment records. Normal Zotero storage attachments use
@@ -1638,6 +1646,19 @@ one-off questions about a selected passage. It is gated by
   request and may include the active Markdown/PDF page, nearby PDF window pages,
   and available Markdown/PDF outline as background context. Background context
   must be marked as supplementary and must not override the selected passage.
+- If the selected PDF passage is a pointer with an explicit page locator (for
+  example `Section 11.1.2, p281`) or a bare numbered object (for example
+  `(3.5)`) and the Incurator PDF viewer is open, quick query may fetch distant
+  candidate pages on demand even when they are outside the nearby page window.
+  The fetch path must match sidechat: try backend PDF context first using the
+  richest available portable identity (`source_id`, file hash, vault relpath, or
+  Zotero attachment key; a local absolute path is only a per-device call hint),
+  then fall back to the open PDF.js viewer. To keep the popover responsive, the
+  resolver must use exact ToC section matches before wider chapter fallbacks,
+  fetch outline candidates in small batches, and stop as soon as the referenced
+  target is found. The fetched target text is supplied in
+  `<resolved_cross_references>` and must remain higher priority than generic
+  current-page background.
 - Follow-up questions asked in the same popover may include a short in-memory
   trace of prior quick-query turns from that popover only. Coexisting popovers
   must not share this trace. These turns are ephemeral and are not the
@@ -1770,8 +1791,10 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     Claude/Codex usable on platforms without an OS sandbox.
   - **Plugin CLI dir** — device-local CLI byproducts (codex output, generated
     `claude_mcp.json`, temp images) live in `<incuratorRepoPath>/.cache/cli/`
-    (gitignored, never synced into the vault), falling back to the OS temp dir when
-    the repo path is unset — NEVER under `~/.incurator`.
+    when the repo path is configured, otherwise in
+    `<vault>/.curator/runtime/cli/`. They must never fall back to the OS temp dir
+    or `~/.incurator`. CLI subprocess `TMPDIR`/`TEMP`/`TMP` are pointed at that
+    same CLI cache root's `tmp/` directory.
   - **Automatic** — the plugin generates the profile/binds with no manual user setup.
     The READ/visibility set (`--add-dir`) is `allowedRoots()` = realpath-resolved
     vault + Zotero + `storage/` (empty/undefined dropped — never `--add-dir ""`); the

@@ -13,15 +13,21 @@ import {
   buildResolvedReferencesBlock,
   extractReferences,
   resolveReferences,
+  type ReferenceQuery,
   type ResolveContext,
   type ResolvedReference,
 } from "./crossReferenceResolver";
 import type { PdfOutlineItem, PdfWindowPage } from "../types";
 
+const EXACT_OUTLINE_RANGE_FETCH_LIMIT = 12;
+const CHAPTER_OUTLINE_RANGE_FETCH_LIMIT = 24;
+const OUTLINE_RANGE_FETCH_BATCH_SIZE = 6;
+
 export interface PdfReferenceSource {
   outline?: PdfOutlineItem[];
   windowPages?: PdfWindowPage[];
   pageNum?: number;
+  pageCount?: number;
   pageLabels?: string[];
   /** Full document BM25 index — all pages seen so far ("fog of war"). When
    *  provided, the resolver uses it instead of building a fresh index from
@@ -37,6 +43,92 @@ function mapPrintedPageLabel(pageLabels: string[] | undefined, printed: number):
   const wanted = String(printed);
   const index = pageLabels.findIndex((label) => String(label).trim() === wanted);
   return index >= 0 ? index + 1 : undefined;
+}
+
+function parseOutlineNumber(title: string): string | undefined {
+  const m = /^\s*(?:appendix\s+)?([A-Z]?\d+(?:\.\d+)*)/i.exec(title);
+  return m ? m[1].toUpperCase() : undefined;
+}
+
+function outlineRangeForNumber(
+  outline: PdfOutlineItem[],
+  sectionNumber: string,
+  pageCount: number | undefined,
+  maxPages: number
+): { start: number; end: number } | null {
+  const wanted = sectionNumber.toUpperCase();
+  const index = outline.findIndex((item) => parseOutlineNumber(item.title) === wanted);
+  const item = index >= 0 ? outline[index] : undefined;
+  if (!item || typeof item.pageNum !== "number") return null;
+
+  let end = pageCount ?? item.pageNum + maxPages - 1;
+  for (const next of outline.slice(index + 1)) {
+    if (typeof next.pageNum !== "number" || next.pageNum <= item.pageNum) continue;
+    if (next.level <= item.level) {
+      end = next.pageNum - 1;
+      break;
+    }
+  }
+
+  end = Math.min(end, item.pageNum + maxPages - 1);
+  if (typeof pageCount === "number") end = Math.min(end, pageCount);
+  return { start: item.pageNum, end: Math.max(item.pageNum, end) };
+}
+
+function pagesFromRange(range: { start: number; end: number }): number[] {
+  const pages: number[] = [];
+  for (let pageNum = range.start; pageNum <= range.end; pageNum++) pages.push(pageNum);
+  return pages;
+}
+
+function outlineCandidatePagesForReference(
+  ref: ReferenceQuery,
+  outline: PdfOutlineItem[],
+  pageCount: number | undefined
+): number[] {
+  const number = ref.objectNumber ?? ref.sectionNumber;
+  if (!number) return [];
+  const orderedPages: number[] = [];
+  const addRange = (sectionNumber: string, maxPages: number): boolean => {
+    const range = outlineRangeForNumber(outline, sectionNumber, pageCount, maxPages);
+    if (!range) return false;
+    orderedPages.push(...pagesFromRange(range));
+    return true;
+  };
+
+  if (number.includes(".")) {
+    if (addRange(number, EXACT_OUTLINE_RANGE_FETCH_LIMIT)) {
+      return orderedUniquePages(orderedPages);
+    }
+    const chapter = number.split(".")[0];
+    addRange(chapter, CHAPTER_OUTLINE_RANGE_FETCH_LIMIT);
+    return orderedUniquePages(orderedPages);
+  }
+
+  addRange(number, EXACT_OUTLINE_RANGE_FETCH_LIMIT);
+  return orderedUniquePages(orderedPages);
+}
+
+function isWeakCurrentPageHit(
+  ref: ResolvedReference,
+  currentPage: number | undefined
+): boolean {
+  return (
+    typeof currentPage === "number" &&
+    ref.targetPage === currentPage &&
+    (ref.method === "bm25-object" || ref.method === "bm25-section")
+  );
+}
+
+function needsOutlineExpansion(
+  ref: ResolvedReference,
+  currentPage: number | undefined
+): boolean {
+  return ref.method === "unresolved" || isWeakCurrentPageHit(ref, currentPage);
+}
+
+function orderedUniquePages(pages: Iterable<number>): number[] {
+  return Array.from(new Set(pages));
 }
 
 export function resolveSelectionReferences(
@@ -69,6 +161,7 @@ export function resolveSelectionReferences(
       index.search(searchDocId, query, { topK }),
     getPageText: (pageNum) => pageText.get(pageNum),
     printedToPdf: (printed) => mapPrintedPageLabel(source.pageLabels, printed),
+    pageCount: source.pageCount,
   };
   return resolveReferences(refs, ctx);
 }
@@ -117,37 +210,67 @@ export async function resolveSelectionReferencesAsync(
     searchPages: (query, topK) => index.search(searchDocId, query, { topK }),
     getPageText: (pageNum) => pageTextMap.get(pageNum),
     printedToPdf: (printed) => mapPrintedPageLabel(source.pageLabels, printed),
+    pageCount: source.pageCount,
   });
 
   // Pass 1: sync resolve
   const pass1 = resolveReferences(refs, buildCtx());
 
-  // Collect resolved references whose target page text is missing
-  const missingPages = new Set<number>();
+  const fetchPages = async (pageNums: number[]): Promise<boolean> => {
+    if (pageNums.length === 0) return false;
+    const fetched = await Promise.all(
+      pageNums.map((pageNum) =>
+        fetchPageText(pageNum)
+          .then((text) => (text ? { pageNum, text } : null))
+          .catch(() => null)
+      )
+    );
+
+    let changed = false;
+    for (const result of fetched) {
+      if (!result) continue;
+      pageTextMap.set(result.pageNum, result.text);
+      const page: PdfWindowPage = { pageNum: result.pageNum, text: result.text };
+      index.upsertPage(searchDocId, page, outline);
+      changed = true;
+    }
+    return changed;
+  };
+
+  // Direct targets are cheap: fetch exactly the resolved missing page(s).
+  const directMissingPages = new Set<number>();
   for (const r of pass1) {
-    if (r.method !== "unresolved" && r.targetPage !== undefined && !pageTextMap.has(r.targetPage)) {
-      missingPages.add(r.targetPage);
+    if (
+      r.method !== "unresolved" &&
+      !isWeakCurrentPageHit(r, source.pageNum) &&
+      r.targetPage !== undefined &&
+      !pageTextMap.has(r.targetPage)
+    ) {
+      directMissingPages.add(r.targetPage);
     }
   }
 
-  if (missingPages.size === 0) return pass1;
+  let changed = await fetchPages(orderedUniquePages(directMissingPages));
+  let latest = changed ? resolveReferences(refs, buildCtx()) : pass1;
 
-  // Fetch missing pages in parallel; individual failures yield null, not a rejection.
-  const fetched = await Promise.all(
-    Array.from(missingPages).map((pageNum) =>
-      fetchPageText(pageNum)
-        .then((text) => (text ? { pageNum, text } : null))
-        .catch(() => null)
-    )
-  );
+  // Outline fallback can span many pages. Fetch in small batches and stop as
+  // soon as the resolver finds the referenced target.
+  const outlinePages: number[] = [];
+  for (const r of pass1) {
+    if (!needsOutlineExpansion(r, source.pageNum)) continue;
+    for (const pageNum of outlineCandidatePagesForReference(r.query, outline, source.pageCount)) {
+      if (!pageTextMap.has(pageNum)) outlinePages.push(pageNum);
+    }
+  }
 
-  let changed = false;
-  for (const result of fetched) {
-    if (!result) continue;
-    pageTextMap.set(result.pageNum, result.text);
-    const page: PdfWindowPage = { pageNum: result.pageNum, text: result.text };
-    index.upsertPage(searchDocId, page, outline);
-    changed = true;
+  const outlineQueue = orderedUniquePages(outlinePages);
+  for (let i = 0; i < outlineQueue.length; i += OUTLINE_RANGE_FETCH_BATCH_SIZE) {
+    const batch = outlineQueue.slice(i, i + OUTLINE_RANGE_FETCH_BATCH_SIZE);
+    const batchChanged = await fetchPages(batch);
+    changed = changed || batchChanged;
+    if (!batchChanged) continue;
+    latest = resolveReferences(refs, buildCtx());
+    if (!latest.some((r) => needsOutlineExpansion(r, source.pageNum))) return latest;
   }
 
   if (!changed) {
@@ -160,8 +283,7 @@ export async function resolveSelectionReferencesAsync(
     );
   }
 
-  // Pass 2: re-resolve with enriched index + page text
-  return resolveReferences(refs, buildCtx());
+  return latest;
 }
 
 /** Async convenience wrapper: resolve, fetch missing pages, format. Returns "" when nothing resolves. */

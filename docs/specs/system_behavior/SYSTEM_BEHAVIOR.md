@@ -100,6 +100,11 @@ Expected behavior:
    include portable Zotero identity such as `reference_kind: zotero`,
    `zotero_attachment_key`, `logical_source_id: zotero:<key>`, and a
    `zotero://open-pdf/library/items/<key>` link.
+   PDF lookup acceleration must keep the same boundary: portable identity may
+   live in the `04_Resources` stub, while page text caches, page-label caches,
+   and per-device absolute path hints stay in backend-owned state/cache keyed by
+   content hash or logical source identity. Synced stubs must not become a cache
+   dump for extracted page text or local filesystem paths.
 
 The backend must not create a source row from passive viewing alone. Provider
 context assembly must never call source import/register as a side effect.
@@ -1000,6 +1005,15 @@ When a backend loads a vault config that still contains `llm`, `search`, or
 `external`, it must migrate those blocks into `.cache/config/config.yml` and
 remove them from the vault config while preserving the effective merged values.
 
+All runtime temp/cache byproducts must stay inside one of two roots:
+`<incurator-repo>/.cache/` for repo/backend/plugin CLI cache, or
+`<vault>/.curator/` for vault-scoped runtime snapshots and plugin temporary
+files. Incurator code must not create its own temp/cache files under the OS temp
+directory, `~`, or provider cache folders unless it is intentionally writing an
+external tool's required configuration file. Backend and plugin CLI subprocesses
+must set `TMPDIR`/`TEMP`/`TMP` to a directory under the same allowed cache root
+before invoking provider CLIs.
+
 ## 13.2 Chat Query Language And Trace
 
 Plugin chat must use a structured English working-language bridge for every
@@ -1794,7 +1808,8 @@ rendered page instead.
 - **Chat image channel & scoped Read (v0.28.0).** When a chat turn carries an image
   (Cmd+Shift+X crop, pasted image, or PDF-page capture) and the provider runs via
   CLI (`shouldUseCli`: antigravity/claude/codex), the image is written to
-  `<repo>/.cache/cli/chat_images/<run-id>/` and the CLI is invoked with `Read`
+  `<repo>/.cache/cli/chat_images/<run-id>/` when a repo path is configured, or
+  `<vault>/.curator/runtime/cli/chat_images/<run-id>/` otherwise, and the CLI is invoked with `Read`
   removed from its denylist plus `--add-dir <that dir>`, so the same model reads it —
   mirroring the backend transcribe path (`ClaudeCodeClient._run_with_image_path`).
   This grants the model scoped `Read` over the existing add-dir set (vault + Zotero +

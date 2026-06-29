@@ -28,24 +28,7 @@ _(empty — L2 extraction hotfix shipped in v0.27.2, see Completed Milestones.)_
 
 ### 🚀 Priority Order
 
-1. **[Minor Update] Chat Crop Vision-Passthrough (v0.28.0)** *(ACTIVE — planning)*
-   - Cmd+Shift+X "Snip PDF Region to Chat" currently round-trips the crop through
-     the backend `plugin pdf transcribe` VLM, which — in the default config —
-     resolves to the *same provider CLI* the chat already uses (proven:
-     `ClaudeCodeClient._run_with_image_path`). Result: the same model is called
-     twice and Send freezes ~1 min (v0.27.9 only relocated the block).
-   - Fix: when the main chat model is vision-capable and no dedicated
-     `latex_extract_model`/`vision_model` is configured, let the chat CLI read the
-     crop image directly (scoped `Read` on a `.cache` image dir, mirroring the
-     backend pattern) and skip the backend round-trip. Non-vision (Ollama) keeps
-     transcribe + deferred-to-thinking timing.
-   - Revises SYSTEM_BEHAVIOR §26.2a (currently mandates transcribe routing /
-     prohibits main-model crop vision). Convert-to-LaTeX + `add source` ingest
-     stay on the dedicated vision slots (out of scope).
-   - Master Plan: `.agents/plans/02_chat_crop_vision_passthrough.md`
-   - Branch: `feature/chat-crop-vision-passthrough`
-
-3. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
+1. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
      redundancy, architectural debt) + refactoring with architectural redesign
      allowed; prompt-v2 for cross-model output consistency; legacy/dead-code sweep.
@@ -58,17 +41,17 @@ _(empty — L2 extraction hotfix shipped in v0.27.2, see Completed Milestones.)_
      excepts in cli.py/mcp_server.py/plugin_api.py, `model_setup.py`); XC-4 plugin
      timers/logging.
 
-4. **[Validation] `[[wikilink]]` Architecture Validation**
+2. **[Validation] `[[wikilink]]` Architecture Validation**
    - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
    - Validate `backend/src/curator/page_writer.py` and `sync.py` backlink parsing logic against `[[wikilink]]` syntax.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md` (Wikilink section)
 
-5. **[Minor Update] Chat Session Context Compaction**
+3. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-6. **[Minor Update] Vault Storage Governance & Quota Visibility**
+4. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`

@@ -312,20 +312,24 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
 
   it("realpaths sandbox paths so macOS firmlink (/var→/private/var) rules match", () => {
     // Seatbelt (subpath ...) only matches the REAL resolved path; an unresolved
-    // /var/folders rule would NOT match the kernel's /private/var/folders write, so a
-    // tmpdir-based getCliCwd (the default when incuratorRepoPath is unset) would have
-    // its output-file/mcp-config writes silently denied.
+    // path would not match the kernel's resolved write target, so cwd/output
+    // files/sandbox rules must all use the canonical path.
     expect(source).toContain("realOr(homedir())");
-    expect(source).toContain("realOr(tmpdir())");
+    expect(source).toContain("realOr(this.cliTempDir())");
     // getCliCwd() returns the canonical (realpath'd) path at the source, so cwd,
     // output files, and the sandbox rule all agree without per-call-site resolving.
     expect(source).toContain("realpathSync(dir)");
   });
 
   it("stores device-local CLI caches in the project .cache/, not ~/.incurator", () => {
-    // getCliCwd() now resolves to <repo>/.cache/cli (or the OS tmpdir), never ~/.
-    expect(source).toContain('join(repo, ".cache", "cli")');
-    expect(source).toContain('join(tmpdir(), "incurator-cli")');
+    // getCliCwd() now resolves to <repo>/.cache/cli or vault .curator/runtime/cli,
+    // never ~/ or OS tmp.
+    expect(source).toContain('join(configured, ".cache", "cli")');
+    expect(source).toContain('join(this.vaultRoot, ".curator", "runtime", "cli")');
+    expect(source).toContain('const dir = join(this.cliCacheBase(), "tmp")');
+    expect(source).toContain("tempEnv = { TMPDIR: tempDir, TEMP: tempDir, TMP: tempDir };");
+    expect(source).toContain("Incurator CLI cache requires either incuratorRepoPath or vault root.");
+    expect(source).not.toContain('join(tmpdir(), "incurator-cli")');
     expect(source).not.toContain('join(homedir(), ".incurator-obsidian-agent-cli")');
     expect(source).not.toContain('join(homedir(), ".incurator", "tmp_images")');
   });

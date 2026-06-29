@@ -24,11 +24,29 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Generator
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+def _repo_cache_dir(*parts: str) -> Path:
+    from . import config as cfg
+
+    path = cfg.get_global_config_dir().parent.joinpath(*parts)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _repo_temp_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    temp_dir = str(_repo_cache_dir("llm", "tmp"))
+    env = dict(os.environ)
+    if extra:
+        env.update(extra)
+    env.update({"TMPDIR": temp_dir, "TEMP": temp_dir, "TMP": temp_dir})
+    return env
 
 # ---------------------------------------------------------------------------
 # Global PATH Augmentation for GUI Environments
@@ -655,8 +673,7 @@ class ClaudeCodeClient:
         # claude CLI exposes reasoning depth via --effort (low|medium|high|xhigh|max).
         if self.effort:
             cmd += ["--effort", self.effort]
-        env = dict(os.environ)
-        env["CLAUDE_BYPASS_PERMISSIONS"] = "true"
+        env = _repo_temp_env({"CLAUDE_BYPASS_PERMISSIONS": "true"})
         try:
             result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=300, env=env)
         except FileNotFoundError:
@@ -734,7 +751,12 @@ class ClaudeCodeClient:
             cmd += ["--model", self.model]
         try:
             result = subprocess.run(
-                cmd, input=prompt, capture_output=True, text=True, timeout=300,
+                cmd,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=300,
+                env=_repo_temp_env(),
             )
         except subprocess.TimeoutExpired:
             raise ClaudeCodeError("claude CLI vision call timed out after 300 s")
@@ -793,7 +815,10 @@ class AntigravityCliClient:
         log_path = ""
         try:
             log_file = tempfile.NamedTemporaryFile(
-                prefix="incurator-agy-", suffix=".log", delete=False
+                prefix="incurator-agy-",
+                suffix=".log",
+                delete=False,
+                dir=_repo_cache_dir("llm", "agy_logs"),
             )
             log_path = log_file.name
             log_file.close()
@@ -821,9 +846,10 @@ class AntigravityCliClient:
             f"[Preferred model: {hint}]\n\n{prompt}"
             if hint else prompt
         )
-        env = dict(os.environ)
-        env["ANTIGRAVITY_TRUST_WORKSPACE"] = "true"
-        env["AGY_TRUST_WORKSPACE"] = "true"
+        env = _repo_temp_env({
+            "ANTIGRAVITY_TRUST_WORKSPACE": "true",
+            "AGY_TRUST_WORKSPACE": "true",
+        })
         try:
             result = subprocess.run(
                 cmd,
@@ -976,9 +1002,15 @@ class CodexCliClient:
         return CodexCliClient(model=self.model, effort=self.effort)
 
     def _run(self, prompt: str) -> str:
-        import tempfile
         import os as _os
-        out_file = tempfile.mktemp(suffix=".txt")
+        out = tempfile.NamedTemporaryFile(
+            prefix="codex-",
+            suffix=".txt",
+            delete=False,
+            dir=_repo_cache_dir("llm", "codex_outputs"),
+        )
+        out_file = out.name
+        out.close()
         cmd = [self.CLI, "--profile", "incurator"]
         # codex exposes reasoning depth through the config override
         # `model_reasoning_effort` (low|medium|high|xhigh).
@@ -999,24 +1031,33 @@ class CodexCliClient:
                 capture_output=True,
                 text=True,
                 timeout=900,
+                env=_repo_temp_env(),
             )
         except FileNotFoundError:
+            if _os.path.exists(out_file):
+                _os.unlink(out_file)
             raise CodexCliError(
                 f"'{self.CLI}' not found.\n"
                 f"Install: {self.INSTALL_CMD}\n"
                 "Authenticate: codex login"
             )
         except subprocess.TimeoutExpired:
+            if _os.path.exists(out_file):
+                _os.unlink(out_file)
             raise CodexCliError("Codex CLI timed out after 900 s")
 
         if _os.path.exists(out_file):
             try:
                 text = open(out_file).read().strip()
-                _os.unlink(out_file)
                 if text:
                     return text
             except OSError:
-                pass
+                text = ""
+            finally:
+                try:
+                    _os.unlink(out_file)
+                except OSError:
+                    pass
 
         if result.returncode != 0:
             raise CodexCliError(

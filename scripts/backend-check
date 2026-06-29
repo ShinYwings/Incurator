@@ -18,7 +18,7 @@ run_ruff() {
     if [ "$#" -eq 0 ]; then
         set -- "$ROOT_DIR/backend/src/"
     fi
-    "$VENV_DIR/bin/ruff" check "$@"
+    "$VENV_DIR/bin/ruff" check --config "$ROOT_DIR/backend/pyproject.toml" "$@"
 }
 
 run_mypy() {
@@ -27,7 +27,7 @@ run_mypy() {
     fi
     MYPYPATH="$ROOT_DIR/backend/stubs" "$VENV_DIR/bin/mypy" \
         --config-file "$ROOT_DIR/backend/pyproject.toml" \
-        --cache-dir "$ROOT_DIR/.mypy_cache" \
+        --cache-dir "$ROOT_DIR/.cache/mypy" \
         "$@"
 }
 

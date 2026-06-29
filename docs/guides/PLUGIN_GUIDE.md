@@ -180,7 +180,11 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   "see Section A4.2 (p580)", "Figure 19.1", or "(19.11)", the plugin first tries
   to resolve the referenced target from the PDF outline/window text/search hits
   and sends that target as `<resolved_cross_references>` before the generic page
-  background.
+  background. When the pointer includes an explicit page locator such as
+  `Section 11.1.2, p281`, or a bare numbered object such as `(3.5)`, the open
+  Incurator PDF viewer first uses the PDF ToC to fetch the smallest matching
+  section range through PDF.js, then falls back to a capped chapter range only
+  when the ToC has no exact section.
 - **In-document positions, not folders**: Positional phrases like "문서 위쪽",
   "앞부분", "top of the document", or "end of the page" are treated as positions
   **within the current document's content/outline**, never as the file system.
@@ -469,6 +473,13 @@ PDF context is assembled in this order:
    projection is available. This fallback never registers the PDF.
 4. Optional backend whole-PDF RAG only when backend PDF context is being used,
    `pdfRagEnabled=true`, and the source is tracked.
+
+Sidechat and quick-query popovers share the same backend PDF page cache when a
+content hash or registered source identity is available:
+`.cache/pdf_pages/<content_hash>/<page>.txt`. Reference Mode stubs under
+`04_Resources/` keep portable identity only; absolute local paths and page text
+caches stay in backend state/cache so macOS and Linux devices can resolve their
+own local PDF locations independently.
 
 The chat sidebar logs backend PDF context, PDF RAG, and Curator query timings to
 the developer console so slow turns can be diagnosed without guessing which
@@ -949,7 +960,10 @@ Session sync does not make absolute PDF/Zotero paths portable. Context attached
 to chat messages may preserve portable identity such as a Zotero attachment key,
 file hash, vault-relative path, and page number, but device-local absolute paths
 from macOS or Linux are verified or re-resolved on the current device before
-being used. If a synced session references a Zotero PDF, the current device's
+being used. The plugin sanitizes session data immediately before every
+`sessions.json` write, including first-write and legacy-migration paths, so
+runtime backend status and captured absolute source paths do not become synced
+chat history. If a synced session references a Zotero PDF, the current device's
 local Zotero database and linked-attachment roots are used to recover the real
 PDF path.
 
@@ -1110,14 +1124,20 @@ stable `zotero:<attachmentKey>` logical source id for the local reference row.
 Repeated registration of the same Zotero attachment reuses that logical source
 id instead of creating `-02` reference stubs. PDF crop/snipping context is
 temporary chat context; it is sent to the selected model when possible and must
-not leave durable generated images under `05_Assets`.
+not leave durable generated images under `05_Assets`. Temporary crop files used
+for backend transcription are created under `.curator/runtime/pdf_crops/` and
+removed after the request; CLI image/cache byproducts live under repo `.cache/`
+when the repo path is known, otherwise under vault `.curator/runtime/`; provider
+CLI subprocess temp variables point at the same allowed cache root.
 Zotero setup and repair are backend-owned: the plugin should call hidden JSON
 commands such as `wiki plugin zotero status`, `wiki plugin zotero init`,
 `wiki plugin zotero search`, and `wiki plugin zotero resolve-pdf` instead of
 treating plugin settings as canonical. PDF context requests should pass the
 richest identity available, such as a source id, file hash, vault relpath,
 absolute path, or Zotero attachment key, so the backend can resolve moved or
-reference-mode files consistently.
+reference-mode files consistently. Absolute paths are per-device hints used for
+the current backend call; they must not be written into synced `04_Resources`
+reference stubs.
 
 For chat answers, the plugin-selected provider/model writes the final sidechat
 answer. Backend/Incurator calls supply retrieved context, PDF windows, source

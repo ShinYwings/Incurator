@@ -19,7 +19,7 @@ SCAN_TARGETS = [
     "docs/specs",
 ]
 
-SKIP_PARTS = {"__pycache__", ".pytest_cache", "node_modules", "dist"}
+SKIP_PARTS = {"__pycache__", ".cache", ".pytest_cache", "node_modules", "dist"}
 
 
 def _iter_text_files(root: Path):

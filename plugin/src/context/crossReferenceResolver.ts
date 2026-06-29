@@ -82,6 +82,8 @@ export interface ResolveContext {
   pageOffset?: number;
   /** Explicit printed→pdf page map (from pdf.js pageLabels), preferred over pageOffset. */
   printedToPdf?: (printed: number) => number | undefined;
+  /** Physical page count, used to accept explicit page locators as fetchable pages. */
+  pageCount?: number;
 }
 
 export interface ResolvedReference {
@@ -219,6 +221,7 @@ export function extractReferences(selectedText: string): ReferenceQuery[] {
 
 const CAPTION_LINE_RE =
   /^\s*(figures?|figs?|tables?|tbls?|equations?|eqs?|eqn|theorems?|lemmas?|sections?)\.?\s+([A-Z]?\d+(?:\.\d+)*[a-z]?)\b/i;
+const DISPLAY_EQUATION_LABEL_RE = /(^|[\s,;:])\(([A-Z]?\d+(?:\.\d+)+)\)(?=$|[\s,.;:])/gi;
 
 function captionKind(word: string): ReferenceKind {
   const w = word.toLowerCase();
@@ -242,14 +245,32 @@ export function buildCaptionIndex(
   for (const page of pages) {
     if (!page.text) continue;
     for (const rawLine of page.text.split(/\r?\n/)) {
+      const line = rawLine.trim();
       const m = CAPTION_LINE_RE.exec(rawLine);
-      if (!m) continue;
-      entries.push({
-        kind: captionKind(m[1]),
-        number: m[2].toUpperCase(),
-        pageNum: page.pageNum,
-        line: rawLine.trim().slice(0, 360),
-      });
+      if (m) {
+        entries.push({
+          kind: captionKind(m[1]),
+          number: m[2].toUpperCase(),
+          pageNum: page.pageNum,
+          line: line.slice(0, 360),
+        });
+      }
+
+      DISPLAY_EQUATION_LABEL_RE.lastIndex = 0;
+      let eq: RegExpExecArray | null;
+      while ((eq = DISPLAY_EQUATION_LABEL_RE.exec(rawLine)) !== null) {
+        const beforeLabel = rawLine.slice(0, eq.index + eq[1].length).trim();
+        const looksLikeDisplayedMath =
+          beforeLabel.length === 0 ||
+          /[=+\-*/^_{}]|\\[A-Za-z]+|[∑∫√≤≥≈≠]/u.test(beforeLabel);
+        if (!looksLikeDisplayedMath) continue;
+        entries.push({
+          kind: "equation",
+          number: eq[2].toUpperCase(),
+          pageNum: page.pageNum,
+          line: line.slice(0, 360),
+        });
+      }
     }
   }
   return entries;
@@ -375,6 +396,23 @@ function positionalDistance(pageNum: number, currentPage: number): number {
   return delta >= 0 ? delta * 1.15 : -delta;
 }
 
+function explicitPageTarget(ref: ReferenceQuery, ctx: ResolveContext): {
+  pageNum?: number;
+  confidence: number;
+} {
+  if (typeof ref.printedPage !== "number") return { confidence: 0.2 };
+  const mapped =
+    ctx.printedToPdf?.(ref.printedPage) ??
+    (typeof ctx.pageOffset === "number" ? ref.printedPage + ctx.pageOffset : undefined);
+  if (typeof mapped === "number") {
+    return { pageNum: mapped, confidence: ctx.printedToPdf ? 0.9 : 0.75 };
+  }
+  if (ref.printedPage > 0 && (typeof ctx.pageCount !== "number" || ref.printedPage <= ctx.pageCount)) {
+    return { pageNum: ref.printedPage, confidence: 0.65 };
+  }
+  return { confidence: 0.2 };
+}
+
 function resolveOne(ref: ReferenceQuery, ctx: ResolveContext): ResolvedReference {
   const base: ResolvedReference = {
     query: ref,
@@ -384,15 +422,13 @@ function resolveOne(ref: ReferenceQuery, ctx: ResolveContext): ResolvedReference
   };
 
   if (ref.kind === "page" && typeof ref.printedPage === "number") {
-    const mapped =
-      ctx.printedToPdf?.(ref.printedPage) ??
-      (typeof ctx.pageOffset === "number" ? ref.printedPage + ctx.pageOffset : undefined);
-    if (typeof mapped === "number") {
+    const target = explicitPageTarget(ref, ctx);
+    if (typeof target.pageNum === "number") {
       return {
         ...base,
-        targetPage: mapped,
-        snippet: snippetFor(ctx, mapped),
-        confidence: ctx.printedToPdf ? 0.9 : 0.75,
+        targetPage: target.pageNum,
+        snippet: snippetFor(ctx, target.pageNum),
+        confidence: target.confidence,
         method: "explicit-page",
       };
     }
@@ -476,11 +512,61 @@ function resolveOne(ref: ReferenceQuery, ctx: ResolveContext): ResolvedReference
   return base;
 }
 
+function resolveWithNearbyPageHints(
+  resolved: ResolvedReference[],
+  ctx: ResolveContext
+): ResolvedReference[] {
+  const out = resolved.map((r) => ({ ...r }));
+  const consumedPageIndexes = new Set<number>();
+
+  for (let i = 0; i < out.length; i++) {
+    const ref = out[i];
+    if (ref.method !== "unresolved" || ref.query.kind === "page") continue;
+
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+    for (let j = 0; j < out.length; j++) {
+      const pageRef = out[j];
+      if (
+        pageRef.query.kind !== "page" ||
+        pageRef.method !== "explicit-page" ||
+        typeof pageRef.targetPage !== "number"
+      ) {
+        continue;
+      }
+      const distance = Math.abs(pageRef.query.index - ref.query.index);
+      if (distance > 64 || distance >= bestDistance) continue;
+      bestIndex = j;
+      bestDistance = distance;
+    }
+
+    if (bestIndex < 0) continue;
+    const pageRef = out[bestIndex];
+    const pageNum = pageRef.targetPage as number;
+    out[i] = {
+      ...ref,
+      targetPage: pageNum,
+      snippet: snippetFor(ctx, pageNum, pageRef.snippet),
+      confidence: Math.min(pageRef.confidence, 0.72),
+      method: "explicit-page",
+    };
+    consumedPageIndexes.add(bestIndex);
+  }
+
+  for (const index of consumedPageIndexes) {
+    out[index] = { ...out[index], method: "unresolved" };
+  }
+  return out;
+}
+
 export function resolveReferences(
   refs: ReferenceQuery[],
   ctx: ResolveContext
 ): ResolvedReference[] {
-  return refs.map((ref) => resolveOne(ref, ctx));
+  return resolveWithNearbyPageHints(
+    refs.map((ref) => resolveOne(ref, ctx)),
+    ctx
+  );
 }
 
 // ── Context-block formatting ───────────────────────────────────────

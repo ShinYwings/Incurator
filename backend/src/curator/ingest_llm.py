@@ -13,8 +13,6 @@ from . import constants as consts
 
 import json
 import re
-import shutil
-import tempfile
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -660,7 +658,6 @@ def add_atom_from_insight(
         today=today,
     )
 
-    tmp_staging = Path(tempfile.mkdtemp(prefix="curator-insight-"))
     try:
         full = ""
         gen = client.chat_stream(messages, temperature=0.3)
@@ -683,8 +680,6 @@ def add_atom_from_insight(
         return atom_id
     except Exception:
         return None
-    finally:
-        shutil.rmtree(tmp_staging, ignore_errors=True)
 
 
 def read_recent_domains(paths: cfg.WikiPaths, limit: int = 8) -> list[str]:

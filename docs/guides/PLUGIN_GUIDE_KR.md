@@ -173,6 +173,10 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   "Figure 19.1", "(19.11)"처럼 다른 위치를 가리키는 pointer라면, 플러그인은 먼저
   PDF outline/window 텍스트와 search hit에서 해당 target을 찾아
   `<resolved_cross_references>`로 넣고, 그 뒤에 일반 페이지 배경을 보냅니다.
+  pointer에 `Section 11.1.2, p281`처럼 명시적인 페이지 위치가 들어 있거나 `(3.5)`처럼
+  번호만 있는 대상이면, 열린 Incurator PDF viewer는 먼저 PDF ToC에서 가장 작은 matching
+  section range를 찾아 PDF.js로 읽고, ToC에 정확한 section이 없을 때만 제한된 chapter
+  range로 fallback합니다.
 - **문서 내 위치이지 폴더가 아님**: "문서 위쪽", "앞부분", "top of the document",
   "end of the page" 같은 위치 표현은 파일 시스템이 아니라 **현재 문서의
   내용/outline 안에서의 위치**로 해석됩니다. 팝오버는 파일 시스템에 접근하지
@@ -408,6 +412,13 @@ PDF context는 다음 순서로 조립됩니다.
    backend PDF parsing. 이 fallback은 PDF를 등록하지 않습니다.
 4. backend PDF context를 사용하는 경우에만, `pdfRagEnabled=true`이고 source가
    tracked 상태일 때 backend 전체 PDF RAG.
+
+content hash나 등록된 source identity가 있으면 sidechat과 quick-query popover는
+같은 backend PDF page cache를 공유합니다:
+`.cache/pdf_pages/<content_hash>/<page>.txt`. `04_Resources/` 아래의 Reference Mode
+stub에는 portable identity만 두고, 절대 로컬 경로와 page text cache는 backend
+state/cache에 남겨 macOS와 Linux 기기가 각자의 로컬 PDF 위치를 독립적으로 해석하게
+합니다.
 
 채팅 사이드바는 backend PDF context, PDF RAG, Curator query 소요 시간을
 developer console에 기록하므로, 느린 턴에서 어느 단계가 막히는지 확인할 수
@@ -835,9 +846,12 @@ v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 
 세션 동기화가 PDF/Zotero의 절대경로까지 portable하게 만드는 것은 아닙니다. 채팅
 메시지에 붙은 context는 Zotero attachment key, file hash, vault-relative path,
 page number 같은 portable identity를 보존할 수 있지만, macOS나 Linux에서 캡처된
-기기별 절대경로는 사용 전에 현재 기기 기준으로 검증하거나 다시 해석합니다. 동기화된
-세션이 Zotero PDF를 가리키는 경우에는 현재 기기의 로컬 Zotero database와 linked
-attachment root를 사용해 실제 PDF 경로를 복구합니다.
+기기별 절대경로는 사용 전에 현재 기기 기준으로 검증하거나 다시 해석합니다. 플러그인은
+첫 저장이나 legacy migration 경로를 포함해 `sessions.json`을 쓸 때마다 저장 직전에
+session data를 sanitize하므로, runtime backend status나 캡처된 absolute source path가
+동기화되는 채팅 히스토리로 남지 않습니다. 동기화된 세션이 Zotero PDF를 가리키는
+경우에는 현재 기기의 로컬 Zotero database와 linked attachment root를 사용해 실제 PDF
+경로를 복구합니다.
 
 사이드바 대화 목록의 채팅 제목은 첫 사용자 질문 뒤에 나온 첫 assistant 답변에서
 생성합니다. 이때 추론 모델의 `<think>…</think>` 블록을 먼저 제거해, 제목이
@@ -945,8 +959,8 @@ Zotero 노트(frontmatter에 `citekey` 또는 `zotero_app_url`이 있는 노트)
 Zotero PDF를 plugin viewer에서 연 뒤 sidechat/purple-pin 흐름으로 등록하면 Incurator는 파일을 vault로 복사하지 않고 원본 파일을 Reference Mode로 등록합니다. 등록에 성공하면 완료 알림을 표시하고, backend가 파일 path를 해석하거나 등록하지 못하면 오류 알림을 표시합니다.
 Zotero path 설정은 Zotero 데이터 디렉토리나 `zotero.sqlite` 파일 자체를 가리킬 수 있습니다. backend PDF 해석은 `zotero.sqlite`가 들어온 경우 부모 디렉토리로 정규화한 뒤 `storage/<attachmentKey>/`를 확인합니다.
 linked Zotero attachment의 경우 backend는 configured linked attachment root에서 `attachments:` path도 확인합니다.
-plugin이 Zotero attachment key를 알고 있으면 Add-to-Incurator는 그 key를 backend source import에 직접 넘길 수 있습니다. backend가 PDF를 해석하고 local reference row에 `zotero:<attachmentKey>` 형태의 stable logical source id를 기록합니다. 같은 Zotero attachment를 반복 등록하면 이 logical source id를 재사용하며 `-02` reference stub를 새로 만들지 않습니다. PDF crop/snipping 이미지는 임시 채팅 컨텍스트로만 사용하며, 가능한 경우 선택된 모델에 전달된 뒤 `05_Assets` 아래에 영구 생성물을 남기지 않아야 합니다.
-Zotero 설정과 복구의 관리 주체는 backend입니다. 플러그인은 plugin 설정값을 canonical state로 보지 않고, `wiki plugin zotero status`, `wiki plugin zotero init`, `wiki plugin zotero search`, `wiki plugin zotero resolve-pdf` 같은 숨김 JSON 명령을 호출해 상태 진단, 초기화, 검색, PDF 경로 해석을 요청해야 합니다. PDF context 요청은 가능한 한 `source_id`, file hash, vault-relative path, absolute path, Zotero attachment key 같은 식별자를 함께 넘기고, backend가 reference-mode 파일이나 이동된 Zotero 파일을 일관되게 해석합니다.
+plugin이 Zotero attachment key를 알고 있으면 Add-to-Incurator는 그 key를 backend source import에 직접 넘길 수 있습니다. backend가 PDF를 해석하고 local reference row에 `zotero:<attachmentKey>` 형태의 stable logical source id를 기록합니다. 같은 Zotero attachment를 반복 등록하면 이 logical source id를 재사용하며 `-02` reference stub를 새로 만들지 않습니다. PDF crop/snipping 이미지는 임시 채팅 컨텍스트로만 사용하며, 가능한 경우 선택된 모델에 전달된 뒤 `05_Assets` 아래에 영구 생성물을 남기지 않아야 합니다. backend transcription에 쓰는 임시 crop 파일은 `.curator/runtime/pdf_crops/` 아래에 만들고 요청 뒤 삭제합니다. CLI image/cache 부산물은 repo path를 알 때 repo `.cache/` 아래에, 그렇지 않으면 vault `.curator/runtime/` 아래에 둡니다. provider CLI subprocess의 temp 환경변수도 같은 허용 cache root를 가리키게 합니다.
+Zotero 설정과 복구의 관리 주체는 backend입니다. 플러그인은 plugin 설정값을 canonical state로 보지 않고, `wiki plugin zotero status`, `wiki plugin zotero init`, `wiki plugin zotero search`, `wiki plugin zotero resolve-pdf` 같은 숨김 JSON 명령을 호출해 상태 진단, 초기화, 검색, PDF 경로 해석을 요청해야 합니다. PDF context 요청은 가능한 한 `source_id`, file hash, vault-relative path, absolute path, Zotero attachment key 같은 식별자를 함께 넘기고, backend가 reference-mode 파일이나 이동된 Zotero 파일을 일관되게 해석합니다. 절대경로는 현재 기기의 backend 호출에 쓰는 hint일 뿐이며, 동기화되는 `04_Resources` reference stub에는 쓰지 않아야 합니다.
 
 채팅 최종 답변은 plugin에서 선택한 provider/model이 작성합니다. backend/Incurator 호출은 plugin이 명시적으로 호출했을 때 검색 컨텍스트, PDF window, source status 또는 backend synthesis를 제공하는 역할입니다. 채팅 답변에서는 매 최신 요청마다 language bridge를 사용합니다: 입력 언어 감지 → 영어로 내부 검색/추론/tool 인자 처리 → 최신 입력 언어로 최종 답변 작성 순서입니다. 이전 턴, 한글 Markdown 문맥, 저장된 metadata가 다음 영어 질문의 답변 언어를 한국어로 고정해서는 안 됩니다. `curator_query`가 실행되면 Sources & Trace 패널이 지원 근거를 표시할 수 있도록 trace 필드는 유지하지만, stale `final_output_language`를 sidechat 언어 상태로 재사용하지 않습니다.
 

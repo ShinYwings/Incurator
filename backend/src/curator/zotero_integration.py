@@ -1,19 +1,15 @@
 import sqlite3
-import shutil
-import tempfile
-import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from .zotero import get_zotero_annotations
+from .zotero import _copy_db_to_repo_temp, get_zotero_annotations
 
 def search_zotero_items(zotero_db_path: str, query: str, limit: int = 20) -> List[Dict[str, Any]]:
     db_path = Path(zotero_db_path).expanduser()
     if not db_path.exists():
         return []
 
-    temp_db_path = Path(tempfile.gettempdir()) / f"zotero_search_{os.getpid()}_{abs(hash(str(db_path)))}.sqlite"
     try:
-        shutil.copy2(db_path, temp_db_path)
+        temp_db_path = _copy_db_to_repo_temp(db_path)
     except Exception:
         temp_db_path = db_path
 
@@ -153,11 +149,10 @@ def get_zotero_item_metadata(zotero_db_path: str, item_key: str, citation_style:
     if not db_path.exists():
         return {}
 
-    temp_db_path = Path(tempfile.gettempdir()) / f"zotero_meta_{os.getpid()}.sqlite"
     try:
-        shutil.copy2(db_path, temp_db_path)
+        temp_db_path = _copy_db_to_repo_temp(db_path)
     except Exception:
-        pass
+        temp_db_path = db_path
 
     conn = None
     try:
