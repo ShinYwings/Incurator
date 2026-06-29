@@ -681,13 +681,22 @@ def _sync_mcp_configs(vault_root: Path) -> list[str]:
         try:
             data: dict = {}
             if config_path.exists():
-                data = json.loads(config_path.read_text(encoding="utf-8")) or {}
-            data.setdefault("mcpServers", {})["incurator"] = entry
+                loaded = json.loads(config_path.read_text(encoding="utf-8")) or {}
+                if not isinstance(loaded, dict):
+                    raise ValueError("top-level JSON is not an object")
+                data = loaded
+            servers = data.get("mcpServers")
+            if servers is None:
+                servers = {}
+                data["mcpServers"] = servers
+            elif not isinstance(servers, dict):
+                raise ValueError("mcpServers is not an object")
+            servers["incurator"] = entry
             config_path.parent.mkdir(parents=True, exist_ok=True)
             config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
             updated.append(str(config_path))
-        except Exception:
-            pass
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            _warn(f"Skipped MCP config sync for {config_path}: {type(exc).__name__}: {exc}")
     return updated
 
 
@@ -2531,6 +2540,7 @@ def config_set(
     import yaml as _yaml
 
     # Determine target config file
+    paths: cfg.WikiPaths | None = None
     if global_cfg:
         config_dir = cfg.get_global_config_dir()
         config_dir.mkdir(parents=True, exist_ok=True)
@@ -2584,13 +2594,21 @@ def config_set(
 
     # Refresh runtime snapshots so the plugin dashboard picks up the change
     # immediately without an extra `wiki status` round-trip.
+    import sqlite3 as _sqlite3
+
     try:
-        root = cfg.find_wiki_root()
-        if root:
-            paths = cfg.paths_from_config(root)
-            runtime_state.write_runtime_snapshots(paths, cfg.load_config(paths))
-    except Exception:
-        pass  # best-effort; CLI-only users don't need this
+        refresh_paths = paths
+        if refresh_paths is None:
+            root = cfg.find_wiki_root()
+            refresh_paths = cfg.paths_from_config(root) if root else None
+        if refresh_paths:
+            runtime_state.write_runtime_snapshots(refresh_paths, cfg.load_config(refresh_paths))
+    except (OSError, _sqlite3.Error, _yaml.YAMLError) as exc:
+        # Best-effort: the config write already succeeded and was confirmed to the
+        # user, so a refresh failure (DB locked by the plugin → sqlite3.Error,
+        # malformed merged config → yaml.YAMLError, FS errors → OSError) must warn,
+        # never crash the command. CLI-only users don't need the snapshot.
+        _warn(f"Runtime snapshot refresh skipped: {type(exc).__name__}: {exc}")
 
 
 @config_app.command("provider")
@@ -2736,10 +2754,14 @@ def config_provider(
     console.print()
 
     # Refresh runtime snapshots so the plugin dashboard picks up the change.
+    import sqlite3 as _sqlite3
+
     try:
         runtime_state.write_runtime_snapshots(paths, current_config)
-    except Exception:
-        pass
+    except (OSError, _sqlite3.Error) as exc:
+        # Best-effort (see config_set): expected snapshot write/DB failures must
+        # warn, not crash the already-applied provider change.
+        _warn(f"Runtime snapshot refresh skipped: {type(exc).__name__}: {exc}")
 
 
 @config_secret_app.command("list")

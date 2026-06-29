@@ -96,6 +96,13 @@ cd plugin
 OBSIDIAN_PLUGIN_DIR=/path/to/<vault>/.obsidian/plugins/incurator-obsidian-agent ./deploy.sh
 ```
 
+플러그인 검증은 저장소 루트에서 실행할 수 있습니다:
+
+```bash
+npx vitest run -c ./plugin/vitest.config.ts
+cd plugin && npx tsc --noEmit
+```
+
 ### 근거 기반 경로 마이그레이션
 
 백엔드가 상위 디렉토리를 탐색하여 Vault 루트, Testbed 루트, 번들 에셋, 플러그인 출력 경로를 발견하기 때문에 경로 마이그레이션은 위험도가 높습니다. `parents[N]`, 상대 경로 또는 빌드 출력 위치를 변경하기 전에:

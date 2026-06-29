@@ -36,7 +36,10 @@ _(empty — L2 extraction hotfix shipped in v0.27.2, see Completed Milestones.)_
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of minor-release PRs (0.25.0 → 0.26.0 → …).
    - Shipped so far: G17/G18/G19 (v0.27.3), G17 S3 (v0.27.4), **XC-1 error-handling
-     slice 1 (data-pipeline, v0.27.5, PR #64)**.
+     slice 1 (data-pipeline, v0.27.5, PR #64)**, XC-1/XC-4 robustness
+     slice 2 (model setup + plugin logging/timer audit, v0.27.6), DB-2 slices
+     1–2 (v0.27.7–v0.27.8), and G07-12 CLI best-effort warning visibility
+     (v0.28.1).
      Remaining S2: god-file decomposition CM-1/PL-1/DB-2; XC-1 slices 2+ (god-file
      excepts in cli.py/mcp_server.py/plugin_api.py, `model_setup.py`); XC-4 plugin
      timers/logging.
@@ -147,11 +150,9 @@ No blocked items currently tracked.
   diagnosed; findings merged into `01_roadmap_evidence.md`. Tally: **10 S1, 118
   S2, 97 S3**.
 - **Phase B status**: S1 queue verified complete in the 0.25.4–0.25.8 release
-  chain. Current branch `fix/phase-b-plugin-rest-cleanup` handles G18 docs-code
-  parity, G19 docs single-source cleanup, G17-1 settings auth-poll cleanup, and
-  G17-2/G17-3/G17-4/G17-5/G17-6/G17-8/G17-9/G17-11 plugin cleanup. Version
-  bumped to v0.27.3 for the plugin code fixes.
-- **Next actionable item**: validate the latest G17-4/G17-8/G17-11 additions on
-  `fix/phase-b-plugin-rest-cleanup`, then continue remaining S2 groups
-  (XC-1 broad-except narrowing, CM-1/PL-1/DB-2 god-file decomposition) or
-  remaining G17 S3 cleanup.
+  chain. Current branch `fix/backend-exception-narrowing` handles G07-12: CLI
+  best-effort failures around MCP config sync and dashboard runtime snapshot
+  refresh now warn instead of disappearing. Version bumped to v0.28.1.
+- **Next actionable item**: after v0.28.1 ships, continue remaining S2 groups
+  (XC-1 broad-except narrowing in MCP/plugin API surfaces, CM-1/PL-1 god-file
+  decomposition) or remaining G17 S3 cleanup.
