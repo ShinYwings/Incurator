@@ -625,6 +625,15 @@ The dashboard writes Primary via `config provider` and Fallback via
 keys on load — so writing the fallback globally silently masked it. Mixing config
 scopes for related `llm` keys is a defect.
 
+After `wiki config provider` and project-scoped `wiki config set --local`, the
+CLI must make a best-effort attempt to refresh `.curator/runtime/*.json` so the
+plugin dashboard can reflect the change immediately. Because the config write has
+already succeeded (and was confirmed to the user), expected local refresh
+failures must not crash the command — not only file-system errors but also a
+plugin-locked `state.sqlite` (the snapshot reads the job queue) or, for
+`config set --local`, a malformed merged config. Every such failure must be
+reported as a CLI warning rather than swallowed silently.
+
 Language handling is per request. Each query detects the latest user input
 language, uses English as the internal/search working language, and then writes
 the final answer in the detected latest input language unless that latest
@@ -683,6 +692,10 @@ Rules:
 - Runtime snapshots must be derived from backend-owned state (`state.sqlite`,
   internal search metadata, job queue, config) and must not become a second
   source of truth.
+- Runtime snapshot refresh is cache maintenance. If a mutating CLI command hits
+  an expected local refresh failure (file-system error, a locked `state.sqlite`,
+  or a malformed config during `config set --local`), the command should still
+  complete and report a warning.
 - Runtime snapshots may include local absolute paths such as the active vault
   root, backend executable, model cache, and Zotero roots. `.curator/runtime/`
   must therefore stay device-local in Syncthing and Git ignore rules.
@@ -803,6 +816,13 @@ surface.
 
 Plugin-local JSON commands must be added under `wiki plugin ...` rather than as
 new top-level public command groups.
+
+During `wiki init`, local MCP client configuration sync for known Gemini,
+Antigravity, and vault-local Claude settings is best-effort. Expected
+file-system, decoding, malformed-JSON, and wrong-shaped-config failures (e.g. a
+non-object top-level document or a non-object `mcpServers` value) for one target
+must not abort vault initialization or prevent other targets from being updated,
+but each skipped target must be surfaced as a CLI warning.
 
 ### 11.5 Persona Interview Behavior
 

@@ -70,6 +70,8 @@ wiki init <path/to/your/obsidian-vault>
 #### 📂 저장소(Vault) 디렉토리 구조
 `wiki init` 명령을 실행하면 Incurator는 지식 관리를 위해 다음과 같은 구조를 초기화합니다. 인큐레이터는 지식이 기계와 인간에게 각각 다른 형태로 존재할 때 가장 효율적이라는 철학에 따라, 인간을 위한 공간(Root)과 기계 및 에이전트를 위한 AI 전용 공간(`.curator/`)을 실제 디렉토리 구조로 분리하여 관리합니다.
 
+초기화 중 Incurator는 알려진 로컬 MCP 클라이언트 설정 파일(Gemini/Antigravity 및 vault-local Claude 설정)에 해당 vault의 `VAULT_ROOT`를 등록하려고 시도합니다. 이 쓰기는 best-effort입니다. 설정 파일이 없거나, 형식이 잘못되었거나, 쓸 수 없는 경우에도 초기화는 계속 성공하지만, CLI는 건너뛴 대상마다 경고를 출력합니다.
+
 ```text
 <vault_root>/
 ├── .obsidian/         # 옵시디언 설정 및 플러그인
@@ -629,6 +631,8 @@ status/history/push입니다.
 | `wiki models status` | 로컬 검색 모델 상태, 캐시 경로, 의존성 상태를 JSON으로 표시합니다. |
 | `wiki config get <key>` | 특정 설정 값을 조회합니다. (예: `wiki config get llm.primary`) |
 | `wiki config set <key> <value>` | 특정 설정 값을 변경합니다. `llm.*`, `search.*`, `external.*` 같은 기기별 key는 `.cache/config/config.yml`에 기록합니다. `--local`은 `.curator/settings.yml`에 속하는 portable vault-scoped key에만 사용하세요. |
+
+`wiki config provider` 또는 project-scoped `wiki config set --local` 실행 후 CLI는 플러그인 dashboard runtime snapshot을 즉시 갱신하려고 시도합니다. 예상 가능한 로컬 실패(예: `.curator/runtime/`에 쓸 수 없거나, 실행 중인 플러그인이 `state.sqlite`를 잠시 잠금, 또는 `config set --local` 중 병합된 config를 parse할 수 없음)가 발생해도 설정 변경 자체는 성공하며, CLI는 경고를 출력합니다. dashboard는 이후 다시 refresh할 수 있습니다.
 
 ### 3. 고도화 및 최적화 (Curation)
 | 명령어 | 설명 | 사용 시점 |

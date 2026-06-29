@@ -94,6 +94,13 @@ cd plugin
 OBSIDIAN_PLUGIN_DIR=/path/to/<vault>/.obsidian/plugins/incurator-obsidian-agent ./deploy.sh
 ```
 
+Plugin validation can be run from the repository root:
+
+```bash
+npx vitest run -c ./plugin/vitest.config.ts
+cd plugin && npx tsc --noEmit
+```
+
 ### Evidence-First Path Migration
 
 Path migrations are high-risk because the backend discovers vault roots, testbed roots, bundled assets, and plugin output paths by walking parent directories. Before changing any `parents[N]`, relative path, or build output location:

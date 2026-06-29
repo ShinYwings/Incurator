@@ -68,6 +68,12 @@ During init, a short interview sets up the **Curator persona** — the vault-wid
 #### 📂 Vault Directory Structure
 Running the `wiki init` command initializes the following structure for knowledge management. Following the philosophy that knowledge is most effective when stored in different forms for machines and humans, Incurator strictly separates human-readable spaces (Root) from the AI-only spaces (`.curator/`) via physical directory separation.
 
+During initialization, Incurator also tries to register the vault's `VAULT_ROOT`
+in known local MCP client config files (Gemini/Antigravity and the vault-local
+Claude config). These writes are best-effort: initialization still succeeds if a
+config file is missing, malformed, or unwritable, but the CLI prints a warning
+for each skipped target.
+
 ```text
 <vault_root>/
 ├── .obsidian/         # Obsidian configuration and plugins
@@ -654,6 +660,13 @@ Summary of major commands following the user workflow.
 | `wiki config get <key>` | Read a specific config value. (e.g. `wiki config get llm.primary`) |
 | `wiki config set <key> <value>` | Update a specific config value. Machine-local keys such as `llm.*`, `search.*`, and `external.*` write to `.cache/config/config.yml`; pass `--local` only for portable vault-scoped keys that belong in `.curator/settings.yml`. |
 | `wiki config secret list/delete` | Inspect masked local encrypted backend secrets or delete a stored secret. |
+
+After `wiki config provider` or project-scoped `wiki config set --local`, the CLI
+tries to refresh the plugin dashboard runtime snapshots immediately. If that
+refresh hits an expected local failure (e.g. `.curator/runtime/` is not writable,
+`state.sqlite` is momentarily locked by the running plugin, or the merged config
+cannot be parsed during `config set --local`), the config change still succeeds
+and the CLI prints a warning; the dashboard can refresh again later.
 
 ### 3. Refinement & Optimization
 | Command | Description | When to use |
