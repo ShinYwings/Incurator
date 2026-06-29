@@ -362,14 +362,17 @@ crop은 페이지 전체가 아니라 **드래그한 사각형 안의 텍스트 
 답하도록 만듭니다. crop은 전체 페이지 텍스트(및 그 RAG hit)를 primary focus에
 다시 주입하지 않으며, 전체 페이지는 여전히 배경 맥락으로 별도 제공됩니다.
 
-PDF snip은 선택한 모델이 vision을 지원할 때 이미지 context로도 전송됩니다.
-활성 모델이 text-only이면 영역 텍스트가 답변의 근거로 사용되고, sidechat은
-이미지 세부 정보를 읽을 수 없다는 사실을 모델에 명시하며 crop을 조용히
-무시하지 않습니다. 영역이 선택 가능한 텍스트가 없는 스캔 이미지일 때는
-이미지 전용 참조로 폴백하되 *여전히* primary focus로 표시되어 묻히지 않습니다.
-최신 메시지에 사용자가 선택한 crop/image가 이미 첨부되어 있으면, 플러그인은
-그 로컬 context를 빠른 경로로 사용하고 해당 턴에서는 backend 전체 PDF
-context/RAG 호출을 건너뜁니다.
+**크롭이 모델에 전달되는 방식 (v0.28.0).** 메인 채팅 모델이 vision을 지원하면
+(Antigravity, Claude, Codex, 또는 vision Ollama 모델) 크롭 이미지가 그 모델에
+**직접** 전달됩니다 — 채팅이 스코프드·샌드박스 이미지 채널로 이미지를 읽습니다.
+**별도 전사 단계가 없으므로**, Send를 누르면 백엔드 모델이 도는 동안 멈추지 않고
+즉시 "Thinking…"이 표시됩니다. 활성 모델이 text-only이면 백엔드 전사로 폴백하여
+(LaTeX/영역 텍스트가 답변의 근거가 됨), sidechat은 이미지 세부 정보를 읽을 수 없을
+때 그 사실을 모델에 명시하며 crop을 조용히 무시하지 않습니다. 스닙한 영역 텍스트는
+항상 캡션으로 함께 전달되므로, 선택 가능한 텍스트가 없는 스캔 크롭도 primary focus로
+유지되어 묻히지 않습니다. 최신 메시지에 사용자가 선택한 crop/image가 이미 첨부되어
+있으면, 플러그인은 그 로컬 context를 빠른 경로로 사용하고 해당 턴에서는 backend 전체
+PDF context/RAG 호출을 건너뜁니다.
 
 ---
 
@@ -439,12 +442,14 @@ Settings 화면에서는 선택된 model의 context window를 별도 항목으�
 - **PDF ingest 모델(전체 페이지)** — 설정하면 `wiki add`/Add Source가 각 PDF 페이지를
   이 비전 모델로 전사해 L1에 제대로 된 LaTeX가 들어갑니다(텍스트레이어의 근사 추출
   대신). 비우면 빠른 pymupdf4llm 경로 유지.
-- **LaTeX/영역 추출 모델(경량)** — interactive 스닙용 소형 영역-OCR 모델. 비우면 PDF
-  ingest 모델로 폴백. 우클릭 **Convert to LaTeX**와 **Cmd+Shift+X** 스닙 경로는
-  backend extractor를 호출하므로, crop 전사가 성공하면 이미지를 메인 채팅 모델의
-  vision 경로로 다시 해석시키지 않고 전사 텍스트를 채팅에 보냅니다. backend는 엄격한
-  `<transcription>...</transcription>` 블록을 요청하고, 복사하거나 주입하기 전에 흔한
-  설명 문구를 제거합니다.
+- **LaTeX/영역 추출 모델(경량)** — 우클릭 **Convert to LaTeX** 액션에서 쓰는 소형
+  영역-OCR 모델(그리고 채팅 스닙의 text-only 폴백). 비우면 PDF ingest 모델로 폴백.
+  Convert to LaTeX는 backend extractor를 호출하며, extractor는 엄격한
+  `<transcription>...</transcription>` 블록을 요청하고 복사 전에 흔한 설명 문구를
+  제거합니다. **참고 (v0.28.0):** 메인 채팅 모델이 vision을 지원하면 **Cmd+Shift+X**
+  채팅 스닙은 더 이상 이 경로를 타지 않습니다 — 그 모델이 크롭 이미지를 직접
+  읽습니다(더 빠르고 이중 왕복이 없음). 이 경량 모델은 채팅 모델이 text-only일 때만
+  적용됩니다.
 
 ingest 비전은 기존 제공자의 **CLI 구독**(Ollama, 또는 `claude`/`agy`/`codex` CLI)으로
 동작 — **추가 API 키 불필요**. 드롭다운에는 비전 가능 모델만 표시됩니다. v0.21.0의

@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   unlinkSync,
   writeFileSync,
 } from "fs";
@@ -570,6 +571,11 @@ export class LLMClient {
   private settings: PluginSettings;
   private auth: CLIAuthResolver;
   private abortController: AbortController | null = null;
+  // v0.28.0 interactive chat image channel: per-CLI-call temp PNG dir + paths.
+  // Set by messagesToCliPrompt → contentToCliText, read by buildCliCommand to
+  // scope Read, and cleaned up in the CLI/stream finally. See PLUGIN_SCHEMA §2.1.3.
+  private _chatImageRunDir: string | null = null;
+  private _chatImagePaths: string[] = [];
   private vaultRoot: string;
   private persistSettings?: () => Promise<void>;
   private mcpManager?: MCPManager;
@@ -586,6 +592,8 @@ export class LLMClient {
     this.vaultRoot = vaultRoot;
     this.persistSettings = persistSettings;
     this.mcpManager = mcpManager;
+    // Best-effort startup sweep of crash-leftover chat image temp dirs (v0.28.0).
+    this.sweepStaleChatImages();
   }
 
   updateSettings(settings: PluginSettings): void {
@@ -1088,6 +1096,7 @@ export class LLMClient {
     return new Promise((resolve, reject) => {
       const provider = this.settings.provider;
       const prompt = this.messagesToCliPrompt(messages);
+      const imageRunDir = this._chatImageRunDir;
       const cwd = this.getCliCwd();
       const outputFile =
         provider === "openai"
@@ -1377,6 +1386,9 @@ export class LLMClient {
       });
 
       child.on("close", (code) => {
+        // v0.28.0: clean the per-call image dir on every terminal path (success,
+        // error-exit, and abort → kill → close all flow through here).
+        this.cleanupChatImageDir(imageRunDir);
         processStdoutText(stdoutDecoder.decode());
         fullStderr += stderrDecoder.decode();
 
@@ -1492,6 +1504,8 @@ export class LLMClient {
       });
 
       child.on("error", (err) => {
+        // spawn failure may fire without a "close"; clean the image dir here too.
+        this.cleanupChatImageDir(imageRunDir);
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("ENOENT")) {
           reject(
@@ -1659,6 +1673,7 @@ export class LLMClient {
   ): Promise<string> {
     const provider = this.settings.provider;
     const prompt = this.messagesToCliPrompt(messages);
+    const imageRunDir = this._chatImageRunDir;
     const cwd = this.getCliCwd();
     const outputFile =
       provider === "openai"
@@ -1715,6 +1730,7 @@ export class LLMClient {
       if (outputFile && existsSync(outputFile)) {
         unlinkSync(outputFile);
       }
+      this.cleanupChatImageDir(imageRunDir);
     }
   }
 
@@ -1872,7 +1888,13 @@ export class LLMClient {
     const ephemeral = toolPolicy === "none"; // popover / read-only surface
     // Only resolve allowed roots when they'll actually be used (non-ephemeral); the
     // tool-free popover path discards --add-dir, so skip the realpath I/O there.
+    // v0.28.0: an image-bearing turn (image parts written by contentToCliText this
+    // call) gets the scoped chat_images dir on --add-dir and Read removed from the
+    // claude denylist; text-only turns keep the hardened no-Read denylist verbatim.
+    const hasImage = this._chatImagePaths.length > 0;
+    const imageRunDir = hasImage ? this._chatImageRunDir : null;
     const addDirs = ephemeral ? [] : this.allowedRoots().flatMap((r) => ["--add-dir", r]);
+    if (!ephemeral && imageRunDir) addDirs.push("--add-dir", imageRunDir);
     let base: { command: string; args: string[]; env?: Record<string, string>; stdin?: string };
     switch (p) {
       case "antigravity": {
@@ -1901,7 +1923,9 @@ export class LLMClient {
         // only the DB-scoped MCP curator tools (the plugin edit-loop handles vault edits).
         const toolArgs = ephemeral
           ? ["--tools", ""]
-          : ["--disallowedTools", "Bash", "Read", "Write", "Edit", "WebFetch"];
+          : hasImage
+            ? ["--disallowedTools", "Bash", "Write", "Edit", "WebFetch"]
+            : ["--disallowedTools", "Bash", "Read", "Write", "Edit", "WebFetch"];
         base = {
           command: "claude",
           args: [
@@ -1970,6 +1994,32 @@ export class LLMClient {
   private cliCacheBase(): string {
     const repo = expandPath((this.settings.incuratorRepoPath || "").trim());
     return repo ? join(repo, ".cache", "cli") : join(tmpdir(), "incurator-cli");
+  }
+
+  /**
+   * Remove a per-call chat image run dir (v0.28.0). Best-effort; called in the
+   * CLI/stream finally on success, error, AND abort so no temp image survives a
+   * completed send. See PLUGIN_SCHEMA §2.1.3.
+   */
+  private cleanupChatImageDir(dir: string | null): void {
+    if (!dir) return;
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best-effort: a missing dir or racing cleanup is fine */
+    }
+  }
+
+  /**
+   * Sweep crash-leftover chat image dirs on startup (v0.28.0). Uses cliCacheBase()
+   * (no mkdir side effect); `force` makes a missing dir a no-op.
+   */
+  private sweepStaleChatImages(): void {
+    try {
+      rmSync(join(this.cliCacheBase(), "chat_images"), { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
   }
 
   private _cliCwdCreated: string | null = null;
@@ -2188,6 +2238,10 @@ export class LLMClient {
   }
 
   private messagesToCliPrompt(messages: LLMMessage[]): string {
+    // Reset per-call image state; contentToCliText (below) lazily fills these as
+    // it writes image parts to the scoped chat_images dir for this invocation.
+    this._chatImageRunDir = null;
+    this._chatImagePaths = [];
     return messages
       .map((message) => {
         const content = this.contentToCliText(message.content);
@@ -2209,16 +2263,25 @@ export class LLMClient {
         if (part.type === "text") return part.text;
         
         try {
-          const tmpDir = join(this.getCliCwd(), "tmp_images");
-          if (!existsSync(tmpDir)) {
-            mkdirSync(tmpDir, { recursive: true });
+          // v0.28.0: write each image to a per-call chat_images run dir under the
+          // (OS-sandbox-covered) CLI cwd and reference it by path, so a vision CLI
+          // reads it directly. buildCliCommand scopes Read for image-bearing turns.
+          if (!this._chatImageRunDir) {
+            this._chatImageRunDir = join(
+              this.getCliCwd(),
+              "chat_images",
+              `${Date.now()}-${Math.random().toString(36).slice(2)}`
+            );
+            mkdirSync(this._chatImageRunDir, { recursive: true });
           }
           let ext = part.mimeType.split("/")[1] || "png";
           if (ext === "jpeg") ext = "jpg";
-          const filepath = join(tmpDir, `img_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`);
+          const filepath = join(this._chatImageRunDir, `img_${this._chatImagePaths.length}.${ext}`);
           writeFileSync(filepath, Buffer.from(part.data, "base64"));
-          // Provide an explicit instruction to the agent so it knows it should look at this file
-          return `[Attached image saved to: ${filepath} - Please read/view this file to see the image]`;
+          this._chatImagePaths.push(filepath);
+          // Mirror the backend describe_image_via_cli phrasing so the vision CLI
+          // opens the file (scoped Read enabled for image turns in buildCliCommand).
+          return `Read the image file at ${filepath} to see the attached image/crop, then use it to answer.`;
         } catch (e) {
           return `[Attached image ${part.mimeType} omitted from CLI fallback (save failed: ${e instanceof Error ? e.message : String(e)})]`;
         }

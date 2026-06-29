@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.27.0)
+# Incurator Plugin Schema & API Contract (v0.28.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -295,14 +295,18 @@ Rules:
   configured in the Dashboard (§2.1.2) and are honored at the **backend `add source`
   ingest layer** and the plugin's interactive PDF extraction surfaces
   (SYSTEM_BEHAVIOR §26.2a). The plugin no longer persists a `latexModel` setting.
-  The interactive PDF right-click **Convert to LaTeX** and **Cmd+Shift+X** crop
-  paths call `wiki plugin pdf transcribe`, which resolves
+  The interactive PDF right-click **Convert to LaTeX** action calls
+  `wiki plugin pdf transcribe`, which resolves
   `latex_extract_model → vision_model → (main chat model if vision-capable)` in the
-  backend. A successful crop transcription MUST be sent to chat as text without
-  forwarding the crop image to the main chat model's vision path. The backend
-  transcription prompt requests one `<transcription>...</transcription>` block;
-  the returned text MUST be normalized so common explanatory prose, labels, and
-  fences are stripped before the plugin copies or injects it.
+  backend; its returned text MUST be normalized (one
+  `<transcription>...</transcription>` block; explanatory prose, labels, and fences
+  stripped) before the plugin copies or injects it.
+  **Cmd+Shift+X "Snip PDF Region to Chat" (v0.28.0)** routes by the *main chat
+  model's* vision capability instead (SYSTEM_BEHAVIOR §26.2a): a vision-capable
+  main model receives the crop image DIRECTLY via the interactive chat image
+  channel (§2.1.3) with NO `wiki plugin pdf transcribe` round-trip; a non-vision
+  main model falls back to `wiki plugin pdf transcribe` (text injected, image
+  dropped). The pymupdf `regionText` is retained as a caption in both cases.
 - `deepseekApiKey` is device-local secret material. It must not be written into
   shared vault config; backend config may instead reference `DEEPSEEK_API_KEY`
   through `llm.deepseek-api.api_key_env` or a local encrypted backend secret
@@ -506,6 +510,41 @@ model cannot be selected via the UI; the backend additionally validates vision a
 use and raises on a configured-but-non-vision model. (The plugin's interactive
 region surfaces consuming these values is a planned follow-up — see the §2.1
 region-extraction rule.)
+
+### 2.1.3 Interactive chat image channel (v0.28.0)
+
+When a chat turn carries an image (Cmd+Shift+X crop, pasted image, or PDF-page
+capture) and the active provider runs via CLI (`shouldUseCli` → antigravity,
+claude, codex; Ollama/DeepSeek use the HTTP image-block path), `LLMClient` MUST:
+
+- **Write** each image content part to `<repo>/.cache/cli/chat_images/<run-id>/`
+  (a gitignored, OS-sandbox-covered dir under `cliCacheBase()`) and reference it in
+  the CLI prompt by absolute path (e.g. "Read the image file at <path> …"),
+  mirroring the backend `vision.describe_image_via_cli` pattern. The OS sandbox
+  (§ v0.23.0) still wraps every invocation.
+- **Enable scoped `Read` for image-bearing turns ONLY**: drop `Read` from the
+  claude `--disallowedTools` denylist and add `--add-dir <chat_images dir>`;
+  antigravity reads natively under `--add-dir`; codex reads under
+  `--sandbox workspace-write` + `--add-dir`. DB-scoped MCP curator tools stay
+  available (denylist mode — NOT `--allowedTools`, which would drop MCP). The gate
+  is "any message in the assembled `LLMMessage[]` payload carries an image part": a
+  **text-only turn MUST keep the hardened denylist that lists `Read`** and MUST NOT
+  add the image dir.
+- **Honest scope.** For an image turn the grant is scoped `Read` over the whole
+  add-dir set (vault + Zotero + image dir), not just the image file — accepted by
+  the user; it is OS-sandboxed and confined to image-bearing turns.
+- **Cleanup.** Temp PNGs are removed in the outermost `finally` of the CLI/stream
+  call (success, error, AND abort); the per-run subdir is removed; stale
+  `chat_images/*` dirs are swept on plugin load. No temp image survives a completed
+  send.
+
+`ContextRef.pendingCropBase64` (a crop awaiting deferred handling) is resolved at
+send-time by `materializeContextRefs`: a **vision-capable** main model KEEPS
+`imageBase64` (so it flows through this channel) and retains `content`/`regionText`
+as a caption; a **non-vision** main model calls `transcribePdfCrop` and replaces
+`content` with the LaTeX (dropping `imageBase64`). The flag is cleared either way.
+The materialize step runs AFTER the assistant "Thinking…" message is rendered, so
+Send is never blocked by transcription/image work.
 
 ### 2.2 `SessionData`
 

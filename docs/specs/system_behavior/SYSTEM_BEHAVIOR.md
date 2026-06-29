@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.27.0)
+# Incurator - System Behavior (v0.28.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1760,19 +1760,50 @@ rendered page instead.
 - **Two optional config slots** (`llm`, `provider::model`, empty = disabled):
   - `vision_model` — heavy, layout-aware full-page model. Used by `add source` PDF
     ingest and standalone/markdown-linked image description.
-  - `latex_extract_model` — light region-OCR model for the plugin's interactive
-    surfaces (Cmd+Shift+X snip, Convert-to-LaTeX). Resolution is
+  - `latex_extract_model` — light region-OCR model for the plugin's right-click
+    **Convert-to-LaTeX** action. Resolution is
     `latex_extract_model → vision_model → (main chat model if vision-capable)`.
+    (v0.28.0: the Cmd+Shift+X **chat snip** no longer routes here when the main
+    chat model is vision-capable — see Interactive routing below.)
   - Both empty = pre-v0.22.0 behavior (pymupdf4llm ingest, main-model snip vision).
-- **Interactive routing.** The plugin's right-click Convert-to-LaTeX and
-  Cmd+Shift+X crop paths MUST call the backend `plugin pdf transcribe` resolver
-  instead of `LLMClient.complete` on the plugin main chat model. When a crop is
-  successfully transcribed, the chat context carries the transcription text and
-  MUST NOT also attach the crop image to the main chat model's vision path. The
-  interactive transcribe prompt asks for exactly one
-  `<transcription>...</transcription>` block; the backend normalizes the result
-  by extracting that block when present and stripping common explanatory prose,
-  labels, and fences before returning JSON to the plugin.
+- **Interactive routing (v0.28.0).** The split depends on the surface:
+  - **Right-click Convert-to-LaTeX** MUST call the backend `plugin pdf transcribe`
+    resolver (it wants a clean LaTeX artifact, not a chat answer). The interactive
+    transcribe prompt asks for exactly one `<transcription>...</transcription>`
+    block; the backend normalizes the result by extracting that block when present
+    and stripping common explanatory prose, labels, and fences before returning
+    JSON to the plugin.
+  - **Cmd+Shift+X "Snip PDF Region to Chat"** routes by the *main chat model's*
+    vision capability (`modelSupportsVision`):
+    - **Vision-capable main model** (antigravity / claude / codex CLI, or a vision
+      Ollama model): the crop image is passed DIRECTLY to that same model through
+      the chat CLI's scoped-Read image channel (see PLUGIN_SCHEMA "Interactive chat
+      image channel") — there is NO separate `plugin pdf transcribe` round-trip.
+      Rationale: in the default config the resolver's `main-if-vision` tail is the
+      same provider CLI the chat already uses, so transcribing first is the same
+      model invoked twice. The pymupdf text-layer `regionText` rides along as a
+      caption so a weak/non-vision turn still has text. This intentionally reverses
+      the pre-v0.28.0 rule that forbade attaching the crop image to the main chat
+      model.
+    - **Non-vision main model** (e.g. text-only Ollama): falls back to the
+      `plugin pdf transcribe` resolver; the transcription text enters the chat
+      context (image dropped), exactly as before v0.28.0.
+  - The deferred transcription/image work runs AFTER the chat's "Thinking…"
+    indicator is rendered, never blocking the Send action (fixes the v0.27.9
+    residual freeze where the VLM `await` ran before any UI feedback).
+- **Chat image channel & scoped Read (v0.28.0).** When a chat turn carries an image
+  (Cmd+Shift+X crop, pasted image, or PDF-page capture) and the provider runs via
+  CLI (`shouldUseCli`: antigravity/claude/codex), the image is written to
+  `<repo>/.cache/cli/chat_images/<run-id>/` and the CLI is invoked with `Read`
+  removed from its denylist plus `--add-dir <that dir>`, so the same model reads it —
+  mirroring the backend transcribe path (`ClaudeCodeClient._run_with_image_path`).
+  This grants the model scoped `Read` over the existing add-dir set (vault + Zotero +
+  image dir) **for image-bearing turns ONLY**; text-only turns keep the hardened
+  no-`Read` denylist verbatim. DB-scoped MCP curator tools remain available (denylist
+  mode, not `--allowedTools`). All invocations stay inside the OS sandbox (§ v0.23.0
+  CLI Provider Tool-Scope Sandbox). Temp PNGs are removed in a `finally`
+  (guaranteed on success, error, and abort); stale `chat_images/*` dirs are swept on
+  startup. No temp image survives a completed send.
 - **Always-on when configured (per source).** When `vision_model` is set, each
   `add source` PDF page is rendered (PyMuPDF `get_pixmap`, bounded `vision_render_dpi`
   default 170 + `vision_max_image_px` default 1600 longest-edge with downscale) and

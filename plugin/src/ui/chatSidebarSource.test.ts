@@ -344,7 +344,7 @@ describe("chat sidebar context chip source contract", () => {
     expect(snipBlock).not.toContain('getActivePdfContext("text")');
   });
 
-  it("materializeContextRefs handles deferred VLM transcription for pending crops", () => {
+  it("materializeContextRefs routes crops by main-model vision (v0.28.0): direct image vs transcribe", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
 
@@ -352,14 +352,56 @@ describe("chat sidebar context chip source contract", () => {
       source.indexOf("private async materializeContextRefs("),
       source.indexOf("private async refreshPinnedContextRef(")
     );
-    // materializeContextRefs must detect pendingCropBase64 and call VLM.
+    // Still detects pending crops and clears the flag in both branches.
     expect(materializeBlock).toContain("out.pendingCropBase64");
-    expect(materializeBlock).toContain("this.plugin.transcribePdfCrop");
-    // On successful transcription, the image is dropped (LaTeX is sufficient).
-    expect(materializeBlock).toContain("out.imageBase64 = undefined");
-    // The pending flag must be cleared after processing.
     expect(materializeBlock).toContain("ref.pendingCropBase64 = undefined");
     expect(materializeBlock).toContain("delete out.pendingCropBase64");
+    // v0.28.0: branch on the MAIN chat model's vision capability.
+    expect(materializeBlock).toContain("mainChatModelSupportsVision()");
+    // Non-vision path still transcribes via the backend and drops the image.
+    expect(materializeBlock).toContain("this.plugin.transcribePdfCrop");
+    expect(materializeBlock).toContain("out.imageBase64 = undefined");
+    // The transcribe round-trip must be GUARDED by the vision check (not
+    // unconditional): vision keeps the image for the direct channel.
+    const visionIdx = materializeBlock.indexOf("mainChatModelSupportsVision()");
+    const transcribeIdx = materializeBlock.indexOf("this.plugin.transcribePdfCrop");
+    expect(visionIdx).toBeGreaterThanOrEqual(0);
+    expect(transcribeIdx).toBeGreaterThan(visionIdx);
+  });
+
+  it("mainChatModelSupportsVision() resolves the main chat model via modelSupportsVision", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const start = source.indexOf("private mainChatModelSupportsVision(");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const helper = source.slice(start, start + 320);
+    expect(helper).toContain("modelSupportsVision(");
+    expect(helper).toContain("this.plugin.settings.provider");
+    expect(helper).toContain("this.plugin.settings.model");
+  });
+
+  it("handleSend renders the thinking indicator BEFORE the deferred crop materialize (no Send freeze)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    // The v0.27.9 pattern (materialize inside the pre-render contextRefs literal)
+    // must be gone; the refs to send are snapshotted, then materialized later.
+    expect(source).not.toContain("...(await this.materializeContextRefs(this.pendingContextRefs)),");
+    expect(source).toContain("const pendingForSend = this.pendingContextRefs;");
+
+    const hs = source.indexOf("private async handleSend(");
+    expect(hs).toBeGreaterThanOrEqual(0);
+    const renderIdx = source.indexOf("this.renderMessages();", hs);
+    const matIdx = source.indexOf("await this.materializeContextRefs(", hs);
+    expect(renderIdx).toBeGreaterThan(hs);
+    expect(matIdx).toBeGreaterThan(renderIdx); // materialize AFTER the thinking render
+  });
+
+  it("Convert-to-LaTeX still routes through the backend transcribe resolver (no-regress)", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "externalPdfView.ts"), "utf8");
+    // The right-click Convert-to-LaTeX text path is OUT OF SCOPE and unchanged.
+    expect(source).toContain("transcribePdfRegion({ text:");
   });
 
   it("passes through PDF extraction failure messages without provider-coupled stripping", () => {
@@ -410,16 +452,27 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain('this.app.workspace.openLinkText(target.linkpath, "", false)');
   });
 
-  it("G14-1: buildLLMMessages is inside the try block so a context-build failure clears isStreaming (never stuck)", () => {
+  it("G14-1: deferred materialize AND buildLLMMessages are inside the try block so a context-build failure clears isStreaming (never stuck)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
 
-    // buildLLMMessages must be inside the try block that catches streaming errors,
-    // so any context-build failure reaches the catch that sets isStreaming = false.
-    // Regression guard: the version that placed buildLLMMessages BEFORE the try block
-    // left the assistant bubble in a permanent spinning state on context failure.
-    const tryIdx = source.indexOf("try {\n      const llmMessages = await this.buildLLMMessages(capturedActiveCtx);");
+    // Both the deferred crop materialize (v0.28.0) and buildLLMMessages must sit
+    // INSIDE the try block that catches streaming errors, so any context-build
+    // failure reaches the catch that sets isStreaming = false. Regression guard:
+    // a version that placed either BEFORE the try left the assistant bubble in a
+    // permanent spinning state on context failure.
+    const tryIdx = source.indexOf("try {\n      // Deferred crop materialization");
     expect(tryIdx).toBeGreaterThan(-1);
+    const materializeIdx = source.indexOf(
+      "const materialized = await this.materializeContextRefs(pendingForSend);",
+      tryIdx
+    );
+    const buildIdx = source.indexOf(
+      "const llmMessages = await this.buildLLMMessages(capturedActiveCtx);",
+      tryIdx
+    );
+    expect(materializeIdx).toBeGreaterThan(tryIdx);
+    expect(buildIdx).toBeGreaterThan(materializeIdx);
     // The old pre-try call site must not exist.
     expect(source).not.toContain("const llmMessages = await this.buildLLMMessages(capturedActiveCtx);\n    this.prepareStatusText");
   });

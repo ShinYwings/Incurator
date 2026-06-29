@@ -422,14 +422,18 @@ instead of burying it under the full-page background context. The crop never
 re-injects the entire page text (or its RAG hits) into the primary focus; the
 full page is still available separately as background context.
 
-PDF snips are also sent as image context when the selected model supports vision.
-If the active model is text-only, the snipped region text still grounds the
-answer, and sidechat tells the model that image details are unavailable instead
-of silently ignoring the crop. When a region is a scanned image with no
-selectable text, the crop falls back to an image-only reference that is *still*
-marked as the primary focus, so it is never buried. When the latest message
-already carries a user-selected crop/image, the plugin uses that local context
-as the fast path and skips backend whole-PDF context/RAG calls for that turn.
+**How the crop reaches the model (v0.28.0).** If your main chat model is
+vision-capable (Antigravity, Claude, Codex, or a vision Ollama model), the crop
+image is handed **directly** to that model — the chat reads it through a scoped,
+sandboxed image channel. There is **no separate transcription step**, so pressing
+Send shows "Thinking…" instantly instead of freezing while a backend model runs.
+If the active model is text-only, the crop falls back to backend transcription
+(its LaTeX/region text grounds the answer) and sidechat tells the model when image
+details are unavailable instead of silently ignoring the crop. The snipped region
+text always rides along as a caption, so even a scanned, text-less crop stays the
+primary focus and is never buried. When the latest message already carries a
+user-selected crop/image, the plugin uses that local context as the fast path and
+skips backend whole-PDF context/RAG calls for that turn.
 
 ---
 
@@ -502,13 +506,15 @@ separate from your main chat model. Two rows:
 - **PDF ingest model (full-page)** — when set, `wiki add`/Add Source transcribes
   each PDF page with this vision model so L1 gets proper LaTeX (instead of the
   approximate text-layer extraction). Leave empty to keep the fast pymupdf4llm path.
-- **LaTeX/region extract model (light)** — a small region-OCR model reserved for
-  interactive snips. Leave empty to fall back to the PDF ingest model. The
-  right-click **Convert to LaTeX** and **Cmd+Shift+X** snip paths call the backend
-  extractor, so a successful crop transcription is sent to chat as text instead of
-  being reinterpreted by the main chat model's vision path. The backend requests a
-  strict `<transcription>...</transcription>` block and strips common explanatory
-  prose before copying or injecting the result.
+- **LaTeX/region extract model (light)** — a small region-OCR model used by the
+  right-click **Convert to LaTeX** action (and as the text-only fallback for chat
+  snips). Leave empty to fall back to the PDF ingest model. Convert to LaTeX calls
+  the backend extractor, which requests a strict
+  `<transcription>...</transcription>` block and strips common explanatory prose
+  before copying the result. **Note (v0.28.0):** the **Cmd+Shift+X** chat snip no
+  longer routes here when your main chat model is vision-capable — that model now
+  reads the crop image directly (faster, no double round-trip). This light model
+  still applies when the chat model is text-only.
 
 Ingest vision runs on your existing provider's **CLI subscription** (Ollama, or the
 `claude`/`agy`/`codex` CLIs) — **no extra API keys**. Only vision-capable models

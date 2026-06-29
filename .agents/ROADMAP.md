@@ -28,6 +28,23 @@ _(empty — L2 extraction hotfix shipped in v0.27.2, see Completed Milestones.)_
 
 ### 🚀 Priority Order
 
+1. **[Minor Update] Chat Crop Vision-Passthrough (v0.28.0)** *(ACTIVE — planning)*
+   - Cmd+Shift+X "Snip PDF Region to Chat" currently round-trips the crop through
+     the backend `plugin pdf transcribe` VLM, which — in the default config —
+     resolves to the *same provider CLI* the chat already uses (proven:
+     `ClaudeCodeClient._run_with_image_path`). Result: the same model is called
+     twice and Send freezes ~1 min (v0.27.9 only relocated the block).
+   - Fix: when the main chat model is vision-capable and no dedicated
+     `latex_extract_model`/`vision_model` is configured, let the chat CLI read the
+     crop image directly (scoped `Read` on a `.cache` image dir, mirroring the
+     backend pattern) and skip the backend round-trip. Non-vision (Ollama) keeps
+     transcribe + deferred-to-thinking timing.
+   - Revises SYSTEM_BEHAVIOR §26.2a (currently mandates transcribe routing /
+     prohibits main-model crop vision). Convert-to-LaTeX + `add source` ingest
+     stay on the dedicated vision slots (out of scope).
+   - Master Plan: `.agents/plans/02_chat_crop_vision_passthrough.md`
+   - Branch: `feature/chat-crop-vision-passthrough`
+
 3. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
      redundancy, architectural debt) + refactoring with architectural redesign

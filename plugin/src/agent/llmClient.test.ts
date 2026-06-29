@@ -331,6 +331,49 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
   });
 });
 
+describe("chat image channel (v0.28.0)", () => {
+  const source = readFileSync(
+    join(fileURLToPath(new URL(".", import.meta.url)), "llmClient.ts"),
+    "utf8",
+  );
+
+  it("writes chat images to a per-run .cache/chat_images dir (not tmp_images) referenced by path", () => {
+    expect(source).toContain('"chat_images"');
+    expect(source).not.toContain('"tmp_images"');
+    // Path reference + Read instruction mirrors the backend describe_image_via_cli.
+    expect(source).toContain("Read the image file at ");
+  });
+
+  it("enables scoped Read for image turns only; text turns keep the hardened denylist", () => {
+    // text-only / default claude denylist still lists Read (unchanged v0.23.0 contract)
+    expect(source).toContain('"--disallowedTools", "Bash", "Read", "Write", "Edit", "WebFetch"');
+    // image-turn claude denylist DROPS Read (Read allowed); others stay denied
+    expect(source).toContain('"--disallowedTools", "Bash", "Write", "Edit", "WebFetch"');
+    // gated on whether the assembled payload carried an image
+    expect(source).toContain("hasImage");
+    expect(source).toContain("this._chatImagePaths");
+  });
+
+  it("adds the image dir to --add-dir without dropping the existing allowed roots", () => {
+    expect(source).toContain("ephemeral ? [] : this.allowedRoots().flatMap");
+    expect(source).toContain('addDirs.push("--add-dir"');
+  });
+
+  it("cleans up the per-call image dir and sweeps stale dirs on startup", () => {
+    expect(source).toContain("private cleanupChatImageDir(");
+    expect(source).toContain("rmSync");
+    expect(source).toContain("sweepStaleChatImages");
+  });
+
+  it("resets per-call image state when (re)building the CLI prompt", () => {
+    const start = source.indexOf("private messagesToCliPrompt(");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const block = source.slice(start, start + 420);
+    expect(block).toContain("this._chatImageRunDir = null");
+    expect(block).toContain("this._chatImagePaths = []");
+  });
+});
+
 describe("output-token truncation detection (v0.24.0)", () => {
   const sse = (obj: unknown) => `data: ${JSON.stringify(obj)}`;
 
