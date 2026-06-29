@@ -489,7 +489,9 @@ def durable_l1_section(
     return None
 
 
-def _safe_pdf_page_cache_key(content_hash: str) -> str:
+def _safe_pdf_page_cache_key(content_hash: str | None) -> str:
+    if not isinstance(content_hash, str):
+        return ""
     value = content_hash.strip()
     if value and all(c in "0123456789abcdefABCDEF" for c in value):
         return value
@@ -500,7 +502,7 @@ def _parse_pdf_pages_cached(
     paths: cfg.WikiPaths,
     pdf_path: Path,
     page_numbers: set[int],
-    content_hash: str,
+    content_hash: str | None,
 ) -> dict[int, str]:
     from .parsers.pdf import parse_page_window
 

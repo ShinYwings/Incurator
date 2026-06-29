@@ -135,7 +135,13 @@ describe("Quick Query PDF reference fetch", () => {
     expect(body).toContain("zoteroAttachmentKey: pdf.zoteroAttachmentKey");
     expect(body).toContain("radius: 0");
     expect(body).toContain("maxPages: 1");
+    expect(body).toContain("try {");
+    expect(body).toContain("} catch (err) {");
+    expect(body).toContain("falling back to PDF.js viewer");
     expect(body.indexOf("this.incuratorClient.getPdfContext({")).toBeLessThan(
+      body.indexOf("pdfView.fetchPage(pageNum)")
+    );
+    expect(body.indexOf("} catch (err) {")).toBeLessThan(
       body.indexOf("pdfView.fetchPage(pageNum)")
     );
   });

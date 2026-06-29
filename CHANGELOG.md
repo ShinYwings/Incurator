@@ -21,10 +21,14 @@ All notable changes to Incurator are documented here.
   pastes, PDF-page captures) are written to `<repo>/.cache/cli/chat_images/<run>/`
   and referenced by path; image-bearing CLI turns enable scoped `Read` +
   `--add-dir <that dir>` (claude drops `Read` from its denylist only for those
-  turns) so the same model can open them. Text-only turns keep the hardened
-  no-`Read` denylist; DB-scoped MCP curator tools stay available; every invocation
-  stays inside the OS sandbox (v0.23.0). Temp PNGs are removed in the CLI/stream
-  `finally` (success, error, abort) and stale dirs are swept on startup.
+  turns) so the same model can open them. For claude — the only provider whose
+  `Read` is denied by default — the image-turn `--add-dir` is confined to JUST the
+  image dir (NOT the broad allowed roots), so the re-enabled `Read` cannot reach
+  arbitrary vault/Zotero files and the v0.23.0 no-vault-read hardening still holds.
+  Text-only turns keep the hardened no-`Read` denylist; DB-scoped MCP curator tools
+  stay available; every invocation stays inside the OS sandbox (v0.23.0). Temp PNGs
+  are removed in the CLI/stream `finally` (success, error, abort) — including when
+  pre-spawn setup throws — and stale dirs are swept on startup.
 
 ### Fixed
 - **Send no longer freezes for ~1 minute on a PDF crop.** v0.27.9 only relocated
@@ -48,7 +52,8 @@ All notable changes to Incurator are documented here.
   source or file hash is available, so repeated page lookups avoid reparsing
   PDFs. `04_Resources` Reference Mode stubs keep portable identity only; absolute
   local paths remain per-device backend hints and are not written to synced
-  stubs.
+  stubs. Missing or invalid PDF content hashes no longer crash page lookup, and
+  backend/network failures now fall through to the open PDF.js viewer.
 - **Runtime temp/cache files stay inside Incurator-owned roots.** PDF crop
   transcription now writes temporary images under the vault's
   `.curator/runtime/pdf_crops/`; plugin CLI cache falls back to

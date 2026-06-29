@@ -532,9 +532,17 @@ claude, codex; Ollama/DeepSeek use the HTTP image-block path), `LLMClient` MUST:
   is "any message in the assembled `LLMMessage[]` payload carries an image part": a
   **text-only turn MUST keep the hardened denylist that lists `Read`** and MUST NOT
   add the image dir.
-- **Honest scope.** For an image turn the grant is scoped `Read` over the whole
-  add-dir set (vault + Zotero + image dir), not just the image file — accepted by
-  the user; it is OS-sandboxed and confined to image-bearing turns.
+- **Confined claude Read scope.** claude is the only provider whose `Read` is
+  denied by default, so it is the only one re-enabling `Read` on an image turn.
+  For that turn the claude `--add-dir` MUST be confined to JUST the `<chat_images
+  dir>` — NOT the broad allowed roots (vault + Zotero) — so the re-enabled `Read`
+  cannot reach arbitrary vault/Zotero files (claude has no blanket permission
+  bypass, so an out-of-add-dir `Read` would prompt/deny). This preserves the
+  v0.23.0 no-vault-read hardening for image turns. antigravity/codex keep their
+  existing broad add-dir set (they always have native file reads; OS-sandboxed).
+- **Cleanup robustness.** Cleanup (below) MUST also run if pre-spawn setup
+  (`getCliCwd`/`buildCliCommand`) throws synchronously before any child spawns, since
+  no `close`/`error` event fires in that case.
 - **Cleanup.** Temp PNGs are removed in the outermost `finally` of the CLI/stream
   call (success, error, AND abort); the per-run subdir is removed; stale
   `chat_images/*` dirs are swept on plugin load. No temp image survives a completed
@@ -1756,6 +1764,9 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     popover `--tools ""` (no tools); sidechat `--disallowedTools Bash Read Write Edit
     WebFetch` (only the DB-scoped MCP curator tools remain; the plugin's
     `ai-agent-edit` loop performs vault edits, so native fs tools are unnecessary).
+    Image-bearing turns are the one exception (§2.1.3): `Read` is re-enabled but
+    `--add-dir` is confined to the per-run `chat_images` dir, so the read grant
+    cannot reach the broad allowed roots.
   - **codex** — `--sandbox read-only` (popover) / `workspace-write` + `--add-dir
     <root>` per allowed root (sidechat).
 - **OS-level sandbox (`src/agent/sandboxWrapper.ts`)** wraps EVERY CLI subprocess,

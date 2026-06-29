@@ -1424,17 +1424,21 @@ export default class ObsidianAIAgent extends Plugin {
   async fetchActivePdfPage(pageNum: number): Promise<string | undefined> {
     const pdf = this.activeContext.pdfPage;
     if (this.incuratorClient?.available && pdf) {
-      const backendCtx = await this.incuratorClient.getPdfContext({
-        filePath: pdf.filePath,
-        fileHash: pdf.fileHash,
-        zoteroAttachmentKey: pdf.zoteroAttachmentKey,
-        pageNum,
-        radius: 0,
-        maxPages: 1,
-      });
-      const exact = backendCtx?.pages.find((page) => page.pageNum === pageNum);
-      const text = exact?.text?.trim();
-      if (text) return text;
+      try {
+        const backendCtx = await this.incuratorClient.getPdfContext({
+          filePath: pdf.filePath,
+          fileHash: pdf.fileHash,
+          zoteroAttachmentKey: pdf.zoteroAttachmentKey,
+          pageNum,
+          radius: 0,
+          maxPages: 1,
+        });
+        const exact = backendCtx?.pages.find((page) => page.pageNum === pageNum);
+        const text = exact?.text?.trim();
+        if (text) return text;
+      } catch (err) {
+        logger.warn("Backend PDF page fetch failed; falling back to PDF.js viewer:", err);
+      }
     }
 
     const pdfView = this.app.workspace.getActiveViewOfType(ExternalPdfView);

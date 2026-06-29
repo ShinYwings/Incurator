@@ -1105,21 +1105,35 @@ export class LLMClient {
       const provider = this.settings.provider;
       const prompt = this.messagesToCliPrompt(messages);
       const imageRunDir = this._chatImageRunDir;
-      const cwd = this.getCliCwd();
-      const outputFile =
-        provider === "openai"
-          ? join(
-              cwd,
-              `codex-output-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`
-            )
-          : undefined;
-      const { command, args, env, stdin } = this.buildCliCommand(
-        prompt,
-        outputFile,
-        provider,
-        true,
-        toolPolicy
-      );
+      let cwd: string;
+      let outputFile: string | undefined;
+      let command: string;
+      let args: string[];
+      let env: Record<string, string> | undefined;
+      let stdin: string | undefined;
+      try {
+        cwd = this.getCliCwd();
+        outputFile =
+          provider === "openai"
+            ? join(
+                cwd,
+                `codex-output-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`
+              )
+            : undefined;
+        ({ command, args, env, stdin } = this.buildCliCommand(
+          prompt,
+          outputFile,
+          provider,
+          true,
+          toolPolicy
+        ));
+      } catch (err) {
+        // Synchronous setup failed before any child spawn, so neither "close"
+        // nor "error" will fire — clean the image dir here so it never leaks.
+        this.cleanupChatImageDir(imageRunDir);
+        reject(err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
 
       let fullOutput = "";
       let fullStdout = "";
@@ -1934,6 +1948,15 @@ export class LLMClient {
           : hasImage
             ? ["--disallowedTools", "Bash", "Write", "Edit", "WebFetch"]
             : ["--disallowedTools", "Bash", "Read", "Write", "Edit", "WebFetch"];
+        // claude controls reads via the tool surface + --add-dir (no blanket
+        // permission bypass here, so an out-of-add-dir Read would prompt/deny).
+        // When Read is enabled for an image turn, confine --add-dir to JUST the
+        // scoped image dir instead of the broad allowed roots (vault + Zotero),
+        // so the v0.23.0 no-vault-read hardening still holds for image turns.
+        const claudeAddDirs =
+          !ephemeral && hasImage && imageRunDir
+            ? ["--add-dir", imageRunDir]
+            : addDirs;
         base = {
           command: "claude",
           args: [
@@ -1942,7 +1965,7 @@ export class LLMClient {
             "--model", model,
             "--effort", this.settings.claudeEffort,
             ...toolArgs,
-            ...addDirs, // empty in ephemeral (tool-free popover) mode
+            ...claudeAddDirs, // image turns: scoped image dir only (Read is enabled)
             "--output-format", "stream-json",
             "--verbose",
             "--include-partial-messages",

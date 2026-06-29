@@ -358,9 +358,32 @@ describe("chat image channel (v0.28.0)", () => {
     expect(source).toContain("this._chatImagePaths");
   });
 
-  it("adds the image dir to --add-dir without dropping the existing allowed roots", () => {
+  it("adds the image dir to --add-dir without dropping the existing allowed roots (agentic CLIs)", () => {
     expect(source).toContain("ephemeral ? [] : this.allowedRoots().flatMap");
     expect(source).toContain('addDirs.push("--add-dir"');
+  });
+
+  it("confines claude's image-turn --add-dir to the scoped image dir (no broad vault Read)", () => {
+    // claude is the only provider that denies Read by default, so it is the only
+    // one that re-enables Read for image turns. That Read MUST be scoped to the
+    // image dir, not the broad allowed roots (vault + Zotero) — otherwise an
+    // image turn could Read any vault file (defeats the v0.23.0 hardening).
+    const start = source.indexOf('case "claude": {');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const block = source.slice(start, source.indexOf('case "openai":', start));
+    expect(block).toContain("const claudeAddDirs =");
+    expect(block).toContain("hasImage && imageRunDir");
+    expect(block).toContain('["--add-dir", imageRunDir]');
+    expect(block).toContain("...claudeAddDirs");
+    // The broad allowed-roots spread must NOT be what the claude branch emits.
+    expect(block).not.toContain("...addDirs,");
+  });
+
+  it("cleans up the per-call image dir if streaming setup throws before spawn", () => {
+    // getCliCwd()/buildCliCommand() can throw synchronously (e.g. no repo/vault
+    // root). No child spawns, so neither close nor error fires — the setup must
+    // be guarded so the image dir never leaks.
+    expect(source).toContain("this.cleanupChatImageDir(imageRunDir);\n        reject(");
   });
 
   it("cleans up the per-call image dir and sweeps stale dirs on startup", () => {

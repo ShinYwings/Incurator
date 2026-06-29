@@ -19,7 +19,14 @@ def _copy_db_to_repo_temp(db_path: Path) -> Path:
     )
     temp_db_path = Path(temp_file.name)
     temp_file.close()
-    shutil.copy2(db_path, temp_db_path)
+    try:
+        shutil.copy2(db_path, temp_db_path)
+    except Exception:
+        # Keep the helper atomic: a failed copy must not leave the empty
+        # placeholder file behind in .cache/zotero_sqlite/ (callers fall back
+        # to db_path on error and would never unlink it).
+        temp_db_path.unlink(missing_ok=True)
+        raise
     return temp_db_path
 
 def _hex_to_color_category(hex_color: str) -> str:

@@ -216,3 +216,24 @@ Follow-up in the same audit:
   - `scripts/backend-check pytest`: 1123 passed, 6 skipped, 5 xfailed
   - Root cache check: only `.cache/` exists; no `.pytest_cache`, `.ruff_cache`,
     or `.mypy_cache`.
+
+### Update (2026-06-29, Codex)
+
+Addressed PR review feedback for PDF context fallback robustness:
+- Backend PDF page cache helpers now tolerate missing or non-string content
+  hashes, skip cache writes without a valid hash, and parse the requested pages
+  directly instead of crashing on `.strip()`.
+- Plugin `fetchActivePdfPage()` now catches backend PDF context/network failures
+  and falls back to the open PDF.js viewer as intended.
+- Folded the remaining local review hardening into the same follow-up commit:
+  claude image-turn `--add-dir` is confined to the scoped image dir when `Read`
+  is re-enabled; pre-spawn CLI setup failures clean image temp dirs; Zotero
+  SQLite temp-copy failures remove placeholder files.
+- Changelog updated under v0.28.0.
+
+Validation:
+- `scripts/backend-check pytest backend/tests/test_zotero_tools.py backend/tests/test_plugin_pdf_context_identity.py backend/tests/test_spec_sync.py`: 31 passed
+- `npx vitest run -c ./vitest.config.ts src/agent/llmClient.test.ts src/mainSecurity.test.ts`: 63 passed
+- `scripts/backend-check ruff`: passed
+- `scripts/backend-check mypy`: passed
+- `./node_modules/.bin/tsc --noEmit -p tsconfig.json`: passed

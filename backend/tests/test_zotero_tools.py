@@ -229,3 +229,34 @@ def test_resolve_pdf_resolves_parent_item_key_to_child_attachment(
     assert result["path"] == str(pdf)
     assert result["attachment_key"] == "CHILD1"
     assert result["zotero_db"] == str(zotero_dir / "zotero.sqlite")
+
+
+def test_copy_db_to_repo_temp_cleans_up_on_copy_failure(tmp_path, monkeypatch) -> None:
+    """A failed copy must not leave an empty placeholder in .cache/zotero_sqlite/.
+
+    Callers fall back to the original db_path when the helper raises and only
+    unlink temp paths that differ from db_path, so a leaked placeholder would
+    never be cleaned up.
+    """
+    from curator import config as cfg
+    from curator import zotero
+
+    cache_parent = tmp_path / "config"
+    monkeypatch.setattr(cfg, "get_global_config_dir", lambda: cache_parent / "global")
+
+    src_db = tmp_path / "zotero.sqlite"
+    src_db.write_text("not-really-a-db", encoding="utf-8")
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(zotero.shutil, "copy2", _boom)
+
+    import pytest
+
+    with pytest.raises(OSError):
+        zotero._copy_db_to_repo_temp(src_db)
+
+    temp_dir = cache_parent / "zotero_sqlite"
+    leftovers = list(temp_dir.glob("*.sqlite")) if temp_dir.exists() else []
+    assert leftovers == [], f"copy failure leaked temp files: {leftovers}"
