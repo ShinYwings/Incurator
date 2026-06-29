@@ -163,6 +163,55 @@ def test_pdf_context_missing_l1_projection_degrades_to_read_only_parse(
 
 
 @patch("curator.parsers.pdf.parse_page_window", side_effect=_mock_page_window)
+@patch("curator.parsers.pdf.get_page_count", return_value=3)
+@patch("curator.parsers.pdf._extract_pdf_toc", return_value=[])
+@patch("curator.parsers.parse", side_effect=_mock_parsed_doc)
+def test_pdf_context_uses_content_hash_page_cache_for_repeated_page_fetch(
+    _mock_parse, _mock_toc, _mock_count, _mock_window, tmp_path: Path
+) -> None:
+    vault = tmp_path / "vault"
+    paths = cfg.WikiPaths(vault)
+    db.init_db(paths.state_db)
+
+    external = tmp_path / "outside" / "paper.pdf"
+    external.parent.mkdir(parents=True)
+    external.write_bytes(b"%PDF-1.4 mock")
+    outcome = ingest_raw.import_source_file(paths, external, policy="reference")
+    row = db.get_source_row(paths.state_db, paths.root, source_id=outcome.source_id)
+    assert row is not None
+    content_hash = str(row["content_hash"])
+
+    first = plugin_api.pdf_context(paths, source_id=outcome.source_id, page_num=1, radius=0)
+    assert first["ok"] is True
+    cache_file = vault / ".cache" / "pdf_pages" / content_hash / "1.txt"
+    assert cache_file.read_text(encoding="utf-8") == "Page 1"
+
+    _mock_window.side_effect = AssertionError("must use page cache")
+    second = plugin_api.pdf_context(paths, source_id=outcome.source_id, page_num=1, radius=0)
+    assert second["ok"] is True
+    assert second["pages"][0]["text"] == "Page 1"
+
+
+def test_pdf_page_cache_key_tolerates_missing_or_non_string_hash(tmp_path: Path) -> None:
+    paths = cfg.WikiPaths(tmp_path / "vault")
+    pdf = tmp_path / "outside" / "paper.pdf"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(b"%PDF-1.4 mock")
+
+    assert plugin_api._safe_pdf_page_cache_key(None) == ""
+    non_string_hash = 123
+    assert plugin_api._safe_pdf_page_cache_key(non_string_hash) == ""
+    assert plugin_api._safe_pdf_page_cache_key(f"  {_MOCK_HASH.upper()}  ") == _MOCK_HASH.upper()
+
+    with patch("curator.parsers.pdf.parse_page_window", return_value={2: "Page 2"}) as mock_window:
+        out = plugin_api._parse_pdf_pages_cached(paths, pdf, {2}, None)
+
+    assert out == {2: "Page 2"}
+    mock_window.assert_called_once_with(pdf, {2})
+    assert not (paths.root / ".cache" / "pdf_pages").exists()
+
+
+@patch("curator.parsers.pdf.parse_page_window", side_effect=_mock_page_window)
 @patch("curator.parsers.pdf.get_page_count", return_value=1)
 @patch("curator.parsers.pdf._extract_pdf_toc", return_value=[])
 def test_untracked_pdf_context_does_not_create_source_row(

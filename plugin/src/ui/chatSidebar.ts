@@ -986,9 +986,14 @@ export class ChatSidebarView extends ItemView {
 
     this.lastQueryTrace = null;
     const capturedActiveCtx = this.plugin.refreshActiveContext();
+    // v0.28.0: snapshot the refs to send THIS turn before non-pinned ones are
+    // cleared below, but DON'T materialize (crop VLM / image work) yet — that is
+    // deferred to AFTER the thinking indicator renders so Send never freezes
+    // (fixes the v0.27.9 residual block). Chips render now from the raw refs.
+    const pendingForSend = this.pendingContextRefs;
     const contextRefs = [
       ...this.buildAutoContextRefs(capturedActiveCtx),
-      ...(await this.materializeContextRefs(this.pendingContextRefs)),
+      ...pendingForSend,
     ].filter(shouldIncludeContext);
     const userMsg: ChatMessage = {
       id: this.generateId(),
@@ -1015,6 +1020,10 @@ export class ChatSidebarView extends ItemView {
       isStreaming: true,
     };
     this.messages.push(assistantMsg);
+    // Render the thinking indicator NOW, before the deferred materialize await,
+    // so Send is instant. Reset prepareStatusText so the "Thinking… (Ns)" timer
+    // starts fresh even if a prior send errored out with a stale status.
+    this.prepareStatusText = "";
     this.renderMessages();
     await this.persistCurrentSession();
 
@@ -1044,13 +1053,23 @@ export class ChatSidebarView extends ItemView {
       return;
     }
 
-    this.setPrepareStatus("Preparing context...");
-
     this.isGenerating = true;
     setIcon(this.sendBtn, "square");
     this.sendBtn.setAttribute("aria-label", "Stop generating");
 
     try {
+      // Deferred crop materialization runs HERE, during the visible thinking
+      // phase (vision → keep image, no backend round-trip; non-vision →
+      // transcribe). Refresh the user message's refs with the materialized
+      // content before building the LLM payload.
+      this.setPrepareStatus("Preparing context...");
+      const materialized = await this.materializeContextRefs(pendingForSend);
+      const finalRefs = [
+        ...this.buildAutoContextRefs(capturedActiveCtx),
+        ...materialized,
+      ].filter(shouldIncludeContext);
+      userMsg.contextRefs = finalRefs.length > 0 ? finalRefs : undefined;
+      await this.persistCurrentSession();
       const llmMessages = await this.buildLLMMessages(capturedActiveCtx);
       this.prepareStatusText = "";
       await this.streamAssistantWithContinuation(llmMessages, assistantMsg);
@@ -2080,26 +2099,38 @@ export class ChatSidebarView extends ItemView {
     };
   }
 
+  /** Whether the active MAIN chat model can receive images (vision-capable). */
+  private mainChatModelSupportsVision(): boolean {
+    return modelSupportsVision(
+      this.plugin.getAvailableModels(),
+      this.plugin.settings.provider,
+      this.plugin.settings.model
+    );
+  }
+
   private async materializeContextRefs(refs: ContextRef[]): Promise<ContextRef[]> {
     return Promise.all(
       refs.map(async (ref) => {
         let out = ref.isPinned ? await this.refreshPinnedContextRef(ref) : { ...ref };
 
-        // Deferred VLM transcription for PDF crops: the crop was captured
-        // instantly (Cmd+Shift+X) and the VLM call is deferred to here so
-        // the user sees the chip immediately instead of waiting.
-        // Each transcribePdfCrop writes to a unique tmp dir and is fully
-        // re-entrant, so multiple crops run in parallel safely.
+        // Deferred handling for PDF crops captured instantly via Cmd+Shift+X.
+        // v0.28.0: when the MAIN chat model is vision-capable, pass the crop image
+        // DIRECTLY (it flows through the CLI scoped-Read image channel) instead of a
+        // redundant backend transcribe round-trip that — in the default config —
+        // resolves to the same provider. regionText stays as a caption. A non-vision
+        // main model still transcribes to text (its only channel). Either branch runs
+        // AFTER the thinking indicator renders (handleSend), so Send never blocks.
         if (out.pendingCropBase64) {
-          const extracted = await this.plugin.transcribePdfCrop(out.pendingCropBase64);
-          if (extracted?.latex) {
-            out.content = extracted.latex;
-            // When LaTeX is available, drop the image so the main chat model
-            // does not re-interpret the crop visually.
-            out.imageBase64 = undefined;
+          if (!this.mainChatModelSupportsVision()) {
+            const extracted = await this.plugin.transcribePdfCrop(out.pendingCropBase64);
+            if (extracted?.latex) {
+              out.content = extracted.latex;
+              // Text-only model: drop the image it cannot use; LaTeX is the channel.
+              out.imageBase64 = undefined;
+            }
           }
-          // Clear the pending flag on the source ref so it won't re-run if
-          // the ref is pinned and sent again.
+          // Vision path keeps out.imageBase64 + out.content (regionText) as-is.
+          // Clear the pending flag so a pinned crop won't re-run on resend.
           ref.pendingCropBase64 = undefined;
           delete out.pendingCropBase64;
         }

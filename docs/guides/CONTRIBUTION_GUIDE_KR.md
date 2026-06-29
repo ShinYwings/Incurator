@@ -163,7 +163,7 @@ Incurator는 파이썬 백엔드 데몬(`backend/`)과 Obsidian 플러그인 클
 - **PR(Pull Request) 단위**: 백엔드와 플러그인의 변경 사항이 강하게 결합되는 기능(예: Reference Mode 추가 및 UI 연동)의 경우, 분리하지 않고 하나의 PR로 묶어 리뷰 컨텍스트를 유지하는 것을 권장합니다.
 - **빌드 및 환경 검증**: PR 제출 전 리포지토리 루트의 `./setup.sh` 스크립트를 실행하여 파이썬 패키지가 정상 설치되는지 확인하고, `plugin/` 디렉토리에서 `npm install && npm run build`를 실행해 플러그인 빌드에도 문제가 없는지 반드시 확인하십시오.
 - **린팅 및 타입 체크**: 파이썬 코드는 `backend/`에서 `ruff`와 `mypy`를 통과해야 하며, 플러그인 코드는 `plugin/`에서 타입스크립트 린트를 통과해야 합니다.
-- **백엔드 환경**: 리포지토리 루트의 `.venv`는 `./setup.sh`가 업데이트하는 service/runtime 환경입니다. 여기에는 백엔드 런타임 패키지와 플러그인 빌드만 들어가며 개발 검사용 도구는 넣지 않습니다. 리포지토리 루트의 `.venv-dev`는 개발 및 검증용 환경입니다. `pytest`, `ruff`, `mypy`, MCP 계약 검사를 위해 `backend[dev,mcp]`를 이 환경에 설치합니다. 백엔드 검사는 `scripts/backend-check pytest`, `scripts/backend-check ruff`, `scripts/backend-check mypy`로 실행하며, 이 helper가 `.venv-dev/bin`을 직접 호출합니다. `backend/` 아래에는 어떤 virtualenv, `uv.lock`, 도구 cache도 만들면 안 됩니다.
+- **백엔드 환경**: 리포지토리 루트의 `.venv`는 `./setup.sh`가 업데이트하는 service/runtime 환경입니다. 여기에는 백엔드 런타임 패키지와 플러그인 빌드만 들어가며 개발 검사용 도구는 넣지 않습니다. 리포지토리 루트의 `.venv-dev`는 개발 및 검증용 환경입니다. `pytest`, `ruff`, `mypy`, MCP 계약 검사를 위해 `backend[dev,mcp]`를 이 환경에 설치합니다. 백엔드 검사는 `scripts/backend-check pytest`, `scripts/backend-check ruff`, `scripts/backend-check mypy`로 실행하며, 이 helper가 `.venv-dev/bin`을 직접 호출하고 도구 cache는 리포지토리 `.cache/` 아래에 둡니다. `backend/` 아래에는 어떤 virtualenv, `uv.lock`, 도구 cache도 만들면 안 됩니다.
 - **타입 의존성**: 백엔드 `mypy`는 `backend/stubs/`를 검색 경로에 포함합니다. `types-PyYAML`처럼 배포된 타입 패키지가 있으면 우선 사용하고, 타입이 없는 런타임 라이브러리는 전역 missing import 억제 대신 코드가 실제로 사용하는 API만 좁게 모델링한 local stub을 추가합니다.
 
 ### 7.1 Backend/Client 경계

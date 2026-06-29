@@ -2,7 +2,6 @@
 import { logger } from "./src/utils/logger";
 import { promises as fs } from "fs";
 import { spawn } from "child_process";
-import { tmpdir } from "os";
 import { dirname, join } from "path";
 import {
   Plugin,
@@ -77,7 +76,7 @@ import {
   stampMathSourceData,
 } from "./src/utils/textUtils";
 import { rewriteCuratorLinks } from "./src/utils/curatorWikilinks";
-import { mergeSessionData, normalizeSessionData } from "./src/utils/sessionData";
+import { mergeSessionData, normalizeSessionData, sanitizeSessionDataForSync } from "./src/utils/sessionData";
 import {
   mergeDeviceRegistry,
   readSyncthingSnapshotWithStatus,
@@ -882,7 +881,13 @@ export default class ObsidianAIAgent extends Plugin {
   }
 
   async transcribePdfCrop(base64: string): Promise<{ latex: string; model?: string } | null> {
-    const tmpDir = await fs.mkdtemp(join(tmpdir(), "incurator-pdf-crop-"));
+    if (!this.vaultRoot) {
+      new Notice(this.formatPdfExtractionFailure("Vault root is unavailable"));
+      return null;
+    }
+    const baseDir = join(this.vaultRoot, ".curator", "runtime", "pdf_crops");
+    await fs.mkdir(baseDir, { recursive: true });
+    const tmpDir = await fs.mkdtemp(join(baseDir, "crop-"));
     const imageFile = join(tmpDir, "crop.png");
     try {
       await fs.writeFile(imageFile, Buffer.from(base64, "base64"));
@@ -1313,6 +1318,9 @@ export default class ObsidianAIAgent extends Plugin {
       await this.app.vault.adapter.mkdir(".curator");
     }
 
+    sessionData = sanitizeSessionDataForSync(sessionData);
+    this.sessionData = sessionData;
+
     await this.app.vault.adapter.write(
       this._sessionsPath,
       JSON.stringify(sessionData, null, 2)
@@ -1409,9 +1417,30 @@ export default class ObsidianAIAgent extends Plugin {
     return this.activeContext;
   }
 
-  /** Fetch any page's text from the currently open ExternalPdfView on demand.
-   *  Used by the async cross-reference resolver as a fallback for pages not yet in the window. */
+  /** Fetch any page's text for the active PDF on demand.
+   *  Quick-query cross-reference resolution uses the backend first so Reference
+   *  Mode identity, durable L1, and per-device PDF caches stay aligned with
+   *  sidechat. The open PDF.js viewer remains the fallback. */
   async fetchActivePdfPage(pageNum: number): Promise<string | undefined> {
+    const pdf = this.activeContext.pdfPage;
+    if (this.incuratorClient?.available && pdf) {
+      try {
+        const backendCtx = await this.incuratorClient.getPdfContext({
+          filePath: pdf.filePath,
+          fileHash: pdf.fileHash,
+          zoteroAttachmentKey: pdf.zoteroAttachmentKey,
+          pageNum,
+          radius: 0,
+          maxPages: 1,
+        });
+        const exact = backendCtx?.pages.find((page) => page.pageNum === pageNum);
+        const text = exact?.text?.trim();
+        if (text) return text;
+      } catch (err) {
+        logger.warn("Backend PDF page fetch failed; falling back to PDF.js viewer:", err);
+      }
+    }
+
     const pdfView = this.app.workspace.getActiveViewOfType(ExternalPdfView);
     if (!pdfView) return undefined;
     const page = await pdfView.fetchPage(pageNum);

@@ -99,6 +99,89 @@ describe("resolveSelectionReferencesAsync", () => {
     expect(fetch).toHaveBeenCalledWith(42);
   });
 
+  it("fetches a distant explicit page locator for an unresolved section pointer", async () => {
+    const fetch = vi.fn().mockImplementation(async (pn: number) => {
+      if (pn === 281) {
+        return "Section 11.1.2 Seven point correspondences. The fundamental matrix is computed from seven point pairs.";
+      }
+      return undefined;
+    });
+
+    const block = await resolveSelectionReferencesBlockAsync(
+      "참조 대상(Section 11.1.2, p281)",
+      {
+        windowPages: [page(527, "This page points back to Section 11.1.2, p281.")],
+        pageNum: 527,
+        pageCount: 700,
+        outline: [],
+      },
+      fetch
+    );
+
+    expect(fetch).toHaveBeenCalledWith(281);
+    expect(block).toContain('label="Section 11.1.2"');
+    expect(block).toContain('target_page="281"');
+    expect(block).toContain("seven point pairs");
+  });
+
+  it("fetches an outline-bounded range to resolve a distant bare equation label", async () => {
+    const fetch = vi.fn().mockImplementation(async (pn: number) => {
+      if (pn === 112) {
+        return "Seven-point algorithm\nx'^{T} F x = 0 \\quad (3.5)\nThe reduced fundamental matrix follows.";
+      }
+      return undefined;
+    });
+
+    const block = await resolveSelectionReferencesBlockAsync(
+      "(3.5)",
+      {
+        windowPages: [page(527, "This later page refers only to equation (3.5).")],
+        pageNum: 527,
+        pageCount: 700,
+        outline: [
+          { title: "3 Projective Geometry and Transformations", pageNum: 100, level: 0 },
+          { title: "4 Estimation", pageNum: 130, level: 0 },
+        ],
+      },
+      fetch
+    );
+
+    expect(fetch).toHaveBeenCalledWith(112);
+    expect(block).toContain('label="Equation 3.5"');
+    expect(block).toContain('target_page="112"');
+    expect(block).toContain("reduced fundamental matrix");
+  });
+
+  it("uses the exact ToC section before falling back to the whole chapter", async () => {
+    const fetch = vi.fn().mockImplementation(async (pn: number) => {
+      if (pn === 112) {
+        return "Section 3.5\nx'^{T} F x = 0 \\quad (3.5)";
+      }
+      return undefined;
+    });
+
+    const block = await resolveSelectionReferencesBlockAsync(
+      "(3.5)",
+      {
+        windowPages: [page(527, "This later page refers only to equation (3.5).")],
+        pageNum: 527,
+        pageCount: 700,
+        outline: [
+          { title: "3 Projective Geometry and Transformations", pageNum: 100, level: 0 },
+          { title: "3.5 The fundamental matrix", pageNum: 112, level: 1 },
+          { title: "3.6 Estimating F", pageNum: 115, level: 1 },
+          { title: "4 Estimation", pageNum: 130, level: 0 },
+        ],
+      },
+      fetch
+    );
+
+    const fetchedPages = fetch.mock.calls.map(([pn]) => pn);
+    expect(fetchedPages).toEqual([112, 113, 114]);
+    expect(fetchedPages).not.toContain(100);
+    expect(block).toContain('target_page="112"');
+  });
+
   it("does not call fetch when snippet is already present in windowPages", async () => {
     const fetch = vi.fn().mockResolvedValue(undefined);
     const result = await resolveSelectionReferencesAsync(

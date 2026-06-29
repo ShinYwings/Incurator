@@ -28,7 +28,7 @@ _(empty — L2 extraction hotfix shipped in v0.27.2, see Completed Milestones.)_
 
 ### 🚀 Priority Order
 
-3. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
+1. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
      redundancy, architectural debt) + refactoring with architectural redesign
      allowed; prompt-v2 for cross-model output consistency; legacy/dead-code sweep.
@@ -41,17 +41,17 @@ _(empty — L2 extraction hotfix shipped in v0.27.2, see Completed Milestones.)_
      excepts in cli.py/mcp_server.py/plugin_api.py, `model_setup.py`); XC-4 plugin
      timers/logging.
 
-4. **[Validation] `[[wikilink]]` Architecture Validation**
+2. **[Validation] `[[wikilink]]` Architecture Validation**
    - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
    - Validate `backend/src/curator/page_writer.py` and `sync.py` backlink parsing logic against `[[wikilink]]` syntax.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md` (Wikilink section)
 
-5. **[Minor Update] Chat Session Context Compaction**
+3. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-6. **[Minor Update] Vault Storage Governance & Quota Visibility**
+4. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`

@@ -489,6 +489,57 @@ def durable_l1_section(
     return None
 
 
+def _safe_pdf_page_cache_key(content_hash: str | None) -> str:
+    if not isinstance(content_hash, str):
+        return ""
+    value = content_hash.strip()
+    if value and all(c in "0123456789abcdefABCDEF" for c in value):
+        return value
+    return ""
+
+
+def _parse_pdf_pages_cached(
+    paths: cfg.WikiPaths,
+    pdf_path: Path,
+    page_numbers: set[int],
+    content_hash: str | None,
+) -> dict[int, str]:
+    from .parsers.pdf import parse_page_window
+
+    pages_needed = {int(page) for page in page_numbers if int(page) > 0}
+    if not pages_needed:
+        return {}
+
+    cache_key = _safe_pdf_page_cache_key(content_hash)
+    if not cache_key:
+        return parse_page_window(pdf_path, pages_needed)
+
+    cache_dir = paths.root / ".cache" / "pdf_pages" / cache_key
+    out: dict[int, str] = {}
+    missing: set[int] = set()
+    for page_num in pages_needed:
+        cache_file = cache_dir / f"{page_num}.txt"
+        try:
+            if cache_file.exists():
+                out[page_num] = cache_file.read_text(encoding="utf-8")
+            else:
+                missing.add(page_num)
+        except OSError:
+            missing.add(page_num)
+
+    if missing:
+        fetched = parse_page_window(pdf_path, missing)
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            for page_num, text in fetched.items():
+                (cache_dir / f"{page_num}.txt").write_text(text, encoding="utf-8")
+        except OSError:
+            pass
+        out.update(fetched)
+
+    return out
+
+
 def pdf_context(
     paths: cfg.WikiPaths,
     *,
@@ -504,7 +555,7 @@ def pdf_context(
     radius: int = 2,
     max_pages: int = 8,
 ) -> dict[str, Any]:
-    from .parsers.pdf import _extract_pdf_toc, get_page_count, parse_page_window
+    from .parsers.pdf import _extract_pdf_toc, get_page_count
     from .search import lexical_score
 
     resolved, row, resolve_error = _resolve_pdf_path(
@@ -594,7 +645,12 @@ def pdf_context(
             else:
                 window_set = set(range(1, min(max_pages * 3, total_pages) + 1))
 
-            page_texts = parse_page_window(resolved, window_set)
+            page_texts = _parse_pdf_pages_cached(
+                paths,
+                resolved,
+                window_set,
+                str(row.get("content_hash") or file_hash or ""),
+            )
             candidates = [
                 {
                     "page_num": int(p.get("page_number") or p.get("page") or p.get("page_num") or 0),
@@ -635,7 +691,7 @@ def pdf_context(
                 window_set = set(range(1, min(max_pages, total_pages) + 1))
 
             candidate_set = set(range(1, min(max_pages * 3, total_pages) + 1)) | window_set if query_text.strip() else window_set
-            page_texts = parse_page_window(resolved, candidate_set)
+            page_texts = _parse_pdf_pages_cached(paths, resolved, candidate_set, file_hash)
             if query_text.strip():
                 scored_pages = [(pn, text, lexical_score(text, query_text)) for pn, text in page_texts.items()]
                 scored_pages.sort(key=lambda x: x[2], reverse=True)

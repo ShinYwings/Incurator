@@ -4,6 +4,66 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.28.0] - 2026-06-29
+### Changed
+- **PDF chat crop (Cmd+Shift+X) now passes the image DIRECTLY to a vision-capable
+  main chat model instead of a redundant backend VLM round-trip.** The backend
+  `plugin pdf transcribe` resolver, in the default config, resolves to the SAME
+  provider CLI the chat already uses (`latex_extract_model → vision_model →
+  main-if-vision`) — so a crop was transcribed by one CLI call and then re-sent in
+  a second CLI call to the same model. Now, when the main chat model is
+  vision-capable (antigravity / claude / codex — all live-verified), the crop image
+  is read directly by that model through a scoped CLI image channel, with the
+  pymupdf region text riding along as a caption. A non-vision main model (text-only
+  Ollama) still falls back to backend transcription. (SYSTEM_BEHAVIOR §26.2a
+  revised; PLUGIN_SCHEMA §2.1.3 added.)
+- **Interactive chat image channel (claude/agy/codex CLI).** Chat images (crops,
+  pastes, PDF-page captures) are written to `<repo>/.cache/cli/chat_images/<run>/`
+  and referenced by path; image-bearing CLI turns enable scoped `Read` +
+  `--add-dir <that dir>` (claude drops `Read` from its denylist only for those
+  turns) so the same model can open them. For claude — the only provider whose
+  `Read` is denied by default — the image-turn `--add-dir` is confined to JUST the
+  image dir (NOT the broad allowed roots), so the re-enabled `Read` cannot reach
+  arbitrary vault/Zotero files and the v0.23.0 no-vault-read hardening still holds.
+  Text-only turns keep the hardened no-`Read` denylist; DB-scoped MCP curator tools
+  stay available; every invocation stays inside the OS sandbox (v0.23.0). Temp PNGs
+  are removed in the CLI/stream `finally` (success, error, abort) — including when
+  pre-spawn setup throws — and stale dirs are swept on startup.
+
+### Fixed
+- **Send no longer freezes for ~1 minute on a PDF crop.** v0.27.9 only relocated
+  the blocking VLM call to send-time, where it still ran BEFORE the "Thinking…"
+  indicator rendered, so Send looked frozen until transcription finished. The
+  deferred materialize now runs AFTER the assistant thinking message is rendered;
+  on the vision-passthrough path there is no transcription round-trip at all, so
+  Send is instant.
+- **Quick Query popover now follows distant PDF references.** A selected pointer
+  like `Section 11.1.2, p281` now treats the explicit page locator as a fetchable
+  target, while bare object labels like `(3.5)` use the PDF outline to fetch a
+  bounded candidate page range. Exact ToC section matches are tried before wider
+  chapter fallbacks, fetched in small batches, and stopped as soon as the target
+  is found, so the popover does not scan a large chapter before answering. The
+  fetched target text is sent in `<resolved_cross_references>` instead of
+  answering from only the current page window.
+- **PDF page fetches now share the backend page cache across sidechat and
+  popover.** Quick Query uses the same backend PDF context path as sidechat
+  before falling back to the open PDF.js viewer. Backend `plugin pdf context`
+  reads and writes `.cache/pdf_pages/<content_hash>/<page>.txt` when a registered
+  source or file hash is available, so repeated page lookups avoid reparsing
+  PDFs. `04_Resources` Reference Mode stubs keep portable identity only; absolute
+  local paths remain per-device backend hints and are not written to synced
+  stubs. Missing or invalid PDF content hashes no longer crash page lookup, and
+  backend/network failures now fall through to the open PDF.js viewer.
+- **Runtime temp/cache files stay inside Incurator-owned roots.** PDF crop
+  transcription now writes temporary images under the vault's
+  `.curator/runtime/pdf_crops/`; plugin CLI cache falls back to
+  `.curator/runtime/cli/` instead of OS temp when the repo path is unknown; backend
+  CLI logs/output and Zotero SQLite lock-bypass copies now live under repo
+  `.cache/`; and provider CLI subprocess `TMPDIR`/`TEMP`/`TMP` values point at
+  those allowed cache roots.
+
+---
+
 ## [0.27.9] - 2026-06-29
 ### Fixed
 - **PDF crop (Cmd+Shift+X) now shows the context chip instantly.** VLM

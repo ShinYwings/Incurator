@@ -312,22 +312,92 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
 
   it("realpaths sandbox paths so macOS firmlink (/var→/private/var) rules match", () => {
     // Seatbelt (subpath ...) only matches the REAL resolved path; an unresolved
-    // /var/folders rule would NOT match the kernel's /private/var/folders write, so a
-    // tmpdir-based getCliCwd (the default when incuratorRepoPath is unset) would have
-    // its output-file/mcp-config writes silently denied.
+    // path would not match the kernel's resolved write target, so cwd/output
+    // files/sandbox rules must all use the canonical path.
     expect(source).toContain("realOr(homedir())");
-    expect(source).toContain("realOr(tmpdir())");
+    expect(source).toContain("realOr(this.cliTempDir())");
     // getCliCwd() returns the canonical (realpath'd) path at the source, so cwd,
     // output files, and the sandbox rule all agree without per-call-site resolving.
     expect(source).toContain("realpathSync(dir)");
   });
 
   it("stores device-local CLI caches in the project .cache/, not ~/.incurator", () => {
-    // getCliCwd() now resolves to <repo>/.cache/cli (or the OS tmpdir), never ~/.
-    expect(source).toContain('join(repo, ".cache", "cli")');
-    expect(source).toContain('join(tmpdir(), "incurator-cli")');
+    // getCliCwd() now resolves to <repo>/.cache/cli or vault .curator/runtime/cli,
+    // never ~/ or OS tmp.
+    expect(source).toContain('join(configured, ".cache", "cli")');
+    expect(source).toContain('join(this.vaultRoot, ".curator", "runtime", "cli")');
+    expect(source).toContain('const dir = join(this.cliCacheBase(), "tmp")');
+    expect(source).toContain("tempEnv = { TMPDIR: tempDir, TEMP: tempDir, TMP: tempDir };");
+    expect(source).toContain("Incurator CLI cache requires either incuratorRepoPath or vault root.");
+    expect(source).not.toContain('join(tmpdir(), "incurator-cli")');
     expect(source).not.toContain('join(homedir(), ".incurator-obsidian-agent-cli")');
     expect(source).not.toContain('join(homedir(), ".incurator", "tmp_images")');
+  });
+});
+
+describe("chat image channel (v0.28.0)", () => {
+  const source = readFileSync(
+    join(fileURLToPath(new URL(".", import.meta.url)), "llmClient.ts"),
+    "utf8",
+  );
+
+  it("writes chat images to a per-run .cache/chat_images dir (not tmp_images) referenced by path", () => {
+    expect(source).toContain('"chat_images"');
+    expect(source).not.toContain('"tmp_images"');
+    // Path reference + Read instruction mirrors the backend describe_image_via_cli.
+    expect(source).toContain("Read the image file at ");
+  });
+
+  it("enables scoped Read for image turns only; text turns keep the hardened denylist", () => {
+    // text-only / default claude denylist still lists Read (unchanged v0.23.0 contract)
+    expect(source).toContain('"--disallowedTools", "Bash", "Read", "Write", "Edit", "WebFetch"');
+    // image-turn claude denylist DROPS Read (Read allowed); others stay denied
+    expect(source).toContain('"--disallowedTools", "Bash", "Write", "Edit", "WebFetch"');
+    // gated on whether the assembled payload carried an image
+    expect(source).toContain("hasImage");
+    expect(source).toContain("this._chatImagePaths");
+  });
+
+  it("adds the image dir to --add-dir without dropping the existing allowed roots (agentic CLIs)", () => {
+    expect(source).toContain("ephemeral ? [] : this.allowedRoots().flatMap");
+    expect(source).toContain('addDirs.push("--add-dir"');
+  });
+
+  it("confines claude's image-turn --add-dir to the scoped image dir (no broad vault Read)", () => {
+    // claude is the only provider that denies Read by default, so it is the only
+    // one that re-enables Read for image turns. That Read MUST be scoped to the
+    // image dir, not the broad allowed roots (vault + Zotero) — otherwise an
+    // image turn could Read any vault file (defeats the v0.23.0 hardening).
+    const start = source.indexOf('case "claude": {');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const block = source.slice(start, source.indexOf('case "openai":', start));
+    expect(block).toContain("const claudeAddDirs =");
+    expect(block).toContain("hasImage && imageRunDir");
+    expect(block).toContain('["--add-dir", imageRunDir]');
+    expect(block).toContain("...claudeAddDirs");
+    // The broad allowed-roots spread must NOT be what the claude branch emits.
+    expect(block).not.toContain("...addDirs,");
+  });
+
+  it("cleans up the per-call image dir if streaming setup throws before spawn", () => {
+    // getCliCwd()/buildCliCommand() can throw synchronously (e.g. no repo/vault
+    // root). No child spawns, so neither close nor error fires — the setup must
+    // be guarded so the image dir never leaks.
+    expect(source).toContain("this.cleanupChatImageDir(imageRunDir);\n        reject(");
+  });
+
+  it("cleans up the per-call image dir and sweeps stale dirs on startup", () => {
+    expect(source).toContain("private cleanupChatImageDir(");
+    expect(source).toContain("rmSync");
+    expect(source).toContain("sweepStaleChatImages");
+  });
+
+  it("resets per-call image state when (re)building the CLI prompt", () => {
+    const start = source.indexOf("private messagesToCliPrompt(");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const block = source.slice(start, start + 420);
+    expect(block).toContain("this._chatImageRunDir = null");
+    expect(block).toContain("this._chatImagePaths = []");
   });
 });
 

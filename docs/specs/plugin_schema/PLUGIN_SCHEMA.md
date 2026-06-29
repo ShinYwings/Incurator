@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.27.0)
+# Incurator Plugin Schema & API Contract (v0.28.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -295,14 +295,18 @@ Rules:
   configured in the Dashboard (§2.1.2) and are honored at the **backend `add source`
   ingest layer** and the plugin's interactive PDF extraction surfaces
   (SYSTEM_BEHAVIOR §26.2a). The plugin no longer persists a `latexModel` setting.
-  The interactive PDF right-click **Convert to LaTeX** and **Cmd+Shift+X** crop
-  paths call `wiki plugin pdf transcribe`, which resolves
+  The interactive PDF right-click **Convert to LaTeX** action calls
+  `wiki plugin pdf transcribe`, which resolves
   `latex_extract_model → vision_model → (main chat model if vision-capable)` in the
-  backend. A successful crop transcription MUST be sent to chat as text without
-  forwarding the crop image to the main chat model's vision path. The backend
-  transcription prompt requests one `<transcription>...</transcription>` block;
-  the returned text MUST be normalized so common explanatory prose, labels, and
-  fences are stripped before the plugin copies or injects it.
+  backend; its returned text MUST be normalized (one
+  `<transcription>...</transcription>` block; explanatory prose, labels, and fences
+  stripped) before the plugin copies or injects it.
+  **Cmd+Shift+X "Snip PDF Region to Chat" (v0.28.0)** routes by the *main chat
+  model's* vision capability instead (SYSTEM_BEHAVIOR §26.2a): a vision-capable
+  main model receives the crop image DIRECTLY via the interactive chat image
+  channel (§2.1.3) with NO `wiki plugin pdf transcribe` round-trip; a non-vision
+  main model falls back to `wiki plugin pdf transcribe` (text injected, image
+  dropped). The pymupdf `regionText` is retained as a caption in both cases.
 - `deepseekApiKey` is device-local secret material. It must not be written into
   shared vault config; backend config may instead reference `DEEPSEEK_API_KEY`
   through `llm.deepseek-api.api_key_env` or a local encrypted backend secret
@@ -507,6 +511,51 @@ use and raises on a configured-but-non-vision model. (The plugin's interactive
 region surfaces consuming these values is a planned follow-up — see the §2.1
 region-extraction rule.)
 
+### 2.1.3 Interactive chat image channel (v0.28.0)
+
+When a chat turn carries an image (Cmd+Shift+X crop, pasted image, or PDF-page
+capture) and the active provider runs via CLI (`shouldUseCli` → antigravity,
+claude, codex; Ollama/DeepSeek use the HTTP image-block path), `LLMClient` MUST:
+
+- **Write** each image content part to `<repo>/.cache/cli/chat_images/<run-id>/`
+  when `incuratorRepoPath` is known, otherwise to
+  `<vault>/.curator/runtime/cli/chat_images/<run-id>/`. These are the only
+  allowed temp/cache roots for plugin-created chat images. Reference the image in
+  the CLI prompt by absolute path (e.g. "Read the image file at <path> …"),
+  mirroring the backend `vision.describe_image_via_cli` pattern. The OS sandbox
+  (§ v0.23.0) still wraps every invocation.
+- **Enable scoped `Read` for image-bearing turns ONLY**: drop `Read` from the
+  claude `--disallowedTools` denylist and add `--add-dir <chat_images dir>`;
+  antigravity reads natively under `--add-dir`; codex reads under
+  `--sandbox workspace-write` + `--add-dir`. DB-scoped MCP curator tools stay
+  available (denylist mode — NOT `--allowedTools`, which would drop MCP). The gate
+  is "any message in the assembled `LLMMessage[]` payload carries an image part": a
+  **text-only turn MUST keep the hardened denylist that lists `Read`** and MUST NOT
+  add the image dir.
+- **Confined claude Read scope.** claude is the only provider whose `Read` is
+  denied by default, so it is the only one re-enabling `Read` on an image turn.
+  For that turn the claude `--add-dir` MUST be confined to JUST the `<chat_images
+  dir>` — NOT the broad allowed roots (vault + Zotero) — so the re-enabled `Read`
+  cannot reach arbitrary vault/Zotero files (claude has no blanket permission
+  bypass, so an out-of-add-dir `Read` would prompt/deny). This preserves the
+  v0.23.0 no-vault-read hardening for image turns. antigravity/codex keep their
+  existing broad add-dir set (they always have native file reads; OS-sandboxed).
+- **Cleanup robustness.** Cleanup (below) MUST also run if pre-spawn setup
+  (`getCliCwd`/`buildCliCommand`) throws synchronously before any child spawns, since
+  no `close`/`error` event fires in that case.
+- **Cleanup.** Temp PNGs are removed in the outermost `finally` of the CLI/stream
+  call (success, error, AND abort); the per-run subdir is removed; stale
+  `chat_images/*` dirs are swept on plugin load. No temp image survives a completed
+  send.
+
+`ContextRef.pendingCropBase64` (a crop awaiting deferred handling) is resolved at
+send-time by `materializeContextRefs`: a **vision-capable** main model KEEPS
+`imageBase64` (so it flows through this channel) and retains `content`/`regionText`
+as a caption; a **non-vision** main model calls `transcribePdfCrop` and replaces
+`content` with the LaTeX (dropping `imageBase64`). The flag is cleared either way.
+The materialize step runs AFTER the assistant "Thinking…" message is rendered, so
+Send is never blocked by transcription/image work.
+
 ### 2.2 `SessionData`
 
 Stored in a separate `sessions.json` file. It must never be merged into
@@ -560,6 +609,10 @@ Rules:
 - Sessions containing pinned `ContextRef` items with `backendStatus` must not
   assume that status is still current on next load; re-poll via
   `wiki plugin source status`.
+- Every `sessions.json` write, including first-write and legacy-migration
+  paths where no previous file can be merged, must pass through the sync
+  sanitizer. Device absolute paths in `ContextRef.filePath` and runtime-local
+  `backendStatus` fields must not be persisted as durable session identity.
 
 ### 2.3 `MCPServerConfig`
 
@@ -1171,7 +1224,9 @@ answer language.
 
 PDF crop images are temporary chat context. They may be sent as image parts to
 vision-capable models or represented as text fallback for non-vision models, but
-chat crop context must not leave durable images under `05_Assets`.
+chat crop context must not leave durable images under `05_Assets`. Any temporary
+crop file used for backend transcription must live under
+`<vault>/.curator/runtime/pdf_crops/` and be removed in a `finally` block.
 
 The Zotero linked attachment root is only the base path for Zotero
 `attachments:` linked-attachment records. Normal Zotero storage attachments use
@@ -1599,6 +1654,19 @@ one-off questions about a selected passage. It is gated by
   request and may include the active Markdown/PDF page, nearby PDF window pages,
   and available Markdown/PDF outline as background context. Background context
   must be marked as supplementary and must not override the selected passage.
+- If the selected PDF passage is a pointer with an explicit page locator (for
+  example `Section 11.1.2, p281`) or a bare numbered object (for example
+  `(3.5)`) and the Incurator PDF viewer is open, quick query may fetch distant
+  candidate pages on demand even when they are outside the nearby page window.
+  The fetch path must match sidechat: try backend PDF context first using the
+  richest available portable identity (`source_id`, file hash, vault relpath, or
+  Zotero attachment key; a local absolute path is only a per-device call hint),
+  then fall back to the open PDF.js viewer. To keep the popover responsive, the
+  resolver must use exact ToC section matches before wider chapter fallbacks,
+  fetch outline candidates in small batches, and stop as soon as the referenced
+  target is found. The fetched target text is supplied in
+  `<resolved_cross_references>` and must remain higher priority than generic
+  current-page background.
 - Follow-up questions asked in the same popover may include a short in-memory
   trace of prior quick-query turns from that popover only. Coexisting popovers
   must not share this trace. These turns are ephemeral and are not the
@@ -1696,6 +1764,9 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     popover `--tools ""` (no tools); sidechat `--disallowedTools Bash Read Write Edit
     WebFetch` (only the DB-scoped MCP curator tools remain; the plugin's
     `ai-agent-edit` loop performs vault edits, so native fs tools are unnecessary).
+    Image-bearing turns are the one exception (§2.1.3): `Read` is re-enabled but
+    `--add-dir` is confined to the per-run `chat_images` dir, so the read grant
+    cannot reach the broad allowed roots.
   - **codex** — `--sandbox read-only` (popover) / `workspace-write` + `--add-dir
     <root>` per allowed root (sidechat).
 - **OS-level sandbox (`src/agent/sandboxWrapper.ts`)** wraps EVERY CLI subprocess,
@@ -1731,8 +1802,10 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     Claude/Codex usable on platforms without an OS sandbox.
   - **Plugin CLI dir** — device-local CLI byproducts (codex output, generated
     `claude_mcp.json`, temp images) live in `<incuratorRepoPath>/.cache/cli/`
-    (gitignored, never synced into the vault), falling back to the OS temp dir when
-    the repo path is unset — NEVER under `~/.incurator`.
+    when the repo path is configured, otherwise in
+    `<vault>/.curator/runtime/cli/`. They must never fall back to the OS temp dir
+    or `~/.incurator`. CLI subprocess `TMPDIR`/`TEMP`/`TMP` are pointed at that
+    same CLI cache root's `tmp/` directory.
   - **Automatic** — the plugin generates the profile/binds with no manual user setup.
     The READ/visibility set (`--add-dir`) is `allowedRoots()` = realpath-resolved
     vault + Zotero + `storage/` (empty/undefined dropped — never `--add-dir ""`); the

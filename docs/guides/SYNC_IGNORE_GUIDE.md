@@ -177,7 +177,7 @@ testbed/
 tests/scenarios/
 build/
 dist/
-.ruff_cache/
+.cache/
 .lock/
 __pycache__/
 *.pyc

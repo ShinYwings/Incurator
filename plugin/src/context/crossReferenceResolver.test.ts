@@ -28,6 +28,12 @@ describe("extractReferences", () => {
     expect(refs.find((r) => r.kind === "page")?.printedPage).toBe(580);
   });
 
+  it("detects comma-separated section + page pointer", () => {
+    const refs = extractReferences("참조 대상(Section 11.1.2, p281)");
+    expect(refs.find((r) => r.kind === "section")?.sectionNumber).toBe("11.1.2");
+    expect(refs.find((r) => r.kind === "page")?.printedPage).toBe(281);
+  });
+
   it("detects figures, equations, tables, and theorem-likes", () => {
     expect(extractReferences("Figure 19.1")[0]).toMatchObject({
       kind: "figure",
@@ -209,11 +215,49 @@ describe("resolveReferences", () => {
     expect(figure?.sectionTitle).toContain("19.1");
   });
 
+  it("indexes display equation labels such as (3.5) as equation targets", () => {
+    const captionIndex = buildCaptionIndex([
+      { pageNum: 112, text: "x'^{T} F x = 0 \\quad (3.5)" },
+    ]);
+    const ctx = makeCtx({
+      captionIndex,
+      currentPage: 527,
+      getPageText: (n) => (n === 112 ? "x'^{T} F x = 0 \\quad (3.5)" : undefined),
+      searchPages: () => [],
+    });
+    const equation = resolveReferences(extractReferences("(3.5)"), ctx).find(
+      (r) => r.query.kind === "equation"
+    );
+    expect(equation?.method).toBe("caption-index");
+    expect(equation?.targetPage).toBe(112);
+    expect(equation?.snippet).toContain("(3.5)");
+  });
+
   it("marks references it cannot resolve as unresolved with low confidence", () => {
     const refs = extractReferences("see section Z9.9");
     const resolved = resolveReferences(refs, makeCtx());
     const section = resolved.find((r) => r.query.kind === "section");
     expect(section?.method).toBe("unresolved");
     expect(section?.targetPage).toBeUndefined();
+  });
+
+  it("uses a nearby explicit page locator as the target for an otherwise unresolved section", () => {
+    const refs = extractReferences("참조 대상(Section 11.1.2, p281)");
+    const ctx = makeCtx({
+      outline: [],
+      currentPage: 527,
+      searchPages: () => [],
+      getPageText: (n) =>
+        n === 281
+          ? "Section 11.1.2 Seven point correspondences. Compute the fundamental matrix."
+          : undefined,
+      pageCount: 700,
+    });
+    const resolved = resolveReferences(refs, ctx);
+    const section = resolved.find((r) => r.query.kind === "section");
+    const page = resolved.find((r) => r.query.kind === "page");
+    expect(section?.targetPage).toBe(281);
+    expect(section?.snippet).toContain("Seven point correspondences");
+    expect(page?.method).toBe("unresolved");
   });
 });

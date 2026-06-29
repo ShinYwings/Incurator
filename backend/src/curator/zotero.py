@@ -2,9 +2,32 @@ import sqlite3
 import json
 import shutil
 import tempfile
-import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+
+
+def _copy_db_to_repo_temp(db_path: Path) -> Path:
+    from . import config as cfg
+
+    temp_dir = cfg.get_global_config_dir().parent / "zotero_sqlite"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_file = tempfile.NamedTemporaryFile(
+        prefix="zotero-",
+        suffix=".sqlite",
+        delete=False,
+        dir=temp_dir,
+    )
+    temp_db_path = Path(temp_file.name)
+    temp_file.close()
+    try:
+        shutil.copy2(db_path, temp_db_path)
+    except Exception:
+        # Keep the helper atomic: a failed copy must not leave the empty
+        # placeholder file behind in .cache/zotero_sqlite/ (callers fall back
+        # to db_path on error and would never unlink it).
+        temp_db_path.unlink(missing_ok=True)
+        raise
+    return temp_db_path
 
 def _hex_to_color_category(hex_color: str) -> str:
     """Map Zotero hex color to a human-readable color category name."""
@@ -35,7 +58,8 @@ def get_zotero_annotations(
     zotero_data_dir: str = "",
 ) -> List[Dict[str, Any]]:
     """
-    Reads the locked Zotero SQLite database by copying it to /tmp,
+    Reads the locked Zotero SQLite database by copying it to the repo-local
+    `.cache/zotero_sqlite/` directory,
     and returns all annotations for a given PDF attachment key.
 
     Returns fields matching the Nunjucks template contract:
@@ -47,9 +71,8 @@ def get_zotero_annotations(
     if not db_path.exists():
         raise FileNotFoundError(f"Zotero database not found at {zotero_db_path}")
 
-    # Copy to bypass lock
-    temp_db_path = Path(tempfile.gettempdir()) / f"zotero_temp_{os.getpid()}.sqlite"
-    shutil.copy2(db_path, temp_db_path)
+    # Copy to bypass lock.
+    temp_db_path = _copy_db_to_repo_temp(db_path)
 
     conn = None
     try:
@@ -148,8 +171,7 @@ def get_zotero_attachment_path_from_db(zotero_db_path: str, attachment_key: str)
     if not db_path.exists():
         return None
 
-    temp_db_path = Path(tempfile.gettempdir()) / f"zotero_temp_{os.getpid()}.sqlite"
-    shutil.copy2(db_path, temp_db_path)
+    temp_db_path = _copy_db_to_repo_temp(db_path)
 
     conn = None
     try:
@@ -196,8 +218,7 @@ def resolve_pdf_attachment_for_key(
     if not db_path.exists():
         return None
 
-    temp_db_path = Path(tempfile.gettempdir()) / f"zotero_temp_{os.getpid()}.sqlite"
-    shutil.copy2(db_path, temp_db_path)
+    temp_db_path = _copy_db_to_repo_temp(db_path)
 
     conn = None
     try:

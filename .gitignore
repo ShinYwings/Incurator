@@ -14,9 +14,7 @@ build/
 !scripts/build/
 
 dist/
-.ruff_cache/
 .lock/
-.mypy_cache/
 .cursor/
 
 # OS

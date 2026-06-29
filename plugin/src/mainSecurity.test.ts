@@ -121,3 +121,57 @@ describe("G17-8: device registry writes use one async helper", () => {
     expect(src).not.toContain("fsSync.existsSync(dir)");
   });
 });
+
+describe("Quick Query PDF reference fetch", () => {
+  it("uses backend PDF context before falling back to PDF.js viewer fetch", () => {
+    const src = mainSource();
+    const methodStart = src.indexOf("async fetchActivePdfPage(pageNum: number)");
+    const methodEnd = src.indexOf("  /** Return the full document BM25 index", methodStart);
+    const body = src.slice(methodStart, methodEnd);
+
+    expect(body).toContain("this.incuratorClient.getPdfContext({");
+    expect(body).toContain("filePath: pdf.filePath");
+    expect(body).toContain("fileHash: pdf.fileHash");
+    expect(body).toContain("zoteroAttachmentKey: pdf.zoteroAttachmentKey");
+    expect(body).toContain("radius: 0");
+    expect(body).toContain("maxPages: 1");
+    expect(body).toContain("try {");
+    expect(body).toContain("} catch (err) {");
+    expect(body).toContain("falling back to PDF.js viewer");
+    expect(body.indexOf("this.incuratorClient.getPdfContext({")).toBeLessThan(
+      body.indexOf("pdfView.fetchPage(pageNum)")
+    );
+    expect(body.indexOf("} catch (err) {")).toBeLessThan(
+      body.indexOf("pdfView.fetchPage(pageNum)")
+    );
+  });
+});
+
+describe("Session sync path hygiene", () => {
+  it("sanitizes session data immediately before writing sessions.json", () => {
+    const src = mainSource();
+    const methodStart = src.indexOf("async saveSessionData(): Promise<void>");
+    const methodEnd = src.indexOf("  private async syncDeviceRegistryFromSyncthing", methodStart);
+    const body = src.slice(methodStart, methodEnd);
+
+    expect(src).toContain("sanitizeSessionDataForSync");
+    expect(body).toContain("sessionData = sanitizeSessionDataForSync(sessionData);");
+    expect(body.indexOf("sessionData = sanitizeSessionDataForSync(sessionData);")).toBeLessThan(
+      body.indexOf("this.app.vault.adapter.write(")
+    );
+  });
+});
+
+describe("Temporary file hygiene", () => {
+  it("stores PDF crop transcription temp files under vault .curator runtime", () => {
+    const src = mainSource();
+    const methodStart = src.indexOf("async transcribePdfCrop(base64: string)");
+    const methodEnd = src.indexOf("  private formatPdfExtractionFailure", methodStart);
+    const body = src.slice(methodStart, methodEnd);
+
+    expect(src).not.toContain('import { tmpdir } from "os";');
+    expect(body).toContain('join(this.vaultRoot, ".curator", "runtime", "pdf_crops")');
+    expect(body).toContain("await fs.mkdtemp(join(baseDir, \"crop-\"))");
+    expect(body).toContain("await fs.rm(tmpDir, { recursive: true, force: true });");
+  });
+});
