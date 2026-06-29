@@ -716,6 +716,9 @@ queue에 들어간 build 작업을 실제로 처리하려면 **Dashboard > Jobs 
 취소할 수 있고, 완료/실패/취소된 job은 **Rerun**으로 다시 queue에 넣을 수
 있습니다. 소스가 추적되기 시작하면 chip에는 위에서 설명한 비활성 **Added**
 badge가 표시됩니다.
+backend 등록은 성공했지만 search-index refresh 같은 non-fatal maintenance 단계가
+건너뛰어진 경우, backend는 등록을 실패시키지 않고 `warnings` 배열에 경고를 담아
+반환합니다.
 
 추가된 PDF에 포함된 이미지(figure, diagram)는 즉시 L1 단계에서 추출되어 vault에
 저장되고, 생성된 L1 context 페이지가 `![[...]]` 링크로 임베드합니다. 저장 위치는

@@ -804,6 +804,9 @@ wait for the whole DAG to finish; it registers the source, creates L1, and queue
 L2/L3. Use **Dashboard > Jobs > Run queued** when you want to actively drain the
 queued build work, or leave the queue for a backend worker to process. Once the
 source is tracked, the chip shows the inert **Added** badge described above.
+If backend registration succeeds but a non-fatal maintenance step such as the
+search-index refresh is skipped, the backend returns the warning in the
+`warnings` array instead of failing the registration.
 
 Images embedded in an added PDF (figures, diagrams) are extracted during the
 instant L1 step and saved into the vault so the generated L1 context page can

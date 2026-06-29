@@ -7,6 +7,7 @@ functions, and the MCP server can be migrated to the same functions later.
 from __future__ import annotations
 
 import re
+import sqlite3
 import time
 from pathlib import Path
 from typing import Any
@@ -249,10 +250,11 @@ def register_source(
         if not context_id:
             return {"ok": False, "source_id": source_id_int, "error": "L1 generation failed"}
 
+    warnings: list[str] = []
     try:
         search.update_index(paths, embed=False)
-    except Exception:
-        pass
+    except (OSError, sqlite3.Error, search.SearchBackendError) as exc:
+        warnings.append(f"Search index refresh skipped: {type(exc).__name__}: {exc}")
 
     job_ids: list[int] = []
     if build:
@@ -269,6 +271,7 @@ def register_source(
         "l2_l3_queued": bool(job_ids),
         "job_ids": job_ids,
         "jobs_pending": db.get_pending_jobs_for_source(paths.state_db, source_id_int),
+        "warnings": warnings,
     }
 
 
