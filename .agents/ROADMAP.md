@@ -38,8 +38,8 @@ _(empty — L2 extraction hotfix shipped in v0.27.2, see Completed Milestones.)_
    - Shipped so far: G17/G18/G19 (v0.27.3), G17 S3 (v0.27.4), **XC-1 error-handling
      slice 1 (data-pipeline, v0.27.5, PR #64)**, XC-1/XC-4 robustness
      slice 2 (model setup + plugin logging/timer audit, v0.27.6), DB-2 slices
-     1–2 (v0.27.7–v0.27.8), and G07-12 CLI best-effort warning visibility
-     (v0.28.1).
+     1–2 (v0.27.7–v0.27.8), G07-12 CLI best-effort warning visibility
+     (v0.28.1), and G08-5 plugin source-register warning visibility (v0.28.2).
      Remaining S2: god-file decomposition CM-1/PL-1/DB-2; XC-1 slices 2+ (god-file
      excepts in cli.py/mcp_server.py/plugin_api.py, `model_setup.py`); XC-4 plugin
      timers/logging.
@@ -150,9 +150,9 @@ No blocked items currently tracked.
   diagnosed; findings merged into `01_roadmap_evidence.md`. Tally: **10 S1, 118
   S2, 97 S3**.
 - **Phase B status**: S1 queue verified complete in the 0.25.4–0.25.8 release
-  chain. Current branch `fix/backend-exception-narrowing` handles G07-12: CLI
-  best-effort failures around MCP config sync and dashboard runtime snapshot
-  refresh now warn instead of disappearing. Version bumped to v0.28.1.
-- **Next actionable item**: after v0.28.1 ships, continue remaining S2 groups
+  chain. Current branch `fix/plugin-api-best-effort-warnings` handles G08-5:
+  plugin source registration now returns warnings for skipped non-fatal
+  search-index refreshes instead of swallowing them. Version bumped to v0.28.2.
+- **Next actionable item**: after v0.28.2 ships, continue remaining S2 groups
   (XC-1 broad-except narrowing in MCP/plugin API surfaces, CM-1/PL-1 god-file
   decomposition) or remaining G17 S3 cleanup.
