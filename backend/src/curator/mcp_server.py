@@ -27,6 +27,7 @@ from . import constants as consts
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -1463,10 +1464,11 @@ def build_server() -> FastMCP:
                 return {"ok": False, "source_id": source_id_int, "error": "L1 generation failed"}
 
         # Make the new L1 immediately searchable (BM25; skip slow embeddings).
+        warnings: list[str] = []
         try:
             search.update_index(paths, embed=False)
-        except Exception:
-            pass
+        except (OSError, sqlite3.Error, search.SearchBackendError) as exc:
+            warnings.append(f"Search index refresh skipped: {type(exc).__name__}: {exc}")
 
         job_ids: list[int] = []
         if build:
@@ -1479,6 +1481,7 @@ def build_server() -> FastMCP:
             "context_id": context_id,
             "l2_l3_queued": bool(job_ids),
             "job_ids": job_ids,
+            "warnings": warnings,
         }
 
     @mcp.tool()
