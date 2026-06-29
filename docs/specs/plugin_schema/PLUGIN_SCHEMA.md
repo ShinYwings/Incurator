@@ -128,6 +128,11 @@ under that folder instead of the default `05_Assets/<slug>/`. Contract:
   sanitized PDF filename stem to the `incuratorPdfAssetFolder` base folder when
   set, otherwise omits the flag. The per-source subfolder prevents generic
   extracted image filenames from colliding across differently named PDFs.
+- `source register` returns `warnings: string[]` on success. Non-fatal
+  maintenance failures, such as a skipped DB-native search-index refresh after
+  L1 generation, must be surfaced there instead of being silently swallowed.
+  Unexpected programming errors must still propagate to the CLI wrapper, which
+  returns the normal `{ok:false,error}` envelope.
 
 ### 1.2 AssetSource model & status key (Plan G target, vNEXT)
 

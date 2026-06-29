@@ -4,6 +4,15 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.28.2] - 2026-06-29
+### Fixed
+- **Plugin source registration no longer hides skipped search-index refreshes.**
+  `wiki plugin source register` now returns a success `warnings` array when L1
+  registration succeeds but the non-fatal DB-native search-index refresh is
+  skipped, and unexpected refresh errors are no longer swallowed.
+
+---
+
 ## [0.28.1] - 2026-06-29
 ### Fixed
 - **CLI best-effort maintenance failures are no longer silent.** `wiki init`
