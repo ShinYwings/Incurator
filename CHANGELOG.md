@@ -4,6 +4,25 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.28.1] - 2026-06-29
+### Fixed
+- **CLI best-effort maintenance failures are no longer silent.** `wiki init`
+  now warns when a known MCP client config target cannot be updated — including a
+  wrong-shaped config (e.g. a non-object top-level document or a non-object
+  `mcpServers` value, which previously raised an uncaught `TypeError`) — while
+  still continuing with other targets and completing vault initialization. `wiki
+  config provider` and project-scoped `wiki config set --local` now warn (never
+  crash) when expected dashboard runtime snapshot refresh failures occur — not
+  just write errors, but also a plugin-locked `state.sqlite` or, for `config
+  set --local`, a malformed merged config — without rolling back the
+  already-successful config write.
+- **Root-level plugin validation command works again.** `plugin/vitest.config.ts`
+  now pins the plugin directory as Vitest's root, so
+  `npx vitest run -c ./plugin/vitest.config.ts` discovers plugin tests when run
+  from the repository root.
+
+---
+
 ## [0.28.0] - 2026-06-29
 ### Changed
 - **PDF chat crop (Cmd+Shift+X) now passes the image DIRECTLY to a vision-capable
