@@ -151,9 +151,8 @@ No blocked items currently tracked.
   diagnosed; findings merged into `01_roadmap_evidence.md`. Tally: **10 S1, 118
   S2, 97 S3**.
 - **Phase B status**: S1 queue verified complete in the 0.25.4–0.25.8 release
-  chain. Current branch `fix/mcp-register-source-warnings` handles G08-5:
-  MCP `curator_register_source` now returns warnings for skipped non-fatal
-  search-index refreshes instead of swallowing them. Version bumped to v0.28.3.
-- **Next actionable item**: after v0.28.3 ships, continue remaining S2 groups
+  chain. Latest shipped slice: G08-5 MCP register-source warning visibility
+  in v0.28.3 (PR #73).
+- **Next actionable item**: continue remaining S2 groups
   (XC-1 broad-except narrowing in MCP/plugin API surfaces, CM-1/PL-1 god-file
   decomposition) or remaining G17 S3 cleanup.
