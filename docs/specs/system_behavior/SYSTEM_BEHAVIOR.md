@@ -1156,6 +1156,38 @@ failure marks the run `failed` and must not write a partial artifact.
 
 ## 16. `curate.yml` Compilation And Curation Plan
 
+### 16.0 Workspace Provisioning Contract
+
+- `wiki workspace init` and MCP `curator_workspace_init` create a workspace
+  `curate.yml` with a `vault_root` that anchors the vault-relative
+  `sources.include` and `sources.exclude` patterns.
+- **`vault_root` is device-portable.** `curate.yml` is a synced workspace
+  artifact, so `vault_root` is written **relative to the workspace directory**
+  (e.g. `../..` for a workspace under `01_Workspaces/<proj>/`) via
+  `os.path.relpath`, falling back to an absolute path only when no relative path
+  exists (e.g. a different Windows drive). A workspace **outside** the vault gets
+  the corresponding `../…` hop. This keeps the file valid across devices whose
+  vault is mounted at different absolute paths.
+- **Resolution precedence (unchanged authority, portable fallback).** The
+  `VAULT_ROOT` env var the MCP server is started with is authoritative and always
+  wins. `curate.yml.vault_root` is consulted only when `VAULT_ROOT` is absent
+  (standalone tool calls); a relative value is resolved against the workspace
+  directory that holds the `curate.yml`, never the process CWD. An absolute
+  `vault_root` is still honoured.
+- **Healing is non-destructive.** Re-running provisioning over an existing
+  `curate.yml` rewrites `vault_root` to the portable relative form only when the
+  current value does not resolve to the active vault; a value (relative or
+  absolute) that already resolves to this vault is preserved untouched.
+- Provisioning installs Curator-owned runtime files under `.agents/curator/` and
+  one selected top-level agent rule file: `CLAUDE.md` for `claude-code`, or
+  `AGENTS.md` for `codex` / `antigravity-cli`. Codex uses the workspace-agent
+  slug `codex`; the LLM provider slug `codex-cli` is only an accepted alias.
+- The managed top-level block is limited to Curator navigation, workspace check,
+  query fallback, and session-closeout rules. It must not reference Incurator
+  repository development workflow files such as `.agents/USER_REPORT.md`,
+  `.agents/ROADMAP.md`, `.agents/drafts/`, release plans, or changelog/version
+  procedures.
+
 ### 16.1 Compilation
 
 - `curate.yml` is parsed into a `CurateSpec` and compiled into a

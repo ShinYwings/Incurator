@@ -198,6 +198,20 @@ wiki workspace init <path/to/workspace> --agent <agent>
 
 `--project`는 프로젝트 고유 슬러그를 지정합니다. (기본값: 디렉토리 이름)
 
+`workspace init`은 선택한 에이전트의 top-level 룰 파일만 설치합니다. Codex와
+Antigravity는 둘 다 `AGENTS.md`를 사용하므로, 선택한 런타임이 그 파일의
+managed Curator block을 소유합니다. `CLAUDE.md`는 `--agent claude-code`일
+때만 작성됩니다. 생성되는 block에는 Curator navigation 규칙만 들어가며,
+Incurator 저장소의 release plan, roadmap, agent inbox 같은 개발 워크플로우
+파일을 가져오면 안 됩니다. `curate.yml`의 `vault_root` 필드는 vault 위치를
+기록합니다. 이 값은 **워크스페이스 디렉토리 기준 상대 경로**(예: `01_Workspaces/<proj>/`
+아래 워크스페이스라면 `../..`)로 작성되므로, vault가 기기마다 다른 절대 경로에
+마운트되더라도 동기화된 `curate.yml`이 그대로 유효합니다. 절대 경로도 동작합니다.
+MCP 서버가 실행 중일 때는 기기별 `VAULT_ROOT` 환경변수가 이 필드보다 우선하며,
+`vault_root`는 standalone 도구 호출 시에만 참조되는 fallback입니다. `workspace init`을
+다시 실행하면 정말로 stale해진 `vault_root`만 이식 가능한 상대 경로로 치유하고,
+이미 현재 vault로 해석되는 값은 건드리지 않습니다.
+
 > [!TIP]
 > **현재 워크스페이스 판별 기준**:
 > Curator는 **현재 디렉토리(CWD)**와 그 상위 디렉토리를 탐색하여 `curate.yml` 파일을 찾습니다. 프로젝트 폴더 안에 들어가 명령어를 실행하면 별도 지정 없이 자동으로 워크스페이스를 인식합니다.
@@ -257,7 +271,7 @@ LLM을 사용할 수 없는 경우, 프롬프트가 자동으로 출력되고 Cu
         └── session_closeout.md          # 세션 종료 체크리스트
 ```
 
-`.agents/curator/` 하위 파일은 Incurator가 소유하며, 매 init/sync 시 최신 템플릿으로 덮어씌워집니다. 에이전트 룰 파일의 managed block 외부 내용은 절대 수정되지 않습니다.
+`.agents/curator/` 하위 파일은 Incurator가 소유하며, 매 init/sync 시 최신 템플릿으로 덮어씌워집니다. 선택된 top-level 에이전트 룰 파일의 managed block 외부 내용은 절대 수정되지 않습니다.
 
 ---
 

@@ -4,6 +4,31 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.28.4] - 2026-07-01
+### Fixed
+- **`curate.yml.vault_root` is now device-portable.** Workspace provisioning
+  writes `vault_root` relative to the workspace directory (e.g. `../..` for an
+  in-vault workspace; the matching `../…` hop for a workspace outside the vault)
+  instead of baking in the generating device's absolute path, so a synced
+  `curate.yml` stays valid across machines whose vault lives at a different mount
+  point. The MCP fallback now resolves a relative `vault_root` against the
+  workspace directory rather than the process CWD, and re-running `workspace init`
+  heals only a genuinely stale `vault_root` while preserving any value (relative
+  or absolute) that already resolves to the active vault. The per-device
+  `VAULT_ROOT` env var remains authoritative when the MCP server is running.
+- **Workspace initialization no longer leaks Incurator repository workflow
+  rules into generated workspaces.** `wiki workspace init` and
+  `curator_workspace_init` now render only Curator navigation hooks into the
+  selected agent rule file, keep `curate.yml.vault_root` as the vault-root
+  source of truth, and avoid injecting repo-local roadmap, inbox, draft-plan, or
+  release-workflow instructions.
+- **Codex workspace provisioning uses the workspace-agent slug consistently.**
+  Codex client detection now resolves to `codex` rather than the LLM-provider
+  slug `codex-cli`, and shared `AGENTS.md` managed blocks are rendered only for
+  the selected/detected runtime instead of being overwritten by Antigravity.
+
+---
+
 ## [0.28.3] - 2026-06-29
 ### Fixed
 - **MCP source registration no longer hides skipped search-index refreshes.**
