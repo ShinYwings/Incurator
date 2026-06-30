@@ -285,6 +285,35 @@ def test_healing_preserves_correct_absolute_vault_root(tmp_path: Path) -> None:
     assert curate in result.preserved
 
 
+def test_healing_handles_backslash_absolute_fallback_without_regex_corruption(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # On Windows a cross-drive workspace falls back to an absolute vault_root with
+    # backslashes (e.g. C:\Users\...). Those chars (\U, \1) would be parsed as
+    # escape sequences / backreferences if the re.sub replacement were a plain
+    # string, raising re.error or corrupting the path. Healing must write it
+    # verbatim.
+    import curator.workspace.provisioner as prov
+
+    vault = tmp_path / "vault"
+    workspace = vault / consts.DIR_WORKSPACES / "proj"
+    prepare_workspace(vault_root=vault, workspace=workspace, agent=consts.AGENT_NONE)
+
+    curate = workspace / consts.FILE_CURATE_YML
+    stale = curate.read_text(encoding="utf-8").replace(
+        'vault_root: "../.."', 'vault_root: "/somewhere/stale"'
+    )
+    curate.write_text(stale, encoding="utf-8")
+
+    windows_path = r"C:\Users\1data\vault"
+    monkeypatch.setattr(prov, "portable_vault_root", lambda *a, **k: windows_path)
+
+    result = prepare_workspace(vault_root=vault, workspace=workspace, agent=consts.AGENT_NONE)
+
+    assert _vault_root_value(curate) == windows_path
+    assert curate in result.updated
+
+
 def test_portable_vault_root_helper_inside_vault(tmp_path: Path) -> None:
     vault = tmp_path / "vault"
     workspace = vault / "01_Workspaces" / "proj"

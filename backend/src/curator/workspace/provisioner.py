@@ -285,9 +285,12 @@ def _ensure_curate_yml(
                 result.preserved.append(curate_path)
                 return
             desired = portable_vault_root(vault_root, workspace)
+            # Pass the replacement as a callable so re.sub treats it literally —
+            # a Windows absolute-path fallback (e.g. C:\Users\...) would otherwise
+            # be parsed as escape sequences / backreferences in the template.
             healed = re.sub(
                 r"^vault_root:\s*.*$",
-                f'vault_root: "{desired}"',
+                lambda _match: f'vault_root: "{desired}"',
                 content,
                 count=1,
                 flags=re.MULTILINE,
