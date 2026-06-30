@@ -236,6 +236,21 @@ Choose `--agent` based on your agent runtime:
 
 `--project` sets a unique project slug (defaults to the directory name).
 
+`workspace init` installs the top-level rule file for the selected agent only.
+Codex and Antigravity both use `AGENTS.md`, so whichever runtime you select owns
+the managed Curator block in that file. `CLAUDE.md` is written only for
+`--agent claude-code`. The generated block contains Curator navigation rules
+only; it must not import Incurator repository development workflow files such as
+release plans, roadmaps, or agent inboxes. The `vault_root` field inside
+`curate.yml` records where the vault lives. It is written **relative to the
+workspace directory** (e.g. `../..` for a workspace under `01_Workspaces/<proj>/`)
+so the synced `curate.yml` stays valid across devices whose vault is mounted at
+different absolute paths; an absolute path also works. When the MCP server runs,
+the per-device `VAULT_ROOT` env var is authoritative and overrides this field —
+`vault_root` is only the fallback consulted for standalone tool calls. Re-running
+`workspace init` heals a genuinely stale `vault_root` to the portable relative
+form but leaves any value that already resolves to the current vault untouched.
+
 > [!TIP]
 > **How the System Detects the Workspace**:
 > The Curator identifies the "current" workspace by searching for a `curate.yml` file in your **Current Working Directory (CWD)** or its parent directories. You do not need to specify the workspace on every command.
@@ -294,7 +309,7 @@ If the LLM is unavailable, the copy-paste prompt is printed automatically and a 
         └── session_closeout.md          # End-of-session checklist
 ```
 
-Files under `.agents/curator/` are **owned by Incurator** and overwritten on every init/sync to propagate template updates. Your content outside the managed block in the top-level rule file is never modified.
+Files under `.agents/curator/` are **owned by Incurator** and overwritten on every init/sync to propagate template updates. Your content outside the managed block in the selected top-level rule file is never modified.
 
 ---
 

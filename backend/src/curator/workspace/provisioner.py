@@ -7,6 +7,7 @@ without overwriting user-authored rules outside managed blocks.
 from __future__ import annotations
 from .. import constants as consts
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -122,7 +123,7 @@ def prepare_workspace(
 _CLIENT_INFO_MAP = {
     consts.CLOUD_CLAUDE: consts.BACKEND_CLAUDE_CODE,
     consts.CLOUD_ANTIGRAVITY: consts.BACKEND_ANTIGRAVITY_CLI,
-    consts.AGENT_CODEX: consts.BACKEND_CODEX_CLI,
+    consts.AGENT_CODEX: consts.AGENT_CODEX,
 }
 
 
@@ -195,11 +196,17 @@ def _normalize_agent(agent: str) -> str:
 
 
         consts.CLOUD_ANTIGRAVITY: consts.BACKEND_ANTIGRAVITY_CLI,
+        consts.BACKEND_CODEX_CLI: consts.AGENT_CODEX,
     }
     normalized = aliases.get(normalized, normalized)
     if normalized not in VALID_AGENTS:
         raise ValueError(f"agent must be one of {sorted(VALID_AGENTS)}, got {agent!r}")
     return normalized
+
+
+def normalize_agent(agent: str) -> str:
+    """Return the canonical workspace agent slug for CLI/MCP input."""
+    return _normalize_agent(agent)
 
 
 def _template_root(template_root: Path | None = None) -> Path:
@@ -225,6 +232,39 @@ def _values(vault_root: Path, workspace: Path, agent: str) -> dict[str, str]:
     }
 
 
+def portable_vault_root(vault_root: Path, workspace: Path) -> str:
+    """Return a device-portable ``vault_root`` value for a workspace's curate.yml.
+
+    ``curate.yml`` is a synced workspace artifact, so an absolute path baked into
+    it breaks on every other device whose vault lives at a different mount point.
+    We instead store the path *relative to the workspace directory* (e.g. ``../..``
+    for an in-vault workspace under ``01_Workspaces/<proj>/``), which stays valid
+    across devices as long as the workspace and vault keep their relative layout —
+    the normal case for a Syncthing-style multi-device setup.
+
+    Falls back to the absolute path only when no relative path exists (e.g. the
+    workspace and vault sit on different Windows drives). The authoritative
+    per-device source remains the ``VAULT_ROOT`` env var; this field is the
+    fallback consulted when the MCP server is not running.
+    """
+    try:
+        rel = os.path.relpath(vault_root.resolve(), workspace.resolve())
+    except ValueError:
+        return str(vault_root.resolve())
+    return Path(rel).as_posix()
+
+
+def _vault_root_resolves_to(value: str, workspace: Path, vault_root: Path) -> bool:
+    """Return True when ``value`` (relative-to-workspace or absolute) is the vault."""
+    try:
+        candidate = Path(value).expanduser()
+        if not candidate.is_absolute():
+            candidate = workspace / candidate
+        return candidate.resolve() == vault_root.resolve()
+    except (OSError, ValueError, RuntimeError):
+        return False
+
+
 def _ensure_curate_yml(
     vault_root: Path,
     workspace: Path,
@@ -234,11 +274,26 @@ def _ensure_curate_yml(
 ) -> None:
     curate_path = workspace / consts.FILE_CURATE_YML
     if curate_path.exists() and not force:
-        # Heal stale vault_root without touching any other fields
+        # Heal stale vault_root without touching any other fields. A value that
+        # already resolves to this vault (relative *or* absolute) is preserved;
+        # only a genuinely stale path is rewritten to the portable relative form.
         try:
             content = curate_path.read_text(encoding="utf-8")
+            match = re.search(r"^vault_root:\s*(.*)$", content, flags=re.MULTILINE)
+            current = match.group(1).strip().strip("\"'") if match else ""
+            if current and _vault_root_resolves_to(current, workspace, vault_root):
+                result.preserved.append(curate_path)
+                return
+            desired = portable_vault_root(vault_root, workspace)
+            # Pass the replacement as a callable so re.sub treats it literally —
+            # a Windows absolute-path fallback (e.g. C:\Users\...) would otherwise
+            # be parsed as escape sequences / backreferences in the template.
             healed = re.sub(
-                r"^vault_root: .*$", f"vault_root: {vault_root}", content, flags=re.MULTILINE
+                r"^vault_root:\s*.*$",
+                lambda _match: f'vault_root: "{desired}"',
+                content,
+                count=1,
+                flags=re.MULTILINE,
             )
             if healed != content:
                 curate_path.write_text(healed, encoding="utf-8")
@@ -257,7 +312,7 @@ def _ensure_curate_yml(
     content = template.read_text(encoding="utf-8")
     content = content.replace("{{project_name}}", data.project)
     content = content.replace("{{description}}", data.description)
-    content = content.replace("{{vault_root}}", str(vault_root))
+    content = content.replace("{{vault_root}}", portable_vault_root(vault_root, workspace))
     content = re.sub(r"min_confidence: .+", f"min_confidence: {data.min_confidence:.2f}", content)
     if data.include_patterns:
         content = _replace_sources_include(content, data.include_patterns)
@@ -322,24 +377,15 @@ def _install_rule_templates(
         _write_file(workspace / dest, _render_template(src, values, template_root), result)
 
     if install_managed_block:
-        # Install managed blocks for ALL known agents — don't guess which one
-        # is connecting. Every agent session-start file gets the Curator block.
-        for _install_agent in (consts.BACKEND_CODEX_CLI, consts.BACKEND_CLAUDE_CODE, consts.BACKEND_ANTIGRAVITY_CLI):
-            try:
-                _target_path, _block_tmpl = top_level_target(_install_agent)
-                _block = _render_template(
-                    _block_tmpl,
-                    {**values, "agent_runtime": _install_agent},
-                    template_root,
-                )
-                _upsert_managed_block(workspace / _target_path, _block, _install_agent, result)
-            except Exception:
-                pass
+        target_path, block_tmpl = top_level_target(agent)
+        block = _render_template(block_tmpl, values, template_root)
+        _upsert_managed_block(workspace / target_path, block, agent, result)
 
 
 def top_level_target(agent: str) -> tuple[str, str]:
     """Return (rule_file_path, managed_block_template) for an agent."""
-    if agent == consts.BACKEND_CODEX_CLI or agent == consts.BACKEND_ANTIGRAVITY_CLI:
+    agent = _normalize_agent(agent)
+    if agent == consts.AGENT_CODEX or agent == consts.BACKEND_ANTIGRAVITY_CLI:
         return consts.FILE_AGENTS_MD, f"managed/{consts.FILE_AGENTS_MD}"
     if agent == consts.BACKEND_CLAUDE_CODE:
         return consts.FILE_CLAUDE_MD, f"managed/{consts.FILE_CLAUDE_MD}"

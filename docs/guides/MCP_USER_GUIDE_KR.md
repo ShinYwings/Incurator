@@ -302,7 +302,7 @@ wiki mcp install
 
 - **역할**: `curate.yml`, 에이전트 룰, Artist 페르소나를 자동 생성하며 새 워크스페이스를 초기화합니다. `curator_check_workspace`가 `curate.yml` 누락을 보고할 때, 또는 사용자가 워크스페이스를 Curator에 연결하려 할 때 호출합니다.
 - **파라미터**: `workspace_path` (절대 경로), `project` (슬러그), `description`, `domains` (목록), `topics` (목록), `min_confidence`.
-- **에이전트 자동 감지**: 연결된 클라이언트 런타임(Claude, Antigravity, Codex 등)을 자동 감지하여 해당 룰 파일을 설치합니다.
+- **에이전트 자동 감지**: 연결된 클라이언트 런타임(Claude, Antigravity, Codex 등)을 자동 감지하여 해당 룰 파일만 설치합니다. Codex와 Antigravity는 `AGENTS.md`를 공유하므로, 그 파일의 managed Curator block은 감지된 런타임 기준으로 렌더링됩니다. vault root는 서버를 시작할 때 지정한 `VAULT_ROOT` 환경변수에서 결정되며(우선), `curate.yml.vault_root`는 — 동기화된 여러 기기에서 이식 가능하도록 워크스페이스 디렉토리 기준 상대 경로로 작성됩니다 — standalone 도구 호출 시에만 쓰이는 fallback입니다.
 - **시나리오 처리**:
   - *빈 디렉토리* — 모든 파일을 새로 생성합니다.
   - *에이전트 룰만 있음* — LLM이 기존 룰 파일을 읽고 Curator hooks를 통합합니다. LLM 사용 불가 시 `integration_prompt`를 반환합니다.

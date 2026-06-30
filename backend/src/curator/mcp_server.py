@@ -190,7 +190,12 @@ def _resolve_paths(hint_path: str = "") -> cfg.WikiPaths:
             from . import curate_yml as _cym
             spec = _cym.load_curate_spec(ws_path)
             if spec and spec.vault_root:
-                vroot = Path(spec.vault_root).expanduser().resolve()
+                # vault_root is stored relative to the workspace dir for device
+                # portability; resolve it against ws_path, not the process CWD.
+                spec_root = Path(spec.vault_root).expanduser()
+                if not spec_root.is_absolute():
+                    spec_root = ws_path / spec_root
+                vroot = spec_root.resolve()
                 if (vroot / consts.INTERNAL_DIR / consts.SETTINGS_FILE).exists():
                     return cfg.paths_from_config(vroot)
                 raise RuntimeError(

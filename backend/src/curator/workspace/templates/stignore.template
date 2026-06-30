@@ -16,7 +16,7 @@ __pycache__/
 *.pyc
 .env
 
-// SQLite 임시 파일 (Incurator 프로젝트용)
+// SQLite 임시 파일 (Curator vault용)
 *.sqlite-*
 *.db-*
 

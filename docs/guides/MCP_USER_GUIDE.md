@@ -299,7 +299,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 - **Role**: Initialize a new workspace with `curate.yml`, agent rules, and an auto-generated Artist persona. Use this when `curator_check_workspace` reports a missing `curate.yml`, or when the user asks to connect a workspace to their Curator.
 - **Parameters**: `workspace_path` (absolute path), `project` (slug), `description`, `domains` (list), `topics` (list), `min_confidence`.
-- **Agent detection**: The connecting client runtime (Claude, Antigravity, Codex, etc.) is auto-detected and the matching rule file is installed.
+- **Agent detection**: The connecting client runtime (Claude, Antigravity, Codex, etc.) is auto-detected and only the matching rule file is installed. Codex and Antigravity share `AGENTS.md`; the managed Curator block in that file is rendered for the detected runtime. The vault root comes from the `VAULT_ROOT` env var the server is started with (authoritative); `curate.yml.vault_root` — written relative to the workspace dir so it stays portable across synced devices — is only the fallback for standalone tool calls.
 - **Scenario handling**:
   - *Empty directory* — everything is created from scratch.
   - *Agent-only* — existing rule file is modified by LLM to integrate Curator hooks; returns `integration_prompt` if LLM is unavailable.

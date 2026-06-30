@@ -40,11 +40,11 @@ from . import runtime_state
 from . import search
 from .workspace.provisioner import (
     CurateTemplateData,
-    VALID_AGENTS,
     default_project_name,
     detect_workspace_scenario,
     make_integration_copy_prompt,
     make_rule_integration_prompt,
+    normalize_agent,
     prepare_workspace,
     render_mcp_snippet,
     top_level_target,
@@ -5983,8 +5983,10 @@ def workspace_init(
             prompt_suffix=" [claude-code/codex/antigravity/none]: ",
         ).strip() or consts.BACKEND_CLAUDE_CODE
 
-    if agent not in VALID_AGENTS:
-        _err(f"Invalid --agent '{agent}'. Use: {' | '.join(sorted(VALID_AGENTS))}")
+    try:
+        agent = normalize_agent(agent)
+    except ValueError:
+        _err("Invalid --agent. Use: codex | claude-code | antigravity | none")
         raise typer.Exit(code=1)
 
     # 1b. Show scenario-appropriate intro message
@@ -7392,7 +7394,12 @@ def mcp_connect_cmd(
     min_confidence: float = typer.Option(0.60, "--min-confidence", help="curate.yml confidence floor."),
 ) -> None:
     """Prepare workspace rules and print an MCP snippet for one agent runtime."""
-    if agent == "none" or agent not in VALID_AGENTS:
+    try:
+        agent = normalize_agent(agent)
+    except ValueError:
+        _err("Invalid --agent. Use: codex | claude-code | antigravity")
+        raise typer.Exit(code=1)
+    if agent == "none":
         _err("Invalid --agent. Use: codex | claude-code | antigravity")
         raise typer.Exit(code=1)
 

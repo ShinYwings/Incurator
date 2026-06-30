@@ -24,7 +24,7 @@ __pycache__/
 *.pyc
 .env
 
-// SQLite temporary files (For Incurator project)
+// SQLite temporary files (for the Curator vault)
 *.sqlite-*
 *.db-*
 
