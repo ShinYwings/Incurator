@@ -22,7 +22,7 @@ If the response contains `needs_initialization: true`:
 4. Wait for their answer, then call `curator_workspace_init` again with the new answer and all previously `provided_so_far` answers.
 5. Repeat this step-by-step interview loop until initialization completes.
 6. After init succeeds, follow the `recommended_next_steps` returned by the tool (e.g. build, query, persona setup).
-5. Tell the user: *"초기화 완료! 이제 페르소나를 설정하려면 'Curator 페르소나 설정해줘'라고 말씀해주세요."*
+7. Tell the user: *"초기화 완료! 이제 페르소나를 설정하려면 'Curator 페르소나 설정해줘'라고 말씀해주세요."*
 
 ### 0-C. Handle incomplete graph processing
 If curator_check_workspace reports incomplete graph processing:
