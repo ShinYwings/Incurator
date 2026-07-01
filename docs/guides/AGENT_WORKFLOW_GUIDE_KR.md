@@ -58,9 +58,9 @@
     1.  **설정**: 에이전트가 `curator_list_external_resources`를 호출하여 플랫폼 인식 설정에서 구성된 외부 라이브러리(예: Zotero 경로)를 가져옵니다.
     2.  **임포트 제안**: 상태 변경 전에 에이전트 또는 Obsidian 플러그인이 `curator_import_source(..., dry_run=true)`를 호출합니다. 백엔드는 계산된 해시, 감지된 중복 상태, 제안된 대상 또는 프록시 앵커, 해당 작업이 복사 모드인지 레퍼런스 모드인지 반환합니다.
     3.  **사용자 승인**: 클라이언트는 대상/정책을 사용자에게 제시합니다. 가시적인 승인 없이 외부 PDF를 `04_Resources/`에 복사하거나 레퍼런스로 등록해서는 안 됩니다.
-    4.  **임포트**: 에이전트가 상태 변경을 활성화하여 `curator_import_source(policy="reference")` 또는 `curator_import_source(destination_policy="mirror_03_to_04")`를 호출합니다. 엔진은 파일의 콘텐츠 해시를 계산하고 소스 레코드를 생성하며, DB에 `is_reference`, `external_path`, `logical_source_id`, `import_origin`, `import_policy`를 기록합니다.
-    5.  **상태 확인**: `curator_source_status`를 통해 외부 리소스의 상태를 가져올 때, 엔진은 `external_path` 캐시를 사용합니다.
-    6.  **감지**: 파일이 수정되어(예: Apple Pencil 주석) "해시 드리프트(Hash Drift)"가 발생하거나 파일이 이동된 경우 다음 스캔 중에 `external_path` 캐시가 실패합니다. 엔진은 고속 `rglob` 재발견을 실행하고 소스 상태를 동적으로 `moved`나 `hash_drift`로 보고합니다.
+    4.  **임포트**: 에이전트가 상태 변경을 활성화하여 `curator_import_source(policy="reference")` 또는 `curator_import_source(destination_policy="mirror_03_to_04")`를 호출합니다. 엔진은 파일의 콘텐츠 해시를 계산하고 Zotero 소스는 `zotero:<effective_attachment_key>`, 일반 외부 소스는 `@<root_key>/<relative-path>` 형식의 이동 가능한 식별자를 기록합니다.
+    5.  **상태 확인**: `curator_source_status`는 현재 기기의 backend 설정 또는 Zotero database를 통해 이 식별자를 실제 경로로 해석합니다.
+    6.  **감지**: 해시 드리프트는 계속 콘텐츠 해시를 기준으로 감지합니다. Zotero 파일 이동은 Zotero DB를 통해 해석하며, 일반 외부 소스가 이동한 경우에는 사용자가 이동 가능한 참조의 재바인딩을 승인해야 합니다.
     7.  **복구 (HITL)**: UI를 통해 사용자에게 알림이 표시됩니다 ("위치가 이동되었습니다. 다시 바인딩을 수락하시겠습니까?"). 사용자 승인 후, 에이전트는 `curator_rebind_source(logical_source_id, new_path)`를 호출하여 안전하게 연결을 재설정하고 DB를 업데이트하여 프록시 노트를 복구합니다.
 
 ### 2.4 소스 인식 PDF 검색

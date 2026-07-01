@@ -1,8 +1,6 @@
 import { logger } from "../utils/logger";
 import { Notice } from "obsidian";
-import { existsSync, readdirSync } from "fs";
-import { basename, join } from "path";
-import { homedir } from "os";
+import { basename } from "path";
 import type { ExternalPdfState } from "./externalPdfView";
 import { isRetainablePersistedDoc, resolveExternalPdfPath } from "./externalPdfState";
 
@@ -21,8 +19,22 @@ function loadPersistedDocs(): Map<string, ExternalPdfDoc> {
   const map = new Map<string, ExternalPdfDoc>();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
+    let migrated = false;
     for (const [id, doc] of raw ? JSON.parse(raw) as Array<[string, ExternalPdfDoc]> : []) {
-      if (isRetainablePersistedDoc(doc)) map.set(id, doc);
+      if (isRetainablePersistedDoc(doc)) {
+        map.set(id, {
+          id: doc.id,
+          name: doc.name,
+          zoteroAttachmentKey: doc.zoteroAttachmentKey,
+          externalRef: doc.externalRef,
+        });
+        migrated ||= Boolean(doc.path);
+      } else {
+        migrated = true;
+      }
+    }
+    if (migrated) {
+      persistDocs(map);
     }
   } catch (err) {
     logger.warn("Failed to load persisted PDF docs:", err);
@@ -115,23 +127,4 @@ export function resolveCachedExternalPdfPath(
   docStatePath: string | undefined
 ): string | undefined {
   return resolveExternalPdfPath(docStatePath, getExternalPdfDocPath(docId));
-}
-
-export function resolveZoteroAttachmentPath(
-  zoteroBasePath: string,
-  attachmentKey: string
-): string | undefined {
-  try {
-    let basePath = zoteroBasePath;
-    if (basePath.startsWith("~")) {
-      basePath = join(homedir(), basePath.slice(1));
-    }
-    const storageDir = join(basePath, "storage", attachmentKey);
-    if (!existsSync(storageDir)) return undefined;
-    const files = readdirSync(storageDir);
-    const pdf = files.find((f) => f.toLowerCase().endsWith(".pdf"));
-    return pdf ? join(storageDir, pdf) : undefined;
-  } catch {
-    return undefined;
-  }
 }

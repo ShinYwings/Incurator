@@ -14,7 +14,8 @@ describe("settings UI source contract", () => {
     const source = settingsSource();
 
     expect(source).toContain("Backend Zotero status");
-    expect(source).toContain("Defaults to ~/Zotero");
+    expect(source).toContain("the plugin does not store a Zotero path");
+    expect(source).not.toContain("Defaults to ~/Zotero");
     expect(source).not.toContain('.setName("Zotero data directory")');
   });
 

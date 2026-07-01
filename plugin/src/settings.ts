@@ -705,7 +705,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
 
     new Setting(zoteroSection)
       .setName("Backend Zotero status")
-      .setDesc("Single setup point for the backend Zotero data directory, database, and attachment roots. Defaults to ~/Zotero.")
+      .setDesc("The backend resolves Zotero through machine-local roots in the repository .cache configuration; the plugin does not store a Zotero path.")
       .addButton((button) =>
         button
           .setButtonText("Open setup")

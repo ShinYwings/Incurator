@@ -788,6 +788,8 @@ export class ExternalPdfView extends ItemView {
       id: this.docState.docId,
       name: this.docState.name,
       path: this.docState.path,
+      zoteroAttachmentKey: this.docState.zoteroAttachmentKey,
+      externalRef: this.docState.externalRef,
     };
     putExternalPdfDoc(doc);
     return doc;

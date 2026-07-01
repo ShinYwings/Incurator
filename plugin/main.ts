@@ -1154,6 +1154,14 @@ export default class ObsidianAIAgent extends Plugin {
 
   async loadSettings(): Promise<void> {
     const raw = (await this.loadData()) || {};
+    const legacy = raw as Partial<PluginSettings>;
+    const devicePathsMigrated = Boolean(
+      legacy.zoteroBasePath ||
+      legacy.incuratorRepoPath ||
+      (legacy.incuratorBackendCommand &&
+        legacy.incuratorBackendCommand !== "wiki") ||
+      legacy.incuratorBackendArgs?.length
+    );
     this.settings = Object.assign({}, DEFAULT_SETTINGS, raw);
     // Machine-local filesystem roots are backend-owned in repo `.cache/config`.
     // Legacy plugin values are ignored and removed on the next settings write.
@@ -1181,7 +1189,11 @@ export default class ObsidianAIAgent extends Plugin {
       ...(this.settings.providerUsage || {}),
     };
     const assetFoldersMigrated = migrateZoteroProfileAssetFolders(this.settings.zoteroProfiles);
-    if (this.migrateUnavailableModelDefaults() || assetFoldersMigrated) {
+    if (
+      this.migrateUnavailableModelDefaults() ||
+      assetFoldersMigrated ||
+      devicePathsMigrated
+    ) {
       await this.persistSettings();
     }
   }

@@ -16,6 +16,15 @@ describe("G17-6: deepseekApiKey must never be persisted in data.json", () => {
     expect(src).toContain("deepseekApiKey: \"\"");
   });
 
+  it("_persistableSettings strips machine-local backend and Zotero paths", () => {
+    const src = mainSource();
+    expect(src).toContain('incuratorBackendCommand: "wiki"');
+    expect(src).toContain("incuratorBackendArgs: []");
+    expect(src).toContain('incuratorRepoPath: ""');
+    expect(src).toContain('zoteroBasePath: ""');
+    expect(src).toContain("devicePathsMigrated");
+  });
+
   it("settings data.json writes go through a single serialized writer (G17-11)", () => {
     const src = mainSource();
 

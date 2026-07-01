@@ -35,6 +35,12 @@ describe("external-PDF persisted state format (P0 characterization)", () => {
     expect(source).toContain("isRetainablePersistedDoc(doc)");
   });
 
+  it("rewrites legacy localStorage entries without their resolved path", () => {
+    expect(source).toContain("migrated ||= Boolean(doc.path)");
+    expect(source).toContain("if (migrated)");
+    expect(source).toContain("persistDocs(map)");
+  });
+
   it("builds the in-memory doc map at module load", () => {
     expect(source).toContain("const externalPdfDocs = loadPersistedDocs();");
   });
@@ -42,5 +48,7 @@ describe("external-PDF persisted state format (P0 characterization)", () => {
   it("restores Zotero leaves by key without persisting a resolved path", () => {
     expect(mainSource).not.toContain("replaceExternalPdfDocPath(existingState.docId, pdfPath);");
     expect(mainSource).toContain("l.view.getState()?.zoteroAttachmentKey === effectiveKey");
+    expect(source).not.toContain("resolveZoteroAttachmentPath");
+    expect(source).not.toContain('from "os"');
   });
 });

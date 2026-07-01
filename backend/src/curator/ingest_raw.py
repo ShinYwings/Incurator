@@ -302,7 +302,7 @@ def _write_reference_stub(
     body = (
         f"# {title}\n\n"
         "External source reference. The backend resolves the local file path "
-        "from device-local source metadata or an external library integration.\n"
+        "from Zotero DB identity or a machine-local named root.\n"
     )
     if zotero_attachment_key:
         body += (
