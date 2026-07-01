@@ -190,7 +190,6 @@ export class IncuratorClient {
       "plugin", "source", "import",
       ...(path ? ["--file-path", path] : []),
       ...(request.zoteroAttachmentKey ? ["--zotero-attachment-key", request.zoteroAttachmentKey] : []),
-      ...(request.zoteroAttachmentKey && this.settings.zoteroBasePath ? ["--zotero-custom-paths", this.settings.zoteroBasePath] : []),
       "--destination", request.destinationRelpath,
       "--policy", request.importMode === "copy" ? "mirror_03_to_04" : "reference",
     ]);
@@ -792,7 +791,7 @@ export class IncuratorClient {
   }
 
   private zoteroCustomPathArgs(): string[] {
-    return this.settings.zoteroBasePath ? ["--custom-paths", this.settings.zoteroBasePath] : [];
+    return [];
   }
 
   private async callBackendJson(cmdArgs: string[]): Promise<unknown | null> {

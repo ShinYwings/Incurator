@@ -72,9 +72,13 @@ function sanitizeContextRefForSync(ref: ContextRef): ContextRef {
 }
 
 function sanitizeMessageForSync(message: ChatMessage): ChatMessage {
+  const revertData = message.revertData?.filter(
+    (item) => !isDeviceAbsolutePath(item.filepath)
+  );
   return {
     ...message,
     contextRefs: message.contextRefs?.map(sanitizeContextRefForSync),
+    revertData,
   };
 }
 

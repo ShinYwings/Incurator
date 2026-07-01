@@ -6,7 +6,14 @@ import { homedir } from "os";
 import type { ExternalPdfState } from "./externalPdfView";
 import { isRetainablePersistedDoc, resolveExternalPdfPath } from "./externalPdfState";
 
-export interface ExternalPdfDoc { id: string; name: string; path?: string; file?: File; }
+export interface ExternalPdfDoc {
+  id: string;
+  name: string;
+  path?: string;
+  file?: File;
+  zoteroAttachmentKey?: string;
+  externalRef?: string;
+}
 
 const STORAGE_KEY = "incurator-obsidian-agent-external-pdfs";
 
@@ -27,7 +34,12 @@ function persistDocs(map: Map<string, ExternalPdfDoc>): void {
   try {
     const toPersist = Array.from(map.entries()).map(([id, doc]) => [
       id,
-      { id: doc.id, name: doc.name, path: doc.path },
+      {
+        id: doc.id,
+        name: doc.name,
+        zoteroAttachmentKey: doc.zoteroAttachmentKey,
+        externalRef: doc.externalRef,
+      },
     ]);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toPersist));
   } catch (err) {
@@ -58,7 +70,7 @@ export function putExternalPdfDoc(doc: ExternalPdfDoc): void {
   persistDocs(externalPdfDocs);
 }
 
-export function replaceExternalPdfDocPath(
+export function setExternalPdfRuntimePath(
   docId: string,
   resolvedPath: string | undefined
 ): ExternalPdfDoc | undefined {
@@ -88,9 +100,14 @@ export function registerExternalPdf(
 export function registerExternalPdfByPath(filePath: string, attachmentKey?: string): ExternalPdfState {
   const id = newDocId();
   const name = basename(filePath);
-  const doc: ExternalPdfDoc = { id, name, path: filePath };
+  const doc: ExternalPdfDoc = {
+    id,
+    name,
+    path: filePath,
+    zoteroAttachmentKey: attachmentKey,
+  };
   putExternalPdfDoc(doc);
-  return { docId: id, name, path: filePath, zoteroAttachmentKey: attachmentKey };
+  return { docId: id, name, zoteroAttachmentKey: attachmentKey };
 }
 
 export function resolveCachedExternalPdfPath(

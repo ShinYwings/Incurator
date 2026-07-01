@@ -9,8 +9,6 @@ import {
   type ViewStateResult,
 } from "obsidian";
 import { existsSync, readFileSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
 import type {
   PdfOutlineItem as ContextPdfOutlineItem,
   PdfPageContext,
@@ -35,9 +33,8 @@ import {
   getExternalPdfDocName,
   getExternalPdfDocPath,
   putExternalPdfDoc,
-  replaceExternalPdfDocPath,
+  setExternalPdfRuntimePath,
   resolveCachedExternalPdfPath,
-  resolveZoteroAttachmentPath,
   type ExternalPdfDoc,
 } from "./externalPdfRegistry";
 import { PdfCaptureService } from "./pdfCaptureService";
@@ -54,6 +51,7 @@ export interface ExternalPdfState extends Record<string, unknown> {
   docId: string;
   name: string;
   path?: string;
+  externalRef?: string;
   zoom?: number;
   darkMode?: boolean;
   tocOpen?: boolean;
@@ -188,6 +186,10 @@ export class ExternalPdfView extends ItemView {
     return "file-text";
   }
 
+  getRuntimePath(): string | undefined {
+    return resolveCachedExternalPdfPath(this.docId, this.docState?.path);
+  }
+
   async setState(
     state: Partial<ExternalPdfState>,
     result: ViewStateResult
@@ -202,7 +204,7 @@ export class ExternalPdfView extends ItemView {
       ? await this.resolvePortableStatePath(state, cached)
       : undefined;
     if (state.docId && cached && resolvedPath && cached.path !== resolvedPath) {
-      replaceExternalPdfDocPath(state.docId, resolvedPath);
+      setExternalPdfRuntimePath(state.docId, resolvedPath);
     }
     this.docState = state.docId
       ? {
@@ -214,6 +216,7 @@ export class ExternalPdfView extends ItemView {
           tocOpen: state.tocOpen === true,
           currentPage: this.readNumberState(state.currentPage, 1),
           zoteroAttachmentKey: state.zoteroAttachmentKey,
+          externalRef: state.externalRef || cached?.externalRef,
           targetAnnotationKey: state.targetAnnotationKey,
         }
       : null;
@@ -227,12 +230,8 @@ export class ExternalPdfView extends ItemView {
   }
 
   private zoteroCacheEpoch(): string {
-    const base = this.plugin?.settings?.zoteroBasePath || "";
-    const resolvedBase = base.startsWith("~") ? join(homedir(), base.slice(1)) : base;
     return zoteroConfigEpoch({
-      zoteroBasePath: `${process.platform}:${resolvedBase}`,
       workspaceId: this.app.vault.getName(),
-      profileRoots: (this.plugin?.settings?.zoteroProfiles || []).map((p: { assetFolder?: string }) => p.assetFolder || ""),
     });
   }
 
@@ -240,7 +239,7 @@ export class ExternalPdfView extends ItemView {
     state: Partial<ExternalPdfState>,
     cached?: ExternalPdfDoc
   ): Promise<string | undefined> {
-    const hintedPath = resolveExternalPdfPath(state.path, cached?.path);
+    const hintedPath = cached?.path;
     const zoteroKey = state.zoteroAttachmentKey;
     if (!zoteroKey) return hintedPath;
     try {
@@ -250,37 +249,32 @@ export class ExternalPdfView extends ItemView {
           displayName: state.name || cached?.name || "External PDF",
         },
         {
-          backendAvailable: Boolean(this.plugin?.incuratorClient?.available),
           resolveZoteroViaBackend: async (key) => {
             const result = await this.plugin.incuratorClient.resolveZoteroPdf(key);
             return result.ok && result.path ? result.path : undefined;
           },
-          resolveZoteroLocally: (key) =>
-            resolveZoteroAttachmentPath(this.plugin?.settings?.zoteroBasePath || "~/Zotero", key),
           cache: this.zoteroPathCache,
           epoch: this.zoteroCacheEpoch(),
           fileExists: (p) => existsSync(p),
         }
       );
-      return resolved.absPath || hintedPath;
+      return resolved.absPath;
     } catch (err) {
       logger.warn("Failed to re-resolve Zotero PDF path for restored external PDF view", err);
-      return hintedPath;
+      return undefined;
     }
   }
 
   getState(): ExternalPdfState {
-    // Always persist the path (from docState OR the cache) so a restored view is
-    // self-sufficient. The previous fallback branch omitted `path`, so once
-    // docState was null the path was lost permanently across restarts.
-    const cachePath = getExternalPdfDocPath(this.docId);
     if (this.docState) {
-      return { ...this.docState, path: resolveExternalPdfPath(this.docState.path, cachePath) };
+      const { path: _runtimePath, ...persisted } = this.docState;
+      return persisted;
     }
     return {
       docId: this.docId,
       name: getExternalPdfDocName(this.docId),
-      path: cachePath,
+      zoteroAttachmentKey: getExternalPdfDoc(this.docId)?.zoteroAttachmentKey,
+      externalRef: getExternalPdfDoc(this.docId)?.externalRef,
       zoom: this.zoom,
       darkMode: this.darkMode,
       tocOpen: this.tocOpen,
@@ -769,7 +763,7 @@ export class ExternalPdfView extends ItemView {
     let cached = getExternalPdfDoc(this.docId);
     const resolvedStatePath = resolveExternalPdfPath(this.docState?.path, cached?.path);
     if (cached && resolvedStatePath && cached.path !== resolvedStatePath) {
-      cached = replaceExternalPdfDocPath(this.docId, resolvedStatePath) || cached;
+      cached = setExternalPdfRuntimePath(this.docId, resolvedStatePath) || cached;
     }
     if (cached) {
       if (cached.path && !this.docState?.path) {
@@ -1884,7 +1878,7 @@ export class ExternalPdfView extends ItemView {
       docId: this.docId,
       name: this.docState?.name,
       fallbackName: getExternalPdfDocName(this.docId),
-      path: this.docState?.path,
+      externalRef: this.docState?.externalRef,
       zoom: this.zoom,
       darkMode: this.darkMode,
       tocOpen: this.tocOpen,

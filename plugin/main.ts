@@ -40,7 +40,7 @@ import {
 } from "./src/ui/externalPdfView";
 import {
   registerExternalPdfByPath,
-  replaceExternalPdfDocPath,
+  setExternalPdfRuntimePath,
 } from "./src/ui/externalPdfRegistry";
 import { parseZoteroLink } from "./src/utils/zoteroUtils";
 
@@ -454,7 +454,7 @@ export default class ObsidianAIAgent extends Plugin {
                     imageBase64: pdfCtx.imageBase64,
                     pageNum: pdfCtx.pageNum,
                     pageLabels: pdfCtx.pageLabels,
-                    filePath: pdfView.getState()?.path,
+                    filePath: pdfView.getRuntimePath(),
                   });
                 }
               }
@@ -495,7 +495,7 @@ export default class ObsidianAIAgent extends Plugin {
                     imageBase64: base64,
                     pageNum: pageNum,
                     pageLabels: pdfCtx?.pageLabels,
-                    filePath: pdfView.getState()?.path,
+                    filePath: pdfView.getRuntimePath(),
                     pendingCropBase64: base64,
                   });
                 }
@@ -737,8 +737,6 @@ export default class ObsidianAIAgent extends Plugin {
       const effectiveKey = resolved.attachmentKey;
 
       let leaf = this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE).find(l => {
-        return l.view.getState()?.path === pdfPath;
-      }) || this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE).find(l => {
         return l.view.getState()?.zoteroAttachmentKey === effectiveKey;
       });
 
@@ -746,11 +744,10 @@ export default class ObsidianAIAgent extends Plugin {
       if (leaf) {
         const existingState = leaf.view.getState() as Partial<ExternalPdfState>;
         if (existingState?.docId) {
-          replaceExternalPdfDocPath(existingState.docId, pdfPath);
+          setExternalPdfRuntimePath(existingState.docId, pdfPath);
         }
         pdfState = {
           ...existingState,
-          path: pdfPath,
           zoteroAttachmentKey: effectiveKey,
         };
       } else {
@@ -1158,6 +1155,9 @@ export default class ObsidianAIAgent extends Plugin {
   async loadSettings(): Promise<void> {
     const raw = (await this.loadData()) || {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, raw);
+    // Machine-local filesystem roots are backend-owned in repo `.cache/config`.
+    // Legacy plugin values are ignored and removed on the next settings write.
+    this.settings.zoteroBasePath = "";
     // Restore deepseekApiKey from env (never persisted per PLUGIN_SCHEMA §2.4)
     const envKey = (typeof process !== "undefined" && process.env?.DEEPSEEK_API_KEY) || "";
     if (envKey) this.settings.deepseekApiKey = envKey;
@@ -1259,7 +1259,14 @@ export default class ObsidianAIAgent extends Plugin {
     // deepseekApiKey MUST NOT be persisted: it would be leaked to Obsidian Sync
     // and any git-tracked vault. Restore from env DEEPSEEK_API_KEY at load time.
     const { deepseekApiKey: _stripped, ...rest } = this.settings;
-    return { ...rest, deepseekApiKey: "" };
+    return {
+      ...rest,
+      incuratorBackendCommand: "wiki",
+      incuratorBackendArgs: [],
+      incuratorRepoPath: "",
+      zoteroBasePath: "",
+      deepseekApiKey: "",
+    };
   }
 
   private persistSettings(): Promise<void> {

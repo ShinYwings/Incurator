@@ -4,7 +4,9 @@ export interface SyncedExternalPdfStateInput {
   docId: string;
   name?: string;
   fallbackName: string;
+  /** Legacy/runtime input only; deliberately omitted from persisted output. */
   path?: string;
+  externalRef?: string;
   zoom: number;
   darkMode: boolean;
   tocOpen: boolean;
@@ -19,7 +21,6 @@ export function buildSyncedExternalPdfState(
   const state: ExternalPdfState = {
     docId: input.docId,
     name: input.name || input.fallbackName,
-    path: input.path,
     zoom: input.zoom,
     darkMode: input.darkMode,
     tocOpen: input.tocOpen,
@@ -29,6 +30,9 @@ export function buildSyncedExternalPdfState(
   if (input.zoteroAttachmentKey) {
     state.zoteroAttachmentKey = input.zoteroAttachmentKey;
   }
+  if (input.externalRef) {
+    state.externalRef = input.externalRef;
+  }
   if (input.targetAnnotationKey) {
     state.targetAnnotationKey = input.targetAnnotationKey;
   }
@@ -37,15 +41,15 @@ export function buildSyncedExternalPdfState(
 }
 
 /**
- * A persisted external-PDF doc entry is retainable on load iff it carries a
- * non-empty path. `existsSync` is intentionally NOT checked at load time: the
- * cache is built at module-load, which races with Obsidian startup (a path on a
- * not-yet-mounted volume would be wrongly dropped). A genuinely missing file is
- * reported distinctly at resolve time instead — keeping the document identity so
- * "file moved/deleted" stays an actionable state rather than "no path at all".
+ * Persisted external-PDF entries require portable identity. Legacy path-only
+ * records are dropped instead of being trusted on another device.
  */
-export function isRetainablePersistedDoc(doc: { path?: string }): boolean {
-  return typeof doc.path === "string" && doc.path.length > 0;
+export function isRetainablePersistedDoc(doc: {
+  zoteroAttachmentKey?: string;
+  externalRef?: string;
+  path?: string;
+}): boolean {
+  return Boolean(doc.zoteroAttachmentKey || doc.externalRef);
 }
 
 /**
