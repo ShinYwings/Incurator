@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.28.0)
+# Incurator Plugin Schema & API Contract (v0.29.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -177,11 +177,12 @@ Contract:
   to the **Added** label; `queued`/`running` keep their own labels
   (`Queued`/`Building...`) while remaining inert so they cannot re-trigger Add
   Source before the background build completes.
-- `external_uri`/`absPath` is authoritative for opening a Reference Mode source
-  (see SYSTEM_BEHAVIOR §29.2 / §29.6).
-- **Zotero fallback cache invalidation (required).** When the backend command is
-  offline, `resolveAssetSource` may cache a Zotero `attachment_key → absPath`
-  result to avoid re-scanning on the hot path. That cache MUST be invalidated
+- `absPath` is runtime-only and authoritative only for the current open/read
+  operation. It is never persisted. Zotero views persist
+  `zoteroAttachmentKey`; generic external views persist `externalRef`.
+- **Zotero runtime cache invalidation (required).** Backend-resolved
+  `attachment_key → absPath` values may be cached only in memory to avoid
+  repeated lookup on the hot path. That cache MUST be invalidated
   whenever the resolution inputs can change, so it never serves a stale/broken
   absolute path:
   - it is keyed by, and tied to, the workspace **configuration epoch** (the
@@ -191,23 +192,19 @@ Contract:
     in-memory only, never persisted to `data.json`);
   - a cached `absPath` whose file no longer exists at resolve time is treated as
     a miss and re-resolved (never returned as-is);
-  - **device-portable**: absolute paths differ per machine/OS (macOS
-    `/Users/...` vs Linux `/home/...`; `~` expands per home directory). The cache
-    is in-memory and per-device, and the epoch folds in the platform and the
-    OS-resolved base path, so a path resolved on one device/OS can never be
-    served on another. Absolute paths that arrive via settings/state sync
-    (persisted `externalPdfDocs` localStorage, backend `external_path`, or
-    synced `.curator/sessions.json` context refs) are treated as hints only and
-    MUST be re-resolved on the current device via the backend Zotero resolver /
-    Reference Mode rebind — never trusted verbatim. Persisted session context
+  - **device-portable**: absolute paths differ per machine/OS. The cache is
+    memory-only and per-process. Persisted `externalPdfDocs`, Obsidian view
+    state, plugin `data.json`, and `.curator/sessions.json` contain no absolute
+    locator. Zotero restores by attachment key through the backend; generic
+    external sources restore by `externalRef`. Persisted session context
     refs MUST NOT rely on `ContextRef.filePath` or
     `backendStatus.sourcePath/currentPath/candidatePath` as durable identity when
     those fields are absolute paths from another device; keep portable identity
     (`zoteroAttachmentKey`, `fileHash`, vault-relative relpath, page number) and
     re-resolve the physical path locally.
 
-This is a plugin-internal model/refactor — no change to the backend wire
-protocol or persisted `data.json` settings shape.
+Backend responses may carry an absolute path for an immediate open operation.
+The plugin keeps it outside persistable DTOs.
 
 ## 2. Persisted Settings Schema
 
@@ -261,9 +258,9 @@ interface PluginSettings {
 
   // Incurator integration
   incuratorEnabled: boolean;
-  incuratorBackendCommand: string;          // per-device command; "wiki" means <repo>/.venv/bin/wiki, never PATH lookup
+  incuratorBackendCommand: "wiki";          // sentinel; runtime resolves <repo>/.venv/bin/wiki
   incuratorBackendArgs: string[];           // default []
-  incuratorRepoPath: string;            // per-device absolute path to backend repo for 1-click updates
+  incuratorRepoPath: "";                // no persisted device path; runtime discovery only
   incuratorDefaultDestination: string;   // vault-relative folder for reference stubs/copy imports
   incuratorDefaultImportMode: "copy" | "reference"; // reference creates a link stub
   incuratorPdfAssetFolder: string;       // vault-relative base folder for extracted PDF images of non-Zotero sources; each PDF gets a filename subfolder; "" = backend default 05_Assets/<slug>/
@@ -276,7 +273,7 @@ interface PluginSettings {
   autoSyncNotify?: boolean;        // toast only when peers actually delivered changes
 
   // Zotero integration
-  zoteroBasePath: string;          // default "~/Zotero"
+  zoteroBasePath: "";              // deprecated persisted field; backend cache owns roots
   zoteroProfiles: ZoteroImportProfile[];
   recentZoteroItems: string[];     // LRU item keys, newest first, max 50
 

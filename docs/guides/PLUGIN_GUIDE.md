@@ -1300,6 +1300,11 @@ External Reference Mode sources (with an `external_uri`) open the real external
 file rather than the in-vault stub: reference PDFs open in the plugin's external
 PDF viewer at the cited page, while other external references open through the
 system handler (local files use the desktop shell opener on desktop). Vault
+Zotero PDF tabs persist only the effective attachment key and view position.
+On restore, the plugin asks the backend to resolve that key through the current
+device's Zotero database. The returned absolute path is memory-only: it is not
+written to plugin localStorage, Obsidian view state, `data.json`, sessions, or
+the backend DB. Generic external tabs persist a portable `externalRef`. Vault
 sources open their relpath; a registered/vault PDF jumps to
 the cited page via Obsidian's viewer (`#page=N`) and other notes use their
 heading/block anchor when present. Expansion and verification buttons use

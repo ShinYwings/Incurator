@@ -95,6 +95,11 @@ wiki mcp install
 - **역할**: Zotero 등 외부 디렉토리의 파일을 Incurator backend에 등록합니다. 정책에 따라 파일을 복사하지 않는 Reference Mode로 연결하거나, 사용자가 승인한 `04_Resources/` 목적지로 안전하게 복사할 수 있습니다.
 - **파라미터**: 구현 단계에 따라 `file_path` 또는 `source_path`가 입력 이름으로 사용될 수 있습니다. 둘 다 외부 파일의 절대 경로를 의미합니다. 정책 필드는 `policy="reference"` 또는 `destination_policy="mirror_03_to_04"`처럼 명시합니다. 실제 클라이언트는 먼저 `dry_run=true`로 제안 결과를 받은 뒤 사용자 승인 후 mutation을 호출해야 합니다.
 - **목적지 규칙**: 외부 PDF의 기본값은 Reference Mode입니다. backend는 `04_Resources/` 아래에 markdown reference stub을 만들고 PDF 원본은 기존 위치에 둡니다. Copy mode는 명시적으로 선택할 때만 사용하며, 이 경우에도 목적지는 `03_Notes`가 아니라 `04_Resources`입니다.
+- **portable identity**: Zotero import는 effective attachment key
+  (`zotero:<key>`)만 저장하고 backend가 현재 기기의 Zotero DB에서
+  해석합니다. 다른 external import는 등록된 named root가 필요하며
+  `@<root_key>/<relative-path>`를 저장합니다. 해석된 절대경로는 durable
+  state에 저장하지 않습니다.
 - **덮어쓰기 금지**: 동일 해시 파일은 기존 source를 재사용하고, 같은 이름이지만 다른 해시인 파일은 suffix 또는 사용자 선택 목적지를 사용해야 합니다.
 
 #### `curator_register_source`

@@ -56,9 +56,9 @@ This document defines the official operational scenarios and tool interaction pa
     1.  **Configuration**: The Agent calls `curator_list_external_resources` to retrieve the configured external libraries (e.g., Zotero path) from the platform-aware config.
     2.  **Import Proposal**: The Agent or Obsidian plugin calls `curator_import_source(..., dry_run=true)` before mutation. The backend returns the computed hash, detected duplicate status, proposed destination or proxy anchor, and whether the operation would be copy mode or Reference Mode.
     3.  **Human Approval**: The client presents the destination/policy to the Human. External PDFs must not be copied into `04_Resources/` or registered as references without visible approval.
-    4.  **Import**: The Agent calls `curator_import_source(policy="reference")` or `curator_import_source(destination_policy="mirror_03_to_04")` with mutation enabled. The Engine calculates the file's Content Hash, creates the source record, and records `is_reference`, `external_path`, `logical_source_id`, `import_origin`, and `import_policy` in the database.
-    5.  **Status Check**: When fetching the status of an external resource via `curator_source_status`, the Engine uses the `external_path` cache.
-    6.  **Detection**: If the file is modified (e.g., Apple Pencil annotations) causing "Hash Drift", or if it is moved, the `external_path` cache fails during the next scan. The Engine executes high-speed `rglob` re-discovery and flags the source as `STATUS: MOVED`.
+    4.  **Import**: The Agent calls `curator_import_source(policy="reference")` or `curator_import_source(destination_policy="mirror_03_to_04")` with mutation enabled. The Engine calculates the Content Hash and records portable identity: `zotero:<effective_attachment_key>` for Zotero, or `@<root_key>/<relative-path>` for a generic external source.
+    5.  **Status Check**: `curator_source_status` resolves that identity through the current device's backend configuration/Zotero database.
+    6.  **Detection**: Hash Drift remains content-hash based. Zotero moves are resolved by Zotero DB; generic source moves require a human-approved portable-ref rebind.
     7.  **Healing (HITL)**: The Human is prompted via UI ("Location moved. Accept re-binding?"). Upon Human approval, the Agent calls `curator_rebind_source(logical_source_id, new_path)` to securely re-establish the connection, updating the DB and healing the proxy note.
 
 ### 2.4 Source-Aware PDF Search

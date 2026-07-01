@@ -970,6 +970,11 @@ Zotero 노트(frontmatter에 `citekey` 또는 `zotero_app_url`이 있는 노트)
 주석 위치로 점프·하이라이트합니다 — 주석 조회가 해석된 자식 첨부 키를 사용합니다.
 
 Zotero PDF를 plugin viewer에서 연 뒤 sidechat/purple-pin 흐름으로 등록하면 Incurator는 파일을 vault로 복사하지 않고 원본 파일을 Reference Mode로 등록합니다. 등록에 성공하면 완료 알림을 표시하고, backend가 파일 path를 해석하거나 등록하지 못하면 오류 알림을 표시합니다.
+Zotero PDF tab은 effective attachment key와 view 위치만 저장합니다. 복원할
+때 plugin은 backend에 key 해석을 요청하고, backend는 현재 기기의 Zotero
+database에서 실제 PDF를 찾습니다. 반환된 절대경로는 memory-only이며 plugin
+localStorage, Obsidian view state, `data.json`, sessions 또는 backend DB에
+저장하지 않습니다. 일반 external tab은 portable `externalRef`를 저장합니다.
 Zotero path 설정은 Zotero 데이터 디렉토리나 `zotero.sqlite` 파일 자체를 가리킬 수 있습니다. backend PDF 해석은 `zotero.sqlite`가 들어온 경우 부모 디렉토리로 정규화한 뒤 `storage/<attachmentKey>/`를 확인합니다.
 linked Zotero attachment의 경우 backend는 configured linked attachment root에서 `attachments:` path도 확인합니다.
 plugin이 Zotero attachment key를 알고 있으면 Add-to-Incurator는 그 key를 backend source import에 직접 넘길 수 있습니다. backend가 PDF를 해석하고 local reference row에 `zotero:<attachmentKey>` 형태의 stable logical source id를 기록합니다. 같은 Zotero attachment를 반복 등록하면 이 logical source id를 재사용하며 `-02` reference stub를 새로 만들지 않습니다. PDF crop/snipping 이미지는 임시 채팅 컨텍스트로만 사용하며, 가능한 경우 선택된 모델에 전달된 뒤 `05_Assets` 아래에 영구 생성물을 남기지 않아야 합니다. backend transcription에 쓰는 임시 crop 파일은 `.curator/runtime/pdf_crops/` 아래에 만들고 요청 뒤 삭제합니다. CLI image/cache 부산물은 repo path를 알 때 repo `.cache/` 아래에, 그렇지 않으면 vault `.curator/runtime/` 아래에 둡니다. provider CLI subprocess의 temp 환경변수도 같은 허용 cache root를 가리키게 합니다.
