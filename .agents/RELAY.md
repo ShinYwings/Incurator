@@ -37,6 +37,7 @@ absolute roots.
 - Production DB and structured `.curator`/plugin persistence audits report zero
   absolute filesystem locators.
 - Installed backend and plugin version: `0.29.0`.
+- Draft PR: https://github.com/ShinYwings/Incurator/pull/76
 
 ## Critical Context / Blockers
 
@@ -48,4 +49,5 @@ absolute roots.
 
 ## Immediate Next Action
 
-Push `release/v0.29.0` and open the release PR.
+Reload Obsidian so the installed plugin runs its one-time localStorage cleanup,
+then review and merge PR #76.
