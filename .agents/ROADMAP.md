@@ -22,8 +22,6 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-### 🚨 URGENT HOTFIX QUEUE
-
 No urgent items currently tracked.
 
 ### 🚀 Priority Order
@@ -74,6 +72,15 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.29.1 — Side Chat Sidebar Regression Hotfix** (shipped 2026-07-02, PR #77):
+  Fixed five interacting regressions introduced by v0.29.0 portable-path storage
+  that collectively caused the chat sidebar to render blank on startup:
+  `isRetainablePersistedDoc` now retains path-only docs; `persistDocs` preserves
+  path for local-only PDFs so they survive across restarts; `loadPersistedDocs`
+  restores path into the in-memory registry; `syncState()` passes runtime path
+  through `buildSyncedExternalPdfState`; `getLeafFile()` uses `getRuntimePath()`
+  for external PDF views; `renderContextChips()` guards all 21 call sites via an
+  internal try/catch.
 - **v0.29.0 — Portable Path Storage** (completed 2026-07-02): schema v10 removes
   persisted absolute source paths. Vault locators are relative, Zotero persists
   only `zotero:<effective_attachment_key>` and resolves through the current
