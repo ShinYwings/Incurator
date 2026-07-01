@@ -4,6 +4,19 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.29.0] - 2026-07-02
+### Changed
+- Replaced persisted absolute Reference Mode paths with portable identity.
+  Zotero sources and plugin PDF views now store only the effective attachment
+  key and resolve through the current device's Zotero database. Generic
+  external sources store `@<root_key>/<relative-path>` backed by machine-local
+  roots in repo `.cache/config/config.yml`.
+- Added transactional schema-v10 migration with dry-run, ignored cache backup,
+  vault-relative stub repair, dependent PDF-page/span repair, and v10 sync
+  export regeneration.
+- Removed absolute PDF paths from plugin localStorage, Obsidian view state,
+  sessions metadata, and persisted backend/repository/Zotero path overrides.
+
 ## [0.28.5] - 2026-07-01
 ### Fixed
 - **Plugin runtime status/source snapshots no longer export absolute local paths.**

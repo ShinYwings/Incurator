@@ -14,7 +14,7 @@ absolute roots.
 
 - Branch: `release/v0.29.0`
 - Roadmap: urgent v0.29.0 portable-path storage item
-- Plan: `.agents/plans/06_portable_path_storage.md` (approved 2026-07-01)
+- Completed plan: Git history at commit `b63e672`
 
 ## Analysis & Reasoning
 
@@ -31,19 +31,21 @@ absolute roots.
 
 ## Progress Status
 
-- Read RELAY, USER_REPORT, ROADMAP, PLAN_TEMPLATE.
-- Created `release/v0.29.0`.
-- Triaged the user report into the urgent roadmap queue.
-- Repository/schema/plugin persistence audit and Arena plan are complete.
-- User approved implementation; active scenario is `gaussian_splatting`.
+- Implementation, schema-v10 production migration, documentation, testbed
+  validation, full local CI, version bump, build, and second_brain deployment
+  are complete.
+- Production DB and structured `.curator`/plugin persistence audits report zero
+  absolute filesystem locators.
+- Installed backend and plugin version: `0.29.0`.
 
 ## Critical Context / Blockers
 
-- Existing production DB values must be inventoried read-only before migration
-  design is locked.
-- Testbed validation uses `tests/scenarios/gaussian_splatting`.
+- Obsidian must be reloaded once so the deployed 0.29.0 plugin runs its
+  localStorage migration in the live Electron profile.
+- Full Zotero PDF parsing in testbed is blocked by the host's missing
+  Tesseract `eng.traineddata`; key-based Zotero resolution and generic external
+  Reference Mode were validated.
 
 ## Immediate Next Action
 
-Commit the approved planning artifacts, then execute docs-first contract,
-failing tests, schema v10 migration, and plugin persistence phases.
+Push `release/v0.29.0` and open the release PR.

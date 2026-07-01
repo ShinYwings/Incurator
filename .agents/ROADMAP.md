@@ -24,25 +24,7 @@ Source of Truth to identify unresolved items.
 
 ### 🚨 URGENT HOTFIX QUEUE
 
-1. **[Minor / Schema Contract] Portable path storage for all synced vault and plugin state** *(ACTIVE — target v0.29.0)*
-   - No absolute filesystem path may be persisted anywhere under `.curator/`,
-     including `state.sqlite`, runtime JSON, generated Markdown, or plugin-owned
-     persisted state.
-   - Vault files use vault-relative paths. Zotero attachments persist only the
-     effective attachment key / `zotero:<key>` logical identity and are resolved
-     through the current device's Zotero DB. Other external resources use a
-     portable root-variable reference plus a path relative to that root;
-     device-specific absolute roots live only in the Incurator repo's ignored
-     `.cache/config/` backend configuration.
-   - Backend path-resolution boundaries must expand the root variable at runtime.
-     Existing absolute `sources.external_path`, `sources.import_origin`, and any
-     other persisted path columns/fields require an explicit data migration.
-   - Audit plugin databases/localStorage/session/config payloads as well as all
-     `.curator/` files; sanitizing dashboard/runtime output alone is not sufficient.
-   - Preserve stable `logical_source_id` / content-hash identity and cross-device
-     Zotero healing without `_preserve_device_local` absolute-path storage.
-   - Plan: `.agents/plans/06_portable_path_storage.md` (to be authored and approved
-     before implementation).
+No urgent items currently tracked.
 
 ### 🚀 Priority Order
 
@@ -92,6 +74,14 @@ Source of Truth to identify unresolved items.
 
 ## ✅ Completed Milestones
 
+- **v0.29.0 — Portable Path Storage** (completed 2026-07-02): schema v10 removes
+  persisted absolute source paths. Vault locators are relative, Zotero persists
+  only `zotero:<effective_attachment_key>` and resolves through the current
+  backend/Zotero DB, and generic external files use
+  `@<root_key>/<relative-path>` with machine-local roots confined to repo
+  `.cache/config/`. Migrated and audited production `second_brain`, sanitized
+  plugin localStorage/view/session/settings persistence, and validated Reference
+  Mode in the `gaussian_splatting` testbed.
 - **v0.28.5 — Runtime Path Snapshots & Stale Fallback Removal** (shipped 2026-07-01, PR #75): deployed 0.28.5 build to `second_brain` vault plugin. Removed stale Anaconda/conda PATH fallback from `resolveBackendCommand`; plugin now auto-discovers `.venv/bin/wiki` via repo path only. Added runtime path snapshot tracking to `runtime_state`. Docs updated (PLUGIN_GUIDE, SYNC_IGNORE_GUIDE, SCHEMA, PLUGIN_SCHEMA). Extended test coverage for runtime_state and device_registry.
 - **v0.27.2 — L2 Extraction Hardening + Checkpoint-Resume** (shipped 2026-06-27,
   PRs #59/#60/#61): root-caused the large-source L2 failure. Closed unclosed
