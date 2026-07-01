@@ -24,7 +24,25 @@ Source of Truth to identify unresolved items.
 
 ### 🚨 URGENT HOTFIX QUEUE
 
-_(empty — L2 extraction hotfix shipped in v0.27.2, see Completed Milestones.)_
+1. **[Minor / Schema Contract] Portable path storage for all synced vault and plugin state** *(ACTIVE — target v0.29.0)*
+   - No absolute filesystem path may be persisted anywhere under `.curator/`,
+     including `state.sqlite`, runtime JSON, generated Markdown, or plugin-owned
+     persisted state.
+   - Vault files use vault-relative paths. Zotero attachments persist only the
+     effective attachment key / `zotero:<key>` logical identity and are resolved
+     through the current device's Zotero DB. Other external resources use a
+     portable root-variable reference plus a path relative to that root;
+     device-specific absolute roots live only in the Incurator repo's ignored
+     `.cache/config/` backend configuration.
+   - Backend path-resolution boundaries must expand the root variable at runtime.
+     Existing absolute `sources.external_path`, `sources.import_origin`, and any
+     other persisted path columns/fields require an explicit data migration.
+   - Audit plugin databases/localStorage/session/config payloads as well as all
+     `.curator/` files; sanitizing dashboard/runtime output alone is not sufficient.
+   - Preserve stable `logical_source_id` / content-hash identity and cross-device
+     Zotero healing without `_preserve_device_local` absolute-path storage.
+   - Plan: `.agents/plans/06_portable_path_storage.md` (to be authored and approved
+     before implementation).
 
 ### 🚀 Priority Order
 
@@ -144,8 +162,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.28.5 hotfix shipped (PR #75 merged). System is IDLE.
-- **Active Milestone**: None (System IDLE).
-- **Next actionable item**: continue System Stability Overhaul — remaining S2
-  groups (XC-1 broad-except narrowing in MCP/plugin API surfaces, CM-1/PL-1
-  god-file decomposition) or remaining G17 S3 cleanup.
+- **Roadmap state**: v0.29.0 portable-path storage contract is in planning.
+- **Active Milestone**: Portable path storage for all `.curator/` and plugin
+  persisted state.
+- **Next actionable item**: complete Arena analysis and obtain approval for
+  `.agents/plans/06_portable_path_storage.md` before implementation.
