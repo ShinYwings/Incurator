@@ -4,6 +4,32 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.29.1] - 2026-07-02
+### Fixed
+- **Side chat sidebar is blank after upgrading to v0.29.0.** The v0.29.0 portable
+  path storage changes introduced four interacting regressions that collectively
+  prevented the chat sidebar from rendering:
+  - `isRetainablePersistedDoc` silently dropped all legacy path-only external PDF
+    documents from `localStorage` on startup, causing `ExternalPdfView` to lose its
+    file identity and fail to resolve the PDF path for any non-Zotero local PDF.
+  - `loadPersistedDocs` omitted `path` from the in-memory registry even for docs
+    that had one, so `resolveDoc()` could not find the PDF after restart.
+  - `syncState()` in `ExternalPdfView` rebuilt `docState` via `buildSyncedExternalPdfState`
+    which dropped the runtime `path` field, permanently losing the path from `docState`
+    after any zoom/page-change interaction.
+  - `ChatSidebarView.onOpen()` called `renderContextChips()` without error handling;
+    any exception thrown while iterating partially-initialized `ExternalPdfView` leaves
+    aborted the entire `onOpen()` flow, leaving the sidebar blank.
+  - `main.ts:getLeafFile()` used `getState().path` to identify external PDF leaves,
+    but v0.29.0's `getState()` strips `path` before returning — so external PDF
+    leaves were invisible to the open-tab context builder.
+
+  All five vectors are fixed: path-only docs are retained (the reopen prompt already
+  handles gracefully missing files), `loadPersistedDocs` restores path into the
+  in-memory map, `syncState()` preserves the runtime path in `docState`,
+  `getLeafFile()` uses `getRuntimePath()` as the primary source, and `onOpen()`
+  wraps the initial chip render in a guard so one bad leaf cannot blank the sidebar.
+
 ## [0.29.0] - 2026-07-02
 ### Changed
 - Replaced persisted absolute Reference Mode paths with portable identity.

@@ -6,7 +6,7 @@ import {
 } from "./externalPdfState";
 
 describe("buildSyncedExternalPdfState", () => {
-  it("preserves Zotero navigation state while syncing page state", () => {
+  it("preserves Zotero navigation state and runtime path in the in-memory state", () => {
     const state = buildSyncedExternalPdfState({
       docId: "doc-1",
       name: "paper.pdf",
@@ -23,6 +23,7 @@ describe("buildSyncedExternalPdfState", () => {
     expect(state).toMatchObject({
       docId: "doc-1",
       name: "paper.pdf",
+      path: "/tmp/paper.pdf",
       zoom: 1.25,
       darkMode: true,
       tocOpen: false,
@@ -30,7 +31,8 @@ describe("buildSyncedExternalPdfState", () => {
       zoteroAttachmentKey: "PZBCB9LJ",
       targetAnnotationKey: "KN63LR6C",
     });
-    expect(state).not.toHaveProperty("path");
+    // NOTE: getState() in ExternalPdfView strips path before Obsidian persists it.
+    // buildSyncedExternalPdfState itself preserves the runtime path for in-memory use.
   });
 
   it("uses the fallback name when the current state has no name", () => {
@@ -48,13 +50,14 @@ describe("buildSyncedExternalPdfState", () => {
 });
 
 describe("isRetainablePersistedDoc", () => {
-  it("retains docs with portable identity and rejects path-only legacy docs", () => {
+  it("retains docs with portable identity or a local path", () => {
     expect(isRetainablePersistedDoc({ zoteroAttachmentKey: "KEY" })).toBe(true);
     expect(isRetainablePersistedDoc({ externalRef: "@papers/paper.pdf" })).toBe(true);
-    expect(isRetainablePersistedDoc({ path: "/Volumes/ext/paper.pdf" })).toBe(false);
+    // Path-only docs are retained so local PDFs survive restart (reopen prompt handles missing files).
+    expect(isRetainablePersistedDoc({ path: "/Volumes/ext/paper.pdf" })).toBe(true);
   });
 
-  it("drops entries with no portable identity", () => {
+  it("drops entries with no identity at all", () => {
     expect(isRetainablePersistedDoc({})).toBe(false);
     expect(isRetainablePersistedDoc({ path: "" })).toBe(false);
     expect(isRetainablePersistedDoc({ path: undefined })).toBe(false);

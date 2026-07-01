@@ -1710,10 +1710,19 @@ export default class ObsidianAIAgent extends Plugin {
 
   private getLeafFile(leaf: WorkspaceLeaf): { path: string; basename: string } | null {
     if (leaf.view.getViewType() === EXTERNAL_PDF_VIEW_TYPE) {
+      const extView = leaf.view as ExternalPdfView;
+      // getState() no longer includes path (v0.29.0 portable storage). Use
+      // getRuntimePath() as the authoritative runtime path source.
+      const runtimePath = extView.getRuntimePath();
+      if (runtimePath) {
+        return { path: runtimePath, basename: extView.getDisplayText() || "External PDF" };
+      }
+      // Fall back to legacy state.path for transitional compatibility.
       const state = typeof (leaf.view as any).getState === "function" ? (leaf.view as any).getState() : null;
       if (state && state.path) {
         return { path: state.path, basename: state.name || "External PDF" };
       }
+      return null;
     }
     const view = leaf.view as unknown as {
       file?: { path: string; basename: string };

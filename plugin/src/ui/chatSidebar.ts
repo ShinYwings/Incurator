@@ -4125,6 +4125,7 @@ export class ChatSidebarView extends ItemView {
   }
 
   private renderContextChips(): void {
+    try {
     if (!this.contextChipsContainer) return;
     this.contextChipsContainer.empty();
 
@@ -4283,6 +4284,9 @@ export class ChatSidebarView extends ItemView {
       e.stopPropagation();
       this.showAddContextMenu(e);
     });
+    } catch (err) {
+      logger.warn("renderContextChips failed:", err);
+    }
   }
 
   private mergeAutoContextRefs(

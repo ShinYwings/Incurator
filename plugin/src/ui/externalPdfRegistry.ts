@@ -25,6 +25,9 @@ function loadPersistedDocs(): Map<string, ExternalPdfDoc> {
         map.set(id, {
           id: doc.id,
           name: doc.name,
+          // Restore path into the in-memory registry so local PDFs can re-resolve
+          // after restart. persistDocs deliberately omits path (cross-device safety).
+          path: doc.path,
           zoteroAttachmentKey: doc.zoteroAttachmentKey,
           externalRef: doc.externalRef,
         });
@@ -49,6 +52,12 @@ function persistDocs(map: Map<string, ExternalPdfDoc>): void {
       {
         id: doc.id,
         name: doc.name,
+        // For local-only PDFs (no portable identity), persist the path so
+        // isRetainablePersistedDoc can recognise them on the next startup.
+        // For Zotero/externalRef docs, path is omitted (cross-device safety).
+        ...(!doc.zoteroAttachmentKey && !doc.externalRef && doc.path
+          ? { path: doc.path }
+          : {}),
         zoteroAttachmentKey: doc.zoteroAttachmentKey,
         externalRef: doc.externalRef,
       },

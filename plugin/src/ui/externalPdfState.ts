@@ -27,6 +27,9 @@ export function buildSyncedExternalPdfState(
     currentPage: input.currentPage,
   };
 
+  if (input.path) {
+    state.path = input.path;
+  }
   if (input.zoteroAttachmentKey) {
     state.zoteroAttachmentKey = input.zoteroAttachmentKey;
   }
@@ -49,7 +52,7 @@ export function isRetainablePersistedDoc(doc: {
   externalRef?: string;
   path?: string;
 }): boolean {
-  return Boolean(doc.zoteroAttachmentKey || doc.externalRef);
+  return Boolean(doc.zoteroAttachmentKey || doc.externalRef || doc.path);
 }
 
 /**
