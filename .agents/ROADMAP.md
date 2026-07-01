@@ -74,6 +74,7 @@ _(empty — L2 extraction hotfix shipped in v0.27.2, see Completed Milestones.)_
 
 ## ✅ Completed Milestones
 
+- **v0.28.5 — Runtime Path Snapshots & Stale Fallback Removal** (shipped 2026-07-01, PR #75): deployed 0.28.5 build to `second_brain` vault plugin. Removed stale Anaconda/conda PATH fallback from `resolveBackendCommand`; plugin now auto-discovers `.venv/bin/wiki` via repo path only. Added runtime path snapshot tracking to `runtime_state`. Docs updated (PLUGIN_GUIDE, SYNC_IGNORE_GUIDE, SCHEMA, PLUGIN_SCHEMA). Extended test coverage for runtime_state and device_registry.
 - **v0.27.2 — L2 Extraction Hardening + Checkpoint-Resume** (shipped 2026-06-27,
   PRs #59/#60/#61): root-caused the large-source L2 failure. Closed unclosed
   prompt traces on provider exceptions (guarded `finish_prompt_run` so a DB write
@@ -143,16 +144,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.27.2 L2 hotfix shipped (PR #61 merged). Urgent hotfix
-  queue is clear. System Stability Phase B is in progress.
-- **Active Milestone**: System Stability Overhaul — Exhaustive Diagnosis &
-  Refactoring.
-- **Phase A diagnosis state**: ✅ COMPLETE (2026-06-27). All 19 groups (G01–G19)
-  diagnosed; findings merged into `01_roadmap_evidence.md`. Tally: **10 S1, 118
-  S2, 97 S3**.
-- **Phase B status**: S1 queue verified complete in the 0.25.4–0.25.8 release
-  chain. Latest shipped slice: G08-5 MCP register-source warning visibility
-  in v0.28.3 (PR #73).
-- **Next actionable item**: continue remaining S2 groups
-  (XC-1 broad-except narrowing in MCP/plugin API surfaces, CM-1/PL-1 god-file
-  decomposition) or remaining G17 S3 cleanup.
+- **Roadmap state**: v0.28.5 hotfix shipped (PR #75 merged). System is IDLE.
+- **Active Milestone**: None (System IDLE).
+- **Next actionable item**: continue System Stability Overhaul — remaining S2
+  groups (XC-1 broad-except narrowing in MCP/plugin API surfaces, CM-1/PL-1
+  god-file decomposition) or remaining G17 S3 cleanup.
