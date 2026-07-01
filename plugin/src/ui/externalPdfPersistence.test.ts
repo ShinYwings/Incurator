@@ -19,15 +19,18 @@ describe("external-PDF persisted state format (P0 characterization)", () => {
     expect(source).toContain("localStorage.setItem(STORAGE_KEY,");
   });
 
-  it("persists portable identity and never the resolved path", () => {
+  it("persists portable identity; persists path only for local-only docs", () => {
     expect(source).toContain("id: doc.id,");
     expect(source).toContain("name: doc.name,");
     expect(source).toContain("zoteroAttachmentKey: doc.zoteroAttachmentKey");
     expect(source).toContain("externalRef: doc.externalRef");
-    // The toPersist mapping block inside persistDocs must not include path.
-    // (loadPersistedDocs restores path into in-memory registry only.)
+    // Local-only PDFs (no zoteroAttachmentKey, no externalRef) must have their
+    // path persisted so isRetainablePersistedDoc can retain them on next startup.
+    expect(source).toContain("!doc.zoteroAttachmentKey && !doc.externalRef && doc.path");
+    expect(source).toContain("{ path: doc.path }");
+    // The path-conditional block must be inside persistDocs (not loadPersistedDocs).
     const persistDocsBlock = source.slice(source.indexOf("function persistDocs"), source.indexOf("JSON.stringify(toPersist)"));
-    expect(persistDocsBlock).not.toContain("path:");
+    expect(persistDocsBlock).toContain("!doc.zoteroAttachmentKey && !doc.externalRef && doc.path");
     expect(source).toContain("JSON.stringify(toPersist)");
   });
 

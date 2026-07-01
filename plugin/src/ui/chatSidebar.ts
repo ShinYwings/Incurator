@@ -282,11 +282,7 @@ export class ChatSidebarView extends ItemView {
       "ai-agent-context-chips"
     );
     this.setupChipsDrop();
-    try {
-      this.renderContextChips();
-    } catch (err) {
-      logger.warn("Failed to render context chips on open:", err);
-    }
+    this.renderContextChips();
 
     const inputRow = composer.createDiv("ai-agent-chat-input-row");
     this.inputEl = inputRow.createEl("textarea", {
@@ -4129,6 +4125,7 @@ export class ChatSidebarView extends ItemView {
   }
 
   private renderContextChips(): void {
+    try {
     if (!this.contextChipsContainer) return;
     this.contextChipsContainer.empty();
 
@@ -4287,6 +4284,9 @@ export class ChatSidebarView extends ItemView {
       e.stopPropagation();
       this.showAddContextMenu(e);
     });
+    } catch (err) {
+      logger.warn("renderContextChips failed:", err);
+    }
   }
 
   private mergeAutoContextRefs(
