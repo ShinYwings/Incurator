@@ -1,6 +1,11 @@
-# RELAY — IDLE
+# RELAY — Active Task: Fix Zotero Profile Sync across devices
 
-**Status**: System IDLE. v0.29.1 shipped (PR #77 merged 2026-07-02).
+**Status**: Active. Draft completed. Waiting for Executor (Claude Code).
 
-No active branch or task. Next work: System Stability Overhaul S2 continuation
-(CM-1/PL-1 god-file decomposition, XC-1 remaining broad-except slices).
+**Goal**: Fix Zotero Profile Sync across devices by moving `zoteroProfiles` and `recentZoteroItems` out of `data.json` and into `.curator/zotero_profiles.json`.
+
+**Instructions for Executor**:
+1. Read the drafted problem statement in `.agents/drafts/zotero_profile_sync.md`.
+2. Follow the `Universal Strict Workflow`.
+3. Create the final `PLAN_TEMPLATE.md` in `.agents/plans/` using the draft as the Briefing for your Arena debate.
+4. Stop and request human approval of the plan.

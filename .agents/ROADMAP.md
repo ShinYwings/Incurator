@@ -26,6 +26,12 @@ No urgent items currently tracked.
 
 ### 🚀 Priority Order
 
+0. **[Fix] Zotero Import Profiles Not Syncing Across Devices**
+   - `zoteroProfiles` and `recentZoteroItems` are stored in `data.json` (not synced).
+   - Fix: move both to `.curator/zotero_profiles.json` (vault-resident, Syncthing-synced).
+   - Same pattern as `.curator/sessions.json` migration.
+   - Draft: `.agents/drafts/zotero_profile_sync.md`
+
 1. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
      redundancy, architectural debt) + refactoring with architectural redesign
@@ -160,7 +166,7 @@ No blocked items currently tracked.
 ## 📌 Current Focus & Active Milestone
 
 - **Roadmap state**: v0.29.0 portable-path storage shipped (PR #76 merged). System is IDLE.
-- **Active Milestone**: None (System IDLE).
+- **Active Milestone**: Fix Zotero Profile Sync across devices
 - **Next actionable item**: continue System Stability Overhaul — remaining S2
   groups (XC-1 broad-except narrowing in MCP/plugin API surfaces, CM-1/PL-1
   god-file decomposition) or remaining G17 S3 cleanup.
