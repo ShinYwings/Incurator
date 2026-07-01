@@ -135,7 +135,8 @@ def _source_meta_by_ids(db_path: Path, source_ids: list[int]) -> dict[int, dict]
     with db.connect(db_path) as conn:
         ph = ",".join("?" for _ in source_ids)
         rows = conn.execute(
-            f"SELECT id, file_type, external_path, import_origin, is_reference "
+            f"SELECT id, file_type, external_ref, import_origin_ref, "
+            f"logical_source_id, is_reference "
             f"FROM sources WHERE id IN ({ph})",
             tuple(source_ids),
         ).fetchall()
@@ -157,10 +158,14 @@ def _build_locator(span: dict, src: dict) -> StructuredLocator:
     heading = span.get("section_title")
     toc_id = span.get("toc_id")
     page_number = span.get("page_number")
-    external_uri = (
-        (src.get("external_path") or src.get("import_origin"))
-        if src.get("is_reference") else None
-    )
+    logical = str(src.get("logical_source_id") or "")
+    external_uri = None
+    if src.get("is_reference"):
+        external_uri = (
+            f"zotero://open-pdf/library/items/{logical.split(':', 1)[1]}"
+            if logical.startswith("zotero:")
+            else (src.get("external_ref") or src.get("import_origin_ref"))
+        )
     if not relpath:
         locator_status = "fallback_source"
     elif heading or toc_id or page_number:

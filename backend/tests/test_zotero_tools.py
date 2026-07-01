@@ -20,7 +20,7 @@ def test_zotero_db_candidates_accepts_direct_sqlite_path(tmp_path: Path) -> None
 
 def test_zotero_root_candidates_normalizes_sqlite_to_parent(tmp_path: Path) -> None:
     sqlite_path = tmp_path / "zotero.sqlite"
-    roots = zotero_tools.zotero_root_candidates(str(sqlite_path), {"external": {"zotero": {"roots": []}}})
+    roots = zotero_tools.zotero_root_candidates(str(sqlite_path), {"external": {"zotero": {"root_keys": []}}})
     assert str(tmp_path) in roots
 
 
@@ -83,8 +83,9 @@ def test_zotero_init_saves_local_roots(tmp_path: Path) -> None:
         global_cfg = (global_dir / "config.yml").read_text(encoding="utf-8")
 
     assert status["state"] == "ready"
-    assert str(zotero_dir) in saved["external"]["zotero"]["roots"]
-    assert str(linked_dir) in saved["external"]["zotero"]["roots"]
+    assert saved["external"]["zotero"]["root_keys"] == ["zotero_data", "zotero_linked"]
+    assert saved["external"]["path_roots"]["zotero_data"] == str(zotero_dir)
+    assert saved["external"]["path_roots"]["zotero_linked"] == str(linked_dir)
     assert str(zotero_dir) in global_cfg
     assert not paths.config_file.exists() or "external:" not in paths.config_file.read_text(encoding="utf-8")
 
@@ -101,7 +102,7 @@ def test_zotero_root_candidates_reads_base_attachment_path_from_prefs(tmp_path: 
         encoding="utf-8",
     )
 
-    roots = zotero_tools.zotero_root_candidates("", {"external": {"zotero": {"roots": []}}})
+    roots = zotero_tools.zotero_root_candidates("", {"external": {"zotero": {"root_keys": []}}})
 
     assert str(linked) in roots
 
@@ -119,7 +120,7 @@ def test_zotero_root_candidates_reads_zotmoov_path_from_prefs(tmp_path: Path, mo
         encoding="utf-8",
     )
 
-    roots = zotero_tools.zotero_root_candidates("", {"external": {"zotero": {"roots": []}}})
+    roots = zotero_tools.zotero_root_candidates("", {"external": {"zotero": {"root_keys": []}}})
 
     assert str(linked) in roots
 
@@ -153,7 +154,12 @@ def test_resolve_pdf_uses_linked_attachment_root(tmp_path: Path, monkeypatch) ->
     pdf.parent.mkdir()
     pdf.write_bytes(b"%PDF-1.4\n")
     _make_zotero_attachment_db(zotero_dir / "zotero.sqlite", "ATTACH2", "attachments:papers/paper.pdf")
-    cfg.save_global_config({"external": {"zotero": {"enabled": True, "roots": [str(linked_dir)]}}})
+    cfg.save_global_config({
+        "external": {
+            "path_roots": {"zotero_linked": str(linked_dir)},
+            "zotero": {"enabled": True, "root_keys": ["zotero_linked"]},
+        }
+    })
 
     result = zotero_tools.resolve_pdf("ATTACH2", paths, str(zotero_dir))
 

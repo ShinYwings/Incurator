@@ -11,7 +11,6 @@ per-workspace Exhibition generation; curation is a dynamic query-time lens.
 """
 
 from __future__ import annotations
-import os
 
 from . import constants as consts
 
@@ -122,22 +121,11 @@ def _resolve_reference_source(paths: cfg.WikiPaths, source: Path) -> Path:
             
         target_path = None
         if fm.get("zotero_key"):
-            from . import zotero
-            # Check config or env for zotero roots
-            zotero_roots = []
-            config = cfg.load_config(paths)
-            if "external" in config and "zotero" in config["external"]:
-                zotero_roots = config["external"]["zotero"].get("roots", [])
-            
-            env_zotero = os.environ.get("ZOTERO_BASE_PATH")
-            if env_zotero:
-                zotero_roots.insert(0, env_zotero)
-                
-            for z_root in zotero_roots:
-                resolved = zotero.resolve_zotero_attachment_path(z_root, fm["zotero_key"])
-                if resolved:
-                    target_path = resolved
-                    break
+            from . import zotero_tools
+
+            resolved = zotero_tools.resolve_pdf(str(fm["zotero_key"]), paths)
+            if resolved.get("ok") and resolved.get("path"):
+                target_path = str(resolved["path"])
         
         if not target_path and fm.get("target_path"):
             target_path = fm["target_path"]
@@ -148,8 +136,12 @@ def _resolve_reference_source(paths: cfg.WikiPaths, source: Path) -> Path:
             except ValueError:
                 relpath = str(source)
             row = db.get_source_row(paths.state_db, paths.root, relpath=relpath)
-            if row and row.get("external_path"):
-                target_path = str(row["external_path"])
+            if row:
+                from . import path_refs
+
+                resolved_path = path_refs.resolve_source_path(paths, row)
+                if resolved_path is not None:
+                    target_path = str(resolved_path)
             
         if target_path:
             target_p = Path(target_path)
@@ -287,6 +279,7 @@ def _write_reference_stub(
     source: Path,
     title: str,
     logical_source_id: str,
+    external_ref: str | None = None,
 ) -> None:
     import yaml
 
@@ -302,6 +295,8 @@ def _write_reference_stub(
     if zotero_attachment_key:
         frontmatter["reference_kind"] = "zotero"
         frontmatter["zotero_attachment_key"] = zotero_attachment_key
+    elif external_ref:
+        frontmatter["external_ref"] = external_ref
     stub_path.parent.mkdir(parents=True, exist_ok=True)
     fm = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip()
     body = (
@@ -318,6 +313,33 @@ def _write_reference_stub(
         f"---\n{fm}\n---\n\n{body}",
         encoding="utf-8",
     )
+
+
+def _portable_external_ref(
+    paths: cfg.WikiPaths,
+    source: Path,
+    logical_source_id: str,
+) -> str | None:
+    if logical_source_id.startswith("zotero:"):
+        return None
+    from . import path_refs
+
+    config = cfg.load_config(paths)
+    return path_refs.encode_path(source, path_refs.configured_roots(config))
+
+
+def _copy_import_origin_ref(paths: cfg.WikiPaths, source: Path) -> str | None:
+    try:
+        return source.resolve().relative_to(paths.root.resolve()).as_posix()
+    except ValueError:
+        pass
+    from . import path_refs
+
+    try:
+        config = cfg.load_config(paths)
+        return path_refs.encode_path(source, path_refs.configured_roots(config))
+    except ValueError:
+        return None
 
 
 def safe_import_destination(
@@ -2069,11 +2091,20 @@ def import_source_file(
             )
 
         logical_id = logical_source_id or _default_logical_source_id(source)
+        try:
+            external_ref = _portable_external_ref(paths, source, logical_id)
+        except ValueError as exc:
+            return AddOutcome(
+                result=AddResult.ERROR,
+                source_path=source,
+                relpath="",
+                message=f"root_unregistered: {exc}",
+            )
         existing_relpath: str | None = None
         with db.connect(paths.state_db) as conn:
             existing = conn.execute(
-                "SELECT relpath FROM sources WHERE logical_source_id = ? OR external_path = ?",
-                (logical_id, str(source)),
+                "SELECT relpath FROM sources WHERE logical_source_id = ? OR external_ref = ?",
+                (logical_id, external_ref),
             ).fetchone()
             if existing is not None:
                 existing_relpath = str(existing["relpath"])
@@ -2163,12 +2194,12 @@ def import_source_file(
                     conn.execute(
                         """
                         UPDATE sources
-                        SET external_path = ?, is_reference = 1,
-                            logical_source_id = ?, import_origin = ?,
+                        SET external_ref = ?, is_reference = 1,
+                            logical_source_id = ?, import_origin_ref = ?,
                             import_policy = ?
                         WHERE id = ?
                         """,
-                        (str(source), logical_id, str(source), "reference", existing["id"]),
+                        (external_ref, logical_id, external_ref, "reference", existing["id"]),
                     )
                     _record_pdf_pages_conn(conn, existing["id"], relpath, parsed)
                     return AddOutcome(
@@ -2196,8 +2227,8 @@ def import_source_file(
                         l1_status = 'pending', l2_status = 'pending',
                         l3_status = 'pending', l4_status = 'pending',
                         layer_error = NULL, error_reason = ?,
-                        external_path = ?, is_reference = 1,
-                        logical_source_id = ?, import_origin = ?,
+                        external_ref = ?, is_reference = 1,
+                        logical_source_id = ?, import_origin_ref = ?,
                         import_policy = ?
                     WHERE id = ?
                     """,
@@ -2208,9 +2239,9 @@ def import_source_file(
                         parsed.bytes,
                         status,
                         error_reason,
-                        str(source),
+                        external_ref,
                         logical_id,
-                        str(source),
+                        external_ref,
                         "reference",
                         existing["id"],
                     ),
@@ -2223,8 +2254,8 @@ def import_source_file(
                     """
                     INSERT INTO sources
                         (relpath, content_hash, file_type, bytes, added_at,
-                         status, error_reason, external_path, is_reference,
-                         logical_source_id, import_origin, import_policy)
+                         status, error_reason, external_ref, is_reference,
+                         logical_source_id, import_origin_ref, import_policy)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
                     """,
                     (
@@ -2235,9 +2266,9 @@ def import_source_file(
                         _now_iso(),
                         status,
                         error_reason,
-                        str(source),
+                        external_ref,
                         logical_id,
-                        str(source),
+                        external_ref,
                         "reference",
                     ),
                 )
@@ -2305,10 +2336,14 @@ def import_source_file(
             conn.execute(
                 """
                 UPDATE sources
-                SET import_origin = ?, import_policy = ?, is_reference = 0
+                SET import_origin_ref = ?, import_policy = ?, is_reference = 0
                 WHERE id = ?
                 """,
-                (str(plan.source_path), plan.policy, outcome.source_id),
+                (
+                    _copy_import_origin_ref(paths, plan.source_path),
+                    plan.policy,
+                    outcome.source_id,
+                ),
             )
 
     if plan.copied and outcome.result != AddResult.ERROR:

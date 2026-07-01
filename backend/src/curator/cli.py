@@ -227,6 +227,14 @@ db_app = typer.Typer(
 )
 app.add_typer(db_app, name="db")
 
+paths_app = typer.Typer(
+    name="paths",
+    help="Audit and migrate portable filesystem references.",
+    no_args_is_help=True,
+    add_completion=False,
+)
+app.add_typer(paths_app, name="paths")
+
 models_app = typer.Typer(
     name="models",
     help="Provision the search stack (embedding + reranker GGUFs).",
@@ -2474,13 +2482,13 @@ def init(
 
 @config_app.command("get")
 def config_get(
-    key: str = typer.Argument(..., help="Dot-separated config key, e.g. external.zotero.roots"),
+    key: str = typer.Argument(..., help="Dot-separated config key, e.g. external.path_roots.zotero_data"),
     global_only: bool = typer.Option(False, "--global", help="Read from global config only."),
 ) -> None:
     """Print a config key value from the merged (global + project) config.
 
     \b
-      wiki config get external.zotero.roots
+      wiki config get external.path_roots.zotero_data
       wiki config get llm.primary
     """
     import json as _json
@@ -2523,7 +2531,7 @@ def config_get(
 
 @config_app.command("set")
 def config_set(
-    key: str = typer.Argument(..., help="Dot-separated config key, e.g. external.zotero.roots"),
+    key: str = typer.Argument(..., help="Dot-separated config key, e.g. external.path_roots.zotero_data"),
     value: str = typer.Argument(..., help="Value to set. Lists use JSON: '[\"path1\",\"path2\"]'"),
     append: bool = typer.Option(False, "--append", help="Append to an existing list instead of replacing."),
     global_cfg: bool = typer.Option(True, "--global/--local", help="Write to global config (default) or project config."),
@@ -2531,9 +2539,8 @@ def config_set(
     """Set a config key in the global or project config file.
 
     \b
-      wiki config set external.zotero.roots "$HOME/Zotero/storage"
-      wiki config set external.zotero.roots '["~/Zotero/storage","~/Documents/Zotero"]'
-      wiki config set external.zotero.roots ~/Documents/Zotero --append
+      wiki config set external.path_roots.zotero_data "$HOME/Zotero"
+      wiki config set external.zotero.root_keys '["zotero_data"]'
       wiki config set --local llm.primary ollama
     """
     import json as _json
@@ -2986,6 +2993,39 @@ def status(
 # ---------------------------------------------------------------------------
 # wiki migrate
 # ---------------------------------------------------------------------------
+
+
+@paths_app.command("migrate")
+def migrate_portable_paths_command(
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Apply the migration. Without this flag the command is read-only.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Print JSON output."),
+) -> None:
+    """Migrate legacy absolute source paths to schema-v10 portable identity."""
+    from .portable_migration import migrate_portable_paths
+
+    paths = _resolve_root_or_die()
+    result = migrate_portable_paths(paths, apply=apply)
+    payload = {
+        "ok": result.ok,
+        "dry_run": result.dry_run,
+        "rows": result.rows,
+        "backup_dir": result.backup_dir,
+        "error": result.error,
+    }
+    if json_output:
+        _print_json(payload)
+    elif result.ok:
+        action = "Would migrate" if result.dry_run else "Migrated"
+        _ok(f"{action} {len(result.rows)} source row(s).")
+        if result.backup_dir:
+            console.print(f"[dim]Backup: {result.backup_dir}[/dim]")
+    else:
+        _err(result.error or "Portable path migration failed.")
+        raise typer.Exit(1)
 
 @app.command("migrate")
 def migrate_vault(

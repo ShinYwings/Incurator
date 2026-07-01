@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config as cfg
-from . import db, parsers
+from . import db, parsers, path_refs
 
 
 @dataclass(frozen=True)
@@ -127,9 +127,12 @@ def external_resources(config: dict) -> list[dict[str, Any]]:
                 }
             )
 
-    add_root("external", external.get("roots"), True)
+    named_roots = external.get("path_roots")
+    if isinstance(named_roots, dict):
+        for name, root in named_roots.items():
+            add_root(str(name), root, True)
     for name, spec in external.items():
-        if name == "roots":
+        if name in {"roots", "path_roots"}:
             continue
         if isinstance(spec, dict):
             enabled = bool(spec.get("enabled", True))
@@ -139,10 +142,9 @@ def external_resources(config: dict) -> list[dict[str, Any]]:
     return out
 
 
-def _row_path(paths: cfg.WikiPaths, row: dict[str, Any]) -> Path:
-    external_path = str(row.get("external_path") or "")
-    if int(row.get("is_reference") or 0) and external_path:
-        return Path(external_path).expanduser()
+def _row_path(paths: cfg.WikiPaths, row: dict[str, Any]) -> Path | None:
+    if int(row.get("is_reference") or 0):
+        return path_refs.resolve_source_path(paths, row)
     relpath = str(row.get("relpath") or "")
     candidate = Path(relpath).expanduser()
     if candidate.is_absolute():
@@ -211,11 +213,20 @@ def source_status(
     out = dict(row)
     expected_hash = str(row.get("content_hash") or "")
     path = _row_path(paths, row)
-    out["current_path"] = str(path)
+    out["current_path"] = str(path) if path is not None else ""
     out["requires_rebind"] = False
 
-    if not path.exists():
+    if path is None or not path.exists():
         if int(row.get("is_reference") or 0):
+            if path is None:
+                out.update(
+                    SourceStatus(
+                        state="missing",
+                        message="Reference source cannot be resolved from its portable identity.",
+                        requires_rebind=not str(row.get("logical_source_id") or "").startswith("zotero:"),
+                    ).as_dict()
+                )
+                return out
             candidate, candidate_hash = find_moved_candidate(
                 path.name,
                 expected_hash,
@@ -350,7 +361,7 @@ def rebind_source(
         "ok": True,
         "state": "rebind_proposal" if not apply else "rebound",
         "source_id": source_id,
-        "old_path": str(old_path),
+        "old_path": str(old_path) if old_path is not None else "",
         "new_path": str(new_path),
         "old_hash": old_hash,
         "new_hash": parsed.content_hash,
@@ -366,14 +377,35 @@ def rebind_source(
     if not apply:
         return proposal
 
-    relpath = str(new_path)
+    logical_id = str(row.get("logical_source_id") or "")
+    if logical_id.startswith("zotero:"):
+        return {
+            "ok": False,
+            "state": "zotero_managed",
+            "error": "Zotero paths are resolved from Zotero DB and are not rebound in source state.",
+            "source_id": source_id,
+        }
+    try:
+        config = cfg.load_config(paths)
+        external_ref = path_refs.encode_path(
+            new_path,
+            path_refs.configured_roots(config),
+        )
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "state": "root_unregistered",
+            "error": str(exc),
+            "source_id": source_id,
+        }
+    relpath = str(row.get("relpath") or "")
     content_hash = parsed.content_hash if update_hash else old_hash
     status = "pending" if update_hash and hash_changed else str(row.get("status") or "pending")
     with db.connect(paths.state_db) as conn:
         conn.execute(
             """
             UPDATE sources
-            SET relpath = ?, external_path = ?, import_origin = ?,
+            SET relpath = ?, external_ref = ?, import_origin_ref = ?,
                 content_hash = ?, file_type = ?, bytes = ?,
                 status = ?, last_ingested = CASE WHEN ? THEN NULL ELSE last_ingested END,
                 context_id = CASE WHEN ? THEN NULL ELSE context_id END,
@@ -388,8 +420,8 @@ def rebind_source(
             """,
             (
                 relpath,
-                str(new_path),
-                str(new_path),
+                external_ref,
+                external_ref,
                 content_hash,
                 parsed.file_type,
                 parsed.bytes,

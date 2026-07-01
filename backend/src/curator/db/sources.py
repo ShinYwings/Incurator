@@ -290,7 +290,7 @@ def get_source_row(
     source_path: str = "",
     content_hash: str = "",
 ) -> dict[str, Any] | None:
-    """Unified source lookup by id, relpath, external_path, import_origin,
+    """Unified source lookup by id, relpath, portable refs,
     logical_source_id, or content_hash (G08-1).
 
     When ``source_path`` is given and ``relpath`` is empty, the path is
@@ -314,10 +314,10 @@ def get_source_row(
                 """
                 SELECT * FROM sources
                 WHERE relpath = ?
-                   OR external_path = ?
-                   OR external_path = ?
-                   OR import_origin = ?
-                   OR import_origin = ?
+                   OR external_ref = ?
+                   OR external_ref = ?
+                   OR import_origin_ref = ?
+                   OR import_origin_ref = ?
                    OR logical_source_id = ?
                 """,
                 (relpath, relpath, resolved_lookup, relpath, resolved_lookup, relpath),
@@ -346,4 +346,3 @@ def get_pending_count(db_path: Path) -> int:
         return conn.execute(
             f"SELECT COUNT(*) FROM sources WHERE status IN ('{consts.STATUS_PENDING}', 'force_pending')"
         ).fetchone()[0]
-

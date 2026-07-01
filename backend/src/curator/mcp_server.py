@@ -74,9 +74,12 @@ def _zotero_root_candidates(custom_paths: str, config: dict[str, Any] | None = N
         expanded = os.path.expanduser(p)
         candidates.append(os.path.dirname(expanded) if expanded.endswith(".sqlite") else expanded)
     if config and "external" in config and "zotero" in config["external"]:
-        roots = config["external"]["zotero"].get("roots", [])
-        for root in roots:
-            candidates.append(os.path.expanduser(root))
+        external = config["external"]
+        path_roots = external.get("path_roots") or {}
+        for key in external["zotero"].get("root_keys", []):
+            root = path_roots.get(key)
+            if isinstance(root, str) and root:
+                candidates.append(os.path.expanduser(root))
 
     _discover_zotero_base_attachment_path(candidates)
 
@@ -1063,7 +1066,10 @@ def build_server() -> FastMCP:
             return {"ok": False, "error": "Source not found: missing source_key, source_id, or path"}
         source_path_obj = Path(lookup_key).expanduser() if lookup_key else Path()
         if row is not None:
-            source_path_obj = source_tools._row_path(paths, row)
+            resolved_path = source_tools._row_path(paths, row)
+            if resolved_path is None:
+                return {"ok": False, "error": "Source path is unresolved"}
+            source_path_obj = resolved_path
         elif lookup_key and not source_path_obj.is_absolute():
             source_path_obj = paths.root / lookup_key
         wanted = section_id or toc_id

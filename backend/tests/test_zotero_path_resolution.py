@@ -23,7 +23,12 @@ def test_zotero_root_candidates_includes_external_roots(tmp_path: Path) -> None:
 
     candidates = mcp_server._zotero_root_candidates(
         str(custom_dir),
-        {"external": {"zotero": {"roots": [str(external_dir)]}}},
+        {
+            "external": {
+                "path_roots": {"zotero_linked": str(external_dir)},
+                "zotero": {"root_keys": ["zotero_linked"]},
+            }
+        },
     )
 
     assert str(custom_dir) in candidates

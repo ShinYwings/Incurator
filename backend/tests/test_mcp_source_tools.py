@@ -6,10 +6,12 @@ dependency-free.
 """
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 from curator import config as cfg
-from curator import db, ingest_raw, search, source_tools
+from curator import db, ingest_raw, path_refs, search, source_tools
 
 
 class ImportSourceTests(unittest.TestCase):
@@ -20,8 +22,18 @@ class ImportSourceTests(unittest.TestCase):
         for raw_dir in self.paths.raw_dirs:
             raw_dir.mkdir(parents=True, exist_ok=True)
         db.init_db(self.paths.state_db)
+        self.config = deepcopy(cfg.DEFAULT_CONFIG)
+        self.config["external"]["path_roots"] = {
+            "test_library": str(self.root.parent)
+        }
+        self.config_patcher = patch(
+            "curator.config.load_config",
+            return_value=self.config,
+        )
+        self.config_patcher.start()
 
     def tearDown(self) -> None:
+        self.config_patcher.stop()
         self.tmp.cleanup()
 
     def test_external_file_lands_in_04_resources_imports(self) -> None:
@@ -64,7 +76,13 @@ class ImportSourceTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["relpath"], "04_Resources/References/paper.md")
         self.assertEqual(row["is_reference"], 1)
-        self.assertEqual(row["external_path"], str(external.resolve()))
+        self.assertEqual(
+            row["external_ref"],
+            path_refs.encode_path(
+                external,
+                {"test_library": self.root.parent},
+            ),
+        )
         self.assertTrue(str(row["logical_source_id"]).startswith("ref-"))
 
     def test_reference_import_reuses_existing_stub_for_same_external_path(self) -> None:
@@ -126,7 +144,7 @@ class ImportSourceTests(unittest.TestCase):
         """Plan G P0 dedup-parity characterization (Arena red-team C4).
 
         Copy mode and Reference mode dedup on DIFFERENT keys (relpath vs
-        logical_source_id/external_path). Importing the same external file once
+        logical_source_id/external_ref). Importing the same external file once
         as a copy and once as a reference MUST yield two distinct source rows.
         This pins current behavior so the P2 identity facade cannot silently
         merge the two dedup branches.
@@ -161,7 +179,7 @@ class ImportSourceTests(unittest.TestCase):
         assert copy_row is not None and ref_row is not None
         self.assertEqual(copy_row["is_reference"], 0)
         self.assertEqual(ref_row["is_reference"], 1)
-        self.assertEqual(ref_row["external_path"], str(external.resolve()))
+        self.assertTrue(str(ref_row["external_ref"]).startswith("@test_library/"))
 
     def test_reference_status_detects_hash_drift_without_mutation(self) -> None:
         external_root = self.root.parent / f"{self.root.name}_zotero_library"
@@ -180,7 +198,7 @@ class ImportSourceTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        status = source_tools.source_status(self.paths, row, cfg.DEFAULT_CONFIG)
+        status = source_tools.source_status(self.paths, row, self.config)
         self.assertEqual(status["state"], "hash_drift")
         self.assertTrue(status["requires_rebind"])
         fresh_row = ingest_raw.get_source(self.paths, outcome.source_id or -1)
@@ -194,6 +212,9 @@ class ImportSourceTests(unittest.TestCase):
             "# External Reference\n\nThis file will move without changing content.",
             encoding="utf-8",
         )
+        self.config["external"]["path_roots"] = {
+            "test_library": str(external_root)
+        }
         outcome = ingest_raw.import_source_file(self.paths, original, policy="reference")
         row = ingest_raw.get_source(self.paths, outcome.source_id or -1)
         self.assertIsNotNone(row)
@@ -202,7 +223,11 @@ class ImportSourceTests(unittest.TestCase):
         moved_dir.mkdir()
         moved = moved_dir / "paper.md"
         original.rename(moved)
-        config = {"external": {"zotero": {"enabled": True, "roots": [str(external_root)]}}}
+        config = {
+            "external": {
+                "path_roots": {"test_library": str(external_root)}
+            }
+        }
 
         status = source_tools.source_status(self.paths, row, config)
         self.assertEqual(status["state"], "moved")
@@ -226,23 +251,26 @@ class ImportSourceTests(unittest.TestCase):
         proposal = source_tools.rebind_source(self.paths, row, moved, apply=False)
         self.assertEqual(proposal["state"], "rebind_proposal")
         unchanged = ingest_raw.get_source(self.paths, outcome.source_id or -1)
-        self.assertEqual(unchanged["external_path"], str(original.resolve()))
+        self.assertTrue(str(unchanged["external_ref"]).endswith("/paper.md"))
 
         applied = source_tools.rebind_source(self.paths, row, moved, apply=True)
         self.assertEqual(applied["state"], "rebound")
         updated = ingest_raw.get_source(self.paths, outcome.source_id or -1)
-        self.assertEqual(updated["external_path"], str(moved.resolve()))
+        self.assertTrue(str(updated["external_ref"]).endswith("/renamed.md"))
 
     def test_external_resources_normalizes_global_config_roots(self) -> None:
         config = {
             "external": {
-                "roots": ["/tmp/generic-library"],
-                "zotero": {"enabled": True, "roots": ["/tmp/zotero-a", "/tmp/zotero-b"]},
+                "path_roots": {
+                    "generic": "/tmp/generic-library",
+                    "zotero_a": "/tmp/zotero-a",
+                    "zotero_b": "/tmp/zotero-b",
+                },
             }
         }
 
         resources = source_tools.external_resources(config)
-        self.assertEqual([r["name"] for r in resources], ["external", "zotero", "zotero"])
+        self.assertEqual([r["name"] for r in resources], ["generic", "zotero_a", "zotero_b"])
         self.assertEqual(resources[1]["path"], "/tmp/zotero-a")
 
     def test_repeated_import_of_03_notes_creates_unique_destination(self) -> None:

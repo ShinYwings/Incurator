@@ -54,8 +54,8 @@ class TestSyncState:
 
 
 class TestConstantsAndIgnore:
-    def test_device_local_columns_protects_external_path(self) -> None:
-        assert "external_path" in db_sync._DEVICE_LOCAL_COLUMNS["sources"]
+    def test_source_locators_are_not_device_local_columns(self) -> None:
+        assert "sources" not in db_sync._DEVICE_LOCAL_COLUMNS
 
     def test_stignore_template_excludes_sync_state(self) -> None:
         template = (
@@ -151,20 +151,20 @@ class TestImportAllPeers:
 
 
 class TestReferenceModePreservation:
-    def test_external_path_preserved_on_update(self, vault: Path) -> None:
+    def test_portable_external_ref_merges_normally(self, vault: Path) -> None:
         dbp = _db(vault)
         # Local reference source with a device-specific path.
         with db.connect(dbp) as conn:
             conn.execute(
                 "INSERT INTO sources (relpath, content_hash, file_type, bytes,"
-                " added_at, last_ingested, external_path, is_reference)"
+                " added_at, last_ingested, external_ref, is_reference)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
                 ("04_Resources/p.pdf", "h1", "pdf", 10, "2026-06-01T00:00:00Z",
-                 "2026-06-01T00:00:00Z", "/local/zotero/p.pdf"),
+                 "2026-06-01T00:00:00Z", "@papers/p.pdf"),
             )
             sid = conn.execute("SELECT id FROM sources").fetchone()[0]
 
-        # Peer file: newer row, same id, DIFFERENT external_path + new domain.
+        # Peer file: newer row, same id, portable locator + new domain.
         peer_dir = _internal(vault) / "sync"
         peer_dir.mkdir(parents=True, exist_ok=True)
         import json as _json
@@ -175,7 +175,7 @@ class TestReferenceModePreservation:
                 "id": sid, "relpath": "04_Resources/p.pdf", "content_hash": "h2",
                 "file_type": "pdf", "bytes": 10, "added_at": "2026-06-01T00:00:00Z",
                 "last_ingested": "2026-06-09T00:00:00Z", "status": "curated",
-                "external_path": "/peer/zotero/p.pdf", "is_reference": 1,
+                "external_ref": "@papers/moved/p.pdf", "is_reference": 1,
                 "domain": "peer-domain",
             }}) + "\n",
             encoding="utf-8",
@@ -183,9 +183,9 @@ class TestReferenceModePreservation:
 
         db_sync.import_all_peers(_internal(vault), _db(vault))
         with db.connect(dbp) as conn:
-            r = conn.execute("SELECT external_path, domain FROM sources WHERE id=?", (sid,)).fetchone()
-        assert r["external_path"] == "/local/zotero/p.pdf"  # local path preserved
-        assert r["domain"] == "peer-domain"                  # other cols updated by LWW
+            r = conn.execute("SELECT external_ref, domain FROM sources WHERE id=?", (sid,)).fetchone()
+        assert r["external_ref"] == "@papers/moved/p.pdf"
+        assert r["domain"] == "peer-domain"
 
 
 class TestTombstoneTieBreak:

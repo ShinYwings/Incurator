@@ -6,7 +6,9 @@ mutation and does NOT change dedup semantics.
 """
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 from curator import config as cfg
 from curator import db, ingest_raw, asset_identity
@@ -25,7 +27,7 @@ class FromSourceRowTests(unittest.TestCase):
                 "id": 7,
                 "relpath": "04_Resources/Imports/a.md",
                 "is_reference": 0,
-                "external_path": None,
+                "external_ref": None,
                 "content_hash": "h",
             }
         )
@@ -35,36 +37,34 @@ class FromSourceRowTests(unittest.TestCase):
         self.assertIsNone(ident.abs_path)
         self.assertEqual(ident.relpath, "04_Resources/Imports/a.md")
 
-    def test_reference_source_exposes_external_file_as_abs_path(self) -> None:
+    def test_reference_source_keeps_only_portable_identity_without_paths(self) -> None:
         ident = asset_identity.from_source_row(
             {
                 "id": 9,
                 "relpath": "04_Resources/References/paper.md",
                 "is_reference": 1,
-                "external_path": "/ext/lib/paper.pdf",
+                "external_ref": None,
                 "logical_source_id": "zotero:ABCD1234",
                 "content_hash": "h",
             }
         )
-        self.assertEqual(ident.resolution_status, "resolved")
+        self.assertEqual(ident.resolution_status, "path_unresolved")
         self.assertTrue(ident.is_reference)
-        self.assertEqual(ident.abs_path, "/ext/lib/paper.pdf")
+        self.assertIsNone(ident.abs_path)
         self.assertEqual(ident.relpath, "04_Resources/References/paper.md")
         self.assertEqual(ident.zotero_key, "ABCD1234")
 
-    def test_verify_exists_downgrades_phantom_external_path(self) -> None:
-        # A Reference Mode row whose external file is gone must not be RESOLVED
-        # with a phantom abs_path when verify_exists=True.
+    def test_reference_without_runtime_resolver_is_path_unresolved(self) -> None:
         row = {
             "id": 11,
             "relpath": "04_Resources/References/gone.md",
             "is_reference": 1,
-            "external_path": "/definitely/missing/file.pdf",
+            "external_ref": "@library/missing/file.pdf",
             "content_hash": "h",
         }
-        cheap = asset_identity.from_source_row(row)  # no I/O -> trusts the path
-        self.assertEqual(cheap.resolution_status, "resolved")
-        self.assertEqual(cheap.abs_path, "/definitely/missing/file.pdf")
+        cheap = asset_identity.from_source_row(row)
+        self.assertEqual(cheap.resolution_status, "path_unresolved")
+        self.assertIsNone(cheap.abs_path)
 
         verified = asset_identity.from_source_row(row, verify_exists=True)
         self.assertEqual(verified.resolution_status, "path_unresolved")
@@ -79,8 +79,18 @@ class ResolveTests(unittest.TestCase):
         for raw_dir in self.paths.raw_dirs:
             raw_dir.mkdir(parents=True, exist_ok=True)
         db.init_db(self.paths.state_db)
+        self.config = deepcopy(cfg.DEFAULT_CONFIG)
+        self.config["external"]["path_roots"] = {
+            "test_library": str(self.root.parent)
+        }
+        self.config_patcher = patch(
+            "curator.config.load_config",
+            return_value=self.config,
+        )
+        self.config_patcher.start()
 
     def tearDown(self) -> None:
+        self.config_patcher.stop()
         self.tmp.cleanup()
 
     def test_unknown_input_is_untracked(self) -> None:
@@ -143,14 +153,13 @@ class ResolveTests(unittest.TestCase):
         with db.connect(self.paths.state_db) as conn:
             conn.execute(
                 "INSERT INTO sources (relpath, content_hash, file_type, bytes, "
-                "added_at, external_path, logical_source_id, is_reference) "
-                "VALUES (?, ?, ?, 0, ?, ?, ?, 1)",
+                "added_at, logical_source_id, is_reference) "
+                "VALUES (?, ?, ?, 0, ?, ?, 1)",
                 (
                     "04_Resources/References/paper.md",
                     "h1",
                     "pdf",
                     now,
-                    str(old),
                     "zotero:MOVE1",
                 ),
             )
