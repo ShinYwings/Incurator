@@ -5,13 +5,13 @@ import { join } from "node:path";
 const source = readFileSync(join(__dirname, "externalPdfView.ts"), "utf-8");
 
 describe("ExternalPdfView device-portable restore contract", () => {
-  it("re-resolves Zotero-backed restored views before trusting synced absolute paths", () => {
+  it("re-resolves Zotero-backed restored views through backend key lookup", () => {
     expect(source).toContain("resolvePortableStatePath");
     expect(source).toContain("resolveAssetSource");
     expect(source).toContain("zoteroAttachmentKey");
     expect(source).toContain("resolveZoteroViaBackend");
-    expect(source).toContain("resolveZoteroLocally");
-    expect(source).toContain("return resolved.absPath || hintedPath");
+    expect(source).not.toContain("resolveZoteroLocally");
+    expect(source).toContain("return resolved.absPath");
     expect(source).toContain("path: resolvedPath");
   });
 });

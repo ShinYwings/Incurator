@@ -32,7 +32,7 @@ class SourceProvenanceTests(unittest.TestCase):
 
         row = ingest_raw.get_source(self.paths, outcome.source_id or -1)
         self.assertIsNotNone(row)
-        self.assertEqual(row["import_origin"], str(note.resolve()))
+        self.assertEqual(row["import_origin_ref"], "03_Notes/Papers/note.md")
         self.assertEqual(row["import_policy"], "mirror_03_to_04")
 
     def test_pdf_page_metadata_is_recorded_even_for_empty_pdf(self) -> None:

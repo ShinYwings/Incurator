@@ -178,7 +178,9 @@ def import_source(
                 "resolution": resolved,
             }
         file_path = str(resolved["path"])
-        logical_source_id = logical_source_id or f"zotero:{zotero_attachment_key}"
+        effective_key = str(resolved.get("attachment_key") or zotero_attachment_key)
+        zotero_attachment_key = effective_key
+        logical_source_id = logical_source_id or f"zotero:{effective_key}"
     if not file_path:
         return {"ok": False, "state": "missing_path", "error": "No source file path or Zotero attachment key provided"}
 
@@ -396,7 +398,10 @@ def _resolve_pdf_path(
         row = _source_row_by_hash(paths, file_hash)
     if row is None:
         return None, None, "PDF source not found"
-    return source_tools._row_path(paths, row).expanduser().resolve(strict=False), row, ""
+    resolved_path = source_tools._row_path(paths, row)
+    if resolved_path is None:
+        return None, row, "PDF source path is unresolved"
+    return resolved_path.expanduser().resolve(strict=False), row, ""
 
 
 def _durable_l1_projection(

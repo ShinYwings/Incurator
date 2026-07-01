@@ -23,7 +23,6 @@ describe("buildSyncedExternalPdfState", () => {
     expect(state).toMatchObject({
       docId: "doc-1",
       name: "paper.pdf",
-      path: "/tmp/paper.pdf",
       zoom: 1.25,
       darkMode: true,
       tocOpen: false,
@@ -31,6 +30,7 @@ describe("buildSyncedExternalPdfState", () => {
       zoteroAttachmentKey: "PZBCB9LJ",
       targetAnnotationKey: "KN63LR6C",
     });
+    expect(state).not.toHaveProperty("path");
   });
 
   it("uses the fallback name when the current state has no name", () => {
@@ -48,13 +48,13 @@ describe("buildSyncedExternalPdfState", () => {
 });
 
 describe("isRetainablePersistedDoc", () => {
-  it("retains any doc with a non-empty path (no existsSync at load time)", () => {
-    // A path on a not-yet-mounted volume must NOT be dropped at startup; the
-    // missing-file case is reported distinctly at resolve time.
-    expect(isRetainablePersistedDoc({ path: "/Volumes/ext/paper.pdf" })).toBe(true);
+  it("retains docs with portable identity and rejects path-only legacy docs", () => {
+    expect(isRetainablePersistedDoc({ zoteroAttachmentKey: "KEY" })).toBe(true);
+    expect(isRetainablePersistedDoc({ externalRef: "@papers/paper.pdf" })).toBe(true);
+    expect(isRetainablePersistedDoc({ path: "/Volumes/ext/paper.pdf" })).toBe(false);
   });
 
-  it("drops entries with no path or an empty path (no recoverable identity)", () => {
+  it("drops entries with no portable identity", () => {
     expect(isRetainablePersistedDoc({})).toBe(false);
     expect(isRetainablePersistedDoc({ path: "" })).toBe(false);
     expect(isRetainablePersistedDoc({ path: undefined })).toBe(false);

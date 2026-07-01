@@ -106,7 +106,8 @@ def zotero_init(
     zotero_cfg = external.setdefault("zotero", {})
     zotero_cfg["enabled"] = True
 
-    roots = list(zotero_cfg.get("roots") or [])
+    path_roots = dict(external.get("path_roots") or {})
+    root_keys = list(zotero_cfg.get("root_keys") or [])
     chosen = data_dir.strip()
     if not chosen:
         current = zotero_status(paths, custom_paths)
@@ -114,17 +115,23 @@ def zotero_init(
     if chosen.endswith(".sqlite"):
         chosen = str(Path(chosen).expanduser().parent)
 
-    for raw in (chosen, linked_base_dir.strip()):
+    for key, raw in (
+        ("zotero_data", chosen),
+        ("zotero_linked", linked_base_dir.strip()),
+    ):
         if not raw:
             continue
         expanded = os.path.expanduser(raw)
-        if expanded not in roots:
-            roots.append(expanded)
-    zotero_cfg["roots"] = roots
+        path_roots[key] = expanded
+        if key not in root_keys:
+            root_keys.append(key)
+    external["path_roots"] = path_roots
+    zotero_cfg["root_keys"] = root_keys
+    zotero_cfg.pop("roots", None)
 
     cfg.save_global_config({"external": external})
     status = zotero_status(paths, custom_paths)
-    status["saved_roots"] = roots
+    status["saved_root_keys"] = root_keys
     return status
 
 
@@ -178,8 +185,12 @@ def zotero_root_candidates(custom_paths: str, config: dict[str, Any] | None = No
         expanded = os.path.expanduser(p)
         candidates.append(os.path.dirname(expanded) if expanded.endswith(".sqlite") else expanded)
     if config and "external" in config and "zotero" in config["external"]:
-        for root in config["external"]["zotero"].get("roots", []):
-            candidates.append(os.path.expanduser(root))
+        external = config["external"]
+        path_roots = external.get("path_roots") or {}
+        for key in external["zotero"].get("root_keys", []):
+            root = path_roots.get(key)
+            if isinstance(root, str) and root:
+                candidates.append(os.path.expanduser(root))
 
     discover_zotero_base_attachment_path(candidates)
 
@@ -338,3 +349,38 @@ def resolve_pdf(attachment_key: str, paths: cfg.WikiPaths, custom_paths: str = "
         "roots_checked": candidates,
         "paths_checked": checked_paths,
     }
+
+
+def attachment_key_for_path(
+    source_path: Path,
+    paths: cfg.WikiPaths,
+    custom_paths: str = "",
+) -> str:
+    """Reverse-resolve a local PDF path to its Zotero attachment key."""
+    target = source_path.expanduser().resolve(strict=False)
+    config = cfg.load_config(paths)
+    roots = zotero_root_candidates(custom_paths, config)
+    zotero_db = _first_existing_zotero_db(custom_paths, config)
+    if not zotero_db:
+        return ""
+    try:
+        conn = sqlite3.connect(f"file:{Path(zotero_db).resolve()}?mode=ro", uri=True)
+        rows = conn.execute(
+            """
+            SELECT items.key, itemAttachments.path
+            FROM itemAttachments
+            JOIN items ON items.itemID = itemAttachments.itemID
+            WHERE itemAttachments.contentType = 'application/pdf'
+               OR lower(itemAttachments.path) LIKE '%.pdf'
+            """
+        ).fetchall()
+    except sqlite3.Error:
+        return ""
+    finally:
+        if "conn" in locals():
+            conn.close()
+    for key, db_path in rows:
+        for candidate in _pdf_candidates_for_db_path(str(db_path or ""), str(key), roots):
+            if Path(candidate).expanduser().resolve(strict=False) == target:
+                return str(key)
+    return ""

@@ -24,7 +24,7 @@ Source of Truth to identify unresolved items.
 
 ### 🚨 URGENT HOTFIX QUEUE
 
-_(empty — L2 extraction hotfix shipped in v0.27.2, see Completed Milestones.)_
+No urgent items currently tracked.
 
 ### 🚀 Priority Order
 
@@ -74,6 +74,14 @@ _(empty — L2 extraction hotfix shipped in v0.27.2, see Completed Milestones.)_
 
 ## ✅ Completed Milestones
 
+- **v0.29.0 — Portable Path Storage** (completed 2026-07-02): schema v10 removes
+  persisted absolute source paths. Vault locators are relative, Zotero persists
+  only `zotero:<effective_attachment_key>` and resolves through the current
+  backend/Zotero DB, and generic external files use
+  `@<root_key>/<relative-path>` with machine-local roots confined to repo
+  `.cache/config/`. Migrated and audited production `second_brain`, sanitized
+  plugin localStorage/view/session/settings persistence, and validated Reference
+  Mode in the `gaussian_splatting` testbed.
 - **v0.28.5 — Runtime Path Snapshots & Stale Fallback Removal** (shipped 2026-07-01, PR #75): deployed 0.28.5 build to `second_brain` vault plugin. Removed stale Anaconda/conda PATH fallback from `resolveBackendCommand`; plugin now auto-discovers `.venv/bin/wiki` via repo path only. Added runtime path snapshot tracking to `runtime_state`. Docs updated (PLUGIN_GUIDE, SYNC_IGNORE_GUIDE, SCHEMA, PLUGIN_SCHEMA). Extended test coverage for runtime_state and device_registry.
 - **v0.27.2 — L2 Extraction Hardening + Checkpoint-Resume** (shipped 2026-06-27,
   PRs #59/#60/#61): root-caused the large-source L2 failure. Closed unclosed
@@ -144,8 +152,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.28.5 hotfix shipped (PR #75 merged). System is IDLE.
-- **Active Milestone**: None (System IDLE).
-- **Next actionable item**: continue System Stability Overhaul — remaining S2
-  groups (XC-1 broad-except narrowing in MCP/plugin API surfaces, CM-1/PL-1
-  god-file decomposition) or remaining G17 S3 cleanup.
+- **Roadmap state**: v0.29.0 portable-path storage contract is in planning.
+- **Active Milestone**: Portable path storage for all `.curator/` and plugin
+  persisted state.
+- **Next actionable item**: complete Arena analysis and obtain approval for
+  `.agents/plans/06_portable_path_storage.md` before implementation.

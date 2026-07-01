@@ -241,7 +241,7 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
                 """
                 INSERT INTO sources
                 (relpath, content_hash, file_type, bytes, added_at, status,
-                 external_path, is_reference, logical_source_id)
+                 external_ref, is_reference, logical_source_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -251,7 +251,7 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
                     123,
                     "2026-06-02T00:00:00Z",
                     "curated",
-                    "/home/user/Zotero/storage/ATTKEY/paper.pdf",
+                    None,
                     1,
                     "zotero:ATTKEY",
                 ),
@@ -264,8 +264,8 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
             sources["sources"][0]["source_path"],
             "zotero://open-pdf/library/items/ATTKEY",
         )
-        self.assertEqual(sources["sources"][0]["external_path"], "")
-        self.assertTrue(sources["sources"][0]["has_external_path"])
+        self.assertEqual(sources["sources"][0]["external_ref"], "")
+        self.assertFalse(sources["sources"][0]["has_external_ref"])
         self.assertEqual(_absolute_strings(sources), [])
 
     def test_absolute_legacy_relpath_is_not_exported_to_source_snapshot(self) -> None:
@@ -275,7 +275,7 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
                 """
                 INSERT INTO sources
                 (relpath, content_hash, file_type, bytes, added_at, status,
-                 external_path, is_reference, logical_source_id)
+                 external_ref, is_reference, logical_source_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -285,7 +285,7 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
                     123,
                     "2026-06-02T00:00:00Z",
                     "curated",
-                    "/home/user/Documents/paper.pdf",
+                    "@documents/paper.pdf",
                     1,
                     "ref-abc123",
                 ),
@@ -295,6 +295,6 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
 
         self.assertEqual(sources["sources"][0]["relpath"], "")
         self.assertEqual(sources["sources"][0]["source_path"], "ref-abc123")
-        self.assertEqual(sources["sources"][0]["external_path"], "")
-        self.assertTrue(sources["sources"][0]["has_external_path"])
+        self.assertEqual(sources["sources"][0]["external_ref"], "@documents/paper.pdf")
+        self.assertTrue(sources["sources"][0]["has_external_ref"])
         self.assertEqual(_absolute_strings(sources), [])

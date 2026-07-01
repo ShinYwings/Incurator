@@ -21,14 +21,9 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = db.SCHEMA_VERSION
 
-# Columns that are device-specific and must NOT be overwritten by a peer's value
-# when an existing local row is updated by LWW. On UPDATE the local value for these
-# columns is preserved; on INSERT the peer value is taken (no local value exists).
-# `sources.external_path` is the Reference-Mode (Zotero) path, which differs per
-# machine — clobbering it with a peer's path breaks local file resolution.
-_DEVICE_LOCAL_COLUMNS: dict[str, set[str]] = {
-    "sources": {"external_path"},
-}
+# Source locators are portable in schema v10, so no source column is protected
+# as device-local during LWW merge.
+_DEVICE_LOCAL_COLUMNS: dict[str, set[str]] = {}
 
 # Device-local sync bookkeeping file. Lives directly under .curator/, holds this
 # device's id and per-peer high-water marks. MUST be excluded from Syncthing
@@ -470,8 +465,7 @@ def _do_upsert(conn: "db.sqlite3.Connection", table: str, row: dict) -> None:
 
 
 def _preserve_device_local(conn: "db.sqlite3.Connection", table_name: str, row: dict) -> None:
-    """Before updating an existing row, keep this device's value for device-local
-    columns (e.g. Reference-Mode `sources.external_path`) instead of the peer's.
+    """Before updating an existing row, keep this device's device-local columns.
 
     Only preserves when a non-NULL local value exists, so genuinely new info still
     flows through for vault-local (non-reference) rows whose column is NULL.

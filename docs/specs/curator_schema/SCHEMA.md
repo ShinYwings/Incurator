@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.28.0)
+# Incurator - Schema & Operating Conventions (v0.29.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -365,9 +365,9 @@ l4_status TEXT NOT NULL DEFAULT 'pending';
 layer_error TEXT;
 domain TEXT;
 tags TEXT;
-import_origin TEXT;
+import_origin_ref TEXT;
 import_policy TEXT;
-external_path TEXT;
+external_ref TEXT;
 is_reference INTEGER NOT NULL DEFAULT 0;
 logical_source_id TEXT;
 error_reason TEXT;
@@ -640,17 +640,20 @@ Rules:
 - The `type` must be `reference`.
 - `sources.relpath` must point to the vault-relative markdown stub, not the
   external PDF's absolute path.
-- `sources.external_path` stores the original absolute file path as a recoverable
-  device-local location hint.
+- Zotero-backed sources store only `logical_source_id:
+  zotero:<effective-attachment-key>`. `external_ref` and `import_origin_ref`
+  remain `NULL`; the backend resolves the key through the current device's
+  Zotero database whenever it needs the PDF.
+- Other external sources store `external_ref` as
+  `@<root_key>/<relative-posix-path>`. The matching absolute root exists only in
+  repo-local `.cache/config/config.yml` under `external.path_roots`.
 - For Zotero-backed references, UI/source summaries should use
   `zotero://open-pdf/library/items/<attachment-key>` as the portable display
   path instead of copying the device-local absolute PDF path into `source_path`.
-- Automatically generated stubs should not write `target_path` because
-  `04_Resources/` may sync across devices whose external libraries live at
-  different absolute paths. Use `target_path` only for explicit local/manual
-  stubs where that portability tradeoff is accepted.
+- Automatically generated stubs never write `target_path`.
 - If `zotero_key` is present, the backend RAG pipeline must resolve the absolute path using the active `ZOTERO_BASE_PATH` (or Zotero integration logic).
-- If `target_path` is present (and `zotero_key` is missing or fails to resolve), the backend uses this absolute path.
+- A manual absolute `target_path` is invalid; generic external files use
+  `external_ref`.
 - The Curator backend (`ingest_raw.py` and MCP tools) must transparently redirect read/parse operations to the resolved external file, ignoring the stub's body content.
 - Zotero-backed references must use `logical_source_id:
   zotero:<attachment-key>` and deduplicate by that id before creating a new
@@ -703,7 +706,7 @@ on emitted markdown:
   in the same backend write path. Projection re-emission is an Obsidian
   convenience step, not a retrieval prerequisite.
 
-## 11. SQLite State Schema (`SCHEMA_VERSION = 9`)
+## 11. SQLite State Schema (`SCHEMA_VERSION = 10`)
 
 v0.4.0 set `db.SCHEMA_VERSION` to `7`; v0.8.0 (Plan B) bumps it to `8`; v0.9.0
 (Plan C — Graph Quality) bumps it to `9`. The v0.3.2 tables remain in use.
@@ -735,6 +738,10 @@ use typed string prefixes so they are self-describing in traces and frontmatter.
 > indexes are created after their columns exist, `deleted_records`'s CHECK list
 > is rebuilt to admit the four new tables, and the backfill infers nothing
 > (legacy relations become `provisional`, never auto-`active`).
+> `SCHEMA_VERSION = 10` removes absolute-path source columns. It replaces
+> `sources.external_path` / `sources.import_origin` with portable
+> `external_ref` / `import_origin_ref`, enforces vault-relative `relpath`, and
+> makes Zotero attachment identity key-only.
 
 | Record | Id prefix | Purpose |
 | --- | --- | --- |
@@ -1434,19 +1441,12 @@ CREATE TABLE IF NOT EXISTS deleted_records (
 - During `wiki db import`, tombstones are applied **before** upserts. A tombstone beats a concurrent update (deletion wins over modification).
 - Device-local tables (`search_embeddings`, `ingest_jobs`, `job_events`, `page_hashes`, FTS5 virtual tables) are **never** listed as `table_name` in tombstones and are excluded from `wiki db export`.
 
-**Device-local columns (`_DEVICE_LOCAL_COLUMNS`):** Some columns are device-specific
-and must not be overwritten by a peer's value during an LWW *update*. The authoritative
-map lives in `db_sync._DEVICE_LOCAL_COLUMNS`:
-
-| Table | Column | Reason |
-|---|---|---|
-| `sources` | `external_path` | Reference-Mode (Zotero) absolute path differs per machine; a peer's path would break local file resolution. |
-
-On **update** of an existing row, a non-NULL local value for a device-local column is
-preserved while all other columns merge by LWW. On **insert** the peer value is taken
-(no local value exists yet). New device-local columns MUST be added to this single map
-(and documented here) rather than handled ad hoc. This is the one-writer-per-file
-auto-sync contract; see SYSTEM_BEHAVIOR §13.1.
+**Portable source locators (`SCHEMA_VERSION = 10`):** `sources` has no
+device-local path column. Zotero rows merge by stable `zotero:<attachment-key>`
+identity. Generic `external_ref` values merge normally because they name a root
+variable, not a device path. The receiving backend resolves that variable from
+its own ignored `.cache/config/config.yml`. `_DEVICE_LOCAL_COLUMNS` must not
+contain source locators.
 
 ---
 

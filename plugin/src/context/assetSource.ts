@@ -38,7 +38,7 @@ export function assetStatusKey(s: AssetSource): string {
  * attachment roots) yields a new epoch, which invalidates cached paths.
  */
 export function zoteroConfigEpoch(input: {
-  zoteroBasePath: string;
+  zoteroBasePath?: string;
   workspaceId?: string;
   profileRoots?: string[];
 }): string {
@@ -105,9 +105,7 @@ export interface ResolveAssetSourceInput {
 }
 
 export interface ResolveAssetSourceDeps {
-  backendAvailable: boolean;
   resolveZoteroViaBackend: (key: string) => Promise<string | undefined>;
-  resolveZoteroLocally: (key: string) => string | undefined;
   cache: ZoteroPathCache;
   epoch: string;
   fileExists: (path: string) => boolean;
@@ -127,9 +125,7 @@ export async function resolveAssetSource(
   if (input.zoteroKey) {
     resolvedAbs = deps.cache.get(input.zoteroKey, deps.epoch);
     if (!resolvedAbs) {
-      resolvedAbs = deps.backendAvailable
-        ? await deps.resolveZoteroViaBackend(input.zoteroKey)
-        : deps.resolveZoteroLocally(input.zoteroKey);
+      resolvedAbs = await deps.resolveZoteroViaBackend(input.zoteroKey);
       if (resolvedAbs) deps.cache.set(input.zoteroKey, deps.epoch, resolvedAbs);
     }
   }

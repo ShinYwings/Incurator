@@ -151,8 +151,8 @@ def _source_summary(row: dict[str, Any]) -> dict[str, Any]:
         "layer_error": row.get("layer_error") or "",
         "error_reason": row.get("error_reason") or "",
         "is_reference": bool(row.get("is_reference")),
-        "external_path": "",
-        "has_external_path": bool(row.get("external_path")),
+        "external_ref": row.get("external_ref") or "",
+        "has_external_ref": bool(row.get("external_ref")),
         "logical_source_id": row.get("logical_source_id") or "",
     }
 
@@ -272,6 +272,7 @@ def _portable_status_config(config: dict[str, Any]) -> dict[str, Any]:
 
     external_cfg = dict(config.get("external", {}) or {})
     external_cfg["roots"] = []
+    external_cfg["path_roots"] = {}
     zotero_cfg = dict(external_cfg.get("zotero", {}) or {})
     zotero_cfg["roots"] = []
     external_cfg["zotero"] = zotero_cfg

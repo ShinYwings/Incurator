@@ -122,4 +122,26 @@ describe("sessionData", () => {
 
     expect(raw.chatSessions[0].messages[0].contextRefs?.[0].filePath).toBe("03_Notes/Note.md");
   });
+
+  it("drops absolute revert paths while retaining vault-relative revert data", () => {
+    const raw = sanitizeSessionDataForSync({
+      chatSessions: [{
+        ...session("revert", 100),
+        messages: [{
+          id: "m1",
+          role: "assistant",
+          content: "edited files",
+          timestamp: 100,
+          revertData: [
+            { filepath: "/home/shin/Workspace/second_brain/03_Notes/Bad.md", originalContent: "bad" },
+            { filepath: "03_Notes/Good.md", originalContent: "good" },
+          ],
+        }],
+      }],
+    });
+
+    expect(raw.chatSessions[0].messages[0].revertData).toEqual([
+      { filepath: "03_Notes/Good.md", originalContent: "good" },
+    ]);
+  });
 });

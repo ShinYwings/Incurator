@@ -309,8 +309,6 @@ describe("IncuratorClient", () => {
       "import",
       "--zotero-attachment-key",
       "ATT",
-      "--zotero-custom-paths",
-      "~/Zotero",
       "--destination",
       "",
       "--policy",
@@ -704,12 +702,12 @@ describe("IncuratorClient", () => {
 
     expect(resolved.path).toBe("/Users/me/Zotero/storage/ATT/paper.pdf");
     expect(calls).toEqual([
-      ["plugin", "zotero", "status", "--custom-paths", "~/Zotero"],
-      ["plugin", "zotero", "init", "--data-dir", "~/Zotero", "--custom-paths", "~/Zotero"],
-      ["plugin", "zotero", "search", "--query", "paper", "--limit", "3", "--custom-paths", "~/Zotero"],
-      ["plugin", "zotero", "metadata", "--item-key", "ITEM1", "--citation-style", "apa", "--custom-paths", "~/Zotero"],
-      ["plugin", "zotero", "annotations", "--attachment-key", "ATT", "--custom-paths", "~/Zotero"],
-      ["plugin", "zotero", "resolve-pdf", "--attachment-key", "ATT", "--custom-paths", "~/Zotero"],
+      ["plugin", "zotero", "status"],
+      ["plugin", "zotero", "init", "--data-dir", "~/Zotero"],
+      ["plugin", "zotero", "search", "--query", "paper", "--limit", "3"],
+      ["plugin", "zotero", "metadata", "--item-key", "ITEM1", "--citation-style", "apa"],
+      ["plugin", "zotero", "annotations", "--attachment-key", "ATT"],
+      ["plugin", "zotero", "resolve-pdf", "--attachment-key", "ATT"],
     ]);
   });
 

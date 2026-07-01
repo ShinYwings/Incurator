@@ -14,7 +14,6 @@ import {
 } from "obsidian";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
 import type ObsidianAIAgent from "../../main";
 import { IncuratorClient } from "../agent/incuratorClient";
 import {
@@ -24,7 +23,6 @@ import {
 } from "./externalPdfView";
 import {
   registerExternalPdf,
-  resolveZoteroAttachmentPath,
 } from "./externalPdfRegistry";
 import {
   assetStatusKey,
@@ -2309,12 +2307,8 @@ export class ChatSidebarView extends ItemView {
    * already) can never serve a path resolved for a different device/OS. Synced
    * absolute paths are never trusted — they are re-resolved here per device. */
   private zoteroCacheEpoch(): string {
-    const base = this.plugin.settings.zoteroBasePath || "";
-    const resolvedBase = base.startsWith("~") ? join(homedir(), base.slice(1)) : base;
     return zoteroConfigEpoch({
-      zoteroBasePath: `${process.platform}:${resolvedBase}`,
       workspaceId: this.app.vault.getName(),
-      profileRoots: (this.plugin.settings.zoteroProfiles || []).map((p) => p.assetFolder || ""),
     });
   }
 
@@ -2324,7 +2318,7 @@ export class ChatSidebarView extends ItemView {
     if (!ref.zoteroAttachmentKey) return undefined;
     const client = this.getIncuratorClient();
     // Route Zotero resolution through the cached resolver (item c): a cache hit
-    // skips the backend round-trip; the local resolver is used only offline.
+    // skips repeated backend round-trips within this process.
     let lastResolution: Awaited<ReturnType<typeof client.resolveZoteroPdf>> | undefined;
     const resolved = await resolveAssetSource(
       {
@@ -2332,13 +2326,10 @@ export class ChatSidebarView extends ItemView {
         displayName: (ref.label || "source").replace(/ p\.\d+$/, ""),
       },
       {
-        backendAvailable: client.available,
         resolveZoteroViaBackend: async (key) => {
           lastResolution = await client.resolveZoteroPdf(key);
           return lastResolution.ok && lastResolution.path ? lastResolution.path : undefined;
         },
-        resolveZoteroLocally: (key) =>
-          resolveZoteroAttachmentPath(this.plugin.settings.zoteroBasePath || "~/Zotero", key),
         cache: this.zoteroPathCache,
         epoch: this.zoteroCacheEpoch(),
         fileExists: (p) => existsSync(p),
@@ -4153,8 +4144,8 @@ export class ChatSidebarView extends ItemView {
       const viewType = leaf.view.getViewType();
       if (viewType === "pdf" || viewType === EXTERNAL_PDF_VIEW_TYPE) {
         if (viewType === EXTERNAL_PDF_VIEW_TYPE) {
-          const state = leaf.view.getState() as { path?: unknown };
-          if (typeof state.path === "string") openPdfTabKeys.add(state.path);
+          const runtimePath = (leaf.view as ExternalPdfView).getRuntimePath();
+          if (runtimePath) openPdfTabKeys.add(runtimePath);
           openPdfTabKeys.add(leaf.view.getDisplayText());
         } else {
           // Internal PDF view

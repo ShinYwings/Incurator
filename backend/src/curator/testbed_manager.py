@@ -76,10 +76,18 @@ def init_testbed(
     mock_zotero_env = dev_dir / scenario_name / "mock_zotero_env"
     if mock_zotero_env.exists():
         if "external" not in config:
-            config["external"] = {"zotero": {"roots": []}}
+            config["external"] = {
+                "path_roots": {},
+                "zotero": {"root_keys": []},
+            }
         if "zotero" not in config["external"]:
-            config["external"]["zotero"] = {"roots": []}
-        config["external"]["zotero"]["roots"].append(str(mock_zotero_env.resolve()))
+            config["external"]["zotero"] = {"root_keys": []}
+        config["external"].setdefault("path_roots", {})["zotero_data"] = str(
+            mock_zotero_env.resolve()
+        )
+        config["external"]["zotero"].setdefault("root_keys", []).append(
+            "zotero_data"
+        )
         
     cfg.save_config(paths, config)
 

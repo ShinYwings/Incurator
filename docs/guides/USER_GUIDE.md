@@ -186,8 +186,12 @@ Syncthing, browser download folders, or other external locations.
   `zotero:<attachmentKey>`) and reuses the existing stub — even if the
   `state.sqlite` row was lost and only the stub file survives on disk, so you no
   longer see a `<name>-2.md` twin appear under `04_Resources/References/`.
-- `external_path` is only a recoverable location hint. The durable identity is
-  the content hash plus logical source identity.
+- Zotero references persist only `zotero:<attachmentKey>` and content hash.
+  Whenever the PDF is opened, the backend resolves the key through this
+  device's Zotero database. No resolved PDF path is stored in `.curator/`.
+- Other external references persist `@<root_key>/<relative-path>`. The
+  device-specific root value exists only in repo-local
+  `.cache/config/config.yml`.
 - Automatically generated reference stubs do not include absolute PDF paths by
   default, so they can safely synchronize to another device whose external PDF
   library lives elsewhere.

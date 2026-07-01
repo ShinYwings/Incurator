@@ -48,7 +48,7 @@ class GetSourceRowTests(unittest.TestCase):
             conn.execute(
                 """
                 INSERT INTO sources (relpath, content_hash, file_type, bytes,
-                    added_at, status, external_path, logical_source_id, import_origin)
+                    added_at, status, external_ref, logical_source_id, import_origin_ref)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -58,9 +58,9 @@ class GetSourceRowTests(unittest.TestCase):
                     1024,
                     "2025-01-01T00:00:00Z",
                     "pending",
-                    "/ext/Zotero/paper.pdf",
+                    "@zotero/paper.pdf",
                     "lsid-001",
-                    "/original/paper.pdf",
+                    "@imports/paper.pdf",
                 ),
             )
 
@@ -79,29 +79,22 @@ class GetSourceRowTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(int(row["id"]), 1)
 
-    def test_lookup_by_external_path(self) -> None:
+    def test_lookup_by_external_ref(self) -> None:
         row = db.get_source_row(
-            self.paths.state_db, self.root, relpath="/ext/Zotero/paper.pdf"
+            self.paths.state_db, self.root, relpath="@zotero/paper.pdf"
         )
         self.assertIsNotNone(row)
         self.assertEqual(int(row["id"]), 1)
 
-    def test_lookup_by_external_path_resolves_symlink_alias(self) -> None:
-        real_dir = self.root / "real_external"
-        real_dir.mkdir()
-        real_file = real_dir / "paper.pdf"
-        real_file.write_text("pdf placeholder", encoding="utf-8")
-        alias_dir = self.root / "alias_external"
-        alias_dir.symlink_to(real_dir, target_is_directory=True)
-        alias_file = alias_dir / "paper.pdf"
+    def test_lookup_by_external_ref_is_exact(self) -> None:
         with db.connect(self.paths.state_db) as conn:
             conn.execute(
-                "UPDATE sources SET external_path = ? WHERE id = 1",
-                (str(real_file.resolve()),),
+                "UPDATE sources SET external_ref = ? WHERE id = 1",
+                ("@library/paper.pdf",),
             )
 
         row = db.get_source_row(
-            self.paths.state_db, self.root, source_path=str(alias_file)
+            self.paths.state_db, self.root, relpath="@library/paper.pdf"
         )
 
         self.assertIsNotNone(row)
@@ -113,9 +106,9 @@ class GetSourceRowTests(unittest.TestCase):
         )
         self.assertIsNotNone(row)
 
-    def test_lookup_by_import_origin(self) -> None:
+    def test_lookup_by_import_origin_ref(self) -> None:
         row = db.get_source_row(
-            self.paths.state_db, self.root, relpath="/original/paper.pdf"
+            self.paths.state_db, self.root, relpath="@imports/paper.pdf"
         )
         self.assertIsNotNone(row)
 

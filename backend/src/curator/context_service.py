@@ -318,7 +318,8 @@ def _source_meta_by_ids(db_path: Path, source_ids: list[int]) -> dict[int, dict[
         placeholders = ",".join("?" for _ in source_ids)
         rows = conn.execute(
             f"""
-            SELECT id, relpath, file_type, external_path, import_origin, is_reference
+            SELECT id, relpath, file_type, external_ref, import_origin_ref,
+                   logical_source_id, is_reference
               FROM sources
              WHERE id IN ({placeholders})
             """,
@@ -342,7 +343,14 @@ def _locator_from_span(span: dict[str, Any], source: dict[str, Any] | None) -> S
     else:
         source_kind = "vault_markdown"
 
-    external_uri = ident.abs_path if ident.is_reference else None
+    logical = str((source or {}).get("logical_source_id") or "")
+    external_uri = None
+    if ident.is_reference:
+        external_uri = (
+            f"zotero://open-pdf/library/items/{logical.split(':', 1)[1]}"
+            if logical.startswith("zotero:")
+            else ((source or {}).get("external_ref") or (source or {}).get("import_origin_ref"))
+        )
 
     heading = span.get("section_title")
     toc_id = span.get("toc_id")

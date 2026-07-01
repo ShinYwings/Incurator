@@ -35,7 +35,8 @@ def test_load_config_migrates_machine_local_blocks_to_global_cache(
 
     assert merged["llm"]["primary"] == "codex-cli::gpt-5.5"
     assert merged["search"]["embedding_model_path"] == "/machine/a/embed.gguf"
-    assert merged["external"]["zotero"]["roots"] == ["/machine/a/Zotero"]
+    assert merged["external"]["zotero"]["root_keys"] == ["zotero_data"]
+    assert merged["external"]["path_roots"]["zotero_data"] == "/machine/a/Zotero"
 
     local = yaml.safe_load(paths.config_file.read_text(encoding="utf-8"))
     assert "llm" not in local
@@ -46,4 +47,6 @@ def test_load_config_migrates_machine_local_blocks_to_global_cache(
     global_cfg = yaml.safe_load((global_dir / consts.FILE_GLOBAL_CONFIG_YML).read_text(encoding="utf-8"))
     assert global_cfg["llm"]["primary"] == "codex-cli::gpt-5.5"
     assert global_cfg["search"]["embedding_model_path"] == "/machine/a/embed.gguf"
-    assert global_cfg["external"]["zotero"]["roots"] == ["/machine/a/Zotero"]
+    assert global_cfg["external"]["zotero"]["roots"] == []
+    assert global_cfg["external"]["zotero"]["root_keys"] == ["zotero_data"]
+    assert global_cfg["external"]["path_roots"]["zotero_data"] == "/machine/a/Zotero"

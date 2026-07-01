@@ -19,12 +19,12 @@ describe("external-PDF persisted state format (P0 characterization)", () => {
     expect(source).toContain("localStorage.setItem(STORAGE_KEY,");
   });
 
-  it("persists only id/name/path per entry as [id, doc] pairs", () => {
-    // The serialized shape is Array<[string, {id,name,path}]>; the persisted doc
-    // must carry exactly these three fields (no view/render state leaks in).
+  it("persists portable identity and never the resolved path", () => {
     expect(source).toContain("id: doc.id,");
     expect(source).toContain("name: doc.name,");
-    expect(source).toContain("path: doc.path");
+    expect(source).toContain("zoteroAttachmentKey: doc.zoteroAttachmentKey");
+    expect(source).toContain("externalRef: doc.externalRef");
+    expect(source).not.toContain("path: doc.path");
     expect(source).toContain("JSON.stringify(toPersist)");
   });
 
@@ -35,20 +35,20 @@ describe("external-PDF persisted state format (P0 characterization)", () => {
     expect(source).toContain("isRetainablePersistedDoc(doc)");
   });
 
+  it("rewrites legacy localStorage entries without their resolved path", () => {
+    expect(source).toContain("migrated ||= Boolean(doc.path)");
+    expect(source).toContain("if (migrated)");
+    expect(source).toContain("persistDocs(map)");
+  });
+
   it("builds the in-memory doc map at module load", () => {
     expect(source).toContain("const externalPdfDocs = loadPersistedDocs();");
   });
 
-  it("replaces stale persisted doc paths through the registry boundary", () => {
-    expect(source).toContain("export function replaceExternalPdfDocPath(");
-    expect(source).toContain("if (!current || current.path === resolvedPath) return current;");
-    expect(source).toContain("const next = { ...current, path: resolvedPath };");
-    expect(source).toContain("putExternalPdfDoc(next);");
-  });
-
-  it("refreshes a Zotero leaf's persisted path when the attachment resolves elsewhere", () => {
-    expect(mainSource).toContain("replaceExternalPdfDocPath(existingState.docId, pdfPath);");
+  it("restores Zotero leaves by key without persisting a resolved path", () => {
+    expect(mainSource).not.toContain("replaceExternalPdfDocPath(existingState.docId, pdfPath);");
     expect(mainSource).toContain("l.view.getState()?.zoteroAttachmentKey === effectiveKey");
-    expect(mainSource).toContain("path: pdfPath,");
+    expect(source).not.toContain("resolveZoteroAttachmentPath");
+    expect(source).not.toContain('from "os"');
   });
 });

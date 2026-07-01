@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.28.0)
+# Incurator - System Behavior (v0.29.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -93,7 +93,11 @@ Expected behavior:
    explicit tool call. For external PDFs, the default action is Reference Mode:
    the backend creates a lightweight markdown stub under `04_Resources/`, keeps
    the PDF in its original location, stores the stub relpath in `sources.relpath`,
-   and stores the actual PDF path in device-local `sources.external_path`.
+   and stores portable identity only. Zotero-backed PDFs persist the effective
+   attachment key as `logical_source_id=zotero:<key>` and resolve through the
+   current device's Zotero DB. Generic external PDFs persist
+   `@<root_key>/<relative-path>` in `sources.external_ref`; the absolute root is
+   read from repo-local `.cache/config/config.yml`.
    Generated stubs must not embed absolute `target_path` values by default,
    because `04_Resources/` may synchronize across devices whose external PDF
    libraries use different local paths. For Zotero-backed PDFs, the stub must
@@ -150,9 +154,10 @@ Expected behavior:
 
 ### 3.4 Missing Or Drifted Source
 
-If a registered Reference Mode source cannot be found at its remembered
-`external_path`, backend status must report drift instead of silently choosing a
-different file. Any rebind requires human approval.
+If a registered Reference Mode source cannot be resolved from its Zotero key or
+portable `external_ref`, backend status reports drift. It never falls back to a
+persisted absolute path. Generic-source rebind requires human approval; Zotero
+path movement is resolved by Zotero DB without rewriting source identity.
 
 ## 4. `wiki add` Behavior
 
@@ -730,7 +735,8 @@ Rules:
 - PDF context commands should accept the richest available identity, not only a
   raw path: local file path, source id, vault relpath, file hash, or Zotero
   attachment key. For Reference Mode stubs, backend resolves the current
-  device's real file path from `sources.external_path` or Zotero logic.
+  device's real file path from the Zotero attachment key or portable
+  `sources.external_ref`.
 - Source import commands used by the plugin may also accept Zotero attachment
   keys. Backend resolves the key, imports the resolved PDF as a Reference Mode
   source, and stores a stable logical source id such as
@@ -738,7 +744,8 @@ Rules:
 - Dashboard source summaries for Zotero-backed references should expose the
   portable `zotero://open-pdf/library/items/<attachmentKey>` identity for
   display/opening. The local absolute PDF path remains a device-local
-  `sources.external_path` hint and must not be treated as a portable source id.
+  transient resolved path and must not treat it as a portable source id or
+  serialize it into DB/plugin state.
 - Snapshot writes should be atomic: write a temporary file in `.curator/runtime/`
   and replace the target path.
 - `wiki plugin version` MUST be vault-independent (it powers the update check
@@ -2602,7 +2609,8 @@ ONLY place that:
 2. resolves a Zotero attachment key via `zotero_tools.resolve_pdf` (the single
    backend Zotero resolver);
 3. derives/looks up `logical_source_id` (absorbs `_default_logical_source_id`);
-4. matches an existing `sources` row by id / relpath / external_path / hash.
+4. matches an existing `sources` row by id / relpath / portable external ref /
+   Zotero logical id / hash.
 
 **Open-target rule (consistent with §29.2):** when `is_reference` is true the
 `abs_path` (external file) is authoritative for opening; the in-vault `relpath`

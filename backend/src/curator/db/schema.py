@@ -18,7 +18,7 @@ from typing import Any, Iterator
 
 from .. import constants as consts
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 # --- Plan C (v0.9.0, SCHEMA §21.1/§21.2) frozen resolution enums -------------
 # Entity-resolution lifecycle (entity_aliases.resolution_status, §21.1).
@@ -91,9 +91,9 @@ CREATE TABLE IF NOT EXISTS sources (
     layer_error     TEXT,                    -- latest layer-scoped error message/reason
     domain          TEXT,                    -- cached from L1 summary frontmatter
     tags            TEXT,                    -- JSON array, cached from L1 summary frontmatter
-    import_origin   TEXT,                    -- original absolute path/URI when imported via helper
+    import_origin_ref TEXT,                  -- portable @root_key/relative origin
     import_policy   TEXT,                    -- import policy used, e.g. mirror_03_to_04
-    external_path   TEXT,                    -- absolute external path hint for Reference Mode
+    external_ref    TEXT,                    -- portable @root_key/relative locator
     is_reference    INTEGER NOT NULL DEFAULT 0, -- 1=external reference, 0=vault-local copy
     logical_source_id TEXT,                  -- stable source identity across path/hash drift
     error_reason    TEXT                     -- empty_file|parse_error|llm_error — set when status='error'
@@ -103,7 +103,6 @@ CREATE INDEX IF NOT EXISTS idx_sources_hash   ON sources(content_hash);
 CREATE INDEX IF NOT EXISTS idx_sources_status ON sources(status);
 CREATE INDEX IF NOT EXISTS idx_sources_domain ON sources(domain);
 CREATE INDEX IF NOT EXISTS idx_sources_logical_source_id ON sources(logical_source_id);
-CREATE INDEX IF NOT EXISTS idx_sources_external_path ON sources(external_path);
 
 -- Page-level provenance for parsed PDFs. Text is intentionally not stored here;
 -- callers re-parse the local source file when they need page text.
@@ -755,9 +754,23 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     }
     if "sources" not in tables:
         return
-    _add_column_if_missing(conn, "sources", "import_origin", "import_origin TEXT")
+    source_columns = _column_names(conn, "sources")
+    if "external_ref" not in source_columns:
+        _add_column_if_missing(conn, "sources", "import_origin", "import_origin TEXT")
+        _add_column_if_missing(conn, "sources", "external_path", "external_path TEXT")
+    _add_column_if_missing(conn, "sources", "last_ingested", "last_ingested TEXT")
+    _add_column_if_missing(conn, "sources", "context_id", "context_id TEXT")
+    for layer in ("l1", "l2", "l3", "l4"):
+        _add_column_if_missing(
+            conn,
+            "sources",
+            f"{layer}_status",
+            f"{layer}_status TEXT NOT NULL DEFAULT 'pending'",
+        )
+    _add_column_if_missing(conn, "sources", "layer_error", "layer_error TEXT")
+    _add_column_if_missing(conn, "sources", "domain", "domain TEXT")
+    _add_column_if_missing(conn, "sources", "tags", "tags TEXT")
     _add_column_if_missing(conn, "sources", "import_policy", "import_policy TEXT")
-    _add_column_if_missing(conn, "sources", "external_path", "external_path TEXT")
     _add_column_if_missing(
         conn,
         "sources",
@@ -765,6 +778,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
         "is_reference INTEGER NOT NULL DEFAULT 0",
     )
     _add_column_if_missing(conn, "sources", "logical_source_id", "logical_source_id TEXT")
+    _add_column_if_missing(conn, "sources", "error_reason", "error_reason TEXT")
     if "ingest_jobs" in tables:
         _add_column_if_missing(
             conn,
@@ -886,13 +900,14 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
             )
             conn.execute("PRAGMA foreign_keys = ON")
 
+    _migrate_v10_portable_sources(conn)
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_sources_logical_source_id "
         "ON sources(logical_source_id)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_sources_external_path "
-        "ON sources(external_path)"
+        "CREATE INDEX IF NOT EXISTS idx_sources_external_ref "
+        "ON sources(external_ref)"
     )
     conn.execute(
         """
@@ -917,6 +932,88 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
 
     _migrate_v8_compiler_integrity(conn, tables)
     _migrate_v9_graph_quality(conn, tables)
+
+
+def _migrate_v10_portable_sources(conn: sqlite3.Connection) -> None:
+    """Replace legacy absolute-path source columns with portable refs.
+
+    Rows containing absolute legacy locators require the explicit config-aware
+    migration service. Empty/non-absolute legacy columns can be rebuilt safely
+    during normal schema initialization.
+    """
+    columns = _column_names(conn, "sources")
+    if {"external_ref", "import_origin_ref"} <= columns:
+        return
+    if "external_path" not in columns or "import_origin" not in columns:
+        return
+    absolute = conn.execute(
+        """
+        SELECT id FROM sources
+        WHERE relpath LIKE '/%'
+           OR external_path LIKE '/%'
+           OR import_origin LIKE '/%'
+           OR external_path GLOB '[A-Za-z]:[\\/]*'
+           OR import_origin GLOB '[A-Za-z]:[\\/]*'
+        LIMIT 1
+        """
+    ).fetchone()
+    if absolute is not None:
+        raise RuntimeError(
+            "portable path migration required; run `wiki paths migrate --apply`"
+        )
+
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.executescript(
+        """
+        DROP INDEX IF EXISTS idx_sources_external_path;
+        CREATE TABLE sources_v10 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            relpath TEXT NOT NULL UNIQUE,
+            content_hash TEXT NOT NULL,
+            file_type TEXT NOT NULL,
+            bytes INTEGER NOT NULL,
+            added_at TEXT NOT NULL,
+            last_ingested TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            context_id TEXT,
+            l1_status TEXT NOT NULL DEFAULT 'pending',
+            l2_status TEXT NOT NULL DEFAULT 'pending',
+            l3_status TEXT NOT NULL DEFAULT 'pending',
+            l4_status TEXT NOT NULL DEFAULT 'pending',
+            layer_error TEXT,
+            domain TEXT,
+            tags TEXT,
+            import_origin_ref TEXT,
+            import_policy TEXT,
+            external_ref TEXT,
+            is_reference INTEGER NOT NULL DEFAULT 0,
+            logical_source_id TEXT,
+            error_reason TEXT
+        );
+        INSERT INTO sources_v10 (
+            id, relpath, content_hash, file_type, bytes, added_at,
+            last_ingested, status, context_id,
+            l1_status, l2_status, l3_status, l4_status,
+            layer_error, domain, tags, import_origin_ref, import_policy,
+            external_ref, is_reference, logical_source_id, error_reason
+        )
+        SELECT
+            id, relpath, content_hash, file_type, bytes, added_at,
+            last_ingested, status, context_id,
+            l1_status, l2_status, l3_status, l4_status,
+            layer_error, domain, tags, NULLIF(import_origin, ''), import_policy,
+            NULLIF(external_path, ''), is_reference, logical_source_id, error_reason
+        FROM sources;
+        DROP TABLE sources;
+        ALTER TABLE sources_v10 RENAME TO sources;
+        CREATE INDEX idx_sources_hash ON sources(content_hash);
+        CREATE INDEX idx_sources_status ON sources(status);
+        CREATE INDEX idx_sources_domain ON sources(domain);
+        CREATE INDEX idx_sources_logical_source_id ON sources(logical_source_id);
+        CREATE INDEX idx_sources_external_ref ON sources(external_ref);
+        """
+    )
+    conn.execute("PRAGMA foreign_keys = ON")
 
 
 
@@ -1322,4 +1419,3 @@ def get_stats(db_path: Path) -> dict:
         "total_output_tokens": total_output_tokens,
         "total_cost_usd": total_cost_usd,
     }
-

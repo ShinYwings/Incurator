@@ -55,7 +55,10 @@ def _zotero_key_from_logical(logical: Any) -> str | None:
 
 
 def from_source_row(
-    source: dict[str, Any] | None, *, verify_exists: bool = False
+    source: dict[str, Any] | None,
+    *,
+    paths: cfg.WikiPaths | None = None,
+    verify_exists: bool = False,
 ) -> AssetIdentity:
     """Construct an AssetIdentity from an already-fetched ``sources`` row.
 
@@ -71,8 +74,12 @@ def from_source_row(
     if not source:
         return AssetIdentity(resolution_status=UNTRACKED)
     is_reference = bool(source.get("is_reference"))
-    external = source.get("external_path") or source.get("import_origin")
-    abs_path = str(external) if (is_reference and external) else None
+    abs_path: str | None = None
+    if is_reference and paths is not None:
+        from . import path_refs
+
+        resolved = path_refs.resolve_source_path(paths, source)
+        abs_path = str(resolved) if resolved is not None else None
     if verify_exists and abs_path and not Path(abs_path).expanduser().exists():
         abs_path = None
     relpath = source.get("relpath") or None
@@ -109,8 +116,8 @@ def resolve(
 
     1. A Zotero key derives ``zotero:<key>`` and (via the single backend Zotero
        resolver) its local file path.
-    2. An existing ``sources`` row is matched by relpath / external_path /
-       import_origin / logical_source_id.
+    2. An existing ``sources`` row is matched by relpath / portable external
+       ref / logical_source_id.
 
     Returns ``UNTRACKED`` when no row matches (still echoing any resolved path /
     logical id so an ingest caller can create the row).
@@ -127,12 +134,29 @@ def resolve(
             res = zotero_tools.resolve_pdf(zotero_key, paths, zotero_custom_paths)
             if res.get("ok") and res.get("path"):
                 resolved_abs = str(res["path"])
+                effective_key = str(res.get("attachment_key") or zotero_key)
+                resolved_logical = f"zotero:{effective_key}"
+                zotero_key = effective_key
 
     row: dict[str, Any] | None = None
     if relpath:
         row = db.get_source_row(paths.state_db, paths.root, relpath=relpath)
     if row is None and resolved_abs:
-        row = db.get_source_row(paths.state_db, paths.root, source_path=resolved_abs)
+        from . import path_refs
+
+        try:
+            external_ref = path_refs.encode_path(
+                Path(resolved_abs),
+                path_refs.configured_roots(cfg.load_config(paths)),
+            )
+        except ValueError:
+            external_ref = ""
+        if external_ref:
+            row = db.get_source_row(
+                paths.state_db,
+                paths.root,
+                relpath=external_ref,
+            )
     if row is None and resolved_logical:
         # Strict, isolated match on the logical_source_id column — never smuggle
         # the logical id through `relpath` (that risks a path/logical collision
@@ -149,7 +173,7 @@ def resolve(
         # The matched row is authoritative for the identity. verify_exists: a
         # tracked Reference Mode source whose external file is gone must not be
         # returned as RESOLVED with a phantom abs_path.
-        ident = from_source_row(row, verify_exists=True)
+        ident = from_source_row(row, paths=paths, verify_exists=True)
         # content_hash is safe to backfill for any source kind.
         merged_hash = ident.content_hash or (content_hash or None)
         if not ident.is_reference:

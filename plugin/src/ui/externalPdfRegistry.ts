@@ -1,12 +1,17 @@
 import { logger } from "../utils/logger";
 import { Notice } from "obsidian";
-import { existsSync, readdirSync } from "fs";
-import { basename, join } from "path";
-import { homedir } from "os";
+import { basename } from "path";
 import type { ExternalPdfState } from "./externalPdfView";
 import { isRetainablePersistedDoc, resolveExternalPdfPath } from "./externalPdfState";
 
-export interface ExternalPdfDoc { id: string; name: string; path?: string; file?: File; }
+export interface ExternalPdfDoc {
+  id: string;
+  name: string;
+  path?: string;
+  file?: File;
+  zoteroAttachmentKey?: string;
+  externalRef?: string;
+}
 
 const STORAGE_KEY = "incurator-obsidian-agent-external-pdfs";
 
@@ -14,8 +19,22 @@ function loadPersistedDocs(): Map<string, ExternalPdfDoc> {
   const map = new Map<string, ExternalPdfDoc>();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
+    let migrated = false;
     for (const [id, doc] of raw ? JSON.parse(raw) as Array<[string, ExternalPdfDoc]> : []) {
-      if (isRetainablePersistedDoc(doc)) map.set(id, doc);
+      if (isRetainablePersistedDoc(doc)) {
+        map.set(id, {
+          id: doc.id,
+          name: doc.name,
+          zoteroAttachmentKey: doc.zoteroAttachmentKey,
+          externalRef: doc.externalRef,
+        });
+        migrated ||= Boolean(doc.path);
+      } else {
+        migrated = true;
+      }
+    }
+    if (migrated) {
+      persistDocs(map);
     }
   } catch (err) {
     logger.warn("Failed to load persisted PDF docs:", err);
@@ -27,7 +46,12 @@ function persistDocs(map: Map<string, ExternalPdfDoc>): void {
   try {
     const toPersist = Array.from(map.entries()).map(([id, doc]) => [
       id,
-      { id: doc.id, name: doc.name, path: doc.path },
+      {
+        id: doc.id,
+        name: doc.name,
+        zoteroAttachmentKey: doc.zoteroAttachmentKey,
+        externalRef: doc.externalRef,
+      },
     ]);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toPersist));
   } catch (err) {
@@ -58,7 +82,7 @@ export function putExternalPdfDoc(doc: ExternalPdfDoc): void {
   persistDocs(externalPdfDocs);
 }
 
-export function replaceExternalPdfDocPath(
+export function setExternalPdfRuntimePath(
   docId: string,
   resolvedPath: string | undefined
 ): ExternalPdfDoc | undefined {
@@ -88,9 +112,14 @@ export function registerExternalPdf(
 export function registerExternalPdfByPath(filePath: string, attachmentKey?: string): ExternalPdfState {
   const id = newDocId();
   const name = basename(filePath);
-  const doc: ExternalPdfDoc = { id, name, path: filePath };
+  const doc: ExternalPdfDoc = {
+    id,
+    name,
+    path: filePath,
+    zoteroAttachmentKey: attachmentKey,
+  };
   putExternalPdfDoc(doc);
-  return { docId: id, name, path: filePath, zoteroAttachmentKey: attachmentKey };
+  return { docId: id, name, zoteroAttachmentKey: attachmentKey };
 }
 
 export function resolveCachedExternalPdfPath(
@@ -98,23 +127,4 @@ export function resolveCachedExternalPdfPath(
   docStatePath: string | undefined
 ): string | undefined {
   return resolveExternalPdfPath(docStatePath, getExternalPdfDocPath(docId));
-}
-
-export function resolveZoteroAttachmentPath(
-  zoteroBasePath: string,
-  attachmentKey: string
-): string | undefined {
-  try {
-    let basePath = zoteroBasePath;
-    if (basePath.startsWith("~")) {
-      basePath = join(homedir(), basePath.slice(1));
-    }
-    const storageDir = join(basePath, "storage", attachmentKey);
-    if (!existsSync(storageDir)) return undefined;
-    const files = readdirSync(storageDir);
-    const pdf = files.find((f) => f.toLowerCase().endsWith(".pdf"));
-    return pdf ? join(storageDir, pdf) : undefined;
-  } catch {
-    return undefined;
-  }
 }

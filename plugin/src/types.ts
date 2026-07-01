@@ -125,7 +125,7 @@ export interface PluginSettings {
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
-  zoteroBasePath: "~/Zotero",
+  zoteroBasePath: "",
   zoteroProfiles: [],
   recentZoteroItems: [],
   provider: "antigravity",

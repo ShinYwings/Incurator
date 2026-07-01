@@ -152,7 +152,11 @@ wiki add
 - backend는 파일의 content hash를 계산하고 `state.sqlite`에 source record를 생성합니다.
 - `04_Resources/`에는 PDF 복사본이 아니라 작은 markdown reference stub을 만듭니다.
 - 같은 외부 문서를 다시 참조해도 stub이 중복 생성되지 않습니다. backend는 각 참조를 안정적인 `logical_source_id`(Zotero의 경우 `zotero:<attachmentKey>`)로 식별하여 기존 stub을 재사용합니다. `state.sqlite` 행이 사라지고 stub 파일만 디스크에 남아 있어도 마찬가지여서, 더 이상 `04_Resources/References/` 아래에 `<name>-2.md` 같은 중복본이 나타나지 않습니다.
-- `external_path`는 현재 파일 위치를 가리키는 hint입니다. 진짜 identity는 content hash와 logical source identity입니다.
+- Zotero reference는 `zotero:<attachmentKey>`와 content hash만 저장합니다.
+  PDF를 열 때마다 backend가 현재 기기의 Zotero database에서 key를 실제
+  파일로 해석하며, 해석된 PDF 절대경로는 `.curator/`에 저장하지 않습니다.
+- 일반 external reference는 `@<root_key>/<relative-path>`를 저장합니다.
+  기기별 root 값은 repo-local `.cache/config/config.yml`에만 존재합니다.
 - 자동 생성된 reference stub에는 기본적으로 PDF 절대 경로를 쓰지 않습니다.
   따라서 외부 PDF 라이브러리의 로컬 위치가 다른 기기에도 안전하게 동기화할 수 있습니다.
 - iPad 필기나 외부 앱 수정으로 PDF hash가 바뀌면 backend는 이를 Hash Drift로 감지해야 합니다.
@@ -934,7 +938,10 @@ generated state, device metadata, chat context 때문에 backend와 plugin 상�
 ### 4. 외부 리소스 연동 (Zotero & Reference Mode)
 Incurator는 Zotero 등의 외부 PDF 파일들을 보관소로 복사하지 않고 원본 그대로 참조(Reference Mode)할 수 있으며, 원할 경우 사용자가 승인한 `04_Resources/` 목적지로 안전하게 복사할 수도 있습니다.
 - **설정**: 옵시디언 플러그인 설정의 "Zotero Library Path"를 입력하거나 터미널에서 `wiki config set external.zotero.path ~/Documents/Zotero` 명령을 사용하여 Zotero 루트 경로를 지정합니다.
-- **Reference Mode**: 외부 리소스는 파일의 내용 해시(Content Hash), `external_path` hint, 고유한 `logical_source_id`로 추적됩니다. 구현에 따라 `04_Resources/`에는 proxy note 또는 backend source anchor가 생성될 수 있지만, durable state는 backend가 소유합니다.
+- **Reference Mode**: Zotero 리소스는 content hash와
+  `logical_source_id=zotero:<attachmentKey>`로 추적하고, 일반 external
+  리소스는 `@<root_key>/<relative-path>`를 사용합니다. 절대경로는 durable
+  state에 저장하지 않습니다.
 - **Copy Import**: 파일을 vault 내부로 가져오는 경우에도 목적지는 `03_Notes/`가 아니라 `04_Resources/`입니다. 같은 이름의 파일을 덮어쓰지 않고, 동일 해시는 재사용하며, 충돌 시 suffix 또는 사용자 선택 목적지를 사용합니다.
 - **Hash Drift와 자가 치유**: iPad 등에서 Apple Pencil로 PDF에 주석을 달면 내용 해시가 변경됩니다. 파일이 이동하거나 해시가 변경되어 연결이 끊어진 경우, 옵시디언 플러그인 UI를 통해 재연결(Re-bind)을 승인하면 backend가 고유 식별자(`logical_source_id`)를 기준으로 새로운 해시와 경로를 찾아 치유(Healing)합니다.
 

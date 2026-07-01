@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,6 +19,12 @@ from curator.parsers.base import ParsedDocument
 _MOCK_TEXT = "Page one content for reference source identity tests. " * 5
 _MOCK_HASH = hashlib.sha256(_MOCK_TEXT.encode()).hexdigest()
 _MOCK_PDF_PAGES = [{"page": 1, "text": "Page one"}]
+
+
+def _configure_external_root(monkeypatch, root: Path) -> None:
+    config = deepcopy(cfg.DEFAULT_CONFIG)
+    config["external"]["path_roots"] = {"test_library": str(root)}
+    monkeypatch.setattr(cfg, "load_config", lambda _paths: config)
 
 
 def _mock_parsed_doc(path: Path) -> ParsedDocument:
@@ -78,8 +85,9 @@ def _write_inline_l1(paths: cfg.WikiPaths, source_id: int, context_id: str = "CT
 @patch("curator.parsers.pdf.get_page_count", return_value=3)
 @patch("curator.parsers.parse", side_effect=_mock_parsed_doc)
 def test_pdf_context_resolves_reference_source_id_to_external_pdf(
-    _mock_parse, _mock_count, _mock_window, tmp_path: Path
+    _mock_parse, _mock_count, _mock_window, tmp_path: Path, monkeypatch
 ) -> None:
+    _configure_external_root(monkeypatch, tmp_path)
     vault = tmp_path / "vault"
     paths = cfg.WikiPaths(vault)
     db.init_db(paths.state_db)
@@ -108,8 +116,9 @@ def test_pdf_context_resolves_reference_source_id_to_external_pdf(
 @patch("curator.parsers.pdf._extract_pdf_toc", side_effect=AssertionError("must not reparse durable L1"))
 @patch("curator.parsers.parse", side_effect=_mock_parsed_doc)
 def test_pdf_context_uses_inline_l1_projection_without_reparsing_pdf(
-    _mock_parse, _mock_toc, _mock_window, tmp_path: Path
+    _mock_parse, _mock_toc, _mock_window, tmp_path: Path, monkeypatch
 ) -> None:
+    _configure_external_root(monkeypatch, tmp_path)
     vault = tmp_path / "vault"
     paths = cfg.WikiPaths(vault)
     db.init_db(paths.state_db)
@@ -135,8 +144,9 @@ def test_pdf_context_uses_inline_l1_projection_without_reparsing_pdf(
 @patch("curator.parsers.pdf._extract_pdf_toc", return_value=[])
 @patch("curator.parsers.parse", side_effect=_mock_parsed_doc)
 def test_pdf_context_missing_l1_projection_degrades_to_read_only_parse(
-    _mock_parse, _mock_toc, _mock_count, _mock_window, tmp_path: Path
+    _mock_parse, _mock_toc, _mock_count, _mock_window, tmp_path: Path, monkeypatch
 ) -> None:
+    _configure_external_root(monkeypatch, tmp_path)
     vault = tmp_path / "vault"
     paths = cfg.WikiPaths(vault)
     db.init_db(paths.state_db)
@@ -167,8 +177,9 @@ def test_pdf_context_missing_l1_projection_degrades_to_read_only_parse(
 @patch("curator.parsers.pdf._extract_pdf_toc", return_value=[])
 @patch("curator.parsers.parse", side_effect=_mock_parsed_doc)
 def test_pdf_context_uses_content_hash_page_cache_for_repeated_page_fetch(
-    _mock_parse, _mock_toc, _mock_count, _mock_window, tmp_path: Path
+    _mock_parse, _mock_toc, _mock_count, _mock_window, tmp_path: Path, monkeypatch
 ) -> None:
+    _configure_external_root(monkeypatch, tmp_path)
     vault = tmp_path / "vault"
     paths = cfg.WikiPaths(vault)
     db.init_db(paths.state_db)
@@ -237,8 +248,9 @@ def test_untracked_pdf_context_does_not_create_source_row(
 @patch("curator.parsers.pdf.get_page_count", return_value=3)
 @patch("curator.parsers.parse", side_effect=_mock_parsed_doc)
 def test_pdf_context_resolves_by_file_hash(
-    _mock_parse, _mock_count, _mock_window, tmp_path: Path
+    _mock_parse, _mock_count, _mock_window, tmp_path: Path, monkeypatch
 ) -> None:
+    _configure_external_root(monkeypatch, tmp_path)
     vault = tmp_path / "vault"
     paths = cfg.WikiPaths(vault)
     db.init_db(paths.state_db)
@@ -291,7 +303,8 @@ def test_import_source_resolves_zotero_attachment_key_as_reference(
     row = db.get_source_row(paths.state_db, paths.root, source_id=imported["source_id"])
     assert row is not None
     assert row["relpath"] == "04_Resources/References/paper.md"
-    assert row["external_path"] == str(pdf.resolve())
+    assert row["external_ref"] is None
+    assert row["import_origin_ref"] is None
     assert row["logical_source_id"] == "zotero:ATTKEY"
 
     registered = plugin_api.register_source(paths, source_id=imported["source_id"], build=True)

@@ -70,9 +70,7 @@ describe("ZoteroPathCache", () => {
 
 describe("resolveAssetSource", () => {
   const baseDeps = () => ({
-    backendAvailable: true,
     resolveZoteroViaBackend: async () => "/backend/resolved.pdf",
-    resolveZoteroLocally: () => "/local/fallback.pdf",
     cache: new ZoteroPathCache({ fileExists: () => true }),
     epoch: "e1",
     fileExists: () => true,
@@ -83,12 +81,6 @@ describe("resolveAssetSource", () => {
     expect(out.absPath).toBe("/backend/resolved.pdf");
     expect(out.zoteroKey).toBe("ABC");
     expect(out.resolutionStatus).toBe("resolved");
-  });
-
-  it("falls back to the local resolver only when backend is offline", async () => {
-    const deps = { ...baseDeps(), backendAvailable: false };
-    const out = await resolveAssetSource({ zoteroKey: "ABC", displayName: "P" }, deps);
-    expect(out.absPath).toBe("/local/fallback.pdf");
   });
 
   it("serves a cached Zotero path without re-resolving", async () => {
@@ -108,7 +100,6 @@ describe("resolveAssetSource", () => {
     const deps = {
       ...baseDeps(),
       resolveZoteroViaBackend: async () => undefined,
-      resolveZoteroLocally: () => undefined,
     };
     const out = await resolveAssetSource({ zoteroKey: "GONE", displayName: "P" }, deps);
     expect(out.absPath).toBeUndefined();
@@ -119,7 +110,6 @@ describe("resolveAssetSource", () => {
     const deps = {
       ...baseDeps(),
       resolveZoteroViaBackend: async () => undefined,
-      resolveZoteroLocally: () => undefined,
       fileExists: () => false,
     };
     const out = await resolveAssetSource(

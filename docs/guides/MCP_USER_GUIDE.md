@@ -96,6 +96,10 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 - **Role**: Register an external file with the Incurator backend. Depending on policy, the backend may connect it without copying through Reference Mode, or safely copy it into a user-approved `04_Resources/` destination.
 - **Parameters**: Depending on implementation stage, the input may be named `file_path` or `source_path`; both mean the absolute path to the external file. The policy must be explicit, such as `policy="reference"` or `destination_policy="mirror_03_to_04"`. Clients should call with `dry_run=true` first, show the proposal to the user, then call the mutating operation after approval.
 - **Destination rule**: External PDFs default to Reference Mode. The backend creates a markdown reference stub under `04_Resources/` and leaves the PDF in its original location. Copy mode is explicit and still targets `04_Resources`, never `03_Notes`.
+- **Portable identity**: Zotero imports persist only the effective attachment
+  key (`zotero:<key>`); the backend resolves it through the current device's
+  Zotero DB. Other external imports require a configured named root and persist
+  `@<root_key>/<relative-path>`. Resolved absolute paths are never durable state.
 - **No overwrite**: Same-hash files reuse the existing source record. Same-name but different-hash collisions require a suffix or a human-selected destination.
 
 #### `curator_register_source`
