@@ -152,8 +152,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.29.0 portable-path storage contract is in planning.
-- **Active Milestone**: Portable path storage for all `.curator/` and plugin
-  persisted state.
-- **Next actionable item**: complete Arena analysis and obtain approval for
-  `.agents/plans/06_portable_path_storage.md` before implementation.
+- **Roadmap state**: v0.29.0 portable-path storage shipped (PR #76 merged). System is IDLE.
+- **Active Milestone**: None (System IDLE).
+- **Next actionable item**: continue System Stability Overhaul — remaining S2
+  groups (XC-1 broad-except narrowing in MCP/plugin API surfaces, CM-1/PL-1
+  god-file decomposition) or remaining G17 S3 cleanup.
