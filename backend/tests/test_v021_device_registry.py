@@ -106,13 +106,13 @@ def test_sync_device_registry_preserves_remote_device_profiles(tmp_path: Path, m
     registry = device_registry.sync_device_registry(
         vault,
         syncthing_config=config_path,
-        backend_command="/usr/bin/wiki",
+        backend_command="/custom/wiki",
         backend_args=[],
     )
 
     assert registry["devices"]["MACOS-DEVICE"]["backend"]["command"] == "/opt/homebrew/bin/uv"
     local_id = registry["local_device_id"]
-    assert registry["devices"][local_id]["backend"]["command"] == "/usr/bin/wiki"
+    assert registry["devices"][local_id]["backend"]["command"] == "/custom/wiki"
     assert registry["syncthing"]["folders"][0]["id"] == "nm6xn-urvs7"
 
 
@@ -144,7 +144,7 @@ def test_sync_device_registry_prunes_stale_syncthing_devices(tmp_path: Path) -> 
     registry = device_registry.sync_device_registry(
         vault,
         syncthing_config=config_path,
-        backend_command="/usr/bin/wiki",
+        backend_command="/custom/wiki",
         backend_args=[],
     )
 
@@ -185,12 +185,12 @@ def test_sync_device_registry_restores_missing_local_id_from_platform_entry(tmp_
     registry = device_registry.sync_device_registry(
         vault,
         syncthing_config=config_path,
-        backend_command="/usr/bin/wiki",
+        backend_command="/custom/wiki",
         backend_args=[],
     )
 
     assert registry["local_device_id"] == "MACOS-DEVICE"
-    assert registry["devices"]["MACOS-DEVICE"]["backend"]["command"] == "/usr/bin/wiki"
+    assert registry["devices"]["MACOS-DEVICE"]["backend"]["command"] == "/custom/wiki"
 
 
 def test_detect_repo_root_returns_root_when_markers_present(tmp_path: Path, monkeypatch) -> None:
@@ -221,10 +221,14 @@ def test_backend_launcher_includes_repo_path(tmp_path: Path, monkeypatch) -> Non
     (repo / "setup.sh").write_text("", encoding="utf-8")
     (repo / "plugin").mkdir()
     (repo / "plugin" / "manifest.json").write_text("{}", encoding="utf-8")
+    (repo / ".venv" / "bin").mkdir(parents=True)
+    (repo / ".venv" / "bin" / "wiki").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
     monkeypatch.setattr(device_registry, "__file__", str(pkg / "device_registry.py"))
 
     launcher = device_registry.backend_launcher()
     assert launcher["repo_path"] == str(repo)
+    assert launcher["command"] == str(repo / ".venv" / "bin" / "wiki")
+    assert "uv_fallback" not in launcher
 
 
 def test_parse_args_text_accepts_json_or_shell_style() -> None:

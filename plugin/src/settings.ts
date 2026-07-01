@@ -645,7 +645,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
 
     new Setting(incuratorAdvanced)
       .setName("Backend command")
-      .setDesc("Leave as 'wiki' for auto-discovery. Set an absolute path to override.")
+      .setDesc("Leave as 'wiki' to use <repository path>/.venv/bin/wiki. Set an absolute path only to override.")
       .addText((text) =>
         text
           .setPlaceholder("wiki")
@@ -663,7 +663,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
 
     new Setting(incuratorAdvanced)
       .setName("Backend arguments")
-      .setDesc("Optional launcher arguments placed before the wiki command arguments, for example: --directory /path/to/backend run wiki")
+      .setDesc("Optional launcher arguments for a custom backend command. Leave empty when Backend command is 'wiki'.")
       .addText((text) =>
         text
           .setPlaceholder("")
@@ -683,7 +683,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
     const detectedRepo = this.plugin.incuratorClient?.repoPath || "";
     const repoDesc = detectedRepo
       ? `Auto-detected from backend: ${detectedRepo}. Leave blank to use it; set only to override.`
-      : "Optional. The backend reports its repo path automatically; set this only to override.";
+      : "Required when Backend command is 'wiki': the plugin resolves <repository path>/.venv/bin/wiki and never uses a global PATH wiki.";
     new Setting(incuratorAdvanced)
       .setName("Repository path (override)")
       .setDesc(repoDesc)

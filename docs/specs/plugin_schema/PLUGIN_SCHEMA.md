@@ -261,7 +261,7 @@ interface PluginSettings {
 
   // Incurator integration
   incuratorEnabled: boolean;
-  incuratorBackendCommand: string;          // per-device backend command, default "wiki"
+  incuratorBackendCommand: string;          // per-device command; "wiki" means <repo>/.venv/bin/wiki, never PATH lookup
   incuratorBackendArgs: string[];           // default []
   incuratorRepoPath: string;            // per-device absolute path to backend repo for 1-click updates
   incuratorDefaultDestination: string;   // vault-relative folder for reference stubs/copy imports
@@ -355,13 +355,15 @@ Rules:
   `~/Zotero`, displays home-directory paths with `~` instead of an absolute
   `/Users/...` prefix, and writes the backend-owned Zotero configuration.
 - `incuratorBackendCommand`, `incuratorBackendArgs`, and `incuratorRepoPath` are
-  per-device settings. They may point to `wiki` when the backend is installed on
-  PATH, or to a platform specific launcher such as command `uv` with args
-  `--directory /path/to/Incurator/backend run wiki`. When
-  `.cache/config/devices.json` has a non-empty `backend.repo_path` for the local
-  device, that value overrides any synced `incuratorRepoPath` from plugin
-  `data.json` at runtime. Saving settings refreshes the local device entry so a
-  path edit is recorded immediately.
+  per-device settings. The default command `wiki` is a sentinel for
+  `<repo>/.venv/bin/wiki`; the plugin must not resolve a bare PATH `wiki`.
+  When `incuratorRepoPath` is blank, the desktop plugin may use a memory-only
+  local sibling repo hint such as `<workspace>/Incurator` when it contains both
+  `setup.sh` and `.venv/bin/wiki`. That hint must not be persisted to plugin
+  `data.json`. When `.cache/config/devices.json` has a non-empty
+  `backend.repo_path` for the local device, that value overrides any synced
+  `incuratorRepoPath` from plugin `data.json` at runtime. Saving settings
+  refreshes the local device entry so a path edit is recorded immediately.
 - **Setup/build fingerprint check:** `./setup.sh` writes a shared backend/plugin
   build manifest. The plugin compares its bundled build fingerprint with
   `wiki plugin version`'s backend build fingerprint and displays a setup/rebuild

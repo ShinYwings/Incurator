@@ -3244,15 +3244,18 @@ def add(
 
 def _spawn_background_worker(paths: cfg.WikiPaths) -> None:
     import subprocess
-    import shutil
-    wiki_bin = shutil.which("wiki") or "wiki"
+    import sys
+    wiki_bin = Path(sys.executable).with_name("wiki")
+    if not wiki_bin.exists():
+        repo_wiki = Path(__file__).resolve().parents[3] / ".venv" / "bin" / "wiki"
+        wiki_bin = repo_wiki
     try:
         # Pass VAULT_ROOT explicitly so the detached process can resolve the
         # vault root without relying on CWD discovery (which silently exits
         # when the child process CWD doesn't match `_resolve_root_or_die`).
         env = {**__import__('os').environ, "VAULT_ROOT": str(paths.root)}
         subprocess.Popen(
-            [wiki_bin, "jobs", "run"],
+            [str(wiki_bin), "jobs", "run"],
             cwd=str(paths.root),
             start_new_session=True,
             stdout=subprocess.DEVNULL,

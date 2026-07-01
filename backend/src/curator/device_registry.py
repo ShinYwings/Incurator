@@ -6,7 +6,6 @@ import json
 import os
 import platform
 import shlex
-import shutil
 import socket
 import ssl
 import sys
@@ -222,17 +221,15 @@ def detect_repo_root() -> str | None:
 
 def backend_launcher(command: str | None = None, args: list[str] | None = None) -> dict[str, Any]:
     backend_root = Path(__file__).resolve().parents[2]
-    command = command or shutil.which("wiki") or "wiki"
+    repo_root = detect_repo_root()
+    repo_wiki = str(Path(repo_root) / ".venv" / "bin" / "wiki") if repo_root else None
+    command = command or (repo_wiki if repo_wiki and Path(repo_wiki).exists() else "")
     args = args if args else []
     return {
         "command": command,
         "args": args,
         "backend_root": str(backend_root),
-        "repo_path": detect_repo_root(),
-        "uv_fallback": {
-            "command": shutil.which("uv") or "uv",
-            "args": ["--directory", str(backend_root), "run", "wiki"],
-        },
+        "repo_path": repo_root,
     }
 
 

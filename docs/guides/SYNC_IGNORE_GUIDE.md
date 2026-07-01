@@ -124,13 +124,13 @@ The intended sharing model is:
   folder, but Incurator cannot infer that path from the vault alone. Each device
   resolves or rebinds the reference using its local Zotero/external roots.
 
-If macOS does not have `wiki` installed globally and must launch the repository
-backend through `uv`:
+If a device must repair its local backend launcher registry manually, point it
+at the repository-root virtual environment:
 
 ```bash
 wiki devices sync \
-  --backend-command /opt/homebrew/bin/uv \
-  --backend-args '["--directory", "/Users/<you>/Workspace/Incurator/backend", "run", "wiki", "mcp"]'
+  --backend-command /Users/<you>/Workspace/Incurator/.venv/bin/wiki \
+  --backend-args '[]'
 ```
 
 To deploy directly on macOS, pass the macOS vault plugin path to the same script.

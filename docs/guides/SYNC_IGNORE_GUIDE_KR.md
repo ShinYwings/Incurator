@@ -113,12 +113,13 @@ PDF 절대 경로를 포함하지 않아야 합니다.
   vault만 보고 그 경로를 알 수 없습니다. 각 기기에서 로컬 Zotero/external root로
   resolve하거나 rebind해야 합니다.
 
-macOS에 `wiki`가 설치되어 있지 않고 repo의 backend를 `uv`로 실행해야 한다면:
+기기의 local backend launcher registry를 수동으로 복구해야 한다면 repository-root
+virtual environment를 가리키게 합니다:
 
 ```bash
 wiki devices sync \
-  --backend-command /opt/homebrew/bin/uv \
-  --backend-args '["--directory", "/Users/<you>/Workspace/Incurator/backend", "run", "wiki", "mcp"]'
+  --backend-command /Users/<you>/Workspace/Incurator/.venv/bin/wiki \
+  --backend-args '[]'
 ```
 
 macOS에서 직접 배포해야 하는 경우에는 같은 스크립트에 macOS vault 경로를 넘깁니다.

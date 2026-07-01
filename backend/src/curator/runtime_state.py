@@ -61,16 +61,16 @@ def _count_raw_files(paths: cfg.WikiPaths) -> int:
 def _wiki_binary() -> str | None:
     wiki_bin = shutil.which("wiki")
     if wiki_bin:
-        return wiki_bin
+        return Path(wiki_bin).name
     py_dir = Path(sys.executable).parent
     for name in ("wiki", "wiki.exe"):
         candidate = py_dir / name
         if candidate.exists():
-            return str(candidate)
+            return candidate.name
     if sys.argv and sys.argv[0]:
         arg0 = Path(sys.argv[0])
         if arg0.name.startswith("wiki"):
-            return str(arg0)
+            return arg0.name
     return None
 
 
@@ -123,13 +123,21 @@ def _source_display_path(row: dict[str, Any]) -> str:
     if logical_id.startswith("zotero:"):
         key = logical_id.split(":", 1)[1]
         return f"zotero://open-pdf/library/items/{key}"
-    return row.get("relpath") or ""
+    relpath = row.get("relpath") or ""
+    if relpath and not Path(relpath).is_absolute():
+        return relpath
+    return logical_id or Path(relpath).name if relpath else ""
+
+
+def _source_relpath(row: dict[str, Any]) -> str:
+    relpath = row.get("relpath") or ""
+    return "" if Path(relpath).is_absolute() else relpath
 
 
 def _source_summary(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row.get("id"),
-        "relpath": row.get("relpath") or "",
+        "relpath": _source_relpath(row),
         "source_path": _source_display_path(row),
         "file_type": row.get("file_type") or "",
         "bytes": row.get("bytes") or 0,
@@ -143,9 +151,21 @@ def _source_summary(row: dict[str, Any]) -> dict[str, Any]:
         "layer_error": row.get("layer_error") or "",
         "error_reason": row.get("error_reason") or "",
         "is_reference": bool(row.get("is_reference")),
-        "external_path": row.get("external_path") or "",
+        "external_path": "",
+        "has_external_path": bool(row.get("external_path")),
         "logical_source_id": row.get("logical_source_id") or "",
     }
+
+
+def _portable_platform(platform: Any) -> dict[str, Any]:
+    if not isinstance(platform, dict):
+        return {}
+    portable: dict[str, Any] = {}
+    for key, value in platform.items():
+        if isinstance(value, str) and Path(value).is_absolute():
+            continue
+        portable[key] = value
+    return portable
 
 
 def _source_layer_counts(paths: cfg.WikiPaths) -> dict[str, int]:
@@ -200,11 +220,11 @@ def _search_models_status(search_config: dict[str, Any]) -> dict[str, Any]:
     def _resolve(path_key: str, file_key: str) -> tuple[str, bool]:
         explicit = str(sc.get(path_key) or "").strip()
         if explicit:
-            return explicit, Path(explicit).exists()
+            return "", Path(explicit).exists()
         filename = str(sc.get(file_key) or "").strip()
         cand = cache / filename if filename else None
         present = bool(cand and cand.exists() and cand.stat().st_size > 0)
-        return (str(cand) if cand else ""), present
+        return "", present
 
     def _ready(provider: str, present: bool) -> bool:
         if provider == "llama-cpp":
@@ -231,12 +251,44 @@ def _search_models_status(search_config: dict[str, Any]) -> dict[str, Any]:
             "ready": rerank_enabled and _ready(rerank_provider.strip(), rerank_present),
         },
         "llama_cpp_installed": llama_ok,
-        "cache_dir": str(cache),
+        "cache_dir": "",
+    }
+
+
+def _portable_status_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Return config blocks safe for plugin runtime JSON snapshots.
+
+    Runtime snapshots live in the vault's `.curator/runtime/` cache and can be
+    inspected or accidentally synced. Keep machine-local absolute paths in the
+    repo-local `.cache/config/config.yml`; the plugin can ask backend commands
+    for live local path resolution when it truly needs one.
+    """
+
+    llm = dict(config.get("llm", {}) or {})
+    search_cfg = dict(config.get("search", {}) or {})
+    for key in ("embedding_model_path", "reranker_model_path", "query_expander_model_path"):
+        if key in search_cfg:
+            search_cfg[key] = ""
+
+    external_cfg = dict(config.get("external", {}) or {})
+    external_cfg["roots"] = []
+    zotero_cfg = dict(external_cfg.get("zotero", {}) or {})
+    zotero_cfg["roots"] = []
+    external_cfg["zotero"] = zotero_cfg
+
+    return {
+        "llm": llm,
+        "search": search_cfg,
+        "sync": config.get("sync", {}),
+        "curate": config.get("curate", {}),
+        "external": external_cfg,
+        "persona": config.get("persona", {}),
     }
 
 
 def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = None) -> dict[str, Any]:
     config = config if config is not None else cfg.load_config(paths)
+    portable_config = _portable_status_config(config)
     stats = db.get_stats(paths.state_db)
     
     llm_cfg = config.get("llm", {})
@@ -287,16 +339,16 @@ def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = 
             "device_id": did,
             "name": d.get("name") or did[:12],
             "is_local": is_local,
-            "platform": d.get("platform") or {},
+            "platform": _portable_platform(d.get("platform")),
             "folders": [lbl for lbl in folder_labels if lbl]
         })
     _device_list.sort(key=lambda x: (not x["is_local"], str(x["name"]).lower()))
     return {
         "ok": True,
         "generated_at": _now_iso(),
-        "vault_root": str(paths.root),
+        "vault_root": "",
         "backend_version": __version__,
-        "collections": str(paths.collections),
+        "collections": consts.DEFAULT_COLLECTIONS_DIR,
         "wiki_binary": _wiki_binary(),
         # native DB search engine status (v0.3.2)
         "search_engine": "native",
@@ -315,12 +367,12 @@ def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = 
             "cost_usd": stats.get("total_cost_usd", 0.0),
         },
         "llm_account": llm_account,
-        "llm": config.get("llm", {}),
-        "search": config.get("search", {}),
-        "sync": config.get("sync", {}),
-        "curate": config.get("curate", {}),
-        "external": config.get("external", {}),
-        "persona": config.get("persona", {}),
+        "llm": portable_config["llm"],
+        "search": portable_config["search"],
+        "sync": portable_config["sync"],
+        "curate": portable_config["curate"],
+        "external": portable_config["external"],
+        "persona": portable_config["persona"],
         "devices": _device_list,
         "local_device_id": _local_id,
         "jobs": {

@@ -600,8 +600,9 @@ The registry records:
   shares those paths. UI readers use these roles to show which devices sync the
   Vault and Zotero without inventing unsupported platform/backend facts.
 - Known device display names from Syncthing.
-- Per-device backend launcher hints, such as `wiki` on Linux or
-  `uv --directory /Users/<user>/Workspace/Incurator/backend run wiki` on macOS.
+- Per-device backend launcher hints. The supported local launcher is the
+  repository-root virtual environment binary, for example
+  `/Users/<user>/Workspace/Incurator/.venv/bin/wiki`.
 - Platform hints for the device that last updated its own entry.
 
 Each device must only update its own launcher entry. Entries learned from other

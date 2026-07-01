@@ -122,6 +122,7 @@ export default class ObsidianAIAgent extends Plugin {
   private syncWatcher: { close: () => void } | null = null;
   private syncStatusBar: HTMLElement | null = null;
   private settingsPersistPromise: Promise<void> = Promise.resolve();
+  private localIncuratorRepoPathHint = "";
 
   async onload(): Promise<void> {
     logger.debug("Loading Obsidian AI Agent plugin");
@@ -133,6 +134,7 @@ export default class ObsidianAIAgent extends Plugin {
 
     // ── Initialize core services ──
     this.vaultRoot = (this.app.vault.adapter as any).getBasePath?.() || "";
+    await this.applyLocalRepoPathHint();
     await this.syncDeviceRegistryFromSyncthing();
     this.llmClient = new LLMClient(
       this.settings,
@@ -923,6 +925,12 @@ export default class ObsidianAIAgent extends Plugin {
     const cwd = this.vaultRoot || (this.app.vault.adapter as any).getBasePath?.() || "";
     if (!cwd) return { ok: false, error: "Not a local vault" };
     const command = await this.resolveBackendCommand();
+    if (!command) {
+      return {
+        ok: false,
+        error: "Incurator backend command is unresolved. Set the Incurator repository path so the plugin can use <repo>/.venv/bin/wiki.",
+      };
+    }
     const prefixArgs = this.settings.incuratorBackendArgs || [];
     return new Promise((resolve) => {
       const cp = spawn(command, [...prefixArgs, ...cmdArgs], { cwd, env: process.env });
@@ -1073,25 +1081,26 @@ export default class ObsidianAIAgent extends Plugin {
   async ensureIncuratorBackend(): Promise<void> {
     const command = await this.resolveBackendCommand();
     await this.refreshAvailableModels();
-    if (command !== "wiki") {
+    if (command) {
       await this.cacheBackendCommand(command);
     }
   }
 
-  private async resolveBackendCommand(): Promise<string> {
+  private async resolveBackendCommand(): Promise<string | null> {
     // Resolve the actual command to use:
     //   1. If user set a non-default incuratorBackendCommand, use it as-is.
     //   2. Otherwise, check devices.json for a cached per-device binary path.
-    //   3. Otherwise, auto-discover from incuratorRepoPath / common PATH dirs.
-    //   4. Fallback: bare "wiki" (works if wiki is on PATH).
+    //   3. Otherwise, auto-discover the repo-root `.venv/bin/wiki`.
+    // Bare PATH `wiki` is intentionally not a fallback: global/conda scripts get stale.
     let command = this.settings.incuratorBackendCommand;
     const isDefault = !command || command === "wiki";
+    const repoPath = this.getEffectiveIncuratorRepoPath();
 
     if (isDefault) {
       // Try devices.json cache first
       let registry: Partial<DeviceRegistry> | null = null;
       try {
-        const configPath = getGlobalRegistryPath(this.settings.incuratorRepoPath);
+        const configPath = getGlobalRegistryPath(repoPath);
         if (configPath) {
           const raw = await fs.readFile(configPath, "utf-8");
           registry = JSON.parse(raw) as Partial<DeviceRegistry>;
@@ -1103,21 +1112,21 @@ export default class ObsidianAIAgent extends Plugin {
         command = cached;
       } else {
         // Auto-discover
-        const discovered = resolveWikiBinary(this.settings.incuratorRepoPath);
+        const discovered = resolveWikiBinary(repoPath);
         if (discovered) {
           command = discovered;
           logger.debug(`Auto-discovered wiki binary: ${command}`);
         }
       }
     }
-    return command || "wiki";
+    return command && command !== "wiki" ? command : null;
   }
 
   /** Persist the resolved backend command into devices.json for this device. */
   private async cacheBackendCommand(command: string): Promise<void> {
     try {
       let registry: Partial<DeviceRegistry> | null = null;
-      const configPath = getGlobalRegistryPath(this.settings.incuratorRepoPath);
+      const configPath = getGlobalRegistryPath(this.getEffectiveIncuratorRepoPath());
       if (configPath) {
         try {
           const raw = await fs.readFile(configPath, "utf-8");
@@ -1182,7 +1191,27 @@ export default class ObsidianAIAgent extends Plugin {
     const override = this.settings.incuratorRepoPath?.trim();
     if (override) return override;
     if (this.incuratorClient?.repoPath) return this.incuratorClient.repoPath;
+    if (this.localIncuratorRepoPathHint) return this.localIncuratorRepoPathHint;
     return null;
+  }
+
+  private getEffectiveIncuratorRepoPath(): string {
+    return this.settings.incuratorRepoPath?.trim() || this.localIncuratorRepoPathHint;
+  }
+
+  private async applyLocalRepoPathHint(): Promise<void> {
+    if (this.settings.incuratorRepoPath?.trim() || !this.vaultRoot) return;
+    const workspaceRoot = dirname(this.vaultRoot);
+    for (const repoPath of [join(workspaceRoot, "Incurator"), join(workspaceRoot, "incurator")]) {
+      try {
+        await fs.access(join(repoPath, "setup.sh"));
+        await fs.access(join(repoPath, ".venv", "bin", "wiki"));
+        this.localIncuratorRepoPathHint = repoPath;
+        return;
+      } catch {
+        // Keep probing local sibling repo names without persisting anything to data.json.
+      }
+    }
   }
 
   async updateIncuratorBackend(): Promise<void> {
@@ -1336,7 +1365,8 @@ export default class ObsidianAIAgent extends Plugin {
       const snapshot = await readSyncthingSnapshotWithStatus(this.vaultRoot, zoteroRoots);
 
       let existing: Partial<DeviceRegistry> | null = null;
-      const configPath = getGlobalRegistryPath(this.settings.incuratorRepoPath);
+      const repoPath = this.getEffectiveIncuratorRepoPath();
+      const configPath = getGlobalRegistryPath(repoPath);
       if (configPath) {
         try {
           const raw = await fs.readFile(configPath, "utf-8");
@@ -1346,7 +1376,10 @@ export default class ObsidianAIAgent extends Plugin {
         }
       }
 
-      const registry = mergeDeviceRegistry(existing, snapshot, this.settings);
+      const registry = mergeDeviceRegistry(existing, snapshot, {
+        ...this.settings,
+        incuratorRepoPath: repoPath,
+      });
       
       if (configPath) {
         await this.writeDeviceRegistry(configPath, registry);
