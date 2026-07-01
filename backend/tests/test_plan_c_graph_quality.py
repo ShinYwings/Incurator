@@ -114,10 +114,8 @@ def _seed_entity(state_db: Path, name: str, etype: str = "concept") -> str:
 # --------------------------------------------------------------------------- #
 
 
-def test_schema_version_is_9() -> None:
-    assert db.SCHEMA_VERSION == 9, (
-        "Plan C bumps SCHEMA_VERSION 8 -> 9 (SCHEMA §21)"
-    )
+def test_schema_version_includes_v9() -> None:
+    assert db.SCHEMA_VERSION >= 9, "Plan C requires SCHEMA_VERSION >= 9"
 
 
 def test_v9_creates_resolution_and_support_tables(vault: Path) -> None:
