@@ -24,7 +24,10 @@ describe("external-PDF persisted state format (P0 characterization)", () => {
     expect(source).toContain("name: doc.name,");
     expect(source).toContain("zoteroAttachmentKey: doc.zoteroAttachmentKey");
     expect(source).toContain("externalRef: doc.externalRef");
-    expect(source).not.toContain("path: doc.path");
+    // The toPersist mapping block inside persistDocs must not include path.
+    // (loadPersistedDocs restores path into in-memory registry only.)
+    const persistDocsBlock = source.slice(source.indexOf("function persistDocs"), source.indexOf("JSON.stringify(toPersist)"));
+    expect(persistDocsBlock).not.toContain("path:");
     expect(source).toContain("JSON.stringify(toPersist)");
   });
 

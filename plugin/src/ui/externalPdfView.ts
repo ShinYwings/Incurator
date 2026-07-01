@@ -1880,6 +1880,7 @@ export class ExternalPdfView extends ItemView {
       docId: this.docId,
       name: this.docState?.name,
       fallbackName: getExternalPdfDocName(this.docId),
+      path: this.docState?.path,
       externalRef: this.docState?.externalRef,
       zoom: this.zoom,
       darkMode: this.darkMode,
