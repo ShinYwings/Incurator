@@ -2912,20 +2912,22 @@ def build_server() -> FastMCP:
         Args:
             workspace_path: Optional workspace path to help resolve the vault.
         """
-        import shutil as _shutil
         import sys as _sys
         paths = _resolve_paths(workspace_path)
         search_version = search.get_version()
 
-        # Locate wiki binary: which → alongside Python → argv[0]
-        wiki_bin = _shutil.which("wiki")
+        # Locate wiki binary from the active venv or repo-root deployment venv.
+        wiki_bin = ""
+        _py_dir = Path(_sys.executable).parent
+        for _name in ("wiki", "wiki.exe"):
+            _p = _py_dir / _name
+            if _p.exists():
+                wiki_bin = str(_p)
+                break
         if not wiki_bin:
-            _py_dir = Path(_sys.executable).parent
-            for _name in ("wiki", "wiki.exe"):
-                _p = _py_dir / _name
-                if _p.exists():
-                    wiki_bin = str(_p)
-                    break
+            _repo_wiki = Path(__file__).resolve().parents[3] / ".venv" / "bin" / "wiki"
+            if _repo_wiki.exists():
+                wiki_bin = str(_repo_wiki)
         if not wiki_bin and _sys.argv and _sys.argv[0]:
             _a = Path(_sys.argv[0])
             if _a.name.startswith("wiki"):

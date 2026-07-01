@@ -758,10 +758,13 @@ identity를 기록합니다. 실제 로컬 PDF 경로는 backend source metadata
 대시보드의 **Reset** 작업은 로컬 DB와 생성된 L1-L4 콘텐츠를 지우기 전에 두 번 확인합니다.
 
 Dashboard 상태는 plugin 자체 상태가 아니라 `.curator/runtime/` 아래의
-backend-owned shared snapshot에서 읽는 구조가 권장됩니다. 해당 JSON 파일은
-backend만 쓰고 plugin은 source count, job 상태, index health, backend version
-표시를 위해 읽기만 합니다. snapshot이 없거나 오래된 경우에는 backend가 비었다고
-해석하지 않고 waiting/unknown 상태로 표시합니다.
+backend-owned local snapshot에서 옵니다. 해당 JSON 파일은 backend만 쓰고, plugin은
+source count, job 상태, index health, backend version을 표시하기 전에 local backend에
+refresh를 요청합니다. snapshot이 없거나 오래된 경우에는 backend가 비었다고 해석하지
+않고 waiting/unknown 상태로 표시합니다. Runtime `status.json`과 `sources.json`은
+절대 local path를 export하지 않습니다. model GGUF 파일, Zotero root, external
+reference 위치 같은 기기별 path는 repo-local `.cache/config/config.yml`에 남기고,
+plugin이 실제 local resolution이 필요할 때 backend command를 통해 참조합니다.
 
 dashboard 버튼은 상태 변경이 필요할 때 backend command를 실행하며, plugin은 이
 작업을 위해 backend-owned `.curator` 상태를 직접 수정하지 않습니다. Overview의 주
@@ -842,7 +845,7 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
 | --- | --- | --- |
 | `data.json` | 설정(provider, model, MCP 서버 등) | 경로가 같을 때만 권장 |
 | `sessions.json` | 채팅 대화 히스토리 | 가능 |
-| `.curator/runtime/*.json` | backend가 쓰는 dashboard/status snapshot | 로컬 cache only |
+| `.curator/runtime/*.json` | 절대 local path를 포함하지 않는 backend dashboard/status snapshot | 로컬 cache only |
 
 v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 읽고 세션 id 단위로 병합합니다. 따라서 Linux와 macOS에서 서로 다른 채팅 세션을 만들면 두 세션이 함께 보존됩니다. 삭제된 세션은 `deletedSessionIds` tombstone에 남아 Syncthing 지연으로 오래된 파일이 도착해도 되살아나지 않습니다. 단, 같은 세션을 양쪽에서 동시에 편집한 경우에는 더 최신 `updatedAt`을 가진 세션이 이깁니다.
 
@@ -851,10 +854,11 @@ v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 
 page number 같은 portable identity를 보존할 수 있지만, macOS나 Linux에서 캡처된
 기기별 절대경로는 사용 전에 현재 기기 기준으로 검증하거나 다시 해석합니다. 플러그인은
 첫 저장이나 legacy migration 경로를 포함해 `sessions.json`을 쓸 때마다 저장 직전에
-session data를 sanitize하므로, runtime backend status나 캡처된 absolute source path가
-동기화되는 채팅 히스토리로 남지 않습니다. 동기화된 세션이 Zotero PDF를 가리키는
-경우에는 현재 기기의 로컬 Zotero database와 linked attachment root를 사용해 실제 PDF
-경로를 복구합니다.
+session data를 sanitize하므로, 캡처된 absolute source path가 동기화되는 채팅
+히스토리로 남지 않습니다. Runtime backend `status.json`과 `sources.json` snapshot도
+쓰기 전에 path-sanitize됩니다. 동기화된 세션이 Zotero PDF를 가리키는 경우에는 현재
+기기의 로컬 Zotero database와 linked attachment root를 사용해 실제 PDF 경로를
+복구합니다.
 
 사이드바 대화 목록의 채팅 제목은 첫 사용자 질문 뒤에 나온 첫 assistant 답변에서
 생성합니다. 이때 추론 모델의 `<think>…</think>` 블록을 먼저 제거해, 제목이
@@ -876,12 +880,18 @@ backend 실행 경로나 repo 경로가 기기마다 다르거나 한쪽 기기�
 .obsidian/plugins/incurator-obsidian-agent/data.json
 ```
 
-macOS에 `wiki` 실행 파일이 PATH에 없다면 **Settings > AI Agent > PDF & Incurator**에서 `Backend command`와 `Backend arguments`를 해당 기기 기준으로 설정합니다. 예를 들어 repo는 있지만 backend가 전역 설치되어 있지 않은 경우:
+`Backend command`를 `wiki`로 두면 plugin은 repository path에서
+`<repo>/.venv/bin/wiki`를 해석합니다. 전역 PATH의 `wiki`는 실행하지 않습니다.
+repository가 vault workspace의 sibling이면, 예를 들어 `Workspace/second_brain`
+옆의 `Workspace/Incurator`이면 desktop plugin은 이 경로를 plugin `data.json`에
+쓰지 않는 memory-only local hint로 사용할 수 있습니다. 그 외의 경우 각 기기에서
+**Settings > AI Agent > PDF & Incurator**를 다음처럼 설정합니다:
 
 | 설정 | 값 |
 | --- | --- |
-| `Backend command` | `/opt/homebrew/bin/uv` |
-| `Backend arguments` | `["--directory", "/Users/<you>/Workspace/Incurator/backend", "run", "wiki"]` |
+| `Repository path (override)` | `/Users/<you>/Workspace/Incurator` |
+| `Backend command` | `wiki` |
+| `Backend arguments` | `[]` |
 
 Obsidian plugin은 시작 시와 설정 저장 후에 Syncthing이 공유 중인 device 목록과 현재 기기의 backend launcher/repository hint를 `.cache/config/devices.json`에 자동 기록합니다. 이 registry는 동기화된 `data.json`의 절대 경로가 현재 기기의 runtime path를 덮어쓰지 않게 하면서 Linux/macOS 설정 차이를 서로 확인하는 용도로 사용할 수 있습니다. Dashboard는 현재 Syncthing 공유 폴더 registry에 있는 모든 device를 표시하며, 현재 기기에 backend launcher가 없는 원격 device도 숨기지 않습니다. 각 device에는 동기화 중인 Vault/Zotero 폴더 이름을 표시하고, 현재 기기는 가능하면 Syncthing local REST `myID`로 식별하고, 그게 없으면 기기별 repository path/backend launcher hint로 식별해 **This device**로 표시합니다. platform 정보가 없으면 추측하지 않고 unknown으로 표시합니다. `wiki devices sync`는 자동 갱신이 실패했을 때 쓰는 수동 복구 명령이고, `wiki devices`는 현재 registry를 확인하는 명령입니다.
 

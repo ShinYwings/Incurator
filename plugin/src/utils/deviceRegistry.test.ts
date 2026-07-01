@@ -102,7 +102,7 @@ describe("deviceRegistry", () => {
     );
 
     expect((registry.devices["MACOS-ID"].backend as any).command).toBe("/opt/homebrew/bin/uv");
-    expect((registry.devices["LINUX-ID"].backend as any).command).toBe("wiki");
+    expect((registry.devices["LINUX-ID"].backend as any).command).toBe("");
   });
 
   it("prunes devices absent from the active Syncthing folder snapshot", () => {
@@ -160,7 +160,7 @@ describe("deviceRegistry", () => {
     );
 
     expect(registry.local_device_id).toBe("MACOS-ID");
-    expect((registry.devices["MACOS-ID"].backend as any).command).toBe("wiki");
+    expect((registry.devices["MACOS-ID"].backend as any).command).toBe("");
   });
 
   it("uses Syncthing REST myID before hostname guesses", () => {

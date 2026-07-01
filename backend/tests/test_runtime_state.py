@@ -9,6 +9,21 @@ from curator import db
 from curator import runtime_state
 
 
+def _string_values(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for child in value.values():
+            yield from _string_values(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _string_values(child)
+
+
+def _absolute_strings(payload: dict) -> list[str]:
+    return [value for value in _string_values(payload) if value.startswith("/")]
+
+
 class TestRuntimeStateSnapshots(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -164,6 +179,61 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
             [key for key in status if key.startswith(f"{forbidden_prefix}_")]
         )
 
+    def test_status_snapshot_does_not_export_absolute_paths(self) -> None:
+        from curator import device_registry
+
+        registry_path = device_registry.registry_path(self.paths.root)
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        registry_path.write_text(
+            json.dumps(
+                {
+                    "local_device_id": "local",
+                    "devices": {
+                        "local": {
+                            "name": "This Device",
+                            "platform": {
+                                "system": "Linux",
+                                "python": "/machine/.venv/bin/python",
+                            },
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        status = runtime_state.build_status_snapshot(
+            self.paths,
+            {
+                "llm": {"primary": "codex-cli::gpt-5.5"},
+                "search": {
+                    "embedding": "llama-cpp::qwen3-embedding-0.6b",
+                    "embedding_model_path": "/machine/cache/embed.gguf",
+                    "reranker": "llama-cpp::qwen3-reranker-0.6b",
+                    "reranker_model_path": "/machine/cache/rerank.gguf",
+                    "query_expander_model_path": "/machine/cache/expand.gguf",
+                    "embedding_gguf_file": "embed.gguf",
+                    "reranker_gguf_file": "rerank.gguf",
+                },
+                "external": {
+                    "roots": ["/machine/library"],
+                    "zotero": {"enabled": True, "roots": ["/machine/Zotero"]},
+                },
+            },
+        )
+
+        self.assertEqual(status["vault_root"], "")
+        self.assertEqual(status["collections"], ".curator/Collections")
+        self.assertEqual(status["search"]["embedding_model_path"], "")
+        self.assertEqual(status["search"]["reranker_model_path"], "")
+        self.assertEqual(status["search"]["query_expander_model_path"], "")
+        self.assertEqual(status["external"]["roots"], [])
+        self.assertEqual(status["external"]["zotero"]["roots"], [])
+        self.assertEqual(status["search_models"]["embed"]["path"], "")
+        self.assertEqual(status["search_models"]["reranker"]["path"], "")
+        self.assertEqual(status["search_models"]["cache_dir"], "")
+        self.assertEqual(status["devices"][0]["platform"], {"system": "Linux"})
+        self.assertEqual(_absolute_strings(status), [])
+
     def test_zotero_source_snapshot_uses_portable_source_path(self) -> None:
         with db.connect(self.paths.state_db) as conn:
             conn.execute("DELETE FROM sources")
@@ -194,7 +264,37 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
             sources["sources"][0]["source_path"],
             "zotero://open-pdf/library/items/ATTKEY",
         )
-        self.assertEqual(
-            sources["sources"][0]["external_path"],
-            "/home/user/Zotero/storage/ATTKEY/paper.pdf",
-        )
+        self.assertEqual(sources["sources"][0]["external_path"], "")
+        self.assertTrue(sources["sources"][0]["has_external_path"])
+        self.assertEqual(_absolute_strings(sources), [])
+
+    def test_absolute_legacy_relpath_is_not_exported_to_source_snapshot(self) -> None:
+        with db.connect(self.paths.state_db) as conn:
+            conn.execute("DELETE FROM sources")
+            conn.execute(
+                """
+                INSERT INTO sources
+                (relpath, content_hash, file_type, bytes, added_at, status,
+                 external_path, is_reference, logical_source_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "/home/user/Documents/paper.pdf",
+                    "external-hash",
+                    "pdf",
+                    123,
+                    "2026-06-02T00:00:00Z",
+                    "curated",
+                    "/home/user/Documents/paper.pdf",
+                    1,
+                    "ref-abc123",
+                ),
+            )
+
+        sources = runtime_state.build_sources_snapshot(self.paths)
+
+        self.assertEqual(sources["sources"][0]["relpath"], "")
+        self.assertEqual(sources["sources"][0]["source_path"], "ref-abc123")
+        self.assertEqual(sources["sources"][0]["external_path"], "")
+        self.assertTrue(sources["sources"][0]["has_external_path"])
+        self.assertEqual(_absolute_strings(sources), [])

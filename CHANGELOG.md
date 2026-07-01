@@ -4,6 +4,20 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.28.5] - 2026-07-01
+### Fixed
+- **Plugin runtime status/source snapshots no longer export absolute local paths.**
+  Backend-written `.curator/runtime/status.json` and `sources.json` now keep
+  source identity portable, clear `external_path`, hide vault/model/cache paths,
+  and sanitize machine-local config blocks. Device-specific paths remain in the
+  repository-local `.cache/config/config.yml` and are resolved through backend
+  commands only when needed.
+- **The Obsidian plugin no longer falls back to stale global `wiki` commands.**
+  The default `wiki` setting now resolves to the repository-root
+  `.venv/bin/wiki` only. The plugin refuses unresolved PATH launchers, may use a
+  memory-only sibling `Incurator` repo hint without writing it to `data.json`,
+  and records per-device launcher hints in repo-local `.cache/config/devices.json`.
+
 ## [0.28.4] - 2026-07-01
 ### Fixed
 - **`curate.yml.vault_root` is now device-portable.** Workspace provisioning

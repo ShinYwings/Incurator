@@ -260,7 +260,9 @@ export function mergeDeviceRegistry(
         source: "obsidian-plugin",
       },
       backend: {
-        command: settings.incuratorBackendCommand || "wiki",
+        command: settings.incuratorBackendCommand === "wiki"
+          ? resolveWikiBinary(settings.incuratorRepoPath) || ""
+          : settings.incuratorBackendCommand || "",
         args: settings.incuratorBackendArgs?.length ? settings.incuratorBackendArgs : [],
         repo_path: settings.incuratorRepoPath || "",
       },

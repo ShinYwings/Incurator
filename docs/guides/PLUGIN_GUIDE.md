@@ -860,8 +860,11 @@ Dashboard status comes from backend-owned local snapshots under
 for those JSON files; the plugin asks the local backend to refresh them before
 rendering source counts, job state, index health, and backend version. Missing
 or stale snapshots are treated as waiting or unknown state, not as an empty
-backend. Because these snapshots include local paths, keep `.curator/runtime/`
-device-local rather than syncing it between machines.
+backend. Runtime `status.json` and `sources.json` do not export absolute local
+paths. Machine-local paths such as model GGUF files, Zotero roots, and external
+reference locations remain in the repository-local `.cache/config/config.yml`
+and are consulted through backend commands when the plugin needs live local
+resolution.
 
 Dashboard buttons run backend commands for mutations; the plugin does not
 directly edit backend-owned `.curator` state for those actions. The primary
@@ -955,7 +958,7 @@ Plugin data is split into two files.
 | --- | --- | --- |
 | `data.json` | Settings such as provider, model, and MCP servers | Recommended only when paths match |
 | `sessions.json` | Chat conversation history | Supported |
-| `.curator/runtime/*.json` | Backend-written dashboard/status snapshots | Local cache only |
+| `.curator/runtime/*.json` | Backend-written dashboard/status snapshots without absolute local paths | Local cache only |
 
 In v0.2.1, the plugin re-reads the latest on-disk `sessions.json` before saving and merges by session id. This preserves distinct sessions created on Linux and macOS. Deleted sessions are recorded in `deletedSessionIds` tombstones so an older synced file does not resurrect them later. If the same session is edited on both devices concurrently, the copy with the newer `updatedAt` timestamp wins.
 
@@ -965,10 +968,11 @@ file hash, vault-relative path, and page number, but device-local absolute paths
 from macOS or Linux are verified or re-resolved on the current device before
 being used. The plugin sanitizes session data immediately before every
 `sessions.json` write, including first-write and legacy-migration paths, so
-runtime backend status and captured absolute source paths do not become synced
-chat history. If a synced session references a Zotero PDF, the current device's
-local Zotero database and linked-attachment roots are used to recover the real
-PDF path.
+captured absolute source paths do not become synced chat history. Runtime
+backend `status.json` and `sources.json` snapshots are also path-sanitized before
+write. If a synced session references a Zotero PDF, the current device's local
+Zotero database and linked-attachment roots are used to recover the real PDF
+path.
 
 The sidebar conversation list derives each chat title from the first assistant
 answer after the first user question. Reasoning-model `<think>…</think>` blocks
@@ -994,12 +998,19 @@ want to avoid syncing any plugin-local settings at all, add `data.json` to
 .obsidian/plugins/incurator-obsidian-agent/data.json
 ```
 
-If `wiki` is not available on PATH on macOS, configure **Settings > AI Agent > PDF & Incurator** with a per-device launcher:
+When `Backend command` is left as `wiki`, the plugin resolves the backend from
+the repository path as `<repo>/.venv/bin/wiki`. It does not run a global PATH
+`wiki`. If the repository is a sibling of the vault workspace, for example
+`Workspace/Incurator` next to `Workspace/second_brain`, the desktop plugin can
+use that path as a memory-only local hint without writing it to plugin
+`data.json`. Otherwise configure **Settings > AI Agent > PDF & Incurator** like
+this on each device:
 
 | Setting | Value |
 | --- | --- |
-| `Backend command` | `/opt/homebrew/bin/uv` |
-| `Backend arguments` | `["--directory", "/Users/<you>/Workspace/Incurator/backend", "run", "wiki"]` |
+| `Repository path (override)` | `/Users/<you>/Workspace/Incurator` |
+| `Backend command` | `wiki` |
+| `Backend arguments` | `[]` |
 
 On startup and after settings saves, the Obsidian plugin automatically records
 Syncthing device names and the current device's backend launcher/repository hint
