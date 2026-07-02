@@ -952,6 +952,11 @@ vault 안의 `.curator/zotero_profiles.json`에 저장됩니다 — `sessions.js
 last-write-wins로 해소됩니다 — profile은 드물게 바뀌므로 별도의 병합 장치가
 필요 없습니다.
 
+`.curator/zotero_profiles.json`이 손상된 경우(잘못된 JSON — 예: 동기화 중단),
+플러그인은 파일을 **덮어쓰지 않습니다**: 해당 세션 동안 profile은 읽기 전용이
+되고, 파일을 복구하거나 삭제하라는 알림이 표시됩니다. 이후 다시 로드하면 정상
+동작으로 돌아옵니다. profile 데이터는 디스크에 복구 가능한 상태로 유지됩니다.
+
 출력 subfolder, filename, asset subfolder는 Zotero note template과 같은 Nunjucks 템플릿 엔진을 사용합니다. 예:
 
 ```text

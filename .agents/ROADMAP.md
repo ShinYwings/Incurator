@@ -172,8 +172,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.29.0 portable-path storage shipped (PR #76 merged). System is IDLE.
-- **Active Milestone**: Fix Zotero Profile Sync across devices
-- **Next actionable item**: continue System Stability Overhaul — remaining S2
-  groups (XC-1 broad-except narrowing in MCP/plugin API surfaces, CM-1/PL-1
-  god-file decomposition) or remaining G17 S3 cleanup.
+- **Roadmap state**: PR #78 (v0.30.0 cross-device state sync) is open; review feedback is being addressed on the branch.
+- **Active Milestone**: Fix Zotero Profile Sync across devices (Pending Merge)
+- **Next actionable item**: Human user reviews and merges PR #78 after the review-feedback commits land.

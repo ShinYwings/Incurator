@@ -56,7 +56,7 @@ import {
   ZOTERO_PROFILES_PATH,
   ZoteroProfilesFile,
   extractLegacyZoteroProfiles,
-  normalizeZoteroProfilesFile,
+  parseZoteroProfilesFile,
 } from "./src/zotero/profileStore";
 import { IncuratorDashboardModal } from "./src/ui/incuratorDashboardModal";
 
@@ -1332,30 +1332,68 @@ export default class ObsidianAIAgent extends Plugin {
 
   /** Load Zotero import profiles + recent-item LRU from the synced store and
    *  mirror them into settings (all call sites read settings.zoteroProfiles).
-   *  Migrates legacy data.json fields on first load (PLUGIN_SCHEMA v0.30.0). */
+   *  Migrates legacy data.json fields on first load (PLUGIN_SCHEMA v0.30.0).
+   *
+   *  The file read and the JSON parse are handled separately (PR #78 review):
+   *  a corrupted-but-existing store must NOT fall through to the legacy
+   *  migration — post-migration the legacy fields are blank, so that fallback
+   *  would mark an empty list as loaded and the next save would silently
+   *  overwrite the recoverable file. Never throws: a failure here must not
+   *  abort plugin onload. */
   async loadZoteroProfiles(): Promise<void> {
+    let raw: string | null = null;
     try {
-      const raw = await this.app.vault.adapter.read(ZOTERO_PROFILES_PATH);
-      const store = normalizeZoteroProfilesFile(JSON.parse(raw));
+      raw = await this.app.vault.adapter.read(ZOTERO_PROFILES_PATH);
+    } catch {
+      raw = null; // Missing/unreadable store — legacy migration below.
+    }
+
+    if (raw !== null) {
+      const store = parseZoteroProfilesFile(raw);
+      if (store === null) {
+        // Corrupted JSON: keep profiles read-only this session. The load guard
+        // stays false, so saveZoteroProfiles() will never overwrite the file —
+        // the user can repair or delete it and reload.
+        logger.error(
+          `${ZOTERO_PROFILES_PATH} contains invalid JSON — Zotero profiles are ` +
+            "read-only this session; repair or delete the file and reload Obsidian."
+        );
+        new Notice(
+          "Zotero profiles file is corrupted — profiles are read-only until " +
+            `${ZOTERO_PROFILES_PATH} is repaired or removed.`
+        );
+        return;
+      }
       this.settings.zoteroProfiles = store.profiles;
       this.settings.recentZoteroItems = store.recentItems;
       this._zoteroProfilesLoaded = true;
       // File-loaded profiles may predate the assetFolder split — migrate them
       // here too (loadSettings only migrates legacy data.json profiles).
-      if (migrateZoteroProfileAssetFolders(this.settings.zoteroProfiles)) {
-        await this.saveZoteroProfiles();
+      try {
+        if (migrateZoteroProfileAssetFolders(this.settings.zoteroProfiles)) {
+          await this.saveZoteroProfiles();
+        }
+      } catch (e) {
+        logger.error("zotero profile asset-folder migration save failed:", e);
       }
-    } catch {
-      // Missing or unreadable store — migrate legacy data.json fields if any.
-      const legacy = extractLegacyZoteroProfiles(this.settings);
-      this.settings.zoteroProfiles = legacy?.profiles ?? [];
-      this.settings.recentZoteroItems = legacy?.recentItems ?? [];
-      this._zoteroProfilesLoaded = true;
-      if (legacy) {
-        // Write the new store first, then persist settings (which always
-        // blanks the legacy fields) — non-destructive ordering.
+      return;
+    }
+
+    // Missing store — migrate legacy data.json fields if any.
+    const legacy = extractLegacyZoteroProfiles(this.settings);
+    this.settings.zoteroProfiles = legacy?.profiles ?? [];
+    this.settings.recentZoteroItems = legacy?.recentItems ?? [];
+    this._zoteroProfilesLoaded = true;
+    if (legacy) {
+      // Write the new store first, then persist settings (which always blanks
+      // the legacy fields) — non-destructive ordering. Best-effort: an I/O
+      // failure leaves the legacy fields in data.json, so the migration simply
+      // retries on the next load instead of breaking onload.
+      try {
         await this.saveZoteroProfiles();
         await this.persistSettings();
+      } catch (e) {
+        logger.error("zotero profile legacy migration failed (will retry on next load):", e);
       }
     }
   }
