@@ -631,6 +631,11 @@ class AutosyncResult:
     conflicts: list[str] = field(default_factory=list)
     exported: str | None = None
     dry_run: bool = False
+    # Whether an export ran (real run) / would run (dry run). Surfacing this in
+    # --dry-run makes a stale never-exported snapshot visible without mutating
+    # anything (the v0.30.0 "5 vs 31 sources" incident was invisible because
+    # dry-run only reported import counts).
+    would_export: bool = False
 
 
 def autosync(
@@ -666,7 +671,10 @@ def autosync(
     changed = any(
         s.inserted or s.updated or s.deleted for s in result.imported.values()
     )
-    if not dry_run and (changed or local_has_unexported_changes(internal_dir, db_path)):
+    result.would_export = changed or local_has_unexported_changes(
+        internal_dir, db_path
+    )
+    if not dry_run and result.would_export:
         result.exported = export_for_device(
             internal_dir, db_path, dir_name=dir_name
         ).name

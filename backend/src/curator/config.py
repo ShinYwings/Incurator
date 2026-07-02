@@ -259,10 +259,14 @@ DEFAULT_CONFIG: dict = {
     },
     "auto_sync": {
         # Cross-device knowledge auto-sync over Syncthing (one-writer-per-file).
-        # Opt-in: when enabled, mutating CLI commands (add/build/sync/update) write
-        # this device's .curator/sync/dev-<id>.jsonl at the end. The plugin and the
-        # explicit `wiki db autosync` command work regardless of this flag.
-        "enabled": False,
+        # Default-on since v0.30.0 (opt-out): mutating CLI commands
+        # (add/build/sync/update) write this device's .curator/sync/dev-<id>.jsonl
+        # at the end, LWW-gated so unchanged state is not re-exported. The plugin
+        # and the explicit `wiki db autosync` command work regardless of this
+        # flag. (It was opt-in before v0.30.0 — with the plugin disabled on a
+        # CLI-primary device, no trigger ever fired and peers converged on a
+        # stale snapshot.) Without Syncthing the export is a harmless local file.
+        "enabled": True,
         # Folder under .curator/ holding per-device export files. This folder IS
         # synced by Syncthing; .curator/sync_state.json (local marks) is NOT.
         "dir": "sync",
