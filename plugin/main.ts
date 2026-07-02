@@ -52,6 +52,12 @@ import {
 import { TemplateRenderer } from "./src/zotero/templateRenderer";
 import { localizeAnnotationImages, migrateZoteroProfileAssetFolders } from "./src/zotero/assetLocalization";
 import { resolveZoteroRefreshProfile } from "./src/zotero/profileBinding";
+import {
+  ZOTERO_PROFILES_PATH,
+  ZoteroProfilesFile,
+  extractLegacyZoteroProfiles,
+  normalizeZoteroProfilesFile,
+} from "./src/zotero/profileStore";
 import { IncuratorDashboardModal } from "./src/ui/incuratorDashboardModal";
 
 import { InlinePromptWidget } from "./src/ui/inlinePrompt";
@@ -131,6 +137,7 @@ export default class ObsidianAIAgent extends Plugin {
     // ── Load settings and session data ──
     await this.loadSettings();
     await this.loadSessionData();
+    await this.loadZoteroProfiles();
 
     // ── Initialize core services ──
     this.vaultRoot = (this.app.vault.adapter as any).getBasePath?.() || "";
@@ -1278,6 +1285,10 @@ export default class ObsidianAIAgent extends Plugin {
       incuratorRepoPath: "",
       zoteroBasePath: "",
       deepseekApiKey: "",
+      // v0.30.0: the durable store is .curator/zotero_profiles.json (synced);
+      // data.json must never carry profiles again (PLUGIN_SCHEMA).
+      zoteroProfiles: [],
+      recentZoteroItems: [],
     };
   }
 
@@ -1297,6 +1308,9 @@ export default class ObsidianAIAgent extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.persistSettings();
+    // Profiles/LRU live in the synced .curator store, not data.json; every
+    // explicit settings save also flushes them (guarded until initial load).
+    await this.saveZoteroProfiles();
     await this.syncDeviceRegistryFromSyncthing();
     // Update LLM client with new settings
     this.llmClient?.updateSettings(this.settings);
@@ -1308,6 +1322,58 @@ export default class ObsidianAIAgent extends Plugin {
         leaf.view.syncReasoningControl();
       }
     }
+  }
+
+  // ── Zotero profiles (vault-resident, synced via .curator/zotero_profiles.json) ──
+
+  /** Guards saveZoteroProfiles(): a save before the initial load would wipe
+   *  the synced file with empty in-memory state. */
+  private _zoteroProfilesLoaded = false;
+
+  /** Load Zotero import profiles + recent-item LRU from the synced store and
+   *  mirror them into settings (all call sites read settings.zoteroProfiles).
+   *  Migrates legacy data.json fields on first load (PLUGIN_SCHEMA v0.30.0). */
+  async loadZoteroProfiles(): Promise<void> {
+    try {
+      const raw = await this.app.vault.adapter.read(ZOTERO_PROFILES_PATH);
+      const store = normalizeZoteroProfilesFile(JSON.parse(raw));
+      this.settings.zoteroProfiles = store.profiles;
+      this.settings.recentZoteroItems = store.recentItems;
+      this._zoteroProfilesLoaded = true;
+      // File-loaded profiles may predate the assetFolder split — migrate them
+      // here too (loadSettings only migrates legacy data.json profiles).
+      if (migrateZoteroProfileAssetFolders(this.settings.zoteroProfiles)) {
+        await this.saveZoteroProfiles();
+      }
+    } catch {
+      // Missing or unreadable store — migrate legacy data.json fields if any.
+      const legacy = extractLegacyZoteroProfiles(this.settings);
+      this.settings.zoteroProfiles = legacy?.profiles ?? [];
+      this.settings.recentZoteroItems = legacy?.recentItems ?? [];
+      this._zoteroProfilesLoaded = true;
+      if (legacy) {
+        // Write the new store first, then persist settings (which always
+        // blanks the legacy fields) — non-destructive ordering.
+        await this.saveZoteroProfiles();
+        await this.persistSettings();
+      }
+    }
+  }
+
+  /** Persist the in-memory profiles/LRU to the synced store (whole-file LWW). */
+  async saveZoteroProfiles(): Promise<void> {
+    if (!this._zoteroProfilesLoaded) return;
+    if (!(await this.app.vault.adapter.exists(".curator"))) {
+      await this.app.vault.adapter.mkdir(".curator");
+    }
+    const store: ZoteroProfilesFile = {
+      profiles: this.settings.zoteroProfiles || [],
+      recentItems: this.settings.recentZoteroItems || [],
+    };
+    await this.app.vault.adapter.write(
+      ZOTERO_PROFILES_PATH,
+      JSON.stringify(store, null, 2)
+    );
   }
 
   // ── Session data (device-local, stored in sessions.json) ────────

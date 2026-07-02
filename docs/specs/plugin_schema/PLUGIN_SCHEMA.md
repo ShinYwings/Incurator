@@ -33,6 +33,9 @@ The Obsidian plugin owns:
 - `PluginSettings` — persisted to `.obsidian/plugins/incurator/data.json`
 - `SessionData` — stored separately in `sessions.json`; may be synced through
   Syncthing when session merge-on-save is enabled by the implementation
+- `ZoteroProfilesFile` — Zotero import profiles + recent-item LRU, stored in
+  `.curator/zotero_profiles.json` (v0.30.0; vault-resident so Syncthing carries
+  it across devices, like `sessions.json`)
 - Transient PDF.js extraction for open documents (never written to `.curator/`)
 - Chat UI rendering and streaming
 - Human approval prompts for import, reference registration, rebind, and promotion
@@ -274,6 +277,9 @@ interface PluginSettings {
 
   // Zotero integration
   zoteroBasePath: "";              // deprecated persisted field; backend cache owns roots
+  // v0.30.0: zoteroProfiles/recentZoteroItems live in-memory on settings for
+  // call-site compatibility but are ALWAYS persisted as [] in data.json; the
+  // durable store is .curator/zotero_profiles.json (ZoteroProfilesFile below).
   zoteroProfiles: ZoteroImportProfile[];
   recentZoteroItems: string[];     // LRU item keys, newest first, max 50
 
@@ -392,6 +398,31 @@ Rules:
 - `recentZoteroItems` stores Zotero item keys only. The plugin updates it after
   successful Zotero imports and may use it to rank search suggestions, but it
   must not duplicate Zotero metadata in settings.
+- **Zotero profile storage (v0.30.0).** The durable store for import profiles
+  and the recent-item LRU is `.curator/zotero_profiles.json`:
+
+  ```typescript
+  interface ZoteroProfilesFile {
+    profiles: ZoteroImportProfile[];
+    recentItems: string[];        // LRU item keys, newest first, max 50
+  }
+  ```
+
+  Contract:
+  - On plugin load (after settings and session load), the plugin reads the
+    file and mirrors it into `settings.zoteroProfiles` /
+    `settings.recentZoteroItems` so existing call sites are unchanged.
+  - If the file is missing and legacy profiles exist in `data.json`, the plugin
+    migrates them non-destructively: write the new file first, then persist
+    settings (which blanks the legacy fields).
+  - `data.json` MUST always persist `zoteroProfiles: []` and
+    `recentZoteroItems: []` — the file is the single durable store.
+  - Writes go through `saveZoteroProfiles()` (invoked from `saveSettings()`),
+    guarded so a write can never happen before the initial load (which would
+    wipe the synced file with empty in-memory state).
+  - Cross-device concurrency is whole-file last-write-wins (profiles change
+    rarely; no merge machinery). `ZoteroImportProfile` contains only
+    vault-relative paths, so the file is portable across Linux/macOS.
 - Zotero-managed PDFs registered from the sidechat/purple-pin flow use
   Reference Mode. A failed backend import/register payload must surface as an
   error state and show a user-visible failure notice instead of silently
