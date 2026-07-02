@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.29.0)
+# Incurator Plugin Schema & API Contract (v0.30.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -33,6 +33,9 @@ The Obsidian plugin owns:
 - `PluginSettings` — persisted to `.obsidian/plugins/incurator/data.json`
 - `SessionData` — stored separately in `sessions.json`; may be synced through
   Syncthing when session merge-on-save is enabled by the implementation
+- `ZoteroProfilesFile` — Zotero import profiles + recent-item LRU, stored in
+  `.curator/zotero_profiles.json` (v0.30.0; vault-resident so Syncthing carries
+  it across devices, like `sessions.json`)
 - Transient PDF.js extraction for open documents (never written to `.curator/`)
 - Chat UI rendering and streaming
 - Human approval prompts for import, reference registration, rebind, and promotion
@@ -274,6 +277,9 @@ interface PluginSettings {
 
   // Zotero integration
   zoteroBasePath: "";              // deprecated persisted field; backend cache owns roots
+  // v0.30.0: zoteroProfiles/recentZoteroItems live in-memory on settings for
+  // call-site compatibility but are ALWAYS persisted as [] in data.json; the
+  // durable store is .curator/zotero_profiles.json (ZoteroProfilesFile below).
   zoteroProfiles: ZoteroImportProfile[];
   recentZoteroItems: string[];     // LRU item keys, newest first, max 50
 
@@ -392,6 +398,59 @@ Rules:
 - `recentZoteroItems` stores Zotero item keys only. The plugin updates it after
   successful Zotero imports and may use it to rank search suggestions, but it
   must not duplicate Zotero metadata in settings.
+- **Zotero profile storage (v0.30.0).** The durable store for import profiles
+  and the recent-item LRU is `.curator/zotero_profiles.json`:
+
+  ```typescript
+  interface ZoteroProfilesFile {
+    profiles: ZoteroImportProfile[];
+    recentItems: string[];        // LRU item keys, newest first, max 50
+  }
+  ```
+
+  Contract:
+  - On plugin load (after settings and session load), the plugin reads the
+    file and mirrors it into `settings.zoteroProfiles` /
+    `settings.recentZoteroItems` so existing call sites are unchanged.
+  - **Read and parse are distinct failure modes.** A missing/unreadable file
+    triggers legacy migration; a file that exists but contains invalid JSON
+    (corruption, truncation) **or a structurally unrecognizable payload** (not
+    an object carrying both `profiles` and `recentItems` arrays — the exact
+    shape the plugin writes) MUST NOT — post-migration the legacy fields are
+    blank, so that fallback would load an empty list and the next save would
+    silently overwrite the recoverable file. In both cases the plugin keeps
+    profiles read-only for the session (the load guard stays unset so no write
+    can occur), logs the error, and surfaces a Notice telling the user to
+    repair or delete the file. Entry-level damage inside the arrays still
+    normalizes and counts as loaded.
+  - A profile entry is valid only if its `name` is a string; `{}` or name-less
+    junk entries are dropped during normalization. An empty-string name remains
+    valid (the settings UI allows blanking a name and renders a `Profile N`
+    fallback), so real profiles are never destroyed by normalization. The
+    remaining required string fields (`templatePath`, `outputFolder`,
+    `outputSubfolder`, `outputFilename`, `assetFolder`, `assetSubfolder`,
+    `bibliographyStyle`) are coerced to `""` when missing or non-string —
+    field-level damage must not delete the profile — and unknown/deprecated
+    keys (e.g. `imageFolder`) are preserved for the asset-folder migration.
+    `lastUsedAt` is kept only when numeric.
+  - If the file is missing and legacy profiles exist in `data.json`, the plugin
+    migrates them non-destructively: write the new file first, then persist
+    settings (which blanks the legacy fields). The migration is best-effort —
+    an I/O failure is logged and retried on the next load; it never aborts
+    plugin onload.
+  - `data.json` persists `zoteroProfiles: []` and `recentZoteroItems: []` —
+    the vault file is the single durable store — but **only after the store
+    has loaded/migrated** (the load guard is set). Before that point the
+    legacy values pass through persistence unchanged: `loadSettings()` may
+    persist its own migrations before `loadZoteroProfiles()` runs, and
+    blanking then would destroy the only copy of the legacy profiles if the
+    subsequent store write failed.
+  - Writes go through `saveZoteroProfiles()` (invoked from `saveSettings()`),
+    guarded so a write can never happen before the initial load (which would
+    wipe the synced file with empty in-memory state).
+  - Cross-device concurrency is whole-file last-write-wins (profiles change
+    rarely; no merge machinery). `ZoteroImportProfile` contains only
+    vault-relative paths, so the file is portable across Linux/macOS.
 - Zotero-managed PDFs registered from the sidechat/purple-pin flow use
   Reference Mode. A failed backend import/register payload must surface as an
   error state and show a user-visible failure notice instead of silently

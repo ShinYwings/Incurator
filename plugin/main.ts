@@ -52,6 +52,12 @@ import {
 import { TemplateRenderer } from "./src/zotero/templateRenderer";
 import { localizeAnnotationImages, migrateZoteroProfileAssetFolders } from "./src/zotero/assetLocalization";
 import { resolveZoteroRefreshProfile } from "./src/zotero/profileBinding";
+import {
+  ZOTERO_PROFILES_PATH,
+  ZoteroProfilesFile,
+  extractLegacyZoteroProfiles,
+  parseZoteroProfilesFile,
+} from "./src/zotero/profileStore";
 import { IncuratorDashboardModal } from "./src/ui/incuratorDashboardModal";
 
 import { InlinePromptWidget } from "./src/ui/inlinePrompt";
@@ -131,6 +137,7 @@ export default class ObsidianAIAgent extends Plugin {
     // ── Load settings and session data ──
     await this.loadSettings();
     await this.loadSessionData();
+    await this.loadZoteroProfiles();
 
     // ── Initialize core services ──
     this.vaultRoot = (this.app.vault.adapter as any).getBasePath?.() || "";
@@ -1278,6 +1285,16 @@ export default class ObsidianAIAgent extends Plugin {
       incuratorRepoPath: "",
       zoteroBasePath: "",
       deepseekApiKey: "",
+      // v0.30.0: the durable store is .curator/zotero_profiles.json (synced);
+      // data.json must never carry profiles again (PLUGIN_SCHEMA) — but ONLY
+      // once the store has actually loaded/migrated. loadSettings() can
+      // persist (its own migrations) BEFORE loadZoteroProfiles() runs;
+      // blanking then would destroy the legacy fields — the only copy — if the
+      // subsequent store write failed (PR #78 second review). Until the load
+      // guard is set, the legacy values pass through unchanged.
+      ...(this._zoteroProfilesLoaded
+        ? { zoteroProfiles: [], recentZoteroItems: [] }
+        : {}),
     };
   }
 
@@ -1297,6 +1314,9 @@ export default class ObsidianAIAgent extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.persistSettings();
+    // Profiles/LRU live in the synced .curator store, not data.json; every
+    // explicit settings save also flushes them (guarded until initial load).
+    await this.saveZoteroProfiles();
     await this.syncDeviceRegistryFromSyncthing();
     // Update LLM client with new settings
     this.llmClient?.updateSettings(this.settings);
@@ -1308,6 +1328,96 @@ export default class ObsidianAIAgent extends Plugin {
         leaf.view.syncReasoningControl();
       }
     }
+  }
+
+  // ── Zotero profiles (vault-resident, synced via .curator/zotero_profiles.json) ──
+
+  /** Guards saveZoteroProfiles(): a save before the initial load would wipe
+   *  the synced file with empty in-memory state. */
+  private _zoteroProfilesLoaded = false;
+
+  /** Load Zotero import profiles + recent-item LRU from the synced store and
+   *  mirror them into settings (all call sites read settings.zoteroProfiles).
+   *  Migrates legacy data.json fields on first load (PLUGIN_SCHEMA v0.30.0).
+   *
+   *  The file read and the JSON parse are handled separately (PR #78 review):
+   *  a corrupted-but-existing store must NOT fall through to the legacy
+   *  migration — post-migration the legacy fields are blank, so that fallback
+   *  would mark an empty list as loaded and the next save would silently
+   *  overwrite the recoverable file. Never throws: a failure here must not
+   *  abort plugin onload. */
+  async loadZoteroProfiles(): Promise<void> {
+    let raw: string | null = null;
+    try {
+      raw = await this.app.vault.adapter.read(ZOTERO_PROFILES_PATH);
+    } catch {
+      raw = null; // Missing/unreadable store — legacy migration below.
+    }
+
+    if (raw !== null) {
+      const store = parseZoteroProfilesFile(raw);
+      if (store === null) {
+        // Corrupted JSON: keep profiles read-only this session. The load guard
+        // stays false, so saveZoteroProfiles() will never overwrite the file —
+        // the user can repair or delete it and reload.
+        logger.error(
+          `${ZOTERO_PROFILES_PATH} contains invalid JSON — Zotero profiles are ` +
+            "read-only this session; repair or delete the file and reload Obsidian."
+        );
+        new Notice(
+          "Zotero profiles file is corrupted — profiles are read-only until " +
+            `${ZOTERO_PROFILES_PATH} is repaired or removed.`
+        );
+        return;
+      }
+      this.settings.zoteroProfiles = store.profiles;
+      this.settings.recentZoteroItems = store.recentItems;
+      this._zoteroProfilesLoaded = true;
+      // File-loaded profiles may predate the assetFolder split — migrate them
+      // here too (loadSettings only migrates legacy data.json profiles).
+      try {
+        if (migrateZoteroProfileAssetFolders(this.settings.zoteroProfiles)) {
+          await this.saveZoteroProfiles();
+        }
+      } catch (e) {
+        logger.error("zotero profile asset-folder migration save failed:", e);
+      }
+      return;
+    }
+
+    // Missing store — migrate legacy data.json fields if any.
+    const legacy = extractLegacyZoteroProfiles(this.settings);
+    this.settings.zoteroProfiles = legacy?.profiles ?? [];
+    this.settings.recentZoteroItems = legacy?.recentItems ?? [];
+    this._zoteroProfilesLoaded = true;
+    if (legacy) {
+      // Write the new store first, then persist settings (which always blanks
+      // the legacy fields) — non-destructive ordering. Best-effort: an I/O
+      // failure leaves the legacy fields in data.json, so the migration simply
+      // retries on the next load instead of breaking onload.
+      try {
+        await this.saveZoteroProfiles();
+        await this.persistSettings();
+      } catch (e) {
+        logger.error("zotero profile legacy migration failed (will retry on next load):", e);
+      }
+    }
+  }
+
+  /** Persist the in-memory profiles/LRU to the synced store (whole-file LWW). */
+  async saveZoteroProfiles(): Promise<void> {
+    if (!this._zoteroProfilesLoaded) return;
+    if (!(await this.app.vault.adapter.exists(".curator"))) {
+      await this.app.vault.adapter.mkdir(".curator");
+    }
+    const store: ZoteroProfilesFile = {
+      profiles: this.settings.zoteroProfiles || [],
+      recentItems: this.settings.recentZoteroItems || [],
+    };
+    await this.app.vault.adapter.write(
+      ZOTERO_PROFILES_PATH,
+      JSON.stringify(store, null, 2)
+    );
   }
 
   // ── Session data (device-local, stored in sessions.json) ────────

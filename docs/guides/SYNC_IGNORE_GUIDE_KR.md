@@ -189,3 +189,12 @@ Thumbs.db
 04_Resources/
 05_Assets/
 ```
+
+---
+
+## 💡 모범 사례 (Best Practices)
+
+1.  **SQLite DB 관리**: `state.sqlite` 파일은 반드시 기기 로컬로 유지해야 합니다 — 그 안의 지식이 기기 종속적이어서가 아니라(저장되는 경로는 모두 vault 상대 경로이거나 이식 가능한 `@root_key` 참조입니다), 원본 SQLite 파일 자체를 안전하게 동기화할 수 없기 때문입니다. **Git 또는 Syncthing**으로 파일 통째 동기화하면 병합 충돌과 파일 손상(WAL/SHM 잠금)이 발생하고, 파일 통째 덮어쓰기는 JSONL 전송이 수행하는 행 단위 병합을 파괴합니다. 지식은 대신 `.curator/sync/dev-<id>.jsonl` 스냅샷을 통해 기기 간 이동합니다(SYSTEM_BEHAVIOR §13.1 참고). 각 기기는 로컬 검색 인덱스만 다시 빌드하면 됩니다(`wiki reindex`).
+2.  **내보내기 트리거를 살려 두세요**: v0.30.0부터 CLI는 변경을 일으키는 모든 명령 후에 이 기기의 스냅샷을 내보내며(`auto_sync.enabled` 기본값 `true`), Obsidian 플러그인은 `incuratorEnabled`가 켜져 있을 때 `wiki db autosync`를 실행합니다. 어떤 기기가 오래된, 더 작은 소스 개수를 보여 준다면 *다른* 기기에서 `wiki db autosync --dry-run`을 실행해 보세요 — `would_export`가 대기 중이라면 그 기기의 스냅샷이 전송된 적이 없다는 뜻입니다.
+3.  **충돌 예방**: 데이터베이스 파일과 `.curator/runtime/` 디렉터리가 Git과 Syncthing 양쪽에서 제대로 무시되는지 확인하여 대규모 충돌과 배터리 소모를 방지하세요.
+4.  **Syncthing 팁**: Syncthing에서 Vault 폴더를 설정한 후, 폴더 설정 -> "무시 패턴(Ignore Patterns)" 탭에서 위 `.stignore` 섹션의 내용을 붙여넣으세요.

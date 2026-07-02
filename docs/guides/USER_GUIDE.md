@@ -812,7 +812,12 @@ How it stays safe across devices:
 - **No infinite loops** — without any fragile hash guard. A device never imports its own file, and it re-exports only when something actually changed.
 - **Syncthing conflict files** (`*.sync-conflict-*`) are imported as ordinary peers (always data-safe) and archived under `.curator/runtime/sync_conflicts/`.
 
-`.curator/state.sqlite` and `.curator/sync_state.json` stay device-local (excluded in `.stignore`); only the `.curator/sync/` JSONL files travel between devices. To have `wiki update` export automatically for CLI-only workflows, set `auto_sync.enabled: true` in `.curator/settings.yml`. The Obsidian plugin drives `wiki db autosync` for you — see the Plugin Guide.
+`.curator/state.sqlite` and `.curator/sync_state.json` stay device-local (excluded in `.stignore`); only the `.curator/sync/` JSONL files travel between devices. The Obsidian plugin drives `wiki db autosync` for you — see the Plugin Guide.
+
+**Automatic export after CLI commands (default-on since v0.30.0).** `auto_sync.enabled` defaults to `true`: every mutating CLI command (`wiki add`, `wiki build`, `wiki sync`, `wiki update`) writes this device's snapshot when it finishes, so peers always receive your latest knowledge even on devices where the Obsidian plugin is disabled. Set `auto_sync.enabled: false` in `.curator/settings.yml` to opt out. Without Syncthing the export is just a harmless local file.
+
+> [!WARNING]
+> Before v0.30.0 this export was opt-in **and** only ran on `wiki update`. A device that ingested via `wiki add`/`build` (or had the plugin disabled) silently never exported, so other devices kept converging on a stale snapshot — the classic symptom is the Dashboard showing an old, smaller source count on your other machine. `wiki db autosync --dry-run` now reports whether an export is pending (`would_export`), so you can spot a stale snapshot at a glance.
 
 ---
 

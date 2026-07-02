@@ -4,6 +4,41 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.30.0] - 2026-07-02
+### Added
+- **Zotero import profiles now sync across devices.** `zoteroProfiles` and the
+  `recentZoteroItems` LRU moved from the plugin's device-local `data.json` to
+  `.curator/zotero_profiles.json` inside the vault (the `sessions.json`
+  pattern), so a profile created on one machine appears on the others after
+  Syncthing sync. Existing profiles are migrated automatically and
+  non-destructively on first load; `data.json` never carries profiles again.
+- `wiki db autosync --dry-run` now reports whether an export is pending
+  (`would_export`, text + `--json`), making a stale never-shipped snapshot
+  visible without mutating anything.
+
+### Changed
+- **Cross-device knowledge auto-sync is now default-on (opt-out).**
+  `auto_sync.enabled` defaults to `true`, and the snapshot export hook runs
+  after every mutating CLI command — `wiki add`, `wiki build` (both `--wait`
+  branches), `wiki sync`, `wiki update`, and `wiki jobs run` (covering the
+  detached daemon spawned by background builds) — LWW-gated so unchanged state
+  is never re-exported. Set `auto_sync.enabled: false` in
+  `.curator/settings.yml` to opt out.
+
+### Fixed
+- **Dashboard on a second device showed a stale, smaller source count (e.g. 5
+  instead of 31).** Root cause: every autosync export trigger was opt-in — the
+  hook was wired only into `wiki update`, `auto_sync.enabled` defaulted to
+  `false`, and disabling the plugin (`incuratorEnabled: false`) on a
+  CLI-primary device silently killed all plugin-side triggers — so the device
+  that ingested sources never re-exported its snapshot and peers kept
+  converging on an old one. Mutating CLI commands now always publish the
+  snapshot (see Changed above).
+- **Zotero import profiles differed per device** because they lived in the
+  unsynced `data.json` (see Added above).
+
+---
+
 ## [0.29.1] - 2026-07-02
 ### Fixed
 - **Side chat sidebar is blank after upgrading to v0.29.0.** The v0.29.0 portable

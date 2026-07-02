@@ -72,6 +72,19 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.30.0 — Cross-Device State Sync** (shipped 2026-07-02): fixed the
+  "Dashboard shows 5 sources instead of 31 on the other device" bug and
+  per-device Zotero profile divergence. Root cause was NOT a missing DB-file
+  sync (§13.1 JSONL autosync already ships row-level LWW): every export
+  trigger was opt-in, and on the CLI-primary linux device (plugin
+  `incuratorEnabled: false`) none ever fired, so peers converged on a stale
+  Jun-30 5-source snapshot. Now `auto_sync.enabled` defaults on and the export
+  hook runs after `add`/`build`/`sync`/`update`/`jobs run` (LWW-gated);
+  `db autosync --dry-run` reports `would_export`. Zotero profiles moved from
+  `data.json` to synced `.curator/zotero_profiles.json` with automatic legacy
+  migration. Plan `06_cross_device_state_sync.md` (deleted; see git history —
+  documents the P1 pivot away from raw `state.sqlite` file sync, which would
+  have fought the shipped LWW transport).
 - **v0.29.1 — Side Chat Sidebar Regression Hotfix** (shipped 2026-07-02, PR #77):
   Fixed five interacting regressions introduced by v0.29.0 portable-path storage
   that collectively caused the chat sidebar to render blank on startup:
@@ -159,8 +172,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.29.0 portable-path storage shipped (PR #76 merged). System is IDLE.
-- **Active Milestone**: None (System IDLE).
-- **Next actionable item**: continue System Stability Overhaul — remaining S2
-  groups (XC-1 broad-except narrowing in MCP/plugin API surfaces, CM-1/PL-1
-  god-file decomposition) or remaining G17 S3 cleanup.
+- **Roadmap state**: PR #78 (v0.30.0 cross-device state sync) is open; review feedback is being addressed on the branch.
+- **Active Milestone**: Fix Zotero Profile Sync across devices (Pending Merge)
+- **Next actionable item**: Human user reviews and merges PR #78 after the review-feedback commits land.

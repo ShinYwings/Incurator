@@ -27,7 +27,9 @@ class TestAutoSyncConfig:
     def test_default_config_has_auto_sync_block(self) -> None:
         block = cfg.DEFAULT_CONFIG.get("auto_sync")
         assert isinstance(block, dict)
-        assert block["enabled"] is False  # opt-in, no regression for CLI users
+        # Default-on since v0.30.0 (opt-out): every trigger being opt-in let a
+        # CLI-primary device silently never export ("5 vs 31 sources" incident).
+        assert block["enabled"] is True
         assert block["dir"] == "sync"
         assert "debounce_ms" in block
         assert "poll_ms" in block

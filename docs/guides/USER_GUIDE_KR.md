@@ -777,7 +777,12 @@ wiki db autosync --dry-run   # 실제 변경 없이 미리 보기
 - **무한 루프 없음** — 취약한 해시 가드 없이. 기기는 자기 파일을 가져오지 않고, 실제로 변경이 있을 때만 다시 내보냅니다.
 - **Syncthing 충돌 파일**(`*.sync-conflict-*`)은 일반 피어로 가져와(항상 데이터 안전) `.curator/runtime/sync_conflicts/`에 보관됩니다.
 
-`.curator/state.sqlite`와 `.curator/sync_state.json`은 기기 로컬로 유지되며(`.stignore` 제외), `.curator/sync/`의 JSONL 파일만 기기 간 이동합니다. CLI 전용 워크플로에서 `wiki update`가 자동으로 내보내게 하려면 `.curator/settings.yml`에 `auto_sync.enabled: true`를 설정하세요. Obsidian 플러그인은 `wiki db autosync`를 자동으로 실행해 줍니다 — 플러그인 가이드 참고.
+`.curator/state.sqlite`와 `.curator/sync_state.json`은 기기 로컬로 유지되며(`.stignore` 제외), `.curator/sync/`의 JSONL 파일만 기기 간 이동합니다. Obsidian 플러그인은 `wiki db autosync`를 자동으로 실행해 줍니다 — 플러그인 가이드 참고.
+
+**CLI 명령 후 자동 내보내기 (v0.30.0부터 기본 켜짐).** `auto_sync.enabled`의 기본값은 `true`입니다: 변경을 일으키는 모든 CLI 명령(`wiki add`, `wiki build`, `wiki sync`, `wiki update`)이 끝날 때 이 기기의 스냅샷을 기록하므로, Obsidian 플러그인이 꺼진 기기에서도 피어들이 항상 최신 지식을 받습니다. 끄려면 `.curator/settings.yml`에 `auto_sync.enabled: false`를 설정하세요. Syncthing이 없어도 내보내기는 무해한 로컬 파일일 뿐입니다.
+
+> [!WARNING]
+> v0.30.0 이전에는 이 내보내기가 opt-in이었고 **오직** `wiki update`에서만 동작했습니다. `wiki add`/`build`로 수집하는 기기(또는 플러그인이 꺼진 기기)는 조용히 내보내기를 건너뛰었고, 다른 기기는 오래된 스냅샷에 수렴했습니다 — 전형적인 증상이 다른 기기의 대시보드에 예전의 더 작은 소스 개수가 표시되는 것입니다. 이제 `wiki db autosync --dry-run`이 내보내기 대기 여부(`would_export`)를 보고하므로 오래된 스냅샷을 한눈에 알 수 있습니다.
 
 ---
 

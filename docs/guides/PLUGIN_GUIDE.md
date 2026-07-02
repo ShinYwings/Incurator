@@ -945,6 +945,14 @@ no manual export/import.
 | Watch for incoming sync data | On | `fs.watch` `.curator/sync/` for peer files (desktop) |
 | Notify on sync changes | On | Toast only when a sync applied changes |
 
+> [!WARNING]
+> Disabling the plugin's **Enable Incurator** master switch also disables every
+> plugin-side auto-sync trigger on that device. On a CLI-primary device this is
+> fine — since v0.30.0 the backend exports the device's snapshot after every
+> mutating CLI command (`wiki add`/`build`/`sync`/`update`, `auto_sync.enabled`
+> default-on) — but a device that neither runs the plugin nor mutates via the
+> CLI will simply never publish new knowledge to its peers.
+
 > [!NOTE]
 > `.curator/state.sqlite` and `.curator/sync_state.json` stay device-local; only the
 > `.curator/sync/` JSONL snapshots travel between devices. See the User Guide
@@ -952,12 +960,13 @@ no manual export/import.
 
 ### Session history (`sessions.json`)
 
-Plugin data is split into two files.
+Plugin data is split across these files.
 
 | File | Contents | Cross-device sync |
 | --- | --- | --- |
 | `data.json` | Settings such as provider, model, and MCP servers | Recommended only when paths match |
-| `sessions.json` | Chat conversation history | Supported |
+| `.curator/sessions.json` | Chat conversation history | Supported |
+| `.curator/zotero_profiles.json` | Zotero import profiles + recent-item LRU (v0.30.0) | Supported |
 | `.curator/runtime/*.json` | Backend-written dashboard/status snapshots without absolute local paths | Local cache only |
 
 In v0.2.1, the plugin re-reads the latest on-disk `sessions.json` before saving and merges by session id. This preserves distinct sessions created on Linux and macOS. Deleted sessions are recorded in `deletedSessionIds` tombstones so an older synced file does not resurrect them later. If the same session is edited on both devices concurrently, the copy with the newer `updatedAt` timestamp wins.
@@ -1075,10 +1084,30 @@ profile is loaded automatically** and the Import Profile dropdown lists profiles
 most-recently-used first (v0.21.0), so the profile you are actively working with
 sits at the top instead of being buried under older ones. A profile's recency is
 updated whenever you import an item with it (or create it). Successfully imported items are remembered
-locally in a `recentZoteroItems` LRU list so they appear before other matches in
+in a `recentItems` LRU list so they appear before other matches in
 later Zotero searches. Created or updated Zotero notes also store the originating
 profile name in frontmatter as `zotero_profile`, so reload can use the same
 template and asset folder even when multiple profiles exist.
+
+**Profiles sync across devices (v0.30.0).** Import profiles and the
+recent-item LRU are stored in `.curator/zotero_profiles.json` inside the vault —
+the same synced location as `sessions.json` — so a profile created on one
+device appears on your other devices after Syncthing sync. (Before v0.30.0 they
+lived in the plugin's `data.json`, which is typically excluded from sync, so
+each device saw a different profile list.) On first load after upgrading, the
+plugin migrates existing profiles out of `data.json` automatically and
+non-destructively; profiles contain only vault-relative paths, so they are safe
+to share between Linux and macOS. Concurrent edits resolve last-write-wins —
+profiles change rarely, so no merge machinery is needed.
+
+If `.curator/zotero_profiles.json` ever becomes corrupted (invalid JSON or an
+unrecognizable structure — e.g. an interrupted sync or a bad hand-edit), the
+plugin does **not** overwrite it: profiles go read-only for the session and a
+notice asks you to repair or delete the file, after which a reload restores
+normal behavior. Your profile data stays recoverable on disk. Damage to
+individual entries inside an otherwise-valid file is repaired in place
+(unusable entries are dropped, missing text fields become empty) without
+touching the rest.
 
 Output subfolders, filenames, and asset subfolders use the same Nunjucks
 templating engine as Zotero note templates. Examples:

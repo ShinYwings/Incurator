@@ -3277,6 +3277,8 @@ def add(
         if not no_sync:
             _run_sync_report_only(paths, config, reason="add")
 
+    _maybe_auto_export(paths)
+
     console.print()
     _ok(f"L1 registration complete: {discovered} discovered, {summarized} summarized")
     _hint("Run [bold]wiki build[/bold] to extract L2 Atoms + L3 Concepts.")
@@ -3368,6 +3370,7 @@ def build(
                 client.close()
             # Ensure embeddings are current even when nothing new was built (item 14).
             _refresh_search_index(paths, embed=True)
+            _maybe_auto_export(paths)
         return
 
     # Default: enqueue to the background worker (non-blocking).
@@ -3427,6 +3430,8 @@ def build(
         if client is not None:
             client.close()
 
+    _maybe_auto_export(paths)
+
 
 @app.command()
 def update(
@@ -3475,18 +3480,24 @@ def update(
 
 
 def _maybe_auto_export(paths: cfg.WikiPaths) -> None:
-    """When `auto_sync.enabled`, write this device's snapshot after a mutation.
+    """When `auto_sync.enabled` (default-on), write this device's snapshot after
+    a mutating command (add/build/sync/update).
 
-    Best-effort: any failure is logged but never breaks the host command. The
-    explicit `wiki db autosync` path is unaffected by this flag.
+    LWW-gated: skipped when no row is newer than `last_export_ts` — changes that
+    do not bump an LWW column cannot propagate to peers anyway, so re-exporting
+    an identical snapshot would be pure churn. Best-effort: any failure is
+    logged but never breaks the host command. The explicit `wiki db autosync`
+    path is unaffected by this flag.
     """
     try:
         config = cfg.load_config(paths)
         block = config.get("auto_sync") or {}
         if not block.get("enabled"):
             return
-        from curator.db_sync import export_for_device
-        out = export_for_device(
+        from curator import db_sync
+        if not db_sync.local_has_unexported_changes(paths.internal, paths.state_db):
+            return
+        out = db_sync.export_for_device(
             paths.internal, paths.state_db, dir_name=block.get("dir", "sync")
         )
         console.print(f"[dim]Auto-sync: exported snapshot → {out.name}[/dim]")
@@ -3560,6 +3571,10 @@ def jobs_run(
     # `wiki reindex --embed`. update_index is fingerprinted/idempotent, so this
     # is cheap when embeddings are already current.
     _refresh_search_index(paths, embed=True)
+    # The detached daemon spawned by a non-`--wait` build runs this command, so
+    # the export hook here covers background-queued mutations too (LWW-gated:
+    # an empty drain exports nothing).
+    _maybe_auto_export(paths)
 
 
 @jobs_app.command("cancel")
@@ -3787,6 +3802,7 @@ def db_autosync(
         "deleted": sum(s.deleted for s in res.imported.values()),
         "conflicts": res.conflicts,
         "exported": res.exported,
+        "would_export": res.would_export,
     }
 
     if json_output:
@@ -3802,6 +3818,11 @@ def db_autosync(
             console.print(f"[yellow]Merged {len(res.conflicts)} Syncthing conflict file(s).[/yellow]")
         if res.exported:
             console.print(f"[dim]Exported snapshot → {res.exported}[/dim]")
+        elif dry_run and res.would_export:
+            console.print(
+                "[yellow]Export pending:[/yellow] local knowledge is newer than "
+                "this device's snapshot — a real run would export."
+            )
 
     if not dry_run and not skip_reindex and total:
         console.print("[dim]Running wiki reindex…[/dim]")
@@ -4436,6 +4457,10 @@ def sync(
         else:
             console.print("[dim]Incremental sync: no body-hash changes detected.[/dim]")
         _ok("Routing tables rebuilt (incremental).")
+        # The DEFAULT sync path must publish the device snapshot too — only
+        # hooking the full path made bare `wiki sync` silently skip the export
+        # (PR #78 review).
+        _maybe_auto_export(paths)
         return
 
     if backward:
@@ -4677,6 +4702,7 @@ def sync(
         sync_module.update_all_page_hashes(paths)
         sync_module.finalize_routing_tables(paths)
         _ok("Routing tables rebuilt (index.md, ledger.md, log.md, overview.md).")
+        _maybe_auto_export(paths)
     else:
         _hint("--dry-run: routing tables not modified.")
 

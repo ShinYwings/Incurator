@@ -834,17 +834,26 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
 | 수신 동기화 데이터 감시 | 켜짐 | `.curator/sync/`를 `fs.watch`로 감시(데스크톱) |
 | 동기화 변경 알림 | 켜짐 | 변경이 적용됐을 때만 토스트 |
 
+> [!WARNING]
+> 플러그인의 **Enable Incurator** 마스터 스위치를 끄면 그 기기의 플러그인 측
+> 자동 동기화 트리거도 전부 꺼집니다. CLI 위주 기기라면 문제없습니다 —
+> v0.30.0부터 백엔드가 변경을 일으키는 모든 CLI 명령
+> (`wiki add`/`build`/`sync`/`update`, `auto_sync.enabled` 기본 켜짐) 후에 이
+> 기기의 스냅샷을 내보내기 때문입니다 — 하지만 플러그인도 안 돌리고 CLI로
+> 변경도 하지 않는 기기는 새 지식을 피어에게 영영 발행하지 않게 됩니다.
+
 > [!NOTE]
 > `.curator/state.sqlite`와 `.curator/sync_state.json`은 기기 로컬로 유지되며, `.curator/sync/`의 JSONL 스냅샷만 기기 간 이동합니다. 사용자 가이드 "기기 간 지식 동기화"와 동기화 무시 가이드를 참고하세요.
 
 ### 세션 히스토리 (sessions.json)
 
-플러그인 데이터는 두 파일로 분리 저장됩니다.
+플러그인 데이터는 다음 파일들로 분리 저장됩니다.
 
 | 파일 | 내용 | 기기 간 동기화 |
 | --- | --- | --- |
 | `data.json` | 설정(provider, model, MCP 서버 등) | 경로가 같을 때만 권장 |
-| `sessions.json` | 채팅 대화 히스토리 | 가능 |
+| `.curator/sessions.json` | 채팅 대화 히스토리 | 가능 |
+| `.curator/zotero_profiles.json` | Zotero import profile + 최근 항목 LRU (v0.30.0) | 가능 |
 | `.curator/runtime/*.json` | 절대 local path를 포함하지 않는 backend dashboard/status snapshot | 로컬 cache only |
 
 v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 읽고 세션 id 단위로 병합합니다. 따라서 Linux와 macOS에서 서로 다른 채팅 세션을 만들면 두 세션이 함께 보존됩니다. 삭제된 세션은 `deletedSessionIds` tombstone에 남아 Syncthing 지연으로 오래된 파일이 도착해도 되살아나지 않습니다. 단, 같은 세션을 양쪽에서 동시에 편집한 경우에는 더 최신 `updatedAt`을 가진 세션이 이깁니다.
@@ -930,7 +939,26 @@ Zotero 링크나 Add-to-Incurator 작업에서 PDF를 해석하지 못하면 bac
 
 `Import Zotero Item` 검색창을 비워두면 최근 수정된 Zotero 항목을 `dateModified` 최신순으로 표시합니다. 설정값에는 여러 Zotero 데이터 디렉토리를 쉼표로 입력할 수 있으며, 플러그인은 각 경로의 `zotero.sqlite`를 순서대로 확인합니다.
 
-저장된 import profile이 있으면 wizard가 열릴 때 **가장 최근에 사용한 profile이 자동으로 로드되며**, Import Profile 드롭다운도 최근 사용 순으로 정렬됩니다(v0.21.0). 따라서 지금 작업 중인 profile이 오래된 것들에 묻히지 않고 맨 위에 옵니다. profile의 최근 사용 시각은 해당 profile로 항목을 가져올 때(또는 새로 만들 때) 갱신됩니다. 성공적으로 가져온 Zotero 항목은 로컬 `recentZoteroItems` LRU 목록에 기록되어 이후 Zotero 검색 결과에서 다른 항목보다 먼저 표시됩니다. 생성 또는 업데이트된 Zotero 노트는 사용한 profile 이름을 frontmatter의 `zotero_profile`에 저장하므로, 여러 profile이 있어도 리로드가 같은 템플릿과 자산 폴더를 사용할 수 있습니다.
+저장된 import profile이 있으면 wizard가 열릴 때 **가장 최근에 사용한 profile이 자동으로 로드되며**, Import Profile 드롭다운도 최근 사용 순으로 정렬됩니다(v0.21.0). 따라서 지금 작업 중인 profile이 오래된 것들에 묻히지 않고 맨 위에 옵니다. profile의 최근 사용 시각은 해당 profile로 항목을 가져올 때(또는 새로 만들 때) 갱신됩니다. 성공적으로 가져온 Zotero 항목은 `recentItems` LRU 목록에 기록되어 이후 Zotero 검색 결과에서 다른 항목보다 먼저 표시됩니다. 생성 또는 업데이트된 Zotero 노트는 사용한 profile 이름을 frontmatter의 `zotero_profile`에 저장하므로, 여러 profile이 있어도 리로드가 같은 템플릿과 자산 폴더를 사용할 수 있습니다.
+
+**Profile이 기기 간 동기화됩니다 (v0.30.0).** Import profile과 최근 항목 LRU는
+vault 안의 `.curator/zotero_profiles.json`에 저장됩니다 — `sessions.json`과
+같은 동기화 위치입니다 — 따라서 한 기기에서 만든 profile이 Syncthing 동기화
+후 다른 기기에도 나타납니다. (v0.30.0 이전에는 플러그인의 `data.json`에
+저장되었는데, 이 파일은 보통 동기화에서 제외되므로 기기마다 다른 profile
+목록이 보였습니다.) 업그레이드 후 첫 로드 시 플러그인이 기존 profile을
+`data.json`에서 자동으로, 비파괴적으로 마이그레이션합니다. profile에는 vault
+상대 경로만 들어 있으므로 Linux와 macOS 간에 안전하게 공유됩니다. 동시 편집은
+last-write-wins로 해소됩니다 — profile은 드물게 바뀌므로 별도의 병합 장치가
+필요 없습니다.
+
+`.curator/zotero_profiles.json`이 손상된 경우(잘못된 JSON 또는 알아볼 수 없는
+구조 — 예: 동기화 중단이나 잘못된 수동 편집), 플러그인은 파일을 **덮어쓰지
+않습니다**: 해당 세션 동안 profile은 읽기 전용이 되고, 파일을 복구하거나
+삭제하라는 알림이 표시됩니다. 이후 다시 로드하면 정상 동작으로 돌아옵니다.
+profile 데이터는 디스크에 복구 가능한 상태로 유지됩니다. 파일 자체는 정상인데
+개별 항목만 손상된 경우에는 나머지를 건드리지 않고 그 자리에서 복구합니다
+(사용 불가능한 항목은 제거되고, 누락된 텍스트 필드는 빈 값이 됩니다).
 
 출력 subfolder, filename, asset subfolder는 Zotero note template과 같은 Nunjucks 템플릿 엔진을 사용합니다. 예:
 

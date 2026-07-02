@@ -118,7 +118,11 @@ export interface PluginSettings {
   autoSyncWatch?: boolean;       // watch .curator/sync for peer files (desktop only)
   autoSyncNotify?: boolean;      // toast only when peers actually delivered changes
   zoteroBasePath: string;
+  /** In-memory mirror of `.curator/zotero_profiles.json` (v0.30.0). Persisted
+   *  as [] in data.json — the synced vault file is the durable store, so
+   *  profiles follow the vault across devices (PLUGIN_SCHEMA). */
   zoteroProfiles: ZoteroImportProfile[];
+  /** In-memory mirror of the recent-item LRU in `.curator/zotero_profiles.json`. */
   recentZoteroItems: string[];
   lastMarkdownScrollPosition?: LastMarkdownScrollPosition;
   fileScrollPositions?: Record<string, FileScrollPosition>;
