@@ -4457,6 +4457,10 @@ def sync(
         else:
             console.print("[dim]Incremental sync: no body-hash changes detected.[/dim]")
         _ok("Routing tables rebuilt (incremental).")
+        # The DEFAULT sync path must publish the device snapshot too — only
+        # hooking the full path made bare `wiki sync` silently skip the export
+        # (PR #78 review).
+        _maybe_auto_export(paths)
         return
 
     if backward:

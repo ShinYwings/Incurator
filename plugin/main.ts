@@ -1286,9 +1286,15 @@ export default class ObsidianAIAgent extends Plugin {
       zoteroBasePath: "",
       deepseekApiKey: "",
       // v0.30.0: the durable store is .curator/zotero_profiles.json (synced);
-      // data.json must never carry profiles again (PLUGIN_SCHEMA).
-      zoteroProfiles: [],
-      recentZoteroItems: [],
+      // data.json must never carry profiles again (PLUGIN_SCHEMA) — but ONLY
+      // once the store has actually loaded/migrated. loadSettings() can
+      // persist (its own migrations) BEFORE loadZoteroProfiles() runs;
+      // blanking then would destroy the legacy fields — the only copy — if the
+      // subsequent store write failed (PR #78 second review). Until the load
+      // guard is set, the legacy values pass through unchanged.
+      ...(this._zoteroProfilesLoaded
+        ? { zoteroProfiles: [], recentZoteroItems: [] }
+        : {}),
     };
   }
 

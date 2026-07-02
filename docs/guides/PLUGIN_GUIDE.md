@@ -1100,11 +1100,14 @@ non-destructively; profiles contain only vault-relative paths, so they are safe
 to share between Linux and macOS. Concurrent edits resolve last-write-wins —
 profiles change rarely, so no merge machinery is needed.
 
-If `.curator/zotero_profiles.json` ever becomes corrupted (invalid JSON — e.g.
-an interrupted sync), the plugin does **not** overwrite it: profiles go
-read-only for the session and a notice asks you to repair or delete the file,
-after which a reload restores normal behavior. Your profile data stays
-recoverable on disk.
+If `.curator/zotero_profiles.json` ever becomes corrupted (invalid JSON or an
+unrecognizable structure — e.g. an interrupted sync or a bad hand-edit), the
+plugin does **not** overwrite it: profiles go read-only for the session and a
+notice asks you to repair or delete the file, after which a reload restores
+normal behavior. Your profile data stays recoverable on disk. Damage to
+individual entries inside an otherwise-valid file is repaired in place
+(unusable entries are dropped, missing text fields become empty) without
+touching the rest.
 
 Output subfolders, filenames, and asset subfolders use the same Nunjucks
 templating engine as Zotero note templates. Examples:

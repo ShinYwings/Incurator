@@ -997,17 +997,28 @@ CLI-primary devices are covered by the CLI export hook below. All heavy JSONL
 work runs in the backend subprocess, never on the Obsidian UI thread.
 
 **CLI export hook (default-on since v0.30.0).** `auto_sync.enabled` defaults to
-`true`; every mutating CLI command — `wiki add`, `wiki build`, `wiki sync`, and
-`wiki update` — writes this device's snapshot at the end of the command via the
-best-effort `_maybe_auto_export` hook (an export failure is printed but never
-breaks the host command). Setting `auto_sync.enabled: false` in
-`.curator/settings.yml` disables the hook; the explicit `wiki db autosync`
-command works regardless of the flag. Without Syncthing the export is a
-harmless device-local file. Rationale (v0.30.0 incident): the hook used to be
-opt-in and wired only into `wiki update`, so a CLI-primary device with the
-plugin disabled silently never exported — peers converged on a stale snapshot
-(the "Dashboard shows 5 sources instead of 31" failure). A sync transport whose
-every trigger is opt-in fails silently; the flag is now opt-out.
+`true`; every mutating CLI command — `wiki add`, `wiki build`, `wiki sync`
+(including the default incremental path, not just `--full`), and `wiki update`
+— writes this device's snapshot at the end of the command via the best-effort
+`_maybe_auto_export` hook (an export failure is printed but never breaks the
+host command). Setting `auto_sync.enabled: false` in `.curator/settings.yml`
+disables the hook; the explicit `wiki db autosync` command works regardless of
+the flag. Without Syncthing the export is a harmless device-local file.
+Rationale (v0.30.0 incident): the hook used to be opt-in and wired only into
+`wiki update`, so a CLI-primary device with the plugin disabled silently never
+exported — peers converged on a stale snapshot (the "Dashboard shows 5 sources
+instead of 31" failure). A sync transport whose every trigger is opt-in fails
+silently; the flag is now opt-out.
+
+**Export gate semantics.** The hook is gated by
+`local_has_unexported_changes()`: the newest LWW timestamp across all
+`SYNC_TABLES` — **including `deleted_records`**, so a delete-only change (a
+tombstone) still publishes — compared against `last_export_ts` with `>=`, not
+strict `>`. Timestamps have second precision, so a mutation stamped in the same
+second as the last export is indistinguishable from one already exported; `>=`
+errs toward one redundant re-export (idempotent under row-level LWW, and
+self-terminating because the extra export stamps a later `last_export_ts`)
+instead of stranding the mutation until an unrelated later change.
 
 **Dry-run observability.** `wiki db autosync --dry-run` reports, in addition to
 the would-be import counts, whether an export would run (`would_export`) so a

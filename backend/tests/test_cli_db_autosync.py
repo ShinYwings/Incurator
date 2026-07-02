@@ -144,8 +144,12 @@ def test_build_exports_snapshot_by_default(tmp_path: Path) -> None:
     assert out.exists(), "wiki build finished without exporting the device snapshot"
 
 
-def test_sync_exports_snapshot_by_default(tmp_path: Path) -> None:
-    """`wiki sync` (global verification) must publish the snapshot when done."""
+def test_sync_incremental_exports_snapshot_by_default(tmp_path: Path) -> None:
+    """Bare `wiki sync` — the DEFAULT incremental path — must publish the
+    snapshot when done (PR #78 review: the incremental branch returned before
+    the hook, so the normal sync flow silently never exported; the earlier test
+    passed --no-interactive, which accidentally selected the LLM-dependent full
+    path and broke CI when no provider was available)."""
     from unittest.mock import patch
 
     runner = CliRunner()
@@ -158,12 +162,57 @@ def test_sync_exports_snapshot_by_default(tmp_path: Path) -> None:
         out.unlink()
 
     with patch("curator.db_sync.local_has_unexported_changes", return_value=True):
-        result = runner.invoke(
-            app, ["sync", "--no-interactive"], env={"VAULT_ROOT": str(vault)}
-        )
+        # No flags → incremental path (client=None, LLM-free).
+        result = runner.invoke(app, ["sync"], env={"VAULT_ROOT": str(vault)})
 
     assert result.exit_code == 0, result.output
-    assert out.exists(), "wiki sync finished without exporting the device snapshot"
+    assert out.exists(), "incremental wiki sync finished without exporting the device snapshot"
+
+
+def test_lww_gate_catches_same_second_mutation(tmp_path: Path) -> None:
+    """PR #78 review: timestamps have second precision, so a mutation stamped in
+    the SAME second as `last_export_ts` must still count as unexported (>=, not
+    strict >) — otherwise it never ships until an unrelated later mutation."""
+    runner = CliRunner()
+    vault = _init_vault(runner, tmp_path)
+    paths = cfg.paths_from_config(vault)
+
+    from curator import db
+
+    ts = "2026-07-02T10:00:00Z"
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("03_Notes/n.md", "h1", "md", 1, ts),
+        )
+    db_sync.write_sync_state(paths.internal, {"last_export_ts": ts})
+
+    assert db_sync.local_has_unexported_changes(paths.internal, paths.state_db) is True
+
+
+def test_lww_gate_counts_tombstones(tmp_path: Path) -> None:
+    """PR #78 review: deleted_records was excluded from the max-timestamp scan,
+    so a delete-only change never triggered an export and peers never saw the
+    deletion."""
+    runner = CliRunner()
+    vault = _init_vault(runner, tmp_path)
+    paths = cfg.paths_from_config(vault)
+
+    # Baseline: nothing unexported after an export "now".
+    db_sync.write_sync_state(paths.internal, {"last_export_ts": "2026-07-02T10:00:00Z"})
+    assert db_sync.local_has_unexported_changes(paths.internal, paths.state_db) is False
+
+    # A tombstone newer than last_export_ts must flip the gate.
+    from curator import db
+
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO deleted_records (table_name, record_id, deleted_at) "
+            "VALUES (?, ?, ?)",
+            ("atoms", "ATM-dead", "2026-07-02T10:00:01Z"),
+        )
+    assert db_sync.local_has_unexported_changes(paths.internal, paths.state_db) is True
 
 
 def test_autosync_dry_run_reports_would_export(tmp_path: Path) -> None:

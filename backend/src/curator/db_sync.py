@@ -590,7 +590,12 @@ def detect_conflict_files(internal_dir: Path, *, dir_name: str = "sync") -> list
 
 
 def _local_max_ts(db_path: Path) -> str:
-    """The newest LWW timestamp across all canonical tables (for mismatch detection)."""
+    """The newest LWW timestamp across all canonical tables (for mismatch detection).
+
+    deleted_records IS included: a delete-only change records nothing but a
+    tombstone, and excluding it meant the export gate never fired for deletions,
+    so peers never saw them (PR #78 review).
+    """
     newest = ""
     with db.connect(db_path) as conn:
         existing = {
@@ -598,7 +603,7 @@ def _local_max_ts(db_path: Path) -> str:
             for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
         for tbl, col in _UPDATED_AT_COL.items():
-            if tbl not in existing or tbl == "deleted_records":
+            if tbl not in existing:
                 continue
             row = conn.execute(f"SELECT MAX({col}) FROM {tbl}").fetchone()
             if row and row[0] and row[0] > newest:
@@ -607,11 +612,20 @@ def _local_max_ts(db_path: Path) -> str:
 
 
 def local_has_unexported_changes(internal_dir: Path, db_path: Path) -> bool:
-    """True if the local DB has rows newer than this device's last export."""
+    """True if the local DB may have rows not yet in this device's snapshot.
+
+    Timestamps have SECOND precision, so a mutation stamped in the same second
+    as `last_export_ts` is indistinguishable from one exported in that second —
+    strict `>` would silently strand it until an unrelated later mutation
+    (PR #78 review). `>=` errs toward one redundant (idempotent, LWW-safe)
+    re-export instead; the extra export stamps a later `last_export_ts`, so the
+    churn self-terminates as soon as the wall clock leaves that second.
+    """
     last = read_sync_state(internal_dir).get("last_export_ts")
     if not last:
         return True
-    return _local_max_ts(db_path) > last
+    newest = _local_max_ts(db_path)
+    return bool(newest) and newest >= last
 
 
 def _archive_conflict(cf: Path, internal_dir: Path) -> None:

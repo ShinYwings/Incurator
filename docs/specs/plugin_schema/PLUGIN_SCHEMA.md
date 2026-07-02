@@ -414,24 +414,37 @@ Rules:
     `settings.recentZoteroItems` so existing call sites are unchanged.
   - **Read and parse are distinct failure modes.** A missing/unreadable file
     triggers legacy migration; a file that exists but contains invalid JSON
-    (corruption, truncation) MUST NOT — post-migration the legacy fields are
+    (corruption, truncation) **or a structurally unrecognizable payload** (not
+    an object carrying both `profiles` and `recentItems` arrays — the exact
+    shape the plugin writes) MUST NOT — post-migration the legacy fields are
     blank, so that fallback would load an empty list and the next save would
-    silently overwrite the recoverable file. On corrupt JSON the plugin keeps
+    silently overwrite the recoverable file. In both cases the plugin keeps
     profiles read-only for the session (the load guard stays unset so no write
     can occur), logs the error, and surfaces a Notice telling the user to
-    repair or delete the file. Valid JSON with a wrong *shape* still normalizes
-    defensively and counts as loaded.
+    repair or delete the file. Entry-level damage inside the arrays still
+    normalizes and counts as loaded.
   - A profile entry is valid only if its `name` is a string; `{}` or name-less
     junk entries are dropped during normalization. An empty-string name remains
     valid (the settings UI allows blanking a name and renders a `Profile N`
-    fallback), so real profiles are never destroyed by normalization.
+    fallback), so real profiles are never destroyed by normalization. The
+    remaining required string fields (`templatePath`, `outputFolder`,
+    `outputSubfolder`, `outputFilename`, `assetFolder`, `assetSubfolder`,
+    `bibliographyStyle`) are coerced to `""` when missing or non-string —
+    field-level damage must not delete the profile — and unknown/deprecated
+    keys (e.g. `imageFolder`) are preserved for the asset-folder migration.
+    `lastUsedAt` is kept only when numeric.
   - If the file is missing and legacy profiles exist in `data.json`, the plugin
     migrates them non-destructively: write the new file first, then persist
     settings (which blanks the legacy fields). The migration is best-effort —
     an I/O failure is logged and retried on the next load; it never aborts
     plugin onload.
-  - `data.json` MUST always persist `zoteroProfiles: []` and
-    `recentZoteroItems: []` — the file is the single durable store.
+  - `data.json` persists `zoteroProfiles: []` and `recentZoteroItems: []` —
+    the vault file is the single durable store — but **only after the store
+    has loaded/migrated** (the load guard is set). Before that point the
+    legacy values pass through persistence unchanged: `loadSettings()` may
+    persist its own migrations before `loadZoteroProfiles()` runs, and
+    blanking then would destroy the only copy of the legacy profiles if the
+    subsequent store write failed.
   - Writes go through `saveZoteroProfiles()` (invoked from `saveSettings()`),
     guarded so a write can never happen before the initial load (which would
     wipe the synced file with empty in-memory state).

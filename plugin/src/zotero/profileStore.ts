@@ -17,47 +17,87 @@ export interface ZoteroProfilesFile {
   recentItems: string[];
 }
 
+/** Required string fields of ZoteroImportProfile. Damaged or pre-migration
+ *  entries get these coerced to "" so UI/runtime code always sees usable
+ *  strings — dropping the whole profile would turn field-level damage into
+ *  silent data loss on the next save (PR #78 second review). */
+const PROFILE_STRING_FIELDS = [
+  "templatePath",
+  "outputFolder",
+  "outputSubfolder",
+  "outputFilename",
+  "assetFolder",
+  "assetSubfolder",
+  "bibliographyStyle",
+] as const;
+
+function sanitizeProfile(p: Record<string, unknown>): ZoteroImportProfile {
+  // Spread first: deprecated/extra keys (e.g. imageFolder) must survive — the
+  // asset-folder migration still reads them.
+  const out: Record<string, unknown> = { ...p };
+  for (const field of PROFILE_STRING_FIELDS) {
+    if (typeof out[field] !== "string") out[field] = "";
+  }
+  if (typeof out.lastUsedAt !== "number") delete out.lastUsedAt;
+  return out as unknown as ZoteroImportProfile;
+}
+
 /** Defensively normalize a decoded `.curator/zotero_profiles.json` payload.
- *  Any malformed shape degrades to an empty store instead of throwing —
- *  a hand-edited file must never break plugin load. (Corrupted *JSON* is a
+ *  Malformed pieces degrade instead of throwing — a hand-edited file must
+ *  never break plugin load. (Corrupted JSON / unrecognizable structure is a
  *  different case — see parseZoteroProfilesFile.) */
 export function normalizeZoteroProfilesFile(raw: unknown): ZoteroProfilesFile {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return { profiles: [], recentItems: [] };
   }
   const obj = raw as Partial<Record<keyof ZoteroProfilesFile, unknown>>;
-  const profiles = (Array.isArray(obj.profiles) ? obj.profiles : []).filter(
-    (p): p is ZoteroImportProfile =>
-      typeof p === "object" &&
-      p !== null &&
-      !Array.isArray(p) &&
-      // A profile without a string `name` ({} or junk) is not a real
-      // ZoteroImportProfile — it renders as an empty dropdown entry and breaks
-      // name-dependent code (PR #78 review). An empty-string name stays valid:
-      // the settings UI allows blanking a name and renders a "Profile N"
-      // fallback, so dropping it would destroy a real profile.
-      typeof (p as { name?: unknown }).name === "string"
-  );
+  const profiles = (Array.isArray(obj.profiles) ? obj.profiles : [])
+    .filter(
+      (p): p is Record<string, unknown> =>
+        typeof p === "object" &&
+        p !== null &&
+        !Array.isArray(p) &&
+        // A profile without a string `name` ({} or junk) is not a real
+        // ZoteroImportProfile — it renders as an empty dropdown entry and
+        // breaks name-dependent code (PR #78 review). An empty-string name
+        // stays valid: the settings UI allows blanking a name and renders a
+        // "Profile N" fallback, so dropping it would destroy a real profile.
+        typeof (p as { name?: unknown }).name === "string"
+    )
+    .map(sanitizeProfile);
   const recentItems = (Array.isArray(obj.recentItems) ? obj.recentItems : [])
     .filter((k): k is string => typeof k === "string")
     .slice(0, RECENT_ITEMS_MAX);
   return { profiles, recentItems };
 }
 
-/** Parse raw file content, distinguishing corruption from shape damage.
+/** Parse raw file content, distinguishing corruption from entry-level damage.
  *
- *  Returns null when the content is not valid JSON — the caller must treat the
+ *  Returns null when the content is not valid JSON OR is not structurally a
+ *  ZoteroProfilesFile (an object with `profiles` and `recentItems` arrays —
+ *  the exact shape the plugin writes). In both cases the caller must treat the
  *  store as UNLOADED (leave the on-disk file untouched for recovery) rather
  *  than fall through to legacy migration: after the one-time migration the
  *  legacy fields are blank, so the fallback would load an empty list and the
- *  next save would silently overwrite the corrupted-but-recoverable file
- *  (PR #78 review). Valid JSON with a wrong shape normalizes as before. */
+ *  next save would silently overwrite the recoverable file (PR #78 reviews).
+ *  Entry-level damage inside the arrays still normalizes. */
 export function parseZoteroProfilesFile(raw: string): ZoteroProfilesFile | null {
+  let parsed: unknown;
   try {
-    return normalizeZoteroProfilesFile(JSON.parse(raw));
+    parsed = JSON.parse(raw);
   } catch {
     return null;
   }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    Array.isArray(parsed) ||
+    !Array.isArray((parsed as { profiles?: unknown }).profiles) ||
+    !Array.isArray((parsed as { recentItems?: unknown }).recentItems)
+  ) {
+    return null;
+  }
+  return normalizeZoteroProfilesFile(parsed);
 }
 
 /** Extract the legacy `data.json` fields for one-time migration.

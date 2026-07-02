@@ -68,6 +68,41 @@ describe("normalizeZoteroProfilesFile", () => {
     expect(norm.profiles).toHaveLength(1);
   });
 
+  it("coerces missing/non-string path fields to '' instead of dropping the profile (second review)", () => {
+    // A profile damaged at the field level (or predating newer fields, e.g.
+    // pre-assetFolder-split) must reach UI/runtime code with usable string
+    // fields — not be silently deleted on the next save.
+    const norm = normalizeZoteroProfilesFile({
+      profiles: [
+        { name: "Damaged", templatePath: 42, outputFilename: null, imageFolder: "legacy/img" },
+      ],
+      recentItems: [],
+    });
+    expect(norm.profiles).toHaveLength(1);
+    const p = norm.profiles[0] as unknown as Record<string, unknown>;
+    expect(p.templatePath).toBe("");
+    expect(p.outputFolder).toBe("");
+    expect(p.outputSubfolder).toBe("");
+    expect(p.outputFilename).toBe("");
+    expect(p.assetFolder).toBe("");
+    expect(p.assetSubfolder).toBe("");
+    expect(p.bibliographyStyle).toBe("");
+    // Extra/deprecated keys survive — the asset-folder migration reads them.
+    expect(p.imageFolder).toBe("legacy/img");
+  });
+
+  it("preserves lastUsedAt only when numeric", () => {
+    const norm = normalizeZoteroProfilesFile({
+      profiles: [
+        { ...profile("A"), lastUsedAt: 123 },
+        { ...profile("B"), lastUsedAt: "yesterday" },
+      ],
+      recentItems: [],
+    });
+    expect(norm.profiles[0].lastUsedAt).toBe(123);
+    expect(norm.profiles[1].lastUsedAt).toBeUndefined();
+  });
+
   it("caps recentItems at 50 (LRU contract, PLUGIN_SCHEMA)", () => {
     const norm = normalizeZoteroProfilesFile({
       profiles: [],
@@ -138,10 +173,26 @@ describe("parseZoteroProfilesFile", () => {
     expect(store!.recentItems).toEqual(["K1"]);
   });
 
-  it("degrades valid JSON with a wrong shape to an empty store (not null)", () => {
-    // Shape damage is recoverable data-loss-free: normalization applies, and
-    // the parse did not fail, so the caller may treat the store as loaded.
-    const store = parseZoteroProfilesFile('{"unexpected": true}');
-    expect(store).toEqual({ profiles: [], recentItems: [] });
+  it("returns null for structurally unrecognizable JSON (second review)", () => {
+    // Valid JSON whose structure is not a ZoteroProfilesFile (no profiles /
+    // recentItems arrays) may still hold recoverable data — treating it as an
+    // empty loaded store would let the next save overwrite it with [].
+    for (const wrongShape of [
+      '{"unexpected": true}',
+      "[]",
+      '"a string"',
+      "42",
+      "null",
+      '{"profiles": {"0": {"name": "A"}}, "recentItems": []}', // object, not array
+      '{"profiles": [], "recentItems": "junk"}',
+    ]) {
+      expect(parseZoteroProfilesFile(wrongShape)).toBeNull();
+    }
+  });
+
+  it("accepts the exact shape the plugin writes, including the empty store", () => {
+    expect(
+      parseZoteroProfilesFile('{"profiles": [], "recentItems": []}')
+    ).toEqual({ profiles: [], recentItems: [] });
   });
 });
