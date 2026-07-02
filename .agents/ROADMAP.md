@@ -26,18 +26,6 @@ No urgent items currently tracked.
 
 ### 🚀 Priority Order
 
-0. **[Minor v0.30.0] Cross-Device State Sync (Zotero Profiles + Knowledge DB)** *(PLAN AUTHORED — awaiting approval)*
-   - Two symptoms, one root cause: `.stignore` excludes both `data.json`
-     (`zoteroProfiles`/`recentZoteroItems`) and `.curator/state.sqlite`, so
-     neither profiles nor source/L1 tracking sync. Symptoms: profiles differ per
-     device; Dashboard Sources shows 5 instead of 31.
-   - Part A: move profiles → `.curator/zotero_profiles.json` (sessions.json pattern).
-   - Part B: sync `state.sqlite` — user decision. Paths verified portable (zero
-     absolute paths). Safety: checkpoint-truncate WAL on close + last-write-wins.
-   - Master Plan: `.agents/plans/06_cross_device_state_sync.md`
-   - Briefing: `.agents/plans/cross_device_state_sync_arena/00_problem.md`
-   - Draft (Part A): `.agents/drafts/zotero_profile_sync.md`
-
 1. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
      redundancy, architectural debt) + refactoring with architectural redesign
@@ -84,6 +72,19 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.30.0 — Cross-Device State Sync** (shipped 2026-07-02): fixed the
+  "Dashboard shows 5 sources instead of 31 on the other device" bug and
+  per-device Zotero profile divergence. Root cause was NOT a missing DB-file
+  sync (§13.1 JSONL autosync already ships row-level LWW): every export
+  trigger was opt-in, and on the CLI-primary linux device (plugin
+  `incuratorEnabled: false`) none ever fired, so peers converged on a stale
+  Jun-30 5-source snapshot. Now `auto_sync.enabled` defaults on and the export
+  hook runs after `add`/`build`/`sync`/`update`/`jobs run` (LWW-gated);
+  `db autosync --dry-run` reports `would_export`. Zotero profiles moved from
+  `data.json` to synced `.curator/zotero_profiles.json` with automatic legacy
+  migration. Plan `06_cross_device_state_sync.md` (deleted; see git history —
+  documents the P1 pivot away from raw `state.sqlite` file sync, which would
+  have fought the shipped LWW transport).
 - **v0.29.1 — Side Chat Sidebar Regression Hotfix** (shipped 2026-07-02, PR #77):
   Fixed five interacting regressions introduced by v0.29.0 portable-path storage
   that collectively caused the chat sidebar to render blank on startup:

@@ -1,27 +1,24 @@
-# RELAY — Active Task: Cross-Device State Sync (v0.30.0)
+# RELAY — v0.30.0 Cross-Device State Sync
 
-**Branch**: `fix/zotero-profile-sync`
-**Status**: PLAN AUTHORED — **STOPPED for user approval** before coding.
+**Branch**: `fix/zotero-profile-sync` — implementation complete, PR pending.
 
-**Goal**: Make Zotero profiles AND the knowledge DB sync across the user's
-linux + macOS devices. Both symptoms (profiles differ per device; Dashboard
-Sources shows 5 not 31) share one root cause: `.stignore` excludes `data.json`
-and `.curator/state.sqlite`.
+**Shipped in this branch**:
+- Autosync trigger repair (the "5 vs 31 sources" fix): export hook after
+  `add`/`build`/`sync`/`update`/`jobs run`, `auto_sync.enabled` default-on,
+  `db autosync --dry-run` reports `would_export`.
+- Zotero profiles → synced `.curator/zotero_profiles.json` (auto-migration
+  from `data.json`).
+- Docs: SYSTEM_BEHAVIOR §13.1, PLUGIN_SCHEMA, USER/PLUGIN/SYNC_IGNORE guides
+  (+ KR). Version 0.30.0 across all manifests + 4 spec titles.
+- Local CI: 1169 pytest / ruff / mypy / 655 vitest / tsc — all green.
+- E2E peer simulation passed (device A add → export → device B import →
+  identical sources).
+- Production `second_brain`: `auto_sync.enabled` flipped to true; a fresh
+  32-source snapshot was manually exported during diagnosis — once Syncthing
+  ships it, the macOS device should converge after its next autosync pass.
 
-**Decisions locked this session**:
-- Sync `state.sqlite` (user chose this over thin-client/rebuild).
-- DB paths verified portable — zero absolute paths in any table; reference paths
-  use `path_refs.py` `@root_key` + Zotero identity keys, resolved per-device.
-- Write-safety: **checkpoint-truncate WAL on close + last-write-wins**.
-- Part A profiles → `.curator/zotero_profiles.json` (sessions.json pattern).
+**Next action**: push branch + open PR (then IDLE cleanup after merge).
 
-**Artifacts**:
-- Master Plan: `.agents/plans/06_cross_device_state_sync.md`
-- Arena briefing: `.agents/plans/cross_device_state_sync_arena/00_problem.md`
-- Draft (Part A): `.agents/drafts/zotero_profile_sync.md`
-
-**Immediate Next Action (on approval)**: Execute P0 (baseline + rollback anchor
-+ RED test) → P1 docs-first specs (STOP again for schema approval) → P2 backend
-checkpoint/guard → P3 plugin profile migration → P4/P5 integration + testbed.
-
-**Do NOT** start coding until the user approves the plan.
+**User-facing follow-up (macOS)**: after merging + updating the plugin/backend
+there, verify Dashboard shows 31/32 sources; if not, run
+`wiki db autosync --dry-run` on each device to see which side is stale.
