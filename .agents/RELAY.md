@@ -19,7 +19,23 @@
 
 **Next action**: PR #78 open — awaiting human review/merge (then IDLE cleanup).
 
-### Update (2026-07-02, Claude Code) — PR #78 review feedback addressed
+### Update (2026-07-02, Claude Code) — PR #78 SECOND review (@0a7c1cd) addressed
+Commit `26348a1`:
+- P1-1: `_persistableSettings` blanks legacy profile fields only after the
+  store load guard is set (loadSettings' early persist no longer destroys the
+  only copy; failed store writes genuinely retry next load).
+- P1-2: structurally unrecognizable JSON (not object-with-both-arrays) now →
+  null / read-only session, same as corrupt JSON.
+- P1-3: bare `wiki sync` incremental path runs the export hook; test now
+  exercises that LLM-free path (fixes the backend CI failure — the old test's
+  --no-interactive forced the LLM full path).
+- P1-4: LWW gate includes deleted_records (tombstone-only changes publish) and
+  compares `>=` (same-second mutations no longer stranded).
+- P2: profile entries sanitize field-level damage (string fields coerce to "",
+  deprecated keys preserved, lastUsedAt numeric-only).
+- 1171 pytest / ruff / mypy / 663 vitest / tsc green. Specs + guides updated.
+
+### Update (2026-07-02, Claude Code) — PR #78 first review feedback addressed
 Commit `0bbe2d1` on the branch:
 1. Corrupt `.curator/zotero_profiles.json` no longer wipes data: read-vs-parse
    failure split (`parseZoteroProfilesFile`), corrupt JSON → read-only session
