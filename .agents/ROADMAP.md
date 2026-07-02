@@ -26,6 +26,29 @@ No urgent items currently tracked.
 
 ### 🚀 Priority Order
 
+0. **[Fix v0.30.1] Sync Hardening — deferred PR #78 code-review findings**
+   - Confirmed by the multi-agent /code-review of PR #78 but deliberately not
+     hot-patched (behavior/contract scope → plan-first). All still open:
+   - **Stale-mirror LWW profile loss**: `saveZoteroProfiles` writes the
+     onload-loaded in-memory mirror without re-read/merge, and no watcher
+     re-reads `zotero_profiles.json` when Syncthing delivers it — an unrelated
+     settings save on a device with a stale mirror erases a peer's newer
+     profiles. Candidate fix: read-merge-before-write like `saveSessionData`.
+   - **Unserialized profile writes**: `saveZoteroProfiles` lacks a
+     `settingsPersistPromise`-style queue; per-keystroke `saveSettings` in the
+     profile editor overlaps `adapter.write` calls to the same file.
+   - **MCP export gap**: MCP-server tools (`curator_register_source`,
+     `curator_build_source`, …) and `ingest_worker` mutate `state.sqlite`
+     in-process with no export trigger — the "5 vs 31" hole persists for
+     MCP/agent-driven ingestion.
+   - **Non-atomic snapshot export**: `export_knowledge` streams to the final
+     `dev-<id>.jsonl` (open "w", no temp+rename) and `write_sync_state` uses
+     non-atomic `write_text` — concurrent processes (detached `jobs run`
+     daemon + CLI/plugin) can ship a truncated snapshot to peers.
+   - Efficiency/cleanup: `wiki update` runs the export hook up to 4× (up to 3
+     full snapshot writes); `RECENT_ITEMS_MAX` (profileStore) and the wizard's
+     `limit = 50` are unshared literals for the same LRU cap.
+
 1. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
      redundancy, architectural debt) + refactoring with architectural redesign
@@ -72,7 +95,10 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
-- **v0.30.0 — Cross-Device State Sync** (shipped 2026-07-02): fixed the
+- **v0.30.0 — Cross-Device State Sync** (shipped 2026-07-02, PR #78 merged;
+  two review rounds fixed on-branch: corrupt/structural profile-store guards,
+  migration-ordering safety, incremental-sync export hook, LWW gate `>=` +
+  tombstones, profile field sanitization): fixed the
   "Dashboard shows 5 sources instead of 31 on the other device" bug and
   per-device Zotero profile divergence. Root cause was NOT a missing DB-file
   sync (§13.1 JSONL autosync already ships row-level LWW): every export
@@ -172,6 +198,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: PR #78 (v0.30.0 cross-device state sync) is open; review feedback is being addressed on the branch.
-- **Active Milestone**: Fix Zotero Profile Sync across devices (Pending Merge)
-- **Next actionable item**: Human user reviews and merges PR #78 after the review-feedback commits land.
+- **Roadmap state**: v0.30.0 cross-device state sync shipped (PR #78 merged 2026-07-02). System is IDLE.
+- **Active Milestone**: None (System IDLE).
+- **Next actionable item**: the queued **v0.30.1 Sync Hardening** batch (deferred
+  PR #78 code-review findings, item 0 above) or System Stability Overhaul S2
+  continuation (CM-1/PL-1 god-file decomposition, XC-1 remaining slices).
