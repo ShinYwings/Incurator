@@ -1,11 +1,27 @@
-# RELAY — Active Task: Fix Zotero Profile Sync across devices
+# RELAY — Active Task: Cross-Device State Sync (v0.30.0)
 
-**Status**: Active. Draft completed. Waiting for Executor (Claude Code).
+**Branch**: `fix/zotero-profile-sync`
+**Status**: PLAN AUTHORED — **STOPPED for user approval** before coding.
 
-**Goal**: Fix Zotero Profile Sync across devices by moving `zoteroProfiles` and `recentZoteroItems` out of `data.json` and into `.curator/zotero_profiles.json`.
+**Goal**: Make Zotero profiles AND the knowledge DB sync across the user's
+linux + macOS devices. Both symptoms (profiles differ per device; Dashboard
+Sources shows 5 not 31) share one root cause: `.stignore` excludes `data.json`
+and `.curator/state.sqlite`.
 
-**Instructions for Executor**:
-1. Read the drafted problem statement in `.agents/drafts/zotero_profile_sync.md`.
-2. Follow the `Universal Strict Workflow`.
-3. Create the final `PLAN_TEMPLATE.md` in `.agents/plans/` using the draft as the Briefing for your Arena debate.
-4. Stop and request human approval of the plan.
+**Decisions locked this session**:
+- Sync `state.sqlite` (user chose this over thin-client/rebuild).
+- DB paths verified portable — zero absolute paths in any table; reference paths
+  use `path_refs.py` `@root_key` + Zotero identity keys, resolved per-device.
+- Write-safety: **checkpoint-truncate WAL on close + last-write-wins**.
+- Part A profiles → `.curator/zotero_profiles.json` (sessions.json pattern).
+
+**Artifacts**:
+- Master Plan: `.agents/plans/06_cross_device_state_sync.md`
+- Arena briefing: `.agents/plans/cross_device_state_sync_arena/00_problem.md`
+- Draft (Part A): `.agents/drafts/zotero_profile_sync.md`
+
+**Immediate Next Action (on approval)**: Execute P0 (baseline + rollback anchor
++ RED test) → P1 docs-first specs (STOP again for schema approval) → P2 backend
+checkpoint/guard → P3 plugin profile migration → P4/P5 integration + testbed.
+
+**Do NOT** start coding until the user approves the plan.

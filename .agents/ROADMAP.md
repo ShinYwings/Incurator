@@ -26,11 +26,17 @@ No urgent items currently tracked.
 
 ### 🚀 Priority Order
 
-0. **[Fix] Zotero Import Profiles Not Syncing Across Devices**
-   - `zoteroProfiles` and `recentZoteroItems` are stored in `data.json` (not synced).
-   - Fix: move both to `.curator/zotero_profiles.json` (vault-resident, Syncthing-synced).
-   - Same pattern as `.curator/sessions.json` migration.
-   - Draft: `.agents/drafts/zotero_profile_sync.md`
+0. **[Minor v0.30.0] Cross-Device State Sync (Zotero Profiles + Knowledge DB)** *(PLAN AUTHORED — awaiting approval)*
+   - Two symptoms, one root cause: `.stignore` excludes both `data.json`
+     (`zoteroProfiles`/`recentZoteroItems`) and `.curator/state.sqlite`, so
+     neither profiles nor source/L1 tracking sync. Symptoms: profiles differ per
+     device; Dashboard Sources shows 5 instead of 31.
+   - Part A: move profiles → `.curator/zotero_profiles.json` (sessions.json pattern).
+   - Part B: sync `state.sqlite` — user decision. Paths verified portable (zero
+     absolute paths). Safety: checkpoint-truncate WAL on close + last-write-wins.
+   - Master Plan: `.agents/plans/06_cross_device_state_sync.md`
+   - Briefing: `.agents/plans/cross_device_state_sync_arena/00_problem.md`
+   - Draft (Part A): `.agents/drafts/zotero_profile_sync.md`
 
 1. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,

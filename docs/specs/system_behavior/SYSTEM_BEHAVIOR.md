@@ -991,10 +991,27 @@ debounced/coalesced scheduler collapses Syncthing's chunked delivery into one
 pass and prevents overlapping runs), (c) on a 60-second fallback poll for
 platforms where `fs.watch` is unavailable or misses events, and (d) from a manual
 "Sync Knowledge DB" ribbon action. The plugin never triggers export on
-`Vault.on('modify')` (a markdown-note save is not a DB mutation). CLI users may
-set `auto_sync.enabled` so `wiki update` exports this device's snapshot at the
-end of a mutation. All heavy JSONL work runs in the backend subprocess, never on
-the Obsidian UI thread.
+`Vault.on('modify')` (a markdown-note save is not a DB mutation). Note that
+`incuratorEnabled: false` turns off ALL plugin-side triggers on that device —
+CLI-primary devices are covered by the CLI export hook below. All heavy JSONL
+work runs in the backend subprocess, never on the Obsidian UI thread.
+
+**CLI export hook (default-on since v0.30.0).** `auto_sync.enabled` defaults to
+`true`; every mutating CLI command — `wiki add`, `wiki build`, `wiki sync`, and
+`wiki update` — writes this device's snapshot at the end of the command via the
+best-effort `_maybe_auto_export` hook (an export failure is printed but never
+breaks the host command). Setting `auto_sync.enabled: false` in
+`.curator/settings.yml` disables the hook; the explicit `wiki db autosync`
+command works regardless of the flag. Without Syncthing the export is a
+harmless device-local file. Rationale (v0.30.0 incident): the hook used to be
+opt-in and wired only into `wiki update`, so a CLI-primary device with the
+plugin disabled silently never exported — peers converged on a stale snapshot
+(the "Dashboard shows 5 sources instead of 31" failure). A sync transport whose
+every trigger is opt-in fails silently; the flag is now opt-out.
+
+**Dry-run observability.** `wiki db autosync --dry-run` reports, in addition to
+the would-be import counts, whether an export would run (`would_export`) so a
+stale-snapshot condition is visible without mutating anything.
 
 **Syncthing conflict files.** If a `*.sync-conflict-*` file appears in
 `.curator/sync/` (e.g. a duplicated `device_id`), `wiki db autosync` imports it
