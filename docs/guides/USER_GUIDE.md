@@ -158,6 +158,9 @@ wiki add
 
 With this command, the Curator parses the raw data and immediately records structural L1 state in `state.sqlite`. L1 adds an English `Source Guide` with section/page previews for quick recall, inlines raw `Source Sections` for small/medium documents, and uses on-demand raw-source reads for large documents. It also emits a derived CTX Markdown projection under `.curator/Collections/01_Contexts/` for inspection; parser-generated same-document heading links are rendered as plain text there so generated CTX pages do not create broken wikilinks. That projection is disposable; the DB remains authoritative. Run `wiki build` separately to queue or compile L2 Atomic Facts and L3 Concepts.
 
+PDF text parsing does not invoke pymupdf4llm's implicit host Tesseract OCR;
+image/scanned-page extraction uses the explicitly configured vision model.
+
 > [!TIP]
 > If no file or directory path is specified for `wiki add`, the Curator scans all configured source directories (e.g., `03_Notes`, `04_Resources`) to automatically find and batch-process new or changed files.
 
@@ -979,11 +982,20 @@ Checks the 'entrance of the pipeline' where raw data is turned into knowledge.
 #### 🧠 Knowledge Density (Collections)
 Shows the processing status at each pipeline stage. L1 is created immediately; L2/L3 and the shared L4 Synthesis layer are processed by the MCP background worker, `wiki jobs run`, or `wiki build`. Use `wiki jobs cancel <id>` to cancel a queued job before a worker claims it, and `wiki jobs rerun <id>` to requeue a completed, failed, or cancelled job. Re-running an already queued job is a successful no-op.
 
--   **L1 Contexts**: One source context record per source in the DB.
--   **L2 Atoms**: Atomic facts extracted from each source in the DB.
+-   **L1 Contexts**: Sources with `l1_status=done` in the DB.
+-   **L2 Atoms**: Serving atomic facts extracted from each source in the DB.
 -   **Fallback Atoms**: DB records for low-confidence fallback atoms.
--   **L3 Concepts**: Cross-source clusters formed from L2 atoms, stored as DB relations.
--   **L4 Synthesis**: Shared corpus-wide cross-cutting insights distilled from the community reports (DB `synthesis_nodes`, projected to `04_Synthesis/SYN-*.md`).
+-   **L3 Concepts**: Live cross-source community reports formed from L2 atoms.
+-   **L4 Synthesis**: Current shared corpus-wide cross-cutting insights distilled from the community reports (DB `synthesis_nodes`, projected to `04_Synthesis/SYN-*.md`).
+
+These counts come from authoritative DB serving records. Files under
+`.curator/Collections/` are disposable projections and are never counted as
+pipeline truth. A source is L3-ready only when a live report is grounded in its
+spans; a successful pass with no eligible report is shown as `skipped`.
+`wiki sync --reemit` removes orphan CTX projections and replaces L2-L4
+projections from the current DB without modifying source files. It also
+reconciles existing terminal L3/L4 badges against live reports and synthesis
+nodes, repairing stale `done` values left by older versions.
 
 > [!TIP]
 > **Pipeline Status Diagnosis**: If L4 is 0, check the source L4 column. `pending`

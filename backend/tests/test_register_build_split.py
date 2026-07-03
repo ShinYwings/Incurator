@@ -70,7 +70,9 @@ class RegisterBuildSplitTests(unittest.TestCase):
         """curator_register_source must succeed even when no LLM can be built."""
         tools = self._tools()
         register = tools["curator_register_source"].fn
-        with patch("curator.llm.build_client", side_effect=RuntimeError("no LLM")):
+        with patch("curator.llm.build_client", side_effect=RuntimeError("no LLM")), patch(
+            "curator.db_sync.maybe_auto_export"
+        ) as auto_export:
             result = register(source_id=self.source_id, build=False, workspace_path=str(self.root))
         self.assertTrue(result["ok"], result)
         self.assertTrue(str(result["context_id"]).startswith("CTX-"))
@@ -79,6 +81,8 @@ class RegisterBuildSplitTests(unittest.TestCase):
         # build=False ⇒ nothing queued
         self.assertFalse(result["l2_l3_queued"])
         self.assertEqual(self._queued_job_count(), 0)
+        self.assertEqual(auto_export.call_count, 1)
+        self.assertEqual(auto_export.call_args.args[0].root, self.paths.root)
 
     def test_register_with_build_enqueues_l2_l3(self) -> None:
         tools = self._tools()
@@ -97,10 +101,13 @@ class RegisterBuildSplitTests(unittest.TestCase):
         register = tools["curator_register_source"].fn
         build = tools["curator_build_source"].fn
         register(source_id=self.source_id, build=False, workspace_path=str(self.root))
-        result = build(source_id=self.source_id, wait=False, workspace_path=str(self.root))
+        with patch("curator.db_sync.maybe_auto_export") as auto_export:
+            result = build(source_id=self.source_id, wait=False, workspace_path=str(self.root))
         self.assertTrue(result["ok"], result)
         self.assertTrue(result["queued"])
         self.assertEqual(self._queued_job_count(), 1)
+        self.assertEqual(auto_export.call_count, 1)
+        self.assertEqual(auto_export.call_args.args[0].root, self.paths.root)
 
     def test_build_requires_l1_first(self) -> None:
         tools = self._tools()

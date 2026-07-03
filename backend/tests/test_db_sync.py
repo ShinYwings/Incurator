@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
 
 from curator import db
 from curator.db_sync import (
-    SYNC_TABLES,
     ExportStats,
     ImportStats,
     export_knowledge,
@@ -122,6 +120,22 @@ class TestExport:
         assert "sources" in table_names
         assert "atoms" in table_names
 
+    def test_failed_export_does_not_truncate_existing_snapshot(
+        self, populated_db: Path, tmp_path: Path, monkeypatch
+    ) -> None:
+        out = tmp_path / "export.jsonl"
+        out.write_text("previous-complete-snapshot\n", encoding="utf-8")
+
+        def fail_connect(_path):
+            raise RuntimeError("simulated export failure")
+
+        monkeypatch.setattr("curator.db_sync.db.connect", fail_connect)
+        with pytest.raises(RuntimeError, match="simulated"):
+            export_knowledge(populated_db, out)
+
+        assert out.read_text(encoding="utf-8") == "previous-complete-snapshot\n"
+        assert not list(tmp_path.glob(".export.jsonl.*.tmp"))
+
 
 class TestImport:
     def test_import_round_trip(self, populated_db: Path, tmp_path: Path) -> None:
@@ -172,6 +186,44 @@ class TestImport:
         with db.connect(target) as conn:
             name = conn.execute("SELECT name FROM atoms WHERE id=?", ("ATM-00000001",)).fetchone()[0]
         assert name == "Test Atom"  # newer version from export won
+
+    def test_source_status_only_revision_wins_and_is_idempotent(
+        self, tmp_path: Path
+    ) -> None:
+        source = tmp_path / "source.sqlite"
+        target = tmp_path / "target.sqlite"
+        db.init_db(source)
+        db.init_db(target)
+        for path in (source, target):
+            with db.connect(path) as conn:
+                conn.execute(
+                    "INSERT INTO sources "
+                    "(id, relpath, content_hash, file_type, bytes, added_at, updated_at) "
+                    "VALUES (1, '03_Notes/n.md', 'h', 'md', 1, ?, ?)",
+                    ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00.000000Z"),
+                )
+        with db.connect(source) as conn:
+            conn.execute(
+                "UPDATE sources SET l3_status='done', l4_status='done', "
+                "updated_at='2026-01-02T00:00:00.000000Z' WHERE id=1"
+            )
+
+        out = tmp_path / "source.jsonl"
+        export_knowledge(source, out)
+        first = import_knowledge(target, out)
+        second = import_knowledge(target, out)
+
+        with db.connect(target) as conn:
+            row = conn.execute(
+                "SELECT l3_status, l4_status, updated_at FROM sources WHERE id=1"
+            ).fetchone()
+        assert tuple(row) == (
+            "done",
+            "done",
+            "2026-01-02T00:00:00.000000Z",
+        )
+        assert first.updated == 1
+        assert second.updated == 0
 
     def test_import_tombstone_deletes_local(self, tmp_path: Path) -> None:
         """Tombstone in export file deletes matching local record."""

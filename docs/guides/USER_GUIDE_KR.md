@@ -126,6 +126,9 @@ wiki add
 
 이 명령을 통해 Curator는 원본 데이터를 파싱하고 L1 권위 상태를 `state.sqlite`에 즉시 기록합니다. 작은/중간 문서는 CTX projection의 `Source Sections`에 원문을 inline으로 포함하고, 책이나 긴 PDF 같은 대형 문서는 원본 파일에서 필요한 구간만 on-demand로 읽습니다. 점검용 CTX 마크다운은 `.curator/Collections/01_Contexts/`에 emit되며, parser가 만든 같은 문서 heading 링크는 broken wikilink가 되지 않도록 평문으로 렌더링합니다. 이 projection은 폐기 가능하며 DB가 권위 상태입니다. L2 원자적 사실과 L3 개념을 queue에 넣거나 컴파일하려면 `wiki build`를 별도로 실행합니다.
 
+PDF text parsing은 pymupdf4llm의 host Tesseract OCR을 암묵적으로 실행하지
+않으며, image/scanned page 추출은 명시적으로 설정한 vision model을 사용합니다.
+
 > [!NOTE]
 > **수동 파이프라인 실행**: `wiki query`와 `search_curator`는 검색 전용 작업으로, pending 소스를 자동으로 등록하거나 처리하지 않습니다. 새 파일을 등록하려면 `wiki add`를, L2~L4 레이어를 구축하려면 `wiki build`를, 쿼리 전 DAG 무결성을 확인하려면 `wiki sync`를 실행합니다.
 
@@ -927,11 +930,20 @@ generated state, device metadata, chat context 때문에 backend와 plugin 상�
 #### 🧠 지식 밀도 (Collections)
 파이프라인의 각 단계별 처리 현황을 나타냅니다. L1은 즉시 생성되고, L2·L3와 공유 L4 Synthesis 레이어는 MCP background worker, `wiki jobs run`, 또는 `wiki build`로 처리됩니다. worker가 claim하기 전의 queued job은 `wiki jobs cancel <id>`로 취소하고, 완료/실패/취소된 job은 `wiki jobs rerun <id>`로 다시 queue에 넣을 수 있습니다. 이미 queued 상태인 job에 `wiki jobs rerun <id>`를 실행하면 중복을 만들지 않고 성공 no-op으로 처리됩니다.
 
--   **L1 Contexts**: DB에 저장된 소스 요약 레코드 개수입니다.
--   **L2 Atoms**: DB에 저장된 원자적 사실 레코드 개수입니다.
+-   **L1 Contexts**: DB에서 `l1_status=done`인 소스 개수입니다.
+-   **L2 Atoms**: DB에서 실제 serving되는 원자적 사실 레코드 개수입니다.
 -   **Fallback Atoms**: DB에 임시로 저장된 낮은 신뢰도의 Atom 레코드 개수입니다.
--   **L3 Concepts**: DB에 저장된 교차 소스 클러스터링(개념) 레코드 개수입니다.
--   **L4 Synthesis**: 커뮤니티 리포트에서 증류된 공유 코퍼스 전역 교차 인사이트입니다(DB `synthesis_nodes`, `04_Synthesis/SYN-*.md`로 투영).
+-   **L3 Concepts**: L2 Atom에서 형성된 live 교차 소스 community report 개수입니다.
+-   **L4 Synthesis**: 현재 community report에서 증류된 공유 코퍼스 전역 교차 인사이트입니다(DB `synthesis_nodes`, `04_Synthesis/SYN-*.md`로 투영).
+
+이 수치는 authoritative DB serving record에서 계산합니다.
+`.curator/Collections/` 파일은 폐기 가능한 projection이므로 pipeline truth로
+집계하지 않습니다. Source span에 근거한 live report가 있어야 L3-ready이며,
+오류 없이 끝났더라도 eligible report가 없으면 `skipped`로 표시합니다.
+`wiki sync --reemit`은 orphan CTX projection을 제거하고 현재 DB에서 L2-L4
+projection을 다시 만들며 source file은 수정하지 않습니다. 또한 기존 terminal
+L3/L4 badge를 live report와 synthesis node에 맞춰 조정하여 구버전의 stale
+`done` 값을 복구합니다.
 
 > [!TIP]
 > **파이프라인 현황 진단**: L4가 0이면 source의 L4 열을 확인하세요.

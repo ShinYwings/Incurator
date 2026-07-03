@@ -59,3 +59,31 @@ def test_register_source_propagates_unexpected_index_refresh_error(source_vault:
     ):
         with pytest.raises(RuntimeError, match="programmer error"):
             plugin_api.register_source(paths, source_id=source_id, build=False, force=True)
+
+
+def test_missing_projection_failure_preserves_authoritative_l1(
+    source_vault: tuple[cfg.WikiPaths, int],
+) -> None:
+    paths, source_id = source_vault
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE sources SET context_id='CTX-missing', l1_status='done', "
+            "l2_status='done' WHERE id=?",
+            (source_id,),
+        )
+    with patch(
+        "curator.ingest_raw.generate_l1_structural_context",
+        return_value=None,
+    ):
+        result = plugin_api.register_source(
+            paths, source_id=source_id, build=False
+        )
+
+    assert result["ok"] is True
+    assert "preserved" in result["warnings"][0]
+    with db.connect(paths.state_db) as conn:
+        row = conn.execute(
+            "SELECT l1_status, l2_status, layer_error FROM sources WHERE id=?",
+            (source_id,),
+        ).fetchone()
+    assert tuple(row) == ("done", "done", None)

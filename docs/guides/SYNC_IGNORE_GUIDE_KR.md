@@ -59,6 +59,8 @@ testbed/
 > `.curator/sync/`는 **동기화 유지**하고, `.curator/state.sqlite`와
 > `.curator/sync_state.json`만 기기 로컬로 두세요. USER_GUIDE "기기 간 지식 동기화"와
 > SYSTEM_BEHAVIOR §13.1 참고.
+> Snapshot과 local sync-state는 temp file 작성 후 atomic rename하므로 peer가
+> 일부만 기록된 JSONL 파일을 읽지 않습니다.
 
 > **참고**: `sessions.json`과 `data.json` 분리 구조
 > 채팅 히스토리(`.curator/sessions.json`)는 안전한 보존과 동기화를 위해 플러그인 폴더 외부(`.curator/`)에 저장되며 세션 단위 병합과 삭제 tombstone을 지원합니다.

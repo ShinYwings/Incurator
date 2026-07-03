@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.30.0)
+# Incurator Plugin Schema & API Contract (v0.31.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -749,7 +749,8 @@ type IncuratorSourceState =
 Rules:
 
 - `"l1_ready"` corresponds to `l1_status='done'` while L2/L3 are incomplete.
-- `"l2_ready"` corresponds to `l2_status='done'` while L3 is incomplete.
+- `"l2_ready"` corresponds to `l2_status='done'` with at least one authoritative
+  verified serving unit while L3 is incomplete.
 - `"l3_ready"` corresponds to `l3_status='done'` while L4 is incomplete or
   `l4_status='skipped'` because no eligible shared synthesis exists.
 - `"l4_ready"` corresponds to `l4_status='done'`.
@@ -758,6 +759,11 @@ Rules:
 - `"untracked"` must trigger the "Add to Incurator" action prompt, not silent import.
 - Dashboard layer badges must render `l4_status='skipped'` explicitly as
   `Skipped`, not as an empty/unknown status.
+- Dashboard Knowledge Graph counts are DB-serving counts: L1 done sources,
+  serving L2 units, live L3 community reports, and current L4 synthesis nodes.
+  The plugin must not count disposable Collection Markdown files.
+- `l3_ready` requires a live report grounded in that source. An exception-free
+  global pass with no eligible report is `skipped`, not `l3_ready`.
 
 ### 4.1.1 "Added" badge for built sources (v0.5.6)
 

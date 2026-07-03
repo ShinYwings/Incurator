@@ -145,7 +145,12 @@ def parse(path: Path) -> ParsedDocument:
     try:
         # Hybrid Pipeline placeholder: if config enables VLM for this file, we would route here.
         # For now, default to fast pymupdf4llm which preserves tables and some math layout.
-        page_chunks = pymupdf4llm.to_markdown(str(path), page_chunks=True)
+        # OCR is handled by Incurator's explicitly configured vision model.
+        # Disable pymupdf4llm's implicit Tesseract fallback so a text-layer PDF
+        # does not depend on host tessdata.
+        page_chunks = pymupdf4llm.to_markdown(
+            str(path), page_chunks=True, use_ocr=False
+        )
         doc = fitz.open(str(path))
     except Exception as e:
         raise ParserError(f"Cannot parse PDF {path.name}: {e}") from e
@@ -275,7 +280,7 @@ def parse_page_window(path: Path, page_nums: set[int]) -> dict[int, str]:
         # pymupdf4llm uses 0-based page indices; valid_nums is 1-based.
         zero_based = [n - 1 for n in valid_nums]
         page_chunks = pymupdf4llm.to_markdown(
-            str(path), pages=zero_based, page_chunks=True
+            str(path), pages=zero_based, page_chunks=True, use_ocr=False
         )
         for chunk in page_chunks:
             pn = _chunk_page_number(chunk)

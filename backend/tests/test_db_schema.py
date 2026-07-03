@@ -32,8 +32,34 @@ def db_path() -> Path:
         yield path
 
 
-def test_schema_version_is_10() -> None:
-    assert db.SCHEMA_VERSION == 10
+def test_schema_version_is_11() -> None:
+    assert db.SCHEMA_VERSION == 11
+
+
+def test_source_updated_at_advances_on_status_only_mutation(db_path: Path) -> None:
+    with db.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE sources SET updated_at = '2000-01-01T00:00:00.000Z' WHERE id = 1"
+        )
+        before = conn.execute(
+            "SELECT updated_at FROM sources WHERE id = 1"
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE sources SET l3_status = 'done' WHERE id = 1"
+        )
+        after = conn.execute(
+            "SELECT updated_at FROM sources WHERE id = 1"
+        ).fetchone()[0]
+    assert before
+    assert after > before
+
+
+def test_connect_stamps_completed_schema_migration(db_path: Path) -> None:
+    with db.connect(db_path) as conn:
+        conn.execute("UPDATE schema_version SET version = 10")
+    with db.connect(db_path) as conn:
+        version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
+    assert version == 11
 
 
 def test_spec_declares_matching_schema_version() -> None:

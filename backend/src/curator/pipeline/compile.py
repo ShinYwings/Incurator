@@ -366,7 +366,10 @@ def compile_source_l2(
 
     materializer.materialize_search_documents(paths.state_db)
     trace_ids = [t for t in (ku_result.trace_id, graph.trace_id) if t]
-    db.set_source_layer_status(paths.state_db, source_id, "l2", "done")
+    l2_status = (
+        "done" if db.list_serving_units(paths.state_db, source_id) else "skipped"
+    )
+    db.set_source_layer_status(paths.state_db, source_id, "l2", l2_status)
     return CompileResult(
         source_id=source_id,
         atom_ids=atom_ids,
@@ -621,13 +624,35 @@ def compile_global_l3(
         ).fetchall()
         l2_done_ids = [r["id"] for r in rows]
     
-    status = "error" if errors else "done"
     error_msg = "; ".join(errors) if errors else None
     l4_status = "skipped" if errors else ("done" if synthesis_ids else "skipped")
     l4_error = "L3 prerequisite failed; synthesis not attempted" if errors else None
 
+    report_span_ids = {
+        span_id
+        for report in db.list_community_reports(paths.state_db)
+        for span_id in (report.get("source_span_ids") or [])
+    }
+    report_source_ids: set[int] = set()
+    if report_span_ids:
+        with db.connect(paths.state_db) as conn:
+            placeholders = ",".join("?" * len(report_span_ids))
+            report_source_ids = {
+                int(row["source_id"])
+                for row in conn.execute(
+                    f"SELECT DISTINCT source_id FROM source_spans "
+                    f"WHERE id IN ({placeholders})",
+                    tuple(sorted(report_span_ids)),
+                ).fetchall()
+            }
+
     for sid in l2_done_ids:
-        db.set_source_layer_status(paths.state_db, sid, "l3", status, error=error_msg)
+        l3_status = "error" if errors else (
+            "done" if sid in report_source_ids else "skipped"
+        )
+        db.set_source_layer_status(
+            paths.state_db, sid, "l3", l3_status, error=error_msg
+        )
         db.set_source_layer_status(paths.state_db, sid, "l4", l4_status, error=l4_error)
         
     if errors:
@@ -649,6 +674,92 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
 
     Returns counts of emitted atom/concept pages.
     """
+    live_reports = db.list_community_reports(paths.state_db)
+    report_span_ids = {
+        span_id
+        for report in live_reports
+        for span_id in (report.get("source_span_ids") or [])
+    }
+    report_source_ids: set[int] = set()
+    with db.connect(paths.state_db) as conn:
+        serving_source_ids = {
+            int(row["source_id"])
+            for row in conn.execute(
+                """
+                SELECT DISTINCT ku.source_id
+                FROM knowledge_units ku
+                JOIN compiler_generations g ON g.id = ku.generation_id
+                WHERE ku.retired_at IS NULL
+                  AND ku.support_status = 'verified'
+                  AND g.status = 'authoritative'
+                """
+            ).fetchall()
+        }
+        if report_span_ids:
+            placeholders = ",".join("?" * len(report_span_ids))
+            report_source_ids = {
+                int(row["source_id"])
+                for row in conn.execute(
+                    f"SELECT DISTINCT source_id FROM source_spans "
+                    f"WHERE id IN ({placeholders})",
+                    tuple(sorted(report_span_ids)),
+                ).fetchall()
+            }
+        has_synthesis = (
+            conn.execute("SELECT 1 FROM synthesis_nodes LIMIT 1").fetchone()
+            is not None
+        )
+        completed_rows = conn.execute(
+            "SELECT id, l2_status, l3_status, l4_status FROM sources "
+            "WHERE l2_status IN ('done', 'skipped')"
+        ).fetchall()
+    for row in completed_rows:
+        source_id = int(row["id"])
+        desired_l2 = "done" if source_id in serving_source_ids else "skipped"
+        if row["l2_status"] != desired_l2:
+            db.set_source_layer_status(
+                paths.state_db, source_id, "l2", desired_l2
+            )
+        if desired_l2 == "skipped" and row["l3_status"] != "error":
+            desired_l3 = "skipped"
+        elif row["l3_status"] in {"done", "skipped"}:
+            desired_l3 = (
+                "done"
+                if desired_l2 == "done" and source_id in report_source_ids
+                else "skipped"
+            )
+        else:
+            desired_l3 = str(row["l3_status"])
+        if row["l3_status"] != desired_l3:
+            db.set_source_layer_status(
+                paths.state_db, source_id, "l3", desired_l3
+            )
+        if desired_l2 == "skipped" and row["l4_status"] != "error":
+            desired_l4 = "skipped"
+        elif row["l4_status"] in {"done", "skipped"}:
+            desired_l4 = (
+                "done" if desired_l2 == "done" and has_synthesis else "skipped"
+            )
+        else:
+            desired_l4 = str(row["l4_status"])
+        if row["l4_status"] != desired_l4:
+            db.set_source_layer_status(
+                paths.state_db, source_id, "l4", desired_l4
+            )
+
+    paths.contexts.mkdir(parents=True, exist_ok=True)
+    with db.connect(paths.state_db) as conn:
+        current_context_ids = {
+            str(row["context_id"])
+            for row in conn.execute(
+                "SELECT context_id FROM sources "
+                "WHERE context_id IS NOT NULL AND context_id != ''"
+            ).fetchall()
+        }
+    for stale in paths.contexts.glob(f"{consts.PREFIX_L1}-*.md"):
+        if stale.stem not in current_context_ids:
+            stale.unlink()
+
     paths.atoms.mkdir(parents=True, exist_ok=True)
     paths.concepts.mkdir(parents=True, exist_ok=True)
     for stale in paths.atoms.glob(f"{consts.PREFIX_L2}-*.md"):
@@ -677,4 +788,9 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
     n_synthesis = synthesis.reemit_synthesis(paths)
     materializer.materialize_search_documents(paths.state_db)
 
-    return {"atoms": n_atoms, "concepts": n_concepts, "synthesis": n_synthesis}
+    return {
+        "contexts": len(list(paths.contexts.glob(f"{consts.PREFIX_L1}-*.md"))),
+        "atoms": n_atoms,
+        "concepts": n_concepts,
+        "synthesis": n_synthesis,
+    }

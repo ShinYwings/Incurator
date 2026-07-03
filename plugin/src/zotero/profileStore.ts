@@ -10,11 +10,30 @@ import type { ZoteroImportProfile } from "../types";
 export const ZOTERO_PROFILES_PATH = ".curator/zotero_profiles.json";
 
 /** PLUGIN_SCHEMA: recentItems is an LRU of Zotero item keys, newest first. */
-const RECENT_ITEMS_MAX = 50;
+export const RECENT_ITEMS_MAX = 50;
 
 export interface ZoteroProfilesFile {
   profiles: ZoteroImportProfile[];
   recentItems: string[];
+}
+
+/** Merge a freshly read synced store with this process's pending edits.
+ * Local entries win on a same-name edit; peer-only profiles and recent keys
+ * survive an unrelated save from a stale in-memory mirror. */
+export function mergeZoteroProfilesFiles(
+  disk: ZoteroProfilesFile,
+  local: ZoteroProfilesFile
+): ZoteroProfilesFile {
+  const profiles = [...local.profiles];
+  const localNames = new Set(local.profiles.map((profile) => profile.name));
+  for (const profile of disk.profiles) {
+    if (!localNames.has(profile.name)) profiles.push(profile);
+  }
+  const recentItems = [
+    ...local.recentItems,
+    ...disk.recentItems.filter((key) => !local.recentItems.includes(key)),
+  ].slice(0, RECENT_ITEMS_MAX);
+  return normalizeZoteroProfilesFile({ profiles, recentItems });
 }
 
 /** Required string fields of ZoteroImportProfile. Damaged or pre-migration

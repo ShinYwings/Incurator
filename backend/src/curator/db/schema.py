@@ -18,7 +18,7 @@ from typing import Any, Iterator
 
 from .. import constants as consts
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # --- Plan C (v0.9.0, SCHEMA §21.1/§21.2) frozen resolution enums -------------
 # Entity-resolution lifecycle (entity_aliases.resolution_status, §21.1).
@@ -96,7 +96,8 @@ CREATE TABLE IF NOT EXISTS sources (
     external_ref    TEXT,                    -- portable @root_key/relative locator
     is_reference    INTEGER NOT NULL DEFAULT 0, -- 1=external reference, 0=vault-local copy
     logical_source_id TEXT,                  -- stable source identity across path/hash drift
-    error_reason    TEXT                     -- empty_file|parse_error|llm_error — set when status='error'
+    error_reason    TEXT,                    -- empty_file|parse_error|llm_error — set when status='error'
+    updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_sources_hash   ON sources(content_hash);
@@ -901,6 +902,35 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
             conn.execute("PRAGMA foreign_keys = ON")
 
     _migrate_v10_portable_sources(conn)
+    _add_column_if_missing(conn, "sources", "updated_at", "updated_at TEXT")
+    needs_source_revision_backfill = conn.execute(
+        "SELECT 1 FROM sources WHERE updated_at IS NULL OR updated_at = '' LIMIT 1"
+    ).fetchone()
+    if needs_source_revision_backfill is not None:
+        conn.execute(
+            """
+            UPDATE sources
+            SET updated_at = CASE
+                WHEN length(COALESCE(last_ingested, added_at, '')) = 20
+                THEN substr(COALESCE(last_ingested, added_at), 1, 19) || '.000Z'
+                ELSE COALESCE(last_ingested, added_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            END
+            WHERE updated_at IS NULL OR updated_at = ''
+            """
+        )
+    conn.executescript(
+        """
+        CREATE TRIGGER IF NOT EXISTS sources_touch_updated_at
+        AFTER UPDATE ON sources
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+            UPDATE sources
+            SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE id = NEW.id;
+        END;
+        """
+    )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_sources_logical_source_id "
         "ON sources(logical_source_id)"
@@ -932,6 +962,15 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
 
     _migrate_v8_compiler_integrity(conn, tables)
     _migrate_v9_graph_quality(conn, tables)
+    if "schema_version" in tables:
+        version_row = conn.execute(
+            "SELECT version FROM schema_version LIMIT 1"
+        ).fetchone()
+        if version_row is not None and int(version_row[0]) != SCHEMA_VERSION:
+            conn.execute(
+                "UPDATE schema_version SET version = ?",
+                (SCHEMA_VERSION,),
+            )
 
 
 def _migrate_v10_portable_sources(conn: sqlite3.Connection) -> None:
@@ -988,21 +1027,27 @@ def _migrate_v10_portable_sources(conn: sqlite3.Connection) -> None:
             external_ref TEXT,
             is_reference INTEGER NOT NULL DEFAULT 0,
             logical_source_id TEXT,
-            error_reason TEXT
+            error_reason TEXT,
+            updated_at TEXT
         );
         INSERT INTO sources_v10 (
             id, relpath, content_hash, file_type, bytes, added_at,
             last_ingested, status, context_id,
             l1_status, l2_status, l3_status, l4_status,
             layer_error, domain, tags, import_origin_ref, import_policy,
-            external_ref, is_reference, logical_source_id, error_reason
+            external_ref, is_reference, logical_source_id, error_reason, updated_at
         )
         SELECT
             id, relpath, content_hash, file_type, bytes, added_at,
             last_ingested, status, context_id,
             l1_status, l2_status, l3_status, l4_status,
             layer_error, domain, tags, NULLIF(import_origin, ''), import_policy,
-            NULLIF(external_path, ''), is_reference, logical_source_id, error_reason
+            NULLIF(external_path, ''), is_reference, logical_source_id, error_reason,
+            CASE
+                WHEN length(COALESCE(last_ingested, added_at, '')) = 20
+                THEN substr(COALESCE(last_ingested, added_at), 1, 19) || '.000Z'
+                ELSE COALESCE(last_ingested, added_at)
+            END
         FROM sources;
         DROP TABLE sources;
         ALTER TABLE sources_v10 RENAME TO sources;

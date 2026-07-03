@@ -97,6 +97,7 @@ class TestParsePageWindowBounded:
         assert 0 in passed_pages, "page 1 → 0-based index 0"
         assert 4 in passed_pages, "page 5 → 0-based index 4"
         assert len(passed_pages) == 2, "only requested pages, nothing extra"
+        assert call_kwargs.kwargs.get("use_ocr") is False
 
     def test_returns_empty_on_import_error(self) -> None:
         """Returns {} gracefully when pymupdf4llm is not installed."""

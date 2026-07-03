@@ -827,6 +827,12 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
 - **병합 안전성**: 행 단위 Last-Write-Wins + tombstone — 두 기기의 오프라인 편집이 모두 살아남고 삭제도 전파됩니다. 파일 통째 덮어쓰기 없음.
 - **피드백**: 실행 중 상태 표시줄 `⟳ Sync`, 그리고 실제로 변경이 적용됐을 때만 토스트 알림(동기화 변경 알림).
 
+Source layer 상태는 source row 전용 `updated_at` revision을 사용하므로 L1-L4
+상태만 바뀐 경우도 LWW 동기화에 포함됩니다. Dashboard Knowledge Graph 수치는
+stale Collection projection 파일이 아니라 serving DB record에서 계산합니다.
+Zotero profile 저장은 직렬화되며 매 write 직전에 최신 파일을 다시 읽고
+병합하므로 stale 기기의 무관한 설정 저장이 peer-only profile을 지우지 않습니다.
+
 | 설정 | 기본값 | 효과 |
 | --- | --- | --- |
 | 지식 DB 자동 동기화 | 켜짐 | 모든 자동 동기화 동작의 마스터 스위치 |

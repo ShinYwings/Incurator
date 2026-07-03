@@ -299,12 +299,33 @@ def build_status_snapshot(paths: cfg.WikiPaths, config: dict[str, Any] | None = 
         "primary": llm_identity.get_llm_account_info(primary_prov) if primary_prov else None,
         "fallback": llm_identity.get_llm_account_info(fb_prov) if fb_prov else None,
     }
-    layer_counts = {
-        "contexts": _count_md(paths.contexts),
-        "atoms": _count_md(paths.atoms),
-        "concepts": _count_md(paths.concepts),
-        "synthesis": _count_md(paths.synthesis),
-    }
+    if paths.state_db.exists():
+        with db.connect(paths.state_db) as conn:
+            layer_row = conn.execute(
+                """
+                SELECT
+                  (SELECT COUNT(*) FROM sources WHERE l1_status = 'done') AS contexts,
+                  (SELECT COUNT(*) FROM knowledge_units ku
+                     JOIN compiler_generations g ON g.id = ku.generation_id
+                   WHERE ku.retired_at IS NULL
+                     AND ku.support_status = 'verified'
+                     AND g.status = 'authoritative') AS atoms,
+                  (SELECT COUNT(*) FROM community_reports
+                   WHERE retired_at IS NULL) AS concepts,
+                  (SELECT COUNT(*) FROM synthesis_nodes) AS synthesis
+                """
+            ).fetchone()
+        layer_counts = {
+            key: int(layer_row[key] or 0)
+            for key in ("contexts", "atoms", "concepts", "synthesis")
+        }
+    else:
+        layer_counts = {
+            "contexts": 0,
+            "atoms": 0,
+            "concepts": 0,
+            "synthesis": 0,
+        }
     search_version = search.get_version()
     search_config = (config or {}).get("search", {})
     embed_spec = str(search_config.get("embedding") or "")

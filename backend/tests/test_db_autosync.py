@@ -177,6 +177,7 @@ class TestReferenceModePreservation:
                 "id": sid, "relpath": "04_Resources/p.pdf", "content_hash": "h2",
                 "file_type": "pdf", "bytes": 10, "added_at": "2026-06-01T00:00:00Z",
                 "last_ingested": "2026-06-09T00:00:00Z", "status": "curated",
+                "updated_at": "2026-08-09T00:00:00.000Z",
                 "external_ref": "@papers/moved/p.pdf", "is_reference": 1,
                 "domain": "peer-domain",
             }}) + "\n",

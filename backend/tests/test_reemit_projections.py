@@ -20,6 +20,16 @@ def vault():
         with db.connect(paths.state_db) as c:
             c.execute("INSERT INTO sources (relpath,content_hash,file_type,bytes,added_at) "
                       "VALUES ('04_Resources/r.md','h','md',1,datetime('now'))")
+            c.execute(
+                "UPDATE sources SET context_id='CTX-keep0001', l1_status='done', "
+                "l2_status='done', l3_status='done', l4_status='done' WHERE id=1"
+            )
+            c.execute(
+                "INSERT INTO sources (relpath,content_hash,file_type,bytes,added_at,"
+                "l2_status,l3_status,l4_status) VALUES "
+                "('04_Resources/orphan.md','h2','md',1,datetime('now'),"
+                "'skipped','pending','pending')"
+            )
         span = db.upsert_source_span(paths.state_db, source_id=1, relpath="04_Resources/r.md",
                                      span_type="paragraph", content_hash="c1",
                                      text_preview="Residual connections ease optimization.")
@@ -40,6 +50,9 @@ def vault():
         # stale projection files that must be replaced
         paths.atoms.mkdir(parents=True, exist_ok=True)
         paths.concepts.mkdir(parents=True, exist_ok=True)
+        paths.contexts.mkdir(parents=True, exist_ok=True)
+        (paths.contexts / "CTX-keep0001.md").write_text("current", encoding="utf-8")
+        (paths.contexts / "CTX-stale999.md").write_text("stale", encoding="utf-8")
         (paths.atoms / "ATM-stale999.md").write_text("stale", encoding="utf-8")
         (paths.concepts / "CON-stale999.md").write_text("stale", encoding="utf-8")
         yield paths
@@ -48,11 +61,22 @@ def vault():
 def test_reemit_replaces_stale_and_reflects_db(vault) -> None:
     paths = vault
     counts = compile_mod.reemit_projections(paths)
-    assert counts == {"atoms": 1, "concepts": 1, "synthesis": 0}
+    assert counts == {"contexts": 1, "atoms": 1, "concepts": 1, "synthesis": 0}
 
     # Stale files removed.
     assert not (paths.atoms / "ATM-stale999.md").exists()
     assert not (paths.concepts / "CON-stale999.md").exists()
+    assert not (paths.contexts / "CTX-stale999.md").exists()
+    assert (paths.contexts / "CTX-keep0001.md").exists()
+    with db.connect(paths.state_db) as conn:
+        supported = conn.execute(
+            "SELECT l2_status, l3_status, l4_status FROM sources WHERE id=1"
+        ).fetchone()
+        unsupported = conn.execute(
+            "SELECT l2_status, l3_status, l4_status FROM sources WHERE id=2"
+        ).fetchone()
+    assert tuple(supported) == ("done", "done", "skipped")
+    assert tuple(unsupported) == ("skipped", "skipped", "skipped")
 
     # ATM re-emitted at the unit's stored atom_node_id, content from DB.
     atom = paths.atoms / "ATM-keep0001.md"

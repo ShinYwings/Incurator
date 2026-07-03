@@ -3198,13 +3198,13 @@ def add(
     with db.connect(paths.state_db) as conn:
         if force:
             candidate_rows = conn.execute(
-                "SELECT id, relpath, content_hash, context_id FROM sources "
+                "SELECT id, relpath, content_hash, context_id, l1_status FROM sources "
                 "WHERE status IN ('pending', 'force_pending', 'curated', 'error') ORDER BY id ASC"
             ).fetchall()
         else:
             # Always include curated sources too so we can detect missing summary files
             candidate_rows = conn.execute(
-                "SELECT id, relpath, content_hash, context_id FROM sources "
+                "SELECT id, relpath, content_hash, context_id, l1_status FROM sources "
                 "WHERE status IN ('pending', 'force_pending', 'curated') ORDER BY id ASC"
             ).fetchall()
 
@@ -3266,10 +3266,19 @@ def add(
             _ok(f"  L1 [{context_id}] ← {row['relpath']}")
             summarized += 1
         else:
-            db.set_source_layer_status(
-                paths.state_db, row["id"], "l1", "error", error="summary_failed"
-            )
-            _warn(f"  Summary failed for {row['relpath']}")
+            if not force and row["l1_status"] == "done" and row["context_id"]:
+                db.set_source_layer_status(
+                    paths.state_db, row["id"], "l1", "done"
+                )
+                _warn(
+                    f"  CTX projection repair failed for {row['relpath']}; "
+                    "authoritative L1 DB state was preserved"
+                )
+            else:
+                db.set_source_layer_status(
+                    paths.state_db, row["id"], "l1", "error", error="summary_failed"
+                )
+                _warn(f"  Summary failed for {row['relpath']}")
 
     if summarized > 0:
         _refresh_search_index(paths, embed=False)
@@ -3454,29 +3463,37 @@ def update(
     console.print()
     console.print("[bold]Updating vault[/bold] — add → build → embed → sync")
 
-    # 1. Discover sources + instant L1 (defer verification to the final sync).
-    add(path=None, recursive=True, force=force, no_sync=True)
-    # 2. L2/L3 synchronously; build always refreshes embeddings idempotently.
-    build(wait=True, force=force, no_sync=True)
-    # 3. Single deductive verification + routing rebuild at the end. Run
-    #    non-interactively so the one-shot pipeline never blocks on a prompt.
-    if not no_sync:
-        sync(
-            node_id=None,
-            dry_run=False,
-            reemit=False,
-            no_fix=False,
-            deep=False,
-            no_deep=False,
-            no_interactive=True,
-            full=False,
-            backward=False,
-        )
+    global _AUTO_EXPORT_DEFERRED
+    _AUTO_EXPORT_DEFERRED = True
+    try:
+        # 1. Discover sources + instant L1 (defer verification to the final sync).
+        add(path=None, recursive=True, force=force, no_sync=True)
+        # 2. L2/L3 synchronously; build always refreshes embeddings idempotently.
+        build(wait=True, force=force, no_sync=True)
+        # 3. Single deductive verification + routing rebuild at the end. Run
+        #    non-interactively so the one-shot pipeline never blocks on a prompt.
+        if not no_sync:
+            sync(
+                node_id=None,
+                dry_run=False,
+                reemit=False,
+                no_fix=False,
+                deep=False,
+                no_deep=False,
+                no_interactive=True,
+                full=False,
+                backward=False,
+            )
+    finally:
+        _AUTO_EXPORT_DEFERRED = False
 
     _maybe_auto_export(paths)
 
     console.print()
     _ok("Vault up to date.")
+
+
+_AUTO_EXPORT_DEFERRED = False
 
 
 def _maybe_auto_export(paths: cfg.WikiPaths) -> None:
@@ -3489,6 +3506,8 @@ def _maybe_auto_export(paths: cfg.WikiPaths) -> None:
     logged but never breaks the host command. The explicit `wiki db autosync`
     path is unaffected by this flag.
     """
+    if _AUTO_EXPORT_DEFERRED:
+        return
     try:
         config = cfg.load_config(paths)
         block = config.get("auto_sync") or {}
@@ -4442,6 +4461,7 @@ def sync(
         _refresh_search_index(paths)
         _ok(f"Re-emitted derived corpus from DB: {counts['atoms']} atoms, "
             f"{counts['concepts']} concepts; search refreshed.")
+        _maybe_auto_export(paths)
         return
 
     if not any([node_id, dry_run, no_fix, deep, no_deep, no_interactive, full, backward]):

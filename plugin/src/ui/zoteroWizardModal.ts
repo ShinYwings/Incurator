@@ -4,6 +4,7 @@ import { PluginSettings, ZoteroImportProfile } from "../types";
 import { sanitizePathSegment, TemplateRenderer } from "../zotero/templateRenderer";
 import { localizeAnnotationImages } from "../zotero/assetLocalization";
 import { stampZoteroProfile } from "../zotero/profileBinding";
+import { RECENT_ITEMS_MAX } from "../zotero/profileStore";
 
 export interface ZoteroBackendApi {
   searchZoteroItems(query: string, limit?: number): Promise<ZoteroSearchResult[]>;
@@ -59,7 +60,7 @@ export function sortProfilesByRecency(
 export function rememberRecentZoteroItem(
   settings: Pick<PluginSettings, "recentZoteroItems">,
   itemKey: string,
-  limit = 50
+  limit = RECENT_ITEMS_MAX
 ): void {
   if (!itemKey) return;
   const existing = Array.isArray(settings.recentZoteroItems)

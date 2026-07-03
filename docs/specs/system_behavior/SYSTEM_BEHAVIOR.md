@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.30.0)
+# Incurator - System Behavior (v0.31.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -204,10 +204,20 @@ Rules:
   searchable and provenance-preserving instead of leaving the source completely
   unusable.
 - `wiki build --wait` runs L2/L3 synchronously before returning.
+- L2 is `done` only when at least one authoritative verified serving unit exists
+  for the source; an exception-free extraction with no serving unit is
+  terminal `skipped`.
 - Without `--wait`, jobs are queued to the persistent `ingest_jobs` table and
   processed by the MCP server's IngestWorker or `wiki jobs run`.
+- Recovering a job left `running` by a crashed worker resets both the job to
+  `queued` and its source `l2_status` to `pending`; status surfaces must not show
+  a permanently running source after recovery.
 - After global L3 completes, sources whose L2 is done must receive a terminal
-  `l4_status`: `done` when shared synthesis nodes exist for the current report
+  `l3_status`: `done` only when a live community report is grounded in that
+  source's spans, or `skipped` when no eligible L3 output exists. Returning
+  without an exception is not sufficient for L3 completion.
+- Sources whose L2 is done must also receive a terminal `l4_status`: `done` when
+  current shared synthesis nodes exist for the current report
   corpus, `skipped` when no eligible community reports/syntheses exist, or
   `error` when report/synthesis generation fails. They must not remain
   indefinitely `pending` after a completed build.
@@ -867,6 +877,8 @@ Status rules:
 - L1 complete does not imply L2/L3 complete.
 - Source health must be derived from per-layer statuses. Any `error` layer must
   be surfaced as unhealthy even if another layer is complete.
+- Dashboard L1-L4 density counts come from authoritative serving DB records, not
+  disposable files under `.curator/Collections/`.
 - User-facing source state names are progressive and layer-explicit:
   `l1_ready`, `l2_ready`, `l3_ready` for Concept readiness, and `l4_ready`
   only when shared L4 Synthesis status is done.
@@ -974,6 +986,11 @@ replace**, so concurrent offline edits on two devices both survive: the row with
 the newer timestamp wins, and a delete wins only when its `deleted_at` is newer
 than the competing edit. Import preserves the source row's timestamp and never
 stamps `now()`.
+
+`sources.updated_at` is the source-row LWW clock. Every local source mutation,
+including layer-status-only changes, advances it. `last_ingested` remains ingest
+metadata. Export-gate timestamp comparison is chronological rather than a raw
+mixed-format string comparison.
 
 **Loop prevention is structural — there is no content-hash guard.** (An earlier
 `sync_meta.json` `last_exported_hash`/`last_imported_hash` design was removed: it
@@ -1873,6 +1890,9 @@ rendered page instead.
     (v0.28.0: the Cmd+Shift+X **chat snip** no longer routes here when the main
     chat model is vision-capable — see Interactive routing below.)
   - Both empty = pre-v0.22.0 behavior (pymupdf4llm ingest, main-model snip vision).
+- **No implicit host OCR.** pymupdf4llm calls set `use_ocr=false`; missing
+  Tesseract language data must not fail a text-layer PDF. OCR/vision work runs
+  only through the explicitly configured slots above.
 - **Interactive routing (v0.28.0).** The split depends on the surface:
   - **Right-click Convert-to-LaTeX** MUST call the backend `plugin pdf transcribe`
     resolver (it wants a clean LaTeX artifact, not a chat answer). The interactive

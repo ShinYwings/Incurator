@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import click
 from typer.testing import CliRunner
 
 from curator.cli import app
@@ -21,9 +22,6 @@ def _init_vault(runner: CliRunner, tmp_path: Path) -> Path:
     result = runner.invoke(app, ["init", str(vault), "--no-interactive"])
     assert result.exit_code == 0, result.output
     return vault
-
-
-import click
 
 def test_update_command_is_registered() -> None:
     runner = CliRunner()
@@ -106,7 +104,9 @@ def test_update_orchestrates_add_build_sync_in_order(tmp_path: Path) -> None:
     manager = MagicMock()
     with patch("curator.cli.add", manager.add), patch(
         "curator.cli.build", manager.build
-    ), patch("curator.cli.sync", manager.sync):
+    ), patch("curator.cli.sync", manager.sync), patch(
+        "curator.cli._maybe_auto_export"
+    ) as auto_export:
         result = runner.invoke(app, ["update"], env={"VAULT_ROOT": str(vault)})
 
     assert result.exit_code == 0, result.output
@@ -117,6 +117,7 @@ def test_update_orchestrates_add_build_sync_in_order(tmp_path: Path) -> None:
     assert manager.add.call_args.kwargs.get("no_sync") is True
     assert manager.build.call_args.kwargs.get("no_sync") is True
     assert manager.build.call_args.kwargs.get("wait") is True
+    auto_export.assert_called_once()
 
 
 def test_update_skips_sync_with_no_sync_flag(tmp_path: Path) -> None:

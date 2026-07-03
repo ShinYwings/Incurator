@@ -938,6 +938,13 @@ no manual export/import.
 - **Feedback**: a status-bar `⟳ Sync` while running, and a toast only when a sync actually
   applied changes (Notify on sync changes).
 
+Source layer statuses use the source row's dedicated `updated_at` revision, so
+L1-L4 status-only changes participate in LWW sync. Dashboard Knowledge Graph
+counts come from serving DB records, never stale Collection projection files.
+Zotero profile saves are serialized and re-read/merged immediately before each
+write, so a stale device cannot erase peer-only profiles during an unrelated
+settings save.
+
 | Setting | Default | Effect |
 | --- | --- | --- |
 | Auto-sync knowledge DB | On | Master switch for all auto-sync behavior |

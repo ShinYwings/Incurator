@@ -277,6 +277,12 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
         return {"ok": False, "job": job, "error": error_str}
     finally:
         try:
+            from . import db_sync
+
+            db_sync.maybe_auto_export(paths)
+        except Exception as e:
+            _log.debug("Auto-sync export after worker mutation failed: %s", e)
+        try:
             client.close()
         except Exception as e:
             # KEEP broad: best-effort client teardown in finally; must not mask

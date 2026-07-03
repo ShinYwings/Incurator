@@ -250,6 +250,20 @@ def register_source(
             asset_dir=asset_dir or None,
         )
         if not context_id:
+            if not force and row.get("l1_status") == "done" and row.get("context_id"):
+                db.set_source_layer_status(paths.state_db, source_id_int, "l1", "done")
+                return {
+                    "ok": True,
+                    "state": source_tools.derive_source_state(row),
+                    "source_id": source_id_int,
+                    "context_id": row.get("context_id"),
+                    "l2_l3_queued": False,
+                    "job_ids": [],
+                    "jobs_pending": [],
+                    "warnings": [
+                        "CTX projection repair failed; authoritative L1 DB state was preserved"
+                    ],
+                }
             return {"ok": False, "source_id": source_id_int, "error": "L1 generation failed"}
 
     warnings: list[str] = []

@@ -120,10 +120,11 @@ def _resolve_reference_source(paths: cfg.WikiPaths, source: Path) -> Path:
             return source
             
         target_path = None
-        if fm.get("zotero_key"):
+        zotero_key = fm.get("zotero_attachment_key") or fm.get("zotero_key")
+        if zotero_key:
             from . import zotero_tools
 
-            resolved = zotero_tools.resolve_pdf(str(fm["zotero_key"]), paths)
+            resolved = zotero_tools.resolve_pdf(str(zotero_key), paths)
             if resolved.get("ok") and resolved.get("path"):
                 target_path = str(resolved["path"])
         

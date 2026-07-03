@@ -32,6 +32,8 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
         self.paths.contexts.mkdir(parents=True, exist_ok=True)
         self.paths.atoms.mkdir(parents=True, exist_ok=True)
         (self.paths.contexts / "CTX-test.md").write_text("# Context\n", encoding="utf-8")
+        (self.paths.contexts / "CTX-stale.md").write_text("# Stale\n", encoding="utf-8")
+        (self.paths.atoms / "ATM-stale.md").write_text("# Stale\n", encoding="utf-8")
         with db.connect(self.paths.state_db) as conn:
             conn.execute(
                 """
@@ -128,6 +130,7 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
 
         runtime_dir = runtime_state.runtime_dir(self.paths)
         self.assertEqual(status["layer_counts"]["contexts"], 1)
+        self.assertEqual(status["layer_counts"]["atoms"], 0)
         self.assertEqual(status["sources"]["total"], 1)
         self.assertEqual(status["jobs"]["queued"], 1)
         self.assertEqual(status["sources"]["l1_done"], 1)

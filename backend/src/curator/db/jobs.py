@@ -137,6 +137,13 @@ def claim_next_job(db_path: Path) -> dict | None:
 def recover_stale_jobs(db_path: Path) -> int:
     """Return interrupted running jobs to the queue after a process restart."""
     with connect(db_path) as conn:
+        source_ids = [
+            int(row["source_id"])
+            for row in conn.execute(
+                f"SELECT DISTINCT source_id FROM ingest_jobs "
+                f"WHERE state = '{consts.STATUS_RUNNING}' AND source_id > 0"
+            ).fetchall()
+        ]
         cur = conn.execute(
             f"""
             UPDATE ingest_jobs
@@ -144,6 +151,14 @@ def recover_stale_jobs(db_path: Path) -> int:
             WHERE state = '{consts.STATUS_RUNNING}'
             """
         )
+        if source_ids:
+            conn.execute(
+                f"UPDATE sources SET l2_status = '{consts.STATUS_PENDING}', "
+                "layer_error = NULL "
+                f"WHERE l2_status = '{consts.STATUS_RUNNING}' "
+                f"AND id IN ({','.join('?' * len(source_ids))})",
+                source_ids,
+            )
         return int(cur.rowcount or 0)
 
 
@@ -297,4 +312,3 @@ def get_jobs_done_today(db_path: Path) -> list[dict]:
             (f"{today_prefix}%",),
         ).fetchall()
         return [dict(r) for r in rows]
-
