@@ -6,6 +6,6 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
-_(empty — 14 reports were triaged and fixed in the v0.25.1 user-report stability batch on 2026-06-25.)_
-
+_(empty — the 2026-07-04 portable-path migration report was triaged into the
+v0.32.0 release queue.)_
 
