@@ -22,11 +22,38 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent items currently tracked.
+The current production vault has a confirmed pipeline-state integrity incident.
 
 ### 🚀 Priority Order
 
-0. **[Fix v0.30.1] Sync Hardening — deferred PR #78 code-review findings**
+0. **[Minor v0.31.0] Pipeline State Integrity + Sync Hardening** *(PLANNING — approval required)*
+   - User report (2026-07-03): the connected `second_brain` vault shows 65 L1
+     contexts although only 31 sources completed L1; sources previously observed
+     at L4 can appear as L1-only; at least one source reports an L1 error.
+   - Measured production state: 32 source rows (`31 l1_done + 1 l1_error`) but
+     65 disposable CTX files. Source #5 (`zotero:PZBCB9LJ`) is internally
+     contradictory (`L1=error, L2=done, L3=done, L4=skipped`) and has no current
+     CTX projection or source spans.
+   - Root causes confirmed in code:
+     1. dashboard `layer_counts` counts disposable Collection Markdown instead
+        of authoritative DB records;
+     2. source-row LWW uses `last_ingested`, which is not changed by most layer
+        status mutations, so completed pipeline state can fail to export/import;
+     3. a failed missing-CTX regeneration overwrites L1 health without
+        reconciling downstream state;
+     4. reference-stub resolution does not directly recognize the emitted
+        `zotero_attachment_key` field;
+     5. global L3 marks every L2-complete source `l3_status=done` whenever no
+        exception occurs, even when there are zero live community reports and
+        concept-grounded answers are unavailable.
+   - Schema v11 is required for a real source-row `updated_at`, making this a
+     0.x Minor release rather than the previously anticipated v0.30.1 patch.
+   - Plan: `.agents/plans/07_pipeline_state_integrity.md`
+   - Arena: `.agents/plans/pipeline_state_integrity_arena/`
+   - Evidence: `.agents/plans/07_roadmap_evidence.md`
+   - Includes the related deferred PR #78 sync-hardening findings below.
+
+   **Absorbed sync-hardening scope — deferred PR #78 code-review findings**
    - Confirmed by the multi-agent /code-review of PR #78 but deliberately not
      hot-patched (behavior/contract scope → plan-first). All still open:
    - **Stale-mirror LWW profile loss**: `saveZoteroProfiles` writes the
@@ -198,8 +225,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.30.0 cross-device state sync shipped (PR #78 merged 2026-07-02). System is IDLE.
-- **Active Milestone**: None (System IDLE).
-- **Next actionable item**: the queued **v0.30.1 Sync Hardening** batch (deferred
-  PR #78 code-review findings, item 0 above) or System Stability Overhaul S2
-  continuation (CM-1/PL-1 god-file decomposition, XC-1 remaining slices).
+- **Roadmap state**: v0.31.0 pipeline-state integrity planning is active.
+- **Active Milestone**: v0.31.0; implementation is blocked on plan approval.
+- **Next actionable item**: approve `.agents/plans/07_pipeline_state_integrity.md`,
+  then create/finalize the evidence ledger and begin docs-first TDD.
