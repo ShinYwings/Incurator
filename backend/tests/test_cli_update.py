@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -42,6 +43,17 @@ def test_jobs_group_is_hidden_but_functional() -> None:
     jobs = runner.invoke(app, ["jobs", "--help"])
     assert jobs.exit_code == 0, jobs.output
     assert "run" in jobs.output
+
+
+def test_paths_migration_group_is_removed() -> None:
+    runner = CliRunner()
+
+    top = runner.invoke(app, ["--help"])
+    assert top.exit_code == 0, top.output
+    assert re.search(r"│\s+paths\s+", click.unstyle(top.output)) is None
+
+    removed = runner.invoke(app, ["paths", "--help"])
+    assert removed.exit_code != 0
 
 
 def test_build_wait_always_embeds_even_with_no_atom_changes(tmp_path: Path) -> None:

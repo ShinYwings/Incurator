@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.31.0)
+# Incurator Plugin Schema & API Contract (v0.32.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -208,6 +208,10 @@ Contract:
 
 Backend responses may carry an absolute path for an immediate open operation.
 The plugin keeps it outside persistable DTOs.
+
+The plugin must not direct users to a backend path-migration command. Backend
+source identity is assumed to use the current Zotero-key or named-root contract;
+unsupported legacy device-local DB recovery is outside the plugin UI.
 
 ## 2. Persisted Settings Schema
 

@@ -64,16 +64,16 @@ def _make_v7_db(path: Path) -> None:
     try:
         conn.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)")
         conn.execute("INSERT INTO schema_version (version) VALUES (7)")
-        # The sources table is unchanged by the v8 migration, but SCHEMA_SQL
-        # creates indexes on status/domain/logical_source_id/external_path, so
-        # the synthetic v7 sources must carry those columns or executescript
-        # fails before the migration even runs.
+        # Plan B does not test source-locator migration. Keep this synthetic v7
+        # fixture on the current locator contract so the test isolates the
+        # additive claim-support/generation migration.
         conn.execute(
             "CREATE TABLE sources (id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "relpath TEXT NOT NULL UNIQUE, content_hash TEXT NOT NULL, "
             "file_type TEXT NOT NULL, bytes INTEGER NOT NULL, added_at TEXT NOT NULL, "
             "status TEXT NOT NULL DEFAULT 'pending', domain TEXT, "
-            "logical_source_id TEXT, external_path TEXT)"
+            "import_origin_ref TEXT, import_policy TEXT, external_ref TEXT, "
+            "is_reference INTEGER NOT NULL DEFAULT 0, logical_source_id TEXT)"
         )
         conn.execute(
             "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "

@@ -22,7 +22,7 @@ class RegisterBuildSplitTests(unittest.TestCase):
         from curator import config as cfg, db, ingest_raw
 
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         from curator import constants as consts
         curator_dir = self.root / consts.INTERNAL_DIR
         curator_dir.mkdir(parents=True, exist_ok=True)

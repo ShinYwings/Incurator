@@ -271,10 +271,10 @@ def _portable_status_config(config: dict[str, Any]) -> dict[str, Any]:
             search_cfg[key] = ""
 
     external_cfg = dict(config.get("external", {}) or {})
-    external_cfg["roots"] = []
+    external_cfg.pop("roots", None)
     external_cfg["path_roots"] = {}
     zotero_cfg = dict(external_cfg.get("zotero", {}) or {})
-    zotero_cfg["roots"] = []
+    zotero_cfg.pop("roots", None)
     external_cfg["zotero"] = zotero_cfg
 
     return {

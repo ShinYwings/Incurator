@@ -227,14 +227,6 @@ db_app = typer.Typer(
 )
 app.add_typer(db_app, name="db")
 
-paths_app = typer.Typer(
-    name="paths",
-    help="Audit and migrate portable filesystem references.",
-    no_args_is_help=True,
-    add_completion=False,
-)
-app.add_typer(paths_app, name="paths")
-
 models_app = typer.Typer(
     name="models",
     help="Provision the search stack (embedding + reranker GGUFs).",
@@ -2989,43 +2981,6 @@ def status(
             "Run [bold]wiki migrate[/bold] to upgrade."
         )
 
-
-# ---------------------------------------------------------------------------
-# wiki migrate
-# ---------------------------------------------------------------------------
-
-
-@paths_app.command("migrate")
-def migrate_portable_paths_command(
-    apply: bool = typer.Option(
-        False,
-        "--apply",
-        help="Apply the migration. Without this flag the command is read-only.",
-    ),
-    json_output: bool = typer.Option(False, "--json", help="Print JSON output."),
-) -> None:
-    """Migrate legacy absolute source paths to schema-v10 portable identity."""
-    from .portable_migration import migrate_portable_paths
-
-    paths = _resolve_root_or_die()
-    result = migrate_portable_paths(paths, apply=apply)
-    payload = {
-        "ok": result.ok,
-        "dry_run": result.dry_run,
-        "rows": result.rows,
-        "backup_dir": result.backup_dir,
-        "error": result.error,
-    }
-    if json_output:
-        _print_json(payload)
-    elif result.ok:
-        action = "Would migrate" if result.dry_run else "Migrated"
-        _ok(f"{action} {len(result.rows)} source row(s).")
-        if result.backup_dir:
-            console.print(f"[dim]Backup: {result.backup_dir}[/dim]")
-    else:
-        _err(result.error or "Portable path migration failed.")
-        raise typer.Exit(1)
 
 @app.command("migrate")
 def migrate_vault(

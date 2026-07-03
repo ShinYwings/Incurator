@@ -246,11 +246,9 @@ DEFAULT_CONFIG: dict = {
         # Machine-local roots used to rediscover reference-mode files that move
         # outside the vault. Store real Zotero/iCloud paths in the global
         # config file, not in the synced vault config.
-        "roots": [],
         "path_roots": {},
         "zotero": {
             "enabled": True,
-            "roots": [],
             "root_keys": [],
         },
     },
@@ -456,48 +454,7 @@ def load_config(paths: WikiPaths) -> dict:
             )
 
     _migrate_llm_config(merged)
-    if _migrate_external_path_roots(merged):
-        save_global_config({"external": merged["external"]})
     return merged
-
-
-def _migrate_external_path_roots(config: dict) -> bool:
-    """Name legacy machine-local external root arrays."""
-    external = config.get("external")
-    if not isinstance(external, dict):
-        return False
-    changed = False
-    path_roots = external.setdefault("path_roots", {})
-    if not isinstance(path_roots, dict):
-        path_roots = {}
-        external["path_roots"] = path_roots
-        changed = True
-
-    def migrate_list(raw: object, prefix: str) -> list[str]:
-        nonlocal changed
-        values = raw if isinstance(raw, list) else []
-        keys: list[str] = []
-        for index, value in enumerate(values, start=1):
-            if not isinstance(value, str) or not value:
-                continue
-            key = prefix if index == 1 else f"{prefix}_{index}"
-            path_roots.setdefault(key, value)
-            keys.append(key)
-        if values:
-            changed = True
-        return keys
-
-    generic_keys = migrate_list(external.get("roots"), "external")
-    if generic_keys:
-        external["root_keys"] = generic_keys
-        external["roots"] = []
-    zotero = external.setdefault("zotero", {})
-    if isinstance(zotero, dict):
-        zotero_keys = migrate_list(zotero.get("roots"), "zotero_data")
-        if zotero_keys:
-            zotero["root_keys"] = zotero_keys
-            zotero["roots"] = []
-    return changed
 
 
 def _migrate_llm_config(config: dict) -> None:
