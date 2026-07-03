@@ -274,6 +274,19 @@ evaluated_code:
       and the source-row lookup only — NOT retrieval/ranking/fusion/projection/
       embedding/chunking/materialize_chunks — so the frozen Q06 metric remains
       provably unaffected. db/sources.py re-hashed accordingly.
+  v031_source_revision_rearm:
+    date: '2026-07-03'
+    prior_schema_sha256: 5da03f6eea604f985dceeb279e53e470b6ef9396b49555fc5ea870cb0f6f9159
+    prior_jobs_sha256: 46163fb2350eeeca3915da8e539028a7ef0a4b89f546827fc28ca4a9c44157ae
+    reason: >-
+      v0.31.0 adds the sources.updated_at migration and trigger used only for
+      source-status LWW synchronization. Stale-job recovery now also resets the
+      corresponding source layer from running to pending. Neither change affects
+      retrieval, ranking, fusion, projection scoring, embedding, chunking, or
+      materialize_chunks. The review follow-up makes migrated source tables
+      converge on the fresh NOT NULL/default contract; this remains sync/schema
+      bookkeeping only, so the frozen lexical Q06 metric is unaffected. Re-armed
+      the schema/jobs drift fingerprints below.
   file_sha256:
     backend/scripts/failure_atlas_holdout.py: c6afe0307dd3f68fa9902387bb0dc269db6ff9d6b73ad2f3ac1cc6ecc883297a
     backend/src/curator/retrieval/evaluation.py: 0cc9e655142c725dd4bbbabfd2b44d6bf0355265bb2510fbb78cbd47d7d43c17
@@ -283,9 +296,9 @@ evaluated_code:
     backend/src/curator/retrieval/embedding.py: a6a7da88af3fc824f1fa2c9a4f4ce0720e870c0584c49e011b865678cb0f8f7e
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
     backend/src/curator/db/__init__.py: 9d9b18355372e1f77534aef353a07c3ee1f3e9ce3413ffec7d8030da86a4a16c
-    backend/src/curator/db/schema.py: 5da03f6eea604f985dceeb279e53e470b6ef9396b49555fc5ea870cb0f6f9159
+    backend/src/curator/db/schema.py: 67a28b8c1614d257576e97efdeca56cda2a331b511c5250e5548670c2e3860ce
     backend/src/curator/db/_entities.py: c34156c88311a27834068f17ab7ab9a46efc28ed26a154554796db8963849df0
-    backend/src/curator/db/jobs.py: 46163fb2350eeeca3915da8e539028a7ef0a4b89f546827fc28ca4a9c44157ae
+    backend/src/curator/db/jobs.py: 33d772f0709c3b549b40f29dac7028edee58c882c06dc6e7f38706bd71e9b320
     backend/src/curator/db/sources.py: d22fcc1ae311fa6c5db343e012c6bb525274e040f3be740db614053af5bd49e2
   preflight_family_metrics:
     direct-factual:

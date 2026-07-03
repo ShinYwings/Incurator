@@ -1472,6 +1472,22 @@ def build_server() -> FastMCP:
                 existing_context_id=None if force else row.get("context_id"),
             )
             if not context_id:
+                if not force and row.get("l1_status") == "done" and row.get("context_id"):
+                    db.set_source_layer_status(paths.state_db, source_id_int, "l1", "done")
+                    from . import db_sync
+                    db_sync.maybe_auto_export(paths)
+                    return {
+                        "ok": True,
+                        "source_id": source_id_int,
+                        "context_id": row.get("context_id"),
+                        "l2_l3_queued": False,
+                        "job_ids": [],
+                        "warnings": [
+                            "CTX projection repair failed; authoritative L1 DB state was preserved"
+                        ],
+                    }
+                from . import db_sync
+                db_sync.maybe_auto_export(paths)
                 return {"ok": False, "source_id": source_id_int, "error": "L1 generation failed"}
 
         # Make the new L1 immediately searchable (BM25; skip slow embeddings).
@@ -1486,6 +1502,8 @@ def build_server() -> FastMCP:
             from .ingest_worker import enqueue_l2_l3_for_sources
             job_ids = enqueue_l2_l3_for_sources(paths, [source_id_int])
 
+        from . import db_sync
+        db_sync.maybe_auto_export(paths)
         return {
             "ok": True,
             "source_id": source_id_int,
@@ -1533,6 +1551,8 @@ def build_server() -> FastMCP:
         if not wait:
             from .ingest_worker import enqueue_l2_l3_for_sources
             job_ids = enqueue_l2_l3_for_sources(paths, [source_id_int])
+            from . import db_sync
+            db_sync.maybe_auto_export(paths)
             return {
                 "ok": True,
                 "source_id": source_id_int,
@@ -1570,7 +1590,7 @@ def build_server() -> FastMCP:
                     search.update_index(paths, embed=True)
                 except Exception:
                     pass
-            return {
+            result = {
                 "ok": True if ingest_result is None else ingest_result.ok,
                 "source_id": source_id_int,
                 "context_id": context_id,
@@ -1585,6 +1605,9 @@ def build_server() -> FastMCP:
                 "l3_pages_written": l3_pages_written,
                 "events": callbacks.events[-50:],
             }
+            from . import db_sync
+            db_sync.maybe_auto_export(paths)
+            return result
         finally:
             try:
                 client.close()

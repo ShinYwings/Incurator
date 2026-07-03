@@ -10,6 +10,7 @@ records.
 from __future__ import annotations
 
 import tempfile
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -32,8 +33,110 @@ def db_path() -> Path:
         yield path
 
 
-def test_schema_version_is_10() -> None:
-    assert db.SCHEMA_VERSION == 10
+def test_schema_version_is_11() -> None:
+    assert db.SCHEMA_VERSION == 11
+
+
+def test_source_updated_at_advances_on_status_only_mutation(db_path: Path) -> None:
+    with db.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE sources SET updated_at = '2000-01-01T00:00:00.000Z' WHERE id = 1"
+        )
+        before = conn.execute(
+            "SELECT updated_at FROM sources WHERE id = 1"
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE sources SET l3_status = 'done' WHERE id = 1"
+        )
+        after = conn.execute(
+            "SELECT updated_at FROM sources WHERE id = 1"
+        ).fetchone()[0]
+    assert before
+    assert after > before
+
+
+def test_connect_stamps_completed_schema_migration(db_path: Path) -> None:
+    with db.connect(db_path) as conn:
+        conn.execute("UPDATE schema_version SET version = 10")
+    with db.connect(db_path) as conn:
+        version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
+    assert version == 11
+
+
+@pytest.mark.parametrize("legacy_portable", [False, True])
+def test_migrated_source_updated_at_matches_fresh_schema(
+    tmp_path: Path,
+    legacy_portable: bool,
+) -> None:
+    path = tmp_path / "legacy.sqlite"
+    locator_columns = (
+        "import_origin TEXT, external_path TEXT"
+        if legacy_portable
+        else "import_origin_ref TEXT, external_ref TEXT"
+    )
+    with sqlite3.connect(path) as conn:
+        conn.executescript(
+            f"""
+            CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+            INSERT INTO schema_version VALUES (10);
+            CREATE TABLE sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                relpath TEXT NOT NULL UNIQUE,
+                content_hash TEXT NOT NULL,
+                file_type TEXT NOT NULL,
+                bytes INTEGER NOT NULL,
+                added_at TEXT NOT NULL,
+                last_ingested TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                context_id TEXT,
+                l1_status TEXT NOT NULL DEFAULT 'pending',
+                l2_status TEXT NOT NULL DEFAULT 'pending',
+                l3_status TEXT NOT NULL DEFAULT 'pending',
+                l4_status TEXT NOT NULL DEFAULT 'pending',
+                layer_error TEXT,
+                domain TEXT,
+                tags TEXT,
+                {locator_columns},
+                import_policy TEXT,
+                is_reference INTEGER NOT NULL DEFAULT 0,
+                logical_source_id TEXT,
+                error_reason TEXT,
+                updated_at TEXT
+            );
+            INSERT INTO sources (
+                relpath, content_hash, file_type, bytes, added_at, updated_at
+            ) VALUES (
+                '04_Resources/legacy.md', 'legacy-hash', 'md', 1,
+                '2026-01-01T00:00:00Z', NULL
+            );
+            """
+        )
+
+    db.init_db(path)
+
+    with db.connect(path) as conn:
+        info = {
+            row["name"]: row
+            for row in conn.execute("PRAGMA table_info(sources)").fetchall()
+        }
+        migrated = conn.execute(
+            "SELECT updated_at FROM sources WHERE relpath = ?",
+            ("04_Resources/legacy.md",),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("04_Resources/new.md", "new-hash", "md", 1, "2026-01-02T00:00:00Z"),
+        )
+        defaulted = conn.execute(
+            "SELECT updated_at FROM sources WHERE relpath = ?",
+            ("04_Resources/new.md",),
+        ).fetchone()[0]
+
+    assert info["updated_at"]["notnull"] == 1
+    assert "strftime" in info["updated_at"]["dflt_value"]
+    assert migrated == "2026-01-01T00:00:00.000Z"
+    assert defaulted
 
 
 def test_spec_declares_matching_schema_version() -> None:

@@ -56,6 +56,7 @@ import {
   ZOTERO_PROFILES_PATH,
   ZoteroProfilesFile,
   extractLegacyZoteroProfiles,
+  mergeZoteroProfilesFiles,
   parseZoteroProfilesFile,
 } from "./src/zotero/profileStore";
 import { IncuratorDashboardModal } from "./src/ui/incuratorDashboardModal";
@@ -128,6 +129,7 @@ export default class ObsidianAIAgent extends Plugin {
   private syncWatcher: { close: () => void } | null = null;
   private syncStatusBar: HTMLElement | null = null;
   private settingsPersistPromise: Promise<void> = Promise.resolve();
+  private zoteroProfilesPersistPromise: Promise<void> = Promise.resolve();
   private localIncuratorRepoPathHint = "";
 
   async onload(): Promise<void> {
@@ -1404,20 +1406,35 @@ export default class ObsidianAIAgent extends Plugin {
     }
   }
 
-  /** Persist the in-memory profiles/LRU to the synced store (whole-file LWW). */
+  /** Persist profiles through a serialized read-merge-write queue. */
   async saveZoteroProfiles(): Promise<void> {
     if (!this._zoteroProfilesLoaded) return;
-    if (!(await this.app.vault.adapter.exists(".curator"))) {
-      await this.app.vault.adapter.mkdir(".curator");
-    }
-    const store: ZoteroProfilesFile = {
-      profiles: this.settings.zoteroProfiles || [],
-      recentItems: this.settings.recentZoteroItems || [],
-    };
-    await this.app.vault.adapter.write(
-      ZOTERO_PROFILES_PATH,
-      JSON.stringify(store, null, 2)
-    );
+    this.zoteroProfilesPersistPromise = this.zoteroProfilesPersistPromise
+      .catch(() => undefined)
+      .then(async () => {
+        if (!(await this.app.vault.adapter.exists(".curator"))) {
+          await this.app.vault.adapter.mkdir(".curator");
+        }
+        const local: ZoteroProfilesFile = {
+          profiles: this.settings.zoteroProfiles || [],
+          recentItems: this.settings.recentZoteroItems || [],
+        };
+        let store = local;
+        try {
+          const raw = await this.app.vault.adapter.read(ZOTERO_PROFILES_PATH);
+          const disk = parseZoteroProfilesFile(raw);
+          if (disk) store = mergeZoteroProfilesFiles(disk, local);
+        } catch {
+          // Missing store: write the local snapshot below.
+        }
+        this.settings.zoteroProfiles = store.profiles;
+        this.settings.recentZoteroItems = store.recentItems;
+        await this.app.vault.adapter.write(
+          ZOTERO_PROFILES_PATH,
+          JSON.stringify(store, null, 2)
+        );
+      });
+    return this.zoteroProfilesPersistPromise;
   }
 
   // ── Session data (device-local, stored in sessions.json) ────────

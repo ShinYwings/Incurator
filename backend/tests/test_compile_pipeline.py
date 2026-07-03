@@ -345,7 +345,7 @@ def test_compile_global_l3_marks_l4_done_when_synthesis_is_generated(vault) -> N
     assert _layer_status(paths, 2, "l4") == "done"
 
 
-def test_compile_global_l3_marks_l4_skipped_when_no_reports_exist(vault) -> None:
+def test_compile_global_l3_marks_l3_and_l4_skipped_when_no_reports_exist(vault) -> None:
     paths = vault
     client = DynamicFakeClient()
 
@@ -355,7 +355,7 @@ def test_compile_global_l3_marks_l4_skipped_when_no_reports_exist(vault) -> None
     assert concept_ids == []
     assert db.list_community_reports(paths.state_db) == []
     assert db.list_synthesis_nodes(paths.state_db) == []
-    assert _layer_status(paths, 1, "l3") == "done"
+    assert _layer_status(paths, 1, "l3") == "skipped"
     assert _layer_status(paths, 1, "l4") == "skipped"
 
 
@@ -367,7 +367,7 @@ def test_l3_regeneration_preserves_l4_terminal_status(vault) -> None:
     ingest_llm.run_l3_from_existing_atoms(paths, client, lambda: ingest_llm.IngestCallbacks)
 
     assert db.list_synthesis_nodes(paths.state_db) == []
-    assert _layer_status(paths, 1, "l3") == "done"
+    assert _layer_status(paths, 1, "l3") == "skipped"
     assert _layer_status(paths, 1, "l4") == "skipped"
 
 

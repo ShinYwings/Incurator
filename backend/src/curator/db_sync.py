@@ -9,6 +9,7 @@ from __future__ import annotations
 import gzip
 import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = db.SCHEMA_VERSION
 
-# Source locators are portable in schema v10, so no source column is protected
+# Source locators are portable in schema v11, so no source column is protected
 # as device-local during LWW merge.
 _DEVICE_LOCAL_COLUMNS: dict[str, set[str]] = {}
 
@@ -78,9 +79,7 @@ EXCLUDE_TABLES: frozenset[str] = frozenset([
 
 # Column used per table to determine which version is newer (LWW).
 _UPDATED_AT_COL: dict[str, str] = {
-    # Pending/errored sources have NULL last_ingested. Use COALESCE so LWW and
-    # incremental-since export include them rather than silently skipping them.
-    "sources": "COALESCE(last_ingested, added_at)",
+    "sources": "updated_at",
     "atoms": "last_updated",
     "concepts": "last_updated",
     "synthesis_nodes": "updated_at",
@@ -116,7 +115,12 @@ _UPDATED_AT_COL: dict[str, str] = {
 # rather than a plain column name, so row.get(updated_col) would return None.
 # Each callable receives the row dict and returns the effective timestamp string.
 _REMOTE_TS_FN: dict[str, _Callable[[dict], str]] = {
-    "sources": lambda row: row.get("last_ingested") or row.get("added_at") or "",
+    "sources": lambda row: (
+        row.get("updated_at")
+        or row.get("last_ingested")
+        or row.get("added_at")
+        or ""
+    ),
 }
 
 # Primary key column per table. None = composite/handled-separately (always upsert).
@@ -200,7 +204,12 @@ def write_sync_state(internal_dir: Path, state: dict) -> None:
     """Persist this device's local sync bookkeeping."""
     p = _sync_state_path(internal_dir)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    tmp = p.with_name(f".{p.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        os.replace(tmp, p)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def get_device_id(internal_dir: Path) -> str:
@@ -236,49 +245,57 @@ def export_knowledge(
     now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = out_path.with_name(
+        f".{out_path.name}.{uuid.uuid4().hex}.tmp"
+    )
     opener: IO[str]
     if compress:
-        opener = gzip.open(out_path, "wt", encoding="utf-8")  # type: ignore[assignment]
+        opener = gzip.open(tmp_path, "wt", encoding="utf-8")  # type: ignore[assignment]
     else:
-        opener = out_path.open("w", encoding="utf-8")
+        opener = tmp_path.open("w", encoding="utf-8")
 
-    with opener as f:
-        # Header line
-        f.write(
-            json.dumps({
-                "type": "header",
-                "schema_version": SCHEMA_VERSION,
-                "exported_at": now,
-            }) + "\n"
-        )
+    try:
+        with opener as f:
+            f.write(
+                json.dumps({
+                    "type": "header",
+                    "schema_version": SCHEMA_VERSION,
+                    "exported_at": now,
+                }) + "\n"
+            )
 
-        with db.connect(db_path) as conn:
-            existing_tables = {
-                r[0]
-                for r in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-            }
-
-            for tbl in export_tables:
-                if tbl not in existing_tables:
-                    continue
-                updated_col = _UPDATED_AT_COL.get(tbl)
-                if since and updated_col:
-                    rows = conn.execute(
-                        f"SELECT * FROM {tbl} WHERE {updated_col} >= ?", (since,)
+            with db.connect(db_path) as conn:
+                existing_tables = {
+                    r[0]
+                    for r in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
                     ).fetchall()
-                else:
-                    rows = conn.execute(f"SELECT * FROM {tbl}").fetchall()
+                }
 
-                count = 0
-                for row in rows:
-                    f.write(
-                        json.dumps({"type": "row", "table": tbl, "row": dict(row)}) + "\n"
-                    )
-                    count += 1
-                stats.rows_by_table[tbl] = count
-                stats.total_rows += count
+                for tbl in export_tables:
+                    if tbl not in existing_tables:
+                        continue
+                    updated_col = _UPDATED_AT_COL.get(tbl)
+                    if since and updated_col:
+                        rows = conn.execute(
+                            f"SELECT * FROM {tbl} WHERE {updated_col} >= ?", (since,)
+                        ).fetchall()
+                    else:
+                        rows = conn.execute(f"SELECT * FROM {tbl}").fetchall()
+
+                    count = 0
+                    for row in rows:
+                        f.write(
+                            json.dumps(
+                                {"type": "row", "table": tbl, "row": dict(row)}
+                            ) + "\n"
+                        )
+                        count += 1
+                    stats.rows_by_table[tbl] = count
+                    stats.total_rows += count
+        os.replace(tmp_path, out_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
     return stats
 
@@ -336,6 +353,22 @@ def import_knowledge(
                 if tbl not in existing_tables:
                     continue
                 row: dict = rec["row"]
+                if tbl == "sources" and not row.get("updated_at"):
+                    legacy_ts = row.get("last_ingested") or row.get("added_at") or ""
+                    normalized_legacy_ts = (
+                        f"{legacy_ts[:19]}.000Z"
+                        if isinstance(legacy_ts, str)
+                        and len(legacy_ts) == 20
+                        and legacy_ts.endswith("Z")
+                        else legacy_ts
+                    )
+                    row["updated_at"] = (
+                        normalized_legacy_ts
+                        if _timestamp_key(normalized_legacy_ts) > _timestamp_key("")
+                        else datetime.now(timezone.utc).isoformat(
+                            timespec="milliseconds"
+                        ).replace("+00:00", "Z")
+                    )
 
                 if tbl == "deleted_records":
                     applied = _apply_tombstone(conn, row["table_name"], row["record_id"], row["deleted_at"], dry_run=dry_run)
@@ -589,6 +622,15 @@ def detect_conflict_files(internal_dir: Path, *, dir_name: str = "sync") -> list
     return sorted(sync_dir.glob("*.sync-conflict-*"))
 
 
+def _timestamp_key(value: object) -> datetime:
+    if not isinstance(value, str):
+        return datetime.min.replace(tzinfo=timezone.utc)
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+
 def _local_max_ts(db_path: Path) -> str:
     """The newest LWW timestamp across all canonical tables (for mismatch detection).
 
@@ -606,7 +648,7 @@ def _local_max_ts(db_path: Path) -> str:
             if tbl not in existing:
                 continue
             row = conn.execute(f"SELECT MAX({col}) FROM {tbl}").fetchone()
-            if row and row[0] and row[0] > newest:
+            if row and row[0] and _timestamp_key(row[0]) > _timestamp_key(newest):
                 newest = row[0]
     return newest
 
@@ -625,7 +667,21 @@ def local_has_unexported_changes(internal_dir: Path, db_path: Path) -> bool:
     if not last:
         return True
     newest = _local_max_ts(db_path)
-    return bool(newest) and newest >= last
+    return bool(newest) and _timestamp_key(newest) >= _timestamp_key(last)
+
+
+def maybe_auto_export(paths) -> Path | None:
+    """Best-effort default-on export hook for non-CLI mutation paths."""
+    from . import config as cfg
+
+    block = (cfg.load_config(paths).get("auto_sync") or {})
+    if not block.get("enabled"):
+        return None
+    if not local_has_unexported_changes(paths.internal, paths.state_db):
+        return None
+    return export_for_device(
+        paths.internal, paths.state_db, dir_name=block.get("dir", "sync")
+    )
 
 
 def _archive_conflict(cf: Path, internal_dir: Path) -> None:

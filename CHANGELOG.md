@@ -4,6 +4,25 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.31.0] - 2026-07-03
+### Changed
+- Dashboard L1-L4 density counts now come from authoritative serving DB records,
+  not disposable Collection Markdown projections.
+- Source rows have a schema-v11 `updated_at` revision, so status-only L1-L4
+  changes participate in cross-device LWW sync.
+
+### Fixed
+- L3 is no longer reported complete when no live source-grounded community
+  report exists; empty successful passes are terminal `skipped`.
+- Emitted Zotero reference stubs resolve their `zotero_attachment_key` directly,
+  and failed CTX projection repair no longer downgrades valid L1 DB state.
+- JSONL snapshots and sync state use atomic replacement; MCP/worker mutations
+  export automatically and compound `wiki update` runs export once.
+- Zotero profile writes are serialized read-merge-write operations, preserving
+  peer-only profiles and recent items.
+
+---
+
 ## [0.30.0] - 2026-07-02
 ### Added
 - **Zotero import profiles now sync across devices.** `zoteroProfiles` and the

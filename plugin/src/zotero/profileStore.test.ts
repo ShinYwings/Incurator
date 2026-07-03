@@ -4,6 +4,7 @@ import type { ZoteroImportProfile } from "../types";
 import {
   ZOTERO_PROFILES_PATH,
   extractLegacyZoteroProfiles,
+  mergeZoteroProfilesFiles,
   normalizeZoteroProfilesFile,
   parseZoteroProfilesFile,
 } from "./profileStore";
@@ -110,6 +111,49 @@ describe("normalizeZoteroProfilesFile", () => {
     });
     expect(norm.recentItems).toHaveLength(50);
     expect(norm.recentItems[0]).toBe("K0"); // newest-first order preserved
+  });
+});
+
+describe("mergeZoteroProfilesFiles", () => {
+  it("preserves peer-only profiles and recent keys on a stale local save", () => {
+    const merged = mergeZoteroProfilesFiles(
+      { profiles: [profile("Peer")], recentItems: ["PEER"] },
+      { profiles: [profile("Local")], recentItems: ["LOCAL"] }
+    );
+    expect(merged.profiles.map((item) => item.name)).toEqual(["Local", "Peer"]);
+    expect(merged.recentItems).toEqual(["LOCAL", "PEER"]);
+  });
+
+  it("uses the local edit for a same-name profile without duplicating it", () => {
+    const disk = profile("Shared");
+    const local = { ...profile("Shared"), outputFolder: "03_Notes/New" };
+    const merged = mergeZoteroProfilesFiles(
+      { profiles: [disk], recentItems: [] },
+      { profiles: [local], recentItems: [] }
+    );
+    expect(merged.profiles).toHaveLength(1);
+    expect(merged.profiles[0].outputFolder).toBe("03_Notes/New");
+  });
+
+  it("treats missing arrays in a partially damaged file as empty", () => {
+    expect(
+      mergeZoteroProfilesFiles(
+        {},
+        { profiles: [profile("Local")], recentItems: ["LOCAL"] }
+      )
+    ).toEqual({
+      profiles: [profile("Local")],
+      recentItems: ["LOCAL"],
+    });
+    expect(
+      mergeZoteroProfilesFiles(
+        { profiles: [profile("Peer")], recentItems: ["PEER"] },
+        {}
+      )
+    ).toEqual({
+      profiles: [profile("Peer")],
+      recentItems: ["PEER"],
+    });
   });
 });
 

@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.30.0)
+# Incurator - Schema & Operating Conventions (v0.31.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -371,6 +371,7 @@ external_ref TEXT;
 is_reference INTEGER NOT NULL DEFAULT 0;
 logical_source_id TEXT;
 error_reason TEXT;
+updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 ```
 
 Allowed layer states:
@@ -383,6 +384,9 @@ Rules:
 
 - `status='curated'` is not the source of truth for L1 completion.
 - `wiki status` must count L1 completion from `l1_status='done'`.
+- `updated_at` is the source-row LWW revision. Every local source mutation,
+  including a layer-status-only update, advances it. `last_ingested` remains
+  ingest metadata and is not a general revision.
 - `context_id` is set when L1 completes.
 - L2/L3 may remain `pending` while a source is already usable for section RAG.
 - `l4_status='done'` is the source-level signal that shared L4 Synthesis has been
@@ -1441,12 +1445,21 @@ CREATE TABLE IF NOT EXISTS deleted_records (
 - During `wiki db import`, tombstones are applied **before** upserts. A tombstone beats a concurrent update (deletion wins over modification).
 - Device-local tables (`search_embeddings`, `ingest_jobs`, `job_events`, `page_hashes`, FTS5 virtual tables) are **never** listed as `table_name` in tombstones and are excluded from `wiki db export`.
 
-**Portable source locators (`SCHEMA_VERSION = 10`):** `sources` has no
+**Portable source locators (`SCHEMA_VERSION = 11`):** `sources` has no
 device-local path column. Zotero rows merge by stable `zotero:<attachment-key>`
 identity. Generic `external_ref` values merge normally because they name a root
 variable, not a device path. The receiving backend resolves that variable from
 its own ignored `.cache/config/config.yml`. `_DEVICE_LOCAL_COLUMNS` must not
 contain source locators.
+
+Schema v11 adds and backfills `sources.updated_at`. Fresh and migrated databases
+both enforce the same `NOT NULL` expression default. Migration preserves a
+historical `updated_at`, falls back to `last_ingested`/`added_at`, and uses the
+current UTC millisecond timestamp when no history exists. JSONL import preserves
+a valid remote value and applies the same current-time fallback to missing or
+invalid legacy revisions; local source writes advance it. This closes the
+schema-v10 gap where L1-L4 status-only mutations did not participate in
+source-row LWW.
 
 ---
 
