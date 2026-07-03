@@ -4,6 +4,26 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.32.0] - 2026-07-04
+### Changed
+- External source configuration now accepts only the current
+  `external.path_roots` / integration `root_keys` contract. Legacy root arrays
+  are no longer converted or used for runtime source discovery.
+- Absolute non-reference `sources.relpath` values are no longer treated as
+  runtime filesystem paths.
+
+### Removed
+- Removed the `wiki paths` command group, the standalone portable-path migration
+  service, and the pre-v0.29 `sources.external_path` / `sources.import_origin`
+  table converter from DB initialization.
+
+### Fixed
+- Normalized the affected macOS device-local `second_brain` DB to schema 11
+  before deployment, preserving its three Zotero attachment keys and removing
+  the `wiki status` migration error.
+
+---
+
 ## [0.31.0] - 2026-07-03
 ### Changed
 - Dashboard L1-L4 density counts now come from authoritative serving DB records,

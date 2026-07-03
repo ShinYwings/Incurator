@@ -1,40 +1,46 @@
-# RELAY — v0.32.0 Portable-Path Compatibility Removal
+# RELAY — v0.32.0 Release Ready
 
 ## Goal
 
-Remove the v0.29 portable-path backward-compatibility layer while preserving
-the current reference-key runtime contract.
+Ship the current-contract-only portable source path release.
 
-## Plan Reference
-
-- `.agents/plans/07_path_compat_removal.md`
-- `.agents/plans/07_roadmap_evidence.md`
-
-## Analysis & Reasoning
-
-- `wiki status` fails because the macOS device-local `state.sqlite` still has
-  v9 absolute-path columns and `_migrate_v10_portable_sources()` blocks every
-  DB connection until `wiki paths migrate --apply` is run.
-- `state.sqlite` is intentionally excluded from Syncthing, so the Linux v0.29
-  production migration did not update this device's local DB.
-- The three affected rows already carry Zotero attachment keys. The current
-  runtime resolver can locate them from `logical_source_id=zotero:<key>`
-  without persisted absolute paths.
-
-## Progress Status
+## Current State
 
 - Branch: `release/v0.32.0`
-- Investigation complete; planning artifacts are being authored.
-- No application code changed yet.
+- Planning commit: `3ce8a11`
+- Implementation commit: `4292e79`
+- Release commit: `chore(release): v0.32.0`
+- Draft PR: https://github.com/ShinYwings/Incurator/pull/80
+- Version: 0.32.0 / DB schema 11
+- Local release state is complete and pushed.
 
-## Critical Context / Blockers
+## Implemented
 
-- Preserve the current `second_brain` DB with a timestamped backup before its
-  one-time normalization.
-- Do not remove general schema evolution. Scope is the retired portable-path
-  input formats and their command/config adapters.
+- Removed `wiki paths`, `portable_migration.py`, and the pre-v0.29 source-table
+  converter from DB initialization.
+- Removed legacy external root-array conversion and runtime discovery.
+- Absolute non-reference `sources.relpath` values no longer resolve as local
+  files.
+- Preserved current Zotero attachment-key and named-root reference resolution.
+
+## Production / Testbed
+
+- macOS `second_brain` DB backup:
+  `.cache/migrations/v0.29.0/20260703T221125Z/state.sqlite`
+- Normalized source ids 1, 27, and 30 to schema-11 Zotero identities; SQLite
+  integrity passed and absolute locator count is zero.
+- Deployed backend/plugin 0.32.0 with `INCURATOR_SKIP_MODELS=1 ./setup.sh`.
+- Fresh `complex_math_backprop` testbed passed status, add, sync, and lint
+  (100/100).
+
+## Verification
+
+- Backend: 1187 passed, 6 skipped, 5 xfailed.
+- Plugin: 666 passed.
+- Ruff, mypy, TypeScript, plugin production build, spec sync, and deployed
+  `wiki status` passed.
+- `.venv/bin/wiki paths --help` returns `No such command 'paths'`.
 
 ## Immediate Next Action
 
-Finish the v0.32.0 plan and evidence ledger, then update docs and failing tests
-before removing the compatibility code.
+Review and merge draft PR #80.
