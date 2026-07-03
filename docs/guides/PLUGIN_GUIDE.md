@@ -943,7 +943,9 @@ L1-L4 status-only changes participate in LWW sync. Dashboard Knowledge Graph
 counts come from serving DB records, never stale Collection projection files.
 Zotero profile saves are serialized and re-read/merged immediately before each
 write, so a stale device cannot erase peer-only profiles during an unrelated
-settings save.
+settings save. If a partially damaged decoded payload is missing `profiles` or
+`recentItems`, the merge treats that property as an empty array rather than
+crashing.
 
 | Setting | Default | Effect |
 | --- | --- | --- |

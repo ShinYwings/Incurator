@@ -11,6 +11,7 @@ from curator import db
 from curator.db_sync import (
     ExportStats,
     ImportStats,
+    _timestamp_key,
     export_knowledge,
     import_knowledge,
     record_tombstone,
@@ -56,6 +57,52 @@ class TestSchemaVersion:
                 ).fetchall()
             }
         assert "deleted_records" in tables
+
+
+def test_timestamp_key_rejects_non_string_values() -> None:
+    assert _timestamp_key(None) == _timestamp_key("")
+    assert _timestamp_key(42) == _timestamp_key("")
+
+
+@pytest.mark.parametrize("legacy_timestamp", ["", "not-a-timestamp"])
+def test_import_source_without_revision_uses_valid_current_timestamp(
+    db_path: Path,
+    tmp_path: Path,
+    legacy_timestamp: str,
+) -> None:
+    export = tmp_path / "legacy.jsonl"
+    records = [
+        {
+            "type": "header",
+            "schema_version": db.SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+        },
+        {
+            "type": "row",
+            "table": "sources",
+            "row": {
+                "id": 1,
+                "relpath": "04_Resources/legacy.md",
+                "content_hash": "legacy-hash",
+                "file_type": "md",
+                "bytes": 1,
+                "added_at": legacy_timestamp,
+            },
+        },
+    ]
+    export.write_text(
+        "\n".join(json.dumps(record) for record in records) + "\n",
+        encoding="utf-8",
+    )
+
+    import_knowledge(db_path, export)
+
+    with db.connect(db_path) as conn:
+        updated_at = conn.execute(
+            "SELECT updated_at FROM sources WHERE id = 1"
+        ).fetchone()[0]
+    assert updated_at
+    assert _timestamp_key(updated_at) > _timestamp_key("")
 
 
 class TestTombstone:

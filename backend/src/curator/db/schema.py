@@ -901,23 +901,9 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
             )
             conn.execute("PRAGMA foreign_keys = ON")
 
-    _migrate_v10_portable_sources(conn)
     _add_column_if_missing(conn, "sources", "updated_at", "updated_at TEXT")
-    needs_source_revision_backfill = conn.execute(
-        "SELECT 1 FROM sources WHERE updated_at IS NULL OR updated_at = '' LIMIT 1"
-    ).fetchone()
-    if needs_source_revision_backfill is not None:
-        conn.execute(
-            """
-            UPDATE sources
-            SET updated_at = CASE
-                WHEN length(COALESCE(last_ingested, added_at, '')) = 20
-                THEN substr(COALESCE(last_ingested, added_at), 1, 19) || '.000Z'
-                ELSE COALESCE(last_ingested, added_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-            END
-            WHERE updated_at IS NULL OR updated_at = ''
-            """
-        )
+    _migrate_v10_portable_sources(conn)
+    _migrate_v11_source_revisions(conn)
     conn.executescript(
         """
         CREATE TRIGGER IF NOT EXISTS sources_touch_updated_at
@@ -1028,7 +1014,7 @@ def _migrate_v10_portable_sources(conn: sqlite3.Connection) -> None:
             is_reference INTEGER NOT NULL DEFAULT 0,
             logical_source_id TEXT,
             error_reason TEXT,
-            updated_at TEXT
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         );
         INSERT INTO sources_v10 (
             id, relpath, content_hash, file_type, bytes, added_at,
@@ -1044,13 +1030,98 @@ def _migrate_v10_portable_sources(conn: sqlite3.Connection) -> None:
             layer_error, domain, tags, NULLIF(import_origin, ''), import_policy,
             NULLIF(external_path, ''), is_reference, logical_source_id, error_reason,
             CASE
+                WHEN updated_at IS NOT NULL AND updated_at != ''
+                THEN updated_at
                 WHEN length(COALESCE(last_ingested, added_at, '')) = 20
                 THEN substr(COALESCE(last_ingested, added_at), 1, 19) || '.000Z'
-                ELSE COALESCE(last_ingested, added_at)
+                WHEN COALESCE(last_ingested, added_at, '') != ''
+                THEN COALESCE(last_ingested, added_at)
+                ELSE strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             END
         FROM sources;
         DROP TABLE sources;
         ALTER TABLE sources_v10 RENAME TO sources;
+        CREATE INDEX idx_sources_hash ON sources(content_hash);
+        CREATE INDEX idx_sources_status ON sources(status);
+        CREATE INDEX idx_sources_domain ON sources(domain);
+        CREATE INDEX idx_sources_logical_source_id ON sources(logical_source_id);
+        CREATE INDEX idx_sources_external_ref ON sources(external_ref);
+        """
+    )
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_v11_source_revisions(conn: sqlite3.Connection) -> None:
+    """Converge migrated ``sources.updated_at`` onto the fresh v11 contract."""
+    updated_at = next(
+        (
+            row
+            for row in conn.execute("PRAGMA table_info(sources)").fetchall()
+            if str(row[1]) == "updated_at"
+        ),
+        None,
+    )
+    if (
+        updated_at is not None
+        and int(updated_at[3]) == 1
+        and "strftime" in str(updated_at[4] or "")
+    ):
+        return
+
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.executescript(
+        """
+        DROP TRIGGER IF EXISTS sources_touch_updated_at;
+        CREATE TABLE sources_v11 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            relpath TEXT NOT NULL UNIQUE,
+            content_hash TEXT NOT NULL,
+            file_type TEXT NOT NULL,
+            bytes INTEGER NOT NULL,
+            added_at TEXT NOT NULL,
+            last_ingested TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            context_id TEXT,
+            l1_status TEXT NOT NULL DEFAULT 'pending',
+            l2_status TEXT NOT NULL DEFAULT 'pending',
+            l3_status TEXT NOT NULL DEFAULT 'pending',
+            l4_status TEXT NOT NULL DEFAULT 'pending',
+            layer_error TEXT,
+            domain TEXT,
+            tags TEXT,
+            import_origin_ref TEXT,
+            import_policy TEXT,
+            external_ref TEXT,
+            is_reference INTEGER NOT NULL DEFAULT 0,
+            logical_source_id TEXT,
+            error_reason TEXT,
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        );
+        INSERT INTO sources_v11 (
+            id, relpath, content_hash, file_type, bytes, added_at,
+            last_ingested, status, context_id,
+            l1_status, l2_status, l3_status, l4_status,
+            layer_error, domain, tags, import_origin_ref, import_policy,
+            external_ref, is_reference, logical_source_id, error_reason, updated_at
+        )
+        SELECT
+            id, relpath, content_hash, file_type, bytes, added_at,
+            last_ingested, status, context_id,
+            l1_status, l2_status, l3_status, l4_status,
+            layer_error, domain, tags, import_origin_ref, import_policy,
+            external_ref, is_reference, logical_source_id, error_reason,
+            CASE
+                WHEN updated_at IS NOT NULL AND updated_at != ''
+                THEN updated_at
+                WHEN length(COALESCE(last_ingested, added_at, '')) = 20
+                THEN substr(COALESCE(last_ingested, added_at), 1, 19) || '.000Z'
+                WHEN COALESCE(last_ingested, added_at, '') != ''
+                THEN COALESCE(last_ingested, added_at)
+                ELSE strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            END
+        FROM sources;
+        DROP TABLE sources;
+        ALTER TABLE sources_v11 RENAME TO sources;
         CREATE INDEX idx_sources_hash ON sources(content_hash);
         CREATE INDEX idx_sources_status ON sources(status);
         CREATE INDEX idx_sources_domain ON sources(domain);

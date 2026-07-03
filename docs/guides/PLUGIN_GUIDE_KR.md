@@ -832,6 +832,8 @@ Source layer 상태는 source row 전용 `updated_at` revision을 사용하므�
 stale Collection projection 파일이 아니라 serving DB record에서 계산합니다.
 Zotero profile 저장은 직렬화되며 매 write 직전에 최신 파일을 다시 읽고
 병합하므로 stale 기기의 무관한 설정 저장이 peer-only profile을 지우지 않습니다.
+부분적으로 손상된 decoded payload에 `profiles` 또는 `recentItems`가 없으면,
+merge는 crash하지 않고 해당 property를 빈 배열로 취급합니다.
 
 | 설정 | 기본값 | 효과 |
 | --- | --- | --- |

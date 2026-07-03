@@ -216,6 +216,10 @@ Rules:
   `l3_status`: `done` only when a live community report is grounded in that
   source's spans, or `skipped` when no eligible L3 output exists. Returning
   without an exception is not sufficient for L3 completion.
+- Community-report provenance lookups used by global L3 and projection re-emit
+  must query span ids in batches of at most 900 parameters, remaining below
+  SQLite's common 999-variable limit even for reports grounded in thousands of
+  spans.
 - Sources whose L2 is done must also receive a terminal `l4_status`: `done` when
   current shared synthesis nodes exist for the current report
   corpus, `skipped` when no eligible community reports/syntheses exist, or
@@ -989,8 +993,11 @@ stamps `now()`.
 
 `sources.updated_at` is the source-row LWW clock. Every local source mutation,
 including layer-status-only changes, advances it. `last_ingested` remains ingest
-metadata. Export-gate timestamp comparison is chronological rather than a raw
-mixed-format string comparison.
+metadata. Migrated schemas retain the fresh schema's `NOT NULL` expression
+default. A legacy import with no valid source revision receives a current UTC
+millisecond timestamp instead of an empty or malformed LWW key. Export-gate
+timestamp comparison is chronological rather than a raw mixed-format string
+comparison, and non-string values are treated as invalid rather than raising.
 
 **Loop prevention is structural — there is no content-hash guard.** (An earlier
 `sync_meta.json` `last_exported_hash`/`last_imported_hash` design was removed: it

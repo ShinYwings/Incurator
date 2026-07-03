@@ -355,10 +355,19 @@ def import_knowledge(
                 row: dict = rec["row"]
                 if tbl == "sources" and not row.get("updated_at"):
                     legacy_ts = row.get("last_ingested") or row.get("added_at") or ""
-                    row["updated_at"] = (
+                    normalized_legacy_ts = (
                         f"{legacy_ts[:19]}.000Z"
-                        if len(legacy_ts) == 20 and legacy_ts.endswith("Z")
+                        if isinstance(legacy_ts, str)
+                        and len(legacy_ts) == 20
+                        and legacy_ts.endswith("Z")
                         else legacy_ts
+                    )
+                    row["updated_at"] = (
+                        normalized_legacy_ts
+                        if _timestamp_key(normalized_legacy_ts) > _timestamp_key("")
+                        else datetime.now(timezone.utc).isoformat(
+                            timespec="milliseconds"
+                        ).replace("+00:00", "Z")
                     )
 
                 if tbl == "deleted_records":
@@ -613,10 +622,12 @@ def detect_conflict_files(internal_dir: Path, *, dir_name: str = "sync") -> list
     return sorted(sync_dir.glob("*.sync-conflict-*"))
 
 
-def _timestamp_key(value: str) -> datetime:
+def _timestamp_key(value: object) -> datetime:
+    if not isinstance(value, str):
+        return datetime.min.replace(tzinfo=timezone.utc)
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
+    except ValueError:
         return datetime.min.replace(tzinfo=timezone.utc)
 
 

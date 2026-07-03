@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+import sqlite3
+import tempfile
 
 import pytest
 
@@ -95,3 +97,46 @@ def test_reemit_does_not_touch_source(vault) -> None:
     # Source folders / spans untouched.
     assert not (paths.root / "03_Notes").exists()
     assert db.list_source_spans(paths.state_db, 1)  # spans still present
+
+
+def test_reemit_chunks_more_than_999_report_span_ids(vault, monkeypatch) -> None:
+    paths = vault
+    span_ids = [
+        db.upsert_source_span(
+            paths.state_db,
+            source_id=1,
+            relpath="04_Resources/r.md",
+            span_type="paragraph",
+            content_hash=f"bulk-{index}",
+            text_preview=f"span {index}",
+        )
+        for index in range(1001)
+    ]
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE community_reports SET source_span_ids = ?",
+            (compile_mod.json.dumps(span_ids),),
+        )
+
+    real_connect = db.connect
+
+    class LimitedConnection:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def execute(self, sql, parameters=()):
+            if len(parameters) > 999:
+                raise sqlite3.OperationalError("too many SQL variables")
+            return self._conn.execute(sql, parameters)
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    @contextmanager
+    def limited_connect(path):
+        with real_connect(path) as conn:
+            yield LimitedConnection(conn)
+
+    monkeypatch.setattr(compile_mod.db, "connect", limited_connect)
+    counts = compile_mod.reemit_projections(paths)
+    assert counts["concepts"] == 1

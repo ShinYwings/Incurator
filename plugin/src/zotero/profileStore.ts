@@ -21,17 +21,19 @@ export interface ZoteroProfilesFile {
  * Local entries win on a same-name edit; peer-only profiles and recent keys
  * survive an unrelated save from a stale in-memory mirror. */
 export function mergeZoteroProfilesFiles(
-  disk: ZoteroProfilesFile,
-  local: ZoteroProfilesFile
+  disk: unknown,
+  local: unknown
 ): ZoteroProfilesFile {
-  const profiles = [...local.profiles];
-  const localNames = new Set(local.profiles.map((profile) => profile.name));
-  for (const profile of disk.profiles) {
+  const safeDisk = normalizeZoteroProfilesFile(disk);
+  const safeLocal = normalizeZoteroProfilesFile(local);
+  const profiles = [...safeLocal.profiles];
+  const localNames = new Set(safeLocal.profiles.map((profile) => profile.name));
+  for (const profile of safeDisk.profiles) {
     if (!localNames.has(profile.name)) profiles.push(profile);
   }
   const recentItems = [
-    ...local.recentItems,
-    ...disk.recentItems.filter((key) => !local.recentItems.includes(key)),
+    ...safeLocal.recentItems,
+    ...safeDisk.recentItems.filter((key) => !safeLocal.recentItems.includes(key)),
   ].slice(0, RECENT_ITEMS_MAX);
   return normalizeZoteroProfilesFile({ profiles, recentItems });
 }

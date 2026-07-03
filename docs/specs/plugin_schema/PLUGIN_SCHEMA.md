@@ -448,9 +448,13 @@ Rules:
   - Writes go through `saveZoteroProfiles()` (invoked from `saveSettings()`),
     guarded so a write can never happen before the initial load (which would
     wipe the synced file with empty in-memory state).
-  - Cross-device concurrency is whole-file last-write-wins (profiles change
-    rarely; no merge machinery). `ZoteroImportProfile` contains only
-    vault-relative paths, so the file is portable across Linux/macOS.
+  - Immediately before a serialized write, the plugin re-reads and merges the
+    synced file. Local same-name profiles win while peer-only profiles and
+    recent keys survive. The merge boundary normalizes both operands, so a
+    partially damaged runtime payload with missing `profiles` or `recentItems`
+    treats that property as an empty array instead of throwing.
+    `ZoteroImportProfile` contains only vault-relative paths, so the file is
+    portable across Linux/macOS.
 - Zotero-managed PDFs registered from the sidechat/purple-pin flow use
   Reference Mode. A failed backend import/register payload must surface as an
   error state and show a user-visible failure notice instead of silently

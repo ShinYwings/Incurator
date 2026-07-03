@@ -371,7 +371,7 @@ external_ref TEXT;
 is_reference INTEGER NOT NULL DEFAULT 0;
 logical_source_id TEXT;
 error_reason TEXT;
-updated_at TEXT NOT NULL;
+updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 ```
 
 Allowed layer states:
@@ -1452,9 +1452,14 @@ variable, not a device path. The receiving backend resolves that variable from
 its own ignored `.cache/config/config.yml`. `_DEVICE_LOCAL_COLUMNS` must not
 contain source locators.
 
-Schema v11 adds and backfills `sources.updated_at`. JSONL import preserves the
-remote value; local source writes advance it. This closes the schema-v10 gap
-where L1-L4 status-only mutations did not participate in source-row LWW.
+Schema v11 adds and backfills `sources.updated_at`. Fresh and migrated databases
+both enforce the same `NOT NULL` expression default. Migration preserves a
+historical `updated_at`, falls back to `last_ingested`/`added_at`, and uses the
+current UTC millisecond timestamp when no history exists. JSONL import preserves
+a valid remote value and applies the same current-time fallback to missing or
+invalid legacy revisions; local source writes advance it. This closes the
+schema-v10 gap where L1-L4 status-only mutations did not participate in
+source-row LWW.
 
 ---
 

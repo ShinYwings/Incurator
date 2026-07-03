@@ -134,6 +134,27 @@ describe("mergeZoteroProfilesFiles", () => {
     expect(merged.profiles).toHaveLength(1);
     expect(merged.profiles[0].outputFolder).toBe("03_Notes/New");
   });
+
+  it("treats missing arrays in a partially damaged file as empty", () => {
+    expect(
+      mergeZoteroProfilesFiles(
+        {},
+        { profiles: [profile("Local")], recentItems: ["LOCAL"] }
+      )
+    ).toEqual({
+      profiles: [profile("Local")],
+      recentItems: ["LOCAL"],
+    });
+    expect(
+      mergeZoteroProfilesFiles(
+        { profiles: [profile("Peer")], recentItems: ["PEER"] },
+        {}
+      )
+    ).toEqual({
+      profiles: [profile("Peer")],
+      recentItems: ["PEER"],
+    });
+  });
 });
 
 describe("extractLegacyZoteroProfiles", () => {

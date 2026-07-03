@@ -38,3 +38,17 @@ Ship the verified pipeline-state integrity and sync-hardening release.
 
 Review and merge draft PR #79. The 30 queued L2 jobs remain user-controlled
 pending work and are not part of the display-integrity release.
+
+### Update (2026-07-03, Codex) — PR #79 review follow-up
+
+- Addressed all seven unresolved reviewer findings without replying to or
+  resolving the GitHub threads.
+- Migrated and fresh `sources.updated_at` now converge on the same
+  `NOT NULL DEFAULT strftime(...)` contract; legacy import timestamps are
+  validated and receive a current UTC-millisecond fallback when invalid.
+- Global L3 and projection re-emit share a 900-variable chunked span-provenance
+  resolver.
+- Zotero profile merging normalizes missing arrays before merging.
+- Verification: backend 1184 passed / 6 skipped / 5 xfailed; plugin 666 passed;
+  ruff, mypy, TypeScript passed. Testbed schema constraint/default, integrity,
+  and foreign keys verified.

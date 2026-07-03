@@ -108,6 +108,24 @@ def _section_dicts(paths: cfg.WikiPaths, relpath: str):
 _SQL_VAR_CHUNK = 900
 
 
+def _source_ids_for_span_ids(conn: Any, span_ids: set[str]) -> set[int]:
+    """Resolve span provenance without exceeding SQLite's variable limit."""
+    ordered_ids = sorted(span_ids)
+    source_ids: set[int] = set()
+    for start in range(0, len(ordered_ids), _SQL_VAR_CHUNK):
+        chunk = ordered_ids[start:start + _SQL_VAR_CHUNK]
+        placeholders = ",".join("?" for _ in chunk)
+        source_ids.update(
+            int(row["source_id"])
+            for row in conn.execute(
+                f"SELECT DISTINCT source_id FROM source_spans "
+                f"WHERE id IN ({placeholders})",
+                tuple(chunk),
+            ).fetchall()
+        )
+    return source_ids
+
+
 class SpanTextUnavailable(Exception):
     """A source span's full text could not be hydrated and verified (F10)."""
 
@@ -636,15 +654,7 @@ def compile_global_l3(
     report_source_ids: set[int] = set()
     if report_span_ids:
         with db.connect(paths.state_db) as conn:
-            placeholders = ",".join("?" * len(report_span_ids))
-            report_source_ids = {
-                int(row["source_id"])
-                for row in conn.execute(
-                    f"SELECT DISTINCT source_id FROM source_spans "
-                    f"WHERE id IN ({placeholders})",
-                    tuple(sorted(report_span_ids)),
-                ).fetchall()
-            }
+            report_source_ids = _source_ids_for_span_ids(conn, report_span_ids)
 
     for sid in l2_done_ids:
         l3_status = "error" if errors else (
@@ -696,15 +706,7 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
             ).fetchall()
         }
         if report_span_ids:
-            placeholders = ",".join("?" * len(report_span_ids))
-            report_source_ids = {
-                int(row["source_id"])
-                for row in conn.execute(
-                    f"SELECT DISTINCT source_id FROM source_spans "
-                    f"WHERE id IN ({placeholders})",
-                    tuple(sorted(report_span_ids)),
-                ).fetchall()
-            }
+            report_source_ids = _source_ids_for_span_ids(conn, report_span_ids)
         has_synthesis = (
             conn.execute("SELECT 1 FROM synthesis_nodes LIMIT 1").fetchone()
             is not None
