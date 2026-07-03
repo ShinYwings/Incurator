@@ -1,52 +1,40 @@
-# RELAY — v0.31.0 Pipeline State Integrity
+# RELAY — v0.31.0 Release PR Pending
 
 ## Goal
 
-Repair the production-visible L1 count, cross-device layer-status convergence,
-and L1 retry/reference-resolution defects without treating disposable
-Collection Markdown as source truth.
+Ship the verified pipeline-state integrity and sync-hardening release.
 
-## Plan Reference
+## Current State
 
 - Branch: `release/v0.31.0`
-- Master plan: `.agents/plans/07_pipeline_state_integrity.md`
-- Arena: `.agents/plans/pipeline_state_integrity_arena/`
-- Evidence: `.agents/plans/07_roadmap_evidence.md`
+- Planning commit: `ca03880`
+- Implementation commit: `659e7b3`
+- Release commit: `chore(release): v0.31.0`
+- Draft PR: https://github.com/ShinYwings/Incurator/pull/79
+- Version: 0.31.0 / schema 11
 
-## Analysis & Reasoning
+## Verified Results
 
-- `second_brain/state.sqlite`: 32 sources, 31 L1 done, 1 L1 error.
-- `.curator/Collections/01_Contexts`: 65 CTX projections.
-- Dashboard `runtime_state.build_status_snapshot()` counts Markdown files even
-  though guides define layer counts as DB records.
-- Source LWW timestamp is `COALESCE(last_ingested, added_at)`; layer mutations do
-  not bump either field. A schema-v11 `sources.updated_at` is required.
-- Source #5 (`zotero:PZBCB9LJ`) has `L1=error, L2=done, L3=done, L4=skipped`,
-  no source spans, and no `CTX-8ace29c9.md`. The emitted reference stub uses
-  `zotero_attachment_key`, while the direct resolver checks `zotero_key`.
-- Global L3 currently records `done` based only on absence of exceptions. The
-  production DB therefore has one `l3_status=done` source despite zero live
-  community reports, zero graph entities, and zero active relations.
+- Backend: 1178 passed, 6 skipped, 5 xfailed; ruff and mypy passed.
+- Plugin: TypeScript passed; 665 tests passed.
+- Testbed `gaussian_splatting`: real L1/L2 build completed; empty L3/L4 correctly
+  reported `skipped`; structural verification 6/6.
+- Production `second_brain`: backup at
+  `/home/shin/.cache/incurator/backups/second_brain-v0.31.0-pre-20260703T1645KST/`;
+  schema 11; integrity ok; 32/32 L1; zero errors; DB-serving L2/L3/L4 counts
+  truthful; orphan projections removed; stale running job recovered to queued.
+- Plugin 0.31.0 and backend runtime deployed via `setup.sh`.
 
-## Progress Status
+## Critical Context
 
-- Triage complete.
-- Release branch created.
-- Arena and master plan authored.
-- No application code, production DB, or generated vault state modified.
-- Awaiting user plan approval as mandated before implementation.
-
-## Critical Context / Blockers
-
-- Preserve untracked user file
+- The 30 queued L2 jobs are real pending work and were not auto-run as part of
+  this display-integrity fix.
+- No peer JSONL retaining the previously claimed L4 canonical rows was present;
+  stale Markdown was not reverse-imported.
+- Preserve user-owned untracked
   `.agents/drafts/sidechat_ui_regression_v0.29.0.md`.
-- Production repair must back up `state.sqlite` and synced JSONL first.
-- If no peer snapshot retains the missing authoritative L2-L4 rows, stale ATM
-  Markdown must not be reverse-imported; affected sources require a rebuild.
-- Active testbed scenario is not yet confirmed. Existing candidates:
-  `gaussian_splatting`, `resnet_neural_ode`, `testbed_template`.
 
 ## Immediate Next Action
 
-After approval: finalize pre-change evidence, update specs/guides, write failing
-schema/sync/status/reference-retry tests, then implement and validate.
+Review and merge draft PR #79. The 30 queued L2 jobs remain user-controlled
+pending work and are not part of the display-integrity release.

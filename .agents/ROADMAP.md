@@ -22,59 +22,9 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-The current production vault has a confirmed pipeline-state integrity incident.
+No urgent items currently tracked.
 
 ### 🚀 Priority Order
-
-0. **[Minor v0.31.0] Pipeline State Integrity + Sync Hardening** *(PLANNING — approval required)*
-   - User report (2026-07-03): the connected `second_brain` vault shows 65 L1
-     contexts although only 31 sources completed L1; sources previously observed
-     at L4 can appear as L1-only; at least one source reports an L1 error.
-   - Measured production state: 32 source rows (`31 l1_done + 1 l1_error`) but
-     65 disposable CTX files. Source #5 (`zotero:PZBCB9LJ`) is internally
-     contradictory (`L1=error, L2=done, L3=done, L4=skipped`) and has no current
-     CTX projection or source spans.
-   - Root causes confirmed in code:
-     1. dashboard `layer_counts` counts disposable Collection Markdown instead
-        of authoritative DB records;
-     2. source-row LWW uses `last_ingested`, which is not changed by most layer
-        status mutations, so completed pipeline state can fail to export/import;
-     3. a failed missing-CTX regeneration overwrites L1 health without
-        reconciling downstream state;
-     4. reference-stub resolution does not directly recognize the emitted
-        `zotero_attachment_key` field;
-     5. global L3 marks every L2-complete source `l3_status=done` whenever no
-        exception occurs, even when there are zero live community reports and
-        concept-grounded answers are unavailable.
-   - Schema v11 is required for a real source-row `updated_at`, making this a
-     0.x Minor release rather than the previously anticipated v0.30.1 patch.
-   - Plan: `.agents/plans/07_pipeline_state_integrity.md`
-   - Arena: `.agents/plans/pipeline_state_integrity_arena/`
-   - Evidence: `.agents/plans/07_roadmap_evidence.md`
-   - Includes the related deferred PR #78 sync-hardening findings below.
-
-   **Absorbed sync-hardening scope — deferred PR #78 code-review findings**
-   - Confirmed by the multi-agent /code-review of PR #78 but deliberately not
-     hot-patched (behavior/contract scope → plan-first). All still open:
-   - **Stale-mirror LWW profile loss**: `saveZoteroProfiles` writes the
-     onload-loaded in-memory mirror without re-read/merge, and no watcher
-     re-reads `zotero_profiles.json` when Syncthing delivers it — an unrelated
-     settings save on a device with a stale mirror erases a peer's newer
-     profiles. Candidate fix: read-merge-before-write like `saveSessionData`.
-   - **Unserialized profile writes**: `saveZoteroProfiles` lacks a
-     `settingsPersistPromise`-style queue; per-keystroke `saveSettings` in the
-     profile editor overlaps `adapter.write` calls to the same file.
-   - **MCP export gap**: MCP-server tools (`curator_register_source`,
-     `curator_build_source`, …) and `ingest_worker` mutate `state.sqlite`
-     in-process with no export trigger — the "5 vs 31" hole persists for
-     MCP/agent-driven ingestion.
-   - **Non-atomic snapshot export**: `export_knowledge` streams to the final
-     `dev-<id>.jsonl` (open "w", no temp+rename) and `write_sync_state` uses
-     non-atomic `write_text` — concurrent processes (detached `jobs run`
-     daemon + CLI/plugin) can ship a truncated snapshot to peers.
-   - Efficiency/cleanup: `wiki update` runs the export hook up to 4× (up to 3
-     full snapshot writes); `RECENT_ITEMS_MAX` (profileStore) and the wizard's
-     `limit = 50` are unshared literals for the same LRU cap.
 
 1. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
@@ -122,6 +72,15 @@ The current production vault has a confirmed pipeline-state integrity incident.
 
 ## ✅ Completed Milestones
 
+- **v0.31.0 — Pipeline State Integrity + Sync Hardening** (release candidate
+  completed 2026-07-03; PR pending): replaced filesystem layer counts with
+  authoritative serving DB counts; added schema-v11 source revisions for
+  status-only LWW; corrected false L2/L3/L4 ready states; repaired Zotero
+  attachment-key L1 resolution and implicit Tesseract failures; atomically wrote
+  sync snapshots; serialized/merged Zotero profile saves; added MCP/worker
+  exports and compound-command export deduplication. Production `second_brain`
+  migrated cleanly with 32/32 L1, zero errors, orphan projections removed, and
+  interrupted jobs recovered to queued.
 - **v0.30.0 — Cross-Device State Sync** (shipped 2026-07-02, PR #78 merged;
   two review rounds fixed on-branch: corrupt/structural profile-store guards,
   migration-ordering safety, incremental-sync export hook, LWW gate `>=` +
@@ -225,7 +184,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.31.0 pipeline-state integrity planning is active.
-- **Active Milestone**: v0.31.0; implementation is blocked on plan approval.
-- **Next actionable item**: approve `.agents/plans/07_pipeline_state_integrity.md`,
-  then create/finalize the evidence ledger and begin docs-first TDD.
+- **Roadmap state**: v0.31.0 implementation and production repair verified.
+- **Active Milestone**: v0.31.0 draft PR #79 pending review.
+- **Next actionable item**: merge the v0.31.0 PR, then resume System Stability
+  Overhaul S2 or the next queued roadmap item.
