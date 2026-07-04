@@ -44,3 +44,16 @@ Ship the current-contract-only portable source path release.
 ## Immediate Next Action
 
 Review and merge draft PR #80.
+
+### Update (2026-07-04, Codex)
+
+- Re-audited cross-device source resolution after removing `wiki paths`.
+- Production `state.sqlite` and the synced device JSONL contain no absolute
+  source locators; all three reference rows use `zotero:<attachment-key>`.
+- The current macOS backend resolved all three keys through the local
+  `/Users/shin/Zotero/zotero.sqlite` and local Zotero attachment preferences.
+- Generic references resolve `@<root_key>/<relative-path>` against this
+  checkout's ignored `.cache/config/config.yml`; Zotero also auto-discovers
+  standard OS locations and Zotero `prefs.js`.
+- Targeted portable-path, Zotero, machine-local config, and DB sync tests pass:
+  47 passed.
