@@ -58,12 +58,12 @@ No urgent items currently tracked.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-7. **[Major Update] Native PDF Annotation & Asset System**
+5. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
-8. **[Minor Update] Web Search Integration**
+6. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md` (Web Search Section)
@@ -72,8 +72,14 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
-- **v0.31.0 — Pipeline State Integrity + Sync Hardening** (release candidate
-  completed 2026-07-03; PR pending): replaced filesystem layer counts with
+- **v0.32.0 — Portable-Path Compatibility Removal** (completed 2026-07-04):
+  removed the `wiki paths` command, standalone portable migration service,
+  DB-connect v9/v10 source-table converter, legacy external-root array
+  conversion, and absolute non-reference relpath fallback. The macOS
+  `second_brain` DB was backed up and normalized to schema 11 with all three
+  Zotero keys preserved; deployed `wiki status` reports backend 0.32.0.
+- **v0.31.0 — Pipeline State Integrity + Sync Hardening** (shipped 2026-07-03,
+  PR #79 merged): replaced filesystem layer counts with
   authoritative serving DB counts; added schema-v11 source revisions for
   status-only LWW; corrected false L2/L3/L4 ready states; repaired Zotero
   attachment-key L1 resolution and implicit Tesseract failures; atomically wrote
@@ -184,7 +190,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.31.0 implementation and production repair verified.
-- **Active Milestone**: v0.31.0 draft PR #79 pending review.
-- **Next actionable item**: merge the v0.31.0 PR, then resume System Stability
-  Overhaul S2 or the next queued roadmap item.
+- **Roadmap state**: v0.32.0 implementation, production normalization, deploy,
+  and local CI are verified.
+- **Active Milestone**: v0.32.0 draft PR #80 pending review.
+- **Next actionable item**: review and merge the v0.32.0 PR, then resume System
+  Stability Overhaul S2.

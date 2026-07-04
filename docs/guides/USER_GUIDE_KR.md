@@ -160,6 +160,10 @@ PDF text parsing은 pymupdf4llm의 host Tesseract OCR을 암묵적으로 실행�
   파일로 해석하며, 해석된 PDF 절대경로는 `.curator/`에 저장하지 않습니다.
 - 일반 external reference는 `@<root_key>/<relative-path>`를 저장합니다.
   기기별 root 값은 repo-local `.cache/config/config.yml`에만 존재합니다.
+- 현재 지원되는 locator 형식은 이 두 가지뿐입니다. Incurator는 `wiki paths`
+  migration 명령을 제공하지 않으며, `wiki status` 같은 일반 명령에서 v0.29
+  이전 absolute source row를 변환하지 않습니다. 이런 구형 device-local DB는
+  현재 source/sync state로 다시 구성한 뒤 이 버전을 사용해야 합니다.
 - 자동 생성된 reference stub에는 기본적으로 PDF 절대 경로를 쓰지 않습니다.
   따라서 외부 PDF 라이브러리의 로컬 위치가 다른 기기에도 안전하게 동기화할 수 있습니다.
 - iPad 필기나 외부 앱 수정으로 PDF hash가 바뀌면 backend는 이를 Hash Drift로 감지해야 합니다.

@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.31.0)
+# Incurator - Schema & Operating Conventions (v0.32.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -636,8 +636,8 @@ the original PDF path in device-local backend state.
 
 ```yaml
 type: reference
-zotero_key: ABCDEF12
-target_path: /absolute/path/to/external.pdf   # Optional fallback or alternative
+logical_source_id: zotero:ABCDEF12
+zotero_attachment_key: ABCDEF12
 ```
 
 Rules:
@@ -651,6 +651,10 @@ Rules:
 - Other external sources store `external_ref` as
   `@<root_key>/<relative-posix-path>`. The matching absolute root exists only in
   repo-local `.cache/config/config.yml` under `external.path_roots`.
+- The backend accepts only the current source-table columns and locator forms.
+  It does not retain an `external_path` / `import_origin` table converter,
+  automatic absolute-path migration in `db.connect()`, or a user-facing
+  `wiki paths` command.
 - For Zotero-backed references, UI/source summaries should use
   `zotero://open-pdf/library/items/<attachment-key>` as the portable display
   path instead of copying the device-local absolute PDF path into `source_path`.
@@ -1451,6 +1455,10 @@ identity. Generic `external_ref` values merge normally because they name a root
 variable, not a device path. The receiving backend resolves that variable from
 its own ignored `.cache/config/config.yml`. `_DEVICE_LOCAL_COLUMNS` must not
 contain source locators.
+
+Only `external.path_roots` and integration `root_keys` are accepted as
+machine-local external-root configuration. The backend does not convert legacy
+`external.roots` or `external.zotero.roots` arrays.
 
 Schema v11 adds and backfills `sources.updated_at`. Fresh and migrated databases
 both enforce the same `NOT NULL` expression default. Migration preserves a

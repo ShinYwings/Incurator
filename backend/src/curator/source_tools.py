@@ -88,57 +88,28 @@ def parse_source(path: Path) -> parsers.ParsedDocument:
 
 
 def external_resources(config: dict) -> list[dict[str, Any]]:
-    """Return normalized external resource roots from config.
-
-    Accepts both the v0.2 nested shape:
-
-        external:
-          roots: [...]
-          zotero:
-            roots: [...]
-
-    and a forgiving `path`/string shorthand used in older notes.
-    """
+    """Return current named external resource roots from config."""
 
     out: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
     external = config.get("external") or {}
     if not isinstance(external, dict):
         return out
 
-    def add_root(name: str, raw: Any, enabled: bool = True) -> None:
-        if raw is None or raw == "":
-            return
-        values = raw if isinstance(raw, list) else [raw]
-        for value in values:
-            if not isinstance(value, str) or not value.strip():
-                continue
-            path = str(Path(value).expanduser())
-            key = (name, path)
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(
-                {
-                    "name": name,
-                    "path": path,
-                    "enabled": bool(enabled),
-                    "exists": Path(path).expanduser().exists(),
-                }
-            )
-
     named_roots = external.get("path_roots")
-    if isinstance(named_roots, dict):
-        for name, root in named_roots.items():
-            add_root(str(name), root, True)
-    for name, spec in external.items():
-        if name in {"roots", "path_roots"}:
+    if not isinstance(named_roots, dict):
+        return out
+    for name, root in named_roots.items():
+        if not isinstance(root, str) or not root.strip():
             continue
-        if isinstance(spec, dict):
-            enabled = bool(spec.get("enabled", True))
-            add_root(str(name), spec.get("roots") or spec.get("path"), enabled)
-        else:
-            add_root(str(name), spec, True)
+        path = Path(root).expanduser()
+        out.append(
+            {
+                "name": str(name),
+                "path": str(path),
+                "enabled": True,
+                "exists": path.exists(),
+            }
+        )
     return out
 
 
@@ -148,7 +119,7 @@ def _row_path(paths: cfg.WikiPaths, row: dict[str, Any]) -> Path | None:
     relpath = str(row.get("relpath") or "")
     candidate = Path(relpath).expanduser()
     if candidate.is_absolute():
-        return candidate
+        return None
     return paths.root / relpath
 
 

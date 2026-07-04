@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.31.0)
+# Incurator - System Behavior (v0.32.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -158,6 +158,11 @@ If a registered Reference Mode source cannot be resolved from its Zotero key or
 portable `external_ref`, backend status reports drift. It never falls back to a
 persisted absolute path. Generic-source rebind requires human approval; Zotero
 path movement is resolved by Zotero DB without rewriting source identity.
+
+Normal commands, including `wiki status`, do not inspect or convert retired
+absolute-path source schemas. There is no `wiki paths` command. A device-local
+DB from before the portable-reference contract is unsupported and must be
+rebuilt from current source/sync state before running this release.
 
 ## 4. `wiki add` Behavior
 

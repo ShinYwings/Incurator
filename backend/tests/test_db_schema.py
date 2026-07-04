@@ -63,20 +63,11 @@ def test_connect_stamps_completed_schema_migration(db_path: Path) -> None:
     assert version == 11
 
 
-@pytest.mark.parametrize("legacy_portable", [False, True])
-def test_migrated_source_updated_at_matches_fresh_schema(
-    tmp_path: Path,
-    legacy_portable: bool,
-) -> None:
-    path = tmp_path / "legacy.sqlite"
-    locator_columns = (
-        "import_origin TEXT, external_path TEXT"
-        if legacy_portable
-        else "import_origin_ref TEXT, external_ref TEXT"
-    )
+def test_schema_v10_source_updated_at_matches_fresh_schema(tmp_path: Path) -> None:
+    path = tmp_path / "schema-v10.sqlite"
     with sqlite3.connect(path) as conn:
         conn.executescript(
-            f"""
+            """
             CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
             INSERT INTO schema_version VALUES (10);
             CREATE TABLE sources (
@@ -96,7 +87,8 @@ def test_migrated_source_updated_at_matches_fresh_schema(
                 layer_error TEXT,
                 domain TEXT,
                 tags TEXT,
-                {locator_columns},
+                import_origin_ref TEXT,
+                external_ref TEXT,
                 import_policy TEXT,
                 is_reference INTEGER NOT NULL DEFAULT 0,
                 logical_source_id TEXT,

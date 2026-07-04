@@ -218,8 +218,8 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
                     "reranker_gguf_file": "rerank.gguf",
                 },
                 "external": {
-                    "roots": ["/machine/library"],
-                    "zotero": {"enabled": True, "roots": ["/machine/Zotero"]},
+                    "path_roots": {"zotero_data": "/machine/Zotero"},
+                    "zotero": {"enabled": True, "root_keys": ["zotero_data"]},
                 },
             },
         )
@@ -229,8 +229,9 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
         self.assertEqual(status["search"]["embedding_model_path"], "")
         self.assertEqual(status["search"]["reranker_model_path"], "")
         self.assertEqual(status["search"]["query_expander_model_path"], "")
-        self.assertEqual(status["external"]["roots"], [])
-        self.assertEqual(status["external"]["zotero"]["roots"], [])
+        self.assertNotIn("roots", status["external"])
+        self.assertNotIn("roots", status["external"]["zotero"])
+        self.assertEqual(status["external"]["path_roots"], {})
         self.assertEqual(status["search_models"]["embed"]["path"], "")
         self.assertEqual(status["search_models"]["reranker"]["path"], "")
         self.assertEqual(status["search_models"]["cache_dir"], "")

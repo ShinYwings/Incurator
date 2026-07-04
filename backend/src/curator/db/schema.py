@@ -902,7 +902,6 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
             conn.execute("PRAGMA foreign_keys = ON")
 
     _add_column_if_missing(conn, "sources", "updated_at", "updated_at TEXT")
-    _migrate_v10_portable_sources(conn)
     _migrate_v11_source_revisions(conn)
     conn.executescript(
         """
@@ -957,98 +956,6 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
                 "UPDATE schema_version SET version = ?",
                 (SCHEMA_VERSION,),
             )
-
-
-def _migrate_v10_portable_sources(conn: sqlite3.Connection) -> None:
-    """Replace legacy absolute-path source columns with portable refs.
-
-    Rows containing absolute legacy locators require the explicit config-aware
-    migration service. Empty/non-absolute legacy columns can be rebuilt safely
-    during normal schema initialization.
-    """
-    columns = _column_names(conn, "sources")
-    if {"external_ref", "import_origin_ref"} <= columns:
-        return
-    if "external_path" not in columns or "import_origin" not in columns:
-        return
-    absolute = conn.execute(
-        """
-        SELECT id FROM sources
-        WHERE relpath LIKE '/%'
-           OR external_path LIKE '/%'
-           OR import_origin LIKE '/%'
-           OR external_path GLOB '[A-Za-z]:[\\/]*'
-           OR import_origin GLOB '[A-Za-z]:[\\/]*'
-        LIMIT 1
-        """
-    ).fetchone()
-    if absolute is not None:
-        raise RuntimeError(
-            "portable path migration required; run `wiki paths migrate --apply`"
-        )
-
-    conn.execute("PRAGMA foreign_keys = OFF")
-    conn.executescript(
-        """
-        DROP INDEX IF EXISTS idx_sources_external_path;
-        CREATE TABLE sources_v10 (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            relpath TEXT NOT NULL UNIQUE,
-            content_hash TEXT NOT NULL,
-            file_type TEXT NOT NULL,
-            bytes INTEGER NOT NULL,
-            added_at TEXT NOT NULL,
-            last_ingested TEXT,
-            status TEXT NOT NULL DEFAULT 'pending',
-            context_id TEXT,
-            l1_status TEXT NOT NULL DEFAULT 'pending',
-            l2_status TEXT NOT NULL DEFAULT 'pending',
-            l3_status TEXT NOT NULL DEFAULT 'pending',
-            l4_status TEXT NOT NULL DEFAULT 'pending',
-            layer_error TEXT,
-            domain TEXT,
-            tags TEXT,
-            import_origin_ref TEXT,
-            import_policy TEXT,
-            external_ref TEXT,
-            is_reference INTEGER NOT NULL DEFAULT 0,
-            logical_source_id TEXT,
-            error_reason TEXT,
-            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-        );
-        INSERT INTO sources_v10 (
-            id, relpath, content_hash, file_type, bytes, added_at,
-            last_ingested, status, context_id,
-            l1_status, l2_status, l3_status, l4_status,
-            layer_error, domain, tags, import_origin_ref, import_policy,
-            external_ref, is_reference, logical_source_id, error_reason, updated_at
-        )
-        SELECT
-            id, relpath, content_hash, file_type, bytes, added_at,
-            last_ingested, status, context_id,
-            l1_status, l2_status, l3_status, l4_status,
-            layer_error, domain, tags, NULLIF(import_origin, ''), import_policy,
-            NULLIF(external_path, ''), is_reference, logical_source_id, error_reason,
-            CASE
-                WHEN updated_at IS NOT NULL AND updated_at != ''
-                THEN updated_at
-                WHEN length(COALESCE(last_ingested, added_at, '')) = 20
-                THEN substr(COALESCE(last_ingested, added_at), 1, 19) || '.000Z'
-                WHEN COALESCE(last_ingested, added_at, '') != ''
-                THEN COALESCE(last_ingested, added_at)
-                ELSE strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            END
-        FROM sources;
-        DROP TABLE sources;
-        ALTER TABLE sources_v10 RENAME TO sources;
-        CREATE INDEX idx_sources_hash ON sources(content_hash);
-        CREATE INDEX idx_sources_status ON sources(status);
-        CREATE INDEX idx_sources_domain ON sources(domain);
-        CREATE INDEX idx_sources_logical_source_id ON sources(logical_source_id);
-        CREATE INDEX idx_sources_external_ref ON sources(external_ref);
-        """
-    )
-    conn.execute("PRAGMA foreign_keys = ON")
 
 
 def _migrate_v11_source_revisions(conn: sqlite3.Connection) -> None:

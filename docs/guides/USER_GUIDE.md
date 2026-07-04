@@ -195,6 +195,10 @@ Syncthing, browser download folders, or other external locations.
 - Other external references persist `@<root_key>/<relative-path>`. The
   device-specific root value exists only in repo-local
   `.cache/config/config.yml`.
+- These are the only supported locator forms. Incurator exposes no
+  `wiki paths` migration command and normal commands such as `wiki status` do
+  not convert pre-v0.29 absolute source rows. Rebuild an unsupported legacy
+  device-local DB from current source/sync state before using this release.
 - Automatically generated reference stubs do not include absolute PDF paths by
   default, so they can safely synchronize to another device whose external PDF
   library lives elsewhere.
