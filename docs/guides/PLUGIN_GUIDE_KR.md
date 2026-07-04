@@ -824,7 +824,9 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
 
 - **트리거**: Obsidian이 열릴 때 1회(열 때 자동 동기화), Syncthing이 피어 파일을 전달했을 때 실시간 감지(수신 동기화 데이터 감시 — 데스크톱 전용), 60초 안전 폴링, 수동 **Sync Knowledge DB** 리본 버튼.
 - **한 번의 동기화가 하는 일**: 백엔드에서 `wiki db autosync`를 실행 — 다른 모든 기기의 스냅샷(`.curator/sync/dev-<id>.jsonl`)을 가져오고, Syncthing `*.sync-conflict-*` 파일을 병합한 뒤, 변경이 있으면 자기 스냅샷을 씁니다. 무거운 작업은 모두 백엔드 서브프로세스에서 실행되어 Obsidian UI가 멈추지 않습니다.
-- **병합 안전성**: 행 단위 Last-Write-Wins + tombstone — 두 기기의 오프라인 편집이 모두 살아남고 삭제도 전파됩니다. 파일 통째 덮어쓰기 없음.
+- **병합 안전성**: 행 단위 Last-Write-Wins + tombstone — 동시 읽기와 서로
+  다른 source 편집은 안전하고, 동일 record 편집은 더 최신 행으로
+  해소됩니다. 삭제도 전파되며 파일 통째 덮어쓰기는 없습니다.
 - **피드백**: 실행 중 상태 표시줄 `⟳ Sync`, 그리고 실제로 변경이 적용됐을 때만 토스트 알림(동기화 변경 알림).
 
 Source layer 상태는 source row 전용 `updated_at` revision을 사용하므로 L1-L4
@@ -851,7 +853,11 @@ merge는 crash하지 않고 해당 property를 빈 배열로 취급합니다.
 > 변경도 하지 않는 기기는 새 지식을 피어에게 영영 발행하지 않게 됩니다.
 
 > [!NOTE]
-> `.curator/state.sqlite`와 `.curator/sync_state.json`은 기기 로컬로 유지되며, `.curator/sync/`의 JSONL 스냅샷만 기기 간 이동합니다. 사용자 가이드 "기기 간 지식 동기화"와 동기화 무시 가이드를 참고하세요.
+> `.curator/state.sqlite`는 기기 로컬로 유지됩니다. device id와 peer
+> high-water mark는 vault 밖의
+> `.cache/config/sync_state/<vault-root-hash>.json`에 저장되고,
+> `.curator/sync/`의 JSONL 스냅샷만 기기 간 이동합니다. 사용자 가이드
+> "기기 간 지식 동기화"와 동기화 무시 가이드를 참고하세요.
 
 ### 세션 히스토리 (sessions.json)
 

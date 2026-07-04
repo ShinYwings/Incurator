@@ -780,11 +780,15 @@ wiki db autosync --dry-run   # 실제 변경 없이 미리 보기
 기기 간 안전성을 보장하는 방식:
 
 - **기기당 파일 1개.** 각 기기는 자기 `.curator/sync/dev-<id>.jsonl`만 쓰고 나머지는 읽기만 합니다. 두 기기가 같은 파일을 쓰지 않으므로 Syncthing이 쓰기-쓰기 충돌을 만들지 않습니다.
-- **Last-Write-Wins 병합.** 레코드는 타임스탬프 기준으로 행 단위 병합되고, 삭제는 tombstone으로 전파됩니다. 두 기기에서 오프라인으로 각각 편집해도 모두 살아남으며 — 파일 통째 덮어쓰기는 없습니다.
+- **Last-Write-Wins 병합.** 레코드는 타임스탬프 기준으로 행 단위 병합되고, 삭제는 tombstone으로 전파됩니다. 동시 읽기와 서로 다른 source record 편집은 안전합니다. 동일한 logical record를 두 기기에서 수정하면 더 최신 행이 이깁니다.
 - **무한 루프 없음** — 취약한 해시 가드 없이. 기기는 자기 파일을 가져오지 않고, 실제로 변경이 있을 때만 다시 내보냅니다.
 - **Syncthing 충돌 파일**(`*.sync-conflict-*`)은 일반 피어로 가져와(항상 데이터 안전) `.curator/runtime/sync_conflicts/`에 보관됩니다.
 
-`.curator/state.sqlite`와 `.curator/sync_state.json`은 기기 로컬로 유지되며(`.stignore` 제외), `.curator/sync/`의 JSONL 파일만 기기 간 이동합니다. Obsidian 플러그인은 `wiki db autosync`를 자동으로 실행해 줍니다 — 플러그인 가이드 참고.
+`.curator/state.sqlite`는 기기 로컬로 유지됩니다(`.stignore` 제외).
+동기화 bookkeeping은 vault 밖의
+`.cache/config/sync_state/<vault-root-hash>.json`에 저장되고,
+`.curator/sync/`의 JSONL 파일만 기기 간 이동합니다. Obsidian 플러그인은
+`wiki db autosync`를 자동으로 실행해 줍니다 — 플러그인 가이드 참고.
 
 **CLI 명령 후 자동 내보내기 (v0.30.0부터 기본 켜짐).** `auto_sync.enabled`의 기본값은 `true`입니다: 변경을 일으키는 모든 CLI 명령(`wiki add`, `wiki build`, `wiki sync`, `wiki update`)이 끝날 때 이 기기의 스냅샷을 기록하므로, Obsidian 플러그인이 꺼진 기기에서도 피어들이 항상 최신 지식을 받습니다. 끄려면 `.curator/settings.yml`에 `auto_sync.enabled: false`를 설정하세요. Syncthing이 없어도 내보내기는 무해한 로컬 파일일 뿐입니다.
 

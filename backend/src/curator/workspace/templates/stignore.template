@@ -35,11 +35,6 @@ node_modules/
 // 짧은 주기로 업데이트되므로 동기화 시 심각한 충돌과 트래픽 유발
 .curator/runtime/
 
-// Incurator auto-sync: 기기별 로컬 동기화 마크 (device_id, peer high-water marks)
-// 동기화되면 기기끼리 서로의 마크를 덮어써 재import 폭주를 유발하므로 반드시 로컬 유지.
-// (단, .curator/sync/ 의 dev-*.jsonl 지식 파일은 동기화되어야 하므로 제외하지 않음)
-.curator/sync_state.json
-
 // 에이전트 및 테스트베드
 .claude/
 .antigravity/

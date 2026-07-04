@@ -44,12 +44,6 @@ node_modules/
 // Syncing these causes massive conflicts and battery drain
 .curator/runtime/
 
-// Incurator auto-sync: per-device local marks (device_id, peer high-water marks)
-// Must stay local — syncing it makes devices overwrite each other's marks and
-// trigger re-import storms. NOTE: do NOT exclude .curator/sync/ — those dev-*.jsonl
-// knowledge snapshots are exactly what Syncthing must carry between devices.
-.curator/sync_state.json
-
 // Agent & Testbed (Optional)
 .claude/
 testbed/
@@ -58,8 +52,10 @@ testbed/
 > [!IMPORTANT]
 > Cross-device auto-sync (`wiki db autosync`) relies on Syncthing carrying the
 > `.curator/sync/dev-<device_id>.jsonl` snapshot files. Keep `.curator/sync/`
-> **synced**; only `.curator/state.sqlite` and `.curator/sync_state.json` are
-> device-local. See USER_GUIDE "Cross-Device Knowledge Sync" and SYSTEM_BEHAVIOR §13.1.
+> **synced**; `.curator/state.sqlite` stays device-local, while sync bookkeeping
+> lives outside the vault under
+> `.cache/config/sync_state/<vault-root-hash>.json`. See USER_GUIDE
+> "Cross-Device Knowledge Sync" and SYSTEM_BEHAVIOR §13.1.
 > Snapshot and local sync-state writes use temp-file + atomic rename, so peers
 > never observe a partially written JSONL file.
 
@@ -209,5 +205,5 @@ Thumbs.db
 
 1.  **SQLite DB Management**: The `state.sqlite` file must stay device-local — not because its knowledge is device-specific (all stored paths are vault-relative or portable `@root_key` references), but because raw SQLite files cannot be safely synchronized: whole-file sync via **Git OR Syncthing** causes merge conflicts and file corruption (WAL/SHM locks), and a whole-file overwrite would destroy the row-level merges the JSONL transport performs. Knowledge crosses devices through the `.curator/sync/dev-<id>.jsonl` snapshots instead (see SYSTEM_BEHAVIOR §13.1); each device rebuilds only its local search index (`wiki reindex`).
 2.  **Keep the export triggers alive**: since v0.30.0 the CLI exports this device's snapshot after every mutating command (`auto_sync.enabled` defaults to `true`), and the Obsidian plugin drives `wiki db autosync` when `incuratorEnabled` is on. If a device shows a stale, smaller source count, run `wiki db autosync --dry-run` on the *other* device — a pending `would_export` means its snapshot never shipped.
-3.  **Conflict Prevention**: Ensure that database files and the `.curator/runtime/` directory are properly ignored in both Git and Syncthing to prevent massive conflicts and battery drain.
+3.  **Conflict Prevention**: Ensure that database files and the `.curator/runtime/` directory are properly ignored in both Git and Syncthing to prevent massive conflicts and battery drain. Sync identity and peer high-water marks are kept in backend `.cache/config`, so they cannot be shared through the vault.
 4.  **Syncthing Tip**: After setting up your Vault folder in Syncthing, go to folder settings -> "Ignore Patterns" tab, and paste the contents of the `.stignore` section above.

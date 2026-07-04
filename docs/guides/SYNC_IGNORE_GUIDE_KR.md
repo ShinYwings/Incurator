@@ -43,11 +43,6 @@ node_modules/
 // 짧은 주기로 업데이트되므로 동기화 시 심각한 충돌과 트래픽 유발
 .curator/runtime/
 
-// Incurator 자동 동기화: 기기별 로컬 마크 (device_id, peer high-water mark)
-// 반드시 로컬 유지 — 동기화되면 기기끼리 서로의 마크를 덮어써 재import 폭주를 유발.
-// 주의: .curator/sync/ 는 제외하지 말 것 — dev-*.jsonl 지식 스냅샷은 Syncthing이 기기 간에 운반해야 함.
-.curator/sync_state.json
-
 // 에이전트 및 테스트베드 (선택 사항)
 .claude/
 testbed/
@@ -56,9 +51,10 @@ testbed/
 > [!IMPORTANT]
 > 기기 간 자동 동기화(`wiki db autosync`)는 Syncthing이
 > `.curator/sync/dev-<device_id>.jsonl` 스냅샷 파일을 운반하는 것에 의존합니다.
-> `.curator/sync/`는 **동기화 유지**하고, `.curator/state.sqlite`와
-> `.curator/sync_state.json`만 기기 로컬로 두세요. USER_GUIDE "기기 간 지식 동기화"와
-> SYSTEM_BEHAVIOR §13.1 참고.
+> `.curator/sync/`는 **동기화 유지**하고, `.curator/state.sqlite`는 기기
+> 로컬로 두세요. 동기화 bookkeeping은 vault 밖의
+> `.cache/config/sync_state/<vault-root-hash>.json`에 저장됩니다. USER_GUIDE
+> "기기 간 지식 동기화"와 SYSTEM_BEHAVIOR §13.1 참고.
 > Snapshot과 local sync-state는 temp file 작성 후 atomic rename하므로 peer가
 > 일부만 기록된 JSONL 파일을 읽지 않습니다.
 
@@ -198,5 +194,5 @@ Thumbs.db
 
 1.  **SQLite DB 관리**: `state.sqlite` 파일은 반드시 기기 로컬로 유지해야 합니다 — 그 안의 지식이 기기 종속적이어서가 아니라(저장되는 경로는 모두 vault 상대 경로이거나 이식 가능한 `@root_key` 참조입니다), 원본 SQLite 파일 자체를 안전하게 동기화할 수 없기 때문입니다. **Git 또는 Syncthing**으로 파일 통째 동기화하면 병합 충돌과 파일 손상(WAL/SHM 잠금)이 발생하고, 파일 통째 덮어쓰기는 JSONL 전송이 수행하는 행 단위 병합을 파괴합니다. 지식은 대신 `.curator/sync/dev-<id>.jsonl` 스냅샷을 통해 기기 간 이동합니다(SYSTEM_BEHAVIOR §13.1 참고). 각 기기는 로컬 검색 인덱스만 다시 빌드하면 됩니다(`wiki reindex`).
 2.  **내보내기 트리거를 살려 두세요**: v0.30.0부터 CLI는 변경을 일으키는 모든 명령 후에 이 기기의 스냅샷을 내보내며(`auto_sync.enabled` 기본값 `true`), Obsidian 플러그인은 `incuratorEnabled`가 켜져 있을 때 `wiki db autosync`를 실행합니다. 어떤 기기가 오래된, 더 작은 소스 개수를 보여 준다면 *다른* 기기에서 `wiki db autosync --dry-run`을 실행해 보세요 — `would_export`가 대기 중이라면 그 기기의 스냅샷이 전송된 적이 없다는 뜻입니다.
-3.  **충돌 예방**: 데이터베이스 파일과 `.curator/runtime/` 디렉터리가 Git과 Syncthing 양쪽에서 제대로 무시되는지 확인하여 대규모 충돌과 배터리 소모를 방지하세요.
+3.  **충돌 예방**: 데이터베이스 파일과 `.curator/runtime/` 디렉터리가 Git과 Syncthing 양쪽에서 제대로 무시되는지 확인하여 대규모 충돌과 배터리 소모를 방지하세요. Sync identity와 peer high-water mark는 backend `.cache/config`에 있으므로 vault를 통해 공유되지 않습니다.
 4.  **Syncthing 팁**: Syncthing에서 Vault 폴더를 설정한 후, 폴더 설정 -> "무시 패턴(Ignore Patterns)" 탭에서 위 `.stignore` 섹션의 내용을 붙여넣으세요.

@@ -40,7 +40,10 @@ Date: 2026-07-04
 
 ## Post-Implementation Validation
 
-- Cache isolation: pending.
-- Two-device convergence: pending.
+- Cache isolation: passed; vault-local shared ids are ignored and state files
+  are namespaced under isolated backend cache roots.
+- Two-device convergence: passed; simulated macOS/Linux backends starting with
+  the same old id emitted distinct snapshots and retained both devices' rows.
+- Targeted sync/CLI/runtime suite: 44 passed; Ruff passed.
 - Full backend/plugin CI: pending.
 - Production recovery: pending.

@@ -266,7 +266,7 @@ DEFAULT_CONFIG: dict = {
         # stale snapshot.) Without Syncthing the export is a harmless local file.
         "enabled": True,
         # Folder under .curator/ holding per-device export files. This folder IS
-        # synced by Syncthing; .curator/sync_state.json (local marks) is NOT.
+        # synced by Syncthing; local marks live in repo .cache/config instead.
         "dir": "sync",
         # Plugin file-watcher debounce / fallback poll (milliseconds).
         "debounce_ms": 4000,

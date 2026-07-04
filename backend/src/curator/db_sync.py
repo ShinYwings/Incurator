@@ -7,6 +7,7 @@ Usage:
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import logging
 import os
@@ -26,10 +27,10 @@ SCHEMA_VERSION = db.SCHEMA_VERSION
 # as device-local during LWW merge.
 _DEVICE_LOCAL_COLUMNS: dict[str, set[str]] = {}
 
-# Device-local sync bookkeeping file. Lives directly under .curator/, holds this
-# device's id and per-peer high-water marks. MUST be excluded from Syncthing
-# (.stignore) so peers never fight over each other's marks.
-SYNC_STATE_FILE = "sync_state.json"
+# Device-local sync bookkeeping lives in the backend cache, outside the synced
+# vault. The resolved vault root is hashed to isolate multiple vaults without
+# exposing their absolute paths in cache filenames.
+SYNC_STATE_DIR = "sync_state"
 
 # Tables exported in this order. deleted_records must be first so tombstones
 # are applied before upserts during import.
@@ -181,12 +182,16 @@ def record_tombstone(db_path: Path, table_name: str, record_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Device-local sync state (.curator/sync_state.json — NOT synced)
+# Device-local sync state (backend .cache/config — outside the vault)
 # ---------------------------------------------------------------------------
 
 
 def _sync_state_path(internal_dir: Path) -> Path:
-    return internal_dir / SYNC_STATE_FILE
+    from . import config as cfg
+
+    vault_root = internal_dir.parent.expanduser().resolve(strict=False)
+    vault_key = hashlib.sha256(str(vault_root).encode("utf-8")).hexdigest()[:16]
+    return cfg.get_global_config_dir() / SYNC_STATE_DIR / f"{vault_key}.json"
 
 
 def read_sync_state(internal_dir: Path) -> dict:

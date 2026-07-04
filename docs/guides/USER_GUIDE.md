@@ -815,11 +815,15 @@ wiki db autosync --dry-run   # preview without writing
 How it stays safe across devices:
 
 - **One file per device.** Each device writes only its own `.curator/sync/dev-<id>.jsonl` and reads everyone else's. Because no two devices write the same file, Syncthing never creates write-write conflicts.
-- **Last-Write-Wins merge.** Records merge row-by-row by timestamp; deletes propagate via tombstones. Concurrent offline edits on two devices both survive — there is no whole-file overwrite.
+- **Last-Write-Wins merge.** Records merge row-by-row by timestamp; deletes propagate via tombstones. Concurrent reads and edits to different source records are safe. If the same logical record is edited on both devices, the newer row wins.
 - **No infinite loops** — without any fragile hash guard. A device never imports its own file, and it re-exports only when something actually changed.
 - **Syncthing conflict files** (`*.sync-conflict-*`) are imported as ordinary peers (always data-safe) and archived under `.curator/runtime/sync_conflicts/`.
 
-`.curator/state.sqlite` and `.curator/sync_state.json` stay device-local (excluded in `.stignore`); only the `.curator/sync/` JSONL files travel between devices. The Obsidian plugin drives `wiki db autosync` for you — see the Plugin Guide.
+`.curator/state.sqlite` stays device-local (excluded in `.stignore`). Sync
+bookkeeping lives outside the vault under
+`.cache/config/sync_state/<vault-root-hash>.json`; only the
+`.curator/sync/` JSONL files travel between devices. The Obsidian plugin drives
+`wiki db autosync` for you — see the Plugin Guide.
 
 **Automatic export after CLI commands (default-on since v0.30.0).** `auto_sync.enabled` defaults to `true`: every mutating CLI command (`wiki add`, `wiki build`, `wiki sync`, `wiki update`) writes this device's snapshot when it finishes, so peers always receive your latest knowledge even on devices where the Obsidian plugin is disabled. Set `auto_sync.enabled: false` in `.curator/settings.yml` to opt out. Without Syncthing the export is just a harmless local file.
 

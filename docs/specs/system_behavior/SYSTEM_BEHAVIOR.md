@@ -984,17 +984,19 @@ synced.
 `.curator/sync/dev-<device_id>.jsonl` and imports every *other* device's file.
 Because no two devices ever write the same file, Syncthing produces no
 write-write conflicts under normal operation. `device_id` is generated once and
-stored in `.curator/sync_state.json` (device-local; see §13.3). The exported file
-is a **full snapshot** (not a delta) so a late-joining peer always receives the
-complete view that device holds.
+stored with peer high-water marks in the backend-local cache (see §13.3), never
+inside the synchronized vault. The exported file is a **full snapshot** (not a
+delta) so a late-joining peer always receives the complete view that device
+holds.
 
 **Conflict resolution — LWW + tombstones.** Import is a row-level
 Last-Write-Wins upsert keyed by each table's `updated_at`/`last_updated` column,
 plus tombstone reconciliation via `deleted_records`. There is **no whole-file
-replace**, so concurrent offline edits on two devices both survive: the row with
-the newer timestamp wins, and a delete wins only when its `deleted_at` is newer
-than the competing edit. Import preserves the source row's timestamp and never
-stamps `now()`.
+replace**, so concurrent reads and edits to disjoint source records remain safe.
+If the same logical row is edited on both devices, the row with the newer
+timestamp wins; a delete wins only when its `deleted_at` is newer than the
+competing edit. Import preserves the source row's timestamp and never stamps
+`now()`.
 
 `sources.updated_at` is the source-row LWW clock. Every local source mutation,
 including layer-status-only changes, advances it. `last_ingested` remains ingest
@@ -1058,15 +1060,21 @@ stale-snapshot condition is visible without mutating anything.
 as an ordinary LWW peer — which is always data-safe — then moves it out of the
 synced tree into `.curator/runtime/sync_conflicts/` and surfaces a UI notice.
 
-## 13.3 Device-Local Sync State (`sync_state.json`)
+## 13.3 Device-Local Sync State (Backend Cache)
 
-`.curator/sync_state.json` holds this device's `device_id`, its `last_export_ts`,
-and per-peer `last_imported_mtime` high-water marks (so a peer file is imported
-exactly once per change and a late Syncthing delivery is never missed). It MUST
-be excluded from Syncthing (`.stignore`); if it were synced, devices would
-overwrite each other's marks and trigger re-import storms. The synced
-`.curator/sync/` directory itself is NOT excluded — those files are the
-transport.
+The device id, `last_export_ts`, and per-peer `last_imported_mtime` high-water
+marks live at:
+
+```text
+.cache/config/sync_state/<vault-root-hash>.json
+```
+
+The hash namespaces multiple vaults without exposing their absolute paths in a
+filename. This state is structurally outside the synchronized vault, so
+correctness does not depend on every existing `.stignore` having received a
+new pattern. A vault-local `.curator/sync_state.json` is unsupported and is not
+read. The `.curator/sync/` directory remains synchronized because its JSONL
+files are the transport.
 
 ## 13.4 Machine-Local Configuration
 

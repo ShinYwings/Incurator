@@ -933,8 +933,9 @@ no manual export/import.
   device's snapshot (`.curator/sync/dev-<id>.jsonl`), merges any Syncthing
   `*.sync-conflict-*` files, then writes this device's own snapshot if anything changed.
   All heavy work runs in the backend subprocess, so the Obsidian UI never freezes.
-- **Merge safety**: row-level Last-Write-Wins + tombstones — concurrent offline edits on
-  two devices both survive; deletes propagate. No whole-file overwrite.
+- **Merge safety**: row-level Last-Write-Wins + tombstones — concurrent reads and
+  disjoint-source edits are safe; same-record edits resolve to the newer row.
+  Deletes propagate. No whole-file overwrite.
 - **Feedback**: a status-bar `⟳ Sync` while running, and a toast only when a sync actually
   applied changes (Notify on sync changes).
 
@@ -963,8 +964,10 @@ crashing.
 > CLI will simply never publish new knowledge to its peers.
 
 > [!NOTE]
-> `.curator/state.sqlite` and `.curator/sync_state.json` stay device-local; only the
-> `.curator/sync/` JSONL snapshots travel between devices. See the User Guide
+> `.curator/state.sqlite` stays device-local. Device id and peer high-water
+> marks live outside the vault under
+> `.cache/config/sync_state/<vault-root-hash>.json`; only the `.curator/sync/`
+> JSONL snapshots travel between devices. See the User Guide
 > "Cross-Device Knowledge Sync" and the Sync Ignore Guide.
 
 ### Session history (`sessions.json`)
