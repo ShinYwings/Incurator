@@ -57,3 +57,13 @@ Review and merge draft PR #80.
   standard OS locations and Zotero `prefs.js`.
 - Targeted portable-path, Zotero, machine-local config, and DB sync tests pass:
   47 passed.
+
+### Update (2026-07-04, Codex, review follow-up)
+
+- Checked both Gemini review threads on PR #80; both were already marked
+  resolved on GitHub.
+- `backend/tests/test_cli_update.py` already imports `click`, so no change was
+  required for the first comment.
+- Removed the redundant second `Path` construction in
+  `source_tools.external_resources` without changing its output.
+- Targeted CLI/source-tool/portable-path tests pass (37 passed); Ruff passes.

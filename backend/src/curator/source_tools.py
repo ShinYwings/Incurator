@@ -101,13 +101,13 @@ def external_resources(config: dict) -> list[dict[str, Any]]:
     for name, root in named_roots.items():
         if not isinstance(root, str) or not root.strip():
             continue
-        path = str(Path(root).expanduser())
+        path = Path(root).expanduser()
         out.append(
             {
                 "name": str(name),
-                "path": path,
+                "path": str(path),
                 "enabled": True,
-                "exists": Path(path).exists(),
+                "exists": path.exists(),
             }
         )
     return out
