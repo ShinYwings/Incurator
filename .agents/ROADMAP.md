@@ -22,11 +22,20 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-- **[HOTFIX v0.32.1] Cross-device sync identity collision** *(ACTIVE)*:
-  macOS and Linux inherited the same synced `.curator/sync_state.json` device
-  id, wrote one `dev-*.jsonl`, and stopped importing each other. Move
-  device-local sync bookkeeping to backend `.cache/config`, regenerate distinct
-  snapshot identities, and prove L1-L4 convergence.
+No urgent items currently tracked.
+
+### 🚨 Immediate Next Release
+
+- **[Minor v0.33.0] Cross-Device Integrity Boundary** *(AUDIT COMPLETE;
+  PLAN REQUIRED)*:
+  enforce the storage rule that machine-local state lives only under the
+  Incurator repo `.cache/`, while portable/shared state lives under the vault
+  `.curator/`. The audit reproduced four critical merge defects: numeric source
+  id collisions lose disjoint sources, source deletions emit no tombstones,
+  stale compiler generations overwrite authoritative status, and imports accept
+  local-only tables outside the sync allowlist. The same batch must move
+  vault-local runtime/staging/PDF/CLI caches, remove shared singleton writer
+  collisions, and add cross-device invariants before resuming other roadmap work.
 
 ### 🚀 Priority Order
 
@@ -76,6 +85,12 @@ Source of Truth to identify unresolved items.
 
 ## ✅ Completed Milestones
 
+- **v0.32.1 — Cross-Device Sync Identity Isolation** (release ready
+  2026-07-04): moved device id and peer high-water marks out of the synchronized
+  vault into backend-local `.cache/config/sync_state/`. Shared vault-local ids
+  can no longer collapse macOS/Linux onto one snapshot filename. Mac production
+  is deployed with a new id; final data round trip awaits the currently offline
+  Linux Syncthing peer.
 - **v0.32.0 — Portable-Path Compatibility Removal** (shipped 2026-07-04,
   PR #80 merged):
   removed the `wiki paths` command, standalone portable migration service,
@@ -195,7 +210,9 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.32.1 cross-device sync identity hotfix in progress.
-- **Active Milestone**: eliminate shared device identity and converge macOS/Linux
-  authoritative DB state.
-- **Next actionable item**: execute `.agents/plans/02_sync_identity_hotfix.md`.
+- **Roadmap state**: v0.32.1 implementation, CI, testbed, and macOS deployment
+  are complete; release PR pending.
+- **Active Milestone**: v0.32.1 release review.
+- **Next actionable item**: merge the v0.32.1 hotfix, update/reconnect Linux,
+  verify both Dashboards converge after autosync, then plan v0.33.0
+  Cross-Device Integrity Boundary before further sync changes.

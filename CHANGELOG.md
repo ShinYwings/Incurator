@@ -4,6 +4,18 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.32.1] - 2026-07-04
+### Fixed
+- Cross-device knowledge sync no longer stores device identity and peer
+  high-water marks inside the synchronized vault. Bookkeeping now lives under
+  backend-local `.cache/config/sync_state/`, so macOS and Linux cannot inherit
+  the same device id and overwrite one `dev-*.jsonl` snapshot.
+- Backends with a previously shared vault-local id immediately create distinct
+  snapshots and resume row-level convergence. Concurrent reads and edits to
+  different source records remain supported; same-record edits still use LWW.
+
+---
+
 ## [0.32.0] - 2026-07-04
 ### Changed
 - External source configuration now accepts only the current

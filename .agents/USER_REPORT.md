@@ -6,5 +6,6 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
-_(empty — the 2026-07-04 cross-device dashboard divergence report was triaged
-into the v0.32.1 hotfix queue.)_
+_(empty — the 2026-07-04 cross-device dashboard divergence report was resolved
+in the v0.32.1 hotfix; the broader storage/merge audit was triaged into the
+v0.33.0 roadmap batch.)_
