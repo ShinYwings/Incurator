@@ -22,7 +22,11 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent items currently tracked.
+- **[HOTFIX v0.32.1] Cross-device sync identity collision** *(ACTIVE)*:
+  macOS and Linux inherited the same synced `.curator/sync_state.json` device
+  id, wrote one `dev-*.jsonl`, and stopped importing each other. Move
+  device-local sync bookkeeping to backend `.cache/config`, regenerate distinct
+  snapshot identities, and prove L1-L4 convergence.
 
 ### 🚀 Priority Order
 
@@ -191,7 +195,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.32.0 shipped (PR #80 merged 2026-07-04). System is IDLE.
-- **Active Milestone**: None (System IDLE).
-- **Next actionable item**: resume System Stability Overhaul S2
-  (CM-1/PL-1/DB-2 god-file decomposition and remaining XC-1 slices).
+- **Roadmap state**: v0.32.1 cross-device sync identity hotfix in progress.
+- **Active Milestone**: eliminate shared device identity and converge macOS/Linux
+  authoritative DB state.
+- **Next actionable item**: execute `.agents/plans/02_sync_identity_hotfix.md`.
