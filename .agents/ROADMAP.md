@@ -72,7 +72,8 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
-- **v0.32.0 — Portable-Path Compatibility Removal** (completed 2026-07-04):
+- **v0.32.0 — Portable-Path Compatibility Removal** (shipped 2026-07-04,
+  PR #80 merged):
   removed the `wiki paths` command, standalone portable migration service,
   DB-connect v9/v10 source-table converter, legacy external-root array
   conversion, and absolute non-reference relpath fallback. The macOS
@@ -190,8 +191,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.32.0 implementation, production normalization, deploy,
-  and local CI are verified.
-- **Active Milestone**: v0.32.0 draft PR #80 pending review.
-- **Next actionable item**: review and merge the v0.32.0 PR, then resume System
-  Stability Overhaul S2.
+- **Roadmap state**: v0.32.0 shipped (PR #80 merged 2026-07-04). System is IDLE.
+- **Active Milestone**: None (System IDLE).
+- **Next actionable item**: resume System Stability Overhaul S2
+  (CM-1/PL-1/DB-2 god-file decomposition and remaining XC-1 slices).
