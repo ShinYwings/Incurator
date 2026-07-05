@@ -322,13 +322,13 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
   });
 
   it("stores device-local CLI caches in the project .cache/, not ~/.incurator", () => {
-    // getCliCwd() now resolves to <repo>/.cache/cli or vault .curator/runtime/cli,
-    // never ~/ or OS tmp.
+    // getCliCwd() resolves only to <repo>/.cache/cli, never the vault, ~/,
+    // or OS tmp.
     expect(source).toContain('join(configured, ".cache", "cli")');
-    expect(source).toContain('join(this.vaultRoot, ".curator", "runtime", "cli")');
+    expect(source).not.toContain('join(this.vaultRoot, ".curator", "runtime", "cli")');
     expect(source).toContain('const dir = join(this.cliCacheBase(), "tmp")');
     expect(source).toContain("tempEnv = { TMPDIR: tempDir, TEMP: tempDir, TMP: tempDir };");
-    expect(source).toContain("Incurator CLI cache requires either incuratorRepoPath or vault root.");
+    expect(source).toContain("Incurator CLI cache requires incuratorRepoPath.");
     expect(source).not.toContain('join(tmpdir(), "incurator-cli")');
     expect(source).not.toContain('join(homedir(), ".incurator-obsidian-agent-cli")');
     expect(source).not.toContain('join(homedir(), ".incurator", "tmp_images")');
