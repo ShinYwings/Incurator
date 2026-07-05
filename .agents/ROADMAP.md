@@ -26,12 +26,7 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-- **[Hotfix v0.32.1] Cross-Device Integrity Boundary** *(ACTIVE)*:
-  expand PR #82 to fix numeric source-id collisions, deletion propagation,
-  generation rollback, importer validation, snapshot identity, and the
-  machine-local/shared storage boundary. Machine state moves to repo `.cache`;
-  portable state remains under vault `.curator`.
-  Master plan: `.agents/plans/07_cross_device_integrity_hotfix.md`.
+No urgent items currently tracked.
 
 ### 🚀 Priority Order
 
@@ -81,6 +76,14 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.32.1 — Cross-Device Integrity Boundary** (shipped 2026-07-06, PR #82
+  merged): schema v12 `sync_key` transport identity with source-id remap on
+  import; `compiler_generations.updated_at` for monotonic LWW; `export_id` in
+  JSONL headers; table/column allowlist on import; device-local state
+  (DB, runtime, staging, logs, PDF caches) relocated to
+  `.cache/vaults/<vault-key>/`; one-time DB migration with dual-existence abort;
+  serialized session/profile saves; Zotero profile deletion tombstones; plugin
+  temp paths isolated to repo cache.
 - **v0.32.0 — Portable-Path Compatibility Removal** (shipped 2026-07-04,
   PR #80 merged):
   removed the `wiki paths` command, standalone portable migration service,
@@ -200,9 +203,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.32.1 PR #82 is reopened for the complete cross-device
-  integrity boundary.
-- **Active Milestone**: schema v12 transport and repo-cache storage isolation.
-- **Next actionable item**: execute
-  `.agents/plans/07_cross_device_integrity_hotfix.md`, validate both replicas,
-  then update PR #82.
+- **Roadmap state**: System IDLE. No active milestone.
+- **Active Milestone**: None.
+- **Next actionable item**: triage `.agents/USER_REPORT.md` when new items arrive.
