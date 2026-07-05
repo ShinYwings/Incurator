@@ -1099,7 +1099,7 @@ def build_server() -> FastMCP:
             pages_needed: set[int] = (
                 set(range(req_page, req_end + 1)) if req_end >= req_page else {req_page}
             )
-            cache_dir = paths.root / ".cache" / "pdf_pages" / hash_for_cache
+            cache_dir = paths.pdf_pages / hash_for_cache
             cached_pages: dict[int, str] = {}
             missing_pages: set[int] = set()
             try:

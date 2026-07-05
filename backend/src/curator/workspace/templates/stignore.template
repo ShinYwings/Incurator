@@ -27,14 +27,6 @@ node_modules/
 // Incurator plugin: backend 실행 경로가 기기마다 다르면 설정은 로컬로 유지
 .obsidian/plugins/incurator-obsidian-agent/data.json
 
-// Incurator backend: 기기별 인덱스 상태
-// 다른 기기 위에 덮어쓰면 재인덱싱 필요; vault 파일은 Syncthing이 동기화
-.curator/state.sqlite
-
-// Incurator runtime: 백엔드 실시간 작업 상태 파일 (휘발성)
-// 짧은 주기로 업데이트되므로 동기화 시 심각한 충돌과 트래픽 유발
-.curator/runtime/
-
 // 에이전트 및 테스트베드
 .claude/
 .antigravity/

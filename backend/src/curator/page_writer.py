@@ -11,6 +11,8 @@ This module handles the structural bookkeeping that does NOT need the LLM:
 from __future__ import annotations
 
 import re
+import os
+import uuid
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -250,12 +252,21 @@ def extract_wikilinks(content: str) -> list[str]:
 
 
 def write_page(path: Path, content: str) -> None:
-    """Write a page to disk, creating parent dirs as needed."""
+    """Atomically write changed page content, creating parent dirs as needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Ensure trailing newline
     if not content.endswith("\n"):
         content += "\n"
-    path.write_text(content, encoding="utf-8")
+    try:
+        if path.exists() and path.read_text(encoding="utf-8") == content:
+            return
+    except OSError:
+        pass
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def ensure_frontmatter_fields(page: ParsedPage, required: dict[str, Any]) -> ParsedPage:
@@ -340,7 +351,7 @@ def rebuild_index(paths: cfg.WikiPaths, today: str) -> None:
     )
 
     paths.index.parent.mkdir(parents=True, exist_ok=True)
-    paths.index.write_text("\n".join(lines), encoding="utf-8")
+    write_page(paths.index, "\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +429,7 @@ def append_log_entry(
             if not full_log.endswith("\n"):
                 full_log += "\n"
 
-    paths.log.write_text(full_log, encoding="utf-8")
+    write_page(paths.log, full_log)
 
 
 

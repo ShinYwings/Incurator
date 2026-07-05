@@ -790,7 +790,7 @@ def _render_sync_preflight_summary(report: lint_module.LintReport) -> None:
 
 
 def _latest_sync_report_path(paths: cfg.WikiPaths) -> Path:
-    return paths.internal / "sync-report.json"
+    return paths.sync_report
 
 
 def _gap_to_dict(gap) -> dict:
@@ -2133,9 +2133,8 @@ def reset(
 ) -> None:
     """Reset the Curator vault state while preserving settings.yml.
     
-    This deletes the tracking database (state.sqlite) including the native
-    search index, the ingest log, overview/index/ledger files, and clears 
-    the Collections directory. It does not delete the 01_Workspaces..06_Archives topology.
+    This deletes the local tracking database/cache and generated Collections.
+    Shared settings, sessions, profiles, overview, and correction ledger remain.
     """
     import shutil
     
@@ -2154,14 +2153,12 @@ def reset(
         paths.state_db,
         paths.state_db.with_name(paths.state_db.name + "-wal"),
         paths.state_db.with_name(paths.state_db.name + "-shm"),
-        paths.index,
-        paths.overview,
-        paths.ledger,
-        paths.log,
-        paths.internal / "dashboard.md",
-        paths.internal / "sync-report.json",
-        paths.internal / "sessions.json",
+        paths.runtime,
+        paths.dashboard,
+        paths.sync_report,
+        paths.event_log,
         paths.staging,
+        paths.index,
         paths.collections_dir if hasattr(paths, 'collections_dir') else paths.collections,
     ]
     items_to_remove.extend(paths.internal.glob("build_trace_*.canvas"))
@@ -2174,7 +2171,11 @@ def reset(
                     shutil.rmtree(item)
                 else:
                     item.unlink()
-                removed.append(str(item.relative_to(paths.root)))
+                removed.append(
+                    str(item.relative_to(paths.root))
+                    if item.is_relative_to(paths.root)
+                    else str(item)
+                )
             except Exception as e:
                 _err(f"Failed to remove {item.name}: {e}")
                 
@@ -2218,7 +2219,7 @@ def init(
       .obsidian/                 — Obsidian vault marker (created if absent)
       00_System/ … 06_Archives/ — Vault topology (created if absent)
       .curator/settings.yml        — project configuration
-      .curator/state.sqlite      — tracking database
+      <repo>/.cache/vaults/<key>/state.sqlite — local tracking database
       .curator/Collections/      — 01_Contexts/ 02_Atoms/ 03_Concepts/ 04_Synthesis/
       .curator/overview.md       — domain manifest
       .curator/index.md          — DAG routing table
@@ -2371,8 +2372,9 @@ def init(
     _ok(f"Config:    {paths.config_file.relative_to(root)}")
 
     # 4. Init the state database
+    cfg.prepare_machine_state(paths)
     db.init_db(paths.state_db)
-    _ok(f"Database:  {paths.state_db.relative_to(root)}")
+    _ok(f"Database:  {paths.state_db}")
 
     # 5. Copy template files
     templates_dir = Path(__file__).parent / "workspace" / "templates"
@@ -2423,7 +2425,7 @@ def init(
             "---\ntitle: Curator Log\ntype: log\n---\n\n# .curator/log.md — Hash Registry\n\n",
             encoding="utf-8",
         )
-        _ok(f"Log:       {paths.log.relative_to(root)}")
+        _ok(f"Log:       {paths.log}")
 
     # v0.3.2+: search is DB-native (FTS5 + vector inside state.sqlite). No
     # external search backend config/index is written; `wiki build` and

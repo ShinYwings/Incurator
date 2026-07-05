@@ -131,8 +131,12 @@ class SpanTextUnavailable(Exception):
 
 
 def _paths_from_state_db(db_path: Path) -> cfg.WikiPaths:
-    """Resolve the vault root from the state DB path (``root/.curator/state.sqlite``)."""
-    return cfg.WikiPaths(Path(db_path).resolve().parent.parent)
+    """Resolve the vault root from the machine-cache marker beside the DB."""
+    marker = Path(db_path).resolve().parent / "vault_root"
+    if not marker.exists():
+        raise RuntimeError(f"Missing vault_root marker beside state DB: {marker}")
+    root = Path(marker.read_text(encoding="utf-8").strip()).expanduser().resolve()
+    return cfg.paths_from_config(root)
 
 
 def _reparse_hash_index(paths: cfg.WikiPaths, relpath: str) -> dict[str, str]:

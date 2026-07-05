@@ -536,7 +536,7 @@ def _parse_pdf_pages_cached(
     if not cache_key:
         return parse_page_window(pdf_path, pages_needed)
 
-    cache_dir = paths.root / ".cache" / "pdf_pages" / cache_key
+    cache_dir = paths.pdf_pages / cache_key
     out: dict[int, str] = {}
     missing: set[int] = set()
     for page_num in pages_needed:

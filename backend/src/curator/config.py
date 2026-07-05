@@ -11,7 +11,10 @@ All Curator state lives exclusively in `.curator/`.
 from __future__ import annotations
 
 import logging
+import hashlib
+import shutil
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -87,8 +90,37 @@ class WikiPaths:
 
     @property
     def staging(self) -> Path:
-        """`.curator/staging/` — transient files for background ingest jobs."""
-        return self.root / consts.STAGING_DIR
+        """Machine-local transient files for background ingest jobs."""
+        return self.machine_cache / "staging"
+
+    @property
+    def machine_cache(self) -> Path:
+        """Repo-local cache namespace for this vault."""
+        return get_vault_cache_dir(self.root)
+
+    @property
+    def runtime(self) -> Path:
+        return self.machine_cache / "runtime"
+
+    @property
+    def dashboard(self) -> Path:
+        return self.machine_cache / consts.FILE_DASHBOARD_MD
+
+    @property
+    def sync_report(self) -> Path:
+        return self.machine_cache / "sync-report.json"
+
+    @property
+    def event_log(self) -> Path:
+        return self.machine_cache / consts.LOG_FILE
+
+    @property
+    def pdf_pages(self) -> Path:
+        return self.machine_cache / "pdf_pages"
+
+    @property
+    def pdf_crops(self) -> Path:
+        return self.machine_cache / "pdf_crops"
 
     # Backward-compatible alias so existing callers of `paths.wiki` still work
     @property
@@ -135,8 +167,8 @@ class WikiPaths:
 
     @property
     def log(self) -> Path:
-        """Append-only system event log."""
-        return self.internal / consts.LOG_FILE
+        """Machine-local append-only backend event log."""
+        return self.event_log
 
     @property
     def ledger(self) -> Path:
@@ -150,8 +182,14 @@ class WikiPaths:
 
     @property
     def state_db(self) -> Path:
-        """SQLite metadata & provenance DB."""
-        return self.internal / consts.STATE_DB
+        """Machine-local SQLite metadata and provenance replica."""
+        cache_dir = self.machine_cache
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        (cache_dir / "vault_root").write_text(
+            str(self.root.expanduser().resolve(strict=False)),
+            encoding="utf-8",
+        )
+        return cache_dir / consts.STATE_DB
 
 
 
@@ -319,6 +357,41 @@ def get_global_config_dir() -> Path:
     return Path(__file__).resolve().parents[3] / consts.DIR_GLOBAL_CACHE
 
 
+def get_vault_cache_dir(root: Path) -> Path:
+    """Return the repo-cache namespace for one resolved vault root."""
+    resolved = Path(root).expanduser().resolve(strict=False)
+    vault_key = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:16]
+    return get_global_config_dir().parent / "vaults" / vault_key
+
+
+def prepare_machine_state(paths: WikiPaths) -> None:
+    """Relocate the pre-v12 vault-local DB once, then enforce cache-only state."""
+    cache_dir = paths.machine_cache
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    marker = cache_dir / "vault_root"
+    marker.write_text(str(paths.root.expanduser().resolve(strict=False)), encoding="utf-8")
+
+    old_db = paths.internal / consts.STATE_DB
+    new_db = paths.state_db
+    if old_db.exists() and new_db.exists():
+        raise RuntimeError(
+            "Both vault-local and repo-cache state databases exist; refusing to "
+            f"choose between {old_db} and {new_db}."
+        )
+    if not old_db.exists():
+        return
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_dir = get_global_config_dir().parent / "migrations" / "v0.32.1" / stamp
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    for suffix in ("", "-wal", "-shm"):
+        source = old_db.with_name(old_db.name + suffix)
+        if not source.exists():
+            continue
+        shutil.copy2(source, backup_dir / source.name)
+        shutil.move(str(source), str(new_db.with_name(new_db.name + suffix)))
+
+
 def save_global_config(config: dict) -> None:
     """Write config to the global cache config directory, merging with existing."""
     global_dir = get_global_config_dir()
@@ -482,13 +555,16 @@ def paths_from_config(root: Path, config: dict | None = None) -> WikiPaths:
         if wp.config_file.exists():
             config = load_config(wp)
         else:
+            prepare_machine_state(wp)
             return wp
     paths_cfg = config.get("paths", {})
-    return WikiPaths(
+    paths = WikiPaths(
         root=root,
         raw_dirs_override=paths_cfg.get("raw_dirs"),
         collections_dir_override=paths_cfg.get("collections_dir"),
     )
+    prepare_machine_state(paths)
+    return paths
 
 
 def save_config(paths: WikiPaths, config: dict) -> None:
