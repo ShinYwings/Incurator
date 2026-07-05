@@ -4,6 +4,21 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.32.2] - 2026-07-06
+### Fixed
+- **`wiki db autosync` no longer crashes on pre-v12 peer export files.**
+  After the v0.32.1 schema upgrade (v11 → v12), `_read_export_id` hard-crashed
+  with `ValueError: Missing export_id in export header` when encountering legacy
+  peer snapshots that lacked the `export_id` field introduced in v12. The plugin
+  surfaced this as `"Empty response from backend"` and a persistent
+  `"⚠ Sync Failed"` status bar / `"Auto-sync failed"` notice. `_read_export_id`
+  now returns `None` for incompatible peer files (wrong schema version, missing
+  `export_id`, malformed headers), and `import_all_peers` skips them with a log
+  warning. Once peer devices upgrade and re-export v12 snapshots, their files
+  are imported normally.
+
+---
+
 ## [0.32.1] - 2026-07-06
 ### Changed
 - DB schema upgraded to v12. Sources carry a `sync_key` column — a portable
