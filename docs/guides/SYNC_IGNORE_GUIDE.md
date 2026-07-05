@@ -36,14 +36,6 @@ node_modules/
 // sessions.json supports session-level merge-on-save in v0.2.1 and may sync
 .obsidian/plugins/incurator-obsidian-agent/data.json
 
-// Incurator backend: per-device DB and internal search state
-// Vault files synchronize through Syncthing; DB-native search rows rebuild per device
-.curator/state.sqlite
-
-// Incurator runtime: volatile status and job files
-// Syncing these causes massive conflicts and battery drain
-.curator/runtime/
-
 // Agent & Testbed (Optional)
 .claude/
 testbed/
@@ -52,8 +44,8 @@ testbed/
 > [!IMPORTANT]
 > Cross-device auto-sync (`wiki db autosync`) relies on Syncthing carrying the
 > `.curator/sync/dev-<device_id>.jsonl` snapshot files. Keep `.curator/sync/`
-> **synced**; `.curator/state.sqlite` stays device-local, while sync bookkeeping
-> lives outside the vault under
+> **synced**. The DB and runtime files live structurally outside the vault under
+> repo `.cache/vaults/<vault-key>/`; sync bookkeeping lives under
 > `.cache/config/sync_state/<vault-root-hash>.json`. See USER_GUIDE
 > "Cross-Device Knowledge Sync" and SYSTEM_BEHAVIOR §13.1.
 > Snapshot and local sync-state writes use temp-file + atomic rename, so peers
@@ -114,8 +106,8 @@ The intended sharing model is:
   do not rely on Git for large/private resource libraries.
 - `.curator/Collections/`: may be shared through Git as generated knowledge
   artifacts when the project chooses to version them.
-- `.curator/state.sqlite*` and `.curator/runtime/`: device-local runtime/index/volatile
-  state; do not sync through Syncthing or Git.
+- `<repo>/.cache/vaults/<vault-key>/`: device-local DB/runtime/staging/temp
+  state; it is outside the synchronized vault.
 - Backend executable/repository path: device-local; do not store as shared vault
   truth.
 - Zotero/external PDF originals: may synchronize through a separate Syncthing
@@ -205,5 +197,5 @@ Thumbs.db
 
 1.  **SQLite DB Management**: The `state.sqlite` file must stay device-local — not because its knowledge is device-specific (all stored paths are vault-relative or portable `@root_key` references), but because raw SQLite files cannot be safely synchronized: whole-file sync via **Git OR Syncthing** causes merge conflicts and file corruption (WAL/SHM locks), and a whole-file overwrite would destroy the row-level merges the JSONL transport performs. Knowledge crosses devices through the `.curator/sync/dev-<id>.jsonl` snapshots instead (see SYSTEM_BEHAVIOR §13.1); each device rebuilds only its local search index (`wiki reindex`).
 2.  **Keep the export triggers alive**: since v0.30.0 the CLI exports this device's snapshot after every mutating command (`auto_sync.enabled` defaults to `true`), and the Obsidian plugin drives `wiki db autosync` when `incuratorEnabled` is on. If a device shows a stale, smaller source count, run `wiki db autosync --dry-run` on the *other* device — a pending `would_export` means its snapshot never shipped.
-3.  **Conflict Prevention**: Ensure that database files and the `.curator/runtime/` directory are properly ignored in both Git and Syncthing to prevent massive conflicts and battery drain. Sync identity and peer high-water marks are kept in backend `.cache/config`, so they cannot be shared through the vault.
+3.  **Conflict Prevention**: Database/runtime files are structurally outside the vault under repo `.cache`; no vault ignore pattern is required. Sync identity and peer high-water marks are also kept in backend `.cache/config`.
 4.  **Syncthing Tip**: After setting up your Vault folder in Syncthing, go to folder settings -> "Ignore Patterns" tab, and paste the contents of the `.stignore` section above.

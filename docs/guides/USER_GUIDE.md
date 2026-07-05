@@ -689,7 +689,7 @@ Summary of major commands following the user workflow.
 
 After `wiki config provider` or project-scoped `wiki config set --local`, the CLI
 tries to refresh the plugin dashboard runtime snapshots immediately. If that
-refresh hits an expected local failure (e.g. `.curator/runtime/` is not writable,
+refresh hits an expected local failure (e.g. repo-cache `runtime/` is not writable,
 `state.sqlite` is momentarily locked by the running plugin, or the merged config
 cannot be parsed during `config set --local`), the config change still succeeds
 and the CLI prints a warning; the dashboard can refresh again later.
@@ -775,7 +775,9 @@ external agents over MCP — see the [MCP User Guide](./MCP_USER_GUIDE.md) §3.6
 
 ## 🔄 Cross-Device Knowledge Sync (`wiki db`)
 
-Incurator stores all knowledge in `.curator/state.sqlite`. Because SQLite files cannot be safely merged by file-sync tools (Syncthing, iCloud, Dropbox), the `wiki db` commands provide a safe JSONL-based export/import pipeline for moving your knowledge between devices.
+Incurator stores each device's authoritative replica in
+`<repo>/.cache/vaults/<vault-key>/state.sqlite`. SQLite never enters the synced
+vault; `wiki db` moves portable knowledge through JSONL.
 
 ### How it works
 
@@ -815,12 +817,18 @@ wiki db autosync --dry-run   # preview without writing
 How it stays safe across devices:
 
 - **One file per device.** Each device writes only its own `.curator/sync/dev-<id>.jsonl` and reads everyone else's. Because no two devices write the same file, Syncthing never creates write-write conflicts.
-- **Last-Write-Wins merge.** Records merge row-by-row by timestamp; deletes propagate via tombstones. Concurrent reads and edits to different source records are safe. If the same logical record is edited on both devices, the newer row wins.
+- **Portable source identity.** Replica-local numeric source ids are remapped by
+  portable source key, so two devices may independently create source id 1.
+- **Last-Write-Wins merge.** Records merge row-by-row by monotonic revision;
+  deletes propagate via tombstones. Concurrent reads and edits to different
+  source records are safe.
 - **No infinite loops** — without any fragile hash guard. A device never imports its own file, and it re-exports only when something actually changed.
-- **Syncthing conflict files** (`*.sync-conflict-*`) are imported as ordinary peers (always data-safe) and archived under `.curator/runtime/sync_conflicts/`.
+- **Snapshot identity.** Each JSONL header has an export id, so a replaced file
+  is not skipped merely because its mtime is unchanged.
+- **Syncthing conflict files** are imported then archived in repo cache.
 
-`.curator/state.sqlite` stays device-local (excluded in `.stignore`). Sync
-bookkeeping lives outside the vault under
+The local DB, runtime, staging, reports, and PDF/CLI caches live under repo
+`.cache`. Sync bookkeeping lives under
 `.cache/config/sync_state/<vault-root-hash>.json`; only the
 `.curator/sync/` JSONL files travel between devices. The Obsidian plugin drives
 `wiki db autosync` for you — see the Plugin Guide.
@@ -966,12 +974,10 @@ wiki reset
 wiki reset --force
 ```
 
-Resets generated Curator state while preserving `.curator/settings.yml` and the
-vault's source folders. It removes the tracking database (which includes the native search index), generated Collections,
-dashboard/index/overview/ledger/log files, sync reports, transient staging files,
-build trace canvases, device registry, and sidechat session state. Use this when
-stale generated state, stale device metadata, or old chat context is causing the
-backend or plugin to disagree with the current vault.
+Resets generated Curator state while preserving `.curator/settings.yml`, shared
+chat sessions, Zotero profiles, and the vault's source folders. It removes the
+local tracking database/cache and generated Collections. Use this when generated
+backend state disagrees with the current vault; chat history is not reset.
 
 #### ⚙️ System Configuration (Config)
 Verifies if the system's 'brain' and 'eyes' are correctly set up.

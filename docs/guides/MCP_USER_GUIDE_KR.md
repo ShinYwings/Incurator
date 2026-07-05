@@ -284,7 +284,7 @@ wiki mcp install
   - `queued` — 대기 중인 job 목록
   - `done_today` — 오늘 완료된 job 수
   - `idle` — `running`과 `queued`가 모두 비어있으면 `true`
-- **구현 상태**: v0.2.1에서 구현 완료. `.curator/dashboard.md`도 IngestWorker가 job 상태 변경마다 자동 갱신합니다(Obsidian live preview가 파일 변경 감지 후 자동 재렌더링).
+- **구현 상태**: v0.2.1에서 구현 완료. backend-local dashboard cache도 IngestWorker가 job 상태 변경마다 자동 갱신합니다.
 
 #### `get_available_models`
 

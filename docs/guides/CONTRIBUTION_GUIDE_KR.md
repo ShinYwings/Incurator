@@ -168,9 +168,9 @@ Incurator는 파이썬 백엔드 데몬(`backend/`)과 Obsidian 플러그인 클
 
 ### 7.1 Backend/Client 경계
 
-- Incurator backend는 `.curator/state.sqlite`, source registry, PDF page provenance, L1-L4 DAG, DB-native search, query trace, MCP tools를 소유합니다.
+- Incurator backend는 repo-cache `state.sqlite`, source registry, PDF page provenance, L1-L4 DAG, DB-native search, query trace, MCP tools를 소유합니다.
 - Obsidian 플러그인은 client입니다. 열린 PDF context 수집, 채팅 UI, import/rebind 승인 modal, provider prompt assembly를 담당합니다.
-- 플러그인은 `.curator/state.sqlite`를 직접 쓰면 안 됩니다. 필요한 상태 변경은 MCP/CLI backend API를 통해 요청해야 합니다.
+- 플러그인은 repo-cache `state.sqlite`를 직접 쓰면 안 됩니다. 필요한 상태 변경은 MCP/CLI backend API를 통해 요청해야 합니다.
 - MCP/backend는 `03_Notes/`를 조용히 수정하면 안 됩니다. 인간 노트 수정은 별도 승인과 diff/confirm 흐름이 필요합니다.
 
 ### 7.2 Evidence Gate

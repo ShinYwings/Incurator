@@ -31,7 +31,7 @@ PDF, while preserving Incurator's durable L1-L4 knowledge graph.
 
 The Incurator backend owns:
 
-- `.curator/state.sqlite`
+- repo-cache `state.sqlite`
 - source registration and content hashes
 - Reference Mode source identity and provenance
 - L1-L4 derived inspection projections under `.curator/Collections/`
@@ -51,12 +51,12 @@ The Obsidian plugin owns:
 - rendering progress/status/trace returned by backend tools or backend-owned
   shared status snapshots
 
-The plugin must not mutate `.curator/state.sqlite` or `.curator/Collections/`
+The plugin must not mutate repo-cache `state.sqlite` or `.curator/Collections/`
 directly. The only v0.2.2 exception is `.cache/config/devices.json`, which the
 plugin may refresh on startup as sync-friendly device metadata. All durable DAG,
 source registry, ingest, and backpropagation writes must go through backend code.
 For read-only dashboard synchronization, the preferred boundary is a backend-owned
-shared JSON snapshot under `.curator/runtime/`: the backend is the only writer,
+local JSON snapshot under repo-cache `runtime/`: the backend is the only writer,
 and the plugin is a read-only consumer.
 
 ### 2.3 Workspace Agent Authority
@@ -656,7 +656,7 @@ keys on load — so writing the fallback globally silently masked it. Mixing con
 scopes for related `llm` keys is a defect.
 
 After `wiki config provider` and project-scoped `wiki config set --local`, the
-CLI must make a best-effort attempt to refresh `.curator/runtime/*.json` so the
+CLI must make a best-effort attempt to refresh repo-cache `runtime/*.json` so the
 plugin dashboard can reflect the change immediately. Because the config write has
 already succeeded (and was confirmed to the user), expected local refresh
 failures must not crash the command — not only file-system errors but also a
@@ -699,22 +699,22 @@ truth and must not be synchronized across devices.
 Canonical runtime snapshots live under:
 
 ```text
-.curator/runtime/
+<repo>/.cache/vaults/<vault-key>/runtime/
 ```
 
 Recommended files:
 
-- `.curator/runtime/status.json` — vault health, source layer counts, active job
+- `runtime/status.json` — vault health, source layer counts, active job
   counts, DB-native search readiness (`fts_ready`, embedded chunk counts,
   vector readiness, provider/model, degraded reason), backend version, and
   generated timestamp.
-- `.curator/runtime/sources.json` — read-only source rows needed for dashboard
+- `runtime/sources.json` — read-only source rows needed for dashboard
   and source chips.
-- `.curator/runtime/jobs.json` — active/recent background jobs and errors.
+- `runtime/jobs.json` — active/recent background jobs and errors.
 
 Rules:
 
-- Backend code is the single writer for `.curator/runtime/*.json`.
+- Backend code is the single writer for repo-cache `runtime/*.json`.
 - The plugin may read these files directly through the Obsidian vault adapter
   only after giving the local backend a chance to refresh them.
 - The plugin must treat missing or stale snapshots as "unknown/waiting", not as
@@ -726,9 +726,8 @@ Rules:
   an expected local refresh failure (file-system error, a locked `state.sqlite`,
   or a malformed config during `config set --local`), the command should still
   complete and report a warning.
-- Runtime snapshots may include local absolute paths such as the active vault
-  root, backend executable, model cache, and Zotero roots. `.curator/runtime/`
-  must therefore stay device-local in Syncthing and Git ignore rules.
+- Runtime snapshots may include local absolute paths. Their repo-cache location
+  makes them device-local without vault ignore rules.
 - Mutating actions such as import, rebind, reset, query generation, and
   promotion must not be implemented by editing shared JSON files.
 - Dashboard buttons that change backend state must invoke backend code. The
@@ -765,8 +764,8 @@ Rules:
   display/opening. The local absolute PDF path remains a device-local
   transient resolved path and must not treat it as a portable source id or
   serialize it into DB/plugin state.
-- Snapshot writes should be atomic: write a temporary file in `.curator/runtime/`
-  and replace the target path.
+- Snapshot writes should be atomic: write a temporary file in the same
+  repo-cache runtime directory and replace the target path.
 - `wiki plugin version` MUST be vault-independent (it powers the update check
   before any vault is selected) and MUST report `repo_path`: the backend's own
   repo root when running from an editable/source checkout (both `setup.sh` and
@@ -877,7 +876,7 @@ Status surfaces:
 - `wiki jobs cancel <id>` cancels a queued job.
 - `wiki jobs rerun <id>` requeues a completed, failed, or cancelled job and is
   a success/no-op for an already queued job.
-- `.curator/dashboard.md` may summarize job and DAG state for Obsidian viewing.
+- Repo-cache `dashboard.md` may summarize job and DAG state for local diagnostics.
 
 Status rules:
 
@@ -894,24 +893,22 @@ Status rules:
 
 ## 12.1 Reset Behavior
 
-`wiki reset` preserves `.curator/settings.yml` and source folders, but clears
+`wiki reset` preserves `.curator/settings.yml`, sessions, Zotero profiles,
+overview, correction ledger, and source folders, but clears
 generated and device-local Curator state that can make a fresh vault run appear
 stale:
 
-- `.curator/state.sqlite*`
+- repo-cache `state.sqlite*`
 - generated L1-L4 Collections
-- dashboard/index/overview/ledger/log files
-- `.curator/sync-report.json`
-- `.curator/staging/`
+- generated index plus repo-cache dashboard/log/sync report
+- repo-cache staging/runtime
 - root-level legacy `build_trace_*.canvas` files
 - `.cache/config/devices.json`
-- `.curator/sessions.json`
 - internal DB-native search index rows stored in `state.sqlite`
 
 Build trace canvases are diagnostics and must not be written at `.curator/`
-root during normal background builds. If generated, they live under
-`.curator/staging/canvas/` so reset and sync-ignore rules can treat them as
-transient state.
+root during normal background builds. If generated, they live under repo-cache
+`staging/canvas/` so reset can treat them as transient state.
 
 ## 12.2 Search Index Degradation
 
@@ -975,10 +972,9 @@ can synchronize independently from per-device plugin settings.
 
 ## 13.1 Syncthing Auto-Sync (One-Writer-Per-File)
 
-Incurator supports P2P DB synchronization for `state.sqlite` via Syncthing
-without a central server. `state.sqlite` itself is device-local (excluded in
-`.stignore`); knowledge crosses devices through JSONL snapshot files that *are*
-synced.
+Incurator supports P2P synchronization between repo-cache `state.sqlite`
+replicas without a central server. SQLite never enters the vault; knowledge
+crosses devices through synchronized JSONL snapshot files.
 
 **Topology — one writer per file.** Each device exports only its own snapshot to
 `.curator/sync/dev-<device_id>.jsonl` and imports every *other* device's file.
@@ -989,10 +985,11 @@ inside the synchronized vault. The exported file is a **full snapshot** (not a
 delta) so a late-joining peer always receives the complete view that device
 holds.
 
-**Conflict resolution — LWW + tombstones.** Import is a row-level
-Last-Write-Wins upsert keyed by each table's `updated_at`/`last_updated` column,
-plus tombstone reconciliation via `deleted_records`. There is **no whole-file
-replace**, so concurrent reads and edits to disjoint source records remain safe.
+**Conflict resolution — portable identity + LWW + tombstones.** `sources.id` is
+replica-local. Source import resolves `sources.sync_key`, preserves the local
+integer id, remaps child `source_id` values, then applies row-level LWW and
+tombstones. There is **no whole-file replace**, so concurrent reads and edits to
+disjoint source records remain safe.
 If the same logical row is edited on both devices, the row with the newer
 timestamp wins; a delete wins only when its `deleted_at` is newer than the
 competing edit. Import preserves the source row's timestamp and never stamps
@@ -1005,8 +1002,12 @@ default. A legacy import with no valid source revision receives a current UTC
 millisecond timestamp instead of an empty or malformed LWW key. Export-gate
 timestamp comparison is chronological rather than a raw mixed-format string
 comparison, and non-string values are treated as invalid rather than raising.
+Source and compiler-generation revision triggers always advance beyond the
+previous row revision even if the current device wall clock is behind.
 
-**Loop prevention is structural — there is no content-hash guard.** (An earlier
+**Snapshot identity and loop prevention are structural.** Every export header
+has a fresh `export_id`; peer high-water state records that id, so a replaced
+snapshot with the same mtime is imported. There is no content-hash guard. (An earlier
 `sync_meta.json` `last_exported_hash`/`last_imported_hash` design was removed: it
 silently skipped legitimate imports and reported 0 changes.) Loops cannot form
 because: (a) LWW import is idempotent — re-importing a row at the same timestamp
@@ -1058,11 +1059,11 @@ stale-snapshot condition is visible without mutating anything.
 **Syncthing conflict files.** If a `*.sync-conflict-*` file appears in
 `.curator/sync/` (e.g. a duplicated `device_id`), `wiki db autosync` imports it
 as an ordinary LWW peer — which is always data-safe — then moves it out of the
-synced tree into `.curator/runtime/sync_conflicts/` and surfaces a UI notice.
+synced tree into repo-cache `runtime/sync_conflicts/` and surfaces a UI notice.
 
 ## 13.3 Device-Local Sync State (Backend Cache)
 
-The device id, `last_export_ts`, and per-peer `last_imported_mtime` high-water
+The device id, `last_export_ts`, and per-peer `last_export_id` high-water
 marks live at:
 
 ```text
@@ -1103,14 +1104,14 @@ When a backend loads a vault config that still contains `llm`, `search`, or
 `external`, it must migrate those blocks into `.cache/config/config.yml` and
 remove them from the vault config while preserving the effective merged values.
 
-All runtime temp/cache byproducts must stay inside one of two roots:
-`<incurator-repo>/.cache/` for repo/backend/plugin CLI cache, or
-`<vault>/.curator/` for vault-scoped runtime snapshots and plugin temporary
-files. Incurator code must not create its own temp/cache files under the OS temp
-directory, `~`, or provider cache folders unless it is intentionally writing an
-external tool's required configuration file. Backend and plugin CLI subprocesses
-must set `TMPDIR`/`TEMP`/`TMP` to a directory under the same allowed cache root
-before invoking provider CLIs.
+All device-local runtime/temp/cache byproducts stay under
+`<incurator-repo>/.cache/`; there is no vault fallback. Portable settings, JSONL
+snapshots, sessions, profiles, and Collections projections remain under
+`.curator/`. Backend and plugin CLI subprocesses set `TMPDIR`/`TEMP`/`TMP` under
+the repo cache.
+
+`wiki reset` resets the local DB/cache and generated projections but must not
+delete shared `.curator/sessions.json` or `.curator/zotero_profiles.json`.
 
 ## 13.2 Chat Query Language And Trace
 
@@ -1489,7 +1490,7 @@ retrieval provenance being erased.
 A synthesis audit report is a deterministic inspection payload for proving how a
 generated L4 synthesis node, L3 community report, or query answer is grounded.
 It is an export/inspection surface only: building an audit report must not call an
-LLM, mutate `.curator/state.sqlite`, rewrite projection markdown, or mark any
+LLM, mutate repo-cache `state.sqlite`, rewrite projection markdown, or mark any
 artifact as human verified.
 
 Audit reports hydrate the evidence chain that already exists in the DB:
@@ -1673,7 +1674,7 @@ wiki plugin correction propose --node-id ID --correction TEXT --previous TEXT --
 ```
 
 Dashboard trace/insight actions must call backend commands. The plugin must not
-edit `.curator/state.sqlite`, `.curator/Collections/`, `03_Notes/`,
+edit repo-cache `state.sqlite`, `.curator/Collections/`, `03_Notes/`,
 `04_Resources/`, `06_Archives/`, or runtime snapshots directly. Insight promotion
 requires explicit confirmation and writes only to `02_Wiki/`.
 
@@ -1942,7 +1943,7 @@ rendered page instead.
   (Cmd+Shift+X crop, pasted image, or PDF-page capture) and the provider runs via
   CLI (`shouldUseCli`: antigravity/claude/codex), the image is written to
   `<repo>/.cache/cli/chat_images/<run-id>/` when a repo path is configured, or
-  `<vault>/.curator/runtime/cli/chat_images/<run-id>/` otherwise, and the CLI is invoked with `Read`
+  and the operation fails when the repo path is unavailable; the CLI is invoked with `Read`
   removed from its denylist plus `--add-dir <that dir>`, so the same model reads it —
   mirroring the backend transcribe path (`ClaudeCodeClient._run_with_image_path`).
   This grants the model scoped `Read` over the existing add-dir set (vault + Zotero +

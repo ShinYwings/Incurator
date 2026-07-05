@@ -8,7 +8,8 @@ Curator DAG schema stays focused on knowledge records while search indexing,
 retrieval providers, expansion, embeddings, and query traces have their own
 contract.
 
-The search engine still stores its state inside `.curator/state.sqlite`; the
+The search engine stores its state inside the machine-local
+`<repo>/.cache/vaults/<vault-key>/state.sqlite`; the
 split is documentation/contract separation, not a separate runtime database.
 
 ## 1. Configuration Schema

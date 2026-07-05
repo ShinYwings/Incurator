@@ -46,14 +46,14 @@ The Obsidian plugin owns:
 
 The plugin must not:
 
-- Write directly to `.curator/state.sqlite` or `.curator/Collections/`
+- Write directly to repo-cache `state.sqlite` or `.curator/Collections/`
 - Call backend MCP tools that mutate durable state without explicit user action
 - Maintain its own hard-coded cloud model list; bundle the backend
   `backend/src/curator/data/models.json` catalogue at plugin build time
 
 The plugin may write `.cache/config/devices.json` as the single exception to the
 `.curator/` write boundary. That file is sync metadata, not DAG state. The
-plugin may also read `.curator/runtime/*.json` dashboard snapshots, but backend
+plugin may also read repo-cache `runtime/*.json` dashboard snapshots, but backend
 code is the only writer for those files. Dashboard backend health, source/job
 counts, index readiness, and backend version display must come from those
 snapshots or from explicit backend commands, not from Incurator MCP tool
@@ -61,7 +61,7 @@ polling.
 
 Dashboard controls that change backend state must execute backend commands or
 backend-owned APIs. The plugin must not implement those controls by directly
-editing `.curator/settings.yml`, `.curator/state.sqlite`, generated Collections,
+editing `.curator/settings.yml`, repo-cache `state.sqlite`, generated Collections,
 or runtime snapshots.
 
 Zotero plugin flows must use backend commands for Zotero database access. The
@@ -588,10 +588,10 @@ When a chat turn carries an image (Cmd+Shift+X crop, pasted image, or PDF-page
 capture) and the active provider runs via CLI (`shouldUseCli` → antigravity,
 claude, codex; Ollama/DeepSeek use the HTTP image-block path), `LLMClient` MUST:
 
-- **Write** each image content part to `<repo>/.cache/cli/chat_images/<run-id>/`
-  when `incuratorRepoPath` is known, otherwise to
-  `<vault>/.curator/runtime/cli/chat_images/<run-id>/`. These are the only
-  allowed temp/cache roots for plugin-created chat images. Reference the image in
+- **Write** each image content part to `<repo>/.cache/cli/chat_images/<run-id>/`.
+  If the repository path cannot be resolved, fail visibly; there is no vault
+  fallback. This is the only allowed temp/cache root for plugin-created chat
+  images. Reference the image in
   the CLI prompt by absolute path (e.g. "Read the image file at <path> …"),
   mirroring the backend `vision.describe_image_via_cli` pattern. The OS sandbox
   (§ v0.23.0) still wraps every invocation.
@@ -637,6 +637,9 @@ devices. Before writing, it should read the current on-disk file and merge
 sessions by `ChatSession.id`, keeping the session copy with the newest
 `updatedAt` timestamp. This prevents a Linux save from deleting a distinct macOS
 session, or vice versa, after Syncthing has delivered remote changes.
+All read/merge/write operations are serialized in one process so overlapping
+save requests cannot commit from the same stale disk snapshot. Backend
+`wiki reset` must not delete this shared durable file.
 
 ```typescript
 interface SessionData {
@@ -684,6 +687,10 @@ Rules:
   paths where no previous file can be merged, must pass through the sync
   sanitizer. Device absolute paths in `ContextRef.filePath` and runtime-local
   `backendStatus` fields must not be persisted as durable session identity.
+
+Zotero profile storage follows the same serialized read/merge/write rule.
+Profile deletion records a timestamped tombstone keyed by profile name; a
+peer-only stale profile cannot be unioned back after deletion.
 
 ### 2.3 `MCPServerConfig`
 
@@ -1303,7 +1310,7 @@ PDF crop images are temporary chat context. They may be sent as image parts to
 vision-capable models or represented as text fallback for non-vision models, but
 chat crop context must not leave durable images under `05_Assets`. Any temporary
 crop file used for backend transcription must live under
-`<vault>/.curator/runtime/pdf_crops/` and be removed in a `finally` block.
+`<repo>/.cache/vaults/<vault-key>/pdf_crops/` and be removed in a `finally` block.
 
 The Zotero linked attachment root is only the base path for Zotero
 `attachments:` linked-attachment records. Normal Zotero storage attachments use
@@ -1687,10 +1694,9 @@ nodes directly.
 - Runtime snapshots remain backend-owned local read models. The plugin reads
   them but never writes them, and it must let the local backend refresh them
   before treating dashboard status or source rows as current.
-- Runtime snapshots can contain machine-local absolute paths. The plugin must
-  not assume a synced `.curator/runtime/*.json` file belongs to the current
-  device.
-- Dashboard must not edit `.curator/state.sqlite`, `.curator/Collections/`,
+- Runtime snapshots can contain machine-local absolute paths because they live
+  only in the current device's repo cache.
+- Dashboard must not edit repo-cache `state.sqlite`, `.curator/Collections/`,
   `03_Notes/`, `04_Resources/`, or `06_Archives` directly.
 - Prompt trace UI does not expose raw prompt input/output bodies by default in
   v0.3.2; ids, hashes, model, route, validator status, evidence ids, and warnings
@@ -1878,10 +1884,10 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     drops the OS layer. This degradation is the explicit trade-off for keeping
     Claude/Codex usable on platforms without an OS sandbox.
   - **Plugin CLI dir** — device-local CLI byproducts (codex output, generated
-    `claude_mcp.json`, temp images) live in `<incuratorRepoPath>/.cache/cli/`
-    when the repo path is configured, otherwise in
-    `<vault>/.curator/runtime/cli/`. They must never fall back to the OS temp dir
-    or `~/.incurator`. CLI subprocess `TMPDIR`/`TEMP`/`TMP` are pointed at that
+    `claude_mcp.json`, temp images) live in `<incuratorRepoPath>/.cache/cli/`.
+    If the repo path is unavailable, the operation fails visibly. They never
+    fall back to the vault, OS temp dir, or `~/.incurator`. CLI subprocess
+    `TMPDIR`/`TEMP`/`TMP` are pointed at that
     same CLI cache root's `tmp/` directory.
   - **Automatic** — the plugin generates the profile/binds with no manual user setup.
     The READ/visibility set (`--add-dir`) is `allowedRoots()` = realpath-resolved

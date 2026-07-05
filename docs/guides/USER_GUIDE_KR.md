@@ -657,7 +657,7 @@ status/history/push입니다.
 | `wiki config get <key>` | 특정 설정 값을 조회합니다. (예: `wiki config get llm.primary`) |
 | `wiki config set <key> <value>` | 특정 설정 값을 변경합니다. `llm.*`, `search.*`, `external.*` 같은 기기별 key는 `.cache/config/config.yml`에 기록합니다. `--local`은 `.curator/settings.yml`에 속하는 portable vault-scoped key에만 사용하세요. |
 
-`wiki config provider` 또는 project-scoped `wiki config set --local` 실행 후 CLI는 플러그인 dashboard runtime snapshot을 즉시 갱신하려고 시도합니다. 예상 가능한 로컬 실패(예: `.curator/runtime/`에 쓸 수 없거나, 실행 중인 플러그인이 `state.sqlite`를 잠시 잠금, 또는 `config set --local` 중 병합된 config를 parse할 수 없음)가 발생해도 설정 변경 자체는 성공하며, CLI는 경고를 출력합니다. dashboard는 이후 다시 refresh할 수 있습니다.
+`wiki config provider` 또는 project-scoped `wiki config set --local` 실행 후 CLI는 플러그인 dashboard runtime snapshot을 즉시 갱신하려고 시도합니다. 예상 가능한 로컬 실패(예: repo-cache `runtime/`에 쓸 수 없거나, 실행 중인 플러그인이 `state.sqlite`를 잠시 잠금, 또는 `config set --local` 중 병합된 config를 parse할 수 없음)가 발생해도 설정 변경 자체는 성공하며, CLI는 경고를 출력합니다. dashboard는 이후 다시 refresh할 수 있습니다.
 
 ### 3. 고도화 및 최적화 (Curation)
 | 명령어 | 설명 | 사용 시점 |
@@ -740,7 +740,9 @@ Tier-2 LLM/HyDE query expansion은 기본적으로 recovery mechanism으로 켜�
 
 ## 🔄 기기 간 지식 동기화 (`wiki db`)
 
-Incurator는 모든 지식을 `.curator/state.sqlite`에 저장합니다. SQLite 파일은 Syncthing, iCloud, Dropbox 같은 파일 동기화 도구로는 안전하게 병합할 수 없으므로, `wiki db` 명령어를 통해 JSONL 기반 내보내기/가져오기 파이프라인을 제공합니다.
+Incurator는 각 기기의 권위 replica를
+`<repo>/.cache/vaults/<vault-key>/state.sqlite`에 저장합니다. SQLite 파일은
+동기화 vault에 들어가지 않으며, `wiki db`가 portable 지식을 JSONL로 전달합니다.
 
 ### 동작 방식
 
@@ -780,12 +782,18 @@ wiki db autosync --dry-run   # 실제 변경 없이 미리 보기
 기기 간 안전성을 보장하는 방식:
 
 - **기기당 파일 1개.** 각 기기는 자기 `.curator/sync/dev-<id>.jsonl`만 쓰고 나머지는 읽기만 합니다. 두 기기가 같은 파일을 쓰지 않으므로 Syncthing이 쓰기-쓰기 충돌을 만들지 않습니다.
-- **Last-Write-Wins 병합.** 레코드는 타임스탬프 기준으로 행 단위 병합되고, 삭제는 tombstone으로 전파됩니다. 동시 읽기와 서로 다른 source record 편집은 안전합니다. 동일한 logical record를 두 기기에서 수정하면 더 최신 행이 이깁니다.
+- **Portable source identity.** 기기별 숫자 source id는 portable key로
+  remap되므로 두 기기가 각각 source id 1을 만들어도 충돌하지 않습니다.
+- **Last-Write-Wins 병합.** 레코드는 monotonic revision 기준으로 병합되고,
+  삭제는 tombstone으로 전파됩니다. 동시 읽기와 서로 다른 source 편집은
+  안전합니다.
 - **무한 루프 없음** — 취약한 해시 가드 없이. 기기는 자기 파일을 가져오지 않고, 실제로 변경이 있을 때만 다시 내보냅니다.
-- **Syncthing 충돌 파일**(`*.sync-conflict-*`)은 일반 피어로 가져와(항상 데이터 안전) `.curator/runtime/sync_conflicts/`에 보관됩니다.
+- **Snapshot identity.** JSONL header의 export id로 교체된 파일을 식별하므로
+  mtime이 같아도 새 snapshot을 건너뛰지 않습니다.
+- **Syncthing 충돌 파일**은 가져온 뒤 repo cache에 보관됩니다.
 
-`.curator/state.sqlite`는 기기 로컬로 유지됩니다(`.stignore` 제외).
-동기화 bookkeeping은 vault 밖의
+로컬 DB, runtime, staging, report, PDF/CLI cache는 repo `.cache`에 둡니다.
+동기화 bookkeeping은
 `.cache/config/sync_state/<vault-root-hash>.json`에 저장되고,
 `.curator/sync/`의 JSONL 파일만 기기 간 이동합니다. Obsidian 플러그인은
 `wiki db autosync`를 자동으로 실행해 줍니다 — 플러그인 가이드 참고.
@@ -912,12 +920,9 @@ wiki reset
 wiki reset --force
 ```
 
-`.curator/settings.yml`과 vault의 source folder는 보존하면서 생성된 Curator
-상태를 초기화합니다. tracking database (DB 내장 검색 인덱스 포함), generated Collections,
-dashboard/index/overview/ledger/log 파일, sync report, transient staging 파일,
-build trace canvas, device registry, sidechat session state를 제거합니다. 오래된
-generated state, device metadata, chat context 때문에 backend와 plugin 상태가
-어긋날 때 사용합니다.
+`.curator/settings.yml`, 공유 chat session, Zotero profile, vault source
+folder를 보존하면서 생성 상태를 초기화합니다. 로컬 tracking DB/cache와
+generated Collections를 제거하며 chat history는 삭제하지 않습니다.
 
 이 명령어는 크게 세 가지 영역의 데이터를 실시간으로 집계하여 출력합니다. 각 항목의 의미와 활용 방법은 다음과 같습니다:
 

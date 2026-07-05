@@ -757,7 +757,7 @@ identity를 기록합니다. 실제 로컬 PDF 경로는 backend source metadata
 
 대시보드의 **Reset** 작업은 로컬 DB와 생성된 L1-L4 콘텐츠를 지우기 전에 두 번 확인합니다.
 
-Dashboard 상태는 plugin 자체 상태가 아니라 `.curator/runtime/` 아래의
+Dashboard 상태는 plugin 자체 상태가 아니라 repo-cache `runtime/` 아래의
 backend-owned local snapshot에서 옵니다. 해당 JSON 파일은 backend만 쓰고, plugin은
 source count, job 상태, index health, backend version을 표시하기 전에 local backend에
 refresh를 요청합니다. snapshot이 없거나 오래된 경우에는 backend가 비었다고 해석하지
@@ -824,7 +824,8 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
 
 - **트리거**: Obsidian이 열릴 때 1회(열 때 자동 동기화), Syncthing이 피어 파일을 전달했을 때 실시간 감지(수신 동기화 데이터 감시 — 데스크톱 전용), 60초 안전 폴링, 수동 **Sync Knowledge DB** 리본 버튼.
 - **한 번의 동기화가 하는 일**: 백엔드에서 `wiki db autosync`를 실행 — 다른 모든 기기의 스냅샷(`.curator/sync/dev-<id>.jsonl`)을 가져오고, Syncthing `*.sync-conflict-*` 파일을 병합한 뒤, 변경이 있으면 자기 스냅샷을 씁니다. 무거운 작업은 모두 백엔드 서브프로세스에서 실행되어 Obsidian UI가 멈추지 않습니다.
-- **병합 안전성**: 행 단위 Last-Write-Wins + tombstone — 동시 읽기와 서로
+- **병합 안전성**: portable source key로 기기별 숫자 id를 remap하고, 행 단위
+  monotonic Last-Write-Wins + tombstone을 사용하므로 동시 읽기와 서로
   다른 source 편집은 안전하고, 동일 record 편집은 더 최신 행으로
   해소됩니다. 삭제도 전파되며 파일 통째 덮어쓰기는 없습니다.
 - **피드백**: 실행 중 상태 표시줄 `⟳ Sync`, 그리고 실제로 변경이 적용됐을 때만 토스트 알림(동기화 변경 알림).
@@ -853,7 +854,8 @@ merge는 crash하지 않고 해당 property를 빈 배열로 취급합니다.
 > 변경도 하지 않는 기기는 새 지식을 피어에게 영영 발행하지 않게 됩니다.
 
 > [!NOTE]
-> `.curator/state.sqlite`는 기기 로컬로 유지됩니다. device id와 peer
+> 로컬 DB/runtime/staging/temp는 repo `.cache/vaults/<vault-key>/`에
+> 저장됩니다. device id와 peer
 > high-water mark는 vault 밖의
 > `.cache/config/sync_state/<vault-root-hash>.json`에 저장되고,
 > `.curator/sync/`의 JSONL 스냅샷만 기기 간 이동합니다. 사용자 가이드
@@ -868,7 +870,7 @@ merge는 crash하지 않고 해당 property를 빈 배열로 취급합니다.
 | `data.json` | 설정(provider, model, MCP 서버 등) | 경로가 같을 때만 권장 |
 | `.curator/sessions.json` | 채팅 대화 히스토리 | 가능 |
 | `.curator/zotero_profiles.json` | Zotero import profile + 최근 항목 LRU (v0.30.0) | 가능 |
-| `.curator/runtime/*.json` | 절대 local path를 포함하지 않는 backend dashboard/status snapshot | 로컬 cache only |
+| `<repo>/.cache/vaults/<vault-key>/runtime/*.json` | backend dashboard/status snapshot | 로컬 전용 |
 
 v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 읽고 세션 id 단위로 병합합니다. 따라서 Linux와 macOS에서 서로 다른 채팅 세션을 만들면 두 세션이 함께 보존됩니다. 삭제된 세션은 `deletedSessionIds` tombstone에 남아 Syncthing 지연으로 오래된 파일이 도착해도 되살아나지 않습니다. 단, 같은 세션을 양쪽에서 동시에 편집한 경우에는 더 최신 `updatedAt`을 가진 세션이 이깁니다.
 
@@ -1019,7 +1021,7 @@ localStorage, Obsidian view state, `data.json`, sessions 또는 backend DB에
 저장하지 않습니다. 일반 external tab은 portable `externalRef`를 저장합니다.
 Zotero path 설정은 Zotero 데이터 디렉토리나 `zotero.sqlite` 파일 자체를 가리킬 수 있습니다. backend PDF 해석은 `zotero.sqlite`가 들어온 경우 부모 디렉토리로 정규화한 뒤 `storage/<attachmentKey>/`를 확인합니다.
 linked Zotero attachment의 경우 backend는 configured linked attachment root에서 `attachments:` path도 확인합니다.
-plugin이 Zotero attachment key를 알고 있으면 Add-to-Incurator는 그 key를 backend source import에 직접 넘길 수 있습니다. backend가 PDF를 해석하고 local reference row에 `zotero:<attachmentKey>` 형태의 stable logical source id를 기록합니다. 같은 Zotero attachment를 반복 등록하면 이 logical source id를 재사용하며 `-02` reference stub를 새로 만들지 않습니다. PDF crop/snipping 이미지는 임시 채팅 컨텍스트로만 사용하며, 가능한 경우 선택된 모델에 전달된 뒤 `05_Assets` 아래에 영구 생성물을 남기지 않아야 합니다. backend transcription에 쓰는 임시 crop 파일은 `.curator/runtime/pdf_crops/` 아래에 만들고 요청 뒤 삭제합니다. CLI image/cache 부산물은 repo path를 알 때 repo `.cache/` 아래에, 그렇지 않으면 vault `.curator/runtime/` 아래에 둡니다. provider CLI subprocess의 temp 환경변수도 같은 허용 cache root를 가리키게 합니다.
+plugin이 Zotero attachment key를 알고 있으면 Add-to-Incurator는 그 key를 backend source import에 직접 넘길 수 있습니다. backend가 PDF를 해석하고 local reference row에 `zotero:<attachmentKey>` 형태의 stable logical source id를 기록합니다. 같은 Zotero attachment를 반복 등록하면 이 logical source id를 재사용하며 `-02` reference stub를 새로 만들지 않습니다. PDF crop/snipping 이미지는 임시 채팅 컨텍스트로만 사용하며, 가능한 경우 선택된 모델에 전달된 뒤 `05_Assets` 아래에 영구 생성물을 남기지 않아야 합니다. backend transcription용 crop과 CLI image/cache 부산물은 repo `.cache/` 아래에 만들고 요청 뒤 삭제합니다. repo를 찾지 못하면 vault에 fallback하지 않고 명시적으로 실패합니다.
 Zotero 설정과 복구의 관리 주체는 backend입니다. 플러그인은 plugin 설정값을 canonical state로 보지 않고, `wiki plugin zotero status`, `wiki plugin zotero init`, `wiki plugin zotero search`, `wiki plugin zotero resolve-pdf` 같은 숨김 JSON 명령을 호출해 상태 진단, 초기화, 검색, PDF 경로 해석을 요청해야 합니다. PDF context 요청은 가능한 한 `source_id`, file hash, vault-relative path, absolute path, Zotero attachment key 같은 식별자를 함께 넘기고, backend가 reference-mode 파일이나 이동된 Zotero 파일을 일관되게 해석합니다. 절대경로는 현재 기기의 backend 호출에 쓰는 hint일 뿐이며, 동기화되는 `04_Resources` reference stub에는 쓰지 않아야 합니다.
 
 채팅 최종 답변은 plugin에서 선택한 provider/model이 작성합니다. backend/Incurator 호출은 plugin이 명시적으로 호출했을 때 검색 컨텍스트, PDF window, source status 또는 backend synthesis를 제공하는 역할입니다. 채팅 답변에서는 매 최신 요청마다 language bridge를 사용합니다: 입력 언어 감지 → 영어로 내부 검색/추론/tool 인자 처리 → 최신 입력 언어로 최종 답변 작성 순서입니다. 이전 턴, 한글 Markdown 문맥, 저장된 metadata가 다음 영어 질문의 답변 언어를 한국어로 고정해서는 안 됩니다. `curator_query`가 실행되면 Sources & Trace 패널이 지원 근거를 표시할 수 있도록 trace 필드는 유지하지만, stale `final_output_language`를 sidechat 언어 상태로 재사용하지 않습니다.
@@ -1182,7 +1184,7 @@ Sources & Trace 패널에는 **💾 Save to 02_Wiki** 버튼도 있습니다. �
   §9–12 참고.
 - Dashboard의 Trace/Insights 탭은 이 명령들 위에 놓인 click-to-use surface입니다.
   trace와 insight candidate를 list/show하고, 후보를 promote/reject하거나 correction을
-  propose할 수 있지만 `.curator/state.sqlite`, `.curator/Collections/`,
+  propose할 수 있지만 repo-cache `state.sqlite`, `.curator/Collections/`,
   `03_Notes/`, `04_Resources/`, `06_Archives`를 직접 쓰면 안 됩니다.
 
 ---

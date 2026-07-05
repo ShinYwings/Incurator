@@ -14,16 +14,15 @@ persona-to-KRS auto-mapping, or external search runtime fallback.
 
 ## 1. Topology Additions
 
-Current `.curator/` layout (as of v0.25.0):
+Current portable `.curator/` layout:
 
 ```text
 .curator/
 ├── settings.yml              # vault-scoped portable settings (persona, sync policy, etc.)
-├── state.sqlite
-├── dashboard.md              # generated observability dashboard, optional
-├── sync-report.json
-├── staging/                  # transient async ingest workspace
-│   └── {job_id}-{source_id}-{phase}.{ext}
+├── sync/
+│   └── dev-<device-id>.jsonl # portable DB transport snapshots
+├── sessions.json             # mergeable plugin chat history
+├── zotero_profiles.json      # mergeable import profiles
 └── Collections/
     ├── 01_Contexts/
     ├── 02_Atoms/
@@ -31,14 +30,29 @@ Current `.curator/` layout (as of v0.25.0):
     └── 04_Synthesis/            # SYN-*.md projection of the shared L4 Synthesis layer (§11.11)
 ```
 
-Machine-local settings (LLM backend, Zotero paths, etc.) are stored in
-`.cache/config/config.yml` at the repository root — never inside the vault.
+Machine-local state is stored at the repository root:
+
+```text
+.cache/
+├── config/                   # provider/external config and sync bookkeeping
+└── vaults/<vault-key>/
+    ├── state.sqlite          # authoritative local replica
+    ├── runtime/              # status snapshots and conflict archive
+    ├── staging/              # transient ingest workspace
+    ├── dashboard.md
+    ├── sync-report.json
+    ├── log.md
+    ├── pdf_pages/
+    ├── pdf_crops/
+    └── cli/
+```
 
 Rules:
 
-- `.curator/staging/` is transient. It may be deleted and rebuilt.
-- `.curator/staging/`, `state.sqlite`, `state.sqlite-wal`, and `state.sqlite-shm`
-  must be ignored by sync tools that cannot safely merge SQLite state.
+- The resolved vault root is hashed into `vault-key`; a local marker beside the
+  DB records the root for DB-only backend call sites.
+- Machine-local files must never fall back into the synchronized vault. Storage
+  isolation is structural and does not depend on `.stignore`.
 - `state.sqlite` is the single source of truth. Generated dashboards and DAG
   Markdown pages under `.curator/Collections/` are disposable projections that
   may be regenerated from the database.
@@ -69,7 +83,7 @@ recoverable `AntigravityCliError` rather than as an empty model answer.
 Search engine configuration is specified separately in
 `docs/specs/search_engine/SEARCH_ENGINE_SCHEMA.md`. Curator schema only
 requires that `search.backend` defaults to `native` and that search state remains
-inside `.curator/state.sqlite`; embedding/query-expansion/reranker provider
+inside the repo-cache `state.sqlite`; embedding/query-expansion/reranker provider
 fields, recovery-only expansion thresholds, FTS tables, chunk embeddings, and
 query traces belong to the search-engine spec.
 
@@ -1221,7 +1235,7 @@ Search engine tables are specified separately in
 - `query_traces`
 
 Curator records remain the authoritative source. Search tables are derived
-retrieval state in `.curator/state.sqlite` and must be rebuilt from Curator
+retrieval state in repo-cache `state.sqlite` and must be rebuilt from Curator
 records by `wiki reindex`.
 
 ## 12. Upgraded L1 Source Map
@@ -1424,7 +1438,7 @@ All ids are generated backend-side. Generated content (knowledge units,
 entities, relations, reports, paths, synthesis nodes) must reference only ids that
 already exist; prompt validators reject invented ids.
 
-## 11.17 `deleted_records` — Cross-Device Sync Tombstones (`SCHEMA_VERSION = 7`)
+## 11.17 `deleted_records` — Cross-Device Sync Tombstones (`SCHEMA_VERSION = 12`)
 
 Records deleted on one device are propagated to other devices on the next `wiki db import`. The tombstone table stores the table name and the deleted record's primary key so the deletion can be applied without needing the original row.
 
@@ -1446,6 +1460,8 @@ CREATE TABLE IF NOT EXISTS deleted_records (
 
 **Invariants:**
 - `record_tombstone(db_path, table_name, record_id)` must be called whenever a canonical row is hard-deleted. It records the deletion and enables other devices to apply it on import.
+- A `sources` tombstone stores the portable `sources.sync_key`, never the
+  replica-local integer `sources.id`.
 - During `wiki db import`, tombstones are applied **before** upserts. A tombstone beats a concurrent update (deletion wins over modification).
 - Device-local tables (`search_embeddings`, `ingest_jobs`, `job_events`, `page_hashes`, FTS5 virtual tables) are **never** listed as `table_name` in tombstones and are excluded from `wiki db export`.
 
@@ -1468,6 +1484,14 @@ a valid remote value and applies the same current-time fallback to missing or
 invalid legacy revisions; local source writes advance it. This closes the
 schema-v10 gap where L1-L4 status-only mutations did not participate in
 source-row LWW.
+
+**Portable source transport identity (`SCHEMA_VERSION = 12`):** every source has
+a unique, non-empty `sync_key`. The key is derived from a portable integration
+identity such as `zotero:<attachment-key>`, a portable external reference, or
+`vault:<relpath>`. Absolute-path-derived fallback ids are not valid sync keys.
+The integer `sources.id` remains replica-local. Import resolves/upserts a source
+by `sync_key`, preserves the receiving replica's integer id, and remaps every
+synchronized child `source_id` before applying child rows.
 
 ---
 
@@ -1610,7 +1634,8 @@ CREATE TABLE IF NOT EXISTS compiler_generations (
     created_at TEXT NOT NULL,
     published_at TEXT,
     discarded_at TEXT,
-    audit_json TEXT NOT NULL DEFAULT '{}'   -- publish-gate audit result snapshot
+    audit_json TEXT NOT NULL DEFAULT '{}',  -- publish-gate audit result snapshot
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_compiler_generations_source ON compiler_generations(source_id, status);
 ```
@@ -1645,6 +1670,16 @@ Rules (Arena decision 8 — staged atomic publish):
 - `compiler_generations` is canonical and synced (tombstone CHECK +
   `wiki db export`), since authoritative-generation identity must agree across
   devices.
+- Every status transition advances `updated_at` monotonically. A stale
+  `staged`/`discarded` snapshot cannot overwrite a newer authoritative row.
+
+### 20.3.1 JSONL Import Boundary (`SCHEMA_VERSION = 12`)
+
+- Export headers include a unique `export_id`; peer high-water state records
+  this id rather than relying on filesystem mtime.
+- Import accepts only frozen `SYNC_TABLES` entries and columns declared by the
+  local table schema.
+- Schema v11 snapshots are unsupported once v12 is active.
 
 ### 20.4 Formula Recovery Candidates (`source_spans.metadata.formula_recovery`)
 

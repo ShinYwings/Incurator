@@ -131,7 +131,7 @@ wiki add 04_Resources/
 # 3. L2/L3 빌드 (wiki build) — 깊은 LLM 추출 단계
 wiki build            # L2/L3를 백그라운드 워커에 큐잉 (논블로킹)
 wiki build --wait     # L2(Atoms) → L3(Concepts)를 지금 동기 실행
-#   - 진행 상황: .curator/dashboard.md 실시간 업데이트 (Obsidian에서 바로 확인)
+#   - 진행 상황: plugin Dashboard가 backend-local runtime 상태를 읽음
 
 # 단축: 2~4단계(add → build → 임베딩 → sync)를 한 번에 동기 실행
 wiki update
@@ -144,7 +144,7 @@ wiki update
 > local high-context 모델보다 작은 prompt가 전달된다. 큰 PDF나 Markdown 배치가 검증에
 > 실패하면, L2는 source-span provenance를 보존하는 더 작은 배치로 다시 시도한 뒤에
 > 소스를 실패 처리하며, 실패한 실행은 부분 L2 unit을 발행하지 않는다. 진행률은 `wiki status`나
-> `.curator/dashboard.md`로 확인한다. L4 Synthesis는 `wiki build`가 생성하며,
+> plugin Dashboard에서 확인한다. L4 Synthesis는 `wiki build`가 생성하며,
 > workspace curation은 별도의 staging 패스가 아니라 동적 query 렌즈입니다. eligible
 > community report가 없으면 L4 pass는 source를 pending으로 남기지 않고 `skipped`로
 > 끝납니다.
@@ -359,7 +359,7 @@ prompt 형식은 달라도 normalized backend pack은 동등해야 합니다.
 IngestWorker 스레드, `wiki jobs run`, 또는 Dashboard의 **Run queued**가 처리합니다.
 진행 상황을 확인하는 방법은 세 가지다.
 
-### 방법 1: .curator/dashboard.md (Obsidian)
+### 방법 1: Incurator Dashboard (Obsidian)
 
 IngestWorker가 자동으로 갱신하는 파일로, Obsidian live preview에서 실시간 확인 가능하다.
 

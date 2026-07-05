@@ -35,14 +35,6 @@ node_modules/
 // Incurator plugin: backend 실행 경로가 기기마다 다르면 설정은 로컬로 유지
 .obsidian/plugins/incurator-obsidian-agent/data.json
 
-// Incurator backend: 기기별 DB 및 내부 검색 상태
-// vault 파일은 Syncthing이 동기화하며 DB-native search row는 기기별로 재빌드
-.curator/state.sqlite
-
-// Incurator runtime: 백엔드 실시간 작업 상태 파일 (휘발성)
-// 짧은 주기로 업데이트되므로 동기화 시 심각한 충돌과 트래픽 유발
-.curator/runtime/
-
 // 에이전트 및 테스트베드 (선택 사항)
 .claude/
 testbed/
@@ -51,8 +43,8 @@ testbed/
 > [!IMPORTANT]
 > 기기 간 자동 동기화(`wiki db autosync`)는 Syncthing이
 > `.curator/sync/dev-<device_id>.jsonl` 스냅샷 파일을 운반하는 것에 의존합니다.
-> `.curator/sync/`는 **동기화 유지**하고, `.curator/state.sqlite`는 기기
-> 로컬로 두세요. 동기화 bookkeeping은 vault 밖의
+> `.curator/sync/`는 **동기화 유지**합니다. DB/runtime은 구조적으로 vault
+> 밖인 repo `.cache/vaults/<vault-key>/`에 있고, 동기화 bookkeeping은
 > `.cache/config/sync_state/<vault-root-hash>.json`에 저장됩니다. USER_GUIDE
 > "기기 간 지식 동기화"와 SYSTEM_BEHAVIOR §13.1 참고.
 > Snapshot과 local sync-state는 temp file 작성 후 atomic rename하므로 peer가
@@ -104,8 +96,8 @@ PDF 절대 경로를 포함하지 않아야 합니다.
   private한 resource library를 Git에 의존하지 않습니다.
 - `.curator/Collections/`: 프로젝트가 원하면 생성된 knowledge artifact로 Git에
   versioning할 수 있습니다.
-- `.curator/state.sqlite*`, `.curator/runtime/`: 기기별 runtime/index/휘발성 상태입니다.
-  Syncthing이나 Git으로 공유하지 않습니다.
+- `<repo>/.cache/vaults/<vault-key>/`: 기기별 DB/runtime/staging/temp
+  상태이며 동기화 vault 밖에 있습니다.
 - backend 실행 파일/저장소 경로: 기기별 설정입니다. 공유 vault truth로 저장하지 않습니다.
 - Zotero/external PDF 원본: 별도 Syncthing 폴더로 동기화할 수 있지만, Incurator는
   vault만 보고 그 경로를 알 수 없습니다. 각 기기에서 로컬 Zotero/external root로
@@ -194,5 +186,5 @@ Thumbs.db
 
 1.  **SQLite DB 관리**: `state.sqlite` 파일은 반드시 기기 로컬로 유지해야 합니다 — 그 안의 지식이 기기 종속적이어서가 아니라(저장되는 경로는 모두 vault 상대 경로이거나 이식 가능한 `@root_key` 참조입니다), 원본 SQLite 파일 자체를 안전하게 동기화할 수 없기 때문입니다. **Git 또는 Syncthing**으로 파일 통째 동기화하면 병합 충돌과 파일 손상(WAL/SHM 잠금)이 발생하고, 파일 통째 덮어쓰기는 JSONL 전송이 수행하는 행 단위 병합을 파괴합니다. 지식은 대신 `.curator/sync/dev-<id>.jsonl` 스냅샷을 통해 기기 간 이동합니다(SYSTEM_BEHAVIOR §13.1 참고). 각 기기는 로컬 검색 인덱스만 다시 빌드하면 됩니다(`wiki reindex`).
 2.  **내보내기 트리거를 살려 두세요**: v0.30.0부터 CLI는 변경을 일으키는 모든 명령 후에 이 기기의 스냅샷을 내보내며(`auto_sync.enabled` 기본값 `true`), Obsidian 플러그인은 `incuratorEnabled`가 켜져 있을 때 `wiki db autosync`를 실행합니다. 어떤 기기가 오래된, 더 작은 소스 개수를 보여 준다면 *다른* 기기에서 `wiki db autosync --dry-run`을 실행해 보세요 — `would_export`가 대기 중이라면 그 기기의 스냅샷이 전송된 적이 없다는 뜻입니다.
-3.  **충돌 예방**: 데이터베이스 파일과 `.curator/runtime/` 디렉터리가 Git과 Syncthing 양쪽에서 제대로 무시되는지 확인하여 대규모 충돌과 배터리 소모를 방지하세요. Sync identity와 peer high-water mark는 backend `.cache/config`에 있으므로 vault를 통해 공유되지 않습니다.
+3.  **충돌 예방**: DB/runtime 파일은 구조적으로 vault 밖의 repo `.cache`에 있으므로 vault ignore pattern이 필요하지 않습니다. Sync identity와 peer high-water mark도 backend `.cache/config`에 있습니다.
 4.  **Syncthing 팁**: Syncthing에서 Vault 폴더를 설정한 후, 폴더 설정 -> "무시 패턴(Ignore Patterns)" 탭에서 위 `.stignore` 섹션의 내용을 붙여넣으세요.
