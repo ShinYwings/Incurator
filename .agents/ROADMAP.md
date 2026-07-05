@@ -26,16 +26,12 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-- **[Minor v0.33.0] Cross-Device Integrity Boundary** *(AUDIT COMPLETE;
-  PLAN REQUIRED)*:
-  enforce the storage rule that machine-local state lives only under the
-  Incurator repo `.cache/`, while portable/shared state lives under the vault
-  `.curator/`. The audit reproduced four critical merge defects: numeric source
-  id collisions lose disjoint sources, source deletions emit no tombstones,
-  stale compiler generations overwrite authoritative status, and imports accept
-  local-only tables outside the sync allowlist. The same batch must move
-  vault-local runtime/staging/PDF/CLI caches, remove shared singleton writer
-  collisions, and add cross-device invariants before resuming other roadmap work.
+- **[Hotfix v0.32.1] Cross-Device Integrity Boundary** *(ACTIVE)*:
+  expand PR #82 to fix numeric source-id collisions, deletion propagation,
+  generation rollback, importer validation, snapshot identity, and the
+  machine-local/shared storage boundary. Machine state moves to repo `.cache`;
+  portable state remains under vault `.curator`.
+  Master plan: `.agents/plans/07_cross_device_integrity_hotfix.md`.
 
 ### 🚀 Priority Order
 
@@ -85,12 +81,6 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
-- **v0.32.1 — Cross-Device Sync Identity Isolation** (release ready
-  2026-07-04): moved device id and peer high-water marks out of the synchronized
-  vault into backend-local `.cache/config/sync_state/`. Shared vault-local ids
-  can no longer collapse macOS/Linux onto one snapshot filename. Mac production
-  is deployed with a new id; final data round trip awaits the currently offline
-  Linux Syncthing peer.
 - **v0.32.0 — Portable-Path Compatibility Removal** (shipped 2026-07-04,
   PR #80 merged):
   removed the `wiki paths` command, standalone portable migration service,
@@ -210,9 +200,9 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.32.1 implementation, CI, testbed, and macOS deployment
-  are complete; release PR pending.
-- **Active Milestone**: v0.32.1 release review.
-- **Next actionable item**: merge the v0.32.1 hotfix, update/reconnect Linux,
-  verify both Dashboards converge after autosync, then plan v0.33.0
-  Cross-Device Integrity Boundary before further sync changes.
+- **Roadmap state**: v0.32.1 PR #82 is reopened for the complete cross-device
+  integrity boundary.
+- **Active Milestone**: schema v12 transport and repo-cache storage isolation.
+- **Next actionable item**: execute
+  `.agents/plans/07_cross_device_integrity_hotfix.md`, validate both replicas,
+  then update PR #82.
