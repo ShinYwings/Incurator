@@ -15,6 +15,7 @@ export const RECENT_ITEMS_MAX = 50;
 export interface ZoteroProfilesFile {
   profiles: ZoteroImportProfile[];
   recentItems: string[];
+  deletedProfiles: Record<string, number>;
 }
 
 /** Merge a freshly read synced store with this process's pending edits.
@@ -35,7 +36,24 @@ export function mergeZoteroProfilesFiles(
     ...safeLocal.recentItems,
     ...safeDisk.recentItems.filter((key) => !safeLocal.recentItems.includes(key)),
   ].slice(0, RECENT_ITEMS_MAX);
-  return normalizeZoteroProfilesFile({ profiles, recentItems });
+  const deletedProfiles = { ...safeDisk.deletedProfiles };
+  for (const [name, deletedAt] of Object.entries(safeLocal.deletedProfiles)) {
+    deletedProfiles[name] = Math.max(deletedProfiles[name] || 0, deletedAt);
+  }
+  const liveProfiles = profiles.filter((profile) => {
+    const deletedAt = deletedProfiles[profile.name] || 0;
+    const profileAt = profile.lastUsedAt || 0;
+    if (profileAt > deletedAt) {
+      delete deletedProfiles[profile.name];
+      return true;
+    }
+    return deletedAt === 0;
+  });
+  return normalizeZoteroProfilesFile({
+    profiles: liveProfiles,
+    recentItems,
+    deletedProfiles,
+  });
 }
 
 /** Required string fields of ZoteroImportProfile. Damaged or pre-migration
@@ -69,7 +87,7 @@ function sanitizeProfile(p: Record<string, unknown>): ZoteroImportProfile {
  *  different case — see parseZoteroProfilesFile.) */
 export function normalizeZoteroProfilesFile(raw: unknown): ZoteroProfilesFile {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return { profiles: [], recentItems: [] };
+    return { profiles: [], recentItems: [], deletedProfiles: {} };
   }
   const obj = raw as Partial<Record<keyof ZoteroProfilesFile, unknown>>;
   const profiles = (Array.isArray(obj.profiles) ? obj.profiles : [])
@@ -89,7 +107,20 @@ export function normalizeZoteroProfilesFile(raw: unknown): ZoteroProfilesFile {
   const recentItems = (Array.isArray(obj.recentItems) ? obj.recentItems : [])
     .filter((k): k is string => typeof k === "string")
     .slice(0, RECENT_ITEMS_MAX);
-  return { profiles, recentItems };
+  const deletedProfiles =
+    typeof obj.deletedProfiles === "object" &&
+    obj.deletedProfiles !== null &&
+    !Array.isArray(obj.deletedProfiles)
+      ? Object.fromEntries(
+          Object.entries(obj.deletedProfiles).filter(
+            ([name, deletedAt]) =>
+              name.length > 0 &&
+              typeof deletedAt === "number" &&
+              Number.isFinite(deletedAt)
+          )
+        )
+      : {};
+  return { profiles, recentItems, deletedProfiles };
 }
 
 /** Parse raw file content, distinguishing corruption from entry-level damage.

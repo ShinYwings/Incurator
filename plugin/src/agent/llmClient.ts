@@ -2023,8 +2023,7 @@ export class LLMClient {
   private cliCacheBase(): string {
     const configured = expandPath((this.settings.incuratorRepoPath || "").trim());
     if (configured) return join(configured, ".cache", "cli");
-    if (this.vaultRoot) return join(this.vaultRoot, ".curator", "runtime", "cli");
-    throw new Error("Incurator CLI cache requires either incuratorRepoPath or vault root.");
+    throw new Error("Incurator CLI cache requires incuratorRepoPath.");
   }
 
   private cliTempDir(): string {
