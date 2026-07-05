@@ -2,7 +2,7 @@
 
 Covers the structural design locked in
 `.agents/plans/syncthing_auto_sync.md`:
-- P1: config block, device-local sync_state.json, _DEVICE_LOCAL_COLUMNS, .stignore.
+- P1: config block, backend-cache sync state, and _DEVICE_LOCAL_COLUMNS.
 - P2: export_for_device / import_all_peers / detect_conflict_files, the dry-run
   regression lock, offline edit/delete tie-breaks, reference-mode path preservation,
   no-self-import, incremental --since.
@@ -10,12 +10,20 @@ Covers the structural design locked in
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from curator import config as cfg
 from curator import db, db_sync
+
+
+@pytest.fixture(autouse=True)
+def isolated_sync_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    cache_dir = tmp_path / "backend-cache"
+    monkeypatch.setattr(cfg, "get_global_config_dir", lambda: cache_dir)
+    return cache_dir
 
 
 # ---------------------------------------------------------------------------
@@ -36,11 +44,13 @@ class TestAutoSyncConfig:
 
 
 class TestSyncState:
-    def test_round_trip(self, tmp_path: Path) -> None:
+    def test_round_trip(self, tmp_path: Path, isolated_sync_cache: Path) -> None:
         internal = tmp_path / ".curator"
         internal.mkdir()
         db_sync.write_sync_state(internal, {"device_id": "abc", "peers": {}})
         assert db_sync.read_sync_state(internal)["device_id"] == "abc"
+        assert not (internal / "sync_state.json").exists()
+        assert db_sync._sync_state_path(internal).is_relative_to(isolated_sync_cache)
 
     def test_read_missing_returns_empty(self, tmp_path: Path) -> None:
         assert db_sync.read_sync_state(tmp_path / ".curator") == {}
@@ -54,17 +64,47 @@ class TestSyncState:
         assert db_sync.get_device_id(internal) == first
         assert db_sync.read_sync_state(internal)["device_id"] == first
 
+    def test_synced_vault_local_device_id_is_ignored(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        internal = tmp_path / "vault" / ".curator"
+        internal.mkdir(parents=True)
+        (internal / "sync_state.json").write_text(
+            '{"device_id": "shared-device", "peers": {}}',
+            encoding="utf-8",
+        )
+
+        cache_a = tmp_path / "backend-a" / ".cache" / "config"
+        monkeypatch.setattr(cfg, "get_global_config_dir", lambda: cache_a)
+        device_a = db_sync.get_device_id(internal)
+
+        cache_b = tmp_path / "backend-b" / ".cache" / "config"
+        monkeypatch.setattr(cfg, "get_global_config_dir", lambda: cache_b)
+        device_b = db_sync.get_device_id(internal)
+
+        assert device_a != "shared-device"
+        assert device_b != "shared-device"
+        assert device_a != device_b
+
+    def test_cache_state_is_namespaced_per_vault(self, tmp_path: Path) -> None:
+        first = tmp_path / "first" / ".curator"
+        second = tmp_path / "second" / ".curator"
+
+        assert db_sync._sync_state_path(first) != db_sync._sync_state_path(second)
+
 
 class TestConstantsAndIgnore:
     def test_source_locators_are_not_device_local_columns(self) -> None:
         assert "sources" not in db_sync._DEVICE_LOCAL_COLUMNS
 
-    def test_stignore_template_excludes_sync_state(self) -> None:
+    def test_stignore_template_does_not_need_sync_state_rule(self) -> None:
         template = (
             Path(cfg.__file__).parent / "workspace" / "templates" / "stignore.template"
         )
         text = template.read_text(encoding="utf-8")
-        assert "sync_state.json" in text
+        assert "sync_state.json" not in text
         # The synced knowledge files must NOT be excluded.
         assert ".curator/sync/\n" not in text and ".curator/sync/*" not in text
 
@@ -151,6 +191,40 @@ class TestImportAllPeers:
         # No mtime change → skipped (not re-imported).
         assert peer.name not in db_sync.import_all_peers(_internal(vault), _db(vault))
 
+    def test_imports_replaced_snapshot_even_when_mtime_is_unchanged(
+        self, vault: Path
+    ) -> None:
+        peer = _make_peer(
+            vault,
+            "dev-peerSAME.jsonl",
+            "ATM-FIRST",
+            "first",
+            "2026-06-02T00:00:00Z",
+        )
+        fixed_mtime = peer.stat().st_mtime
+        db_sync.import_all_peers(_internal(vault), _db(vault))
+
+        replacement_db = vault / "replacement.sqlite"
+        replacement_out = vault / "replacement.jsonl"
+        db.init_db(replacement_db)
+        _add_atom(
+            replacement_db,
+            "ATM-SECOND",
+            "second",
+            "2026-06-03T00:00:00Z",
+        )
+        db_sync.export_knowledge(replacement_db, replacement_out)
+        peer.write_text(replacement_out.read_text(encoding="utf-8"), encoding="utf-8")
+        os.utime(peer, (fixed_mtime, fixed_mtime))
+
+        result = db_sync.import_all_peers(_internal(vault), _db(vault))
+
+        assert peer.name in result
+        with db.connect(_db(vault)) as conn:
+            assert conn.execute(
+                "SELECT 1 FROM atoms WHERE id = 'ATM-SECOND'"
+            ).fetchone()
+
 
 class TestReferenceModePreservation:
     def test_portable_external_ref_merges_normally(self, vault: Path) -> None:
@@ -172,7 +246,7 @@ class TestReferenceModePreservation:
         import json as _json
         peer = peer_dir / "dev-peerCCCC.jsonl"
         peer.write_text(
-            _json.dumps({"type": "header", "schema_version": db_sync.SCHEMA_VERSION, "exported_at": "x"}) + "\n"
+            _json.dumps({"type": "header", "schema_version": db_sync.SCHEMA_VERSION, "export_id": "exp-reference", "exported_at": "x"}) + "\n"
             + _json.dumps({"type": "row", "table": "sources", "row": {
                 "id": sid, "relpath": "04_Resources/p.pdf", "content_hash": "h2",
                 "file_type": "pdf", "bytes": 10, "added_at": "2026-06-01T00:00:00Z",
@@ -258,7 +332,7 @@ def _peer_with_tombstone(vault: Path, filename: str, table: str, rid: str, ts: s
     sync_dir.mkdir(parents=True, exist_ok=True)
     peer = sync_dir / filename
     peer.write_text(
-        _json.dumps({"type": "header", "schema_version": db_sync.SCHEMA_VERSION, "exported_at": "x"}) + "\n"
+        _json.dumps({"type": "header", "schema_version": db_sync.SCHEMA_VERSION, "export_id": f"exp-{filename}", "exported_at": "x"}) + "\n"
         + _json.dumps({"type": "row", "table": "deleted_records", "row": {
             "table_name": table, "record_id": rid, "deleted_at": ts,
         }}) + "\n",
@@ -312,7 +386,12 @@ class TestAutosync:
             assert conn.execute("SELECT 1 FROM atoms WHERE id='ATM-0003'").fetchone() is not None
         # Conflict file moved out of the synced dir.
         assert not conflict.exists()
-        assert (_internal(vault) / "runtime" / "sync_conflicts" / conflict.name).exists()
+        assert (
+            cfg.get_vault_cache_dir(vault)
+            / "runtime"
+            / "sync_conflicts"
+            / conflict.name
+        ).exists()
 
 
 class TestTwoDeviceE2E:
@@ -357,6 +436,51 @@ class TestTwoDeviceE2E:
             with db.connect(dbp) as conn:
                 ids = {r[0] for r in conn.execute("SELECT id FROM atoms")}
             assert {"ATM-A1", "ATM-B1"} <= ids  # neither device lost data
+
+    def test_shared_vault_local_id_cannot_collapse_device_snapshots(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        mac = self._vault(tmp_path, "mac")
+        linux = self._vault(tmp_path, "linux")
+        db_mac = mac / ".curator" / "state.sqlite"
+        db_linux = linux / ".curator" / "state.sqlite"
+        int_mac = mac / ".curator"
+        int_linux = linux / ".curator"
+
+        shared_state = '{"device_id": "0782dbcf0ff4", "peers": {}}'
+        (int_mac / "sync_state.json").write_text(shared_state, encoding="utf-8")
+        (int_linux / "sync_state.json").write_text(shared_state, encoding="utf-8")
+        _add_atom(db_mac, "ATM-MAC", "mac knowledge", "2026-07-04T00:00:00Z")
+        _add_atom(db_linux, "ATM-LINUX", "linux knowledge", "2026-07-04T00:00:00Z")
+
+        cache_mac = tmp_path / "mac-backend" / ".cache" / "config"
+        monkeypatch.setattr(cfg, "get_global_config_dir", lambda: cache_mac)
+        mac_result = db_sync.autosync(int_mac, db_mac)
+
+        cache_linux = tmp_path / "linux-backend" / ".cache" / "config"
+        monkeypatch.setattr(cfg, "get_global_config_dir", lambda: cache_linux)
+        linux_result = db_sync.autosync(int_linux, db_linux)
+
+        assert mac_result.exported
+        assert linux_result.exported
+        assert mac_result.exported != linux_result.exported
+        assert "0782dbcf0ff4" not in mac_result.exported
+        assert "0782dbcf0ff4" not in linux_result.exported
+
+        self._sync_from_to(mac, linux)
+        monkeypatch.setattr(cfg, "get_global_config_dir", lambda: cache_linux)
+        db_sync.autosync(int_linux, db_linux)
+
+        self._sync_from_to(linux, mac)
+        monkeypatch.setattr(cfg, "get_global_config_dir", lambda: cache_mac)
+        db_sync.autosync(int_mac, db_mac)
+
+        for db_path in (db_mac, db_linux):
+            with db.connect(db_path) as conn:
+                atom_ids = {str(row[0]) for row in conn.execute("SELECT id FROM atoms")}
+            assert {"ATM-MAC", "ATM-LINUX"} <= atom_ids
 
     def test_concurrent_edit_newer_wins(self, tmp_path: Path) -> None:
         A = self._vault(tmp_path, "A")

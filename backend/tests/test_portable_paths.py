@@ -66,7 +66,7 @@ def test_resolve_ref_uses_machine_local_root(tmp_path: Path) -> None:
     assert resolve_ref("@zotero_library/storage/KEY/paper.pdf", {"zotero_library": library}) == pdf
 
 
-def test_fresh_v11_sources_schema_has_only_portable_locator_columns(tmp_path: Path) -> None:
+def test_fresh_v12_sources_schema_has_portable_sync_identity(tmp_path: Path) -> None:
     state_db = tmp_path / "state.sqlite"
     db.init_db(state_db)
 
@@ -76,8 +76,8 @@ def test_fresh_v11_sources_schema_has_only_portable_locator_columns(tmp_path: Pa
             for row in conn.execute("PRAGMA table_info(sources)").fetchall()
         }
 
-    assert db.SCHEMA_VERSION == 11
-    assert {"external_ref", "import_origin_ref"} <= columns
+    assert db.SCHEMA_VERSION == 12
+    assert {"external_ref", "import_origin_ref", "sync_key"} <= columns
     assert "external_path" not in columns
     assert "import_origin" not in columns
 

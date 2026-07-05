@@ -4,6 +4,44 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.32.1] - 2026-07-06
+### Changed
+- DB schema upgraded to v12. Sources carry a `sync_key` column — a portable
+  transport identity for cross-device JSONL sync. Local integer `id` values
+  remain replica-local; imported child `source_id` foreign keys are remapped to
+  the receiving device's ids on import.
+- `compiler_generations` rows now have an `updated_at` column, making generation
+  status transitions participate in monotonic LWW sync and preventing stale
+  snapshots from regressing authoritative state.
+- JSONL export headers include an `export_id` (UUID). Import rejects snapshots
+  without one, preventing same-mtime snapshot confusion across replicas.
+- JSONL import validates all table names and column names against an allowlist
+  derived from the local schema, rejecting unknown tables and columns.
+- Device-local state — `state.sqlite`, runtime, staging, sync reports, event
+  log, PDF page/crop caches, and conflict archives — now lives under the
+  Incurator repository `.cache/vaults/<vault-key>/` instead of the synchronized
+  vault `.curator/`. The vault hash is derived from the resolved vault root. A
+  one-time migration moves the existing `.curator/state.sqlite` (and sidecars)
+  to the new location; if both old and new DB files exist, the backend aborts
+  with explicit recovery instructions.
+- Plugin session saves are serialized to prevent concurrent writes from
+  corrupting the session store.
+- Zotero profile store supports explicit deletion tombstones and serialized
+  saves, preventing profile resurrection after cross-device sync.
+
+### Fixed
+- Cross-device source convergence no longer relies on integer primary keys.
+  Two independently allocated `id=1` sources with different `sync_key` values
+  converge to two distinct local sources with correct child provenance.
+- Source deletion propagates via `sync_key` tombstones. Deleted sources stay
+  deleted even when a stale pre-deletion snapshot is replayed from another
+  device.
+- Plugin temporary files (CLI output, PDF crops) are written to the repo cache,
+  not the vault `.curator/` directory, preventing them from syncing across
+  devices.
+
+---
+
 ## [0.32.0] - 2026-07-04
 ### Changed
 - External source configuration now accepts only the current

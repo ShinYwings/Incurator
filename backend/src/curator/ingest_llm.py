@@ -269,8 +269,9 @@ def _auto_discover_pending(paths: cfg.WikiPaths) -> tuple[int, int]:
     """
     from . import ingest_raw
     with db.connect(paths.state_db) as conn:
-        rows = conn.execute("SELECT id, relpath FROM sources").fetchall()
+        rows = conn.execute("SELECT id, relpath, sync_key FROM sources").fetchall()
         tracked = {row["relpath"]: row["id"] for row in rows}
+        sync_keys = {row["id"]: row["sync_key"] for row in rows}
 
     valid_prefixes = tuple(str(d.relative_to(paths.root)) for d in paths.raw_dirs)
 
@@ -281,6 +282,8 @@ def _auto_discover_pending(paths: cfg.WikiPaths) -> tuple[int, int]:
 
     removed = 0
     if orphans:
+        from .db_sync import record_tombstone_on_connection
+
         with db.connect(paths.state_db) as conn:
             ph = ','.join('?' * len(orphans))
             conn.execute(f"DELETE FROM job_events WHERE job_id IN (SELECT id FROM ingest_jobs WHERE source_id IN ({ph}))", orphans)
@@ -290,6 +293,12 @@ def _auto_discover_pending(paths: cfg.WikiPaths) -> tuple[int, int]:
             conn.execute(f"DELETE FROM dag_edges WHERE source_id IN ({ph})", orphans)
             conn.execute(f"DELETE FROM source_pdf_pages WHERE source_id IN ({ph})", orphans)
             conn.execute(f"DELETE FROM sources WHERE id IN ({ph})", orphans)
+            for source_id in orphans:
+                record_tombstone_on_connection(
+                    conn,
+                    "sources",
+                    str(sync_keys[source_id]),
+                )
         removed = len(orphans)
         for relpath in [k for k, v in tracked.items() if v in orphans]:
             del tracked[relpath]

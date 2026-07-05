@@ -168,18 +168,21 @@ describe("Session sync path hygiene", () => {
     expect(body.indexOf("sessionData = sanitizeSessionDataForSync(sessionData);")).toBeLessThan(
       body.indexOf("this.app.vault.adapter.write(")
     );
+    expect(src).toContain("private sessionPersistPromise");
+    expect(src).toContain("this.sessionPersistPromise = this.sessionPersistPromise");
   });
 });
 
 describe("Temporary file hygiene", () => {
-  it("stores PDF crop transcription temp files under vault .curator runtime", () => {
+  it("stores PDF crop transcription temp files under the repo cache", () => {
     const src = mainSource();
     const methodStart = src.indexOf("async transcribePdfCrop(base64: string)");
     const methodEnd = src.indexOf("  private formatPdfExtractionFailure", methodStart);
     const body = src.slice(methodStart, methodEnd);
 
     expect(src).not.toContain('import { tmpdir } from "os";');
-    expect(body).toContain('join(this.vaultRoot, ".curator", "runtime", "pdf_crops")');
+    expect(body).toContain("vaultMachineCacheDir(repoPath, this.vaultRoot)");
+    expect(body).not.toContain('".curator"');
     expect(body).toContain("await fs.mkdtemp(join(baseDir, \"crop-\"))");
     expect(body).toContain("await fs.rm(tmpDir, { recursive: true, force: true });");
   });

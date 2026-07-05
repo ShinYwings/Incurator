@@ -811,8 +811,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
     deleteBtn.setText("✕");
     deleteBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      this.plugin.settings.zoteroProfiles.splice(index, 1);
-      await this.plugin.saveSettings();
+      await this.plugin.deleteZoteroProfile(index);
       this.display();
     });
 

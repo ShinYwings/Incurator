@@ -154,9 +154,9 @@ The Incurator repository manages the Python backend daemon (`backend/`) and Obsi
 
 ### 7.1 Backend/Client Boundary
 
-- The Incurator backend owns `.curator/state.sqlite`, source registry, PDF page provenance, the L1-L4 DAG, DB-native search, query traces, and MCP tools.
+- The Incurator backend owns the repo-cache `state.sqlite`, source registry, PDF page provenance, the L1-L4 DAG, DB-native search, query traces, and MCP tools.
 - The Obsidian plugin is a client. It owns open-PDF context capture, chat UI, import/rebind approval modals, and provider prompt assembly.
-- The plugin must not write `.curator/state.sqlite` directly. Persistent source changes must go through MCP/CLI backend APIs.
+- The plugin must not write repo-cache `state.sqlite` directly. Persistent source changes must go through MCP/CLI backend APIs.
 - MCP/backend must not silently edit `03_Notes/`. Human note edits require explicit approval and a diff/confirm flow.
 
 ### 7.2 Evidence Gate

@@ -7,6 +7,7 @@ Usage:
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import logging
 import os
@@ -26,10 +27,10 @@ SCHEMA_VERSION = db.SCHEMA_VERSION
 # as device-local during LWW merge.
 _DEVICE_LOCAL_COLUMNS: dict[str, set[str]] = {}
 
-# Device-local sync bookkeeping file. Lives directly under .curator/, holds this
-# device's id and per-peer high-water marks. MUST be excluded from Syncthing
-# (.stignore) so peers never fight over each other's marks.
-SYNC_STATE_FILE = "sync_state.json"
+# Device-local sync bookkeeping lives in the backend cache, outside the synced
+# vault. The resolved vault root is hashed to isolate multiple vaults without
+# exposing their absolute paths in cache filenames.
+SYNC_STATE_DIR = "sync_state"
 
 # Tables exported in this order. deleted_records must be first so tombstones
 # are applied before upserts during import.
@@ -86,9 +87,7 @@ _UPDATED_AT_COL: dict[str, str] = {
     "source_spans": "created_at",
     "knowledge_units": "updated_at",
     "claim_supports": "updated_at",
-    # compiler_generations is intentionally absent: it has no updated_at column
-    # (status transitions in place), so it always-upserts on import — the latest
-    # exported authoritative-generation status wins (SCHEMA §20.3).
+    "compiler_generations": "updated_at",
     "graph_entities": "updated_at",
     "graph_relations": "updated_at",
     "graph_relation_supports": "updated_at",
@@ -125,7 +124,7 @@ _REMOTE_TS_FN: dict[str, _Callable[[dict], str]] = {
 
 # Primary key column per table. None = composite/handled-separately (always upsert).
 _PK_COL: dict[str, str | None] = {
-    "sources": "id",
+    "sources": "sync_key",
     "atoms": "id",
     "concepts": "id",
     "synthesis_nodes": "id",
@@ -169,24 +168,39 @@ class ImportStats:
     dry_run: bool = False
 
 
+def record_tombstone_on_connection(
+    conn: "db.sqlite3.Connection",
+    table_name: str,
+    record_id: str,
+) -> None:
+    """Record a canonical delete in the caller's transaction."""
+    if table_name not in SYNC_TABLES or table_name == "deleted_records":
+        raise ValueError(f"Table {table_name!r} is not syncable")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    conn.execute(
+        "INSERT OR REPLACE INTO deleted_records (table_name, record_id, deleted_at)"
+        " VALUES (?, ?, ?)",
+        (table_name, record_id, now),
+    )
+
+
 def record_tombstone(db_path: Path, table_name: str, record_id: str) -> None:
     """Record that a canonical row was deleted on this device."""
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     with db.connect(db_path) as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO deleted_records (table_name, record_id, deleted_at)"
-            " VALUES (?, ?, ?)",
-            (table_name, record_id, now),
-        )
+        record_tombstone_on_connection(conn, table_name, record_id)
 
 
 # ---------------------------------------------------------------------------
-# Device-local sync state (.curator/sync_state.json — NOT synced)
+# Device-local sync state (backend .cache/config — outside the vault)
 # ---------------------------------------------------------------------------
 
 
 def _sync_state_path(internal_dir: Path) -> Path:
-    return internal_dir / SYNC_STATE_FILE
+    from . import config as cfg
+
+    vault_root = internal_dir.parent.expanduser().resolve(strict=False)
+    vault_key = hashlib.sha256(str(vault_root).encode("utf-8")).hexdigest()[:16]
+    return cfg.get_global_config_dir() / SYNC_STATE_DIR / f"{vault_key}.json"
 
 
 def read_sync_state(internal_dir: Path) -> dict:
@@ -241,8 +255,14 @@ def export_knowledge(
         compress: Write gzip-compressed output.
     """
     export_tables = tables if tables is not None else SYNC_TABLES
+    invalid_tables = set(export_tables) - set(SYNC_TABLES)
+    if invalid_tables:
+        raise ValueError(
+            f"Tables are not syncable: {', '.join(sorted(invalid_tables))}"
+        )
     stats = ExportStats()
     now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    export_id = uuid.uuid4().hex
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = out_path.with_name(
@@ -260,6 +280,7 @@ def export_knowledge(
                 json.dumps({
                     "type": "header",
                     "schema_version": SCHEMA_VERSION,
+                    "export_id": export_id,
                     "exported_at": now,
                 }) + "\n"
             )
@@ -333,6 +354,8 @@ def import_knowledge(
             raise ValueError(
                 f"schema_version mismatch: file has {file_version}, local is {SCHEMA_VERSION}"
             )
+        if not header.get("export_id"):
+            raise ValueError("Missing export_id in export header")
 
         with db.connect(db_path) as conn:
             existing_tables = {
@@ -341,6 +364,17 @@ def import_knowledge(
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
             }
+            table_columns = {
+                table: {
+                    str(col[1])
+                    for col in conn.execute(
+                        f"PRAGMA table_info({table})"
+                    ).fetchall()
+                }
+                for table in SYNC_TABLES
+                if table in existing_tables
+            }
+            source_id_map: dict[int, int] = {}
 
             for line in f:
                 line = line.strip()
@@ -349,10 +383,20 @@ def import_knowledge(
                 rec = json.loads(line)
                 if rec.get("type") != "row":
                     continue
-                tbl = rec["table"]
+                tbl = rec.get("table")
+                if tbl not in SYNC_TABLES:
+                    raise ValueError(f"Table {tbl!r} is not syncable")
                 if tbl not in existing_tables:
-                    continue
-                row: dict = rec["row"]
+                    raise ValueError(f"Sync table {tbl!r} does not exist locally")
+                row = rec.get("row")
+                if not isinstance(row, dict):
+                    raise ValueError(f"Invalid row payload for table {tbl!r}")
+                unknown_columns = set(row) - table_columns[tbl]
+                if unknown_columns:
+                    raise ValueError(
+                        f"Table {tbl!r} has unknown columns: "
+                        f"{', '.join(sorted(unknown_columns))}"
+                    )
                 if tbl == "sources" and not row.get("updated_at"):
                     legacy_ts = row.get("last_ingested") or row.get("added_at") or ""
                     normalized_legacy_ts = (
@@ -371,10 +415,44 @@ def import_knowledge(
                     )
 
                 if tbl == "deleted_records":
-                    applied = _apply_tombstone(conn, row["table_name"], row["record_id"], row["deleted_at"], dry_run=dry_run)
+                    target_table = row.get("table_name")
+                    if target_table not in SYNC_TABLES or target_table == "deleted_records":
+                        raise ValueError(
+                            f"Tombstone table {target_table!r} is not syncable"
+                        )
+                    applied = _apply_tombstone(
+                        conn,
+                        target_table,
+                        row["record_id"],
+                        row["deleted_at"],
+                        dry_run=dry_run,
+                    )
                     if applied:
                         stats.deleted += 1
+                elif tbl == "sources":
+                    remote_id = row.get("id")
+                    result, local_id = _lw_upsert_source(
+                        conn,
+                        row,
+                        dry_run=dry_run,
+                    )
+                    if isinstance(remote_id, int):
+                        source_id_map[remote_id] = local_id
+                    if result == "inserted":
+                        stats.inserted += 1
+                    elif result == "updated":
+                        stats.updated += 1
+                    else:
+                        stats.skipped += 1
                 else:
+                    if row.get("source_id") is not None:
+                        remote_source_id = row["source_id"]
+                        if remote_source_id not in source_id_map:
+                            raise ValueError(
+                                f"Table {tbl!r} references unmapped source_id "
+                                f"{remote_source_id!r}"
+                            )
+                        row["source_id"] = source_id_map[remote_source_id]
                     result = _lw_upsert(conn, tbl, row, dry_run=dry_run)
                     if result == "inserted":
                         stats.inserted += 1
@@ -395,6 +473,9 @@ def _apply_tombstone(
 ) -> bool:
     """Delete a record from its table and record the tombstone locally.
     Returns True if the tombstone would be applied."""
+    if table_name not in SYNC_TABLES or table_name == "deleted_records":
+        raise ValueError(f"Table {table_name!r} is not syncable")
+
     # Check if there is already a newer tombstone
     existing_tombstone = conn.execute(
         "SELECT deleted_at FROM deleted_records WHERE table_name = ? AND record_id = ?",
@@ -406,6 +487,8 @@ def _apply_tombstone(
     # Check if the local record is newer than the tombstone
     pk_col = _PK_COL.get(table_name)
     updated_col = _UPDATED_AT_COL.get(table_name)
+    if table_name == "sources":
+        pk_col = "sync_key"
     if pk_col and updated_col:
         local_record = conn.execute(
             f"SELECT {updated_col} FROM {table_name} WHERE {pk_col} = ?",
@@ -436,6 +519,64 @@ def _apply_tombstone(
             (table_name, record_id, deleted_at),
         )
     return True
+
+
+def _source_sync_key(row: dict) -> str:
+    sync_key = str(row.get("sync_key") or "").strip()
+    if sync_key:
+        return sync_key
+    relpath = str(row.get("relpath") or "").replace("\\", "/").strip("/")
+    if not relpath:
+        raise ValueError("Source row is missing sync_key and relpath")
+    return f"vault:{relpath}"
+
+
+def _lw_upsert_source(
+    conn: "db.sqlite3.Connection",
+    row: dict,
+    *,
+    dry_run: bool = False,
+) -> tuple[str, int]:
+    """Merge a source by portable key while preserving the local integer id."""
+    sync_key = _source_sync_key(row)
+    row["sync_key"] = sync_key
+    remote_id = row.get("id")
+    existing = conn.execute(
+        "SELECT * FROM sources WHERE sync_key = ?",
+        (sync_key,),
+    ).fetchone()
+    if existing is None:
+        if dry_run:
+            return "inserted", int(remote_id or 0)
+        insert_row = {key: value for key, value in row.items() if key != "id"}
+        _do_insert(conn, "sources", insert_row)
+        inserted = conn.execute(
+            "SELECT id FROM sources WHERE sync_key = ?",
+            (sync_key,),
+        ).fetchone()
+        if inserted is None:
+            raise ValueError(
+                f"Source {sync_key!r} conflicts with an existing local relpath"
+            )
+        return "inserted", int(inserted[0])
+
+    local_id = int(existing["id"])
+    local_ts = existing["updated_at"] or ""
+    remote_ts = _REMOTE_TS_FN["sources"](row)
+    if _timestamp_key(remote_ts) <= _timestamp_key(local_ts):
+        return "skipped", local_id
+    if not dry_run:
+        update_row = {
+            key: value
+            for key, value in row.items()
+            if key not in {"id", "sync_key"}
+        }
+        assignments = ", ".join(f"{key} = ?" for key in update_row)
+        conn.execute(
+            f"UPDATE sources SET {assignments} WHERE id = ?",
+            (*update_row.values(), local_id),
+        )
+    return "updated", local_id
 
 
 def _lw_upsert(conn: "db.sqlite3.Connection", table_name: str, row: dict, dry_run: bool = False) -> str:
@@ -578,6 +719,23 @@ def _peer_files(internal_dir: Path, *, dir_name: str = "sync") -> list[Path]:
     return peers
 
 
+def _read_export_id(path: Path) -> str:
+    opener: IO[str]
+    if path.suffix == ".gz":
+        opener = gzip.open(path, "rt", encoding="utf-8")  # type: ignore[assignment]
+    else:
+        opener = path.open("r", encoding="utf-8")
+    with opener as handle:
+        line = handle.readline().strip()
+    if not line:
+        raise ValueError(f"Empty export file: {path}")
+    header = json.loads(line)
+    export_id = header.get("export_id")
+    if header.get("type") != "header" or not isinstance(export_id, str) or not export_id:
+        raise ValueError(f"Missing export_id in export header: {path}")
+    return export_id
+
+
 def import_all_peers(
     internal_dir: Path,
     db_path: Path,
@@ -585,10 +743,10 @@ def import_all_peers(
     dry_run: bool = False,
     dir_name: str = "sync",
 ) -> dict[str, ImportStats]:
-    """Import every peer file whose mtime advanced since the last import.
+    """Import every peer file whose export id differs from the last import.
 
     Never imports this device's own file (loop safety). Records per-peer
-    `last_imported_mtime` in sync_state so a re-run is a cheap no-op and a
+    `last_export_id` in sync_state so a re-run is a cheap no-op and a
     late-arriving Syncthing delivery is picked up exactly once.
     """
     results: dict[str, ImportStats] = {}
@@ -596,14 +754,14 @@ def import_all_peers(
     peers: dict = state.setdefault("peers", {})
 
     for f in _peer_files(internal_dir, dir_name=dir_name):
-        mtime = f.stat().st_mtime
+        export_id = _read_export_id(f)
         rec = peers.get(f.name, {})
-        if not dry_run and rec.get("last_imported_mtime") == mtime:
+        if not dry_run and rec.get("last_export_id") == export_id:
             continue
         stats = import_knowledge(db_path, f, dry_run=dry_run)
         results[f.name] = stats
         if not dry_run:
-            peers[f.name] = {"last_imported_mtime": mtime}
+            peers[f.name] = {"last_export_id": export_id}
 
     if not dry_run:
         write_sync_state(internal_dir, state)
@@ -687,7 +845,13 @@ def maybe_auto_export(paths) -> Path | None:
 def _archive_conflict(cf: Path, internal_dir: Path) -> None:
     """Move a merged conflict file out of the synced dir into local runtime storage,
     so it stops re-triggering the conflict notice and is not re-synced."""
-    archive = internal_dir / "runtime" / "sync_conflicts"
+    from . import config as cfg
+
+    archive = (
+        cfg.get_vault_cache_dir(internal_dir.parent)
+        / "runtime"
+        / "sync_conflicts"
+    )
     archive.mkdir(parents=True, exist_ok=True)
     try:
         cf.rename(archive / cf.name)

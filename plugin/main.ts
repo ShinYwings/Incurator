@@ -84,6 +84,7 @@ import {
 } from "./src/utils/textUtils";
 import { rewriteCuratorLinks } from "./src/utils/curatorWikilinks";
 import { mergeSessionData, normalizeSessionData, sanitizeSessionDataForSync } from "./src/utils/sessionData";
+import { vaultMachineCacheDir } from "./src/utils/machineCache";
 import {
   mergeDeviceRegistry,
   readSyncthingSnapshotWithStatus,
@@ -130,6 +131,8 @@ export default class ObsidianAIAgent extends Plugin {
   private syncStatusBar: HTMLElement | null = null;
   private settingsPersistPromise: Promise<void> = Promise.resolve();
   private zoteroProfilesPersistPromise: Promise<void> = Promise.resolve();
+  private sessionPersistPromise: Promise<void> = Promise.resolve();
+  private deletedZoteroProfiles: Record<string, number> = {};
   private localIncuratorRepoPathHint = "";
 
   async onload(): Promise<void> {
@@ -144,6 +147,7 @@ export default class ObsidianAIAgent extends Plugin {
     // ── Initialize core services ──
     this.vaultRoot = (this.app.vault.adapter as any).getBasePath?.() || "";
     await this.applyLocalRepoPathHint();
+    this.settings.incuratorRepoPath = this.resolveRepoPath() || "";
     await this.syncDeviceRegistryFromSyncthing();
     this.llmClient = new LLMClient(
       this.settings,
@@ -893,7 +897,15 @@ export default class ObsidianAIAgent extends Plugin {
       new Notice(this.formatPdfExtractionFailure("Vault root is unavailable"));
       return null;
     }
-    const baseDir = join(this.vaultRoot, ".curator", "runtime", "pdf_crops");
+    const repoPath = this.resolveRepoPath();
+    if (!repoPath) {
+      new Notice(this.formatPdfExtractionFailure("Incurator repository is unavailable"));
+      return null;
+    }
+    const baseDir = join(
+      vaultMachineCacheDir(repoPath, this.vaultRoot),
+      "pdf_crops"
+    );
     await fs.mkdir(baseDir, { recursive: true });
     const tmpDir = await fs.mkdtemp(join(baseDir, "crop-"));
     const imageFile = join(tmpDir, "crop.png");
@@ -919,8 +931,17 @@ export default class ObsidianAIAgent extends Plugin {
   }
 
   async readRuntimeJson(name: "status" | "jobs" | "sources"): Promise<any | null> {
+    const repoPath = this.resolveRepoPath();
+    if (!repoPath || !this.vaultRoot) return null;
     try {
-      const raw = await this.app.vault.adapter.read(`.curator/runtime/${name}.json`);
+      const raw = await fs.readFile(
+        join(
+          vaultMachineCacheDir(repoPath, this.vaultRoot),
+          "runtime",
+          `${name}.json`
+        ),
+        "utf-8"
+      );
       return JSON.parse(raw);
     } catch {
       return null;
@@ -1374,6 +1395,7 @@ export default class ObsidianAIAgent extends Plugin {
       }
       this.settings.zoteroProfiles = store.profiles;
       this.settings.recentZoteroItems = store.recentItems;
+      this.deletedZoteroProfiles = store.deletedProfiles;
       this._zoteroProfilesLoaded = true;
       // File-loaded profiles may predate the assetFolder split — migrate them
       // here too (loadSettings only migrates legacy data.json profiles).
@@ -1391,6 +1413,7 @@ export default class ObsidianAIAgent extends Plugin {
     const legacy = extractLegacyZoteroProfiles(this.settings);
     this.settings.zoteroProfiles = legacy?.profiles ?? [];
     this.settings.recentZoteroItems = legacy?.recentItems ?? [];
+    this.deletedZoteroProfiles = legacy?.deletedProfiles ?? {};
     this._zoteroProfilesLoaded = true;
     if (legacy) {
       // Write the new store first, then persist settings (which always blanks
@@ -1418,6 +1441,7 @@ export default class ObsidianAIAgent extends Plugin {
         const local: ZoteroProfilesFile = {
           profiles: this.settings.zoteroProfiles || [],
           recentItems: this.settings.recentZoteroItems || [],
+          deletedProfiles: this.deletedZoteroProfiles,
         };
         let store = local;
         try {
@@ -1429,12 +1453,21 @@ export default class ObsidianAIAgent extends Plugin {
         }
         this.settings.zoteroProfiles = store.profiles;
         this.settings.recentZoteroItems = store.recentItems;
+        this.deletedZoteroProfiles = store.deletedProfiles;
         await this.app.vault.adapter.write(
           ZOTERO_PROFILES_PATH,
           JSON.stringify(store, null, 2)
         );
       });
     return this.zoteroProfilesPersistPromise;
+  }
+
+  async deleteZoteroProfile(index: number): Promise<void> {
+    const profile = this.settings.zoteroProfiles[index];
+    if (!profile) return;
+    this.deletedZoteroProfiles[profile.name] = Date.now();
+    this.settings.zoteroProfiles.splice(index, 1);
+    await this.saveSettings();
   }
 
   // ── Session data (device-local, stored in sessions.json) ────────
@@ -1479,6 +1512,13 @@ export default class ObsidianAIAgent extends Plugin {
   }
 
   async saveSessionData(): Promise<void> {
+    this.sessionPersistPromise = this.sessionPersistPromise
+      .catch(() => undefined)
+      .then(() => this.writeSessionData());
+    return this.sessionPersistPromise;
+  }
+
+  private async writeSessionData(): Promise<void> {
     let sessionData = this.sessionData;
     try {
       const raw = await this.app.vault.adapter.read(this._sessionsPath);
@@ -2127,7 +2167,7 @@ export default class ObsidianAIAgent extends Plugin {
       if ((res.conflicts?.length ?? 0) > 0) {
         new Notice(
           `Merged ${res.conflicts!.length} Syncthing conflict file(s) (LWW). ` +
-            `Backups archived under .curator/runtime/sync_conflicts.`
+            `Conflicts archived under the local Incurator repository cache.`
         );
       }
       this.syncStatusBar?.setText(changes > 0 ? `✓ Sync ${changes}` : "");

@@ -71,7 +71,7 @@ This document defines the official operational scenarios and tool interaction pa
 
 ### 2.5 MCP Mutation Rules
 *   **No silent note edits**: MCP tools must not edit `03_Notes/`.
-*   **No direct plugin state writes**: The plugin must not modify `.curator/state.sqlite`.
+*   **No direct plugin state writes**: The plugin must not modify the repo-cache `state.sqlite`.
 *   **Explicit vault root**: `VAULT_ROOT` or an explicit `workspace_path`/`vault_root` argument must resolve to a valid vault. If resolution fails, MCP must return an error instead of falling back to CWD.
 *   **No overwrite import**: Source import must never overwrite an existing file in `04_Resources/`. Same-hash duplicates reuse the existing record; different-hash filename collisions require a suffix or a human-selected destination.
 *   **Dry-run first for destructive ambiguity**: Any operation that changes persistent source identity, such as rebind or import collision repair, must support a dry-run/proposal result before mutation.

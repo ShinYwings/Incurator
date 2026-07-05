@@ -2432,7 +2432,10 @@ def remove_source(
 
     file_path = paths.root / row["relpath"]
 
+    from .db_sync import record_tombstone_on_connection
+
     with db.connect(paths.state_db) as conn:
+        sync_key = str(row["sync_key"] or "")
         conn.execute("DELETE FROM source_pages WHERE source_id = ?", (source_id,))
         conn.execute("DELETE FROM ingest_runs WHERE source_id = ?", (source_id,))
         # job_events FK → ingest_jobs FK → sources; dag_edges FK → sources.
@@ -2445,6 +2448,7 @@ def remove_source(
         conn.execute("DELETE FROM ingest_jobs WHERE source_id = ?", (source_id,))
         conn.execute("DELETE FROM dag_edges WHERE source_id = ?", (source_id,))
         conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+        record_tombstone_on_connection(conn, "sources", sync_key)
 
     deleted_file = False
     if delete_file and file_path.exists() and _is_inside_raw(file_path, paths.raw_dirs):

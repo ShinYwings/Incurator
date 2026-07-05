@@ -86,7 +86,7 @@ The Curator isn't just an organizer; it's a **Refinement Engine** that produces 
     *   Heavy models are shielded from "grunt work," allowing you to concentrate your budget only on tasks that require high-level reasoning.
 
 4.  **Two-Track Directory Structure (UX):**
-    *   We perfectly separate machine-readable, high-density data (managed via `.curator/state.sqlite` database records) from human-readable, domain-organized wikis (`02_Wiki/`).
+    *   We perfectly separate machine-readable, high-density data (managed via the repo-cache `state.sqlite` replica) from human-readable, domain-organized wikis (`02_Wiki/`).
     *   Generated L1-L4 Markdown stays hidden under `.curator/Collections/` as a disposable inspection projection; durable human knowledge remains isolated in `02_Wiki/`.
 
 5.  **Ecosystem Diversity & Growth:**

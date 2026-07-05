@@ -6,11 +6,21 @@ import json
 from pathlib import Path
 
 import click
+import pytest
 from typer.testing import CliRunner
 
 from curator import config as cfg
 from curator import db_sync
 from curator.cli import app
+
+
+@pytest.fixture(autouse=True)
+def isolated_sync_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        cfg,
+        "get_global_config_dir",
+        lambda: tmp_path / "backend-cache",
+    )
 
 
 def _init_vault(runner: CliRunner, tmp_path: Path) -> Path:

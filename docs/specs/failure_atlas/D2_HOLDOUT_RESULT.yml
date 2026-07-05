@@ -306,7 +306,7 @@ evaluated_code:
     backend/src/curator/retrieval/embedding.py: a6a7da88af3fc824f1fa2c9a4f4ce0720e870c0584c49e011b865678cb0f8f7e
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
     backend/src/curator/db/__init__.py: 9d9b18355372e1f77534aef353a07c3ee1f3e9ce3413ffec7d8030da86a4a16c
-    backend/src/curator/db/schema.py: 2bd1ae85584fcf01efdd798e46f23bc59a933cab73ac7220836ce56a131d74ca
+    backend/src/curator/db/schema.py: 7920393ace455afabef1d0d6c510f18e3bf4cb3051868aa82e29d2122e96ddf1
     backend/src/curator/db/_entities.py: c34156c88311a27834068f17ab7ab9a46efc28ed26a154554796db8963849df0
     backend/src/curator/db/jobs.py: 33d772f0709c3b549b40f29dac7028edee58c882c06dc6e7f38706bd71e9b320
     backend/src/curator/db/sources.py: d22fcc1ae311fa6c5db343e012c6bb525274e040f3be740db614053af5bd49e2

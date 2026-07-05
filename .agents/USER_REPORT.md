@@ -6,6 +6,5 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
-_(empty — the 2026-07-04 portable-path migration report was triaged into the
-v0.32.0 release queue.)_
-
+_(empty — the cross-device dashboard report and expanded integrity audit are
+triaged into the active v0.32.1 plan.)_

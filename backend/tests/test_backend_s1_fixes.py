@@ -72,30 +72,34 @@ class TestRemoveSourceCascade:
         from curator.ingest_raw import remove_source
         from curator import config as cfg
 
-        state_db = tmp_path / ".curator" / "state.sqlite"
-        state_db.parent.mkdir(parents=True)
+        paths = cfg.WikiPaths(tmp_path)
+        state_db = paths.state_db
         sid = _init_source(state_db)
         _add_dag_edge(state_db, sid)
 
-        paths = cfg.WikiPaths(tmp_path)
         ok, _ = remove_source(paths, sid)
         assert ok
 
         with db.connect(state_db) as conn:
             assert conn.execute("SELECT COUNT(*) FROM dag_edges WHERE source_id=?", (sid,)).fetchone()[0] == 0
             assert conn.execute("SELECT COUNT(*) FROM sources WHERE id=?", (sid,)).fetchone()[0] == 0
+            tombstone = conn.execute(
+                "SELECT record_id FROM deleted_records "
+                "WHERE table_name = 'sources'"
+            ).fetchone()
+        assert tombstone is not None
+        assert tombstone[0] == "vault:04_Resources/a.md"
 
     def test_removes_ingest_jobs_and_events_before_deleting_source(self, tmp_path: Path) -> None:
         from curator.ingest_raw import remove_source
         from curator import config as cfg
 
-        state_db = tmp_path / ".curator" / "state.sqlite"
-        state_db.parent.mkdir(parents=True)
+        paths = cfg.WikiPaths(tmp_path)
+        state_db = paths.state_db
         sid = _init_source(state_db)
         jid = _add_ingest_job(state_db, sid)
         _add_job_event(state_db, jid)
 
-        paths = cfg.WikiPaths(tmp_path)
         ok, _ = remove_source(paths, sid)
         assert ok
 
@@ -108,14 +112,13 @@ class TestRemoveSourceCascade:
         from curator.ingest_raw import remove_source
         from curator import config as cfg
 
-        state_db = tmp_path / ".curator" / "state.sqlite"
-        state_db.parent.mkdir(parents=True)
+        paths = cfg.WikiPaths(tmp_path)
+        state_db = paths.state_db
         sid = _init_source(state_db)
         _add_dag_edge(state_db, sid)
         jid = _add_ingest_job(state_db, sid)
         _add_job_event(state_db, jid)
 
-        paths = cfg.WikiPaths(tmp_path)
         # Must not raise sqlite3.IntegrityError
         ok, msg = remove_source(paths, sid)
         assert ok
@@ -196,8 +199,8 @@ class TestFindChangedNodesDbHash:
         from curator.sync import _find_changed_nodes, update_all_page_hashes
         from curator import config as cfg
 
-        state_db = tmp_path / ".curator" / "state.sqlite"
-        state_db.parent.mkdir(parents=True)
+        paths = cfg.WikiPaths(tmp_path)
+        state_db = paths.state_db
         db.init_db(state_db)
 
         ctx_dir = tmp_path / ".curator" / "Collections" / "01_Contexts"
@@ -205,7 +208,6 @@ class TestFindChangedNodesDbHash:
         md = ctx_dir / "CTX-00000001.md"
         md.write_text("---\nid: CTX-00000001\n---\nbody\n", encoding="utf-8")
 
-        paths = cfg.WikiPaths(tmp_path)
         update_all_page_hashes(paths)  # stamp the current hash into DB
 
         changed = _find_changed_nodes(paths)
@@ -216,8 +218,8 @@ class TestFindChangedNodesDbHash:
         from curator.sync import _find_changed_nodes, update_all_page_hashes
         from curator import config as cfg
 
-        state_db = tmp_path / ".curator" / "state.sqlite"
-        state_db.parent.mkdir(parents=True)
+        paths = cfg.WikiPaths(tmp_path)
+        state_db = paths.state_db
         db.init_db(state_db)
 
         ctx_dir = tmp_path / ".curator" / "Collections" / "01_Contexts"
@@ -225,7 +227,6 @@ class TestFindChangedNodesDbHash:
         md = ctx_dir / "CTX-00000002.md"
         md.write_text("---\nid: CTX-00000002\n---\nbody v1\n", encoding="utf-8")
 
-        paths = cfg.WikiPaths(tmp_path)
         update_all_page_hashes(paths)  # stamp v1 hash
 
         md.write_text("---\nid: CTX-00000002\n---\nbody v2 modified\n", encoding="utf-8")
@@ -238,8 +239,8 @@ class TestFindChangedNodesDbHash:
         from curator.sync import _find_changed_nodes
         from curator import config as cfg
 
-        state_db = tmp_path / ".curator" / "state.sqlite"
-        state_db.parent.mkdir(parents=True)
+        paths = cfg.WikiPaths(tmp_path)
+        state_db = paths.state_db
         db.init_db(state_db)
 
         ctx_dir = tmp_path / ".curator" / "Collections" / "01_Contexts"
@@ -247,7 +248,6 @@ class TestFindChangedNodesDbHash:
         md = ctx_dir / "CTX-00000003.md"
         md.write_text("---\nid: CTX-00000003\n---\nnew\n", encoding="utf-8")
 
-        paths = cfg.WikiPaths(tmp_path)
         # No update_all_page_hashes — DB has no entry for this file
 
         changed = _find_changed_nodes(paths)

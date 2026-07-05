@@ -129,7 +129,7 @@ wiki add 04_Resources/
 # 3. Build L2/L3 (wiki build) — the deep, LLM-heavy pass
 wiki build            # queue L2/L3 to the background worker (non-blocking)
 wiki build --wait     # run L2 (Atoms) → L3 (Concepts) synchronously now
-#   - Progress: .curator/dashboard.md updated in real-time (open in Obsidian to watch)
+#   - Progress: the plugin Dashboard reads backend-local runtime state
 
 # Shortcut: do steps 2–4 (add → build → embed → sync) in one synchronous command
 wiki update
@@ -144,7 +144,7 @@ wiki update
 > PDF or Markdown batch fails validation, L2 retries it as smaller
 > source-span-preserving batches before marking the source failed, and a failed
 > run publishes no partial L2 units. Monitor via `wiki status` or
-> `.curator/dashboard.md`. L4 Synthesis is produced by `wiki build`; workspace
+> the plugin Dashboard. L4 Synthesis is produced by `wiki build`; workspace
 > curation is a dynamic query lens rather than a separate staging pass. If no
 > eligible community reports exist, the L4 pass ends as `skipped` instead of
 > leaving sources pending.

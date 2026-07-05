@@ -30,7 +30,7 @@ def _now_iso() -> str:
 
 
 def runtime_dir(paths: cfg.WikiPaths) -> Path:
-    return paths.internal / "runtime"
+    return paths.runtime
 
 
 def snapshot_path(paths: cfg.WikiPaths, name: str) -> Path:
@@ -258,10 +258,8 @@ def _search_models_status(search_config: dict[str, Any]) -> dict[str, Any]:
 def _portable_status_config(config: dict[str, Any]) -> dict[str, Any]:
     """Return config blocks safe for plugin runtime JSON snapshots.
 
-    Runtime snapshots live in the vault's `.curator/runtime/` cache and can be
-    inspected or accidentally synced. Keep machine-local absolute paths in the
-    repo-local `.cache/config/config.yml`; the plugin can ask backend commands
-    for live local path resolution when it truly needs one.
+    Runtime snapshots live in the repository cache. Machine-local absolute paths
+    stay outside the vault, and backend commands provide live resolution.
     """
 
     llm = dict(config.get("llm", {}) or {})

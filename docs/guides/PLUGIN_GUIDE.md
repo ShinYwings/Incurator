@@ -856,7 +856,7 @@ The dashboard **Reset** action asks for two confirmations before clearing the
 local database and generated L1-L4 content.
 
 Dashboard status comes from backend-owned local snapshots under
-`.curator/runtime/`, not from plugin-owned state. The backend is the only writer
+repo-cache `runtime/`, not from plugin-owned state. The backend is the only writer
 for those JSON files; the plugin asks the local backend to refresh them before
 rendering source counts, job state, index health, and backend version. Missing
 or stale snapshots are treated as waiting or unknown state, not as an empty
@@ -933,8 +933,9 @@ no manual export/import.
   device's snapshot (`.curator/sync/dev-<id>.jsonl`), merges any Syncthing
   `*.sync-conflict-*` files, then writes this device's own snapshot if anything changed.
   All heavy work runs in the backend subprocess, so the Obsidian UI never freezes.
-- **Merge safety**: row-level Last-Write-Wins + tombstones — concurrent offline edits on
-  two devices both survive; deletes propagate. No whole-file overwrite.
+- **Merge safety**: portable source keys remap replica-local numeric ids;
+  row-level monotonic Last-Write-Wins + tombstones preserve concurrent reads and
+  disjoint-source edits. Deletes propagate. No whole-file overwrite.
 - **Feedback**: a status-bar `⟳ Sync` while running, and a toast only when a sync actually
   applied changes (Notify on sync changes).
 
@@ -963,8 +964,10 @@ crashing.
 > CLI will simply never publish new knowledge to its peers.
 
 > [!NOTE]
-> `.curator/state.sqlite` and `.curator/sync_state.json` stay device-local; only the
-> `.curator/sync/` JSONL snapshots travel between devices. See the User Guide
+> The local DB/runtime/staging/temp tree lives under repo
+> `.cache/vaults/<vault-key>/`. Device id and peer high-water marks live under
+> `.cache/config/sync_state/<vault-root-hash>.json`; only the `.curator/sync/`
+> JSONL snapshots travel between devices. See the User Guide
 > "Cross-Device Knowledge Sync" and the Sync Ignore Guide.
 
 ### Session history (`sessions.json`)
@@ -976,7 +979,7 @@ Plugin data is split across these files.
 | `data.json` | Settings such as provider, model, and MCP servers | Recommended only when paths match |
 | `.curator/sessions.json` | Chat conversation history | Supported |
 | `.curator/zotero_profiles.json` | Zotero import profiles + recent-item LRU (v0.30.0) | Supported |
-| `.curator/runtime/*.json` | Backend-written dashboard/status snapshots without absolute local paths | Local cache only |
+| `<repo>/.cache/vaults/<vault-key>/runtime/*.json` | Backend dashboard/status snapshots | Local only |
 
 In v0.2.1, the plugin re-reads the latest on-disk `sessions.json` before saving and merges by session id. This preserves distinct sessions created on Linux and macOS. Deleted sessions are recorded in `deletedSessionIds` tombstones so an older synced file does not resurrect them later. If the same session is edited on both devices concurrently, the copy with the newer `updatedAt` timestamp wins.
 
@@ -1176,11 +1179,10 @@ stable `zotero:<attachmentKey>` logical source id for the local reference row.
 Repeated registration of the same Zotero attachment reuses that logical source
 id instead of creating `-02` reference stubs. PDF crop/snipping context is
 temporary chat context; it is sent to the selected model when possible and must
-not leave durable generated images under `05_Assets`. Temporary crop files used
-for backend transcription are created under `.curator/runtime/pdf_crops/` and
-removed after the request; CLI image/cache byproducts live under repo `.cache/`
-when the repo path is known, otherwise under vault `.curator/runtime/`; provider
-CLI subprocess temp variables point at the same allowed cache root.
+not leave durable generated images under `05_Assets`. Temporary crop files and
+CLI image/cache byproducts live under repo `.cache/` and are removed after the
+request. If the repo cannot be resolved, the plugin fails visibly instead of
+writing temporary files into the vault.
 Zotero setup and repair are backend-owned: the plugin should call hidden JSON
 commands such as `wiki plugin zotero status`, `wiki plugin zotero init`,
 `wiki plugin zotero search`, and `wiki plugin zotero resolve-pdf` instead of
@@ -1387,7 +1389,7 @@ Rules:
   [Plugin Schema spec](../specs/plugin_schema/PLUGIN_SCHEMA.md) §9–12.
 - Dashboard Trace and Insights tabs are click-to-use surfaces over these commands.
   They may list/show traces and insight candidates, promote/reject candidates, and
-  propose corrections, but they must never write `.curator/state.sqlite`,
+  propose corrections, but they must never write repo-cache `state.sqlite`,
   `.curator/Collections/`, `03_Notes/`, `04_Resources/`, or `06_Archives`
   directly.
 

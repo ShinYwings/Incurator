@@ -30,6 +30,7 @@ describe("normalizeZoteroProfilesFile", () => {
     expect(norm.profiles).toHaveLength(1);
     expect(norm.profiles[0].name).toBe("A");
     expect(norm.recentItems).toEqual(["KEY1", "KEY2"]);
+    expect(norm.deletedProfiles).toEqual({});
   });
 
   it("recovers an empty file from malformed input", () => {
@@ -37,6 +38,7 @@ describe("normalizeZoteroProfilesFile", () => {
       const norm = normalizeZoteroProfilesFile(bad);
       expect(norm.profiles).toEqual([]);
       expect(norm.recentItems).toEqual([]);
+      expect(norm.deletedProfiles).toEqual({});
     }
   });
 
@@ -144,6 +146,7 @@ describe("mergeZoteroProfilesFiles", () => {
     ).toEqual({
       profiles: [profile("Local")],
       recentItems: ["LOCAL"],
+      deletedProfiles: {},
     });
     expect(
       mergeZoteroProfilesFiles(
@@ -153,7 +156,37 @@ describe("mergeZoteroProfilesFiles", () => {
     ).toEqual({
       profiles: [profile("Peer")],
       recentItems: ["PEER"],
+      deletedProfiles: {},
     });
+  });
+
+  it("keeps a deletion tombstone from resurrecting a stale peer profile", () => {
+    const merged = mergeZoteroProfilesFiles(
+      { profiles: [profile("Deleted")], recentItems: [], deletedProfiles: {} },
+      {
+        profiles: [],
+        recentItems: [],
+        deletedProfiles: { Deleted: 1_800_000_000_000 },
+      }
+    );
+
+    expect(merged.profiles).toEqual([]);
+    expect(merged.deletedProfiles.Deleted).toBe(1_800_000_000_000);
+  });
+
+  it("allows an explicitly recreated profile newer than its tombstone", () => {
+    const recreated = { ...profile("Recreated"), lastUsedAt: 1_900_000_000_000 };
+    const merged = mergeZoteroProfilesFiles(
+      {
+        profiles: [],
+        recentItems: [],
+        deletedProfiles: { Recreated: 1_800_000_000_000 },
+      },
+      { profiles: [recreated], recentItems: [], deletedProfiles: {} }
+    );
+
+    expect(merged.profiles).toEqual([recreated]);
+    expect(merged.deletedProfiles.Recreated).toBeUndefined();
   });
 });
 
@@ -237,6 +270,6 @@ describe("parseZoteroProfilesFile", () => {
   it("accepts the exact shape the plugin writes, including the empty store", () => {
     expect(
       parseZoteroProfilesFile('{"profiles": [], "recentItems": []}')
-    ).toEqual({ profiles: [], recentItems: [] });
+    ).toEqual({ profiles: [], recentItems: [], deletedProfiles: {} });
   });
 });

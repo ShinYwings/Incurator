@@ -24,6 +24,15 @@ Source of Truth to identify unresolved items.
 
 No urgent items currently tracked.
 
+### 🚨 Immediate Next Release
+
+- **[Hotfix v0.32.1] Cross-Device Integrity Boundary** *(ACTIVE)*:
+  expand PR #82 to fix numeric source-id collisions, deletion propagation,
+  generation rollback, importer validation, snapshot identity, and the
+  machine-local/shared storage boundary. Machine state moves to repo `.cache`;
+  portable state remains under vault `.curator`.
+  Master plan: `.agents/plans/07_cross_device_integrity_hotfix.md`.
+
 ### 🚀 Priority Order
 
 1. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
@@ -191,7 +200,9 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.32.0 shipped (PR #80 merged 2026-07-04). System is IDLE.
-- **Active Milestone**: None (System IDLE).
-- **Next actionable item**: resume System Stability Overhaul S2
-  (CM-1/PL-1/DB-2 god-file decomposition and remaining XC-1 slices).
+- **Roadmap state**: v0.32.1 PR #82 is reopened for the complete cross-device
+  integrity boundary.
+- **Active Milestone**: schema v12 transport and repo-cache storage isolation.
+- **Next actionable item**: execute
+  `.agents/plans/07_cross_device_integrity_hotfix.md`, validate both replicas,
+  then update PR #82.

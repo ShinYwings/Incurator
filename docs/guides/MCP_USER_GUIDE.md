@@ -280,7 +280,7 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
   - `queued` — list of queued jobs
   - `done_today` — number of jobs completed today
   - `idle` — `true` when both `running` and `queued` are empty
-- **Implementation status**: Implemented in v0.2.1. `.curator/dashboard.md` is also auto-updated by `IngestWorker` on every job state change (Obsidian live preview re-renders automatically on file change).
+- **Implementation status**: Implemented in v0.2.1. The backend-local dashboard cache is updated by `IngestWorker` on every job state change.
 
 #### `get_available_models`
 

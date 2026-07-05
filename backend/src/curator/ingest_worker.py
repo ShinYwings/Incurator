@@ -328,7 +328,7 @@ class IngestWorker(threading.Thread):
         self._stop_event.set()
 
     def _write_dashboard(self) -> None:
-        """Overwrite .curator/dashboard.md with current job status.
+        """Overwrite the machine-local dashboard cache with current job status.
 
         Called at job start, completion, and failure. Obsidian live preview
         auto-rerenders on file change — no extra plugin polling needed.
@@ -369,7 +369,7 @@ class IngestWorker(threading.Thread):
                     f"{len(done_today)} jobs · {total_created} pages created · {total_updated} updated",
                 ]
 
-            dashboard = self.paths.internal / consts.FILE_DASHBOARD_MD
+            dashboard = self.paths.dashboard
             dashboard.parent.mkdir(parents=True, exist_ok=True)
             tmp = dashboard.with_suffix(".tmp")
             tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
