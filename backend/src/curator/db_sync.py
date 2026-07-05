@@ -734,7 +734,7 @@ def _read_export_id(path: Path) -> str | None:
             opener = path.open("r", encoding="utf-8")
         with opener as handle:
             line = handle.readline().strip()
-    except OSError:
+    except (OSError, ValueError):
         logger.warning("Could not read peer export file: %s", path)
         return None
     if not line:
@@ -742,6 +742,9 @@ def _read_export_id(path: Path) -> str | None:
         return None
     try:
         header = json.loads(line)
+        if not isinstance(header, dict):
+            logger.warning("Peer export header is not a JSON object: %s", path)
+            return None
     except json.JSONDecodeError:
         logger.warning("Malformed JSON header in peer export: %s", path)
         return None
@@ -793,7 +796,7 @@ def import_all_peers(
             continue
         try:
             stats = import_knowledge(db_path, f, dry_run=dry_run)
-        except ValueError as exc:
+        except Exception as exc:
             logger.warning("Skipping peer export %s: %s", f.name, exc)
             continue
         results[f.name] = stats
