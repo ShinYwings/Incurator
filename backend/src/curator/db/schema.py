@@ -18,7 +18,7 @@ from typing import Any, Iterator
 
 from .. import constants as consts
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 # --- Plan C (v0.9.0, SCHEMA §21.1/§21.2) frozen resolution enums -------------
 # Entity-resolution lifecycle (entity_aliases.resolution_status, §21.1).
@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS sources (
     external_ref    TEXT,                    -- portable @root_key/relative locator
     is_reference    INTEGER NOT NULL DEFAULT 0, -- 1=external reference, 0=vault-local copy
     logical_source_id TEXT,                  -- stable source identity across path/hash drift
+    sync_key        TEXT,                    -- portable cross-device identity
     error_reason    TEXT,                    -- empty_file|parse_error|llm_error — set when status='error'
     updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -339,7 +340,8 @@ CREATE TABLE IF NOT EXISTS compiler_generations (
     created_at       TEXT NOT NULL,
     published_at     TEXT,
     discarded_at     TEXT,
-    audit_json       TEXT NOT NULL DEFAULT '{}'
+    audit_json       TEXT NOT NULL DEFAULT '{}',
+    updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_compiler_generations_source ON compiler_generations(source_id, status);
 
@@ -779,6 +781,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
         "is_reference INTEGER NOT NULL DEFAULT 0",
     )
     _add_column_if_missing(conn, "sources", "logical_source_id", "logical_source_id TEXT")
+    _add_column_if_missing(conn, "sources", "sync_key", "sync_key TEXT")
     _add_column_if_missing(conn, "sources", "error_reason", "error_reason TEXT")
     if "ingest_jobs" in tables:
         _add_column_if_missing(
@@ -903,19 +906,60 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
 
     _add_column_if_missing(conn, "sources", "updated_at", "updated_at TEXT")
     _migrate_v11_source_revisions(conn)
-    conn.executescript(
-        """
-        CREATE TRIGGER IF NOT EXISTS sources_touch_updated_at
+    missing_sync_keys = conn.execute(
+        "SELECT 1 FROM sources WHERE sync_key IS NULL OR sync_key = '' LIMIT 1"
+    ).fetchone()
+    if missing_sync_keys:
+        conn.execute(
+            "UPDATE sources SET sync_key = 'vault:' || replace(relpath, '\\', '/') "
+            "WHERE sync_key IS NULL OR sync_key = ''"
+        )
+    trigger_rows = {
+        str(row[0]): str(row[1] or "")
+        for row in conn.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'trigger'"
+        ).fetchall()
+    }
+    if "sources_set_sync_key" not in trigger_rows:
+        conn.executescript(
+            """
+            CREATE TRIGGER sources_set_sync_key
+            AFTER INSERT ON sources
+            FOR EACH ROW
+            WHEN NEW.sync_key IS NULL OR NEW.sync_key = ''
+            BEGIN
+                UPDATE sources
+                SET sync_key = 'vault:' || replace(NEW.relpath, '\\', '/')
+                WHERE id = NEW.id;
+            END;
+            """
+        )
+    source_touch_sql = trigger_rows.get("sources_touch_updated_at", "")
+    if (
+        "NEW.sync_key IS OLD.sync_key" not in source_touch_sql
+        or "julianday(OLD.updated_at)" not in source_touch_sql
+    ):
+        conn.executescript(
+            """
+            DROP TRIGGER IF EXISTS sources_touch_updated_at;
+            CREATE TRIGGER sources_touch_updated_at
         AFTER UPDATE ON sources
         FOR EACH ROW
-        WHEN NEW.updated_at = OLD.updated_at
+        WHEN NEW.updated_at = OLD.updated_at AND NEW.sync_key IS OLD.sync_key
         BEGIN
             UPDATE sources
-            SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            SET updated_at = CASE
+                WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') > OLD.updated_at
+                THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                ELSE strftime(
+                    '%Y-%m-%dT%H:%M:%fZ',
+                    julianday(OLD.updated_at) + (1.0 / 86400000.0)
+                )
+            END
             WHERE id = NEW.id;
         END;
-        """
-    )
+            """
+        )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_sources_logical_source_id "
         "ON sources(logical_source_id)"
@@ -923,6 +967,10 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_sources_external_ref "
         "ON sources(external_ref)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_sources_sync_key "
+        "ON sources(sync_key)"
     )
     conn.execute(
         """
@@ -946,6 +994,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     )
 
     _migrate_v8_compiler_integrity(conn, tables)
+    _migrate_v12_sync_integrity(conn)
     _migrate_v9_graph_quality(conn, tables)
     if "schema_version" in tables:
         version_row = conn.execute(
@@ -1001,6 +1050,7 @@ def _migrate_v11_source_revisions(conn: sqlite3.Connection) -> None:
             external_ref TEXT,
             is_reference INTEGER NOT NULL DEFAULT 0,
             logical_source_id TEXT,
+            sync_key TEXT,
             error_reason TEXT,
             updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         );
@@ -1009,14 +1059,17 @@ def _migrate_v11_source_revisions(conn: sqlite3.Connection) -> None:
             last_ingested, status, context_id,
             l1_status, l2_status, l3_status, l4_status,
             layer_error, domain, tags, import_origin_ref, import_policy,
-            external_ref, is_reference, logical_source_id, error_reason, updated_at
+            external_ref, is_reference, logical_source_id, sync_key,
+            error_reason, updated_at
         )
         SELECT
             id, relpath, content_hash, file_type, bytes, added_at,
             last_ingested, status, context_id,
             l1_status, l2_status, l3_status, l4_status,
             layer_error, domain, tags, import_origin_ref, import_policy,
-            external_ref, is_reference, logical_source_id, error_reason,
+            external_ref, is_reference, logical_source_id,
+            COALESCE(NULLIF(sync_key, ''), 'vault:' || replace(relpath, '\\', '/')),
+            error_reason,
             CASE
                 WHEN updated_at IS NOT NULL AND updated_at != ''
                 THEN updated_at
@@ -1033,10 +1086,70 @@ def _migrate_v11_source_revisions(conn: sqlite3.Connection) -> None:
         CREATE INDEX idx_sources_status ON sources(status);
         CREATE INDEX idx_sources_domain ON sources(domain);
         CREATE INDEX idx_sources_logical_source_id ON sources(logical_source_id);
+        CREATE UNIQUE INDEX idx_sources_sync_key ON sources(sync_key);
         CREATE INDEX idx_sources_external_ref ON sources(external_ref);
         """
     )
     conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_v12_sync_integrity(conn: sqlite3.Connection) -> None:
+    """Add portable source identity and monotonic generation revisions."""
+    tables = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    if "compiler_generations" not in tables:
+        return
+
+    generation_columns = _column_names(conn, "compiler_generations")
+    if "updated_at" not in generation_columns:
+        _add_column_if_missing(
+            conn,
+            "compiler_generations",
+            "updated_at",
+            "updated_at TEXT",
+        )
+    missing_revisions = conn.execute(
+        "SELECT 1 FROM compiler_generations "
+        "WHERE updated_at IS NULL OR updated_at = '' LIMIT 1"
+    ).fetchone()
+    if missing_revisions:
+        conn.execute(
+            "UPDATE compiler_generations "
+            "SET updated_at = COALESCE(NULLIF(updated_at, ''), discarded_at, "
+            "published_at, created_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) "
+            "WHERE updated_at IS NULL OR updated_at = ''"
+        )
+    trigger = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
+        "AND name = 'compiler_generations_touch_updated_at'"
+    ).fetchone()
+    trigger_sql = str(trigger[0] or "") if trigger else ""
+    if "julianday(OLD.updated_at)" not in trigger_sql:
+        conn.executescript(
+            """
+            DROP TRIGGER IF EXISTS compiler_generations_touch_updated_at;
+            CREATE TRIGGER compiler_generations_touch_updated_at
+        AFTER UPDATE ON compiler_generations
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+            UPDATE compiler_generations
+            SET updated_at = CASE
+                WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') > OLD.updated_at
+                THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                ELSE strftime(
+                    '%Y-%m-%dT%H:%M:%fZ',
+                    julianday(OLD.updated_at) + (1.0 / 86400000.0)
+                )
+            END
+            WHERE id = NEW.id;
+        END;
+            """
+        )
 
 
 
@@ -1166,7 +1279,8 @@ def _migrate_v8_compiler_integrity(
             created_at       TEXT NOT NULL,
             published_at     TEXT,
             discarded_at     TEXT,
-            audit_json       TEXT NOT NULL DEFAULT '{}'
+            audit_json       TEXT NOT NULL DEFAULT '{}',
+            updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         );
         CREATE INDEX IF NOT EXISTS idx_compiler_generations_source
             ON compiler_generations(source_id, status);

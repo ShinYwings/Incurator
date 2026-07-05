@@ -61,7 +61,6 @@ OVERVIEW_FILE = "overview.md"
 LOG_FILE = "log.md"
 LEDGER_FILE = "ledger.md"
 SETTINGS_FILE = "settings.yml"
-STAGING_DIR = ".curator/staging"
 DEFAULT_COLLECTIONS_DIR = ".curator/Collections"
 
 # Job & Source Statuses
