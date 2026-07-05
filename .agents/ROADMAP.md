@@ -76,6 +76,9 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.32.2 — Autosync Legacy Peer Hotfix** (shipped 2026-07-06, PR #83
+  merged): fixed `db autosync` crash on pre-v12 legacy peer export files
+  missing `export_id`.
 - **v0.32.1 — Cross-Device Integrity Boundary** (shipped 2026-07-06, PR #82
   merged): schema v12 `sync_key` transport identity with source-id remap on
   import; `compiler_generations.updated_at` for monotonic LWW; `export_id` in
