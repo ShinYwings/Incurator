@@ -75,6 +75,7 @@ def test_import_source_without_revision_uses_valid_current_timestamp(
         {
             "type": "header",
             "schema_version": db.SCHEMA_VERSION,
+            "export_id": "exp-legacy-source",
             "exported_at": "2026-01-01T00:00:00Z",
         },
         {
@@ -142,6 +143,7 @@ class TestExport:
         assert header["type"] == "header"
         assert header["schema_version"] == db.SCHEMA_VERSION
         assert "exported_at" in header
+        assert header["export_id"]
 
     def test_export_excludes_device_tables(self, populated_db: Path, tmp_path: Path) -> None:
         out = tmp_path / "export.jsonl"
@@ -303,3 +305,186 @@ class TestImport:
         db.init_db(target)
         with pytest.raises(ValueError, match="schema_version"):
             import_knowledge(target, bad_jsonl)
+
+    def test_disjoint_sources_with_same_numeric_id_both_survive(
+        self, tmp_path: Path
+    ) -> None:
+        mac = tmp_path / "mac.sqlite"
+        linux = tmp_path / "linux.sqlite"
+        db.init_db(mac)
+        db.init_db(linux)
+        for path, relpath, ctx_id in (
+            (mac, "03_Notes/mac.md", "CTX-MAC00001"),
+            (linux, "03_Notes/linux.md", "CTX-LINUX001"),
+        ):
+            with db.connect(path) as conn:
+                conn.execute(
+                    "INSERT INTO sources "
+                    "(id, relpath, content_hash, file_type, bytes, added_at, context_id) "
+                    "VALUES (1, ?, ?, 'md', 1, '2026-07-05T00:00:00Z', ?)",
+                    (relpath, f"hash-{relpath}", ctx_id),
+                )
+                conn.execute(
+                    "INSERT INTO source_pages "
+                    "(source_id, wiki_path, operation, at) "
+                    "VALUES (1, ?, 'created', '2026-07-05T00:00:00Z')",
+                    (f"01_Contexts/{ctx_id}.md",),
+                )
+
+        mac_export = tmp_path / "mac.jsonl"
+        linux_export = tmp_path / "linux.jsonl"
+        export_knowledge(mac, mac_export)
+        export_knowledge(linux, linux_export)
+        import_knowledge(mac, linux_export)
+        import_knowledge(linux, mac_export)
+
+        for path in (mac, linux):
+            with db.connect(path) as conn:
+                sources = conn.execute(
+                    "SELECT id, relpath FROM sources ORDER BY relpath"
+                ).fetchall()
+                pages = conn.execute(
+                    "SELECT s.relpath, p.wiki_path FROM source_pages p "
+                    "JOIN sources s ON s.id = p.source_id ORDER BY s.relpath"
+                ).fetchall()
+            assert [row["relpath"] for row in sources] == [
+                "03_Notes/linux.md",
+                "03_Notes/mac.md",
+            ]
+            assert [row["relpath"] for row in pages] == [
+                "03_Notes/linux.md",
+                "03_Notes/mac.md",
+            ]
+
+    def test_source_tombstone_deletes_by_portable_key(
+        self, tmp_path: Path
+    ) -> None:
+        source = tmp_path / "source-delete.sqlite"
+        target = tmp_path / "target-delete.sqlite"
+        db.init_db(source)
+        db.init_db(target)
+        for path, source_id in ((source, 1), (target, 9)):
+            with db.connect(path) as conn:
+                conn.execute(
+                    "INSERT INTO sources "
+                    "(id, relpath, content_hash, file_type, bytes, added_at) "
+                    "VALUES (?, '03_Notes/delete.md', 'h', 'md', 1, "
+                    "'2026-07-05T00:00:00Z')",
+                    (source_id,),
+                )
+        with db.connect(source) as conn:
+            sync_key = conn.execute(
+                "SELECT sync_key FROM sources WHERE id = 1"
+            ).fetchone()[0]
+            conn.execute("DELETE FROM sources WHERE id = 1")
+        record_tombstone(source, "sources", sync_key)
+
+        out = tmp_path / "delete.jsonl"
+        export_knowledge(source, out)
+        import_knowledge(target, out)
+
+        with db.connect(target) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0
+
+    def test_stale_generation_cannot_replace_authoritative(
+        self, tmp_path: Path
+    ) -> None:
+        stale = tmp_path / "stale.sqlite"
+        current = tmp_path / "current.sqlite"
+        db.init_db(stale)
+        db.init_db(current)
+        for path, status, revision in (
+            (stale, "staged", "2026-07-05T00:00:00.000Z"),
+            (current, "authoritative", "2026-07-05T00:00:01.000Z"),
+        ):
+            with db.connect(path) as conn:
+                conn.execute(
+                    "INSERT INTO compiler_generations "
+                    "(id, status, prompt_contract_version, created_at, "
+                    "published_at, audit_json, updated_at) "
+                    "VALUES ('GEN-1', ?, 'v1', '2026-07-05T00:00:00Z', "
+                    "?, '{}', ?)",
+                    (
+                        status,
+                        "2026-07-05T00:00:01Z"
+                        if status == "authoritative"
+                        else None,
+                        revision,
+                    ),
+                )
+
+        out = tmp_path / "stale.jsonl"
+        export_knowledge(stale, out)
+        stats = import_knowledge(current, out)
+
+        with db.connect(current) as conn:
+            row = conn.execute(
+                "SELECT status, published_at FROM compiler_generations "
+                "WHERE id = 'GEN-1'"
+            ).fetchone()
+        assert tuple(row) == ("authoritative", "2026-07-05T00:00:01Z")
+        assert stats.skipped >= 1
+
+    def test_import_rejects_table_outside_sync_allowlist(
+        self, db_path: Path, tmp_path: Path
+    ) -> None:
+        payload = tmp_path / "local-table.jsonl"
+        payload.write_text(
+            "\n".join(
+                json.dumps(record)
+                for record in (
+                    {
+                        "type": "header",
+                        "schema_version": db.SCHEMA_VERSION,
+                        "export_id": "exp-local-table",
+                        "exported_at": "2026-07-05T00:00:00Z",
+                    },
+                    {
+                        "type": "row",
+                        "table": "schema_version",
+                        "row": {"version": 999},
+                    },
+                )
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="not syncable"):
+            import_knowledge(db_path, payload)
+
+    def test_import_rejects_unknown_columns(
+        self, db_path: Path, tmp_path: Path
+    ) -> None:
+        payload = tmp_path / "unknown-column.jsonl"
+        payload.write_text(
+            "\n".join(
+                json.dumps(record)
+                for record in (
+                    {
+                        "type": "header",
+                        "schema_version": db.SCHEMA_VERSION,
+                        "export_id": "exp-unknown-column",
+                        "exported_at": "2026-07-05T00:00:00Z",
+                    },
+                    {
+                        "type": "row",
+                        "table": "sources",
+                        "row": {
+                            "id": 1,
+                            "relpath": "03_Notes/x.md",
+                            "content_hash": "h",
+                            "file_type": "md",
+                            "bytes": 1,
+                            "added_at": "2026-07-05T00:00:00Z",
+                            "injected_column": "boom",
+                        },
+                    },
+                )
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="unknown columns"):
+            import_knowledge(db_path, payload)

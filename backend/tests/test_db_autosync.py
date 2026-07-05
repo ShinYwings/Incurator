@@ -10,6 +10,7 @@ Covers the structural design locked in
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -190,6 +191,40 @@ class TestImportAllPeers:
         # No mtime change → skipped (not re-imported).
         assert peer.name not in db_sync.import_all_peers(_internal(vault), _db(vault))
 
+    def test_imports_replaced_snapshot_even_when_mtime_is_unchanged(
+        self, vault: Path
+    ) -> None:
+        peer = _make_peer(
+            vault,
+            "dev-peerSAME.jsonl",
+            "ATM-FIRST",
+            "first",
+            "2026-06-02T00:00:00Z",
+        )
+        fixed_mtime = peer.stat().st_mtime
+        db_sync.import_all_peers(_internal(vault), _db(vault))
+
+        replacement_db = vault / "replacement.sqlite"
+        replacement_out = vault / "replacement.jsonl"
+        db.init_db(replacement_db)
+        _add_atom(
+            replacement_db,
+            "ATM-SECOND",
+            "second",
+            "2026-06-03T00:00:00Z",
+        )
+        db_sync.export_knowledge(replacement_db, replacement_out)
+        peer.write_text(replacement_out.read_text(encoding="utf-8"), encoding="utf-8")
+        os.utime(peer, (fixed_mtime, fixed_mtime))
+
+        result = db_sync.import_all_peers(_internal(vault), _db(vault))
+
+        assert peer.name in result
+        with db.connect(_db(vault)) as conn:
+            assert conn.execute(
+                "SELECT 1 FROM atoms WHERE id = 'ATM-SECOND'"
+            ).fetchone()
+
 
 class TestReferenceModePreservation:
     def test_portable_external_ref_merges_normally(self, vault: Path) -> None:
@@ -211,7 +246,7 @@ class TestReferenceModePreservation:
         import json as _json
         peer = peer_dir / "dev-peerCCCC.jsonl"
         peer.write_text(
-            _json.dumps({"type": "header", "schema_version": db_sync.SCHEMA_VERSION, "exported_at": "x"}) + "\n"
+            _json.dumps({"type": "header", "schema_version": db_sync.SCHEMA_VERSION, "export_id": "exp-reference", "exported_at": "x"}) + "\n"
             + _json.dumps({"type": "row", "table": "sources", "row": {
                 "id": sid, "relpath": "04_Resources/p.pdf", "content_hash": "h2",
                 "file_type": "pdf", "bytes": 10, "added_at": "2026-06-01T00:00:00Z",
@@ -297,7 +332,7 @@ def _peer_with_tombstone(vault: Path, filename: str, table: str, rid: str, ts: s
     sync_dir.mkdir(parents=True, exist_ok=True)
     peer = sync_dir / filename
     peer.write_text(
-        _json.dumps({"type": "header", "schema_version": db_sync.SCHEMA_VERSION, "exported_at": "x"}) + "\n"
+        _json.dumps({"type": "header", "schema_version": db_sync.SCHEMA_VERSION, "export_id": f"exp-{filename}", "exported_at": "x"}) + "\n"
         + _json.dumps({"type": "row", "table": "deleted_records", "row": {
             "table_name": table, "record_id": rid, "deleted_at": ts,
         }}) + "\n",
@@ -351,7 +386,12 @@ class TestAutosync:
             assert conn.execute("SELECT 1 FROM atoms WHERE id='ATM-0003'").fetchone() is not None
         # Conflict file moved out of the synced dir.
         assert not conflict.exists()
-        assert (_internal(vault) / "runtime" / "sync_conflicts" / conflict.name).exists()
+        assert (
+            cfg.get_vault_cache_dir(vault)
+            / "runtime"
+            / "sync_conflicts"
+            / conflict.name
+        ).exists()
 
 
 class TestTwoDeviceE2E:

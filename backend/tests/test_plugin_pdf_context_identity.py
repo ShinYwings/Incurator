@@ -194,7 +194,7 @@ def test_pdf_context_uses_content_hash_page_cache_for_repeated_page_fetch(
 
     first = plugin_api.pdf_context(paths, source_id=outcome.source_id, page_num=1, radius=0)
     assert first["ok"] is True
-    cache_file = vault / ".cache" / "pdf_pages" / content_hash / "1.txt"
+    cache_file = paths.pdf_pages / content_hash / "1.txt"
     assert cache_file.read_text(encoding="utf-8") == "Page 1"
 
     _mock_window.side_effect = AssertionError("must use page cache")

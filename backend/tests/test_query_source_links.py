@@ -17,6 +17,7 @@ def _vault_with_source(tmp_path: Path, relpath: str = "04_Resources/a.md") -> tu
     paths = cfg.WikiPaths(tmp_path)
     paths.state_db.parent.mkdir(parents=True, exist_ok=True)
     # Minimal vault-root marker so VAULT_ROOT resolution recognizes this project.
+    paths.internal.mkdir(parents=True, exist_ok=True)
     (tmp_path / ".curator" / "settings.yml").write_text("testbed: false\n", encoding="utf-8")
     db.init_db(paths.state_db)
     with db.connect(paths.state_db) as conn:

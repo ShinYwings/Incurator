@@ -232,7 +232,7 @@ class TestBackgroundJobQueue(unittest.TestCase):
         from curator import ingest_worker
         worker = ingest_worker.IngestWorker(self.paths)
         worker._write_dashboard()
-        dashboard = self.root / ".curator" / "dashboard.md"
+        dashboard = self.paths.dashboard
         self.assertTrue(dashboard.exists())
         content = dashboard.read_text(encoding="utf-8")
         self.assertIn("Incurator Build Status", content)
@@ -245,7 +245,7 @@ class TestBackgroundJobQueue(unittest.TestCase):
         worker = ingest_worker.IngestWorker(self.paths)
         worker._write_build_canvas(self.source_id, "paper_test")
         self.assertFalse((self.root / ".curator" / "build_trace_paper_test.canvas").exists())
-        canvas_path = self.root / ".curator" / "staging" / "canvas" / "build_trace_paper_test.canvas"
+        canvas_path = self.paths.staging / "canvas" / "build_trace_paper_test.canvas"
         self.assertTrue(canvas_path.exists())
         import json
         data = json.loads(canvas_path.read_text(encoding="utf-8"))
