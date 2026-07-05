@@ -719,20 +719,53 @@ def _peer_files(internal_dir: Path, *, dir_name: str = "sync") -> list[Path]:
     return peers
 
 
-def _read_export_id(path: Path) -> str:
-    opener: IO[str]
-    if path.suffix == ".gz":
-        opener = gzip.open(path, "rt", encoding="utf-8")  # type: ignore[assignment]
-    else:
-        opener = path.open("r", encoding="utf-8")
-    with opener as handle:
-        line = handle.readline().strip()
+def _read_export_id(path: Path) -> str | None:
+    """Read the export_id from a peer file's header.
+
+    Returns ``None`` for legacy pre-v12 files that lack ``export_id`` or have
+    an incompatible schema version, so ``import_all_peers`` can skip them
+    gracefully instead of crashing the entire autosync run.
+    """
+    try:
+        opener: IO[str]
+        if path.suffix == ".gz":
+            opener = gzip.open(path, "rt", encoding="utf-8")  # type: ignore[assignment]
+        else:
+            opener = path.open("r", encoding="utf-8")
+        with opener as handle:
+            line = handle.readline().strip()
+    except (OSError, ValueError):
+        logger.warning("Could not read peer export file: %s", path)
+        return None
     if not line:
-        raise ValueError(f"Empty export file: {path}")
-    header = json.loads(line)
+        logger.warning("Empty peer export file: %s", path)
+        return None
+    try:
+        header = json.loads(line)
+        if not isinstance(header, dict):
+            logger.warning("Peer export header is not a JSON object: %s", path)
+            return None
+    except json.JSONDecodeError:
+        logger.warning("Malformed JSON header in peer export: %s", path)
+        return None
+    if header.get("type") != "header":
+        logger.warning("Missing header row in peer export: %s", path)
+        return None
+    # Schema mismatch — peer has not upgraded yet; skip until they re-export.
+    file_version = header.get("schema_version")
+    if file_version != SCHEMA_VERSION:
+        logger.info(
+            "Skipping peer export %s: schema_version %s (local is %s)",
+            path.name, file_version, SCHEMA_VERSION,
+        )
+        return None
     export_id = header.get("export_id")
-    if header.get("type") != "header" or not isinstance(export_id, str) or not export_id:
-        raise ValueError(f"Missing export_id in export header: {path}")
+    if not isinstance(export_id, str) or not export_id:
+        logger.warning(
+            "Peer export %s has no export_id (likely pre-v12 legacy); skipping.",
+            path.name,
+        )
+        return None
     return export_id
 
 
@@ -755,10 +788,17 @@ def import_all_peers(
 
     for f in _peer_files(internal_dir, dir_name=dir_name):
         export_id = _read_export_id(f)
+        if export_id is None:
+            # Legacy or incompatible peer file — skip until peer re-exports.
+            continue
         rec = peers.get(f.name, {})
         if not dry_run and rec.get("last_export_id") == export_id:
             continue
-        stats = import_knowledge(db_path, f, dry_run=dry_run)
+        try:
+            stats = import_knowledge(db_path, f, dry_run=dry_run)
+        except Exception as exc:
+            logger.warning("Skipping peer export %s: %s", f.name, exc)
+            continue
         results[f.name] = stats
         if not dry_run:
             peers[f.name] = {"last_export_id": export_id}
