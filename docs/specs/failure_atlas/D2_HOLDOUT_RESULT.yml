@@ -28,275 +28,234 @@ procedure:
     ranking_configuration_changed: false
 evaluated_code:
   git_dirty: true
-  # Plan B (v0.8.0) re-armed the db.py drift fingerprint on 2026-06-13. The
-  # original holdout was evaluated at db.py sha256
-  # 2825a82e04e1e1102beb20373af785f2a550930f5fd630999f56208d9af4718d (preserved
-  # in this file's git history and the recorded git_sha). Plan B's v8 change to
-  # db.py is purely additive (claim_supports / compiler_generations / knowledge_units
-  # support+formula columns / lifecycle helpers) and touches NO retrieval,
-  # ranking, projection, or materialize_chunks path the lexical FTS5/BM25 holdout
-  # exercises, so the frozen Q06 metric is unaffected. The single-consumption
-  # harness (run_count=3, max) cannot regenerate the result; this fingerprint is
-  # a re-armable drift tripwire, not a permanent code freeze.
   plan_b_rearm:
     date: '2026-06-13'
     prior_db_sha256: 2825a82e04e1e1102beb20373af785f2a550930f5fd630999f56208d9af4718d
     reason: additive v8 schema; no ranking-path change; metric provably unaffected
   portable_paths_v10_rearm:
     date: '2026-07-02'
-    reason: >-
-      Schema v10 replaces sources.external_path/import_origin with portable
-      locator columns and updates source identity lookup. The frozen holdout
-      seeds vault-relative non-reference rows and does not query either external
-      locator column, so retrieval documents, FTS ranking, fusion, projection,
-      and materialize_chunks behavior are unchanged. The consumed holdout cannot
-      be rerun after run_count=3; these hashes re-arm its code-drift tripwire.
+    reason: Schema v10 replaces sources.external_path/import_origin with portable
+      locator columns and updates source identity lookup. The frozen holdout seeds
+      vault-relative non-reference rows and does not query either external locator
+      column, so retrieval documents, FTS ranking, fusion, projection, and materialize_chunks
+      behavior are unchanged. The consumed holdout cannot be rerun after run_count=3;
+      these hashes re-arm its code-drift tripwire.
   portable_paths_v032_rearm:
     date: '2026-07-04'
     prior_schema_sha256: 67a28b8c1614d257576e97efdeca56cda2a331b511c5250e5548670c2e3860ce
-    reason: >-
-      v0.32.0 removes the retired pre-v0.29 source-table converter and its
-      db.connect invocation. The frozen holdout creates a fresh current-schema
-      DB with vault-relative non-reference rows, so no evaluated query,
-      retrieval, FTS ranking, projection, or citation path changes. The
-      consumed holdout cannot be rerun after run_count=3; this hash update
-      re-arms the existing code-drift tripwire.
+    reason: v0.32.0 removes the retired pre-v0.29 source-table converter and its db.connect
+      invocation. The frozen holdout creates a fresh current-schema DB with vault-relative
+      non-reference rows, so no evaluated query, retrieval, FTS ranking, projection,
+      or citation path changes. The consumed holdout cannot be rerun after run_count=3;
+      this hash update re-arms the existing code-drift tripwire.
   plan_b_p6_rearm:
     date: '2026-06-13'
     prior_db_sha256: 21554038b3b98e7301a6974151737fbd3767ea4855d5ca465540e05e008cc3de
     intermediate_db_sha256: b1d8bd830d8fde1c7dcb222a0bbbb62ffcf9adfbae360930d1bc9b6ba012d5cc
-    reason: >-
-      Plan B P6 changed db.py twice: (1) delete_source_spans (F7 stale-span
-      reconciliation) + a claim_supports cleanup in retire_knowledge_unit
-      (sha b1d8bd83), then (2) a P6 review fix adding _chunked / _SQL_VAR_CHUNK
-      and chunking delete_source_spans under SQLITE_MAX_VARIABLE_NUMBER
-      (sha b2735fb). All are source-pair compiler-lifecycle / SQL-batching
-      helpers; none touches retrieval, ranking, fusion, projection, or
-      materialize_chunks, so the lexical FTS5/BM25 Q06 holdout metric is provably
-      unaffected. Re-armed the drift tripwire (same governance basis as the v8
-      schema re-arm above).
+    reason: 'Plan B P6 changed db.py twice: (1) delete_source_spans (F7 stale-span
+      reconciliation) + a claim_supports cleanup in retire_knowledge_unit (sha b1d8bd83),
+      then (2) a P6 review fix adding _chunked / _SQL_VAR_CHUNK and chunking delete_source_spans
+      under SQLITE_MAX_VARIABLE_NUMBER (sha b2735fb). All are source-pair compiler-lifecycle
+      / SQL-batching helpers; none touches retrieval, ranking, fusion, projection,
+      or materialize_chunks, so the lexical FTS5/BM25 Q06 holdout metric is provably
+      unaffected. Re-armed the drift tripwire (same governance basis as the v8 schema
+      re-arm above).'
   plan_b2_rearm:
     date: '2026-06-13'
     prior_db_sha256: b2735fb40237d06ac4412cfc939039925360f53a3cdda0200b4fce431b3ea7c3
     intermediate_db_sha256: 16d5a7c95fa2b48da2372f9eb0e64e276b435297b7f569535fd5b4154651992a
-    reason: >-
-      Plan B2 changed db.py three times: (1) list_serving_units /
-      list_generation_units (generation-scoped eligibility, §26.3) + a one-time
-      legacy-generation backfill migration in init_db (sha 16d5a7c9); (2) a B2
-      review fix adding _maybe_conn + optional `conn` on retire_knowledge_unit /
-      delete_source_spans / list_generation_units / publish_compiler_generation
-      for the single-transaction publish (sha 1083ecd3); then (3) a 2nd B2 review
-      fix adding `conn` to upsert_graph_entity / upsert_graph_relation (graph
-      persists in the publish txn) and a dangling-span scrub of graph
-      source_span_ids in delete_source_spans (sha 3868dbcc); then (4) a 3rd B2
-      review fix adding `conn` to upsert_claim_support / set_unit_support_status /
-      set_unit_formula_status so recompile_source validates + attributes + flips in
-      ONE atomic transaction (sha a4e1785d, final). All are
-      knowledge-unit eligibility / migration / transaction-plumbing / referential-
-      hygiene helpers; none touches retrieval, ranking, fusion, projection, or
-      materialize_chunks, so the lexical FTS5/BM25 Q06 holdout metric is provably
-      unaffected. Re-armed.
+    reason: "Plan B2 changed db.py three times: (1) list_serving_units / list_generation_units\
+      \ (generation-scoped eligibility, \xA726.3) + a one-time legacy-generation backfill\
+      \ migration in init_db (sha 16d5a7c9); (2) a B2 review fix adding _maybe_conn\
+      \ + optional `conn` on retire_knowledge_unit / delete_source_spans / list_generation_units\
+      \ / publish_compiler_generation for the single-transaction publish (sha 1083ecd3);\
+      \ then (3) a 2nd B2 review fix adding `conn` to upsert_graph_entity / upsert_graph_relation\
+      \ (graph persists in the publish txn) and a dangling-span scrub of graph source_span_ids\
+      \ in delete_source_spans (sha 3868dbcc); then (4) a 3rd B2 review fix adding\
+      \ `conn` to upsert_claim_support / set_unit_support_status / set_unit_formula_status\
+      \ so recompile_source validates + attributes + flips in ONE atomic transaction\
+      \ (sha a4e1785d, final). All are knowledge-unit eligibility / migration / transaction-plumbing\
+      \ / referential- hygiene helpers; none touches retrieval, ranking, fusion, projection,\
+      \ or materialize_chunks, so the lexical FTS5/BM25 Q06 holdout metric is provably\
+      \ unaffected. Re-armed."
   plan_b2_review2_rearm:
     date: '2026-06-14'
     prior_db_sha256: a4e1785d4b51fdb3db35bdd11a19d96767d9131ba4df684763247c17f95b5cd4
-    reason: >-
-      A follow-up review fix added an optional `conn` parameter to
-      refresh_support_freshness so the compiler publish gate audits the caller's
-      uncommitted re-validated transaction state inside ONE transaction
-      (recompile_source now runs the gate AFTER validation, §26.3), instead of a
-      pre-validation snapshot from a second connection. This is pure transaction
-      plumbing on the claim-support freshness helper; it touches NO retrieval,
-      ranking, fusion, projection, or materialize_chunks path, so the lexical
-      FTS5/BM25 Q06 holdout metric is provably unaffected. Re-armed.
+    reason: "A follow-up review fix added an optional `conn` parameter to refresh_support_freshness\
+      \ so the compiler publish gate audits the caller's uncommitted re-validated\
+      \ transaction state inside ONE transaction (recompile_source now runs the gate\
+      \ AFTER validation, \xA726.3), instead of a pre-validation snapshot from a second\
+      \ connection. This is pure transaction plumbing on the claim-support freshness\
+      \ helper; it touches NO retrieval, ranking, fusion, projection, or materialize_chunks\
+      \ path, so the lexical FTS5/BM25 Q06 holdout metric is provably unaffected.\
+      \ Re-armed."
   plan_c_rearm:
     date: '2026-06-15'
     prior_db_sha256: ab865daa13fa5338f4aa72e465e68f77ba6ed6c55cc68ac4790c49592c45343b
-    reason: >-
-      Plan C (v0.9.0) edited db.py across six phases. P3 added the additive v9
-      schema migration foundation + the entity-resolution / reversible-merge API
-      (SCHEMA_VERSION 8->9, four new graph-quality tables, resolution/lifecycle
-      columns, evaluate_merge_guards / propose / accept / reverse merge helpers;
-      the P3 commit re-pinned db.py to ab865daa without this narrative block). P4
-      then added the relation lifecycle/topology compiler (QUARANTINE_REASON_CODES,
-      compile_relation_lifecycle, detect_bridge_risk_relations) and a `collections`
-      import, re-pinning db.py to 47f5b267. P5 then added the
-      filtered-connected-components hierarchy fallback (connected_components,
-      SYSTEM_BEHAVIOR §27.4), re-pinning db.py 47f5b267 -> 7a8555e6. P6 then added
-      the deterministic claim-grounded graph-generation compiler
-      (rebuild_graph_generation, reconcile_source_change, graph_config_hash, a
-      `hashlib` import, and a merge-upsert / retired-filter extension to
-      upsert_community_report / list_community_reports / record_artifact_dependency;
-      SYSTEM_BEHAVIOR §27.5/§27.8), re-pinning db.py 7a8555e6 -> f126c5af; a P6 review
-      then pushed the reconcile span scan down into a SQLite LIKE pre-filter and made
-      rebuild skip the write for unchanged communities (no write amplification),
-      re-pinning db.py f126c5af -> 87517ee3; a second review round then made the LIKE
-      needle `json.dumps(sid)` (correct quote/backslash escaping), chunked the LIKE
-      clause under SQLITE_MAX_VARIABLE_NUMBER, and replaced rebuild's per-community
-      `IN (?, …)` queries with fixed bulk fetches grouped in Python (var-limit-safe),
-      re-pinning db.py 87517ee3 -> 8c4d6e3a. P7 then added the read-only graph audit
-      surface (graph_audit + the frozen GRAPH_AUDIT_CODES set; SYSTEM_BEHAVIOR §27.6 /
-      SCHEMA §21.8) — a pure assertion pass over graph/report state that NEVER writes —
-      re-pinning db.py 8c4d6e3a -> 4a89f193. P7 then landed the live-pipeline cutover:
-      a graph_relation_supports WRITER (upsert_graph_relation_support — aggregates one
-      independent claim-level support per asserting unit, the ON-CONFLICT-idempotent
-      ≥2-lineage corroboration source) consumed by persist_graph_data, swapping the
-      live compile_global_l3 onto the claim-grounded rebuild_graph_generation path
-      (SYSTEM_BEHAVIOR §27.2/§27.5), re-pinning db.py 4a89f193 -> 5220ac73. A P7
-      re-review then hardened graph_audit so a dangling (non-existent) active-relation
-      endpoint is flagged endpoint_not_canonical instead of being silently whitelisted
-      as a None state, re-pinning db.py 5220ac73 -> f5e4382c. A second P7 re-review
-      then exempted a `contradicts` relation from the contradiction quarantine rule (so
-      two mutual contradicts edges no longer quarantine each other) and made
-      upsert_graph_relation_support canonicalize (dedup+sort) its cited spans so a
-      duplicate span id cannot vary support_hash, re-pinning db.py f5e4382c -> 46053788.
-      All of
-      this is additive entity/relation graph-compiler + community-report logic; none
-      touches retrieval, ranking, fusion, projection, embedding, chunking, or
-      materialize_chunks — the only paths the lexical FTS5/BM25 Q06 holdout
-      exercises — so the frozen Q06 metric is provably unaffected. The
-      single-consumption harness (run_count=3, max) cannot regenerate the result;
-      this fingerprint is a re-armable drift tripwire, not a permanent code freeze.
+    reason: "Plan C (v0.9.0) edited db.py across six phases. P3 added the additive\
+      \ v9 schema migration foundation + the entity-resolution / reversible-merge\
+      \ API (SCHEMA_VERSION 8->9, four new graph-quality tables, resolution/lifecycle\
+      \ columns, evaluate_merge_guards / propose / accept / reverse merge helpers;\
+      \ the P3 commit re-pinned db.py to ab865daa without this narrative block). P4\
+      \ then added the relation lifecycle/topology compiler (QUARANTINE_REASON_CODES,\
+      \ compile_relation_lifecycle, detect_bridge_risk_relations) and a `collections`\
+      \ import, re-pinning db.py to 47f5b267. P5 then added the filtered-connected-components\
+      \ hierarchy fallback (connected_components, SYSTEM_BEHAVIOR \xA727.4), re-pinning\
+      \ db.py 47f5b267 -> 7a8555e6. P6 then added the deterministic claim-grounded\
+      \ graph-generation compiler (rebuild_graph_generation, reconcile_source_change,\
+      \ graph_config_hash, a `hashlib` import, and a merge-upsert / retired-filter\
+      \ extension to upsert_community_report / list_community_reports / record_artifact_dependency;\
+      \ SYSTEM_BEHAVIOR \xA727.5/\xA727.8), re-pinning db.py 7a8555e6 -> f126c5af;\
+      \ a P6 review then pushed the reconcile span scan down into a SQLite LIKE pre-filter\
+      \ and made rebuild skip the write for unchanged communities (no write amplification),\
+      \ re-pinning db.py f126c5af -> 87517ee3; a second review round then made the\
+      \ LIKE needle `json.dumps(sid)` (correct quote/backslash escaping), chunked\
+      \ the LIKE clause under SQLITE_MAX_VARIABLE_NUMBER, and replaced rebuild's per-community\
+      \ `IN (?, \u2026)` queries with fixed bulk fetches grouped in Python (var-limit-safe),\
+      \ re-pinning db.py 87517ee3 -> 8c4d6e3a. P7 then added the read-only graph audit\
+      \ surface (graph_audit + the frozen GRAPH_AUDIT_CODES set; SYSTEM_BEHAVIOR \xA7\
+      27.6 / SCHEMA \xA721.8) \u2014 a pure assertion pass over graph/report state\
+      \ that NEVER writes \u2014 re-pinning db.py 8c4d6e3a -> 4a89f193. P7 then landed\
+      \ the live-pipeline cutover: a graph_relation_supports WRITER (upsert_graph_relation_support\
+      \ \u2014 aggregates one independent claim-level support per asserting unit,\
+      \ the ON-CONFLICT-idempotent \u22652-lineage corroboration source) consumed\
+      \ by persist_graph_data, swapping the live compile_global_l3 onto the claim-grounded\
+      \ rebuild_graph_generation path (SYSTEM_BEHAVIOR \xA727.2/\xA727.5), re-pinning\
+      \ db.py 4a89f193 -> 5220ac73. A P7 re-review then hardened graph_audit so a\
+      \ dangling (non-existent) active-relation endpoint is flagged endpoint_not_canonical\
+      \ instead of being silently whitelisted as a None state, re-pinning db.py 5220ac73\
+      \ -> f5e4382c. A second P7 re-review then exempted a `contradicts` relation\
+      \ from the contradiction quarantine rule (so two mutual contradicts edges no\
+      \ longer quarantine each other) and made upsert_graph_relation_support canonicalize\
+      \ (dedup+sort) its cited spans so a duplicate span id cannot vary support_hash,\
+      \ re-pinning db.py f5e4382c -> 46053788. All of this is additive entity/relation\
+      \ graph-compiler + community-report logic; none touches retrieval, ranking,\
+      \ fusion, projection, embedding, chunking, or materialize_chunks \u2014 the\
+      \ only paths the lexical FTS5/BM25 Q06 holdout exercises \u2014 so the frozen\
+      \ Q06 metric is provably unaffected. The single-consumption harness (run_count=3,\
+      \ max) cannot regenerate the result; this fingerprint is a re-armable drift\
+      \ tripwire, not a permanent code freeze."
   plan_f_mypy_rearm:
     date: '2026-06-18'
     prior_db_sha256: 071138e92ef2571b53f0c4f8a6254aacea641aa6c87b0eccd15ae38593d927ec
-    reason: >-
-      Plan F mypy hardening added an explicit `lastrowid is None` guard after
-      the ingest_jobs INSERT in enqueue_job, raising RuntimeError only if SQLite
-      fails to report the inserted queue row id. This is type-safety and
-      impossible-state hardening for ingest job creation; it touches no
-      retrieval, ranking, fusion, projection, embedding, chunking, or
-      materialize_chunks path, so the lexical FTS5/BM25 Q06 holdout metric is
-      provably unaffected. Re-armed the drift tripwire.
+    reason: Plan F mypy hardening added an explicit `lastrowid is None` guard after
+      the ingest_jobs INSERT in enqueue_job, raising RuntimeError only if SQLite fails
+      to report the inserted queue row id. This is type-safety and impossible-state
+      hardening for ingest job creation; it touches no retrieval, ranking, fusion,
+      projection, embedding, chunking, or materialize_chunks path, so the lexical
+      FTS5/BM25 Q06 holdout metric is provably unaffected. Re-armed the drift tripwire.
   plan_f_hot_path_rearm:
     date: '2026-06-19'
     prior_db_sha256: 725baf09e82f4da9ee898708a0278ec7385e9dac43b98685a48d4a26e1a5cfa9
-    reason: >-
-      PR #34 review hardening added `new_query_trace_id` and
-      `get_query_trace_by_context_pack` so ContextService can preallocate a
-      QTR-* id, persist the completed root trace once, and resolve PACK-* owners
-      through a database-side retrieval_trace_json filter instead of decoding a
-      bounded list of recent query traces in Python. These helpers affect query
-      trace bookkeeping and ContextService progressive pack operations only; they
-      touch no retrieval ranking, fusion, projection, embedding, chunking, or
-      materialize_chunks path. The lexical FTS5/BM25 Q06 holdout metric is
-      therefore provably unaffected. Re-armed the drift tripwire.
+    reason: 'PR #34 review hardening added `new_query_trace_id` and `get_query_trace_by_context_pack`
+      so ContextService can preallocate a QTR-* id, persist the completed root trace
+      once, and resolve PACK-* owners through a database-side retrieval_trace_json
+      filter instead of decoding a bounded list of recent query traces in Python.
+      These helpers affect query trace bookkeeping and ContextService progressive
+      pack operations only; they touch no retrieval ranking, fusion, projection, embedding,
+      chunking, or materialize_chunks path. The lexical FTS5/BM25 Q06 holdout metric
+      is therefore provably unaffected. Re-armed the drift tripwire.'
   search_binary_purge_comment_rearm:
     date: '2026-06-20'
     prior_db_sha256: 2243fecc20c762bc28e13bda324e4dff67fc17eed81bc94b1cd726ef52d339ab
     prior_engine_sha256: f3c8981de6eda322e054016031bf3c3ab3420875a21304aa087adf059a70d268
     prior_fusion_sha256: ffed6f90d6b0eb55692dfd9a02526d8e4a220ef6625a3e245175a07fa08eb716
-    reason: >-
-      v0.16.0 retired external search-binary references from active code,
-      tests, docs, and plugin surfaces. The D2-covered changes in db.py,
-      retrieval/engine.py, and retrieval/fusion.py are comment/docstring label
-      cleanup only; they touch no retrieval, ranking, fusion algorithm,
-      projection, embedding, chunking, or materialize_chunks path. The lexical
-      FTS5/BM25 Q06 holdout metric is therefore provably unaffected. Re-armed
-      the drift tripwire.
+    reason: v0.16.0 retired external search-binary references from active code, tests,
+      docs, and plugin surfaces. The D2-covered changes in db.py, retrieval/engine.py,
+      and retrieval/fusion.py are comment/docstring label cleanup only; they touch
+      no retrieval, ranking, fusion algorithm, projection, embedding, chunking, or
+      materialize_chunks path. The lexical FTS5/BM25 Q06 holdout metric is therefore
+      provably unaffected. Re-armed the drift tripwire.
   external_source_links_rearm:
     date: '2026-06-20'
     prior_db_sha256: ff1ae672a86a436c562a059e573ac5d8a823b75141f922d9c94873ea0aff3d82
-    reason: >-
-      v0.18.0 added `db.sources_for_spans` — a forward provenance helper that
-      resolves span ids to their source documents (`span -> source_spans.source_id
-      -> sources.relpath`) for source-document citation and 02_Wiki promotion
-      footers. It is a new, additive read-only lookup; it touches no retrieval,
-      ranking, fusion, projection, embedding, chunking, or materialize_chunks
-      path the lexical FTS5/BM25 Q06 holdout exercises, so the frozen metric is
-      provably unaffected. Re-armed the drift tripwire.
+    reason: "v0.18.0 added `db.sources_for_spans` \u2014 a forward provenance helper\
+      \ that resolves span ids to their source documents (`span -> source_spans.source_id\
+      \ -> sources.relpath`) for source-document citation and 02_Wiki promotion footers.\
+      \ It is a new, additive read-only lookup; it touches no retrieval, ranking,\
+      \ fusion, projection, embedding, chunking, or materialize_chunks path the lexical\
+      \ FTS5/BM25 Q06 holdout exercises, so the frozen metric is provably unaffected.\
+      \ Re-armed the drift tripwire."
   external_source_links_review_rearm:
     date: '2026-06-20'
     prior_db_sha256: b4e74f8446441eda69287484ff54b30be7b0de6593949a30fd4f696d31070ee6
-    reason: >-
-      PR #42 review replaced `db.sources_for_spans`'s per-source relpath lookup
-      with one batched `SELECT id, relpath FROM sources WHERE id IN (...)` while
-      preserving first-seen source order in Python. This is a performance-only
-      SQL batching change inside the additive read-only provenance helper; it
-      touches no retrieval, ranking, fusion, projection, embedding, chunking, or
-      materialize_chunks path the lexical FTS5/BM25 Q06 holdout exercises, so the
-      frozen metric is provably unaffected. Re-armed the drift tripwire.
+    reason: 'PR #42 review replaced `db.sources_for_spans`''s per-source relpath lookup
+      with one batched `SELECT id, relpath FROM sources WHERE id IN (...)` while preserving
+      first-seen source order in Python. This is a performance-only SQL batching change
+      inside the additive read-only provenance helper; it touches no retrieval, ranking,
+      fusion, projection, embedding, chunking, or materialize_chunks path the lexical
+      FTS5/BM25 Q06 holdout exercises, so the frozen metric is provably unaffected.
+      Re-armed the drift tripwire.'
   user_report_stability_rearm:
     date: '2026-06-25'
     prior_db_sha256: 6fd5f1f0d0ac8302ab2a4554159335009257a9d6c1b52e0acd806fe77d39b9a3
-    reason: >-
-      The user-report stability hotfix added a read-only ingest-job lookup
-      (`get_ingest_job`) and source-layer status helpers/consumers for CLI
-      recovery and L4 status clarity. These changes do not alter retrieval,
-      ranking, fusion, projection, embedding, chunking, or materialize_chunks
-      paths exercised by the lexical FTS5/BM25 Q06 holdout, so the frozen metric
-      is provably unaffected. Re-armed the drift tripwire.
+    reason: The user-report stability hotfix added a read-only ingest-job lookup (`get_ingest_job`)
+      and source-layer status helpers/consumers for CLI recovery and L4 status clarity.
+      These changes do not alter retrieval, ranking, fusion, projection, embedding,
+      chunking, or materialize_chunks paths exercised by the lexical FTS5/BM25 Q06
+      holdout, so the frozen metric is provably unaffected. Re-armed the drift tripwire.
   cross_page_pdf_rearm:
     date: '2026-06-26'
     prior_db_sha256: 1fb3ba3829a10b946016fb066c3009813d2589c8bb95e4270650e6155e743974
-    reason: >-
-      G08-1 fix (v0.26.0): `get_source_row` now falls back to content_hash
-      lookup when relpath is provided but unmatched. This is a pure read-path
-      extension inside the source-lookup helper; it touches no retrieval,
-      ranking, fusion, projection, embedding, chunking, or materialize_chunks
-      path the lexical FTS5/BM25 Q06 holdout exercises. Frozen metric
-      is provably unaffected. Re-armed the drift tripwire.
+    reason: 'G08-1 fix (v0.26.0): `get_source_row` now falls back to content_hash
+      lookup when relpath is provided but unmatched. This is a pure read-path extension
+      inside the source-lookup helper; it touches no retrieval, ranking, fusion, projection,
+      embedding, chunking, or materialize_chunks path the lexical FTS5/BM25 Q06 holdout
+      exercises. Frozen metric is provably unaffected. Re-armed the drift tripwire.'
   l2_extraction_atomic_publish_rearm:
     date: '2026-06-26'
     prior_db_sha256: 4610767a47f59f36f20e0376d97e042ae683332f965637944172b2530bb5c003
-    reason: >-
-      v0.27.1 added an optional caller-owned transaction parameter to
-      upsert_knowledge_unit so L2 knowledge-unit extraction can persist all
-      validated units and claim supports atomically after every extraction batch
-      succeeds. This is transaction plumbing for the L2 compiler write path; it
-      touches no retrieval, ranking, fusion, projection, embedding, chunking, or
-      materialize_chunks path the lexical FTS5/BM25 Q06 holdout exercises. The
-      frozen metric is provably unaffected. Re-armed the drift tripwire.
+    reason: v0.27.1 added an optional caller-owned transaction parameter to upsert_knowledge_unit
+      so L2 knowledge-unit extraction can persist all validated units and claim supports
+      atomically after every extraction batch succeeds. This is transaction plumbing
+      for the L2 compiler write path; it touches no retrieval, ranking, fusion, projection,
+      embedding, chunking, or materialize_chunks path the lexical FTS5/BM25 Q06 holdout
+      exercises. The frozen metric is provably unaffected. Re-armed the drift tripwire.
   db2_package_decomposition_rearm:
     date: '2026-06-28'
     prior_db_sha256: 995ab9ed08123198a4aa9d580437818bb9a9d8166708cf4d843efd1c69bef6c3
-    reason: >-
-      v0.27.7 (DB-2) decomposed the db.py god-file into a db/ package: the module
-      was split, byte-for-byte behavior-preserving, into db/schema.py (DDL,
-      migrations, connect, init_db, get_stats, enums) and db/_entities.py (all
-      repository queries), with a db/__init__.py re-export facade so the public
-      db.* surface is unchanged (guarded by test_db_public_api.py). This is a pure
-      structural move with no SQL/logic change; it touches no retrieval, ranking,
-      fusion, projection, embedding, chunking, or materialize_chunks path the
-      lexical FTS5/BM25 Q06 holdout exercises. The frozen metric is provably
-      unaffected. The single db.py fingerprint is replaced below by the three new
-      db/ file fingerprints; drift tripwire re-armed.
+    reason: 'v0.27.7 (DB-2) decomposed the db.py god-file into a db/ package: the
+      module was split, byte-for-byte behavior-preserving, into db/schema.py (DDL,
+      migrations, connect, init_db, get_stats, enums) and db/_entities.py (all repository
+      queries), with a db/__init__.py re-export facade so the public db.* surface
+      is unchanged (guarded by test_db_public_api.py). This is a pure structural move
+      with no SQL/logic change; it touches no retrieval, ranking, fusion, projection,
+      embedding, chunking, or materialize_chunks path the lexical FTS5/BM25 Q06 holdout
+      exercises. The frozen metric is provably unaffected. The single db.py fingerprint
+      is replaced below by the three new db/ file fingerprints; drift tripwire re-armed.'
   db2_slice2_jobs_sources_rearm:
     date: '2026-06-29'
     prior_entities_sha256: b9cc834fbea5feac5846ff81f95f29e926b287737e508725d5c2a810d1910119
-    reason: >-
-      v0.27.8 (DB-2 slice 2) continued the package carve: the ingest job queue and
-      the sources/layer-status/DAG-edge/source-page functions were moved
-      verbatim out of db/_entities.py into db/jobs.py and db/sources.py (both
-      dependency-leaves that import only db.schema; the carved region called zero
-      cluster functions). Pure structural move, no SQL/logic change; the public
-      db.* surface is unchanged (test_db_public_api.py). It touches no retrieval,
-      ranking, fusion, projection, embedding, chunking, or materialize_chunks path
-      the lexical FTS5/BM25 Q06 holdout exercises, so the frozen metric is provably
-      unaffected. Re-hashed db/_entities.py and added db/jobs.py + db/sources.py
-      fingerprints below; drift tripwire re-armed.
-      REVIEW FOLLOW-UP (same PR): besides the verbatim carve, three small
-      pre-existing bugs in the moved sources functions were fixed — get_pending_count
-      relocated jobs.py -> sources.py (it queries the sources table); two
-      timezone-naive datetime.now().isoformat() timestamps in vision_cache_put /
-      update_page_hash switched to the UTC _now_iso() helper; and get_source_row's
-      resolved_lookup default changed "" -> None so a relative lookup binds NULL
-      (no accidental empty-field match). These touch source-bookkeeping timestamps
-      and the source-row lookup only — NOT retrieval/ranking/fusion/projection/
-      embedding/chunking/materialize_chunks — so the frozen Q06 metric remains
-      provably unaffected. db/sources.py re-hashed accordingly.
+    reason: "v0.27.8 (DB-2 slice 2) continued the package carve: the ingest job queue\
+      \ and the sources/layer-status/DAG-edge/source-page functions were moved verbatim\
+      \ out of db/_entities.py into db/jobs.py and db/sources.py (both dependency-leaves\
+      \ that import only db.schema; the carved region called zero cluster functions).\
+      \ Pure structural move, no SQL/logic change; the public db.* surface is unchanged\
+      \ (test_db_public_api.py). It touches no retrieval, ranking, fusion, projection,\
+      \ embedding, chunking, or materialize_chunks path the lexical FTS5/BM25 Q06\
+      \ holdout exercises, so the frozen metric is provably unaffected. Re-hashed\
+      \ db/_entities.py and added db/jobs.py + db/sources.py fingerprints below; drift\
+      \ tripwire re-armed. REVIEW FOLLOW-UP (same PR): besides the verbatim carve,\
+      \ three small pre-existing bugs in the moved sources functions were fixed \u2014\
+      \ get_pending_count relocated jobs.py -> sources.py (it queries the sources\
+      \ table); two timezone-naive datetime.now().isoformat() timestamps in vision_cache_put\
+      \ / update_page_hash switched to the UTC _now_iso() helper; and get_source_row's\
+      \ resolved_lookup default changed \"\" -> None so a relative lookup binds NULL\
+      \ (no accidental empty-field match). These touch source-bookkeeping timestamps\
+      \ and the source-row lookup only \u2014 NOT retrieval/ranking/fusion/projection/\
+      \ embedding/chunking/materialize_chunks \u2014 so the frozen Q06 metric remains\
+      \ provably unaffected. db/sources.py re-hashed accordingly."
   v031_source_revision_rearm:
     date: '2026-07-03'
     prior_schema_sha256: 5da03f6eea604f985dceeb279e53e470b6ef9396b49555fc5ea870cb0f6f9159
     prior_jobs_sha256: 46163fb2350eeeca3915da8e539028a7ef0a4b89f546827fc28ca4a9c44157ae
-    reason: >-
-      v0.31.0 adds the sources.updated_at migration and trigger used only for
-      source-status LWW synchronization. Stale-job recovery now also resets the
-      corresponding source layer from running to pending. Neither change affects
-      retrieval, ranking, fusion, projection scoring, embedding, chunking, or
-      materialize_chunks. The review follow-up makes migrated source tables
-      converge on the fresh NOT NULL/default contract; this remains sync/schema
-      bookkeeping only, so the frozen lexical Q06 metric is unaffected. Re-armed
-      the schema/jobs drift fingerprints below.
+    reason: v0.31.0 adds the sources.updated_at migration and trigger used only for
+      source-status LWW synchronization. Stale-job recovery now also resets the corresponding
+      source layer from running to pending. Neither change affects retrieval, ranking,
+      fusion, projection scoring, embedding, chunking, or materialize_chunks. The
+      review follow-up makes migrated source tables converge on the fresh NOT NULL/default
+      contract; this remains sync/schema bookkeeping only, so the frozen lexical Q06
+      metric is unaffected. Re-armed the schema/jobs drift fingerprints below.
   file_sha256:
     backend/scripts/failure_atlas_holdout.py: c6afe0307dd3f68fa9902387bb0dc269db6ff9d6b73ad2f3ac1cc6ecc883297a
     backend/src/curator/retrieval/evaluation.py: 0cc9e655142c725dd4bbbabfd2b44d6bf0355265bb2510fbb78cbd47d7d43c17
@@ -306,7 +265,7 @@ evaluated_code:
     backend/src/curator/retrieval/embedding.py: a6a7da88af3fc824f1fa2c9a4f4ce0720e870c0584c49e011b865678cb0f8f7e
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
     backend/src/curator/db/__init__.py: 9d9b18355372e1f77534aef353a07c3ee1f3e9ce3413ffec7d8030da86a4a16c
-    backend/src/curator/db/schema.py: 7920393ace455afabef1d0d6c510f18e3bf4cb3051868aa82e29d2122e96ddf1
+    backend/src/curator/db/schema.py: 0dc239cad4ef4872b3ad23377119d1c16962578be2daa6f59f4f7be601d0d377
     backend/src/curator/db/_entities.py: c34156c88311a27834068f17ab7ab9a46efc28ed26a154554796db8963849df0
     backend/src/curator/db/jobs.py: 33d772f0709c3b549b40f29dac7028edee58c882c06dc6e7f38706bd71e9b320
     backend/src/curator/db/sources.py: d22fcc1ae311fa6c5db343e012c6bb525274e040f3be740db614053af5bd49e2
