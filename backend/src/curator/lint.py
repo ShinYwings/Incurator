@@ -1295,7 +1295,7 @@ def apply_fixes(
             if progress_callback:
                 progress_callback(relpath)
 
-            full_path = paths.wiki / relpath
+            full_path = paths.root / relpath
             if not full_path.exists():
                 continue
             try:

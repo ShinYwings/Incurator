@@ -717,17 +717,23 @@ CREATE TABLE IF NOT EXISTS l2_checkpoints (
 CREATE TRIGGER IF NOT EXISTS sources_set_sync_key
 AFTER INSERT ON sources
 FOR EACH ROW
-WHEN NEW.sync_key IS NULL
+WHEN NEW.sync_key IS NULL OR NEW.sync_key = ''
 BEGIN
-    UPDATE sources SET sync_key = hex(randomblob(16)) WHERE id = NEW.id;
+    UPDATE sources SET sync_key = 'vault:' || replace(NEW.relpath, '\', '/') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS sources_touch_updated_at
 AFTER UPDATE ON sources
 FOR EACH ROW
-WHEN NEW.updated_at = OLD.updated_at
+WHEN NEW.updated_at = OLD.updated_at AND NEW.sync_key IS OLD.sync_key
 BEGIN
-    UPDATE sources SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = NEW.id;
+    UPDATE sources
+    SET updated_at = CASE
+        WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') > OLD.updated_at
+        THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        ELSE OLD.updated_at
+    END
+    WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS compiler_generations_touch_updated_at

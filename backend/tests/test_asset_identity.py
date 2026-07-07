@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 from curator import config as cfg
@@ -88,8 +89,15 @@ class ResolveTests(unittest.TestCase):
             return_value=self.config,
         )
         self.config_patcher.start()
+        
+        self.zotero_patcher = patch(
+            "curator.zotero_tools.resolve_pdf",
+            return_value={"ok": False, "path": None}
+        )
+        self.zotero_patcher.start()
 
     def tearDown(self) -> None:
+        self.zotero_patcher.stop()
         self.config_patcher.stop()
         self.tmp.cleanup()
 
@@ -164,10 +172,11 @@ class ResolveTests(unittest.TestCase):
                 ),
             )
 
-        ident = asset_identity.resolve(
-            self.paths,
-            logical_source_id="zotero:MOVE1",
-            abs_path=str(new),
+        with mock.patch("curator.zotero_tools.resolve_pdf", return_value={"ok": True, "path": str(new)}):
+            ident = asset_identity.resolve(
+                self.paths,
+                logical_source_id="zotero:MOVE1",
+                abs_path=str(new),
         )
         self.assertEqual(ident.resolution_status, "resolved")
         self.assertEqual(ident.abs_path, str(new))
