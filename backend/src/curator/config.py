@@ -122,10 +122,6 @@ class WikiPaths:
     def pdf_crops(self) -> Path:
         return self.machine_cache / "pdf_crops"
 
-    # Backward-compatible alias so existing callers of `paths.wiki` still work
-    @property
-    def wiki(self) -> Path:
-        return self.collections
 
     # ------------------------------------------------------------------
     # Layer paths
@@ -365,32 +361,11 @@ def get_vault_cache_dir(root: Path) -> Path:
 
 
 def prepare_machine_state(paths: WikiPaths) -> None:
-    """Relocate the pre-v12 vault-local DB once, then enforce cache-only state."""
+    """Setup the cache directory and record the active vault root."""
     cache_dir = paths.machine_cache
     cache_dir.mkdir(parents=True, exist_ok=True)
     marker = cache_dir / "vault_root"
     marker.write_text(str(paths.root.expanduser().resolve(strict=False)), encoding="utf-8")
-
-    old_db = paths.internal / consts.STATE_DB
-    new_db = paths.state_db
-    if old_db.exists() and new_db.exists():
-        raise RuntimeError(
-            "Both vault-local and repo-cache state databases exist; refusing to "
-            f"choose between {old_db} and {new_db}."
-        )
-    if not old_db.exists():
-        return
-
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup_dir = get_global_config_dir().parent / "migrations" / "v0.32.1" / stamp
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    for suffix in ("", "-wal", "-shm"):
-        source = old_db.with_name(old_db.name + suffix)
-        if not source.exists():
-            continue
-        shutil.copy2(source, backup_dir / source.name)
-        shutil.move(str(source), str(new_db.with_name(new_db.name + suffix)))
-
 
 def save_global_config(config: dict) -> None:
     """Write config to the global cache config directory, merging with existing."""
@@ -450,27 +425,6 @@ def set_last_root(root: Path) -> None:
 MACHINE_LOCAL_CONFIG_KEYS = frozenset({"llm", "search", "external"})
 
 
-def _migrate_vault_machine_local_to_global(paths: WikiPaths, vault_cfg: dict) -> None:
-    """Move machine-local keys from vault config dict to global cache config.
-
-    Modifies ``vault_cfg`` in-place by removing the machine-local keys, and
-    rewrites the vault config file without them.  A no-op when the vault config
-    contains none of the machine-local keys.
-    """
-    moved = {k: vault_cfg.pop(k) for k in list(vault_cfg) if k in MACHINE_LOCAL_CONFIG_KEYS}
-    if not moved:
-        return
-    save_global_config(moved)
-    paths.internal.mkdir(parents=True, exist_ok=True)
-    tmp = paths.config_file.with_name(f".{paths.config_file.name}.tmp")
-    tmp.write_text(
-        yaml.safe_dump(vault_cfg, sort_keys=False, default_flow_style=False, allow_unicode=True),
-        encoding="utf-8",
-    )
-    import os as _os
-    _os.replace(tmp, paths.config_file)
-
-
 def load_config(paths: WikiPaths) -> dict:
     """Load the Curator's settings.yml, falling back to defaults for missing keys."""
     import copy
@@ -503,14 +457,11 @@ def load_config(paths: WikiPaths) -> dict:
         try:
             with paths.config_file.open("r", encoding="utf-8") as f:
                 loaded = yaml.safe_load(f) or {}
-            # Merge entire vault dict first so machine-local values are not lost.
-            # Migration only rewrites the file; merged already gets the correct values.
             for key, val in loaded.items():
                 if isinstance(val, dict) and isinstance(merged.get(key), dict):
                     merged[key] = {**merged[key], **val}
                 else:
                     merged[key] = val
-            _migrate_vault_machine_local_to_global(paths, loaded)
         except yaml.YAMLError as e:
             import logging
             logging.getLogger(__name__).warning(
@@ -518,34 +469,13 @@ def load_config(paths: WikiPaths) -> dict:
                 paths.config_file, e,
             )
         except Exception as e:
-            # KEEP broad: config loading must never hard-fail the CLI over a
-            # best-effort machine-local migration; the merged values above are
-            # already applied, so we log and continue.
             logger.warning(
-                "Vault config migration failed for '%s' — machine-local keys may remain in vault config: %s",
+                "Vault config load failed for '%s': %s",
                 paths.config_file, e,
             )
 
-    _migrate_llm_config(merged)
     return merged
 
-
-def _migrate_llm_config(config: dict) -> None:
-    """Strip obsolete fields from llm config. No backward compat for old formats."""
-    if "llm" not in config or not isinstance(config["llm"], dict):
-        return
-    llm = config["llm"]
-    ollama = llm.setdefault(consts.BACKEND_OLLAMA, {})
-    # Remove obsolete keys. NOTE: `vision_model` is NO LONGER stripped here — it is a
-    # canonical top-level llm key as of v0.22.0 (SCHEMA §2.5). Only the legacy
-    # *nested* `ollama.vision_model` location is still cleared below.
-    for key in ("remote_ollama_host", "model",
-                "antigravity_model", "claude_model", "codex_model",
-                consts.BACKEND_ANTIGRAVITY_CLI, consts.BACKEND_CLAUDE_CODE, consts.BACKEND_CODEX_CLI,
-                "host", "timeout", "provider", "cloud_provider"):
-        llm.pop(key, None)
-    for key in ("model", "remote_ollama_host", "vision_model"):
-        ollama.pop(key, None)
 
 
 def paths_from_config(root: Path, config: dict | None = None) -> WikiPaths:

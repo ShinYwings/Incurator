@@ -397,23 +397,6 @@ def import_knowledge(
                         f"Table {tbl!r} has unknown columns: "
                         f"{', '.join(sorted(unknown_columns))}"
                     )
-                if tbl == "sources" and not row.get("updated_at"):
-                    legacy_ts = row.get("last_ingested") or row.get("added_at") or ""
-                    normalized_legacy_ts = (
-                        f"{legacy_ts[:19]}.000Z"
-                        if isinstance(legacy_ts, str)
-                        and len(legacy_ts) == 20
-                        and legacy_ts.endswith("Z")
-                        else legacy_ts
-                    )
-                    row["updated_at"] = (
-                        normalized_legacy_ts
-                        if _timestamp_key(normalized_legacy_ts) > _timestamp_key("")
-                        else datetime.now(timezone.utc).isoformat(
-                            timespec="milliseconds"
-                        ).replace("+00:00", "Z")
-                    )
-
                 if tbl == "deleted_records":
                     target_table = row.get("table_name")
                     if target_table not in SYNC_TABLES or target_table == "deleted_records":
