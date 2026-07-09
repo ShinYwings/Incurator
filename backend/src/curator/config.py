@@ -455,6 +455,15 @@ def load_config(paths: WikiPaths) -> dict:
             with paths.config_file.open("r", encoding="utf-8") as f:
                 loaded = yaml.safe_load(f) or {}
             for key, val in loaded.items():
+                if key in MACHINE_LOCAL_CONFIG_KEYS:
+                    logger.warning(
+                        "Ignoring machine-local key '%s' in synced vault config '%s'; "
+                        "store it in '%s' instead.",
+                        key,
+                        paths.config_file,
+                        global_cfg_file,
+                    )
+                    continue
                 if isinstance(val, dict) and isinstance(merged.get(key), dict):
                     merged[key] = {**merged[key], **val}
                 else:

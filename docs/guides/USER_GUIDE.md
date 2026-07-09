@@ -809,6 +809,10 @@ wiki db import ~/Desktop/kb.jsonl --skip-reindex  # import without reindexing
 
 > [!NOTE]
 > Device-local data (vector embeddings, background job state) is **never** included in export files. After import, `wiki reindex` rebuilds the local search index automatically.
+> Machine-local configuration (`llm`, `search`, and `external` roots/model paths)
+> is read only from this device's repo-local `.cache/config/config.yml`. If those
+> blocks appear in synced `.curator/settings.yml`, the backend ignores them so a
+> macOS path cannot override a Linux path, and vice versa.
 
 ### `wiki db autosync` — automatic sync over Syncthing
 

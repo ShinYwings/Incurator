@@ -1481,6 +1481,10 @@ contain source locators.
 Only `external.path_roots` and integration `root_keys` are accepted as
 machine-local external-root configuration. The backend does not convert legacy
 `external.roots` or `external.zotero.roots` arrays.
+Machine-local config blocks (`llm`, `search`, `external`) are loaded only from
+the repo-local `.cache/config/config.yml`. If those keys are present in the
+synced vault `.curator/settings.yml`, they are ignored so macOS/Linux absolute
+paths and model settings cannot clobber another device.
 
 Schema v11 adds `sources.updated_at`. Current databases enforce a `NOT NULL`
 expression default, and local source writes advance it monotonically. JSONL

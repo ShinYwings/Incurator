@@ -774,6 +774,10 @@ wiki db import ~/Desktop/kb.jsonl --skip-reindex  # reindex 없이 가져오기�
 
 > [!NOTE]
 > 기기 로컬 데이터(벡터 임베딩, 백그라운드 잡 상태)는 내보내기 파일에 **절대 포함되지 않습니다**. 가져오기 후 `wiki reindex`가 자동으로 로컬 검색 인덱스를 재구축합니다.
+> 기기 로컬 설정(`llm`, `search`, `external` root/model path)은 현재 기기의
+> repo-local `.cache/config/config.yml`에서만 읽습니다. synced
+> `.curator/settings.yml`에 해당 block이 남아 있으면 backend가 무시하므로
+> macOS 경로가 Linux 경로를 덮거나 그 반대가 발생하지 않습니다.
 
 ### `wiki db autosync` — Syncthing 기반 자동 동기화
 

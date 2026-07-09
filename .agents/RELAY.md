@@ -264,3 +264,27 @@ Commit the review fixes and push the branch if the user wants the PR updated.
   - `git diff --check`: clean;
   - real `second_brain` `wiki reindex --embed`: `3255 documents, 3259 chunks,
     0 new embeddings, 3259 reused` in `real 1.17s`.
+
+### Update (2026-07-09, Codex) — macOS/Linux cross-device config guard
+
+- User flagged likely cross-device problems when alternating between Linux and
+  macOS. Found a real risk: `save_config()` already routes machine-local blocks
+  (`llm`, `search`, `external`) to repo-local `.cache/config/config.yml`, but
+  `load_config()` still merged those blocks if stale copies existed in synced
+  `.curator/settings.yml`.
+- Fixed `load_config()` to ignore machine-local keys from synced vault config.
+  This prevents macOS absolute model/Zotero/external paths from overriding Linux
+  local paths, and vice versa, without rewriting the synced settings file.
+- Added regression coverage proving synced vault `llm`/`search`/`external`
+  blocks are ignored while vault-shared keys such as `paths` and `persona`
+  still load normally.
+- Updated `SCHEMA.md`, `USER_GUIDE.md`/`_KR`, and `PLUGIN_GUIDE.md`/`_KR` to
+  document the strict split.
+- Verification:
+  - cross-device/config focused tests: `70 passed`;
+  - `scripts/backend-check ruff`: passed;
+  - `scripts/backend-check mypy`: passed;
+  - spec sync + D2 holdout focused tests: `11 passed`;
+  - `git diff --check`: clean;
+  - real `second_brain` `wiki status`: clean sync report, no pending/error
+    layer work.
