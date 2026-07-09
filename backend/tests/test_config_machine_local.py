@@ -1,9 +1,7 @@
 from pathlib import Path
 
-import pytest
 import yaml
 
-from curator import db
 from curator import config as cfg
 from curator import constants as consts
 

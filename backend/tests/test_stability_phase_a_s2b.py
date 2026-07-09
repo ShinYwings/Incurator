@@ -47,7 +47,7 @@ class TestLintCrossLayerFieldName:
 
     def _build_inventory(self, tmp_path: Path, atom_id: str, wrong_ref: str) -> Any:
         from curator.lint import _build_inventory
-        from curator import config as cfg, constants as consts, page_writer
+        from curator import config as cfg, constants as consts
 
         atoms_dir = tmp_path / consts.DEFAULT_COLLECTIONS_DIR / consts.LAYER_L2
         atoms_dir.mkdir(parents=True)
@@ -100,7 +100,7 @@ class TestLintReportStorage:
 
     def test_cli_saves_to_curator_reports_dir(self, tmp_path: Path) -> None:
         """CLI --save must write to .curator/reports/, not L4 synthesis."""
-        from curator import config as cfg, constants as consts
+        from curator import config as cfg
 
         paths = cfg.WikiPaths(root=tmp_path)
         synthesis_dir = paths.synthesis
@@ -122,7 +122,7 @@ class TestLintReportStorage:
 
 class TestDeepLintReadOnly:
     def test_apply_flags_false_does_not_write_atoms(self, tmp_path: Path) -> None:
-        from curator.lint import check_contradictions_deep, PageInventory
+        from curator.lint import check_contradictions_deep
         from curator import config as cfg, constants as consts
 
         # Set up a minimal atoms dir with two pages sharing a link
