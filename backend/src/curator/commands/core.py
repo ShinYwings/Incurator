@@ -691,28 +691,28 @@ def add(
             ).fetchall()
 
     pending_rows = []
-    for row in candidate_rows:
-        if force:
-            # Always re-generate under --force; reset curated rows back to force_pending
-            with db.connect(paths.state_db) as conn:
-                conn.execute(
-                    "UPDATE sources SET status = 'force_pending', error_reason = NULL, "
-                    "l1_status = 'pending', l2_status = 'pending', "
-                    "l3_status = 'pending', l4_status = 'pending', layer_error = NULL "
-                    "WHERE id = ?",
-                    (row["id"],),
-                )
-            pending_rows.append(row)
-            continue
-
-        sid = row["context_id"]
-        if not sid:
-            pending_rows.append(row)
-        else:
-            # Smart heal: DB says done but context file was deleted — regenerate
-            context_path = paths.contexts / f"{sid}.md"
-            if not context_path.exists():
+    if force and candidate_rows:
+        ids = [row["id"] for row in candidate_rows]
+        placeholders = ",".join("?" for _ in ids)
+        with db.connect(paths.state_db) as conn:
+            conn.execute(
+                "UPDATE sources SET status = 'force_pending', error_reason = NULL, "
+                "l1_status = 'pending', l2_status = 'pending', "
+                "l3_status = 'pending', l4_status = 'pending', layer_error = NULL "
+                f"WHERE id IN ({placeholders})",
+                ids,
+            )
+        pending_rows = list(candidate_rows)
+    else:
+        for row in candidate_rows:
+            sid = row["context_id"]
+            if not sid:
                 pending_rows.append(row)
+            else:
+                # Smart heal: DB says done but context file was deleted — regenerate
+                context_path = paths.contexts / f"{sid}.md"
+                if not context_path.exists():
+                    pending_rows.append(row)
 
     has_concepts = any(paths.concepts.glob("*.md")) if paths.concepts.exists() else False
     if not pending_rows and not force:

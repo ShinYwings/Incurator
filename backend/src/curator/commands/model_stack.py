@@ -40,7 +40,7 @@ def models_ensure(
     # only when a vault resolves.
     try:
         paths = _resolve_root_or_die()
-    except typer.Exit:
+    except SystemExit:
         paths = None
     console.print()
     console.print("[dim]Provisioning search models…[/dim]")
@@ -101,4 +101,3 @@ def models_status() -> None:
         "rerankerPresent": bool((reranker_path and Path(reranker_path).exists()) or reranker_cached.exists()),
         "modelsCacheDir": str(model_setup.models_cache_dir()),
     })
-

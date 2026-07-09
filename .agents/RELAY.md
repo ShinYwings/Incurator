@@ -44,10 +44,20 @@ with zero regression in CLI commands, MCP tools, or plugin API endpoints.
 - [x] Ran backend checks, plugin tests, and testbed validation.
 - [x] Removed active CM-1 plan artifacts after committing them to Git history.
 - [x] Pushed `release/v0.34.0` and opened draft PR #85.
+- [x] Captured and implemented PR #85 review follow-up hardening.
 
 ## Validation
 
 - `scripts/backend-check pytest` passed: 1208 passed, 6 skipped, 5 xfailed.
+- `scripts/backend-check pytest` after PR #85 follow-up passed: 1212 passed,
+  6 skipped, 5 xfailed.
+- `scripts/backend-check pytest backend/tests/test_pr85_review_followup.py
+  backend/tests/test_plugin_pdf_transcribe.py backend/tests/test_plugin_cli.py
+  backend/tests/test_cli_commands.py backend/tests/test_model_setup.py
+  backend/tests/test_persona_wizard.py backend/tests/test_plugin_models_ollama.py
+  -q` passed: 54 passed.
+- `scripts/backend-check pytest backend/tests -k
+  test_plugin_models_ollama_lists_with_install_and_ram_flags -vv` passed.
 - `scripts/backend-check pytest backend/tests/test_spec_sync.py` passed: 10
   passed.
 - `scripts/backend-check ruff` passed.
@@ -67,7 +77,9 @@ with zero regression in CLI commands, MCP tools, or plugin API endpoints.
 - Draft PR: https://github.com/ShinYwings/Incurator/pull/85
 - Do not recreate `.agents/plans/10_cm1_god_file_decomposition.md` unless a
   new review finding re-enters the plan-first workflow.
+- PR #85 review follow-up plan `11_pr85_review_followup.md` is archived in Git
+  history and removed from the active workspace.
 
 ## Immediate Next Action
 
-Review draft PR #85 and merge when accepted.
+Wait for CI/review on PR #85 and merge when accepted.

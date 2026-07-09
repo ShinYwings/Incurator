@@ -385,13 +385,16 @@ def plugin_pdf_transcribe(
     from .. import llm as _llm
     from .. import vision as _vision
 
+    base_client = None
+    client = None
     try:
         if not image_file and not text.strip():
             _print_json({"ok": False, "error": "Provide --image-file or --text."})
             raise typer.Exit(code=1)
         paths = _plugin_paths(workspace_path)
         config = _cfg.load_config(paths)
-        client = _ing._resolve_extract_client(config, _llm.build_client(config))
+        base_client = _llm.build_client(config)
+        client = _ing._resolve_extract_client(config, base_client)
         if client is None:
             _print_json({
                 "ok": False,
@@ -430,6 +433,13 @@ def plugin_pdf_transcribe(
     except Exception as exc:
         _print_json({"ok": False, "error": str(exc)})
         raise typer.Exit(code=1)
+    finally:
+        if client is not None and callable(getattr(client, "close", None)):
+            client.close()
+        if base_client is not None and base_client is not client:
+            close_base = getattr(base_client, "close", None)
+            if callable(close_base):
+                close_base()
 
 
 @plugin_pdf_app.command("search")
@@ -1148,4 +1158,3 @@ def zotero_resolve_pdf(
     except Exception as exc:
         _print_json({"ok": False, "error": str(exc)})
         raise typer.Exit(code=1)
-

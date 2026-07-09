@@ -11,6 +11,12 @@ All notable changes to Incurator are documented here.
   package structures while preserving existing command names, MCP tool
   contracts, plugin API functions, and backward-compatible import facades.
 
+### Fixed
+- **PR #85 Review Hardening**
+  Closed command-layer LLM clients in persona, workspace, and plugin PDF
+  transcription flows; made `wiki models ensure` degrade gracefully when no
+  vault exists; and replaced per-row source status resets with batch updates.
+
 ---
 
 ## [0.33.0] - 2026-07-07

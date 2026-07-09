@@ -112,6 +112,8 @@ def workspace_init(
             except (Exception, SystemExit) as _exc:
                 _warn(f"Persona wizard failed: {_exc}")
                 _hint("Falling back to manual prompts.")
+            finally:
+                _ws_client.close()
 
     # 3. Build curate.yml data — from persona output or manual prompts
     if persona is not None:
@@ -246,4 +248,3 @@ def testbed_list():
     for s in sorted(scenarios):
         table.add_row(s)
     console.print(table)
-

@@ -24,39 +24,41 @@ def persona_update(
     config = cfg.load_config(paths)
     client = _start_client(config)
 
-    if workspace:
-        ws_path = paths.root / consts.DIR_WORKSPACES / workspace
-        curate_file = ws_path / consts.FILE_CURATE_YML
-        if not curate_file.exists():
-            typer.echo(f"No curate.yml found at {curate_file}", err=True)
-            raise typer.Exit(1)
-        import yaml as _yaml
-        raw = _yaml.safe_load(curate_file.read_text(encoding="utf-8")) or {}
-        project = raw.get("project", workspace)
-        typer.echo(f"Updating Artist persona for: {project}")
-        persona = _run_artist_persona_wizard(client, project)
-        if persona is not None:
-            import datetime as _dt
-            persona["updated_at"] = _dt.datetime.now().isoformat()
-            raw["persona"] = persona
-            curate_file.write_text(
-                _yaml.dump(raw, sort_keys=False, default_flow_style=False, allow_unicode=True),
-                encoding="utf-8",
-            )
-            typer.echo(f"Artist persona updated in {curate_file}")
+    try:
+        if workspace:
+            ws_path = paths.root / consts.DIR_WORKSPACES / workspace
+            curate_file = ws_path / consts.FILE_CURATE_YML
+            if not curate_file.exists():
+                typer.echo(f"No curate.yml found at {curate_file}", err=True)
+                raise typer.Exit(1)
+            import yaml as _yaml
+            raw = _yaml.safe_load(curate_file.read_text(encoding="utf-8")) or {}
+            project = raw.get("project", workspace)
+            typer.echo(f"Updating Artist persona for: {project}")
+            persona = _run_artist_persona_wizard(client, project)
+            if persona is not None:
+                import datetime as _dt
+                persona["updated_at"] = _dt.datetime.now().isoformat()
+                raw["persona"] = persona
+                curate_file.write_text(
+                    _yaml.dump(raw, sort_keys=False, default_flow_style=False, allow_unicode=True),
+                    encoding="utf-8",
+                )
+                typer.echo(f"Artist persona updated in {curate_file}")
+            else:
+                typer.echo("Persona update skipped.")
         else:
-            typer.echo("Persona update skipped.")
-    else:
-        typer.echo("Updating Curator persona...")
-        from .. import ingest_llm as _il
-        recent_domains = _il.read_recent_domains(paths)
-        persona = _run_curator_persona_wizard(client, current_persona=config.get("persona", {}), recent_domains=recent_domains)
-        if persona is not None:
-            import datetime as _dt
-            persona["updated_at"] = _dt.datetime.now().isoformat()
-            config["persona"] = persona
-            cfg.save_config(paths, config)
-            typer.echo("Curator persona updated in settings.yml")
-        else:
-            typer.echo("Persona update skipped.")
-
+            typer.echo("Updating Curator persona...")
+            from .. import ingest_llm as _il
+            recent_domains = _il.read_recent_domains(paths)
+            persona = _run_curator_persona_wizard(client, current_persona=config.get("persona", {}), recent_domains=recent_domains)
+            if persona is not None:
+                import datetime as _dt
+                persona["updated_at"] = _dt.datetime.now().isoformat()
+                config["persona"] = persona
+                cfg.save_config(paths, config)
+                typer.echo("Curator persona updated in settings.yml")
+            else:
+                typer.echo("Persona update skipped.")
+    finally:
+        client.close()

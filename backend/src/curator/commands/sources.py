@@ -312,15 +312,17 @@ def sources_retry_cmd(
         console.print(f"[dim]  Phase: re-generating L1 Contexts for {len(add_rows)} source(s)…[/dim]")
         client = None if _instant_l1_enabled(config) else _start_client(config)
         try:
+            ids = [row["id"] for row in add_rows]
+            placeholders = ",".join("?" for _ in ids)
+            with db.connect(paths.state_db) as conn:
+                conn.execute(
+                    "UPDATE sources SET status = 'pending', error_reason = NULL, "
+                    "l1_status = 'pending', l2_status = 'pending', "
+                    "l3_status = 'pending', l4_status = 'pending', layer_error = NULL "
+                    f"WHERE id IN ({placeholders})",
+                    ids,
+                )
             for row in add_rows:
-                with db.connect(paths.state_db) as conn:
-                    conn.execute(
-                        "UPDATE sources SET status = 'pending', error_reason = NULL, "
-                        "l1_status = 'pending', l2_status = 'pending', "
-                        "l3_status = 'pending', l4_status = 'pending', layer_error = NULL "
-                        "WHERE id = ?",
-                        (row["id"],),
-                    )
                 console.print(f"  [dim]summarizing[/dim] {row['relpath']}")
                 context_id = ingest_raw.generate_l1_summary(
                     paths,
@@ -345,14 +347,16 @@ def sources_retry_cmd(
         console.print(f"[dim]{describe_backend(config)}…[/dim]")
         client = _start_client(config)
         try:
-            for row in curate_rows:
-                with db.connect(paths.state_db) as conn:
-                    conn.execute(
-                        "UPDATE sources SET status = 'force_pending', error_reason = NULL, "
-                        "l2_status = 'pending', l3_status = 'pending', "
-                        "l4_status = 'pending', layer_error = NULL WHERE id = ?",
-                        (row["id"],),
-                    )
+            ids = [row["id"] for row in curate_rows]
+            placeholders = ",".join("?" for _ in ids)
+            with db.connect(paths.state_db) as conn:
+                conn.execute(
+                    "UPDATE sources SET status = 'force_pending', error_reason = NULL, "
+                    "l2_status = 'pending', l3_status = 'pending', "
+                    "l4_status = 'pending', layer_error = NULL "
+                    f"WHERE id IN ({placeholders})",
+                    ids,
+                )
             l3_results = ingest_llm.run_l1_to_l3(
                 paths, client,
                 lambda: CliIngestCallbacks(mode="batch"),
@@ -373,4 +377,3 @@ def sources_retry_cmd(
 
     console.print()
     _hint("Run [bold]wiki source ls -s error[/bold] to check remaining errors.")
-
